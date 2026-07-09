@@ -17,7 +17,7 @@ Measured (dev box, RTX-class GPU, cache-warm; kept as the KTC-seed + REJECTED-ve
 
 All backends are bit-identical to numpy (maxdiff ~1e-16). Verdicts:
   * numpy(BLAS)  -- CPU default. Multithreaded MKL/OpenBLAS matmul; hard to beat on CPU.
-  * cupy(CUDA)   -- 2.0-2.7x in a moderate band, but LOSES at large P*n (GPU memory pressure, e.g. P=600/n=100k).
+  * cupy(CUDA)  -- 2.0-2.7x in a moderate band, but LOSES at large P*n (GPU memory pressure, e.g. P=600/n=100k).
                     KTC-gated: chosen only inside its measured winning region, with an OOM auto-fallback to numpy.
   * njit(parallel) -- REJECTED as a default: 0.23-0.80x everywhere (a naive fused triple-loop cannot beat BLAS).
                     Kept as a force-selectable option (MLFRAME_FE_DEDUP_CORR_BACKEND=njit) per REJECTED != DELETED;

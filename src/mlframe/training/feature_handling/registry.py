@@ -94,7 +94,7 @@ def shutdown_prewarm_executor(wait: bool = False) -> None:
 # Register the shutdown so interpreter exit reliably reclaims the executor's
 # worker threads even if a hot-reload path didn't call shutdown_prewarm_executor
 # explicitly. ``wait=False`` so the exit isn't delayed by in-flight prewarms.
-import atexit as _atexit
+import atexit as _atexit  # -- module-level state block
 _atexit.register(shutdown_prewarm_executor, wait=False)
 
 

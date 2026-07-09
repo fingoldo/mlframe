@@ -20,7 +20,7 @@ except ImportError:
 # ``_training_loop_refit.py`` to drop this file below the 1k-LOC
 # monolith threshold; imported here so callers keep using
 # ``from mlframe.training._training_loop import _maybe_refit_on_*``.
-from ._training_loop_refit import (
+from ._training_loop_refit import (  # noqa: F401
     _maybe_refit_on_collapsed_predictions,
     _maybe_refit_on_degenerate_best_iter,
 )

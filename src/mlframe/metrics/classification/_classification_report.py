@@ -23,19 +23,19 @@ import numpy as np
 import pandas as pd
 import numba
 
-from .._numba_params import NUMBA_NJIT_PARAMS, _PARALLEL_REDUCTION_THRESHOLD
-from ..calibration._calibration_plot import (
+from .._numba_params import NUMBA_NJIT_PARAMS, _PARALLEL_REDUCTION_THRESHOLD  # noqa: F401
+from ..calibration._calibration_plot import (  # noqa: F401
     DEFAULT_TITLE_METRICS_TOKENS,
     calibration_binning,
     fast_calibration_binning,
     render_title_metric_token,
     show_calibration_plot,
 )
-from .._auc_per_group import (
+from .._auc_per_group import (  # noqa: F401
     fast_aucs_per_group_optimized,
     compute_mean_aucs_per_group,
 )
-from ..calibration._calibration_metrics import (
+from ..calibration._calibration_metrics import (  # noqa: F401
     calibration_metrics_from_freqs,
     compute_brier_decomposition_debiased,
     compute_ece_and_brier_decomposition,
@@ -43,7 +43,7 @@ from ..calibration._calibration_metrics import (
     compute_ece_debiased,
     integral_calibration_error_from_metrics,
 )
-from .._log_loss_and_separation import fast_log_loss
+from .._log_loss_and_separation import fast_log_loss  # noqa: F401
 # ``fast_brier_score_loss`` and ``fast_classification_report`` still live in
 # core.py; we import lazily inside the function bodies to dodge the
 # core <-> _classification_report import cycle that the eager form would

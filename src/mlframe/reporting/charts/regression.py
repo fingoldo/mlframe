@@ -5,14 +5,14 @@ token names a panel builder, ``compose_regression_figure`` parses a
 space-separated template and packs the resulting panels into a grid.
 
 Token catalogue:
-- ``SCATTER``        -- predictions vs true values with the perfect-fit
+- ``SCATTER``  -- predictions vs true values with the perfect-fit
                         diagonal. Above ``hexbin_threshold`` points the
                         cloud is drawn as a log-density 2-D histogram
                         (HeatmapPanelSpec) so a 2M-row scatter stays
                         readable; below it, a raw scatter with an
                         extremes-preserving subsample (so the MaxError
                         point quoted in the title is actually plotted).
-- ``RESID_HIST``     -- residual histogram + fitted-Normal overlay; the
+- ``RESID_HIST``  -- residual histogram + fitted-Normal overlay; the
                         noise-distribution hypothesis + suggested loss
                         ride in the title.
 - ``RESID_VS_PRED``  -- residuals vs predicted with a running-median +
@@ -25,7 +25,7 @@ Token catalogue:
                         Exposes the GBM extreme-compression pathology
                         (top-decile under-prediction shows as a large
                         negative signed-residual bar).
-- ``WORM``           -- de-trended normal QQ of the residuals: the QQ
+- ``WORM``  -- de-trended normal QQ of the residuals: the QQ
                         ordinate minus the y=x identity, plotted against the
                         theoretical normal quantile, with a pointwise CI band.
                         Subtracting the identity flattens the dominant linear
@@ -34,7 +34,7 @@ Token catalogue:
                         excursions; points leaving the band are significant
                         non-normality. Order-statistic-decimated to <=2000
                         plotted points, tails always kept.
-- ``RESID_ACF``      -- residual autocorrelation by lag with Bartlett white-
+- ``RESID_ACF``  -- residual autocorrelation by lag with Bartlett white-
                         noise +-1.96/sqrt(n) bounds (drawn as hlines). A lag-1
                         bar above the bound means the residuals carry serial
                         structure the model missed (mis-specified dynamics /

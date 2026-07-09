@@ -290,7 +290,7 @@ def _resident_cand(feat: np.ndarray, role):
         return feat
     try:
         from ._fe_resident_operands import resident_operand
-        import cupy as cp
+        import cupy as cp  # noqa: F401  (import guard: skip residency when cupy is absent)
         return resident_operand(host, role, dtype=np.float64)
     except Exception:
         logger.debug("gate resident-candidate upload failed; host fallback", exc_info=True)
@@ -438,7 +438,7 @@ def cheap_row_argmax_scan(
     raw single-operand MI) is what keeps argmax clean on the ordinary-multiplicative control at scale. Pairs are skipped (a 2-col
     argmax == sign of the diff, already on the diff list). Budgeted by ``max_triples``. The null is early-rejected (computed only
     for triples already clearing the operand margin)."""
-    import pandas as pd
+    import pandas as pd  # noqa: F401  (X may be pandas or polars; we pull ndarrays)
 
     if cols is None:
         cols = [c for c in X.columns if _is_argmax_eligible(np.asarray(X[c]))]
@@ -618,7 +618,7 @@ def cheap_conditional_gate_scan(
     then the best-tau column is gated vs the HARDENED best-existing-op baseline (max MI over raw / product / ratio / diff / min /
     max on the candidate's operands) by ``_MIN_MARGIN`` AND a 12-perm null band. The null is early-rejected (computed only for a
     candidate already clearing the hardened baseline). The tau-scan + hardened gate are unchanged -- only the candidate SET shrinks."""
-    import pandas as pd
+    import pandas as pd  # noqa: F401
 
     if cols is None:
         cols = [c for c in X.columns if _is_argmax_eligible(np.asarray(X[c]))]

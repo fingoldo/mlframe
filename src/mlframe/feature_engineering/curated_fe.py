@@ -8,10 +8,10 @@ wiring needed). Supervised (need ``y`` at fit); the adapter enforces the per-fol
 ``transform`` on held-out rows never leaks the calibration labels.
 
 The 5 (each cites a measured win in its module docstring / biz_value test):
-  nn_oof_target_mean       -- 3-baseline embedding + kNN target-encoding (Home-Credit 1st-place feature).
-  multi_aux_ensemble       -- LGB / focal-LGB / XGB cross-model disagreement.
-  baseline_disagreement    -- 3-baseline disagreement-as-feature.
-  trust_score_oof          -- kNN distance to OOF-correct rows (confidence signal).
+  nn_oof_target_mean  -- 3-baseline embedding + kNN target-encoding (Home-Credit 1st-place feature).
+  multi_aux_ensemble  -- LGB / focal-LGB / XGB cross-model disagreement.
+  baseline_disagreement  -- 3-baseline disagreement-as-feature.
+  trust_score_oof  -- kNN distance to OOF-correct rows (confidence signal).
   y_quintile_baseline_knn  -- quintile-conditional kNN baseline (regression).
 
 Opt-in: nothing is enabled implicitly. Call ``curated_fe_pipelines(...)`` and pass the result as

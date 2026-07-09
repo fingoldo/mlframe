@@ -540,7 +540,7 @@ def _canonicalise_dtype(dt: str) -> str:
     return s
 
 
-from ._phase_train_one_target_dataset_cache import (
+from ._phase_train_one_target_dataset_cache import (  # noqa: F401
     _DATASET_REUSE_CACHE_ATTRS,
     _DATASET_REUSE_CACHE_KEY,
     _FEATURE_SIDE_CACHE_KEY,
@@ -562,8 +562,8 @@ from ._phase_train_one_target_dataset_cache import (
 # the parent finishes binding helpers so the lazy imports inside the
 # sibling function bodies resolve.
 # ----------------------------------------------------------------------
-from ._phase_train_one_target_helpers import (
+from ._phase_train_one_target_helpers import (  # noqa: F401
     _build_feature_selection_report,
     _maybe_run_feature_handling_apply,
 )
-from ._phase_train_one_target_body import _train_one_target
+from ._phase_train_one_target_body import _train_one_target  # noqa: F401

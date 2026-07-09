@@ -205,6 +205,30 @@ def read_trained_models(
                     features,
                 )
                 continue
+        elif hasattr(model, "feature_names_"):
+            # Raw CatBoost estimators expose no sklearn-standard feature_names_in_ at all, so the check
+            # above silently never fires for them. CatBoost's own equivalent is feature_names_ (a plain
+            # list of str), which we validate the same way here.
+            feature_names_ = model.feature_names_
+            if isinstance(feature_names_, np.ndarray):
+                feature_names_ = feature_names_.tolist()
+            if feature_names_ != features:
+                logger.error(
+                    "model %s was trained on different features %s than featureset %s states: %s",
+                    model,
+                    feature_names_,
+                    featureset,
+                    features,
+                )
+                continue
+        else:
+            logger.warning(
+                "model %s of type %s exposes neither feature_names_in_ nor feature_names_; "
+                "column-order/name mismatch cannot be validated for featureset %s",
+                model_file,
+                type(model).__name__,
+                featureset,
+            )
 
         models[splitext(model_name)[0]] = model
 

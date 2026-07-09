@@ -552,10 +552,13 @@ def error_bias_per_feature(
     # the "positive => UNDER-predict" rule the user asked for holds.)
     resid_signed = _as_float_1d(y_true) - _as_float_1d(y_pred)
 
+    missing_features: List[str] = []
     if features is not None:
+        missing_features = [f for f in features if f not in names]
         sel = [names.index(f) for f in features if f in names]
     else:
         sel = list(range(min(max_features, len(names))))
+    missing_note = f"\nrequested features not found, skipped: {', '.join(missing_features)}" if missing_features else ""
 
     # Densify ONLY the selected columns over all rows -- the overlay touches at most ``max_features`` (default 4) of
     # what can be a several-hundred-column frame, so building the whole dense matrix here just to discard all but
@@ -629,12 +632,12 @@ def error_bias_per_feature(
     )
     if not panels:
         # No usable feature (all-NaN columns, zero features, or none selected); an empty grid would crash the renderer.
-        ann = AnnotationPanelSpec(text=f"{title}\n(no usable feature columns)", title=title)
-        return ErrorBiasResult(FigureSpec(suptitle=title, panels=((ann,),), figsize=(8.0, 3.0)), group_means, masks)
+        ann = AnnotationPanelSpec(text=f"{title}\n(no usable feature columns){missing_note}", title=title)
+        return ErrorBiasResult(FigureSpec(suptitle=title + missing_note, panels=((ann,),), figsize=(8.0, 3.0)), group_means, masks)
     grid = pack_panels(panels, max_cols=2)
     n_rows = len(grid)
     worst_line = f"Worst-bias segment overall: {global_worst_text}" if global_worst_text else "Worst-bias segment overall: n/a"
-    suptitle = f"{title}\nSigned residual = y_true - y_pred; > 0 in a segment => model UNDER-predicts there, < 0 => OVER-predicts.\n" f"{worst_line}"
+    suptitle = f"{title}\nSigned residual = y_true - y_pred; > 0 in a segment => model UNDER-predicts there, < 0 => OVER-predicts.\n" f"{worst_line}{missing_note}"
     fig = FigureSpec(
         suptitle=suptitle,
         panels=grid,

@@ -64,7 +64,7 @@ DATEFRACTS_MULTIPLIERS = [24, 60, 60, 1000, 1000, 1000]
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
 
-from ._cleaning_kernels import (
+from ._cleaning_kernels import (  # noqa: F401  re-export: lazy njit kernel factories carved to a sibling
     _get_count_distinct_njit,
     _get_count_distinct_rounded_njit,
     _get_outlier_mask_njit,

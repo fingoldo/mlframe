@@ -2,11 +2,11 @@
 ``mlframe.feature_selection.filters._screen_predictors`` so that file stays well below the
 1k-line monolith threshold and the (most-frequently-patched) confirmation math lives in one place:
 
-* :func:`score_candidates`     -- evaluate every feasible candidate's conditional-MI
+* :func:`score_candidates`  -- evaluate every feasible candidate's conditional-MI
                                   gain given the current ``selected_vars`` (serial +
                                   joblib-parallel paths), filling ``expected_gains`` /
                                   ``partial_gains`` and returning the running best.
-* :func:`confirm_candidate`    -- permutation-confirm a single candidate ``X`` (direct
+* :func:`confirm_candidate`  -- permutation-confirm a single candidate ``X`` (direct
                                   MI bootstrap + Fleuret conditional recheck), returning
                                   ``(bootstrapped_gain, confidence)``.
 * :func:`confirm_one_predictor`-- the full single-predictor confirmation cycle (the
@@ -54,14 +54,11 @@ from .permutation import mi_direct, _addone_pvalue_enabled
 logger = logging.getLogger(__name__)
 
 
-# Re-export the full engineered-helper surface: ``confirm_one_predictor`` / ``confirm_candidate`` use three of them, and
 # ``_mrmr_fit_impl`` imports ``_extract_single_raw_parent`` from this module by name (raw-retention pass).
 from ._confirm_predictor_engineered import (
-    _candidate_is_engineered,
     _confirmable_engineered_child,
     _conditioning_rows_per_cell,
-    _extract_single_raw_parent,
-    _PARENT_TOKEN_SPLIT,
+    _extract_single_raw_parent,  # noqa: F401 -- re-exported for _mrmr_fit_impl/_fit_impl_core.py
     _prefer_engineered_order,
 )
 

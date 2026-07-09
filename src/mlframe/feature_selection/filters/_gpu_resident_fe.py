@@ -1031,7 +1031,7 @@ def gpu_resident_pair_candidate_mi(a: np.ndarray, b: np.ndarray, y_codes: np.nda
     unavailable (callers gate on :func:`fe_gpu_resident_enabled` + availability)."""
     import cupy as cp
 
-    from . import hermite_fe as _hf
+    from . import hermite_fe as _hf  # noqa: F401 -- full-init the parent first so the direct
     # ``_hermite_fe_mi`` import below can't trip the _ensure_cuda_kernels back-import cycle.
     from ._hermite_fe_mi import _plugin_mi_classif_batch_cuda_resident
 
@@ -1118,7 +1118,7 @@ def gpu_resident_pair_candidate_mi_fast(a, b, y_codes, *, nbins: int = 20, refin
     the (Spearman ~0.999) approx MI."""
     import cupy as cp
 
-    from . import hermite_fe as _hf
+    from . import hermite_fe as _hf  # noqa: F401 -- full-init parent before the _hermite_fe_mi import
     from ._hermite_fe_mi import _plugin_mi_classif_batch_cuda
 
     a_gpu = cp.asarray(a, dtype=cp.float64)

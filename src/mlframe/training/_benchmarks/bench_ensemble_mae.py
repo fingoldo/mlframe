@@ -3,9 +3,9 @@
 Compares the LOOP-MAE replacement variants on representative (K, N) shapes.
 
 Variants:
-- ``loop_py``       -- the prior Python-loop implementation.
+- ``loop_py``  -- the prior Python-loop implementation.
 - ``vectorised_np`` -- single broadcast over axis=1 (current default for small inputs).
-- ``numba_njit``    -- ``@njit(parallel=True, fastmath=True, cache=True)`` (current default
+- ``numba_njit``  -- ``@njit(parallel=True, fastmath=True, cache=True)`` (current default
   above the (K, N) crossover; see ``_per_member_mae_std`` dispatcher).
 
 Usage::

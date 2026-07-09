@@ -14,8 +14,8 @@ Run:
 
 Verdict (this machine, seeds 0-5): default stays UNSUPERVISED-ONLY (no auto supervised FS).
 mi_topk vs none, win count over 6 seeds per (model, scenario):
-  logreg many_noise 6/6  wide_sparse 6/6  few_noise 2/6   -- linear downstream clearly benefits
-  rf     many_noise 3/6  wide_sparse 5/6  few_noise 0/6   -- tree downstream noise-robust; HURT on low-noise
+  logreg many_noise 6/6  wide_sparse 6/6  few_noise 2/6  -- linear downstream clearly benefits
+  rf     many_noise 3/6  wide_sparse 5/6  few_noise 0/6  -- tree downstream noise-robust; HURT on low-noise
 mi_topk does NOT win on the majority across BOTH model families (it hurts trees on few_noise: AUC 0.952 vs
 0.975). The benefit is model- + data-dependent (linear + wide/noisy data), which is precisely why supervised FS
 stays OPT-IN via MRMR / RFECV / BorutaShap rather than default-on. Documented in FeatureSelectionConfig.

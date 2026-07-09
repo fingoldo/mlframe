@@ -47,7 +47,7 @@ def _detect_interactive_mode() -> bool:
     attribute read.
     """
     try:
-        return bool(__IPYTHON__)  # type: ignore[name-defined]
+        return bool(__IPYTHON__)  # type: ignore[name-defined]  # noqa: F821
     except NameError:
         return hasattr(sys, "ps1")
 
@@ -285,7 +285,7 @@ def setup_configuration(
                     if _bk == "plotly" and (set(_fmts) & {"png", "svg", "pdf"}):
                         _plotly_kaleido = True
                         break
-            except Exception:
+            except Exception:  # -- parse failure -> fall back to the substring heuristic
                 _plotly_kaleido = "plotly" in _po and ("png" in _po or "svg" in _po or "pdf" in _po)
         if _plotly_kaleido:
             logger.warning(

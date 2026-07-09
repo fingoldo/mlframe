@@ -69,7 +69,7 @@ _TIME_FLOOR = 1e-12
 def _has_scikit_survival() -> bool:
     """True if ``scikit-survival`` (the optional AFT/GBSA dep) is importable."""
     try:  # pragma: no cover - import availability is environment dependent
-        import sksurv
+        import sksurv  # noqa: F401
 
         return True
     except Exception:  # pragma: no cover

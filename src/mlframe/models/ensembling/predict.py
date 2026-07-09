@@ -314,10 +314,10 @@ def ensemble_probabilistic_predictions_streaming(
     Supports the moment-based methods that Welford / log-mean-of-log
     exactly accommodate:
       - ``arithm`` -- mean via Welford
-      - ``harm``   -- harmonic mean via Welford on ``1/p``
-      - ``quad``   -- quadratic mean via Welford on ``p^2``
-      - ``qube``   -- cubic mean via Welford on ``p^3``
-      - ``geo``    -- geometric mean via Welford on ``log(p)`` (1e-300 clip)
+      - ``harm``  -- harmonic mean via Welford on ``1/p``
+      - ``quad``  -- quadratic mean via Welford on ``p^2``
+      - ``qube``  -- cubic mean via Welford on ``p^3``
+      - ``geo``  -- geometric mean via Welford on ``log(p)`` (1e-300 clip)
 
     Not supported here (require cross-member sort / quantile sketch):
       - ``median`` -- raises ``NotImplementedError``; use

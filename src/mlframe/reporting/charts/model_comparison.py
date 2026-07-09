@@ -176,10 +176,15 @@ def _leaderboard_panel(
     ref = baseline if baseline is not None else float(bar_vals[0])
     ref_label = "baseline" if baseline is not None else "best"
     direction = "higher=better" if higher_is_better else "lower=better"
+    title = f"Leaderboard: {metric} ({direction})"
+    missing_names = [names[i] for i in range(len(names)) if not finite[i]]
+    if missing_names:
+        # A subset (not all) of models lack the metric; surface which ones so the shorter bar chart is not mistaken for a complete one.
+        title += f"\nN/A for: {', '.join(missing_names)}"
     return BarPanelSpec(
         categories=cats,
         values=bar_vals,
-        title=f"Leaderboard: {metric} ({direction})",
+        title=title,
         xlabel=metric,
         ylabel="model",
         colors=("#4c78a8",),

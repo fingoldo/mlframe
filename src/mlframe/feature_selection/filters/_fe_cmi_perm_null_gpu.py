@@ -112,12 +112,12 @@ def conditional_perm_null_gpu(
 
     Parameters mirror the host loop already prepared in ``_conditional_perm_null``:
 
-    * ``x``        -- dense int candidate codes (n,), the column permuted within strata.
-    * ``y_i``      -- dense int target codes (n,), shuffle-invariant.
-    * ``z_i``      -- dense int support codes (n,) or ``None`` for the marginal (seed) null.
-    * ``order``    -- ``np.argsort(z, kind='stable')`` (the conditional path's stratum grouping); the device
+    * ``x``  -- dense int candidate codes (n,), the column permuted within strata.
+    * ``y_i``  -- dense int target codes (n,), shuffle-invariant.
+    * ``z_i``  -- dense int support codes (n,) or ``None`` for the marginal (seed) null.
+    * ``order``  -- ``np.argsort(z, kind='stable')`` (the conditional path's stratum grouping); the device
                       shuffle scatters ``x_sorted[within]`` back through this order. Unused on the marginal path.
-    * ``z_rank``   -- dense float stratum rank over ``sorted_z`` (0,1,2,...); the single-key argsort base.
+    * ``z_rank``  -- dense float stratum rank over ``sorted_z`` (0,1,2,...); the single-key argsort base.
     * ``seed``/``salt`` -- folded into the device ``RandomState`` so each candidate draws an INDEPENDENT,
                       REPRODUCIBLE stream (same ``(seed, salt)`` the CPU path mixes via ``SeedSequence``).
 

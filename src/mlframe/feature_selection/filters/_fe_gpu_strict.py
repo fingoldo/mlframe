@@ -13,11 +13,11 @@ or because the remaining work is GENUINELY CPU-only (Python greedy-selection orc
 ``_combine_factorize_njit``, scipy.special ops -- the irreducible residual)?
 
 WHAT STRICT FORCES (each has a proven selection-equivalent GPU twin -- ~1e-15 / argmax-identical):
-  * ``_cmi_cuda._should_use_cuda``           -- batched conditional-MI CPU<->CUDA crossover
-  * ``_cmi_cuda_ktc.cmi_use_cuda``           -- the swept crossover backing the above
-  * ``_resident_candidate_mi_ktc``           -- resident GPU candidate-gen + plug-in MI
-  * ``_permutation_null_resident_ktc``       -- resident GPU maxT permutation-null floor
-  * ``_usability_pool_resident_ktc``         -- resident GPU batched pair-combo MI table
+  * ``_cmi_cuda._should_use_cuda``  -- batched conditional-MI CPU<->CUDA crossover
+  * ``_cmi_cuda_ktc.cmi_use_cuda``  -- the swept crossover backing the above
+  * ``_resident_candidate_mi_ktc``  -- resident GPU candidate-gen + plug-in MI
+  * ``_permutation_null_resident_ktc``  -- resident GPU maxT permutation-null floor
+  * ``_usability_pool_resident_ktc``  -- resident GPU batched pair-combo MI table
   * ``_pairs_core._fe_gpu_discretize_enabled`` / ``_fe_gpu_binning_enabled`` -- FE candidate binning + MI
 
 WHAT STRICT CANNOT FORCE (no bit-identical GPU twin -- these stay CPU and ARE the "truly CPU-only" residual):

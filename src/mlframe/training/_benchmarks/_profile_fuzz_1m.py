@@ -45,10 +45,10 @@ With chart saving (--save-charts, plot_outputs=plotly[html,png] default):
 == Mitigation ==
 
   plot_outputs='matplotlib[png]'  -- 10-20x faster PNG (no Chromium)
-  plot_outputs='plotly[html]'     -- HTML only, no PNG, no kaleido,
+  plot_outputs='plotly[html]'  -- HTML only, no PNG, no kaleido,
                                      instant; HTML is interactive in
                                      jupyter and shareable as a file
-  plot_inline_display=False       -- skip inline render in jupyter (env
+  plot_inline_display=False  -- skip inline render in jupyter (env
                                      var or ReportingConfig knob)
 
 The suite warns at startup when ``save_charts=True AND

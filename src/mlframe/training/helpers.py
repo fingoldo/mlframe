@@ -30,7 +30,7 @@ from ._gpu_probe import CUDA_IS_AVAILABLE
 # XGB_GPU_AVAILABLE / LGB_GPU_AVAILABLE booleans imported above), and no other
 # module ever imported them via this re-export. Removing closes the "noqa F401
 # on private name" anti-pattern flagged in the Wave-3 audit.
-from ._classif_helpers import (
+from ._classif_helpers import (  # noqa: F401
     _canonical_predict_proba_shape,
     _predict_from_probs,
     _classif_objective_kwargs,
@@ -39,7 +39,7 @@ from ._classif_helpers import (
     _ChainEnsemble,
     _build_classifier_chain_ensemble,
 )  # _build_classifier_chain_ensemble kept in helpers.py (line 86)
-from .callbacks import (
+from .callbacks import (  # noqa: F401
     UniversalCallback,
     LightGBMCallback,
     XGBoostCallback,
@@ -132,7 +132,7 @@ def parse_catboost_devices(devices: str, all_gpus: list | None = None) -> List[D
 
 
 # get_training_configs carved to ``_helpers_training_configs``; re-exported below.
-from ._helpers_training_configs import get_training_configs
+from ._helpers_training_configs import get_training_configs  # noqa: F401
 
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 # CatBoost text-processing helper
@@ -226,7 +226,7 @@ def compute_cb_text_processing(n_train_rows: int) -> Optional[dict]:
 # to sibling file _precompute.py to drop helpers.py below the 1k-line
 # monolith threshold. Re-exported below so existing callers keep working.
 
-from ._precompute import (
+from ._precompute import (  # noqa: F401
     get_trainset_features_stats,
     get_trainset_features_stats_polars,
     TrainMlframeSuitePrecomputed,

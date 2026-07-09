@@ -365,7 +365,7 @@ def apply_yscale_holdout_gate(
     try:
         raw_pred = _fit_predict(y_fit)
         raw_rmse = _rmse(y_eval, raw_pred)
-    except Exception as exc:
+    except Exception as exc:  # -- baseline failure -> can't gate, keep all
         logger.warning("[CompositeTargetDiscovery.yscale_gate] raw-y baseline fit failed (%s); gate skipped.", exc)
         return kept_specs
     if not np.isfinite(raw_rmse) or raw_rmse <= 0:

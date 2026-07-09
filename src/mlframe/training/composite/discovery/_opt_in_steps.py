@@ -90,7 +90,7 @@ def _run_region_adaptive(
                 base_column=base_col, target_col=target_col,
                 k=k, random_state=rs,
             )
-        except Exception as exc:
+        except Exception as exc:  # -- a degenerate base must not abort fit
             logger.warning(
                 "[CompositeTargetDiscovery.region_adaptive] base=%s failed: %s",
                 base_col, exc,
@@ -208,7 +208,7 @@ def _run_auto_chain(
                 top_k=int(getattr(self.config, "auto_chain_top_k", 2)),
             )
             return base_col, chains
-        except Exception as exc:
+        except Exception as exc:  # -- a degenerate base must not abort fit
             logger.warning(
                 "[CompositeTargetDiscovery.auto_chain] base=%s failed: %s",
                 base_col, exc,

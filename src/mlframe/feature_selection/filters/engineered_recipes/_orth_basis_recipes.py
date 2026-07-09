@@ -35,11 +35,11 @@ def _apply_orth_pre_transform(x: np.ndarray, pre_transform: str) -> np.ndarray:
     """Layer 58 (2026-05-31) per-column pre-transform: optionally reshape the
     raw column BEFORE the basis-domain preprocess kicks in. Supported values:
 
-    * ``"raw"``      -- identity (no pre-transform; legacy Layer 21/57 path)
+    * ``"raw"``  -- identity (no pre-transform; legacy Layer 21/57 path)
     * ``"log_abs"``  -- ``log(|x| + 1e-12)`` -- captures heavy-tail log-normal
                         targets where raw Hermite z-score collapses the signal.
     * ``"sqrt_abs"`` -- ``sign(x) * sqrt(|x|)`` -- mild non-linear stretch.
-    * ``"tanh"``     -- ``tanh(x / max(std, 1e-12))`` -- bounded mapping; pairs
+    * ``"tanh"``  -- ``tanh(x / max(std, 1e-12))`` -- bounded mapping; pairs
                         well with Chebyshev/Legendre on otherwise-unbounded
                         inputs.
 

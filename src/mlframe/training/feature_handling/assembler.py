@@ -55,7 +55,7 @@ from mlframe.training.feature_handling.routing import (
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    import scipy.sparse as sp
+    import scipy.sparse as sp  # noqa: F401
 
 
 # =====================================================================

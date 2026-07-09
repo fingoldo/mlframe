@@ -5,7 +5,7 @@ frame into pandas during the predict path:
 
   * BATCHED  -- ``df.select(cols).to_pandas()`` (one Arrow table, one
     materialise). This is the path the predict code uses.
-  * PERCOL   -- ``{c: df.get_column(c).to_pandas() for c in cols}`` then
+  * PERCOL  -- ``{c: df.get_column(c).to_pandas() for c in cols}`` then
     ``pd.DataFrame(...)`` (one Arrow Series materialise per column + a
     pandas concat to reassemble). The intuitive "just grab each column"
     alternative.

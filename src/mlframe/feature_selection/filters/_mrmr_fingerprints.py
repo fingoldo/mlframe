@@ -35,8 +35,8 @@ import numpy as np
 # keeps a working import order; removing it (2026-07-05 ruff "unused import" sweep) let a different
 # external entry point (importing RFECV directly) trigger the circular mrmr<->_legacy re-entry first
 # instead, which crashed the interpreter natively deep in the C-extension init chain. Restored with
-
-from mlframe.feature_selection.wrappers import RFECV
+# noqa rather than re-deleted -- see CLAUDE.md's project-wide-rewrite-without-review incident.
+from mlframe.feature_selection.wrappers import RFECV  # noqa: F401
 
 # astropy is imported lazily on first histogram() call: the top-level
 # ``import astropy`` costs ~0.6s and this fingerprints module is on the
@@ -60,7 +60,7 @@ def _resolve_astropy_histogram():
 
 
 if TYPE_CHECKING:
-    from .mrmr import MRMR
+    from .mrmr import MRMR  # noqa: F401 -- forward ref for the type annotation
 
 
 def histogram(a, bins="auto", **kwargs):

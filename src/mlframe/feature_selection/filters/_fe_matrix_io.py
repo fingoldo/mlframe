@@ -180,10 +180,10 @@ def to_feature_matrix(X, *, dtype: Any = np.float32) -> FeatureMatrix:
 
     if framework == "polars":
         columns = list(X.columns)
-        getcol = lambda nm: _polars_column_to_arrays(X[nm], dtype)
+        getcol = lambda nm: _polars_column_to_arrays(X[nm], dtype)  # noqa: E731
     else:  # pandas
         columns = [str(c) for c in X.columns]
-        getcol = lambda nm: _pandas_column_to_arrays(X[nm], dtype)
+        getcol = lambda nm: _pandas_column_to_arrays(X[nm], dtype)  # noqa: E731
 
     n = int(X.shape[0])
     p = len(columns)

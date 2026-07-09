@@ -185,7 +185,7 @@ def _header_panel(model_name: str, split: str, verdict: ModelCardVerdict, metric
     # A DUMMY tag on the verdict line makes a baseline card visually distinct from a real model's card at a glance
     # (the two are otherwise near-identical), so operators don't confuse the reference floor for a trained model.
     tag = "[DUMMY] " if _is_dummy_name(model_name) else ""
-    lines = [f"{model_name}  --  {split}", "", f"{tag}{dot} {verdict.label}", verdict.reason, ""]
+    lines = [f"{model_name}  # --  {split}", "", f"{tag}{dot} {verdict.label}", verdict.reason, ""]
     lines.extend(f"{name:<10s} {val}" for name, val in metric_fmt)
     title = "MODEL CARD (DUMMY BASELINE)" if _is_dummy_name(model_name) else "MODEL CARD"
     return AnnotationPanelSpec(text="\n".join(lines), title=title, fontsize=11)
@@ -319,7 +319,7 @@ def _mini_pred_vs_actual(yt: np.ndarray, yp: np.ndarray) -> PanelSpec:
 
 def _degenerate_card(model_name: str, split: str, text: str, figsize: Tuple[float, float]) -> FigureSpec:
     """Single-panel fallback card that honestly reports why metrics could not be computed (e.g. single-class / no finite pairs), instead of drawing a misleading chart."""
-    ann = AnnotationPanelSpec(text=f"{model_name}  --  {split}\n\n{text}", title="MODEL CARD", fontsize=11)
+    ann = AnnotationPanelSpec(text=f"{model_name}  # --  {split}\n\n{text}", title="MODEL CARD", fontsize=11)
     return FigureSpec(suptitle="", panels=((ann,),), figsize=figsize)
 
 

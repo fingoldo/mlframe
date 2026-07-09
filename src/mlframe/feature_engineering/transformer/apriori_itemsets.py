@@ -32,7 +32,7 @@ def compute_apriori_itemsets_features(
     if not hasattr(np, "in1d"):
         np.in1d = np.isin  # type: ignore[attr-defined]
     try:
-        import mlxtend
+        import mlxtend  # noqa: F401 -- probe import to fail fast with a clear error if mlxtend is missing
         from mlxtend.frequent_patterns import fpgrowth
     except ImportError as exc:
         raise ImportError("apriori_itemsets requires mlxtend") from exc

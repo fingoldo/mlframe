@@ -8,11 +8,11 @@ improves the marginal MDL -> MDLP returns the trivial 1-bin partition -> the ope
 -> its JOINT MI with any partner is destroyed before FE can pair them.
 
 We test THREE binning layers per column and count bins:
-  (R) RAW MDLP                -- supervised_binning.mdlp_bin_edges (the literal hypothesis target).
+  (R) RAW MDLP  -- supervised_binning.mdlp_bin_edges (the literal hypothesis target).
   (P) PRODUCTION per_feature_edges(method='mdlp') -- what MRMR ACTUALLY calls via categorize_dataset;
       this layer has a documented collapsed-column fallback to quantile (lines 634-641) + a
       sparse-aware fallback (642-688). Tells us if the hypothesis is already neutralized in prod.
-  (Q) UNSUPERVISED quantile   -- per_feature_edges(method='fd') and a plain n=10 quantile, the contrast.
+  (Q) UNSUPERVISED quantile  -- per_feature_edges(method='fd') and a plain n=10 quantile, the contrast.
 
 bins reported = len(inner_edges) + 1. 1 bin == collapsed-to-constant.
 

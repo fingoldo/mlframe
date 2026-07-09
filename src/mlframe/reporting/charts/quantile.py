@@ -5,10 +5,10 @@ one ``PanelSpec``. Inputs are 1-D ``y`` of length N + 2-D ``preds``
 of shape ``(N, K)`` where ``K = len(alphas)``.
 
 Token catalogue (6 standard panels):
-- ``RELIABILITY``    -- empirical coverage vs nominal alpha (diagonal
+- ``RELIABILITY``  -- empirical coverage vs nominal alpha (diagonal
                         = perfect calibration). The most important
                         single calibration view.
-- ``COVERAGE``       -- empirical vs nominal INTERVAL coverage per
+- ``COVERAGE``  -- empirical vs nominal INTERVAL coverage per
                         symmetric quantile pair, with a 95% Wilson CI
                         band and the identity diagonal; mean interval
                         width per level folded into the legend.
@@ -18,9 +18,9 @@ Token catalogue (6 standard panels):
                         index sorted by median (filled band view of
                         the prediction interval). Caps at 1000 points
                         for plot readability.
-- ``WIDTH_DIST``     -- histogram of interval widths (q_hi - q_lo);
+- ``WIDTH_DIST``  -- histogram of interval widths (q_hi - q_lo);
                         sharpness diagnostic.
-- ``PIT_HIST``       -- histogram of probability-integral-transform
+- ``PIT_HIST``  -- histogram of probability-integral-transform
                         values; uniform = well-calibrated.
                         Skipped with a placeholder when K < 3 (PIT
                         requires K >= 3 alphas to interpolate).
@@ -43,7 +43,7 @@ Reliability extension (R-6):
                         any non-zero bar is a correctness problem.
 
 Probabilistic-forecast communication plot:
-- ``FAN_CHART``      -- y over time/index with nested shaded quantile bands
+- ``FAN_CHART``  -- y over time/index with nested shaded quantile bands
                         (darkest at the median, fading outward), the standard
                         way to read a probabilistic forecast: the median path
                         plus how the predictive interval widens with the
@@ -92,7 +92,7 @@ def _reliability_panel(y_true, preds_NK, alphas) -> LinePanelSpec:
     where y <= q_k (the cumulative coverage at that quantile level).
     Perfect calibration draws on the diagonal (y = x).
     """
-    from mlframe.metrics.quantile import _fast_coverage
+    from mlframe.metrics.quantile import _fast_coverage  # noqa: F401 (import for jit warmup)
 
     y = np.asarray(y_true, dtype=np.float64).ravel()
     P = np.asarray(preds_NK, dtype=np.float64)

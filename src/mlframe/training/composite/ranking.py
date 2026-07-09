@@ -260,7 +260,7 @@ class CompositeRankEstimator(BaseEstimator, RegressorMixin):
     def _make_default_inner(self) -> tuple[Any, str]:
         """Default inner + its kind: lambdarank when available, else pairwise."""
         try:
-            import lightgbm as lgb
+            import lightgbm as lgb  # noqa: F401
 
             return (
                 __import__("lightgbm").LGBMRanker(objective="lambdarank", n_estimators=200, verbose=-1),

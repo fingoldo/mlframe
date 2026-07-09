@@ -57,7 +57,7 @@ def materialise_and_finalise_fe_candidates(
     ``engineered_features`` / ``checked_pairs`` / ``engineered_recipes`` are mutated in place.
     """
     if _is_polars_input:
-        import polars as pl
+        import polars as pl  # noqa: F401 -- used on the polars dispatch branches in the body
 
     # The recipe builder below reads the per-operand prewarp / gate-med fitted-spec accumulators that
     # the parent fills (from ``check_prospective_fe_pairs``) and backs on ``self``; re-bind the SAME

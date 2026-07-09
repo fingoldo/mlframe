@@ -11,13 +11,13 @@ sample size, or signal strength. That's a one-size-fits-all compromise that:
 
 This module ships per-feature adaptive bin selection via six methods:
 
-* **'sturges'**     -- `ceil(1 + log2(n))`. Simplest formula; assumes Gaussian-ish.
+* **'sturges'**  -- `ceil(1 + log2(n))`. Simplest formula; assumes Gaussian-ish.
 * **'freedman_diaconis'** (= `'fd'`, DEFAULT for auto) -- `ceil((max-min) / (2*IQR/n^(1/3)))`.
   Robust to outliers/skew; the recommended default for MI estimation
   on natural data per Freedman & Diaconis 1981.
-* **'knuth'**       -- Bayesian-posterior optimum over M in [1, sqrt(N)*4].
+* **'knuth'**  -- Bayesian-posterior optimum over M in [1, sqrt(N)*4].
   Native impl in ``discretization.py``. Returns 1 bin for featureless uniform.
-* **'blocks'**      -- Bayesian Blocks (Scargle 2013). Variable-width edges, no n_bins.
+* **'blocks'**  -- Bayesian Blocks (Scargle 2013). Variable-width edges, no n_bins.
 * **'fayyad_irani'** (= `'mdlp'`)  -- SUPERVISED MDLP from Fayyad & Irani 1993.
   Returns 3-8 bins typically, signal-aware. **Target-leak-safe via CV-fold splits**.
 * **'optimal_joint'** (= `'cv'`) -- CV-based: train binning on fold-train, score

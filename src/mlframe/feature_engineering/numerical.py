@@ -316,7 +316,7 @@ def get_simple_stats_names() -> list:
 # _numerical_numba.py (along with its @numba.njit(cache=False) decorator,
 # which is needed because numba's AOT cache corrupts on the function's
 # bool-kwarg-heavy signature on Windows + Python 3.11 + numba 0.59).
-from ._numerical_numba import compute_numerical_aggregates_numba
+from ._numerical_numba import compute_numerical_aggregates_numba  # noqa: F401, E402
 
 def get_basic_feature_names(
     weights: Optional[np.ndarray] = None,
@@ -369,7 +369,7 @@ def get_basic_feature_names(
     return res
 
 
-from ._numerical_counts import (
+from ._numerical_counts import (  # noqa: F401  re-export: count / crossing / quantile kernels carved to a sibling
     _fused_nunique_modes_quantiles_kernel,
     _fused_nunique_modes_quantiles,
     compute_nunique_modes_quantiles_numpy,
@@ -380,7 +380,7 @@ from ._numerical_counts import (
 )
 
 
-from ._numerical_numba import (
+from ._numerical_numba import (  # noqa: F401
     _make_compute_moments_slope_mi,
     compute_moments_slope_mi,
     _compute_moments_slope_mi_compensated,

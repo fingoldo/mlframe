@@ -35,7 +35,7 @@ import numpy as np
 # it, and the fold returned NaN. Sibling ``composite_screening.py`` already imports at module level so there
 # is no circular-dep concern. Kept at module level here (not only in the carved ``_screening_tiny_perbin``
 # sibling) so the race-safe hoist holds for importers of this parent module too.
-from ..estimator import _y_train_clip_bounds
+from ..estimator import _y_train_clip_bounds  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
@@ -668,7 +668,7 @@ def _tiny_cv_rmse_raw_y_multiseed(
 
 
 # per-bin RMSE + y-scale tiny-CV helpers carved to _screening_tiny_perbin.py (1k-LOC ceiling).
-from ._screening_tiny_perbin import (
+from ._screening_tiny_perbin import (  # noqa: F401
     _per_bin_from_fold_preds,
     _per_bin_rmse,
     _tiny_cv_rmse_y_scale,

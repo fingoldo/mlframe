@@ -4,9 +4,9 @@ All functions are ``@njit``-compiled and operate on integer-encoded arrays produ
 
 Contents
 --------
-* ``merge_vars``    -- collapse multiple ordinal-encoded variables into a single 1-D class array (used as the histogram building block).
-* ``entropy``       -- Shannon entropy ``-sum(p * log p)``.
-* ``mi``            -- mutual information ``I(X; Y) = H(X) + H(Y) - H(X, Y)`` computed via entropy decomposition.
+* ``merge_vars``  -- collapse multiple ordinal-encoded variables into a single 1-D class array (used as the histogram building block).
+* ``entropy``  -- Shannon entropy ``-sum(p * log p)``.
+* ``mi``  -- mutual information ``I(X; Y) = H(X) + H(Y) - H(X, Y)`` computed via entropy decomposition.
 * ``conditional_mi`` -- ``I(X; Y | Z) = H(X, Z) + H(Y, Z) - H(Z) - H(X, Y, Z)`` with a pluggable entropy cache. Each cache branch owns its own
   ``key_z`` / ``key_xz`` / ``key_yz`` / ``key_xyz`` local; ``test_info_theory_cache.py`` enumerates all four ``(can_use_x_cache, can_use_y_cache)`` combos and
   pins down exactly which keys land in the cache.

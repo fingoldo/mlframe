@@ -9,13 +9,13 @@ two-line tour.
 
 Layered structure
 -----------------
-- ``axis``        -- ``Axis`` enum, ``HandlerSpec`` ABC, axis registry.
+- ``axis``  -- ``Axis`` enum, ``HandlerSpec`` ABC, axis registry.
                      The extension seam for image / audio / sequence
                      axes that are not part of v1.
-- ``locking``     -- PID-aware filelock helper that detects and reclaims
+- ``locking``  -- PID-aware filelock helper that detects and reclaims
                      stale locks left by SIGKILL'd peer processes
                      (chaos-audit C5 + C16, 2026 round 3).
-- ``system``      -- cgroup-aware memory probe, CUDA error classifier,
+- ``system``  -- cgroup-aware memory probe, CUDA error classifier,
                      Windows long-path helper.
 - ``cache_backend`` -- ``CacheBackend`` Protocol + ``LocalDiskBackend``
                      impl (the only backend in v1; S3/GCS/NFS slot in

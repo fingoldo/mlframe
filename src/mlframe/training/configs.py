@@ -21,7 +21,7 @@ from typing import Optional, Dict, Any, Tuple, Literal, FrozenSet
 # Shared constants + TargetTypes enum + BaseConfig live in the leaf module so
 # sibling configs can import them without re-entering this module (which would
 # close a cycle).
-from ._configs_base import (
+from ._configs_base import (  # noqa: F401
     DEFAULT_RANDOM_SEED,
     DEFAULT_TREE_ITERATIONS,
     DEFAULT_CALIBRATION_BINS,
@@ -43,20 +43,20 @@ from ._configs_base import (
 # re-exported below so historical
 # ``from mlframe.training.configs import PreprocessingConfig`` (and the
 # other moved names) imports continue to resolve. See sibling for SSOT.
-from ._preprocessing_configs import (
+from ._preprocessing_configs import (  # noqa: F401
     PreprocessingConfig, TrainingSplitConfig, PreprocessingBackendConfig,
     PreprocessingExtensionsConfig, FeatureTypesConfig,
 )
 # FeatureSelectionConfig moved to ``_feature_selection_config.py`` so siblings
 # that need it as a field type can import it without re-entering this module
 # (which would close a ``configs <-> sibling`` import cycle).
-from ._feature_selection_config import FeatureSelectionConfig
+from ._feature_selection_config import FeatureSelectionConfig  # noqa: E402,F401
 
 # Model + hyperparameter + training-behavior configs moved to
 # ``_model_configs.py``; re-exported below so historical
 # ``from mlframe.training.configs import ModelConfig`` (and the other moved
 # names) imports continue to resolve. See sibling for SSOT.
-from ._model_configs import (
+from ._model_configs import (  # noqa: F401
     ModelConfig, LinearModelConfig, TreeModelConfig, MLPConfig, NGBConfig,
     AutoMLConfig, ModelHyperparamsConfig, TrainingBehaviorConfig,
     MultilabelDispatchConfig, LearningToRankConfig, QuantileRegressionConfig,
@@ -67,7 +67,7 @@ from ._model_configs import (
 # re-exported below so historical
 # ``from mlframe.training.configs import TrainingConfig`` (and the other
 # moved names) imports continue to resolve. See sibling for SSOT.
-from ._training_runtime_configs import (
+from ._training_runtime_configs import (  # noqa: E402,F401
     TrainingConfig, DataConfig, TrainingControlConfig, MetricsConfig,
     FeatureImportanceConfig, OutputConfig, OutlierDetectionConfig,
     SliceStableESConfig,
@@ -272,7 +272,7 @@ class DummyBaselinesConfig(BaseConfig):
 # ``_reporting_configs.py``; re-exported below so historical
 # ``from mlframe.training.configs import ReportingConfig`` (and the other
 # moved names) imports continue to resolve. See sibling for SSOT.
-from ._reporting_configs import (
+from ._reporting_configs import (  # noqa: F401
     ReportingConfig, ConfidenceAnalysisConfig, ConformalConfig, RegressionCalibrationConfig, NamingConfig,
     PredictionsContainer, FairnessConfig,
     _REPORTING_ALLOWED_TITLE_TOKENS,
@@ -281,7 +281,7 @@ from ._reporting_configs import (
 # sibling. Re-exported here so historical
 # ``from mlframe.training.configs import CompositeTargetDiscoveryConfig``
 # imports continue to resolve. See sibling for SSOT.
-from ._composite_target_discovery_config import CompositeTargetDiscoveryConfig
+from ._composite_target_discovery_config import CompositeTargetDiscoveryConfig  # noqa: F401
 
 
 # Helper function to create config from dict (backward compatibility)

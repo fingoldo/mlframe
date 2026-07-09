@@ -52,9 +52,9 @@ from mlframe.training.feature_handling.polars_capability import (
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    import pandas as pd
-    import polars as pl
-    import scipy.sparse as sp
+    import pandas as pd  # noqa: F401
+    import polars as pl  # noqa: F401
+    import scipy.sparse as sp  # noqa: F401
 
 
 def _column_to_string_iter(

@@ -643,7 +643,7 @@ def _mi_to_target_prebinned(
 
 
 # Pair-MI kernel lives in sibling ``_screening_mi_pair``; re-exported here.
-from ._screening_mi_pair import (
+from ._screening_mi_pair import (  # noqa: F401
     _mi_from_binned_pair,
     _mi_from_binned_pair_njit_kernel,
     _mi_from_binned_pair_numpy,
@@ -846,7 +846,7 @@ def _mi_to_target(
 
 
 # Tiny-model RMSE / CV helpers live in sibling ``_screening_tiny``; re-exported here.
-from ._screening_tiny import (
+from ._screening_tiny import (  # noqa: F401
     _silence_tiny_model_output,
     _build_tiny_model,
     _tiny_cv_rmse_raw_y,

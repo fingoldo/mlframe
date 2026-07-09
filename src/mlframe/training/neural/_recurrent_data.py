@@ -12,7 +12,7 @@ from torch.utils.data import Dataset, DataLoader, WeightedRandomSampler
 from lightning.pytorch import LightningDataModule
 
 from .base import _ensure_numpy
-from ._recurrent_config import InputMode  # re-exported for callers
+from ._recurrent_config import InputMode  # noqa: F401  # re-exported for callers
 
 
 class RecurrentDataset(Dataset):

@@ -48,9 +48,9 @@ _TARGET_ENCODING_DEFAULT_SMOOTHING: float = 20.0
 
 def _target_encoding_residual_fit(
     y: np.ndarray,
-    base: np.ndarray,
+    base: np.ndarray,  # -- unused; encoding is category-driven
     groups: np.ndarray | None = None,
-    sample_weight: np.ndarray | None = None,
+    sample_weight: np.ndarray | None = None,  # -- see note below
     smoothing: float = _TARGET_ENCODING_DEFAULT_SMOOTHING,
 ) -> dict[str, Any]:
     """Fit per-category smoothed means on TRAIN rows only.

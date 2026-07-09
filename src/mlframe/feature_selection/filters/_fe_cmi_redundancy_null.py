@@ -68,7 +68,7 @@ def _conditional_perm_null(
 
     Returns ``(floor, null_mean)``:
 
-      * ``floor``     -- the ``quantile`` of the null distribution; the
+      * ``floor``  -- the ``quantile`` of the null distribution; the
                          data-derived SIGNIFICANCE bar (leg 1).
       * ``null_mean`` -- the MEAN of the null distribution; an estimate of the
                          candidate's finite-sample CMI BIAS at this n. Subtracted

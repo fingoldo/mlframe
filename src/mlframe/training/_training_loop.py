@@ -28,7 +28,7 @@ from ._eval_helpers import _align_xgb_cat_categories
 # ``_training_loop_refit.py`` to drop this file below the 1k-LOC
 # monolith threshold; imported here so callers keep using
 # ``from mlframe.training._training_loop import _maybe_refit_on_*``.
-from ._training_loop_refit import (
+from ._training_loop_refit import (  # noqa: F401
     _maybe_refit_on_collapsed_predictions,
     _maybe_refit_on_degenerate_best_iter,
 )
@@ -212,7 +212,7 @@ def _handle_oom_error(model_obj, model_type_name: str) -> bool:
 # to sibling file _calibration_models.py to drop this file below the
 # 1k-line monolith threshold. Re-exported below so existing callers
 # (`from ._training_loop import _PostHocCalibratedModel`, etc.) keep working.
-from ._calibration_models import (
+from ._calibration_models import (  # noqa: F401
     _maybe_apply_posthoc_calibration,
     _PerClassIsotonicCalibrator,
     _PostHocCalibratedModel,
@@ -876,7 +876,7 @@ def _train_model_with_fallback(
 
 
 # xgb-objective / 2d-target-wrap helpers carved to _training_loop_objectives.py (1k-LOC ceiling).
-from ._training_loop_objectives import (
+from ._training_loop_objectives import (  # noqa: E402, F401
     _ensure_xgb_classification_objective,
     _maybe_wrap_for_2d_target,
 )

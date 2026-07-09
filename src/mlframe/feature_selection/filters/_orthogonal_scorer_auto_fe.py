@@ -661,7 +661,7 @@ def hybrid_orth_mi_ensemble_fe_with_recipes(
     return X_aug, scores, recipes
 
 
-from ._orth_auto_scorer_fe import (
+from ._orth_auto_scorer_fe import (  # noqa: E402,F401
     hybrid_orth_mi_auto_scorer_fe,
     hybrid_orth_mi_auto_scorer_fe_with_recipes,
     score_features_by_auto_scorer_uplift,

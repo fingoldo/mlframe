@@ -10,8 +10,8 @@ churn (the prod footgun).
 This module replaces the heuristic with a MEASUREMENT on a bounded subsample (cap ~30k rows). It measures three RMSEs on
 a group-disjoint holdout (or a random holdout when no group key is available):
 
-  (a) ``raw_rmse``            -- a tiny model fit on the seen rows predicting raw y, evaluated on the holdout;
-  (b) ``lag_rmse``           -- the AR failsafe ``y_hat = y_prev`` on the holdout (reuses ``detect_causal_lag_column`` +
+  (a) ``raw_rmse``  -- a tiny model fit on the seen rows predicting raw y, evaluated on the holdout;
+  (b) ``lag_rmse``  -- the AR failsafe ``y_hat = y_prev`` on the holdout (reuses ``detect_causal_lag_column`` +
                                 ``causal_lag_predict_rmse``); NaN when no causal-lag column exists;
   (c) ``best_composite_rmse`` -- an OPTIMISTIC achievable-composite ceiling: for the best level-carrying base (the causal
                                 lag plus the top features by ``|corr(base, y)|``) fit ``alpha,beta`` by OLS of y on the
@@ -112,7 +112,7 @@ def _numeric_feature_matrix(df: Any, feature_cols: Sequence[str], target_col: st
             continue
         try:
             arr = _extract_column_array(df, c, rows=rows).astype(np.float64, copy=False)
-        except Exception as e:
+        except Exception as e:  # -- a single unreadable column must not abort the precheck
             logger.debug("swallowed exception in _achievable_ceiling.py: %s", e)
             continue
         if arr.shape[0] != rows.shape[0]:
@@ -210,7 +210,7 @@ def _composite_rmse_for_base(
         model = model_factory()
         model.fit(x_fit[fit_ok], t_fit[fit_ok])
         t_hat = np.asarray(model.predict(x_hold), dtype=np.float64)
-    except Exception as exc:
+    except Exception as exc:  # -- a composite fit that blows up is not evidence discovery would; fall back
         logger.debug("[achievable_ceiling] composite fit failed: %s", exc)
         return float("inf")
     y_hat = t_hat + alpha * base_hold + beta
@@ -326,7 +326,7 @@ def measure_achievable_ceiling(
         """Build the tiny probe model: LightGBM if available, else a plain linear fallback."""
         try:
             return _build_tiny_model("lgb", n_estimators=n_estimators, num_leaves=num_leaves, learning_rate=learning_rate, random_state=int(random_state))
-        except Exception:
+        except Exception:  # -- lightgbm unavailable -> Ridge proxy (always present via sklearn)
             return _build_tiny_model("linear", n_estimators=n_estimators, num_leaves=num_leaves, learning_rate=learning_rate, random_state=int(random_state))
 
     # (a) raw-y tiny-model baseline.
@@ -334,7 +334,7 @@ def measure_achievable_ceiling(
         raw_model = _model_factory()
         raw_model.fit(x_fit, y_fit)
         raw_rmse = _rmse(y_hold, np.asarray(raw_model.predict(x_hold), dtype=np.float64))
-    except Exception as exc:
+    except Exception as exc:  # -- cannot measure the raw baseline -> no confident floor -> proceed
         logger.debug("[achievable_ceiling] raw baseline fit failed: %s", exc)
         return _proceed(f"raw baseline fit failed ({exc})", lag1_ar=lag1_ar, n_fit=fit_pos.size, n_hold=hold_pos.size)
     if not np.isfinite(raw_rmse):
@@ -351,7 +351,7 @@ def measure_achievable_ceiling(
         try:
             lag_hold = _extract_column_array(df, lag_col, rows=rows_hold).astype(np.float64, copy=False)
             lag_rmse = causal_lag_predict_rmse(lag_hold, y_hold)
-        except Exception as exc:
+        except Exception as exc:  # -- lag probe failure -> no lag floor (raw floor still applies)
             logger.debug("[achievable_ceiling] lag probe failed for %s: %s", lag_col, exc)
 
     # (c) OPTIMISTIC achievable-composite ceiling: best (min-RMSE) linear-residual reconstruction over candidate bases.

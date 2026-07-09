@@ -326,14 +326,14 @@ def _perm_kernel_dispatch_use_gpu(
     """
     if backend == "gpu":
         try:
-            import cupy as _cp
+            import cupy as _cp  # noqa: F401
             return True
         except ImportError:
             return False
     if backend == "auto":
         if _perm_kernel_backend_choice(n_samples, n_perms) == "cupy":
             try:
-                import cupy as _cp
+                import cupy as _cp  # noqa: F401
                 return True
             except ImportError:
                 return False

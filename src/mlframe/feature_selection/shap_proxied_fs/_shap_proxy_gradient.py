@@ -23,7 +23,7 @@ from mlframe.feature_selection.shap_proxied_fs._shap_proxy_objective import coal
 def torch_available() -> bool:
     """Probe whether PyTorch is importable, gating whether the gradient-relaxation backend can run at all."""
     try:
-        import torch
+        import torch  # noqa: F401
 
         return True
     except Exception:

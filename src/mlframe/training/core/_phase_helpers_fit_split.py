@@ -253,7 +253,7 @@ def _phase_train_val_test_split(
                 if _ml_arr.ndim == 2 and _ml_arr.shape[1] >= 1:
                     # Prefer the proper iterative-stratification path when available.
                     try:
-                        from iterstrat.ml_stratifiers import MultilabelStratifiedShuffleSplit
+                        from iterstrat.ml_stratifiers import MultilabelStratifiedShuffleSplit  # noqa: F401
 
                         _stratify_y = _ml_arr
                     except ImportError:
@@ -398,7 +398,7 @@ def _phase_train_val_test_split(
         _strat_arr = np.asarray(_stratify_y)
         if _strat_arr.ndim == 2:
             try:
-                from iterstrat.ml_stratifiers import (
+                from iterstrat.ml_stratifiers import (  # noqa: F401
                     MultilabelStratifiedGroupKFold,
                 )
 
@@ -805,4 +805,4 @@ def _phase_auto_detect_feature_types(
 # lives in ``_phase_helpers_fit_pipeline.py`` so this file stays below
 # the 1k-LOC monolith threshold. ``_phase_train_val_test_split`` and
 # ``_phase_auto_detect_feature_types`` remain inline above.
-from ._phase_helpers_fit_pipeline import _phase_fit_pipeline
+from ._phase_helpers_fit_pipeline import _phase_fit_pipeline  # noqa: F401

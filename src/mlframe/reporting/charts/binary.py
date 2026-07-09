@@ -7,15 +7,15 @@ all (only a reliability diagram), so this is the curve toolkit the most common
 task type was missing.
 
 Token catalogue:
-- ``ROC``        -- TPR vs FPR with the chance diagonal; AUC in the title.
-- ``PR``         -- precision vs recall with the prevalence no-skill baseline; AP in the title.
+- ``ROC``  -- TPR vs FPR with the chance diagonal; AUC in the title.
+- ``PR``  -- precision vs recall with the prevalence no-skill baseline; AP in the title.
 - ``SCORE_DIST`` -- overlaid step-histograms of the score for y=0 vs y=1, shared bins, threshold marker.
-- ``KS``         -- class-conditional score ECDFs with the max-gap (KS statistic) marked; KS in the title.
+- ``KS``  -- class-conditional score ECDFs with the max-gap (KS statistic) marked; KS in the title.
 - ``THRESHOLD``  -- precision / recall / F1 / queue-rate vs threshold from one score sort + cumulative sums
                     (operating-point picker). An optional cost(t)=c_fp*FP+c_fn*FN series rides along when a
                     cost ratio is supplied.
-- ``GAIN``       -- cumulative-gain curve (% positives captured vs % population, score-sorted) + baseline diagonal.
-- ``PIT``        -- probability-integral-transform histogram for the binary score (folds the orphan
+- ``GAIN``  -- cumulative-gain curve (% positives captured vs % population, score-sorted) + baseline diagonal.
+- ``PIT``  -- probability-integral-transform histogram for the binary score (folds the orphan
                     plot_pit_diagram into a spec); uniform = perfect calibration, KS in the title.
 
 Every panel is driven by ONE descending-by-score sort (``_ScoreSort``) computed up

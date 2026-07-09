@@ -75,8 +75,8 @@ from ._fe_raw_redundancy_helpers import (
     _recipe_subexprs,
     _subexpr_continuous,
     _excess_and_floor,
-    _rank_transform,
-    _residualize,
+    _rank_transform,  # noqa: F401
+    _residualize,  # noqa: F401
     raw_retains_linear_signal_given_children,
     _heldout_ridge_r2,
     RAW_SELF_RETAIN_FRAC,

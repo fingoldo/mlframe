@@ -413,7 +413,7 @@ def train_mlframe_ranker_suite(
             # those land in cat_features and the downstream LGB ranker can
             # cast them to pandas Categorical before fit.
             _dn = str(_dt)
-            _is_str_like = _dt == object or _dn in ("string", "str") or "string" in _dn.lower()
+            _is_str_like = _dt == object or _dn in ("string", "str") or "string" in _dn.lower()  # noqa: E721 -- pandas dtype `== object` comparison is intended
             if _is_str_like:
                 _probe = X_tr[col].dropna()
                 if len(_probe) == 0:

@@ -31,7 +31,7 @@ test_recipe_name_simplify -- abs, neg, sqr, sqrt, _safe_div, signed, abs_diff, h
         so it propagates an enclosing sign-irrelevant context to BOTH children.
 
 REJECTED candidates (numerically *would* hold in ideal math but were NOT adopted):
-  * exp(log(x)) -> x        -- BROKEN: ``smart_log`` adds a data-dependent shift
+  * exp(log(x)) -> x  -- BROKEN: ``smart_log`` adds a data-dependent shift
                                (1e-5 - x_min), so exp(smart_log(x)) != x (fails on any
                                column with a negative minimum, e.g. standard-normal input).
   * sqr(sqrt(x)) -> abs(x), sqrt(sqr(x)) -> abs(x), reciproc(reciproc(x)) -> x

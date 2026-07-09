@@ -371,7 +371,7 @@ def report_regression_model_perf(
     # warm-state regression report wall.
     if show_perf_chart and not plot_file:
         try:
-            _is_interactive_session = bool(__IPYTHON__)  # type: ignore[name-defined]
+            _is_interactive_session = bool(__IPYTHON__)  # type: ignore[name-defined]  # noqa: F821
         except NameError:
             import sys as _sys
             _is_interactive_session = hasattr(_sys, "ps1")
@@ -520,7 +520,7 @@ def report_regression_model_perf(
             # "competitive with leaderboard" when y-scale RMSE may be 100x.
             metrics_str = f"(T-scale) {metrics_str}"
         # ``title`` retained for the (deprecated) print-report path that still concatenates everything for stdout. Charts use the split.
-        title = header_str + "\n " + metrics_str
+        title = header_str + "\n " + metrics_str  # noqa: F841 -- see comment above
 
         # For (N, K) multilabel-as-regression
         # targets the scatter plot below would do

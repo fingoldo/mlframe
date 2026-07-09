@@ -502,7 +502,7 @@ def plot_best_dummy_baseline_overlay(
     # Agg).
     if show:
         try:
-            _in_kernel = bool(__IPYTHON__)  # type: ignore[name-defined]
+            _in_kernel = bool(__IPYTHON__)  # type: ignore[name-defined]  # noqa: F821
         except NameError:
             _in_kernel = False
         if _in_kernel:

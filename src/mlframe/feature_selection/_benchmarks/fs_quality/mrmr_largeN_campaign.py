@@ -10,13 +10,13 @@ VARIANTS SWEPT (and why)
 ------------------------
 We deliberately sweep a SMALL, bounded set (not a cartesian) of the knobs most plausibly mis-tuned at large n:
 
-  * ``default``   -- current production defaults (nbins_strategy='mdlp', redundancy_aggregator=None, quantization_nbins=10).
+  * ``default``  -- current production defaults (nbins_strategy='mdlp', redundancy_aggregator=None, quantization_nbins=10).
                      This is the BASELINE every other variant is scored against.
-  * ``jmim``      -- ``redundancy_aggregator='jmim'`` (Bennasar 2015). The Fleuret CMIM redundancy gate uses ``min_k I(X_k;Y|Z_j)``
+  * ``jmim``  -- ``redundancy_aggregator='jmim'`` (Bennasar 2015). The Fleuret CMIM redundancy gate uses ``min_k I(X_k;Y|Z_j)``
                      which rejects features sharing signal with an already-selected one; JMIM uses ``min_j I(X_k,X_j;Y)`` which
                      PRESERVES synergy that CMIM discards. On many-feature data with correlated-decoy clusters + interaction drivers
                      the synergy-preserving aggregator is the leading hypothesis for better recall of the genuine drivers.
-  * ``nbins20``   -- ``quantization_nbins=20`` (keeping mdlp off via ``nbins_strategy=None`` so the fixed bin count actually bites).
+  * ``nbins20``  -- ``quantization_nbins=20`` (keeping mdlp off via ``nbins_strategy=None`` so the fixed bin count actually bites).
                      At large n the plug-in MI is far better sampled, so a finer quantization can resolve nonlinear drivers that a
                      coarse 10-bin grid blurs into noise. This is the leading hypothesis for better recall of the NONLINEAR drivers.
 

@@ -887,4 +887,4 @@ def optimise_pair_multimode(
 # lives in ``_hermite_fe_optimise_pair.py`` so this file stays below
 # the 1k-LOC monolith threshold.
 # ----------------------------------------------------------------------
-from ._hermite_fe_optimise_pair import optimise_hermite_pair
+from ._hermite_fe_optimise_pair import optimise_hermite_pair  # noqa: F401

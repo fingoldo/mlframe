@@ -11,12 +11,12 @@ ALWAYS-ON finalize path that runs AFTER training on a fitted suite:
 that the suite invokes at finalize. It has four blocks:
   1. bootstrap_ci  -- 1000-resample bootstrap of roc_auc/brier/log_loss/ece per
                       model entry (numba metric kernels).
-  2. drift_psi     -- categorical PSI across train/val/test
+  2. drift_psi  -- categorical PSI across train/val/test
                       (compute_categorical_drift_psi). The drift-PSI value_counts
                       blowup on ndarray-cell object columns was fixed; this
                       harness re-profiles what is the top mlframe-side cost NOW.
-  3. calibration   -- pick_best_calibrator on oof (500-resample bootstrap + plot).
-  4. provenance    -- format_provenance_table.
+  3. calibration  -- pick_best_calibrator on oof (500-resample bootstrap + plot).
+  4. provenance  -- format_provenance_table.
 
 We profile against a realistically fitted single HGB classifier whose
 test_probs / oof_probs are PROD-shape so the bootstrap loops dominate the way

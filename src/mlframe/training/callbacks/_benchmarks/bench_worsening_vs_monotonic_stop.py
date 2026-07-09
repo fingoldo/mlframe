@@ -3,11 +3,11 @@
 Compares three rules applied to the SAME trained booster's per-iteration validation trajectory, so the
 only thing that varies is WHERE each rule stops (training is identical -> a fair, low-variance A/B):
 
-  * patience(P)         -- stop P iters after the best val (classic lgb/xgb early stopping).
-  * old_worsening       -- UniversalCallback._update_worsening_streak: budget-scaled threshold
+  * patience(P)  -- stop P iters after the best val (classic lgb/xgb early stopping).
+  * old_worsening  -- UniversalCallback._update_worsening_streak: budget-scaled threshold
                            max(n//coeff, min_iters), PLATEAU (==prev) COUNTS as worsening, resets on a
                            strict improvement-over-prev.
-  * new_monotonic(N)    -- MonotonicDeclineStopper: fixed N consecutive STRICT declines, plateau/bounce RESETS.
+  * new_monotonic(N)  -- MonotonicDeclineStopper: fixed N consecutive STRICT declines, plateau/bounce RESETS.
 
 For each rule we read the HONEST TEST metric at the stopped iteration and compare to the oracle (test
 metric at the val-argbest iteration). The winner is the rule whose stop gives test closest to the oracle

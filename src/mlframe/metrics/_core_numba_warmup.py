@@ -367,7 +367,7 @@ def _prewarm_numba_cache_body():
 
     # Prewarm `_batch_per_class_ice_kernel`, the per-class parallel kernel inside `compute_probabilistic_multiclass_error`. Compiles separately from the sequential `fast_ice_only` variant prewarmed above; use the dtype combo the suite always sends (int8 indicator + float64 probs + K=3).
     try:
-        from mlframe.metrics.core import _batch_per_class_ice_kernel
+        from mlframe.metrics.core import _batch_per_class_ice_kernel  # noqa: F811
         _yt_nk4_pw = np.zeros((10, 3), dtype=np.int8)
         _yt_nk4_pw[0, 0] = 1; _yt_nk4_pw[1, 1] = 1; _yt_nk4_pw[2, 2] = 1
         _yp_nk4_pw = np.random.RandomState(0).rand(10, 3).astype(np.float64)
@@ -433,30 +433,30 @@ def _prewarm_numba_cache_body():
             import importlib.util as _ilu
             if _ilu.find_spec("lightning") is not None:
                 try:
-                    import lightning.fabric
+                    import lightning.fabric  # noqa: F401
                 except Exception:  # nosec B110 - optional dependency import guard
                     pass
                 try:
-                    import mlframe.lightninglib
+                    import mlframe.lightninglib  # noqa: F401
                 except Exception:  # nosec B110 - optional dependency import guard
                     pass
             # `pytorch_lightning` is a separate package from `lightning` (legacy alias kept for back-compat); cold import is ~500s on Windows for the currently-pinned version.
             if _ilu.find_spec("pytorch_lightning") is not None:
                 try:
-                    import pytorch_lightning
+                    import pytorch_lightning  # noqa: F401
                 except Exception:  # nosec B110 - optional dependency import guard
                     pass
             # `shap` cold import is ~228s on Windows (includes `shap.utils.transformers` walking the local transformers registry). The suite imports shap inside trainer.py when use_shap=True.
             if _ilu.find_spec("shap") is not None:
                 try:
-                    import shap
-                    import shap.utils.transformers
+                    import shap  # noqa: F401
+                    import shap.utils.transformers  # noqa: F401
                     # Match the runtime monkeypatch so prewarm leaves shap in the state the suite expects.
                     shap.utils.transformers.is_transformers_lm = lambda model: False
                 except Exception:  # nosec B110 - optional dependency import guard
                     pass
             try:
-                import mlframe.training.neural
+                import mlframe.training.neural  # noqa: F401
             except Exception:  # nosec B110 - optional dependency import guard
                 pass
         except Exception:  # nosec B110 - optional dependency import guard

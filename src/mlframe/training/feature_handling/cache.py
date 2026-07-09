@@ -72,7 +72,7 @@ from mlframe.training.io import atomic_write_bytes
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    import scipy.sparse
+    import scipy.sparse  # noqa: F401
 
 
 # =====================================================================

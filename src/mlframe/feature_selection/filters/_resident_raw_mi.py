@@ -68,7 +68,7 @@ def resident_raw_baseline_mi(
     except Exception:
         return None
     try:
-        import cupy as cp
+        import cupy as cp  # noqa: F401
     except Exception:
         return None
     try:

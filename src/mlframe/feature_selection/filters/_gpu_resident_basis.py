@@ -1230,7 +1230,7 @@ def grand_fused_pair_mi(
     import cupy as cp
 
     from ._gpu_resident_select import _gpu_resident_discretize_codes  # type: ignore[attr-defined]  # dynamically re-exported via globals(); lazy: cross-sibling, avoids cycle
-    from . import hermite_fe as _hf
+    from . import hermite_fe as _hf  # noqa: F401 -- full-init parent before the GPU MI import cycle
     from .batch_mi_noise_gate_gpu import dispatch_batch_mi_with_noise_gate_gpu
 
     a_gpu = cp.asarray(a, dtype=cp.float64)
@@ -1536,7 +1536,7 @@ def pair_candidate_mi_dispatch(a: np.ndarray, b: np.ndarray, y_codes: np.ndarray
         _use_gpu = n >= _GPU_RESIDENT_MIN_N
     if _use_gpu:
         try:
-            import cupy
+            import cupy  # noqa: F401
 
             # Resolve via the parent module (where this function is re-exported) so a monkeypatch of
             # ``gpu_resident_pair_candidate_mi`` on the parent -- the canonical patch target -- is honoured

@@ -189,7 +189,7 @@ def apply_honest_holdout(
         rescore_specs_on_holdout(
             self, df, target_col, kept_specs, usable_features, holdout_idx, y_full,
         )
-    except Exception as ho_err:
+    except Exception as ho_err:  # -- diagnostic, never load-bearing
         logger.warning(
             "[CompositeTargetDiscovery] honest-holdout re-score failed (%s); specs keep " "honest_holdout_gain=None, in-screen mi_gain unaffected.",
             ho_err,
@@ -255,7 +255,7 @@ def rescore_specs_on_holdout(
         # identical row population (else mi_t / mi_y compare different rows).
         try:
             valid = np.asarray(transform.domain_check(y_h, base_arg), dtype=bool)
-        except Exception as exc:
+        except Exception as exc:  # -- degenerate holdout for this spec
             logger.debug("honest-holdout domain_check failed for %s: %s", spec.name, exc)
             return
         if valid.shape != y_h.shape:
@@ -267,7 +267,7 @@ def rescore_specs_on_holdout(
                 valid_fitted = np.asarray(_dcf(y_h, base_arg, params), dtype=bool)
                 if valid_fitted.shape == valid.shape:
                     valid = valid & valid_fitted
-            except Exception as e:
+            except Exception as e:  # -- treat as no refinement
                 logger.debug("swallowed exception in _honest_holdout.py: %s", e)
                 pass
         n_valid = int(valid.sum())
@@ -280,7 +280,7 @@ def rescore_specs_on_holdout(
         base_valid = base_arg[valid] if base_arg.ndim == 1 else base_arg[valid, :]
         try:
             t_holdout = transform.forward(y_h[valid], base_valid, params)
-        except Exception as exc:
+        except Exception as exc:  # -- transform raised on holdout rows
             logger.debug("honest-holdout forward failed for %s: %s", spec.name, exc)
             return
         x_valid = x_remaining[valid]

@@ -86,7 +86,7 @@ def cluster_su_gpu_available() -> bool:
     if _GPU_AVAILABLE_CACHE is not None:
         return _GPU_AVAILABLE_CACHE
     try:
-        import cupy as cp
+        import cupy as cp  # noqa: F401
 
         if cp.cuda.runtime.getDeviceCount() <= 0:
             _GPU_AVAILABLE_CACHE = False

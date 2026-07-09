@@ -492,7 +492,7 @@ def mi_direct_gpu_batched(
     try:
         from mlframe.feature_selection.filters._fe_gpu_vram import fe_gpu_has_vram_cushion
         _cushion_ok = fe_gpu_has_vram_cushion(n * 4)
-    except Exception:
+    except Exception:  # -- cushion module unavailable: leave existing guards in charge
         _cushion_ok = True
     if not _cushion_ok:
         from .permutation import mi_direct
@@ -1070,4 +1070,4 @@ def mi_direct_gpu(
 # threshold. Re-exported below so existing callers
 # (`from mlframe.feature_selection.filters.gpu import mi_direct_gpu_batched_pairs`)
 # keep working.
-from ._gpu_pairs import mi_direct_gpu_batched_pairs
+from ._gpu_pairs import mi_direct_gpu_batched_pairs  # noqa: F401

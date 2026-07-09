@@ -43,7 +43,7 @@ logger = logging.getLogger(__name__)
 # from mlframe.training.neural.ranker import ranknet_pairwise_loss callers
 # keep working unchanged.
 # ---------------------------------------------------------------------------
-from ._ranker_losses import (
+from ._ranker_losses import (  # noqa: F401
     _RANKNET_MAX_PAIRS_PER_QUERY,
     _RANKNET_PAIR_CACHE_MAX_N,
     _RANKNET_PAIR_CACHE_SIZE,

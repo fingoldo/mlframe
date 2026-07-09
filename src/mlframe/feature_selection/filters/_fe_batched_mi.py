@@ -783,7 +783,7 @@ def batched_cmi_gpu(x_cols: Any, y: np.ndarray, z: Any = None, return_cards: boo
 # Back-compat re-exports: the batched CMI count/entropy kernel infrastructure was carved into
 # ``_fe_batched_mi_cmi`` (carve-wave, 2026-06-28). Importers use ``from ._fe_batched_mi import X``;
 # keep every previously-public name resolving through the parent.
-from ._fe_batched_mi_cmi import (
+from ._fe_batched_mi_cmi import (  # noqa: F401
     _rows_entropy_and_k,
     _batched_joint_counts2,
     _batched_marginal_counts,

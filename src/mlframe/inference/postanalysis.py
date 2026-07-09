@@ -29,7 +29,7 @@ def analyze_xgboost_model(model: Any, print_chunk: int = 0) -> dict:
         nleaves = [len(leaf_pattern.findall(tree)) for tree in trees]
 
     if print_chunk:
-        print(trees[0][:print_chunk])
+        print(trees[0][:print_chunk])  # noqa: T201 -- print_chunk is an explicit opt-in interactive-inspection param, not a leftover debug statement
     return dict(
         total_trees=len(trees),
         total_leaves=sum(nleaves),

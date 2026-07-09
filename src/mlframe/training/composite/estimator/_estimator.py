@@ -16,7 +16,7 @@ from sklearn.base import BaseEstimator, RegressorMixin, clone
 
 # Module-level helpers carved to _estimator_helpers.py (1k-LOC house limit); re-exported so call sites + tests that
 # import them from this module keep working.
-from ._estimator_helpers import (
+from ._estimator_helpers import (  # noqa: F401
     _callable_accepts_param,
     _carry_forward_fill,
     _estimator_fit_accepts_sample_weight,

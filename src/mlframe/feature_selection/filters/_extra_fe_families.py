@@ -7,7 +7,7 @@ A category being RARE is itself predictive (a rare merchant id is a fraud
 signal; a rare device fingerprint a bot signal). Extends Layer 34 count /
 frequency encoding (raw count) with the SHAPE of rarity:
 
-* ``is_rare_{col}``   -- 1.0 when the category's fit-time frequency
+* ``is_rare_{col}``  -- 1.0 when the category's fit-time frequency
   (count / n) is below ``rare_threshold`` (default 1%), else 0.0.
 * ``freq_band_{col}`` -- ordinal frequency band of the category:
   ``0=very_rare`` (< rare_threshold), ``1=rare`` (< 4x threshold),

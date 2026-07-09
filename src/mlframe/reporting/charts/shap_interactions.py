@@ -103,7 +103,7 @@ def shap_interaction_summary(
     stratified to keep the high-|score-proxy| tail. Degenerate inputs (<2 features, non-tree, empty)
     return a result with ``skipped`` set and no figures.
     """
-    import shap
+    import shap  # noqa: F401  required dep; let ImportError surface to the caller
 
     carrier, vals, names = _as_frame_and_names(X, feature_names)
     n, f = vals.shape

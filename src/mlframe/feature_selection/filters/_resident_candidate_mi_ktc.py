@@ -74,7 +74,7 @@ def _rescand_resident(mat, y):
     """Sweep probe variant: upload ``mat``/``y`` to the GPU and score via the resident plug-in MI kernel being gated."""
     import cupy as cp
 
-    from . import hermite_fe as _hf
+    from . import hermite_fe as _hf  # noqa: F401 -- full-init parent before sibling import
     from ._hermite_fe_mi import _plugin_mi_classif_batch_cuda_resident
 
     mat_gpu = cp.asarray(mat, dtype=cp.float64)

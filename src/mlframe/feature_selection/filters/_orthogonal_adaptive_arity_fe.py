@@ -393,7 +393,7 @@ def _adaptive_arity_mi_resident_block(X, y_arr, eval_results_k, *, basis: str, n
     if not _crossbasis_device_born_on() or not eval_results_k:
         return None
     try:
-        import cupy as cp
+        import cupy as cp  # noqa: F401
         from ._orthogonal_univariate_fe._gpu_resident_cross_basis import (
             build_leg_product_matrix_gpu, _resident_mi,
         )

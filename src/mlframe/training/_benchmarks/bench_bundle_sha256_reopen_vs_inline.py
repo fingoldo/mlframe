@@ -6,7 +6,7 @@ The lead: hash the compressed bytes inline (as the zstd writer produces them) an
 
 What this bench measures, warm + multi-iter, across bundle sizes (incl. a 30MB+ fat bundle):
   A) reopen_and_hash  -- the shipped path: open(bundle, 'rb') + chunked f.read -> sha256 (cold + page-cached).
-  B) inline_hash      -- sha256.update over the SAME compressed-bytes buffer already in RAM (no reopen).
+  B) inline_hash  -- sha256.update over the SAME compressed-bytes buffer already in RAM (no reopen).
 
 Both produce the identical digest BY CONSTRUCTION (same bytes), so this is a pure wall comparison -- the
 question is only whether skipping the reopen-read is a measurable win that justifies entangling the

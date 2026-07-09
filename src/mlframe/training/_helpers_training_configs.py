@@ -11,8 +11,8 @@ from typing import Any, Optional, Sequence
 
 import numpy as np
 import psutil  # used for n_jobs=cpu_count(logical=False) in XGB_GENERAL_PARAMS
-from xgboost.callback import TrainingCallback
-from sklearn.metrics import roc_auc_score
+from xgboost.callback import TrainingCallback  # noqa: F401
+from sklearn.metrics import roc_auc_score  # noqa: F401
 from sklearn.model_selection import TimeSeriesSplit
 
 from ._gpu_probe import CUDA_IS_AVAILABLE, LGB_GPU_AVAILABLE, XGB_GPU_AVAILABLE

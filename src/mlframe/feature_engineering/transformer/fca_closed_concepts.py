@@ -23,7 +23,7 @@ def compute_fca_closed_concepts_features(
     and n_concepts summary columns. top_k + 2 features total.
     """
     try:
-        import concepts as _concepts
+        import concepts as _concepts  # noqa: F401 -- probe import to fail fast with a clear error if concepts is missing
     except ImportError as exc:
         raise ImportError("fca_closed_concepts requires concepts library") from exc
 

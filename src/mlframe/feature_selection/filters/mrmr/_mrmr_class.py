@@ -51,102 +51,24 @@ from ._mrmr_param_constants import (
 from ._mrmr_setstate_defaults import build_setstate_defaults
 
 from .._mrmr_fingerprints import (
-    _astropy_histogram,
-    histogram,
-    _canonicalise_dtype_str,
     _mrmr_compute_y_fingerprint_sample,
     _mrmr_compute_x_fingerprint,
     _mrmr_y_corr_sample,
     _mrmr_y_corr,
-    _hashable_params_signature,
-    _content_array_signature,
-    _target_to_numpy_values,
-    _target_name_signature,
-    _full_y_content_hash,
-    _full_x_content_hash,
-    _replay_fitted_state,
-    _lazy_chunks,
     _MRMR_IDENTITY_FP_CACHE,
     _MRMR_IDENTITY_FP_LOCK,
-    _MRMR_BATCH_PRECOMPUTE_MAX_K,
-    _MRMR_BATCH_PRECOMPUTE_MIN_PAIRS,
 )
 
-# Bulk of the in-package imports that the ``MRMR`` class body relies on. The
-# sibling fingerprint module also imports them so it can stand alone; Python
-# caches module imports so the duplication has zero runtime cost.
-from numpy.polynomial.hermite import hermval
-from scipy import special as sp
-from scipy.stats import mode
-
-from catboost import CatBoostClassifier
-
-from pyutilz.numbalib import (
-    generate_combinations_recursive_njit,
-    python_dict_2_numba_dict,
-    set_numba_random_seed,
-)
-from pyutilz.parallel import mem_map_array, parallel_run, split_list_into_chunks
 from pyutilz.pythonlib import (
     get_parent_func_args,
-    sort_dict_by_value,
     store_params_in_object,
 )
-from pyutilz.system import tqdmu
 
-from mlframe.core.arrays import arrayMinMax
-from mlframe.feature_selection.wrappers import RFECV
-from mlframe.metrics.core import compute_probabilistic_multiclass_error
-from mlframe.utils.misc import set_random_seed, hygienic_fit
+from mlframe.utils.misc import hygienic_fit
 
-from .._internals import (
-    ENSURE_ARROW_DF_SUPPORT,
-    GPU_MAX_BLOCK_SIZE,
-    LARGE_CONST,
-    MAX_CONFIRMATION_CAND_NBINS,
-    MAX_ITERATIONS_TO_TRACK,
-    MAX_JOBLIB_NBYTES,
-    NMAX_NONPARALLEL_ITERS,
-    sanitize,
-)
-from .._numba_utils import arr2str, count_cand_nbins, unpack_and_sort
-from ..discretization import (
-    categorize_dataset,
-    discretize_array,
-)
-from ..feature_engineering import (
-    UNIFIED_FE_SUBSAMPLE_N,
-    check_prospective_fe_pairs,
-    compute_pairs_mis,
-    create_binary_transformations,
-    create_unary_transformations,
-    get_existing_feature_name,
-    get_new_feature_name,
-)
-from ..gpu import init_kernels, mi_direct_gpu
-from ..info_theory import (
-    compute_mi_from_classes,
-    conditional_mi,
-    entropy,
-    merge_vars,
-    mi,
-)
-from ..permutation import distribute_permutations, mi_direct, parallel_mi
-from ..evaluation import (
-    evaluate_candidate,
-    evaluate_candidates,
-    evaluate_gain,
-    find_best_partial_gain,
-    get_candidate_name,
-    handle_best_candidate,
-    should_skip_candidate,
-)
-from ..fleuret import (
-    get_fleuret_criteria_confidence,
-    get_fleuret_criteria_confidence_parallel,
-    parallel_fleuret,
-)
-from ..screen import postprocess_candidates, screen_predictors, _preserve_global_numpy_rng_state
+from .._internals import MAX_JOBLIB_NBYTES
+from ..feature_engineering import UNIFIED_FE_SUBSAMPLE_N
+from ..screen import _preserve_global_numpy_rng_state
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 

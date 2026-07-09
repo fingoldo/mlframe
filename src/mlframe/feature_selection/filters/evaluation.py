@@ -936,8 +936,6 @@ def find_best_partial_gain(
 # resolves against the already-executed parent body (no circular-import hazard), and the public
 # API of ``mlframe.feature_selection.filters.evaluation`` stays byte-for-byte unchanged.
 from ._evaluation_driver import (
-    _gpu_cmi_prefill_enabled,
-    _prefill_cond_MIs_gpu,
-    evaluate_candidates,
-    _evaluate_candidates_inner,
+    _prefill_cond_MIs_gpu,  # noqa: F401 -- re-exported for _confirm_predictor.py
+    evaluate_candidates,  # noqa: F401 -- re-exported for _mrmr_class.py / mrmr/__init__.py / _confirm_predictor.py / _legacy.py
 )

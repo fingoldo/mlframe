@@ -110,7 +110,7 @@ def _detect_interactive_session() -> bool:
         # silently treating as True — operator typo shouldn't accidentally
         # force inline display.
     try:
-        return bool(__IPYTHON__)  # type: ignore[name-defined]
+        return bool(__IPYTHON__)  # type: ignore[name-defined]  # noqa: F821
     except NameError:
         import sys
         return hasattr(sys, "ps1")

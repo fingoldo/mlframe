@@ -109,7 +109,7 @@ def uplift_univariate_eng_mi_resident(
     if specs is None:
         return None  # extra-basis / unparseable -> host path (SF1c irreducible transient).
     try:
-        import cupy as cp
+        import cupy as cp  # noqa: F401
 
         from ._gpu_resident_cross_basis import _resident_mi, build_leg_product_matrix_gpu
 

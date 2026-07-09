@@ -252,7 +252,7 @@ def _cv_score_candidate(
             est.fit(X_tr, y_tr)
             pred = np.asarray(est.predict(X_te), dtype=np.float64)
             fold_scores.append(float(scorer(y_te, pred)))
-        except Exception as err:
+        except Exception as err:  # -- penalise, don't crash search
             logger.debug("optimize_composite: candidate %r/%r fold failed: %r", transform_name, inner_params, err)
             fold_scores.append(float("inf"))
     if not fold_scores:

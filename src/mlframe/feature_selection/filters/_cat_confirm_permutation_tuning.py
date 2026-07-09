@@ -21,7 +21,7 @@ from ._cat_confirm_permutation import (
 # registration (the per-call dispatch still re-checks importability inside the parent's
 # ``_perm_kernel_dispatch_use_gpu``).
 try:
-    import cupy as _cp_probe
+    import cupy as _cp_probe  # noqa: F401
     _CUPY_AVAIL = True
 except Exception:
     _CUPY_AVAIL = False

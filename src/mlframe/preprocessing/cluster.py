@@ -15,7 +15,7 @@ def list_cluster_members(labels:Sequence,true_lables:Sequence)->None:
     if labels_arr.size == 0:
         return  # max([]) would raise; no clusters to list.
     for group in range(int(labels_arr.max()) + 1):
-        print([true_lables[i] for i in np.where(labels_arr == group)[0]])
+        print([true_lables[i] for i in np.where(labels_arr == group)[0]])  # noqa: T201 -- interactive display utility, this IS the function's job
 
 def clusterize(X:Optional[Any]=None,true_labels:Optional[Sequence]=None,clusterizer:Optional[Any]=None,dim_reducer:Optional[Any]=None,
                show_plot:Optional[bool]=True,show_metrics:Optional[bool]=True,list_members:Optional[bool]=True,title:Optional[str]=None):

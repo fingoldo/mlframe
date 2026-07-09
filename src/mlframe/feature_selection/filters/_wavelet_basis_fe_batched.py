@@ -27,9 +27,9 @@ def batched_binned_mi_gpu(code_cols: np.ndarray, y_codes: np.ndarray, kx_per_col
     Parameters
     ----------
     code_cols : (n, K) int array  -- each column is a non-negative integer bin code (the leg/joint codes).
-    y_codes   : (n,) int array    -- non-negative class codes for the target.
+    y_codes   : (n,) int array  -- non-negative class codes for the target.
     kx_per_col: optional (K,) ints -- per-column cardinality; default = per-column max+1.
-    ky        : optional int       -- target cardinality; default = y_codes.max()+1.
+    ky        : optional int  -- target cardinality; default = y_codes.max()+1.
 
     Returns a host (K,) float64 array of MI values. Uses ONE ``cp.bincount`` over the padded flat joint
     index (k, cx, cy) so there is no per-column kernel launch. Raises on cupy error (caller falls back).
@@ -104,7 +104,7 @@ def _select_wavelet_legs_batched_device(x, y, lo, span, *, max_scale, max_legs, 
     partition-based -- the device leg / dense-code partition is bit-identical to the host). Returns ``None`` on
     any cupy failure / no-cupy so the caller falls back to the exact host (numpy + ``cp.asarray``) body."""
     try:
-        import cupy as cp
+        import cupy as cp  # noqa: F401
     except Exception:
         return None
 

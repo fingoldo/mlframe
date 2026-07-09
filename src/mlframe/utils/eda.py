@@ -17,4 +17,4 @@ logger = logging.getLogger(__name__)
 # ----------------------------------------------------------------------------------------------------------------------------
 
 
-from pyutilz.data.pandaslib import showcase_df_columns
+from pyutilz.data.pandaslib import showcase_df_columns  # noqa: F401  re-export: canonical EDA in pyutilz

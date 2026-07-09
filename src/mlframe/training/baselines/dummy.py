@@ -81,10 +81,10 @@ from ._dummy_baseline_compute import (
 # rank helper, the multilabel macro log-loss) keep resolving identity-equal.
 # The ``_NUMBA_AVAILABLE`` flag comes from the sibling -- it reflects whether
 # ``import numba`` succeeded there (optional dep).
-from ._dummy_numba_kernels import _NUMBA_AVAILABLE
+from ._dummy_numba_kernels import _NUMBA_AVAILABLE  # noqa: E402,F401
 
 if _NUMBA_AVAILABLE:
-    from ._dummy_numba_kernels import (
+    from ._dummy_numba_kernels import (  # noqa: E402,F401
         _numba_macro_log_loss,
         _numba_micro_log_loss,
         _numba_within_group_descending_rank,
@@ -206,7 +206,7 @@ def _warmup_numba_kernels_body(verbose: bool = False) -> None:
 # ``BaselineReport`` NamedTuple + ``SCHEMA_VERSION`` moved to
 # ``_dummy_report_type.py``; re-imported below so historical
 # ``from .dummy import BaselineReport`` resolves.
-from ._dummy_report_type import BaselineReport, SCHEMA_VERSION
+from ._dummy_report_type import BaselineReport, SCHEMA_VERSION  # noqa: E402,F401
 def _baseline_inputs_hash(
     target_type: str,
     train_y: Any,
@@ -300,7 +300,7 @@ def _has_signal(target_type: str, y_ref: np.ndarray, n_min: int = 10) -> tuple[b
 # Timestamp / period / monotonicity helpers moved to
 # ``_dummy_timeseries.py``; re-exported below so the orchestrator continues
 # to call them via the same names. See sibling for SSOT.
-from ._dummy_timeseries import (
+from ._dummy_timeseries import (  # noqa: F401
     _normalize_timestamps,
     _is_temporally_monotonic,
     _infer_ts_step_periods,
@@ -601,7 +601,7 @@ def compute_dummy_baselines(
 # Multilabel / LTR / target-coercion helpers moved to
 # ``_dummy_compute_helpers.py``; re-exported below so the orchestrator
 # continues to call them via the same names. See sibling for SSOT.
-from ._dummy_compute_helpers import (
+from ._dummy_compute_helpers import (  # noqa: F401
     _compute_multilabel_baselines,
     _compute_ltr_baselines,
     _within_group_descending_index,
@@ -611,7 +611,7 @@ from ._dummy_compute_helpers import (
 # Metrics-table compute + strongest-pick + overlay-plot moved to
 # ``_dummy_metrics_pick_plot.py``; re-exported below so the orchestrator
 # continues to call them via the same names. See sibling for SSOT.
-from ._dummy_metrics_pick_plot import (
+from ._dummy_metrics_pick_plot import (  # noqa: F401
     _compute_metrics_table,
     _pick_strongest,
     plot_best_dummy_baseline_overlay,
@@ -621,7 +621,7 @@ from ._dummy_metrics_pick_plot import (
 # Bootstrap CIs + paired-bootstrap robustness moved to ``_dummy_bootstrap.py``;
 # re-exported below so the orchestrator continues to call them via the same
 # names. See sibling for SSOT.
-from ._dummy_bootstrap import (
+from ._dummy_bootstrap import (  # noqa: F401
     _paired_bootstrap_vs_runner_up,
     _vectorized_bootstrap_logloss_samples,
     _bootstrap_ci_for_strongest,
@@ -759,7 +759,7 @@ def _compute_multi_output_regression(
 # Suite-end summary + verdict-table formatting moved to
 # ``_dummy_summary_format.py``; re-exported below so the orchestrator and
 # caller-side imports continue to resolve. See sibling for SSOT.
-from ._dummy_summary_format import (
+from ._dummy_summary_format import (  # noqa: E402,F401
     format_suite_end_summary,
     format_unified_target_verdict_table,
 )

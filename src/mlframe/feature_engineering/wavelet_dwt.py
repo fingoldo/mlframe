@@ -21,9 +21,9 @@ and extended with:
   pywt for the constants.
 
 Public API:
-    * ``wavedec(signal, wavelet, max_level)``      -- single signal
+    * ``wavedec(signal, wavelet, max_level)``  -- single signal
     * ``wavedec_batched(signals, wavelet, max_level)`` -- (N, T)
-    * ``waverec(coeffs, wavelet)``                  -- inverse single
+    * ``waverec(coeffs, wavelet)``  -- inverse single
     * ``wavedec_dispatch(signals, wavelet, max_level)`` -- pick best
     * ``wavelet_denoise(signal, wavelet, level, threshold, mode='soft')``
     * ``get_wavelet_filters(name)`` -- (lo, hi, rec_lo, rec_hi)

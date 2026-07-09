@@ -2,12 +2,12 @@
 
 Four backends:
 
-* ``legacy_seq``   -- pre-Layer-1 reference: sequential merge_vars + compute_mi_from_classes
+* ``legacy_seq``  -- pre-Layer-1 reference: sequential merge_vars + compute_mi_from_classes
                       per pair. Stand-in for the joblib(loky) cost ceiling.
 * ``layer2_prange``-- Layer 2 ``batch_pair_mi_prange`` (``@njit(parallel=True, nogil=True)``).
-* ``cuda``         -- ``batch_pair_mi_cuda``: one CUDA block per pair, shared-memory
+* ``cuda``  -- ``batch_pair_mi_cuda``: one CUDA block per pair, shared-memory
                       joint histogram (sized for 48 KB / block budget on cc 6.x).
-* ``cupy``         -- ``batch_pair_mi_cupy``: vectorised ``cupy.bincount`` per pair.
+* ``cupy``  -- ``batch_pair_mi_cupy``: vectorised ``cupy.bincount`` per pair.
 
 The bench drives a single (n_rows, n_features) point per invocation; the
 dispatcher crossover thresholds in :mod:`mlframe.feature_selection.filters.batch_pair_mi_gpu`

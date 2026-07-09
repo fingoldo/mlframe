@@ -159,7 +159,7 @@ def _pull_group_column(df: Any, col: str) -> np.ndarray | None:
         if callable(getcol):
             return np.asarray(getcol(col).to_numpy())
         return np.asarray(df[col].to_numpy())
-    except Exception as exc:
+    except Exception as exc:  # -- missing/odd column must not abort the screen
         logger.warning("[stability_select_specs] group_column %r unreadable: %s", col, exc)
         return None
 
@@ -327,7 +327,7 @@ def stability_select_specs(
     if group_aware is None or (group_aware and group_ids is None and not group_column):
         try:
             probe = discovery_factory()
-        except Exception as exc:
+        except Exception as exc:  # -- probe is best-effort; loop still runs
             logger.warning("[stability_select_specs] probe factory() failed: %s", exc)
     if group_aware is None:
         group_aware = bool(getattr(getattr(probe, "config", None), "stability_group_aware", True))
@@ -354,7 +354,7 @@ def stability_select_specs(
         try:
             discovery = discovery_factory()
             discovery.fit(df, target, list(feature_cols), sub_idx)
-        except Exception as exc:
+        except Exception as exc:  # -- one bad replicate must not abort the screen
             logger.warning(
                 "[stability_select_specs] replicate %d/%d failed: %s",
                 i + 1, n_replicates, exc,

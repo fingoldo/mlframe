@@ -432,7 +432,7 @@ UNARY_INPUT_CONSTRAINTS: dict[str, str] = {
 }
 
 from ._internals import njit_functions_dict, smart_log
-from .discretization import discretize_array, discretize_2d_quantile_batch
+from .discretization import discretize_array, discretize_2d_quantile_batch  # noqa: F401 -- re-exported (see _feature_engineering_pairs/_pairs_core.py)
 from .permutation import mi_direct
 
 logger = logging.getLogger(__name__)
@@ -923,4 +923,4 @@ def create_binary_transformations(preset: str = "minimal"):
 # body lives in ``_feature_engineering_pairs.py`` so this file stays
 # below the 1k-LOC monolith threshold.
 # ----------------------------------------------------------------------
-from ._feature_engineering_pairs import check_prospective_fe_pairs
+from ._feature_engineering_pairs import check_prospective_fe_pairs  # noqa: F401

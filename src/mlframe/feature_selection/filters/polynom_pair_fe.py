@@ -501,7 +501,7 @@ def run_polynom_pair_fe(
             ])
             cols = cols + [_new_col_name]
             if is_polars_input:
-                X = X.with_columns(pl.Series(_new_col_name, _t_vals))
+                X = X.with_columns(pl.Series(_new_col_name, _t_vals))  # noqa: F821
             else:
                 X[_new_col_name] = _t_vals
             engineered_features.add(_new_col_name)

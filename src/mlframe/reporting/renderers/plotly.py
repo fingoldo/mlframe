@@ -29,18 +29,18 @@ from mlframe.reporting.spec import (
 # ``from mlframe.reporting.renderers.plotly import get_kaleido_oneshot_stats`` (and the recovery-test
 # imports of ``_restart_kaleido_server`` etc.) keep resolving from the same place.
 from ._kaleido import (
-    _ensure_kaleido_server_started,
-    _is_kaleido_persistent_burned,
-    _mark_kaleido_persistent_burned,
-    _record_kaleido_persistent_failure,
-    _restart_kaleido_server,
-    get_kaleido_oneshot_stats,
-    record_kaleido_oneshot_call,
-    reset_kaleido_oneshot_stats,
+    _ensure_kaleido_server_started,  # noqa: F401 -- re-exported, pinned by test_inv57_public_kaleido_surface_reexported_from_plotly
+    _is_kaleido_persistent_burned,  # noqa: F401 -- re-exported, pinned by test_inv57_public_kaleido_surface_reexported_from_plotly
+    _mark_kaleido_persistent_burned,  # noqa: F401 -- re-exported, pinned by test_inv57_public_kaleido_surface_reexported_from_plotly
+    _record_kaleido_persistent_failure,  # noqa: F401 -- re-exported, pinned by test_inv57_public_kaleido_surface_reexported_from_plotly
+    _restart_kaleido_server,  # noqa: F401 -- re-exported for test_kaleido_recovery.py
+    get_kaleido_oneshot_stats,  # noqa: F401 -- re-exported for _phase_finalize.py / test_plotly_kaleido_module_split_inv57.py
+    record_kaleido_oneshot_call,  # noqa: F401 -- re-exported, pinned by test_inv57_public_kaleido_surface_reexported_from_plotly
+    reset_kaleido_oneshot_stats,  # noqa: F401 -- re-exported for _phase_finalize.py
     write_image_via_kaleido,
 )
 from ._plotly_interactivity import apply_interactivity, html_config
-from ._plotly_color import _MPL_TO_PLOTLY, _axis_ref, _rgba, _mpl_to_plotly_cmap
+from ._plotly_color import _axis_ref, _rgba, _mpl_to_plotly_cmap
 from ._shared_helpers import _finite_range, _thin_tick_positions
 
 logger = logging.getLogger(__name__)

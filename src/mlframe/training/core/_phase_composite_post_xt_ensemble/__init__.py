@@ -868,7 +868,7 @@ def _build_cross_target_ensemble_for_target(
                             _deployed, _oof_components[_oof_names.index("lag_predict")],
                             _ytr, filtered_val_df, _yv, composite_target_discovery_config,
                         )
-                    except Exception as _rr_err:
+                    except Exception as _rr_err:  # -- routing is advisory; keep the trained model
                         logger.info("[CompositeCrossTargetEnsemble] target='%s' OOD-lag routing skipped (%s).", _orig_tname, _rr_err)
                     # Per-row VOLATILITY-lag routing: on a strong-AR target the lag-wins groups are IN-range but locally
                     # SMOOTH, which the range rule above cannot catch. Route rows whose MD-local target volatility is low
@@ -887,7 +887,7 @@ def _build_cross_target_ensemble_for_target(
                             getattr(composite_target_discovery_config, "time_column", None),
                             composite_target_discovery_config,
                         )
-                    except Exception as _vr_err:
+                    except Exception as _vr_err:  # -- advisory; keep whatever we have
                         logger.info("[CompositeCrossTargetEnsemble] target='%s' volatility-lag routing skipped (%s).", _orig_tname, _vr_err)
                     _ensemble = _deployed
                     _lag_failsafe_taken = True

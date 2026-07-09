@@ -109,7 +109,7 @@ class EarlyStoppingWrapper(BaseEstimator):
         """
         scoring = self.scoring
         if self._is_regressor and scoring is accuracy_ratio:
-            scoring = lambda _yt, _yp: -float(fast_root_mean_squared_error(_yt, _yp))
+            scoring = lambda _yt, _yp: -float(fast_root_mean_squared_error(_yt, _yp))  # noqa: E731
         return scoring
 
     def _split(self, X, y):
@@ -352,4 +352,4 @@ if __name__ == "__main__":
     early_stopping_model.fit(X_train, y_train)
     y_pred = early_stopping_model.predict(X_test)
 
-    print(f"Accuracy: {accuracy_ratio(y_test, y_pred)}")
+    print(f"Accuracy: {accuracy_ratio(y_test, y_pred)}")  # noqa: T201 -- __main__ demo/smoke block, not library code

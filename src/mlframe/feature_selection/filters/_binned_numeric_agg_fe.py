@@ -166,7 +166,7 @@ def fit_binned_numeric_agg(
     by bin code) + ``global`` fallback, so transform replays leak-free via ``apply_binned_numeric_agg``.
     """
     n = len(X)
-    y_arr = np.asarray(y, dtype=np.float64).ravel()
+    y_arr = np.asarray(y, dtype=np.float64).ravel()  # noqa: F841 (kept for parity / future y-aware gating)
     rng = np.random.default_rng(int(random_state))
     fold_ids = np.empty(n, dtype=np.int64)
     fold_ids[rng.permutation(n)] = np.arange(n) % int(n_folds)

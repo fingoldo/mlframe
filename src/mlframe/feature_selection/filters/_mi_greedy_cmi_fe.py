@@ -1441,7 +1441,7 @@ def greedy_cmi_fe_construct(
     y_bin_dev = None
     if _cmi_gpu_enabled():
         try:
-            import cupy as _cp
+            import cupy as _cp  # noqa: F401
             from ._fe_resident_operands import resident_code_operand as _resident_code_operand
             y_bin_dev = _resident_code_operand(y_bin, "cmi_greedy_y_fixed")
         except Exception:

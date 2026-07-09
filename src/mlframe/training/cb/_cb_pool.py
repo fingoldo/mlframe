@@ -318,7 +318,7 @@ def _recover_cb_feature_names(model: Any) -> tuple[list[str], list[str]]:
     per-feature metadata via:
       - ``_get_cat_feature_indices()``  -- integer indices into feature_names_
       - ``_get_text_feature_indices()`` -- ditto
-      - ``feature_names_``              -- list of column names
+      - ``feature_names_``  -- list of column names
 
     Returns ``([], [])`` on any failure (e.g. non-fitted model, non-CB
     estimator, older CB builds without those private hooks) -- callers
@@ -498,8 +498,8 @@ def _predict_with_fallback(
 # 2026-05-13 refactor: _CB_VAL_POOL_CACHE lives in _predict_guards.py
 # (shared between fit-time populate in _maybe_get_or_build_cb_pool and
 # predict-time lookup in _predict_with_fallback).
-from .._predict_guards import _CB_VAL_POOL_CACHE
-from ..pipeline import (
+from .._predict_guards import _CB_VAL_POOL_CACHE  # noqa: E402,F401
+from ..pipeline import (  # noqa: F401
     _apply_pre_pipeline_transforms,
     _extract_feature_selector,
     _is_fitted,
@@ -779,4 +779,4 @@ def _maybe_rewrite_eval_set_as_cb_pool(fit_params: dict[str, Any]) -> None:
 # body lives in ``_cb_pool_build.py`` so this file stays below the
 # 1k-LOC monolith threshold.
 # ----------------------------------------------------------------------
-from ._cb_pool_build import _maybe_get_or_build_cb_pool
+from ._cb_pool_build import _maybe_get_or_build_cb_pool  # noqa: F401

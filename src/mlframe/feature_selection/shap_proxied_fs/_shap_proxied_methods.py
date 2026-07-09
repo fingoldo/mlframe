@@ -47,7 +47,7 @@ class ShapProxiedMethodsMixin:
         # Auto-detect: prefer xgboost (the historical default; SHAP fast paths are most mature
         # there), fall back to catboost when only catboost is installed.
         try:
-            import xgboost
+            import xgboost  # noqa: F401
             return "xgboost"
         except ImportError:
             from mlframe.feature_selection.shap_proxied_fs._shap_proxy_catboost import catboost_available

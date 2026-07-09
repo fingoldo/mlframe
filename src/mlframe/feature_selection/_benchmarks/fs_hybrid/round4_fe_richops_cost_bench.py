@@ -6,9 +6,9 @@ rich ops live there now). Measures BOTH downstream AUC (40% honest holdout, lgbm
 AND MRMR.fit wall-time (the FE pair-search cost scales with operator count).
 
 Beds:
-  synth       -- mild bilinear interaction + linear signal (the "synth" baseline)
+  synth  -- mild bilinear interaction + linear signal (the "synth" baseline)
   hard_synth  -- a*b / a^2 interaction drowned in noise (the prior agent's hard bed)
-  nonprod     -- y = -|a-b| (a NON-product proximity target the prior agent flagged as
+  nonprod  -- y = -|a-b| (a NON-product proximity target the prior agent flagged as
                  the cleanest win for abs_diff: products cannot linearize it)
 
 Frugal: n_jobs<=2, single bench run; stdout goes to the launching redirection.

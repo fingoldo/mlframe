@@ -124,8 +124,8 @@ def optimise_hermite_pair(
     TPESampler: Any = None
     if optimizer == "optuna":
         try:
-            import optuna
-            from optuna.samplers import TPESampler
+            import optuna  # noqa: F811  late-bind for optional dep
+            from optuna.samplers import TPESampler  # noqa: F811
             # TPESampler(multivariate=True) emits ExperimentalWarning per study
             # init; flag has been "experimental" since 2020 and is the recommended
             # setting for correlated params — suppress the noise.

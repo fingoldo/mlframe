@@ -669,4 +669,4 @@ def _render_split_diagnostics(
             )
 
 
-from ._confidence_analysis import run_confidence_analysis
+from ._confidence_analysis import run_confidence_analysis  # noqa: F401

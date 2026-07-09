@@ -48,7 +48,7 @@ if TYPE_CHECKING:
 
 
 def _auto_base(
-    self: "CompositeTargetDiscovery",
+    self: "CompositeTargetDiscovery",  # noqa: F821 -- forward ref to parent class
     df: Any,
     usable_features: Sequence[str],
     y_train: np.ndarray,
@@ -598,7 +598,7 @@ def _auto_base(
                 with np.errstate(invalid="ignore", divide="ignore"):
                     _corr = np.where(_xden > 0, _num / (_xden * _yden), 0.0)
                 _abs_corr_to_y = {c: abs(float(_corr[j])) for j, c in enumerate(usable_features)}
-    except Exception:
+    except Exception:  # -- corr is a heuristic gate; never abort discovery on it
         _abs_corr_to_y = {}
 
     _boost_corr_gate = float(getattr(self.config, "auto_base_structural_boost_corr_gate", 0.98))

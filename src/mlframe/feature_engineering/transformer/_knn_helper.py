@@ -51,7 +51,7 @@ def _check_hnsw_available() -> bool:
             logger.info("[_knn_helper] MLFRAME_DISABLE_HNSW set; using exact sklearn NearestNeighbors " "(hnswlib import skipped).")
             return _HNSW_AVAILABLE
         try:
-            import hnswlib
+            import hnswlib  # noqa: F401
             _HNSW_AVAILABLE = True
         except ImportError:
             _HNSW_AVAILABLE = False

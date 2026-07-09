@@ -42,7 +42,7 @@ class Query_Gen_transformer(nn.Module):
         self.norm_k = nn.LayerNorm(self.hidden_dim)
         self.norm_v = nn.LayerNorm(self.hidden_dim)
 
-    def forward(self, input):
+    def forward(self, input):  # -- vendored third-party code, matches upstream nn.Module.forward signature
         """Encode ``input`` of shape ``(batch, N, 2)`` (X in column 0, Y in column 1) into the query tensor via the X/Y MLPs + cross-attention against the learned ``query`` parameter."""
 
         batch_size = input.shape[0]
@@ -61,7 +61,7 @@ class Query_Gen_transformer(nn.Module):
         return attention
 
 
-def PositionalEmbedding(input):
+def PositionalEmbedding(input):  # -- vendored third-party code, matches upstream naming
     """Add standard sinusoidal (Transformer-style) positional encodings to ``input``, treating the batch dimension as the sequence position."""
     input = input.squeeze()
     batch_size = input.shape[0]
@@ -110,7 +110,7 @@ class Query_Gen_transformer_PE(nn.Module):
         self.norm_k = nn.LayerNorm(self.hidden_dim)
         self.norm_v = nn.LayerNorm(self.hidden_dim)
 
-    def forward(self, input):
+    def forward(self, input):  # -- vendored third-party code, matches upstream nn.Module.forward signature
         """Apply positional embedding to ``input``, then encode X/Y halves via the MLPs and cross-attend the learned ``query`` parameter against them."""
 
         input = PositionalEmbedding(input)

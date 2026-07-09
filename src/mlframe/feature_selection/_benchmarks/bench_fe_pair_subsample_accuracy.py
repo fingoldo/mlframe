@@ -59,9 +59,9 @@ def _build_synthetic(n: int, seed: int = 0, noise_scale: float = 1.0) -> tuple[p
     Three pair signals of comparable but different strength so the survivor
     ranking is INFORMATIVE (not just "the one good signal beats noise"):
 
-    - (a, b) via multiply   -- strongest
-    - (c, d) via add        -- medium
-    - (a, c) via divide     -- weak
+    - (a, b) via multiply  -- strongest
+    - (c, d) via add  -- medium
+    - (a, c) via divide  -- weak
 
     The target combines all three with Gaussian noise of ``noise_scale``;
     higher noise = noisier per-sample MI estimates = harder for small

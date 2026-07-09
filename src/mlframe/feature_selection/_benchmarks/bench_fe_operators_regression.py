@@ -4,10 +4,10 @@ These operators gate candidates on plug-in CLASS-MI. A continuous y is quantile-
 into a discrete target before scoring, which makes the operators applicable to regression. This bench confirms, per operator on synthetic
 REGRESSION targets where each should win:
 
-  DETECT     -- on the matching modular / gcd / argmax / regime regression target the operator emits its feature (lift of the engineered
+  DETECT  -- on the matching modular / gcd / argmax / regime regression target the operator emits its feature (lift of the engineered
                 column's MI over the best-existing-op MI, both on the SAME binned y, >= a measured floor).
-  SPECIFIC   -- on a SMOOTH/noise CONTINUOUS control (3 seeds) the operator emits ZERO features (0 spurious emission).
-  NO-HANG    -- each fit is timed; a regression fit on 600 rows must complete < 30s.
+  SPECIFIC  -- on a SMOOTH/noise CONTINUOUS control (3 seeds) the operator emits ZERO features (0 spurious emission).
+  NO-HANG  -- each fit is timed; a regression fit on 600 rows must complete < 30s.
 
 Run: CUDA_VISIBLE_DEVICES="" NUMBA_DISABLE_CUDA=1 MLFRAME_DISABLE_GPU=1 PYTHONPATH=src python -m \
      mlframe.feature_selection._benchmarks.bench_fe_operators_regression

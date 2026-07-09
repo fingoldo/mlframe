@@ -105,7 +105,7 @@ import numpy as np
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 # Significance-null primitives carved to a sibling; re-imported so this facade and apply_cmi_redundancy_gate resolve them unchanged.
-from ._fe_cmi_redundancy_null import (
+from ._fe_cmi_redundancy_null import (  # noqa: F401
     _CMI_FLOOR_PERMUTATIONS,
     _CMI_FLOOR_QUANTILE,
     _CMI_ANALYTIC_NULL_MIN_N_DEFAULT,

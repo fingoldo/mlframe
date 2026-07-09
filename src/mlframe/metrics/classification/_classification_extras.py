@@ -741,12 +741,12 @@ def ranked_probability_score(
 
 
 # binary/multiclass confusion+probability block kernels carved to _classification_extras_blocks.py (1k-LOC ceiling).
-from ._classification_calibration import (
+from ._classification_calibration import (  # noqa: F401
     _hosmer_lemeshow_kernel,
     accuracy_ratio,
     hosmer_lemeshow_test,
 )
-from ._classification_extras_blocks import (
+from ._classification_extras_blocks import (  # noqa: F401
     _binary_confusion_block_kernel_seq,
     _binary_probability_block_kernel_par,
     _binary_probability_block_kernel_seq,

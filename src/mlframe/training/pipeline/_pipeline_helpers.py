@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 # the 1k-line monolith threshold. Re-exported here so existing callers
 # (`from ._pipeline_helpers import _content_fingerprint_for_cache`, etc.)
 # keep working.
-from ._pipeline_cache import (
+from ._pipeline_cache import (  # noqa: F401
     _PRE_PIPELINE_CACHE,
     _PRE_PIPELINE_CACHE_LOCK,
     _PRE_PIPELINE_CACHE_MAX,
@@ -639,7 +639,7 @@ def _passthrough_cols_fit_transform(fn, df, *args, passthrough_cols=None, fit=Fa
 
 
 # _apply_pre_pipeline_transforms / _validate_pre_pipeline_output_against_model carved to _pipeline_helpers_apply.py (1k-LOC ceiling).
-from ._pipeline_helpers_apply import (
+from ._pipeline_helpers_apply import (  # noqa: F401
     _apply_pre_pipeline_transforms,
     _validate_pre_pipeline_output_against_model,
 )

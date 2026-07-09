@@ -3,9 +3,9 @@ synthetic targets where Hermite SHOULD win over identity.
 
 Three synthetic regimes (each n=2000):
 
-* ``xor``       -- ``y = sign(x1 * x2)`` (bilinear non-linearity, 2D-XOR)
-* ``circle``    -- ``y = sign(x1**2 + x2**2 - r**2)`` (radial decision)
-* ``saddle``    -- ``y = sign(x1**2 - x2**2)`` (saddle surface)
+* ``xor``  -- ``y = sign(x1 * x2)`` (bilinear non-linearity, 2D-XOR)
+* ``circle``  -- ``y = sign(x1**2 + x2**2 - r**2)`` (radial decision)
+* ``saddle``  -- ``y = sign(x1**2 - x2**2)`` (saddle surface)
 
 For each: compute MI of (x1, x2) joint with y (KSG baseline), then run
 the legacy random-degree implementation, then the improved

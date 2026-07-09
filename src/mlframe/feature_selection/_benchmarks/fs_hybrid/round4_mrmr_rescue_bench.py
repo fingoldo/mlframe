@@ -8,11 +8,11 @@ interaction operands have ~0 marginal MI so the greedy never selects them.
 Three rescue routes, all WITHOUT editing the (concurrently-owned) MRMR source -- only ctor kwargs /
 external wrapping:
 
-  1. BASELINE    -- mrmr_fe (default kwargs) on each bed. Confirm the collapse on madelon.
-  2. RAISE CAP   -- MRMR(fe_synergy_screen_max_features=N) so the synergy bootstrap RUNS on madelon's
+  1. BASELINE  -- mrmr_fe (default kwargs) on each bed. Confirm the collapse on madelon.
+  2. RAISE CAP  -- MRMR(fe_synergy_screen_max_features=N) so the synergy bootstrap RUNS on madelon's
                     500 cols. Tested at N in {150, 250, 600}. Watch O(p^2) cost (124750 pairs at 500;
                     note _MRMR_BATCH_PRECOMPUTE_MAX_K=200 -> pool>200 falls to the slow legacy path).
-  3. TREE-SEED   -- shallow_tree_signals -> top co-occurrence pairs -> engineer raw[a]*raw[b], CONCAT
+  3. TREE-SEED  -- shallow_tree_signals -> top co-occurrence pairs -> engineer raw[a]*raw[b], CONCAT
                     to X as extra columns, THEN run plain MRMR on the augmented frame. Pre-injecting
                     the tree-co-occurrence products gives the greedy operands with REAL marginal MI.
 

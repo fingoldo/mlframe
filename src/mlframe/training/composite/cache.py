@@ -678,7 +678,7 @@ def get_prebin_cache() -> PrebinCache:
 # The disk-backed ``DiscoveryCache`` store + its byte-total helper live in the sibling
 # ``cache_store.py``. Re-exported here so existing imports
 # (``from mlframe.training.composite.cache import DiscoveryCache``) keep resolving.
-from .cache_store import (
+from .cache_store import (  # noqa: F401
     DiscoveryCache,
     _discovery_cache_bytes_total,
 )

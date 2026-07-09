@@ -191,7 +191,7 @@ def _select_mi_backend() -> str:
     # in a stripped-down install) fall back to sklearn rather than crashing
     # at first call.
     try:
-        from ..hermite_fe import plugin_mi_classif_batch_dispatch
+        from ..hermite_fe import plugin_mi_classif_batch_dispatch  # noqa: F401
         return "numba"
     except Exception:
         return "sklearn"

@@ -432,7 +432,7 @@ def mixed_ksg_mi_gpu(x: np.ndarray, y: np.ndarray, k: int = 5, intens: float = 1
     """cupy-accelerated mixed-KSG. KDTree build still CPU; the eps-radius
     counts move to cupy via sorted-array binary search (cp.searchsorted)."""
     try:
-        import cupy as cp
+        import cupy as cp  # noqa: F401
     except ImportError:
         logger.warning("cupy not available; falling back to CPU mixed_ksg_mi")
         return mixed_ksg_mi(x, y, k=k)
@@ -489,7 +489,7 @@ def ksg_mi_dispatch(x: np.ndarray, y: np.ndarray, *, k: int = 5, estimator: str 
     n = x.size
     if estimator == "mixed_ksg" and prefer_gpu and n >= _KSG_GPU_THRESHOLD:
         try:
-            import cupy
+            import cupy  # noqa: F401
             return mixed_ksg_mi_gpu(x, y, k=k)
         except ImportError:
             pass

@@ -16,7 +16,7 @@ from sklearn.preprocessing import StandardScaler
 from .base import _ensure_numpy
 
 try:
-    import xxhash as _xxhash
+    import xxhash as _xxhash  # noqa: F401  module-top for hot cache-key path
     _HAS_XXHASH = True
 except ImportError:
     _HAS_XXHASH = False

@@ -895,7 +895,7 @@ def report_probabilistic_model_perf(
 
 
 # calibration/fairness render helpers carved to _reporting_probabilistic_calib.py (1k-LOC ceiling).
-from ._reporting_probabilistic_calib import (
+from ._reporting_probabilistic_calib import (  # noqa: F401
     _render_calibration_by_feature,
     _render_calibration_heatmap_2d,
     _render_fairness_calibration,

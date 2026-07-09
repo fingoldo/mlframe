@@ -1,7 +1,7 @@
 """Profile / A-B bench for the two per-candidate melts inside ``conditional_mi``.
 
 After the (Y,Z)-entropy hoist (``_cmi_cuda.py``), each redundancy candidate still pays TWO melts:
-  * H(X,Z)   -- ``merge_vars(unpack_and_sort(x, z))``           (X-on-Z melt)
+  * H(X,Z)  -- ``merge_vars(unpack_and_sort(x, z))``           (X-on-Z melt)
   * H(X,Y,Z) -- ``merge_vars(x, final_classes=classes_yz, ...)`` (X-on-YZ-classes melt)
 
 Both callers immediately reduce the returned ``freqs`` to a single ``entropy`` scalar and DISCARD the

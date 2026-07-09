@@ -42,18 +42,18 @@ Fingerprint -> rule -> scorer
 ``fingerprint_signal(X, y)`` returns the following statistics (all cheap;
 sub-second on typical mlframe pipelines):
 
-* ``n``                  -- row count;
-* ``unique_y_count``     -- ``nunique(y)`` -- classification vs regression;
-* ``x_unique_avg``       -- average ``nunique`` across numeric columns;
-* ``mean_abs_pearson``   -- mean absolute Pearson correlation
+* ``n``  -- row count;
+* ``unique_y_count``  -- ``nunique(y)`` -- classification vs regression;
+* ``x_unique_avg``  -- average ``nunique`` across numeric columns;
+* ``mean_abs_pearson``  -- mean absolute Pearson correlation
   ``|corr(X[c], y)|`` across numeric columns (when ``y`` is numeric or
   encodable); cheap O(n * d) signal-monotonicity proxy;
-* ``mean_abs_skew``      -- mean absolute skewness across numeric columns
+* ``mean_abs_skew``  -- mean absolute skewness across numeric columns
   (heavy-tail / asymmetric marginal proxy);
-* ``mean_kurtosis``      -- mean ``Fisher`` kurtosis (heavy-tail proxy);
-* ``inter_x_max_corr``   -- max absolute Pearson correlation between
+* ``mean_kurtosis``  -- mean ``Fisher`` kurtosis (heavy-tail proxy);
+* ``inter_x_max_corr``  -- max absolute Pearson correlation between
   numeric column pairs (redundancy proxy);
-* ``dcor_proxy``         -- mean absolute ``rho_spearman`` on a subsample
+* ``dcor_proxy``  -- mean absolute ``rho_spearman`` on a subsample
   of up to 500 rows; cheap non-monotone-dependence proxy that DOES NOT
   require the full O(n^2) dCor compute. Equal to mean_abs_pearson on
   monotone signal; LARGER than mean_abs_pearson when the signal is rank-

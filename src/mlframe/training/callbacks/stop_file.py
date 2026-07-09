@@ -28,7 +28,7 @@ def stop_file(fpath: str) -> Callable[[], bool]:
 # ----------------------------------------------------------------------------------------------------------------------------
 
 try:
-    import catboost
+    import catboost  # noqa: F401
 
     _HAS_CATBOOST = True
 except ImportError:
@@ -63,7 +63,7 @@ else:  # pragma: no cover
 # ----------------------------------------------------------------------------------------------------------------------------
 
 try:
-    import lightgbm
+    import lightgbm  # noqa: F401
 
     _HAS_LIGHTGBM = True
 except ImportError:
@@ -101,7 +101,7 @@ else:  # pragma: no cover
 # ----------------------------------------------------------------------------------------------------------------------------
 
 try:
-    import xgboost as _xgb
+    import xgboost as _xgb  # noqa: F401
 
     _HAS_XGBOOST = True
 except ImportError:

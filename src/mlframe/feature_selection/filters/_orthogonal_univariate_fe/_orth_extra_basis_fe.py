@@ -55,7 +55,7 @@ def _fit_spline_for_col(x: np.ndarray, n_inner_knots: int):
     held (knots baked into the recipe, replay reads only knots/lo/hi), but moot.
     Don't add fe_spline_knot_strategy="supervised". (D:/Temp/item7_supervised_knots_findings.md)
     """
-    from ..engineered_recipes import _bspline_basis_values, _fit_spline_knots
+    from ..engineered_recipes import _bspline_basis_values, _fit_spline_knots  # noqa: F401
     knots, lo, hi = _fit_spline_knots(x, n_inner_knots, degree=3)
     # Number of cubic B-spline basis functions = len(knots) - degree - 1.
     n_basis = len(knots) - 3 - 1
@@ -832,7 +832,7 @@ def _detect_fourier_freq_for_col(
 
 
 # generate/recipe entry points carved to _orth_extra_basis_fe_generate.py (1k-LOC ceiling).
-from ._orth_extra_basis_fe_generate import (
+from ._orth_extra_basis_fe_generate import (  # noqa: F401
     _build_recipe_from_meta,
     generate_extra_basis_features,
     hybrid_orth_extra_basis_fe_with_recipes,

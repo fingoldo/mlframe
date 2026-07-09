@@ -2,11 +2,11 @@
 
 Three variants, all bit-identical (row-order float64 accumulation):
 
-1. baseline      -- the committed path: vectorised column gather + mixed-radix ``flat`` array + one fused njit
+1. baseline  -- the committed path: vectorised column gather + mixed-radix ``flat`` array + one fused njit
                     (sum, count) pass over ``flat`` (``_fused_sum_count``).
 2. arity2_fused  -- ACCEPTED (default for arity 2): gather the two code columns into contiguous 1D arrays, fold the
                     flatten ``c0*stride0 + c1`` into the njit reduction (``_fused_sum_count_2col``); no ``flat`` alloc.
-3. full_fused    -- REJECTED: a single njit pass reads ``codes[i, feat_idx[k]]`` (strided 2D) and folds flatten +
+3. full_fused  -- REJECTED: a single njit pass reads ``codes[i, feat_idx[k]]`` (strided 2D) and folds flatten +
                     reduction. The strided 2D gather is cache-hostile; at the 5000-pair / n=48k regime it is a NET
                     e2e REGRESSION (find_weak_slices p=120: ~2.2s baseline -> ~3.4s full_fused). Kept here, not in prod.
 

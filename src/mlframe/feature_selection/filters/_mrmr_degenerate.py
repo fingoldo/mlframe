@@ -12,8 +12,8 @@ column + an O(p) hashed-content pass for exact duplicates + a correlation pass o
 the numeric columns for perfect collinearity) and returns a dict
 ``column -> reason`` where reason is one of::
 
-    "all_nan"            -- every value is NaN/null
-    "constant"           -- zero variance (one distinct non-null value)
+    "all_nan"  -- every value is NaN/null
+    "constant"  -- zero variance (one distinct non-null value)
     "duplicate_of:<col>" -- byte-identical to an earlier column
     "collinear_with:<col>"-- |Pearson| == 1 with an earlier numeric column (perfect
                             linear dependence, e.g. 2*x+3)

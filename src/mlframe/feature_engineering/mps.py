@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 # Normal Imports
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union, cast
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union, cast  # noqa: F401
 
 import numba
 import numpy as np
@@ -618,7 +618,7 @@ def show_mps_regions(
     return dict(profit_quantile=profit_quantile_value, max_profit=max_profit, **res)
 
 
-def generate_market_price(n_days=100, base_price=100.0, trend=0.1, start_date=datetime(2024, 1, 1), base_volume=5000, random_seed: int = 42) -> tuple:
+def generate_market_price(n_days=100, base_price=100.0, trend=0.1, start_date=datetime(2024, 1, 1), base_volume=5000, random_seed: int = 42) -> tuple:  # noqa: DTZ001 -- synthetic demo price series, a naive calendar date is the right default here
     """Generate a synthetic daily (dates, prices, volumes) series with trend, mean reversion, occasional news-event jumps, and volume that spikes on big price moves. For demos/tests, not real market data."""
     # Wave 49 (2026-05-20): switch to local Generator instead of mutating the
     # global RNG (which broke determinism for any sibling code running in the

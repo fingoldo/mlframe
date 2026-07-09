@@ -30,7 +30,7 @@ from typing import (
 import numpy as np
 
 if TYPE_CHECKING:
-    import torch.nn as nn
+    import torch.nn as nn  # noqa: F401
 
 
 @runtime_checkable

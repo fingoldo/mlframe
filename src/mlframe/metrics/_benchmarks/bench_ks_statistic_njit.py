@@ -13,7 +13,7 @@ inside the loop. No temporaries, one pass.
 Variants:
   * ``numpy_current``  -- np.argsort + yt[order] + ys[order] + _ks_statistic_kernel
                           (the shipped path; two N-length gather temporaries).
-  * ``fused_gather``   -- np.argsort + _ks_statistic_kernel_ordered(order, yt, ys)
+  * ``fused_gather``  -- np.argsort + _ks_statistic_kernel_ordered(order, yt, ys)
                           (kernel indexes through order; zero gather temporaries).
 
 Run: python -m mlframe.metrics._benchmarks.bench_ks_statistic_njit

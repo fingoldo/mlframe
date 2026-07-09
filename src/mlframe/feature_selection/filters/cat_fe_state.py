@@ -10,12 +10,12 @@ Why two dataclasses, not many parallel ``MRMR.__init__`` kwargs:
 
 Default-selection rationale:
 
-- ``include_numeric=False``        -- discretized noisy floats produce spurious aliasing; opt-in when domain knowledge supports mixing.
-- ``full_npermutations=50``        -- zero is an anti-statistical trap (no FWER guarantee). 50 is a cheap default; bump to 500-1000 with bh_fdr / westfall_young for strict FWER control.
+- ``include_numeric=False``  -- discretized noisy floats produce spurious aliasing; opt-in when domain knowledge supports mixing.
+- ``full_npermutations=50``  -- zero is an anti-statistical trap (no FWER guarantee). 50 is a cheap default; bump to 500-1000 with bh_fdr / westfall_young for strict FWER control.
 - ``permutation_null="joint_independence"`` -- matches what shuffle-Y actually tests; the misnamed "synergy null" stays a documented limitation, addressable later via conditional permutation.
-- ``select_on="synergy"``          -- canonical use case; redundancy / absolute are explicit alternatives.
+- ``select_on="synergy"``  -- canonical use case; redundancy / absolute are explicit alternatives.
 - ``min_interaction_information=None`` -- resolved at fit time to ``-3 / sqrt(n_samples)`` (small-negative absorbs finite-sample noise around the synergy boundary).
-- ``backend="auto"``               -- GPU when N>=200 AND n>=500k AND CuPy available, else CPU prange.
+- ``backend="auto"``  -- GPU when N>=200 AND n>=500k AND CuPy available, else CPU prange.
 """
 
 from __future__ import annotations

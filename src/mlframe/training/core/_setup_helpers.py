@@ -36,7 +36,7 @@ import category_encoders as ce
 # other helpers in this module that only need the class for typing use
 # TYPE_CHECKING-guarded references.
 if TYPE_CHECKING:
-    from mlframe.feature_selection.filters import MRMR
+    from mlframe.feature_selection.filters import MRMR  # noqa: F401
 
 from ..configs import TargetTypes
 from ..utils import get_pandas_view_of_polars_df
@@ -50,7 +50,7 @@ logger = logging.getLogger(__name__)
 # Re-exported from the sibling so historical
 # ``from mlframe.training.core._setup_helpers import _pipeline_disk_cache_path``
 # imports keep resolving.
-from ._setup_helpers_pipeline_cache import (
+from ._setup_helpers_pipeline_cache import (  # noqa: F401
     _PIPELINE_JSON_ROUNDTRIP_CACHE,
     _PIPELINE_JSON_DISK_CACHE_PATH,
     _PIPELINE_JSON_DISK_CACHE_LOADED,
@@ -230,7 +230,7 @@ def _ensure_config(
 # Global outlier-detection helper carved to ``_setup_helpers_outliers``;
 # re-exported here so ``from mlframe.training.core._setup_helpers import
 # _apply_outlier_detection_global`` keeps working.
-from ._setup_helpers_outliers import _apply_outlier_detection_global
+from ._setup_helpers_outliers import _apply_outlier_detection_global  # noqa: F401
 
 
 def _setup_model_directories(
@@ -300,7 +300,7 @@ def _build_common_params_for_target(
 
 
 # ``_build_pre_pipelines`` lives in ``_setup_helpers_pre_pipelines``; re-exported here.
-from ._setup_helpers_pre_pipelines import _build_pre_pipelines
+from ._setup_helpers_pre_pipelines import _build_pre_pipelines  # noqa: F401
 
 
 def _build_process_model_kwargs(
@@ -514,7 +514,7 @@ def log_chart_summary(metadata: dict | None, *, save_charts: bool, data_dir: str
 # re-exported here so historical
 # ``from mlframe.training.core._setup_helpers import _finalize_and_save_metadata``
 # imports keep resolving.
-from ._setup_helpers_metadata import (
+from ._setup_helpers_metadata import (  # noqa: F401
     _create_initial_metadata,
     _initialize_training_defaults,
     _finalize_and_save_metadata,

@@ -16,5 +16,5 @@ logger = logging.getLogger("mlframe.training.core.predict")
 # Sub-sibling re-exports. The two entry-points each live in their own
 # file so this file stays below the 1k-LOC monolith threshold.
 # ----------------------------------------------------------------------
-from ._predict_main_from_models import predict_from_models
-from ._predict_main_suite import predict_mlframe_models_suite
+from ._predict_main_from_models import predict_from_models  # noqa: F401
+from ._predict_main_suite import predict_mlframe_models_suite  # noqa: F401

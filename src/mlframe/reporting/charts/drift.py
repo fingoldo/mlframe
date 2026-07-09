@@ -2,15 +2,15 @@
 
 Five spec builders (each returns a pure-data FigureSpec, no matplotlib/plotly objects):
 
-- ``psi_heatmap``            -- Population Stability Index per feature per time bucket vs a baseline
+- ``psi_heatmap``  -- Population Stability Index per feature per time bucket vs a baseline
                                (train slice or rolling): features x time HeatmapPanelSpec with the 0.10 / 0.25
                                triage thresholds. PSI > 0.25 in a feature's later buckets => that feature drifted.
-- ``residual_vs_time``       -- regression residual mean +- std per time bin (LinePanelSpec band): bias drift
+- ``residual_vs_time``  -- regression residual mean +- std per time bin (LinePanelSpec band): bias drift
                                (mean wandering off zero) + variance drift (band widening) over time.
-- ``cusum_residual_drift``   -- two-sided tabular CUSUM of standardized residuals: catches a SUSTAINED mean shift
+- ``cusum_residual_drift``  -- two-sided tabular CUSUM of standardized residuals: catches a SUSTAINED mean shift
                                (structural break) earlier than per-bucket residual_vs_time, since a small persistent
                                bias accumulates past the control limit before any single bucket's mean looks abnormal.
-- ``metric_over_time``       -- wraps ``training.evaluation.compute_ml_perf_by_time`` (numpy-fast, byte-identical)
+- ``metric_over_time``  -- wraps ``training.evaluation.compute_ml_perf_by_time`` (numpy-fast, byte-identical)
                                into a LinePanelSpec, with per-split / regime shading via vspans.
 - ``adversarial_validation`` -- the Kaggle "will my CV transfer" panel: a LightGBM classifier separating
                                train-vs-test (and train-vs-val) rows on a shuffled union; ROC + AUC annotation +

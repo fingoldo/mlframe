@@ -557,7 +557,7 @@ def fast_huber_loss(
 # ============================================================================
 
 
-from ._regression_corr import (
+from ._regression_corr import (  # noqa: F401  re-export: rank/correlation metrics carved to a sibling
     _pearson_corr_kernel,
     fast_pearson_corr,
     fast_spearman_corr,
@@ -852,7 +852,7 @@ def fast_regression_metrics_block_extended(
         "_n_zero_y": int(n_zero_y),
     }
 
-from ._regression_deviance import (
+from ._regression_deviance import (  # noqa: F401
     _maybe_warn_tweedie,
     _tweedie_deviance_gamma_kernel,
     _tweedie_deviance_general_kernel,

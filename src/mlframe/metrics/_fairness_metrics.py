@@ -314,7 +314,6 @@ def compute_fairness_metrics(
                             "compute_fairness_metrics: bins is set but " "subset_index is None; the function's state " "machine reached an unreachable branch."
                         )
                     bins = bins.loc[subset_index]
-                bins_names = group_params.get("bins_names")
                 unique_bins = None
 
             npoints: list = []

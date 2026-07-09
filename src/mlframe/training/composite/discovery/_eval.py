@@ -205,7 +205,7 @@ def refit_transform_on_fold(
             fit_kwargs["groups"] = g_arr[valid]
     try:
         fold_params = transform.fit(y_v, base_v, **fit_kwargs)
-    except Exception as _fit_err:
+    except Exception as _fit_err:  # -- degenerate fold, keep global
         logger.debug(
             "refit_transform_on_fold: per-fold fit failed (%s); caller should " "fall back to global params for this fold.",
             _fit_err,
@@ -227,7 +227,7 @@ def refit_transform_on_fold(
             valid_fitted = np.asarray(
                 _dcf(y_fold, base_fold, fold_params), dtype=bool,
             )
-        except Exception:
+        except Exception:  # -- treat as no refinement
             valid_fitted = None
         if valid_fitted is not None and valid_fitted.shape == valid.shape:
             refined = valid & valid_fitted

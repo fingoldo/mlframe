@@ -7,10 +7,10 @@ advantage over plain mrmr_fe / all-features ACROSS several REAL classification d
 
 It loads several real FS-relevant datasets via fetch_openml (try, skip on failure), and on an honest
 60/40 stratified split compares downstream (lgbm / logit / knn) held-out AUC of:
-  all          -- all features, no selection (the do-nothing baseline)
-  mrmr_fe      -- MRMR + feature engineering (fe_max_steps=1), the incumbent FS baseline
-  hybrid       -- HybridSelector(vote=1, use_fe=True): the 3 shipped hybrid wins, all default-on
-  mrmr_tree    -- MRMRTreeRescued(fe_max_steps=1): the gated tree-importance rescue win
+  all  -- all features, no selection (the do-nothing baseline)
+  mrmr_fe  -- MRMR + feature engineering (fe_max_steps=1), the incumbent FS baseline
+  hybrid  -- HybridSelector(vote=1, use_fe=True): the 3 shipped hybrid wins, all default-on
+  mrmr_tree  -- MRMRTreeRescued(fe_max_steps=1): the gated tree-importance rescue win
 
 Reports n_selected + per-model AUC + mean AUC for every (dataset x strategy), then a per-win generalisation
 verdict that explicitly flags any dataset where the hybrid REGRESSES vs mrmr_fe (that is the point of the test).

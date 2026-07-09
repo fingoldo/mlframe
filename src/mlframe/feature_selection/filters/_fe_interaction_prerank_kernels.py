@@ -125,7 +125,7 @@ def warm_gbm_cost_cache() -> None:
     Best effort: callers may skip this and rely on ``measured_gbm_cols_per_second``'s fallback.
     No-op if LightGBM or pyutilz is unavailable."""
     try:
-        import lightgbm
+        import lightgbm  # noqa: F401
     except Exception:
         return
     try:

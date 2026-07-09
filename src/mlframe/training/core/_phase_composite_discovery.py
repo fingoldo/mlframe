@@ -35,7 +35,7 @@ from .utils import (
 
 logger = logging.getLogger(__name__)
 
-from ._phase_composite_discovery_helpers import (
+from ._phase_composite_discovery_helpers import (  # noqa: F401
     _render_composite_discovery_diagnostics,
     _build_disc_df_for_target,
     _discovery_config_signature,
@@ -356,7 +356,7 @@ def run_composite_target_discovery(
                     y_train=_y_train_aligned,
                     group_ids_train=_grp_train,
                 )
-            except Exception as _pc_err:
+            except Exception as _pc_err:  # -- a precheck failure must never abort discovery
                 logger.info(
                     "[CompositeTargetDiscovery] achievable-ceiling precheck raised for target='%s' (%s); discovery proceeds.",
                     _tname_disc, _pc_err,
@@ -641,7 +641,7 @@ def run_composite_target_discovery(
                                 if hasattr(val_df_pd, "__len__") and len(val_df_pd) == len(_vy):
                                     _disc_val_df = val_df_pd
                                     _disc_val_y = _vy
-                        except Exception:
+                        except Exception:  # -- val gate is best-effort; fall back to train-group holdout
                             _disc_val_df, _disc_val_y = None, None
                         _disc = _disc_instance.fit(
                             df=_disc_df,
@@ -701,7 +701,7 @@ def run_composite_target_discovery(
             if _ceiling_verdict is not None:
                 try:
                     _disc.composite_precheck_verdict_ = _ceiling_verdict
-                except Exception as e:
+                except Exception as e:  # -- exotic/read-only _disc; the verdict already lives in metadata
                     logger.debug("swallowed exception in _phase_composite_discovery.py: %s", e)
                     pass
 

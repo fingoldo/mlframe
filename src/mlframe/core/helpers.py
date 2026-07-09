@@ -38,8 +38,8 @@ def MakeSureBlasAndLaPackAreInstalled():
     """Print numpy's detected BLAS/LAPACK backend info (interactive diagnostic to confirm numpy is linked against an optimized linear-algebra library rather than the slow reference implementation)."""
     from numpy.distutils.system_info import get_info
 
-    print(get_info("blas_opt"))
-    print(get_info("lapack_opt"))
+    print(get_info("blas_opt"))  # noqa: T201 -- interactive diagnostic utility, this IS the function's job
+    print(get_info("lapack_opt"))  # noqa: T201
 
 
 def ListAllSkLearnClassifiers():
@@ -48,7 +48,7 @@ def ListAllSkLearnClassifiers():
 
     for name, Class in all_estimators():
         if name.find("Class") > 0:
-            print(Class.__module__, name)
+            print(Class.__module__, name)  # noqa: T201 -- interactive diagnostic utility, this IS the function's job
 
 
 def has_early_stopping_support(model_type: str) -> bool:
@@ -234,8 +234,8 @@ def show_sys_ram_usage():
 
     mem = psutil.virtual_memory()
 
-    print(f"Total: {mem.total / 1e9:.2f} GB")
-    print(f"Available: {mem.available / 1e9:.2f} GB")
-    print(f"Used: {mem.used / 1e9:.2f} GB")
-    print(f"Free: {mem.free / 1e9:.2f} GB")
-    print(f"Memory Usage: {mem.percent}%")
+    print(f"Total: {mem.total / 1e9:.2f} GB")  # noqa: T201 -- interactive diagnostic utility, this IS the function's job
+    print(f"Available: {mem.available / 1e9:.2f} GB")  # noqa: T201
+    print(f"Used: {mem.used / 1e9:.2f} GB")  # noqa: T201
+    print(f"Free: {mem.free / 1e9:.2f} GB")  # noqa: T201
+    print(f"Memory Usage: {mem.percent}%")  # noqa: T201

@@ -89,7 +89,7 @@ def build_ood_lag_router(
     try:
         raw_val = np.asarray(trained.predict(filtered_val_df), dtype=np.float64)
         lag_val = np.asarray(lag_component.predict(filtered_val_df), dtype=np.float64)
-    except Exception as exc:
+    except Exception as exc:  # -- a component that cannot predict on val -> no routing
         logger.info("[OODLagRouter] val predict failed (%s); routing skipped.", exc)
         return trained
     if raw_val.shape != yv.shape or lag_val.shape != yv.shape:

@@ -139,7 +139,7 @@ class BaselineDiagnosticsReport:
         }
 
 
-from ..utils import coerce_to_1d_numpy as _to_1d_numpy
+from ..utils import coerce_to_1d_numpy as _to_1d_numpy  # noqa: E402,F401
 # Local name preserved for downstream importers (``dummy`` imports ``_to_1d_numpy`` from here).
 
 

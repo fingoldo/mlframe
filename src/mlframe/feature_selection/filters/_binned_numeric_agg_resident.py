@@ -349,7 +349,7 @@ def local_mi_gate_binagg_resident(
     raw_X) -- that path is the small raw matrix already routed through STRICT ``_mi_classif_batch`` and is NOT
     the collapsed upload; reproducing it host-side keeps the floor (and thus the keep/drop decision) identical."""
     try:
-        import cupy as cp
+        import cupy as cp  # noqa: F401
     except Exception:
         return None
     # ``cand_cols`` / ``n_rows`` let the DEVICE-BORN caller (binned_numeric_agg_with_recipes' recipes-only path)

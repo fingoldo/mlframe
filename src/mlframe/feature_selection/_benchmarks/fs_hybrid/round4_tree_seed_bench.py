@@ -3,10 +3,10 @@
 Decisive ISOLATION test (bench-local, NO production edit) of the two distinct uses of a cheap shallow-tree
 supervised signal, against the MEASURED madelon collapse-to-3:
 
-  (1) tree-importance SELECTION   -- does picking the shallow GBM's top-K features (a supervised signal that
+  (1) tree-importance SELECTION  -- does picking the shallow GBM's top-K features (a supervised signal that
       sees interaction operands because the tree branches on them) recover madelon where MRMR's marginal-MI
       greedy collapses to 3?  This is the SELECTION fix (seed/rescue MRMR's under-selection).
-  (2) tree-co-occurrence FE       -- does engineering raw[i]*raw[j] for the top tree-co-occurrence pairs
+  (2) tree-co-occurrence FE  -- does engineering raw[i]*raw[j] for the top tree-co-occurrence pairs
       (features appearing together in the same tree = the tree is exploiting their interaction) recover the
       a*b signal?  This is the FE-product fix.  hard_synth (true a*b/a^2 interactions) is the clean bed for it;
       madelon (5-dim XOR cluster) is the stress bed where pairwise products may NOT linearize the signal.

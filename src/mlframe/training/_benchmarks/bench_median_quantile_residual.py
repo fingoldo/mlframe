@@ -3,8 +3,8 @@ loop in ``_median_residual_fit`` and ``_quantile_residual_fit``.
 
 Three candidate variants for the median-residual binned reduction:
 
-* ``v1_pyloop``         -- the production baseline; for each bin ``i`` build a boolean mask ``bin_idx == i``, then ``np.median(y[mask])``.
-* ``v2_sort_split``     -- single ``np.argsort(bin_idx)``, ``np.searchsorted`` to find bin boundaries, then iterate over slices computing a contiguous-slice median (no Python boolean mask materialisation).
+* ``v1_pyloop``  -- the production baseline; for each bin ``i`` build a boolean mask ``bin_idx == i``, then ``np.median(y[mask])``.
+* ``v2_sort_split``  -- single ``np.argsort(bin_idx)``, ``np.searchsorted`` to find bin boundaries, then iterate over slices computing a contiguous-slice median (no Python boolean mask materialisation).
 * ``v3_pandas_groupby`` -- ``pd.Series(y).groupby(bin_idx).median()`` -- pandas vectorised hash-groupby + sort-based median; one pass over the data, no per-bin Python loop.
 
 Same three for the quantile-residual case (median + 25 / 75 IQR percentiles).

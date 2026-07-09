@@ -13,7 +13,7 @@ This module runs the standalone ``select_usability_aware_features`` (see
 ``_usability_aware_selection.py``) as a SECOND pass over a freshly-built
 candidate pool and stores TWO additional selections on the fitted estimator:
 
-* ``support_linear_``    -- ``w -> 1`` usability-only relevance (for linear / additive models).
+* ``support_linear_``  -- ``w -> 1`` usability-only relevance (for linear / additive models).
 * ``support_universal_`` -- a blended ``MI + lambda*usability`` list (a universal / linear-leaning list).
 
 plus ``support_nonlinear_`` (an alias for the existing ``support_``). Each entry

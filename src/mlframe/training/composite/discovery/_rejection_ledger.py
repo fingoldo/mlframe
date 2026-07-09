@@ -65,5 +65,5 @@ def ledger_append(
             "reason": str(reason),
             "numbers": dict(numbers or {}),
         })
-    except Exception:
+    except Exception:  # -- ledger is observability-only; never let it break a fit  # nosec B110 - best-effort/optional path, no module logger
         pass

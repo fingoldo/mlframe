@@ -16,7 +16,7 @@ import sys
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ._training_context import TrainingContext
+    from ._training_context import TrainingContext  # noqa: F401
 
 
 _PARENT_MODULE = "mlframe.training.core._setup_helpers"

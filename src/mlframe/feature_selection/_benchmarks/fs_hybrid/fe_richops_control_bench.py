@@ -4,11 +4,11 @@ Main bench result: on madelon, tree_top25+ALLrich (n=121) beat tree_top25+produc
 mean AUC. But ALLrich adds 96 engineered columns vs products' 12 -> the gain could be feature-COUNT
 capacity, not the operator class. This control disentangles it on the two real beds:
 
-  base               = tree_top25 raw (25)                            -- substrate
-  +product           = base + a*b for the 12 pairs        (37)        -- products-only reference
-  +product+ALLrich   = base + products + all rich ops     (133)       -- do rich ADD on top of products?
-  +product+noiseN    = base + products + N random-noise cols          -- CAPACITY control (N=96, ALLrich size)
-  +ALLrich           = base + all rich ops (no products)  (121)       -- rich instead of products (main-bench dup)
+  base               = tree_top25 raw (25)  -- substrate
+  +product           = base + a*b for the 12 pairs        (37)  -- products-only reference
+  +product+ALLrich   = base + products + all rich ops     (133)  -- do rich ADD on top of products?
+  +product+noiseN    = base + products + N random-noise cols  -- CAPACITY control (N=96, ALLrich size)
+  +ALLrich           = base + all rich ops (no products)  (121)  -- rich instead of products (main-bench dup)
   +product12x2       = base + a*b for 24 pairs (more pairs, same op)  -- "just more pairs" control
 
 If +product+ALLrich >> +product AND >> +product+noise(96) -> rich operators genuinely ADD signal

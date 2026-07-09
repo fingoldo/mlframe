@@ -5,27 +5,27 @@ where the feature is expected to clearly beat the polynomial-only
 baseline. Real numbers, real wins, no marketing.
 
 Targets (each n=2000, binary classification, MI in nats):
-* ``periodic_a``        -- ``y = sign(sin(2*pi*x_a))`` (single-feature
+* ``periodic_a``  -- ``y = sign(sin(2*pi*x_a))`` (single-feature
                             periodic) -> **Fourier** should win
-* ``threshold``         -- ``y = (x_a > 0.5) AND (x_b > -0.3)``
+* ``threshold``  -- ``y = (x_a > 0.5) AND (x_b > -0.3)``
                             (sharp 2D step) -> **Sigmoid / RBF** should win
-* ``rbf_bump``          -- ``y = sign(exp(-(x_a-1)**2) - 0.5)``
+* ``rbf_bump``  -- ``y = sign(exp(-(x_a-1)**2) - 0.5)``
                             (local Gaussian bump) -> **RBF** should win
-* ``ratio_pole``        -- ``y = sign(x_a / (x_b + 0.5) - 1)`` -> **Pade
+* ``ratio_pole``  -- ``y = sign(x_a / (x_b + 0.5) - 1)`` -> **Pade
                             or div-bf** should win
-* ``multiplicative``    -- ``y = sign(x_a * x_b)`` (XOR) -> **trivial mul**
+* ``multiplicative``  -- ``y = sign(x_a * x_b)`` (XOR) -> **trivial mul**
                             beats all polynomials
-* ``radial``            -- ``y = sign(x_a**2 + x_b**2 - 1)`` ->
+* ``radial``  -- ``y = sign(x_a**2 + x_b**2 - 1)`` ->
                             **trivial sum_sq** beats all polynomials
-* ``angular``           -- ``y = sign(arctan2(x_a, x_b) - 0.5)`` ->
+* ``angular``  -- ``y = sign(arctan2(x_a, x_b) - 0.5)`` ->
                             **atan2 bin-func** wins
 * ``log_multiplicative`` -- ``y = sign(log(|x_a|) + log(|x_b|) - c)``
                             -> **logabs bin-func** wins
-* ``poly_3_terms``      -- ``y = sign(0.7*x_a**2 - 0.5*x_b**2 + 0.3*x_a*x_b)``
+* ``poly_3_terms``  -- ``y = sign(0.7*x_a**2 - 0.5*x_b**2 + 0.3*x_a*x_b)``
                             -> **Hermite / Chebyshev** wins
-* ``triplet_xor``       -- ``y = sign(x_a*x_b*x_c)`` (3-way XOR) ->
+* ``triplet_xor``  -- ``y = sign(x_a*x_b*x_c)`` (3-way XOR) ->
                             **triplet abc_mul** wins (pair-FE cannot)
-* ``log_separable``     -- ``y = sign(log|x_a| + log|x_b|)`` (after
+* ``log_separable``  -- ``y = sign(log|x_a| + log|x_b|)`` (after
                             auto_unary log_abs, this becomes linear) ->
                             **auto unary pre-transform** wins
 

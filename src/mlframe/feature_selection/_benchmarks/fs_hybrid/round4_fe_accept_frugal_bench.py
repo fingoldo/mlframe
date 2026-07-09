@@ -9,15 +9,15 @@ tree branches on together). We engineer raw[a]*raw[b] product columns from a GEN
 ask: which ACCEPTANCE RULE for keeping products beats keeping all of them?
 
 Base feature set is ALWAYS tree_top25 raw. The variable is WHICH engineered products to append:
-  (1) keep_all          -- append every candidate product (the round4_tree_seed reference behaviour).
-  (2) holdout_greedy    -- forward-select products one at a time by HELD-OUT incremental gain on an inner honest
+  (1) keep_all  -- append every candidate product (the round4_tree_seed reference behaviour).
+  (2) holdout_greedy  -- forward-select products one at a time by HELD-OUT incremental gain on an inner honest
                            split; stop when best remaining gain < floor (A3-3). Inner gain scored with a CHEAP
                            standardized logistic regression (NOT a full LightGBM) -> no big-model allocation,
                            O(cand^2) cheap fits. The product-pruning decision is what we test; the downstream
                            AUC of the kept set is still judged by the full {lgbm,logit,knn} panel.
-  (3) resid_mi_topk     -- score each candidate product by MI with the RESIDUAL (y - OOF p) of a cheap model on
+  (3) resid_mi_topk  -- score each candidate product by MI with the RESIDUAL (y - OOF p) of a cheap model on
                            the raw selected set; keep top-k (A3-6: interaction signal lives in the residual).
-  (4) rawy_mi_topk      -- score each candidate product by MI with raw y; keep top-k (the naive control).
+  (4) rawy_mi_topk  -- score each candidate product by MI with raw y; keep top-k (the naive control).
 
 Downstream AUC = mean over {lgbm, logit, knn} of [tree_top25 raw + kept products].
 

@@ -1,7 +1,7 @@
 """Bench: class_mahalanobis._mahalanobis quadratic form.
 
 OLD: np.einsum("ij,jk,ik->i", diff, inv_cov, diff)  -- no optimize, naive O(n*d^2)
-NEW: ((diff @ inv_cov) * diff).sum(axis=1)           -- BLAS GEMM + elementwise
+NEW: ((diff @ inv_cov) * diff).sum(axis=1)  -- BLAS GEMM + elementwise
 
 Identity: ~1e-9 FP reduction-order delta (different summation order); selection-safe.
 Run: CUDA_VISIBLE_DEVICES="" python bench_mahalanobis_quadform.py

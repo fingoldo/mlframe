@@ -183,7 +183,7 @@ def extra_basis_eng_mi_resident(
         return None
     names = list(engineered_X.columns)
     try:
-        import cupy as cp
+        import cupy as cp  # noqa: F401
 
         from ._gpu_resident_cross_basis import _resident_mi
 

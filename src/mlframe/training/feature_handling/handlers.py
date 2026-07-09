@@ -31,7 +31,7 @@ from mlframe.training.feature_handling.axis import (
 )
 
 if TYPE_CHECKING:
-    from mlframe.training.feature_handling.providers import EmbeddingProvider
+    from mlframe.training.feature_handling.providers import EmbeddingProvider  # noqa: F401
 
 # Eager import for pydantic v2 -- forward ref resolution at module load
 # rather than via ``model_rebuild()`` which can fail if order changes.

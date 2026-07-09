@@ -3,7 +3,7 @@ from __future__ import annotations
 
 DEFAULT_PROBABILITY_THRESHOLD: float = 0.5
 
-from ._setup_helpers import (
+from ._setup_helpers import (  # noqa: F401
     _ensure_config,
     _apply_outlier_detection_global,
     _setup_model_directories,
@@ -21,7 +21,7 @@ from ._setup_helpers import (
     get_decision_threshold,
 )
 
-from ._phase_helpers import (
+from ._phase_helpers import (  # noqa: F401
     _apply_plot_style_overrides,
     _defensive_copy_and_expand_multilabel_regression,
     _init_composite_discovery_metadata,
@@ -36,7 +36,7 @@ from ._phase_helpers import (
     _maybe_dispatch_to_ltr_ranker_suite,
 )
 
-from ._misc_helpers import (
+from ._misc_helpers import (  # noqa: F401
     _ensure_logging_visible,
     _entry_metric,
     _augment_with_dropped_high_card_cols,

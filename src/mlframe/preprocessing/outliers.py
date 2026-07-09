@@ -23,7 +23,7 @@ from sklearn.ensemble import IsolationForest
 # broken against new sklearn (parse_version moved). `reject_outliers` imports
 # it lazily so the rest of the module stays usable.
 try:
-    from imblearn import FunctionSampler
+    from imblearn import FunctionSampler  # noqa: F401
     from imblearn.pipeline import Pipeline as _ImbPipeline
     _HAS_IMBLEARN = True
 except Exception:  # pragma: no cover

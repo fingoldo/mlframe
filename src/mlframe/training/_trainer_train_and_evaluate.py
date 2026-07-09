@@ -50,8 +50,8 @@ try:
 except ImportError:  # pragma: no cover
     XGBClassifier = XGBRegressor = None  # type: ignore[assignment,misc]
 
-from ._predict_guards import _CB_VAL_POOL_CACHE
-from .pipeline import (
+from ._predict_guards import _CB_VAL_POOL_CACHE  # noqa: F401
+from .pipeline import (  # noqa: F401
     _PRE_PIPELINE_CACHE, _PRE_PIPELINE_CACHE_LOCK, _PRE_PIPELINE_CACHE_MAX,
     _apply_pre_pipeline_transforms, _extract_feature_selector,
     _is_fitted, _multilabel_target_to_1d_for_supervised_encoders,
@@ -59,7 +59,7 @@ from .pipeline import (
     _pre_pipeline_cache_clear, _pre_pipeline_cache_get,
     _pre_pipeline_cache_set, _prepare_test_split,
 )
-from .cb import (
+from .cb import (  # noqa: F401
     _cached_gpu_info, _maybe_get_or_build_cb_pool,
     _maybe_rewrite_eval_set_as_cb_pool,
     _polars_df_has_null_in_categorical,
@@ -68,22 +68,22 @@ from .cb import (
     _polars_schema_diagnostic,
     _predict_with_fallback,
 )
-from ._eval_helpers import (
+from ._eval_helpers import (  # noqa: F401
     _align_xgb_cat_categories, _append_split_rate_suffix,
     _compute_split_metrics, _decategorise_float_cat_columns,
     _filter_categorical_features, run_confidence_analysis,
 )
 from ._feature_name_sanitize import sanitize_frame_columns as _sanitize_frame_columns
-from ._training_loop import (
+from ._training_loop import (  # noqa: F401
     _SigmoidAdapter, _PostHocCalibratedModel,
     _PostHocMultiCalibratedModel, _PerClassIsotonicCalibrator,
     _maybe_apply_posthoc_calibration, _train_model_with_fallback,
 )
-from ._data_helpers import (
+from ._data_helpers import (  # noqa: F401
     _setup_eval_set, _setup_early_stopping_callback,
 )
 from ._calib_oof_outputs import compute_calib_and_oof_outputs, maybe_run_confidence_analysis
-from ._model_factories import (
+from ._model_factories import (  # noqa: F401
     GPU_VRAM_SAFE_FREE_LIMIT_GB, GPU_VRAM_SAFE_SATURATION_LIMIT,
     MODELS_SUBDIR, USE_LGB_DATASET_REUSE_SHIM, USE_XGB_DMATRIX_REUSE_SHIM,
     _get_neural_components,

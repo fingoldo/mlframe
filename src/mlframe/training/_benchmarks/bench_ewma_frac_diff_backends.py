@@ -8,9 +8,9 @@ recurrence stays serial but K parallel threads share the heavy lifting.
 
 Variants:
 
-* ``v1_njit_single``       -- production: per-spec call into the scalar-args njit kernel.
+* ``v1_njit_single``  -- production: per-spec call into the scalar-args njit kernel.
 * ``v2_njit_par_batched``  -- (K, N) kernel with ``prange`` over K (batched anchor + alpha per spec).
-* ``v3_cuda_batched``      -- ``cp.RawKernel`` with one CUDA block per spec; threads inside a block cooperate over N (each handles its own k slice and the warp leader reduces -- here just one thread per spec since the recurrence is fully serial). Only built when cupy + a CUDA device are available.
+* ``v3_cuda_batched``  -- ``cp.RawKernel`` with one CUDA block per spec; threads inside a block cooperate over N (each handles its own k slice and the warp leader reduces -- here just one thread per spec since the recurrence is fully serial). Only built when cupy + a CUDA device are available.
 
 Output: prints a table of (variant, n, k, ms) plus a JSON dump in ``_results/``.
 

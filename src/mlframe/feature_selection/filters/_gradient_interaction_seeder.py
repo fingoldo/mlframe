@@ -99,7 +99,7 @@ def _resolve_grad_threshold(name: str, default):
         except (TypeError, ValueError):
             pass
     try:  # best-effort per-host cache (populated by the tuner on this host)
-        from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
+        from pyutilz.performance.kernel_tuning.cache import KernelTuningCache  # noqa: F401
 
         # The cache is keyed by kernel-name + hw fingerprint; a missing entry returns the default.
         # We deliberately do not WRITE here (the seeder is opt-in / off the hot path); a future

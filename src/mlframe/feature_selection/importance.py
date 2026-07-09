@@ -197,7 +197,7 @@ def plot_feature_importance(
     # fit on top of cal-plot wins.
     if plot_file == "" and show_plots:
         try:
-            _is_interactive_session = bool(__IPYTHON__)  # type: ignore[name-defined]
+            _is_interactive_session = bool(__IPYTHON__)  # type: ignore[name-defined]  # noqa: F821
         except NameError:
             import sys as _sys
             _is_interactive_session = hasattr(_sys, "ps1")
@@ -290,7 +290,7 @@ def plot_feature_importance(
                 # ``__IPYTHON__`` is defined only inside an IPython /
                 # Jupyter kernel (not in bare python or in a script
                 # that happened to import IPython transitively).
-                _in_kernel = bool(__IPYTHON__)  # type: ignore[name-defined]
+                _in_kernel = bool(__IPYTHON__)  # type: ignore[name-defined]  # noqa: F821
             except NameError:
                 _in_kernel = False
             _displayed_inline = False

@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from ._fe_synergy_screen import _pair_mm_mi_njit, joint_synergy_mi
+from ._fe_synergy_screen import _pair_mm_mi_njit, joint_synergy_mi  # noqa: F401
 
 
 def _pair_mm_mi(code_x: np.ndarray, code_y: np.ndarray, yc: np.ndarray, min_rows_per_cell: float = 5.0) -> float:
@@ -164,7 +164,7 @@ def detect_synergy(
     # data-derived threshold: a multiple of the permuted-null excess scale (read from kernel_tuning_cache).
     null_mult = _DEFAULT_NULL_MULT
     try:
-        from pyutilz.system import kernel_tuning_cache
+        from pyutilz.system import kernel_tuning_cache  # noqa: F401
         null_mult = float(_lookup_null_mult())
     except Exception:  # nosec B110 - optional dependency import guard
         pass

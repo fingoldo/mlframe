@@ -59,13 +59,13 @@ from .utils import (
 from . import _phase_runners as pr
 
 
-from ._main_train_suite_encoding import (
+from ._main_train_suite_encoding import (  # noqa: F401
     SuiteResult,
     _assert_suite_return_shape,
     _encode_string_multiclass_target,
 )
-from ._misc_helpers import _bulk_setattr_to_ctx, _split_preds_probs, _prep_polars_df
-from ._main_train_suite_defaults import _build_default_extractor, _infer_target_is_classification
+from ._misc_helpers import _bulk_setattr_to_ctx, _split_preds_probs, _prep_polars_df  # noqa: F401
+from ._main_train_suite_defaults import _build_default_extractor, _infer_target_is_classification  # noqa: F401
 from ._main_train_suite_phases import (
     apply_module_global_patches,
     apply_polars_cat_fixes_and_back_write_ctx,

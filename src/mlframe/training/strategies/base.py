@@ -57,7 +57,7 @@ class _Float32CastTransformer(TransformerMixin, BaseEstimator):
         tags.input_tags.allow_nan = True
         return tags
 
-    def fit(self, X, y=None):
+    def fit(self, X, y=None):  # -- sklearn signature
         """Stamp ``feature_names_in_``/``n_features_in_`` without touching values; the cast itself is stateless."""
         # Stamp the standard fitted attributes so ``check_is_fitted`` succeeds
         # AND sklearn's pipeline name-tracker (which calls
@@ -114,7 +114,7 @@ class _InfToNaNTransformer(TransformerMixin, BaseEstimator):
         tags.input_tags.allow_nan = True
         return tags
 
-    def fit(self, X, y=None):
+    def fit(self, X, y=None):  # -- sklearn signature
         """Stamp ``feature_names_in_``/``n_features_in_``; the inf->NaN replacement itself needs no fitted state."""
         import numpy as _np
         if hasattr(X, "columns"):

@@ -137,7 +137,7 @@ def __getattr__(name):
         return _fn
     if name == "MAX_CONFIRMATION_CAND_NBINS":
         import warnings as _w
-        from ._internals import MAX_CONFIRMATION_CAND_NBINS as _legacy_const
+        from ._internals import MAX_CONFIRMATION_CAND_NBINS as _legacy_const  # noqa: N811 -- deprecation-trap alias, name intentionally non-constant-looking
         _w.warn(
             "Accessing MAX_CONFIRMATION_CAND_NBINS as a module constant is "
             "deprecated. Use MRMR(max_confirmation_cand_nbins=...) per-instance "

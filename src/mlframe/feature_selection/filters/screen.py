@@ -167,4 +167,4 @@ def postprocess_candidates(
 # in ``_screen_predictors.py`` so this file stays below the 1k-LOC
 # monolith threshold.
 # ----------------------------------------------------------------------
-from ._screen_predictors import screen_predictors
+from ._screen_predictors import screen_predictors  # noqa: F401

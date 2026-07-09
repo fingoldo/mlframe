@@ -56,10 +56,10 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 from ._target_temporal_audit_coerce import (
-    _AUDIT_DATETIME_HIGH_NS,
-    _AUDIT_DATETIME_LOW_NS,
-    _AUDIT_UNIT_NS_FACTOR,
-    _import_ruptures,
+    _AUDIT_DATETIME_HIGH_NS,  # noqa: F401
+    _AUDIT_DATETIME_LOW_NS,  # noqa: F401
+    _AUDIT_UNIT_NS_FACTOR,  # noqa: F401
+    _import_ruptures,  # noqa: F401
     coerce_timestamps_for_audit,
 )
 
@@ -92,17 +92,17 @@ outlier, not a regime). Raise to 3+ to filter out short transients."""
 ChangePointMethod = Literal["pelt", "zscore"]
 
 from ._target_temporal_audit_aggregate import (
-    DEFAULT_TARGET_BINS_RANGE,
+    DEFAULT_TARGET_BINS_RANGE,  # noqa: F401
     Granularity,
-    _GRANULARITY_ORDER,
+    _GRANULARITY_ORDER,  # noqa: F401
     _GRANULARITY_SECONDS,
-    _POLARS_BIN_TRUNCATE,
+    _POLARS_BIN_TRUNCATE,  # noqa: F401
     _aggregate_by_time_pandas,
     _aggregate_by_time_polars,
     _aggregate_by_time_polars_multi,
-    _format_bin_label,
+    _format_bin_label,  # noqa: F401
     _pick_granularity,
-    _polars_rate_expr,
+    _polars_rate_expr,  # noqa: F401
 )
 
 
@@ -275,7 +275,7 @@ class TemporalAuditResult:
         return mask
 
 
-from ._target_temporal_changepoint import (
+from ._target_temporal_changepoint import (  # noqa: F401
     find_change_points_pelt,
     find_change_points_zscore,
     find_change_points,
@@ -548,10 +548,10 @@ def audit_targets_over_time(
 
 
 # Wave 106c (2026-05-21): _audit_from_agg moved to sibling.
-from ._target_temporal_audit_from_agg import _audit_from_agg
+from ._target_temporal_audit_from_agg import _audit_from_agg  # noqa: F401, E402
 
 # Wave 106b (2026-05-21): plot_target_over_time moved to sibling.
-from ._target_temporal_plot import plot_target_over_time
+from ._target_temporal_plot import plot_target_over_time  # noqa: F401
 
 def format_temporal_audit_report(result: TemporalAuditResult) -> str:
     """Compact text rendering for log output."""

@@ -96,7 +96,7 @@ def compute_val_veto(
             pv = np.asarray(oof_components[ci].predict(filtered_val_df), dtype=np.float64)
             f = np.isfinite(pv) & np.isfinite(yv)
             r = float(np.sqrt(np.mean((pv[f] - yv[f]) ** 2))) if int(f.sum()) >= 50 else float("nan")
-        except Exception:
+        except Exception:  # -- a component that cannot predict on val yields no veto signal
             r = float("nan")
         cache[ci] = r
         return r

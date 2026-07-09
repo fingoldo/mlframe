@@ -211,10 +211,10 @@ def surrogate_gbm_interaction_seeds(
     pair sweep considers -- so seeds map back to real operands). ``y`` is the ordinal
     target. Returns ``(seeded_pairs, seeded_triplets, info)``:
 
-      * ``seeded_pairs``    -- list of ``(a, b)`` index tuples, top-``top_k_pairs`` by
+      * ``seeded_pairs``  -- list of ``(a, b)`` index tuples, top-``top_k_pairs`` by
         depth-discounted split-gain co-occurrence (a < b).
       * ``seeded_triplets`` -- list of ``(a, b, c)`` index tuples, top-``top_k_triples``.
-      * ``info``            -- diagnostics dict (``oof_real``, ``oof_perm``, ``gated``,
+      * ``info``  -- diagnostics dict (``oof_real``, ``oof_perm``, ``gated``,
         ``n_pairs``, ``n_triples``, plus the raw weight maps for provenance).
 
     SELF-GATE (a permutation SIGNIFICANCE test): returns EMPTY pair/triple lists

@@ -11,7 +11,7 @@ partially captured by a finite Fourier truncation.
 
 Three transforms per ``(col, period)``:
 
-* ``mod``     -- ``x mod period`` -- the raw residue. Recovers a target that is
+* ``mod``  -- ``x mod period`` -- the raw residue. Recovers a target that is
   piecewise-constant in the residue (bucketed cycle).
 * ``modsin``  -- ``sin(2*pi*(x mod period)/period)`` -- phase, sine component.
 * ``modcos``  -- ``cos(2*pi*(x mod period)/period)`` -- phase, cosine component.

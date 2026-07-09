@@ -463,7 +463,7 @@ def _suggest_scipy_global(remaining: list, evaluated_scores_mean: dict, n_total:
 # importing make_gaussian_knockoffs / select_features_fdr /
 # knockoff_importance from this module keep working.
 # ----------------------------------------------------------------------
-from ._knockoffs import (
+from ._knockoffs import (  # noqa: F401
     make_gaussian_knockoffs,
     select_features_fdr,
     knockoff_importance,
@@ -471,7 +471,7 @@ from ._knockoffs import (
 
 # Importance computation + vote-ranking helpers live in _helpers_importance.py.
 # Re-exported so legacy ``from ._helpers import get_feature_importances`` callers keep working.
-from ._helpers_importance import (
+from ._helpers_importance import (  # noqa: F401
     _conditional_permutation_importance,
     _impute_ragged_fi_table,
     get_actual_features_ranking,

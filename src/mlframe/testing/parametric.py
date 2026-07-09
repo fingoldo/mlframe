@@ -348,8 +348,8 @@ def prod_like_frame(
             "timestamp", dtype=pl.Datetime,
             # naive datetimes are the intended dtype under test here (pl.Datetime default is tz-naive)
             strategy=st.datetimes(
-                min_value=dt.datetime(2023, 1, 1),
-                max_value=dt.datetime(2024, 12, 31),
+                min_value=dt.datetime(2023, 1, 1),  # noqa: DTZ001
+                max_value=dt.datetime(2024, 12, 31),  # noqa: DTZ001
             ),
             allow_null=False,
         ))
@@ -384,8 +384,8 @@ def prod_like_frame_small(
             dtype=pl.Datetime,
             # naive datetimes are the intended dtype under test here (pl.Datetime default is tz-naive)
             strategy=st.datetimes(
-                min_value=dt.datetime(2024, 1, 1),
-                max_value=dt.datetime(2024, 2, 1),
+                min_value=dt.datetime(2024, 1, 1),  # noqa: DTZ001
+                max_value=dt.datetime(2024, 2, 1),  # noqa: DTZ001 -- 1 month, enough for wholeday disabled
             ),
             allow_null=False,
         ),

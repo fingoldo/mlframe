@@ -54,8 +54,8 @@ from mlframe.training.feature_handling.config import TextDetectionConfig
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    import pandas as pd
-    import polars as pl
+    import pandas as pd  # noqa: F401
+    import polars as pl  # noqa: F401
 
 
 # =====================================================================

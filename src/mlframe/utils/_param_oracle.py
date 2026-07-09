@@ -375,7 +375,7 @@ def _rss_mb() -> Optional[float]:
 # Persistence (append-only, stat-only, concurrency-safe)
 # ---------------------------------------------------------------------------
 
-from ._param_oracle_store import (
+from ._param_oracle_store import (  # noqa: F401
     SCHEMA_VERSION,
     _ParquetStore,
     _STORE_COLUMNS,

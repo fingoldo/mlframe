@@ -6,10 +6,10 @@ visible rather than averaged away. A monotone-increasing PDP with sign-correct s
 flat PDP means the model ignores that feature.
 
 Builders:
-- ``compute_pdp(model, X, feature, ...)``   -- one-feature sweep -> grid, PDP mean, ICE matrix (+ optional c-ICE).
+- ``compute_pdp(model, X, feature, ...)``  -- one-feature sweep -> grid, PDP mean, ICE matrix (+ optional c-ICE).
 - ``compute_pdp_2d(model, X, (f0, f1), ...)`` -- two-feature interaction surface over a grid x grid.
-- ``pdp_panel(...)``                          -- LinePanelSpec: faint ICE lines + bold PDP mean.
-- ``pdp_2d_panel(...)``                       -- HeatmapPanelSpec for the interaction surface.
+- ``pdp_panel(...)``  -- LinePanelSpec: faint ICE lines + bold PDP mean.
+- ``pdp_2d_panel(...)``  -- HeatmapPanelSpec for the interaction surface.
 - ``compose_pdp_figure(model, X, features, ...)`` -- a grid of the top-N caller-ranked features.
 
 Efficiency contract (the prediction call is the only cost that scales with data):

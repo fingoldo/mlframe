@@ -28,7 +28,7 @@ VARIANTS SWEPT (bounded, single-knob deltas on jmim; all verified to change sele
 ---------------------------------------------------------------------------------------------------------------------------
   * ``default``       -- production defaults. Baseline every variant is scored against (reused from campaign #1 semantics).
   * ``jmim``          -- ``redundancy_aggregator='jmim'``. Reproduces campaign #1's holdout-winning-but-over-selecting jmim.
-  * ``jmim_bur05``    -- jmim + ``bur_lambda=0.5`` (unique-relevance bonus; the leading precision-fix hypothesis).
+  * ``jmim_bur05``  -- jmim + ``bur_lambda=0.5`` (unique-relevance bonus; the leading precision-fix hypothesis).
   * ``jmim_cmiperm``  -- jmim + ``cmi_perm_stop=True`` (permutation-null stopping; the alternative tail-cutter).
 
 DGP / METRICS / SPLIT / CHECKPOINT are REUSED VERBATIM from mrmr_largeN_campaign.py (same known-ground-truth drivers + decoys +

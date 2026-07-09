@@ -248,7 +248,7 @@ def cheap_integer_lattice_scan(
     hit's ``.responded`` flag applies the measured dual gate (margin + permutation null). The permutation null is
     computed ONLY for the per-pair best op when it already clears the baseline margin (early-reject keeps the null cost
     off the inner grid loop)."""
-    import pandas as pd
+    import pandas as pd  # noqa: F401  (X may be pandas or polars; we pull ndarrays)
 
     if cols is None:
         cols = [c for c in X.columns if _is_integer_col(np.asarray(X[c]))]

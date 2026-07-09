@@ -6,14 +6,14 @@ import logging
 
 import numpy as np
 import pandas as pd
-from pyutilz.numbalib import set_numba_random_seed
+from pyutilz.numbalib import set_numba_random_seed  # noqa: F401
 from sklearn.base import (
     clone,
 )
-from sklearn.dummy import DummyClassifier, DummyRegressor
+from sklearn.dummy import DummyClassifier, DummyRegressor  # noqa: F401
 from sklearn.model_selection import (
-    GroupShuffleSplit,
-    StratifiedShuffleSplit,
+    GroupShuffleSplit,  # noqa: F401
+    StratifiedShuffleSplit,  # noqa: F401
 )
 
 logger = logging.getLogger(__name__)

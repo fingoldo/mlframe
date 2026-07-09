@@ -756,4 +756,4 @@ def generate_mlp(
 
 
 # MLPTorchModel carved to ``_flat_torch_module``; re-exported below.
-from ._flat_torch_module import MLPTorchModel
+from ._flat_torch_module import MLPTorchModel  # noqa: F401

@@ -22,7 +22,7 @@ Default is no-harm: the gate is OFF by default
 caller simply does not consult this module and ranking is byte-for-byte unchanged.
 
 Definitions (all on the OOF residuals ``r = y_true - y_pred`` on held-out rows):
-  - bias        = |mean(r)| / scale   -- systematic offset, scale-normalised.
+  - bias        = |mean(r)| / scale  -- systematic offset, scale-normalised.
   - var_miscal  = |IQR(r_oof) / IQR(r_infold) - 1|  -- spread inflation/deflation
                   of the held-out residuals vs the in-fold residuals. A spec that
                   overfits has tight in-fold residuals but wide OOF residuals

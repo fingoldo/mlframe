@@ -503,7 +503,7 @@ def make_train_test_split(
             _strat_arr = np.asarray(stratify_y)
             if _strat_arr.ndim == 2:
                 try:
-                    from iterstrat.ml_stratifiers import (
+                    from iterstrat.ml_stratifiers import (  # noqa: F401
                         MultilabelStratifiedGroupKFold,
                     )
                     _multilabel_group_strat = True
@@ -856,7 +856,7 @@ def make_train_test_split(
 
 __all__ = ["make_train_test_split", "_carve_calib_from_train"]
 
-from ._split_helpers import (
+from ._split_helpers import (  # noqa: F401,E402
     _carve_calib_from_train,
     _deleak_tied_boundaries,
     _stratified_split,
