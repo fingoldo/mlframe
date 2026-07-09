@@ -566,7 +566,7 @@ def _dispatch_scorer(
             top_k=top_k, min_uplift=min_uplift,
             min_abs_mi_frac=min_abs_mi_frac, n_bins=10,
         )
-    raise ValueError(f"Unknown scorer {scorer!r}; expected one of " f"{META_SCORER_NAMES + ('tc',)} (tc only via force_scorer).")
+    raise ValueError(f"Unknown scorer {scorer!r}; expected one of " f"{(*META_SCORER_NAMES, 'tc')} (tc only via force_scorer).")
 
 
 def hybrid_orth_mi_meta_fe(

@@ -124,8 +124,8 @@ def optimise_hermite_pair(
     TPESampler: Any = None
     if optimizer == "optuna":
         try:
-            import optuna  # noqa: F811  late-bind for optional dep
-            from optuna.samplers import TPESampler  # noqa: F811
+            import optuna
+            from optuna.samplers import TPESampler
             # TPESampler(multivariate=True) emits ExperimentalWarning per study
             # init; flag has been "experimental" since 2020 and is the recommended
             # setting for correlated params — suppress the noise.
@@ -413,8 +413,7 @@ def optimise_hermite_pair(
                 seeds_per_feature = _canonical_seeds(basis, degree)
             # Pair every seed with every other seed for c_b (limited to keep init pop small).
             for s_a in seeds_per_feature:
-                for s_b in seeds_per_feature:
-                    warm_seeds.append(np.concatenate([s_a, s_b]))
+                warm_seeds.extend(np.concatenate([s_a, s_b]) for s_b in seeds_per_feature)
             # One symmetric pair (c_a = -c_b) captures antisymmetric targets like saddle.
             if seeds_per_feature:
                 s = seeds_per_feature[0]

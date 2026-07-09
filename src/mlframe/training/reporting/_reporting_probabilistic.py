@@ -714,7 +714,7 @@ def report_probabilistic_model_perf(
                     for _name, _val in _cls_extra:
                         try:
                             _cls_lines.append(f"\t{_name}={_val:.{report_ndigits}f}")
-                        except (TypeError, ValueError):
+                        except (TypeError, ValueError):  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
                             _cls_lines.append(f"\t{_name}={_val}")
                     logger.info("\n".join(_cls_lines))
             except (ImportError, AttributeError, ValueError, TypeError) as e:
@@ -814,7 +814,7 @@ def report_probabilistic_model_perf(
                     for name, val in extra:
                         try:
                             _ml_lines.append(f"\t{name}={val:.{report_ndigits}f}")
-                        except (TypeError, ValueError):
+                        except (TypeError, ValueError):  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
                             # val is non-numeric (str / dict / etc.); format
                             # as-is rather than crashing the whole report.
                             _ml_lines.append(f"\t{name}={val}")

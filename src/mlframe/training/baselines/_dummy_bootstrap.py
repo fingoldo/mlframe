@@ -485,7 +485,7 @@ def _bootstrap_ci_for_strongest(
                     for k in range(K):
                         try:
                             losses.append(float(_ll(yi[:, k], pi[:, k], labels=[0, 1])))
-                        except Exception as _e:
+                        except Exception as _e:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
                             # Pre-fix `continue` silently dropped failing classes
                             # from the mean -- the multilabel log-loss reported
                             # back was a biased average over surviving classes only.

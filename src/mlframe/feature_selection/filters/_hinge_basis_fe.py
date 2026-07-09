@@ -327,7 +327,7 @@ def _detect_hinge_breakpoints(
         # ``SSE_B - (r_relu . r_y)^2 / (r_relu . r_relu)`` where ``r_relu`` / ``r_y`` are the residuals of relu / y after projecting out B (one O(n*k) projection
         # per cut, no per-cut SVD). This is mathematically identical to the full ``lstsq`` SSE (FP reduction order ~1e-12, far below any tau-selection scale) and
         # ~2.4x faster on the n=4000 / 24-cut scan (the lstsq SVD per cut was the stage hotspot). bench: profiling/bench_hinge_fwl_rank1.py.
-        B = np.column_stack([ones, x] + extra_legs)
+        B = np.column_stack([ones, x, *extra_legs])
         Q, _ = np.linalg.qr(B)
         r_y = y - Q @ (Q.T @ y)
         sse_B = float(r_y @ r_y)

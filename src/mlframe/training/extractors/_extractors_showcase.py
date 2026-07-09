@@ -48,7 +48,7 @@ def showcase_features_and_targets(
 
     caption = "Non-float32 dtypes"
 
-    logger.info(f"{caption}: {non_floats.dtypes.to_dict()}")
+    logger.info("%s: %s", caption, non_floats.dtypes.to_dict())
 
     in_jupyter = is_jupyter_notebook()
 

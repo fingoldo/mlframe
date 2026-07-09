@@ -626,7 +626,7 @@ class _DatasetReuseMixin:
                 elif isinstance(existing, list):
                     params["metric"] = existing + metric_strs
                 else:
-                    params["metric"] = [existing] + metric_strs
+                    params["metric"] = [existing, *metric_strs]
             if feval_callables:
                 # Wrap user callables in _EvalFunctionWrapper so the
                 # native lgb.train sees the (preds, dataset) -> (name,

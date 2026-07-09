@@ -378,7 +378,7 @@ def _sanitize_X_inputs(self, X, y):
                 # Else: all offenders are pinned; downgrade to warn (handled above) and proceed.
             elif _action == "exclude":
                 if _non_pinned_leaky_cols:
-                    logger.warning(_msg + " (leakage_action='exclude' - dropping these columns)")
+                    logger.warning("%s (leakage_action='exclude' - dropping these columns)", _msg)
                     X = X.drop(columns=_non_pinned_leaky_cols)
             else:
                 logger.warning(_msg)

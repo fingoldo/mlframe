@@ -37,8 +37,8 @@ class _FitPrepMixin:
             _is_list = isinstance(eval_set, list) and len(eval_set) > 0
             _ev = eval_set[0] if _is_list else eval_set
             if isinstance(_ev, tuple) and len(_ev) >= 1 and _ev[0] is not None and hasattr(_ev[0], "columns"):
-                _ev_new = (enc.transform(_ev[0]),) + tuple(_ev[1:])
-                eval_set = ([_ev_new] + list(eval_set[1:])) if _is_list else _ev_new
+                _ev_new = (enc.transform(_ev[0]), *tuple(_ev[1:]))
+                eval_set = ([_ev_new, *list(eval_set[1:])]) if _is_list else _ev_new
         return X, eval_set
 
     def _factorize_cats_fit(self, X, eval_set, fit_params):
@@ -106,8 +106,8 @@ class _FitPrepMixin:
             _ev = eval_set[0] if _is_list else eval_set
             if isinstance(_ev, tuple) and len(_ev) >= 1 and _ev[0] is not None and hasattr(_ev[0], "columns"):
                 _ev_X = self._apply_cat_codes(_ev[0])
-                _ev_new = (_ev_X,) + tuple(_ev[1:])
-                eval_set = ([_ev_new] + list(eval_set[1:])) if _is_list else _ev_new
+                _ev_new = (_ev_X, *tuple(_ev[1:]))
+                eval_set = ([_ev_new, *list(eval_set[1:])]) if _is_list else _ev_new
         return X, eval_set
 
     def _apply_cat_codes(self, X):

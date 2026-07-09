@@ -371,8 +371,10 @@ def render_regime_headroom_map(report: dict, *, max_bins: int = 20) -> str:
         L.append("")
         L.append("| bin | axis range | n | winner | headroom |")
         L.append("|-----|------------|---|--------|----------|")
-        for b in bins[:max_bins]:
-            L.append(f"| {b['bin']} | [{_num(b['axis_lo'])}, {_num(b['axis_hi'])}] | {b['n']} | " f"{_ascii(b['winner'])} | {_pct(b['headroom'])} |")
+        L.extend(
+            f"| {b['bin']} | [{_num(b['axis_lo'])}, {_num(b['axis_hi'])}] | {b['n']} | " f"{_ascii(b['winner'])} | {_pct(b['headroom'])} |"
+            for b in bins[:max_bins]
+        )
         if len(bins) > max_bins:
             L.append("")
             L.append(f"_({len(bins) - max_bins} more bins omitted.)_")

@@ -62,10 +62,9 @@ def _detect_multi_modal(y: np.ndarray, n_bins: int = _MULTI_MODAL_KDE_BINS,
     if smoothed.max() <= 0:
         return False, 0, 0.0
     min_height = 0.05 * float(smoothed.max())
-    peaks: list[int] = []
-    for i in range(1, len(smoothed) - 1):
-        if smoothed[i] >= min_height and smoothed[i] > smoothed[i - 1] and smoothed[i] >= smoothed[i + 1]:
-            peaks.append(i)
+    peaks: list[int] = [
+        i for i in range(1, len(smoothed) - 1) if smoothed[i] >= min_height and smoothed[i] > smoothed[i - 1] and smoothed[i] >= smoothed[i + 1]
+    ]
     if len(peaks) < 2:
         return False, len(peaks), 0.0
     # Antimode-qualified pairs: for each pair, check separation in std-units AND

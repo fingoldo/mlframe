@@ -51,7 +51,7 @@ def ensure_triton_loaded() -> bool:
         return True
 
     try:
-        import triton  # noqa: F401
+        import triton
         _triton_loaded = True
         return True  # already importable, no bootstrap needed
     except ImportError:
@@ -62,9 +62,7 @@ def ensure_triton_loaded() -> bool:
         import site
 
         # Hunt libtriton.pyd in the active site-packages.
-        candidates = []
-        for sp in site.getsitepackages():
-            candidates.append(os.path.join(sp, "triton", "_C", "libtriton.pyd"))
+        candidates = [os.path.join(sp, "triton", "_C", "libtriton.pyd") for sp in site.getsitepackages()]
         # User-site fallback.
         try:
             candidates.append(os.path.join(site.getusersitepackages(), "triton", "_C", "libtriton.pyd"))

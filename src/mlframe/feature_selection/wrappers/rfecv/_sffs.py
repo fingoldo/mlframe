@@ -41,12 +41,12 @@ def _sffs_swap_pass(
     # Aggregate FI across all runs (mean of non-NaN values per feature).
     from collections import defaultdict
     fi_acc = defaultdict(list)
-    for _key, _fi in feature_importances.items():
+    for _fi in feature_importances.values():
         for feat, val in _fi.items():
             try:
                 if val is not None and not (isinstance(val, float) and np.isnan(val)):
                     fi_acc[feat].append(float(val))
-            except (TypeError, ValueError):
+            except (TypeError, ValueError):  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
                 continue
     fi_mean = {f: float(np.mean(v)) for f, v in fi_acc.items() if v}
 

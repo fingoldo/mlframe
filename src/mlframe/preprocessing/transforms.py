@@ -35,12 +35,17 @@ def prepare_df_for_catboost(
     na_filler: str = "",
     ensure_categorical: bool = True,
     verbose: bool = False,
+    skipped_columns: Optional[list] = None,
 ):
     """
     Catboost needs NAs in cat features replaced by a string value.
     Possibly extends cat_features list.
     ensure_categorical:bool=True makes further processing also suitable for xgboost.
     Works with both pandas and polars DataFrames. Always use the return value.
+
+    A cast/conversion failure on an individual column (caught and logged internally) leaves that column untouched
+    rather than aborting the whole call. Pass a list via ``skipped_columns`` to have every such column name appended
+    to it, so callers can detect "N columns silently left unprocessed" beyond grepping the log.
     """
     # Avoid the classic mutable-default-argument bug: a list literal in the
     # signature is shared across calls, so every .append() leaked across
@@ -76,10 +81,11 @@ def prepare_df_for_catboost(
 
     if is_polars:
         # Text features: fill nulls
-        text_exprs = []
-        for var in tqdmu(text_features, desc="Processing textual features for CatBoost...", leave=False):
-            if var in cols and df[var].is_null().any():
-                text_exprs.append(pl.col(var).fill_null(na_filler))
+        text_exprs = [
+            pl.col(var).fill_null(na_filler)
+            for var in tqdmu(text_features, desc="Processing textual features for CatBoost...", leave=False)
+            if var in cols and df[var].is_null().any()
+        ]
         if text_exprs:
             df = df.with_columns(text_exprs)
 
@@ -120,7 +126,7 @@ def prepare_df_for_catboost(
                         # Preserve the per-Series Enum domain by re-casting back into the SAME Enum after the str-roundtrip.
                         _enum_dom = list(dtype.categories.to_list()) if hasattr(dtype.categories, "to_list") else list(dtype.categories)
                         if na_filler not in _enum_dom:
-                            _enum_dom = _enum_dom + [na_filler]
+                            _enum_dom = [*_enum_dom, na_filler]
                         cat_exprs.append(pl.col(var).cast(pl.String).fill_null(na_filler).cast(pl.Enum(_enum_dom)))
                     else:
                         logger.warning("prepare_df_for_catboost: bare pl.Categorical re-cast for null-fill on %r (widens global string cache). Prefer pl.Enum upstream.", var)
@@ -138,7 +144,9 @@ def prepare_df_for_catboost(
                         logger.warning("prepare_df_for_catboost: bare pl.Categorical cast for %r (widens global string cache). Prefer pl.Enum upstream.", var)
                         expr = expr.cast(pl.Categorical)
                     except Exception:
-                        logger.warning(f"Could not convert column {var} to categorical.")
+                        logger.warning("Could not convert column %s to categorical.", var)
+                        if skipped_columns is not None:
+                            skipped_columns.append(var)
                         expr = None
                 if expr is not None:
                     cat_exprs.append(expr)
@@ -192,7 +200,9 @@ def prepare_df_for_catboost(
                         try:
                             df[var] = df[var].astype("category")
                         except Exception:
-                            logger.warning(f"Could not convert column {var} to categorical.")
+                            logger.warning("Could not convert column %s to categorical.", var)
+                            if skipped_columns is not None:
+                                skipped_columns.append(var)
                 elif pd.api.types.is_extension_array_dtype(df[var].dtype):
                     # Nullable extension dtypes (Int64, Float64, boolean, etc.) use pd.NA,
                     # which CatBoost cannot handle — convert to numpy floats so pd.NA → np.nan.
@@ -225,6 +235,8 @@ def prepare_df_for_catboost(
                             "handle - downstream fit/predict will fail loudly.",
                             var, df[var].dtype, target, _e_cast,
                         )
+                        if skipped_columns is not None:
+                            skipped_columns.append(var)
 
     return df
 

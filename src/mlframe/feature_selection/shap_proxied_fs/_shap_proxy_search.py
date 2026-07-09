@@ -352,14 +352,12 @@ def brute_force_top_n(
         if parallel and combos.shape[0] >= n_chunks * 4:
             ch_combos, ch_losses = _topn_fixed_r_parallel_colmajor(phi_T, base, y, combos, metric_code, top_n, n_chunks)
             for ch in range(ch_combos.shape[0]):
-                for k in range(ch_combos.shape[1]):
-                    if np.isfinite(ch_losses[ch, k]):
-                        candidates.append((float(ch_losses[ch, k]), tuple(int(x) for x in ch_combos[ch, k])))
+                candidates.extend(
+                    (float(ch_losses[ch, k]), tuple(int(x) for x in ch_combos[ch, k])) for k in range(ch_combos.shape[1]) if np.isfinite(ch_losses[ch, k])
+                )
         else:
             tc, tl = _topn_fixed_r_colmajor(phi_T, base, y, combos, metric_code, top_n)
-            for k in range(tc.shape[0]):
-                if np.isfinite(tl[k]):
-                    candidates.append((float(tl[k]), tuple(int(x) for x in tc[k])))
+            candidates.extend((float(tl[k]), tuple(int(x) for x in tc[k])) for k in range(tc.shape[0]) if np.isfinite(tl[k]))
     merged = _merge_topn(candidates, top_n)
     if metric_name == "rmse":  # kernel computes MSE (rank-equivalent); report the sqrt to match the name
         merged = [(float(np.sqrt(loss)), comb) for loss, comb in merged]

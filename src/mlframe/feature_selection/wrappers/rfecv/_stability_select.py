@@ -253,7 +253,7 @@ def _fit_stability_selection(self, X, y, signature):
     # e.g. ``scoring=None -> make_scorer(...)``); see ``_rfecv_fit_init._current_params_signature``.
     from ._fit_init import _current_params_signature
 
-    self.signature = signature[:-1] + (_current_params_signature(self),)
+    self.signature = (*signature[:-1], _current_params_signature(self))
 
     if self.verbose:
         logger.info(

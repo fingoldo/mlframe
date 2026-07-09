@@ -615,7 +615,7 @@ class RFECV(BaseEstimator, TransformerMixin):
         inner = None
         if getattr(self, "estimators", None):
             try:
-                inner = list(self.estimators)[0]
+                inner = next(iter(self.estimators))
             except (TypeError, IndexError):
                 inner = None
         if inner is None:

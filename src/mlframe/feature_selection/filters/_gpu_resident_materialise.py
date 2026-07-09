@@ -564,7 +564,7 @@ def build_resident_operand_table(transformed_vars: np.ndarray, col_specs: Sequen
         try:
             _host = np.ascontiguousarray(np.column_stack(cols)) if len(cols) > 1 else np.ascontiguousarray(cols[0]).reshape(-1, 1)
             _dev_groups[_dk] = cp.asarray(_host)
-        except Exception:
+        except Exception:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
             _dev_groups[_dk] = None
     n_gpu = 0
     n_cpu = 0

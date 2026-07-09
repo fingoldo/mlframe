@@ -591,7 +591,7 @@ def build_temporal_expanding_recipe(*, name, entity_cols, value_col, time_col, s
     from .engineered_recipes import EngineeredRecipe
     return EngineeredRecipe(
         name=name, kind="temporal_expanding",
-        src_names=tuple(entity_cols) + (value_col,),
+        src_names=(*tuple(entity_cols), value_col),
         extra={
             "entity_cols": [str(c) for c in entity_cols],
             "value_col": str(value_col),
@@ -608,7 +608,7 @@ def build_temporal_rolling_recipe(*, name, entity_cols, value_col, time_col, win
     from .engineered_recipes import EngineeredRecipe
     return EngineeredRecipe(
         name=name, kind="temporal_rolling",
-        src_names=tuple(entity_cols) + (value_col,),
+        src_names=(*tuple(entity_cols), value_col),
         extra={
             "entity_cols": [str(c) for c in entity_cols],
             "value_col": str(value_col),
@@ -626,7 +626,7 @@ def build_temporal_lag_recipe(*, name, entity_cols, value_col, time_col, lag, hi
     from .engineered_recipes import EngineeredRecipe
     return EngineeredRecipe(
         name=name, kind="temporal_lag",
-        src_names=tuple(entity_cols) + (value_col,),
+        src_names=(*tuple(entity_cols), value_col),
         extra={
             "entity_cols": [str(c) for c in entity_cols],
             "value_col": str(value_col),
@@ -648,7 +648,7 @@ def _coerce_replay_frame(X, entity_cols, value_col, time_col, recipe_name):
     """Coerce a transform-time ``X`` (pandas, polars, or a structured numpy array) to a pandas DataFrame exposing exactly the entity/value/time columns the recipe needs; raises for unsupported types."""
     if isinstance(X, pd.DataFrame):
         return X
-    cols = list(entity_cols) + [value_col, time_col]
+    cols = [*list(entity_cols), value_col, time_col]
     try:
         import polars as _pl
         if isinstance(X, _pl.DataFrame):
@@ -989,9 +989,7 @@ def hybrid_temporal_agg_fe(
         _, y_arr = np.unique(y_arr, return_inverse=True)
     y_bin = y_arr.astype(np.int64)
 
-    rows = []
-    for col in enc_df.columns:
-        rows.append({"engineered_col": col, "mi": _mi_score(enc_df[col].to_numpy(), y_bin, n_bins)})
+    rows = [{"engineered_col": col, "mi": _mi_score(enc_df[col].to_numpy(), y_bin, n_bins)} for col in enc_df.columns]
     scores = pd.DataFrame(rows).sort_values("mi", ascending=False, kind="mergesort").reset_index(drop=True)
     keep = scores[scores["mi"] >= float(min_mi)]
     winners = list(keep["engineered_col"].head(int(top_k)))

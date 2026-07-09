@@ -281,7 +281,7 @@ class FeatureHandlingConfig(BaseConfig):
     cache: CacheConfig = Field(default_factory=CacheConfig)
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
     pricing: PricingConfig = Field(default_factory=PricingConfig)
-    logging: LoggingConfig = Field(default_factory=LoggingConfig)  # noqa: A003
+    logging: LoggingConfig = Field(default_factory=LoggingConfig)
     repro: ReproConfig = Field(default_factory=ReproConfig)
 
     # === Auto-derived (filled by validator at construction)

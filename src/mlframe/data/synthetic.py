@@ -93,9 +93,9 @@ def sample_random_variable(
     params = list(params)
     if (dist_name, tuple(params)) in conts:
         if randomize_params:
-            params = params + [shift * generator.rand(), scale * generator.rand()]
+            params = [*params, shift * generator.rand(), scale * generator.rand()]
         else:
-            params = params + [shift, scale]
+            params = [*params, shift, scale]
 
     # Create instance of a random variable
     dist = getattr(stats, dist_name)

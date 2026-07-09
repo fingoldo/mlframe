@@ -348,8 +348,7 @@ def wavedec(
         details_lvl1_first.append(detail)
         current = approx
     out = [current]
-    for d in reversed(details_lvl1_first):
-        out.append(d)
+    out.extend(reversed(details_lvl1_first))
     return out
 
 

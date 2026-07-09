@@ -326,7 +326,7 @@ def _perm_kernel_dispatch_use_gpu(
     """
     if backend == "gpu":
         try:
-            import cupy as _cp  # noqa: F401
+            import cupy as _cp
             return True
         except ImportError:
             return False

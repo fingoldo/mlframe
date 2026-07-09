@@ -440,8 +440,8 @@ def train_and_evaluate_model(
     # Check if feature selection removed all features
     if train_df is not None and train_df.shape[1] == 0:
         logger.warning(
-            f"Feature selection removed all features for {model_name} - skipping training. "
-            "This typically means no features had predictive power for the target."
+            "Feature selection removed all features for %s - skipping training. " "This typically means no features had predictive power for the target.",
+            model_name,
         )
         return (
             SimpleNamespace(
@@ -675,7 +675,7 @@ def train_and_evaluate_model(
 
                 # Handle failed model training (e.g., dtype incompatibility)
                 if model is None:
-                    logger.warning(f"Model {model_type_name} training failed - skipping evaluation")
+                    logger.warning("Model %s training failed - skipping evaluation", model_type_name)
                     return (
                         SimpleNamespace(
                             model=None,

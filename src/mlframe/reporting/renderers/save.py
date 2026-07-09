@@ -110,7 +110,7 @@ def _detect_interactive_session() -> bool:
         # silently treating as True — operator typo shouldn't accidentally
         # force inline display.
     try:
-        return bool(__IPYTHON__)  # type: ignore[name-defined]  # noqa: F821
+        return bool(__IPYTHON__)  # type: ignore[name-defined]
     except NameError:
         import sys
         return hasattr(sys, "ps1")
@@ -239,7 +239,7 @@ def render_and_save(
             for f in _futures:
                 try:
                     _results.append(f.result(timeout=60))
-                except _FutureTimeout:
+                except _FutureTimeout:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
                     _record_render_failure(timed_out=True)
                     logger.warning(
                         "render_and_save: backend future exceeded 60s; the worker thread is abandoned and one "

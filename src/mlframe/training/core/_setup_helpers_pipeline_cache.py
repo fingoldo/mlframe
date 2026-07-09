@@ -123,7 +123,7 @@ def _pipeline_disk_cache_version_tag() -> str:
         try:
             mod = __import__(mod_name)
             parts.append(f"{mod_name}={getattr(mod, '__version__', 'unknown')}")
-        except Exception:
+        except Exception:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
             parts.append(f"{mod_name}=unknown")
     return "|".join(parts)
 
@@ -159,7 +159,7 @@ def _load_pipeline_disk_cache_into_memory() -> None:
     for hash_str, ok in entries.items():
         try:
             _PIPELINE_JSON_ROUNDTRIP_CACHE[str(hash_str)] = bool(ok)
-        except (ValueError, TypeError):
+        except (ValueError, TypeError):  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
             continue  # skip malformed entries
 
 

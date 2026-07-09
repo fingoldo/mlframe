@@ -395,7 +395,7 @@ def usability_greedy_clf_gpu_resident(
         def _cv_candidate(sel_idx, cand) -> np.ndarray:
             """Per-fold logloss for the selected set + one candidate ``cand`` (a fresh fit per fold).
             Mirrors the CPU per-candidate refit; returns a bounded (nf,) result vector (one D2H/fold-scalar)."""
-            full = sel_idx + [cand]
+            full = [*sel_idx, cand]
             errs = np.empty(nf, dtype=np.float64)
             for fo in range(nf):
                 tr, va = tr_masks[fo], va_masks[fo]

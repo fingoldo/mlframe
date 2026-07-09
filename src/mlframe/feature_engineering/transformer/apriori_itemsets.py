@@ -49,7 +49,7 @@ def compute_apriori_itemsets_features(
     def _discretize(X_ref: np.ndarray, X_target: np.ndarray, n_bins: int):
         """One-hot quantile-bin ``X_target`` using bin edges computed from ``X_ref``; all-NaN columns emit all-zero bin columns instead of propagating NaN."""
         d = X_ref.shape[1]
-        bin_cols = []
+        bin_cols: list[np.ndarray] = []
         for j in range(d):
             # Wave 21 P0: use nanquantile so a NaN-bearing column doesn't
             # poison every edge -> np.digitize then clamps every target row
@@ -60,12 +60,10 @@ def compute_apriori_itemsets_features(
             if not np.all(np.isfinite(edges)):
                 # Column is degenerate (all-NaN). Emit an all-zero set of
                 # bin columns rather than letting NaN propagate downstream.
-                for _ in range(n_bins):
-                    bin_cols.append(np.zeros(X_target.shape[0], dtype=bool))
+                bin_cols.extend(np.zeros(X_target.shape[0], dtype=bool) for _ in range(n_bins))
                 continue
             target_bins = np.clip(np.digitize(X_target[:, j], edges[1:-1]), 0, n_bins - 1)
-            for b in range(n_bins):
-                bin_cols.append(target_bins == b)
+            bin_cols.extend(target_bins == b for b in range(n_bins))
         return np.array(bin_cols, dtype=bool).T  # (n_rows, d*n_bins)
 
     def _process(Xt, Xq, y_t):

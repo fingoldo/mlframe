@@ -186,7 +186,7 @@ def _purge_fh_cache_by_df_tokens(ctx, df_tokens) -> None:
         for _tok in df_tokens:
             try:
                 _purge_fn(_tok)
-            except Exception as _purge_err:  # pragma: no cover -- defensive
+            except Exception as _purge_err:  # pragma: no cover -- defensive  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
                 logger.debug("FH cache purge_by_df_token(%s) raised %r; continuing", _tok, _purge_err)
 
 
@@ -240,7 +240,7 @@ def _restore_dataset_reuse_cache(
     for _attr, _val in captured.items():
         try:
             setattr(model_template, _attr, _val)
-        except Exception as _attr_err:
+        except Exception as _attr_err:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
             logger.debug(
                 "Could not restore %s on %s template: %s",
                 _attr, mlframe_model_name, _attr_err,

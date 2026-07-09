@@ -182,10 +182,10 @@ def _roc_panel(y_true, y_proba, labels, *, label_subset=None) -> LinePanelSpec:
         valid_curves.append(curve)
         series_labels.append(f"{labels[k]} (AUC={roc_auc:.3f})")
     chance = x_grid.copy()
-    all_series = [chance] + series
-    all_labels = ["chance"] + series_labels
+    all_series = [chance, *series]
+    all_labels = ["chance", *series_labels]
     styles = [":"] + ["-"] * len(series)
-    all_colors = ["gray"] + colors
+    all_colors = ["gray", *colors]
     if label_subset is not None:
         macro = np.nanmean(np.vstack(valid_curves), axis=0) if valid_curves else np.full_like(x_grid, np.nan)
         macro_auc = float(auc(x_grid, macro)) if valid_curves else float("nan")
@@ -237,10 +237,10 @@ def _calib_grid_panel(y_true, y_proba, labels, *, label_subset=None) -> LinePane
         series_labels.append(str(labels[k]))
         colors.append(line_color(k))
     diag = x_grid.copy()
-    all_series = [diag] + series
-    all_labels = ["perfect"] + series_labels
+    all_series = [diag, *series]
+    all_labels = ["perfect", *series_labels]
     styles = [":"] + ["-"] * len(series)
-    all_colors = ["green"] + colors
+    all_colors = ["green", *colors]
     if label_subset is not None:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", RuntimeWarning)  # a bin empty in every drawn label -> all-NaN column is fine

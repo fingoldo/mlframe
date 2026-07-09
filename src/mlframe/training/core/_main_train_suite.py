@@ -59,7 +59,7 @@ from .utils import (
 from . import _phase_runners as pr
 
 
-from ._main_train_suite_encoding import (  # noqa: F401
+from ._main_train_suite_encoding import (
     SuiteResult,
     _assert_suite_return_shape,
     _encode_string_multiclass_target,

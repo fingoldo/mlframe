@@ -149,7 +149,7 @@ def _run_member_null_serial(*, state, member_idx, member_rel, B_, rng_m, target_
                 n_exceed_m += 1
         return float((n_exceed_m + 1) / (B_ + 1))
     except Exception as exc:
-        logger.warning(f"DCD swap: member permutation null (serial) failed (B={B_}): {exc!r}")
+        logger.warning("DCD swap: member permutation null (serial) failed (B=%s): %r", B_, exc)
         return 1.0
     finally:
         state.factors_data[:, member_idx] = member_col_orig
@@ -195,7 +195,7 @@ def run_member_null(*, state, member_idx: int, member_rel: float, B_: int, ancho
             y_classes, fy, y_nclasses = merge_vars(state.factors_data, np.sort(target_arr_m), None, fnbins)
             entropy_y = float(entropy(fy))
     except Exception as exc:
-        logger.warning(f"DCD swap: member-null hoist failed (B={B_}): {exc!r}")
+        logger.warning("DCD swap: member-null hoist failed (B=%s): %r", B_, exc)
         # Restore is unnecessary (no mutation yet) but harmless; fall through to serial which handles its own.
         return _run_member_null_serial(
             state=state, member_idx=member_idx, member_rel=member_rel, B_=B_, rng_m=rng_m,
@@ -233,5 +233,5 @@ def run_member_null(*, state, member_idx: int, member_rel: float, B_: int, ancho
             )
         return float((n_exceed + 1) / (B_ + 1))
     except Exception as exc:
-        logger.warning(f"DCD swap: member permutation null (parallel) failed (B={B_}): {exc!r}")
+        logger.warning("DCD swap: member permutation null (parallel) failed (B=%s): %r", B_, exc)
         return 1.0  # conservative: fail closed

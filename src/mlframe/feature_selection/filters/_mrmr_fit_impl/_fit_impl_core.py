@@ -609,7 +609,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         except NameError:
             _extra_basis_scorer_ok = True
         if _univ_fourier_on and _univ_basis_on and _extra_basis_scorer_ok and "fourier" not in _eff_extra_bases:
-            _eff_extra_bases = _eff_extra_bases + ("fourier",)
+            _eff_extra_bases = (*_eff_extra_bases, "fourier")
         if _eff_extra_bases:
             try:
                 from .._orthogonal_univariate_fe import (
@@ -6625,7 +6625,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _new_hinge_codes.append(np.asarray(_codes).reshape(-1, 1))
                 _new_hinge_nbins.append(int(self.quantization_nbins))
                 X[_hn] = _vals
-                cols = cols + [_hn]
+                cols = [*cols, _hn]
                 _hinge_added_names.append(_hn)
                 _r = _hinge_deferred_recipes.get(_hn)
                 if _r is not None:
@@ -6746,11 +6746,11 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             ss = float(np.sum((yv - yv.mean()) ** 2))
             if ss < 1e-24:
                 return 0.0
-            base = [np.ones(n)] + _sel_value_cols
+            base = [np.ones(n), *_sel_value_cols]
             if _src_vals is not None:
                 _sv = np.asarray(_src_vals, dtype=np.float64).reshape(-1)
                 if _sv.shape[0] == n and np.all(np.isfinite(_sv)):
-                    base = base + [_sv, _sv * _sv]
+                    base = [*base, _sv, _sv * _sv]
             def _r2(design_cols):
                 """Fit an OLS design on the train stride and return held-out R^2 on the %3 validation stride (``-inf`` on a singular/failed lstsq)."""
                 A = np.column_stack(design_cols)
@@ -6761,7 +6761,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 pred = A[va] @ coef
                 return 1.0 - float(np.sum((yv - pred) ** 2)) / ss
             r2_base = _r2(base)
-            r2_full = _r2(base + [leg])
+            r2_full = _r2([*base, leg])
             if not (np.isfinite(r2_base) and np.isfinite(r2_full)):
                 return 0.0
             return float(r2_full - r2_base)
@@ -7057,7 +7057,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                             continue
                         if _cvv.shape[0] != _cf_n or not np.all(np.isfinite(_cvv)):
                             continue
-                        if _cf_r2(_cf_base + [_cvv]) - _cf_r2_base < _CF_PROTECT_MIN_INCR_R2:
+                        if _cf_r2([*_cf_base, _cvv]) - _cf_r2_base < _CF_PROTECT_MIN_INCR_R2:
                             continue  # no held-out linear usability over the selected design -> stays out
                         _readd_cf.append(_cidx)
                         _cf_sv_set.add(_cidx)
@@ -7284,7 +7284,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     except Exception:
                         return True
                 _pcr_readd = []
-                for _rn, _pchildren in _pcr_consumed.items():
+                for _rn in _pcr_consumed.keys():
                     if _rn in _pcr_sel_names:
                         continue  # already selected -> nothing to rescue
                     try:
@@ -7497,7 +7497,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                             if _rel > _best_floor_rel:
                                 _best_floor_rel, _best_floor_idx = _rel, int(_ci)
                         if _best_floor_idx is not None:
-                            selected_vars = list(_kept_redund) + [_best_floor_idx]
+                            selected_vars = [*list(_kept_redund), _best_floor_idx]
                             _kept_name_floor = cols[_best_floor_idx]
                             # The re-kept raw is no longer "dropped": remove it from the verdict set so the
                             # downstream retention / rescue passes treat it as a genuine survivor.
@@ -8036,7 +8036,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         for _anchor, _members in _cm_final.items():
             _a = str(_anchor)
             _mlist = [str(_m) for _m in (_members or [])] if isinstance(_members, (list, tuple, set)) else []
-            _group = [_a] + _mlist
+            _group = [_a, *_mlist]
             if all(_nm in _raw_names_cmfinal for _nm in _group):
                 # pure raw cluster -- keep the single strongest representative, strip the rest.
                 # KEEP-ONE-SELECTED-RAW (2026-06-18): the cached-MI lookup the rep tiebreak relies
@@ -8591,7 +8591,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                             # aggregate/engineered anchor: every raw member is folded into the aggregate.
                             _rr_excl_names.update(_n for _n in _ms if _n in _rr_raw)
                             continue
-                        _grp = [_n for _n in ([_a] + _ms) if _n in _rr_raw]
+                        _grp = [_n for _n in [_a, *_ms] if _n in _rr_raw]
                         if len(_grp) < 2:
                             continue
                         if any(_n in _rr_sel_names for _n in _grp):
@@ -8956,9 +8956,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # match the NEXT fit's ``get_params`` and identical refits would never skip. The data slots
     # (shapes/hashes/columns) stay as computed at fit entry.
     try:
-        signature = signature[:-1] + (_hashable_params_signature(self.get_params(deep=True)),)
+        signature = (*signature[:-1], _hashable_params_signature(self.get_params(deep=True)))
     except Exception:
-        signature = signature[:-1] + (object(),)  # unique token => next identical fit refits (conservative)
+        signature = (*signature[:-1], object())  # unique token => next identical fit refits (conservative)
     self.signature = signature
     # ran_out_of_time was set only by the outer FE-loop deadline (line ~6714). screen_predictors honours
     # self.max_runtime_mins on its OWN and can return a truncated selection without the FE loop ever tripping, so a

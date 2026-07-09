@@ -170,7 +170,7 @@ def env_signature() -> dict[str, str | None]:
     for libname in ("numpy", "pandas", "polars", "sklearn", "lightgbm", "xgboost", "catboost", "scipy", "dill"):
         try:
             sig[libname] = version(distmap.get(libname, libname))
-        except PackageNotFoundError:
+        except PackageNotFoundError:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
             sig[libname] = None
     sig["python"] = platform.python_version()
     return sig
@@ -375,7 +375,7 @@ def _compute_oof_with_external_holdout(
                 raise ValueError("non-finite holdout predictions")
             holdout_cols.append(preds)
             surviving_names.append(name)
-        except Exception as exc:
+        except Exception as exc:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
             logger.warning(
                 "[CompositeCrossTargetEnsemble] external-holdout OOF " "refit failed for component '%s': %s. Excluded from " "ensemble weights.",
                 name,
@@ -648,7 +648,7 @@ def compute_oof_holdout_predictions(
                     if not np.all(np.isfinite(preds)):
                         raise ValueError("non-finite holdout predictions")
                     fold_cols[name] = preds
-                except Exception as exc:
+                except Exception as exc:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
                     logger.warning(
                         "[CompositeCrossTargetEnsemble] kfold OOF refit failed "
                         "for component '%s' (kfold=%d): %s. Excluded.",
@@ -876,7 +876,7 @@ def compute_oof_holdout_predictions(
                 raise ValueError("non-finite holdout predictions")  # NaN preds on holdout -- exclude from ensemble
             holdout_cols.append(preds)
             surviving_names.append(name)
-        except Exception as exc:
+        except Exception as exc:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
             logger.warning(
                 "[CompositeCrossTargetEnsemble] OOF refit failed for component "
                 "'%s': %s. Excluded from ensemble weights.", name, exc,

@@ -276,7 +276,7 @@ class _PredictMixin:
             )
             _is_cuda = trainer_params.get("accelerator") in ("cuda", "gpu", "auto") and any(fp in _msg for fp in _cuda_fingerprints)
             if not _is_cuda:
-                logger.error(f"Prediction failed: {e}")
+                logger.error("Prediction failed: %s", e)
                 raise
             logger.warning(
                 "Prediction on accelerator=%r failed with CUDA-side error "

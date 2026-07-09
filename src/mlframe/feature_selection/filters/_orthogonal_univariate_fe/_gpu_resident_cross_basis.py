@@ -218,7 +218,7 @@ def raw_and_product_mi_resident(
     from .._fe_usability_signal import _crit_np_dtype
     _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); hoisted so _dt is bound on every branch
     try:
-        import cupy as cp  # noqa: F401
+        import cupy as cp
     except Exception:
         return None
     if engineered_X is None or engineered_X.shape[1] == 0:

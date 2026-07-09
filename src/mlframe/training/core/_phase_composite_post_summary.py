@@ -42,7 +42,7 @@ def _run_suite_end_dummy_baselines_summary(
         _composite_names_by_tt: dict[str, set] = {}
         for _tt_str, _by_tn in metadata.get("composite_target_specs", {}).items():
             _names: set = set()
-            for _raw_tn, _spec_list in (_by_tn or {}).items():
+            for _spec_list in (_by_tn or {}).values():
                 for _s in _spec_list or []:
                     _nm = _s.get("name") if isinstance(_s, dict) else getattr(_s, "name", None)
                     if _nm:

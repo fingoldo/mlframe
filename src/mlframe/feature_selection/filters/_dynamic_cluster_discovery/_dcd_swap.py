@@ -220,7 +220,7 @@ def evaluate_swap_candidate(
     cluster = state.cluster_anchors.get(anchor, set())
     if len(cluster) < max(int(state.min_cluster_size), int(state.cluster_size_threshold)):
         return SwapDecision(accept=False)
-    members = [anchor] + sorted(cluster)
+    members = [anchor, *sorted(cluster)]
     if X_raw is None:
         X_raw = state.X_raw_ref
     if X_raw is None:
@@ -231,7 +231,7 @@ def evaluate_swap_candidate(
     try:
         from .._cluster_aggregate import _standardize_align, _derive_weights
     except Exception as exc:
-        logger.warning(f"DCD swap: failed to import cluster_aggregate helpers: {exc!r}")
+        logger.warning("DCD swap: failed to import cluster_aggregate helpers: %r", exc)
         return SwapDecision(accept=False)
     try:
         member_names = [cols[m] for m in members]
@@ -287,7 +287,7 @@ def evaluate_swap_candidate(
             n_bins=state.quantization_nbins, dtype=state.quantization_dtype,
         )
     except Exception as exc:
-        logger.warning(f"DCD swap: PC1 fit failed: {exc!r}")
+        logger.warning("DCD swap: PC1 fit failed: %r", exc)
         return SwapDecision(accept=False)
     # Build a candidate matrix with rep appended.
     assert state.factors_data is not None, "DCD swap candidate scoring requires a populated DCDState.factors_data"
@@ -337,7 +337,7 @@ def evaluate_swap_candidate(
                 np.asarray(target, dtype=np.int64), state.factors_nbins,
             ))
     except Exception as exc:
-        logger.warning(f"DCD swap: relevance estimation failed: {exc!r}")
+        logger.warning("DCD swap: relevance estimation failed: %r", exc)
         return SwapDecision(accept=False)
     # 2026-05-31 Layer 45: ANCHOR REFINEMENT. Pre-fix the decision was a
     # binary gate (aggregate vs anchor). When the FIRST-picked feature
@@ -526,7 +526,7 @@ def evaluate_swap_candidate(
                     n_exceed += 1
             perm_p_value = (n_exceed + 1) / (B + 1)
         except Exception as exc:
-            logger.warning(f"DCD swap: permutation null failed (B={B}): {exc!r}")
+            logger.warning("DCD swap: permutation null failed (B=%s): %r", B, exc)
             perm_p_value = 1.0  # conservative: fail closed
     accept = deterministic_gate and (B <= 0 or perm_p_value < float(state.swap_alpha))
     if not accept:
@@ -689,7 +689,7 @@ def commit_swap(
     assert decision.binned_rep is not None, "aggregate branch requires the accepted decision to carry its binned representative"
     new_data = np.column_stack([state.factors_data, decision.binned_rep])
     assert state.cols is not None, "DCD swap application requires a populated DCDState.cols"
-    new_cols = list(state.cols) + [str(decision.aggregate_name)]
+    new_cols = [*list(state.cols), str(decision.aggregate_name)]
     new_nbins = np.concatenate([
         np.asarray(state.factors_nbins, dtype=np.int64),
         [int(decision.new_nbins)],

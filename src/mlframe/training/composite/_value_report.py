@@ -514,16 +514,20 @@ def render_composite_value_report(report: dict, *, max_groups: int = 20) -> str:
         if report["has_lag"]:
             L.append("| group | n | rmse_raw | rmse_composite | rmse_lag | lift_raw | lift_lag | winner | vs_raw |")
             L.append("|-------|---|----------|----------------|----------|----------|----------|--------|--------|")
-            for e in ranked[:max_groups]:
-                L.append(f"| {_ascii(e['group'])} | {e['n']} | {_num(e['rmse_raw'])} | {_num(e['rmse_composite'])} | "
-                         f"{_num(e['rmse_lag'])} | {_pct(e['lift_over_raw'])} | {_pct(e['lift_over_lag'])} | "
-                         f"{e['winner']} | {e['verdict_vs_raw']} |")
+            L.extend(
+                f"| {_ascii(e['group'])} | {e['n']} | {_num(e['rmse_raw'])} | {_num(e['rmse_composite'])} | "
+                f"{_num(e['rmse_lag'])} | {_pct(e['lift_over_raw'])} | {_pct(e['lift_over_lag'])} | "
+                f"{e['winner']} | {e['verdict_vs_raw']} |"
+                for e in ranked[:max_groups]
+            )
         else:
             L.append("| group | n | rmse_raw | rmse_composite | lift_raw | winner | vs_raw |")
             L.append("|-------|---|----------|----------------|----------|--------|--------|")
-            for e in ranked[:max_groups]:
-                L.append(f"| {_ascii(e['group'])} | {e['n']} | {_num(e['rmse_raw'])} | {_num(e['rmse_composite'])} | "
-                         f"{_pct(e['lift_over_raw'])} | {e['winner']} | {e['verdict_vs_raw']} |")
+            L.extend(
+                f"| {_ascii(e['group'])} | {e['n']} | {_num(e['rmse_raw'])} | {_num(e['rmse_composite'])} | "
+                f"{_pct(e['lift_over_raw'])} | {e['winner']} | {e['verdict_vs_raw']} |"
+                for e in ranked[:max_groups]
+            )
         if len(ranked) > max_groups:
             L.append("")
             L.append(f"_({len(ranked) - max_groups} more groups omitted.)_")

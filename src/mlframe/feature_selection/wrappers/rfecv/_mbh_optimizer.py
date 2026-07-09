@@ -121,7 +121,7 @@ def _build_mbh_optimizer(self, *, original_features, max_refits, top_predictors_
             _raw = np.linspace(2, _p, _K)
             _seeded = sorted(set(round(x) for x in _raw if 1 <= round(x) <= _p))
             if 2 not in _seeded and _p >= 2:
-                _seeded = [2] + _seeded
+                _seeded = [2, *_seeded]
             _seeded = sorted(set(_seeded))[:_K]
 
     # Thread RFECV's deterministic RNG into the optimizer. Without this the MBHOptimizer constructs its own
@@ -132,7 +132,7 @@ def _build_mbh_optimizer(self, *, original_features, max_refits, top_predictors_
     _opt_seed = int(self._rng.integers(0, 2**31 - 1)) if getattr(self, "_rng", None) is not None else None
 
     _mbh_kwargs = dict(
-        search_space=(np.array(np.arange(min(self.max_nfeatures, _p) + 1).tolist() + [_p]) if self.max_nfeatures else np.arange(_p + 1)),
+        search_space=(np.array([*np.arange(min(self.max_nfeatures, _p) + 1).tolist(), _p]) if self.max_nfeatures else np.arange(_p + 1)),
         direction=OptimizationDirection.Maximize,
         init_sampling_method=CandidateSamplingMethod.Equidistant,
         init_evaluate_ascending=False,

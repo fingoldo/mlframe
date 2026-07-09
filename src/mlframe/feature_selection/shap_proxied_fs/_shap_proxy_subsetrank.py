@@ -137,8 +137,7 @@ def brute_force_top_n_cpu_ref(
         k = min(top_n, C)
         sel = np.argpartition(out, k - 1)[:k]
         sel = sel[np.argsort(out[sel])]
-        for ci in sel:
-            candidates.append((float(out[ci]), tuple(int(x) for x in combos[ci])))
+        candidates.extend((float(out[ci]), tuple(int(x) for x in combos[ci])) for ci in sel)
     merged = _merge_topn(candidates, top_n)
     if metric_name == "rmse":
         merged = [(float(np.sqrt(loss)), comb) for loss, comb in merged]

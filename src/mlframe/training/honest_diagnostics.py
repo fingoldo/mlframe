@@ -378,8 +378,7 @@ def _walk_top_models(models: Any) -> list[tuple[str, str, Any]]:
         for tname, entries in by_name.items():
             if not isinstance(entries, list):
                 continue
-            for entry in entries:
-                out.append((str(tt), str(tname), entry))
+            out.extend((str(tt), str(tname), entry) for entry in entries)
     return out
 
 

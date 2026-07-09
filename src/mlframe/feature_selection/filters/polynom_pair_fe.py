@@ -213,7 +213,7 @@ def run_polynom_pair_fe(
     for _k in prospective_pairs.keys():
         try:
             _pair_mi_ceiling[_k[0]] = float(_k[1])
-        except (TypeError, ValueError, IndexError):
+        except (TypeError, ValueError, IndexError):  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
             pass
 
     _polynom_n_jobs = int(n_jobs) if n_jobs and n_jobs > 0 else 1
@@ -499,9 +499,9 @@ def run_polynom_pair_fe(
                 np.asarray(nbins),
                 np.asarray([int(quantization_nbins)], dtype=nbins.dtype),
             ])
-            cols = cols + [_new_col_name]
+            cols = [*cols, _new_col_name]
             if is_polars_input:
-                X = X.with_columns(pl.Series(_new_col_name, _t_vals))  # noqa: F821
+                X = X.with_columns(pl.Series(_new_col_name, _t_vals))
             else:
                 X[_new_col_name] = _t_vals
             engineered_features.add(_new_col_name)

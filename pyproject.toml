@@ -683,6 +683,14 @@ ignore-names = ["F", "L", "_F"]
 "src/mlframe/**/_*_showcase.py" = ["T201"]
 # Vendored third-party model code -- left at upstream shape.
 "src/mlframe/feature_selection/filters/_vendored/**" = ["T201", "A001", "A002", "N801"]
+# numba @njit kernels: verbose-gated diagnostic prints inside nopython-mode functions cannot use the
+# ``logging`` module (numba does not support arbitrary Python objects in nopython mode); print() is the
+# only available diagnostic channel there.
+"src/mlframe/feature_selection/filters/info_theory/_class_encoding.py" = ["T201"]
+"src/mlframe/feature_selection/filters/info_theory/_entropy_kernels.py" = ["T201"]
+# _print_fit_summary: deliberately bypasses logger (see its docstring) because logger.info is silently
+# swallowed by scripts that never configure logging, while this is the one guaranteed-visible summary line.
+"src/mlframe/feature_selection/filters/mrmr/_mrmr_class_fit_helpers.py" = ["T201"]
 
 # ---------------------------------------------------------------------------
 # MyPy

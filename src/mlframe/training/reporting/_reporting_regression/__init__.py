@@ -371,7 +371,7 @@ def report_regression_model_perf(
     # warm-state regression report wall.
     if show_perf_chart and not plot_file:
         try:
-            _is_interactive_session = bool(__IPYTHON__)  # type: ignore[name-defined]  # noqa: F821
+            _is_interactive_session = bool(__IPYTHON__)  # type: ignore[name-defined]
         except NameError:
             import sys as _sys
             _is_interactive_session = hasattr(_sys, "ps1")

@@ -596,14 +596,14 @@ def check_prospective_fe_pairs(
     # built so the pseudo-unary participates exactly like a real one.
     _unary_names_eff = list(unary_transformations.keys())
     if _prewarp_active:
-        _unary_names_eff = _unary_names_eff + [_PREWARP_UNARY]
+        _unary_names_eff = [*_unary_names_eff, _PREWARP_UNARY]
     if _gate_med_active:
-        _unary_names_eff = _unary_names_eff + [_GATE_MED_UNARY]
+        _unary_names_eff = [*_unary_names_eff, _GATE_MED_UNARY]
 
     # Exact preallocation. ``n_pairs * n_unary * 2`` over-counts because (var, tr_name) keys are de-duplicated in ``vars_transformations``; the unique-key set is the
     # true upper bound.
     unique_keys: set = set()
-    for (raw_vars_pair, _), _ in prospective_pairs.items():
+    for raw_vars_pair, _ in prospective_pairs.keys():
         for var in raw_vars_pair:
             for tr_name in _unary_names_eff:
                 unique_keys.add((var, tr_name))
@@ -638,7 +638,7 @@ def check_prospective_fe_pairs(
     # win; do NOT re-implement without a NEW source of structural collisions.
     pair_combs: dict = {}
     max_n_combs = 0
-    for (raw_vars_pair, _), _ in prospective_pairs.items():
+    for raw_vars_pair, _ in prospective_pairs.keys():
         combs = list(
             combinations(
                 [(raw_vars_pair[0], k) for k in _unary_names_eff] + [(raw_vars_pair[1], k) for k in _unary_names_eff],

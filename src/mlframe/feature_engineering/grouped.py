@@ -274,7 +274,7 @@ def per_group_apply(
     n = values_arr.size
     if n != len(group_ids):
         raise ValueError(f"per_group_apply: values length {n} != group_ids length " f"{len(group_ids)}")
-    out_shape = (n,) + tuple(output_shape_extra)
+    out_shape = (n, *tuple(output_shape_extra))
     out = np.full(out_shape, fill_value, dtype=output_dtype)
     sort_idx, starts, ends = iter_group_segments(group_ids)
     values_sorted = values_arr[sort_idx]

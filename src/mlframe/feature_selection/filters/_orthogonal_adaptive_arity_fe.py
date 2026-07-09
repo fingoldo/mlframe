@@ -220,7 +220,7 @@ def generate_adaptive_arity_cross_basis(
         """Enumerate every degree assignment (1..max_d per leg) for a k-way tuple, i.e. the full max_d**k grid."""
         combos: list[tuple[int, ...]] = [()]
         for _ in range(k):
-            combos = [c + (d,) for c in combos for d in range(1, max_d + 1)]
+            combos = [(*c, d) for c in combos for d in range(1, max_d + 1)]
         return combos
 
     # Pass 1: enumerate every (tuple, degree-combo) cell at every arity,
@@ -393,7 +393,7 @@ def _adaptive_arity_mi_resident_block(X, y_arr, eval_results_k, *, basis: str, n
     if not _crossbasis_device_born_on() or not eval_results_k:
         return None
     try:
-        import cupy as cp  # noqa: F401
+        import cupy as cp
         from ._orthogonal_univariate_fe._gpu_resident_cross_basis import (
             build_leg_product_matrix_gpu, _resident_mi,
         )

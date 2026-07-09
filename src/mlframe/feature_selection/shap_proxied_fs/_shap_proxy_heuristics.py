@@ -158,7 +158,7 @@ class _Evaluator:
                 lo = mid + 1
             else:
                 hi = mid
-        child_key = parent_key[:lo] + (new_j,) + parent_key[lo:]
+        child_key = (*parent_key[:lo], new_j, *parent_key[lo:])
         cached_loss = self.cache.get(child_key)
         cached_margin = self.margin_cache.get(child_key)
         if cached_loss is not None and cached_margin is not None:
@@ -225,7 +225,7 @@ class _Evaluator:
                 lo = mid + 1
             else:
                 hi = mid
-        child_key = without_out[:lo] + (in_j,) + without_out[lo:]
+        child_key = (*without_out[:lo], in_j, *without_out[lo:])
         cached_loss = self.cache.get(child_key)
         cached_margin = self.margin_cache.get(child_key)
         if cached_loss is not None and cached_margin is not None:
@@ -349,7 +349,7 @@ def greedy_forward(phi, base, y, *, classification, metric=None, max_card=None, 
         if cand_best is None or cand_loss >= best_loss:
             break
         # Re-derive the sorted key (cheap; len <= max_card) and reuse the chosen child's margin.
-        current = tuple(sorted(current + (cand_best,)))
+        current = tuple(sorted((*current, cand_best)))
         cur_margin = cand_margin
         best_loss = cand_loss
         remaining.discard(cand_best)

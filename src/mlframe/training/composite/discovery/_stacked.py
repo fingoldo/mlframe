@@ -52,7 +52,7 @@ def _warn_unrebuildable_oof_specs(pass2_specs, existing_names):
     for _s in pass2_specs:
         if _s.name in existing_names:
             continue
-        _bases = (getattr(_s, "base_column", "") or "",) + tuple(getattr(_s, "extra_base_columns", ()) or ())
+        _bases = (getattr(_s, "base_column", "") or "", *tuple(getattr(_s, "extra_base_columns", ()) or ()))
         if any(str(_b).startswith(_OOF_FEATURE_PREFIX) for _b in _bases):
             bad.append(_s.name)
     if bad:
@@ -399,7 +399,7 @@ def fit_stacked_on_residual(
     for spec in pass2_specs:
         try:
             object.__setattr__(spec, "discovered_on_residual", True)
-        except Exception as e:
+        except Exception as e:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
             logger.debug("swallowed exception in _stacked.py: %s", e)
             pass
 

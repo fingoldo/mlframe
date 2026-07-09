@@ -83,7 +83,7 @@ def generate_pareto_artifact(
                     risk_quantile=float(q), direction=direction,  # type: ignore[arg-type]
                 )
                 alt_picks[f"{q}"] = int(pick)
-            except Exception as exc:  # robust to numeric edge cases
+            except Exception as exc:  # robust to numeric edge cases  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
                 logger.debug("Pareto alt-quantile %.2f failed: %s", q, exc)
 
     # Build output paths.

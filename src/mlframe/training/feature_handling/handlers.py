@@ -20,7 +20,7 @@ Naming:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, List, Literal, Optional, Tuple, Union
+from typing import Any, List, Literal, Optional, Tuple, Union
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -29,9 +29,6 @@ from mlframe.training.feature_handling.axis import (
     HandlerSpec,
     register_handler_spec,
 )
-
-if TYPE_CHECKING:
-    from mlframe.training.feature_handling.providers import EmbeddingProvider  # noqa: F401
 
 # Eager import for pydantic v2 -- forward ref resolution at module load
 # rather than via ``model_rebuild()`` which can fail if order changes.

@@ -299,7 +299,7 @@ def _maybe_get_or_build_cb_pool(
         # fall back to the sklearn-wrapper path by returning None. The
         # operator sees the build-logger line above; we don't cache a
         # failed attempt.
-        logger.warning(f"[cb-pool-reuse] Pool construction failed ({type(exc).__name__}: {exc}); " f"falling back to rebuild-every-fit sklearn path.")
+        logger.warning("[cb-pool-reuse] Pool construction failed (%s: %s); falling back to rebuild-every-fit sklearn path.", type(exc).__name__, exc)
         return None
 
     pool._mlframe_last_target_id = id(train_target)

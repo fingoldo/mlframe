@@ -398,7 +398,7 @@ def generate_univariate_basis_features(
                         x, chosen_basis, int(d), aux_for_fit=aux_col,
                     )
                 out_cols[f"{col}__{code.get(chosen_basis, chosen_basis)}{d}"] = vals
-            except Exception as exc:
+            except Exception as exc:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
                 logger.warning("generate_univariate_basis_features: basis=%r degree=%d on col=%r raised %r; skipping", chosen_basis, d, col, exc)
                 continue
     return pd.DataFrame(out_cols, index=X.index)

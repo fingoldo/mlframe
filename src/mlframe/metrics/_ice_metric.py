@@ -312,7 +312,7 @@ def compute_probabilistic_multiclass_error(
             from .core import fast_brier_score_loss  # lazy: import-cycle avoidance, see module top
             class_error = fast_brier_score_loss(y_true=correct_class, y_prob=y_pred)
             if verbose:
-                logger.info(f"\t class_id={class_id}, brier_loss={class_error:.{ndigits}f}")
+                logger.info("\t class_id=%s, brier_loss=%s", class_id, f"{class_error:.{ndigits}f}")
         elif method == "precision":
             from .core import fast_precision  # lazy: import-cycle avoidance, see module top
             class_error = fast_precision(y_true=correct_class, y_pred=(y_pred >= 0.5).astype(np.int8), zero_division=0)
@@ -337,7 +337,7 @@ def compute_probabilistic_multiclass_error(
         total_error = float("nan")
 
     if verbose:
-        logger.info(f"method={method}, data size={len(correct_class):_} mean_class_error={total_error:.{ndigits}f}")
+        logger.info("method=%s, data size=%s mean_class_error=%s", method, f"{len(correct_class):_}", f"{total_error:.{ndigits}f}")
 
     if return_per_class:
         # Legacy/verbose/non-multicrit path does not surface the per-class

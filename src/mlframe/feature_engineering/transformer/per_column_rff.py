@@ -117,8 +117,6 @@ def compute_per_column_rff(
     # Column names: per-input-column cos / sin pairs.
     names: list[str] = []
     for j in range(d_input):
-        for i in range(m):
-            names.append(f"{column_prefix}_c{j}_cos{i}")
-        for i in range(m):
-            names.append(f"{column_prefix}_c{j}_sin{i}")
+        names.extend(f"{column_prefix}_c{j}_cos{i}" for i in range(m))
+        names.extend(f"{column_prefix}_c{j}_sin{i}" for i in range(m))
     return pl.DataFrame({name: out[:, idx] for idx, name in enumerate(names)})

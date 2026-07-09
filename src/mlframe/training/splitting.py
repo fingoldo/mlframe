@@ -242,6 +242,13 @@ def make_train_test_split(
         # widens the val->train gap silently, defeating the "gap mirror"
         # whole point of the Mazzanti split. Refuse explicitly rather
         # than produce a subtly wrong split.
+        #
+        # This raise only guards genuine backward placement; it relies on the downgrade-to-forward fallback a few
+        # lines above (the "no timestamps / val_size=0" branch that rewrites _effective_val_placement to "forward")
+        # having already run. Removing either guard alone reopens a silent temporal-honesty-loss path: without the
+        # downgrade, a no-timestamp caller could reach "backward" semantics that were never actually honoured;
+        # without this raise, a genuine backward split combined with aging would silently widen the val-to-train
+        # gap. Keep both checks together if this function is ever refactored.
         raise ValueError(
             "val_placement='backward' is incompatible with "
             "trainset_aging_limit -- aging removes the oldest train rows, "
@@ -856,7 +863,7 @@ def make_train_test_split(
 
 __all__ = ["make_train_test_split", "_carve_calib_from_train"]
 
-from ._split_helpers import (  # noqa: F401,E402
+from ._split_helpers import (
     _carve_calib_from_train,
     _deleak_tied_boundaries,
     _stratified_split,

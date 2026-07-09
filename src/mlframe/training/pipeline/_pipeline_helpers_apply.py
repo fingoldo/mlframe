@@ -156,7 +156,7 @@ def _apply_pre_pipeline_transforms(
                     for _k, _v in fitted_cached.__dict__.items():
                         try:
                             pre_pipeline.__dict__[_k] = _cp.copy(_v)
-                        except Exception:
+                        except Exception:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
                             # Defensive: a non-copyable attribute (e.g. file handle wrapper)
                             # falls back to the original reference. Logged at debug because the
                             # standard sklearn fitted attributes are all copyable.

@@ -712,7 +712,7 @@ def screen_predictors(
                 if run_out_of_time:
                     break
                 if stop_file and exists(stop_file):
-                    logger.warning(f"Stop file {stop_file} detected, quitting.")
+                    logger.warning("Stop file %s detected, quitting.", stop_file)
                     break
 
                 # The full single-predictor confirmation cycle (score all candidates, then permutation-confirm in

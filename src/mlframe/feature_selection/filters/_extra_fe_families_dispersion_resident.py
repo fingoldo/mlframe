@@ -232,7 +232,7 @@ def dual_uplift_sibling_mi_resident(
     order, OR ``None`` on any cupy failure / no-cupy so the caller falls back to the exact host
     ``_mi_classif_batch`` over the host-built ``sib_abs`` (byte-identical default path untouched)."""
     try:
-        import cupy as cp  # noqa: F401
+        import cupy as cp
     except Exception:
         return None
     if not col_specs:
@@ -283,7 +283,7 @@ def local_mi_gate_dispersion_resident(
     the collapsed upload; reproducing it host-side keeps the floor (and thus the keep/drop decision)
     identical."""
     try:
-        import cupy as cp  # noqa: F401
+        import cupy as cp
     except Exception:
         return None
     if not isinstance(enc_df, pd.DataFrame) or enc_df.shape[1] == 0:

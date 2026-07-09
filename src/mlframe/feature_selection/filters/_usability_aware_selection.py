@@ -377,13 +377,13 @@ def build_usability_candidate_pool(
             for _ua in unary:
                 try:
                     ta_by_ua[_ua] = unary[_ua](x1)
-                except Exception:  # nosec B110 - best-effort path
+                except Exception:  # nosec B110 - best-effort path  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
                     pass
             tb_by_ub: dict = {}
             for _ub in unary:
                 try:
                     tb_by_ub[_ub] = unary[_ub](x2)
-                except Exception:  # nosec B110 - best-effort path
+                except Exception:  # nosec B110 - best-effort path  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
                     pass
             for ua, ta in ta_by_ua.items():
                 for ub, tb in tb_by_ub.items():
@@ -647,7 +647,7 @@ def usability_greedy(
                 errs[fo] = float(np.mean(np.abs(y_cont[va] - pred)))
             if singular:
                 # exact fallback: refit through the standard pipeline for this candidate.
-                out[i] = _cv_per_fold(sel_idx + [i])
+                out[i] = _cv_per_fold([*sel_idx, i])
             else:
                 out[i] = errs
         return out
@@ -785,7 +785,7 @@ def usability_greedy(
         _force_full = bool(_os.environ.get("_USAB_FORCE_FULL_REFIT"))
         _mf_by_i = None if (classification or _force_full) else _cv_candidates_incremental(selected, cand_idx)
         for i in cand_idx:
-            mf = _mf_by_i[i] if _mf_by_i is not None else _cv_per_fold(selected + [i])
+            mf = _mf_by_i[i] if _mf_by_i is not None else _cv_per_fold([*selected, i])
             if int(np.sum(mf < folds_cur)) < min_improving_folds:
                 continue  # not a consistent improvement across folds
             if float(mf.mean()) < best_mean:

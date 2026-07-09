@@ -164,7 +164,7 @@ def run_outer_loop_iteration(
     if current_features is None or len(current_features) == 0:
         return IterationOutcome.BREAK
     if self.stop_file and exists(self.stop_file):
-        logger.warning(f"Stop file {self.stop_file} detected, quitting.")
+        logger.warning("Stop file %s detected, quitting.", self.stop_file)
         return IterationOutcome.BREAK
 
     desc = f"{progressbar_prefix} trying {len(current_features):_}F"

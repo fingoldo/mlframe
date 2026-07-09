@@ -327,10 +327,8 @@ def sis_screen(
             surv_df = pd.DataFrame(np.asarray(Xarr[:, survivors], dtype=np.float64), columns=[str(int(s)) for s in survivors])
             _, members = corr_clusters(surv_df, thr=float(dedup_corr_thr))
             pos = {str(int(s)): i for i, s in enumerate(survivors)}
-            keep = []
-            for _rep, mem in members.items():
-                # representative = the cluster member with the highest fused screen score (signal-preserving).
-                keep.append(int(max(mem, key=lambda nm: fused[survivors[pos[nm]]])))
+            # representative = the cluster member with the highest fused screen score (signal-preserving).
+            keep = [int(max(mem, key=lambda nm: fused[survivors[pos[nm]]])) for mem in members.values()]
             deduped = np.sort(np.asarray(keep, dtype=np.int64))
             n_clusters_collapsed = n_pre_dedup - int(deduped.size)
             if n_clusters_collapsed > 0:

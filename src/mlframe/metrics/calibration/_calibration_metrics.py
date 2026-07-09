@@ -461,12 +461,15 @@ def integral_calibration_error_from_metrics(
     avoids jumpy early-stopping curves that could fixate just inside the
     penalty zone when the step was large.
     """
-    # Guard against NaN roc_auc/pr_auc (single-class eval set, zero-variance
-    # scores, etc.; fast_aucs_per_group_optimized returns NaN in those cases).
-    # Without this guard the entire ICE becomes NaN, which silently breaks
-    # early-stopping comparisons (NaN > best is always False, so the trainer
-    # gets stuck on iteration-1 best instead of failing loud).
-    base_loss = brier_loss * brier_loss_weight + calibration_mae * mae_weight + calibration_std * std_weight
+    # Guard against NaN in any of the 5 inputs (single-class eval set, zero-variance scores, out-of-range
+    # probabilities feeding fast_brier_score_loss, degenerate calibration bins, etc. - each of these upstream
+    # kernels documents returning NaN on such degenerate inputs). Without this guard on EVERY term, the entire
+    # ICE becomes NaN, which silently breaks early-stopping comparisons (NaN > best is always False, so the
+    # trainer gets stuck on iteration-1 best instead of failing loud).
+    brier_term = 0.0 if np.isnan(brier_loss) else brier_loss * brier_loss_weight
+    mae_term = 0.0 if np.isnan(calibration_mae) else calibration_mae * mae_weight
+    std_term = 0.0 if np.isnan(calibration_std) else calibration_std * std_weight
+    base_loss = brier_term + mae_term + std_term
     roc_term = 0.0 if np.isnan(roc_auc) else np.abs(roc_auc - 0.5) * roc_auc_weight
     pr_term = 0.0 if np.isnan(pr_auc) else pr_auc * pr_auc_weight
     res = base_loss - roc_term - pr_term

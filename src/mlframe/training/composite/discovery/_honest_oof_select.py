@@ -111,12 +111,19 @@ def honest_oof_reconstruction_rmse(
     num_leaves = int(getattr(cfg, "tiny_model_num_leaves", 15))
     learning_rate = float(getattr(cfg, "tiny_model_learning_rate", 0.1))
     rs = int(getattr(cfg, "random_state", 0))
+    # Per-spec scoring below fits one tiny LightGBM model per outer joblib thread; LightGBM's own OpenMP thread
+    # pool defaults to all physical cores per fit, so outer_threads x inner_OpenMP_threads oversubscribes when
+    # more than one spec is scored concurrently. Cap LightGBM to a single thread whenever the outer parallel
+    # scoring loop below will actually use more than one worker (mirrors the same n_jobs=1 cap applied to the
+    # composite_screening CV-fold loop in _screening_tiny.py).
+    _outer_n_jobs = min(len(kept_specs), cpu_count_physical())
+    _inner_n_jobs = 1 if _outer_n_jobs > 1 else -1
 
-    def _new_model():
+    def _new_model(inner_n_jobs: int = -1):
         """Build a fresh tiny LightGBM regressor with the configured (small) capacity, so each spec/baseline gets an unfitted model rather than reusing fitted state."""
         return _build_tiny_model(
             "lgb", n_estimators=n_estimators, num_leaves=num_leaves,
-            learning_rate=learning_rate, random_state=rs,
+            learning_rate=learning_rate, random_state=rs, inner_n_jobs=inner_n_jobs,
         )
 
     try:
@@ -155,7 +162,8 @@ def honest_oof_reconstruction_rmse(
             valid = np.asarray(transform.domain_check(y_fit, base_fit), dtype=bool)
             if valid.shape != y_fit.shape:
                 valid = np.ones(y_fit.shape, dtype=bool)
-        except Exception:
+        except Exception as exc:  # -- domain_check itself crashed; fails OPEN (no restriction), so surface it loudly
+            logger.warning("[honest_oof_select] domain_check raised for %s; treating all rows as in-domain: %s", spec.name, exc)
             valid = np.ones(y_fit.shape, dtype=bool)
         if int(valid.sum()) < 50:
             return spec.name, None
@@ -166,7 +174,7 @@ def honest_oof_reconstruction_rmse(
             logger.debug("[honest_oof_select] forward failed for %s: %s", spec.name, exc)
             return spec.name, None
         try:
-            model = _new_model()
+            model = _new_model(inner_n_jobs=_inner_n_jobs)
             model.fit(x_fit[valid], t_fit)
             t_hat = np.asarray(model.predict(x_eval), dtype=np.float64)
             y_hat = np.asarray(transform.inverse(t_hat, base_eval, params), dtype=np.float64)
@@ -185,16 +193,15 @@ def honest_oof_reconstruction_rmse(
         return spec.name, float(rmse_y)
 
     # Per-spec scores are independent (each fits its own tiny model, reads shared read-only arrays). LightGBM releases
-    # the GIL, so thread across physical cores.
-    n_jobs = min(len(kept_specs), cpu_count_physical())
-    if n_jobs > 1:
+    # the GIL, so thread across physical cores. Each fit is capped to inner_n_jobs=1 above (via ``_inner_n_jobs``)
+    # whenever this loop actually runs multi-worker, so LightGBM's own OpenMP pool doesn't oversubscribe on top
+    # of the outer joblib threads.
+    if _outer_n_jobs > 1:
         from joblib import Parallel, delayed
 
-        results = Parallel(n_jobs=n_jobs, backend="threading", prefer="threads")(delayed(_score_one)(s) for s in kept_specs)
+        results = Parallel(n_jobs=_outer_n_jobs, backend="threading", prefer="threads")(delayed(_score_one)(s) for s in kept_specs)
     else:
         results = [_score_one(s) for s in kept_specs]
 
-    for name, score in results:
-        if score is not None:
-            out[name] = score
+    out.update({name: score for name, score in results if score is not None})
     return out

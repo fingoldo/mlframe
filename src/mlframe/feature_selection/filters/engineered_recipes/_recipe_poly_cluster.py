@@ -121,8 +121,7 @@ def build_cluster_aggregate_recipe(
     }
     if weights is not None:
         extra["weights"] = np.asarray(weights, dtype=np.float64).copy()
-    for k, v in (diagnostics or {}).items():  # e.g. pca_var_ratio, representative -- scalars/str only
-        extra[k] = v
+    extra.update({k: v for k, v in (diagnostics or {}).items()})  # e.g. pca_var_ratio, representative -- scalars/str only
     # Build-time guard: _extra_equal compares values shallowly (np.array_equal / !=), so nested
     # lists/dicts of arrays would break __eq__/pickle round-trip. Keep extra flat.
     for k, v in extra.items():

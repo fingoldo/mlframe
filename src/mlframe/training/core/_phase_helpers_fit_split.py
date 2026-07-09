@@ -231,7 +231,7 @@ def _phase_train_val_test_split(
     _bucket_stratify_enabled = bool(getattr(split_config, "bucket_stratify", True))
     _stratify_y = None
     if timestamps is None and isinstance(target_by_type, dict):
-        _classification_targets = []
+        _classification_targets: list[Any] = []
         _multilabel_target = None
         for _tt, _named in target_by_type.items():
             _tt_name = getattr(_tt, "name", str(_tt)).upper()
@@ -244,9 +244,7 @@ def _phase_train_val_test_split(
                 _multilabel_target = _ml_vals
                 continue
             if "CLASS" in _tt_name and isinstance(_named, dict):
-                for _tn, _tv in _named.items():
-                    if _tv is not None:
-                        _classification_targets.append(_tv)
+                _classification_targets.extend(_tv for _tv in _named.values() if _tv is not None)
         if _multilabel_target is not None:
             try:
                 _ml_arr = np.asarray(_multilabel_target)
@@ -343,14 +341,12 @@ def _phase_train_val_test_split(
                 _stratify_y = None
         # Regression bucket-stratify: when no classification stratify_y was set above AND bucket_stratify is enabled (default True), bin regression targets into deciles (quartiles for n<5000) and stratify on bucket ids. Prevents heavy-tail / multimodal regression from concentrating tail rows in val or test (the same all-one-class hazard classification stratification already prevents). Skipped when a classification path already populated _stratify_y, when timestamps drive a temporal split, or when only a single distinct target value is present.
         if _stratify_y is None and _bucket_stratify_enabled and timestamps is None:
-            _regression_targets = []
+            _regression_targets: list[Any] = []
             for _tt, _named in target_by_type.items():
                 _tt_name = getattr(_tt, "name", str(_tt)).upper()
                 if "REGRESSION" in _tt_name or "QUANTILE" in _tt_name:
                     if isinstance(_named, dict):
-                        for _tn, _tv in _named.items():
-                            if _tv is not None:
-                                _regression_targets.append(_tv)
+                        _regression_targets.extend(_tv for _tv in _named.values() if _tv is not None)
             if _regression_targets:
                 try:
                     _y_reg = np.asarray(_regression_targets[0]).astype(np.float64)
@@ -495,7 +491,7 @@ def _phase_train_val_test_split(
     fairness_subgroups, fairness_features = _compute_fairness_subgroups(df, behavior_config)
     if verbose:
         if fairness_features and fairness_subgroups is None:
-            logger.warning(f"Fairness features {fairness_features} specified but subgroups could not be computed")
+            logger.warning("Fairness features %s specified but subgroups could not be computed", fairness_features)
         elif fairness_subgroups is not None:
             logger.info("Computed %d fairness subgroups", len(fairness_subgroups))
 
@@ -728,7 +724,7 @@ def _phase_auto_detect_feature_types(
                     _val_only = [v for v in _u_val if v not in _train_set]
                     if _val_only:
                         _val_only_diag[_c] = (len(_val_only), _val_only[:5])
-                except Exception as e:
+                except Exception as e:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
                     logger.debug("swallowed exception in _phase_helpers_fit_split.py: %s", e)
                     pass
             if _val_only_diag:

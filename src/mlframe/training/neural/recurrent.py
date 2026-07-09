@@ -78,9 +78,9 @@ __all__ = [
 
 
 from .base import _ensure_numpy  # noqa: F401  shared with _recurrent_data
-from ._recurrent_config import RNNType, InputMode, RecurrentConfig  # noqa: E402,F401
-from ._recurrent_data import RecurrentDataset, recurrent_collate_fn, RecurrentDataModule  # noqa: E402,F401
-from ._recurrent_arch import AttentionPooling, PositionalEncoding, TransformerSequenceEncoder, MLPHead  # noqa: E402,F401
+from ._recurrent_config import RNNType, InputMode, RecurrentConfig
+from ._recurrent_data import RecurrentDataset, recurrent_collate_fn, RecurrentDataModule
+from ._recurrent_arch import AttentionPooling, PositionalEncoding, TransformerSequenceEncoder, MLPHead
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # Lightning Module
@@ -92,7 +92,7 @@ from ._recurrent_arch import AttentionPooling, PositionalEncoding, TransformerSe
 # monolith threshold. Re-exported below so existing callers
 # (`from mlframe.training.neural.recurrent import RecurrentTorchModel`)
 # keep working.
-from ._recurrent_torch_model import RecurrentTorchModel  # noqa: F401, E402
+from ._recurrent_torch_model import RecurrentTorchModel
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # Sklearn Wrappers + EarlyStopping monitor-direction helper -- carved to
@@ -117,7 +117,7 @@ from .recurrent_dataset_helpers import (  # noqa: F401
 # ``from .recurrent import extract_sequences`` callers keep working.
 # ----------------------------------------------------------------------------------------------------------------------------
 
-from ._recurrent_sequences import (  # noqa: E402, F401
+from ._recurrent_sequences import (
     extract_sequences,
     extract_sequences_chunked,
 )

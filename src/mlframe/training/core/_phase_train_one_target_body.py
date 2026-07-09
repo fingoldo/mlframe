@@ -278,7 +278,7 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                 )
 
             if _model_entry not in models_params:
-                logger.warning(f"mlframe model {mlframe_model_name} not known, skipping...")
+                logger.warning("mlframe model %s not known, skipping...", mlframe_model_name)
                 continue
 
             # Cross-target dataset reuse: restore the prior target's _DATASET_REUSE_CACHE_ATTRS
@@ -537,7 +537,7 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
             # tabular block exists; SEQUENCE_ONLY has no aux cats so the wrapper no-ops cleanly even if the kwarg is threaded. NGB shares the neural
             # strategy but cannot consume learnable embeddings, so it must NOT receive raw cat_features.
             _RECURRENT_MODEL_NAMES = ("lstm", "gru", "rnn", "transformer")
-            _neural_threads_cats = mlframe_model_name in ("mlp",) + _RECURRENT_MODEL_NAMES and not getattr(strategy, "requires_encoding", True)
+            _neural_threads_cats = mlframe_model_name in ("mlp", *_RECURRENT_MODEL_NAMES) and not getattr(strategy, "requires_encoding", True)
             _neural_extra_fit_invariant: dict[str, Any] | None = None
             if getattr(strategy, "cache_key", None) in ("neural", "recurrent") and (text_features or embedding_features or _neural_threads_cats):
                 _neural_extra_fit_invariant = {}
@@ -799,11 +799,13 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                     # native SIGSEGV that kills the process won't be caught either.
                     if not behavior_config.continue_on_model_failure:
                         raise
-                    logger.error(
-                        f"  process_model({mlframe_model_name}, w={weight_name}) FAILED after "
-                        f"{_elapsed_str(t0_model)} -- {type(model_err).__name__}: {model_err}. "
-                        f"continue_on_model_failure=True -> skipping and moving on.",
-                        exc_info=True,
+                    logger.exception(
+                        "  process_model(%s, w=%s) FAILED after %s -- %s: %s. continue_on_model_failure=True -> skipping and moving on.",
+                        mlframe_model_name,
+                        weight_name,
+                        _elapsed_str(t0_model),
+                        type(model_err).__name__,
+                        model_err,
                     )
                     metadata.setdefault("failed_models", []).append(
                         {

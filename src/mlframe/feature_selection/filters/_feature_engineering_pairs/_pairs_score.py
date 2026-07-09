@@ -1045,7 +1045,7 @@ def _score_one_pair(
                         _cv = _resolve_col(_cfg[2])
                         if _cv is not None:
                             _use_map[_cfg] = _safe_abs_corr(_cv)
-                    except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
+                    except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
                         logger.debug("suppressed in _pairs_score.py:1042: %s", e)
                         continue
                 _best_single_corr = max(

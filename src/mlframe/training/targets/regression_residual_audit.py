@@ -618,11 +618,9 @@ def format_residual_audit_report(audit: ResidualAudit, *, ndigits: int = 4) -> s
         f"  suggested:  {audit.suggested_loss}",
     ]
     if audit.rationale:
-        for r in audit.rationale:
-            lines.append(f"  why:        {r}")
+        lines.extend(f"  why:        {r}" for r in audit.rationale)
     if audit.warnings_:
-        for w in audit.warnings_:
-            lines.append(f"  WARN:       {w}")
+        lines.extend(f"  WARN:       {w}" for w in audit.warnings_)
     return "\n".join(lines)
 
 

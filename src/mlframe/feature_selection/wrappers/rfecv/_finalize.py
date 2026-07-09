@@ -195,7 +195,7 @@ def _finalize_fit_results(
                 support_mask[i] = True
         _name_to_idx = {n: i for i, n in enumerate(self.feature_names_in_)}
         _expanded = 0
-        for _group_name, _members in self.feature_groups.items():
+        for _members in self.feature_groups.values():
             _idx = [_name_to_idx[m] for m in _members if m in _name_to_idx]
             if not _idx:
                 continue
@@ -220,7 +220,7 @@ def _finalize_fit_results(
     # refits would never skip. The data slots (shapes/hashes/columns) stay as computed at fit entry.
     from ._fit_init import _current_params_signature
 
-    self.signature = signature[:-1] + (_current_params_signature(self),)
+    self.signature = (*signature[:-1], _current_params_signature(self))
 
     # Cache resolved column list so transform() avoids per-call reconstruction.
     self._selected_cols_cache = None

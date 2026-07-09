@@ -332,20 +332,18 @@ def fingerprint_df(
         sample_idx = np.unique(raw)
 
     # ---- column_dtypes_hash --------------------------------------
-    dtype_lines = []
+    dtype_lines: list[str] = []
     try:
         import polars as pl
         if isinstance(df, pl.DataFrame):
-            for c in cols_sorted:
-                dtype_lines.append(f"{c}:{df.schema[c]}")
+            dtype_lines.extend(f"{c}:{df.schema[c]}" for c in cols_sorted)
     except ImportError:  # pragma: no cover
         pass
     if not dtype_lines:
         try:
             import pandas as pd
             if isinstance(df, pd.DataFrame):
-                for c in cols_sorted:
-                    dtype_lines.append(f"{c}:{df[c].dtype}")
+                dtype_lines.extend(f"{c}:{df[c].dtype}" for c in cols_sorted)
         except ImportError:  # pragma: no cover
             pass
     column_dtypes_hash = hashlib.blake2b(";".join(dtype_lines).encode("utf-8"), digest_size=8).hexdigest()

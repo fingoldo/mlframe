@@ -66,9 +66,7 @@ def naive_gpt2_score(model, tokenizer, sentence):
 
 def naive_model_scores(model, tokenizer, sentences, scorer):
     """Apply ``scorer`` (one of the ``naive_*_score`` functions) to every sentence, returning the score array."""
-    scores = []
-    for sent in tqdm(sentences):
-        scores.append(scorer(model, tokenizer, sent))
+    scores = [scorer(model, tokenizer, sent) for sent in tqdm(sentences)]
     return np.array(scores)
 
 

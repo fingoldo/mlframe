@@ -144,7 +144,7 @@ def compose_pair_fe(
             if verbose:
                 logger.debug("[compose] round %d added no features; stopping", r + 1)
             break
-        cur_X = np.column_stack([cur_X] + new_cols)
+        cur_X = np.column_stack([cur_X, *new_cols])
         cur_names = cur_names + new_names
         if verbose:
             logger.debug("[compose] round %d added %d features: %s", r + 1, len(new_cols), new_names)

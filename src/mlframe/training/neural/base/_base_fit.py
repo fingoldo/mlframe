@@ -661,7 +661,7 @@ class _FitMixin(_FitPrepMixin):
             # Falls back to a SWA-as-EMA shim when WeightAveraging is not
             # in the installed Lightning (added in Lightning ~2.5).
             try:
-                from lightning.pytorch.callbacks import WeightAveraging  # type: ignore[attr-defined]  # noqa: F401
+                from lightning.pytorch.callbacks import WeightAveraging  # type: ignore[attr-defined]
                 _ema_has_native = True
             except ImportError:
                 _ema_has_native = False

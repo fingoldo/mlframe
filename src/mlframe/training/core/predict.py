@@ -437,12 +437,7 @@ def _resolve_chosen_ensemble_params(metadata: dict, target_type: Any = None, tar
                 if isinstance(_only, dict):
                     return _only
     # suite-wide fallback when only one (tt, tname) entry exists across the map
-    _all_params: list[dict] = []
-    for _v in _ep.values():
-        if isinstance(_v, dict):
-            for _vv in _v.values():
-                if isinstance(_vv, dict):
-                    _all_params.append(_vv)
+    _all_params: list[dict] = [_vv for _v in _ep.values() if isinstance(_v, dict) for _vv in _v.values() if isinstance(_vv, dict)]
     if len(_all_params) == 1:
         return _all_params[0]
     return {}
@@ -727,7 +722,7 @@ __all__ = [
 # helpers live in ``_predict_main.py`` / ``_predict_pre_pipeline.py`` so
 # this file stays below the 1k-LOC monolith threshold.
 # ----------------------------------------------------------------------
-from ._predict_main import (  # noqa: E402,F401
+from ._predict_main import (
     predict_from_models, predict_mlframe_models_suite,
 )
 from ._predict_pre_pipeline import (  # noqa: F401

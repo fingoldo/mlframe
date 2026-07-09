@@ -28,7 +28,7 @@ from ._eval_helpers import _align_xgb_cat_categories
 # ``_training_loop_refit.py`` to drop this file below the 1k-LOC
 # monolith threshold; imported here so callers keep using
 # ``from mlframe.training._training_loop import _maybe_refit_on_*``.
-from ._training_loop_refit import (  # noqa: F401
+from ._training_loop_refit import (
     _maybe_refit_on_collapsed_predictions,
     _maybe_refit_on_degenerate_best_iter,
 )
@@ -790,8 +790,9 @@ def _train_model_with_fallback(
             removed = [p for p in val_params if p in fit_params]
             if removed:
                 logger.warning(
-                    f"This sklearn version doesn't support validation set parameters ({', '.join(removed)}) "
-                    f"for {model_type_name}. Training without early stopping validation."
+                    "This sklearn version doesn't support validation set parameters (%s) " "for %s. Training without early stopping validation.",
+                    ", ".join(removed),
+                    model_type_name,
                 )
                 for param in val_params:
                     fit_params.pop(param, None)
@@ -823,7 +824,7 @@ def _train_model_with_fallback(
     try:
         model = _maybe_apply_posthoc_calibration(model, fit_params, model_type_name, verbose=verbose)
     except Exception as _calib_err:
-        logger.warning(f"Post-hoc calibration hook raised: {_calib_err}")
+        logger.warning("Post-hoc calibration hook raised: %s", _calib_err)
 
     best_iter = None
     if model is not None:
@@ -876,7 +877,7 @@ def _train_model_with_fallback(
 
 
 # xgb-objective / 2d-target-wrap helpers carved to _training_loop_objectives.py (1k-LOC ceiling).
-from ._training_loop_objectives import (  # noqa: E402, F401
+from ._training_loop_objectives import (
     _ensure_xgb_classification_objective,
     _maybe_wrap_for_2d_target,
 )

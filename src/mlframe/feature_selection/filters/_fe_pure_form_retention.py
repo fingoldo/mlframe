@@ -147,10 +147,7 @@ def retain_usable_pure_forms(
                 covered_pairs.add(uniq)
 
         # Base operands: numeric raw columns only (the usability pool builds pair forms over these).
-        base_names = []
-        for nm in list(getattr(mrmr, "feature_names_in_", []) or []):
-            if nm in X.columns and pd.api.types.is_numeric_dtype(X[nm].dtype):
-                base_names.append(nm)
+        base_names = [nm for nm in list(getattr(mrmr, "feature_names_in_", []) or []) if nm in X.columns and pd.api.types.is_numeric_dtype(X[nm].dtype)]
         if len(base_names) < 2:
             return []
 
@@ -548,10 +545,7 @@ def retain_usable_raw_columns(
         support = np.asarray(_sup_raw, dtype=np.int64).ravel() if _sup_raw is not None else np.array([], dtype=np.int64)
         already = {feat_in[int(i)] for i in support if 0 <= int(i) < len(feat_in)}
 
-        base_names = []
-        for nm in feat_in:
-            if nm in X.columns and pd.api.types.is_numeric_dtype(X[nm].dtype):
-                base_names.append(nm)
+        base_names = [nm for nm in feat_in if nm in X.columns and pd.api.types.is_numeric_dtype(X[nm].dtype)]
         if len(base_names) < 2:
             return []
         if len(base_names) > max_base_features:

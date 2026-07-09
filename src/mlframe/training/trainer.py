@@ -490,16 +490,20 @@ def _build_configs_from_params(
         plot_dpi=plot_dpi,
     )
     # Pass only when explicitly set; otherwise ReportingConfig's field default is the single source.
-    for _name, _val in (
-        ("title_metrics_template", title_metrics_template),
-        ("plot_outputs", plot_outputs),
-        ("multiclass_panels", multiclass_panels),
-        ("multilabel_panels", multilabel_panels),
-        ("ltr_panels", ltr_panels),
-        ("quantile_panels", quantile_panels),
-    ):
-        if _val is not None:
-            _rep_kwargs[_name] = _val
+    _rep_kwargs.update(
+        {
+            _name: _val
+            for _name, _val in (
+                ("title_metrics_template", title_metrics_template),
+                ("plot_outputs", plot_outputs),
+                ("multiclass_panels", multiclass_panels),
+                ("multilabel_panels", multilabel_panels),
+                ("ltr_panels", ltr_panels),
+                ("quantile_panels", quantile_panels),
+            )
+            if _val is not None
+        }
+    )
     if honest_estimator_diagnostics is not None:
         _rep_kwargs["honest_estimator_diagnostics"] = honest_estimator_diagnostics
     if mase_seasonality is not None:
@@ -954,5 +958,5 @@ __all__ = [
 # ``_trainer_configure.py`` (~557 LOC) so this file stays below the
 # 1k-LOC monolith threshold.
 # ----------------------------------------------------------------------
-from ._trainer_train_and_evaluate import train_and_evaluate_model  # noqa: E402,F401
-from ._trainer_configure import configure_training_params  # noqa: E402,F401
+from ._trainer_train_and_evaluate import train_and_evaluate_model
+from ._trainer_configure import configure_training_params

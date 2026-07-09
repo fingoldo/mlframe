@@ -48,7 +48,7 @@ if TYPE_CHECKING:
 
 
 def _auto_base(
-    self: "CompositeTargetDiscovery",  # noqa: F821 -- forward ref to parent class
+    self: "CompositeTargetDiscovery",
     df: Any,
     usable_features: Sequence[str],
     y_train: np.ndarray,

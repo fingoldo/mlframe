@@ -33,6 +33,7 @@ def composite_predictions_as_feature(
     *,
     column_name: str | None = None,
     fallback_value: float | None = None,
+    allow_large_frame_copy: bool = False,
 ) -> Any:
     """Attach a fitted composite wrapper's predictions to ``df`` as a new column.
 
@@ -46,6 +47,8 @@ def composite_predictions_as_feature(
         Override for the new column name. Default: ``"composite_pred__{transform_name}__{base_column}"`` derived from the wrapper's attributes, with a generic ``"composite_pred"`` fallback when the wrapper doesn't expose them.
     fallback_value
         When the wrapper's ``predict`` raises (e.g. missing base column), fill the new column with this value instead of propagating the exception. ``None`` (default) re-raises so callers see the failure.
+    allow_large_frame_copy
+        Must be explicitly ``True`` to append onto a pandas frame larger than the large-frame threshold (pandas has no zero-copy column add, so appending doubles peak RAM). Default ``False`` raises ``RuntimeError`` above the threshold instead of silently copying; pass a polars frame for the zero-copy path, or set this flag once the caller has confirmed the host has headroom.
 
     Returns
     -------
@@ -60,9 +63,15 @@ def composite_predictions_as_feature(
             column_name = "composite_pred"
     try:
         preds = np.asarray(wrapper.predict(df), dtype=np.float64).reshape(-1)
-    except Exception:
+    except Exception as exc:
         if fallback_value is None:
             raise
+        logger.warning(
+            "composite_predictions_as_feature: wrapper.predict failed for column '%s'; filling with the constant "
+            "fallback_value=%s instead. This masks any real predict-time bug (schema drift, shape mismatch, stale "
+            "wrapper) as an intentional abstain -- verify this is expected. Error: %s",
+            column_name, fallback_value, exc,
+        )
         n = len(df)
         preds = np.full(n, float(fallback_value), dtype=np.float64)
     try:
@@ -83,6 +92,13 @@ def composite_predictions_as_feature(
         except Exception:
             _sz = 0
         if _sz > _FEATURE_STACK_LARGE_FRAME_BYTES:
+            if not allow_large_frame_copy:
+                raise RuntimeError(
+                    f"composite_predictions_as_feature: appending '{column_name}' requires a full copy of a "
+                    f"{_sz / 1024 ** 3:.1f} GB pandas frame (pandas has no zero-copy column add), which would double "
+                    "peak RAM. Pass a polars frame for the zero-copy with_columns path, or set "
+                    "allow_large_frame_copy=True to accept the doubled RAM cost."
+                )
             logger.warning(
                 "composite_predictions_as_feature: appending '%s' requires a "
                 "full copy of a %.1f GB pandas frame (pandas has no zero-copy "

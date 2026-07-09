@@ -364,7 +364,7 @@ def _discover_clusters(
         if len(members) > max_cluster_size:
             # keep representative + top-|corr|-to-rep members
             rep_pos = pool.index(rep)
-            members = [rep] + sorted([m for m in members if m != rep], key=lambda m: -abs(corr[rep_pos, pool.index(m)]))[: max_cluster_size - 1]
+            members = [rep, *sorted([m for m in members if m != rep], key=lambda m: -abs(corr[rep_pos, pool.index(m)]))[: max_cluster_size - 1]]
         # Unidimensionality: PC1 explains >= tau of the standardized cluster variance. This is the
         # structural discriminator -- genuine reflections of ONE latent are unidimensional; a
         # partial-shared+distinct cluster (z + delta_i) is multi-factor -> low PC1 ratio -> rejected.
@@ -540,7 +540,7 @@ def run_cluster_aggregate_step(
         # fit's feature_names_in_.
         new_data_cols.append(binned.astype(quantization_dtype))
         added_indices.append(len(cols))  # cols-space index this aggregate will occupy
-        cols = cols + [recipe.name]
+        cols = [*cols, recipe.name]
         nbins = np.concatenate([np.asarray(nbins), [int(quantization_nbins)]]).astype(np.asarray(nbins).dtype)
         if engineered_recipes is not None:
             engineered_recipes[recipe.name] = recipe

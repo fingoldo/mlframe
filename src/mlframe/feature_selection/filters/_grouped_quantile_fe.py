@@ -415,7 +415,7 @@ def generate_target_aware_group_bins(
                 # above the gate. The persisted recipe below still uses all-rows edges (serving is out-of-sample).
                 _tr_finite = train_mask & np.isfinite(x)
                 fold_global_edges = _fit_group_edges(x[_tr_finite], y_arr[_tr_finite], n_bins) if _tr_finite.any() else global_edges
-                for _key, rows in group_rows.items():
+                for rows in group_rows.values():
                     tr = rows[train_mask[rows]]
                     te = rows[test_mask[rows]]
                     if te.size == 0:

@@ -3562,7 +3562,7 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
                 for _k, _v in _default_screen_saved.items():
                     try:
                         setattr(self, _k, _v)
-                    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
                         logger.debug("suppressed in _mrmr_class.py:3623: %s", e)
                         pass
             if _fast_search_saved:
@@ -3583,7 +3583,7 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
                                 _os_restore.environ[_envk] = _v
                         else:
                             setattr(self, _k, _v)
-                    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
                         logger.debug("suppressed in _mrmr_class.py:3643: %s", e)
                         pass
             # restore any fe_*_enable flags fe_auto flipped ON, so the

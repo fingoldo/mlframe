@@ -81,10 +81,10 @@ from ._dummy_baseline_compute import (
 # rank helper, the multilabel macro log-loss) keep resolving identity-equal.
 # The ``_NUMBA_AVAILABLE`` flag comes from the sibling -- it reflects whether
 # ``import numba`` succeeded there (optional dep).
-from ._dummy_numba_kernels import _NUMBA_AVAILABLE  # noqa: E402,F401
+from ._dummy_numba_kernels import _NUMBA_AVAILABLE
 
 if _NUMBA_AVAILABLE:
-    from ._dummy_numba_kernels import (  # noqa: E402,F401
+    from ._dummy_numba_kernels import (
         _numba_macro_log_loss,
         _numba_micro_log_loss,
         _numba_within_group_descending_rank,
@@ -206,7 +206,7 @@ def _warmup_numba_kernels_body(verbose: bool = False) -> None:
 # ``BaselineReport`` NamedTuple + ``SCHEMA_VERSION`` moved to
 # ``_dummy_report_type.py``; re-imported below so historical
 # ``from .dummy import BaselineReport`` resolves.
-from ._dummy_report_type import BaselineReport, SCHEMA_VERSION  # noqa: E402,F401
+from ._dummy_report_type import BaselineReport, SCHEMA_VERSION
 def _baseline_inputs_hash(
     target_type: str,
     train_y: Any,
@@ -759,7 +759,7 @@ def _compute_multi_output_regression(
 # Suite-end summary + verdict-table formatting moved to
 # ``_dummy_summary_format.py``; re-exported below so the orchestrator and
 # caller-side imports continue to resolve. See sibling for SSOT.
-from ._dummy_summary_format import (  # noqa: E402,F401
+from ._dummy_summary_format import (
     format_suite_end_summary,
     format_unified_target_verdict_table,
 )

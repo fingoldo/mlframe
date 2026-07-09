@@ -693,9 +693,7 @@ def binary_decile_table_figure(
     n_rows = len(tbl["decile"])
 
     col_headers = [c[0] for c in _DECILE_TABLE_COLUMNS]
-    cells: List[List[str]] = []
-    for d in range(n_rows):
-        cells.append([fmt(tbl[key][d]) for _, key, fmt in _DECILE_TABLE_COLUMNS])
+    cells: List[List[str]] = [[fmt(tbl[key][d]) for _, key, fmt in _DECILE_TABLE_COLUMNS] for d in range(n_rows)]
     total_pos = int(tbl["positives"].sum())
     total_n = int(tbl["count"].sum())
     total_resp = total_pos / total_n if total_n else float("nan")

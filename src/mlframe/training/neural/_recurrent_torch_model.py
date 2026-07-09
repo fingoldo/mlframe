@@ -95,9 +95,9 @@ __all__ = [
 
 
 from .base import _ensure_numpy  # noqa: F401  shared with _recurrent_data
-from ._recurrent_config import RNNType, InputMode, RecurrentConfig  # noqa: E402,F401
-from ._recurrent_data import RecurrentDataset, recurrent_collate_fn, RecurrentDataModule  # noqa: E402,F401
-from ._recurrent_arch import AttentionPooling, PositionalEncoding, TransformerSequenceEncoder, MLPHead  # noqa: E402,F401
+from ._recurrent_config import RNNType, InputMode, RecurrentConfig
+from ._recurrent_data import RecurrentDataset, recurrent_collate_fn, RecurrentDataModule
+from ._recurrent_arch import AttentionPooling, PositionalEncoding, TransformerSequenceEncoder, MLPHead
 
 # Substring-match on the monitor name was buggy: "val_log_likelihood" contains
 # "loss" -> wrong "min" direction (likelihood is max-better). Explicit table

@@ -254,7 +254,7 @@ def forward_stepwise_multi_base(
         best_folds: list[float] = []
         per_candidate_folds: dict[str, list[float]] = {}
         for cand_name in available:
-            trial = kept + [cand_name]
+            trial = [*kept, cand_name]
             if _trial_buf is not None:
                 _trial_buf[:, _k] = candidates[cand_name]
             rmse_trial, fold_rmses_trial = _cv_rmse_with_folds(trial, base_matrix=_trial_buf)

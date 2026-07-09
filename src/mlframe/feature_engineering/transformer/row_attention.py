@@ -120,7 +120,7 @@ def compute_row_attention(
 
     # k_scales support: when set, run the whole pipeline for each k in (k,) + k_scales, then concat the outputs side-by-side. This captures local + medium +
     # global similarity simultaneously. When k_scales is empty (default), use just the single k.
-    ks_to_run = (k,) + tuple(k_scales) if k_scales else (k,)
+    ks_to_run = (k, *tuple(k_scales)) if k_scales else (k,)
     all_outputs: dict[str, np.ndarray] = {}
     all_names: list[str] = []
 

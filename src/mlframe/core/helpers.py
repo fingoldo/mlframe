@@ -120,7 +120,7 @@ def ensure_no_infinity_np(arr: np.ndarray, nans_filler: float = 0, verbose: int 
     if mask.any():
         arr[mask] = nans_filler
         if verbose:
-            logger.warning(f"ndarray contained infinity in {int(mask.sum()):_} cell(s); replaced with {nans_filler}.")
+            logger.warning("ndarray contained infinity in %s cell(s); replaced with %s.", f"{int(mask.sum()):_}", nans_filler)
     return arr
 
 
@@ -150,7 +150,7 @@ def ensure_no_infinity_pl(df: pl.DataFrame, num_cols_only: bool = True, nans_fil
         df = df.with_columns(pllib.clean_numeric(pl.col(inf_cols), nans_filler=nans_filler))
 
         if verbose:
-            logger.warning(f"Some factors ({len(inf_cols):_}) contained infinity: {', '.join(inf_cols)}")
+            logger.warning("Some factors (%s) contained infinity: %s", f"{len(inf_cols):_}", ", ".join(inf_cols))
 
     return df
 
@@ -225,7 +225,7 @@ def ensure_no_infinity_pd(df: pd.DataFrame, num_cols_only: bool = True, nans_fil
         for col in inf_cols:
             df[col] = np.nan_to_num(df[col], posinf=nans_filler, neginf=nans_filler)
         if verbose:
-            logger.warning(f"Some factors ({len(inf_cols):_}) contained infinity: {', '.join(inf_cols)}")
+            logger.warning("Some factors (%s) contained infinity: %s", f"{len(inf_cols):_}", ", ".join(inf_cols))
     return df
 
 

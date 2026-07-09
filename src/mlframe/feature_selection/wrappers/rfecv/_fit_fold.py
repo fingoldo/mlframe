@@ -381,8 +381,7 @@ def _eval_fold_body(
     with _FOLD_STATE_LOCK:
         scores.append(score)
         # Persist every estimator's FI run.
-        for _k, _fi in _est_fi_runs:
-            feature_importances[_k] = _fi
+        feature_importances.update({_k: _fi for _k, _fi in _est_fi_runs})
 
     if 0 not in evaluated_scores_mean:
 

@@ -666,7 +666,7 @@ class DiscoveryCache:
             try:
                 os.remove(f)
                 _swept += 1
-            except OSError:
+            except OSError:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
                 pass
         try:
             _lock = self._lock_path()

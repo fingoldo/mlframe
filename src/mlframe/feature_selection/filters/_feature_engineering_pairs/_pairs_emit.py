@@ -150,7 +150,7 @@ def _emit_pair_features(
                     _lvals = None
                 if _lvals is not None:
                     _leader_usability[_lc] = _safe_abs_corr(_lvals)
-            except Exception:  # nosec B112 - best-effort path
+            except Exception:  # nosec B112 - best-effort path  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
                 continue
 
     # ABSOLUTE binned-MI tie band (2026-06-24, F2 ``mixed`` distribution-robustness fix). Two FORMS of
@@ -369,7 +369,7 @@ def _emit_pair_features(
                 else:
                     for _pb_vals in _ev_param_bs:
                         param_b = _pb_vals
-                        for _valid_bin_func_name, valid_bin_func in binary_transformations.items():
+                        for valid_bin_func in binary_transformations.values():
 
                             valid_vals = valid_bin_func(param_a, param_b)
 
@@ -459,7 +459,7 @@ def _emit_pair_features(
         for _c in sorted(_already, key=lambda _cfg: get_new_feature_name(fe_tuple=_cfg, cols_names=cols)):
             try:
                 _emitted_cols.append(np.asarray(_resolve_col(_c[2]), dtype=np.float64))
-            except Exception:  # nosec B110 - best-effort path
+            except Exception:  # nosec B110 - best-effort path  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
                 pass
         for _cfg, _cfg_mi in sort_dict_by_value(var_pairs_perf).items():
             if len(this_pair_features) >= int(fe_multi_emit_max_per_pair):

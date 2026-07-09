@@ -47,7 +47,7 @@ def _detect_interactive_mode() -> bool:
     attribute read.
     """
     try:
-        return bool(__IPYTHON__)  # type: ignore[name-defined]  # noqa: F821
+        return bool(__IPYTHON__)  # type: ignore[name-defined]
     except NameError:
         return hasattr(sys, "ps1")
 

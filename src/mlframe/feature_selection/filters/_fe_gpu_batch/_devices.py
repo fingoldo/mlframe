@@ -149,6 +149,6 @@ def enumerate_device_profiles() -> list[DeviceProfile]:
     for i in _visible_device_ids():
         try:
             out.append(_profile_device(i))
-        except Exception:  # nosec B112 - best-effort path
+        except Exception:  # nosec B112 - best-effort path  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
             continue
     return out

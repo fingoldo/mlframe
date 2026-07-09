@@ -184,7 +184,7 @@ def maybe_inject_distribution_driven_estimator(
     if estimator is None:
         return mlframe_models
 
-    new_models = list(mlframe_models) + [estimator]
+    new_models = [*list(mlframe_models), estimator]
 
     # Mirror setup_configuration: extend the strategy map + tier-sort so the per-target loop trains the new entry.
     from ..strategies import get_strategy as _get_strategy

@@ -338,7 +338,9 @@ def estimate_features_relevancy(
     if columns_to_drop:
         if verbose:
             logger.warning(
-                f"Found {len(columns_to_drop):_} columns with no direct impact on any target: {textwrap.shorten(', '.join(columns_to_drop), width=max_log_text_width)}"
+                "Found %s columns with no direct impact on any target: %s",
+                f"{len(columns_to_drop):_}",
+                textwrap.shorten(", ".join(columns_to_drop), width=max_log_text_width),
             )
 
     return columns_to_drop, original_mi_results, all_permuted_mis, mi_algorithms_ranking

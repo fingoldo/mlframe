@@ -98,7 +98,7 @@ from sklearn.preprocessing import LabelEncoder
 # to a thin wrapper around ``mean_squared_error``. The other sklearn / fast-*
 # metric imports the module used to carry were dead and were removed.
 try:
-    from sklearn.metrics import root_mean_squared_error  # noqa: F401
+    from sklearn.metrics import root_mean_squared_error
 except ImportError:
     from mlframe.metrics.core import fast_mean_squared_error
 

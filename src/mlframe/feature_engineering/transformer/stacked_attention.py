@@ -126,10 +126,7 @@ def compute_stacked_row_attention(
     final = query_concat if X_query is not None else train_concat
     n_cols = final.shape[1]
     if return_all_layers:
-        names = []
-        for layer in range(n_layers):
-            for h in range(n_heads):
-                names.append(f"{column_prefix}_L{layer}_h{h}")
+        names = [f"{column_prefix}_L{layer}_h{h}" for layer in range(n_layers) for h in range(n_heads)]
     else:
         names = [f"{column_prefix}_h{h}" for h in range(n_cols)]
     return pl.DataFrame({name: final[:, i] for i, name in enumerate(names)})

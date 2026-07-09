@@ -357,7 +357,7 @@ def apply_polars_categorical_fixes(
     for _k, _v in (precomputed_category_union or {}).items():
         try:
             _exported_domains[_k] = sorted(set(_v), key=str)
-        except Exception:
+        except Exception:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
             _exported_domains[_k] = list(_v)
 
     return PolarsCategoricalFixesResult(

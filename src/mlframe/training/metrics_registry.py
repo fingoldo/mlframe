@@ -103,7 +103,7 @@ def iter_extra_metrics(target_type: TargetTypes, y_true, probs_NK, preds_NK) -> 
         try:
             value = spec.fn(y_true, probs_NK, preds_NK)
             yield name, value
-        except (ValueError, ZeroDivisionError, TypeError, FloatingPointError) as e:
+        except (ValueError, ZeroDivisionError, TypeError, FloatingPointError) as e:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
             # WARNING not DEBUG -- silently omitting a metric from the report is a
             # substantive event the operator needs to see. Pre-fix the operator saw
             # the report missing the metric row entirely and concluded the metric

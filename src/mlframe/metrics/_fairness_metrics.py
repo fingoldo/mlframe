@@ -127,7 +127,7 @@ def create_fairness_subgroups(
         if len(cats_to_use) > 1:
             subgroups[feature_name] = dict(bins=feature_vals, bins_names=cats_to_use)
         else:
-            logger.warning(f"Feature {feature_name} can't particiate in subgrouping: it has only one bin.")
+            logger.warning("Feature %s can't particiate in subgrouping: it has only one bin.", feature_name)
 
     return subgroups
 
@@ -445,13 +445,13 @@ def robust_mlperf_metric(
     lo = len(y_true)
     if subgroups and lo in subgroups:
 
-        for _group_name, group_params in subgroups[lo].items():
+        for group_params in subgroups[lo].values():
 
             bins = group_params.get("bins")
             bin_weight = group_params.get("weight", 1.0)
 
             perfs: list = []
-            for _bin_name, bin_indices in bins.items():
+            for bin_indices in bins.values():
                 if len(bin_indices) < min_group_size:
                     continue
                 if isinstance(y_score, Sequence):

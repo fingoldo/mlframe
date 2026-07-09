@@ -238,9 +238,7 @@ def _calibrate_tau_auto(
     except Exception:
         batch_scores = None
     if batch_scores is not None:
-        for s in batch_scores:
-            if np.isfinite(s):
-                su_scores.append(float(s))
+        su_scores.extend(float(s) for s in batch_scores if np.isfinite(s))
     else:
         for a, b in pairs:
             try:

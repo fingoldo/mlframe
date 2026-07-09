@@ -481,7 +481,7 @@ def _close_unless_interactive(figs, was_shown: bool) -> None:
     feature_importance.py and training/evaluation.py.
     """
     try:
-        is_interactive = bool(__IPYTHON__)  # type: ignore[name-defined]  # noqa: F821
+        is_interactive = bool(__IPYTHON__)  # type: ignore[name-defined]
     except NameError:
         is_interactive = hasattr(sys, "ps1")
     if is_interactive and was_shown:
@@ -631,7 +631,7 @@ def show_calibration_plot(
     # backends will pick up the figure.
     if show_plots and not plot_file:
         try:
-            _is_interactive = bool(__IPYTHON__)  # type: ignore[name-defined]  # noqa: F821
+            _is_interactive = bool(__IPYTHON__)  # type: ignore[name-defined]
         except NameError:
             _is_interactive = hasattr(sys, "ps1")
         if not _is_interactive:

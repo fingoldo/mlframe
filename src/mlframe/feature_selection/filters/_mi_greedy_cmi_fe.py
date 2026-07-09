@@ -1509,16 +1509,14 @@ def greedy_cmi_fe_construct(
         # score each sample via the x-only fixed helper. Bit-identical to the plain path (same MM plug-in CMI;
         # only fp reduction order can differ ~1e-15), and the floor is the order-independent 0.95 quantile.
         _zc = z_joint if (z_joint is not None and z_joint.size > 0) else None
-        cmis_shuf = []
+        cmis_shuf: list[float]
         if _zc is None:
             _yt = precompute_marginal_y_terms(y_shuf)
-            for nm in sample_names:
-                cmis_shuf.append(marginal_mi_binned_fixed_y(cand_bins[nm], *_yt))
+            cmis_shuf = [marginal_mi_binned_fixed_y(cand_bins[nm], *_yt) for nm in sample_names]
         else:
             _yi, _zi, _hyz, _hz, _kyz, _kz, _nf = precompute_cmi_yz_terms(y_shuf, _zc)
             _yzd, _ = _renumber_joint(_yi, _zi)  # round-fixed (y,z) dense codes reused per sampled candidate
-            for nm in sample_names:
-                cmis_shuf.append(cmi_from_binned_fixed_yz(cand_bins[nm], _yi, _zi, _hyz, _hz, _kyz, _kz, _nf, yz_i=_yzd))
+            cmis_shuf = [cmi_from_binned_fixed_yz(cand_bins[nm], _yi, _zi, _hyz, _hz, _kyz, _kz, _nf, yz_i=_yzd) for nm in sample_names]
         if not cmis_shuf:
             return 0.0
         return float(np.quantile(np.asarray(cmis_shuf), 0.95))

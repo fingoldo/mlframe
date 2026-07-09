@@ -136,7 +136,7 @@ def _ensure_kaleido_server_started() -> bool:
     if _KALEIDO_SERVER_STARTED:
         return True
     try:
-        import kaleido  # noqa: F401
+        import kaleido
     except ImportError:
         return False
     try:

@@ -319,8 +319,7 @@ def _validate_input_columns_against_metadata(
     from mlframe.feature_engineering.basic import _DEFAULT_CYCLICAL_PERIODS
     _cyclical_period_names = [_p for _p, _ in _DEFAULT_CYCLICAL_PERIODS]
     for _src, _methods in _dt_methods_map.items():
-        for _method in _methods or {}:
-            _allowed.append(f"{_src}_{_method}")
+        _allowed.extend(f"{_src}_{_method}" for _method in _methods or {})
         for _period in _cyclical_period_names:
             _allowed.append(f"{_src}_{_period}_sin")
             _allowed.append(f"{_src}_{_period}_cos")

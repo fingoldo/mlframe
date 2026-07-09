@@ -382,7 +382,7 @@ def save_mlframe_model(
         for _parent, _k, _orig_v in _compile_swaps:
             try:
                 _parent.__dict__[_k] = _orig_v
-            except Exception:
+            except Exception:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
                 # If something mutated the parent during dump (rare), there's
                 # nothing useful to restore - log at debug only.
                 logger.debug("save_mlframe_model: could not restore compile-wrapped attr %r", _k)
@@ -396,7 +396,7 @@ def save_mlframe_model(
         for _parent, _k, _orig_v in _bloat_strips:
             try:
                 _parent.__dict__[_k] = _orig_v
-            except Exception:
+            except Exception:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
                 logger.debug(
                     "save_mlframe_model: could not restore Lightning bloat attr %r", _k,
                 )

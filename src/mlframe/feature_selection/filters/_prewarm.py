@@ -277,7 +277,7 @@ def prewarm_fs_numba_cache(verbose: bool = False) -> None:
                     arr=_arr, n_bins=4, method="quantile", min_ncats=50,
                     min_values=None, max_values=None, dtype=_disc_dtype,
                 )
-            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
                 _log.debug("suppressed in _prewarm.py:259: %s", e)
                 pass
         try:
@@ -337,7 +337,7 @@ def prewarm_fs_numba_cache(verbose: bool = False) -> None:
                     arr=_arr1d, n_bins=4, method=_method,
                     min_value=None, max_value=None,
                 )
-            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
                 _log.debug("suppressed in _prewarm.py:312: %s", e)
                 pass
     except ImportError:

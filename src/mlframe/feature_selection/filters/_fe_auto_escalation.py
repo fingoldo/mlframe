@@ -837,7 +837,7 @@ def run_fe_auto_escalation(
             try:
                 c["values"] = np.asarray(apply_recipe(c["recipe"], _X_full), dtype=np.float64)
                 _rebuilt.append(c)
-            except Exception:
+            except Exception:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
                 logger.warning(
                     "MRMR FE auto-escalation: full-n replay failed for %r; dropping.",
                     c.get("name"),

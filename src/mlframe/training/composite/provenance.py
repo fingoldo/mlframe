@@ -845,12 +845,12 @@ def report_to_markdown(
         lines.append("")
         lines.append("| name | base | transform | mi_y | mi_t | mi_gain | valid_frac | n_train |")
         lines.append("|------|------|-----------|------|------|---------|-----------|---------|")
-        for spec in specs:
-            lines.append(
-                f"| `{spec.name}` | `{spec.base_column}` | `{spec.transform_name}` | "
-                f"{spec.mi_y:.4f} | {spec.mi_t:.4f} | {spec.mi_gain:+.4f} | "
-                f"{spec.valid_domain_frac:.1%} | {spec.n_train_rows} |"
-            )
+        lines.extend(
+            f"| `{spec.name}` | `{spec.base_column}` | `{spec.transform_name}` | "
+            f"{spec.mi_y:.4f} | {spec.mi_t:.4f} | {spec.mi_gain:+.4f} | "
+            f"{spec.valid_domain_frac:.1%} | {spec.n_train_rows} |"
+            for spec in specs
+        )
         lines.append("")
 
     # Metrics matrix + decision trail: kept specs AND rejected candidates in one

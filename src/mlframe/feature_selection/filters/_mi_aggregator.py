@@ -49,8 +49,8 @@ def median_mi_panel(x: np.ndarray, y: np.ndarray, estimators: Dict[str, Callable
     for name, est in estimators.items():
         try:
             scores.append(float(est(x, y)))
-        except Exception as exc:
-            logger.warning(f"median_mi_panel: estimator {name!r} failed: {exc!r}")
+        except Exception as exc:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
+            logger.warning("median_mi_panel: estimator %r failed: %r", name, exc)
     return median_mi(scores)
 
 
@@ -134,7 +134,7 @@ def genie_mi_panel(x: np.ndarray, y: np.ndarray,
         try:
             mi = float(est(x, y))
         except Exception as exc:
-            logger.warning(f"genie_mi_panel: {name!r} failed: {exc!r}")
+            logger.warning("genie_mi_panel: %r failed: %r", name, exc)
             continue
         estimates.append(mi)
         bias.append((bias_rates or {}).get(name, 1.0 / max(np.sqrt(n), 1.0)))
@@ -176,7 +176,7 @@ def best_on_calibration_mi(
         try:
             cal_mi = float(est(calibration_data, calibration_target))
         except Exception as exc:
-            logger.warning(f"best_on_calibration: {name!r} failed cal: {exc!r}")
+            logger.warning("best_on_calibration: %r failed cal: %r", name, exc)
             continue
         if cal_mi < best_floor:
             best_floor = cal_mi
@@ -186,7 +186,7 @@ def best_on_calibration_mi(
     try:
         return float(estimators[best_estimator](x, y))
     except Exception as exc:
-        logger.warning(f"best_on_calibration: chosen estimator {best_estimator!r} failed on (x, y): {exc!r}")
+        logger.warning("best_on_calibration: chosen estimator %r failed on (x, y): %r", best_estimator, exc)
         return 0.0
 
 

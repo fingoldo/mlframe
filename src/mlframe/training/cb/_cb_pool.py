@@ -298,7 +298,7 @@ def _polars_fill_null_in_categorical(
             if dt is not None and hasattr(_pl, "Enum") and isinstance(dt, _pl.Enum):
                 orig_cats = list(dt.categories)
                 if sentinel not in orig_cats:
-                    new_enum = _pl.Enum(orig_cats + [sentinel])
+                    new_enum = _pl.Enum([*orig_cats, sentinel])
                     fill_exprs.append(_pl.col(c).cast(new_enum).fill_null(sentinel).alias(c))
                     continue
                 # Enum already allowed the sentinel -- plain fill_null works.
@@ -498,7 +498,7 @@ def _predict_with_fallback(
 # 2026-05-13 refactor: _CB_VAL_POOL_CACHE lives in _predict_guards.py
 # (shared between fit-time populate in _maybe_get_or_build_cb_pool and
 # predict-time lookup in _predict_with_fallback).
-from .._predict_guards import _CB_VAL_POOL_CACHE  # noqa: E402,F401
+from .._predict_guards import _CB_VAL_POOL_CACHE
 from ..pipeline import (  # noqa: F401
     _apply_pre_pipeline_transforms,
     _extract_feature_selector,
@@ -713,7 +713,7 @@ def _maybe_rewrite_eval_set_as_cb_pool(fit_params: dict[str, Any]) -> None:
                 changed = True
                 continue
             except Exception as exc:
-                logger.info(f"[cb-val-pool-reuse] swap failed ({type(exc).__name__}: " f"{str(exc).splitlines()[0][:120]}); rebuilding val Pool.")
+                logger.info("[cb-val-pool-reuse] swap failed (%s: %s); rebuilding val Pool.", type(exc).__name__, str(exc).splitlines()[0][:120])
                 _CB_VAL_POOL_CACHE.pop(key, None)
 
         # Miss: build fresh val Pool with float32-cast label.

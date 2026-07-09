@@ -14,7 +14,7 @@ but new code should prefer the shorter:
 """
 from __future__ import annotations
 
-from mlframe.feature_selection.pre_screen import (  # noqa: F401
+from mlframe.feature_selection.pre_screen import (
     apply_drops,
     compute_unsupervised_drops,
 )

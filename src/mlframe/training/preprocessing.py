@@ -273,7 +273,7 @@ def load_and_prepare_dataframe(
         if config.columns:
             load_params["columns"] = config.columns
             if verbose:
-                logger.info(f"Loading {len(config.columns)} columns...")
+                logger.info("Loading %s columns...", len(config.columns))
 
         # Use read_parquet if columns/n_rows specified (scan_parquet has a narrower kwarg surface
         # and does not accept `parallel="columns"` or `columns=`). Otherwise scan lazily and let

@@ -113,9 +113,7 @@ def compute_candidates_exploration_scores(search_space: Sequence, known_candidat
     if len(known_candidates) == 0:
         # No checked points yet -> every search-space point is maximally far; the loop below would leave r/lo unbound.
         return distances
-    indices = {}
-    for i, el in enumerate(search_space):
-        indices[el] = i
+    indices = {el: i for i, el in enumerate(search_space)}
 
     lo = None
     for i in sorted(known_candidates):

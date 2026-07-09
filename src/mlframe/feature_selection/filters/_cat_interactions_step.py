@@ -746,10 +746,7 @@ def run_cat_interaction_step(
         eng_idx = n_orig + k_out
         # Parent indices come from the recipe's src_names. Recipes built here reference ORIGINAL data columns (no nested engineered parents yet).
         recipe = new_recipes[k_out]
-        parent_idxs = []
-        for src_name in recipe.src_names:
-            if src_name in name_to_idx:
-                parent_idxs.append(name_to_idx[src_name])
+        parent_idxs = [name_to_idx[src_name] for src_name in recipe.src_names if src_name in name_to_idx]
         if parent_idxs:
             state.lineage[eng_idx] = frozenset(parent_idxs)
 

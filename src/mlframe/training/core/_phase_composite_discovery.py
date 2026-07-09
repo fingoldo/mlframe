@@ -35,7 +35,7 @@ from .utils import (
 
 logger = logging.getLogger(__name__)
 
-from ._phase_composite_discovery_helpers import (  # noqa: F401
+from ._phase_composite_discovery_helpers import (
     _render_composite_discovery_diagnostics,
     _build_disc_df_for_target,
     _discovery_config_signature,
@@ -726,15 +726,15 @@ def run_composite_target_discovery(
                 )
                 if _extra_bases:
                     _base_cols = [_base_primary]
-                    for _eb_name in _extra_bases:
-                        _base_cols.append(
-                            _build_full_column_from_splits(
-                                _eb_name,
-                                train_df_pd, val_df_pd, test_df_pd,
-                                train_idx, val_idx, test_idx,
-                                n_total=_y_arr.shape[0],
-                            )
+                    _base_cols.extend(
+                        _build_full_column_from_splits(
+                            _eb_name,
+                            train_df_pd, val_df_pd, test_df_pd,
+                            train_idx, val_idx, test_idx,
+                            n_total=_y_arr.shape[0],
                         )
+                        for _eb_name in _extra_bases
+                    )
                     _base_full = np.column_stack(_base_cols)
                 else:
                     _base_full = _base_primary

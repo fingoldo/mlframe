@@ -238,7 +238,7 @@ def predict_mlframe_models_suite(
     model_files = _model_files_for_native_probe
 
     if not model_files:
-        logger.warning(f"No model files found in {models_path}")
+        logger.warning("No model files found in %s", models_path)
         return results
 
     all_probs = []
@@ -297,7 +297,7 @@ def predict_mlframe_models_suite(
             if model_obj is None:
                 model_obj = load_mlframe_model(model_file)
             if model_obj is None:
-                logger.warning(f"Failed to load model: {model_file}")
+                logger.warning("Failed to load model: %s", model_file)
                 continue
 
             model = model_obj.model if hasattr(model_obj, "model") else model_obj
@@ -403,9 +403,8 @@ def predict_mlframe_models_suite(
             # trace and operators couldn't tell whether the failure was load-time (corrupt .dump on disk) or
             # predict-time (input schema mismatch / dispatch miss). exc_info=True keeps the warn-and-continue
             # semantics but adds the diagnostic.
-            logger.error(
+            logger.exception(
                 "Error loading/predicting with model %s: %s", model_file, e,
-                exc_info=True,
             )
             continue
 

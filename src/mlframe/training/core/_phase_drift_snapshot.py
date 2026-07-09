@@ -134,10 +134,15 @@ def _log_cardinality_and_drift_snapshot(
                                 "val_only categories are observed at fit time."
                             )
                         logger.warning(
-                            f"  Category drift suspect: {c} -- val has {v_only} categories "
-                            f"({v_frac:.1%} of train card {card_tr:_}) that train never saw. "
-                            f"XGB/CB may crash when constructing val DMatrix with ref=train.\n"
-                            f"{_healing}"
+                            "  Category drift suspect: %s -- val has %s categories "
+                            "(%s of train card %s) that train never saw. "
+                            "XGB/CB may crash when constructing val DMatrix with ref=train.\n"
+                            "%s",
+                            c,
+                            v_only,
+                            f"{v_frac:.1%}",
+                            f"{card_tr:_}",
+                            _healing,
                         )
     except Exception as _e:
-        logger.warning(f"  Failed to compute categorical cardinality/drift: {_e}")
+        logger.warning("  Failed to compute categorical cardinality/drift: %s", _e)

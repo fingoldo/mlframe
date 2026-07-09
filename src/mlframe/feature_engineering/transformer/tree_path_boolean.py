@@ -37,8 +37,8 @@ def _extract_top_paths(booster, X_sample: np.ndarray, top_k: int = 8) -> list[li
         feat = int(node["split_feature"])
         thresh = float(node["threshold"])
         # Left child: feat <= thresh (if decision_type is "<=")
-        _walk(node["left_child"], conditions + [(feat, thresh, True)])
-        _walk(node["right_child"], conditions + [(feat, thresh, False)])
+        _walk(node["left_child"], [*conditions, (feat, thresh, True)])
+        _walk(node["right_child"], [*conditions, (feat, thresh, False)])
 
     for tree_info in model_dump["tree_info"]:
         _walk(tree_info["tree_structure"], [])

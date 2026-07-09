@@ -30,7 +30,7 @@ if TYPE_CHECKING:
         TrainingBehaviorConfig,
         TrainingSplitConfig,
     )
-    from ._training_context import TrainingContext  # noqa: F401
+    from ._training_context import TrainingContext
 
 logger = logging.getLogger(__name__)
 
@@ -230,5 +230,5 @@ def _finalize_and_save_metadata(ctx: "TrainingContext", *, verbose: int | None =
             if _verbose:
                 logger.info("Saved metadata to %s", metadata_file)
         except OSError as e:
-            logger.error(f"Failed to save metadata to {metadata_file}: {e}")
+            logger.error("Failed to save metadata to %s: %s", metadata_file, e)
             raise

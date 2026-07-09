@@ -24,7 +24,7 @@ import polars.selectors as cs
 try:
     import polars_talib as plta
 except ImportError:
-    plta = None  # noqa: F841 - guarded use inside the TA-indicator functions
+    plta = None
 
 import pyutilz.polarslib as pllib
 from pyutilz.system import clean_ram
@@ -606,13 +606,13 @@ def merge_perticker_and_wholemarket_features(
     rankings: list = []
     if add_rankings:
         wholemarket_cols = set(wholemarket_features.collect_schema().names())
-        for col in perticker_features.collect_schema().names():
-            if f"{col}_wm_min" in wholemarket_cols and f"{col}_wm_max" in wholemarket_cols:
-                rankings.append(
-                    pllib.clean_numeric(  # market-constant column → wm_max==wm_min → division by zero yields inf/NaN
-                        (pl.col(col) - pl.col(f"{col}_wm_min")) / (pl.col(f"{col}_wm_max") - pl.col(f"{col}_wm_min"))
-                    ).alias(f"{col}_wm_rnk")
-                )
+        rankings.extend(
+            pllib.clean_numeric(  # market-constant column → wm_max==wm_min → division by zero yields inf/NaN
+                (pl.col(col) - pl.col(f"{col}_wm_min")) / (pl.col(f"{col}_wm_max") - pl.col(f"{col}_wm_min"))
+            ).alias(f"{col}_wm_rnk")
+            for col in perticker_features.collect_schema().names()
+            if f"{col}_wm_min" in wholemarket_cols and f"{col}_wm_max" in wholemarket_cols
+        )
 
     _pt_lazy = perticker_features.lazy() if isinstance(perticker_features, pl.DataFrame) else perticker_features
     _wm_lazy = wholemarket_features.lazy() if isinstance(wholemarket_features, pl.DataFrame) else wholemarket_features

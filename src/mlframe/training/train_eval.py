@@ -226,7 +226,7 @@ def optimize_model_for_storage(
 
 
 # select_target carved to ``_train_eval_select_target``; re-exported below.
-from .targets import select_target  # noqa: F401, E402
+from .targets import select_target
 
 
 def _call_train_evaluate_with_configs(
@@ -454,9 +454,10 @@ def process_model(
             # half-loaded artifact and tripping AttributeError downstream on
             # loaded_model.model.
             logger.warning(
-                f"Cached model load returned None at {fpath} -- "
-                f"retraining. (Check earlier WARN for the real cause: "
-                f"unsafe class blocked by allowlist, corrupted file, etc.)"
+                "Cached model load returned None at %s -- "
+                "retraining. (Check earlier WARN for the real cause: "
+                "unsafe class blocked by allowlist, corrupted file, etc.)",
+                fpath,
             )
             use_cached_model = False
         else:
@@ -464,7 +465,7 @@ def process_model(
                 logger.info("Loaded.")
             mismatch = _validate_cached_model_schema(loaded_model, common_params.get("train_df"))
             if mismatch:
-                logger.warning(f"Invalidating stale cached model at {fpath}: {mismatch}. Retraining.")
+                logger.warning("Invalidating stale cached model at %s: %s. Retraining.", fpath, mismatch)
                 use_cached_model = False
             else:
                 model_obj = loaded_model.model
@@ -504,10 +505,11 @@ def process_model(
         pipeline_label = pre_pipeline_name.strip() if pre_pipeline_name else ""
         from mlframe.training.reporting import display_estimator_name
         model_type_name = display_estimator_name(type(model_obj).__name__)
-        logger.info(
+        _start_msg = (
             f"Starting train_and_evaluate {model_type_name} on {target_type} {pipeline_label} {model_name.strip()}"
             f", RAM usage {get_own_memory_usage():.1f}GBs...".replace("  ", " ")
         )
+        logger.info("%s", _start_msg)
 
     model, train_df_transformed, val_df_transformed, test_df_transformed = _call_train_evaluate_with_configs(
         model_obj=model_obj,
@@ -524,7 +526,7 @@ def process_model(
 
     # Handle failed model - don't save or add to lists
     if model.model is None:
-        logger.warning(f"Skipping failed model {model_name}")
+        logger.warning("Skipping failed model %s", model_name)
         return trainset_features_stats, pre_pipeline, train_df_transformed, val_df_transformed, test_df_transformed
 
     if not use_cached_model:

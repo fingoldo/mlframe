@@ -460,7 +460,7 @@ def calibrate_namespace_model(entry: Any, *, target_type: "TargetTypes | None" =
             for _obj in (entry, base):
                 try:
                     setattr(_obj, f"calibrated_{_split}_probs", _cal)
-                except (AttributeError, TypeError):
+                except (AttributeError, TypeError):  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
                     pass
         except Exception as _stamp_err:
             logger.warning("calibrate_namespace_model: %s-probs stamp failed: %s", _split, _stamp_err)

@@ -240,9 +240,7 @@ def _render_markdown(facts: dict[str, Any]) -> str:
             if k in params:
                 L.append(f"| `{k}` | {_fmt_num(params[k])} |")
                 shown.add(k)
-        for k in params:
-            if k not in shown:
-                L.append(f"| `{k}` | {_fmt_num(params[k])} |")
+        L.extend(f"| `{k}` | {_fmt_num(params[k])} |" for k in params if k not in shown)
     else:
         L.append("_No fitted parameters (estimator not fitted)._")
     L.append("")
@@ -275,9 +273,10 @@ def _render_markdown(facts: dict[str, Any]) -> str:
         L.append("")
         L.append("| kind | alpha | target_cov | empirical_cov | mean_width | n |")
         L.append("|------|-------|-----------|---------------|-----------|---|")
-        for c in cov:
-            L.append(f"| {c['kind']} | {c['alpha']:g} | {c['target_coverage']:.3f} | "
-                     f"{c['empirical_coverage']:.3f} | {_fmt_num(c['mean_width'])} | {c['n']} |")
+        L.extend(
+            f"| {c['kind']} | {c['alpha']:g} | {c['target_coverage']:.3f} | " f"{c['empirical_coverage']:.3f} | {_fmt_num(c['mean_width'])} | {c['n']} |"
+            for c in cov
+        )
         L.append("")
 
     # Diagnostics

@@ -380,7 +380,7 @@ def _close_figs(figs: List[Any]) -> None:
         for fig in figs:
             try:
                 plt.close(fig)
-            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+            except Exception as e:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate; nosec B110 - swallow converted to debug-log, non-fatal by design
                 logger.debug("suppressed in shap_panels.py:382: %s", e)
                 pass
 

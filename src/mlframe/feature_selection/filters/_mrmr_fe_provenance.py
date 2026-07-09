@@ -325,7 +325,7 @@ def _greedy_rank_for_name(name: str, predictors: Iterable[Any]) -> int:
             _en = entry.get("name")
             if _en is not None and simplify_fe_name(str(_en)) == _target:
                 return idx
-        except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
+        except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
             logging.getLogger(__name__).debug("suppressed in _mrmr_fe_provenance.py:326: %s", e)
             continue
     return -1

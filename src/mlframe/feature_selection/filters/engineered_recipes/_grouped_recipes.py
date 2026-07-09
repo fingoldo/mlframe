@@ -107,7 +107,7 @@ def build_composite_group_agg_recipe(
     return EngineeredRecipe(
         name=name,
         kind="composite_group_agg",
-        src_names=tuple(group_cols) + (str(num_col),),
+        src_names=(*tuple(group_cols), str(num_col)),
         extra={
             "group_cols": group_cols,
             "num_col": str(num_col),

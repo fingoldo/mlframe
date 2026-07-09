@@ -45,7 +45,7 @@ def flatten_classification_report(cr: dict, separate_metrics=("accuracy","balanc
     remaining per-class / averaged sub-dict is expanded to ``source + <"class "+label or "macro avg"/"weighted avg">
     + "_" + metric``, matching MLflow's flat metric-name requirement (no nested structures).
     """
-    res={}
+    res = {}
     for metric in separate_metrics:
         if metric in cr:
             res[source + metric] = cr.pop(metric)
@@ -122,7 +122,7 @@ def get_or_create_mlflow_run(run_name: str, parent_run_id: Optional[str] = None,
         while True:
             try:
                 run = mlflow.start_run(run_name=run_name, experiment_id=experiment_id, tags=run_tags)
-            except Exception as e:
+            except Exception as e:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
                 nfailed += 1
                 if nfailed > 5:
                     # Wave 41 (2026-05-20): preserve traceback before final-give-up return;

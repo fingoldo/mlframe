@@ -363,7 +363,7 @@ def _apply_pre_pipeline_with_passthrough(
                             _stashed_passthrough[_pc] = _src_for_stash.get_column(_pc).to_pandas()
                     else:
                         _stashed_passthrough[_pc] = _src_for_stash[_pc].reset_index(drop=True)
-                except (KeyError, AttributeError, ValueError, TypeError) as _stash_err:
+                except (KeyError, AttributeError, ValueError, TypeError) as _stash_err:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
                     logger.warning(
                         "predict_from_models: %s passthrough col %r failed to stash "
                         "(%s: %s); downstream model will receive a frame missing this "
@@ -484,7 +484,7 @@ def _pre_pipeline_is_pure_selector(pre_pipeline) -> bool:
     # Pipeline: every other step must be a pass-through ('passthrough' / None /
     # an identity FunctionTransformer with func=None). Any real transformer step
     # alongside the selector can alter values -> not a pure selector.
-    for _name, _step in pre_pipeline.named_steps.items():
+    for _step in pre_pipeline.named_steps.values():
         if _step is _sel or _step is None or _step == "passthrough":
             continue
         if type(_step).__name__ == "FunctionTransformer" and getattr(_step, "func", None) is None:

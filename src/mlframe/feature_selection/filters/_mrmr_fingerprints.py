@@ -34,8 +34,8 @@ import numpy as np
 # the package being loaded). Forcing wrappers.RFECV to resolve HERE, before that circular re-entry,
 # keeps a working import order; removing it (2026-07-05 ruff "unused import" sweep) let a different
 # external entry point (importing RFECV directly) trigger the circular mrmr<->_legacy re-entry first
-# instead, which crashed the interpreter natively deep in the C-extension init chain. Restored with
-# noqa rather than re-deleted -- see CLAUDE.md's project-wide-rewrite-without-review incident.
+# instead, which crashed the interpreter natively deep in the C-extension init chain. Restored with a
+# suppression comment rather than re-deleted -- see CLAUDE.md's project-wide-rewrite-without-review incident.
 from mlframe.feature_selection.wrappers import RFECV  # noqa: F401
 
 # astropy is imported lazily on first histogram() call: the top-level
@@ -60,7 +60,7 @@ def _resolve_astropy_histogram():
 
 
 if TYPE_CHECKING:
-    from .mrmr import MRMR  # noqa: F401 -- forward ref for the type annotation
+    from .mrmr import MRMR
 
 
 def histogram(a, bins="auto", **kwargs):
@@ -239,7 +239,7 @@ def _mrmr_compute_x_fingerprint(X) -> str:
                         # Bit-exact cell bytes (matches the deliberately-tightened y-side ``tobytes()``); ``repr`` of a float papered over distinct-but-near values.
                         vals = tuple(np.asarray(arr[p]).tobytes() for p in positions if p < len(arr))
                         samples.append((str(c), vals))
-                    except Exception:
+                    except Exception:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
                         samples.append((str(c), ()))
                 cell_sample = tuple(samples)
         except Exception:
@@ -268,7 +268,7 @@ def _hashable_params_signature(params: dict) -> tuple:
         try:
             hash(v)
             items.append((k, v))
-        except TypeError:
+        except TypeError:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
             # CACHE-Low-2: content-hash numpy arrays so a copy hashes equal
             # to the original. ``np.ndarray.tobytes`` + shape + dtype is the
             # cheapest exact fingerprint and works for all numpy versions.

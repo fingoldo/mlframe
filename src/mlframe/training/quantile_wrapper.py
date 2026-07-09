@@ -76,7 +76,7 @@ def _probe_alpha_param_name(base_estimator: BaseEstimator) -> str:
         try:
             test_clone.set_params(**{name: 0.5})
             return name
-        except (ValueError, TypeError):
+        except (ValueError, TypeError):  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
             continue
     raise ValueError(
         f"_QuantileMultiOutputWrapper: base estimator "

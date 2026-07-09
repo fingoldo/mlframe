@@ -383,7 +383,7 @@ class _PredictAccelMixin(_PredictAccelBase):
         Softmax/argmax conversion is handled in the estimator's predict methods.
         """
         if self.training:
-            logger.warning(f"Model was in training mode during predict_step at batch {batch_idx}. Switching to eval mode.")
+            logger.warning("Model was in training mode during predict_step at batch %s. Switching to eval mode.", batch_idx)
             self.eval()
 
         # Accept both training/testing format (x, y) and prediction format (x only).

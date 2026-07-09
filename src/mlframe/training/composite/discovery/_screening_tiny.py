@@ -559,7 +559,7 @@ def _tiny_cv_rmse_y_scale_multiseed(
             # consumer always sees one slot per scheduled seed.
             per_seed_arr = np.array([mean], dtype=np.float64)
             if isinstance(result, tuple):
-                return result + (per_seed_arr,)
+                return (*result, per_seed_arr)
             return result, per_seed_arr
         return result
     seed_results = []
@@ -584,7 +584,7 @@ def _tiny_cv_rmse_y_scale_multiseed(
     if not seed_results:
         if return_pb:
             res = float("nan"), np.full(kwargs.get("n_bins", 5), float("nan"))
-            return res + (seed_arr,) if return_per_seed else res
+            return (*res, seed_arr) if return_per_seed else res
         return (float("nan"), seed_arr) if return_per_seed else float("nan")
     median_rmse = float(np.median(seed_results))
     if return_pb:
@@ -624,7 +624,7 @@ def _tiny_cv_rmse_raw_y_multiseed(
             # Fixed length 1: NaN when the single seed degenerated.
             per_seed_arr = np.array([mean], dtype=np.float64)
             if isinstance(result, tuple):
-                return result + (per_seed_arr,)
+                return (*result, per_seed_arr)
             return result, per_seed_arr
         return result
     seed_results = []
@@ -649,7 +649,7 @@ def _tiny_cv_rmse_raw_y_multiseed(
     if not seed_results:
         if return_pb:
             res = float("nan"), np.full(kwargs.get("n_bins", 5), float("nan"))
-            return res + (seed_arr,) if return_per_seed else res
+            return (*res, seed_arr) if return_per_seed else res
         return (float("nan"), seed_arr) if return_per_seed else float("nan")
     median_rmse = float(np.median(seed_results))
     if return_pb:

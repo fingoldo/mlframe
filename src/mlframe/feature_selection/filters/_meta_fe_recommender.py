@@ -201,7 +201,7 @@ def _iter_columns(X):
         for c in X.columns:
             try:
                 out.append((str(c), np.asarray(X[c].to_numpy())))
-            except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
+            except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
                 logger.debug("suppressed in _meta_fe_recommender.py:204: %s", e)
                 continue
         return out
@@ -211,7 +211,7 @@ def _iter_columns(X):
         for c in X.columns:
             try:
                 out.append((str(c), np.asarray(X.get_column(c).to_numpy())))
-            except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
+            except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
                 logger.debug("suppressed in _meta_fe_recommender.py:213: %s", e)
                 continue
         return out

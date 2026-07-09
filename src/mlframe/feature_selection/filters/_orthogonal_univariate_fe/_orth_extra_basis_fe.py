@@ -618,8 +618,7 @@ def _detect_fourier_freqs_for_col(
     _use_exact_basis = os.environ.get("MLFRAME_FOURIER_COARSE_BASIS_EXACT", "") == "1"
     if not _use_exact_basis and len(grid) > 0 and z_tr.size > 0:
         _sc_m, _cc_m, _sss, _css = _coarse_basis_njit(np.ascontiguousarray(z_tr), np.asarray(grid, dtype=np.float64))
-        for gi in range(len(grid)):
-            _coarse_basis.append((_sc_m[gi], float(_sss[gi]), _cc_m[gi], float(_css[gi])))
+        _coarse_basis = [(_sc_m[gi], float(_sss[gi]), _cc_m[gi], float(_css[gi])) for gi in range(len(grid))]
     else:
         for f in grid:
             ang = 2.0 * np.pi * f * z_tr

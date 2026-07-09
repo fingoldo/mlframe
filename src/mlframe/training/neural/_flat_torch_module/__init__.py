@@ -554,7 +554,7 @@ class MLPTorchModel(_PredictAccelMixin, _LossMixin, L.LightningModule):
         best_model_path = checkpoint_callback.best_model_path
 
         if not best_model_path or not os.path.exists(best_model_path):
-            logger.warning(f"No valid checkpoint at {best_model_path}. Using current weights.")
+            logger.warning("No valid checkpoint at %s. Using current weights.", best_model_path)
             return
 
         best_score = checkpoint_callback.best_model_score
@@ -578,13 +578,13 @@ class MLPTorchModel(_PredictAccelMixin, _LossMixin, L.LightningModule):
             self._invalidate_predict_caches()
 
             if missing:
-                logger.warning(f"Missing keys in state_dict: {missing}")
+                logger.warning("Missing keys in state_dict: %s", missing)
             if unexpected:
-                logger.warning(f"Unexpected keys in state_dict: {unexpected}")
+                logger.warning("Unexpected keys in state_dict: %s", unexpected)
 
             if "epoch" in checkpoint:
                 self.best_epoch = checkpoint["epoch"]
                 logger.info("Loaded weights from epoch %s", self.best_epoch)
 
         except Exception as e:
-            logger.error(f"Failed to load checkpoint: {e}", exc_info=True)
+            logger.exception("Failed to load checkpoint: %s", e)

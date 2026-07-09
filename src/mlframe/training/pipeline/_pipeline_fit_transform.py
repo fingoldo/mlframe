@@ -131,8 +131,8 @@ def fit_and_transform_pipeline(
 
             if verbose:
                 transform_elapsed = timer() - t0_transform
-                logger.info(f"  Polars-ds transform done -- train: {train_df.shape[0]:_}x{train_df.shape[1]}, {transform_elapsed:.1f}s")
-                logger.info(f"  train_df dtypes after pipeline: {Counter(train_df.dtypes)}")
+                logger.info("  Polars-ds transform done -- train: %s x%s, %.1fs", f"{train_df.shape[0]:_}", train_df.shape[1], transform_elapsed)
+                logger.info("  train_df dtypes after pipeline: %s", Counter(train_df.dtypes))
 
         # Detect categorical features from schema (works whether pipeline succeeded or not)
         # This ensures cat_features is populated even if polars-ds is not available.
@@ -148,7 +148,7 @@ def fit_and_transform_pipeline(
         # Detect categorical features from schema (no transformation, just detection)
         cat_features = [c for c in get_polars_cat_columns(train_df) if c not in _exclude_from_encoding]
         if verbose and cat_features:
-            logger.info(f"Detected {len(cat_features)} categorical features from Polars schema: {cat_features}")
+            logger.info("Detected %s categorical features from Polars schema: %s", len(cat_features), cat_features)
 
     # Handle pandas DataFrames with sklearn-style pipeline (also the fallback target when polars-ds was unavailable).
     if isinstance(train_df, pd.DataFrame) and (not isinstance(train_df, pl.DataFrame)):

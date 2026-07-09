@@ -46,10 +46,8 @@ def mc_dropout_predict(module, X, *, n: int = 16):
     was_training = module.training
     module.eval()
     n_drop = _set_dropout_train(module)
-    preds = []
     with torch.no_grad():
-        for _ in range(max(1, n)):
-            preds.append(np.asarray(module(X).detach().cpu().numpy()))
+        preds = [np.asarray(module(X).detach().cpu().numpy()) for _ in range(max(1, n))]
     module.train(was_training)
     stacked = np.stack(preds, axis=0)
     return stacked.mean(axis=0), stacked.std(axis=0), n_drop

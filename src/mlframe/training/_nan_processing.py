@@ -381,7 +381,7 @@ def remove_constant_columns(df: pl.DataFrame | pd.DataFrame, verbose: int = 1) -
             try:
                 if df[col].nunique(dropna=False) <= 1:
                     constant_cat_cols.append(col)
-            except TypeError:
+            except TypeError:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
                 # Unhashable values (e.g. list/np.ndarray embeddings) -- can't be constant-checked.
                 continue
 

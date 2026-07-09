@@ -171,7 +171,7 @@ def get_ts_window_name(window_var: str, window_size: float, window_index_name: s
 # monolith threshold. Re-exported below so existing callers
 # (, etc.)
 # keep working.
-from ._timeseries_emit import (  # noqa: F401, E402
+from ._timeseries_emit import (
     _emit_groupby_block,
     _emit_categorical_counts,
     _emit_raw_numaggs,
@@ -254,9 +254,9 @@ def create_aggregated_features(  # nosec B107 - default is a separator/label tok
         subsets = {}
 
     if numaggs_kwds:
-        numaggs_names, q1_idx, q3_idx = get_numaggs_metadata(numaggs_kwds)  # noqa: F841 -- q1_idx/q3_idx are quantile-bin positions; consumed by downstream per-row selection paths not visible in static analysis (passed via closure to numpy view ops).
+        numaggs_names, q1_idx, q3_idx = get_numaggs_metadata(numaggs_kwds)
     else:
-        numaggs_names, q1_idx, q3_idx = default_numaggs_names, default_q1_idx, default_q3_idx  # noqa: F841 -- same as above branch.
+        numaggs_names, q1_idx, q3_idx = default_numaggs_names, default_q1_idx, default_q3_idx  # noqa: F841 -- q1_idx/q3_idx mirror the get_numaggs_metadata() branch above; unused here since defaults precompute them, kept for tuple-shape symmetry.
 
     if not countaggs_kwds:
         countaggs_names = default_countaggs_names
@@ -445,7 +445,7 @@ def create_aggregated_features(  # nosec B107 - default is a separator/label tok
                     counts_processing_mask_regexp=counts_processing_mask_regexp,
                     countaggs_kwds=countaggs_kwds,
                     subsets={} if not nested_subsets else subsets,
-                    checked_subsets=checked_subsets + [subset_var],
+                    checked_subsets=[*checked_subsets, subset_var],
                     subset_token=subset_token,
                     nested_subsets=nested_subsets,
                 )  # nosec B107 - default value is a plain separator/label string, not a credential

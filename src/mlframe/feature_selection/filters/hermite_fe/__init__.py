@@ -278,7 +278,7 @@ def _polyeval_cuda_pick_devices(n: int) -> list:
                 _cush_ok = _cushion(needed) if _cushion is not None else True
             if free >= needed and _cush_ok:
                 fits.append((free, d))
-        except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
+        except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
             logger.debug("suppressed in __init__.py:277: %s", e)
             continue
     fits.sort(reverse=True)  # most-free first
@@ -370,7 +370,7 @@ def polyeval_dispatch(basis: str, x: np.ndarray, c: np.ndarray) -> np.ndarray:
         for _dev in _polyeval_cuda_pick_devices(n) or [None]:
             try:
                 return _polyeval_cuda(basis, x, c, device=_dev)
-            except Exception as _cuda_exc:  # OOM / driver error on this device -> try the next, then CPU
+            except Exception as _cuda_exc:  # OOM / driver error on this device -> try the next, then CPU  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
                 _warn_polyeval_cuda_fallback_once(_cuda_exc)
         # every device failed -- fall through to the CPU njit / njit_par path.
     if forced == "njit_par":

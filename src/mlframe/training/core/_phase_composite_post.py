@@ -39,7 +39,7 @@ _WATCHDOG_RELATIVE_THRESHOLD = 0.01
 
 
 from ._phase_composite_post_lag_predict import _LagPredictDeployableModel  # noqa: F401
-from ._phase_composite_wrapping import _run_composite_target_wrapping  # noqa: F401, E402
+from ._phase_composite_wrapping import _run_composite_target_wrapping
 
 
 def recover_composite_y_scale_metrics(
@@ -302,4 +302,4 @@ def run_composite_post_processing(
     return models, metadata
 
 
-from ._phase_composite_post_summary import _run_suite_end_dummy_baselines_summary  # noqa: E402, F401
+from ._phase_composite_post_summary import _run_suite_end_dummy_baselines_summary

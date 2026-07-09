@@ -47,7 +47,8 @@ def select_gate_source_split(
         ("oof_probs", "oof"),
     )
     if not require_oof_for_gate:
-        _candidate_attrs = _candidate_attrs + (
+        _candidate_attrs = (
+            *_candidate_attrs,
             ("val_preds", "val"),
             ("test_preds", "test"),
             ("train_preds", "train"),

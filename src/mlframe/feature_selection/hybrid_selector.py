@@ -476,7 +476,7 @@ class HybridSelector:
         from sklearn.ensemble import RandomForestClassifier
         # restrict the shared clusters to the relevant survivors; rep = highest-FI member of each restricted cluster
         rep_members = {}
-        for _r, ms in self.members_.items():
+        for ms in self.members_.values():
             keep = [m for m in ms if m in relevant]
             if keep:
                 rep = self._rep_member(keep)

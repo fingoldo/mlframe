@@ -283,8 +283,7 @@ def _render_markdown(card: dict[str, Any]) -> str:
     if params:
         lines.append("| param | value |")
         lines.append("|-------|-------|")
-        for k in sorted(params.keys()):
-            lines.append(f"| `{k}` | {_fmt_num(params[k])} |")
+        lines.extend(f"| `{k}` | {_fmt_num(params[k])} |" for k in sorted(params.keys()))
     else:
         lines.append("_(none recorded -- estimator not fitted)_")
     lines.append("")

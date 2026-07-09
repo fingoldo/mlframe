@@ -30,7 +30,7 @@ class _LightningRankZeroNoiseFilter(logging.Filter):
         "LOCAL_RANK:",
     )
 
-    def filter(self, record: logging.LogRecord) -> bool:  # noqa: A003
+    def filter(self, record: logging.LogRecord) -> bool:
         """Drop the record (return False) iff its message matches one of the device-availability noise patterns; every other record passes through unchanged."""
         msg = record.getMessage()
         return not any(p in msg for p in self._PATTERNS)

@@ -491,11 +491,11 @@ def _run_composite_target_wrapping(
                                 type(_inner_dbg).__name__, _split_name, _pairs,
                             )
                         if _split_name == "train":
-                            _train_pred_cache[(id(_wrapper_for_score),) + _train_frame_key] = _y_pred
+                            _train_pred_cache[(id(_wrapper_for_score), *_train_frame_key)] = _y_pred
                             # Inner-model key too: composite_post.py reads via ``getattr(comp, 'model', comp)`` which unwraps one level.
                             _inner_for_write = getattr(_wrapper_for_score, "model", None)
                             if _inner_for_write is not None and _inner_for_write is not _wrapper_for_score:
-                                _train_pred_cache[(id(_inner_for_write),) + _train_frame_key] = _y_pred
+                                _train_pred_cache[(id(_inner_for_write), *_train_frame_key)] = _y_pred
                         _diff = _y_pred - _y_split.astype(np.float64)
                         _finite = np.isfinite(_diff)
                         if _finite.sum() == 0:

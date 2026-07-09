@@ -102,7 +102,7 @@ def _build_cross_target_ensemble_for_target(
 
     def _get_train_pred(_comp, _frame_key):
         _inner = getattr(_comp, "model", _comp)
-        _key = (id(_inner),) + _frame_key
+        _key = (id(_inner), *_frame_key)
         _p = _build_pred_cache.get(_key)
         if _p is None:
             _p = _train_pred_cache.get(_key)
@@ -249,7 +249,7 @@ def _build_cross_target_ensemble_for_target(
                     _pred = _get_train_pred(_comp, _frame_key)
                     _diff = _pred - _y_train_for_rmse.astype(np.float64)
                     _rmses.append(float(np.sqrt(np.mean(_diff * _diff))))
-                except Exception as _rmse_err:
+                except Exception as _rmse_err:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
                     logger.warning(
                         "[CompositeCrossTargetEnsemble] could not score "
                         "component '%s' on train: %s. Dropping it from "
@@ -328,15 +328,15 @@ def _build_cross_target_ensemble_for_target(
             _extra_for_oof = tuple(_spec_for_oof.get("extra_base_columns") or ())
             if _extra_for_oof:
                 _b_cols = [_b_primary]
-                for _eb_oof in _extra_for_oof:
-                    _b_cols.append(
-                        _build_full_column_from_splits(
-                            _eb_oof,
-                            train_df_pd, val_df_pd, test_df_pd,
-                            train_idx, val_idx, test_idx,
-                            n_total=len(_oof_y_full),
-                        )
+                _b_cols.extend(
+                    _build_full_column_from_splits(
+                        _eb_oof,
+                        train_df_pd, val_df_pd, test_df_pd,
+                        train_idx, val_idx, test_idx,
+                        n_total=len(_oof_y_full),
                     )
+                    for _eb_oof in _extra_for_oof
+                )
                 _b_stack_full = np.column_stack(_b_cols)
                 _b_filtered = _b_stack_full[filtered_train_idx]
                 try:

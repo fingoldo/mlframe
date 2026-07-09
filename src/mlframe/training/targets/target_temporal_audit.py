@@ -548,7 +548,7 @@ def audit_targets_over_time(
 
 
 # Wave 106c (2026-05-21): _audit_from_agg moved to sibling.
-from ._target_temporal_audit_from_agg import _audit_from_agg  # noqa: F401, E402
+from ._target_temporal_audit_from_agg import _audit_from_agg
 
 # Wave 106b (2026-05-21): plot_target_over_time moved to sibling.
 from ._target_temporal_plot import plot_target_over_time  # noqa: F401
@@ -560,8 +560,10 @@ def format_temporal_audit_report(result: TemporalAuditResult) -> str:
         f"{result.granularity}-binned, {len(result.bins)} bins, "
         f"{len(result.segments)} segments)",
     ]
-    for s in result.segments:
-        lines.append(f"  segment {s['start_label']}..{s['end_label']} " f"({s['n_bins']} bins, n_obs={s['n_obs']:_}): " f"mean_rate={s['mean_rate']:.3f}")
+    lines.extend(
+        f"  segment {s['start_label']}..{s['end_label']} " f"({s['n_bins']} bins, n_obs={s['n_obs']:_}): " f"mean_rate={s['mean_rate']:.3f}"
+        for s in result.segments
+    )
     if result.warnings:
         lines.append("")
         for w in result.warnings:

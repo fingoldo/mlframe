@@ -662,9 +662,7 @@ def configure_training_params(
             linear_config_fields = set(LinearModelConfig.model_fields.keys()) - linear_config_excluded_keys
             # Also include 'iterations' which gets mapped to max_iter by the validator
             linear_config_fields.add("iterations")
-            for key, value in config_params.items():
-                if key in linear_config_fields:
-                    linear_config_kwargs[key] = value
+            linear_config_kwargs.update({key: value for key, value in config_params.items() if key in linear_config_fields})
         # Override with explicit linear_model_config if provided
         if linear_model_config:
             linear_config_kwargs.update(linear_model_config.model_dump(exclude={"model_type"}))

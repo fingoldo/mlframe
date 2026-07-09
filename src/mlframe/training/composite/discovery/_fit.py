@@ -62,7 +62,7 @@ _UNARY_BASE_SENTINEL = ""
 
 
 def fit(
-    self: "CompositeTargetDiscovery",  # noqa: F821 -- forward ref to parent class
+    self: "CompositeTargetDiscovery",
     df: Any,
     target_col: str,
     feature_cols: Sequence[str],
@@ -72,7 +72,7 @@ def fit(
     time_ordering: Any = None,
     val_df: Any = None,
     val_y: np.ndarray | None = None,
-) -> "CompositeTargetDiscovery":  # noqa: F821 -- forward ref to parent class
+) -> "CompositeTargetDiscovery":
     """Discover composite-target specs.
 
     Parameters
@@ -717,7 +717,7 @@ def fit(
         msg = f"[CompositeTargetDiscovery] no candidate cleared mi_gain > " f"{self.config.eps_mi_gain} on target='{target_col}'."
         if mode == "raise":
             raise RuntimeError(msg)
-        logger.warning(msg + f" (fail_on_no_gain={mode!r})")
+        logger.warning("%s (fail_on_no_gain=%r)", msg, mode)
 
     # Multi-base forward-stepwise auto-promotion of linear_residual specs. After single-base discovery + raw-y baseline gate + tiny-model rerank, look at each kept ``linear_residual`` spec and try greedily adding more bases from the auto-base candidate pool. When the marginal RMSE reduction clears ``multi_base_min_marginal_rmse_gain`` (default 0.02 = 2%), upgrade the spec to ``linear_residual_multi`` with the expanded base list. Measure-first benchmark in ``benchmarks/composite_multi_base_benchmark.py`` validates: geo-mean gain 83% on positive scenarios, no-harm on negative scenarios -> auto-promote=True. Gated by ``self.config.multi_base_enabled``; opt-out via config.
     # Auto-skip multi-base promotion when the base pool is uniformly highly-correlated: stacking two
@@ -850,7 +850,7 @@ def fit(
         for _s in _upgraded_specs:
             _set_key = (
                 _s.transform_name,
-                frozenset((_s.base_column,) + tuple(getattr(_s, "extra_base_columns", ()) or ())),
+                frozenset((_s.base_column, *tuple(getattr(_s, "extra_base_columns", ()) or ()))),
             )
             if _set_key in _seen_base_sets:
                 continue

@@ -304,7 +304,7 @@ class XGBoostStrategy(TreeModelStrategy):
                 for c in cols_present:
                     try:
                         d[c] = df[c].drop_nulls().unique().cast(pl.String).to_list()
-                    except Exception:
+                    except Exception:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
                         d[c] = []
                 return d
 

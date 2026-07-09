@@ -55,5 +55,5 @@ def set_params(self, **params: Any):
         elif hasattr(self, key):
             setattr(self, key, value)
         else:
-            logger.warning(f"Parameter {key} not found in {self.__class__.__name__}")
+            logger.warning("Parameter %s not found in %s", key, self.__class__.__name__)
     return self

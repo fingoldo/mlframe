@@ -131,8 +131,7 @@ def predict_from_models(
             for _entries in _by_name.values():
                 if not isinstance(_entries, list):
                     continue
-                for _e in _entries:
-                    _all_in_mem.append(_e)
+                _all_in_mem.extend(_entries)
         # Cross-target ensemble entries (``_CT_ENSEMBLE__*``) are not polars-native; their inclusion forces
         # the lazy conversion path. Same for any non-CB / non-XGB model in the suite.
         if _all_in_mem:
@@ -516,7 +515,7 @@ def predict_from_models(
                     # Wave 41 (2026-05-20): twin path at line 995 already uses exc_info=True;
                     # this site was the asymmetric one - lost the traceback for downstream
                     # ensemble-member triage. Mirror the twin.
-                    logger.error("Error predicting with model %s", model_name, exc_info=True)
+                    logger.exception("Error predicting with model %s", model_name)
                     _predict_errors.append((model_name, f"{type(e).__name__}: {e}"))
                     continue
 

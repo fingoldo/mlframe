@@ -233,7 +233,7 @@ def detect_hinge_breakpoints_gpu(
         # out of the round loop (they are re-scored against each round's growing design via proj/r_yk).
         R_cand, ok_cand = _fwl_relu_legs(cp, xg, cand, n, min_seg_rows)
         for _ in range(max(1, int(max_breakpoints))):
-            Bk = cp.stack([ones, xg] + extra_legs, axis=1)
+            Bk = cp.stack([ones, xg, *extra_legs], axis=1)
             projk = _gram_projector(cp, Bk)
             r_yk = yg - projk(yg)
             sse_B = float(r_yk @ r_yk)

@@ -162,7 +162,7 @@ def _fit_prewarp_and_gate_med(
         # tighter one would risk pruning the retained case. The whole lstsq/ALS stage is only ~2.8s
         # of a ~128s canonical n=100k fit (~2.2%), and only a fraction is safely skippable, so the
         # bounded, selection-risky win does not clear the bar. Left as the exact per-pair fit.
-        for (raw_vars_pair, _), _ in prospective_pairs.items():
+        for raw_vars_pair, _ in prospective_pairs.keys():
             _va, _vb = raw_vars_pair[0], raw_vars_pair[1]
             if _va in _prewarp_spec_by_var and _vb in _prewarp_spec_by_var:
                 continue
@@ -197,7 +197,7 @@ def _fit_prewarp_and_gate_med(
     _gate_med_active = bool(fe_gate_med_enable)
     _gate_med_median_by_var: dict[int, float] = {}
     if _gate_med_active:
-        for (raw_vars_pair, _), _ in prospective_pairs.items():
+        for raw_vars_pair, _ in prospective_pairs.keys():
             for _gv in raw_vars_pair:
                 if _gv in _gate_med_median_by_var:
                     continue
@@ -257,7 +257,7 @@ def _build_operand_table(
         _resident_operands_on = False
     _operand_col_specs: list | None = [] if _resident_operands_on else None
     i = 0
-    for (raw_vars_pair, _pair_mi), _uplift in prospective_pairs.items():
+    for raw_vars_pair, _pair_mi in prospective_pairs.keys():
         for var in raw_vars_pair:
             # Q8 (2026-06-07): SHARED {var: raw-ndarray} memo. This main unary-materialise
             # loop iterates over (pair, var); a var shared across prospective pairs was
@@ -351,7 +351,7 @@ def _build_operand_table(
                             _diag = f", isnan={np.isnan(vals).sum()}, " f"isinf={np.isinf(vals).sum()}, nanmin={np.nanmin(vals)}"
                         else:
                             _diag = f", dtype={vals.dtype} (numeric diagnostics skipped)"
-                        logger.error(f"Error when performing {tr_name} on array {vals[:5]}, " f"var={cols[var]}: {e!s}{_diag}")
+                        logger.error("Error when performing %s on array %s, var=%s: %s%s", tr_name, vals[:5], cols[var], e, _diag)
                     else:
                         vars_transformations[key] = i
                         if _operand_col_specs is not None:

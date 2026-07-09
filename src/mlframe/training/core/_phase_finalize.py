@@ -366,7 +366,7 @@ def _auto_calibrate_on_calib_slice(ctx: "TrainingContext") -> None:
                 try:
                     if calibrate_namespace_model(_entry, target_type=_ttype):
                         _n += 1
-                except Exception as _cal_err:
+                except Exception as _cal_err:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
                     logger.warning("[calib] auto-calibration failed for %s/%s: %s", _ttype, _tname, _cal_err)
     if _n and getattr(ctx, "verbose", 0):
         logger.info("[calib] auto-calibrated %d per-target model(s) on the disjoint calib slice.", _n)

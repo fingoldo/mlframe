@@ -405,10 +405,10 @@ def _roc_panel(y_true, y_proba, classes, *, y_pred=None, sub=None, show_auc_ci: 
         else:
             labels.append(f"{classes[k]} (AUC={roc_auc:.3f})")
     chance = x_grid.copy()
-    series = [chance] + interpolated
-    series_labels = ["chance"] + labels
+    series = [chance, *interpolated]
+    series_labels = ["chance", *labels]
     styles = [":"] + ["-"] * len(interpolated)
-    line_colors = ["gray"] + colors
+    line_colors = ["gray", *colors]
     if class_subset is not None:
         # Macro-average TPR over the drawn classes anchors the truncated overlay to a population-level summary.
         macro = np.nanmean(np.vstack(valid_curves), axis=0) if valid_curves else np.full_like(x_grid, np.nan)
@@ -558,10 +558,10 @@ def _calib_grid_panel(y_true, y_proba, classes, *, y_pred=None, sub=None, class_
         labels.append(str(classes[k]))
         colors.append(_class_color(k))
     diag = x_grid.copy()
-    all_series = [diag] + series
-    all_labels = ["perfect"] + labels
+    all_series = [diag, *series]
+    all_labels = ["perfect", *labels]
     styles = [":"] + ["-"] * len(series)
-    all_colors = ["green"] + colors
+    all_colors = ["green", *colors]
     if class_subset is not None:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", RuntimeWarning)  # a bin empty in every drawn class -> all-NaN column is fine

@@ -197,7 +197,7 @@ def validate_fhc_handlers(
                     method=spec.method,
                     output=spec.output,
                 )
-            except ValueError as e:
+            except ValueError as e:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
                 errors.append(f"  - {model_kind} text: {e}")
         for cat_spec in cat_specs_per_model.get(model_kind, []):
             try:
@@ -206,7 +206,7 @@ def validate_fhc_handlers(
                     axis=Axis.CAT,
                     method=cat_spec.method,
                 )
-            except ValueError as e:
+            except ValueError as e:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
                 errors.append(f"  - {model_kind} cat: {e}")
 
     if errors:

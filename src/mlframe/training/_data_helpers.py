@@ -178,7 +178,7 @@ def _subset_dataframe(
     if drop_columns:
         # Validate drop_columns is a list-like, not a string
         if isinstance(drop_columns, str):
-            logger.warning(f"drop_columns should be a list, got string '{drop_columns}'. Converting to list.")
+            logger.warning("drop_columns should be a list, got string '%s'. Converting to list.", drop_columns)
             drop_columns = [drop_columns]
         if isinstance(result, pd.DataFrame):
             return result.drop(columns=filter_existing(result, drop_columns))
@@ -323,10 +323,7 @@ def _validate_target_values(target, subset_name="train", is_classification=None)
                 # for that label is degenerate but the others may
                 # train. Report at WARNING and let the per-backend
                 # path decide.
-                degenerate_cols = []
-                for _i in range(arr_np.shape[1]):
-                    if len(np.unique(arr_np[:, _i])) < 2:
-                        degenerate_cols.append(_i)
+                degenerate_cols = [_i for _i in range(arr_np.shape[1]) if len(np.unique(arr_np[:, _i])) < 2]
                 if degenerate_cols:
                     logger.warning(
                         "%s target has %d label column(s) with a single unique "
@@ -443,7 +440,7 @@ def _disable_xgboost_early_stopping_if_needed(model_type_name, model_obj):
     if model_type_name in XGBOOST_MODEL_TYPES and model_obj is not None:
         es_rounds = getattr(model_obj, "early_stopping_rounds", None)
         if es_rounds is not None:
-            logger.warning(f"No validation data available - disabling early stopping for {model_type_name}")
+            logger.warning("No validation data available - disabling early stopping for %s", model_type_name)
             model_obj.set_params(early_stopping_rounds=None)
 
 
@@ -635,8 +632,7 @@ def _setup_eval_set(
     if use_shards:
         assert extra_eval_sets is not None  # guaranteed by use_shards construction above
         eval_list: list[tuple[Any, Any]] = [(val_df, val_target)]
-        for shard in extra_eval_sets:
-            eval_list.append((shard.X, shard.y))
+        eval_list.extend((shard.X, shard.y) for shard in extra_eval_sets)
         if value_format == "list_of_tuples_values":
             eval_list = [(X.values if hasattr(X, "values") else X, y.values if hasattr(y, "values") else y) for X, y in eval_list]
         if value_format in ("tuple", "list_of_tuples", "list_of_tuples_values"):
@@ -654,18 +650,15 @@ def _setup_eval_set(
         if model_category in ("xgb", "lgb", "cb"):
             if sample_weight_val is not None:
                 sw_list: list[Any] = [sample_weight_val]
-                for shard in extra_eval_sets:
-                    sw_list.append(shard.sample_weight if shard.sample_weight is not None else None)
+                sw_list.extend(shard.sample_weight if shard.sample_weight is not None else None for shard in extra_eval_sets)
                 fit_params["sample_weight_eval_set"] = sw_list
             if base_margin_val is not None and model_category == "xgb":
                 bm_list: list[Any] = [base_margin_val]
-                for shard in extra_eval_sets:
-                    bm_list.append(shard.base_margin if shard.base_margin is not None else None)
+                bm_list.extend(shard.base_margin if shard.base_margin is not None else None for shard in extra_eval_sets)
                 fit_params["base_margin_eval_set"] = bm_list
             if group_ids_val is not None:
                 grp_list: list[Any] = [group_ids_val]
-                for shard in extra_eval_sets:
-                    grp_list.append(shard.group_ids if shard.group_ids is not None else None)
+                grp_list.extend(shard.group_ids if shard.group_ids is not None else None for shard in extra_eval_sets)
                 if model_category == "xgb":
                     fit_params["eval_qid"] = grp_list
                 elif model_category == "lgb":

@@ -50,7 +50,7 @@ from ._preprocessing_configs import (  # noqa: F401
 # FeatureSelectionConfig moved to ``_feature_selection_config.py`` so siblings
 # that need it as a field type can import it without re-entering this module
 # (which would close a ``configs <-> sibling`` import cycle).
-from ._feature_selection_config import FeatureSelectionConfig  # noqa: E402,F401
+from ._feature_selection_config import FeatureSelectionConfig
 
 # Model + hyperparameter + training-behavior configs moved to
 # ``_model_configs.py``; re-exported below so historical
@@ -67,7 +67,7 @@ from ._model_configs import (  # noqa: F401
 # re-exported below so historical
 # ``from mlframe.training.configs import TrainingConfig`` (and the other
 # moved names) imports continue to resolve. See sibling for SSOT.
-from ._training_runtime_configs import (  # noqa: E402,F401
+from ._training_runtime_configs import (
     TrainingConfig, DataConfig, TrainingControlConfig, MetricsConfig,
     FeatureImportanceConfig, OutputConfig, OutlierDetectionConfig,
     SliceStableESConfig,

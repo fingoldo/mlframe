@@ -64,7 +64,7 @@ DATEFRACTS_MULTIPLIERS = [24, 60, 60, 1000, 1000, 1000]
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
 
-from ._cleaning_kernels import (  # noqa: F401  re-export: lazy njit kernel factories carved to a sibling
+from ._cleaning_kernels import (
     _get_count_distinct_njit,
     _get_count_distinct_rounded_njit,
     _get_outlier_mask_njit,
@@ -557,6 +557,16 @@ def analyse_and_clean_features(
 
     Multiprocessing support !TODO
     Auto-fragment df if own mem usage keeps growing and system free RAM becomes scarce.
+
+    LEAKAGE WARNING: ``df`` (and ``analyse_mask``) here MUST contain train-only rows. This function computes rare-category
+    merge thresholds, near-constant-column detection, continuity classification, and NaN-replacement maps
+    (``features_transforms``) directly from whatever rows it is given, then ``apply_features_cleaning`` replays those
+    learned maps onto any frame (train, val, test). There is no internal guard: passing the full train+val/test frame here
+    is a whole-dataset-statistics leak, e.g. ``analyse_and_clean_features(pd.concat([X_train, X_val, X_test]))`` lets
+    val/test rows influence which categories get merged to "rare" and which columns get dropped as constant, then those
+    same learned rules get applied back onto val/test in ``apply_features_cleaning`` -- the val/test statistics leaked
+    into the "trained" cleaning rules. Always call this on ``X_train`` (optionally masked further via ``analyse_mask``)
+    and only ever call ``apply_features_cleaning`` on val/test with the dict this function returns.
     """
     features_transforms: Dict[str, Dict[Any, Any]] = defaultdict(dict)
 

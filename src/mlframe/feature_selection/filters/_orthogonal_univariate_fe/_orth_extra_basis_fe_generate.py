@@ -580,7 +580,7 @@ def hybrid_orth_extra_basis_fe_with_recipes(
         for r in recipes:
             try:
                 _full_cols[r.name] = np.asarray(apply_recipe(r, X))
-            except Exception:
+            except Exception:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
                 logger.warning("extra-basis subsample replay failed for %r; dropping.", r.name)
         X_aug = pd.concat([X, pd.DataFrame(_full_cols, index=X.index)], axis=1) if _full_cols else X.copy()
     else:

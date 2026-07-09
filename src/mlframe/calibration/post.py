@@ -443,14 +443,12 @@ def compare_postcalibrators(
         min_rows_needed = max(2, int(inner_cv_splits)) * 2
         if classes.size != 2:
             logger.warning(
-                "compare_postcalibrators: selection='inner_cv' requires exactly 2 classes in calib_target; "
-                "got %d. Falling back to self-eval (optimistic).",
+                "compare_postcalibrators: selection='inner_cv' requires exactly 2 classes in calib_target; " "got %d. Falling back to self-eval (optimistic).",
                 classes.size,
             )
         elif calib_target_np.shape[0] < min_rows_needed:
             logger.warning(
-                "compare_postcalibrators: selection='inner_cv' needs >= %d calib rows for %d folds; got %d. "
-                "Falling back to self-eval (optimistic).",
+                "compare_postcalibrators: selection='inner_cv' needs >= %d calib rows for %d folds; got %d. " "Falling back to self-eval (optimistic).",
                 min_rows_needed,
                 inner_cv_splits,
                 calib_target_np.shape[0],
@@ -589,8 +587,7 @@ def compare_postcalibrators(
 
     if failed_calibrators:
         logger.warning(
-            "compare_postcalibrators: %d calibrator(s) failed and were skipped (results from the rest are still "
-            "reported): %s",
+            "compare_postcalibrators: %d calibrator(s) failed and were skipped (results from the rest are still " "reported): %s",
             len(failed_calibrators),
             failed_calibrators,
         )
@@ -627,8 +624,7 @@ def compare_postcalibrators(
             metrics_df = metrics_df.sort_values("ice")
         else:
             logger.warning(
-                "compare_postcalibrators: expected 'ice' metric column not found in report_model_perf output "
-                "(got columns=%s); skipping the ice-based sort.",
+                "compare_postcalibrators: expected 'ice' metric column not found in report_model_perf output " "(got columns=%s); skipping the ice-based sort.",
                 list(metrics_df.columns),
             )
 
@@ -809,9 +805,7 @@ def train_postcalibrators(
                 try:
                     _prob_overlap = _values_overlap_fraction(np.asarray(_cp), np.asarray(_test_probs))
                 except Exception as exc:
-                    logger.debug(
-                        "train_postcalibrators: probs overlap check failed for model %r: %r", _name, exc, exc_info=True
-                    )
+                    logger.debug("train_postcalibrators: probs overlap check failed for model %r: %r", _name, exc, exc_info=True)
                     continue
                 if _prob_overlap >= OVERLAP_RAISE_THRESHOLD:
                     raise ValueError(

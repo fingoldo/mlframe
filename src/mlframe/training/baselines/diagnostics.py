@@ -139,7 +139,7 @@ class BaselineDiagnosticsReport:
         }
 
 
-from ..utils import coerce_to_1d_numpy as _to_1d_numpy  # noqa: E402,F401
+from ..utils import coerce_to_1d_numpy as _to_1d_numpy
 # Local name preserved for downstream importers (``dummy`` imports ``_to_1d_numpy`` from here).
 
 
@@ -484,8 +484,10 @@ def format_baseline_diagnostics_report(
     )
     if report.ablation:
         lines.append("[BaselineDiagnostics] Ablation (drop -> delta%, positive = drop hurt):")
-        for entry in report.ablation:
-            lines.append(f"  rank={entry.rank} {entry.feature:<24s} " f"{metric}_after_drop={entry.metric_after_drop:.4f} " f"delta%={entry.delta_pct:+.2f}")
+        lines.extend(
+            f"  rank={entry.rank} {entry.feature:<24s} " f"{metric}_after_drop={entry.metric_after_drop:.4f} " f"delta%={entry.delta_pct:+.2f}"
+            for entry in report.ablation
+        )
     if report.init_score_baseline is not None:
         isb = report.init_score_baseline
         lines.append(f"[BaselineDiagnostics] init_score({isb.feature_used}) " f"{metric}={isb.metric:.4f} " f"delta%={isb.delta_vs_raw_pct:+.2f} vs raw")

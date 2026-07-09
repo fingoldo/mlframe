@@ -112,7 +112,7 @@ def compute_local_linear_attention(
             for q in range(n_anchor):
                 try:
                     beta[q] = np.linalg.solve(A[q], b[q])
-                except np.linalg.LinAlgError:
+                except np.linalg.LinAlgError:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
                     singular[q] = True
         intercept = ym - np.einsum("ni,ni->n", Xm, beta)
         out[:, 0] = intercept.astype(dtype, copy=False)
@@ -159,8 +159,7 @@ def compute_local_linear_attention(
 
     # Column names: intercept, slope per feature, r2.
     names = [f"{column_prefix}_intercept"]
-    for j in range(d):
-        names.append(f"{column_prefix}_slope_x{j}")
+    names.extend(f"{column_prefix}_slope_x{j}" for j in range(d))
     if return_r2:
         names.append(f"{column_prefix}_r2")
     return pl.DataFrame({name: out[:, i] for i, name in enumerate(names)})

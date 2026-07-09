@@ -77,7 +77,7 @@ def enable_crash_reporting(file=None, all_threads: bool = True) -> bool:
             # because Jupyter captures fd 2.
             faulthandler.enable(file=2, all_threads=all_threads)
     except Exception as e:
-        logger.warning(f"faulthandler.enable() failed: {e}")
+        logger.warning("faulthandler.enable() failed: %s", e)
         ok = False
 
     # Step 2: Windows-only — suppress "Python has stopped working" modal.
@@ -95,7 +95,7 @@ def enable_crash_reporting(file=None, all_threads: bool = True) -> bool:
             prev = ctypes.windll.kernel32.SetErrorMode(0)  # read current
             ctypes.windll.kernel32.SetErrorMode(prev | SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX)
         except Exception as e:
-            logger.warning(f"SetErrorMode() failed: {e}")
+            logger.warning("SetErrorMode() failed: %s", e)
             ok = False
 
     _ENABLED = ok

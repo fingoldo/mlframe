@@ -258,7 +258,7 @@ def _carve_calib_from_train(
         for _pos in _order:
             seen.setdefault(train_groups[_pos], []).append(_pos)
         chosen_local: list = []
-        for _g, _positions in seen.items():
+        for _positions in seen.values():
             if len(chosen_local) >= n_calib_target:
                 break
             chosen_local.extend(_positions)

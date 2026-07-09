@@ -221,8 +221,7 @@ def stack_outputs_to_array(
                 names.append(f"attn_h{h}_{agg}")
             else:
                 cols.append(arr)
-                for d in range(arr.shape[1]):
-                    names.append(f"attn_h{h}_{agg}_d{d}")
+                names.extend(f"attn_h{h}_{agg}_d{d}" for d in range(arr.shape[1]))
     matrix = np.concatenate(cols, axis=1)
     return matrix, names
 

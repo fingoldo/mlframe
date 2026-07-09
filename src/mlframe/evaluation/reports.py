@@ -194,9 +194,9 @@ def evaluate_estimators(
                 est_name = est_type
 
             if target_wrapper:
-                pipe = Pipeline(pre_pipeline + [("est", target_wrapper(est))])
+                pipe = Pipeline([*pre_pipeline, ("est", target_wrapper(est))])
             else:
-                pipe = Pipeline(pre_pipeline + [("est", est)])
+                pipe = Pipeline([*pre_pipeline, ("est", est)])
 
             # ****************************************************************************************************************************
             # Fit that estimator to the train set
@@ -502,7 +502,7 @@ def evaluate_grouped(
             rp = _report_dict(y_test[idx], preds)
 
             failed = False
-            for _label, stats in rp.items():
+            for stats in rp.values():
                 if type(stats) is dict:
                     if stats.get("support", 0) < min_population:
                         failed = True

@@ -219,9 +219,8 @@ def compose_calibration_by_feature_figure(
         )
 
     centers = (np.arange(n_prob_bins) + 0.5) / n_prob_bins  # shared diagonal grid for every mini panel
-    mini_panels: list[PanelSpec] = []
-    for r in records:
-        mini_panels.append(LinePanelSpec(
+    mini_panels: list[PanelSpec] = [
+        LinePanelSpec(
             x=(centers, r["fp"]),
             y=(centers, r["ft"]),
             series_labels=("perfect", "observed"),
@@ -230,7 +229,9 @@ def compose_calibration_by_feature_figure(
             title=f"{r['label']}\nn={r['n']:,}  ECE={r['ece']:.3f}",
             xlabel="predicted probability",
             ylabel="observed frequency",
-        ))
+        )
+        for r in records
+    ]
 
     eces = np.asarray([r["ece"] for r in records], dtype=np.float64)
     gap = float(eces.max() - eces.min())

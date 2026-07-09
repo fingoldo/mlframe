@@ -532,6 +532,5 @@ def _enumerate_grid(
         per_space.append(values)
     grid: List[Tuple[str, Dict[str, Any]]] = []
     for transform_name in transform_candidates:
-        for combo in itertools.product(*per_space) if per_space else [()]:
-            grid.append((transform_name, dict(zip(names, combo))))
+        grid.extend((transform_name, dict(zip(names, combo))) for combo in (itertools.product(*per_space) if per_space else [()]))
     return grid

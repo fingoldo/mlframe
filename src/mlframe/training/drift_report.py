@@ -376,8 +376,7 @@ def format_drift_report(report: dict[str, Any], target_name: str = "") -> str:
             lines.append(f"  {name:<5} n={s['n']:>10_} n_positive={s['n_positive']:>10_} " f"P(y=1)={s['p_positive']:.4f}")
 
     if warnings:
-        for w in warnings:
-            lines.append(f"  WARN: {w}")
+        lines.extend(f"  WARN: {w}" for w in warnings)
     else:
         lines.append("  (no drift warnings - splits within threshold)")
 

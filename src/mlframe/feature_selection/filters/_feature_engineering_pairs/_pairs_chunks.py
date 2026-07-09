@@ -76,7 +76,7 @@ def _plan_fe_chunks(*, prospective_pairs, pair_combs, vars_transformations, n_bi
     chunk_max_cols = max(int(chunk_max_cols), 1)
     pair_valid_combs: dict = {}
     pair_cols: dict = {}
-    for (raw_vars_pair, _pm), _u in prospective_pairs.items():
+    for raw_vars_pair, _pm in prospective_pairs.keys():
         combs = pair_combs.get(raw_vars_pair, [])
         valid = [tp for tp in combs if (tp[0] in vars_transformations) and (tp[1] in vars_transformations)]
         pair_valid_combs[raw_vars_pair] = valid
@@ -86,7 +86,7 @@ def _plan_fe_chunks(*, prospective_pairs, pair_combs, vars_transformations, n_bi
     cur: list = []
     cur_cols = 0
     widest = 0
-    for (raw_vars_pair, _pm), _u in prospective_pairs.items():
+    for raw_vars_pair, _pm in prospective_pairs.keys():
         need = pair_cols.get(raw_vars_pair, 0)
         if need == 0:
             continue

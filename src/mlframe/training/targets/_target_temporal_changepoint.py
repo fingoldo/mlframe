@@ -385,7 +385,7 @@ def _segments_from_change_points(
     edges, then dedup-sort.
     """
     n = len(rates)
-    edges = sorted(set([0, n] + list(boundaries)))
+    edges = sorted(set([0, n, *list(boundaries)]))
     segments: list[dict[str, Any]] = []
     for s, e in zip(edges[:-1], edges[1:]):
         if e <= s:

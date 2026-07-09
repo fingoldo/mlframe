@@ -823,12 +823,11 @@ def optimise_pair_multimode(
             n_neighbors=n_neighbors, discrete_target=discrete_target,
             l2_penalty=l2_penalty,
         )
-        warm_seeds = []
+        warm_seeds: list = []
         if warm_start:
             seeds_per_feat = canonical_seeds_func(degree) if canonical_seeds_func else _canonical_seeds(basis, degree)
             for s_a in seeds_per_feat:
-                for s_b in seeds_per_feat:
-                    warm_seeds.append(np.concatenate([s_a, s_b]))
+                warm_seeds.extend(np.concatenate([s_a, s_b]) for s_b in seeds_per_feat)
             if seeds_per_feat:
                 s = seeds_per_feat[0]
                 warm_seeds.append(np.concatenate([s, -s]))

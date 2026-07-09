@@ -49,9 +49,7 @@ def _conditioning_rows_per_cell(ctx, X: tuple) -> float:
     # into ``factors_data``; guard the (rare) separate-target-array case by
     # skipping out-of-range y indices (the (X, Z) cell count is then a lower
     # bound on the support, still a valid undersampling signal).
-    for yi in ctx.y:
-        if 0 <= int(yi) < n_cols:
-            cond_indices.append(int(yi))
+    cond_indices.extend(int(yi) for yi in ctx.y if 0 <= int(yi) < n_cols)
     for z in ctx.selected_vars:
         if hasattr(z, "__len__"):
             cond_indices.extend(int(c) for c in z)

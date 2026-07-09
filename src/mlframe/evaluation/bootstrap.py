@@ -628,13 +628,13 @@ def bootstrap_metrics(
         try:
             points[name] = float(fn(y_true, y_pred))
             active.append(name)
-        except Exception as exc:
+        except Exception as exc:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
             results[name] = {"error": f"point metric failed: {type(exc).__name__}: {exc}"}
     for name, fn_idx in metric_fns_idx.items():
         try:
             points[name] = float(fn_idx(_full_idx))
             active_idx.append(name)
-        except Exception as exc:
+        except Exception as exc:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
             results[name] = {"error": f"point metric failed: {type(exc).__name__}: {exc}"}
     if not active and not active_idx:
         return results

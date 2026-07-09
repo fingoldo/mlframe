@@ -98,7 +98,7 @@ def apply_diversity_drop(
             for _i, _t in enumerate(_ensemble_member_tags):
                 try:
                     _tag_to_mae[_t] = float(_gate_per_mae[_i])
-                except (TypeError, ValueError):
+                except (TypeError, ValueError):  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
                     pass
         for _pair in _high_corr_pairs:
             if abs(_pair["corr"]) < float(_drop_floor):

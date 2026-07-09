@@ -26,7 +26,9 @@ try:
     from imblearn import FunctionSampler  # noqa: F401
     from imblearn.pipeline import Pipeline as _ImbPipeline
     _HAS_IMBLEARN = True
-except Exception:  # pragma: no cover
+except (ImportError, AttributeError):  # pragma: no cover
+    # ImportError: imblearn not installed at all. AttributeError: version-skew against sklearn internals
+    # (e.g. a moved/removed sklearn.utils.parse_version) that older imblearn releases probe at import time.
     _HAS_IMBLEARN = False
     _ImbPipeline = None
 
@@ -49,6 +51,12 @@ def reject_outliers(
     from imblearn.pipeline import Pipeline
     pipe = Pipeline([("out", FunctionSampler(func=reject_outliers, validate=False)), ("est", clf)])
 
+    LEAKAGE WARNING: this function fits ``model`` on whatever ``X`` it is given and immediately predicts on that same
+    ``X`` (a transductive fit+predict on one array). Used the recommended way -- wrapped in an ``imblearn.FunctionSampler``
+    inside a CV ``Pipeline`` -- ``X`` is refit per fold automatically and this is safe. Called directly on a
+    train+val/test-combined array, the outlier model is instead fit using held-out rows, so which points get flagged as
+    outliers (and dropped) is influenced by data the caller intends to hold out -- fit it ONLY on the current fold's
+    train rows, never on a frame that also contains val/test rows.
     """
 
     if model is None:
@@ -212,6 +220,11 @@ def compute_naive_outlier_score(X_train: np.ndarray, X_test: np.ndarray) -> np.n
     # The njit kernel indexes train mins/maxs by X_test's feature columns; a feature-count mismatch reads out-of-bounds and returns silent garbage.
     if X_train.shape[1] != X_test.shape[1]:
         raise ValueError(f"compute_naive_outlier_score: X_train has {X_train.shape[1]} features but X_test has {X_test.shape[1]}; feature counts must match.")
+    # An empty train fold has no rows to derive mins/maxs from: nanmin/nanmax silently collapse to NaN, and every
+    # subsequent X_test comparison against NaN is False -- reporting "no outliers anywhere" instead of raising, the
+    # opposite of the intended out-of-range detection. Fail loudly instead of returning a silently-wrong all-zero score.
+    if X_train.shape[0] == 0:
+        raise ValueError("compute_naive_outlier_score: X_train has 0 rows; cannot compute train min/max bounds from an empty fold.")
     if _HAS_NUMBA:
         if X_train.shape[0] * X_train.shape[1] < _NANMINMAX_PARALLEL_MIN_ELEMS:
             mins, maxs = _nanminmax_cols_serial(X_train)

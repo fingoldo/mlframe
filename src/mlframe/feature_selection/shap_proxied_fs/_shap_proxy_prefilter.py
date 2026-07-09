@@ -161,7 +161,7 @@ def resolve_prefilter_method(method: str, *, n_features: int, n_rows: int) -> st
     """
     if method != "auto":
         if method not in PREFILTER_METHODS:
-            raise ValueError(f"prefilter_method={method!r} unknown; expected one of {('auto',) + PREFILTER_METHODS}.")
+            raise ValueError(f"prefilter_method={method!r} unknown; expected one of {('auto', *PREFILTER_METHODS)}.")
         return method
     if n_features < _auto_fast_width():
         return "model"

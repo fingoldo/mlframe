@@ -361,7 +361,7 @@ class SuiteArtefactCache:
             for p in (path, path + ".sha256"):
                 try:
                     os.remove(p)
-                except OSError:
+                except OSError:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
                     pass
             return False
         actual_size = self._file_size(path)
@@ -370,7 +370,7 @@ class SuiteArtefactCache:
             for p in (path, path + ".sha256"):
                 try:
                     os.remove(p)
-                except OSError:
+                except OSError:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
                     pass
             logger.debug(
                 "SuiteArtefactCache: rolled back oversize entry %s (%d bytes > limit %d)",
@@ -407,7 +407,7 @@ class SuiteArtefactCache:
                         os.remove(p)
                         if p == path:
                             count += 1
-                    except OSError:
+                    except OSError:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
                         pass
                 self._lru.pop(key, None)
             # Also catch any orphan .pkl that slipped past the LRU ledger.

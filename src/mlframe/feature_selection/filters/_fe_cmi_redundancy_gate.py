@@ -630,7 +630,7 @@ def apply_cmi_redundancy_gate(
         # Fold the winner into the conditioning support, respecting the
         # fragmentation cap (freeze support if folding would shatter the strata).
         new_bin = cand_bins[best_name]
-        candidate_support, _ = _renumber_joint(*(accepted_bins + [new_bin]))
+        candidate_support, _ = _renumber_joint(*[*accepted_bins, new_bin])
         if int(np.unique(candidate_support).size) <= frag_cap:
             accepted_bins.append(new_bin)
             # Keep the resident-code list in lockstep so the NEXT round's device-born support join includes

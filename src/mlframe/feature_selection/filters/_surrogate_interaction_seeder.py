@@ -79,7 +79,7 @@ def _walk_paths_tally(
             if len(trio) == 3:
                 triple_w[trio] = triple_w.get(trio, 0.0) + min(wa, wb, w)
 
-    child_path = path + [(feat, w)]
+    child_path = [*path, (feat, w)]
     _walk_paths_tally(node["left_child"], child_path, pair_w, triple_w, feat_w, depth_discount)
     _walk_paths_tally(node["right_child"], child_path, pair_w, triple_w, feat_w, depth_discount)
 

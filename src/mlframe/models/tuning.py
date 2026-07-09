@@ -542,7 +542,7 @@ def create_ctr_params(GPU_ENABLED: bool = False, params: Optional[dict] = None, 
                 random_state=random_state,
             )
             line = main_type
-            for key, val in list(cands)[0].items():
+            for key, val in next(iter(cands)).items():
                 # "Counter:TargetBorderType=Uniform:TargetBorderCount=1: Target borders options are unsupported for counter ctr
                 if main_type in ("Counter", "FeatureFreq"):
                     if "Target" in key:

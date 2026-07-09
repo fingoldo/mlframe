@@ -169,12 +169,12 @@ def interaction_proxy_top_n(
     while remaining and len(current) < max_card:
         cand, cl = None, float("inf")
         for j in remaining:
-            lo = _loss(tuple(sorted(current + (j,))))
+            lo = _loss(tuple(sorted((*current, j))))
             if lo < cl:
                 cl, cand = lo, j
         if cand is None or cl >= best:
             break
-        current = tuple(sorted(current + (cand,)))
+        current = tuple(sorted((*current, cand)))
         best = cl
         remaining.discard(cand)
 

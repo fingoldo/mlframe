@@ -122,9 +122,7 @@ def _row_sample_hash(X: Any, n_rows: int | None) -> int | None:
     # (.row, .slice) method pair, which pandas does not expose.
     if hasattr(X, "row") and hasattr(X, "slice") and callable(getattr(X, "row", None)):
         try:
-            for idx in indices:
-                if 0 <= idx < n_rows:
-                    samples.append(_canonicalise_row(X.row(idx)))
+            samples = [_canonicalise_row(X.row(idx)) for idx in indices if 0 <= idx < n_rows]
             return hash(tuple(samples))
         except Exception:
             return None

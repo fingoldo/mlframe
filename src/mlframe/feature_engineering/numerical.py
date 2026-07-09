@@ -177,10 +177,9 @@ default_dist_responses = dict(levy_l=(np.nan, np.nan), logistic=(np.nan, np.nan)
 
 def get_distributions_features_names() -> list:
     """Return the flat list of feature names emitted by the distribution-fitting features (per-distribution params + KS stat/pvalue)."""
-    distributions_features_names = []
+    distributions_features_names: list[str] = []
     for dist in distributions:
-        for i in range(len(default_dist_responses[dist.name])):
-            distributions_features_names.append(dist.name + str(i + 1))
+        distributions_features_names.extend(dist.name + str(i + 1) for i in range(len(default_dist_responses[dist.name])))
         distributions_features_names.append(dist.name + "_kss")
         distributions_features_names.append(dist.name + "_kspval")
     return distributions_features_names
@@ -316,7 +315,7 @@ def get_simple_stats_names() -> list:
 # _numerical_numba.py (along with its @numba.njit(cache=False) decorator,
 # which is needed because numba's AOT cache corrupts on the function's
 # bool-kwarg-heavy signature on Windows + Python 3.11 + numba 0.59).
-from ._numerical_numba import compute_numerical_aggregates_numba  # noqa: F401, E402
+from ._numerical_numba import compute_numerical_aggregates_numba
 
 def get_basic_feature_names(
     weights: Optional[np.ndarray] = None,

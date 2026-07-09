@@ -215,7 +215,7 @@ class BestEpochModelCheckpoint(ModelCheckpoint):
         raw_score = trainer.callback_metrics.get(self.monitor)
 
         if raw_score is None:
-            logger.warning(f"Monitor metric '{self.monitor}' not found in callback_metrics.")
+            logger.warning("Monitor metric '%s' not found in callback_metrics.", self.monitor)
             return
 
         current_score: float = raw_score.item() if isinstance(raw_score, torch.Tensor) else float(raw_score)

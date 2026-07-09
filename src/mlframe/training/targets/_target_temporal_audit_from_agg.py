@@ -123,10 +123,10 @@ def _audit_from_agg(
                 f"(b) regime change in the underlying generative process, (c) target "
                 f"definition shift. See segment list below for cutoff dates."
             )
-            for s in segments:
-                warnings.append(
-                    f"  segment {s['start_label']}..{s['end_label']} " f"({s['n_bins']} bins, n_obs={s['n_obs']:_}): " f"mean_rate={s['mean_rate']:.3f}"
-                )
+            warnings.extend(
+                f"  segment {s['start_label']}..{s['end_label']} " f"({s['n_bins']} bins, n_obs={s['n_obs']:_}): " f"mean_rate={s['mean_rate']:.3f}"
+                for s in segments
+            )
 
     n_dropped = sum(1 for b in bins if not b.kept)
     if n_dropped > 0:

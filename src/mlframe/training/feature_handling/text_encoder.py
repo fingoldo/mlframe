@@ -54,7 +54,7 @@ logger = logging.getLogger(__name__)
 if TYPE_CHECKING:
     import pandas as pd  # noqa: F401
     import polars as pl  # noqa: F401
-    import scipy.sparse as sp  # noqa: F401
+    import scipy.sparse as sp
 
 
 def _column_to_string_iter(

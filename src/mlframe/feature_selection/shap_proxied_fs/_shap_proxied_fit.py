@@ -577,8 +577,7 @@ class ShapProxiedFitMixin:
                             _orig_idx = int(working_cols[int(_m)])
                             orig_name_to_proxy[str(X_cols[_orig_idx])] = _u
                 else:
-                    for _u, _nm in enumerate(proxy_names):
-                        orig_name_to_proxy[_nm] = _u
+                    orig_name_to_proxy = {_nm: _u for _u, _nm in enumerate(proxy_names)}
 
                 pairs_orig = getattr(self, "_su_seeded_pairs_orig", None)
                 if pairs_orig is None:
