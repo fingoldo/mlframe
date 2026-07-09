@@ -22,6 +22,7 @@ from typing import Any, Optional, Sequence
 # need one, import it explicitly rather than reintroducing the wildcard.
 
 import re
+import copy
 from functools import lru_cache
 from dataclasses import dataclass
 
@@ -53,6 +54,7 @@ from pyutilz.system import tqdmu
 from pyutilz.pythonlib import store_params_in_object, get_parent_func_args
 
 from mlframe.training.evaluation import report_model_perf
+from mlframe.calibration.policy import _stratified_inner_folds
 
 # Heavy optional deps (netcal/pycalib pull torch transitively → DLL-load can fail
 # on Windows boxes with mismatched CUDA toolkits). Imported lazily inside
@@ -353,19 +355,34 @@ def compare_postcalibrators(
     report_params: Optional[dict] = None,
     include_patterns: Optional[list] = None,
     skip_patterns: Optional[list] = None,  # r"BetaCalibration\[variant=ab\]"
+    selection: str = "inner_cv",
+    inner_cv_splits: int = 5,
+    random_state: Optional[int] = 0,
 ) -> tuple[Optional[pd.DataFrame], dict]:
     """Given calibration and (optionally) OOS probabilities and true targets, fits a number of
-    calibrator models on the calib set and computes ML metrics on the OOS set. When ``oos_probs``/
-    ``oos_target`` are ``None``, falls back to a SELF-EVALUATION on the calib set itself (optimistic --
-    each calibrator is scored on the exact data it was fit on -- but still a real signal; pre-fix this
-    case skipped metric computation entirely and always returned ``None``). Returns a pandas dataframe
-    of ML metrics by calibrator name (``None`` only if every candidate was filtered out by
-    ``include_patterns``/``skip_patterns``).
+    calibrator models on the calib set and computes ML metrics on a held-out slice. When ``oos_probs``/
+    ``oos_target`` are ``None``, evaluation falls back to ``selection``:
+
+    - ``"inner_cv"`` (default): mirrors ``policy.py::pick_best_calibrator``'s honest fix for the same
+      "same_oof" optimism bug class. The calib set is split into ``inner_cv_splits`` stratified folds;
+      each calibrator is fit on the fold complement and scored on the held-out fold, and the assembled
+      out-of-fold predictions (never seen during that fold's fit) feed ``report_model_perf``. The
+      calibrator persisted in ``fit_calibrators`` is then refit on the FULL calib set for deployment.
+      Falls back to ``"self_eval"`` (with a warning) when calib_target does not have exactly 2 classes
+      or is too small for the requested fold count.
+    - ``"self_eval"`` (legacy): each calibrator is fit AND scored on the exact same calib rows --
+      optimistic, since a flexible calibrator (Isotonic, spline, BBQ) can interpolate its own reported
+      metrics toward "perfect" purely by memorising the data it saw. Kept for replay / A-B comparison.
+
+    Returns a pandas dataframe of ML metrics by calibrator name (``None`` only if every candidate was
+    filtered out by ``include_patterns``/``skip_patterns``).
     """
     if include_patterns is None:
         include_patterns = []
     if skip_patterns is None:
         skip_patterns = [r"netcal\.BetaCalibrationDependent", r"netcal\.ENIR", r"netcal\.NearIsotonicRegression"]
+    if selection not in ("inner_cv", "self_eval"):
+        raise ValueError(f"compare_postcalibrators: selection must be 'inner_cv' or 'self_eval'; got {selection!r}")
 
     logger.info(
         "Calib set size=%d, oos set size=%d, num_bins=%s.",
@@ -382,13 +399,39 @@ def compare_postcalibrators(
 
     # No separate OOS set (the ONLY current caller, train_postcalibrators, never supplies one -- see
     # its docstring: calibrator FITTING and honest EVALUATION are deliberately split across different
-    # rows/splits). Fall back to a self-evaluation on the calib set itself: optimistic (the calibrator
-    # is evaluated on the exact data it was fit on) but still a real, useful sanity signal -- pre-fix
-    # this whole metrics path was skipped entirely whenever oos_probs was None, so `metrics_df` came
-    # back `None` on every real call, silently discarding the comparison this function exists to make.
+    # rows/splits). Without an OOS set, prefer honest inner-CV held-out evaluation over same-data
+    # self-eval -- pre-fix, every calibrator was scored on the exact rows it was fit on, which is the
+    # same "same_oof" selection-optimism bug class policy.py::pick_best_calibrator already diagnosed
+    # and fixed (flexible calibrators like Isotonic interpolate their own score toward "perfect").
+    calib_probs_np = np.asarray(calib_probs)
+    calib_target_np = np.asarray(calib_target)
     _eval_probs = oos_probs if oos_probs is not None else calib_probs
     _eval_target = oos_target if oos_target is not None else calib_target
     _eval_label = "OOS" if oos_probs is not None else "CALIB (self-eval, optimistic)"
+
+    use_inner_cv = False
+    inner_folds: Optional[list[np.ndarray]] = None
+    if oos_probs is None and selection == "inner_cv":
+        classes = np.unique(calib_target_np)
+        min_rows_needed = max(2, int(inner_cv_splits)) * 2
+        if classes.size != 2:
+            logger.warning(
+                "compare_postcalibrators: selection='inner_cv' requires exactly 2 classes in calib_target; "
+                "got %d. Falling back to self-eval (optimistic).",
+                classes.size,
+            )
+        elif calib_target_np.shape[0] < min_rows_needed:
+            logger.warning(
+                "compare_postcalibrators: selection='inner_cv' needs >= %d calib rows for %d folds; got %d. "
+                "Falling back to self-eval (optimistic).",
+                min_rows_needed,
+                inner_cv_splits,
+                calib_target_np.shape[0],
+            )
+        else:
+            inner_folds = _stratified_inner_folds(calib_target_np, max(2, int(inner_cv_splits)), random_state)
+            use_inner_cv = True
+            _eval_label = "CALIB (inner-CV held-out)"
 
     _, _ = report_model_perf(
         targets=_eval_target,
@@ -431,18 +474,42 @@ def compare_postcalibrators(
 
             start = timer()
 
-            clf.fit(calib_probs, calib_target)
-            fit_calibrators[calibrator_name] = clf
+            if use_inner_cv and inner_folds is not None:
+                # Fit on each fold's complement, predict on the held-out fold -- the calibrator
+                # never sees the rows it is scored on, unlike the same-data self-eval path.
+                oof_calibrated = None
+                for held_idx in inner_folds:
+                    held_mask = np.zeros(calib_target_np.shape[0], dtype=bool)
+                    held_mask[held_idx] = True
+                    train_idx = np.flatnonzero(~held_mask)
+                    fold_clf = copy.deepcopy(clf)
+                    fold_clf.fit(calib_probs_np[train_idx], calib_target_np[train_idx])
+                    fold_pred = np.asarray(fold_clf.postcalibrate_probs(calib_probs_np[held_idx]))
+                    if oof_calibrated is None:
+                        oof_calibrated = np.empty((calib_target_np.shape[0],) + fold_pred.shape[1:], dtype=fold_pred.dtype)
+                    oof_calibrated[held_idx] = fold_pred
+                calibrated_probs = oof_calibrated
+                fitting_time = timer() - start
 
-            fitting_time = timer() - start
+                # Refit on the FULL calib set for the deployment artefact persisted to disk.
+                start = timer()
+                clf.fit(calib_probs, calib_target)
+                fit_calibrators[calibrator_name] = clf
+                predicting_time = timer() - start
+                _row_eval_target = calib_target_np
+            else:
+                clf.fit(calib_probs, calib_target)
+                fit_calibrators[calibrator_name] = clf
+                fitting_time = timer() - start
 
-            start = timer()
-            calibrated_probs = clf.postcalibrate_probs(_eval_probs)
-            predicting_time = timer() - start
+                start = timer()
+                calibrated_probs = clf.postcalibrate_probs(_eval_probs)
+                predicting_time = timer() - start
+                _row_eval_target = _eval_target
 
         metrics[calibrator_name] = {}
         _, _ = report_model_perf(
-            targets=_eval_target,
+            targets=_row_eval_target,
             columns=columns,
             df=None,
             model_name=f"{model_name} {calibrator_name} {calib_type}",
@@ -463,7 +530,7 @@ def compare_postcalibrators(
     if len(metrics) <= 1:
         # Only the "oos"/baseline row was ever populated -- every calibrator was skipped by
         # should_run's include/skip patterns (an empty calibrator zoo, not the oos_probs=None
-        # case anymore, since that now self-evaluates above).
+        # case anymore, since that now self-evaluates/inner-CVs above).
         metrics_df = None
     else:
         metrics_df = pd.DataFrame(metrics).T

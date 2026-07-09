@@ -36,6 +36,7 @@ def test_compare_postcalibrators_self_evaluates_when_no_oos_set():
         metrics_df, calibrators = compare_postcalibrators(
             model_name="m", columns=["y"], calib_probs=probs, calib_target=target,
             oos_probs=None, oos_target=None, calib_type="calib", include_patterns=["sklearn"],
+            selection="self_eval",
         )
 
     assert metrics_df is not None, "pre-fix: metrics_df was unconditionally None when oos_probs is None"
