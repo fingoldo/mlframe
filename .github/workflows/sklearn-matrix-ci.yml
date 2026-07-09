@@ -98,12 +98,11 @@ jobs:
             python-version: "3.14"
             sklearn-version: "1.8.0"
             experimental: true
-          # Cross-OS: Windows on py3.11 + the most-installed sklearn catches
-          # filesystem / signal-handling differences that surface in the composite
-          # test suite (e.g. tempfile + joblib pickle on Windows).
-          - os: windows-latest
-            python-version: "3.11"
-            sklearn-version: "1.7.2"
+            # Windows leg dropped 2026-07-09: GitHub Actions bills Windows minutes at 2x the free
+            # Linux allowance, and combined with ci.yml's own Windows/macOS legs this was part of
+            # what exhausted the account's monthly free Actions minutes (see ci.yml's matrix
+            # comment for the full accounting). Re-add a single Windows leg if Windows-specific
+            # regressions (tempfile/joblib pickle, signal handling) start slipping through.
 
     steps:
       - name: Checkout

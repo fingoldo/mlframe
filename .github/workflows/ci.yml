@@ -54,33 +54,6 @@ jobs:
         python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
         group: ["1", "2", "3", "4", "5", "6", "7", "8"]
         include:
-          # Representative non-Linux coverage, also sharded 8 ways. Windows
-          # drops coverage (pytest-cov .coverage lock PermissionError); macOS
-          # arm64 catches Darwin-specific polars/numba/BLAS regressions.
-          - { os: windows-latest, python-version: "3.11", group: "1" }
-          - { os: windows-latest, python-version: "3.11", group: "2" }
-          - { os: windows-latest, python-version: "3.11", group: "3" }
-          - { os: windows-latest, python-version: "3.11", group: "4" }
-          - { os: windows-latest, python-version: "3.11", group: "5" }
-          - { os: windows-latest, python-version: "3.11", group: "6" }
-          - { os: windows-latest, python-version: "3.11", group: "7" }
-          - { os: windows-latest, python-version: "3.11", group: "8" }
-          - { os: windows-latest, python-version: "3.13", group: "1" }
-          - { os: windows-latest, python-version: "3.13", group: "2" }
-          - { os: windows-latest, python-version: "3.13", group: "3" }
-          - { os: windows-latest, python-version: "3.13", group: "4" }
-          - { os: windows-latest, python-version: "3.13", group: "5" }
-          - { os: windows-latest, python-version: "3.13", group: "6" }
-          - { os: windows-latest, python-version: "3.13", group: "7" }
-          - { os: windows-latest, python-version: "3.13", group: "8" }
-          - { os: macos-latest, python-version: "3.11", group: "1" }
-          - { os: macos-latest, python-version: "3.11", group: "2" }
-          - { os: macos-latest, python-version: "3.11", group: "3" }
-          - { os: macos-latest, python-version: "3.11", group: "4" }
-          - { os: macos-latest, python-version: "3.11", group: "5" }
-          - { os: macos-latest, python-version: "3.11", group: "6" }
-          - { os: macos-latest, python-version: "3.11", group: "7" }
-          - { os: macos-latest, python-version: "3.11", group: "8" }
           # Python 3.14 stays non-blocking (experimental): the optbinning->ortools
           # blocker is gone (override above), but the heavy [all] stack (torch /
           # numba / ...) does not yet reliably ship cp314 wheels. Run it as a
@@ -88,7 +61,13 @@ jobs:
           # masks a 3.14-specific break; flip to required + sharded once cp314
           # wheels are universal.
           - { os: ubuntu-latest, python-version: "3.14", experimental: true, splits: "1", group: "1" }
-          - { os: windows-latest, python-version: "3.14", experimental: true, splits: "1", group: "1" }
+          # Windows/macOS legs dropped 2026-07-09: GitHub Actions bills macOS at 10x and Windows
+          # at 2x the free Linux-minute allowance, and this repo's 8-way-sharded matrix made them
+          # the dominant cost (2,123 macOS-min + 5,675 Windows-min in a single day = ~23K Linux-
+          # minute equivalent) -- enough to exhaust the account's monthly free Actions minutes and
+          # leave every workflow, in every repo sharing the account, stuck queued. Linux-only
+          # coverage remains the blocking gate; re-add a single non-sharded representative leg per
+          # OS (not the full 8-way shard) if platform-specific regressions start slipping through.
 
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
@@ -111,16 +90,6 @@ jobs:
         with:
           enable-cache: true
           cache-dependency-glob: pyproject.toml
-
-      - name: Install libomp (macOS LightGBM OpenMP runtime)
-        # LightGBM's macOS wheel links against ``@rpath/libomp.dylib``. The
-        # GitHub-hosted macos-latest runner does not ship libomp by default;
-        # ``import lightgbm`` fails at collection time with ``OSError:
-        # Library not loaded: @rpath/libomp.dylib``. Homebrew's libomp
-        # package provides the dylib and the linker can resolve it via the
-        # rpath set by the wheel.
-        if: runner.os == 'macOS'
-        run: brew install libomp
 
       - name: Clone & install pyutilz + mlframe in one uv resolution
         # pyutilz is a first-party sibling dep not yet on PyPI: clone it and install from the local path so
@@ -152,10 +121,7 @@ jobs:
           python -c "import sklearn; print('sklearn', sklearn.__version__)"
           python -c "import numpy; print('numpy', numpy.__version__)"
 
-      # On Windows, pytest-cov can hit a PermissionError on .coverage file locks
-      # (see project memory `feedback_pytest_no_cov`); drop coverage there.
-      - name: Run tests (Linux, with coverage)
-        if: runner.os == 'Linux'
+      - name: Run tests
         env:
           PYTHONUNBUFFERED: "1"
         run: |
@@ -168,28 +134,13 @@ jobs:
             -p no:randomly \
             --timeout=300
 
-      - name: Run tests (Windows, no coverage)
-        if: runner.os == 'Windows'
-        env:
-          PYTHONUNBUFFERED: "1"
-        run: |
-          pytest -m "not slow and not gpu and not multigpu and not linux_only" --splits ${{ matrix.splits || '8' }} --group ${{ matrix.group }} --no-cov -n auto -p no:randomly --timeout=300
-
-      # macOS path: skip linux_only markers; no coverage to keep parity with Windows lightweight job.
-      - name: Run tests (macOS, no coverage)
-        if: runner.os == 'macOS'
-        env:
-          PYTHONUNBUFFERED: "1"
-        run: |
-          pytest -m "not slow and not gpu and not multigpu and not linux_only and not windows_only" --splits ${{ matrix.splits || '8' }} --group ${{ matrix.group }} --no-cov -n auto -p no:randomly --timeout=300
-
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@b9fd7d16f6d7d1b5d2bec1a2887e65ceed900238  # v4
         # (success() || failure()): a test failure in this shard (even one unrelated to coverage, e.g. a
         # meta-test) otherwise skips this step by GitHub Actions' default "only if prior steps succeeded"
         # rule, so codecov never sees that shard's coverage.xml and the merged report stays incomplete --
         # observed as the badge never updating despite runs completing.
-        if: (matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11') && (success() || failure())
+        if: matrix.python-version == '3.11' && (success() || failure())
         with:
           file: ./coverage.xml
           fail_ci_if_error: false
