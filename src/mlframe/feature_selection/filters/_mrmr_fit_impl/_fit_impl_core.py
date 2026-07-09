@@ -683,7 +683,6 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     fourier_adaptive_min_val_corr=_fourier_adaptive_mvc,
                     fourier_chirp=_fourier_chirp,
                     fourier_chirp_min_val_corr=_fourier_chirp_mvc,
-                    max_adaptive_cols=getattr(self, "fe_univariate_fourier_adaptive_max_cols", None),
                 )
                 _e_appended = [c for c in X_e.columns if c not in _X_before_extra_cols]
                 if _e_appended:
@@ -4420,7 +4419,6 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     max_legs=int(getattr(self, "fe_wavelet_max_legs", 6)),
                     top_k=int(getattr(self, "fe_wavelet_top_k", 8)),
                     feature_dtype=getattr(self, "usability_feature_dtype", np.float32),
-                    max_cols=getattr(self, "fe_wavelet_max_cols", None),
                 )
                 _wv_appended = [c for c in _wv_appended if c not in _X_before_wv_cols]
                 if _wv_appended:
@@ -5733,28 +5731,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # confirm-rescreen so cluster discovery (anchor graph, pruned mask,
     # swap_log) accumulates instead of being rebuilt empty each iteration.
     _persisted_dcd_state = None
-    # Carries the prior round's relevance/redundancy caches into the next screen_predictors() call
-    # (2026-07-09 fix) -- see screen_predictors' ``seed_caches`` docstring. Mirrors the DCD-state
-    # threading immediately above; before this fix each round rebuilt all 4 caches from scratch, fully
-    # rescoring every raw column's relevance/entropy/conditional-MI even though those values cannot
-    # change round-to-round (the data they're computed from is stable; only new columns get appended).
-    _persisted_screen_caches = None
-    # Cross-round cache for the maxT permutation-null gain floor (2026-07-09 fix; see
-    # compute_fdr_gain_floor's ``maxt_floor_cache`` docstring) -- a plain dict, mutated in place by
-    # every screen_predictors() call this fit, so a raw-pool floor computed in round 1 is not
-    # recomputed identically in round 2/3.
-    _persisted_maxt_floor_cache: dict = {}
-    # Carries the warmed joblib worker pool (n_workers>1 only) into the next screen_predictors() call
-    # (2026-07-09 fix) -- see screen_predictors' ``seed_workers_pool`` docstring. ``None`` at n_workers<=1
-    # (no pool built) or before round 1.
-    _persisted_workers_pool = None
-    # Declared BEFORE the loop (2026-07-09 fix) so per-binary-func timing accumulates across ALL
-    # screen/FE rounds of this fit, not just the last one -- previously reset to empty at the top of
-    # every iteration, so the end-of-fit log only ever reflected the FINAL round's timing even though
-    # this loop typically runs 2-3 rounds per fit (raw screen, FE step(s), confirm-rescreen).
-    times_spent: defaultdict = defaultdict(float)
     while True:
         n_recommended_features = 0
+        times_spent: defaultdict = defaultdict(float)
         # Resolve the fit's ONE shared row draw BEFORE the screen so the order-1 relevance sweep + FDR
         # floor score on it (screen is the first consumer -> caches the draw -> the FE step reuses the
         # SAME rows). None at small n -> full-n screen, unchanged.
@@ -5777,7 +5756,6 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             classes_y_safe,
             freqs_y,
             _dcd_state,
-            _persisted_workers_pool,
         ) = screen_predictors(
             factors_data=data,
             y=target_indices,  # type: ignore[arg-type]
@@ -5904,13 +5882,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             # rebuilds an empty state and the published dcd_ summary loses
             # the screen-1 dup cluster (n_pruned/cluster_anchors reset).
             existing_dcd_state=_persisted_dcd_state,
-            seed_caches=_persisted_screen_caches,
-            seed_maxt_floor_cache=_persisted_maxt_floor_cache,
-            seed_workers_pool=_persisted_workers_pool,
         )
         if _dcd_state is not None:
             _persisted_dcd_state = _dcd_state
-        _persisted_screen_caches = (entropy_cache, cached_MIs, cached_confident_MIs, cached_cond_MIs)
         # 2026-05-30 Wave 9 — stash DCD summary on the estimator for the
         # public ``dcd_`` attribute (None when DCD was disabled).
         try:
@@ -5967,14 +5941,6 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             except Exception:  # nosec B110 - non-trivial body
                 # Best-effort -- if DCDState is malformed, fall through.
                 pass
-
-        # MEMORY: prune fit-time ``_engineered_continuous_`` scratch for engineered columns that did not
-        # survive THIS round's screen -- see ``_prune_engineered_continuous_store`` docstring for why this
-        # is safe (the FE operand pool only widens beyond ``selected_vars`` on the very first FE step,
-        # before any engineered column exists). No-op when the store is empty/absent.
-        if getattr(self, "_engineered_continuous_", None):
-            from ._helpers import _prune_engineered_continuous_store
-            _prune_engineered_continuous_store(self, cols, selected_vars)
 
         if fe_max_steps == 0 or num_fs_steps >= fe_max_steps:
             break
@@ -6179,10 +6145,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         except Exception:
             self._engineered_continuous_ = {}
 
-    # Surfaced at verbose>=1 (2026-07-09; was gated behind verbose>2, an unrealistically high bar that
-    # left this cumulative-per-operator timing breakdown effectively invisible to normal production runs).
-    if verbose and times_spent:
-        logger.info("MRMR FE time spent by binary func (cumulative across all rounds): %s", sort_dict_by_value(times_spent))
+    if verbose > 2:
+        logger.info("time spent by binary func: %s", sort_dict_by_value(times_spent))
     # Possibly decide on eliminating original features? (if constructed ones cover 90%+ of MI)
 
     # ---------------------------------------------------------------------------------------------------------------

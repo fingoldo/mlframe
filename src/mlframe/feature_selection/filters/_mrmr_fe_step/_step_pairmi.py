@@ -15,7 +15,6 @@ from __future__ import annotations
 import logging
 import os
 from itertools import combinations
-from time import perf_counter
 
 import numpy as np
 from joblib import Parallel, delayed
@@ -25,7 +24,6 @@ logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 from .._mrmr_fe_step_helpers import compute_pair_maxt_floor
 from .._joblib_safe import disable_cuda_in_worker
-from .._fe_family_timing import record_fe_family_wall
 
 
 def compute_pair_mis_and_floor(
@@ -47,6 +45,7 @@ def compute_pair_mis_and_floor(
     # ``from ..mrmr import ...`` here would create a hard import cycle (see _step_core).
     from ..mrmr import (
         _lazy_chunks,
+        _MRMR_BATCH_PRECOMPUTE_MAX_K,
         _MRMR_BATCH_PRECOMPUTE_MIN_PAIRS,
         compute_pairs_mis,
         tqdmu,
@@ -119,27 +118,18 @@ def compute_pair_mis_and_floor(
         logger.info("Feature Engineering: Computing MIs of %d most prospective feature pairs...", n_pairs)
 
     # ---------------------------------------------------------------------------------------------------------------
-    # Layer 3 pre-batch: compute pair MIs for every (a, b) in numeric_vars_to_consider via
-    # dispatch_batch_pair_mi_chunked (CUDA / CPU njit prange by size, RAM-bounded row-block chunking). Pre-fills
-    # cached_MIs[pair] so the per-pair compute_pairs_mis loop below skips the permutation-test branch entirely
-    # (since "pair in cached_MIs" short-circuits at feature_engineering.py:394).
+    # Layer 3 pre-batch: compute pair MIs for every (a, b) in numeric_vars_to_consider via dispatch_batch_pair_mi
+    # (CUDA / CPU njit prange by size). Pre-fills cached_MIs[pair] so the per-pair compute_pairs_mis loop below skips
+    # the permutation-test branch entirely (since "pair in cached_MIs" short-circuits at feature_engineering.py:394).
     #
     # Semantic change vs the legacy path: pairs no longer go through the permutation-test confidence filter
     # (min_nonzero_confidence). The raw original_mi is used as the FE-pair signal. Bench (commit 57f772c) shows
     # 10-30x speedup over the per-pair joblib loop; downstream MRMR FE pair selection is regression-validated by the
     # MRMR test suite. Disable by setting MLFRAME_MRMR_BATCH_PAIR_MI=0 (the env-var is the emergency rollback knob).
     #
-    # NO POOL-SIZE CAP (removed 2026-07-09): the legacy ~35s/pair per-pair joblib fallback was previously forced
-    # whenever the pool exceeded a flat 200-column ceiling (``_MRMR_BATCH_PRECOMPUTE_MAX_K``), which made a
-    # realistic several-hundred-column production pool fall off a catastrophic-runtime cliff (observed: hours where
-    # a few minutes was achievable). ``dispatch_batch_pair_mi_chunked`` enumerates the C(k,2) pair space in
-    # RAM-bounded row-block chunks (never materialising the full pair-index arrays), so the fast batched path is
-    # now ALWAYS used regardless of pool width -- there is no width at which this falls back to the slow path for
-    # pool-size reasons. Note this does not (and cannot) make an EXHAUSTIVE pairwise sweep sub-quadratic: at true
-    # extreme width (10^5-10^6 raw columns) C(k,2) itself is intractable, which is what ``sis_screen_threshold``
-    # (Gate A, ``_mrmr_sis_screen.py``) exists to bound BEFORE this stage ever runs -- see that module's docstring.
-    #
     # Guards:
+    #   * _k > _MRMR_BATCH_PRECOMPUTE_MAX_K: the dispatcher would have to materialise O(k^2) pair tuples; for very
+    #     wide FE pools we keep the legacy lazy combinations + joblib chunking instead.
     #   * n_pairs < _MRMR_BATCH_PRECOMPUTE_MIN_PAIRS: pair count too small to amortise the dispatcher overhead.
     #   * Any backend failure (CUDA driver hiccup, dtype mismatch): logged WARN, fall through to legacy path.
     # Accept the common truthy/falsy spellings rather than require the operator
@@ -149,11 +139,11 @@ def compute_pair_mis_and_floor(
         "MLFRAME_MRMR_BATCH_PAIR_MI", "1",
     ).strip().lower() not in ("0", "false", "no", "off", "")
     _batch_prefill_count = 0
-    # SECOND FUNNEL STAGE (2026-06-19): when the synergy bootstrap selected the GPU-exhaustive sweep it set
-    # ``self._fe_synergy_exhaustive_active_`` -- FORCE the cuda backend so the full C(p,2) joint-MI sweep over ALL
-    # raw numeric columns runs on the measured CUDA kernel (the only path that recovers a balanced L=0 interaction).
-    # The exhaustive decision already verified GPU availability + budget. With the pool-size cap removed, exhaustive
-    # mode no longer needs to "bypass" anything -- it only forces the backend choice.
+    # SECOND FUNNEL STAGE (2026-06-19): when the synergy bootstrap selected the GPU-exhaustive
+    # sweep it set ``self._fe_synergy_exhaustive_active_`` -- bypass the _MRMR_BATCH_PRECOMPUTE_MAX_K
+    # guard (which caps at 200 cols) and FORCE the cuda backend so the full C(p,2) joint-MI sweep
+    # over ALL raw numeric columns runs on the measured CUDA kernel (the only path that recovers a
+    # balanced L=0 interaction). The exhaustive decision already verified GPU availability + budget.
     _exhaustive_active = bool(getattr(self, "_fe_synergy_exhaustive_active_", False))
     # When exhaustive is active, run the full C(p,2) sweep on the measured CUDA kernel where a GPU is
     # present, else on the CPU njit-prange backend (decide_exhaustive_sweep made the choice hardware-
@@ -166,15 +156,24 @@ def compute_pair_mis_and_floor(
         except Exception:
             _CUDA_AVAIL = False
         _exhaustive_backend = "cuda" if _CUDA_AVAIL else "njit_parallel"
-    _batch_precompute_t0 = perf_counter()
-    if _BATCH_PRECOMPUTE_ENABLED and n_pairs >= _MRMR_BATCH_PRECOMPUTE_MIN_PAIRS:
+    if _BATCH_PRECOMPUTE_ENABLED and (_exhaustive_active or _k <= _MRMR_BATCH_PRECOMPUTE_MAX_K) and n_pairs >= _MRMR_BATCH_PRECOMPUTE_MIN_PAIRS:
         try:
-            from mlframe.feature_selection.filters.batch_pair_mi_gpu import dispatch_batch_pair_mi_chunked
+            from mlframe.feature_selection.filters.batch_pair_mi_gpu import dispatch_batch_pair_mi
 
-            _ids_arr = np.fromiter(numeric_vars_to_consider, dtype=np.int64, count=len(numeric_vars_to_consider))
-            _pair_a_arr, _pair_b_arr, _pair_mi_batch, _backend_counts = dispatch_batch_pair_mi_chunked(
+            # Build the (a, b) id arrays via ``np.triu_indices`` over the materialised id list instead of
+            # ``list(combinations(...))`` -- the exhaustive branch bypasses the _MRMR_BATCH_PRECOMPUTE_MAX_K
+            # cap, so at large p the Python tuple list is O(p^2) tuples (~420 MB at p=3888). ``triu_indices``
+            # yields ``(_ids[i], _ids[j])`` for i<j in iteration order, byte-for-byte the SAME pair sequence
+            # ``combinations(_ids, 2)`` produces, so the ``cached_MIs`` keys + their MI values are identical.
+            _ids = list(numeric_vars_to_consider)
+            _ids_arr = np.fromiter(_ids, dtype=np.int64, count=len(_ids))
+            _ia, _ib = np.triu_indices(len(_ids), k=1)
+            _pair_a_arr = _ids_arr[_ia]
+            _pair_b_arr = _ids_arr[_ib]
+            _pair_mi_batch, _backend_used = dispatch_batch_pair_mi(
                 factors_data=data,
-                ids=_ids_arr,
+                pair_a=_pair_a_arr,
+                pair_b=_pair_b_arr,
                 nbins=nbins,
                 classes_y=classes_y,
                 freqs_y=freqs_y,
@@ -182,28 +181,28 @@ def compute_pair_mis_and_floor(
             )
             # Populate cached_MIs to short-circuit compute_pairs_mis's per-pair mi_direct call.
             # Skip pairs already in cached_confident_MIs (those had a confident permutation outcome).
-            _n_pairs_batch = int(_pair_a_arr.shape[0])
+            # Reconstruct each pair key lazily (``_ids[i], _ids[j]``) -- same Python-int tuple keys as the
+            # old ``combinations`` path, without materialising the full tuple list.
+            _n_pairs_batch = _ia.shape[0]
             for _i in range(_n_pairs_batch):
-                _p = (int(_pair_a_arr[_i]), int(_pair_b_arr[_i]))
+                _p = (_ids[_ia[_i]], _ids[_ib[_i]])
                 if _p not in cached_confident_MIs and _p not in cached_MIs:
                     cached_MIs[_p] = float(_pair_mi_batch[_i])
                     _batch_prefill_count += 1
             if verbose:
-                _backend_summary = ", ".join(f"{k}={v}" for k, v in sorted(_backend_counts.items()))
                 logger.info(
-                    "MRMR FE: batch-prefilled %d/%d pair MIs via [%s] backend chunk(s) (permutation test skipped for these pairs)",
-                    _batch_prefill_count, _n_pairs_batch, _backend_summary,
+                    "MRMR FE: batch-prefilled %d/%d pair MIs via %s backend (permutation test skipped for these pairs)",
+                    _batch_prefill_count, _n_pairs_batch, _backend_used,
                 )
         except Exception as _exc:
             if verbose:
                 logger.warning(
-                    "MRMR FE: dispatch_batch_pair_mi_chunked failed (%s: %s); falling back to legacy per-pair path "
+                    "MRMR FE: dispatch_batch_pair_mi failed (%s: %s); falling back to legacy per-pair path "
                     "[n_pairs=%d, n_rows=%d, n_classes_y=%d]",
                     type(_exc).__name__, _exc,
                     n_pairs, int(data.shape[0]) if hasattr(data, "shape") else -1,
                     int(freqs_y.shape[0]) if hasattr(freqs_y, "shape") else -1,
                 )
-    record_fe_family_wall("pairwise_mi_batch_precompute", perf_counter() - _batch_precompute_t0)
 
     # Parallelise whenever (a) more than one worker is configured and
     # (b) we have at least n_jobs pairs to spread; per-pair MI compute is
@@ -211,7 +210,6 @@ def compute_pair_mis_and_floor(
     # overhead is amortised even at very small _k. Previously this took
     # the single-thread branch up to _k=50 (1225 pairs), serialising what
     # should be a 4-minute job into ~1 h on a 16-core box.
-    _legacy_sweep_t0 = perf_counter()
     if n_jobs <= 1 or n_pairs < max(2, n_jobs):
         compute_pairs_mis(
             all_pairs=tqdmu(
@@ -262,17 +260,7 @@ def compute_pair_mis_and_floor(
         # ``data`` array is preserved (LokyBackend forwards to the memmapping executor).
         # ``inner_max_num_threads=1`` stops N worker processes each spawning N numba/BLAS
         # threads and oversubscribing the box.
-        #
-        # ``max_nbytes`` is stripped, NOT forwarded (2026-07-09 fix): ``parallel_kwargs``'s
-        # ``max_nbytes=MAX_JOBLIB_NBYTES`` (1e3 bytes) is tuned for the ``backend="threading"``
-        # branch, where the constructor's own comment (``_mrmr_class.py``) documents it as a
-        # silently-ignored no-op. That no-op assumption does NOT hold here: this is a REAL loky
-        # PROCESS backend, where joblib auto-memmaps every argument over ``max_nbytes`` bytes --
-        # at a 1 KB bar that is ``nbins``/``classes_y``/``freqs_y`` on every dispatch, not just the
-        # intentionally-memmapped multi-GB ``data`` matrix. Omitting the key lets joblib's own
-        # built-in default (``'1M'``) govern instead, which still memmaps ``data`` (far past 1 MB)
-        # but stops needlessly memmap-spilling every few-KB argument to a temp file.
-        _extra_kwargs = {k: v for k, v in parallel_kwargs.items() if k not in ("backend", "max_nbytes")}
+        _extra_kwargs = {k: v for k, v in parallel_kwargs.items() if k != "backend"}
         _loky_cpu_backend = LokyBackend(
             inner_max_num_threads=1,
             initializer=disable_cuda_in_worker,
@@ -302,7 +290,6 @@ def compute_pair_mis_and_floor(
         )
         for next_dict in dicts:
             cached_MIs.update(next_dict)
-    record_fe_family_wall("pairwise_mi_legacy_sweep", perf_counter() - _legacy_sweep_t0)
 
     # ---------------------------------------------------------------------------------------------------------------
     # ORDER-2 Westfall-Young maxT permutation-null floor on the PROSPECTIVE-PAIR
@@ -321,7 +308,6 @@ def compute_pair_mis_and_floor(
     # branch below. SELF-GATING: below ``fe_pair_maxt_min_pairs`` candidate pairs
     # the floor is 0.0 (no-op => byte-identical narrow pools), mirroring
     # ``screen_fdr_min_features``. ``fe_pair_maxt_null_permutations=0`` disables.
-    _maxt_floor_t0 = perf_counter()
     _pair_maxt_floor, _pair_mm_bias = compute_pair_maxt_floor(
         self,
         numeric_vars_to_consider=numeric_vars_to_consider,
@@ -332,7 +318,6 @@ def compute_pair_mis_and_floor(
         freqs_y=freqs_y,
         verbose=verbose,
     )
-    record_fe_family_wall("pair_maxt_null_floor", perf_counter() - _maxt_floor_t0)
 
     # "auto" prevalence debias needs the per-pair MM joint-MI bias; compute_pair_maxt_floor only
     # populates it when ``fe_mm_debias_prevalence`` is on, so fill it here (analytic, no shuffles)
