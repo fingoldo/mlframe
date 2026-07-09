@@ -68,8 +68,7 @@ def _check_model_feature_order(model, expected_features: list, context: str) -> 
     names = _model_feature_names(model)
     if names is None:
         logger.warning(
-            "model %s of type %s exposes neither feature_names_in_ nor feature_names_; "
-            "column-order/name mismatch cannot be validated (%s)",
+            "model %s of type %s exposes neither feature_names_in_ nor feature_names_; " "column-order/name mismatch cannot be validated (%s)",
             model,
             type(model).__name__,
             context,
@@ -269,9 +268,7 @@ def get_models_raw_predictions(trained_models: dict, X, Y):
     for model_name, model in tqdmu(trained_models.items(), desc="Getting raw predictions"):
         if expected_features is not None:
             if not _check_model_feature_order(model, expected_features, f"model {model_name!r} in get_models_raw_predictions"):
-                raise ValueError(
-                    f"get_models_raw_predictions: model {model_name!r} was trained on different features than X provides; refusing to predict"
-                )
+                raise ValueError(f"get_models_raw_predictions: model {model_name!r} was trained on different features than X provides; refusing to predict")
         if hasattr(model, "predict_proba"):
             proba = np.asarray(model.predict_proba(X))
             # Binary -> positive-class column; multiclass -> full matrix. Shape guard so a degenerate
