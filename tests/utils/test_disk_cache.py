@@ -212,6 +212,46 @@ def test_disk_cache_concurrent_same_key(tmp_path: Path):
     np.testing.assert_array_equal(out, payload)
 
 
+def test_disk_cache_concurrent_same_key_distinct_payloads_never_corrupt(tmp_path: Path):
+    """Regression sensor: concurrent put() for the same key must never leave a sidecar that
+    doesn't match the payload actually on disk.
+
+    Unlike ``test_disk_cache_concurrent_same_key`` (which writes an IDENTICAL payload from every
+    thread, so a torn payload/sidecar pairing would be undetectable -- any writer's digest matches
+    any writer's payload), this uses a DISTINCT large payload per thread so a race is observable:
+    without the per-key lock in ``DiskCache.put()``, one thread's ``write_sidecar()`` call (reading
+    whatever payload happens to be on disk at that moment) can land its file write AFTER another
+    thread's later ``os.replace()``, leaving a sidecar digest that doesn't match the final payload
+    -- ``get()`` would then intermittently raise ``PickleVerificationError`` for an entry that was,
+    in fact, written correctly by the last writer. Mirrors pyutilz's
+    ``test_safe_pickle_concurrency.py::test_safe_dump_concurrent_same_path_never_corrupts``.
+    """
+    cache = DiskCache(tmp_path)
+    payloads = {i: np.full(200_000, i, dtype=np.int64) for i in range(6)}
+    errors = []
+
+    def worker(i):
+        try:
+            for _ in range(8):
+                cache.put("shared", payloads[i])
+        except Exception as exc:  # pragma: no cover - test fails if hit
+            errors.append(exc)
+
+    threads = [threading.Thread(target=worker, args=(i,)) for i in payloads]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert not errors
+
+    # get() must not raise PickleVerificationError, and the result must be exactly one of the
+    # payloads that was written -- never a mismatch between payload bytes and sidecar digest.
+    out = cache.get("shared")
+    assert out is not None, "entry should not have been treated as corrupt/missing"
+    matches = [i for i, p in payloads.items() if np.array_equal(out, p)]
+    assert len(matches) == 1, f"result did not match exactly one written payload: {out[:5] if out is not None else None}"
+
+
 def test_disk_cache_clear(tmp_path: Path):
     cache = DiskCache(tmp_path)
     cache.put("a", np.array([1]))

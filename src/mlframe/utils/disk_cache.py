@@ -50,6 +50,7 @@ import logging
 import os
 import pickle  # nosec B403 - pickle used only for trusted same-process/dev-local round-trips, see call sites in this file
 import struct
+import threading
 import uuid
 from pathlib import Path
 from typing import Any, Optional, Union
@@ -251,9 +252,14 @@ class DiskCache:
     removed until the cap is met. Two parallel writers may transiently push
     the cache over cap; the next ``put`` from either reclaims.
 
-    Not thread-safe within one process: callers that share a single instance
-    from multiple threads should serialise the ``put`` path. Across processes
-    the contract is fine -- atomic rename means a partial write never wins.
+    ``put`` for the SAME key is safe across threads in this process: the
+    payload's ``os.replace`` and its ``write_sidecar`` call are serialized
+    per-key (see ``_key_locks``), so a thread's stale digest can never land
+    after a later thread's payload replace (which would otherwise make
+    ``get`` intermittently raise ``PickleVerificationError`` for an entry
+    that was, in fact, written correctly by the last writer). This mirrors
+    ``pyutilz.core.safe_pickle.safe_dump``'s per-path lock. Across processes
+    the contract is unchanged: atomic rename means a partial write never wins.
     """
 
     def __init__(
@@ -270,6 +276,19 @@ class DiskCache:
         self.hits = 0
         self.misses = 0
         self.evictions = 0
+        # Per-key locks so a (payload replace, sidecar write) pair is atomic as a unit across
+        # threads sharing this instance -- see the class docstring.
+        self._key_locks: dict = {}
+        self._key_locks_guard = threading.Lock()
+
+    def _get_key_lock(self, key: str) -> threading.Lock:
+        """Return the lock for ``key``, creating it on first use."""
+        with self._key_locks_guard:
+            lock = self._key_locks.get(key)
+            if lock is None:
+                lock = threading.Lock()
+                self._key_locks[key] = lock
+            return lock
 
     def _key_path(self, key: str) -> Path:
         """File path under ``cache_dir`` for ``key``."""
@@ -346,21 +365,22 @@ class DiskCache:
         path = self._key_path(key)
         tmp_name = f"tmp_{uuid.uuid4().hex}.pkl"
         tmp_path = self.cache_dir / tmp_name
-        try:
-            with open(tmp_path, "wb") as f:
-                pickle.dump(value, f, protocol=_PICKLE_PROTOCOL)
-            os.replace(tmp_path, path)
+        with self._get_key_lock(key):
             try:
-                write_sidecar(str(path))
-            except OSError as exc:
-                logger.debug("DiskCache: sidecar write failed for %s: %s", path, exc)
-        except (OSError, pickle.PicklingError) as exc:
-            logger.debug("DiskCache: put failed for key=%s: %s", key, exc)
-            try:
-                tmp_path.unlink()
-            except OSError:
-                pass
-            return
+                with open(tmp_path, "wb") as f:
+                    pickle.dump(value, f, protocol=_PICKLE_PROTOCOL)
+                os.replace(tmp_path, path)
+                try:
+                    write_sidecar(str(path))
+                except OSError as exc:
+                    logger.debug("DiskCache: sidecar write failed for %s: %s", path, exc)
+            except (OSError, pickle.PicklingError) as exc:
+                logger.debug("DiskCache: put failed for key=%s: %s", key, exc)
+                try:
+                    tmp_path.unlink()
+                except OSError:
+                    pass
+                return
         self._evict_if_needed(protect=path)
 
     def _evict_if_needed(self, protect: Optional[Path] = None) -> None:
