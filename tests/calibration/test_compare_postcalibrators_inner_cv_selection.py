@@ -49,17 +49,18 @@ def test_compare_postcalibrators_inner_cv_is_not_optimistic_like_self_eval():
     fake_calibrators = [named_calibrator(_MemorizingCalibrator(), name="Memo", lib="test", transform_method_name="transform")]
 
     with patch("mlframe.calibration.post.get_postcalibrators", return_value=fake_calibrators):
-        metrics_self, _ = compare_postcalibrators(
+        metrics_self, _, failed_self = compare_postcalibrators(
             model_name="m", columns=["y"], calib_probs=probs, calib_target=target,
             oos_probs=None, oos_target=None, calib_type="calib", include_patterns=["test"],
             selection="self_eval",
         )
-        metrics_cv, _ = compare_postcalibrators(
+        metrics_cv, _, failed_cv = compare_postcalibrators(
             model_name="m", columns=["y"], calib_probs=probs, calib_target=target,
             oos_probs=None, oos_target=None, calib_type="calib", include_patterns=["test"],
             selection="inner_cv",
         )
 
+    assert failed_self == {} and failed_cv == {}
     ice_self = metrics_self.loc["test.Memo", "ice"]
     ice_cv = metrics_cv.loc["test.Memo", "ice"]
     # The memorizing calibrator's self-eval "ice" (a calibration-error style metric) is near-perfect

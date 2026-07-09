@@ -275,9 +275,6 @@ def get_postcalibrators(calib_target: np.ndarray, num_bins: int) -> list[NamedCa
     Returns the list used by ``compare_postcalibrators``.
     """
     import netcal, pycalib
-    from pycalib import models
-    from netcal import binning
-    from netcal import scaling
     import ml_insights as mli
     from betacal import BetaCalibration
     import calibration as verified_calibration
@@ -358,7 +355,7 @@ def compare_postcalibrators(
     selection: str = "inner_cv",
     inner_cv_splits: int = 5,
     random_state: Optional[int] = 0,
-) -> tuple[Optional[pd.DataFrame], dict]:
+) -> tuple[Optional[pd.DataFrame], dict, dict[str, str]]:
     """Given calibration and (optionally) OOS probabilities and true targets, fits a number of
     calibrator models on the calib set and computes ML metrics on a held-out slice. When ``oos_probs``/
     ``oos_target`` are ``None``, evaluation falls back to ``selection``:
@@ -374,8 +371,14 @@ def compare_postcalibrators(
       optimistic, since a flexible calibrator (Isotonic, spline, BBQ) can interpolate its own reported
       metrics toward "perfect" purely by memorising the data it saw. Kept for replay / A-B comparison.
 
-    Returns a pandas dataframe of ML metrics by calibrator name (``None`` only if every candidate was
-    filtered out by ``include_patterns``/``skip_patterns``).
+    A calibrator whose fit/predict raises is skipped (logged as a warning, not fatal) so the remaining
+    candidates still complete and are not lost. Returns ``(metrics_df, fit_calibrators, failed_calibrators)``:
+    ``metrics_df`` is a pandas dataframe of ML metrics by calibrator name (``None`` only if every candidate
+    was filtered out by ``include_patterns``/``skip_patterns`` or every candidate failed); ``fit_calibrators``
+    maps calibrator name to the fitted object (deployment-ready, refit on the full calib set even under
+    ``inner_cv``); ``failed_calibrators`` maps the name of any calibrator that raised during fit/predict to
+    ``repr(exception)`` -- explicitly surfaced (not silently dropped) so a caller can see which candidates,
+    if any, did not make it into ``metrics_df``/``fit_calibrators``.
     """
     if include_patterns is None:
         include_patterns = []
@@ -396,6 +399,7 @@ def compare_postcalibrators(
 
     metrics: dict[str, Any] = {"oos": {}}
     fit_calibrators = {}
+    failed_calibrators: dict[str, str] = {}
 
     # No separate OOS set (the ONLY current caller, train_postcalibrators, never supplies one -- see
     # its docstring: calibrator FITTING and honest EVALUATION are deliberately split across different
@@ -459,53 +463,63 @@ def compare_postcalibrators(
             # logger.info(f"Skipping calibrator: {calibrator_name} due to matching skip pattern.")
             continue
 
-        with config_context(transform_output="default"):
+        try:
+            with config_context(transform_output="default"):
 
-            r"""
-            config_context needed here to avoid:
+                r"""
+                config_context needed here to avoid:
 
-            R:\ProgramData\anaconda3\Lib\site-packages\netcal\binning\IsotonicRegression.py:183, in IsotonicRegression.transform(self, X)
-                179     calibrated = self._iso.transform(X)
-                181 # add clipping to [0, 1] to avoid exceeding due to numerical issues
-                182 # https://github.com/EFS-OpenSource/calibration-framework/issues/54
-            --> 183 np.clip(calibrated, 0, 1, out=calibrated)
-                185 return calibrated
-            """
-
-            start = timer()
-
-            if use_inner_cv and inner_folds is not None:
-                # Fit on each fold's complement, predict on the held-out fold -- the calibrator
-                # never sees the rows it is scored on, unlike the same-data self-eval path.
-                oof_calibrated = None
-                for held_idx in inner_folds:
-                    held_mask = np.zeros(calib_target_np.shape[0], dtype=bool)
-                    held_mask[held_idx] = True
-                    train_idx = np.flatnonzero(~held_mask)
-                    fold_clf = copy.deepcopy(clf)
-                    fold_clf.fit(calib_probs_np[train_idx], calib_target_np[train_idx])
-                    fold_pred = np.asarray(fold_clf.postcalibrate_probs(calib_probs_np[held_idx]))
-                    if oof_calibrated is None:
-                        oof_calibrated = np.empty((calib_target_np.shape[0],) + fold_pred.shape[1:], dtype=fold_pred.dtype)
-                    oof_calibrated[held_idx] = fold_pred
-                calibrated_probs = oof_calibrated
-                fitting_time = timer() - start
-
-                # Refit on the FULL calib set for the deployment artefact persisted to disk.
-                start = timer()
-                clf.fit(calib_probs, calib_target)
-                fit_calibrators[calibrator_name] = clf
-                predicting_time = timer() - start
-                _row_eval_target = calib_target_np
-            else:
-                clf.fit(calib_probs, calib_target)
-                fit_calibrators[calibrator_name] = clf
-                fitting_time = timer() - start
+                R:\ProgramData\anaconda3\Lib\site-packages\netcal\binning\IsotonicRegression.py:183, in IsotonicRegression.transform(self, X)
+                    179     calibrated = self._iso.transform(X)
+                    181 # add clipping to [0, 1] to avoid exceeding due to numerical issues
+                    182 # https://github.com/EFS-OpenSource/calibration-framework/issues/54
+                --> 183 np.clip(calibrated, 0, 1, out=calibrated)
+                    185 return calibrated
+                """
 
                 start = timer()
-                calibrated_probs = clf.postcalibrate_probs(_eval_probs)
-                predicting_time = timer() - start
-                _row_eval_target = _eval_target
+
+                if use_inner_cv and inner_folds is not None:
+                    # Fit on each fold's complement, predict on the held-out fold -- the calibrator
+                    # never sees the rows it is scored on, unlike the same-data self-eval path.
+                    oof_calibrated = None
+                    for held_idx in inner_folds:
+                        held_mask = np.zeros(calib_target_np.shape[0], dtype=bool)
+                        held_mask[held_idx] = True
+                        train_idx = np.flatnonzero(~held_mask)
+                        fold_clf = copy.deepcopy(clf)
+                        fold_clf.fit(calib_probs_np[train_idx], calib_target_np[train_idx])
+                        fold_pred = np.asarray(fold_clf.postcalibrate_probs(calib_probs_np[held_idx]))
+                        if oof_calibrated is None:
+                            oof_calibrated = np.empty((calib_target_np.shape[0],) + fold_pred.shape[1:], dtype=fold_pred.dtype)
+                        oof_calibrated[held_idx] = fold_pred
+                    calibrated_probs = oof_calibrated
+                    fitting_time = timer() - start
+
+                    # Refit on the FULL calib set for the deployment artefact persisted to disk.
+                    start = timer()
+                    clf.fit(calib_probs, calib_target)
+                    fit_calibrators[calibrator_name] = clf
+                    predicting_time = timer() - start
+                    _row_eval_target = calib_target_np
+                else:
+                    clf.fit(calib_probs, calib_target)
+                    fit_calibrators[calibrator_name] = clf
+                    fitting_time = timer() - start
+
+                    start = timer()
+                    calibrated_probs = clf.postcalibrate_probs(_eval_probs)
+                    predicting_time = timer() - start
+                    _row_eval_target = _eval_target
+        except Exception as exc:
+            logger.warning(
+                "compare_postcalibrators: calibrator %s failed to fit/predict and is skipped: %r",
+                calibrator_name,
+                exc,
+                exc_info=True,
+            )
+            failed_calibrators[calibrator_name] = repr(exc)
+            continue
 
         metrics[calibrator_name] = {}
         _, _ = report_model_perf(
@@ -526,11 +540,18 @@ def compare_postcalibrators(
         metrics[calibrator_name]["fitting_time"] = fitting_time
         metrics[calibrator_name]["predicting_time"] = predicting_time
 
+    if failed_calibrators:
+        logger.warning(
+            "compare_postcalibrators: %d calibrator(s) failed and were skipped (results from the rest are still "
+            "reported): %s",
+            len(failed_calibrators),
+            failed_calibrators,
+        )
+
     metrics_df: Optional[pd.DataFrame]
     if len(metrics) <= 1:
-        # Only the "oos"/baseline row was ever populated -- every calibrator was skipped by
-        # should_run's include/skip patterns (an empty calibrator zoo, not the oos_probs=None
-        # case anymore, since that now self-evaluates/inner-CVs above).
+        # Only the "oos"/baseline row was ever populated -- every calibrator was either skipped by
+        # should_run's include/skip patterns or failed during fit/predict.
         metrics_df = None
     else:
         metrics_df = pd.DataFrame(metrics).T
@@ -542,7 +563,7 @@ def compare_postcalibrators(
             metrics_df.drop(columns=[PERF_DICT_COL]).join(metrics_df[PERF_DICT_COL].apply(pd.Series)).drop(columns=["feature_importances"]).sort_values("ice")
         )
 
-    return metrics_df, fit_calibrators
+    return metrics_df, fit_calibrators, failed_calibrators
 
 
 def _values_overlap_fraction(a: np.ndarray, b: np.ndarray, max_rows: int = 2_000_000) -> float:
@@ -614,9 +635,12 @@ def train_postcalibrators(
     Returns
     -------
     dict
-        ``{"calibrators": {name: fitted_calibrator, ...}, "metrics": {name: calib_set_metrics, ...}}``.
-        ``metrics`` is the ``compare_postcalibrators`` comparison table on the calib set (the same
-        data used to pick which calibrators to keep); also logged at INFO level.
+        ``{"calibrators": {name: fitted_calibrator, ...}, "metrics": {name: calib_set_metrics, ...},
+        "failed_calibrators": {name: repr(exception), ...}}``. ``metrics`` is the
+        ``compare_postcalibrators`` comparison table on the calib set (evaluated on inner-CV held-out
+        rows by default -- see ``compare_postcalibrators``'s ``selection`` parameter -- so it is no
+        longer the same rows used to fit the winning calibrator); also logged at INFO level.
+        ``failed_calibrators`` lists any candidate that raised during fit/predict and was excluded.
     """
     if include_patterns is None:
         include_patterns = [r"SplineCalib", r"pycalib.BetaCalibration"]
@@ -784,7 +808,7 @@ def train_postcalibrators(
     first_model = list(models.values())[0]
     columns = first_model.columns
 
-    calib_test_metrics, test_calibrators = compare_postcalibrators(
+    calib_test_metrics, test_calibrators, failed_calibrators = compare_postcalibrators(
         model_name=model_name,
         columns=columns,
         calib_probs=ensembled_calib_predictions,
@@ -795,6 +819,13 @@ def train_postcalibrators(
         include_patterns=include_patterns,
     )
     logger.info("train_postcalibrators: calib-set comparison metrics for %s: %s", model_name, calib_test_metrics)
+    if failed_calibrators:
+        logger.warning(
+            "train_postcalibrators: %d calibrator(s) failed and were excluded from %s: %s",
+            len(failed_calibrators),
+            model_name,
+            failed_calibrators,
+        )
 
     # Wave 46 (2026-05-20): raw caller-supplied target/featureset/task/model names
     # plumbed into os.path.join is a path-traversal vector (one absolute component
@@ -830,9 +861,8 @@ def train_postcalibrators(
                 "through to back-compat.", calib_fpath, _meta_e,
             )
 
-    # Return BOTH the fitted calibrator objects and the calib-set comparison metrics that picked them:
-    # pre-fix, calib_test_metrics was computed by compare_postcalibrators and then silently discarded
-    # (only test_calibrators reached the caller), so nothing downstream could see WHICH calibrator won
-    # on calib-set metrics or by how much -- only that some calibrators exist. No in-repo caller
-    # currently unpacks this return value directly (checked), so widening the shape is safe here.
-    return {"calibrators": test_calibrators, "metrics": calib_test_metrics}
+    # Return the fitted calibrator objects, the calib-set comparison metrics that picked them, and any
+    # calibrator names that failed to fit/predict -- so a caller can see WHICH calibrator won on
+    # calib-set metrics, by how much, and which candidates (if any) did not make it into either dict.
+    # No in-repo caller currently unpacks this return value directly (checked), so widening the shape is safe here.
+    return {"calibrators": test_calibrators, "metrics": calib_test_metrics, "failed_calibrators": failed_calibrators}

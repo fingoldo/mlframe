@@ -33,7 +33,7 @@ def test_compare_postcalibrators_self_evaluates_when_no_oos_set():
     fake_calibrators = [named_calibrator(IsotonicRegression(out_of_bounds="clip"), name="Iso", lib="sklearn")]
 
     with patch("mlframe.calibration.post.get_postcalibrators", return_value=fake_calibrators):
-        metrics_df, calibrators = compare_postcalibrators(
+        metrics_df, calibrators, failed = compare_postcalibrators(
             model_name="m", columns=["y"], calib_probs=probs, calib_target=target,
             oos_probs=None, oos_target=None, calib_type="calib", include_patterns=["sklearn"],
             selection="self_eval",
@@ -43,6 +43,7 @@ def test_compare_postcalibrators_self_evaluates_when_no_oos_set():
     assert "sklearn.Iso" in metrics_df.index, "the fitted calibrator's self-eval row must be present"
     assert "oos" in metrics_df.index, "the baseline (pre-calibration) self-eval row must be present"
     assert calibrators, "fitted calibrators must still be returned"
+    assert failed == {}, "no calibrator should have failed in this synthetic scenario"
 
 
 def test_train_postcalibrators_returns_and_logs_metrics(caplog, tmp_path):
@@ -78,7 +79,7 @@ def test_train_postcalibrators_returns_and_logs_metrics(caplog, tmp_path):
                 calib_target=target,
             )
 
-    assert isinstance(result, dict) and set(result.keys()) == {"calibrators", "metrics"}, (
+    assert isinstance(result, dict) and set(result.keys()) == {"calibrators", "metrics", "failed_calibrators"}, (
         f"pre-fix: train_postcalibrators returned the raw calibrators dict directly, dropping metrics; got {result!r}"
     )
     assert result["metrics"] is not None, "calib_test_metrics must no longer be unconditionally None"
