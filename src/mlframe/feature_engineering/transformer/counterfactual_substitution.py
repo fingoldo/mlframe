@@ -1,10 +1,12 @@
-"""Counterfactual feature substitution: per-feature substitute with in-leaf median, predict delta.
+"""Counterfactual feature substitution: per-feature substitute with the train-fold global median, predict delta.
 
 Iter 78 mechanism. Adversarial agent's #2 ranked.
 
-For each feature j: substitute x[j] with the conditional median of x[j] given the row's leaf in a
-depth-3 LGB tree (keeps substitution in-distribution); re-predict with baseline; record Δ_j = p_substituted - p_original.
-Emit aggregates: top-k Δ magnitudes, signed sum, L2 norm.
+For each feature j: substitute x[j] with the global median of x[j] over the train fold (a cheap, always-in-distribution
+stand-in for the originally-envisioned per-leaf conditional median of a depth-3 LGB tree, deliberately simplified from
+the first implementation of this mechanism for per-call speed — see the ``simplified: use global median`` comment at
+the substitution site); re-predict with baseline; record Δ_j = p_substituted - p_original. Emit aggregates: top-k Δ
+magnitudes, signed sum, L2 norm.
 
 5 features per row.
 """
@@ -38,7 +40,7 @@ def compute_counterfactual_substitution_features(
     column_prefix: str = "cfact",
     dtype: type = np.float32,
 ) -> pl.DataFrame:
-    """Counterfactual substitution features: per-feature in-leaf-median substitution delta.
+    """Counterfactual substitution features: per-feature global-median substitution delta.
 
     Output: 5 features — max_abs_delta, signed_sum_delta, l2_norm_delta, top_k_abs_mean, argmax_feature_id.
     """
