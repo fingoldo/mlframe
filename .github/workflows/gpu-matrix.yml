@@ -30,13 +30,18 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   gpu-tests:
     name: GPU tests (${{ github.event.inputs.cuda_extra }})
     runs-on: [self-hosted, gpu]
     timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          persist-credentials: false
 
       - name: Show GPU + driver
         run: nvidia-smi
@@ -47,13 +52,17 @@ jobs:
           pip install "./pyutilz[system,pandas,polars,database]"
 
       - name: Install mlframe with all runtime extras + dev tooling + the chosen GPU extra
+        env:
+          CUDA_EXTRA: ${{ github.event.inputs.cuda_extra }}
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[all,dev,${{ github.event.inputs.cuda_extra }}]"
+          pip install -e ".[all,dev,${CUDA_EXTRA}]"
 
       - name: Pin torch (optional)
         if: ${{ github.event.inputs.torch_spec != '' }}
-        run: pip install "torch==${{ github.event.inputs.torch_spec }}"
+        env:
+          TORCH_SPEC: ${{ github.event.inputs.torch_spec }}
+        run: pip install "torch==${TORCH_SPEC}"
 
       - name: Show GPU stack versions + device visibility
         run: |

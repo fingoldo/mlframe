@@ -12,7 +12,9 @@ on:
 # (why exact pins, why --follow-imports=silent).
 jobs:
   mypy:
-    uses: fingoldo/py-ci-shared/.github/workflows/mypy-beachhead.yml@v1.0.0
+    permissions:
+      contents: read
+    uses: fingoldo/py-ci-shared/.github/workflows/mypy-beachhead.yml@5bec5cc3f72e135eabde123e5b995bbf2d6395f7  # v1.0.0
     with:
       mypy-version: "2.1.0"
       extra-deps: |

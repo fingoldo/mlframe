@@ -10,6 +10,8 @@ updates:
     labels:
       - "dependencies"
       - "github-actions"
+    cooldown:
+      default-days: 7
 
   # Keep pre-commit hook revisions (ruff/black/mypy/...) from drifting behind.
   - package-ecosystem: "pip"
@@ -23,3 +25,5 @@ updates:
       prefix: "deps"
     labels:
       - "dependencies"
+    cooldown:
+      default-days: 7
