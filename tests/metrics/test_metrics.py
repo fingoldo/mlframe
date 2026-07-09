@@ -1288,6 +1288,36 @@ class TestICENaNGuards:
         )
         assert np.isfinite(val)
 
+    def test_nan_brier_loss_does_not_propagate(self):
+        val = integral_calibration_error_from_metrics(
+            calibration_mae=0.01, calibration_std=0.01, calibration_coverage=1.0,
+            brier_loss=float("nan"), roc_auc=0.7, pr_auc=0.5,
+        )
+        assert np.isfinite(val), "NaN brier_loss must not poison ICE"
+        # brier_term skipped: base_loss = 0.01*3 + 0.01*2 = 0.05; minus roc_term (0.2*1.5=0.3) minus pr_term (0.5*0.1=0.05)
+        np.testing.assert_allclose(val, 0.05 - 0.3 - 0.05, rtol=1e-10)
+
+    def test_nan_calibration_mae_does_not_propagate(self):
+        val = integral_calibration_error_from_metrics(
+            calibration_mae=float("nan"), calibration_std=0.01, calibration_coverage=1.0,
+            brier_loss=0.25, roc_auc=0.7, pr_auc=0.5,
+        )
+        assert np.isfinite(val), "NaN calibration_mae must not poison ICE"
+
+    def test_nan_calibration_std_does_not_propagate(self):
+        val = integral_calibration_error_from_metrics(
+            calibration_mae=0.01, calibration_std=float("nan"), calibration_coverage=1.0,
+            brier_loss=0.25, roc_auc=0.7, pr_auc=0.5,
+        )
+        assert np.isfinite(val), "NaN calibration_std must not poison ICE"
+
+    def test_all_five_inputs_nan_returns_finite(self):
+        val = integral_calibration_error_from_metrics(
+            calibration_mae=float("nan"), calibration_std=float("nan"), calibration_coverage=1.0,
+            brier_loss=float("nan"), roc_auc=float("nan"), pr_auc=float("nan"),
+        )
+        assert val == 0.0, "with every guarded input NaN, ICE must reduce to the pure penalty term (0 here)"
+
 
 class TestPerGroupAUCEdgeCases:
     """Proactive-probe findings 2026-04-19 (round 5):

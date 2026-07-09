@@ -102,6 +102,49 @@ def test_gamma_deviance_zero_on_perfect_prediction():
     assert fast_gamma_deviance(y, y.copy()) == pytest.approx(0.0, abs=1e-10)
 
 
+def test_poisson_deviance_denominator_is_total_row_count_not_used():
+    """Two models with the same valid-row deviance terms but different invalid-row counts must NOT
+    report the same number: comparability requires normalizing by the full row count, not the
+    surviving ``used`` count. Model A has 0 invalid rows; model B has the same valid rows plus extra
+    invalid (y_pred<=0) rows appended. Pre-fix, both averaged over ``used`` and could report identical
+    deviance despite B having a much larger effective row count; post-fix B's deviance is diluted
+    toward zero for its extra (implicitly-zero-contribution) invalid rows, so A != B.
+    """
+    rng = np.random.default_rng(6)
+    y_valid = rng.poisson(3.0, 500).astype(np.float64)
+    p_valid = np.maximum(0.1, y_valid + rng.normal(0, 0.5, 500))
+    val_a = fast_poisson_deviance(y_valid, p_valid)
+
+    y_extra_invalid = np.concatenate([y_valid, np.full(500, 2.0)])
+    p_extra_invalid = np.concatenate([p_valid, np.full(500, 0.0)])  # y_pred<=0 -> invalid, skipped from sum
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        val_b = fast_poisson_deviance(y_extra_invalid, p_extra_invalid)
+
+    assert val_a != pytest.approx(val_b, rel=1e-9), (
+        "deviance must be diluted by the extra invalid rows (total-row denominator), not stay "
+        "identical to the valid-only run (which would happen under a used-row denominator)"
+    )
+    assert val_b == pytest.approx(val_a * 0.5, rel=1e-9), "total row count doubled -> valid-row sum halves"
+
+
+def test_tweedie_warning_recurs_across_repeated_calls_with_same_counts():
+    """A CV loop that re-hits the identical (invalid, total) counts on every fold must keep seeing the
+    warning, not just on the first fold. Pre-fix, the seen-set deduped by (name, invalid, total) so only
+    the first occurrence ever warned; every later fold with the same shape silently narrowed with no
+    visible warning at all.
+    """
+    y = np.array([1.0, 2.0, 3.0])
+    p = np.array([0.0, 2.0, 3.0])  # first row invalid, identical shape every call
+    fired = []
+    for _ in range(3):
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            fast_poisson_deviance(y, p)
+            fired.append(any("poisson" in str(rec.message).lower() for rec in w))
+    assert all(fired), "the warning must fire on every call, not just the first, when counts recur"
+
+
 # ----- Hosmer-Lemeshow -----
 
 
