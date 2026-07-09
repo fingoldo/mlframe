@@ -19,7 +19,7 @@ The dispatcher is opt-in per panel-template kwarg: if the relevant
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional, Sequence
+from typing import Any, List, Optional, Sequence
 
 import numpy as np
 
@@ -108,6 +108,7 @@ def render_multi_target_panels(
     binary_panels_is_default: bool = False,
     emphasis_imbalance_lo: float = 0.2,
     emphasis_imbalance_hi: float = 0.8,
+    panel_failures: Optional[List[str]] = None,
 ) -> Optional[str]:
     """Pick the right composer for the input shapes and render.
 
@@ -120,6 +121,12 @@ def render_multi_target_panels(
     - ``base_path`` empty -> nothing to write to.
     - ``plot_outputs`` empty -> no backend selected.
     - The matched branch's panel template is empty.
+
+    ``panel_failures``, when given a list, gets one entry per branch (``"ltr"`` / ``"quantile"`` / ``"multilabel"``
+    / ``"multiclass"`` / ``"binary"``) whose render raised an exception -- so a caller aggregating across many
+    (model, split) reports in a batch run can count and log "N reports had a dropped panel set" instead of relying
+    on a per-call ``logger.exception`` line that is easy to miss at scale. A ``None`` return alone cannot distinguish
+    "nothing matched" from "a branch matched and then crashed"; ``panel_failures`` makes that distinction visible.
 
     Authoritative gate: when ``target_type`` is set (caller knows the
     target_type explicitly), only the matching branch fires. When
@@ -187,6 +194,8 @@ def render_multi_target_panels(
                 return "ltr"
             except Exception:
                 logger.exception("LTR panel rendering failed; continuing.")
+                if panel_failures is not None:
+                    panel_failures.append("ltr")
                 # Fall through -- still try multiclass/multilabel below.
 
     # Quantile regression: opt-in via quantile_alphas + 2-D preds. Like
@@ -214,6 +223,8 @@ def render_multi_target_panels(
                 return "quantile"
             except Exception:
                 logger.exception("Quantile panel rendering failed; continuing.")
+                if panel_failures is not None:
+                    panel_failures.append("quantile")
                 # Fall through.
 
     if probs is None or targets_arr is None:
@@ -249,6 +260,8 @@ def render_multi_target_panels(
             return "multilabel"
         except Exception:
             logger.exception("Multilabel panel rendering failed; continuing.")
+            if panel_failures is not None:
+                panel_failures.append("multilabel")
             return None
 
     # Multiclass: 1-D targets, K>=3 classes in the proba matrix.
@@ -272,6 +285,8 @@ def render_multi_target_panels(
             return "multiclass"
         except Exception:
             logger.exception("Multiclass panel rendering failed; continuing.")
+            if panel_failures is not None:
+                panel_failures.append("multiclass")
             return None
 
     # Binary classification: 1-D targets, 1-class-or-2-column probs. The score
@@ -314,6 +329,8 @@ def render_multi_target_panels(
                 return "binary"
             except Exception:
                 logger.exception("Binary panel rendering failed; continuing.")
+                if panel_failures is not None:
+                    panel_failures.append("binary")
                 return None
 
     # Regression -- existing reporting paths cover it.

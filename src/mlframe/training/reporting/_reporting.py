@@ -505,6 +505,7 @@ def report_model_perf(
         _emph_hi = getattr(reporting_config, "emphasis_imbalance_hi", 0.8)
         _binary_panels_is_default = binary_panels == _reporting_field_default("binary_panels")
         with phase("render_multi_target_panels"):
+            _panel_failures: list = []
             _rendered_tag = render_multi_target_panels(
                 targets=np.asarray(targets) if not isinstance(targets, np.ndarray) else targets,
                 probs=probs, preds=preds,
@@ -529,6 +530,7 @@ def report_model_perf(
                 # LTR panels branch, which used to render NDCG/MRR
                 # nonsense for regression + paid 10-30s on 5M rows.
                 target_type=target_type,
+                panel_failures=_panel_failures,
             )
             # INV-48: account which panel grids rendered so a run can assert
             # chart presence. The no-crash contract holds -- a failed render is
@@ -542,6 +544,11 @@ def report_model_perf(
                     _charts.setdefault("paths", []).append(f"{plot_file}_{_rendered_tag}_panels")
                 else:
                     _charts["failed"].append(f"{_which}_panels")
+                if _panel_failures:
+                    # Distinguishes an actual render-time exception (branch matched, then crashed) from a plain
+                    # no-op (nothing matched / templates empty) -- both used to collapse into the same "failed"
+                    # bucket above, so a batch run had no way to count how many reports dropped a whole panel set.
+                    _charts.setdefault("panel_exceptions", []).extend(_panel_failures)
 
     # Per-model train-vs-val iteration curves (INV-24): default-ON; no-op for non-boosting models, when charts are
     # not saved to disk, or when the model carries no eval history.

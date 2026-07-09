@@ -146,6 +146,49 @@ class TestDispatch:
         assert tag is None
         assert not list(tmp_path.glob("bin*"))
 
+    def test_panel_render_exception_is_tracked_in_panel_failures(self, mc_inputs, tmp_path, monkeypatch):
+        """Regression: a render-time exception inside a target-type branch must be surfaced via ``panel_failures``,
+        not just a ``logger.exception`` line a caller can miss in a batch run.
+
+        Pre-fix, the dispatcher swallowed the exception and returned ``None`` -- indistinguishable from "nothing
+        matched" (a legitimate no-op). ``panel_failures`` lets a caller aggregating across many reports count how
+        many actually dropped a whole panel set.
+        """
+        import mlframe.reporting.charts.multiclass as multiclass_mod
+
+        def _boom(*a, **kw):
+            raise RuntimeError("synthetic composer failure")
+
+        monkeypatch.setattr(multiclass_mod, "compose_multiclass_figure", _boom)
+        y, proba, classes = mc_inputs
+        failures: list = []
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            tag = render_multi_target_panels(
+                targets=y, probs=proba, classes=classes,
+                plot_outputs="matplotlib[png]",
+                multiclass_panels="CONFUSION PR_F1",
+                base_path=str(tmp_path / "mc_boom"),
+                panel_failures=failures,
+            )
+        assert tag is None
+        assert failures == ["multiclass"]
+
+    def test_panel_failures_stays_empty_on_legitimate_noop(self, tmp_path):
+        rng = np.random.default_rng(0)
+        y = rng.normal(0, 1, 100)
+        preds = y + rng.normal(0, 0.1, 100)
+        failures: list = []
+        tag = render_multi_target_panels(
+            targets=y, preds=preds, probs=None,
+            plot_outputs="matplotlib[png]",
+            multiclass_panels="CONFUSION", multilabel_panels="PR_F1",
+            base_path=str(tmp_path / "reg"),
+            panel_failures=failures,
+        )
+        assert tag is None
+        assert failures == []
+
     def test_regression_is_skipped(self, tmp_path):
         # Regression: probs is None.
         rng = np.random.default_rng(0)
