@@ -28,7 +28,11 @@ from mlframe.reporting.spec import (
 # keeps the rank computation (a double-argsort over the (n_sub, K) matrix) cheap at any input size.
 CORR_SUBSAMPLE: int = 20_000
 _CURVE_VERTEX_CAP: int = 2_000
-# Distinct colours cycled across model curves / bars (extended past the count of models by repetition).
+# Distinct colours cycled across model curves / bars (extended past the count of models by repetition). Every panel
+# that assigns colors "by model" MUST key off the SAME names ordering (currently ``list(per_model)``, the ROC and
+# sorted-prediction overlays both do). A future panel that colors by model while iterating a differently-ordered
+# name list (e.g. sorted by metric value, as the leaderboard bars already are) would silently reuse another model's
+# legend color for the wrong model, with nothing to catch it -- keep any new per-model-colored panel on this ordering.
 _MODEL_COLORS: Tuple[str, ...] = (
     "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
     "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf",
@@ -43,24 +47,29 @@ def _model_score(entry: Mapping[str, Any]) -> Optional[np.ndarray]:
     return None
 
 
-def _headline_metric(per_model: Mapping[str, Mapping[str, Any]], metric: Optional[str], task_type: str) -> str:
+def _headline_metric(per_model: Mapping[str, Mapping[str, Any]], metric: Optional[str], task_type: str) -> Tuple[str, bool]:
     """Resolve the leaderboard's headline metric name.
 
     Explicit ``metric`` wins; otherwise the first metric common to every model's ``metrics`` dict is used, with a
-    task-type default (roc_auc for binary, r2 for regression) when present.
+    task-type default (roc_auc for binary, r2 for regression) when present. Returns ``(name, was_inferred)`` --
+    ``was_inferred`` is True whenever no explicit ``metric`` and no task-type default were available, so the picked
+    key came from an alphabetical fallback over whatever metrics happened to be common across models. A caller should
+    surface this: heterogeneous per-model metric keys (e.g. a naming drift between training runs, "AUC" vs "ROC_AUC")
+    can make that fallback pick an unintended metric with no other indication anything was inferred.
     """
     if metric is not None:
-        return metric
+        return metric, False
     metric_dicts = [dict(e.get("metrics", {})) for e in per_model.values()]
     if not metric_dicts or any(not m for m in metric_dicts):
-        return ""
+        return "", False
     default = {"binary": "roc_auc", "regression": "r2"}.get(task_type)
     if default is not None and all(default in m for m in metric_dicts):
-        return default
+        return default, False
     common = set(metric_dicts[0])
     for m in metric_dicts[1:]:
         common &= set(m)
-    return sorted(common)[0] if common else next(iter(metric_dicts[0]), "")
+    picked = sorted(common)[0] if common else next(iter(metric_dicts[0]), "")
+    return picked, True
 
 
 def _roc_from_sort(sort: _ScoreSort) -> Tuple[np.ndarray, np.ndarray, float]:
@@ -154,12 +163,18 @@ def _sorted_prediction_overlay_panel(per_model: Mapping[str, Mapping[str, Any]])
 
 
 def _leaderboard_panel(
-    per_model: Mapping[str, Mapping[str, Any]], metric: str, higher_is_better: bool, baseline: Optional[float],
+    per_model: Mapping[str, Mapping[str, Any]],
+    metric: str,
+    higher_is_better: bool,
+    baseline: Optional[float],
+    metric_was_inferred: bool = False,
 ) -> PanelSpec:
     """Horizontal metric-bar leaderboard sorted best-first, with an hline at the best score (or supplied baseline).
 
     Horizontal bars read best-to-worst top-down regardless of model-name length. The hline marks the reference the
     rest are judged against (the best model's score by default, or an external ``baseline`` when given).
+    ``metric_was_inferred`` flags that ``metric`` came from an alphabetical fallback (no explicit metric or
+    task-type default matched every model), so the title calls that out instead of presenting it as a deliberate pick.
     """
     names = list(per_model)
     vals = np.array([float(per_model[n].get("metrics", {}).get(metric, np.nan)) for n in names], dtype=np.float64)
@@ -177,6 +192,10 @@ def _leaderboard_panel(
     ref_label = "baseline" if baseline is not None else "best"
     direction = "higher=better" if higher_is_better else "lower=better"
     title = f"Leaderboard: {metric} ({direction})"
+    if metric_was_inferred:
+        # Naming drift across models' metric dicts (e.g. "AUC" vs "ROC_AUC") can make this fallback pick an
+        # unintended metric; flag it so a reader doesn't mistake the alphabetical pick for a deliberate one.
+        title += f"\n(metric inferred: no explicit choice or task-type default matched all models; picked '{metric}')"
     missing_names = [names[i] for i in range(len(names)) if not finite[i]]
     if missing_names:
         # A subset (not all) of models lack the metric; surface which ones so the shorter bar chart is not mistaken for a complete one.
@@ -288,7 +307,7 @@ def compose_model_comparison_figure(
     if not per_model:
         return FigureSpec(suptitle=suptitle, panels=((AnnotationPanelSpec(text="compose_model_comparison_figure: no models"),),), figsize=(8.0, 3.0))
 
-    headline = _headline_metric(per_model, metric, task_type)
+    headline, headline_was_inferred = _headline_metric(per_model, metric, task_type)
     if higher_is_better is None:
         from mlframe.training.metrics_registry import metric_name_higher_is_better
         _dir = metric_name_higher_is_better(headline)
@@ -297,7 +316,7 @@ def compose_model_comparison_figure(
         curve = _roc_overlay_panel(per_model)
     else:
         curve = _sorted_prediction_overlay_panel(per_model)
-    leaderboard = _leaderboard_panel(per_model, headline, higher_is_better, baseline)
+    leaderboard = _leaderboard_panel(per_model, headline, higher_is_better, baseline, headline_was_inferred)
     corr = _corr_heatmap_panel(per_model, corr_subsample, seed)
 
     packed = pack_panels([curve, leaderboard, corr], max_cols=2)

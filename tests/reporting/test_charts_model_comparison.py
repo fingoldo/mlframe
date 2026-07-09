@@ -105,6 +105,39 @@ def test_leaderboard_partial_metric_miss_is_surfaced_not_silently_dropped():
     assert "N/A for" in bar.title
 
 
+def test_headline_metric_alphabetical_fallback_is_surfaced_in_title():
+    """Regression: heterogeneous per-model metric keys force the alphabetical-fallback pick.
+
+    Pre-fix, ``_headline_metric`` silently chose whichever common key sorted first with no indication the pick
+    was inferred rather than requested/task-default -- a naming-drift-across-models mismatch (e.g. one run
+    logging "auc_alt" while the task-type default "roc_auc" is absent) was invisible. The leaderboard title must
+    now say the metric was inferred.
+    """
+    per_model = {
+        "A": _binary_entry([0, 1], [0.1, 0.9], auc_alt=0.95, brier=0.05),
+        "B": _binary_entry([0, 1], [0.4, 0.6], auc_alt=0.70, brier=0.30),
+    }
+    # No explicit metric, and task-type default "roc_auc" is absent from both models -> forces the fallback.
+    fig = mc.compose_model_comparison_figure(per_model, "binary")
+    bar = next(p for row in fig.panels for p in row if isinstance(p, BarPanelSpec))
+    assert bar.xlabel == "auc_alt"  # alphabetically first of {"auc_alt", "brier"}
+    assert "inferred" in bar.title
+
+
+def test_headline_metric_explicit_is_not_flagged_as_inferred():
+    per_model = {"A": _binary_entry([0, 1], [0.1, 0.9], roc_auc=0.95), "B": _binary_entry([0, 1], [0.4, 0.6], roc_auc=0.70)}
+    fig = mc.compose_model_comparison_figure(per_model, "binary", metric="roc_auc")
+    bar = next(p for row in fig.panels for p in row if isinstance(p, BarPanelSpec))
+    assert "inferred" not in bar.title
+
+
+def test_headline_metric_task_type_default_is_not_flagged_as_inferred():
+    per_model = {"A": _binary_entry([0, 1], [0.1, 0.9], roc_auc=0.95), "B": _binary_entry([0, 1], [0.4, 0.6], roc_auc=0.70)}
+    fig = mc.compose_model_comparison_figure(per_model, "binary")  # roc_auc resolved via task-type default
+    bar = next(p for row in fig.panels for p in row if isinstance(p, BarPanelSpec))
+    assert "inferred" not in bar.title
+
+
 def test_non_binary_uses_sorted_prediction_overlay():
     rng = np.random.default_rng(2)
     per_model = {
