@@ -27,7 +27,7 @@ jobs:
   mypy-full:
     permissions:
       contents: read
-    uses: fingoldo/py-ci-shared/.github/workflows/mypy-full.yml@5bec5cc3f72e135eabde123e5b995bbf2d6395f7  # v1.0.0
+    uses: fingoldo/py-ci-shared/.github/workflows/mypy-full.yml@76f6606202f0db95dfa87d67010f64c9e6db8574  # v1.0.0
     with:
       package-name: mlframe
       mypy-version: "2.1.0"
