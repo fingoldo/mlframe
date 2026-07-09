@@ -20,7 +20,7 @@ permissions:
 
 jobs:
   docs:
-    uses: fingoldo/py-ci-shared/.github/workflows/docs.yml@main
+    uses: fingoldo/py-ci-shared/.github/workflows/docs.yml@master
     with:
       default-branch: master
       # composite_targets_tutorial.ipynb imports mlframe; install the package so a future flip
