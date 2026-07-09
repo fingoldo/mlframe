@@ -442,6 +442,30 @@ def test_target_dist_overlay_only_target_when_no_preds():
     assert len(panels) == 1
 
 
+def test_target_dist_overlay_all_nan_split_is_surfaced_as_excluded():
+    """Regression: a split that is entirely NaN must not silently vanish from the drift-verdict sentence.
+
+    Pre-fix, ``_target_drift_verdict`` skipped an all-NaN non-train split with no trace, so a reader could
+    misread the one-line verdict as "train/val checked, no material drift" while "test" was actually unusable.
+    """
+    rng = np.random.default_rng(3)
+    y = {
+        "train": rng.normal(0, 1, 2000),
+        "val": rng.normal(0, 1, 500),
+        "test": np.full(500, np.nan),
+    }
+    fig = target_dist_overlay(y, task="regression")
+    assert "test" in fig.suptitle
+    assert "excluded" in fig.suptitle
+
+
+def test_target_dist_overlay_no_usable_nontrain_split():
+    y = {"train": np.random.default_rng(4).normal(0, 1, 500), "test": np.full(200, np.nan)}
+    fig = target_dist_overlay(y, task="regression")
+    assert "excluded" in fig.suptitle
+    assert "cannot compare drift" in fig.suptitle
+
+
 def test_biz_val_target_dist_overlay_detects_train_test_shift():
     """A deliberate +2.0 mean shift between train and test targets MUST surface as per-split mean labels differing by ~2.
 

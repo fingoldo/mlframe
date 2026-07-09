@@ -785,21 +785,26 @@ def _target_drift_verdict(
     thr = 0.25 * tr_std if tr_std > 0 else 0.0
     parts: List[str] = []
     flagged: List[str] = []
+    excluded: List[str] = []
     for lab, arr in y_true_by_split.items():
         if lab == train_key:
             continue
         a = _as_float_1d(arr)
         a = a[np.isfinite(a)]
         if a.size == 0:
+            excluded.append(lab)
             continue
         shift = float(a.mean()) - tr_mean
         parts.append(f"{lab} {shift:+.3g}")
         if thr > 0 and abs(shift) > thr:
             flagged.append(lab)
+    excluded_note = f" (split(s) empty/all-NaN, excluded from drift check: {', '.join(excluded)})" if excluded else ""
     if not parts:
+        if excluded:
+            return f"Distribution-shift check: no usable non-train split{excluded_note} -> cannot compare drift."
         return "Distribution-shift check: only the train split present -> no drift to assess."
     scale = " (vs train, in target units; >0.25*train_std flagged)" if task != "classification" else " (class-1 rate shift vs train)"
-    head = f"Mean shift{scale}: " + ", ".join(parts) + f"; train mean={tr_mean:.3g}."
+    head = f"Mean shift{scale}: " + ", ".join(parts) + f"; train mean={tr_mean:.3g}.{excluded_note}"
     if flagged:
         return head + f" WARNING: {', '.join(flagged)} drift materially from train -> distribution-shift risk; holdout metrics may not transfer."
     return head + " No material drift from train."
