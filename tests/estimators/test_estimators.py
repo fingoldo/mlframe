@@ -82,3 +82,73 @@ def test_estimator_with_early_stopping_logs_and_fits_non_catboost(caplog):
         est.fit(X, y)
     assert any("Early stopping" in rec.message for rec in caplog.records)
     assert est.n_features_in_ == X.shape[1]
+
+
+def test_default_stratify_none_auto_stratifies_imbalanced_classifier_split():
+    """Regression test for audit F1: stratify=None must not silently mean 'unstratified'.
+
+    Before the fix, ``stratify`` was passed straight through to ``train_test_split`` as ``None`` unless the
+    caller explicitly re-passed a stratify vector at construction time (impossible, since ``y`` only exists
+    at fit-time). On a 95:5 imbalanced target, an unstratified split could produce an eval_set with a skewed
+    or single-class distribution. Verify the internal split (captured via monkeypatching train_test_split)
+    is now stratified on y by default.
+    """
+    import mlframe.estimators.base as base_mod
+    from lightgbm import LGBMClassifier
+
+    rng = np.random.RandomState(0)
+    n_majority, n_minority = 190, 10
+    X = rng.normal(size=(n_majority + n_minority, 4))
+    y = np.array([0] * n_majority + [1] * n_minority)
+
+    captured = {}
+    real_train_test_split = base_mod.train_test_split
+
+    def _spy(*args, **kwargs):
+        captured["stratify"] = kwargs.get("stratify")
+        return real_train_test_split(*args, **kwargs)
+
+    est = ClassifierWithEarlyStopping(base_estimator=LGBMClassifier(n_estimators=10, verbose=-1), test_size=0.2, random_state=0)
+    import mlframe.estimators.base as _b
+
+    orig = _b.train_test_split
+    _b.train_test_split = _spy
+    try:
+        est.fit(X, y)
+    finally:
+        _b.train_test_split = orig
+
+    assert captured["stratify"] is not None, "stratify must be auto-derived from y for a classifier estimator, not left None"
+    np.testing.assert_array_equal(captured["stratify"], y)
+
+
+def test_default_stratify_none_stays_none_for_regressor():
+    """A regressor base estimator with continuous y must NOT be spuriously stratified."""
+    import mlframe.estimators.base as base_mod
+
+    X, y = _xy_reg()
+    est = EstimatorWithEarlyStopping(base_estimator=Ridge(), random_state=0)
+    stratify = est._resolve_stratify(y)
+    assert stratify is None
+
+
+def test_fit_preserves_dataframe_columns_and_sets_feature_names_in(caplog):
+    """Regression test for audit F2: a bare check_array(X) silently discarded DataFrame columns / feature_names_in_.
+
+    Verify a DataFrame input keeps its column names visible via ``feature_names_in_`` and that ``predict``
+    also accepts a DataFrame without erroring (i.e. it is not forced through check_array either).
+    """
+    import pandas as pd
+
+    X_arr, y = _xy_reg()
+    columns = [f"feat_{i}" for i in range(X_arr.shape[1])]
+    X = pd.DataFrame(X_arr, columns=columns)
+
+    est = RegressorWithEarlyStopping(base_estimator=Ridge(), random_state=0)
+    est.fit(X, y)
+
+    assert hasattr(est, "feature_names_in_")
+    np.testing.assert_array_equal(est.feature_names_in_, np.asarray(columns, dtype=object))
+
+    preds = est.predict(X)
+    assert preds.shape == (len(y),)

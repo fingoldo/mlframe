@@ -279,8 +279,24 @@ class MBHOptimizer:
         # RNG discipline — seed-threadable randomness
         # ----------------------------------------------------------------------------------------------------------------------------
 
-        self._rng = np.random.default_rng(random_state)  # nosec B311 - non-cryptographic sampling/jitter, not a security-sensitive use
-        self._stdlib_rng = _stdlib_random.Random(int(self._rng.integers(0, 2**32 - 1)))  # nosec B311 - non-crypto sampling/jitter, not used for tokens/secrets
+        # Two independent children of the SAME SeedSequence, not one RNG seeding the other: deriving _stdlib_rng's
+        # seed from a value DRAWN from _rng makes the derived seed depend on the exact order/count of every other
+        # _rng-consuming line in this constructor, so inserting/removing/reordering any of them silently changes
+        # every _stdlib_rng.random() decision for all future runs at the same random_state. spawn() instead gives
+        # each stream its own seed from the root SeedSequence, immune to how many draws the other stream makes.
+        if isinstance(random_state, np.random.Generator):
+            # Caller already handed us a live Generator: reuse it verbatim, and spawn _stdlib_rng's seed from
+            # its own SeedSequence (exposed by every numpy BitGenerator) so it stays independent of any draw order.
+            self._rng = random_state
+            _seed_seq = getattr(self._rng.bit_generator, "seed_seq", None)
+        else:
+            _seed_seq = np.random.SeedSequence(random_state)
+            self._rng = np.random.default_rng(_seed_seq.spawn(1)[0])  # nosec B311 - non-cryptographic sampling/jitter, not a security-sensitive use
+        if _seed_seq is not None:
+            (_stdlib_seed,) = _seed_seq.spawn(1)
+            self._stdlib_rng = _stdlib_random.Random(int(_stdlib_seed.generate_state(1, dtype=np.uint64)[0]))  # nosec B311 - non-crypto sampling/jitter, not used for tokens/secrets
+        else:
+            self._stdlib_rng = _stdlib_random.Random(int(self._rng.integers(0, 2**32 - 1)))  # nosec B311 - non-crypto sampling/jitter, not used for tokens/secrets
 
         # ----------------------------------------------------------------------------------------------------------------------------
         # Inits
@@ -670,13 +686,13 @@ class MBHOptimizer:
                 self.pre_seeded_candidates.remove(next_candidate)
 
             start_ts = self.suggested_candidates.get(next_candidate)
-            if start_ts:
+            if start_ts is not None:
                 try:
                     del self.suggested_candidates[next_candidate]
                 except Exception as e:  # nosec B110 - narrow except type
                     logger.debug("Could not delete suggested_candidates[%r]: %s", next_candidate, e)
 
-            if next_duration is None and start_ts:
+            if next_duration is None and start_ts is not None:
                 next_duration = timer() - start_ts
             self.evaluated_candidates.append(dict(candidate=next_candidate, evaluation=next_evaluation, duration=next_duration))
 

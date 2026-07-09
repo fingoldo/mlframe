@@ -38,6 +38,7 @@ import pandas as pd, numpy as np
 from catboost import CatBoostRegressor
 from sklearn.model_selection import cross_validate
 from sklearn.model_selection import KFold
+from sklearn.metrics import check_scoring
 
 from enum import Enum, auto
 
@@ -499,6 +500,23 @@ def justify_estimator(
                 if early_stopping_rounds is not None:
                     fit_kwargs["early_stopping_rounds"] = early_stopping_rounds
                 est.fit(X_train, y_train, **fit_kwargs)
+                # The CV gate's mean_score is estimated on DIFFERENT folds than this refit's held-out split, so
+                # caching mean_score as expected_score let the surrogate's cached "quality" silently drift from
+                # what this actual fitted_model scores on its own eval split. Re-score the refit model on its own
+                # X_test/y_test and use THAT as expected_score, so callers gating future reuse on expected_score
+                # (get_model) see the real fitted model's quality, not an unrelated random split's CV estimate.
+                try:
+                    scorer = check_scoring(est, scoring=scoring)
+                    refit_score = float(scorer(est, X_test, y_test))
+                except Exception as e:
+                    logger.warning("Could not compute refit held-out %s score (%s); keeping CV mean %s as expected_score.", scoring, e, mean_score)
+                else:
+                    if np.isfinite(refit_score):
+                        logger.info(
+                            "Refit eval-set %s=%s (CV gate mean was %s); using the refit score as expected_score.",
+                            scoring, refit_score, mean_score,
+                        )
+                        mean_score = refit_score
             else:
                 est.fit(X, y)
         else:

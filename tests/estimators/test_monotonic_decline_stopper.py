@@ -92,6 +92,25 @@ def test_nan_inf_are_noop() -> None:
     assert s.update(0.86) is True  # 2nd real decline fires
 
 
+def test_nan_inf_logs_once(caplog) -> None:
+    """Regression test for audit F6: a non-finite score used to be a fully silent no-op.
+
+    Before the fix, feeding NaN/inf produced zero diagnostic signal that anything was wrong -- a run scoring
+    NaN on every iteration looked identical to ordinary non-convergence. Verify a warning fires exactly once
+    (rate-limited), not once per non-finite call.
+    """
+    import logging
+
+    s = MonotonicDeclineStopper(patience=2, mode="max")
+    s.update(0.9)
+    with caplog.at_level(logging.WARNING, logger="mlframe.estimators.early_stopping_monotonic"):
+        s.update(float("nan"))
+        s.update(float("inf"))
+        s.update(float("-inf"))
+    warnings = [r for r in caplog.records if "non-finite" in r.message]
+    assert len(warnings) == 1
+
+
 def test_stop_is_latched() -> None:
     s = MonotonicDeclineStopper(patience=2, mode="max")
     _feed(s, [0.9, 0.8, 0.7])

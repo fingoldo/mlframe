@@ -33,8 +33,10 @@ def _collect_forbidden_calls(source: str) -> list:
             if isinstance(func, ast.Attribute) and isinstance(func.value, ast.Attribute):
                 inner = func.value
                 if isinstance(inner.value, ast.Name) and inner.value.id == "np" and inner.attr == "random":
-                    # np.random.default_rng is the sanctioned seed-threadable factory; allow it.
-                    if func.attr == "default_rng":
+                    # np.random.default_rng is the sanctioned seed-threadable factory; np.random.SeedSequence is
+                    # the sanctioned deterministic seed-derivation utility (no hidden global state, used to spawn
+                    # independent child seeds instead of one RNG's output seeding another). Allow both.
+                    if func.attr in ("default_rng", "SeedSequence"):
                         continue
                     forbidden.append(f"np.random.{func.attr} at line {node.lineno}")
             # bare `random()` — Call with func=Name('random')

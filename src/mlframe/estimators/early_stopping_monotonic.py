@@ -45,6 +45,10 @@ numeric kernel, so the cProfile / acceleration-ladder convention does not apply.
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 class MonotonicDeclineStopper:
     """Fixed-length monotone strict-decline overfitting detector (see module docstring).
@@ -60,7 +64,7 @@ class MonotonicDeclineStopper:
         for lower-is-better metrics (loss, RMSE, error). Drives the sign of every compare.
     """
 
-    __slots__ = ("_greater_is_better", "best", "mode", "patience", "prev", "stopped", "streak")
+    __slots__ = ("_greater_is_better", "_warned_nonfinite", "best", "mode", "patience", "prev", "stopped", "streak")
 
     def __init__(self, patience: int | None, mode: str = "max") -> None:
         if mode not in ("max", "min"):
@@ -76,6 +80,7 @@ class MonotonicDeclineStopper:
         self.prev: float | None = None
         self.streak: int = 0
         self.stopped: bool = False
+        self._warned_nonfinite: bool = False
 
     @property
     def enabled(self) -> bool:
@@ -92,8 +97,13 @@ class MonotonicDeclineStopper:
         if self.patience is None:
             return False
         # Non-finite metric (NaN / inf): treat as a no-op rather than corrupting best/prev
-        # or the streak -- the backend's own NaN handling decides what to do with it.
+        # or the streak -- the backend's own NaN handling decides what to do with it. Logged once
+        # (rate-limited) so a run scoring NaN on every iteration is visible instead of looking like
+        # ordinary non-convergence with zero diagnostic signal.
         if value != value or value in (float("inf"), float("-inf")):
+            if not self._warned_nonfinite:
+                logger.warning("MonotonicDeclineStopper.update received a non-finite score (%r); ignoring it as a no-op.", value)
+                self._warned_nonfinite = True
             return self.stopped
         cur = float(value)
 

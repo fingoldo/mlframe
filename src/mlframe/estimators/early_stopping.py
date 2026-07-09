@@ -156,7 +156,11 @@ class EarlyStoppingWrapper(BaseEstimator):
         if hasattr(model, "set_params") and hasattr(model, "get_params"):
             try:
                 params = model.get_params()
-            except Exception:
+            except Exception as e:
+                # A get_params() failure for a reason OTHER than "no warm_start protocol" (e.g. a buggy
+                # get_params override on a custom estimator) would otherwise silently fall through to the
+                # generic "cannot be early-stopped" TypeError below, misreporting a config bug as a missing backend.
+                logger.warning("get_params() raised while probing %s for warm_start support: %s", type(model).__name__, e)
                 params = {}
             if "warm_start" in params:
                 for attr in _WARM_START_N_ATTRS:
