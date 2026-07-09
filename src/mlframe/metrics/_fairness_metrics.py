@@ -469,9 +469,12 @@ def robust_mlperf_metric(
 
             if perfs:
                 perfs_arr = np.array(perfs)
-                bin_metric_value = perfs_arr.mean()
-                # ddof clamped so a single in-spec group (len 1) yields std 0 rather than NaN/inf.
-                spread = float(perfs_arr.std(ddof=ddof)) if perfs_arr.size > ddof else 0.0
+                # nanmean/nanstd (matching compute_fairness_metrics) so a single degenerate subgroup (e.g. single-class
+                # AUC undefined -> NaN) doesn't poison the whole boosting-eval score; all-NaN still propagates NaN.
+                bin_metric_value = float(np.nanmean(perfs_arr))
+                # ddof clamped against the FINITE count so a single in-spec group (len 1) yields std 0 rather than NaN/inf.
+                n_finite = int(np.sum(~np.isnan(perfs_arr)))
+                spread = float(np.nanstd(perfs_arr, ddof=ddof)) if n_finite > ddof else 0.0
                 if higher_is_better:
                     bin_metric_value -= spread
                 else:

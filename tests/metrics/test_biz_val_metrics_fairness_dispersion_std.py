@@ -134,3 +134,71 @@ def test_unit_fairness_std_single_finite_bin_is_nan_not_crash():
     subgroups = {"grp": {"bins": bins}}
     res = compute_fairness_metrics({"mae": _abs_err_metric}, {"mae": False}, subgroups, bins.index, y_true, y_pred)
     assert np.isnan(float(res["metric_std"].iloc[0]))
+
+
+def _nan_on_single_class_metric(y_true, y_pred):
+    """Mimics fast_roc_auc's contract: NaN when y_true is single-class, else the plain MAE."""
+    y_true = np.asarray(y_true)
+    if len(np.unique(y_true)) < 2:
+        return np.nan
+    return float(np.mean(np.abs(y_true - np.asarray(y_pred))))
+
+
+def test_regression_robust_mlperf_metric_one_degenerate_subgroup_does_not_poison_whole_score():
+    """One single-class subgroup (metric NaN) must not turn the WHOLE aggregate NaN; matches compute_fairness_metrics' nanmean/nanstd contract.
+
+    Pre-fix, robust_mlperf_metric used plain .mean()/.std() over the per-subgroup metric values, so a single NaN subgroup poisoned
+    bin_metric_value (and therefore the entire returned score) to NaN even though every other subgroup had real signal."""
+    rng = np.random.default_rng(11)
+    n_per = 200
+    # Two healthy, two-class subgroups with real signal, plus one degenerate single-class subgroup.
+    y_true_g0 = np.tile([0, 1], n_per // 2)
+    y_true_g1 = np.tile([0, 1], n_per // 2)
+    y_true_degenerate = np.zeros(n_per, dtype=int)  # single class -> metric NaN
+    y_true = np.concatenate([y_true_g0, y_true_g1, y_true_degenerate])
+
+    y_pred_g0 = y_true_g0 + rng.normal(0.0, 0.1, size=n_per)
+    y_pred_g1 = y_true_g1 + rng.normal(0.0, 0.3, size=n_per)
+    y_pred_degenerate = y_true_degenerate + rng.normal(0.0, 0.1, size=n_per)
+    y_pred = np.concatenate([y_pred_g0, y_pred_g1, y_pred_degenerate])
+
+    n = len(y_true)
+    g0_idx = np.arange(0, n_per)
+    g1_idx = np.arange(n_per, 2 * n_per)
+    g2_idx = np.arange(2 * n_per, 3 * n_per)
+    bins = {"g0": g0_idx, "g1": g1_idx, "g_degenerate": g2_idx}
+    subgroups = {n: {"grp": {"bins": bins, "weight": 1.0}}}
+
+    result = robust_mlperf_metric(
+        y_true, y_pred, _nan_on_single_class_metric, higher_is_better=False, subgroups=subgroups, whole_set_weight=0.0, min_group_size=10
+    )
+
+    assert not np.isnan(result), "a single degenerate subgroup must not poison the whole robust_mlperf_metric score"
+
+    # The aggregate must match nanmean over the non-NaN subgroup values (g0, g1), i.e. the g_degenerate NaN is dropped, not averaged in.
+    perf_g0 = _nan_on_single_class_metric(y_true[g0_idx], y_pred[g0_idx])
+    perf_g1 = _nan_on_single_class_metric(y_true[g1_idx], y_pred[g1_idx])
+    expected_mean = np.nanmean([perf_g0, perf_g1, np.nan])
+    expected_std = np.nanstd([perf_g0, perf_g1, np.nan], ddof=1)
+    # higher_is_better=False -> spread is ADDED to the mean (matches robust_mlperf_metric's convention).
+    expected_bin_metric_value = expected_mean + expected_std
+    expected = 0.0 + expected_bin_metric_value * 1.0  # whole_set_weight=0.0 zeroes the whole-set term; weights_sum = 1.0
+    assert result == pytest.approx(expected)
+
+
+def test_regression_robust_mlperf_metric_all_subgroups_degenerate_still_propagates_nan():
+    """When EVERY subgroup is degenerate (all-NaN), the aggregate must still be NaN (mirrors compute_fairness_metrics' all-NaN nanmean contract) -- not silently 0."""
+    n_per = 200
+    y_true_degenerate_a = np.zeros(n_per, dtype=int)
+    y_true_degenerate_b = np.ones(n_per, dtype=int)
+    y_true = np.concatenate([y_true_degenerate_a, y_true_degenerate_b])
+    y_pred = y_true.astype(float)
+
+    n = len(y_true)
+    bins = {"ga": np.arange(0, n_per), "gb": np.arange(n_per, 2 * n_per)}
+    subgroups = {n: {"grp": {"bins": bins, "weight": 1.0}}}
+
+    result = robust_mlperf_metric(
+        y_true, y_pred, _nan_on_single_class_metric, higher_is_better=False, subgroups=subgroups, whole_set_weight=0.0, min_group_size=10
+    )
+    assert np.isnan(result), "all-degenerate subgroups must propagate NaN, not silently collapse to 0"
