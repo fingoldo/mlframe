@@ -301,6 +301,9 @@ from .group_aggregate_macro import predicted_group_aggregate_feature
 # Wide-to-long reshape (value, count, feature-identity) to suppress spurious cross-feature tree interactions.
 from .long_format_gbm import melt_to_long_gbm_features
 
+# Direct (non-recursive) multi-horizon forecasting: one model per horizon block, all from origin-time features.
+from .direct_multi_horizon import DirectMultiHorizonEnsemble
+
 # Missing-aware composite, OOF feature generator, spec stability selection.
 from .missing import MissingAwareComposite
 from .suite_features import CompositeFeatureGenerator
@@ -371,6 +374,7 @@ __all__ = [
     "ChainedWindowForecaster",
     "predicted_group_aggregate_feature",
     "melt_to_long_gbm_features",
+    "DirectMultiHorizonEnsemble",
     "engineer_temporal_bases", "BaggedCompositeEstimator", "CompositeSurvivalEstimator",
     "export_serving_spec", "load_serving_spec",
     "compare_models", "should_promote", "OrthogonalizedCompositeEstimator",
