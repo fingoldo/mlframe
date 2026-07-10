@@ -313,6 +313,9 @@ from .pseudo_labeling import PseudoLabelingLoop
 # One model per (cross of) explicit categorical segment keys, with incremental add/update/remove lifecycle.
 from .segmented_model_factory import SegmentedModelFactory
 
+# Gate classifier hard-routes to branch regressors; gate probability stacked as a feature.
+from .gated_regression_mixture import GatedRegressionMixture
+
 # Missing-aware composite, OOF feature generator, spec stability selection.
 from .missing import MissingAwareComposite
 from .suite_features import CompositeFeatureGenerator
@@ -387,6 +390,7 @@ __all__ = [
     "RegimeSplitEnsemble",
     "PseudoLabelingLoop",
     "SegmentedModelFactory",
+    "GatedRegressionMixture",
     "engineer_temporal_bases", "BaggedCompositeEstimator", "CompositeSurvivalEstimator",
     "export_serving_spec", "load_serving_spec",
     "compare_models", "should_promote", "OrthogonalizedCompositeEstimator",
