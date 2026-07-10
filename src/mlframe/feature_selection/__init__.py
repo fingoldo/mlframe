@@ -38,6 +38,7 @@ from mlframe.feature_selection.forward_select import forward_select
 from mlframe.feature_selection.cascade_select import cascade_select
 from mlframe.feature_selection.ridge_forward_prefilter import ridge_coefficient_prefilter
 from mlframe.feature_selection.unanimous_permutation_prune import unanimous_permutation_prune
+from mlframe.feature_selection.drop_noninformative_vs_reference import drop_noninformative_vs_reference
 
 __all__ = [
     # general
@@ -71,4 +72,6 @@ __all__ = [
     "ridge_coefficient_prefilter",
     # strict all-folds-must-agree permutation-importance pruning
     "unanimous_permutation_prune",
+    # drop features that don't distinguish a reference/control cohort from the rest (KS-test)
+    "drop_noninformative_vs_reference",
 ]
