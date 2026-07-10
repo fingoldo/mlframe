@@ -321,6 +321,7 @@ from ._winkler import (
 )
 from ._heteroscedastic import HeteroscedasticCompositeEstimator
 from ._pseudo_bma import pseudo_bma_weights, blend as pseudo_bma_blend
+from .calendar_anomaly import detect_calendar_anomalies, apply_calendar_anomaly_flag
 
 # Curated public surface for ``from ...composite import *`` -- excludes the
 # submodule names + stdlib leakage (logging / annotations) that bare star-import
@@ -349,6 +350,7 @@ __all__ = [
     "winkler_interval_score", "winkler_score_per_row", "winkler_score_per_group",
     "mean_coverage", "interval_quality_summary",
     "HeteroscedasticCompositeEstimator", "pseudo_bma_weights", "pseudo_bma_blend",
+    "detect_calendar_anomalies", "apply_calendar_anomaly_flag",
     "CompositeTargetDiscovery", "CompositeTargetDiscoveryConfig",
     "CompositeCrossTargetEnsemble", "CompositeSpec", "CompositeProvenance",
     "DiscoveryCache",
