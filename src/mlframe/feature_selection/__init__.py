@@ -34,6 +34,8 @@ from mlframe.feature_selection.structure_discovery import (
     DiscoveredRelation,
 )
 from mlframe.feature_selection.ace import ace_select, ACEResult
+from mlframe.feature_selection.forward_select import forward_select
+from mlframe.feature_selection.cascade_select import cascade_select
 
 __all__ = [
     # general
@@ -60,4 +62,7 @@ __all__ = [
     # artificial-contrast feature significance (parametric t-test vs permuted-contrast importances + masking loop)
     "ace_select",
     "ACEResult",
+    # forward selection + 3-stage cascade (Boruta screen -> forward select -> permutation backward elimination)
+    "forward_select",
+    "cascade_select",
 ]
