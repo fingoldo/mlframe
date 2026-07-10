@@ -215,6 +215,7 @@ from .relational_dfs import ChildTableSpec, compute_relational_features, stack_r
 from .windowed_edge_diff import windowed_edge_aggregate_diff
 from .magnitude_sample_weight import magnitude_sample_weight
 from .boolean_pair_interactions import boolean_pair_interactions, is_binary_column
+from .sentinel_missing_count import add_sentinel_missing_count_feature
 
 __all__ = [
     "per_group_recency_weighted_mean",
@@ -329,4 +330,5 @@ __all__ = [
     "magnitude_sample_weight",
     "boolean_pair_interactions",
     "is_binary_column",
+    "add_sentinel_missing_count_feature",
 ]
