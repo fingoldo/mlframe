@@ -87,6 +87,7 @@ from .multi_temp_residual_band import compute_multi_temp_residual_band_features
 from .multi_temperature import compute_multi_temperature_attention
 from .nca_projection import compute_nca_projection_features
 from .nn_oof_target_mean import compute_nn_oof_target_mean_features
+from .neighbor_aggregate_features import compute_neighbor_aggregate_features
 from .multiscale_rate import compute_multiscale_rate_features
 from .multiscale_smote import compute_multiscale_smote_features
 from .per_class_spectral import compute_per_class_spectral_attention
@@ -205,6 +206,7 @@ __all__ = [
     "compute_multiscale_smote_features",
     "compute_nca_projection_features",
     "compute_nn_oof_target_mean_features",
+    "compute_neighbor_aggregate_features",
     "compute_per_class_spectral_attention",
     "compute_per_column_rff",
     "compute_persistence_diagram_features",
