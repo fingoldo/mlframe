@@ -203,6 +203,7 @@ from .multi_window_aggregate import multi_window_aggregate
 from .entity_diff_features import entity_diff_features
 from .control_difference_augment import control_difference_augment
 from .acf_lag_selection import select_significant_lags
+from .two_step_target_encode import two_step_recency_weighted_target_encode
 
 __all__ = [
     "per_group_recency_weighted_mean",
@@ -301,4 +302,5 @@ __all__ = [
     "entity_diff_features",
     "control_difference_augment",
     "select_significant_lags",
+    "two_step_recency_weighted_target_encode",
 ]
