@@ -76,7 +76,7 @@ class GatedOutlierEstimator(BaseEstimator, RegressorMixin):
         self.blend_value = blend_value
 
     def _is_point_mass(self, y: np.ndarray) -> np.ndarray:
-        return np.isclose(y, self.point_mass_value, atol=self.point_mass_atol)
+        return np.asarray(np.isclose(y, self.point_mass_value, atol=self.point_mass_atol))
 
     def fit(self, X: Any, y: Any, sample_weight: Optional[np.ndarray] = None) -> "GatedOutlierEstimator":
         y_arr = np.asarray(y, dtype=np.float64)

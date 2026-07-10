@@ -187,11 +187,12 @@ def _ranknet_loss_precomputed_core(
     No ``typing.cast`` here (unlike the eager sibling functions) -- TorchScript's
     compiler rejects ``cast`` as "builtin cannot be used as a value" on some torch
     builds (confirmed on a 2.12.0.dev nightly). ``cast`` is a runtime no-op purely
-    for mypy narrowing, so dropping it inside a scripted function changes nothing
-    at runtime; ``F.softplus(...).mean()`` already returns ``torch.Tensor``.
+    for mypy narrowing; an explicit variable annotation gets mypy the same
+    no-any-return signal without an actual call TorchScript has to compile.
     """
     score_diff_pairs = scores[i_idx] - scores[j_idx]
-    return F.softplus(-score_diff_pairs).mean()
+    loss: torch.Tensor = F.softplus(-score_diff_pairs).mean()
+    return loss
 
 
 def ranknet_pairwise_loss_precomputed(
