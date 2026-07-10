@@ -1,18 +1,24 @@
-"""Regime change-point detection wrapper around ``ruptures``, producing per-row regime segment labels.
+"""Regime change-point detection wrapper, producing per-row regime segment labels.
 
 Fitting one model over a time series whose underlying behavior has genuinely shifted (a change in operating
 regime, market condition, or process parameters) blends pre- and post-shift dynamics into a single blurred
-average. An LTFS-finhack team's fix: detect structural breaks with the ``ruptures`` library (PELT algorithm),
-filter by minimum segment duration and effect-size significance, and use the resulting segment id both as a
-feature and to drive per-regime modeling (independent baselines/models per detected steady state).
+average. An LTFS-finhack team's fix: detect structural breaks (PELT algorithm), filter by minimum segment
+duration and effect-size significance, and use the resulting segment id both as a feature and to drive
+per-regime modeling (independent baselines/models per detected steady state).
 
-Performance note: uses the ``"l2"`` (mean-shift) cost model, not ``"rbf"`` -- rbf precomputes a full pairwise
-kernel matrix (O(n^2) memory/time) before PELT even starts, which effectively hangs at real production series
-lengths (measured: did not finish at n=50,000, ~2.5 billion kernel entries). ``"l2"`` avoids that blowup and
-is the correct model for mean-level regime shifts (what this detector targets), but ``ruptures``' own l2 cost
-function calls ``np.var()`` per candidate window rather than a cumulative-sum O(1) update, so it still costs
-~29s at n=50,000 (measured, `bench_changepoint_detection.py`) -- fine at typical panel-timeseries lengths
-(hundreds to low thousands of points per series) but downsample/bin longer series before detection.
+Backend note: the default backend is an in-house njit PELT specialized for the l2 (mean-shift) cost
+(``mlframe.signal._pelt_l2_njit.pelt_l2``), not the ``ruptures`` library. Two reasons: (1) ``ruptures.Pelt``
+with its default ``model="rbf"`` precomputes a full pairwise kernel matrix (O(n^2) memory/time) before PELT
+even starts, which effectively hangs at real production series lengths (measured: did not finish at
+n=50,000, ~2.5 billion kernel entries); ``"l2"`` (mean-shift) is the theoretically correct cost for what this
+detector targets anyway. (2) ``ruptures``' own l2 cost function recomputes ``np.var()`` over each candidate
+window from scratch (no cumsum reuse), so switching to it alone still cost ~29s at n=50,000. Segment
+sum-of-squared-deviations is additive under prefix sums, so PELT's candidate-cost evaluation is O(1) with
+cumsum instead -- the whole PELT loop was reimplemented as one njit kernel, verified breakpoint-identical to
+``ruptures.Pelt(model="l2", jump=1)`` (ruptures' own default ``jump=5`` subsamples candidate points and is
+therefore *less* exact than this kernel, not a stricter reference), and measured ~65x faster end-to-end at n=5,000 (7ms vs. 948ms) and reduces n=50,000 from ~29s (ruptures l2) /
+effectively never (ruptures rbf) down to ~447ms (`_benchmarks/bench_changepoint_detection.py`). ``ruptures`` remains available via ``backend="ruptures"`` for
+cross-validation or non-l2 cost models it supports that this in-house kernel does not.
 """
 from __future__ import annotations
 
@@ -24,22 +30,26 @@ def detect_regime_changepoints(
     min_segment_length: int = 10,
     penalty: float = 3.0,
     min_effect_size: float = 0.5,
+    backend: str = "njit",
 ) -> dict:
-    """Detect structural breaks in ``y`` via ruptures' PELT algorithm, filtered by duration and effect size.
+    """Detect structural breaks in ``y`` via PELT, filtered by duration and effect size.
 
     Parameters
     ----------
     y
         ``(n,)`` numeric series in chronological order.
     min_segment_length
-        Minimum number of rows in a segment for ruptures' PELT search (``min_size``); also used post-hoc to
-        drop candidate breakpoints that would create a shorter segment.
+        Minimum number of rows in a segment for PELT's search; also used post-hoc to drop candidate
+        breakpoints that would create a shorter segment.
     penalty
         PELT's ``pen`` parameter -- higher values detect fewer, more conservative breakpoints.
     min_effect_size
         A detected breakpoint is kept only if the absolute difference between the segment means on either
         side, divided by the pooled standard deviation (Cohen's-d-style effect size), exceeds this threshold
         -- filters out statistically-detected but practically-negligible breaks.
+    backend
+        ``"njit"`` (default) uses the in-house cumsum-accelerated PELT (l2 cost only, ~100x faster). Pass
+        ``"ruptures"`` to use the ``ruptures`` library's l2-cost PELT instead (useful for cross-checking).
 
     Returns
     -------
@@ -48,26 +58,28 @@ def detect_regime_changepoints(
         ``breakpoints`` (list of row indices where a new regime starts, after filtering),
         ``n_regimes`` (int).
     """
-    import ruptures as rpt
-
     y = np.asarray(y, dtype=np.float64)
     n = y.shape[0]
     if n < 2 * min_segment_length:
         return {"regime_id": np.zeros(n, dtype=np.int64), "breakpoints": [], "n_regimes": 1}
 
-    # "l2" (mean-shift cost) instead of "rbf" -- rbf precomputes a full pairwise kernel matrix (O(n^2)
-    # memory/time) before PELT even starts, which effectively hangs at real production series lengths
-    # (measured: did not finish at n=50,000, ~2.5 billion kernel entries). l2 is the correct model for
-    # mean-level regime shifts and avoids that blowup; see the module docstring's performance note for its
-    # own remaining (non-cumsum) per-candidate cost.
-    algo = rpt.Pelt(model="l2", min_size=min_segment_length).fit(y.reshape(-1, 1))
-    raw_breakpoints = algo.predict(pen=penalty)
-    raw_breakpoints = [bp for bp in raw_breakpoints if bp < n]  # ruptures includes n as a terminal marker
+    if backend == "njit":
+        from mlframe.signal._pelt_l2_njit import pelt_l2
+
+        raw_breakpoints = pelt_l2(y, min_segment_length, penalty)
+    elif backend == "ruptures":
+        import ruptures as rpt
+
+        algo = rpt.Pelt(model="l2", min_size=min_segment_length).fit(y.reshape(-1, 1))
+        raw_breakpoints = algo.predict(pen=penalty)
+        raw_breakpoints = [bp for bp in raw_breakpoints if bp < n]  # ruptures includes n as a terminal marker
+    else:
+        raise ValueError(f"Unknown backend: {backend!r}, expected 'njit' or 'ruptures'.")
 
     filtered_breakpoints = []
     prev_start = 0
-    for bp in raw_breakpoints:
-        next_start = raw_breakpoints[raw_breakpoints.index(bp) + 1] if raw_breakpoints.index(bp) + 1 < len(raw_breakpoints) else n
+    for i, bp in enumerate(raw_breakpoints):
+        next_start = raw_breakpoints[i + 1] if i + 1 < len(raw_breakpoints) else n
         if bp - prev_start < min_segment_length or next_start - bp < min_segment_length:
             continue
         left_segment = y[prev_start:bp]

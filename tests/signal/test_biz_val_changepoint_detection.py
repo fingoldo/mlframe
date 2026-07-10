@@ -50,3 +50,24 @@ def test_detect_regime_changepoints_short_series_returns_single_regime():
     result = detect_regime_changepoints(y, min_segment_length=10)
     assert result["n_regimes"] == 1
     assert (result["regime_id"] == 0).all()
+
+
+def test_detect_regime_changepoints_njit_backend_matches_ruptures_backend():
+    rng = np.random.default_rng(0)
+    y = np.concatenate([rng.normal(0, 1, 100), rng.normal(10, 1, 100), rng.normal(3, 1, 100)])
+
+    njit_result = detect_regime_changepoints(y, min_segment_length=15, penalty=5.0, min_effect_size=0.5, backend="njit")
+    ruptures_result = detect_regime_changepoints(y, min_segment_length=15, penalty=5.0, min_effect_size=0.5, backend="ruptures")
+
+    assert njit_result["breakpoints"] == ruptures_result["breakpoints"]
+    assert njit_result["n_regimes"] == ruptures_result["n_regimes"]
+    assert (njit_result["regime_id"] == ruptures_result["regime_id"]).all()
+
+
+def test_detect_regime_changepoints_unknown_backend_raises():
+    y = np.arange(100, dtype=np.float64)
+    try:
+        detect_regime_changepoints(y, min_segment_length=10, backend="bogus")
+        assert False, "expected ValueError"
+    except ValueError:
+        pass
