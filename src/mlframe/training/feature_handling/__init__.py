@@ -137,6 +137,9 @@ from mlframe.training.feature_handling.registry import (
 from mlframe.training.feature_handling.target_encoders import (
     LeakageSafeEncoder,
 )
+from mlframe.training.feature_handling.ordered_target_encoder import (
+    ordered_target_encode,
+)
 from mlframe.training.feature_handling.text_detection import (
     TextDetectionDecision,
     detect_text_columns,
@@ -234,6 +237,7 @@ __all__ = [
     "hgb_max_features_cap",
     # target encoders (leakage-safe)
     "LeakageSafeEncoder",
+    "ordered_target_encode",
     # text auto-detection
     "TextDetectionDecision",
     "detect_text_columns",
