@@ -277,6 +277,9 @@ from .ranking import CompositeRankEstimator
 from .panel import CompositePanelEstimator
 from .extremes import TailCompositeEstimator
 
+# Classifier gate + regression blend for zero-inflated/point-mass targets.
+from .gated_outlier import GatedOutlierEstimator
+
 # Missing-aware composite, OOF feature generator, spec stability selection.
 from .missing import MissingAwareComposite
 from .suite_features import CompositeFeatureGenerator
@@ -339,6 +342,7 @@ __all__ = [
     "PurgedTimeSeriesSplit", "make_purged_cv", "detect_base_target_leakage",
     "composite_report", "CompositeOrRawStacker",
     "CompositeDistributionEstimator", "optimize_composite", "composite_model_card",
+    "GatedOutlierEstimator",
     "engineer_temporal_bases", "BaggedCompositeEstimator", "CompositeSurvivalEstimator",
     "export_serving_spec", "load_serving_spec",
     "compare_models", "should_promote", "OrthogonalizedCompositeEstimator",
