@@ -214,6 +214,7 @@ from .sequence2vec_categorical import train_sequence2vec, sequence2vec_entity_fe
 from .relational_dfs import ChildTableSpec, compute_relational_features, stack_relational_features
 from .windowed_edge_diff import windowed_edge_aggregate_diff
 from .magnitude_sample_weight import magnitude_sample_weight
+from .boolean_pair_interactions import boolean_pair_interactions, is_binary_column
 
 __all__ = [
     "per_group_recency_weighted_mean",
@@ -326,4 +327,6 @@ __all__ = [
     "stack_relational_features",
     "windowed_edge_aggregate_diff",
     "magnitude_sample_weight",
+    "boolean_pair_interactions",
+    "is_binary_column",
 ]
