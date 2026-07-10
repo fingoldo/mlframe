@@ -286,6 +286,9 @@ from .stacking_multi_stage import MultiStageMetaFeatureStacker
 # Data-sparse-segment specialist model, rank-spliced back into the main model's predictions.
 from .segment_routed import SegmentRoutedEstimator
 
+# One OOF submodel per redundant/correlated feature block (e.g. DCD cluster), stacked by a meta-model.
+from .grouped_block_stacking import GroupedBlockStacker
+
 # Missing-aware composite, OOF feature generator, spec stability selection.
 from .missing import MissingAwareComposite
 from .suite_features import CompositeFeatureGenerator
@@ -351,6 +354,7 @@ __all__ = [
     "GatedOutlierEstimator",
     "MultiStageMetaFeatureStacker",
     "SegmentRoutedEstimator",
+    "GroupedBlockStacker",
     "engineer_temporal_bases", "BaggedCompositeEstimator", "CompositeSurvivalEstimator",
     "export_serving_spec", "load_serving_spec",
     "compare_models", "should_promote", "OrthogonalizedCompositeEstimator",
