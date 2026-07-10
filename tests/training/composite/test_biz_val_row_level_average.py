@@ -82,6 +82,43 @@ def test_row_level_then_average_mode_b_external_query():
     assert set(result["entity_id"].to_list()) == set(range(50))
 
 
+def test_biz_val_row_level_agg_stats_max_beats_mean_for_outlier_driven_label():
+    """Home Credit 5th place's multi-stat extension: when an entity's true label depends on the PRESENCE of
+    a single extreme child row (not the average), max-aggregation of row-level OOF scores should recover it
+    far better than mean-aggregation, which dilutes one outlier among many normal rows."""
+    rng = np.random.default_rng(0)
+    n_entities = 600
+    k_rows = 30
+    x_rows: list[float] = []
+    entity_ids_list: list[int] = []
+    y_entity = np.zeros(n_entities)
+    for e in range(n_entities):
+        vals = rng.normal(size=k_rows)
+        has_outlier = rng.random() < 0.4
+        if has_outlier:
+            vals[rng.integers(0, k_rows)] = rng.uniform(2.5, 4)
+        y_entity[e] = 1.0 if has_outlier else 0.0
+        x_rows.extend(vals)
+        entity_ids_list.extend([e] * k_rows)
+
+    entity_ids = np.array(entity_ids_list)
+    X_rows = pd.DataFrame({"x": x_rows})
+    y_row_broadcast = y_entity[entity_ids]
+
+    result = compute_row_level_then_average_predictions(
+        X_rows, y_row_broadcast, entity_ids,
+        model_factory=lambda: GradientBoostingRegressor(random_state=0, n_estimators=100, max_depth=3),
+        n_splits=5, random_state=0, agg_stats=("mean", "max"),
+    )
+    result_sorted = result.sort("entity_id")
+    assert set(result_sorted.columns) == {"entity_id", "row_level_avg_pred_mean", "row_level_avg_pred_max"}
+
+    auc_mean = roc_auc_score(y_entity, result_sorted["row_level_avg_pred_mean"].to_numpy())
+    auc_max = roc_auc_score(y_entity, result_sorted["row_level_avg_pred_max"].to_numpy())
+    assert auc_max > 0.9, f"expected max-aggregation AUC > 0.9, got {auc_max:.4f}"
+    assert auc_max - auc_mean > 0.25, f"expected max-aggregation to beat mean-aggregation by >0.25 AUC, got max={auc_max:.4f} vs mean={auc_mean:.4f}"
+
+
 def test_row_level_then_average_entity_order_matches_first_seen():
     X_rows = pd.DataFrame({"x": [1.0, 2.0, 3.0, 4.0]})
     entity_ids = np.array([5, 5, 2, 2])

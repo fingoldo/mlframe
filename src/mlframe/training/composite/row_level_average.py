@@ -13,11 +13,21 @@ Leakage discipline: entity-broadcast labels mean every row of one entity shares 
 row-level K-fold CV that splits rows independently of entity would leak (some of an entity's rows in train,
 others in val, both carrying the identical label). This reuses :func:`composite_oof_predictions`'s existing
 ``groups`` support (``GroupKFold``) to guarantee an entity's rows are NEVER split across folds.
+
+Also covers the Home Credit Default Risk 5th place's "per-sub-table nested row-level model -> multi-stat OOF
+aggregation" pattern: propagate an entity's target down to its child/transaction rows (one sub-table at a
+time -- installments, bureau, pos_cash, ...), train a CV'd row-level model, and aggregate the OOF row scores
+(min/max/mean/std/median) back to entity level as new features. That thread's own reported failure mode --
+"AUC boost on CV but not on the leaderboard" when child rows sharing a key got split across folds -- is
+exactly the entity-level ``GroupKFold`` leakage discipline documented above; this function already enforces
+it structurally (a leak of that kind is not possible to construct through this API), so no separate
+``NestedRowLevelOOFEncoder`` class is needed -- ``agg_stats`` below is the one genuinely missing piece
+(the original single-stat mean-only signature) that pattern needs.
 """
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Sequence
 
 import numpy as np
 import pandas as pd
@@ -39,9 +49,10 @@ def compute_row_level_then_average_predictions(
     n_splits: int = 5,
     random_state: int = 42,
     column_name: str = "row_level_avg_pred",
+    agg_stats: Optional[Sequence[str]] = None,
 ) -> pl.DataFrame:
-    """Fit a model on raw (unaggregated) child rows with an entity-broadcast label, then average its
-    per-row predictions back to one prediction per entity.
+    """Fit a model on raw (unaggregated) child rows with an entity-broadcast label, then aggregate its
+    per-row predictions back to one row per entity.
 
     Parameters
     ----------
@@ -61,12 +72,16 @@ def compute_row_level_then_average_predictions(
         themselves.
     n_splits, random_state
         Passed to the underlying group-aware OOF CV (Mode A only; Mode B fits once on the full ``X_rows``).
+    agg_stats
+        None (default) preserves the original single-column mean-only contract (``column_name``). Pass e.g.
+        ``("mean", "min", "max", "std", "median")`` for the Home Credit 5th place's multi-stat nested
+        row-level pattern -- returns one column per stat, named ``{column_name}_{stat}``.
 
     Returns
     -------
     pl.DataFrame
-        Two columns: ``entity_id`` (one row per UNIQUE entity, in first-seen order over the query entity
-        ids) and ``column_name`` (that entity's row-level predictions, averaged).
+        ``entity_id`` (one row per UNIQUE entity, in first-seen order over the query entity ids) plus either
+        ``column_name`` (``agg_stats=None``) or one ``{column_name}_{stat}`` column per requested stat.
     """
     entity_arr = np.asarray(entity_ids)
     y_arr = np.asarray(y_row_broadcast, dtype=np.float64)
@@ -83,13 +98,19 @@ def compute_row_level_then_average_predictions(
         target_entities = entity_arr
 
     df = pd.DataFrame({"entity_id": target_entities, "_pred": row_pred})
-    entity_avg = df.groupby("entity_id", sort=False)["_pred"].mean()
     # First-seen order over target_entities (not groupby's own ordering, which sorts when sort=False still
     # follows pandas' internal hash-table insertion order -- pin explicitly for a deterministic contract).
     seen_order = pd.unique(target_entities)
-    entity_avg = entity_avg.reindex(seen_order)
 
-    return pl.DataFrame({"entity_id": entity_avg.index.to_numpy(), column_name: entity_avg.to_numpy(dtype=np.float64)})
+    if agg_stats is None:
+        entity_avg = df.groupby("entity_id", sort=False)["_pred"].mean().reindex(seen_order)
+        return pl.DataFrame({"entity_id": entity_avg.index.to_numpy(), column_name: entity_avg.to_numpy(dtype=np.float64)})
+
+    entity_agg = df.groupby("entity_id", sort=False)["_pred"].agg(list(agg_stats)).reindex(seen_order)
+    cols: dict[str, np.ndarray] = {"entity_id": entity_agg.index.to_numpy()}
+    for stat in agg_stats:
+        cols[f"{column_name}_{stat}"] = entity_agg[stat].to_numpy(dtype=np.float64)
+    return pl.DataFrame(cols)
 
 
 __all__ = ["compute_row_level_then_average_predictions"]
