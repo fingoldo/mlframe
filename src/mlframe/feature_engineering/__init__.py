@@ -199,6 +199,8 @@ from .state_duration import time_since_state_change
 from .nearest_past_join import nearest_past_join
 from .as_of_aggregate import leakage_safe_aggregate
 from .random_lag_augmentation import randomize_as_of_lag
+from .row_wise_summary import row_wise_summary_stats
+from .rolling_target_correlation import rolling_target_correlation_tracker
 from .latent_interaction_svd import latent_interaction_features
 from .multi_window_aggregate import multi_window_aggregate
 from .entity_diff_features import entity_diff_features
@@ -301,6 +303,8 @@ __all__ = [
     "nearest_past_join",
     "leakage_safe_aggregate",
     "randomize_as_of_lag",
+    "row_wise_summary_stats",
+    "rolling_target_correlation_tracker",
     "latent_interaction_features",
     "multi_window_aggregate",
     "entity_diff_features",
