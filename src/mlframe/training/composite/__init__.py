@@ -295,6 +295,9 @@ from .row_level_average import compute_row_level_then_average_predictions
 # Rolling self-referential forecast chaining: stage-1 extrapolated onto the target window's own features.
 from .chained_window_forecast import ChainedWindowForecaster
 
+# Leakage-safe cross-sectional "macro factor" (group-aggregate prediction) as a per-row feature.
+from .group_aggregate_macro import predicted_group_aggregate_feature
+
 # Missing-aware composite, OOF feature generator, spec stability selection.
 from .missing import MissingAwareComposite
 from .suite_features import CompositeFeatureGenerator
@@ -363,6 +366,7 @@ __all__ = [
     "GroupedBlockStacker",
     "compute_row_level_then_average_predictions",
     "ChainedWindowForecaster",
+    "predicted_group_aggregate_feature",
     "engineer_temporal_bases", "BaggedCompositeEstimator", "CompositeSurvivalEstimator",
     "export_serving_spec", "load_serving_spec",
     "compare_models", "should_promote", "OrthogonalizedCompositeEstimator",
