@@ -22,3 +22,4 @@ from mlframe.preprocessing.auto_transform_select import select_column_transforms
 from mlframe.preprocessing.adversarial_rebin import adversarial_rebin_categorical
 from mlframe.preprocessing.regime_conditioned_imputation import regime_conditioned_median_fill
 from mlframe.preprocessing.outlier_policy import is_tree_based_model, apply_outlier_policy
+from mlframe.preprocessing.degradation_augment import augment_to_match_test_distribution, match_missingness_rate, match_noise_level
