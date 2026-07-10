@@ -183,9 +183,15 @@ def _ranknet_loss_precomputed_core(
     None-handling and the i_idx.numel() == 0 short-circuit stay in the
     outer Python wrapper -- TorchScript Optional[Tensor] requires explicit
     annotations and the wrapping check is essentially free per-call.
+
+    No ``typing.cast`` here (unlike the eager sibling functions) -- TorchScript's
+    compiler rejects ``cast`` as "builtin cannot be used as a value" on some torch
+    builds (confirmed on a 2.12.0.dev nightly). ``cast`` is a runtime no-op purely
+    for mypy narrowing, so dropping it inside a scripted function changes nothing
+    at runtime; ``F.softplus(...).mean()`` already returns ``torch.Tensor``.
     """
     score_diff_pairs = scores[i_idx] - scores[j_idx]
-    return cast(torch.Tensor, F.softplus(-score_diff_pairs).mean())
+    return F.softplus(-score_diff_pairs).mean()
 
 
 def ranknet_pairwise_loss_precomputed(
