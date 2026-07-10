@@ -60,7 +60,7 @@ def fuzzy_entity_group_features(
     value_counts_by_group = df.groupby(["group", "value"], sort=False).size()
     mode_idx = value_counts_by_group.groupby(level="group", sort=False).idxmax()
     mode_per_group = pd.Series({g: v for g, v in mode_idx.to_numpy()})
-    group_mode_match = (df["value"].to_numpy() == df["group"].map(mode_per_group).to_numpy())
+    group_mode_match = df["value"].to_numpy() == df["group"].map(mode_per_group).to_numpy()
 
     df_sorted = df.sort_values("order", kind="stable")
     grp = df_sorted.groupby(["group", "value"], sort=False)

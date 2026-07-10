@@ -59,9 +59,7 @@ def apply_group_zero_sum_constraint(
     group_weight_sum_by_code = np.bincount(group_codes, weights=weights, minlength=n_groups)
 
     with np.errstate(invalid="ignore", divide="ignore"):
-        correction_by_code = np.where(
-            group_weight_sum_by_code > 0, (group_weighted_sum_by_code - target_sum) / group_weight_sum_by_code, 0.0
-        )
+        correction_by_code = np.where(group_weight_sum_by_code > 0, (group_weighted_sum_by_code - target_sum) / group_weight_sum_by_code, 0.0)
     correction = correction_by_code[group_codes]
 
     return np.asarray(preds - correction, dtype=np.float64)

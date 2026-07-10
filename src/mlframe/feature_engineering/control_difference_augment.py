@@ -47,9 +47,7 @@ def control_difference_augment(
         ``n_augmented_per_treated * len(treated_df)`` synthesized rows, same columns as ``treated_df``.
     """
     if feature_cols is None:
-        feature_cols = [
-            c for c in treated_df.select_dtypes(include=[np.number]).columns if c in control_df.columns
-        ]
+        feature_cols = [c for c in treated_df.select_dtypes(include=[np.number]).columns if c in control_df.columns]
     feature_cols = list(feature_cols)
     if len(control_df) < 2:
         raise ValueError("control_difference_augment: control_df needs at least 2 rows to draw a difference pair")

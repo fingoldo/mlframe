@@ -171,9 +171,7 @@ def sequence2vec_entity_features(
         sequences.append(grp[token_col].astype(str).tolist())
         entity_order.append(entity)
 
-    embeddings = train_sequence2vec(
-        sequences, embedding_dim=embedding_dim, window=window, n_negative=n_negative, n_epochs=n_epochs, random_state=random_state
-    )
+    embeddings = train_sequence2vec(sequences, embedding_dim=embedding_dim, window=window, n_negative=n_negative, n_epochs=n_epochs, random_state=random_state)
 
     rows = []
     for entity, seq in zip(entity_order, sequences):
