@@ -198,6 +198,7 @@ from .fuzzy_entity import fuzzy_entity_group_features
 from .state_duration import time_since_state_change
 from .nearest_past_join import nearest_past_join
 from .as_of_aggregate import leakage_safe_aggregate
+from .random_lag_augmentation import randomize_as_of_lag
 from .latent_interaction_svd import latent_interaction_features
 from .multi_window_aggregate import multi_window_aggregate
 from .entity_diff_features import entity_diff_features
@@ -299,6 +300,7 @@ __all__ = [
     "time_since_state_change",
     "nearest_past_join",
     "leakage_safe_aggregate",
+    "randomize_as_of_lag",
     "latent_interaction_features",
     "multi_window_aggregate",
     "entity_diff_features",
