@@ -292,6 +292,9 @@ from .grouped_block_stacking import GroupedBlockStacker
 # Row-level (unaggregated child-table) modeling + post-hoc entity-averaging, group-CV leakage-safe.
 from .row_level_average import compute_row_level_then_average_predictions
 
+# Rolling self-referential forecast chaining: stage-1 extrapolated onto the target window's own features.
+from .chained_window_forecast import ChainedWindowForecaster
+
 # Missing-aware composite, OOF feature generator, spec stability selection.
 from .missing import MissingAwareComposite
 from .suite_features import CompositeFeatureGenerator
@@ -359,6 +362,7 @@ __all__ = [
     "SegmentRoutedEstimator",
     "GroupedBlockStacker",
     "compute_row_level_then_average_predictions",
+    "ChainedWindowForecaster",
     "engineer_temporal_bases", "BaggedCompositeEstimator", "CompositeSurvivalEstimator",
     "export_serving_spec", "load_serving_spec",
     "compare_models", "should_promote", "OrthogonalizedCompositeEstimator",
