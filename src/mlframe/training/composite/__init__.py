@@ -280,6 +280,9 @@ from .extremes import TailCompositeEstimator
 # Classifier gate + regression blend for zero-inflated/point-mass targets.
 from .gated_outlier import GatedOutlierEstimator
 
+# Compute-saving advisory: prune additive-residual transforms for strictly-positive, scale-like pairs.
+from .transform_priority import recommend_transform_candidates
+
 # Auxiliary-target OOF meta-features feeding a primary-target model (MoA-style multi-stage stacking).
 from .stacking_multi_stage import MultiStageMetaFeatureStacker
 
@@ -436,4 +439,6 @@ __all__ = [
     "detect_gpu_in_use", "report_to_markdown",
     # errors
     "DomainViolationError", "UnknownTransformError",
+    # compute-saving transform-candidate pruning
+    "recommend_transform_candidates",
 ]
