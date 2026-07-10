@@ -32,6 +32,8 @@ from .adasyn_smote import compute_adasyn_smote_features
 from .anchor_attention import compute_anchor_attention
 from .aux_mlp import compute_aux_mlp_features
 from .autoencoder import compute_autoencoder_features
+from .denoising_autoencoder import compute_denoising_autoencoder_features
+from .swap_noise import swap_noise_augment
 from .band_conditional_anchor import compute_band_conditional_anchor_features
 from .baseline_disagreement import compute_baseline_disagreement_features
 from .baseline_disagreement_v2 import compute_baseline_disagreement_v2_features
@@ -148,6 +150,8 @@ __all__ = [
     "compute_adversarial_flip_features",
     "compute_anchor_attention",
     "compute_autoencoder_features",
+    "compute_denoising_autoencoder_features",
+    "swap_noise_augment",
     "compute_aux_mlp_features",
     "compute_band_conditional_anchor_features",
     "compute_baseline_disagreement_features",
