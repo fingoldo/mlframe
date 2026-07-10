@@ -16,3 +16,5 @@ from mlframe.models.optimization import *
 from mlframe.models.tuning import *
 from mlframe.models.selection import *
 from mlframe.models.rf_proximity import *
+from mlframe.models.lgbm_defaults import default_lgbm_params
+from mlframe.models.additive_interaction_diagnostic import additive_interaction_diagnostic

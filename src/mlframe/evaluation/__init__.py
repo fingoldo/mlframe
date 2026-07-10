@@ -16,6 +16,17 @@ from __future__ import annotations
 
 
 from mlframe.evaluation.bootstrap import auc_ci, auc_variance, bootstrap_metric, delong_test
+from mlframe.evaluation.noise_band import cv_score_equivalence_band, is_within_noise_band
+from mlframe.evaluation.cv_delta_triage import triage_cv_delta
+from mlframe.evaluation.leak_scan import scan_temporal_leak
+from mlframe.evaluation.subpopulation_drift import subpopulation_ratio_drift_check
+from mlframe.evaluation.adversarial_feature_audit import adversarial_validation_feature_audit
+from mlframe.evaluation.cv_informativeness import cv_informativeness_check
+from mlframe.evaluation.group_leakage_guard import assert_no_group_leakage
+from mlframe.evaluation.subgroup_feature_overfit_risk import flag_subgroup_only_feature_overfit_risk
+from mlframe.evaluation.constant_group_leak_scan import constant_group_target_scan
+from mlframe.evaluation.adversarial_fold_selection import build_test_like_validation_fold
+from mlframe.evaluation.compare_cv_schemes import compare_cv_schemes
 
 
 def __getattr__(name: str):

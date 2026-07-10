@@ -422,6 +422,11 @@ from ._tta import tta_predict, tta_predict_spread
 from ._uncertainty_eval import evaluate_tta_quality
 from ._mc_dropout import mc_dropout_predict, predictive_entropy
 from ._noise_ensemble import NoiseAugmentedEnsemble
+from ._aggregate_cv_early_stopping import select_best_iteration_by_aggregate_cv
+from ._pseudo_group_reconstruction import reconstruct_pseudo_group_ids
+from ._overlapping_walk_forward_cv import OverlappingWalkForwardCV, cv_stability_check
+from ._easy_ensemble import easy_ensemble_fit_predict
+from ._direct_horizon_bucket_forecaster import DirectHorizonBucketForecaster
 
 __all__ += [
     "conformal_regression_report",
@@ -439,6 +444,12 @@ __all__ += [
     "mc_dropout_predict",
     "predictive_entropy",
     "NoiseAugmentedEnsemble",
+    "select_best_iteration_by_aggregate_cv",
+    "reconstruct_pseudo_group_ids",
+    "OverlappingWalkForwardCV",
+    "cv_stability_check",
+    "easy_ensemble_fit_predict",
+    "DirectHorizonBucketForecaster",
 ]
 
 

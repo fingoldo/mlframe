@@ -55,6 +55,11 @@ from ._legacy import (  # explicit re-exports, kept stable
 from ._mrmr_tree_rescue import MRMRTreeRescued
 from ._internals import canonical_group_token
 from ._analytic_mi_null import analytic_mi_null, analytic_mi_null_batch
+from ._null_importance import null_importance_filter
+from ._monotonic_stability import monotonic_deviation_stability_filter
+from ._boruta import boruta_select
+from ._per_fold_majority_accept import per_fold_majority_accept, seed_averaged_fold_scores
+from ._ks_stability import ks_stability_filter
 
 __all__ = [
     "MRMR",
@@ -62,6 +67,12 @@ __all__ = [
     "canonical_group_token",
     "analytic_mi_null",
     "analytic_mi_null_batch",
+    "null_importance_filter",
+    "monotonic_deviation_stability_filter",
+    "boruta_select",
+    "per_fold_majority_accept",
+    "seed_averaged_fold_scores",
+    "ks_stability_filter",
     "entropy",
     "mi",
     "conditional_mi",

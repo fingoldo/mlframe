@@ -192,6 +192,17 @@ from .graph_spectral_features import (
     graph_spectral_features,
     graph_spectral_feature_names,
 )
+from .drift_remediation import remediate_drifting_features
+from .entity_inter_event import entity_inter_event_features
+from .fuzzy_entity import fuzzy_entity_group_features
+from .state_duration import time_since_state_change
+from .nearest_past_join import nearest_past_join
+from .as_of_aggregate import leakage_safe_aggregate
+from .latent_interaction_svd import latent_interaction_features
+from .multi_window_aggregate import multi_window_aggregate
+from .entity_diff_features import entity_diff_features
+from .control_difference_augment import control_difference_augment
+from .acf_lag_selection import select_significant_lags
 
 __all__ = [
     "per_group_recency_weighted_mean",
@@ -279,4 +290,15 @@ __all__ = [
     "fuzzy_partition_names",
     "graph_spectral_features",
     "graph_spectral_feature_names",
+    "remediate_drifting_features",
+    "entity_inter_event_features",
+    "fuzzy_entity_group_features",
+    "time_since_state_change",
+    "nearest_past_join",
+    "leakage_safe_aggregate",
+    "latent_interaction_features",
+    "multi_window_aggregate",
+    "entity_diff_features",
+    "control_difference_augment",
+    "select_significant_lags",
 ]
