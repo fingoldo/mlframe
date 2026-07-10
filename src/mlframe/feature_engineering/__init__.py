@@ -218,6 +218,7 @@ from .boolean_pair_interactions import boolean_pair_interactions, is_binary_colu
 from .sentinel_missing_count import add_sentinel_missing_count_feature
 from .categorical_group_concat import concat_categorical_group
 from .binned_unique_count import binned_unique_count
+from .multi_decomposition_bank import multi_decomposition_feature_bank
 
 __all__ = [
     "per_group_recency_weighted_mean",
@@ -335,4 +336,5 @@ __all__ = [
     "add_sentinel_missing_count_feature",
     "concat_categorical_group",
     "binned_unique_count",
+    "multi_decomposition_feature_bank",
 ]
