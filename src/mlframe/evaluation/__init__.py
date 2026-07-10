@@ -27,6 +27,7 @@ from mlframe.evaluation.subgroup_feature_overfit_risk import flag_subgroup_only_
 from mlframe.evaluation.constant_group_leak_scan import constant_group_target_scan
 from mlframe.evaluation.adversarial_fold_selection import build_test_like_validation_fold
 from mlframe.evaluation.adversarial_validator import AdversarialValidator
+from mlframe.evaluation.expanding_window_leakage import detect_expanding_window_feature_leakage
 from mlframe.evaluation.compare_cv_schemes import compare_cv_schemes
 from mlframe.evaluation.blend_source_selection import check_pairwise_score_correlation
 
