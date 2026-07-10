@@ -14,13 +14,16 @@ updates:
       default-days: 7
 
   # Keep pre-commit hook revisions (ruff/black/mypy/...) from drifting behind.
+  # Temporarily disabled 2026-07-10 (open-pull-requests-limit: 0): every PR/branch this
+  # ecosystem opens triggers the repo's own CI matrix (ci.yml/Black/MyPy) on push, which was
+  # contributing to the account's Actions-minutes exhaustion alongside the Windows/macOS legs
+  # (see ci.yml's matrix comment). github-actions above stays active since it's the priority
+  # ecosystem and opens far fewer PRs. Raise back to 1-3 once the Actions-minutes budget allows.
   - package-ecosystem: "pip"
     directory: "/"
     schedule:
       interval: "weekly"
-    # The dependency graph is extras-heavy; only monitor, don't auto-bump the
-    # whole tree. github-actions above is the priority ecosystem.
-    open-pull-requests-limit: 3
+    open-pull-requests-limit: 0
     commit-message:
       prefix: "deps"
     labels:
