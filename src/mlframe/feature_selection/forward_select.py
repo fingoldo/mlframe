@@ -27,6 +27,7 @@ def forward_select(
     max_features: Optional[int] = None,
     min_improvement: float = 0.0,
     candidate_features: Optional[Sequence[Any]] = None,
+    initial_selected: Optional[Sequence[Any]] = None,
 ) -> List[Any]:
     """Greedily grow a feature subset one column at a time by best CV-score marginal improvement.
 
@@ -52,11 +53,17 @@ def forward_select(
         threshold (default 0.0: stop on any non-improvement).
     candidate_features
         Restrict the search to this column subset (default: all of ``X``'s columns).
+    initial_selected
+        Column(s) always included in every trial subset and never candidates for removal or re-selection --
+        e.g. a stacking meta-model's fixed core of first-level OOF predictions, with only raw features
+        greedily forward-selected on top (the "raw-feature-augmented meta-model" pattern). ``None``
+        (default) preserves the original empty-start behavior exactly.
 
     Returns
     -------
     list
-        Selected column names/indices, in the order they were added.
+        Selected column names/indices, in the order they were added (``initial_selected`` columns first, in
+        the order given, followed by greedily-added candidates).
     """
     from sklearn.model_selection import cross_val_score
 
@@ -66,10 +73,15 @@ def forward_select(
     def _subset(cols: List[Any]) -> Any:
         return X[cols] if is_frame else np.asarray(X)[:, cols]
 
-    selected: List[Any] = []
-    remaining = list(all_candidates)
-    best_score = -np.inf
-    cap = max_features if max_features is not None else len(all_candidates)
+    selected: List[Any] = list(initial_selected) if initial_selected is not None else []
+    remaining = [c for c in all_candidates if c not in selected]
+    if selected:
+        baseline_model = estimator_factory()
+        baseline_scores = cross_val_score(baseline_model, _subset(selected), y, cv=cv, scoring=scoring)
+        best_score = float(np.mean(baseline_scores))
+    else:
+        best_score = -np.inf
+    cap = (max_features if max_features is not None else len(all_candidates)) + len(selected)
 
     while remaining and len(selected) < cap:
         trial_scores: dict[Any, float] = {}
