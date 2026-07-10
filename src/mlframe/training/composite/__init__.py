@@ -316,6 +316,9 @@ from .segmented_model_factory import SegmentedModelFactory
 # Gate classifier hard-routes to branch regressors; gate probability stacked as a feature.
 from .gated_regression_mixture import GatedRegressionMixture
 
+# Blend an entity-specific model with a metadata/global model by per-entity observation count.
+from .count_weighted_blend import CountWeightedBlendEnsemble
+
 # Missing-aware composite, OOF feature generator, spec stability selection.
 from .missing import MissingAwareComposite
 from .suite_features import CompositeFeatureGenerator
@@ -391,6 +394,7 @@ __all__ = [
     "PseudoLabelingLoop",
     "SegmentedModelFactory",
     "GatedRegressionMixture",
+    "CountWeightedBlendEnsemble",
     "engineer_temporal_bases", "BaggedCompositeEstimator", "CompositeSurvivalEstimator",
     "export_serving_spec", "load_serving_spec",
     "compare_models", "should_promote", "OrthogonalizedCompositeEstimator",
