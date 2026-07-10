@@ -24,3 +24,4 @@ from mlframe.preprocessing.regime_conditioned_imputation import regime_condition
 from mlframe.preprocessing.outlier_policy import is_tree_based_model, apply_outlier_policy
 from mlframe.preprocessing.degradation_augment import augment_to_match_test_distribution, match_missingness_rate, match_noise_level
 from mlframe.preprocessing.rare_count_pruning import collapse_rare_categories, drop_rare_features
+from mlframe.preprocessing.align_feature_direction import align_feature_direction, apply_feature_direction
