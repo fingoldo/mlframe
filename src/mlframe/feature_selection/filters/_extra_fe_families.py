@@ -728,6 +728,11 @@ def generate_rankgauss_features(
     reads only X. Memory note: the stored array is length n_finite per column (~80 MB per rankgauss column at 10M rows)
     -- see FUTURE (mrmr_critique EX-4): store unique values + tie counts to bound recipe size while preserving the
     average-tie ranks.
+
+    NN training note: RankGauss's near-Gaussian, well-conditioned inputs converge in far fewer epochs than
+    MinMaxScaler/raw features on the same architecture (reported: 3-5 epochs vs. 50-90) -- if reusing an
+    epoch-count default tuned for MinMax/raw-feature training, lower it substantially when switching a model
+    to RankGauss-encoded inputs, or the run will overtrain/waste compute at the old epoch count.
     """
     if not isinstance(X, pd.DataFrame):
         raise TypeError(f"generate_rankgauss_features: X must be a pandas DataFrame; got " f"{type(X).__name__}")
