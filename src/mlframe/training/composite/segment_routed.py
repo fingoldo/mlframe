@@ -23,19 +23,9 @@ import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator, RegressorMixin, clone
 
+from mlframe.votenrank.rank_splice import segment_rank_splice
+
 logger = logging.getLogger(__name__)
-
-
-def _rank_splice(main_scores_segment: np.ndarray, specialist_scores_segment: np.ndarray) -> np.ndarray:
-    """Reassign the segment's OWN main-model score values to rows in the specialist's rank order.
-
-    Each row keeps a slot from the exact multiset of main-model scores the segment already had (so the
-    segment's aggregate position in the global score distribution is unchanged), but which row gets which
-    slot is now decided by the specialist's within-segment ranking rather than the main model's.
-    """
-    sorted_main_vals = np.sort(main_scores_segment)
-    specialist_rank = np.argsort(np.argsort(specialist_scores_segment))  # 0-based rank of each row within the segment
-    return sorted_main_vals[specialist_rank]
 
 
 def _select_columns(X: Any, mask: np.ndarray, columns: Optional[Sequence[Any]]) -> Any:
@@ -76,7 +66,7 @@ class SegmentRoutedEstimator(BaseEstimator, RegressorMixin):
     splice_by_rerank
         If True (default, matching the source technique), the specialist's predictions for the segment are
         NOT used directly -- only their RANK ORDER is used to permute the segment's own main-model score
-        values (see :func:`_rank_splice`). If False, the specialist's raw predictions replace the segment's
+        values (see :func:`mlframe.votenrank.rank_splice.segment_rank_splice`). If False, the specialist's raw predictions replace the segment's
         scores outright (a simpler, riskier combination when the two models' scales aren't comparable).
 
     Attributes
@@ -130,11 +120,10 @@ class SegmentRoutedEstimator(BaseEstimator, RegressorMixin):
         X_seg = _select_columns(X, seg_mask, self.specialist_features)
         specialist_pred = np.asarray(self.specialist_model_.predict(X_seg), dtype=np.float64)
 
-        out: np.ndarray = main_pred.copy()
         if self.splice_by_rerank:
-            out[seg_mask] = _rank_splice(main_pred[seg_mask], specialist_pred)
-        else:
-            out[seg_mask] = specialist_pred
+            return segment_rank_splice(main_pred, specialist_pred, seg_mask)
+        out: np.ndarray = main_pred.copy()
+        out[seg_mask] = specialist_pred
         return out
 
 
