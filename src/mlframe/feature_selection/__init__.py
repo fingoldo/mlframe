@@ -39,6 +39,7 @@ from mlframe.feature_selection.cascade_select import cascade_select
 from mlframe.feature_selection.ridge_forward_prefilter import ridge_coefficient_prefilter
 from mlframe.feature_selection.unanimous_permutation_prune import unanimous_permutation_prune
 from mlframe.feature_selection.drop_noninformative_vs_reference import drop_noninformative_vs_reference
+from mlframe.feature_selection.drop_near_noise_univariate_auc import drop_near_noise_univariate_auc
 
 __all__ = [
     # general
@@ -74,4 +75,6 @@ __all__ = [
     "unanimous_permutation_prune",
     # drop features that don't distinguish a reference/control cohort from the rest (KS-test)
     "drop_noninformative_vs_reference",
+    # cheap univariate-AUC near-noise prescreen before MRMR/DCD
+    "drop_near_noise_univariate_auc",
 ]

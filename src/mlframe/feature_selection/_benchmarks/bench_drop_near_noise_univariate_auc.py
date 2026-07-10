@@ -1,0 +1,44 @@
+"""cProfile harness for ``feature_selection.drop_near_noise_univariate_auc.drop_near_noise_univariate_auc``.
+
+Run: ``python -m mlframe.feature_selection._benchmarks.bench_drop_near_noise_univariate_auc``
+"""
+from __future__ import annotations
+
+import cProfile
+import pstats
+import time
+from io import StringIO
+
+import numpy as np
+import pandas as pd
+
+from mlframe.feature_selection.drop_near_noise_univariate_auc import drop_near_noise_univariate_auc
+
+
+def _make_dataset(n_rows: int, n_cols: int, seed: int):
+    rng = np.random.default_rng(seed)
+    y = rng.integers(0, 2, n_rows)
+    df = pd.DataFrame(rng.normal(size=(n_rows, n_cols)), columns=[f"f{i}" for i in range(n_cols)])
+    return df, y
+
+
+def _run(n_rows: int, n_cols: int) -> None:
+    df, y = _make_dataset(n_rows, n_cols, seed=0)
+    drop_near_noise_univariate_auc(df, y, tolerance=0.03)
+
+
+if __name__ == "__main__":
+    for n_rows, n_cols in [(5000, 50), (50000, 50), (50000, 500)]:
+        t0 = time.perf_counter()
+        _run(n_rows, n_cols)
+        wall = time.perf_counter() - t0
+        print(f"n_rows={n_rows:>6} n_cols={n_cols:>4} -> {wall * 1000:9.2f} ms")
+
+    profiler = cProfile.Profile()
+    profiler.enable()
+    _run(50000, 500)
+    profiler.disable()
+    buf = StringIO()
+    stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
+    stats.print_stats(15)
+    print(buf.getvalue())

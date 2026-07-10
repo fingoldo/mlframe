@@ -15,6 +15,28 @@ import numpy as np
 import pandas as pd
 
 
+def batch_univariate_auc(X: np.ndarray, y_arr: np.ndarray) -> np.ndarray:
+    """Per-column univariate AUC against a binary target, for the WHOLE ``(n_rows, n_cols)`` matrix at once.
+
+    A per-column ``sklearn.roc_auc_score`` loop pays heavy per-call overhead (``type_of_target`` validation,
+    ``label_binarize``, ``array_api_compat`` wrapping) that's identical/redundant across every column --
+    measured as the dominant cProfile cost at n_cols=500. AUC has a closed-form rank-based formula
+    (Mann-Whitney U statistic): ``auc = (sum_of_ranks_among_positives - n_pos*(n_pos+1)/2) / (n_pos*n_neg)``.
+    Computing ranks for the whole matrix in one vectorized ``np.argsort(axis=0)`` pass, instead of one
+    sklearn call per column, replaces N heavyweight Python-level calls with a single C-level batch op.
+    """
+    order = np.argsort(X, axis=0)
+    ranks = np.empty_like(order, dtype=np.float64)
+    rank_values = np.broadcast_to((np.arange(X.shape[0]) + 1)[:, None], order.shape)
+    np.put_along_axis(ranks, order, rank_values, axis=0)  # 1-based ranks; ties broken arbitrarily (matches roc_auc_score's tie handling closely enough for a sign/threshold decision)
+
+    is_pos = y_arr == 1
+    n_pos = int(is_pos.sum())
+    n_neg = len(y_arr) - n_pos
+    sum_ranks_pos = ranks[is_pos].sum(axis=0)
+    return np.asarray((sum_ranks_pos - n_pos * (n_pos + 1) / 2.0) / (n_pos * n_neg))
+
+
 def align_feature_direction(df: pd.DataFrame, y: np.ndarray, columns: Optional[Sequence[str]] = None) -> Tuple[pd.DataFrame, Dict[str, int]]:
     """Flip sign of every column whose univariate AUC against ``y`` is below 0.5.
 
@@ -37,24 +59,8 @@ def align_feature_direction(df: pd.DataFrame, y: np.ndarray, columns: Optional[S
     """
     cols = list(columns) if columns is not None else list(df.select_dtypes(include=[np.number]).columns)
     y_arr = np.asarray(y)
-
-    # A per-column sklearn.roc_auc_score loop pays heavy per-call overhead (type_of_target validation,
-    # label_binarize, array_api_compat wrapping) that's identical/redundant across every column -- measured
-    # as the dominant cProfile cost at n_cols=500. AUC has a closed-form rank-based formula (Mann-Whitney U
-    # statistic): auc = (sum_of_ranks_among_positives - n_pos*(n_pos+1)/2) / (n_pos*n_neg). Computing ranks
-    # for the WHOLE (n_rows, n_cols) matrix in one vectorized np.argsort(axis=0) pass, instead of one
-    # sklearn call per column, replaces N heavyweight Python-level calls with a single C-level batch op.
     X = df[cols].to_numpy(dtype=np.float64)
-    order = np.argsort(X, axis=0)
-    ranks = np.empty_like(order, dtype=np.float64)
-    rank_values = np.broadcast_to((np.arange(X.shape[0]) + 1)[:, None], order.shape)
-    np.put_along_axis(ranks, order, rank_values, axis=0)  # 1-based ranks; ties broken arbitrarily (matches roc_auc_score's tie handling closely enough for a sign decision)
-
-    is_pos = y_arr == 1
-    n_pos = int(is_pos.sum())
-    n_neg = len(y_arr) - n_pos
-    sum_ranks_pos = ranks[is_pos].sum(axis=0)
-    aucs = (sum_ranks_pos - n_pos * (n_pos + 1) / 2.0) / (n_pos * n_neg)
+    aucs = batch_univariate_auc(X, y_arr)
 
     flip_signs: Dict[str, int] = {}
     flipped_cols: List[str] = []
