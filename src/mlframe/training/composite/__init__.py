@@ -280,6 +280,9 @@ from .extremes import TailCompositeEstimator
 # Classifier gate + regression blend for zero-inflated/point-mass targets.
 from .gated_outlier import GatedOutlierEstimator
 
+# Auxiliary-target OOF meta-features feeding a primary-target model (MoA-style multi-stage stacking).
+from .stacking_multi_stage import MultiStageMetaFeatureStacker
+
 # Missing-aware composite, OOF feature generator, spec stability selection.
 from .missing import MissingAwareComposite
 from .suite_features import CompositeFeatureGenerator
@@ -343,6 +346,7 @@ __all__ = [
     "composite_report", "CompositeOrRawStacker",
     "CompositeDistributionEstimator", "optimize_composite", "composite_model_card",
     "GatedOutlierEstimator",
+    "MultiStageMetaFeatureStacker",
     "engineer_temporal_bases", "BaggedCompositeEstimator", "CompositeSurvivalEstimator",
     "export_serving_spec", "load_serving_spec",
     "compare_models", "should_promote", "OrthogonalizedCompositeEstimator",
