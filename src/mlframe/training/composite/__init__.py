@@ -310,6 +310,9 @@ from .regime_split_ensemble import RegimeSplitEnsemble
 # Leakage-safe semi-supervised self-training: fold-ensemble pseudo-labels, confidence filtering, iterative rounds.
 from .pseudo_labeling import PseudoLabelingLoop
 
+# One model per (cross of) explicit categorical segment keys, with incremental add/update/remove lifecycle.
+from .segmented_model_factory import SegmentedModelFactory
+
 # Missing-aware composite, OOF feature generator, spec stability selection.
 from .missing import MissingAwareComposite
 from .suite_features import CompositeFeatureGenerator
@@ -383,6 +386,7 @@ __all__ = [
     "DirectMultiHorizonEnsemble",
     "RegimeSplitEnsemble",
     "PseudoLabelingLoop",
+    "SegmentedModelFactory",
     "engineer_temporal_bases", "BaggedCompositeEstimator", "CompositeSurvivalEstimator",
     "export_serving_spec", "load_serving_spec",
     "compare_models", "should_promote", "OrthogonalizedCompositeEstimator",
