@@ -283,6 +283,9 @@ from .gated_outlier import GatedOutlierEstimator
 # Auxiliary-target OOF meta-features feeding a primary-target model (MoA-style multi-stage stacking).
 from .stacking_multi_stage import MultiStageMetaFeatureStacker
 
+# Data-sparse-segment specialist model, rank-spliced back into the main model's predictions.
+from .segment_routed import SegmentRoutedEstimator
+
 # Missing-aware composite, OOF feature generator, spec stability selection.
 from .missing import MissingAwareComposite
 from .suite_features import CompositeFeatureGenerator
@@ -347,6 +350,7 @@ __all__ = [
     "CompositeDistributionEstimator", "optimize_composite", "composite_model_card",
     "GatedOutlierEstimator",
     "MultiStageMetaFeatureStacker",
+    "SegmentRoutedEstimator",
     "engineer_temporal_bases", "BaggedCompositeEstimator", "CompositeSurvivalEstimator",
     "export_serving_spec", "load_serving_spec",
     "compare_models", "should_promote", "OrthogonalizedCompositeEstimator",
