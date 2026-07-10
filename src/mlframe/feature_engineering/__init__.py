@@ -211,6 +211,7 @@ from .acf_lag_selection import select_significant_lags
 from .two_step_target_encode import two_step_recency_weighted_target_encode
 from .polars_dynamic_window import polars_dynamic_window_aggregate
 from .sequence2vec_categorical import train_sequence2vec, sequence2vec_entity_features
+from .relational_dfs import ChildTableSpec, compute_relational_features, stack_relational_features
 
 __all__ = [
     "per_group_recency_weighted_mean",
@@ -318,4 +319,7 @@ __all__ = [
     "polars_dynamic_window_aggregate",
     "train_sequence2vec",
     "sequence2vec_entity_features",
+    "ChildTableSpec",
+    "compute_relational_features",
+    "stack_relational_features",
 ]
