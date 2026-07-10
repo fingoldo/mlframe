@@ -307,6 +307,9 @@ from .direct_multi_horizon import DirectMultiHorizonEnsemble
 # One model per market/operating regime, combined by routing or averaging.
 from .regime_split_ensemble import RegimeSplitEnsemble
 
+# Leakage-safe semi-supervised self-training: fold-ensemble pseudo-labels, confidence filtering, iterative rounds.
+from .pseudo_labeling import PseudoLabelingLoop
+
 # Missing-aware composite, OOF feature generator, spec stability selection.
 from .missing import MissingAwareComposite
 from .suite_features import CompositeFeatureGenerator
@@ -379,6 +382,7 @@ __all__ = [
     "melt_to_long_gbm_features",
     "DirectMultiHorizonEnsemble",
     "RegimeSplitEnsemble",
+    "PseudoLabelingLoop",
     "engineer_temporal_bases", "BaggedCompositeEstimator", "CompositeSurvivalEstimator",
     "export_serving_spec", "load_serving_spec",
     "compare_models", "should_promote", "OrthogonalizedCompositeEstimator",
