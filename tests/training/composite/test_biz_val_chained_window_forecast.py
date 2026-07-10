@@ -75,3 +75,25 @@ def test_chained_window_forecaster_ndarray_input():
     chained.fit(X_prev.to_numpy(), X_curr.to_numpy(), y_curr, y_target)
     pred = chained.predict(X_curr.to_numpy())
     assert pred.shape == (200,)
+
+
+def test_biz_val_chained_window_forecaster_transductive_stage1_pretraining_beats_labeled_only():
+    """The source technique's "trained ... using both train and test data" detail: stage 1's proxy target
+    is fully observed on unlabeled/test-like rows too (it never needs y_target), so folding those rows into
+    ONLY the stage-1 fit via X_prev_extra/y_curr_extra should improve stage 1's window-to-window mapping
+    when the labeled training set alone is small -- without touching stage 2, which still only sees real
+    labels."""
+    X_prev_train, X_curr_train, y_curr_train, y_target_train = _make_ar_window_dataset(n=80, seed=0)
+    X_prev_extra, _, y_curr_extra, _ = _make_ar_window_dataset(n=1500, seed=1)
+    X_prev_test, X_curr_test, _, y_target_test = _make_ar_window_dataset(n=1000, seed=2)
+
+    labeled_only = ChainedWindowForecaster(stage1_estimator=GradientBoostingRegressor(random_state=0, n_estimators=100), stage2_estimator=LinearRegression())
+    labeled_only.fit(X_prev_train, X_curr_train, y_curr_train, y_target_train)
+    mse_labeled_only = mean_squared_error(y_target_test, labeled_only.predict(X_curr_test))
+
+    with_transductive = ChainedWindowForecaster(stage1_estimator=GradientBoostingRegressor(random_state=0, n_estimators=100), stage2_estimator=LinearRegression())
+    with_transductive.fit(X_prev_train, X_curr_train, y_curr_train, y_target_train, X_prev_extra=X_prev_extra, y_curr_extra=y_curr_extra)
+    mse_with_transductive = mean_squared_error(y_target_test, with_transductive.predict(X_curr_test))
+
+    improvement = 1.0 - mse_with_transductive / mse_labeled_only
+    assert improvement > 0.3, f"expected >30% MSE reduction from transductive stage-1 pretraining, got {improvement:.4f} (labeled_only={mse_labeled_only:.4f}, with_transductive={mse_with_transductive:.4f})"

@@ -13,6 +13,15 @@ stage 1's proxy target (window[t]'s own computed quantity) and stage 2's true ta
 are DIFFERENT targets for DIFFERENT time windows, so stage 1 is simply fit once on ALL rows (``X_prev``,
 ``y_curr``) and then evaluated on ``X_curr`` -- a legitimate one-step-ahead extrapolation, not an in-sample
 prediction of anything stage 1 was ever fit to predict.
+
+Transductive stage-1 pretraining (``X_prev_extra``/``y_curr_extra`` in :meth:`fit`): stage 1's proxy target is
+computed FROM window[t] -- which is fully observed in the TEST set too (window[t] precedes the true
+unobserved forecast window[t+1], and is available at inference time, not just at train time). There is no
+label leakage in training stage 1 on the test set's own early-window data alongside train's: stage 1 never
+sees ``y_target`` (test's real, unobserved label), only ``(X_prev, y_curr)`` pairs computable from ANY row,
+labeled or not. Folding test's own ``(X_prev, y_curr)`` rows into the stage-1 fit gives it more data to learn
+the window-to-window mapping from, directly the source technique's "trained ... using both train and test
+data" detail.
 """
 from __future__ import annotations
 
@@ -60,6 +69,8 @@ class ChainedWindowForecaster(BaseEstimator, RegressorMixin):
         y_curr: np.ndarray,
         y_target: np.ndarray,
         sample_weight: Optional[np.ndarray] = None,
+        X_prev_extra: Optional[Any] = None,
+        y_curr_extra: Optional[np.ndarray] = None,
     ) -> "ChainedWindowForecaster":
         """
         Parameters
@@ -75,9 +86,22 @@ class ChainedWindowForecaster(BaseEstimator, RegressorMixin):
         y_target
             The TRUE target for the window AFTER ``X_curr`` -- unobserved at inference time, what stage 2
             ultimately forecasts.
+        X_prev_extra, y_curr_extra
+            Optional ADDITIONAL ``(X_prev, y_curr)``-shaped rows folded into the STAGE-1 fit only (never
+            stage 2, which strictly needs real ``y_target`` labels) -- e.g. the test set's own early-window
+            rows, whose proxy target is fully observed despite the test set having no real label yet (see
+            the module docstring's "Transductive stage-1 pretraining" note). Stacked onto ``X_prev``/``y_curr``
+            before the stage-1 fit; stage 2 is unaffected.
         """
+        if X_prev_extra is not None:
+            stage1_X = self._stack_rows(X_prev, X_prev_extra)
+            stage1_y = np.concatenate([np.asarray(y_curr, dtype=np.float64), np.asarray(y_curr_extra, dtype=np.float64)])
+        else:
+            stage1_X = X_prev
+            stage1_y = np.asarray(y_curr, dtype=np.float64)
+
         self.stage1_model_ = clone(self.stage1_estimator)
-        self.stage1_model_.fit(X_prev, np.asarray(y_curr, dtype=np.float64))
+        self.stage1_model_.fit(stage1_X, stage1_y)
 
         chained_pred = np.asarray(self.stage1_model_.predict(X_curr), dtype=np.float64)
         X2 = self._concat_chained(X_curr, chained_pred)
@@ -86,6 +110,19 @@ class ChainedWindowForecaster(BaseEstimator, RegressorMixin):
         fit_kwargs = {"sample_weight": sample_weight} if sample_weight is not None else {}
         self.stage2_model_.fit(X2, np.asarray(y_target, dtype=np.float64), **fit_kwargs)
         return self
+
+    @staticmethod
+    def _stack_rows(X: Any, X_extra: Any) -> Any:
+        if isinstance(X, pd.DataFrame):
+            return pd.concat([X.reset_index(drop=True), pd.DataFrame(X_extra, columns=X.columns).reset_index(drop=True) if not isinstance(X_extra, pd.DataFrame) else X_extra.reset_index(drop=True)], axis=0, ignore_index=True)
+        try:
+            import polars as pl
+            if isinstance(X, pl.DataFrame):
+                X_extra_pl = X_extra if isinstance(X_extra, pl.DataFrame) else pl.DataFrame(X_extra, schema=X.columns)
+                return pl.concat([X, X_extra_pl])
+        except ImportError:
+            pass
+        return np.concatenate([np.asarray(X, dtype=np.float64), np.asarray(X_extra, dtype=np.float64)], axis=0)
 
     def _concat_chained(self, X_curr: Any, chained_pred: np.ndarray) -> Any:
         if isinstance(X_curr, pd.DataFrame):
