@@ -304,6 +304,9 @@ from .long_format_gbm import melt_to_long_gbm_features
 # Direct (non-recursive) multi-horizon forecasting: one model per horizon block, all from origin-time features.
 from .direct_multi_horizon import DirectMultiHorizonEnsemble
 
+# One model per market/operating regime, combined by routing or averaging.
+from .regime_split_ensemble import RegimeSplitEnsemble
+
 # Missing-aware composite, OOF feature generator, spec stability selection.
 from .missing import MissingAwareComposite
 from .suite_features import CompositeFeatureGenerator
@@ -375,6 +378,7 @@ __all__ = [
     "predicted_group_aggregate_feature",
     "melt_to_long_gbm_features",
     "DirectMultiHorizonEnsemble",
+    "RegimeSplitEnsemble",
     "engineer_temporal_bases", "BaggedCompositeEstimator", "CompositeSurvivalEstimator",
     "export_serving_spec", "load_serving_spec",
     "compare_models", "should_promote", "OrthogonalizedCompositeEstimator",
