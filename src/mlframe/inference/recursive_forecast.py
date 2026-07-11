@@ -14,7 +14,7 @@ origin-time-only feature; reach for this only when it genuinely can't.
 """
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, Dict, List, Optional
 
 import numpy as np
 import pandas as pd
@@ -69,4 +69,80 @@ def recursive_multi_step_forecast(
     return np.stack(all_predictions, axis=0)
 
 
-__all__ = ["recursive_multi_step_forecast"]
+def diagnose_error_accumulation(
+    model: Any,
+    initial_features: pd.DataFrame,
+    n_steps: int,
+    lag_feature_name: str,
+    update_features_fn: Callable[[pd.DataFrame, np.ndarray, int], pd.DataFrame],
+    true_targets: np.ndarray,
+    oracle_lag_values: Optional[np.ndarray] = None,
+    accumulation_threshold: float = 2.0,
+) -> Dict[str, Any]:
+    """Opt-in diagnostic: measure how much recursive-forecast error COMPOUNDS across the horizon.
+
+    Runs ``recursive_multi_step_forecast`` on a validation window with KNOWN future targets, then reports
+    the per-step error growth curve -- optionally against an "oracle" baseline that uses the TRUE (not
+    self-predicted) lag at every step, i.e. the best-case, non-recursive error floor for the same model at
+    that step. The gap between recursive error and the oracle floor isolates exactly how much of the error
+    is compounding-induced rather than irreducible model noise, so a caller can pick a horizon beyond which
+    to switch to a direct multi-output model instead of trusting the recursive feedback loop further.
+
+    Parameters
+    ----------
+    true_targets
+        ``(n_steps, n_rows)`` ground-truth values for each forecast step (only available in a backtest /
+        validation window -- this diagnostic is for offline trustworthy-horizon calibration, not live use).
+    oracle_lag_values
+        ``(n_steps, n_rows)`` TRUE (ground-truth) value of ``lag_feature_name`` at each step, i.e. what a
+        non-recursive direct-forecast baseline would see with perfect hindsight. When omitted, only the
+        recursive error curve and its own growth ratio (relative to step 1) are reported.
+    accumulation_threshold
+        A step is flagged as no-longer-trustworthy once recursive MSE exceeds ``accumulation_threshold``
+        times the oracle MSE at that step (or, with no oracle, ``accumulation_threshold`` times step-1's
+        recursive MSE).
+
+    Returns
+    -------
+    dict
+        ``recursive_predictions`` ``(n_steps, n_rows)``, ``recursive_mse`` ``(n_steps,)``,
+        ``growth_ratio`` ``(n_steps,)`` (recursive MSE relative to step 1), ``oracle_mse`` (``(n_steps,)``
+        or ``None``), ``trustworthy_horizon`` (int -- number of leading steps, 1-indexed, that stay within
+        ``accumulation_threshold``; equals ``n_steps`` if the threshold is never crossed).
+    """
+    if true_targets.shape != (n_steps, len(initial_features)):
+        raise ValueError(f"diagnose_error_accumulation: true_targets shape {true_targets.shape} must be (n_steps={n_steps}, n_rows={len(initial_features)})")
+
+    recursive_predictions = recursive_multi_step_forecast(model, initial_features, n_steps, lag_feature_name, update_features_fn)
+    recursive_mse = np.mean((recursive_predictions - true_targets) ** 2, axis=1)
+    growth_ratio = recursive_mse / recursive_mse[0]
+
+    oracle_mse: Optional[np.ndarray] = None
+    reference_mse = np.full(n_steps, recursive_mse[0])
+    if oracle_lag_values is not None:
+        if oracle_lag_values.shape != (n_steps, len(initial_features)):
+            raise ValueError(f"diagnose_error_accumulation: oracle_lag_values shape {oracle_lag_values.shape} must be (n_steps={n_steps}, n_rows={len(initial_features)})")
+        oracle_mse = np.empty(n_steps)
+        for step in range(n_steps):
+            oracle_features = initial_features.copy(deep=False)
+            oracle_features[lag_feature_name] = oracle_lag_values[step]
+            oracle_pred = np.asarray(model.predict(oracle_features))
+            oracle_mse[step] = np.mean((oracle_pred - true_targets[step]) ** 2)
+        reference_mse = oracle_mse
+
+    trustworthy_horizon = n_steps
+    for step in range(n_steps):
+        if recursive_mse[step] > accumulation_threshold * reference_mse[step]:
+            trustworthy_horizon = step
+            break
+
+    return {
+        "recursive_predictions": recursive_predictions,
+        "recursive_mse": recursive_mse,
+        "growth_ratio": growth_ratio,
+        "oracle_mse": oracle_mse,
+        "trustworthy_horizon": trustworthy_horizon,
+    }
+
+
+__all__ = ["recursive_multi_step_forecast", "diagnose_error_accumulation"]
