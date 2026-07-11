@@ -100,3 +100,47 @@ def test_unseen_category_imputer_leaves_known_frequent_categories_untouched():
     test_df = pd.DataFrame({"cat": ["A", "B", "A", "B"]})
     out = imputer.transform(test_df)
     assert out["cat"].tolist() == ["A", "B", "A", "B"]
+
+
+def test_unseen_category_imputer_default_transform_unaffected_by_fallback_stats_flag():
+    # track_fallback_stats is a pure diagnostic add-on: default (False) must produce bit-identical output,
+    # and fallback_stats_ must stay empty, regardless of whether transform() is even called.
+    train_df, _, test_df, _ = _make_skewed_category_data(n_train=500, n_test=200, seed=5)
+
+    baseline = UnseenCategoryImputer(columns=["cat"]).fit(train_df)
+    out_baseline = baseline.transform(test_df)
+
+    tracked_off = UnseenCategoryImputer(columns=["cat"], track_fallback_stats=False).fit(train_df)
+    out_tracked_off = tracked_off.transform(test_df)
+
+    pd.testing.assert_frame_equal(out_baseline, out_tracked_off)
+    assert tracked_off.fallback_stats_ == {}
+
+
+def test_biz_val_unseen_category_imputer_fallback_stats_flags_drifted_column():
+    # Production blind spot: silent fallback gives no visibility into HOW OFTEN a column's unseen-value
+    # rate is elevated. A rising fallback rate on a column signals category drift (schema change, new
+    # category rollout, upstream bug) worth investigating -- this test proves the opt-in tracker actually
+    # separates a drifted column from a stable one by a wide, alertable margin.
+    rng = np.random.default_rng(11)
+    n = 2000
+
+    train_df = pd.DataFrame(
+        {
+            "stable": ["A"] * 1000 + ["B"] * 600 + ["C"] * 400,
+            "drifted": ["A"] * 1000 + ["B"] * 600 + ["C"] * 400,
+        }
+    )
+    stable_test = rng.choice(["A", "B", "C"], n, p=[0.5, 0.3, 0.2])
+    drifted_test = rng.choice(["A", "B", "C", "NEW1", "NEW2", "NEW3"], n, p=[0.2, 0.2, 0.2, 0.2, 0.1, 0.1])
+    test_df = pd.DataFrame({"stable": stable_test, "drifted": drifted_test})
+
+    imputer = UnseenCategoryImputer(columns=["stable", "drifted"], track_fallback_stats=True).fit(train_df)
+    imputer.transform(test_df)
+
+    stable_rate = imputer.fallback_stats_["stable"]["fallback_rate"]
+    drifted_rate = imputer.fallback_stats_["drifted"]["fallback_rate"]
+
+    assert stable_rate < 0.02, f"expected the stable column's fallback rate near 0, got {stable_rate:.4f}"
+    assert drifted_rate > 0.35, f"expected the drifted column's fallback rate to clearly exceed an alert threshold, got {drifted_rate:.4f}"
+    assert drifted_rate > stable_rate * 15, f"expected drift to be starkly distinguishable from the stable baseline, got drifted={drifted_rate:.4f} stable={stable_rate:.4f}"
