@@ -25,12 +25,52 @@ def _run(n: int, d: int) -> None:
     row_wise_summary_stats(X, stats=("mean", "std", "q10", "q50", "q90"))
 
 
+def _make_grouped_dataset(n: int, n_groups: int, d_per_group: int, seed: int) -> tuple[pd.DataFrame, dict[str, list[str]]]:
+    rng = np.random.default_rng(seed)
+    groups: dict[str, list[str]] = {}
+    blocks = []
+    for g in range(n_groups):
+        cols = [f"g{g}_f{i}" for i in range(d_per_group)]
+        groups[f"g{g}"] = cols
+        blocks.append(rng.normal(size=(n, d_per_group)))
+    all_cols = [c for cols in groups.values() for c in cols]
+    X = pd.DataFrame(np.hstack(blocks), columns=all_cols)
+    return X, groups
+
+
+def _run_grouped(n: int, n_groups: int, d_per_group: int) -> None:
+    X, groups = _make_grouped_dataset(n, n_groups, d_per_group, seed=0)
+    row_wise_summary_stats(X, stats=("mean", "std", "q10", "q50", "q90"), groups=groups)
+
+
+def _run_grouped_manual(n: int, n_groups: int, d_per_group: int) -> None:
+    X, groups = _make_grouped_dataset(n, n_groups, d_per_group, seed=0)
+    parts = [row_wise_summary_stats(X, columns=cols, stats=("mean", "std", "q10", "q50", "q90"), column_prefix=f"row_summary_{name}") for name, cols in groups.items()]
+    pd.concat(parts, axis=1)
+
+
 if __name__ == "__main__":
     for n, d in [(10_000, 30), (100_000, 30), (100_000, 200)]:
         t0 = time.perf_counter()
         _run(n, d)
         wall = time.perf_counter() - t0
         print(f"n={n:>8,} d={d:>4} -> {wall * 1000:9.2f} ms")
+
+    print("\ngrouped path (groups=) vs manual per-group call + concat:")
+    for n, n_groups, d_per_group in [(10_000, 5, 6), (100_000, 10, 20)]:
+        t0 = time.perf_counter()
+        _run_grouped(n, n_groups, d_per_group)
+        wall_grouped = time.perf_counter() - t0
+
+        t0 = time.perf_counter()
+        _run_grouped_manual(n, n_groups, d_per_group)
+        wall_manual = time.perf_counter() - t0
+
+        print(
+            f"n={n:>8,} groups={n_groups:>2} d/group={d_per_group:>3} -> "
+            f"grouped={wall_grouped * 1000:9.2f} ms, manual={wall_manual * 1000:9.2f} ms, "
+            f"speedup={wall_manual / wall_grouped:5.2f}x"
+        )
 
     profiler = cProfile.Profile()
     profiler.enable()

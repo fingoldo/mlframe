@@ -52,3 +52,71 @@ def test_row_wise_summary_stats_ignores_nan_within_row():
     X = pd.DataFrame({"a": [1.0, np.nan, 3.0], "b": [3.0, 2.0, 5.0], "c": [5.0, 4.0, 7.0]})
     result = row_wise_summary_stats(X, stats=("mean",))
     np.testing.assert_allclose(result["row_summary_mean"].to_numpy(), [3.0, 3.0, 5.0])
+
+
+def test_row_wise_summary_stats_groups_default_none_is_bit_identical_to_prior_behavior():
+    """Opt-in ``groups`` param must not change the default (flat) code path at all."""
+    X, _ = _make_dispersion_dataset(n=80, d=12, seed=3)
+    result = row_wise_summary_stats(X, stats=("mean", "std", "q10", "q50", "q90"))
+    result_explicit_none = row_wise_summary_stats(X, stats=("mean", "std", "q10", "q50", "q90"), groups=None)
+    pd.testing.assert_frame_equal(result, result_explicit_none)
+
+
+def _make_multi_scale_dataset(n: int, d_signal: int, d_noise_scale: int, seed: int):
+    """Two feature families with very different scales; target depends only on the SMALL-scale family's dispersion.
+
+    signal_* columns: N(0, 1) -- their row-wise std carries the target signal.
+    bigscale_* columns: N(0, 200) -- irrelevant to the target, but their huge scale dominates any FLAT
+    (all-columns-together) mean/std, drowning out the signal family's dispersion.
+    """
+    rng = np.random.default_rng(seed)
+    signal = rng.normal(scale=1.0, size=(n, d_signal))
+    bigscale = rng.normal(scale=200.0, size=(n, d_noise_scale))
+    cols_signal = [f"signal_{i}" for i in range(d_signal)]
+    cols_bigscale = [f"bigscale_{i}" for i in range(d_noise_scale)]
+    X = pd.DataFrame(np.hstack([signal, bigscale]), columns=cols_signal + cols_bigscale)
+    y = signal.std(axis=1) * 5.0 + rng.normal(scale=0.2, size=n)
+    return X, y, cols_signal, cols_bigscale
+
+
+def test_biz_val_row_wise_summary_stats_grouped_beats_flat_when_scales_differ_mse():
+    X, y, cols_signal, cols_bigscale = _make_multi_scale_dataset(n=400, d_signal=15, d_noise_scale=15, seed=10)
+    rng = np.random.default_rng(11)
+    perm = rng.permutation(len(y))
+    train_idx, test_idx = perm[:250], perm[250:]
+
+    flat_summary = row_wise_summary_stats(X, stats=("mean", "std", "q10", "q50", "q90"))
+    X_flat = pd.concat([X, flat_summary], axis=1)
+    flat_model = GradientBoostingRegressor(random_state=0, n_estimators=100, max_depth=3).fit(X_flat.iloc[train_idx], y[train_idx])
+    mse_flat = mean_squared_error(y[test_idx], flat_model.predict(X_flat.iloc[test_idx]))
+
+    grouped_summary = row_wise_summary_stats(
+        X, stats=("mean", "std", "q10", "q50", "q90"), groups={"signal": cols_signal, "bigscale": cols_bigscale}
+    )
+    X_grouped = pd.concat([X, grouped_summary], axis=1)
+    grouped_model = GradientBoostingRegressor(random_state=0, n_estimators=100, max_depth=3).fit(X_grouped.iloc[train_idx], y[train_idx])
+    mse_grouped = mean_squared_error(y[test_idx], grouped_model.predict(X_grouped.iloc[test_idx]))
+
+    improvement = 1.0 - mse_grouped / mse_flat
+    assert improvement > 0.5, (
+        f"expected per-group summary stats to beat a flat (all-columns) summary by >50% MSE when families "
+        f"have very different scales, got {improvement:.4f} (flat={mse_flat:.4f}, grouped={mse_grouped:.4f})"
+    )
+
+
+def test_row_wise_summary_stats_grouped_matches_manual_per_group_calls():
+    X, _, cols_signal, cols_bigscale = _make_multi_scale_dataset(n=60, d_signal=6, d_noise_scale=4, seed=12)
+    groups = {"signal": cols_signal, "bigscale": cols_bigscale}
+    grouped = row_wise_summary_stats(X, stats=("mean", "std", "q10"), groups=groups)
+
+    manual_parts = []
+    for name, cols in groups.items():
+        part = row_wise_summary_stats(X, columns=cols, stats=("mean", "std", "q10"), column_prefix=f"row_summary_{name}")
+        manual_parts.append(part)
+    manual = pd.concat(manual_parts, axis=1)
+
+    pd.testing.assert_frame_equal(grouped, manual)
+    assert set(grouped.columns) == {
+        "row_summary_signal_mean", "row_summary_signal_std", "row_summary_signal_q10",
+        "row_summary_bigscale_mean", "row_summary_bigscale_std", "row_summary_bigscale_q10",
+    }

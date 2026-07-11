@@ -10,7 +10,7 @@ neighbors/history" one.
 """
 from __future__ import annotations
 
-from typing import Optional, Sequence, Union
+from typing import Mapping, Optional, Sequence, Union
 
 import numpy as np
 import pandas as pd
@@ -19,36 +19,11 @@ _QUANTILE_STATS = {"q10": 0.1, "q50": 0.5, "q90": 0.9}
 _DEFAULT_STATS: tuple[str, ...] = ("mean", "std", "q10", "q50", "q90")
 
 
-def row_wise_summary_stats(
-    X: pd.DataFrame,
-    columns: Optional[Sequence[str]] = None,
-    stats: Sequence[Union[str, float]] = _DEFAULT_STATS,
-    column_prefix: str = "row_summary",
-) -> pd.DataFrame:
-    """Per-row summary statistics computed ACROSS a block of feature columns (not across rows).
+def _summary_stats_block(values: np.ndarray, stats: Sequence[Union[str, float]], column_prefix: str) -> dict[str, np.ndarray]:
+    """Compute the requested per-row stats for one ``(n_rows, n_cols)`` numeric block.
 
-    Parameters
-    ----------
-    X
-        Feature frame.
-    columns
-        Column subset to summarize per row (default: every numeric column of ``X``).
-    stats
-        Any of ``"mean"``, ``"std"``, ``"min"``, ``"max"``, ``"median"``; ``"q{P}"`` (e.g. ``"q10"``) or a
-        bare float in ``[0, 1]`` for an arbitrary quantile.
-    column_prefix
-        Output column-name prefix.
-
-    Returns
-    -------
-    pd.DataFrame
-        One column per requested stat, named ``{column_prefix}_{stat}``, same row count/order as ``X``.
-        NaN values in the row are ignored (``nan``-aware reductions), matching the "how does this row look
-        overall" intent even when some features are missing for that row.
+    Shared reduction core reused by both the flat (single-block) and grouped (multi-block) entry points.
     """
-    cols = list(columns) if columns is not None else list(X.select_dtypes(include=[np.number]).columns)
-    values = X[cols].to_numpy(dtype=np.float64)
-
     # np.nanquantile/np.nanmedian unconditionally take a slow per-ROW apply_along_axis path (one Python-level
     # call per row) regardless of whether any NaN is actually present, unlike np.nanmean/nanstd/nanmin/nanmax
     # (proper vectorized ufuncs) -- measured 39-54s at n=100,000 for a 5-stat block including 3 quantiles.
@@ -80,7 +55,59 @@ def row_wise_summary_stats(
             out[f"{column_prefix}_{stat_name}"] = quantile_fn(values, float(stat), axis=1)
         else:
             raise ValueError(f"row_wise_summary_stats: unrecognized stat {stat!r}")
+    return out
 
+
+def row_wise_summary_stats(
+    X: pd.DataFrame,
+    columns: Optional[Sequence[str]] = None,
+    stats: Sequence[Union[str, float]] = _DEFAULT_STATS,
+    column_prefix: str = "row_summary",
+    groups: Optional[Mapping[str, Sequence[str]]] = None,
+) -> pd.DataFrame:
+    """Per-row summary statistics computed ACROSS a block of feature columns (not across rows).
+
+    Parameters
+    ----------
+    X
+        Feature frame.
+    columns
+        Column subset to summarize per row (default: every numeric column of ``X``). Ignored when ``groups``
+        is given.
+    stats
+        Any of ``"mean"``, ``"std"``, ``"min"``, ``"max"``, ``"median"``; ``"q{P}"`` (e.g. ``"q10"``) or a
+        bare float in ``[0, 1]`` for an arbitrary quantile.
+    column_prefix
+        Output column-name prefix (flat mode) / prefix stem (grouped mode, see below).
+    groups
+        Opt-in: ``{group_name: column_names}`` to compute the SAME ``stats`` separately per named column
+        group in one call instead of flattening every column into a single summary. Different feature
+        families (e.g. price-scale vs volume-scale vs ratio columns) have very different scales/meanings --
+        a flat mean/std across all of them blurs the families together, while per-group stats keep each
+        family's signal intact. Output columns are named ``{column_prefix}_{group_name}_{stat}``. Reuses the
+        same per-row reduction core once per group -- equivalent to (but faster and more convenient than)
+        calling ``row_wise_summary_stats`` once per group and ``pd.concat``-ing the results, since the
+        source ``DataFrame`` is sliced to ``float64`` only once overall (one ``.to_numpy()`` per group,
+        same as the manual-loop alternative would need, but without per-call Python/pandas overhead or the
+        caller having to manage the concat/naming itself).
+
+    Returns
+    -------
+    pd.DataFrame
+        One column per requested stat (flat mode), or per ``group x stat`` (grouped mode), same row
+        count/order as ``X``. NaN values in the row are ignored (``nan``-aware reductions), matching the
+        "how does this row look overall" intent even when some features are missing for that row.
+    """
+    if groups is not None:
+        out_grouped: dict[str, np.ndarray] = {}
+        for group_name, group_cols in groups.items():
+            values = X[list(group_cols)].to_numpy(dtype=np.float64)
+            out_grouped.update(_summary_stats_block(values, stats, f"{column_prefix}_{group_name}"))
+        return pd.DataFrame(out_grouped, index=X.index)
+
+    cols = list(columns) if columns is not None else list(X.select_dtypes(include=[np.number]).columns)
+    values = X[cols].to_numpy(dtype=np.float64)
+    out = _summary_stats_block(values, stats, column_prefix)
     return pd.DataFrame(out, index=X.index)
 
 
