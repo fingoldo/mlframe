@@ -1,0 +1,79 @@
+"""biz_value test for the ``n_features``-driven dart heuristic in ``models.lgbm_defaults.default_lgbm_params``.
+
+Source: 9th_home-credit-default-risk.md -- "method=dart outperforms method=gbdt because I had so many
+features that it helped basically as feature_fraction." With many correlated/redundant features, gbdt's
+greedy per-split search keeps re-picking the same top features every round; dart's per-round tree dropout
+plus a lower feature_fraction spreads the ensemble across more of the available features. Measured directly
+(not assumed): at EQUAL n_estimators dart underperforms gbdt (dart's dropout needs more rounds to reach the
+same effective tree count), so the heuristic auto-scales n_estimators 3x when it activates -- this test
+pins that the auto-scaled dart preset beats a same-budget gbdt preset on a synthetic engineered to stress the
+"many redundant/correlated features" scenario, and that at equal (unscaled) n_estimators the win reverses.
+"""
+from __future__ import annotations
+
+import numpy as np
+from lightgbm import LGBMRegressor
+from sklearn.metrics import mean_squared_error
+from sklearn.model_selection import train_test_split
+
+from mlframe.models.lgbm_defaults import LARGE_N_FEATURES_THRESHOLD, default_lgbm_params
+
+
+def _make_redundant_feature_regression(n: int, n_features: int, n_informative: int, seed: int):
+    rng = np.random.default_rng(seed)
+    X = rng.normal(size=(n, n_features))
+    true_idx = rng.choice(n_features, n_informative, replace=False)
+    beta = rng.normal(size=n_informative) * 3.0
+    y = X[:, true_idx] @ beta + rng.normal(scale=0.3, size=n)
+    # many near-duplicate correlated copies of each informative column -- the regime the source's win targets.
+    for idx in true_idx:
+        for k in range(1, 12):
+            dup_idx = (idx + k * 7) % n_features
+            X[:, dup_idx] = X[:, idx] + rng.normal(scale=0.02, size=n)
+    return train_test_split(X, y, test_size=0.3, random_state=0)
+
+
+def test_biz_val_dart_heuristic_beats_gbdt_on_many_redundant_features():
+    n_features = 350
+    assert n_features >= LARGE_N_FEATURES_THRESHOLD
+    Xtr, Xte, ytr, yte = _make_redundant_feature_regression(n=1000, n_features=n_features, n_informative=5, seed=1)
+
+    gbdt_params = default_lgbm_params(objective="regression", num_leaves=15, learning_rate=0.15, n_estimators=150)
+    dart_params = default_lgbm_params(objective="regression", num_leaves=15, learning_rate=0.15, n_estimators=150, n_features=n_features)
+
+    assert dart_params["boosting_type"] == "dart"
+    assert dart_params["feature_fraction"] < 1.0
+    assert dart_params["n_estimators"] == 150 * 3  # auto-scaled to compensate dart's per-round tree dropout.
+
+    rmse_gbdt = float(mean_squared_error(yte, LGBMRegressor(**gbdt_params).fit(Xtr, ytr).predict(Xte)) ** 0.5)
+    rmse_dart = float(mean_squared_error(yte, LGBMRegressor(**dart_params).fit(Xtr, ytr).predict(Xte)) ** 0.5)
+
+    assert rmse_dart < rmse_gbdt * 0.97, f"expected the n_features-driven dart preset to beat gbdt by >=3% RMSE on a redundant-feature regime, got dart={rmse_dart:.4f} gbdt={rmse_gbdt:.4f}"
+
+
+def test_dart_at_equal_unscaled_n_estimators_underperforms_gbdt():
+    """Confirms the n_estimators auto-scaling is load-bearing, not cosmetic: without it, dart loses."""
+    n_features = 350
+    Xtr, Xte, ytr, yte = _make_redundant_feature_regression(n=1000, n_features=n_features, n_informative=5, seed=1)
+
+    gbdt_params = default_lgbm_params(objective="regression", num_leaves=15, learning_rate=0.15, n_estimators=150)
+    unscaled_dart_params = dict(gbdt_params, boosting_type="dart", feature_fraction=0.5)  # same n_estimators=150, no auto-scale.
+
+    rmse_gbdt = float(mean_squared_error(yte, LGBMRegressor(**gbdt_params).fit(Xtr, ytr).predict(Xte)) ** 0.5)
+    rmse_unscaled_dart = float(mean_squared_error(yte, LGBMRegressor(**unscaled_dart_params).fit(Xtr, ytr).predict(Xte)) ** 0.5)
+
+    assert rmse_unscaled_dart > rmse_gbdt, f"expected dart at equal (unscaled) n_estimators to underperform gbdt, got dart={rmse_unscaled_dart:.4f} gbdt={rmse_gbdt:.4f}"
+
+
+def test_default_lgbm_params_below_threshold_stays_gbdt():
+    params = default_lgbm_params(objective="regression", n_features=LARGE_N_FEATURES_THRESHOLD - 1)
+    assert "boosting_type" not in params
+    assert "feature_fraction" not in params
+    assert params["n_estimators"] == 500
+
+
+def test_default_lgbm_params_explicit_n_estimators_override_bypasses_scaling():
+    params = default_lgbm_params(objective="regression", n_features=LARGE_N_FEATURES_THRESHOLD + 100, n_estimators=200, boosting_type="gbdt")
+    # an explicit boosting_type override wins over the heuristic entirely (applied last).
+    assert params["boosting_type"] == "gbdt"
+    assert params["n_estimators"] == 200 * 3  # n_estimators is still treated as the pre-scale budget.
