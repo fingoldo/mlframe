@@ -55,3 +55,47 @@ def test_variance_gated_diff_column_naming_and_shape():
     # a-b: variance of [0,1,2,3] = 1.25 > 0.5 -> kept. a-c: variance of [-4,-1,-5,3] high -> kept.
     # b-c: variance of [-4,-2,-7,0] high -> kept. All should survive at this low threshold.
     assert set(out.columns) == {"a__diff__b", "a__diff__c", "b__diff__c"}
+
+
+def _make_noisy_diff_dataset(n: int, n_noise_cols: int, seed: int):
+    """Many independent high-variance noise columns (their pairwise diffs pass the variance gate but carry
+    zero target signal) plus the informative near-duplicate pair from ``_make_dataset``."""
+    rng = np.random.default_rng(seed)
+    df, y = _make_dataset(n=n, seed=seed)
+    for i in range(n_noise_cols):
+        df[f"noise{i}"] = rng.normal(scale=2.0, size=n)
+    return df, y
+
+
+def test_biz_val_variance_gated_diff_target_aware_prune_default_unchanged():
+    """Default behaviour (no ``prune_against_target``) must stay bit-identical to the pre-extension contract."""
+    df, y = _make_noisy_diff_dataset(n=500, n_noise_cols=10, seed=1)
+    columns = list(df.columns)
+
+    baseline = variance_gated_pairwise_diff(df, columns, min_variance=1e-4)
+    default_call = variance_gated_pairwise_diff(df, columns, min_variance=1e-4, prune_against_target=None)
+
+    pd.testing.assert_frame_equal(baseline, default_call)
+
+
+def test_biz_val_variance_gated_diff_target_aware_prune_cuts_noise_keeps_signal():
+    """The target-aware gate must retain the informative diff while cutting far more noise-diff columns than
+    the variance gate alone -- fewer downstream training columns without losing the informative feature."""
+    df, y = _make_noisy_diff_dataset(n=2000, n_noise_cols=12, seed=2)
+    columns = list(df.columns)
+
+    variance_only = variance_gated_pairwise_diff(df, columns, min_variance=1e-4)
+    target_aware = variance_gated_pairwise_diff(df, columns, min_variance=1e-4, prune_against_target=(y, 0.05))
+
+    assert "c1__diff__c2" in variance_only.columns
+    assert "c1__diff__c2" in target_aware.columns, "target-aware gate must not drop the genuinely informative diff"
+
+    assert target_aware.shape[1] < variance_only.shape[1], "target-aware gate should retain strictly fewer columns than variance-only gating"
+    reduction = 1.0 - (target_aware.shape[1] / variance_only.shape[1])
+    assert reduction > 0.5, f"expected the target-aware gate to cut more than half of the variance-surviving noise diffs, got reduction={reduction:.4f}"
+
+    auc_target_aware = roc_auc_score(
+        y,
+        LogisticRegression(max_iter=500).fit(target_aware[["c1__diff__c2"]], y).predict_proba(target_aware[["c1__diff__c2"]])[:, 1],
+    )
+    assert auc_target_aware > 0.95, f"expected the retained informative diff to still strongly recover the target, got AUC={auc_target_aware:.4f}"

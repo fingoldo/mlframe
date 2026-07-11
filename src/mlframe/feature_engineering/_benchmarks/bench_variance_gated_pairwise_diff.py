@@ -25,10 +25,25 @@ def _run(n_rows: int, n_cols: int) -> None:
     variance_gated_pairwise_diff(df, list(df.columns), min_variance=0.5)
 
 
+def _run_target_aware(n_rows: int, n_cols: int) -> None:
+    df = _make_dataset(n_rows, n_cols, seed=0)
+    rng = np.random.default_rng(1)
+    y = (rng.normal(size=n_rows) > 0).astype(int)
+    variance_gated_pairwise_diff(df, list(df.columns), min_variance=0.5, prune_against_target=(y, 0.02))
+
+
 if __name__ == "__main__":
     for n_rows, n_cols in [(2000, 50), (2000, 100), (5000, 150)]:
         t0 = time.perf_counter()
         _run(n_rows, n_cols)
+        wall = time.perf_counter() - t0
+        n_pairs = n_cols * (n_cols - 1) // 2
+        print(f"n_rows={n_rows:>5} n_cols={n_cols:>4} n_pairs={n_pairs:>6} -> {wall * 1000:9.2f} ms")
+
+    print("\n-- target-aware prune path (prune_against_target=) --")
+    for n_rows, n_cols in [(2000, 50), (2000, 100), (5000, 150)]:
+        t0 = time.perf_counter()
+        _run_target_aware(n_rows, n_cols)
         wall = time.perf_counter() - t0
         n_pairs = n_cols * (n_cols - 1) // 2
         print(f"n_rows={n_rows:>5} n_cols={n_cols:>4} n_pairs={n_pairs:>6} -> {wall * 1000:9.2f} ms")
@@ -41,3 +56,12 @@ if __name__ == "__main__":
     stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
     stats.print_stats(20)
     print(buf.getvalue())
+
+    profiler_ta = cProfile.Profile()
+    profiler_ta.enable()
+    _run_target_aware(5000, 150)
+    profiler_ta.disable()
+    buf_ta = StringIO()
+    stats_ta = pstats.Stats(profiler_ta, stream=buf_ta).sort_stats("cumulative")
+    stats_ta.print_stats(20)
+    print(buf_ta.getvalue())
