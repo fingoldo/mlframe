@@ -57,3 +57,52 @@ def test_event_proximity_decay_features_datetime_input():
     assert out["event_proximity_event0"].max() == 5.0
     peak_idx = out["event_proximity_event0"].idxmax()
     assert dates.iloc[peak_idx] == pd.Timestamp("2021-01-10")
+
+
+def test_event_proximity_decay_features_asymmetric_default_matches_symmetric():
+    """Opt-in params unset -> bit-identical to the prior symmetric-only behavior."""
+    dates = pd.Series(np.arange(50))
+    baseline = event_proximity_decay_features(dates, event_dates=[10, 30], cap=12)
+    opted_out = event_proximity_decay_features(dates, event_dates=[10, 30], cap=12, cap_before=None, cap_after=None)
+    pd.testing.assert_frame_equal(baseline, opted_out, check_exact=True)
+
+
+def test_event_proximity_decay_features_asymmetric_exact_values():
+    dates = pd.Series(np.arange(10))
+    out = event_proximity_decay_features(dates, event_dates=[5], cap=3, cap_before=8, cap_after=2)
+    # before event (idx 0..4): cap_before=8 leg; at/after (idx 5..9): cap_after=2 leg.
+    np.testing.assert_allclose(out["event_proximity_event0"].to_numpy(), [3, 4, 5, 6, 7, 2, 1, 0, 0, 0])
+    np.testing.assert_allclose(out["event_proximity_total_force"].to_numpy(), out["event_proximity_event0"].to_numpy())
+
+
+def _make_asymmetric_ramp_dataset(n_days: int, event_days: list, ramp_up: float, ramp_down: float, seed: int):
+    rng = np.random.default_rng(seed)
+    dates = pd.Series(np.arange(n_days))
+
+    # true demand builds up SLOWLY over `ramp_up` days pre-event (anticipation buildup, e.g. a promotion)
+    # but decays QUICKLY over `ramp_down` days post-event -- an asymmetric, not symmetric, proximity shape.
+    y = np.zeros(n_days, dtype=np.float64)
+    for event_day in event_days:
+        distance = np.arange(n_days) - event_day
+        before = np.maximum(0.0, ramp_up - np.abs(distance))
+        after = np.maximum(0.0, ramp_down - np.abs(distance))
+        y += np.where(distance < 0, before, after)
+    y += rng.normal(scale=0.5, size=n_days)
+
+    return dates, y
+
+
+def test_biz_val_event_proximity_decay_asymmetric_beats_symmetric_on_asymmetric_ramp():
+    event_days = [40, 100, 160]
+    dates, y = _make_asymmetric_ramp_dataset(n_days=220, event_days=event_days, ramp_up=25.0, ramp_down=5.0, seed=1)
+
+    symmetric_features = event_proximity_decay_features(dates, event_dates=event_days, cap=25)
+    r2_symmetric = cross_val_score(Ridge(alpha=1.0), symmetric_features.to_numpy(), y, cv=5, scoring="r2").mean()
+
+    asymmetric_features = event_proximity_decay_features(dates, event_dates=event_days, cap=25, cap_before=25, cap_after=5)
+    r2_asymmetric = cross_val_score(Ridge(alpha=1.0), asymmetric_features.to_numpy(), y, cv=5, scoring="r2").mean()
+
+    # measured r2_asymmetric~=0.746, r2_symmetric~=-2.22 on this synthetic (seed=1); thresholds set well
+    # below the measured margin.
+    assert r2_asymmetric > 0.65, f"expected the asymmetric decay to capture most of the asymmetric ramp signal, got R^2={r2_asymmetric:.4f}"
+    assert r2_asymmetric > r2_symmetric + 0.5, f"expected asymmetric decay to materially beat symmetric decay on an asymmetric ramp, got asymmetric={r2_asymmetric:.4f} symmetric={r2_symmetric:.4f}"

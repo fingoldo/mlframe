@@ -15,11 +15,14 @@ import pandas as pd
 from mlframe.feature_engineering.event_proximity_decay import event_proximity_decay_features
 
 
-def _run(n_days: int, n_events: int) -> None:
+def _run(n_days: int, n_events: int, asymmetric: bool = False) -> None:
     dates = pd.Series(np.arange(n_days))
     rng = np.random.default_rng(0)
     event_days = rng.choice(n_days, n_events, replace=False).tolist()
-    event_proximity_decay_features(dates, event_dates=event_days, cap=30)
+    if asymmetric:
+        event_proximity_decay_features(dates, event_dates=event_days, cap=30, cap_before=30, cap_after=10)
+    else:
+        event_proximity_decay_features(dates, event_dates=event_days, cap=30)
 
 
 if __name__ == "__main__":
@@ -27,11 +30,26 @@ if __name__ == "__main__":
         t0 = time.perf_counter()
         _run(n_days, n_events)
         wall = time.perf_counter() - t0
-        print(f"n_days={n_days:>7} n_events={n_events:>4} -> {wall * 1000:9.2f} ms")
+        print(f"symmetric   n_days={n_days:>7} n_events={n_events:>4} -> {wall * 1000:9.2f} ms")
+
+    for n_days, n_events in [(10000, 20), (100000, 20), (100000, 200)]:
+        t0 = time.perf_counter()
+        _run(n_days, n_events, asymmetric=True)
+        wall = time.perf_counter() - t0
+        print(f"asymmetric  n_days={n_days:>7} n_events={n_events:>4} -> {wall * 1000:9.2f} ms")
 
     profiler = cProfile.Profile()
     profiler.enable()
     _run(100000, 200)
+    profiler.disable()
+    buf = StringIO()
+    stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
+    stats.print_stats(15)
+    print(buf.getvalue())
+
+    profiler = cProfile.Profile()
+    profiler.enable()
+    _run(100000, 200, asymmetric=True)
     profiler.disable()
     buf = StringIO()
     stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
