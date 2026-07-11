@@ -23,9 +23,21 @@ def _run(n: int, k: int, n_calls: int) -> None:
         odds_ratio_combine(p, weights=w)
 
 
+def _run_independence_check(n: int, k: int, n_calls: int) -> None:
+    """Profile the opt-in ``check_independence=True`` path: correlated members trigger the fallback branch."""
+    rng = np.random.default_rng(1)
+    shared = rng.standard_normal(n)
+    x = shared[:, None] + 0.1 * rng.standard_normal((n, k))  # strongly correlated members (shared latent factor)
+    p = 1.0 / (1.0 + np.exp(-x))
+    for _ in range(n_calls):
+        odds_ratio_combine(p, check_independence=True, on_correlation_violation="warn")
+        odds_ratio_combine(p, check_independence=True, on_correlation_violation="fallback")
+
+
 if __name__ == "__main__":
     _run(50, 3, 1)  # warm every njit variant (single-thread + parallel, weighted + unweighted) before timing
     _run(30_000, 3, 1)
+    _run_independence_check(50, 3, 1)
 
     for n, k, n_calls in [(1_000, 10, 200), (100_000, 20, 20), (1_000_000, 5, 5)]:
         t0 = time.perf_counter()
@@ -33,10 +45,26 @@ if __name__ == "__main__":
         wall = time.perf_counter() - t0
         print(f"n={n:>9,} k={k:>2} n_calls={n_calls:>4} -> {wall * 1000:8.2f} ms total, {wall / n_calls * 1e6:8.2f} us/call-pair")
 
+    for n, k, n_calls in [(1_000, 10, 200), (100_000, 20, 20)]:
+        t0 = time.perf_counter()
+        _run_independence_check(n, k, n_calls)
+        wall = time.perf_counter() - t0
+        print(f"[independence-check] n={n:>9,} k={k:>2} n_calls={n_calls:>4} -> {wall * 1000:8.2f} ms total, {wall / n_calls * 1e6:8.2f} us/call-pair")
+
     n, k, n_calls = 100_000, 20, 50
     profiler = cProfile.Profile()
     profiler.enable()
     _run(n, k, n_calls)
+    profiler.disable()
+    buf = StringIO()
+    stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
+    stats.print_stats(15)
+    print(buf.getvalue())
+
+    n, k, n_calls = 100_000, 20, 50
+    profiler = cProfile.Profile()
+    profiler.enable()
+    _run_independence_check(n, k, n_calls)
     profiler.disable()
     buf = StringIO()
     stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")

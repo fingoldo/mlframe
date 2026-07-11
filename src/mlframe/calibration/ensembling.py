@@ -16,7 +16,11 @@ njit_parallel wins at n=1,000,000 (25.9ms vs cupy 28.2ms) — no backend dominat
 """
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
+
+from mlframe.calibration._independence_check import member_residual_correlation
 
 try:
     import numba
@@ -169,7 +173,14 @@ def _dispatch_weighted(p: np.ndarray, w: np.ndarray, clip: float) -> np.ndarray:
     return np.asarray(_odds_combine_njit_weighted(p, w, clip))
 
 
-def odds_ratio_combine(member_probs: np.ndarray, weights: np.ndarray | None = None, clip: float = 1e-7) -> np.ndarray:
+def odds_ratio_combine(
+    member_probs: np.ndarray,
+    weights: np.ndarray | None = None,
+    clip: float = 1e-7,
+    check_independence: bool = False,
+    correlation_threshold: float = 0.85,
+    on_correlation_violation: str = "warn",
+) -> np.ndarray:
     """Combine conditionally-independent member probabilities via log-odds (logit) summation.
 
     Parameters
@@ -183,17 +194,54 @@ def odds_ratio_combine(member_probs: np.ndarray, weights: np.ndarray | None = No
     clip
         Probabilities are clipped to ``[clip, 1 - clip]`` before the logit transform to avoid +/-inf logits
         from exactly-0/1 member predictions.
+    check_independence
+        Opt-in. When ``True``, empirically estimates each member's correlation against the leave-one-out
+        consensus (mean logit) of the other members (``mlframe.calibration._independence_check.
+        member_residual_correlation``) before combining, and acts on it per ``on_correlation_violation`` if
+        the conditional-independence assumption underlying log-odds summation is meaningfully violated
+        (correlated/redundant members otherwise cause systematically over-confident combined probabilities,
+        since shared evidence gets double-counted). Costs an extra O(n*k^2) pass; default ``False`` keeps
+        the hot path exactly as before.
+    correlation_threshold
+        Mean absolute member-vs-consensus correlation above which members are considered meaningfully
+        redundant/correlated (0 = a member's logit is unrelated to what the others already say, ~1 =
+        the member is essentially a redundant re-measurement of the same signal). Only used when
+        ``check_independence=True``. Default 0.85: genuinely conditionally-independent members still show
+        moderate (~0.5-0.7) consensus correlation purely through their shared dependence on y, so the
+        threshold sits above that band and only fires on members carrying near-duplicate signal.
+    on_correlation_violation
+        ``"warn"`` (default when triggered): emit a ``UserWarning`` and still return the ordinary log-odds
+        sum. ``"fallback"``: emit a ``UserWarning`` AND return an equal-weight log opinion pool instead
+        (``sigmoid(mean_i logit(p_i))``, i.e. the geometric mean of the member odds) — bounded amplification
+        that does not compound double-counted shared evidence the way an unbounded sum does. Ignored when
+        ``check_independence=False``.
 
     Returns
     -------
     np.ndarray
-        ``(n_samples,)`` combined probability, computed as ``sigmoid(sum_i w_i * logit(p_i))``. This is the
-        conditional-independence-correct combination rule; it is NOT the same as ``mean(p_i)`` or
-        ``prod(p_i)`` (both of which are ad-hoc and do not correspond to any probabilistic combination law).
+        ``(n_samples,)`` combined probability, computed as ``sigmoid(sum_i w_i * logit(p_i))`` (or the
+        correlation-triggered geometric-mean fallback above). This is the conditional-independence-correct
+        combination rule; it is NOT the same as ``mean(p_i)`` or ``prod(p_i)`` (both of which are ad-hoc and
+        do not correspond to any probabilistic combination law).
     """
     p = np.asarray(member_probs, dtype=np.float64)
     if p.ndim != 2:
         raise ValueError(f"odds_ratio_combine: member_probs must be 2D (n_samples, n_members); got shape {p.shape}")
+
+    if check_independence and p.shape[1] >= 2:
+        diag = member_residual_correlation(p, clip=clip)
+        mean_abs_corr = diag["mean_abs_residual_correlation"]
+        if mean_abs_corr > correlation_threshold:
+            warnings.warn(
+                f"odds_ratio_combine: mean absolute residual correlation between members ({mean_abs_corr:.3f}) "
+                f"exceeds correlation_threshold ({correlation_threshold:.3f}) -> conditional-independence "
+                "assumption looks violated; log-odds summation will over-state confidence. "
+                + ("Falling back to equal-weight log opinion pool." if on_correlation_violation == "fallback" else "Proceeding with log-odds summation anyway (on_correlation_violation='warn')."),
+                stacklevel=2,
+            )
+            if on_correlation_violation == "fallback":
+                equal_weights = np.full(p.shape[1], 1.0 / p.shape[1], dtype=np.float64)
+                return _dispatch_weighted(p, equal_weights, clip)
 
     if weights is not None:
         w = np.asarray(weights, dtype=np.float64)
