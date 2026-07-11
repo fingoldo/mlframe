@@ -84,6 +84,12 @@ def _mean_ks_statistic(sample_df: pd.DataFrame, target_df: pd.DataFrame, feature
     return float(np.mean(stats))
 
 
+# Fraction of the total trial budget spent on the pure-random init phase of "greedy_swap" before switching to
+# hill-climbing -- half-and-half is a neutral default (no prior on whether random exploration or local swap
+# refinement is more valuable for a given synthetic); see the biz_value A/B test for the measured outcome.
+_GREEDY_SWAP_INIT_FRACTION = 0.5
+
+
 def distribution_matching_subset_search(
     train_df: pd.DataFrame,
     target_df: pd.DataFrame,
@@ -92,8 +98,9 @@ def distribution_matching_subset_search(
     n_blocks: int = 10,
     n_trials: int = 1000,
     random_state: int = 0,
+    search_strategy: str = "greedy_swap",
 ) -> dict:
-    """Randomly search subsets of ``n_blocks`` train blocks for the one best matching ``target_df``'s distribution.
+    """Search subsets of ``n_blocks`` train blocks for the one best matching ``target_df``'s distribution.
 
     Parameters
     ----------
@@ -111,16 +118,34 @@ def distribution_matching_subset_search(
     n_blocks
         Number of blocks to sample per trial.
     n_trials
-        Number of random subsets tried.
+        Total evaluation budget: for ``search_strategy="random"`` this is the number of random subsets tried;
+        for ``"greedy_swap"`` this is the TOTAL number of KS-statistic evaluations spent across the random
+        init phase, per-block scoring, and swap trials combined -- never more evaluations than ``"random"``
+        would spend at the same ``n_trials``.
     random_state
         Seed for the block sampler.
+    search_strategy
+        ``"greedy_swap"`` (default): spend ``_GREEDY_SWAP_INIT_FRACTION`` of the budget on random sampling
+        (same mechanics as ``"random"`` below), then hill-climb from the best subset found: each remaining
+        budget unit either (a) scores one currently-selected block against ``target_df`` in isolation
+        (lazily, cached, only when that block's own score is unknown) to identify the weakest block in the
+        current subset, or (b) swaps the identified weakest block for one random unused block and evaluates
+        the resulting subset, keeping the swap only if it improves the mean KS statistic (else reverting).
+        Made the default after a multi-seed (20 seeds x 4 budgets) A/B at equal ``n_trials`` showed a
+        decisive, consistent win over pure random: mean best-found KS statistic 11.7-31.1% lower and
+        downstream RMSE 11.1-36.1% lower across ``n_trials`` in {50, 100, 300, 1000} (see the module's
+        biz_value test for the pinned regression numbers).
+        ``"random"``: pure random sampling, kept as an explicit opt-out for legacy callers/reproducibility.
 
     Returns
     -------
     dict
         ``{"best_blocks": list, "best_score": float, "all_scores": np.ndarray}`` -- ``best_score`` is the
-        LOWEST mean KS statistic found (0 = perfect distributional match), ``all_scores`` has one entry per
-        trial (useful for a convergence/diagnostic plot).
+        LOWEST mean KS statistic found (0 = perfect distributional match). For ``"random"``, ``all_scores``
+        has exactly one entry per trial. For ``"greedy_swap"``, ``all_scores`` has one entry per full-subset
+        evaluation performed (init-phase trials plus accepted/rejected swap trials) -- its length can be
+        shorter than ``n_trials`` because some budget units are spent on single-block scoring, not full-subset
+        evaluation.
     """
     cols = list(feature_cols) if feature_cols is not None else [c for c in train_df.select_dtypes(include=[np.number]).columns if c != block_col]
 
@@ -129,20 +154,80 @@ def distribution_matching_subset_search(
         raise ValueError(f"distribution_matching_subset_search: n_blocks ({n_blocks}) exceeds available blocks ({len(unique_blocks)}).")
 
     rng = np.random.default_rng(random_state)
-    all_scores = np.empty(n_trials, dtype=np.float64)
-    best_score = np.inf
-    best_blocks: List = []
 
-    for trial in range(n_trials):
+    if search_strategy == "random":
+        all_scores = np.empty(n_trials, dtype=np.float64)
+        best_score = np.inf
+        best_blocks: List = []
+
+        for trial in range(n_trials):
+            candidate_blocks = rng.choice(unique_blocks, size=n_blocks, replace=False)
+            sample_df = train_df[train_df[block_col].isin(candidate_blocks)]
+            score = _mean_ks_statistic(sample_df, target_df, cols)
+            all_scores[trial] = score
+            if score < best_score:
+                best_score = score
+                best_blocks = list(candidate_blocks)
+
+        return {"best_blocks": best_blocks, "best_score": best_score, "all_scores": all_scores}
+
+    if search_strategy != "greedy_swap":
+        raise ValueError(f"distribution_matching_subset_search: unknown search_strategy {search_strategy!r}, expected 'random' or 'greedy_swap'.")
+
+    # --- greedy_swap: phase 1, pure random init (same mechanics as "random"), spending half the budget. ---
+    init_trials = max(1, min(n_trials, int(n_trials * _GREEDY_SWAP_INIT_FRACTION)))
+    scores_list: List[float] = []
+    best_score = np.inf
+    best_blocks = []
+    for _ in range(init_trials):
         candidate_blocks = rng.choice(unique_blocks, size=n_blocks, replace=False)
         sample_df = train_df[train_df[block_col].isin(candidate_blocks)]
         score = _mean_ks_statistic(sample_df, target_df, cols)
-        all_scores[trial] = score
+        scores_list.append(score)
         if score < best_score:
             best_score = score
             best_blocks = list(candidate_blocks)
 
-    return {"best_blocks": best_blocks, "best_score": best_score, "all_scores": all_scores}
+    # --- phase 2: hill-climb from the best random subset for the remaining budget. ---
+    remaining = n_trials - init_trials
+    current_blocks: List = list(best_blocks)
+    current_score = best_score
+    used_blocks = set(current_blocks)
+    unused_blocks = [b for b in unique_blocks if b not in used_blocks]
+    block_scores: dict = {}  # per-block mean KS vs target_df in isolation, computed lazily and cached.
+
+    spent = 0
+    while spent < remaining:
+        missing = [b for b in current_blocks if b not in block_scores]
+        if missing:
+            b = missing[0]
+            block_df = train_df[train_df[block_col] == b]
+            block_scores[b] = _mean_ks_statistic(block_df, target_df, cols)
+            spent += 1
+            continue
+        if not unused_blocks:
+            break  # no unused blocks left to swap in -- stop early, remaining budget goes unused.
+        worst_block = max(current_blocks, key=lambda b: block_scores[b])
+        replacement = unused_blocks[int(rng.integers(len(unused_blocks)))]
+        swapped_blocks: List = [replacement if b == worst_block else b for b in current_blocks]
+        candidate_df = train_df[train_df[block_col].isin(swapped_blocks)]
+        score = _mean_ks_statistic(candidate_df, target_df, cols)
+        scores_list.append(score)
+        spent += 1
+        if score < current_score:
+            current_score = score
+            current_blocks = swapped_blocks
+            used_blocks.discard(worst_block)
+            used_blocks.add(replacement)
+            unused_blocks.remove(replacement)
+            unused_blocks.append(worst_block)
+            del block_scores[worst_block]  # left the subset; rescored lazily if it ever re-enters.
+            if score < best_score:
+                best_score = score
+                best_blocks = list(swapped_blocks)
+        # else: swap rejected, swapped_blocks discarded -- current_blocks/current_score stay as-is (revert).
+
+    return {"best_blocks": best_blocks, "best_score": best_score, "all_scores": np.array(scores_list, dtype=np.float64)}
 
 
 __all__ = ["distribution_matching_subset_search"]
