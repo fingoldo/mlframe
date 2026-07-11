@@ -134,6 +134,12 @@ class CompositeHPOResult:
     ``cv_score`` is retained as a read-only backward-compatible alias of
     ``selection_score`` (older callers); prefer ``selection_score`` in new code so
     the optimistic-bias caveat is visible at the call site.
+
+    ``trial_oof_pool`` is populated only when ``optimize_composite`` was called
+    with ``collect_oof_pool=True``: a list of ``(n_rows,)`` leakage-free OOF
+    prediction arrays, one per trial in ``trials`` order (``NaN`` where a fold
+    failed) -- a free, diverse stacking-pool harvested from hyperparameter
+    search that would otherwise be discarded. ``None`` when not collected.
     """
 
     transform: str
@@ -143,6 +149,7 @@ class CompositeHPOResult:
     backend: str
     n_trials: int
     trials: List[Tuple[str, Dict[str, Any], float]] = field(default_factory=list)
+    trial_oof_pool: Optional[List[np.ndarray]] = None
 
     @property
     def cv_score(self) -> float:
@@ -232,16 +239,36 @@ def _cv_score_candidate(
     inner_factory: Callable[[], Any],
     splits: Sequence[Tuple[np.ndarray, np.ndarray]],
     scorer: Callable[[np.ndarray, np.ndarray], float],
-) -> float:
+    collect_oof: bool = False,
+    trial: Optional[Any] = None,
+) -> Any:
     """Mean leakage-free CV OOS error for one candidate.
 
     For each fold the composite (transform params + inner estimator) is fit on
     the train rows ONLY and scored on the held-out rows in original ``y`` scale.
     A fold that raises (degenerate domain, singular inner) contributes ``inf``
     so the candidate is penalised, never aborting the whole search.
+
+    ``collect_oof=True`` additionally builds this candidate's full-length OOF
+    prediction array (each row's prediction from the fold where it was held
+    out; ``NaN`` where a fold failed) and returns ``(score, oof)`` instead of
+    just ``score`` -- the array a caller can harvest as a free, leakage-free
+    stacking-pool member from every HPO trial, not just the winner.
+
+    ``trial`` (an Optuna trial, when the Optuna backend + pruner are active)
+    turns this into a PRUNABLE evaluation: after each fold the running mean
+    score-so-far is reported via ``trial.report(score, step=fold_index)`` and
+    ``trial.should_prune()`` is checked -- an unpromising candidate is abandoned
+    mid-CV (raising ``optuna.TrialPruned``) instead of paying for every
+    remaining fold, the same "stop unpromising trials early" MedianPruner
+    pattern Optuna applies to per-boosting-round curves, applied here at the
+    coarser per-CV-fold granularity this black-box ``evaluate`` interface
+    actually has visibility into (the inner estimator's own boosting rounds
+    are opaque to this harness -- it only sees one final score per fold).
     """
     fold_scores: List[float] = []
-    for train_idx, test_idx in splits:
+    oof: Optional[np.ndarray] = np.full(y.shape[0], np.nan, dtype=np.float64) if collect_oof else None
+    for fold_idx, (train_idx, test_idx) in enumerate(splits):
         if train_idx.size == 0 or test_idx.size == 0:
             fold_scores.append(float("inf"))
             continue
@@ -252,12 +279,22 @@ def _cv_score_candidate(
             est.fit(X_tr, y_tr)
             pred = np.asarray(est.predict(X_te), dtype=np.float64)
             fold_scores.append(float(scorer(y_te, pred)))
+            if oof is not None:
+                oof[test_idx] = pred
         except Exception as err:  # -- penalise, don't crash search
             logger.debug("optimize_composite: candidate %r/%r fold failed: %r", transform_name, inner_params, err)
             fold_scores.append(float("inf"))
-    if not fold_scores:
-        return float("inf")
-    return float(np.mean(fold_scores))
+        if trial is not None and fold_idx < len(splits) - 1:
+            running_score = float(np.mean(fold_scores))
+            trial.report(running_score, step=fold_idx)
+            if trial.should_prune():
+                import optuna  # lazy: trial is only non-None on the Optuna backend, so this import always succeeds
+
+                raise optuna.TrialPruned(f"optimize_composite: pruned {transform_name!r}/{inner_params!r} after fold {fold_idx} (running score {running_score:.6g}).")
+    score = float(np.mean(fold_scores)) if fold_scores else float("inf")
+    if collect_oof:
+        return score, oof
+    return score
 
 
 def _resolve_splits(
@@ -327,6 +364,9 @@ def optimize_composite(
     time_ordering: Optional[Any] = None,
     random_state: int = 0,
     prefer_optuna: bool = True,
+    collect_oof_pool: bool = False,
+    pruner: Any = None,
+    conditional_inner_space_fn: Optional[Callable[[Any, str], Dict[str, Any]]] = None,
 ) -> CompositeHPOResult:
     """Jointly optimise (transform, inner hyperparameters) for a composite.
 
@@ -363,6 +403,40 @@ def optimize_composite(
     prefer_optuna
         When True (default) use Optuna if importable; set False to force the
         random-search fallback (used by the fallback unit test).
+    collect_oof_pool
+        When True, every trial's leakage-free OOF prediction array is retained
+        and returned on ``CompositeHPOResult.trial_oof_pool`` -- a free, diverse
+        stacking-pool harvested from the search (not just the winner). Off by
+        default since it holds ``n_trials`` extra ``(n_rows,)`` float64 arrays
+        in memory; opt in only when you intend to use them for stacking.
+    pruner
+        Optuna backend only (ignored by the random-search fallback). ``None``
+        (default -- disabled) runs every trial to completion. Pass ``"auto"``
+        for ``optuna.pruners.MedianPruner()``, or any ``optuna.pruners.*``
+        instance for a different policy (e.g. ``HyperbandPruner()``).
+        NOT a default-on wasted-work elimination: a wall-time A/B
+        (``_benchmarks/bench_hpo_pruner.py``, 40 trials, n=3000, cv=6) measured
+        the default ``MedianPruner`` cutting wall time ~45% (3045ms -> 1671ms,
+        12/40 trials completed) but WORSENING the reported ``selection_score``
+        (0.564 -> 1.510) in that scenario -- pruning compares a candidate's
+        running per-fold mean against OTHER candidates' running means at the
+        SAME fold step, which is only a fair comparison when per-fold score
+        variance is homogeneous across candidates; here different
+        (transform, depth) pairs have genuinely different per-fold noise
+        profiles, so an early bad fold can prune a candidate that would have
+        recovered by fold 6. This is exactly the "no tradeoff optimizations"
+        case (CLAUDE.md) -- a real speed win that risks the actual selection
+        quality the whole search exists to protect -- so it ships opt-in with
+        the honest numbers, never as an unvalidated default.
+    conditional_inner_space_fn
+        Optuna backend only. ``(trial, transform_name) -> {param_name: value}``,
+        called INSTEAD of the flat ``inner_spaces`` dict when given -- Optuna's
+        native "define-by-run" pattern: the callback samples params directly off
+        ``trial`` (``trial.suggest_categorical``/``suggest_int``/``suggest_float``)
+        and can branch on values it already sampled (e.g. only suggest
+        ``num_leaves`` when ``boosting_type != "dart"``), unlike the static
+        ``inner_spaces`` mapping which samples every param unconditionally on
+        every trial. ``None`` (default) keeps the existing flat-space behaviour.
 
     Returns
     -------
@@ -387,10 +461,11 @@ def optimize_composite(
     splits = _resolve_splits(X, n_rows, cv, None if time_ordering is None else np.asarray(time_ordering))
 
     trials_log: List[Tuple[str, Dict[str, Any], float]] = []
+    oof_pool: Optional[List[np.ndarray]] = [] if collect_oof_pool else None
 
-    def _evaluate(transform_name: str, inner_params: Dict[str, Any]) -> float:
+    def _evaluate(transform_name: str, inner_params: Dict[str, Any], trial: Optional[Any] = None) -> float:
         """CV-score one (transform, inner-params) candidate and append it to ``trials_log``."""
-        score = _cv_score_candidate(
+        result = _cv_score_candidate(
             X, y_arr,
             base_column=base_column,
             transform_name=transform_name,
@@ -398,7 +473,17 @@ def optimize_composite(
             inner_factory=inner_factory,
             splits=splits,
             scorer=scorer,
+            collect_oof=collect_oof_pool,
+            trial=trial,
         )
+        score: float
+        if collect_oof_pool:
+            score, oof = result
+            score = float(score)
+            assert oof_pool is not None
+            oof_pool.append(oof)
+        else:
+            score = float(result)
         trials_log.append((transform_name, dict(inner_params), score))
         return score
 
@@ -409,6 +494,8 @@ def optimize_composite(
         random_state=random_state,
         prefer_optuna=prefer_optuna,
         evaluate=_evaluate,
+        pruner=pruner,
+        conditional_inner_space_fn=conditional_inner_space_fn,
     )
 
     # Re-fit the winner on ALL rows for the returned estimator.
@@ -423,6 +510,7 @@ def optimize_composite(
         backend=backend,
         n_trials=n_trials,
         trials=trials_log,
+        trial_oof_pool=oof_pool,
     )
 
 
@@ -433,12 +521,18 @@ def _run_search(
     n_trials: int,
     random_state: int,
     prefer_optuna: bool,
-    evaluate: Callable[[str, Dict[str, Any]], float],
+    evaluate: Callable[..., float],
+    pruner: Any = None,
+    conditional_inner_space_fn: Optional[Callable[[Any, str], Dict[str, Any]]] = None,
 ) -> Tuple[str, str, Dict[str, Any], float]:
     """Drive the chosen backend; return (backend, transform, params, score).
 
     Both backends call the SAME ``evaluate`` objective so the fallback is a
-    drop-in for Optuna and the two are directly comparable.
+    drop-in for Optuna and the two are directly comparable. ``pruner`` and
+    ``conditional_inner_space_fn`` are Optuna-only and silently ignored by the
+    random-search fallback (which has no trial object / running-score signal to
+    prune on, and samples via a plain ``random.Random`` rather than Optuna's
+    trial API that define-by-run conditioning depends on).
     """
     optuna = None
     if prefer_optuna:
@@ -449,7 +543,7 @@ def _run_search(
             optuna = None
 
     if optuna is not None:
-        return _search_optuna(optuna, transform_candidates, inner_spaces, n_trials, random_state, evaluate)
+        return _search_optuna(optuna, transform_candidates, inner_spaces, n_trials, random_state, evaluate, pruner, conditional_inner_space_fn)
     return _search_random(transform_candidates, inner_spaces, n_trials, random_state, evaluate)
 
 
@@ -459,7 +553,9 @@ def _search_optuna(
     inner_spaces: Dict[str, HPOSpace],
     n_trials: int,
     random_state: int,
-    evaluate: Callable[[str, Dict[str, Any]], float],
+    evaluate: Callable[..., float],
+    pruner: Any = None,
+    conditional_inner_space_fn: Optional[Callable[[Any, str], Dict[str, Any]]] = None,
 ) -> Tuple[str, str, Dict[str, Any], float]:
     """TPE search over the joint (transform, inner) space via Optuna."""
     optuna.logging.set_verbosity(optuna.logging.WARNING)
@@ -467,15 +563,35 @@ def _search_optuna(
     def _objective(trial: Any) -> float:
         """Optuna trial objective: sample a (transform, inner-params) candidate from the joint space and delegate scoring to ``evaluate``."""
         transform_name = trial.suggest_categorical("transform", list(transform_candidates))
-        params = {name: sp.suggest(trial, name) for name, sp in inner_spaces.items()}
-        return evaluate(transform_name, params)
+        if conditional_inner_space_fn is not None:
+            params = conditional_inner_space_fn(trial, transform_name)
+        else:
+            params = {name: sp.suggest(trial, name) for name, sp in inner_spaces.items()}
+        # Stash the RESOLVED param dict as a user attr rather than reading it back off ``trial.params`` after the
+        # fact: under a conditional space, ``trial.params`` records every ``trial.suggest_*`` call made while
+        # branching (e.g. a "use_leaf_bonus" gate variable), which are not themselves valid estimator kwargs and
+        # would otherwise leak into ``best_params`` and break ``inner.set_params(**best_params)`` downstream.
+        trial.set_user_attr("resolved_params", dict(params))
+        trial.set_user_attr("resolved_transform", transform_name)
+        return evaluate(transform_name, params, trial=trial)
 
     sampler = optuna.samplers.TPESampler(seed=random_state)
-    study = optuna.create_study(direction="minimize", sampler=sampler)
+    if pruner == "auto":
+        resolved_pruner = optuna.pruners.MedianPruner()
+    elif pruner is None:
+        # optuna.create_study(pruner=None) does NOT disable pruning -- Optuna itself treats None as "use its own
+        # default" (MedianPruner), silently ignoring the caller's intent to opt out. NopPruner is the actual
+        # no-op; without this translation ``pruner=None`` would pass through as a no-op wish that Optuna quietly
+        # overrides, which a biz_value test caught directly (a completed-trial count that should have matched
+        # n_trials exactly under "no pruning" came back short).
+        resolved_pruner = optuna.pruners.NopPruner()
+    else:
+        resolved_pruner = pruner
+    study = optuna.create_study(direction="minimize", sampler=sampler, pruner=resolved_pruner)
     study.optimize(_objective, n_trials=n_trials, show_progress_bar=False)
     best = study.best_trial
-    best_transform = best.params["transform"]
-    best_params = {name: best.params[name] for name in inner_spaces if name in best.params}
+    best_transform = str(best.user_attrs["resolved_transform"])
+    best_params = dict(best.user_attrs["resolved_params"])
     return "optuna", best_transform, best_params, float(best.value)
 
 
