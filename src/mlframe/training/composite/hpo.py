@@ -41,6 +41,7 @@ import itertools
 import logging
 import math
 import random
+import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
@@ -54,7 +55,14 @@ from ..utils import coerce_to_1d_numpy as _to_1d_numpy
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["optimize_composite", "CompositeHPOResult", "HPOSpace"]
+__all__ = [
+    "optimize_composite",
+    "CompositeHPOResult",
+    "HPOSpace",
+    "PruningStats",
+    "OOFPoolSelectionResult",
+    "select_oof_pool_ensemble",
+]
 
 
 # ----------------------------------------------------------------------
@@ -119,6 +127,34 @@ class HPOSpace:
 
 
 @dataclass
+class PruningStats:
+    """ROI of Optuna pruning for one :func:`optimize_composite` call.
+
+    Pruning (``pruner=`` on :func:`optimize_composite`) abandons an unpromising
+    trial mid-CV, but ``optuna.TrialPruned`` alone gives no visibility into
+    whether that actually saved meaningful compute -- a user deciding whether
+    the selection-quality risk (documented on ``optimize_composite``'s
+    ``pruner`` param) is worth taking needs the ROI number, not just a trial
+    count. Wall-clock is measured per trial (start of the objective to the
+    point it returns or raises ``TrialPruned``); ``estimated_wallclock_saved_seconds``
+    compares each pruned trial's actual elapsed time against the MEDIAN
+    completed-trial duration (robust to a couple of unusually fast/slow
+    trials) -- i.e. "how much of a full trial's typical cost did abandoning
+    this one early avoid", summed over every pruned trial. Zero (not
+    negative) is floored per-trial: a pruned trial that happened to run
+    LONGER than the completed-trial median (rare, but possible when a slow
+    fold is evaluated before the prune check) contributes no "saving", never
+    a negative one.
+    """
+
+    n_trials_completed: int
+    n_trials_pruned: int
+    median_completed_trial_seconds: float
+    total_pruned_elapsed_seconds: float
+    estimated_wallclock_saved_seconds: float
+
+
+@dataclass
 class CompositeHPOResult:
     """Outcome of :func:`optimize_composite`.
 
@@ -140,6 +176,12 @@ class CompositeHPOResult:
     prediction arrays, one per trial in ``trials`` order (``NaN`` where a fold
     failed) -- a free, diverse stacking-pool harvested from hyperparameter
     search that would otherwise be discarded. ``None`` when not collected.
+
+    ``pruning_stats`` is populated whenever the Optuna backend ran with a
+    ``pruner`` (any value other than the default ``None``): the actual ROI of
+    pruning for this call (trials completed vs. pruned, and an estimated
+    wall-clock time saved) -- see :class:`PruningStats`. ``None`` on the
+    random-search fallback or when no pruner was requested.
     """
 
     transform: str
@@ -150,6 +192,7 @@ class CompositeHPOResult:
     n_trials: int
     trials: List[Tuple[str, Dict[str, Any], float]] = field(default_factory=list)
     trial_oof_pool: Optional[List[np.ndarray]] = None
+    pruning_stats: Optional[PruningStats] = None
 
     @property
     def cv_score(self) -> float:
@@ -157,6 +200,17 @@ class CompositeHPOResult:
         unbiased OOS estimate). Kept so existing ``result.cv_score`` callers keep
         working; new code should read ``selection_score`` and honor its caveat."""
         return self.selection_score
+
+    def select_ensemble_from_pool(self, y: Any, **kwargs: Any) -> Any:
+        """Convenience wiring: run ``stepwise_ensemble_selection`` directly over
+        ``trial_oof_pool``, returning a ready-to-use combined OOF prediction +
+        kept-trial indices -- see :func:`mlframe.training.composite.hpo_ensembling.
+        select_oof_pool_ensemble` for the full contract (requires
+        ``collect_oof_pool=True`` at search time). Lazily imported to avoid a
+        module-load-time cycle with :mod:`mlframe.models.ensembling.selection`."""
+        from .hpo_ensembling import select_oof_pool_ensemble
+
+        return select_oof_pool_ensemble(self, y, **kwargs)
 
 
 # ----------------------------------------------------------------------
@@ -428,6 +482,9 @@ def optimize_composite(
         case (CLAUDE.md) -- a real speed win that risks the actual selection
         quality the whole search exists to protect -- so it ships opt-in with
         the honest numbers, never as an unvalidated default.
+        Whenever a pruner IS given, the actual ROI (trials completed vs.
+        pruned, estimated wall-clock time saved) is reported back on
+        ``CompositeHPOResult.pruning_stats`` -- see :class:`PruningStats`.
     conditional_inner_space_fn
         Optuna backend only. ``(trial, transform_name) -> {param_name: value}``,
         called INSTEAD of the flat ``inner_spaces`` dict when given -- Optuna's
@@ -487,7 +544,7 @@ def optimize_composite(
         trials_log.append((transform_name, dict(inner_params), score))
         return score
 
-    backend, best_transform, best_params, best_score = _run_search(
+    backend, best_transform, best_params, best_score, pruning_stats = _run_search(
         transform_candidates=transform_candidates,
         inner_spaces=inner_spaces,
         n_trials=n_trials,
@@ -511,6 +568,7 @@ def optimize_composite(
         n_trials=n_trials,
         trials=trials_log,
         trial_oof_pool=oof_pool,
+        pruning_stats=pruning_stats,
     )
 
 
@@ -524,15 +582,16 @@ def _run_search(
     evaluate: Callable[..., float],
     pruner: Any = None,
     conditional_inner_space_fn: Optional[Callable[[Any, str], Dict[str, Any]]] = None,
-) -> Tuple[str, str, Dict[str, Any], float]:
-    """Drive the chosen backend; return (backend, transform, params, score).
+) -> Tuple[str, str, Dict[str, Any], float, Optional[PruningStats]]:
+    """Drive the chosen backend; return (backend, transform, params, score, pruning_stats).
 
     Both backends call the SAME ``evaluate`` objective so the fallback is a
     drop-in for Optuna and the two are directly comparable. ``pruner`` and
     ``conditional_inner_space_fn`` are Optuna-only and silently ignored by the
     random-search fallback (which has no trial object / running-score signal to
     prune on, and samples via a plain ``random.Random`` rather than Optuna's
-    trial API that define-by-run conditioning depends on).
+    trial API that define-by-run conditioning depends on) -- ``pruning_stats``
+    is always ``None`` on that path.
     """
     optuna = None
     if prefer_optuna:
@@ -544,7 +603,8 @@ def _run_search(
 
     if optuna is not None:
         return _search_optuna(optuna, transform_candidates, inner_spaces, n_trials, random_state, evaluate, pruner, conditional_inner_space_fn)
-    return _search_random(transform_candidates, inner_spaces, n_trials, random_state, evaluate)
+    backend, transform_name, params, score = _search_random(transform_candidates, inner_spaces, n_trials, random_state, evaluate)
+    return backend, transform_name, params, score, None
 
 
 def _search_optuna(
@@ -556,24 +616,32 @@ def _search_optuna(
     evaluate: Callable[..., float],
     pruner: Any = None,
     conditional_inner_space_fn: Optional[Callable[[Any, str], Dict[str, Any]]] = None,
-) -> Tuple[str, str, Dict[str, Any], float]:
+) -> Tuple[str, str, Dict[str, Any], float, Optional[PruningStats]]:
     """TPE search over the joint (transform, inner) space via Optuna."""
     optuna.logging.set_verbosity(optuna.logging.WARNING)
 
     def _objective(trial: Any) -> float:
         """Optuna trial objective: sample a (transform, inner-params) candidate from the joint space and delegate scoring to ``evaluate``."""
-        transform_name = trial.suggest_categorical("transform", list(transform_candidates))
-        if conditional_inner_space_fn is not None:
-            params = conditional_inner_space_fn(trial, transform_name)
-        else:
-            params = {name: sp.suggest(trial, name) for name, sp in inner_spaces.items()}
-        # Stash the RESOLVED param dict as a user attr rather than reading it back off ``trial.params`` after the
-        # fact: under a conditional space, ``trial.params`` records every ``trial.suggest_*`` call made while
-        # branching (e.g. a "use_leaf_bonus" gate variable), which are not themselves valid estimator kwargs and
-        # would otherwise leak into ``best_params`` and break ``inner.set_params(**best_params)`` downstream.
-        trial.set_user_attr("resolved_params", dict(params))
-        trial.set_user_attr("resolved_transform", transform_name)
-        return evaluate(transform_name, params, trial=trial)
+        t0 = time.perf_counter()
+        try:
+            transform_name = trial.suggest_categorical("transform", list(transform_candidates))
+            if conditional_inner_space_fn is not None:
+                params = conditional_inner_space_fn(trial, transform_name)
+            else:
+                params = {name: sp.suggest(trial, name) for name, sp in inner_spaces.items()}
+            # Stash the RESOLVED param dict as a user attr rather than reading it back off ``trial.params`` after the
+            # fact: under a conditional space, ``trial.params`` records every ``trial.suggest_*`` call made while
+            # branching (e.g. a "use_leaf_bonus" gate variable), which are not themselves valid estimator kwargs and
+            # would otherwise leak into ``best_params`` and break ``inner.set_params(**best_params)`` downstream.
+            trial.set_user_attr("resolved_params", dict(params))
+            trial.set_user_attr("resolved_transform", transform_name)
+            return evaluate(transform_name, params, trial=trial)
+        finally:
+            # Recorded unconditionally (both COMPLETE and PRUNED exit via this ``finally``) so
+            # ``PruningStats`` can compare completed-trial cost against actually-abandoned cost after the study
+            # finishes -- reading it back off ``study.trials`` user_attrs since a pruned trial's stack unwinds
+            # through Optuna's own exception handling before this function's caller sees it.
+            trial.set_user_attr("_elapsed_seconds", time.perf_counter() - t0)
 
     sampler = optuna.samplers.TPESampler(seed=random_state)
     if pruner == "auto":
@@ -592,7 +660,36 @@ def _search_optuna(
     best = study.best_trial
     best_transform = str(best.user_attrs["resolved_transform"])
     best_params = dict(best.user_attrs["resolved_params"])
-    return "optuna", best_transform, best_params, float(best.value)
+    # Only surface pruning_stats when the caller actually requested a pruner (pruner is not None); a plain
+    # NopPruner run (the default) has nothing to report and every trial's elapsed time was tracked for nothing --
+    # skip building the object rather than returning an all-zero-savings stats block that implies pruning ran.
+    pruning_stats = _pruning_stats_from_study(optuna, study) if pruner is not None else None
+    return "optuna", best_transform, best_params, float(best.value), pruning_stats
+
+
+def _pruning_stats_from_study(optuna: Any, study: Any) -> Optional[PruningStats]:
+    """Build :class:`PruningStats` from a finished study's trial states + recorded per-trial elapsed times.
+
+    Returns ``None`` only if the study somehow logged no trials at all (defensive; ``optimize`` always runs
+    ``n_trials`` >= 1). A study with zero PRUNED trials still returns a real (all-zero-savings) ``PruningStats``
+    rather than ``None`` -- the caller (``optimize_composite``) already gates whether to expose this at all via
+    whether a non-``NopPruner`` was requested, and "pruner was on but pruned nothing" is itself a useful ROI datum.
+    """
+    completed = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
+    pruned = [t for t in study.trials if t.state == optuna.trial.TrialState.PRUNED]
+    if not completed and not pruned:
+        return None
+    completed_durations = [float(t.user_attrs.get("_elapsed_seconds", 0.0)) for t in completed]
+    pruned_durations = [float(t.user_attrs.get("_elapsed_seconds", 0.0)) for t in pruned]
+    median_completed = float(np.median(completed_durations)) if completed_durations else 0.0
+    saved = sum(max(0.0, median_completed - d) for d in pruned_durations)
+    return PruningStats(
+        n_trials_completed=len(completed),
+        n_trials_pruned=len(pruned),
+        median_completed_trial_seconds=median_completed,
+        total_pruned_elapsed_seconds=float(sum(pruned_durations)),
+        estimated_wallclock_saved_seconds=float(saved),
+    )
 
 
 def _search_random(
@@ -650,3 +747,11 @@ def _enumerate_grid(
     for transform_name in transform_candidates:
         grid.extend((transform_name, dict(zip(names, combo))) for combo in (itertools.product(*per_space) if per_space else [()]))
     return grid
+
+
+# Re-exported from the sibling ``hpo_ensembling`` module (new-code-goes-in-focused-submodules) so
+# ``from mlframe.training.composite.hpo import select_oof_pool_ensemble`` works without callers needing to
+# know about the split. Imported at the BOTTOM of this module (after ``_rmse`` is defined above) because
+# ``hpo_ensembling`` imports ``_rmse`` back from this module at ITS import time -- placing this import
+# earlier would hand it a partially-initialised ``hpo`` module missing that name.
+from .hpo_ensembling import OOFPoolSelectionResult, select_oof_pool_ensemble  # noqa: E402
