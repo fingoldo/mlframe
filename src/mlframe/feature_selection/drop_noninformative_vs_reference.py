@@ -14,7 +14,7 @@ framing.
 """
 from __future__ import annotations
 
-from typing import List, Optional, Sequence
+from typing import List, Optional, Sequence, Union
 
 import numpy as np
 import pandas as pd
@@ -22,33 +22,12 @@ import pandas as pd
 from mlframe.feature_selection.filters import ks_stability_filter
 
 
-def drop_noninformative_vs_reference(
+def _noninformative_columns_vs_one_reference(
     df: pd.DataFrame,
     reference_mask: np.ndarray,
-    feature_cols: Optional[Sequence[str]] = None,
-    alpha: float = 0.1,
+    feature_cols: Optional[Sequence[str]],
+    alpha: float,
 ) -> List[str]:
-    """Return feature names whose distribution does NOT significantly differ between the reference subgroup
-    and the rest of ``df`` (KS-test p-value > ``alpha``) -- candidates to drop as likely noise/batch artifact.
-
-    Parameters
-    ----------
-    df
-        Frame containing both the reference subgroup and the rest.
-    reference_mask
-        Boolean mask selecting the reference/control subpopulation; ``~reference_mask`` is the "rest"
-        (e.g. treated samples) it's compared against.
-    feature_cols
-        Numeric columns to screen; defaults to every numeric column of ``df``.
-    alpha
-        A feature is flagged non-informative (drop candidate) when its KS p-value EXCEEDS this threshold
-        (the source convention: p > 0.1 means no significant distributional difference).
-
-    Returns
-    -------
-    list of str
-        Column names to consider dropping (non-informative vs the reference cohort).
-    """
     mask = np.asarray(reference_mask, dtype=bool)
     reference_df = df.loc[mask]
     rest_df = df.loc[~mask]
@@ -58,6 +37,61 @@ def drop_noninformative_vs_reference(
     # this entry wants to drop, just under the opposite name (there, "stable" means "safe to keep because it
     # didn't drift"; here the same condition means "no signal, drop it").
     return [str(c) for c in report.loc[report["stable"], "column"].tolist()]
+
+
+def drop_noninformative_vs_reference(
+    df: pd.DataFrame,
+    reference_mask: Union[np.ndarray, Sequence[np.ndarray]],
+    feature_cols: Optional[Sequence[str]] = None,
+    alpha: float = 0.1,
+    require_all_cohorts: bool = False,
+) -> List[str]:
+    """Return feature names whose distribution does NOT significantly differ between the reference subgroup
+    and the rest of ``df`` (KS-test p-value > ``alpha``) -- candidates to drop as likely noise/batch artifact.
+
+    Parameters
+    ----------
+    df
+        Frame containing both the reference subgroup(s) and the rest.
+    reference_mask
+        Boolean mask selecting the reference/control subpopulation; ``~reference_mask`` is the "rest"
+        (e.g. treated samples) it's compared against. When ``require_all_cohorts`` is True, this may
+        instead be a sequence of several such masks (multiple independent reference/control cohorts,
+        e.g. separate assay batches) -- each compared against its own complement.
+    feature_cols
+        Numeric columns to screen; defaults to every numeric column of ``df``.
+    alpha
+        A feature is flagged non-informative (drop candidate) when its KS p-value EXCEEDS this threshold
+        (the source convention: p > 0.1 means no significant distributional difference).
+    require_all_cohorts
+        Opt-in multi-reference-cohort mode. When False (default), ``reference_mask`` must be a single mask
+        and behavior is identical to the original single-cohort function. When True, ``reference_mask`` is
+        a sequence of masks and a feature is only flagged as a drop candidate if it is non-informative
+        (p > alpha) against EVERY cohort -- guards against a single reference batch spuriously looking
+        similar to the rest by chance for a feature that is genuinely informative, which a single-cohort
+        KS-test cannot distinguish from true noise.
+
+    Returns
+    -------
+    list of str
+        Column names to consider dropping (non-informative vs the reference cohort(s)).
+    """
+    if not require_all_cohorts:
+        return _noninformative_columns_vs_one_reference(df, reference_mask, feature_cols, alpha)  # type: ignore[arg-type]
+
+    masks: Sequence[np.ndarray] = reference_mask  # type: ignore[assignment]
+    if len(masks) == 0:
+        raise ValueError("require_all_cohorts=True requires at least one reference mask in the sequence")
+
+    per_cohort_candidates = [set(_noninformative_columns_vs_one_reference(df, m, feature_cols, alpha)) for m in masks]
+    # only drop a feature that failed to discriminate against ALL cohorts -- a feature that looks
+    # noninformative against one cohort but informative against another is real signal, not noise.
+    common = per_cohort_candidates[0]
+    for candidates in per_cohort_candidates[1:]:
+        common &= candidates
+
+    # preserve df column order in the output for readability/determinism.
+    return [str(c) for c in df.columns if c in common]
 
 
 __all__ = ["drop_noninformative_vs_reference"]
