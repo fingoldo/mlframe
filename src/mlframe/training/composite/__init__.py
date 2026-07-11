@@ -282,6 +282,7 @@ from .gated_outlier import GatedOutlierEstimator
 
 # Compute-saving advisory: prune additive-residual transforms for strictly-positive, scale-like pairs.
 from .transform_priority import recommend_transform_candidates
+from .feature_subset_bagging import FeatureSubsetBaggingEnsemble, correlation_cluster_feature_subsets
 
 # Auxiliary-target OOF meta-features feeding a primary-target model (MoA-style multi-stage stacking).
 from .stacking_multi_stage import MultiStageMetaFeatureStacker
@@ -441,4 +442,6 @@ __all__ = [
     "DomainViolationError", "UnknownTransformError",
     # compute-saving transform-candidate pruning
     "recommend_transform_candidates",
+    # correlation-cluster-aware feature-subset bagging
+    "FeatureSubsetBaggingEnsemble", "correlation_cluster_feature_subsets",
 ]
