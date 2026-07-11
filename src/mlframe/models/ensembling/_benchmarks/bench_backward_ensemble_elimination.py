@@ -30,6 +30,12 @@ def _run(m: int, n: int) -> None:
     greedy_backward_ensemble_elimination(preds, y)
 
 
+def _run_extra_stacked(m: int, n: int, n_repeats: int) -> None:
+    preds, y = _make_matrix(m, n, seed=0)
+    extra = [_make_matrix(m, n, seed=r + 1)[0] for r in range(n_repeats - 1)]
+    greedy_backward_ensemble_elimination(preds, y, extra_stacked=extra)
+
+
 if __name__ == "__main__":
     for m, n in [(10, 5000), (10, 100000), (30, 100000)]:
         t0 = time.perf_counter()
@@ -37,9 +43,24 @@ if __name__ == "__main__":
         wall = time.perf_counter() - t0
         print(f"m={m:>3} n={n:>7} -> {wall * 1000:9.2f} ms")
 
+    for m, n, n_repeats in [(10, 5000, 9), (30, 100000, 9)]:
+        t0 = time.perf_counter()
+        _run_extra_stacked(m, n, n_repeats)
+        wall = time.perf_counter() - t0
+        print(f"m={m:>3} n={n:>7} n_repeats={n_repeats:>2} (extra_stacked) -> {wall * 1000:9.2f} ms")
+
     profiler = cProfile.Profile()
     profiler.enable()
     _run(30, 100000)
+    profiler.disable()
+    buf = StringIO()
+    stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
+    stats.print_stats(15)
+    print(buf.getvalue())
+
+    profiler = cProfile.Profile()
+    profiler.enable()
+    _run_extra_stacked(30, 100000, 9)
     profiler.disable()
     buf = StringIO()
     stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")

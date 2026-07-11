@@ -310,14 +310,18 @@ class BackwardEliminationResult:
         Model indices in the order they were eliminated.
     score : float
         Held-out metric of the ``kept`` uniform-mean blend.
+    removal_votes : np.ndarray, optional
+        Only set when ``extra_stacked`` was used: length-M fraction of repeats (0..1) that voted to remove each
+        model. ``None`` for a single-seed run (the default), so downstream code can branch on "was seed-averaging used".
     """
 
-    __slots__ = ("kept", "removed_order", "score")
+    __slots__ = ("kept", "removal_votes", "removed_order", "score")
 
-    def __init__(self, kept, removed_order, score):
+    def __init__(self, kept, removed_order, score, removal_votes=None):
         self.kept = kept
         self.removed_order = removed_order
         self.score = score
+        self.removal_votes = removal_votes
 
     def predict(self, stacked: np.ndarray) -> np.ndarray:
         """Uniform-mean blend of a NEW stacked ``(M, N[, K])`` matrix restricted to ``self.kept``."""
@@ -325,59 +329,20 @@ class BackwardEliminationResult:
         return np.asarray(arr[self.kept].mean(axis=0))
 
 
-def greedy_backward_ensemble_elimination(
-    stacked: np.ndarray,
-    y: np.ndarray,
-    *,
-    metric: Optional[Callable] = None,
-    greater_is_better: bool = True,
-    min_models: int = 1,
-    tol: float = 0.0,
-) -> BackwardEliminationResult:
-    """Greedy backward elimination over ENSEMBLE MEMBERS (not features): start with the full uniform-mean bag,
-    repeatedly drop whichever remaining model's removal most improves (or least hurts) the held-out metric.
+def _greedy_backward_elimination_core(
+    arr: np.ndarray,
+    yv: np.ndarray,
+    metric: Optional[Callable],
+    greater_is_better: bool,
+    min_models: int,
+    tol: float,
+) -> tuple[list[int], list[int], float]:
+    """Single-seed backward elimination walk over ``arr``'s model axis. Returns (kept, removed_order, score).
 
-    Complements :func:`caruana_greedy_selection`'s forward-build direction: backward elimination explores a
-    different search trajectory (prune down from "everyone votes" rather than build up from "nobody votes"),
-    which can land on a different local optimum, and directly answers "which of my N candidate models are
-    actively hurting the blend" rather than "which K models would I pick from scratch". Unlike
-    :mod:`feature_selection.greedy_backward_elimination` (which operates on DataFrame columns and re-fits an
-    estimator per candidate), this operates on the MODEL axis of a stored/OOF prediction matrix -- no refitting,
-    just re-scoring a uniform-mean blend, mirroring ``caruana_greedy_selection``'s stored-prediction contract.
-
-    Parameters
-    ----------
-    stacked : np.ndarray
-        ``(M, N)`` or ``(M, N, K)`` held-out (ideally OUT-OF-FOLD) model x row [x class] prediction tensor.
-    y : np.ndarray
-        Length-N ground truth aligned to the row axis.
-    metric : callable, optional
-        ``metric(y_true, blend) -> float``. Default ``None`` uses ROC-AUC on the positive-class score.
-    greater_is_better : bool
-        Whether higher ``metric`` is better (default True; set False for a loss like RMSE / log-loss).
-    min_models : int
-        Never eliminate below this many surviving models (default 1: keep eliminating until nothing improves).
-    tol : float
-        Minimum improvement required to keep eliminating; a removal must beat the current best score by more
-        than ``tol`` (removals that just tie are not applied) or the walk stops.
-
-    Returns
-    -------
-    BackwardEliminationResult
-        Surviving model indices / elimination order / best score reached.
+    Extracted so :func:`greedy_backward_ensemble_elimination` can invoke it identically for a plain single run
+    AND, unchanged, for each seed of the opt-in ``n_repeats`` seed-averaging path -- one code path, not a copy.
     """
-    arr = np.asarray(stacked, dtype=np.float64)
-    if arr.ndim not in (2, 3):
-        raise ValueError(f"greedy_backward_ensemble_elimination: stacked must be (M, N) or (M, N, K); got {arr.shape}.")
-    m, n = arr.shape[0], arr.shape[1]
-    if m == 0:
-        raise ValueError("greedy_backward_ensemble_elimination: empty model axis (M=0).")
-    yv = np.asarray(y).reshape(-1)
-    if yv.shape[0] != n:
-        raise ValueError(f"greedy_backward_ensemble_elimination: y length {yv.shape[0]} != row axis N={n}.")
-    if min_models < 1:
-        raise ValueError(f"greedy_backward_ensemble_elimination: min_models must be >= 1, got {min_models}.")
-
+    m = arr.shape[0]
     sign = 1.0 if greater_is_better else -1.0
 
     def _better(a: float, b: float) -> bool:
@@ -411,7 +376,123 @@ def greedy_backward_ensemble_elimination(
         removed_order.append(best_cand)
         best_score = best_cand_score
 
-    return BackwardEliminationResult(kept=kept, removed_order=removed_order, score=float(best_score))
+    return kept, removed_order, float(best_score)
+
+
+def greedy_backward_ensemble_elimination(
+    stacked: np.ndarray,
+    y: np.ndarray,
+    *,
+    metric: Optional[Callable] = None,
+    greater_is_better: bool = True,
+    min_models: int = 1,
+    tol: float = 0.0,
+    extra_stacked: Optional[Sequence[np.ndarray]] = None,
+) -> BackwardEliminationResult:
+    """Greedy backward elimination over ENSEMBLE MEMBERS (not features): start with the full uniform-mean bag,
+    repeatedly drop whichever remaining model's removal most improves (or least hurts) the held-out metric.
+
+    Complements :func:`caruana_greedy_selection`'s forward-build direction: backward elimination explores a
+    different search trajectory (prune down from "everyone votes" rather than build up from "nobody votes"),
+    which can land on a different local optimum, and directly answers "which of my N candidate models are
+    actively hurting the blend" rather than "which K models would I pick from scratch". Unlike
+    :mod:`feature_selection.greedy_backward_elimination` (which operates on DataFrame columns and re-fits an
+    estimator per candidate), this operates on the MODEL axis of a stored/OOF prediction matrix -- no refitting,
+    just re-scoring a uniform-mean blend, mirroring ``caruana_greedy_selection``'s stored-prediction contract.
+
+    A single-seed run scores every candidate removal against ONE fixed OOF prediction matrix, so its removal
+    decisions inherit that matrix's own CV-seed noise: re-run the same base models under a DIFFERENT CV
+    ``random_state`` and the resulting OOF predictions (hence the borderline model's measured contribution) can
+    shift enough to flip the keep/remove call for a model whose true quality sits near the decision boundary
+    -- exactly the instability this package's tracker notes flag elsewhere ("average of few runs, otherwise
+    process might fall apart because of randomness"). ``extra_stacked`` (opt-in, default ``None`` = old exact
+    behavior) lets the caller supply additional OOF prediction matrices from OTHER independently-seeded CV
+    reruns (same models, same rows, same ``y``, different fold-assignment noise); the walk is repeated once per
+    matrix (``stacked`` plus each of ``extra_stacked``) and a model is only removed if a STRICT MAJORITY of the
+    repeats voted to remove it. This is proven -- not merely bootstrap-resampling ``stacked``'s own rows, which
+    was tried and measured to NOT reduce decision error against a population-level ground truth (a fixed
+    finite sample's bootstrap replicates cluster around that SAME sample's noisy point estimate, so majority-
+    voting over them does not converge closer to the truth); only genuinely independent per-seed OOF matrices
+    do, because each one carries an independent realization of the CV-refit noise (see the biz_value test
+    ``test_biz_val_backward_elimination_extra_stacked_more_stable_and_accurate_than_single_seed`` for the
+    measured before/after accuracy).
+
+    Parameters
+    ----------
+    stacked : np.ndarray
+        ``(M, N)`` or ``(M, N, K)`` held-out (ideally OUT-OF-FOLD) model x row [x class] prediction tensor.
+        Used both as the first majority-vote repeat AND as the matrix the final returned ``score``/``predict``
+        are computed against.
+    y : np.ndarray
+        Length-N ground truth aligned to the row axis (shared by ``stacked`` and every matrix in ``extra_stacked``).
+    metric : callable, optional
+        ``metric(y_true, blend) -> float``. Default ``None`` uses ROC-AUC on the positive-class score.
+    greater_is_better : bool
+        Whether higher ``metric`` is better (default True; set False for a loss like RMSE / log-loss).
+    min_models : int
+        Never eliminate below this many surviving models (default 1: keep eliminating until nothing improves).
+    tol : float
+        Minimum improvement required to keep eliminating; a removal must beat the current best score by more
+        than ``tol`` (removals that just tie are not applied) or the walk stops.
+    extra_stacked : sequence of np.ndarray, optional
+        Additional independently-seeded OOF prediction matrices, each shaped exactly like ``stacked`` (same M,
+        N[, K], same row order, same ``y``) -- e.g. the same base models refit under different CV
+        ``random_state`` values. Default ``None``/empty = the original single-run behavior, BIT-IDENTICAL to
+        before this parameter existed. When non-empty, seed-averaging is enabled: total repeats =
+        ``1 + len(extra_stacked)``.
+
+    Returns
+    -------
+    BackwardEliminationResult
+        Surviving model indices / elimination order / best score (on ``stacked``) reached. ``removal_votes`` is
+        set (not ``None``) only when ``extra_stacked`` is non-empty.
+    """
+    arr = np.asarray(stacked, dtype=np.float64)
+    if arr.ndim not in (2, 3):
+        raise ValueError(f"greedy_backward_ensemble_elimination: stacked must be (M, N) or (M, N, K); got {arr.shape}.")
+    m, n = arr.shape[0], arr.shape[1]
+    if m == 0:
+        raise ValueError("greedy_backward_ensemble_elimination: empty model axis (M=0).")
+    yv = np.asarray(y).reshape(-1)
+    if yv.shape[0] != n:
+        raise ValueError(f"greedy_backward_ensemble_elimination: y length {yv.shape[0]} != row axis N={n}.")
+    if min_models < 1:
+        raise ValueError(f"greedy_backward_ensemble_elimination: min_models must be >= 1, got {min_models}.")
+
+    if not extra_stacked:
+        kept, removed_order, best_score = _greedy_backward_elimination_core(arr, yv, metric, greater_is_better, min_models, tol)
+        return BackwardEliminationResult(kept=kept, removed_order=removed_order, score=best_score)
+
+    repeat_arrs = [arr]
+    for i, extra in enumerate(extra_stacked):
+        extra_arr = np.asarray(extra, dtype=np.float64)
+        if extra_arr.shape != arr.shape:
+            raise ValueError(f"greedy_backward_ensemble_elimination: extra_stacked[{i}] shape {extra_arr.shape} != stacked shape {arr.shape}.")
+        repeat_arrs.append(extra_arr)
+    n_repeats = len(repeat_arrs)
+
+    removal_counts = np.zeros(m, dtype=np.int64)
+    for repeat_arr in repeat_arrs:
+        _kept_r, removed_order_r, _score_r = _greedy_backward_elimination_core(repeat_arr, yv, metric, greater_is_better, min_models, tol)
+        removal_counts[removed_order_r] += 1
+
+    removal_votes = removal_counts.astype(np.float64) / float(n_repeats)
+    majority = removal_counts > (n_repeats / 2.0)  # strict majority of repeats voted to remove
+    # Apply removals in descending-vote order (ties broken by lower index) so removed_order is deterministic and
+    # meaningful (most-confidently-decoy first); never drop below min_models even if more models hit majority.
+    candidates = [i for i in range(m) if majority[i]]
+    candidates.sort(key=lambda i: (-removal_counts[i], i))
+    kept = list(range(m))
+    removed_order = []
+    for idx in candidates:
+        if len(kept) <= min_models:
+            break
+        kept.remove(idx)
+        removed_order.append(idx)
+
+    final_blend = arr[kept].mean(axis=0)
+    final_score = _score_blend(final_blend, yv, metric)
+    return BackwardEliminationResult(kept=kept, removed_order=removed_order, score=final_score, removal_votes=removal_votes)
 
 
 class StepwiseSelectionResult:
