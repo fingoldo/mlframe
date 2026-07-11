@@ -48,6 +48,39 @@ def test_biz_val_magnitude_sample_weight_improves_auc_on_high_conviction_subset(
     assert auc_weighted > 0.85, f"expected strong AUC on the high-conviction subset with magnitude weighting, got {auc_weighted:.4f}"
 
 
+def test_biz_val_magnitude_sample_weight_robust_reduces_outlier_weight_mass():
+    # A handful of rows have a data-glitch-scale magnitude (e.g. a bad tick / fat-tail event) that would
+    # otherwise dominate the total weight mass under a plain unbounded norm, starving the genuinely
+    # high-conviction (but merely large, not glitched) rows of training emphasis.
+    rng = np.random.default_rng(1)
+    n = 2000
+    resp1 = rng.normal(scale=1.0, size=n)
+    resp2 = rng.normal(scale=1.0, size=n)
+    outlier_idx = rng.choice(n, size=5, replace=False)
+    resp1[outlier_idx] = rng.choice([-1, 1], size=5) * rng.uniform(200, 400, size=5)
+    resp2[outlier_idx] = rng.choice([-1, 1], size=5) * rng.uniform(200, 400, size=5)
+    y_multi = np.stack([resp1, resp2], axis=1)
+
+    weights_plain = magnitude_sample_weight(y_multi, norm="mean_abs")
+    weights_robust = magnitude_sample_weight(y_multi, norm="mean_abs", robust=True, winsor_quantile=0.99)
+
+    outlier_mass_share_plain = weights_plain[outlier_idx].sum() / weights_plain.sum()
+    outlier_mass_share_robust = weights_robust[outlier_idx].sum() / weights_robust.sum()
+
+    assert outlier_mass_share_plain > 0.5, f"expected the 5 outlier rows to dominate plain weight mass, got {outlier_mass_share_plain:.4f}"
+    assert outlier_mass_share_robust < 0.05, f"expected robust winsorization to shrink the outliers' weight-mass share below 5%, got {outlier_mass_share_robust:.4f}"
+    assert outlier_mass_share_robust < outlier_mass_share_plain / 10, (
+        f"expected at least a 10x reduction in outlier weight-mass share, got plain={outlier_mass_share_plain:.4f} robust={outlier_mass_share_robust:.4f}"
+    )
+
+
+def test_magnitude_sample_weight_robust_default_off_bit_identical():
+    y_multi = np.array([[3.0, 4.0], [1.0, -1.0], [500.0, -500.0]])
+    w_default = magnitude_sample_weight(y_multi, norm="mean_abs")
+    w_explicit_off = magnitude_sample_weight(y_multi, norm="mean_abs", robust=False)
+    np.testing.assert_array_equal(w_default, w_explicit_off)
+
+
 def test_magnitude_sample_weight_single_target_matches_abs():
     y = np.array([-3.0, 1.0, -0.5, 2.0])
     w = magnitude_sample_weight(y, norm="mean_abs")

@@ -14,11 +14,11 @@ import numpy as np
 from mlframe.feature_engineering.magnitude_sample_weight import magnitude_sample_weight
 
 
-def _run(n: int, n_targets: int, n_calls: int) -> None:
+def _run(n: int, n_targets: int, n_calls: int, robust: bool = False) -> None:
     rng = np.random.default_rng(0)
     y_multi = rng.normal(size=(n, n_targets))
     for _ in range(n_calls):
-        magnitude_sample_weight(y_multi, norm="mean_abs")
+        magnitude_sample_weight(y_multi, norm="mean_abs", robust=robust)
 
 
 if __name__ == "__main__":
@@ -26,7 +26,12 @@ if __name__ == "__main__":
         t0 = time.perf_counter()
         _run(n, n_targets, n_calls)
         wall = time.perf_counter() - t0
-        print(f"n={n:>9} n_targets={n_targets:>3} n_calls={n_calls:>5} -> {wall * 1000:9.2f} ms")
+        print(f"n={n:>9} n_targets={n_targets:>3} n_calls={n_calls:>5} robust=False -> {wall * 1000:9.2f} ms")
+
+        t0 = time.perf_counter()
+        _run(n, n_targets, n_calls, robust=True)
+        wall = time.perf_counter() - t0
+        print(f"n={n:>9} n_targets={n_targets:>3} n_calls={n_calls:>5} robust=True  -> {wall * 1000:9.2f} ms")
 
     profiler = cProfile.Profile()
     profiler.enable()
@@ -36,3 +41,12 @@ if __name__ == "__main__":
     stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
     stats.print_stats(15)
     print(buf.getvalue())
+
+    profiler_robust = cProfile.Profile()
+    profiler_robust.enable()
+    _run(1000000, 20, 200, robust=True)
+    profiler_robust.disable()
+    buf_robust = StringIO()
+    stats_robust = pstats.Stats(profiler_robust, stream=buf_robust).sort_stats("cumulative")
+    stats_robust.print_stats(15)
+    print(buf_robust.getvalue())
