@@ -29,7 +29,9 @@ from mlframe.core.recency_weights import SCHEMES
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["per_group_recency_weighted_mean"]
+__all__ = ["per_group_recency_weighted_mean", "per_group_recency_weighted_agg"]
+
+AGGS = ("mean", "sum", "min", "max")
 
 
 @njit(fastmath=False, cache=True)
@@ -147,6 +149,140 @@ def per_group_recency_weighted_mean(
         return out
 
     # Broadcast each group's value back to its original rows (vectorized: repeat to sorted order, invert the sort).
+    out_sorted = np.repeat(per_group, ends - starts)
+    out = np.empty(n, dtype=np.float64)
+    out[sort_idx] = out_sorted
+    return out
+
+
+@njit(fastmath=False, cache=True)
+def _group_recency_weighted_agg_sorted(
+    v_sorted: np.ndarray, starts: np.ndarray, ends: np.ndarray, scheme_code: int, param: float, agg_code: int
+) -> np.ndarray:
+    """Per-group aggregation (mean/sum/min/max) of ``weight * value`` over group-contiguous, oldest-first values.
+
+    ``agg_code``: 0=mean (weighted, matches ``_group_recency_weighted_mean_sorted``), 1=sum, 2=min, 3=max.
+    min/max aggregate the WEIGHTED value itself (weight in (0, 1] at the identity normalization shrinks older
+    observations toward 0), so unlike mean this genuinely changes what min/max select, not just how they're scaled.
+    """
+    n_groups = starts.shape[0]
+    out = np.empty(n_groups, dtype=np.float64)
+    for g in range(n_groups):
+        s = starts[g]
+        e = ends[g]
+        m = e - s
+        if m <= 0:
+            out[g] = np.nan
+            continue
+        if agg_code == 0:
+            num = 0.0
+            den = 0.0
+            for pos in range(m):
+                i = m - pos
+                if scheme_code == 0:
+                    w = ((m - i + 1) / m) ** param
+                elif scheme_code == 1:
+                    w = param**i
+                else:
+                    w = 1.0 / (i**param)
+                num += w * v_sorted[s + pos]
+                den += w
+            out[g] = num / den if den > 0.0 else np.nan
+        else:
+            acc = 0.0 if agg_code == 1 else np.nan
+            for pos in range(m):
+                i = m - pos
+                if scheme_code == 0:
+                    w = ((m - i + 1) / m) ** param
+                elif scheme_code == 1:
+                    w = param**i
+                else:
+                    w = 1.0 / (i**param)
+                wv = w * v_sorted[s + pos]
+                if agg_code == 1:
+                    acc += wv
+                elif agg_code == 2:
+                    acc = wv if (pos == 0 or wv < acc) else acc
+                else:
+                    acc = wv if (pos == 0 or wv > acc) else acc
+            out[g] = acc
+    return out
+
+
+def per_group_recency_weighted_agg(
+    values: np.ndarray,
+    group_ids: np.ndarray,
+    *,
+    agg: str = "mean",
+    order: np.ndarray | None = None,
+    scheme: str = "poly",
+    param: float = 1.0,
+    broadcast: bool = True,
+    fill_value: float = np.nan,
+) -> np.ndarray:
+    """Recency-weighted per-entity aggregation of ``values`` (mean/sum/min/max).
+
+    Multiplies each observation by a recency weight (0 at the oldest, 1 at the most recent -- see
+    :func:`mlframe.core.recency_weights.recency_weights`) before aggregating, generalizing
+    :func:`per_group_recency_weighted_mean` beyond mean to sum/min/max. For ``agg='mean'`` this is
+    identical to :func:`per_group_recency_weighted_mean` (same weighted-mean formula). For sum/min/max
+    there is no equivalent existing primitive: weighting-then-min/max genuinely changes which observation
+    is selected (recent extremes are preferred over older, larger-magnitude ones), unlike weighting-then-mean.
+
+    Parameters
+    ----------
+    values, group_ids, order, scheme, param, broadcast, fill_value
+        See :func:`per_group_recency_weighted_mean`.
+    agg : {'mean', 'sum', 'min', 'max'}
+        Aggregation applied to the weighted values.
+
+    Returns
+    -------
+    np.ndarray
+        float64. Shape ``(n,)`` when ``broadcast`` else ``(n_groups,)``.
+    """
+    if scheme not in SCHEMES:
+        raise ValueError(f"per_group_recency_weighted_agg: scheme must be one of {SCHEMES}, got {scheme!r}.")
+    if agg not in AGGS:
+        raise ValueError(f"per_group_recency_weighted_agg: agg must be one of {AGGS}, got {agg!r}.")
+    values = np.ascontiguousarray(values, dtype=np.float64)
+    group_ids = np.ascontiguousarray(group_ids)
+    n = values.shape[0]
+    if group_ids.shape[0] != n:
+        raise ValueError("per_group_recency_weighted_agg: values and group_ids length mismatch.")
+    param = float(param)
+
+    if n == 0:
+        return np.empty(0, dtype=np.float64)
+
+    if order is not None:
+        order = np.ascontiguousarray(order)
+        if order.shape[0] != n:
+            raise ValueError("per_group_recency_weighted_agg: order length mismatch.")
+        sort_idx = np.lexsort((order, group_ids))
+    else:
+        sort_idx = np.argsort(group_ids, kind="stable")
+
+    g_sorted = group_ids[sort_idx]
+    v_sorted = values[sort_idx]
+    bnd = np.where(g_sorted[1:] != g_sorted[:-1])[0] + 1
+    starts = np.concatenate((np.array([0], dtype=np.int64), bnd.astype(np.int64)))
+    ends = np.concatenate((bnd.astype(np.int64), np.array([n], dtype=np.int64)))
+
+    scheme_code = SCHEMES.index(scheme)
+    agg_code = AGGS.index(agg)
+    per_group = _group_recency_weighted_agg_sorted(v_sorted, starts, ends, scheme_code, param, agg_code)
+
+    if not broadcast:
+        _, first_pos = np.unique(group_ids, return_index=True)
+        sorted_unique = g_sorted[starts]
+        out = np.empty(sorted_unique.shape[0], dtype=np.float64)
+        lut = {gid: per_group[k] for k, gid in enumerate(sorted_unique)}
+        unique_appearance = group_ids[np.sort(first_pos)]
+        for k, gid in enumerate(unique_appearance):
+            out[k] = lut.get(gid, fill_value)
+        return out
+
     out_sorted = np.repeat(per_group, ends - starts)
     out = np.empty(n, dtype=np.float64)
     out[sort_idx] = out_sorted
