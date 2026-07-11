@@ -79,6 +79,7 @@ from .grouped import (
     per_group_sliding_window,
 )
 from .recency_aggregation import per_group_recency_weighted_agg, per_group_recency_weighted_mean
+from .nested_ma_decompose import nested_ma_decompose
 from .recency_density import (
     per_group_behavioral_stability,
     per_group_recency_weighted_mode,
@@ -227,6 +228,7 @@ from .gmm_bic_membership_features import gmm_bic_membership_features
 __all__ = [
     "per_group_recency_weighted_mean",
     "per_group_recency_weighted_agg",
+    "nested_ma_decompose",
     "per_group_recency_weighted_mode",
     "per_group_behavioral_stability",
     "nadaraya_watson_smooth",
