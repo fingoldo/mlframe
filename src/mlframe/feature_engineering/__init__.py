@@ -79,6 +79,7 @@ from .grouped import (
     per_group_sliding_window,
 )
 from .recency_aggregation import per_group_recency_weighted_agg, per_group_recency_weighted_mean
+from .recency_weighted_rolling import recency_weighted_rolling_mean
 from .nested_ma_decompose import nested_ma_decompose
 from .ma_crossover import ma_crossover_features
 from .holiday_calendar_features import holiday_calendar_features
