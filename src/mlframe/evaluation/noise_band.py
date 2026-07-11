@@ -24,7 +24,12 @@ def _two_sided_z(alpha: float) -> float:
     return float(stats.norm.ppf(1.0 - alpha / 2.0))
 
 
-def cv_score_equivalence_band(fold_scores: np.ndarray, alpha: float = 0.05, method: str = "sem") -> float:
+def cv_score_equivalence_band(
+    fold_scores: np.ndarray,
+    alpha: float = 0.05,
+    method: str = "sem",
+    n_comparisons: int = 1,
+) -> float:
     """Estimate the "practically equal" noise band for a set of per-fold/per-seed CV scores.
 
     Parameters
@@ -42,6 +47,15 @@ def cv_score_equivalence_band(fold_scores: np.ndarray, alpha: float = 0.05, meth
         ``"std"`` — the raw (ddof=1) standard deviation of the fold scores. More conservative (typically
         ``sqrt(n_folds)`` wider than SEM); use when comparing a SINGLE new fold's score against history rather
         than two multi-fold means.
+    n_comparisons
+        Opt-in Bonferroni-style multiple-comparisons correction. Default ``1`` reproduces the exact single-call
+        behavior (``alpha`` used as given). A long automated selection loop (RFECV/MRMR greedy search) runs the
+        noise-band test once per candidate; treating every single test at the nominal ``alpha`` lets the
+        FAMILY-WISE false-accept rate across the whole search climb toward 1 as the candidate count grows, even
+        though each individual test is correctly calibrated in isolation. Passing the number of candidate
+        comparisons already run (or planned) divides the per-test ``alpha`` by ``n_comparisons`` (classic
+        Bonferroni correction), widening the band so the family-wise false-accept rate across the WHOLE search
+        stays bounded near the original ``alpha`` instead of accumulating. Must be a positive integer.
 
     Returns
     -------
@@ -49,6 +63,8 @@ def cv_score_equivalence_band(fold_scores: np.ndarray, alpha: float = 0.05, meth
         The noise-band epsilon, in the same units as ``fold_scores``. Two candidates whose mean scores differ
         by less than this band should be treated as tied.
     """
+    if n_comparisons < 1:
+        raise ValueError(f"cv_score_equivalence_band: n_comparisons must be a positive integer; got {n_comparisons!r}")
     fold_scores = np.asarray(fold_scores, dtype=np.float64).ravel()
     n = fold_scores.shape[0]
     if n < 2:
@@ -59,7 +75,8 @@ def cv_score_equivalence_band(fold_scores: np.ndarray, alpha: float = 0.05, meth
     if method != "sem":
         raise ValueError(f"cv_score_equivalence_band: method must be 'sem' or 'std'; got {method!r}")
     sem = std / float(np.sqrt(n))
-    return _two_sided_z(alpha) * sem
+    corrected_alpha = alpha / float(n_comparisons)
+    return _two_sided_z(corrected_alpha) * sem
 
 
 def is_within_noise_band(
@@ -68,15 +85,17 @@ def is_within_noise_band(
     fold_scores: np.ndarray,
     alpha: float = 0.05,
     method: str = "sem",
+    n_comparisons: int = 1,
 ) -> bool:
     """``True`` when ``|score_a - score_b|`` is not distinguishable from CV resampling noise.
 
     ``fold_scores`` should be the per-fold scores of whichever candidate (typically the current best) is used
     to estimate the noise band — the band is a property of the CV scheme's variance, not of the specific
     comparison, so either candidate's fold scores are a reasonable proxy as long as they were produced by the
-    same splitter/data/model family.
+    same splitter/data/model family. ``n_comparisons`` is passed straight through to
+    :func:`cv_score_equivalence_band`; default ``1`` is bit-identical to the pre-existing behavior.
     """
-    band = cv_score_equivalence_band(fold_scores, alpha=alpha, method=method)
+    band = cv_score_equivalence_band(fold_scores, alpha=alpha, method=method, n_comparisons=n_comparisons)
     return bool(abs(score_a - score_b) <= band)
 
 

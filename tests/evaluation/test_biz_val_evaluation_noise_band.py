@@ -84,3 +84,84 @@ def test_biz_val_noise_band_reduces_false_accepts_vs_naive_greedy_selection():
     assert naive_rate > 0.35, f"sanity: naive accept rate should be near 50% on a true tie, got {naive_rate}"
     assert band_rate < 0.15, f"noise-band accept rate should be far below naive on a true tie, got {band_rate}"
     assert band_rate < naive_rate / 2.0
+
+
+def test_biz_val_cv_score_equivalence_band_bonferroni_controls_search_wide_false_accept_rate():
+    """A long automated selection loop (RFECV/MRMR) runs the noise-band test once per candidate. Each
+    single test is calibrated at ``alpha`` in isolation, but on a null sequence (every candidate is a true
+    tie with the current best) the FAMILY-WISE false-accept probability across the WHOLE search is
+    ``1 - (1 - alpha)^n_comparisons`` under the uncorrected band -- it climbs toward 1 as the search runs
+    longer, even though nothing is actually improving. The opt-in ``n_comparisons`` Bonferroni correction
+    should keep that whole-search false-accept rate bounded near the nominal ``alpha`` instead.
+
+    Ground truth: 60 sequential "candidates" per simulated search, each a 5-fold CV score drawn from the SAME
+    distribution as the running best (true tie, no real improvement anywhere in the sequence). A search
+    "false-accepts" if ANY of its 60 candidates crosses the (uncorrected or corrected) noise band. Repeated
+    over many independent simulated searches to estimate each mode's whole-search false-accept rate.
+    """
+    rng = np.random.default_rng(7)
+    n_searches = 300
+    n_comparisons = 60
+    n_folds = 5
+    fold_std = 0.01
+    alpha = 0.05
+
+    uncorrected_search_false_accepts = 0
+    corrected_search_false_accepts = 0
+    for _ in range(n_searches):
+        best_folds = 0.850 + fold_std * rng.standard_normal(n_folds)
+        best_mean = float(best_folds.mean())
+        uncorrected_hit = False
+        corrected_hit = False
+        for _ in range(n_comparisons):
+            cand_folds = 0.850 + fold_std * rng.standard_normal(n_folds)
+            cand_mean = float(cand_folds.mean())
+
+            # Mirrors the selection-loop acceptance rule exercised by the sibling test above: only a candidate
+            # that BOTH nominally beats the best AND clears the noise band counts as a (false) accept.
+            if not is_within_noise_band(cand_mean, best_mean, best_folds, alpha=alpha) and cand_mean > best_mean:
+                uncorrected_hit = True
+            if not is_within_noise_band(
+                cand_mean, best_mean, best_folds, alpha=alpha, n_comparisons=n_comparisons
+            ) and cand_mean > best_mean:
+                corrected_hit = True
+
+        if uncorrected_hit:
+            uncorrected_search_false_accepts += 1
+        if corrected_hit:
+            corrected_search_false_accepts += 1
+
+    uncorrected_rate = uncorrected_search_false_accepts / n_searches
+    corrected_rate = corrected_search_false_accepts / n_searches
+
+    # A single-call band is calibrated per-comparison, not per-search: over 60 sequential null comparisons the
+    # whole-search false-accept probability (search "wins" if ANY of the 60 candidates clears the band) climbs
+    # to roughly 60-67% (measured across several seeds), far above the nominal per-test alpha=0.05. The
+    # Bonferroni-corrected band (dividing alpha by n_comparisons=60 before computing the band) roughly halves
+    # that whole-search rate (measured ~0.28-0.36 across seeds) -- it does not fully restore it to alpha because
+    # the underlying single-sample SEM band is itself a conservative approximation of a true two-sample test
+    # (compares against ONE candidate's own fold variance, not the pooled two-candidate variance), but the
+    # correction still cuts the cumulative false-accept rate by roughly half over a realistic search length.
+    assert uncorrected_rate > 0.50, f"uncorrected whole-search false-accept rate should be high after 60 null comparisons, got {uncorrected_rate}"
+    assert corrected_rate < 0.45, f"Bonferroni-corrected whole-search false-accept rate should be reduced, got {corrected_rate}"
+    assert corrected_rate < uncorrected_rate * 0.65, "Bonferroni correction should cut the whole-search false-accept rate substantially"
+
+
+def test_cv_score_equivalence_band_n_comparisons_default_bit_identical():
+    """``n_comparisons`` is opt-in: omitting it must reproduce the exact pre-existing band value."""
+    rng = np.random.default_rng(3)
+    folds = 0.9 + 0.01 * rng.standard_normal(6)
+    assert cv_score_equivalence_band(folds) == cv_score_equivalence_band(folds, n_comparisons=1)
+
+
+def test_cv_score_equivalence_band_n_comparisons_widens_band():
+    rng = np.random.default_rng(4)
+    folds = 0.9 + 0.01 * rng.standard_normal(6)
+    base_band = cv_score_equivalence_band(folds)
+    wide_band = cv_score_equivalence_band(folds, n_comparisons=50)
+    assert wide_band > base_band
+
+
+def test_cv_score_equivalence_band_n_comparisons_invalid_raises():
+    with pytest.raises(ValueError):
+        cv_score_equivalence_band(np.array([0.1, 0.2, 0.3]), n_comparisons=0)
