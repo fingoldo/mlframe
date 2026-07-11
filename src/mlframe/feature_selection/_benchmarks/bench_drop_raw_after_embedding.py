@@ -31,9 +31,14 @@ def _make_dataset(n_rows: int, n_raw_cols: int, n_derived_per_raw: int, seed: in
     return pd.DataFrame(data), raw_to_derived
 
 
-def _run(n_rows: int, n_raw_cols: int, n_derived_per_raw: int) -> None:
+def _run(n_rows: int, n_raw_cols: int, n_derived_per_raw: int, verify: bool = False) -> None:
     df, raw_to_derived = _make_dataset(n_rows, n_raw_cols, n_derived_per_raw, seed=0)
-    drop_raw_after_embedding(df, raw_to_derived)
+    if verify:
+        rng = np.random.default_rng(0)
+        y = rng.integers(0, 2, n_rows)
+        drop_raw_after_embedding(df, raw_to_derived, verify_against=(y, 0.5))
+    else:
+        drop_raw_after_embedding(df, raw_to_derived)
 
 
 if __name__ == "__main__":
@@ -43,6 +48,12 @@ if __name__ == "__main__":
         wall = time.perf_counter() - t0
         print(f"n_rows={n_rows:>7} n_raw_cols={n_raw_cols:>3} n_derived_per_raw={n_derived_per_raw:>2} -> {wall * 1000:9.2f} ms")
 
+    for n_rows, n_raw_cols, n_derived_per_raw in [(50000, 10, 2), (500000, 10, 2), (500000, 50, 3)]:
+        t0 = time.perf_counter()
+        _run(n_rows, n_raw_cols, n_derived_per_raw, verify=True)
+        wall = time.perf_counter() - t0
+        print(f"[verify_against] n_rows={n_rows:>7} n_raw_cols={n_raw_cols:>3} n_derived_per_raw={n_derived_per_raw:>2} -> {wall * 1000:9.2f} ms")
+
     profiler = cProfile.Profile()
     profiler.enable()
     _run(500000, 50, 3)
@@ -51,3 +62,12 @@ if __name__ == "__main__":
     stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
     stats.print_stats(15)
     print(buf.getvalue())
+
+    profiler_verify = cProfile.Profile()
+    profiler_verify.enable()
+    _run(500000, 50, 3, verify=True)
+    profiler_verify.disable()
+    buf_verify = StringIO()
+    stats_verify = pstats.Stats(profiler_verify, stream=buf_verify).sort_stats("cumulative")
+    stats_verify.print_stats(15)
+    print(buf_verify.getvalue())
