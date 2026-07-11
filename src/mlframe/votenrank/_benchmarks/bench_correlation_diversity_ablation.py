@@ -29,23 +29,39 @@ def _make_dataset(n_samples: int, n_models: int, seed: int):
     return y_true, oof_preds, individual_scores
 
 
-def _run(n_samples: int, n_models: int) -> None:
+def _run(n_samples: int, n_models: int, use_greedy_search: bool = False) -> None:
     y_true, oof_preds, individual_scores = _make_dataset(n_samples, n_models, seed=0)
-    diversity_ablation_report(oof_preds, individual_scores, y_true, _rmse)
+    diversity_ablation_report(oof_preds, individual_scores, y_true, _rmse, use_greedy_search=use_greedy_search)
 
 
 if __name__ == "__main__":
-    for n_samples, n_models in [(2000, 10), (20000, 10), (20000, 50)]:
-        t0 = time.perf_counter()
-        _run(n_samples, n_models)
-        wall = time.perf_counter() - t0
-        print(f"n_samples={n_samples:>6} n_models={n_models:>3} -> {wall * 1000:9.2f} ms")
+    for use_greedy_search in (False, True):
+        label = "greedy_search" if use_greedy_search else "plain"
+        for n_samples, n_models in [(2000, 10), (20000, 10), (20000, 50)]:
+            t0 = time.perf_counter()
+            _run(n_samples, n_models, use_greedy_search=use_greedy_search)
+            wall = time.perf_counter() - t0
+            print(f"[{label:>13}] n_samples={n_samples:>6} n_models={n_models:>3} -> {wall * 1000:9.2f} ms")
 
     profiler = cProfile.Profile()
     profiler.enable()
-    _run(20000, 50)
+    _run(20000, 50, use_greedy_search=False)
     profiler.disable()
     buf = StringIO()
     stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
     stats.print_stats(20)
+    print("plain path cProfile:")
     print(buf.getvalue())
+
+    # The greedy search's cost is dominated by re-evaluating loss_fn once per (remaining candidate, step) --
+    # O(n_flagged^2) calls in the worst case (no early stop) vs the plain path's O(n_flagged) -- profile it
+    # separately so its own hotspot (loss_fn re-evaluation, not the pairwise-correlation setup) is visible.
+    profiler_greedy = cProfile.Profile()
+    profiler_greedy.enable()
+    _run(20000, 50, use_greedy_search=True)
+    profiler_greedy.disable()
+    buf_greedy = StringIO()
+    stats_greedy = pstats.Stats(profiler_greedy, stream=buf_greedy).sort_stats("cumulative")
+    stats_greedy.print_stats(20)
+    print("greedy_search path cProfile:")
+    print(buf_greedy.getvalue())

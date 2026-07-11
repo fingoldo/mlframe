@@ -14,11 +14,59 @@ single-model rank alone.
 """
 from __future__ import annotations
 
-from typing import Callable, Dict
+from typing import Callable, Dict, List, Optional
 
 import numpy as np
 
 from mlframe.training.composite.ensemble.stacking import residual_correlation_matrix
+
+
+def _greedy_sequential_blend_selection(
+    oof_preds: Dict[str, np.ndarray],
+    y_true: np.ndarray,
+    loss_fn: Callable[[np.ndarray, np.ndarray], float],
+    best_model: str,
+    candidate_names: List[str],
+    greedy_tolerance: float,
+) -> List[str]:
+    """Forward-select from ``candidate_names`` onto ``best_model``, re-measuring the ACTUAL blend loss after
+    each addition (not just pairwise correlation to a single reference model).
+
+    This catches higher-order redundancy that per-candidate pairwise correlation misses: several candidates
+    can each be low-correlation with every other *individual* model yet still be jointly redundant (e.g. two
+    of them already span the information a third would add), because pairwise correlation never looks at the
+    JOINT effect of a growing selected set. At each step the candidate whose addition most reduces the blend
+    loss is added; the search stops once the best remaining candidate's marginal improvement is ``<=
+    greedy_tolerance`` (a non-improving or negligibly-improving addition is excluded), rather than greedily
+    exhausting every pairwise-diverse candidate regardless of joint value.
+
+    Returns the selected model names in the order they were added, INCLUDING ``best_model`` as the first
+    entry.
+    """
+    selected = [best_model]
+    current_sum = oof_preds[best_model].copy()
+    current_loss = float(loss_fn(y_true, current_sum))
+
+    remaining = list(candidate_names)
+    while remaining:
+        best_candidate: Optional[str] = None
+        best_candidate_loss = np.inf
+        for cand in remaining:
+            trial_pred = (current_sum + oof_preds[cand]) / (len(selected) + 1)
+            trial_loss = float(loss_fn(y_true, trial_pred))
+            if trial_loss < best_candidate_loss:
+                best_candidate_loss = trial_loss
+                best_candidate = cand
+
+        if best_candidate is None or (current_loss - best_candidate_loss) <= greedy_tolerance:
+            break
+
+        selected.append(best_candidate)
+        current_sum = current_sum + oof_preds[best_candidate]
+        current_loss = best_candidate_loss
+        remaining.remove(best_candidate)
+
+    return selected
 
 
 def diversity_ablation_report(
@@ -28,6 +76,8 @@ def diversity_ablation_report(
     loss_fn: Callable[[np.ndarray, np.ndarray], float],
     correlation_threshold: float = 0.85,
     higher_score_is_better: bool = True,
+    use_greedy_search: bool = False,
+    greedy_tolerance: float = 0.0,
 ) -> list:
     """Flag low-correlation-but-lower-accuracy candidates and measure their actual with-vs-without blend impact.
 
@@ -48,6 +98,18 @@ def diversity_ablation_report(
     higher_score_is_better
         Whether ``individual_scores`` is a higher-is-better metric (AUC, accuracy, ...) or lower-is-better
         (RMSE, log-loss, ...) -- controls which model is treated as the current "best single model" baseline.
+    use_greedy_search
+        Opt-in (default ``False``, output unchanged when omitted). Pairwise correlation to a single reference
+        model can miss HIGHER-ORDER redundancy: several candidates can each be low-correlation with every
+        other individual model yet still be jointly redundant (e.g. two of them already span the information
+        a third would add). When ``True``, greedily forward-select from the flagged candidates onto the best
+        model, re-measuring the actual blend loss after each addition, and stop once the best remaining
+        candidate's marginal improvement is ``<= greedy_tolerance``. Each flagged entry then also carries
+        ``"greedy_selected"`` (``bool``) and ``"greedy_step"`` (1-based order the model was added, ``None``
+        if never selected).
+    greedy_tolerance
+        Minimum blend-loss reduction (in ``loss_fn`` units) required for the greedy search to keep adding a
+        candidate; only used when ``use_greedy_search`` is ``True``.
 
     Returns
     -------
@@ -56,7 +118,7 @@ def diversity_ablation_report(
         "individual_score", "blend_without_candidate_loss", "blend_with_candidate_loss",
         "ablation_improvement"}`` (``ablation_improvement > 0`` means adding the candidate to an equal-weight
         blend of all OTHER models improved the loss -- i.e. the diversity WAS worth it despite the lower
-        individual score).
+        individual score). Plus ``"greedy_selected"``/``"greedy_step"`` when ``use_greedy_search=True``.
     """
     names = list(oof_preds.keys())
     if len(names) < 2:
@@ -99,6 +161,15 @@ def diversity_ablation_report(
                     "ablation_improvement": loss_without - loss_with,
                 }
             )
+
+    if use_greedy_search and report:
+        candidate_names = [str(entry["model"]) for entry in report]
+        selected = _greedy_sequential_blend_selection(oof_preds, y_true, loss_fn, best_model, candidate_names, greedy_tolerance)
+        selected_step = {name: step for step, name in enumerate(selected[1:], start=1)}  # exclude best_model itself
+        for entry in report:
+            step = selected_step.get(str(entry["model"]))
+            entry["greedy_selected"] = step is not None
+            entry["greedy_step"] = step
 
     return report
 
