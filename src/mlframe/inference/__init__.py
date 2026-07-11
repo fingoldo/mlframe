@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from mlframe.inference.predict import *
 from mlframe.inference.explainability import *
+from mlframe.inference.native_gpu_shap import native_gpu_shap_available, native_xgboost_gpu_shap_contribs
 from mlframe.inference.postanalysis import *
 from mlframe.inference.logical_constraints import apply_logical_constraints, discover_logical_constraints
 from mlframe.inference.group_zero_sum_constraint import apply_group_zero_sum_constraint
