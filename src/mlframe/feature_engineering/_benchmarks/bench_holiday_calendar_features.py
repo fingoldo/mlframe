@@ -9,9 +9,11 @@ import pstats
 import time
 from io import StringIO
 
+import numpy as np
 import pandas as pd
 
 from mlframe.feature_engineering.holiday_calendar_features import holiday_calendar_features
+from mlframe.feature_engineering.holiday_locale_target_encoding import holiday_name_target_encode_cross_locale
 
 
 def _run(n_years: int, n_calls: int) -> None:
@@ -24,6 +26,22 @@ def _run_with_name(n_years: int, n_calls: int) -> None:
     dates = pd.Series(pd.date_range("2000-01-01", periods=365 * n_years, freq="D"))
     for _ in range(n_calls):
         holiday_calendar_features(dates, country="US", include_nearest_name=True)
+
+
+def _run_cross_locale(n_years: int, n_calls: int, cross_locale_shrinkage: float | None) -> None:
+    # Two-country panel: rows tagged US/CA in equal proportion, holiday names drawn from the real US calendar
+    # (matches the shape of the actual biz_value scenario -- one rich locale's history feeding a sparser one).
+    dates = pd.Series(pd.date_range("2000-01-01", periods=365 * n_years, freq="D"))
+    feats = holiday_calendar_features(dates, country="US", include_nearest_name=True, name_window_days=0)
+    names = feats["holiday_nearest_holiday_name"].to_numpy()
+    rng = np.random.default_rng(0)
+    countries = np.where(rng.random(len(names)) < 0.5, "US", "CA")
+    y = rng.normal(100.0, 5.0, size=len(names))
+    order = np.arange(len(names))
+    for _ in range(n_calls):
+        holiday_name_target_encode_cross_locale(
+            names, countries, y, order=order, smoothing=1.0, cross_locale_shrinkage=cross_locale_shrinkage
+        )
 
 
 if __name__ == "__main__":
@@ -51,6 +69,22 @@ if __name__ == "__main__":
     profiler = cProfile.Profile()
     profiler.enable()
     _run_with_name(25, 100)
+    profiler.disable()
+    buf = StringIO()
+    stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
+    stats.print_stats(15)
+    print(buf.getvalue())
+
+    for cross_locale_shrinkage, label in [(None, "same-country-only"), (5.0, "cross-locale")]:
+        for n_years, n_calls in [(1, 20), (25, 20), (25, 100)]:
+            t0 = time.perf_counter()
+            _run_cross_locale(n_years, n_calls, cross_locale_shrinkage)
+            wall = time.perf_counter() - t0
+            print(f"[{label}] n_years={n_years:>3} n_calls={n_calls:>4} -> {wall * 1000:9.2f} ms")
+
+    profiler = cProfile.Profile()
+    profiler.enable()
+    _run_cross_locale(25, 100, 5.0)
     profiler.disable()
     buf = StringIO()
     stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")

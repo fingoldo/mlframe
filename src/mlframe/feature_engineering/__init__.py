@@ -83,6 +83,7 @@ from .recency_weighted_rolling import recency_weighted_rolling_mean, recency_wei
 from .nested_ma_decompose import nested_ma_decompose, nested_ma_decompose_chain
 from .ma_crossover import ma_crossover_features
 from .holiday_calendar_features import holiday_calendar_features
+from .holiday_locale_target_encoding import holiday_name_target_encode_cross_locale
 from .state_history import last_k_distinct_states_with_durations
 from .panel_pivot import pivot_time_indexed_panel
 from .ewma_multi_alpha_features import ewma_multi_alpha_features
@@ -242,6 +243,7 @@ __all__ = [
     "nested_ma_decompose_chain",
     "ma_crossover_features",
     "holiday_calendar_features",
+    "holiday_name_target_encode_cross_locale",
     "last_k_distinct_states_with_durations",
     "pivot_time_indexed_panel",
     "ewma_multi_alpha_features",
