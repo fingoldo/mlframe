@@ -28,9 +28,13 @@ task (sub-millisecond) regardless of platform.
 """
 from __future__ import annotations
 
+import logging
 import sys
 import threading
-from typing import Any, Callable
+import time
+from typing import Any, Callable, Optional
+
+logger = logging.getLogger(__name__)
 
 _BIG_STACK_BYTES = 8 * 1024 * 1024
 _NEEDS_BIG_STACK = sys.platform.startswith("win")
@@ -58,6 +62,91 @@ def disable_cuda_in_worker():  # pragma: no cover - runs in a loky child process
     import os
 
     os.environ["CUDA_VISIBLE_DEVICES"] = ""
+
+
+# Shared by the pre-warm below AND run_polynom_pair_fe's real LokyBackend construction (must match: loky's
+# get_reusable_executor pool-reuse key includes this value, and a pre-warmed pool that's already been torn
+# down before the real dispatch runs is worse than not pre-warming at all).
+#
+# 2026-07-11: was 900s in an earlier version of this fix, sized against the gap measured BEFORE
+# maybe_prewarm_polynom_loky_pool's call site moved from fit-entry to right-after-categorization (~418s).
+# After that move the real gap shrank to ~236s at 100k rows, but 900s was never revisited -- a full
+# production A/B (round 13) showed idle workers lingering for up to 900s past their one use measurably
+# contended with the REST of the fit (second target's categorization/training etc.): wall-clock was still
+# 862s vs a 712s no-prewarm baseline, despite the polynom-pair-FE phase itself genuinely being faster
+# (125.4s -> 117.4s). Reduced to 450s -- comfortably above the measured 236s gap (accounting for the gap
+# likely growing at 1M/3M scale, where GPU pair-MI screening between categorization and this dispatch takes
+# proportionally longer) while roughly halving how long a pool can linger unused afterward.
+POLYNOM_LOKY_IDLE_WORKER_TIMEOUT = 450
+
+
+def maybe_prewarm_polynom_loky_pool(fe_smart_polynom_iters: int, n_jobs: int) -> Optional[threading.Thread]:
+    """Speculatively pre-warms the polynom-pair-FE loky pool on a daemon thread, IFF that phase will actually
+    dispatch to it (``fe_smart_polynom_iters`` truthy and ``n_jobs`` > 1). Returns the started thread (mainly for
+    tests to join on), or ``None`` when the gate isn't met.
+
+    2026-07-11 perf: call this from ``MRMR._fit_impl`` right AFTER categorization completes, not at fit-entry.
+    Isolated A/B on real (79237, 544) production shape, TRIVIAL per-task work: a COLD ``LokyBackend`` pool (16
+    fresh worker processes each re-importing mlframe/numba/cupy) took 28.1s; the SAME pool warm took 0.7s.
+    IMPORTANT CALIBRATION (round-13 production A/B): that 28s/0.7s gap does NOT translate directly to
+    wall-clock saved on the REAL dispatch -- the real polynom-pair-FE phase's ~110-160s is dominated by actual
+    Optuna/CMA-ES trial work (100 trials x 5 restarts x ~11 hard pairs), so pool cold-start is a SMALL fraction
+    of it. Measured real effect of a correctly-warmed pool on the phase itself: 125.4s (cold, no pre-warm) ->
+    117.4s (warm) -- an ~8s win, not ~27s. Still worth taking (free -- runs on a daemon thread while GPU work
+    happens), but do not expect the isolated microbenchmark's ratio to hold end-to-end.
+
+    THREE bugs found and fixed across two production A/B rounds before this pre-warm's net effect went from
+    negative to (modestly) positive:
+    (1) [round 12] An earlier version called this at fit-ENTRY (before categorization) -- categorization is
+    itself CPU-active, not idle, so pre-warming there made the categorization-to-GPU-screen gap grow 85.3s ->
+    153.1s (16 new "Grid size 1" GPU warnings appeared in that window, matching the 16 concurrently-spawning
+    workers contending for CPU). Result: -223s wall-clock regression. Fixed by moving the call site to right
+    after categorization, where the next phase (GPU pair-MI screening) is genuinely GPU-bound (blocks on
+    ``.get()``/``copy_to_host``) and leaves CPU actually free.
+    (2) [round 12] The gap from that (still too-early) call site to ``run_polynom_pair_fe``'s actual dispatch
+    measured ~418s -- longer than loky's default ``idle_worker_timeout=300``, so the pre-warmed pool
+    self-terminated before it was ever used, paying the contention cost above for zero benefit.
+    (3) [round 13] Fixing (1) shrank the real gap to ~236s, but the timeout from fix (2) was left at a
+    generously-oversized 900s (sized against the STALE 418s figure) -- idle workers then lingered for up to
+    900s past their one use, contending with the REST of the fit (second target's own categorization/training
+    etc.). Wall-clock was STILL 862s vs a 712s no-prewarm baseline despite the polynom-pair-FE phase itself
+    genuinely being faster (125.4s -> 117.4s) -- the ~8s phase-level win was swamped by lingering-pool
+    contention elsewhere. Fixed by reducing ``POLYNOM_LOKY_IDLE_WORKER_TIMEOUT`` to 450s (comfortably above the
+    measured 236s gap, accounting for it likely growing at 1M/3M scale, while roughly halving how long an
+    unused pool can linger). Round-14 validates whether this closes the remaining gap.
+
+    Matches the EXACT ``LokyBackend(inner_max_num_threads=1, initializer=disable_cuda_in_worker,
+    idle_worker_timeout=POLYNOM_LOKY_IDLE_WORKER_TIMEOUT)`` construction ``run_polynom_pair_fe`` uses so loky's
+    ``get_reusable_executor`` reuse-key (initializer function identity + worker count + timeout) hits and the
+    real dispatch reuses this pool. Best-effort: any failure inside the background thread is silently
+    swallowed -- the real dispatch still works, just cold.
+    """
+    if not fe_smart_polynom_iters or not n_jobs or n_jobs <= 1:
+        return None
+
+    def _prewarm(_n_jobs: int = int(n_jobs)) -> None:
+        """Runs a trivial dispatch through the polynom-pair-FE loky pool shape to force worker spawn now."""
+        _t0 = time.perf_counter()
+        try:
+            from joblib import Parallel, delayed
+            from joblib._parallel_backends import LokyBackend
+
+            _backend = LokyBackend(
+                inner_max_num_threads=1,
+                initializer=disable_cuda_in_worker,
+                idle_worker_timeout=POLYNOM_LOKY_IDLE_WORKER_TIMEOUT,
+            )
+            Parallel(n_jobs=_n_jobs, backend=_backend)(delayed(int)(1) for _ in range(_n_jobs))
+            logger.info("mrmr-polynom-loky-prewarm: pool warm in %.1fs (n_jobs=%d).", time.perf_counter() - _t0, _n_jobs)
+        except Exception as _e:
+            logger.warning(
+                "mrmr-polynom-loky-prewarm: failed after %.1fs (%s: %s) -- run_polynom_pair_fe will pay a cold start.",
+                time.perf_counter() - _t0, type(_e).__name__, _e,
+            )
+
+    thread = threading.Thread(target=_prewarm, daemon=True, name="mrmr-polynom-loky-prewarm")
+    thread.start()
+    return thread
 
 
 def run_in_big_stack_thread(

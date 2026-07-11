@@ -301,7 +301,10 @@ def _build_operand_table(
                         elif tr_name == _GATE_MED_UNARY:
                             transformed_vars[:, i] = _gate_med_apply(vals, _gate_med_median_by_var[var])
                         elif "poly_" in tr_name:
-                            transformed_vars[:, i] = hermval(vals, c=tr_func)
+                            # Unbounded hermval tails can overflow; suppress the resulting RuntimeWarnings,
+                            # matching every sibling unary branch here (prewarp above, plain-unary below).
+                            with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+                                transformed_vars[:, i] = hermval(vals, c=tr_func)
                         else:
                             # WAVE 5 (1/4): if CUDA is available, the
                             # transformation is GPU-compatible, AND the

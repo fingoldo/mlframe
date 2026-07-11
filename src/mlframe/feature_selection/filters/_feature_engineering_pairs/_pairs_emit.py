@@ -26,6 +26,25 @@ from ._pairs_gates import _PREWARP_UNARY, _select_single_best, mi_tie_band
 logger = logging.getLogger(__name__)
 
 
+def _finalize_survivor_column(col_full: np.ndarray) -> np.ndarray:
+    """Return the survivor column produced by any of the ``_col_full`` branches (rebuild / buffer-view /
+    GPU-resolve / recompute-fallback) unchanged, WITHOUT a second NaN/Inf scrub or a forced float64 upcast.
+
+    Every producing branch already scrubs NaN/Inf before returning (``_rebuild_full_survivor_col``'s own
+    ``nan_to_num``, the buffer-fill scrub in ``_pairs_score._score_one_pair``, ``_resolve_col``'s D2H
+    ``nan_to_num``, and the recompute-fallback's inline ``nan_to_num`` a few lines above this call site), so
+    a second scrub here is provably dead work on every call. dtype is intentionally NOT forced to float32:
+    most branches already yield float32 (matching ``transformed_vars`` / the resident buffers), but the
+    recompute-fallback's ``binary_transformations["div"]`` (``_safe_div``) internally upcasts to float64 for
+    its eps-floor division and returns float64 -- forcing float32 here would silently truncate that result,
+    which is NOT a pure redundancy removal. Passing the dtype through as-is keeps every branch bit-identical
+    to the pre-fix ``nan_to_num(asarray(..., float64))`` (a no-op scrub + a lossless upcast when the source
+    was float32, an exact no-op when it was already float64); the caller then assigns each column into a
+    float64 ``transformed_vals`` buffer via plain elementwise ``__setitem__``, which upcasts correctly
+    regardless of the source dtype, so no consumer needs this intermediate forced to any particular dtype."""
+    return np.asarray(col_full)
+
+
 def _emit_pair_features(
     *,
     raw_vars_pair,
@@ -604,10 +623,7 @@ def _emit_pair_features(
                 # (measured: 0.14 vs the true 0.32). Keeping float lets the
                 # downstream quantile discretiser produce the full nbins
                 # codes and the recipe pin correct edges.
-                _col_arr = np.nan_to_num(
-                    np.asarray(_col_full, dtype=np.float64),
-                    nan=0.0, posinf=0.0, neginf=0.0,
-                )
+                _col_arr = _finalize_survivor_column(_col_full)
                 if float(np.std(_col_arr)) <= 1e-9:
                     if verbose:
                         messages.append(

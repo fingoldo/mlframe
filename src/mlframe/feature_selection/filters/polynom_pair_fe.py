@@ -32,7 +32,7 @@ import numpy as np
 from joblib import Parallel, delayed
 from joblib._parallel_backends import LokyBackend
 
-from ._joblib_safe import run_in_big_stack_thread
+from ._joblib_safe import POLYNOM_LOKY_IDLE_WORKER_TIMEOUT, disable_cuda_in_worker, run_in_big_stack_thread
 from .discretization import discretize_array
 from .engineered_recipes import build_hermite_pair_recipe
 from .hermite_fe import optimise_hermite_pair
@@ -46,31 +46,6 @@ logger = logging.getLogger(__name__)
 # cheap trivial baseline already saturated the joint-MI ceiling; the serial
 # reduce counts these for the summary log and treats them as no-injection.
 _POLY_CHEAP_SKIP = "__poly_cheap_skip__"
-
-
-def _poly_worker_disable_cuda():  # pragma: no cover - runs in a loky child process
-    """loky worker initializer: force the pair-search workers CPU-ONLY.
-
-    Runs once per freshly-spawned loky worker BEFORE the first task unpickles
-    ``mlframe`` (and thus before any ``cupy`` import), so the worker sees NO CUDA
-    device and every ``polyeval_dispatch`` / GPU-FE path in it takes the njit CPU
-    branch -- i.e. NO ~250 MB cupy CUDA context is created per worker.
-
-    Why this matters (2026-07-05 wellbore diag, 4 GB GTX 1050 Ti): with the
-    per-pair search fanned out to 16 loky workers, each worker was importing cupy
-    and grabbing its own ~200-250 MB CUDA context (~3.3 GB total). On a 4 GB card
-    those 16 contexts nearly fill VRAM; the workers then block on GPU allocations,
-    the joblib parent sleep-polls in ``_retrieve`` at ~1 core, and the pair search
-    STALLS for ~2h (should be seconds-to-minutes). The per-pair work is CMA-ES /
-    Optuna sampling (GIL-bound -> genuinely wants processes) + njit polyeval (CPU);
-    16-way process-parallel GPU polyeval on a small card is counterproductive
-    (contexts don't fit). Killing GPU per worker fixes BOTH the idle-CPU (16 real
-    CPU workers now) and the VRAM fill (no worker contexts). The parent keeps its
-    own GPU context for other phases -- only the workers go CPU-only.
-    """
-    import os
-
-    os.environ["CUDA_VISIBLE_DEVICES"] = ""
 
 
 from ._fe_family_timing import fe_timed
@@ -415,26 +390,55 @@ def run_polynom_pair_fe(
         # between trials is the actual bottleneck (~50% of per-trial time
         # in prod, holds GIL, can only be split across processes).
         #
-        # ``initializer=_poly_worker_disable_cuda`` forces every loky worker
-        # CPU-ONLY (CUDA_VISIBLE_DEVICES="") so it does NOT grab its own ~250 MB
-        # cupy CUDA context -- 16 worker contexts filled a 4 GB card and stalled
-        # the search ~2h (see _poly_worker_disable_cuda docstring, 2026-07-05).
-        # We build a ``LokyBackend`` instance instead of passing ``backend="loky"``
-        # + kwargs to ``Parallel`` because in joblib 1.5.x the ``initializer`` (and
-        # even ``inner_max_num_threads``) are ONLY honoured when set on the backend
+        # ``initializer=disable_cuda_in_worker`` forces every loky worker CPU-ONLY
+        # (CUDA_VISIBLE_DEVICES="") so it does NOT grab its own ~250 MB cupy CUDA
+        # context -- 16 worker contexts filled a 4 GB card and stalled the search
+        # ~2h (see the shared helper's docstring, 2026-07-05). We build a
+        # ``LokyBackend`` instance instead of passing ``backend="loky"`` + kwargs to
+        # ``Parallel`` because in joblib 1.5.x the ``initializer`` (and even
+        # ``inner_max_num_threads``) are ONLY honoured when set on the backend
         # object; passed straight to ``Parallel(...)`` they are silently dropped.
-        # The differing initializer also forces loky to spawn a FRESH pool rather
-        # than reuse a warm (possibly GPU-holding) one from an earlier phase.
+        # SHARED initializer, not a local duplicate (2026-07-10 fix): this used to
+        # be a separate ``_poly_worker_disable_cuda`` function with an identical
+        # body -- loky's ``get_reusable_executor`` keys pool reuse on the
+        # initializer FUNCTION REFERENCE, so two behaviourally-identical-but-
+        # distinct callables meant this pool could never reuse the warm CPU-only
+        # pool ``_step_pairmi.py``'s pair-MI sweep already spun up moments earlier
+        # in the SAME fit, paying a full fresh 16-worker spawn (process create +
+        # mlframe/numba re-import per worker) every time instead. Using the SAME
+        # shared ``disable_cuda_in_worker`` lets the two call sites reuse one pool.
         # Memmapping of large ``X_ndarr`` is preserved (LokyBackend still uses the
         # memmapping executor), so this does not copy X per task.
         _loky_cpu_backend = LokyBackend(
             inner_max_num_threads=1,
-            initializer=_poly_worker_disable_cuda,
+            initializer=disable_cuda_in_worker,
+            # Must match maybe_prewarm_polynom_loky_pool's idle_worker_timeout for get_reusable_executor's
+            # reuse-key to hit the pre-warmed pool (2026-07-11) -- see that function's docstring for the
+            # measured gap this timeout needs to survive and the production A/B history behind its value.
+            idle_worker_timeout=POLYNOM_LOKY_IDLE_WORKER_TIMEOUT,
         )
-        _poly_pair_results = Parallel(
-            n_jobs=_polynom_n_jobs, backend=_loky_cpu_backend,
-            verbose=10 if verbose else 0,
-        )(delayed(_eval_one_pair)(rv, X_ndarr, classes_y) for rv in _pair_keys)
+        try:
+            # Fallback to the exact serial path on ANY dispatch failure (2026-07-10 fix; reproduced
+            # live at n=3M production scale on a small-VRAM card). A GPU OOM earlier in the SAME fit
+            # can leave the main process's CUDA context in a poisoned state; cloudpickle serializing
+            # the task closure then fails with ``_pickle.PicklingError`` (CUDADriverError as its
+            # ``__cause__``) even though this pool's WORKERS are CPU-only -- the failure is in the
+            # PARENT process's pickling step, before any task reaches a worker. Pre-fix this exception
+            # propagated all the way up and crashed the whole training run. The per-pair work here is
+            # independent of which backend runs it (same ``_eval_one_pair`` call either way), so
+            # falling back to serial is safe and selection-equivalent, just slower for this one FE
+            # stage on this one fit.
+            _poly_pair_results = Parallel(
+                n_jobs=_polynom_n_jobs, backend=_loky_cpu_backend,
+                verbose=10 if verbose else 0,
+            )(delayed(_eval_one_pair)(rv, X_ndarr, classes_y) for rv in _pair_keys)
+        except Exception as _pool_exc:
+            logger.warning(
+                "Polynomial-pair FE: loky pool dispatch failed (%s: %s); falling back to the serial "
+                "per-pair path for this round [n_pairs=%d].",
+                type(_pool_exc).__name__, _pool_exc, _n_pairs_to_eval,
+            )
+            _poly_pair_results = [_eval_one_pair(rv, X_ndarr, classes_y) for rv in _pair_keys]
     else:
         if _polynom_n_jobs > 1 and verbose:
             logger.info(

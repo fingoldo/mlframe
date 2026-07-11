@@ -20,7 +20,6 @@ import os
 from types import SimpleNamespace
 
 import numpy as np
-import pytest
 
 from joblib._parallel_backends import LokyBackend
 
@@ -45,18 +44,16 @@ def test_worker_initializer_disables_cuda():
             os.environ["CUDA_VISIBLE_DEVICES"] = prev
 
 
-class _CapturedBackend(Exception):
-    """Raised by the Parallel spy once the backend has been captured."""
-
-    def __init__(self, backend):
-        self.backend = backend
-
-
 def test_pairmi_parallel_uses_cpu_only_loky_backend(monkeypatch):
     """>1 job + enough pairs -> parallel branch must build a CPU-only LokyBackend.
 
     Pre-fix code called ``parallel_run(..., backend='threading')`` -> this test fails
     (no LokyBackend / no CUDA-disabling initializer is ever built).
+
+    The spy returns an EMPTY result list (not an exception) so the run completes normally: raising here
+    would be caught by ``compute_pair_mis_and_floor``'s own loky-pool-failure retry/fallback (2026-07-10
+    fix) and silently re-dispatched to the batched-CPU-retry path, defeating the capture instead of
+    signalling it.
     """
     # Disable the GPU/CPU batch pre-fill so the function reaches the per-chunk
     # parallel branch directly (the batch path is a separate dispatch we are not testing).
@@ -68,7 +65,7 @@ def test_pairmi_parallel_uses_cpu_only_loky_backend(monkeypatch):
         captured["backend"] = kwargs.get("backend")
 
         def _run(_tasks):
-            raise _CapturedBackend(captured["backend"])
+            return []
 
         return _run
 
@@ -88,32 +85,31 @@ def test_pairmi_parallel_uses_cpu_only_loky_backend(monkeypatch):
 
     numeric_vars_to_consider = set(range(n_cols))  # C(8,2)=28 pairs >= n_jobs
 
-    with pytest.raises(_CapturedBackend) as ei:
-        _step_pairmi.compute_pair_mis_and_floor(
-            self,
-            data=data,
-            cols=cols,
-            nbins=nbins,
-            X=None,
-            classes_y=classes_y,
-            classes_y_safe=classes_y,
-            freqs_y=freqs_y,
-            target_indices=(n_cols - 1,),
-            cached_MIs={},
-            cached_confident_MIs={},
-            numeric_vars_to_consider=numeric_vars_to_consider,
-            _prevalence_debias_auto=False,
-            n_jobs=16,
-            prefetch_factor=1,
-            parallel_kwargs={"backend": "threading"},
-            fe_min_nonzero_confidence=0.95,
-            fe_npermutations=10,
-            fe_min_pair_mi=0.0,
-            fe_min_pair_mi_prevalence=0.0,
-            verbose=0,
-        )
+    _step_pairmi.compute_pair_mis_and_floor(
+        self,
+        data=data,
+        cols=cols,
+        nbins=nbins,
+        X=None,
+        classes_y=classes_y,
+        classes_y_safe=classes_y,
+        freqs_y=freqs_y,
+        target_indices=(n_cols - 1,),
+        cached_MIs={},
+        cached_confident_MIs={},
+        numeric_vars_to_consider=numeric_vars_to_consider,
+        _prevalence_debias_auto=False,
+        n_jobs=16,
+        prefetch_factor=1,
+        parallel_kwargs={"backend": "threading"},
+        fe_min_nonzero_confidence=0.95,
+        fe_npermutations=10,
+        fe_min_pair_mi=0.0,
+        fe_min_pair_mi_prevalence=0.0,
+        verbose=0,
+    )
 
-    backend = ei.value.backend
+    backend = captured["backend"]
     assert isinstance(backend, LokyBackend), (
         "FE pair-MI parallel scoring must pass a LokyBackend INSTANCE (not a "
         "backend='threading'/'loky' string), so the initializer + "
