@@ -32,6 +32,7 @@ from mlframe.calibration.smoothed_override import apply_smoothed_override
 from mlframe.calibration.asymmetric_rescale import fit_asymmetric_rescale, apply_asymmetric_rescale
 from mlframe.calibration.group_zero_sum_constraint import apply_group_zero_sum_constraint
 from mlframe.calibration.sticky_state_persistence_floor import apply_sticky_state_persistence_floor, optimize_persistence_floor
+from mlframe.calibration.prediction_band_correction import find_prediction_band_shift, apply_prediction_band_correction
 
 
 def __getattr__(name: str) -> Any:
