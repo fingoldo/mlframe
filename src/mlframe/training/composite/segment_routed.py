@@ -28,6 +28,19 @@ from mlframe.votenrank.rank_splice import segment_rank_splice
 logger = logging.getLogger(__name__)
 
 
+def _extract_column(X: Any, column: Any) -> np.ndarray:
+    """Pull a single named/indexed column out of a pandas/polars/ndarray frame as a 1-D float array."""
+    if isinstance(X, pd.DataFrame):
+        return np.asarray(X[column], dtype=np.float64)
+    try:
+        import polars as pl
+        if isinstance(X, pl.DataFrame):
+            return np.asarray(X[column].to_numpy(), dtype=np.float64)
+    except ImportError:
+        pass
+    return np.asarray(np.asarray(X)[:, column], dtype=np.float64)
+
+
 def _select_columns(X: Any, mask: np.ndarray, columns: Optional[Sequence[Any]]) -> Any:
     if isinstance(X, pd.DataFrame):
         X_seg = X.loc[mask]
@@ -59,7 +72,23 @@ class SegmentRoutedEstimator(BaseEstimator, RegressorMixin):
         with a reduced feature subset (``specialist_features``). Cloned at fit time.
     segment_predicate
         ``callable(X) -> (n,) bool array``, True marks a row as belonging to the data-sparse segment (e.g.
-        ``lambda X: X["n_statements"] <= 2``).
+        ``lambda X: X["n_statements"] <= 2``). Mutually exclusive with ``auto_segment_column`` -- exactly one
+        of the two must be given.
+    auto_segment_column
+        Opt-in AUTO-segment-discovery: a column name (pandas/polars) or integer index (ndarray) to threshold
+        instead of hand-writing ``segment_predicate``. The threshold is the ``auto_segment_quantile`` quantile
+        of this column computed ONCE at fit time on the training data and reused unchanged at predict time
+        (so train/test routing stays consistent even if the test column distribution drifts). Rows on the
+        sparse side of the threshold (see ``auto_segment_direction``) are routed to the specialist -- e.g.
+        ``auto_segment_column="n_statements", auto_segment_quantile=0.1, auto_segment_direction="low"``
+        auto-discovers the bottom 10% of rows by history length without a manual cutoff.
+    auto_segment_quantile
+        Quantile (0-1) of ``auto_segment_column`` used as the auto-discovered threshold. Only used when
+        ``auto_segment_column`` is set. Default 0.1 (bottom/top 10%).
+    auto_segment_direction
+        ``"low"`` (default) routes rows AT OR BELOW the quantile threshold to the specialist (the sparse-tail
+        case, e.g. low history count); ``"high"`` routes rows AT OR ABOVE it. Only used when
+        ``auto_segment_column`` is set.
     specialist_features
         Optional column subset (names for pandas/polars, integer indices for ndarray) the specialist model
         is fit/predicted on. None uses all columns.
@@ -75,25 +104,54 @@ class SegmentRoutedEstimator(BaseEstimator, RegressorMixin):
         The fitted clones.
     segment_rate_
         Fraction of training rows routed to the specialist (diagnostic).
+    segment_threshold_
+        The fit-time quantile threshold on ``auto_segment_column`` (``None`` unless auto-discovery is used).
     """
+
+    segment_threshold_: Optional[float]
 
     def __init__(
         self,
         main_estimator: Any,
         specialist_estimator: Any,
-        segment_predicate: Callable[[Any], np.ndarray],
+        segment_predicate: Optional[Callable[[Any], np.ndarray]] = None,
         specialist_features: Optional[Sequence[Any]] = None,
         splice_by_rerank: bool = True,
+        auto_segment_column: Optional[Any] = None,
+        auto_segment_quantile: float = 0.1,
+        auto_segment_direction: str = "low",
     ) -> None:
         self.main_estimator = main_estimator
         self.specialist_estimator = specialist_estimator
         self.segment_predicate = segment_predicate
         self.specialist_features = specialist_features
         self.splice_by_rerank = splice_by_rerank
+        self.auto_segment_column = auto_segment_column
+        self.auto_segment_quantile = auto_segment_quantile
+        self.auto_segment_direction = auto_segment_direction
+
+    def _resolve_segment_mask(self, X: Any, *, fitting: bool) -> np.ndarray:
+        """Dispatch to the manual predicate or the auto-discovered threshold, whichever is configured."""
+        if self.segment_predicate is not None and self.auto_segment_column is not None:
+            raise ValueError("SegmentRoutedEstimator: pass exactly one of segment_predicate / auto_segment_column, not both")
+        if self.segment_predicate is not None:
+            return np.asarray(self.segment_predicate(X), dtype=bool)
+        if self.auto_segment_column is None:
+            raise ValueError("SegmentRoutedEstimator: pass exactly one of segment_predicate / auto_segment_column")
+        if self.auto_segment_direction not in ("low", "high"):
+            raise ValueError(f"auto_segment_direction must be 'low' or 'high', got {self.auto_segment_direction!r}")
+
+        col_vals = _extract_column(X, self.auto_segment_column)
+        if fitting:
+            self.segment_threshold_ = float(np.quantile(col_vals, self.auto_segment_quantile))
+        threshold = self.segment_threshold_
+        return col_vals <= threshold if self.auto_segment_direction == "low" else col_vals >= threshold
 
     def fit(self, X: Any, y: Any, sample_weight: Optional[np.ndarray] = None) -> "SegmentRoutedEstimator":
         y_arr = np.asarray(y, dtype=np.float64)
-        seg_mask = np.asarray(self.segment_predicate(X), dtype=bool)
+        if self.auto_segment_column is None:
+            self.segment_threshold_ = None
+        seg_mask = self._resolve_segment_mask(X, fitting=True)
         if seg_mask.shape[0] != y_arr.shape[0]:
             raise ValueError(f"segment_predicate returned {seg_mask.shape[0]} rows, expected {y_arr.shape[0]}")
         self.segment_rate_: float = float(seg_mask.mean()) if seg_mask.shape[0] else 0.0
@@ -112,7 +170,7 @@ class SegmentRoutedEstimator(BaseEstimator, RegressorMixin):
         return self
 
     def predict(self, X: Any) -> np.ndarray:
-        seg_mask = np.asarray(self.segment_predicate(X), dtype=bool)
+        seg_mask = self._resolve_segment_mask(X, fitting=False)
         main_pred = np.asarray(self.main_model_.predict(X), dtype=np.float64)
         if not seg_mask.any() or not self._specialist_fitted_:
             return main_pred
