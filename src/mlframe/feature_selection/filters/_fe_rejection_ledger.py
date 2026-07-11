@@ -40,11 +40,13 @@ candidate.
 DEFAULT-ON, MEMORY-CAPPED
 -------------------------
 Every fitted MRMR carries ``fe_rejection_ledger_`` -- there is no opt-in flag (mirrors
-``fe_provenance_``). To bound memory on pathological wide frames (tens of thousands of
-rejected pair candidates) the raw record list is capped at ``FE_REJECTION_LEDGER_CAP``
-records; once the cap is hit further records are dropped and a single ``_capped`` marker
+``fe_provenance_``). To bound memory on pathological wide frames (hundreds of thousands of
+rejected pair candidates on very-wide-p fits) the raw record list is capped at
+``FE_REJECTION_LEDGER_CAP`` records (or ``MRMR(fe_rejection_ledger_cap=...)`` when set on the
+instance); once the cap is hit further records are dropped and a single ``_capped`` marker
 row is recorded so the truncation is never silent (per the no-silent-truncation rule). The
-cap is generous (50k) so realistic fits keep the full ledger.
+default cap is 500k records (~100-200 MB worst case) so realistic fits, including very-wide-p
+ones, keep the full ledger; raise it further via the constructor param if needed.
 """
 from __future__ import annotations
 
@@ -69,10 +71,11 @@ FE_GATE_LABELS = (
 )
 
 
-# Raw-record list memory cap. Realistic fits stay far below this; the cap only guards a
-# pathological wide-frame fit from accumulating an unbounded ledger. When exceeded a single
-# ``ledger_capped`` marker row is recorded so the truncation is visible (never silent).
-FE_REJECTION_LEDGER_CAP: int = 50_000
+# Raw-record list memory cap (module-level fallback; override per-instance via
+# ``MRMR(fe_rejection_ledger_cap=...)``). Realistic fits stay far below this; the cap only
+# guards a pathological wide-frame fit from accumulating an unbounded ledger. When exceeded a
+# single ``ledger_capped`` marker row is recorded so the truncation is visible (never silent).
+FE_REJECTION_LEDGER_CAP: int = 500_000
 
 
 # Ledger DataFrame schema. ``compute_fe_rejection_ledger`` returns an empty frame with this
@@ -128,7 +131,8 @@ def record_fe_rejection(
 
     Pure-record: never recomputes anything. ``margin`` defaults to ``observed - threshold``
     when both are finite and ``margin`` is not supplied. Memory-capped: once the list reaches
-    ``FE_REJECTION_LEDGER_CAP`` a single ``ledger_capped`` marker is appended (so the cap is
+    the effective cap (``mrmr_self.fe_rejection_ledger_cap`` if set, else module-default
+    ``FE_REJECTION_LEDGER_CAP``) a single ``ledger_capped`` marker is appended (so the cap is
     never silent) and subsequent records are dropped. Swallows its OWN errors -- an
     instrumentation failure must never break the FE search.
     """
@@ -137,28 +141,33 @@ def record_fe_rejection(
         if records is None:
             records = []
             mrmr_self._fe_rejection_records_ = records
+        # Configurable per-instance (``fe_rejection_ledger_cap``, default None -> module default). At
+        # very wide p (2026-07-09, hundreds-of-thousands-of-columns use case) a fixed 50k cap is reached
+        # after tens of thousands of ALREADY-expensive candidate evaluations, losing FE debugging
+        # visibility for the rest of the fit even though each record is small (~200-400 bytes): raising
+        # the cap 10x costs low-single-digit-MB extra, cheap on any real host.
+        effective_cap = int(getattr(mrmr_self, "fe_rejection_ledger_cap", None) or FE_REJECTION_LEDGER_CAP)
         n = len(records)
-        if n >= FE_REJECTION_LEDGER_CAP:
+        if n >= effective_cap:
             # Record the truncation EXACTLY once (no silent truncation), then stop appending.
-            if n == FE_REJECTION_LEDGER_CAP:
+            if n == effective_cap:
                 records.append(
                     {
                         "candidate": "<ledger cap reached>",
                         "operands": "()",
                         "operator": None,
                         "gate": "ledger_capped",
-                        "observed": float(FE_REJECTION_LEDGER_CAP),
-                        "threshold": float(FE_REJECTION_LEDGER_CAP),
+                        "observed": float(effective_cap),
+                        "threshold": float(effective_cap),
                         "margin": 0.0,
-                        "reason": (
-                            f"rejection ledger reached its {FE_REJECTION_LEDGER_CAP}-record cap; " "further rejected candidates are not recorded for this fit"
-                        ),
+                        "reason": (f"rejection ledger reached its {effective_cap}-record cap; " "further rejected candidates are not recorded for this fit"),
                         "step": int(step),
                     }
                 )
                 logger.warning(
-                    "MRMR FE rejection ledger hit its %d-record cap; further rejected " "candidates this fit are not recorded.",
-                    FE_REJECTION_LEDGER_CAP,
+                    "MRMR FE rejection ledger hit its %d-record cap; further rejected " "candidates this fit are not recorded. "
+                    "Raise via MRMR(fe_rejection_ledger_cap=...) if full-ledger visibility is needed on very wide pools.",
+                    effective_cap,
                 )
             return
         obs = _safe_float(observed)

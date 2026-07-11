@@ -67,7 +67,6 @@ from .._mrmr_fingerprints import (
     _lazy_chunks,
     _MRMR_IDENTITY_FP_CACHE,
     _MRMR_IDENTITY_FP_LOCK,
-    _MRMR_BATCH_PRECOMPUTE_MAX_K,
     _MRMR_BATCH_PRECOMPUTE_MIN_PAIRS,
 )
 
@@ -233,7 +232,6 @@ __all__ = [
     "_lazy_chunks",
     "_MRMR_IDENTITY_FP_CACHE",
     "_MRMR_IDENTITY_FP_LOCK",
-    "_MRMR_BATCH_PRECOMPUTE_MAX_K",
     "_MRMR_BATCH_PRECOMPUTE_MIN_PAIRS",
     "RFECV",
     "CatBoostClassifier",

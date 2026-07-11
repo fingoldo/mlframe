@@ -97,17 +97,20 @@ _MRMR_IDENTITY_FP_CACHE: dict[str, bool] = {}
 _MRMR_IDENTITY_FP_LOCK = _threading.Lock()
 
 # ---------------------------------------------------------------------------------------------------------------
-# Layer 3 pre-batch: thresholds for the dispatch_batch_pair_mi pre-fill path in _run_fe_step.
+# Layer 3 pre-batch: threshold for the dispatch_batch_pair_mi_chunked pre-fill path in _run_fe_step.
 #
-# * _MRMR_BATCH_PRECOMPUTE_MAX_K: cap on numeric_vars_to_consider size. The pre-fill materialises every (a, b)
-#   pair tuple, which is O(k^2). At k=200 -> 19_900 pair tuples (~480 KB of Python tuples); at k=500 -> 124_750
-#   tuples (~3 MB). 200 is the safe sweet spot: covers the typical fe_ntop_features=30-50 axis with margin and
-#   keeps the materialised tuple list under 1 MB. Above the cap the legacy combinations(...) lazy path runs
-#   unchanged.
 # * _MRMR_BATCH_PRECOMPUTE_MIN_PAIRS: smallest pair count where the dispatcher overhead amortises. Below this
 #   the per-pair joblib path is competitive (and avoids a redundant numba.cuda first-call compile when no GPU
 #   speedup would materialise).
-_MRMR_BATCH_PRECOMPUTE_MAX_K = 200
+#
+# There is deliberately NO pool-size cap here. Until 2026-07-09 a flat ``_MRMR_BATCH_PRECOMPUTE_MAX_K=200``
+# ceiling forced any wider pool onto a ~35s/pair legacy joblib fallback -- a realistic several-hundred-column
+# production pool (well within normal use) fell off a catastrophic-runtime cliff. The batch path now enumerates
+# pairs via ``dispatch_batch_pair_mi_chunked`` (see ``batch_pair_mi_gpu.py``), which processes the C(k,2) pair
+# space in RAM-bounded row-block chunks instead of materialising it all at once, so it is always the path taken
+# for pool sizes up to whatever ``sis_screen_threshold`` (Gate A, ``_mrmr_sis_screen.py``) lets through -- at true
+# extreme width (10^5+ raw columns) an exhaustive C(k,2) sweep is fundamentally intractable regardless of
+# implementation, which is exactly what that separate front-gate exists to bound.
 _MRMR_BATCH_PRECOMPUTE_MIN_PAIRS = 8
 
 

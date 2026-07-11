@@ -167,7 +167,8 @@ class TestSplineDetectsThreshold:
             f"seed={seed}: spline generator with 7 knots should emit at "
             f"least 4 x1__sp* columns; got {x1_cols}"
         )
-        # Each emitted column must round-trip through its recipe.
+        # Each emitted column must round-trip through its recipe, to float32 precision (see
+        # test_replay_matches_generator's docstring for why bit-identical is not the right bar).
         from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
             _build_recipe_from_meta,
         )
@@ -177,7 +178,7 @@ class TestSplineDetectsThreshold:
             replayed = apply_recipe(recipe, X)
             np.testing.assert_allclose(
                 replayed, eng[name].to_numpy(),
-                rtol=1e-9, atol=1e-9,
+                rtol=1e-5, atol=5e-6,
             )
 
 
@@ -507,8 +508,11 @@ class TestStandaloneGenerateAndReplay:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_replay_matches_generator(self, seed):
-        """Each emitted column from ``generate_extra_basis_features`` must be
-        reproduced bit-identically by the matching recipe's apply path."""
+        """Each emitted column from ``generate_extra_basis_features`` must be reproduced by the
+        matching recipe's apply path to float32 precision (both paths run under
+        ``MLFRAME_CRIT_DTYPE_RELAXED``'s default-on float32 operand cast, see ``_crit_np_dtype``;
+        bit-identical is not the right bar since the replay path is not guaranteed to fuse operations
+        in the same order as the generator)."""
         from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
             generate_extra_basis_features, _build_recipe_from_meta,
         )
@@ -532,7 +536,7 @@ class TestStandaloneGenerateAndReplay:
             replayed = apply_recipe(recipe, X)
             np.testing.assert_allclose(
                 replayed, eng[name].to_numpy(),
-                rtol=1e-9, atol=1e-9,
+                rtol=1e-5, atol=5e-6,
                 err_msg=(
                     f"seed={seed}: recipe replay mismatched fit-time value "
                     f"for engineered column {name!r}."

@@ -129,7 +129,18 @@ def _dispatch_keep_frac(n_rows: int, n_pairs: int, *, run_auto_tune: bool = Fals
     Env override (``MLFRAME_FE_RUNG_KEEP_FRAC``) wins; then the kernel_tuning_cache;
     then the measurement-backed fallback. Mirrors ``dispatch_recursion_backend`` /
     ``_batch_pair_mi_backend_choice`` (the iron rule: never hardcode a single threshold
-    across hardware / data shapes -- route through the per-host cache)."""
+    across hardware / data shapes -- route through the per-host cache).
+
+    Uses a PURE ``cache.lookup()``, never ``get_or_tune``: no ``kernel_tuner()`` is
+    registered for ``fe_rung_keep_frac`` anywhere in mlframe, so ``get_or_tune`` would
+    spawn a background async-sweep thread (debounce-sleep + idle-poll, ~10-120s) on EVERY
+    fresh fit that can NEVER populate the cache (there is no real tuner to run) -- pure
+    per-process overhead, forever. ``lookup`` degrades silently to the fallback on a miss,
+    exactly like ``_ktc_dispatch._lookup_backend``'s deferred-sweep branch and
+    ``dispatch.lookup_pairwise_corr_backend`` in ``_benchmarks/kernel_tuning_cache/dispatch.py``.
+    An operator/offline sweep can still populate the cache via ``cache.update(...)`` directly;
+    this dispatcher then honors it on the next call. ``run_auto_tune`` is currently unused
+    (kept for signature parity with the other dispatchers) since no tuner exists yet to run."""
     forced = os.environ.get("MLFRAME_FE_RUNG_KEEP_FRAC", "").strip()
     if forced:
         try:
@@ -142,22 +153,15 @@ def _dispatch_keep_frac(n_rows: int, n_pairs: int, *, run_auto_tune: bool = Fals
     try:
         from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
 
-        result = KernelTuningCache.load_or_create().get_or_tune(
-            "fe_rung_keep_frac",
-            dims={"n_rows": int(n_rows), "n_pairs": int(n_pairs)},
-            tuner=(lambda: None),  # no online sweep: correctness is floor-guaranteed, the
-            # fraction only trades speed; populated offline if desired.
-            axes=["n_rows", "n_pairs"],
-            fallback={"keep_frac": fallback},
-            code_version="rung_v1",
-            async_sweep=True,
+        result = KernelTuningCache.load_or_create().lookup(
+            "fe_rung_keep_frac", n_rows=int(n_rows), n_pairs=int(n_pairs),
         )
         if isinstance(result, dict):
             kf = float(result.get("keep_frac", fallback))
             if 0.0 < kf <= 1.0:
                 return kf
     except Exception as e:  # pyutilz missing / cache error -> fallback
-        logger.debug("fe_rung keep_frac get_or_tune failed: %s", e)
+        logger.debug("fe_rung keep_frac lookup failed: %s", e)
     return fallback
 
 

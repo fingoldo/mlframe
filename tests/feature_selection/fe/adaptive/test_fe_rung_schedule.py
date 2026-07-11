@@ -138,6 +138,48 @@ def test_env_override_keep_frac(monkeypatch):
     assert 0.0 < v <= 1.0
 
 
+@pytest.fixture
+def _fresh_ktc_cache_dir(tmp_path, monkeypatch):
+    """Isolated per-host cache dir + a reset process-wide KTC singleton, so this test's
+    ``fe_rung_keep_frac`` lookup can never be short-circuited by a guard another test
+    (or a prior call in this file) already tripped for the real user cache."""
+    from pyutilz.performance.kernel_tuning import cache as ktc
+
+    monkeypatch.setenv("PYUTILZ_KERNEL_CACHE_DIR", str(tmp_path))
+    ktc.hw_fingerprint.cache_clear()
+    ktc._DEFAULT_INSTANCE = None
+    ktc._TUNED_THIS_PROCESS.clear()
+    yield str(tmp_path)
+    ktc.hw_fingerprint.cache_clear()
+    ktc._DEFAULT_INSTANCE = None
+
+
+def test_dispatch_keep_frac_never_spawns_sweep_thread(_fresh_ktc_cache_dir, monkeypatch):
+    """Regression: ``_dispatch_keep_frac`` used to route through ``get_or_tune`` with a
+    permanent no-op tuner (``lambda: None``). Since no ``kernel_tuner()`` is registered for
+    ``fe_rung_keep_frac`` anywhere in mlframe, the cache can never leave the miss/stale
+    state, so EVERY fresh-process call spawned a background async-sweep thread that measures
+    nothing -- forever. The fixed dispatcher uses a pure ``cache.lookup()``, so no sweep
+    thread must ever be spawned, on a cold cache or otherwise."""
+    from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
+
+    spawn_calls = {"n": 0}
+    monkeypatch.setattr(
+        KernelTuningCache, "_spawn_async_sweep",
+        lambda self, *a, **kw: spawn_calls.__setitem__("n", spawn_calls["n"] + 1),
+    )
+    monkeypatch.delenv("MLFRAME_FE_RUNG_KEEP_FRAC", raising=False)
+    # tests/conftest.py sets PYUTILZ_KERNEL_DISABLE_SWEEP=1 session-wide so cache-dependent dispatch
+    # tests never trigger a real sweep; that would ALSO mask this bug (get_or_tune's async branch is
+    # gated on the same env var), so unset it here to exercise the real production sweep-dispatch path.
+    monkeypatch.delenv("PYUTILZ_KERNEL_DISABLE_SWEEP", raising=False)
+
+    v = _dispatch_keep_frac(12345, 77)
+
+    assert spawn_calls["n"] == 0, "fe_rung_keep_frac dispatch must never spawn an async sweep thread (no tuner exists to populate the cache)"
+    assert 0.0 < v <= 1.0
+
+
 def test_ctor_knobs_exposed_and_pickle_safe():
     m = MRMR(fe_rung_schedule_enable=True, fe_rung_keep_frac=0.3,
              fe_rung_rel_floor=0.35, fe_rung_min_pairs=8)

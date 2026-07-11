@@ -219,6 +219,29 @@ def screen_predictors(
     # discovery accumulates across passes instead of being rebuilt empty each
     # time (which dropped the screen-1 dup cluster from the published summary).
     existing_dcd_state: "DCDState | None" = None,
+    # 2026-07-09 fix: analogous to ``existing_dcd_state`` above -- thread the PRIOR screen round's
+    # relevance/redundancy caches back in instead of starting empty every round. A given cache key
+    # (a column-index tuple, or an (X,Z) conditional-MI key) is a deterministic function of the data,
+    # which does not change across rounds (only grows via appended engineered columns; existing
+    # indices' content is stable), so a cached value computed in round N-1 is EXACT, not approximate,
+    # for round N -- the same guarantee this memoization already provides WITHIN one round, just not
+    # previously carried across the 2-3 rounds a typical fit runs. ``seed_caches``, when given, is the
+    # 4-tuple ``(entropy_cache, cached_MIs, cached_confident_MIs, cached_cond_MIs)`` returned by a
+    # PRIOR ``screen_predictors`` call in the same fit. ``None`` (default) preserves the legacy
+    # fresh-empty-caches behaviour.
+    seed_caches: "tuple | None" = None,
+    # 2026-07-09 fix: optional cross-round cache for the maxT permutation-null gain floor (see
+    # ``compute_fdr_gain_floor``'s ``maxt_floor_cache`` docstring). A plain dict the caller owns and
+    # threads unchanged into every ``screen_predictors`` call within one fit (mutated in place -- no
+    # need to read it back from the return tuple). ``None`` (default) disables caching, legacy behaviour.
+    seed_maxt_floor_cache: "dict | None" = None,
+    # 2026-07-09 fix: thread back a joblib ``Parallel`` pool built by a PRIOR ``screen_predictors``
+    # call in the same fit (only meaningful when ``n_workers>1``). Building a fresh pool + eager
+    # warmup dispatch on every one of the ~3 screen/re-screen rounds per fit respawns ``n_workers``
+    # threads each time for no benefit -- the pool config (backend/n_jobs) is fixed by the MRMR
+    # instance for the whole ``fit()`` call, so a warmed pool from round 1 is safe to reuse verbatim
+    # in rounds 2-3. ``None`` (default) preserves the legacy fresh-pool-per-call behaviour.
+    seed_workers_pool: "Parallel | None" = None,
 ) -> tuple:
     """Finds best predictors for the target. ``factors_data`` must be an n-by-m array of integers (ordinal encoded).
 
@@ -411,31 +434,36 @@ def screen_predictors(
         # from "natural gain threshold reached".
         patience_triggered: bool = False
 
-        cached_MIs: dict = dict()
-        # cached_cond_MIs = dict()
-        cached_confident_MIs: dict = dict()
-        # PERF NOTE (profiled 2026-07): constructing the first numba typed.Dict
-        # (unicode->float64) in a process JIT-compiles the whole typed-dict method
-        # suite -- ~5s of LLVM codegen (27% of a cold F2 fit wall), recurring per
-        # process and NOT numba-disk-cacheable. That machinery is now warmed
-        # synchronously at import (warmup_typed_dict, above), moving the ~5s off
-        # every fit's critical path (fit 42.9s -> 37.9s; import +5.2s). A background
-        # daemon-thread warm-up was tried and rejected first: numba's global compile
-        # lock serialises it against the fit's own njit compilation and this
-        # host-serial pipeline has no concurrent GPU work to overlap it with.
-        # The warm-up only SHIFTS the cost (per-process, amortises to zero across
-        # fits in a long-running process); ELIMINATING it would need replacing the
-        # unicode-keyed caches below with a 128-bit-hash (UniTuple int64) key -- a
-        # ~7-file core rewrite gated on the selection-equivalence contract, deferred
-        # as poor ROI (saves ~5s, already zero for multi-fit processes).
-        entropy_cache = numba.typed.Dict.empty(
-            key_type=types.unicode_type,
-            value_type=types.float64,
-        )
-        cached_cond_MIs = numba.typed.Dict.empty(
-            key_type=types.unicode_type,
-            value_type=types.float64,
-        )
+        # 2026-07-09 fix: seed from the PRIOR screen round's caches when supplied (see seed_caches'
+        # docstring above) instead of always starting empty -- a cache key's value is a deterministic
+        # function of the (stable, append-only) data, so reuse across rounds is exact, not approximate.
+        if seed_caches is not None:
+            entropy_cache, cached_MIs, cached_confident_MIs, cached_cond_MIs = seed_caches
+        else:
+            cached_MIs = dict()
+            cached_confident_MIs = dict()
+            # PERF NOTE (profiled 2026-07): constructing the first numba typed.Dict
+            # (unicode->float64) in a process JIT-compiles the whole typed-dict method
+            # suite -- ~5s of LLVM codegen (27% of a cold F2 fit wall), recurring per
+            # process and NOT numba-disk-cacheable. That machinery is now warmed
+            # synchronously at import (warmup_typed_dict, above), moving the ~5s off
+            # every fit's critical path (fit 42.9s -> 37.9s; import +5.2s). A background
+            # daemon-thread warm-up was tried and rejected first: numba's global compile
+            # lock serialises it against the fit's own njit compilation and this
+            # host-serial pipeline has no concurrent GPU work to overlap it with.
+            # The warm-up only SHIFTS the cost (per-process, amortises to zero across
+            # fits in a long-running process); ELIMINATING it would need replacing the
+            # unicode-keyed caches below with a 128-bit-hash (UniTuple int64) key -- a
+            # ~7-file core rewrite gated on the selection-equivalence contract, deferred
+            # as poor ROI (saves ~5s, already zero for multi-fit processes).
+            entropy_cache = numba.typed.Dict.empty(
+                key_type=types.unicode_type,
+                value_type=types.float64,
+            )
+            cached_cond_MIs = numba.typed.Dict.empty(
+                key_type=types.unicode_type,
+                value_type=types.float64,
+            )
         # 2026-06-19: JMIM joint-MI cache, built once per fit alongside cached_cond_MIs so
         # it persists across greedy rounds (the {X} u Z multiset key recurs as selected_vars
         # grows). Plain int64 array counts cache HITS for observability. Both are forwarded
@@ -549,6 +577,7 @@ def screen_predictors(
             cardinality_bias_correction=cardinality_bias_correction,
             random_seed=random_seed,
             verbose=verbose,
+            maxt_floor_cache=seed_maxt_floor_cache,
         )
 
         # ``classes_y_safe`` is OVERLOADED across two consumers with INCOMPATIBLE
@@ -576,28 +605,39 @@ def screen_predictors(
             freqs_y_safe = None
 
         if n_workers and n_workers > 1:
-            if verbose >= 2:
-                logger.info("Starting parallel pool with n_workers=%d", n_workers)
+            if seed_workers_pool is not None:
+                # Reuse the pool a prior round in this SAME fit already built + warmed up. The pool
+                # config (n_workers/backend) is fixed by the MRMR instance for the whole fit() call,
+                # so a round-1 pool is valid verbatim in rounds 2-3 -- no re-spawn, no re-warmup.
+                workers_pool = seed_workers_pool
+            else:
+                if verbose >= 2:
+                    logger.info("Starting parallel pool with n_workers=%d", n_workers)
 
-            # Threading backend: worker fn ``evaluate_candidates`` eventually calls njit (compute_mi_from_classes, shuffle_arr, parallel_mi) which release the GIL, so
-            # threading gives near-process-pool speedup with zero IPC / pickle / memmap overhead. Threading also avoids the Windows-only joblib resource-tracker
-            # KeyError on shutdown caused by loky's auto-memmap of large numpy arrays desyncing across screen-iteration boundaries when the same Parallel object is
-            # re-called. Override via ``parallel_kwargs={"backend": "loky"}`` if process-isolation is needed (rare on this workload).
-            pk = dict(parallel_kwargs)
-            pk.setdefault("backend", "threading")
-            # Disable auto-memmap regardless of backend: large factors_data arrays should stay in shared process memory, not be redundantly serialized to disk.
-            pk.setdefault("max_nbytes", None)
+                # Threading backend: worker fn ``evaluate_candidates`` eventually calls njit (compute_mi_from_classes, shuffle_arr, parallel_mi) which release the GIL, so
+                # threading gives near-process-pool speedup with zero IPC / pickle / memmap overhead. Threading also avoids the Windows-only joblib resource-tracker
+                # KeyError on shutdown caused by loky's auto-memmap of large numpy arrays desyncing across screen-iteration boundaries when the same Parallel object is
+                # re-called. Override via ``parallel_kwargs={"backend": "loky"}`` if process-isolation is needed (rare on this workload).
+                # UNRESOLVED (2026-07-09, MRMR audit finding #5): a py-spy profile of the SAME underlying ``mi_direct`` kernel family under ``backend="threading"`` in
+                # the sibling ``_step_pairmi.py`` pair-search path found it GIL-BOUND at the dispatch boundary (MainThread stuck in joblib ``_retrieve`` sleep-poll),
+                # contradicting the "releases the GIL" claim above. ``evaluate_candidate`` (evaluation.py) -- the function that actually runs in THIS loop -- calls
+                # ``mi_direct`` directly, but may take ``mi_direct``'s analytic-large-n-null fast path (permutation.py) that the pair-search profile did not exercise, so
+                # the two findings are not necessarily in conflict. Not yet re-profiled in THIS call path; do not trust either claim as settled until it is.
+                pk = dict(parallel_kwargs)
+                pk.setdefault("backend", "threading")
+                # Disable auto-memmap regardless of backend: large factors_data arrays should stay in shared process memory, not be redundantly serialized to disk.
+                pk.setdefault("max_nbytes", None)
 
-            if pk.get("backend") == "loky":
-                try:
-                    from loky import set_loky_pickler
-                    set_loky_pickler("cloudpickle")
-                except ImportError:
-                    pass
+                if pk.get("backend") == "loky":
+                    try:
+                        from loky import set_loky_pickler
+                        set_loky_pickler("cloudpickle")
+                    except ImportError:
+                        pass
 
-            workers_pool = Parallel(n_jobs=n_workers, **pk)
-            # Warmup: spawn workers eagerly via a no-op call so spawn cost is paid before the screening loop starts.
-            workers_pool(delayed(_pool_warmup_noop)(i) for i in range(n_workers))
+                workers_pool = Parallel(n_jobs=n_workers, **pk)
+                # Warmup: spawn workers eagerly via a no-op call so spawn cost is paid before the screening loop starts.
+                workers_pool(delayed(_pool_warmup_noop)(i) for i in range(n_workers))
         else:
             workers_pool = None
 
@@ -951,7 +991,7 @@ def screen_predictors(
         # ``ctx`` holds for ``mi_direct_gpu``): the caller threads this into the FE step's
         # njit MI noise-gate, which cannot accept a cupy array. ``classes_y_safe_host`` is
         # defined unconditionally above; on the CPU path it IS ``classes_y_safe``.
-        return selected_vars, predictors, any_influencing, entropy_cache, cached_MIs, cached_confident_MIs, cached_cond_MIs, classes_y, classes_y_safe_host, freqs_y, dcd_state
+        return selected_vars, predictors, any_influencing, entropy_cache, cached_MIs, cached_confident_MIs, cached_cond_MIs, classes_y, classes_y_safe_host, freqs_y, dcd_state, workers_pool
     finally:
         # numpy global state is no longer mutated by this function (a local
         # Generator is used instead), so there is nothing to restore for numpy.

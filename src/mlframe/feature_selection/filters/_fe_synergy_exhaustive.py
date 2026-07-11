@@ -201,12 +201,24 @@ def _normalise_mode(raw) -> str:
     return "auto"
 
 
+# Fallback budget (seconds) applied ONLY when the user set NEITHER ``fe_synergy_exhaustive_max_seconds``
+# NOR ``max_runtime_mins`` (2026-07-09 fix). Before this fix, "nothing set" resolved to ``None`` =
+# UNLIMITED, which made auto mode ALWAYS escalate to the full C(p,2) GPU sweep regardless of predicted
+# cost -- on a wide production pool this could run for hours with no safety net, and a single oversized
+# monolithic CUDA kernel call is a plausible contributor to a launch-failure/TDR-style GPU crash. 300s (5
+# minutes) is a generous default for a "nice to have completeness" sweep (it only recovers rare perfectly-
+# balanced L=0 interactions the cheap O(p) pre-rank provably cannot); users who want the old unconditional
+# behaviour can still get it via ``fe_synergy_exhaustive='force'`` (bypasses the budget entirely) or by
+# explicitly setting a larger ``fe_synergy_exhaustive_max_seconds`` / ``max_runtime_mins``.
+_DEFAULT_EXHAUSTIVE_BUDGET_SECONDS = 300.0
+
+
 def _resolve_exhaustive_budget_seconds(self):
     """Resolve the wall-time budget (seconds) for the auto-escalation, from MRMR's OWN time budget.
 
     Priority: an explicit ``fe_synergy_exhaustive_max_seconds`` override (if set) wins; otherwise
-    ``max_runtime_mins`` * 60 (MRMR's fit-wide budget). When NEITHER is set the budget is ``None`` =
-    UNLIMITED -- auto runs the exhaustive sweep regardless of p (the user did not ask to bound wall-time)."""
+    ``max_runtime_mins`` * 60 (MRMR's fit-wide budget); otherwise ``_DEFAULT_EXHAUSTIVE_BUDGET_SECONDS``
+    (NOT unlimited -- see that constant's docstring for why "nothing set" must still be bounded)."""
     override = getattr(self, "fe_synergy_exhaustive_max_seconds", None)
     if override is not None:
         try:
@@ -223,7 +235,7 @@ def _resolve_exhaustive_budget_seconds(self):
                 return m * 60.0
         except (TypeError, ValueError):
             pass
-    return None  # no budget set anywhere -> do not bound p
+    return _DEFAULT_EXHAUSTIVE_BUDGET_SECONDS
 
 
 def decide_exhaustive_sweep(
@@ -255,7 +267,7 @@ def decide_exhaustive_sweep(
     except Exception:
         _CUDA_AVAIL = False
 
-    budget = _resolve_exhaustive_budget_seconds(self)  # MRMR's own max_runtime_mins; None => unlimited
+    budget = _resolve_exhaustive_budget_seconds(self)  # always a finite float now; see _DEFAULT_EXHAUSTIVE_BUDGET_SECONDS
     n_pairs = (n_raw * (n_raw - 1)) // 2
     if _CUDA_AVAIL:
         # Opportunistically warm the per-host throughput cache so the prediction is measured, not the cold
@@ -291,7 +303,7 @@ def decide_exhaustive_sweep(
             f"recovers leaky interactions cheaply (only a perfectly-balanced L=0 interaction is missed). "
             f"Raise max_runtime_mins or set fe_synergy_exhaustive='force'."
         )
-    _bud = "unlimited (no MRMR time budget set)" if budget is None else f"<= budget {budget:.0f}s"
+    _bud = f"<= budget {budget:.0f}s" if budget is not None else "unlimited"
     return True, (
         f"auto -> exhaustive: FULL C({n_raw},2)={n_pairs}-pair joint-MI sweep over ALL raw numeric columns "
         f"on the {backend} backend (predicted {predicted:.1f}s @ {pps:.0f} pairs/s [{source}], {_bud}) -- the "

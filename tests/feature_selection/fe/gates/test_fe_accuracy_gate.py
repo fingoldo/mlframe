@@ -20,6 +20,7 @@ from mlframe.feature_selection.filters._fe_accuracy_gate import (
     keep_engineered_over_source,
     measure_feature_uplift,
     infer_classification,
+    bin_y_for_class_mi,
     _FE_UPLIFT_MIN,
 )
 
@@ -121,3 +122,36 @@ def test_infer_classification_basic():
     assert infer_classification(np.array([0, 1, 0, 1])) is True
     assert infer_classification(np.array(["a", "b", "a"])) is True
     assert infer_classification(np.linspace(0, 1, 500)) is False
+
+
+def test_bin_y_for_class_mi_string_labels_do_not_crash():
+    """Regression test: string class labels (e.g. 'A'..'E') used to raise ``ValueError: invalid literal
+    for int() with base 10`` from a bare ``arr.astype(np.int64)`` on non-numeric dtype -- numpy tries to
+    parse each label as a decimal integer literal. Reproduced live via
+    ``TestMultiClass.test_string_label_5class`` (MRMR(verbose=0).fit(X, y_vals) with 5 string labels)."""
+    y = np.array(["A", "B", "C", "D", "E", "A", "B", "C"])
+    codes = bin_y_for_class_mi(y)
+    assert codes.dtype == np.int64
+    assert codes.min() == 0
+    assert codes.max() == 4
+    # Dense 0..k-1 codes, same relative ordering as np.unique's sorted labels.
+    np.testing.assert_array_equal(codes, [0, 1, 2, 3, 4, 0, 1, 2])
+
+
+def test_bin_y_for_class_mi_numeric_classification_unchanged():
+    """Numeric/bool classification labels must keep the direct int64 cast (bit-identical to before)."""
+    y_int = np.array([0, 1, 2, 0, 1, 2])
+    np.testing.assert_array_equal(bin_y_for_class_mi(y_int), y_int.astype(np.int64))
+    y_bool = np.array([True, False, True, False])
+    np.testing.assert_array_equal(bin_y_for_class_mi(y_bool), y_bool.astype(np.int64))
+
+
+def test_bin_y_for_class_mi_continuous_still_qcut_binned():
+    """Continuous y must still route through qcut binning, unaffected by the string-label fix."""
+    rng = np.random.default_rng(0)
+    y = rng.standard_normal(2000)
+    codes = bin_y_for_class_mi(y, nbins=10)
+    assert codes.dtype == np.int64
+    assert codes.min() >= 0
+    assert codes.max() <= 9
+    assert len(np.unique(codes)) > 1

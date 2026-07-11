@@ -24,6 +24,8 @@ from mlframe.feature_selection.filters._fe_synergy_exhaustive import (
     decide_exhaustive_sweep,
     predict_exhaustive_seconds,
     measured_pairs_per_second,
+    _resolve_exhaustive_budget_seconds,
+    _DEFAULT_EXHAUSTIVE_BUDGET_SECONDS,
 )
 
 
@@ -74,13 +76,24 @@ def test_auto_escalates_to_exhaustive_when_affordable():
     assert "exhaustive" in reason.lower()
 
 
-@_skip_no_cuda
-def test_auto_budget_unlimited_when_no_mrmr_budget_set():
-    # No explicit override AND no max_runtime_mins -> budget is UNLIMITED: auto escalates regardless of p
-    # (the user did not ask to bound wall-time), so even a very wide frame fires under auto.
-    use, reason = decide_exhaustive_sweep(_Knobs("auto"), n_samples=5000, n_raw=8000, verbose=0)
-    assert use is True, reason
-    assert "unlimited" in reason.lower()
+def test_default_budget_is_bounded_not_unlimited():
+    # Regression sensor for the 2026-07-09 fix: "nothing set" (no explicit override, no max_runtime_mins)
+    # used to resolve to budget=None (UNLIMITED), which made auto ALWAYS escalate to the full C(p,2) GPU
+    # sweep regardless of predicted cost -- a real production incident ran unbounded for hours. The
+    # resolved budget must now be the finite default, never None/unlimited.
+    budget = _resolve_exhaustive_budget_seconds(_Knobs("auto"))
+    assert budget is not None
+    assert budget == pytest.approx(_DEFAULT_EXHAUSTIVE_BUDGET_SECONDS)
+    assert 0 < budget < 3600, "default exhaustive budget must be a bounded, sane value (minutes, not hours)"
+
+
+def test_auto_declines_when_no_budget_set_and_sweep_too_expensive():
+    # Companion to test_default_budget_is_bounded_not_unlimited: with NOTHING explicitly set, a sweep wide
+    # enough to blow the new finite default budget must fall back to pre-rank -- proving the bounded
+    # default actually GATES the decision, not just that the resolver returns a finite number in isolation.
+    use, reason = decide_exhaustive_sweep(_Knobs("auto"), n_samples=2_000_000, n_raw=10_000, verbose=0)
+    assert use is False, reason
+    assert ("pre-rank" in reason.lower()) or ("declined" in reason.lower())
 
 
 def test_auto_budget_derives_from_max_runtime_mins():

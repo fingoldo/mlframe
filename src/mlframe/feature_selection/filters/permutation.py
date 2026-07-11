@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import logging
 import math
-from typing import Optional
+from typing import Optional, cast
 
 import numpy as np
 from joblib import Parallel, delayed
@@ -32,6 +32,23 @@ from .info_theory import (
 )
 
 logger = logging.getLogger(__name__)
+
+# GPU CIRCUIT BREAKER (2026-07-09 fix, mirrors info_theory._cmi_cuda's ``_CMI_GPU_FAILED``). Before this,
+# ``mi_direct``'s GPU fastpath had no persistent failure memory: a CUDA context poisoned by ONE launch fault
+# (see _cmi_cuda.py's own circuit-breaker docstring for the mechanism -- a launch fault poisons the context, so
+# every subsequent launch on it faults identically) meant every SUBSEQUENT ``mi_direct`` call would re-attempt
+# the GPU, fail again, and pay the same failed-launch overhead -- a retry-storm identical in kind to the
+# "1515 futile GPU retries" incident that motivated the CMI-path breaker, just not yet mirrored here. Trips on
+# the first GPU-fastpath exception; every subsequent call in this process routes straight to CPU without
+# re-attempting. Reset only via ``reset_mi_direct_gpu_circuit_breaker()`` (tests / a fresh CUDA context).
+_MI_DIRECT_GPU_FAILED = False
+
+
+def reset_mi_direct_gpu_circuit_breaker() -> None:
+    """Re-arm ``mi_direct``'s GPU fastpath (tests / after a fresh CUDA context)."""
+    global _MI_DIRECT_GPU_FAILED
+    _MI_DIRECT_GPU_FAILED = False
+
 
 # Number of y-permutations used by ``mi_direct(return_null_mean=True)`` to estimate BOTH the empirical relevance null mean AND the permutation p-value that gates the
 # significance-aware debiasing in ``evaluate_candidate``. The MRMR screen's exceedance budget (``baseline_npermutations``, default 2) is far too few shuffles for either
@@ -153,13 +170,24 @@ def distribute_permutations(npermutations: int, n_workers: int) -> list:
     return workload
 
 
-@njit(cache=True)
+@njit(nogil=True, cache=True)
 def shuffle_arr(arr: np.ndarray) -> None:
     """In-place Fisher-Yates shuffle via numba's ``np.random.shuffle`` (the simple permutation source; ``shuffle_arr_lcg`` is the faster inline-LCG variant for hot loops)."""
     np.random.shuffle(arr)
 
 
-@njit(cache=True)
+@njit(nogil=True, cache=True)
+def _shuffle_arr_lcg_kernel(arr: np.ndarray, state: np.uint64) -> np.uint64:
+    n = len(arr)
+    for j in range(n - 1, 0, -1):
+        state = state * np.uint64(6364136223846793005) + np.uint64(1442695040888963407)
+        k = int(state >> np.uint64(33)) % (j + 1)
+        tmp = arr[j]
+        arr[j] = arr[k]
+        arr[k] = tmp
+    return state
+
+
 def shuffle_arr_lcg(arr: np.ndarray, state: np.uint64) -> np.uint64:
     """Inline LCG Fisher-Yates -- same RNG pattern as
     ``parallel_mi_besag_clifford`` (LCG state-machine + bit-shifted high
@@ -173,15 +201,22 @@ def shuffle_arr_lcg(arr: np.ndarray, state: np.uint64) -> np.uint64:
     test: nfailed/npermutations is an unbiased estimator of the p-value
     regardless of whether the shuffle source is numba's np.random or an
     inline LCG.
+
+    Thin Python wrapper around ``_shuffle_arr_lcg_kernel`` (2026-07-10 fix): numba boxes a
+    ``uint64`` return value as a plain Python ``int``, not an ``np.uint64`` scalar. Once the LCG
+    state's high bit sets (roughly even odds per iteration once the stream looks random --
+    typically within the first few calls), re-passing that bare ``int`` into another njit call made
+    numba infer ``int64`` (a raw Python int carries no dtype), which fails to unbox with
+    ``OverflowError: int too big to convert`` for any value >= 2**63. Confirmed via a minimal
+    repro: the failure is at the numba dispatcher's argument-unboxing boundary (not inside the
+    kernel body), single-threaded, with no other cause -- pre-existing, unrelated to this session's
+    ``nogil=True`` addition (reproduces identically without it). Explicitly wrapping both the input
+    and the return in ``np.uint64(...)`` at the PYTHON level (not inside numba) reconstructs a real
+    ``np.uint64`` scalar object each time, which numba always unboxes correctly regardless of
+    magnitude -- verified over 5000 chained calls with zero failures (pre-fix: fails within 1-5
+    calls almost every seed).
     """
-    n = len(arr)
-    for j in range(n - 1, 0, -1):
-        state = state * np.uint64(6364136223846793005) + np.uint64(1442695040888963407)
-        k = int(state >> np.uint64(33)) % (j + 1)
-        tmp = arr[j]
-        arr[j] = arr[k]
-        arr[k] = tmp
-    return state
+    return cast(np.uint64, np.uint64(_shuffle_arr_lcg_kernel(arr, np.uint64(state))))
 
 
 @njit(cache=True)
@@ -423,7 +458,7 @@ def parallel_mi_prange_with_null(
     return int(nfailed_arr.sum()), npermutations, float(mi_perm_arr.sum())
 
 
-@njit(cache=True)
+@njit(nogil=True, cache=True)
 def parallel_mi(
     classes_x: np.ndarray,
     freqs_x: np.ndarray,
@@ -490,7 +525,7 @@ def parallel_mi(
     return nfailed, _i + 1
 
 
-@njit(cache=True)
+@njit(nogil=True, cache=True)
 def parallel_mi_with_null(
     classes_x: np.ndarray,
     freqs_x: np.ndarray,
@@ -579,6 +614,7 @@ def mi_direct(
 
     Outer parallelism is preferred when ``len(candidates) >> n_workers`` (the orchestrator already amortises pool spawn cost). Inner is preferred when only a
     single candidate is being evaluated with a large permutation budget."""
+    global _MI_DIRECT_GPU_FAILED
     if parallel_kwargs is None:
         parallel_kwargs = {}
 
@@ -667,7 +703,7 @@ def mi_direct(
     # ``return_null_mean=True`` is forced onto the CPU permutation kernels (the only ones that accumulate the per-permutation MI sum). The GPU permutation path does not
     # surface the empirical null, and the screen's relevance-baseline budget (``npermutations<32``) never reaches the GPU branch anyway, so routing-to-CPU here costs nothing
     # in practice; it only guards the unusual case of a caller asking for the null mean with a large budget on a CUDA host.
-    if prefer_gpu and npermutations >= 32 and parallelism in ("outer", "none") and not return_null_mean:
+    if prefer_gpu and npermutations >= 32 and parallelism in ("outer", "none") and not return_null_mean and not _MI_DIRECT_GPU_FAILED:
         try:
             from pyutilz.core.pythonlib import is_cuda_available
             _gpu_ok = is_cuda_available()
@@ -691,8 +727,15 @@ def mi_direct(
                     use_gpu=True,
                 )
             except Exception as _exc:
-                logger.debug(
-                    "mi_direct: GPU fastpath failed (%s: %s); falling back to CPU",
+                # Promoted DEBUG -> WARNING + trips the circuit breaker (2026-07-09 fix): a launch fault poisons
+                # the CUDA context (see the breaker's module-level docstring), so silently retrying at DEBUG on
+                # every future call was both invisible in a normal INFO-level log AND wasted a repeated failed
+                # launch. First fault routes every subsequent mi_direct call straight to CPU for the rest of the
+                # process; only the FIRST fault is logged at WARNING to avoid spamming on every later call.
+                _MI_DIRECT_GPU_FAILED = True
+                logger.warning(
+                    "mi_direct: GPU fastpath failed (%s: %s); falling back to CPU for the rest of the process "
+                    "(circuit breaker tripped; call reset_mi_direct_gpu_circuit_breaker() to re-arm).",
                     type(_exc).__name__, _exc,
                 )
 

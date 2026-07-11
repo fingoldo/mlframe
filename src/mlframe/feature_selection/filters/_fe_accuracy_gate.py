@@ -182,6 +182,12 @@ def bin_y_for_class_mi(y: np.ndarray, nbins: int = 10) -> np.ndarray:
 
     arr = np.asarray(y).ravel()
     if infer_classification(arr):
+        if arr.dtype.kind in ("O", "U", "S"):
+            # Non-numeric class labels (string/object dtype, e.g. 'A'..'E') cannot be cast to int64
+            # directly -- numpy tries to parse each label as a decimal integer literal and raises
+            # ``ValueError: invalid literal for int() with base 10``. Factorize to dense 0..k-1 integer
+            # codes instead. Numeric/bool classification labels keep the direct cast unchanged.
+            return np.asarray(np.unique(arr, return_inverse=True)[1]).astype(np.int64)
         return arr.astype(np.int64)
     try:
         binned = pd.qcut(arr, q=int(nbins), labels=False, duplicates="drop")

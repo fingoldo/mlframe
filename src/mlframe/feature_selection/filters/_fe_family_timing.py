@@ -40,6 +40,18 @@ def fe_family_timer(name: str):
             slot[1] += 1
 
 
+def record_fe_family_wall(name: str, dt: float) -> None:
+    """Directly record an already-measured duration into the ``name`` bucket.
+
+    For call sites where wrapping the timed region in ``with fe_family_timer(name):`` would force
+    reindenting a large pre-existing block; callers measure ``perf_counter()`` before/after
+    themselves and pass the delta here. Equivalent to one ``fe_family_timer`` context exit."""
+    with _LOCK:
+        slot = _FE_FAMILY_WALL[name]
+        slot[0] += float(dt)
+        slot[1] += 1
+
+
 def fe_timed(name: str):
     """Decorator form of ``fe_family_timer`` for wrapping a whole family entry function with a one-line edit."""
     def _deco(func):

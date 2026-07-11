@@ -75,6 +75,16 @@ def compute_fdr_gain_floor(
     cardinality_bias_correction,
     random_seed,
     verbose,
+    # 2026-07-09 fix: optional cross-round cache, keyed on the candidate-pool identity + all inputs
+    # that affect the result. ``pooled_permutation_null_gain_floor`` recomputes a full (n_permutations
+    # x n_candidates x n_rows) histogram+MI pass on EVERY call; when the SAME raw-column pool recurs
+    # across screen_predictors rounds (the common case -- data only grows via appended engineered
+    # columns, existing column content never changes), the earlier round's floor is mathematically
+    # identical, not approximate, so a hit skips that whole pass. Threaded the same way as
+    # screen_predictors' ``seed_caches``: the CALLER owns the dict's lifetime (must be scoped to one
+    # fit, never shared across separate ``.fit()`` calls or concurrent fits). ``None`` (default)
+    # disables caching entirely -- legacy behaviour, always recompute.
+    maxt_floor_cache: "dict | None" = None,
 ):
     """Westfall-Young maxT permutation-null gain floor over the finalised order-1 pool.
 
@@ -109,6 +119,29 @@ def compute_fdr_gain_floor(
     )
     if not (_wide_pool or _narrow_oversplit):
         return 0.0
+
+    _cache_key = None
+    if maxt_floor_cache is not None:
+        _cache_key = (
+            tuple(int(v) for v in _fdr_pool.tolist()),
+            _y_idx_fdr,
+            int(screen_fdr_null_permutations),
+            float(screen_fdr_null_quantile),
+            bool(cardinality_bias_correction),
+            None if random_seed is None else int(random_seed),
+            int(factors_data.shape[0]),
+        )
+        _cached = maxt_floor_cache.get(_cache_key)
+        if _cached is not None:
+            if _cached > 0.0 and verbose >= 1:
+                logger.info(
+                    "screen_predictors: maxT permutation-null gain floor=%.5f over p=%d "
+                    "candidates (q=%.2f, K=%d) - rejects chance-max noise at scale [cache hit].",
+                    _cached, len(_fdr_pool), float(screen_fdr_null_quantile),
+                    int(screen_fdr_null_permutations),
+                )
+            return _cached
+
     _fdr_gain_floor = pooled_permutation_null_gain_floor(
         factors_data,
         factors_nbins,
@@ -119,6 +152,8 @@ def compute_fdr_gain_floor(
         cardinality_bias_correction=cardinality_bias_correction,
         random_seed=random_seed,
     )
+    if _cache_key is not None and maxt_floor_cache is not None:
+        maxt_floor_cache[_cache_key] = _fdr_gain_floor
     if _fdr_gain_floor > 0.0 and verbose >= 1:
         logger.info(
             "screen_predictors: maxT permutation-null gain floor=%.5f over p=%d "
