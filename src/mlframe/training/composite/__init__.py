@@ -264,6 +264,7 @@ from .model_card import composite_model_card
 from .discovery._base_engineering import engineer_temporal_bases
 from .bagging import BaggedCompositeEstimator
 from .survival import CompositeSurvivalEstimator
+from .dual_direction import DualDirectionCompositeEstimator
 
 # Dependency-light serving export of a fitted composite.
 from .serving import export_serving_spec, load_serving_spec
