@@ -230,7 +230,7 @@ from .binned_unique_count import binned_unique_count
 from .multi_decomposition_bank import multi_decomposition_feature_bank
 from .variance_gated_pairwise_diff import variance_gated_pairwise_diff
 from .event_proximity_decay import event_proximity_decay_features
-from .tfidf_svd_entity_embedding import tfidf_svd_entity_embedding
+from .tfidf_svd_entity_embedding import tfidf_svd_entity_embedding, FittedTfidfSvdEntityEmbedding
 from .gmm_bic_membership_features import gmm_bic_membership_features
 from .latent_parameter_recovery import latent_parameter_recovery_features
 from .panel_sequence_tensor import build_panel_sequence_tensor
@@ -365,6 +365,7 @@ __all__ = [
     "variance_gated_pairwise_diff",
     "event_proximity_decay_features",
     "tfidf_svd_entity_embedding",
+    "FittedTfidfSvdEntityEmbedding",
     "gmm_bic_membership_features",
     "latent_parameter_recovery_features",
     "build_panel_sequence_tensor",

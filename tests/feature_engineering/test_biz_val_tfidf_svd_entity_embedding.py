@@ -13,7 +13,7 @@ import pandas as pd
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import cross_val_score
 
-from mlframe.feature_engineering.tfidf_svd_entity_embedding import tfidf_svd_entity_embedding
+from mlframe.feature_engineering.tfidf_svd_entity_embedding import FittedTfidfSvdEntityEmbedding, tfidf_svd_entity_embedding
 
 
 def _make_rare_category_dataset(n_entities: int, seed: int):
@@ -59,3 +59,68 @@ def test_tfidf_svd_entity_embedding_output_shape():
     out = tfidf_svd_entity_embedding(df, entity_col="entity", token_col="category", n_components=4)
     assert out.shape[0] == 20
     assert out.shape[1] == 5  # entity_col + 4 components
+
+
+def test_tfidf_svd_entity_embedding_default_output_unchanged_by_return_fitted_param():
+    # regression test: adding the opt-in `return_fitted` param must not change the default return
+    # value/type (bit-identical DataFrame) when the caller doesn't opt in.
+    rng = np.random.default_rng(2)
+    df = pd.DataFrame({"entity": rng.integers(0, 30, 300), "category": rng.integers(0, 10, 300).astype(str)})
+    out_default = tfidf_svd_entity_embedding(df, entity_col="entity", token_col="category", n_components=5)
+    out_explicit_false = tfidf_svd_entity_embedding(df, entity_col="entity", token_col="category", n_components=5, return_fitted=False)
+    assert isinstance(out_default, pd.DataFrame)
+    pd.testing.assert_frame_equal(out_default, out_explicit_false)
+
+    out_fitted, fitted = tfidf_svd_entity_embedding(df, entity_col="entity", token_col="category", n_components=5, return_fitted=True)
+    assert isinstance(fitted, FittedTfidfSvdEntityEmbedding)
+    # the embedding DataFrame content itself (all columns except being wrapped in a tuple) must be identical.
+    pd.testing.assert_frame_equal(out_default, out_fitted)
+
+
+def test_biz_val_tfidf_svd_oov_fraction_flags_unreliable_cold_start_entities():
+    # Fit on a training corpus of "known" categories, then embed a mix of new entities: some reuse ONLY
+    # categories seen during fit (low OOV, embedding should be meaningful/reliable), others are pure
+    # cold-start with categories never seen during fit (high OOV, embedding is a near-meaningless
+    # default-vocab-miss vector) -- the OOV-fraction diagnostic must separate the two cleanly.
+    rng = np.random.default_rng(3)
+    known_categories = [f"known{i}" for i in range(20)]
+    novel_categories = [f"novel{i}" for i in range(20)]
+
+    train_rows = []
+    for entity in range(200):
+        for _ in range(rng.integers(10, 20)):
+            train_rows.append({"entity": entity, "category": rng.choice(known_categories)})
+    train_df = pd.DataFrame(train_rows)
+
+    _, fitted = tfidf_svd_entity_embedding(train_df, entity_col="entity", token_col="category", n_components=6, return_fitted=True)
+
+    new_rows = []
+    low_oov_entities, high_oov_entities = [], []
+    for entity in range(200, 260):
+        low_oov_entities.append(entity)
+        for _ in range(rng.integers(10, 20)):
+            new_rows.append({"entity": entity, "category": rng.choice(known_categories)})
+    for entity in range(260, 320):
+        high_oov_entities.append(entity)
+        for _ in range(rng.integers(10, 20)):
+            new_rows.append({"entity": entity, "category": rng.choice(novel_categories)})
+    new_df = pd.DataFrame(new_rows)
+
+    out = fitted.transform_new_entities(new_df, entity_col="entity", token_col="category").set_index("entity")
+
+    mean_oov_low = out.loc[low_oov_entities, "tfidf_svd_oov_fraction"].mean()
+    mean_oov_high = out.loc[high_oov_entities, "tfidf_svd_oov_fraction"].mean()
+
+    assert mean_oov_low < 0.05, f"expected entities reusing only known categories to have near-zero OOV fraction, got {mean_oov_low:.4f}"
+    assert mean_oov_high > 0.95, f"expected pure cold-start entities (all-novel categories) to have near-total OOV fraction, got {mean_oov_high:.4f}"
+
+    # the high-OOV entities' embeddings collapse to the same (near-zero-information) vector since every
+    # token is dropped by the fitted vocabulary -- confirming the diagnostic correctly flags them as
+    # carrying essentially no distinguishing signal, unlike the low-OOV group.
+    embedding_cols = [c for c in out.columns if c.startswith("tfidf_svd_") and c != "tfidf_svd_oov_fraction"]
+    high_oov_embedding_std = out.loc[high_oov_entities, embedding_cols].to_numpy().std()
+    low_oov_embedding_std = out.loc[low_oov_entities, embedding_cols].to_numpy().std()
+    assert high_oov_embedding_std < low_oov_embedding_std, (
+        f"expected flagged (high-OOV) entities' embeddings to carry markedly less cross-entity variance "
+        f"than reliable (low-OOV) entities', got high={high_oov_embedding_std:.4f} low={low_oov_embedding_std:.4f}"
+    )
