@@ -222,6 +222,7 @@ from .multi_decomposition_bank import multi_decomposition_feature_bank
 from .variance_gated_pairwise_diff import variance_gated_pairwise_diff
 from .event_proximity_decay import event_proximity_decay_features
 from .tfidf_svd_entity_embedding import tfidf_svd_entity_embedding
+from .gmm_bic_membership_features import gmm_bic_membership_features
 
 __all__ = [
     "per_group_recency_weighted_mean",
@@ -343,4 +344,5 @@ __all__ = [
     "variance_gated_pairwise_diff",
     "event_proximity_decay_features",
     "tfidf_svd_entity_embedding",
+    "gmm_bic_membership_features",
 ]
