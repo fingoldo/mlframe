@@ -21,6 +21,16 @@ GPU-trained booster's contrib computation measured 1.68s vs a CPU-trained booste
 Kept: values are bit-identical to ``shap.Explainer`` (both implement exact TreeSHAP for XGBoost), so this
 remains a valid, functional alternative for a caller who wants to avoid importing ``shap`` at all, or who wants
 explicit control over the booster call -- just not a performance win.
+
+Extension (2026-07-11): the original A/B was measured at a single shape (n=30000, f=20). Swept wider --
+n_rows in {30000, 200000, 1000000} and n_cols in {20, 100, 300}, warm + best-of-5, same GPU-fit model both
+sides -- ratio stayed in {0.99x, 1.01x, 1.04x, 1.01x, 1.09x}, noise-level across the whole range, no crossover.
+Confirms the negative isn't a small-shape artifact: ``shap.Explainer`` truly does delegate to the same
+underlying GPU contribution path at every scale tested, so there is nothing for this module to win by bypassing
+it. See ``_benchmarks/profile_native_gpu_shap.py`` for the sweep and profile. Extended instead on the
+correctness axis: ``tests/inference/test_native_gpu_shap.py`` now pins SHAP additivity (sum of per-feature
+contribs + base value == raw model margin output) for both the native GPU path and ``shap.Explainer``, since a
+GPU/CPU floating-point divergence in TreeSHAP could silently break additivity without anything else catching it.
 """
 from __future__ import annotations
 

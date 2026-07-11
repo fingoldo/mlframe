@@ -79,3 +79,38 @@ def test_native_xgboost_gpu_shap_contribs_returns_none_when_unavailable():
     model = xgboost.XGBClassifier(n_estimators=10, device="cpu")
     model.fit(X, y)
     assert native_xgboost_gpu_shap_contribs(model, X) is None
+
+
+@_skip_no_cuda
+def test_native_gpu_shap_additivity_holds_on_gpu():
+    """SHAP additivity: sum(contribs) + base_value == raw model margin output.
+
+    A GPU/CPU numerical divergence in TreeSHAP would silently break this property without moving the values far
+    enough to fail a loose ``allclose`` pin elsewhere -- check it explicitly against the booster's own margin
+    output, independent of any comparison to ``shap.Explainer``.
+    """
+    from mlframe.inference.native_gpu_shap import native_xgboost_gpu_shap_contribs
+
+    X, y = _make_data(n=20000, f=15, seed=4)
+    model = xgboost.XGBClassifier(n_estimators=120, max_depth=5, device="cuda", tree_method="hist")
+    model.fit(X, y)
+
+    gpu_values, gpu_base = native_xgboost_gpu_shap_contribs(model, X)
+    margin = model.get_booster().predict(xgboost.DMatrix(X), output_margin=True)
+
+    reconstructed = gpu_values.sum(axis=1) + gpu_base
+    np.testing.assert_allclose(reconstructed, margin, atol=1e-3, rtol=1e-4)
+
+
+def test_shap_explainer_additivity_holds_on_cpu():
+    """Same additivity property, CPU path (``shap.Explainer``), as the other half of the GPU-vs-CPU pin."""
+    X, y = _make_data(n=5000, f=15, seed=5)
+    model = xgboost.XGBClassifier(n_estimators=120, max_depth=5, device="cpu", tree_method="hist")
+    model.fit(X, y)
+
+    explainer = shap.Explainer(model)
+    cpu_shap = explainer(X)
+    margin = model.get_booster().predict(xgboost.DMatrix(X), output_margin=True)
+
+    reconstructed = np.asarray(cpu_shap.values).sum(axis=1) + np.asarray(cpu_shap.base_values)
+    np.testing.assert_allclose(reconstructed, margin, atol=1e-3, rtol=1e-4)
