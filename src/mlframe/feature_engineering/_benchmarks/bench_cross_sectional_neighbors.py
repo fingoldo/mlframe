@@ -26,9 +26,29 @@ def _make_dataset(n_snapshots: int, rows_per_snap: int, seed: int) -> pd.DataFra
     return pd.DataFrame(rows)
 
 
+def _time(fn) -> float:
+    t0 = time.perf_counter()
+    fn()
+    return time.perf_counter() - t0
+
+
 def _run(n_snapshots: int, rows_per_snap: int) -> None:
     df = _make_dataset(n_snapshots, rows_per_snap, seed=0)
     compute_cross_sectional_neighbor_features(df, "snap", ["f0", "f1", "f2"], k=10, agg_stats=("mean", "std"))
+
+
+_K_VALUES = [5, 10, 20, 40, 80]
+
+
+def _run_multi_k(n_snapshots: int, rows_per_snap: int) -> None:
+    df = _make_dataset(n_snapshots, rows_per_snap, seed=0)
+    compute_cross_sectional_neighbor_features(df, "snap", ["f0", "f1", "f2"], agg_stats=("mean", "std"), k_values=_K_VALUES)
+
+
+def _run_per_k(n_snapshots: int, rows_per_snap: int) -> None:
+    df = _make_dataset(n_snapshots, rows_per_snap, seed=0)
+    for kv in _K_VALUES:
+        compute_cross_sectional_neighbor_features(df, "snap", ["f0", "f1", "f2"], k=kv, agg_stats=("mean", "std"))
 
 
 if __name__ == "__main__":
@@ -41,6 +61,28 @@ if __name__ == "__main__":
     profiler = cProfile.Profile()
     profiler.enable()
     _run(5_000, 20)
+    profiler.disable()
+    buf = StringIO()
+    stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
+    stats.print_stats(15)
+    print(buf.getvalue())
+
+    print(f"\n--- multi-k ({_K_VALUES}) shared-search vs per-k separate calls ---")
+    for n_snapshots, rows_per_snap in [(500, 10), (2_000, 10), (5_000, 20)]:
+        # warm-up so backend selection / first-call overhead doesn't pollute the comparison
+        _run_multi_k(n_snapshots, rows_per_snap)
+        _run_per_k(n_snapshots, rows_per_snap)
+
+        t_multi = min(_time(lambda: _run_multi_k(n_snapshots, rows_per_snap)) for _ in range(3))
+        t_per_k = min(_time(lambda: _run_per_k(n_snapshots, rows_per_snap)) for _ in range(3))
+        print(
+            f"n_snapshots={n_snapshots:>6,} rows_per_snap={rows_per_snap:>3} -> "
+            f"multi_k={t_multi * 1000:9.2f} ms, per_k={t_per_k * 1000:9.2f} ms, speedup={t_per_k / t_multi:5.2f}x"
+        )
+
+    profiler = cProfile.Profile()
+    profiler.enable()
+    _run_multi_k(5_000, 20)
     profiler.disable()
     buf = StringIO()
     stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")

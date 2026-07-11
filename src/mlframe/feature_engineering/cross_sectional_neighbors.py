@@ -19,13 +19,43 @@ snapshot's own rows contributing to its own neighbor search.
 """
 from __future__ import annotations
 
-from typing import Sequence
+from typing import Optional, Sequence
 
 import numpy as np
 import pandas as pd
 import polars as pl
 
 from .transformer._knn_helper import knn_search
+
+
+def _snapshot_stats_for_k(
+    vectors: np.ndarray,
+    neighbor_idx_sorted: np.ndarray,
+    dists_sorted: np.ndarray,
+    k: int,
+    feature_cols: Sequence[str],
+    agg_stats: Sequence[str],
+    column_prefix: str,
+) -> dict:
+    """Neighbor-aggregate + distance-ratio columns for one ``k``, slicing the top-``k`` columns out of an
+    already max-k-sized sorted neighbor table (no re-search)."""
+    idx_k = neighbor_idx_sorted[:, :k]
+    dists_k = dists_sorted[:, :k]
+
+    out: dict = {}
+    for col_j, col in enumerate(feature_cols):
+        neighbor_vals = vectors[idx_k, col_j]  # (n_snapshots, k)
+        for stat in agg_stats:
+            reducer = getattr(np, f"nan{stat}", None) or getattr(np, stat)
+            out[f"{column_prefix}_{col}_{stat}"] = reducer(neighbor_vals, axis=1)
+
+    k_eff = dists_k.shape[1]
+    first_nn = dists_k[:, 0]
+    kth_nn = dists_k[:, k_eff - 1]
+    # 1.0 (maximally "isolated/uncertain") for the degenerate all-neighbors-at-distance-0 case.
+    distance_ratio = np.divide(first_nn, kth_nn, out=np.ones_like(first_nn), where=kth_nn > 0)
+    out[f"{column_prefix}_distance_ratio"] = distance_ratio
+    return out
 
 
 def compute_cross_sectional_neighbor_features(
@@ -35,6 +65,7 @@ def compute_cross_sectional_neighbor_features(
     k: int = 10,
     agg_stats: Sequence[str] = ("mean", "std"),
     column_prefix: str = "xsnn",
+    k_values: Optional[Sequence[int]] = None,
 ) -> pl.DataFrame:
     """Build one feature vector per snapshot, find its k nearest OTHER snapshots, and broadcast neighbor-set
     aggregates plus a 1st-NN/k-th-NN distance-ratio isolation feature back to every row of that snapshot.
@@ -49,28 +80,38 @@ def compute_cross_sectional_neighbor_features(
     feature_cols
         Columns to average into each snapshot's vector and to aggregate over its neighbor set.
     k
-        Number of nearest OTHER snapshots.
+        Number of nearest OTHER snapshots. Ignored (as the base radius) when ``k_values`` is given --
+        use ``k_values`` instead in that case.
     agg_stats
         Aggregate stats computed over the neighbor snapshots' own vectors, per feature column: any pandas
         reduction name (``"mean"``, ``"std"``, ``"min"``, ``"max"``, ``"median"``, ...).
     column_prefix
         Output column-name prefix.
+    k_values
+        Opt-in multi-k mode: compute neighbor-aggregate + distance-ratio features at EACH k in this
+        sequence in one call, columns suffixed ``_k{k}`` (e.g. ``xsnn_k5_f0_mean``, ``xsnn_k20_f0_mean``).
+        The neighbor search runs ONCE, extended to ``max(k_values)``, and each k's features are sliced out
+        of that single sorted neighbor table -- far cheaper than calling this function once per k value
+        (which would repeat the O(n_snapshots log n_snapshots) search each time). When ``None`` (default),
+        behavior is unchanged from the original single-k contract (unprefixed-by-k column names).
 
     Returns
     -------
     pl.DataFrame
-        One row per row of ``df`` (same order), with ``len(feature_cols) * len(agg_stats)`` neighbor-
-        aggregate columns plus ``{column_prefix}_distance_ratio`` (1st-NN distance / k-th-NN distance --
-        near 0 for a snapshot in a dense, well-matched cluster of neighbors; near 1 for an isolated
-        snapshot whose neighbors are all roughly equally (far) distant, a local-density/outlier-confidence
-        signal reusable well beyond this specific feature block).
+        One row per row of ``df`` (same order). Single-k mode (``k_values=None``): ``len(feature_cols) *
+        len(agg_stats)`` neighbor-aggregate columns plus ``{column_prefix}_distance_ratio``. Multi-k mode:
+        the same columns repeated per ``k`` in ``k_values`` with a ``_k{k}`` suffix inserted after
+        ``column_prefix``. The distance-ratio feature is near 0 for a snapshot in a dense, well-matched
+        cluster of neighbors; near 1 for an isolated snapshot whose neighbors are all roughly equally (far)
+        distant, a local-density/outlier-confidence signal reusable well beyond this specific feature block.
     """
     snapshot_vectors = df.groupby(snapshot_col, sort=False)[list(feature_cols)].mean()
     snapshot_ids = snapshot_vectors.index.to_numpy()
     vectors = snapshot_vectors.to_numpy(dtype=np.float32)
     n_snapshots = vectors.shape[0]
 
-    k_query = min(k + 1, n_snapshots)  # +1 to drop the trivial self-match (distance 0) below
+    k_max = max(k_values) if k_values else k
+    k_query = min(k_max + 1, n_snapshots)  # +1 to drop the trivial self-match (distance 0) below
     dists, neighbor_idx = knn_search(vectors, vectors, k_query)
 
     self_mask = neighbor_idx == np.arange(n_snapshots).reshape(-1, 1)
@@ -79,22 +120,17 @@ def compute_cross_sectional_neighbor_features(
     neighbor_idx_no_self = np.where(self_mask, -1, neighbor_idx)
     dists_no_self = np.where(self_mask, np.inf, dists)
     order = np.argsort(dists_no_self, axis=1)
-    neighbor_idx_sorted = np.take_along_axis(neighbor_idx_no_self, order, axis=1)[:, :k]
-    dists_sorted = np.take_along_axis(dists_no_self, order, axis=1)[:, :k]
+    neighbor_idx_sorted = np.take_along_axis(neighbor_idx_no_self, order, axis=1)[:, :k_max]
+    dists_sorted = np.take_along_axis(dists_no_self, order, axis=1)[:, :k_max]
 
-    snapshot_out: dict = {}
-    for col_j, col in enumerate(feature_cols):
-        neighbor_vals = vectors[neighbor_idx_sorted, col_j]  # (n_snapshots, k)
-        for stat in agg_stats:
-            reducer = getattr(np, f"nan{stat}", None) or getattr(np, stat)
-            snapshot_out[f"{column_prefix}_{col}_{stat}"] = reducer(neighbor_vals, axis=1)
-
-    k_eff = dists_sorted.shape[1]
-    first_nn = dists_sorted[:, 0]
-    kth_nn = dists_sorted[:, k_eff - 1]
-    # 1.0 (maximally "isolated/uncertain") for the degenerate all-neighbors-at-distance-0 case.
-    distance_ratio = np.divide(first_nn, kth_nn, out=np.ones_like(first_nn), where=kth_nn > 0)
-    snapshot_out[f"{column_prefix}_distance_ratio"] = distance_ratio
+    if k_values:
+        snapshot_out: dict = {}
+        for kv in k_values:
+            snapshot_out.update(
+                _snapshot_stats_for_k(vectors, neighbor_idx_sorted, dists_sorted, kv, feature_cols, agg_stats, f"{column_prefix}_k{kv}")
+            )
+    else:
+        snapshot_out = _snapshot_stats_for_k(vectors, neighbor_idx_sorted, dists_sorted, k, feature_cols, agg_stats, column_prefix)
 
     snapshot_df = pd.DataFrame(snapshot_out, index=snapshot_ids)
     snapshot_df.index.name = snapshot_col
