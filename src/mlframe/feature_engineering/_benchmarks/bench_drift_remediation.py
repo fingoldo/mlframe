@@ -36,17 +36,35 @@ def _run(n_time_ids: int, n_entities: int, n_features: int, n_calls: int) -> Non
         remediate_drifting_features(train_df, test_df, group_col="time_id", n_splits=2)
 
 
+def _run_tiered(n_time_ids: int, n_entities: int, n_features: int, n_calls: int) -> None:
+    """Same shape as ``_run`` but exercises the opt-in severity-tiered drop path (n_std/drop_n_std)."""
+    train_df, test_df = _make_data(n_time_ids, n_entities, n_features, seed=0)
+    for _ in range(n_calls):
+        remediate_drifting_features(train_df, test_df, group_col="time_id", n_splits=2, n_std=0.5, drop_n_std=2.0)
+
+
+def _run_auto_tune(n_time_ids: int, n_entities: int, n_features: int, n_calls: int) -> None:
+    """Auto-tune path: one extra ``adversarial_auc`` re-check per candidate threshold, the expensive branch."""
+    train_df, test_df = _make_data(n_time_ids, n_entities, n_features, seed=0)
+    for _ in range(n_calls):
+        remediate_drifting_features(train_df, test_df, group_col="time_id", n_splits=2, n_std=0.5, auto_tune_drop_threshold=True)
+
+
 if __name__ == "__main__":
-    for n_time_ids, n_entities, n_features, n_calls in [(60, 40, 10, 3), (200, 100, 30, 1)]:
-        t0 = time.perf_counter()
-        _run(n_time_ids, n_entities, n_features, n_calls)
-        wall = time.perf_counter() - t0
-        n_rows = n_time_ids * n_entities
-        print(f"rows~{n_rows:>7,} feats={n_features:>3} -> {wall * 1000:9.2f} ms total, {wall / n_calls * 1000:9.2f} ms/call")
+    for label, fn in [("default (uniform rank-transform)", _run), ("tiered (drop_n_std fixed)", _run_tiered), ("tiered (auto_tune_drop_threshold)", _run_auto_tune)]:
+        print(f"--- {label} ---")
+        for n_time_ids, n_entities, n_features, n_calls in [(60, 40, 10, 3), (200, 100, 30, 1)]:
+            t0 = time.perf_counter()
+            fn(n_time_ids, n_entities, n_features, n_calls)
+            wall = time.perf_counter() - t0
+            n_rows = n_time_ids * n_entities
+            print(f"rows~{n_rows:>7,} feats={n_features:>3} -> {wall * 1000:9.2f} ms total, {wall / n_calls * 1000:9.2f} ms/call")
 
     profiler = cProfile.Profile()
     profiler.enable()
     _run(100, 60, 20, 2)
+    _run_tiered(100, 60, 20, 2)
+    _run_auto_tune(100, 60, 20, 2)
     profiler.disable()
     buf = StringIO()
     stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
