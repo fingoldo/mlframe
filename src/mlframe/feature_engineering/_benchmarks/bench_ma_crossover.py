@@ -20,8 +20,10 @@ def _run(n: int, n_windows: int, n_calls: int) -> None:
     x = pd.Series(rng.normal(size=n).cumsum() + 100)
     windows = [3 * (i + 1) for i in range(n_windows)]
     mas = {w: x.rolling(w).mean() for w in windows}
+    group_ids = np.repeat(np.arange(max(n // 1000, 1)), 1000)[:n]
     for _ in range(n_calls):
         ma_crossover_features(mas)
+        ma_crossover_features(mas, group_ids=group_ids)
 
 
 if __name__ == "__main__":

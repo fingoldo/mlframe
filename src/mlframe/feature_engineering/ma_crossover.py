@@ -16,9 +16,16 @@ from typing import Dict, Optional, Sequence
 import numpy as np
 import pandas as pd
 
+from mlframe.feature_engineering.grouped import per_group_shift
 
-def ma_crossover_features(moving_averages: Dict[int, pd.Series], column_prefix: str = "ma_crossover") -> pd.DataFrame:
-    """Pairwise MA differences, sign votes, and a summed crossover score.
+
+def ma_crossover_features(
+    moving_averages: Dict[int, pd.Series],
+    column_prefix: str = "ma_crossover",
+    *,
+    group_ids: Optional[np.ndarray] = None,
+) -> pd.DataFrame:
+    """Pairwise MA differences, sign votes, a summed crossover score, and its row-over-row delta.
 
     Parameters
     ----------
@@ -27,13 +34,23 @@ def ma_crossover_features(moving_averages: Dict[int, pd.Series], column_prefix: 
         different window sizes, all aligned to the same index. At least 2 entries required.
     column_prefix
         Prefix for emitted column names.
+    group_ids
+        Optional 1-D array aligned to the moving-average index. When given, rows are treated as
+        multiple independent time-ordered entities (e.g. multiple instruments/tickers concatenated
+        into one frame): ``vote_sum_delta`` is computed via a group-aware first difference
+        (``per_group_shift``) that resets at each group boundary, instead of a naive ``diff()`` that
+        would otherwise leak the last row of one entity into the first row of the next.
 
     Returns
     -------
     pd.DataFrame
         For every ``(short, long)`` window pair (``short < long``): ``{prefix}_diff_{short}_{long}`` (signed
-        difference) and ``{prefix}_vote_{short}_{long}`` (``sign(diff)`` in ``{-1, 0, 1}``), plus a single
-        ``{prefix}_vote_sum`` column (sum of all vote columns -- a consensus trend-direction score).
+        difference) and ``{prefix}_vote_{short}_{long}`` (``sign(diff)`` in ``{-1, 0, 1}``), plus
+        ``{prefix}_vote_sum`` (sum of all vote columns -- a consensus trend-direction score) and
+        ``{prefix}_vote_sum_delta`` (row-over-row change in ``vote_sum`` -- momentum of the crossover
+        consensus itself: a large positive value means many pairs are simultaneously flipping toward an
+        uptrend RIGHT NOW, an accelerating regime shift that the slowly-drifting ``vote_sum`` level alone
+        doesn't directly surface).
     """
     windows: Sequence[int] = sorted(moving_averages.keys())
     if len(windows) < 2:
@@ -54,7 +71,16 @@ def ma_crossover_features(moving_averages: Dict[int, pd.Series], column_prefix: 
 
     assert vote_sum is not None  # guaranteed: len(windows) >= 2 checked above -> at least one pair iterated.
     out[f"{column_prefix}_vote_sum"] = vote_sum
+    if group_ids is None:
+        vote_sum_delta = np.empty_like(vote_sum)
+        vote_sum_delta[0] = np.nan
+        vote_sum_delta[1:] = vote_sum[1:] - vote_sum[:-1]
+    else:
+        prev = per_group_shift(vote_sum, np.asarray(group_ids), n=1)
+        vote_sum_delta = vote_sum - prev
+    out[f"{column_prefix}_vote_sum_delta"] = vote_sum_delta
     return pd.DataFrame(out, index=next(iter(moving_averages.values())).index)
 
 
 __all__ = ["ma_crossover_features"]
+
