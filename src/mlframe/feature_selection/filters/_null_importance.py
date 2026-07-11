@@ -24,6 +24,7 @@ def null_importance_filter(
     n_shuffles: int = 50,
     percentile: float = 95.0,
     random_state: int = 0,
+    return_margin_score: bool = False,
 ) -> Dict[str, np.ndarray]:
     """Keep only features whose real importance clears a high percentile of their own null distribution.
 
@@ -45,13 +46,22 @@ def null_importance_filter(
         (default 95 -> roughly a 5% false-keep rate under the null, by construction of the percentile test).
     random_state
         Seed for the shuffle sequence (reproducible null distribution).
+    return_margin_score
+        Opt-in. When True, also returns ``margin_score``: a z-score-style
+        ``(real_importance - null_median) / null_std`` per feature, letting callers RANK surviving features
+        by how far above the permutation-noise floor they sit, rather than only getting the binary
+        ``keep_mask`` decision. The percentile test alone can't distinguish a feature that barely clears its
+        null bar from one that towers over it — both just get ``True``. Zero/near-zero ``null_std`` (a
+        feature the tree never used in any shuffle) is clamped to a small epsilon so the score stays finite
+        instead of returning +/-inf. Does not affect ``keep_mask``/``threshold``/any existing key: opting in
+        only adds one new key to the returned dict.
 
     Returns
     -------
     dict[str, np.ndarray]
         ``real_importance`` ``(n_features,)``, ``null_importances`` ``(n_shuffles, n_features)``,
         ``threshold`` ``(n_features,)`` (the per-feature percentile cutoff), ``keep_mask`` ``(n_features,)``
-        boolean.
+        boolean, and (only when ``return_margin_score=True``) ``margin_score`` ``(n_features,)``.
     """
     rng = np.random.default_rng(random_state)
     real_importance = np.asarray(importance_fn(X, y), dtype=np.float64)
@@ -66,12 +76,20 @@ def null_importance_filter(
     threshold = np.percentile(null_importances, percentile, axis=0)
     keep_mask = real_importance > threshold
 
-    return {
+    result: Dict[str, np.ndarray] = {
         "real_importance": real_importance,
         "null_importances": null_importances,
         "threshold": threshold,
         "keep_mask": keep_mask,
     }
+
+    if return_margin_score:
+        null_median = np.median(null_importances, axis=0)
+        null_std = np.std(null_importances, axis=0)
+        null_std_safe = np.where(null_std > 1e-12, null_std, 1e-12)
+        result["margin_score"] = (real_importance - null_median) / null_std_safe
+
+    return result
 
 
 __all__ = ["null_importance_filter"]

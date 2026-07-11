@@ -71,3 +71,62 @@ def test_biz_val_null_importance_filter_rejects_far_more_noise_than_raw_positive
     # the null-filtered noise keep rate should be roughly consistent with the 5% false-positive rate implied
     # by a 95th-percentile threshold (generous margin for small-sample/correlated-noise variance).
     assert null_filtered_noise_keep_rate < 0.30, f"null-filtered noise keep rate should be low, got {null_filtered_noise_keep_rate:.2f}"
+
+
+def test_biz_val_null_importance_filter_margin_score_ranks_by_true_signal_strength():
+    # 3 tiers of genuinely informative features with clearly different signal strength, plus pure noise.
+    # keep_mask alone can't distinguish a barely-clearing-the-bar feature from a towering one -- both are
+    # just True/kept. margin_score should recover the true strong > medium > weak ordering, which the raw
+    # real_importance alone is noisier at doing near the decision boundary (weak signal vs strongest noise).
+    rng = np.random.default_rng(123)
+    n = 2500
+    n_noise = 20
+
+    X_strong = rng.standard_normal((n, 3))
+    X_medium = rng.standard_normal((n, 3))
+    X_weak = rng.standard_normal((n, 3))
+    X_noise = rng.standard_normal((n, n_noise))
+
+    y = (
+        2.5 * X_strong.sum(axis=1)
+        + 0.8 * X_medium.sum(axis=1)
+        + 0.15 * X_weak.sum(axis=1)
+        + 0.5 * rng.standard_normal(n)
+    )
+    X = np.column_stack([X_strong, X_medium, X_weak, X_noise])
+    tier_labels = np.array(["strong"] * 3 + ["medium"] * 3 + ["weak"] * 3 + ["noise"] * n_noise)
+    true_rank_strength = np.array([3] * 3 + [2] * 3 + [1] * 3 + [0] * n_noise)  # ground-truth ordering
+
+    result = null_importance_filter(
+        X, y, _rf_importance_fn, n_shuffles=30, percentile=95.0, random_state=11, return_margin_score=True
+    )
+
+    assert "margin_score" in result
+    assert result["margin_score"].shape == (3 + 3 + 3 + n_noise,)
+
+    # margin_score must rank the three signal tiers in the correct strong > medium > weak order (medians).
+    strong_margin = result["margin_score"][tier_labels == "strong"]
+    medium_margin = result["margin_score"][tier_labels == "medium"]
+    weak_margin = result["margin_score"][tier_labels == "weak"]
+    noise_margin = result["margin_score"][tier_labels == "noise"]
+
+    assert np.median(strong_margin) > np.median(medium_margin) > np.median(weak_margin) > np.median(noise_margin), (
+        f"expected strong > medium > weak > noise margin_score, got "
+        f"strong={np.median(strong_margin):.2f} medium={np.median(medium_margin):.2f} "
+        f"weak={np.median(weak_margin):.2f} noise={np.median(noise_margin):.2f}"
+    )
+
+    # quantitative threshold: rank correlation (Spearman) between margin_score and ground-truth tier strength
+    # should be strong and comfortably beat a floor set below the measured value.
+    from scipy.stats import spearmanr
+
+    corr, _ = spearmanr(result["margin_score"], true_rank_strength)
+    assert corr > 0.55, f"expected margin_score rank-correlation with true signal strength > 0.55, got {corr:.3f}"
+
+    # opting in must not perturb the pre-existing keys: mask-only call is bit-identical to the non-opted call.
+    baseline = null_importance_filter(X, y, _rf_importance_fn, n_shuffles=30, percentile=95.0, random_state=11)
+    assert np.array_equal(baseline["real_importance"], result["real_importance"])
+    assert np.array_equal(baseline["null_importances"], result["null_importances"])
+    assert np.array_equal(baseline["threshold"], result["threshold"])
+    assert np.array_equal(baseline["keep_mask"], result["keep_mask"])
+    assert "margin_score" not in baseline
