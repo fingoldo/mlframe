@@ -15,7 +15,7 @@ from io import StringIO
 import numpy as np
 import pandas as pd
 
-from mlframe.feature_engineering.nested_ma_decompose import nested_ma_decompose
+from mlframe.feature_engineering.nested_ma_decompose import nested_ma_decompose, nested_ma_decompose_chain
 
 
 def _direct_exclusive_window_rolling(x: np.ndarray, window_short: int, window_long: int) -> np.ndarray:
@@ -39,6 +39,23 @@ def _run_direct(x: np.ndarray, window_short: int, window_long: int, n_calls: int
         _direct_exclusive_window_rolling(x, window_short, window_long)
 
 
+def _run_pairwise_chain(x: np.ndarray, windows: list, n_calls: int) -> None:
+    """k-1 separate pairwise calls -- the baseline the chained mode is meant to beat."""
+    s = pd.Series(x)
+    mas = [s.rolling(w).mean().to_numpy() for w in windows]
+    for _ in range(n_calls):
+        for i in range(len(windows) - 1):
+            nested_ma_decompose(mas[i], mas[i + 1], windows[i], windows[i + 1])
+
+
+def _run_chain(x: np.ndarray, windows: list, n_calls: int) -> None:
+    """Single vectorized multi-window call over the whole ladder."""
+    s = pd.Series(x)
+    mas = [s.rolling(w).mean().to_numpy() for w in windows]
+    for _ in range(n_calls):
+        nested_ma_decompose_chain(mas, windows)
+
+
 if __name__ == "__main__":
     rng = np.random.default_rng(0)
     for n, n_calls in [(2000, 200), (200000, 200), (2000000, 50)]:
@@ -54,6 +71,25 @@ if __name__ == "__main__":
     profiler = cProfile.Profile()
     profiler.enable()
     _run_algebraic(x, 3, 10, 50)
+    profiler.disable()
+    buf = StringIO()
+    pstats.Stats(profiler, stream=buf).sort_stats("cumulative").print_stats(10)
+    print(buf.getvalue())
+
+    windows = [3, 10, 20, 45, 90, 180]
+    for n, n_calls in [(2000, 200), (200000, 200), (2000000, 50)]:
+        x = rng.normal(size=n).cumsum() + 100
+        t0 = time.perf_counter()
+        _run_pairwise_chain(x, windows, n_calls)
+        t1 = time.perf_counter()
+        _run_chain(x, windows, n_calls)
+        t2 = time.perf_counter()
+        print(f"n={n:>8} n_calls={n_calls:>4} -> pairwise({len(windows) - 1} calls)={(t1 - t0) * 1e3:9.2f}ms chain(1 call)={(t2 - t1) * 1e3:9.2f}ms")
+
+    x = rng.normal(size=2000000).cumsum() + 100
+    profiler = cProfile.Profile()
+    profiler.enable()
+    _run_chain(x, windows, 50)
     profiler.disable()
     buf = StringIO()
     pstats.Stats(profiler, stream=buf).sort_stats("cumulative").print_stats(10)
