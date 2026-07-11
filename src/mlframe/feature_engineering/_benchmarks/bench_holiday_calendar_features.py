@@ -20,6 +20,12 @@ def _run(n_years: int, n_calls: int) -> None:
         holiday_calendar_features(dates, country="US")
 
 
+def _run_with_name(n_years: int, n_calls: int) -> None:
+    dates = pd.Series(pd.date_range("2000-01-01", periods=365 * n_years, freq="D"))
+    for _ in range(n_calls):
+        holiday_calendar_features(dates, country="US", include_nearest_name=True)
+
+
 if __name__ == "__main__":
     for n_years, n_calls in [(1, 20), (25, 20), (25, 100)]:
         t0 = time.perf_counter()
@@ -30,6 +36,21 @@ if __name__ == "__main__":
     profiler = cProfile.Profile()
     profiler.enable()
     _run(25, 100)
+    profiler.disable()
+    buf = StringIO()
+    stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
+    stats.print_stats(15)
+    print(buf.getvalue())
+
+    for n_years, n_calls in [(1, 20), (25, 20), (25, 100)]:
+        t0 = time.perf_counter()
+        _run_with_name(n_years, n_calls)
+        wall = time.perf_counter() - t0
+        print(f"[include_nearest_name] n_years={n_years:>3} n_calls={n_calls:>4} -> {wall * 1000:9.2f} ms")
+
+    profiler = cProfile.Profile()
+    profiler.enable()
+    _run_with_name(25, 100)
     profiler.disable()
     buf = StringIO()
     stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")

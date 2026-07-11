@@ -38,7 +38,37 @@ def _cached_holiday_dates(country: str, years: Tuple[int, ...]) -> np.ndarray:
     return np.asarray(pd.DatetimeIndex(sorted(pd.Timestamp(d) for d in calendar.keys())).to_numpy())
 
 
-def holiday_calendar_features(dates: pd.Series, country: str, years: Optional[range] = None, column_prefix: str = "holiday") -> pd.DataFrame:
+@lru_cache(maxsize=64)
+def _cached_holiday_dates_and_names(country: str, years: Tuple[int, ...]) -> Tuple[np.ndarray, Tuple[str, ...]]:
+    """Same coverage as :func:`_cached_holiday_dates` plus each date's holiday NAME, sorted in lockstep.
+
+    A separate cache (rather than deriving names from the plain-dates cache) because ``country_holidays()``
+    dict values are the whole point here -- a date can carry multiple stacked names (e.g. a national holiday
+    that coincides with a local observance); those are joined with ``" / "`` so each date keeps exactly one
+    name string aligned 1:1 with its slot in the sorted date array.
+    """
+    import holidays as holidays_pkg  # optional dependency; imported lazily so the base package has no hard dep.
+
+    calendar = holidays_pkg.country_holidays(country, years=list(years))
+    merged: Dict[pd.Timestamp, str] = {}
+    for d, name in calendar.items():
+        ts = pd.Timestamp(d)
+        merged[ts] = f"{merged[ts]} / {name}" if ts in merged else name
+    ordered = sorted(merged.items())
+    dates = np.asarray(pd.DatetimeIndex([ts for ts, _ in ordered]).to_numpy())
+    names = tuple(name for _, name in ordered)
+    return dates, names
+
+
+def holiday_calendar_features(
+    dates: pd.Series,
+    country: str,
+    years: Optional[range] = None,
+    column_prefix: str = "holiday",
+    include_nearest_name: bool = False,
+    none_sentinel: str = "none",
+    name_window_days: Optional[float] = None,
+) -> pd.DataFrame:
     """Per-row holiday-calendar features: is-holiday, is-eve, days-since/until nearest holiday.
 
     Parameters
@@ -52,19 +82,33 @@ def holiday_calendar_features(dates: pd.Series, country: str, years: Optional[ra
         (a 1-year pad on each side so "days until next holiday" is defined near the series' edges).
     column_prefix
         Output column-name prefix.
+    include_nearest_name
+        When ``True``, add ``{prefix}_nearest_holiday_name`` -- unlike the blanket ``is_holiday`` flag (one
+        average effect size across every holiday), this lets a downstream target-encoder learn a PER-HOLIDAY
+        magnitude (e.g. Christmas vs a minor observance) since the ``holidays`` package's own dict values
+        already carry each holiday's name and were otherwise discarded.
+    none_sentinel
+        Category emitted for rows outside ``name_window_days`` of any holiday.
+    name_window_days
+        Rows with the nearest holiday further than this many days away (in either direction) get
+        ``none_sentinel`` instead of a name; ``None`` means always name the nearest holiday, however far.
 
     Returns
     -------
     pd.DataFrame
         ``{prefix}_is_holiday`` (bool), ``{prefix}_is_eve`` (bool, the day immediately before a holiday),
         ``{prefix}_days_since`` / ``{prefix}_days_until`` (float, nearest holiday in either direction; NaN
-        only possible at the very edges of the padded calendar range).
+        only possible at the very edges of the padded calendar range), and, if ``include_nearest_name``,
+        ``{prefix}_nearest_holiday_name`` (str category).
     """
     dates_dt = pd.to_datetime(dates)
     if years is None:
         years = range(int(dates_dt.dt.year.min()) - 1, int(dates_dt.dt.year.max()) + 2)
 
-    holiday_dates = _cached_holiday_dates(country, tuple(years))
+    if include_nearest_name:
+        holiday_dates, holiday_names = _cached_holiday_dates_and_names(country, tuple(years))
+    else:
+        holiday_dates = _cached_holiday_dates(country, tuple(years))
 
     dates_np = dates_dt.to_numpy()
     is_holiday = np.isin(dates_np, holiday_dates)
@@ -92,6 +136,26 @@ def holiday_calendar_features(dates: pd.Series, country: str, years: Optional[ra
         f"{column_prefix}_days_since": days_since,
         f"{column_prefix}_days_until": days_until,
     }
+
+    if include_nearest_name:
+        n = len(dates_np)
+        nearest_name = np.full(n, none_sentinel, dtype=object)
+        # Break the since/until tie in favor of whichever side is actually closer; a NaN distance
+        # (edge of the padded calendar range) loses to any real distance on the other side.
+        since_dist = np.where(has_before, days_since, np.inf)
+        until_dist = np.where(has_after, days_until, np.inf)
+        use_before = since_dist <= until_dist
+        nearest_idx = np.where(use_before, idx_before, idx_after)
+        nearest_dist = np.where(use_before, since_dist, until_dist)
+        has_any = has_before | has_after
+        if name_window_days is None:
+            in_window = has_any
+        else:
+            in_window = has_any & (nearest_dist <= name_window_days)
+        names_arr = np.asarray(holiday_names, dtype=object)
+        nearest_name[in_window] = names_arr[nearest_idx[in_window]]
+        out[f"{column_prefix}_nearest_holiday_name"] = nearest_name
+
     return pd.DataFrame(out, index=dates.index if isinstance(dates, pd.Series) else None)
 
 
