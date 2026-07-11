@@ -8,8 +8,10 @@ import numpy as np
 import pytest
 
 from mlframe.models.ensembling.selection import (
+    BackwardEliminationResult,
     CaruanaSelectionResult,
     caruana_greedy_selection,
+    greedy_backward_ensemble_elimination,
     rank_average_blend,
 )
 from mlframe.metrics._core_auc_brier import fast_roc_auc
@@ -135,6 +137,44 @@ def test_caruana_input_validation():
 
 
 # ---------------------------------------------------------------------------------------------------------------------
+# greedy_backward_ensemble_elimination -- unit
+# ---------------------------------------------------------------------------------------------------------------------
+
+
+def test_backward_elimination_returns_kept_subset_and_score():
+    preds, y = _toy_binary_matrix()
+    res = greedy_backward_ensemble_elimination(preds, y)
+    assert isinstance(res, BackwardEliminationResult)
+    assert set(res.kept).issubset(set(range(preds.shape[0])))
+    assert len(res.kept) + len(res.removed_order) == preds.shape[0]
+    assert np.isfinite(res.score)
+
+
+def test_backward_elimination_predict_matches_uniform_mean_of_kept():
+    preds, y = _toy_binary_matrix()
+    res = greedy_backward_ensemble_elimination(preds, y)
+    blend = res.predict(preds)
+    manual = preds[res.kept].mean(axis=0)
+    np.testing.assert_allclose(blend, manual, atol=1e-12)
+
+
+def test_backward_elimination_respects_min_models():
+    preds, y = _toy_binary_matrix()
+    res = greedy_backward_ensemble_elimination(preds, y, min_models=3)
+    assert len(res.kept) >= 3
+
+
+def test_backward_elimination_input_validation():
+    preds, y = _toy_binary_matrix()
+    with pytest.raises(ValueError):
+        greedy_backward_ensemble_elimination(preds, y[:-1])
+    with pytest.raises(ValueError):
+        greedy_backward_ensemble_elimination(preds, y, min_models=0)
+    with pytest.raises(ValueError):
+        greedy_backward_ensemble_elimination(np.zeros((0, 5)), np.zeros(5))
+
+
+# ---------------------------------------------------------------------------------------------------------------------
 # biz_value
 # ---------------------------------------------------------------------------------------------------------------------
 
@@ -172,6 +212,33 @@ def test_biz_val_caruana_beats_best_single_and_simple_average():
     assert caruana_auc >= simple_avg + 0.01, f"caruana {caruana_auc:.4f} not > simple-avg {simple_avg:.4f}"
     # The greedy walk must have down-weighted the two pure-noise decoys relative to the good models.
     assert res.weights[:5].sum() > res.weights[5:].sum()
+
+
+def test_biz_val_backward_elimination_beats_full_average_with_decoys():
+    """On a library polluted by pure-noise decoys, backward-eliminating the worst members beats the full-set average.
+
+    Construction: 5 informative base models plus 3 pure-noise decoys. The full uniform-mean blend is dragged down
+    by the decoys; greedy backward elimination should prune them (or the weakest informative members) and reach
+    a higher held-out AUC than the naive "average everyone" baseline.
+    """
+    rng = np.random.default_rng(11)
+    n = 2000
+    y = (rng.random(n) < 0.5).astype(np.int64)
+    signal = 2 * y - 1
+    good = np.stack(
+        [np.clip(0.5 + 0.45 * signal + rng.normal(0, nl, n), 0, 1) for nl in (0.5, 0.6, 0.7, 0.9, 1.1)],
+        axis=0,
+    )
+    decoys = np.clip(rng.random((3, n)), 0, 1)  # pure noise
+    preds = np.concatenate([good, decoys], axis=0)
+
+    full_avg_auc = fast_roc_auc(y, preds.mean(axis=0))
+    res = greedy_backward_ensemble_elimination(preds, y)
+    backward_auc = fast_roc_auc(y, res.predict(preds))
+
+    assert backward_auc >= full_avg_auc + 0.01, f"backward-elim {backward_auc:.4f} not > full-average {full_avg_auc:.4f} by 0.01"
+    # At least one of the three pure-noise decoys (indices 5, 6, 7) should have been eliminated.
+    assert any(idx in res.removed_order for idx in (5, 6, 7)), f"expected at least one decoy eliminated, removed_order={res.removed_order}"
 
 
 def test_biz_val_rank_average_beats_plain_average_on_scale_mismatch():

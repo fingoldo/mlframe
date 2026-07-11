@@ -64,8 +64,10 @@ from .float_aggregation import (
     robust_float_ensemble,
 )
 from .selection import (
+    BackwardEliminationResult,
     caruana_greedy_selection,
     CaruanaSelectionResult,
+    greedy_backward_ensemble_elimination,
     rank_average_blend,
 )
 

@@ -291,3 +291,118 @@ def caruana_greedy_selection(
         score=float(best_score),
         n_picks=int(counts.sum()),
     )
+
+
+class BackwardEliminationResult:
+    """Result of :func:`greedy_backward_ensemble_elimination`.
+
+    Attributes
+    ----------
+    kept : list[int]
+        Surviving model indices (uniform-mean blend of these is the final ensemble).
+    removed_order : list[int]
+        Model indices in the order they were eliminated.
+    score : float
+        Held-out metric of the ``kept`` uniform-mean blend.
+    """
+
+    __slots__ = ("kept", "removed_order", "score")
+
+    def __init__(self, kept, removed_order, score):
+        self.kept = kept
+        self.removed_order = removed_order
+        self.score = score
+
+    def predict(self, stacked: np.ndarray) -> np.ndarray:
+        """Uniform-mean blend of a NEW stacked ``(M, N[, K])`` matrix restricted to ``self.kept``."""
+        arr = np.asarray(stacked, dtype=np.float64)
+        return np.asarray(arr[self.kept].mean(axis=0))
+
+
+def greedy_backward_ensemble_elimination(
+    stacked: np.ndarray,
+    y: np.ndarray,
+    *,
+    metric: Optional[Callable] = None,
+    greater_is_better: bool = True,
+    min_models: int = 1,
+    tol: float = 0.0,
+) -> BackwardEliminationResult:
+    """Greedy backward elimination over ENSEMBLE MEMBERS (not features): start with the full uniform-mean bag,
+    repeatedly drop whichever remaining model's removal most improves (or least hurts) the held-out metric.
+
+    Complements :func:`caruana_greedy_selection`'s forward-build direction: backward elimination explores a
+    different search trajectory (prune down from "everyone votes" rather than build up from "nobody votes"),
+    which can land on a different local optimum, and directly answers "which of my N candidate models are
+    actively hurting the blend" rather than "which K models would I pick from scratch". Unlike
+    :mod:`feature_selection.greedy_backward_elimination` (which operates on DataFrame columns and re-fits an
+    estimator per candidate), this operates on the MODEL axis of a stored/OOF prediction matrix -- no refitting,
+    just re-scoring a uniform-mean blend, mirroring ``caruana_greedy_selection``'s stored-prediction contract.
+
+    Parameters
+    ----------
+    stacked : np.ndarray
+        ``(M, N)`` or ``(M, N, K)`` held-out (ideally OUT-OF-FOLD) model x row [x class] prediction tensor.
+    y : np.ndarray
+        Length-N ground truth aligned to the row axis.
+    metric : callable, optional
+        ``metric(y_true, blend) -> float``. Default ``None`` uses ROC-AUC on the positive-class score.
+    greater_is_better : bool
+        Whether higher ``metric`` is better (default True; set False for a loss like RMSE / log-loss).
+    min_models : int
+        Never eliminate below this many surviving models (default 1: keep eliminating until nothing improves).
+    tol : float
+        Minimum improvement required to keep eliminating; a removal must beat the current best score by more
+        than ``tol`` (removals that just tie are not applied) or the walk stops.
+
+    Returns
+    -------
+    BackwardEliminationResult
+        Surviving model indices / elimination order / best score reached.
+    """
+    arr = np.asarray(stacked, dtype=np.float64)
+    if arr.ndim not in (2, 3):
+        raise ValueError(f"greedy_backward_ensemble_elimination: stacked must be (M, N) or (M, N, K); got {arr.shape}.")
+    m, n = arr.shape[0], arr.shape[1]
+    if m == 0:
+        raise ValueError("greedy_backward_ensemble_elimination: empty model axis (M=0).")
+    yv = np.asarray(y).reshape(-1)
+    if yv.shape[0] != n:
+        raise ValueError(f"greedy_backward_ensemble_elimination: y length {yv.shape[0]} != row axis N={n}.")
+    if min_models < 1:
+        raise ValueError(f"greedy_backward_ensemble_elimination: min_models must be >= 1, got {min_models}.")
+
+    sign = 1.0 if greater_is_better else -1.0
+
+    def _better(a: float, b: float) -> bool:
+        return sign * (a - b) > tol
+
+    kept = list(range(m))
+    removed_order: list[int] = []
+    # Running SUM of the currently-kept models (mirrors caruana_greedy_selection's incremental-sum trick):
+    # re-summing arr[candidate] from scratch for every one of the ~M candidates per round (each a fresh fancy-
+    # index copy + O(bag_size) reduction) was the dominant cost (0.75s tottime of 1.1s total at M=30/N=100k,
+    # cProfile). Removing model idx from the bag is just running_sum - arr[idx], O(N) instead of O(bag_size * N).
+    running_sum = arr[kept].sum(axis=0)
+    bag_size = len(kept)
+    best_score = _score_blend(running_sum / bag_size, yv, metric)
+
+    while len(kept) > min_models:
+        best_cand = -1
+        best_cand_score = best_score
+        new_size = bag_size - 1
+        for idx in kept:
+            cand_blend = (running_sum - arr[idx]) / new_size
+            s = _score_blend(cand_blend, yv, metric)
+            if _better(s, best_cand_score):
+                best_cand_score = s
+                best_cand = idx
+        if best_cand < 0:
+            break  # no removal improves by > tol -> early stop
+        running_sum -= arr[best_cand]
+        bag_size = new_size
+        kept.remove(best_cand)
+        removed_order.append(best_cand)
+        best_score = best_cand_score
+
+    return BackwardEliminationResult(kept=kept, removed_order=removed_order, score=float(best_score))
