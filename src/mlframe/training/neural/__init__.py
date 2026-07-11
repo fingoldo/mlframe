@@ -50,6 +50,9 @@ from .fixed_sparse_linear import FixedSparseLinear
 # Correlation-ordered 1D-CNN over tabular features (standalone, not part of the Lightning estimator infra)
 from .tabular_1dcnn import Tabular1DCNNRegressor, correlation_order_features
 
+# Trunk-into-every-block residual MLP (standalone, not part of the Lightning estimator infra)
+from .trunk_residual_mlp import TrunkResidualMLPRegressor
+
 # Recurrent/sequence models
 from .recurrent import (
     RNNType,
@@ -98,6 +101,8 @@ __all__ = [
     # Correlation-ordered 1D-CNN over tabular features
     "Tabular1DCNNRegressor",
     "correlation_order_features",
+    # Trunk-into-every-block residual MLP
+    "TrunkResidualMLPRegressor",
     # Recurrent
     "RNNType",
     "InputMode",
