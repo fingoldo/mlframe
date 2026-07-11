@@ -157,6 +157,65 @@ def test_ensure_pool_limit_noop_without_cupy(monkeypatch, vram):
     assert vram.ensure_fe_gpu_pool_limit() is False
 
 
+# ================================================================================================
+# Joint pool-cap / cushion bound (2026-07-09 fix): pool_cap + cushion must never exceed total VRAM,
+# by construction, on ANY card size -- not just empirically fine on the 4 GB reference card.
+# ================================================================================================
+
+
+def test_pool_cap_plus_cushion_never_exceeds_total_on_small_card(monkeypatch, vram):
+    """Regression sensor for the self-conflicting-arithmetic bug: on a small (1.5 GB) card the OLD
+    independently-chosen fractions (0.6 pool + up-to-0.5-of-total cushion) summed past 100% of total
+    VRAM. The fix must clamp the effective pool fraction so pool_cap_bytes + cushion_bytes <= total_b."""
+    pytest.importorskip("cupy")
+    import cupy as cp
+
+    calls = []
+
+    class _FakePool:
+        def set_limit(self, size=None, fraction=None):
+            calls.append(fraction)
+
+    monkeypatch.setattr(cp, "get_default_memory_pool", lambda: _FakePool())
+    total_b = int(1.5 * GB)  # small card: old formula's cushion term alone would be 0.5*total = 0.75 GB
+    _patch_meminfo(monkeypatch, free_b=int(1.2 * GB), total_b=total_b)
+    # requested default fraction 0.6 would, under the OLD formula, coexist with a 0.5*total cushion
+    # (0.6 + 0.5 = 1.1 > 1.0 of total) -- self-conflicting regardless of workload.
+    assert vram.ensure_fe_gpu_pool_limit() is True
+    assert len(calls) == 1
+    effective_frac = calls[0]
+    cushion_b = vram._cushion_bytes(total_b)
+    pool_cap_bytes = effective_frac * total_b
+    assert pool_cap_bytes + cushion_b <= total_b + 1, (  # +1 tolerates float rounding
+        f"pool_cap({pool_cap_bytes}) + cushion({cushion_b}) exceeds total({total_b}) -- "
+        f"the two mechanisms are not jointly bounded"
+    )
+
+
+def test_pool_cap_unaffected_on_large_card(monkeypatch, vram):
+    """On a normal-sized card (well above the cushion's clamp point) the requested fraction is honoured
+    unchanged -- the joint bound must not needlessly tighten a card that was never at risk."""
+    pytest.importorskip("cupy")
+    import cupy as cp
+
+    calls = []
+
+    class _FakePool:
+        def set_limit(self, size=None, fraction=None):
+            calls.append(fraction)
+
+    monkeypatch.setattr(cp, "get_default_memory_pool", lambda: _FakePool())
+    _patch_meminfo(monkeypatch, free_b=8 * GB, total_b=16 * GB)
+    assert vram.ensure_fe_gpu_pool_limit() is True
+    assert calls == [pytest.approx(0.6)]  # requested default honoured exactly; cushion (<=1GB) is tiny vs 16GB
+
+
+def test_cushion_bytes_shared_by_both_mechanisms(vram):
+    """Both the per-dispatch cushion gate and the pool-cap must agree on the SAME cushion definition."""
+    total_b = 4 * GB
+    assert vram._cushion_bytes(total_b) == min(vram._min_free_mb() * MB, int(total_b * vram._TINY_CARD_CUSHION_FRACTION))
+
+
 def test_regression_guard_declines_gpu_at_low_free(monkeypatch, vram):
     """Regression: a real guard (the _cmi_cuda batched-CMI gate) must decline the GPU on a near-full card.
 
