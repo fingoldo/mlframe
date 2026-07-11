@@ -15,9 +15,16 @@ from typing import Optional
 import pandas as pd
 
 
-def sibling_group_cold_start_fill(df: pd.DataFrame, group_col: str, order_col: str, value_col: str, fallback_value: Optional[float] = None) -> pd.Series:
-    """Per-row value: the row's own group's last known value, or (if the whole group is missing) the
-    nearest PRECEDING sibling group's last known value, ordered by ``order_col``.
+def sibling_group_cold_start_fill(
+    df: pd.DataFrame,
+    group_col: str,
+    order_col: str,
+    value_col: str,
+    fallback_value: Optional[float] = None,
+    interpolate: bool = False,
+) -> pd.Series:
+    """Per-row value: the row's own group's last known value, or (if the whole group is missing) a value
+    borrowed from its known sibling groups, ordered by ``order_col``.
 
     Parameters
     ----------
@@ -33,12 +40,19 @@ def sibling_group_cold_start_fill(df: pd.DataFrame, group_col: str, order_col: s
     fallback_value
         Used for groups with no preceding non-empty sibling at all (e.g. the very first group). Defaults to
         the overall non-null mean of ``value_col``.
+    interpolate
+        Default False, preserving the original forward-fill-only behavior. When True, an entirely-missing
+        group that is sandwiched between a known PRECEDING sibling and a known FOLLOWING sibling gets a
+        linear interpolation between the two, weighted by each sibling's distance in the ordering -- a
+        strictly better estimate than pure forward-fill for a smoothly-drifting series. Groups with only a
+        preceding known sibling (e.g. those at the tail) still fall back to pure forward-fill, matching the
+        interpolate=False behavior.
 
     Returns
     -------
     pd.Series
-        One value per row: the row's group's last known value if the group has ANY history, else the
-        nearest preceding sibling group's last known value.
+        One value per row: the row's group's last known value if the group has ANY history, else a value
+        borrowed from its known sibling group(s) per the rules above.
     """
     group_order = df.groupby(group_col, sort=False)[order_col].first().sort_values()
     ordered_groups = group_order.index.to_numpy()
@@ -50,10 +64,19 @@ def sibling_group_cold_start_fill(df: pd.DataFrame, group_col: str, order_col: s
     last_known_per_group = df.groupby(group_col, sort=False)[value_col].last()
     last_known_per_group = last_known_per_group.reindex(ordered_groups)
 
-    # forward-fill across groups in sibling order: an entirely-missing group borrows the nearest PRECEDING
-    # group's last known value.
     global_fallback = float(fallback_value) if fallback_value is not None else float(df[value_col].dropna().mean())
-    filled_per_group = last_known_per_group.ffill().fillna(global_fallback)
+
+    if interpolate:
+        # positional (not order_col-value) distance weighting: siblings are equally spaced by construction
+        # once indexed by their rank in ordered_groups, so a plain `.interpolate()` over the positional index
+        # already implements "weighted by how close in the ordering each sibling is". Bfill/ffill the tails.
+        filled_per_group = last_known_per_group.reset_index(drop=True).interpolate(method="linear", limit_area="inside")
+        filled_per_group.index = last_known_per_group.index
+        filled_per_group = filled_per_group.ffill().fillna(global_fallback)
+    else:
+        # forward-fill across groups in sibling order: an entirely-missing group borrows the nearest
+        # PRECEDING group's last known value.
+        filled_per_group = last_known_per_group.ffill().fillna(global_fallback)
 
     return df[group_col].map(filled_per_group)
 

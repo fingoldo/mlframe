@@ -53,6 +53,65 @@ def test_sibling_group_cold_start_fill_leaves_non_missing_groups_untouched():
     assert filled[3] == 12.0
 
 
+def _make_drifting_sibling_groups_interior_missing(n_groups: int, rows_per_group: int, n_cold_start: int, seed: int):
+    rng = np.random.default_rng(seed)
+    levels = np.cumsum(rng.normal(scale=0.5, size=n_groups)) + 50
+    group_ids = np.repeat(np.arange(n_groups), rows_per_group)
+    order_vals = np.repeat(np.arange(n_groups), rows_per_group)
+    values = np.repeat(levels, rows_per_group) + rng.normal(scale=0.3, size=n_groups * rows_per_group)
+
+    # sample cold-start groups strictly from the INTERIOR (never index 0 or n_groups-1) so every missing
+    # group is sandwiched between a known preceding AND a known following sibling.
+    cold_start_groups = rng.choice(np.arange(1, n_groups - 1), size=n_cold_start, replace=False)
+    mask_cold = np.isin(group_ids, cold_start_groups)
+    values_with_missing = values.copy()
+    values_with_missing[mask_cold] = np.nan
+
+    df = pd.DataFrame({"group": group_ids, "order": order_vals, "value": values_with_missing})
+    true_level = np.repeat(levels, rows_per_group)
+    return df, true_level, mask_cold
+
+
+def test_biz_val_sibling_interpolate_beats_ffill_for_sandwiched_cold_start_groups():
+    df, true_level, mask_cold = _make_drifting_sibling_groups_interior_missing(n_groups=100, rows_per_group=5, n_cold_start=15, seed=0)
+
+    filled_interp = sibling_group_cold_start_fill(df, group_col="group", order_col="order", value_col="value", interpolate=True)
+    filled_ffill = sibling_group_cold_start_fill(df, group_col="group", order_col="order", value_col="value", interpolate=False)
+
+    mae_interp = float(np.mean(np.abs(filled_interp[mask_cold] - true_level[mask_cold])))
+    mae_ffill = float(np.mean(np.abs(filled_ffill[mask_cold] - true_level[mask_cold])))
+
+    assert mae_interp < mae_ffill * 0.6, f"expected interpolate=True to beat forward-fill-only by >=40% MAE, got interp={mae_interp:.4f} ffill={mae_ffill:.4f}"
+
+
+def test_sibling_group_cold_start_fill_interpolate_sandwiched_group_is_midpoint():
+    df = pd.DataFrame(
+        {
+            "group": [0, 0, 1, 1, 2, 2],
+            "order": [0, 0, 1, 1, 2, 2],
+            "value": [10.0, 10.0, np.nan, np.nan, 30.0, 30.0],
+        }
+    )
+    filled = sibling_group_cold_start_fill(df, group_col="group", order_col="order", value_col="value", interpolate=True)
+    # group 1 sits exactly between group 0 (10.0) and group 2 (30.0) -> linear interpolation gives 20.0.
+    assert filled[2] == 20.0
+    assert filled[3] == 20.0
+
+
+def test_sibling_group_cold_start_fill_interpolate_tail_falls_back_to_ffill():
+    df = pd.DataFrame(
+        {
+            "group": [0, 0, 1, 1, 2, 2],
+            "order": [0, 0, 1, 1, 2, 2],
+            "value": [10.0, 10.0, 20.0, 20.0, np.nan, np.nan],
+        }
+    )
+    filled = sibling_group_cold_start_fill(df, group_col="group", order_col="order", value_col="value", interpolate=True)
+    # group 2 (tail) has no FOLLOWING sibling -> matches interpolate=False behavior: forward-fills from group 1.
+    assert filled[4] == 20.0
+    assert filled[5] == 20.0
+
+
 def test_sibling_group_cold_start_fill_first_group_missing_uses_fallback():
     df = pd.DataFrame({"group": [0, 0, 1, 1], "order": [0, 0, 1, 1], "value": [np.nan, np.nan, 20.0, 22.0]})
     filled = sibling_group_cold_start_fill(df, group_col="group", order_col="order", value_col="value", fallback_value=99.0)
