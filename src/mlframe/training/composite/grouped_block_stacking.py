@@ -29,6 +29,7 @@ import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator, RegressorMixin, clone
 
+from ...feature_selection.varying_size_top_k_subsets import _cluster_anchors
 from .ensemble.feature_stacking import composite_oof_predictions
 
 logger = logging.getLogger(__name__)
@@ -40,6 +41,45 @@ def _default_valid_row_mask(X_group: np.ndarray) -> np.ndarray:
     finite = np.isfinite(X_group)
     nonzero = finite & (X_group != 0)
     return np.asarray(nonzero.any(axis=1))
+
+
+def _discover_feature_groups(X: Any, y_arr: np.ndarray, corr_threshold: float) -> dict:
+    """Automatic block discovery for callers with no pre-defined ``feature_groups`` mapping.
+
+    Ranks columns by ``|corr(column, y)|`` (best-first, same ordering convention as an importance
+    ranking), then greedily clusters them by pairwise ``|corr(col_i, col_j)| >= corr_threshold`` via
+    :func:`mlframe.feature_selection.varying_size_top_k_subsets._cluster_anchors` -- the same
+    self-contained anchor-greedy rule DCD uses internally, reused here rather than reimplemented since
+    it already exists as a free function with no fitted-MRMR dependency (see that module's docstring).
+    A cluster of mutually-correlated columns is exactly a "redundant feature block" in this class's sense.
+    """
+    if isinstance(X, pd.DataFrame):
+        columns: list = list(X.columns)
+        mat = X.to_numpy(dtype=np.float64)
+    else:
+        try:
+            import polars as pl
+            if isinstance(X, pl.DataFrame):
+                columns = list(X.columns)
+                mat = X.select(columns).to_numpy().astype(np.float64)
+            else:
+                raise TypeError
+        except (ImportError, TypeError):
+            mat = np.asarray(X, dtype=np.float64)
+            columns = list(range(mat.shape[1]))
+
+    with np.errstate(invalid="ignore", divide="ignore"):
+        target_corr = np.array([np.corrcoef(mat[:, i], y_arr)[0, 1] for i in range(mat.shape[1])])
+    target_corr = np.nan_to_num(target_corr, nan=0.0)
+    ranked_idx = np.argsort(-np.abs(target_corr))
+    str_columns = [str(c) for c in columns]
+    ranked_str = [str_columns[i] for i in ranked_idx]
+
+    data_df = pd.DataFrame(mat, columns=str_columns)
+    clusters = _cluster_anchors(ranked_str, data_df, corr_threshold)
+
+    name_of = dict(zip(str_columns, columns))
+    return {f"auto_{anchor}": [name_of[m] for m in members] for anchor, members in clusters.items()}
 
 
 def _select_group(X: Any, columns: Sequence[Any]) -> np.ndarray:
@@ -62,7 +102,17 @@ class GroupedBlockStacker(BaseEstimator, RegressorMixin):
     feature_groups
         ``{group_name: [column names or indices]}`` -- one submodel is fit per group, using only that
         group's columns. Typically sourced from DCD's ``cluster_anchors_names`` after an MRMR fit (see
-        module docstring), but any grouping works.
+        module docstring), but any grouping works. ``None`` when ``auto_discover_blocks=True``.
+    auto_discover_blocks
+        Opt-in (default ``False``, prior default behavior unchanged). When ``True``, ``feature_groups``
+        must be left ``None`` (or empty) -- blocks are discovered automatically at fit time by ranking
+        columns by ``|corr(column, y)|`` and greedily clustering by pairwise ``|corr| >= block_corr_threshold``
+        (see :func:`_discover_feature_groups`). Use this when the caller has no pre-defined feature
+        grouping (no prior MRMR/DCD fit, no domain-known layout) but the feature matrix still contains
+        genuinely correlated blocks worth splitting into per-block submodels.
+    block_corr_threshold
+        Pairwise ``|Pearson corr|`` threshold for automatic block discovery (only used when
+        ``auto_discover_blocks=True``). Higher = fewer, larger blocks.
     submodel_factory
         Zero-arg callable returning a fresh unfitted estimator, used for EVERY group (clone-per-group via a
         fresh factory call, not ``sklearn.clone`` of a single shared prototype, so each group's model is
@@ -87,17 +137,23 @@ class GroupedBlockStacker(BaseEstimator, RegressorMixin):
         ``{group_name: fraction of training rows valid for that group}`` (diagnostic).
     group_fill_values_
         ``{group_name: fallback meta-feature value for invalid rows}``.
+    feature_groups_
+        The groups actually used to fit -- equal to ``feature_groups`` when supplied manually, or the
+        automatically-discovered mapping (``{"auto_<anchor>": [members]}``) when
+        ``auto_discover_blocks=True``. ``predict()`` always uses this fitted attribute.
     """
 
     def __init__(
         self,
-        feature_groups: Mapping[str, Sequence[Any]],
-        submodel_factory: Callable[[], Any],
-        meta_estimator: Any,
+        feature_groups: Optional[Mapping[str, Sequence[Any]]] = None,
+        submodel_factory: Optional[Callable[[], Any]] = None,
+        meta_estimator: Any = None,
         valid_row_predicate: Optional[Callable[[np.ndarray], np.ndarray]] = None,
         invalid_row_fill: Any = "group_mean",
         n_splits: int = 5,
         random_state: int = 42,
+        auto_discover_blocks: bool = False,
+        block_corr_threshold: float = 0.6,
     ) -> None:
         self.feature_groups = feature_groups
         self.submodel_factory = submodel_factory
@@ -106,14 +162,27 @@ class GroupedBlockStacker(BaseEstimator, RegressorMixin):
         self.invalid_row_fill = invalid_row_fill
         self.n_splits = n_splits
         self.random_state = random_state
+        self.auto_discover_blocks = auto_discover_blocks
+        self.block_corr_threshold = block_corr_threshold
 
     def _mask_fn(self) -> Callable[[np.ndarray], np.ndarray]:
         return self.valid_row_predicate if self.valid_row_predicate is not None else _default_valid_row_mask
 
     def fit(self, X: Any, y: Any, sample_weight: Optional[np.ndarray] = None) -> "GroupedBlockStacker":
-        if not self.feature_groups:
-            raise ValueError("feature_groups must be non-empty.")
+        if self.submodel_factory is None or self.meta_estimator is None:
+            raise ValueError("submodel_factory and meta_estimator are required.")
+        submodel_factory: Callable[[], Any] = self.submodel_factory
         y_arr = np.asarray(y, dtype=np.float64)
+        if self.auto_discover_blocks:
+            if self.feature_groups:
+                raise ValueError("Set only one of feature_groups or auto_discover_blocks=True, not both.")
+            feature_groups: Mapping[str, Sequence[Any]] = _discover_feature_groups(X, y_arr, self.block_corr_threshold)
+        else:
+            feature_groups = self.feature_groups or {}
+        if not feature_groups:
+            raise ValueError("feature_groups must be non-empty (or set auto_discover_blocks=True).")
+        self.feature_groups_: dict = dict(feature_groups)
+
         n = y_arr.shape[0]
         mask_fn = self._mask_fn()
 
@@ -122,7 +191,7 @@ class GroupedBlockStacker(BaseEstimator, RegressorMixin):
         self.group_fill_values_: dict[str, float] = {}
         meta_cols: dict[str, np.ndarray] = {}
 
-        for group_name, columns in self.feature_groups.items():
+        for group_name, columns in self.feature_groups_.items():
             X_group = _select_group(X, columns)
             valid_mask = np.asarray(mask_fn(X_group), dtype=bool)
             self.group_valid_rates_[group_name] = float(valid_mask.mean()) if n else 0.0
@@ -130,10 +199,10 @@ class GroupedBlockStacker(BaseEstimator, RegressorMixin):
             oof_col = np.full(n, np.nan, dtype=np.float64)
             if valid_mask.sum() >= max(2, self.n_splits):
                 X_group_valid = pd.DataFrame(X_group[valid_mask], columns=[str(c) for c in columns])
-                oof_valid = composite_oof_predictions(self.submodel_factory, X_group_valid, y_arr[valid_mask], n_splits=self.n_splits, random_state=self.random_state)
+                oof_valid = composite_oof_predictions(submodel_factory, X_group_valid, y_arr[valid_mask], n_splits=self.n_splits, random_state=self.random_state)
                 oof_col[valid_mask] = oof_valid
 
-                full_model = self.submodel_factory()
+                full_model = submodel_factory()
                 full_model.fit(X_group_valid, y_arr[valid_mask])
                 self.submodels_[group_name] = full_model
             else:
@@ -154,7 +223,7 @@ class GroupedBlockStacker(BaseEstimator, RegressorMixin):
 
     def predict(self, X: Any) -> np.ndarray:
         meta_cols: dict[str, np.ndarray] = {}
-        for group_name, columns in self.feature_groups.items():
+        for group_name, columns in self.feature_groups_.items():
             X_group = _select_group(X, columns)
             model = self.submodels_.get(group_name)
             fill_value = self.group_fill_values_[group_name]

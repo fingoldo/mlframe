@@ -41,10 +41,25 @@ def _run(n: int) -> None:
     stacker.predict(X)
 
 
+def _run_auto_discover(n: int) -> None:
+    X, y, _ = _make_dataset(n, n_groups=6, cols_per_group=6, seed=0)
+    stacker = GroupedBlockStacker(auto_discover_blocks=True, block_corr_threshold=0.6, submodel_factory=lambda: LinearRegression(), meta_estimator=LinearRegression(), n_splits=5)
+    stacker.fit(X, y)
+    stacker.predict(X)
+
+
 if __name__ == "__main__":
+    print("-- manual feature_groups --")
     for n in [1_000, 10_000, 50_000]:
         t0 = time.perf_counter()
         _run(n)
+        wall = time.perf_counter() - t0
+        print(f"n={n:>7,} -> {wall * 1000:9.2f} ms")
+
+    print("-- auto_discover_blocks=True --")
+    for n in [1_000, 10_000, 50_000]:
+        t0 = time.perf_counter()
+        _run_auto_discover(n)
         wall = time.perf_counter() - t0
         print(f"n={n:>7,} -> {wall * 1000:9.2f} ms")
 
@@ -55,4 +70,15 @@ if __name__ == "__main__":
     buf = StringIO()
     stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
     stats.print_stats(15)
+    print("-- manual feature_groups, n=50,000 --")
+    print(buf.getvalue())
+
+    profiler = cProfile.Profile()
+    profiler.enable()
+    _run_auto_discover(50_000)
+    profiler.disable()
+    buf = StringIO()
+    stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
+    stats.print_stats(15)
+    print("-- auto_discover_blocks=True, n=50,000 --")
     print(buf.getvalue())
