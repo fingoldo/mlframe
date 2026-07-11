@@ -29,6 +29,7 @@ from mlframe.calibration.confidence_shrinkage import compute_oof_confidence, app
 from mlframe.calibration.threshold_optimizer import optimize_decision_threshold, apply_decision_threshold
 from mlframe.calibration.group_bias_correction import fit_group_bias_correction, apply_group_bias_correction
 from mlframe.calibration.smoothed_override import apply_smoothed_override
+from mlframe.calibration.asymmetric_rescale import fit_asymmetric_rescale, apply_asymmetric_rescale
 
 
 def __getattr__(name: str) -> Any:
