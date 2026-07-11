@@ -29,12 +29,25 @@ def _run(n_rows: int, n_cols: int) -> None:
     drop_rare_features(df, min_total_count=20)
 
 
+def _run_target_aware(n_rows: int, n_cols: int) -> None:
+    df = _make_dataset(n_rows, n_cols, seed=0)
+    cat_cols = [c for c in df.columns if c.startswith("cat")]
+    rng = np.random.default_rng(1)
+    y = (rng.random(n_rows) < 0.2).astype(np.float64)
+    collapse_rare_categories(df, cat_cols, min_count=10, y=y, target_aware=True)
+
+
 if __name__ == "__main__":
     for n_rows, n_cols in [(5000, 40), (50000, 40), (50000, 200)]:
         t0 = time.perf_counter()
         _run(n_rows, n_cols)
         wall = time.perf_counter() - t0
-        print(f"n_rows={n_rows:>6} n_cols={n_cols:>4} -> {wall * 1000:9.2f} ms")
+        print(f"count-only     n_rows={n_rows:>6} n_cols={n_cols:>4} -> {wall * 1000:9.2f} ms")
+
+        t0 = time.perf_counter()
+        _run_target_aware(n_rows, n_cols)
+        wall = time.perf_counter() - t0
+        print(f"target_aware   n_rows={n_rows:>6} n_cols={n_cols:>4} -> {wall * 1000:9.2f} ms")
 
     profiler = cProfile.Profile()
     profiler.enable()
@@ -43,4 +56,15 @@ if __name__ == "__main__":
     buf = StringIO()
     stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
     stats.print_stats(20)
+    print("=== count-only ===")
+    print(buf.getvalue())
+
+    profiler = cProfile.Profile()
+    profiler.enable()
+    _run_target_aware(50000, 200)
+    profiler.disable()
+    buf = StringIO()
+    stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
+    stats.print_stats(20)
+    print("=== target_aware ===")
     print(buf.getvalue())
