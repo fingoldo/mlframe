@@ -28,6 +28,7 @@ from mlframe.calibration.isotonic_risk import isotonic_overfit_risk
 from mlframe.calibration.confidence_shrinkage import compute_oof_confidence, apply_confidence_shrinkage
 from mlframe.calibration.threshold_optimizer import optimize_decision_threshold, apply_decision_threshold
 from mlframe.calibration.group_bias_correction import fit_group_bias_correction, apply_group_bias_correction
+from mlframe.calibration.smoothed_override import apply_smoothed_override
 
 
 def __getattr__(name: str) -> Any:
