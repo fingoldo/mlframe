@@ -10,7 +10,7 @@ import time
 from io import StringIO
 
 import numpy as np
-from sklearn.linear_model import LinearRegression
+from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from mlframe.training.composite import MultiStageMetaFeatureStacker
 
@@ -24,10 +24,31 @@ def _make_dataset(n: int, seed: int):
     return X, y_primary, y_aux
 
 
+def _make_proba_dataset(n: int, seed: int):
+    rng = np.random.default_rng(seed)
+    z = rng.normal(size=n)
+    X = np.column_stack([np.sin(z * 2) + rng.normal(scale=0.3, size=n), z**2 + rng.normal(scale=0.3, size=n), rng.normal(size=n)])
+    y_aux = (z + rng.normal(scale=0.4, size=n) > 0).astype(np.float64)
+    y_primary = 5 * z + rng.normal(scale=0.5, size=n)
+    return X, y_primary, y_aux
+
+
 def _run(n: int) -> None:
     X, y_primary, y_aux = _make_dataset(n, seed=0)
     stacker = MultiStageMetaFeatureStacker(
         stage1_estimator_factories={"aux": lambda: LinearRegression()}, stage2_estimator=LinearRegression(), n_splits=5,
+    )
+    stacker.fit(X, y_primary, {"aux": y_aux})
+    stacker.predict(X)
+
+
+def _run_use_predict_proba(n: int) -> None:
+    X, y_primary, y_aux = _make_proba_dataset(n, seed=0)
+    stacker = MultiStageMetaFeatureStacker(
+        stage1_estimator_factories={"aux": lambda: LogisticRegression()},
+        stage2_estimator=LinearRegression(),
+        n_splits=5,
+        use_predict_proba={"aux": True},
     )
     stacker.fit(X, y_primary, {"aux": y_aux})
     stacker.predict(X)
@@ -40,6 +61,12 @@ if __name__ == "__main__":
         wall = time.perf_counter() - t0
         print(f"n={n:>7,} -> {wall * 1000:9.2f} ms")
 
+    for n in [1_000, 10_000, 100_000]:
+        t0 = time.perf_counter()
+        _run_use_predict_proba(n)
+        wall = time.perf_counter() - t0
+        print(f"use_predict_proba n={n:>7,} -> {wall * 1000:9.2f} ms")
+
     profiler = cProfile.Profile()
     profiler.enable()
     _run(100_000)
@@ -48,3 +75,12 @@ if __name__ == "__main__":
     stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
     stats.print_stats(15)
     print(buf.getvalue())
+
+    profiler_proba = cProfile.Profile()
+    profiler_proba.enable()
+    _run_use_predict_proba(100_000)
+    profiler_proba.disable()
+    buf_proba = StringIO()
+    stats_proba = pstats.Stats(profiler_proba, stream=buf_proba).sort_stats("cumulative")
+    stats_proba.print_stats(15)
+    print(buf_proba.getvalue())

@@ -30,6 +30,27 @@ from .ensemble.feature_stacking import composite_oof_predictions
 logger = logging.getLogger(__name__)
 
 
+class _ProbaAsPredictWrapper:
+    """Adapts a classifier so ``predict()`` returns the positive-class probability instead of the hard label.
+
+    Lets ``composite_oof_predictions`` (and this class's own full-refit / ``predict`` paths, which all call
+    ``.predict()`` uniformly) consume ``predict_proba`` output as a continuous meta-feature without
+    duplicating any of that OOF/refit plumbing -- the wrapper is transparent to every caller that only
+    knows about ``fit``/``predict``.
+    """
+
+    def __init__(self, estimator: Any) -> None:
+        self.estimator = estimator
+
+    def fit(self, X: Any, y: Any, **fit_kwargs: Any) -> "_ProbaAsPredictWrapper":
+        self.estimator.fit(X, y, **fit_kwargs)
+        return self
+
+    def predict(self, X: Any) -> np.ndarray:
+        proba = np.asarray(self.estimator.predict_proba(X))
+        return proba[:, 1]
+
+
 class MultiStageMetaFeatureStacker(BaseEstimator):
     """Stage 1 (auxiliary targets) -> OOF meta-features -> Stage 2 (primary target).
 
@@ -51,6 +72,13 @@ class MultiStageMetaFeatureStacker(BaseEstimator):
         comparable distribution across auxiliary targets regardless of how each was trained.
     meta_feature_prefix
         Column-name prefix for the injected meta-features (``{prefix}_{aux_target_name}``).
+    use_predict_proba
+        Opt-in ``{aux_target_name: bool}`` (default ``None`` == every target off, matching prior behavior
+        bit-for-bit). When ``True`` for a binary-classification auxiliary target, that target's stage-1
+        meta-feature is the OOF (and later, refit) positive-class ``predict_proba`` probability instead of
+        the hard ``predict()`` label -- a continuous confidence score carries strictly more information than
+        its 0/1 threshold, which matters whenever the primary target depends on the auxiliary signal's
+        magnitude rather than just its sign. Names absent from the mapping default to ``False``.
 
     Attributes
     ----------
@@ -72,6 +100,7 @@ class MultiStageMetaFeatureStacker(BaseEstimator):
         random_state: int = 42,
         quantile_transform: bool = True,
         meta_feature_prefix: str = "meta",
+        use_predict_proba: Optional[Mapping[str, bool]] = None,
     ) -> None:
         self.stage1_estimator_factories = stage1_estimator_factories
         self.stage2_estimator = stage2_estimator
@@ -79,6 +108,7 @@ class MultiStageMetaFeatureStacker(BaseEstimator):
         self.random_state = random_state
         self.quantile_transform = quantile_transform
         self.meta_feature_prefix = meta_feature_prefix
+        self.use_predict_proba = use_predict_proba
 
     def _meta_column_name(self, aux_name: str) -> str:
         return f"{self.meta_feature_prefix}_{aux_name}"
@@ -118,10 +148,16 @@ class MultiStageMetaFeatureStacker(BaseEstimator):
         self.stage1_models_: dict[str, Any] = {}
         self.quantile_transformers_: dict[str, Any] = {}
         meta_cols: dict[str, np.ndarray] = {}
+        use_proba = self.use_predict_proba or {}
 
         for aux_name, factory in self.stage1_estimator_factories.items():
+            wants_proba = bool(use_proba.get(aux_name, False))
+            # Wrapping the factory (rather than branching every call site) keeps the OOF loop, the
+            # full-training-set refit, and predict() all uniformly predict()-based -- the wrapper is what
+            # decides whether that predict() call returns a hard label or a positive-class probability.
+            effective_factory = (lambda f=factory: _ProbaAsPredictWrapper(f())) if wants_proba else factory
             y_aux = np.asarray(y_auxiliary[aux_name])
-            oof_pred = composite_oof_predictions(factory, X, y_aux, n_splits=self.n_splits, random_state=self.random_state)
+            oof_pred = composite_oof_predictions(effective_factory, X, y_aux, n_splits=self.n_splits, random_state=self.random_state)
             if self.quantile_transform:
                 from sklearn.preprocessing import QuantileTransformer
                 n_quantiles = min(1000, max(10, oof_pred.shape[0]))
@@ -137,7 +173,7 @@ class MultiStageMetaFeatureStacker(BaseEstimator):
                 meta_cols[self._meta_column_name(aux_name)] = oof_pred
 
             # Refit on the FULL training set so predict() on new rows has a real model to call.
-            full_model = factory()
+            full_model = effective_factory()
             full_model.fit(X, y_aux)
             self.stage1_models_[aux_name] = full_model
 
