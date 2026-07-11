@@ -40,6 +40,7 @@ from mlframe.feature_selection.ridge_forward_prefilter import ridge_coefficient_
 from mlframe.feature_selection.unanimous_permutation_prune import unanimous_permutation_prune
 from mlframe.feature_selection.drop_noninformative_vs_reference import drop_noninformative_vs_reference
 from mlframe.feature_selection.drop_near_noise_univariate_auc import drop_near_noise_univariate_auc
+from mlframe.feature_selection.drop_raw_after_embedding import drop_raw_after_embedding
 from mlframe.feature_selection.greedy_backward_elimination import greedy_backward_elimination
 from mlframe.feature_selection.zero_importance_pruning import iterative_zero_importance_pruning
 from mlframe.feature_selection.stochastic_bandit_selection import stochastic_bandit_selection
@@ -84,6 +85,8 @@ __all__ = [
     "drop_noninformative_vs_reference",
     # cheap univariate-AUC near-noise prescreen before MRMR/DCD
     "drop_near_noise_univariate_auc",
+    # drop a raw high-cardinality categorical once its derived embedding/encoding columns are present
+    "drop_raw_after_embedding",
     # varying-size top-k feature subsets from a ranked importance list, for stacking diversity
     "varying_size_top_k_subsets",
 ]
