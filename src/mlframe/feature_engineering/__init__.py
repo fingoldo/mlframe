@@ -231,6 +231,7 @@ from .event_proximity_decay import event_proximity_decay_features
 from .tfidf_svd_entity_embedding import tfidf_svd_entity_embedding
 from .gmm_bic_membership_features import gmm_bic_membership_features
 from .latent_parameter_recovery import latent_parameter_recovery_features
+from .panel_sequence_tensor import build_panel_sequence_tensor
 
 __all__ = [
     "per_group_recency_weighted_mean",
@@ -363,4 +364,5 @@ __all__ = [
     "tfidf_svd_entity_embedding",
     "gmm_bic_membership_features",
     "latent_parameter_recovery_features",
+    "build_panel_sequence_tensor",
 ]
