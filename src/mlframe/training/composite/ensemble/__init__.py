@@ -911,5 +911,6 @@ from ._stackers import (
     META_STACKER_KINDS,
     build_meta_stack_ensemble,
     fit_gbm_meta_stacker,
+    fit_lasso_meta_stacker,
     fit_ridge_meta_stacker,
 )

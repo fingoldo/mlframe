@@ -12,6 +12,9 @@ derived from, and are selected via an explicit ``stacker=`` choice:
   ``non_negative`` constraint (``positive=True``). Still linear; useful when components are collinear (NNLS can be unstable
   there) and when a tiny negative coefficient genuinely helps. Reduces to a linear stack like ``from_linear_stack`` but is
   exposed here under the unified meta-stacker API + the non-negative knob.
+- ``"lasso"`` -- Lasso (L1) regression over the OOF component matrix, with internal LassoCV alpha selection and an optional
+  ``non_negative`` constraint. Unlike Ridge's dense shrinkage, the L1 penalty drives weak/redundant components' coefficients
+  to exactly zero, self-selecting a sparse sub-ensemble in one fit rather than a separate model-selection pass.
 - ``"gbm"`` -- a SHALLOW ``HistGradientBoostingRegressor`` (sklearn, always available, no extra dep) fit on the OOF matrix.
   This is a non-linear meta-learner: it can represent interactions / region-switching blends that NNLS and Ridge cannot.
 
@@ -39,7 +42,7 @@ logger = logging.getLogger(__name__)
 
 # Supported meta-stacker kinds. ``"nnls"`` is handled by the legacy ``from_nnls_stack`` path and listed here only so the
 # dispatcher can validate the kwarg uniformly.
-META_STACKER_KINDS = ("nnls", "ridge", "gbm")
+META_STACKER_KINDS = ("nnls", "ridge", "lasso", "gbm")
 
 
 def _clean_oof_matrix(
@@ -115,6 +118,48 @@ def fit_ridge_meta_stacker(
     return model
 
 
+def fit_lasso_meta_stacker(
+    oof_matrix: np.ndarray,
+    oof_y: np.ndarray,
+    n_components: int,
+    *,
+    non_negative: bool = False,
+    lasso_alpha: float | None = None,
+    lasso_alpha_grid: tuple[float, ...] = (0.001, 0.01, 0.1, 1.0),
+    sample_weight: np.ndarray | None = None,
+) -> Any:
+    """Fit a Lasso (L1) meta-model on the leakage-free OOF component matrix.
+
+    Unlike :func:`fit_ridge_meta_stacker`'s dense L2 shrinkage, the L1 penalty drives weak/redundant components'
+    coefficients to EXACTLY zero -- a component whose OOF predictions are consistently redundant with a stronger
+    sibling (or simply uninformative) drops out of the blend entirely rather than retaining a small non-zero weight,
+    giving a sparse, self-selecting ensemble in one fit instead of a separate model-selection pass.
+
+    ``non_negative=True`` constrains coefficients to ``>= 0`` (``Lasso(positive=True)``), for an NNLS-like sparse
+    non-negative stack. When ``lasso_alpha is None`` the alpha is chosen by ``LassoCV`` over ``lasso_alpha_grid``;
+    ``LassoCV`` does not support ``positive=`` directly through the grid search in a way that composes with sample
+    weights cleanly here, so under ``non_negative=True`` the alpha is selected by unconstrained ``LassoCV``, then a
+    final ``Lasso(positive=True, alpha=chosen)`` is fit -- the same two-step pattern as the Ridge stacker.
+
+    Returns the fitted sklearn estimator (has ``.predict`` + ``.coef_`` + ``.intercept_``).
+    """
+    from sklearn.linear_model import Lasso, LassoCV  # lazy: keep cold-import off the predict path
+
+    X, y, finite = _clean_oof_matrix(oof_matrix, oof_y, n_components)
+    sw = _validate_sample_weight(sample_weight, np.asarray(oof_matrix).shape[0], finite)
+    if X.shape[0] < n_components + 2:
+        raise ValueError(f"fit_lasso_meta_stacker: only {X.shape[0]} finite OOF rows for {n_components} components (need >= {n_components + 2}).")
+    if lasso_alpha is None:
+        lcv = LassoCV(alphas=tuple(lasso_alpha_grid), fit_intercept=True)
+        lcv.fit(X, y, sample_weight=sw)
+        chosen = float(getattr(lcv, "alpha_", lasso_alpha_grid[0]))
+    else:
+        chosen = float(lasso_alpha)
+    model = Lasso(alpha=chosen, fit_intercept=True, positive=bool(non_negative))
+    model.fit(X, y, sample_weight=sw)
+    return model
+
+
 def fit_gbm_meta_stacker(
     oof_matrix: np.ndarray,
     oof_y: np.ndarray,
@@ -174,6 +219,8 @@ def build_meta_stack_ensemble(
     sample_weight: np.ndarray | None = None,
     ridge_alpha: float | None = None,
     ridge_alpha_grid: tuple[float, ...] = (0.01, 0.1, 1.0, 10.0),
+    lasso_alpha: float | None = None,
+    lasso_alpha_grid: tuple[float, ...] = (0.001, 0.01, 0.1, 1.0),
     gbm_max_depth: int = 3,
     gbm_max_iter: int = 200,
     gbm_learning_rate: float = 0.05,
@@ -181,8 +228,9 @@ def build_meta_stack_ensemble(
 ) -> Any:
     """Construct a :class:`CompositeCrossTargetEnsemble` whose blend is a fitted meta-model over the OOF component matrix.
 
-    ``stacker`` selects the meta-learner: ``"ridge"`` (optionally ``non_negative``) or ``"gbm"``. (Pass ``stacker="nnls"`` to
-    use the legacy NNLS path via ``ensemble_cls.from_nnls_stack`` instead -- routed here for a single uniform entry point.)
+    ``stacker`` selects the meta-learner: ``"ridge"`` (optionally ``non_negative``), ``"lasso"`` (sparse, auto-zeroes
+    weak/redundant components), or ``"gbm"``. (Pass ``stacker="nnls"`` to use the legacy NNLS path via
+    ``ensemble_cls.from_nnls_stack`` instead -- routed here for a single uniform entry point.)
 
     The returned ensemble carries a fitted ``_meta_model`` + ``_meta_stack_kind``; :meth:`predict` routes the per-component
     prediction matrix through that meta-model. On any meta-fit failure (degenerate / too-few-rows / solver error) this falls
@@ -209,6 +257,14 @@ def build_meta_stack_ensemble(
                 non_negative=non_negative,
                 ridge_alpha=ridge_alpha,
                 ridge_alpha_grid=ridge_alpha_grid,
+                sample_weight=sample_weight,
+            )
+        elif kind == "lasso":
+            meta = fit_lasso_meta_stacker(
+                oof_matrix, oof_y, n,
+                non_negative=non_negative,
+                lasso_alpha=lasso_alpha,
+                lasso_alpha_grid=lasso_alpha_grid,
                 sample_weight=sample_weight,
             )
         else:  # gbm
@@ -240,6 +296,11 @@ def build_meta_stack_ensemble(
         notes["ridge_coef"] = np.asarray(getattr(meta, "coef_", []), dtype=np.float64).tolist()
         notes["ridge_intercept"] = float(getattr(meta, "intercept_", 0.0))
         notes["ridge_alpha"] = float(getattr(meta, "alpha", 0.0))
+    elif kind == "lasso":
+        notes["lasso_coef"] = np.asarray(getattr(meta, "coef_", []), dtype=np.float64).tolist()
+        notes["lasso_intercept"] = float(getattr(meta, "intercept_", 0.0))
+        notes["lasso_alpha"] = float(getattr(meta, "alpha", 0.0))
+        notes["lasso_n_zeroed"] = int(np.sum(np.asarray(getattr(meta, "coef_", []), dtype=np.float64) == 0.0))
     instance = ensemble_cls(
         component_models=component_models,
         component_names=component_names,
