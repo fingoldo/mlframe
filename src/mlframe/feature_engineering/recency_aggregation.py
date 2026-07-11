@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 __all__ = ["per_group_recency_weighted_mean", "per_group_recency_weighted_agg"]
 
-AGGS = ("mean", "sum", "min", "max")
+AGGS = ("mean", "sum", "min", "max", "std", "var")
 
 
 @njit(fastmath=False, cache=True)
@@ -159,11 +159,15 @@ def per_group_recency_weighted_mean(
 def _group_recency_weighted_agg_sorted(
     v_sorted: np.ndarray, starts: np.ndarray, ends: np.ndarray, scheme_code: int, param: float, agg_code: int
 ) -> np.ndarray:
-    """Per-group aggregation (mean/sum/min/max) of ``weight * value`` over group-contiguous, oldest-first values.
+    """Per-group aggregation (mean/sum/min/max/std/var) of ``weight * value`` over group-contiguous, oldest-first values.
 
-    ``agg_code``: 0=mean (weighted, matches ``_group_recency_weighted_mean_sorted``), 1=sum, 2=min, 3=max.
-    min/max aggregate the WEIGHTED value itself (weight in (0, 1] at the identity normalization shrinks older
-    observations toward 0), so unlike mean this genuinely changes what min/max select, not just how they're scaled.
+    ``agg_code``: 0=mean (weighted, matches ``_group_recency_weighted_mean_sorted``), 1=sum, 2=min, 3=max,
+    4=std, 5=var. min/max aggregate the WEIGHTED value itself (weight in (0, 1] at the identity normalization
+    shrinks older observations toward 0), so unlike mean this genuinely changes what min/max select, not just
+    how they're scaled. std/var compute the recency-weighted (biased, population) variance of the RAW values
+    around the recency-weighted mean -- i.e. dispersion, not dispersion-of-weighted-values -- via a first pass
+    accumulating the weighted mean and a second pass accumulating the weighted sum-of-squared-deviations; both
+    passes recompute weights inline (no per-group weight array), so this stays allocation-free like the others.
     """
     n_groups = starts.shape[0]
     out = np.empty(n_groups, dtype=np.float64)
@@ -174,7 +178,7 @@ def _group_recency_weighted_agg_sorted(
         if m <= 0:
             out[g] = np.nan
             continue
-        if agg_code == 0:
+        if agg_code == 0 or agg_code == 4 or agg_code == 5:
             num = 0.0
             den = 0.0
             for pos in range(m):
@@ -187,7 +191,26 @@ def _group_recency_weighted_agg_sorted(
                     w = 1.0 / (i**param)
                 num += w * v_sorted[s + pos]
                 den += w
-            out[g] = num / den if den > 0.0 else np.nan
+            mean = num / den if den > 0.0 else np.nan
+            if agg_code == 0:
+                out[g] = mean
+                continue
+            if den <= 0.0 or m < 2:
+                out[g] = np.nan
+                continue
+            sq = 0.0
+            for pos in range(m):
+                i = m - pos
+                if scheme_code == 0:
+                    w = ((m - i + 1) / m) ** param
+                elif scheme_code == 1:
+                    w = param**i
+                else:
+                    w = 1.0 / (i**param)
+                dv = v_sorted[s + pos] - mean
+                sq += w * dv * dv
+            var = sq / den
+            out[g] = np.sqrt(var) if agg_code == 4 else var
         else:
             acc = 0.0 if agg_code == 1 else np.nan
             for pos in range(m):
@@ -220,21 +243,26 @@ def per_group_recency_weighted_agg(
     broadcast: bool = True,
     fill_value: float = np.nan,
 ) -> np.ndarray:
-    """Recency-weighted per-entity aggregation of ``values`` (mean/sum/min/max).
+    """Recency-weighted per-entity aggregation of ``values`` (mean/sum/min/max/std/var).
 
     Multiplies each observation by a recency weight (0 at the oldest, 1 at the most recent -- see
     :func:`mlframe.core.recency_weights.recency_weights`) before aggregating, generalizing
-    :func:`per_group_recency_weighted_mean` beyond mean to sum/min/max. For ``agg='mean'`` this is
+    :func:`per_group_recency_weighted_mean` beyond mean to sum/min/max/std/var. For ``agg='mean'`` this is
     identical to :func:`per_group_recency_weighted_mean` (same weighted-mean formula). For sum/min/max
     there is no equivalent existing primitive: weighting-then-min/max genuinely changes which observation
     is selected (recent extremes are preferred over older, larger-magnitude ones), unlike weighting-then-mean.
+    For ``std``/``var`` the RAW values are aggregated (not pre-multiplied by weight like sum/min/max): weights
+    instead control how much each observation contributes to the dispersion estimate, so recent observations
+    dominate the variance the same way they dominate the mean -- this surfaces a recent change in volatility
+    regime that a plain unweighted std/var (which spreads its attention evenly across the whole history) misses.
 
     Parameters
     ----------
     values, group_ids, order, scheme, param, broadcast, fill_value
         See :func:`per_group_recency_weighted_mean`.
-    agg : {'mean', 'sum', 'min', 'max'}
-        Aggregation applied to the weighted values.
+    agg : {'mean', 'sum', 'min', 'max', 'std', 'var'}
+        Aggregation applied to the weighted values (std/var use raw values weighted around the recency-weighted
+        mean; groups with fewer than 2 observations yield NaN, matching pandas' ddof=0-adjacent "undefined" convention).
 
     Returns
     -------

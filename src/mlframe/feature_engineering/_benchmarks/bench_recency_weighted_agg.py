@@ -25,7 +25,7 @@ def _make_panel(n_entities: int, hist: int, seed: int = 0):
 def _run(n_entities: int, hist: int, n_calls: int) -> None:
     values, group_ids, order = _make_panel(n_entities, hist)
     for _ in range(n_calls):
-        for agg in ("mean", "sum", "min", "max"):
+        for agg in ("mean", "sum", "min", "max", "std", "var"):
             per_group_recency_weighted_agg(values, group_ids, agg=agg, order=order, scheme="poly", param=1.0)
 
 
