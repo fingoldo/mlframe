@@ -24,6 +24,7 @@ from mlframe.feature_selection.filters.engineered_recipes._recipe_unary_binary i
 from mlframe.feature_selection.filters.engineered_recipes._recipe_unary_binary_gpu import (
     apply_unary_binary_gpu,
     _gpu_binary,
+    _gpu_unary,
 )
 
 
@@ -121,6 +122,30 @@ def test_log_smart_shift_matches_numpy(monkeypatch):
     cpu = np.asarray(_apply_unary_binary(rec, X), dtype=np.float64)
     gpu = np.asarray(apply_unary_binary_gpu(rec, X), dtype=np.float64)
     np.testing.assert_allclose(gpu, cpu, rtol=1e-6, atol=1e-6)
+
+
+@pytest.mark.parametrize(
+    "u,x",
+    [
+        ("reciproc", [0.0, 2.0, -2.0]),
+        ("invsquared", [0.0, 2.0, -2.0]),
+        ("invqubed", [0.0, 2.0, -2.0]),
+        # invcbrt / invsqrt: positive-only reference values -- a negative base with a fractional
+        # exponent is an unrelated, pre-existing nan domain restriction (matches np.power itself),
+        # out of scope for this eps-floor-at-zero fix (same carve-out as the numpy-side test).
+        ("invcbrt", [0.0, 2.0, 4.0]),
+        ("invsqrt", [0.0, 2.0, 4.0]),
+    ],
+)
+def test_gpu_unary_reciprocal_power_zero_is_finite(u, x):
+    """GPU eps-floor pin: a genuine zero operand must not produce +-inf on the GPU-resident replay path,
+    mirroring the numpy registry's ``_safe_pow`` fix. Also what keeps ``test_each_unary_gpu_matches_numpy``
+    green for these names now that the numpy side floors to a finite value at x=0 -- before this fix the
+    GPU twin still produced +-inf at x=0 while the CPU side returned a finite eps-floored value, so the two
+    would have diverged well outside the parity test's ``rtol=1e-6, atol=1e-6`` tolerance."""
+    x_gpu = cp.asarray(x, dtype=cp.float64)
+    out = cp.asnumpy(_gpu_unary(cp, u, x_gpu, None, "a"))
+    assert np.all(np.isfinite(out)), f"{u} at x=0 must be finite on GPU, got {out}"
 
 
 def test_wrong_operator_mapping_would_fail():

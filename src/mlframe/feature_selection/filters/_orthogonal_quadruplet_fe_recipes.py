@@ -65,7 +65,12 @@ def _apply_orth_quadruplet_cross(recipe: "EngineeredRecipe", X: Any) -> np.ndarr
     h_b = _eval_orth_basis_column(vals_j, basis_j, deg_b, preprocess_params=pp_j)
     h_c = _eval_orth_basis_column(vals_k, basis_k, deg_c, preprocess_params=pp_k)
     h_d = _eval_orth_basis_column(vals_l, basis_l, deg_d, preprocess_params=pp_l)
-    return np.asarray(h_a * h_b * h_c * h_d)
+    # Match fit-time NaN/Inf scrubbing in ``generate_quadruplet_cross_basis_features`` (the twin
+    # fit-time generator): a 4-way high-degree basis product overflows even more readily than the
+    # pair-cross 2-way product, and this replay path had no downstream scrub at all.
+    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+        out = h_a * h_b * h_c * h_d
+    return np.asarray(np.nan_to_num(out, copy=False, nan=0.0, posinf=0.0, neginf=0.0))
 
 
 def build_orth_quadruplet_cross_recipe(

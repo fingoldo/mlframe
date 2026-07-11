@@ -160,40 +160,44 @@ def generate_triplet_cross_basis_features(
                 basis_i, basis_j, basis_k, col_i, col_j, col_k,
             )
             continue
-        for deg_a in range(min_d, max_d + 1):
-            for deg_b in range(min_d, max_d + 1):
-                for deg_c in range(min_d, max_d + 1):
-                    if deg_a == 0 and deg_b == 0 and deg_c == 0:
-                        continue
-                    try:
-                        key_a = (col_i, deg_a, basis_i)
-                        if key_a not in cache:
-                            cache[key_a] = _evaluate_basis_column(x_i, basis_i, deg_a)
-                        h_a = cache[key_a]
-                        key_b = (col_j, deg_b, basis_j)
-                        if key_b not in cache:
-                            cache[key_b] = _evaluate_basis_column(x_j, basis_j, deg_b)
-                        h_b = cache[key_b]
-                        key_c = (col_k, deg_c, basis_k)
-                        if key_c not in cache:
-                            cache[key_c] = _evaluate_basis_column(x_k, basis_k, deg_c)
-                        h_c = cache[key_c]
-                        # Use leg-1 basis code for the name; per-leg basis
-                        # round-trips via the recipe (Layer 22 same trick).
-                        name = _triplet_eng_col_name(
-                            col_i, col_j, col_k, basis_i,
-                            deg_a, deg_b, deg_c,
-                        )
-                        out_cols[name] = h_a * h_b * h_c
-                    except Exception as exc:
-                        logger.warning(
-                            "generate_triplet_cross_basis_features: basis=%r/%r/%r "
-                            "deg=%d/%d/%d on triplet (%r,%r,%r) raised %r; skipping",
-                            basis_i, basis_j, basis_k,
-                            deg_a, deg_b, deg_c,
-                            col_i, col_j, col_k, exc,
-                        )
-                        continue
+        # A 3-way basis product is strictly more overflow-prone than the pair-cross 2-way product;
+        # suppress the resulting numpy RuntimeWarnings and scrub the product below rather than leaving
+        # a non-finite value to surface as a silent NaN downstream (mirrors generate_pair_cross_basis_features).
+        with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+            for deg_a in range(min_d, max_d + 1):
+                for deg_b in range(min_d, max_d + 1):
+                    for deg_c in range(min_d, max_d + 1):
+                        if deg_a == 0 and deg_b == 0 and deg_c == 0:
+                            continue
+                        try:
+                            key_a = (col_i, deg_a, basis_i)
+                            if key_a not in cache:
+                                cache[key_a] = _evaluate_basis_column(x_i, basis_i, deg_a)
+                            h_a = cache[key_a]
+                            key_b = (col_j, deg_b, basis_j)
+                            if key_b not in cache:
+                                cache[key_b] = _evaluate_basis_column(x_j, basis_j, deg_b)
+                            h_b = cache[key_b]
+                            key_c = (col_k, deg_c, basis_k)
+                            if key_c not in cache:
+                                cache[key_c] = _evaluate_basis_column(x_k, basis_k, deg_c)
+                            h_c = cache[key_c]
+                            # Use leg-1 basis code for the name; per-leg basis
+                            # round-trips via the recipe (Layer 22 same trick).
+                            name = _triplet_eng_col_name(
+                                col_i, col_j, col_k, basis_i,
+                                deg_a, deg_b, deg_c,
+                            )
+                            out_cols[name] = np.nan_to_num(h_a * h_b * h_c, nan=0.0, posinf=0.0, neginf=0.0)
+                        except Exception as exc:
+                            logger.warning(
+                                "generate_triplet_cross_basis_features: basis=%r/%r/%r "
+                                "deg=%d/%d/%d on triplet (%r,%r,%r) raised %r; skipping",
+                                basis_i, basis_j, basis_k,
+                                deg_a, deg_b, deg_c,
+                                col_i, col_j, col_k, exc,
+                            )
+                            continue
     return pd.DataFrame(out_cols, index=X.index)
 
 

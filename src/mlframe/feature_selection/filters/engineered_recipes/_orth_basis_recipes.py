@@ -191,7 +191,12 @@ def _apply_orth_pair_cross(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     vals_j = _extract_column(X, name_j)
     h_a = _eval_orth_basis_column(vals_i, basis_i, deg_a, preprocess_params=pp_i)
     h_b = _eval_orth_basis_column(vals_j, basis_j, deg_b, preprocess_params=pp_j)
-    return np.asarray(h_a * h_b)
+    # Match fit-time NaN/Inf scrubbing in ``generate_pair_cross_basis_features`` (the twin fit-time
+    # generator): a high-degree basis product can overflow, and unlike ``_apply_unary_binary`` this
+    # replay path had no downstream scrub at all.
+    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+        out = h_a * h_b
+    return np.asarray(np.nan_to_num(out, copy=False, nan=0.0, posinf=0.0, neginf=0.0))
 
 
 def _freeze_preprocess_params(params: Optional[dict]) -> Optional[dict]:
@@ -499,27 +504,33 @@ def _apply_orth_fourier(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     if not finite.all():
         fill = float(np.nanmean(vals[finite])) if finite.any() else 0.0
         vals = np.where(finite, vals, fill)
-    if arg == "quadratic":
-        # ADAPTIVE-CHIRP axis: z = (u - lo) / span where u = sign(zs)*zs**2,
-        # zs = (x - mean) / std. mean/std/lo/span are the train-fit warp params,
-        # so this reproduces the fit-time axis byte-for-byte from X alone (no y).
-        mean = recipe.extra.get("mean")
-        std = recipe.extra.get("std")
-        if mean is None or std is None:
-            raise KeyError(f"orth_fourier recipe '{recipe.name}' arg='quadratic' missing " f"'mean'/'std'. Re-fit MRMR to regenerate.")
-        zs = (vals - float(mean)) / max(float(std), 1e-12)
-        u = np.sign(zs) * (zs * zs)
-        z = (u - lo) / span
-    else:
-        if power != 1:
-            vals = np.power(vals, power)
-        z = (vals - lo) / span
-    ang = 2.0 * np.pi * freq * z
-    if kind == "sin":
-        return np.sin(ang)
-    if kind == "cos":
-        return np.cos(ang)
-    raise ValueError(f"orth_fourier recipe '{recipe.name}': unknown kind {kind!r}")
+    # A replay row's magnitude can exceed anything the fit-time optimiser screened (fit-time only rejects
+    # a whole column when the FIT sample overflows); ``power`` != 1 or an extreme z-score can overflow to
+    # +-inf, which sin/cos then map to NaN with zero downstream scrub, unlike the sibling recipe kinds.
+    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+        if arg == "quadratic":
+            # ADAPTIVE-CHIRP axis: z = (u - lo) / span where u = sign(zs)*zs**2,
+            # zs = (x - mean) / std. mean/std/lo/span are the train-fit warp params,
+            # so this reproduces the fit-time axis byte-for-byte from X alone (no y).
+            mean = recipe.extra.get("mean")
+            std = recipe.extra.get("std")
+            if mean is None or std is None:
+                raise KeyError(f"orth_fourier recipe '{recipe.name}' arg='quadratic' missing " f"'mean'/'std'. Re-fit MRMR to regenerate.")
+            zs = (vals - float(mean)) / max(float(std), 1e-12)
+            u = np.sign(zs) * (zs * zs)
+            z = (u - lo) / span
+        else:
+            if power != 1:
+                vals = np.power(vals, power)
+            z = (vals - lo) / span
+        ang = 2.0 * np.pi * freq * z
+        if kind == "sin":
+            out = np.sin(ang)
+        elif kind == "cos":
+            out = np.cos(ang)
+        else:
+            raise ValueError(f"orth_fourier recipe '{recipe.name}': unknown kind {kind!r}")
+    return np.asarray(np.nan_to_num(out, copy=False, nan=0.0, posinf=0.0, neginf=0.0))
 
 
 def build_orth_spline_recipe(

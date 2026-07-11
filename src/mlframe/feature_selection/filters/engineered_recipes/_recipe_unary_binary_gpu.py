@@ -88,20 +88,22 @@ def _gpu_unary(cp, name: str, x, recipe: EngineeredRecipe, side: str):
         return cp.power(x, 2)
     if name == "qubed":
         return cp.power(x, 3)
-    if name == "reciproc":
-        return cp.power(x, -1)
-    if name == "invsquared":
-        return cp.power(x, -2)
-    if name == "invqubed":
-        return cp.power(x, -3)
+    if name in ("reciproc", "invsquared", "invqubed", "invcbrt", "invsqrt"):
+        # Mirrors the numpy registry's ``_safe_pow`` EXACTLY, including its fixed-ceiling (not fixed-eps)
+        # substitution: a fixed eps=1e-9 floor would give eps**-1=1e9 for reciproc but eps**-2=1e18 /
+        # eps**-3=1e27 for invsquared/invqubed, well outside the codebase's normal ~1e9 zero-substitution
+        # scale and able to dominate a downstream model by many orders of magnitude (see _safe_pow's
+        # docstring for the traced regression). The substituted x==0 output is the SAME 1e9 ceiling
+        # regardless of exponent; every nonzero x is untouched.
+        is_zero = x == 0.0
+        safe_x = cp.where(is_zero, cp.asarray(1.0, dtype=x.dtype), x)
+        _exponent = {"reciproc": -1, "invsquared": -2, "invqubed": -3, "invcbrt": -1.0 / 3.0, "invsqrt": -1.0 / 2.0}[name]
+        result = cp.power(safe_x, _exponent)
+        return cp.where(is_zero, cp.asarray(1e9, dtype=x.dtype), result)
     if name == "cbrt":
         return cp.cbrt(x)
     if name == "sqrt":
         return cp.sqrt(cp.abs(x))
-    if name == "invcbrt":
-        return cp.power(x, -1.0 / 3.0)
-    if name == "invsqrt":
-        return cp.power(x, -1.0 / 2.0)
     if name == "exp":
         return cp.exp(x)
     if name == "sin":

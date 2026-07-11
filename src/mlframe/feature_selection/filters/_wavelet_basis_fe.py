@@ -557,6 +557,7 @@ def generate_wavelet_features(
     dedup_collinear_sources: bool = True,
     dedup_corr_threshold: float = 0.999,
     feature_dtype: npt.DTypeLike = np.float32,
+    max_cols: Optional[int] = None,
 ) -> tuple[pd.DataFrame, dict]:
     """For each numeric column, held-out-select a small dyadic Haar leg set and
     emit the legs, returning the columns alongside the per-column fit meta needed
@@ -576,6 +577,15 @@ def generate_wavelet_features(
         Finest dyadic scale j (default 3 -> scales 0..3, <= 15 candidate legs).
     max_legs : int
         Hard cap on emitted legs per column after selection (candidate control).
+    max_cols : int, optional
+        2026-07-09 fix: cap on how many columns run the EXPENSIVE held-out scale-selection
+        (``_select_wavelet_legs``, which internally calls ``_binned_mi`` per candidate leg).
+        Profiled as the second-largest default-ON pre-FE cost on a wide-p fit (~26% of the
+        pre-categorize wall at p=420), scaling with column count regardless of row count.
+        ``None`` (default) = unlimited, byte-identical legacy behaviour. Unlike the Fourier
+        extra-basis cap, columns beyond this cap get NO wavelet legs at all (there is no cheap
+        fallback basis for wavelets the way Fourier has a fixed grid) -- set only when the wide
+        wall-time cost is a bigger concern than wavelet recall on the excluded columns.
 
     Returns
     -------
@@ -600,7 +610,9 @@ def generate_wavelet_features(
         return pd.DataFrame(index=X.index), {}
     out_cols: dict = {}
     meta: dict = {}
-    for col in cols:
+    for _col_idx, col in enumerate(cols):
+        if max_cols is not None and _col_idx >= int(max_cols):
+            break
         if col not in X.columns or not pd.api.types.is_numeric_dtype(X[col]):
             continue
         x = np.asarray(X[col].to_numpy(), dtype=np.float64)
@@ -701,6 +713,7 @@ def hybrid_wavelet_fe_with_recipes(
     smooth_complement_ratio: float = _WAVELET_SMOOTH_COMPLEMENT_RATIO,
     nbins: int = 10,
     feature_dtype: npt.DTypeLike = np.float32,
+    max_cols: Optional[int] = None,
     **_legacy_ignored: object,
 ) -> tuple[pd.DataFrame, list, list, pd.DataFrame]:
     """Haar wavelet basis FE + held-out-incremental-MI selection, returning
@@ -742,7 +755,7 @@ def hybrid_wavelet_fe_with_recipes(
     engineered, meta = generate_wavelet_features(
         X, cols=cols, y=y,
         max_scale=max_scale, max_legs=max_legs, scale_sigma=scale_sigma,
-        feature_dtype=feature_dtype,
+        feature_dtype=feature_dtype, max_cols=max_cols,
     )
     _empty_cols = [
         "engineered_col", "source_col", "incr_mi", "smooth_gain", "passed",

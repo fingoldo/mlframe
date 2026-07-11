@@ -57,7 +57,12 @@ def _apply_orth_triplet_cross(recipe: "EngineeredRecipe", X: Any) -> np.ndarray:
     h_a = _eval_orth_basis_column(vals_i, basis_i, deg_a, preprocess_params=pp_i)
     h_b = _eval_orth_basis_column(vals_j, basis_j, deg_b, preprocess_params=pp_j)
     h_c = _eval_orth_basis_column(vals_k, basis_k, deg_c, preprocess_params=pp_k)
-    return np.asarray(h_a * h_b * h_c)
+    # Match fit-time NaN/Inf scrubbing in ``generate_triplet_cross_basis_features`` (the twin fit-time
+    # generator): a 3-way high-degree basis product overflows more readily than the pair-cross 2-way
+    # product, and this replay path had no downstream scrub at all.
+    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+        out = h_a * h_b * h_c
+    return np.asarray(np.nan_to_num(out, copy=False, nan=0.0, posinf=0.0, neginf=0.0))
 
 
 def build_orth_triplet_cross_recipe(

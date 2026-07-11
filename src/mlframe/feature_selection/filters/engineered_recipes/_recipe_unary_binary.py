@@ -142,8 +142,7 @@ def _apply_unary_binary(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
             _skey = f"log_shift_{side}"
             if uname == "log" and _skey in recipe.extra:
                 _shift = float(recipe.extra[_skey])
-                with np.errstate(divide="ignore", invalid="ignore"):
-                    return np.log(np.asarray(vals, dtype=np.float64) + _shift) if _shift != 0.0 else np.log(np.asarray(vals, dtype=np.float64))
+                return np.log(np.asarray(vals, dtype=np.float64) + _shift) if _shift != 0.0 else np.log(np.asarray(vals, dtype=np.float64))
             return unary_funcs[uname](vals)
         # Reconstruct the pre-warp spec from the flat ``extra`` fields and replay
         # it closed-form (no y) so the warped operand is bit-identical to fit.
@@ -164,9 +163,14 @@ def _apply_unary_binary(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
         }
         return apply_operand_prewarp(vals, _spec)
 
-    transformed_a = _apply_side("a", u_a, vals_a)
-    transformed_b = _apply_side("b", u_b, vals_b)
-    out = binary_funcs[recipe.binary_name](transformed_a, transformed_b)
+    # Any unary/binary in the registry can overflow or hit an invalid op on an extreme replay input
+    # (e.g. an unguarded power, or a reciprocal-power's pre-eps-floor era); suppress the resulting numpy
+    # RuntimeWarnings for the whole operator chain (previously only the frozen-log-shift branch was
+    # wrapped) since the nan_to_num scrub right below already sanitises the final output regardless.
+    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+        transformed_a = _apply_side("a", u_a, vals_a)
+        transformed_b = _apply_side("b", u_b, vals_b)
+        out = binary_funcs[recipe.binary_name](transformed_a, transformed_b)
 
     # Match fit-time NaN/Inf scrubbing in ``feature_engineering.check_prospective_fe_pairs``.
     out = np.nan_to_num(out, copy=False, nan=0.0, posinf=0.0, neginf=0.0)

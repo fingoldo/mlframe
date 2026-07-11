@@ -254,7 +254,12 @@ class TestPluginMIPerHostRegionOverridesFallback:
         assert _ktc_dispatch._fallback_mi_backend(n, k) == "njit"
 
         class _FakeCache:
-            def get_or_tune(self, name, *, dims, tuner, axes, fallback, **kw):
+            # The default (run_auto_tune=False) dispatch path is a PURE cache.lookup() (plus a
+            # code_version_stale() pre-check), not get_or_tune -- mirror both here.
+            def code_version_stale(self, name, code_version):
+                return False
+
+            def lookup(self, name, **dims):
                 # Emulate a persisted per-host region whose contention-aware
                 # measurement found cuda faster at batch n<=20k on this host.
                 if dims["n_samples"] <= 20_000:

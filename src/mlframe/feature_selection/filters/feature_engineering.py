@@ -15,6 +15,7 @@ from typing import Sequence
 
 import numpy as np
 import pandas as pd
+from numba import njit
 from numpy.polynomial.hermite import hermval
 from scipy import special as sp
 
@@ -176,13 +177,49 @@ def _fe_min_free_ram_bytes() -> int:
     return int(gb * 2**30)
 
 
+# ABSOLUTE BUFFER CEILING (2026-07-09). The RELATIVE budget above (``0.3*(available-reserve)/(3.0*nw)``)
+# re-measures ``available`` via the 0.25s-TTL psutil cache on every call, so on a large-RAM host (or one
+# where a sibling process transiently frees memory) the computed budget -- and the chunk width the caller
+# derives from it -- can re-inflate to tens of GB between calls within the SAME fit, then shrink again once
+# RAM pressure returns: a RAM sawtooth, not a bug in any single call's math. An absolute cap bounds a
+# SINGLE hoisted FE buffer regardless of how much RAM is momentarily free. 8 GiB is chosen as a defensible
+# ceiling: it already exceeds every measured peak buffer in this file's own history (the 4.2 GiB tracemalloc
+# snapshot cited above, the 17.6 GiB pre-fix crash this dispatcher exists to prevent), so it never binds on
+# a host that needed the relative sizing anyway, while still capping the pathological large-RAM case. The
+# recompute fallback (bit-identical survivors, see the block comment above) absorbs any decline this causes.
+_FE_BUFFER_ABSOLUTE_MAX_GB: float = 8.0
+
+
+def _fe_buffer_absolute_max_bytes() -> int:
+    """Absolute ceiling (bytes) on a single hoisted FE buffer, independent of how much RAM is free.
+
+    Resolution order: env ``MLFRAME_FE_BUFFER_MAX_GB`` (if set + parseable and > 0) overrides the module
+    constant ``_FE_BUFFER_ABSOLUTE_MAX_GB`` (default 8 GiB), mirroring ``_fe_min_free_ram_bytes`` /
+    ``_fe_hoist_headroom_overhead``'s env+constant resolution pattern. Read live each call so tests /
+    callers can monkeypatch the constant or env."""
+    import os
+
+    gb = _FE_BUFFER_ABSOLUTE_MAX_GB
+    env = os.environ.get("MLFRAME_FE_BUFFER_MAX_GB")
+    if env is not None:
+        try:
+            _e = float(env)
+            if _e > 0.0:
+                gb = _e
+        except (TypeError, ValueError):
+            pass
+    return int(gb * 2**30)
+
+
 def _fe_effective_buffer_budget_bytes(available_bytes: int, n_workers: int = 1) -> int:
     """Per-call byte budget for the FE candidate buffer that keeps the SUM of the
     coexisting buffers (chunk float32 + disc codes + batch-MI working set + the
     held-alive single-pair buffer) AND the concurrent-worker multiplication inside
     ``_FE_BUFFER_RAM_BUDGET_RATIO * available`` (see the block comment above), AND keeps
     an ABSOLUTE ``_fe_min_free_ram_bytes()`` of host RAM free (the 2026-06-13 floor: the
-    relative 0.4 ratio alone left no guaranteed headroom on small-RAM hosts).
+    relative 0.4 ratio alone left no guaranteed headroom on small-RAM hosts), AND is capped at
+    ``_fe_buffer_absolute_max_bytes()`` regardless of how much RAM is free (the 2026-07-09 anti-sawtooth
+    ceiling -- see the block comment above).
 
     ``available_bytes < 0`` (no psutil) preserves the legacy permissive behaviour by
     returning ``-1`` (callers treat that as "no cap"). ``n_workers`` is the number of
@@ -191,7 +228,8 @@ def _fe_effective_buffer_budget_bytes(available_bytes: int, n_workers: int = 1) 
 
     The reserve is HOST-GLOBAL: subtracted from ``available`` ONCE before the per-worker
     divide (``usable = max(0, available - reserve)``), so concurrency cannot multiply the
-    reserve away. With reserve == 0 this is byte-identical to the legacy formula."""
+    reserve away. With reserve == 0 and the absolute ceiling disabled this is byte-identical to the
+    legacy formula."""
     if available_bytes < 0:
         return -1
     nw = max(1, int(n_workers))
@@ -199,7 +237,8 @@ def _fe_effective_buffer_budget_bytes(available_bytes: int, n_workers: int = 1) 
     if usable < 0:
         usable = 0
     raw = float(usable) * _FE_BUFFER_RAM_BUDGET_RATIO
-    return int(raw / (_FE_PEAK_OVERHEAD_FACTOR * nw))
+    budget = int(raw / (_FE_PEAK_OVERHEAD_FACTOR * nw))
+    return min(budget, _fe_buffer_absolute_max_bytes())
 
 
 # UNIFIED FE/screen subsample (2026-06-25). ONE knob for the whole FE block -- the relevance SCREEN, the FE
@@ -298,10 +337,15 @@ def _rebuild_full_survivor_col(
             return hermval(vals, c=unary_transformations[name])
         return unary_transformations[name](vals)
 
-    param_a = _apply_unary(unary_a_name, var_a_idx, vals_a)
-    param_b = _apply_unary(unary_b_name, var_b_idx, vals_b)
-    col = binary_transformations[bin_func_name](param_a, param_b)
-    np.nan_to_num(col, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+    # Unguarded reciprocal/power unaries or an extreme binary combination can still overflow / hit
+    # invalid ops (e.g. mul against a near-zero-floored reciproc); suppress the resulting numpy
+    # RuntimeWarnings (matching every sibling FE-materialise site, e.g. _pairs_score.py:636) since the
+    # nan_to_num scrub right below already sanitises the output regardless.
+    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+        param_a = _apply_unary(unary_a_name, var_a_idx, vals_a)
+        param_b = _apply_unary(unary_b_name, var_b_idx, vals_b)
+        col = binary_transformations[bin_func_name](param_a, param_b)
+    col = np.nan_to_num(col, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
     return np.asarray(col.astype(np.float32, copy=False))
 
 
@@ -378,12 +422,26 @@ def _can_hoist_shared_buffer(
     available = _available_ram_bytes_cached()
     if available < 0:
         # No psutil: preserve legacy behaviour (always hoist, OOM is the signal).
+        logger.debug("_can_hoist_shared_buffer: no psutil -- legacy permissive hoist, buffer_bytes=%d", buffer_bytes)
         return True, buffer_bytes, -1
+    _ceiling = _fe_buffer_absolute_max_bytes()
+    if buffer_bytes > _ceiling:
+        # ABSOLUTE CEILING (2026-07-09): refuse regardless of how much RAM is free -- the anti-sawtooth
+        # cap (see ``_fe_buffer_absolute_max_bytes`` docstring). Applies to BOTH acceptance paths below.
+        logger.debug(
+            "_can_hoist_shared_buffer: buffer_bytes=%d exceeds absolute ceiling=%d (available=%d) -- declining, recompute fallback.",
+            buffer_bytes, _ceiling, available,
+        )
+        return False, buffer_bytes, available
     if overhead_aware:
         budget = _fe_effective_buffer_budget_bytes(available, n_workers=n_workers)
     else:
         budget = int(available * budget_ratio)
     if buffer_bytes < budget:
+        logger.debug(
+            "_can_hoist_shared_buffer: buffer_bytes=%d < budget=%d (available=%d) -- hoisting.",
+            buffer_bytes, budget, available,
+        )
         return True, buffer_bytes, available
     # ABSOLUTE-HEADROOM ACCEPTANCE (2026-06-24): the conservative relative budget over-declines a
     # buffer that is small relative to available RAM (the F2 100k 222 MiB-at-5.7 GiB case). Accept
@@ -406,7 +464,16 @@ def _can_hoist_shared_buffer(
         nw = max(1, int(n_workers))
         peak_footprint = int(buffer_bytes) * _fe_hoist_headroom_overhead() * nw
         if available - peak_footprint >= reserve:
+            logger.debug(
+                "_can_hoist_shared_buffer: buffer_bytes=%d over budget=%d but absolute-headroom accepted "
+                "(available=%d, peak_footprint=%d, reserve=%d) -- hoisting.",
+                buffer_bytes, budget, available, peak_footprint, reserve,
+            )
             return True, buffer_bytes, available
+    logger.debug(
+        "_can_hoist_shared_buffer: buffer_bytes=%d over budget=%d, no headroom -- declining, recompute fallback (available=%d).",
+        buffer_bytes, budget, available,
+    )
     return False, buffer_bytes, available
 
 
@@ -707,6 +774,33 @@ def _resolve_preset(preset: str | None) -> str:
     raise ValueError(f"unknown FE preset {preset!r}; expected one of " f"{_KNOWN_UNARY_PRESETS} (or aliases 'rich'/'full' -> 'maximal')")
 
 
+@njit
+def _safe_pow(x, exponent):
+    """Element-wise ``x**exponent`` for the reciprocal/negative-power unary transforms (``reciproc``,
+    ``invsquared``, ``invqubed``, ``invcbrt``, ``invsqrt``) that is EXACT for every nonzero ``x`` and finite
+    (never +-inf) when ``x`` is exactly zero. A genuine ``x=0`` previously produced ``x**-1 = +-inf``, which
+    then propagated through a downstream binary op as ``0*inf=nan`` once multiplied with another operand's
+    zero -- the RuntimeWarning class a real MRMR fit hit repeatedly.
+
+    Unlike a fixed-eps floor (``x=eps`` then ``eps**exponent``), the substituted x==0 output is set to a
+    FIXED ceiling directly, independent of ``exponent``. A fixed eps=1e-9 floor would give
+    ``eps**-1=1e9`` for ``reciproc`` but ``eps**-2=1e18`` / ``eps**-3=1e27`` for ``invsquared``/``invqubed``
+    -- values so far outside the codebase's normal ~1e9 zero-substitution scale (``_safe_div``'s own
+    ``x/eps``) that a compound engineered feature containing one can dominate an unscaled downstream
+    model's fit by many orders of magnitude, silently destroying its use of every OTHER (informative)
+    engineered column. A real MRMR biz-value regression (holdout AUC 0.86 -> 0.54) was traced to exactly
+    this: an ``invsquared`` operand at a genuine zero floored to 1e18 and got selected into a compound.
+    Decorated ``@njit`` directly (self-contained: only numpy ops) so the registry lambdas that bind a
+    per-transform exponent and are ALSO njit-wrapped by ``njit_functions_dict`` can call this as a
+    dispatcher-to-dispatcher call."""
+    ceiling = 1e9
+    x = np.asarray(x, dtype=np.float64)
+    is_zero = x == 0.0
+    safe_x = np.where(is_zero, 1.0, x)
+    result = np.power(safe_x, exponent)
+    return np.where(is_zero, ceiling, result)
+
+
 def create_unary_transformations(preset: str = "minimal"):
     """Build the ``{name: callable}`` unary-transform registry for the given preset (``minimal``/``medium``/``maximal``, monotone supersets)."""
     # Domain-validity tags for each transform live in the module-level ``UNARY_INPUT_CONSTRAINTS`` dict so callers that need to clip / reject inputs can look them up
@@ -730,7 +824,7 @@ def create_unary_transformations(preset: str = "minimal"):
         "abs": np.abs,
         # powers
         "sqr": lambda x: np.power(x, 2),
-        "reciproc": lambda x: np.power(x, -1),
+        "reciproc": lambda x: _safe_pow(x, -1),
         "sqrt": lambda x: np.sqrt(np.abs(x)),
         # logarithms
         "log": smart_log,
@@ -748,11 +842,11 @@ def create_unary_transformations(preset: str = "minimal"):
                 # clip
                 # powers
                 "qubed": lambda x: np.power(x, 3),
-                "invsquared": lambda x: np.power(x, -2),
-                "invqubed": lambda x: np.power(x, -3),
+                "invsquared": lambda x: _safe_pow(x, -2),
+                "invqubed": lambda x: _safe_pow(x, -3),
                 "cbrt": np.cbrt,
-                "invcbrt": lambda x: np.power(x, -1 / 3),
-                "invsqrt": lambda x: np.power(x, -1 / 2),
+                "invcbrt": lambda x: _safe_pow(x, -1 / 3),
+                "invsqrt": lambda x: _safe_pow(x, -1 / 2),
                 # logarithms
                 "exp": np.exp,
             }

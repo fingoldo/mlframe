@@ -41,6 +41,11 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
+# Hard ceiling for the auto-scaled pairwise_cache_max (see make_dcd_state). Bounds the cache at a
+# realistic p (DCD runs on the post-SIS-screen pool, at most a few thousand columns at extreme p) to a
+# safe, bounded memory footprint regardless of how large p_initial happens to be.
+_DCD_PAIRWISE_CACHE_HARD_CAP = 2_000_000
+
 
 # =============================================================================
 # Thread-local toggle (matches Wave 8 SU/JMIM/BUR pattern at info_theory.py:282)
@@ -379,6 +384,18 @@ def make_dcd_state(
     ):
         if key in dcd_config:
             setattr(state, key, dcd_config[key])
+    # Scale pairwise_cache_max with the column count (2026-07-09 fix). The fixed 50_000 default is
+    # smaller than C(p,2) once p exceeds ~317, so a wide-but-not-huge column pool (e.g. p=423,
+    # C(423,2)=89_253) can thrash the LRU cache (evict-then-recompute the same pairwise SU repeatedly).
+    # This only RAISES the cap -- an explicit user override above the formula's value is never lowered.
+    # A hard ceiling still applies at extreme p (the SIS front-gate bounds p to a few thousand survivors
+    # before DCD ever runs on very-wide-p fits, so C(p,2) here is realistically in the low millions, not
+    # the billions an unbounded p would imply): at ~100-200 bytes/entry in a Python dict, 2M entries is
+    # a bounded ~200-400MB, safe on any real host.
+    if p_initial > 1:
+        _pairwise_cap_formula = min((p_initial * (p_initial - 1)) // 2, _DCD_PAIRWISE_CACHE_HARD_CAP)
+        if int(state.pairwise_cache_max) < _pairwise_cap_formula:
+            state.pairwise_cache_max = _pairwise_cap_formula
     # Layer 47 (2026-05-31): ``tau_cluster='auto'`` calibration. When the
     # caller passes the sentinel string ``'auto'``, run a small SU sweep
     # over random feature pairs on the actual factors_data, detect a valley

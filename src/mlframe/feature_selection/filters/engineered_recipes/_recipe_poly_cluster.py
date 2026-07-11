@@ -68,10 +68,17 @@ def _apply_hermite_pair(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     eval_dispatch: Any = basis_info["eval_dispatch"]
     coef_a = np.ascontiguousarray(recipe.extra["coef_a"], dtype=np.float64)
     coef_b = np.ascontiguousarray(recipe.extra["coef_b"], dtype=np.float64)
-    h_a = eval_dispatch(z_a, coef_a)
-    h_b = eval_dispatch(z_b, coef_b)
-    bin_func: Any = _DEFAULT_BIN_FUNCS[bin_func_name]
-    return np.asarray(bin_func(h_a, h_b), dtype=np.float64).reshape(-1)
+    # Unbounded polynomial-basis tails (Hermite/Chebyshev/Laguerre) can overflow on a replay row the
+    # fit-time optimizer never saw (it only screens candidates for np.isfinite on the FIT sample -- see
+    # hermite_fe's optimiser); ``bin_func`` (mul/add/sub) can then combine an overflowed leg into a
+    # silent NaN with zero downstream scrub, unlike the sibling ``_apply_unary_binary`` replay.
+    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+        h_a = eval_dispatch(z_a, coef_a)
+        h_b = eval_dispatch(z_b, coef_b)
+        bin_func: Any = _DEFAULT_BIN_FUNCS[bin_func_name]
+        out = bin_func(h_a, h_b)
+    out = np.nan_to_num(out, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+    return np.asarray(out, dtype=np.float64).reshape(-1)
 
 
 def build_hermite_pair_recipe(

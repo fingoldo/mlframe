@@ -60,6 +60,7 @@ def generate_extra_basis_features(
     fourier_adaptive_min_val_corr: float = 0.15,
     fourier_chirp: bool = False,
     fourier_chirp_min_val_corr: float = 0.15,
+    max_adaptive_cols: Optional[int] = None,
 ) -> tuple[pd.DataFrame, dict]:
     """For each column in cols and each requested extra basis, emit the basis
     columns and return them alongside the per-column fit metadata (knot
@@ -116,6 +117,17 @@ def generate_extra_basis_features(
         R^2 on fast chirps). N-gated at >= 800 MI rows like the linear path.
     fourier_chirp_min_val_corr : float, default 0.15
         Held-out validation effective-|corr| floor for the chirp detector.
+    max_adaptive_cols : int, optional
+        2026-07-09 fix: cap on how many columns run the EXPENSIVE adaptive-frequency /
+        chirp DETECTION (``_detect_fourier_freqs_for_col``) -- profiled as the dominant
+        cost of this whole family (~34% of a wide-p fit's pre-categorize wall, roughly
+        linear in column count since each call does its own held-out frequency sweep
+        regardless of row count). ``None`` (default) = unlimited, byte-identical legacy
+        behaviour. When set and ``len(cols) > max_adaptive_cols``, only the first
+        ``max_adaptive_cols`` columns (in ``cols`` order) get adaptive/chirp detection;
+        the remaining columns still get the cheap FIXED-GRID Fourier basis (unaffected
+        by this cap) -- only the expensive per-column detector is bounded, not basis
+        emission itself.
 
     Returns
     -------
@@ -179,7 +191,7 @@ def generate_extra_basis_features(
     # peaks up to ~12 and the multitone deflation needs headroom above them.
     _chirp_f_grid = tuple(0.5 * k for k in range(1, 49))  # 0.5 .. 24.0
     from .._fe_deadline import fe_deadline_passed
-    for col in cols:
+    for _col_idx, col in enumerate(cols):
         # Optional-enrichment wall-clock budget: stop the per-column extra-basis scan (spline / fourier / adaptive /
         # chirp + their pair-MI scoring) once MRMR.fit's deadline passes; return the partial output. No-op without a budget.
         if fe_deadline_passed():
@@ -206,6 +218,11 @@ def generate_extra_basis_features(
         _adaptive_fe_ok = True
         if _y_adapt is not None and (fourier_adaptive or fourier_chirp):
             _adaptive_fe_ok = _heldout_smooth_r2(x, _y_adapt) < _ADAPTIVE_FE_RAW_USABILITY_CAP
+            # Column-count cap on the expensive detector itself (2026-07-09 fix, see max_adaptive_cols
+            # docstring) -- columns beyond the cap still get the cheap fixed-grid Fourier basis below,
+            # only the held-out frequency-sweep detection is skipped for them.
+            if max_adaptive_cols is not None and _col_idx >= int(max_adaptive_cols):
+                _adaptive_fe_ok = False
         if "spline" in extra_bases:
             try:
                 knots, lo, hi, n_basis = _fit_spline_for_col(x, spline_knots)
@@ -462,6 +479,7 @@ def hybrid_orth_extra_basis_fe_with_recipes(
     fourier_chirp_min_val_corr: float = 0.15,
     subsample_n: int = 0,
     subsample_seed: int = 42,
+    max_adaptive_cols: Optional[int] = None,
 ):
     """Layer 32 hybrid: spline + Fourier univariate basis FE + MI-greedy
     selection. Mirrors :func:`hybrid_orth_mi_fe_with_recipes` for the
@@ -513,6 +531,7 @@ def hybrid_orth_extra_basis_fe_with_recipes(
         fourier_adaptive_min_val_corr=fourier_adaptive_min_val_corr,
         fourier_chirp=fourier_chirp,
         fourier_chirp_min_val_corr=fourier_chirp_min_val_corr,
+        max_adaptive_cols=max_adaptive_cols,
     )
     if engineered.empty:
         empty_scores = pd.DataFrame(columns=[

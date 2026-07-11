@@ -177,27 +177,31 @@ def generate_pair_cross_basis_features(
                 basis_i, basis_j, col_i, col_j,
             )
             continue
-        for deg_a in range(min_d, max_d + 1):
-            for deg_b in range(min_d, max_d + 1):
-                if deg_a == 0 and deg_b == 0:
-                    continue
-                try:
-                    key_a = (col_i, deg_a, basis_i)
-                    if key_a not in cache:
-                        cache[key_a] = _evaluate_basis_column(x_i, basis_i, deg_a)
-                    h_a = cache[key_a]
-                    key_b = (col_j, deg_b, basis_j)
-                    if key_b not in cache:
-                        cache[key_b] = _evaluate_basis_column(x_j, basis_j, deg_b)
-                    h_b = cache[key_b]
-                    name = _pair_eng_col_name(col_i, col_j, basis_i, basis_j, deg_a, deg_b)
-                    out_cols[name] = h_a * h_b
-                except Exception as exc:
-                    logger.warning(
-                        "generate_pair_cross_basis_features: basis=%r/%r deg=%d/%d on pair (%r,%r) raised %r; skipping",
-                        basis_i, basis_j, deg_a, deg_b, col_i, col_j, exc,
-                    )
-                    continue
+        # High-degree basis tails (e.g. Hermite) can overflow when multiplied; suppress the resulting
+        # numpy RuntimeWarnings (matching every sibling FE candidate-generation site) and scrub the
+        # product below rather than leaving a non-finite value to surface as a silent NaN downstream.
+        with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+            for deg_a in range(min_d, max_d + 1):
+                for deg_b in range(min_d, max_d + 1):
+                    if deg_a == 0 and deg_b == 0:
+                        continue
+                    try:
+                        key_a = (col_i, deg_a, basis_i)
+                        if key_a not in cache:
+                            cache[key_a] = _evaluate_basis_column(x_i, basis_i, deg_a)
+                        h_a = cache[key_a]
+                        key_b = (col_j, deg_b, basis_j)
+                        if key_b not in cache:
+                            cache[key_b] = _evaluate_basis_column(x_j, basis_j, deg_b)
+                        h_b = cache[key_b]
+                        name = _pair_eng_col_name(col_i, col_j, basis_i, basis_j, deg_a, deg_b)
+                        out_cols[name] = np.nan_to_num(h_a * h_b, nan=0.0, posinf=0.0, neginf=0.0)
+                    except Exception as exc:
+                        logger.warning(
+                            "generate_pair_cross_basis_features: basis=%r/%r deg=%d/%d on pair (%r,%r) raised %r; skipping",
+                            basis_i, basis_j, deg_a, deg_b, col_i, col_j, exc,
+                        )
+                        continue
     return pd.DataFrame(out_cols, index=X.index)
 
 
