@@ -60,3 +60,66 @@ def test_ridge_prefilter_classification_returns_valid_feature_names():
     selected = ridge_coefficient_prefilter(X, y, names, cv=3, tol=0.05, is_classifier=True, alpha=1.0)
     assert 0 < len(selected) <= d
     assert set(selected).issubset(set(names))
+
+
+def _make_collinear_pair_dataset(n: int, d_noise: int, seed: int):
+    """Two near-duplicate informative features sharing one latent signal (correlated ~0.9 with each other),
+    plus 6 independently-informative features and ``d_noise`` pure-noise features. A single small-alpha
+    Ridge fit on standardized data splits the coefficient weight between the duplicate pair somewhat
+    arbitrarily (driven by each column's own noise realization), so at a tight pool size ONE of the two
+    duplicates is dropped in a meaningful fraction of random draws even though both are genuinely useful.
+    """
+    rng = np.random.default_rng(seed)
+    signal = rng.normal(size=n)
+    dup_a = signal + rng.normal(scale=0.5, size=n)
+    dup_b = signal + rng.normal(scale=0.5, size=n)
+    other_info = rng.normal(size=(n, 6))
+    w_other = rng.normal(size=6)
+    X_noise = rng.normal(size=(n, d_noise))
+    y = signal * 1.5 + other_info @ w_other + rng.normal(scale=0.5, size=n)
+    X = np.concatenate([dup_a.reshape(-1, 1), dup_b.reshape(-1, 1), other_info, X_noise], axis=1)
+    names = ["dup_a", "dup_b"] + [f"other{i}" for i in range(6)] + [f"noise{i}" for i in range(d_noise)]
+    return pd.DataFrame(X, columns=names), y
+
+
+def test_biz_val_ridge_prefilter_bootstrap_stability_recovers_dropped_collinear_feature():
+    """A single noisy Ridge fit drops one half of a genuinely-useful collinear duplicate pair from a tight
+    pool in a meaningful fraction of random seeds (arbitrary coefficient split under collinearity). The
+    opt-in ``n_bootstrap`` stability-selection mode re-fits across bootstrap row resamples and keeps the
+    duplicate if it lands in the top pool often enough, recovering the full pair reliably more often than
+    the single-fit baseline.
+
+    Measured over 40 independent seeds (n=150, 306 candidate features, pool size fixed at 4):
+    single-fit retains BOTH duplicates in 65% of seeds; bootstrap stability-selection (B=150,
+    threshold=0.35) retains both in 75% of seeds -- thresholds below set ~10pp/~15% relative below the
+    measured values to absorb run-to-run noise while still proving the recovery effect.
+    """
+    n_seeds = 40
+    single_both = 0
+    boot_both = 0
+    for seed in range(n_seeds):
+        X, y = _make_collinear_pair_dataset(n=150, d_noise=300, seed=seed)
+        names = list(X.columns)
+        Xv = X.to_numpy()
+        single = ridge_coefficient_prefilter(Xv, y, names, candidate_sizes=[4], cv=3, tol=0.003, alpha=1.0, random_state=seed)
+        boot = ridge_coefficient_prefilter(
+            Xv, y, names, candidate_sizes=[4], cv=3, tol=0.003, alpha=1.0, random_state=seed, n_bootstrap=150, bootstrap_stability_threshold=0.35
+        )
+        single_both += int("dup_a" in single and "dup_b" in single)
+        boot_both += int("dup_a" in boot and "dup_b" in boot)
+
+    single_rate = single_both / n_seeds
+    boot_rate = boot_both / n_seeds
+
+    assert boot_rate >= 0.65, f"expected bootstrap stability-selection to retain both collinear duplicates in >=65% of seeds, got {boot_rate:.3f}"
+    assert boot_rate > single_rate, f"expected bootstrap mode to beat single-fit baseline, got boot={boot_rate:.3f} vs single={single_rate:.3f}"
+    assert single_rate <= 0.70, f"single-fit baseline should visibly miss the duplicate pair in a meaningful fraction of seeds, got {single_rate:.3f}"
+
+
+def test_ridge_prefilter_bootstrap_disabled_by_default_is_bit_identical():
+    """``n_bootstrap`` is opt-in -- omitting it must reproduce the exact single-fit selection."""
+    X, y = _make_noisy_dataset(n=200, d_informative=6, d_noise=194, seed=3)
+    names = list(X.columns)
+    baseline = ridge_coefficient_prefilter(X.to_numpy(), y, names, cv=3, tol=0.02, alpha=1.0)
+    explicit_none = ridge_coefficient_prefilter(X.to_numpy(), y, names, cv=3, tol=0.02, alpha=1.0, n_bootstrap=None)
+    assert baseline == explicit_none
