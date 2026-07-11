@@ -25,6 +25,13 @@ def _run(n_rows: int, n_binary_cols: int) -> None:
     boolean_pair_interactions(df)
 
 
+def _run_pruned(n_rows: int, n_binary_cols: int) -> pd.DataFrame:
+    df = _make_dataset(n_rows, n_binary_cols, seed=0)
+    rng = np.random.default_rng(0)
+    y = (df["b0"].to_numpy() ^ df["b1"].to_numpy()).astype(int)
+    return boolean_pair_interactions(df, prune_against_target=(y, 0.05))
+
+
 if __name__ == "__main__":
     for n_rows, n_binary_cols in [(5000, 20), (5000, 80), (50000, 80)]:
         t0 = time.perf_counter()
@@ -32,9 +39,24 @@ if __name__ == "__main__":
         wall = time.perf_counter() - t0
         print(f"n_rows={n_rows:>6} n_binary_cols={n_binary_cols:>3} -> {wall * 1000:9.2f} ms")
 
+    for n_rows, n_binary_cols in [(5000, 20), (5000, 80), (50000, 80)]:
+        t0 = time.perf_counter()
+        out = _run_pruned(n_rows, n_binary_cols)
+        wall = time.perf_counter() - t0
+        print(f"[pruned] n_rows={n_rows:>6} n_binary_cols={n_binary_cols:>3} -> {wall * 1000:9.2f} ms, kept {out.shape[1]} cols")
+
     profiler = cProfile.Profile()
     profiler.enable()
     _run(50000, 80)
+    profiler.disable()
+    buf = StringIO()
+    stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
+    stats.print_stats(20)
+    print(buf.getvalue())
+
+    profiler = cProfile.Profile()
+    profiler.enable()
+    _run_pruned(50000, 80)
     profiler.disable()
     buf = StringIO()
     stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")

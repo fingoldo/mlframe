@@ -15,10 +15,12 @@ MRMR/forward-selection tooling rather than using every generated column.
 from __future__ import annotations
 
 from itertools import combinations
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
+
+from mlframe.feature_selection.drop_near_noise_univariate_auc import drop_near_noise_univariate_auc
 
 
 def is_binary_column(series: pd.Series) -> bool:
@@ -33,6 +35,7 @@ def boolean_pair_interactions(
     df: pd.DataFrame,
     columns: Optional[Sequence[str]] = None,
     operators: Sequence[str] = ("and", "or", "xor"),
+    prune_against_target: Optional[Tuple[np.ndarray, float]] = None,
 ) -> pd.DataFrame:
     """Generate pairwise AND/OR/XOR columns for every pair of binary columns.
 
@@ -45,13 +48,21 @@ def boolean_pair_interactions(
         ``is_binary_column``.
     operators
         Subset of ``{"and", "or", "xor"}``.
+    prune_against_target
+        Optional ``(y, tolerance)``. The combinatorial explosion (``n choose 2`` per operator) is mostly
+        uninformative noise once ``n`` grows past a handful of columns -- when supplied, every generated
+        column is screened by
+        :func:`mlframe.feature_selection.drop_near_noise_univariate_auc.drop_near_noise_univariate_auc`
+        against ``y`` and dropped when its own univariate AUC sits within ``tolerance`` of chance (0.5).
+        ``None`` (default) keeps every generated column, matching the original unconditional behaviour --
+        default output is bit-identical to calling without this parameter.
 
     Returns
     -------
     pd.DataFrame
         One column per ``(pair, operator)`` combination, named ``"{col_a}__{op}__{col_b}"``, dtype ``int8``
         (0/1). ``len(columns) choose 2`` pairs x ``len(operators)`` columns total -- combinatorial, meant to
-        be pruned by a downstream feature selector, not used wholesale.
+        be pruned by a downstream feature selector, not used wholesale (or via ``prune_against_target``).
     """
     if columns is None:
         columns = [c for c in df.columns if is_binary_column(df[c])]
@@ -73,7 +84,16 @@ def boolean_pair_interactions(
         if "xor" in operators:
             out[f"{col_a}__xor__{col_b}"] = (a ^ b).astype(np.int8)
 
-    return pd.DataFrame(out, index=df.index)
+    result = pd.DataFrame(out, index=df.index)
+
+    if prune_against_target is not None and result.shape[1] > 0:
+        y, tolerance = prune_against_target
+        y_arr = np.asarray(y)
+        dropped = drop_near_noise_univariate_auc(result, y_arr, columns=list(result.columns), tolerance=tolerance)
+        if dropped:
+            result = result.drop(columns=dropped)
+
+    return result
 
 
 __all__ = ["boolean_pair_interactions", "is_binary_column"]
