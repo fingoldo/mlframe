@@ -48,7 +48,7 @@ from .flat import (
 from .fixed_sparse_linear import FixedSparseLinear
 
 # Correlation-ordered 1D-CNN over tabular features (standalone, not part of the Lightning estimator infra)
-from .tabular_1dcnn import Tabular1DCNNRegressor, correlation_order_features
+from .tabular_1dcnn import Tabular1DCNNClassifier, Tabular1DCNNRegressor, correlation_order_features
 
 # Trunk-into-every-block residual MLP (standalone, not part of the Lightning estimator infra)
 from .trunk_residual_mlp import TrunkResidualMLPRegressor
@@ -107,6 +107,7 @@ __all__ = [
     "FixedSparseLinear",
     # Correlation-ordered 1D-CNN over tabular features
     "Tabular1DCNNRegressor",
+    "Tabular1DCNNClassifier",
     "correlation_order_features",
     # Trunk-into-every-block residual MLP
     "TrunkResidualMLPRegressor",

@@ -11,10 +11,10 @@ from __future__ import annotations
 
 import numpy as np
 import torch
-from sklearn.metrics import r2_score
+from sklearn.metrics import r2_score, roc_auc_score
 from torch import nn
 
-from mlframe.training.neural.tabular_1dcnn import Tabular1DCNNRegressor, correlation_order_features
+from mlframe.training.neural.tabular_1dcnn import Tabular1DCNNClassifier, Tabular1DCNNRegressor, correlation_order_features
 
 
 def _make_pathway_local_interaction_data(n: int, n_pathways: int, pathway_size: int, seed: int):
@@ -67,6 +67,78 @@ def test_biz_val_1dcnn_beats_mlp_on_local_pathway_interactions():
 
     assert r2_cnn >= 0.85, f"expected the correlation-ordered 1D-CNN to recover most of the local-interaction signal, got r2={r2_cnn:.4f}"
     assert r2_cnn > r2_mlp + 0.08, f"expected the 1D-CNN to beat a comparably-sized MLP at the same training budget, got cnn={r2_cnn:.4f} mlp={r2_mlp:.4f}"
+
+
+def _make_pathway_local_interaction_labels(n: int, n_pathways: int, pathway_size: int, seed: int):
+    """Same "pathway" structure as the regression fixture, but the target is the SIGN of the local
+    within-pathway product summed across pathways, turned into a binary label -- a plain MLP still has
+    to discover the same local structure without the 1D-CNN's forced local kernel window.
+    """
+    rng = np.random.default_rng(seed)
+    n_features = n_pathways * pathway_size
+    X = np.zeros((n, n_features), dtype=np.float32)
+    score = np.zeros(n, dtype=np.float32)
+    for p in range(n_pathways):
+        latent = rng.normal(size=n)
+        for k in range(pathway_size):
+            X[:, p * pathway_size + k] = latent + rng.normal(scale=0.3, size=n)
+        score += X[:, p * pathway_size] * X[:, p * pathway_size + 1]
+    noisy_score = score + rng.normal(scale=0.5, size=n)
+    y = (noisy_score > np.median(noisy_score)).astype(np.int64)  # median split -> exactly balanced classes.
+
+    perm = rng.permutation(n_features)  # shuffle raw column order -- ordering must be RECOVERED, not given.
+    row_perm = rng.permutation(n)  # shuffle rows too, so a train/test slice isn't accidentally class-skewed.
+    X, y = X[:, perm], y[row_perm]
+    X = X[row_perm]
+    return X.astype(np.float32), y
+
+
+class _MLPClassifierBaseline(nn.Module):
+    def __init__(self, n_features: int, n_classes: int, hidden: int = 16) -> None:
+        super().__init__()
+        self.net = nn.Sequential(nn.Linear(n_features, hidden), nn.ReLU(), nn.Linear(hidden, hidden), nn.ReLU(), nn.Linear(hidden, n_classes))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        out: torch.Tensor = self.net(x)
+        return out
+
+
+def test_biz_val_1dcnn_classifier_beats_mlp_on_local_pathway_interactions():
+    X, y = _make_pathway_local_interaction_labels(n=400, n_pathways=6, pathway_size=4, seed=0)
+    Xtr, Xte, ytr, yte = X[:280], X[280:], y[:280], y[280:]
+
+    clf = Tabular1DCNNClassifier(n_channels=8, kernel_size=3, n_epochs=200, learning_rate=0.02, random_state=0).fit(Xtr, ytr)
+    proba_cnn = clf.predict_proba(Xte)[:, 1]
+    auc_cnn = float(roc_auc_score(yte, proba_cnn))
+
+    torch.manual_seed(0)
+    mlp = _MLPClassifierBaseline(n_features=X.shape[1], n_classes=2)
+    optimizer = torch.optim.Adam(mlp.parameters(), lr=0.02)
+    X_t, y_t = torch.from_numpy(Xtr), torch.from_numpy(ytr.astype(np.int64))
+    mlp.train()
+    for _ in range(200):
+        optimizer.zero_grad()
+        loss = nn.functional.cross_entropy(mlp(X_t), y_t)
+        loss.backward()
+        optimizer.step()
+    mlp.eval()
+    with torch.no_grad():
+        proba_mlp = torch.softmax(mlp(torch.from_numpy(Xte)), dim=-1)[:, 1].numpy()
+    auc_mlp = float(roc_auc_score(yte, proba_mlp))
+
+    naive_auc = 0.5  # majority/coin-flip baseline for a balanced binary target.
+    assert auc_cnn >= 0.80, f"expected the correlation-ordered 1D-CNN classifier to recover most of the local-interaction signal, got auc={auc_cnn:.4f}"
+    assert auc_cnn > naive_auc + 0.25, f"expected the classifier to clearly beat the naive coin-flip baseline, got auc={auc_cnn:.4f}"
+    assert auc_cnn > auc_mlp + 0.05, f"expected the 1D-CNN classifier to beat a comparably-sized MLP at the same training budget, got cnn={auc_cnn:.4f} mlp={auc_mlp:.4f}"
+
+
+def test_biz_val_1dcnn_classifier_predict_matches_argmax_proba():
+    X, y = _make_pathway_local_interaction_labels(n=120, n_pathways=4, pathway_size=4, seed=2)
+    clf = Tabular1DCNNClassifier(n_channels=8, kernel_size=3, n_epochs=50, learning_rate=0.02, random_state=0).fit(X, y)
+    proba = clf.predict_proba(X)
+    preds = clf.predict(X)
+    expected = clf.classes_[np.argmax(proba, axis=-1)]
+    assert np.array_equal(preds, expected)
 
 
 def test_correlation_order_features_groups_correlated_columns_adjacently():
