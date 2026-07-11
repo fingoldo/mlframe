@@ -73,3 +73,59 @@ def test_biz_val_scan_temporal_leak_detects_planted_leak_among_many_clean_featur
     assert abs(leak_row["correlation"]) > clean_rows["correlation"].abs().max() + 0.5
     assert result["flagged"].sum() == 1
     assert result.loc[result["flagged"], "column"].tolist() == ["leak_col"]
+
+
+def _make_derived_only_leak_data(n: int, seed: int):
+    """A Home-Credit-style leak: two raw date-like columns that individually look clean, whose DIFFERENCE
+    reconstructs the split-defining clock (e.g. ``application_date`` and ``account_open_date``, both drawn
+    from a wide, split-independent range, but their gap was used to draw the train/test cutoff).
+    """
+    rng = np.random.default_rng(seed)
+    split_labels = rng.integers(0, 10, size=n)
+
+    # A shared, split-independent baseline clock (large range) with independent per-row noise on each side —
+    # neither raw column alone tracks split_labels; only col_b - col_a does.
+    base_clock = rng.uniform(0, 100_000, size=n)
+    gap = split_labels.astype(np.float64) * 500.0 + rng.standard_normal(n) * 5.0
+    col_a = base_clock + rng.standard_normal(n) * 50.0
+    col_b = base_clock + gap + rng.standard_normal(n) * 50.0
+
+    clean_cols = {f"clean_{i}": rng.standard_normal(n) for i in range(5)}
+    X = pd.DataFrame({"col_a": col_a, "col_b": col_b, **clean_cols})
+    return X, split_labels
+
+
+def test_scan_temporal_leak_scan_derived_false_is_bit_identical_to_baseline():
+    X, split_labels = _make_leak_data(1500, seed=7)
+    baseline = scan_temporal_leak(X, split_labels, threshold=0.5)
+    explicit_default = scan_temporal_leak(X, split_labels, threshold=0.5, scan_derived=False)
+    pd.testing.assert_frame_equal(baseline, explicit_default)
+
+
+def test_biz_val_scan_temporal_leak_derived_diff_detects_leak_invisible_to_raw_columns():
+    X, split_labels = _make_derived_only_leak_data(6000, seed=123)
+
+    baseline = scan_temporal_leak(X, split_labels, threshold=0.5)
+    # The win being proven: no single raw column crosses even a generous 0.3 threshold — the leak is
+    # genuinely invisible to raw-column-only scanning, not just below the default threshold.
+    assert baseline["correlation"].abs().max() < 0.3
+    assert baseline["flagged"].sum() == 0
+
+    extended = scan_temporal_leak(X, split_labels, threshold=0.5, scan_derived=True)
+    diff_row = extended[extended["column"] == "col_a - col_b"]
+    assert not diff_row.empty
+    diff_corr = abs(diff_row.iloc[0]["correlation"])
+
+    # Quantitative business-value claim: the derived diff feature is flagged, and its correlation beats
+    # every raw column's score by a wide margin — the extension recovers signal the baseline structurally misses.
+    assert diff_corr > 0.9
+    assert bool(diff_row.iloc[0]["flagged"]) is True
+    assert bool(diff_row.iloc[0]["derived"]) is True
+    raw_only = extended[~extended["derived"]]
+    assert diff_corr > raw_only["correlation"].abs().max() + 0.6
+
+
+def test_scan_temporal_leak_scan_derived_caps_at_max_derived_features():
+    X, split_labels = _make_leak_data(500, seed=9)
+    result = scan_temporal_leak(X, split_labels, scan_derived=True, max_derived_features=3)
+    assert int(result["derived"].sum()) == 3
