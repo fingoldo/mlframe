@@ -14,7 +14,14 @@ import numpy as np
 import pandas as pd
 
 
-def fit_group_bias_correction(y_true: np.ndarray, y_pred: np.ndarray, group: np.ndarray, min_group_size: int = 5, clip_range: Optional[Tuple[float, float]] = (0.5, 2.0)) -> Dict[str, float]:
+def fit_group_bias_correction(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    group: np.ndarray,
+    min_group_size: int = 5,
+    clip_range: Optional[Tuple[float, float]] = (0.5, 2.0),
+    shrinkage_k: Optional[float] = None,
+) -> Dict[str, float]:
     """Compute per-group ``mean(y_true) / mean(y_pred)`` correction ratios on a held-out validation slice.
 
     Parameters
@@ -26,10 +33,20 @@ def fit_group_bias_correction(y_true: np.ndarray, y_pred: np.ndarray, group: np.
     min_group_size
         Groups with fewer than this many validation rows get NO correction (ratio ``1.0``) -- too few
         observations to trust a group-specific ratio; avoids overfitting to validation noise for rare
-        segments.
+        segments. Ignored when ``shrinkage_k`` is set (shrinkage handles small groups continuously instead
+        of this binary cutoff).
     clip_range
         ``(low, high)`` bounds on the correction ratio, or ``None`` for no clipping -- guards against a
         near-zero ``mean(y_pred)`` producing an extreme multiplier.
+    shrinkage_k
+        Opt-in empirical-Bayes-style shrinkage strength. ``None`` (default) preserves the exact prior
+        behavior (hard ``min_group_size`` cutoff, ratio ``1.0`` below it). When set, every group's raw ratio
+        is blended toward the GLOBAL ``mean(y_true)/mean(y_pred)`` ratio with weight
+        ``count / (count + shrinkage_k)`` -- large groups (``count >> shrinkage_k``) keep ~their full raw
+        ratio (real bias gets corrected), tiny groups (``count << shrinkage_k``) shrink toward the global
+        ratio instead of overfitting a noisy few-row estimate. ``min_group_size`` is not applied in this
+        mode; shrinkage itself is the small-group safeguard. Larger ``shrinkage_k`` shrinks harder; a
+        reasonable starting point is the group size below which per-group ratios feel unstable (e.g. 10-50).
 
     Returns
     -------
@@ -48,9 +65,21 @@ def fit_group_bias_correction(y_true: np.ndarray, y_pred: np.ndarray, group: np.
 
     with np.errstate(divide="ignore", invalid="ignore"):
         raw_ratio = np.where(agg["y_pred_mean"].to_numpy() != 0, agg["y_true_mean"].to_numpy() / agg["y_pred_mean"].to_numpy(), 1.0)
-    if clip_range is not None:
-        raw_ratio = np.clip(raw_ratio, clip_range[0], clip_range[1])
-    final_ratio = np.where(agg["count"].to_numpy() >= min_group_size, raw_ratio, 1.0)
+
+    if shrinkage_k is not None:
+        y_true_arr = np.asarray(y_true, dtype=np.float64)
+        y_pred_arr = np.asarray(y_pred, dtype=np.float64)
+        global_pred_mean = y_pred_arr.mean()
+        global_ratio = float(y_true_arr.mean() / global_pred_mean) if global_pred_mean != 0 else 1.0
+        counts = agg["count"].to_numpy(dtype=np.float64)
+        weight = counts / (counts + shrinkage_k)
+        final_ratio = weight * raw_ratio + (1.0 - weight) * global_ratio
+        if clip_range is not None:
+            final_ratio = np.clip(final_ratio, clip_range[0], clip_range[1])
+    else:
+        if clip_range is not None:
+            raw_ratio = np.clip(raw_ratio, clip_range[0], clip_range[1])
+        final_ratio = np.where(agg["count"].to_numpy() >= min_group_size, raw_ratio, 1.0)
 
     return {str(group_value): float(ratio) for group_value, ratio in zip(agg.index, final_ratio)}
 
