@@ -70,8 +70,19 @@ class DirectHorizonBucketForecaster:
                 self.models_[(group, bucket)] = model
         return self
 
-    def predict(self, X: pd.DataFrame, horizon_day: np.ndarray) -> np.ndarray:
-        """Predict each row using the model fit for its ``(group, bucket)``; ``NaN`` where no model was fit."""
+    def predict(self, X: pd.DataFrame, horizon_day: np.ndarray, edge_blend_width: int = 0) -> np.ndarray:
+        """Predict each row using the model fit for its ``(group, bucket)``; ``NaN`` where no model was fit.
+
+        Parameters
+        ----------
+        edge_blend_width
+            Opt-in boundary smoothing. ``0`` (default) reproduces the original hard-boundary behavior
+            bit-identically. When ``>0``, rows within this many horizon-day steps of a shared boundary
+            between two *consecutive* buckets get a linearly-weighted blend of both neighboring buckets'
+            predictions (each still computed purely from that row's own features -- no lagged/recursive
+            input crosses buckets, only the two independently-computed scalar predictions are averaged),
+            reducing the discontinuity a hard bucket cutover otherwise creates right at the edge.
+        """
         horizon_day = np.asarray(horizon_day)
         groups = X[self.group_col].to_numpy() if self.group_col is not None else np.zeros(len(X), dtype=np.int8)
         feature_cols = [c for c in X.columns if c != self.group_col]
@@ -88,7 +99,52 @@ class DirectHorizonBucketForecaster:
                 if model is None:
                     continue
                 preds[bucket_mask] = model.predict(X.loc[bucket_mask, feature_cols])
+
+            if edge_blend_width > 0:
+                self._blend_bucket_edges(X, preds, horizon_day, group, group_mask, feature_cols, edge_blend_width)
         return preds
+
+    def _blend_bucket_edges(
+        self,
+        X: pd.DataFrame,
+        preds: np.ndarray,
+        horizon_day: np.ndarray,
+        group: Any,
+        group_mask: np.ndarray,
+        feature_cols: List[str],
+        edge_blend_width: int,
+    ) -> None:
+        """Blend predictions near each internal boundary between two consecutive, adjacent buckets.
+
+        Mutates ``preds`` in place. Only touches rows whose original hard-boundary prediction came from
+        one of the two buckets sharing that boundary; each side's prediction is still that model's own
+        unmodified output on the row's own features -- only the final scalar combination changes.
+        """
+        sorted_buckets = sorted(self.horizon_buckets, key=lambda b: b[0])
+        for left, right in zip(sorted_buckets, sorted_buckets[1:]):
+            if right[0] != left[1] + 1:
+                continue  # not adjacent -- no shared edge to smooth
+            left_model = self.models_.get((group, left))
+            right_model = self.models_.get((group, right))
+            if left_model is None or right_model is None:
+                continue
+            boundary = left[1]  # last day of left bucket == boundary; right starts at boundary + 1
+
+            # symmetric linear ramp: own-bucket weight is exactly 0.5 right at the boundary on both sides
+            # (matching continuity across the edge) and rises to ~1 at the far end of the blend zone.
+            left_zone = group_mask & (horizon_day > boundary - edge_blend_width) & (horizon_day <= boundary)
+            if left_zone.any():
+                other_pred = right_model.predict(X.loc[left_zone, feature_cols])
+                dist = boundary - horizon_day[left_zone]  # 0 at boundary .. edge_blend_width-1 at far end
+                own_weight = 0.5 + 0.5 * dist / edge_blend_width
+                preds[left_zone] = own_weight * preds[left_zone] + (1 - own_weight) * other_pred
+
+            right_zone = group_mask & (horizon_day >= boundary + 1) & (horizon_day < boundary + 1 + edge_blend_width)
+            if right_zone.any():
+                other_pred = left_model.predict(X.loc[right_zone, feature_cols])
+                dist = horizon_day[right_zone] - (boundary + 1)  # 0 at boundary .. edge_blend_width-1 at far end
+                own_weight = 0.5 + 0.5 * dist / edge_blend_width
+                preds[right_zone] = own_weight * preds[right_zone] + (1 - own_weight) * other_pred
 
 
 __all__ = ["DirectHorizonBucketForecaster"]

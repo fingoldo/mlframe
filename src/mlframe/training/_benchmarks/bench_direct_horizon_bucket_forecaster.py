@@ -31,12 +31,12 @@ def _make_data(n_groups: int, n_rows_per_group: int, seed: int):
     return X, y, horizon_day
 
 
-def _run(n_groups: int, n_rows_per_group: int) -> None:
+def _run(n_groups: int, n_rows_per_group: int, edge_blend_width: int = 0) -> None:
     X, y, horizon_day = _make_data(n_groups, n_rows_per_group, seed=0)
     buckets = [(1, 7), (8, 14), (15, 21), (22, 28)]
     forecaster = DirectHorizonBucketForecaster(buckets, model_factory=lambda: LinearRegression(), group_col="grp")
     forecaster.fit(X, y, horizon_day)
-    forecaster.predict(X, horizon_day)
+    forecaster.predict(X, horizon_day, edge_blend_width=edge_blend_width)
 
 
 if __name__ == "__main__":
@@ -44,7 +44,12 @@ if __name__ == "__main__":
         t0 = time.perf_counter()
         _run(n_groups, n_rows_per_group)
         wall = time.perf_counter() - t0
-        print(f"n_groups={n_groups:>3} rows/group={n_rows_per_group:>6,} -> {wall * 1000:9.2f} ms")
+        print(f"n_groups={n_groups:>3} rows/group={n_rows_per_group:>6,} edge_blend_width=0 -> {wall * 1000:9.2f} ms")
+
+        t0 = time.perf_counter()
+        _run(n_groups, n_rows_per_group, edge_blend_width=2)
+        wall = time.perf_counter() - t0
+        print(f"n_groups={n_groups:>3} rows/group={n_rows_per_group:>6,} edge_blend_width=2 -> {wall * 1000:9.2f} ms")
 
     profiler = cProfile.Profile()
     profiler.enable()
@@ -53,4 +58,15 @@ if __name__ == "__main__":
     buf = StringIO()
     stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
     stats.print_stats(15)
+    print("hard-boundary predict (edge_blend_width=0):")
+    print(buf.getvalue())
+
+    profiler = cProfile.Profile()
+    profiler.enable()
+    _run(10, 500, edge_blend_width=2)
+    profiler.disable()
+    buf = StringIO()
+    stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
+    stats.print_stats(15)
+    print("edge-blended predict (edge_blend_width=2):")
     print(buf.getvalue())
