@@ -43,3 +43,54 @@ def test_check_pairwise_score_correlation_shape_mismatch_raises():
 
     with pytest.raises(ValueError):
         check_pairwise_score_correlation([0.1, 0.2], [0.1, 0.2, 0.3])
+
+
+def test_check_pairwise_score_correlation_extra_none_is_bit_identical_to_prior_default():
+    """Default (no ``oos_scores_extra``) behavior must be unchanged -- regression-tests the extension."""
+    rng = np.random.default_rng(1)
+    a = rng.uniform(0, 1, 20)
+    b = rng.uniform(0, 1, 20)
+
+    baseline = check_pairwise_score_correlation(a, b)
+    extended = check_pairwise_score_correlation(a, b, oos_scores_extra=None)
+
+    assert extended.keys() == baseline.keys()
+    assert extended["spearman_correlation"] == baseline["spearman_correlation"]
+    assert extended["rank_agreement"] == baseline["rank_agreement"]
+    assert extended["trust_source_a"] == baseline["trust_source_a"]
+
+
+def test_check_pairwise_score_correlation_with_extra_preserves_pairwise_ab_result():
+    """Passing extra sources must not change the A-vs-B pairwise result itself."""
+    rng = np.random.default_rng(2)
+    a = rng.uniform(0, 1, 20)
+    b = rng.uniform(0, 1, 20)
+    c = rng.uniform(0, 1, 20)
+
+    baseline = check_pairwise_score_correlation(a, b)
+    extended = check_pairwise_score_correlation(a, b, oos_scores_extra=[c])
+
+    assert extended["spearman_correlation"] == baseline["spearman_correlation"]
+    assert extended["rank_agreement"] == baseline["rank_agreement"]
+    assert extended["trust_source_a"] == baseline["trust_source_a"]
+
+
+def test_biz_val_check_pairwise_score_correlation_multi_source_flags_outlier_fold():
+    """The win: N validation folds where one fold is a poorly-correlated outlier is flagged by the
+    multi-source summary in a single call, instead of requiring O(N^2) manual pairwise calls."""
+    rng = np.random.default_rng(3)
+    n_members = 20
+    true_quality = rng.uniform(0.4, 0.7, n_members)
+
+    good_folds = [true_quality + rng.normal(0, 0.01, n_members) for _ in range(4)]
+    outlier_fold = rng.uniform(0.4, 0.7, n_members)  # unrelated to true_quality -- the outlier
+
+    fold_a, fold_b, *extra = good_folds + [outlier_fold]
+    result = check_pairwise_score_correlation(fold_a, fold_b, oos_scores_extra=extra)
+
+    n_sources = 2 + len(extra)
+    assert result["correlation_matrix"].shape == (n_sources, n_sources)
+    outlier_idx = n_sources - 1
+    assert result["outlier_source_indices"] == [outlier_idx]
+    assert all(result["trust_per_source"][i] for i in range(n_sources) if i != outlier_idx)
+    assert result["min_pairwise_correlation"] < 0.5
