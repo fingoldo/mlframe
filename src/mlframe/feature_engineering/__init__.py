@@ -224,6 +224,7 @@ from .magnitude_sample_weight import magnitude_sample_weight
 from .boolean_pair_interactions import boolean_pair_interactions, is_binary_column
 from .sentinel_missing_count import add_sentinel_missing_count_feature
 from .categorical_group_concat import concat_categorical_group
+from .categorical_powerset_concat import categorical_powerset_concat
 from .binned_unique_count import binned_unique_count
 from .multi_decomposition_bank import multi_decomposition_feature_bank
 from .variance_gated_pairwise_diff import variance_gated_pairwise_diff
@@ -357,6 +358,7 @@ __all__ = [
     "is_binary_column",
     "add_sentinel_missing_count_feature",
     "concat_categorical_group",
+    "categorical_powerset_concat",
     "binned_unique_count",
     "multi_decomposition_feature_bank",
     "variance_gated_pairwise_diff",
