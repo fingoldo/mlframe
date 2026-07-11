@@ -69,6 +69,19 @@ def _pool_fraction() -> float:
     return frac
 
 
+def _cushion_bytes(total_b: int) -> int:
+    """The absolute cushion floor in bytes for a device with ``total_b`` total VRAM -- shared by
+    ``fe_gpu_has_vram_cushion`` and ``ensure_fe_gpu_pool_limit`` (2026-07-09 fix) so both mechanisms agree
+    on ONE definition of "the reserved headroom" instead of each independently choosing a fraction that
+    could, in combination, exceed total device memory on a small card (see ``ensure_fe_gpu_pool_limit``'s
+    docstring for why the two must be computed jointly)."""
+    cushion_b = _min_free_mb() * 1024 * 1024
+    tiny = int(total_b * _TINY_CARD_CUSHION_FRACTION)
+    if tiny > 0:
+        cushion_b = min(cushion_b, tiny)
+    return cushion_b
+
+
 def fe_gpu_has_vram_cushion(bytes_needed: int = 0) -> bool:
     """Is there enough FREE VRAM to safely launch a GPU-FE kernel needing ``bytes_needed`` extra bytes?
 
@@ -92,20 +105,26 @@ def fe_gpu_has_vram_cushion(bytes_needed: int = 0) -> bool:
     except Exception as exc:  # -- probe failed: permissive, do not block the GPU on a probe error
         logger.debug("fe_gpu_has_vram_cushion: memGetInfo failed (%s); permissive", exc)
         return True
-    cushion_b = _min_free_mb() * 1024 * 1024
-    tiny = int(total_b * _TINY_CARD_CUSHION_FRACTION)
-    if tiny > 0:
-        cushion_b = min(cushion_b, tiny)
+    cushion_b = _cushion_bytes(total_b)
     return bool((free_b - int(bytes_needed)) >= cushion_b)
 
 
 def ensure_fe_gpu_pool_limit() -> bool:
-    """ONCE per process, cap the cupy default memory pool to ``MLFRAME_FE_GPU_POOL_FRACTION`` of total VRAM.
+    """ONCE per process, cap the cupy default memory pool to a fraction of total VRAM.
 
-    So MRMR's OWN pool cannot exceed ~60% of the device and always leaves headroom for concurrent
-    processes / the model / the next launch. Idempotent (module-level ``_POOL_LIMIT_DONE`` flag); logs
-    once at INFO. On exhaustion cupy raises ``OutOfMemoryError`` which the existing GPU-FE try/excepts
-    catch -> graceful CPU. No-op (returns ``False``) when cupy is unavailable or any step raises."""
+    So MRMR's OWN pool cannot exceed the device and always leaves headroom for concurrent processes /
+    the model / the next launch. The requested ``MLFRAME_FE_GPU_POOL_FRACTION`` (default 0.6) is JOINTLY
+    bounded against the absolute cushion floor (2026-07-09 fix): the effective cap is
+    ``min(pool_fraction, (total - cushion) / total)`` -- computed from the SAME ``_cushion_bytes`` the
+    per-dispatch cushion check uses -- so ``pool_cap_bytes + cushion_bytes`` never exceeds total device
+    memory BY CONSTRUCTION. Before this fix the two fractions were chosen independently (0.6 pool +
+    up-to-0.5-of-total cushion): on any card at/below ~2x the absolute cushion floor (~2 GB at the 1 GB
+    default) their SUM exceeded 100% of total VRAM, i.e. the policy's own arithmetic guaranteed self-
+    conflict regardless of the actual workload -- not just empirically fine on the 4 GB reference card.
+
+    Idempotent (module-level ``_POOL_LIMIT_DONE`` flag); logs once at INFO. On exhaustion cupy raises
+    ``OutOfMemoryError`` which the existing GPU-FE try/excepts catch -> graceful CPU. No-op (returns
+    ``False``) when cupy is unavailable or any step raises."""
     global _POOL_LIMIT_DONE
     if _POOL_LIMIT_DONE:
         return False
@@ -115,15 +134,23 @@ def ensure_fe_gpu_pool_limit() -> bool:
     except Exception:  # -- no cupy: nothing to cap
         return False
     try:
-        frac = _pool_fraction()
-        cp.get_default_memory_pool().set_limit(fraction=frac)
+        requested_frac = _pool_fraction()
         try:
             _, total_b = cp.cuda.runtime.memGetInfo()
+        except Exception:
+            total_b = 0
+        frac = requested_frac
+        if total_b > 0:
+            cushion_frac = _cushion_bytes(total_b) / total_b
+            frac = max(0.0, min(requested_frac, 1.0 - cushion_frac))
+        cp.get_default_memory_pool().set_limit(fraction=frac)
+        if total_b > 0:
             logger.info(
-                "fe_gpu_pool: capped cupy default pool at fraction=%.2f (~%d MiB of %d MiB total)",
-                frac, int(total_b * frac) // (1024 * 1024), total_b // (1024 * 1024),
+                "fe_gpu_pool: capped cupy default pool at fraction=%.2f (~%d MiB of %d MiB total; "
+                "jointly bounded against the VRAM cushion, requested fraction was %.2f)",
+                frac, int(total_b * frac) // (1024 * 1024), total_b // (1024 * 1024), requested_frac,
             )
-        except Exception:  # -- logging detail only
+        else:  # -- logging detail only
             logger.info("fe_gpu_pool: capped cupy default pool at fraction=%.2f", frac)
         return True
     except Exception as exc:

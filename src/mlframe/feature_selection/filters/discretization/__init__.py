@@ -191,7 +191,7 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 
-def _handle_missing(arr: np.ndarray, *, strategy: str = "fillna_zero") -> np.ndarray:
+def _handle_missing(arr: np.ndarray, *, strategy: str = "fillna_zero", nan_mask: Optional[np.ndarray] = None) -> np.ndarray:
     """Apply the configured NaN handling strategy.
 
     ``"fillna_zero"`` (legacy pandas behaviour): replace NaN with 0.0. Biases
@@ -206,51 +206,50 @@ def _handle_missing(arr: np.ndarray, *, strategy: str = "fillna_zero") -> np.nda
     that silently merged NaN rows into the column's TOP real bin via
     ``np.searchsorted`` (NaN -> ej.size = max real code), destroying
     any missingness-as-signal. Now median-fills here and the caller
-    re-routes NaN positions to the dedicated NaN bin.
-    Private -- external callers should use the public ``discretize_*`` family.
+    re-routes NaN positions to the dedicated NaN bin (2026-05-30 Wave 9.1
+    iter-11 fix: propagate used to return the NaN-bearing array unchanged,
+    silently merging NaN rows with the highest-value real category --
+    verified a NaN-is-the-signal column dropped from MI=0.69 nats under
+    separate_bin to MI=0.38 under the old propagate).
+
+    ``nan_mask``: optional precomputed ``np.isnan(arr)`` boolean mask (same shape as ``arr``).
+    ``categorize_dataset`` already computes this mask once (it needs it separately for the post-discretize
+    NaN-bin re-routing), so passing it here avoids re-scanning the whole ``arr`` for NaN a second time on
+    top of the ``np.nanmedian`` scan below. ``None`` (default) falls back to computing the mask internally,
+    for any caller that does not have one on hand. Private -- external callers should use the public
+    ``discretize_*`` family.
+
+    Mutates ``arr`` in place (returns the same object) for the ``separate_bin``/``propagate`` fill when
+    ``arr`` is writable. A polars single-numeric-column selection can hand back a genuine zero-copy,
+    READ-ONLY view onto the DataFrame's Arrow buffer (verified empirically: ``df.select([one_col]).to_numpy()``
+    is non-writeable; multi-column selections always materialise a fresh writable buffer since interleaving
+    columns into one 2-D array cannot be zero-copy) -- mutating that in place would corrupt the caller's
+    live data. Falls back to the legacy allocating ``np.where`` fill in that case.
     """
-    if not np.isnan(arr).any():
+    _mask = nan_mask if nan_mask is not None else np.isnan(arr)
+    if not _mask.any():
         return arr
     if strategy == "fillna_zero":
-        return np.where(np.isnan(arr), 0.0, arr)
-    if strategy == "separate_bin":
-        # The actual bin re-routing happens in categorize_dataset after
-        # discretization. Here we replace NaN with column median so np.percentile
-        # produces clean bin edges; the original NaN positions are preserved
-        # via the caller's nan-mask and overwritten back to max_bin+1 below.
-        # nanmedian emits RuntimeWarning("All-NaN slice encountered") on all-NaN
-        # columns, but the np.where below handles that case explicitly by
-        # falling back to 0.0; suppress the noise to keep test output clean.
+        return np.where(_mask, 0.0, arr)
+    if strategy in ("separate_bin", "propagate"):
+        # The actual bin re-routing happens in categorize_dataset after discretization. Here we replace
+        # NaN with column median so np.percentile produces clean bin edges; the original NaN positions
+        # are preserved via the caller's nan-mask and overwritten back to max_bin+1 there.
+        # nanmedian emits RuntimeWarning("All-NaN slice encountered") on all-NaN columns, but the
+        # np.where below handles that case explicitly by falling back to 0.0; suppress the noise to
+        # keep test output clean.
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", RuntimeWarning)
             col_medians = np.nanmedian(arr, axis=0)
         # Empty / all-NaN columns: median is NaN; fall back to 0.0 for the
         # discretize edges (the column will be all-NaN-bin anyway).
         col_medians = np.where(np.isnan(col_medians), 0.0, col_medians)
-        # Broadcast-fill (rows, cols) where row is NaN.
-        filled = np.where(np.isnan(arr), col_medians, arr)
-        return filled
-    if strategy == "propagate":
-        # 2026-05-30 Wave 9.1 fix (loop iter 11): propagate USED to return
-        # the NaN-bearing array unchanged, but downstream ``np.searchsorted``
-        # routes NaN to ``ej.size`` -- the same code as the column's top
-        # real bin -- silently merging NaN rows with the highest-value
-        # real category. Net effect: any column whose NaN-ness carried
-        # signal scored near zero MI (verified: column where NaN-ness IS
-        # the target dropped from MI=0.69 nats under separate_bin to
-        # MI=0.38 under propagate). Fix: behave like ``separate_bin``
-        # at the categorize_dataset level - the actual NaN-bin reassignment
-        # happens in the categorize_dataset post-discretize block, but
-        # here we still need to median-fill so np.percentile gets clean
-        # edges. The caller's ``_nan_mask`` capture at categorize_dataset
-        # line 1027 was also extended to include 'propagate'.
-        # nanmedian emits RuntimeWarning on all-NaN columns; suppress (the
-        # subsequent np.where handles the NaN-median path explicitly).
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", RuntimeWarning)
-            col_medians = np.nanmedian(arr, axis=0)
-        col_medians = np.where(np.isnan(col_medians), 0.0, col_medians)
-        return np.where(np.isnan(arr), col_medians, arr)
+        if arr.flags.writeable:
+            # In-place broadcast-fill at the NaN positions -- avoids the full-size np.where allocation
+            # (a third pass over ``arr`` on top of the ``_mask`` computation and the nanmedian scan).
+            arr[_mask] = np.broadcast_to(col_medians, arr.shape)[_mask]
+            return arr
+        return np.where(_mask, col_medians, arr)
     if strategy == "raise":
         raise ValueError("input contains NaN values; pass strategy='fillna_zero' or 'separate_bin' or 'propagate' to discretize anyway")
     raise ValueError(f"unknown missing-value strategy: {strategy!r}")
@@ -867,16 +866,61 @@ def discretize_2d_array(
         try:
             from pyutilz.core.pythonlib import is_cuda_available
             if is_cuda_available():
+                # VRAM guard (2026-07-10): ``discretize_2d_array_cuda`` H2D-uploads the WHOLE ``arr``
+                # unconditionally (``d_arr = cp.asarray(arr)``), then ``cp.percentile`` needs a
+                # comparably-sized internal sort/partition scratch buffer on top -- at production scale
+                # (millions of rows) this can consume a small card's entire VRAM. On Windows/WDDM an
+                # oversized upload can transparently over-subscribe device memory via host-paging instead
+                # of raising a catchable CUDA OOM, so the kernel then grinds through PCIe-paged memory for
+                # minutes before the OS silently kills the process -- the try/except below never fires
+                # because there is no exception to catch. Reject BEFORE attempting the upload, mirroring
+                # every other GPU-FE dispatch site's ``_fe_gpu_vram.fe_gpu_has_vram_cushion`` guard.
+                _bytes_needed = arr.nbytes * 2 + (arr.shape[0] * arr.shape[1] * np.dtype(dtype).itemsize)
+                _vram_ok = True
+                _free_gb = _total_gb = None
                 try:
-                    return discretize_2d_array_cuda(
-                        arr=arr, n_bins=n_bins, method=method, dtype=dtype,
-                    )
+                    import cupy as _cp_probe
+                    _free_b, _total_b = _cp_probe.cuda.runtime.memGetInfo()
+                    _free_gb, _total_gb = _free_b / 1024**3, _total_b / 1024**3
                 except Exception as exc:
-                    logger.debug(
-                        "discretize_2d_array: CUDA fastpath failed (%s: %s); " "falling back to CPU prange",
-                        type(exc).__name__,
-                        exc,
+                    logger.debug("discretize_2d_array: memGetInfo probe failed (%s)", exc)
+                try:
+                    from mlframe.feature_selection.filters._fe_gpu_vram import fe_gpu_has_vram_cushion
+                    _vram_ok = fe_gpu_has_vram_cushion(_bytes_needed)
+                except Exception as exc:
+                    logger.debug("discretize_2d_array: VRAM cushion probe failed (%s); permissive", exc)
+                if not _vram_ok:
+                    # Never silent (explicit user feedback): log the full sizing context -- requested GB,
+                    # shape/dtype, and free/total VRAM -- so a production run is diagnosable from the log
+                    # alone, not just "GPU skipped" with no numbers.
+                    logger.warning(
+                        "discretize_2d_array: GPU upload REJECTED -- requested %.2fGB upload+scratch "
+                        "(n_rows=%d, n_cols=%d, in_dtype=%s, out_dtype=%s) exceeds the safe VRAM budget "
+                        "(free=%s, total=%s) -- trying a row-chunked GPU path before falling back to CPU prange",
+                        _bytes_needed / 1024**3, arr.shape[0], arr.shape[1], arr.dtype, np.dtype(dtype),
+                        f"{_free_gb:.2f}GB" if _free_gb is not None else "unknown",
+                        f"{_total_gb:.2f}GB" if _total_gb is not None else "unknown",
                     )
+                    try:
+                        result = discretize_2d_array_cuda_row_chunked(arr=arr, n_bins=n_bins, method=method, dtype=dtype)
+                        logger.info("discretize_2d_array: completed via row-chunked CUDA (GPU speed preserved, VRAM-safe)")
+                        return result
+                    except Exception as exc:
+                        logger.warning(
+                            "discretize_2d_array: row-chunked CUDA also failed (%s: %s) -- falling back to CPU prange",
+                            type(exc).__name__, exc,
+                        )
+                if _vram_ok:
+                    try:
+                        return discretize_2d_array_cuda(
+                            arr=arr, n_bins=n_bins, method=method, dtype=dtype,
+                        )
+                    except Exception as exc:
+                        logger.debug(
+                            "discretize_2d_array: CUDA fastpath failed (%s: %s); " "falling back to CPU prange",
+                            type(exc).__name__,
+                            exc,
+                        )
         except ImportError:
             pass
 
@@ -993,6 +1037,135 @@ def discretize_2d_array_cuda(
 
     # D2H the final tensor (single transfer, n_rows * n_cols bytes for int8).
     return np.asarray(cp.asnumpy(out).astype(dtype, copy=False))
+
+
+def _choose_discretize_row_chunk_rows(n_cols: int, in_itemsize: int, free_bytes: int) -> int:
+    """Rows of ``arr`` (``n_cols`` columns, ``in_itemsize`` bytes/element) that fit a single row-chunk
+    upload within a safe VRAM budget (40% of free VRAM, leaving headroom for the output chunk + any
+    quantile-edge/reduction scratch). Clamped to >=10_000 rows (a tiny chunk would need an excessive
+    number of launches) and to 20M as a sane ceiling."""
+    budget = max(0, int(free_bytes * 0.4))
+    per_row_bytes = max(1, n_cols * (in_itemsize + 2))  # input row + a small output/scratch margin
+    rows = budget // per_row_bytes
+    return int(np.clip(rows, 10_000, 20_000_000))
+
+
+def discretize_2d_array_cuda_row_chunked(
+    arr: np.ndarray,
+    n_bins: int = 10,
+    method: str = "quantile",
+    dtype: type = np.int8,
+    quantile_subsample_rows: Optional[int] = None,
+) -> np.ndarray:
+    """Row-chunked variant of :func:`discretize_2d_array_cuda` for when the FULL ``arr`` upload would not
+    safely fit in free VRAM. Uploads ``arr`` in row-chunks small enough to fit; the two methods handle the
+    cross-chunk statistic differently:
+
+    * ``method="uniform"``: EXACT, no approximation. Column min/max are genuinely reducible across row-
+      chunks (running min/max, pass 1), then the elementwise bin formula is applied per row-chunk (pass 2)
+      using the exact global min/max -- bit-identical to :func:`discretize_2d_array_cuda`.
+    * ``method="quantile"``: APPROXIMATE by construction. Exact quantiles need the full column's order
+      statistics, which is NOT reducible across row-chunks without a streaming quantile algorithm. Instead,
+      bin edges are computed from a GPU-resident random SUBSAMPLE (``quantile_subsample_rows``, default
+      ``None`` -> ``feature_engineering.UNIFIED_FE_SUBSAMPLE_N`` = 30_000, the SAME validated MI-sweep
+      subsample size used throughout MRMR's FE pipeline -- jaccard=1.0 vs full-n at 50k+, 0.88 at 5k, per
+      the bench backing that constant. Quantile-edge estimation has far lower sampling variance than the
+      MI estimation that constant was validated for, so 30k is comfortably sufficient here too) then
+      applied via row-chunked ``searchsorted`` (exact application of approximate edges). This matches the
+      project's documented FE/MRMR exception (a binning/candidate-MI speed lever's bar is SELECTION-
+      equivalence, not bit-identical MI). See
+      ``tests/feature_selection/discretization/test_discretize_2d_array_row_chunked.py`` for the
+      closeness/selection-equivalence validation.
+
+    Returns a plain ``np.ndarray`` (D2H happens per row-chunk, not as one giant transfer at the end).
+    """
+    import cupy as cp
+
+    if quantile_subsample_rows is None:
+        from mlframe.feature_selection.filters.feature_engineering import UNIFIED_FE_SUBSAMPLE_N
+
+        quantile_subsample_rows = UNIFIED_FE_SUBSAMPLE_N
+
+    if method not in ("quantile", "uniform"):
+        raise NotImplementedError(f"discretize_2d_array_cuda_row_chunked implements 'quantile' / 'uniform'; got method={method!r}")
+    if arr.ndim != 2:
+        raise ValueError(f"expected 2-D array; got shape {arr.shape}")
+
+    n_rows, n_cols = arr.shape
+    if n_rows == 0 or n_cols == 0:
+        return np.empty(arr.shape, dtype=dtype)
+
+    dtype = _safe_code_dtype(n_bins, dtype)
+    _out_cp_dtype = cp.int8 if dtype == np.int8 else cp.asarray(np.zeros(1, dtype=dtype)).dtype
+
+    try:
+        free_b, _total_b = cp.cuda.runtime.memGetInfo()
+    except Exception:
+        free_b = 512 * 1024 * 1024  # conservative fallback if the probe is unavailable
+    row_chunk_rows = _choose_discretize_row_chunk_rows(n_cols, arr.dtype.itemsize, free_b)
+    _quantile_subsample_note = f", quantile_subsample_rows={min(n_rows, quantile_subsample_rows)}/{n_rows}" if method == "quantile" else ""
+    logger.info(
+        "discretize_2d_array_cuda_row_chunked: method=%s n_rows=%d n_cols=%d in_dtype=%s -> row_chunk_rows=%d "
+        "(%d chunk(s)), free_vram=%.2fGB%s",
+        method, n_rows, n_cols, arr.dtype, row_chunk_rows, -(-n_rows // row_chunk_rows), free_b / 1024**3,
+        _quantile_subsample_note,
+    )
+
+    out: np.ndarray = np.empty((n_rows, n_cols), dtype=dtype)
+    n_chunks = 0
+
+    if method == "uniform":
+        col_min_d: Any = None
+        col_max_d: Any = None
+        for row_start in range(0, n_rows, row_chunk_rows):
+            row_end = min(row_start + row_chunk_rows, n_rows)
+            d_chunk = cp.asarray(arr[row_start:row_end])
+            cmin = cp.min(d_chunk, axis=0)
+            cmax = cp.max(d_chunk, axis=0)
+            col_min_d = cmin if col_min_d is None else cp.minimum(col_min_d, cmin)
+            col_max_d = cmax if col_max_d is None else cp.maximum(col_max_d, cmax)
+            del d_chunk
+        _rng = col_max_d - col_min_d
+        _rng_safe = cp.where(_rng > 0, _rng, 1.0)
+        rev = n_bins / _rng_safe
+        for row_start in range(0, n_rows, row_chunk_rows):
+            row_end = min(row_start + row_chunk_rows, n_rows)
+            d_chunk = cp.asarray(arr[row_start:row_end])
+            out_f = (d_chunk - col_min_d) * rev
+            out_f = cp.where(_rng > 0, out_f, 0.0)
+            out_f = cp.clip(out_f, 0, n_bins - 1)
+            out[row_start:row_end] = cp.asnumpy(out_f.astype(_out_cp_dtype))
+            del d_chunk, out_f
+            n_chunks += 1
+    else:  # quantile
+        sub_n = min(n_rows, quantile_subsample_rows)
+        if sub_n < n_rows:
+            sub_idx = np.sort(np.random.default_rng(0).choice(n_rows, size=sub_n, replace=False))
+            sub_arr = arr[sub_idx]
+        else:
+            sub_arr = arr
+        d_sub = cp.asarray(sub_arr)
+        qs = cp.linspace(0.0, 100.0, n_bins + 1)
+        bin_edges = cp.percentile(d_sub, qs, axis=0)
+        del d_sub
+        for row_start in range(0, n_rows, row_chunk_rows):
+            row_end = min(row_start + row_chunk_rows, n_rows)
+            d_chunk = cp.asarray(arr[row_start:row_end])
+            if n_cols >= 1000:
+                chunk_out = _discretize_quantile_rawkernel(d_chunk, bin_edges, n_bins, _out_cp_dtype)
+            else:
+                chunk_out = cp.empty((row_end - row_start, n_cols), dtype=_out_cp_dtype)
+                for j in range(n_cols):
+                    chunk_out[:, j] = cp.searchsorted(bin_edges[1:-1, j], d_chunk[:, j], side="right")
+            out[row_start:row_end] = cp.asnumpy(chunk_out)
+            del d_chunk, chunk_out
+            n_chunks += 1
+
+    logger.debug(
+        "discretize_2d_array_cuda_row_chunked: method=%s n_rows=%d n_cols=%d row_chunk_rows=%d n_chunks=%d",
+        method, n_rows, n_cols, row_chunk_rows, n_chunks,
+    )
+    return out
 
 
 def _discretize_quantile_rawkernel(d_arr, bin_edges, n_bins, out_cp_dtype):

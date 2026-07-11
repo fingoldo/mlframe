@@ -28,12 +28,16 @@ def _discretize_input_dtype():
     (already large) engineered float frame, and is the dominant term of the large-n FE peak (a 1M-row
     fit projects to ~21GB, OOMing a 16GB box). Quantile / MDLP edges + searchsorted do NOT need
     float64: float32 edges differ only at ~1e-7 (far below the selection-altering ~1e-3 bar) and only
-    for values sitting exactly on a bin edge. ``MLFRAME_DISCRETIZE_FLOAT32=1`` halves that copy.
-    Default float64 (byte-for-byte legacy) so it is opt-in + reversible until validated default-on.
+    for values sitting exactly on a bin edge.
+
+    DEFAULT ON as of 2026-07-09 (the ~21GB->~10GB memory cut; corrective mechanisms default ON once
+    validated -- see ``tests/feature_selection/MRMR_FE_PERF_NOTES.md`` 2026-06-17 entry, which measured
+    selection IDENTICAL float32-vs-float64 on the canonical 60k fit). Set ``MLFRAME_DISCRETIZE_FLOAT32=0``
+    to force the legacy float64 path (e.g. bit-exact replay of a pre-2026-07-09 fit).
     """
-    if os.environ.get("MLFRAME_DISCRETIZE_FLOAT32", "").strip() in ("1", "true", "True"):
-        return np.float32
-    return np.float64
+    if os.environ.get("MLFRAME_DISCRETIZE_FLOAT32", "").strip() in ("0", "false", "False"):
+        return np.float64
+    return np.float32
 
 
 # ---------------------------------------------------------------------------
@@ -58,6 +62,14 @@ _NUMERIC_CODE_CACHE_BYTES = 0
 # byte counter so concurrent workers cannot corrupt the dict (RuntimeError on concurrent mutation) or drift
 # the accounting. The expensive discretize kernel + blake2b hashing stay OUTSIDE the lock -> still parallel.
 _NUMERIC_CODE_CACHE_LOCK = threading.Lock()
+
+
+def _log_numeric_code_cache_occupancy() -> None:
+    """Emit a DEBUG-level snapshot of the process-wide numeric-code cache's current occupancy (entry count + bytes vs its cap), so cache growth/eviction is visible when needed without polling the module globals directly."""
+    logger.debug(
+        "categorize_dataset: numeric-code cache occupancy: %d entries, %d bytes (cap %d bytes).",
+        len(_NUMERIC_CODE_CACHE), _NUMERIC_CODE_CACHE_BYTES, _NUMERIC_CODE_CACHE_MAX_BYTES,
+    )
 
 
 def clear_numeric_code_cache() -> int:
@@ -236,8 +248,9 @@ def categorize_dataset(
     # np.searchsorted(NaN -> ej.size).
     _nan_mask = np.isnan(arr) if (missing_strategy in ("separate_bin", "propagate") and arr.size > 0) else None
 
-    # Unified NaN handling for both pandas and polars.
-    arr = _handle_missing(arr, strategy=missing_strategy)
+    # Unified NaN handling for both pandas and polars. Pass the already-computed ``_nan_mask`` (when
+    # available) so _handle_missing does not rescan ``arr`` for NaN a second time.
+    arr = _handle_missing(arr, strategy=missing_strategy, nan_mask=_nan_mask)
 
     # 2026-05-29 Wave 7: per-column adaptive bin chooser.
     # When ``nbins_strategy`` is provided, compute per-column edges via the
@@ -422,8 +435,10 @@ def categorize_dataset(
         n_rows = data.shape[0] if data is not None else 0
         n_cols = len(numerical_cols) + len(categorical_cols)
         empty = data if data is not None else np.empty((n_rows, n_cols), dtype=dtype)
+        _log_numeric_code_cache_occupancy()
         return empty, numerical_cols + categorical_cols, np.zeros(n_cols, dtype=np.int64)
 
     nbins = data.max(axis=0).astype(np.int64) + 1
 
+    _log_numeric_code_cache_occupancy()
     return data, numerical_cols + categorical_cols, nbins

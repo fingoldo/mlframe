@@ -294,3 +294,56 @@ class TestFastVsFallbackEquivalence:
         monkeypatch.setattr(fe_mod, "_FE_BUFFER_RAM_BUDGET_RATIO", 0.0)
         slow = _run_check(synthetic_pair_inputs, unary_preset="minimal", binary_preset="minimal")
         assert sorted(fast[(0, 1)][2]) == sorted(slow[(0, 1)][2])
+
+
+class TestAbsoluteBufferCeiling:
+    """2026-07-09: the relative budget (0.3*(available-reserve)/(3.0*n_workers)) re-inflates the hoisted
+    buffer to tens of GB every time psutil reports abundant free RAM (the audit's RAM-sawtooth root-cause
+    candidate). An ABSOLUTE ceiling (``_fe_buffer_absolute_max_bytes``, default 8 GiB, env
+    ``MLFRAME_FE_BUFFER_MAX_GB``) must cap the decision regardless of how much RAM is free."""
+
+    def _force_avail(self, monkeypatch, available_bytes):
+        monkeypatch.setattr(fe_mod, "_FE_VMEM_CACHE", (fe_mod._time.monotonic(), int(available_bytes)))
+
+    def test_budget_does_not_scale_unboundedly_with_available_ram(self, monkeypatch):
+        """Pre-fix: the relative budget scales linearly with ``available`` with no cap, so a huge-RAM
+        host computes a huge budget. Post-fix: the budget is clamped at the absolute ceiling."""
+        ceiling = fe_mod._fe_buffer_absolute_max_bytes()
+        huge_available = 1024 * (2 ** 30)  # 1 TiB
+        budget_huge = fe_mod._fe_effective_buffer_budget_bytes(huge_available, n_workers=1)
+        assert budget_huge <= ceiling, f"budget {budget_huge} must not exceed the absolute ceiling {ceiling}"
+        # Without the ceiling, 0.3*(1TiB-3GiB)/3.0 would be ~104 GiB -- far above any sane single-buffer cap.
+        unclamped_estimate = (huge_available - fe_mod._fe_min_free_ram_bytes()) * fe_mod._FE_BUFFER_RAM_BUDGET_RATIO / fe_mod._FE_PEAK_OVERHEAD_FACTOR
+        assert unclamped_estimate > ceiling, "fixture must actually exercise the clamp (huge RAM must out-scale the ceiling)"
+
+    def test_can_hoist_declines_buffer_above_ceiling_even_with_abundant_ram(self, monkeypatch):
+        """A buffer above the absolute ceiling must be declined even when available RAM is enormous and
+        both the relative-budget AND absolute-headroom paths would otherwise accept it."""
+        ceiling = fe_mod._fe_buffer_absolute_max_bytes()
+        self._force_avail(monkeypatch, 1024 * (2 ** 30))  # 1 TiB free
+        buf = ceiling + (1 * 2 ** 30)  # 1 GiB over the ceiling
+        can, bb, av = fe_mod._can_hoist_shared_buffer(buf, n_workers=1)
+        assert can is False, "buffer above the absolute ceiling must be declined regardless of available RAM"
+        assert bb == buf
+
+    def test_buffer_at_or_below_ceiling_unaffected(self, monkeypatch):
+        """A small buffer under abundant RAM is unaffected by the new ceiling (still hoists)."""
+        self._force_avail(monkeypatch, 64 * (2 ** 30))  # 64 GiB free
+        can, _bb, _av = fe_mod._can_hoist_shared_buffer(1 * (2 ** 20), n_workers=1)  # 1 MiB request
+        assert can is True
+
+    def test_ceiling_env_override(self, monkeypatch):
+        monkeypatch.setenv("MLFRAME_FE_BUFFER_MAX_GB", "2.0")
+        assert fe_mod._fe_buffer_absolute_max_bytes() == int(2.0 * 2 ** 30)
+        monkeypatch.setenv("MLFRAME_FE_BUFFER_MAX_GB", "garbage")
+        assert fe_mod._fe_buffer_absolute_max_bytes() == int(fe_mod._FE_BUFFER_ABSOLUTE_MAX_GB * 2 ** 30)
+
+    def test_decision_logging_fires_at_debug_level(self, monkeypatch, caplog):
+        """_can_hoist_shared_buffer must log its buffer/available/decision at DEBUG level."""
+        import logging
+        self._force_avail(monkeypatch, 8 * (2 ** 30))
+        with caplog.at_level(logging.DEBUG, logger=fe_mod.logger.name):
+            fe_mod._can_hoist_shared_buffer(1024, n_workers=1)
+        assert any("_can_hoist_shared_buffer" in rec.message for rec in caplog.records), (
+            "expected a DEBUG log line documenting the hoist/recompute decision"
+        )

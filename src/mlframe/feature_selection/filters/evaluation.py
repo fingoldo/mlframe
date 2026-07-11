@@ -493,15 +493,19 @@ def evaluate_candidate(
     # Is this candidate any good for target 1-vs-1?
     if X in cached_confident_MIs:  # type: ignore[operator]  # caller always supplies a dict; cached_confident_MIs first -- more reliable (but don't fill them here).
         # cached_confident_MIs stores (bootstrapped_gain, confidence) tuples (see confirm_candidate); take the gain.
-        # INVARIANT: a candidate only lands in cached_confident_MIs AFTER permutation confirmation, at which point its
-        # cand_idx is in added_/failed_candidates and should_skip_candidate filters it out before re-entry here -- so under
-        # a normal fit this branch is unreachable. It is kept (and made explicit) only as a safety net: if the skip
-        # invariant ever breaks, the bootstrapped gain MUST still pass the same SU floor-scaling the else-path applies,
-        # otherwise a raw-MI-scale value would be compared against an SU-scale min_relevance_gain floor (it is already
-        # permutation-confirmed, so it does NOT re-enter the null-debiasing/significance gate -- re-applying that would
-        # double-penalise). Log once if reached so a broken invariant is diagnosable rather than silently mis-scoring.
-        logger.warning(
-            "evaluate_candidate: confirmed candidate %s re-entered the cached_confident_MIs branch (skip-invariant broken); "
+        # WITHIN one screen_predictors() round, a candidate only lands in cached_confident_MIs AFTER permutation
+        # confirmation, at which point its cand_idx is in added_/failed_candidates and should_skip_candidate filters it
+        # out before re-entry here. ACROSS rounds this branch is legitimately reachable (2026-07-09, seed_caches
+        # cross-round threading): added_/failed_candidates are round-local (their cand_idx indexing is not stable
+        # across rounds, since the candidate pool changes shape), so a candidate confirmed in an earlier round is
+        # correctly re-scored here on a later round rather than treated as already-decided. This is proven
+        # equivalent by controlled A/B (seed_caches with vs without cached_confident_MIs threaded: identical
+        # selection on the canonical signal/noise fixture) -- the bootstrapped gain still passes the same SU
+        # floor-scaling the else-path applies (it is already permutation-confirmed, so it does NOT re-enter the
+        # null-debiasing/significance gate -- re-applying that would double-penalise). DEBUG, not WARNING: this is
+        # the expected steady-state path for a multi-round fit, not an anomaly to investigate.
+        logger.debug(
+            "evaluate_candidate: confirmed candidate %s re-entered the cached_confident_MIs branch on a later round; "
             "scoring it through the SU floor-scaling guard.", X,
         )
         direct_gain, _ = cached_confident_MIs[X]  # type: ignore[index]
@@ -547,21 +551,47 @@ def evaluate_candidate(
             # all-noise and >90% pass rate on signal/synergy.
             _bnp = max(2, int(baseline_npermutations))
             if use_gpu:
-                direct_gain, _, null_mean, p_value = mi_direct_gpu(
-                    factors_data,
-                    x=tuple(X),
-                    y=tuple(y),
-                    factors_nbins=factors_nbins,
-                    classes_y=classes_y,
-                    classes_y_safe=classes_y_safe,
-                    freqs_y=freqs_y,
-                    freqs_y_safe=freqs_y_safe,
-                    min_nonzero_confidence=0.0,
-                    max_failed=_bnp,
-                    npermutations=_bnp,
-                    dtype=dtype,
-                    return_null_mean=True,
-                )
+                # Wrapped in try/except (2026-07-09 fix): this call previously had NO exception handling, unlike
+                # every sibling GPU dispatch point in this codebase (_cmi_cuda.py's circuit breaker, mi_direct's
+                # own internal GPU fastpath try/except) -- a single CUDA fault here (driver hiccup, transient OOM,
+                # a poisoned context from an EARLIER unrelated GPU call) would propagate all the way up and crash
+                # the whole MRMR.fit(), not just degrade to CPU for this one candidate. Falls back to the exact
+                # CPU path (same args as the ``else`` branch below) on any failure.
+                try:
+                    direct_gain, _, null_mean, p_value = mi_direct_gpu(
+                        factors_data,
+                        x=tuple(X),
+                        y=tuple(y),
+                        factors_nbins=factors_nbins,
+                        classes_y=classes_y,
+                        classes_y_safe=classes_y_safe,
+                        freqs_y=freqs_y,
+                        freqs_y_safe=freqs_y_safe,
+                        min_nonzero_confidence=0.0,
+                        max_failed=_bnp,
+                        npermutations=_bnp,
+                        dtype=dtype,
+                        return_null_mean=True,
+                    )
+                except Exception as _gpu_exc:
+                    logger.warning(
+                        "evaluate_candidate: GPU relevance MI failed (%s: %s); falling back to CPU for this candidate.",
+                        type(_gpu_exc).__name__, _gpu_exc,
+                    )
+                    direct_gain, _, null_mean, p_value = mi_direct(
+                        factors_data,
+                        x=tuple(X),
+                        y=tuple(y),
+                        factors_nbins=factors_nbins,
+                        classes_y=classes_y,
+                        classes_y_safe=classes_y_safe,
+                        freqs_y=freqs_y,
+                        min_nonzero_confidence=0.0,
+                        max_failed=_bnp,
+                        npermutations=_bnp,
+                        dtype=dtype,
+                        return_null_mean=True,
+                    )
                 # SAME significance-gated relevance debiasing as the CPU branch below (audit5-P1). Without it the
                 # GPU path returned RAW plug-in MI, inflating high-cardinality / heavy-tailed / monotone-datetime
                 # / engineered columns above genuine lower-cardinality signal, AND making selection
