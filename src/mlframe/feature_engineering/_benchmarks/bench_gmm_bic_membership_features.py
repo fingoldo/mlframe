@@ -25,6 +25,12 @@ def _run(n_rows: int, n_features: int) -> None:
     gmm_bic_membership_features(df, n_components_range=(2, 3, 4, 5, 6))
 
 
+def _run_with_new_df(n_rows: int, n_features: int) -> None:
+    df = _make_dataset(n_rows, n_features, seed=0)
+    new_df = _make_dataset(max(n_rows // 5, 100), n_features, seed=1)
+    gmm_bic_membership_features(df, n_components_range=(2, 3, 4, 5, 6), new_df=new_df)
+
+
 if __name__ == "__main__":
     for n_rows, n_features in [(1000, 5), (5000, 5), (5000, 15)]:
         t0 = time.perf_counter()
@@ -32,9 +38,24 @@ if __name__ == "__main__":
         wall = time.perf_counter() - t0
         print(f"n_rows={n_rows:>5} n_features={n_features:>3} -> {wall * 1000:9.2f} ms")
 
+    for n_rows, n_features in [(1000, 5), (5000, 5), (5000, 15)]:
+        t0 = time.perf_counter()
+        _run_with_new_df(n_rows, n_features)
+        wall = time.perf_counter() - t0
+        print(f"[new_df] n_rows={n_rows:>5} n_features={n_features:>3} -> {wall * 1000:9.2f} ms")
+
     profiler = cProfile.Profile()
     profiler.enable()
     _run(5000, 15)
+    profiler.disable()
+    buf = StringIO()
+    stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
+    stats.print_stats(15)
+    print(buf.getvalue())
+
+    profiler = cProfile.Profile()
+    profiler.enable()
+    _run_with_new_df(5000, 15)
     profiler.disable()
     buf = StringIO()
     stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")

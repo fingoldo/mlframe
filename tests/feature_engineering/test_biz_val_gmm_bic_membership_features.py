@@ -53,3 +53,35 @@ def test_gmm_bic_membership_features_rows_sum_to_one():
     membership = gmm_bic_membership_features(df, n_components_range=(2, 3, 4))
     row_sums = membership.sum(axis=1).to_numpy()
     np.testing.assert_allclose(row_sums, np.ones(200), atol=1e-6)
+
+
+def test_gmm_bic_membership_features_new_df_none_is_bit_identical_to_prior_behavior():
+    # Regression test: the opt-in `new_df` parameter must not change default behavior at all.
+    df, _, _ = _make_cluster_driven_dataset(n=300, seed=3)
+    baseline = gmm_bic_membership_features(df, n_components_range=(2, 3, 4, 5), random_state=0)
+    extended = gmm_bic_membership_features(df, n_components_range=(2, 3, 4, 5), random_state=0, new_df=None)
+    pd.testing.assert_frame_equal(baseline, extended)
+    assert baseline.attrs == {}
+
+
+def test_biz_val_gmm_membership_features_detects_train_test_distribution_shift():
+    # The win: fit the GMM on in-distribution data, then score a batch drawn from a materially different
+    # region of feature space. Without a diagnostic, the returned membership probabilities look like
+    # ordinary features with no signal that the GMM's density model no longer describes this data --
+    # a silent-garbage failure mode. `gmm_shift_diagnostics` must flag this batch and NOT flag an
+    # in-distribution batch drawn from the same generating process as training.
+    df, _, _ = _make_cluster_driven_dataset(n=1500, seed=4)
+
+    rng = np.random.default_rng(5)
+    in_distribution_new, _, _ = _make_cluster_driven_dataset(n=300, seed=6)
+    shifted_new = pd.DataFrame(rng.normal(loc=40, scale=1.5, size=(300, 2)), columns=["x1", "x2"])  # far outside all 4 training clusters
+
+    in_dist_result = gmm_bic_membership_features(df, n_components_range=(2, 3, 4, 5, 6, 8), random_state=0, new_df=in_distribution_new)
+    shifted_result = gmm_bic_membership_features(df, n_components_range=(2, 3, 4, 5, 6, 8), random_state=0, new_df=shifted_new)
+
+    in_dist_diag = in_dist_result.attrs["gmm_shift_diagnostics"]
+    shifted_diag = shifted_result.attrs["gmm_shift_diagnostics"]
+
+    assert in_dist_diag["distribution_shift_detected"] is False, f"expected no shift flag on in-distribution new data, got diagnostics={in_dist_diag}"
+    assert shifted_diag["distribution_shift_detected"] is True, f"expected a shift flag on far-out-of-distribution new data, got diagnostics={shifted_diag}"
+    assert shifted_diag["shift_zscore"] > 20, f"expected a large shift z-score for badly out-of-distribution data, got {shifted_diag['shift_zscore']:.2f}"
