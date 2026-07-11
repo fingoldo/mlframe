@@ -13,9 +13,13 @@ Investigation summary (7-step ablation on the Layer-101 mega fixture):
       3. raw x1 (the STRONGEST signal) is out-ranked by overfit-in-sample-MI engineered / high-card columns and
          dropped, and a 50-level noise categorical (``cat_b``) is sometimes selected over real signal.
 
-These sensors assert the CORRECT contract and are EXPECTED TO FAIL until Fix A1 (fallback fires on 0-raw),
-Fix A2 (floor never empties), and Fix B (wide-pool MI debiasing) land. They are NOT xfail -- they surface real
-production bugs and must be fixed, not masked.
+These sensors assert the CORRECT contract. Fix A1 (fallback fires on 0-raw), Fix A2 (floor never
+empties), and Fix B (wide-pool MI debiasing) have since landed -- all sensors in this file now pass
+(2026-07-10: confirmed 22/22 green after fixing an unrelated ``_support_names`` helper bug that had been
+masking the real assertions behind a spurious ``ValueError`` on every run, including this file's own
+POSITIVE sensor). They were never xfail while the bugs were open -- they surfaced real production bugs
+and stayed red on purpose until fixed; kept as plain (non-xfail) regression sensors now that they pass,
+so a future regression in any of Fix A1/A2/B fails loudly again.
 """
 import importlib.util
 import os
@@ -35,7 +39,8 @@ COLLAPSE_SEEDS = [0, 7, 13, 42]
 
 
 def _support_names(m):
-    ni = list(getattr(m, "feature_names_in_", []) or [])
+    _ni = getattr(m, "feature_names_in_", None)
+    ni = list(_ni) if _ni is not None else []
     return [ni[i] if i < len(ni) else f"idx{i}" for i in np.asarray(m.support_).ravel()]
 
 

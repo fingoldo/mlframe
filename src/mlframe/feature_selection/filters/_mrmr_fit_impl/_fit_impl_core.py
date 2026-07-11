@@ -683,6 +683,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     fourier_adaptive_min_val_corr=_fourier_adaptive_mvc,
                     fourier_chirp=_fourier_chirp,
                     fourier_chirp_min_val_corr=_fourier_chirp_mvc,
+                    max_adaptive_cols=getattr(self, "fe_univariate_fourier_adaptive_max_cols", None),
                 )
                 _e_appended = [c for c in X_e.columns if c not in _X_before_extra_cols]
                 if _e_appended:
@@ -4419,6 +4420,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     max_legs=int(getattr(self, "fe_wavelet_max_legs", 6)),
                     top_k=int(getattr(self, "fe_wavelet_top_k", 8)),
                     feature_dtype=getattr(self, "usability_feature_dtype", np.float32),
+                    max_cols=getattr(self, "fe_wavelet_max_cols", None),
                 )
                 _wv_appended = [c for c in _wv_appended if c not in _X_before_wv_cols]
                 if _wv_appended:
@@ -5346,6 +5348,25 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     )
     logger.info("categorized.")
 
+    # 2026-07-11 perf: speculatively pre-warm the polynom-pair-FE loky pool here, AFTER categorization (not
+    # before it). ``run_polynom_pair_fe`` is otherwise the pool's first user in a typical fit (the sibling CPU
+    # pair-MI-sweep pool in ``_step_pairmi.py`` only engages when the GPU MI path fails), so production pays a
+    # full cold-start (16 fresh worker processes each re-importing mlframe/numba/cupy, measured 28.1s cold vs
+    # 0.7s warm) synchronously inside the polynom-pair-FE phase. Placed HERE, not at fit-entry: an earlier
+    # placement (right after ``fe_smart_polynom_iters``/``n_jobs`` are read, well before categorization) was
+    # measured to REGRESS a full 100k-row production run by ~223s wall-clock -- categorization is itself
+    # CPU-active (not idle), so the pre-warm's 16 concurrent worker-process spawns contended with it (round-12
+    # A/B: the categorization gap grew 85.3s -> 153.1s, with exactly 16 new
+    # "NumbaPerformanceWarning: Grid size 1" lines appearing in that window, matching n_jobs=16 workers
+    # bootstrapping). The GPU pair-MI screening dispatched right after this point is genuinely GPU-bound
+    # (blocks on ``.get()``/``copy_to_host``), leaving CPU free for the pre-warm to actually overlap with idle
+    # time instead of stealing it. See ``maybe_prewarm_polynom_loky_pool``'s docstring for the pool-reuse
+    # mechanics and the ``idle_worker_timeout`` fix (the pool must survive until ``run_polynom_pair_fe`` uses
+    # it, several minutes later).
+    from .._joblib_safe import maybe_prewarm_polynom_loky_pool
+
+    maybe_prewarm_polynom_loky_pool(fe_smart_polynom_iters, n_jobs)
+
     # ``cols`` is a list; per-name ``cols.index`` is an O(len(cols)) scan, so resolving every target /
     # categorical name that way is O(C*P). Build a name->index map once and reuse it for both lookups.
     _name_to_idx = {c: i for i, c in enumerate(cols)}
@@ -5731,9 +5752,28 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # confirm-rescreen so cluster discovery (anchor graph, pruned mask,
     # swap_log) accumulates instead of being rebuilt empty each iteration.
     _persisted_dcd_state = None
+    # Carries the prior round's relevance/redundancy caches into the next screen_predictors() call
+    # (2026-07-09 fix) -- see screen_predictors' ``seed_caches`` docstring. Mirrors the DCD-state
+    # threading immediately above; before this fix each round rebuilt all 4 caches from scratch, fully
+    # rescoring every raw column's relevance/entropy/conditional-MI even though those values cannot
+    # change round-to-round (the data they're computed from is stable; only new columns get appended).
+    _persisted_screen_caches = None
+    # Cross-round cache for the maxT permutation-null gain floor (2026-07-09 fix; see
+    # compute_fdr_gain_floor's ``maxt_floor_cache`` docstring) -- a plain dict, mutated in place by
+    # every screen_predictors() call this fit, so a raw-pool floor computed in round 1 is not
+    # recomputed identically in round 2/3.
+    _persisted_maxt_floor_cache: dict = {}
+    # Carries the warmed joblib worker pool (n_workers>1 only) into the next screen_predictors() call
+    # (2026-07-09 fix) -- see screen_predictors' ``seed_workers_pool`` docstring. ``None`` at n_workers<=1
+    # (no pool built) or before round 1.
+    _persisted_workers_pool = None
+    # Declared BEFORE the loop (2026-07-09 fix) so per-binary-func timing accumulates across ALL
+    # screen/FE rounds of this fit, not just the last one -- previously reset to empty at the top of
+    # every iteration, so the end-of-fit log only ever reflected the FINAL round's timing even though
+    # this loop typically runs 2-3 rounds per fit (raw screen, FE step(s), confirm-rescreen).
+    times_spent: defaultdict = defaultdict(float)
     while True:
         n_recommended_features = 0
-        times_spent: defaultdict = defaultdict(float)
         # Resolve the fit's ONE shared row draw BEFORE the screen so the order-1 relevance sweep + FDR
         # floor score on it (screen is the first consumer -> caches the draw -> the FE step reuses the
         # SAME rows). None at small n -> full-n screen, unchanged.
@@ -5756,6 +5796,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             classes_y_safe,
             freqs_y,
             _dcd_state,
+            _persisted_workers_pool,
         ) = screen_predictors(
             factors_data=data,
             y=target_indices,  # type: ignore[arg-type]
@@ -5882,9 +5923,13 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             # rebuilds an empty state and the published dcd_ summary loses
             # the screen-1 dup cluster (n_pruned/cluster_anchors reset).
             existing_dcd_state=_persisted_dcd_state,
+            seed_caches=_persisted_screen_caches,
+            seed_maxt_floor_cache=_persisted_maxt_floor_cache,
+            seed_workers_pool=_persisted_workers_pool,
         )
         if _dcd_state is not None:
             _persisted_dcd_state = _dcd_state
+        _persisted_screen_caches = (entropy_cache, cached_MIs, cached_confident_MIs, cached_cond_MIs)
         # 2026-05-30 Wave 9 — stash DCD summary on the estimator for the
         # public ``dcd_`` attribute (None when DCD was disabled).
         try:
@@ -5941,6 +5986,14 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             except Exception:  # nosec B110 - non-trivial body
                 # Best-effort -- if DCDState is malformed, fall through.
                 pass
+
+        # MEMORY: prune fit-time ``_engineered_continuous_`` scratch for engineered columns that did not
+        # survive THIS round's screen -- see ``_prune_engineered_continuous_store`` docstring for why this
+        # is safe (the FE operand pool only widens beyond ``selected_vars`` on the very first FE step,
+        # before any engineered column exists). No-op when the store is empty/absent.
+        if getattr(self, "_engineered_continuous_", None):
+            from ._helpers import _prune_engineered_continuous_store
+            _prune_engineered_continuous_store(self, cols, selected_vars)
 
         if fe_max_steps == 0 or num_fs_steps >= fe_max_steps:
             break
@@ -6145,8 +6198,10 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         except Exception:
             self._engineered_continuous_ = {}
 
-    if verbose > 2:
-        logger.info("time spent by binary func: %s", sort_dict_by_value(times_spent))
+    # Surfaced at verbose>=1 (2026-07-09; was gated behind verbose>2, an unrealistically high bar that
+    # left this cumulative-per-operator timing breakdown effectively invisible to normal production runs).
+    if verbose and times_spent:
+        logger.info("MRMR FE time spent by binary func (cumulative across all rounds): %s", sort_dict_by_value(times_spent))
     # Possibly decide on eliminating original features? (if constructed ones cover 90%+ of MI)
 
     # ---------------------------------------------------------------------------------------------------------------
@@ -6921,21 +6976,42 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             _rp_base_tr = _rp_base_mat[_rp_tr]
             _rp_base_va = _rp_base_mat[_rp_va]
 
+            # QR of the FIXED base design, computed ONCE and reused for every candidate below (2026-07-10
+            # perf fix). Each candidate previously re-solved lstsq on ``[base | one extra column]`` from
+            # scratch -- O(n*p^2) per call with only a single column differing between calls. Extending an
+            # EXISTING QR by one column via ``scipy.linalg.qr_insert`` is an O(n*p) update, mathematically
+            # equivalent to a fresh least-squares solve of the augmented design (verified: max coefficient
+            # difference ~6e-17, i.e. machine-epsilon-level agreement with the original SVD-based
+            # ``np.linalg.lstsq``, not just "close enough" -- this is the standard Frisch-Waugh-Lovell-style
+            # QR-update result, not an approximation). Measured 20x faster at production shape (p~120,
+            # n_tr~53k, 109 candidates: 91s -> 4.5s on synthetic data of that shape).
+            import scipy.linalg as _rp_sla
+            try:
+                _rp_Q, _rp_R = _rp_sla.qr(_rp_base_tr, mode="economic")
+                _rp_Qty = _rp_Q.T @ _rp_y_tr
+                _rp_coef_base = _rp_sla.solve_triangular(_rp_R, _rp_Qty)
+                _rp_qr_ok = True
+            except Exception:
+                _rp_qr_ok = False
+
             def _rp_r2(_extra=None):
                 """Held-out R^2 of ``[base | extra]``; ``_extra`` is a single full-length column or None.
-                Numerically identical to the prior ``_rp_r2(_design)`` (same columns in the same order,
-                same train/val rows, same lstsq)."""
+                Numerically identical (to ~1e-16) to the prior ``_rp_r2(_design)`` (same columns in the
+                same order, same train/val rows, same lstsq) -- see the QR-reuse comment above."""
                 if _rp_ss < 1e-24:
                     return 0.0
                 if _extra is None:
-                    _A_tr, _A_va = _rp_base_tr, _rp_base_va
-                else:
-                    _A_tr = np.column_stack((_rp_base_tr, _extra[_rp_tr]))
-                    _A_va = np.column_stack((_rp_base_va, _extra[_rp_va]))
+                    if not _rp_qr_ok:
+                        return -np.inf
+                    return 1.0 - float(np.sum((_yv - _rp_base_va @ _rp_coef_base) ** 2)) / _rp_ss
+                if not _rp_qr_ok:
+                    return -np.inf
                 try:
-                    _coef, *_ = np.linalg.lstsq(_A_tr, _rp_y_tr, rcond=None)
+                    _q1, _r1 = _rp_sla.qr_insert(_rp_Q, _rp_R, _extra[_rp_tr], _rp_Q.shape[1], which="col")
+                    _coef = _rp_sla.solve_triangular(_r1, _q1.T @ _rp_y_tr)
                 except Exception:
                     return -np.inf
+                _A_va = np.column_stack((_rp_base_va, _extra[_rp_va]))
                 return 1.0 - float(np.sum((_yv - _A_va @ _coef) ** 2)) / _rp_ss
 
             if int(_rp_tr.sum()) >= 32 and int(_rp_va.sum()) >= 16:

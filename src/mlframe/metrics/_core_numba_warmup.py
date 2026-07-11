@@ -285,11 +285,19 @@ def _prewarm_numba_cache_body():
     logits_multi = np.array([[-1.0, 0.0, 1.0], [0.5, -0.5, 0.0], [0.0, 1.0, -1.0]], dtype=np.float64)
     _ = cb_logits_to_probs_multiclass(logits_multi)
 
-    # Prewarm parallel-numba variants. Each `_par` variant is a separate numba compilation; the `parallel=True` IR adds ~1-3s per kernel on first call from a fresh process.
+    # Prewarm parallel-numba variants. Each `_par` variant is a separate numba compilation; the `parallel=True` IR adds ~1-3s per kernel on first call from a fresh process -- ~22 kernels in
+    # this block + the hamming/jaccard block below account for most of prewarm's total cost (measured ~50s of a 100k-row wellbore run's wall time). Every `_par` kernel here is dispatched to
+    # ONLY when n >= _PARALLEL_REDUCTION_THRESHOLD (100_000, see the size-gated dispatchers in mlframe.metrics.regression/classification) -- a caller whose training data is known to stay
+    # below that threshold for the whole run gains nothing from pre-warming these (the `_seq` fallback, warmed unconditionally alongside them, is all that will ever be called) yet pays the
+    # full compile cost anyway. `MLFRAME_NUMBA_WARMUP_SKIP_PARALLEL=1` skips ONLY the individual `_par` calls below (the interleaved `_seq` calls always still run) -- opt-in, default OFF, so
+    # any caller that doesn't know or doesn't set this keeps today's behavior (both variants warmed, matching the >=100k-row case where the parallel path genuinely gets used and a mid-fit
+    # lazy-compile stall must be avoided).
+    _skip_par_prewarm = _os.environ.get("MLFRAME_NUMBA_WARMUP_SKIP_PARALLEL") == "1"
     try:
         _yt_f64 = np.array([0, 1, 0, 1, 0, 1, 0, 1, 0, 1], dtype=np.float64)
         _yp_f64 = np.array([0.1, 0.9, 0.2, 0.8, 0.3, 0.7, 0.4, 0.6, 0.5, 0.5], dtype=np.float64)
-        _ = _fast_brier_score_loss_par(_yt_f64, _yp_f64)
+        if not _skip_par_prewarm:
+            _ = _fast_brier_score_loss_par(_yt_f64, _yp_f64)
         # iter190 (2026-05-23): also prewarm bool->float64 signature for the
         # _par reductions. c0023 profile attributed 4.156s of
         # _compile_for_args to fast_brier_score_loss across 2 fresh compiles
@@ -299,41 +307,50 @@ def _prewarm_numba_cache_body():
         # upfront but moves it OUT of the first-fit hot path. Same fix
         # applied to fast_log_loss_binary_par for symmetry.
         _yt_bool = _yt_f64.astype(np.bool_)
-        _ = _fast_brier_score_loss_par(_yt_bool, _yp_f64)
-        _ = _fast_log_loss_binary_par(_yt_bool, _yp_f64, 1e-15)
-        _ = _fast_log_loss_binary_par(_yt_f64, _yp_f64, 1e-15)
+        if not _skip_par_prewarm:
+            _ = _fast_brier_score_loss_par(_yt_bool, _yp_f64)
+            _ = _fast_log_loss_binary_par(_yt_bool, _yp_f64, 1e-15)
+            _ = _fast_log_loss_binary_par(_yt_f64, _yp_f64, 1e-15)
         _yt_i64 = np.array([0, 1, 0, 1, 0, 1, 0, 1, 0, 1], dtype=np.int64)
         _yp_i64 = np.array([0, 1, 0, 1, 0, 1, 0, 1, 1, 0], dtype=np.int64)
-        _ = _compute_pr_recall_f1_metrics_par(_yt_i64, _yp_i64)
+        if not _skip_par_prewarm:
+            _ = _compute_pr_recall_f1_metrics_par(_yt_i64, _yp_i64)
         _ml_yt = np.zeros((10, 3), dtype=np.uint8); _ml_yt[:5, 0] = 1
         _ml_yp = np.zeros((10, 3), dtype=np.uint8); _ml_yp[:5, 0] = 1
-        _ = _fast_subset_accuracy_par(_ml_yt, _ml_yp)
-        _ = _fast_jaccard_score_par(_ml_yt, _ml_yp)
+        if not _skip_par_prewarm:
+            _ = _fast_subset_accuracy_par(_ml_yt, _ml_yp)
+            _ = _fast_jaccard_score_par(_ml_yt, _ml_yp)
 
-        _logits_b = np.array([-1.0, 0.0, 1.0, 2.0, -0.5, 0.5, 1.5, -1.5, 0.25, -0.25], dtype=np.float64)
-        _ = _cb_logits_to_probs_binary_par(_logits_b)
-        _logits_mc = np.array([[-1.0, 0.0, 1.0], [0.5, -0.5, 0.0], [0.0, 1.0, -1.0]], dtype=np.float64)
-        _ = _cb_logits_to_probs_multiclass_par(_logits_mc)
-        _ = _max_abs_pct_error_kernel_par(_yt_f64, _yp_f64, numba.get_num_threads())
-        _yt_i64_psep = np.array([0, 1, 0, 1, 0, 1, 0, 1, 0, 1], dtype=np.int64)
-        _ = _probability_separation_score_par(_yt_i64_psep, _yp_f64, 1, 0.5)
+            _logits_b = np.array([-1.0, 0.0, 1.0, 2.0, -0.5, 0.5, 1.5, -1.5, 0.25, -0.25], dtype=np.float64)
+            _ = _cb_logits_to_probs_binary_par(_logits_b)
+            _logits_mc = np.array([[-1.0, 0.0, 1.0], [0.5, -0.5, 0.0], [0.0, 1.0, -1.0]], dtype=np.float64)
+            _ = _cb_logits_to_probs_multiclass_par(_logits_mc)
+            _ = _max_abs_pct_error_kernel_par(_yt_f64, _yp_f64, numba.get_num_threads())
+            _yt_i64_psep = np.array([0, 1, 0, 1, 0, 1, 0, 1, 0, 1], dtype=np.int64)
+            _ = _probability_separation_score_par(_yt_i64_psep, _yp_f64, 1, 0.5)
 
         _reg_y = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0], dtype=np.float64)
         _reg_p = _reg_y + 0.05
         _reg_w = np.ones_like(_reg_y)
         _ = _fast_mae_seq(_reg_y, _reg_p)
-        _ = _fast_mae_par(_reg_y, _reg_p)
+        if not _skip_par_prewarm:
+            _ = _fast_mae_par(_reg_y, _reg_p)
         _ = _fast_mae_weighted_seq(_reg_y, _reg_p, _reg_w)
-        _ = _fast_mae_weighted_par(_reg_y, _reg_p, _reg_w)
+        if not _skip_par_prewarm:
+            _ = _fast_mae_weighted_par(_reg_y, _reg_p, _reg_w)
         _ = _fast_mse_seq(_reg_y, _reg_p)
-        _ = _fast_mse_par(_reg_y, _reg_p)
+        if not _skip_par_prewarm:
+            _ = _fast_mse_par(_reg_y, _reg_p)
         _ = _fast_mse_weighted_seq(_reg_y, _reg_p, _reg_w)
-        _ = _fast_mse_weighted_par(_reg_y, _reg_p, _reg_w)
+        if not _skip_par_prewarm:
+            _ = _fast_mse_weighted_par(_reg_y, _reg_p, _reg_w)
         _ = _fast_max_error_seq(_reg_y, _reg_p)
         _ = _fast_r2_score_seq(_reg_y, _reg_p)
-        _ = _fast_r2_score_par(_reg_y, _reg_p)
+        if not _skip_par_prewarm:
+            _ = _fast_r2_score_par(_reg_y, _reg_p)
         _ = _fast_r2_score_weighted_seq(_reg_y, _reg_p, _reg_w)
-        _ = _fast_r2_score_weighted_par(_reg_y, _reg_p, _reg_w)
+        if not _skip_par_prewarm:
+            _ = _fast_r2_score_weighted_par(_reg_y, _reg_p, _reg_w)
         _ = _fast_r2_variance_seq(_reg_y)
     except Exception:  # nosec B110 - non-trivial body
         # Non-fatal: a bad cache or numba-runtime hiccup; the seq path still works.
@@ -345,14 +362,17 @@ def _prewarm_numba_cache_body():
     # rewritten to a per-row MAP + serial final reduction so they compile cleanly on numba 0.63.x,
     # which previously aborted them with ``AssertionError: unexpected cycle in lookup()`` from
     # ``numba/parfors/parfor.py`` (the public dispatcher would then crash on the large-N path).
+    # Same MLFRAME_NUMBA_WARMUP_SKIP_PARALLEL gate as above -- only the `_par` calls are skipped.
     try:
         yt_ml = np.array([[0, 1, 1], [1, 0, 1], [1, 1, 0], [0, 0, 1]], dtype=np.uint8)
         yp_ml = np.array([[1, 1, 0], [1, 0, 1], [1, 0, 0], [0, 1, 1]], dtype=np.uint8)
         _ = _fast_hamming_loss_seq(yt_ml, yp_ml)
-        _ = _fast_hamming_loss_par(yt_ml, yp_ml)
+        if not _skip_par_prewarm:
+            _ = _fast_hamming_loss_par(yt_ml, yp_ml)
         _ = _fast_subset_accuracy_seq(yt_ml, yp_ml)
         _ = _fast_jaccard_score_seq(yt_ml, yp_ml)
-        _ = _fast_jaccard_score_par(yt_ml, yp_ml)
+        if not _skip_par_prewarm:
+            _ = _fast_jaccard_score_par(yt_ml, yp_ml)
         # Bitmap variant takes packed uint64 + K; prewarm K<=64 path.
         yt_packed = np.array([0b011, 0b101, 0b110, 0b001], dtype=np.uint64)
         yp_packed = np.array([0b110, 0b101, 0b100, 0b011], dtype=np.uint64)

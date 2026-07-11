@@ -14,7 +14,7 @@ live in the parent and are imported lazily inside this body to avoid the
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Iterable, Sequence
 
 import numpy as np
 import pandas as pd
@@ -155,41 +155,78 @@ def _dispatch_default_scorer(
     )
 
 
+def _ndarray_nbytes(value: Any) -> int:
+    """``.nbytes`` of ``value`` if it exposes one as a plain ``int``, else 0. Never raises."""
+    _nb = getattr(value, "nbytes", None)
+    return _nb if isinstance(_nb, int) else 0
+
+
 def _mrmr_instance_state_size_bytes(instance: Any) -> int:
     """Best-effort byte estimate for a single fitted MRMR instance's selector + engineered-features state.
 
-    Used by the LRU eviction byte gate. Walks the small set of large state attributes (``mi_scores_``, ``_selectors_``, ``_engineered_features_``, ``_y_full_hash`` retained y) so the estimate reflects the dominant footprint without paying ``pickle.dumps`` cost on every eviction probe.
+    Used by the LRU eviction byte gate (``fit_cache_max_mb``). Walks EVERY instance attribute (``vars(instance)``)
+    rather than a hand-maintained allowlist -- the allowlist (``mi_scores_``, ``_selectors_``, ``ranking_``,
+    ``selected_features_``) named attributes MRMR never actually assigns (verified: grepped the whole
+    ``feature_selection/filters`` tree, no ``self.mi_scores_ =`` / ``self._selectors_ =`` / ``self.ranking_ =`` /
+    ``self.selected_features_ =`` assignment anywhere in the MRMR class; those are OTHER selectors' attribute
+    names), so the estimator returned ~0 on a realistic fitted instance and the ``fit_cache_max_mb`` eviction
+    loop never fired. A generic walk self-corrects as new fit-time state (``_engineered_continuous_``,
+    ``fe_rejection_ledger_``, ``mrmr_gains_``, provenance dicts, ...) gets added, instead of silently drifting
+    stale. For each attribute: a direct ndarray counts its ``.nbytes``; a dict counts ``.nbytes`` of any
+    ndarray-valued entry (dict-of-ndarray, e.g. ``_engineered_continuous_``); a list/tuple counts ``.nbytes`` of
+    any ndarray element (list-of-ndarray). Non-array attributes (scalars, strings, small config, DataFrame/Series
+    references) are skipped -- MRMR does not retain the fit-time X/y as instance attributes, so this stays scoped
+    to the estimator's OWN state, matching the byte gate's intent (bound the cache's aggregate footprint), without
+    paying ``pickle.dumps`` cost on every eviction probe.
     """
     total = 0
-    for _attr in ("mi_scores_", "_selectors_", "_engineered_features_", "ranking_", "support_", "selected_features_"):
+    try:
+        _attrs = vars(instance)
+    except TypeError:
+        return 0
+    for _v in _attrs.values():
         try:
-            _v = getattr(instance, _attr, None)
-            if _v is None:
-                continue
-            _nb = getattr(_v, "nbytes", None)
-            if isinstance(_nb, int):
+            _nb = _ndarray_nbytes(_v)
+            if _nb:
                 total += _nb
                 continue
             if isinstance(_v, dict):
                 for _vv in _v.values():
-                    _vvnb = getattr(_vv, "nbytes", None)
-                    if isinstance(_vvnb, int):
-                        total += _vvnb
-                    else:
-                        try:
-                            total += int(np.asarray(_vv).nbytes)
-                        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                            logger.debug("suppressed in _helpers.py:181: %s", e)
-                            pass
+                    total += _ndarray_nbytes(_vv)
             elif isinstance(_v, (list, tuple)):
                 for _item in _v:
-                    _inb = getattr(_item, "nbytes", None)
-                    if isinstance(_inb, int):
-                        total += _inb
+                    total += _ndarray_nbytes(_item)
         except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
-            logger.debug("suppressed in _helpers.py:188: %s", e)
+            logger.debug("suppressed in _helpers.py _mrmr_instance_state_size_bytes: %s", e)
             continue
     return total
+
+
+def _prune_engineered_continuous_store(instance: Any, cols: Sequence[str], selected_vars: Iterable[int]) -> int:
+    """Drop ``_engineered_continuous_`` entries for engineered columns that did not survive the latest mRMR
+    redundancy screen, so the fit-time scratch store (full-length float64 arrays, one per engineered column
+    ever produced) does not grow unboundedly across FE rounds instead of shrinking back down each round.
+
+    Safe by construction (see ``_step_pool.build_fe_operand_pool``): the synergy-bootstrap / GBM-seeder /
+    gradient-interaction pool-widening proposers that could resurrect an UNSELECTED column into a later
+    round's FE operand pool only ever fire on the very FIRST FE step (``num_fs_steps == 0``, before any
+    engineered column exists) and only ever add RAW (not engineered) columns. From the second FE step
+    onward the operand pool passed to ``check_prospective_fe_pairs`` is exactly ``selected_vars`` (further
+    narrowed by ``fe_ntop_features``/categorical/``factors_to_use``, never widened) -- so any engineered
+    column absent from the FRESH ``selected_vars`` a screen just produced can never again be read as an
+    operand for the rest of the fit. Call this right after ``screen_predictors`` finalises ``selected_vars``
+    for a round, before the next ``_run_fe_step`` call reads the store.
+
+    Returns the number of entries dropped (0 when the store is empty/absent or nothing qualifies for pruning).
+    """
+    store = getattr(instance, "_engineered_continuous_", None)
+    if not store:
+        return 0
+    keep_names = {cols[i] for i in selected_vars if 0 <= int(i) < len(cols)}
+    drop_names = [nm for nm in store if nm not in keep_names]
+    for nm in drop_names:
+        del store[nm]
+    return len(drop_names)
 
 
 def _mrmr_cache_bytes_total() -> int:
