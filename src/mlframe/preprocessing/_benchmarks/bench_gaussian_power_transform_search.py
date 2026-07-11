@@ -26,12 +26,25 @@ def _run(n_rows: int, n_cols: int) -> None:
     gaussian_power_transform_search(df)
 
 
+def _run_with_target_guard(n_rows: int, n_cols: int) -> None:
+    df = _make_dataset(n_rows, n_cols, seed=0)
+    rng = np.random.default_rng(1)
+    y = 3.0 * df[df.columns[0]].to_numpy() + rng.normal(scale=0.1, size=n_rows)
+    gaussian_power_transform_search(df, y=y, require_target_correlation_retention=0.9)
+
+
 if __name__ == "__main__":
     for n_rows, n_cols in [(5000, 10), (50000, 10), (50000, 50)]:
         t0 = time.perf_counter()
         _run(n_rows, n_cols)
         wall = time.perf_counter() - t0
         print(f"n_rows={n_rows:>6} n_cols={n_cols:>3} -> {wall * 1000:9.2f} ms")
+
+    for n_rows, n_cols in [(5000, 10), (50000, 10), (50000, 50)]:
+        t0 = time.perf_counter()
+        _run_with_target_guard(n_rows, n_cols)
+        wall = time.perf_counter() - t0
+        print(f"[target-guard] n_rows={n_rows:>6} n_cols={n_cols:>3} -> {wall * 1000:9.2f} ms")
 
     profiler = cProfile.Profile()
     profiler.enable()
@@ -40,4 +53,14 @@ if __name__ == "__main__":
     buf = StringIO()
     stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
     stats.print_stats(15)
+    print(buf.getvalue())
+
+    profiler = cProfile.Profile()
+    profiler.enable()
+    _run_with_target_guard(50000, 50)
+    profiler.disable()
+    buf = StringIO()
+    stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
+    stats.print_stats(15)
+    print("[target-guard]")
     print(buf.getvalue())
