@@ -327,6 +327,9 @@ from .count_weighted_blend import CountWeightedBlendEnsemble
 # Shared-trunk NN: primary regression head + weighted auxiliary classification/regression heads, jointly trained.
 from .multitask_auxiliary_loss import MultiTaskAuxiliaryLossRegressor
 
+# Shared-trunk NN: prediction IS the sum of named component heads (known additive decomposition).
+from .additive_decomposition import AdditiveDecompositionRegressor
+
 # Missing-aware composite, OOF feature generator, spec stability selection.
 from .missing import MissingAwareComposite
 from .suite_features import CompositeFeatureGenerator
