@@ -87,3 +87,33 @@ def test_biz_val_flagged_isotonic_fit_generalizes_worse_than_unflagged():
     assert small_gap > large_gap + 0.02, (
         f"flagged fit should generalize measurably worse: small_gap={small_gap:.4f} large_gap={large_gap:.4f}"
     )
+
+
+def test_biz_val_isotonic_overfit_risk_remediate_beats_plain_isotonic_on_sparse_segment():
+    # A small, sparse, noisy calibration set (same shape as the "flags a small noisy fit" fixture above)
+    # where the TRUE underlying relationship is a smooth monotonic curve in p (true_prob = p + noise,
+    # clipped) -- exactly the shape Platt scaling is built for. Plain isotonic free-form-fits every point's
+    # noise (correctly FLAGGED); remediation blends toward Platt everywhere since the whole set is sparse
+    # relative to segment_ratio_threshold, recovering the smooth relationship instead of the jagged one.
+    rng_seed = 42
+    calib_p, calib_y = _make_calibration_data(n=50, noise=0.30, seed=rng_seed)
+
+    result = isotonic_overfit_risk(calib_p, calib_y, segment_ratio_threshold=0.05, remediate=True)
+    assert result["flagged"] is True
+    assert result["remediated"] is True
+    assert result["predict"] is not None
+
+    # Fresh held-out set from the SAME generative process.
+    holdout_p, holdout_y = _make_calibration_data(n=8000, noise=0.30, seed=rng_seed + 100)
+
+    plain_pred = result["isotonic_fit"].predict(holdout_p)
+    remediated_pred = result["predict"](holdout_p)
+
+    ece_plain = _ece_score(holdout_y, plain_pred)
+    ece_remediated = _ece_score(holdout_y, remediated_pred)
+
+    # The remediated blend must beat plain isotonic by a real margin, not just tie within noise.
+    assert ece_remediated < ece_plain - 0.01, (
+        f"remediated ECE should beat plain isotonic by a real margin: "
+        f"ece_plain={ece_plain:.4f} ece_remediated={ece_remediated:.4f}"
+    )
