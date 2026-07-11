@@ -31,12 +31,26 @@ def _run(n_groups: int, n_per_group: int) -> None:
     predicted_group_aggregate_feature(X, y, group_ids, macro_estimator_factory=lambda: LinearRegression(), n_splits=5)
 
 
+def _run_multi_agg(n_groups: int, n_per_group: int) -> None:
+    """Opt-in ``aggs=`` path: one shared multi-output OOF fit for several statistics at once."""
+    X, y, group_ids = _make_dataset(n_groups, n_per_group, seed=0)
+    predicted_group_aggregate_feature(
+        X, y, group_ids, macro_estimator_factory=lambda: LinearRegression(), n_splits=5, aggs=("mean", "median", "std")
+    )
+
+
 if __name__ == "__main__":
     for n_groups, n_per_group in [(100, 20), (1_000, 20), (5_000, 20)]:
         t0 = time.perf_counter()
         _run(n_groups, n_per_group)
         wall = time.perf_counter() - t0
         print(f"n_groups={n_groups:>6,} n_per_group={n_per_group:>3} (n_rows={n_groups*n_per_group:>7,}) -> {wall * 1000:9.2f} ms")
+
+    for n_groups, n_per_group in [(100, 20), (1_000, 20), (5_000, 20)]:
+        t0 = time.perf_counter()
+        _run_multi_agg(n_groups, n_per_group)
+        wall = time.perf_counter() - t0
+        print(f"[aggs=(mean,median,std)] n_groups={n_groups:>6,} n_per_group={n_per_group:>3} -> {wall * 1000:9.2f} ms")
 
     profiler = cProfile.Profile()
     profiler.enable()

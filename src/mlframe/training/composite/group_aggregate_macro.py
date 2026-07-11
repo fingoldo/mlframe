@@ -16,7 +16,7 @@ own predicted aggregate, and that PREDICTION -- not the ground truth -- is broad
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Sequence
 
 import numpy as np
 import pandas as pd
@@ -26,10 +26,52 @@ from .ensemble.feature_stacking import composite_oof_predictions
 
 logger = logging.getLogger(__name__)
 
+_VALID_AGGS = ("mean", "median", "std", "min", "max")
+
 
 def _default_group_feature_agg(X_row: pd.DataFrame) -> pd.Series:
     """Mean of every numeric column, the natural default cross-sectional group-level feature summary."""
     return X_row.select_dtypes(include=[np.number]).mean()
+
+
+def _oof_multi_target_predictions(
+    wrapper_factory: Callable[[], Any],
+    X_group: pd.DataFrame,
+    Y_group: np.ndarray,
+    n_splits: int,
+    random_state: int,
+) -> np.ndarray:
+    """K-fold OOF predictions for a MULTI-output target matrix ``Y_group`` (n_groups, n_stats).
+
+    One ``wrapper.fit(X_train, Y_train)`` call per fold trains on ALL requested statistics at once --
+    same fold split and design matrix ``composite_oof_predictions`` would use per-statistic, but the
+    estimator amortizes its per-fold factorization/tree-build cost across every target column instead
+    of repeating it once per statistic. Requires an estimator whose ``fit``/``predict`` support native
+    multi-output regression (e.g. ``LinearRegression``, tree-based regressors) -- callers using an
+    estimator without multi-output support should keep calling this function once per statistic instead.
+    """
+    from sklearn.model_selection import KFold  # lazy, mirrors composite_oof_predictions
+
+    n, n_targets = Y_group.shape
+    out = np.full((n, n_targets), np.nan, dtype=np.float64)
+    kf = KFold(n_splits=int(n_splits), shuffle=True, random_state=int(random_state))
+    indices = np.arange(n)
+    for train_idx, val_idx in kf.split(indices):
+        X_train = X_group.iloc[train_idx].reset_index(drop=True)
+        X_val = X_group.iloc[val_idx].reset_index(drop=True)
+        try:
+            w = wrapper_factory()
+            w.fit(X_train, Y_group[train_idx])
+            fold_preds = np.asarray(w.predict(X_val), dtype=np.float64)
+            if fold_preds.ndim == 1:
+                fold_preds = fold_preds.reshape(-1, 1)
+            out[val_idx] = fold_preds
+        except Exception as fold_err:
+            logger.warning(
+                "[_oof_multi_target_predictions] fold failed (val rows %d-%d): %s. NaN-filled.",
+                int(val_idx.min()), int(val_idx.max()), fold_err,
+            )
+    return out
 
 
 def predicted_group_aggregate_feature(
@@ -42,6 +84,7 @@ def predicted_group_aggregate_feature(
     n_splits: int = 5,
     random_state: int = 42,
     column_name: str = "predicted_group_aggregate",
+    aggs: Optional[Sequence[str]] = None,
 ) -> pl.DataFrame:
     """Train an OOF-safe auxiliary model on group-level aggregated features/target, broadcast its
     predictions back to a per-original-row feature column.
@@ -65,18 +108,35 @@ def predicted_group_aggregate_feature(
     n_splits, random_state
         Passed to the group-level OOF CV (over unique groups, not over the original rows).
     column_name
-        Name of the returned broadcast feature column.
+        Name of the returned broadcast feature column (or column-name prefix when ``aggs`` is given).
+    aggs
+        Opt-in: a list of aggregation statistics (any of ``"mean"``, ``"median"``, ``"std"``, ``"min"``,
+        ``"max"``) to compute in ONE call. When given, ``agg`` is ignored and the single expensive OOF fit
+        step is shared across every requested statistic -- one ``macro_estimator_factory().fit(X_train,
+        Y_train)`` call per fold trains a multi-output target matrix (one column per statistic) instead of
+        repeating a full per-statistic K-fold OOF fit. Requires ``macro_estimator_factory`` to build an
+        estimator whose ``fit``/``predict`` support native multi-output regression (e.g.
+        ``sklearn.linear_model.LinearRegression``, tree-based regressors) -- an estimator without
+        multi-output support will raise inside ``fit``/``predict``; fall back to calling this function once
+        per statistic in that case. Returns one column per statistic, named ``f"{column_name}__{stat}"``.
+        Default ``None`` preserves the original single-``agg`` behavior exactly (bit-identical).
 
     Returns
     -------
     pl.DataFrame
-        Single column ``column_name``, one row per ORIGINAL row (same length/order as ``X_row``), containing
-        that row's group's OOF-predicted aggregate.
+        ``aggs is None``: single column ``column_name``. ``aggs`` given: one ``f"{column_name}__{stat}"``
+        column per requested statistic. Always one row per ORIGINAL row (same length/order as ``X_row``).
     """
     if agg not in ("mean", "median"):
         raise ValueError(f"agg must be 'mean' or 'median', got {agg!r}")
     if not isinstance(X_row, pd.DataFrame):
         raise TypeError("predicted_group_aggregate_feature: X_row must be a pandas DataFrame.")
+    if aggs is not None:
+        bad = [a for a in aggs if a not in _VALID_AGGS]
+        if bad:
+            raise ValueError(f"aggs entries must be one of {_VALID_AGGS}, got invalid: {bad}")
+        if len(aggs) == 0:
+            raise ValueError("aggs must be a non-empty sequence when given.")
 
     group_arr = np.asarray(group_ids)
     y_arr = np.asarray(y_row, dtype=np.float64)
@@ -92,21 +152,45 @@ def predicted_group_aggregate_feature(
     else:
         grouped = X_row.groupby(group_arr, sort=False)
         X_group = grouped.apply(group_feature_agg_fn, include_groups=False).reindex(unique_groups)
-    y_grouped = pd.Series(y_arr).groupby(group_arr).agg(agg).reindex(unique_groups)
-    y_group = y_grouped.to_numpy(dtype=np.float64)
+
+    if aggs is None:
+        y_grouped = pd.Series(y_arr).groupby(group_arr).agg(agg).reindex(unique_groups)
+        y_group = y_grouped.to_numpy(dtype=np.float64)
+
+        if len(unique_groups) >= max(2, n_splits):
+            oof_group_pred = composite_oof_predictions(macro_estimator_factory, X_group, y_group, n_splits=n_splits, random_state=random_state)
+        else:
+            logger.warning("predicted_group_aggregate_feature: only %d unique groups (<max(2,n_splits)); falling back to the global target mean for every group.", len(unique_groups))
+            oof_group_pred = np.full(len(unique_groups), float(y_arr.mean()))
+
+        group_to_pred = dict(zip(unique_groups, oof_group_pred))
+        fallback = float(np.nanmean(oof_group_pred)) if np.isfinite(oof_group_pred).any() else float(y_arr.mean())
+        broadcast = np.array([group_to_pred.get(g, fallback) for g in group_arr], dtype=np.float64)
+        broadcast = np.where(np.isfinite(broadcast), broadcast, fallback)
+
+        return pl.DataFrame({column_name: broadcast})
+
+    # Multi-statistic opt-in path: shared X_group / fold split, one multi-output OOF fit.
+    y_series = pd.Series(y_arr)
+    Y_group = np.column_stack([y_series.groupby(group_arr).agg(a).reindex(unique_groups).to_numpy(dtype=np.float64) for a in aggs])
 
     if len(unique_groups) >= max(2, n_splits):
-        oof_group_pred = composite_oof_predictions(macro_estimator_factory, X_group, y_group, n_splits=n_splits, random_state=random_state)
+        oof_matrix = _oof_multi_target_predictions(macro_estimator_factory, X_group, Y_group, n_splits=n_splits, random_state=random_state)
     else:
-        logger.warning("predicted_group_aggregate_feature: only %d unique groups (<max(2,n_splits)); falling back to the global target mean for every group.", len(unique_groups))
-        oof_group_pred = np.full(len(unique_groups), float(y_arr.mean()))
+        logger.warning("predicted_group_aggregate_feature: only %d unique groups (<max(2,n_splits)); falling back to the global target statistic for every group.", len(unique_groups))
+        global_stats = pd.Series(y_arr).agg(list(aggs)).to_numpy(dtype=np.float64)
+        oof_matrix = np.tile(global_stats, (len(unique_groups), 1))
 
-    group_to_pred = dict(zip(unique_groups, oof_group_pred))
-    fallback = float(np.nanmean(oof_group_pred)) if np.isfinite(oof_group_pred).any() else float(y_arr.mean())
-    broadcast = np.array([group_to_pred.get(g, fallback) for g in group_arr], dtype=np.float64)
-    broadcast = np.where(np.isfinite(broadcast), broadcast, fallback)
+    out_columns: dict[str, np.ndarray] = {}
+    for j, a in enumerate(aggs):
+        col = oof_matrix[:, j]
+        group_to_pred = dict(zip(unique_groups, col))
+        fallback = float(np.nanmean(col)) if np.isfinite(col).any() else float(pd.Series(y_arr).agg(a))
+        broadcast = np.array([group_to_pred.get(g, fallback) for g in group_arr], dtype=np.float64)
+        broadcast = np.where(np.isfinite(broadcast), broadcast, fallback)
+        out_columns[f"{column_name}__{a}"] = broadcast
 
-    return pl.DataFrame({column_name: broadcast})
+    return pl.DataFrame(out_columns)
 
 
 __all__ = ["predicted_group_aggregate_feature"]
