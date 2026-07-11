@@ -34,9 +34,36 @@ _SKEW_THRESHOLD = 1.0
 # regardless of skewness.
 _STD_INFLATION_RATIO = 1.5
 
+# MAD (Median Absolute Deviation) is the textbook highest-breakdown-point (50%) location-scale estimator,
+# vs. IQR's ~25% and mean/std's ~0%, so it was tried as a REPLACEMENT for the IQR fallback above (the branch
+# that fires when symmetric contamination inflates std past the guard). Empirical A/B on synthetic symmetric
+# two-sided contamination at 1/5/10/20/30/35/40/45/48% (script: see PROJECTS.md entry for this module) showed
+# IQR*1.5 bounds are consistently TIGHTER than MAD*1.4826*3 bounds and give equal-or-lower downstream Ridge
+# RMSE at every contamination level tested -- MAD never wins here. Reason: for *symmetric* two-sided
+# contamination (the guard's actual trigger condition), both Q1/Q3 and the median/MAD degrade together, so
+# IQR's textbook 25% breakdown point (derived for one-sided contamination) doesn't apply and its narrower
+# 1.5x multiplier keeps winning. So MAD is kept as an explicit opt-in rule (``rule="mad"``) for callers who
+# know their data profile favors it, but it does NOT replace IQR as the automatic guard fallback.
+_MAD_TO_SIGMA = 1.4826
+_MAD_K = 3.0
 
-def _column_bounds(values: np.ndarray) -> Tuple[float, float]:
-    """Return ``(lower, upper)`` outlier bounds for one column, rule chosen by skewness + std-inflation check."""
+
+def _mad_bounds(finite: np.ndarray) -> Tuple[float, float]:
+    median = float(np.median(finite))
+    mad = float(np.median(np.abs(finite - median)))
+    if mad == 0.0:
+        return -np.inf, np.inf
+    sigma = _MAD_TO_SIGMA * mad
+    return median - _MAD_K * sigma, median + _MAD_K * sigma
+
+
+def _column_bounds(values: np.ndarray, rule: str = "auto") -> Tuple[float, float]:
+    """Return ``(lower, upper)`` outlier bounds for one column.
+
+    ``rule="auto"`` (default) picks by skewness + std-inflation check, as before. ``rule="iqr"`` or
+    ``rule="mad"`` force that specific rule regardless of skewness/inflation -- MAD is provided as an explicit
+    opt-in (see the A/B note above on why it is not the automatic fallback).
+    """
     finite = values[np.isfinite(values)]
     if finite.size < 4:
         return -np.inf, np.inf
@@ -47,6 +74,13 @@ def _column_bounds(values: np.ndarray) -> Tuple[float, float]:
         if iqr == 0.0:
             return -np.inf, np.inf
         return float(q1 - 1.5 * iqr), float(q3 + 1.5 * iqr)
+
+    if rule == "iqr":
+        return _iqr_bounds()
+    if rule == "mad":
+        return _mad_bounds(finite)
+    if rule != "auto":
+        raise ValueError(f"_column_bounds: rule must be 'auto', 'iqr' or 'mad'; got {rule!r}.")
 
     s = float(skew(finite))
     mean, std = float(finite.mean()), float(finite.std())
@@ -62,6 +96,7 @@ def outlier_cap_or_missing(
     df: pd.DataFrame,
     columns: Optional[Sequence[str]] = None,
     mode: str = "cap",
+    rule: str = "auto",
 ) -> pd.DataFrame:
     """Winsorize (``mode="cap"``) or NaN-then-median-impute (``mode="missing_impute"``) outliers per column.
 
@@ -82,6 +117,12 @@ def outlier_cap_or_missing(
         ``"cap"`` clips values to the computed bound (winsorization); ``"missing_impute"`` replaces
         out-of-bound values with NaN, then median-imputes (median computed AFTER the outlier-to-NaN swap, so
         it is not itself distorted by the outliers being replaced).
+    rule
+        Bound rule: ``"auto"`` (default) picks by skewness + std-inflation check (mean+/-3std, IQR*1.5, or
+        the IQR fallback -- see ``_column_bounds``). ``"iqr"`` or ``"mad"`` force that rule for every column.
+        MAD (median +/- 3*1.4826*MAD, 50% breakdown point) is opt-in, not the default: an A/B on symmetric
+        contamination from 1% to 48% found IQR*1.5 matches or beats it at every level tested, so it is not
+        auto-selected -- pass ``rule="mad"`` explicitly if your data profile is known to favor it.
 
     Returns
     -------
@@ -95,7 +136,7 @@ def outlier_cap_or_missing(
     out = df.copy(deep=False)
     for col in cols:
         values = out[col].to_numpy(dtype=np.float64)
-        lower, upper = _column_bounds(values)
+        lower, upper = _column_bounds(values, rule=rule)
         if not np.isfinite(lower) and not np.isfinite(upper):
             continue
         is_outlier = (values < lower) | (values > upper)

@@ -27,17 +27,18 @@ def _make_dataset(n_rows: int, n_cols: int, seed: int) -> pd.DataFrame:
     return pd.DataFrame(data)
 
 
-def _run(n_rows: int, n_cols: int, mode: str = "cap") -> None:
+def _run(n_rows: int, n_cols: int, mode: str = "cap", rule: str = "auto") -> None:
     df = _make_dataset(n_rows, n_cols, seed=0)
-    outlier_cap_or_missing(df, mode=mode)
+    outlier_cap_or_missing(df, mode=mode, rule=rule)
 
 
 if __name__ == "__main__":
     for n_rows, n_cols in [(50000, 10), (500000, 10), (500000, 50)]:
-        t0 = time.perf_counter()
-        _run(n_rows, n_cols)
-        wall = time.perf_counter() - t0
-        print(f"n_rows={n_rows:>7} n_cols={n_cols:>3} -> {wall * 1000:9.2f} ms")
+        for rule in ("auto", "mad"):
+            t0 = time.perf_counter()
+            _run(n_rows, n_cols, rule=rule)
+            wall = time.perf_counter() - t0
+            print(f"n_rows={n_rows:>7} n_cols={n_cols:>3} rule={rule:>4} -> {wall * 1000:9.2f} ms")
 
     profiler = cProfile.Profile()
     profiler.enable()
