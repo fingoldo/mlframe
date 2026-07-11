@@ -14,13 +14,13 @@ import numpy as np
 from mlframe.feature_engineering.state_duration import time_since_state_change
 
 
-def _run(n_entities: int, n_periods: int, n_calls: int) -> None:
+def _run(n_entities: int, n_periods: int, n_calls: int, include_activation_count: bool = False) -> None:
     rng = np.random.default_rng(0)
     entity_ids = np.repeat(np.arange(n_entities), n_periods)
     n = entity_ids.shape[0]
     state = rng.random(n) < 0.5
     for _ in range(n_calls):
-        time_since_state_change(state, entity_ids)
+        time_since_state_change(state, entity_ids, include_activation_count=include_activation_count)
 
 
 if __name__ == "__main__":
@@ -34,9 +34,22 @@ if __name__ == "__main__":
         n_rows = n_entities * n_periods
         print(f"rows={n_rows:>9,} entities={n_entities:>7,} -> {wall * 1000:9.2f} ms total, {wall / n_calls * 1000:8.4f} ms/call")
 
+    # activation_count path shares the same fused kernel (computed unconditionally, just not surfaced by
+    # default), so its cost is confirmed here rather than assumed.
+    for n_entities, n_periods, n_calls in [(1_000, 20, 50), (100_000, 20, 5)]:
+        t0 = time.perf_counter()
+        _run(n_entities, n_periods, n_calls, include_activation_count=True)
+        wall = time.perf_counter() - t0
+        n_rows = n_entities * n_periods
+        print(
+            f"[activation_count] rows={n_rows:>9,} entities={n_entities:>7,} -> "
+            f"{wall * 1000:9.2f} ms total, {wall / n_calls * 1000:8.4f} ms/call"
+        )
+
     profiler = cProfile.Profile()
     profiler.enable()
     _run(100_000, 20, 20)
+    _run(100_000, 20, 20, include_activation_count=True)
     profiler.disable()
     buf = StringIO()
     stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")

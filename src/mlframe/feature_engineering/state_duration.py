@@ -28,23 +28,29 @@ def _state_duration_numpy(state_sorted: np.ndarray, starts: np.ndarray, ends: np
     n = state_sorted.shape[0]
     possession = np.full(n, np.nan, dtype=np.float64)
     cancellation = np.full(n, np.nan, dtype=np.float64)
+    activation_count = np.zeros(n, dtype=np.int64)
     for g in range(starts.shape[0]):
         s, e = starts[g], ends[g]
         run_length = 0
         ever_true = False
         prev_state = None
+        n_activations = 0
         for i in range(s, e):
             cur = bool(state_sorted[i])
             if prev_state is None or cur != prev_state:
                 run_length = 0
+                if cur:
+                    # a fresh True run starting (including the entity's very first row) is one activation
+                    n_activations += 1
             run_length += 1
             if cur:
                 ever_true = True
                 possession[i] = run_length
             elif ever_true:
                 cancellation[i] = run_length
+            activation_count[i] = n_activations
             prev_state = cur
-    return possession, cancellation
+    return possession, cancellation, activation_count
 
 
 if _NUMBA_AVAILABLE:
@@ -54,26 +60,32 @@ if _NUMBA_AVAILABLE:
         n = state_sorted.shape[0]
         possession = np.full(n, np.nan, dtype=np.float64)
         cancellation = np.full(n, np.nan, dtype=np.float64)
+        activation_count = np.zeros(n, dtype=np.int64)
         for g in range(starts.shape[0]):
             s, e = starts[g], ends[g]
             run_length = 0
             ever_true = False
             prev_state = -1  # sentinel: no previous row yet
+            n_activations = 0
             for i in range(s, e):
                 cur = 1 if state_sorted[i] else 0
                 if prev_state == -1 or cur != prev_state:
                     run_length = 0
+                    if cur == 1:
+                        # a fresh True run starting (including the entity's very first row) is one activation
+                        n_activations += 1
                 run_length += 1
                 if cur == 1:
                     ever_true = True
                     possession[i] = run_length
                 elif ever_true:
                     cancellation[i] = run_length
+                activation_count[i] = n_activations
                 prev_state = cur
-        return possession, cancellation
+        return possession, cancellation, activation_count
 
 
-def time_since_state_change(state: np.ndarray, group_ids: np.ndarray) -> dict[str, np.ndarray]:
+def time_since_state_change(state: np.ndarray, group_ids: np.ndarray, include_activation_count: bool = False) -> dict[str, np.ndarray]:
     """Duration-in-current-state features for a per-entity binary state series.
 
     Parameters
@@ -84,6 +96,14 @@ def time_since_state_change(state: np.ndarray, group_ids: np.ndarray) -> dict[st
         using a stable sort, so pre-sort your frame by time within each group before calling).
     group_ids
         ``(n,)`` entity/group key aligned to ``state``.
+    include_activation_count
+        Opt-in (default ``False``, output unchanged when omitted). When ``True``, also returns
+        ``activation_count`` — the number of times the entity has transitioned False->True up to and
+        including the current row (0 before the entity's first-ever True). Two rows can share an identical
+        ``cancellation_duration`` (e.g. both "cancelled 1 period ago") yet differ sharply in churn history —
+        one a first-time cancellation, the other the entity's 5th acquire/cancel cycle — a distinction pure
+        duration-since-change cannot express but that predicts recidivism-driven outcomes (e.g. permanent
+        churn) on its own.
 
     Returns
     -------
@@ -93,6 +113,8 @@ def time_since_state_change(state: np.ndarray, group_ids: np.ndarray) -> dict[st
         ``cancellation_duration`` — consecutive periods False SINCE the entity was last True; ``NaN`` while
         the state is True, and ``NaN`` before the entity's first-ever True (a state that has literally never
         been True cannot be "cancelled").
+        ``activation_count`` (only when ``include_activation_count=True``) — integer count of prior
+        acquire/reacquire events (state transitions into True) up to and including the current row.
     """
     from mlframe.feature_engineering.grouped import iter_group_segments
 
@@ -101,9 +123,11 @@ def time_since_state_change(state: np.ndarray, group_ids: np.ndarray) -> dict[st
     state_sorted = state_arr[sort_idx]
 
     if _NUMBA_AVAILABLE:
-        possession_sorted, cancellation_sorted = _state_duration_njit(state_sorted, starts.astype(np.int64), ends.astype(np.int64))
+        possession_sorted, cancellation_sorted, activation_count_sorted = _state_duration_njit(
+            state_sorted, starts.astype(np.int64), ends.astype(np.int64)
+        )
     else:
-        possession_sorted, cancellation_sorted = _state_duration_numpy(state_sorted, starts, ends)
+        possession_sorted, cancellation_sorted, activation_count_sorted = _state_duration_numpy(state_sorted, starts, ends)
 
     n = state_arr.shape[0]
     possession = np.empty(n, dtype=np.float64)
@@ -111,7 +135,12 @@ def time_since_state_change(state: np.ndarray, group_ids: np.ndarray) -> dict[st
     possession[sort_idx] = possession_sorted
     cancellation[sort_idx] = cancellation_sorted
 
-    return {"possession_duration": possession, "cancellation_duration": cancellation}
+    result: dict[str, np.ndarray] = {"possession_duration": possession, "cancellation_duration": cancellation}
+    if include_activation_count:
+        activation_count = np.empty(n, dtype=np.int64)
+        activation_count[sort_idx] = activation_count_sorted
+        result["activation_count"] = activation_count
+    return result
 
 
 __all__ = ["time_since_state_change"]
