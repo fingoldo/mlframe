@@ -34,6 +34,14 @@ def _run_pruned(n_rows: int, n_cols: int, n_components: int) -> None:
     )
 
 
+def _run_auto_k(n_rows: int, n_cols: int, n_components: int) -> None:
+    # auto_k pays extra work over the plain path: SVD/PCA are free (explained_variance_ratio_ is already
+    # computed by the single fit), but ICA/GRP/SRP each run n_components extra inverse_transform calls to
+    # build the reconstruction-error elbow curve -- this is the path that isolates that added cost.
+    df = _make_dataset(n_rows, n_cols, seed=0)
+    multi_decomposition_feature_bank(df, n_components=n_components, methods=("svd", "pca", "ica", "grp", "srp"), auto_k=True)
+
+
 if __name__ == "__main__":
     for n_rows, n_cols, n_components in [(2000, 50, 10), (2000, 200, 10), (20000, 200, 10)]:
         t0 = time.perf_counter()
@@ -46,6 +54,12 @@ if __name__ == "__main__":
         _run_pruned(n_rows, n_cols, n_components)
         wall = time.perf_counter() - t0
         print(f"[pruned] n_rows={n_rows:>6} n_cols={n_cols:>4} n_components={n_components:>3} -> {wall * 1000:9.2f} ms")
+
+    for n_rows, n_cols, n_components in [(2000, 50, 10), (2000, 200, 10), (20000, 200, 10)]:
+        t0 = time.perf_counter()
+        _run_auto_k(n_rows, n_cols, n_components)
+        wall = time.perf_counter() - t0
+        print(f"[auto_k] n_rows={n_rows:>6} n_cols={n_cols:>4} n_components={n_components:>3} -> {wall * 1000:9.2f} ms")
 
     profiler = cProfile.Profile()
     profiler.enable()
@@ -64,4 +78,14 @@ if __name__ == "__main__":
     stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
     stats.print_stats(20)
     print("[pruned]")
+    print(buf.getvalue())
+
+    profiler = cProfile.Profile()
+    profiler.enable()
+    _run_auto_k(20000, 200, 10)
+    profiler.disable()
+    buf = StringIO()
+    stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
+    stats.print_stats(20)
+    print("[auto_k]")
     print(buf.getvalue())
