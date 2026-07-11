@@ -78,3 +78,50 @@ def test_adversarial_validator_report_before_fit_raises():
         assert False, "expected RuntimeError"
     except RuntimeError:
         pass
+
+
+def _make_pruning_scenario(seed: int, n_train: int = 2500, n_test: int = 2500, n_drift: int = 3, n_clean: int = 12):
+    """Only ``n_drift`` columns are shifted between train/test; the remaining ``n_clean`` columns are iid noise
+    on both sides, so the minimal drift-driving subset is exactly known ahead of time."""
+    rng = np.random.default_rng(seed)
+    drift_cols = [f"drift_{i}" for i in range(n_drift)]
+    clean_cols = [f"clean_{i}" for i in range(n_clean)]
+
+    train_data = {c: rng.normal(0, 1, n_train) for c in drift_cols}
+    train_data.update({c: rng.normal(0, 1, n_train) for c in clean_cols})
+    test_data = {c: rng.normal(4, 1, n_test) for c in drift_cols}  # shifted mean -> genuine drift
+    test_data.update({c: rng.normal(0, 1, n_test) for c in clean_cols})  # same distribution as train
+
+    X_train = pd.DataFrame(train_data)[drift_cols + clean_cols]
+    X_test = pd.DataFrame(test_data)[drift_cols + clean_cols]
+    return X_train, X_test, set(drift_cols)
+
+
+def test_biz_val_adversarial_validator_prune_drift_features_isolates_known_drift_subset():
+    X_train, X_test, known_drift_cols = _make_pruning_scenario(seed=3)
+    validator = AdversarialValidator(seed=3).fit(X_train, X_test)
+
+    baseline_auc = validator.auc_
+    assert baseline_auc > 0.9, f"sanity check: expected strong baseline separability before pruning, got AUC={baseline_auc:.4f}"
+
+    validator.prune_drift_features(target_auc=0.6, max_iterations=8, features_per_iteration=1)
+
+    pruned = set(validator.pruned_features_)
+    precision = len(pruned & known_drift_cols) / len(pruned) if pruned else 0.0
+    recall = len(pruned & known_drift_cols) / len(known_drift_cols)
+
+    assert precision >= 0.8, f"expected pruned set to mostly match the known drift columns, precision={precision:.3f} pruned={pruned}"
+    assert recall == 1.0, f"expected all known drift columns to be pruned, recall={recall:.3f} pruned={pruned} known={known_drift_cols}"
+    assert validator.pruning_final_auc_ < 0.6, f"expected final AUC on the survivors to be near-chance, got {validator.pruning_final_auc_:.4f}"
+
+    # fit()'s own attributes must be untouched by the opt-in pruning call.
+    assert validator.auc_ == baseline_auc
+
+
+def test_adversarial_validator_default_fit_unchanged_when_pruning_not_called():
+    """Bit-identical default: calling fit() alone (never invoking prune_drift_features) must not set any
+    pruning attributes, proving the new opt-in path has zero effect unless explicitly requested."""
+    X_train, X_test, _ = _make_pruning_scenario(seed=4)
+    validator = AdversarialValidator(seed=4).fit(X_train, X_test)
+    for attr in ("pruned_features_", "remaining_features_", "pruning_history_", "pruning_final_auc_"):
+        assert not hasattr(validator, attr), f"unexpected pre-set pruning attribute {attr!r} on a validator that never called prune_drift_features()"

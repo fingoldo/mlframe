@@ -18,7 +18,7 @@ modules -- this class is exactly that thin composition, not a reimplementation o
 """
 from __future__ import annotations
 
-from typing import Any, Optional, Sequence, Tuple
+from typing import Any, List, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
@@ -108,6 +108,76 @@ class AdversarialValidator:
         return build_test_like_validation_fold(
             X_train, X_test, feature_names=feature_names, val_fraction=val_fraction, n_splits=n_splits, seed=seed if seed is not None else self.seed,
         )
+
+    def prune_drift_features(
+        self,
+        X_train: Optional[Any] = None,
+        X_test: Optional[Any] = None,
+        feature_names: Optional[Sequence[str]] = None,
+        target_auc: float = 0.55,
+        max_iterations: int = 10,
+        features_per_iteration: int = 1,
+    ) -> "AdversarialValidator":
+        """Opt-in: iteratively drop the top drift-driving feature(s) and refit until AUC falls below ``target_auc``.
+
+        Repeatedly fits the adversarial discriminator on the remaining feature set, drops the
+        ``features_per_iteration`` highest-importance features, and refits -- isolating the minimal subset of
+        features actually responsible for train/test separability. Stops when the discriminator AUC drops
+        below ``target_auc``, ``max_iterations`` is hit, or no features remain to drop.
+
+        ``X_train``/``X_test`` default to the frames passed to ``fit()``, same as ``select_validation_fold``.
+        Does not mutate anything set by ``fit()``/``report()`` -- results live in their own
+        ``pruned_features_``/``remaining_features_``/``pruning_history_`` attributes.
+
+        Returns
+        -------
+        AdversarialValidator
+            ``self``, for chaining. Sets ``pruned_features_`` (features removed, in drop order),
+            ``remaining_features_`` (survivors), and ``pruning_history_`` (per-iteration ``(auc, dropped)`` list).
+        """
+        X_train = X_train if X_train is not None else getattr(self, "_X_train", None)
+        X_test = X_test if X_test is not None else getattr(self, "_X_test", None)
+        if X_train is None or X_test is None:
+            raise ValueError("prune_drift_features: pass X_train/X_test, or call fit() first.")
+        if feature_names is not None:
+            remaining: List[str] = list(feature_names)
+        elif hasattr(X_train, "columns"):
+            remaining = list(X_train.columns)
+        else:
+            remaining = list(self.feature_names_) if hasattr(self, "feature_names_") else [f"f{i}" for i in range(np.asarray(X_train).shape[1])]
+
+        kwargs: dict = {"n_splits": self.n_splits, "seed": self.seed}
+        if self.max_rows_per_side is not None:
+            kwargs["max_rows_per_side"] = self.max_rows_per_side
+        if self.lgbm_params is not None:
+            kwargs["lgbm_params"] = self.lgbm_params
+
+        pruned: List[str] = []
+        history: List[dict] = []
+        auc = float("inf")
+        for _ in range(max_iterations):
+            if len(remaining) <= 1:
+                break
+            auc, _fpr, _tpr, importances, names = adversarial_auc(X_train, X_test, feature_names=remaining, **kwargs)
+            auc = float(auc)
+            if auc < target_auc:
+                history.append({"auc": auc, "dropped": []})
+                break
+            order = np.argsort(importances)[::-1]
+            n_drop = min(features_per_iteration, len(remaining) - 1)
+            drop_now = [names[i] for i in order[:n_drop]]
+            history.append({"auc": auc, "dropped": list(drop_now)})
+            pruned.extend(drop_now)
+            remaining = [n for n in remaining if n not in drop_now]
+        else:
+            # max_iterations exhausted without crossing target_auc: record the last-seen AUC for the survivors.
+            pass
+
+        self.pruned_features_: Tuple[str, ...] = tuple(pruned)
+        self.remaining_features_: Tuple[str, ...] = tuple(remaining)
+        self.pruning_history_: Tuple[dict, ...] = tuple(history)
+        self.pruning_final_auc_: float = auc
+        return self
 
 
 __all__ = ["AdversarialValidator"]
