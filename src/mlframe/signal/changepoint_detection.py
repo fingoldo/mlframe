@@ -31,6 +31,7 @@ def detect_regime_changepoints(
     penalty: float = 3.0,
     min_effect_size: float = 0.5,
     backend: str = "njit",
+    return_segment_stats: bool = False,
 ) -> dict:
     """Detect structural breaks in ``y`` via PELT, filtered by duration and effect size.
 
@@ -50,18 +51,27 @@ def detect_regime_changepoints(
     backend
         ``"njit"`` (default) uses the in-house cumsum-accelerated PELT (l2 cost only, ~100x faster). Pass
         ``"ruptures"`` to use the ``ruptures`` library's l2-cost PELT instead (useful for cross-checking).
+    return_segment_stats
+        If ``True`` (default ``False``, opt-in, no effect on the other returned keys), also returns
+        ``segment_stats``: a list of ``{"start", "end", "count", "mean", "std"}`` dicts, one per detected
+        regime in order, so a caller building regime-conditional features doesn't have to manually re-slice
+        ``y`` by ``breakpoints``. ``std`` uses ``ddof=1`` (matches the effect-size computation above) and is
+        ``0.0`` for single-row segments.
 
     Returns
     -------
     dict
         ``regime_id`` ``(n,)`` int array (0-indexed, one id per detected steady-state segment),
         ``breakpoints`` (list of row indices where a new regime starts, after filtering),
-        ``n_regimes`` (int).
+        ``n_regimes`` (int), and ``segment_stats`` (only when ``return_segment_stats=True``).
     """
     y = np.asarray(y, dtype=np.float64)
     n = y.shape[0]
     if n < 2 * min_segment_length:
-        return {"regime_id": np.zeros(n, dtype=np.int64), "breakpoints": [], "n_regimes": 1}
+        result: dict = {"regime_id": np.zeros(n, dtype=np.int64), "breakpoints": [], "n_regimes": 1}
+        if return_segment_stats:
+            result["segment_stats"] = [_segment_stats(y, 0, n)] if n > 0 else []
+        return result
 
     if backend == "njit":
         from mlframe.signal._pelt_l2_njit import pelt_l2
@@ -94,7 +104,23 @@ def detect_regime_changepoints(
     for i, bp in enumerate(filtered_breakpoints):
         regime_id[bp:] = i + 1
 
-    return {"regime_id": regime_id, "breakpoints": filtered_breakpoints, "n_regimes": len(filtered_breakpoints) + 1}
+    result = {"regime_id": regime_id, "breakpoints": filtered_breakpoints, "n_regimes": len(filtered_breakpoints) + 1}
+    if return_segment_stats:
+        bounds = [0] + filtered_breakpoints + [n]
+        result["segment_stats"] = [_segment_stats(y, bounds[i], bounds[i + 1]) for i in range(len(bounds) - 1)]
+    return result
+
+
+def _segment_stats(y: np.ndarray, start: int, end: int) -> dict:
+    """Mean/std/count summary of ``y[start:end]``; ``std`` uses ``ddof=1``, ``0.0`` for a single-row segment."""
+    segment = y[start:end]
+    return {
+        "start": start,
+        "end": end,
+        "count": int(segment.shape[0]),
+        "mean": float(np.mean(segment)),
+        "std": float(np.std(segment, ddof=1)) if segment.shape[0] > 1 else 0.0,
+    }
 
 
 __all__ = ["detect_regime_changepoints"]

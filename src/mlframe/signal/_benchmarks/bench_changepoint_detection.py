@@ -22,9 +22,15 @@ def _make_series(n: int, n_regimes: int, seed: int) -> np.ndarray:
     return np.concatenate(segments)
 
 
-def _run(n: int, n_regimes: int, backend: str) -> None:
+def _run(n: int, n_regimes: int, backend: str, return_segment_stats: bool = False) -> None:
     y = _make_series(n, n_regimes, seed=0)
-    detect_regime_changepoints(y, min_segment_length=max(10, n // (n_regimes * 4)), penalty=5.0, backend=backend)
+    detect_regime_changepoints(
+        y,
+        min_segment_length=max(10, n // (n_regimes * 4)),
+        penalty=5.0,
+        backend=backend,
+        return_segment_stats=return_segment_stats,
+    )
 
 
 if __name__ == "__main__":
@@ -44,6 +50,14 @@ if __name__ == "__main__":
         wall = time.perf_counter() - t0
         print(f"ruptures n={n:>7,} n_regimes={n_regimes:>3} -> {wall * 1000:9.2f} ms")
 
+    # return_segment_stats is O(n_regimes) post-processing on top of the njit PELT loop -- should add
+    # negligible wall time even at large n / many regimes.
+    for n, n_regimes in [(5_000, 10), (50_000, 10)]:
+        t0 = time.perf_counter()
+        _run(n, n_regimes, "njit", return_segment_stats=True)
+        wall = time.perf_counter() - t0
+        print(f"njit+segment_stats n={n:>7,} n_regimes={n_regimes:>3} -> {wall * 1000:9.2f} ms")
+
     profiler = cProfile.Profile()
     profiler.enable()
     _run(50_000, 10, "njit")
@@ -52,3 +66,12 @@ if __name__ == "__main__":
     stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
     stats.print_stats(15)
     print(buf.getvalue())
+
+    profiler2 = cProfile.Profile()
+    profiler2.enable()
+    _run(50_000, 10, "njit", return_segment_stats=True)
+    profiler2.disable()
+    buf2 = StringIO()
+    stats2 = pstats.Stats(profiler2, stream=buf2).sort_stats("cumulative")
+    stats2.print_stats(15)
+    print(buf2.getvalue())
