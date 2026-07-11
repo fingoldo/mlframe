@@ -28,16 +28,13 @@ from typing import Optional, Sequence, Union
 from scipy.stats import uniform, loguniform, randint
 
 from scipy.stats._distn_infrastructure import rv_continuous_frozen, rv_discrete_frozen
-from sklearn.model_selection import ParameterSampler
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import ParameterSampler, train_test_split, cross_validate, KFold
 
 from pyutilz import db
 
 import random as _stdlib_random
 import pandas as pd, numpy as np
 from catboost import CatBoostRegressor
-from sklearn.model_selection import cross_validate
-from sklearn.model_selection import KFold
 from sklearn.metrics import check_scoring
 
 from enum import Enum, auto

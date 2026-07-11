@@ -170,15 +170,8 @@ def fit(
     # prev + cumulative vs entry; opt out by setting
     # MLFRAME_DISCOVERY_RAM_PROFILER=0 (the helper checks the env once at
     # entry so the rest of the fit() body never tests the flag again).
-    import os as _os
-
     _ram_state: dict = {}
-    _ram_profiler_on = _os.environ.get("MLFRAME_DISCOVERY_RAM_PROFILER", "1").strip().lower() not in (
-        "0",
-        "false",
-        "no",
-        "off",
-    )
+    _ram_profiler_on = os.environ.get("MLFRAME_DISCOVERY_RAM_PROFILER", "1").strip().lower() not in ("0", "false", "no", "off")
     if _ram_profiler_on:
         _phase_ram_report(_ram_state, "entry")
 
@@ -585,9 +578,7 @@ def fit(
     _n_jobs_raw = getattr(self.config, "discovery_n_jobs", 1)
     _n_jobs_raw = 1 if _n_jobs_raw is None else int(_n_jobs_raw)
     if _n_jobs_raw == 0:
-        import os as _os
-
-        _n_jobs_disc = max(1, min(len(_work_items), _os.cpu_count() or 1))
+        _n_jobs_disc = max(1, min(len(_work_items), os.cpu_count() or 1))
     else:
         _n_jobs_disc = max(1, _n_jobs_raw)
     if _n_jobs_disc > 1 and len(_work_items) > 1:

@@ -401,8 +401,6 @@ def _recalibrate_regression_on_calib_slice(ctx: "TrainingContext") -> None:
     per-split predictions are re-stamped to the recalibrated values so the conformal pass (which runs after)
     scores the SHIPPED predictor. Runs before ``_conformal_on_calib_slice``.
     """
-    import os as _os
-
     import numpy as _np
 
     from .._regression_calibration import RecalibratedRegressor, cv2_recalibration_gain, fit_point_recalibrator
@@ -412,7 +410,7 @@ def _recalibrate_regression_on_calib_slice(ctx: "TrainingContext") -> None:
         _root = getattr(ctx, "configs", None)
         _cfg = getattr(_root, "regression_calibration_config", None) if _root is not None else None
     method = str(getattr(_cfg, "point", "off")) if _cfg is not None else "off"
-    _env = _os.environ.get("MLFRAME_REGRESSION_RECALIBRATION", "").strip().lower()
+    _env = os.environ.get("MLFRAME_REGRESSION_RECALIBRATION", "").strip().lower()
     if _env in ("isotonic", "linear"):
         method = _env
     if method not in ("isotonic", "linear"):
