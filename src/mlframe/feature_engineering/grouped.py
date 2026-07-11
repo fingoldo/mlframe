@@ -185,6 +185,37 @@ def _per_group_rank_sorted_njit(seg_vals, starts, ends, method_code, pct):
     return out
 
 
+@njit(cache=True)
+def _per_group_rank_ordinal_tiebreak_njit(seg_vals, seg_tb, starts, ends, pct):
+    """Ordinal rank per group-contiguous segment, ties broken by ``seg_tb`` not row order.
+
+    Composes two small per-group stable mergesorts (tiebreak, then primary) instead of one
+    global multi-key ``np.lexsort`` over the whole array: a global lexsort re-sorts ALL n
+    rows per key (measured 29s @10M/3-keys, i.e. slower than the group loop it replaced),
+    while this sorts only ``seg_n`` rows per group per pass -- same total-work shape as the
+    existing single-key ``_per_group_rank_sorted_njit`` kernel above.
+    """
+    m = seg_vals.shape[0]
+    out = np.empty(m, dtype=np.float64)
+    n_groups = starts.shape[0]
+    for g in range(n_groups):
+        s = starts[g]
+        e = ends[g]
+        seg_n = e - s
+        if seg_n == 0:
+            continue
+        order_tb = np.argsort(seg_tb[s:e], kind="mergesort")
+        composed_vals = seg_vals[s:e][order_tb]
+        order_primary = np.argsort(composed_vals, kind="mergesort")
+        order = order_tb[order_primary]
+        for k in range(seg_n):
+            r = k + 1.0
+            if pct:
+                r = r / seg_n
+            out[s + order[k]] = r
+    return out
+
+
 def iter_group_segments(
     group_ids: np.ndarray,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -547,6 +578,84 @@ def per_group_nth(
     return (unique_ids, out)
 
 
+def _per_group_rank_ordinal_tiebreak(
+    values_arr: np.ndarray,
+    group_ids: np.ndarray,
+    tiebreak_values: np.ndarray,
+    *,
+    pct: bool,
+    ascending: bool,
+    tiebreak_ascending: bool,
+) -> np.ndarray:
+    """Ordinal within-group rank with ties broken by a secondary column instead of row order.
+
+    Plain ``method="ordinal"`` breaks ties by whatever order rows happen to sit in (the
+    stable-sort within-group original order) -- deterministic, but semantically arbitrary:
+    two rows sharing the exact same primary value get an arbitrary 1-apart rank split with
+    no information content. When the caller has a meaningful secondary criterion (e.g. rank
+    by score, tie-break by more-recent timestamp / larger volume), this resolves ties by
+    that column via ``np.lexsort`` instead, so the split direction actually means something.
+
+    One global ``np.lexsort`` (keys: group, then primary value, then tiebreak -- lexsort's
+    LAST key is the primary sort criterion) replaces a Python per-group loop: a first cut at
+    this used ``iter_group_segments`` + a per-group ``np.lexsort``/``np.flatnonzero`` loop and
+    profiled at ~6x SLOWER than the plain-ordinal path at 10M rows / 200k groups
+    (prof_per_group_rank_10m.py) -- Python call overhead dominates at that group count. This
+    version is a single sort + a group-boundary/run-length pass, matching the plain path's cost.
+    """
+    tb_arr = np.ascontiguousarray(tiebreak_values, dtype=np.float64)
+    if tb_arr.size != values_arr.size:
+        raise ValueError(f"tiebreak_values length {tb_arr.size} != values length {values_arr.size}")
+    out = np.full(values_arr.size, np.nan, dtype=np.float64)
+    sort_idx, starts, ends = iter_group_segments(group_ids)
+    if sort_idx.size == 0:
+        return out
+
+    seg_vals = values_arr[sort_idx]
+    seg_tb = tb_arr[sort_idx]
+    if not ascending:
+        seg_vals = -seg_vals
+    if not tiebreak_ascending:
+        seg_tb = -seg_tb
+    finite_mask = np.isfinite(seg_vals)
+
+    if _HAS_NUMBA:
+        # Same group-contiguous-layout trick as the primary rank kernel: compact the
+        # finite rows into per-group segments once, then a single njit pass does two
+        # small per-group stable sorts per group instead of a Python loop of np.lexsort
+        # calls (measured ~6x faster @10M/200k groups, prof_per_group_rank_10m.py).
+        seg_finite_idx = np.flatnonzero(finite_mask)
+        fin_vals = seg_vals[seg_finite_idx]
+        fin_tb = seg_tb[seg_finite_idx]
+        finite_cum = np.concatenate(([0], np.cumsum(finite_mask.astype(np.intp))))
+        fstarts = finite_cum[starts].astype(np.intp)
+        fends = finite_cum[ends].astype(np.intp)
+        ranks_fin = _per_group_rank_ordinal_tiebreak_njit(fin_vals, fin_tb, fstarts, fends, bool(pct))
+        out[sort_idx[seg_finite_idx]] = ranks_fin
+        return out
+
+    for s, e in zip(starts, ends):
+        finite = finite_mask[s:e]
+        n_fin = int(finite.sum())
+        if n_fin == 0:
+            continue
+        idx_fin = np.flatnonzero(finite)
+        primary = seg_vals[s:e][idx_fin]
+        secondary = seg_tb[s:e][idx_fin]
+        # lexsort's last key is primary; NaN in the tiebreak column sorts last within a
+        # tied block (np.lexsort places NaN at the end), so a missing tiebreak degrades
+        # gracefully to "after all rows with a real tiebreak value" rather than raising.
+        order = np.lexsort((secondary, primary))
+        ranks = np.empty(n_fin, dtype=np.float64)
+        ranks[order] = np.arange(1, n_fin + 1, dtype=np.float64)
+        if pct:
+            ranks = ranks / n_fin
+        seg_out = np.full(e - s, np.nan, dtype=np.float64)
+        seg_out[idx_fin] = ranks
+        out[sort_idx[s:e]] = seg_out
+    return out
+
+
 def per_group_rank(
     values: np.ndarray,
     group_ids: np.ndarray,
@@ -554,6 +663,8 @@ def per_group_rank(
     method: str = "average",
     pct: bool = False,
     ascending: bool = True,
+    tiebreak_values: np.ndarray | None = None,
+    tiebreak_ascending: bool = True,
 ) -> np.ndarray:
     """Within-group rank of each value.
 
@@ -565,9 +676,22 @@ def per_group_rank(
     on identical input (no train/serve skew). The naive
     ``pd.groupby().rank()`` on >10M rows is the canonical "why is my
     FE step 40 min" hotspot; this version vectorises per segment.
+
+    ``tiebreak_values`` (opt-in, ``method="ordinal"`` only): a secondary column, aligned
+    to ``values``, that breaks ties deterministically by ITS ordering instead of arbitrary
+    original-row order (e.g. rank bids by price, tie-break by submission time). Ignored /
+    forbidden for the other methods, since average/min/max/dense assign the SAME rank to
+    every row in a tied block by definition -- the tie-break order can't change their output,
+    so silently accepting it there would be a no-op that looks like it did something.
+    Omitting it (the default) leaves this function's output bit-identical to before.
     """
     if method not in {"average", "min", "max", "dense", "ordinal"}:
         raise ValueError(f"method={method!r} not in {{'average','min','max','dense','ordinal'}}")
+    if tiebreak_values is not None:
+        if method != "ordinal":
+            raise ValueError("tiebreak_values is only supported with method='ordinal' (average/min/max/dense give tied rows the same rank regardless of tie-break order)")
+        values_arr_tb = np.ascontiguousarray(values, dtype=np.float64)
+        return _per_group_rank_ordinal_tiebreak(values_arr_tb, group_ids, tiebreak_values, pct=pct, ascending=ascending, tiebreak_ascending=tiebreak_ascending)
     values_arr = np.ascontiguousarray(values, dtype=np.float64)
     out = np.full(values_arr.size, np.nan, dtype=np.float64)
     sort_idx, starts, ends = iter_group_segments(group_ids)
