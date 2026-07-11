@@ -167,6 +167,7 @@ class TransformerSequenceEncoder(nn.Module):
         self,
         sequences: torch.Tensor,
         lengths: torch.Tensor,
+        attn_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """
         Encode sequences with Transformer.
@@ -174,6 +175,12 @@ class TransformerSequenceEncoder(nn.Module):
         Args:
             sequences: (batch, seq_len, input_size) padded sequences
             lengths: (batch,) original sequence lengths
+            attn_mask: optional additive float mask, shape (seq_len+1, seq_len+1) or (batch, seq_len+1,
+                seq_len+1), forwarded to ``nn.TransformerEncoder`` as-is. ``None`` (default) preserves the
+                existing fully-bidirectional behaviour. The ``+1`` accounts for the prepended CLS token at
+                index 0 -- a caller building a mask from ``group_causal_attention_mask`` over the raw sequence
+                positions must pad it with an always-attendable row/column for CLS (e.g. via
+                ``torch.nn.functional.pad`` with value 0.0) before passing it here.
 
         Returns:
             Context vector (batch, hidden_size) from CLS token
@@ -192,9 +199,17 @@ class TransformerSequenceEncoder(nn.Module):
         # src_key_padding_mask convention: True = position is padding and must be ignored.
         # CLS token sits at index 0 and is always valid; lengths counts real tokens, so positions > lengths are padding.
         seq_positions = torch.arange(max_len + 1, device=device).unsqueeze(0)
-        padding_mask = seq_positions > lengths.unsqueeze(1)
+        padding_mask_bool = seq_positions > lengths.unsqueeze(1)
 
-        x = self.transformer(x, src_key_padding_mask=padding_mask)
+        if attn_mask is None:
+            padding_mask: torch.Tensor = padding_mask_bool
+        else:
+            # PyTorch deprecates combining a bool src_key_padding_mask with a float attn_mask (mismatched
+            # mask types) -- when a caller opts into attn_mask, convert the padding mask to the same additive
+            # float convention so both masks combine cleanly (bit-identical semantics, no deprecation warning).
+            padding_mask = torch.zeros(padding_mask_bool.shape, dtype=attn_mask.dtype, device=device).masked_fill(padding_mask_bool, float("-inf"))
+
+        x = self.transformer(x, mask=attn_mask, src_key_padding_mask=padding_mask)
 
         return cast(torch.Tensor, x[:, 0, :])  # (batch, hidden_size) - CLS token output
 

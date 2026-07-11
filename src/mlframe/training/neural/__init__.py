@@ -57,6 +57,9 @@ from .trunk_residual_mlp import TrunkResidualMLPRegressor
 # module docstring for an honest-negative note: the hypothesized generalization win did not reproduce).
 from .field_grouped_mlp import FieldGroupedMLPRegressor
 
+# Group-aware causal attention mask (simultaneous-events-within-a-group support for TransformerSequenceEncoder)
+from .group_causal_attention_mask import group_causal_attention_mask
+
 # Recurrent/sequence models
 from .recurrent import (
     RNNType,
@@ -109,6 +112,8 @@ __all__ = [
     "TrunkResidualMLPRegressor",
     # Field-grouped sub-MLP encoders (honest negative -- see module docstring)
     "FieldGroupedMLPRegressor",
+    # Group-aware causal attention mask
+    "group_causal_attention_mask",
     # Recurrent
     "RNNType",
     "InputMode",
