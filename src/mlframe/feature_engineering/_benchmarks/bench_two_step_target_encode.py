@@ -25,23 +25,28 @@ def _make_data(n_entities: int, events_per_entity: int, seed: int) -> pd.DataFra
     return pd.DataFrame({"entity": entity_ids, "t": t, "cat1": cat1, "y": y})
 
 
-def _run(n_entities: int, events_per_entity: int) -> None:
+def _run(n_entities: int, events_per_entity: int, causal: bool = False) -> None:
     events_df = _make_data(n_entities, events_per_entity, seed=0)
-    two_step_recency_weighted_target_encode(events_df, "entity", ["cat1"], events_df["y"].to_numpy(), "t", decay_half_life=2.0)
+    two_step_recency_weighted_target_encode(
+        events_df, "entity", ["cat1"], events_df["y"].to_numpy(), "t", decay_half_life=2.0, causal=causal
+    )
 
 
 if __name__ == "__main__":
-    for n_entities, events_per_entity in [(5_000, 10), (50_000, 10)]:
-        t0 = time.perf_counter()
-        _run(n_entities, events_per_entity)
-        wall = time.perf_counter() - t0
-        print(f"n_entities={n_entities:>7,} events/entity={events_per_entity:>3} -> {wall * 1000:9.2f} ms")
+    for causal in (False, True):
+        for n_entities, events_per_entity in [(5_000, 10), (50_000, 10)]:
+            t0 = time.perf_counter()
+            _run(n_entities, events_per_entity, causal=causal)
+            wall = time.perf_counter() - t0
+            print(f"causal={causal!s:>5} n_entities={n_entities:>7,} events/entity={events_per_entity:>3} -> {wall * 1000:9.2f} ms")
 
-    profiler = cProfile.Profile()
-    profiler.enable()
-    _run(5_000, 10)
-    profiler.disable()
-    buf = StringIO()
-    stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
-    stats.print_stats(15)
-    print(buf.getvalue())
+    for causal in (False, True):
+        profiler = cProfile.Profile()
+        profiler.enable()
+        _run(5_000, 10, causal=causal)
+        profiler.disable()
+        buf = StringIO()
+        stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
+        stats.print_stats(15)
+        print(f"--- causal={causal} ---")
+        print(buf.getvalue())

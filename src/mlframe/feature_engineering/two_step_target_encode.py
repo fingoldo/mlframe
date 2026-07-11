@@ -26,6 +26,7 @@ def two_step_recency_weighted_target_encode(
     decay_half_life: float,
     order: Optional[np.ndarray] = None,
     smoothing: float = 1.0,
+    causal: bool = False,
 ) -> np.ndarray:
     """Event-level leak-free target encoding of ``feature_cols``, aggregated to ``entity_col`` with recency decay.
 
@@ -51,12 +52,25 @@ def two_step_recency_weighted_target_encode(
         Optional explicit causal order for step 1's leak-free encoding; defaults to ``time_col``.
     smoothing
         Passed through to :func:`ordered_target_encode`.
+    causal
+        Default ``False`` preserves the original behavior: step 2 aggregates over an entity's FULL event
+        history (past AND future relative to each row), so every row of an entity gets the identical
+        terminal aggregate -- correct for a one-shot "encode this entity as of its last known event" score,
+        but a target-leakage source if the output is used as a per-EVENT training feature, since an early
+        event's feature value is then informed by that entity's later events (information not yet available
+        at that event's own time). ``True`` makes step 2 expanding-window instead: row ``i``'s aggregate uses
+        only events of its entity with ``time <= events_df[time_col][i]`` (ties broken by ``order``/row
+        position, matching step 1's causal ordering), so a row-level model trained on this feature can't see
+        its own entity's future. Values then differ within an entity (monotonically converging to the
+        ``causal=False`` value at that entity's last event) instead of being constant per entity.
 
     Returns
     -------
     np.ndarray
-        ``(n_events,)`` array: each event's row gets its ENTITY's recency-weighted aggregate of the step-1
-        event-level encodings (same value repeated for every event of that entity).
+        ``(n_events,)`` array. With ``causal=False`` (default): each event's row gets its ENTITY's recency-
+        weighted aggregate of the step-1 event-level encodings (same value repeated for every event of that
+        entity). With ``causal=True``: each row gets the expanding-window recency-weighted aggregate of only
+        that entity's events up to and including its own time (no future leakage).
     """
     # vectorized str.cat chain instead of .agg("|".join, axis=1) -- the latter is a per-row Python callback
     # (profiled: 630ms of 680ms at n=50k), the same "many small groups + Python callback" cost class found
@@ -73,12 +87,31 @@ def two_step_recency_weighted_target_encode(
 
     df = pd.DataFrame({"entity": entity_vals, "time": time_vals, "enc": step1_encoding})
     entity_max_time = df.groupby("entity")["time"].transform("max")
-    weight = 0.5 ** ((entity_max_time - df["time"]) / decay_half_life)
 
-    weighted_sum = (df["enc"] * weight).groupby(df["entity"]).transform("sum")
-    weight_sum = weight.groupby(df["entity"]).transform("sum")
+    if not causal:
+        weight = 0.5 ** ((entity_max_time - df["time"]) / decay_half_life)
+        weighted_sum = (df["enc"] * weight).groupby(df["entity"]).transform("sum")
+        weight_sum = weight.groupby(df["entity"]).transform("sum")
+        return np.asarray((weighted_sum / weight_sum).to_numpy(), dtype=np.float64)
 
-    return np.asarray((weighted_sum / weight_sum).to_numpy(), dtype=np.float64)
+    # Expanding-window (causal) step 2: row i's aggregate must only see events of its own entity with
+    # time <= its own time. 0.5**((t_i - t_j) / hl) factors as A_i * B_j (A_i = 0.5**(t_i/hl), B_j =
+    # 0.5**(-t_j/hl)) so A_i cancels out of the weighted_sum/weight_sum ratio -- letting a single per-entity
+    # expanding cumsum (in causal order) stand in for an O(n^2) "recompute weights vs. row i" loop. B_j is
+    # referenced to the entity's own max time (same convention as the non-causal branch) purely to keep the
+    # exponent <= 0 and avoid overflow; the reference constant cancels in the ratio the same way A_i does.
+    causal_order = order if order is not None else time_vals
+    sort_idx = np.argsort(np.asarray(causal_order), kind="mergesort")
+    inverse_idx = np.argsort(sort_idx, kind="mergesort")
+
+    sorted_df = df.iloc[sort_idx]
+    b_weight = 0.5 ** ((entity_max_time.iloc[sort_idx].to_numpy() - sorted_df["time"].to_numpy()) / decay_half_life)
+    grouped = (sorted_df["enc"].to_numpy() * b_weight)
+    weighted_cumsum = pd.Series(grouped, index=sorted_df.index).groupby(sorted_df["entity"]).cumsum()
+    weight_cumsum = pd.Series(b_weight, index=sorted_df.index).groupby(sorted_df["entity"]).cumsum()
+
+    causal_encoding_sorted = (weighted_cumsum / weight_cumsum).to_numpy()
+    return np.asarray(causal_encoding_sorted[inverse_idx], dtype=np.float64)
 
 
 __all__ = ["two_step_recency_weighted_target_encode"]
