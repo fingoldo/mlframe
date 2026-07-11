@@ -40,3 +40,10 @@ if __name__ == "__main__":
         )
         wall = time.perf_counter() - t0
         print(f"{pruner_label:>20} -> {wall * 1000:9.2f} ms, completed_trials={len(res.trials):>3}/40, selection_score={res.selection_score:.4f}")
+        if res.pruning_stats is not None:
+            ps = res.pruning_stats
+            print(
+                f"{'':>20}    pruning_stats: completed={ps.n_trials_completed} pruned={ps.n_trials_pruned} "
+                f"median_completed={ps.median_completed_trial_seconds * 1000:.1f}ms "
+                f"estimated_wallclock_saved={ps.estimated_wallclock_saved_seconds * 1000:.1f}ms"
+            )

@@ -136,6 +136,62 @@ def test_biz_val_pruner_reduces_completed_folds():
 
 
 # ---------------------------------------------------------------------------
+# Unit + biz_value: pruning_stats ROI reporting
+# ---------------------------------------------------------------------------
+
+
+def test_pruning_stats_none_when_pruner_not_requested():
+    X, y = _make_diff_data(n=600)
+    res = optimize_composite(
+        X, y, base_column="base",
+        transform_candidates=("diff", "linear_residual"),
+        inner_factory=_inner_factory, inner_spaces=_spaces(),
+        n_trials=10, cv=4, prefer_optuna=True,
+    )
+    # Default pruner=None resolves to NopPruner -- nothing was pruned, so there is nothing to report; the field
+    # must stay None rather than a hollow all-zero PruningStats implying pruning ran.
+    assert res.pruning_stats is None
+
+
+def test_biz_val_pruning_stats_reports_positive_wallclock_saved():
+    """The whole point of exposing ROI: a user weighing pruning's selection-quality risk (documented on
+    ``optimize_composite``'s ``pruner=`` param) needs to see the actual payoff, not just a trial count.
+
+    Search space includes deliberately bad, slow-to-fail candidates (``max_depth`` swept very high on a tiny
+    single-feature dataset overfits catastrophically on early folds) alongside cheap good ones, so an aggressive
+    MedianPruner abandons the bad candidates after fold 1 instead of paying for every remaining fold -- and
+    ``pruning_stats`` must quantify that saving as a strictly positive number of seconds, not just report a
+    trial count.
+    """
+    X, y = _make_diff_data(n=2000, seed=3)
+    n_trials, cv = 24, 6
+    spaces = {"max_depth": HPOSpace("int", low=1, high=20)}
+
+    aggressive_pruner = optuna.pruners.MedianPruner(n_startup_trials=2, n_warmup_steps=0, interval_steps=1)
+    res = optimize_composite(
+        X, y, base_column="base",
+        transform_candidates=("diff", "linear_residual"),
+        inner_factory=_inner_factory, inner_spaces=spaces,
+        n_trials=n_trials, cv=cv, prefer_optuna=True, pruner=aggressive_pruner, random_state=3,
+    )
+
+    stats = res.pruning_stats
+    assert stats is not None
+    assert stats.n_trials_pruned > 0, "expected the aggressive MedianPruner to abandon at least one bad-depth trial"
+    assert stats.n_trials_completed > 0
+    assert stats.n_trials_completed + stats.n_trials_pruned == n_trials
+    assert stats.median_completed_trial_seconds > 0.0
+    # 5% of a single completed trial's typical cost is a conservative floor -- this is a real, material saving,
+    # not floating-point noise in the timer.
+    assert stats.estimated_wallclock_saved_seconds > 0.05 * stats.median_completed_trial_seconds, (
+        f"expected a materially positive wallclock saving, got "
+        f"{stats.estimated_wallclock_saved_seconds:.4f}s vs. median completed trial "
+        f"{stats.median_completed_trial_seconds:.4f}s ({stats.n_trials_pruned} pruned)"
+    )
+    assert stats.total_pruned_elapsed_seconds >= 0.0
+
+
+# ---------------------------------------------------------------------------
 # Unit + biz_value: define-by-run conditional search space
 # ---------------------------------------------------------------------------
 
