@@ -53,3 +53,68 @@ def test_constant_group_target_scan_no_eligible_groups_not_flagged():
     y = np.array([0.0, 1.0, 0.0, 1.0, 0.0])
     result = constant_group_target_scan(df, y, candidate_cols=["col"], min_group_size=20)
     assert bool(result.iloc[0]["flagged"]) is False
+
+
+def test_biz_val_constant_group_target_scan_combo_finds_compound_key_leak_invisible_alone():
+    # a leak that only shows up under the COMPOUND key (branch, weekday): the target rate is near-deterministic
+    # per (branch, weekday) pair, but each column marginalized alone washes the pattern out completely, since
+    # the per-branch and per-weekday deterministic rates are constructed to average out to ~0.5 individually.
+    rng = np.random.default_rng(1)
+    n_branches = 6
+    n_weekdays = 7
+    rows_per_combo = 40
+    branches = np.repeat(np.arange(n_branches), n_weekdays * rows_per_combo)
+    weekdays = np.tile(np.repeat(np.arange(n_weekdays), rows_per_combo), n_branches)
+    n = branches.shape[0]
+
+    # deterministic rate per (branch, weekday) pair alternates 0/1 in a checkerboard so branch-marginal and
+    # weekday-marginal rates both average to ~0.5 -- no single column shows a near-constant group.
+    combo_rate = ((branches + weekdays) % 2).astype(float)
+    flip_mask = rng.random(n) < 0.02
+    y_combo_leak = np.where(flip_mask, 1 - combo_rate, combo_rate)
+
+    df = pd.DataFrame({"branch": branches, "weekday": weekdays})
+
+    single = constant_group_target_scan(df, y_combo_leak, candidate_cols=["branch", "weekday"], min_group_size=20)
+    by_col = {row["column"]: row for _, row in single.iterrows()}
+    assert by_col["branch"]["flagged"] is False, by_col["branch"]
+    assert by_col["weekday"]["flagged"] is False, by_col["weekday"]
+
+    combo = constant_group_target_scan(
+        df, y_combo_leak, candidate_cols=["branch", "weekday"], min_group_size=20, combo_max_size=2
+    )
+    by_key = {row["column"]: row for _, row in combo.iterrows()}
+    combo_row = by_key[("branch", "weekday")]
+    assert combo_row["flagged"] is True, combo_row
+    assert combo_row["min_group_variance_ratio"] < 0.1
+    # the compound key is far more deterministic than either marginal column alone.
+    assert combo_row["min_group_variance_ratio"] < by_key["branch"]["min_group_variance_ratio"]
+    assert combo_row["min_group_variance_ratio"] < by_key["weekday"]["min_group_variance_ratio"]
+
+
+def test_constant_group_target_scan_combo_max_size_one_is_bit_identical_to_default():
+    # combo_max_size=1 (the implicit default) must reproduce the exact original single-column-only output --
+    # the multi-column mode is strictly opt-in.
+    rng = np.random.default_rng(2)
+    n = 500
+    df = pd.DataFrame({"a": rng.integers(0, 10, n), "b": rng.integers(0, 5, n)})
+    y = rng.random(n)
+
+    baseline = constant_group_target_scan(df, y, candidate_cols=["a", "b"], min_group_size=10)
+    explicit = constant_group_target_scan(df, y, candidate_cols=["a", "b"], min_group_size=10, combo_max_size=1)
+    pd.testing.assert_frame_equal(baseline, explicit)
+
+
+def test_constant_group_target_scan_combo_max_cols_bounds_combination_count():
+    rng = np.random.default_rng(3)
+    n = 300
+    cols = {f"c{i}": rng.integers(0, 4, n) for i in range(6)}
+    df = pd.DataFrame(cols)
+    y = rng.random(n)
+
+    result = constant_group_target_scan(
+        df, y, candidate_cols=list(cols.keys()), min_group_size=10, combo_max_size=2, combo_max_cols=3
+    )
+    combo_rows = [row for row in result["column"] if isinstance(row, tuple)]
+    # C(3, 2) = 3 combinations from the first 3 columns only, not C(6, 2) = 15.
+    assert len(combo_rows) == 3
