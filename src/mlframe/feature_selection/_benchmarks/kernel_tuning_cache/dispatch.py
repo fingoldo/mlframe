@@ -126,30 +126,39 @@ def lookup_joint_hist(n_samples: int, joint_size: int, *, run_auto_tune: bool = 
         # pyutilz missing entirely -> source-code fallback.
         return fb
 
-    # get_or_tune orchestrates env -> code-version-checked lookup -> on-miss
-    # (locked, once-per-process) sweep -> persist -> re-lookup -> fallback. The
-    # tuner only sweeps when run_auto_tune (else a no-op so a miss falls straight
-    # to the fallback, preserving the prior gating). code_version (salt=1, matching
-    # the @kernel_tuner registration) invalidates stale regions after a kernel edit
-    # -- the win over the old bare lookup. Multi-field payload {kernel_variant,
-    # block_size} passes through unchanged.
+    # code_version (salt=1, matching the @kernel_tuner registration) invalidates stale regions after a
+    # kernel edit. run_auto_tune=True (the offline mlframe-tune-kernels CLI) routes through get_or_tune,
+    # which orchestrates env -> code-version-checked lookup -> on-miss (locked, once-per-process) sweep ->
+    # persist -> re-lookup -> fallback. run_auto_tune=False (every production dispatch call today, since
+    # nothing in mlframe passes True) uses a PURE cache.lookup() instead: get_or_tune's env-check +
+    # stale-check + guard + _run_tuner(...) path unconditionally logs a misleading "sweep starting" banner
+    # even though the tuner here is a no-op (nothing gets measured), and a miss just needs to fall through
+    # to the fallback silently. The explicit code_version_stale() check below preserves get_or_tune's
+    # stale-entry safety on the lookup path -- a region tuned against an old kernel code_version is never
+    # served as a hit. Multi-field payload {kernel_variant, block_size} passes through unchanged.
     payload = fb
     try:
         from pyutilz.performance.kernel_tuning.code_versioning import compute_code_version
 
         from ._auto_tune_sweeps_a import _run_sweep_joint_hist
 
-        tuner = (lambda: _run_sweep_joint_hist(n_iters=2)) if run_auto_tune else (lambda: [])
-        result = cache.get_or_tune(
-            "joint_hist_batched",
-            dims={"n_samples": n_samples, "joint_size": joint_size},
-            tuner=tuner, axes=["n_samples", "joint_size"],
-            fallback=fb, code_version=compute_code_version(_run_sweep_joint_hist, salt=1),
-        )
+        code_version = compute_code_version(_run_sweep_joint_hist, salt=1)
+        if run_auto_tune:
+            result = cache.get_or_tune(
+                "joint_hist_batched",
+                dims={"n_samples": n_samples, "joint_size": joint_size},
+                tuner=(lambda: _run_sweep_joint_hist(n_iters=2)), axes=["n_samples", "joint_size"],
+                fallback=fb, code_version=code_version,
+                async_sweep=True,  # a real sweep must never block a live fit -- mirrors TunerSpec.choose()
+            )
+        else:
+            result = None if cache.code_version_stale("joint_hist_batched", code_version) else cache.lookup(
+                "joint_hist_batched", n_samples=n_samples, joint_size=joint_size,
+            )
         if isinstance(result, dict) and "kernel_variant" in result:
             payload = {"kernel_variant": result["kernel_variant"], "block_size": result["block_size"]}
     except Exception as e:
-        logger.debug("lookup_joint_hist get_or_tune failed: %s", e)
+        logger.debug("lookup_joint_hist dispatch failed: %s", e)
 
     _maybe_online_relearn(n_samples, joint_size)
     return payload
@@ -246,27 +255,36 @@ def lookup_mi_classif_backend(n_samples: int, k: int, *, run_auto_tune: bool = F
     if cache is False or cache is None:
         return fb
 
-    # get_or_tune: code-version-checked lookup -> on-miss (locked) sweep when
-    # run_auto_tune, else fallback. salt=1 matches the @kernel_tuner registration,
-    # so a kernel edit invalidates stale regions on the dispatch path.
+    # salt=1 matches the @kernel_tuner registration, so a kernel edit invalidates stale regions on the
+    # dispatch path. run_auto_tune=True routes through get_or_tune (code-version-checked lookup -> on-miss
+    # locked sweep -> fallback); run_auto_tune=False (every production call today) uses a PURE
+    # cache.lookup() -- get_or_tune's env-check + stale-check + guard + _run_tuner(...) path unconditionally
+    # logs a misleading "sweep starting" banner for a sweep that measures nothing here. The explicit
+    # code_version_stale() check preserves get_or_tune's stale-entry safety on the lookup path.
     try:
         from pyutilz.performance.kernel_tuning.code_versioning import compute_code_version
 
         from ._auto_tune_sweeps_a import _run_sweep_mi_classif_dispatch
 
-        tuner = (lambda: _run_sweep_mi_classif_dispatch(n_iters=2)) if run_auto_tune else (lambda: [])
-        result = cache.get_or_tune(
-            "plugin_mi_classif_dispatch",
-            dims={"n_samples": n_samples, "k": k},
-            tuner=tuner, axes=["n_samples", "k"],
-            fallback={"backend_choice": fb},
-            code_version=compute_code_version(_run_sweep_mi_classif_dispatch, salt=1),
-        )
+        code_version = compute_code_version(_run_sweep_mi_classif_dispatch, salt=1)
+        if run_auto_tune:
+            result = cache.get_or_tune(
+                "plugin_mi_classif_dispatch",
+                dims={"n_samples": n_samples, "k": k},
+                tuner=(lambda: _run_sweep_mi_classif_dispatch(n_iters=2)), axes=["n_samples", "k"],
+                fallback={"backend_choice": fb},
+                code_version=code_version,
+                async_sweep=True,  # a real sweep must never block a live fit -- mirrors TunerSpec.choose()
+            )
+        else:
+            result = None if cache.code_version_stale("plugin_mi_classif_dispatch", code_version) else cache.lookup(
+                "plugin_mi_classif_dispatch", n_samples=n_samples, k=k,
+            )
         bc = result if isinstance(result, str) else str((result or {}).get("backend_choice", ""))
         if bc in ("njit", "cuda"):
             return bc
     except Exception as e:
-        logger.debug("lookup_mi_classif_backend get_or_tune failed: %s", e)
+        logger.debug("lookup_mi_classif_backend dispatch failed: %s", e)
 
     return fb
 
@@ -317,24 +335,35 @@ def lookup_fe_mi_split_backend(n_samples: int, k: int, *, run_auto_tune: bool = 
     fb = _fallback_fe_mi_split(n_samples, k)
     if cache is False or cache is None:
         return fb
+    # run_auto_tune=True routes through get_or_tune (code-version-checked lookup -> on-miss locked sweep ->
+    # fallback); run_auto_tune=False (every production call today) uses a PURE cache.lookup() -- get_or_tune's
+    # env-check + stale-check + guard + _run_tuner(...) path unconditionally logs a misleading "sweep
+    # starting" banner for a sweep that measures nothing here. The explicit code_version_stale() check
+    # preserves get_or_tune's stale-entry safety on the lookup path.
     try:
         from pyutilz.performance.kernel_tuning.code_versioning import compute_code_version
 
         from ._auto_tune_sweeps_b import _run_sweep_fe_mi_split
 
-        tuner = (lambda: _run_sweep_fe_mi_split(n_iters=2)) if run_auto_tune else (lambda: [])
-        result = cache.get_or_tune(
-            "fe_mi_split_launch",
-            dims={"n_samples": n_samples, "k": k},
-            tuner=tuner, axes=["n_samples", "k"],
-            fallback={"backend_choice": fb},
-            code_version=compute_code_version(_run_sweep_fe_mi_split, salt=1),
-        )
+        code_version = compute_code_version(_run_sweep_fe_mi_split, salt=1)
+        if run_auto_tune:
+            result = cache.get_or_tune(
+                "fe_mi_split_launch",
+                dims={"n_samples": n_samples, "k": k},
+                tuner=(lambda: _run_sweep_fe_mi_split(n_iters=2)), axes=["n_samples", "k"],
+                fallback={"backend_choice": fb},
+                code_version=code_version,
+                async_sweep=True,  # a real sweep must never block a live fit -- mirrors TunerSpec.choose()
+            )
+        else:
+            result = None if cache.code_version_stale("fe_mi_split_launch", code_version) else cache.lookup(
+                "fe_mi_split_launch", n_samples=n_samples, k=k,
+            )
         bc = result if isinstance(result, str) else str((result or {}).get("backend_choice", ""))
         if bc in ("single", "split"):
             return bc
     except Exception as e:
-        logger.debug("lookup_fe_mi_split_backend get_or_tune failed: %s", e)
+        logger.debug("lookup_fe_mi_split_backend dispatch failed: %s", e)
     return fb
 
 
@@ -354,7 +383,10 @@ def lookup_pairwise_corr_backend(p: int, n: int) -> str:
         # PURE read (no get_or_tune) so a cache miss does NOT log a spurious "sweep starting" or run a tuner -- a
         # contention-aware sweep is not registered yet, so this is a per-host OVERRIDE hook: if an operator/offline sweep
         # has written a region, honor it; otherwise fall through to the measured numpy default.
-        result = cache.lookup("fe_pairwise_complete_corr", dims={"p": p, "n": n})
+        # NOTE: p=p, n=n (not dims={"p": p, "n": n}) -- lookup() takes **dims, so a wrapped "dims" kwarg would
+        # be seen as one dim literally named "dims" and every region would match unconstrained (silently
+        # ignoring p/n region caps and always returning the first region regardless of size).
+        result = cache.lookup("fe_pairwise_complete_corr", p=p, n=n)
         bc = result if isinstance(result, str) else str((result or {}).get("backend_choice", "")) if result else ""
         if bc in ("numpy", "cupy", "njit"):
             return bc
@@ -370,12 +402,14 @@ def reset_cache() -> None:
     from mlframe.feature_selection.filters import _kernel_tuning as _kt
 
     with _kt._LOAD_LOCK:
-        if _kt._CACHE_SINGLETON not in (None, False):
+        singleton = _kt._CACHE_SINGLETON
+        if singleton is not None and singleton is not False:
             try:
-                _kt._CACHE_SINGLETON.reset()
+                from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
+                if isinstance(singleton, KernelTuningCache):
+                    singleton.reset()
             except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                logger.debug("suppressed in dispatch.py:376: %s", e)
-                pass
+                logger.debug("kernel_tuning_cache: reset_cache singleton.reset() failed: %s", e)
         _kt._CACHE_SINGLETON = None
 
 

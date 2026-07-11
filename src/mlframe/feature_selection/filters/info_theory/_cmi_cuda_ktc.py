@@ -43,7 +43,12 @@ def cmi_use_cuda(n: int, p: int) -> bool | None:
     backends are numerically equivalent (~1e-9), so this is selection-equivalent."""
     try:
         from mlframe.feature_selection.filters._fe_gpu_strict import fe_gpu_strict_enabled
-        if fe_gpu_strict_enabled():
+        # Pass THIS call's own (n, p) -- 2026-07-11 fix. Calling with no args made the per-call work floor a
+        # no-op here (fe_gpu_strict_enabled's floor is a no-op whenever n/p are omitted), silently defeating
+        # the caller's own p<64 decline at _cmi_cuda.py's _should_use_cuda: a small-p late-round call that
+        # correctly declined STRICT there still fell through to THIS function and got re-approved for CUDA
+        # unconditionally, since this was the only other place in the fallback chain that also checks STRICT.
+        if fe_gpu_strict_enabled(n=n, p=p):
             return True
     except Exception:  # nosec B110 - optional dependency import guard
         pass

@@ -675,7 +675,13 @@ def _should_use_cuda(n: int, p: int, joint_size: int, nbins_x: int = 0, nbins_y:
     # diagnose). The CPU/CUDA conditional-MI backends are numerically equivalent (~1e-9) -> selection-equivalent.
     try:
         from mlframe.feature_selection.filters._fe_gpu_strict import fe_gpu_strict_enabled
-        if fe_gpu_strict_enabled():
+        # Pass THIS call's own (n, p) shape (2026-07-09 fix), not just the fit-level row count: STRICT used to
+        # force every dispatch to CUDA for the rest of a >=100k-row fit even when a LATE-round call has shrunk
+        # to a handful of candidates (conditional_mi_batched_dispatch's p = len(cand_indices), which shrinks
+        # every greedy round) -- forcing GPU on a trivially small call pays full host<->device round-trip +
+        # kernel-launch overhead for negligible compute, which is a plausible driver of low CPU+GPU utilization
+        # simultaneously. See fe_gpu_strict_enabled's docstring / _STRICT_MIN_CALL_WORK.
+        if fe_gpu_strict_enabled(n=n, p=p):
             return True
     except Exception as e:
         logger.debug("swallowed exception in _cmi_cuda.py: %s", e)

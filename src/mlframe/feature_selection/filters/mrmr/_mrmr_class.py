@@ -337,6 +337,13 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
         # an explicit integer seed.
         random_seed: int | None = None,
         use_gpu: bool = False,
+        # Candidate-MI evaluation parallelism for the screen_predictors greedy loop (joblib
+        # backend="threading" pool over evaluate_candidates / the Fleuret permutation-confirmation
+        # step). Independent of ``n_jobs`` below (which drives CPU sub-helpers -- permutation-null MI,
+        # wide-frame nbins edges -- each self-gated separately; the pair-search FE stage forces serial
+        # under GPU-strict regardless of either knob). No sklearn-familiar ``-1``-style auto-resolve
+        # (unlike ``n_jobs``): default 1 = SERIAL. See ``n_jobs``'s own docstring for the split
+        # rationale (2026-07-09 doc fix, MRMR audit finding #2).
         n_workers: int = 1,
         # confidence
         min_occupancy: int | None = None,
@@ -460,6 +467,12 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
         # the re-selection for raw columns that ARE operands of a surviving engineered feature;
         # raws absorbed by an UNRELATED engineered feature keep the protective re-add at any n.
         fe_raw_retention_max_n: int = 20000,
+        # FE rejection-ledger record cap (2026-07-09). ``fe_rejection_ledger_`` records every FE candidate
+        # rejected during the fit for post-hoc diagnosis (which gate rejected it, at what margin). Capped
+        # to bound memory on pathological wide-p fits; raise on very-wide-p (hundreds of thousands of
+        # columns) fits if full-ledger post-hoc diagnosis matters more than the extra ~200-400 bytes/record.
+        # None -> module default (currently 500_000; see ``_fe_rejection_ledger.FE_REJECTION_LEDGER_CAP``).
+        fe_rejection_ledger_cap: Optional[int] = None,
         # RAW-VS-ENGINEERED CONDITIONAL-REDUNDANCY DROP (2026-06-08). After all
         # retention / augmentation passes, prune any selected RAW operand that is
         # conditionally redundant given a surviving engineered feature built from it
@@ -715,6 +728,14 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
         # ``min_nonzero_confidence`` default so both stages apply equally
         # strict statistical rigor without the unreachable-gate trap.
         fe_min_nonzero_confidence: float = 0.99,
+        # This floor only gates the LEGACY per-pair ``mi_direct`` permutation-test path inside
+        # ``compute_pairs_mis`` (feature_engineering.py). Since the finding-#21 fix removed
+        # ``_MRMR_BATCH_PRECOMPUTE_MAX_K``, ``dispatch_batch_pair_mi_chunked`` unconditionally
+        # pre-fills ``cached_MIs`` for every C(k,2) pair at n_pairs>=8 via a fast batched kernel BEFORE
+        # this legacy sweep runs, and ``compute_pairs_mis`` skips its expensive ``mi_direct`` call
+        # whenever a pair is already cached -- so this floor being weak no longer bounds real compute
+        # cost for the common case (see ``test_pair_mi_legacy_sweep_cache_starved.py``). It still
+        # matters for the n_pairs<8 / batch-precompute-failure fallback.
         fe_min_pair_mi: float = 0.001,
         # mi of entire pair must be at least that higher than the mi of its individual factors, to consider the pair at all.
         # Accepts ``"auto"`` (hardcoded-threshold conversion, 2026-06-13): a GUARDED data-derived mode
@@ -1022,6 +1043,12 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
         cv_shuffle: bool = False,
         # service
         random_state: int | None = None,
+        # sklearn-familiar auto-resolving parallelism knob (``-1`` -> physical cpu_count, see
+        # ``__init__``'s resolution below). Drives CPU sub-helpers ONLY (permutation-null MI batches,
+        # wide-frame nbins edge computation, the FE pair-search joblib fan-out in _run_fe_step) -- it
+        # does NOT parallelize screen_predictors' candidate-MI evaluation loop, which is gated
+        # separately by ``n_workers`` above (default 1 = serial). Easy to misread ``n_jobs=-1`` as
+        # "the whole fit runs on all cores"; it does not (2026-07-09 doc fix, MRMR audit finding #2).
         n_jobs: int = -1,
         # Skip the full re-fit when a process-cache hit replays a prior fit on the SAME content. The cache invalidates on
         # (a) X content change, (b) y / TARGET content change, AND (c) ANY selector-parameter change (set_params or direct
@@ -1374,6 +1401,16 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
         # Held-out validation effective-|corr| floor for the chirp detector
         # (same semantics + default as the linear adaptive floor above).
         fe_univariate_fourier_chirp_min_val_corr: float = 0.15,
+        # Column-count cap on the adaptive/chirp DETECTOR only. Profiled as the single largest default-ON
+        # pre-FE cost on a wide-p fit (~34% of the pre-categorize wall at p=420 -- the SAME p=423 scale the
+        # MRMR audit's motivating production fit ran at) -- the held-out frequency sweep is roughly linear
+        # in column count regardless of row count, unlike most of this pipeline which is already
+        # row-subsampled. Default 100 (2026-07-10, corrective-mechanism-on-by-default): bounds cost on
+        # wide-p fits while preserving full legacy behaviour (no cap in practice) below it, since the vast
+        # majority of tabular problems sit under 100 raw columns; the biz_val tests for this cap use p<=8 so
+        # are unaffected. Columns beyond the cap still get the cheap fixed-grid Fourier basis, only the
+        # expensive adaptive/chirp detection is capped. ``None`` restores the pre-2026-07-10 unlimited behaviour.
+        fe_univariate_fourier_adaptive_max_cols: Optional[int] = 100,
         # HINGE / piecewise-linear change-point basis (backlog #11, 2026-06-09).
         # DEFAULT ON (2026-06-09). Captures a SLOPE CHANGE at a data-dependent
         # threshold ``y = a*x + b*max(x - tau, 0)`` (pricing tiers, dose-response,
@@ -2644,6 +2681,15 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
         # replay (kind ``orth_wavelet``) stores (lo, span) + dyadic (j, k); replay
         # is the closed-form indicator, no y. Structurally like orth_spline.
         fe_wavelet_enable: bool = True,
+        # Column-count cap on the wavelet held-out scale-selection. Profiled as the second-largest
+        # default-ON pre-FE cost on a wide-p fit (~26% of the pre-categorize wall at p=420 -- the SAME
+        # p=423 scale the MRMR audit's motivating production fit ran at), roughly linear in column count.
+        # Unlike the Fourier adaptive cap, there is no cheap fallback here -- columns beyond the cap get NO
+        # wavelet legs at all, so this default is deliberately more generous than the Fourier cap's floor
+        # would suggest. Default 100 (2026-07-10, corrective-mechanism-on-by-default): bounds cost on
+        # wide-p fits while preserving full legacy behaviour below it; the biz_val tests for this cap use
+        # p<=8 so are unaffected. ``None`` restores the pre-2026-07-10 unlimited behaviour.
+        fe_wavelet_max_cols: Optional[int] = 100,
         fe_wavelet_cols: tuple = (),
         fe_wavelet_max_scale: int = 3,
         fe_wavelet_max_legs: int = 6,
@@ -2942,6 +2988,31 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
         Wrapper / _fit_impl forwarding asymmetry: ``sample_weight`` is CONSUMED at this wrapper level (via ``_maybe_resample_for_sample_weight`` before the ``_fit_impl`` call); ``groups`` is FORWARDED into ``_fit_impl`` which then silently drops them. A future refactor moving ``groups`` consumption into ``_fit_impl`` must also remove or downgrade the wrapper-level warning, otherwise the two ends would emit duplicate / contradictory messages.
 
         Cross-target identity cache. When a prior fit on the SAME X (same columns + same dtypes) produced an identity result (all input columns selected + zero engineered features), subsequent calls with a different y short-circuit the 80+ min FE pipeline and return identity-equivalent output. Opt-in via ``mrmr_skip_when_prior_was_identity=True``."""
+        # GPU circuit-breaker re-arm (2026-07-09 fix, MRMR audit finding #31): the CMI / mi_direct /
+        # pair-maxT GPU breakers are process-global and, once tripped by one launch fault, permanently
+        # disable GPU for the rest of the process -- silently degrading every LATER fit in a long-lived
+        # worker (notebook, service), not just the one that hit the transient fault. Re-arming at the
+        # start of each fit() bounds the cost of a genuinely-broken GPU to one extra failed attempt per
+        # fit (the breaker still protects WITHIN a fit from thousands of repeated attempts), while a
+        # transient fault (contention, a momentary driver hiccup) no longer sticks forever.
+        try:
+            from ..info_theory._cmi_cuda import reset_cmi_gpu_circuit_breaker
+
+            reset_cmi_gpu_circuit_breaker()
+        except Exception:  # nosec B110 - optional GPU module; re-arm is a resilience nicety, not a hard dependency
+            pass
+        try:
+            from ..permutation import reset_mi_direct_gpu_circuit_breaker
+
+            reset_mi_direct_gpu_circuit_breaker()
+        except Exception:  # nosec B110 - see above
+            pass
+        try:
+            from .._permutation_null_pair_resident import reset_pair_maxt_gpu_circuit_breaker
+
+            reset_pair_maxt_gpu_circuit_breaker()
+        except Exception:  # nosec B110 - see above
+            pass
         self.groups_ignored_ = False
         if groups is not None and not getattr(self, "group_aware_mi", False):
             if getattr(self, "strict_groups", False):
@@ -3415,11 +3486,18 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
             # (the fit becomes reproducible) AND restores the caller's state on exit; ``None`` (no seed
             # requested) restores only. A seeded fit is now deterministic + leak-free; an unseeded fit
             # is leak-free with unchanged (entropy) behaviour.
-            # Record the fit's row count so the AUTO (unset MLFRAME_FE_GPU_STRICT) size-gated STRICT default can
-            # engage GPU-resident FE on large-n fits (selection-equivalent to CPU by ~50k, ~2.5x faster) and stay
-            # on the exact CPU path below the threshold. Cleared in finally so it never leaks to a later fit.
+            # Record the fit's row/column counts so the AUTO (unset MLFRAME_FE_GPU_STRICT) size-gated STRICT
+            # default can engage GPU-resident FE on large-n fits (selection-equivalent to CPU by ~50k, ~2.5x
+            # faster) OR on a wide-but-under-the-row-threshold fit whose total (n, p) work already clears the
+            # same floor a per-call dispatch would need (2026-07-11 fix -- the row-only gate ignored column
+            # count entirely), and stay on the exact CPU path otherwise. Cleared in finally so it never leaks
+            # to a later fit.
             from .._fe_gpu_strict import set_auto_fit_n as _set_auto_fit_n, clear_auto_fit_n as _clear_auto_fit_n
-            _set_auto_fit_n(int(X.shape[0]) if hasattr(X, "shape") else None)
+            _fit_shape = getattr(X, "shape", None)
+            _set_auto_fit_n(
+                int(_fit_shape[0]) if _fit_shape is not None else None,
+                int(_fit_shape[1]) if _fit_shape is not None and len(_fit_shape) > 1 else None,
+            )
             try:
                 with _preserve_global_numpy_rng_state(getattr(self, "random_seed", None)):
                     result = self._fit_impl(X, y, groups, **fit_params)

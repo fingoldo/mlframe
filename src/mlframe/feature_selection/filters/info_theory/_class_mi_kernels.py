@@ -9,7 +9,7 @@ from numba import njit
 from ._state_and_dispatch import use_mi_miller_madow, use_su_normalization
 
 
-@njit(cache=True)
+@njit(nogil=True, cache=True)
 def _mm_bias(freqs_x: np.ndarray, freqs_y: np.ndarray, n: int) -> float:
     """Closed-form Miller-Madow MI bias ``(k_x-1)(k_y-1)/(2n)`` from occupied-bin counts of the pre-computed marginals (freqs are probabilities, ``>0`` = occupied)."""
     k_x = 0
@@ -25,7 +25,7 @@ def _mm_bias(freqs_x: np.ndarray, freqs_y: np.ndarray, n: int) -> float:
     return (k_x - 1) * (k_y - 1) / (2.0 * n)
 
 
-@njit(cache=True)
+@njit(nogil=True, cache=True)
 def compute_mi_mm_from_classes(
     classes_x: np.ndarray,
     freqs_x: np.ndarray,
@@ -44,7 +44,7 @@ def compute_mi_mm_from_classes(
     return corrected if corrected > 0.0 else 0.0
 
 
-@njit(cache=True)
+@njit(nogil=True, cache=True)
 def compute_mi_from_classes(
     classes_x: np.ndarray,
     freqs_x: np.ndarray,
