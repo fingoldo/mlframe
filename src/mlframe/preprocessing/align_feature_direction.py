@@ -85,4 +85,60 @@ def apply_feature_direction(df: pd.DataFrame, flip_signs: Dict[str, int]) -> pd.
     return out
 
 
-__all__ = ["align_feature_direction", "apply_feature_direction"]
+def check_feature_direction_stability(
+    df: pd.DataFrame,
+    y: np.ndarray,
+    columns: Optional[Sequence[str]] = None,
+    n_folds: int = 5,
+    seed: int = 0,
+) -> Dict[str, Dict[str, object]]:
+    """Opt-in: verify each column's AUC-direction sign is stable across K stratified folds.
+
+    ``align_feature_direction`` computes the sign from ONE full-data AUC estimate. For a feature whose true
+    AUC is close to 0.5 (near-chance), that single estimate is itself noisy -- a different sample could just
+    as easily have produced an AUC on the other side of 0.5, flipping the sign the wrong way. Such a feature's
+    "alignment" is not trustworthy: downstream pooling would be flipping a coin, not correcting a real bias.
+
+    This re-estimates the per-column sign on each of ``n_folds`` stratified folds (each large enough to be a
+    meaningful resample, small enough that a genuinely strong direction stays stable) and flags columns whose
+    fold-level sign disagrees with the majority sign in ANY fold.
+
+    Returns
+    -------
+    dict
+        ``{column: {"full_sign": int, "fold_signs": List[int], "n_sign_flips": int, "stable": bool,
+        "mean_fold_auc": float}}``. ``stable=False`` means at least one fold's AUC crossed 0.5 relative to the
+        majority direction -- treat that column's flip in ``align_feature_direction``'s output as unreliable.
+    """
+    from sklearn.model_selection import StratifiedKFold
+
+    cols = list(columns) if columns is not None else list(df.select_dtypes(include=[np.number]).columns)
+    y_arr = np.asarray(y)
+    X = df[cols].to_numpy(dtype=np.float64)
+
+    full_aucs = batch_univariate_auc(X, y_arr)
+    full_signs = np.where(full_aucs < 0.5, -1, 1)
+
+    cv = StratifiedKFold(n_splits=n_folds, shuffle=True, random_state=seed)
+    fold_sign_matrix = np.empty((n_folds, len(cols)), dtype=np.int64)
+    fold_auc_matrix = np.empty((n_folds, len(cols)), dtype=np.float64)
+    for fold_idx, (_, fold_rows) in enumerate(cv.split(X, y_arr)):
+        fold_aucs = batch_univariate_auc(X[fold_rows], y_arr[fold_rows])
+        fold_auc_matrix[fold_idx] = fold_aucs
+        fold_sign_matrix[fold_idx] = np.where(fold_aucs < 0.5, -1, 1)
+
+    result: Dict[str, Dict[str, object]] = {}
+    for j, col in enumerate(cols):
+        fold_signs = fold_sign_matrix[:, j].tolist()
+        n_flips = int(np.sum(fold_sign_matrix[:, j] != full_signs[j]))
+        result[col] = {
+            "full_sign": int(full_signs[j]),
+            "fold_signs": fold_signs,
+            "n_sign_flips": n_flips,
+            "stable": n_flips == 0,
+            "mean_fold_auc": float(fold_auc_matrix[:, j].mean()),
+        }
+    return result
+
+
+__all__ = ["align_feature_direction", "apply_feature_direction", "check_feature_direction_stability"]

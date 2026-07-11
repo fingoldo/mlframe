@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import roc_auc_score
 
-from mlframe.preprocessing.align_feature_direction import align_feature_direction, apply_feature_direction
+from mlframe.preprocessing.align_feature_direction import align_feature_direction, apply_feature_direction, check_feature_direction_stability
 
 
 def _make_mixed_orientation_dataset(n: int, n_features: int, seed: int):
@@ -66,3 +66,64 @@ def test_apply_feature_direction_never_recomputes_auc():
     out = apply_feature_direction(df, flip_signs)
     np.testing.assert_allclose(out["a"].to_numpy(), [-1.0, -2.0, -3.0])
     np.testing.assert_allclose(out["b"].to_numpy(), [4.0, 5.0, 6.0])
+
+
+def test_align_feature_direction_unaffected_by_stability_check_addition():
+    """Regression: align_feature_direction/apply_feature_direction must stay bit-identical -- the new
+    check_feature_direction_stability is a fully separate opt-in function, never called by these two."""
+    X_train, y_train = _make_mixed_orientation_dataset(n=2000, n_features=20, seed=0)
+    X_test, y_test = _make_mixed_orientation_dataset(n=1000, n_features=20, seed=1)
+
+    aligned1, signs1 = align_feature_direction(X_train, y_train)
+    aligned2, signs2 = align_feature_direction(X_train, y_train)
+    assert signs1 == signs2
+    pd.testing.assert_frame_equal(aligned1, aligned2)
+
+    applied1 = apply_feature_direction(X_test, signs1)
+    applied2 = apply_feature_direction(X_test, signs1)
+    pd.testing.assert_frame_equal(applied1, applied2)
+
+
+def test_biz_val_check_feature_direction_stability_distinguishes_strong_from_weak():
+    """A strongly AUC-directed feature must be flagged stable across folds; a near-chance one, whose single
+    full-data AUC estimate can land on either side of 0.5 by noise, must be flagged unstable more often."""
+    rng = np.random.default_rng(7)
+    n = 1500
+    y = rng.integers(0, 2, n)
+    signal = np.where(y == 1, 1.0, -1.0)
+
+    df = pd.DataFrame(
+        {
+            "strong": signal + 0.2 * rng.standard_normal(n),  # AUC far from 0.5, sign should be rock-stable
+            "weak": 0.02 * signal + 1.0 * rng.standard_normal(n),  # AUC near 0.5, sign is noise-dominated
+        }
+    )
+
+    result = check_feature_direction_stability(df, y, n_folds=10, seed=3)
+
+    assert result["strong"]["stable"] is True, f"expected the strong feature's sign to be stable across folds, got {result['strong']}"
+    assert result["strong"]["n_sign_flips"] == 0
+
+    # Repeat the weak feature over several seeds and require flips to show up materially more often than for
+    # the strong feature -- a single seed could get lucky, so this aggregates across resamples of the noise.
+    weak_flip_counts = []
+    strong_flip_counts = []
+    for seed in range(5):
+        rng_s = np.random.default_rng(100 + seed)
+        y_s = rng_s.integers(0, 2, n)
+        signal_s = np.where(y_s == 1, 1.0, -1.0)
+        df_s = pd.DataFrame(
+            {
+                "strong": signal_s + 0.2 * rng_s.standard_normal(n),
+                "weak": 0.02 * signal_s + 1.0 * rng_s.standard_normal(n),
+            }
+        )
+        res_s = check_feature_direction_stability(df_s, y_s, n_folds=10, seed=3)
+        weak_flip_counts.append(res_s["weak"]["n_sign_flips"])
+        strong_flip_counts.append(res_s["strong"]["n_sign_flips"])
+
+    assert sum(weak_flip_counts) > sum(strong_flip_counts), (
+        f"expected the near-chance feature to flip sign across folds far more often than the strong feature; "
+        f"weak flips={weak_flip_counts} strong flips={strong_flip_counts}"
+    )
+    assert sum(strong_flip_counts) == 0, f"strong feature should never flip, got {strong_flip_counts}"

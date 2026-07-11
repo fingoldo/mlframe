@@ -12,7 +12,7 @@ from io import StringIO
 import numpy as np
 import pandas as pd
 
-from mlframe.preprocessing.align_feature_direction import align_feature_direction
+from mlframe.preprocessing.align_feature_direction import align_feature_direction, check_feature_direction_stability
 
 
 def _make_dataset(n_rows: int, n_cols: int, seed: int):
@@ -25,6 +25,11 @@ def _make_dataset(n_rows: int, n_cols: int, seed: int):
 def _run(n_rows: int, n_cols: int) -> None:
     df, y = _make_dataset(n_rows, n_cols, seed=0)
     align_feature_direction(df, y)
+
+
+def _run_stability(n_rows: int, n_cols: int, n_folds: int) -> None:
+    df, y = _make_dataset(n_rows, n_cols, seed=0)
+    check_feature_direction_stability(df, y, n_folds=n_folds)
 
 
 if __name__ == "__main__":
@@ -42,3 +47,19 @@ if __name__ == "__main__":
     stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
     stats.print_stats(15)
     print(buf.getvalue())
+
+    print("--- check_feature_direction_stability (opt-in, K-fold sign-stability check) ---")
+    for n_rows, n_cols, n_folds in [(5000, 50, 5), (50000, 50, 5), (50000, 500, 5)]:
+        t0 = time.perf_counter()
+        _run_stability(n_rows, n_cols, n_folds)
+        wall = time.perf_counter() - t0
+        print(f"n_rows={n_rows:>6} n_cols={n_cols:>4} n_folds={n_folds} -> {wall * 1000:9.2f} ms")
+
+    profiler2 = cProfile.Profile()
+    profiler2.enable()
+    _run_stability(50000, 500, 5)
+    profiler2.disable()
+    buf2 = StringIO()
+    stats2 = pstats.Stats(profiler2, stream=buf2).sort_stats("cumulative")
+    stats2.print_stats(15)
+    print(buf2.getvalue())
