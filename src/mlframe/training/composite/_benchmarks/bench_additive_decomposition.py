@@ -25,9 +25,9 @@ def _make_data(n: int, seed: int):
     return X, y.astype(np.float32), c1, c2
 
 
-def _run(n: int, n_epochs: int) -> None:
+def _run(n: int, n_epochs: int, component_constraints=None) -> None:
     X, y, c1, c2 = _make_data(n, seed=0)
-    model = AdditiveDecompositionRegressor(component_names=("c1", "c2"), hidden_sizes=(16, 8), n_epochs=n_epochs, random_state=0)
+    model = AdditiveDecompositionRegressor(component_names=("c1", "c2"), hidden_sizes=(16, 8), n_epochs=n_epochs, component_constraints=component_constraints, random_state=0)
     model.fit(X, y, component_targets={"c1": c1, "c2": c2})
     model.predict(X)
 
@@ -37,7 +37,15 @@ if __name__ == "__main__":
         t0 = time.perf_counter()
         _run(n, n_epochs)
         wall = time.perf_counter() - t0
-        print(f"n={n:>6} n_epochs={n_epochs:>5} -> {wall * 1000:9.2f} ms")
+        print(f"n={n:>6} n_epochs={n_epochs:>5} constraints=None -> {wall * 1000:9.2f} ms")
+
+    # Confirm the softplus constraint path adds no meaningful overhead (one extra elementwise op per
+    # constrained head per epoch -- expected to be noise-level against the dominant autograd/Adam cost).
+    for n, n_epochs in [(5000, 1000)]:
+        t0 = time.perf_counter()
+        _run(n, n_epochs, component_constraints={"c1": "non_negative", "c2": "non_negative"})
+        wall = time.perf_counter() - t0
+        print(f"n={n:>6} n_epochs={n_epochs:>5} constraints=both_non_negative -> {wall * 1000:9.2f} ms")
 
     profiler = cProfile.Profile()
     profiler.enable()

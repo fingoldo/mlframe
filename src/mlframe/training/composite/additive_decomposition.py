@@ -26,6 +26,8 @@ from sklearn.base import BaseEstimator, RegressorMixin
 
 logger = logging.getLogger(__name__)
 
+_SUPPORTED_COMPONENT_CONSTRAINTS = ("non_negative",)
+
 
 class AdditiveDecompositionRegressor(BaseEstimator, RegressorMixin):
     """Shared-trunk MLP whose output is the SUM of named component heads, jointly trained.
@@ -40,6 +42,12 @@ class AdditiveDecompositionRegressor(BaseEstimator, RegressorMixin):
     component_task_weight
         Weight applied to each SUPERVISED component's own loss in the joint sum (the primary sum's own loss
         against ``y_primary`` always has weight 1.0).
+    component_constraints
+        Optional ``{component_name: "non_negative"}`` -- when a component is marked ``"non_negative"``, its raw
+        linear head output is passed through ``softplus`` (smooth, differentiable) before being summed into the
+        primary prediction and before being compared to its own supervision target. Components with no entry
+        here behave exactly as before (raw linear output, unchanged math) -- default ``None`` reproduces the
+        pre-existing behavior bit-for-bit. ``"non_negative"`` is currently the only supported constraint kind.
     n_epochs, lr, batch_size
         Training configuration (full-batch Adam by default, ``batch_size=None``).
     random_state
@@ -56,6 +64,7 @@ class AdditiveDecompositionRegressor(BaseEstimator, RegressorMixin):
         component_names: Sequence[str],
         hidden_sizes: tuple = (32, 16),
         component_task_weight: float = 0.3,
+        component_constraints: Optional[Dict[str, str]] = None,
         n_epochs: int = 300,
         lr: float = 0.01,
         batch_size: Optional[int] = None,
@@ -64,6 +73,7 @@ class AdditiveDecompositionRegressor(BaseEstimator, RegressorMixin):
         self.component_names = component_names
         self.hidden_sizes = hidden_sizes
         self.component_task_weight = component_task_weight
+        self.component_constraints = component_constraints
         self.n_epochs = n_epochs
         self.lr = lr
         self.batch_size = batch_size
@@ -82,6 +92,33 @@ class AdditiveDecompositionRegressor(BaseEstimator, RegressorMixin):
         trunk = nn.Sequential(*layers)
         component_heads = nn.ModuleDict({name: nn.Linear(prev, 1) for name in self.component_names})
         return trunk, component_heads
+
+    def _validate_component_constraints(self) -> Dict[str, str]:
+        constraints = self.component_constraints or {}
+        unknown_components = set(constraints) - set(self.component_names)
+        if unknown_components:
+            raise ValueError(
+                f"AdditiveDecompositionRegressor: component_constraints has unknown component(s) {sorted(unknown_components)}; expected a subset of {list(self.component_names)}."
+            )
+        unknown_kinds = {kind for kind in constraints.values() if kind not in _SUPPORTED_COMPONENT_CONSTRAINTS}
+        if unknown_kinds:
+            raise ValueError(f"AdditiveDecompositionRegressor: unsupported component_constraints value(s) {sorted(unknown_kinds)}; supported: {_SUPPORTED_COMPONENT_CONSTRAINTS}.")
+        return constraints
+
+    @staticmethod
+    def _apply_component_constraint(name: str, raw_output, constraints: Dict[str, str]):
+        # Deliberately untyped (torch.Tensor): an explicit annotation flips sum()'s overload resolution to
+        # Tensor | int at the call sites below, since nn.Linear.__call__ itself is untyped (Any).
+        # Unconstrained components (the default, no entry in ``constraints``) pass through unchanged --
+        # this branch is what makes the no-constraint path bit-identical to the pre-existing behavior.
+        kind = constraints.get(name)
+        if kind is None:
+            return raw_output
+        import torch.nn.functional as F
+
+        if kind == "non_negative":
+            return F.softplus(raw_output)
+        raise ValueError(f"AdditiveDecompositionRegressor: unsupported component constraint kind {kind!r} for component {name!r}.")
 
     def fit(
         self,
@@ -108,6 +145,7 @@ class AdditiveDecompositionRegressor(BaseEstimator, RegressorMixin):
         unknown = set(component_targets) - set(self.component_names)
         if unknown:
             raise ValueError(f"AdditiveDecompositionRegressor.fit: component_targets has unknown component(s) {sorted(unknown)}; expected a subset of {list(self.component_names)}.")
+        constraints = self._validate_component_constraints()
 
         X_arr = np.asarray(X, dtype=np.float32)
         y_primary_arr = np.asarray(y_primary, dtype=np.float32).reshape(-1, 1)
@@ -127,7 +165,7 @@ class AdditiveDecompositionRegressor(BaseEstimator, RegressorMixin):
         for _ in range(self.n_epochs):
             optimizer.zero_grad()
             hidden = self.trunk_(X_t)
-            component_preds = {name: self.component_heads_[name](hidden) for name in self.component_names}
+            component_preds = {name: self._apply_component_constraint(name, self.component_heads_[name](hidden), constraints) for name in self.component_names}
             primary_pred = sum(component_preds.values())
             loss = mse(primary_pred, y_primary_t)
             for name, target_t in component_targets_t.items():
@@ -142,20 +180,25 @@ class AdditiveDecompositionRegressor(BaseEstimator, RegressorMixin):
         """Predict the primary target (sum of all component predictions)."""
         import torch
 
+        constraints = self._validate_component_constraints()
         X_t = torch.from_numpy(np.asarray(X, dtype=np.float32))
         with torch.no_grad():
             hidden = self.trunk_(X_t)
-            primary_pred = sum(self.component_heads_[name](hidden) for name in self.component_names)
+            primary_pred = sum(self._apply_component_constraint(name, self.component_heads_[name](hidden), constraints) for name in self.component_names)
         return np.asarray(primary_pred.numpy().ravel(), dtype=np.float64)
 
     def predict_components(self, X: np.ndarray) -> Dict[str, np.ndarray]:
         """Predict each named component separately (diagnostic access to the decomposition)."""
         import torch
 
+        constraints = self._validate_component_constraints()
         X_t = torch.from_numpy(np.asarray(X, dtype=np.float32))
         with torch.no_grad():
             hidden = self.trunk_(X_t)
-            return {name: np.asarray(self.component_heads_[name](hidden).numpy().ravel(), dtype=np.float64) for name in self.component_names}
+            return {
+                name: np.asarray(self._apply_component_constraint(name, self.component_heads_[name](hidden), constraints).numpy().ravel(), dtype=np.float64)
+                for name in self.component_names
+            }
 
 
 __all__ = ["AdditiveDecompositionRegressor"]
