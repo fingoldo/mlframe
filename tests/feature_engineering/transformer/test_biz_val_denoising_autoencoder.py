@@ -19,7 +19,7 @@ import numpy as np
 from mlframe.feature_engineering.transformer.autoencoder import _extract_bottleneck as _extract_ae
 from mlframe.feature_engineering.transformer.autoencoder import _fit_autoencoder
 from mlframe.feature_engineering.transformer.denoising_autoencoder import _extract_bottleneck as _extract_dae
-from mlframe.feature_engineering.transformer.denoising_autoencoder import _fit_dae
+from mlframe.feature_engineering.transformer.denoising_autoencoder import _extract_multilayer, _fit_dae
 from mlframe.feature_engineering.transformer.swap_noise import swap_noise_augment
 
 
@@ -79,3 +79,47 @@ def test_swap_noise_augment_swap_rate_matches_swap_prob():
 def test_swap_noise_augment_zero_prob_is_identity():
     X = np.random.default_rng(0).normal(size=(50, 3))
     assert np.array_equal(swap_noise_augment(X, swap_prob=0.0), X)
+
+
+def _make_mixed_abstraction_dataset(n: int, seed: int):
+    """Signal split across two levels of abstraction: a low-rank latent (3 dims -> 6 correlated columns,
+    exactly what a small bottleneck is built to compress) and a separate high-rank block (14 near-independent
+    columns) that a narrow bottleneck cannot preserve without discarding most of the low-rank signal, but a
+    wider hidden layer can carry alongside it."""
+    rng = np.random.default_rng(seed)
+    latent = rng.normal(size=(n, 3))
+    W = rng.normal(size=(3, 6))
+    X_low = latent @ W + rng.normal(scale=0.15, size=(n, 6))
+    X_high = rng.normal(size=(n, 14))
+    X = np.concatenate([X_low, X_high], axis=1).astype(np.float32)
+    y = 2.0 * np.tanh(latent[:, 0]) - latent[:, 1] + 0.9 * X_high[:, :5].sum(axis=1) + rng.normal(scale=0.3, size=n)
+    return X, y
+
+
+def test_biz_val_denoising_autoencoder_multilayer_extraction_beats_bottleneck_only():
+    """The win: when predictive signal lives at multiple levels of abstraction (some in a low-rank latent
+    the bottleneck compresses well, some in a higher-rank block the narrow bottleneck must discard),
+    concatenating the wider hidden-layer activations (``extract_layers="multi"``) alongside the bottleneck
+    recovers signal a bottleneck-only extraction loses, measured by held-out R2 of a linear probe."""
+    from sklearn.linear_model import Ridge
+    from sklearn.metrics import r2_score
+    from sklearn.model_selection import train_test_split
+
+    X, y = _make_mixed_abstraction_dataset(n=4000, seed=1)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=0)
+
+    dae, scaler = _fit_dae(X_train, hidden_size=16, bottleneck_dim=4, max_iter=400, swap_prob=0.2, seed=1)
+
+    Z_train_bottleneck = _extract_dae(dae, scaler, X_train, 4)
+    Z_test_bottleneck = _extract_dae(dae, scaler, X_test, 4)
+    Z_train_multi, _ = _extract_multilayer(dae, scaler, X_train, 4)
+    Z_test_multi, _ = _extract_multilayer(dae, scaler, X_test, 4)
+
+    r2_bottleneck = r2_score(y_test, Ridge(alpha=1.0).fit(Z_train_bottleneck, y_train).predict(Z_test_bottleneck))
+    r2_multi = r2_score(y_test, Ridge(alpha=1.0).fit(Z_train_multi, y_train).predict(Z_test_multi))
+
+    assert r2_multi > r2_bottleneck + 0.25, (
+        f"expected multi-layer DAE features to beat bottleneck-only by >0.25 held-out R2 "
+        f"(measured multi={r2_multi:.4f} - bottleneck={r2_bottleneck:.4f} = {r2_multi - r2_bottleneck:.4f})"
+    )
+    assert r2_multi >= 0.60, f"expected multi-layer held-out R2 >= 0.60, got {r2_multi:.4f}"
