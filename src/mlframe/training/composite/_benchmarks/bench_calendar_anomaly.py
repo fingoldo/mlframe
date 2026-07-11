@@ -14,13 +14,13 @@ import numpy as np
 from mlframe.training.composite.calendar_anomaly import detect_calendar_anomalies
 
 
-def _run(n_days: int, n_calls: int) -> None:
+def _run(n_days: int, n_calls: int, recurrence_period: int | None = None) -> None:
     rng = np.random.default_rng(0)
     y = 100.0 + rng.normal(0, 5, n_days)
     spikes = rng.choice(n_days, size=max(1, n_days // 200), replace=False)
     y[spikes] *= 50
     for _ in range(n_calls):
-        detect_calendar_anomalies(y, window=14)
+        detect_calendar_anomalies(y, window=14, recurrence_period=recurrence_period)
 
 
 if __name__ == "__main__":
@@ -30,6 +30,15 @@ if __name__ == "__main__":
         wall = time.perf_counter() - t0
         print(f"n_days={n_days:>9,} n_calls={n_calls:>3} -> {wall * 1000:9.2f} ms total, {wall / n_calls * 1000:9.3f} ms/call")
 
+    for n_days, n_calls in [(3_650, 50), (1_000_000, 5)]:
+        t0 = time.perf_counter()
+        _run(n_days, n_calls, recurrence_period=7)
+        wall = time.perf_counter() - t0
+        print(
+            f"[recurrence_period=7] n_days={n_days:>9,} n_calls={n_calls:>3} -> "
+            f"{wall * 1000:9.2f} ms total, {wall / n_calls * 1000:9.3f} ms/call"
+        )
+
     profiler = cProfile.Profile()
     profiler.enable()
     _run(1_000_000, 5)
@@ -37,4 +46,14 @@ if __name__ == "__main__":
     buf = StringIO()
     stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
     stats.print_stats(15)
+    print(buf.getvalue())
+
+    profiler = cProfile.Profile()
+    profiler.enable()
+    _run(1_000_000, 5, recurrence_period=7)
+    profiler.disable()
+    buf = StringIO()
+    stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
+    stats.print_stats(15)
+    print("[recurrence_period=7]")
     print(buf.getvalue())
