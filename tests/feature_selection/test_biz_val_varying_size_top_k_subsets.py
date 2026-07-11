@@ -63,3 +63,74 @@ def test_varying_size_top_k_subsets_exact_prefixes():
     ranked = ["a", "b", "c", "d", "e"]
     subsets = varying_size_top_k_subsets(ranked, sizes=[1, 3, 10])
     assert subsets == [["a"], ["a", "b", "c"], ["a", "b", "c", "d", "e"]]
+
+
+def test_varying_size_top_k_subsets_default_bit_identical_to_prior_behavior():
+    """``diversify`` is opt-in; the default call path must be unchanged (regression, not just equal-length)."""
+    rng = np.random.default_rng(1)
+    ranked = [f"f{i}" for i in range(30)]
+    sizes = [1, 5, 12, 25, 100]
+    data = rng.normal(size=(50, 30))
+    plain = varying_size_top_k_subsets(ranked, sizes=sizes)
+    with_unused_kwargs_defaulted = varying_size_top_k_subsets(ranked, sizes=sizes, data=data, diversify=False)
+    assert plain == with_unused_kwargs_defaulted == [list(ranked[: min(s, 30)]) for s in sizes]
+
+
+def _make_clustered_dataset(n: int, n_clusters: int, cluster_size: int, n_noise: int, seed: int):
+    """3 (default) independent latent factors, each observed through ``cluster_size`` noisy near-duplicate
+    columns (|corr| ~0.9+ within a cluster) plus pure-noise columns. y is a weighted sum of the latents, so
+    every member of the DOMINANT cluster ranks near the top of a marginal-correlation importance ranking --
+    the exact regime where a literal top-k prefix wastes its early budget on redundant duplicates of one
+    latent instead of covering all the independent signal directions.
+    """
+    rng = np.random.default_rng(seed)
+    latent_weights = np.array([2.0, 1.3, 0.9][:n_clusters])
+    latents = rng.normal(size=(n, n_clusters))
+    y = latents @ latent_weights + rng.normal(scale=0.3, size=n)
+
+    cols = []
+    names = []
+    true_importance = []
+    for c in range(n_clusters):
+        for _ in range(cluster_size):
+            noisy = latents[:, c] + rng.normal(scale=0.15, size=n)  # |corr| with the cluster anchor ~0.98
+            cols.append(noisy)
+            names.append(f"c{c}_f{len(names)}")
+            true_importance.append(abs(latent_weights[c]) + rng.normal(scale=0.01))
+    for _ in range(n_noise):
+        cols.append(rng.normal(size=n))
+        names.append(f"noise_f{len(names)}")
+        true_importance.append(rng.normal(scale=0.01))
+
+    X = np.column_stack(cols)
+    ranking = np.argsort(-np.asarray(true_importance))
+    ranked_features = [names[i] for i in ranking]
+    return X, y, names, ranked_features
+
+
+def test_biz_val_varying_size_subsets_diversify_beats_naive_topk_on_correlated_clusters():
+    import pandas as pd
+
+    X, y, names, ranked_features = _make_clustered_dataset(n=800, n_clusters=3, cluster_size=6, n_noise=20, seed=0)
+    df = pd.DataFrame(X, columns=names)
+    X_train, X_test, y_train, y_test = train_test_split(df, y, test_size=0.3, random_state=0)
+
+    sizes = [2, 4, 6]
+
+    def _ensemble_mse(subsets):
+        preds = []
+        for subset in subsets:
+            model = Ridge(alpha=1.0).fit(X_train[subset], y_train)
+            preds.append(model.predict(X_test[subset]))
+        return mean_squared_error(y_test, np.mean(preds, axis=0))
+
+    naive_subsets = varying_size_top_k_subsets(ranked_features, sizes=sizes)
+    diverse_subsets = varying_size_top_k_subsets(ranked_features, sizes=sizes, data=df, diversify=True, corr_threshold=0.8)
+
+    mse_naive = _ensemble_mse(naive_subsets)
+    mse_diverse = _ensemble_mse(diverse_subsets)
+
+    assert mse_diverse < 0.92 * mse_naive, (
+        f"expected diversify=True (cluster-rotated subsets) to beat the naive same-cluster-heavy top-k "
+        f"ensemble by >=8% MSE on clustered-correlated features, got diverse={mse_diverse:.4f} naive={mse_naive:.4f}"
+    )
