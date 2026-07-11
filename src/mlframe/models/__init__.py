@@ -18,3 +18,4 @@ from mlframe.models.selection import *
 from mlframe.models.rf_proximity import *
 from mlframe.models.lgbm_defaults import default_lgbm_params
 from mlframe.models.additive_interaction_diagnostic import additive_interaction_diagnostic
+from mlframe.models.masked_multilabel_objective import flatten_masked_multilabel, masked_multilabel_logloss_objective
