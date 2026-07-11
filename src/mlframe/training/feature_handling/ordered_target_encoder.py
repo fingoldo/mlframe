@@ -10,7 +10,7 @@ where K-fold isn't the right mental model at all.
 """
 from __future__ import annotations
 
-from typing import Optional, Union
+from typing import Dict, Mapping, Optional, Union
 
 import numpy as np
 import pandas as pd
@@ -90,4 +90,78 @@ def ordered_target_encode(
     return encoded
 
 
-__all__ = ["ordered_target_encode"]
+def ordered_target_encode_batch(
+    categories_by_column: Mapping[str, np.ndarray],
+    y: np.ndarray,
+    order: Optional[np.ndarray] = None,
+    smoothing: float = 1.0,
+    prior: Optional[float] = None,
+    noise_std: float = 0.0,
+    random_state: Optional[Union[int, np.random.Generator]] = None,
+) -> Dict[str, np.ndarray]:
+    """Encode several category columns that share the same ``y``/``order`` in one shared sort pass.
+
+    When ``noise_std == 0.0`` this is bit-identical, column-by-column, to calling :func:`ordered_target_encode`
+    separately for each column with the same ``y``, ``order``, ``smoothing`` and ``prior`` -- but the causal
+    ``argsort`` of ``order`` and the global prior are computed exactly ONCE and reused across all columns,
+    instead of once per column. Real-world caller: ``categorical_powerset_concat``'s ``prune_against_target``
+    scores every generated composite column against the same ``(y, order)`` pair. When ``noise_std > 0.0`` each
+    column still gets independent, reproducible noise (via ``SeedSequence`` spawning), but the exact draws
+    differ from ``ordered_target_encode`` since a single ``random_state`` must fan out to N independent columns
+    rather than one.
+
+    Parameters
+    ----------
+    categories_by_column
+        Mapping of column name -> ``(n,)`` categorical values, all aligned to the same ``y``/``order``.
+    y, order, smoothing, prior, noise_std, random_state
+        Same contract as :func:`ordered_target_encode`, shared across every column. ``random_state`` (when an
+        int seed) is used to derive one independent ``np.random.Generator`` PER COLUMN via ``np.random.SeedSequence``
+        spawning, so results don't depend on dict iteration order and don't collide across columns.
+
+    Returns
+    -------
+    Dict[str, np.ndarray]
+        Column name -> ``(n,)`` encoded values, same order as the INPUT arrays.
+    """
+    y = np.asarray(y, dtype=np.float64)
+    n = y.shape[0]
+    if order is None:
+        sort_idx = np.arange(n)
+    else:
+        sort_idx = np.argsort(np.asarray(order), kind="mergesort")
+
+    global_prior = float(np.mean(y)) if prior is None else float(prior)
+    sorted_y = y[sort_idx]
+
+    if noise_std > 0.0:
+        base_seed = random_state if not isinstance(random_state, np.random.Generator) else None
+        seed_sequences = np.random.SeedSequence(base_seed).spawn(len(categories_by_column))
+    else:
+        seed_sequences = []
+
+    result: Dict[str, np.ndarray] = {}
+    for col_idx, (name, categories) in enumerate(categories_by_column.items()):
+        categories = np.asarray(categories)
+        sorted_cats = categories[sort_idx]
+
+        df = pd.DataFrame({"cat": sorted_cats, "y": sorted_y})
+        grouped = df.groupby("cat", sort=False)["y"]
+        running_sum = grouped.cumsum() - sorted_y
+        running_count = grouped.cumcount()
+
+        encoded_sorted = (running_sum + smoothing * global_prior) / (running_count + smoothing)
+
+        encoded = np.empty(n, dtype=np.float64)
+        encoded[sort_idx] = encoded_sorted.to_numpy()
+
+        if noise_std > 0.0:
+            rng = np.random.default_rng(seed_sequences[col_idx])
+            encoded = encoded * (1.0 + rng.normal(loc=0.0, scale=noise_std, size=n))
+
+        result[name] = encoded
+
+    return result
+
+
+__all__ = ["ordered_target_encode", "ordered_target_encode_batch"]

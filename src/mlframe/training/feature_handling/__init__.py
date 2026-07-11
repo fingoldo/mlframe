@@ -139,6 +139,7 @@ from mlframe.training.feature_handling.target_encoders import (
 )
 from mlframe.training.feature_handling.ordered_target_encoder import (
     ordered_target_encode,
+    ordered_target_encode_batch,
 )
 from mlframe.training.feature_handling.text_detection import (
     TextDetectionDecision,
@@ -238,6 +239,7 @@ __all__ = [
     # target encoders (leakage-safe)
     "LeakageSafeEncoder",
     "ordered_target_encode",
+    "ordered_target_encode_batch",
     # text auto-detection
     "TextDetectionDecision",
     "detect_text_columns",
