@@ -106,3 +106,72 @@ def test_row_wise_top_k_extreme_columns_handles_nan_padding():
     # row 1 has zero valid values -- both slots must be padded, not silently point at a NaN-derived score.
     assert top_k.loc[1, "top1_column"] is None
     assert np.isnan(top_k.loc[1, "top1_score"])
+
+
+def test_biz_val_column_summary_recovers_the_true_culprit_columns_for_a_flagged_batch():
+    """Column-level analogue of ``test_biz_val_top_k_extreme_columns_recovers_the_true_culprit_columns``:
+    given an externally-flagged batch of anomalous rows (e.g. confirmed incidents from a downstream label,
+    not derived from any single column's own rank), the column summary restricted to that batch should
+    surface the true culprit columns as the most frequent top-k members -- the report-building use case
+    (return_column_summary + summary_rows) this extension targets.
+    """
+    n_culprit_cols = 3
+    df, is_anomaly, culprit_cols = _make_localized_anomaly_data(n=3000, n_features=20, n_culprit_cols=n_culprit_cols, seed=3)
+
+    _per_row, per_column = row_wise_top_k_extreme_columns(df, k=n_culprit_cols, return_column_summary=True, summary_rows=is_anomaly)
+
+    top_recovered = set(per_column.head(n_culprit_cols).index)
+    chance_floor = n_culprit_cols / 20  # a column with zero signal lands in the top-3 of 20 columns this often by pure chance.
+    culprit_frequencies = per_column.loc[list(culprit_cols), "frequency"]
+    noise_frequencies = per_column.drop(index=list(culprit_cols))["frequency"]
+
+    # the 3 most-frequent columns in the flagged batch's top-k should be exactly the 3 true culprits, at a
+    # frequency far above the pure-chance floor -- measured culprit freq ~0.58 vs noise-column freq well
+    # below the 0.15 floor (competing 3-way among themselves dilutes their individual share below "always");
+    # thresholds set below/above the measured values to leave headroom for seed variance.
+    assert top_recovered == culprit_cols, f"expected the column summary to recover exactly the true culprit columns, got {top_recovered} vs {culprit_cols}"
+    assert culprit_frequencies.min() >= 0.45, f"expected every culprit column to dominate the flagged batch's top-k, got min={culprit_frequencies.min():.4f}"
+    assert culprit_frequencies.min() > noise_frequencies.max() * 3, (
+        f"expected culprit columns to be far more frequent than any noise column, "
+        f"got min_culprit={culprit_frequencies.min():.4f} max_noise={noise_frequencies.max():.4f}"
+    )
+    assert noise_frequencies.max() < chance_floor * 1.5, (
+        f"expected noise columns to stay near the pure-chance floor when restricted to an unrelated flagged batch, "
+        f"got max_noise={noise_frequencies.max():.4f} chance_floor={chance_floor:.4f}"
+    )
+
+
+def test_column_summary_over_all_rows_stays_near_chance_floor_by_construction():
+    """Regression-pins the mathematical property documented on ``_build_column_extremality_summary``: without
+    an externally-selected ``summary_rows`` subset, EVERY column's top-k membership frequency converges to
+    the same chance floor (k / n_cols), even for a column that is heavily corrupted -- because within-column
+    rank is always a fixed permutation of the same score set, regardless of the column's actual values. This
+    guards against silently reintroducing the (empirically falsified) "aggregate over all rows spots a noisy
+    column" claim this feature's first draft made before being corrected.
+    """
+    rng = np.random.default_rng(4)
+    n, n_features = 3000, 10
+    X = rng.normal(size=(n, n_features))
+    corrupted = rng.random(n) < 0.15
+    X[corrupted, 0] += rng.choice([-1, 1], corrupted.sum()) * 8.0
+    df = pd.DataFrame(X, columns=["noisy"] + [f"f{i}" for i in range(1, n_features)])
+
+    _per_row, per_column = row_wise_top_k_extreme_columns(df, k=3, return_column_summary=True)
+
+    chance_floor = 3 / n_features
+    assert abs(per_column.loc["noisy", "frequency"] - chance_floor) < chance_floor * 0.3, (
+        f"expected the corrupted column's unrestricted top-k frequency to sit near the chance floor "
+        f"{chance_floor:.4f}, got {per_column.loc['noisy', 'frequency']:.4f}"
+    )
+
+
+def test_row_wise_top_k_extreme_columns_column_summary_default_off_matches_prior_return_contract():
+    df = pd.DataFrame({"a": [1.0, 2.0, 3.0, 4.0, 100.0], "b": [10.0, 20.0, 30.0, 40.0, 50.0], "c": [5.0, 4.0, 3.0, 2.0, 1.0]})
+
+    default_result = row_wise_top_k_extreme_columns(df, k=2)
+    opt_in_result, column_summary = row_wise_top_k_extreme_columns(df, k=2, return_column_summary=True)
+
+    assert isinstance(default_result, pd.DataFrame)
+    pd.testing.assert_frame_equal(default_result, opt_in_result)  # opt-in flag must never change the per-row output.
+    assert list(column_summary.columns) == ["count", "frequency", "mean_score"]
+    assert set(column_summary.index) == {"a", "b", "c"}

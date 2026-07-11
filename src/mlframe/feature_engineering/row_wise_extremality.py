@@ -84,7 +84,45 @@ def row_wise_extremality_index(X: pd.DataFrame, columns: Optional[Sequence[str]]
     return pd.Series(np.nanmean(extremality, axis=1), index=X.index, name=column_name)
 
 
-def row_wise_top_k_extreme_columns(X: pd.DataFrame, columns: Optional[Sequence[str]] = None, k: int = 3) -> pd.DataFrame:
+def _build_column_extremality_summary(top_cols: np.ndarray, top_scores: np.ndarray, cols: list, row_mask: Optional[np.ndarray]) -> pd.DataFrame:
+    """Column-level rollup of a row-wise top-k result, restricted to ``row_mask`` (all rows if ``None``).
+
+    Aggregates over rows so a caller with an already-identified batch of interesting rows (e.g. true
+    anomaly/incident labels, or any other externally-defined subset) can answer "which columns explain THIS
+    batch overall" for a report, instead of eyeballing the per-row breakdown row by row. Note this is
+    deliberately a rollup of an externally-chosen row subset, not an unsupervised "find the noisy column"
+    detector: because each column's within-column rank is, by construction, a fixed permutation of the same
+    ``{1/(n+1), ..., n/(n+1)}`` set regardless of that column's own values, every column's top-k membership
+    rate converges to the same chance floor (``k / n_cols``) when aggregated over ALL rows -- restricting to
+    a subset whose selection correlates with a column's actual values (e.g. rows a real anomaly label flags)
+    is what breaks that symmetry and produces a genuine per-column signal.
+    """
+    if row_mask is not None:
+        top_cols = top_cols[row_mask]
+        top_scores = top_scores[row_mask]
+    n_selected_rows = top_cols.shape[0]
+
+    flat_cols = pd.Series(top_cols.ravel())
+    flat_scores = pd.Series(top_scores.ravel())
+    valid = flat_cols.notna()
+
+    grouped = pd.DataFrame({"column": flat_cols[valid].to_numpy(), "score": flat_scores[valid].to_numpy()}).groupby("column")["score"].agg(["count", "mean"])
+
+    summary = pd.DataFrame(index=pd.Index(cols, name="column"))
+    summary["count"] = grouped["count"].reindex(summary.index).fillna(0).astype(np.int64)
+    summary["frequency"] = summary["count"] / n_selected_rows if n_selected_rows else np.nan
+    summary["mean_score"] = grouped["mean"].reindex(summary.index)
+
+    return summary.sort_values("count", ascending=False)
+
+
+def row_wise_top_k_extreme_columns(
+    X: pd.DataFrame,
+    columns: Optional[Sequence[str]] = None,
+    k: int = 3,
+    return_column_summary: bool = False,
+    summary_rows: Optional[Sequence[bool] | np.ndarray] = None,
+) -> pd.DataFrame | tuple[pd.DataFrame, pd.DataFrame]:
     """Per-row top-``k`` columns by within-column-rank extremality -- "why is this row anomalous".
 
     Reuses the same per-column rank-extremality computation as :func:`row_wise_extremality_index` (via
@@ -99,13 +137,26 @@ def row_wise_top_k_extreme_columns(X: pd.DataFrame, columns: Optional[Sequence[s
         Column subset to consider per row (default: every numeric column of ``X``).
     k
         Number of top columns to report per row (clipped to the number of available columns).
+    return_column_summary
+        If ``True``, also return a per-column rollup: how often (count/frequency) and how severely (mean
+        score) each column appears in the top-``k`` of the rows selected by ``summary_rows`` -- a
+        column-level "which features explain this batch" report (default ``False``, matching the prior
+        return contract).
+    summary_rows
+        Boolean mask (aligned to ``X.index``) selecting which rows to aggregate over when
+        ``return_column_summary`` is ``True`` -- typically an externally-known anomalous/flagged-row subset
+        (e.g. confirmed incidents), since aggregating over ALL rows converges every column to the same
+        chance floor by construction (see :func:`_build_column_extremality_summary`). Defaults to every row
+        if omitted. Ignored when ``return_column_summary`` is ``False``.
 
     Returns
     -------
     pd.DataFrame
         ``(n, 2*k)`` frame indexed like ``X``, columns ``top1_column, top1_score, ..., topk_column,
         topk_score``, sorted by descending extremality. A row with fewer than ``k`` valid (non-NaN) values
-        pads the remaining slots with ``None``/``NaN``.
+        pads the remaining slots with ``None``/``NaN``. If ``return_column_summary`` is ``True``, returns a
+        ``(per_row, per_column)`` tuple instead, where ``per_column`` is indexed by column name with
+        ``count`` / ``frequency`` / ``mean_score``, sorted by descending ``count``.
     """
     extremality, cols = _compute_extremality_matrix(X, columns)
     n_rows, n_cols = extremality.shape
@@ -137,7 +188,12 @@ def row_wise_top_k_extreme_columns(X: pd.DataFrame, columns: Optional[Sequence[s
         data[f"top{i + 1}_column"] = top_cols[:, i]
         data[f"top{i + 1}_score"] = top_scores[:, i]
 
-    return pd.DataFrame(data, index=X.index)
+    result = pd.DataFrame(data, index=X.index)
+    if not return_column_summary:
+        return result
+
+    row_mask = None if summary_rows is None else np.asarray(summary_rows, dtype=bool)
+    return result, _build_column_extremality_summary(top_cols, top_scores, cols, row_mask)
 
 
 __all__ = ["row_wise_extremality_index", "row_wise_top_k_extreme_columns"]

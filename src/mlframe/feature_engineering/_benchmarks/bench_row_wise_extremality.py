@@ -32,6 +32,14 @@ def _run_top_k(n: int, n_cols: int, n_calls: int, k: int = 3) -> None:
         row_wise_top_k_extreme_columns(df, k=k)
 
 
+def _run_top_k_with_column_summary(n: int, n_cols: int, n_calls: int, k: int = 3) -> None:
+    df = _make_frame(n, n_cols)
+    rng = np.random.default_rng(0)
+    summary_rows = rng.random(n) < 0.1  # a typical "flagged batch" fraction for the column-rollup report path.
+    for _ in range(n_calls):
+        row_wise_top_k_extreme_columns(df, k=k, return_column_summary=True, summary_rows=summary_rows)
+
+
 if __name__ == "__main__":
     for n, n_cols, n_calls in [(2000, 20, 20), (200000, 20, 10), (200000, 200, 5)]:
         t0 = time.perf_counter()
@@ -45,9 +53,27 @@ if __name__ == "__main__":
         wall = time.perf_counter() - t0
         print(f"row_wise_top_k_extreme_columns n={n:>7} n_cols={n_cols:>4} n_calls={n_calls:>4} -> {wall * 1000:9.2f} ms ({wall * 1000 / n_calls:9.2f} ms/call)")
 
+    for n, n_cols, n_calls in [(2000, 20, 20), (200000, 20, 10), (200000, 200, 5)]:
+        t0 = time.perf_counter()
+        _run_top_k_with_column_summary(n, n_cols, n_calls)
+        wall = time.perf_counter() - t0
+        print(
+            f"row_wise_top_k_extreme_columns(+column_summary) n={n:>7} n_cols={n_cols:>4} n_calls={n_calls:>4} "
+            f"-> {wall * 1000:9.2f} ms ({wall * 1000 / n_calls:9.2f} ms/call)"
+        )
+
     profiler = cProfile.Profile()
     profiler.enable()
     _run_top_k(200000, 200, 5)
+    profiler.disable()
+    buf = StringIO()
+    stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
+    stats.print_stats(15)
+    print(buf.getvalue())
+
+    profiler = cProfile.Profile()
+    profiler.enable()
+    _run_top_k_with_column_summary(200000, 200, 5)
     profiler.disable()
     buf = StringIO()
     stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
