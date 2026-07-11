@@ -44,6 +44,9 @@ from .flat import (
     get_valid_num_groups,
 )
 
+# Fixed-mask structured-sparsity layer (standalone, not part of the Lightning estimator infra)
+from .fixed_sparse_linear import FixedSparseLinear
+
 # Recurrent/sequence models
 from .recurrent import (
     RNNType,
@@ -87,6 +90,8 @@ __all__ = [
     "MLPNeuronsByLayerArchitecture",
     "generate_mlp",
     "get_valid_num_groups",
+    # Fixed-mask structured-sparsity layer
+    "FixedSparseLinear",
     # Recurrent
     "RNNType",
     "InputMode",
