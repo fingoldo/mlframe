@@ -49,6 +49,40 @@ def test_biz_val_unseen_category_imputer_beats_global_mean_fallback():
     assert rmse_mode < rmse_sentinel * 0.75, f"expected mode-replacement to beat global-mean-fallback by >=25% RMSE, got mode={rmse_mode:.4f} sentinel={rmse_sentinel:.4f}"
 
 
+def _make_non_dominant_category_data(n_train: int, n_test: int, seed: int):
+    rng = np.random.default_rng(seed)
+    cat_means = {"A": 0.8, "B": 0.5, "C": 0.2, "D": 0.15}  # A (mean 0.8) is the dominant train mode.
+    train_cat = rng.choice(list(cat_means), n_train, p=[0.7, 0.1, 0.1, 0.1])
+    train_val = np.array([cat_means[c] for c in train_cat]) + rng.normal(scale=0.03, size=n_train)  # companion numeric column, correlated with y.
+    train_y = np.array([cat_means[c] for c in train_cat]) + rng.normal(scale=0.05, size=n_train)
+    train_df = pd.DataFrame({"cat": train_cat, "val": train_val})
+
+    unseen_true_mean = 0.48  # unseen category behaves like the NON-dominant known category B (0.5), far from mode A (0.8).
+    test_cat = np.array(rng.choice(["A", "B", "C", "D", "UNSEEN"], n_test, p=[0.1, 0.1, 0.1, 0.1, 0.6]), dtype=object)
+    true_mean_map = dict(cat_means, UNSEEN=unseen_true_mean)
+    test_val = np.array([true_mean_map[c] for c in test_cat]) + rng.normal(scale=0.03, size=n_test)
+    test_y = np.array([true_mean_map[c] for c in test_cat]) + rng.normal(scale=0.05, size=n_test)
+    test_df = pd.DataFrame({"cat": test_cat, "val": test_val})
+    return train_df, train_y, test_df, test_y
+
+
+def test_biz_val_unseen_category_imputer_nearest_beats_mode_for_non_dominant_unseen_category():
+    train_df, train_y, test_df, test_y = _make_non_dominant_category_data(n_train=3000, n_test=800, seed=7)
+    enc = train_df.assign(y=train_y).groupby("cat")["y"].mean()
+
+    mode_imputer = UnseenCategoryImputer(columns=["cat"]).fit(train_df)
+    test_mode = mode_imputer.transform(test_df)
+    pred_mode = np.array([enc[c] for c in test_mode["cat"]])
+    rmse_mode = float(np.sqrt(np.mean((pred_mode - test_y) ** 2)))
+
+    nearest_imputer = UnseenCategoryImputer(columns=["cat"], similarity_mode="nearest", value_column="val").fit(train_df)
+    test_nearest = nearest_imputer.transform(test_df)
+    pred_nearest = np.array([enc[c] for c in test_nearest["cat"]])
+    rmse_nearest = float(np.sqrt(np.mean((pred_nearest - test_y) ** 2)))
+
+    assert rmse_nearest < rmse_mode * 0.6, f"expected nearest-replacement to beat mode-replacement by >=40% RMSE, got nearest={rmse_nearest:.4f} mode={rmse_mode:.4f}"
+
+
 def test_unseen_category_imputer_maps_rare_and_unseen_to_train_mode():
     train_df = pd.DataFrame({"cat": ["A"] * 90 + ["B"] * 5 + ["C"] * 5})
     imputer = UnseenCategoryImputer(columns=["cat"], min_count=10).fit(train_df)
