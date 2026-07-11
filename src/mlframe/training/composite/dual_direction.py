@@ -29,9 +29,9 @@ from typing import Any
 import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator, RegressorMixin, clone
-from sklearn.metrics import r2_score
 from sklearn.model_selection import cross_val_predict
 
+from mlframe.metrics.core import fast_r2_score
 from mlframe.training.composite.estimator import CompositeTargetEstimator
 
 logger = logging.getLogger(__name__)
@@ -118,7 +118,7 @@ class DualDirectionCompositeEstimator(BaseEstimator, RegressorMixin):
         # Public diagnostic attributes: these are already computed as part of the OOF-then-refit-on-full
         # pipeline above -- exposing them costs O(n) (a division + an r2_score call), not a second CV pass.
         self.oof_scale_predictions_ = oof_scale_pred
-        self.oof_scale_score_ = float(r2_score(scale_y_arr, oof_scale_pred))
+        self.oof_scale_score_ = float(fast_r2_score(scale_y_arr, oof_scale_pred))
         with np.errstate(divide="ignore", invalid="ignore"):
             shape_transform_target = y_arr / oof_scale_pred
         shape_transform_target[oof_scale_pred <= 0] = np.nan

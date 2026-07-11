@@ -24,7 +24,8 @@ def log(msg):
 
 
 def main():
-    open(OUT, "w").close()
+    with open(OUT, "w"):
+        pass
     X, y, name = load_real()
     Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.4, random_state=0, stratify=y)
     p = Xtr.shape[1]

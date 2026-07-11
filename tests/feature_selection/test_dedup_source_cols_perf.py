@@ -69,11 +69,13 @@ def test_row_cap_env_override(monkeypatch):
 
     import mlframe.feature_selection.filters._orthogonal_univariate_fe._orth_dedup as mod
 
+    _orig_dict = dict(mod.__dict__)
     mod = importlib.reload(mod)
     try:
         assert mod._MAX_CORR_ROWS == 5000
     finally:
-        importlib.reload(importlib.import_module(mod.__name__))  # restore default constant for other tests
+        mod.__dict__.clear()
+        mod.__dict__.update(_orig_dict)  # restore default constant for other tests
 
 
 @pytest.mark.parametrize("N,P", [(2_000_000, 40)])

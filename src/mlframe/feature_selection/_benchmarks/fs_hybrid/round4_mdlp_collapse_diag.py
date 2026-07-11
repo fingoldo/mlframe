@@ -120,7 +120,8 @@ def run_named_bed(bedname, X, y, groups, lines):
 
 
 def main():
-    open(PROGRESS, "w").close()
+    with open(PROGRESS, "w"):
+        pass
     lines = ["# MDLP-1-bin-collapse diagnostic (round-4, READ-ONLY)\n"]
     lines.append("bins = inner_edges + 1. 1 bin == collapsed-to-constant (joint MI destroyed).")
     lines.append("RAW MDLP = supervised_binning.mdlp_bin_edges (literal hypothesis target).")

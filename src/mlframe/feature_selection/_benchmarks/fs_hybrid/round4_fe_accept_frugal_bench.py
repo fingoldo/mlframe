@@ -267,7 +267,8 @@ def run_light(seeds):
 
 
 def main():
-    open(PROGRESS, "w").close()
+    with open(PROGRESS, "w"):
+        pass
     checkpoint("START fe_accept FRUGAL bench")
     seeds = (0, 1)
 

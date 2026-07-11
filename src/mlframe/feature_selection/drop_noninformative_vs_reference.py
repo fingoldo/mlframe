@@ -19,7 +19,7 @@ from typing import List, Optional, Sequence
 import numpy as np
 import pandas as pd
 
-from mlframe.feature_selection.filters._ks_stability import ks_stability_filter
+from mlframe.feature_selection.filters import ks_stability_filter
 
 
 def drop_noninformative_vs_reference(

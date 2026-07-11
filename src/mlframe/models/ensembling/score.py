@@ -50,7 +50,7 @@ from joblib import delayed
 from pyutilz.parallel import cpu_count_physical, parallel_run
 from pyutilz.pythonlib import is_jupyter_notebook
 
-from mlframe.system._gpu_guard import callable_looks_gpu_bound
+from mlframe.system import callable_looks_gpu_bound
 
 # Use the parent module's logger name so caplog filters on
 # ``"mlframe.models.ensembling"`` continue to capture our records.

@@ -140,7 +140,7 @@ def generate_rolling_window_agg_features(
     time_col: str,
     windows: Sequence[str] = ("7D", "30D"),
     stats: Sequence[str] = ("mean", "count"),
-):
+) -> tuple:
     """Leak-safe rolling time-window aggregations (one column per
     window x stat x value_col). Each row sees only earlier rows of its entity
     within the offset window. Returns ``(enc_df, raw_recipes)``.
@@ -167,13 +167,16 @@ def generate_rolling_window_agg_features(
     times_sorted = time_vals[order]
     codes_sorted, _ = pd.factorize(key_sorted, sort=False)
     ent_label = entity_cols[0] if len(entity_cols) == 1 else "+".join(entity_cols)
+    # n_codes / the row-slice split depend only on (entity_cols, time_col), never value_col; hoist out
+    # of the value_col loop instead of recomputing per value column.
+    n_codes = int(codes_sorted.max()) + 1 if codes_sorted.size else 0
+    row_slices = _group_row_slices(codes_sorted, n_codes)
 
     for value_col in value_cols:
         vals = np.asarray(X[value_col].to_numpy(), dtype=np.float64)
         vals_sorted = vals[order]
         history: dict[str, dict] = {}
-        n_codes = int(codes_sorted.max()) + 1 if codes_sorted.size else 0
-        for rows in _group_row_slices(codes_sorted, n_codes):
+        for rows in row_slices:
             ent_key = str(key_sorted[rows[0]])
             t_list = times_sorted[rows]
             history[ent_key] = {
@@ -204,7 +207,17 @@ def generate_rolling_window_agg_features(
     return enc_df, raw_recipes
 
 
-def build_temporal_rolling_recipe(*, name, entity_cols, value_col, time_col, window, stat, history, global_prior):
+def build_temporal_rolling_recipe(
+    *,
+    name: str,
+    entity_cols: Sequence[str],
+    value_col: str,
+    time_col: str,
+    window: str,
+    stat: str,
+    history: Any,
+    global_prior: float,
+) -> Any:
     """Build an ``EngineeredRecipe`` carrying the per-entity TRAIN history + global prior needed to leak-safely replay a rolling time-window-stat feature at transform time."""
     from .engineered_recipes import EngineeredRecipe
     return EngineeredRecipe(

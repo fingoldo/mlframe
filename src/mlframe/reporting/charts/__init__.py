@@ -14,6 +14,7 @@ wrappers that internally delegate to these builders + render via the
 from __future__ import annotations
 
 
+from mlframe.reporting.charts._acf import pacf_levinson, significance_band
 from mlframe.reporting.charts.binary import (
     ALLOWED_BINARY_PANEL_TOKENS, DEFAULT_BINARY_PANELS,
     binary_decile_table, compose_binary_figure,
@@ -192,4 +193,6 @@ __all__ = [
     "ALLOWED_QUANTILE_PANEL_TOKENS",
     "ALLOWED_REGRESSION_PANEL_TOKENS",
     "DEFAULT_REGRESSION_PANELS",
+    "pacf_levinson",
+    "significance_band",
 ]

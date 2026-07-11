@@ -16,6 +16,7 @@ decision untouched (canonical fixtures never loosened on error).
 from __future__ import annotations
 
 import os
+from typing import Any, Hashable, Mapping, Optional, Union
 
 import numba
 import numpy as np
@@ -94,7 +95,7 @@ def _abs_pearson_njit(y, v):
     return -c if c < 0.0 else c
 
 
-def usability_operand_continuous(self, X, cols, var_idx):
+def usability_operand_continuous(self: Any, X: Any, cols: Any, var_idx: Any) -> Optional[np.ndarray]:
     """RAW CONTINUOUS values (outliers INTACT) for a cols-space operand index, or None if unresolvable.
 
     Usability is scored on the raw operands, NOT the binned codes: binning clips the outlier tail into the
@@ -168,7 +169,7 @@ def _subsample_for_corr(*arrs):
     return tuple(a[::st] for a in arrs)
 
 
-def abs_pearson(y, v):
+def abs_pearson(y: np.ndarray, v: np.ndarray) -> float:
     """``|Pearson corr|`` of ``y`` vs ``v`` over jointly-FINITE rows; 0.0 when <2 valid rows or either is
     constant / non-finite. Outlier-inflated by construction -- which is exactly the tail-concentrated signal
     the coarse rank-MI under-credits. Above ``_ABS_PEARSON_MAX_ROWS`` a deterministic strided subsample is
@@ -245,7 +246,14 @@ def _single_operand_usability_corr(y, x):
     return max(_abs_pearson_fast(_yc, _xc), _abs_pearson_fast(_yc, _xsq))
 
 
-def usability_form_corrs(y, x0, x1, *, return_best_pair_form=False, precomputed_single_corr=None):
+def usability_form_corrs(
+    y: np.ndarray,
+    x0: np.ndarray,
+    x1: np.ndarray,
+    *,
+    return_best_pair_form: bool = False,
+    precomputed_single_corr: Optional[tuple] = None,
+) -> Union[tuple[float, float], tuple[float, float, Optional[np.ndarray]]]:
     """Return (best PAIR-form ``|corr(y)|``, best SINGLE-operand ``|corr(y)|``) over a small scale/sign-robust
     bivariate dictionary of the RAW operands. Pair forms: the two ratio orderings, the two squared-numerator
     ratios, and the product -- the tail-concentrated ratio ``a**2/b`` lands here (``|corr|`` ~0.986 vs y).
@@ -303,7 +311,7 @@ def usability_form_corrs(y, x0, x1, *, return_best_pair_form=False, precomputed_
     return _cp, _cs
 
 
-def pair_is_tail_concentrated(y, x0, x1, *, min_corr, pairness_margin):
+def pair_is_tail_concentrated(y: np.ndarray, x0: np.ndarray, x1: np.ndarray, *, min_corr: float, pairness_margin: float) -> bool:
     """True when the RAW pair (``x0``,``x1``) is tail-concentrated w.r.t. continuous ``y``: its best bivariate
     form is strongly linearly usable (``|corr|`` >= ``min_corr``) AND beats the best single-operand form by
     ``pairness_margin`` (genuine pairness). The rank-vs-linear DISAGREEMENT is supplied by the CALL SITE (this
@@ -328,7 +336,16 @@ def _rank_transform(v):
     return ranks
 
 
-def pair_is_tail_concentrated_rankaware(y, x0, x1, *, min_corr, pairness_margin, max_rank_frac=0.7, precomputed_single_corr=None):
+def pair_is_tail_concentrated_rankaware(
+    y: np.ndarray,
+    x0: np.ndarray,
+    x1: np.ndarray,
+    *,
+    min_corr: float,
+    pairness_margin: float,
+    max_rank_frac: float = 0.7,
+    precomputed_single_corr: Optional[tuple] = None,
+) -> bool:
     """RANK-AWARE tail-concentration predicate for the FIRST-SWEEP prevalence relaxation pre-scan.
 
     Fires only when the pair is (1) linearly usable + genuinely pairwise (``pair_is_tail_concentrated``) AND
@@ -369,7 +386,15 @@ def pair_is_tail_concentrated_rankaware(y, x0, x1, *, min_corr, pairness_margin,
         return False
 
 
-def tail_concentration_form_override(perf, usability, *, min_corr, pairness_margin, mi_band, best_single_corr=0.0):
+def tail_concentration_form_override(
+    perf: Mapping[Hashable, float],
+    usability: Mapping[Hashable, float],
+    *,
+    min_corr: float,
+    pairness_margin: float,
+    mi_band: float,
+    best_single_corr: float = 0.0,
+) -> Optional[Hashable]:
     """Return the FORM (a ``perf`` key) to PROMOTE when a per-pair form set is tail-concentrated, else None.
 
     ``perf`` is ``{form_config: rank_mi}``; ``usability`` is ``{form_config: |corr(continuous y)|}``. Override

@@ -15,128 +15,25 @@ logger = logging.getLogger(__name__)
 # Normal Imports
 # ----------------------------------------------------------------------------------------------------------------------------
 
-from typing import Any, Callable, Optional, Sequence, Union
+from timeit import default_timer as timer
+from typing import Callable, Optional, Sequence, Union
 
 import numpy as np
 
-
-class _LazyModule:
-    """Transparent lazy proxy: imports the wrapped module on first attribute
-    access. Keeps matplotlib (~0.15s) off the eager import path -- this module
-    is reachable from feature-selection imports, yet plt is only used by the
-    optimizer's plotting callbacks.
-    """
-
-    def __init__(self, name: str):
-        self._lm_name = name
-        self._lm_mod: Optional[Any] = None
-
-    def __getattr__(self, attr):
-        if self._lm_mod is None:
-            import importlib
-
-            self._lm_mod = importlib.import_module(self._lm_name)
-        return getattr(self._lm_mod, attr)
-
-
-plt = _LazyModule("matplotlib.pyplot")
-
-from enum import Enum, auto
-from timeit import default_timer as timer
-
-# ----------------------------------------------------------------------------------------------------------------------------
-# Inits
-# ----------------------------------------------------------------------------------------------------------------------------
-
-SMALL_VALUE = 1e-4
-BIG_VALUE = 1e6
-
-# Sentinel distinguishing "surrogate not yet trainable" (transient: no evaluations submitted yet, or all
-# known targets identical so the model cannot be fit) from a genuine None == "search space exhausted".
-# Callers that drive the optimizer in a loop must NOT terminate on _NOT_READY -- it means "try again after
-# submitting more evaluations", whereas None means "every candidate has been checked / suggested".
-class _SearchNotReady:
-    """Sentinel type for :data:`NOT_READY`; see the module comment above for the NOT_READY-vs-None contract."""
-
-    __slots__ = ()
-    def __repr__(self):
-        return "NOT_READY"
-
-NOT_READY = _SearchNotReady()
-
-# ----------------------------------------------------------------------------------------------------------------------------
-# Enums
-# ----------------------------------------------------------------------------------------------------------------------------
-
-
-class OptimizationDirection(Enum):
-    """Whether the optimizer is hunting for the highest or lowest evaluation."""
-
-    Minimize = auto()
-    Maximize = auto()
-
-
-class CandidateSamplingMethod(Enum):
-    """Strategy for picking the initial (pre-surrogate) exploration candidates."""
-
-    Random = auto()
-    Equidistant = auto()
-    Fibonacci = auto()
-    ReversedFibonacci = auto()
-
-
-class OptimizationProgressPlotting(Enum):
-    """How often ``MBHOptimizer`` renders its diagnostic plot during the search loop."""
-
-    No = auto()
-    Final = auto()  # Plotting is done once, after the search finishes
-    OnScoreImprovement = auto()  # Plotting is done on every improving candidate
-    Regular = auto()  # Plotting is done on every candidate
-
-
-# ----------------------------------------------------------------------------------------------------------------------------
-# Core
-# ----------------------------------------------------------------------------------------------------------------------------
-
-
-def compute_candidates_exploration_scores(search_space: Sequence, known_candidates: Sequence):
-    """Compute distances from all candidates to known points.
-    Assuming search_space is sorted.
-    """
-
-    distances = np.zeros(len(search_space))  # distances to closest checked points
-    if len(known_candidates) == 0:
-        # No checked points yet -> every search-space point is maximally far; the loop below would leave r/lo unbound.
-        return distances
-    indices = {el: i for i, el in enumerate(search_space)}
-
-    lo = None
-    for i in sorted(known_candidates):
-        r = indices[i]
-        if lo is None:
-            distances[:r] = np.abs(search_space[0:r] - search_space[r])
-        else:
-            m = (lo + r) // 2
-            distances[lo:m] = np.abs(search_space[lo:m] - search_space[lo])
-            distances[m:r] = np.abs(search_space[m:r] - search_space[r])
-        lo = r
-    distances[r:] = np.abs(search_space[r:] - search_space[r])
-
-    return distances
-
-
-def generate_fibonacci(n: int):
-    """Creates Fibonacci sequence for a given n."""
-
-    if n <= 0:
-        return []
-
-    fibonacci_sequence = [0, 1]
-    while len(fibonacci_sequence) < n:
-        next_number = fibonacci_sequence[-1] + fibonacci_sequence[-2]
-        fibonacci_sequence.append(next_number)
-
-    return np.array(fibonacci_sequence, dtype=np.int64)
+# Shared with ._optimization_search (both siblings import these from the leaf module to avoid the
+# circular partial-import a direct cross-import between the two would create); re-exported here for BC.
+from ._optimization_shared import (
+    BIG_VALUE,
+    NOT_READY,
+    SMALL_VALUE,
+    CandidateSamplingMethod,
+    OptimizationDirection,
+    OptimizationProgressPlotting,
+    _SearchNotReady,  # noqa: F401
+    compute_candidates_exploration_scores,
+    generate_fibonacci,
+    plot_search_state,
+)
 
 
 # Wave 100 (2026-07-11): _ETRWithStd + MBHOptimizer (~600 lines: ctor param
@@ -360,103 +257,10 @@ def optimize_finite_onedimensional_search_space(
     return (optimizer.best_candidate, optimizer.best_evaluation), optimizer.evaluated_candidates
 
 
-def plot_search_state(
-    search_space,
-    next_cand: int,
-    new_y: float,
-    best_candidate: Optional[int],
-    best_evaluation: float,
-    nsteps: int,
-    expected_fitness: Optional[np.ndarray],
-    y_pred: Optional[np.ndarray],
-    y_std: Optional[np.ndarray],
-    ground_truth: Optional[np.ndarray],
-    known_candidates: np.ndarray,
-    known_evaluations: np.ndarray,
-    skip_candidates: Sequence,
-    acquisition_method: str,
-    mode: str,
-    additional_info: str,
-    figsize: tuple = (8, 4),
-    font_size: int = 10,
-    x_label="nfeatures",
-    y_label="score",
-    expected_fitness_color: str = "green",
-    legend_location: str = "lower right",
-):
-    """Render the current optimizer state: known evaluations, the surrogate's predicted fitness (+ std band when available), and the just-suggested candidate, on a dual-axis matplotlib figure.
-
-    Purely diagnostic -- called from :meth:`MBHOptimizer.submit_evaluations` when ``plotting`` requests it (``OnScoreImprovement`` / ``Regular``); never affects the search itself.
-    """
-
-    # ---------------------------------------------------------------------------------------------------------------
-    # Plot expected fitness of the points
-    # ---------------------------------------------------------------------------------------------------------------
-
-    plt.rcParams.update({"font.size": font_size})
-    fig, axMain = plt.subplots(sharex=True, figsize=figsize, layout="tight")
-    axExpectedFitness = axMain.twinx()
-
-    if expected_fitness is not None:
-        axExpectedFitness.plot(search_space, expected_fitness, color=expected_fitness_color, linestyle="dashed", label=acquisition_method, alpha=0.3)
-        # axExpectedFitness.plot(search_space, y_std, color=expected_fitness_color,linestyle='dashed', label='y_std')
-        # axExpectedFitness.plot(search_space, distances, color=expected_fitness_color,linestyle='dotted', label='distances')
-
-    # ---------------------------------------------------------------------------------------------------------------
-    # Plot the black box function, surrogate function, known points
-    # ---------------------------------------------------------------------------------------------------------------
-
-    if ground_truth is not None:
-        axMain.plot(search_space, ground_truth, color="black", label="Ground truth")
-    if y_pred is not None:
-        axMain.plot(search_space, y_pred, color="red", linestyle="dashed", label="Surrogate Function")
-        axMain.fill_between(search_space, y_pred - y_std, y_pred + y_std, color="blue", alpha=0.2)
-
-    axMain.scatter(known_candidates, known_evaluations, color="blue", label="Known Points")
-
-    if skip_candidates:
-        idx = ~np.isin(known_candidates, skip_candidates)
-        if idx.sum() > 0:
-            axMain.set_ylim([known_evaluations[idx].min(), None])
-
-    axExpectedFitness.set_yticklabels([])
-    axExpectedFitness.set_yticks([])
-    axExpectedFitness.set_ylabel(acquisition_method, color=expected_fitness_color)
-    # axExpectedFitness.legend()
-    axMain.set_xlabel(x_label)
-    axMain.set_ylabel(y_label)
-
-    # ---------------------------------------------------------------------------------------------------------------
-    # Plot next candidate
-    # ---------------------------------------------------------------------------------------------------------------
-
-    axMain.scatter(next_cand, new_y, color="red", marker="D", label="Next candidate")
-
-    # plt.xlabel(x_label)
-    # plt.ylabel(y_label)
-    # plt.title(f"Iteration #{nsteps}, mode={mode} {additional_info}")
-    axMain.set_title(f"Iteration #{nsteps}, mode={mode} {additional_info}, best={best_evaluation:.6f}@{best_candidate:_}")
-    axMain.legend(loc=legend_location)
-    # Non-blocking show: ``plt.show()`` (default block=True) made the Qt
-    # window MODAL, freezing the optimisation loop until the user closed
-    # every figure manually. RFECV with optimizer_plotting='OnScoreImprovement'
-    # spawns a window per score improvement -> dozens of stuck modals on
-    # the desktop. block=False renders the window non-modally; the
-    # plt.pause() flush gives the GUI event loop a tick to draw.
-    try:
-        plt.show(block=False)
-        plt.pause(0.001)
-    except Exception:  # nosec B110 - non-trivial body
-        # Headless / Agg backend: show is a no-op, pause may not work
-        # without a backend. Failure here must NEVER block training.
-        pass
-    plt.close(fig)
-
-
-# Wave 100 (2026-07-11): _ETRWithStd + MBHOptimizer (~600 lines) moved to
-# sibling file _optimization_search.py to drop this file below the 1k-line
-# monolith threshold. Imported here (after plot_search_state, which the
-# sibling imports back) to avoid a circular partial-import; re-exported so
-# existing callers (`from mlframe.models.optimization import MBHOptimizer`)
-# keep working.
+# Wave 100 (2026-07-11): _ETRWithStd + MBHOptimizer (~600 lines) moved to sibling file
+# _optimization_search.py to drop this file below the 1k-line monolith threshold; both this module and
+# the sibling import their shared constants/enums/helpers (including plot_search_state) from the leaf
+# ._optimization_shared module instead of from each other, which is what actually avoids the circular
+# partial-import (see that module's docstring). Re-exported here so existing callers
+# (`from mlframe.models.optimization import MBHOptimizer`) keep working.
 from ._optimization_search import _ETRWithStd, MBHOptimizer  # noqa: F401

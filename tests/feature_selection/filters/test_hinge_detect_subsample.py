@@ -29,7 +29,9 @@ def _hinge_data(n, seed=0):
 @pytest.mark.parametrize("max_rows", ["200000", "0"])
 def test_hinge_subsample_still_finds_breakpoint(max_rows, monkeypatch):
     monkeypatch.setenv("MLFRAME_HINGE_MAX_ROWS", max_rows)
-    m = importlib.reload(importlib.import_module(MOD))
+    m = importlib.import_module(MOD)
+    _orig_dict = dict(m.__dict__)
+    m = importlib.reload(m)
     try:
         pytest.importorskip("cupy")
         x, y = _hinge_data(1_000_000)
@@ -39,14 +41,18 @@ def test_hinge_subsample_still_finds_breakpoint(max_rows, monkeypatch):
         assert len(taus) >= 1, f"[cap={max_rows}] no breakpoint found on a clear hinge signal"
         assert abs(float(taus[0]) - 0.5) < 0.4, f"[cap={max_rows}] breakpoint {taus[0]:.3f} far from 0.5"
     finally:
-        importlib.reload(m)
+        m.__dict__.clear()
+        m.__dict__.update(_orig_dict)
 
 
 def test_hinge_cap_actually_subsamples(monkeypatch):
     monkeypatch.setenv("MLFRAME_HINGE_MAX_ROWS", "40000")
-    m = importlib.reload(importlib.import_module(MOD))
+    m = importlib.import_module(MOD)
+    _orig_dict = dict(m.__dict__)
+    m = importlib.reload(m)
     try:
         assert m._hinge_max_rows() == 40000
     finally:
         monkeypatch.delenv("MLFRAME_HINGE_MAX_ROWS", raising=False)
-        importlib.reload(m)
+        m.__dict__.clear()
+        m.__dict__.update(_orig_dict)

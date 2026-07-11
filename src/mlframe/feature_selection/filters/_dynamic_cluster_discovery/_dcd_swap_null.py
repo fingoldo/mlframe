@@ -30,12 +30,16 @@ same rng, the p-value is bit-identical in practice, exceeding the (looser) selec
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING, Optional, Sequence
 
 import numpy as np
 from numba import njit, prange
 
 from ..info_theory import conditional_mi, entropy, merge_vars, mi
 from .._numba_utils import unpack_and_sort
+
+if TYPE_CHECKING:
+    from . import DCDState
 
 # Below this B the njit(parallel) spawn (~50us + per-thread JIT dispatch) is not worth it; run serial.
 _PARALLEL_MIN_B = 8
@@ -56,7 +60,16 @@ def _entropy_col_onto_classes(x_col, nb_x, base_classes, base_nclasses, n_rows) 
 
 
 @njit(cache=True)
-def conditional_mi_col(x_col, nb_x, z_classes, z_nclasses, yz_classes, yz_nclasses, entropy_z, entropy_yz) -> float:
+def conditional_mi_col(
+    x_col: np.ndarray,
+    nb_x: int,
+    z_classes: np.ndarray,
+    z_nclasses: int,
+    yz_classes: np.ndarray,
+    yz_nclasses: int,
+    entropy_z: float,
+    entropy_yz: float,
+) -> float:
     """``I(X; Y | Z)`` for a STANDALONE candidate column ``x_col`` (not a factors_data index), given the
     precomputed dense class labelings of ``Z`` and ``(Y,Z)`` and their (permutation-invariant) entropies.
 
@@ -74,7 +87,7 @@ def conditional_mi_col(x_col, nb_x, z_classes, z_nclasses, yz_classes, yz_nclass
 
 
 @njit(cache=True)
-def mi_col(x_col, nb_x, y_classes, y_nclasses, entropy_x, entropy_y) -> float:
+def mi_col(x_col: np.ndarray, nb_x: int, y_classes: np.ndarray, y_nclasses: int, entropy_x: float, entropy_y: float) -> float:
     """``I(X; Y)`` for a standalone ``x_col`` with precomputed ``Y`` labeling. ``H(X)`` (permutation-invariant)
     and ``H(Y)`` are hoisted; only ``H(X,Y)`` is recomputed per draw."""
     n = x_col.shape[0]
@@ -155,7 +168,17 @@ def _run_member_null_serial(*, state, member_idx, member_rel, B_, rng_m, target_
         state.factors_data[:, member_idx] = member_col_orig
 
 
-def run_member_null(*, state, member_idx: int, member_rel: float, B_: int, anchor: int, target, S_minus_anchor, logger=None) -> float:
+def run_member_null(
+    *,
+    state: "DCDState",
+    member_idx: int,
+    member_rel: float,
+    B_: int,
+    anchor: int,
+    target: np.ndarray,
+    S_minus_anchor: Sequence[int],
+    logger: Optional[logging.Logger] = None,
+) -> float:
     """Member permutation-null p-value ``(n_exceed + 1) / (B + 1)``, parallelized across cores for
     production ``B`` and falling back to the exact serial mutate-restore path for tiny ``B``.
 

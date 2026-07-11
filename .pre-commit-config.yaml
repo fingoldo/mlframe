@@ -101,7 +101,7 @@ repos:
     rev: v2.1.0
     hooks:
       - id: mypy
-        files: '^src/mlframe/(calibration/|utils/safe_pickle\.py$|system/_gpu_guard\.py$|metrics/(_numba_params|rank_correlation|_core_precision_mape)\.py$)'
+        files: '^(src/mlframe/calibration/|src/mlframe/utils/safe_pickle\.py$|src/mlframe/system/_gpu_guard\.py$|src/mlframe/metrics/(_numba_params|rank_correlation|_core_precision_mape)\.py$)'
         # --follow-imports=silent: this hook's isolated env has none of calibration's heavy
         # transitive deps installed (pandas/torch/lightning/numba/pyutilz), so default
         # follow-imports="normal" walks into every module they import, collapses each

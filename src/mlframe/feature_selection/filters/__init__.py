@@ -32,6 +32,10 @@ Module dependency graph (acyclic)::
 
 from __future__ import annotations
 
+# Bound before ._legacy (which transitively imports preprocessing -> auto_transform_select, which
+# imports this name back from this package) so the circular re-entry sees it already defined.
+from ._extra_fe_families import generate_rankgauss_features
+
 # Legacy monolith star-import keeps every existing importer working transparently.
 from ._legacy import *
 from ._legacy import (  # explicit re-exports, kept stable
@@ -73,6 +77,7 @@ __all__ = [
     "per_fold_majority_accept",
     "seed_averaged_fold_scores",
     "ks_stability_filter",
+    "generate_rankgauss_features",
     "entropy",
     "mi",
     "conditional_mi",

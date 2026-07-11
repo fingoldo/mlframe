@@ -60,7 +60,9 @@ def test_abs_pearson_preserves_outlier_inflated_corr():
 
 def test_abs_pearson_env_optout_full_n(monkeypatch):
     monkeypatch.setenv("MLFRAME_USABILITY_CORR_MAX_ROWS", "0")
-    m = importlib.reload(importlib.import_module(MOD))
+    m = importlib.import_module(MOD)
+    _orig_dict = dict(m.__dict__)
+    m = importlib.reload(m)
     try:
         rng = np.random.default_rng(3)
         n = 600_000
@@ -69,4 +71,5 @@ def test_abs_pearson_env_optout_full_n(monkeypatch):
         assert m.abs_pearson(y, v) == pytest.approx(_full_abs_pearson(y, v), abs=1e-12)
     finally:
         monkeypatch.delenv("MLFRAME_USABILITY_CORR_MAX_ROWS", raising=False)
-        importlib.reload(m)
+        m.__dict__.clear()
+        m.__dict__.update(_orig_dict)

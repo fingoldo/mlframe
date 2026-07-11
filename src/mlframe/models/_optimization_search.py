@@ -21,7 +21,7 @@ from catboost import CatBoostRegressor
 from expiringdict import ExpiringDict
 from pyutilz.pythonlib import get_parent_func_args, store_params_in_object
 
-from .optimization import (
+from ._optimization_shared import (
     BIG_VALUE,
     NOT_READY,
     SMALL_VALUE,

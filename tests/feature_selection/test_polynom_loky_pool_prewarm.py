@@ -122,21 +122,54 @@ def test_prewarm_speeds_up_a_real_run_polynom_pair_fe_call():
     assert warm_elapsed < 15.0, f"expected a warm-pool dispatch well under the ~26-28s cold baseline, got {warm_elapsed:.1f}s"
 
 
-def test_idle_worker_timeout_exceeds_joblib_default_and_is_shared_with_real_dispatch():
+def test_idle_worker_timeout_exceeds_joblib_default_and_is_shared_with_real_dispatch(monkeypatch):
     """Regression guard for the 2026-07-11 timeout bug: a pre-warmed pool that self-terminates (loky's default
     ``idle_worker_timeout=300``) before ``run_polynom_pair_fe`` actually dispatches (measured real gap ~418s)
     pays the contention cost of pre-warming for zero benefit. Pins that the shared constant exceeds the joblib
-    default AND that both call sites reference the SAME constant (not two independently-tuned numbers that
-    could drift apart and silently break get_reusable_executor's reuse-key match)."""
-    import inspect
-
-    from mlframe.feature_selection.filters import polynom_pair_fe
+    default AND that ``run_polynom_pair_fe``'s REAL ``LokyBackend`` construction is called with that SAME
+    constant (not two independently-tuned numbers that could drift apart and silently break
+    ``get_reusable_executor``'s reuse-key match) -- verified by spying the actual constructor call, not by
+    grepping source text."""
+    import mlframe.feature_selection.filters.polynom_pair_fe as ppfe
     from mlframe.feature_selection.filters._joblib_safe import POLYNOM_LOKY_IDLE_WORKER_TIMEOUT
 
     assert POLYNOM_LOKY_IDLE_WORKER_TIMEOUT > 300, "must exceed the joblib LokyBackend default of 300s"
-    src = inspect.getsource(polynom_pair_fe)
-    assert "POLYNOM_LOKY_IDLE_WORKER_TIMEOUT" in src, (
-        "run_polynom_pair_fe's LokyBackend must reference the SAME shared constant, not a hardcoded duplicate"
+
+    captured: dict = {}
+    real_loky_backend = ppfe.LokyBackend
+
+    def _spy_loky_backend(*args, **kwargs):
+        captured["idle_worker_timeout"] = kwargs.get("idle_worker_timeout")
+        return real_loky_backend(*args, **kwargs)
+
+    monkeypatch.setattr(ppfe, "LokyBackend", _spy_loky_backend)
+
+    n, ncols = 200, 32
+    rng = np.random.default_rng(0)
+    X = rng.normal(size=(n, ncols)).astype(np.float64)
+    y = rng.integers(0, 5, size=n)
+    cols = [f"f{i}" for i in range(ncols)]
+    nbins = np.full(ncols, 10, dtype=np.int64)
+    prospective_pairs = {(i, i + 1): 1.0 for i in range(16)}  # crosses _PARALLEL_PAIR_THRESHOLD=16
+
+    ppfe.run_polynom_pair_fe(
+        X=X, is_polars_input=False, prospective_pairs=prospective_pairs,
+        classes_y=y, cols=cols, nbins=nbins, data=X.copy(),
+        engineered_features=set(), engineered_recipes={}, hermite_features_list=[],
+        feature_names_in=cols,
+        fe_smart_polynom_iters=1, fe_smart_polynom_optimization_steps=1,
+        fe_min_polynom_degree=1, fe_max_polynom_degree=2,
+        fe_min_polynom_coeff=-2.0, fe_max_polynom_coeff=2.0,
+        fe_min_engineered_mi_prevalence=0.0, fe_hermite_l2_penalty=0.0,
+        fe_polynomial_basis="hermite", fe_mi_estimator="plugin",
+        fe_optimizer="random", fe_warm_start=False, fe_multi_fidelity=False,
+        quantization_nbins=10, quantization_method="uniform", quantization_dtype=np.int8,
+        n_jobs=16, verbose=0,
+    )
+
+    assert captured.get("idle_worker_timeout") == POLYNOM_LOKY_IDLE_WORKER_TIMEOUT, (
+        "run_polynom_pair_fe's real LokyBackend construction must reference the SAME shared constant "
+        f"maybe_prewarm_polynom_loky_pool uses; got {captured}"
     )
 
 

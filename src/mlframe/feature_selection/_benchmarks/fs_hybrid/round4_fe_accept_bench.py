@@ -236,7 +236,8 @@ def verdict(df):
 
 
 def main():
-    open(PROGRESS, "w").close()
+    with open(PROGRESS, "w"):
+        pass
     checkpoint("START fe_accept bench")
     seeds = (0, 1)
     allrows = []

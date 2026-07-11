@@ -10,7 +10,7 @@ importance-proxy or a fixed unanimity rule.
 """
 from __future__ import annotations
 
-from typing import Callable, List, Optional, Sequence
+from typing import Any, Callable, List, Optional, Sequence
 
 import numpy as np
 import pandas as pd
@@ -29,7 +29,7 @@ def _cv_score(estimator, X: pd.DataFrame, y: np.ndarray, cv, scoring: Callable[[
 
 
 def greedy_backward_elimination(
-    estimator,
+    estimator: Any,
     X: pd.DataFrame,
     y: np.ndarray,
     scoring: Callable[[np.ndarray, np.ndarray], float],

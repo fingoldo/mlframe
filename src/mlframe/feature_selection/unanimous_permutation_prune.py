@@ -59,7 +59,7 @@ def unanimous_permutation_prune(
     """
     import pandas as pd
     from sklearn.inspection import permutation_importance
-    from sklearn.metrics import make_scorer, mean_squared_error
+    from sklearn.metrics import make_scorer
 
     if scoring is None:
         scoring = lambda y_true, y_pred: -float(np.sqrt(np.mean((np.asarray(y_true) - np.asarray(y_pred)) ** 2)))  # noqa: E731

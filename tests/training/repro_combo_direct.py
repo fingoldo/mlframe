@@ -18,12 +18,13 @@ Example:
     python tests/training/repro_combo_direct.py c0018_13625051
 """
 import dataclasses
-import json
 import os
 import sys
 import tempfile
 import traceback
 from pathlib import Path
+
+import orjson
 
 sys.path.insert(0, ".")
 os.environ.setdefault("MLFRAME_FUZZ_FORCE_N_ROWS", "10000")
@@ -48,7 +49,7 @@ def _load_combo(short_id: str):
             line = line.strip()
             if not line:
                 continue
-            r = json.loads(line)
+            r = orjson.loads(line)
             if r.get("short_id") == short_id:
                 rec = r
                 break

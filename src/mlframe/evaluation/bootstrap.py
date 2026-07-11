@@ -452,7 +452,7 @@ def bootstrap_metrics(
         # resample loop out across threads or processes makes every worker independently contend for the single
         # physical GPU device instead of parallelising -- same failure mode regardless of which backend the
         # MLFRAME_BOOTSTRAP_BACKEND env override selects. Force the exact bit-identical serial loop in that case.
-        from mlframe.system._gpu_guard import callable_looks_gpu_bound
+        from mlframe.system import callable_looks_gpu_bound
 
         _gpu_bound_metric = any(callable_looks_gpu_bound(fn) for fn in (metric_fns or {}).values()) or any(
             callable_looks_gpu_bound(fn) for fn in (metric_fns_idx or {}).values()

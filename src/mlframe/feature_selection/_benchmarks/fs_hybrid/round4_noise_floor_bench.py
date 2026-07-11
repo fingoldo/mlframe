@@ -239,7 +239,8 @@ def run_madelon(n_perm=3):
     # RFECV baseline = the documented over-selection (251). The pre-existing cache from the knockoff bench holds it;
     # the CURRENT RFECVSel config (max_runtime_mins=3) times out on madelon and returns all-500, so we DON'T use that
     # degenerate curve. We use a clean LGBM-gain ranking for the per-N cut ordering.
-    rfecv_support = pickle.load(open("D:/Temp/rfecv_madelon_support.pkl", "rb"))  # nosec B301 - dev-only benchmark cache; local file this script itself wrote
+    with open("D:/Temp/rfecv_madelon_support.pkl", "rb") as _f:
+        rfecv_support = pickle.load(_f)  # nosec B301 - dev-only benchmark cache; local file this script itself wrote
     rfecv_support = [c for c in rfecv_support if c in Xtr.columns]
     checkpoint(f"loaded RFECV 251-support cache: |support|={len(rfecv_support)}")
 

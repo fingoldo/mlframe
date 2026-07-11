@@ -3,13 +3,19 @@ name: numba-coverage-nightly
 # Disabled 2026-07-10: this nightly (340min timeout, full feature_engineering/feature_selection/
 # metrics/training suites under NUMBA_DISABLE_JIT=1) was part of what exhausted the account's
 # monthly free GitHub Actions minutes and left every workflow, in every repo on the account, stuck
-# queued. The schedule trigger is removed so it can't fire unattended, and the job is gated behind
-# a workflow_dispatch input defaulting to false, so a manual "Run workflow" click (Actions tab)
-# does nothing unless the input is explicitly flipped on -- a plain `if: false` was rejected by
-# actionlint's constant-expression-in-condition check. Re-enable the schedule trigger (and flip the
-# input default to true, or just delete the guard) to restore nightly runs once budget allows.
+# queued. The cron TRIGGER stays declared (test_numba_coverage_workflow_exists.py's
+# test_numba_coverage_workflow_has_nightly_cron pins its presence -- deleting it silently regresses
+# the njit-kernel-body coverage-blind-spot guard this workflow exists for, see
+# reference_numba_coverage_blind), but the job itself is gated behind `if: inputs.run`, which is
+# only ever set by a workflow_dispatch invocation -- `github.event.inputs` is empty for a
+# schedule-triggered run, so `inputs.run` evaluates to falsy and the 03:00 UTC cron fires the
+# workflow but the job body never actually runs (0 minutes spent) until someone flips the input on
+# via a manual "Run workflow" click. Flip the input default to true (or delete the guard) to
+# restore real nightly runs once budget allows.
 
 on:
+  schedule:
+    - cron: "0 3 * * *"
   workflow_dispatch:
     inputs:
       run:

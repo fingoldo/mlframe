@@ -12,7 +12,7 @@ stays in the source framework (polars ``hstack`` / pandas ``concat``), so a 100+
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Iterable
 
 import numpy as np
 
@@ -63,7 +63,7 @@ def fe_is_numeric_col(X: Any, c: str) -> bool:
     raise TypeError(f"fe_is_numeric_col: unsupported frame type {type(X)!r}")
 
 
-def fe_subsample_to_pandas(X: Any, idx: np.ndarray):
+def fe_subsample_to_pandas(X: Any, idx: np.ndarray) -> Any:
     """Row-subsample ``X`` at integer positions ``idx`` and return a PANDAS frame (index reset).
 
     Only the subsample is materialised, so on a 100+ GB frame this copies ~len(idx) rows, never the whole frame -- and it
@@ -82,7 +82,7 @@ def fe_subsample_to_pandas(X: Any, idx: np.ndarray):
     raise TypeError(f"fe_subsample_to_pandas: unsupported frame type {type(X)!r}")
 
 
-def fe_extract_columns(X: Any, names) -> dict[str, np.ndarray]:
+def fe_extract_columns(X: Any, names: Iterable[str]) -> dict[str, np.ndarray]:
     """Extract the named columns of ``X`` (pandas / polars) as ``{name: 1d numpy array}`` -- per-column views, no
     whole-frame copy. Used to move engineered columns off an augmented frame for a native re-append onto another frame."""
     out: dict[str, np.ndarray] = {}
@@ -113,7 +113,7 @@ def fe_polars_exceeds(X: Any, max_bytes: int = FE_EAGER_MATERIALIZE_MAX_BYTES) -
     return False
 
 
-def fe_to_pandas(X: Any):
+def fe_to_pandas(X: Any) -> Any:
     """Return a pandas frame for ``X`` (identity for pandas, ``.to_pandas()`` for polars).
 
     ONLY for the rare full-n FE fallback paths (subsample disabled / partial recipe coverage / unexpected family shape),

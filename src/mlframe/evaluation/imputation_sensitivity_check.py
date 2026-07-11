@@ -10,7 +10,7 @@ holdout leaderboard exists to reveal it.
 """
 from __future__ import annotations
 
-from typing import Callable, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
 import numpy as np
 import pandas as pd
@@ -23,7 +23,7 @@ def _split(cv, X: pd.DataFrame):
 
 
 def imputation_sensitivity_check(
-    estimator,
+    estimator: Any,
     X_variants: Dict[str, pd.DataFrame],
     y: np.ndarray,
     scoring: Callable[[np.ndarray, np.ndarray], float],

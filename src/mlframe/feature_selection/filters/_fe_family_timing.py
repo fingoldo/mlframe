@@ -17,6 +17,9 @@ import threading
 from collections import defaultdict
 from contextlib import contextmanager
 from time import perf_counter
+from typing import Any, Callable, Iterator, TypeVar
+
+_F = TypeVar("_F", bound=Callable[..., Any])
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
@@ -27,7 +30,7 @@ _LOCK = threading.Lock()
 
 
 @contextmanager
-def fe_family_timer(name: str):
+def fe_family_timer(name: str) -> Iterator[None]:
     """Context manager that accumulates wall time and invocation count for ``name`` into the process-global ``_FE_FAMILY_WALL`` map under the lock."""
     _t0 = perf_counter()
     try:
@@ -52,16 +55,16 @@ def record_fe_family_wall(name: str, dt: float) -> None:
         slot[1] += 1
 
 
-def fe_timed(name: str):
+def fe_timed(name: str) -> Callable[[_F], _F]:
     """Decorator form of ``fe_family_timer`` for wrapping a whole family entry function with a one-line edit."""
-    def _deco(func):
+    def _deco(func: _F) -> _F:
         """Wrap ``func`` so every call is timed under ``fe_family_timer(name)``."""
         @functools.wraps(func)
-        def _wrapped(*args, **kwargs):
+        def _wrapped(*args: Any, **kwargs: Any) -> Any:
             """Time this call into the ``name`` family bucket, then delegate to the wrapped function."""
             with fe_family_timer(name):
                 return func(*args, **kwargs)
-        return _wrapped
+        return _wrapped  # type: ignore[return-value]
     return _deco
 
 

@@ -202,7 +202,9 @@ def _abs_pearson_form_reduction(y, operand_matrix, a_idx, b_idx, form_id, eps, c
 
 
 @numba.njit(cache=True, parallel=True)
-def batch_pair_usability_corr_njit_parallel(y, operand_matrix, pair_a, pair_b, form_ids):
+def batch_pair_usability_corr_njit_parallel(
+    y: np.ndarray, operand_matrix: np.ndarray, pair_a: np.ndarray, pair_b: np.ndarray, form_ids: np.ndarray
+) -> np.ndarray:
     """CPU reference backend. ``prange`` over the flattened (pair, form) index -- each iteration is one
     independent ``_abs_pearson_form_reduction`` call, matching the numerical baseline every other backend
     is checked against.

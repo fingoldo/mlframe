@@ -12,6 +12,7 @@ methods) so they stay decoupled from the fit-pipeline's class hierarchy.
 from __future__ import annotations
 
 import logging
+from typing import Any, Callable
 
 import numpy as np
 
@@ -43,7 +44,17 @@ def _inject_operand_pairs(merged: dict, usable_pairs, name_to_phi_idx: dict, *, 
     return injected
 
 
-def resolve_su_seeded_pairs(self, phi, X_proxy, y_phi, unit_to_members, working_cols, X_cols, report, _stage):
+def resolve_su_seeded_pairs(
+    self: Any,
+    phi: np.ndarray,
+    X_proxy: Any,
+    y_phi: np.ndarray,
+    unit_to_members: Any,
+    working_cols: Any,
+    X_cols: Any,
+    report: dict,
+    _stage: Callable,
+) -> tuple:
     """Resolve su_seeded_interactions synergistic operand pairs in PROXY-column space.
 
     Must run BEFORE the importance pre-screen so the surviving operand columns (pure-interaction
@@ -108,9 +119,21 @@ def resolve_su_seeded_pairs(self, phi, X_proxy, y_phi, unit_to_members, working_
 
 
 def augment_candidates_with_interactions(
-    self, candidates, phi, base, y_phi, X_proxy, proxy_cols_kept, y_search, model_template,
-    unit_to_members, report, _stage, _su_kept_pairs, _su_screen_info,
-):
+    self: Any,
+    candidates: list,
+    phi: np.ndarray,
+    base: Any,
+    y_phi: np.ndarray,
+    X_proxy: Any,
+    proxy_cols_kept: Any,
+    y_search: np.ndarray,
+    model_template: Any,
+    unit_to_members: Any,
+    report: dict,
+    _stage: Callable,
+    _su_kept_pairs: list,
+    _su_screen_info: dict,
+) -> list:
     """Merge interaction_aware / proxy_mode="interaction" / su_seeded-sparse candidates into ``candidates``.
 
     Runs AFTER the search returns its proxy-best subsets. Each augmentation is independently opt-in

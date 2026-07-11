@@ -16,6 +16,7 @@ are dropped per group, mirroring the finite-masking of the base kernels.
 from __future__ import annotations
 
 import math
+from typing import Any
 
 import numpy as np
 from numba import njit
@@ -143,7 +144,7 @@ def group_blocked_mi(
 
 def group_relevance_mi(
     factors_data: np.ndarray,
-    X,
+    X: Any,
     classes_y: np.ndarray,
     factors_nbins: np.ndarray,
     n_bins_y: int,
@@ -152,7 +153,7 @@ def group_relevance_mi(
     *,
     min_rows: int = 20,
     size_weighted: bool = True,
-    dtype=np.int32,
+    dtype: type = np.int32,
 ) -> float:
     """Group-aware relevance ``I(X;Y|G)`` for a candidate index/tuple ``X``: merge X's columns to dense codes (the same
     ``merge_vars`` MRMR's own MI path uses) then group-block against the target codes ``classes_y``. Miller-Madow debias

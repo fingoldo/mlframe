@@ -18,7 +18,7 @@ class _Probe(Protocol):
     def predict(self, X: np.ndarray) -> np.ndarray: ...
     def predict_proba(self, X: np.ndarray) -> np.ndarray: ...
 
-from mlframe.feature_selection.filters._extra_fe_families import generate_rankgauss_features
+from mlframe.feature_selection.filters import generate_rankgauss_features
 from mlframe.preprocessing.scalers import make_all_scalers
 
 
@@ -87,8 +87,9 @@ def select_column_transforms(
         candidate_transforms = _candidate_transforms()
 
     from sklearn.linear_model import LogisticRegression, Ridge
-    from sklearn.metrics import roc_auc_score
     from sklearn.model_selection import KFold, StratifiedKFold
+
+    from mlframe.metrics.core import fast_roc_auc
 
     if probe_model_fn is None:
         if task == "classification":
@@ -119,7 +120,7 @@ def select_column_transforms(
                 model.fit(transformed[train_idx].reshape(-1, 1), y[train_idx])
                 if task == "classification":
                     proba = model.predict_proba(transformed[test_idx].reshape(-1, 1))[:, 1]
-                    fold_scores.append(roc_auc_score(y[test_idx], proba))
+                    fold_scores.append(fast_roc_auc(y[test_idx], proba))
                 else:
                     pred = model.predict(transformed[test_idx].reshape(-1, 1))
                     fold_scores.append(-float(np.sqrt(np.mean((y[test_idx] - pred) ** 2))))

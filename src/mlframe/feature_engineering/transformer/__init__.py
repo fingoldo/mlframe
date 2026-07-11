@@ -254,7 +254,11 @@ __all__ = [
     "positions_within_group",
     "rff_apply_state",
     "is_gpu_available",
+    "knn_search",
 ]
+
+# Public re-export so cross-package consumers can avoid reaching into ``transformer._knn_helper``.
+from ._knn_helper import knn_search
 
 # Public re-export so cross-package consumers can avoid reaching into ``transformer._utils``. The underscore-prefixed source remains the implementation; this is the documented public surface.
 from ._utils import is_gpu_available

@@ -12,7 +12,7 @@ would cache the pre-init ``None`` placeholder.
 """
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Optional
 
 import numpy as np
 
@@ -39,13 +39,13 @@ def _mi_from_counts_cupy(cp, counts_2d, n, nbins_x, nbins_y, outer_safe):
 
 
 def mi_direct_gpu_batched(
-    factors_data,
+    factors_data: Any,
     x: tuple,
     y: tuple,
     factors_nbins: np.ndarray,
     npermutations: int = 100,
     batch_size: int = 64,
-    dtype=np.int32,
+    dtype: type = np.int32,
     classes_y: Optional[np.ndarray] = None,
     freqs_y: Optional[np.ndarray] = None,
     min_nonzero_confidence: float = 0.95,
@@ -259,13 +259,13 @@ def mi_direct_gpu_batched(
 
 
 def mi_direct_gpu_batched_streamed(
-    factors_data,
+    factors_data: Any,
     x: tuple,
     y: tuple,
     factors_nbins: np.ndarray,
     npermutations: int = 100,
     batch_size: int = 64,
-    dtype=np.int32,
+    dtype: type = np.int32,
     classes_y: Optional[np.ndarray] = None,
     freqs_y: Optional[np.ndarray] = None,
     n_streams: int = 2,

@@ -61,9 +61,9 @@ def adversarial_validation_feature_audit(
         poor predictor of actual generalization harm).
     """
     import lightgbm as lgb
-    from sklearn.metrics import roc_auc_score
     from sklearn.model_selection import train_test_split
 
+    from mlframe.metrics.core import fast_roc_auc
     from mlframe.reporting.charts.drift import adversarial_auc
 
     auc, _fpr, _tpr, importances, names = adversarial_auc(X_train, X_test, feature_names=feature_names, seed=seed, lgbm_params=lgbm_params)
@@ -88,7 +88,7 @@ def adversarial_validation_feature_audit(
         model = lgb.LGBMClassifier(**(lgbm_params or {"n_estimators": 100, "verbosity": -1}), random_state=seed)
         model.fit(X_train_df.iloc[idx_train][list(feature_cols)], y_train[idx_train])
         proba = model.predict_proba(X_train_df.iloc[idx_private][list(feature_cols)])[:, 1]
-        return float(roc_auc_score(y_train[idx_private], proba))
+        return float(fast_roc_auc(y_train[idx_private], proba))
 
     all_feature_cols = list(names_arr)
     baseline_private_auc = _fit_auc(all_feature_cols)

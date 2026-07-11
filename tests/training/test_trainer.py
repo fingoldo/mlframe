@@ -1130,13 +1130,21 @@ def test_trainer_reexports_every_name_trainer_configure_imports_at_runtime():
     """
     import ast
     import inspect
+    from pathlib import Path
+
     import mlframe.training.trainer as trainer_mod
     from mlframe.training import _trainer_configure
 
-    src = inspect.getsource(_trainer_configure.configure_training_params)
-    tree = ast.parse(src)
+    # Parse the WHOLE module file (not inspect.getsource on the function -- a source-text-proxy
+    # antipattern) and pick out the specific function's AST node by name.
+    module_src = Path(inspect.getsourcefile(_trainer_configure)).read_text(encoding="utf-8")
+    module_tree = ast.parse(module_src)
+    fn_node = next(
+        n for n in ast.walk(module_tree)
+        if isinstance(n, ast.FunctionDef) and n.name == "configure_training_params"
+    )
     names: list[str] = []
-    for node in ast.walk(tree):
+    for node in ast.walk(fn_node):
         if isinstance(node, ast.ImportFrom) and node.module == "trainer":
             names.extend(alias.name for alias in node.names)
     assert names, "did not find the runtime 'from .trainer import (...)' statement -- test is stale"

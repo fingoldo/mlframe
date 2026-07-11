@@ -11,7 +11,7 @@ meant to run BEFORE the heavier MRMR/RFECV passes on a huge feature set, not to 
 """
 from __future__ import annotations
 
-from typing import Callable, List, Optional
+from typing import Any, Callable, List, Optional
 
 import numpy as np
 import pandas as pd
@@ -30,7 +30,7 @@ def _cv_score(estimator, X: pd.DataFrame, y: np.ndarray, cv, scoring: Callable[[
 
 
 def iterative_zero_importance_pruning(
-    estimator,
+    estimator: Any,
     X: pd.DataFrame,
     y: np.ndarray,
     scoring: Callable[[np.ndarray, np.ndarray], float],

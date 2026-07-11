@@ -101,10 +101,6 @@ _ALLOWLIST: dict[tuple[str, str], str] = {
         "balanced_accuracy_score",
     ): "multiclass balanced accuracy (macro recall over C>2 classes); balanced_accuracy_binary is binary-only. Binary path uses balanced_accuracy_binary; sklearn only on the nclasses>2 branch.",
     (
-        "metrics/core.py",
-        "log_loss",
-    ): "multiclass log-loss re-export: mlframe.metrics.core exposes sklearn log_loss as the public multiclass path; fast_log_loss is binary-only.",
-    (
         "training/_helpers_training_configs.py",
         "roc_auc_score",
     ): "one-vs-rest multiclass AUC: neg_ovr_roc_auc_score wraps roc_auc_score(..., multi_class='ovr') as an XGB eval_metric; fast_roc_auc is binary-only.",

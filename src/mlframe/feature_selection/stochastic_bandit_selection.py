@@ -10,7 +10,7 @@ elimination can get stuck in a locally-good-but-globally-suboptimal subset.
 """
 from __future__ import annotations
 
-from typing import Callable, List, Optional
+from typing import Any, Callable, List, Optional
 
 import numpy as np
 import pandas as pd
@@ -29,7 +29,7 @@ def _cv_score(estimator, X: pd.DataFrame, y: np.ndarray, cv, scoring: Callable[[
 
 
 def stochastic_bandit_selection(
-    estimator,
+    estimator: Any,
     X: pd.DataFrame,
     y: np.ndarray,
     scoring: Callable[[np.ndarray, np.ndarray], float],

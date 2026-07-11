@@ -40,7 +40,7 @@ _BIG_STACK_BYTES = 8 * 1024 * 1024
 _NEEDS_BIG_STACK = sys.platform.startswith("win")
 
 
-def disable_cuda_in_worker():  # pragma: no cover - runs in a loky child process
+def disable_cuda_in_worker() -> None:  # pragma: no cover - runs in a loky child process
     """loky worker initializer: force the worker process CPU-ONLY.
 
     Runs once per freshly-spawned loky worker BEFORE the first task unpickles

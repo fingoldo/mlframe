@@ -99,8 +99,10 @@ def main(argv=None):
     args = ap.parse_args(argv)
 
     if args.out_file:
+        import atexit
         import builtins
         _fp = open(args.out_file, "w", buffering=1, encoding="utf-8")
+        atexit.register(_fp.close)
         _orig = builtins.print
 
         def _tee_print(*a, **kw):

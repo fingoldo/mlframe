@@ -192,7 +192,7 @@ def _run_per_model_post_train_tail(
                     if _ue_y.shape[0] == _ue_X.shape[0]:
                         import pandas as _ue_pd
 
-                        def _ue_predict_fn(Z: Any, _m: Any = _ue_model, _c: Any = list(_ue_cols)) -> np.ndarray:
+                        def _ue_predict_fn(Z: Any, _m: Any = _ue_model, _c: Any = tuple(_ue_cols)) -> np.ndarray:
                             """Adapt the fitted model's predict() to the plain-ndarray-in/ndarray-out signature `evaluate_tta_quality` requires, rewrapping Z as a named DataFrame (model/cols bound as defaults to survive TTA's re-invocation)."""
                             return np.asarray(_m.predict(_ue_pd.DataFrame(Z, columns=_c))).reshape(-1)
 

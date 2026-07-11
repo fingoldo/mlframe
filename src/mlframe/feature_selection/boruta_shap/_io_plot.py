@@ -148,7 +148,7 @@ def filter_data(data, column, value):
     return data.loc[(data[column] == value) | (data[column] == "Shadow")]
 
 
-def has_numbers(inputString):
+def has_numbers(inputString: str) -> bool:
     """Whether ``inputString`` contains at least one digit character."""
     return any(char.isdigit() for char in inputString)
 

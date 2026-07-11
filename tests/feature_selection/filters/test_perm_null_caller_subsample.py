@@ -38,6 +38,7 @@ def test_perm_null_caller_stride_formula(n, max_rows, expect):
 def _retention_verdict(cand, incumbents, y_binned, cap_env, monkeypatch):
     import mlframe.feature_selection.filters._fe_retention_subsumption as R
     monkeypatch.setenv("MLFRAME_RETENTION_NULL_MAX_ROWS", str(cap_env))
+    _orig_dict = dict(R.__dict__)
     R = importlib.reload(R)
     try:
         return R.retention_form_is_subsumed(
@@ -45,7 +46,8 @@ def _retention_verdict(cand, incumbents, y_binned, cap_env, monkeypatch):
         )
     finally:
         monkeypatch.delenv("MLFRAME_RETENTION_NULL_MAX_ROWS", raising=False)
-        importlib.reload(R)
+        R.__dict__.clear()
+        R.__dict__.update(_orig_dict)
 
 
 @pytest.mark.slow
@@ -78,6 +80,7 @@ def test_retention_cap_actually_subsamples(monkeypatch):
     array length _conditional_perm_null receives)."""
     import mlframe.feature_selection.filters._fe_retention_subsumption as R
     monkeypatch.setenv("MLFRAME_RETENTION_NULL_MAX_ROWS", "40000")
+    _orig_dict = dict(R.__dict__)
     R = importlib.reload(R)
     try:
         import mlframe.feature_selection.filters._fe_cmi_redundancy_gate as G
@@ -98,4 +101,5 @@ def test_retention_cap_actually_subsamples(monkeypatch):
         )
         assert seen.get("n", n) <= 40_000 + 8, f"retention perm-null saw {seen.get('n')} rows, expected <= cap"
     finally:
-        importlib.reload(R)
+        R.__dict__.clear()
+        R.__dict__.update(_orig_dict)

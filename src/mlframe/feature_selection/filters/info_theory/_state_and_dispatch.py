@@ -6,6 +6,7 @@ The facade re-exports them; nothing else duplicates them.
 from __future__ import annotations
 
 import threading as _threading
+from typing import Optional
 
 import numpy as np
 
@@ -91,12 +92,12 @@ def use_group_mi() -> bool:
     return getattr(_GROUP_MI_STATE, "payload", None) is not None
 
 
-def get_group_mi():
+def get_group_mi() -> Optional[tuple]:
     """Return the group-MI payload ``(sort_idx, group_offsets, min_rows, size_weighted)`` or ``None`` when off."""
     return getattr(_GROUP_MI_STATE, "payload", None)
 
 
-def set_group_mi(payload) -> None:
+def set_group_mi(payload: Optional[tuple]) -> None:
     """Publish (or clear, with ``None``) the calling thread's group-MI payload; set by ``MRMR.fit``/``evaluate_candidates`` when ``group_aware_mi=True``."""
     _GROUP_MI_STATE.payload = payload
 
