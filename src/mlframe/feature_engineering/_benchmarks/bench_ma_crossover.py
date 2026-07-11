@@ -24,6 +24,7 @@ def _run(n: int, n_windows: int, n_calls: int) -> None:
     for _ in range(n_calls):
         ma_crossover_features(mas)
         ma_crossover_features(mas, group_ids=group_ids)
+        ma_crossover_features(mas, long_window_weight_power=2.0)
 
 
 if __name__ == "__main__":
