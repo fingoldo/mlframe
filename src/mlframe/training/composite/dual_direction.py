@@ -29,6 +29,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator, RegressorMixin, clone
+from sklearn.metrics import r2_score
 from sklearn.model_selection import cross_val_predict
 
 from mlframe.training.composite.estimator import CompositeTargetEstimator
@@ -56,7 +57,27 @@ class DualDirectionCompositeEstimator(BaseEstimator, RegressorMixin):
         the scale prediction is ``<= 0``/``inf``, i.e. the ratio's domain is violated).
     random_state
         Forwarded to the ``cross_val_predict`` KFold splitter for the scale OOF predictions.
+
+    Attributes (post-``fit``)
+    --------------------------
+    oof_scale_predictions_
+        The leakage-free ``cross_val_predict`` scale predictions computed during ``fit``, aligned to
+        ``X_train``'s original row order -- otherwise computed internally and discarded. Lets a caller
+        diagnose the scale stage (e.g. correlate against a known ground-truth scale) without re-running
+        ``cross_val_predict`` themselves.
+    oof_scale_score_
+        ``r2_score(scale_y, oof_scale_predictions_)`` -- an honest (leakage-free) quality signal for the
+        scale stage alone. Low/negative values flag a scale model too weak to support the shape*scale
+        decomposition even before looking at end-to-end ``y`` error.
+    shape_transform_target_
+        The ratio-transformed shape target actually fed to the shape estimator, ``y_train / oof_scale_predictions_``
+        (``NaN`` where ``oof_scale_predictions_ <= 0``, mirroring the ``"ratio"`` transform's domain guard).
+        Useful for inspecting the shape target's distribution for domain-shift / heavy-tail issues.
     """
+
+    oof_scale_predictions_: np.ndarray
+    oof_scale_score_: float
+    shape_transform_target_: np.ndarray
 
     def __init__(
         self,
@@ -92,7 +113,16 @@ class DualDirectionCompositeEstimator(BaseEstimator, RegressorMixin):
             raise ValueError(f"DualDirectionCompositeEstimator.fit: X has {len(X)} rows but y has {len(y_arr)} and scale_y has {len(scale_y_arr)} -- misaligned inputs.")
 
         cv = KFold(n_splits=self.n_splits, shuffle=True, random_state=self.random_state)
-        oof_scale_pred = cross_val_predict(clone(self.scale_estimator), X, scale_y_arr, cv=cv)
+        oof_scale_pred = np.asarray(cross_val_predict(clone(self.scale_estimator), X, scale_y_arr, cv=cv), dtype=np.float64)
+
+        # Public diagnostic attributes: these are already computed as part of the OOF-then-refit-on-full
+        # pipeline above -- exposing them costs O(n) (a division + an r2_score call), not a second CV pass.
+        self.oof_scale_predictions_ = oof_scale_pred
+        self.oof_scale_score_ = float(r2_score(scale_y_arr, oof_scale_pred))
+        with np.errstate(divide="ignore", invalid="ignore"):
+            shape_transform_target = y_arr / oof_scale_pred
+        shape_transform_target[oof_scale_pred <= 0] = np.nan
+        self.shape_transform_target_ = shape_transform_target
 
         X_with_scale = X.copy(deep=False)
         X_with_scale[_SCALE_PRED_COLUMN] = oof_scale_pred
