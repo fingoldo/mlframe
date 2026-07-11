@@ -15,6 +15,36 @@ from typing import Iterator, Optional, Sequence, Tuple
 
 import numpy as np
 
+from mlframe.training.targets._target_distribution_analyzer_stats import _max_abs_lag_autocorr
+
+
+def _resolve_adaptive_gap(
+    y_window: np.ndarray,
+    base_gap: int,
+    autocorr_lags: Tuple[int, ...],
+    autocorr_threshold: float,
+    max_gap: Optional[int],
+) -> int:
+    """Widen ``base_gap`` to the largest candidate lag whose |autocorr| on ``y_window`` still exceeds the threshold.
+
+    ``autocorr_lags`` must be ascending. Scans them in order and keeps the last (largest) lag that still clears
+    ``autocorr_threshold`` -- for a decaying autocorrelation (AR-like) process this lands near the true decorrelation
+    length instead of stopping at the first lag examined. A lag with |autocorr| below threshold does not veto a
+    larger lag that happens to spike again (e.g. seasonal series); the scan keeps going through the whole tuple.
+    """
+    widened = base_gap
+    for lag in autocorr_lags:
+        if lag <= widened:
+            continue
+        if y_window.shape[0] < lag + 3:
+            break
+        corr = _max_abs_lag_autocorr(y_window, lags=(lag,))[0]
+        if abs(corr) >= autocorr_threshold:
+            widened = lag
+    if max_gap is not None:
+        widened = min(widened, max_gap)
+    return max(widened, base_gap)
+
 
 class OverlappingWalkForwardCV:
     """Fixed-length, overlapping-window walk-forward time-series CV splitter.
@@ -28,25 +58,81 @@ class OverlappingWalkForwardCV:
         folds overlap (lower fold-to-fold variance, more folds, correlated folds -- the writeup's tradeoff).
     gap
         Number of samples excluded between the end of the train window and the start of the test window
-        ("embargo"), guarding against near-boundary leakage (e.g. autocorrelated/overlapping-label data).
+        ("embargo"), guarding against near-boundary leakage (e.g. autocorrelated/overlapping-label data). Also
+        acts as the FLOOR gap when ``adaptive_gap`` is enabled -- the adaptive scheduler only ever widens it.
     test_length
         Number of samples in each test fold, immediately after the gap.
+    adaptive_gap
+        Opt-in. When True, ``split`` requires ``y`` and, per fold, measures the train window's own label
+        autocorrelation (reusing ``_max_abs_lag_autocorr``) and widens that fold's embargo past ``gap`` up to
+        the largest lag in ``autocorr_lags`` whose |autocorr| still clears ``autocorr_threshold`` -- instead of
+        requiring the caller to hand-tune a single fixed ``gap`` for the whole series. Default False leaves
+        ``split``/``get_n_splits`` bit-identical to the pre-existing fixed-gap behavior.
+    autocorr_lags
+        Ascending candidate lags scanned by the adaptive scheduler (ignored unless ``adaptive_gap`` is True).
+    autocorr_threshold
+        A lag's |autocorr| at or above this value is treated as meaningful residual leakage risk.
+    max_extra_gap
+        Optional hard cap on how far the adaptive scheduler may widen the gap above ``gap`` (``None`` = uncapped,
+        bounded only by ``max(autocorr_lags)``); guards against a pathological near-unit-root window eating the
+        whole window budget.
     """
 
-    def __init__(self, window_length: int, step: int, gap: int = 0, test_length: int = 1):
+    def __init__(
+        self,
+        window_length: int,
+        step: int,
+        gap: int = 0,
+        test_length: int = 1,
+        adaptive_gap: bool = False,
+        autocorr_lags: Tuple[int, ...] = (1, 2, 3, 5, 10, 15, 20, 25, 30),
+        autocorr_threshold: float = 0.2,
+        max_extra_gap: Optional[int] = None,
+    ):
         if window_length <= 0 or step <= 0 or test_length <= 0 or gap < 0:
             raise ValueError("OverlappingWalkForwardCV: window_length, step, test_length must be > 0 and gap >= 0")
+        if adaptive_gap and (not autocorr_lags or list(autocorr_lags) != sorted(autocorr_lags)):
+            raise ValueError("OverlappingWalkForwardCV: autocorr_lags must be a non-empty ascending tuple")
         self.window_length = window_length
         self.step = step
         self.gap = gap
         self.test_length = test_length
+        self.adaptive_gap = adaptive_gap
+        self.autocorr_lags = autocorr_lags
+        self.autocorr_threshold = autocorr_threshold
+        self.max_extra_gap = max_extra_gap
+
+    def _max_gap_cap(self) -> Optional[int]:
+        return None if self.max_extra_gap is None else self.gap + self.max_extra_gap
 
     def split(self, X, y=None, groups=None) -> Iterator[Tuple[np.ndarray, np.ndarray]]:
+        if not self.adaptive_gap:
+            n_samples = len(X)
+            train_start = 0
+            while True:
+                train_end = train_start + self.window_length
+                test_start = train_end + self.gap
+                test_end = test_start + self.test_length
+                if test_end > n_samples:
+                    break
+                yield np.arange(train_start, train_end), np.arange(test_start, test_end)
+                train_start += self.step
+            return
+
+        if y is None:
+            raise ValueError("OverlappingWalkForwardCV.split: adaptive_gap=True requires y (labels) to measure autocorrelation")
+        y_arr = np.asarray(y, dtype=np.float64).reshape(-1)
         n_samples = len(X)
+        max_gap_cap = self._max_gap_cap()
         train_start = 0
         while True:
             train_end = train_start + self.window_length
-            test_start = train_end + self.gap
+            if train_end > n_samples:
+                break
+            effective_gap = _resolve_adaptive_gap(
+                y_arr[train_start:train_end], self.gap, self.autocorr_lags, self.autocorr_threshold, max_gap_cap
+            )
+            test_start = train_end + effective_gap
             test_end = test_start + self.test_length
             if test_end > n_samples:
                 break
@@ -56,11 +142,15 @@ class OverlappingWalkForwardCV:
     def get_n_splits(self, X=None, y=None, groups=None) -> int:
         if X is None:
             raise ValueError("OverlappingWalkForwardCV.get_n_splits requires X to determine n_samples")
-        n_samples = len(X)
-        span = self.window_length + self.gap + self.test_length
-        if span > n_samples:
-            return 0
-        return (n_samples - span) // self.step + 1
+        if not self.adaptive_gap:
+            n_samples = len(X)
+            span = self.window_length + self.gap + self.test_length
+            if span > n_samples:
+                return 0
+            return (n_samples - span) // self.step + 1
+        # Per-fold gap varies with the adaptive scheduler, so the closed-form fixed-gap formula does not apply --
+        # count actual folds directly (still cheap: this class targets moderate n_samples / n_folds).
+        return sum(1 for _ in self.split(X, y=y, groups=groups))
 
 
 def cv_stability_check(

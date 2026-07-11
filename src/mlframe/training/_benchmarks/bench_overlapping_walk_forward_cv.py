@@ -22,6 +22,17 @@ def _run_splitter(n_samples: int, n_repeats: int) -> None:
             float(np.mean(y[train_idx]))
 
 
+def _run_adaptive_gap_splitter(n_samples: int, n_repeats: int) -> None:
+    rng = np.random.default_rng(0)
+    y = np.zeros(n_samples)
+    for i in range(1, n_samples):
+        y[i] = 0.9 * y[i - 1] + rng.normal(0, 1)
+    splitter = OverlappingWalkForwardCV(window_length=200, step=20, gap=5, test_length=10, adaptive_gap=True)
+    for _ in range(n_repeats):
+        for train_idx, test_idx in splitter.split(y, y=y):
+            float(np.mean(y[train_idx]))
+
+
 def _run_stability(n_calls: int) -> None:
     rng = np.random.default_rng(0)
     hp_grid = np.linspace(0, 1, 30)
@@ -37,6 +48,11 @@ if __name__ == "__main__":
     print(f"splitter: 50 repeats over 5000 samples -> {wall * 1000:.2f} ms")
 
     t0 = time.perf_counter()
+    _run_adaptive_gap_splitter(n_samples=5_000, n_repeats=50)
+    wall = time.perf_counter() - t0
+    print(f"adaptive-gap splitter: 50 repeats over 5000 samples -> {wall * 1000:.2f} ms")
+
+    t0 = time.perf_counter()
     _run_stability(n_calls=2_000)
     wall = time.perf_counter() - t0
     print(f"cv_stability_check: 2000 calls -> {wall * 1000:.2f} ms ({wall / 2000 * 1e6:.2f} us/call)")
@@ -44,6 +60,7 @@ if __name__ == "__main__":
     profiler = cProfile.Profile()
     profiler.enable()
     _run_splitter(n_samples=5_000, n_repeats=50)
+    _run_adaptive_gap_splitter(n_samples=5_000, n_repeats=50)
     _run_stability(n_calls=2_000)
     profiler.disable()
     buf = StringIO()
