@@ -24,6 +24,7 @@ from typing import Any, Optional
 
 import numpy as np
 from sklearn.base import BaseEstimator, RegressorMixin, clone
+from sklearn.calibration import CalibratedClassifierCV
 from sklearn.linear_model import LogisticRegression
 
 logger = logging.getLogger(__name__)
@@ -52,6 +53,18 @@ class GatedOutlierEstimator(BaseEstimator, RegressorMixin):
         The value blended in for the point-mass probability mass at predict time. Defaults to
         ``point_mass_value`` itself (the natural zero-inflated case); pass a different constant, or a fitted
         secondary estimator's prediction via a custom subclass, for a "gate to a different regime" case.
+    calibrate_classifier
+        If True, wrap ``classifier`` in ``sklearn.calibration.CalibratedClassifierCV`` before fitting. The
+        blend at predict time is ``p * blend_value + (1-p) * regressor.predict(X)`` -- unlike a hard
+        classification use of ``p``, every prediction error is directly proportional to how mis-calibrated
+        ``p`` is, so classifiers whose raw ``predict_proba`` is a poor probability estimate (tree ensembles
+        are the classic case: overconfident near 0/1, underconfident mid-range) hurt blend MSE even when
+        their ranking/AUC is fine. Off by default (bit-identical to the prior behavior); opt in when the
+        chosen classifier is known to be poorly calibrated.
+    calibration_method
+        ``CalibratedClassifierCV`` method when ``calibrate_classifier=True`` (``"sigmoid"`` or ``"isotonic"``).
+    calibration_cv
+        ``CalibratedClassifierCV`` fold count when ``calibrate_classifier=True``.
 
     Attributes
     ----------
@@ -68,12 +81,18 @@ class GatedOutlierEstimator(BaseEstimator, RegressorMixin):
         point_mass_value: float = 0.0,
         point_mass_atol: float = 1e-9,
         blend_value: Optional[float] = None,
+        calibrate_classifier: bool = False,
+        calibration_method: str = "sigmoid",
+        calibration_cv: int = 3,
     ) -> None:
         self.regressor = regressor
         self.classifier = classifier
         self.point_mass_value = point_mass_value
         self.point_mass_atol = point_mass_atol
         self.blend_value = blend_value
+        self.calibrate_classifier = calibrate_classifier
+        self.calibration_method = calibration_method
+        self.calibration_cv = calibration_cv
 
     def _is_point_mass(self, y: np.ndarray) -> np.ndarray:
         return np.asarray(np.isclose(y, self.point_mass_value, atol=self.point_mass_atol))
@@ -91,6 +110,11 @@ class GatedOutlierEstimator(BaseEstimator, RegressorMixin):
         else:
             self._constant_proba_ = None
             fit_kwargs = {"sample_weight": sample_weight} if sample_weight is not None else {}
+            if self.calibrate_classifier:
+                # Wrap AFTER cloning the raw prototype so the calibrator's internal cross-validation fits
+                # fresh, unfitted clones of it -- fitting self.classifier_ first would leak the full training
+                # set into every fold's base estimator.
+                self.classifier_ = CalibratedClassifierCV(self.classifier_, method=self.calibration_method, cv=self.calibration_cv)
             self.classifier_.fit(X, is_point_mass, **fit_kwargs)
 
         self.regressor_ = clone(self.regressor)

@@ -10,6 +10,7 @@ import time
 from io import StringIO
 
 import numpy as np
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from mlframe.training.composite import GatedOutlierEstimator
@@ -31,6 +32,18 @@ def _run(n: int) -> None:
     est.predict(X)
 
 
+def _run_calibrated(n: int) -> None:
+    X, y = _make_dataset(n, seed=0)
+    est = GatedOutlierEstimator(
+        regressor=LinearRegression(),
+        classifier=RandomForestClassifier(n_estimators=50, max_depth=4, random_state=0),
+        calibrate_classifier=True,
+        calibration_cv=3,
+    )
+    est.fit(X, y)
+    est.predict(X)
+
+
 if __name__ == "__main__":
     for n in [1_000, 10_000, 100_000]:
         t0 = time.perf_counter()
@@ -38,9 +51,24 @@ if __name__ == "__main__":
         wall = time.perf_counter() - t0
         print(f"n={n:>7,} -> {wall * 1000:9.2f} ms")
 
+    for n in [1_000, 10_000, 100_000]:
+        t0 = time.perf_counter()
+        _run_calibrated(n)
+        wall = time.perf_counter() - t0
+        print(f"calibrated n={n:>7,} -> {wall * 1000:9.2f} ms")
+
     profiler = cProfile.Profile()
     profiler.enable()
     _run(100_000)
+    profiler.disable()
+    buf = StringIO()
+    stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
+    stats.print_stats(15)
+    print(buf.getvalue())
+
+    profiler = cProfile.Profile()
+    profiler.enable()
+    _run_calibrated(100_000)
     profiler.disable()
     buf = StringIO()
     stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")

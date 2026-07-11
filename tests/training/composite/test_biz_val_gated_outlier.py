@@ -9,6 +9,7 @@ predicted probability, should recover a materially lower test MSE than the singl
 from __future__ import annotations
 
 import numpy as np
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.metrics import mean_squared_error
 from sklearn.model_selection import train_test_split
@@ -55,6 +56,63 @@ def test_gated_outlier_all_point_mass_predicts_constant():
     gated.fit(X, y)
     pred = gated.predict(X)
     assert np.allclose(pred, 0.0)
+
+
+def _make_smooth_boundary_dataset(n: int, seed: int):
+    """Zero-inflated target with a smooth logistic point-mass boundary (vs. the hard-cutoff dataset above).
+
+    A shallow ``RandomForestClassifier`` gate on this boundary is systematically miscalibrated (tree-ensemble
+    probabilities are biased toward the extremes even though the ranking/AUC is fine) -- exactly the case
+    ``calibrate_classifier`` targets, since the blend's error is directly proportional to the gate probability's
+    calibration error, not just its ranking.
+    """
+    rng = np.random.default_rng(seed)
+    X = rng.normal(size=(n, 6))
+    logit = 1.5 * X[:, 0] + 0.5 * X[:, 1]
+    p = 1.0 / (1.0 + np.exp(-logit))
+    is_purchase = rng.random(n) < p
+    y = np.zeros(n)
+    y[is_purchase] = np.clip(100 + 20 * X[is_purchase, 2] + rng.normal(0, 5, is_purchase.sum()), 1, None)
+    return X, y
+
+
+def test_biz_val_gated_outlier_calibrate_classifier_beats_uncalibrated_gate_mse():
+    X, y = _make_smooth_boundary_dataset(n=6000, seed=0)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=0)
+
+    def _fit_and_mse(calibrate: bool) -> float:
+        gated = GatedOutlierEstimator(
+            regressor=LinearRegression(),
+            classifier=RandomForestClassifier(n_estimators=50, max_depth=4, random_state=0),
+            point_mass_value=0.0,
+            calibrate_classifier=calibrate,
+            calibration_cv=3,
+        )
+        gated.fit(X_train, y_train)
+        return float(mean_squared_error(y_test, gated.predict(X_test)))
+
+    uncalibrated_mse = _fit_and_mse(calibrate=False)
+    calibrated_mse = _fit_and_mse(calibrate=True)
+
+    improvement = 1.0 - calibrated_mse / uncalibrated_mse
+    assert improvement > 0.02, (
+        f"expected >2% MSE reduction from calibrating a miscalibrated tree-ensemble gate, got {improvement:.4f} "
+        f"(uncalibrated={uncalibrated_mse:.2f}, calibrated={calibrated_mse:.2f})"
+    )
+
+
+def test_gated_outlier_calibrate_classifier_default_off_is_bit_identical_to_prior_behavior():
+    X, y = _make_zero_inflated_dataset(n=1500, seed=4)
+    baseline = GatedOutlierEstimator(regressor=LinearRegression(), classifier=LogisticRegression(max_iter=1000), point_mass_value=0.0)
+    baseline.fit(X, y)
+    default_explicit_off = GatedOutlierEstimator(
+        regressor=LinearRegression(), classifier=LogisticRegression(max_iter=1000), point_mass_value=0.0, calibrate_classifier=False
+    )
+    default_explicit_off.fit(X, y)
+
+    assert type(baseline.classifier_).__name__ == "LogisticRegression"
+    assert type(default_explicit_off.classifier_).__name__ == "LogisticRegression"
+    np.testing.assert_array_equal(baseline.predict(X), default_explicit_off.predict(X))
 
 
 def test_gated_outlier_custom_blend_value():
