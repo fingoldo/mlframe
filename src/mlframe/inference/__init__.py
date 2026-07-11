@@ -16,3 +16,4 @@ from mlframe.inference.logical_constraints import apply_logical_constraints, dis
 from mlframe.inference.group_zero_sum_constraint import apply_group_zero_sum_constraint
 from mlframe.inference.time_budget_ensemble import TimeBudgetEnsemble
 from mlframe.inference.recursive_forecast import recursive_multi_step_forecast
+from mlframe.inference.entity_prediction_collapse import collapse_predictions_by_group
