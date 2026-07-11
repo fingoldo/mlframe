@@ -1,0 +1,96 @@
+"""``iterative_zero_importance_pruning``: cheap batch-drop-zero-importance pre-filter.
+
+Source: dd_2nd_pover-t-tests.md -- "The `find_exclude` method iteratively retrains a model, drops zero-
+importance features, and re-evaluates 5-fold CV log loss, repeating until no further features can be dropped,
+then keeps the feature-exclusion set with lowest CV log loss." Distinct from mlframe's existing selectors:
+RFECV drops the single worst-ranked feature per round; `greedy_backward_elimination` evaluates removing EACH
+candidate via a fresh CV pass (O(features^2 x folds)). This drops the WHOLE batch of zero/near-zero native
+`feature_importances_` features per round in one refit, tracking CV score only once per round and stopping on
+degradation -- an O(features x rounds) fast pre-filter for tree ensembles with cheap native importances,
+meant to run BEFORE the heavier MRMR/RFECV passes on a huge feature set, not to replace them.
+"""
+from __future__ import annotations
+
+from typing import Callable, List, Optional
+
+import numpy as np
+import pandas as pd
+from sklearn.base import clone
+from sklearn.model_selection import KFold
+
+
+def _cv_score(estimator, X: pd.DataFrame, y: np.ndarray, cv, scoring: Callable[[np.ndarray, np.ndarray], float]) -> float:
+    scores = []
+    for train_idx, test_idx in cv.split(X):
+        model = clone(estimator)
+        model.fit(X.iloc[train_idx], y[train_idx])
+        preds = model.predict(X.iloc[test_idx])
+        scores.append(scoring(y[test_idx], preds))
+    return float(np.mean(scores))
+
+
+def iterative_zero_importance_pruning(
+    estimator,
+    X: pd.DataFrame,
+    y: np.ndarray,
+    scoring: Callable[[np.ndarray, np.ndarray], float],
+    cv: Optional[object] = None,
+    importance_threshold: float = 0.0,
+    max_rounds: int = 20,
+) -> List[str]:
+    """Repeatedly drop the WHOLE batch of near-zero-importance features per round, stopping on CV degradation.
+
+    Parameters
+    ----------
+    estimator
+        Unfitted sklearn-compatible estimator exposing ``feature_importances_`` after ``fit`` (e.g. any tree
+        ensemble). Cloned per fold/round.
+    X
+        ``(n, d)`` feature frame.
+    y
+        ``(n,)`` target.
+    scoring
+        ``scoring(y_true, y_pred) -> float``, HIGHER is better.
+    cv
+        sklearn-style CV splitter; defaults to ``KFold(n_splits=5, shuffle=True, random_state=0)``.
+    importance_threshold
+        Features with native importance ``<= importance_threshold`` are candidates for the batch drop.
+        Default ``0.0`` (exact zero-importance only, matching the source's own criterion).
+    max_rounds
+        Safety cap on the number of drop-and-refit rounds.
+
+    Returns
+    -------
+    list of str
+        The best-scoring surviving feature set seen across all rounds (not necessarily the LAST round's set --
+        the round with the highest CV score is kept, matching the source's "keeps the exclusion set with
+        lowest CV log loss" convention, generalized to "highest ``scoring``").
+    """
+    if cv is None:
+        cv = KFold(n_splits=5, shuffle=True, random_state=0)
+
+    remaining = list(X.columns)
+    best_score = _cv_score(estimator, X[remaining], y, cv, scoring)
+    best_remaining = list(remaining)
+
+    for _ in range(max_rounds):
+        full_fit_estimator = clone(estimator).fit(X[remaining], y)
+        importances = np.asarray(full_fit_estimator.feature_importances_)
+        zero_mask = importances <= importance_threshold
+        if not zero_mask.any():
+            break
+
+        candidate_remaining = [col for col, is_zero in zip(remaining, zero_mask) if not is_zero]
+        if not candidate_remaining:
+            break  # never drop every feature -- degenerate case, stop here.
+
+        candidate_score = _cv_score(estimator, X[candidate_remaining], y, cv, scoring)
+        remaining = candidate_remaining
+        if candidate_score > best_score:
+            best_score = candidate_score
+            best_remaining = list(remaining)
+
+    return best_remaining
+
+
+__all__ = ["iterative_zero_importance_pruning"]

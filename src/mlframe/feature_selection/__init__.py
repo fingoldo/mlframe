@@ -41,6 +41,7 @@ from mlframe.feature_selection.unanimous_permutation_prune import unanimous_perm
 from mlframe.feature_selection.drop_noninformative_vs_reference import drop_noninformative_vs_reference
 from mlframe.feature_selection.drop_near_noise_univariate_auc import drop_near_noise_univariate_auc
 from mlframe.feature_selection.greedy_backward_elimination import greedy_backward_elimination
+from mlframe.feature_selection.zero_importance_pruning import iterative_zero_importance_pruning
 from mlframe.feature_selection.varying_size_top_k_subsets import varying_size_top_k_subsets
 
 __all__ = [
@@ -76,6 +77,7 @@ __all__ = [
     # strict all-folds-must-agree permutation-importance pruning
     "unanimous_permutation_prune",
     "greedy_backward_elimination",
+    "iterative_zero_importance_pruning",
     # drop features that don't distinguish a reference/control cohort from the rest (KS-test)
     "drop_noninformative_vs_reference",
     # cheap univariate-AUC near-noise prescreen before MRMR/DCD
