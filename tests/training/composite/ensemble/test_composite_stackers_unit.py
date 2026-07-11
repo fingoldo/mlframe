@@ -1,4 +1,4 @@
-"""Unit tests for the richer OOF cross-target meta-stackers (ridge / gbm).
+"""Unit tests for the richer OOF cross-target meta-stackers (ridge / lasso / elasticnet / gbm).
 
 Covers: shapes, off-path bit-identity (no _meta_model -> legacy linear blend byte-for-byte), leakage-freeness (meta fit
 sees only the OOF matrix the caller passes), ridge non-negative constraint, component-dropout graceful degradation,
@@ -39,7 +39,7 @@ def _models(k):
 # ---------------------------------------------------------------- shapes / happy path
 
 
-@pytest.mark.parametrize("stacker", ["ridge", "gbm"])
+@pytest.mark.parametrize("stacker", ["ridge", "lasso", "elasticnet", "gbm"])
 def test_meta_stack_predict_shape(stacker):
     from mlframe.training.composite.ensemble import (
         CompositeCrossTargetEnsemble as E, build_meta_stack_ensemble,
@@ -190,7 +190,7 @@ def test_matrix_shape_mismatch_raises():
 # ---------------------------------------------------------------- pickle round-trip
 
 
-@pytest.mark.parametrize("stacker", ["ridge", "gbm"])
+@pytest.mark.parametrize("stacker", ["ridge", "lasso", "elasticnet", "gbm"])
 def test_meta_stack_pickle_roundtrip(stacker):
     from mlframe.training.composite.ensemble import (
         CompositeCrossTargetEnsemble as E, build_meta_stack_ensemble,

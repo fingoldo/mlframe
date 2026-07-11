@@ -15,6 +15,11 @@ derived from, and are selected via an explicit ``stacker=`` choice:
 - ``"lasso"`` -- Lasso (L1) regression over the OOF component matrix, with internal LassoCV alpha selection and an optional
   ``non_negative`` constraint. Unlike Ridge's dense shrinkage, the L1 penalty drives weak/redundant components' coefficients
   to exactly zero, self-selecting a sparse sub-ensemble in one fit rather than a separate model-selection pass.
+- ``"elasticnet"`` -- ElasticNet (combined L1+L2) regression over the OOF component matrix, with internal ElasticNetCV
+  alpha/l1_ratio selection. Where Lasso tends to arbitrarily pick ONE member of a group of highly-correlated components
+  and zero the rest (unstable across resamples -- which specific member survives can flip), ElasticNet's L2 term tends to
+  keep or drop correlated groups together, giving materially more stable component selection under resampling. See the
+  biz_value benchmark for the measured stability numbers.
 - ``"gbm"`` -- a SHALLOW ``HistGradientBoostingRegressor`` (sklearn, always available, no extra dep) fit on the OOF matrix.
   This is a non-linear meta-learner: it can represent interactions / region-switching blends that NNLS and Ridge cannot.
 
@@ -42,7 +47,7 @@ logger = logging.getLogger(__name__)
 
 # Supported meta-stacker kinds. ``"nnls"`` is handled by the legacy ``from_nnls_stack`` path and listed here only so the
 # dispatcher can validate the kwarg uniformly.
-META_STACKER_KINDS = ("nnls", "ridge", "lasso", "gbm")
+META_STACKER_KINDS = ("nnls", "ridge", "lasso", "elasticnet", "gbm")
 
 
 def _clean_oof_matrix(
@@ -160,6 +165,56 @@ def fit_lasso_meta_stacker(
     return model
 
 
+def fit_elasticnet_meta_stacker(
+    oof_matrix: np.ndarray,
+    oof_y: np.ndarray,
+    n_components: int,
+    *,
+    non_negative: bool = False,
+    elasticnet_alpha: float | None = None,
+    elasticnet_alpha_grid: tuple[float, ...] = (0.001, 0.01, 0.1, 1.0),
+    elasticnet_l1_ratio: float | None = None,
+    elasticnet_l1_ratio_grid: tuple[float, ...] = (0.1, 0.3, 0.5, 0.7, 0.9),
+    sample_weight: np.ndarray | None = None,
+) -> Any:
+    """Fit an ElasticNet (combined L1+L2) meta-model on the leakage-free OOF component matrix.
+
+    Where :func:`fit_lasso_meta_stacker`'s pure L1 penalty tends to arbitrarily pick ONE member of a group of
+    highly-correlated components and zero the rest -- an unstable choice that can flip which member survives across
+    resamples -- ElasticNet adds an L2 term that tends to keep or drop correlated groups together, giving materially
+    more stable component selection while still zeroing genuinely weak/uninformative components.
+
+    ``non_negative=True`` constrains coefficients to ``>= 0`` (``ElasticNet(positive=True)``). When both
+    ``elasticnet_alpha is None`` and ``elasticnet_l1_ratio is None`` both are chosen jointly by ``ElasticNetCV`` over
+    the two grids; ``ElasticNetCV`` does not support ``positive=`` in a way that composes with sample weights cleanly
+    here, so under ``non_negative=True`` alpha/l1_ratio are selected by the unconstrained CV, then a final
+    ``ElasticNet(positive=True, alpha=chosen, l1_ratio=chosen)`` is fit -- the same two-step pattern as Ridge/Lasso.
+
+    Returns the fitted sklearn estimator (has ``.predict`` + ``.coef_`` + ``.intercept_`` + ``.l1_ratio``).
+    """
+    from sklearn.linear_model import ElasticNet, ElasticNetCV  # lazy: keep cold-import off the predict path
+
+    X, y, finite = _clean_oof_matrix(oof_matrix, oof_y, n_components)
+    sw = _validate_sample_weight(sample_weight, np.asarray(oof_matrix).shape[0], finite)
+    if X.shape[0] < n_components + 2:
+        raise ValueError(
+            f"fit_elasticnet_meta_stacker: only {X.shape[0]} finite OOF rows for {n_components} components (need >= {n_components + 2})."
+        )
+    if elasticnet_alpha is None or elasticnet_l1_ratio is None:
+        ecv = ElasticNetCV(alphas=tuple(elasticnet_alpha_grid), l1_ratio=list(elasticnet_l1_ratio_grid), fit_intercept=True)
+        ecv.fit(X, y, sample_weight=sw)
+        chosen_alpha = float(elasticnet_alpha) if elasticnet_alpha is not None else float(getattr(ecv, "alpha_", elasticnet_alpha_grid[0]))
+        chosen_l1_ratio = (
+            float(elasticnet_l1_ratio) if elasticnet_l1_ratio is not None else float(getattr(ecv, "l1_ratio_", elasticnet_l1_ratio_grid[0]))
+        )
+    else:
+        chosen_alpha = float(elasticnet_alpha)
+        chosen_l1_ratio = float(elasticnet_l1_ratio)
+    model = ElasticNet(alpha=chosen_alpha, l1_ratio=chosen_l1_ratio, fit_intercept=True, positive=bool(non_negative))
+    model.fit(X, y, sample_weight=sw)
+    return model
+
+
 def fit_gbm_meta_stacker(
     oof_matrix: np.ndarray,
     oof_y: np.ndarray,
@@ -221,6 +276,10 @@ def build_meta_stack_ensemble(
     ridge_alpha_grid: tuple[float, ...] = (0.01, 0.1, 1.0, 10.0),
     lasso_alpha: float | None = None,
     lasso_alpha_grid: tuple[float, ...] = (0.001, 0.01, 0.1, 1.0),
+    elasticnet_alpha: float | None = None,
+    elasticnet_alpha_grid: tuple[float, ...] = (0.001, 0.01, 0.1, 1.0),
+    elasticnet_l1_ratio: float | None = None,
+    elasticnet_l1_ratio_grid: tuple[float, ...] = (0.1, 0.3, 0.5, 0.7, 0.9),
     gbm_max_depth: int = 3,
     gbm_max_iter: int = 200,
     gbm_learning_rate: float = 0.05,
@@ -229,7 +288,8 @@ def build_meta_stack_ensemble(
     """Construct a :class:`CompositeCrossTargetEnsemble` whose blend is a fitted meta-model over the OOF component matrix.
 
     ``stacker`` selects the meta-learner: ``"ridge"`` (optionally ``non_negative``), ``"lasso"`` (sparse, auto-zeroes
-    weak/redundant components), or ``"gbm"``. (Pass ``stacker="nnls"`` to use the legacy NNLS path via
+    weak/redundant components), ``"elasticnet"`` (sparse but more stable than lasso under correlated components), or
+    ``"gbm"``. (Pass ``stacker="nnls"`` to use the legacy NNLS path via
     ``ensemble_cls.from_nnls_stack`` instead -- routed here for a single uniform entry point.)
 
     The returned ensemble carries a fitted ``_meta_model`` + ``_meta_stack_kind``; :meth:`predict` routes the per-component
@@ -267,6 +327,16 @@ def build_meta_stack_ensemble(
                 lasso_alpha_grid=lasso_alpha_grid,
                 sample_weight=sample_weight,
             )
+        elif kind == "elasticnet":
+            meta = fit_elasticnet_meta_stacker(
+                oof_matrix, oof_y, n,
+                non_negative=non_negative,
+                elasticnet_alpha=elasticnet_alpha,
+                elasticnet_alpha_grid=elasticnet_alpha_grid,
+                elasticnet_l1_ratio=elasticnet_l1_ratio,
+                elasticnet_l1_ratio_grid=elasticnet_l1_ratio_grid,
+                sample_weight=sample_weight,
+            )
         else:  # gbm
             meta = fit_gbm_meta_stacker(
                 oof_matrix, oof_y, n,
@@ -301,6 +371,12 @@ def build_meta_stack_ensemble(
         notes["lasso_intercept"] = float(getattr(meta, "intercept_", 0.0))
         notes["lasso_alpha"] = float(getattr(meta, "alpha", 0.0))
         notes["lasso_n_zeroed"] = int(np.sum(np.asarray(getattr(meta, "coef_", []), dtype=np.float64) == 0.0))
+    elif kind == "elasticnet":
+        notes["elasticnet_coef"] = np.asarray(getattr(meta, "coef_", []), dtype=np.float64).tolist()
+        notes["elasticnet_intercept"] = float(getattr(meta, "intercept_", 0.0))
+        notes["elasticnet_alpha"] = float(getattr(meta, "alpha", 0.0))
+        notes["elasticnet_l1_ratio"] = float(getattr(meta, "l1_ratio", 0.0))
+        notes["elasticnet_n_zeroed"] = int(np.sum(np.asarray(getattr(meta, "coef_", []), dtype=np.float64) == 0.0))
     instance = ensemble_cls(
         component_models=component_models,
         component_names=component_names,
