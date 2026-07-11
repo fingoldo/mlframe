@@ -21,6 +21,7 @@ allocation), so a frame with millions of small entities stays allocation-light.
 from __future__ import annotations
 
 import logging
+from typing import Sequence
 
 import numpy as np
 from numba import njit
@@ -232,6 +233,86 @@ def _group_recency_weighted_agg_sorted(
     return out
 
 
+@njit(fastmath=False, cache=True)
+def _group_recency_weighted_agg_multi_sorted(
+    v_sorted: np.ndarray, starts: np.ndarray, ends: np.ndarray, scheme_code: int, params: np.ndarray, agg_code: int
+) -> np.ndarray:
+    """Same aggregation as :func:`_group_recency_weighted_agg_sorted` but for MULTIPLE decay ``params`` in one pass.
+
+    The group-sort and boundary computation (the expensive, non-embarrassingly-parallel part of the parent
+    function -- an O(n log n) argsort/lexsort) happens exactly once in the caller regardless of how many
+    ``params`` are requested; only the O(sum(m)) per-group weight loop is repeated per param here, so this is
+    strictly cheaper than calling the single-param path once per decay value (which would re-sort every time).
+
+    Returns shape ``(n_groups, n_params)``.
+    """
+    n_groups = starts.shape[0]
+    n_params = params.shape[0]
+    out = np.empty((n_groups, n_params), dtype=np.float64)
+    for g in range(n_groups):
+        s = starts[g]
+        e = ends[g]
+        m = e - s
+        if m <= 0:
+            for k in range(n_params):
+                out[g, k] = np.nan
+            continue
+        for k in range(n_params):
+            param = params[k]
+            if agg_code == 0 or agg_code == 4 or agg_code == 5:
+                num = 0.0
+                den = 0.0
+                for pos in range(m):
+                    i = m - pos
+                    if scheme_code == 0:
+                        w = ((m - i + 1) / m) ** param
+                    elif scheme_code == 1:
+                        w = param**i
+                    else:
+                        w = 1.0 / (i**param)
+                    num += w * v_sorted[s + pos]
+                    den += w
+                mean = num / den if den > 0.0 else np.nan
+                if agg_code == 0:
+                    out[g, k] = mean
+                    continue
+                if den <= 0.0 or m < 2:
+                    out[g, k] = np.nan
+                    continue
+                sq = 0.0
+                for pos in range(m):
+                    i = m - pos
+                    if scheme_code == 0:
+                        w = ((m - i + 1) / m) ** param
+                    elif scheme_code == 1:
+                        w = param**i
+                    else:
+                        w = 1.0 / (i**param)
+                    dv = v_sorted[s + pos] - mean
+                    sq += w * dv * dv
+                var = sq / den
+                out[g, k] = np.sqrt(var) if agg_code == 4 else var
+            else:
+                acc = 0.0 if agg_code == 1 else np.nan
+                for pos in range(m):
+                    i = m - pos
+                    if scheme_code == 0:
+                        w = ((m - i + 1) / m) ** param
+                    elif scheme_code == 1:
+                        w = param**i
+                    else:
+                        w = 1.0 / (i**param)
+                    wv = w * v_sorted[s + pos]
+                    if agg_code == 1:
+                        acc += wv
+                    elif agg_code == 2:
+                        acc = wv if (pos == 0 or wv < acc) else acc
+                    else:
+                        acc = wv if (pos == 0 or wv > acc) else acc
+                out[g, k] = acc
+    return out
+
+
 def per_group_recency_weighted_agg(
     values: np.ndarray,
     group_ids: np.ndarray,
@@ -240,6 +321,7 @@ def per_group_recency_weighted_agg(
     order: np.ndarray | None = None,
     scheme: str = "poly",
     param: float = 1.0,
+    params: Sequence[float] | None = None,
     broadcast: bool = True,
     fill_value: float = np.nan,
 ) -> np.ndarray:
@@ -263,11 +345,21 @@ def per_group_recency_weighted_agg(
     agg : {'mean', 'sum', 'min', 'max', 'std', 'var'}
         Aggregation applied to the weighted values (std/var use raw values weighted around the recency-weighted
         mean; groups with fewer than 2 observations yield NaN, matching pandas' ddof=0-adjacent "undefined" convention).
+    params : Sequence[float], optional
+        Opt-in multi-decay mode: when given (non-empty), computes the SAME aggregation at every decay strength in
+        ``params`` in one call, reusing the single group sort/boundary pass (the O(n log n) part) instead of
+        re-sorting per decay value the way calling this function once per ``param`` would. Typical use: a fast
+        decay (short memory, reacts to a regime shift) and a slow decay (long memory, stable signal) as two
+        columns of the same feature family. When ``params`` is given, ``param`` is ignored and the return gains
+        a trailing axis of length ``len(params)`` (shape ``(n, len(params))`` broadcast, ``(n_groups, len(params))``
+        otherwise) ordered exactly as ``params``. Leaving ``params`` as None reproduces the prior single-``param``
+        behavior bit-for-bit.
 
     Returns
     -------
     np.ndarray
-        float64. Shape ``(n,)`` when ``broadcast`` else ``(n_groups,)``.
+        float64. Shape ``(n,)`` / ``(n_groups,)`` for single ``param``; ``(n, len(params))`` / ``(n_groups, len(params))``
+        when ``params`` is given.
     """
     if scheme not in SCHEMES:
         raise ValueError(f"per_group_recency_weighted_agg: scheme must be one of {SCHEMES}, got {scheme!r}.")
@@ -278,10 +370,17 @@ def per_group_recency_weighted_agg(
     n = values.shape[0]
     if group_ids.shape[0] != n:
         raise ValueError("per_group_recency_weighted_agg: values and group_ids length mismatch.")
-    param = float(param)
+
+    multi = params is not None and len(params) > 0
+    if multi:
+        params_arr = np.ascontiguousarray(params, dtype=np.float64)
+        if params_arr.shape[0] == 0:
+            raise ValueError("per_group_recency_weighted_agg: params must be non-empty when given.")
+    else:
+        param = float(param)
 
     if n == 0:
-        return np.empty(0, dtype=np.float64)
+        return np.empty((0, params_arr.shape[0]), dtype=np.float64) if multi else np.empty(0, dtype=np.float64)
 
     if order is not None:
         order = np.ascontiguousarray(order)
@@ -299,19 +398,25 @@ def per_group_recency_weighted_agg(
 
     scheme_code = SCHEMES.index(scheme)
     agg_code = AGGS.index(agg)
-    per_group = _group_recency_weighted_agg_sorted(v_sorted, starts, ends, scheme_code, param, agg_code)
+
+    if multi:
+        per_group = _group_recency_weighted_agg_multi_sorted(v_sorted, starts, ends, scheme_code, params_arr, agg_code)
+    else:
+        per_group = _group_recency_weighted_agg_sorted(v_sorted, starts, ends, scheme_code, param, agg_code)
 
     if not broadcast:
         _, first_pos = np.unique(group_ids, return_index=True)
         sorted_unique = g_sorted[starts]
-        out = np.empty(sorted_unique.shape[0], dtype=np.float64)
+        out_shape = (sorted_unique.shape[0], params_arr.shape[0]) if multi else (sorted_unique.shape[0],)
+        out = np.empty(out_shape, dtype=np.float64)
         lut = {gid: per_group[k] for k, gid in enumerate(sorted_unique)}
         unique_appearance = group_ids[np.sort(first_pos)]
+        fill = np.full(params_arr.shape[0], fill_value) if multi else fill_value
         for k, gid in enumerate(unique_appearance):
-            out[k] = lut.get(gid, fill_value)
+            out[k] = lut.get(gid, fill)
         return out
 
-    out_sorted = np.repeat(per_group, ends - starts)
-    out = np.empty(n, dtype=np.float64)
+    out_sorted = np.repeat(per_group, ends - starts, axis=0) if multi else np.repeat(per_group, ends - starts)
+    out = np.empty_like(out_sorted)
     out[sort_idx] = out_sorted
     return out
