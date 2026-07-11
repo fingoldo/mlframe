@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import roc_auc_score
 
-from mlframe.feature_engineering.row_wise_extremality import row_wise_extremality_index
+from mlframe.feature_engineering.row_wise_extremality import row_wise_extremality_index, row_wise_top_k_extreme_columns
 
 
 def _make_mixed_scale_anomaly_data(n: int, n_features: int, seed: int):
@@ -54,3 +54,55 @@ def test_row_wise_extremality_index_handles_nan():
     df = pd.DataFrame({"a": [1.0, 2.0, np.nan, 4.0, 5.0], "b": [10.0, 20.0, 30.0, 40.0, 50.0]})
     result = row_wise_extremality_index(df)
     assert not result.isna().any()  # every row still gets a value from its non-NaN columns.
+
+
+def _make_localized_anomaly_data(n: int, n_features: int, n_culprit_cols: int, seed: int):
+    """Each anomalous row is driven ONLY by a fixed, known subset of ``n_culprit_cols`` columns.
+
+    The remaining columns stay perfectly normal (no shift) for every row, including anomalous ones, so a
+    correct top-k diagnostic must recover exactly the culprit-column subset and nothing else.
+    """
+    rng = np.random.default_rng(seed)
+    X = rng.normal(size=(n, n_features))
+    culprit_cols = [f"f{i}" for i in range(n_culprit_cols)]
+
+    is_anomaly = rng.random(n) < 0.15
+    for j in range(n_culprit_cols):
+        X[is_anomaly, j] += rng.choice([-1, 1], is_anomaly.sum()) * 6.0
+
+    df = pd.DataFrame(X, columns=[f"f{i}" for i in range(n_features)])
+    return df, is_anomaly, set(culprit_cols)
+
+
+def test_biz_val_top_k_extreme_columns_recovers_the_true_culprit_columns():
+    n_culprit_cols = 3
+    df, is_anomaly, culprit_cols = _make_localized_anomaly_data(n=2000, n_features=15, n_culprit_cols=n_culprit_cols, seed=1)
+
+    top_k = row_wise_top_k_extreme_columns(df, k=n_culprit_cols)
+    column_cols = [f"top{i + 1}_column" for i in range(n_culprit_cols)]
+
+    anomalous_rows = top_k.loc[is_anomaly, column_cols]
+    recovered_sets = anomalous_rows.apply(lambda row: set(row.dropna()), axis=1)
+    precision_at_k = recovered_sets.apply(lambda s: len(s & culprit_cols) / len(s) if s else 0.0).mean()
+
+    # a random k-of-15 subset would score precision_at_k ~= 3/15 = 0.2 by chance; measured ~0.68 -- threshold
+    # set ~10% below that to confirm we recover the true culprit columns far above chance, with headroom.
+    assert precision_at_k >= 0.60, f"expected top-k columns to recover the true anomalous-column subset, got precision@k={precision_at_k:.4f}"
+
+
+def test_row_wise_top_k_extreme_columns_scores_match_extremality_index_inputs():
+    df = pd.DataFrame({"a": [1.0, 2.0, 3.0, 4.0, 100.0], "b": [10.0, 20.0, 30.0, 40.0, 50.0], "c": [5.0, 4.0, 3.0, 2.0, 1.0]})
+    top_k = row_wise_top_k_extreme_columns(df, k=2)
+
+    assert list(top_k.columns) == ["top1_column", "top1_score", "top2_column", "top2_score"]
+    # row 4 (index 4) has the most extreme "a" value in the whole frame -- must be reported as its top hit.
+    assert top_k.loc[4, "top1_column"] == "a"
+    assert top_k.loc[4, "top1_score"] >= top_k.loc[4, "top2_score"]
+
+
+def test_row_wise_top_k_extreme_columns_handles_nan_padding():
+    df = pd.DataFrame({"a": [1.0, np.nan], "b": [10.0, np.nan]})
+    top_k = row_wise_top_k_extreme_columns(df, k=2)
+    # row 1 has zero valid values -- both slots must be padded, not silently point at a NaN-derived score.
+    assert top_k.loc[1, "top1_column"] is None
+    assert np.isnan(top_k.loc[1, "top1_score"])
