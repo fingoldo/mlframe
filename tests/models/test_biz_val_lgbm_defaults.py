@@ -13,7 +13,7 @@ import pytest
 
 lgb = pytest.importorskip("lightgbm")
 
-from mlframe.models.lgbm_defaults import default_lgbm_params  # noqa: E402
+from mlframe.models.lgbm_defaults import AUTO_EXTRA_TREES_MIN_N_ESTIMATORS, default_lgbm_params  # noqa: E402
 
 
 def _make_correlated_noisy_regression(n_train: int, n_test: int, seed: int):
@@ -77,3 +77,65 @@ def test_biz_val_extra_trees_reduces_holdout_rmse_at_large_tree_count():
         f"extra_trees={mean_rmse_extra:.4f} default={mean_rmse_default:.4f}"
     )
     assert win_rate >= 0.5, f"extra_trees=True should win at least half of {n_seeds} seeds, got win_rate={win_rate:.2f}"
+
+
+def test_biz_val_default_lgbm_params_auto_extra_trees_adapts_to_tree_count():
+    """``auto_extra_trees=True`` must flip ``extra_trees`` off below the measured floor (where it actively
+    hurts) and on at/above it (where it measurably helps), tracking real held-out RMSE rather than just the
+    static flag -- reuses the same correlated/noisy-features regime as the static ``extra_trees`` win above.
+    """
+    n_seeds = 6
+    small_n_estimators = 30  # well under AUTO_EXTRA_TREES_MIN_N_ESTIMATORS -- extra_trees measured to LOSE here.
+    large_n_estimators = 300  # well over the floor -- extra_trees measured to WIN 6/6 seeds here.
+    assert small_n_estimators < AUTO_EXTRA_TREES_MIN_N_ESTIMATORS <= large_n_estimators
+
+    small_params = default_lgbm_params(n_estimators=small_n_estimators, auto_extra_trees=True, extra_trees=True)
+    large_params = default_lgbm_params(n_estimators=large_n_estimators, auto_extra_trees=True, extra_trees=True)
+    assert small_params["extra_trees"] is False, "adaptive rule must force extra_trees OFF below the measured floor"
+    assert large_params["extra_trees"] is True, "adaptive rule must force extra_trees ON at/above the measured floor"
+
+    rmse_small_auto, rmse_small_off, rmse_large_auto, rmse_large_static_off = [], [], [], []
+    for seed in range(n_seeds):
+        X_train, y_train, X_test, y_test = _make_correlated_noisy_regression(1500, 1500, seed=seed)
+
+        def _rmse(params: dict) -> float:
+            model = lgb.LGBMRegressor(**params)
+            model.fit(X_train, y_train)
+            pred = model.predict(X_test)
+            return float(np.sqrt(np.mean((pred - y_test) ** 2)))
+
+        rmse_small_auto.append(
+            _rmse(default_lgbm_params(n_estimators=small_n_estimators, auto_extra_trees=True, random_state=seed))
+        )
+        rmse_small_off.append(
+            _rmse(default_lgbm_params(n_estimators=small_n_estimators, extra_trees=True, random_state=seed))
+        )
+        rmse_large_auto.append(
+            _rmse(default_lgbm_params(n_estimators=large_n_estimators, auto_extra_trees=True, random_state=seed))
+        )
+        rmse_large_static_off.append(
+            _rmse(default_lgbm_params(n_estimators=large_n_estimators, extra_trees=False, random_state=seed))
+        )
+
+    mean_small_auto = float(np.mean(rmse_small_auto))
+    mean_small_off = float(np.mean(rmse_small_off))
+    mean_large_auto = float(np.mean(rmse_large_auto))
+    mean_large_static_off = float(np.mean(rmse_large_static_off))
+
+    assert mean_small_auto < mean_small_off, (
+        f"below the floor, auto_extra_trees (extra_trees forced OFF) should beat a static extra_trees=True: "
+        f"auto={mean_small_auto:.4f} static_extra_trees_on={mean_small_off:.4f}"
+    )
+    assert mean_large_auto < mean_large_static_off, (
+        f"at/above the floor, auto_extra_trees (extra_trees forced ON) should beat a static extra_trees=False: "
+        f"auto={mean_large_auto:.4f} static_extra_trees_off={mean_large_static_off:.4f}"
+    )
+
+
+def test_default_lgbm_params_auto_extra_trees_is_opt_in():
+    """Omitting ``auto_extra_trees`` must leave the static default (``extra_trees=True`` always) unchanged."""
+    baseline_small = default_lgbm_params(n_estimators=30)
+    baseline_large = default_lgbm_params(n_estimators=300)
+    assert baseline_small["extra_trees"] is True
+    assert baseline_large["extra_trees"] is True
+    assert default_lgbm_params() == default_lgbm_params()  # bit-identical across calls, new params untouched.

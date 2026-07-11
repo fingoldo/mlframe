@@ -17,6 +17,9 @@ def _run(n_calls: int) -> None:
         default_lgbm_params(objective="regression")
         default_lgbm_params(objective="regression", n_features=500)
         default_lgbm_params(objective="regression", n_features=500, n_estimators=200)
+        # adaptive extra_trees path, small (below floor) and large (at/above floor) tree-count regimes.
+        default_lgbm_params(objective="regression", auto_extra_trees=True, n_estimators=30)
+        default_lgbm_params(objective="regression", auto_extra_trees=True, n_estimators=300)
 
 
 if __name__ == "__main__":
