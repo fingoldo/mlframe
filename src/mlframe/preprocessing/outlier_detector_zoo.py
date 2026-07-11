@@ -131,4 +131,79 @@ def make_ensemble_outlier_scores(
     return rank_average_blend(stacked, weights=weights)
 
 
-__all__ = ["make_outlier_detector", "make_ensemble_outlier_scores"]
+_THRESHOLD_METHODS = ("contamination", "percentile", "iqr")
+
+
+def select_outlier_threshold(
+    scores: Any,
+    method: str = "contamination",
+    *,
+    contamination: float = 0.1,
+    percentile: float = 90.0,
+    iqr_multiplier: float = 1.5,
+) -> np.ndarray:
+    """Convert a continuous anomaly-score array (higher = more anomalous) into a boolean outlier flag.
+
+    ``make_outlier_detector``/``make_ensemble_outlier_scores`` hand back raw scores with no named
+    score-to-flag step -- every caller ends up hand-rolling ``scores > np.percentile(scores, 90)`` (or worse,
+    a magic-number cutoff) at the call site. This is that missing, documented conversion layer, mirroring the
+    detector factory's own "named selection over hardwired call-site logic" shape.
+
+    Parameters
+    ----------
+    scores
+        Per-row anomaly score, higher = more anomalous (the orientation ``make_ensemble_outlier_scores`` and
+        ``IsolationForest.decision_function``-negated / ``negative_outlier_factor_``-negated scores already use).
+    method
+        ``"contamination"`` -- flag exactly the top ``round(contamination * n)`` highest-scoring rows (ties
+        broken by score order via ``argpartition``+stable rank); use when the expected outlier RATE is known,
+        e.g. from domain knowledge or a labeled validation set.
+        ``"percentile"`` -- flag rows with score strictly above the given percentile of the score distribution;
+        use when only a cutoff quantile is known, not an exact count (differs from ``"contamination"`` when
+        scores have ties at the cutoff -- percentile can flag more or fewer than the nominal fraction).
+        ``"iqr"`` -- flag rows above ``Q3 + iqr_multiplier * (Q3 - Q1)`` (Tukey's fence); use when no
+        contamination-rate estimate exists at all and the score distribution itself should decide the cutoff
+        (distribution-shape-dependent: a heavy-tailed or multi-modal score distribution can flag far more or
+        fewer rows than ``contamination``/``percentile`` would for the "same" data).
+    contamination
+        Expected fraction of outliers in ``[0, 1]``, only used by ``method="contamination"``.
+    percentile
+        Cutoff percentile in ``[0, 100]``, only used by ``method="percentile"``.
+    iqr_multiplier
+        Tukey's-fence multiplier, only used by ``method="iqr"`` (1.5 = conventional "outlier" fence, 3.0 =
+        conventional "extreme value" fence).
+
+    Returns
+    -------
+    np.ndarray
+        Boolean array, shape ``(n_rows,)``, ``True`` = flagged as outlier.
+    """
+    arr = np.asarray(scores, dtype=np.float64)
+    if arr.ndim != 1:
+        raise ValueError(f"select_outlier_threshold: expected a 1-D score array, got shape {arr.shape}.")
+    n = arr.shape[0]
+    if method == "contamination":
+        if not 0.0 <= contamination <= 1.0:
+            raise ValueError(f"select_outlier_threshold: contamination must be in [0, 1], got {contamination}.")
+        n_flag = round(contamination * n)
+        if n_flag <= 0:
+            return np.zeros(n, dtype=bool)
+        if n_flag >= n:
+            return np.ones(n, dtype=bool)
+        cutoff_idx = np.argpartition(arr, n - n_flag)[n - n_flag:]
+        flags = np.zeros(n, dtype=bool)
+        flags[cutoff_idx] = True
+        return flags
+    if method == "percentile":
+        if not 0.0 <= percentile <= 100.0:
+            raise ValueError(f"select_outlier_threshold: percentile must be in [0, 100], got {percentile}.")
+        cutoff = np.percentile(arr, percentile)
+        return arr > cutoff
+    if method == "iqr":
+        q1, q3 = np.percentile(arr, [25.0, 75.0])
+        cutoff = q3 + iqr_multiplier * (q3 - q1)
+        return np.asarray(arr > cutoff, dtype=bool)
+    raise ValueError(f"select_outlier_threshold: unknown method {method!r}; choose one of {_THRESHOLD_METHODS}.")
+
+
+__all__ = ["make_outlier_detector", "make_ensemble_outlier_scores", "select_outlier_threshold"]
