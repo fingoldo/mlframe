@@ -80,3 +80,92 @@ def test_adversarial_stochastic_blend_weights_sum_to_one():
     result = adversarial_stochastic_blend(preds, y_true, test_likeness, _rmse, n_iterations=20, sample_frac=0.7, n_restarts=1, random_state=2)
     assert np.isclose(result["weights"].sum(), 1.0)
     assert result["weight_std"].shape == (2,)
+
+
+def test_adversarial_stochastic_blend_default_output_unchanged_by_diagnostics_opt_in():
+    """The new diagnostic params must be strictly opt-in -- omitting them must not change any existing key."""
+    rng = np.random.default_rng(3)
+    y_true = rng.normal(size=150)
+    preds = [y_true + 0.3 * rng.standard_normal(150), y_true + 0.5 * rng.standard_normal(150)]
+    test_likeness = rng.uniform(size=150)
+
+    baseline = adversarial_stochastic_blend(preds, y_true, test_likeness, _rmse, n_iterations=15, sample_frac=0.7, n_restarts=1, random_state=3)
+    with_flags_off = adversarial_stochastic_blend(
+        preds, y_true, test_likeness, _rmse, n_iterations=15, sample_frac=0.7, n_restarts=1, random_state=3, track_convergence=False, discriminator_auc=None
+    )
+
+    assert set(baseline.keys()) == {"weights", "ensemble_pred", "loss", "weight_std"}
+    assert set(with_flags_off.keys()) == set(baseline.keys())
+    np.testing.assert_array_equal(baseline["weights"], with_flags_off["weights"])
+    np.testing.assert_array_equal(baseline["ensemble_pred"], with_flags_off["ensemble_pred"])
+    assert baseline["loss"] == with_flags_off["loss"]
+    np.testing.assert_array_equal(baseline["weight_std"], with_flags_off["weight_std"])
+
+
+def test_biz_val_adversarial_stochastic_blend_convergence_diagnostic_genuine_drift_is_stable_and_trusted():
+    """Genuine, strong train/test drift -> discriminator AUC well above chance -> is_trustworthy True and a
+    high stability_score (weight estimates should have converged, not still be flailing between resamples)."""
+    x_train, y_train, train_preds, x_test, y_test, test_preds = _make_drifted_dataset(seed=10)
+
+    test_likeness, likeness_diag = compute_test_likeness(x_train.reshape(-1, 1), x_test.reshape(-1, 1), cv=5, random_state=10, return_diagnostics=True)
+    assert likeness_diag["auc"] > 0.85, f"expected the discriminator to reliably separate the drifted regions, got auc={likeness_diag['auc']:.4f}"
+
+    result = adversarial_stochastic_blend(
+        train_preds,
+        y_train,
+        test_likeness,
+        _rmse,
+        n_iterations=100,
+        sample_frac=0.6,
+        n_restarts=2,
+        random_state=10,
+        track_convergence=True,
+        discriminator_auc=likeness_diag["auc"],
+        fallback_to_uniform_if_untrustworthy=True,
+    )
+
+    assert result["is_trustworthy"] is True
+    assert result["fallback_applied"] is False
+    assert result["stability_score"] > 0.5, f"expected a high stability score under genuine drift, got {result['stability_score']:.4f}"
+    assert result["convergence_curve"].shape == (100,)
+    # the expanding-window coefficient of variation should trend down as more MC iterations accumulate.
+    assert result["convergence_curve"][-1] < result["convergence_curve"][4], "expected convergence curve to decrease as iterations accumulate"
+
+
+def test_biz_val_adversarial_stochastic_blend_convergence_diagnostic_no_drift_flags_untrustworthy():
+    """No real train/test drift -> discriminator AUC near chance -> is_trustworthy False, and the
+    opt-in fallback correctly discards the noisy test-likeness weighting in favor of a uniform blend."""
+    rng = np.random.default_rng(11)
+    n = 600
+    x_train = rng.uniform(0, 1, n)  # train and test drawn from the SAME distribution -- no drift.
+    x_test = rng.uniform(0, 1, n)
+    y_train = np.sin(x_train * 3.0)
+
+    def model_1(x):
+        return np.sin(x * 3.0) + 0.4 * rng.standard_normal(len(x))
+
+    def model_2(x):
+        return np.sin(x * 3.0) + 0.1 * rng.standard_normal(len(x))
+
+    train_preds = [model_1(x_train), model_2(x_train)]
+
+    test_likeness, likeness_diag = compute_test_likeness(x_train.reshape(-1, 1), x_test.reshape(-1, 1), cv=5, random_state=11, return_diagnostics=True)
+    assert likeness_diag["auc_margin_from_chance"] < 0.1, f"expected a near-chance discriminator AUC with no real drift, got auc={likeness_diag['auc']:.4f}"
+
+    result = adversarial_stochastic_blend(
+        train_preds,
+        y_train,
+        test_likeness,
+        _rmse,
+        n_iterations=100,
+        sample_frac=0.6,
+        n_restarts=2,
+        random_state=11,
+        track_convergence=True,
+        discriminator_auc=likeness_diag["auc"],
+        fallback_to_uniform_if_untrustworthy=True,
+    )
+
+    assert result["is_trustworthy"] is False
+    assert result["fallback_applied"] is True
+    assert np.allclose(result["weights"], 0.5), f"expected uniform fallback weights, got {result['weights']}"
