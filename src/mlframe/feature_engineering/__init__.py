@@ -85,6 +85,7 @@ from .holiday_calendar_features import holiday_calendar_features
 from .state_history import last_k_distinct_states_with_durations
 from .panel_pivot import pivot_time_indexed_panel
 from .ewma_multi_alpha_features import ewma_multi_alpha_features
+from .row_wise_extremality import row_wise_extremality_index
 from .recency_density import (
     per_group_behavioral_stability,
     per_group_recency_weighted_mode,
@@ -239,6 +240,7 @@ __all__ = [
     "last_k_distinct_states_with_durations",
     "pivot_time_indexed_panel",
     "ewma_multi_alpha_features",
+    "row_wise_extremality_index",
     "per_group_recency_weighted_mode",
     "per_group_behavioral_stability",
     "nadaraya_watson_smooth",
