@@ -223,7 +223,7 @@ from .relational_dfs import ChildTableSpec, compute_relational_features, stack_r
 from .windowed_edge_diff import windowed_edge_aggregate_diff
 from .magnitude_sample_weight import magnitude_sample_weight
 from .boolean_pair_interactions import boolean_pair_interactions, is_binary_column
-from .sentinel_missing_count import add_sentinel_missing_count_feature
+from .sentinel_missing_count import add_sentinel_missing_count_feature, detect_column_sentinel, detect_sentinel_values
 from .categorical_group_concat import concat_categorical_group
 from .categorical_powerset_concat import categorical_powerset_concat
 from .binned_unique_count import binned_unique_count
@@ -358,6 +358,8 @@ __all__ = [
     "boolean_pair_interactions",
     "is_binary_column",
     "add_sentinel_missing_count_feature",
+    "detect_column_sentinel",
+    "detect_sentinel_values",
     "concat_categorical_group",
     "categorical_powerset_concat",
     "binned_unique_count",
