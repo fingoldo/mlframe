@@ -30,6 +30,7 @@ from mlframe.calibration.threshold_optimizer import optimize_decision_threshold,
 from mlframe.calibration.group_bias_correction import fit_group_bias_correction, apply_group_bias_correction
 from mlframe.calibration.smoothed_override import apply_smoothed_override
 from mlframe.calibration.asymmetric_rescale import fit_asymmetric_rescale, apply_asymmetric_rescale
+from mlframe.calibration.group_zero_sum_constraint import apply_group_zero_sum_constraint
 
 
 def __getattr__(name: str) -> Any:
