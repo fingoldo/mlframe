@@ -50,6 +50,7 @@ def compute_row_level_then_average_predictions(
     random_state: int = 42,
     column_name: str = "row_level_avg_pred",
     agg_stats: Optional[Sequence[str]] = None,
+    flag_low_confidence_quantile: Optional[float] = None,
 ) -> pl.DataFrame:
     """Fit a model on raw (unaggregated) child rows with an entity-broadcast label, then aggregate its
     per-row predictions back to one row per entity.
@@ -76,12 +77,23 @@ def compute_row_level_then_average_predictions(
         None (default) preserves the original single-column mean-only contract (``column_name``). Pass e.g.
         ``("mean", "min", "max", "std", "median")`` for the Home Credit 5th place's multi-stat nested
         row-level pattern -- returns one column per stat, named ``{column_name}_{stat}``.
+    flag_low_confidence_quantile
+        None (default) adds nothing -- bit-identical to the original contract. When set to a quantile in
+        ``(0, 1)`` (e.g. ``0.75``), an entity's row-level predictions are dispersed (agreement signal): rows
+        of one entity that predict very differently from each other mean the group-level average is less
+        trustworthy than one where all rows agree, EVEN THOUGH both entities may average to the same mean
+        prediction. Adds a boolean ``{column_name}_low_confidence`` column flagging entities whose
+        within-group prediction std is above the given quantile of all entities' stds in this call (the top
+        ``1 - flag_low_confidence_quantile`` fraction by disagreement). Independent of ``agg_stats`` -- the
+        std used for flagging is always computed internally and is not affected by whether ``"std"`` is
+        also requested via ``agg_stats``.
 
     Returns
     -------
     pl.DataFrame
         ``entity_id`` (one row per UNIQUE entity, in first-seen order over the query entity ids) plus either
-        ``column_name`` (``agg_stats=None``) or one ``{column_name}_{stat}`` column per requested stat.
+        ``column_name`` (``agg_stats=None``) or one ``{column_name}_{stat}`` column per requested stat, plus
+        ``{column_name}_low_confidence`` when ``flag_low_confidence_quantile`` is set.
     """
     entity_arr = np.asarray(entity_ids)
     y_arr = np.asarray(y_row_broadcast, dtype=np.float64)
@@ -104,13 +116,20 @@ def compute_row_level_then_average_predictions(
 
     if agg_stats is None:
         entity_avg = df.groupby("entity_id", sort=False)["_pred"].mean().reindex(seen_order)
-        return pl.DataFrame({"entity_id": entity_avg.index.to_numpy(), column_name: entity_avg.to_numpy(dtype=np.float64)})
+        out_cols: dict[str, np.ndarray] = {"entity_id": entity_avg.index.to_numpy(), column_name: entity_avg.to_numpy(dtype=np.float64)}
+    else:
+        entity_agg = df.groupby("entity_id", sort=False)["_pred"].agg(list(agg_stats)).reindex(seen_order)
+        out_cols = {"entity_id": entity_agg.index.to_numpy()}
+        for stat in agg_stats:
+            out_cols[f"{column_name}_{stat}"] = entity_agg[stat].to_numpy(dtype=np.float64)
 
-    entity_agg = df.groupby("entity_id", sort=False)["_pred"].agg(list(agg_stats)).reindex(seen_order)
-    cols: dict[str, np.ndarray] = {"entity_id": entity_agg.index.to_numpy()}
-    for stat in agg_stats:
-        cols[f"{column_name}_{stat}"] = entity_agg[stat].to_numpy(dtype=np.float64)
-    return pl.DataFrame(cols)
+    if flag_low_confidence_quantile is not None:
+        # ddof=0: a single-row entity has zero within-group spread (defined agreement, not undefined NaN).
+        entity_std = df.groupby("entity_id", sort=False)["_pred"].std(ddof=0).reindex(seen_order).to_numpy(dtype=np.float64)
+        threshold = float(np.quantile(entity_std, flag_low_confidence_quantile))
+        out_cols[f"{column_name}_low_confidence"] = entity_std > threshold
+
+    return pl.DataFrame(out_cols)
 
 
 __all__ = ["compute_row_level_then_average_predictions"]

@@ -119,6 +119,91 @@ def test_biz_val_row_level_agg_stats_max_beats_mean_for_outlier_driven_label():
     assert auc_max - auc_mean > 0.25, f"expected max-aggregation to beat mean-aggregation by >0.25 AUC, got max={auc_max:.4f} vs mean={auc_mean:.4f}"
 
 
+def test_biz_val_row_level_low_confidence_flag_identifies_less_reliable_entities():
+    """Two entity populations, both averaging to the same class-1 prediction rate, but built from either
+    highly-agreeing rows (all children individually predictive) or highly-disagreeing rows (children carry
+    contradictory row-level signal, only the entity-level base rate is informative). The low-confidence flag
+    should concentrate almost entirely on the disagreeing population, and the flagged group's aggregate
+    prediction error should be materially worse than the unflagged group's -- proving the spread signal
+    identifies genuinely less-trustworthy group aggregates, not just noise."""
+    rng = np.random.default_rng(3)
+    n_per_group = 300
+    k_rows = 20
+    x_rows: list[float] = []
+    entity_ids_list: list[int] = []
+    y_entity = np.zeros(2 * n_per_group)
+    entity = 0
+
+    # Agreeing entities: x's sign consistently matches the label -> every row individually predictive.
+    for _ in range(n_per_group):
+        label = rng.integers(0, 2)
+        y_entity[entity] = label
+        sign = 1.0 if label == 1 else -1.0
+        vals = sign * rng.uniform(1.0, 2.0, size=k_rows) + rng.normal(scale=0.1, size=k_rows)
+        x_rows.extend(vals)
+        entity_ids_list.extend([entity] * k_rows)
+        entity += 1
+
+    # Disagreeing entities: rows are near-pure noise around 0, uninformative individually -- only a faint
+    # entity-level base-rate shift in the mean carries any signal, so all children look ambiguous.
+    for _ in range(n_per_group):
+        label = rng.integers(0, 2)
+        y_entity[entity] = label
+        shift = 0.15 if label == 1 else -0.15
+        vals = rng.normal(loc=shift, scale=1.5, size=k_rows)
+        x_rows.extend(vals)
+        entity_ids_list.extend([entity] * k_rows)
+        entity += 1
+
+    entity_ids = np.array(entity_ids_list)
+    X_rows = pd.DataFrame({"x": x_rows})
+    y_row_broadcast = y_entity[entity_ids]
+    is_disagreeing_entity = np.arange(2 * n_per_group) >= n_per_group
+
+    result = compute_row_level_then_average_predictions(
+        X_rows, y_row_broadcast, entity_ids,
+        model_factory=lambda: GradientBoostingRegressor(random_state=0, n_estimators=100, max_depth=3),
+        n_splits=5, random_state=0, flag_low_confidence_quantile=0.6,
+    )
+    result_sorted = result.sort("entity_id")
+    assert set(result_sorted.columns) == {"entity_id", "row_level_avg_pred", "row_level_avg_pred_low_confidence"}
+
+    flagged = result_sorted["row_level_avg_pred_low_confidence"].to_numpy()
+    pred = result_sorted["row_level_avg_pred"].to_numpy()
+
+    # The flag should concentrate heavily on the disagreeing (harder, noisier-row) population.
+    frac_flagged_from_disagreeing = flagged[is_disagreeing_entity].mean()
+    frac_flagged_from_agreeing = flagged[~is_disagreeing_entity].mean()
+    assert frac_flagged_from_disagreeing - frac_flagged_from_agreeing > 0.5, (
+        f"expected the low-confidence flag to concentrate on disagreeing entities, got "
+        f"disagreeing={frac_flagged_from_disagreeing:.3f} vs agreeing={frac_flagged_from_agreeing:.3f}"
+    )
+
+    # The flagged group's aggregate predictions should be materially less accurate than the unflagged group's.
+    err_flagged = np.abs(pred[flagged] - y_entity[flagged])
+    err_unflagged = np.abs(pred[~flagged] - y_entity[~flagged])
+    assert err_flagged.mean() - err_unflagged.mean() > 0.15, (
+        f"expected flagged-entity error to exceed unflagged-entity error by >0.15, "
+        f"got flagged={err_flagged.mean():.4f} vs unflagged={err_unflagged.mean():.4f}"
+    )
+
+
+def test_row_level_then_average_default_flag_off_is_bit_identical():
+    """flag_low_confidence_quantile=None (default) must not alter the pre-existing mean-only output."""
+    X_rows, y_entity, entity_ids = _make_interaction_panel_dataset(n_entities=150, k_rows=8, seed=7)
+    y_row_broadcast = y_entity[entity_ids]
+    kwargs = dict(
+        model_factory=lambda: GradientBoostingRegressor(random_state=0, n_estimators=30, max_depth=3),
+        n_splits=5, random_state=0,
+    )
+    result_default = compute_row_level_then_average_predictions(X_rows, y_row_broadcast, entity_ids, **kwargs)
+    result_explicit_none = compute_row_level_then_average_predictions(
+        X_rows, y_row_broadcast, entity_ids, flag_low_confidence_quantile=None, **kwargs
+    )
+    assert result_default.columns == ["entity_id", "row_level_avg_pred"]
+    assert result_default.equals(result_explicit_none)
+
+
 def test_row_level_then_average_entity_order_matches_first_seen():
     X_rows = pd.DataFrame({"x": [1.0, 2.0, 3.0, 4.0]})
     entity_ids = np.array([5, 5, 2, 2])

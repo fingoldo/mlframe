@@ -34,9 +34,12 @@ def _make_dataset(n_entities: int, k_rows: int, seed: int):
     return X_rows, y_entity[entity_ids], entity_ids
 
 
-def _run(n_entities: int) -> None:
+def _run(n_entities: int, flag_low_confidence_quantile: float | None = None) -> None:
     X_rows, y_row_broadcast, entity_ids = _make_dataset(n_entities, k_rows=10, seed=0)
-    compute_row_level_then_average_predictions(X_rows, y_row_broadcast, entity_ids, model_factory=lambda: LinearRegression(), n_splits=5)
+    compute_row_level_then_average_predictions(
+        X_rows, y_row_broadcast, entity_ids, model_factory=lambda: LinearRegression(), n_splits=5,
+        flag_low_confidence_quantile=flag_low_confidence_quantile,
+    )
 
 
 if __name__ == "__main__":
@@ -46,9 +49,15 @@ if __name__ == "__main__":
         wall = time.perf_counter() - t0
         print(f"n_entities={n:>7,} -> {wall * 1000:9.2f} ms")
 
+    for n in [200, 2_000, 10_000]:
+        t0 = time.perf_counter()
+        _run(n, flag_low_confidence_quantile=0.75)
+        wall = time.perf_counter() - t0
+        print(f"n_entities={n:>7,} (flag_low_confidence_quantile=0.75) -> {wall * 1000:9.2f} ms")
+
     profiler = cProfile.Profile()
     profiler.enable()
-    _run(10_000)
+    _run(10_000, flag_low_confidence_quantile=0.75)
     profiler.disable()
     buf = StringIO()
     stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
