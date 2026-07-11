@@ -19,11 +19,23 @@ class _FakeLGBM:
     pass
 
 
+class _FakePipeline:
+    # mimics sklearn Pipeline's shape (a "steps" list of (name, estimator) pairs) closely enough to exercise
+    # the unwrap_pipeline path's recursion without an sklearn dependency in the hot benchmark loop
+    def __init__(self, final_estimator) -> None:
+        self.steps = [("noop", object()), ("clf", final_estimator)]
+
+
 def _run(n_rows: int, n_features: int) -> None:
     rng = np.random.default_rng(0)
     df = pd.DataFrame({f"f{i}": rng.normal(0, 1, n_rows) for i in range(n_features)})
     apply_outlier_policy(df, _FakeLGBM())
     apply_outlier_policy(df, object())
+    # unwrap_pipeline path: recursion is O(1) (bounded depth-5 walk over a handful of attributes) and
+    # independent of n_rows/n_features -- included here mainly to document that cost, not because it's
+    # expected to show up materially in cumtime.
+    apply_outlier_policy(df, _FakePipeline(_FakeLGBM()), unwrap_pipeline=True)
+    apply_outlier_policy(df, _FakePipeline(object()), unwrap_pipeline=True)
 
 
 if __name__ == "__main__":
