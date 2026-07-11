@@ -21,6 +21,7 @@ from mlframe.core.arrays import *
 from mlframe.core.stats import *
 from mlframe.core.ewma import *
 from mlframe.core.recency_weights import *
+from mlframe.core.recency_step_weight import *
 from mlframe.core.robust_location import *
 from mlframe.core.proportion_stats import *
 from mlframe.core.matrix_seriation import *
