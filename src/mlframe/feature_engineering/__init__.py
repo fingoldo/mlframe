@@ -83,6 +83,7 @@ from .nested_ma_decompose import nested_ma_decompose
 from .ma_crossover import ma_crossover_features
 from .holiday_calendar_features import holiday_calendar_features
 from .state_history import last_k_distinct_states_with_durations
+from .panel_pivot import pivot_time_indexed_panel
 from .recency_density import (
     per_group_behavioral_stability,
     per_group_recency_weighted_mode,
@@ -235,6 +236,7 @@ __all__ = [
     "ma_crossover_features",
     "holiday_calendar_features",
     "last_k_distinct_states_with_durations",
+    "pivot_time_indexed_panel",
     "per_group_recency_weighted_mode",
     "per_group_behavioral_stability",
     "nadaraya_watson_smooth",
