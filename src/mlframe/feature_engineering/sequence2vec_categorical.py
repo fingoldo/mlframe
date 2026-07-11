@@ -11,7 +11,7 @@ implement directly rather than block on an upstream build fix.
 """
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -131,6 +131,46 @@ def train_sequence2vec(
     return {tok: target_emb[i] for tok, i in tok_to_idx.items()}
 
 
+def _entity_sequences(df: pd.DataFrame, entity_col: str, token_col: str, time_col: Optional[str]) -> tuple[List[List[str]], List[object]]:
+    """Group ``df`` into one chronological token sequence per entity (shared by fit and transform paths)."""
+    ordered = df.sort_values([entity_col, time_col] if time_col else [entity_col], kind="mergesort")
+    sequences: List[List[str]] = []
+    entity_order: List[object] = []
+    for entity, grp in ordered.groupby(entity_col, sort=False):
+        sequences.append(grp[token_col].astype(str).tolist())
+        entity_order.append(entity)
+    return sequences, entity_order
+
+
+def _entity_embedding_rows(
+    entity_col: str,
+    entity_order: List[object],
+    sequences: List[List[str]],
+    embeddings: Dict[str, np.ndarray],
+    embedding_dim: int,
+    with_oov_fraction: bool,
+) -> List[dict]:
+    """Build the mean/last embedding feature rows shared by fit (:func:`sequence2vec_entity_features`) and
+    the new-entity transform path (:func:`sequence2vec_transform_new_entities`)."""
+    rows = []
+    for entity, seq in zip(entity_order, sequences):
+        vecs = [embeddings[tok] for tok in seq if tok in embeddings]
+        if vecs:
+            mean_vec = np.mean(vecs, axis=0)
+            last_vec = vecs[-1]
+        else:
+            mean_vec = np.zeros(embedding_dim)
+            last_vec = np.zeros(embedding_dim)
+        row = {entity_col: entity}
+        row.update({f"emb_mean_{i}": mean_vec[i] for i in range(embedding_dim)})
+        row.update({f"emb_last_{i}": last_vec[i] for i in range(embedding_dim)})
+        if with_oov_fraction:
+            n_oov = sum(1 for tok in seq if tok not in embeddings)
+            row["emb_oov_fraction"] = (n_oov / len(seq)) if seq else 1.0
+        rows.append(row)
+    return rows
+
+
 def sequence2vec_entity_features(
     df: pd.DataFrame,
     entity_col: str,
@@ -141,7 +181,8 @@ def sequence2vec_entity_features(
     n_negative: int = 5,
     n_epochs: int = 5,
     random_state: int = 0,
-) -> pd.DataFrame:
+    return_embeddings: bool = False,
+) -> Union[pd.DataFrame, Tuple[pd.DataFrame, Dict[str, np.ndarray]]]:
     """Train sequence2vec embeddings from ``events_df`` and return per-entity mean/last embedding features.
 
     Parameters
@@ -157,37 +198,74 @@ def sequence2vec_entity_features(
         (defaults to the input row order).
     embedding_dim, window, n_negative, n_epochs, random_state
         Passed through to :func:`train_sequence2vec`.
+    return_embeddings
+        When ``True``, also return the fitted ``{token: vector}`` dict, so NEW entity sequences (e.g. a
+        held-out inference batch) can be embedded later on the SAME basis via
+        :func:`sequence2vec_transform_new_entities`, instead of leaking/refitting on the new batch.
+        Default ``False`` preserves the prior return type and is bit-identical to the pre-extension behavior.
 
     Returns
     -------
     pd.DataFrame
         One row per entity: ``entity_col`` plus ``emb_mean_{0..d-1}`` (mean embedding across the entity's
         tokens) and ``emb_last_{0..d-1}`` (the entity's most recent token's embedding) columns.
+        If ``return_embeddings=True``, a ``(DataFrame, {token: vector})`` tuple instead.
     """
-    ordered = df.sort_values([entity_col, time_col] if time_col else [entity_col], kind="mergesort")
-    sequences: List[List[str]] = []
-    entity_order: List[object] = []
-    for entity, grp in ordered.groupby(entity_col, sort=False):
-        sequences.append(grp[token_col].astype(str).tolist())
-        entity_order.append(entity)
+    sequences, entity_order = _entity_sequences(df, entity_col, token_col, time_col)
 
     embeddings = train_sequence2vec(sequences, embedding_dim=embedding_dim, window=window, n_negative=n_negative, n_epochs=n_epochs, random_state=random_state)
 
-    rows = []
-    for entity, seq in zip(entity_order, sequences):
-        vecs = [embeddings[tok] for tok in seq if tok in embeddings]
-        if vecs:
-            mean_vec = np.mean(vecs, axis=0)
-            last_vec = vecs[-1]
-        else:
-            mean_vec = np.zeros(embedding_dim)
-            last_vec = np.zeros(embedding_dim)
-        row = {entity_col: entity}
-        row.update({f"emb_mean_{i}": mean_vec[i] for i in range(embedding_dim)})
-        row.update({f"emb_last_{i}": last_vec[i] for i in range(embedding_dim)})
-        rows.append(row)
+    rows = _entity_embedding_rows(entity_col, entity_order, sequences, embeddings, embedding_dim, with_oov_fraction=False)
+    out_df = pd.DataFrame(rows)
 
+    if not return_embeddings:
+        return out_df
+    return out_df, embeddings
+
+
+def sequence2vec_transform_new_entities(
+    df: pd.DataFrame,
+    entity_col: str,
+    token_col: str,
+    embeddings: Dict[str, np.ndarray],
+    time_col: Optional[str] = None,
+) -> pd.DataFrame:
+    """Embed NEW entities' sequences using an already-fitted embedding vocabulary (no retraining).
+
+    Companion to ``sequence2vec_entity_features(..., return_embeddings=True)``: applies the fitted
+    ``{token: vector}`` dict as-is to a held-out/inference batch of entity events, so the embedding basis
+    stays frozen to the training corpus instead of drifting per inference batch.
+
+    OOV policy: a token absent from ``embeddings`` (never seen during the original fit) is simply skipped
+    when computing an entity's mean vector, matching :func:`sequence2vec_entity_features`'s own in-sample
+    OOV handling; an entity whose sequence is empty or entirely OOV gets an all-zero mean/last vector. Each
+    entity's OOV token fraction is reported as ``emb_oov_fraction`` (0 = every token was seen during fit, 1 =
+    every token is novel and the embedding is effectively meaningless) as a reliability diagnostic.
+
+    Parameters
+    ----------
+    df
+        Event-level frame with one row per (entity, token) occurrence, disjoint from or overlapping the
+        original fit frame -- entities/tokens unseen at fit time are handled via the OOV policy above.
+    entity_col, token_col, time_col
+        Same semantics as :func:`sequence2vec_entity_features`.
+    embeddings
+        The fitted ``{token: vector}`` dict returned by ``sequence2vec_entity_features(..., return_embeddings=True)``.
+
+    Returns
+    -------
+    pd.DataFrame
+        One row per unique entity in ``df``: ``entity_col``, ``emb_mean_{0..d-1}``, ``emb_last_{0..d-1}``,
+        and ``emb_oov_fraction``.
+    """
+    if embeddings:
+        embedding_dim = next(iter(embeddings.values())).shape[0]
+    else:
+        embedding_dim = 0
+
+    sequences, entity_order = _entity_sequences(df, entity_col, token_col, time_col)
+    rows = _entity_embedding_rows(entity_col, entity_order, sequences, embeddings, embedding_dim, with_oov_fraction=True)
     return pd.DataFrame(rows)
 
 
-__all__ = ["train_sequence2vec", "sequence2vec_entity_features"]
+__all__ = ["train_sequence2vec", "sequence2vec_entity_features", "sequence2vec_transform_new_entities"]
