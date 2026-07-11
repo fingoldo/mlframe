@@ -44,6 +44,7 @@ from mlframe.feature_selection.drop_raw_after_embedding import drop_raw_after_em
 from mlframe.feature_selection.greedy_backward_elimination import greedy_backward_elimination
 from mlframe.feature_selection.zero_importance_pruning import iterative_zero_importance_pruning
 from mlframe.feature_selection.stochastic_bandit_selection import stochastic_bandit_selection
+from mlframe.feature_selection.stochastic_bandit_selection_ensemble import stochastic_bandit_selection_ensemble, EnsembleSelectionResult
 from mlframe.feature_selection.varying_size_top_k_subsets import varying_size_top_k_subsets
 
 __all__ = [
@@ -81,6 +82,9 @@ __all__ = [
     "greedy_backward_elimination",
     "iterative_zero_importance_pruning",
     "stochastic_bandit_selection",
+    # opt-in multi-seed union/stability variant of stochastic_bandit_selection
+    "stochastic_bandit_selection_ensemble",
+    "EnsembleSelectionResult",
     # drop features that don't distinguish a reference/control cohort from the rest (KS-test)
     "drop_noninformative_vs_reference",
     # cheap univariate-AUC near-noise prescreen before MRMR/DCD

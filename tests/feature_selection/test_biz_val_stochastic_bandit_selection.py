@@ -16,6 +16,7 @@ from sklearn.metrics import r2_score
 from sklearn.model_selection import KFold, train_test_split
 
 from mlframe.feature_selection.stochastic_bandit_selection import stochastic_bandit_selection
+from mlframe.feature_selection.stochastic_bandit_selection_ensemble import stochastic_bandit_selection_ensemble
 
 
 def _make_overparameterized_regression(n: int, n_signal: int, n_noise: int, seed: int):
@@ -66,6 +67,59 @@ def test_biz_val_bandit_selection_beats_plain_random_search_on_average():
 
     assert mean_bandit > mean_random, f"expected adaptive-weighted search to beat plain random search on average across {n_seeds} seeds, got bandit={mean_bandit:.4f} random={mean_random:.4f}"
     assert mean_bandit >= 0.96, f"expected the bandit selector to recover a strong held-out R2, got {mean_bandit:.4f}"
+
+
+def _make_mixed_signal_regression(n: int, n_strong: int, n_weak: int, n_noise: int, seed: int):
+    """A signal pool with a few strong features (lock in almost every seed) and several weak-but-real ones
+    (lock in only on some seeds within a short epoch budget), among a large noise pool -- the exact regime
+    where a single bandit run's locked-in "top_feats" pool is itself a noisy sample of the true signal set.
+    """
+    rng = np.random.default_rng(seed)
+    n_signal = n_strong + n_weak
+    X_signal = rng.normal(size=(n, n_signal))
+    beta = np.concatenate([rng.normal(size=n_strong) * 4.0, rng.normal(size=n_weak) * 0.8])
+    y = X_signal @ beta + rng.normal(scale=1.5, size=n)
+    X_noise = rng.normal(size=(n, n_noise))
+    columns = [f"strong{i}" for i in range(n_strong)] + [f"weak{i}" for i in range(n_weak)] + [f"n{i}" for i in range(n_noise)]
+    X = pd.DataFrame(np.hstack([X_signal, X_noise]), columns=columns)
+    true_signal = set(columns[:n_signal])
+    return X, y, true_signal
+
+
+def test_biz_val_bandit_selection_ensemble_recovers_more_signal_than_single_seed():
+    X, y, true_signal = _make_mixed_signal_regression(n=200, n_strong=3, n_weak=5, n_noise=40, seed=7)
+    cv = KFold(n_splits=3, shuffle=True, random_state=0)
+    seeds = list(range(8))
+    common_kwargs = dict(subset_size=6, n_epochs=50, cv=cv, lock_in_threshold=2.5)
+
+    single_seed_recalls = []
+    for seed in seeds:
+        result = stochastic_bandit_selection_ensemble(Ridge(alpha=0.1), X, y, scoring=r2_score, seeds=[seed], **common_kwargs)
+        selected = set(result.union_top_feats)
+        single_seed_recalls.append(len(selected & true_signal) / len(true_signal))
+
+    mean_single_seed_recall = float(np.mean(single_seed_recalls))
+
+    ensemble_result = stochastic_bandit_selection_ensemble(Ridge(alpha=0.1), X, y, scoring=r2_score, seeds=seeds, **common_kwargs)
+    ensemble_selected = set(ensemble_result.union_top_feats)
+    ensemble_recall = len(ensemble_selected & true_signal) / len(true_signal)
+
+    assert ensemble_recall > mean_single_seed_recall, (
+        f"expected the {len(seeds)}-seed union to recover more of the true signal set than a lone seed on "
+        f"average, got ensemble={ensemble_recall:.4f} mean_single_seed={mean_single_seed_recall:.4f}"
+    )
+    assert ensemble_recall >= 0.55, f"expected the ensemble union to recover most of the true signal set, got {ensemble_recall:.4f}"
+
+    # the strong (easy) signal features should have near-unanimous cross-seed agreement, the weak ones lower --
+    # the stability diagnostic must actually distinguish reliable from lucky-guess selections.
+    strong_feats = [f for f in true_signal if f.startswith("strong")]
+    strong_stability = float(np.mean([ensemble_result.stability.get(f, 0.0) for f in strong_feats]))
+    noise_feats = [f for f in ensemble_result.union_top_feats if f.startswith("n")]
+    noise_stability = float(np.mean([ensemble_result.stability[f] for f in noise_feats])) if noise_feats else 0.0
+    assert strong_stability > noise_stability, (
+        f"expected strong-signal features to have higher cross-seed selection agreement than noise features "
+        f"that got selected by chance, got strong={strong_stability:.4f} noise={noise_stability:.4f}"
+    )
 
 
 def test_stochastic_bandit_selection_returns_requested_subset_size():
