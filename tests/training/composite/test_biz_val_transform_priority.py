@@ -69,3 +69,43 @@ def test_recommend_transform_candidates_never_drops_below_one_when_no_multiplica
     candidates = ["diff", "linear_residual"]
     recommended = recommend_transform_candidates(y, base, candidates)
     assert recommended == candidates
+
+
+def test_recommend_transform_candidates_auto_detect_is_opt_in_noop_when_omitted():
+    # Bit-identical default: a caller who never passes ``auto_detect`` gets the exact old behavior, even for
+    # a genuinely multiplicative pair where the caller forgot to list "ratio" among candidate_transforms.
+    _, y, base = _make_volatility_style_dataset(n=200, seed=5)
+    candidates = ["diff", "linear_residual"]  # no multiplicative candidate offered
+    recommended = recommend_transform_candidates(y, base, candidates)
+    assert recommended == candidates  # unchanged: no auto_detect, no multiplicative alternative present
+
+
+def test_biz_val_recommend_transform_candidates_auto_detect_finds_multiplicative_regime():
+    # The gap this closes: WITHOUT auto_detect, a caller who only offers additive candidates (never having
+    # asserted "this pair is multiplicative") gets stuck with diff/linear_residual only, even though the
+    # pair is genuinely ratio-stationary (Optiver-style volatility regime). auto_detect probes the data
+    # itself and both (a) surfaces "ratio" without the caller asserting the regime, and (b) proves that
+    # doing so is a real downstream quality win, not just a label change.
+    X, y, base = _make_volatility_style_dataset(n=500, seed=6)
+    candidates = ["diff", "linear_residual"]  # caller never asserts a multiplicative regime
+
+    recommended_naive = recommend_transform_candidates(y, base, candidates)
+    assert recommended_naive == candidates  # confirms the gap: no auto_detect -> stuck on additive-only
+
+    recommended_auto = recommend_transform_candidates(y, base, candidates, auto_detect=True)
+    assert "ratio" in recommended_auto
+    assert "diff" not in recommended_auto and "linear_residual" not in recommended_auto
+
+    # Downstream quality: the additive-only baseline a naive caller would have evaluated vs. the
+    # auto-detected ratio candidate, on genuinely held-out CV folds.
+    T_diff = _diff_forward(y, base, {})
+    r2_diff_baseline = float(np.mean(cross_val_score(Ridge(alpha=1.0), X, T_diff, cv=5, scoring="r2")))
+
+    ratio_params = _ratio_fit(y, base)
+    T_ratio = _ratio_forward(y, base, ratio_params)
+    r2_ratio_auto = float(np.mean(cross_val_score(Ridge(alpha=1.0), X, T_ratio, cv=5, scoring="r2")))
+
+    assert r2_ratio_auto > r2_diff_baseline + 0.1, (
+        f"expected auto-detected ratio to materially beat the additive-only baseline a naive caller would "
+        f"be stuck with, got ratio_r2={r2_ratio_auto:.4f} vs diff_baseline_r2={r2_diff_baseline:.4f}"
+    )
