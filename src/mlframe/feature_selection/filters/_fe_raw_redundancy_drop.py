@@ -65,15 +65,13 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any, Iterable, Optional, Sequence
+from typing import Iterable, Optional, Sequence
 
 import numpy as np
 
 from ._fe_raw_redundancy_helpers import (
     _is_pseudo_remix_child,
     raw_retains_signal_given_genuine_children,
-    _recipe_subexprs,
-    _subexpr_continuous,
     _excess_and_floor,
     _rank_transform,
     _residualize,  # noqa: F401
@@ -227,7 +225,7 @@ def drop_redundant_raw_operands(
     """
     import os as _os
 
-    from ._mi_greedy_cmi_fe import _quantile_bin, _renumber_joint
+    from ._mi_greedy_cmi_fe import _renumber_joint
 
     sel = list(selected_cols_idx)
     n_rows = int(np.asarray(y_binned).shape[0])
@@ -256,386 +254,33 @@ def drop_redundant_raw_operands(
         except Exception:
             _gate_resident = False
 
-    def _dev_from_cont(_vals) -> Any:
-        """RESIDENT int64 codes from CONTINUOUS values via the device equi-frequency binner (identical
-        partition to ``_quantile_bin``), or ``None`` when residency is off / the column is non-finite / cupy
-        faults -- the caller then keeps the host ``_quantile_bin`` codes."""
-        if not _gate_resident:
-            return None
-        try:
-            _v = np.asarray(_vals, dtype=np.float64)
-            if not np.isfinite(_v).all():
-                return None
-            from ._mi_greedy_cmi_fe import _quantile_bin_gpu_resident
-            return _quantile_bin_gpu_resident(_v, int(_eng_card))
-        except Exception:
-            return None
+    from ._fe_raw_redundancy_anchors import build_raw_redundancy_anchors
 
-    def _dev_from_codes(_codes) -> Any:
-        """RESIDENT int64 codes for an ALREADY-BINNED host int column (the lossy ``data`` screening codes),
-        uploaded ONCE and kept resident so the scored candidate's device sites read it without re-crossing
-        H2D. Routed through the content-keyed resident cache (``cmi_cand_x``), so the SAME content the gate /
-        anchor already uploaded HITS that copy. ``None`` when residency is off or cupy faults."""
-        if not _gate_resident:
-            return None
-        try:
-            from ._fe_resident_operands import resident_code_operand
-            return resident_code_operand(np.asarray(_codes).ravel(), "cmi_cand_x")
-        except Exception:
-            return None
+    _ctx = build_raw_redundancy_anchors(
+        data=data, cols=list(cols), sel=sel, raw_name_set=raw_name_set, y_binned=y_binned,
+        y_continuous=y_continuous, engineered_continuous=engineered_continuous,
+        replayable_eng_names=replayable_eng_names, recipes=recipes, raw_X=raw_X, seed=seed,
+        verbose=verbose, n_rows=n_rows, gate_resident=_gate_resident,
+    )
+    _early_return: Optional[tuple[list, list]] = _ctx.early_return
+    if _early_return is not None:
+        return _early_return
 
-    sel_names = [cols[i] for i in sel]
-    # Engineered survivors = selected columns whose name is not a raw column.
-    eng_idx = [i for i, nm in zip(sel, sel_names) if nm not in raw_name_set]
-    raw_sel_idx = [i for i, nm in zip(sel, sel_names) if nm in raw_name_set]
-    if not eng_idx or not raw_sel_idx:
-        return sel, []
-
-    # REPLAYABLE-ANCHOR GUARD (2026-06-11). A raw operand can only be conditionally
-    # redundant given an engineered child that will SURVIVE into the fitted
-    # ``transform()`` output. A nested-engineered survivor (parents themselves
-    # engineered -> no 1-deep replayable recipe) is dropped from transform output;
-    # if it is allowed to anchor the redundancy verdict it deletes BOTH the raw
-    # operands it "subsumes" AND itself -> an EMPTY selection that hands the
-    # downstream model zero features (observed on the canonical
-    # ``y=a**2/b + log(c)*sin(d)`` fixture where the strongest survivor was the
-    # un-replayable ``add(prewarp(div(sqr(a),abs(b))),neg(mul(log(c),sin(d))))``,
-    # so a/b/c/d all dropped and the support went empty). Restrict the engineered
-    # subsumer/anchor set to replayable survivors. ``None`` keeps the legacy
-    # behaviour (trust every survivor) for callers that guarantee replayability.
-    if replayable_eng_names is not None:
-        _replayable = set(replayable_eng_names)
-        eng_idx = [i for i in eng_idx if cols[i] in _replayable]
-        if not eng_idx:
-            if verbose:
-                logger.info(
-                    "raw-redundancy: no REPLAYABLE engineered survivor anchors the "
-                    "redundancy verdict (all engineered survivors are nested / "
-                    "un-replayable and would be dropped from transform output); "
-                    "keeping all raw operands."
-                )
-            return sel, []
-
-    # raw_name -> list of engineered survivor column indices that consume it.
-    # Cache the per-engineered raw-base set on this first pass; the identical
-    # token-split + raw-base lookup is reused below to build ``_eng_signal_parents``.
-    eng_consumers: dict[str, list[int]] = {}
-    _eng_base_sets: dict[int, set[str]] = {}
-    for ei in eng_idx:
-        toks = [t for t in _TOKEN_SPLIT.split(cols[ei]) if t]
-        # Map ``a__He3``-style warped tokens back to their raw base too.
-        bases = set()
-        for t in toks:
-            if t in raw_name_set:
-                bases.add(t)
-            elif "__" in t and t.split("__", 1)[0] in raw_name_set:
-                bases.add(t.split("__", 1)[0])
-        _eng_base_sets[ei] = bases
-        for base in bases:
-            eng_consumers.setdefault(base, []).append(ei)
-
-    if not eng_consumers:
-        return sel, []
-
-    # Target codes. Prefer an EQUI-FREQUENCY re-binning of the CONTINUOUS target on a
-    # skewed regression target: the screening ``classes_y`` is frequently heavily
-    # imbalanced (``y=(a**2)/b`` puts ~89% of rows in one bin), which crushes the
-    # engineered anchor's MI (measured 0.31 vs the faithful 2.0) and inflates a subsumed
-    # operand's apparent residual fraction past the relative bar -- wrongly KEEPING it. An
-    # equi-frequency target restores the faithful anchor and the redundant operand's frac
-    # collapses to ~0. Only re-bin a genuinely CONTINUOUS target (many distinct values);
-    # an already-discrete / classification target keeps its class codes.
-    y_arr = np.ascontiguousarray(np.asarray(y_binned)).ravel()
-    if not np.issubdtype(y_arr.dtype, np.integer):
-        y_arr = y_arr.astype(np.int64)
-    _target_card = int(np.unique(y_arr).size)
-    if y_continuous is not None:
-        _yc = np.asarray(y_continuous).reshape(-1)
-        if _yc.shape[0] == n_rows and np.issubdtype(_yc.dtype, np.number):
-            # Continuous iff far more distinct values than the (possibly collapsed) code
-            # cardinality -- avoids re-binning an already-discrete few-class target.
-            if int(np.unique(_yc).size) > max(2 * _BINS, 2 * _target_card):
-                _nb = int(min(max(_BINS, _target_card), max(2, n_rows // (_BINS * _SUPPORT_FRAG_DIVISOR))))
-                y_arr = np.ascontiguousarray(_quantile_bin(_yc.astype(np.float64), nbins=_nb)).astype(np.int64)
-                _target_card = int(np.unique(y_arr).size)
-
-    # Bin the engineered survivors at the TARGET cardinality (>= _BINS) FROM THEIR
-    # CONTINUOUS VALUES so the engineered column resolves y as finely as the target
-    # codes do. Two binning hazards this avoids:
-    #   * the ``data`` column is the LOSSY ~10-code screening bin -- re-binning those
-    #     codes cannot recover resolution the screen already threw away, so a
-    #     fully-subsumed DENOMINATOR operand (``b`` in ``a**2/b``) shows a spurious
-    #     residual CMI given the coarse ratio and is wrongly kept (measured ws1
-    #     ``b`` at n=2k: CMI(b|eng_codes)=0.05, anchor only 0.28). Binning the
-    #     CONTINUOUS engineered value at the target cardinality lifts the anchor to
-    #     its true ~2.0 and collapses ``b``'s residual.
-    #   * production ``classes_y`` grows with n (~11 bins at n=2k, ~23 at n=25k); a
-    #     fixed coarse engineered binning under a finer target re-opens the same
-    #     mismatch. Tying the engineered binning to the target cardinality cancels
-    #     it at every n, while a GENUINE shared operand keeps its private excess
-    #     (F4 ``b`` stays well above the relative bar).
-    # The cardinality is capped by a fragmentation guard so the JOINT consuming-
-    # survivor support keeps measurable strata at small n.
-    _eng_card = int(min(max(_BINS, int(np.unique(y_arr).size)), max(2, n_rows // (_BINS * _SUPPORT_FRAG_DIVISOR))))
-    _eng_cont = engineered_continuous or {}
-
-    # RAW-OPERAND BINNING (2026-06-15 compromise). The prior design binned the raw at the LOSSY fit codes
-    # in ``data`` and deliberately did NOT up-resolve (a finer raw binning inflates its residual CMI -> bias
-    # toward KEEP, the unsafe direction). That holds in the tuned regime (fit nbins >= the engineered
-    # survivors' resolution _eng_card), but at a COARSE fit nbins (e.g. 5) the ~5-code raw binning washes
-    # out a genuine INDEPENDENT linear residual (equal-coef sum operands), OVER-dropping them and emptying
-    # the raw support (never-empty regression at nbins=5). Compromise: up-resolve the raw from its
-    # CONTINUOUS values ONLY when the fit codes are COARSER than _eng_card, and CAP at _eng_card -- i.e.
-    # match the engineered survivor's resolution, NEVER finer (so the prior inflation concern is honoured;
-    # the "32 bins inflated the residual" failure mode is excluded). In the tuned regime (fit levels >=
-    # _eng_card) this is BYTE-IDENTICAL to the prior fit-code path -- the raw is still judged at the
-    # resolution the selector saw. Fair-comparison rationale: the raw and the consuming survivor are then
-    # binned at the SAME cardinality, so the conditional-excess verdict is not skewed by a resolution gap.
-    _raw_codes_cache: dict = {}
-    # Parallel RESIDENT-code cache: for each raw ``_ridx`` the device-born int64 codes (byte-identical to the
-    # host ``_raw_codes`` partition) fed to the SCORED-candidate device sites. Populated on the first
-    # ``_raw_codes`` build; ``None`` for a column that failed the device binner (host fallback).
-    _raw_dev_cache: dict = {}
-    def _raw_codes(_rname, _ridx):
-        """Cached binned codes for raw column ``_ridx`` at the fair-comparison resolution (up-resolved from
-        continuous values to ``_eng_card`` only when the fit codes in ``data`` are coarser, never finer -- see
-        the 2026-06-15 compromise note above). Also populates the parallel resident-code cache used by the
-        device-born scoring sites; a column is computed once per call regardless of how many consumers score it."""
-        if _ridx in _raw_codes_cache:
-            return _raw_codes_cache[_ridx]
-        _fit = np.asarray(data[:, _ridx]).astype(np.int64).ravel()
-        _levels = (int(_fit.max()) + 1) if _fit.size else 0
-        _out = _fit
-        _dev = None
-        if raw_X is not None and 0 < _levels < _eng_card:
-            try:
-                _rc = None
-                if hasattr(raw_X, "columns") and _rname in getattr(raw_X, "columns", []):
-                    _rc = np.asarray(raw_X[_rname], dtype=np.float64).ravel()
-                if _rc is not None and _rc.shape[0] == n_rows and np.isfinite(_rc).any():
-                    _clean = np.nan_to_num(_rc, nan=0.0, posinf=0.0, neginf=0.0)
-                    _dev = _dev_from_cont(_clean)  # device-born codes = same percentile-edge partition
-                    if _dev is not None:
-                        import cupy as _cp
-                        _out = _cp.asnumpy(_dev).astype(np.int64)   # host copy = D2H of the SAME resident partition
-                    else:
-                        _out = np.ascontiguousarray(_quantile_bin(_clean, nbins=_eng_card)).astype(np.int64)
-            except Exception:
-                _out = _fit
-                _dev = None
-        if _dev is None:
-            # The lossy ``data`` fit codes (or a host-fallback bin): upload once, kept resident so the scored
-            # candidate reads it without re-crossing H2D (host copy stays the source of truth for _renumber_joint).
-            _dev = _dev_from_codes(_out)
-        _raw_codes_cache[_ridx] = _out
-        _raw_dev_cache[_ridx] = _dev
-        return _out
-
-    def _raw_dev(_rname, _ridx):
-        """RESIDENT int64 codes for the raw operand scored as the CANDIDATE, byte-identical to ``_raw_codes``;
-        ``None`` -> the caller passes the host codes (which the device sites then upload, as before)."""
-        if _ridx not in _raw_codes_cache:
-            _raw_codes(_rname, _ridx)
-        return _raw_dev_cache.get(_ridx)
-    eng_bin: dict[int, np.ndarray] = {}
-    # RESIDENT (device) twin of each engineered conditioning code (None where it fell back to host binning). Used
-    # to build the round conditioning support DEVICE-BORN (``_renumber_joint_gpu``) so it never crosses H2D.
-    eng_bin_dev: dict = {}
-    eng_anchor_excess: dict[int, float] = {}
-    for ei in eng_idx:
-        _ename = cols[ei]
-        _cont = _eng_cont.get(_ename)
-        _eb_dev = None
-        if _cont is not None and np.asarray(_cont).shape[0] == n_rows:
-            # Fine binning from the continuous engineered values (preferred). Device-bin ONCE (resident codes
-            # for the scored anchor MI); the host copy = D2H of the SAME partition, kept for the ``_renumber_joint``
-            # conditioning-support build (``eng_bin[ei]`` feeds ``z_support`` below). Host fallback on cupy fault.
-            _cvals = np.asarray(_cont, dtype=np.float64)
-            _eb_dev = _dev_from_cont(_cvals)
-            if _eb_dev is not None:
-                import cupy as _cp
-                eb = _cp.asnumpy(_eb_dev).astype(np.int64)
-            else:
-                eb = _quantile_bin(_cvals, nbins=_eng_card)
-        else:
-            # Fallback: the lossy screening codes already in ``data`` (use as-is;
-            # re-binning coarse codes gains nothing). Conservative -- a missing
-            # continuous value can only make the gate KEEP more (smaller anchor).
-            eb = np.asarray(data[:, ei]).astype(np.int64).ravel()
-            _eb_dev = _dev_from_codes(eb)
-        eng_bin[ei] = eb
-        eng_bin_dev[ei] = _eb_dev
-        # Score the anchor MI from the RESIDENT codes when available so the candidate never re-crosses H2D at
-        # the ``cmi_cand_x`` / ``permnull_cand_x`` sites; host codes otherwise.
-        _, _, exc = _excess_and_floor(_eb_dev if _eb_dev is not None else eb, y_arr, None, seed=seed, kx=(int(eb.max()) + 1 if getattr(eb, "size", 0) else 1))
-        eng_anchor_excess[ei] = exc
-
-    # DPI-TRAP GUARD (2026-06-10): an engineered child is a LEGITIMATE subsumer of a
-    # raw operand only when it draws genuine signal from a SECOND raw source -- i.e.
-    # it re-expresses a COMBINATION (the ``a**2/b`` ratio ``div(neg(a),sqrt(b))``,
-    # the interaction product ``mul(x_a,x_b)``) rather than being a sole-operand
-    # monotone/basis transform of the raw itself (``relu_lt(x_a)`` / ``exp(x0)`` /
-    # ``He2(a)`` ...). Conditioning a raw on a basis of ITSELF is the data-processing-
-    # inequality trap the S5 gate docstring warns about: CMI(raw; y | own-transform)
-    # collapses to ~0 for EVERY raw -- genuine OR redundant -- so it cannot
-    # distinguish a fully-subsumed operand from one carrying a private additive term
-    # the transform does not span (e.g. the LINEAR ``x_a`` in ``sign(x_a+x_b+2 x_a x_b)``
-    # given ``mul(x_a,x_b)`` -- raw retains CMI ~0.32). A "second signal-bearing
-    # source" is another raw parent whose OWN marginal debiased excess clears its
-    # marginal permutation null (so a child built from the raw + a NOISE column, e.g.
-    # ``add(exp(x0),sign(x3))`` where x3 is pure noise, is NOT a legitimate subsumer:
-    # x0 is its only signal source). When a raw has NO legitimate multi-source
-    # consumer it is never redundancy-dropped here -- the protective retention stands.
-    # Compute each raw operand's MARGINAL (cmi, floor, debiased-excess) once (one
-    # marginal perm-null per consumed raw); cache the tuple. The marginal excess is
-    # the raw's OWN signal scale, reused below as (a) the "signal-bearing source"
-    # test and (b) the keep-rule's self-retention reference.
-    _raw_marg_cache: dict[str, tuple] = {}
-
-    def _raw_marginal(_rname: str) -> tuple:
-        """Cached ``(cmi, floor, debiased_excess)`` for the raw's UNCONDITIONAL relationship with ``y``: the
-        raw's own signal scale, reused both as the "is this raw a legitimate signal-bearing parent" test
-        (DPI-trap guard) and as the keep-rule's self-retention reference. Computed once per raw name."""
-        if _rname in _raw_marg_cache:
-            return _raw_marg_cache[_rname]
-        try:
-            _ridx = cols.index(_rname)
-        except ValueError:
-            _raw_marg_cache[_rname] = (0.0, 0.0, 0.0)
-            return _raw_marg_cache[_rname]
-        _rb = _raw_codes(_rname, _ridx)
-        _rb_dev = _raw_dev(_rname, _ridx)  # RESIDENT candidate code (scored marginal) -> no re-upload; host otherwise
-        _res = _excess_and_floor(_rb_dev if _rb_dev is not None else _rb, y_arr, None, seed=seed, kx=(int(_rb.max()) + 1 if getattr(_rb, "size", 0) else 1))
-        _raw_marg_cache[_rname] = _res
-        return _res  # type: ignore[no-any-return]  # _excess_and_floor returns a tuple; its own annotation is loose (Any-heavy internals)
-
-    def _raw_is_signal_bearing(_rname: str) -> bool:
-        """True iff the raw's marginal CMI clears its own permutation floor with positive debiased excess --
-        the "second signal source" test the DPI-trap guard uses to tell a genuine combination parent from a
-        noise operand paired into an engineered child (e.g. the noise ``x3`` in ``add(exp(x0),sign(x3))``)."""
-        _mcmi, _mfloor, _mexc = _raw_marginal(_rname)
-        return bool(_mcmi > _mfloor and _mexc > 0.0)
-
-    # raw_name -> list of engineered survivor names that consume it (parsed earlier
-    # as ``eng_consumers``). Build the set of distinct SIGNAL-BEARING raw parents of
-    # each engineered survivor so we can tell a true combination from a self-transform.
-    _eng_signal_parents: dict[int, set[str]] = {}
-    for ei in eng_idx:
-        # Reuse the raw-base set cached during the ``eng_consumers`` pass above
-        # (identical token-split + raw-base extraction) instead of recomputing it.
-        _parents = _eng_base_sets.get(ei)
-        if _parents is None:
-            _parents = set()
-            for t in (t for t in _TOKEN_SPLIT.split(cols[ei]) if t):
-                base = t if t in raw_name_set else (t.split("__", 1)[0] if ("__" in t and t.split("__", 1)[0] in raw_name_set) else None)
-                if base is not None:
-                    _parents.add(base)
-        _eng_signal_parents[ei] = {p for p in _parents if _raw_is_signal_bearing(p)}
-
-    # NESTED-OPERAND CLEAN-SUBEXPRESSION ANCHOR (BUG1, 2026-06-12). A selected
-    # survivor may be a FUSED composite that combines two independent signal terms
-    # into one feature -- e.g. ``add(div(log(c),reciproc(d)),abs(div(sqr(a),abs(b))))``
-    # fuses the ``a**2/b`` ratio with the ``log(c)*sin(d)`` product. Conditioning a
-    # raw operand ``a`` on the WHOLE fused composite does NOT cleanly isolate a's
-    # capture: the second term acts as nuisance variation across the conditioning
-    # strata, so ``CMI(a; y | fused_composite)`` retains a spurious residual and the
-    # raw is wrongly KEPT (the BUG1 seed-dependent failure: the composite collapses
-    # the whole selection on some seeds -> never-empty path drops a, but on seeds
-    # where ``a`` is selected ALONGSIDE the composite the main path here ran and kept
-    # it). The fix walks the consumer's recipe operand TREE (the dataclass
-    # nested-parent structure, not str()) for the CLEANEST ``rname``-containing
-    # sub-expression -- the tightest sub-recipe that still contains ``rname`` plus a
-    # SECOND signal-bearing raw (a true combination, not a self-transform) -- replays
-    # it to its own continuous values, and conditions ``rname`` on THAT. On the user
-    # fixture the cleanest sub-expression of ``a`` is ``div(sqr(a),abs(b))`` = a**2/b,
-    # which captures ``a`` fully -> conditional excess collapses -> DROP. A GENUINE
-    # private term (``y += 3*a``) keeps a large residual given the same clean ratio
-    # sub-expression -> KEPT (the over-drop control). Conservative: any failure to
-    # parse / replay falls back to the fused composite bin (the KEEP direction).
-    _recipes = recipes or {}
-    # (rname, ei) -> binned clean sub-expression conditioning column (or None).
-    _clean_subexpr_bin: dict[tuple, np.ndarray] = {}
-    # (rname, ei) -> RESIDENT (device) twin of the clean sub-expression code (None where host-binned), so a
-    # conditioning support that uses the clean sub-expression can still be built DEVICE-BORN.
-    _clean_subexpr_bin_dev: dict = {}
-    if _recipes and raw_X is not None:
-        # Pre-extract each consumer's sub-recipe tree once.
-        _consumer_subtrees: dict[int, dict] = {}
-        for ei in eng_idx:
-            _r = _recipes.get(cols[ei])
-            if _r is not None:
-                _consumer_subtrees[ei] = _recipe_subexprs(_r)
-
-        def _subexpr_signal_parents(_sub) -> set:
-            """Signal-bearing raw parents referenced by a recipe sub-expression node's name (same
-            token-split + ``_raw_is_signal_bearing`` filter as the top-level ``_eng_signal_parents`` build,
-            applied to one candidate sub-expression instead of the whole engineered survivor)."""
-            _p = set()
-            for _t in _TOKEN_SPLIT.split(getattr(_sub, "name", "") or ""):
-                if not _t:
-                    continue
-                _base = _t if _t in raw_name_set else (_t.split("__", 1)[0] if ("__" in _t and _t.split("__", 1)[0] in raw_name_set) else None)
-                if _base is not None:
-                    _p.add(_base)
-            return {p for p in _p if _raw_is_signal_bearing(p)}
-
-        for ei, _subtree in _consumer_subtrees.items():
-            for _rn in raw_name_set:
-                # Candidate sub-expressions: contain ``_rn`` AND a second signal-bearing
-                # raw (true combination -> not a DPI-trap self-transform).
-                _cands = []
-                for _sname, _sub in _subtree.items():
-                    _sp = _subexpr_signal_parents(_sub)
-                    if _rn in _sp and len(_sp - {_rn}) >= 1:
-                        _cands.append((len(_sp), _sname, _sub))
-                if not _cands:
-                    continue
-                # CLEANEST = fewest signal-bearing parents (tightest isolation of the
-                # raw's capture). Ties broken by the SHORTER name (the inner node).
-                _cands.sort(key=lambda t: (t[0], len(t[1])))
-                _, _best_name, _best_sub = _cands[0]
-                # Only worth a separate anchor if it is a PROPER sub-expression of the
-                # whole survivor (fewer signal-bearing parents than the survivor) --
-                # otherwise the survivor bin already isolates the raw and no
-                # nuisance-fusion problem exists.
-                if len(_subexpr_signal_parents(_best_sub)) >= len(_eng_signal_parents.get(ei, set())):
-                    continue
-                _vals = _subexpr_continuous(_best_sub, raw_X)
-                if _vals is None or _vals.shape[0] != n_rows:
-                    continue
-                # Device-bin the clean sub-expression ONCE (resident twin for the device-born support build); the
-                # host copy is the D2H of the SAME percentile-edge partition (byte-identical to _quantile_bin).
-                _cvals_clean = np.asarray(_vals, dtype=np.float64)
-                _cs_dev = _dev_from_cont(_cvals_clean)
-                if _cs_dev is not None:
-                    import cupy as _cp
-                    _clean_subexpr_bin[(_rn, ei)] = _cp.asnumpy(_cs_dev).astype(np.int64)
-                    _clean_subexpr_bin_dev[(_rn, ei)] = _cs_dev
-                else:
-                    _clean_subexpr_bin[(_rn, ei)] = _quantile_bin(_cvals_clean, nbins=_eng_card)
-                    _clean_subexpr_bin_dev[(_rn, ei)] = None
-                if verbose:
-                    logger.info(
-                        "raw-redundancy: conditioning raw %s on CLEAN nested sub-expression "
-                        "%s (isolated from fused composite %s) instead of the whole composite.",
-                        _rn, _best_name, cols[ei],
-                    )
+    eng_consumers = _ctx.eng_consumers
+    y_arr = _ctx.y_arr
+    eng_bin = _ctx.eng_bin
+    eng_bin_dev = _ctx.eng_bin_dev
+    eng_anchor_excess = _ctx.eng_anchor_excess
+    _eng_signal_parents = _ctx.eng_signal_parents
+    _clean_subexpr_bin = _ctx.clean_subexpr_bin
+    _clean_subexpr_bin_dev = _ctx.clean_subexpr_bin_dev
+    _raw_marginal = _ctx.raw_marginal
+    _raw_codes = _ctx.raw_codes
+    _raw_dev = _ctx.raw_dev
+    _join_dev = _ctx.join_dev
+    raw_sel_idx = _ctx.raw_sel_idx
 
     drop_names: list[str] = []
-    def _join_dev(*dev_codes):
-        """DEVICE-BORN conditioning-support join of the resident conditioning codes (``_renumber_joint_gpu``), so
-        the support never crosses H2D (the ``cmi_z`` + perm-null order/z_rank uploads). Returns the resident
-        joint OR None when any code lacks a resident twin (resident path off / host-fallback binning) / on any
-        cupy fault -> the caller scores the host support (byte path unchanged). Same partition as the host
-        ``_renumber_joint`` -> selection-identical CMI."""
-        if not dev_codes or any(_d is None for _d in dev_codes):
-            return None
-        try:
-            from ._mi_greedy_cmi_fe import _renumber_joint_gpu
-            return _renumber_joint_gpu(*dev_codes)[0]
-        except Exception:
-            return None
-
     drop_idx_set: set[int] = set()
     for ri in raw_sel_idx:
         rname = cols[ri]
