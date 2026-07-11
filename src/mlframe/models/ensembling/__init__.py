@@ -69,6 +69,8 @@ from .selection import (
     CaruanaSelectionResult,
     greedy_backward_ensemble_elimination,
     rank_average_blend,
+    stepwise_ensemble_selection,
+    StepwiseSelectionResult,
 )
 
 

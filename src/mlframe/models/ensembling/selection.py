@@ -17,7 +17,13 @@ does not yet cover:
   equally, which plain / geometric mean cannot guarantee. It differs from the existing RRF blend
   (``1/(k+rank)`` reciprocal-rank fusion, top-heavy) by using the linear rank directly, matching the lecture.
 
-Both consume a stacked ``(M, N)`` or ``(M, N, K)`` prediction matrix (M models, N rows, optional K classes),
+Also :func:`greedy_backward_ensemble_elimination` (prune the full uniform-mean bag down) and
+:func:`stepwise_ensemble_selection` (alternate forward-add / backward-remove passes, the bidirectional/stepwise
+selection pattern applied to ensemble members instead of features -- escapes local optima that pure forward
+selection cannot reach, since it can revisit and drop an earlier pick once later members change the bag's
+composition).
+
+All consume a stacked ``(M, N)`` or ``(M, N, K)`` prediction matrix (M models, N rows, optional K classes),
 mirroring the ``combine_probs`` / ``rrf_ensemble`` shape contract. Leakage: for HONEST weights the caller must
 pass an OUT-OF-FOLD prediction matrix + the matching y (same contract as the NNLS stacker); the module cannot
 verify out-of-foldness.
@@ -406,3 +412,182 @@ def greedy_backward_ensemble_elimination(
         best_score = best_cand_score
 
     return BackwardEliminationResult(kept=kept, removed_order=removed_order, score=float(best_score))
+
+
+class StepwiseSelectionResult:
+    """Result of :func:`stepwise_ensemble_selection`.
+
+    Attributes
+    ----------
+    kept : list[int]
+        Surviving model indices (uniform-mean blend of these is the final ensemble).
+    order : list[int]
+        Model indices in the order they were added (forward steps only, chronological).
+    removed_order : list[int]
+        Model indices in the order they were removed by a backward step.
+    score : float
+        Held-out metric of the ``kept`` uniform-mean blend.
+    """
+
+    __slots__ = ("kept", "order", "removed_order", "score")
+
+    def __init__(self, kept, order, removed_order, score):
+        self.kept = kept
+        self.order = order
+        self.removed_order = removed_order
+        self.score = score
+
+    def predict(self, stacked: np.ndarray) -> np.ndarray:
+        """Uniform-mean blend of a NEW stacked ``(M, N[, K])`` matrix restricted to ``self.kept``."""
+        arr = np.asarray(stacked, dtype=np.float64)
+        return np.asarray(arr[self.kept].mean(axis=0))
+
+
+def stepwise_ensemble_selection(
+    stacked: np.ndarray,
+    y: np.ndarray,
+    *,
+    metric: Optional[Callable] = None,
+    greater_is_better: bool = True,
+    max_picks: int = 100,
+    max_rounds: int = 200,
+    with_replacement: bool = False,
+    tol: float = 0.0,
+    min_models: int = 1,
+) -> StepwiseSelectionResult:
+    """Bidirectional (stepwise) ensemble member selection: alternate forward-add and backward-remove passes.
+
+    Classic stepwise/bidirectional selection (as used for FEATURE selection) applied to ensemble members: after
+    each forward step adds the single best-improving model to the bag (uniform mean, same candidate rule as
+    :func:`caruana_greedy_selection`), a backward pass is attempted over the CURRENT bag to see whether dropping
+    some earlier-added member now improves the held-out score, given the bag's current composition. The member
+    just added in this round is excluded from that round's backward pass so the walk cannot immediately undo its
+    own forward step (which would oscillate add/remove of the same model forever).
+
+    This escapes local optima that pure forward selection (:func:`caruana_greedy_selection` with
+    ``with_replacement=False``) cannot reach: forward selection might pick model A first because it looks best
+    alone, and every subsequent add still strictly improves the running bag (so forward never stops early) --
+    but once B and C are both present, the bag may score higher WITHOUT A. Pure forward selection can never
+    revisit that choice once A is in the bag; stepwise's interleaved backward pass can drop it.
+
+    Reuses the running-sum trick from :func:`greedy_backward_ensemble_elimination`: the bag's summed predictions
+    are maintained incrementally (``running_sum += arr[added]`` / ``running_sum -= arr[removed]``), so every
+    candidate evaluation in both directions is an O(1) update plus one metric call -- never an O(bag_size) resum.
+
+    Parameters
+    ----------
+    stacked : np.ndarray
+        ``(M, N)`` or ``(M, N, K)`` held-out (ideally OUT-OF-FOLD) model x row [x class] prediction tensor.
+    y : np.ndarray
+        Length-N ground truth aligned to the row axis.
+    metric : callable, optional
+        ``metric(y_true, blend) -> float``. Default ``None`` uses ROC-AUC on the positive-class score.
+    greater_is_better : bool
+        Whether higher ``metric`` is better (default True; set False for a loss like RMSE / log-loss).
+    max_picks : int
+        Maximum forward additions across the whole walk (bag size ceiling, mirrors ``caruana_greedy_selection``).
+    max_rounds : int
+        Maximum forward-then-backward rounds; each round is at most one add followed by at most one remove, so
+        this also caps the total number of removals. Guards against pathological oscillation even though the
+        same-round re-removal guard already makes infinite oscillation impossible.
+    with_replacement : bool
+        Allow re-adding a model that is not currently in the bag after having been removed earlier (default
+        False: once a model is removed it stays out, matching plain feature-style stepwise selection). When
+        True, any model not CURRENTLY in the bag -- including one removed in an earlier round -- is a forward
+        candidate again.
+    tol : float
+        Minimum improvement required to take a step (add or remove); a step must beat the current best score by
+        more than ``tol`` or that direction is skipped.
+    min_models : int
+        Never remove below this many surviving models.
+
+    Returns
+    -------
+    StepwiseSelectionResult
+        Surviving model indices / add order / remove order / best score reached.
+    """
+    arr = np.asarray(stacked, dtype=np.float64)
+    if arr.ndim not in (2, 3):
+        raise ValueError(f"stepwise_ensemble_selection: stacked must be (M, N) or (M, N, K); got {arr.shape}.")
+    m, n = arr.shape[0], arr.shape[1]
+    if m == 0:
+        raise ValueError("stepwise_ensemble_selection: empty model axis (M=0).")
+    yv = np.asarray(y).reshape(-1)
+    if yv.shape[0] != n:
+        raise ValueError(f"stepwise_ensemble_selection: y length {yv.shape[0]} != row axis N={n}.")
+    if max_picks < 1:
+        raise ValueError(f"stepwise_ensemble_selection: max_picks must be >= 1, got {max_picks}.")
+    if min_models < 1:
+        raise ValueError(f"stepwise_ensemble_selection: min_models must be >= 1, got {min_models}.")
+
+    sign = 1.0 if greater_is_better else -1.0
+
+    def _better(a: float, b: float) -> bool:
+        return sign * (a - b) > tol
+
+    single_scores = np.array([_score_blend(arr[i], yv, metric) for i in range(m)], dtype=np.float64)
+    best_single = int(np.argsort(-sign * single_scores)[0])  # index of the best single model (sign-aware)
+
+    kept: list[int] = [best_single]
+    order: list[int] = [best_single]
+    removed_order: list[int] = []
+    running_sum = arr[best_single].copy()
+    bag_size = 1
+    n_picks = 1
+    best_score = _score_blend(running_sum / bag_size, yv, metric)
+
+    for _round in range(max_rounds):
+        if n_picks >= max_picks:
+            break
+        # --- forward step: add the single best-improving model not currently in the bag. ---
+        already_in = set(kept)
+        if with_replacement:
+            fwd_candidates = [i for i in range(m) if i not in already_in]
+        else:
+            ever_removed = set(removed_order)
+            fwd_candidates = [i for i in range(m) if i not in already_in and i not in ever_removed]
+        added_this_round = -1
+        if fwd_candidates:
+            new_size = bag_size + 1
+            best_cand, best_cand_score = -1, best_score
+            for i in fwd_candidates:
+                cand_blend = (running_sum + arr[i]) / new_size
+                s = _score_blend(cand_blend, yv, metric)
+                if _better(s, best_cand_score):
+                    best_cand_score = s
+                    best_cand = i
+            if best_cand >= 0:
+                kept.append(best_cand)
+                order.append(best_cand)
+                running_sum += arr[best_cand]
+                bag_size = new_size
+                n_picks += 1
+                best_score = best_cand_score
+                added_this_round = best_cand
+
+        # --- backward step: on the CURRENT bag, try dropping an earlier-added member (never the one just added
+        # this round, which would just undo the forward step and oscillate forever). ---
+        removed_this_round = False
+        if bag_size > min_models:
+            bwd_candidates = [i for i in kept if i != added_this_round]
+            if bwd_candidates:
+                new_size = bag_size - 1
+                best_cand, best_cand_score = -1, best_score
+                for i in bwd_candidates:
+                    cand_blend = (running_sum - arr[i]) / new_size
+                    s = _score_blend(cand_blend, yv, metric)
+                    if _better(s, best_cand_score):
+                        best_cand_score = s
+                        best_cand = i
+                if best_cand >= 0:
+                    running_sum -= arr[best_cand]
+                    bag_size = new_size
+                    kept.remove(best_cand)
+                    removed_order.append(best_cand)
+                    best_score = best_cand_score
+                    removed_this_round = True
+
+        if added_this_round < 0 and not removed_this_round:
+            break  # neither direction moved this round -> converged, stop early
+
+    return StepwiseSelectionResult(kept=kept, order=order, removed_order=removed_order, score=float(best_score))

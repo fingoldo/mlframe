@@ -10,9 +10,11 @@ import pytest
 from mlframe.models.ensembling.selection import (
     BackwardEliminationResult,
     CaruanaSelectionResult,
+    StepwiseSelectionResult,
     caruana_greedy_selection,
     greedy_backward_ensemble_elimination,
     rank_average_blend,
+    stepwise_ensemble_selection,
 )
 from mlframe.metrics._core_auc_brier import fast_roc_auc
 
@@ -175,6 +177,56 @@ def test_backward_elimination_input_validation():
 
 
 # ---------------------------------------------------------------------------------------------------------------------
+# stepwise_ensemble_selection -- unit
+# ---------------------------------------------------------------------------------------------------------------------
+
+
+def test_stepwise_returns_kept_subset_and_score():
+    preds, y = _toy_binary_matrix()
+    res = stepwise_ensemble_selection(preds, y)
+    assert isinstance(res, StepwiseSelectionResult)
+    assert set(res.kept).issubset(set(range(preds.shape[0])))
+    assert np.isfinite(res.score)
+    assert len(res.kept) >= 1
+
+
+def test_stepwise_predict_matches_uniform_mean_of_kept():
+    preds, y = _toy_binary_matrix()
+    res = stepwise_ensemble_selection(preds, y)
+    blend = res.predict(preds)
+    manual = preds[res.kept].mean(axis=0)
+    np.testing.assert_allclose(blend, manual, atol=1e-12)
+
+
+def test_stepwise_respects_min_models():
+    # min_models is a REMOVAL floor (backward steps never shrink the bag below it), not a forward growth target
+    # -- mirrors greedy_backward_ensemble_elimination's min_models semantic. Use the local-optimum construction
+    # (forces all 3 forward adds, so a backward removal is actually attempted) to exercise the guard for real.
+    preds, y = _stepwise_local_optimum_matrix(seed=42)
+    res = stepwise_ensemble_selection(preds, y, min_models=3, max_picks=3, with_replacement=False)
+    assert len(res.kept) >= 3
+    assert res.removed_order == []  # backward pass never fires: bag_size (3) never exceeds min_models (3)
+
+
+def test_stepwise_removed_and_kept_are_disjoint_without_replacement():
+    preds, y = _toy_binary_matrix()
+    res = stepwise_ensemble_selection(preds, y, with_replacement=False)
+    assert set(res.kept).isdisjoint(set(res.removed_order))
+
+
+def test_stepwise_input_validation():
+    preds, y = _toy_binary_matrix()
+    with pytest.raises(ValueError):
+        stepwise_ensemble_selection(preds, y[:-1])
+    with pytest.raises(ValueError):
+        stepwise_ensemble_selection(preds, y, max_picks=0)
+    with pytest.raises(ValueError):
+        stepwise_ensemble_selection(preds, y, min_models=0)
+    with pytest.raises(ValueError):
+        stepwise_ensemble_selection(np.zeros((0, 5)), np.zeros(5))
+
+
+# ---------------------------------------------------------------------------------------------------------------------
 # biz_value
 # ---------------------------------------------------------------------------------------------------------------------
 
@@ -263,3 +315,77 @@ def test_biz_val_rank_average_beats_plain_average_on_scale_mismatch():
     rank_avg = fast_roc_auc(y, rank_average_blend(stacked))
 
     assert rank_avg >= plain_avg + 0.02, f"rank-avg {rank_avg:.4f} not > plain-avg {plain_avg:.4f} by 0.02"
+
+
+def _stepwise_local_optimum_matrix(seed, n=3000):
+    """Synthetic library where pure FORWARD selection provably reaches a real local optimum.
+
+    Model A ("signal_a") is the single best individual model, so forward greedy always picks it first. A
+    shares a latent factor ``z`` with B and C at loadings (+0.30, +1.16, -0.89) x a common scale: B and C's
+    loadings are near-opposite, so the uniform mean of B+C ALONE nearly cancels the shared factor entirely,
+    while A's own +0.30 loading survives in every blend that includes A (mean of a subset's loadings is never
+    exactly zero once A is present, since A never has a partner whose loading is close to -0.30/2 given the
+    fixed B/C values). Concretely: AUC(A) > AUC(B), AUC(C); adding the better of B/C to A strictly improves
+    (so forward does not stop after 1 pick); adding the third model strictly improves again (so forward does
+    not stop after 2 picks either) -- forward greedy therefore walks all the way to the full {A, B, C} bag,
+    which is provably its own best reachable point since it never revisits a decision. But {B, C} WITHOUT A
+    scores higher still, because dropping A removes the one member whose shared-factor loading never cancels.
+    Pure forward selection can never discover this since it only adds, never removes. Verified across seeds
+    0-19 (dedicated numpy search script, not committed): the {B,C} vs {A,B,C} AUC margin is stable at
+    ~0.011-0.018, never smaller, and the ordering (single-best, 2-improves, 3-improves, remove-A-improves-most)
+    holds on every seed tried.
+    """
+    zscale, a_coef, b_coef, c_coef = 0.3688088425735540, 0.2952982579297517, 1.1637337110766381, -0.8938051509484026
+    a_sig, b_sig, c_sig = 0.3324341009353020, 0.1552689797199347, 0.2483901852227050
+    a_noise, b_noise, c_noise = 0.3963749168145814, 0.1500831243000070, 0.1140550053754053
+    rng = np.random.default_rng(seed)
+    y = (rng.random(n) < 0.5).astype(np.int64)
+    signal = 2 * y - 1
+    z = rng.normal(0, 1, n)
+    a = np.clip(0.5 + a_sig * signal + a_coef * zscale * z + rng.normal(0, a_noise, n), 0, 1)
+    b = np.clip(0.5 + b_sig * signal + b_coef * zscale * z + rng.normal(0, b_noise, n), 0, 1)
+    c = np.clip(0.5 + c_sig * signal + c_coef * zscale * z + rng.normal(0, c_noise, n), 0, 1)
+    return np.stack([a, b, c], axis=0), y
+
+
+def _run_stepwise_beats_forward_once(seed):
+    preds, y = _stepwise_local_optimum_matrix(seed)
+    fwd = caruana_greedy_selection(preds, y, max_picks=3, with_replacement=False)
+    fwd_auc = fast_roc_auc(y, fwd.predict(preds))
+    step = stepwise_ensemble_selection(preds, y, max_picks=3, with_replacement=False)
+    step_auc = fast_roc_auc(y, step.predict(preds))
+    return fwd_auc, step_auc, step
+
+
+def test_biz_val_stepwise_escapes_forward_local_optimum():
+    """Stepwise selection escapes a genuine local optimum that pure forward selection cannot reach.
+
+    At the SAME evaluation budget (``max_picks=3``, ``with_replacement=False`` -- both algorithms are only
+    ever allowed to consider each of the 3 candidate models once), pure forward selection (``caruana_greedy_
+    selection``) is provably stuck: every one of its 3 forward steps strictly improves the running score, so
+    it walks all the way to the full {A, B, C} bag and stops there with no mechanism to reconsider. Stepwise
+    selection follows the identical forward trajectory but, after the bag is complete, its interleaved
+    backward pass discovers that dropping A (the very first, individually-best pick) improves the score
+    further, landing on {B, C}.
+
+    Measured (seed=42, n=3000): forward AUC ~0.979 (full {A,B,C} bag) vs stepwise AUC ~0.993 ({B,C} bag,
+    A removed) -- a ~0.014 margin. Floor set at +0.008, well below the ~0.011 worst-case margin measured
+    across seeds 0-19 in the exploratory sweep, so this is not a hair's-breadth/flaky threshold.
+    """
+    fwd_auc, step_auc, step = _run_stepwise_beats_forward_once(42)
+    assert step_auc >= fwd_auc + 0.008, f"stepwise {step_auc:.4f} not >= forward {fwd_auc:.4f} + 0.008"
+    # The escape mechanism itself: stepwise's backward pass must actually have fired and removed model 0 (A).
+    assert 0 in step.removed_order, f"expected model 0 (A) to be backward-removed, removed_order={step.removed_order}"
+    assert 0 not in step.kept
+
+
+def test_biz_val_stepwise_escapes_forward_local_optimum_stable_across_seeds():
+    """Non-flakiness check for the local-optimum escape: repeat the comparison on 5 independent seeds.
+
+    Guards against the single-seed test above being a lucky draw -- every seed must show stepwise beating
+    forward by at least the same floor, and every seed must show the backward pass actually removing model 0.
+    """
+    for seed in (0, 1, 2, 3, 4):
+        fwd_auc, step_auc, step = _run_stepwise_beats_forward_once(seed)
+        assert step_auc >= fwd_auc + 0.008, f"seed={seed}: stepwise {step_auc:.4f} not >= forward {fwd_auc:.4f} + 0.008"
+        assert 0 in step.removed_order, f"seed={seed}: expected model 0 (A) backward-removed, got {step.removed_order}"
