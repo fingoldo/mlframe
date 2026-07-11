@@ -30,11 +30,11 @@ def _make_panel(n_entities: int, max_hist: int, n_value_cols: int, seed: int = 0
     return pd.DataFrame(data)
 
 
-def _run(n_entities: int, max_hist: int, n_value_cols: int, n_calls: int) -> None:
+def _run(n_entities: int, max_hist: int, n_value_cols: int, n_calls: int, add_time_gaps: bool = False) -> None:
     df = _make_panel(n_entities, max_hist, n_value_cols)
     value_cols = [c for c in df.columns if c.startswith("x")]
     for _ in range(n_calls):
-        pivot_time_indexed_panel(df, "id", "t", value_cols, max_lags=max_hist)
+        pivot_time_indexed_panel(df, "id", "t", value_cols, max_lags=max_hist, add_time_gaps=add_time_gaps)
 
 
 if __name__ == "__main__":
@@ -44,6 +44,14 @@ if __name__ == "__main__":
         wall = time.perf_counter() - t0
         print(f"n_entities={n_entities:>7} max_hist={max_hist:>3} n_value_cols={n_value_cols:>3} n_calls={n_calls:>4} -> {wall * 1000:9.2f} ms")
 
+        t0 = time.perf_counter()
+        _run(n_entities, max_hist, n_value_cols, n_calls, add_time_gaps=True)
+        wall_gaps = time.perf_counter() - t0
+        print(
+            f"n_entities={n_entities:>7} max_hist={max_hist:>3} n_value_cols={n_value_cols:>3} n_calls={n_calls:>4} "
+            f"add_time_gaps=True -> {wall_gaps * 1000:9.2f} ms"
+        )
+
     profiler = cProfile.Profile()
     profiler.enable()
     _run(50000, 13, 20, 20)
@@ -51,4 +59,14 @@ if __name__ == "__main__":
     buf = StringIO()
     stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
     stats.print_stats(15)
+    print(buf.getvalue())
+
+    profiler = cProfile.Profile()
+    profiler.enable()
+    _run(50000, 13, 20, 20, add_time_gaps=True)
+    profiler.disable()
+    buf = StringIO()
+    stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
+    stats.print_stats(15)
+    print("--- add_time_gaps=True ---")
     print(buf.getvalue())

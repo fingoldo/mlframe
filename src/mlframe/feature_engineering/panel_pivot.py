@@ -17,7 +17,9 @@ from typing import Sequence
 import pandas as pd
 
 
-def pivot_time_indexed_panel(df: pd.DataFrame, id_col: str, time_index_col: str, value_cols: Sequence[str], max_lags: int = 13) -> pd.DataFrame:
+def pivot_time_indexed_panel(
+    df: pd.DataFrame, id_col: str, time_index_col: str, value_cols: Sequence[str], max_lags: int = 13, add_time_gaps: bool = False
+) -> pd.DataFrame:
     """Reshape a ``(entity, time_step, features)`` long panel into one wide row per entity, right-aligned.
 
     Parameters
@@ -28,19 +30,27 @@ def pivot_time_indexed_panel(df: pd.DataFrame, id_col: str, time_index_col: str,
         Entity identifier column.
     time_index_col
         Column giving each row's chronological position within its entity (values need not be contiguous
-        or start at 0; only relative ORDER matters).
+        or start at 0; only relative ORDER matters, EXCEPT when ``add_time_gaps=True``, where the actual
+        ``time_index_col`` VALUES also drive the emitted gap magnitudes -- pass real timestamps/step counts,
+        not just a rank, if gaps are requested).
     value_cols
         Feature columns to pivot.
     max_lags
         Number of most-recent time steps to retain per entity (right-aligned -- ``lag_0`` is always the most
         recent row, ``lag_1`` the one before it, etc.). Entities with fewer than ``max_lags`` rows get NaN
         for the missing (older) lag columns; entities with more get truncated to the most recent ``max_lags``.
+    add_time_gaps
+        When True, also emit ``{time_index_col}_gap_lag_{k}`` columns: ``latest_time_index - time_index`` of
+        the row occupying that lag slot. Two entities can share the same ``lag_2`` VALUE while that value is
+        recent for one (irregular but dense history) and stale for the other (sparse history) -- the lag rank
+        alone can't tell a downstream model which, since it only encodes row-count position, not elapsed
+        real time. The gap column carries exactly that "how stale is this specific slot" signal.
 
     Returns
     -------
     pd.DataFrame
         One row per entity (indexed by ``id_col``), columns ``{value_col}_lag_{k}`` for ``k`` in
-        ``0..max_lags-1``.
+        ``0..max_lags-1``, plus ``{time_index_col}_gap_lag_{k}`` columns if ``add_time_gaps``.
     """
     ordered = df.sort_values([id_col, time_index_col])
     # rank from the END of each entity's history (0 = most recent) -- this is what makes the pivot
@@ -49,13 +59,22 @@ def pivot_time_indexed_panel(df: pd.DataFrame, id_col: str, time_index_col: str,
     ordered = ordered.assign(_lag=reverse_rank)
     ordered = ordered[ordered["_lag"] < max_lags]
 
+    pivot_cols = list(value_cols)
+    if add_time_gaps:
+        # latest time_index per entity is exactly the value at _lag == 0 -- broadcast it back via transform
+        # (a groupby-transform reuses the SAME group index pandas already built for the reverse_rank above,
+        # avoiding a second separate groupby pass).
+        latest_time = ordered.groupby(id_col, sort=False)[time_index_col].transform("max")
+        ordered = ordered.assign(_gap=latest_time - ordered[time_index_col])
+        pivot_cols = pivot_cols + ["_gap"]
+
     # pivoting all value columns in ONE call reuses pandas' (expensive) group-index-sorting/reshaping setup
     # across every column, instead of repeating it per column -- measured as the dominant cProfile cost when
     # called once per column (56.4s at n_entities=50000 x20 value_cols x20 calls), cut to a small fraction of
     # that with a single multi-value pivot.
-    wide = ordered.pivot(index=id_col, columns="_lag", values=list(value_cols))
-    wide = wide.reindex(columns=pd.MultiIndex.from_product([value_cols, range(max_lags)]))
-    wide.columns = [f"{col}_lag_{k}" for col, k in wide.columns]
+    wide = ordered.pivot(index=id_col, columns="_lag", values=pivot_cols)
+    wide = wide.reindex(columns=pd.MultiIndex.from_product([pivot_cols, range(max_lags)]))
+    wide.columns = [f"{time_index_col}_gap_lag_{k}" if col == "_gap" else f"{col}_lag_{k}" for col, k in wide.columns]
     return wide
 
 
