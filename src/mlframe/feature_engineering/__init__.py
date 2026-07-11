@@ -220,6 +220,7 @@ from .categorical_group_concat import concat_categorical_group
 from .binned_unique_count import binned_unique_count
 from .multi_decomposition_bank import multi_decomposition_feature_bank
 from .variance_gated_pairwise_diff import variance_gated_pairwise_diff
+from .event_proximity_decay import event_proximity_decay_features
 
 __all__ = [
     "per_group_recency_weighted_mean",
@@ -339,4 +340,5 @@ __all__ = [
     "binned_unique_count",
     "multi_decomposition_feature_bank",
     "variance_gated_pairwise_diff",
+    "event_proximity_decay_features",
 ]
