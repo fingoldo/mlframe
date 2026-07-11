@@ -20,6 +20,36 @@ import torch
 from torch import nn
 
 
+def _build_importance_mask(
+    importance: torch.Tensor,
+    out_features: int,
+    in_features: int,
+    sparsity: float,
+    generator: Optional[torch.Generator],
+) -> torch.Tensor:
+    """Build a fixed mask that keeps the top ``(1 - sparsity) * in_features`` inputs ranked by ``importance``.
+
+    Every output row keeps the same set of input connections (the highest-ranked ones) -- there's no
+    per-input importance signal that would justify varying the kept set per output neuron, so this
+    concentrates all rows' capacity on the inputs a caller's importance signal says matter.
+    """
+    importance = importance.reshape(-1).to(torch.float32)
+    if importance.numel() != in_features:
+        raise ValueError(f"FixedSparseLinear: importance must have length in_features={in_features}, got {importance.numel()}")
+
+    n_keep = max(1, round((1.0 - sparsity) * in_features))
+
+    # Break ties among equal-importance entries deterministically-but-reproducibly via a tiny random jitter,
+    # so a caller passing e.g. a coarse/binned importance signal doesn't get an arbitrary (argsort-order) bias.
+    jitter = torch.rand(in_features, generator=generator) * 1e-9
+    order = torch.argsort(importance + jitter, descending=True)
+    keep_idx = order[:n_keep]
+
+    mask = torch.zeros(out_features, in_features, dtype=torch.float32)
+    mask[:, keep_idx] = 1.0
+    return mask
+
+
 class FixedSparseLinear(nn.Module):
     """A ``nn.Linear`` layer whose weight matrix is permanently masked to a fixed sparsity pattern.
 
@@ -32,10 +62,29 @@ class FixedSparseLinear(nn.Module):
     bias
         Whether to include a bias term (never masked).
     random_state
-        Seed for the fixed mask's random layout.
+        Seed for the fixed mask's random layout. Ignored when ``importance`` is given and ties don't need
+        breaking (kept for reproducible tie-breaking among equal-importance inputs).
+    importance
+        Optional length-``in_features`` per-input-feature importance score (e.g. mutual information,
+        correlation with target, or any mlframe redundancy/MRMR ranking). When given, the mask is NOT drawn
+        uniformly at random: every output neuron keeps the SAME top ``(1 - sparsity) * in_features`` input
+        connections, ranked by ``importance`` (ties broken via ``random_state``). This turns the fixed mask
+        from something the caller must hand-craft into a one-line call -- the actual adoption barrier for
+        this layer -- and concentrates capacity on the inputs known to matter instead of spending it on
+        connections to noise features a uniform-random mask would keep by chance. Leaving this ``None``
+        reproduces the exact prior (uniform-random) mask construction, bit-for-bit, for a given
+        ``random_state``.
     """
 
-    def __init__(self, in_features: int, out_features: int, sparsity: float = 0.9, bias: bool = True, random_state: Optional[int] = 42) -> None:
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        sparsity: float = 0.9,
+        bias: bool = True,
+        random_state: Optional[int] = 42,
+        importance: Optional[torch.Tensor] = None,
+    ) -> None:
         super().__init__()
         if not (0.0 <= sparsity < 1.0):
             raise ValueError(f"FixedSparseLinear: sparsity must be in [0, 1), got {sparsity}")
@@ -45,7 +94,12 @@ class FixedSparseLinear(nn.Module):
 
         generator = torch.Generator().manual_seed(random_state) if random_state is not None else None
         keep_prob = 1.0 - sparsity
-        mask = (torch.rand(out_features, in_features, generator=generator) < keep_prob).to(torch.float32)
+
+        if importance is None:
+            mask = (torch.rand(out_features, in_features, generator=generator) < keep_prob).to(torch.float32)
+        else:
+            mask = _build_importance_mask(importance, out_features=out_features, in_features=in_features, sparsity=sparsity, generator=generator)
+
         self.register_buffer("mask", mask)
 
         with torch.no_grad():
