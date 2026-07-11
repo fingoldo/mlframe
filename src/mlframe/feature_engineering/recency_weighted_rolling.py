@@ -16,7 +16,7 @@ from numba import njit
 
 from mlframe.core.recency_weights import SCHEMES
 
-__all__ = ["recency_weighted_rolling_mean"]
+__all__ = ["recency_weighted_rolling_mean", "recency_weighted_rolling_std"]
 
 _SCHEME_CODES = {name: code for code, name in enumerate(SCHEMES)}
 
@@ -125,6 +125,125 @@ def recency_weighted_rolling_mean(
     ends = np.concatenate((change_points, [n]))
 
     sorted_out = _rolling_recency_weighted_mean_sorted(sorted_values, starts, ends, int(window), _SCHEME_CODES[scheme], float(param))
+
+    out = np.empty(n, dtype=np.float64)
+    out[sort_idx] = sorted_out
+    return out
+
+
+@njit(fastmath=False, cache=True)
+def _rolling_recency_weighted_std_sorted(v_sorted: np.ndarray, starts: np.ndarray, ends: np.ndarray, window: int, scheme_code: int, param: float) -> np.ndarray:
+    """Per-row recency-weighted (population) std over a trailing ``window``, same group-sorted contract as
+    ``_rolling_recency_weighted_mean_sorted``. Two-pass weighted variance: weighted mean first, then
+    ``sum(w_i * (x_i - weighted_mean)^2) / sum(w_i)``, both passes sharing the same per-row weight vector so
+    the ``"exp"`` running-multiply recurrence applies to both passes without re-deriving weights.
+    """
+    n = v_sorted.shape[0]
+    out = np.empty(n, dtype=np.float64)
+    n_groups = starts.shape[0]
+    for g in range(n_groups):
+        s = starts[g]
+        e = ends[g]
+        for row in range(s, e):
+            m = min(window, row - s + 1)
+            num = 0.0
+            den = 0.0
+            if scheme_code == 1:
+                w = 1.0
+                for j in range(1, m + 1):
+                    w *= param
+                    num += w * v_sorted[row - j + 1]
+                    den += w
+            else:
+                for pos in range(m):
+                    i = m - pos
+                    if scheme_code == 0:
+                        w = ((m - i + 1) / m) ** param
+                    else:
+                        w = 1.0 / (i**param)
+                    num += w * v_sorted[row - m + 1 + pos]
+                    den += w
+            if den <= 0.0:
+                out[row] = np.nan
+                continue
+            wmean = num / den
+            var_num = 0.0
+            if scheme_code == 1:
+                w = 1.0
+                for j in range(1, m + 1):
+                    w *= param
+                    diff = v_sorted[row - j + 1] - wmean
+                    var_num += w * diff * diff
+            else:
+                for pos in range(m):
+                    i = m - pos
+                    if scheme_code == 0:
+                        w = ((m - i + 1) / m) ** param
+                    else:
+                        w = 1.0 / (i**param)
+                    diff = v_sorted[row - m + 1 + pos] - wmean
+                    var_num += w * diff * diff
+            var = var_num / den
+            out[row] = np.sqrt(var) if var > 0.0 else 0.0
+    return out
+
+
+def recency_weighted_rolling_std(
+    values: np.ndarray,
+    group_ids: np.ndarray,
+    window: int,
+    *,
+    order: np.ndarray | None = None,
+    scheme: str = "poly",
+    param: float = 1.0,
+) -> np.ndarray:
+    """Per-row, per-group trailing-``window`` (population) standard deviation with within-window recency
+    weighting -- a dispersion/volatility analog of ``recency_weighted_rolling_mean``.
+
+    At ``param`` equal to the scheme's identity value (poly: 0, exp: 1, power: 0) this is bit-identical to a
+    plain uniform rolling population std (``ddof=0``) of size ``window``.
+
+    Parameters
+    ----------
+    values : np.ndarray
+        1-D value column.
+    group_ids : np.ndarray
+        1-D entity id per row, aligned with ``values``.
+    window
+        Trailing window size (number of most-recent observations, as-of each row, to weight-aggregate).
+    order : np.ndarray, optional
+        1-D sort key giving within-entity chronological order. Rows are ordered ASCENDING (oldest first)
+        within each entity before windowing. If ``None``, existing row order within each group is used.
+    scheme
+        ``"poly"``, ``"exp"``, or ``"power"`` (see ``mlframe.core.recency_weights``).
+    param
+        Decay strength for ``scheme``.
+
+    Returns
+    -------
+    np.ndarray
+        1-D array aligned with the ORIGINAL row order of ``values``/``group_ids`` (not the sorted order).
+        Rows with only one observation in their trailing window get std 0.0.
+    """
+    if window < 1:
+        raise ValueError(f"recency_weighted_rolling_std: window must be >= 1, got {window}.")
+    if scheme not in _SCHEME_CODES:
+        raise ValueError(f"recency_weighted_rolling_std: scheme must be one of {SCHEMES}; got {scheme!r}.")
+
+    values = np.asarray(values, dtype=np.float64)
+    group_ids = np.asarray(group_ids)
+    n = values.shape[0]
+
+    order_key = np.asarray(order) if order is not None else np.arange(n)
+    sort_idx = np.lexsort((order_key, group_ids))
+    sorted_groups = group_ids[sort_idx]
+    sorted_values = values[sort_idx]
+
+    change_points = np.flatnonzero(np.diff(sorted_groups)) + 1
+    starts = np.concatenate(([0], change_points))
+    ends = np.concatenate((change_points, [n]))
+
+    sorted_out = _rolling_recency_weighted_std_sorted(sorted_values, starts, ends, int(window), _SCHEME_CODES[scheme], float(param))
 
     out = np.empty(n, dtype=np.float64)
     out[sort_idx] = sorted_out

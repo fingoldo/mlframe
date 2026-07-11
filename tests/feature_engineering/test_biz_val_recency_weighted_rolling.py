@@ -10,7 +10,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from mlframe.feature_engineering.recency_weighted_rolling import recency_weighted_rolling_mean
+from mlframe.feature_engineering.recency_weighted_rolling import recency_weighted_rolling_mean, recency_weighted_rolling_std
 
 
 def _make_regime_shift_dataset(n_entities: int, rows_per_entity: int, window: int, seed: int):
@@ -40,6 +40,63 @@ def test_biz_val_recency_weighted_rolling_tracks_regime_shift_better_than_unifor
     mse_uniform = float(np.mean((uniform[near_shift] - df["true_rate"].to_numpy()[near_shift]) ** 2))
 
     assert mse_weighted < mse_uniform * 0.8, f"expected recency-weighted rolling mean to track the regime shift better, got weighted={mse_weighted:.5f} uniform={mse_uniform:.5f}"
+
+
+def _make_volatility_shift_dataset(n_entities: int, rows_per_entity: int, seed: int):
+    rng = np.random.default_rng(seed)
+    entity_ids = np.repeat(np.arange(n_entities), rows_per_entity)
+    order = np.tile(np.arange(rows_per_entity), n_entities)
+    # Each entity: first half low-volatility (std 0.02), second half high-volatility (std 0.20), same mean 0.5.
+    shift_point = rows_per_entity // 2
+    true_std = np.where(order < shift_point, 0.02, 0.20)
+    values = 0.5 + rng.normal(scale=1.0, size=n_entities * rows_per_entity) * true_std
+    return pd.DataFrame({"entity": entity_ids, "order": order, "value": values, "true_std": true_std})
+
+
+def test_biz_val_recency_weighted_rolling_std_tracks_volatility_shift_better_than_uniform():
+    window = 15
+    df = _make_volatility_shift_dataset(n_entities=200, rows_per_entity=30, seed=0)
+
+    weighted = recency_weighted_rolling_std(df["value"].to_numpy(), df["entity"].to_numpy(), window=window, order=df["order"].to_numpy(), scheme="exp", param=0.7)
+    uniform = df.groupby("entity")["value"].transform(lambda s: s.rolling(window=window, min_periods=1).std(ddof=0)).to_numpy()
+
+    # Only score rows shortly AFTER the volatility shift (where the window still spans both regimes).
+    shift_point = 30 // 2
+    near_shift = (df["order"].to_numpy() >= shift_point) & (df["order"].to_numpy() < shift_point + window)
+
+    mse_weighted = float(np.mean((weighted[near_shift] - df["true_std"].to_numpy()[near_shift]) ** 2))
+    mse_uniform = float(np.mean((uniform[near_shift] - df["true_std"].to_numpy()[near_shift]) ** 2))
+
+    assert mse_weighted < mse_uniform * 0.8, f"expected recency-weighted rolling std to track the volatility shift better, got weighted={mse_weighted:.5f} uniform={mse_uniform:.5f}"
+
+
+def test_recency_weighted_rolling_std_identity_param_matches_uniform_rolling():
+    window = 5
+    df = _make_volatility_shift_dataset(n_entities=20, rows_per_entity=15, seed=1)
+
+    weighted = recency_weighted_rolling_std(df["value"].to_numpy(), df["entity"].to_numpy(), window=window, order=df["order"].to_numpy(), scheme="poly", param=0.0)
+    uniform = df.groupby("entity")["value"].transform(lambda s: s.rolling(window=window, min_periods=1).std(ddof=0)).to_numpy()
+
+    np.testing.assert_allclose(weighted, uniform, atol=1e-8)
+
+
+def test_recency_weighted_rolling_std_rejects_invalid_window():
+    df = _make_volatility_shift_dataset(n_entities=5, rows_per_entity=10, seed=2)
+    import pytest
+
+    with pytest.raises(ValueError):
+        recency_weighted_rolling_std(df["value"].to_numpy(), df["entity"].to_numpy(), window=0)
+
+
+def test_recency_weighted_rolling_std_preserves_original_row_order():
+    df = _make_volatility_shift_dataset(n_entities=10, rows_per_entity=8, seed=3)
+    shuffled = df.sample(frac=1.0, random_state=0)
+    out_shuffled = recency_weighted_rolling_std(shuffled["value"].to_numpy(), shuffled["entity"].to_numpy(), window=4, order=shuffled["order"].to_numpy(), scheme="exp", param=0.5)
+    out_original = recency_weighted_rolling_std(df["value"].to_numpy(), df["entity"].to_numpy(), window=4, order=df["order"].to_numpy(), scheme="exp", param=0.5)
+    shuffled_lookup = dict(zip(zip(shuffled["entity"], shuffled["order"]), out_shuffled))
+    for i in range(len(df)):
+        key = (df["entity"].iloc[i], df["order"].iloc[i])
+        assert np.isclose(shuffled_lookup[key], out_original[i])
 
 
 def test_recency_weighted_rolling_mean_identity_param_matches_uniform_rolling():
