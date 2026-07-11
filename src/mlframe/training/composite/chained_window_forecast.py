@@ -26,7 +26,7 @@ data" detail.
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 import pandas as pd
@@ -143,6 +143,72 @@ class ChainedWindowForecaster(BaseEstimator, RegressorMixin):
         chained_pred = np.asarray(self.stage1_model_.predict(X_curr), dtype=np.float64)
         X2 = self._concat_chained(X_curr, chained_pred)
         return np.asarray(self.stage2_model_.predict(X2))
+
+    def diagnose_error_accumulation(
+        self,
+        X_curr_sequence: List[Any],
+        y_target_sequence: List[np.ndarray],
+        accumulation_threshold: float = 2.0,
+    ) -> Dict[str, Any]:
+        """Opt-in diagnostic: measure how STAGE-1 EXTRAPOLATION DRIFT compounds as this already-fitted
+        forecaster is reused, without refitting, across a SEQUENCE of successive future windows.
+
+        ``stage1_model_`` is fit once on ``(X_prev, y_curr)`` pairs from the fit-time window; even a single
+        :meth:`predict` call already extrapolates it onto ``X_curr`` (see the module docstring). Reusing the
+        same fitted forecaster across many later windows without refitting means each window's stage-1 call
+        can drift further from the distribution stage1 was trained on, and stage2 blindly trusts whatever
+        stage1 hands it as the chained feature -- so stage-1 drift propagates straight into the final
+        forecast. This isolates how far into such a chain of windows the forecaster stays trustworthy,
+        mirroring ``inference.recursive_forecast.diagnose_error_accumulation``'s per-step growth-ratio /
+        trustworthy-horizon reporting, but for THIS class's window-chain (not lag-feedback) failure mode.
+
+        Parameters
+        ----------
+        X_curr_sequence
+            Ordered list of ``X_curr``-shaped window feature frames/arrays, one per successive chain
+            position (index 0 assumed the window nearest the one the forecaster was fit on).
+        y_target_sequence
+            Matching list of ground-truth targets for each window -- only available in a backtest /
+            validation setting, like the sibling diagnostic this is for offline calibration, not live use.
+        accumulation_threshold
+            A chain position is flagged as no-longer-trustworthy once its MSE exceeds
+            ``accumulation_threshold`` times position 0's MSE.
+
+        Returns
+        -------
+        dict
+            ``chain_predictions`` (list of ``(n_rows,)`` arrays, one per position), ``chain_mse``
+            ``(n_positions,)``, ``growth_ratio`` ``(n_positions,)`` (MSE relative to position 0),
+            ``trustworthy_horizon`` (int -- number of leading chain positions, 1-indexed, that stay within
+            ``accumulation_threshold``; equals ``len(X_curr_sequence)`` if the threshold is never crossed).
+        """
+        if len(X_curr_sequence) != len(y_target_sequence):
+            raise ValueError(f"diagnose_error_accumulation: X_curr_sequence has {len(X_curr_sequence)} windows but y_target_sequence has {len(y_target_sequence)}")
+        if len(X_curr_sequence) == 0:
+            raise ValueError("diagnose_error_accumulation: X_curr_sequence must have at least one window")
+
+        n_positions = len(X_curr_sequence)
+        chain_predictions: List[np.ndarray] = []
+        chain_mse = np.empty(n_positions)
+        for i in range(n_positions):
+            pred = self.predict(X_curr_sequence[i])
+            chain_predictions.append(pred)
+            chain_mse[i] = np.mean((pred - np.asarray(y_target_sequence[i], dtype=np.float64)) ** 2)
+
+        growth_ratio = chain_mse / chain_mse[0]
+
+        trustworthy_horizon = n_positions
+        for i in range(n_positions):
+            if chain_mse[i] > accumulation_threshold * chain_mse[0]:
+                trustworthy_horizon = i
+                break
+
+        return {
+            "chain_predictions": chain_predictions,
+            "chain_mse": chain_mse,
+            "growth_ratio": growth_ratio,
+            "trustworthy_horizon": trustworthy_horizon,
+        }
 
 
 __all__ = ["ChainedWindowForecaster"]

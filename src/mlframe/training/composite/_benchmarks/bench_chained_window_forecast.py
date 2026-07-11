@@ -35,6 +35,19 @@ def _run(n: int) -> None:
     chained.predict(X_curr)
 
 
+def _run_diagnose_error_accumulation(n: int, n_positions: int) -> None:
+    X_prev, X_curr0, y_curr, y_target0 = _make_dataset(n, seed=0)
+    chained = ChainedWindowForecaster(stage1_estimator=LinearRegression(), stage2_estimator=LinearRegression())
+    chained.fit(X_prev, X_curr0, y_curr, y_target0)
+
+    X_seq, y_seq = [], []
+    for pos in range(n_positions):
+        Xp, _, _, yp = _make_dataset(n, seed=pos + 1)
+        X_seq.append(Xp)
+        y_seq.append(yp)
+    chained.diagnose_error_accumulation(X_seq, y_seq)
+
+
 if __name__ == "__main__":
     for n in [1_000, 10_000, 100_000]:
         t0 = time.perf_counter()
@@ -42,9 +55,24 @@ if __name__ == "__main__":
         wall = time.perf_counter() - t0
         print(f"n={n:>7,} -> {wall * 1000:9.2f} ms")
 
+    for n, n_positions in [(1_000, 20), (10_000, 20), (100_000, 20)]:
+        t0 = time.perf_counter()
+        _run_diagnose_error_accumulation(n, n_positions)
+        wall = time.perf_counter() - t0
+        print(f"diagnose_error_accumulation n={n:>7,}, n_positions={n_positions} -> {wall * 1000:9.2f} ms")
+
     profiler = cProfile.Profile()
     profiler.enable()
     _run(100_000)
+    profiler.disable()
+    buf = StringIO()
+    stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
+    stats.print_stats(15)
+    print(buf.getvalue())
+
+    profiler = cProfile.Profile()
+    profiler.enable()
+    _run_diagnose_error_accumulation(100_000, 20)
     profiler.disable()
     buf = StringIO()
     stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
