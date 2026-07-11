@@ -10,7 +10,7 @@ where K-fold isn't the right mental model at all.
 """
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, Union
 
 import numpy as np
 import pandas as pd
@@ -22,6 +22,8 @@ def ordered_target_encode(
     order: Optional[np.ndarray] = None,
     smoothing: float = 1.0,
     prior: Optional[float] = None,
+    noise_std: float = 0.0,
+    random_state: Optional[Union[int, np.random.Generator]] = None,
 ) -> np.ndarray:
     """Encode each row using only the target statistic accumulated from PRIOR rows of the same category.
 
@@ -39,6 +41,15 @@ def ordered_target_encode(
         small; ``encoding = (running_sum + smoothing * prior) / (running_count + smoothing)``.
     prior
         The global prior added for unseen/zero-count rows; defaults to the overall target mean.
+    noise_std
+        Standard deviation of additive Gaussian noise applied to each TRAINING-row encoding (multiplied by
+        the encoding's own scale, i.e. relative noise: ``encoded * (1 + N(0, noise_std))``). Default ``0.0``
+        (no noise). The classic regularization companion to expanding-mean encoding: even with the leak-free
+        causal ordering, a model can still learn to exploit fine-grained encoding VALUE differences as a
+        near-identity proxy for the category itself on high-cardinality columns; injecting noise blurs that
+        without touching the underlying causal-ordering leakage guarantee.
+    random_state
+        Seed or ``np.random.Generator`` for the noise draw. Ignored when ``noise_std == 0.0``.
 
     Returns
     -------
@@ -71,6 +82,11 @@ def ordered_target_encode(
 
     encoded = np.empty(n, dtype=np.float64)
     encoded[sort_idx] = encoded_sorted.to_numpy()
+
+    if noise_std > 0.0:
+        rng = random_state if isinstance(random_state, np.random.Generator) else np.random.default_rng(random_state)
+        encoded = encoded * (1.0 + rng.normal(loc=0.0, scale=noise_std, size=n))
+
     return encoded
 
 
