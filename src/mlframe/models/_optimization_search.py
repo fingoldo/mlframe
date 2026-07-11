@@ -1,0 +1,629 @@
+"""Surrogate-model-driven candidate search: ``MBHOptimizer`` (+ its ``_ETRWithStd`` predict-with-std shim).
+
+Split out from ``optimization.py`` to keep that file below the 1k-line monolith threshold -- the optimizer
+class alone (ctor param checks, RNG discipline, init sampling, ``suggest_candidate``/``submit_evaluations``)
+ran to ~600 lines. Behaviour preserved bit-for-bit; both names are re-exported from ``optimization`` so
+existing imports (``from mlframe.models.optimization import MBHOptimizer``) continue to work.
+
+Enums, module-level constants (``NOT_READY``/``SMALL_VALUE``/``BIG_VALUE``), the sampling helpers
+(``compute_candidates_exploration_scores``/``generate_fibonacci``), and the diagnostic plotter
+(``plot_search_state``) stay in the parent module and are imported back here.
+"""
+from __future__ import annotations
+
+import logging
+import random as _stdlib_random
+from timeit import default_timer as timer
+from typing import Any, Optional, Sequence, Union
+
+import numpy as np
+from catboost import CatBoostRegressor
+from expiringdict import ExpiringDict
+from pyutilz.pythonlib import get_parent_func_args, store_params_in_object
+
+from .optimization import (
+    BIG_VALUE,
+    NOT_READY,
+    SMALL_VALUE,
+    CandidateSamplingMethod,
+    OptimizationDirection,
+    OptimizationProgressPlotting,
+    compute_candidates_exploration_scores,
+    generate_fibonacci,
+    plot_search_state,
+)
+
+logger = logging.getLogger(__name__)
+
+
+class _ETRWithStd:
+    """ExtraTreesRegressor wrapped with a ``predict(X, return_std=True)``
+    interface mirroring sklearn.GaussianProcessRegressor's API. Std is
+    the per-tree-prediction std across the ensemble (Breiman 2001 OOB
+    variance estimate).
+
+    Defined at module level so it stays picklable -- MBHOptimizer
+    instances are pickled by RFECV's resume-from-checkpoint path."""
+
+    def __init__(self, base):
+        self._base = base
+
+    def fit(self, X, y):
+        """Delegate straight to the wrapped ExtraTreesRegressor; returns self for chaining."""
+        self._base.fit(X, y)
+        return self
+
+    def predict(self, X, return_std: bool = False):
+        """Predict; when ``return_std`` also returns the per-tree-prediction std across the ensemble as the uncertainty estimate."""
+        if not return_std:
+            return self._base.predict(X)
+        per_tree = np.array([t.predict(X) for t in self._base.estimators_])
+        return per_tree.mean(axis=0), per_tree.std(axis=0)
+
+
+class MBHOptimizer:
+    """Optimizer aimed at suggesting prospective candidates to explore."""
+
+    # store_params_in_object() below mirrors every __init__ parameter onto self by name; annotate them here so mypy sees the dynamically-set attrs.
+    search_space: np.ndarray
+    known_candidates: np.ndarray
+    known_evaluations: np.ndarray
+    ground_truth: Optional[np.ndarray]
+    direction: OptimizationDirection
+    acquisition_method: str
+    model_name: str
+    plotting: OptimizationProgressPlotting
+    figsize: tuple
+    font_size: int
+    x_label: Any
+    y_label: Any
+    expected_fitness_color: str
+    legend_location: str
+    verbose: int
+
+    def __init__(
+        self,
+        search_space: np.ndarray,  # search space, all possible input combinations to check
+        ground_truth: Optional[np.ndarray] = None,  # known true fitness of the entire search space
+        direction: OptimizationDirection = OptimizationDirection.Maximize,
+        known_candidates: Optional[Union[list, np.ndarray]] = None,
+        known_evaluations: Optional[Union[list, np.ndarray]] = None,
+        # inits
+        seeded_inputs: Optional[Sequence] = None,  # seed items you want to be explored from start
+        init_num_samples: Union[float, int] = 5,  # how many samples to generate & evaluate before fitting surrogate self.model
+        init_evaluate_ascending: bool = False,
+        init_evaluate_descending: bool = True,
+        init_sampling_method: CandidateSamplingMethod = CandidateSamplingMethod.Equidistant,  # random, equidistant, fibo, rev_fibo?
+        # EE dilemma
+        exploitation_probability: float = 0.8,
+        skip_best_candidate_prob: float = 0.0,  # pick the absolute best predicted candidate, or probabilistically the best
+        use_distances_on_preds_collision: bool = True,
+        use_stds_for_exploitation: bool = False,
+        dist_scaling_coefficient: float = 0.5,
+        # self.model
+        acquisition_method: str = "EE",
+        model_name: str = "CBQ",  # actual estimator instance here? + for lgbm also the linear mode flag
+        model_params: Optional[dict] = None,
+        quantile: float = 0.01,
+        # Visualisation
+        plotting: OptimizationProgressPlotting = OptimizationProgressPlotting.No,
+        plotting_ndim: int = 1,  # number of dimensions to use for visualisation
+        figsize: tuple = (8, 4),
+        font_size: int = 10,
+        x_label="nfeatures",
+        y_label="score",
+        expected_fitness_color: str = "green",
+        legend_location: str = "lower right",
+        # small settings
+        verbose: int = 0,
+        suggestions_cache_max_age_sec: int = 60 * 60,  # wait 1 hr before allowing repeated suggestions
+        greedy_prob: float = 0.03,
+        random_state: Union[int, np.random.Generator, None] = None,
+        # S1 (Wave 2, 2026-05-28): collapse duplicate-x rows by max-y / min-y per direction before fitting the surrogate.
+        # RFECV submits the same x (= N) multiple times under different feature subsets; without dedup CB sees conflicting
+        # targets and biases toward most-recent. Default True (NEW). Set False to restore pre-2026-05-28 behaviour.
+        dedup_known_evaluations: bool = True,
+        # S7 (Wave 2, 2026-05-28): tolerance-based convergence in addition to n_noimproving_iters.
+        # When set, break when max(last tol_window scores) - min(...) < tol * abs(best_evaluation). RFECV reads these to
+        # build a richer convergence condition on top of max_noimproving_iters. Default None = legacy (counter-only).
+        convergence_tol: Optional[float] = None,
+        convergence_tol_window: int = 10,
+    ):
+
+        # ----------------------------------------------------------------------------------------------------------------------------
+        # Params checks
+        # ----------------------------------------------------------------------------------------------------------------------------
+
+        if known_candidates is None:
+            known_candidates = []
+        if known_evaluations is None:
+            known_evaluations = []
+        if seeded_inputs is None:
+            seeded_inputs = []
+        if model_params is None:
+            model_params = {"iterations": 150}
+
+        # Wave 31 (2026-05-20): converted the 6-assert "Params checks" block
+        # to explicit ValueError. Under -O the whole block disappeared and
+        # invalid user config (e.g. quantile=0, empty search_space) slipped
+        # into the surrogate-model fit and crashed deeper with opaque messages.
+        if not (0.0 < quantile < 0.5):
+            raise ValueError(f"quantile must be in (0, 0.5); got {quantile!r}.")
+        if len(search_space) <= 0:
+            raise ValueError("search_space must be non-empty.")
+        if acquisition_method not in ("EE",):
+            raise ValueError(f"acquisition_method must be 'EE'; got {acquisition_method!r}.")
+        if not (0.0 <= skip_best_candidate_prob < 0.5):
+            raise ValueError(f"skip_best_candidate_prob must be in [0, 0.5); got {skip_best_candidate_prob!r}.")
+        if not (0.0 < dist_scaling_coefficient <= 1.0):
+            raise ValueError(f"dist_scaling_coefficient must be in (0, 1]; got {dist_scaling_coefficient!r}.")
+        if not (0.0 <= exploitation_probability <= 1.0):
+            raise ValueError(f"exploitation_probability must be in [0, 1]; got {exploitation_probability!r}.")
+
+        # ----------------------------------------------------------------------------------------------------------------------------
+        # Save params
+        # ----------------------------------------------------------------------------------------------------------------------------
+
+        params = get_parent_func_args()
+        store_params_in_object(obj=self, params=params)
+
+        # ----------------------------------------------------------------------------------------------------------------------------
+        # RNG discipline — seed-threadable randomness
+        # ----------------------------------------------------------------------------------------------------------------------------
+
+        # Two independent children of the SAME SeedSequence, not one RNG seeding the other: deriving _stdlib_rng's
+        # seed from a value DRAWN from _rng makes the derived seed depend on the exact order/count of every other
+        # _rng-consuming line in this constructor, so inserting/removing/reordering any of them silently changes
+        # every _stdlib_rng.random() decision for all future runs at the same random_state. spawn() instead gives
+        # each stream its own seed from the root SeedSequence, immune to how many draws the other stream makes.
+        if isinstance(random_state, np.random.Generator):
+            # Caller already handed us a live Generator: reuse it verbatim, and spawn _stdlib_rng's seed from
+            # its own SeedSequence (exposed by every numpy BitGenerator) so it stays independent of any draw order.
+            self._rng = random_state
+            _seed_seq = getattr(self._rng.bit_generator, "seed_seq", None)
+        else:
+            _seed_seq = np.random.SeedSequence(random_state)
+            self._rng = np.random.default_rng(_seed_seq.spawn(1)[0])  # nosec B311 - non-cryptographic sampling/jitter, not a security-sensitive use
+        if _seed_seq is not None:
+            (_stdlib_seed,) = _seed_seq.spawn(1)
+            self._stdlib_rng = _stdlib_random.Random(int(_stdlib_seed.generate_state(1, dtype=np.uint64)[0]))  # nosec B311 - non-crypto sampling/jitter, not used for tokens/secrets
+        else:
+            self._stdlib_rng = _stdlib_random.Random(int(self._rng.integers(0, 2**32 - 1)))  # nosec B311 - non-crypto sampling/jitter, not used for tokens/secrets
+
+        # ----------------------------------------------------------------------------------------------------------------------------
+        # Inits
+        # ----------------------------------------------------------------------------------------------------------------------------
+
+        if not isinstance(known_candidates, np.ndarray):
+            known_candidates = np.array(known_candidates)
+        if not isinstance(known_evaluations, np.ndarray):
+            known_evaluations = np.array(known_evaluations)
+        self.known_candidates = known_candidates
+        self.known_evaluations = known_evaluations
+
+        self.best_candidate, self.worst_candidate = None, None
+        if self.direction == OptimizationDirection.Maximize:
+            self.best_evaluation = -BIG_VALUE
+            self.worst_evaluation = BIG_VALUE
+        else:
+            self.best_evaluation = BIG_VALUE
+            self.worst_evaluation = -BIG_VALUE
+
+        self.n_steps_since_greedy = 0
+        self.n_noimproving_iters = 0
+        self.nsteps = 0
+
+        self.suggested_candidates = ExpiringDict(
+            max_len=int(1e6),
+            max_age_seconds=suggestions_cache_max_age_sec,
+        )
+        self.evaluated_candidates: list = []
+        self.last_retrain_ninputs = 0
+        self.additional_info = ""
+        self.mode = ""
+
+        self.expected_fitness = None
+        self.y_pred = None
+        self.y_std = None
+
+        pre_seeded_candidates = []
+
+        # ----------------------------------------------------------------------------------------------------------------------------
+        # Let's establish initial dataset to fit our surrogate self.model
+        # First use pre-seeded values. they must be evaluated strictly in given order.
+        # ----------------------------------------------------------------------------------------------------------------------------
+
+        if len(seeded_inputs) > 0:
+            for x in seeded_inputs:
+                if x not in known_candidates and x not in pre_seeded_candidates:
+                    pre_seeded_candidates.append(x)
+
+        # ----------------------------------------------------------------------------------------------------------------------------
+        # Now sample additional points from across the definition range with some simple algo
+        # ----------------------------------------------------------------------------------------------------------------------------
+
+        if init_num_samples > 0:
+            if isinstance(init_num_samples, float) and init_num_samples < 1.0:
+                init_num_samples = int(len(search_space) * init_num_samples)
+            else:
+                init_num_samples = int(init_num_samples)
+
+            sampled_inputs: Any
+            if init_sampling_method == CandidateSamplingMethod.Random:
+                sampled_inputs = self._rng.choice(search_space, size=min(init_num_samples, len(search_space)), replace=False)
+            elif init_sampling_method == CandidateSamplingMethod.Equidistant:
+                sampled_indices = np.linspace(0, len(search_space) - 1, init_num_samples).astype(int)
+                sampled_inputs = np.array(search_space)[sampled_indices[:init_num_samples]]
+            elif init_sampling_method in (CandidateSamplingMethod.Fibonacci, CandidateSamplingMethod.ReversedFibonacci):
+                # Fibo!
+                fibo_sequence = generate_fibonacci(2 + init_num_samples)[2:]
+                fibo_sequence_indices = (fibo_sequence * (len(search_space) - 1) / fibo_sequence.max()).astype(np.int64)
+                if init_sampling_method == CandidateSamplingMethod.ReversedFibonacci:
+                    fibo_sequence_indices = len(search_space) - 1 - fibo_sequence_indices
+                sampled_inputs = np.array(search_space)[fibo_sequence_indices[:init_num_samples]]
+            else:
+                raise ValueError(f"Sampling method {init_sampling_method} not supported.")
+
+            # let's remove intersection with already checked seeded elements, if any
+            sampled_inputs = set(sampled_inputs) - set(seeded_inputs)
+
+            # sometimes it's required to process samples in certain order (like in FE/RFECV tasks, it's better to start with higher number of features, to have more accurate estimates)
+            # Wave 61 (2026-05-20): user-seeded inputs may be heterogeneous;
+            # str-key fallback so mixed-type sets don't TypeError on sort.
+            def _sort_key(v):
+                return (v is None, str(v))
+            if init_evaluate_ascending:
+                sampled_inputs = sorted(sampled_inputs, key=_sort_key)
+            else:
+                if init_evaluate_descending:
+                    sampled_inputs = sorted(sampled_inputs, key=_sort_key)[::-1]
+
+            # actual evaluation of initial samples
+            if len(sampled_inputs) > 0:
+                for x in sampled_inputs:
+                    if x not in known_candidates and x not in pre_seeded_candidates:
+                        pre_seeded_candidates.append(x)
+
+        # Wave 31 (2026-05-20): assert -> ValueError. Pre-fix the empty
+        # list slipped past under -O and reached the surrogate-model fit
+        # with no inputs -> opaque downstream crash.
+        if len(pre_seeded_candidates) == 0:
+            raise ValueError("MBHOptimizer: pre_seeded_candidates is empty after sampling; " "increase init_num_samples or provide non-empty seeded_inputs.")
+        self.pre_seeded_candidates = pre_seeded_candidates
+
+        # ----------------------------------------------------------------------------------------------------------------------------
+        # Init of the surrogate model
+        # ----------------------------------------------------------------------------------------------------------------------------
+
+        if self.model_name == "CBQ":
+            quantiles: Sequence = [quantile, 0.5, 1 - quantile]
+            loss_function = "MultiQuantile:alpha=" + ",".join(map(str, quantiles))
+            self.model = CatBoostRegressor(
+                **model_params,
+                loss_function=loss_function,
+                verbose=0,
+            )
+        elif self.model_name == "CB":
+            self.model = CatBoostRegressor(
+                **model_params,
+                verbose=0,
+            )
+        elif self.model_name == "ETR":
+            # ExtraTreesRegressor surrogate. CatBoost has a fixed
+            # ~500ms per-fit overhead from Python<->C++ marshalling
+            # (independent of n_estimators); on tiny 1D MBH workloads
+            # (n_known < 30) that overhead dominates wall-clock. ETR
+            # is pure-Python sklearn (no FFI), n_estimators=20 fits in
+            # ~20ms on the same workload (~27x faster than CatBoost
+            # legacy iter=150). Quantile-style uncertainty: per-tree
+            # prediction std across the ensemble (Breiman 2001 OOB
+            # variance estimate -- approximate but well-behaved here).
+            from sklearn.ensemble import ExtraTreesRegressor
+            _etr_kwargs = dict(model_params)
+            _etr_kwargs.setdefault("n_estimators", 20)
+            _etr_kwargs.setdefault("random_state", 0)
+            _etr_kwargs.setdefault("n_jobs", 1)
+            self.model = _ETRWithStd(ExtraTreesRegressor(**_etr_kwargs))
+
+    def suggest_candidate(self):
+        """Get next most promising candidate. Keeps a buffer of suggested, but not yet evaluated candidates, to avoid recommending them again.
+        We only need a method to get one suggestion at time: in absence of new evaluations, no model retraining is needed, and response should be fast.
+        """
+
+        eval_start_time = timer()
+
+        if self.pre_seeded_candidates:
+
+            # ----------------------------------------------------------------------------------------------------------------------------
+            # Checking pre-seeded first
+            # ----------------------------------------------------------------------------------------------------------------------------
+
+            logger.debug("pre_seeded_candidates=%s", self.pre_seeded_candidates)
+
+            next_candidate = self.pre_seeded_candidates.pop(0)
+            self.suggested_candidates[next_candidate] = eval_start_time
+
+            return next_candidate
+
+        else:
+
+            # If no improvement found for a long time, become greedy and check points closest to known optimum, regardless
+            # of underlying model's opinion.
+
+            if len(self.known_candidates) == 0 or self.best_candidate is None:
+                logger.warning("suggest_candidate called before any evaluations were submitted; cannot suggest.")
+                return NOT_READY
+
+            # ``x not in ndarray`` is an O(K) scan; the candidate loops below run it O(S) times per call.
+            # A Python set built once (python scalars, matching ``search_space[i]``) makes each test O(1).
+            known_candidates_set = set(self.known_candidates.tolist())
+
+            greedy_prob = min(self.greedy_prob * min(self.n_noimproving_iters, self.n_steps_since_greedy + 1), 1.0)
+            if self._stdlib_rng.random() < greedy_prob:
+                self.n_steps_since_greedy = 0
+
+                expected_fitness = np.abs(np.array(self.search_space) - self.best_candidate)
+                # Pick first unchecked and unsuggested candidate with the highest fitness.
+                for best_idx in np.argsort(expected_fitness):
+                    next_candidate = self.search_space[best_idx]
+                    if next_candidate not in known_candidates_set and next_candidate not in self.suggested_candidates:
+                        self.suggested_candidates[next_candidate] = eval_start_time
+                        logger.info(
+                            "I became greedy! Recommending %s that is closest unchecked to the best known so far %s with eval=%s",
+                            next_candidate,
+                            self.best_candidate,
+                            self.best_evaluation,
+                        )
+                        return next_candidate
+            else:
+
+                self.n_steps_since_greedy += 1
+
+                # ----------------------------------------------------------------------------------------------------------------------------
+                # Fit surrogate model to known points & their evaluations
+                # ----------------------------------------------------------------------------------------------------------------------------
+
+                if len(self.known_candidates) > self.last_retrain_ninputs:
+
+                    # First need to check that targets are not all the same:
+                    if len(self.known_evaluations) == 0:
+                        logger.warning("No known evaluations available; can't train the underlying process model.")
+                        return NOT_READY
+                    if np.all(self.known_evaluations == self.known_evaluations[0]):
+                        logger.warning("All targets are the same! Can't train the underlying process model.")
+                        return NOT_READY
+
+                    if not hasattr(self.model, "partial_fit"):
+                        # S1 (Wave 2, 2026-05-28): dedup (x, y) by max(y) within each x.
+                        # RFECV legitimately submits multiple scores at the SAME x (= same N)
+                        # when MBH re-explores a count with a different feature subset
+                        # (the FI voting layer can produce a different ranking each iter).
+                        # Without dedup, CatBoost sees conflicting targets at the same x
+                        # and the surrogate biases toward the most-recent score (whose
+                        # subset is NOT guaranteed to be the winning one). For Maximize
+                        # direction, the right collapse is max(y_at_x); for Minimize, min.
+                        # Opt-out via dedup_known_evaluations=False (legacy behaviour).
+                        if getattr(self, "dedup_known_evaluations", True):
+                            _xs = self.known_candidates
+                            _ys = self.known_evaluations
+                            _unique_x, _inv = np.unique(_xs, return_inverse=True)
+                            if len(_unique_x) < len(_xs):
+                                _agg = (
+                                    np.full(len(_unique_x), -np.inf, dtype=_ys.dtype)
+                                    if self.direction == OptimizationDirection.Maximize
+                                    else np.full(len(_unique_x), np.inf, dtype=_ys.dtype)
+                                )
+                                _cmp = np.maximum if self.direction == OptimizationDirection.Maximize else np.minimum
+                                for _i, _y in zip(_inv, _ys):
+                                    _agg[_i] = _cmp(_agg[_i], _y)
+                                self.model.fit(_unique_x.reshape(-1, 1), _agg)
+                            else:
+                                self.model.fit(_xs.reshape(-1, 1), _ys)
+                        else:
+                            self.model.fit(self.known_candidates.reshape(-1, 1), self.known_evaluations)
+                    else:
+                        n = max(1, len(self.known_candidates) - self.last_retrain_ninputs)
+                        self.model.partial_fit(
+                            self.known_candidates[-n:].reshape(-1, 1),
+                            self.known_evaluations[-n:],
+                        )
+                    self.last_retrain_ninputs = len(self.known_candidates)
+
+                    # ----------------------------------------------------------------------------------------------------------------------------
+                    # Make predictions for all points
+                    # ----------------------------------------------------------------------------------------------------------------------------
+
+                    if self.model_name == "CBQ":
+                        res = self.model.predict(self.search_space.reshape(-1, 1))
+                        y_pred = res[:, 1]
+                        y_std = np.abs(res[:, 0] - res[:, 2]) + SMALL_VALUE
+                    elif self.model_name == "CB":
+                        res = self.model.predict(self.search_space.reshape(-1, 1))
+                        y_pred = res
+                        y_std = np.zeros_like(res)
+                    else:
+                        y_pred, y_std = self.model.predict(self.search_space.reshape(-1, 1), return_std=True)
+
+                    self.y_pred = y_pred
+                    self.y_std = y_std
+                else:
+                    y_pred = self.y_pred
+                    y_std = self.y_std
+
+                if y_pred is None:
+                    # Surrogate not ready yet (e.g., all known targets equal at previous retrain).
+                    logger.warning("Surrogate predictions unavailable; cannot suggest.")
+                    return None
+
+                if self._stdlib_rng.random() < self.exploitation_probability:
+                    self.mode = "exploitation"
+                else:
+                    self.mode = "exploration"
+
+                # ----------------------------------------------------------------------------------------------------------------------------
+                # Known points make it easy to compute distances from candidates
+                # ----------------------------------------------------------------------------------------------------------------------------
+
+                distances = compute_candidates_exploration_scores(search_space=self.search_space, known_candidates=self.known_candidates)
+
+                # ----------------------------------------------------------------------------------------------------------------------------
+                # Now, distances have to be normalized by known fitness range
+                # ----------------------------------------------------------------------------------------------------------------------------
+
+                max_dist = distances.max()
+                if max_dist > 0:
+                    distances = distances * np.abs(self.best_evaluation - self.worst_evaluation) * self.dist_scaling_coefficient / max_dist
+                else:
+                    distances = np.zeros_like(distances)
+
+                if self.mode == "exploration":
+
+                    # pick the point with highest std and most distant from already known points
+                    expected_fitness = y_std + distances
+                    self.additional_info = ""
+
+                elif self.mode == "exploitation":
+
+                    expected_fitness = y_pred.copy()
+                    if self.direction == OptimizationDirection.Minimize:
+                        expected_fitness = -expected_fitness
+
+                    if self.use_stds_for_exploitation:
+                        expected_fitness += y_std
+
+                    best_idx = np.argsort(expected_fitness)[-1]
+                    if self.search_space[best_idx] in known_candidates_set:
+
+                        # best supposed point already checked. let's take std and distance into account then.
+                        expected_fitness += distances
+                        self.additional_info = "plusdist"
+
+                    else:
+
+                        # best supposed point not checked yet
+                        self.additional_info = "bestpredicted"
+
+                        if self.use_distances_on_preds_collision:
+
+                            # what if there are multiple non-checked points with the same predicted score?
+
+                            best_value = expected_fitness[best_idx]
+                            all_best_indices = np.where(expected_fitness == best_value)[0]
+                            all_best_indices = [idx for idx in all_best_indices if self.search_space[idx] not in known_candidates_set]
+                            if len(all_best_indices) > 1:
+                                expected_fitness[all_best_indices] += distances[all_best_indices]
+
+                    self.expected_fitness = expected_fitness
+
+                # ----------------------------------------------------------------------------------------------------------------------------
+                # Decide on the next candidate, based on predicted fitness
+                # ----------------------------------------------------------------------------------------------------------------------------
+
+                # Pick first unchecked and unsuggested candidate with the highest fitness.
+                for best_idx in np.argsort(expected_fitness)[::-1]:
+                    next_candidate = self.search_space[best_idx]
+                    if next_candidate not in known_candidates_set and next_candidate not in self.suggested_candidates:
+                        if self.skip_best_candidate_prob > 0.0:
+                            # Randomly skip the best candidate, if required
+                            if self._stdlib_rng.random() < self.skip_best_candidate_prob:
+                                continue
+                        self.suggested_candidates[next_candidate] = eval_start_time
+                        return next_candidate
+
+    def submit_evaluations(self, candidates: Sequence, evaluations: Sequence, durations: Sequence):
+        """Record a batch of (candidate, evaluation, duration) results, update best/worst tracking, and append to the known-candidates history.
+
+        Also clears the corresponding entries from ``suggested_candidates`` / ``pre_seeded_candidates`` bookkeeping and, depending on
+        ``self.plotting``, triggers a progress plot. ``durations[i] is None`` falls back to the elapsed wall time since that candidate
+        was suggested (via the ``suggested_candidates`` start-timestamp), when available.
+        """
+
+        # if duration_seconds is None, it's computed automatically using timestamp of suggesting that particular candidate to that particular worker
+
+        new_candidates_batch = []
+        new_evaluations_batch = []
+
+        for next_candidate, next_evaluation, next_duration in zip(candidates, evaluations, durations):
+
+            self.nsteps += 1
+
+            if self.direction == OptimizationDirection.Maximize:
+                if next_evaluation > self.best_evaluation:
+                    self.best_evaluation = next_evaluation
+                    self.best_candidate = next_candidate
+                    self.n_noimproving_iters = 0
+                else:
+                    self.n_noimproving_iters += 1
+                if next_evaluation < self.worst_evaluation:
+                    self.worst_evaluation = next_evaluation
+                    self.worst_candidate = next_candidate
+            elif self.direction == OptimizationDirection.Minimize:
+                if next_evaluation < self.best_evaluation:
+                    self.best_evaluation = next_evaluation
+                    self.best_candidate = next_candidate
+                    self.n_noimproving_iters = 0
+                else:
+                    self.n_noimproving_iters += 1
+                if next_evaluation > self.worst_evaluation:
+                    self.worst_evaluation = next_evaluation
+                    self.worst_candidate = next_candidate
+
+            if self.verbose and self.n_noimproving_iters == 0:
+                logger.info("Next optimum found at point (%s): %s", self.best_candidate, f"{self.best_evaluation:_.6f}")
+
+            new_candidates_batch.append(next_candidate)
+            new_evaluations_batch.append(next_evaluation)
+
+            if next_candidate in self.pre_seeded_candidates:
+                self.pre_seeded_candidates.remove(next_candidate)
+
+            start_ts = self.suggested_candidates.get(next_candidate)
+            if start_ts is not None:
+                try:
+                    del self.suggested_candidates[next_candidate]
+                except Exception as e:  # nosec B110 - narrow except type
+                    logger.debug("Could not delete suggested_candidates[%r]: %s", next_candidate, e)
+
+            if next_duration is None and start_ts is not None:
+                next_duration = timer() - start_ts
+            self.evaluated_candidates.append(dict(candidate=next_candidate, evaluation=next_evaluation, duration=next_duration))
+
+            if (
+                self.n_noimproving_iters == 0 and self.plotting == OptimizationProgressPlotting.OnScoreImprovement
+            ) or self.plotting == OptimizationProgressPlotting.Regular:
+                # For plotting we need up-to-date known_* arrays; include the in-progress batch.
+                known_cands_for_plot = np.concatenate([self.known_candidates, np.asarray(new_candidates_batch)]).astype(int)
+                known_evals_for_plot = np.concatenate([self.known_evaluations, np.asarray(new_evaluations_batch)])
+                plot_search_state(
+                    search_space=self.search_space,
+                    next_cand=next_candidate,
+                    new_y=next_evaluation,
+                    best_candidate=self.best_candidate,
+                    best_evaluation=self.best_evaluation,
+                    nsteps=self.nsteps,
+                    expected_fitness=self.expected_fitness,
+                    y_pred=self.y_pred,
+                    y_std=self.y_std,
+                    ground_truth=self.ground_truth,
+                    known_candidates=known_cands_for_plot,
+                    known_evaluations=known_evals_for_plot,
+                    acquisition_method=self.acquisition_method,
+                    mode=self.mode,
+                    additional_info=self.additional_info,
+                    figsize=self.figsize,
+                    font_size=self.font_size,
+                    x_label=self.x_label,
+                    y_label=self.y_label,
+                    expected_fitness_color=self.expected_fitness_color,
+                    legend_location=self.legend_location,
+                    skip_candidates=[0],
+                )
+
+        if new_candidates_batch:
+            # FUTURE: this concatenate re-copies the full history every submit -> O(n^2) over a run. A capacity-doubling
+            # buffer (len counter + amortized append) measured only 2-3.5x on the bookkeeping ITSELF (bench_optimizer_history_growth.py:
+            # 15ms vs 5ms at 2000 submits) and is <0.1% of an optimization run dominated by the per-iteration GP fit, while
+            # forcing every known_candidates/known_evaluations reader (~15 sites: reshape, [-n:] slicing, .tolist(), np.all) to
+            # slice the filled prefix. Not worth the risk/complexity at current scales; revisit if histories reach 10^5+.
+            self.known_candidates = np.concatenate([self.known_candidates, np.asarray(new_candidates_batch)]).astype(int)
+            self.known_evaluations = np.concatenate([self.known_evaluations, np.asarray(new_evaluations_batch)])

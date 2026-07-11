@@ -436,7 +436,7 @@ def _ensure_kernels_inited() -> None:
 # batched variant) and existing external callers
 # (`from mlframe.feature_selection.filters.gpu import mi_direct_gpu_batched`)
 # keep working unchanged.
-from ._gpu_batched import (  # noqa: E402
+from ._gpu_batched import (  # noqa: F401
     _gpu_batched_bytes_per_perm,
     _mi_from_counts_cupy,
     mi_direct_gpu_batched,
