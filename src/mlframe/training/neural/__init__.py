@@ -47,6 +47,9 @@ from .flat import (
 # Fixed-mask structured-sparsity layer (standalone, not part of the Lightning estimator infra)
 from .fixed_sparse_linear import FixedSparseLinear
 
+# Correlation-ordered 1D-CNN over tabular features (standalone, not part of the Lightning estimator infra)
+from .tabular_1dcnn import Tabular1DCNNRegressor, correlation_order_features
+
 # Recurrent/sequence models
 from .recurrent import (
     RNNType,
@@ -92,6 +95,9 @@ __all__ = [
     "get_valid_num_groups",
     # Fixed-mask structured-sparsity layer
     "FixedSparseLinear",
+    # Correlation-ordered 1D-CNN over tabular features
+    "Tabular1DCNNRegressor",
+    "correlation_order_features",
     # Recurrent
     "RNNType",
     "InputMode",
