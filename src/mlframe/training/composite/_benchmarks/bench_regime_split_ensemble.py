@@ -8,6 +8,7 @@ import cProfile
 import pstats
 import time
 from io import StringIO
+from typing import Literal
 
 import numpy as np
 import pandas as pd
@@ -29,25 +30,38 @@ def _make_dataset(n: int, seed: int):
     return pd.DataFrame({"trend": trend, "x2": x2}), y
 
 
-def _run(n: int) -> None:
+def _regime_proba_fn(X, tau: float = 0.15):
+    trend = X["trend"].to_numpy() if hasattr(X, "columns") else np.asarray(X)[:, 0]
+    p_bull = 1.0 / (1.0 + np.exp(-(trend - 0.3) / tau))
+    p_bear = 1.0 / (1.0 + np.exp((trend + 0.3) / tau))
+    p_stable = np.clip(1.0 - p_bull - p_bear, 0.0, None)
+    return {"bull": p_bull, "bear": p_bear, "stable": p_stable}
+
+
+def _run(n: int, combine: Literal["route", "average", "blend"] = "route") -> None:
     X, y = _make_dataset(n, seed=0)
-    ensemble = RegimeSplitEnsemble(estimator_factory=lambda: LinearRegression(), regime_fn=_regime_fn, combine="route")
+    kwargs = {"regime_proba_fn": _regime_proba_fn} if combine == "blend" else {}
+    ensemble = RegimeSplitEnsemble(estimator_factory=lambda: LinearRegression(), regime_fn=_regime_fn, combine=combine, **kwargs)
     ensemble.fit(X, y)
     ensemble.predict(X)
 
 
 if __name__ == "__main__":
-    for n in [1_000, 10_000, 100_000]:
-        t0 = time.perf_counter()
-        _run(n)
-        wall = time.perf_counter() - t0
-        print(f"n={n:>7,} -> {wall * 1000:9.2f} ms")
+    _combine_modes: list[Literal["route", "blend"]] = ["route", "blend"]
+    for combine_mode in _combine_modes:
+        for n in [1_000, 10_000, 100_000]:
+            t0 = time.perf_counter()
+            _run(n, combine=combine_mode)
+            wall = time.perf_counter() - t0
+            print(f"combine={combine_mode:<6} n={n:>7,} -> {wall * 1000:9.2f} ms")
 
-    profiler = cProfile.Profile()
-    profiler.enable()
-    _run(100_000)
-    profiler.disable()
-    buf = StringIO()
-    stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
-    stats.print_stats(15)
-    print(buf.getvalue())
+    for combine_mode in _combine_modes:
+        profiler = cProfile.Profile()
+        profiler.enable()
+        _run(100_000, combine=combine_mode)
+        profiler.disable()
+        buf = StringIO()
+        stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
+        stats.print_stats(15)
+        print(f"--- combine={combine_mode} ---")
+        print(buf.getvalue())

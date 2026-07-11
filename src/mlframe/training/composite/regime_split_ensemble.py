@@ -40,22 +40,41 @@ class RegimeSplitEnsemble(BaseEstimator, RegressorMixin):
         ``"route"`` (default): each row is predicted by its OWN regime's model (the fallback global model
         for a regime unseen at fit time). ``"average"``: every row is predicted by ALL regime models and
         averaged (the source technique's literal mechanism -- can help when regime detection is itself noisy
-        and a wrong-regime model still carries some signal).
+        and a wrong-regime model still carries some signal). ``"blend"``: every row is predicted by a
+        confidence-weighted mix of the regime models, per ``regime_proba_fn`` -- smooths the prediction
+        surface near regime boundaries where hard routing (``"route"``) causes a discontinuous jump as a
+        row crosses the threshold from one regime's model to another's. Requires ``regime_proba_fn``.
+    regime_proba_fn
+        Only used when ``combine="blend"``. ``callable(X) -> {regime_label: (n,) weight array}``, a
+        deterministic function of ``X`` alone (same leakage discipline as ``regime_fn``). Weights need not
+        sum to 1 per row -- they are renormalized over the regimes with a fitted model; rows with zero total
+        weight over known regimes fall back to the global model.
 
     Attributes
     ----------
     regime_models_
         ``{regime_label: fitted estimator}``.
     global_model_
-        Fallback model fit on all rows, used by ``combine="route"`` for regimes not seen at fit time.
+        Fallback model fit on all rows, used by ``combine="route"`` for regimes not seen at fit time, and by
+        ``combine="blend"`` for rows with zero weight over all known regimes.
     """
 
-    def __init__(self, estimator_factory: Callable[[], Any], regime_fn: Callable[[Any], np.ndarray], combine: Literal["route", "average"] = "route") -> None:
+    def __init__(
+        self,
+        estimator_factory: Callable[[], Any],
+        regime_fn: Callable[[Any], np.ndarray],
+        combine: Literal["route", "average", "blend"] = "route",
+        regime_proba_fn: Callable[[Any], dict[Any, np.ndarray]] | None = None,
+    ) -> None:
         self.estimator_factory = estimator_factory
         self.regime_fn = regime_fn
         self.combine = combine
+        self.regime_proba_fn = regime_proba_fn
 
     def fit(self, X: Any, y: Any) -> "RegimeSplitEnsemble":
+        if self.combine == "blend" and self.regime_proba_fn is None:
+            raise ValueError('combine="blend" requires regime_proba_fn')
+
         y_arr = np.asarray(y, dtype=np.float64)
         regimes = np.asarray(self.regime_fn(X))
         if regimes.shape[0] != y_arr.shape[0]:
@@ -78,6 +97,9 @@ class RegimeSplitEnsemble(BaseEstimator, RegressorMixin):
             preds = [np.asarray(model.predict(X), dtype=np.float64) for model in self.regime_models_.values()]
             return np.asarray(np.mean(preds, axis=0))
 
+        if self.combine == "blend":
+            return self._predict_blend(X)
+
         regimes = np.asarray(self.regime_fn(X))
         n = regimes.shape[0]
         out = np.zeros(n, dtype=np.float64)
@@ -91,6 +113,29 @@ class RegimeSplitEnsemble(BaseEstimator, RegressorMixin):
                 continue
             X_regime = X.loc[mask] if hasattr(X, "loc") else np.asarray(X)[mask]
             out[mask] = np.asarray(model.predict(X_regime), dtype=np.float64)
+        return out
+
+    def _predict_blend(self, X: Any) -> np.ndarray:
+        assert self.regime_proba_fn is not None  # enforced in fit()
+        proba = self.regime_proba_fn(X)
+        n = len(X)
+        weighted_sum = np.zeros(n, dtype=np.float64)
+        weight_total = np.zeros(n, dtype=np.float64)
+        for regime, model in self.regime_models_.items():
+            weight = np.asarray(proba.get(regime, np.zeros(n)), dtype=np.float64)
+            if not weight.any():
+                continue
+            pred = np.asarray(model.predict(X), dtype=np.float64)
+            weighted_sum += weight * pred
+            weight_total += weight
+
+        out = np.zeros(n, dtype=np.float64)
+        has_weight = weight_total > 0
+        out[has_weight] = weighted_sum[has_weight] / weight_total[has_weight]
+        no_weight = ~has_weight
+        if no_weight.any():
+            X_fallback = X.loc[no_weight] if hasattr(X, "loc") else np.asarray(X)[no_weight]
+            out[no_weight] = np.asarray(self.global_model_.predict(X_fallback), dtype=np.float64)
         return out
 
 
