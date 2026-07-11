@@ -19,6 +19,7 @@ from mlframe.preprocessing.cluster import *
 from mlframe.preprocessing.category_support import train_test_support_screen
 from mlframe.preprocessing.temporal_drift_augment import augment_temporal_drift
 from mlframe.preprocessing.auto_transform_select import select_column_transforms
+from mlframe.preprocessing.gaussian_power_transform_search import gaussian_power_transform_search, apply_gaussian_power_transform
 from mlframe.preprocessing.adversarial_rebin import adversarial_rebin_categorical
 from mlframe.preprocessing.regime_conditioned_imputation import regime_conditioned_median_fill
 from mlframe.preprocessing.outlier_policy import is_tree_based_model, apply_outlier_policy
