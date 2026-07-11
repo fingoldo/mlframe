@@ -8,18 +8,38 @@ k-way interaction mining, a deliberately pruned search; this is the complementar
 utility for a small key set where the caller wants every combination fed to frequency/count encoding, not a
 relevance-filtered subset. Reuses ``concat_categorical_group`` per subset rather than reimplementing the
 string-join.
+
+Extension: ``prune_against_target`` -- with many keys, most of the 2^n - 1 composites are noise (the idea's
+own critique: "adds bloat and downstream selection burden"). When a target is supplied, each generated
+composite (order >= 2) is scored and dropped if it fails a threshold, rather than materializing every subset
+unconditionally. The scoring reuses two EXISTING primitives rather than a new statistical test:
+``training.feature_handling.ordered_target_encoder.ordered_target_encode`` (leak-free expanding target-mean
+encoding, smoothed toward the global prior so a high-cardinality noise composite with few rows per level
+doesn't spuriously separate the target) turns the composite's arbitrary string levels into a numeric score,
+then ``feature_selection.drop_near_noise_univariate_auc`` (the existing near-chance-AUC prescreen) flags
+composites whose encoded-score AUC sits within ``min_score`` of chance.
 """
 from __future__ import annotations
 
 from itertools import combinations
-from typing import List, Sequence
+from typing import List, Optional, Sequence, Tuple
 
+import numpy as np
 import pandas as pd
 
 from mlframe.feature_engineering.categorical_group_concat import concat_categorical_group
+from mlframe.feature_selection.drop_near_noise_univariate_auc import drop_near_noise_univariate_auc
+from mlframe.training.feature_handling.ordered_target_encoder import ordered_target_encode
 
 
-def categorical_powerset_concat(df: pd.DataFrame, columns: Sequence[str], separator: str = "_", max_order: int | None = None) -> pd.DataFrame:
+def categorical_powerset_concat(
+    df: pd.DataFrame,
+    columns: Sequence[str],
+    separator: str = "_",
+    max_order: int | None = None,
+    prune_against_target: Optional[Tuple[np.ndarray, float]] = None,
+    prune_smoothing: float = 5.0,
+) -> pd.DataFrame:
     """Append one composite categorical column per non-empty subset of ``columns`` (2^n - 1 total).
 
     Parameters
@@ -35,12 +55,22 @@ def categorical_powerset_concat(df: pd.DataFrame, columns: Sequence[str], separa
         Cap subset size (e.g. ``max_order=2`` limits to pairwise combos only); ``None`` uses the full
         powerset up to ``len(columns)``. Guards against the 2^n blowup for large key sets -- with n=10 keys
         the full powerset is 1023 columns, so callers with many keys should pass an explicit cap.
+    prune_against_target
+        Optional ``(y, min_score)``. When supplied, every generated composite (order >= 2) is target-encoded
+        (leak-free, smoothed) and scored by univariate AUC; a composite is DROPPED when its encoded-score AUC
+        sits within ``min_score`` of chance (``abs(auc - 0.5) <= min_score``), i.e. ``min_score`` is the
+        minimum ``|AUC - 0.5|`` a composite must clear to be kept. ``None`` (default) keeps every composite,
+        matching the original unconditional behaviour. Single-column pass-throughs are never pruned.
+    prune_smoothing
+        Forwarded as ``smoothing`` to :func:`ordered_target_encode` for the pruning score only -- higher
+        values pull small/rare composite levels toward the global target prior, avoiding a spuriously
+        separable in-sample encoding for high-cardinality noise composites.
 
     Returns
     -------
     pd.DataFrame
-        ``df`` (shallow copy) plus one new ``object`` column per subset of size >= 2, named by joining the
-        subset's column names with ``separator`` (e.g. ``"A_B"``, ``"A_B_C"``).
+        ``df`` (shallow copy) plus one new ``object`` column per KEPT subset of size >= 2, named by joining
+        the subset's column names with ``separator`` (e.g. ``"A_B"``, ``"A_B_C"``).
     """
     if len(columns) < 2:
         raise ValueError("categorical_powerset_concat: need at least 2 columns to build any composite subset")
@@ -52,9 +82,21 @@ def categorical_powerset_concat(df: pd.DataFrame, columns: Sequence[str], separa
     out = df.copy(deep=False)
     subsets: List[Sequence[str]] = [subset for order in range(2, upper + 1) for subset in combinations(columns, order)]
 
+    composite_names: List[str] = []
     for subset in subsets:
         feature_name = separator.join(subset)
         out = concat_categorical_group(out, columns=list(subset), separator=separator, feature_name=feature_name)
+        composite_names.append(feature_name)
+
+    if prune_against_target is not None and composite_names:
+        y, min_score = prune_against_target
+        y_arr = np.asarray(y)
+        encoded = pd.DataFrame(
+            {name: ordered_target_encode(out[name].to_numpy(), y_arr, smoothing=prune_smoothing) for name in composite_names}
+        )
+        dropped = drop_near_noise_univariate_auc(encoded, y_arr, columns=composite_names, tolerance=min_score)
+        if dropped:
+            out = out.drop(columns=dropped)
 
     return out
 

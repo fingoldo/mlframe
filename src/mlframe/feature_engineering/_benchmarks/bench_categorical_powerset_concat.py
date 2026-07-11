@@ -20,10 +20,15 @@ def _make_dataset(n_rows: int, n_columns: int, n_categories: int, seed: int) -> 
     return pd.DataFrame({chr(ord("a") + c): rng.integers(0, n_categories, n_rows).astype(str) for c in range(n_columns)})
 
 
-def _run(n_rows: int, n_columns: int, n_categories: int, max_order=None) -> None:
+def _run(n_rows: int, n_columns: int, n_categories: int, max_order=None, prune: bool = False) -> None:
     df = _make_dataset(n_rows, n_columns, n_categories, seed=0)
     columns = list(df.columns)
-    categorical_powerset_concat(df, columns, max_order=max_order)
+    if prune:
+        rng = np.random.default_rng(0)
+        y = rng.integers(0, 2, size=n_rows)
+        categorical_powerset_concat(df, columns, max_order=max_order, prune_against_target=(y, 0.02))
+    else:
+        categorical_powerset_concat(df, columns, max_order=max_order)
 
 
 if __name__ == "__main__":
@@ -33,6 +38,12 @@ if __name__ == "__main__":
         wall = time.perf_counter() - t0
         print(f"n_rows={n_rows:>8} n_columns={n_columns:>2} n_categories={n_categories:>4} -> {wall * 1000:9.2f} ms")
 
+    for n_rows, n_columns, n_categories in [(50000, 5, 20), (200000, 5, 20)]:
+        t0 = time.perf_counter()
+        _run(n_rows, n_columns, n_categories, prune=True)
+        wall = time.perf_counter() - t0
+        print(f"[prune_against_target] n_rows={n_rows:>8} n_columns={n_columns:>2} n_categories={n_categories:>4} -> {wall * 1000:9.2f} ms")
+
     profiler = cProfile.Profile()
     profiler.enable()
     _run(200000, 5, 20)
@@ -41,3 +52,13 @@ if __name__ == "__main__":
     stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
     stats.print_stats(15)
     print(buf.getvalue())
+
+    profiler_pruned = cProfile.Profile()
+    profiler_pruned.enable()
+    _run(200000, 5, 20, prune=True)
+    profiler_pruned.disable()
+    buf_pruned = StringIO()
+    stats_pruned = pstats.Stats(profiler_pruned, stream=buf_pruned).sort_stats("cumulative")
+    stats_pruned.print_stats(15)
+    print("[prune_against_target]")
+    print(buf_pruned.getvalue())
