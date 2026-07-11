@@ -180,7 +180,12 @@ class TransformerSequenceEncoder(nn.Module):
                 existing fully-bidirectional behaviour. The ``+1`` accounts for the prepended CLS token at
                 index 0 -- a caller building a mask from ``group_causal_attention_mask`` over the raw sequence
                 positions must pad it with an always-attendable row/column for CLS (e.g. via
-                ``torch.nn.functional.pad`` with value 0.0) before passing it here.
+                ``torch.nn.functional.pad`` with value 0.0) before passing it here. CAVEAT: this always-0 CLS
+                row makes the CLS-pooled return value attend to EVERY group unconditionally, regardless of
+                ``attn_mask`` -- fine when CLS is meant to pool the whole sequence, but callers who need a
+                causally-INVARIANT pooled representation (e.g. no leakage from a "future" group) must pool
+                from a real sequence position instead of CLS (verified: editing a masked-out future position
+                still changes the CLS output).
 
         Returns:
             Context vector (batch, hidden_size) from CLS token
