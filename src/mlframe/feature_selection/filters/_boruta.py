@@ -10,7 +10,7 @@ original Boruta algorithm (Kursa & Rudnicki 2010).
 """
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, Optional, Sequence
+from typing import Any, Callable, Dict, List, Optional, Sequence
 
 import numpy as np
 
@@ -23,6 +23,9 @@ def boruta_select(
     n_iterations: int = 20,
     alpha: float = 0.05,
     random_state: int = 0,
+    resolve_tentative: bool = False,
+    correction: str = "bonferroni",
+    convergence_rounds: Optional[int] = None,
 ) -> Dict[str, Any]:
     """All-relevant feature selection via repeated shadow-feature importance comparison.
 
@@ -47,13 +50,31 @@ def boruta_select(
         after ``n_iterations`` are ``"tentative"``.
     random_state
         Seed for the per-iteration shadow shuffles.
+    resolve_tentative
+        Opt-in (default ``False``, matching original single-shot behavior bit-for-bit). When ``True``, runs the
+        original Boruta multi-round rule instead of a one-shot test at the end: after EVERY round, each
+        still-undecided feature is re-tested against its cumulative hit count with a significance threshold
+        corrected for the repeated testing across rounds (and, for ``"bonferroni"``, across the remaining
+        undecided features too) -- so a feature can be confirmed/rejected as soon as it is genuinely decided,
+        rather than only once at round ``n_iterations``, and the correction keeps the per-round repeated testing
+        from inflating the false-positive rate the way a naive per-round alpha=0.05 test would.
+    correction
+        Multiple-testing correction used when ``resolve_tentative=True``: ``"bonferroni"`` (per-round alpha
+        divided by rounds-so-far times still-undecided features) or ``"bh"`` (Benjamini-Hochberg step-up across
+        the undecided features' p-values each round). Ignored when ``resolve_tentative=False``.
+    convergence_rounds
+        Opt-in early stop (only takes effect when ``resolve_tentative=True``): stop iterating once the confirmed
+        feature set has been unchanged for this many consecutive rounds AND every feature has a decision (no
+        remaining tentative), reclaiming the trailing ``importance_fn`` refits that no longer change the outcome.
+        ``None`` (default) runs the full ``n_iterations``.
 
     Returns
     -------
     dict
         ``hit_counts`` ``(n_features,)`` int (rounds where the real feature beat max-shadow),
         ``win_rate`` ``(n_features,)`` float, ``decision`` (list of ``"confirmed"``/``"rejected"``/``"tentative"``
-        per feature), ``feature_names`` (list).
+        per feature), ``feature_names`` (list), ``n_rounds_run`` (int, equals ``n_iterations`` unless
+        ``convergence_rounds`` triggered an early stop).
     """
     from scipy.stats import binomtest
 
@@ -71,7 +92,13 @@ def boruta_select(
     rng = np.random.default_rng(random_state)
     hit_counts = np.zeros(n_features, dtype=np.int64)
 
-    for _ in range(n_iterations):
+    resolved: List[Optional[str]] = [None] * n_features
+    prev_confirmed: Optional[frozenset] = None
+    stable_rounds = 0
+    rounds_run = 0
+
+    for it in range(n_iterations):
+        rounds_run = it + 1
         if is_frame:
             import pandas as pd
 
@@ -90,13 +117,59 @@ def boruta_select(
         max_shadow_importance = float(np.max(importances[n_features:]))
         hit_counts += (real_importances > max_shadow_importance).astype(np.int64)
 
-    win_rate = hit_counts / n_iterations
-    decisions = []
-    for count in hit_counts:
-        result = binomtest(int(count), n_iterations, p=0.5, alternative="two-sided")
-        if result.pvalue < alpha and count / n_iterations > 0.5:
+        if resolve_tentative:
+            undecided = [j for j in range(n_features) if resolved[j] is None]
+            if undecided:
+                if correction == "bonferroni":
+                    # Correct for both the repeated per-round testing AND the simultaneous per-feature testing --
+                    # a naive uncorrected alpha=0.05 test run every round would inflate the false-confirm rate.
+                    corrected_alpha = alpha / (rounds_run * len(undecided))
+                    for j in undecided:
+                        result = binomtest(int(hit_counts[j]), rounds_run, p=0.5, alternative="two-sided")
+                        if result.pvalue < corrected_alpha:
+                            resolved[j] = "confirmed" if hit_counts[j] / rounds_run > 0.5 else "rejected"
+                elif correction == "bh":
+                    pvals = np.array(
+                        [binomtest(int(hit_counts[j]), rounds_run, p=0.5, alternative="two-sided").pvalue for j in undecided]
+                    )
+                    order = np.argsort(pvals)
+                    m = len(pvals)
+                    crit = alpha * np.arange(1, m + 1) / m
+                    below = pvals[order] <= crit
+                    if below.any():
+                        k_max = int(np.max(np.where(below)[0]))
+                        for rank in range(k_max + 1):
+                            j = undecided[order[rank]]
+                            resolved[j] = "confirmed" if hit_counts[j] / rounds_run > 0.5 else "rejected"
+                else:
+                    raise ValueError(f"Unknown correction {correction!r}, expected 'bonferroni' or 'bh'")
+
+            if convergence_rounds is not None:
+                confirmed_set = frozenset(j for j in range(n_features) if resolved[j] == "confirmed")
+                if confirmed_set == prev_confirmed:
+                    stable_rounds += 1
+                else:
+                    stable_rounds = 1
+                    prev_confirmed = confirmed_set
+                all_decided = all(d is not None for d in resolved)
+                if all_decided and stable_rounds >= convergence_rounds:
+                    break
+
+    win_rate = hit_counts / rounds_run
+    decisions: List[str] = []
+    for j, count in enumerate(hit_counts):
+        if resolve_tentative:
+            # Any feature not resolved by the corrected per-round rule above stays "tentative" -- unlike the
+            # single-shot mode, this never falls back to an UNcorrected end-of-run test, so it does not
+            # reintroduce the family-wise error-rate inflation (n_features simultaneous alpha=0.05 tests) that
+            # the correction across rounds AND features exists to control.
+            resolved_j = resolved[j]
+            decisions.append(resolved_j if resolved_j is not None else "tentative")
+            continue
+        result = binomtest(int(count), rounds_run, p=0.5, alternative="two-sided")
+        if result.pvalue < alpha and count / rounds_run > 0.5:
             decisions.append("confirmed")
-        elif result.pvalue < alpha and count / n_iterations < 0.5:
+        elif result.pvalue < alpha and count / rounds_run < 0.5:
             decisions.append("rejected")
         else:
             decisions.append("tentative")
@@ -106,6 +179,7 @@ def boruta_select(
         "win_rate": win_rate,
         "decision": decisions,
         "feature_names": names,
+        "n_rounds_run": rounds_run,
     }
 
 
