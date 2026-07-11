@@ -11,7 +11,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from mlframe.signal.hull_moving_average import hull_ma_deviation, hull_moving_average
+from mlframe.signal.hull_moving_average import hull_ma_deviation, hull_moving_average, hull_moving_average_multi
 
 
 def _sma(x: np.ndarray, window: int) -> np.ndarray:
@@ -64,3 +64,74 @@ def test_hull_moving_average_nan_prefix_length():
     hma = hull_moving_average(x, window=10)
     assert np.isnan(hma[0])
     assert not np.isnan(hma[-1])
+
+
+def test_hull_moving_average_multi_matches_single_window_calls_bit_identical():
+    """``hull_moving_average_multi`` shares the fast/slow-SMA cumsum across windows internally -- verify
+    that restructuring didn't change a single bit of the per-window result vs the original single-window
+    entry point."""
+    rng = np.random.default_rng(2)
+    x = np.cumsum(rng.normal(size=300)) + 100
+    windows = [7, 15, 32, 50]
+
+    multi = hull_moving_average_multi(x, windows)
+    for window in windows:
+        single = hull_moving_average(x, window)
+        combined = np.stack([multi[window], single])
+        assert np.array_equal(combined[0], combined[1], equal_nan=True), f"window={window} diverged between hull_moving_average and hull_moving_average_multi"
+
+
+def _sign_flip_count(signal: np.ndarray, region: np.ndarray, valid: np.ndarray) -> int:
+    idx = np.where(region & valid)[0]
+    return int(np.sum(np.diff(signal[idx]) != 0))
+
+
+def test_biz_val_hull_moving_average_multi_crossover_beats_single_window_signal():
+    """Real usage: a fast/slow Hull MA pair computed together (``hull_moving_average_multi``) drives a
+    crossover regime signal (``sign(hma_fast - hma_slow)``) -- the standard fast/slow-MA-pair trend
+    detector. A single-window 'value crosses its own HMA' signal is far noisier: every brief spike pushes
+    the raw value above/below its own (fast-reacting) HMA and flips the signal, even when nothing about the
+    underlying trend changed. The two-window crossover barely reacts to the same brief spikes (both windows
+    absorb them similarly) yet still flips essentially immediately at a REAL, sustained regime shift --
+    fewer false signals with no added detection latency, only obtainable by having both windows available
+    from one call."""
+    n, change_point = 300, 150
+    fast_window, slow_window = 8, 45
+    rng = np.random.default_rng(3)
+
+    base = np.concatenate([np.full(change_point, 100.0), np.full(n - change_point, 130.0)])
+    series = base + rng.normal(scale=0.5, size=n)
+
+    # three short-lived noise bursts well before the real regime shift, unrelated to any real trend change.
+    burst_centers = [40, 90, 230]
+    burst_half_width = 2
+    for center in burst_centers:
+        series[center - burst_half_width : center + burst_half_width + 1] += 25.0
+
+    multi = hull_moving_average_multi(series, [fast_window, slow_window])
+    fast_hma, slow_hma = multi[fast_window], multi[slow_window]
+    valid = ~np.isnan(fast_hma) & ~np.isnan(slow_hma)
+
+    naive_signal = np.sign(series - fast_hma)
+    crossover_signal = np.sign(fast_hma - slow_hma)
+
+    burst_region = np.zeros(n, dtype=bool)
+    for center in burst_centers:
+        burst_region[center - 8 : center + 8] = True
+    burst_region[change_point - 5 :] = False  # only pre-change bursts count as pure false-flip traps
+
+    naive_false_flips = _sign_flip_count(naive_signal, burst_region, valid)
+    crossover_false_flips = _sign_flip_count(crossover_signal, burst_region, valid)
+
+    assert naive_false_flips > 0, "test setup should make the single-window signal flip on noise bursts"
+    assert crossover_false_flips < naive_false_flips, f"expected the fast/slow crossover signal to flip less often than the single-window signal on noise bursts, got crossover={crossover_false_flips} naive={naive_false_flips}"
+
+    # detection latency: index of the first crossover flip to the new (upward) trend direction after the real shift.
+    pre_change_idx = np.where(valid & (np.arange(n) < change_point))[0]
+    pre_change_sign = crossover_signal[pre_change_idx[-1]]
+    post_change_idx = np.where(valid & (np.arange(n) >= change_point))[0]
+    post_change_signal = crossover_signal[post_change_idx]
+    flip_positions = np.where(post_change_signal != pre_change_sign)[0]
+    assert flip_positions.size > 0, "crossover signal never flips to the new trend direction after the real regime shift"
+    detection_lag = int(post_change_idx[flip_positions[0]]) - change_point
+    assert detection_lag <= 5, f"expected the crossover signal to catch the real regime shift almost immediately, got detection_lag={detection_lag}"

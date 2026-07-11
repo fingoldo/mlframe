@@ -9,7 +9,36 @@ re-parameterization of them.
 """
 from __future__ import annotations
 
+from typing import Sequence
+
 import numpy as np
+
+
+def _cumsum_with_prefix(x: np.ndarray) -> tuple[np.ndarray, int, int]:
+    """Skip the leading-NaN run of ``x`` and cumsum the valid suffix (prefixed with a 0.0 anchor).
+
+    Factored out of ``_sma`` so ``hull_moving_average_multi`` can compute this ONCE per input series and
+    reuse it across every requested window's fast/slow SMA pass, instead of recomputing an identical cumsum
+    once per window (the dominant per-call cost, per cProfile).
+    """
+    n = x.shape[0]
+    first_valid = 0
+    while first_valid < n and np.isnan(x[first_valid]):
+        first_valid += 1
+    valid = x[first_valid:]
+    n_valid = valid.shape[0]
+    cumsum = np.concatenate([[0.0], np.cumsum(valid)])
+    return cumsum, first_valid, n_valid
+
+
+def _sma_from_cumsum(cumsum: np.ndarray, first_valid: int, n_valid: int, n: int, window: int) -> np.ndarray:
+    """Windowed-mean reduction over a precomputed ``_cumsum_with_prefix`` result -- see ``_sma`` for the
+    single-call entry point and the NaN-prefix rationale."""
+    if window > n_valid:
+        return np.full(n, np.nan)
+    cumsum_valid = cumsum[window:] - cumsum[:-window]
+    sma_valid = cumsum_valid / window
+    return np.concatenate([np.full(first_valid + window - 1, np.nan), sma_valid])
 
 
 def _sma(x: np.ndarray, window: int) -> np.ndarray:
@@ -25,16 +54,8 @@ def _sma(x: np.ndarray, window: int) -> np.ndarray:
     the valid suffix, then re-pad.
     """
     n = x.shape[0]
-    first_valid = 0
-    while first_valid < n and np.isnan(x[first_valid]):
-        first_valid += 1
-    valid = x[first_valid:]
-    n_valid = valid.shape[0]
-    if window > n_valid:
-        return np.full(n, np.nan)
-    cumsum = np.concatenate([[0.0], np.cumsum(valid)])
-    sma_valid = (cumsum[window:] - cumsum[:-window]) / window
-    return np.concatenate([np.full(first_valid + window - 1, np.nan), sma_valid])
+    cumsum, first_valid, n_valid = _cumsum_with_prefix(x)
+    return _sma_from_cumsum(cumsum, first_valid, n_valid, n, window)
 
 
 def hull_moving_average(values: np.ndarray, window: int) -> np.ndarray:
@@ -74,4 +95,43 @@ def hull_ma_deviation(values: np.ndarray, window: int) -> np.ndarray:
     return np.asarray(x - hull_moving_average(x, window))
 
 
-__all__ = ["hull_moving_average", "hull_ma_deviation"]
+def hull_moving_average_multi(values: np.ndarray, windows: Sequence[int]) -> dict[int, np.ndarray]:
+    """``hull_moving_average`` for several ``windows`` at once -- a common real usage (regime detection
+    typically compares a fast and a slow Hull MA rather than trusting a single window).
+
+    Bit-identical to calling ``hull_moving_average(values, w)`` once per ``w`` in ``windows``: same formula,
+    same NaN-prefix handling, just restructured so the two first-stage SMA passes (fast/slow, both windowed
+    reductions of the SAME input series) share one ``_cumsum_with_prefix`` call instead of each window
+    recomputing an identical cumsum of ``values`` from scratch. Only the final re-smoothing pass (its input
+    differs per window) still needs a per-window cumsum.
+
+    Parameters
+    ----------
+    values
+        ``(n,)`` time-ordered series (e.g. close prices).
+    windows
+        Hull MA periods to compute, e.g. ``[10, 20, 50]`` for a fast/medium/slow regime-detection stack.
+
+    Returns
+    -------
+    dict[int, np.ndarray]
+        ``{window: hma}``, one ``(n,)`` array per requested window.
+    """
+    x = np.asarray(values, dtype=np.float64)
+    n = x.shape[0]
+    cumsum, first_valid, n_valid = _cumsum_with_prefix(x)
+
+    results: dict[int, np.ndarray] = {}
+    for window in windows:
+        half_window = max(1, window // 2)
+        sqrt_window = max(1, round(np.sqrt(window)))
+
+        sma_half = _sma_from_cumsum(cumsum, first_valid, n_valid, n, half_window)
+        sma_full = _sma_from_cumsum(cumsum, first_valid, n_valid, n, window)
+        raw_hma_input = 2.0 * sma_half - sma_full
+        hma = _sma(raw_hma_input, sqrt_window)
+        results[window] = hma
+    return results
+
+
+__all__ = ["hull_moving_average", "hull_ma_deviation", "hull_moving_average_multi"]
