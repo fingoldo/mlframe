@@ -25,10 +25,12 @@ def _make_dataset(n: int, n_clusters: int, seed: int):
     return X, y
 
 
-def _run(n: int) -> None:
+def _run(n: int, distance_weighted: bool = False) -> None:
     X, y = _make_dataset(n, n_clusters=max(5, n // 100), seed=0)
     splitter = KFold(n_splits=5, shuffle=True, random_state=0)
-    compute_neighbor_aggregate_features(X, {"y": y}, X_query=None, splitter=splitter, seed=0, k_values=(10, 20, 40))
+    compute_neighbor_aggregate_features(
+        X, {"y": y}, X_query=None, splitter=splitter, seed=0, k_values=(10, 20, 40), distance_weighted=distance_weighted,
+    )
 
 
 if __name__ == "__main__":
@@ -36,7 +38,12 @@ if __name__ == "__main__":
         t0 = time.perf_counter()
         _run(n)
         wall = time.perf_counter() - t0
-        print(f"n={n:>7,} -> {wall * 1000:9.2f} ms")
+        print(f"n={n:>7,} -> {wall * 1000:9.2f} ms (uniform)")
+
+        t0 = time.perf_counter()
+        _run(n, distance_weighted=True)
+        wall = time.perf_counter() - t0
+        print(f"n={n:>7,} -> {wall * 1000:9.2f} ms (distance_weighted)")
 
     profiler = cProfile.Profile()
     profiler.enable()
@@ -46,3 +53,13 @@ if __name__ == "__main__":
     stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
     stats.print_stats(15)
     print(buf.getvalue())
+
+    profiler_w = cProfile.Profile()
+    profiler_w.enable()
+    _run(100_000, distance_weighted=True)
+    profiler_w.disable()
+    buf_w = StringIO()
+    stats_w = pstats.Stats(profiler_w, stream=buf_w).sort_stats("cumulative")
+    stats_w.print_stats(15)
+    print("--- distance_weighted=True ---")
+    print(buf_w.getvalue())

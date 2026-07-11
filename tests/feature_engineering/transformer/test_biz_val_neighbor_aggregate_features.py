@@ -68,3 +68,60 @@ def test_neighbor_aggregate_features_mode_a_never_leaks_own_row():
     feats = compute_neighbor_aggregate_features(X, {"y": y}, X_query=None, splitter=splitter, seed=2, k_values=(1,), stats=("mean",))
     nbr_pred = feats["nbr_y_k1_mean"].to_numpy()
     assert not np.allclose(nbr_pred, y)
+
+
+def _make_smooth_gradient_dataset(n: int, seed: int):
+    """Target varies smoothly (linearly) with a 1-D latent coordinate embedded in 2-D X, plus light noise --
+    within any k-window, neighbors closer along that coordinate sit nearer the query's own true value than
+    farther ones (a uniform mean is biased toward the window's centroid, not the query's own location)."""
+    rng = np.random.default_rng(seed)
+    t = rng.uniform(0, 100, n)
+    X = np.column_stack([t, rng.normal(scale=0.01, size=n)])
+    y_true = t  # true regression surface: y = t (smooth, noiseless target function)
+    y = y_true + rng.normal(scale=0.1, size=n)
+    return X, y, y_true
+
+
+def test_biz_val_neighbor_aggregate_features_distance_weighted_beats_uniform_mean():
+    """On a query point sitting near one edge of its k-window, an inverse-distance-weighted mean should
+    track the true smooth target function noticeably better than an unweighted (plain) mean, since the
+    nearest neighbors are more representative of the query's own location than the farthest ones."""
+    X, y, y_true = _make_smooth_gradient_dataset(n=4000, seed=3)
+    splitter = KFold(n_splits=5, shuffle=True, random_state=3)
+
+    feats = compute_neighbor_aggregate_features(
+        X, {"y": y}, X_query=None, splitter=splitter, seed=3, k_values=(40,), stats=("mean",),
+        distance_weighted=True, standardize=False,
+    )
+    uniform_pred = feats["nbr_y_k40_mean"].to_numpy()
+    weighted_pred = feats["nbr_y_k40_wmean"].to_numpy()
+
+    mse_uniform = float(np.mean((uniform_pred - y_true) ** 2))
+    mse_weighted = float(np.mean((weighted_pred - y_true) ** 2))
+    improvement = 1.0 - mse_weighted / mse_uniform
+
+    assert improvement > 0.65, (
+        f"expected distance-weighted mean to beat uniform mean by >15% MSE (vs. true smooth target), "
+        f"got {improvement:.4f} (weighted={mse_weighted:.4f}, uniform={mse_uniform:.4f})"
+    )
+
+
+def test_neighbor_aggregate_features_distance_weighted_default_off_is_bit_identical():
+    """distance_weighted defaults to False -- output must be bit-identical to calling without the param
+    at all (no accidental behavior change for existing callers)."""
+    X, y, _, _ = _make_clustered_dataset(n=800, n_clusters=10, seed=4)
+    splitter_a = KFold(n_splits=4, shuffle=True, random_state=4)
+    splitter_b = KFold(n_splits=4, shuffle=True, random_state=4)
+
+    feats_default = compute_neighbor_aggregate_features(
+        X, {"y": y}, X_query=None, splitter=splitter_a, seed=4, k_values=(5, 10), stats=("mean", "std"),
+    )
+    feats_explicit_off = compute_neighbor_aggregate_features(
+        X, {"y": y}, X_query=None, splitter=splitter_b, seed=4, k_values=(5, 10), stats=("mean", "std"),
+        distance_weighted=False,
+    )
+
+    assert set(feats_default.columns) == set(feats_explicit_off.columns)
+    for col in feats_default.columns:
+        np.testing.assert_array_equal(feats_default[col].to_numpy(), feats_explicit_off[col].to_numpy())
+    assert not any(c.endswith("_wmean") for c in feats_default.columns)
