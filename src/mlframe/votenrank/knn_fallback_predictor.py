@@ -13,11 +13,12 @@ expects for its ``auxiliary_pred``/``auxiliary_confidence`` inputs. This fills t
 """
 from __future__ import annotations
 
-from typing import Tuple
+from typing import Optional, Tuple
 
 import numpy as np
 
-from mlframe.feature_engineering.transformer._knn_helper import knn_search
+from mlframe.feature_engineering.transformer import knn_search
+from mlframe.votenrank.confidence_gated_blend import confidence_gated_blend
 
 
 class KNNFallbackPredictor:
@@ -61,6 +62,56 @@ class KNNFallbackPredictor:
         mean_dist = np.asarray(np.mean(dists, axis=1))
         confidence = np.asarray(1.0 / (1.0 + mean_dist))
         return pred, confidence
+
+    def predict_blend(
+        self,
+        X_query: np.ndarray,
+        main_pred: np.ndarray,
+        confidence_threshold: Optional[float] = None,
+        gated_weight: float = 1.0,
+        default_weight: float = 0.0,
+        force_backend: Optional[str] = None,
+    ) -> np.ndarray:
+        """Opt-in convenience: kNN-``predict`` this query, then confidence-gate-blend it onto ``main_pred``.
+
+        Wires this predictor's own ``(pred, confidence)`` into ``confidence_gated_blend`` so a caller doesn't
+        have to hand-thread the two calls together to get the "trust the kNN fallback only where it's
+        confident" behavior the class docstring's "blend-gate ready" framing promises. Does not change
+        ``predict``'s own return value or behavior in any way -- this is a separate, additive entry point.
+
+        Parameters
+        ----------
+        X_query
+            Query rows to predict for (same feature space as ``fit``).
+        main_pred
+            The main/primary model's own prediction for the same query rows, same shape as the kNN prediction.
+        confidence_threshold
+            Gating cutoff on the kNN confidence score; rows at/above it get the kNN prediction blended in at
+            ``gated_weight``, other rows get ``default_weight``. Defaults to the median of this batch's kNN
+            confidence scores (blend the more-confident half, defer to the main model on the less-confident
+            half) when not given explicitly.
+        gated_weight, default_weight, force_backend
+            Passed through to ``confidence_gated_blend`` (see there for semantics).
+
+        Returns
+        -------
+        np.ndarray
+            The blended prediction, same shape as ``main_pred``.
+        """
+        knn_pred, knn_confidence = self.predict(X_query)
+        main_pred_arr = np.asarray(main_pred, dtype=np.float64)
+        if main_pred_arr.shape != knn_pred.shape:
+            raise ValueError("KNNFallbackPredictor.predict_blend: main_pred must share knn prediction's shape")
+        threshold = float(np.median(knn_confidence)) if confidence_threshold is None else confidence_threshold
+        return confidence_gated_blend(
+            ensemble_pred=main_pred_arr,
+            auxiliary_pred=knn_pred,
+            auxiliary_confidence=knn_confidence,
+            confidence_threshold=threshold,
+            gated_weight=gated_weight,
+            default_weight=default_weight,
+            force_backend=force_backend,
+        )
 
 
 __all__ = ["KNNFallbackPredictor"]
