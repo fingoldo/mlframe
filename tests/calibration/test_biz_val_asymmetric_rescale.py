@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from mlframe.calibration.asymmetric_rescale import apply_asymmetric_rescale, fit_asymmetric_rescale
+from mlframe.calibration.asymmetric_rescale import apply_asymmetric_rescale, cross_validate_asymmetric_rescale, fit_asymmetric_rescale
 
 
 def _make_asymmetric_miscalibration_dataset(n: int, seed: int):
@@ -50,3 +50,43 @@ def test_apply_asymmetric_rescale_factor_one_is_noop():
     y_pred = np.array([-2.0, -1.0, 1.0, 2.0])
     out = apply_asymmetric_rescale(y_pred, factor=1.0)
     np.testing.assert_allclose(out, y_pred)
+
+
+def test_biz_val_cross_validate_asymmetric_rescale_flags_stable_vs_unstable_fit():
+    # genuine, consistent asymmetric miscalibration at large n: every fold sees the same underlying signal,
+    # so the fitted factor should be nearly identical fold-to-fold (low CV, flagged stable).
+    y_true_stable, y_pred_stable = _make_asymmetric_miscalibration_dataset(n=4000, seed=42)
+    stable_result = cross_validate_asymmetric_rescale(
+        y_true_stable, y_pred_stable, _neg_mse, n_folds=5, factor_range=(1.0, 2.0), n_factors=50, seed=0
+    )
+
+    # pure noise, no real asymmetric relationship, tiny n, heavy-tailed (Cauchy) so a handful of outliers per
+    # fold dominate the grid search: each fold's 1-D search chases whichever outliers landed in its training
+    # split, so the fitted factor should swing wildly fold-to-fold (high CV, flagged unstable).
+    rng = np.random.default_rng(1)
+    n_noise = 25
+    y_true_noise = rng.standard_cauchy(size=n_noise) * 0.3
+    y_pred_noise = rng.standard_cauchy(size=n_noise) * 0.3
+    noise_result = cross_validate_asymmetric_rescale(
+        y_true_noise, y_pred_noise, _neg_mse, n_folds=5, factor_range=(1.0, 2.0), n_factors=50, seed=0
+    )
+
+    assert stable_result["is_stable"], f"expected the genuine-signal fit to be flagged stable, got factor_cv={stable_result['factor_cv']:.4f}"
+    assert not noise_result["is_stable"], f"expected the pure-noise fit to be flagged unstable, got factor_cv={noise_result['factor_cv']:.4f}"
+    assert noise_result["factor_cv"] > 3 * stable_result["factor_cv"], (
+        f"expected the noise fit's fold-to-fold factor CV to be much larger than the genuine-signal fit's, "
+        f"got noise_cv={noise_result['factor_cv']:.4f} stable_cv={stable_result['factor_cv']:.4f}"
+    )
+
+
+def test_cross_validate_asymmetric_rescale_does_not_change_default_fit_behavior():
+    # regression guard: the new opt-in CV mode must not alter fit_asymmetric_rescale/apply_asymmetric_rescale
+    # when they're called directly (bit-identical to pre-extension behavior).
+    y_true_val, y_pred_val = _make_asymmetric_miscalibration_dataset(n=1500, seed=0)
+    fit_before = fit_asymmetric_rescale(y_true_val, y_pred_val, _neg_mse, factor_range=(1.0, 2.0), n_factors=50)
+
+    # exercise the new function first, then re-run the original fit to confirm no shared-state contamination.
+    cross_validate_asymmetric_rescale(y_true_val, y_pred_val, _neg_mse, n_folds=5, factor_range=(1.0, 2.0), n_factors=50)
+    fit_after = fit_asymmetric_rescale(y_true_val, y_pred_val, _neg_mse, factor_range=(1.0, 2.0), n_factors=50)
+
+    assert fit_before == fit_after, f"expected fit_asymmetric_rescale to be bit-identical before/after using cross_validate_asymmetric_rescale, got {fit_before} vs {fit_after}"
