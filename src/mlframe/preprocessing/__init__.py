@@ -28,3 +28,4 @@ from mlframe.preprocessing.rare_count_pruning import collapse_rare_categories, d
 from mlframe.preprocessing.align_feature_direction import align_feature_direction, apply_feature_direction
 from mlframe.preprocessing.unseen_category_imputer import UnseenCategoryImputer
 from mlframe.preprocessing.sibling_group_cold_start_fill import sibling_group_cold_start_fill
+from mlframe.preprocessing.missing_indicator_pairing import impute_with_missing_indicator
