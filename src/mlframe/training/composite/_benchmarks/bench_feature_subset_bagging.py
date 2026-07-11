@@ -23,9 +23,9 @@ def _make_dataset(n: int, n_features: int, seed: int):
     return pd.DataFrame(X, columns=[f"f{i}" for i in range(n_features)]), y
 
 
-def _run(n: int, n_features: int, n_subsets: int) -> None:
+def _run(n: int, n_features: int, n_subsets: int, aggregation: str = "mean") -> None:
     df, y = _make_dataset(n, n_features, seed=0)
-    ens = FeatureSubsetBaggingEnsemble(lambda: Ridge(alpha=0.1), n_subsets=n_subsets, subset_size=10, n_clusters=10, random_state=0)
+    ens = FeatureSubsetBaggingEnsemble(lambda: Ridge(alpha=0.1), n_subsets=n_subsets, subset_size=10, n_clusters=10, random_state=0, aggregation=aggregation)
     ens.fit(df, y)
     ens.predict(df)
 
@@ -35,11 +35,25 @@ if __name__ == "__main__":
         t0 = time.perf_counter()
         _run(n, n_features, n_subsets)
         wall = time.perf_counter() - t0
-        print(f"n={n:>5} n_features={n_features:>4} n_subsets={n_subsets:>3} -> {wall * 1000:9.2f} ms")
+        print(f"n={n:>5} n_features={n_features:>4} n_subsets={n_subsets:>3} aggregation=mean     -> {wall * 1000:9.2f} ms")
+
+        t0 = time.perf_counter()
+        _run(n, n_features, n_subsets, aggregation="weighted")
+        wall = time.perf_counter() - t0
+        print(f"n={n:>5} n_features={n_features:>4} n_subsets={n_subsets:>3} aggregation=weighted -> {wall * 1000:9.2f} ms")
 
     profiler = cProfile.Profile()
     profiler.enable()
     _run(2000, 200, 20)
+    profiler.disable()
+    buf = StringIO()
+    stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
+    stats.print_stats(20)
+    print(buf.getvalue())
+
+    profiler = cProfile.Profile()
+    profiler.enable()
+    _run(2000, 200, 20, aggregation="weighted")
     profiler.disable()
     buf = StringIO()
     stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")

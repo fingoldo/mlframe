@@ -78,3 +78,73 @@ def test_correlation_cluster_feature_subsets_covers_multiple_clusters():
         # the same 2-character prefix pattern of a single cluster's feature-index range (weak check, but
         # the real cluster-membership check is exercised end-to-end in the biz_value test above).
         assert len(set(subset)) == len(subset)
+
+
+def test_correlation_cluster_feature_subsets_vary_which_clusters_are_drawn():
+    """Regression test: when subset_size < n_clusters, correlation_cluster_feature_subsets used to visit
+    clusters in a fixed order every time, so every subset deterministically drew from the SAME first-N
+    clusters (only the specific in-cluster feature varied) -- defeating cross-subset diversity. Fixed by
+    reshuffling cluster visitation order per subset."""
+    df, _ = _make_clustered_dataset(n=200, n_clusters=12, features_per_cluster=4, seed=1)
+    subsets = correlation_cluster_feature_subsets(df, n_subsets=12, subset_size=4, n_clusters=12, random_state=0)
+    cluster_of = {col: i // 4 for i, col in enumerate(df.columns)}
+    cluster_sets = [frozenset(cluster_of[c] for c in s) for s in subsets]
+    assert len(set(cluster_sets)) > 1, f"expected subsets to draw from different cluster combinations, got the same set every time: {cluster_sets[0]}"
+
+
+def _make_mixed_quality_dataset(n: int, n_informative_clusters: int, n_noise_clusters: int, features_per_cluster: int, seed: int):
+    """Some clusters carry real signal, others are pure noise -- sub-models drawing mostly-noise subsets
+    should genuinely underperform sub-models drawing mostly-signal subsets, so a weighting scheme keyed on
+    each sub-model's own OOF quality has something real to exploit."""
+    rng = np.random.default_rng(seed)
+    n_clusters = n_informative_clusters + n_noise_clusters
+    n_features = n_clusters * features_per_cluster
+    latent = rng.normal(size=(n, n_clusters))
+    X = np.zeros((n, n_features))
+    for c in range(n_clusters):
+        for f in range(features_per_cluster):
+            X[:, c * features_per_cluster + f] = latent[:, c] + rng.normal(scale=0.2, size=n)
+    w = np.zeros(n_clusters)
+    w[:n_informative_clusters] = rng.normal(loc=3.0, scale=0.5, size=n_informative_clusters)  # noise clusters get weight 0
+    y = latent @ w + rng.normal(scale=0.3, size=n)
+    return pd.DataFrame(X, columns=[f"f{i}" for i in range(n_features)]), y
+
+
+def test_biz_val_weighted_aggregation_beats_uniform_mean_with_mixed_quality_subsets():
+    df, y = _make_mixed_quality_dataset(n=300, n_informative_clusters=3, n_noise_clusters=9, features_per_cluster=4, seed=2)
+
+    def _uniform(X_train, y_train, X_test):
+        ens = FeatureSubsetBaggingEnsemble(lambda: Ridge(alpha=0.1), n_subsets=12, subset_size=4, n_clusters=12, random_state=0, aggregation="mean")
+        ens.fit(X_train, y_train)
+        return ens.predict(X_test)
+
+    def _weighted(X_train, y_train, X_test):
+        ens = FeatureSubsetBaggingEnsemble(lambda: Ridge(alpha=0.1), n_subsets=12, subset_size=4, n_clusters=12, random_state=0, aggregation="weighted", weighted_cv=3)
+        ens.fit(X_train, y_train)
+        return ens.predict(X_test)
+
+    r2_uniform = _manual_cv_r2(_uniform, df, y)
+    r2_weighted = _manual_cv_r2(_weighted, df, y)
+
+    assert r2_weighted > r2_uniform + 0.03, (
+        f"expected OOF-weighted aggregation to beat uniform-mean aggregation when sub-model subsets differ "
+        f"genuinely in informativeness (noise-heavy subsets should be down-weighted), got weighted={r2_weighted:.4f} uniform={r2_uniform:.4f}"
+    )
+
+
+def test_default_aggregation_mean_is_bit_identical_to_prior_behavior():
+    """aggregation defaults to 'mean' -- must reproduce the exact prior (pre-weighting) predict() output."""
+    df, y = _make_clustered_dataset(n=80, n_clusters=5, features_per_cluster=4, seed=3)
+    ens_default = FeatureSubsetBaggingEnsemble(lambda: Ridge(alpha=0.1), n_subsets=6, subset_size=6, n_clusters=5, random_state=0)
+    ens_default.fit(df, y)
+    pred_default = ens_default.predict(df)
+
+    ens_explicit = FeatureSubsetBaggingEnsemble(lambda: Ridge(alpha=0.1), n_subsets=6, subset_size=6, n_clusters=5, random_state=0, aggregation="mean")
+    ens_explicit.fit(df, y)
+    pred_explicit = ens_explicit.predict(df)
+
+    preds = np.stack([model.predict(df[subset]) for model, subset in zip(ens_default.estimators_, ens_default.feature_subsets_)], axis=0)
+    prior_behavior_pred = np.mean(preds, axis=0)
+
+    np.testing.assert_array_equal(pred_default, pred_explicit)
+    np.testing.assert_array_equal(pred_default, prior_behavior_pred)
