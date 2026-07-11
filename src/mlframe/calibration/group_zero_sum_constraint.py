@@ -51,4 +51,77 @@ def apply_group_zero_sum_constraint(predictions: np.ndarray, group: np.ndarray, 
     return np.asarray(pred_arr - group_offset)
 
 
-__all__ = ["apply_group_zero_sum_constraint"]
+def apply_group_zero_sum_constraint_multi(
+    predictions: np.ndarray,
+    groups: list,
+    weights: Optional[np.ndarray] = None,
+    target_sums: Optional[list] = None,
+    max_iterations: int = 10,
+    tol: float = 1e-8,
+) -> np.ndarray:
+    """Satisfy MULTIPLE simultaneous per-group zero-sum constraints via Dykstra-style alternating projection.
+
+    Real conservation-law targets can carry more than one known grouping that each must independently sum
+    (weighted) to a target -- e.g. Optiver's target sums to ~0 both within ``(date_id, seconds_in_bucket)``
+    AND, if a second orthogonal grouping is also known to be constrained, within that grouping too. Applying
+    :func:`apply_group_zero_sum_constraint` for one grouping alone re-satisfies THAT constraint but generally
+    re-breaks any other grouping's constraint (the two group-by partitions overlap, so a per-row shift that
+    fixes one recentres rows into different partial sums for the other). Alternating the single-constraint
+    projection across all groupings and iterating converges both (all) constraints simultaneously, exactly
+    like Dykstra's alternating projection algorithm onto multiple convex sets.
+
+    Parameters
+    ----------
+    predictions
+        ``(n,)`` raw model predictions.
+    groups
+        List of ``(n,)`` group-label arrays, one per independent zero-sum constraint (e.g.
+        ``[group_by_time, group_by_other_key]``).
+    weights
+        ``(n,)`` per-row weight, or ``None`` for an unweighted (equal-weight) sum/mean within each group.
+    target_sums
+        Per-constraint known weighted-sum target, one value per entry in ``groups``. Defaults to all-zero.
+    max_iterations
+        Maximum number of full sweeps over all constraints.
+    tol
+        Sweep stops early once every constraint's max absolute weighted-sum residual is below ``tol``.
+
+    Returns
+    -------
+    np.ndarray
+        ``(n,)`` corrected predictions satisfying all constraints within ``tol`` (or after ``max_iterations``).
+    """
+    if not groups:
+        return np.asarray(predictions, dtype=np.float64)
+
+    n_constraints = len(groups)
+    targets = [0.0] * n_constraints if target_sums is None else list(target_sums)
+
+    corrected = np.asarray(predictions, dtype=np.float64).copy()
+    w_arr = None if weights is None else np.asarray(weights, dtype=np.float64)
+
+    for _ in range(max_iterations):
+        for group, target_sum in zip(groups, targets):
+            corrected = apply_group_zero_sum_constraint(corrected, group, weights=w_arr, target_sum=target_sum)
+        # the just-applied (last) constraint is satisfied to float precision by construction -- no need to
+        # re-scan it; only the earlier constraints in this sweep may have been disturbed by later applies.
+        max_residual = max(
+            (_max_abs_group_residual(corrected, group, w_arr, target_sum) for group, target_sum in zip(groups[:-1], targets[:-1])),
+            default=0.0,
+        )
+        if max_residual < tol:
+            break
+
+    return np.asarray(corrected)
+
+
+def _max_abs_group_residual(predictions: np.ndarray, group: np.ndarray, weights: Optional[np.ndarray], target_sum: float) -> float:
+    w_arr = np.ones_like(predictions) if weights is None else weights
+    df = pd.DataFrame({"wpred": predictions * w_arr, "group": group})
+    sums = df.groupby("group", sort=False)["wpred"].sum().to_numpy()
+    if sums.size == 0:
+        return 0.0
+    return float(np.max(np.abs(sums - target_sum)))
+
+
+__all__ = ["apply_group_zero_sum_constraint", "apply_group_zero_sum_constraint_multi"]
