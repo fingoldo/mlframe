@@ -22,9 +22,9 @@ def _make_dataset(n_entities: int, avg_rows_per_entity: int, seed: int) -> pd.Da
     return pd.DataFrame({"entity": entity_ids, "value": rng.normal(size=n)})
 
 
-def _run(n_entities: int, avg_rows_per_entity: int) -> None:
+def _run(n_entities: int, avg_rows_per_entity: int, per_entity_bins: bool = False) -> None:
     df = _make_dataset(n_entities, avg_rows_per_entity, seed=0)
-    binned_unique_count(df, "entity", "value", n_bins=10)
+    binned_unique_count(df, "entity", "value", n_bins=10, per_entity_bins=per_entity_bins)
 
 
 if __name__ == "__main__":
@@ -32,7 +32,13 @@ if __name__ == "__main__":
         t0 = time.perf_counter()
         _run(n_entities, avg_rows)
         wall = time.perf_counter() - t0
-        print(f"n_entities={n_entities:>5} avg_rows/entity={avg_rows:>3} -> {wall * 1000:9.2f} ms")
+        print(f"[global]      n_entities={n_entities:>5} avg_rows/entity={avg_rows:>3} -> {wall * 1000:9.2f} ms")
+
+    for n_entities, avg_rows in [(500, 10), (5000, 10), (5000, 50)]:
+        t0 = time.perf_counter()
+        _run(n_entities, avg_rows, per_entity_bins=True)
+        wall = time.perf_counter() - t0
+        print(f"[per_entity]  n_entities={n_entities:>5} avg_rows/entity={avg_rows:>3} -> {wall * 1000:9.2f} ms")
 
     profiler = cProfile.Profile()
     profiler.enable()
@@ -41,4 +47,15 @@ if __name__ == "__main__":
     buf = StringIO()
     stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
     stats.print_stats(20)
+    print("[global] cProfile:")
+    print(buf.getvalue())
+
+    profiler = cProfile.Profile()
+    profiler.enable()
+    _run(5000, 50, per_entity_bins=True)
+    profiler.disable()
+    buf = StringIO()
+    stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
+    stats.print_stats(20)
+    print("[per_entity] cProfile:")
     print(buf.getvalue())
