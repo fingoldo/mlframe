@@ -17,12 +17,19 @@ import numpy as np
 import pandas as pd
 
 
+def _mode_or_nan(s: pd.Series) -> Union[int, float, str]:
+    """First mode of ``s`` ignoring NaNs, or ``np.nan`` if ``s`` has no non-null values."""
+    mode_vals = s.mode(dropna=True)
+    return mode_vals.iloc[0] if len(mode_vals) else np.nan
+
+
 def impute_with_missing_indicator(
     df: pd.DataFrame,
     columns: Optional[Sequence[str]] = None,
     strategy: str = "median",
     fill_values: Optional[Dict[str, Union[int, float, str]]] = None,
     indicator_suffix: str = "_was_missing",
+    group_col: Optional[str] = None,
 ) -> pd.DataFrame:
     """Impute missing values per column and append a paired ``{col}{indicator_suffix}`` boolean column.
 
@@ -39,6 +46,13 @@ def impute_with_missing_indicator(
         Optional explicit ``{column: value}`` overrides, applied instead of ``strategy`` for those columns.
     indicator_suffix
         Suffix for the companion boolean indicator column.
+    group_col
+        Optional column name. When supplied, the fill statistic is computed per-group (grouping by this
+        column) instead of a single global statistic -- useful whenever the feature's typical value varies
+        meaningfully across groups (e.g. impute missing "income" with the median income within the person's
+        region rather than the global median). A group with zero non-missing values falls back to the global
+        statistic, so no fill is ever NaN. ``group_col`` itself is never imputed by this call. Ignored for a
+        column present in ``fill_values`` (that value wins, exactly as without ``group_col``).
 
     Returns
     -------
@@ -52,6 +66,9 @@ def impute_with_missing_indicator(
 
     cols = list(columns) if columns is not None else [c for c in df.columns if df[c].isna().any()]
     out = df.copy(deep=False)
+    # grouped once and reused across all columns -- rebuilding the groupby index per column would repeat
+    # the (non-trivial) group-key factorization work for every imputed column.
+    group_by = out.groupby(group_col, dropna=False) if group_col is not None else None
 
     for col in cols:
         mask = out[col].isna()
@@ -59,15 +76,29 @@ def impute_with_missing_indicator(
             continue
         out[f"{col}{indicator_suffix}"] = mask.to_numpy()
         if col in fill_values:
-            fill_value = fill_values[col]
-        elif strategy == "median":
-            fill_value = out[col].median()
+            out[col] = out[col].fillna(fill_values[col])
+            continue
+
+        if strategy == "median":
+            global_fill = out[col].median()
         elif strategy == "mean":
-            fill_value = out[col].mean()
+            global_fill = out[col].mean()
         else:  # mode
-            mode_vals = out[col].mode(dropna=True)
-            fill_value = mode_vals.iloc[0] if len(mode_vals) else np.nan
-        out[col] = out[col].fillna(fill_value)
+            global_fill = _mode_or_nan(out[col])
+
+        if group_col is None:
+            out[col] = out[col].fillna(global_fill)
+        else:
+            assert group_by is not None
+            if strategy == "median":
+                group_fill = group_by[col].transform("median")
+            elif strategy == "mean":
+                group_fill = group_by[col].transform("mean")
+            else:  # mode: no vectorized groupby reduction, but per-group (not per-row) cost via agg + map
+                group_stat = group_by[col].agg(_mode_or_nan)
+                group_fill = out[group_col].map(group_stat)
+            group_fill = group_fill.fillna(global_fill)  # groups with zero non-missing values
+            out[col] = out[col].fillna(group_fill)
 
     return out
 

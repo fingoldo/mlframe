@@ -15,7 +15,7 @@ import pandas as pd
 from mlframe.preprocessing.missing_indicator_pairing import impute_with_missing_indicator
 
 
-def _make_dataset(n_rows: int, n_cols: int, seed: int) -> pd.DataFrame:
+def _make_dataset(n_rows: int, n_cols: int, seed: int, n_groups: int = 0) -> pd.DataFrame:
     rng = np.random.default_rng(seed)
     data = {}
     for c in range(n_cols):
@@ -23,6 +23,8 @@ def _make_dataset(n_rows: int, n_cols: int, seed: int) -> pd.DataFrame:
         mask = rng.random(n_rows) < 0.3
         col[mask] = np.nan
         data[f"f{c}"] = col
+    if n_groups:
+        data["grp"] = rng.integers(0, n_groups, size=n_rows)
     return pd.DataFrame(data)
 
 
@@ -31,16 +33,37 @@ def _run(n_rows: int, n_cols: int) -> None:
     impute_with_missing_indicator(df)
 
 
+def _run_grouped(n_rows: int, n_cols: int, n_groups: int = 20) -> None:
+    df = _make_dataset(n_rows, n_cols, seed=0, n_groups=n_groups)
+    cols = [c for c in df.columns if c != "grp"]
+    impute_with_missing_indicator(df, columns=cols, group_col="grp")
+
+
 if __name__ == "__main__":
     for n_rows, n_cols in [(50000, 10), (500000, 10), (500000, 50)]:
         t0 = time.perf_counter()
         _run(n_rows, n_cols)
         wall = time.perf_counter() - t0
-        print(f"n_rows={n_rows:>7} n_cols={n_cols:>3} -> {wall * 1000:9.2f} ms")
+        print(f"global    n_rows={n_rows:>7} n_cols={n_cols:>3} -> {wall * 1000:9.2f} ms")
+
+    for n_rows, n_cols in [(50000, 10), (500000, 10), (500000, 50)]:
+        t0 = time.perf_counter()
+        _run_grouped(n_rows, n_cols)
+        wall = time.perf_counter() - t0
+        print(f"grouped   n_rows={n_rows:>7} n_cols={n_cols:>3} -> {wall * 1000:9.2f} ms")
 
     profiler = cProfile.Profile()
     profiler.enable()
     _run(500000, 50)
+    profiler.disable()
+    buf = StringIO()
+    stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
+    stats.print_stats(15)
+    print(buf.getvalue())
+
+    profiler = cProfile.Profile()
+    profiler.enable()
+    _run_grouped(500000, 50)
     profiler.disable()
     buf = StringIO()
     stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
