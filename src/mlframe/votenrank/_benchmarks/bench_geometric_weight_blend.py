@@ -36,12 +36,34 @@ def _run(n_samples: int, n_models: int) -> None:
     geometric_weight_blend(preds, y, _log_loss, n_restarts=5, random_state=0)
 
 
+def _run_hybrid_fixed_alpha(n_samples: int, n_models: int) -> None:
+    y, preds = _make_dataset(n_samples, n_models, seed=0)
+    geometric_weight_blend(preds, y, _log_loss, n_restarts=5, random_state=0, alpha=0.7)
+
+
+def _run_hybrid_fit_alpha(n_samples: int, n_models: int) -> None:
+    y, preds = _make_dataset(n_samples, n_models, seed=0)
+    geometric_weight_blend(preds, y, _log_loss, n_restarts=5, random_state=0, fit_alpha=True)
+
+
 if __name__ == "__main__":
     for n_samples, n_models in [(2000, 5), (20000, 5), (20000, 20)]:
         t0 = time.perf_counter()
         _run(n_samples, n_models)
         wall = time.perf_counter() - t0
-        print(f"n_samples={n_samples:>6} n_models={n_models:>3} -> {wall * 1000:9.2f} ms")
+        print(f"n_samples={n_samples:>6} n_models={n_models:>3} -> {wall * 1000:9.2f} ms  [pure geometric]")
+
+    for n_samples, n_models in [(2000, 5), (20000, 5), (20000, 20)]:
+        t0 = time.perf_counter()
+        _run_hybrid_fixed_alpha(n_samples, n_models)
+        wall = time.perf_counter() - t0
+        print(f"n_samples={n_samples:>6} n_models={n_models:>3} -> {wall * 1000:9.2f} ms  [hybrid alpha=0.7 fixed]")
+
+    for n_samples, n_models in [(2000, 5), (20000, 5), (20000, 20)]:
+        t0 = time.perf_counter()
+        _run_hybrid_fit_alpha(n_samples, n_models)
+        wall = time.perf_counter() - t0
+        print(f"n_samples={n_samples:>6} n_models={n_models:>3} -> {wall * 1000:9.2f} ms  [hybrid fit_alpha]")
 
     profiler = cProfile.Profile()
     profiler.enable()
@@ -50,4 +72,15 @@ if __name__ == "__main__":
     buf = StringIO()
     stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
     stats.print_stats(20)
+    print("--- pure geometric ---")
+    print(buf.getvalue())
+
+    profiler = cProfile.Profile()
+    profiler.enable()
+    _run_hybrid_fit_alpha(20000, 20)
+    profiler.disable()
+    buf = StringIO()
+    stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
+    stats.print_stats(20)
+    print("--- hybrid fit_alpha ---")
     print(buf.getvalue())
