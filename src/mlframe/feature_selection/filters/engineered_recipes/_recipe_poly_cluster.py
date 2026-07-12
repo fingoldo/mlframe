@@ -16,13 +16,17 @@ from ._recipe_core import EngineeredRecipe
 from ._recipe_extract import _coerce_to_int_with_nan_handling, _extract_column
 
 
-def _apply_hermite_pair(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
+def _apply_hermite_pair(recipe: EngineeredRecipe, X: Any, col_cache: "dict[str, np.ndarray] | None" = None) -> np.ndarray:
     """T1#3 2026-05-18: replay a Hermite/Chebyshev/Laguerre polynomial-pair FE column at predict time.
 
     Carries the full ``HermiteResult`` state (coefficients, basis name,
     bin-function name, preprocessing parameters) in ``recipe.extra``;
     the builder ``build_hermite_pair_recipe`` populates it. Lazy import
     of ``hermite_fe`` keeps this module dependency-light at import time.
+
+    ``col_cache``: optional dict shared across every recipe replayed in ONE ``transform()`` call (see
+    ``apply_recipe``); forwarded to ``_extract_column`` so a hub source column is pulled from ``X`` at most
+    once per call.
     """
     if len(recipe.src_names) != 2:
         raise ValueError(f"hermite_pair recipe '{recipe.name}' must have exactly 2 src_names; " f"got {len(recipe.src_names)}")
@@ -46,8 +50,8 @@ def _apply_hermite_pair(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
 
     name_a, name_b = recipe.src_names
     try:
-        vals_a = _extract_column(X, name_a)
-        vals_b = _extract_column(X, name_b)
+        vals_a = _extract_column(X, name_a, col_cache=col_cache)
+        vals_b = _extract_column(X, name_b, col_cache=col_cache)
     except Exception as _src_err:
         # A source can be a fit-time-pruned engineered intermediate that is unreconstructable at replay. The mrmr
         # validate-transform contract NaN-degrades chained-capable kinds (hermite_pair references engineered cols)
@@ -136,12 +140,15 @@ def build_cluster_aggregate_recipe(
     return EngineeredRecipe(name=name, kind="cluster_aggregate", src_names=tuple(src_names), quantization=quantization, extra=extra)
 
 
-def _apply_cluster_aggregate(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
+def _apply_cluster_aggregate(recipe: EngineeredRecipe, X: Any, col_cache: "dict[str, np.ndarray] | None" = None) -> np.ndarray:
     """Replay a cluster-aggregate column: standardize members with stored train stats, sign-align,
     combine (``Z @ weights`` for linear methods, per-row median for ``median``), then discretize.
 
     Stateless given the stored ``extra`` -> uses ONLY train-fitted stats (never re-standardizes on the
-    test distribution), so train/test parity holds. Pure numpy -> no lazy import / import-cycle risk."""
+    test distribution), so train/test parity holds. Pure numpy -> no lazy import / import-cycle risk.
+
+    ``col_cache``: optional dict shared across every recipe replayed in ONE ``transform()`` call (see
+    ``apply_recipe``); forwarded to ``_extract_column`` for every member column."""
     for key in ("method", "member_mean", "member_std", "signs"):
         if key not in recipe.extra:
             raise KeyError(f"cluster_aggregate recipe '{recipe.name}' missing '{key}' in extra. Re-fit to repopulate.")
@@ -164,7 +171,7 @@ def _apply_cluster_aggregate(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     # the very common case where TRAIN itself contains NaN.
     cols = [
         np.nan_to_num(
-            np.asarray(_extract_column(X, n), dtype=np.float64),
+            np.asarray(_extract_column(X, n, col_cache=col_cache), dtype=np.float64),
             nan=0.0, posinf=0.0, neginf=0.0,
         )
         for n in recipe.src_names
@@ -213,8 +220,10 @@ def _apply_cluster_aggregate(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     return np.asarray(out)
 
 
-def _apply_target_encoding(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
-    """Look up each test row's (a, b) merged cell in ``cell_means``, return per-row encoded float. Unseen combinations map to ``global_mean`` (or per ``unknown_strategy``)."""
+def _apply_target_encoding(recipe: EngineeredRecipe, X: Any, col_cache: "dict[str, np.ndarray] | None" = None) -> np.ndarray:
+    """Look up each test row's (a, b) merged cell in ``cell_means``, return per-row encoded float. Unseen combinations map to ``global_mean`` (or per
+    ``unknown_strategy``). ``col_cache``: optional dict shared across every recipe replayed in ONE ``transform()`` call (see ``apply_recipe``);
+    forwarded to ``_extract_column``."""
     if len(recipe.src_names) != 2:
         raise NotImplementedError(f"target_encoding for k>2 not implemented yet " f"(recipe '{recipe.name}' has {len(recipe.src_names)} src).")
     if "cell_means" not in recipe.extra or "factorize_lookup" not in recipe.extra:
@@ -231,11 +240,11 @@ def _apply_target_encoding(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     _cat_maps = recipe.extra.get("cat_code_maps") or {}
     _edges = recipe.extra.get("src_bin_edges") or {}
     vals_a = _coerce_to_int_with_nan_handling(
-        _extract_column(X, name_a), nbins_a, recipe.name, name_a, recipe.unknown_strategy,
+        _extract_column(X, name_a, col_cache=col_cache), nbins_a, recipe.name, name_a, recipe.unknown_strategy,
         _cat_maps.get(name_a), _edges.get(name_a),
     )
     vals_b = _coerce_to_int_with_nan_handling(
-        _extract_column(X, name_b), nbins_b, recipe.name, name_b, recipe.unknown_strategy,
+        _extract_column(X, name_b, col_cache=col_cache), nbins_b, recipe.name, name_b, recipe.unknown_strategy,
         _cat_maps.get(name_b), _edges.get(name_b),
     )
     vals_a = np.clip(vals_a, 0, nbins_a - 1)

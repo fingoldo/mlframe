@@ -139,10 +139,33 @@ def _eval_orth_basis_column(
     return polyeval_dispatch(basis, z, coef)
 
 
-def _apply_orth_univariate(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
+def _basis_cache_key(
+    name: str, basis: str, degree: int, pre_transform: str, preprocess_params: Optional[dict],
+) -> tuple:
+    """Cache key for one hub-operand basis evaluation, scoped to ONE ``transform()`` call's ``basis_cache``.
+
+    Content-keyed (not ``id(preprocess_params)``): sibling recipes sharing the same source column each carry
+    their OWN frozen copy of ``preprocess_params`` (``_freeze_preprocess_params`` allocates a fresh dict per
+    recipe build), so an identity-based key would never hit across recipes even when the values are identical.
+    ``preprocess_params`` is a small flat float dict (z-score mean/std or min-max lo/hi), so hashing its sorted
+    items is cheap relative to the ``polyeval_dispatch`` work it lets us skip."""
+    pp_key = None if not preprocess_params else tuple(sorted(preprocess_params.items()))
+    return (name, basis, degree, pre_transform, pp_key)
+
+
+def _apply_orth_univariate(
+    recipe: EngineeredRecipe, X: Any,
+    col_cache: "dict[str, np.ndarray] | None" = None,
+    basis_cache: "dict[tuple, np.ndarray] | None" = None,
+) -> np.ndarray:
     """Replay an orthogonal-polynomial univariate column: extract the
     source column, evaluate basis_n(z) where z is the per-basis preprocessed
     value. Stateless given the stored basis + degree; no y reference.
+
+    ``col_cache`` / ``basis_cache``: optional dicts shared across every recipe replayed in ONE ``transform()``
+    call (see ``apply_recipe``). ``col_cache`` dedupes the raw ``_extract_column`` pull; ``basis_cache`` dedupes
+    the basis evaluation itself for a hub column shared by several ``orth_univariate`` / ``orth_pair_cross``
+    recipes at the SAME ``(basis, degree)``.
     """
     from . import _extract_column
     if len(recipe.src_names) != 1:
@@ -161,17 +184,33 @@ def _apply_orth_univariate(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     # BUG2 FIX (2026-06-12): frozen fit-time basis-preprocess params (if the
     # recipe was built with them) make replay byte-exact on any row-slice.
     preprocess_params = recipe.extra.get("preprocess_params")
-    vals = _extract_column(X, src_name)
-    return _eval_orth_basis_column(
+    if basis_cache is not None:
+        _key = _basis_cache_key(src_name, basis, degree, pre_transform, preprocess_params)
+        _cached = basis_cache.get(_key)
+        if _cached is not None:
+            return _cached
+    vals = _extract_column(X, src_name, col_cache=col_cache)
+    out = _eval_orth_basis_column(
         vals, basis, degree, pre_transform=pre_transform,
         preprocess_params=preprocess_params,
     )
+    if basis_cache is not None:
+        basis_cache[_key] = out
+    return out
 
 
-def _apply_orth_pair_cross(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
+def _apply_orth_pair_cross(
+    recipe: EngineeredRecipe, X: Any,
+    col_cache: "dict[str, np.ndarray] | None" = None,
+    basis_cache: "dict[tuple, np.ndarray] | None" = None,
+) -> np.ndarray:
     """Replay a pair-cross-basis column: extract both source columns,
     evaluate basis_a^{deg_a}(z_i) * basis_b^{deg_b}(z_j). Stateless given
     the stored bases + degrees; no y reference.
+
+    ``col_cache`` / ``basis_cache``: see ``_apply_orth_univariate``. The per-operand basis evaluation depends
+    only on ``(name, basis, degree, preprocess_params)``, not on the pair partner, so a hub operand shared by
+    several ``orth_pair_cross`` recipes (e.g. ``(i,j1)``, ``(i,j2)``, ...) evaluates its ``i``-side basis once.
     """
     from . import _extract_column
     if len(recipe.src_names) != 2:
@@ -187,10 +226,21 @@ def _apply_orth_pair_cross(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     # BUG2 FIX (2026-06-12): frozen per-operand fit-time preprocess params.
     pp_i = recipe.extra.get("preprocess_params_i")
     pp_j = recipe.extra.get("preprocess_params_j")
-    vals_i = _extract_column(X, name_i)
-    vals_j = _extract_column(X, name_j)
-    h_a = _eval_orth_basis_column(vals_i, basis_i, deg_a, preprocess_params=pp_i)
-    h_b = _eval_orth_basis_column(vals_j, basis_j, deg_b, preprocess_params=pp_j)
+
+    def _eval_side(name: str, basis: str, degree: int, pp: Optional[dict]) -> np.ndarray:
+        if basis_cache is not None:
+            _key = _basis_cache_key(name, basis, degree, "raw", pp)
+            _cached = basis_cache.get(_key)
+            if _cached is not None:
+                return _cached
+        _vals = _extract_column(X, name, col_cache=col_cache)
+        _out = _eval_orth_basis_column(_vals, basis, degree, preprocess_params=pp)
+        if basis_cache is not None:
+            basis_cache[_key] = _out
+        return _out
+
+    h_a = _eval_side(name_i, basis_i, deg_a, pp_i)
+    h_b = _eval_side(name_j, basis_j, deg_b, pp_j)
     # Match fit-time NaN/Inf scrubbing in ``generate_pair_cross_basis_features`` (the twin fit-time
     # generator): a high-degree basis product can overflow, and unlike ``_apply_unary_binary`` this
     # replay path had no downstream scrub at all.
@@ -453,10 +503,13 @@ def _fit_spline_knots(x: np.ndarray, n_inner_knots: int, degree: int = 3) -> tup
     return knots, float(lo), float(hi)
 
 
-def _apply_orth_spline(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
+def _apply_orth_spline(recipe: EngineeredRecipe, X: Any, col_cache: "dict[str, np.ndarray] | None" = None) -> np.ndarray:
     """Replay one cubic B-spline basis column: B_{idx}(z) where z is min-max
     normalised x with knots fixed at fit time. Stateless given the stored
     knots + idx + (lo, hi); no y reference.
+
+    ``col_cache``: optional dict shared across every recipe replayed in ONE ``transform()`` call (see
+    ``apply_recipe``); forwarded to ``_extract_column``.
     """
     from . import _extract_column
     if len(recipe.src_names) != 1:
@@ -469,7 +522,7 @@ def _apply_orth_spline(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     idx = int(recipe.extra["idx"])
     lo = float(recipe.extra["lo"])
     hi = float(recipe.extra["hi"])
-    vals = np.asarray(_extract_column(X, name), dtype=np.float64)
+    vals = np.asarray(_extract_column(X, name, col_cache=col_cache), dtype=np.float64)
     finite = np.isfinite(vals)
     if not finite.all():
         fill = float(np.nanmean(vals[finite])) if finite.any() else 0.0
@@ -479,9 +532,12 @@ def _apply_orth_spline(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     return _bspline_basis_values(z, knots, idx, degree=3)
 
 
-def _apply_orth_fourier(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
+def _apply_orth_fourier(recipe: EngineeredRecipe, X: Any, col_cache: "dict[str, np.ndarray] | None" = None) -> np.ndarray:
     """Replay one Fourier basis column: sin(2*pi*freq*z) or cos(2*pi*freq*z)
     where z = (x - lo) / span, with (lo, span) fixed at fit time.
+
+    ``col_cache``: optional dict shared across every recipe replayed in ONE ``transform()`` call (see
+    ``apply_recipe``); forwarded to ``_extract_column``.
     """
     from . import _extract_column
     if len(recipe.src_names) != 1:
@@ -499,7 +555,7 @@ def _apply_orth_fourier(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     power = int(recipe.extra.get("power", 1))
     # arg defaults to "linear" (legacy recipes pre-dating the chirp warp).
     arg = str(recipe.extra.get("arg", "linear"))
-    vals = np.asarray(_extract_column(X, name), dtype=np.float64)
+    vals = np.asarray(_extract_column(X, name, col_cache=col_cache), dtype=np.float64)
     finite = np.isfinite(vals)
     if not finite.all():
         fill = float(np.nanmean(vals[finite])) if finite.any() else 0.0

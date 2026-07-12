@@ -24,18 +24,34 @@ except ImportError:  # pragma: no cover
     pl = None  # type: ignore[assignment]
 
 
-def _extract_column(X: Any, name: str) -> np.ndarray:
-    """Pull a single column from X by name as a 1-D ndarray, no full-frame copy. Supports pandas / polars DataFrame and numpy structured arrays."""
+def _extract_column(X: Any, name: str, col_cache: "dict[str, np.ndarray] | None" = None) -> np.ndarray:
+    """Pull a single column from X by name as a 1-D ndarray, no full-frame copy. Supports pandas / polars DataFrame and numpy structured arrays.
+
+    ``col_cache``: optional dict shared across every recipe replayed in ONE ``transform()``/``predict()`` call.
+    When supplied, a column already pulled for an earlier recipe in the same call is returned BY REFERENCE
+    instead of re-extracted -- the win is real for polars (``.to_numpy()`` always copies) and pandas
+    categorical/object columns (also copy); plain numeric pandas is already near-zero-copy via ``.to_numpy()``
+    so the cache there mainly just skips the repeat call. ``None`` (default) preserves the always-extract
+    behaviour of every caller not yet threading a shared cache through (backward compatible)."""
+    if col_cache is not None:
+        _cached = col_cache.get(name)
+        if _cached is not None:
+            return _cached
     if pd is not None and isinstance(X, pd.DataFrame):
         # ``.values`` is zero-copy for numeric dtypes; categorical/object materialises only the single column.
-        return np.asarray(X[name].to_numpy() if hasattr(X[name], "to_numpy") else X[name].values)
-    if pl is not None and isinstance(X, pl.DataFrame):
-        return X[name].to_numpy()
-    if isinstance(X, np.ndarray):
+        out = np.asarray(X[name].to_numpy() if hasattr(X[name], "to_numpy") else X[name].values)
+    elif pl is not None and isinstance(X, pl.DataFrame):
+        out = X[name].to_numpy()
+    elif isinstance(X, np.ndarray):
         if X.dtype.names is not None:
-            return X[name]
-        raise KeyError(f"Cannot resolve column '{name}' on a plain 2-D ndarray. " "Pass a pandas / polars frame or a structured array.")
-    raise TypeError(f"Unsupported X type for engineered-recipe replay: {type(X)!r}")
+            out = X[name]
+        else:
+            raise KeyError(f"Cannot resolve column '{name}' on a plain 2-D ndarray. " "Pass a pandas / polars frame or a structured array.")
+    else:
+        raise TypeError(f"Unsupported X type for engineered-recipe replay: {type(X)!r}")
+    if col_cache is not None:
+        col_cache[name] = out
+    return out
 
 
 _NAN_CODE_KEY = "__MLFRAME_CAT_NAN__"

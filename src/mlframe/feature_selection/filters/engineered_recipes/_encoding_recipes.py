@@ -21,6 +21,8 @@ try:
 except ImportError:  # pragma: no cover
     pl = None  # type: ignore[assignment]
 
+from ._recipe_extract import _extract_column
+
 if TYPE_CHECKING:
     from . import EngineeredRecipe
 
@@ -47,10 +49,14 @@ if TYPE_CHECKING:
 # this one encodes raw single columns and is the standard prod-ML pattern.
 
 
-def _apply_kfold_target_encoded(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
+def _apply_kfold_target_encoded(recipe: EngineeredRecipe, X: Any, col_cache: "dict[str, np.ndarray] | None" = None) -> np.ndarray:
     """Replay a k-fold target-encoded column. Stateless given the stored
     lookup + global_mean; no y reference. Categories not present in the
-    lookup map to ``global_mean``."""
+    lookup map to ``global_mean``.
+
+    ``col_cache``: optional dict shared across every recipe replayed in ONE ``transform()`` call (see
+    ``apply_recipe``); forwarded to ``_extract_column`` on the polars / structured-array paths (the pandas
+    fast path below already passes ``X`` through unmaterialised, so caching adds nothing there)."""
     if len(recipe.src_names) != 1:
         raise ValueError(f"kfold_target_encoded recipe '{recipe.name}' must have exactly " f"1 src_names; got {len(recipe.src_names)}")
     for key in ("lookup", "global_mean"):
@@ -65,9 +71,9 @@ def _apply_kfold_target_encoded(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     if pd is not None and isinstance(X, pd.DataFrame):
         X_view = X
     elif pl is not None and pd is not None and isinstance(X, pl.DataFrame):  # pd required: X_view below is a pandas frame
-        X_view = pd.DataFrame({name: X[name].to_numpy()})
+        X_view = pd.DataFrame({name: _extract_column(X, name, col_cache=col_cache)})
     elif isinstance(X, np.ndarray) and X.dtype.names is not None:
-        X_view = pd.DataFrame({name: X[name]})
+        X_view = pd.DataFrame({name: _extract_column(X, name, col_cache=col_cache)})
     else:
         raise TypeError(
             f"kfold_target_encoded recipe '{recipe.name}': cannot extract "
@@ -135,8 +141,8 @@ def build_kfold_target_encoded_recipe(
 # All three replays are STATELESS given X (no y reference, no fold info).
 
 
-def _apply_count_encoded(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
-    """Replay count encoding via the stored per-category lookup."""
+def _apply_count_encoded(recipe: EngineeredRecipe, X: Any, col_cache: "dict[str, np.ndarray] | None" = None) -> np.ndarray:
+    """Replay count encoding via the stored per-category lookup. ``col_cache``: see ``_apply_kfold_target_encoded``."""
     if len(recipe.src_names) != 1:
         raise ValueError(f"count_encoded recipe '{recipe.name}' must have exactly 1 " f"src_names; got {len(recipe.src_names)}")
     if "lookup" not in recipe.extra:
@@ -147,9 +153,9 @@ def _apply_count_encoded(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     if pd is not None and isinstance(X, pd.DataFrame):
         X_view = X
     elif pl is not None and pd is not None and isinstance(X, pl.DataFrame):  # pd required: X_view below is a pandas frame
-        X_view = pd.DataFrame({name: X[name].to_numpy()})
+        X_view = pd.DataFrame({name: _extract_column(X, name, col_cache=col_cache)})
     elif isinstance(X, np.ndarray) and X.dtype.names is not None:
-        X_view = pd.DataFrame({name: X[name]})
+        X_view = pd.DataFrame({name: _extract_column(X, name, col_cache=col_cache)})
     else:
         raise TypeError(f"count_encoded recipe '{recipe.name}': cannot extract column " f"{name!r} from X of type {type(X).__name__}.")
     return apply_count_encoding(
@@ -160,8 +166,8 @@ def _apply_count_encoded(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     )
 
 
-def _apply_frequency_encoded(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
-    """Replay frequency encoding via the stored per-category lookup."""
+def _apply_frequency_encoded(recipe: EngineeredRecipe, X: Any, col_cache: "dict[str, np.ndarray] | None" = None) -> np.ndarray:
+    """Replay frequency encoding via the stored per-category lookup. ``col_cache``: see ``_apply_kfold_target_encoded``."""
     if len(recipe.src_names) != 1:
         raise ValueError(f"frequency_encoded recipe '{recipe.name}' must have exactly 1 " f"src_names; got {len(recipe.src_names)}")
     if "lookup" not in recipe.extra:
@@ -172,9 +178,9 @@ def _apply_frequency_encoded(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     if pd is not None and isinstance(X, pd.DataFrame):
         X_view = X
     elif pl is not None and pd is not None and isinstance(X, pl.DataFrame):  # pd required: X_view below is a pandas frame
-        X_view = pd.DataFrame({name: X[name].to_numpy()})
+        X_view = pd.DataFrame({name: _extract_column(X, name, col_cache=col_cache)})
     elif isinstance(X, np.ndarray) and X.dtype.names is not None:
-        X_view = pd.DataFrame({name: X[name]})
+        X_view = pd.DataFrame({name: _extract_column(X, name, col_cache=col_cache)})
     else:
         raise TypeError(f"frequency_encoded recipe '{recipe.name}': cannot extract column " f"{name!r} from X of type {type(X).__name__}.")
     return apply_frequency_encoding(
@@ -185,8 +191,9 @@ def _apply_frequency_encoded(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     )
 
 
-def _apply_cat_num_residual(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
-    """Replay cat x num residual: ``X[num] - lookup.get(X[cat], global_mean)``."""
+def _apply_cat_num_residual(recipe: EngineeredRecipe, X: Any, col_cache: "dict[str, np.ndarray] | None" = None) -> np.ndarray:
+    """Replay cat x num residual: ``X[num] - lookup.get(X[cat], global_mean)``. ``col_cache``: see
+    ``_apply_kfold_target_encoded``."""
     if len(recipe.src_names) != 2:
         raise ValueError(f"cat_num_residual recipe '{recipe.name}' must have exactly 2 " f"src_names (cat_col, num_col); got {len(recipe.src_names)}")
     for key in ("lookup", "global_mean"):
@@ -199,13 +206,13 @@ def _apply_cat_num_residual(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
         X_view = X
     elif pl is not None and pd is not None and isinstance(X, pl.DataFrame):  # pd required: X_view below is a pandas frame
         X_view = pd.DataFrame({
-            cat_name: X[cat_name].to_numpy(),
-            num_name: X[num_name].to_numpy(),
+            cat_name: _extract_column(X, cat_name, col_cache=col_cache),
+            num_name: _extract_column(X, num_name, col_cache=col_cache),
         })
     elif isinstance(X, np.ndarray) and X.dtype.names is not None:
         X_view = pd.DataFrame({
-            cat_name: X[cat_name],
-            num_name: X[num_name],
+            cat_name: _extract_column(X, cat_name, col_cache=col_cache),
+            num_name: _extract_column(X, num_name, col_cache=col_cache),
         })
     else:
         raise TypeError(f"cat_num_residual recipe '{recipe.name}': cannot extract columns " f"from X of type {type(X).__name__}.")

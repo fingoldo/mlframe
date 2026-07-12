@@ -23,30 +23,40 @@ from ._recipe_core import EngineeredRecipe
 from ._recipe_extract import _extract_column
 
 
-def apply_recipe(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
+def apply_recipe(
+    recipe: EngineeredRecipe, X: Any,
+    col_cache: "dict[str, np.ndarray] | None" = None,
+    basis_cache: "dict[tuple, np.ndarray] | None" = None,
+) -> np.ndarray:
     """Replay ``recipe`` against ``X`` and return the engineered column as a 1-D ndarray. Output dtype matches the recipe's quantization dtype if
-    discretized, else float32 (matching fit-time ``check_prospective_fe_pairs`` working buffer dtype). Hot path in ``transform()`` -- keep allocation-light."""
+    discretized, else float32 (matching fit-time ``check_prospective_fe_pairs`` working buffer dtype). Hot path in ``transform()`` -- keep allocation-light.
+
+    ``col_cache`` / ``basis_cache``: OPTIONAL, caller-owned dicts scoped to ONE ``transform()``/``predict()`` call, shared across every recipe in that
+    call's replay list. ``col_cache`` dedupes ``_extract_column`` (a hub source column referenced by many recipes is pulled from ``X`` once, not once
+    per recipe); ``basis_cache`` dedupes the orth-basis polynomial evaluation for a hub operand shared by sibling ``orth_pair_cross``/``orth_univariate``
+    recipes. Both default to ``None`` (current always-recompute behaviour) so every EXISTING caller (none of which construct these dicts yet) is
+    unaffected; a caller opts in by passing the SAME dict across its whole recipe-list replay loop."""
     if recipe.kind == "unary_binary":
         from ._recipe_unary_binary import _apply_unary_binary
-        return _apply_unary_binary(recipe, X)
+        return _apply_unary_binary(recipe, X, col_cache=col_cache)
     if recipe.kind == "factorize":
         from ._recipe_factorize import _apply_factorize
-        return _apply_factorize(recipe, X)
+        return _apply_factorize(recipe, X, col_cache=col_cache)
     if recipe.kind == "target_encoding":
         from ._recipe_poly_cluster import _apply_target_encoding
-        return _apply_target_encoding(recipe, X)
+        return _apply_target_encoding(recipe, X, col_cache=col_cache)
     if recipe.kind == "hermite_pair":
         from ._recipe_poly_cluster import _apply_hermite_pair
-        return _apply_hermite_pair(recipe, X)
+        return _apply_hermite_pair(recipe, X, col_cache=col_cache)
     if recipe.kind == "cluster_aggregate":
         from ._recipe_poly_cluster import _apply_cluster_aggregate
-        return _apply_cluster_aggregate(recipe, X)
+        return _apply_cluster_aggregate(recipe, X, col_cache=col_cache)
     if recipe.kind == "orth_univariate":
         from ._orth_basis_recipes import _apply_orth_univariate
-        return _apply_orth_univariate(recipe, X)
+        return _apply_orth_univariate(recipe, X, col_cache=col_cache, basis_cache=basis_cache)
     if recipe.kind == "orth_pair_cross":
         from ._orth_basis_recipes import _apply_orth_pair_cross
-        return _apply_orth_pair_cross(recipe, X)
+        return _apply_orth_pair_cross(recipe, X, col_cache=col_cache, basis_cache=basis_cache)
     if recipe.kind == "orth_diff_basis":
         # Layer 59 (2026-05-31): lazy import keeps this module under the
         # ~1.8k-LOC ceiling; the apply helper lives in the sibling FE module.
@@ -69,10 +79,10 @@ def apply_recipe(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
         return _apply_orth_quadruplet_cross(recipe, X)
     if recipe.kind == "orth_spline":
         from ._orth_basis_recipes import _apply_orth_spline
-        return _apply_orth_spline(recipe, X)
+        return _apply_orth_spline(recipe, X, col_cache=col_cache)
     if recipe.kind == "orth_fourier":
         from ._orth_basis_recipes import _apply_orth_fourier
-        return _apply_orth_fourier(recipe, X)
+        return _apply_orth_fourier(recipe, X, col_cache=col_cache)
     if recipe.kind == "hinge_basis":
         # Backlog #11 (2026-06-09): hinge / piecewise-linear change-point basis.
         # Replay is closed-form ``max(x-tau,0)`` / ``max(tau-x,0)`` / ``1[x>tau]``
@@ -95,16 +105,16 @@ def apply_recipe(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
         return _apply_mi_greedy_transform(recipe, X)
     if recipe.kind == "kfold_target_encoded":
         from ._encoding_recipes import _apply_kfold_target_encoded
-        return _apply_kfold_target_encoded(recipe, X)
+        return _apply_kfold_target_encoded(recipe, X, col_cache=col_cache)
     if recipe.kind == "count_encoded":
         from ._encoding_recipes import _apply_count_encoded
-        return _apply_count_encoded(recipe, X)
+        return _apply_count_encoded(recipe, X, col_cache=col_cache)
     if recipe.kind == "frequency_encoded":
         from ._encoding_recipes import _apply_frequency_encoded
-        return _apply_frequency_encoded(recipe, X)
+        return _apply_frequency_encoded(recipe, X, col_cache=col_cache)
     if recipe.kind == "cat_num_residual":
         from ._encoding_recipes import _apply_cat_num_residual
-        return _apply_cat_num_residual(recipe, X)
+        return _apply_cat_num_residual(recipe, X, col_cache=col_cache)
     if recipe.kind in ("missing_indicator", "missingness_count", "missingness_pattern"):
         # Layer 37 lazy import: keeps engineered_recipes.py under the 1k-LOC
         # ceiling (mlframe sibling-split rule). The helpers live alongside
@@ -151,8 +161,8 @@ def apply_recipe(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
         return apply_cat_pair_cross(
             X if (pd is not None and isinstance(X, pd.DataFrame))
             else pd.DataFrame({
-                cat_i: _extract_column(X, cat_i),
-                cat_j: _extract_column(X, cat_j),
+                cat_i: _extract_column(X, cat_i, col_cache=col_cache),
+                cat_j: _extract_column(X, cat_j, col_cache=col_cache),
             }),
             cat_i, cat_j,
             {tuple(k): int(v) for k, v in recipe.extra["mapping"]},
@@ -168,9 +178,9 @@ def apply_recipe(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
         return apply_cat_triple_cross(
             X if (pd is not None and isinstance(X, pd.DataFrame))
             else pd.DataFrame({
-                cat_a: _extract_column(X, cat_a),
-                cat_b: _extract_column(X, cat_b),
-                cat_c: _extract_column(X, cat_c),
+                cat_a: _extract_column(X, cat_a, col_cache=col_cache),
+                cat_b: _extract_column(X, cat_b, col_cache=col_cache),
+                cat_c: _extract_column(X, cat_c, col_cache=col_cache),
             }),
             cat_a, cat_b, cat_c,
             {tuple(k): int(v) for k, v in recipe.extra["mapping"]},
@@ -183,7 +193,7 @@ def apply_recipe(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
         # rounding + decimal-digit extraction). Pure arithmetic on the single
         # source column -- no lazy import needed, no y reference.
         src_name = recipe.src_names[0]
-        vals = _extract_column(X, src_name)
+        vals = _extract_column(X, src_name, col_cache=col_cache)
         if recipe.kind == "numeric_rounding":
             from .._numeric_decompose_fe import apply_rounding
             return apply_rounding(vals, float(recipe.extra["precision"]))
@@ -195,7 +205,7 @@ def apply_recipe(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
         # column -- no lazy import needed, no y reference.
         from .._periodic_fe import apply_modular
         src_name = recipe.src_names[0]
-        vals = _extract_column(X, src_name)
+        vals = _extract_column(X, src_name, col_cache=col_cache)
         return apply_modular(
             vals, float(recipe.extra["period"]), str(recipe.extra["op"]),
         )

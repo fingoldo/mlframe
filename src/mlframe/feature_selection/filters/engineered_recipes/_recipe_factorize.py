@@ -16,7 +16,7 @@ from ._recipe_core import EngineeredRecipe
 from ._recipe_extract import _coerce_to_int_with_nan_handling, _extract_column
 
 
-def _apply_factorize(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
+def _apply_factorize(recipe: EngineeredRecipe, X: Any, col_cache: "dict[str, np.ndarray] | None" = None) -> np.ndarray:
     """Cat-FE replay: look up each test row's ``(a, b)`` tuple (or k-way chain) in the fit-time lookup table(s) and emit the post-prune class.
 
     Pairs (k=2): single lookup maps ``a_value + b_value * nbins_a`` to post-prune class. K > 2: chained lookup via ``recipe.extra['chain_lookups']`` (a list
@@ -24,9 +24,12 @@ def _apply_factorize(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
 
     Test values outside ``[0, nbins_i)`` are clipped to ``nbins_i - 1``. Combinations whose pre-prune code never appeared in training are resolved per
     ``recipe.unknown_strategy`` (already baked into each lookup at fit time, except for ``"raise"`` which keeps -1 sentinels and surfaces here).
+
+    ``col_cache``: optional dict shared across every recipe replayed in ONE ``transform()`` call (see ``apply_recipe``); forwarded to
+    ``_extract_column`` so a hub source column is pulled from ``X`` at most once per call.
     """
     if recipe.extra.get("chain_lookups"):
-        return _apply_factorize_kway(recipe, X)
+        return _apply_factorize_kway(recipe, X, col_cache=col_cache)
 
     # Defensive branch for old pickled k-way recipes that lack chained lookups.
     if recipe.extra.get("requires_refit_for_replay"):
@@ -52,8 +55,8 @@ def _apply_factorize(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     nbins_a, nbins_b = recipe.factorize_nbins
     lookup: np.ndarray = recipe.extra["lookup_table"]
 
-    vals_a = _extract_column(X, name_a)
-    vals_b = _extract_column(X, name_b)
+    vals_a = _extract_column(X, name_a, col_cache=col_cache)
+    vals_b = _extract_column(X, name_b, col_cache=col_cache)
     # Handle NaN / non-integer values per unknown_strategy. ``cat_code_maps`` (per-source
     # ``raw_value -> fit_code`` tables) reproduces fit-time discretiser codes for categorical /
     # string sources; absent (numeric sources / legacy pickles) the int-cast path is used.
@@ -82,12 +85,12 @@ def _apply_factorize(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     return np.asarray(out)
 
 
-def _apply_factorize_kway(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
+def _apply_factorize_kway(recipe: EngineeredRecipe, X: Any, col_cache: "dict[str, np.ndarray] | None" = None) -> np.ndarray:
     """K-way replay via the chained-lookup payload. Each ``chain_lookups[step]`` is a flat int64 table indexed by ``running_intermediate + col_value *
     running_nuniq``. We walk through all (k-1) steps, refreshing ``running_intermediate`` and ``running_nuniq`` from each step's output.
 
     Per-column test values are clipped to ``[0, factorize_nbins[i])``. Unseen combinations resolve per ``recipe.unknown_strategy`` (already encoded at fit
-    time, except ``"raise"`` which leaves -1 sentinels and surfaces here).
+    time, except ``"raise"`` which leaves -1 sentinels and surfaces here). ``col_cache``: see ``_apply_factorize``.
     """
     src_names = recipe.src_names
     nbins_tuple = recipe.factorize_nbins
@@ -105,12 +108,12 @@ def _apply_factorize_kway(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     _edges = recipe.extra.get("src_bin_edges") or {}
     # Step 1: build running from first two columns
     vals_0 = _coerce_to_int_with_nan_handling(
-        _extract_column(X, src_names[0]), int(nbins_tuple[0]),
+        _extract_column(X, src_names[0], col_cache=col_cache), int(nbins_tuple[0]),
         recipe.name, src_names[0], recipe.unknown_strategy,
         _cat_maps.get(src_names[0]), _edges.get(src_names[0]),
     )
     vals_1 = _coerce_to_int_with_nan_handling(
-        _extract_column(X, src_names[1]), int(nbins_tuple[1]),
+        _extract_column(X, src_names[1], col_cache=col_cache), int(nbins_tuple[1]),
         recipe.name, src_names[1], recipe.unknown_strategy,
         _cat_maps.get(src_names[1]), _edges.get(src_names[1]),
     )
@@ -139,7 +142,7 @@ def _apply_factorize_kway(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     # Steps 2..k-1: chain forward
     for step in range(2, k):
         vals_next = _coerce_to_int_with_nan_handling(
-            _extract_column(X, src_names[step]), int(nbins_tuple[step]),
+            _extract_column(X, src_names[step], col_cache=col_cache), int(nbins_tuple[step]),
             recipe.name, src_names[step], recipe.unknown_strategy,
             _cat_maps.get(src_names[step]), _edges.get(src_names[step]),
         )

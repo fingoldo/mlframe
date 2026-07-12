@@ -174,7 +174,7 @@ def _gpu_binary(cp, name: str, a, b):
     raise ValueError(f"GPU binary missing for {name!r}")
 
 
-def _materialise_recipe_gpu(recipe: EngineeredRecipe, X: Any, cp, dt):
+def _materialise_recipe_gpu(recipe: EngineeredRecipe, X: Any, cp, dt, col_cache: "dict[str, np.ndarray] | None" = None):
     """RECURSIVELY materialise a ``unary_binary`` recipe ON device, returning a RESIDENT cupy ``(n,)`` array, or
     ``None`` when the recipe (or any nested parent) is not GPU-eligible.
 
@@ -185,7 +185,12 @@ def _materialise_recipe_gpu(recipe: EngineeredRecipe, X: Any, cp, dt):
     crossing H2D. A raw operand rides the content-keyed resident-operand cache (uploaded once, shared). The
     pseudo-unaries (prewarp / gate_med) + unmapped unary/binary names still bail (``None``) so the caller keeps
     the exact CPU replay; a nested parent that bails propagates the ``None`` up. Selection-equivalent: the
-    device unary/binary kernels mirror the numpy registry op-for-op (see ``_gpu_unary`` / ``_gpu_binary``)."""
+    device unary/binary kernels mirror the numpy registry op-for-op (see ``_gpu_unary`` / ``_gpu_binary``).
+
+    ``col_cache``: optional dict shared across every recipe replayed in ONE ``transform()`` call (see
+    ``apply_recipe``); forwarded to the host-side ``_extract_column`` pull so a hub raw operand referenced by
+    several sibling recipes is read from ``X`` at most once, before it rides the (separate) resident-operand
+    device cache."""
     if len(recipe.src_names) != 2 or len(recipe.unary_names) != 2:
         return None
     u_a, u_b = recipe.unary_names
@@ -207,8 +212,8 @@ def _materialise_recipe_gpu(recipe: EngineeredRecipe, X: Any, cp, dt):
             if getattr(_parent, "quantization", None) is not None:
                 import dataclasses as _dc
                 _parent = _dc.replace(_parent, quantization=None)
-            return _materialise_recipe_gpu(_parent, X, cp, dt)
-        vals = _extract_column(X, side_name)
+            return _materialise_recipe_gpu(_parent, X, cp, dt, col_cache=col_cache)
+        vals = _extract_column(X, side_name, col_cache=col_cache)
         try:
             return resident_operand(vals, ("recipe_src", side_name), dtype=dt)
         except Exception:
@@ -232,21 +237,24 @@ def _materialise_recipe_gpu(recipe: EngineeredRecipe, X: Any, cp, dt):
     return cp.where(cp.isfinite(out_gpu), out_gpu, cp.asarray(0.0, dtype=out_gpu.dtype))
 
 
-def apply_unary_binary_gpu(recipe: EngineeredRecipe, X: Any) -> Optional[np.ndarray]:
+def apply_unary_binary_gpu(recipe: EngineeredRecipe, X: Any, col_cache: "dict[str, np.ndarray] | None" = None) -> Optional[np.ndarray]:
     """GPU-resident replay of a ``unary_binary`` recipe -> host 1-D ``np.ndarray``.
 
     Returns ``None`` when the recipe is NOT GPU-eligible (a ``prewarp`` / ``gate_med`` pseudo-unary or an
     unmapped unary/binary name, at any nesting level) so the caller falls back to the numpy
     ``_apply_unary_binary``. NESTED-engineered operands are now materialised device-born (recursion in
     ``_materialise_recipe_gpu``) rather than bailing to CPU. Raises on a cupy runtime failure -- the caller's
-    try/except logs debug + falls back."""
+    try/except logs debug + falls back.
+
+    ``col_cache``: optional dict shared across every recipe replayed in ONE ``transform()`` call; forwarded to
+    ``_materialise_recipe_gpu`` (see there)."""
     if len(recipe.src_names) != 2 or len(recipe.unary_names) != 2:
         return None  # let the numpy path raise its descriptive ValueError
 
     import cupy as cp
 
     dt = cp.float32 if _vram_f32() else cp.float64
-    out_gpu = _materialise_recipe_gpu(recipe, X, cp, dt)
+    out_gpu = _materialise_recipe_gpu(recipe, X, cp, dt, col_cache=col_cache)
     if out_gpu is None:
         return None
     # The ONE legitimate output transfer: the materialised engineered column D2H.

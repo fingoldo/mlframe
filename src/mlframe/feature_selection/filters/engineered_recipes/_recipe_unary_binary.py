@@ -11,8 +11,9 @@ nested-parent recursion (same reason).
 
 from __future__ import annotations
 
+import functools
 import logging
-from typing import Any
+from typing import Any, Callable, cast
 
 import numpy as np
 
@@ -22,11 +23,32 @@ from ._recipe_extract import _extract_column
 logger = logging.getLogger(__name__)
 
 
-def _apply_unary_binary(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
+@functools.cache
+def _cached_unary_transformations(preset: str) -> "dict[str, Callable]":
+    """Memoised-by-preset ``create_unary_transformations`` for recipe replay. Hot path in ``transform()``
+    (called once per ``unary_binary`` recipe); the preset registry only depends on ``preset`` (3-4 distinct
+    values total), and its callables are looked up read-only by ``_apply_unary_binary`` (never mutated), so
+    sharing the SAME dict across every replay call in the process is safe."""
+    from ..feature_engineering import create_unary_transformations
+    return cast("dict[str, Callable]", create_unary_transformations(preset=preset))
+
+
+@functools.cache
+def _cached_binary_transformations(preset: str) -> "dict[str, Callable]":
+    """Memoised-by-preset ``create_binary_transformations``; see ``_cached_unary_transformations``."""
+    from ..feature_engineering import create_binary_transformations
+    return cast("dict[str, Callable]", create_binary_transformations(preset=preset))
+
+
+def _apply_unary_binary(recipe: EngineeredRecipe, X: Any, col_cache: "dict[str, np.ndarray] | None" = None) -> np.ndarray:
     """Replay a ``unary_binary`` recipe: reconstruct ``binary(unary_a(X[a]), unary_b(X[b]))`` (including the
     ``prewarp`` / ``gate_med`` / ``poly_`` pseudo-unaries and nested-engineered operands) and return the
     CONTINUOUS engineered column. Tries the GPU-resident replay path first when opted in; falls back to numpy
-    on any GPU ineligibility or failure."""
+    on any GPU ineligibility or failure.
+
+    ``col_cache``: optional dict shared across every recipe replayed in ONE ``transform()`` call (see
+    ``apply_recipe``); forwarded to ``_extract_column`` and to the recursive ``apply_recipe`` call for a
+    nested-engineered operand so a hub raw column is pulled from ``X`` at most once per call."""
     # GPU-RESIDENT REPLAY (2026-06-28): the elementwise ``binary(unary_a(X[a]),
     # unary_b(X[b]))`` materialisation on full-n (300k-1M) operands is
     # embarrassingly parallel and was the dominant FE-replay cost (~3.4s) on the
@@ -39,7 +61,7 @@ def _apply_unary_binary(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
         from .._gpu_strict_fe import fe_gpu_strict_resident_enabled
         if fe_gpu_strict_resident_enabled():
             from ._recipe_unary_binary_gpu import apply_unary_binary_gpu
-            _gpu_out = apply_unary_binary_gpu(recipe, X)
+            _gpu_out = apply_unary_binary_gpu(recipe, X, col_cache=col_cache)
             if _gpu_out is not None:
                 return _gpu_out
     except Exception as _e:  # pragma: no cover - rare GPU runtime failure
@@ -49,11 +71,8 @@ def _apply_unary_binary(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
         raise ValueError(
             f"unary_binary recipe '{recipe.name}' must have exactly 2 src_names " f"and 2 unary_names; got {len(recipe.src_names)} / {len(recipe.unary_names)}"
         )
-    # Lazy import to avoid circular dependency (feature_engineering -> mrmr via _internals).
-    from ..feature_engineering import create_unary_transformations, create_binary_transformations
-
-    unary_funcs = create_unary_transformations(preset=recipe.unary_preset)
-    binary_funcs = create_binary_transformations(preset=recipe.binary_preset)
+    unary_funcs = _cached_unary_transformations(recipe.unary_preset)
+    binary_funcs = _cached_binary_transformations(recipe.binary_preset)
 
     name_a, name_b = recipe.src_names
     u_a, u_b = recipe.unary_names
@@ -93,12 +112,12 @@ def _apply_unary_binary(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
             # Replay the parent WITHOUT quantization (continuous output).
             import dataclasses as _dc
             parent = _dc.replace(parent, quantization=None)
-        return np.asarray(apply_recipe(parent, X), dtype=np.float64)
+        return np.asarray(apply_recipe(parent, X, col_cache=col_cache), dtype=np.float64)
 
     _np_a = recipe.extra.get("nested_parent_a")
     _np_b = recipe.extra.get("nested_parent_b")
-    vals_a = _nested_continuous(_np_a) if _np_a is not None else _extract_column(X, name_a)
-    vals_b = _nested_continuous(_np_b) if _np_b is not None else _extract_column(X, name_b)
+    vals_a = _nested_continuous(_np_a) if _np_a is not None else _extract_column(X, name_a, col_cache=col_cache)
+    vals_b = _nested_continuous(_np_b) if _np_b is not None else _extract_column(X, name_b, col_cache=col_cache)
 
     def _apply_side(side: str, uname: str, vals):
         """Apply the ``uname`` unary to one operand side, dispatching between the closed-form pseudo-unaries
