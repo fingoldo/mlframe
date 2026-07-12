@@ -98,7 +98,11 @@ def _cross_too_high_card(n_distinct_cells: int, n_samples: int) -> bool:
 
 
 def _encode_pair(
-    cats_i: np.ndarray, cats_j: np.ndarray,
+    cats_i: Optional[np.ndarray] = None,
+    cats_j: Optional[np.ndarray] = None,
+    *,
+    precomputed_i: Optional[tuple[np.ndarray, np.ndarray]] = None,
+    precomputed_j: Optional[tuple[np.ndarray, np.ndarray]] = None,
 ) -> tuple[np.ndarray, dict[tuple, int]]:
     """Factorise the (cat_i_val, cat_j_val) tuple stream into a dense integer
     code per row. Returns ``(codes, mapping)`` where ``mapping`` is the
@@ -107,8 +111,25 @@ def _encode_pair(
     Codes are assigned in first-seen order for determinism. NaN values were
     already mapped to the ``"__nan__"`` sentinel by ``_column_to_str`` upstream,
     so they form their own implicit category at fit AND replay.
+
+    ``precomputed_i``/``precomputed_j`` let a caller that already holds a column's ``(uniq_strings, dense_codes)`` -- e.g.
+    ``score_cat_pairs_by_interaction_information``'s per-column cache -- skip re-deriving them via ``_column_to_str`` + ``np.unique`` here
+    (bit-identical: same ``np.unique`` call the caller already made on the identical column). ``cats_i``/``cats_j`` are then only needed as
+    the fallback for columns the caller hasn't already factorised.
     """
-    n = len(cats_i)
+    if precomputed_i is not None:
+        uniq_i, inv_i = precomputed_i
+    elif cats_i is not None:
+        uniq_i, inv_i = np.unique(cats_i, return_inverse=True)
+    else:
+        raise ValueError("_encode_pair: need either cats_i or precomputed_i")
+    if precomputed_j is not None:
+        uniq_j, inv_j = precomputed_j
+    elif cats_j is not None:
+        uniq_j, inv_j = np.unique(cats_j, return_inverse=True)
+    else:
+        raise ValueError("_encode_pair: need either cats_j or precomputed_j")
+    n = len(inv_i)
     if n == 0:
         return np.empty(0, dtype=np.int64), {}
     # Vectorised factorisation: encode each parent's string stream to ints,
@@ -119,8 +140,6 @@ def _encode_pair(
     # the absolute code values are arbitrary anyway (consumed as a categorical
     # / target-encoded), and replay maps via the stored value-pair lookup, so
     # the ordering convention does not affect correctness.
-    uniq_i, inv_i = np.unique(cats_i, return_inverse=True)
-    uniq_j, inv_j = np.unique(cats_j, return_inverse=True)
     combined = inv_i.astype(np.int64) * (len(uniq_j)) + inv_j.astype(np.int64)
     uniq_pairs, codes = np.unique(combined, return_inverse=True)
     codes = codes.astype(np.int64, copy=False)
@@ -220,6 +239,7 @@ def score_cat_pairs_by_interaction_information(
     *,
     n_bins: int = 10,
     pairs: Optional[Sequence[tuple[str, str]]] = None,
+    code_cache_out: Optional[dict[str, tuple[np.ndarray, np.ndarray]]] = None,
 ) -> pd.DataFrame:
     """Score every candidate (cat_i, cat_j) pair by interaction information.
 
@@ -231,6 +251,10 @@ def score_cat_pairs_by_interaction_information(
     high-cardinality discrete variable. The plug-in MI estimator
     (``_adaptive_nbins._plug_in_mi``) is reused so the estimator family matches
     the rest of the FE stack (Layer 19 / Layer 88).
+
+    ``code_cache_out``, when given, is populated with ``{col: (uniq_strings, dense_codes)}`` for every column this call factorises -- the SAME
+    ``np.unique(_column_to_str(X[col]), return_inverse=True)`` result a downstream materialisation step (e.g. ``hybrid_cat_pair_fe``) would otherwise
+    re-derive from scratch via ``_encode_pair``'s ``precomputed_i``/``precomputed_j`` params.
 
     Returns a frame sorted by ``ii`` descending with columns
     ``[cat_i, cat_j, engineered_col, mi_joint, mi_i, mi_j, ii]``.
@@ -266,10 +290,12 @@ def score_cat_pairs_by_interaction_information(
     def _codes(col: str) -> np.ndarray:
         """Memoized dense integer codes (and cached cardinality) for column ``col``, computed once and reused across every pair that references it."""
         if col not in code_cache:
-            _, c = np.unique(_column_to_str(X[col]), return_inverse=True)
+            uniq, c = np.unique(_column_to_str(X[col]), return_inverse=True)
             c = c.astype(np.int64)
             code_cache[col] = c
             radix_cache[col] = (int(c.max()) + 1) if c.size else 1
+            if code_cache_out is not None:
+                code_cache_out[col] = (uniq, c)
         return code_cache[col]
 
     def _mi_col(col: str) -> float:
@@ -442,8 +468,13 @@ def hybrid_cat_pair_fe(
     if len(cat_cols) < 2 and pairs is None:
         return X.copy(), [], [], pd.DataFrame()
 
+    # ``code_cache`` collects the scorer's per-column ``(uniq_strings, dense_codes)`` -- every survivor's
+    # cat_i/cat_j was necessarily scored (hence already factorised), so the materialisation loop below reuses
+    # them via ``_encode_pair``'s ``precomputed_i``/``precomputed_j`` instead of re-running
+    # ``_column_to_str`` + ``np.unique`` from scratch per survivor.
+    code_cache: dict[str, tuple[np.ndarray, np.ndarray]] = {}
     scores = score_cat_pairs_by_interaction_information(
-        X, y, cat_cols, n_bins=n_bins, pairs=pairs,
+        X, y, cat_cols, n_bins=n_bins, pairs=pairs, code_cache_out=code_cache,
     )
     if scores.empty:
         return X.copy(), [], [], scores
@@ -462,11 +493,16 @@ def hybrid_cat_pair_fe(
         cat_i = str(row["cat_i"])
         cat_j = str(row["cat_j"])
         name = engineered_name_cat_pair_cross(cat_i, cat_j)
-        if cat_i not in str_cache:
+        pre_i = code_cache.get(cat_i)
+        pre_j = code_cache.get(cat_j)
+        if pre_i is None and cat_i not in str_cache:
             str_cache[cat_i] = _column_to_str(X[cat_i])
-        if cat_j not in str_cache:
+        if pre_j is None and cat_j not in str_cache:
             str_cache[cat_j] = _column_to_str(X[cat_j])
-        codes, mapping = _encode_pair(str_cache[cat_i], str_cache[cat_j])
+        codes, mapping = _encode_pair(
+            str_cache.get(cat_i), str_cache.get(cat_j),
+            precomputed_i=pre_i, precomputed_j=pre_j,
+        )
         n_cells = len(mapping)
         if _cross_too_high_card(n_cells, n):
             # Route through K-fold OOF target encoding (Layer 33).

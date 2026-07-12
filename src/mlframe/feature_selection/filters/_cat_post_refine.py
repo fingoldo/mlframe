@@ -15,6 +15,7 @@ What lives here:
 """
 from __future__ import annotations
 
+import bisect
 import logging
 
 import numpy as np
@@ -29,6 +30,71 @@ from .info_theory import compute_mi_from_classes, merge_vars
 # stays broken.
 
 logger = logging.getLogger(__name__)
+
+
+def _build_merge_prefix_states(
+    factors_data: np.ndarray,
+    sorted_members: list,
+    factors_nbins: np.ndarray,
+    dtype,
+    final_state: tuple | None = None,
+) -> list:
+    """Incremental ``merge_vars`` states after merging ``sorted_members[:i]`` (ascending order), for every ``i`` in ``0..len(sorted_members)``.
+
+    ``merge_vars``'s dense renumbering is ORDER-SENSITIVE: merging the same variable set in a different order yields a bijective but numerically DIFFERENT
+    ``final_classes`` encoding (verified empirically -- only the count of distinct classes is order-invariant, not the labels). A candidate variable inserted
+    at some position ``pos`` among ``sorted_members`` therefore needs the merge to walk ``sorted_members[:pos] + [cand] + sorted_members[pos:]`` to stay
+    bit-identical to a fresh ``merge_vars`` over the fully re-sorted tuple -- these prefix states let ``_merge_vars_sorted_insert`` splice a candidate in at
+    its correct sorted position without re-scanning the members before it, for every candidate sharing that same insertion point.
+
+    ``final_state`` lets the caller hand in an already-computed ``(classes, nclasses)`` for the FULL ``sorted_members`` merge (e.g. the parent state carried
+    from the previous round) instead of re-deriving it here.
+    """
+    n_rows = factors_data.shape[0]
+    states = [(np.zeros(n_rows, dtype=dtype), 1)]
+    upto = len(sorted_members) - 1 if final_state is not None else len(sorted_members)
+    for i in range(1, upto + 1):
+        prev_classes, prev_nclasses = states[-1]
+        classes_i, _freqs_i, nclasses_i = merge_vars(
+            factors_data=factors_data,
+            vars_indices=np.array([sorted_members[i - 1]], dtype=np.int64),
+            var_is_nominal=None, factors_nbins=factors_nbins,
+            current_nclasses=prev_nclasses, final_classes=prev_classes.copy(), dtype=dtype,
+        )
+        states.append((classes_i, nclasses_i))
+    if final_state is not None:
+        states.append(final_state)
+    return states
+
+
+def _merge_vars_sorted_insert(
+    factors_data: np.ndarray,
+    prefix_states: list,
+    sorted_members: list,
+    cand_int: int,
+    factors_nbins: np.ndarray,
+    dtype,
+) -> tuple:
+    """``merge_vars`` over ``sorted(sorted_members + [cand_int])``, splicing ``cand_int`` into its correct sorted position via ``prefix_states`` instead of
+    re-scanning the members before it. Bit-identical to a fresh full-tuple ``merge_vars`` call (verified end-to-end against the pre-fix algorithm across
+    randomized trials incl. min/mid/max insertion positions and varying arities/cardinalities/row-counts -- see
+    ``_benchmarks/bench_kway_coord_ascent_frozen_prefix.py``)."""
+    ins = bisect.bisect_left(sorted_members, cand_int)
+    prefix_classes, prefix_nclasses = prefix_states[ins]
+    classes1, freqs1, nclasses1 = merge_vars(
+        factors_data=factors_data, vars_indices=np.array([cand_int], dtype=np.int64),
+        var_is_nominal=None, factors_nbins=factors_nbins,
+        current_nclasses=prefix_nclasses, final_classes=prefix_classes.copy(), dtype=dtype,
+    )
+    suffix = sorted_members[ins:]
+    if not suffix:
+        return classes1, freqs1, nclasses1
+    classes2, freqs2, nclasses2 = merge_vars(
+        factors_data=factors_data, vars_indices=np.array(suffix, dtype=np.int64),
+        var_is_nominal=None, factors_nbins=factors_nbins,
+        current_nclasses=nclasses1, final_classes=classes1, dtype=dtype,
+    )
+    return classes2, freqs2, nclasses2
 
 
 # ============================================================================
@@ -160,6 +226,16 @@ def _anti_redundancy_rerank(
 
     scored = ii_arr.copy()
     selected_so_far_arr = np.asarray(selected_so_far, dtype=np.int64)
+    # Each already-selected feature ``z``'s single-column merge depends only on ``z``, not on the outer pair
+    # ``k`` -- precompute once and reuse across every survivor pair instead of recomputing per (k, z).
+    z_merge_cache = {
+        int(z): merge_vars(
+            factors_data=factors_data,
+            vars_indices=np.array([int(z)], dtype=np.int64),
+            var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
+        )[:2]
+        for z in selected_so_far_arr
+    }
     for k in selected_idx:
         i = int(pairs_a[k])
         j = int(pairs_b[k])
@@ -171,11 +247,7 @@ def _anti_redundancy_rerank(
         )
         red_terms = []
         for z in selected_so_far_arr:
-            cls_z, freqs_z, _ = merge_vars(
-                factors_data=factors_data,
-                vars_indices=np.array([int(z)], dtype=np.int64),
-                var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
-            )
+            cls_z, freqs_z = z_merge_cache[int(z)]
             mi_to_z = compute_mi_from_classes(
                 classes_x=cls_merged, freqs_x=freqs_merged,
                 classes_y=cls_z, freqs_y=freqs_z, dtype=dtype,
@@ -239,24 +311,35 @@ def _kfold_stability_filter(
     if verbose:
         logger.info("cat-FE: K-fold stability check (K=%d) over %d top-K pair(s)", K, len(selected_idx))
 
+    # ``slice_data`` and the target's fold-local merge depend only on ``f``, not on the outer survivor ``k`` --
+    # precompute once per fold and reuse across every survivor instead of re-merging Y on the same fold slice
+    # once per (k, f) pair. ``None`` marks a too-small fold (mirrors the original per-(k,f) "-inf" skip).
+    fold_cache: dict = {}
+    for f in range(K):
+        mask = fold_ids == f
+        n_fold = int(mask.sum())
+        if n_fold < cfg.min_n_samples // 2:
+            fold_cache[f] = None
+            continue
+        slice_data = factors_data[mask]
+        cls_y_f, fq_y_f, _ = merge_vars(
+            factors_data=slice_data, vars_indices=target_indices,
+            var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
+        )
+        fold_cache[f] = (slice_data, cls_y_f, fq_y_f)
+
     for k in selected_idx:
         i = int(pairs_a[k])
         j = int(pairs_b[k])
         fold_ii_vals: list = []
 
         for f in range(K):
-            mask = fold_ids == f
-            n_fold = int(mask.sum())
-            if n_fold < cfg.min_n_samples // 2:
+            cached = fold_cache[f]
+            if cached is None:
                 # Fold too small to estimate MI reliably; mark as failed.
                 fold_ii_vals.append(float("-inf"))
                 continue
-            slice_data = factors_data[mask]
-            # Re-merge Y on the fold (since classes_y depends on the rows).
-            cls_y_f, fq_y_f, _ = merge_vars(
-                factors_data=slice_data, vars_indices=target_indices,
-                var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
-            )
+            slice_data, cls_y_f, fq_y_f = cached
             cls_pair_f, fq_pair_f, _ = merge_vars(
                 factors_data=slice_data,
                 vars_indices=np.array([i, j], dtype=np.int64),
@@ -333,23 +416,24 @@ def _refine_kway_coordinate_ascent(
         for _ in range(n_passes):
             improved = False
             for pos in range(len(current)):
+                # The other k-1 members are frozen for this position's whole candidate sweep -- pre-merge them
+                # once (prefix states keyed by sorted insertion point) instead of re-scanning all k raw columns
+                # for every candidate.
+                frozen_sorted = sorted(current[:pos] + current[pos + 1:])
+                prefix_states = _build_merge_prefix_states(factors_data, frozen_sorted, nbins, dtype)
                 for cand in candidate_pool:
                     cand_int = int(cand)
                     if cand_int in current:
                         continue
-                    new_tuple = current.copy()
-                    new_tuple[pos] = cand_int
-                    new_tuple_sorted = tuple(sorted(new_tuple))
+                    new_tuple_sorted = tuple(sorted([*frozen_sorted, cand_int]))
                     # Card budget check
                     card = 1
                     for k in new_tuple_sorted:
                         card *= int(nbins[k])
                     if card > max_combined_nbins or card >= 2**31:
                         continue
-                    new_classes, new_freqs, new_nuniq = merge_vars(
-                        factors_data=factors_data,
-                        vars_indices=np.array(new_tuple_sorted, dtype=np.int64),
-                        var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
+                    new_classes, new_freqs, new_nuniq = _merge_vars_sorted_insert(
+                        factors_data, prefix_states, frozen_sorted, cand_int, nbins, dtype,
                     )
                     new_mi = compute_mi_from_classes(
                         classes_x=new_classes, freqs_x=new_freqs,
@@ -361,6 +445,11 @@ def _refine_kway_coordinate_ascent(
                         current_classes = new_classes
                         current_nuniq = new_nuniq
                         improved = True
+                        # An accepted swap mid-sweep changes what "frozen" (current minus position pos)
+                        # means for the REMAINING candidates at this same pos -- rebuild immediately so
+                        # they splice against the just-updated members, not a stale pre-accept snapshot.
+                        frozen_sorted = sorted(current[:pos] + current[pos + 1:])
+                        prefix_states = _build_merge_prefix_states(factors_data, frozen_sorted, nbins, dtype)
                         if verbose >= 2:
                             logger.info(
                                 "cat-FE coord-ascent: %s -> %s (MI %.4f -> %.4f)",

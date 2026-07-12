@@ -13,6 +13,7 @@ What lives here:
 """
 from __future__ import annotations
 
+import bisect
 from typing import Literal
 
 import numpy as np
@@ -25,6 +26,71 @@ from .info_theory import compute_mi_from_classes, merge_vars
 # imported lazily inside the function body to dodge the
 # ``cat_interactions -> _cat_kway_materialize -> cat_interactions`` import cycle
 # that an eager import would trigger.
+
+
+def _build_merge_prefix_states(
+    factors_data: np.ndarray,
+    sorted_members: list,
+    factors_nbins: np.ndarray,
+    dtype,
+    final_state: tuple | None = None,
+) -> list:
+    """Incremental ``merge_vars`` states after merging ``sorted_members[:i]`` (ascending order), for every ``i`` in ``0..len(sorted_members)``.
+
+    ``merge_vars``'s dense renumbering is ORDER-SENSITIVE: merging the same variable set in a different order yields a bijective but numerically DIFFERENT
+    ``final_classes`` encoding (verified empirically -- only the count of distinct classes is order-invariant, not the labels). A candidate variable inserted
+    at some position among ``sorted_members`` therefore needs the merge to walk ``sorted_members[:pos] + [cand] + sorted_members[pos:]`` to stay bit-identical
+    to a fresh ``merge_vars`` over the fully re-sorted tuple -- these prefix states let ``_merge_vars_sorted_insert`` splice a candidate in at its correct
+    sorted position without re-scanning the members before it, for every candidate sharing that same insertion point.
+
+    ``final_state`` lets the caller hand in an already-computed ``(classes, nclasses)`` for the FULL ``sorted_members`` merge (the parent state carried from
+    the previous greedy-expansion round) instead of re-deriving it here.
+    """
+    n_rows = factors_data.shape[0]
+    states = [(np.zeros(n_rows, dtype=dtype), 1)]
+    upto = len(sorted_members) - 1 if final_state is not None else len(sorted_members)
+    for i in range(1, upto + 1):
+        prev_classes, prev_nclasses = states[-1]
+        classes_i, _freqs_i, nclasses_i = merge_vars(
+            factors_data=factors_data,
+            vars_indices=np.array([sorted_members[i - 1]], dtype=np.int64),
+            var_is_nominal=None, factors_nbins=factors_nbins,
+            current_nclasses=prev_nclasses, final_classes=prev_classes.copy(), dtype=dtype,
+        )
+        states.append((classes_i, nclasses_i))
+    if final_state is not None:
+        states.append(final_state)
+    return states
+
+
+def _merge_vars_sorted_insert(
+    factors_data: np.ndarray,
+    prefix_states: list,
+    sorted_members: list,
+    cand_int: int,
+    factors_nbins: np.ndarray,
+    dtype,
+) -> tuple:
+    """``merge_vars`` over ``sorted(sorted_members + [cand_int])``, splicing ``cand_int`` into its correct sorted position via ``prefix_states`` instead of
+    re-scanning the members before it. Bit-identical to a fresh full-tuple ``merge_vars`` call (verified end-to-end against the pre-fix algorithm across
+    randomized trials incl. min/mid/max insertion positions and varying arities/cardinalities/row-counts -- see
+    ``_benchmarks/bench_greedy_expand_seed_frozen_prefix.py``)."""
+    ins = bisect.bisect_left(sorted_members, cand_int)
+    prefix_classes, prefix_nclasses = prefix_states[ins]
+    classes1, freqs1, nclasses1 = merge_vars(
+        factors_data=factors_data, vars_indices=np.array([cand_int], dtype=np.int64),
+        var_is_nominal=None, factors_nbins=factors_nbins,
+        current_nclasses=prefix_nclasses, final_classes=prefix_classes.copy(), dtype=dtype,
+    )
+    suffix = sorted_members[ins:]
+    if not suffix:
+        return classes1, freqs1, nclasses1
+    classes2, freqs2, nclasses2 = merge_vars(
+        factors_data=factors_data, vars_indices=np.array(suffix, dtype=np.int64),
+        var_is_nominal=None, factors_nbins=factors_nbins,
+        current_nclasses=nclasses1, final_classes=classes1, dtype=dtype,
+    )
+    return classes2, freqs2, nclasses2
 
 
 @njit(cache=True)
@@ -51,6 +117,33 @@ def _scatter_factorize_lookup(
         code = factors_data[r, idx_a] + factors_data[r, idx_b] * nbins_a
         lookup[code] = classes_pair_post[r]
     return lookup
+
+
+@njit(cache=True)
+def _dense_renumber_codes(codes: np.ndarray, expected_size: int) -> tuple:
+    """Prune empty bins out of a pre-combined joint code array and densely renumber the survivors, mirroring ``merge_vars``'s own per-step
+    prune-then-renumber (same bincount + ascending-oldclass lookup-table scheme) but applied directly to an ALREADY-COMBINED single code array instead of
+    accumulating it across multiple raw columns first.
+
+    Used by ``_build_kway_chained_lookup``'s chain steps: ``codes`` there is ``pre_prune_codes`` (the growing prefix's running classes combined with the
+    next raw column), which already carries everything a full ``merge_vars(idx_tuple[:step+1])`` call would re-derive from scratch. Bit-identical to
+    ``merge_vars`` (verified: ``_benchmarks/bench_kway_chained_lookup_unique.py``) and faster (single O(n) pass over the pre-combined codes instead of
+    re-walking every prefix column) -- an ``np.unique(codes, return_inverse=True)`` alternative was tried first and measured 3-4x SLOWER than
+    ``merge_vars`` itself (sort-based dedup loses to njit's direct bincount at these join cardinalities), so it was rejected in favour of this kernel.
+    """
+    freqs = np.zeros(expected_size, dtype=np.int64)
+    for i in range(codes.shape[0]):
+        freqs[codes[i]] += 1
+    nzeros = 0
+    lookup_table = np.empty(expected_size, dtype=np.int64)
+    for oldclass in range(expected_size):
+        if freqs[oldclass] == 0:
+            nzeros += 1
+        lookup_table[oldclass] = oldclass - nzeros
+    out = np.empty(codes.shape[0], dtype=np.int64)
+    for i in range(codes.shape[0]):
+        out[i] = lookup_table[codes[i]]
+    return out, expected_size - nzeros
 
 
 # ============================================================================
@@ -109,6 +202,15 @@ def _greedy_expand_one_seed(
         best_nclasses = 0
         best_joint_mi = 0.0
 
+        # ``parent_set``/``parent_classes``/``parent_nclasses`` are fixed for this WHOLE candidate sweep --
+        # only the single best candidate gets accepted, and only AFTER the sweep finishes -- so the prefix
+        # states can be built once here and reused for every candidate instead of re-merging the full parent
+        # tuple from raw columns each time.
+        parent_sorted = sorted(parent_set)
+        prefix_states = _build_merge_prefix_states(
+            factors_data, parent_sorted, nbins, dtype, final_state=(parent_classes, parent_nclasses),
+        )
+
         for k in candidate_pool:
             k_int = int(k)
             if k_int in parent_set:
@@ -119,10 +221,8 @@ def _greedy_expand_one_seed(
             if new_card_estimate >= 2**31:
                 continue
 
-            new_vi = np.array(sorted(parent_set | {k_int}), dtype=np.int64)
-            new_classes, new_freqs, new_n = merge_vars(
-                factors_data=factors_data, vars_indices=new_vi,
-                var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
+            new_classes, new_freqs, new_n = _merge_vars_sorted_insert(
+                factors_data, prefix_states, parent_sorted, k_int, nbins, dtype,
             )
             new_joint_mi = compute_mi_from_classes(
                 classes_x=new_classes, freqs_x=new_freqs,
@@ -215,15 +315,13 @@ def _build_kway_chained_lookup(
         # Pre-prune codes for this step: running + nxt_vals * running_nuniq
         pre_prune_codes = running_classes + nxt_vals * running_nuniq
         expected_size = running_nuniq * nxt_nbins
-        # Compute next post-prune via merge_vars across the FULL prefix (idx_tuple[:step+1]); kway_results has classes only for step == k-1, intermediate steps need it explicitly.
-        vi_prefix = np.array(idx_tuple[: step + 1], dtype=np.int64)
-        cls_next, _, n_uniq_next = merge_vars(
-            factors_data=factors_data, vars_indices=vi_prefix,
-            var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
-        )
+        # ``pre_prune_codes`` already carries everything the full-prefix merge_vars(idx_tuple[:step+1]) call
+        # would derive from raw columns -- dense-renumber it directly instead of re-scanning every prefix
+        # column from scratch (see ``_dense_renumber_codes``'s docstring for the bit-identity + perf story).
+        cls_next, n_uniq_next = _dense_renumber_codes(pre_prune_codes, expected_size)
         lookup_step = np.full(expected_size, -1, dtype=np.int64)
         # Populate: each row's pre-prune code -> its post-prune class
-        lookup_step[pre_prune_codes] = cls_next.astype(np.int64, copy=False)
+        lookup_step[pre_prune_codes] = cls_next
         # Resolve unseen per unknown_strategy
         seen_mask = lookup_step >= 0
         if not seen_mask.all():

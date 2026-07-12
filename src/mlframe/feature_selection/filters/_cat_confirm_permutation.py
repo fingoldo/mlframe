@@ -708,6 +708,7 @@ def _confirm_pairs_via_permutation(
     n_search_pairs: int,
     dtype,
     verbose: int,
+    single_merge_cache: dict | None = None,
 ) -> tuple:
     """Run permutation confirmation on top-K survivors. Returns ``(selected_idx_kept, confidence_per_pair_dict)``.
 
@@ -715,6 +716,11 @@ def _confirm_pairs_via_permutation(
     Confidence = 1 - failures / npermutations. Pairs with confidence < min_nonzero_confidence are dropped from selected_idx.
 
     Confidence is the "joint dependence confidence" -- it tests the null that (X1, X2) is jointly independent of Y, NOT the null that II = 0.
+
+    ``single_merge_cache``, when given, seeds (and is further populated by) the single-column ``merge_vars`` cache below -- e.g. a dict already carrying
+    ``{col_idx: (cls, freqs)}`` entries from ``_cat_mm_correction._maybe_rerank_with_mm``'s MM re-rank pass over the SAME survivor set, run moments earlier
+    by the orchestrator on the same ``factors_data``/``nbins``/``dtype``. Not currently wired up by any caller (that requires threading a shared dict through
+    ``_cat_interactions_step.py``); passing ``None`` (the default) preserves the prior fresh-cache-per-call behaviour.
     """
     if cfg.full_npermutations <= 0:
         # Warn the user they're flying blind on FWER.
@@ -763,6 +769,27 @@ def _confirm_pairs_via_permutation(
     confidence_dict: dict = {}
     kept_mask = np.ones(len(selected_idx), dtype=bool)
 
+    # The single-variable merge of feature ``idx`` depends only on ``factors_data[:, idx]`` + ``nbins[idx]`` (default
+    # current_nclasses=1, fresh final_classes), so it is identical for every survivor pair that contains ``idx``.
+    # Features recur across survivor pairs, so memoising by feature index removes the redundant recomputation --
+    # mirrors ``_cat_confirm_bandit._confirm_pairs_bandit_ucb1``'s ``_single_merge_cache`` (same bug class, same fix).
+    # A caller-supplied ``single_merge_cache`` is used directly (not copied) so hits/misses accumulate into the
+    # SAME dict the caller holds, letting it be reused for a subsequent call against the same survivor set.
+    _single_merge_cache: dict = single_merge_cache if single_merge_cache is not None else {}
+
+    def _single_merge(idx: int):
+        """Memoized single-variable ``merge_vars`` classes/freqs for feature ``idx``, shared across every survivor pair that contains it (bit-identical to a fresh call since the merge is deterministic per-feature)."""
+        cached = _single_merge_cache.get(idx)
+        if cached is None:
+            cls, fq, _ = merge_vars(
+                factors_data=factors_data,
+                vars_indices=np.array([idx], dtype=np.int64),
+                var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
+            )
+            cached = (cls, fq)
+            _single_merge_cache[idx] = cached
+        return cached
+
     if verbose:
         logger.info(
             "cat-FE: confirming %d pair(s) via %d permutation tests each",
@@ -788,16 +815,8 @@ def _confirm_pairs_via_permutation(
             vars_indices=np.array([i, jj], dtype=np.int64),
             var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
         )
-        cls_x1, fq_x1, _ = merge_vars(
-            factors_data=factors_data,
-            vars_indices=np.array([i], dtype=np.int64),
-            var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
-        )
-        cls_x2, fq_x2, _ = merge_vars(
-            factors_data=factors_data,
-            vars_indices=np.array([jj], dtype=np.int64),
-            var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
-        )
+        cls_x1, fq_x1 = _single_merge(i)
+        cls_x2, fq_x2 = _single_merge(jj)
 
         n_failed = 0
         if use_conditional:
@@ -808,6 +827,10 @@ def _confirm_pairs_via_permutation(
             n_samples_local = factors_data.shape[0]
             use_full_cond = bool(getattr(cfg, "enable_full_conditional_perm", False))
             n_x1_classes = int(cls_x1.max()) + 1 if cls_x1.size else 1
+            # n_x2_classes is ALSO loop-invariant: both shuffle kernels below are pure Fisher-Yates SWAPS
+            # (element exchanges) restricted to strata, never resampling/overwriting with new values, so
+            # classes_x2_safe's value multiset -- hence its max -- is identical before and after every shuffle.
+            n_x2_classes = int(cls_x2.max()) + 1 if cls_x2.size else 1
             # I(X1; Y) is loop-INVARIANT under the conditional null: only X2 is
             # shuffled inside the loop; cls_x1 / fq_x1 / classes_y / freqs_y are
             # never mutated. So compute it ONCE here instead of re-running a full
@@ -819,6 +842,12 @@ def _confirm_pairs_via_permutation(
                 classes_x=cls_x1, freqs_x=fq_x1,
                 classes_y=classes_y, freqs_y=freqs_y, dtype=dtype,
             )
+            # local_data / local_nbins are loop-invariant SHAPE-wise: only column 1 (X2) changes per
+            # permutation (X1 is never shuffled in this branch), so allocate once and rewrite column 0 once
+            # instead of reallocating the (n, 2) buffer + rewriting the unchanged X1 column every permutation.
+            local_data = np.empty((n_samples_local, 2), dtype=dtype)
+            local_data[:, 0] = classes_x1_arr.astype(dtype, copy=False)
+            local_nbins = np.array([n_x1_classes, n_x2_classes], dtype=np.int64)
             for _perm in range(n_perms):
                 # Per-(survivor, perm) seed off the stable confirmation base so the conditional null is reproducible run-to-run without touching numpy's global RNG.
                 _cond_seed = _CAT_CONFIRM_BASE_SEED + int(j) * 1000003 + _perm
@@ -831,14 +860,8 @@ def _confirm_pairs_via_permutation(
                     _conditional_shuffle_within_strata(
                         classes_x2_safe, classes_y, n_y_classes, _cond_seed,
                     )
-                # Re-merge X1 with the shuffled X2 to get the conditional-null joint. We materialise a 2-col array on the fly.
-                local_data = np.empty((n_samples_local, 2), dtype=dtype)
-                local_data[:, 0] = classes_x1_arr.astype(dtype, copy=False)
+                # Re-merge X1 with the shuffled X2 to get the conditional-null joint.
                 local_data[:, 1] = classes_x2_safe.astype(dtype, copy=False)
-                local_nbins = np.array(
-                    [int(cls_x1.max()) + 1, int(classes_x2_safe.max()) + 1],
-                    dtype=np.int64,
-                )
                 cls_joint_perm, fq_joint_perm, _ = merge_vars(
                     factors_data=local_data,
                     vars_indices=np.array([0, 1], dtype=np.int64),
@@ -853,7 +876,7 @@ def _confirm_pairs_via_permutation(
                 # bit-identical across permutations. (We still subtract the same
                 # marginal as the observed II.)
                 # I(X2_shuffled; Y) -- per the conditional-null property, this equals I(X2; Y) up to floating-point noise; we recompute for safety.
-                fq_x2_perm = np.bincount(classes_x2_safe.astype(np.int64), minlength=int(classes_x2_safe.max()) + 1).astype(np.float64) / n_samples_local
+                fq_x2_perm = np.bincount(classes_x2_safe.astype(np.int64), minlength=n_x2_classes).astype(np.float64) / n_samples_local
                 i_x2_p = compute_mi_from_classes(
                     classes_x=classes_x2_safe.astype(dtype, copy=False),
                     freqs_x=fq_x2_perm.astype(np.float64),

@@ -198,10 +198,16 @@ def _maybe_rerank_with_mm(
     cfg: CatFEConfig,
     dtype,
     verbose: int,
+    single_merge_cache_out: dict | None = None,
 ) -> tuple:
     """If MM is enabled (cfg flag True or auto-gate fires for at least one survivor), recompute II for selected pairs with MM correction applied to all six entropies.
     Returns ``(ii_mm_arr, selected_idx_resorted)``. Hoists constant / per-column entropies (H(Y), H(X_i), H(X_i, Y)) out of the per-pair loop -- cached entropies cut MM
     cost from 5 merge_vars + 6 entropy per pair down to 2 merge_vars + 2 entropy per pair (joint terms only).
+
+    ``single_merge_cache_out``, when given, is populated with ``{col_idx: (cls, freqs)}`` for every single-column ``merge_vars`` this call performs -- the
+    SAME single-column merge ``_cat_confirm_permutation._confirm_pairs_via_permutation`` independently re-derives for the SAME survivor set right after this
+    MM re-rank runs (both scan the same top-K pairs on the same factors_data/nbins/dtype). Exposed here as a caller-supplied side-channel; the two functions
+    aren't wired together yet (that requires threading a shared dict through ``_cat_interactions_step.py``'s orchestrator, out of this module's scope).
     """
     if len(selected_idx) == 0:
         return ii_arr, selected_idx
@@ -251,6 +257,8 @@ def _maybe_rerank_with_mm(
             vars_indices=np.array([col_idx], dtype=np.int64),
             var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
         )
+        if single_merge_cache_out is not None:
+            single_merge_cache_out[col_idx] = (_cls_x, freqs_x)
         h_marginal_cache[col_idx] = _entropy_for_mode(
             freqs_x, n_samples, use_mm=not use_kt, use_kt=use_kt,
         )

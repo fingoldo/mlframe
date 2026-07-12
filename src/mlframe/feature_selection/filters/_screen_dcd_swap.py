@@ -48,8 +48,15 @@ def screen_dcd_discover_and_swap(
             evaluate_swap_candidate as _dcd_eval_swap,
             commit_swap as _dcd_commit_swap,
         )
-        # candidate_pool = surviving non-pruned non-selected indices
-        _pool = [i for i in range(factors_data.shape[1]) if i != var and not dcd_state.pool_pruned_mask[i] and i not in selected_vars]
+        # candidate_pool = surviving non-pruned non-selected indices. ``selected_vars`` stays a list at the
+        # caller (order matters there), but membership here only needs set semantics -- a single ``set(...)``
+        # build turns the O(pool_size) comprehension's per-column ``in selected_vars`` from an O(k) linear
+        # scan into O(1), for O(p+k) total instead of O(p*k). Can't be cached ACROSS calls: the true mutation
+        # sites (``_screen_predictors.py``'s select-loop append, ``_dcd_swap.commit_swap``'s in-place
+        # anchor->member REPLACE) live outside this module, and a replace-in-place leaves ``len()`` unchanged
+        # so a length-keyed incremental cache would silently miss it.
+        _selected_vars_set = set(selected_vars)
+        _pool = [i for i in range(factors_data.shape[1]) if i != var and not dcd_state.pool_pruned_mask[i] and i not in _selected_vars_set]
         _dcd_discover(
             dcd_state, var, _pool,
             entropy_cache=entropy_cache,

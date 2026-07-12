@@ -168,7 +168,13 @@ def triple_interaction_information(
 
 
 def _encode_triple(
-    cats_a: np.ndarray, cats_b: np.ndarray, cats_c: np.ndarray,
+    cats_a: Optional[np.ndarray] = None,
+    cats_b: Optional[np.ndarray] = None,
+    cats_c: Optional[np.ndarray] = None,
+    *,
+    precomputed_a: Optional[tuple[np.ndarray, np.ndarray]] = None,
+    precomputed_b: Optional[tuple[np.ndarray, np.ndarray]] = None,
+    precomputed_c: Optional[tuple[np.ndarray, np.ndarray]] = None,
 ) -> tuple[np.ndarray, dict[tuple, int]]:
     """Factorise the (val_a, val_b, val_c) tuple stream into a dense int code
     per row. Returns ``(codes, mapping)`` where ``mapping`` maps each fit-time
@@ -178,13 +184,32 @@ def _encode_triple(
     code values are arbitrary (consumed as a categorical / target-encoded) and
     replay maps via the stored value-triple lookup, so the ordering convention
     does not affect correctness.
+
+    ``precomputed_a``/``_b``/``_c`` let a caller that already holds a column's ``(uniq_strings, dense_codes)`` -- e.g.
+    ``score_cat_triples_by_interaction_information``'s per-column cache -- skip re-deriving them via ``_column_to_str`` + ``np.unique``
+    here (bit-identical: same ``np.unique`` call the caller already made on the identical column).
     """
-    n = len(cats_a)
+    if precomputed_a is not None:
+        uniq_a, inv_a = precomputed_a
+    elif cats_a is not None:
+        uniq_a, inv_a = np.unique(cats_a, return_inverse=True)
+    else:
+        raise ValueError("_encode_triple: need either cats_a or precomputed_a")
+    if precomputed_b is not None:
+        uniq_b, inv_b = precomputed_b
+    elif cats_b is not None:
+        uniq_b, inv_b = np.unique(cats_b, return_inverse=True)
+    else:
+        raise ValueError("_encode_triple: need either cats_b or precomputed_b")
+    if precomputed_c is not None:
+        uniq_c, inv_c = precomputed_c
+    elif cats_c is not None:
+        uniq_c, inv_c = np.unique(cats_c, return_inverse=True)
+    else:
+        raise ValueError("_encode_triple: need either cats_c or precomputed_c")
+    n = len(inv_a)
     if n == 0:
         return np.empty(0, dtype=np.int64), {}
-    uniq_a, inv_a = np.unique(cats_a, return_inverse=True)
-    uniq_b, inv_b = np.unique(cats_b, return_inverse=True)
-    uniq_c, inv_c = np.unique(cats_c, return_inverse=True)
     nb = len(uniq_b)
     nc = len(uniq_c)
     combined = inv_a.astype(np.int64) * (nb * nc) + inv_b.astype(np.int64) * nc + inv_c.astype(np.int64)
@@ -261,6 +286,7 @@ def score_cat_triples_by_interaction_information(
     beam_width: int = 3,
     top_k_pairs: int = 3,
     n_rounds: int = 2,
+    code_cache_out: Optional[dict[str, tuple[np.ndarray, np.ndarray]]] = None,
 ) -> pd.DataFrame:
     """Beam-search the triple lattice for three-way synergy.
 
@@ -286,6 +312,10 @@ def score_cat_triples_by_interaction_information(
 
     Columns: ``[cat_a, cat_b, cat_c, engineered_col, ii3]`` sorted by ``ii3``
     descending.
+
+    ``code_cache_out``, when given, is populated with ``{col: (uniq_strings, dense_codes)}`` for every column this call factorises -- the SAME
+    ``np.unique(_column_to_str(X[col]), return_inverse=True)`` result a downstream materialisation step (e.g. ``hybrid_cat_triple_fe``) would otherwise
+    re-derive from scratch via ``_encode_triple``'s ``precomputed_a``/``_b``/``_c`` params.
     """
     cat_cols = [c for c in cat_cols if c in X.columns]
     empty = pd.DataFrame(columns=["cat_a", "cat_b", "cat_c", "engineered_col", "ii3"])
@@ -314,7 +344,11 @@ def score_cat_triples_by_interaction_information(
     def _codes(col: str) -> np.ndarray:
         """Memoized dense integer codes for column ``col``, reused across every triple/pair/singleton MI lookup in the beam search."""
         if col not in code_cache:
-            code_cache[col] = _dense_codes(_column_to_str(X[col]))
+            uniq, c = np.unique(_column_to_str(X[col]), return_inverse=True)
+            c = c.astype(np.int64)
+            code_cache[col] = c
+            if code_cache_out is not None:
+                code_cache_out[col] = (uniq, c)
         return code_cache[col]
 
     from ._adaptive_nbins import _plug_in_mi
@@ -429,9 +463,14 @@ def hybrid_cat_triple_fe(
     if len(cat_cols) < 3:
         return X.copy(), [], [], pd.DataFrame()
 
+    # ``code_cache`` collects the scorer's per-column ``(uniq_strings, dense_codes)`` -- every survivor's
+    # cat_a/cat_b/cat_c was necessarily scored during the beam search (hence already factorised), so the
+    # materialisation loop below reuses them via ``_encode_triple``'s ``precomputed_*`` params instead of
+    # re-running ``_column_to_str`` + ``np.unique`` from scratch per survivor.
+    code_cache: dict[str, tuple[np.ndarray, np.ndarray]] = {}
     scores = score_cat_triples_by_interaction_information(
         X, y, cat_cols, n_bins=n_bins,
-        beam_width=beam_width, top_k_pairs=top_k_pairs,
+        beam_width=beam_width, top_k_pairs=top_k_pairs, code_cache_out=code_cache,
     )
     if scores.empty:
         return X.copy(), [], [], scores
@@ -447,8 +486,10 @@ def hybrid_cat_triple_fe(
     appended: list[str] = []
     str_cache: dict[str, np.ndarray] = {}
 
-    def _strs(col: str) -> np.ndarray:
-        """Memoized string-cast of column ``col``; avoids re-stringifying the same column across multiple appended recipes."""
+    def _strs(col: str) -> Optional[np.ndarray]:
+        """Memoized string-cast of column ``col``; skipped entirely for columns already cached by the scorer (fallback path only)."""
+        if col in code_cache:
+            return None
         if col not in str_cache:
             str_cache[col] = _column_to_str(X[col])
         return str_cache[col]
@@ -458,7 +499,10 @@ def hybrid_cat_triple_fe(
         cat_b = str(row["cat_b"])
         cat_c = str(row["cat_c"])
         name = engineered_name_cat_triple_cross(cat_a, cat_b, cat_c)
-        codes, mapping = _encode_triple(_strs(cat_a), _strs(cat_b), _strs(cat_c))
+        codes, mapping = _encode_triple(
+            _strs(cat_a), _strs(cat_b), _strs(cat_c),
+            precomputed_a=code_cache.get(cat_a), precomputed_b=code_cache.get(cat_b), precomputed_c=code_cache.get(cat_c),
+        )
         n_cells = len(mapping)
         if _cross_too_high_card(n_cells, n):
             oof, te_lookup, global_mean = _kfold_target_encode_codes(
