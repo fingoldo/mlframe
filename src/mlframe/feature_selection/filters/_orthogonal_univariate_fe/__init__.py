@@ -60,6 +60,11 @@ from ._orth_mi_backends import (
     _mi_classif_batch_sklearn,
     _select_mi_backend,
 )
+from ._orth_scoring_memo import (
+    orth_scoring_memo_scope,
+    cached_raw_mi_baseline,
+    cached_dense_finite_corr_matrix,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +82,10 @@ __all__ = [
     # Layer 32: spline + Fourier extra-basis FE.
     "generate_extra_basis_features",
     "hybrid_orth_extra_basis_fe_with_recipes",
+    # Cross-family fit-scoped scoring memo (raw-MI baseline + dense corr matrix).
+    "orth_scoring_memo_scope",
+    "cached_raw_mi_baseline",
+    "cached_dense_finite_corr_matrix",
 ]
 
 _BASIS_CODE = {"hermite": "He", "legendre": "L", "chebyshev": "T", "laguerre": "LL"}
@@ -319,8 +328,17 @@ def generate_univariate_basis_features(
         # whatever was engineered so far (the core selection still produces a usable partial). No-op when no budget is set.
         if fe_deadline_passed():
             break
-        from .._fe_usability_signal import _crit_np_dtype
-        x = np.asarray(X[col].to_numpy(), dtype=_crit_np_dtype())  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust (replay axis at :952 matches)
+        # BUG FIX (2026-07-12, test_layer23::test_replay_matches_fit_time_values): must be float64, NOT
+        # _crit_np_dtype()'s f32 relaxation. The basis-preprocess params computed from ``x`` here get frozen
+        # into an EngineeredRecipe and replayed at transform() time by
+        # engineered_recipes._orth_basis_recipes._eval_orth_basis_column, which unconditionally casts its
+        # column to float64 before applying them. An f32-computed fit axis drifts ~1e-6 abs / ~1e-4 rel from
+        # the f64 replay axis on ~80%+ of rows (confirmed empirically: same mean/std, different z-score
+        # arithmetic precision) -- affects EVERY hybrid-orth column, independent of row-subsampling. The f32
+        # relaxation stays for the separate MI-uplift SCORING casts in ``score_features_by_mi_uplift`` (a
+        # ranking decision, not a persisted value) -- only this closed-form VALUE materialisation must match
+        # replay bit-for-bit.
+        x = np.asarray(X[col].to_numpy(), dtype=np.float64)
         # Skip orthogonal-polynomial expansion on integer-valued low-cardinality categorical group keys: T_n / He_n of an
         # arbitrary label code (region 0..9) is spurious -- it fits the label->target mapping, floods the candidate pool, and
         # displaces the genuinely useful grouped aggregates of that key. Continuous / high-card columns keep the expansion. The
@@ -752,8 +770,10 @@ def hybrid_orth_mi_fe_with_recipes(
         # ``a__He2`` sub-operand (the BUG2 replay-determinism regression).
         _pp = None
         try:
-            from .._fe_usability_signal import _crit_np_dtype
-            _col_full = np.asarray(X[src].values, dtype=_crit_np_dtype())  # match the fit-time f32 operand (:322) so the byte-exact replay axis is consistent
+            # float64 (not _crit_np_dtype()'s f32 relaxation): match the transform()-time replay axis, which
+            # _orth_basis_recipes._eval_orth_basis_column casts to float64 unconditionally -- see the fit-time
+            # column-extraction fix above for the full rationale.
+            _col_full = np.asarray(X[src].values, dtype=np.float64)
             _vals_full, _pp = _evaluate_basis_column(
                 _col_full, chosen_basis, int(chosen_degree), return_params=True,
             )

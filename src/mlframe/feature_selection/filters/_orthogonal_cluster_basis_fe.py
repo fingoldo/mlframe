@@ -78,6 +78,8 @@ from ._orthogonal_univariate_fe import (
     _evaluate_basis_column,
     _mi_classif_batch,
     _BASIS_CODE,
+    cached_raw_mi_baseline,
+    cached_dense_finite_corr_matrix,
 )
 
 logger = logging.getLogger(__name__)
@@ -179,28 +181,15 @@ def detect_clusters_by_correlation(
     cols = [c for c in cols if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]
     if len(cols) < min_cluster_size:
         return {}
-    dense_arrays: list[np.ndarray] = []
-    dense_names: list[str] = []
     from ._fe_usability_signal import _crit_np_dtype
     _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
-    for c in cols:
-        arr = np.asarray(X[c].to_numpy(), dtype=_dt)
-        finite = np.isfinite(arr)
-        if not finite.any():
-            continue
-        if not finite.all():
-            arr = np.where(finite, arr, float(np.nanmean(arr[finite])))
-        if float(arr.std()) <= 1e-12:
-            continue
-        dense_arrays.append(arr)
-        dense_names.append(c)
-    if len(dense_names) < min_cluster_size:
+    # Fit-scoped memo (cached_dense_finite_corr_matrix): a no-op passthrough outside an active
+    # orth_scoring_memo_scope() (byte-for-byte the same dense-build + np.corrcoef this loop used to do
+    # inline); inside a scope, shares the O(p^2*n) matrix with _orthogonal_diff_basis_fe.detect_correlated_pairs
+    # (same NaN-fill + corrcoef recipe over the same column universe).
+    dense_names, abs_corr = cached_dense_finite_corr_matrix(X, cols, dtype=_dt)
+    if len(dense_names) < min_cluster_size or abs_corr.size == 0:
         return {}
-    mat = np.vstack(dense_arrays)
-    corr = np.corrcoef(mat)
-    if corr.ndim == 0:
-        return {}
-    abs_corr = np.abs(corr)
     p = len(dense_names)
     edges: list[tuple[int, int]] = []
     for i in range(p):
@@ -303,11 +292,13 @@ def compute_cluster_aggregate(
         member_mean = np.asarray(stats["member_mean"], dtype=np.float64)
         member_std = np.asarray(stats["member_std"], dtype=np.float64)
         signs = np.asarray(stats["signs"], dtype=np.float64)
-        from ._fe_usability_signal import _crit_np_dtype
-        _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
+        # Value-construction (feeds the aggregate that becomes the engineered column, not just an
+        # MI score): always float64. The FIT path below must match this exactly, or a stored
+        # fit-time mean/std computed at one precision combines with replay members cast at another,
+        # reproducing the fit/replay drift bug fixed in _orthogonal_univariate_fe/__init__.py.
         cols = []
         for i, m in enumerate(members):
-            a = np.asarray(X[m].to_numpy(), dtype=_dt)
+            a = np.asarray(X[m].to_numpy(), dtype=np.float64)
             fill = float(member_mean[i]) if i < member_mean.size else 0.0
             cols.append(np.where(np.isfinite(a), a, fill))
         M = np.column_stack(cols)
@@ -326,11 +317,9 @@ def compute_cluster_aggregate(
     # NaN-safe per-column fill before sign-aligned standardisation; note the
     # resulting per-member mean equals the fill value, so replay can fill test
     # NaNs with the stored mean and stay consistent.
-    from ._fe_usability_signal import _crit_np_dtype
-    _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
     cols = []
     for m in members:
-        a = np.asarray(X[m].to_numpy(), dtype=_dt)
+        a = np.asarray(X[m].to_numpy(), dtype=np.float64)
         finite = np.isfinite(a)
         if not finite.all():
             fill = float(np.nanmean(a[finite])) if finite.any() else 0.0
@@ -448,8 +437,10 @@ def generate_cluster_basis_features(
             0.0,
         )
         raw_mat = np.where(finite, raw_mat, col_means[None, :])
-    raw_mi = _mi_classif_batch(raw_mat, y_arr, nbins=nbins)
-    raw_mi_map = dict(zip(touched, raw_mi.tolist()))
+    # Fit-scoped memo: no-op passthrough outside an active orth_scoring_memo_scope() (byte-for-byte the
+    # same _mi_classif_batch call on this already NaN-mean-filled matrix); inside a scope, shares
+    # per-column MI with sibling opt-in layers requesting the same (content, dtype) column.
+    raw_mi_map = cached_raw_mi_baseline(touched, raw_mat, y_arr, nbins=nbins)
 
     # ---- Step 2: enumerate (cluster, degree) cells.
     cand_cols: list[str] = []

@@ -188,9 +188,25 @@ def distance_correlation(
     return float(np.sqrt(dcov2 / np.sqrt(denom)))
 
 
+def _dcor_y_side_prep(y: np.ndarray, n_total: int, *, n_sample: int, random_state: int) -> tuple:
+    """Compute the y-ONLY dependence primitive :func:`_dcor_batch` needs (subsample index set + the
+    y-side U-centered distance matrix + its variance), factored out so a caller scoring BOTH a
+    raw-baseline batch and an engineered-matrix batch against the SAME ``(y, n_sample, random_state)`` can
+    build it once and thread it into both ``_dcor_batch`` calls via the ``y_side`` param, instead of each
+    call rebuilding the identical y-side distance matrix.
+    """
+    y_arr = np.asarray(y, dtype=np.float64).ravel()
+    idx = _subsample_indices(n_total, int(n_sample), int(random_state))
+    ys = y_arr[idx]
+    B = _u_centered_distance_matrix(ys)
+    dvar2_y = float(np.mean(B * B))
+    return (idx, B, dvar2_y)
+
+
 def _dcor_batch(
     X: np.ndarray, y: np.ndarray, *,
     n_sample: int = 500, random_state: int = 0,
+    y_side: Optional[tuple] = None,
 ) -> np.ndarray:
     """Per-column dCor(X[:, j]; y).
 
@@ -198,16 +214,20 @@ def _dcor_batch(
     for every column so that ``dCor`` values are comparable across
     features (independent subsamples would inject variance from the
     sampling itself into the cross-column ranking).
+
+    ``y_side`` (2026-07-12): an optional precomputed ``(idx, B, dvar2_y)`` tuple from
+    :func:`_dcor_y_side_prep` -- pass it to skip rebuilding the y-side U-centered distance matrix when the
+    caller already built it for an identical ``(y, n_sample, random_state)``. ``None`` (default) preserves
+    the exact self-contained behavior.
     """
     X_arr = np.asarray(X, dtype=np.float64)
     if X_arr.ndim == 1:
         X_arr = X_arr.reshape(-1, 1)
-    y_arr = np.asarray(y, dtype=np.float64).ravel()
     n = X_arr.shape[0]
-    idx = _subsample_indices(n, int(n_sample), int(random_state))
-    ys = y_arr[idx]
-    B = _u_centered_distance_matrix(ys)
-    dvar2_y = float(np.mean(B * B))
+    if y_side is not None:
+        idx, B, dvar2_y = y_side
+    else:
+        idx, B, dvar2_y = _dcor_y_side_prep(y, n, n_sample=n_sample, random_state=random_state)
     out = np.empty(X_arr.shape[1], dtype=np.float64)
     for j in range(X_arr.shape[1]):
         xs = X_arr[idx, j]
@@ -281,14 +301,18 @@ def score_features_by_dcor_uplift(
             "engineered_mi", "uplift",
         ])
     # f64 kept: distance/kernel-Gram stability (f32 sums lose precision here) -- NOT routed through _crit_np_dtype.
+    # y-side dependence primitive (U-centered distance matrix + its variance) depends only on
+    # (y, n_sample, random_state) -- IDENTICAL for the raw-baseline batch below and the engineered-matrix
+    # batch right after it. Build it ONCE and thread it into both _dcor_batch calls.
+    _y_side = _dcor_y_side_prep(y_arr, len(raw_X), n_sample=int(n_sample), random_state=int(random_state))
     raw_mi = _dcor_batch(
         raw_X.to_numpy(dtype=np.float64), y_arr,
-        n_sample=int(n_sample), random_state=int(random_state),
+        n_sample=int(n_sample), random_state=int(random_state), y_side=_y_side,
     )
     raw_mi_map = dict(zip(raw_cols, raw_mi.tolist()))
     eng_mi = _dcor_batch(
         engineered_X.to_numpy(dtype=np.float64), y_arr,
-        n_sample=int(n_sample), random_state=int(random_state),
+        n_sample=int(n_sample), random_state=int(random_state), y_side=_y_side,
     )
     rows = []
     for j, eng_name in enumerate(engineered_X.columns):

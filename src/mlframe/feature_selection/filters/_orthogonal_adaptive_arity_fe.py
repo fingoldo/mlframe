@@ -69,6 +69,7 @@ from ._orthogonal_univariate_fe import (
     _mi_classif_batch, mi_classif_batch_chunked,
     _BASIS_CODE,
     hybrid_orth_mi_fe,
+    cached_raw_mi_baseline,
 )
 
 logger = logging.getLogger(__name__)
@@ -350,6 +351,11 @@ def generate_adaptive_arity_cross_basis(
         score_df = score_df.sort_values("uplift", ascending=False).reset_index(drop=True)
     else:
         score_df = pd.DataFrame(columns=_ADAPTIVE_SCORE_EMPTY_COLS)
+    # Carry the per-column basis-routing decision already made above (line ~200) via .attrs (not a return-tuple
+    # change -- keeps the public 2-tuple contract) so downstream callers (score_adaptive_arity_cross_basis ->
+    # hybrid_orth_mi_adaptive_arity_fe_with_recipes._route_basis) can reuse it instead of re-deriving
+    # basis_route_by_moments per LEG of every winning recipe.
+    eng_X.attrs["basis_per_col"] = basis_per_col
     return eng_X, score_df
 
 
@@ -464,6 +470,9 @@ def score_adaptive_arity_cross_basis(
     df = pd.DataFrame(rows)
     if not df.empty:
         df = df.sort_values("uplift", ascending=False).reset_index(drop=True)
+    # Forward the generation-time basis-routing decision (see generate_adaptive_arity_cross_basis) through this
+    # rerank step via .attrs so hybrid_orth_mi_adaptive_arity_fe_with_recipes._route_basis can reuse it.
+    df.attrs["basis_per_col"] = engineered_X.attrs.get("basis_per_col")
     return df
 
 
@@ -533,13 +542,24 @@ def hybrid_orth_mi_adaptive_arity_fe(
         if cols is not None:
             seed_sources = list(raw_cols_all[: int(seed_k)])
         else:
-            y_arr = _coerce_y_classif(y)
-            raw_X_all = X[raw_cols_all]
-            from ._fe_usability_signal import _crit_np_dtype
-            _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
-            raw_mi_arr = _mi_classif_batch(
-                raw_X_all.to_numpy(dtype=_dt), y_arr, nbins=nbins,
-            )
+            # Stage 1 (hybrid_orth_mi_fe, just above) already computed a full raw-column MI batch
+            # internally (score_features_by_mi_uplift's raw_mi_map) and surfaced it per-source in
+            # uni_scores["baseline_mi"] (one row per emitted engineered col, grouped by source_col).
+            # Reuse it instead of a second full _mi_classif_batch pass; only recompute for any raw
+            # column uni_scores doesn't cover (e.g. skipped -- all-NaN / int-as-cat / dedup'd source),
+            # which keeps this exactly selection-equivalent to the old always-recompute path.
+            _baseline_map: dict = {}
+            if not uni_scores.empty:
+                _baseline_map = uni_scores.groupby("source_col")["baseline_mi"].first().to_dict()
+            _missing = [c for c in raw_cols_all if c not in _baseline_map]
+            if _missing:
+                y_arr = _coerce_y_classif(y)
+                from ._fe_usability_signal import _crit_np_dtype
+                _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
+                # Fit-scoped memo: no-op passthrough outside an active orth_scoring_memo_scope(); inside a
+                # scope, shares this residual MI batch with sibling opt-in layers.
+                _baseline_map.update(cached_raw_mi_baseline(_missing, X[_missing].to_numpy(dtype=_dt), y_arr, nbins=nbins))
+            raw_mi_arr = np.array([float(_baseline_map.get(c, 0.0)) for c in raw_cols_all])
             order = np.argsort(-raw_mi_arr)
             seed_sources = [raw_cols_all[i] for i in order[: int(seed_k)]]
 
@@ -631,10 +651,14 @@ def hybrid_orth_mi_adaptive_arity_fe_with_recipes(
                     return code_to_basis[code], int(rest)
         return None, None
 
+    _basis_per_col: dict[str, str] = getattr(adaptive_scores, "attrs", {}).get("basis_per_col") or {}
+
     def _route_basis(col: str) -> str:
-        """Resolve the basis to record in the recipe for a source column: the fixed `basis` unless 'auto', in which case re-derive it from the column's moments (falling back to hermite on any read/compute failure)."""
+        """Resolve the basis to record in the recipe for a source column: the fixed `basis` unless 'auto', in which case reuse the routing decision generate_adaptive_arity_cross_basis already cached in basis_per_col (threaded through adaptive_scores.attrs), falling back to a fresh basis_route_by_moments re-derive only if that lookup misses (defensive; every leg of a winning recipe is a seed_sources member and should be covered)."""
         if basis != "auto":
             return basis
+        if col in _basis_per_col:
+            return str(_basis_per_col[col])
         try:
             from ._fe_usability_signal import _crit_np_dtype
             x = X[col].to_numpy(dtype=_crit_np_dtype())  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust

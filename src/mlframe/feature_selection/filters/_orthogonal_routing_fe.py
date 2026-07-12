@@ -75,6 +75,7 @@ from ._orthogonal_univariate_fe import (
     _mi_classif_batch,
     _BASIS_CODE,
     _dedup_collinear_source_cols,
+    cached_raw_mi_baseline,
 )
 
 logger = logging.getLogger(__name__)
@@ -235,10 +236,10 @@ def generate_conditional_basis_routing_features(
     from ._fe_usability_signal import _crit_np_dtype
     _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
     raw_X = X[list(cols)]
-    raw_mi = _mi_classif_batch(
-        raw_X.to_numpy(dtype=_dt), y_arr, nbins=nbins,
-    )
-    raw_mi_map = dict(zip(cols, raw_mi.tolist()))
+    # Fit-scoped memo: no-op passthrough outside an active orth_scoring_memo_scope() (byte-for-byte the
+    # same _mi_classif_batch call); inside a scope, shares this raw MI(x; y) batch with sibling opt-in
+    # layers (total-correlation / adaptive-degree / cluster-basis / diff-basis / adaptive-arity).
+    raw_mi_map = cached_raw_mi_baseline(cols, raw_X.to_numpy(dtype=_dt), y_arr, nbins=nbins)
 
     # ---- Step 2: enumerate every (col, pre_transform, basis, degree) cell.
     # Pre-compute pre-transformed columns ONCE per (col, pre_transform) so
@@ -248,7 +249,10 @@ def generate_conditional_basis_routing_features(
     cand_meta: list[tuple[str, str, str, int]] = []  # (src, pre, basis, degree)
 
     for col in cols:
-        x_raw = np.asarray(X[col].to_numpy(), dtype=_dt)
+        # Value-construction site (feeds the engineered column, not just an MI score): always
+        # float64, matching _apply_orth_univariate's hardcoded replay dtype -- a relaxed f32 cast
+        # here reproduces the fit/replay drift bug fixed in _orthogonal_univariate_fe/__init__.py.
+        x_raw = np.asarray(X[col].to_numpy(), dtype=np.float64)
         finite_mask = np.isfinite(x_raw)
         if not finite_mask.all():
             fill = float(np.nanmean(x_raw[finite_mask])) if finite_mask.any() else 0.0

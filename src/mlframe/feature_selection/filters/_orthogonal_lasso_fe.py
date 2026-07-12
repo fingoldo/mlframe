@@ -123,8 +123,6 @@ def _fit_lasso_abs_coefs(
     ordinality, unlike regressing on the raw ordinal class integers (which
     would let a meaningless label ordering drive selection).
     """
-    from sklearn.linear_model import Lasso
-
     X_arr = np.asarray(X_stack, dtype=np.float64)
     y_raw = np.asarray(y).ravel()
     y_arr = y_raw.astype(np.float64)
@@ -139,17 +137,11 @@ def _fit_lasso_abs_coefs(
     # max |coef| over the one-vs-rest fits so selection is invariant to relabelling.
     uniq = np.unique(y_raw[np.isfinite(y_arr)]) if np.issubdtype(y_arr.dtype, np.floating) else np.unique(y_raw)
     is_discrete = uniq.size <= max(20, int(0.05 * n_rows)) and np.all(y_arr[np.isfinite(y_arr)] == np.round(y_arr[np.isfinite(y_arr)]))
-    if is_discrete and uniq.size > 2:
-        classes = np.unique(y_raw)
-        best = np.zeros(n_cols, dtype=np.float64)
-        for cls in classes:
-            indicator = (y_raw == cls).astype(np.float64)
-            coefs = _fit_lasso_abs_coefs(
-                X_arr, indicator, alpha=alpha, standardize=standardize, random_state=random_state,
-            )
-            best = np.maximum(best, coefs)
-        return best
-    # NaN / inf scrub: Lasso's coordinate-descent does not tolerate NaN.
+    # HOISTED (2026-07-12): NaN/inf scrub + standardization depend ONLY on X_arr, never on y / the
+    # per-class indicator -- computing it ONCE here (instead of once per one-vs-rest class inside the
+    # multiclass branch below, which previously re-called this whole function recursively per class)
+    # avoids re-scrubbing/re-standardizing the IDENTICAL design matrix up to n_classes times (10-20x
+    # redundant O(n*p) passes at 10-20 classes). ``_fit_lasso_abs_coefs_scaled`` only runs ``Lasso.fit``.
     X_clean = np.where(np.isfinite(X_arr), X_arr, 0.0)
     if standardize:
         col_mean = X_clean.mean(axis=0, keepdims=True)
@@ -165,6 +157,31 @@ def _fit_lasso_abs_coefs(
             X_scaled[:, const_mask] = 0.0
     else:
         X_scaled = X_clean
+    if is_discrete and uniq.size > 2:
+        classes = np.unique(y_raw)
+        best = np.zeros(n_cols, dtype=np.float64)
+        for cls in classes:
+            indicator = (y_raw == cls).astype(np.float64)
+            coefs = _fit_lasso_abs_coefs_scaled(X_scaled, indicator, alpha=alpha, random_state=random_state)
+            best = np.maximum(best, coefs)
+        return best
+    return _fit_lasso_abs_coefs_scaled(X_scaled, y_arr, alpha=alpha, random_state=random_state)
+
+
+def _fit_lasso_abs_coefs_scaled(
+    X_scaled: np.ndarray,
+    y_arr: np.ndarray,
+    *,
+    alpha: float,
+    random_state: int = 0,
+) -> np.ndarray:
+    """Fit ``Lasso(alpha)`` on an ALREADY NaN-scrubbed-and-standardized design matrix and return
+    ``|coef|``. Split out of :func:`_fit_lasso_abs_coefs` (2026-07-12) so its one-vs-rest multiclass loop
+    reuses ONE standardization pass across every class fit instead of repeating it per class.
+    ``Lasso``'s default ``copy_X=True`` means every call gets its own internal working copy, so sharing
+    ``X_scaled`` across class fits is safe (no cross-class mutation)."""
+    from sklearn.linear_model import Lasso
+
     with warnings.catch_warnings():
         # ConvergenceWarning at small n with many candidates is expected
         # and not actionable from the caller's side -- silence at fit-time.

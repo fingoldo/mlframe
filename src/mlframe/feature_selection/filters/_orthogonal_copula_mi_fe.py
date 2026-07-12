@@ -188,13 +188,19 @@ def copula_mi(
 
 
 def _copula_mi_batch(
-    X: np.ndarray, y: np.ndarray, *, n_bins: int = 20,
+    X: np.ndarray, y: np.ndarray, *, n_bins: int = 20, y_side: Optional[np.ndarray] = None,
 ) -> np.ndarray:
     """Per-column copula MI(X[:, j]; y).
 
     Returns shape ``(n_features,)`` in nats. Pre-uniformises ``y`` ONCE
     (the rank transform is O(n log n) and constant across features) to
     amortise the cost across the batch.
+
+    ``y_side`` (2026-07-12): an optional precomputed ``_rank_to_uniform(y_arr)`` (valid only when ``y`` is
+    fully finite) -- threaded in by ``score_features_by_copula_mi_uplift`` so the raw-baseline and
+    engineered-matrix batch calls (identical ``y``) share ONE rank-to-uniform transform instead of each
+    recomputing it. Ignored (recomputed) whenever this call's own ``y`` is not fully finite, so a
+    mismatched/stale ``y_side`` can never silently apply to the wrong y.
     """
     X_arr = np.asarray(X, dtype=np.float64)
     if X_arr.ndim == 1:
@@ -208,7 +214,10 @@ def _copula_mi_batch(
     # docstring's "uniformise y once" promise the loop previously broke by
     # re-ranking O(n log n) per column. Columns whose own NaNs force a different
     # mask still re-rank the subset (unavoidable, mask-dependent).
-    v_full = _rank_to_uniform(y_arr) if y_all_finite else None
+    if y_all_finite:
+        v_full = y_side if y_side is not None else _rank_to_uniform(y_arr)
+    else:
+        v_full = None
     out = np.empty(X_arr.shape[1], dtype=np.float64)
     for j in range(X_arr.shape[1]):
         col = X_arr[:, j]
@@ -286,12 +295,16 @@ def score_features_by_copula_mi_uplift(
             "engineered_mi", "uplift",
         ])
     # f64 kept: distance/kernel-Gram stability (f32 sums lose precision here) -- NOT routed through _crit_np_dtype.
+    # y-side dependence primitive (rank-to-uniform transform) depends only on y -- IDENTICAL for the
+    # raw-baseline batch below and the engineered-matrix batch right after it. Build it ONCE (when y is
+    # fully finite; None otherwise, matching _copula_mi_batch's own fallback) and thread it into both.
+    _y_side = _rank_to_uniform(y_arr) if bool(np.isfinite(y_arr).all()) else None
     raw_mi = _copula_mi_batch(
-        raw_X.to_numpy(dtype=np.float64), y_arr, n_bins=int(n_bins),
+        raw_X.to_numpy(dtype=np.float64), y_arr, n_bins=int(n_bins), y_side=_y_side,
     )
     raw_mi_map = dict(zip(raw_cols, raw_mi.tolist()))
     eng_mi = _copula_mi_batch(
-        engineered_X.to_numpy(dtype=np.float64), y_arr, n_bins=int(n_bins),
+        engineered_X.to_numpy(dtype=np.float64), y_arr, n_bins=int(n_bins), y_side=_y_side,
     )
     rows = []
     for j, eng_name in enumerate(engineered_X.columns):

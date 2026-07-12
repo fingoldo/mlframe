@@ -430,6 +430,20 @@ def score_features_by_cmim(
     n_rows = float(max(1, y_bin.size))
     full_cache = _build_cmi_yz_cache(y_bin, sel_bins)
 
+    # Precompute the (support member != source) filtered cache list ONCE PER UNIQUE SOURCE (2026-07-12):
+    # cache_filtered depends only on ``source``, which repeats across every degree/basis variant of the
+    # same raw column (x1__He2, x1__He3, x1__T2, ...) -- rebuilding it per ENGINEERED column was a pure
+    # O(p_eng * p_support) list-comprehension redo of a value identical for every column sharing a source.
+    _sources_seen: list[str] = []
+    for eng_name in engineered_X.columns:
+        _s = eng_name.split("__", 1)[0] if "__" in eng_name else eng_name
+        if _s not in _sources_seen:
+            _sources_seen.append(_s)
+    filtered_by_source: dict[str, list] = {
+        source: [entry for entry, sname in zip(full_cache, support_col_names) if sname != source]
+        for source in _sources_seen
+    }
+
     rows: list[dict] = []
     for eng_name in engineered_X.columns:
         source = eng_name.split("__", 1)[0] if "__" in eng_name else eng_name
@@ -446,7 +460,7 @@ def score_features_by_cmim(
         # source). We want the redundancy filter to penalise OVERLAP
         # with OTHER support members; the self-source overlap is
         # accounted for by ranking on engineered_mi vs baseline_mi.
-        cache_filtered = [entry for entry, sname in zip(full_cache, support_col_names) if sname != source]
+        cache_filtered = filtered_by_source[source]
         if not cache_filtered:
             score = float(_cmi_from_binned(cand_bin, y_bin, None))
         else:

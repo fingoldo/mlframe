@@ -55,6 +55,8 @@ from ._orthogonal_univariate_fe import (
     _evaluate_basis_column,
     _mi_classif_batch,
     _BASIS_CODE,
+    cached_raw_mi_baseline,
+    cached_dense_finite_corr_matrix,
 )
 
 logger = logging.getLogger(__name__)
@@ -155,32 +157,16 @@ def detect_correlated_pairs(
     cols = [c for c in cols if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]
     if len(cols) < 2:
         return []
-    # Stack dense varying columns into a single matrix; skip constant /
-    # all-NaN sources entirely (no meaningful correlation against anything).
-    dense_arrays: list[np.ndarray] = []
-    dense_names: list[str] = []
     from ._fe_usability_signal import _crit_np_dtype
     _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
-    for c in cols:
-        arr = np.asarray(X[c].to_numpy(), dtype=_dt)
-        finite = np.isfinite(arr)
-        if not finite.any():
-            continue
-        # Fill NaN with column mean before correlation (matches the rest of
-        # the orth-FE pipeline).
-        if not finite.all():
-            arr = np.where(finite, arr, float(np.nanmean(arr[finite])))
-        if float(arr.std()) <= 1e-12:
-            continue
-        dense_arrays.append(arr)
-        dense_names.append(c)
-    if len(dense_arrays) < 2:
+    # Fit-scoped memo (cached_dense_finite_corr_matrix): a no-op passthrough outside an active
+    # orth_scoring_memo_scope() (byte-for-byte the same dense-build + np.corrcoef this loop used to do
+    # inline); inside a scope, shares the O(p^2*n) matrix with
+    # _orthogonal_cluster_basis_fe._discover_clusters (same NaN-fill + corrcoef recipe over the same
+    # column universe).
+    dense_names, abs_corr = cached_dense_finite_corr_matrix(X, cols, dtype=_dt)
+    if len(dense_names) < 2 or abs_corr.size == 0:
         return []
-    mat = np.vstack(dense_arrays)
-    corr = np.corrcoef(mat)
-    if corr.ndim == 0:
-        return []
-    abs_corr = np.abs(corr)
     out: list[tuple[str, str, float]] = []
     p = len(dense_names)
     for i in range(p):
@@ -268,8 +254,11 @@ def generate_diff_basis_features(
             "uplift", "engineered_mi", "baseline_mi"}`` for recipe
             replay and diagnostics.
     """
-    from ._fe_usability_signal import _crit_np_dtype
-    _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); hoisted so _dt is bound on every branch
+    # Value-construction dtype (feeds x_a/x_b -> diff -> the emitted engineered column, not just
+    # an MI score): always float64, matching _apply_orth_diff_basis's hardcoded replay dtype -- a
+    # relaxed f32 cast here reproduces the fit/replay drift bug fixed in
+    # _orthogonal_univariate_fe/__init__.py. Hoisted so _dt is bound on every branch.
+    _dt = np.float64
     if basis not in _POLY_BASES:
         raise ValueError(f"generate_diff_basis_features: unknown basis {basis!r}; " f"expected one of {sorted(_POLY_BASES.keys())}.")
     degrees = tuple(int(d) for d in degrees)
@@ -302,9 +291,9 @@ def generate_diff_basis_features(
                 )
                 continue
             pairs_norm.append((a, b))
-            # Compute correlation for diagnostics; not gating an explicit pair.
-            from ._fe_usability_signal import _crit_np_dtype
-            _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
+            # Compute correlation for diagnostics; not gating an explicit pair. Reuses the
+            # already-float64 `_dt` hoisted above (do not reassign it here -- it's still in
+            # scope for the Step 3 candidate-value loop below).
             arr_a = np.asarray(X[a].to_numpy(), dtype=_dt)
             arr_b = np.asarray(X[b].to_numpy(), dtype=_dt)
             mask = np.isfinite(arr_a) & np.isfinite(arr_b)
@@ -328,13 +317,15 @@ def generate_diff_basis_features(
             0.0,
         )
         raw_mat = np.where(finite, raw_mat, col_means[None, :])
-    raw_mi = _mi_classif_batch(raw_mat, y_arr, nbins=nbins)
-    raw_mi_map = dict(zip(touched, raw_mi.tolist()))
+    # Fit-scoped memo: no-op passthrough outside an active orth_scoring_memo_scope() (byte-for-byte the
+    # same _mi_classif_batch call on this already NaN-mean-filled matrix); inside a scope, shares
+    # per-column MI with sibling opt-in layers requesting the same (content, dtype) column.
+    raw_mi_map = cached_raw_mi_baseline(touched, raw_mat, y_arr, nbins=nbins)
 
     # ---- Step 3: enumerate (pair, degree) cells.
     cand_cols: list[str] = []
     cand_values: list[np.ndarray] = []
-    cand_meta: list[tuple[str, str, int]] = []  # (col_a, col_b, degree)
+    cand_meta: list[tuple[str, str, int, Optional[dict]]] = []  # (col_a, col_b, degree, basis_params)
 
     for col_a, col_b in pairs_norm:
         x_a = np.asarray(X[col_a].to_numpy(), dtype=_dt)
@@ -360,7 +351,11 @@ def generate_diff_basis_features(
             continue
         for d in degrees:
             try:
-                vals = _evaluate_basis_column(diff, basis, int(d))
+                # return_params=True (2026-07-12): capture the fit-time basis-preprocess params here, at
+                # the ONE place the diff array + basis are both already in hand, so the recipe-build step
+                # below can thread them straight into build_orth_diff_basis_recipe instead of rebuilding
+                # ``x_a - x_b`` and re-evaluating the basis a second time purely to recover them.
+                vals, basis_params_d = _evaluate_basis_column(diff, basis, int(d), return_params=True)
             except Exception as exc:
                 logger.warning(
                     "generate_diff_basis_features: basis=%r degree=%d on "
@@ -374,7 +369,7 @@ def generate_diff_basis_features(
                 continue
             cand_cols.append(_diff_col_name(col_a, col_b, basis, int(d)))
             cand_values.append(vals)
-            cand_meta.append((col_a, col_b, int(d)))
+            cand_meta.append((col_a, col_b, int(d), dict(basis_params_d) if basis_params_d is not None else None))
 
     if not cand_cols:
         return pd.DataFrame(index=X.index), {}
@@ -404,7 +399,7 @@ def generate_diff_basis_features(
     abs_floor = max(legacy_floor, noise_floor)
 
     survivors: list[dict] = []
-    for j, (col_a, col_b, deg) in enumerate(cand_meta):
+    for j, (col_a, col_b, deg, basis_params_d) in enumerate(cand_meta):
         emi = float(eng_mi[j])
         if not np.isfinite(emi):
             continue
@@ -427,6 +422,7 @@ def generate_diff_basis_features(
             "baseline_mi": baseline,
             "uplift": float(uplift),
             "pair_corr": float(pair_corr_map.get((col_a, col_b), 0.0)),
+            "basis_params": basis_params_d,
         })
 
     survivors.sort(key=lambda d: d["uplift"], reverse=True)
@@ -447,6 +443,7 @@ def generate_diff_basis_features(
             "engineered_mi": float(info["engineered_mi"]),
             "baseline_mi": float(info["baseline_mi"]),
             "uplift": float(info["uplift"]),
+            "basis_params": info.get("basis_params"),
         }
     return pd.DataFrame(out_cols, index=X.index), meta
 
@@ -509,6 +506,7 @@ def hybrid_orth_mi_diff_basis_fe(
             "baseline_mi": info["baseline_mi"],
             "engineered_mi": info["engineered_mi"],
             "uplift": info["uplift"],
+            "basis_params": info.get("basis_params"),
         })
     scores = pd.DataFrame(rows)
     if not scores.empty:
@@ -542,8 +540,6 @@ def hybrid_orth_mi_diff_basis_fe_with_recipes(
     -------
     (X_augmented, scores, recipes)
     """
-    from ._fe_usability_signal import _crit_np_dtype
-    _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); hoisted so _dt is bound on every branch
     from .engineered_recipes import build_orth_diff_basis_recipe
     X_aug, scores = hybrid_orth_mi_diff_basis_fe(
         X, y,
@@ -574,24 +570,30 @@ def hybrid_orth_mi_diff_basis_fe_with_recipes(
         _ca, _cb = str(row["col_a"]), str(row["col_b"])
         _basis_d, _degree_d = str(row["basis"]), int(row["degree"])
         # REPLAY-FIDELITY FIX (2026-06-13): freeze the diff's fit-time basis-preprocess params so
-        # transform() replays the axis byte-exactly (no slice-vs-full refit drift). Mirror the apply
-        # NaN-fill so the frozen params match. Guarded -> params stay None (legacy refit) on any failure.
-        _pp_d = None
-        try:
-            from ._fe_usability_signal import _crit_np_dtype
-            _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
-            _va = np.asarray(X[_ca], dtype=_dt)
-            _vb = np.asarray(X[_cb], dtype=_dt)
-            _fa = np.isfinite(_va)
-            if not _fa.all():
-                _va = np.where(_fa, _va, float(np.nanmean(_va[_fa])) if _fa.any() else 0.0)
-            _fb = np.isfinite(_vb)
-            if not _fb.all():
-                _vb = np.where(_fb, _vb, float(np.nanmean(_vb[_fb])) if _fb.any() else 0.0)
-            _, _pp_d = _evaluate_basis_column(_va - _vb, _basis_d, _degree_d, return_params=True)
-        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-            logger.debug("suppressed in _orthogonal_diff_basis_fe.py:592: %s", e)
-            pass
+        # transform() replays the axis byte-exactly (no slice-vs-full refit drift).
+        # 2026-07-12: generate_diff_basis_features's candidate-enumeration loop now calls
+        # _evaluate_basis_column(..., return_params=True) itself and threads the result through
+        # meta/scores -- reuse it here instead of rebuilding ``x_a - x_b`` and re-evaluating the basis
+        # a second time. Fall back to the old rebuild-and-refit path only if a row predates that field
+        # (defensive; e.g. a legacy caller-supplied ``scores`` frame).
+        _pp_d = row.get("basis_params") if hasattr(row, "get") else None
+        if _pp_d is None:
+            try:
+                # Value-construction (recovers the basis preprocess params for legacy recipes
+                # predating `return_params=True`): always float64, matching the fresh-path's own
+                # dtype and _apply_orth_diff_basis's hardcoded replay dtype.
+                _va = np.asarray(X[_ca], dtype=np.float64)
+                _vb = np.asarray(X[_cb], dtype=np.float64)
+                _fa = np.isfinite(_va)
+                if not _fa.all():
+                    _va = np.where(_fa, _va, float(np.nanmean(_va[_fa])) if _fa.any() else 0.0)
+                _fb = np.isfinite(_vb)
+                if not _fb.all():
+                    _vb = np.where(_fb, _vb, float(np.nanmean(_vb[_fb])) if _fb.any() else 0.0)
+                _, _pp_d = _evaluate_basis_column(_va - _vb, _basis_d, _degree_d, return_params=True)
+            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                logger.debug("suppressed in _orthogonal_diff_basis_fe.py:592: %s", e)
+                pass
         recipes.append(build_orth_diff_basis_recipe(
             name=name,
             col_a=_ca,

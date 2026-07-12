@@ -48,6 +48,7 @@ from ._orthogonal_univariate_fe import (
     _BASIS_CODE,
     _dedup_collinear_source_cols,
     basis_route_by_signal,
+    cached_raw_mi_baseline,
 )
 
 logger = logging.getLogger(__name__)
@@ -154,10 +155,10 @@ def generate_adaptive_degree_basis_features(
     raw_X = X[cols]
     from ._fe_usability_signal import _crit_np_dtype
     _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
-    raw_mi = _mi_classif_batch(
-        raw_X.to_numpy(dtype=_dt), y_arr, nbins=nbins,
-    )
-    raw_mi_map = dict(zip(cols, raw_mi.tolist()))
+    # Fit-scoped memo: no-op passthrough outside an active orth_scoring_memo_scope() (byte-for-byte the
+    # same _mi_classif_batch call); inside a scope, shares this raw MI(x; y) batch with sibling opt-in
+    # layers (total-correlation / routing / cluster-basis / diff-basis / adaptive-arity).
+    raw_mi_map = cached_raw_mi_baseline(cols, raw_X.to_numpy(dtype=_dt), y_arr, nbins=nbins)
 
     # ---- Step 2: build the (col, degree) candidate matrix in one shot
     # Generate every basis_d(c) value column, route per-col basis once.

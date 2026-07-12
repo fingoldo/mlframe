@@ -87,8 +87,8 @@ import pandas as pd
 
 from ._mi_greedy_cmi_fe import _quantile_bin, _renumber_joint
 from ._orthogonal_univariate_fe import (
-    _mi_classif_batch,
     generate_univariate_basis_features,
+    cached_raw_mi_baseline,
 )
 
 logger = logging.getLogger(__name__)
@@ -405,10 +405,11 @@ def score_features_by_tc_uplift(
     y_int = _coerce_y_int64(y)
     from ._fe_usability_signal import _crit_np_dtype
     _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
-    raw_mi = _mi_classif_batch(
-        raw_X.to_numpy(dtype=_dt), y_int, nbins=int(n_bins),
-    )
-    raw_mi_map = dict(zip(list(raw_X.columns), raw_mi.tolist()))
+    # Fit-scoped memo (cached_raw_mi_baseline): a no-op passthrough outside an active
+    # orth_scoring_memo_scope(), so this stays byte-for-byte the same _mi_classif_batch call by default;
+    # inside a scope it lets sibling opt-in layers (routing / adaptive-degree / cluster-basis / diff-basis
+    # / adaptive-arity) share this raw MI(x; y) batch instead of each recomputing it.
+    raw_mi_map = cached_raw_mi_baseline(list(raw_X.columns), raw_X.to_numpy(dtype=_dt), y_int, nbins=int(n_bins))
 
     # y bin support: equi-frequency-bin discrete y by dense renumbering.
     _, y_bin = np.unique(y_int, return_inverse=True)

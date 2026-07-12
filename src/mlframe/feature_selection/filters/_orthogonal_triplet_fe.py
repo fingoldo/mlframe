@@ -53,6 +53,7 @@ from ._orthogonal_univariate_fe import (
     _mi_classif_batch, mi_classif_batch_chunked,
     _BASIS_CODE,
     hybrid_orth_mi_fe,
+    cached_raw_mi_baseline,
 )
 
 logger = logging.getLogger(__name__)
@@ -427,13 +428,24 @@ def hybrid_orth_mi_triplet_fe(
             # cols=None on wide X: rank by MI(x; y) and keep the top-k.
             # This is best-effort; on a 3-way XOR with 100 columns and
             # seed_k=4 the caller should pass cols=[<candidates>].
-            y_arr = np.asarray(y).astype(np.int64) if not np.issubdtype(np.asarray(y).dtype, np.integer) else np.asarray(y, dtype=np.int64)
-            raw_X_all = X[raw_cols_all]
-            from ._fe_usability_signal import _crit_np_dtype
-            _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
-            raw_mi_arr = _mi_classif_batch(
-                raw_X_all.to_numpy(dtype=_dt), y_arr, nbins=nbins,
-            )
+            # Stage 1 (hybrid_orth_mi_fe, just above) already ran a full raw-column MI batch
+            # internally and surfaced it per-source in uni_scores["baseline_mi"] (same y coercion,
+            # same raw-column universe when cols=None) -- reuse it instead of a second full
+            # _mi_classif_batch pass; only recompute for a raw column uni_scores doesn't cover
+            # (skipped source: all-NaN / int-as-cat / dedup'd), so the ranking stays exactly
+            # selection-equivalent to the old always-recompute path.
+            _baseline_map: dict = {}
+            if not uni_scores.empty:
+                _baseline_map = uni_scores.groupby("source_col")["baseline_mi"].first().to_dict()
+            _missing = [c for c in raw_cols_all if c not in _baseline_map]
+            if _missing:
+                y_arr = np.asarray(y).astype(np.int64) if not np.issubdtype(np.asarray(y).dtype, np.integer) else np.asarray(y, dtype=np.int64)
+                from ._fe_usability_signal import _crit_np_dtype
+                _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
+                # Fit-scoped memo: no-op passthrough outside an active orth_scoring_memo_scope(); inside a
+                # scope, shares this residual MI batch with sibling opt-in layers.
+                _baseline_map.update(cached_raw_mi_baseline(_missing, X[_missing].to_numpy(dtype=_dt), y_arr, nbins=nbins))
+            raw_mi_arr = np.array([float(_baseline_map.get(c, 0.0)) for c in raw_cols_all])
             order = np.argsort(-raw_mi_arr)
             seed_sources = [raw_cols_all[i] for i in order[: int(top_triplet_seed_k)]]
 

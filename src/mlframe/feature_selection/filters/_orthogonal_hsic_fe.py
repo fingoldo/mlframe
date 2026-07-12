@@ -305,10 +305,44 @@ def hsic(
     return float(val)
 
 
+def _hsic_y_side_prep(
+    y: np.ndarray, n_total: int, *, n_sample: int, random_state: int, estimator: str,
+) -> Optional[tuple]:
+    """Compute the y-ONLY dependence primitive :func:`_hsic_batch` needs (subsample index set + the
+    y-side centred/diagonal-dropped Gram-matrix terms), factored out so a caller scoring BOTH a
+    raw-baseline batch and an engineered-matrix batch against the SAME ``(y, n_sample, random_state)``
+    can build it once and thread it into both ``_hsic_batch`` calls via the ``y_side`` param, instead of
+    each call rebuilding the identical y-side Gram matrix. Returns ``None`` on the degenerate n<4 case
+    (caller falls back to ``_hsic_batch``'s own zero-fill short-circuit).
+    """
+    y_arr = np.asarray(y, dtype=np.float64).ravel()
+    if n_total < 4:
+        return None
+    idx = _subsample_indices(n_total, int(n_sample), int(random_state))
+    ys = y_arr[idx]
+    n = ys.shape[0]
+    if n < 4:
+        return None
+    sy = median_heuristic_sigma(ys)
+    L = _rbf_gram(ys, sy)
+    if estimator == "biased":
+        L_row = L.mean(axis=1, keepdims=True)
+        L_col = L.mean(axis=0, keepdims=True)
+        L_all = L.mean()
+        Lc = L - L_row - L_col + L_all
+        return (idx, n, Lc, None)
+    L_t = L.copy()
+    np.fill_diagonal(L_t, 0.0)
+    sum_L = float(L_t.sum())
+    row_sum_L = L_t.sum(axis=1)
+    return (idx, n, None, (L_t, sum_L, row_sum_L))
+
+
 def _hsic_batch(
     X: np.ndarray, y: np.ndarray, *,
     n_sample: int = 500, random_state: int = 0,
     estimator: str = "biased",
+    y_side: Optional[tuple] = None,
 ) -> np.ndarray:
     """Per-column HSIC(X[:, j]; y).
 
@@ -319,27 +353,26 @@ def _hsic_batch(
     centred Gram matrix are computed ONCE and reused across all
     columns -- a (n_features - 1)x speedup over the naive per-column
     implementation.
+
+    ``y_side`` (2026-07-12): an optional precomputed tuple from :func:`_hsic_y_side_prep` -- when the
+    caller already built it (e.g. ``score_features_by_hsic_uplift`` scoring both a raw-baseline batch and
+    an engineered-matrix batch against the identical ``y``/``n_sample``/``random_state``), pass it here to
+    skip rebuilding the y-side Gram matrix a second time. ``None`` (default) preserves the exact
+    self-contained behavior -- byte-identical to before this parameter existed.
     """
     X_arr = np.asarray(X, dtype=np.float64)
     if X_arr.ndim == 1:
         X_arr = X_arr.reshape(-1, 1)
-    y_arr = np.asarray(y, dtype=np.float64).ravel()
     n_total = X_arr.shape[0]
-    if n_total < 4:
-        return np.zeros(X_arr.shape[1], dtype=np.float64)
-    idx = _subsample_indices(n_total, int(n_sample), int(random_state))
-    ys = y_arr[idx]
-    n = ys.shape[0]
-    if n < 4:
-        return np.zeros(X_arr.shape[1], dtype=np.float64)
-    sy = median_heuristic_sigma(ys)
-    L = _rbf_gram(ys, sy)
+    if y_side is not None:
+        idx, n, Lc, unbiased_terms = y_side
+    else:
+        prep = _hsic_y_side_prep(y, n_total, n_sample=n_sample, random_state=random_state, estimator=estimator)
+        if prep is None:
+            return np.zeros(X_arr.shape[1], dtype=np.float64)
+        idx, n, Lc, unbiased_terms = prep
     out = np.empty(X_arr.shape[1], dtype=np.float64)
     if estimator == "biased":
-        L_row = L.mean(axis=1, keepdims=True)
-        L_col = L.mean(axis=0, keepdims=True)
-        L_all = L.mean()
-        Lc = L - L_row - L_col + L_all
         denom = float((n - 1) * (n - 1))
         for j in range(X_arr.shape[1]):
             xs = X_arr[idx, j]
@@ -355,10 +388,7 @@ def _hsic_batch(
             out[j] = val
         return out
     # Unbiased path -- match the single-pair helper for parity.
-    L_t = L.copy()
-    np.fill_diagonal(L_t, 0.0)
-    sum_L = float(L_t.sum())
-    row_sum_L = L_t.sum(axis=1)
+    L_t, sum_L, row_sum_L = unbiased_terms
     nn = float(n)
     denom = nn * (nn - 3.0)
     for j in range(X_arr.shape[1]):
@@ -438,16 +468,23 @@ def score_features_by_hsic_uplift(
             "engineered_mi", "uplift",
         ])
     # f64 kept: distance/kernel-Gram stability (f32 sums lose precision here) -- NOT routed through _crit_np_dtype.
+    # y-side dependence primitive (median-heuristic sigma + centred/diagonal-dropped Gram matrix) depends
+    # only on (y, n_sample, random_state, estimator) -- IDENTICAL for the raw-baseline batch below and the
+    # engineered-matrix batch right after it. Build it ONCE and thread it into both _hsic_batch calls
+    # instead of each independently recomputing it.
+    _y_side = _hsic_y_side_prep(
+        y_arr, len(raw_X), n_sample=int(n_sample), random_state=int(random_state), estimator=estimator,
+    )
     raw_mi = _hsic_batch(
         raw_X.to_numpy(dtype=np.float64), y_arr,
         n_sample=int(n_sample), random_state=int(random_state),
-        estimator=estimator,
+        estimator=estimator, y_side=_y_side,
     )
     raw_mi_map = dict(zip(raw_cols, raw_mi.tolist()))
     eng_mi = _hsic_batch(
         engineered_X.to_numpy(dtype=np.float64), y_arr,
         n_sample=int(n_sample), random_state=int(random_state),
-        estimator=estimator,
+        estimator=estimator, y_side=_y_side,
     )
     rows = []
     for j, eng_name in enumerate(engineered_X.columns):
