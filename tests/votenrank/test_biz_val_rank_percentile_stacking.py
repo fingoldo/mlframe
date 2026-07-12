@@ -72,3 +72,34 @@ def test_rank_percentile_transform_empty_raises():
 
     with pytest.raises(ValueError):
         rank_percentile_transform(np.array([]))
+
+
+def test_biz_val_rank_percentile_transform_smoothing_reduces_edge_variance_on_small_reference():
+    """The win: with a SMALL OOF reference set, the hard interpolated-rank percentile of a fixed near-edge
+    query point jumps around a lot across resamples of the reference set (only ~1/n_oof resolution near the
+    tail, so which side of the nearest neighbor the query lands on flips the estimate by a whole rank step).
+    The Gaussian-kernel-smoothed mode (``smoothing=0.35``) averages over all reference points with a smooth
+    weight instead of a hard step, cutting that resampling variance at the same near-edge query.
+    """
+    rng = np.random.default_rng(0)
+    n_oof = 15
+    n_repeats = 400
+    query = np.array([-1.6])  # near the low tail of a standard normal reference distribution
+
+    hard_estimates = np.empty(n_repeats)
+    soft_estimates = np.empty(n_repeats)
+    for i in range(n_repeats):
+        oof = rng.normal(0, 1, n_oof)
+        _, hard_pct = rank_percentile_transform(oof, query)
+        _, soft_pct = rank_percentile_transform(oof, query, smoothing=0.35)
+        hard_estimates[i] = hard_pct[0]
+        soft_estimates[i] = soft_pct[0]
+
+    hard_var = float(np.var(hard_estimates))
+    soft_var = float(np.var(soft_estimates))
+
+    # measured ratio on this fixture is ~0.79 (a ~21% variance cut); threshold set with margin below that.
+    assert soft_var < hard_var * 0.85, (
+        f"kernel-smoothed percentile should have materially lower resampling variance than the hard rank "
+        f"near the distribution's edge with a small reference set: soft_var={soft_var:.6f} hard_var={hard_var:.6f}"
+    )
