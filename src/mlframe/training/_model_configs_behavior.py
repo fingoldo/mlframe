@@ -105,6 +105,25 @@ class TrainingBehaviorConfig(BaseConfig):
     # "balanced_accuracy" (default) recovers the Bayes-optimal operating point ~10x closer than "f1" and wins test balanced-accuracy in 29/30 imbalance x seed cells (bench_threshold_objective.py); F1 chases precision/recall trade and drifts the threshold high under imbalance.
     tune_decision_threshold_metric: str = "balanced_accuracy"  # "f1" or "balanced_accuracy"
 
+    # Opt-in: run ``mlframe.calibration.threshold_optimizer.optimize_decision_threshold`` on the binary
+    # classification calib slice (fit on calib probs/target, disjoint from test) after finalize, storing
+    # ``best_threshold`` (+ optional per-group thresholds / cv stability report, per ``threshold_optimizer_kwargs``)
+    # into ``metadata["decision_threshold"]``. Distinct from ``tune_decision_threshold`` above (which only tunes a
+    # single scalar via a simpler internal sweep and never touches metadata); this is the full opt-in extension
+    # surface (per-cohort thresholds via ``groups=``, cv stability via ``cv=``). Default OFF: bit-identical no-op.
+    auto_optimize_threshold: bool = False
+    # Extra kwargs forwarded to ``optimize_decision_threshold`` (e.g. ``metric_fn``, ``groups``, ``min_group_size``, ``cv``).
+    threshold_optimizer_kwargs: Optional[Dict[str, Any]] = None
+
+    # Opt-in: after ``calibrate_namespace_model`` fits a binary isotonic post-hoc calibrator on the calib
+    # slice, run ``mlframe.calibration.isotonic_risk.isotonic_overfit_risk`` on the same (calib_p, calib_y)
+    # and stamp the report into ``metadata["isotonic_risk_report"]`` (per model). Flags isotonic fits that
+    # are tracking per-point noise (too many step segments relative to sample size) rather than a genuine
+    # monotone relationship. Default OFF: bit-identical no-op (no extra fit work, no metadata key).
+    check_isotonic_overfit_risk: bool = False
+    # Extra kwargs forwarded to ``isotonic_overfit_risk`` (e.g. ``segment_ratio_threshold``, ``remediate``, ``density_window``).
+    isotonic_risk_kwargs: Optional[Dict[str, Any]] = None
+
     # Canonical monotonic strict-decline overfitting-stop knob (default 5). Threads through to the lgb / xgb
     # shims' ``.fit(monotonic_decline_patience=...)`` and the CatBoost ``callback_params`` so a single value
     # controls the byte-identical ``MonotonicDeclineStopper`` rule across all three boosters (and mirrors the

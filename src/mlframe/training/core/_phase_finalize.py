@@ -372,6 +372,194 @@ def _auto_calibrate_on_calib_slice(ctx: "TrainingContext") -> None:
         logger.info("[calib] auto-calibrated %d per-target model(s) on the disjoint calib slice.", _n)
 
 
+def _isotonic_overfit_risk_check(ctx: "TrainingContext") -> None:
+    """Opt-in: flag binary isotonic post-hoc calibrators (fit by ``_auto_calibrate_on_calib_slice``) that are
+    tracking per-point noise rather than a genuine monotone relationship.
+
+    Reuses the SAME ``(calib_p, calib_y)`` pair ``calibrate_namespace_model`` fit isotonic on (positive-class
+    column of ``entry.calib_probs`` vs ``entry.calib_target``), so the risk report describes the calibrator
+    actually shipped. Gated by ``TrainingBehaviorConfig.check_isotonic_overfit_risk``; default OFF (no extra
+    fit work, no metadata key). Best-effort: a per-model failure is logged and skipped, never aborts finalize.
+    """
+    import numpy as _np
+
+    from ...calibration.isotonic_risk import isotonic_overfit_risk
+
+    _cfg = getattr(ctx, "behavior_config", None)
+    if _cfg is None:
+        _root = getattr(ctx, "configs", None)
+        _cfg = getattr(_root, "behavior_config", None) if _root is not None else None
+    if _cfg is None or not bool(getattr(_cfg, "check_isotonic_overfit_risk", False)):
+        return
+    _kwargs = dict(getattr(_cfg, "isotonic_risk_kwargs", None) or {})
+
+    out: dict = {}
+    for _ttype, _by_name in (ctx.models or {}).items():
+        if not isinstance(_by_name, dict):
+            continue
+        for _tname, _entries in _by_name.items():
+            if not isinstance(_entries, list):
+                continue
+            for _i, _entry in enumerate(_entries):
+                _e = _entry[0] if isinstance(_entry, tuple) and _entry else _entry
+                _cp = getattr(_e, "calib_probs", None)
+                _ct = getattr(_e, "calib_target", None)
+                if _cp is None or _ct is None:
+                    continue
+                _cp = _np.asarray(_cp, dtype=_np.float64)
+                _ct = _np.asarray(_ct.values if hasattr(_ct, "values") else _ct, dtype=_np.float64).reshape(-1)
+                if _cp.ndim != 2 or _cp.shape[1] != 2 or _cp.shape[0] != _ct.shape[0] or _cp.shape[0] < 2:
+                    continue  # only the binary isotonic path ``calibrate_namespace_model`` actually fits
+                _pos = _cp[:, 1]
+                try:
+                    _rep = isotonic_overfit_risk(_pos, _ct, **_kwargs)
+                except Exception as _iso_err:
+                    logger.warning("[isotonic_risk] check failed for %s/%s: %s", _ttype, _tname, _iso_err)
+                    continue
+                _rep = {k: v for k, v in _rep.items() if k not in ("isotonic_fit", "platt_fit", "predict")}  # drop non-serializable fitted objects
+                _mn = str(getattr(_e, "model_name", None) or f"model_{_i}")
+                out[f"{_ttype}/{_tname}/{_mn}"] = _rep
+    if out:
+        ctx.metadata["isotonic_risk_report"] = out
+        if getattr(ctx, "verbose", 0):
+            logger.info("[isotonic_risk] stamped overfit-risk report for %d model(s).", len(out))
+
+
+def _optimize_decision_threshold_on_calib_slice(ctx: "TrainingContext") -> None:
+    """Opt-in: fit an optimized binary decision threshold (+ optional per-cohort thresholds / cv stability
+    report) on the disjoint calib slice via ``mlframe.calibration.threshold_optimizer.optimize_decision_threshold``.
+
+    Fit on ``entry.calib_probs``/``entry.calib_target`` (leakage-free, disjoint from test by construction),
+    never on test. Stores the result into ``metadata["decision_threshold"]``. Gated by
+    ``TrainingBehaviorConfig.auto_optimize_threshold``; default OFF (bit-identical no-op).
+    """
+    import numpy as _np
+    from sklearn.metrics import balanced_accuracy_score
+
+    from ...calibration.threshold_optimizer import optimize_decision_threshold
+
+    _cfg = getattr(ctx, "behavior_config", None)
+    if _cfg is None:
+        _root = getattr(ctx, "configs", None)
+        _cfg = getattr(_root, "behavior_config", None) if _root is not None else None
+    if _cfg is None or not bool(getattr(_cfg, "auto_optimize_threshold", False)):
+        return
+    _kwargs = dict(getattr(_cfg, "threshold_optimizer_kwargs", None) or {})
+    _metric_fn = _kwargs.pop("metric_fn", None) or (lambda y_true, y_pred: float(balanced_accuracy_score(y_true, y_pred)))
+
+    out: dict = {}
+    for _ttype, _by_name in (ctx.models or {}).items():
+        if not isinstance(_by_name, dict):
+            continue
+        for _tname, _entries in _by_name.items():
+            if not isinstance(_entries, list):
+                continue
+            for _i, _entry in enumerate(_entries):
+                _e = _entry[0] if isinstance(_entry, tuple) and _entry else _entry
+                _cp = getattr(_e, "calib_probs", None)
+                _ct = getattr(_e, "calib_target", None)
+                if _cp is None or _ct is None:
+                    continue
+                _cp = _np.asarray(_cp, dtype=_np.float64)
+                _ct = _np.asarray(_ct.values if hasattr(_ct, "values") else _ct, dtype=_np.float64).reshape(-1)
+                if _cp.ndim != 2 or _cp.shape[1] != 2 or _cp.shape[0] != _ct.shape[0] or _cp.shape[0] < 2:
+                    continue  # binary classification only
+                _pos = _cp[:, 1]
+                try:
+                    _rep = optimize_decision_threshold(_ct, _pos, _metric_fn, **_kwargs)
+                except Exception as _thr_err:
+                    logger.warning("[threshold_optimizer] fit failed for %s/%s: %s", _ttype, _tname, _thr_err)
+                    continue
+                _rep = {k: v for k, v in _rep.items() if k not in ("thresholds", "scores")}  # drop the full per-candidate sweep; keep the compact summary
+                _mn = str(getattr(_e, "model_name", None) or f"model_{_i}")
+                out[f"{_ttype}/{_tname}/{_mn}"] = _rep
+    if out:
+        ctx.metadata["decision_threshold"] = out
+        if getattr(ctx, "verbose", 0):
+            logger.info("[threshold_optimizer] stamped optimized decision threshold for %d model(s).", len(out))
+
+
+def _apply_confidence_shrinkage_to_regression(ctx: "TrainingContext") -> None:
+    """Opt-in final prediction-shrinkage step for regression targets: pull weakly-discriminative targets'
+    test/val predictions toward a neutral value, per ``mlframe.calibration.confidence_shrinkage``.
+
+    Confidence is computed from each model's OOF preds/target (``compute_oof_confidence``); the shrinkage is
+    then applied to that same model's test/val predictions in place (``apply_confidence_shrinkage``). Gated by
+    ``RegressionCalibrationConfig.apply_confidence_shrinkage``; default OFF (bit-identical no-op).
+    """
+    import numpy as _np
+
+    from ...calibration.confidence_shrinkage import apply_confidence_shrinkage, compute_oof_confidence
+
+    _cfg = getattr(ctx, "regression_calibration_config", None)
+    if _cfg is None:
+        _root = getattr(ctx, "configs", None)
+        _cfg = getattr(_root, "regression_calibration_config", None) if _root is not None else None
+    if _cfg is None or not bool(getattr(_cfg, "apply_confidence_shrinkage", False)):
+        return
+    _kwargs = dict(getattr(_cfg, "confidence_shrinkage_kwargs", None) or {})
+    _segment_ids = _kwargs.pop("segment_ids", None)
+
+    def _arr(v):
+        """Coerce a pandas Series/ndarray/None to a flat float64 array, or None if empty/missing."""
+        if v is None:
+            return None
+        a = v.values if hasattr(v, "values") else v
+        a = _np.asarray(a, dtype=_np.float64).reshape(-1)
+        return a if a.size else None
+
+    entries_by_key: dict = {}
+    for _ttype, _by_name in (ctx.models or {}).items():
+        if not isinstance(_by_name, dict):
+            continue
+        for _tname, _entries in _by_name.items():
+            if not isinstance(_entries, list):
+                continue
+            for _i, _entry in enumerate(_entries):
+                _e = _entry[0] if isinstance(_entry, tuple) and _entry else _entry
+                if getattr(_e, "test_probs", None) is not None:  # regression only
+                    continue
+                oof_preds = _arr(getattr(_e, "oof_preds", None))
+                train_target = _arr(getattr(_e, "train_target", None))
+                test_preds = _arr(getattr(_e, "test_preds", None))
+                if oof_preds is None or train_target is None or test_preds is None or oof_preds.size != train_target.size:
+                    continue
+                _mn = str(getattr(_e, "model_name", None) or f"model_{_i}")
+                entries_by_key[f"{_ttype}/{_tname}/{_mn}"] = (_e, oof_preds, train_target, test_preds)
+
+    if not entries_by_key:
+        return
+
+    confidences: dict = {}
+    preds: dict = {}
+    for _key, (_e, _oof_preds, _train_target, _test_preds) in entries_by_key.items():
+        try:
+            confidences[_key] = compute_oof_confidence(_oof_preds, _train_target, segment_ids=_segment_ids)
+        except Exception as _conf_err:
+            logger.warning("[confidence_shrinkage] OOF confidence failed for %s: %s", _key, _conf_err)
+            continue
+        preds[_key] = _test_preds
+
+    if not confidences:
+        return
+
+    try:
+        shrunk = apply_confidence_shrinkage(preds, confidences, **_kwargs)
+    except Exception as _shrink_err:
+        logger.warning("[confidence_shrinkage] shrinkage failed: %s", _shrink_err)
+        return
+
+    applied: dict = {}
+    for _key, _shrunk_preds in shrunk.items():
+        _e = entries_by_key[_key][0]
+        _e.test_preds = _shrunk_preds
+        applied[_key] = {"confidence": confidences[_key]}
+    if applied:
+        ctx.metadata["confidence_shrinkage"] = applied
+        if getattr(ctx, "verbose", 0):
+            logger.info("[confidence_shrinkage] applied prediction shrinkage to %d regression model(s).", len(applied))
+
+
 def _conformal_finalize_structure(ctx: "TrainingContext") -> str:
     """Infer the conformal split-structure tag from the suite's split config (best-effort, defaults iid)."""
     from .._conformal_finalize import infer_split_structure
@@ -787,12 +975,31 @@ def finalize_suite(ctx: TrainingContext) -> dict:
     except Exception as _cal_err:
         logger.warning("[calib] auto-calibration pass failed: %s", _cal_err)
 
+    # Opt-in: flag binary isotonic calibrators fit above that are tracking per-point noise. Default OFF.
+    try:
+        _isotonic_overfit_risk_check(ctx)
+    except Exception as _iso_err:
+        logger.warning("[isotonic_risk] finalize pass failed: %s", _iso_err)
+
+    # Opt-in: fit an optimized binary decision threshold (+ optional per-cohort / cv report) on the calib
+    # slice. Default OFF.
+    try:
+        _optimize_decision_threshold_on_calib_slice(ctx)
+    except Exception as _thr_err:
+        logger.warning("[threshold_optimizer] finalize pass failed: %s", _thr_err)
+
     # Opt-in: apply monotone point recalibration to regression models (before conformal so it scores the
     # recalibrated, shipped predictor). Default OFF; no-op unless explicitly enabled.
     try:
         _recalibrate_regression_on_calib_slice(ctx)
     except Exception as _recal_err:
         logger.warning("[regression_recal] finalize pass failed: %s", _recal_err)
+
+    # Opt-in: shrink weakly-discriminative regression targets' predictions toward neutral. Default OFF.
+    try:
+        _apply_confidence_shrinkage_to_regression(ctx)
+    except Exception as _shrink_err:
+        logger.warning("[confidence_shrinkage] finalize pass failed: %s", _shrink_err)
 
     # Additive, best-effort: stamp regression conformal intervals + achieved test coverage into metadata.
     try:

@@ -493,6 +493,17 @@ class RegressionCalibrationConfig(BaseConfig):
     point: Literal["off", "isotonic", "linear"] = "off"
     min_gain: float = 0.0
 
+    # Opt-in final prediction-shrinkage step: after point recalibration, run
+    # ``mlframe.calibration.confidence_shrinkage.compute_oof_confidence`` on each regression target's OOF
+    # preds/target to get a discriminative-power ratio, then ``apply_confidence_shrinkage`` to pull the
+    # test/val predictions of weakly-discriminative targets toward a neutral value before they ship.
+    # Meaningful mainly for multi-target/multi-output suites where per-target confidence genuinely varies;
+    # a no-op on a single-target run other than shrinking that one target toward neutral if its OOF
+    # confidence is low. Default OFF: bit-identical no-op.
+    apply_confidence_shrinkage: bool = False
+    # Extra kwargs forwarded to ``compute_oof_confidence``/``apply_confidence_shrinkage`` (e.g. ``neutral_value``, ``min_confidence``, ``max_confidence``, ``segment_ids``).
+    confidence_shrinkage_kwargs: Optional[Dict[str, Any]] = None
+
 
 class NamingConfig(BaseConfig):
     """Model naming configuration for train_and_evaluate_model.
