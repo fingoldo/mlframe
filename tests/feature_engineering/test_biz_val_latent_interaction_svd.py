@@ -78,3 +78,86 @@ def test_latent_interaction_features_missing_column_raises():
 
     with pytest.raises(ValueError):
         latent_interaction_features(pd.DataFrame({"a": [1]}), "entity", "item")
+
+
+def test_latent_interaction_features_return_fitted_default_unchanged():
+    """``return_fitted=False`` (the default) must be bit-identical to the pre-extension return value."""
+    events_df, _, _ = _make_clustered_interactions(seed=2)
+    row_emb, col_emb = latent_interaction_features(events_df, "entity", "item", n_components=6, use_tfidf=True)
+    row_emb2, col_emb2 = latent_interaction_features(
+        events_df, "entity", "item", n_components=6, use_tfidf=True, return_fitted=False
+    )
+    pd.testing.assert_frame_equal(row_emb, row_emb2)
+    pd.testing.assert_frame_equal(col_emb, col_emb2)
+
+
+def test_biz_val_latent_interaction_features_transfers_to_disjoint_held_out_entities():
+    """A basis fit on a TRAIN entity population should embed a DISJOINT test entity population usefully.
+
+    Entities never seen at fit time are transformed via ``transform_new_entities`` on the frozen item
+    vocabulary/SVD basis (no refitting), and a classifier trained ONLY on the train embeddings must predict
+    the true cluster of the held-out entities far better than a majority-class baseline -- the point of a
+    frozen basis is that it generalizes to a disjoint population, not just to the fit sample.
+    """
+    events_df, entity_cluster, n_entities = _make_clustered_interactions(seed=0)
+    rng = np.random.default_rng(7)
+    train_mask = rng.random(n_entities) < 0.7
+    train_entities = np.flatnonzero(train_mask)
+    test_entities = np.flatnonzero(~train_mask)
+
+    train_events = events_df[events_df["entity"].isin(train_entities)]
+    test_events = events_df[events_df["entity"].isin(test_entities)]
+
+    row_emb, _, fitted = latent_interaction_features(
+        train_events, "entity", "item", n_components=8, use_tfidf=True, return_fitted=True
+    )
+    row_emb_aligned = row_emb.reindex(train_entities)
+    assert not row_emb_aligned.isna().any().any()
+
+    clf = LogisticRegression(max_iter=500).fit(row_emb_aligned.to_numpy(), entity_cluster[train_entities])
+
+    test_emb = fitted.transform_new_entities(test_events)
+    test_emb_aligned = test_emb.reindex(test_entities)
+    assert not test_emb_aligned.isna().any().any()
+
+    feature_cols = [c for c in test_emb_aligned.columns if c != "oov_weight_fraction"]
+    accuracy = clf.score(test_emb_aligned[feature_cols].to_numpy(), entity_cluster[test_entities])
+    majority_baseline = float(np.bincount(entity_cluster[test_entities]).max() / len(test_entities))
+
+    assert accuracy > majority_baseline + 0.3, (
+        f"frozen-basis embedding of held-out entities should beat the majority-class baseline by a wide margin: "
+        f"accuracy={accuracy:.4f} baseline={majority_baseline:.4f}"
+    )
+    # every test entity interacted only with items present at fit time (same item population), so OOV mass is 0.
+    assert (test_emb_aligned["oov_weight_fraction"] == 0.0).all()
+
+
+def test_biz_val_latent_interaction_features_oov_items_fall_back_to_origin():
+    """An entity whose interactions are ENTIRELY with items unseen at fit time gets an all-zero embedding.
+
+    That's the documented OOV fallback (mirrors ``FittedTfidfSvdEntityEmbedding``'s OOV-fraction diagnostic):
+    with zero known-vocabulary signal the frozen SVD basis has nothing to project, so the entity lands at the
+    origin with ``oov_weight_fraction == 1.0`` flagging the embedding as unreliable, rather than crashing or
+    silently returning a misleading nonzero vector.
+    """
+    events_df, _, _ = _make_clustered_interactions(seed=0)
+    _, _, fitted = latent_interaction_features(events_df, "entity", "item", n_components=8, use_tfidf=True, return_fitted=True)
+
+    novel_events = pd.DataFrame({"entity": [9001, 9001, 9002], "item": [-1, -2, -3]})  # items never seen at fit time
+    out = fitted.transform_new_entities(novel_events)
+
+    assert (out["oov_weight_fraction"] == 1.0).all()
+    feature_cols = [c for c in out.columns if c != "oov_weight_fraction"]
+    assert np.allclose(out.loc[9001, feature_cols].to_numpy(), 0.0)
+    assert np.allclose(out.loc[9002, feature_cols].to_numpy(), 0.0)
+
+
+def test_latent_interaction_features_transform_new_entities_partial_oov():
+    """An entity with a MIX of known and novel items gets a nonzero ``oov_weight_fraction`` in (0, 1)."""
+    events_df, _, _ = _make_clustered_interactions(seed=0)
+    _, _, fitted = latent_interaction_features(events_df, "entity", "item", n_components=8, use_tfidf=True, return_fitted=True)
+
+    known_item = int(fitted.col_uniq[0])
+    mixed_events = pd.DataFrame({"entity": [8001, 8001], "item": [known_item, -999]})
+    out = fitted.transform_new_entities(mixed_events)
+    assert 0.0 < out.loc[8001, "oov_weight_fraction"] < 1.0

@@ -212,7 +212,7 @@ from .row_wise_summary import row_wise_summary_stats
 from .rolling_target_correlation import rolling_target_correlation_tracker
 from .auxiliary_feature_prediction import compute_auxiliary_feature_prediction_features
 from .cross_sectional_neighbors import compute_cross_sectional_neighbor_features
-from .latent_interaction_svd import latent_interaction_features
+from .latent_interaction_svd import latent_interaction_features, FittedLatentInteractionSvd
 from .multi_window_aggregate import multi_window_aggregate
 from .entity_diff_features import entity_diff_features
 from .control_difference_augment import control_difference_augment
@@ -345,6 +345,7 @@ __all__ = [
     "compute_auxiliary_feature_prediction_features",
     "compute_cross_sectional_neighbor_features",
     "latent_interaction_features",
+    "FittedLatentInteractionSvd",
     "multi_window_aggregate",
     "entity_diff_features",
     "control_difference_augment",
