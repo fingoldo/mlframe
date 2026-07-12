@@ -21,6 +21,27 @@ from mlframe.competition.quantization_recovery import (
     rank_features_by_quantization_confidence,
     QuantizationRankResult,
 )
+from mlframe.competition.panel_target_persistence import (
+    TargetPersistenceResult,
+    check_target_persistence,
+    lag_target_within_group,
+    lead_target_within_group,
+)
+from mlframe.competition.threshold_range_rescaler import (
+    ThresholdRangeRescaler,
+    ThresholdCorrection,
+    ThresholdRangeRescalerResult,
+)
+from mlframe.competition.leak_scan import (
+    sort_by_density_leak_scan,
+    LeakScanResult,
+    find_shifted_column_groups,
+)
+from mlframe.competition.synthetic_row_detector import (
+    detect_synthetic_rows,
+    count_encoding_shift_report,
+    CountEncodingShiftReport,
+)
 
 __all__ = [
     *globals().get("__all__", []),
@@ -33,4 +54,17 @@ __all__ = [
     "derounded_feature",
     "rank_features_by_quantization_confidence",
     "QuantizationRankResult",
+    "TargetPersistenceResult",
+    "check_target_persistence",
+    "lag_target_within_group",
+    "lead_target_within_group",
+    "ThresholdRangeRescaler",
+    "ThresholdCorrection",
+    "ThresholdRangeRescalerResult",
+    "sort_by_density_leak_scan",
+    "LeakScanResult",
+    "find_shifted_column_groups",
+    "detect_synthetic_rows",
+    "count_encoding_shift_report",
+    "CountEncodingShiftReport",
 ]
