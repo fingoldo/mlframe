@@ -34,7 +34,7 @@ from mlframe.feature_selection.structure_discovery import (
     DiscoveredRelation,
 )
 from mlframe.feature_selection.ace import ace_select, ACEResult
-from mlframe.feature_selection.forward_select import forward_select
+from mlframe.feature_selection.forward_select import forward_select, ForwardSelectReport, MarginalGainStep
 from mlframe.feature_selection.cascade_select import cascade_select
 from mlframe.feature_selection.ridge_forward_prefilter import ridge_coefficient_prefilter
 from mlframe.feature_selection.unanimous_permutation_prune import unanimous_permutation_prune
@@ -74,6 +74,8 @@ __all__ = [
     "ACEResult",
     # forward selection + 3-stage cascade (Boruta screen -> forward select -> permutation backward elimination)
     "forward_select",
+    "ForwardSelectReport",
+    "MarginalGainStep",
     "cascade_select",
     # cheap Ridge-coefficient fast pre-filter ahead of MRMR/RFECV, for thousands of raw candidate features
     "ridge_coefficient_prefilter",

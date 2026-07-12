@@ -30,12 +30,37 @@ def _run(n: int, n_raw: int) -> None:
     forward_select(X, y, lambda: Ridge(alpha=1.0), scoring="neg_mean_squared_error", cv=3, candidate_features=raw_candidates, initial_selected=["base_pred"], max_features=5)
 
 
+def _run_early_stop(n: int, n_raw: int) -> None:
+    """Same setup as ``_run`` but with the opt-in ``patience`` early-stop path exercised -- mostly noise
+    raw candidates, so this should terminate well before ``_run``'s exhaustive/``max_features``-capped walk.
+    """
+    X, y = _make_dataset(n, n_raw, seed=0)
+    raw_candidates = [c for c in X.columns if c != "base_pred"]
+    forward_select(
+        X,
+        y,
+        lambda: Ridge(alpha=1.0),
+        scoring="neg_mean_squared_error",
+        cv=3,
+        candidate_features=raw_candidates,
+        initial_selected=["base_pred"],
+        patience=3,
+        significance_level=0.05,
+        return_report=True,
+    )
+
+
 if __name__ == "__main__":
     for n, n_raw in [(500, 10), (500, 30), (2000, 30)]:
         t0 = time.perf_counter()
         _run(n, n_raw)
         wall = time.perf_counter() - t0
-        print(f"n={n:>5} n_raw={n_raw:>3} -> {wall * 1000:9.2f} ms")
+        print(f"n={n:>5} n_raw={n_raw:>3} -> {wall * 1000:9.2f} ms (exhaustive)")
+
+        t0 = time.perf_counter()
+        _run_early_stop(n, n_raw)
+        wall = time.perf_counter() - t0
+        print(f"n={n:>5} n_raw={n_raw:>3} -> {wall * 1000:9.2f} ms (patience early-stop)")
 
     profiler = cProfile.Profile()
     profiler.enable()
@@ -44,4 +69,15 @@ if __name__ == "__main__":
     buf = StringIO()
     stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
     stats.print_stats(15)
+    print("--- exhaustive (max_features=5) ---")
+    print(buf.getvalue())
+
+    profiler = cProfile.Profile()
+    profiler.enable()
+    _run_early_stop(2000, 30)
+    profiler.disable()
+    buf = StringIO()
+    stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
+    stats.print_stats(15)
+    print("--- patience early-stop (patience=3) ---")
     print(buf.getvalue())
