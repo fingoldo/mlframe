@@ -126,35 +126,139 @@ def stack_relational_features(
     prefix
         Prefix for the final parent-level features (the grandchild-level features already carry their own
         spec-level prefixes from the depth-1 hop).
+
+    This is exactly the depth-2 (one hop) case of ``stack_relational_chain`` -- delegates to it so the two
+    code paths are provably identical rather than merely similar.
     """
-    enriched_child = compute_relational_features(
-        parent_df=child_df,
-        parent_id_col=child_id_col,
-        cutoff_col=child_time_col,
-        child_specs=grandchild_specs,
-    )
-
-    new_child_cols = [c for c in enriched_child.columns if c not in child_df.columns]
-    # A child with no eligible grandchild history gets NaN from the depth-1 hop; treat that as "zero
-    # contribution" for the depth-2 rollup (matching Featuretools' own zero-fill default for no-history
-    # aggregates) rather than letting a single NaN row poison the whole parent-level sum via propagation.
-    enriched_child[new_child_cols] = enriched_child[new_child_cols].fillna(0.0)
-    full_value_cols: Dict[str, List[str]] = {**{k: list(v) for k, v in child_value_cols.items()}, **{c: ["mean", "sum"] for c in new_child_cols}}
-
-    return compute_relational_features(
+    return stack_relational_chain(
         parent_df=parent_df,
         parent_id_col=parent_id_col,
         cutoff_col=cutoff_col,
-        child_specs=[
-            ChildTableSpec(
-                child_df=enriched_child,
-                foreign_key_col=child_foreign_key_col,
+        hops=[
+            RelationalHop(
+                df=child_df,
+                id_col=child_id_col,
                 time_col=child_time_col,
-                value_cols=full_value_cols,
-                prefix=prefix,
+                foreign_key_col=child_foreign_key_col,
+                value_cols=child_value_cols,
             )
         ],
+        leaf_specs=grandchild_specs,
+        prefix=prefix,
     )
 
 
-__all__ = ["ChildTableSpec", "compute_relational_features", "stack_relational_features"]
+@dataclass
+class RelationalHop:
+    """One intermediate table in a depth-N relational chain (see ``stack_relational_chain``).
+
+    Generalizes the ``child_df``/``child_id_col``/``child_time_col``/``child_foreign_key_col`` quadruple
+    from ``stack_relational_features`` so it can be chained at arbitrary depth: a sequence of ``RelationalHop``
+    ordered from the table closest to ``parent_df`` (index 0) to the table closest to the leaf level.
+
+    Attributes
+    ----------
+    df
+        This hop's own table -- one row per entity at this relational level.
+    id_col
+        Column in ``df`` identifying each row of this hop (the cutoff target for the NEXT hop in, i.e. the
+        hop/leaf level one step deeper in the chain).
+    time_col
+        This hop's own timestamp column -- used both as its cutoff when receiving aggregates from the next
+        hop in, AND as the cutoff comparison when this hop itself is aggregated onto the hop/parent one step
+        out.
+    foreign_key_col
+        Column in ``df`` linking each row of this hop to the hop/parent one step OUT in the chain (matches
+        that outer level's ``id_col``, or ``parent_id_col`` for the outermost hop).
+    value_cols
+        Aggregation spec (``{column: [agg_name, ...]}``) applied to this hop's OWN columns (in addition to
+        the newly-derived aggregate columns rolled up from deeper hops) when rolling it up to the next level out.
+    prefix
+        Prefix for the columns produced when this hop is rolled up onto the next level out.  Defaults to
+        ``l{depth}`` (1-indexed from the leaf) if left empty.
+    """
+
+    df: pd.DataFrame
+    id_col: str
+    time_col: str
+    foreign_key_col: str
+    value_cols: Mapping[str, Sequence[str]] = field(default_factory=dict)
+    prefix: str = ""
+
+
+def stack_relational_chain(
+    parent_df: pd.DataFrame,
+    parent_id_col: str,
+    cutoff_col: str,
+    hops: Sequence[RelationalHop],
+    leaf_specs: Sequence[ChildTableSpec],
+    prefix: str = "l2",
+) -> pd.DataFrame:
+    """Generic depth-N stacking: recursively aggregate a chain of ``len(hops) + 1`` relational levels
+    (parent -> hops[0] -> hops[1] -> ... -> hops[-1] -> leaf_specs) up to ``parent_df`` in one call, staying
+    leakage-safe at EVERY hop -- each level can only see rows of the level one step deeper that are strictly
+    before its OWN cutoff/timestamp, exactly like ``stack_relational_features`` but generalized from a fixed
+    depth-2 chain to an arbitrary-length one, without the caller manually chaining ``compute_relational_features``
+    calls hop by hop.
+
+    Parameters
+    ----------
+    hops
+        The chain of intermediate tables, ordered OUTERMOST (closest to ``parent_df``) first.  Must be
+        non-empty -- a single-hop chain is exactly ``stack_relational_features``'s depth-2 case.
+    leaf_specs
+        One or more ``ChildTableSpec`` aggregated onto ``hops[-1]`` first (the innermost/deepest hop),
+        using ``hops[-1].id_col``/``hops[-1].time_col`` as the entity/cutoff pair.
+    prefix
+        Prefix for the final parent-level features produced by rolling ``hops[0]`` up to ``parent_df``.
+        Intermediate hops get an ``l{depth}`` prefix (1-indexed from the leaf) unless a hop sets its own.
+
+    Returns
+    -------
+    pd.DataFrame
+        ``parent_df`` plus the rolled-up, multi-hop-aggregate feature columns.
+    """
+    if not hops:
+        raise ValueError("hops must contain at least one RelationalHop")
+
+    # Fold from the deepest hop inward: aggregate leaf_specs onto hops[-1], zero-fill (a hop with no
+    # eligible deeper-level history gets NaN, treated as "zero contribution" -- matching Featuretools' own
+    # zero-fill default for no-history aggregates), then treat the now-enriched hop as a ChildTableSpec for
+    # the next level out. Repeating this at every hop generalizes stack_relational_features's single fold.
+    enriched = compute_relational_features(
+        parent_df=hops[-1].df,
+        parent_id_col=hops[-1].id_col,
+        cutoff_col=hops[-1].time_col,
+        child_specs=leaf_specs,
+    )
+    new_cols = [c for c in enriched.columns if c not in hops[-1].df.columns]
+    enriched[new_cols] = enriched[new_cols].fillna(0.0)
+    value_cols: Dict[str, List[str]] = {**{k: list(v) for k, v in hops[-1].value_cols.items()}, **{c: ["mean", "sum"] for c in new_cols}}
+
+    for depth in range(len(hops) - 1, 0, -1):
+        outer = hops[depth - 1]
+        inner = hops[depth]
+        spec = ChildTableSpec(
+            child_df=enriched,
+            foreign_key_col=inner.foreign_key_col,
+            time_col=inner.time_col,
+            value_cols=value_cols,
+            prefix=inner.prefix or f"l{len(hops) - depth + 1}",
+        )
+        rolled = compute_relational_features(parent_df=outer.df, parent_id_col=outer.id_col, cutoff_col=outer.time_col, child_specs=[spec])
+        new_cols = [c for c in rolled.columns if c not in outer.df.columns]
+        rolled[new_cols] = rolled[new_cols].fillna(0.0)
+        enriched = rolled
+        value_cols = {**{k: list(v) for k, v in outer.value_cols.items()}, **{c: ["mean", "sum"] for c in new_cols}}
+
+    final_spec = ChildTableSpec(
+        child_df=enriched,
+        foreign_key_col=hops[0].foreign_key_col,
+        time_col=hops[0].time_col,
+        value_cols=value_cols,
+        prefix=prefix,
+    )
+    return compute_relational_features(parent_df=parent_df, parent_id_col=parent_id_col, cutoff_col=cutoff_col, child_specs=[final_spec])
+
+
+__all__ = ["ChildTableSpec", "RelationalHop", "compute_relational_features", "stack_relational_features", "stack_relational_chain"]
