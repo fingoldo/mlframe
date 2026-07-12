@@ -29,9 +29,9 @@ def _fit_transform(fit_df: pd.DataFrame, transform_df: pd.DataFrame) -> np.ndarr
     return np.asarray(transform_df["cat"].map(counts).fillna(0).to_numpy(dtype=np.float64))
 
 
-def _run(n: int, n_cats: int) -> None:
+def _run(n: int, n_cats: int, auto_remediate: bool = False) -> None:
     df, y = _make_dataset(n, n_cats, seed=0)
-    detect_expanding_window_feature_leakage(df, "t", y, _fit_transform, lambda: LinearRegression(), n_splits=5, scoring="r2")
+    detect_expanding_window_feature_leakage(df, "t", y, _fit_transform, lambda: LinearRegression(), n_splits=5, scoring="r2", auto_remediate=auto_remediate)
 
 
 if __name__ == "__main__":
@@ -39,7 +39,13 @@ if __name__ == "__main__":
         t0 = time.perf_counter()
         _run(n, n_cats)
         wall = time.perf_counter() - t0
-        print(f"n={n:>8,} n_cats={n_cats:>3} -> {wall * 1000:9.2f} ms")
+        print(f"n={n:>8,} n_cats={n_cats:>3} detect-only         -> {wall * 1000:9.2f} ms")
+
+    for n, n_cats in [(2_000, 20), (20_000, 30), (100_000, 50)]:
+        t0 = time.perf_counter()
+        _run(n, n_cats, auto_remediate=True)
+        wall = time.perf_counter() - t0
+        print(f"n={n:>8,} n_cats={n_cats:>3} auto_remediate=True -> {wall * 1000:9.2f} ms")
 
     profiler = cProfile.Profile()
     profiler.enable()
@@ -48,4 +54,15 @@ if __name__ == "__main__":
     buf = StringIO()
     stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
     stats.print_stats(15)
+    print("-- detect-only --")
+    print(buf.getvalue())
+
+    profiler = cProfile.Profile()
+    profiler.enable()
+    _run(100_000, 50, auto_remediate=True)
+    profiler.disable()
+    buf = StringIO()
+    stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
+    stats.print_stats(15)
+    print("-- auto_remediate=True --")
     print(buf.getvalue())
