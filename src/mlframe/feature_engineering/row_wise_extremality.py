@@ -13,7 +13,7 @@ the missing-value-count idea's intent (a compact per-row unusualness signal) but
 """
 from __future__ import annotations
 
-from typing import Literal, Optional, Sequence, overload
+from typing import Optional, Sequence
 
 import numpy as np
 import pandas as pd
@@ -123,22 +123,6 @@ def _build_column_extremality_summary(top_cols: np.ndarray, top_scores: np.ndarr
     return summary.sort_values("count", ascending=False)
 
 
-@overload
-def row_wise_top_k_extreme_columns(
-    X: pd.DataFrame,
-    columns: Optional[Sequence[str]] = None,
-    k: int = 3,
-    return_column_summary: Literal[False] = False,
-    summary_rows: Optional[Sequence[bool] | np.ndarray] = None,
-) -> pd.DataFrame: ...
-@overload
-def row_wise_top_k_extreme_columns(
-    X: pd.DataFrame,
-    columns: Optional[Sequence[str]] = None,
-    k: int = 3,
-    return_column_summary: Literal[True] = ...,
-    summary_rows: Optional[Sequence[bool] | np.ndarray] = None,
-) -> tuple[pd.DataFrame, pd.DataFrame]: ...
 def row_wise_top_k_extreme_columns(
     X: pd.DataFrame,
     columns: Optional[Sequence[str]] = None,
