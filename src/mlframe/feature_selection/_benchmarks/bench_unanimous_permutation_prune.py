@@ -8,6 +8,7 @@ import cProfile
 import pstats
 import time
 from io import StringIO
+from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -26,10 +27,12 @@ def _make_dataset(n: int, d: int, seed: int):
     return X, y
 
 
-def _run(n: int, d: int, n_repeats: int) -> None:
+def _run(n: int, d: int, n_repeats: int, min_fold_agreement_fraction: Optional[float] = None) -> None:
     X, y = _make_dataset(n, d, seed=0)
     cv_splits = list(TimeSeriesSplit(n_splits=4).split(X))
-    unanimous_permutation_prune(X, y, lambda: Ridge(alpha=1.0), cv_splits, n_repeats=n_repeats, max_iterations=2)
+    unanimous_permutation_prune(
+        X, y, lambda: Ridge(alpha=1.0), cv_splits, n_repeats=n_repeats, max_iterations=2, min_fold_agreement_fraction=min_fold_agreement_fraction
+    )
 
 
 if __name__ == "__main__":
@@ -39,9 +42,26 @@ if __name__ == "__main__":
         wall = time.perf_counter() - t0
         print(f"n={n:>5} d={d:>3} n_repeats={n_repeats:>3} -> {wall * 1000:9.2f} ms")
 
+    # k-of-n threshold path exercises the same permutation-importance loop with a different aggregation
+    # rule (np.sum + comparison vs np.all) -- negligible extra cost, but profiled separately to confirm.
+    for n, d, n_repeats in [(2000, 20, 15)]:
+        t0 = time.perf_counter()
+        _run(n, d, n_repeats, min_fold_agreement_fraction=0.6)
+        wall = time.perf_counter() - t0
+        print(f"n={n:>5} d={d:>3} n_repeats={n_repeats:>3} min_fold_agreement_fraction=0.6 -> {wall * 1000:9.2f} ms")
+
     profiler = cProfile.Profile()
     profiler.enable()
     _run(2000, 20, 15)
+    profiler.disable()
+    buf = StringIO()
+    stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
+    stats.print_stats(20)
+    print(buf.getvalue())
+
+    profiler = cProfile.Profile()
+    profiler.enable()
+    _run(2000, 20, 15, min_fold_agreement_fraction=0.6)
     profiler.disable()
     buf = StringIO()
     stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")

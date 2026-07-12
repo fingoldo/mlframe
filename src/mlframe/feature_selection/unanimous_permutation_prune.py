@@ -27,6 +27,7 @@ def unanimous_permutation_prune(
     max_iterations: int = 10,
     random_state: int = 0,
     feature_names: Optional[Sequence[str]] = None,
+    min_fold_agreement_fraction: Optional[float] = None,
 ) -> List[str]:
     """Iteratively drop features that fail to improve the metric in EVERY fold when permuted.
 
@@ -51,12 +52,22 @@ def unanimous_permutation_prune(
         Cap on prune-and-refit iterations (stops earlier once no feature qualifies for removal).
     random_state
         Seed for the permutation shuffles.
+    min_fold_agreement_fraction
+        Opt-in relaxation of the strict-unanimity rule. ``None`` (default) requires ALL folds to flag a
+        feature as prune-eligible (permuting it improved the score in every fold) -- bit-identical to the
+        original behavior. When set to a fraction in ``(0.0, 1.0]``, a feature is pruned once at least
+        ``ceil(min_fold_agreement_fraction * n_folds)`` folds agree, letting the caller dial between the
+        conservative unanimous rule (``1.0``, equivalent to ``None``) and a more aggressive mean-like rule
+        (small fractions e.g. ``0.5``) -- useful when a single noisy fold would otherwise block pruning of
+        a feature that's genuinely unimportant almost everywhere.
 
     Returns
     -------
     list of str
         Surviving feature names after iterating to convergence (or ``max_iterations``).
     """
+    if min_fold_agreement_fraction is not None and not (0.0 < min_fold_agreement_fraction <= 1.0):
+        raise ValueError(f"unanimous_permutation_prune: min_fold_agreement_fraction must be in (0.0, 1.0], got {min_fold_agreement_fraction}")
     import pandas as pd
     from sklearn.inspection import permutation_importance
     from sklearn.metrics import make_scorer
@@ -96,7 +107,14 @@ def unanimous_permutation_prune(
         # POSITIVE value means permuting made things worse, i.e. the feature is genuinely useful there).
         # A feature is prune-eligible only if permuting IMPROVED the score (negative importance) in EVERY
         # fold -- unanimous evidence the feature is actively harmful/noise, not just weak on average.
-        prune_eligible = np.all(deltas < 0, axis=0)
+        # When min_fold_agreement_fraction is set, relax this to a k-of-n vote (k = ceil(fraction * n_folds))
+        # instead of requiring all n folds -- a strict superset of the unanimous rule at fraction=1.0.
+        if min_fold_agreement_fraction is None:
+            prune_eligible = np.all(deltas < 0, axis=0)
+        else:
+            n_folds = deltas.shape[0]
+            required_votes = int(np.ceil(min_fold_agreement_fraction * n_folds))
+            prune_eligible = np.sum(deltas < 0, axis=0) >= required_votes
         if not prune_eligible.any():
             break
 

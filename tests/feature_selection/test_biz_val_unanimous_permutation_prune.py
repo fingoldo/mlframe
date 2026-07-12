@@ -66,6 +66,49 @@ def test_biz_val_unanimous_prune_keeps_regime_reversing_feature_naive_mean_would
     assert "stable_feature" in unanimous_survivors and "stable_feature" in naive_survivors
 
 
+def _make_mostly_noise_one_spurious_fold_dataset(n: int, seed: int):
+    rng = np.random.default_rng(seed)
+    real_feature = rng.normal(size=n)
+    noise_feature = rng.normal(size=n)
+    y = 2.0 * real_feature + 0.15 * rng.standard_normal(n)
+    y = y.copy()
+
+    # noise_feature carries a spurious relationship to y ONLY in the earliest chunk (indices [0, n//6)),
+    # which is part of every fold's TRAIN set under TimeSeriesSplit -- so Ridge learns a small nonzero
+    # coefficient for it everywhere, and in every fold whose VALIDATION window lacks that relationship,
+    # permuting it away correctly IMPROVES held-out RMSE (negative importance, unanimity-eligible for
+    # pruning). Injecting the SAME relationship into the third fold's own validation window (indices
+    # [3*n//6, 4*n//6)) makes the learned coefficient briefly correct THERE, so permuting it away hurts
+    # (positive importance) -- one spurious fold blocking strict unanimity even though the feature is
+    # genuinely noise everywhere else.
+    train_leak = slice(0, n // 6)
+    spurious_val_fold = slice(3 * n // 6, 4 * n // 6)
+    y[train_leak] += 4.0 * noise_feature[train_leak]
+    y[spurious_val_fold] += 4.0 * noise_feature[spurious_val_fold]
+
+    X = pd.DataFrame({"real_feature": real_feature, "noise_feature": noise_feature})
+    return X, y
+
+
+def test_biz_val_unanimous_prune_kof_n_threshold_prunes_feature_one_spurious_fold_blocks_unanimity():
+    X, y = _make_mostly_noise_one_spurious_fold_dataset(n=1500, seed=3)
+    cv_splits = list(TimeSeriesSplit(n_splits=5).split(X))
+
+    strict_survivors = unanimous_permutation_prune(X, y, lambda: Ridge(alpha=1.0), cv_splits, n_repeats=10, max_iterations=1, random_state=0)
+    kofn_survivors = unanimous_permutation_prune(
+        X, y, lambda: Ridge(alpha=1.0), cv_splits, n_repeats=10, max_iterations=1, random_state=0, min_fold_agreement_fraction=0.6
+    )
+
+    assert "noise_feature" in strict_survivors, f"expected strict unanimity to be blocked by the one spurious fold, got {strict_survivors}"
+    assert "noise_feature" not in kofn_survivors, f"expected the k-of-n threshold (0.6) to prune the noise feature despite the spurious fold, got {kofn_survivors}"
+    assert "real_feature" in kofn_survivors and "real_feature" in strict_survivors
+    assert len(kofn_survivors) < len(strict_survivors)
+
+    # default (omitted min_fold_agreement_fraction) must remain bit-identical to explicit fraction=None / unchanged strict behavior
+    default_survivors = unanimous_permutation_prune(X, y, lambda: Ridge(alpha=1.0), cv_splits, n_repeats=10, max_iterations=1, random_state=0)
+    assert default_survivors == strict_survivors
+
+
 def test_unanimous_prune_keeps_all_when_no_feature_unanimously_hurts():
     import pandas as pd
 
