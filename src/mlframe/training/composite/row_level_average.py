@@ -34,6 +34,7 @@ import pandas as pd
 import polars as pl
 
 from .ensemble.feature_stacking import composite_oof_predictions
+from .row_level_average_importance import compute_row_level_feature_importance_oof, compute_row_level_feature_importance_single_model
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +52,8 @@ def compute_row_level_then_average_predictions(
     column_name: str = "row_level_avg_pred",
     agg_stats: Optional[Sequence[str]] = None,
     flag_low_confidence_quantile: Optional[float] = None,
-) -> pl.DataFrame:
+    return_row_feature_importance: bool = False,
+) -> pl.DataFrame | tuple[pl.DataFrame, pl.DataFrame]:
     """Fit a model on raw (unaggregated) child rows with an entity-broadcast label, then aggregate its
     per-row predictions back to one row per entity.
 
@@ -87,17 +89,29 @@ def compute_row_level_then_average_predictions(
         ``1 - flag_low_confidence_quantile`` fraction by disagreement). Independent of ``agg_stats`` -- the
         std used for flagging is always computed internally and is not affected by whether ``"std"`` is
         also requested via ``agg_stats``.
+    return_row_feature_importance
+        ``False`` (default) -- bit-identical to the original contract, returns a single ``pl.DataFrame``. When
+        ``True``, additionally fits/extracts the row-level model's feature importance (``feature_importances_``
+        or ``abs(coef_)``) and returns ``(entity_df, importance_df)``, surfacing WHICH child-row features drove
+        the row-level predictions before they were aggregated -- the aggregate OOF score alone can't tell a
+        caller that. Mode B (external query) reuses the single model already fit for prediction at zero extra
+        cost; Mode A (OOF) reruns the identical ``GroupKFold`` split used internally to average per-fold
+        importances, which duplicates the row-level fit cost -- opt in only when the diagnostic is needed.
+        Raises ``AttributeError`` if ``model_factory()`` produces a model exposing neither attribute.
 
     Returns
     -------
-    pl.DataFrame
+    pl.DataFrame | tuple[pl.DataFrame, pl.DataFrame]
         ``entity_id`` (one row per UNIQUE entity, in first-seen order over the query entity ids) plus either
         ``column_name`` (``agg_stats=None``) or one ``{column_name}_{stat}`` column per requested stat, plus
-        ``{column_name}_low_confidence`` when ``flag_low_confidence_quantile`` is set.
+        ``{column_name}_low_confidence`` when ``flag_low_confidence_quantile`` is set. When
+        ``return_row_feature_importance=True``, a second ``pl.DataFrame`` with ``feature``/``importance``
+        columns (sorted descending) is returned alongside it as a 2-tuple.
     """
     entity_arr = np.asarray(entity_ids)
     y_arr = np.asarray(y_row_broadcast, dtype=np.float64)
 
+    importance_df: Optional[pl.DataFrame] = None
     if X_query_rows is not None:
         if query_entity_ids is None:
             raise ValueError("X_query_rows requires query_entity_ids.")
@@ -105,9 +119,13 @@ def compute_row_level_then_average_predictions(
         model.fit(X_rows, y_arr)
         row_pred = np.asarray(model.predict(X_query_rows), dtype=np.float64)
         target_entities = np.asarray(query_entity_ids)
+        if return_row_feature_importance:
+            importance_df = compute_row_level_feature_importance_single_model(model, X_rows)
     else:
         row_pred = composite_oof_predictions(model_factory, X_rows, y_arr, n_splits=n_splits, random_state=random_state, groups=entity_arr)
         target_entities = entity_arr
+        if return_row_feature_importance:
+            importance_df = compute_row_level_feature_importance_oof(model_factory, X_rows, y_arr, entity_arr, n_splits)
 
     df = pd.DataFrame({"entity_id": target_entities, "_pred": row_pred})
     # First-seen order over target_entities (not groupby's own ordering, which sorts when sort=False still
@@ -129,7 +147,11 @@ def compute_row_level_then_average_predictions(
         threshold = float(np.quantile(entity_std, flag_low_confidence_quantile))
         out_cols[f"{column_name}_low_confidence"] = entity_std > threshold
 
-    return pl.DataFrame(out_cols)
+    entity_df = pl.DataFrame(out_cols)
+    if return_row_feature_importance:
+        assert importance_df is not None
+        return entity_df, importance_df
+    return entity_df
 
 
 __all__ = ["compute_row_level_then_average_predictions"]

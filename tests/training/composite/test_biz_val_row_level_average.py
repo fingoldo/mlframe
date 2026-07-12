@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import polars as pl
 from sklearn.ensemble import GradientBoostingRegressor
 from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import KFold
@@ -202,6 +203,78 @@ def test_row_level_then_average_default_flag_off_is_bit_identical():
     )
     assert result_default.columns == ["entity_id", "row_level_avg_pred"]
     assert result_default.equals(result_explicit_none)
+
+
+def test_biz_val_row_level_then_average_feature_importance_identifies_informative_subset():
+    """A KNOWN subset of child-row features (``x1``, ``x2``) drives the true entity label via their
+    interaction; the remaining columns (``noise0``..``noise4``) are pure Gaussian noise carrying zero signal.
+    The opt-in ``return_row_feature_importance`` passthrough should rank the two informative features above
+    all five noise features -- proving the diagnostic surfaces WHICH row-level features actually drove the
+    aggregated OOF score, not just that the score moved."""
+    rng = np.random.default_rng(11)
+    n_entities = 400
+    k_rows = 10
+    n_noise = 5
+    informative = {"x1", "x2"}
+
+    x1_rows, x2_rows, entity_ids_list = [], [], []
+    noise_rows = {f"noise{i}": [] for i in range(n_noise)}
+    y_entity = np.zeros(n_entities)
+    for e in range(n_entities):
+        x1 = rng.normal(size=k_rows)
+        x2 = rng.normal(size=k_rows)
+        y_entity[e] = 1.0 if ((x1 * x2) > 0).mean() > 0.5 else 0.0
+        x1_rows.extend(x1)
+        x2_rows.extend(x2)
+        entity_ids_list.extend([e] * k_rows)
+        for i in range(n_noise):
+            noise_rows[f"noise{i}"].extend(rng.normal(size=k_rows))
+
+    entity_ids = np.array(entity_ids_list)
+    data = {"x1": x1_rows, "x2": x2_rows, **noise_rows}
+    X_rows = pd.DataFrame(data)
+    y_row_broadcast = y_entity[entity_ids]
+
+    entity_df, importance_df = compute_row_level_then_average_predictions(
+        X_rows, y_row_broadcast, entity_ids,
+        model_factory=lambda: GradientBoostingRegressor(random_state=0, n_estimators=100, max_depth=3),
+        n_splits=5, random_state=0, return_row_feature_importance=True,
+    )
+    assert entity_df.columns == ["entity_id", "row_level_avg_pred"]
+    assert set(importance_df.columns) == {"feature", "importance"}
+    assert set(importance_df["feature"].to_list()) == informative | set(noise_rows.keys())
+
+    ranked = importance_df.sort("importance", descending=True)["feature"].to_list()
+    top_k = set(ranked[: len(informative)])
+    precision = len(top_k & informative) / len(informative)
+    assert precision == 1.0, f"expected top-{len(informative)} importance to be exactly {informative}, got {ranked}"
+
+    # Per-feature MEAN, not min/max: a GBM splits an x1*x2 interaction signal across many nodes, so
+    # individual noise features can still pick up moderate importance from spurious splits -- the ranking
+    # (asserted above) is the precise claim, this is a coarser magnitude sanity check on top of it.
+    informative_importance = importance_df.filter(pl.col("feature").is_in(list(informative)))["importance"].to_numpy()
+    noise_importance = importance_df.filter(~pl.col("feature").is_in(list(informative)))["importance"].to_numpy()
+    assert informative_importance.mean() > noise_importance.mean() * 1.5, (
+        f"expected informative-feature importance to clearly dominate noise on average, got "
+        f"mean_informative={informative_importance.mean():.4f} vs mean_noise={noise_importance.mean():.4f}"
+    )
+
+
+def test_row_level_then_average_default_return_shape_unaffected_by_importance_param_omission():
+    """``return_row_feature_importance`` omitted (default False) must not alter the pre-existing single-df
+    return contract -- bit-identical to a call that doesn't know the parameter exists."""
+    X_rows, y_entity, entity_ids = _make_interaction_panel_dataset(n_entities=120, k_rows=6, seed=13)
+    y_row_broadcast = y_entity[entity_ids]
+    kwargs = dict(
+        model_factory=lambda: GradientBoostingRegressor(random_state=0, n_estimators=20, max_depth=3),
+        n_splits=5, random_state=0,
+    )
+    result_omitted = compute_row_level_then_average_predictions(X_rows, y_row_broadcast, entity_ids, **kwargs)
+    result_explicit_false = compute_row_level_then_average_predictions(
+        X_rows, y_row_broadcast, entity_ids, return_row_feature_importance=False, **kwargs
+    )
+    assert isinstance(result_omitted, pl.DataFrame)
+    assert result_omitted.equals(result_explicit_false)
 
 
 def test_row_level_then_average_entity_order_matches_first_seen():

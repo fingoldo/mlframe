@@ -34,11 +34,12 @@ def _make_dataset(n_entities: int, k_rows: int, seed: int):
     return X_rows, y_entity[entity_ids], entity_ids
 
 
-def _run(n_entities: int, flag_low_confidence_quantile: float | None = None) -> None:
+def _run(n_entities: int, flag_low_confidence_quantile: float | None = None, return_row_feature_importance: bool = False) -> None:
     X_rows, y_row_broadcast, entity_ids = _make_dataset(n_entities, k_rows=10, seed=0)
     compute_row_level_then_average_predictions(
         X_rows, y_row_broadcast, entity_ids, model_factory=lambda: LinearRegression(), n_splits=5,
         flag_low_confidence_quantile=flag_low_confidence_quantile,
+        return_row_feature_importance=return_row_feature_importance,
     )
 
 
@@ -55,6 +56,14 @@ if __name__ == "__main__":
         wall = time.perf_counter() - t0
         print(f"n_entities={n:>7,} (flag_low_confidence_quantile=0.75) -> {wall * 1000:9.2f} ms")
 
+    # return_row_feature_importance reruns the Mode-A GroupKFold loop to average per-fold importances --
+    # a genuinely extra fit cost only paid when opted in, worth profiling on its own.
+    for n in [200, 2_000, 10_000]:
+        t0 = time.perf_counter()
+        _run(n, return_row_feature_importance=True)
+        wall = time.perf_counter() - t0
+        print(f"n_entities={n:>7,} (return_row_feature_importance=True) -> {wall * 1000:9.2f} ms")
+
     profiler = cProfile.Profile()
     profiler.enable()
     _run(10_000, flag_low_confidence_quantile=0.75)
@@ -63,3 +72,12 @@ if __name__ == "__main__":
     stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
     stats.print_stats(15)
     print(buf.getvalue())
+
+    profiler_imp = cProfile.Profile()
+    profiler_imp.enable()
+    _run(10_000, return_row_feature_importance=True)
+    profiler_imp.disable()
+    buf_imp = StringIO()
+    stats_imp = pstats.Stats(profiler_imp, stream=buf_imp).sort_stats("cumulative")
+    stats_imp.print_stats(15)
+    print(buf_imp.getvalue())
