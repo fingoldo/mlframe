@@ -55,6 +55,8 @@ from mlframe.competition.train_test_union_frequency import (
     train_test_union_frequency_encode,
     train_test_union_frequency_encode_hierarchical_components,
 )
+from mlframe.competition.logloss_clip import clip_probabilities_for_logloss
+from mlframe.competition.rounded_categorical_interaction import RoundedNumericCategoricalInteraction
 
 __all__ = [
     *globals().get("__all__", []),
@@ -87,4 +89,6 @@ __all__ = [
     "known_label_override",
     "train_test_union_frequency_encode",
     "train_test_union_frequency_encode_hierarchical_components",
+    "clip_probabilities_for_logloss",
+    "RoundedNumericCategoricalInteraction",
 ]
