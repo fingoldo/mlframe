@@ -61,6 +61,52 @@ def test_auxiliary_feature_prediction_output_columns():
     assert result.shape[0] == 80
 
 
+def test_biz_val_auxiliary_feature_prediction_uncertainty_distinguishes_reliable_rows():
+    """The win: ``n_uncertainty_repeats > 1`` emits an ``_uncertainty`` column (across-bootstrap-repeat
+    prediction std) that should be HIGHER on rows where the auxiliary-feature reconstruction is actually less
+    reliable. Half the rows here are built from a stable, low-noise proxy relationship (predictors tightly
+    constrain the target -> reconstruction should be easy and consistent across resamples) and half from an
+    unstable, high-noise one (predictors barely constrain the target -> different bootstrap resamples should
+    disagree). A per-row comparison against the *observed* residual is confounded by ``ext_source``'s own
+    irreducible label noise (constant across both halves), so this test instead checks the group-level split
+    the uncertainty column is meant to expose directly.
+    """
+    rng = np.random.default_rng(7)
+    n_half = 150
+    z = rng.normal(size=2 * n_half)
+    ext_source = z + rng.normal(scale=1.8, size=2 * n_half)
+    stable_noise_scale = np.concatenate([np.full(n_half, 0.3), np.full(n_half, 4.0)])
+    others = {f"f{i}": z + stable_noise_scale * rng.normal(size=2 * n_half) for i in range(8)}
+    X = pd.DataFrame({"ext_source": ext_source, **others})
+    is_unstable = np.concatenate([np.zeros(n_half, dtype=bool), np.ones(n_half, dtype=bool)])
+
+    kf = KFold(n_splits=5, shuffle=True, random_state=0)
+    result = compute_auxiliary_feature_prediction_features(
+        X, ["ext_source"], splitter=kf, seed=0, n_uncertainty_repeats=8
+    ).to_pandas()
+
+    assert "auxfeat_ext_source_uncertainty" in result.columns
+    uncertainty = result["auxfeat_ext_source_uncertainty"].to_numpy()
+    mean_unc_stable = uncertainty[~is_unstable].mean()
+    mean_unc_unstable = uncertainty[is_unstable].mean()
+    ratio = mean_unc_unstable / mean_unc_stable
+    assert ratio > 1.3, (
+        f"expected uncertainty on the unstable-proxy rows to be >1.3x the stable-proxy rows' uncertainty, "
+        f"got {ratio:.4f} (stable={mean_unc_stable:.4f}, unstable={mean_unc_unstable:.4f})"
+    )
+
+
+def test_auxiliary_feature_prediction_default_unchanged_when_uncertainty_unused():
+    """n_uncertainty_repeats defaults to 1 -- output must be bit-identical to the pre-extension code path,
+    with no ``_uncertainty`` column emitted."""
+    X, y = _make_noisy_proxy_dataset(n=80, seed=4)
+    kf = KFold(n_splits=4, shuffle=True, random_state=0)
+    default_result = compute_auxiliary_feature_prediction_features(X, ["ext_source"], splitter=kf, seed=0)
+    explicit_result = compute_auxiliary_feature_prediction_features(X, ["ext_source"], splitter=kf, seed=0, n_uncertainty_repeats=1)
+    assert set(default_result.columns) == {"auxfeat_ext_source_pred", "auxfeat_ext_source_resid"}
+    assert default_result.equals(explicit_result)
+
+
 def test_auxiliary_feature_prediction_rejects_unknown_target_feature():
     X, y = _make_noisy_proxy_dataset(n=50, seed=5)
     kf = KFold(n_splits=3, shuffle=True, random_state=0)
