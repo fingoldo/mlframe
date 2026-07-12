@@ -3,7 +3,9 @@
 Run: ``python -m mlframe.preprocessing._benchmarks.bench_auto_transform_select``
 
 Cost is dominated by ``n_columns * n_candidate_transforms * n_splits`` probe-model fits -- an offline
-preprocessing-decision tool run once per dataset, not a hot inner-loop kernel.
+preprocessing-decision tool run once per dataset, not a hot inner-loop kernel. The opt-in multivariate-probe
+path multiplies that by the cost of a small GBM fit (vs. a 1-feature LogisticRegression/Ridge fit) on a
+``2 + n_context_features`` column matrix, profiled separately below.
 """
 from __future__ import annotations
 
@@ -31,12 +33,23 @@ def _run(n_rows: int, n_cols: int) -> None:
     select_column_transforms(df, y, task="classification", n_splits=3, random_state=0)
 
 
+def _run_multivariate(n_rows: int, n_cols: int) -> None:
+    df, y = _make_data(n_rows, n_cols, seed=0)
+    select_column_transforms(df, y, task="classification", n_splits=3, random_state=0, multivariate_probe=True, n_context_features=2)
+
+
 if __name__ == "__main__":
     for n_rows, n_cols in [(2_000, 5), (20_000, 10)]:
         t0 = time.perf_counter()
         _run(n_rows, n_cols)
         wall = time.perf_counter() - t0
-        print(f"n_rows={n_rows:>7,} n_cols={n_cols:>3} -> {wall * 1000:9.2f} ms")
+        print(f"univariate   n_rows={n_rows:>7,} n_cols={n_cols:>3} -> {wall * 1000:9.2f} ms")
+
+    for n_rows, n_cols in [(2_000, 5), (20_000, 10)]:
+        t0 = time.perf_counter()
+        _run_multivariate(n_rows, n_cols)
+        wall = time.perf_counter() - t0
+        print(f"multivariate n_rows={n_rows:>7,} n_cols={n_cols:>3} -> {wall * 1000:9.2f} ms")
 
     profiler = cProfile.Profile()
     profiler.enable()
@@ -45,4 +58,15 @@ if __name__ == "__main__":
     buf = StringIO()
     stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
     stats.print_stats(15)
+    print("univariate probe profile:")
+    print(buf.getvalue())
+
+    profiler = cProfile.Profile()
+    profiler.enable()
+    _run_multivariate(2_000, 5)
+    profiler.disable()
+    buf = StringIO()
+    stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
+    stats.print_stats(15)
+    print("multivariate probe profile:")
     print(buf.getvalue())

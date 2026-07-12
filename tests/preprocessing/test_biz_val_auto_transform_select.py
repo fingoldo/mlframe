@@ -51,6 +51,61 @@ def test_auto_transform_select_clean_column_picks_a_high_scoring_transform():
     assert result["clean_col"]["best_score"] > 0.85
 
 
+def test_biz_val_select_column_transforms_multivariate_probe_catches_interaction_only_signal():
+    """The win: a column carries signal ONLY as an interaction with a correlated context column
+    (``y`` depends on ``sign(x * context)``), plus ``x`` itself is heavily outlier-contaminated. A plain
+    univariate probe (fit on the transformed column alone) sees no marginal signal for ANY candidate
+    transform -- AUC stays at chance regardless of transform choice, so the column looks worthless and every
+    transform ties. The opt-in multivariate probe (small GBM on transformed column + context + their
+    product) recovers the true interaction signal and correctly recommends a strong transform.
+    """
+    rng = np.random.default_rng(0)
+    n = 4000
+    context = rng.normal(0, 1, n)
+    x = rng.normal(0, 1, n)
+    outlier_mask = rng.random(n) < 0.02
+    x_outliers = x.copy()
+    x_outliers[outlier_mask] += rng.normal(0, 1e6, int(outlier_mask.sum()))
+
+    interaction_logit = x * context
+    y = (interaction_logit + rng.normal(0, 0.3, n) > 0).astype(int)
+
+    df = pd.DataFrame({"x": x_outliers, "context": context})
+
+    uni_result = select_column_transforms(df, y, columns=["x"], task="classification", n_splits=3, random_state=0)
+    mv_result = select_column_transforms(
+        df, y, columns=["x"], task="classification", n_splits=3, random_state=0, multivariate_probe=True, n_context_features=1
+    )
+
+    assert "x" in uni_result and "x" in mv_result
+    uni_best = uni_result["x"]["best_score"]
+    mv_best = mv_result["x"]["best_score"]
+
+    assert "probe_mode" not in uni_result["x"], "default univariate output must not carry the new opt-in keys"
+    assert mv_result["x"]["probe_mode"] == "multivariate"
+    assert mv_result["x"]["context_columns"] == ["context"]
+
+    assert uni_best < 0.6, f"univariate probe should see near-chance AUC for a pure interaction signal: {uni_result['x']['all_scores']}"
+    assert mv_best > 0.85, f"multivariate probe should recover the interaction signal: {mv_result['x']['all_scores']}"
+    assert mv_best - uni_best > 0.3, "multivariate probe should clearly beat the univariate probe on an interaction-only column"
+
+
+def test_select_column_transforms_multivariate_probe_default_off_is_bit_identical():
+    """Omitting the new params must reproduce the exact pre-extension univariate output (opt-in guarantee)."""
+    rng = np.random.default_rng(3)
+    n = 800
+    z = rng.normal(0, 1, n)
+    y = (z + rng.normal(0, 0.4, n) > 0).astype(int)
+    df = pd.DataFrame({"a": z, "b": rng.normal(0, 1, n)})
+
+    baseline = select_column_transforms(df, y, task="classification", n_splits=3, random_state=7)
+    explicit_default = select_column_transforms(df, y, task="classification", n_splits=3, random_state=7, multivariate_probe=False)
+
+    assert baseline == explicit_default, "omitting the new multivariate params must reproduce bit-identical output"
+    for col in baseline:
+        assert set(baseline[col].keys()) == {"best_transform", "best_score", "all_scores"}, "no new keys leak into the default (univariate-only) output"
+
+
 def test_auto_transform_select_regression_task_runs_and_scores():
     rng = np.random.default_rng(2)
     n = 1000
