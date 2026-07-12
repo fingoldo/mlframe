@@ -56,14 +56,38 @@ class SegmentedModelFactory(BaseEstimator, RegressorMixin):
     min_segment_rows
         Segments with fewer than this many rows are skipped (their rows fall back to ``global_model_`` at
         predict time) -- avoids fitting a near-data-free model for a rarely-seen segment combination.
+    shrinkage_min_rows
+        Opt-in hierarchical-shrinkage fallback (default ``None`` = disabled, behavior bit-identical to the
+        plain skip-or-global-fallback above). When set, segments with ``min_segment_rows <= rows <
+        shrinkage_min_rows`` still get their own fitted model (there IS signal, just not enough to trust
+        alone), but predictions are partially pooled with a coarser fallback model via an empirical-Bayes
+        weight ``w = rows / (rows + shrinkage_k)`` -- ``w * segment_pred + (1 - w) * fallback_pred``. Tiny
+        segments (few rows) lean on the fallback; well-populated ones (many rows) lean on their own fit.
+        Segments below ``min_segment_rows`` are still skipped entirely and route straight to the fallback,
+        same as the non-shrinkage path. Must be ``>= min_segment_rows`` when set.
+    shrinkage_parent_keys
+        The coarser segment-key subset the fallback model is fit on (e.g. ``["airport"]`` when
+        ``segment_keys=["airport", "horizon"]`` -- pools across horizons within an airport). Must be a
+        proper subset of ``segment_keys``. Defaults to ``None``, meaning the fallback is ``global_model_``
+        (pooling across ALL rows) -- only meaningful when ``shrinkage_min_rows`` is also set.
+    shrinkage_k
+        Smoothing constant in the pooling weight above; larger ``shrinkage_k`` pools more aggressively
+        toward the fallback for a given row count. Only used when ``shrinkage_min_rows`` is set.
 
     Attributes
     ----------
     segment_models_
         ``{segment_key_tuple: fitted estimator}``.
     global_model_
-        Fallback model fit on ALL rows, used for segments unseen at fit time or skipped via
-        ``min_segment_rows``.
+        Fallback model fit on ALL rows, used for segments unseen at fit time, skipped via
+        ``min_segment_rows``, or (when shrinkage is enabled with no ``shrinkage_parent_keys``) blended in
+        for undersized segments.
+    parent_models_
+        ``{parent_key_tuple: fitted estimator}``, one per distinct value of ``shrinkage_parent_keys``.
+        Empty unless both ``shrinkage_min_rows`` and ``shrinkage_parent_keys`` are set.
+    shrinkage_weights_
+        ``{segment_key_tuple: w}`` for segments undergoing partial pooling (rows in
+        ``[min_segment_rows, shrinkage_min_rows)``). Empty unless ``shrinkage_min_rows`` is set.
     """
 
     def __init__(
@@ -72,11 +96,17 @@ class SegmentedModelFactory(BaseEstimator, RegressorMixin):
         segment_keys: Sequence[str],
         hpo_search_fn: Optional[Callable[[Any, np.ndarray], Any]] = None,
         min_segment_rows: int = 2,
+        shrinkage_min_rows: Optional[int] = None,
+        shrinkage_parent_keys: Optional[Sequence[str]] = None,
+        shrinkage_k: float = 10.0,
     ) -> None:
         self.estimator_factory = estimator_factory
         self.segment_keys = segment_keys
         self.hpo_search_fn = hpo_search_fn
         self.min_segment_rows = min_segment_rows
+        self.shrinkage_min_rows = shrinkage_min_rows
+        self.shrinkage_parent_keys = shrinkage_parent_keys
+        self.shrinkage_k = shrinkage_k
 
     def _drop_segment_cols(self, X: pd.DataFrame) -> pd.DataFrame:
         return X.drop(columns=list(self.segment_keys))
@@ -88,22 +118,52 @@ class SegmentedModelFactory(BaseEstimator, RegressorMixin):
         model.fit(X_segment, y_segment)
         return model
 
+    def _parent_key_of(self, seg_key: Tuple[Any, ...]) -> Tuple[Any, ...]:
+        """Project a full segment key down to its coarser ``shrinkage_parent_keys`` sub-key."""
+        assert self.shrinkage_parent_keys is not None
+        idx_map = [list(self.segment_keys).index(k) for k in self.shrinkage_parent_keys]
+        return tuple(seg_key[i] for i in idx_map)
+
     def fit(self, X: pd.DataFrame, y: Any) -> "SegmentedModelFactory":
         if not isinstance(X, pd.DataFrame):
             raise TypeError("SegmentedModelFactory: X must be a pandas DataFrame (segment_keys are column names).")
+        if self.shrinkage_min_rows is not None and self.shrinkage_min_rows < self.min_segment_rows:
+            raise ValueError("SegmentedModelFactory: shrinkage_min_rows must be >= min_segment_rows.")
+        if self.shrinkage_parent_keys is not None and not set(self.shrinkage_parent_keys) < set(self.segment_keys):
+            raise ValueError("SegmentedModelFactory: shrinkage_parent_keys must be a proper subset of segment_keys.")
+
         y_arr = np.asarray(y, dtype=np.float64)
         self.segment_models_: Dict[Tuple[Any, ...], Any] = {}
+        self.parent_models_: Dict[Tuple[Any, ...], Any] = {}
+        self.shrinkage_weights_: Dict[Tuple[Any, ...], float] = {}
 
         X_features = self._drop_segment_cols(X)
         for seg_key, idx in _group_positions(X, self.segment_keys).items():
-            if idx.shape[0] < self.min_segment_rows:
-                logger.info("SegmentedModelFactory: skipping segment %s (%d rows < min_segment_rows=%d)", seg_key, int(idx.shape[0]), self.min_segment_rows)
+            n_rows = int(idx.shape[0])
+            if n_rows < self.min_segment_rows:
+                logger.info("SegmentedModelFactory: skipping segment %s (%d rows < min_segment_rows=%d)", seg_key, n_rows, self.min_segment_rows)
                 continue
             self.segment_models_[seg_key] = self._fit_one(X_features.iloc[idx], y_arr[idx])
+            if self.shrinkage_min_rows is not None and n_rows < self.shrinkage_min_rows:
+                self.shrinkage_weights_[seg_key] = n_rows / (n_rows + self.shrinkage_k)
+
+        if self.shrinkage_min_rows is not None and self.shrinkage_parent_keys is not None:
+            for parent_key, idx in _group_positions(X, self.shrinkage_parent_keys).items():
+                self.parent_models_[parent_key] = self._fit_one(X_features.iloc[idx], y_arr[idx])
 
         self.global_model_ = clone(self.estimator_factory())
         self.global_model_.fit(X_features, y_arr)
         return self
+
+    def _fallback_predict(self, seg_key: Tuple[Any, ...], X_seg_features: Any) -> np.ndarray:
+        """Prediction from the coarser pooling model: the matching parent segment if configured and
+        present, else the global model -- used both for fully-skipped segments and as the pooling partner
+        for shrinkage-blended segments."""
+        if self.shrinkage_parent_keys is not None:
+            parent_model = self.parent_models_.get(self._parent_key_of(seg_key))
+            if parent_model is not None:
+                return np.asarray(parent_model.predict(X_seg_features), dtype=np.float64)
+        return np.asarray(self.global_model_.predict(X_seg_features), dtype=np.float64)
 
     def add_segment(self, X_segment: Any, y_segment: Any, segment_key: Optional[Tuple[Any, ...]] = None) -> None:
         """Fit and register ONE new segment's model without touching any other segment's fitted model.
@@ -138,7 +198,17 @@ class SegmentedModelFactory(BaseEstimator, RegressorMixin):
             model = self.segment_models_.get(seg_key)
             if model is None:
                 continue
-            out[idx] = np.asarray(model.predict(X_features.iloc[idx]), dtype=np.float64)
+            X_seg = X_features.iloc[idx]
+            seg_pred = np.asarray(model.predict(X_seg), dtype=np.float64)
+            w = self.shrinkage_weights_.get(seg_key)
+            if w is None:
+                out[idx] = seg_pred
+            else:
+                # Partial pooling: undersized-but-fitted segment blended with its coarser fallback model,
+                # rather than either trusting a data-starved per-segment fit outright or discarding it
+                # entirely in favor of the fallback -- see class docstring.
+                fallback_pred = self._fallback_predict(seg_key, X_seg)
+                out[idx] = w * seg_pred + (1.0 - w) * fallback_pred
             seen_idx.append(idx)
 
         seen_mask = np.zeros(n, dtype=bool)
@@ -146,7 +216,19 @@ class SegmentedModelFactory(BaseEstimator, RegressorMixin):
             seen_mask[np.concatenate(seen_idx)] = True
         unseen_mask = ~seen_mask
         if unseen_mask.any():
-            out[unseen_mask] = np.asarray(self.global_model_.predict(X_features.iloc[np.flatnonzero(unseen_mask)]), dtype=np.float64)
+            unseen_pos = np.flatnonzero(unseen_mask)
+            if self.shrinkage_min_rows is not None and self.shrinkage_parent_keys is not None:
+                # Fully-skipped segments (below min_segment_rows) still prefer the parent model over the
+                # coarsest global fallback when shrinkage is configured -- same idea as the blended case,
+                # just at weight 0 (no per-segment fit exists to blend in).
+                for seg_key, idx in query_groups.items():
+                    if seg_key in self.segment_models_:
+                        continue
+                    rows_here = np.intersect1d(idx, unseen_pos, assume_unique=True)
+                    if rows_here.size:
+                        out[rows_here] = self._fallback_predict(seg_key, X_features.iloc[rows_here])
+            else:
+                out[unseen_pos] = np.asarray(self.global_model_.predict(X_features.iloc[unseen_pos]), dtype=np.float64)
         return out
 
 
