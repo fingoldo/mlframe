@@ -24,10 +24,21 @@ had enough rounds to average out their added per-tree variance); from ``n_estima
 5/6 seeds, and from ``n_estimators>=150`` it wins 6/6 seeds with a stable ~3.2-3.8% RMSE reduction. So
 "``extra_trees`` helps at large tree counts" is real but has a floor below which it actively hurts --
 ``auto_extra_trees`` (opt-in) encodes that floor instead of forcing the flag on unconditionally.
+
+The ``n_features``-driven dart switch's own rationale is "many REDUNDANT/correlated columns confuse gbdt's
+greedy per-split search" -- but raw feature COUNT is only a proxy for redundancy, not a measurement of it: a
+dataset with hundreds of genuinely independent columns has no redundant-reselection problem for dart's
+dropout to fix, while a dataset with far fewer but heavily-correlated columns has exactly the problem the
+heuristic targets. The opt-in ``auto_dart_redundancy`` mode replaces the count proxy with a direct measurement
+(``_estimate_feature_redundancy``: mean absolute pairwise correlation over a probe sample of ``X``'s columns)
+so the switch tracks the actual condition instead of a count that only correlates with it in some datasets.
 """
 from __future__ import annotations
 
 from typing import Any, Dict, Optional
+
+import numpy as np
+import numpy.typing as npt
 
 LARGE_N_FEATURES_THRESHOLD = 300
 
@@ -35,6 +46,44 @@ LARGE_N_FEATURES_THRESHOLD = 300
 # produced it. Below this ``n_estimators`` budget, ``extra_trees=True`` measured WORSE than LightGBM's own
 # default; at/above it, ``extra_trees=True`` won 6/6 seeds.
 AUTO_EXTRA_TREES_MIN_N_ESTIMATORS = 150
+
+# Data-driven cutoff for the opt-in ``auto_dart_redundancy`` rule -- see ``_estimate_feature_redundancy``
+# and its module-docstring section for the measurement behind it. Mean absolute pairwise correlation over
+# a probe sample: 500 genuinely independent standard-normal features measured ~0.026; 200 features built as
+# noisy duplicates of 10 latent factors (the regime the dart heuristic's rationale actually targets)
+# measured ~0.115 -- 0.06 sits cleanly between the two.
+DART_REDUNDANCY_THRESHOLD = 0.06
+
+# Cap on how many features enter the O(k^2) correlation-matrix probe -- a random subsample of columns keeps
+# the probe cheap even at very wide ``n_features`` (the mean pairwise correlation of a random column subset
+# is an unbiased estimator of the full-matrix mean, so subsampling doesn't bias the redundancy score).
+DART_REDUNDANCY_PROBE_MAX_FEATURES = 200
+
+
+def _estimate_feature_redundancy(X: npt.ArrayLike, max_features: int = DART_REDUNDANCY_PROBE_MAX_FEATURES, seed: int = 0) -> float:
+    """Cheap redundancy probe: mean absolute pairwise Pearson correlation over (a random subsample of) ``X``'s columns.
+
+    Used by the opt-in ``auto_dart_redundancy`` rule to decide whether dart's implicit-``feature_fraction``
+    win actually applies -- raw feature COUNT alone doesn't distinguish "many redundant/correlated columns"
+    (where dart helps, per the sourced Kaggle report) from "many genuinely independent columns" (where it
+    doesn't, since there's no redundant-reselection problem for dart's dropout to fix).
+    """
+    X = np.asarray(X)
+    n_features = X.shape[1]
+    if n_features < 2:
+        return 0.0
+    if n_features > max_features:
+        rng = np.random.default_rng(seed)
+        col_idx = rng.choice(n_features, size=max_features, replace=False)
+        X = X[:, col_idx]
+        n_features = max_features
+    corr = np.corrcoef(X, rowvar=False)
+    upper_idx = np.triu_indices(n_features, k=1)
+    abs_corr = np.abs(corr[upper_idx])
+    abs_corr = abs_corr[np.isfinite(abs_corr)]
+    if abs_corr.size == 0:
+        return 0.0
+    return float(np.mean(abs_corr))
 
 
 def default_lgbm_params(
@@ -44,6 +93,9 @@ def default_lgbm_params(
     large_n_features_threshold: int = LARGE_N_FEATURES_THRESHOLD,
     auto_extra_trees: bool = False,
     auto_extra_trees_min_n_estimators: int = AUTO_EXTRA_TREES_MIN_N_ESTIMATORS,
+    X: Optional[npt.ArrayLike] = None,
+    auto_dart_redundancy: bool = False,
+    dart_redundancy_threshold: float = DART_REDUNDANCY_THRESHOLD,
     **overrides: Any,
 ) -> Dict[str, Any]:
     """Sensible default LightGBM hyperparameters, with ``extra_trees`` ON by default.
@@ -76,6 +128,19 @@ def default_lgbm_params(
     auto_extra_trees_min_n_estimators
         Floor for the ``auto_extra_trees`` rule. Default ``150`` (see ``AUTO_EXTRA_TREES_MIN_N_ESTIMATORS``
         and the module docstring for the measurement behind it).
+    X
+        Optional feature matrix (n_samples, n_features), only consulted when ``auto_dart_redundancy=True``.
+        Used purely as a probe input for ``_estimate_feature_redundancy`` -- never fit on, never returned.
+    auto_dart_redundancy
+        Opt-in (default ``False``, so default output is unchanged). When ``True``, the dart switch is decided
+        from measured feature REDUNDANCY (mean absolute pairwise correlation over ``X``'s columns) instead of
+        raw ``n_features`` count -- see ``_estimate_feature_redundancy``. Requires ``X`` to be passed (raises
+        ``ValueError`` otherwise). Takes priority over the ``n_features``/``large_n_features_threshold`` count
+        heuristic when both are supplied, since it directly measures the condition the count heuristic only
+        approximates (a wide-but-independent dataset won't trigger dart; a narrower-but-redundant one will).
+    dart_redundancy_threshold
+        Mean-absolute-pairwise-correlation cutoff for the ``auto_dart_redundancy`` rule. Default ``0.06``
+        (see ``DART_REDUNDANCY_THRESHOLD`` and the module docstring for the measurement behind it).
     **overrides
         Any additional LightGBM param, applied last (overrides anything set above, including
         ``extra_trees``/``boosting_type``/``feature_fraction`` themselves if explicitly passed here too).
@@ -103,7 +168,13 @@ def default_lgbm_params(
         "verbose": -1,
         "random_state": 0,
     }
-    if n_features is not None and n_features >= large_n_features_threshold:
+    if auto_dart_redundancy:
+        if X is None:
+            raise ValueError("auto_dart_redundancy=True requires X (the feature matrix) to be passed for the redundancy probe.")
+        use_dart = _estimate_feature_redundancy(X) >= dart_redundancy_threshold
+    else:
+        use_dart = n_features is not None and n_features >= large_n_features_threshold
+    if use_dart:
         params["boosting_type"] = "dart"
         params["feature_fraction"] = 0.5
         # dart drops a random subset of already-grown trees each round (a regularizing "dropout"), so a
@@ -114,4 +185,10 @@ def default_lgbm_params(
     return params
 
 
-__all__ = ["default_lgbm_params", "LARGE_N_FEATURES_THRESHOLD", "AUTO_EXTRA_TREES_MIN_N_ESTIMATORS"]
+__all__ = [
+    "default_lgbm_params",
+    "LARGE_N_FEATURES_THRESHOLD",
+    "AUTO_EXTRA_TREES_MIN_N_ESTIMATORS",
+    "DART_REDUNDANCY_THRESHOLD",
+    "DART_REDUNDANCY_PROBE_MAX_FEATURES",
+]
