@@ -47,6 +47,39 @@ stated reason, and the bugs the flip work surfaced and fixed along the way.
 - **`cv_delta_triage` (`triage_cv_delta`)** diagnostic: needs paired per-fold score history accumulated
   across *repeated* CV runs, which the suite doesn't build up at the diagnostics call site. Wiring it would
   mean fabricating fold-score history rather than reusing something the suite already computes.
+- **Conformal-surface extension assessment (2026-07-12)**: reviewed three candidate `mlframe.evaluation`/
+  `mlframe.calibration` extensions against `ConformalConfig`'s existing seam (`_conformal_on_calib_slice` in
+  `_phase_finalize.py`, which only ever reads already-stamped `calib_preds`/`calib_target`/`test_preds`/
+  `test_target`/`calib_probs`/`test_probs` arrays per model entry — no feature matrix `X` is available at
+  that call site, and it is deliberately additive/read-only, never re-fitting anything). None cleared the
+  bar for a safe, generically-applicable default-ON addition:
+  - **`CVDeltaHistory`** (`mlframe.evaluation.cv_delta_triage`): same blocker as `cv_delta_triage` above —
+    a pooled-variance estimator that only accrues value across *repeated, caller-persisted* suite calls.
+    Confirmed: genuinely not single-call wireable; stays external/opt-in (caller instantiates one
+    `CVDeltaHistory` per project and passes it into direct `triage_cv_delta` calls themselves).
+  - **`cv_score_equivalence_band`'s `n_comparisons` Bonferroni correction** (`mlframe.evaluation.noise_band`):
+    a different statistical object than a conformal interval — it widens the "practically equal" band for
+    comparing two candidates' *mean CV scores* across a multi-candidate selection search (RFECV/MRMR greedy
+    loops), not a per-observation prediction interval/set. The conformal call site has no "how many
+    candidates has this search already compared" count to feed it, and conflating the two would either be a
+    no-op (`n_comparisons=1`, unchanged) or a fabricated number with no principled value. Confirmed: does not
+    fit the conformal surface; the Bonferroni knob already exists and defaults correctly (`n_comparisons=1`)
+    for its actual home (model/feature-selection loops), no change needed there.
+  - **`imputation_sensitivity_check`'s `shift_split` extension** (`mlframe.evaluation.imputation_sensitivity_check`):
+    requires `X_variants` — 2+ already-imputed feature matrices for the SAME rows — to compare fold-score and
+    shift-gap stability across imputation choices. The suite resolves exactly ONE `imputer_strategy` per run
+    (`PreprocessingBackendConfig.imputer_strategy`, wired into `create_polarsds_pipeline`) and never builds
+    alternate imputed copies of `X`, and the conformal call site has no `X` at all (see above). Wiring this
+    would mean the suite re-imputing the training data 2+ extra ways and re-fitting/re-scoring a cloned
+    estimator per variant purely to feed a diagnostic — real extra compute and a real extra dataset-specific
+    input (which imputation choices to compare), not a "pure added output, only reads already-stamped
+    arrays" addition like the rest of `ConformalConfig`. Confirmed: does not fit; stays reachable only via a
+    direct call with caller-supplied `X_variants`.
+  - Net: no code change to `ConformalConfig`/`_conformal_on_calib_slice`. This is a documented negative
+    result per the same "left opt-in with a stated reason" pattern as `cv_delta_triage` above, not a gap —
+    all three candidates fail on the same root cause (they need data the conformal call site structurally
+    doesn't have: cross-call history, a selection-search comparison count, or extra feature matrices), and
+    fabricating that data to force a fit would violate the surface's own "additive, read-only" contract.
 
 ## Bugs found and fixed while verifying the flip (all confirmed via a live `train_mlframe_models_suite` run,
 ## not just unit-level mocking)
