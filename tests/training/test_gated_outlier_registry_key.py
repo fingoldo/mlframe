@@ -78,7 +78,13 @@ def test_e2e_gated_outlier_key_trains_and_predicts(tmp_path):
 
     import pandas as pd
 
-    cols = ["f0", "f1", "f2"]
+    # The fitted feature set is NOT necessarily the raw ["f0","f1","f2"] -- default-ON preprocessing
+    # extensions (row_wise_summary_stats_enabled / row_wise_extreme_columns_enabled, wave 2) may have
+    # appended engineered columns before the model saw the frame. GatedOutlierEstimator itself doesn't
+    # record n_features_in_/feature_names_in_ (unlike BaggedCompositeEstimator/CompositeClassificationEstimator),
+    # but its fitted inner classifier_ does -- read it from there instead of a hardcoded raw column list.
+    _feature_names = getattr(fitted.classifier_, "feature_names_in_", None)
+    cols = list(_feature_names) if _feature_names is not None else list(range(getattr(fitted.classifier_, "n_features_in_")))
     preds = np.asarray(fitted.predict(pd.DataFrame(np.zeros((5, len(cols)), dtype=np.float64), columns=cols)))
     assert preds.shape[0] == 5
     assert np.isfinite(preds).all()

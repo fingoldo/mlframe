@@ -529,6 +529,15 @@ def get_training_configs(
         early_stopping_rounds=early_stopping_rounds,
         device_type=_lgb_device,
         random_state=random_seed,
+        # Leaving n_jobs unset resolves to LightGBM's own default (n_jobs=None), which calls
+        # joblib.cpu_count(only_physical_cores=True) -- on Windows this shells out to a subprocess
+        # (loky's WMI-based physical-core detector) that measured ~2s on a quiet box and up to 5s+
+        # under this session's concurrent-process load, a one-time-per-process tax paid on the FIRST
+        # LightGBM fit. Explicit -1 resolves via LightGBM's OTHER branch
+        # (joblib.cpu_count(only_physical_cores=False), i.e. plain os.cpu_count(), <1ms, no
+        # subprocess) with the same "use all available cores" intent -- functionally equivalent
+        # parallelism, just computed without the slow path.
+        n_jobs=-1,
         # histogram_pool_size=16384,
     )
     LGB_GENERAL_PARAMS.update(lgb_kwargs)

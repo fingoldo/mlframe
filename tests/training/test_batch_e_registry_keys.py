@@ -138,7 +138,8 @@ def test_e2e_bagging_key_trains_and_predicts(tmp_path):
     # extensions (row_wise_summary_stats_enabled / row_wise_extreme_columns_enabled) may have appended
     # engineered columns before the model saw the frame. Predict with whatever the fitted estimator
     # actually recorded at fit time, not a hardcoded raw column list.
-    cols = list(getattr(fitted, "feature_names_in_", None) or range(getattr(fitted, "n_features_in_")))
+    _feature_names = getattr(fitted, "feature_names_in_", None)
+    cols = list(_feature_names) if _feature_names is not None else list(range(getattr(fitted, "n_features_in_")))
     preds = np.asarray(fitted.predict(pd.DataFrame(np.zeros((5, len(cols)), dtype=np.float64), columns=cols)))
     assert preds.shape[0] == 5
     assert np.isfinite(preds).all()
@@ -162,7 +163,8 @@ def test_e2e_composite_classification_key_trains_and_predicts(tmp_path):
     # extensions (row_wise_summary_stats_enabled / row_wise_extreme_columns_enabled) may have appended
     # engineered columns before the model saw the frame. Predict with whatever the fitted estimator
     # actually recorded at fit time, not a hardcoded raw column list.
-    cols = list(getattr(fitted, "feature_names_in_", None) or range(getattr(fitted, "n_features_in_")))
+    _feature_names = getattr(fitted, "feature_names_in_", None)
+    cols = list(_feature_names) if _feature_names is not None else list(range(getattr(fitted, "n_features_in_")))
     preds = np.asarray(fitted.predict(pd.DataFrame(np.zeros((5, len(cols)), dtype=np.float64), columns=cols)))
     assert preds.shape[0] == 5
 

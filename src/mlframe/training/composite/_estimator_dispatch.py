@@ -121,7 +121,11 @@ def _default_base_estimator():
     try:
         from lightgbm import LGBMRegressor
 
-        return LGBMRegressor(n_estimators=200, num_leaves=31, verbose=-1, random_state=0)
+        # n_jobs=-1 (not the LGBMRegressor default of None) resolves via joblib.cpu_count(only_physical_cores=False)
+        # (plain os.cpu_count(), <1ms) instead of the default's only_physical_cores=True path, which shells out
+        # to a subprocess on Windows (loky's WMI-based physical-core detector, measured ~2s quiet / 5s+ under
+        # concurrent load) -- a one-time-per-process tax on the first LightGBM fit. Same "use all cores" intent.
+        return LGBMRegressor(n_estimators=200, num_leaves=31, verbose=-1, random_state=0, n_jobs=-1)
     except ImportError:
         from sklearn.ensemble import HistGradientBoostingRegressor
 

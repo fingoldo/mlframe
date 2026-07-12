@@ -707,7 +707,7 @@ def configure_training_params(
         # composite base (``_estimator_dispatch._default_base_estimator``) instead.
         from .composite.gated_outlier import GatedOutlierEstimator
 
-        _gated_outlier_est = GatedOutlierEstimator(regressor=LGBMRegressor(n_estimators=200, num_leaves=31, verbose=-1, random_state=0))
+        _gated_outlier_est = GatedOutlierEstimator(regressor=LGBMRegressor(n_estimators=200, num_leaves=31, verbose=-1, random_state=0, n_jobs=-1))
         gated_outlier_params = dict(model=metamodel_func(_gated_outlier_est))
 
     # ``BaggedCompositeEstimator`` registry entry: bootstrap-bagged variance reduction over a plain GBDT
@@ -726,7 +726,7 @@ def configure_training_params(
     if _should_create_model("bagging") and use_regression and LGBMRegressor is not None:
         from .composite.bagging import BaggedCompositeEstimator
 
-        _bagging_est = BaggedCompositeEstimator(base_estimator=LGBMRegressor(n_estimators=200, num_leaves=31, verbose=-1, random_state=0))
+        _bagging_est = BaggedCompositeEstimator(base_estimator=LGBMRegressor(n_estimators=200, num_leaves=31, verbose=-1, random_state=0, n_jobs=-1))
         bagging_params = dict(model=metamodel_func(_bagging_est))
 
     # ``CompositeClassificationEstimator`` registry entry: base-margin (init-score) residual composite for
@@ -742,7 +742,7 @@ def configure_training_params(
     if _should_create_model("composite_classification") and not use_regression and LGBMClassifier is not None:
         from .composite.classification import CompositeClassificationEstimator
 
-        _composite_classification_est = CompositeClassificationEstimator(base_estimator=LGBMClassifier(n_estimators=200, num_leaves=31, verbose=-1, random_state=0))
+        _composite_classification_est = CompositeClassificationEstimator(base_estimator=LGBMClassifier(n_estimators=200, num_leaves=31, verbose=-1, random_state=0, n_jobs=-1))
         composite_classification_params = dict(model=metamodel_func(_composite_classification_est))
 
     # Linear models - only create variants that are needed
