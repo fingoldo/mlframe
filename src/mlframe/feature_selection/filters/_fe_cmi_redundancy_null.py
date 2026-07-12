@@ -149,10 +149,8 @@ def _conditional_perm_null(
             _n = float(max(1, n_size))
             if (z_support is None or z_support.size == 0) and z_support_dev is None:
                 _xh = _host_x()
-                xy, _ = _renumber_joint(_xh, y)
                 _, k_x = _entropy_from_classes(_xh)
                 _, k_y = _entropy_from_classes(y)
-                _, _k_xy = _entropy_from_classes(xy)
                 _df = (int(k_x) - 1) * (int(k_y) - 1)
                 _cells = max(1, int(k_x) * int(k_y))
             else:
@@ -185,13 +183,10 @@ def _conditional_perm_null(
                         _z = np.ascontiguousarray(_cp.asnumpy(z_support_dev), dtype=np.int64).ravel()
                     assert _z is not None  # the enclosing else-branch condition guarantees z_support or z_support_dev is present
                     _xh = _host_x()
-                    xz, _ = _renumber_joint(_xh, _z)
-                    yz, _ = _renumber_joint(y, _z)
-                    xyz, _ = _renumber_joint(_xh, y, _z)
+                    _, k_xz = _renumber_joint(_xh, _z)
+                    _, k_yz = _renumber_joint(y, _z)
+                    _, k_xyz = _renumber_joint(_xh, y, _z)
                     _, k_z = _entropy_from_classes(_z)
-                    _, k_xz = _entropy_from_classes(xz)
-                    _, k_yz = _entropy_from_classes(yz)
-                    _, k_xyz = _entropy_from_classes(xyz)
                 # df = sum_z (Bx_z - 1)(By_z - 1) over OCCUPIED strata = k_xyz - k_xz - k_yz + k_z
                 # (occupied-cell expansion). This is EXACTLY the Miller-Madow CMI bias numerator
                 # ``_cmi_from_binned`` uses (``cmi_bias = (k_xyz + k_z - k_xz - k_yz)/(2n)``), so

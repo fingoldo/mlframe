@@ -426,6 +426,11 @@ def apply_cmi_redundancy_gate(
     remaining = set(names)
     frag_cap = max(2, n_rows // _SUPPORT_FRAG_DIVISOR)
     z_support: Optional[np.ndarray] = None
+    # Carries the joint support built by a round's OWN frag-cap admission check (candidate_support,
+    # below) forward to the next round's z_support build, when that join is reused verbatim (see the
+    # top of the ``while remaining`` loop).
+    _pending_z_support: Optional[np.ndarray] = None
+    _pending_z_card: Optional[int] = None
 
     # Seed: highest-marginal-MI candidate, admitted on its marginal significance
     # (nothing to condition on yet). Its DEBIASED-EXCESS marginal MI (marginal MI
@@ -484,6 +489,13 @@ def apply_cmi_redundancy_gate(
         # device join yields a different dense-id numbering than the host njit factorize but the SAME partition
         # -> the same CMI, so admit/reject is selection-identical. Mixed / host-fallback rounds keep the host
         # join. The host ``z_support`` is still built when NOT device-born (or as a rare perm-null fallback).
+        # A round's frag-cap admission check (candidate_support, below) joins accepted_bins + the
+        # winning candidate -- EXACTLY the join this round needs here once that candidate is folded in
+        # (accepted_bins now equals that same set). Reuse it instead of a second _renumber_joint over
+        # the identical columns; consumed-and-cleared unconditionally so a frag-cap-frozen round (which
+        # left accepted_bins unchanged) or the very first round never carries a stale/absent value in.
+        _prev_z_support, _prev_z_card = _pending_z_support, _pending_z_card
+        _pending_z_support, _pending_z_card = None, None
         z_support_dev = None
         if _gate_resident and accepted_bins_dev and all(_b is not None for _b in accepted_bins_dev):
             try:
@@ -492,9 +504,13 @@ def apply_cmi_redundancy_gate(
             except Exception:
                 z_support_dev = None
         if z_support_dev is None:
-            z_support, _ = _renumber_joint(*accepted_bins)
+            if _prev_z_support is not None:
+                z_support, _z_card = _prev_z_support, _prev_z_card
+            else:
+                z_support, _z_card = _renumber_joint(*accepted_bins)
         else:
             z_support = None  # host support built lazily only if a host consumer needs it this round
+            _z_card = None
         # z handed to the DEVICE scorers (round-batched CMI + per-candidate CMI): the resident support when
         # device-born, else the host support -- both accepted by the cupy resident-input branches.
         _z_scored = z_support_dev if z_support_dev is not None else z_support
@@ -571,7 +587,9 @@ def apply_cmi_redundancy_gate(
         # to every per-candidate CMI fallback as kz -- otherwise _cmi_from_binned_cupy re-reads int(dz.max()) per
         # candidate. Candidate codes are nbins-binned, so kx=nbins is a safe (empty-bin) upper bound with no read.
         _zcard = 0
-        if _z_scored is not None:
+        if _z_card is not None:
+            _zcard = int(_z_card)
+        elif _z_scored is not None:
             try:
                 _zcard = (int(_z_scored.max()) + 1) if getattr(_z_scored, "size", 0) else 0
             except Exception:
@@ -630,12 +648,15 @@ def apply_cmi_redundancy_gate(
         # Fold the winner into the conditioning support, respecting the
         # fragmentation cap (freeze support if folding would shatter the strata).
         new_bin = cand_bins[best_name]
-        candidate_support, _ = _renumber_joint(*[*accepted_bins, new_bin])
-        if int(np.unique(candidate_support).size) <= frag_cap:
+        candidate_support, _cand_card = _renumber_joint(*[*accepted_bins, new_bin])
+        if _cand_card <= frag_cap:
             accepted_bins.append(new_bin)
             # Keep the resident-code list in lockstep so the NEXT round's device-born support join includes
             # this winner (None where it fell back to host binning -> that round takes the host support).
             accepted_bins_dev.append(cand_bins_dev.get(best_name) if cand_bins_dev else None)
+            # accepted_bins now equals exactly the columns just joined above -> carry the join forward
+            # for the next round's z_support build (see the top of this loop).
+            _pending_z_support, _pending_z_card = candidate_support, _cand_card
         # else: keep accepted_bins frozen; the feature is still admitted.
         accepted.append(best_name)
         admitted_excess.append(best_excess)

@@ -397,9 +397,9 @@ def drop_redundant_raw_operands(
                 break
             _clean = _clean_subexpr_bin.get((rname, ei))
             if _clean is not None:
-                _z_full, _ = _renumber_joint(eng_bin[ei])
+                _z_full, _k_full = _renumber_joint(eng_bin[ei])
                 _z_full_dev = _join_dev(eng_bin_dev.get(ei))
-                _cmi_f, _floor_f, _excess_f = _excess_and_floor(rb_cand, y_arr, _z_full, seed=seed, z_support_dev=_z_full_dev)
+                _cmi_f, _floor_f, _excess_f = _excess_and_floor(rb_cand, y_arr, _z_full, seed=seed, z_support_dev=_z_full_dev, kz=int(_k_full))
                 if _excess_f < excess:
                     cmi, floor, excess = _cmi_f, _floor_f, _excess_f
         _sibling_names: list = []
@@ -419,16 +419,16 @@ def drop_redundant_raw_operands(
                 except ValueError:
                     continue
                 _sb = _raw_codes(_sn, _sidx)
-                _trial, _ = _renumber_joint(*_sib_cond, _sb)
-                if (int(np.unique(_trial).size) if _trial.size else 1) > _budget:
+                _, _trial_card = _renumber_joint(*_sib_cond, _sb)
+                if _trial_card > _budget:
                     continue  # adding this sibling would over-fragment the joint strata
                 _sib_cond.append(_sb)
                 _sib_cond_dev.append(_raw_dev(_sn, _sidx))  # resident twin (None if host-fallback -> host z)
                 _added = True
             if _added:
-                _z_sib, _ = _renumber_joint(*_sib_cond)
+                _z_sib, _k_sib = _renumber_joint(*_sib_cond)
                 _z_sib_dev = _join_dev(*_sib_cond_dev)
-                _cmi_s, _floor_s, _excess_s = _excess_and_floor(rb_cand, y_arr, _z_sib, seed=seed, z_support_dev=_z_sib_dev)
+                _cmi_s, _floor_s, _excess_s = _excess_and_floor(rb_cand, y_arr, _z_sib, seed=seed, z_support_dev=_z_sib_dev, kz=int(_k_sib))
                 # Take the conditioning that gives the SMALLEST debiased excess -- the
                 # strongest evidence of subsumption -- carrying its own (cmi, floor) so the
                 # floor check below stays consistent with the chosen conditioning.
