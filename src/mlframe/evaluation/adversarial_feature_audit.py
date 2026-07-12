@@ -27,6 +27,7 @@ def adversarial_validation_feature_audit(
     pseudo_private_frac: float = 0.2,
     seed: int = 0,
     lgbm_params: Optional[dict] = None,
+    stability_folds: Optional[int] = None,
 ) -> dict:
     """Empirically test whether the top adversarial-AUC-contributing features actually hurt generalization.
 
@@ -44,9 +45,18 @@ def adversarial_validation_feature_audit(
         pseudo train/public/private split, simulating the competition leaderboard structure without needing
         real test labels.
     seed
-        Controls both the adversarial classifier's CV and the pseudo-split.
+        Controls both the adversarial classifier's CV and the pseudo-split (fold 0 when ``stability_folds``
+        is set, so the returned ``audited_features`` are unchanged whether or not stability mode is used).
     lgbm_params
         Passed through to the LightGBM models fit inside the pseudo-split ablation.
+    stability_folds
+        Opt-in. When set to an int >= 2, repeats the pseudo-split (with ``stability_folds`` independent
+        reshuffles seeded ``seed, seed+1, ..., seed+stability_folds-1``, each also re-fitting its own
+        ablation models) and adds a ``"stability"`` block to every audited feature reporting how much its
+        keep/drop call moves across reshuffles. A single random split can flip a borderline feature's
+        recommendation by chance; this mode distinguishes robust calls (low delta variance, unanimous
+        keep/drop vote) from noisy ones a caller should not trust from one split alone. Left ``None`` (the
+        default), behavior and output are bit-identical to the pre-stability-mode implementation.
 
     Returns
     -------
@@ -55,9 +65,12 @@ def adversarial_validation_feature_audit(
         ablated feature: ``name``, ``adversarial_importance``, ``private_auc_delta_when_dropped`` (positive =
         dropping the feature IMPROVED pseudo-private AUC, i.e. the ban heuristic was right for this feature;
         negative = dropping HURT pseudo-private AUC, i.e. keep it despite the adversarial flag), and
-        ``recommendation`` (``"drop"`` / ``"keep"``)), ``importance_vs_generalization_correlation`` (Pearson
-        correlation between adversarial importance rank and ``private_auc_delta_when_dropped`` across the
-        audited features -- low/near-zero replicates the source finding that adversarial contribution is a
+        ``recommendation`` (``"drop"`` / ``"keep"``), plus a ``"stability"`` sub-dict when ``stability_folds``
+        is set: ``delta_values`` (per-fold ``private_auc_delta_when_dropped``), ``delta_std``, ``keep_frac``
+        (fraction of folds recommending "keep"), and ``stable`` (``True`` iff ``keep_frac`` is unanimous, i.e.
+        0.0 or 1.0 -- the recommendation did not flip across any reshuffle)), ``importance_vs_generalization_correlation``
+        (Pearson correlation between adversarial importance rank and ``private_auc_delta_when_dropped`` across
+        the audited features -- low/near-zero replicates the source finding that adversarial contribution is a
         poor predictor of actual generalization harm).
     """
     import lightgbm as lgb
@@ -80,33 +93,55 @@ def adversarial_validation_feature_audit(
         X_train_df = pd.DataFrame(np.asarray(X_train), columns=list(names_arr))
 
     y_train = np.asarray(y_train)
-    rest_frac = pseudo_public_frac + pseudo_private_frac
-    idx_train, idx_rest = train_test_split(np.arange(len(y_train)), test_size=rest_frac, random_state=seed, stratify=y_train)
-    idx_public, idx_private = train_test_split(idx_rest, test_size=pseudo_private_frac / rest_frac, random_state=seed, stratify=y_train[idx_rest])
-
-    def _fit_auc(feature_cols: Sequence[str]) -> float:
-        model = lgb.LGBMClassifier(**(lgbm_params or {"n_estimators": 100, "verbosity": -1}), random_state=seed)
-        model.fit(X_train_df.iloc[idx_train][list(feature_cols)], y_train[idx_train])
-        proba = model.predict_proba(X_train_df.iloc[idx_private][list(feature_cols)])[:, 1]
-        return float(fast_roc_auc(y_train[idx_private], proba))
-
     all_feature_cols = list(names_arr)
-    baseline_private_auc = _fit_auc(all_feature_cols)
+    rest_frac = pseudo_public_frac + pseudo_private_frac
 
-    audited = []
-    for idx in top_indices:
-        feature_name = str(names_arr[idx])
-        dropped_cols = [c for c in all_feature_cols if c != feature_name]
-        dropped_private_auc = _fit_auc(dropped_cols)
-        delta = dropped_private_auc - baseline_private_auc
-        audited.append(
-            {
-                "name": feature_name,
-                "adversarial_importance": float(importances[idx]),
-                "private_auc_delta_when_dropped": delta,
-                "recommendation": "drop" if delta > 0 else "keep",
-            }
+    def _run_split(split_seed: int) -> list[dict]:
+        idx_train, idx_rest = train_test_split(np.arange(len(y_train)), test_size=rest_frac, random_state=split_seed, stratify=y_train)
+        idx_public, idx_private = train_test_split(
+            idx_rest, test_size=pseudo_private_frac / rest_frac, random_state=split_seed, stratify=y_train[idx_rest]
         )
+
+        def _fit_auc(feature_cols: Sequence[str]) -> float:
+            model = lgb.LGBMClassifier(**(lgbm_params or {"n_estimators": 100, "verbosity": -1}), random_state=split_seed)
+            model.fit(X_train_df.iloc[idx_train][list(feature_cols)], y_train[idx_train])
+            proba = model.predict_proba(X_train_df.iloc[idx_private][list(feature_cols)])[:, 1]
+            return float(fast_roc_auc(y_train[idx_private], proba))
+
+        baseline_private_auc = _fit_auc(all_feature_cols)
+
+        split_audited = []
+        for idx in top_indices:
+            feature_name = str(names_arr[idx])
+            dropped_cols = [c for c in all_feature_cols if c != feature_name]
+            dropped_private_auc = _fit_auc(dropped_cols)
+            delta = dropped_private_auc - baseline_private_auc
+            split_audited.append(
+                {
+                    "name": feature_name,
+                    "adversarial_importance": float(importances[idx]),
+                    "private_auc_delta_when_dropped": delta,
+                    "recommendation": "drop" if delta > 0 else "keep",
+                }
+            )
+        return split_audited
+
+    audited = _run_split(seed)
+
+    if stability_folds is not None:
+        if stability_folds < 2:
+            raise ValueError(f"stability_folds must be >= 2 to measure variance, got {stability_folds}")
+        fold_results = [audited] + [_run_split(seed + fold_offset) for fold_offset in range(1, stability_folds)]
+        for feature_pos, feature_entry in enumerate(audited):
+            delta_values = [float(fold[feature_pos]["private_auc_delta_when_dropped"]) for fold in fold_results]
+            keep_votes = sum(1 for fold in fold_results if fold[feature_pos]["recommendation"] == "keep")
+            keep_frac = keep_votes / stability_folds
+            feature_entry["stability"] = {
+                "delta_values": delta_values,
+                "delta_std": float(np.std(delta_values)),
+                "keep_frac": keep_frac,
+                "stable": keep_frac in (0.0, 1.0),
+            }
 
     if len(audited) >= 2:
         imp_vals = np.array([a["adversarial_importance"] for a in audited])
@@ -118,11 +153,14 @@ def adversarial_validation_feature_audit(
     else:
         correlation = float("nan")
 
-    return {
+    result = {
         "adversarial_auc": auc,
         "audited_features": audited,
         "importance_vs_generalization_correlation": correlation,
     }
+    if stability_folds is not None:
+        result["stability_folds"] = stability_folds
+    return result
 
 
 __all__ = ["adversarial_validation_feature_audit"]

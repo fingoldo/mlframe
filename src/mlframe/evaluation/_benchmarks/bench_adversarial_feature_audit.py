@@ -26,10 +26,16 @@ def _make_data(n_train: int, n_test: int, n_features: int, seed: int):
     return pd.DataFrame(cols_train), y_train, pd.DataFrame(cols_test)
 
 
-def _run(n_train: int, n_test: int, n_features: int, top_k: int) -> None:
+def _run(n_train: int, n_test: int, n_features: int, top_k: int, stability_folds: int | None = None) -> None:
     X_train, y_train, X_test = _make_data(n_train, n_test, n_features, seed=0)
     adversarial_validation_feature_audit(
-        X_train, y_train, X_test, top_k_features=top_k, seed=0, lgbm_params={"n_estimators": 50, "verbosity": -1}
+        X_train,
+        y_train,
+        X_test,
+        top_k_features=top_k,
+        seed=0,
+        lgbm_params={"n_estimators": 50, "verbosity": -1},
+        stability_folds=stability_folds,
     )
 
 
@@ -40,6 +46,17 @@ if __name__ == "__main__":
         wall = time.perf_counter() - t0
         print(f"n_train={n_train:>7,} n_test={n_test:>6,} n_features={n_features:>3} top_k={top_k:>2} -> {wall * 1000:9.2f} ms")
 
+    # stability_folds re-runs the whole pseudo-split ablation N times -- roughly N x the single-split cost
+    # (the adversarial-AUC ranking itself is computed once and shared across folds).
+    for n_train, n_test, n_features, top_k, stability_folds in [(3_000, 1_000, 10, 5, 5)]:
+        t0 = time.perf_counter()
+        _run(n_train, n_test, n_features, top_k, stability_folds=stability_folds)
+        wall = time.perf_counter() - t0
+        print(
+            f"n_train={n_train:>7,} n_test={n_test:>6,} n_features={n_features:>3} top_k={top_k:>2} "
+            f"stability_folds={stability_folds:>2} -> {wall * 1000:9.2f} ms"
+        )
+
     profiler = cProfile.Profile()
     profiler.enable()
     _run(3_000, 1_000, 10, 5)
@@ -48,3 +65,12 @@ if __name__ == "__main__":
     stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
     stats.print_stats(15)
     print(buf.getvalue())
+
+    profiler_stability = cProfile.Profile()
+    profiler_stability.enable()
+    _run(3_000, 1_000, 10, 5, stability_folds=5)
+    profiler_stability.disable()
+    buf_stability = StringIO()
+    stats_stability = pstats.Stats(profiler_stability, stream=buf_stability).sort_stats("cumulative")
+    stats_stability.print_stats(15)
+    print(buf_stability.getvalue())
