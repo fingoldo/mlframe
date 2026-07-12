@@ -11,15 +11,24 @@ from io import StringIO
 
 import numpy as np
 
-from mlframe.models.masked_multilabel_objective import flatten_masked_multilabel, masked_multilabel_logloss_objective
+from mlframe.models.masked_multilabel_objective import (
+    compute_inverse_frequency_class_weights,
+    flatten_masked_multilabel,
+    flatten_masked_multilabel_class_weights,
+    masked_multilabel_logloss_objective,
+)
 
 
 class _FakeDMatrix:
-    def __init__(self, labels: np.ndarray) -> None:
+    def __init__(self, labels: np.ndarray, weight: np.ndarray | None = None) -> None:
         self._labels = labels
+        self._weight = weight if weight is not None else np.empty(0)
 
     def get_label(self) -> np.ndarray:
         return self._labels
+
+    def get_weight(self) -> np.ndarray:
+        return self._weight
 
 
 def _run_flatten(n_rows: int, n_labels: int, n_calls: int) -> None:
@@ -28,6 +37,15 @@ def _run_flatten(n_rows: int, n_labels: int, n_calls: int) -> None:
     mask = rng.random((n_rows, n_labels)) < 0.3
     for _ in range(n_calls):
         flatten_masked_multilabel(y, mask)
+
+
+def _run_flatten_class_weights(n_rows: int, n_labels: int, n_calls: int) -> None:
+    rng = np.random.default_rng(0)
+    y = rng.integers(0, 2, size=(n_rows, n_labels)).astype(np.float64)
+    mask = rng.random((n_rows, n_labels)) < 0.3
+    class_weights = compute_inverse_frequency_class_weights(y, mask)
+    for _ in range(n_calls):
+        flatten_masked_multilabel_class_weights(y, mask, class_weights=class_weights)
 
 
 def _run_objective(n: int, n_calls: int) -> None:
@@ -40,6 +58,17 @@ def _run_objective(n: int, n_calls: int) -> None:
         objective(pred, dtrain)
 
 
+def _run_objective_weighted(n: int, n_calls: int) -> None:
+    rng = np.random.default_rng(0)
+    y_true = rng.choice([0.0, 1.0, 2.0], size=n)
+    weight = rng.uniform(0.2, 2.0, size=n)
+    dtrain = _FakeDMatrix(y_true, weight=weight)
+    pred = rng.normal(size=n)
+    objective = masked_multilabel_logloss_objective(use_sample_weight=True)
+    for _ in range(n_calls):
+        objective(pred, dtrain)
+
+
 if __name__ == "__main__":
     for n_rows, n_labels, n_calls in [(2000, 20, 50), (200000, 20, 50), (200000, 200, 10)]:
         t0 = time.perf_counter()
@@ -47,15 +76,26 @@ if __name__ == "__main__":
         wall = time.perf_counter() - t0
         print(f"flatten n_rows={n_rows:>7} n_labels={n_labels:>4} n_calls={n_calls:>4} -> {wall * 1000:9.2f} ms")
 
+        t0 = time.perf_counter()
+        _run_flatten_class_weights(n_rows, n_labels, n_calls)
+        wall = time.perf_counter() - t0
+        print(f"flatten_class_weights n_rows={n_rows:>7} n_labels={n_labels:>4} n_calls={n_calls:>4} -> {wall * 1000:9.2f} ms")
+
     for n, n_calls in [(200000, 200), (4000000, 200)]:
         t0 = time.perf_counter()
         _run_objective(n, n_calls)
         wall = time.perf_counter() - t0
         print(f"objective n={n:>8} n_calls={n_calls:>4} -> {wall * 1000:9.2f} ms")
 
+        t0 = time.perf_counter()
+        _run_objective_weighted(n, n_calls)
+        wall = time.perf_counter() - t0
+        print(f"objective(use_sample_weight=True) n={n:>8} n_calls={n_calls:>4} -> {wall * 1000:9.2f} ms")
+
     profiler = cProfile.Profile()
     profiler.enable()
     _run_objective(4000000, 200)
+    _run_objective_weighted(4000000, 200)
     profiler.disable()
     buf = StringIO()
     stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
