@@ -42,6 +42,11 @@ from mlframe.competition.synthetic_row_detector import (
     count_encoding_shift_report,
     CountEncodingShiftReport,
 )
+from mlframe.competition.frequency_power_interaction import (
+    frequency_power_interaction,
+    FrequencyPowerInteractionResult,
+)
+from mlframe.competition.naive_bayes_log_odds import NaiveBayesLogOddsEnsembler
 
 __all__ = [
     *globals().get("__all__", []),
@@ -67,4 +72,7 @@ __all__ = [
     "detect_synthetic_rows",
     "count_encoding_shift_report",
     "CountEncodingShiftReport",
+    "frequency_power_interaction",
+    "FrequencyPowerInteractionResult",
+    "NaiveBayesLogOddsEnsembler",
 ]
