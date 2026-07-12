@@ -33,12 +33,31 @@ def _run(n_unlabeled: int) -> None:
     loop.fit(X_labeled, y_labeled, X_unlabeled)
 
 
+def _run_annealed(n_unlabeled: int) -> None:
+    """Same shape as ``_run`` but exercises the opt-in annealed-threshold path (more rounds, since annealing
+    only matters when there's a round-to-round schedule to interpolate over)."""
+    X_labeled, y_labeled = _make_dataset(35, 0)
+    X_unlabeled, _ = _make_dataset(n_unlabeled, 1)
+    loop = PseudoLabelingLoop(
+        estimator_factory=lambda: DecisionTreeClassifier(max_depth=4, random_state=0),
+        task="classification", n_rounds=6, n_splits=5, confidence_threshold=0.5,
+        threshold_anneal="linear", threshold_final=0.9,
+    )
+    loop.fit(X_labeled, y_labeled, X_unlabeled)
+
+
 if __name__ == "__main__":
     for n_unlabeled in [1_000, 5_000, 20_000]:
         t0 = time.perf_counter()
         _run(n_unlabeled)
         wall = time.perf_counter() - t0
-        print(f"n_unlabeled={n_unlabeled:>7,} -> {wall * 1000:9.2f} ms")
+        print(f"static      n_unlabeled={n_unlabeled:>7,} -> {wall * 1000:9.2f} ms")
+
+    for n_unlabeled in [1_000, 5_000, 20_000]:
+        t0 = time.perf_counter()
+        _run_annealed(n_unlabeled)
+        wall = time.perf_counter() - t0
+        print(f"annealed    n_unlabeled={n_unlabeled:>7,} -> {wall * 1000:9.2f} ms")
 
     profiler = cProfile.Profile()
     profiler.enable()
@@ -47,4 +66,15 @@ if __name__ == "__main__":
     buf = StringIO()
     stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
     stats.print_stats(15)
+    print("static threshold profile:")
+    print(buf.getvalue())
+
+    profiler = cProfile.Profile()
+    profiler.enable()
+    _run_annealed(20_000)
+    profiler.disable()
+    buf = StringIO()
+    stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
+    stats.print_stats(15)
+    print("annealed threshold profile:")
     print(buf.getvalue())

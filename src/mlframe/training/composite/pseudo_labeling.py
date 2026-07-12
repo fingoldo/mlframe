@@ -21,7 +21,7 @@ round's own pseudo-labeling mistakes don't get baked in and mechanically reinfor
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, List, Literal, Optional, Tuple
+from typing import Any, Callable, Dict, List, Literal, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -67,10 +67,27 @@ class PseudoLabelingLoop(BaseEstimator):
         K-fold configuration for the fold-model ensemble.
     confidence_threshold
         Regression: max allowed cross-fold-model STD for a row to be accepted (None disables). Classification:
-        min allowed distance from 0.5 (i.e. min confidence) for a row to be accepted (None disables).
+        min allowed distance from 0.5 (i.e. min confidence) for a row to be accepted (None disables). Used as
+        the round-0 threshold when ``threshold_anneal`` is set; the sole, ROUND-INVARIANT threshold otherwise.
     pseudo_label_weight
         ``sample_weight`` assigned to accepted pseudo-labeled rows in the final fit (real labeled rows get
         weight 1.0) -- the confirmation-bias guard.
+    threshold_anneal
+        Opt-in (default ``None`` = static threshold, unchanged behavior). ``"linear"`` or ``"exp"``: interpolate
+        the acceptance threshold from ``confidence_threshold`` (round 0) to ``threshold_final`` (last round)
+        across rounds, so LATER rounds -- which build on the PREVIOUS round's own pseudo-labels and are thus
+        most exposed to confirmation bias -- are held to a stricter bar than the first round. ``"exp"`` squares
+        the round fraction, so tightening is backloaded (mild early, sharp in the final rounds). No effect
+        unless ``threshold_final`` is also set and ``n_rounds`` > 1.
+    threshold_final
+        The threshold value to anneal towards by the last round. Required (together with ``threshold_anneal``)
+        to activate annealing; ``None`` (default) keeps the static ``confidence_threshold`` throughout.
+    class_thresholds
+        Opt-in (default ``None``). Classification only: per-predicted-class confidence threshold overriding
+        (per row, keyed by ``round(mean_pred)`` in ``{0, 1}``) the scalar threshold for that round -- lets a
+        minority class facing harder, noisier fold-model agreement use a stricter bar than the majority class,
+        reducing confirmation bias on class-imbalanced problems. A class absent from the dict falls back to
+        that round's scalar threshold.
 
     Attributes
     ----------
@@ -90,6 +107,9 @@ class PseudoLabelingLoop(BaseEstimator):
         random_state: int = 42,
         confidence_threshold: Optional[float] = None,
         pseudo_label_weight: float = 0.5,
+        threshold_anneal: Optional[Literal["linear", "exp"]] = None,
+        threshold_final: Optional[float] = None,
+        class_thresholds: Optional[Dict[int, float]] = None,
     ) -> None:
         self.estimator_factory = estimator_factory
         self.task = task
@@ -98,6 +118,9 @@ class PseudoLabelingLoop(BaseEstimator):
         self.random_state = random_state
         self.confidence_threshold = confidence_threshold
         self.pseudo_label_weight = pseudo_label_weight
+        self.threshold_anneal = threshold_anneal
+        self.threshold_final = threshold_final
+        self.class_thresholds = class_thresholds
 
     def _fold_ensemble_score(self, X_labeled: Any, y_labeled: np.ndarray, X_unlabeled: Any) -> Tuple[np.ndarray, np.ndarray]:
         """Fit K fold-models on K-1/K slices of the labeled data, return (mean, std) of their predictions
@@ -121,13 +144,37 @@ class PseudoLabelingLoop(BaseEstimator):
         stacked = np.stack(fold_preds, axis=0)
         return stacked.mean(axis=0), stacked.std(axis=0)
 
-    def _accept_mask(self, mean_pred: np.ndarray, std_pred: np.ndarray) -> np.ndarray:
+    def _round_threshold(self, round_idx: int) -> Optional[float]:
+        """Static (round-invariant) by default; annealed only when both ``threshold_anneal`` and
+        ``threshold_final`` are set -- interpolates from ``confidence_threshold`` (round 0) towards
+        ``threshold_final`` (last round), so behavior with the new params omitted is unchanged."""
         if self.confidence_threshold is None:
+            return None
+        if self.threshold_anneal is None or self.threshold_final is None or self.n_rounds <= 1:
+            return self.confidence_threshold
+        frac = round_idx / (self.n_rounds - 1)
+        if self.threshold_anneal == "exp":
+            frac = frac**2  # backloaded: mild tightening early, sharp in the final rounds
+        return self.confidence_threshold + frac * (self.threshold_final - self.confidence_threshold)
+
+    def _accept_mask(self, mean_pred: np.ndarray, std_pred: np.ndarray, threshold: Optional[float]) -> np.ndarray:
+        if threshold is None and self.class_thresholds is None:
             return np.ones_like(mean_pred, dtype=bool)
         if self.task == "classification":
             confidence = np.abs(mean_pred - 0.5) * 2.0  # 0 (uncertain) .. 1 (confident)
-            return confidence >= self.confidence_threshold
-        return std_pred <= self.confidence_threshold
+            if self.class_thresholds is not None:
+                fallback = threshold if threshold is not None else 0.0
+                pred_class = (mean_pred >= 0.5).astype(int)
+                per_row_threshold = np.where(
+                    pred_class == 1,
+                    self.class_thresholds.get(1, fallback),
+                    self.class_thresholds.get(0, fallback),
+                )
+                return confidence >= per_row_threshold
+            assert threshold is not None  # guaranteed by the early-return above when class_thresholds is None
+            return confidence >= threshold
+        assert threshold is not None  # regression has no class_thresholds fallback
+        return std_pred <= threshold
 
     def fit(self, X_labeled: Any, y_labeled: np.ndarray, X_unlabeled: Any) -> "PseudoLabelingLoop":
         y_arr = np.asarray(y_labeled, dtype=np.float64)
@@ -136,7 +183,8 @@ class PseudoLabelingLoop(BaseEstimator):
 
         for round_idx in range(self.n_rounds):
             mean_pred, std_pred = self._fold_ensemble_score(cur_X, cur_y, X_unlabeled)
-            accept = self._accept_mask(mean_pred, std_pred)
+            round_threshold = self._round_threshold(round_idx)
+            accept = self._accept_mask(mean_pred, std_pred, round_threshold)
             confidence = (np.abs(mean_pred - 0.5) * 2.0) if self.task == "classification" else -std_pred
             self.pseudo_labels_history_.append((accept, mean_pred, confidence))
             logger.info("PseudoLabelingLoop round %d/%d: accepted %d/%d unlabeled rows", round_idx + 1, self.n_rounds, int(accept.sum()), len(accept))
