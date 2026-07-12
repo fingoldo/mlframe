@@ -35,6 +35,13 @@ def _summary_stats_block(values: np.ndarray, stats: Sequence[Union[str, float]],
     median_fn = np.nanmedian if has_nan else np.median
 
     out: dict[str, np.ndarray] = {}
+    # Batch every quantile-type stat (q10/q50/q90/qNN/bare-float) into ONE quantile_fn call with a q-array
+    # instead of one call per stat: np.quantile/np.nanquantile sort (partition) each row once per call
+    # regardless of how many q values are requested, so N separate calls redundantly re-sort every row N
+    # times -- one call with q=[q1, q2, ...] sorts each row once and reads off all requested percentiles.
+    # Bit-identical to the per-stat calls (same algorithm, same interpolation default, just one shared sort).
+    _quantile_names: list[str] = []
+    _quantile_qs: list[float] = []
     for stat in stats:
         stat_name = stat if isinstance(stat, str) else f"q{int(round(stat * 100))}"
         if stat == "mean":
@@ -48,13 +55,24 @@ def _summary_stats_block(values: np.ndarray, stats: Sequence[Union[str, float]],
         elif stat == "median":
             out[f"{column_prefix}_median"] = median_fn(values, axis=1)
         elif isinstance(stat, str) and stat in _QUANTILE_STATS:
-            out[f"{column_prefix}_{stat}"] = quantile_fn(values, _QUANTILE_STATS[stat], axis=1)
+            _quantile_names.append(f"{column_prefix}_{stat}")
+            _quantile_qs.append(_QUANTILE_STATS[stat])
         elif isinstance(stat, str) and stat.startswith("q") and stat[1:].isdigit():
-            out[f"{column_prefix}_{stat}"] = quantile_fn(values, int(stat[1:]) / 100.0, axis=1)
+            _quantile_names.append(f"{column_prefix}_{stat}")
+            _quantile_qs.append(int(stat[1:]) / 100.0)
         elif isinstance(stat, (int, float)) and 0.0 <= stat <= 1.0:
-            out[f"{column_prefix}_{stat_name}"] = quantile_fn(values, float(stat), axis=1)
+            _quantile_names.append(f"{column_prefix}_{stat_name}")
+            _quantile_qs.append(float(stat))
         else:
             raise ValueError(f"row_wise_summary_stats: unrecognized stat {stat!r}")
+    if len(_quantile_qs) == 1:
+        # A length-1 q ARRAY still adds a leading axis (shape (1, n_rows), not (n_rows,)) -- pass the
+        # scalar directly so the single-quantile case matches the original per-stat call's output shape.
+        out[_quantile_names[0]] = quantile_fn(values, _quantile_qs[0], axis=1)
+    elif _quantile_qs:
+        _q_result = quantile_fn(values, _quantile_qs, axis=1)
+        for _name, _row in zip(_quantile_names, _q_result):
+            out[_name] = _row
     return out
 
 
