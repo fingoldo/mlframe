@@ -448,10 +448,9 @@ class FeatureImportanceConfig(BaseConfig):
     #   surfacing the next band of signals. Override via
     #   ``FeatureImportanceConfig(num_factors=N)``.
     num_factors: int = 15
-    # Mirrors ``plot_model_feature_importances``'s ``_FI_DEFAULT_FIGSIZE`` default (compact width, legible height
-    # for ~15 bars); the two must stay in lock-step (the config documents the plot-function kwarg it forwards,
-    # so a drift here silently changes rendered plots).
-    figsize: Tuple[float, float] = (8.0, 6.0)
+    # Mirrors ``plot_model_feature_importances``'s ``DEFAULT_FI_FIGSIZE`` default; the two must stay in lock-step
+    # (the config documents the plot-function kwarg it forwards, so a drift here silently changes rendered plots).
+    figsize: Tuple[float, float] = (7.5, 2.5)
     positive_fi_only: bool = False
     show_plots: bool = True
     # 2026-05-12 (user request): cap zero-FI bars so the chart stays
