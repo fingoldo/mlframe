@@ -18,19 +18,27 @@ def _rmse(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     return float(np.sqrt(np.mean((y_true - y_pred) ** 2)))
 
 
-def _run(n_samples: int, n_models: int, n_restarts: int) -> None:
+def _run(n_samples: int, n_models: int, n_restarts: int, max_nonzero_weights: int | None = None) -> None:
     rng = np.random.default_rng(0)
     y_true = rng.standard_normal(n_samples)
     preds = [y_true + rng.uniform(0.2, 2.0) * rng.standard_normal(n_samples) for _ in range(n_models)]
-    constrained_weight_blend(preds, y_true, _rmse, n_restarts=n_restarts, random_state=0)
+    constrained_weight_blend(preds, y_true, _rmse, n_restarts=n_restarts, random_state=0, max_nonzero_weights=max_nonzero_weights)
 
 
 if __name__ == "__main__":
-    for n_samples, n_models, n_restarts in [(5_000, 20, 5), (100_000, 50, 5)]:
+    for n_samples, n_models, n_restarts, max_nonzero_weights in [
+        (5_000, 20, 5, None),
+        (100_000, 50, 5, None),
+        (5_000, 20, 5, 5),
+        (100_000, 50, 5, 10),
+    ]:
         t0 = time.perf_counter()
-        _run(n_samples, n_models, n_restarts)
+        _run(n_samples, n_models, n_restarts, max_nonzero_weights)
         wall = time.perf_counter() - t0
-        print(f"n_samples={n_samples:>9,} n_models={n_models:>3} n_restarts={n_restarts:>2} -> {wall * 1000:9.2f} ms")
+        print(
+            f"n_samples={n_samples:>9,} n_models={n_models:>3} n_restarts={n_restarts:>2} "
+            f"max_nonzero_weights={str(max_nonzero_weights):>4} -> {wall * 1000:9.2f} ms"
+        )
 
     profiler = cProfile.Profile()
     profiler.enable()
@@ -39,4 +47,15 @@ if __name__ == "__main__":
     buf = StringIO()
     stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
     stats.print_stats(15)
+    print("--- dense (max_nonzero_weights=None) ---")
+    print(buf.getvalue())
+
+    profiler = cProfile.Profile()
+    profiler.enable()
+    _run(5_000, 20, 5, max_nonzero_weights=5)
+    profiler.disable()
+    buf = StringIO()
+    stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
+    stats.print_stats(15)
+    print("--- sparse (max_nonzero_weights=5) ---")
     print(buf.getvalue())

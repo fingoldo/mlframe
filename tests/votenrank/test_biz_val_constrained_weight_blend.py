@@ -51,3 +51,27 @@ def test_constrained_weight_blend_empty_pool_raises():
 
     with pytest.raises(ValueError):
         constrained_weight_blend([], np.array([1.0]), _rmse)
+
+
+def test_biz_val_constrained_weight_blend_sparsity_cap_selects_small_subset():
+    """On a large pool where only a few variants are genuinely useful, ``max_nonzero_weights`` should
+    prune down to a small production-friendly subset with quality close to the dense solution."""
+    y_true, preds = _make_model_pool(n_samples=2000, n_good=4, n_bad=36, seed=7)
+
+    dense = constrained_weight_blend(preds, y_true, _rmse, n_restarts=5, random_state=0)
+    sparse = constrained_weight_blend(preds, y_true, _rmse, n_restarts=5, random_state=0, max_nonzero_weights=6)
+
+    assert dense["n_nonzero"] > 6, f"dense solve should spread weight across more than 6 models, got {dense['n_nonzero']}"
+    assert sparse["n_nonzero"] <= 6, f"sparse solve must respect the cap, got {sparse['n_nonzero']}"
+
+    quality_loss_pct = (sparse["loss"] - dense["loss"]) / dense["loss"]
+    assert quality_loss_pct < 0.08, (
+        f"sparse blend (6 nonzero) should stay within 8% RMSE of the dense blend ({dense['n_nonzero']} nonzero): "
+        f"sparse={sparse['loss']:.4f} dense={dense['loss']:.4f} loss_pct={quality_loss_pct:.4f}"
+    )
+    good_weight_share = sparse["weights"][:4].sum()
+    assert good_weight_share > 0.85, (
+        f"sparse solve should concentrate weight on the genuinely good models, got good_weight_share={good_weight_share:.4f} "
+        f"selected_indices={sparse['selected_indices']}"
+    )
+    assert np.isclose(sparse["weights"].sum(), 1.0)
