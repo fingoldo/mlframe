@@ -656,6 +656,138 @@ def _per_group_rank_ordinal_tiebreak(
     return out
 
 
+@njit(cache=True)
+def _per_group_rank_causal_njit(seg_vals, starts, ends, pct, exclude_self):
+    """Expanding-window average-tie rank per group-contiguous segment.
+
+    For each row (in within-group original/time order), ranks it against only the rows at
+    or before its own position (``exclude_self=False``) or strictly before it
+    (``exclude_self=True``). Uses a Fenwick tree over the group's dense value buckets so the
+    whole segment is O(seg_n log seg_n) rather than the O(seg_n^2) of re-sorting the
+    prefix at every row -- the naive approach that would make this unusable past a few
+    thousand rows/group.
+    """
+    m = seg_vals.shape[0]
+    out = np.empty(m, dtype=np.float64)
+    n_groups = starts.shape[0]
+    for g in range(n_groups):
+        s = starts[g]
+        e = ends[g]
+        n = e - s
+        if n == 0:
+            continue
+        seg = seg_vals[s:e]
+        uniq = np.unique(seg)
+        k_buckets = uniq.shape[0]
+        buckets = np.searchsorted(uniq, seg)  # 0-based, ties share a bucket
+        bit = np.zeros(k_buckets + 1, dtype=np.int64)
+        for i in range(n):
+            b = buckets[i]
+            if exclude_self:
+                # Query BEFORE inserting: window is strictly the rows before i.
+                idx = b + 1
+                count_leq = 0
+                while idx > 0:
+                    count_leq += bit[idx]
+                    idx -= idx & (-idx)
+                idx = b
+                count_less = 0
+                while idx > 0:
+                    count_less += bit[idx]
+                    idx -= idx & (-idx)
+                denom = i
+                if denom == 0:
+                    out[s + i] = np.nan
+                else:
+                    count_equal = count_leq - count_less
+                    avg_rank = count_less + (count_equal + 1) / 2.0
+                    out[s + i] = avg_rank / denom if pct else avg_rank
+                idx = b + 1
+                while idx <= k_buckets:
+                    bit[idx] += 1
+                    idx += idx & (-idx)
+            else:
+                # Insert THEN query: window includes the row's own value.
+                idx = b + 1
+                while idx <= k_buckets:
+                    bit[idx] += 1
+                    idx += idx & (-idx)
+                idx = b + 1
+                count_leq = 0
+                while idx > 0:
+                    count_leq += bit[idx]
+                    idx -= idx & (-idx)
+                idx = b
+                count_less = 0
+                while idx > 0:
+                    count_less += bit[idx]
+                    idx -= idx & (-idx)
+                denom = i + 1
+                count_equal = count_leq - count_less
+                avg_rank = count_less + (count_equal + 1) / 2.0
+                out[s + i] = avg_rank / denom if pct else avg_rank
+    return out
+
+
+def _per_group_rank_causal(
+    values_arr: np.ndarray,
+    group_ids: np.ndarray,
+    *,
+    pct: bool,
+    ascending: bool,
+    exclude_self: bool,
+) -> np.ndarray:
+    """Dispatch helper backing ``per_group_rank(..., causal=True)`` -- see its docstring."""
+    out = np.full(values_arr.size, np.nan, dtype=np.float64)
+    sort_idx, starts, ends = iter_group_segments(group_ids)
+    if sort_idx.size == 0:
+        return out
+
+    seg_vals = values_arr[sort_idx]
+    if not ascending:
+        seg_vals = -seg_vals
+    finite_mask = np.isfinite(seg_vals)
+
+    if _HAS_NUMBA:
+        seg_finite_idx = np.flatnonzero(finite_mask)
+        fin_vals = seg_vals[seg_finite_idx]
+        finite_cum = np.concatenate(([0], np.cumsum(finite_mask.astype(np.intp))))
+        fstarts = finite_cum[starts].astype(np.intp)
+        fends = finite_cum[ends].astype(np.intp)
+        ranks_fin = _per_group_rank_causal_njit(fin_vals, fstarts, fends, bool(pct), bool(exclude_self))
+        out[sort_idx[seg_finite_idx]] = ranks_fin
+        return out
+
+    import bisect
+
+    for s, e in zip(starts, ends):
+        finite = finite_mask[s:e]
+        idx_fin = np.flatnonzero(finite)
+        seg_idx = sort_idx[s:e]
+        seen: list = []
+        for k, pos in enumerate(idx_fin):
+            v = float(seg_vals[s:e][pos])
+            if exclude_self:
+                if k == 0:
+                    out[seg_idx[pos]] = np.nan
+                    bisect.insort(seen, v)
+                    continue
+                lo = bisect.bisect_left(seen, v)
+                hi = bisect.bisect_right(seen, v)
+                denom = len(seen)
+                avg_rank = lo + (hi - lo + 1) / 2.0
+                out[seg_idx[pos]] = avg_rank / denom if pct else avg_rank
+                bisect.insort(seen, v)
+            else:
+                bisect.insort(seen, v)
+                lo = bisect.bisect_left(seen, v)
+                hi = bisect.bisect_right(seen, v)
+                denom = len(seen)
+                avg_rank = lo + (hi - lo + 1) / 2.0
+                out[seg_idx[pos]] = avg_rank / denom if pct else avg_rank
+    return out
+
+
 def per_group_rank(
     values: np.ndarray,
     group_ids: np.ndarray,
@@ -665,6 +797,8 @@ def per_group_rank(
     ascending: bool = True,
     tiebreak_values: np.ndarray | None = None,
     tiebreak_ascending: bool = True,
+    causal: bool = False,
+    causal_exclude_self: bool = False,
 ) -> np.ndarray:
     """Within-group rank of each value.
 
@@ -684,9 +818,34 @@ def per_group_rank(
     every row in a tied block by definition -- the tie-break order can't change their output,
     so silently accepting it there would be a no-op that looks like it did something.
     Omitting it (the default) leaves this function's output bit-identical to before.
+
+    ``causal`` (opt-in, ``method="average"`` only): rank each row against only the rows
+    of its group SEEN SO FAR in the input's within-group order, instead of the whole group
+    (including rows that come after it in time). Callers must pre-sort each group by
+    timestamp before calling -- the function has no separate time column, it uses the same
+    "within-group original order" convention as the rest of this module (see
+    ``iter_group_segments``). This is the leak-safe variant for online/causal scoring: a
+    static full-group percentile computed once and reused at serve time silently uses
+    future rows a real online scorer never has access to, which inflates any backtest that
+    consumes it as a feature. ``causal_exclude_self`` (default ``False``) controls whether a
+    row's own value is included in its own window; ``True`` gives a strictly-prior-only rank
+    (the first row of every group has no prior data and is NaN), ``False`` includes the
+    row's own value (the first row of a causal group always ranks 1.0 / pct 1.0, since it's
+    alone in its own window so far). Forbidden with ``tiebreak_values`` (orthogonal opt-ins,
+    combining them isn't implemented). Omitting ``causal`` (the default) leaves this
+    function's output bit-identical to before.
     """
     if method not in {"average", "min", "max", "dense", "ordinal"}:
         raise ValueError(f"method={method!r} not in {{'average','min','max','dense','ordinal'}}")
+    if causal and tiebreak_values is not None:
+        raise ValueError("causal and tiebreak_values cannot be combined")
+    if causal_exclude_self and not causal:
+        raise ValueError("causal_exclude_self=True has no effect unless causal=True")
+    if causal:
+        if method != "average":
+            raise ValueError("causal is only supported with method='average' (the expanding-window rank is a running average-tie percentile)")
+        values_arr_causal = np.ascontiguousarray(values, dtype=np.float64)
+        return _per_group_rank_causal(values_arr_causal, group_ids, pct=pct, ascending=ascending, exclude_self=causal_exclude_self)
     if tiebreak_values is not None:
         if method != "ordinal":
             raise ValueError("tiebreak_values is only supported with method='ordinal' (average/min/max/dense give tied rows the same rank regardless of tie-break order)")

@@ -1,4 +1,4 @@
-"""Profile per_group_rank @10M with many groups, including the tiebreak_values path."""
+"""Profile per_group_rank @10M with many groups, including the tiebreak_values and causal paths."""
 from __future__ import annotations
 
 import sys
@@ -13,11 +13,11 @@ from typing import Any, Optional
 import numpy as np
 
 
-def _profile_one(fn: Any, vals: np.ndarray, gids: np.ndarray, method: str, tiebreak_values: Optional[np.ndarray], name: str, n_groups: int) -> None:
+def _profile_one(fn: Any, vals: np.ndarray, gids: np.ndarray, method: str, tiebreak_values: Optional[np.ndarray], name: str, n_groups: int, causal: bool = False) -> None:
     pr = cProfile.Profile()
     t0 = time.perf_counter()
     pr.enable()
-    fn(vals, gids, method=method, tiebreak_values=tiebreak_values)
+    fn(vals, gids, method=method, tiebreak_values=tiebreak_values, causal=causal)
     pr.disable()
     wall = time.perf_counter() - t0
     print(f"=== {name} wall={wall:.3f}s (n_groups={n_groups}) ===")
@@ -41,10 +41,15 @@ def main() -> None:
     # warm
     per_group_rank(vals[:10000], gids[:10000], method="average")
     per_group_rank(vals[:10000], gids[:10000], method="ordinal", tiebreak_values=tiebreak[:10000])
+    per_group_rank(vals[:10000], gids[:10000], method="average", causal=True)
 
     _profile_one(per_group_rank, vals, gids, "average", None, "per_group_rank(method=average)", n_groups)
     _profile_one(per_group_rank, vals, gids, "ordinal", None, "per_group_rank(method=ordinal)", n_groups)
     _profile_one(per_group_rank, vals, gids, "ordinal", tiebreak, "per_group_rank(method=ordinal, tiebreak_values=...)", n_groups)
+    # causal: the Fenwick-tree expanding-window path (leak-safe online-scoring variant) --
+    # same shape (low-cardinality values -> many ties per group) so its tie-averaging cost
+    # is visible; low group count avoids Fenwick tree rebuild overhead swamping the profile.
+    _profile_one(per_group_rank, vals, gids, "average", None, "per_group_rank(method=average, causal=True)", n_groups, causal=True)
 
 
 if __name__ == "__main__":
