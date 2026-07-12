@@ -25,11 +25,12 @@ def _make_data(n: int, n_features: int, seed: int = 0):
     return X, y
 
 
-def _run(n: int, n_features: int, n_variants: int) -> None:
+def _run(n: int, n_features: int, n_variants: int, with_shift: bool = False) -> None:
     X, y = _make_data(n, n_features)
     variants = {f"variant_{i}": X for i in range(n_variants)}
     cv = KFold(n_splits=5, shuffle=True, random_state=0)
-    imputation_sensitivity_check(Ridge(alpha=0.1), variants, y, r2_score, cv=cv)
+    shift_split = (np.arange(0, n // 2), np.arange(n // 2, n)) if with_shift else None
+    imputation_sensitivity_check(Ridge(alpha=0.1), variants, y, r2_score, cv=cv, shift_split=shift_split)
 
 
 if __name__ == "__main__":
@@ -39,6 +40,13 @@ if __name__ == "__main__":
         wall = time.perf_counter() - t0
         print(f"n={n:>5} n_features={n_features:>3} n_variants={n_variants:>2} -> {wall * 1000:9.2f} ms")
 
+    # shift-aware path: same fold-CV cost plus one extra fit/predict per variant against the shift holdout.
+    for n, n_features, n_variants in [(500, 15, 3), (2000, 15, 3), (2000, 15, 8)]:
+        t0 = time.perf_counter()
+        _run(n, n_features, n_variants, with_shift=True)
+        wall = time.perf_counter() - t0
+        print(f"[shift_split] n={n:>5} n_features={n_features:>3} n_variants={n_variants:>2} -> {wall * 1000:9.2f} ms")
+
     profiler = cProfile.Profile()
     profiler.enable()
     _run(2000, 15, 8)
@@ -46,4 +54,14 @@ if __name__ == "__main__":
     buf = StringIO()
     stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
     stats.print_stats(15)
+    print(buf.getvalue())
+
+    profiler = cProfile.Profile()
+    profiler.enable()
+    _run(2000, 15, 8, with_shift=True)
+    profiler.disable()
+    buf = StringIO()
+    stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
+    stats.print_stats(15)
+    print("[shift_split]")
     print(buf.getvalue())

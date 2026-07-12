@@ -54,3 +54,58 @@ def test_imputation_sensitivity_check_sorted_riskiest_first():
     cv = KFold(n_splits=5, shuffle=False)
     result = imputation_sensitivity_check(Ridge(alpha=0.1), {"mean_fill": X_mean, "zero_fill": X_zero}, y, r2_score, cv=cv)
     assert list(result.index)[0] == "zero_fill"  # highest fold_std sorted first.
+
+
+def _make_shift_blind_spot_data(n: int, seed: int):
+    """Regime-shift missingness (same generative mechanism as above), but with a SHUFFLED CV splitter every
+    fold is a representative blend of both regimes, so a fill choice whose error is merely consistent across
+    folds (same average bias each time) reads as "stable" -- the fold-to-fold-only check's blind spot. A real
+    chronological holdout (train on the first half only, evaluate on the second half only) is not fooled: it
+    exposes the systematic error zero-fill makes on rows whose true missingness meaning it never saw in training.
+    """
+    rng = np.random.default_rng(seed)
+    t = np.arange(n)
+    promo_true = rng.integers(0, 2, n).astype(np.float64)
+    missing_mask = rng.random(n) < 0.3
+    promo_true[missing_mask & (t < n // 2)] = 0.0
+    promo_true[missing_mask & (t >= n // 2)] = 1.0
+    y = 5.0 * promo_true + rng.normal(scale=1.0, size=n)
+
+    promo_observed = promo_true.copy()
+    promo_observed[missing_mask] = np.nan
+
+    X_zero = pd.DataFrame({"promo": np.nan_to_num(promo_observed, nan=0.0)})
+    X_mean = pd.DataFrame({"promo": pd.Series(promo_observed).fillna(pd.Series(promo_observed).mean())})
+    X_mode = pd.DataFrame({"promo": pd.Series(promo_observed).fillna(pd.Series(promo_observed).mode()[0])})
+    return X_zero, X_mean, X_mode, y
+
+
+def test_biz_val_shift_split_catches_instability_fold_cv_misses():
+    n = 2000
+    X_zero, X_mean, X_mode, y = _make_shift_blind_spot_data(n=n, seed=0)
+    cv = KFold(n_splits=5, shuffle=True, random_state=0)  # shuffled -- mixes regimes within every fold.
+    shift_split = (np.arange(0, n // 2), np.arange(n // 2, n))  # train on the past, evaluate on the future.
+
+    variants = {"zero_fill": X_zero, "mean_fill": X_mean, "mode_fill": X_mode}
+    fold_only = imputation_sensitivity_check(Ridge(alpha=0.1), variants, y, r2_score, cv=cv)
+    shift_aware = imputation_sensitivity_check(Ridge(alpha=0.1), variants, y, r2_score, cv=cv, shift_split=shift_split)
+
+    # the fold-to-fold-only check misses zero_fill's real instability under shuffled CV.
+    assert not fold_only.loc["zero_fill", "is_risky"], "expected shuffled fold-to-fold CV to miss zero_fill's instability (the blind spot under test)"
+
+    # the shift-aware check catches it via a large train-past/test-future score gap.
+    assert shift_aware.loc["zero_fill", "is_shift_risky"], "expected the shift-aware check to flag zero_fill as risky"
+    assert not shift_aware.loc["mean_fill", "is_shift_risky"], "expected the regime-robust mean-fill to NOT be flagged shift-risky"
+    assert shift_aware.loc["zero_fill", "shift_gap"] > 0.5, f"expected zero_fill's shift_gap to clear 0.5, got {shift_aware.loc['zero_fill', 'shift_gap']:.4f}"
+    assert shift_aware.loc["zero_fill", "shift_gap"] > shift_aware.loc["mean_fill", "shift_gap"] * 2, "expected zero_fill's shift_gap to be much larger than mean_fill's"
+
+
+def test_imputation_sensitivity_check_shift_split_omitted_is_bit_identical():
+    X_zero, X_mean, X_mode, y = _make_regime_shift_missingness_data(n=500, seed=2)
+    cv = KFold(n_splits=5, shuffle=False)
+    variants = {"zero_fill": X_zero, "mean_fill": X_mean, "mode_fill": X_mode}
+
+    baseline = imputation_sensitivity_check(Ridge(alpha=0.1), variants, y, r2_score, cv=cv)
+    with_shift_omitted = imputation_sensitivity_check(Ridge(alpha=0.1), variants, y, r2_score, cv=cv, shift_split=None)
+
+    pd.testing.assert_frame_equal(baseline, with_shift_omitted)

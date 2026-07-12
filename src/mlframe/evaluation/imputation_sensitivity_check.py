@@ -7,10 +7,17 @@ framing into a reusable diagnostic: given several candidate imputation choices f
 feature, refit under each and compare fold-to-fold CV score VARIANCE -- a choice whose CV score swings wildly
 across folds/time splits is a red flag for exactly this kind of train/test-shift risk, even before any
 holdout leaderboard exists to reveal it.
+
+A fold-to-fold-only check has a blind spot: when ``cv`` shuffles rows (the default) or otherwise mixes eras
+within every fold, each fold sees a representative blend of every regime, so a fill choice whose error is
+merely CONSISTENT across folds (same average bias each time) reads as "stable" even though it would fail hard
+against a genuine held-out future/shifted segment -- exactly the public/private leaderboard-gap failure mode
+the source anecdote is about. The optional ``shift_split`` param adds a second, opt-in check against one real
+train/holdout split (e.g. "train on the past, evaluate on the future") to catch that blind spot directly.
 """
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -29,6 +36,8 @@ def imputation_sensitivity_check(
     scoring: Callable[[np.ndarray, np.ndarray], float],
     cv: Optional[object] = None,
     risk_z_threshold: float = 0.5,
+    shift_split: Optional[Tuple[np.ndarray, np.ndarray]] = None,
+    shift_risk_z_threshold: float = 0.5,
 ) -> pd.DataFrame:
     """Compare per-fold CV score stability across several imputation-choice variants of ``X``.
 
@@ -49,12 +58,24 @@ def imputation_sensitivity_check(
     risk_z_threshold
         A variant's ``fold_std`` is flagged ``is_risky=True`` when its z-score (relative to the OTHER
         variants' `fold_std`) exceeds this threshold -- i.e. it is notably less stable than its peers.
+    shift_split
+        Opt-in. ``(train_idx, holdout_idx)`` row-index arrays into ``X_variants``/``y`` describing ONE real
+        distribution-shift holdout (e.g. a chronological "past vs. future" cut, or a covariate-shift split) --
+        deliberately NOT a rotating CV fold, since folds that mix regimes can hide exactly this risk. When
+        given, each variant is additionally fit once on ``train_idx`` and scored once on ``holdout_idx``; the
+        drop from that variant's ``fold_mean`` to its ``shift_score`` (``shift_gap``) is compared across
+        variants the same way ``fold_std`` is, adding ``shift_score``, ``shift_gap`` and ``is_shift_risky``
+        columns. Omitted by default -- output is then bit-identical to the fold-only check.
+    shift_risk_z_threshold
+        A variant's ``shift_gap`` is flagged ``is_shift_risky=True`` when its z-score (relative to the OTHER
+        variants' ``shift_gap``) exceeds this threshold. Only used when ``shift_split`` is given.
 
     Returns
     -------
     pd.DataFrame
-        One row per variant (indexed by choice name), columns ``fold_mean``, ``fold_std``, ``is_risky``,
-        sorted by ``fold_std`` descending (riskiest first).
+        One row per variant (indexed by choice name), columns ``fold_mean``, ``fold_std``, ``is_risky`` (plus
+        ``shift_score``, ``shift_gap``, ``is_shift_risky`` when ``shift_split`` is given), sorted by
+        ``fold_std`` descending (riskiest first).
     """
     cv_splitter = KFold(n_splits=5, shuffle=True, random_state=0) if cv is None else cv
 
@@ -78,7 +99,30 @@ def imputation_sensitivity_check(
         z_scores = np.zeros_like(stds)
     is_risky = z_scores > risk_z_threshold
 
-    out = pd.DataFrame({"fold_mean": means, "fold_std": stds, "is_risky": is_risky}, index=names)
+    columns: Dict[str, np.ndarray] = {"fold_mean": means, "fold_std": stds, "is_risky": is_risky}
+
+    if shift_split is not None:
+        shift_train_idx, shift_holdout_idx = shift_split
+        shift_scores = np.empty(len(names), dtype=np.float64)
+        for i, name in enumerate(names):
+            X = X_variants[name]
+            model = clone(estimator)
+            model.fit(X.iloc[shift_train_idx], y[shift_train_idx])
+            preds = model.predict(X.iloc[shift_holdout_idx])
+            shift_scores[i] = scoring(y[shift_holdout_idx], preds)
+
+        shift_gap = means - shift_scores
+        if len(shift_gap) > 1 and shift_gap.std(ddof=1) > 0:
+            shift_z_scores = (shift_gap - shift_gap.mean()) / shift_gap.std(ddof=1)
+        else:
+            shift_z_scores = np.zeros_like(shift_gap)
+        is_shift_risky = shift_z_scores > shift_risk_z_threshold
+
+        columns["shift_score"] = shift_scores
+        columns["shift_gap"] = shift_gap
+        columns["is_shift_risky"] = is_shift_risky
+
+    out = pd.DataFrame(columns, index=names)
     return out.sort_values("fold_std", ascending=False)
 
 
