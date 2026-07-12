@@ -34,10 +34,31 @@ def _run(n_objects: int) -> None:
     compute_gp_smoothed_features(df, "obj", "t", "y", query_times, alpha=0.05)
 
 
+def _run_ensemble(n_objects: int, ensemble_mode: str) -> None:
+    df = _make_dataset(n_objects, seed=0)
+    query_times = np.linspace(0, 20, 8)
+    compute_gp_smoothed_features(df, "obj", "t", "y", query_times, alpha=0.05, length_scales=[0.5, 2.0, 8.0], ensemble_mode=ensemble_mode)
+
+
 if __name__ == "__main__":
+    print("--- single fixed length_scale (default path) ---")
     for n_objects in [50, 200, 500]:
         t0 = time.perf_counter()
         _run(n_objects)
+        wall = time.perf_counter() - t0
+        print(f"n_objects={n_objects:>5} -> {wall * 1000:9.2f} ms")
+
+    print("--- multi-length-scale ensemble, cv_best (opt-in, extra LOO-CV fits) ---")
+    for n_objects in [50, 200, 500]:
+        t0 = time.perf_counter()
+        _run_ensemble(n_objects, "cv_best")
+        wall = time.perf_counter() - t0
+        print(f"n_objects={n_objects:>5} -> {wall * 1000:9.2f} ms")
+
+    print("--- multi-length-scale ensemble, cv_blend (opt-in, extra LOO-CV + full fit per candidate) ---")
+    for n_objects in [50, 200, 500]:
+        t0 = time.perf_counter()
+        _run_ensemble(n_objects, "cv_blend")
         wall = time.perf_counter() - t0
         print(f"n_objects={n_objects:>5} -> {wall * 1000:9.2f} ms")
 
@@ -48,4 +69,15 @@ if __name__ == "__main__":
     buf = StringIO()
     stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
     stats.print_stats(15)
+    print("=== single fixed length_scale profile ===")
     print(buf.getvalue())
+
+    profiler_ensemble = cProfile.Profile()
+    profiler_ensemble.enable()
+    _run_ensemble(500, "cv_best")
+    profiler_ensemble.disable()
+    buf_ensemble = StringIO()
+    stats_ensemble = pstats.Stats(profiler_ensemble, stream=buf_ensemble).sort_stats("cumulative")
+    stats_ensemble.print_stats(15)
+    print("=== multi-length-scale ensemble (cv_best) profile ===")
+    print(buf_ensemble.getvalue())
