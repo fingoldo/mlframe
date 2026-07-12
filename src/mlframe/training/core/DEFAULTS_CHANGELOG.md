@@ -183,4 +183,40 @@ campaign. Traced the full call graph and confirmed it is already deeply wired en
   real per-target compute cost (MI screening + tiny-model rerank + honest-OOF re-scoring) and no generic
   safety guarantee for datasets with no such structure, so it stays the caller's opt-in decision.
 
+## Batch H audit: `FeatureHandlingConfig` (2026-07-12) — nothing to wire, confirmed already integrated
+
+Investigated per the "wire the isolated 129" directive, specifically per-feature handling (categorical/text
+transforms, embedding providers, caching). Verdict: `FeatureHandlingConfig` (`training/feature_handling/config.py`,
+the full `mlframe.training.feature_handling` package with 25+ sibling modules — axis registry, handlers, assembler,
+cache/cache_backend, fingerprint, text_detection, target_encoders, routing, presets) is **not** an isolated/
+unreachable utility — it is already deeply wired end-to-end into `train_mlframe_models_suite`:
+
+- Accepted as the public `feature_handling_config` parameter (`_main_train_suite.py`), normalised/validated in
+  `_phase_config_setup.py` (`FeatureHandlingConfig.validate_against_models(mlframe_models)` against the compat
+  matrix, then stashed onto `ctx.artifacts["feature_handling_config"]` — `TrainingContext` is `slots=True` with
+  no dedicated slot, so `ctx.artifacts` is the documented storage seam).
+- Consumed once per target via `_maybe_run_feature_handling_apply` (`_phase_train_one_target_helpers.py`), called
+  from `_phase_train_one_target_model_setup.py` at the "post-FS / pre-final-pipeline" seam, which resolves
+  `ctx.feature_handling_config` / `ctx.artifacts["feature_handling_config"]`, calls `feature_handling_apply`
+  (auto text-detection, per-model handler-chain resolution, fit/transform/assemble, `FeatureCache` reuse across
+  the suite's models×pre_pipelines loops), and stashes the fitted result under
+  `ctx.artifacts["feature_handling_fitted"][target_name]`.
+- Already covered by dedicated tests exercising the real wiring, not just the standalone helper:
+  `tests/training/test_feature_handling_config_plumbed_onto_ctx.py`,
+  `tests/training/test_feature_handling_apply_wired_into_train_one_target.py`,
+  `tests/training/test_feature_handling_apply.py`, plus fuzz-combo coverage
+  (`tests/training/_fuzz_combo/axes.py`, `tests/training/fuzz/test_fuzz_combo_cross_axis.py`).
+
+**Not flipped to default-ON** (verified, not assumed): `FeatureHandlingConfig()` constructed with zero args
+resolves `default_cat=None` / `default_text=None` to **empty** per-model handler chains for every model kind —
+confirmed live: `fhc = FeatureHandlingConfig(); fhc._effective_text_specs("cb") == [] and
+fhc._effective_cat_specs("cb") == []`. Unlike the diagnostics/row-wise-stats flips (pure additive, no
+dataset-specific input needed), a zero-config FHC is a genuine **no-op** that would only add cache/memory-probe
+setup overhead for zero behavioral effect, while a FHC seeded with a *non-empty* fabricated default (e.g. always
+TF-IDF-encode auto-detected text columns) would be a real, dataset-specific feature-encoding-policy decision the
+suite cannot safely invent on the caller's behalf — the same "no generic default exists" reasoning already
+recorded above for `SegmentedModelFactory`/`GatedRegressionMixture`/etc and for composite-target-discovery's master
+switch. Confirmed via live probe, no source change needed; the existing `feature_handling_config: Optional[...] =
+None` opt-in default is correct as-is.
+
 No code change. No new tests needed — this batch is a documented negative result, not a wiring gap.
