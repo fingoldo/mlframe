@@ -12,13 +12,19 @@ for both GBDT's flat wide-feature view and a fixed-width sequence-model input.
 """
 from __future__ import annotations
 
-from typing import Sequence
+from typing import Optional, Sequence
 
 import pandas as pd
 
 
 def pivot_time_indexed_panel(
-    df: pd.DataFrame, id_col: str, time_index_col: str, value_cols: Sequence[str], max_lags: int = 13, add_time_gaps: bool = False
+    df: pd.DataFrame,
+    id_col: str,
+    time_index_col: str,
+    value_cols: Sequence[str],
+    max_lags: int = 13,
+    add_time_gaps: bool = False,
+    agg_stats: Optional[Sequence[str]] = None,
 ) -> pd.DataFrame:
     """Reshape a ``(entity, time_step, features)`` long panel into one wide row per entity, right-aligned.
 
@@ -45,18 +51,32 @@ def pivot_time_indexed_panel(
         recent for one (irregular but dense history) and stale for the other (sparse history) -- the lag rank
         alone can't tell a downstream model which, since it only encodes row-count position, not elapsed
         real time. The gap column carries exactly that "how stale is this specific slot" signal.
+    agg_stats
+        Opt-in (default ``None`` -- no summary columns, output unchanged). When given, e.g.
+        ``("mean", "std", "min", "max")``, also emit ``{value_col}_trail_{stat}`` columns computed over
+        exactly the rows an entity's history has BEYOND ``max_lags`` (the ones the raw ``lag_k`` columns
+        truncate away). Entities whose full history fits within ``max_lags`` get NaN in these columns --
+        there is nothing truncated to summarize. Without this, a long-history entity's older statements are
+        pure information loss past the lag cutoff; the trailing summary recovers their aggregate shape
+        (e.g. a long-run mean level) at fixed column width instead of growing ``max_lags`` to fit every
+        entity's longest history.
 
     Returns
     -------
     pd.DataFrame
         One row per entity (indexed by ``id_col``), columns ``{value_col}_lag_{k}`` for ``k`` in
-        ``0..max_lags-1``, plus ``{time_index_col}_gap_lag_{k}`` columns if ``add_time_gaps``.
+        ``0..max_lags-1``, plus ``{time_index_col}_gap_lag_{k}`` columns if ``add_time_gaps``, plus
+        ``{value_col}_trail_{stat}`` columns if ``agg_stats``.
     """
     ordered = df.sort_values([id_col, time_index_col])
     # rank from the END of each entity's history (0 = most recent) -- this is what makes the pivot
     # right-aligned instead of plain pandas' left-aligned-by-absolute-time_index_col behavior.
     reverse_rank = ordered.groupby(id_col, sort=False).cumcount(ascending=False)
     ordered = ordered.assign(_lag=reverse_rank)
+
+    # split off the truncated-away (older-than-max_lags) rows BEFORE filtering, so their aggregate
+    # stats can be recovered even though they never make it into the raw lag_k columns below.
+    truncated = ordered[ordered["_lag"] >= max_lags] if agg_stats else None
     ordered = ordered[ordered["_lag"] < max_lags]
 
     pivot_cols = list(value_cols)
@@ -75,6 +95,16 @@ def pivot_time_indexed_panel(
     wide = ordered.pivot(index=id_col, columns="_lag", values=pivot_cols)
     wide = wide.reindex(columns=pd.MultiIndex.from_product([pivot_cols, range(max_lags)]))
     wide.columns = [f"{time_index_col}_gap_lag_{k}" if col == "_gap" else f"{col}_lag_{k}" for col, k in wide.columns]
+
+    if agg_stats and truncated is not None:
+        stats = list(agg_stats)
+        trail = truncated.groupby(id_col, sort=False)[list(value_cols)].agg(stats)
+        trail.columns = [f"{col}_trail_{stat}" for col, stat in trail.columns]
+        # entities with no truncated-away rows (full history fit within max_lags) get NaN here --
+        # there is nothing beyond the cutoff to summarize for them.
+        trail = trail.reindex(wide.index)
+        wide = pd.concat([wide, trail], axis=1)
+
     return wide
 
 
