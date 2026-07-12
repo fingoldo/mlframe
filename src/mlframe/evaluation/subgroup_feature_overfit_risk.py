@@ -8,6 +8,8 @@ shift" rather than genuine signal whenever its source subgroup is itself flagged
 """
 from __future__ import annotations
 
+from typing import Mapping, Sequence
+
 import pandas as pd
 
 from mlframe.evaluation.subpopulation_drift import subpopulation_ratio_drift_check
@@ -71,4 +73,97 @@ def flag_subgroup_only_feature_overfit_risk(
     }
 
 
-__all__ = ["flag_subgroup_only_feature_overfit_risk"]
+def rank_subgroup_feature_overfit_risk(
+    train_df: pd.DataFrame,
+    test_df: pd.DataFrame,
+    candidates: Sequence[Mapping[str, object]],
+    ratio_threshold: float = 2.0,
+) -> pd.DataFrame:
+    """Rank multiple candidate subgroup-only features by overfit-risk severity in one call.
+
+    Companion to :func:`flag_subgroup_only_feature_overfit_risk`, mirroring the boolean-flag ->
+    severity-ranking upgrade that :func:`~mlframe.evaluation.subpopulation_drift.rank_subpopulation_drift_severity`
+    already does for whole subgroup columns. Where the single-feature function only answers "is THIS feature
+    at risk", this answers "which of MY candidate features should I drop/investigate FIRST" -- useful once a
+    model has several subgroup-only features and only some CV budget to re-validate them.
+
+    Parameters
+    ----------
+    train_df, test_df
+        Frames both containing every ``subgroup_col`` referenced in ``candidates``.
+    candidates
+        One mapping per candidate feature, each with keys ``"feature_name"`` (any hashable label),
+        ``"subgroup_col"``, ``"feature_subgroup_value"``, and ``"cv_delta"`` -- the same inputs
+        :func:`flag_subgroup_only_feature_overfit_risk` takes per-call, batched here. Candidates may reuse
+        the same ``subgroup_col`` (its drift report is computed once and reused across them).
+    ratio_threshold
+        Passed through to :func:`~mlframe.evaluation.subpopulation_drift.subpopulation_ratio_drift_check`
+        for the ``subgroup_shifted``/``overfit_risk_flag`` columns; the ranking itself is driven by the
+        continuous ``risk_score``, not this threshold.
+
+    Returns
+    -------
+    pd.DataFrame
+        One row per candidate: ``{"feature_name", "subgroup_col", "feature_subgroup_value", "cv_delta",
+        "prevalence_ratio", "subgroup_shifted", "overfit_risk_flag", "drift_severity_score", "risk_score"}``,
+        sorted by ``risk_score`` descending (highest overfit risk first). ``risk_score`` is
+        ``drift_severity_score * abs(cv_delta)`` -- a candidate riding a badly-shifted subgroup with a large
+        CV gain ranks above one with either a mild shift or a negligible gain; unlike ``drift_severity_score``
+        alone it is NOT bounded to ``[0, 1)`` since ``cv_delta`` is caller-scaled. A candidate whose subgroup
+        value doesn't appear in either split gets ``risk_score = 0.0`` (nothing to rank -- same convention as
+        ``overfit_risk_flag=False`` in the single-feature function).
+    """
+    # cache per subgroup_col so candidates sharing a column don't re-run the drift check redundantly.
+    reports: dict[str, pd.DataFrame] = {}
+    rows = []
+    for candidate in candidates:
+        subgroup_col = str(candidate["subgroup_col"])
+        feature_subgroup_value = candidate["feature_subgroup_value"]
+        cv_delta = float(candidate["cv_delta"])  # type: ignore[arg-type]
+        feature_name = candidate.get("feature_name", feature_subgroup_value)
+
+        if subgroup_col not in reports:
+            reports[subgroup_col] = subpopulation_ratio_drift_check(
+                train_df, test_df, subgroup_col, ratio_threshold=ratio_threshold, include_severity_score=True
+            )
+        report = reports[subgroup_col]
+        matching = report[report["subgroup_value"] == feature_subgroup_value]
+
+        if matching.empty:
+            rows.append(
+                {
+                    "feature_name": feature_name,
+                    "subgroup_col": subgroup_col,
+                    "feature_subgroup_value": feature_subgroup_value,
+                    "cv_delta": cv_delta,
+                    "prevalence_ratio": float("nan"),
+                    "subgroup_shifted": False,
+                    "overfit_risk_flag": False,
+                    "drift_severity_score": 0.0,
+                    "risk_score": 0.0,
+                }
+            )
+            continue
+
+        row = matching.iloc[0]
+        subgroup_shifted = bool(row["flagged"])
+        drift_severity_score = float(row["drift_severity_score"])
+        rows.append(
+            {
+                "feature_name": feature_name,
+                "subgroup_col": subgroup_col,
+                "feature_subgroup_value": feature_subgroup_value,
+                "cv_delta": cv_delta,
+                "prevalence_ratio": float(row["prevalence_ratio"]),
+                "subgroup_shifted": subgroup_shifted,
+                "overfit_risk_flag": subgroup_shifted and cv_delta != 0.0,
+                "drift_severity_score": drift_severity_score,
+                "risk_score": drift_severity_score * abs(cv_delta),
+            }
+        )
+
+    ranking = pd.DataFrame(rows)
+    return ranking.sort_values("risk_score", ascending=False).reset_index(drop=True)
+
+
+__all__ = ["flag_subgroup_only_feature_overfit_risk", "rank_subgroup_feature_overfit_risk"]

@@ -23,7 +23,10 @@ from mlframe.evaluation.subpopulation_drift import subpopulation_ratio_drift_che
 from mlframe.evaluation.adversarial_feature_audit import adversarial_validation_feature_audit
 from mlframe.evaluation.cv_informativeness import cv_informativeness_check
 from mlframe.evaluation.group_leakage_guard import assert_no_group_leakage
-from mlframe.evaluation.subgroup_feature_overfit_risk import flag_subgroup_only_feature_overfit_risk
+from mlframe.evaluation.subgroup_feature_overfit_risk import (
+    flag_subgroup_only_feature_overfit_risk,
+    rank_subgroup_feature_overfit_risk,
+)
 from mlframe.evaluation.constant_group_leak_scan import constant_group_target_scan
 from mlframe.evaluation.label_correlation_rerank import (
     detect_correlated_label_groups,
