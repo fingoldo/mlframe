@@ -81,56 +81,67 @@ def engineered_name_te_stat(col: str, stat: str) -> str:
     return engineered_name_te(col) if stat == "mean" else f"{col}__te_{stat}"
 
 
-def _per_category_stats_smoothed(
-    inverse: np.ndarray, y_arr: np.ndarray, n_cats: int, stats: Sequence[str],
-    global_stats: dict, smoothing: float,
+def _raw_moment_sums(
+    inverse: np.ndarray, y_arr: np.ndarray, n_cats: int, moment_stats: Sequence[str],
+    *, counts: Optional[np.ndarray] = None,
 ) -> dict:
-    """Vectorised per-category target statistics (mean/std/skew/kurt) from raw moments via ``np.bincount``,
-    each shrunk toward its global value (Micci-Barreca) so rare categories stay robust. Returns ``{stat: arr}``
-    of length ``n_cats``. O(n) per fold -- replaces the prior per-row Python loop (a real speedup on wide cat sets)."""
-    moment_stats = [s for s in stats if s in _TE_MOMENT_STATS]
-    cnt = np.bincount(inverse, minlength=n_cats).astype(np.float64)
+    """Additive per-category raw-moment sums (``cnt``, ``s1=sum(y)``, ``s2=sum(y**2)``, ``s3=sum(y**3)``,
+    ``s4=sum(y**4)``) needed to derive ``moment_stats``, via ``np.bincount``. Each sum is a pure per-row
+    partition sum, so ``sums(A) + sums(B) == sums(A union B)`` elementwise for any disjoint row sets A/B --
+    ``kfold_target_encode_fit`` exploits this to get a fold's TRAIN-only sums as ``full - test`` instead of
+    rescanning the ``(n_folds-1)/n_folds`` of rows in that fold's training split."""
+    out: dict = {}
+    if not moment_stats:
+        return out
+    out["cnt"] = counts.astype(np.float64) if counts is not None else np.bincount(inverse, minlength=n_cats).astype(np.float64)
+    out["s1"] = np.bincount(inverse, weights=y_arr, minlength=n_cats)
+    if any(s in ("std", "skew", "kurt") for s in moment_stats):
+        out["s2"] = np.bincount(inverse, weights=y_arr * y_arr, minlength=n_cats)
+    if any(s in ("skew", "kurt") for s in moment_stats):
+        out["s3"] = np.bincount(inverse, weights=y_arr**3, minlength=n_cats)
+    if "kurt" in moment_stats:
+        out["s4"] = np.bincount(inverse, weights=y_arr**4, minlength=n_cats)
+    return out
+
+
+def _smooth_moments_from_sums(
+    raw: dict, moment_stats: Sequence[str], global_stats: dict, smoothing: float,
+) -> dict:
+    """Derive smoothed (Micci-Barreca) per-category moment stats from the additive raw sums in ``raw``
+    (see :func:`_raw_moment_sums`). Pure function of the sums -- callable on either a direct bincount or a
+    fold's ``full - test`` subtraction result."""
+    out: dict = {}
+    if not moment_stats:
+        return out
+    cnt = raw["cnt"]
     safe = np.maximum(cnt, 1.0)
-    s1 = np.bincount(inverse, weights=y_arr, minlength=n_cats)
+    s1 = raw["s1"]
     mean = s1 / safe
     need_hi = any(s in ("std", "skew", "kurt") for s in moment_stats)
-    out: dict = {}
     if need_hi:
-        s2 = np.bincount(inverse, weights=y_arr * y_arr, minlength=n_cats)
+        s2 = raw["s2"]
         m2 = np.maximum(s2 / safe - mean * mean, 0.0)  # variance (clip tiny negatives from fp error)
         std = np.sqrt(m2)
     for stat in moment_stats:
         if stat == "mean":
-            raw = mean
+            rawv = mean
         elif stat == "std":
-            raw = std
+            rawv = std
         elif stat == "skew":
-            s3 = np.bincount(inverse, weights=y_arr**3, minlength=n_cats)
+            s3 = raw["s3"]
             m3 = s3 / safe - 3.0 * mean * (s2 / safe) + 2.0 * mean**3
-            raw = np.where(std > 1e-9, m3 / (std**3 + 1e-12), 0.0)
+            rawv = np.where(std > 1e-9, m3 / (std**3 + 1e-12), 0.0)
         elif stat == "kurt":
-            s3 = np.bincount(inverse, weights=y_arr**3, minlength=n_cats)
-            s4 = np.bincount(inverse, weights=y_arr**4, minlength=n_cats)
+            s3 = raw["s3"]
+            s4 = raw["s4"]
             m4 = s4 / safe - 4.0 * mean * (s3 / safe) + 6.0 * mean**2 * (s2 / safe) - 3.0 * mean**4
-            raw = np.where(m2 > 1e-12, m4 / (m2 * m2 + 1e-12) - 3.0, 0.0)  # excess kurtosis
+            rawv = np.where(m2 > 1e-12, m4 / (m2 * m2 + 1e-12) - 3.0, 0.0)  # excess kurtosis
         else:
             raise ValueError(f"target-encoding stat {stat!r} not in {TE_SUPPORTED_STATS}")
         g = float(global_stats[stat])
         # Shrink toward the global statistic; empty categories (cnt==0) -> global value.
-        smoothed = np.where(cnt > 0, (cnt * raw + smoothing * g) / (cnt + smoothing), g)
+        smoothed = np.where(cnt > 0, (cnt * rawv + smoothing * g) / (cnt + smoothing), g)
         out[stat] = smoothed
-    return out
-
-
-def _per_category_target_stats(
-    inverse: np.ndarray, y_arr: np.ndarray, n_cats: int, stats: Sequence[str],
-    global_stats: dict, smoothing: float,
-) -> dict:
-    """Per-category values for every requested stat: moment stats (mean/std/skew/kurt) via the smoothed raw-moment path,
-    order stats (median/trimmed_mean/q10/q90/iqr/min/max) via the within-category-sorted segment kernel. Merged in one
-    dict of length-``n_cats`` arrays -- the single per-category entry point the OOF folds + full-data replay both call."""
-    out = _per_category_stats_smoothed(inverse, y_arr, n_cats, stats, global_stats, smoothing)
-    out.update(per_category_order_stats(inverse, y_arr, n_cats, stats, global_stats))
     return out
 
 
@@ -258,7 +269,19 @@ def _column_to_str(col: pd.Series) -> np.ndarray:
         _has_01 = bool(np.asarray((uniq == 0) | (uniq == 1)).any())
     except Exception:
         _has_01 = any((not (isinstance(v, float) and v != v)) and (v == 0 or v == 1) for v in uniq)
-    _bool_risk = _has_01 and any(isinstance(v, (bool, np.bool_)) for v in uniq)
+    # The bool-instance scan must run over the RAW array, not ``uniq``: factorize keeps only ONE representative
+    # per equivalence class, and when a collided bool loses that slot to an equal-valued int (e.g. array order
+    # puts ``1`` before ``True``), ``uniq`` never contains the bool at all -- scanning ``uniq`` here silently
+    # missed exactly the collision case this gate exists to catch. Restrict the scan to the 0/1-valued rows of
+    # ``arr`` (not the full array) to keep the common high-cardinality case cheap.
+    if _has_01:
+        try:
+            _zero_one_mask = np.asarray((arr == 0) | (arr == 1))
+        except Exception:
+            _zero_one_mask = np.array([(not (isinstance(v, float) and v != v)) and (v == 0 or v == 1) for v in arr], dtype=bool)
+        _bool_risk = any(isinstance(v, (bool, np.bool_)) for v in arr[_zero_one_mask])
+    else:
+        _bool_risk = False
     if not _bool_risk:
         toks = np.empty(len(uniq), dtype=object)
         for j, v in enumerate(uniq):
@@ -364,29 +387,51 @@ def kfold_target_encode_fit(
     # ONCE instead of recomputing ``fold_ids != f`` (O(n) bool) and ``np.where`` per (col, fold). Bit-identical.
     _fold_ne = [fold_ids != f for f in range(int(n_folds))]
     _fold_test_idx = [np.where(fold_ids == f)[0] for f in range(int(n_folds))]
+    moment_stats = [s for s in stats if s in _TE_MOMENT_STATS]
+    order_stats_wanted = [s for s in stats if s in _TE_ORDER_STATS]
     for col in cat_cols:
         cats = _column_to_str(X[col])
         # Unique categories with stable integer codes.
         unique_cats, inverse = np.unique(cats, return_inverse=True)
         n_cats = unique_cats.shape[0]
 
-        # OOF encoding: for each fold f, compute per-category statistics from rows in folds != f (vectorised via
-        # np.bincount moments -- O(n) per fold, no per-row Python loop) and apply to rows in fold f.
+        # Full-data counts + raw moment sums (cnt/sum(y)/sum(y^2)/...), needed anyway for the persisted
+        # replay lookup below. moment_stats are additive/linear (unlike order stats, which need y actually
+        # sorted within category and are NOT decomposable this way): a fold's TRAIN-only sums equal
+        # full - test, so each fold below does an O(n/n_folds) TEST-only bincount pass instead of an
+        # O(n*(n_folds-1)/n_folds) TRAIN rescan -- cuts total row-visits roughly (n_folds-1)/2 x.
+        full_counts = np.bincount(inverse, minlength=n_cats) if (moment_stats or order_stats_wanted) else None
+        full_moment_raw = _raw_moment_sums(inverse, y_arr, n_cats, moment_stats, counts=full_counts)
+
+        # OOF encoding: for each fold f, compute per-category statistics from rows in folds != f and apply to
+        # rows in fold f.
         oof = {s: np.full(n, global_stats[s], dtype=np.float64) for s in stats}
         for f in range(int(n_folds)):
             train_mask = _fold_ne[f]
             if not train_mask.any():
                 continue
-            per_cat = _per_category_target_stats(
-                inverse[train_mask], y_arr[train_mask], n_cats, stats, global_stats, smoothing,
-            )
             test_idx = _fold_test_idx[f]
+            per_cat: dict = {}
+            if moment_stats:
+                test_counts = np.bincount(inverse[test_idx], minlength=n_cats) if full_counts is not None else None
+                test_raw = _raw_moment_sums(inverse[test_idx], y_arr[test_idx], n_cats, moment_stats, counts=test_counts)
+                train_raw = {k: full_moment_raw[k] - test_raw[k] for k in full_moment_raw}
+                per_cat.update(_smooth_moments_from_sums(train_raw, moment_stats, global_stats, smoothing))
+            if order_stats_wanted:
+                # Order stats need y actually sorted within each TRAIN category (not expressible from additive
+                # sums), so this branch still rescans the train rows -- unchanged from the pre-existing behaviour.
+                per_cat.update(per_category_order_stats(inverse[train_mask], y_arr[train_mask], n_cats, order_stats_wanted, global_stats))
             inv_test = inverse[test_idx]
             for s in stats:
                 oof[s][test_idx] = per_cat[s][inv_test]
 
-        # Full-data lookups for transform-time replay (one table per statistic).
-        full_per_cat = _per_category_target_stats(inverse, y_arr, n_cats, stats, global_stats, smoothing)
+        # Full-data lookups for transform-time replay (one table per statistic). Reuses full_moment_raw (already
+        # computed above) instead of a third identical bincount pass over the moment stats.
+        full_per_cat: dict = {}
+        if moment_stats:
+            full_per_cat.update(_smooth_moments_from_sums(full_moment_raw, moment_stats, global_stats, smoothing))
+        if order_stats_wanted:
+            full_per_cat.update(per_category_order_stats(inverse, y_arr, n_cats, order_stats_wanted, global_stats, counts=full_counts))
         cat_strs = [str(unique_cats[c]) for c in range(n_cats)]
         stat_lookups: dict[str, dict] = {}
         for s in stats:

@@ -78,6 +78,8 @@ from ._temporal_agg_fe_rolling import (
     build_temporal_rolling_recipe,
     engineered_name_rolling,
     generate_rolling_window_agg_features,
+    _numeric_window,  # noqa: F401 -- re-exported for tests exercising the rolling njit kernel by its historical module path
+    _rolling_stat_past_only,  # noqa: F401 -- re-exported for tests exercising the rolling njit kernel by its historical module path
 )
 
 EXPANDING_STATS = ("mean", "std", "count", "min", "max")
@@ -283,6 +285,12 @@ def generate_expanding_agg_features(
     inv_order[order] = np.arange(order.size)
     key_sorted = key[order]
     codes_sorted, _uniq = pd.factorize(key_sorted, sort=False)
+    # n_codes / times_ord / the row-slice split depend only on (entity_cols, time_col), never value_col;
+    # hoist out of the value_col loop instead of recomputing (incl. the O(N log N) argsort inside
+    # _group_row_slices) for every value column.
+    n_codes = int(codes_sorted.max()) + 1 if codes_sorted.size else 0
+    times_ord = time_vals[order]
+    row_slices = _group_row_slices(codes_sorted, n_codes)
 
     # Persist the per-entity sorted history (train snapshot) once per value col.
     for value_col in value_cols:
@@ -290,9 +298,7 @@ def generate_expanding_agg_features(
         vals_sorted = vals[order]
         # History snapshot: per-entity sorted (time, value) lists.
         history: dict[str, dict] = {}
-        n_codes = int(codes_sorted.max()) + 1 if codes_sorted.size else 0
-        times_ord = time_vals[order]
-        for rows in _group_row_slices(codes_sorted, n_codes):
+        for rows in row_slices:
             ent_key = str(key_sorted[rows[0]])
             history[ent_key] = {
                 "t": times_ord[rows].tolist(),
@@ -350,6 +356,38 @@ def _reduce(arr: np.ndarray, stat: str) -> float:
 # ---------------------------------------------------------------------------
 
 
+@numba.njit(cache=True)
+def _lag_ring_buffer_njit(sorted_vals, group_codes, lags_arr, n_groups):
+    """Single pass emitting EVERY requested lag via a per-entity ring buffer of size ``max(lags_arr)``, replacing
+    an independent per-lag rescan of the identical per-entity sequence (the previous per-lag Python loop redid
+    the ``g = int(codes_sorted[i])`` walk + buffer bookkeeping from scratch once per lag).
+
+    ``out[k, i]`` is the group's value ``lags_arr[k]`` observations before row ``i`` (in time order), matching
+    the reference per-entity growing list's ``buf[-lag]`` (read BEFORE the current row is appended) exactly:
+    at row i, entity g has seen ``cnt[g]`` prior values, sitting at ring position ``(cnt[g]-lag) % max_lag``
+    whenever ``cnt[g] >= lag`` (else NaN, no such predecessor yet). Since every requested lag is <= max_lag,
+    that position is always still resident in the ring."""
+    n = sorted_vals.size
+    n_lags = lags_arr.size
+    max_lag = 1
+    for k in range(n_lags):
+        if lags_arr[k] > max_lag:
+            max_lag = lags_arr[k]
+    out = np.full((n_lags, n), np.nan, dtype=np.float64)
+    ring = np.zeros((n_groups, max_lag), dtype=np.float64)
+    cnt = np.zeros(n_groups, dtype=np.int64)
+    for i in range(n):
+        g = group_codes[i]
+        c = cnt[g]
+        for k in range(n_lags):
+            lag = lags_arr[k]
+            if c >= lag:
+                out[k, i] = ring[g, (c - lag) % max_lag]
+        ring[g, c % max_lag] = sorted_vals[i]
+        cnt[g] = c + 1
+    return out
+
+
 def generate_lag_features(
     X: pd.DataFrame,
     entity_cols: Sequence[str],
@@ -378,16 +416,21 @@ def generate_lag_features(
     key_sorted = key[order]
     times_sorted = time_vals[order]
     codes_sorted, _ = pd.factorize(key_sorted, sort=False)
+    codes_sorted_i64 = np.ascontiguousarray(codes_sorted, dtype=np.int64)
     ent_label = entity_cols[0] if len(entity_cols) == 1 else "+".join(entity_cols)
+    # n_codes / the row-slice split depend only on (entity_cols, time_col), never value_col; hoist out
+    # of the value_col loop instead of recomputing per value column.
+    n_codes = int(codes_sorted.max()) + 1 if codes_sorted.size else 0
+    row_slices = _group_row_slices(codes_sorted, n_codes)
+    lags_arr = np.asarray(lags, dtype=np.int64)
 
     for value_col in value_cols:
         vals = np.asarray(X[value_col].to_numpy(), dtype=np.float64)
         vals_sorted = vals[order]
         prior = _global_prior(vals, "mean")
         history: dict[str, dict] = {}
-        n_codes = int(codes_sorted.max()) + 1 if codes_sorted.size else 0
         # Per-entity ordered value list (for lag-by-position).
-        for rows in _group_row_slices(codes_sorted, n_codes):
+        for rows in row_slices:
             ent_key = str(key_sorted[rows[0]])
             t_list = times_sorted[rows]
             history[ent_key] = {
@@ -395,17 +438,12 @@ def generate_lag_features(
                 "v": vals_sorted[rows].astype(np.float64).tolist(),
                 "is_datetime": bool(_is_datetime_like(t_list)),
             }
-        for lag in lags:
-            res_sorted = np.full(vals_sorted.size, np.nan, dtype=np.float64)
-            # Per-entity ring of recent values.
-            recent: dict[int, list] = {}
-            for i in range(vals_sorted.size):
-                g = int(codes_sorted[i])
-                buf = recent.setdefault(g, [])
-                if len(buf) >= lag:
-                    res_sorted[i] = buf[-lag]
-                buf.append(vals_sorted[i])
-            res_sorted = np.where(np.isfinite(res_sorted), res_sorted, prior)
+        # One pass over the time-sorted sequence emits EVERY requested lag via a max(lags)-sized per-entity ring
+        # buffer, instead of an independent per-lag rescan of the same per-entity sequence (3x fewer row-visits
+        # at the default 3 lags).
+        lag_outputs = _lag_ring_buffer_njit(vals_sorted, codes_sorted_i64, lags_arr, max(n_codes, 1))
+        for k, lag in enumerate(lags):
+            res_sorted = np.where(np.isfinite(lag_outputs[k]), lag_outputs[k], prior)
             res = res_sorted[inv_order]
             name = engineered_name_lag(value_col, ent_label, lag)
             encoded[name] = res

@@ -20,7 +20,7 @@ threshold because order stats are not additively blendable the way Micci-Barreca
 """
 from __future__ import annotations
 
-from typing import Sequence
+from typing import Optional, Sequence
 
 import numba
 import numpy as np
@@ -94,16 +94,19 @@ def _seg_quantile(y_sorted: np.ndarray, start: int, k: int, p: float) -> float:
 
 def per_category_order_stats(
     inverse: np.ndarray, y_arr: np.ndarray, n_cats: int, stats: Sequence[str], global_stats: dict,
+    *, counts: Optional[np.ndarray] = None,
 ) -> dict:
     """Per-category order statistics with rare-cell fallback to the global value.
 
     Returns ``{stat: arr}`` of length ``n_cats`` for each requested ORDER stat. A category with fewer rows than the stat's
     ``ORDER_STAT_N_MIN`` floor (or zero rows) takes the global stat value -- rare cells never emit an unstable order stat.
-    Vectorised: one ``np.lexsort`` sorts y within category, then the njit segment kernel emits every requested stat."""
+    Vectorised: one ``np.lexsort`` sorts y within category, then the njit segment kernel emits every requested stat.
+    ``counts`` lets a caller that already computed ``np.bincount(inverse, minlength=n_cats)`` (e.g. because moment
+    stats are also being computed on the same ``inverse``) pass it in and skip the redundant recount."""
     wanted = [s for s in stats if s in ORDER_STATS]
     if not wanted:
         return {}
-    counts = np.bincount(inverse, minlength=n_cats).astype(np.int64)
+    counts = counts.astype(np.int64) if counts is not None else np.bincount(inverse, minlength=n_cats).astype(np.int64)
     # lexsort: primary key = category code (last), secondary = y -> rows grouped by category, y ascending within group.
     order = np.lexsort((y_arr, inverse))
     y_sorted = np.ascontiguousarray(y_arr[order])

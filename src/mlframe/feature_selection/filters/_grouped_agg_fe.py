@@ -185,10 +185,13 @@ def generate_grouped_agg_features(
     for group_col in group_cols:
         g = X[group_col]
         g_keys = group_key_strings(g)
+        # The grouper (hash/factorize of group_col) doesn't depend on num_col; build it once per
+        # group_col and slice a fresh Series-groupby off it per num_col instead of re-factorizing.
+        gb = X.groupby(group_col, observed=True, sort=False)
         cur_num_cols = [c for c in num_cols if c in X.columns and c != group_col and pd.api.types.is_numeric_dtype(X[c])]
         for num_col in cur_num_cols:
             x = np.asarray(X[num_col].to_numpy(), dtype=np.float64)
-            grouped = X.groupby(group_col, observed=True, sort=False)[num_col]
+            grouped = gb[num_col]
             # Mean / std lookups are always needed for the residual variants
             # even if the user didn't request them as broadcast stats.
             mean_series = grouped.mean()
@@ -203,7 +206,14 @@ def generate_grouped_agg_features(
 
             # ---- Broadcast each requested stat ----
             for stat in stats:
-                agg_series = grouped.agg(_agg_func_for_stat(stat))
+                # mean / std are already materialised above for the z / ratio residuals; reuse them instead of
+                # re-running the groupby.agg() a second time. grouped.mean()/std(ddof=1) == agg("mean")/agg("std").
+                if stat == "mean":
+                    agg_series = mean_series
+                elif stat == "std":
+                    agg_series = std_series
+                else:
+                    agg_series = grouped.agg(_agg_func_for_stat(stat))
                 lookup = {canonical_group_token(k): (float(v) if np.isfinite(v) else 0.0) for k, v in agg_series.items()}
                 global_value = _global_value_for_stat(x, stat)
                 broadcast = _broadcast_lookup(g_keys, lookup, global_value)

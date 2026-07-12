@@ -240,6 +240,7 @@ def generate_composite_group_agg_features(
     stats: Sequence[str] = COMPOSITE_STAT_NAMES,
     *,
     max_card_frac: float = 0.5,
+    _precomputed_keys: Optional[dict] = None,
 ):
     """Compute per-(composite_key, num_col, stat) broadcasts plus the
     z-within-composite-group and ratio-to-composite-group residuals.
@@ -249,6 +250,11 @@ def generate_composite_group_agg_features(
 
     A composite key whose distinct-cell count exceeds ``max_card_frac * n`` is
     refused (Layer 29 guard): it emits no columns.
+
+    ``_precomputed_keys``, when supplied by an auto-detect caller (see
+    :func:`auto_detect_key_sets`'s ``_key_cache``), maps ``group_cols -> (keys, key_uniq, key_inverse,
+    n_distinct)`` for combos already built while ranking candidates -- skips rebuilding + re-hashing the
+    identical composite key for every surviving combo.
     """
     if not isinstance(X, pd.DataFrame):
         raise TypeError(f"generate_composite_group_agg_features: X must be a pandas " f"DataFrame; got {type(X).__name__}")
@@ -275,8 +281,17 @@ def generate_composite_group_agg_features(
         return pd.DataFrame(index=X.index), raw_recipes
 
     for group_cols in norm_sets:
-        keys = build_composite_keys(X, group_cols)
-        n_distinct = int(np.unique(keys).size)
+        _pre = _precomputed_keys.get(group_cols) if _precomputed_keys is not None else None
+        if _pre is not None:
+            keys, key_uniq, key_inverse, n_distinct = _pre
+        else:
+            keys = build_composite_keys(X, group_cols)
+            # De-duplicate the composite keys ONCE per key-set; reused by every
+            # num_col / stat / residual broadcast below (the np.unique argsort was
+            # the dominant cProfile hotspot before this hoist), and for the
+            # cardinality guard itself (avoids a second full np.unique pass).
+            key_uniq, key_inverse = _unique_inverse(keys)
+            n_distinct = int(key_uniq.size) if key_uniq is not None else int(np.unique(keys).size)
         if not composite_cardinality_ok(n_distinct, n_rows, max_card_frac):
             logger.debug(
                 "composite_group_agg: refusing key %s (cardinality %d > %.2f*n=%d)",
@@ -286,10 +301,12 @@ def generate_composite_group_agg_features(
             continue
 
         cur_num_cols = [c for c in num_cols if c in X.columns and c not in set(group_cols) and pd.api.types.is_numeric_dtype(X[c])]
-        # De-duplicate the composite keys ONCE per key-set; reused by every
-        # num_col / stat / residual broadcast below (the np.unique argsort was
-        # the dominant cProfile hotspot before this hoist).
-        key_uniq, key_inverse = _unique_inverse(keys)
+        # FUTURE (perf): this still rebuilds a temp frame + re-hashes "_g" (already known via key_uniq/key_inverse
+        # above) for every num_col. A bincount-style mean/std accumulation keyed by key_inverse would skip the
+        # pandas groupby entirely, mirroring _binned_numeric_agg_fe's njit raw-moment kernel -- deferred because
+        # replicating pandas' NaN-skipping mean/Welford-based std exactly (not just mathematically) needs the
+        # same empirical bit-identity verification as the K-fold subtraction rewrite, and this file's num_cols
+        # loop is uncapped (unlike the capped max_pairs paths that make that verification cheap to scope).
         for num_col in cur_num_cols:
             x = np.asarray(X[num_col].to_numpy(), dtype=np.float64)
             tmp = pd.DataFrame({"_g": keys, "_v": x}, index=X.index)
@@ -552,10 +569,16 @@ def auto_detect_key_sets(
     max_card_frac: float = 0.5,
     detected_group_cols: Optional[Sequence[str]] = None,
     max_sets: int = 12,
+    _key_cache: Optional[dict] = None,
 ) -> list[tuple[str, ...]]:
     """Enumerate composite key candidates: all r-combinations (2..max_arity) of
     the detected single group columns whose composite cardinality clears the
-    L29 guard. Returns ordered tuples, lowest-cardinality first."""
+    L29 guard. Returns ordered tuples, lowest-cardinality first.
+
+    ``_key_cache``, when supplied, is populated with ``{combo: (keys, key_uniq, key_inverse, n_distinct)}``
+    for every candidate combo built here -- lets :func:`hybrid_composite_group_agg_fe` thread the already-built
+    composite keys into :func:`generate_composite_group_agg_features` for the SURVIVING combos instead of
+    rebuilding + re-hashing them from scratch."""
     cols = list(detected_group_cols) if detected_group_cols is not None else _auto_detect_group_cols(X)
     cols = [c for c in cols if c in X.columns]
     n_rows = len(X)
@@ -563,9 +586,12 @@ def auto_detect_key_sets(
     for r in range(2, max(2, int(max_arity)) + 1):
         for combo in combinations(cols, r):
             keys = build_composite_keys(X, combo)
-            n_distinct = int(np.unique(keys).size)
+            key_uniq, key_inverse = _unique_inverse(keys)
+            n_distinct = int(key_uniq.size) if key_uniq is not None else int(np.unique(keys).size)
             if composite_cardinality_ok(n_distinct, n_rows, max_card_frac):
                 cand.append((tuple(combo), n_distinct))
+                if _key_cache is not None:
+                    _key_cache[tuple(combo)] = (keys, key_uniq, key_inverse, n_distinct)
     cand.sort(key=lambda t: t[1])
     return [c for c, _ in cand[:max_sets]]
 
@@ -601,9 +627,14 @@ def hybrid_composite_group_agg_fe(
 
     if not isinstance(X, pd.DataFrame):
         raise TypeError(f"hybrid_composite_group_agg_fe: X must be a pandas DataFrame; got " f"{type(X).__name__}")
+    # Populated by auto_detect_key_sets with the composite keys it already built while ranking candidates;
+    # threaded into generate_composite_group_agg_features below so the SURVIVING combos' keys aren't rebuilt
+    # from scratch. None for a caller-supplied group_col_sets (nothing was pre-built to reuse).
+    _key_cache: Optional[dict] = None
     if group_col_sets is None or len(group_col_sets) == 0:
+        _key_cache = {}
         group_col_sets = auto_detect_key_sets(
-            X, max_arity=max_arity, max_card_frac=max_card_frac,
+            X, max_arity=max_arity, max_card_frac=max_card_frac, _key_cache=_key_cache,
         )
     else:
         group_col_sets = [tuple(c for c in gset if c in X.columns) for gset in group_col_sets]
@@ -621,6 +652,7 @@ def hybrid_composite_group_agg_fe(
 
     enc_df, raw_recipes = generate_composite_group_agg_features(
         X, group_col_sets, num_cols, stats=stats, max_card_frac=max_card_frac,
+        _precomputed_keys=_key_cache,
     )
     if enc_df.empty:
         return X.copy(), [], [], pd.DataFrame()

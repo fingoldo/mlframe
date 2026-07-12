@@ -164,6 +164,10 @@ def generate_grouped_quantile_features(
     for group_col in group_cols:
         g_keys = group_key_strings(X[group_col])
         cur_num_cols = [c for c in num_cols if c in X.columns and c != group_col and pd.api.types.is_numeric_dtype(X[c])]
+        # Row indices per group key depend only on group_col; hoist once (mirrors generate_target_aware_group_bins's
+        # group_rows) instead of rebuilding the groupby-of-arange for every num_col.
+        n = len(X)
+        group_rows: dict[str, np.ndarray] = {str(gv): idx.to_numpy() for gv, idx in pd.Series(np.arange(n)).groupby(g_keys, sort=False)}
         for num_col in cur_num_cols:
             x = np.asarray(X[num_col].to_numpy(), dtype=np.float64)
             finite_all = x[np.isfinite(x)]
@@ -177,8 +181,7 @@ def generate_grouped_quantile_features(
             p90p10_lookup: dict[str, float] = {}
             pct_out = np.empty(x.shape, dtype=np.float64)
 
-            for gv, idx in pd.Series(np.arange(len(x))).groupby(g_keys, sort=False):
-                rows = idx.to_numpy()
+            for gv, rows in group_rows.items():
                 vals = x[rows]
                 fin = vals[np.isfinite(vals)]
                 if fin.size >= _MIN_GROUP_SIZE:
@@ -380,6 +383,10 @@ def generate_target_aware_group_bins(
     perm = rng.permutation(n)
     fold_ids = np.empty(n, dtype=np.int64)
     fold_ids[perm] = np.arange(n) % n_folds
+    # train_mask/test_mask depend only on (f, fold_ids), not on group_col/num_col; precompute once
+    # instead of recomputing inside the group_col x num_col x fold triple loop below.
+    _fold_masks = [(fold_ids != f) for f in range(n_folds)]
+    _fold_test_masks = [~m for m in _fold_masks]
 
     for group_col in group_cols:
         g_keys = group_key_strings(X[group_col])
@@ -405,8 +412,8 @@ def generate_target_aware_group_bins(
             # only for pathologically high group counts, and then with a SIZE/COUNT gate, never a blanket cap.
             oof_bin = np.zeros(n, dtype=np.float64)
             for f in range(n_folds):
-                train_mask = fold_ids != f
-                test_mask = ~train_mask
+                train_mask = _fold_masks[f]
+                test_mask = _fold_test_masks[f]
                 if not train_mask.any() or not test_mask.any():
                     continue
                 # Small-group fallback edges must be fit on this fold's TRAIN rows only. Using the all-rows

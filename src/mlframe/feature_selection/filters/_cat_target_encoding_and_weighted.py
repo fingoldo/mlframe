@@ -129,32 +129,37 @@ def _compute_target_encoding(
     fold_ids = np.empty(n_samples, dtype=np.int64)
     fold_ids[_perm] = np.arange(n_samples) % K
     te_values = np.full(n_samples, te_global, dtype=np.float64)
+    classes_merged_i64 = np.ascontiguousarray(classes_merged, dtype=np.int64)
+    # Full-data cell sum/cnt, needed anyway for the transform()-time global lookup below. Both are additive
+    # per-row partition sums (cnt: a row count; sum: sum of y), so a fold's TRAIN-only sum/cnt equal
+    # full - test (train and test partition ALL rows for that fold): an O(n/K) TEST-only pass + subtraction
+    # replaces the O(n*(K-1)/K) TRAIN rescan per fold, and this same full pass is reused below instead of a
+    # third identical recompute for the global replay lookup.
+    full_sum, full_cnt = _cell_sum_cnt_njit(
+        classes_merged_i64, np.ascontiguousarray(y_numeric, dtype=np.float64), int(n_uniq),
+    )
     for f in range(K):
-        train_mask = fold_ids != f
-        test_mask = ~train_mask
-        # Compute cell means on training rows
-        cell_sum, cell_cnt = _cell_sum_cnt_njit(
-            np.ascontiguousarray(classes_merged[train_mask], dtype=np.int64),
-            np.ascontiguousarray(y_numeric[train_mask], dtype=np.float64), int(n_uniq),
+        test_mask = fold_ids == f
+        test_sum, test_cnt = _cell_sum_cnt_njit(
+            classes_merged_i64[test_mask], np.ascontiguousarray(y_numeric[test_mask], dtype=np.float64), int(n_uniq),
         )
+        cell_sum = full_sum - test_sum
+        cell_cnt = full_cnt - test_cnt
         cell_means_fold = np.full(int(n_uniq), te_global, dtype=np.float64)
         for c in range(int(n_uniq)):
             if cell_cnt[c] > 0:
                 raw = cell_sum[c] / cell_cnt[c]
                 cell_means_fold[c] = (cell_cnt[c] * raw + smoothing * te_global) / (cell_cnt[c] + smoothing)
         # Apply to test fold rows (vectorised gather; bit-identical to the per-row assignment)
-        te_values[test_mask] = cell_means_fold[np.asarray(classes_merged, dtype=np.int64)[test_mask]]
+        te_values[test_mask] = cell_means_fold[classes_merged_i64[test_mask]]
 
-    # Also compute global (all-rows) cell means for transform()-time replay. At transform OOF doesn't make sense (test data has no Y); we use the global mean per cell.
-    cell_sum, cell_cnt = _cell_sum_cnt_njit(
-        np.ascontiguousarray(classes_merged, dtype=np.int64),
-        np.ascontiguousarray(y_numeric, dtype=np.float64), int(n_uniq),
-    )
+    # Global (all-rows) cell means for transform()-time replay. At transform OOF doesn't make sense (test data
+    # has no Y); we use the global mean per cell. Reuses full_sum/full_cnt computed above.
     cell_means_global = np.full(int(n_uniq), te_global, dtype=np.float64)
     for c in range(int(n_uniq)):
-        if cell_cnt[c] > 0:
-            raw = cell_sum[c] / cell_cnt[c]
-            cell_means_global[c] = (cell_cnt[c] * raw + smoothing * te_global) / (cell_cnt[c] + smoothing)
+        if full_cnt[c] > 0:
+            raw = full_sum[c] / full_cnt[c]
+            cell_means_global[c] = (full_cnt[c] * raw + smoothing * te_global) / (full_cnt[c] + smoothing)
     return te_values, cell_means_global
 
 

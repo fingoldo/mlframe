@@ -100,13 +100,19 @@ def resolve_nbins_and_stats(n: int, stats: Sequence[str], nbins_base: int, k: in
     return 2, ["mean"]  # degenerate fallback
 
 
-def per_cell_stats_bincount(codes: np.ndarray, v: np.ndarray, n_cells: int, stats: Sequence[str]) -> dict:
-    """Vectorised per-cell statistics of ``v`` via raw-moment ``np.bincount`` (O(n), no Python per-row loop).
-    Returns ``{stat: np.ndarray(n_cells)}``. Empty cells get NaN (caller substitutes the global value)."""
-    # One-pass njit raw-moment accumulation (cnt, s1..s4) replaces up to FOUR np.bincount passes +
-    # full-array power ops -- ~30x faster at n=100k (0.59 vs 18 ms). s2 (x*x) matches np.bincount(v*v)
-    # exactly; s3/s4 differ from numpy v**3/v**4 only at the last ULP, far below the bin resolution.
-    cnt, s1, s2, s3, s4 = _per_cell_raw_moments_njit(np.ascontiguousarray(codes).astype(np.int64), np.ascontiguousarray(v).astype(np.float64), int(n_cells))
+def _raw_moments(codes: np.ndarray, v: np.ndarray, n_cells: int) -> tuple:
+    """One-pass njit raw-moment accumulation ``(cnt, s1, s2, s3, s4)`` of ``v`` per cell of ``codes`` (see
+    :func:`_per_cell_raw_moments_njit`). Each is a pure additive per-row partition sum, so
+    ``moments(A) + moments(B) == moments(A union B)`` elementwise for disjoint row sets A/B -- exploited by
+    ``fit_binned_numeric_agg`` to derive a fold's TRAIN-only moments as ``full - test`` instead of rescanning
+    the ``(n_folds-1)/n_folds`` of rows that make up that fold's training split."""
+    return _per_cell_raw_moments_njit(np.ascontiguousarray(codes).astype(np.int64), np.ascontiguousarray(v).astype(np.float64), int(n_cells))  # type: ignore[no-any-return]  # njit kernel returns the declared (cnt, s1, s2, s3, s4) tuple
+
+
+def _derive_cell_stats(cnt: np.ndarray, s1: np.ndarray, s2: np.ndarray, s3: np.ndarray, s4: np.ndarray, stats: Sequence[str]) -> dict:
+    """Derive per-cell statistics from additive raw moments (see :func:`_raw_moments`). Empty cells get NaN
+    (caller substitutes the global value). Pure function of the moments -- callable on either a direct
+    accumulation or a ``full - test`` subtraction result."""
     safe = np.maximum(cnt, 1.0)
     mean = s1 / safe
     out: dict = {}
@@ -129,6 +135,16 @@ def per_cell_stats_bincount(codes: np.ndarray, v: np.ndarray, n_cells: int, stat
             raise ValueError(f"binned_numeric_agg stat {stat!r} not in {SUPPORTED_STATS}")
         out[stat] = np.where(cnt > 0, raw, np.nan)
     return out
+
+
+def per_cell_stats_bincount(codes: np.ndarray, v: np.ndarray, n_cells: int, stats: Sequence[str]) -> dict:
+    """Vectorised per-cell statistics of ``v`` via raw-moment ``np.bincount`` (O(n), no Python per-row loop).
+    Returns ``{stat: np.ndarray(n_cells)}``. Empty cells get NaN (caller substitutes the global value).
+    One-pass njit raw-moment accumulation (cnt, s1..s4) replaces up to FOUR np.bincount passes + full-array
+    power ops -- ~30x faster at n=100k (0.59 vs 18 ms). s2 (x*x) matches np.bincount(v*v) exactly; s3/s4
+    differ from numpy v**3/v**4 only at the last ULP, far below the bin resolution."""
+    cnt, s1, s2, s3, s4 = _raw_moments(codes, v, n_cells)
+    return _derive_cell_stats(cnt, s1, s2, s3, s4, stats)
 
 
 def _global_stat(v: np.ndarray, stat: str) -> float:
@@ -213,6 +229,11 @@ def fit_binned_numeric_agg(
             if globals_ is None:
                 globals_ = {s: _global_stat(av[finite], s) for s in kept_stats}
                 _globals_cache[_gk] = globals_
+            # Full-data raw moments, needed anyway for the ``full``/``lut`` recipe lookup below. cnt/s1..s4 are
+            # additive partition sums over the finite rows, so a fold's TRAIN-only moments equal full - test
+            # (both finite & fold==f); an O(n_test) TEST-only pass + subtraction replaces the O(n_train) rescan
+            # per fold, cutting total row-visits from ~(n_folds-1)*n to ~2*n over the whole OOF loop.
+            full_cnt, full_s1, full_s2, full_s3, full_s4 = _raw_moments(codes[finite], av[finite], n_cells)
             if not recipe_only:
                 # RECIPE_ONLY (device-born binagg, 2026-07-02) skips the 5-fold OOF feat-column build -- the
                 # per-fold gather + np.where over the full n rows, the FE scan's single largest GPU-idle host
@@ -226,13 +247,15 @@ def fit_binned_numeric_agg(
                     tr = _fold_ne[f] & finite
                     if not tr.any():
                         continue
-                    per = per_cell_stats_bincount(codes[tr], av[tr], n_cells, kept_stats)
                     test = _fold_test[f]
                     ct = _ct_by_fold[f]
+                    test_fin = test[finite[test]]
+                    t_cnt, t_s1, t_s2, t_s3, t_s4 = _raw_moments(codes[test_fin], av[test_fin], n_cells)
+                    per = _derive_cell_stats(full_cnt - t_cnt, full_s1 - t_s1, full_s2 - t_s2, full_s3 - t_s3, full_s4 - t_s4, kept_stats)
                     for s in kept_stats:
                         vals = per[s][ct]
                         oof[s][test] = np.where(np.isfinite(vals), vals, globals_[s])
-            full = per_cell_stats_bincount(codes[finite], av[finite], n_cells, kept_stats)
+            full = _derive_cell_stats(full_cnt, full_s1, full_s2, full_s3, full_s4, kept_stats)
             for s in kept_stats:
                 name = engineered_name_binned_agg(acol, gcol, s)
                 if not recipe_only:

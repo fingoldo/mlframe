@@ -248,6 +248,11 @@ def cat_num_interaction_fit(
     n_folds: int = 5,
     smoothing: float = 10.0,
     random_state: int = 0,
+    fold_ids: Optional[np.ndarray] = None,
+    cats: Optional[np.ndarray] = None,
+    unique_cats: Optional[np.ndarray] = None,
+    inverse: Optional[np.ndarray] = None,
+    n_cats: Optional[int] = None,
 ) -> tuple[np.ndarray, dict]:
     """Fit OOF target-mean residual for the (cat_col, num_col) pair.
 
@@ -265,6 +270,12 @@ def cat_num_interaction_fit(
         global mean of num. ``alpha = smoothing``: a category needs ~alpha
         rows before its raw per-cell mean dominates the prior.
     random_state : int, default 0
+    fold_ids, cats, unique_cats, inverse, n_cats : optional
+        Precomputed values a Cartesian-product caller (``cat_num_interaction_with_recipes``) already holds:
+        ``fold_ids`` depends only on ``(len(X), n_folds, random_state)``, ``cats``/``unique_cats``/``inverse``/
+        ``n_cats`` only on ``cat_col``; both are identical across every ``num_col`` a caller iterates for the
+        same ``cat_col``. Pass them to skip the redundant permutation / ``np.unique`` recompute; ``None``
+        (the default) recomputes exactly as before, so standalone callers are unaffected.
 
     Returns
     -------
@@ -304,14 +315,16 @@ def cat_num_interaction_fit(
     finite_mask = np.isfinite(num_vals)
     global_mean = float(num_vals[finite_mask].mean()) if finite_mask.any() else 0.0
 
-    cats = _column_to_str(X[cat_col])
-    unique_cats, inverse = np.unique(cats, return_inverse=True)
-    n_cats = unique_cats.shape[0]
+    if cats is None or unique_cats is None or inverse is None or n_cats is None:
+        cats = _column_to_str(X[cat_col])
+        unique_cats, inverse = np.unique(cats, return_inverse=True)
+        n_cats = unique_cats.shape[0]
 
-    rng = np.random.default_rng(int(random_state))
-    perm = rng.permutation(n)
-    fold_ids = np.empty(n, dtype=np.int64)
-    fold_ids[perm] = np.arange(n) % int(n_folds)
+    if fold_ids is None:
+        rng = np.random.default_rng(int(random_state))
+        perm = rng.permutation(n)
+        fold_ids = np.empty(n, dtype=np.int64)
+        fold_ids[perm] = np.arange(n) % int(n_folds)
 
     oof_pred = np.full(n, global_mean, dtype=np.float64)
     inv_arr = inverse.astype(np.int64, copy=False)
@@ -530,7 +543,18 @@ def cat_num_interaction_with_recipes(
     appended: list[str] = []
     recipes: list = []
     new_cols: dict[str, np.ndarray] = {}
+    # fold_ids depends only on (len(X), n_folds, random_state) -- identical for every (cat, num) pair in this
+    # Cartesian product; compute once instead of re-permuting inside cat_num_interaction_fit per pair.
+    n = len(X)
+    rng = np.random.default_rng(int(random_state))
+    perm = rng.permutation(n)
+    fold_ids = np.empty(n, dtype=np.int64)
+    fold_ids[perm] = np.arange(n) % int(n_folds)
     for cat in cat_cols:
+        # cats/unique_cats/inverse/n_cats depend only on cat (not num); hoist out of the inner num loop.
+        cats = _column_to_str(X[cat])
+        unique_cats, inverse = np.unique(cats, return_inverse=True)
+        n_cats = unique_cats.shape[0]
         for num in num_cols:
             name = engineered_name_cat_num_residual(cat, num)
             residual, raw_rec = cat_num_interaction_fit(
@@ -538,6 +562,11 @@ def cat_num_interaction_with_recipes(
                 n_folds=n_folds,
                 smoothing=smoothing,
                 random_state=random_state,
+                fold_ids=fold_ids,
+                cats=cats,
+                unique_cats=unique_cats,
+                inverse=inverse,
+                n_cats=n_cats,
             )
             new_cols[name] = residual
             appended.append(name)

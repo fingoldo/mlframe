@@ -307,11 +307,16 @@ def grouped_delta_features(
     g = pd.Series(group_key_strings(X[group_col]), index=X.index)
     encoded: dict[str, np.ndarray] = {}
     recipes: dict[str, dict] = {}
+    # The grouper (hash of the group key) depends only on group_col, not num_col: build ONE frame holding every
+    # num_col's float64-cast values alongside "_g" and group it ONCE, instead of rebuilding a fresh 2-column temp
+    # frame + re-hashing the identical "_g" key on every num_col iteration (num_cols is uncapped by the caller).
+    x_by_col = {c: np.asarray(X[c].to_numpy(), dtype=np.float64) for c in num_cols}
+    df_aux = pd.DataFrame({"_g": g.values, **x_by_col})
+    gb = df_aux.groupby("_g")
     for num_col in num_cols:
-        x = np.asarray(X[num_col].to_numpy(), dtype=np.float64)
+        x = x_by_col[num_col]
         # Per-group mean / std (sample std for unbiased; treat NaNs sanely).
-        df_aux = pd.DataFrame({"_g": g.values, "_x": x})
-        agg = df_aux.groupby("_g")["_x"].agg(["mean", "std"])
+        agg = gb[num_col].agg(["mean", "std"])
         # NaN std (single-row group) -> 1.0 fallback; std == 0 also -> 1.0.
         agg_std = agg["std"].fillna(0.0).to_numpy(dtype=np.float64)
         agg_std = np.where(agg_std > 0.0, agg_std, 1.0)

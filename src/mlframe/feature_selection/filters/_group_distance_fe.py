@@ -218,38 +218,49 @@ def generate_group_distance_features(
     if not group_cols:
         return pd.DataFrame(index=X.index), raw_recipes
 
+    # x / global_mean / global_std / global_edges / global_hist / global_sorted depend only on num_col (not
+    # group_col), including an O(n log n) sort for global_sorted; memoize per num_col so they're computed once
+    # and reused across every group_col instead of recomputed on each pass through the outer loop.
+    _global_cache: dict[str, tuple] = {}
+    n = len(X)
     for group_col in group_cols:
         g_keys = group_key_strings(X[group_col])
         cur_num_cols = [c for c in num_cols if c in X.columns and c != group_col and pd.api.types.is_numeric_dtype(X[c])]
+        # Row indices per group key depend only on group_col; hoist once instead of rebuilding the
+        # groupby-of-arange for every num_col.
+        group_rows: dict[str, np.ndarray] = {str(gv): idx.to_numpy() for gv, idx in pd.Series(np.arange(n)).groupby(g_keys, sort=False)}
         for num_col in cur_num_cols:
-            x = np.asarray(X[num_col].to_numpy(), dtype=np.float64)
-            finite_all = x[np.isfinite(x)]
-            if finite_all.size == 0:
-                global_mean = 0.0
-                global_std = 1.0
-                global_edges = np.array([0.0, 1.0], dtype=np.float64)
-                global_hist = np.array([1.0], dtype=np.float64)
-                global_sorted = np.array([], dtype=np.float64)
-            else:
-                global_mean = float(np.mean(finite_all))
-                _std = float(np.std(finite_all))
-                global_std = _std if _std > 0.0 else 1.0
-                lo, hi = float(finite_all.min()), float(finite_all.max())
-                if hi <= lo:
-                    hi = lo + 1.0
-                global_edges = np.linspace(lo, hi, _DIST_NBINS + 1)
-                global_hist, _ = np.histogram(finite_all, bins=global_edges)
-                global_hist = global_hist.astype(np.float64)
-                global_sorted = np.sort(finite_all)
+            _gc = _global_cache.get(num_col)
+            if _gc is None:
+                x = np.asarray(X[num_col].to_numpy(), dtype=np.float64)
+                finite_all = x[np.isfinite(x)]
+                if finite_all.size == 0:
+                    global_mean = 0.0
+                    global_std = 1.0
+                    global_edges = np.array([0.0, 1.0], dtype=np.float64)
+                    global_hist = np.array([1.0], dtype=np.float64)
+                    global_sorted = np.array([], dtype=np.float64)
+                else:
+                    global_mean = float(np.mean(finite_all))
+                    _std = float(np.std(finite_all))
+                    global_std = _std if _std > 0.0 else 1.0
+                    lo, hi = float(finite_all.min()), float(finite_all.max())
+                    if hi <= lo:
+                        hi = lo + 1.0
+                    global_edges = np.linspace(lo, hi, _DIST_NBINS + 1)
+                    global_hist, _ = np.histogram(finite_all, bins=global_edges)
+                    global_hist = global_hist.astype(np.float64)
+                    global_sorted = np.sort(finite_all)
+                _gc = (x, global_mean, global_std, global_edges, global_hist, global_sorted)
+                _global_cache[num_col] = _gc
+            x, global_mean, global_std, global_edges, global_hist, global_sorted = _gc
 
             z_lookup: dict[str, float] = {}
             kl_lookup: dict[str, float] = {}
             w_lookup: dict[str, float] = {}
-            for gv, idx in pd.Series(np.arange(len(x))).groupby(g_keys, sort=False):
-                rows = idx.to_numpy()
+            for key, rows in group_rows.items():
                 vals = x[rows]
                 fin = vals[np.isfinite(vals)]
-                key = str(gv)
                 if fin.size >= _MIN_GROUP_SIZE:
                     z_lookup[key] = float((np.mean(fin) - global_mean) / global_std)
                     kl_lookup[key] = _kl_divergence(fin, global_edges, global_hist)
