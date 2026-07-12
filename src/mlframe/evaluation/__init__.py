@@ -25,7 +25,12 @@ from mlframe.evaluation.cv_informativeness import cv_informativeness_check
 from mlframe.evaluation.group_leakage_guard import assert_no_group_leakage
 from mlframe.evaluation.subgroup_feature_overfit_risk import flag_subgroup_only_feature_overfit_risk
 from mlframe.evaluation.constant_group_leak_scan import constant_group_target_scan
-from mlframe.evaluation.label_correlation_rerank import detect_correlated_label_pairs, label_correlation_rerank
+from mlframe.evaluation.label_correlation_rerank import (
+    detect_correlated_label_groups,
+    detect_correlated_label_pairs,
+    label_correlation_rerank,
+    optimize_group_blend_weight,
+)
 from mlframe.evaluation.imputation_sensitivity_check import imputation_sensitivity_check
 from mlframe.evaluation.distribution_matching_subset_search import distribution_matching_subset_search
 from mlframe.evaluation.adversarial_fold_selection import build_test_like_validation_fold
