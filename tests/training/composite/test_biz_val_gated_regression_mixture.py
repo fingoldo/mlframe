@@ -78,6 +78,81 @@ def test_gated_regression_mixture_gate_feature_ablation_improves_high_branch():
     assert mse_with < mse_without, f"expected the stacked gate feature to improve MSE, got with={mse_with:.4f} without={mse_without:.4f}"
 
 
+def _make_boundary_transition_dataset(n: int, seed: int):
+    """A single SMOOTH ground-truth relation (no true discontinuity) over a score ``s`` used both as the
+    gate-classifier's driving feature (label ``s >= 0.5``) and as the regression feature. Piecewise-linear
+    branch regressors fit independently on the low (``s<0.5``) and high (``s>=0.5``) truncated ranges of a
+    non-linear (``sin``) relation diverge from each other right at the boundary -- a real prediction
+    discontinuity introduced purely by hard threshold routing, not present in the underlying truth."""
+    rng = np.random.default_rng(seed)
+    s = rng.uniform(0.0, 1.0, n)
+    is_high = s >= 0.5
+    y = 3.0 * s + 2.0 * np.sin(5.0 * s) + rng.normal(scale=0.05, size=n)
+    X = pd.DataFrame({"s": s})
+    return X, y, is_high
+
+
+def test_biz_val_gated_regression_mixture_soft_routing_reduces_boundary_error():
+    """Soft routing (probability-weighted blend near the gate threshold) must reduce prediction error for
+    rows in the transition zone versus hard 0/1 routing, without changing default (``soft_routing=False``)
+    behavior at all -- checked separately below for bit-identity."""
+    X, y, is_high = _make_boundary_transition_dataset(4000, seed=3)
+    rng = np.random.default_rng(4)
+    perm = rng.permutation(len(y))
+    train_idx, test_idx = perm[:3000], perm[3000:]
+    X_train, X_test = X.iloc[train_idx].reset_index(drop=True), X.iloc[test_idx].reset_index(drop=True)
+    y_train, y_test = y[train_idx], y[test_idx]
+
+    mixture = GatedRegressionMixture(
+        gate_classifier=LogisticRegression(max_iter=500), low_regressor=LinearRegression(), high_regressor=LinearRegression(),
+        threshold=0.5, use_gate_feature=False, n_splits=5, random_state=0,
+        soft_routing=False, soft_routing_bandwidth=0.15,
+    )
+    mixture.fit(X_train, y_train, is_high[train_idx])
+
+    gate_proba = mixture._predict_proba_1(mixture.gate_model_, X_test)
+    band = (gate_proba >= 0.5 - 0.15) & (gate_proba <= 0.5 + 0.15)
+    assert band.sum() >= 30, f"expected a meaningfully-sized boundary band, got {band.sum()} rows"
+
+    pred_hard = mixture.predict(X_test)
+    mse_hard_band = mean_squared_error(y_test[band], pred_hard[band])
+
+    mixture.soft_routing = True
+    pred_soft = mixture.predict(X_test)
+    mse_soft_band = mean_squared_error(y_test[band], pred_soft[band])
+
+    improvement = 1.0 - mse_soft_band / mse_hard_band
+    assert improvement > 0.05, (
+        f"expected >5% boundary-band MSE reduction from soft routing, got {improvement:.4f} "
+        f"(hard={mse_hard_band:.4f}, soft={mse_soft_band:.4f})"
+    )
+
+    # Rows OUTSIDE the band must be untouched by soft routing (single-branch hard route either way).
+    assert np.allclose(pred_hard[~band], pred_soft[~band])
+
+
+def test_gated_regression_mixture_soft_routing_default_off_is_bit_identical():
+    """``soft_routing`` defaults to False -- predict() output must be EXACTLY unchanged from before this
+    feature existed (same code path: single-branch hard route for every row, empty blend band)."""
+    X, y, is_high = _make_boundary_transition_dataset(500, seed=5)
+
+    m_explicit_off = GatedRegressionMixture(
+        gate_classifier=LogisticRegression(max_iter=500), low_regressor=LinearRegression(), high_regressor=LinearRegression(),
+        threshold=0.5, use_gate_feature=False, n_splits=3, random_state=0, soft_routing=False,
+    )
+    m_explicit_off.fit(X, y, is_high)
+    pred_explicit_off = m_explicit_off.predict(X)
+
+    m_default = GatedRegressionMixture(
+        gate_classifier=LogisticRegression(max_iter=500), low_regressor=LinearRegression(), high_regressor=LinearRegression(),
+        threshold=0.5, use_gate_feature=False, n_splits=3, random_state=0,
+    )
+    m_default.fit(X, y, is_high)
+    pred_default = m_default.predict(X)
+
+    assert np.array_equal(pred_explicit_off, pred_default)
+
+
 def test_gated_regression_mixture_branch_sample_weight_changes_fit():
     """A UNIFORM per-branch sample_weight multiplier is mathematically inert for plain OLS (scaling every
     row's weight by the same constant doesn't change the normal equations) -- use Ridge, where the weight

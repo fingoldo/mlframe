@@ -17,6 +17,12 @@ Per-branch ``sample_weight`` multipliers implement the source's rare-outlier dow
 Leakage discipline: the gate classifier's probabilities used to route/feature-stack the TRAINING rows are
 OOF (via ``sklearn.model_selection.cross_val_predict(method="predict_proba")``) -- no row's own label leaks
 into its own gate probability.
+
+Opt-in soft routing (``soft_routing=True``): hard 0/1 threshold routing means two test rows with near-
+identical gate probability straddling ``threshold`` can land on two independently-fit branch regressors and
+jump discontinuously. Soft routing blends both branches' predictions by gate probability for rows within
+``soft_routing_bandwidth`` of the threshold, smoothing that boundary without touching training-time branch
+assignment or the default (``soft_routing=False``) predict path.
 """
 from __future__ import annotations
 
@@ -69,6 +75,19 @@ class GatedRegressionMixture(BaseEstimator, RegressorMixin):
         1.0}``, i.e. no reweighting).
     n_splits, random_state
         Gate classifier's OOF CV configuration.
+    soft_routing
+        Opt-in (default ``False`` -- predict-time behavior is then bit-identical to hard threshold routing).
+        When ``True``, rows whose gate probability falls within ``soft_routing_bandwidth`` of ``threshold``
+        get a PROBABILITY-WEIGHTED BLEND of both branch predictions instead of a hard 0/1 route, removing the
+        prediction discontinuity a training rows would otherwise see at the cut point (two rows with near-
+        identical gate probability straddling the threshold can currently land on differently-fit branch
+        regressors and jump). Rows outside the band are still hard-routed to a single branch (same as
+        ``soft_routing=False``), so this only touches the transition zone. Training/routing of rows into
+        branches at ``fit`` time is unaffected -- branches are still assigned by hard OOF threshold routing.
+    soft_routing_bandwidth
+        Half-width, in gate-probability units, of the blend zone straddling ``threshold`` (default 0.1, i.e.
+        rows with ``proba`` in ``[threshold - 0.1, threshold + 0.1]`` are blended). Ignored unless
+        ``soft_routing=True``.
 
     Attributes
     ----------
@@ -86,6 +105,8 @@ class GatedRegressionMixture(BaseEstimator, RegressorMixin):
         branch_sample_weight: Optional[Dict[str, float]] = None,
         n_splits: int = 5,
         random_state: int = 42,
+        soft_routing: bool = False,
+        soft_routing_bandwidth: float = 0.1,
     ) -> None:
         self.gate_classifier = gate_classifier
         self.low_regressor = low_regressor
@@ -95,6 +116,8 @@ class GatedRegressionMixture(BaseEstimator, RegressorMixin):
         self.branch_sample_weight = branch_sample_weight
         self.n_splits = n_splits
         self.random_state = random_state
+        self.soft_routing = soft_routing
+        self.soft_routing_bandwidth = soft_routing_bandwidth
 
     def _predict_proba_1(self, model: Any, X: Any) -> np.ndarray:
         return np.asarray(model.predict_proba(X), dtype=np.float64)[:, 1]
@@ -134,19 +157,50 @@ class GatedRegressionMixture(BaseEstimator, RegressorMixin):
             self.branch_models_[branch] = model
         return self
 
+    def _predict_branch(self, branch: str, X: Any, proba: np.ndarray, mask: np.ndarray) -> np.ndarray:
+        X_branch = X.iloc[np.flatnonzero(mask)] if hasattr(X, "iloc") else np.asarray(X)[mask]
+        if self.use_gate_feature:
+            X_branch = _concat_feature(X_branch, "gate_proba", proba[mask])
+        return np.asarray(self.branch_models_[branch].predict(X_branch), dtype=np.float64)
+
     def predict(self, X: Any) -> np.ndarray:
         proba = self._predict_proba_1(self.gate_model_, X)
         route = np.where(proba >= self.threshold, _HIGH, _LOW)
         n = proba.shape[0]
         out = np.zeros(n, dtype=np.float64)
+
+        # Soft-routing blend zone: rows whose gate probability sits within `soft_routing_bandwidth` of
+        # `threshold`. Disabled by default (band is empty) so hard-routed rows below take the exact same
+        # single-branch code path as before this feature existed -- bit-identical when unused.
+        band = np.zeros(n, dtype=bool)
+        bw = self.soft_routing_bandwidth
+        lo = self.threshold - bw
+        hi = self.threshold + bw
+        if self.soft_routing:
+            band = (proba >= lo) & (proba <= hi)
+
         for branch in (_LOW, _HIGH):
-            mask = route == branch
+            mask = (route == branch) & ~band
             if not mask.any() or branch not in self.branch_models_:
                 continue
-            X_branch = X.iloc[np.flatnonzero(mask)] if hasattr(X, "iloc") else np.asarray(X)[mask]
-            if self.use_gate_feature:
-                X_branch = _concat_feature(X_branch, "gate_proba", proba[mask])
-            out[mask] = np.asarray(self.branch_models_[branch].predict(X_branch), dtype=np.float64)
+            out[mask] = self._predict_branch(branch, X, proba, mask)
+
+        if band.any():
+            have_low = _LOW in self.branch_models_
+            have_high = _HIGH in self.branch_models_
+            if have_low and have_high:
+                low_pred = self._predict_branch(_LOW, X, proba, band)
+                high_pred = self._predict_branch(_HIGH, X, proba, band)
+                # Linear ramp across the band: 0 at the low edge (pure low-branch), 1 at the high edge (pure
+                # high-branch), matching the hard-routing decision exactly at the two band edges.
+                span = hi - lo
+                weight = (proba[band] - lo) / span if span > 0 else np.where(proba[band] >= self.threshold, 1.0, 0.0)
+                weight = np.clip(weight, 0.0, 1.0)
+                out[band] = weight * high_pred + (1.0 - weight) * low_pred
+            elif have_low:
+                out[band] = self._predict_branch(_LOW, X, proba, band)
+            elif have_high:
+                out[band] = self._predict_branch(_HIGH, X, proba, band)
         return out
 
 
