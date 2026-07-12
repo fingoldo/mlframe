@@ -715,6 +715,16 @@ _BUDGET_PARAM_BY_CATEGORY: dict[str, str | None] = {
     "huber": "max_iter",
     "ransac": "max_trials",
     "linear": None,  # LinearRegression/LogisticRegression closed-form -- no budget
+    # Composite registry entries (_trainer_configure.py): the generic ``get_params()`` probe below would
+    # otherwise pick up ``n_estimators`` on ``BaggedCompositeEstimator`` (bag COUNT, not boosting rounds)
+    # or ``CompositeClassificationEstimator`` (delegates to its inner LGBM's own natively-ES'd boosting
+    # rounds) and dichotomic-search over it -- each candidate value re-fits the WHOLE composite (all N bags,
+    # or the full base-margin + residual-boost chain), multiplying fit cost by the search's candidate count
+    # on top of the composite's own internal per-member cost. Neither composite exposes a budget knob safe
+    # for this wrapper's single-scalar dichotomic search; each already manages its own iteration budget
+    # internally (per-bag native ES / base-margin residual boosting).
+    "bagging": None,
+    "composite_classification": None,
 }
 
 
@@ -725,9 +735,12 @@ def _detect_budget_param(model_category: str, model_obj: Any) -> str | None:
     knob on an estimator with multiple iterative params), then a runtime ``get_params``
     probe for common names.
     """
-    explicit = _BUDGET_PARAM_BY_CATEGORY.get(model_category)
-    if explicit is not None:
-        return explicit
+    # ``.get()`` + ``is not None`` can't tell "explicitly mapped to None" (no usable budget knob,
+    # e.g. "linear"/"bagging"/"composite_classification") apart from "key absent" -- both look like
+    # ``None`` -- so a category explicitly opted OUT of the runtime probe below would silently fall
+    # through to it anyway. Use membership to distinguish the two cases.
+    if model_category in _BUDGET_PARAM_BY_CATEGORY:
+        return _BUDGET_PARAM_BY_CATEGORY[model_category]
     if model_obj is None:
         return None
     try:

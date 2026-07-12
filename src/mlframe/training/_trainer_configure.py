@@ -710,6 +710,41 @@ def configure_training_params(
         _gated_outlier_est = GatedOutlierEstimator(regressor=LGBMRegressor(n_estimators=200, num_leaves=31, verbose=-1, random_state=0))
         gated_outlier_params = dict(model=metamodel_func(_gated_outlier_est))
 
+    # ``BaggedCompositeEstimator`` registry entry: bootstrap-bagged variance reduction over a plain GBDT
+    # regressor. Unlike the ``CompositeTargetEstimator``-family estimators audited above (distributional /
+    # quantile / GLM / survival / orthogonal / panel / ranking / ...), this wrapper takes NO dataset-specific
+    # ``base_column``/``base_columns``/``event`` argument -- it bags directly over ``(X, y)``, so it is
+    # generically instantiable the same way ``gated_outlier`` is. ``base_estimator`` itself has no safe
+    # generic default inside the class (``fit`` raises ``ValueError`` on ``None``), so -- same pattern as
+    # ``gated_outlier`` above -- the registry supplies the suite's own standalone-safe LGBM default
+    # (``configs.LGB_GENERAL_PARAMS`` bakes in early-stopping params requiring an ``eval_set`` that bagging's
+    # bootstrap-resample ``fit`` calls never provide). Explicit-allowlist-only (no auto-detection heuristic):
+    # unlike ``gated_outlier``'s cheap point-mass classifier gate, bagging is a real Nx compute multiplier
+    # (``n_estimators=10`` full refits by default) with no generic trigger signal analogous to "target has a
+    # point mass" -- blanket-including it would silently 10x every caller's regression fit time.
+    bagging_params = None
+    if _should_create_model("bagging") and use_regression and LGBMRegressor is not None:
+        from .composite.bagging import BaggedCompositeEstimator
+
+        _bagging_est = BaggedCompositeEstimator(base_estimator=LGBMRegressor(n_estimators=200, num_leaves=31, verbose=-1, random_state=0))
+        bagging_params = dict(model=metamodel_func(_bagging_est))
+
+    # ``CompositeClassificationEstimator`` registry entry: base-margin (init-score) residual composite for
+    # classification. Also genuinely generic -- when ``base_margin_column`` is left unset (the default), it
+    # auto-fits a ``LogisticRegression`` base-margin model directly on ``X`` (no dataset-specific column
+    # needed), then boosts the inner GBDT on the residual log-odds via its native init-score hook. Only
+    # ``base_estimator`` has no in-class default (``fit`` raises on ``None``), so the registry supplies a
+    # standalone-safe LGBM classifier default, same rationale as ``gated_outlier``/``bagging`` above.
+    # Explicit-allowlist-only: no generic auto-detection trigger (unlike gated_outlier's point-mass signal) --
+    # every classification target benefits from *some* base margin, so there is no principled "only some
+    # targets need this" heuristic to gate a default-ON auto-append on.
+    composite_classification_params = None
+    if _should_create_model("composite_classification") and not use_regression and LGBMClassifier is not None:
+        from .composite.classification import CompositeClassificationEstimator
+
+        _composite_classification_est = CompositeClassificationEstimator(base_estimator=LGBMClassifier(n_estimators=200, num_leaves=31, verbose=-1, random_state=0))
+        composite_classification_params = dict(model=metamodel_func(_composite_classification_est))
+
     # Linear models - only create variants that are needed
     linear_model_params = {}
     linear_models_needed = LINEAR_MODEL_TYPES & models_set if models_set else LINEAR_MODEL_TYPES
@@ -816,6 +851,10 @@ def configure_training_params(
         models_params["ngb"] = ngb_params
     if gated_outlier_params is not None:
         models_params["gated_outlier"] = gated_outlier_params
+    if bagging_params is not None:
+        models_params["bagging"] = bagging_params
+    if composite_classification_params is not None:
+        models_params["composite_classification"] = composite_classification_params
     # Add linear models (already filtered to only needed ones)
     models_params.update(linear_model_params)
 

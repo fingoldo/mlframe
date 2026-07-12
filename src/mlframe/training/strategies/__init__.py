@@ -103,6 +103,8 @@ MODEL_STRATEGIES: Dict[str, ModelPipelineStrategy] = {
     # Composite registry entries (_trainer_configure.py): inner estimator is the suite's default LGBM,
     # so the tree-model preprocessing pipeline is the correct fit.
     "gated_outlier": _TREE_STRATEGY,
+    "bagging": _TREE_STRATEGY,
+    "composite_classification": _TREE_STRATEGY,
     # Neural networks
     "mlp": _NEURAL_STRATEGY,
     "ngb": _NEURAL_STRATEGY,
