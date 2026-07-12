@@ -6,7 +6,7 @@ from .confidence_gated_blend import confidence_gated_blend
 from .constrained_weight_blend import constrained_weight_blend
 from .geometric_weight_blend import geometric_weight_blend
 from .dual_optimizer_blend import dual_optimizer_weight_blend
-from .correlation_diversity_ablation import diversity_ablation_report
+from .correlation_diversity_ablation import diversity_ablation_report, recommend_diversity_additions
 from .adversarial_stochastic_blend import compute_test_likeness, adversarial_stochastic_blend
 from .rank_splice import segment_rank_splice
 from .knn_fallback_predictor import KNNFallbackPredictor

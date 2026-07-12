@@ -11,7 +11,7 @@ from io import StringIO
 
 import numpy as np
 
-from mlframe.votenrank.correlation_diversity_ablation import diversity_ablation_report
+from mlframe.votenrank.correlation_diversity_ablation import diversity_ablation_report, recommend_diversity_additions
 
 
 def _rmse(y_true, y_pred):
@@ -34,6 +34,11 @@ def _run(n_samples: int, n_models: int, use_greedy_search: bool = False) -> None
     diversity_ablation_report(oof_preds, individual_scores, y_true, _rmse, use_greedy_search=use_greedy_search)
 
 
+def _run_recommend(n_samples: int, n_models: int, top_k=None) -> None:
+    y_true, oof_preds, individual_scores = _make_dataset(n_samples, n_models, seed=0)
+    recommend_diversity_additions(oof_preds, individual_scores, y_true, _rmse, top_k=top_k)
+
+
 if __name__ == "__main__":
     for use_greedy_search in (False, True):
         label = "greedy_search" if use_greedy_search else "plain"
@@ -42,6 +47,15 @@ if __name__ == "__main__":
             _run(n_samples, n_models, use_greedy_search=use_greedy_search)
             wall = time.perf_counter() - t0
             print(f"[{label:>13}] n_samples={n_samples:>6} n_models={n_models:>3} -> {wall * 1000:9.2f} ms")
+
+    # The recommender wraps diversity_ablation_report's own O(n_models * n_samples) cost with a cheap
+    # filter+sort over the (small, already-flagged) candidate list -- profiled separately to confirm the
+    # ranking step itself never becomes the bottleneck as n_models grows.
+    for n_samples, n_models in [(2000, 10), (20000, 10), (20000, 50)]:
+        t0 = time.perf_counter()
+        _run_recommend(n_samples, n_models, top_k=5)
+        wall = time.perf_counter() - t0
+        print(f"[{'recommend':>13}] n_samples={n_samples:>6} n_models={n_models:>3} -> {wall * 1000:9.2f} ms")
 
     profiler = cProfile.Profile()
     profiler.enable()
@@ -65,3 +79,13 @@ if __name__ == "__main__":
     stats_greedy.print_stats(20)
     print("greedy_search path cProfile:")
     print(buf_greedy.getvalue())
+
+    profiler_recommend = cProfile.Profile()
+    profiler_recommend.enable()
+    _run_recommend(20000, 50, top_k=5)
+    profiler_recommend.disable()
+    buf_recommend = StringIO()
+    stats_recommend = pstats.Stats(profiler_recommend, stream=buf_recommend).sort_stats("cumulative")
+    stats_recommend.print_stats(20)
+    print("recommend_diversity_additions path cProfile:")
+    print(buf_recommend.getvalue())

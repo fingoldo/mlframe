@@ -174,4 +174,67 @@ def diversity_ablation_report(
     return report
 
 
-__all__ = ["diversity_ablation_report"]
+def recommend_diversity_additions(
+    oof_preds: Dict[str, np.ndarray],
+    individual_scores: Dict[str, float],
+    y_true: np.ndarray,
+    loss_fn: Callable[[np.ndarray, np.ndarray], float],
+    correlation_threshold: float = 0.85,
+    higher_score_is_better: bool = True,
+    use_greedy_search: bool = False,
+    greedy_tolerance: float = 0.0,
+    min_ablation_improvement: float = 0.0,
+    top_k: Optional[int] = None,
+) -> List[dict]:
+    """Turn ``diversity_ablation_report``'s raw per-candidate table into a ranked shortlist to add to a stack.
+
+    ``diversity_ablation_report`` flags candidates that are BOTH low-correlation and lower-individual-accuracy,
+    but leaves it to the caller to scan the table for which flagged entries actually paid off (a flagged
+    candidate can still have ``ablation_improvement <= 0`` -- diverse does not automatically mean useful) and in
+    what order to add them. This wraps the same report call with the actual selection/ranking step: keep only
+    entries whose measured blend improvement clears ``min_ablation_improvement``, rank them by that improvement
+    (largest genuine blend payoff first -- not by individual score, which is exactly the metric this whole
+    mechanism exists to override), and optionally cap the shortlist to ``top_k``.
+
+    Parameters
+    ----------
+    min_ablation_improvement
+        Minimum measured ``ablation_improvement`` (same ``loss_fn`` units as the underlying report) required to
+        make the shortlist -- a flagged-but-non-improving candidate is excluded. Default ``0.0`` keeps any
+        candidate with a genuine (even tiny) positive blend contribution.
+    top_k
+        Cap the returned shortlist to this many top-ranked entries; ``None`` (default) returns all qualifying
+        candidates.
+
+    Returns
+    -------
+    list of dict
+        Same per-entry keys as ``diversity_ablation_report`` (plus ``"greedy_selected"``/``"greedy_step"`` when
+        ``use_greedy_search=True``), sorted by descending ``ablation_improvement``, each carrying an added
+        ``"recommended_rank"`` (1-based).
+    """
+    report = diversity_ablation_report(
+        oof_preds,
+        individual_scores,
+        y_true,
+        loss_fn,
+        correlation_threshold=correlation_threshold,
+        higher_score_is_better=higher_score_is_better,
+        use_greedy_search=use_greedy_search,
+        greedy_tolerance=greedy_tolerance,
+    )
+
+    qualifying = [entry for entry in report if entry["ablation_improvement"] > min_ablation_improvement]
+    qualifying.sort(key=lambda entry: entry["ablation_improvement"], reverse=True)
+    if top_k is not None:
+        qualifying = qualifying[:top_k]
+
+    shortlist = []
+    for rank, entry in enumerate(qualifying, start=1):
+        ranked_entry = dict(entry)
+        ranked_entry["recommended_rank"] = rank
+        shortlist.append(ranked_entry)
+    return shortlist
+
+
+__all__ = ["diversity_ablation_report", "recommend_diversity_additions"]
