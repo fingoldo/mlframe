@@ -9,10 +9,12 @@ with the target contributes the WRONG sign to a pooled aggregate unless flipped 
 """
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import pandas as pd
+
+FlipSpec = Union[int, Tuple[str, float, int]]  # int: plain sign flip; ("fold", center, sign): non-monotonic fold transform
 
 
 def batch_univariate_auc(X: np.ndarray, y_arr: np.ndarray) -> np.ndarray:
@@ -37,7 +39,54 @@ def batch_univariate_auc(X: np.ndarray, y_arr: np.ndarray) -> np.ndarray:
     return np.asarray((sum_ranks_pos - n_pos * (n_pos + 1) / 2.0) / (n_pos * n_neg))
 
 
-def align_feature_direction(df: pd.DataFrame, y: np.ndarray, columns: Optional[Sequence[str]] = None) -> Tuple[pd.DataFrame, Dict[str, int]]:
+def _best_fold_point(x: np.ndarray, y_arr: np.ndarray, n_candidates: int) -> Tuple[float, float]:
+    """Search candidate fold centers (quantiles of ``x``) for the one whose ``|x - c|`` best separates ``y_arr``.
+
+    A U/inverted-U relationship (e.g. both tails of ``x`` push the same direction, the middle the other way) has
+    linear AUC near 0.5 -- a monotonic sign flip can never recover it, because no single sign orients the whole
+    column consistently. Folding around the right center turns it into a monotonic "distance from center" signal
+    that DOES have a strong linear-AUC-detectable direction, and is stable to reapply on unseen rows (unlike
+    e.g. a spline fit) since only a single scalar center needs to be stored.
+    """
+    candidates = np.quantile(x, np.linspace(0.05, 0.95, n_candidates))
+    best_auc = 0.5
+    best_gap = 0.0
+    best_c = float(np.median(x))
+    for c in candidates:
+        folded = np.abs(x - c)
+        auc = float(batch_univariate_auc(folded[:, None], y_arr)[0])
+        gap = abs(auc - 0.5)
+        if gap > best_gap:
+            best_gap = gap
+            best_auc = auc
+            best_c = float(c)
+    return best_c, best_auc
+
+
+def batch_mutual_information(X: np.ndarray, y_arr: np.ndarray, random_state: int = 0) -> np.ndarray:
+    """Per-column mutual information against a binary target, for the whole ``(n_rows, n_cols)`` matrix at once.
+
+    Unlike ``batch_univariate_auc`` (a monotonic-relationship detector -- AUC is a rank statistic, blind to
+    any relationship that isn't consistently increasing or decreasing), MI captures ANY statistical dependence,
+    including non-monotonic ones (U-shaped, inverted-U, multi-modal) where AUC sits near 0.5 despite the column
+    carrying real signal.
+    """
+    from sklearn.feature_selection import mutual_info_classif
+
+    return np.asarray(mutual_info_classif(X, y_arr, discrete_features=False, random_state=random_state))
+
+
+def align_feature_direction(
+    df: pd.DataFrame,
+    y: np.ndarray,
+    columns: Optional[Sequence[str]] = None,
+    use_mutual_information: bool = False,
+    mi_near_chance_gap: float = 0.05,
+    mi_relevance_threshold: float = 0.01,
+    fold_n_candidates: int = 25,
+    random_state: int = 0,
+    nonlinear_report: Optional[Dict[str, Dict[str, float]]] = None,
+) -> Tuple[pd.DataFrame, Dict[str, FlipSpec]]:
     """Flip sign of every column whose univariate AUC against ``y`` is below 0.5.
 
     Parameters
@@ -48,23 +97,66 @@ def align_feature_direction(df: pd.DataFrame, y: np.ndarray, columns: Optional[S
         Binary target, same row order as ``df``.
     columns
         Columns to screen; defaults to every numeric column of ``df``.
+    use_mutual_information
+        Opt-in (default ``False``, behavior bit-identical to the plain AUC-sign path when omitted). When
+        ``True``, columns whose linear AUC is near-chance (``|auc - 0.5| < mi_near_chance_gap`` -- exactly
+        the columns a plain sign flip would treat as noise) are re-screened with ``batch_mutual_information``.
+        A column with MI ``>= mi_relevance_threshold`` is genuinely informative despite near-chance linear AUC
+        -- almost always a non-monotonic relationship a sign flip cannot fix -- so instead of a sign flip it's
+        replaced by ``sign * |x - center|`` for a ``center`` chosen (via ``_best_fold_point``) to maximize that
+        folded feature's own linear-AUC separation. The fold is only applied if it beats the original AUC gap.
+    mi_near_chance_gap
+        Only columns within this AUC distance of 0.5 are eligible for MI re-screening (avoids wasted MI calls
+        on already-well-oriented linear columns).
+    mi_relevance_threshold
+        Minimum MI (nats) for a near-chance column to be treated as a genuine non-monotonic relationship.
+    fold_n_candidates
+        Number of quantile-spaced candidate fold centers tried per eligible column.
+    random_state
+        Seed passed to ``sklearn.feature_selection.mutual_info_classif`` (uses a randomized kNN estimator).
+    nonlinear_report
+        Optional out-param dict; when supplied, columns folded via the MI path get an entry
+        ``{"linear_auc": ..., "mutual_information": ..., "fold_center": ..., "fold_auc": ...}``.
 
     Returns
     -------
     tuple
-        ``(aligned_df, flip_signs)`` -- ``aligned_df`` is ``df`` (shallow copy) with flipped columns negated;
-        ``flip_signs`` is ``{column: +1 or -1}`` (the sign APPLIED, i.e. ``-1`` means that column was
-        flipped) -- store this and reapply the SAME signs at inference/test time (never recompute AUC on
-        test rows, which would leak the test target).
+        ``(aligned_df, flip_signs)`` -- ``aligned_df`` is ``df`` (shallow copy) with flipped/folded columns
+        transformed; ``flip_signs`` maps each column to either an ``int`` (``+1``/``-1``, the sign applied) or,
+        only when ``use_mutual_information=True`` folded a column, a ``("fold", center, sign)`` tuple -- store
+        this and reapply via ``apply_feature_direction`` at inference/test time (never recompute on test rows,
+        which would leak the test target).
     """
     cols = list(columns) if columns is not None else list(df.select_dtypes(include=[np.number]).columns)
     y_arr = np.asarray(y)
     X = df[cols].to_numpy(dtype=np.float64)
     aucs = batch_univariate_auc(X, y_arr)
 
-    flip_signs: Dict[str, int] = {}
+    flip_signs: Dict[str, FlipSpec] = {}
     flipped_cols: List[str] = []
-    for col, auc in zip(cols, aucs):
+    fold_cols: Dict[str, Tuple[str, float, int]] = {}
+
+    near_chance_idx: List[int] = []
+    if use_mutual_information:
+        near_chance_idx = [j for j, auc in enumerate(aucs) if abs(auc - 0.5) < mi_near_chance_gap]
+
+    mis = np.empty(0)
+    if near_chance_idx:
+        mis = batch_mutual_information(X[:, near_chance_idx], y_arr, random_state=random_state)
+
+    relevant_nonlinear_idx = {j for j, mi in zip(near_chance_idx, mis) if mi >= mi_relevance_threshold}
+
+    for j, (col, auc) in enumerate(zip(cols, aucs)):
+        if j in relevant_nonlinear_idx:
+            center, fold_auc = _best_fold_point(X[:, j], y_arr, fold_n_candidates)
+            if abs(fold_auc - 0.5) > abs(auc - 0.5):
+                sign = -1 if fold_auc < 0.5 else 1
+                fold_cols[col] = ("fold", center, sign)
+                flip_signs[col] = fold_cols[col]
+                if nonlinear_report is not None:
+                    mi_value = float(mis[near_chance_idx.index(j)])
+                    nonlinear_report[col] = {"linear_auc": float(auc), "mutual_information": mi_value, "fold_center": center, "fold_auc": fold_auc}
+                continue
         sign = -1 if auc < 0.5 else 1
         flip_signs[col] = sign
         if sign == -1:
@@ -73,15 +165,22 @@ def align_feature_direction(df: pd.DataFrame, y: np.ndarray, columns: Optional[S
     out = df.copy(deep=False)
     if flipped_cols:
         out[flipped_cols] = -out[flipped_cols]
+    for col, (_mode, center, sign) in fold_cols.items():
+        out[col] = sign * np.abs(out[col].to_numpy(dtype=np.float64) - center)
     return out, flip_signs
 
 
-def apply_feature_direction(df: pd.DataFrame, flip_signs: Dict[str, int]) -> pd.DataFrame:
-    """Reapply previously-fitted flip signs (e.g. to held-out/test rows) -- never recomputes AUC."""
+def apply_feature_direction(df: pd.DataFrame, flip_signs: Dict[str, FlipSpec]) -> pd.DataFrame:
+    """Reapply previously-fitted flip signs/folds (e.g. to held-out/test rows) -- never recomputes AUC/MI."""
     out = df.copy(deep=False)
-    flipped_cols = [col for col, sign in flip_signs.items() if sign == -1 and col in out.columns]
+    flipped_cols = [col for col, spec in flip_signs.items() if spec == -1 and col in out.columns]
     if flipped_cols:
         out[flipped_cols] = -out[flipped_cols]
+    for col, spec in flip_signs.items():
+        if col not in out.columns or not isinstance(spec, tuple):
+            continue
+        _mode, center, sign = spec
+        out[col] = sign * np.abs(out[col].to_numpy(dtype=np.float64) - center)
     return out
 
 
@@ -141,4 +240,4 @@ def check_feature_direction_stability(
     return result
 
 
-__all__ = ["align_feature_direction", "apply_feature_direction", "check_feature_direction_stability"]
+__all__ = ["align_feature_direction", "apply_feature_direction", "check_feature_direction_stability", "batch_mutual_information"]

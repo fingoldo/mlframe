@@ -22,9 +22,29 @@ def _make_dataset(n_rows: int, n_cols: int, seed: int):
     return df, y
 
 
+def _make_dataset_with_nonmonotonic(n_rows: int, n_cols: int, seed: int):
+    """Most columns are plain noise (near-chance AUC, skip the MI path's fold search); a handful are U-shaped
+    (near-chance linear AUC, MI-relevant) so the MI path's fold search actually fires during the profile."""
+    rng = np.random.default_rng(seed)
+    y = rng.integers(0, 2, n_rows)
+    df, _ = _make_dataset(n_rows, n_cols, seed)
+    n_u_shaped = max(1, n_cols // 20)
+    base = rng.normal(size=n_rows)
+    tail_push = rng.choice([-1.0, 1.0], size=n_rows) * 3.0
+    u_feature = np.where(y == 1, base + tail_push, base)
+    for i in range(n_u_shaped):
+        df[f"u{i}"] = u_feature + rng.normal(scale=0.1, size=n_rows)
+    return df, y
+
+
 def _run(n_rows: int, n_cols: int) -> None:
     df, y = _make_dataset(n_rows, n_cols, seed=0)
     align_feature_direction(df, y)
+
+
+def _run_mi(n_rows: int, n_cols: int) -> None:
+    df, y = _make_dataset_with_nonmonotonic(n_rows, n_cols, seed=0)
+    align_feature_direction(df, y, use_mutual_information=True)
 
 
 def _run_stability(n_rows: int, n_cols: int, n_folds: int) -> None:
@@ -47,6 +67,22 @@ if __name__ == "__main__":
     stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
     stats.print_stats(15)
     print(buf.getvalue())
+
+    print("--- align_feature_direction (opt-in use_mutual_information=True, non-monotonic fold path) ---")
+    for n_rows, n_cols in [(5000, 50), (50000, 50), (50000, 500)]:
+        t0 = time.perf_counter()
+        _run_mi(n_rows, n_cols)
+        wall = time.perf_counter() - t0
+        print(f"n_rows={n_rows:>6} n_cols={n_cols:>4} -> {wall * 1000:9.2f} ms")
+
+    profiler_mi = cProfile.Profile()
+    profiler_mi.enable()
+    _run_mi(50000, 500)
+    profiler_mi.disable()
+    buf_mi = StringIO()
+    stats_mi = pstats.Stats(profiler_mi, stream=buf_mi).sort_stats("cumulative")
+    stats_mi.print_stats(15)
+    print(buf_mi.getvalue())
 
     print("--- check_feature_direction_stability (opt-in, K-fold sign-stability check) ---")
     for n_rows, n_cols, n_folds in [(5000, 50, 5), (50000, 50, 5), (50000, 500, 5)]:

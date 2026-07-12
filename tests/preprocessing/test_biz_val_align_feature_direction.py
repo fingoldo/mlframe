@@ -127,3 +127,57 @@ def test_biz_val_check_feature_direction_stability_distinguishes_strong_from_wea
         f"weak flips={weak_flip_counts} strong flips={strong_flip_counts}"
     )
     assert sum(strong_flip_counts) == 0, f"strong feature should never flip, got {strong_flip_counts}"
+
+
+def _make_u_shaped_dataset(n: int, seed: int):
+    """A feature where BOTH tails (large positive AND large negative) push the target to 1, the middle to 0 --
+    a classic U-shaped relationship. Linear AUC is blind to it (both orientations of "large x -> y=1" and
+    "small x -> y=1" are simultaneously true in different regions, so the rank statistic nets out near 0.5)."""
+    rng = np.random.default_rng(seed)
+    y = rng.integers(0, 2, n)
+    base = rng.normal(size=n)
+    tail_push = rng.choice([-1.0, 1.0], size=n) * 3.0
+    u_feature = np.where(y == 1, base + tail_push, base)
+    noise = rng.normal(size=n)
+    return pd.DataFrame({"u_shaped": u_feature, "noise": noise}), y
+
+
+def test_biz_val_align_feature_direction_mi_mode_detects_nonmonotonic_relationship():
+    """Plain AUC-sign mode either misses the U-shaped feature's signal entirely (near-chance AUC survives
+    unflipped, since no single sign orients a feature that's high at BOTH tails) or, even where it flips, still
+    ends up near-chance -- a monotonic sign can never fix a fundamentally non-monotonic relationship.
+    `use_mutual_information=True` instead detects it via MI (blind to monotonicity, not to dependence) and
+    replaces the flip with a fold-around-center transform, recovering a strongly informative feature."""
+    X_train, y_train = _make_u_shaped_dataset(n=4000, seed=0)
+    X_test, y_test = _make_u_shaped_dataset(n=2000, seed=1)
+
+    out_default, signs_default = align_feature_direction(X_train, y_train)
+    applied_default = apply_feature_direction(X_test, signs_default)
+    auc_default = roc_auc_score(y_test, applied_default["u_shaped"].to_numpy())
+
+    report: dict = {}
+    out_mi, signs_mi = align_feature_direction(X_train, y_train, use_mutual_information=True, nonlinear_report=report)
+    applied_mi = apply_feature_direction(X_test, signs_mi)
+    auc_mi = roc_auc_score(y_test, applied_mi["u_shaped"].to_numpy())
+
+    assert "u_shaped" in report, f"expected the U-shaped column to be flagged as a fold candidate, report={report}"
+    assert isinstance(signs_mi["u_shaped"], tuple) and signs_mi["u_shaped"][0] == "fold"
+    assert signs_mi["noise"] in (1, -1), "the unrelated noise column must still take the plain sign-flip path"
+
+    assert auc_default < 0.6, f"expected the plain AUC-sign mode to carry ~no test-set signal for the U-shaped feature, got AUC={auc_default:.4f}"
+    assert auc_mi > 0.85, f"expected the MI-fold mode to recover strong held-out signal for the U-shaped feature, got AUC={auc_mi:.4f}"
+    assert auc_mi - auc_default > 0.3, f"expected a large MI-mode improvement over plain AUC-sign mode, got default={auc_default:.4f} mi={auc_mi:.4f}"
+
+
+def test_align_feature_direction_mi_mode_default_off_is_bit_identical():
+    """use_mutual_information defaults to False -- omitting it must reproduce the exact prior AUC-only output."""
+    X_train, y_train = _make_u_shaped_dataset(n=2000, seed=3)
+
+    out_a, signs_a = align_feature_direction(X_train, y_train)
+    out_b, signs_b = align_feature_direction(X_train, y_train, use_mutual_information=False)
+    pd.testing.assert_frame_equal(out_a, out_b)
+    assert signs_a == signs_b
+
+    applied_a = apply_feature_direction(X_train, signs_a)
+    applied_b = apply_feature_direction(X_train, signs_b)
+    pd.testing.assert_frame_equal(applied_a, applied_b)
