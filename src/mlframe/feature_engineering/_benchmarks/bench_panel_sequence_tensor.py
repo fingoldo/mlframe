@@ -30,25 +30,38 @@ def _make_panel(n_entities: int, max_hist: int, n_channels: int, seed: int = 0) 
     return pd.DataFrame(data)
 
 
-def _run(n_entities: int, max_hist: int, n_channels: int, n_calls: int) -> None:
+def _run(n_entities: int, max_hist: int, n_channels: int, n_calls: int, per_channel_normalize: bool = False) -> None:
     df = _make_panel(n_entities, max_hist, n_channels)
     channel_cols = [c for c in df.columns if c.startswith("ch")]
     for _ in range(n_calls):
-        build_panel_sequence_tensor(df, "id", "t", channel_cols, max_lags=max_hist, normalize=True)
+        build_panel_sequence_tensor(df, "id", "t", channel_cols, max_lags=max_hist, normalize=True, per_channel_normalize=per_channel_normalize)
 
 
 if __name__ == "__main__":
     for n_entities, max_hist, n_channels, n_calls in [(2000, 13, 5, 20), (50000, 13, 5, 20), (50000, 13, 20, 5)]:
-        t0 = time.perf_counter()
-        _run(n_entities, max_hist, n_channels, n_calls)
-        wall = time.perf_counter() - t0
-        print(f"n_entities={n_entities:>7} max_hist={max_hist:>3} n_channels={n_channels:>3} n_calls={n_calls:>4} -> {wall * 1000:9.2f} ms")
+        for per_channel_normalize in (False, True):
+            t0 = time.perf_counter()
+            _run(n_entities, max_hist, n_channels, n_calls, per_channel_normalize=per_channel_normalize)
+            wall = time.perf_counter() - t0
+            mode = "per_channel" if per_channel_normalize else "joint"
+            print(f"n_entities={n_entities:>7} max_hist={max_hist:>3} n_channels={n_channels:>3} n_calls={n_calls:>4} mode={mode:>11} -> {wall * 1000:9.2f} ms")
 
     profiler = cProfile.Profile()
     profiler.enable()
-    _run(50000, 13, 20, 5)
+    _run(50000, 13, 20, 5, per_channel_normalize=False)
     profiler.disable()
     buf = StringIO()
     stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
     stats.print_stats(15)
+    print("--- joint normalize ---")
+    print(buf.getvalue())
+
+    profiler = cProfile.Profile()
+    profiler.enable()
+    _run(50000, 13, 20, 5, per_channel_normalize=True)
+    profiler.disable()
+    buf = StringIO()
+    stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
+    stats.print_stats(15)
+    print("--- per_channel normalize ---")
     print(buf.getvalue())

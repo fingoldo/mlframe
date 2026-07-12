@@ -21,16 +21,23 @@ import pandas as pd
 from mlframe.feature_engineering.panel_pivot import pivot_time_indexed_panel
 
 
-def build_panel_sequence_tensor(df: pd.DataFrame, id_col: str, time_index_col: str, channel_cols: Sequence[str], max_lags: int = 13, normalize: bool = True) -> np.ndarray:
+def build_panel_sequence_tensor(
+    df: pd.DataFrame,
+    id_col: str,
+    time_index_col: str,
+    channel_cols: Sequence[str],
+    max_lags: int = 13,
+    normalize: bool = True,
+    per_channel_normalize: bool = False,
+) -> np.ndarray:
     """Assemble multiple time-indexed value columns into one ``(n_entities, n_channels, max_lags)`` tensor.
 
     Reuses :func:`pivot_time_indexed_panel` (right-aligned: the most recent observation is always at
     ``lag_0``, regardless of an entity's history length) to build one aligned wide slab per channel, then
-    stacks them along a new channel axis and (optionally) rescales each ENTITY's whole
-    ``(n_channels, max_lags)`` block by that entity's own max absolute value across all channels and time
-    steps jointly -- the source's own per-row normalization, needed because raw magnitudes can vary wildly
-    across entities (e.g. high-vs-low-balance accounts) in a way that would otherwise dominate a sequence
-    model's learned features.
+    stacks them along a new channel axis and (optionally) rescales each ENTITY's block by max absolute
+    value -- the source's own per-row normalization, needed because raw magnitudes can vary wildly across
+    entities (e.g. high-vs-low-balance accounts) in a way that would otherwise dominate a sequence model's
+    learned features.
 
     Parameters
     ----------
@@ -45,9 +52,15 @@ def build_panel_sequence_tensor(df: pd.DataFrame, id_col: str, time_index_col: s
     max_lags
         Number of most-recent time steps retained per entity (right-aligned).
     normalize
-        If True, divide each entity's whole ``(n_channels, max_lags)`` block by that entity's own max
-        absolute value (missing/NaN lags stay NaN; an all-zero/all-NaN entity is left unscaled to avoid
-        division by zero).
+        If True, rescale by max absolute value (missing/NaN lags stay NaN; an all-zero/all-NaN
+        scale group is left unscaled to avoid division by zero).
+    per_channel_normalize
+        If False (default, unchanged behavior), each entity's whole ``(n_channels, max_lags)`` block is
+        divided by ONE shared max-abs value taken jointly across all channels and time steps. If True,
+        each entity's each CHANNEL is divided by its own max-abs value across time steps only -- needed
+        when channels carry genuinely different units/scales (e.g. a dollar-amount channel next to a
+        ratio channel), where joint normalization lets the largest-scale channel's magnitude dominate and
+        drown out the smaller-scale channels' own trend signal. Ignored when ``normalize`` is False.
 
     Returns
     -------
@@ -65,10 +78,16 @@ def build_panel_sequence_tensor(df: pd.DataFrame, id_col: str, time_index_col: s
         tensor[:, c, :] = wide[lag_cols].to_numpy()
 
     if normalize:
-        with np.errstate(invalid="ignore"):
-            entity_max = np.nanmax(np.abs(tensor), axis=(1, 2))
-        safe_scale = np.where((entity_max > 0) & np.isfinite(entity_max), entity_max, 1.0)
-        tensor = tensor / safe_scale[:, np.newaxis, np.newaxis]
+        if per_channel_normalize:
+            with np.errstate(invalid="ignore"):
+                scale = np.nanmax(np.abs(tensor), axis=2)  # (n_entities, n_channels)
+            safe_scale = np.where((scale > 0) & np.isfinite(scale), scale, 1.0)
+            tensor = tensor / safe_scale[:, :, np.newaxis]
+        else:
+            with np.errstate(invalid="ignore"):
+                entity_max = np.nanmax(np.abs(tensor), axis=(1, 2))
+            safe_scale = np.where((entity_max > 0) & np.isfinite(entity_max), entity_max, 1.0)
+            tensor = tensor / safe_scale[:, np.newaxis, np.newaxis]
 
     return tensor
 
