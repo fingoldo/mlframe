@@ -14,9 +14,12 @@ for the measured numbers and rationale (no backend dominates uniformly; cupy onl
 from __future__ import annotations
 
 import os
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 import numpy as np
+
+if TYPE_CHECKING:
+    from sklearn.isotonic import IsotonicRegression
 
 try:
     from numba import njit, prange
@@ -71,6 +74,17 @@ def _blend_cupy(ensemble: np.ndarray, aux: np.ndarray, conf: np.ndarray, thresho
     return np.asarray(cp.asnumpy(out), dtype=np.float64)
 
 
+def _fit_gate_calibrator(calibration_confidence: np.ndarray, calibration_reliability: np.ndarray) -> "IsotonicRegression":
+    from sklearn.isotonic import IsotonicRegression
+
+    # increasing="auto" (NOT the sklearn default of True) lets the calibrator learn an inverted relationship
+    # too -- a miscalibrated confidence signal can be negatively correlated with true reliability, and forcing
+    # increasing=True would pool such data into a near-constant, uninformative fit (verified empirically).
+    iso = IsotonicRegression(out_of_bounds="clip", y_min=0.0, y_max=1.0, increasing="auto")
+    iso.fit(calibration_confidence, calibration_reliability)
+    return iso
+
+
 def confidence_gated_blend(
     ensemble_pred: np.ndarray,
     auxiliary_pred: np.ndarray,
@@ -79,6 +93,9 @@ def confidence_gated_blend(
     gated_weight: float,
     default_weight: float = 0.0,
     force_backend: Optional[str] = None,
+    per_sample_gate_calibration: bool = False,
+    calibration_confidence: Optional[np.ndarray] = None,
+    calibration_reliability: Optional[np.ndarray] = None,
 ) -> np.ndarray:
     """Blend ``auxiliary_pred`` into ``ensemble_pred`` at ``gated_weight`` only where confident, else ``default_weight``.
 
@@ -102,6 +119,22 @@ def confidence_gated_blend(
     force_backend
         Override the measured/dispatched backend (``"numpy"``/``"njit"``/``"njit_parallel"``/``"cupy"``);
         also settable via the ``MLFRAME_CONFIDENCE_BLEND_BACKEND`` env var (checked first).
+    per_sample_gate_calibration
+        Opt-in (default ``False``, bit-identical to the raw-confidence path when omitted). The raw
+        ``auxiliary_confidence`` signal is whatever the auxiliary model happens to emit (e.g. its own predicted
+        probability) -- it is frequently miscalibrated (overconfident in some region, underconfident in
+        another), so a hard threshold on it is gating on the wrong axis. When ``True``, fits (or reuses,
+        see ``calibration_confidence``/``calibration_reliability``) an isotonic regressor mapping raw
+        confidence -> empirical reliability (e.g. the auxiliary model's agreement/accuracy rate at that
+        confidence level, measured on held-out data) and uses the CALIBRATED reliability, linearly
+        interpolated between ``default_weight`` and ``gated_weight``, as the per-row blend weight instead of
+        the raw step function at ``confidence_threshold``. This turns "confident" into "actually trustworthy".
+    calibration_confidence, calibration_reliability
+        Required when ``per_sample_gate_calibration=True``. A held-out (not the rows being blended) sample of
+        raw auxiliary confidence values and their corresponding empirical reliability in ``[0, 1]`` (e.g.
+        ``1 - abs(auxiliary_pred - y_true)`` or a binary correctness indicator) used to fit the isotonic
+        calibrator. Must be disjoint from ``ensemble_pred``/``auxiliary_pred``/``auxiliary_confidence`` to
+        avoid leaking test-set reliability into the gate.
 
     Returns
     -------
@@ -115,6 +148,20 @@ def confidence_gated_blend(
     auxiliary_confidence = np.asarray(auxiliary_confidence, dtype=np.float64)
     if not (ensemble_pred.shape == auxiliary_pred.shape == auxiliary_confidence.shape):
         raise ValueError("confidence_gated_blend: ensemble_pred, auxiliary_pred, auxiliary_confidence must share the same shape")
+
+    if per_sample_gate_calibration:
+        if calibration_confidence is None or calibration_reliability is None:
+            raise ValueError(
+                "confidence_gated_blend: per_sample_gate_calibration=True requires calibration_confidence and calibration_reliability"
+            )
+        calibration_confidence = np.asarray(calibration_confidence, dtype=np.float64)
+        calibration_reliability = np.asarray(calibration_reliability, dtype=np.float64)
+        if calibration_confidence.shape != calibration_reliability.shape:
+            raise ValueError("confidence_gated_blend: calibration_confidence and calibration_reliability must share the same shape")
+        calibrator = _fit_gate_calibrator(calibration_confidence, calibration_reliability)
+        reliability = np.clip(calibrator.predict(auxiliary_confidence), 0.0, 1.0)
+        weight = default_weight + reliability * (gated_weight - default_weight)
+        return np.asarray((1.0 - weight) * ensemble_pred + weight * auxiliary_pred, dtype=np.float64)
 
     n = ensemble_pred.shape[0]
     if n < _DISPATCH_MIN_N:
