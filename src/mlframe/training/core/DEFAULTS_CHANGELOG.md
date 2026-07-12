@@ -291,3 +291,35 @@ All batches from the original wiring plan now have a documented entry in this fi
 - **I** (TrainingBehaviorConfig / votenrank diversity) — wired + flipped default-ON, wave 2.
 
 No remaining unstarted batch from the original A–I plan.
+
+## Fuzz-combo axes updated for the default-flip effort (2026-07-13)
+
+Closed the second half of an earlier explicit user directive ("verify the new functionality is
+wired AND update the axes/configs/parameters of fuzz combo tests") — the axes update had not
+been done. Added 12 new axes to `tests/training/_fuzz_combo/axes.py` covering every capability
+flipped or newly wired across waves 1-3 (batches A/B/C/E/F/I) that previously had zero fuzz
+exposure: `extra_registry_model_cfg` (batch E composite keys), `run_diagnostics_cfg` (batch C),
+`fs_new_selectors_enabled_cfg` (batch A opt-out path), `auto_optimize_threshold_cfg` /
+`check_isotonic_overfit_risk_cfg` / `recommend_diversity_additions_in_leaderboard_cfg` /
+`oof_n_splits_cfg` (waves 1/2 TrainingBehaviorConfig), `apply_confidence_shrinkage_cfg` (batch F,
+never threaded into the fuzz suite call at all before this), `row_wise_summary_stats_enabled_cfg`
+/ `row_wise_extreme_columns_enabled_cfg` (batch B), and `inject_point_mass_cfg` +
+`mlframe_models_explicit_cfg` (the `gated_outlier` point-mass auto-detect path, which needs the
+implicit `mlframe_models=None` default on a regression target with a real point mass — the fuzz
+suite always passed an explicit allowlist before, so this path had zero exposure regardless of
+data shape). Each canonicalises away when incompatible with the combo's target_type/model set.
+
+Verification: static (all 12 axes take every declared value across the 150 enumerated combos;
+the 3 new canonicalization methods ran error-free on a 40-combo sample) plus one live end-to-end
+`--run-fuzz` single-combo pass exercising `gated_outlier`. Full `--run-fuzz` batch execution was
+attempted twice and blocked both times by issues confirmed unrelated to this change: (1) a
+pre-existing MRMR stability-selection RandomForest/joblib fit exceeding a 1200s per-test timeout
+under this session's sustained heavy concurrent-process load, and (2) a native access-violation
+crash inside `reporting/charts/class_structure_heatmap.py`'s `@numba.njit(cache=True)` accumulate
+kernel — traced the array-index generation (`_equal_population_codes`, `_group_codes_capped`)
+and confirmed both are bounds-safe by construction (codes are always clipped/remapped into valid
+ranges), so this is most likely a numba on-disk cache-file race from many concurrent processes
+JIT-compiling the same kernel simultaneously, not a logic bug — and it sits entirely outside the
+files this change touches. Flagged as a follow-up investigation (rerun `--run-fuzz` on a quiet
+machine, or disable `cache=True` on that kernel as a mitigation), not chased further here since
+it's out of this change's scope and wasn't reproducible with enough confidence to safely patch.
