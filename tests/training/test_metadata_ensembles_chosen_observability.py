@@ -27,7 +27,7 @@ class _FakeEnsResult:
 
 def test_choose_returns_none_on_empty():
     """No candidates -> None (predict-side fallback fires)."""
-    from mlframe.training.core._phase_train_one_target import _choose_ensemble_flavour
+    from mlframe.training.core._ensemble_chooser import _choose_ensemble_flavour
 
     assert _choose_ensemble_flavour({}) is None
     assert _choose_ensemble_flavour(None) is None  # type: ignore[arg-type]
@@ -35,7 +35,7 @@ def test_choose_returns_none_on_empty():
 
 def test_choose_picks_lowest_integral_error_on_oof():
     """``oof.integral_error`` is the canonical ranking metric (lower-is-better)."""
-    from mlframe.training.core._phase_train_one_target import _choose_ensemble_flavour
+    from mlframe.training.core._ensemble_chooser import _choose_ensemble_flavour
 
     ensembles = {
         "arithm": _FakeEnsResult({"oof": {"integral_error": 0.20}}),
@@ -47,7 +47,7 @@ def test_choose_picks_lowest_integral_error_on_oof():
 
 def test_choose_falls_back_to_oof_rmse():
     """When ``integral_error`` is missing, fall back to ``oof.rmse`` (still lower-is-better)."""
-    from mlframe.training.core._phase_train_one_target import _choose_ensemble_flavour
+    from mlframe.training.core._ensemble_chooser import _choose_ensemble_flavour
 
     ensembles = {
         "arithm": _FakeEnsResult({"oof": {"rmse": 0.9}}),
@@ -59,7 +59,7 @@ def test_choose_falls_back_to_oof_rmse():
 
 def test_choose_skips_conf_variants():
     """``" conf"``-suffixed flavours are NOT independent candidates."""
-    from mlframe.training.core._phase_train_one_target import _choose_ensemble_flavour
+    from mlframe.training.core._ensemble_chooser import _choose_ensemble_flavour
 
     ensembles = {
         "arithm":      _FakeEnsResult({"oof": {"integral_error": 0.20}}),
@@ -72,7 +72,7 @@ def test_choose_skips_conf_variants():
 
 def test_choose_skips_underscore_prefixed_side_channels():
     """``_diversity`` is metadata about high-correlation pairs, not a flavour."""
-    from mlframe.training.core._phase_train_one_target import _choose_ensemble_flavour
+    from mlframe.training.core._ensemble_chooser import _choose_ensemble_flavour
 
     ensembles = {
         "arithm":     _FakeEnsResult({"oof": {"rmse": 0.5}}),
@@ -83,7 +83,7 @@ def test_choose_skips_underscore_prefixed_side_channels():
 
 def test_choose_falls_back_to_test_split_when_oof_missing():
     """No oof present -> fall back to test."""
-    from mlframe.training.core._phase_train_one_target import _choose_ensemble_flavour
+    from mlframe.training.core._ensemble_chooser import _choose_ensemble_flavour
 
     ensembles = {
         "arithm": _FakeEnsResult({"test": {"rmse": 0.9}}),
@@ -94,7 +94,7 @@ def test_choose_falls_back_to_test_split_when_oof_missing():
 
 def test_choose_returns_first_candidate_when_no_metric_present():
     """Deterministic fallback when none of the candidates expose any ranking metric."""
-    from mlframe.training.core._phase_train_one_target import _choose_ensemble_flavour
+    from mlframe.training.core._ensemble_chooser import _choose_ensemble_flavour
 
     ensembles = {
         "arithm": _FakeEnsResult({}),
@@ -106,7 +106,7 @@ def test_choose_returns_first_candidate_when_no_metric_present():
 
 def test_read_metric_drills_into_class_1_subdict():
     """Classifier metrics often nest under class 1 (positive class). Drill into that level."""
-    from mlframe.training.core._phase_train_one_target import _read_ensemble_metric
+    from mlframe.training.core._ensemble_chooser import _read_ensemble_metric
 
     ens = _FakeEnsResult({"oof": {1: {"integral_error": 0.042}}})
     assert _read_ensemble_metric(ens, "oof", "integral_error") == pytest.approx(0.042)
@@ -114,7 +114,7 @@ def test_read_metric_drills_into_class_1_subdict():
 
 def test_read_metric_returns_none_on_inf_or_nan():
     """Non-finite metrics shouldn't game the ranking."""
-    from mlframe.training.core._phase_train_one_target import _read_ensemble_metric
+    from mlframe.training.core._ensemble_chooser import _read_ensemble_metric
 
     ens_inf = _FakeEnsResult({"oof": {"rmse": float("inf")}})
     ens_nan = _FakeEnsResult({"oof": {"rmse": float("nan")}})
@@ -123,7 +123,7 @@ def test_read_metric_returns_none_on_inf_or_nan():
 
 
 def test_read_metric_returns_none_for_missing_split():
-    from mlframe.training.core._phase_train_one_target import _read_ensemble_metric
+    from mlframe.training.core._ensemble_chooser import _read_ensemble_metric
 
     ens = _FakeEnsResult({"oof": {"integral_error": 0.05}})
     assert _read_ensemble_metric(ens, "val", "integral_error") is None
@@ -138,7 +138,7 @@ def test_read_metric_returns_none_for_missing_split():
 
 def test_stamping_layout_harm_wins():
     """End-to-end-of-chooser: stamp the same way _train_one_target does and assert the layout."""
-    from mlframe.training.core._phase_train_one_target import _choose_ensemble_flavour
+    from mlframe.training.core._ensemble_chooser import _choose_ensemble_flavour
 
     ensembles_for_target = {
         "arithm": _FakeEnsResult({"oof": {"integral_error": 0.30}}),
@@ -157,7 +157,7 @@ def test_stamping_layout_harm_wins():
 
 def test_predict_read_matches_train_stamp():
     """Round-trip: stamp via the train-side path, read via the predict-side helper."""
-    from mlframe.training.core._phase_train_one_target import _choose_ensemble_flavour
+    from mlframe.training.core._ensemble_chooser import _choose_ensemble_flavour
     from mlframe.training.core.predict import _resolve_chosen_flavour
 
     ensembles_for_target = {
