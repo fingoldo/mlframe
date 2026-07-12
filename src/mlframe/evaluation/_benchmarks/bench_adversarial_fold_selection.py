@@ -3,7 +3,9 @@
 Run: ``python -m mlframe.evaluation._benchmarks.bench_adversarial_fold_selection``
 
 Cost is dominated by the ``n_splits``-fold LightGBM cross_val_predict fit, inherent to the OOF-probability
-requirement (a self-fulfilling selection without holding out folds during the classifier fit).
+requirement (a self-fulfilling selection without holding out folds during the classifier fit). The iterative
+peel-back path (``n_iterations`` > 1) pays this cost once per iteration, plus one extra full-data importance
+fit per non-final iteration -- profiled separately below to show that extra cost against the one-shot default.
 """
 from __future__ import annotations
 
@@ -30,12 +32,34 @@ def _run(n_train: int, n_test: int, n_features: int) -> None:
     build_test_like_validation_fold(X_train, X_test, val_fraction=0.2, seed=0)
 
 
+def _run_iterative(n_train: int, n_test: int, n_features: int, n_iterations: int, top_k_drop: int) -> None:
+    X_train, X_test = _make_data(n_train, n_test, n_features, seed=0)
+    build_test_like_validation_fold(
+        X_train,
+        X_test,
+        val_fraction=0.2,
+        seed=0,
+        n_iterations=n_iterations,
+        top_k_drop_per_iteration=top_k_drop,
+        return_history=True,
+    )
+
+
 if __name__ == "__main__":
     for n_train, n_test, n_features in [(5_000, 2_000, 10), (50_000, 20_000, 20)]:
         t0 = time.perf_counter()
         _run(n_train, n_test, n_features)
         wall = time.perf_counter() - t0
-        print(f"n_train={n_train:>7,} n_test={n_test:>7,} n_features={n_features:>3} -> {wall * 1000:9.2f} ms")
+        print(f"one-shot   n_train={n_train:>7,} n_test={n_test:>7,} n_features={n_features:>3} -> {wall * 1000:9.2f} ms")
+
+    for n_train, n_test, n_features in [(5_000, 2_000, 10), (50_000, 20_000, 20)]:
+        t0 = time.perf_counter()
+        _run_iterative(n_train, n_test, n_features, n_iterations=3, top_k_drop=2)
+        wall = time.perf_counter() - t0
+        print(
+            f"iterative  n_train={n_train:>7,} n_test={n_test:>7,} n_features={n_features:>3} "
+            f"n_iterations=3 top_k_drop=2 -> {wall * 1000:9.2f} ms"
+        )
 
     profiler = cProfile.Profile()
     profiler.enable()
@@ -44,4 +68,15 @@ if __name__ == "__main__":
     buf = StringIO()
     stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
     stats.print_stats(15)
+    print("--- one-shot profile ---")
     print(buf.getvalue())
+
+    profiler_iter = cProfile.Profile()
+    profiler_iter.enable()
+    _run_iterative(5_000, 2_000, 10, n_iterations=3, top_k_drop=2)
+    profiler_iter.disable()
+    buf_iter = StringIO()
+    stats_iter = pstats.Stats(profiler_iter, stream=buf_iter).sort_stats("cumulative")
+    stats_iter.print_stats(15)
+    print("--- iterative peel-back profile (n_iterations=3, top_k_drop_per_iteration=2) ---")
+    print(buf_iter.getvalue())
