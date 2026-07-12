@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 from sklearn.ensemble import RandomForestRegressor
 
-from mlframe.feature_selection import cascade_select
+from mlframe.feature_selection import cascade_select, cascade_select_stable
 
 
 def _make_dataset(n: int, d_informative: int, d_noise: int, seed: int):
@@ -31,12 +31,32 @@ def _run(n: int, d_noise: int) -> None:
     cascade_select(X, y, lambda: RandomForestRegressor(n_estimators=15, random_state=0), n_boruta_iterations=10, cv=3, scoring="neg_mean_squared_error")
 
 
+def _run_stable(n: int, d_noise: int, n_bootstrap: int) -> None:
+    X, y = _make_dataset(n, d_informative=4, d_noise=d_noise, seed=0)
+    cascade_select_stable(
+        X,
+        y,
+        lambda: RandomForestRegressor(n_estimators=15, random_state=0),
+        n_bootstrap=n_bootstrap,
+        stability_threshold=0.6,
+        n_boruta_iterations=10,
+        cv=3,
+        scoring="neg_mean_squared_error",
+    )
+
+
 if __name__ == "__main__":
     for n, d_noise in [(200, 20), (300, 40), (300, 60)]:
         t0 = time.perf_counter()
         _run(n, d_noise)
         wall = time.perf_counter() - t0
         print(f"n={n:>5,} d_noise={d_noise:>3} -> {wall * 1000:9.2f} ms")
+
+    for n, d_noise, n_bootstrap in [(200, 20, 5), (300, 40, 5)]:
+        t0 = time.perf_counter()
+        _run_stable(n, d_noise, n_bootstrap)
+        wall = time.perf_counter() - t0
+        print(f"[stable] n={n:>5,} d_noise={d_noise:>3} B={n_bootstrap:>2} -> {wall * 1000:9.2f} ms ({wall * 1000 / n_bootstrap:8.2f} ms/run)")
 
     profiler = cProfile.Profile()
     profiler.enable()
@@ -46,3 +66,12 @@ if __name__ == "__main__":
     stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
     stats.print_stats(15)
     print(buf.getvalue())
+
+    profiler_stable = cProfile.Profile()
+    profiler_stable.enable()
+    _run_stable(300, 60, n_bootstrap=5)
+    profiler_stable.disable()
+    buf_stable = StringIO()
+    stats_stable = pstats.Stats(profiler_stable, stream=buf_stable).sort_stats("cumulative")
+    stats_stable.print_stats(15)
+    print(buf_stable.getvalue())

@@ -36,6 +36,7 @@ from mlframe.feature_selection.structure_discovery import (
 from mlframe.feature_selection.ace import ace_select, ACEResult
 from mlframe.feature_selection.forward_select import forward_select, ForwardSelectReport, MarginalGainStep
 from mlframe.feature_selection.cascade_select import cascade_select
+from mlframe.feature_selection.cascade_select_stability import cascade_select_stable
 from mlframe.feature_selection.ridge_forward_prefilter import ridge_coefficient_prefilter
 from mlframe.feature_selection.unanimous_permutation_prune import unanimous_permutation_prune
 from mlframe.feature_selection.drop_noninformative_vs_reference import drop_noninformative_vs_reference
@@ -77,6 +78,7 @@ __all__ = [
     "ForwardSelectReport",
     "MarginalGainStep",
     "cascade_select",
+    "cascade_select_stable",
     # cheap Ridge-coefficient fast pre-filter ahead of MRMR/RFECV, for thousands of raw candidate features
     "ridge_coefficient_prefilter",
     # strict all-folds-must-agree permutation-importance pruning
