@@ -799,6 +799,21 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         mrmr_fe_stability_vote_enable_cfg=axes.get("mrmr_fe_stability_vote_enable_cfg", True),
         mrmr_fe_sufficient_summary_early_stop_cfg=axes.get("mrmr_fe_sufficient_summary_early_stop_cfg", True),
         mrmr_fe_gradient_interaction_enable_cfg=axes.get("mrmr_fe_gradient_interaction_enable_cfg", False),
+        # 2026-07-13 -- DEFAULTS_CHANGELOG.md default-flip wiring coverage.
+        extra_registry_model_cfg=axes.get("extra_registry_model_cfg"),
+        run_diagnostics_cfg=axes.get("run_diagnostics_cfg"),
+        fs_new_selectors_enabled_cfg=axes.get("fs_new_selectors_enabled_cfg", True),
+        auto_optimize_threshold_cfg=axes.get("auto_optimize_threshold_cfg", True),
+        check_isotonic_overfit_risk_cfg=axes.get("check_isotonic_overfit_risk_cfg", True),
+        recommend_diversity_additions_in_leaderboard_cfg=axes.get(
+            "recommend_diversity_additions_in_leaderboard_cfg", True
+        ),
+        oof_n_splits_cfg=axes.get("oof_n_splits_cfg", 0),
+        apply_confidence_shrinkage_cfg=axes.get("apply_confidence_shrinkage_cfg", True),
+        row_wise_summary_stats_enabled_cfg=axes.get("row_wise_summary_stats_enabled_cfg", True),
+        row_wise_extreme_columns_enabled_cfg=axes.get("row_wise_extreme_columns_enabled_cfg", True),
+        inject_point_mass_cfg=axes.get("inject_point_mass_cfg", False),
+        mlframe_models_explicit_cfg=axes.get("mlframe_models_explicit_cfg", True),
     )
 
 

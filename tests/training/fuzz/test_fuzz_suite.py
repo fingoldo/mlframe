@@ -259,7 +259,14 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
     # no native ranker) and build a ranking_config from the combo axis.
     # Pass target_type=LEARNING_TO_RANK explicitly so the suite's early
     # dispatch routes to train_mlframe_ranker_suite.
-    _ltr_models = list(combo.models)
+    # 2026-07-13 -- Batch E extra_registry_model_cfg: append one
+    # explicit-allowlist-only composite registry key (gated_outlier / bagging /
+    # composite_classification) to the sampled model subset when the combo
+    # asks for one and it's compatible with the resolved target_type.
+    _extra_registry_model = combo._canonical_extra_registry_model()
+    _ltr_models = list(combo.models) + (
+        [_extra_registry_model] if _extra_registry_model is not None else []
+    )
     _ltr_ranking_config = None
     if _is_ltr:
         _supported = {"cb", "xgb", "lgb", "mlp"}  # 2026-05-07: MLP via RankNet/ListNet
@@ -438,7 +445,14 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
             target_name=combo.short_id(),
             model_name=combo.short_id(),
             features_and_targets_extractor=fte,
-            mlframe_models=_ltr_models,)
+        )
+        # 2026-07-13 -- gated_outlier point-mass auto-detection only fires
+        # off the implicit top-level mlframe_models=None default
+        # (mlframe_models_is_default_allowlist, see DEFAULTS_CHANGELOG.md).
+        # LTR always needs an explicit filtered allowlist (native rankers
+        # only), so it keeps the explicit path unconditionally.
+        if _is_ltr or combo._canonical_mlframe_models_explicit():
+            _suite_kwargs["mlframe_models"] = _ltr_models
         if _is_ltr:
             _suite_kwargs["target_type"] = _combo_tt
             # Wave 21: assume_comparable_scales axis on LTR ensembling.
@@ -502,6 +516,16 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
             ),
             feature_selection_config=FeatureSelectionConfig(
                 use_mrmr_fs=combo.use_mrmr_fs,
+                # 2026-07-13 -- Batch A: all four flipped True by default;
+                # fs_new_selectors_enabled_cfg exercises the now-non-default
+                # opt-out (False) path for all four together.
+                **_safe_cfg_kwargs(
+                    FeatureSelectionConfig,
+                    use_forward_select_fs=combo.fs_new_selectors_enabled_cfg,
+                    use_greedy_backward_elimination_fs=combo.fs_new_selectors_enabled_cfg,
+                    use_zero_importance_pruning_fs=combo.fs_new_selectors_enabled_cfg,
+                    use_cascade_select_fs=combo.fs_new_selectors_enabled_cfg,
+                ),
                 # 2026-05-18 -- delegate to shared builder. Adding a new
                 # MRMR axis now only edits build_mrmr_kwargs_from_flat in
                 # _fuzz_combo.py; the pytest suite + 1M harness both
@@ -567,7 +591,20 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
             # n_rows tier only, see canonical_key) so the chart/report-generation code (perf chart, FI, calibration/reliability, slice_finder,
             # model_card, decision_curve, pdp_ice, shap_panels, model_comparison, risk_coverage) actually executes and is fuzz-exercised. The
             # matplotlib Agg backend is forced below so a headless box renders without a display; _fuzz_combo_cleanup plt.close("all")s per combo.
-            output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models", save_charts=_viz_on),
+            output_config=OutputConfig(
+                data_dir=str(tmp_path), models_dir="models", save_charts=_viz_on,
+                # 2026-07-13 -- Batch C: run_diagnostics defaults (None) to all 6
+                # registered diagnostics per DEFAULTS_CHANGELOG.md. "subset"/"empty"
+                # exercise the explicit-override paths; None keeps the default.
+                **_safe_cfg_kwargs(
+                    OutputConfig,
+                    run_diagnostics=(
+                        ["cv_informativeness", "group_leakage"] if combo.run_diagnostics_cfg == "subset"
+                        else [] if combo.run_diagnostics_cfg == "empty"
+                        else None
+                    ),
+                ) if combo.run_diagnostics_cfg is not None else {},
+            ),
             reporting_config=ReportingConfig(
                 show_perf_chart=_viz_on, show_fi=_viz_on,
                 # iter162: nested ReportingConfig fields. matplotlib_rcparams
@@ -598,6 +635,14 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
                     plotly_template=combo.reporting_plotly_template_cfg,
                     matplotlib_style=combo.reporting_matplotlib_style_cfg,
                 ),
+            ),
+            # 2026-07-13 -- Batch F: RegressionCalibrationConfig.apply_confidence_shrinkage
+            # flipped True (DEFAULTS_CHANGELOG.md). Never previously threaded into the fuzz
+            # suite call at all (no regression_calibration_config kwarg was passed).
+            regression_calibration_config=__import__(
+                "mlframe.training._reporting_configs", fromlist=["RegressionCalibrationConfig"]
+            ).RegressionCalibrationConfig(
+                apply_confidence_shrinkage=combo.apply_confidence_shrinkage_cfg,
             ),
             # recurrent_models + sequences: synthetic per-row sequences
             # (T=8, F=2) emitted only on canonical-recurrent combos so

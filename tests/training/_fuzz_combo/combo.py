@@ -759,6 +759,69 @@ class FuzzCombo:
     cv_strategy_cfg: str = "random"
     cv_purge_cfg: int = 0
     conformal_size_cfg: "float | None" = None
+    # 2026-07-13 -- fuzz coverage for the DEFAULTS_CHANGELOG.md default-flip
+    # wiring batches (A/C/E/F/B/I + gated_outlier point-mass auto-detect).
+    # Defaults reproduce the pre-batch fuzz behaviour so archived
+    # ``_fuzz_results.jsonl`` rows keep deserialising unchanged.
+    extra_registry_model_cfg: "str | None" = None
+    run_diagnostics_cfg: "str | None" = None
+    fs_new_selectors_enabled_cfg: bool = True
+    auto_optimize_threshold_cfg: bool = True
+    check_isotonic_overfit_risk_cfg: bool = True
+    recommend_diversity_additions_in_leaderboard_cfg: bool = True
+    oof_n_splits_cfg: int = 0
+    apply_confidence_shrinkage_cfg: bool = True
+    row_wise_summary_stats_enabled_cfg: bool = True
+    row_wise_extreme_columns_enabled_cfg: bool = True
+    inject_point_mass_cfg: bool = False
+    mlframe_models_explicit_cfg: bool = True
+
+    # DEFAULT allowlist mirrors DEFAULTS_CHANGELOG.md's documented
+    # ``mlframe_models`` default (["cb","lgb","xgb","mlp","linear"]).
+    _DEFAULT_MLFRAME_MODELS_ALLOWLIST = frozenset({"cb", "lgb", "xgb", "mlp", "linear"})
+
+    def _canonical_mlframe_models_explicit(self) -> bool:
+        """False only for regression combos whose model subset is entirely
+        within the real default allowlist and that don't also need an
+        explicit-allowlist-only extra_registry_model_cfg key appended --
+        the only shape where omitting ``mlframe_models`` (letting the suite
+        resolve its own top-level None default) is both meaningful and safe."""
+        if (
+            self.mlframe_models_explicit_cfg is False
+            and self.target_type == "regression"
+            and set(self.models).issubset(self._DEFAULT_MLFRAME_MODELS_ALLOWLIST)
+            and self.extra_registry_model_cfg is None
+        ):
+            return False
+        return True
+
+    def _canonical_inject_point_mass(self) -> bool:
+        """Point-mass injection is only a distinct code path when it can
+        actually reach the gated_outlier auto-detection gate: regression
+        target + the implicit (non-explicit) mlframe_models path."""
+        return bool(
+            self.inject_point_mass_cfg
+            and self.target_type == "regression"
+            and not self._canonical_mlframe_models_explicit()
+        )
+
+    def _canonical_extra_registry_model(self) -> "str | None":
+        """gated_outlier/bagging need a regression target; composite_classification
+        needs a classification target; all three need an explicit allowlist
+        to append onto (the implicit-default path can't be extended)."""
+        v = self.extra_registry_model_cfg
+        if v is None:
+            return None
+        if not self._canonical_mlframe_models_explicit():
+            return None
+        if v in ("gated_outlier", "bagging") and self.target_type != "regression":
+            return None
+        if v == "composite_classification" and self.target_type not in (
+            "binary_classification",
+            "multiclass_classification",
+        ):
+            return None
+        return v
 
     def canonical_key(self) -> tuple:
         """Hashable tuple used for dedup. Canonicalizes semantically
@@ -2679,6 +2742,19 @@ class FuzzCombo:
             self.mrmr_fe_mi_greedy_cmi_enable_cfg if self.use_mrmr_fs else False,
             self.mrmr_fe_cat_triple_enable_cfg if self.use_mrmr_fs else False,
             self.mrmr_fe_rankgauss_enable_cfg if self.use_mrmr_fs else False,
+            # 2026-07-13 -- DEFAULTS_CHANGELOG.md default-flip wiring coverage.
+            self._canonical_extra_registry_model(),
+            self.run_diagnostics_cfg,
+            self.fs_new_selectors_enabled_cfg,
+            self.auto_optimize_threshold_cfg,
+            self.check_isotonic_overfit_risk_cfg,
+            self.recommend_diversity_additions_in_leaderboard_cfg,
+            self.oof_n_splits_cfg,
+            self.apply_confidence_shrinkage_cfg,
+            self.row_wise_summary_stats_enabled_cfg,
+            self.row_wise_extreme_columns_enabled_cfg,
+            self._canonical_inject_point_mass(),
+            self._canonical_mlframe_models_explicit(),
         )
 
     def _canonical_recurrent_model(self) -> "str | None":

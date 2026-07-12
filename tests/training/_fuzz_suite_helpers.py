@@ -273,6 +273,15 @@ def _configs_for_combo(combo: FuzzCombo) -> dict:
         # PartialFitESWrapper auto-wrap at _trainer_train_and_evaluate.py:551.
         # Fuzz axis is inverted (force_off=True => auto_wrap=False).
         "auto_wrap_partial_fit_es": not combo.auto_wrap_partial_fit_es_force_off_cfg,
+        # 2026-07-13 -- DEFAULTS_CHANGELOG.md wave 1/2 TrainingBehaviorConfig
+        # flips (auto_optimize_threshold / check_isotonic_overfit_risk /
+        # recommend_diversity_additions_in_leaderboard all default True;
+        # oof_n_splits stays opt-in at 0). Defensive filter below drops any
+        # key not present as a model_fields entry on older trees.
+        "auto_optimize_threshold": combo.auto_optimize_threshold_cfg,
+        "check_isotonic_overfit_risk": combo.check_isotonic_overfit_risk_cfg,
+        "recommend_diversity_additions_in_leaderboard": combo.recommend_diversity_additions_in_leaderboard_cfg,
+        "oof_n_splits": combo.oof_n_splits_cfg,
     }
     # Defensive filter: drop any behavior key that's not a model_fields entry.
     behavior_kwargs = _safe_cfg_kwargs(TrainingBehaviorConfig, **behavior_kwargs)
@@ -514,7 +523,22 @@ def _maybe_preprocessing_extensions(combo: FuzzCombo, config_cls):
     poly_deg = combo._canonical_prep_ext("polynomial_degree")
     dim_red = combo._canonical_prep_ext("dim_reducer")
     nonlin = combo._canonical_prep_ext("nonlinear")
-    if scaler is None and kbins is None and poly_deg is None and dim_red is None and nonlin is None:
+    # 2026-07-13 -- row_wise_summary_stats_enabled / row_wise_extreme_columns_enabled
+    # (DEFAULTS_CHANGELOG.md wave 2, both default True). Previously these two
+    # axes existed on the FuzzCombo but were never threaded into the config
+    # instance built here, so every combo that DID construct a
+    # PreprocessingExtensionsConfig used the dataclass default (True) for
+    # both regardless of the sampled value -- the False opt-out path had no
+    # fuzz coverage. A combo whose prep_ext axes are all None still exercises
+    # the True default via the suite's own None -> default construction
+    # (see DEFAULTS_CHANGELOG.md's ``_phase_fit_pipeline.py`` note), so only
+    # force-construct the config here when row-wise is being toggled OFF.
+    row_wise_summary = combo.row_wise_summary_stats_enabled_cfg
+    row_wise_extreme = combo.row_wise_extreme_columns_enabled_cfg
+    if (
+        scaler is None and kbins is None and poly_deg is None and dim_red is None and nonlin is None
+        and row_wise_summary and row_wise_extreme
+    ):
         return None
     # PreprocessingExtensionsConfig validates that binarization_threshold
     # and kbins are mutually exclusive; we only set kbins so that's safe.
@@ -538,6 +562,11 @@ def _maybe_preprocessing_extensions(combo: FuzzCombo, config_cls):
         dim_reducer=dim_red,
         nonlinear_features=nonlin,
         **dim_components_kwargs,
+        **_safe_cfg_kwargs(
+            config_cls,
+            row_wise_summary_stats_enabled=row_wise_summary,
+            row_wise_extreme_columns_enabled=row_wise_extreme,
+        ),
     )
 
 

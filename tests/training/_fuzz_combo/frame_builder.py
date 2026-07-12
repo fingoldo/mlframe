@@ -95,6 +95,13 @@ def build_frame_for_combo(combo: FuzzCombo):
     # the useful axis to exercise).
     if combo.target_type == "regression":
         target = 2.0 * num_cols["num_0"] - 1.5 * num_cols["num_1"] + rng.standard_normal(n) * 0.3
+        if combo._canonical_inject_point_mass():
+            # Zero-inflated / "no purchase" pattern: collapse ~30% of rows to
+            # a single point-mass value so the train split clears the
+            # gated_outlier auto-detection threshold (>=5% single-value
+            # share, see DEFAULTS_CHANGELOG.md's gated_outlier entry).
+            is_point_mass = rng.random(n) < 0.30
+            target = np.where(is_point_mass, 0.0, target).astype("float32")
         target_col = "target_reg"
     elif combo.target_type == "multi_target_regression":
         # F-24 audit-pass-9 #8: K=2 independent continuous targets derived

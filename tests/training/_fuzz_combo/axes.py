@@ -1821,4 +1821,65 @@ AXES: dict[str, tuple[Any, ...]] = {
     "cv_strategy_cfg": ("random", "timeseries", "purged"),
     "cv_purge_cfg": (0, 5),
     "conformal_size_cfg": (None, 0.05),
+    # =====================================================================
+    # 2026-07-13 -- fuzz coverage for the session-long default-flip wiring
+    # effort documented in src/mlframe/training/core/DEFAULTS_CHANGELOG.md
+    # (batches A/C/E/F/B/I + the gated_outlier point-mass auto-detection).
+    # None of these had any fuzz axis before this batch.
+    # =====================================================================
+    # Batch E: append one explicit-allowlist-only composite registry key to
+    # the sampled model subset. None = no extra key (legacy). Canonicalised
+    # in FuzzCombo._canonical_extra_registry_model to None when incompatible
+    # with the resolved target_type (gated_outlier/bagging are regression-
+    # only; composite_classification is classification-only) or when the
+    # combo is running the implicit mlframe_models=None path (an explicit
+    # allowlist is required to append a key onto).
+    "extra_registry_model_cfg": (None, "gated_outlier", "bagging", "composite_classification"),
+    # Batch C: OutputConfig.run_diagnostics now defaults (None passed to the
+    # suite) to all 6 registered diagnostics. "subset" exercises an explicit
+    # 2-item override; "empty" exercises explicitly disabling every diagnostic.
+    "run_diagnostics_cfg": (None, "subset", "empty"),
+    # Batch A: FeatureSelectionConfig.{use_forward_select_fs,
+    # use_greedy_backward_elimination_fs, use_zero_importance_pruning_fs,
+    # use_cascade_select_fs} all flipped True. False exercises the now-non-
+    # default opt-out path for all four together (one axis keeps the
+    # pairwise budget bounded -- each selector is an independent
+    # pre_pipeline branch already covered individually by use_mrmr_fs /
+    # use_boruta_shap / rfecv_estimator_cfg, so per-selector granularity
+    # here would just be a no-op cross with those existing axes).
+    "fs_new_selectors_enabled_cfg": (True, False),
+    # Wave 1/2 TrainingBehaviorConfig flips.
+    "auto_optimize_threshold_cfg": (True, False),
+    "check_isotonic_overfit_risk_cfg": (True, False),
+    # Wave 2: votenrank diversity recommendations.
+    "recommend_diversity_additions_in_leaderboard_cfg": (True, False),
+    # oof_n_splits stays opt-in (0 = off, matches the production default);
+    # 3 exercises the real K-fold OOF retrain path the diversity/quality-gate
+    # code can consume.
+    "oof_n_splits_cfg": (0, 3),
+    # Batch F: RegressionCalibrationConfig.apply_confidence_shrinkage flipped
+    # True. Never previously threaded into the fuzz suite call at all (no
+    # regression_calibration_config kwarg was passed), so both the True
+    # default AND the False opt-out were dark.
+    "apply_confidence_shrinkage_cfg": (True, False),
+    # Batch B wave 2: PreprocessingExtensionsConfig row-wise FE, flipped
+    # True. Not previously threaded through _maybe_preprocessing_extensions.
+    "row_wise_summary_stats_enabled_cfg": (True, False),
+    "row_wise_extreme_columns_enabled_cfg": (True, False),
+    # gated_outlier point-mass auto-detection: only reachable when a
+    # regression combo leaves mlframe_models at the implicit top-level None
+    # default (mlframe_models_is_default_allowlist) AND the train split has
+    # a genuine point mass. The fuzz suite always passed an explicit
+    # mlframe_models=list(combo.models) before this batch, so the whole
+    # auto-detect path had zero fuzz exposure regardless of the data shape.
+    # inject_point_mass_cfg arms the frame-builder side (collapses ~30% of
+    # a regression target to a single value); mlframe_models_explicit_cfg
+    # controls whether the suite call passes an explicit allowlist at all.
+    # Both canonicalise away (FuzzCombo._canonical_inject_point_mass /
+    # _canonical_mlframe_models_explicit) unless target_type=="regression"
+    # and combo.models is a subset of the real default allowlist
+    # {"cb","lgb","xgb","mlp","linear"} with no extra_registry_model_cfg
+    # requested (that needs an explicit list to append onto).
+    "inject_point_mass_cfg": (False, True),
+    "mlframe_models_explicit_cfg": (True, False),
 }
