@@ -51,6 +51,7 @@ from sklearn.base import clone
 
 from .cv import PurgedTimeSeriesSplit
 from .estimator import CompositeTargetEstimator
+from ._hpo_metrics import rmse as _rmse
 from ..utils import coerce_to_1d_numpy as _to_1d_numpy
 
 logger = logging.getLogger(__name__)
@@ -217,17 +218,9 @@ class CompositeHPOResult:
 # Internals
 # ----------------------------------------------------------------------
 
-def _rmse(y_true: np.ndarray, y_pred: np.ndarray) -> float:
-    """Default scorer: root-mean-squared error on original ``y`` scale.
-
-    Non-finite predictions (an inverse-transform blow-up on a pathological
-    fold) are penalised with ``inf`` so the optimizer steers away from the
-    config rather than crashing the whole search.
-    """
-    diff = np.asarray(y_true, dtype=np.float64) - np.asarray(y_pred, dtype=np.float64)
-    if not np.all(np.isfinite(diff)):
-        return float("inf")
-    return float(np.sqrt(np.mean(diff * diff)))
+# ``_rmse`` is imported from the leaf ``_hpo_metrics`` module at the top of this file (not
+# defined here) so this sibling and ``hpo_ensembling`` can both import the default scorer
+# without a module-level import cycle.
 
 
 def _iloc_rows(X: Any, idx: np.ndarray) -> Any:
@@ -751,7 +744,7 @@ def _enumerate_grid(
 
 # Re-exported from the sibling ``hpo_ensembling`` module (new-code-goes-in-focused-submodules) so
 # ``from mlframe.training.composite.hpo import select_oof_pool_ensemble`` works without callers needing to
-# know about the split. Imported at the BOTTOM of this module (after ``_rmse`` is defined above) because
-# ``hpo_ensembling`` imports ``_rmse`` back from this module at ITS import time -- placing this import
-# earlier would hand it a partially-initialised ``hpo`` module missing that name.
+# know about the split. ``hpo_ensembling`` no longer imports anything back from this module at runtime
+# (its scorer default comes from the leaf ``_hpo_metrics`` module both siblings share), so this stays a
+# one-directional edge; kept at the bottom purely for readability (re-export next to the rest of __all__).
 from .hpo_ensembling import OOFPoolSelectionResult, select_oof_pool_ensemble  # noqa: E402

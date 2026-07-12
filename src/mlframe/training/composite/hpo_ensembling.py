@@ -25,7 +25,7 @@ import numpy as np
 
 from ..utils import coerce_to_1d_numpy as _to_1d_numpy
 from ...models.ensembling.selection import stepwise_ensemble_selection
-from .hpo import _rmse
+from ._hpo_metrics import rmse as _rmse
 
 if TYPE_CHECKING:
     from .hpo import CompositeHPOResult
