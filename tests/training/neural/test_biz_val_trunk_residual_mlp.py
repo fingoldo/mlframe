@@ -70,3 +70,56 @@ def test_trunk_residual_mlp_predict_shape():
     model = TrunkResidualMLPRegressor(trunk_dim=8, n_blocks=3, n_epochs=20, random_state=0).fit(X, y)
     preds = model.predict(X)
     assert preds.shape == (100,)
+
+
+def test_biz_val_trunk_residual_mlp_seed_ensemble_beats_single_seed():
+    """The opt-in seed-ensemble (fit_seed_ensemble/predict_ensemble_mean) should out-predict a single seed --
+    a shallow, few-epoch full-batch fit on 250 rows is genuinely seed-sensitive (different inits land in
+    different local optima), so averaging K independently-seeded members should recover held-out R2 that a
+    single seed's noisy point estimate leaves on the table.
+    """
+    X, y = _make_data(n=250, n_features=8, seed=0)
+    Xtr, Xte, ytr, yte = X[:180], X[180:], y[:180], y[180:]
+    params = dict(trunk_dim=10, n_blocks=4, n_epochs=60, learning_rate=0.02)
+
+    single = TrunkResidualMLPRegressor(random_state=1, **params).fit(Xtr, ytr)
+    r2_single = float(r2_score(yte, single.predict(Xte)))
+
+    ensemble = TrunkResidualMLPRegressor(random_state=1, **params)
+    ensemble.fit_seed_ensemble(Xtr, ytr, n_seeds=16, base_random_state=1)
+    r2_ensemble = float(r2_score(yte, ensemble.predict_ensemble_mean(Xte)))
+
+    assert r2_ensemble >= 0.55, f"expected the 16-seed ensemble mean to reach a strong held-out R2, got {r2_ensemble:.4f}"
+    assert r2_ensemble - r2_single >= 0.2, (
+        f"expected the seed ensemble to beat a single noisy seed by a wide margin, got single={r2_single:.4f} ensemble={r2_ensemble:.4f}"
+    )
+
+    std = ensemble.predict_std(Xte)
+    assert std.shape == (Xte.shape[0],)
+    assert bool((std >= 0).all())
+
+
+def test_biz_val_trunk_residual_mlp_seed_ensemble_variance_curve_diminishing_returns():
+    """``seed_ensemble_variance_curve`` should show the predicted std of the K-ensemble MEAN shrinking as K
+    grows, with diminishing returns: the K=1->K=8 drop should dwarf the K=8->K=16 drop, so a caller reading the
+    curve can stop adding seeds once it flattens instead of guessing K.
+    """
+    X, y = _make_data(n=250, n_features=8, seed=0)
+    Xtr, Xte = X[:180], X[180:]
+    ytr = y[:180]
+    params = dict(trunk_dim=10, n_blocks=4, n_epochs=60, learning_rate=0.02)
+
+    curve = TrunkResidualMLPRegressor.seed_ensemble_variance_curve(Xtr, ytr, Xte, k_values=(1, 2, 4, 8, 16), base_random_state=1, **params)
+    k_values = curve["k_values"]
+    mean_std = curve["mean_std"]
+    assert k_values == [1.0, 2.0, 4.0, 8.0, 16.0]
+
+    std_k1, std_k8, std_k16 = mean_std[0], mean_std[3], mean_std[4]
+    # sigma/sqrt(K) scaling makes the K=1 vs K=16 ratio exactly sqrt(16)=4 in expectation; allow a hair of
+    # floating-point slack rather than pin an exact equality.
+    assert std_k1 > 3.9 * std_k16, f"expected K=1 std to dwarf K=16 std, got std_k1={std_k1:.4f} std_k16={std_k16:.4f}"
+    assert std_k8 - std_k16 < (std_k1 - std_k8) / 2, (
+        f"expected diminishing returns (K=8->K=16 drop much smaller than K=1->K=8 drop), "
+        f"got std_k1={std_k1:.4f} std_k8={std_k8:.4f} std_k16={std_k16:.4f}"
+    )
+    assert all(a >= b - 1e-9 for a, b in zip(mean_std, mean_std[1:])), f"expected mean_std to be non-increasing in K, got {mean_std}"
