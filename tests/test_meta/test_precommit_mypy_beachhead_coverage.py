@@ -9,10 +9,12 @@ local/CI parity gap (the beachhead has already silently drifted like this at lea
 
 This test parses pyproject.toml's actual [[tool.mypy.overrides]] list (the source of truth for
 "what's in the beachhead": any override block with ``disallow_untyped_defs = true``) and asserts
-every one of those files is matched by the pre-commit hook's regex, and also present in
-mypy.yml's ``modules:`` list -- so a THIRD, silent drift point (someone expands the beachhead in
-pyproject.toml but forgets either the pre-commit regex or the CI workflow's module list) fails
-loudly here instead.
+every one of those files is matched by the pre-commit hook's regex.
+
+The separate CI-workflow-vs-beachhead drift check (mypy.yml's own `modules:` list) was retired
+2026-07-12 along with mypy.yml itself: the whole-project mypy-full.yml (0-error blocking gate)
+now supersedes the beachhead CI job, so there is no longer a second hand-maintained module list
+to drift out of sync.
 """
 
 from __future__ import annotations
@@ -70,13 +72,6 @@ def _precommit_mypy_regex() -> re.Pattern:
     raise AssertionError("Could not find the mypy hook in .pre-commit-config.yaml -- did its structure change?")
 
 
-def _mypy_workflow_modules() -> list[str]:
-    with open(REPO_ROOT / ".github" / "workflows" / "mypy.yml", encoding="utf-8") as f:
-        config = yaml.safe_load(f)
-    raw = config["jobs"]["mypy"]["with"]["modules"]
-    return [line.strip() for line in raw.strip().splitlines() if line.strip()]
-
-
 def test_precommit_mypy_hook_covers_full_beachhead():
     """Every strict-mode beachhead module (from pyproject.toml) must be matched by the
     pre-commit hook's files= regex -- see this file's module docstring for the incident."""
@@ -94,29 +89,4 @@ def test_precommit_mypy_hook_covers_full_beachhead():
         f"These are strict-mode beachhead modules per [[tool.mypy.overrides]] in pyproject.toml "
         f"but invisible to the LOCAL pre-commit hook -- an edit to them will pass pre-commit and "
         f"only fail in CI's mypy-beachhead job. Update the regex in .pre-commit-config.yaml."
-    )
-
-
-def test_mypy_workflow_modules_match_beachhead():
-    """mypy.yml's `modules:` list (what CI actually type-checks) must stay a superset of the
-    strict-mode beachhead declared in pyproject.toml -- the two are meant to describe the same
-    set, maintained by hand in two files, and can drift independently."""
-    beachhead_dirs = set(_beachhead_module_files())
-    workflow_modules = set(_mypy_workflow_modules())
-
-    missing_from_workflow = []
-    for mod_path in beachhead_dirs:
-        # A beachhead dir entry (e.g. "src/mlframe/calibration") is satisfied by either the bare
-        # directory or any file inside it appearing in the workflow's module list.
-        if mod_path.endswith(".py"):
-            covered = mod_path in workflow_modules
-        else:
-            covered = mod_path in workflow_modules or any(m.startswith(mod_path + "/") for m in workflow_modules)
-        if not covered:
-            missing_from_workflow.append(mod_path)
-
-    assert not missing_from_workflow, (
-        f"mypy.yml's `modules:` list is missing: {missing_from_workflow}. These are strict-mode "
-        f"beachhead modules per [[tool.mypy.overrides]] in pyproject.toml but not type-checked by "
-        f"CI's mypy-beachhead job -- update .github/workflows/mypy.yml's `modules:` input."
     )

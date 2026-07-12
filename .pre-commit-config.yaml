@@ -85,16 +85,18 @@ repos:
         language_version: python3
         stages: [manual]
 
-  # Mypy: scoped to the full strict-mode beachhead per [tool.mypy.overrides] in pyproject.toml
-  # and mirrored exactly in .github/workflows/mypy.yml's `modules:` list. Expanding this files=
-  # regex further is gated on a separate review per the gradual-typing policy in CONTRIBUTING.md.
+  # Mypy: scoped to the full strict-mode beachhead per [tool.mypy.overrides] in pyproject.toml.
+  # Expanding this files= regex further is gated on a separate review per the gradual-typing
+  # policy in CONTRIBUTING.md. The old mypy.yml CI workflow that used to mirror this exactly was
+  # retired 2026-07-12 -- the whole-project mypy-full.yml (0-error blocking gate) now supersedes
+  # it, so there's no longer a second hand-maintained module list for this regex to drift against.
   #
   # CRITICAL: this regex must stay a superset of every module in [[tool.mypy.overrides]] with
-  # disallow_untyped_defs=true (the actual beachhead) and of mypy.yml's `modules:` list. Found
-  # 2026-07-09 (CI/CD architecture review): the beachhead had already expanded twice (calibration
-  # -> +safe_pickle -> +_gpu_guard/_numba_params/rank_correlation/_core_precision_mape) without
-  # this regex ever being updated -- 5 of 6 beachhead modules were invisible to this hook, so an
-  # edit to any of them passed pre-commit locally and only failed in CI's mypy-beachhead job. See
+  # disallow_untyped_defs=true (the actual beachhead). Found 2026-07-09 (CI/CD architecture
+  # review): the beachhead had already expanded twice (calibration -> +safe_pickle ->
+  # +_gpu_guard/_numba_params/rank_correlation/_core_precision_mape) without this regex ever
+  # being updated -- 5 of 6 beachhead modules were invisible to this hook, so an edit to any of
+  # them passed pre-commit locally and only failed in CI's mypy-beachhead job. See
   # tests/test_meta/test_precommit_mypy_beachhead_coverage.py for the meta-test that now pins
   # this regex against pyproject.toml's actual override list.
   - repo: https://github.com/pre-commit/mirrors-mypy
@@ -106,14 +108,14 @@ repos:
         # transitive deps installed (pandas/torch/lightning/numba/pyutilz), so default
         # follow-imports="normal" walks into every module they import, collapses each
         # missing-dep expression to Any, and reports noise from dozens of files never meant
-        # to be covered by this beachhead. Mirrors the same fix in mypy.yml (2026-07-08).
+        # to be covered by this beachhead (same fix applied to the now-retired mypy.yml, 2026-07-08).
         args: ['--follow-imports=silent']
         # Every dep here is EXACT-pinned, not range-pinned: an unpinned/range-pinned resolve
         # in this isolated hook env drifts silently over time (observed 2026-07-06: picked up
         # numpy 2.5.1, whose bundled .pyi stubs use PEP 695 `type` statements that mypy rejects
         # under our [tool.mypy] python_version="3.10" -- "Type statement is only supported in
         # Python 3.12 and greater" -- while the project's real env ran 2.3.x; observed again
-        # 2026-07-08 via the mirrored mypy.yml CI step: identical command, 178 errors in CI vs.
+        # 2026-07-08 via the mirrored mypy.yml CI step (since retired): identical command, 178 errors in CI vs.
         # 0 locally, traced to a different numpy/scipy/scikit-learn/pydantic/mypy combination
         # each side resolved). Versions below match the project's real dev env.
         additional_dependencies: ['numpy==2.3.5', 'scipy==1.17.1', 'scikit-learn==1.8.0', 'pydantic==2.13.4']
