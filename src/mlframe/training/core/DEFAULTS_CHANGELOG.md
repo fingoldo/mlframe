@@ -151,3 +151,36 @@ stated reason, and the bugs the flip work surfaced and fixed along the way.
   flipped default-ON: enabling means a real K-fold retrain per model, genuine extra compute a caller must
   opt into (e.g. to unlock `recommend_diversity_additions_in_leaderboard`'s OOF-based diversity signal, or
   `score_ensemble`'s OOF-preferred quality gate).
+
+## Batch D audit: `CompositeTargetDiscoveryConfig` (2026-07-12) — nothing to wire, confirmed already integrated
+
+Investigated per the "wire the isolated 129" directive, specifically the composite-target-discovery config surface.
+Verdict: this is **not** an isolated/unreachable utility — it predates and falls outside the current wiring
+campaign. Traced the full call graph and confirmed it is already deeply wired end-to-end:
+
+- `CompositeTargetDiscoveryConfig` (`_composite_target_discovery_config.py`, fields carved into
+  `_composite_target_discovery_config_base.py`) is accepted as `train_mlframe_models_suite`'s
+  `composite_target_discovery_config` parameter (`_main_train_suite.py`), normalised in `_phase_config_setup.py`
+  (`_ensure_config(..., CompositeTargetDiscoveryConfig, {})`), and consumed by
+  `_phase_composite_discovery.run_composite_target_discovery` — a real phase in the main suite pipeline that
+  gates on `composite_target_discovery_config.enabled and TargetTypes.REGRESSION in target_by_type`, feeds
+  `_phase_composite_post.py` / `_phase_composite_post_moe.py` / `_phase_composite_wrapping.py` downstream, and is
+  exercised by 17+ dedicated test files under `tests/training/composite/discovery/` (unit, biz_value, no-leak,
+  parallel, spec-fixes, AR-skip, cache, diagnostic-charts, all-opt-in coverage) plus perf benches under
+  `tests/perf/bench_composite_discovery_*`.
+- Nearly every one of its ~70 sub-flags already carries its own inline "Default ON per the enable-corrective-
+  mechanisms-by-default convention" / "Default OFF, benchmark showed no win" rationale, written in the exact
+  style this campaign's changelog entries use (e.g. `detect_base_leakage`, `dedup_x_remaining_for_mi_baseline`,
+  `auto_base_structural_boost`, `honest_oof_selection`, `structural_fragility_gate_enabled`, `moe_gate_enabled`,
+  `ar1_failsafe_val_crosscheck`, `mi_gain_fdr_control`, all `True`; `region_adaptive_enabled`,
+  `use_stacked_discovery(_residual)`, `stacking_aware_gate_enabled`, `ct_ensemble_dedup_enabled` deliberately
+  `False` with a named benchmark or dataset-specific blocker each). This work was done in earlier sessions, not
+  part of the current isolated-129 list.
+- The only knob genuinely left off is the master `enabled: bool = False` switch itself. NOT flipped: unlike a
+  pure diagnostic/additive step, composite-target discovery changes what the models are actually trained to
+  predict (residual/ratio/log-ratio transforms of `y`) and its value is dataset-specific (needs a real
+  dominant-AR-feature / base relationship to pay off) — flipping it globally would be a behavior change with
+  real per-target compute cost (MI screening + tiny-model rerank + honest-OOF re-scoring) and no generic
+  safety guarantee for datasets with no such structure, so it stays the caller's opt-in decision.
+
+No code change. No new tests needed — this batch is a documented negative result, not a wiring gap.
