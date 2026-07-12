@@ -213,7 +213,10 @@ def _run_fe_step(
     if len(selected_vars) == 0:
         if self.fe_fallback_to_all:
             logger.info("Proceeding with all features though (fe_fallback_to_all=True).")
-            selected_vars = np.array([cols.index(col) for col in cols if col not in target_names])
+            # ``cols.index(col)`` while iterating ``cols`` itself is always just the loop position
+            # (column names are unique by construction, matching every other name->index map in
+            # the FE step) -- enumerate() gives the identical index without the O(F) rescan per item.
+            selected_vars = np.array([i for i, col in enumerate(cols) if col not in target_names])
         elif getattr(self, "cluster_aggregate_enable", False) and num_fs_steps == 0:
             # cluster_aggregate operates on raw ``feature_names_in_`` columns
             # (correlation-based clusters) and does NOT need ``selected_vars``.
@@ -551,7 +554,10 @@ def _run_fe_step(
     # feature_names_in_ is an ndarray (sklearn convention) -- list() once so .index() works (ndarray has none)
     # and the comprehension below doesn't rebuild it per element.
     _fni_list = list(self.feature_names_in_)
-    original_cols = {i: _fni_list.index(col) for i, col in enumerate(cols) if col in self.feature_names_in_}
+    # name -> index map built once (O(F)) instead of an ``in`` test + ``.index()`` rescan of
+    # ``_fni_list`` per ``col`` (O(F) each) -- turns the O(K*F) lookup below into O(K+F).
+    _fni_idx = {nm: i for i, nm in enumerate(_fni_list)}
+    original_cols = {i: _fni_idx[col] for i, col in enumerate(cols) if col in _fni_idx}
     if verbose >= 1:
         logger.info("Checking %d most prospective_pairs for feature engineering...", len(prospective_pairs))
 

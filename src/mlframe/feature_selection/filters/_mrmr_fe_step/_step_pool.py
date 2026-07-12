@@ -68,7 +68,10 @@ def build_fe_operand_pool(
     if self.factors_to_use is not None:
         numeric_vars_to_consider = numeric_vars_to_consider & set(self.factors_to_use)
     if self.factors_names_to_use is not None:
-        allowed = {cols.index(n) for n in self.factors_names_to_use if n in cols}
+        # name -> index map built once (O(F)) instead of an ``in`` test + ``.index()`` rescan of
+        # ``cols`` per name (O(F) each) -- turns the O(K*F) lookup below into O(K+F).
+        _cols_idx = {nm: i for i, nm in enumerate(cols)}
+        allowed = {idx for n in self.factors_names_to_use if (idx := _cols_idx.get(n)) is not None}
         numeric_vars_to_consider = numeric_vars_to_consider & allowed
 
     numeric_vars_to_consider, _synergy_added_idx = apply_synergy_bootstrap(

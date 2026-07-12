@@ -6544,15 +6544,17 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         _readd = []
         _dropped_redundant = []
         _dropped_insignificant = []
+        # name -> index map built once (O(F)) instead of a ``.index()`` rescan of ``cols`` per
+        # ``_rn`` (O(F) each) -- turns the O(K*F) loop below into O(K+F).
+        _prefe_cols_idx = {nm: i for i, nm in enumerate(cols)}
         for _rn in _prefe_raw:
             if _rn in _cur_names or _rn in _substituted:
                 continue
             if _rn in _fused_dropped_raw:
                 _dropped_redundant.append(_rn)
                 continue
-            try:
-                _idx = cols.index(_rn)
-            except ValueError:
+            _idx = _prefe_cols_idx.get(_rn)
+            if _idx is None:
                 continue
             if _idx in _sv_set:
                 continue
@@ -7368,12 +7370,14 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     except Exception:
                         return True
                 _pcr_readd = []
+                # name -> index map built once (O(F)) instead of a ``.index()`` rescan of ``cols`` per
+                # ``_rn`` (O(F) each) -- turns the O(K*F) loop below into O(K+F).
+                _pcr_cols_idx = {nm: i for i, nm in enumerate(cols)}
                 for _rn in _pcr_consumed.keys():
                     if _rn in _pcr_sel_names:
                         continue  # already selected -> nothing to rescue
-                    try:
-                        _ridx = cols.index(_rn)
-                    except ValueError:
+                    _ridx = _pcr_cols_idx.get(_rn)
+                    if _ridx is None:
                         continue
                     if _ridx in _pcr_sel_set:
                         continue
@@ -7549,10 +7553,12 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                             _yv_floor = np.asarray(_yv_floor, dtype=np.float64).reshape(-1)
                         except Exception:
                             _yv_floor = np.asarray(classes_y, dtype=np.float64).reshape(-1)
+                        # name -> index map built once (O(F)) instead of a ``.index()`` rescan of
+                        # ``cols`` per ``_dn`` (O(F) each) -- turns the O(K*F) loop below into O(K+F).
+                        _floor_cols_idx = {nm: i for i, nm in enumerate(cols)}
                         for _dn in _dropped_redund_names:
-                            try:
-                                _ci = cols.index(_dn)
-                            except ValueError:
+                            _floor_ci = _floor_cols_idx.get(_dn)
+                            if _floor_ci is None:
                                 continue
                             # Only a dropped raw with genuine PRIVATE linear signal beyond the engineered
                             # survivors is eligible to be the raw representative; a fully-subsumed operand is not.
@@ -7564,7 +7570,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                                     if isinstance(X, pd.DataFrame) and _dn in X.columns:
                                         _rawv = np.asarray(X[_dn], dtype=np.float64).ravel()
                                     if _rawv is None:
-                                        _rawv = np.asarray(data[:, _ci], dtype=np.float64).ravel()
+                                        _rawv = np.asarray(data[:, _floor_ci], dtype=np.float64).ravel()
                                     _eligible_floor = bool(_floor_lin(
                                         _rawv, _yv_floor, _floor_child_vals,
                                         seed=int(getattr(self, "random_seed", 0) or 0),
@@ -7575,11 +7581,11 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                                 continue
                             try:
                                 from ..info_theory import mi as _floor_mi
-                                _rel = float(_floor_mi(data, np.array([int(_ci)], dtype=np.int64), _tgt_floor, _fn_floor))
+                                _rel = float(_floor_mi(data, np.array([int(_floor_ci)], dtype=np.int64), _tgt_floor, _fn_floor))
                             except Exception:
                                 _rel = 0.0
                             if _rel > _best_floor_rel:
-                                _best_floor_rel, _best_floor_idx = _rel, int(_ci)
+                                _best_floor_rel, _best_floor_idx = _rel, int(_floor_ci)
                         if _best_floor_idx is not None:
                             selected_vars = [*list(_kept_redund), _best_floor_idx]
                             _kept_name_floor = cols[_best_floor_idx]
@@ -7726,12 +7732,14 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     self._engineered_recipes_ = []
     original_indices = []
     engineered_without_recipe = []
-    # feature_names_in_ is an ndarray (sklearn convention); list() once so .index() below (an ndarray has no
-    # .index() method) works and the loop below doesn't rebuild it every iteration.
-    _fni_list = list(self.feature_names_in_)
+    # feature_names_in_ is an ndarray (sklearn convention); name -> index map built once (O(F))
+    # instead of an ``in`` test + ``.index()`` rescan per ``col`` (O(F) each) -- turns the O(K*F)
+    # loop below into O(K+F).
+    _fni_idx = {nm: i for i, nm in enumerate(self.feature_names_in_)}
     for col in selected_vars_names:
-        if col in self.feature_names_in_:
-            original_indices.append(_fni_list.index(col))
+        _fni_i = _fni_idx.get(col)
+        if _fni_i is not None:
+            original_indices.append(_fni_i)
         else:
             self._engineered_features_.append(col)
             recipe = engineered_recipes.get(col)
@@ -7766,13 +7774,12 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # but always survive to the estimator (the learnable-embedding network + boundary encoder consume them).
     if self._passthrough_features_:
         _existing = set(selected_vars)
-        _fni_list = list(self.feature_names_in_)
+        # Reuse the name -> index map built above (``feature_names_in_`` is fit-invariant).
         for _pname in self._passthrough_features_:
-            if _pname in self.feature_names_in_:
-                _pidx = _fni_list.index(_pname)
-                if _pidx not in _existing:
-                    selected_vars.append(_pidx)
-                    _existing.add(_pidx)
+            _pidx = _fni_idx.get(_pname)
+            if _pidx is not None and _pidx not in _existing:
+                selected_vars.append(_pidx)
+                _existing.add(_pidx)
 
     # ---------------------------------------------------------------------------------------------------------------
     # additional_rfecv run
@@ -7906,9 +7913,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 new_features = np.array(temp_columns)[cb_num_rfecv.support_]
                 if verbose:
                     logger.info("RFECV selected %d additional feature(s): %s", cb_num_rfecv.n_features_, new_features)
-                _fni_list = list(self.feature_names_in_)
+                # Reuse the name -> index map built above (``feature_names_in_`` is fit-invariant).
                 for feature in new_features:
-                    selected_vars.append(_fni_list.index(feature))
+                    selected_vars.append(_fni_idx[feature])
             else:
                 if verbose:
                     logger.info("RFECV selected no additional features.")
@@ -7960,6 +7967,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 """Resolve an ``EngineeredRecipe`` to its materialised column name (via ``.name``), falling back to ``str(r)`` for a legacy bare-string entry."""
                 _nm = getattr(_r, "name", None)
                 return str(_nm) if _nm is not None else str(_r)
+            # name -> index map built once (O(F)); reused below for ``_eng_survivor_cols`` too.
+            # ``cols`` is not mutated for the remainder of ``_fit_impl`` past this point.
+            _ne_cols_idx = {nm: i for i, nm in enumerate(cols)}
             _operand_idxs: set = set()
             for _r_obj in self._engineered_recipes_:
                 for _tok in _NE_TOK_SPLIT.split(_ne_recipe_name(_r_obj)):
@@ -7967,10 +7977,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         continue
                     _base = _tok if _tok in _raw_names_ne else (_tok.split("__", 1)[0] if "__" in _tok else None)
                     if _base in _raw_names_ne:
-                        try:
-                            _operand_idxs.add(cols.index(_base))
-                        except ValueError:
-                            continue
+                        _ne_ci = _ne_cols_idx.get(_base)
+                        if _ne_ci is not None:
+                            _operand_idxs.add(_ne_ci)
             # CONDITIONAL-REDUNDANCY GUARD on the re-attach (2026-06-12, BUG1). The
             # operand picked below is the highest-MARGINAL-MI one, but a high marginal
             # does NOT mean it carries signal the engineered child lacks: a dominant
@@ -7993,7 +8002,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     raise RuntimeError("redundancy_policy=emit_both: skip subsumption restriction")
                 from .._fe_raw_redundancy_drop import drop_redundant_raw_operands as _ne_drop
                 _recipe_names = [_ne_recipe_name(r) for r in self._engineered_recipes_]
-                _eng_survivor_cols = [cols.index(_nm) for _nm in _recipe_names if _nm in cols and _nm not in _raw_names_ne]
+                _eng_survivor_cols = [_ne_cols_idx[_nm] for _nm in _recipe_names if _nm in _ne_cols_idx and _nm not in _raw_names_ne]
                 if _eng_survivor_cols and _operand_idxs:
                     _trial_sel = sorted(set(_operand_idxs) | set(_eng_survivor_cols))
                     # name -> EngineeredRecipe so the verdict can isolate clean nested
@@ -8325,9 +8334,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             _eb_qdtype = getattr(self, "quantization_dtype", np.int32)
             _eb_operands: list[str] = []
             for _enm, _erec in _eb_recipes.items():
-                if _enm is None or _enm in _eb_raw_names or _enm not in cols:
+                if _enm is None or _enm in _eb_raw_names or _enm not in _eb_cols_idx:
                     continue
-                if cols.index(_enm) not in _eb_sel_set:
+                if _eb_cols_idx[_enm] not in _eb_sel_set:
                     continue  # only SELECTED engineered features
                 _src = getattr(_erec, "src_names", None)
                 _eb_toks = list(_src) if _src else [t for t in _EB_TOK_SPLIT.split(str(_enm)) if t]
@@ -8900,14 +8909,18 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                             _bf_idx, _bf_rel = None, float("-inf")
                             _tgt_pf = np.asarray(target_indices, dtype=np.int64)
                             _fn_pf = np.asarray(nbins, dtype=np.int64)
+                            # ``_post_name_to_idx`` (built above) is ``_post_cols`` = ``list(cols)`` plus
+                            # any appended engineered columns, so it agrees with ``cols.index`` for every
+                            # raw name here (``_post_drop_set`` only ever holds raw ``feature_names_in_``
+                            # names, always present in the original ``cols`` prefix) -- reuse it instead
+                            # of a fresh ``.index()`` rescan of ``cols`` per ``_dn``.
                             for _dn in _post_drop_set:
-                                try:
-                                    _ci = cols.index(_dn)
-                                except ValueError:
+                                _bf_ci = _post_name_to_idx.get(_dn)
+                                if _bf_ci is None:
                                     continue
                                 try:
                                     from ..info_theory import mi as _pf_mi
-                                    _rel = float(_pf_mi(data, np.array([int(_ci)], dtype=np.int64), _tgt_pf, _fn_pf))
+                                    _rel = float(_pf_mi(data, np.array([int(_bf_ci)], dtype=np.int64), _tgt_pf, _fn_pf))
                                 except Exception:
                                     _rel = 0.0
                                 if _rel > _bf_rel:

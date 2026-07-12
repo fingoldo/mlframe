@@ -183,12 +183,12 @@ def compute_mrmr_artifacts(
         # else: leave NaN
 
         if retain_bins:
-            # np.ascontiguousarray + astype copies the column out of the shared
-            # ``data`` matrix so a later in-place edit (e.g. DCD aggregate
-            # append) cannot corrupt the export. Cost: n_samples * dtype-bytes
-            # per kept column.
+            # np.ascontiguousarray already allocates a fresh, unaliased buffer for a non-contiguous
+            # slice like ``x_bins`` (verified: ``.base is x_bins`` is False) -- copies the column out
+            # of the shared ``data`` matrix so a later in-place edit (e.g. DCD aggregate append)
+            # cannot corrupt the export. A trailing ``.copy()`` would only duplicate that same buffer.
             assert bins_dict is not None and nbins_dict is not None  # retain_bins guarantees both were allocated above
-            bins_dict[name] = np.ascontiguousarray(x_bins, dtype=dtype).copy()
+            bins_dict[name] = np.ascontiguousarray(x_bins, dtype=dtype)
             nbins_dict[name] = x_nb
 
     artifacts: dict[str, Any] = {
