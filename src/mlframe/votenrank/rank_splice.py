@@ -20,7 +20,13 @@ from __future__ import annotations
 import numpy as np
 
 
-def segment_rank_splice(main_scores: np.ndarray, specialist_scores: np.ndarray, segment_mask: np.ndarray) -> np.ndarray:
+def segment_rank_splice(
+    main_scores: np.ndarray,
+    specialist_scores: np.ndarray,
+    segment_mask: np.ndarray,
+    *,
+    blend_weight: float = 0.0,
+) -> np.ndarray:
     """Re-order rows within ``segment_mask`` by ``specialist_scores``' rank; every other row is untouched.
 
     Parameters
@@ -33,14 +39,25 @@ def segment_rank_splice(main_scores: np.ndarray, specialist_scores: np.ndarray, 
         order as ``main_scores[segment_mask]``).
     segment_mask
         ``(n,)`` boolean mask selecting the rows to re-order.
+    blend_weight
+        ``0.0`` (default) is a hard cutover -- the segment order is decided purely by the specialist's
+        within-segment rank, matching the original behavior bit-for-bit. ``1.0`` would ignore the specialist
+        entirely and keep the main model's own within-segment order. Values in between linearly blend the two
+        rank positions before re-sorting, which matters when the specialist's ranking is genuinely informative
+        but noisy: averaging two independently-noisy rank estimates (main and specialist) reduces the combined
+        rank variance versus either alone, the same effect an ensemble gets from averaging predictions. Must
+        be in ``[0.0, 1.0]``.
 
     Returns
     -------
     np.ndarray
         ``(n,)`` -- a copy of ``main_scores`` with the segment's row values PERMUTED (the multiset of values
-        within the segment is unchanged; only their row assignment changes, ordered by the specialist's
-        within-segment rank). Non-segment rows are identical to ``main_scores``.
+        within the segment is unchanged; only their row assignment changes, ordered by the blended rank).
+        Non-segment rows are identical to ``main_scores``.
     """
+    if not 0.0 <= blend_weight <= 1.0:
+        raise ValueError(f"segment_rank_splice: blend_weight must be in [0.0, 1.0], got {blend_weight}")
+
     main_arr = np.asarray(main_scores, dtype=np.float64)
     mask = np.asarray(segment_mask, dtype=bool)
     if mask.shape != main_arr.shape:
@@ -55,7 +72,14 @@ def segment_rank_splice(main_scores: np.ndarray, specialist_scores: np.ndarray, 
     main_segment = main_arr[mask]
     sorted_main_vals = np.sort(main_segment)
     specialist_rank = np.argsort(np.argsort(specialist_segment))  # 0-based rank of each row within the segment
-    out[mask] = sorted_main_vals[specialist_rank]
+    if blend_weight == 0.0:
+        # Hard-cutover default: identical to the pre-blend implementation, byte-for-byte.
+        final_rank = specialist_rank
+    else:
+        main_rank = np.argsort(np.argsort(main_segment))
+        blended_key = (1.0 - blend_weight) * specialist_rank.astype(np.float64) + blend_weight * main_rank.astype(np.float64)
+        final_rank = np.argsort(np.argsort(blended_key))
+    out[mask] = sorted_main_vals[final_rank]
     return np.asarray(out)
 
 

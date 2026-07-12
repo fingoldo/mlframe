@@ -74,6 +74,51 @@ def test_segment_rank_splice_preserves_segment_value_multiset():
     np.testing.assert_allclose(result[[0, 4, 2]], [1.0, 2.0, 3.0])
 
 
+def _make_dual_noisy_segment_dataset(n_segment: int, seed: int):
+    rng = np.random.default_rng(seed)
+    y_segment = rng.integers(0, 2, n_segment)
+    # Both the main model and the specialist have genuine but individually-noisy signal on this segment --
+    # neither one alone is a strong ranker, but their rank ESTIMATES are independently noisy around the same
+    # true order, so averaging the two rank positions should reduce variance (an ensembling effect) versus
+    # trusting either one alone.
+    main_scores_segment = y_segment.astype(np.float64) + rng.normal(scale=1.8, size=n_segment)
+    specialist_scores = y_segment.astype(np.float64) + rng.normal(scale=1.8, size=n_segment)
+    return main_scores_segment, specialist_scores, y_segment
+
+
+def test_biz_val_rank_splice_soft_blend_beats_hard_cutover_under_noisy_specialist():
+    main_scores, specialist_scores, y = _make_dual_noisy_segment_dataset(n_segment=400, seed=1)
+    segment_mask = np.ones_like(y, dtype=bool)  # whole population is the segment for this isolated comparison
+
+    hard_cutover = segment_rank_splice(main_scores, specialist_scores, segment_mask)  # blend_weight=0.0 default
+    auc_hard = roc_auc_score(y, hard_cutover)
+
+    soft_blend = segment_rank_splice(main_scores, specialist_scores, segment_mask, blend_weight=0.5)
+    auc_blend = roc_auc_score(y, soft_blend)
+
+    assert auc_blend > auc_hard + 0.02, f"expected soft-blend to reduce rank noise vs hard specialist-only cutover, got blend={auc_blend:.4f} hard={auc_hard:.4f}"
+    assert auc_blend > 0.63, f"expected soft-blend to reach a materially better AUC than either noisy single source, got {auc_blend:.4f}"
+
+
+def test_segment_rank_splice_blend_weight_zero_is_bit_identical_to_default():
+    main_scores, specialist_scores, y, segment_mask = _make_miscalibrated_specialist_dataset(n_main=800, n_segment=200, seed=0)
+    default_result = segment_rank_splice(main_scores, specialist_scores, segment_mask)
+    explicit_zero_result = segment_rank_splice(main_scores, specialist_scores, segment_mask, blend_weight=0.0)
+    np.testing.assert_array_equal(default_result, explicit_zero_result)
+
+
+def test_segment_rank_splice_blend_weight_out_of_range_raises():
+    import pytest
+
+    main_scores = np.array([1.0, 2.0, 3.0])
+    specialist_scores = np.array([1.0, 2.0, 3.0])
+    segment_mask = np.array([True, True, True])
+    with pytest.raises(ValueError):
+        segment_rank_splice(main_scores, specialist_scores, segment_mask, blend_weight=1.5)
+    with pytest.raises(ValueError):
+        segment_rank_splice(main_scores, specialist_scores, segment_mask, blend_weight=-0.1)
+
+
 def test_segment_rank_splice_mismatched_lengths_raises():
     import pytest
 
