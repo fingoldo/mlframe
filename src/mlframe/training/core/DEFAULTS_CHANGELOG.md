@@ -112,3 +112,42 @@ stated reason, and the bugs the flip work surfaced and fixed along the way.
    key (via the same `get_strategy()` call `_phase_config_setup.py` uses for the static list), on a copy of
    `strategy_by_model` so the suite-level `ctx.strategy_by_model` (shared across pre_pipelines/targets) is
    never mutated by a single target's per-target discovery.
+
+## Flipped to default-ON (2026-07-12, wave 2)
+
+- **`PreprocessingExtensionsConfig.row_wise_summary_stats_enabled` / `row_wise_extreme_columns_enabled`**:
+  both `True`. Purely additive per-row aggregates (`mlframe.feature_engineering.row_wise_summary` /
+  `row_wise_extremality`) computed over the sklearn-bridge's already-resolved numeric column subset — no
+  dataset-specific column names or entity IDs needed, so this is generically safe on any frame. Wired as a
+  new step 1.5 in `apply_preprocessing_extensions`, before scaler/kbins/polynomial/dim_reducer so the new
+  columns participate in every later step like an ordinary engineered feature. A caller who never touches
+  `preprocessing_extensions` still gets these two steps (fixed in `_phase_fit_pipeline.py`: `None` now
+  constructs a default `PreprocessingExtensionsConfig()` instead of skipping the whole extensions block).
+- **`RegressionCalibrationConfig.apply_confidence_shrinkage`**: `True` (superseding the earlier wave-1 note —
+  the wave-1 flip landed in `_reporting_configs.py` but was not actually staged/committed until wave 2).
+  Strictly safety-improving: only ever pulls a low-confidence target's predictions toward neutral, never
+  degrades a genuinely discriminative one.
+- **`TrainingBehaviorConfig.recommend_diversity_additions_in_leaderboard`**: `True`. Runs
+  `mlframe.votenrank.correlation_diversity_ablation.recommend_diversity_additions` over the same
+  `ens_models` pool `score_ensemble` already blended, via new `_diversity_recommendations.py` adapter wired
+  into `_finalize_per_target_ensembling`. Purely observational (never changes which models/ensembles the
+  suite selects) — results land in `metadata["diversity_recommendations"][target_type][target_name]`.
+  Silently no-ops (not a WARN) when OOF preds are unavailable, since that's a caller config choice.
+- **`gated_outlier` strategy registration**: `"gated_outlier": _TREE_STRATEGY` added to `MODEL_STRATEGIES`
+  (`training/strategies/__init__.py`) — the wave-1 fix that dynamically extends `sorted_mlframe_models` with
+  per-target-discovered keys only works end-to-end once the key also resolves a pipeline strategy; this was
+  the missing piece, now covered by `tests/training/test_gated_outlier_registry_key.py`'s live e2e test.
+- **`mlframe_models_is_default_allowlist` threading**: `_phase_config_setup.py` now computes this flag
+  (`True` only when the caller left top-level `mlframe_models=None`) and threads it through
+  `_setup_per_target_mlframe_models` → `select_target` → `configure_training_params`, gating the
+  `gated_outlier` point-mass auto-detection so it only ever fires for the implicit default allowlist, never
+  silently extending an explicit caller-supplied `mlframe_models=[...]` list.
+
+## Left opt-in (wave 2)
+
+- **`TrainingBehaviorConfig.oof_n_splits` / `oof_has_time` / `oof_random_seed`**: default `0` (no OOF,
+  byte-identical to pre-wiring behavior). Was previously unreachable from the public suite entry point at
+  all — `train_eval.py`'s trainer already supported these kwargs but no config surface ever set them. NOT
+  flipped default-ON: enabling means a real K-fold retrain per model, genuine extra compute a caller must
+  opt into (e.g. to unlock `recommend_diversity_additions_in_leaderboard`'s OOF-based diversity signal, or
+  `score_ensemble`'s OOF-preferred quality gate).
