@@ -63,3 +63,80 @@ def test_collapse_predictions_by_group_invalid_stat_raises():
 
     with pytest.raises(ValueError):
         collapse_predictions_by_group(np.array([1.0]), np.array(["a"]), stat="median")
+
+
+def _make_mixed_reliability_dataset(n_entities: int, recent_per_entity: int, stale_per_entity: int, seed: int):
+    """Each entity has RECENT rows whose predictions track the true entity risk, and STALE rows that carry
+    no signal at all (pure noise unrelated to the label) -- e.g. predictions computed from an old feature
+    snapshot before something material changed for that customer. An unweighted mean lets the noisy stale
+    rows dilute the informative recent ones; a recency-weighted mean should down-weight the noise instead.
+    """
+    rng = np.random.default_rng(seed)
+    entity_risk = rng.uniform(0, 1, n_entities)
+    y = (rng.uniform(size=n_entities) < entity_risk).astype(int)
+
+    rows_per_entity = recent_per_entity + stale_per_entity
+    entity_ids = np.repeat(np.arange(n_entities), rows_per_entity)
+    y_row = np.repeat(y, rows_per_entity)
+    entity_risk_row = np.repeat(entity_risk, rows_per_entity)
+
+    is_recent = np.tile(np.array([True] * recent_per_entity + [False] * stale_per_entity), n_entities)
+
+    row_predictions = np.empty(entity_ids.shape[0])
+    # recent rows: mildly noisy but genuinely correlated with the entity's true risk.
+    row_predictions[is_recent] = np.clip(entity_risk_row[is_recent] + rng.normal(scale=0.15, size=is_recent.sum()), 0, 1)
+    # stale rows: pure noise, independent of the true entity risk entirely.
+    row_predictions[~is_recent] = rng.uniform(0, 1, size=(~is_recent).sum())
+
+    weights = np.where(is_recent, 5.0, 0.2)  # recency/confidence score: recent rows count far more.
+
+    return row_predictions, y_row, entity_ids, weights
+
+
+def test_biz_val_collapse_predictions_by_group_weighted_beats_unweighted_with_stale_noise():
+    row_predictions, y_row, entity_ids, weights = _make_mixed_reliability_dataset(
+        n_entities=300, recent_per_entity=3, stale_per_entity=5, seed=1
+    )
+
+    unweighted = collapse_predictions_by_group(row_predictions, entity_ids, stat="mean")
+    auc_unweighted = roc_auc_score(y_row, unweighted)
+
+    weighted = collapse_predictions_by_group(row_predictions, entity_ids, stat="mean", weights=weights)
+    auc_weighted = roc_auc_score(y_row, weighted)
+
+    assert auc_weighted > auc_unweighted + 0.05, (
+        f"expected recency-weighted collapse to clearly beat unweighted collapse when most rows per entity are "
+        f"stale noise, got weighted={auc_weighted:.4f} unweighted={auc_unweighted:.4f}"
+    )
+
+
+def test_collapse_predictions_by_group_weights_none_matches_original_unweighted_path():
+    # opt-in contract: omitting `weights` must reproduce the exact original unweighted output.
+    predictions = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
+    group = np.array(["a", "a", "b", "b", "b", "c"])
+
+    mean_out = collapse_predictions_by_group(predictions, group, stat="mean")
+    mean_out_explicit_none = collapse_predictions_by_group(predictions, group, stat="mean", weights=None)
+    np.testing.assert_array_equal(mean_out, mean_out_explicit_none)
+
+    quantile_out = collapse_predictions_by_group(predictions, group, stat="quantile", quantile=0.9)
+    quantile_out_explicit_none = collapse_predictions_by_group(predictions, group, stat="quantile", quantile=0.9, weights=None)
+    np.testing.assert_array_equal(quantile_out, quantile_out_explicit_none)
+
+
+def test_collapse_predictions_by_group_weighted_quantile_equal_weights_between_group_extremes():
+    predictions = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
+    group = np.array(["a", "a", "a", "a", "a"])
+    weights = np.ones(5)
+    out = collapse_predictions_by_group(predictions, group, stat="quantile", quantile=0.9, weights=weights)
+    assert predictions.min() <= out[0] <= predictions.max()
+
+
+def test_collapse_predictions_by_group_weighted_rejects_all_zero_weight_group():
+    import pytest
+
+    predictions = np.array([1.0, 2.0])
+    group = np.array(["a", "a"])
+    weights = np.array([0.0, 0.0])
+    with pytest.raises(ValueError):
+        collapse_predictions_by_group(predictions, group, stat="mean", weights=weights)
