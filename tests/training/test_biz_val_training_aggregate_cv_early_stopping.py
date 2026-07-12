@@ -103,3 +103,75 @@ def test_biz_val_aggregate_curve_selection_beats_naive_per_fold_average():
         f"({mean_naive_error:.2f}) across {n_trials} trials"
     )
     assert win_rate >= 0.9, f"aggregate selection should win nearly every trial in this regime, got win_rate={win_rate:.2f}"
+
+
+def _make_curves_with_one_anomalous_fold(n_folds: int, n_rounds: int, true_best_round: int, seed: int, anomaly_amp: float):
+    """Every fold shares the same clean rise-then-decline shape peaking at ``true_best_round``, except fold
+    0 which gets a huge single-round spike far from the true optimum -- e.g. one fold hitting a data glitch,
+    a rare unstable split, or a metric-computation fluke. Under plain-mean aggregation, that one outlier
+    fold's spike drags the AVERAGE curve's max away from the true peak (mean is not outlier-robust); a
+    trimmed-mean/median aggregate drops (or downweights) that fold's extreme value at the spike round and
+    keeps tracking the true peak shared by the rest.
+    """
+    rng = np.random.default_rng(seed)
+    rounds = np.arange(n_rounds, dtype=np.float64)
+    base = np.where(
+        rounds <= true_best_round,
+        rounds / true_best_round,
+        1.0 - 0.15 * (rounds - true_best_round) / (n_rounds - true_best_round),
+    )
+    base *= 0.10
+
+    curves = np.empty((n_folds, n_rounds), dtype=np.float64)
+    for f in range(n_folds):
+        curves[f] = base + 0.002 * rng.standard_normal(n_rounds)
+
+    anomaly_round = true_best_round // 4
+    curves[0, anomaly_round] += anomaly_amp
+    return curves, anomaly_round
+
+
+def test_biz_val_aggregate_curve_selection_trimmed_mean_beats_plain_mean_with_outlier_fold():
+    """One anomalous fold with a large spike far from the true optimum should mislead plain-mean
+    aggregation (mean is not outlier-robust) but not trimmed-mean/median aggregation, which drop or
+    downweight that single fold's extreme value at each round."""
+    true_best_round = 80
+    n_rounds = 120
+    n_folds = 9
+
+    curves, anomaly_round = _make_curves_with_one_anomalous_fold(
+        n_folds=n_folds, n_rounds=n_rounds, true_best_round=true_best_round, seed=1, anomaly_amp=5.0
+    )
+
+    mean_result = select_best_iteration_by_aggregate_cv(curves, maximize=True, aggregation="mean")
+    trimmed_result = select_best_iteration_by_aggregate_cv(curves, maximize=True, aggregation="trimmed_mean", trim_proportion=0.15)
+    median_result = select_best_iteration_by_aggregate_cv(curves, maximize=True, aggregation="median")
+
+    # sanity: the outlier really does hijack the plain-mean curve's argmax away from the true optimum.
+    assert mean_result["best_round"] == anomaly_round, (
+        f"sanity: plain mean should be hijacked by the single-fold spike at round {anomaly_round}, "
+        f"got best_round={mean_result['best_round']}"
+    )
+
+    trimmed_error = abs(trimmed_result["best_round"] - true_best_round)
+    median_error = abs(median_result["best_round"] - true_best_round)
+    mean_error = abs(mean_result["best_round"] - true_best_round)
+
+    # robust aggregation must land close to the true optimum -- well under half the plain-mean's error.
+    assert trimmed_error <= 3, f"trimmed_mean best_round should be near the true optimum ({true_best_round}), error={trimmed_error}"
+    assert median_error <= 3, f"median best_round should be near the true optimum ({true_best_round}), error={median_error}"
+    assert trimmed_error < mean_error / 2.0, f"trimmed_mean error ({trimmed_error}) should be far lower than plain-mean error ({mean_error})"
+    assert median_error < mean_error / 2.0, f"median error ({median_error}) should be far lower than plain-mean error ({mean_error})"
+
+
+def test_biz_val_aggregate_curve_default_aggregation_matches_plain_mean_bit_identical():
+    """The new ``aggregation``/``trim_proportion`` params must be strictly opt-in: omitting them must
+    reproduce the original plain-mean behavior bit-for-bit (no accuracy or selection drift from the
+    robust-aggregation extension)."""
+    curves = _make_noisy_fold_curves(7, 60, true_best_round=30, seed=3)
+    default_result = select_best_iteration_by_aggregate_cv(curves, maximize=True)
+    explicit_mean_result = select_best_iteration_by_aggregate_cv(curves, maximize=True, aggregation="mean")
+
+    assert default_result["best_round"] == explicit_mean_result["best_round"]
+    np.testing.assert_array_equal(default_result["aggregate_curve"], explicit_mean_result["aggregate_curve"])
+    np.testing.assert_array_equal(default_result["aggregate_curve"], curves.mean(axis=0))

@@ -12,13 +12,16 @@ already-noisy per-fold argmaxes.
 from __future__ import annotations
 
 import numpy as np
+from scipy.stats import trim_mean
 
 
 def select_best_iteration_by_aggregate_cv(
     per_fold_metric_curves: np.ndarray,
     maximize: bool = True,
+    aggregation: str = "mean",
+    trim_proportion: float = 0.1,
 ) -> dict:
-    """Pick the single best round from the fold-averaged validation-metric curve.
+    """Pick the single best round from the fold-aggregated validation-metric curve.
 
     Parameters
     ----------
@@ -28,12 +31,23 @@ def select_best_iteration_by_aggregate_cv(
     maximize
         ``True`` for a metric where higher is better (AUC, correlation, accuracy); ``False`` for a loss
         (log-loss, RMSE) where lower is better.
+    aggregation
+        How to collapse the per-fold curves into one aggregate curve at each round. ``"mean"`` (default,
+        matches the original plain-average behavior bit-for-bit) is a single anomalous fold away from
+        pulling the whole curve (and therefore the selected round) off the true optimum — e.g. one fold
+        hitting a data glitch or a rare unstable split. ``"trimmed_mean"`` drops the ``trim_proportion``
+        most extreme fold values at EACH round (symmetric trim, both tails) before averaging; ``"median"``
+        is the trim_proportion=0.5 limit. Both cost is negligible relative to the O(n_folds * n_rounds)
+        curve size and give the same interface/return shape as ``"mean"``.
+    trim_proportion
+        Fraction of folds trimmed from EACH tail when ``aggregation="trimmed_mean"`` (0 <= p < 0.5).
+        Ignored for ``"mean"``/``"median"``.
 
     Returns
     -------
     dict
         ``{"best_round", "aggregate_curve", "best_aggregate_metric", "per_fold_best_rounds"}``.
-        ``best_round`` is the 0-indexed round maximizing (or minimizing) the fold-averaged curve —
+        ``best_round`` is the 0-indexed round maximizing (or minimizing) the fold-aggregated curve —
         this is the single round to use for the FINAL refit. ``per_fold_best_rounds`` is included for
         comparison/diagnostics (each fold's own naive argmax), NOT the recommended selection.
     """
@@ -43,7 +57,17 @@ def select_best_iteration_by_aggregate_cv(
     if curves.shape[1] == 0:
         raise ValueError("select_best_iteration_by_aggregate_cv: need at least 1 round")
 
-    aggregate_curve = curves.mean(axis=0)
+    if aggregation == "mean":
+        aggregate_curve = curves.mean(axis=0)
+    elif aggregation == "median":
+        aggregate_curve = np.median(curves, axis=0)
+    elif aggregation == "trimmed_mean":
+        if not (0.0 <= trim_proportion < 0.5):
+            raise ValueError(f"select_best_iteration_by_aggregate_cv: trim_proportion must be in [0, 0.5); got {trim_proportion}")
+        aggregate_curve = trim_mean(curves, proportiontocut=trim_proportion, axis=0)
+    else:
+        raise ValueError(f"select_best_iteration_by_aggregate_cv: unknown aggregation {aggregation!r}; expected 'mean', 'median', or 'trimmed_mean'")
+
     best_round = int(np.argmax(aggregate_curve)) if maximize else int(np.argmin(aggregate_curve))
     per_fold_best_rounds = curves.argmax(axis=1) if maximize else curves.argmin(axis=1)
 
