@@ -487,11 +487,26 @@ class OutputConfig(BaseConfig):
     plot_file: Optional[str] = ""
     save_charts: bool = True
 
-    # Opt-in evaluation diagnostics (default None = no-op, bit-identical to omitting this field).
-    # Names resolve against ``mlframe.training.core._diagnostics_registry.DIAGNOSTICS_REGISTRY``.
-    # Results land under ``metadata["diagnostics"][name]``; a diagnostic that errors or can't be
-    # sensibly run from suite-local data reports ``{"error": ...}`` rather than aborting the suite.
-    run_diagnostics: Optional[List[str]] = None
+    # Default ON (2026-07-12): all 6 registered evaluation diagnostics run by default. Names resolve against
+    # ``mlframe.training.core._diagnostics_registry.DIAGNOSTICS_REGISTRY``. Results land under
+    # ``metadata["diagnostics"][name]``; a diagnostic that errors or can't be sensibly run from suite-local
+    # data reports ``{"error": ...}`` rather than aborting the suite, so a bad fit here never fails the suite.
+    # Five of the six (cv_informativeness, compare_cv_schemes, group_leakage, constant_group_leak,
+    # subpopulation_drift) are cheap statistics/permutation checks over already-computed CV/fold data.
+    # ``adversarial_fold_selection`` is the outlier: it fits a full adversarial-validation classifier
+    # (train-vs-val discriminability) and is materially slower than the other five on large datasets -- kept
+    # in the default list per the "flip everything on" directive, but this is the one diagnostic worth
+    # dropping via ``run_diagnostics=[...]`` (omit it) on latency-sensitive suite runs.
+    run_diagnostics: Optional[List[str]] = Field(
+        default_factory=lambda: [
+            "cv_informativeness",
+            "compare_cv_schemes",
+            "group_leakage",
+            "constant_group_leak",
+            "adversarial_fold_selection",
+            "subpopulation_drift",
+        ]
+    )
     # Per-diagnostic extra kwargs forwarded to the matching adapter, e.g.
     # ``{"subpopulation_drift": {"subgroup_col": "region"}}``.
     diagnostics_kwargs: Optional[Dict[str, Dict[str, Any]]] = None

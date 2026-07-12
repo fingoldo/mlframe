@@ -200,6 +200,29 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
         # rebuild this map per inner-loop iteration.
         strategy_by_model = ctx.strategy_by_model
         sorted_models = ctx.sorted_mlframe_models
+        # ``sorted_mlframe_models`` is a suite-level constant computed once at setup time from the
+        # (possibly still-unresolved) ``mlframe_models`` argument, before any per-target data exists --
+        # it can never contain a model key that ``configure_training_params`` only decides to register
+        # per-target from data it inspects at fit time (e.g. ``gated_outlier``, auto-added to
+        # ``models_params`` only when the CURRENT target's train split shows a genuine point mass).
+        # Without this, ``models_params["gated_outlier"]`` would be built and then silently never
+        # visited by the loop below (``if _model_entry not in models_params: skip``), since the loop
+        # iterates ``sorted_models``, not ``models_params.keys()``. Extend rather than replace: this
+        # keeps the original tier-sort order for every statically-known model and only appends genuinely
+        # new, dynamically-discovered keys.
+        _dynamic_extra_models = [m for m in models_params.keys() if m not in sorted_models]
+        if _dynamic_extra_models:
+            sorted_models = list(sorted_models) + _dynamic_extra_models
+            # ``strategy_by_model`` is looked up by ``id(_model_entry)`` further down (``strategy_by_model[id(_model_entry)]``)
+            # and was built only from the original static ``mlframe_models`` list -- a dynamically-appended key has no
+            # entry there and would KeyError the first time the loop reaches it. Compute + register a strategy for each
+            # new key the same way ``_phase_config_setup.py`` did for the static list, and copy the dict so the suite-level
+            # ``ctx.strategy_by_model`` (shared across pre_pipelines/targets) is never mutated by a single target's discovery.
+            from ..strategies import get_strategy as _get_strategy_dynamic
+
+            strategy_by_model = dict(strategy_by_model)
+            for _extra_model in _dynamic_extra_models:
+                strategy_by_model[id(_extra_model)] = _get_strategy_dynamic(_extra_model)
         # Suite-scoped feature-side cache: tier_dfs / pl.Enum map / prepared polars frames carry
         # ACROSS targets (target-independent transforms) so only y / sample_weight differ inside
         # the inner loop. Both inner caches are scoped to the current ``pre_pipeline_name`` since

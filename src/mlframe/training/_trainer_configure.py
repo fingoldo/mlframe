@@ -224,6 +224,7 @@ def configure_training_params(
     metamodel_func: Callable | None = None,
     _precomputed_fairness_subgroups: dict | None = None,
     mlframe_models: list | None = None,
+    mlframe_models_is_default_allowlist: bool = False,
     linear_model_config: LinearModelConfig | None = None,
     callback_params: dict | None = None,
     train_df_size_bytes: float | None = None,
@@ -646,6 +647,69 @@ def configure_training_params(
             fit_params=({} if config_params.get("early_stopping_rounds") is None else dict(early_stopping_rounds=config_params.get("early_stopping_rounds"))),
         )
 
+    # Auto-detect a genuine point-mass/zero-inflated regression target so gated_outlier can default-ON
+    # WITHOUT running on every ordinary regression target (blanket inclusion in the default mlframe_models
+    # list would fit a classifier gate against a near-empty or fully-degenerate positive class on plain
+    # continuous targets, which is both wasted compute and a real crash risk -- CalibratedClassifierCV /
+    # LogisticRegression can fail outright when one class has too few rows for the requested CV folds).
+    # Threshold (>=5% of train rows share the single most common value) mirrors the "point mass" framing in
+    # ``GatedOutlierEstimator``'s own docstring (a degenerate value, e.g. exact 0.0, dominating a meaningful
+    # slice of rows) while staying well below the near-100% share a normal continuous target's mode would show.
+    # Gated on ``mlframe_models_is_default_allowlist`` (True only when the caller left the top-level
+    # ``mlframe_models`` argument at its ``None`` default): a caller who passes an EXPLICIT allowlist has
+    # already made a deliberate model-set decision, and silently appending an extra model to that list would
+    # violate the documented "mlframe_models filters which models train" contract (regression-tested by
+    # ``tests/training/test_gated_outlier_registry_key.py::test_existing_keys_unperturbed_by_new_registry_entry``).
+    # ``train_target``/``common_params["train_target"]``/``config_params["train_target"]`` are all still None
+    # at this point in the real suite call path (the OD-filtered ``od_common_params["train_target"]`` entry
+    # gets populated AFTER this call, not before -- confirmed by direct tracing). The one value that IS
+    # reliably available here is the full ``target`` series plus ``train_idx`` (both real parameters of this
+    # function, threaded straight from ``_train_eval_select_target.py``'s own locals) -- slice them ourselves
+    # rather than depending on a dict key that isn't populated yet.
+    _gated_outlier_train_target = train_target
+    if _gated_outlier_train_target is None:
+        _gated_outlier_train_target = common_params.get("train_target") if common_params else None
+    if _gated_outlier_train_target is None:
+        _gated_outlier_train_target = (config_params or {}).get("train_target")
+    if _gated_outlier_train_target is None and target is not None and train_idx is not None:
+        try:
+            _gated_outlier_train_target = np.asarray(target)[np.asarray(train_idx)]
+        except (TypeError, ValueError, IndexError):
+            _gated_outlier_train_target = None
+    _auto_detected_point_mass = False
+    if mlframe_models_is_default_allowlist and use_regression and _gated_outlier_train_target is not None:
+        try:
+            _tt_arr = pd.Series(_gated_outlier_train_target).dropna().to_numpy()
+            if _tt_arr.size >= 50:
+                _tt_vals, _tt_counts = np.unique(_tt_arr, return_counts=True)
+                if _tt_counts.size:
+                    _auto_detected_point_mass = bool((_tt_counts.max() / _tt_arr.size) >= 0.05)
+        except (TypeError, ValueError):
+            _auto_detected_point_mass = False
+
+    gated_outlier_params = None
+    if (_should_create_model("gated_outlier") or _auto_detected_point_mass) and use_regression and LGBMRegressor is not None:
+        # Registry entry for GatedOutlierEstimator (classifier gate + regression blend for zero-inflated
+        # targets). Regression-only (RegressorMixin) -- silently unavailable for classification targets or
+        # when lightgbm isn't installed, same guard pattern as the lgb/xgb blocks above. Classifier defaults
+        # to LogisticRegression internally (see GatedOutlierEstimator.fit). point_mass_value=0.0 is the class
+        # default (matches the common "no purchase"/exact-zero degenerate case) -- callers needing a
+        # different point mass should pass a configured instance directly via the generic estimator-instance
+        # path instead of this key. Default-included (on top of the fixed ``mlframe_models`` allowlist) only
+        # when ``_auto_detected_point_mass`` fires above -- see that block's docstring for why blanket
+        # inclusion is unsafe.
+        #
+        # NOT ``configs.LGB_GENERAL_PARAMS``: that config bakes in early-stopping params which require an
+        # eval_set, but ``GatedOutlierEstimator.fit`` calls ``self.regressor_.fit(reg_X, reg_y)`` with no
+        # eval_set (it fits standalone on the non-point-mass training rows) -- LightGBM raises
+        # "For early stopping, at least one dataset and eval metric is required for evaluation" (confirmed by
+        # a live suite run). Use the same standalone-safe LGBM default as the E3 distribution-driven
+        # composite base (``_estimator_dispatch._default_base_estimator``) instead.
+        from .composite.gated_outlier import GatedOutlierEstimator
+
+        _gated_outlier_est = GatedOutlierEstimator(regressor=LGBMRegressor(n_estimators=200, num_leaves=31, verbose=-1, random_state=0))
+        gated_outlier_params = dict(model=metamodel_func(_gated_outlier_est))
+
     # Linear models - only create variants that are needed
     linear_model_params = {}
     linear_models_needed = LINEAR_MODEL_TYPES & models_set if models_set else LINEAR_MODEL_TYPES
@@ -750,6 +814,8 @@ def configure_training_params(
         models_params["mlp"] = mlp_params
     if ngb_params is not None:
         models_params["ngb"] = ngb_params
+    if gated_outlier_params is not None:
+        models_params["gated_outlier"] = gated_outlier_params
     # Add linear models (already filtered to only needed ones)
     models_params.update(linear_model_params)
 

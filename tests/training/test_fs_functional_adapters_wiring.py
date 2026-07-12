@@ -81,8 +81,10 @@ def test_selector_kind_classifies_all_four():
     ],
 )
 def test_kwargs_master_flag_gate(flag, kwargs_field):
+    # The 4 selector flags default to True (2026-07-12); the guard now only fires when the caller
+    # explicitly turns the flag off while still supplying its kwargs.
     with pytest.raises(ValueError, match=f"{kwargs_field} supplied but {flag}"):
-        FeatureSelectionConfig(**{kwargs_field: {"cv": 3}})
+        FeatureSelectionConfig(**{flag: False, kwargs_field: {"cv": 3}})
 
 
 @pytest.mark.parametrize(
@@ -140,24 +142,69 @@ def test_biz_cascade_select_shrinks_noisy_frame():
     assert hasattr(sel, "cascade_result_")
 
 
-# --------------------------------------------------------------------------- regression: default OFF is a no-op
+# --------------------------------------------------------------------------- regression: polars frame support (2026-07-12)
+# Surfaced by the 2026-07-12 default-on flip: the suite's pre-pipeline slot is polars-native, but these
+# selectors/adapters were only ever exercised with pandas while opt-in. Two distinct bugs found:
+#   1) ``_FunctionalSelectorBase.transform`` fell through to ``np.asarray(X)[:, support]`` for any non-pandas
+#      frame, silently dropping column names/dtypes -- downstream reporting (category_discriminability) then
+#      crashed on a bare ndarray with no ``.columns``.
+#   2) CascadeSelect's internal Boruta stage (``_boruta.py``) used pandas-only ``.apply(axis=0)``.
 
-def test_default_config_omits_all_four_new_flags():
+
+def test_transform_preserves_polars_frame_and_columns():
+    import polars as pl
+
+    df, y = _make_classification_frame()
+    pl_df = pl.DataFrame(df)
+    pps, names = _build(use_forward_select_fs=True, forward_select_kwargs={"cv": 3, "min_improvement": 0.001})
+    sel = pps[names.index("ForwardSelect ")]
+    sel.fit(pl_df, y.to_numpy())
+    out = sel.transform(pl_df)
+    assert isinstance(out, pl.DataFrame), f"expected a polars DataFrame back, got {type(out)}"
+    assert list(out.columns) == sel.selected_features_
+
+
+def test_biz_cascade_select_accepts_polars_frame():
+    """CascadeSelect's internal Boruta stage used to crash on a polars frame (pandas-only ``.apply``)."""
+    import polars as pl
+
+    df, y = _make_classification_frame(n=300)
+    pl_df = pl.DataFrame(df)
+    pps, names = _build(use_cascade_select_fs=True, cascade_select_kwargs={"n_boruta_iterations": 10, "cv": 3})
+    sel = pps[names.index("CascadeSelect ")]
+    kept = list(sel.fit(pl_df, y.to_numpy()).transform(pl_df).columns)
+    assert len(kept) <= pl_df.shape[1]
+
+
+# --------------------------------------------------------------------------- regression: default is ON (2026-07-12)
+
+def test_default_config_enables_all_four_new_flags():
+    """``FeatureSelectionConfig`` defaults all four selectors ON (2026-07-12 default-flip); kwargs stay
+    None (no forced overrides) until a caller opts into custom selector params."""
     cfg = FeatureSelectionConfig()
-    assert cfg.use_forward_select_fs is False
+    assert cfg.use_forward_select_fs is True
     assert cfg.forward_select_kwargs is None
-    assert cfg.use_greedy_backward_elimination_fs is False
+    assert cfg.use_greedy_backward_elimination_fs is True
     assert cfg.greedy_backward_elimination_kwargs is None
-    assert cfg.use_zero_importance_pruning_fs is False
+    assert cfg.use_zero_importance_pruning_fs is True
     assert cfg.zero_importance_pruning_kwargs is None
-    assert cfg.use_cascade_select_fs is False
+    assert cfg.use_cascade_select_fs is True
     assert cfg.cascade_select_kwargs is None
 
 
-def test_build_pre_pipelines_default_bit_identical_without_new_flags():
-    """With all four new flags left at default False, the pre-pipeline list/names are byte-identical
-    to the pre-existing set (regression against the wiring pass changing anything unrelated)."""
+def test_build_pre_pipelines_opt_out_bit_identical_without_new_flags():
+    """``_build_pre_pipelines`` itself still defaults every new selector kwarg to False (the config-level
+    flip lives in ``FeatureSelectionConfig``, not this lower-level builder) -- explicitly passing all four
+    flags False still reproduces the pre-existing pipeline list/names byte-for-byte, i.e. the opt-out path
+    the config-level True default can still be overridden to."""
     pps_before, names_before = _build(use_mrmr_fs=True, mrmr_kwargs={})
-    pps_after, names_after = _build(use_mrmr_fs=True, mrmr_kwargs={}, use_forward_select_fs=False, use_cascade_select_fs=False)
+    pps_after, names_after = _build(
+        use_mrmr_fs=True,
+        mrmr_kwargs={},
+        use_forward_select_fs=False,
+        use_greedy_backward_elimination_fs=False,
+        use_zero_importance_pruning_fs=False,
+        use_cascade_select_fs=False,
+    )
     assert names_before == names_after
     assert len(pps_before) == len(pps_after)

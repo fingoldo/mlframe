@@ -78,23 +78,24 @@ class FeatureSelectionConfig(BaseConfig):
     # Forwarded verbatim to ``ACESelector.__init__``; keys validated against the constructor signature so misspelt knobs fail at config time rather than deep inside fit. ACE auto-derives classification/regression from the target dtype internally (no target_type threading), so unlike BorutaShap / ShapProxiedFS there is no ``classification`` key to auto-fill here.
     ace_kwargs: Optional[Dict[str, Any]] = None
 
-    # ForwardSelect / GreedyBackwardElimination / ZeroImportancePruning / CascadeSelect are OFF by default for the
-    # same reason as BorutaShap / ShapProxiedFS / ACE: each wraps a CV-scored search loop (greedy forward growth,
-    # greedy backward removal, iterative batch-drop refits, or a 3-stage Boruta->forward->RFECV cascade) so is
-    # markedly more expensive than a single MRMR / RFECV pass. Enable when that search's signal is worth the
-    # compute. Mirrors the ACE wiring: registered in the selector registry (via a thin sklearn adapter over the
-    # underlying function -- see ``functional_adapters.py``) AND reachable from the suite via this flag + a
-    # ``_build_pre_pipelines`` branch.
-    use_forward_select_fs: bool = False
+    # ForwardSelect / GreedyBackwardElimination / ZeroImportancePruning / CascadeSelect default ON (2026-07-12):
+    # each is an ADDITIVE branch in ``_build_pre_pipelines`` (own entry in ``pre_pipelines``/``pre_pipeline_names``,
+    # evaluated as its own model variant alongside MRMR/RFECV/BorutaShap/ShapProxiedFS/ACE) -- enabling all four
+    # does not conflict or duplicate-prune against each other or the existing selectors, it just adds four more
+    # scored candidate branches for the suite's model-selection step to compare. That is a real, accepted runtime
+    # cost increase (four extra CV-scored search loops: greedy forward growth, greedy backward removal, iterative
+    # batch-drop refits, and a 3-stage Boruta->forward->RFECV cascade) in exchange for the suite always surfacing
+    # whichever selector wins on THIS dataset instead of requiring an operator to already know which one to try.
+    use_forward_select_fs: bool = True
     # Forwarded verbatim to ``ForwardSelectSelector.__init__``; keys validated against the constructor signature.
     forward_select_kwargs: Optional[Dict[str, Any]] = None
-    use_greedy_backward_elimination_fs: bool = False
+    use_greedy_backward_elimination_fs: bool = True
     # Forwarded verbatim to ``GreedyBackwardEliminationSelector.__init__``; keys validated against the constructor signature.
     greedy_backward_elimination_kwargs: Optional[Dict[str, Any]] = None
-    use_zero_importance_pruning_fs: bool = False
+    use_zero_importance_pruning_fs: bool = True
     # Forwarded verbatim to ``ZeroImportancePruningSelector.__init__``; keys validated against the constructor signature.
     zero_importance_pruning_kwargs: Optional[Dict[str, Any]] = None
-    use_cascade_select_fs: bool = False
+    use_cascade_select_fs: bool = True
     # Forwarded verbatim to ``CascadeSelectSelector.__init__``; keys validated against the constructor signature.
     cascade_select_kwargs: Optional[Dict[str, Any]] = None
 
