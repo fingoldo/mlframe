@@ -129,7 +129,11 @@ def _default_inner(family: str, tweedie_power: float):
             "CompositeGLMEstimator default inner requires lightgbm. Install it " "(`pip install lightgbm`) or pass an explicit base_estimator."
         ) from exc
     objective = _FAMILY_OBJECTIVE[family]
-    kw: dict[str, Any] = dict(n_estimators=300, objective=objective, verbose=-1)
+    # n_jobs=-1 (not LightGBM's own unset default) resolves via joblib.cpu_count(only_physical_cores=False)
+    # (plain os.cpu_count(), <1ms) instead of the default's only_physical_cores=True path, which shells out
+    # to a subprocess on Windows (loky's WMI-based physical-core detector, measured ~2-5s) -- a one-time-
+    # per-process tax on the first LightGBM fit. Same "use all cores" intent, just avoids the slow path.
+    kw: dict[str, Any] = dict(n_estimators=300, objective=objective, verbose=-1, n_jobs=-1)
     if family == "tweedie":
         kw["tweedie_variance_power"] = float(tweedie_power)
     return lgb.LGBMRegressor(**kw)
