@@ -23,6 +23,7 @@ def entity_diff_features(
     feature_cols: Optional[Sequence[str]] = None,
     n: int = 1,
     suffix: str = "_diff",
+    lags: Optional[Sequence[int]] = None,
 ) -> pd.DataFrame:
     """Compute ``value_t - value_{t-n}`` per entity for every column in ``feature_cols``, in one call.
 
@@ -36,15 +37,22 @@ def entity_diff_features(
     feature_cols
         Numeric columns to diff; defaults to every numeric column other than ``entity_col``.
     n
-        Lag distance for the diff (``1`` = statement-to-statement, ``2`` for a coarser diff, etc.).
+        Lag distance for the diff (``1`` = statement-to-statement, ``2`` for a coarser diff, etc.). Ignored
+        when ``lags`` is given.
     suffix
         Appended to each source column name for its diff column.
+    lags
+        Opt-in multi-lag mode: a list of lag distances (e.g. ``[1, 2, 5]``). When given, ``n`` is ignored and
+        one ``{col}{suffix}_lag{lag}`` column is emitted per (column, lag) pair instead of the single
+        ``{col}{suffix}`` column -- a single-step diff smooths a slow multi-row regime shift into near-zero
+        deltas each step, while a longer lag exposes it directly. ``None`` (the default) preserves the
+        original single-lag behavior bit-for-bit.
 
     Returns
     -------
     pd.DataFrame
-        ``df`` with one new ``{col}{suffix}`` column per diffed column (``NaN`` for an entity's first ``n``
-        rows, per ``per_group_shift``'s boundary-safe contract -- never bleeds across entities).
+        ``df`` with new diff columns (``NaN`` for an entity's first ``n``/``lag`` rows, per
+        ``per_group_shift``'s boundary-safe contract -- never bleeds across entities).
     """
     if feature_cols is None:
         feature_cols = [c for c in df.select_dtypes(include=[np.number]).columns if c != entity_col]
@@ -52,10 +60,13 @@ def entity_diff_features(
 
     out = df.copy()
     group_ids = df[entity_col].to_numpy()
+    lag_list = list(n_ for n_ in (lags if lags is not None else [n]))
     for col in feature_cols:
         values = df[col].to_numpy(dtype=np.float64)
-        lagged = per_group_shift(values, group_ids, n=n)
-        out[f"{col}{suffix}"] = values - lagged
+        for lag in lag_list:
+            lagged = per_group_shift(values, group_ids, n=lag)
+            col_name = f"{col}{suffix}" if lags is None else f"{col}{suffix}_lag{lag}"
+            out[col_name] = values - lagged
 
     return out
 
