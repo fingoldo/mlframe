@@ -57,6 +57,7 @@ from mlframe.competition.train_test_union_frequency import (
 )
 from mlframe.competition.logloss_clip import clip_probabilities_for_logloss
 from mlframe.competition.rounded_categorical_interaction import RoundedNumericCategoricalInteraction
+from mlframe.competition.trend_noise_decorrelation import inject_noise_and_recenter
 
 __all__ = [
     *globals().get("__all__", []),
@@ -91,4 +92,5 @@ __all__ = [
     "train_test_union_frequency_encode_hierarchical_components",
     "clip_probabilities_for_logloss",
     "RoundedNumericCategoricalInteraction",
+    "inject_noise_and_recenter",
 ]
