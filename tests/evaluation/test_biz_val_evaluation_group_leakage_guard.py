@@ -74,3 +74,78 @@ def test_biz_val_leaky_split_actually_inflates_cv_score_vs_group_kfold():
         f"the leaky (non-grouped) split should show an inflated CV score relative to the honest group-aware split: "
         f"leaky={leaky_auc:.4f} honest={honest_auc:.4f}"
     )
+
+
+def _make_implicit_duplicate_table(seed: int):
+    """No explicit group id column, but every entity's rows are near-duplicate feature vectors (e.g. the same
+    loan application re-submitted with tiny noise) -- exactly the leak the group-key-only check cannot see.
+    """
+    rng = np.random.default_rng(seed)
+    n_entities = 120
+    copies_per_entity = 3
+    n_features = 8
+
+    entity_center = rng.normal(0, 1, (n_entities, n_features))
+    entity_ids = np.repeat(np.arange(n_entities), copies_per_entity)
+    n = len(entity_ids)
+    # near-duplicate: tiny noise around the entity's center vector, feature scale ~1 -> noise scale ~1e-3.
+    X = entity_center[entity_ids] + rng.normal(0, 1e-3, (n, n_features))
+    return X, entity_ids
+
+
+def test_biz_val_assert_no_group_leakage_near_duplicate_mode_catches_implicit_group_leak():
+    """The default (group-key-only) check misses this leak entirely because there IS no group id column --
+    only the opt-in near-duplicate mode, given the raw features, can detect the implicit entity-sharing.
+    """
+    X, entity_ids = _make_implicit_duplicate_table(seed=3)
+    # a plain shuffled split has no notion of the implicit entity clusters, so near-duplicate copies of the
+    # same entity land on both sides of most folds.
+    leaky_splits = list(KFold(n_splits=5, shuffle=True, random_state=3).split(X))
+
+    # anonymous_ids: no real group semantics available to the caller (simulates "no explicit group id column").
+    anonymous_ids = np.arange(len(X))
+    assert_no_group_leakage(leaky_splits, anonymous_ids)  # group-key-only mode: must NOT raise (misses the leak)
+
+    import pytest
+
+    with pytest.raises(ValueError, match="near-duplicate"):
+        assert_no_group_leakage(
+            leaky_splits,
+            anonymous_ids,
+            near_duplicate_features=X,
+            near_duplicate_metric="euclidean",
+            near_duplicate_max_neighbor_distance=0.05,
+        )
+
+
+def test_biz_val_assert_no_group_leakage_near_duplicate_mode_passes_on_deduped_split():
+    """Sanity/threshold check: with entity clusters kept intact per fold (one fold gets ALL copies of each
+    entity, i.e. a group-aware split simulated by construction), the near-duplicate mode must not fire, proving
+    the flag is driven by actual cross-fold duplication rather than by the feature values alone.
+    """
+    X, entity_ids = _make_implicit_duplicate_table(seed=4)
+    n_entities = int(entity_ids.max()) + 1
+    fold_of_entity = np.arange(n_entities) % 5
+    fold_of_row = fold_of_entity[entity_ids]
+
+    safe_splits = []
+    for fold in range(5):
+        test_idx = np.where(fold_of_row == fold)[0]
+        train_idx = np.where(fold_of_row != fold)[0]
+        safe_splits.append((train_idx, test_idx))
+
+    anonymous_ids = np.arange(len(X))
+    assert_no_group_leakage(
+        safe_splits,
+        anonymous_ids,
+        near_duplicate_features=X,
+        near_duplicate_metric="euclidean",
+        near_duplicate_max_neighbor_distance=0.05,
+    )  # must not raise: no entity's near-duplicate copies are split across train/test
+
+
+def test_assert_no_group_leakage_near_duplicate_mode_default_omitted_is_unchanged():
+    """Omitting the new params must reproduce the exact pre-extension behavior (no new ValueError path taken)."""
+    X, y, entity_ids = _make_nested_table(seed=5)
+    safe_splits = list(GroupKFold(n_splits=5).split(X, y, groups=entity_ids))
+    assert_no_group_leakage(safe_splits, entity_ids)  # bit-identical call signature to the original function
