@@ -37,14 +37,15 @@ def iterative_zero_importance_pruning(
     cv: Optional[object] = None,
     importance_threshold: float = 0.0,
     max_rounds: int = 20,
+    importance_fn: Optional[Callable[[Any, pd.DataFrame, np.ndarray], np.ndarray]] = None,
 ) -> List[str]:
     """Repeatedly drop the WHOLE batch of near-zero-importance features per round, stopping on CV degradation.
 
     Parameters
     ----------
     estimator
-        Unfitted sklearn-compatible estimator exposing ``feature_importances_`` after ``fit`` (e.g. any tree
-        ensemble). Cloned per fold/round.
+        Unfitted sklearn-compatible estimator. Cloned per fold/round. Must expose ``feature_importances_``
+        after ``fit`` (e.g. any tree ensemble) unless ``importance_fn`` is supplied.
     X
         ``(n, d)`` feature frame.
     y
@@ -54,10 +55,17 @@ def iterative_zero_importance_pruning(
     cv
         sklearn-style CV splitter; defaults to ``KFold(n_splits=5, shuffle=True, random_state=0)``.
     importance_threshold
-        Features with native importance ``<= importance_threshold`` are candidates for the batch drop.
+        Features with importance ``<= importance_threshold`` are candidates for the batch drop.
         Default ``0.0`` (exact zero-importance only, matching the source's own criterion).
     max_rounds
         Safety cap on the number of drop-and-refit rounds.
+    importance_fn
+        Optional ``importance_fn(fitted_estimator, X_round, y) -> np.ndarray`` returning one importance value
+        per column of ``X_round`` (same order). When omitted (default), the native ``feature_importances_``
+        of the fitted estimator is used, preserving prior behavior exactly. Supply this for estimators
+        without a reliable/meaningful native importance -- e.g. linear models with no ``feature_importances_``
+        at all, or tree ensembles whose native importance is biased toward high-cardinality columns -- typically
+        a permutation-importance or SHAP-based callable (e.g. wrapping ``sklearn.inspection.permutation_importance``).
 
     Returns
     -------
@@ -75,7 +83,10 @@ def iterative_zero_importance_pruning(
 
     for _ in range(max_rounds):
         full_fit_estimator = clone(estimator).fit(X[remaining], y)
-        importances = np.asarray(full_fit_estimator.feature_importances_)
+        if importance_fn is None:
+            importances = np.asarray(full_fit_estimator.feature_importances_)
+        else:
+            importances = np.asarray(importance_fn(full_fit_estimator, X[remaining], y))
         zero_mask = importances <= importance_threshold
         if not zero_mask.any():
             break

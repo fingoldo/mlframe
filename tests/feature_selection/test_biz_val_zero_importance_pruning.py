@@ -12,6 +12,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 from sklearn.ensemble import RandomForestRegressor
+from sklearn.inspection import permutation_importance
 from sklearn.metrics import r2_score
 from sklearn.model_selection import KFold, train_test_split
 
@@ -64,3 +65,68 @@ def test_zero_importance_pruning_keeps_all_when_nothing_is_zero_importance():
     estimator = RandomForestRegressor(n_estimators=50, random_state=0)
     survivors = iterative_zero_importance_pruning(estimator, X, y, scoring=r2_score, cv=cv, importance_threshold=0.0)
     assert set(survivors) == {"a", "b", "c"}
+
+
+def test_zero_importance_pruning_omitted_importance_fn_is_bit_identical_to_native():
+    """``importance_fn`` is strictly opt-in: omitting it must reproduce the pre-existing native-importance path exactly."""
+    X, y = _make_overparameterized_regression(n=120, n_signal=2, n_noise=15, seed=4)
+    cv = KFold(n_splits=3, shuffle=True, random_state=0)
+    estimator = RandomForestRegressor(n_estimators=50, max_depth=4, random_state=0)
+
+    survivors_default = iterative_zero_importance_pruning(estimator, X, y, scoring=r2_score, cv=cv, importance_threshold=0.01)
+    survivors_explicit_none = iterative_zero_importance_pruning(
+        estimator, X, y, scoring=r2_score, cv=cv, importance_threshold=0.01, importance_fn=None
+    )
+
+    assert survivors_default == survivors_explicit_none
+
+
+def _make_cardinality_bias_regression(n: int, seed: int):
+    """Two genuinely informative low-cardinality (binary) features plus one high-cardinality pure-noise column.
+
+    Random-forest native (MDI) importance is documented to over-rate high-cardinality/continuous columns
+    relative to low-cardinality ones -- ``noise_hc`` offers many split thresholds to overfit small-sample
+    noise even though it carries zero true signal, so it can out-score genuinely predictive binary features.
+    """
+    rng = np.random.default_rng(seed)
+    b1 = rng.integers(0, 2, size=n).astype(float)
+    b2 = rng.integers(0, 2, size=n).astype(float)
+    y = 2.0 * b1 + 2.0 * b2 + rng.normal(scale=1.0, size=n)
+    noise_hc = rng.normal(size=n) * 1000.0 + np.arange(n) * 1e-3  # near-unique continuous values, no signal
+    X = pd.DataFrame({"b1": b1, "b2": b2, "noise_hc": noise_hc})
+    return X, y
+
+
+def _held_out_permutation_importance_fn(Xval: pd.DataFrame, yval: np.ndarray):
+    """Build an ``importance_fn`` scoring permutation importance on a fixed held-out set (avoids the
+    training-set overfit artifact that also inflates permutation importance for high-cardinality noise)."""
+
+    def _importance_fn(fitted_estimator, X_round: pd.DataFrame, y_round: np.ndarray) -> np.ndarray:
+        result = permutation_importance(fitted_estimator, Xval[X_round.columns], yval, n_repeats=30, random_state=0)
+        return np.asarray(result.importances_mean)
+
+    return _importance_fn
+
+
+def test_biz_val_zero_importance_pruning_permutation_importance_fn_beats_native_on_high_cardinality_noise():
+    X, y = _make_cardinality_bias_regression(n=300, seed=7)
+    Xtr, Xval, ytr, yval = train_test_split(X, y, test_size=0.3, random_state=0)
+    cv = KFold(n_splits=3, shuffle=True, random_state=0)
+    estimator = RandomForestRegressor(n_estimators=200, max_depth=None, random_state=0)
+    threshold = 0.1
+
+    survivors_native = iterative_zero_importance_pruning(estimator, Xtr, ytr, scoring=r2_score, cv=cv, importance_threshold=threshold)
+    survivors_permutation = iterative_zero_importance_pruning(
+        estimator,
+        Xtr,
+        ytr,
+        scoring=r2_score,
+        cv=cv,
+        importance_threshold=threshold,
+        importance_fn=_held_out_permutation_importance_fn(Xval, yval),
+    )
+
+    assert "noise_hc" in survivors_native, "native MDI importance is expected to over-rate the high-cardinality noise column here"
+    assert "noise_hc" not in survivors_permutation, "held-out permutation importance should correctly prune the pure-noise column"
+    assert set(survivors_permutation) == {"b1", "b2"}
+    assert len(survivors_permutation) < len(survivors_native)
