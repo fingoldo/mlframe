@@ -223,9 +223,7 @@ def compute_pair_mis_and_floor(
     # ``test_pair_mi_legacy_sweep_cache_starved.py``), so the serial pass is just a fast membership scan, not
     # a compute pass. Realistically thousands-to-low-hundred-thousands pairs at this stage (the operand-pool
     # PAIR stage, already bounded by the upstream operand caps -- not the raw-column count).
-    _all_pairs_precomputed = n_pairs > 0 and all(
-        (p in cached_MIs or p in cached_confident_MIs) for p in combinations(numeric_vars_to_consider, 2)
-    )
+    _all_pairs_precomputed = n_pairs > 0 and all((p in cached_MIs or p in cached_confident_MIs) for p in combinations(numeric_vars_to_consider, 2))
     # Parallelise whenever (a) more than one worker is configured and
     # (b) we have at least n_jobs pairs to spread; per-pair MI compute is
     # ~35 s with default fe_npermutations on a wide frame, so parallel
@@ -394,9 +392,9 @@ def compute_pair_mis_and_floor(
                         cached_MIs[_p] = float(_retry_mi[_i])
                         _retry_prefill_count += 1
                 logger.warning(
-                    "MRMR FE: batched CPU retry covered %d/%d pair MIs via [%s] backend chunk(s) after "
-                    "the loky pool failure.",
-                    _retry_prefill_count, _retry_n,
+                    "MRMR FE: batched CPU retry covered %d/%d pair MIs via [%s] backend chunk(s) after " "the loky pool failure.",
+                    _retry_prefill_count,
+                    _retry_n,
                     ", ".join(f"{k}={v}" for k, v in sorted(_retry_backend_counts.items())),
                 )
             except Exception as _retry_exc:

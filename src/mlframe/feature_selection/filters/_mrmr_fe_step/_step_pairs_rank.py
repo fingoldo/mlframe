@@ -218,7 +218,7 @@ def _maybe_relax_prevalence_for_tail_concentrated_pool(
             _dom_pk = _scan_pks[_best_i]
             _dom_p0 = cached_operand(_dom_pk[0])
             _dom_p1 = cached_operand(_dom_pk[1])
-        if _dom_p0 is not None and _pair_is_tail_concentrated_rankaware(
+        if _dom_p0 is not None and _dom_p1 is not None and _pair_is_tail_concentrated_rankaware(
             _ya_pre, _dom_p0, _dom_p1,
             min_corr=_min_corr_pre, pairness_margin=_margin_pre, max_rank_frac=_rank_frac_pre,
         ):
