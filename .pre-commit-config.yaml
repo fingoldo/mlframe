@@ -12,6 +12,19 @@
 #
 # Anything that needs heavy fixtures, downloaded models, or > 30 s of
 # wall-clock belongs in the regular pytest suite, not here.
+#
+# Policy (2026-07-12): every check that is a REAL blocking gate in CI (job failure fails the
+# workflow / blocks merge -- no `continue-on-error: true`, not a documented advisory job) has a
+# local hook here that runs the SAME command and BLOCKS the commit (default `stages: [pre-commit]`)
+# on the same finding. Only genuinely advisory CI signal (continue-on-error jobs, documented
+# advisory bundles like lint-advisory.yml's full-select ruff / mccabe complexity / pip-audit, or
+# purely stylistic reformatting like ruff-format/import order that CI itself doesn't block on)
+# stays warn-only or manual-only locally. `stages: [manual]` is reserved for genuinely optional
+# on-demand tooling (raw unfiltered black/ruff --fix, the tuning-JSON regenerator) whose CI
+# counterpart either doesn't exist or is itself non-blocking -- never used to silence a real gate.
+# Fixed 2026-07-12: Black's filtered-check and the whole-project mypy hook had drifted to
+# manual-only/absent despite both mirroring real CI blocking gates (black-filtered.yml,
+# mypy-full.yml advisory:false) -- commits were passing locally and only failing once pushed.
 
 repos:
   # Secret-scanner -- catches accidental commits of API keys / tokens /
@@ -84,6 +97,23 @@ repos:
       - id: black
         language_version: python3
         stages: [manual]
+
+  # Black CHECK gate: this is the one that actually mirrors CI's black-filtered.yml (a real
+  # blocking gate, no continue-on-error -- see .github/workflows/black-filtered.yml). Added
+  # 2026-07-12: the raw ``black`` hook above is manual-only (correctly -- it would reapply the
+  # excluded diff classes), but that previously left NO Black check running on commit at all --
+  # only the warn-only ``format-lint-warn`` bundle below, which never blocks. Runs the exact
+  # filtered ``--check`` command CI runs, same ``check-path: src/mlframe``, so a commit that
+  # passes locally cannot fail CI's Black job and vice versa.
+  - repo: local
+    hooks:
+      - id: black-filtered-blocking
+        name: "black (filtered, blocking) -- mirrors CI black-filtered.yml"
+        entry: python -m py_ci_shared.black_filtered_apply --config pyproject.toml --check src/mlframe
+        language: system
+        types: [python]
+        pass_filenames: false
+        stages: [pre-commit]
 
   # Mypy: scoped to the full strict-mode beachhead per [tool.mypy.overrides] in pyproject.toml.
   # Expanding this files= regex further is gated on a separate review per the gradual-typing
@@ -346,12 +376,20 @@ repos:
         always_run: false
         stages: [manual]
 
-  # Whole-project mypy, MANUAL stage only (heavier than the fast beachhead hook above -- see
-  # py-ci-shared's own .pre-commit-hooks.yaml for the full rationale). Mirrors CI's mypy-full.yml,
-  # which is BLOCKING for this repo (closed to 0 backlog 2026-07-08). Run on demand:
-  # `pre-commit run --hook-stage manual mypy-full-manual`.
+  # Whole-project mypy. Mirrors CI's mypy-full.yml, which is BLOCKING for this repo (advisory:
+  # false, closed to 0 backlog 2026-07-08) -- so this now runs on every commit too instead of only
+  # in CI. Flipped from ``stages: [manual]`` 2026-07-12: that setting meant a commit with a
+  # whole-project mypy error would pass locally and only fail once pushed to CI, exactly the gap
+  # this policy pass exists to close. Accepted tradeoff: this is the slowest hook here (whole
+  # project, 1300+ files) -- that cost is intentional, not a bug; do not make it advisory or
+  # manual again to "speed up" commits.
   - repo: https://github.com/fingoldo/py-ci-shared
     rev: v1.0.0
     hooks:
       - id: mypy-full-manual
         args: ['src/mlframe']
+        # The shared hook definition itself hardcodes stages: [manual] (it's a generic hook
+        # meant for repos where mypy-full is advisory, e.g. pyutilz) -- this repo-local override
+        # is what actually makes it run on every commit, since mlframe's mypy-full.yml IS
+        # blocking (advisory: false) unlike pyutilz's.
+        stages: [pre-commit]
