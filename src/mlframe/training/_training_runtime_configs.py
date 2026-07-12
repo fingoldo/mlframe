@@ -448,9 +448,10 @@ class FeatureImportanceConfig(BaseConfig):
     #   surfacing the next band of signals. Override via
     #   ``FeatureImportanceConfig(num_factors=N)``.
     num_factors: int = 15
-    # Mirrors ``plot_model_feature_importances``'s ``DEFAULT_FI_FIGSIZE`` default; the two must stay in lock-step
-    # (the config documents the plot-function kwarg it forwards, so a drift here silently changes rendered plots).
-    figsize: Tuple[float, float] = (7.5, 2.5)
+    # Mirrors ``plot_model_feature_importances``'s ``_FI_DEFAULT_FIGSIZE`` default (compact width, legible height
+    # for ~15 bars); the two must stay in lock-step (the config documents the plot-function kwarg it forwards,
+    # so a drift here silently changes rendered plots).
+    figsize: Tuple[float, float] = (8.0, 6.0)
     positive_fi_only: bool = False
     show_plots: bool = True
     # 2026-05-12 (user request): cap zero-FI bars so the chart stays
@@ -486,6 +487,15 @@ class OutputConfig(BaseConfig):
     models_dir: Optional[str] = "models"
     plot_file: Optional[str] = ""
     save_charts: bool = True
+
+    # Opt-in evaluation diagnostics (default None = no-op, bit-identical to omitting this field).
+    # Names resolve against ``mlframe.training.core._diagnostics_registry.DIAGNOSTICS_REGISTRY``.
+    # Results land under ``metadata["diagnostics"][name]``; a diagnostic that errors or can't be
+    # sensibly run from suite-local data reports ``{"error": ...}`` rather than aborting the suite.
+    run_diagnostics: Optional[List[str]] = None
+    # Per-diagnostic extra kwargs forwarded to the matching adapter, e.g.
+    # ``{"subpopulation_drift": {"subgroup_col": "region"}}``.
+    diagnostics_kwargs: Optional[Dict[str, Dict[str, Any]]] = None
 
     @model_validator(mode="after")
     def _check_save_charts_has_destination(self):

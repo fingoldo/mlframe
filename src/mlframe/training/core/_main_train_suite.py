@@ -619,6 +619,45 @@ def train_mlframe_models_suite(
     ctx.train_od_idx = train_od_idx
     ctx.val_od_idx = val_od_idx
 
+    # Opt-in diagnostics (default None -> this whole block is a no-op, bit-identical to omitting
+    # ``output_config.run_diagnostics``). See ``_diagnostics_registry.py`` for the adapters and
+    # ``OutputConfig.run_diagnostics`` / ``.diagnostics_kwargs`` for the config surface.
+    _run_diagnostics = output_config.run_diagnostics if output_config is not None else None
+    if _run_diagnostics:
+        from ._diagnostics_registry import DIAGNOSTICS_REGISTRY
+
+        _diag_y = None
+        try:
+            for _diag_targets_map in target_by_type.values():
+                if target_name in _diag_targets_map:
+                    _diag_y = np.asarray(_diag_targets_map[target_name])[filtered_train_idx]
+                    break
+        except Exception as e:
+            logger.debug("diagnostics: could not derive y for target %r: %s", target_name, e)
+
+        _diagnostics_kwargs = (output_config.diagnostics_kwargs if output_config is not None else None) or {}
+        _diag_results: Dict[str, Any] = {}
+        for _diag_name in _run_diagnostics:
+            _diag_fn = DIAGNOSTICS_REGISTRY.get(_diag_name)
+            if _diag_fn is None:
+                _diag_results[_diag_name] = {"error": f"unknown diagnostic name: {_diag_name!r}"}
+                continue
+            try:
+                _diag_results[_diag_name] = _diag_fn(
+                    train_df=filtered_train_df,
+                    val_df=filtered_val_df,
+                    test_df=test_df,
+                    target_col=target_name,
+                    cat_features=cat_features,
+                    group_ids=group_ids,
+                    y=_diag_y,
+                    **_diagnostics_kwargs.get(_diag_name, {}),
+                )
+            except Exception as e:
+                logger.debug("diagnostics.%s failed: %s", _diag_name, e)
+                _diag_results[_diag_name] = {"error": str(e)}
+        metadata["diagnostics"] = _diag_results
+
     # Discovery cache lives under ``data_dir/.discovery_cache`` when data_dir is set; a value of None disables caching (back-compat for callers without an output_config).
     _discovery_cache_dir = None
     try:
