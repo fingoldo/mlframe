@@ -29,6 +29,14 @@ learn each feature-code's own value->target mapping well, which no synthetic at 
 reproduces. Kept as a correctly-implemented, leak-safe utility (unit-tested for correctness, not biz_value)
 rather than deleted -- large-n production data may still see the source technique's benefit; measure before
 relying on it.
+
+Opt-in ``context_columns`` fix for the additive-target SNR loss: the diagnosis above is that a pure
+long-format row is blind to every OTHER feature of its original row, so an additively-decomposed target
+can never be recovered from a single feature's value. Passing ``context_columns`` broadcasts a caller-
+chosen set of companion feature values onto every long-format row (in addition to that row's own melted
+value/count/feature-code), giving the per-row model enough context to reconstruct the additive sum instead
+of regressing the full target off 1/d of the signal. This is strictly opt-in -- omitting the parameter
+(default ``None``) reproduces the exact pre-existing long table and is bit-identical to the old behavior.
 """
 from __future__ import annotations
 
@@ -54,6 +62,7 @@ def melt_to_long_gbm_features(
     random_state: int = 42,
     agg_stats: Sequence[str] = _DEFAULT_AGG_STATS,
     column_prefix: str = "long_gbm",
+    context_columns: Sequence[str] | None = None,
 ) -> pl.DataFrame:
     """Reshape ``X`` to long format (value, count, feature-identity), fit one small OOF-safe model on the
     long table with the row's target broadcast to every one of its features, then aggregate the per-
@@ -77,6 +86,14 @@ def melt_to_long_gbm_features(
         pandas' groupby-agg names (``"mean"``, ``"max"``, ``"min"``, ``"std"``, ``"median"``, ...).
     column_prefix
         Column-name prefix for the output aggregate features.
+    context_columns
+        Opt-in, default ``None`` (pure long format, bit-identical to omitting this parameter). A small set
+        of ``X`` column names whose per-row values get broadcast onto every long-format row derived from
+        that row, alongside the row's own melted value/count/feature-code -- gives the per-(row, feature)
+        model limited cross-feature context, fixing the additive-target SNR loss documented above. Keep
+        this small (a handful of companion features, not the whole frame) -- it re-introduces exactly the
+        cross-feature adjacency the pure long format was designed to remove, just in a caller-controlled,
+        bounded way.
 
     Returns
     -------
@@ -97,7 +114,18 @@ def melt_to_long_gbm_features(
     melted["_feat_code"] = pd.factorize(melted["_feature_name"])[0].astype(np.float64)
 
     row_ids = melted["_row_id"].to_numpy()
-    X_long = melted[["_value", "_count", "_feat_code"]].astype(np.float64)
+    base_cols = ["_value", "_count", "_feat_code"]
+    if context_columns:
+        missing = set(context_columns) - set(X.columns)
+        if missing:
+            raise ValueError(f"melt_to_long_gbm_features: context_columns not found in X: {sorted(missing)}")
+        # Broadcast each context column's per-row value onto every long-format row derived from that row --
+        # a plain positional take by _row_id (row ids are 0..n-1, matching X_indexed's reset index).
+        context_block = X_indexed[list(context_columns)].to_numpy(dtype=np.float64)[row_ids]
+        context_df = pd.DataFrame(context_block, columns=[f"_ctx_{c}" for c in context_columns], index=melted.index)
+        X_long = pd.concat([melted[base_cols].astype(np.float64), context_df], axis=1)
+    else:
+        X_long = melted[base_cols].astype(np.float64)
     y_broadcast = y_arr[row_ids]
 
     oof_pred = composite_oof_predictions(model_factory, X_long, y_broadcast, n_splits=n_splits, random_state=random_state, groups=row_ids)
