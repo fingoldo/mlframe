@@ -58,6 +58,45 @@ def test_biz_val_compare_cv_schemes_picks_kfold_when_entities_persist_into_the_f
     assert result["scheme_scores"]["kfold"]["gap_to_ooo_time"] < result["scheme_scores"]["groupkfold"]["gap_to_ooo_time"] * 0.5
 
 
+def test_biz_val_compare_cv_schemes_significance_check_rejects_noise_level_win():
+    """Two CV schemes whose point-estimate gaps differ only by fold-resampling noise: a naive point-estimate
+    comparison always crowns a "winner" (whichever gap happens to be marginally smaller on this particular
+    fold split), but ``significance_alpha`` should correctly report that the win doesn't clear the noise band.
+    """
+    rng = np.random.default_rng(1)
+    n_rows = 400
+    X = rng.normal(0, 1, (n_rows, 3))
+    y = X[:, 0] * 2 + rng.normal(0, 1.0, n_rows)
+
+    hist_idx = np.arange(int(n_rows * 0.8))
+    future_idx = np.arange(int(n_rows * 0.8), n_rows)
+
+    # Two KFold splitters differing only by random_state -- same scheme, same noise-generating process,
+    # so any observed gap difference between them is pure resampling noise, not a real methodological edge.
+    splits_a = [(hist_idx[tr], hist_idx[te]) for tr, te in KFold(5, shuffle=True, random_state=0).split(hist_idx)]
+    splits_b = [(hist_idx[tr], hist_idx[te]) for tr, te in KFold(5, shuffle=True, random_state=1).split(hist_idx)]
+
+    result = compare_cv_schemes(
+        X,
+        y,
+        schemes={"kfold_a": splits_a, "kfold_b": splits_b},
+        ooo_time_idx=(hist_idx, future_idx),
+        model_factory=lambda: RandomForestRegressor(n_estimators=50, max_depth=4, random_state=0),
+        metric_fn=_rmse,
+        significance_alpha=0.05,
+    )
+
+    # A naive point-estimate comparison always declares a winner -- gaps are almost never exactly tied.
+    gap_a = result["scheme_scores"]["kfold_a"]["gap_to_ooo_time"]
+    gap_b = result["scheme_scores"]["kfold_b"]["gap_to_ooo_time"]
+    assert gap_a != gap_b, "fixture must produce a nonzero point-estimate gap difference for the test to be meaningful"
+
+    # The significance check must correctly flag that "winner" as not statistically distinguishable from noise.
+    assert result["best_scheme_significant"] is False
+    other = "kfold_b" if result["best_scheme"] == "kfold_a" else "kfold_a"
+    assert result["significance"][other]["actionable"] is False
+
+
 def test_compare_cv_schemes_empty_schemes_returns_none_best():
     X = np.zeros((10, 1))
     y = np.zeros(10)

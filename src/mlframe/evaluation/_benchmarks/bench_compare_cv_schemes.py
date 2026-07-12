@@ -11,6 +11,7 @@ import cProfile
 import pstats
 import time
 from io import StringIO
+from typing import Dict, Iterable, Optional, Tuple
 
 import numpy as np
 from sklearn.ensemble import RandomForestRegressor
@@ -24,7 +25,7 @@ def _rmse(y_true, y_pred):
     return float(np.sqrt(mean_squared_error(y_true, y_pred)))
 
 
-def _run(n_rows: int, n_splits: int) -> None:
+def _run(n_rows: int, n_splits: int, significance_alpha: Optional[float] = None) -> None:
     rng = np.random.default_rng(0)
     X = rng.normal(0, 1, (n_rows, 5))
     y = X[:, 0] * 2 + rng.normal(0, 0.5, n_rows)
@@ -32,10 +33,17 @@ def _run(n_rows: int, n_splits: int) -> None:
     hist_idx = np.arange(int(n_rows * 0.8))
     future_idx = np.arange(int(n_rows * 0.8), n_rows)
     kfold_splits = [(hist_idx[tr], hist_idx[te]) for tr, te in KFold(n_splits, shuffle=True, random_state=0).split(hist_idx)]
+    schemes: Dict[str, Iterable[Tuple[np.ndarray, np.ndarray]]] = {"kfold": kfold_splits}
+    if significance_alpha is not None:
+        # A second scheme (different random_state) is required for the significance path to have anything to
+        # pair-test the point-estimate winner against.
+        kfold_splits_b = [(hist_idx[tr], hist_idx[te]) for tr, te in KFold(n_splits, shuffle=True, random_state=1).split(hist_idx)]
+        schemes["kfold_b"] = kfold_splits_b
 
     compare_cv_schemes(
-        X, y, schemes={"kfold": kfold_splits}, ooo_time_idx=(hist_idx, future_idx),
+        X, y, schemes=schemes, ooo_time_idx=(hist_idx, future_idx),
         model_factory=lambda: RandomForestRegressor(n_estimators=50, max_depth=6, random_state=0), metric_fn=_rmse,
+        significance_alpha=significance_alpha,
     )
 
 
@@ -46,9 +54,24 @@ if __name__ == "__main__":
         wall = time.perf_counter() - t0
         print(f"n_rows={n_rows:>7,} n_splits={n_splits} -> {wall * 1000:9.2f} ms")
 
+    for n_rows, n_splits in [(2_000, 5), (20_000, 5)]:
+        t0 = time.perf_counter()
+        _run(n_rows, n_splits, significance_alpha=0.05)
+        wall = time.perf_counter() - t0
+        print(f"n_rows={n_rows:>7,} n_splits={n_splits} significance_alpha=0.05 -> {wall * 1000:9.2f} ms")
+
     profiler = cProfile.Profile()
     profiler.enable()
     _run(2_000, 5)
+    profiler.disable()
+    buf = StringIO()
+    stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
+    stats.print_stats(15)
+    print(buf.getvalue())
+
+    profiler = cProfile.Profile()
+    profiler.enable()
+    _run(2_000, 5, significance_alpha=0.05)
     profiler.disable()
     buf = StringIO()
     stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
