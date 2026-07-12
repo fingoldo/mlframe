@@ -54,12 +54,14 @@ def test_lgb_shim_warns_on_version_drift(caplog):
         # WARN. Cleaner approach: deepcopy via pickle round-trip which
         # invokes __setstate__.
         again = pickle.loads(pickle.dumps(loaded))
-    # Some pickle paths may not re-invoke __setstate__ on a non-mutating
-    # round-trip; tolerate either: assert the loaded.tampered version
-    # is preserved (sentinel that the field round-tripped), AND verify a
-    # WARN fired by manually invoking __setstate__ ourselves.
-    fresh = LGBMClassifierWithDatasetReuse(n_estimators=2, verbosity=-1)
-    fresh.__setstate__({"_saved_lgb_version": "0.001-FAKE-OLD"})
+        # Some pickle paths may not re-invoke __setstate__ on a
+        # non-mutating round-trip; tolerate either: assert the
+        # loaded.tampered version is preserved (sentinel that the field
+        # round-tripped), AND verify a WARN fired by manually invoking
+        # __setstate__ ourselves -- must stay inside the caplog context
+        # or the manual WARN is never captured.
+        fresh = LGBMClassifierWithDatasetReuse(n_estimators=2, verbosity=-1)
+        fresh.__setstate__({"_saved_lgb_version": "0.001-FAKE-OLD"})
     drift_warns = [
         r for r in caplog.records
         if "lightgbm version drift" in r.message

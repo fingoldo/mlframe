@@ -64,7 +64,7 @@ def _time_suite(df: pd.DataFrame, n_targets: int, *, force_clear: bool) -> float
     from mlframe.training import train_mlframe_models_suite, TargetTypes
     from mlframe.training.configs import BaselineDiagnosticsConfig, DummyBaselinesConfig
     import mlframe.training.core._phase_train_one_target as pt
-    import mlframe.training.core.main as _main
+    import mlframe.training.core._phase_runners as pr_mod
 
     fte = _MultiTargetExtractor(
         [f"y{t}" for t in range(n_targets)],
@@ -80,8 +80,8 @@ def _time_suite(df: pd.DataFrame, n_targets: int, *, force_clear: bool) -> float
         return _orig(ctx, target_type, targets, cur_target_name, cur_target_values)
 
     pt._train_one_target = _wrapped
-    _orig_alias = _main.pr._train_one_target
-    _main.pr._train_one_target = _wrapped
+    _orig_alias = pr_mod._train_one_target
+    pr_mod._train_one_target = _wrapped
 
     gc.collect()
     try:
@@ -99,7 +99,7 @@ def _time_suite(df: pd.DataFrame, n_targets: int, *, force_clear: bool) -> float
             elapsed = time.perf_counter() - t0
     finally:
         pt._train_one_target = _orig
-        _main.pr._train_one_target = _orig_alias
+        pr_mod._train_one_target = _orig_alias
     return elapsed
 
 
