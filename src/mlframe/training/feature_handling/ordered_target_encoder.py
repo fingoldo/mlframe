@@ -23,6 +23,7 @@ def ordered_target_encode(
     smoothing: float = 1.0,
     prior: Optional[float] = None,
     noise_std: float = 0.0,
+    noise_count_halflife: Optional[float] = None,
     random_state: Optional[Union[int, np.random.Generator]] = None,
 ) -> np.ndarray:
     """Encode each row using only the target statistic accumulated from PRIOR rows of the same category.
@@ -48,6 +49,15 @@ def ordered_target_encode(
         causal ordering, a model can still learn to exploit fine-grained encoding VALUE differences as a
         near-identity proxy for the category itself on high-cardinality columns; injecting noise blurs that
         without touching the underlying causal-ordering leakage guarantee.
+    noise_count_halflife
+        Optional opt-in schedule: when set (``> 0``), the EFFECTIVE noise std applied to a given row is
+        decayed by that row's own causal running observation count for its category, ``effective_std =
+        noise_std * 2 ** (-running_count / noise_count_halflife)`` -- a category's very first few occurrences
+        (running-count expanding-mean statistic still a near-random point estimate) get close to the full
+        ``noise_std``, while rows of a category that has already accumulated many prior observations (the
+        expanding mean is already a stable, low-variance estimate) get progressively less noise instead of
+        the same constant blur regardless of sample size. ``None`` (default) applies the constant ``noise_std``
+        uniformly, exactly as before -- bit-identical to omitting this parameter.
     random_state
         Seed or ``np.random.Generator`` for the noise draw. Ignored when ``noise_std == 0.0``.
 
@@ -85,7 +95,13 @@ def ordered_target_encode(
 
     if noise_std > 0.0:
         rng = random_state if isinstance(random_state, np.random.Generator) else np.random.default_rng(random_state)
-        encoded = encoded * (1.0 + rng.normal(loc=0.0, scale=noise_std, size=n))
+        if noise_count_halflife is not None and noise_count_halflife > 0.0:
+            running_count_full = np.empty(n, dtype=np.float64)
+            running_count_full[sort_idx] = running_count.to_numpy()
+            effective_std = noise_std * np.power(2.0, -running_count_full / noise_count_halflife)
+            encoded = encoded * (1.0 + rng.normal(loc=0.0, scale=1.0, size=n) * effective_std)
+        else:
+            encoded = encoded * (1.0 + rng.normal(loc=0.0, scale=noise_std, size=n))
 
     return encoded
 

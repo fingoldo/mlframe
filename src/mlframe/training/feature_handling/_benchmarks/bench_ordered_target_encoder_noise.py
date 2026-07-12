@@ -23,6 +23,16 @@ def _run(n: int, n_categories: int, n_calls: int) -> None:
         ordered_target_encode(cats, y, order=order, smoothing=1.0, noise_std=0.5, random_state=0)
 
 
+def _run_count_schedule(n: int, n_categories: int, n_calls: int) -> None:
+    """Same grid as ``_run`` but with the opt-in count-decayed ``noise_count_halflife`` schedule active."""
+    rng = np.random.default_rng(0)
+    cats = rng.integers(0, n_categories, n)
+    order = np.arange(n)
+    y = rng.normal(size=n)
+    for _ in range(n_calls):
+        ordered_target_encode(cats, y, order=order, smoothing=1.0, noise_std=0.5, noise_count_halflife=10.0, random_state=0)
+
+
 if __name__ == "__main__":
     for n, n_categories, n_calls in [(2000, 500, 20), (200000, 5000, 20), (200000, 50000, 20)]:
         t0 = time.perf_counter()
@@ -30,9 +40,24 @@ if __name__ == "__main__":
         wall = time.perf_counter() - t0
         print(f"n={n:>7} n_categories={n_categories:>6} n_calls={n_calls:>4} -> {wall * 1000:9.2f} ms")
 
+    for n, n_categories, n_calls in [(2000, 500, 20), (200000, 5000, 20), (200000, 50000, 20)]:
+        t0 = time.perf_counter()
+        _run_count_schedule(n, n_categories, n_calls)
+        wall = time.perf_counter() - t0
+        print(f"[count-schedule] n={n:>7} n_categories={n_categories:>6} n_calls={n_calls:>4} -> {wall * 1000:9.2f} ms")
+
     profiler = cProfile.Profile()
     profiler.enable()
     _run(200000, 50000, 20)
+    profiler.disable()
+    buf = StringIO()
+    stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
+    stats.print_stats(15)
+    print(buf.getvalue())
+
+    profiler = cProfile.Profile()
+    profiler.enable()
+    _run_count_schedule(200000, 50000, 20)
     profiler.disable()
     buf = StringIO()
     stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
