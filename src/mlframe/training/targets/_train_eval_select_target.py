@@ -67,6 +67,7 @@ def select_target(
     common_params: Optional[Dict[str, Any]] = None,
     sample_weight: Optional[np.ndarray] = None,
     mlframe_models: Optional[List[str]] = None,
+    mlframe_models_is_default_allowlist: bool = False,
     linear_model_config: Optional[LinearModelConfig] = None,
     train_df_size_bytes: Optional[float] = None,
     val_df_size_bytes: Optional[float] = None,
@@ -277,6 +278,7 @@ def select_target(
         # crashes at fit ("Target Labels for MultiLogloss must be 0 or 1").
         use_regression=target_type.is_any_regression,
         mlframe_models=mlframe_models,
+        mlframe_models_is_default_allowlist=mlframe_models_is_default_allowlist,
         linear_model_config=linear_model_config,
         train_df_size_bytes=train_df_size_bytes,
         val_df_size_bytes=val_df_size_bytes,

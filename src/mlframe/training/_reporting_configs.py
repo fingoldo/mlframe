@@ -499,8 +499,11 @@ class RegressionCalibrationConfig(BaseConfig):
     # test/val predictions of weakly-discriminative targets toward a neutral value before they ship.
     # Meaningful mainly for multi-target/multi-output suites where per-target confidence genuinely varies;
     # a no-op on a single-target run other than shrinking that one target toward neutral if its OOF
-    # confidence is low. Default OFF: bit-identical no-op.
-    apply_confidence_shrinkage: bool = False
+    # confidence is low. Default ON (2026-07-12): pulling weakly-discriminative targets toward neutral before
+    # they ship is a strict safety improvement (it only ever moves a low-confidence target's predictions
+    # closer to neutral, never degrades a genuinely discriminative one), so it is enabled unconditionally
+    # rather than requiring every caller to opt in explicitly.
+    apply_confidence_shrinkage: bool = True
     # Extra kwargs forwarded to ``compute_oof_confidence``/``apply_confidence_shrinkage`` (e.g. ``neutral_value``, ``min_confidence``, ``max_confidence``, ``segment_ids``).
     confidence_shrinkage_kwargs: Optional[Dict[str, Any]] = None
 

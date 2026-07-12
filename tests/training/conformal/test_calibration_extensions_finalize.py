@@ -6,8 +6,11 @@ Covers three previously-isolated, direct-import-only utilities now reachable via
       ``RegressionCalibrationConfig.apply_confidence_shrinkage``
     - ``isotonic_risk.isotonic_overfit_risk`` -> ``TrainingBehaviorConfig.check_isotonic_overfit_risk``
 
-Each new flag defaults to False/None; the default-behavior regression tests assert the corresponding
-metadata key is absent (and, for confidence shrinkage, that predictions are untouched) when omitted.
+Each new flag defaulted to False/None through 2026-07-11; the corresponding metadata key was absent (and,
+for confidence shrinkage, predictions untouched) when omitted. As of 2026-07-12 all three flags default to
+True/sensible values (see ``DEFAULTS_CHANGELOG.md``) -- the default-behavior regression tests below assert
+the NEW default-on metadata keys are present, and a separate explicit-opt-out test per flag still covers the
+old bit-identical no-op path for callers who explicitly disable it.
 """
 
 from __future__ import annotations
@@ -289,12 +292,30 @@ def test_e2e_auto_optimize_threshold_reachable_via_config(tmp_path):
     assert 0.0 <= rep["best_score"] <= 1.0
 
 
-def test_e2e_default_config_omits_new_calibration_extension_keys(tmp_path):
-    """Default suite run (all new flags omitted) leaves the new metadata keys absent -- bit-identical-by-default."""
+def test_e2e_default_config_populates_new_calibration_extension_keys(tmp_path):
+    """Default suite run (all new flags left at their post-2026-07-12 True default) now populates BOTH new
+    metadata keys without the caller opting in explicitly."""
     pytest.importorskip("xgboost")
     from mlframe.training.configs import TrainingBehaviorConfig
 
     _, metadata = _run_classification_suite(tmp_path, behavior_config=TrainingBehaviorConfig(prefer_gpu_configs=False))
+    assert "decision_threshold" in metadata, "auto_optimize_threshold default True did not stamp metadata['decision_threshold']"
+    assert "isotonic_risk_report" in metadata, "check_isotonic_overfit_risk default True did not stamp metadata['isotonic_risk_report']"
+
+
+def test_e2e_explicit_opt_out_omits_new_calibration_extension_keys(tmp_path):
+    """Explicitly disabling both flags still reproduces the pre-2026-07-12 bit-identical no-op path."""
+    pytest.importorskip("xgboost")
+    from mlframe.training.configs import TrainingBehaviorConfig
+
+    _, metadata = _run_classification_suite(
+        tmp_path,
+        behavior_config=TrainingBehaviorConfig(
+            prefer_gpu_configs=False,
+            auto_optimize_threshold=False,
+            check_isotonic_overfit_risk=False,
+        ),
+    )
     assert "decision_threshold" not in metadata
     assert "isotonic_risk_report" not in metadata
     assert "confidence_shrinkage" not in metadata

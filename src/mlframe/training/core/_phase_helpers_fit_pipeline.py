@@ -356,6 +356,14 @@ def _phase_fit_pipeline(
 
     if preprocessing_extensions is not None and isinstance(preprocessing_extensions, dict):
         preprocessing_extensions = PreprocessingExtensionsConfig(**preprocessing_extensions)
+    elif preprocessing_extensions is None:
+        # A caller who never touches ``preprocessing_extensions`` still gets the config's own
+        # DEFAULT-ON steps (row_wise_summary_stats_enabled / row_wise_extreme_columns_enabled) --
+        # every other field (pysr_enabled, scaler, kbins, ...) keeps its own inert None/False
+        # default, so this only activates the generically-safe additive row-wise FE steps, not the
+        # whole sklearn-bridge feature set. Explicit ``PreprocessingExtensionsConfig(...)`` callers
+        # are unaffected (they already construct their own instance upstream).
+        preprocessing_extensions = PreprocessingExtensionsConfig()
     # PySR symbolic regression (inside apply_preprocessing_extensions) needs a
     # 1-D y_train. Multi-target pipelines pass a target_by_type dict; pick the
     # first regression target as the supervised signal for symbolic feature

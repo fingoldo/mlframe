@@ -211,3 +211,20 @@ def _finalize_per_target_ensembling(
                         logger.info("decision threshold for %s/%s: 0.5 (auto: balanced target, not tuned)", target_type, cur_target_name)
     except Exception as _thr_err:
         logger.warning("decision-threshold tuning failed for %s/%s: %s", target_type, cur_target_name, _thr_err)
+
+    # VOTENRANK-WIRE (diversity): rank the suite's own fitted-but-not-selected members for genuine
+    # blend-additive diversity, over the same ``ens_models`` pool ``score_ensemble`` just blended above.
+    # Observational-only (never changes which models/ensembles get used); default ON per
+    # TrainingBehaviorConfig.recommend_diversity_additions_in_leaderboard.
+    try:
+        from ._diversity_recommendations import compute_diversity_recommendations
+        _div_shortlist = compute_diversity_recommendations(
+            ens_models=ens_models,
+            target_type=target_type,
+            behavior_config=behavior_config,
+            verbose=verbose,
+        )
+        if _div_shortlist is not None:
+            metadata.setdefault("diversity_recommendations", {}).setdefault(str(target_type), {})[str(cur_target_name)] = _div_shortlist
+    except Exception as _div_err:
+        logger.warning("diversity_recommendations wiring failed for %s/%s: %s", target_type, cur_target_name, _div_err)

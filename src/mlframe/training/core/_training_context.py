@@ -82,6 +82,12 @@ class TrainingContext:
     ranking_config: LearningToRankConfig | None = None
     recurrent_config: RecurrentConfig | None = None
     recurrent_models: list[str] | None = None
+    # True when the caller left ``mlframe_models`` at its top-level ``None`` default (resolved here to the
+    # fixed ["cb","lgb","xgb","mlp","linear"] allowlist) rather than passing an explicit list. Threaded down
+    # to ``configure_training_params`` so the point-mass auto-detection for ``gated_outlier`` (see
+    # ``_trainer_configure.py``) only ever ADDS a model beyond what the caller implicitly accepted by not
+    # narrowing the allowlist -- an explicit ``mlframe_models=[...]`` list is never silently extended.
+    mlframe_models_is_default_allowlist: bool = False
 
     verbose: int = 1
     data_dir: str = ""

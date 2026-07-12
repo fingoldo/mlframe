@@ -323,7 +323,7 @@ def _resolve_restricted_class(module: str, name: str, real_find_class: Callable)
     for prefix in _SAFE_MODULE_PREFIXES:
         if module == prefix or module.startswith(prefix + "."):
             return real_find_class(module, name)
-    raise dill.UnpicklingError(f"Unsafe class blocked by allowlist: {module}.{name}")
+    raise dill.UnpicklingError(f"Unsafe class blocked by _SafeUnpickler allowlist: {module}.{name}")
 
 
 class _SafeUnpickler(dill.Unpickler):

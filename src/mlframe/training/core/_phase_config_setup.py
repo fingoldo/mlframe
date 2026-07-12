@@ -318,6 +318,7 @@ def setup_configuration(
         reporting_config=reporting_config,
         preprocessing_config=preprocessing_config,
         confidence_analysis_config=confidence_analysis_config,
+        behavior_config=behavior_config,
     )
 
     if behavior_config.enable_crash_reporting:
@@ -358,6 +359,7 @@ def setup_configuration(
             _cache_clear_err,
         )
 
+    _mlframe_models_is_default_allowlist = mlframe_models is None
     if mlframe_models is None:
         mlframe_models = ["cb", "lgb", "xgb", "mlp", "linear"]
 
@@ -424,6 +426,7 @@ def setup_configuration(
         custom_pre_pipelines=custom_pre_pipelines,
         common_params_dict=common_params_dict,
         mlframe_models=mlframe_models,
+        mlframe_models_is_default_allowlist=_mlframe_models_is_default_allowlist,
         strategy_by_model=_strategy_by_model,
         sorted_mlframe_models=_sorted_mlframe_models,
         use_mlframe_ensembles=use_mlframe_ensembles,

@@ -530,6 +530,7 @@ def _setup_per_target_mlframe_models(
         behavior_config=current_behavior_config,
         common_params=od_common_params,
         mlframe_models=mlframe_models,
+        mlframe_models_is_default_allowlist=ctx.mlframe_models_is_default_allowlist,
         linear_model_config=linear_model_config,
         train_df_size_bytes=train_df_size_bytes_cached,
         val_df_size_bytes=val_df_size_bytes_cached,

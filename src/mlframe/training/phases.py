@@ -204,6 +204,8 @@ def phase(name: str, level: int = logging.DEBUG, **context: Any) -> Iterator[Non
     try:
         yield
     except BaseException as e:
+        # Wraps arbitrary caller code (``yield``); BaseException so a KeyboardInterrupt/SystemExit during a long
+        # training phase still reaches the finally block below and gets its RSS delta recorded, then re-raises.
         raised = e
         raise
     finally:

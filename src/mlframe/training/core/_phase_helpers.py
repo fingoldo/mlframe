@@ -752,6 +752,7 @@ def _build_suite_common_params_dict(
     reporting_config,
     preprocessing_config,
     confidence_analysis_config,
+    behavior_config=None,
 ) -> dict[str, Any]:
     """Assemble the ``common_params_dict`` carried down through the suite."""
     common: dict[str, Any] = {}
@@ -780,6 +781,16 @@ def _build_suite_common_params_dict(
     common["confidence_analysis_ylabel"] = confidence_analysis_config.ylabel
     common["confidence_analysis_title"] = confidence_analysis_config.title
     common["confidence_model_kwargs"] = dict(confidence_analysis_config.model_kwargs)
+    # OOF-WIRE: was previously UNREACHABLE from the public suite entry point -- ``train_eval.py``
+    # pops ``oof_n_splits``/``oof_has_time``/``oof_random_seed`` straight off ``all_params``
+    # (``common_params`` merged with per-model params), but no config surface ever set them, so
+    # ``model.oof_preds``/``model.oof_probs`` never got stamped through the suite regardless of
+    # caller intent. Default 0 (legacy no-OOF behaviour, byte-identical) preserved; set
+    # ``TrainingBehaviorConfig.oof_n_splits >= 2`` to opt in.
+    if behavior_config is not None:
+        common["oof_n_splits"] = int(getattr(behavior_config, "oof_n_splits", 0) or 0)
+        common["oof_has_time"] = bool(getattr(behavior_config, "oof_has_time", False))
+        common["oof_random_seed"] = int(getattr(behavior_config, "oof_random_seed", 42))
     return common
 
 

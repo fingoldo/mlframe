@@ -326,6 +326,12 @@ class PreprocessingExtensionsConfig(BaseConfig):
          so downstream scalers / polynomial features can consume
          the engineered columns.
       1. TF-IDF on declared text columns.
+      1.5. Row-wise summary stats (``row_wise_summary_stats_enabled``, default ON) and
+           row-wise top-k extreme columns (``row_wise_extreme_columns_enabled``, default ON) --
+           purely additive per-row aggregates over the already-numeric column subset, computed
+           AFTER the numeric-only filter so they see the same columns the rest of the bridge does
+           and BEFORE scaler/kbins/polynomial/dim_reducer so the new columns participate in every
+           later step exactly like an ordinary engineered feature.
       2. Scaler (overrides the Polars-ds scaler when set).
       3. Binarizer OR KBinsDiscretizer (mutually exclusive).
       4. PolynomialFeatures (guarded by ``memory_safety_max_features``).
@@ -363,6 +369,29 @@ class PreprocessingExtensionsConfig(BaseConfig):
         "SparseRandomProjection", "RandomTreesEmbedding", "BernoulliRBM",
     ]] = None
     dim_n_components: int = 50
+
+    # Row-wise summary stats (mean/std/q10/q50/q90 by default) computed ACROSS a row's own numeric
+    # columns via ``mlframe.feature_engineering.row_wise_summary.row_wise_summary_stats``. Fully
+    # generic (only needs the numeric column subset the sklearn-bridge already computes) -- no
+    # dataset-specific column names or entity IDs required, so this defaults to ON per the
+    # "flip generically-safe additive steps to default-ON" directive (see
+    # ``training/core/DEFAULTS_CHANGELOG.md``). Runs on the SAME numeric columns the rest of the
+    # bridge already filtered to; disable when the extra columns aren't wanted (e.g. tight
+    # ``memory_safety_max_features`` budgets or a frame with too few numeric columns to summarize
+    # meaningfully).
+    row_wise_summary_stats_enabled: bool = True
+    # ``None`` = row_wise_summary_stats' own default (mean/std/q10/q50/q90). Typed knob so callers
+    # can request a narrower/wider stat set without reaching for the raw function.
+    row_wise_summary_stats_list: Optional[List[str]] = None
+
+    # Row-wise top-k "which columns are most extreme in this row" via
+    # ``mlframe.feature_engineering.row_wise_extremality.row_wise_top_k_extreme_columns``. Only the
+    # numeric ``topK_score`` columns are kept (the ``topK_column`` name columns are categorical/object
+    # and would break the numeric-only sklearn-bridge contract enforced right before this step runs).
+    # Same generic-additive rationale as ``row_wise_summary_stats_enabled`` -- defaults to ON.
+    row_wise_extreme_columns_enabled: bool = True
+    row_wise_extreme_columns_k: int = Field(default=3, ge=1)
+
     memory_safety_max_features: int = 100_000
     # iter-69 byte-aware guard: PolynomialFeatures' projected column count
     # alone (memory_safety_max_features) doesn't capture the actual

@@ -310,6 +310,10 @@ def _has_active_extension_stage(config) -> bool:
         return True
     if getattr(config, "tfidf_columns", None):
         return True
+    if getattr(config, "row_wise_summary_stats_enabled", False):
+        return True
+    if getattr(config, "row_wise_extreme_columns_enabled", False):
+        return True
     return any(
         getattr(config, _attr, None) is not None
         for _attr in (
@@ -605,6 +609,63 @@ def apply_preprocessing_extensions(
                 len(_all_null_cols), _all_null_cols[:8],
             )
 
+    # Row-wise summary stats / top-k extreme columns (step 1.5). Purely additive, generic per-row
+    # aggregates over the already-numeric column subset -- no dataset-specific column names or entity
+    # IDs required, so both default ON (see PreprocessingExtensionsConfig docstring + DEFAULTS_CHANGELOG.md).
+    # Computed on the SAME pinned numeric column list across train/val/test (``_rw_cols``, fixed from
+    # train BEFORE either step adds its own new columns) so all three splits stay schema-aligned.
+    _pre_row_wise_ncols = train.shape[1]
+    if isinstance(train, pd.DataFrame) and train.shape[1] > 0 and (
+        getattr(config, "row_wise_summary_stats_enabled", False) or getattr(config, "row_wise_extreme_columns_enabled", False)
+    ):
+        _rw_cols = list(train.columns)
+
+        def _rw_apply(_fn, _df):
+            # ``keep_cols`` pinning upstream intersects with each split's own columns, so a raw
+            # column genuinely missing from val/test (rather than typo'd) can leave that split with
+            # fewer pinned columns than train -- re-intersect ``_rw_cols`` against the actual frame
+            # here so a per-split KeyError never fires instead of raising into the caller.
+            if _df is None or not isinstance(_df, pd.DataFrame) or _df.shape[1] == 0:
+                return _df
+            _new = _fn(_df, [c for c in _rw_cols if c in _df.columns])
+            return _df.join(_new)
+
+        if getattr(config, "row_wise_summary_stats_enabled", False):
+            from mlframe.feature_engineering.row_wise_summary import row_wise_summary_stats
+            _rw_stats_list = getattr(config, "row_wise_summary_stats_list", None)
+
+            def _summary_stats_for(_d, _cols):
+                _kwargs: Dict = {"columns": _cols}
+                if _rw_stats_list:
+                    _kwargs["stats"] = _rw_stats_list
+                return row_wise_summary_stats(_d, **_kwargs)
+
+            try:
+                train = _rw_apply(_summary_stats_for, train)
+                val = _rw_apply(_summary_stats_for, val)
+                test = _rw_apply(_summary_stats_for, test)
+            except Exception:
+                logger.warning("apply_preprocessing_extensions: row_wise_summary_stats step failed; skipping.", exc_info=True)
+
+        if getattr(config, "row_wise_extreme_columns_enabled", False):
+            from mlframe.feature_engineering.row_wise_extremality import row_wise_top_k_extreme_columns
+            _rw_k = int(getattr(config, "row_wise_extreme_columns_k", 3) or 3)
+
+            def _extreme_scores_only(_df, _cols):
+                """Numeric-only slice of ``row_wise_top_k_extreme_columns`` output -- drops the ``topK_column`` name columns (object dtype), which would otherwise break the numeric-only contract the sklearn-bridge enforces on every downstream step (scaler / kbins / polynomial / dim_reducer)."""
+                _out = row_wise_top_k_extreme_columns(_df, columns=_cols, k=_rw_k)
+                _score_cols = [c for c in _out.columns if c.endswith("_score")]
+                return _out[_score_cols].add_prefix("row_extreme_")
+
+            try:
+                train = _rw_apply(_extreme_scores_only, train)
+                val = _rw_apply(_extreme_scores_only, val)
+                test = _rw_apply(_extreme_scores_only, test)
+            except Exception:
+                logger.warning("apply_preprocessing_extensions: row_wise_top_k_extreme_columns step failed; skipping.", exc_info=True)
+
+    _row_wise_active = train.shape[1] != _pre_row_wise_ncols
+
     n_features = train.shape[1]
     # Dim-reducer n_components clamp. PCA / TruncatedSVD / KernelPCA / NMF
     # / FastICA / LDA etc. raise
@@ -725,6 +786,12 @@ def apply_preprocessing_extensions(
                     pysr=_pysr_transformer, tfidf=tfidf_pipes or None, sklearn_pipe=None,
                 )
             return train, val, test, tfidf_pipes
+        if _row_wise_active:
+            # Row-wise summary-stats / extreme-columns steps added columns but no PySR / TF-IDF /
+            # sklearn-bridge stage ran. Return the augmented ``train``/``val``/``test`` (NOT the
+            # original ``train_df``/``val_df``/``test_df``) so the new columns survive -- the prior
+            # early-return here unconditionally discarded them since it only checked for PySR/TF-IDF.
+            return train, val, test, None
         return train_df, val_df, test_df, None
 
     from sklearn.pipeline import Pipeline as SkPipeline

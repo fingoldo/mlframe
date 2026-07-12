@@ -105,22 +105,25 @@ class TrainingBehaviorConfig(BaseConfig):
     # "balanced_accuracy" (default) recovers the Bayes-optimal operating point ~10x closer than "f1" and wins test balanced-accuracy in 29/30 imbalance x seed cells (bench_threshold_objective.py); F1 chases precision/recall trade and drifts the threshold high under imbalance.
     tune_decision_threshold_metric: str = "balanced_accuracy"  # "f1" or "balanced_accuracy"
 
-    # Opt-in: run ``mlframe.calibration.threshold_optimizer.optimize_decision_threshold`` on the binary
-    # classification calib slice (fit on calib probs/target, disjoint from test) after finalize, storing
+    # Default ON (2026-07-12): run ``mlframe.calibration.threshold_optimizer.optimize_decision_threshold`` on the
+    # binary classification calib slice (fit on calib probs/target, disjoint from test) after finalize, storing
     # ``best_threshold`` (+ optional per-group thresholds / cv stability report, per ``threshold_optimizer_kwargs``)
     # into ``metadata["decision_threshold"]``. Distinct from ``tune_decision_threshold`` above (which only tunes a
-    # single scalar via a simpler internal sweep and never touches metadata); this is the full opt-in extension
-    # surface (per-cohort thresholds via ``groups=``, cv stability via ``cv=``). Default OFF: bit-identical no-op.
-    auto_optimize_threshold: bool = False
+    # single scalar via a simpler internal sweep and never touches metadata); this is the full extension surface
+    # (per-cohort thresholds via ``groups=``, cv stability via ``cv=``), a superset that ships enabled so every
+    # binary-classification suite run gets the richer threshold report without an explicit opt-in.
+    auto_optimize_threshold: bool = True
     # Extra kwargs forwarded to ``optimize_decision_threshold`` (e.g. ``metric_fn``, ``groups``, ``min_group_size``, ``cv``).
     threshold_optimizer_kwargs: Optional[Dict[str, Any]] = None
 
-    # Opt-in: after ``calibrate_namespace_model`` fits a binary isotonic post-hoc calibrator on the calib
-    # slice, run ``mlframe.calibration.isotonic_risk.isotonic_overfit_risk`` on the same (calib_p, calib_y)
-    # and stamp the report into ``metadata["isotonic_risk_report"]`` (per model). Flags isotonic fits that
-    # are tracking per-point noise (too many step segments relative to sample size) rather than a genuine
-    # monotone relationship. Default OFF: bit-identical no-op (no extra fit work, no metadata key).
-    check_isotonic_overfit_risk: bool = False
+    # Default ON (2026-07-12): after ``calibrate_namespace_model`` fits a binary isotonic post-hoc calibrator on
+    # the calib slice, run ``mlframe.calibration.isotonic_risk.isotonic_overfit_risk`` on the same (calib_p,
+    # calib_y) and stamp the report into ``metadata["isotonic_risk_report"]`` (per model). Flags isotonic fits
+    # that are tracking per-point noise (too many step segments relative to sample size) rather than a genuine
+    # monotone relationship. The check is diagnostic-only (never mutates the fitted calibrator), so enabling it
+    # by default costs one extra cheap pass over already-computed calib probabilities with no behavior change
+    # to the shipped predictions.
+    check_isotonic_overfit_risk: bool = True
     # Extra kwargs forwarded to ``isotonic_overfit_risk`` (e.g. ``segment_ratio_threshold``, ``remediate``, ``density_window``).
     isotonic_risk_kwargs: Optional[Dict[str, Any]] = None
 
@@ -211,6 +214,32 @@ class TrainingBehaviorConfig(BaseConfig):
     use_caruana_weights_in_ensemble: bool = False
     # Extra ensemble flavours appended to the default ``SIMPLE_ENSEMBLING_METHODS`` set for ``score_ensemble`` (e.g. ``("rrf",)`` for reciprocal-rank fusion). Defaults to the scale-invariant ``rank_average`` rank-fusion blend: the score gate selects the best flavour on validation, so an extra candidate is strictly weakly-positive (it can only be chosen when it wins) at the cost of one more blend eval. De-duplicated; unknown names are rejected by ``ensemble_probabilistic_predictions``. Set ``()`` for the legacy magnitude-only flavour set.
     extra_ensembling_methods: tuple = ("rank_average",)
+
+    # VOTENRANK-WIRE: when True (default), the per-target ensembling step also runs
+    # ``mlframe.votenrank.correlation_diversity_ablation.recommend_diversity_additions`` over the SAME
+    # ``ens_models`` pool ``score_ensemble`` just blended -- a purely observational diagnostic (never
+    # changes which models/ensembles the suite actually uses) that flags fitted-but-lower-individual-score
+    # members whose OOF diversity would still measurably improve an equal-weight blend. Results land in
+    # ``metadata["diversity_recommendations"][target_type][target_name]``. Requires every member to carry
+    # OOF preds + target (``oof_n_splits>=2``); silently no-ops (not a WARN) when OOF is unavailable, since
+    # that's a caller config choice rather than a wiring failure. Binary classification and regression only
+    # (multiclass OOF-probs collapse to a single-column proxy that isn't a meaningful diversity signal).
+    recommend_diversity_additions_in_leaderboard: bool = True
+    diversity_recommendation_correlation_threshold: float = 0.85
+    diversity_recommendation_min_improvement: float = 0.0
+    diversity_recommendation_top_k: Optional[int] = None
+
+    # OOF-WIRE: K-fold out-of-fold prediction stamping (``model.oof_preds``/``oof_probs``/``oof_target``),
+    # threaded straight to ``_trainer_train_and_evaluate``'s ``oof_n_splits``/``oof_has_time``/
+    # ``oof_random_seed`` kwargs via ``common_params_dict``. Was previously unreachable from the public
+    # suite entry point entirely (no config field set these, despite the trainer already supporting them)
+    # -- an internal-only capability with no caller-facing surface. Default ``0`` preserves the legacy
+    # no-OOF behaviour (real extra compute: K-fold retrains per model, so NOT flipped default-ON); set
+    # ``>=2`` to enable, e.g. so ``recommend_diversity_additions_in_leaderboard`` (which requires OOF) can
+    # fire, or for ``score_ensemble``'s OOF-preferred quality gate / stacking-aware gate.
+    oof_n_splits: int = 0
+    oof_has_time: bool = False
+    oof_random_seed: int = 42
 
     # Pre-pipeline LRU bound. Default 4 covers the common Linear+MLP+RFECV+catboost suite without thrashing; long-running services with bigger model rosters can bump this without monkey-patching the module global.
     pre_pipeline_cache_max: int = 4

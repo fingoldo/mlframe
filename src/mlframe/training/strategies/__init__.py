@@ -100,6 +100,9 @@ MODEL_STRATEGIES: Dict[str, ModelPipelineStrategy] = {
     # HistGradientBoosting
     "hgb": _HGB_STRATEGY,
     "histgradientboosting": _HGB_STRATEGY,  # alias
+    # Composite registry entries (_trainer_configure.py): inner estimator is the suite's default LGBM,
+    # so the tree-model preprocessing pipeline is the correct fit.
+    "gated_outlier": _TREE_STRATEGY,
     # Neural networks
     "mlp": _NEURAL_STRATEGY,
     "ngb": _NEURAL_STRATEGY,
