@@ -90,6 +90,21 @@ def _mean_ks_statistic(sample_df: pd.DataFrame, target_df: pd.DataFrame, feature
 _GREEDY_SWAP_INIT_FRACTION = 0.5
 
 
+def _energy_distance(sample_mat: np.ndarray, target_mat: np.ndarray, target_target_dist: float) -> float:
+    """Multivariate (joint) energy distance between two point clouds -- E(X,Y) = 2*E|X-Y| - E|X-X'| - E|Y-Y'|.
+
+    Unlike per-feature KS (which only compares marginals independently, one column at a time), this operates
+    on the FULL feature vector at once and is sensitive to joint/correlation-structure mismatches that are
+    invisible when every marginal matches (e.g. two features individually normal(0,1) on both sides, but
+    correlated in one sample and independent in the other -- per-feature KS sees ~0 in both cases, energy
+    distance does not). ``target_target_dist`` (the target-vs-itself term) is passed in precomputed since the
+    target point cloud is invariant across trials -- recomputing it every call would be pure wasted O(m^2) work.
+    """
+    d_xy = float(np.mean(np.linalg.norm(sample_mat[:, None, :] - target_mat[None, :, :], axis=2)))
+    d_xx = float(np.mean(np.linalg.norm(sample_mat[:, None, :] - sample_mat[None, :, :], axis=2)))
+    return 2.0 * d_xy - d_xx - target_target_dist
+
+
 def distribution_matching_subset_search(
     train_df: pd.DataFrame,
     target_df: pd.DataFrame,
@@ -99,6 +114,8 @@ def distribution_matching_subset_search(
     n_trials: int = 1000,
     random_state: int = 0,
     search_strategy: str = "greedy_swap",
+    joint_distance_mode: Optional[str] = None,
+    joint_weight: float = 1.0,
 ) -> dict:
     """Search subsets of ``n_blocks`` train blocks for the one best matching ``target_df``'s distribution.
 
@@ -136,6 +153,18 @@ def distribution_matching_subset_search(
         downstream RMSE 11.1-36.1% lower across ``n_trials`` in {50, 100, 300, 1000} (see the module's
         biz_value test for the pinned regression numbers).
         ``"random"``: pure random sampling, kept as an explicit opt-out for legacy callers/reproducibility.
+    joint_distance_mode
+        ``None`` (default): score subsets by mean per-feature KS statistic only, exactly as before -- this
+        argument existing at all does not change default-path behavior (bit-identical, see the module's
+        biz_value test). ``"energy"``: add a multivariate energy-distance term (see ``_energy_distance``)
+        computed over the FULL standardized feature vector, catching joint/correlation-structure mismatches
+        that per-feature KS cannot see because it only ever compares one marginal at a time -- e.g. a subset
+        whose every feature matches the target's marginal distribution individually but whose features
+        co-vary differently (different correlation matrix) than the target's. The combined score is
+        ``mean_ks + joint_weight * energy_distance``, still lower-is-better, still used for ranking/selection
+        throughout (init phase, block-isolation scoring, and swap acceptance).
+    joint_weight
+        Weight of the energy-distance term when ``joint_distance_mode="energy"``; unused otherwise.
 
     Returns
     -------
@@ -153,6 +182,40 @@ def distribution_matching_subset_search(
     if n_blocks > len(unique_blocks):
         raise ValueError(f"distribution_matching_subset_search: n_blocks ({n_blocks}) exceeds available blocks ({len(unique_blocks)}).")
 
+    if joint_distance_mode is not None and joint_distance_mode != "energy":
+        raise ValueError(f"distribution_matching_subset_search: unknown joint_distance_mode {joint_distance_mode!r}, expected None or 'energy'.")
+
+    # Precomputed once (target point cloud is invariant across trials) so the opt-in joint mode adds no
+    # per-trial setup cost beyond the energy-distance evaluation itself; None keeps the default path from
+    # doing ANY extra work, guaranteeing bit-identical scores to before this feature existed.
+    _joint_ctx: Optional[dict] = None
+    if joint_distance_mode == "energy":
+        target_mat = target_df[cols].to_numpy(dtype=float)
+        target_mat = target_mat[np.all(np.isfinite(target_mat), axis=1)]
+        target_mean = target_mat.mean(axis=0)
+        target_std = target_mat.std(axis=0)
+        target_std = np.where(target_std > 1e-12, target_std, 1.0)
+        target_std_mat = (target_mat - target_mean) / target_std
+        target_target_dist = float(np.mean(np.linalg.norm(target_std_mat[:, None, :] - target_std_mat[None, :, :], axis=2)))
+        _joint_ctx = {
+            "mean": target_mean,
+            "std": target_std,
+            "target_std_mat": target_std_mat,
+            "target_target_dist": target_target_dist,
+        }
+
+    def _score(sample_df: pd.DataFrame) -> float:
+        base = _mean_ks_statistic(sample_df, target_df, cols)
+        if _joint_ctx is None:
+            return base
+        sample_mat = sample_df[cols].to_numpy(dtype=float)
+        sample_mat = sample_mat[np.all(np.isfinite(sample_mat), axis=1)]
+        if len(sample_mat) < 2:
+            return base + joint_weight  # degenerate/empty joint sample -- maximally penalize, no crash.
+        sample_std_mat = (sample_mat - _joint_ctx["mean"]) / _joint_ctx["std"]
+        energy = _energy_distance(sample_std_mat, _joint_ctx["target_std_mat"], _joint_ctx["target_target_dist"])
+        return base + joint_weight * energy
+
     rng = np.random.default_rng(random_state)
 
     if search_strategy == "random":
@@ -163,13 +226,13 @@ def distribution_matching_subset_search(
         for trial in range(n_trials):
             candidate_blocks = rng.choice(unique_blocks, size=n_blocks, replace=False)
             sample_df = train_df[train_df[block_col].isin(candidate_blocks)]
-            score = _mean_ks_statistic(sample_df, target_df, cols)
+            score = _score(sample_df)
             all_scores[trial] = score
             if score < best_score:
                 best_score = score
                 best_blocks = list(candidate_blocks)
 
-        return {"best_blocks": best_blocks, "best_score": best_score, "all_scores": all_scores}
+        return {"best_blocks": best_blocks, "best_score": best_score, "all_scores": all_scores, "joint_distance_mode": joint_distance_mode}
 
     if search_strategy != "greedy_swap":
         raise ValueError(f"distribution_matching_subset_search: unknown search_strategy {search_strategy!r}, expected 'random' or 'greedy_swap'.")
@@ -182,7 +245,7 @@ def distribution_matching_subset_search(
     for _ in range(init_trials):
         candidate_blocks = rng.choice(unique_blocks, size=n_blocks, replace=False)
         sample_df = train_df[train_df[block_col].isin(candidate_blocks)]
-        score = _mean_ks_statistic(sample_df, target_df, cols)
+        score = _score(sample_df)
         scores_list.append(score)
         if score < best_score:
             best_score = score
@@ -202,7 +265,7 @@ def distribution_matching_subset_search(
         if missing:
             b = missing[0]
             block_df = train_df[train_df[block_col] == b]
-            block_scores[b] = _mean_ks_statistic(block_df, target_df, cols)
+            block_scores[b] = _score(block_df)
             spent += 1
             continue
         if not unused_blocks:
@@ -211,7 +274,7 @@ def distribution_matching_subset_search(
         replacement = unused_blocks[int(rng.integers(len(unused_blocks)))]
         swapped_blocks: List = [replacement if b == worst_block else b for b in current_blocks]
         candidate_df = train_df[train_df[block_col].isin(swapped_blocks)]
-        score = _mean_ks_statistic(candidate_df, target_df, cols)
+        score = _score(candidate_df)
         scores_list.append(score)
         spent += 1
         if score < current_score:
@@ -227,7 +290,12 @@ def distribution_matching_subset_search(
                 best_blocks = list(swapped_blocks)
         # else: swap rejected, swapped_blocks discarded -- current_blocks/current_score stay as-is (revert).
 
-    return {"best_blocks": best_blocks, "best_score": best_score, "all_scores": np.array(scores_list, dtype=np.float64)}
+    return {
+        "best_blocks": best_blocks,
+        "best_score": best_score,
+        "all_scores": np.array(scores_list, dtype=np.float64),
+        "joint_distance_mode": joint_distance_mode,
+    }
 
 
 __all__ = ["distribution_matching_subset_search"]
