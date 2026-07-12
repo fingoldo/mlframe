@@ -16,12 +16,13 @@ Selection is byte-for-byte identical to the pre-carve in-function block.
 from __future__ import annotations
 
 import logging
+from typing import Optional
 
 import numpy as np
 
 from pyutilz.pythonlib import sort_dict_by_value
 
-from ._pairs_gates import _PREWARP_UNARY, _select_single_best, mi_tie_band
+from ._pairs_gates import _PREWARP_UNARY, _select_single_best
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +83,12 @@ def _emit_pair_features(
     freqs_y,
     fe_npermutations,
     fe_min_nonzero_confidence,
+    # Miller-Madow tie-band + op-code table + noise-gate-dispatch env gate: all resolved ONCE per
+    # ``check_prospective_fe_pairs`` call (invariant across every pair) and threaded down through
+    # ``_score_one_pair`` -- not recomputed here per admitted pair / per tied-leader.
+    _mi_band,
+    _op_code_arr,
+    _fe_env_gate,
     cols,
     original_cols,
     _use_subsample,
@@ -105,7 +112,6 @@ def _emit_pair_features(
     _can_hoist_shared_buffer,
     _narrow_code_dtype,
     _materialise_extval_njit,
-    _njit_binary_op_codes,
     _fe_use_parallel_kernels,
     _dispatch_batch_mi_with_noise_gate,
     batch_mi_with_noise_gate,
@@ -116,6 +122,21 @@ def _emit_pair_features(
     ``res[raw_vars_pair]`` tuple ``(this_pair_features, transformed_vals,
     new_cols, new_nbins, messages)``. Appends to ``messages`` (caller-owned)."""
     _pair_res_entry = None
+
+    # ``get_new_feature_name(config)`` is pure over ``(config, cols)`` (both fixed for this
+    # one admitted pair), but the same config's name is independently needed at several
+    # points below (the emit message, the multi-emit diversity sort, the survivor-packing
+    # sort, the materialise loop) plus inside ``_select_single_best``'s own name tie-break.
+    # One dict shared across every lookup (incl. the ``_select_single_best`` calls below)
+    # so each distinct config's name is computed once per pair, not once per lookup site.
+    _name_cache: dict = {}
+
+    def _cached_name(_cfg) -> str:
+        _n: Optional[str] = _name_cache.get(_cfg)
+        if _n is None:
+            _n = get_new_feature_name(fe_tuple=_cfg, cols_names=cols)
+            _name_cache[_cfg] = _n
+        return _n
 
     # If there is a group of leaders with almost the same performance, approve them through one of the other variables.
     # если будут возникать такие группы примерно одинаковых по силе лидеров, их придётся разрешать с помощью одного из других влияющих факторов
@@ -179,7 +200,8 @@ def _emit_pair_features(
     # ``div(sqr(a),b)`` 0.1167, yet |corr(y)| 0.25 vs 0.46 -- the noise winner does not fuse cleanly and
     # leaves the ratio form as a fragment). Snapping the primary MI key to this band inside
     # ``_select_single_best`` lets the EXISTING linear-usability tie-break pick the linearly-usable form.
-    _mi_band = mi_tie_band(int(quantization_nbins), len(classes_y), int(np.asarray(freqs_y).shape[0]))
+    # ``_mi_band`` is the caller-hoisted, call-invariant tie band (a parameter -- see the per-call hoist
+    # comment in ``check_prospective_fe_pairs``), not recomputed per admitted pair.
 
     if len(leading_features) > 1:
         if len(numeric_vars_to_consider) > 2:
@@ -205,6 +227,10 @@ def _emit_pair_features(
             # The RNG draw (``_rng_extval.choice`` below) stays per-config so its state consumption — and
             # therefore every later pair's tie-break — is bit-identical.
             _ext_factors_sorted = sorted(set(numeric_vars_to_consider) - set(raw_vars_pair))
+            # ``_op_code_arr`` (the op-code table) is call-invariant -- resolved ONCE per
+            # ``check_prospective_fe_pairs`` call (see the per-call hoist comment there) -- so it is
+            # read here once per pair rather than rebuilt on every tied-leader iteration below.
+            _ev_op_codes = _op_code_arr
             for transformations_pair, bin_func_name, i in (_ev_configs if len(_ev_configs) > 1 else []):
                 if final_transformed_vals is not None:
                     param_a = final_transformed_vals[:, i]
@@ -285,7 +311,6 @@ def _emit_pair_features(
                     # ``searchsorted`` (NaN -> rightmost bin), identically. Writing into a
                     # float64 buffer (not float32) preserves the bin_func's native precision
                     # so the percentile edges match the 1-D path to the bit.
-                    _ev_op_codes = _njit_binary_op_codes(binary_transformations)
                     _ev_code_dtype = _narrow_code_dtype(quantization_nbins, quantization_dtype)  # OPT-B narrow codes
                     _ev_col = _ev_K
                     _ev_disc = None
@@ -382,6 +407,7 @@ def _emit_pair_features(
                         min_nonzero_confidence=fe_min_nonzero_confidence,
                         use_su=use_su_normalization(),
                         batch_mi_kernel=batch_mi_with_noise_gate,
+                        env_gate=_fe_env_gate,
                     )
                     if _ev_mi is not None and len(_ev_mi):
                         best_valid_mi = float(np.max(_ev_mi))
@@ -427,10 +453,11 @@ def _emit_pair_features(
             # MI=0.25 over the true mul(log(c),sin(d)) MI=0.32.)
             _primary_perf = {c: var_pairs_perf[c] for c in leading_features if c in var_pairs_perf}
             _winner = _select_single_best(
-                _primary_perf, cols, secondary=valid_pairs_perf, usability=_leader_usability, mi_band=_mi_band, usability_primary=_usability_primary
+                _primary_perf, cols, secondary=valid_pairs_perf, usability=_leader_usability, mi_band=_mi_band,
+                usability_primary=_usability_primary, name_cache=_name_cache,
             )
             if _winner is not None:
-                new_feature_name = get_new_feature_name(fe_tuple=_winner, cols_names=cols)
+                new_feature_name = _cached_name(_winner)
                 if verbose:
                     messages.append(
                         f"{new_feature_name} is recommended to use as a new feature! (won in validation with other factors) best_mi={best_mi:.4f}, pair_mi={pair_mi:.4f}, rat={best_mi/pair_mi:.4f}"
@@ -441,15 +468,18 @@ def _emit_pair_features(
             # still emit ONE best representative (highest engineered MI,
             # deterministic name tie-break) rather than the whole class.
             _lead_perf = {c: var_pairs_perf[c] for c in leading_features if c in var_pairs_perf}
-            _winner = _select_single_best(_lead_perf, cols, usability=_leader_usability, mi_band=_mi_band, usability_primary=_usability_primary)
+            _winner = _select_single_best(
+                _lead_perf, cols, usability=_leader_usability, mi_band=_mi_band,
+                usability_primary=_usability_primary, name_cache=_name_cache,
+            )
             if _winner is not None:
                 if verbose:
                     messages.append(
-                        f"{get_new_feature_name(fe_tuple=_winner, cols_names=cols)} is recommended to use as a new feature! (best of {len(leading_features)} near-equivalent leaders) best_mi={best_mi:.4f}, pair_mi={pair_mi:.4f}, rat={best_mi/pair_mi:.4f}"
+                        f"{_cached_name(_winner)} is recommended to use as a new feature! (best of {len(leading_features)} near-equivalent leaders) best_mi={best_mi:.4f}, pair_mi={pair_mi:.4f}, rat={best_mi/pair_mi:.4f}"
                     )
                 this_pair_features.add((_winner, 0))
     else:
-        new_feature_name = get_new_feature_name(fe_tuple=best_config, cols_names=cols)
+        new_feature_name = _cached_name(best_config)
         if verbose:
             messages.append(
                 f"{new_feature_name} is recommended to use as a new feature! (clear winner) best_mi={best_mi:.4f}, pair_mi={pair_mi:.4f}, rat={best_mi/pair_mi:.4f}"
@@ -475,7 +505,7 @@ def _emit_pair_features(
         _emitted_cols = []
         # Stable, hash-independent order (set of name-string-bearing configs); see the determinism
         # note at the survivor-packing loop below.
-        for _c in sorted(_already, key=lambda _cfg: get_new_feature_name(fe_tuple=_cfg, cols_names=cols)):
+        for _c in sorted(_already, key=_cached_name):
             try:
                 _emitted_cols.append(np.asarray(_resolve_col(_c[2]), dtype=np.float64))
             except Exception:  # nosec B110 - best-effort path  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
@@ -510,7 +540,7 @@ def _emit_pair_features(
             _emitted_cols.append(_col)
             if verbose:
                 messages.append(
-                    f"{get_new_feature_name(fe_tuple=_cfg, cols_names=cols)} also emitted " f"(diverse multi-candidate, MI={_cfg_mi:.4f} vs best {best_mi:.4f})"
+                    f"{_cached_name(_cfg)} also emitted " f"(diverse multi-candidate, MI={_cfg_mi:.4f} vs best {best_mi:.4f})"
                 )
 
     transformed_vals, new_cols, new_nbins = None, None, None
@@ -566,10 +596,10 @@ def _emit_pair_features(
         # so the emitted column order is reproducible across processes.
         _ordered_pair_features = sorted(
             this_pair_features,
-            key=lambda _cj: get_new_feature_name(fe_tuple=_cj[0], cols_names=cols),
+            key=lambda _cj: _cached_name(_cj[0]),
         )
         for _idx, (config, j) in enumerate(_ordered_pair_features):
-            new_feature_name = get_new_feature_name(fe_tuple=config, cols_names=cols)
+            new_feature_name = _cached_name(config)
             transformations_pair, bin_func_name, i = config
 
             if fe_max_steps >= 1:

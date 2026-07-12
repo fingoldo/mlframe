@@ -47,10 +47,12 @@ def _abs_corr_finite_njit(a, y, yfin):
     return -r if r < 0.0 else r
 
 from ._pairs_chunks import _FE_CHUNK_MAX_COLS_HARD_CAP, _plan_fe_chunks
+from ._pairs_dispatch import resolve_fe_dispatch_env_gate
 from ._pairs_gates import (
     _FE_REJECTION_RESULT_KEY, _GATE_MED_SPECS_RESULT_KEY, _GATE_MED_UNARY,
-    _PREWARP_SPECS_RESULT_KEY, _PREWARP_UNARY,
+    _PREWARP_SPECS_RESULT_KEY, _PREWARP_UNARY, mi_tie_band,
 )
+from ._pairs_materialise import _njit_binary_op_codes
 from ._pairs_score import _score_one_pair
 from ._pairs_setup import _build_operand_table, _fit_prewarp_and_gate_med
 
@@ -601,21 +603,21 @@ def check_prospective_fe_pairs(
         _unary_names_eff = [*_unary_names_eff, _GATE_MED_UNARY]
 
     # Exact preallocation. ``n_pairs * n_unary * 2`` over-counts because (var, tr_name) keys are de-duplicated in ``vars_transformations``; the unique-key set is the
-    # true upper bound.
-    unique_keys: set = set()
-    for raw_vars_pair, _ in prospective_pairs.keys():
-        for var in raw_vars_pair:
-            for tr_name in _unary_names_eff:
-                unique_keys.add((var, tr_name))
+    # true upper bound. Every raw var appearing in ANY pair is combined with every ``_unary_names_eff`` entry
+    # unconditionally (no per-var filtering above), so the true unique-key count is provably
+    # ``len({var for pair in prospective_pairs for var in pair}) * len(_unary_names_eff)`` -- avoids materialising
+    # the O(pairs x unaries) set just to take its length.
+    unique_vars: set = {var for raw_vars_pair, _ in prospective_pairs.keys() for var in raw_vars_pair}
+    n_unique_keys = len(unique_vars) * len(_unary_names_eff)
 
     if verbose >= 2:
         logger.info(
             "Creating a pool of %d unary transformations for feature engineering " "(legacy upper bound was %d).",
-            len(unique_keys),
+            n_unique_keys,
             len(prospective_pairs) * len(unary_transformations) * 2,
         )
 
-    transformed_vars = np.empty(shape=(len(X), len(unique_keys)), dtype=np.float32)
+    transformed_vars = np.empty(shape=(len(X), n_unique_keys), dtype=np.float32)
 
     # Hoist ``final_transformed_vals`` outside the per-pair loop: precompute each pair's ``combs``, find the max length, allocate one shared buffer. Each pair writes
     # then reads the same ``[:, i]`` slice so stale tail data is never observed.
@@ -801,6 +803,34 @@ def check_prospective_fe_pairs(
             return float(_abs_corr_finite_njit(_a, _corr_y_cont, _corr_y_cont_finite))
         except Exception:
             return 0.0
+
+    # Unlike ``_config_corr``'s per-pair-specific candidate columns (never revisited across pairs, so
+    # correctly left unmemoised), a raw/transformed OPERAND's |corr| recurs across every admitted pair
+    # that shares it (var ``a`` in pairs (a,b),(a,c),(a,d),...). Mirror the ``_operand_marginal_mi`` /
+    # ``_operand_discretized`` var-keyed memoisation pattern above so the noise-wrap veto's per-operand
+    # |corr| (an O(n) njit pass) is computed once per distinct operand for the whole call, not once per
+    # admitted pair it appears in.
+    _raw_operand_abs_corr_cache: dict = {}
+
+    def _raw_operand_abs_corr(_var) -> float:
+        """Memoised |corr(raw operand, y)| by raw var key."""
+        if _var in _raw_operand_abs_corr_cache:
+            return float(_raw_operand_abs_corr_cache[_var])
+        _vals = _extval_raw_col(_var)
+        _c = _safe_abs_corr(_vals) if _vals is not None else 0.0
+        _raw_operand_abs_corr_cache[_var] = _c
+        return _c
+
+    _transformed_operand_abs_corr_cache: dict = {}
+
+    def _transformed_operand_abs_corr(_opk) -> float:
+        """Memoised |corr(transformed operand column, y)| by ``(var, unary)`` key."""
+        if _opk in _transformed_operand_abs_corr_cache:
+            return float(_transformed_operand_abs_corr_cache[_opk])
+        _idx = vars_transformations.get(_opk)
+        _c = _safe_abs_corr(transformed_vars[:, _idx]) if _idx is not None else 0.0
+        _transformed_operand_abs_corr_cache[_opk] = _c
+        return _c
 
     # The winning composite is condemned as a noise-wrap when its |corr| with the target is a small FRACTION
     # of the best single operand's |corr| AND that operand is genuinely strong on its own. Calibrated wide:
@@ -1012,6 +1042,24 @@ def check_prospective_fe_pairs(
     _sweep_best_mi = -1.0
     _sweep_best_name = None
 
+    # PER-CALL HOISTS (env-var gate + op-code table + MI tie-band): all three are invariant across
+    # the WHOLE pair loop below (the env var never changes mid-call, the op-code table depends only
+    # on ``binary_transformations``, and the tie-band depends only on quantization_nbins/classes_y/
+    # freqs_y) -- computing them once here instead of once per pair (or, for the op-code table, once
+    # per tied-leader inside the emit tail) avoids millions of redundant env reads / dict rebuilds /
+    # float divisions over a wide fit with no behaviour change (every downstream site consumed the
+    # exact same values before this hoist). ``_op_code_arr_all`` is the UNGATED table (feeds the
+    # external-validation njit materialise in the emit tail, which was never gated by the GPU-
+    # materialise escape hatch); ``_op_code_arr`` additionally applies that gate (feeds the per-pair /
+    # per-chunk GPU-fused materialise attempt, which WAS gated) -- both derive from one table build.
+    _gpu_mat_on = os.environ.get("MLFRAME_FE_GPU_MATERIALISE", "1").strip().lower() not in ("0", "false", "no", "off")
+    _op_code_arr_all = _njit_binary_op_codes(binary_transformations)
+    _op_code_arr = _op_code_arr_all if _gpu_mat_on else None
+    _mi_band = mi_tie_band(int(quantization_nbins), len(classes_y), int(np.asarray(freqs_y).shape[0]))
+    # Same rationale, for the noise-gate dispatcher's own CUDA-opt-out / resident-gate env reads (it runs
+    # once per pair AND once per chunk AND once per ext-val tied-leader-set -- see resolve_fe_dispatch_env_gate).
+    _fe_env_gate = resolve_fe_dispatch_env_gate()
+
     # For every pair from the pool, try all known functions of 2 variables (not storing results in persistent RAM). Record best pairs.
     for (
         raw_vars_pair,
@@ -1040,6 +1088,11 @@ def check_prospective_fe_pairs(
             _fe_chunks=_fe_chunks,
             _pair_valid_combs=_pair_valid_combs,
             _fe_defer_float=_fe_defer_float,
+            _gpu_mat_on=_gpu_mat_on,
+            _op_code_arr=_op_code_arr,
+            _op_code_arr_all=_op_code_arr_all,
+            _mi_band=_mi_band,
+            _fe_env_gate=_fe_env_gate,
             classes_y=classes_y,
             classes_y_safe=classes_y_safe,
             freqs_y=freqs_y,
@@ -1084,6 +1137,8 @@ def check_prospective_fe_pairs(
             serial_main_thread=serial_main_thread,
             _extval_raw_col=_extval_raw_col,
             _safe_abs_corr=_safe_abs_corr,
+            _raw_operand_abs_corr=_raw_operand_abs_corr,
+            _transformed_operand_abs_corr=_transformed_operand_abs_corr,
             _operand_marginal_mi=_operand_marginal_mi,
             _operand_discretized=_operand_discretized,
             batch_mi_with_noise_gate=batch_mi_with_noise_gate,

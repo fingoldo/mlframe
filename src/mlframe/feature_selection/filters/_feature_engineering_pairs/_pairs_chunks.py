@@ -12,7 +12,6 @@ from ._pairs_materialise import (
     _materialise_chunk_njit,
     _materialise_chunk_njit_parallel,
     _narrow_code_dtype,
-    _njit_binary_op_codes,
 )
 from ..feature_engineering import _FE_BUFFER_RAM_BUDGET_RATIO  # noqa: F401 -- re-exported via package __init__
 
@@ -123,8 +122,11 @@ def _compute_one_fe_chunk(
     prewarp_unary,
     logger,
     discretize_2d_quantile_batch,
+    op_code_arr,
+    gpu_mat_enabled: bool,
     serial_main_thread: bool = False,
     defer_float: bool = False,
+    env_gate=None,
 ):
     """Fill ``chunk_buffer[:, :K]`` with EVERY candidate column of EVERY pair in
     ``chunk_pairs``, then run ONE ``discretize_2d_quantile_batch`` + ONE
@@ -141,12 +143,16 @@ def _compute_one_fe_chunk(
     nan_to_num/timing per pair mirror the per-pair Phase 1 exactly. The caller must
     extract any survivor columns from ``chunk_buffer`` BEFORE the next chunk overwrites
     it (the caller processes a chunk's pairs immediately after this returns).
+
+    ``op_code_arr`` (``_njit_binary_op_codes(binary_transformations)``) and
+    ``gpu_mat_enabled`` (the ``MLFRAME_FE_GPU_MATERIALISE`` env gate) are resolved ONCE by the
+    top-level caller (call-invariant across every chunk in the fit), not rebuilt/re-read per chunk.
     """
     from timeit import default_timer as timer
 
     col = 0
     chunk_records: dict = {}  # raw_vars_pair -> (candidates, local_times)
-    _op_codes_by_name = _njit_binary_op_codes(binary_transformations)  # None if ANY op is not njit-coded
+    _op_codes_by_name = op_code_arr  # None if ANY op is not njit-coded
     _gpu_disc_2d = None  # GPU fused materialise+binning codes (njit-op path only); None -> CPU below
     # RESIDENCY DEFERRAL metadata (gated, ``defer_float``): when the GPU fused materialise SKIPPED the
     # (n,K) float D2H (out_cand=None), the chunk-buffer is unfilled and the caller must RE-MATERIALISE the
@@ -213,11 +219,8 @@ def _compute_one_fe_chunk(
         # Escape hatch / A/B knob: MLFRAME_FE_GPU_MATERIALISE=0 disables ONLY the fused GPU materialise
         # (falls through to the CPU njit materialise + the existing GPU binning below). Default on -- the
         # path is gated by the SAME size+HW predicate as the GPU binning (_fe_gpu_discretize_enabled).
-        import os as _os
-        _gpu_mat_enabled = _os.environ.get("MLFRAME_FE_GPU_MATERIALISE", "1").strip().lower() not in (
-            "0", "false", "no", "off",
-        )
-        if col > 0 and _gpu_mat_enabled:
+        # ``gpu_mat_enabled`` is the caller-hoisted, call-invariant env gate (a parameter), not re-read here.
+        if col > 0 and gpu_mat_enabled:
             try:
                 from ._pairs_core import _fe_gpu_discretize_enabled
                 # RESIDENCY-OVERRIDE bench-attempt-rejected (2026-06-21): forcing the fused GPU path on
@@ -374,6 +377,7 @@ def _compute_one_fe_chunk(
         min_nonzero_confidence=fe_min_nonzero_confidence,
         use_su=use_su,
         batch_mi_kernel=batch_mi_kernel,
+        env_gate=env_gate,
     )
     fe_mi_full = np.asarray(fe_mi_arr, dtype=np.float64)
     for raw_vars_pair in chunk_pairs:

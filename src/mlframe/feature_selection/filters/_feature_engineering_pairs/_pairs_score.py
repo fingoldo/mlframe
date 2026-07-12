@@ -43,10 +43,8 @@ from ._pairs_materialise import (
     _fe_use_parallel_kernels,
     _materialise_extval_njit,
     _narrow_code_dtype,
-    _njit_binary_op_codes,
 )
 from ._pairs_emit import _emit_pair_features
-from ._pairs_gates import mi_tie_band
 from .._fe_usability_signal import (  # shared leaf detectors (numpy-only, no cycle)
     pair_is_tail_concentrated_rankaware,
     tail_concentration_form_override,
@@ -88,6 +86,13 @@ def _score_one_pair(
     _fe_chunks,
     _pair_valid_combs,
     _fe_defer_float,
+    # --- per-call hoists (env-gate / op-code table / MI tie-band): resolved ONCE by the caller
+    # (invariant for the whole ``check_prospective_fe_pairs`` call), NOT recomputed per pair ---
+    _gpu_mat_on,
+    _op_code_arr,
+    _op_code_arr_all,
+    _mi_band,
+    _fe_env_gate,
     # --- target / estimator ---
     classes_y,
     classes_y_safe,
@@ -137,6 +142,8 @@ def _score_one_pair(
     # --- per-call memo helpers (closures from the parent frame) ---
     _extval_raw_col,
     _safe_abs_corr,
+    _raw_operand_abs_corr,
+    _transformed_operand_abs_corr,
     _operand_marginal_mi,
     _operand_discretized,
     # --- framework callables (lazily imported in the parent) ---
@@ -234,6 +241,9 @@ def _score_one_pair(
                         discretize_2d_quantile_batch=discretize_2d_quantile_batch,
                         serial_main_thread=serial_main_thread,  # OPT-A
                         defer_float=_fe_defer_float,
+                        op_code_arr=_op_code_arr_all,
+                        gpu_mat_enabled=_gpu_mat_on,
+                        env_gate=_fe_env_gate,
                     )
 
                 _mi_cache = None
@@ -388,18 +398,10 @@ def _score_one_pair(
             # by the dedicated GPU-binning crossover (if binning wins, the fused mat+bin certainly wins) +
             # the ``MLFRAME_FE_GPU_MATERIALISE`` escape hatch (same knob the chunk path uses). Any GPU
             # failure falls through to the CPU loop below (never a regression).
+            # ``_gpu_mat_on``/``_op_code_arr`` are resolved ONCE by the caller (call-invariant), not
+            # recomputed for every pair -- see the per-call hoist comment in ``check_prospective_fe_pairs``.
             _gpu_fused_done = False
             try:
-                import os as _os
-                _gpu_mat_on = _os.environ.get("MLFRAME_FE_GPU_MATERIALISE", "1").strip().lower() not in (
-                    "0", "false", "no", "off",
-                )
-                # Probe K (candidate count for this pair) without materialising, to size the binning gate.
-                if _gpu_mat_on:
-                    from ._pairs_materialise import _njit_binary_op_codes as _njit_op_codes_fn
-                    _op_code_arr = _njit_op_codes_fn(binary_transformations)
-                else:
-                    _op_code_arr = None
                 if _op_code_arr is not None:
                     # Build candidate specs + per-candidate (a_col, b_col, op_code) in the SAME
                     # (combs x bin_func) order the CPU path produces -> identical buffer index ``i``.
@@ -580,6 +582,7 @@ def _score_one_pair(
                         min_nonzero_confidence=fe_min_nonzero_confidence,
                         use_su=use_su_normalization(),
                         batch_mi_kernel=batch_mi_with_noise_gate,
+                        env_gate=_fe_env_gate,
                     )
 
         # Replay best/prewarp/config tracking in the SAME order candidates were
@@ -1048,12 +1051,14 @@ def _score_one_pair(
                     except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
                         logger.debug("suppressed in _pairs_score.py:1042: %s", e)
                         continue
+                # Memoised by raw var key: ``_tc_x0``/``_tc_x1`` (fetched via ``_extval_raw_col`` above)
+                # are the SAME raw operands the noise-wrap veto below scores, and either can recur
+                # across every admitted pair sharing that var -- see ``_raw_operand_abs_corr``.
                 _best_single_corr = max(
-                    _safe_abs_corr(_tc_x0), _safe_abs_corr(_tc_x1),
+                    _raw_operand_abs_corr(raw_vars_pair[0]), _raw_operand_abs_corr(raw_vars_pair[1]),
                 )
-                _mi_band = mi_tie_band(
-                    int(quantization_nbins), len(classes_y), int(np.asarray(freqs_y).shape[0]),
-                )
+                # ``_mi_band`` is the caller-hoisted, call-invariant tie band (see the per-call hoist
+                # comment in ``check_prospective_fe_pairs``) -- not recomputed per pair.
                 _override_cfg = tail_concentration_form_override(
                     var_pairs_perf, _use_map,
                     min_corr=fe_pair_usability_admission_min_corr,
@@ -1096,13 +1101,16 @@ def _score_one_pair(
             # under its CHOSEN unary (``sqr(a)`` for the ``a`` side, not raw ``a`` -- raw ``a`` is ~0 corr
             # for an even target like ``exp(-a**2)``), falling back to the raw operand value. This is the
             # genuine single-source signal the wrap is diluting.
+            # Memoised by operand key (``_transformed_operand_abs_corr``/``_raw_operand_abs_corr``): the
+            # SAME operand recurs across every admitted pair it participates in, so its |corr| is
+            # computed once per distinct operand for the whole call rather than once per pair.
             _op_corr = 0.0
             _tp = best_config[0]
             for _side in (0, 1):
                 _opk = _tp[_side] if isinstance(_tp, (tuple, list)) and len(_tp) > _side else None
                 if _opk is not None and _opk in vars_transformations:
-                    _op_corr = max(_op_corr, _safe_abs_corr(transformed_vars[:, vars_transformations[_opk]]))
-                _op_corr = max(_op_corr, _safe_abs_corr(_extval_raw_col(raw_vars_pair[_side])))
+                    _op_corr = max(_op_corr, _transformed_operand_abs_corr(_opk))
+                _op_corr = max(_op_corr, _raw_operand_abs_corr(raw_vars_pair[_side]))
             if _win_corr is not None and _op_corr >= _NOISE_WRAP_MIN_OPERAND_CORR and _win_corr < _op_corr * _NOISE_WRAP_CORR_COLLAPSE_FRAC:
                 _passes_joint_gate = _prewarp_accept = _marginal_uplift_accept = False
                 _usability_accept = _usability_primary = False
@@ -1233,6 +1241,9 @@ def _score_one_pair(
             freqs_y=freqs_y,
             fe_npermutations=fe_npermutations,
             fe_min_nonzero_confidence=fe_min_nonzero_confidence,
+            _mi_band=_mi_band,
+            _op_code_arr=_op_code_arr_all,
+            _fe_env_gate=_fe_env_gate,
             cols=cols,
             original_cols=original_cols,
             _use_subsample=_use_subsample,
@@ -1255,7 +1266,6 @@ def _score_one_pair(
             _can_hoist_shared_buffer=_can_hoist_shared_buffer,
             _narrow_code_dtype=_narrow_code_dtype,
             _materialise_extval_njit=_materialise_extval_njit,
-            _njit_binary_op_codes=_njit_binary_op_codes,
             _fe_use_parallel_kernels=_fe_use_parallel_kernels,
             _dispatch_batch_mi_with_noise_gate=_dispatch_batch_mi_with_noise_gate,
             batch_mi_with_noise_gate=batch_mi_with_noise_gate,

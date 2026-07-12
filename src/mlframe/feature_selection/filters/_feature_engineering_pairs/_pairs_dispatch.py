@@ -2,10 +2,33 @@
 from __future__ import annotations
 
 import os
+from typing import NamedTuple, Optional
 
 import numpy as np
 
 from ._pairs_common import _module_logger
+
+
+class _FeDispatchEnvGate(NamedTuple):
+    """The env-var gates this dispatcher (+ its GPU twin) reads, resolved once. Both are constant for the
+    lifetime of a process (or at least for one ``check_prospective_fe_pairs`` call) -- ``check_prospective_
+    fe_pairs`` resolves this ONCE via ``resolve_fe_dispatch_env_gate`` and threads it through every dispatch
+    call site instead of each one re-reading ``os.environ.get`` per pair/chunk."""
+
+    gpu_opted_out: bool
+    resident_gate_on: bool
+
+
+def resolve_fe_dispatch_env_gate() -> _FeDispatchEnvGate:
+    """Resolve the CUDA opt-out (``CUDA_VISIBLE_DEVICES=""`` / ``MLFRAME_DISABLE_GPU=1``) and the
+    GPU-resident-gate (``MLFRAME_FE_GPU_RESIDENT_GATE``) env vars once. Callers without a pre-resolved
+    gate (e.g. a direct unit-test call) get the identical values by leaving ``env_gate=None``, which
+    falls back to calling this function inline -- so this hoist changes call FREQUENCY, never behavior."""
+    _cvd = os.environ.get("CUDA_VISIBLE_DEVICES", None)
+    _gpu_opted_out = (_cvd is not None and _cvd.strip() == "") or os.environ.get("MLFRAME_DISABLE_GPU", "") == "1"
+    _resident_gate_on = os.environ.get("MLFRAME_FE_GPU_RESIDENT_GATE", "1").strip().lower() not in ("0", "false", "no", "off")
+    return _FeDispatchEnvGate(gpu_opted_out=_gpu_opted_out, resident_gate_on=_resident_gate_on)
+
 
 # Code-version for the per-host CPU-vs-GPU split of the batched FE-candidate
 # MI+permutation noise-gate, keyed on the work size (n_rows x n_cols). The CPU
@@ -34,6 +57,7 @@ def _dispatch_batch_mi_with_noise_gate(
     min_nonzero_confidence: float,
     use_su: bool,
     batch_mi_kernel,
+    env_gate: Optional[_FeDispatchEnvGate] = None,
 ) -> np.ndarray:
     """Route the batched FE-candidate MI + permutation noise-gate to the CPU njit kernel
     or (best-effort) a GPU batched path, by work size ``n * K`` via the per-host
@@ -41,9 +65,15 @@ def _dispatch_batch_mi_with_noise_gate(
     fallback; the GPU branch is gated behind ``is_cuda_available`` + try/except so any
     failure transparently falls back to CPU (mirrors ``mi_direct``'s GPU fastpath).
 
+    ``env_gate`` should be the caller's ONE ``resolve_fe_dispatch_env_gate()`` call for the whole
+    ``check_prospective_fe_pairs`` sweep (this dispatcher runs once per pair/chunk); ``None`` (a direct
+    or test call) resolves it inline, unchanged from the pre-hoist behavior.
+
     Returns ``fe_mi[K]`` -- the per-column observed MI, zeroed where the permutation gate
     rejects. Bit-identical to a per-candidate ``mi_direct`` loop on the default FE path.
     """
+    if env_gate is None:
+        env_gate = resolve_fe_dispatch_env_gate()
     n = disc_2d.shape[0]
     K = disc_2d.shape[1]
     factors_nbins = np.full(K, int(quantization_nbins), dtype=np.int64)
@@ -150,9 +180,7 @@ def _dispatch_batch_mi_with_noise_gate(
     # convention for "no GPU on this run") must force CPU here: cupy ignores that env for device enumeration on some builds, so a
     # cached GPU ``backend_choice`` would route to the cupy path whose device->host copy then HANGS indefinitely (not an exception,
     # so the GPU try/except below never catches it). Skip the GPU route entirely when the user asked for no CUDA device.
-    _cvd = os.environ.get("CUDA_VISIBLE_DEVICES", None)
-    _gpu_opted_out = (_cvd is not None and _cvd.strip() == "") or os.environ.get("MLFRAME_DISABLE_GPU", "") == "1"
-    if _gpu_opted_out:
+    if env_gate.gpu_opted_out:
         _need_host_codes()  # CPU njit kernel reads host codes -> materialise the deferred D2H now
         return np.asarray(_cpu_kernel(
             disc_2d=disc_2d,
@@ -240,6 +268,7 @@ def _dispatch_batch_mi_with_noise_gate(
                 force_backend=(backend if backend in ("cupy", "cuda") else None),
                 device_codes=device_codes,
                 ensure_host_codes=_need_host_codes,
+                env_gate=env_gate,
             )
             if _res is not None:
                 return np.asarray(_res)
@@ -282,6 +311,7 @@ def _batch_mi_with_noise_gate_gpu(
     force_backend=None,
     device_codes=None,
     ensure_host_codes=None,
+    env_gate: Optional[_FeDispatchEnvGate] = None,
 ):
     """Bit-identical GPU twin of ``batch_mi_with_noise_gate``; returns ``fe_mi[K]``
     when a GPU backend is available + chosen, else ``None`` (-> CPU fallback).
@@ -292,14 +322,17 @@ def _batch_mi_with_noise_gate_gpu(
     CPU LCG/Fisher-Yates stream, ``base_seed*2654435761 + (i+1)`` then the PCG
     step). ``base_seed`` is 0 on the default FE path -- matching the CPU kernel call
     below -- so the GPU and CPU shuffle streams (and thus the noise-gate rejection)
-    are identical to the bit.
+    are identical to the bit. ``env_gate`` mirrors the dispatcher's own hoist (``None``
+    resolves it inline, unchanged from a direct/test call's pre-hoist behavior).
     """
+    if env_gate is None:
+        env_gate = resolve_fe_dispatch_env_gate()
     # FULL-GPU-RESIDENT gate (2026-06-21): once the cache has chosen GPU for this size, run the WHOLE
     # noise gate on-device (batched histogram + GPU entropy, only the (P,K) MI matrix D2H) -- bit-
     # identical to the GPU-hist+CPU-entropy path (verified maxdiff ~1e-18, FE pins green) and ~1.14x
     # faster at the canonical K. SU has no GPU-entropy form -> use the standard path. Any failure falls
     # through. Opt-out: MLFRAME_FE_GPU_RESIDENT_GATE=0.
-    if not bool(use_su) and os.environ.get("MLFRAME_FE_GPU_RESIDENT_GATE", "1").strip().lower() not in ("0", "false", "no", "off"):
+    if not bool(use_su) and env_gate.resident_gate_on:
         try:
             from ..batch_mi_noise_gate_gpu import batch_mi_with_noise_gate_cuda_resident, _CUDA_AVAIL as _CA
             # Use the resident CUDA gate whenever GPU is chosen -- INCLUDING when the cache/fallback said

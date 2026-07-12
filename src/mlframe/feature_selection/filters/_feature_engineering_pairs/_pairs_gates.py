@@ -182,7 +182,13 @@ def mi_tie_band(nbins: int, n_rows: int, k_y: int) -> float:
 
 
 def _select_single_best(
-    perf: dict, cols_names: Sequence, secondary: dict | None = None, usability: dict | None = None, mi_band: float = 0.0, usability_primary: bool = False
+    perf: dict,
+    cols_names: Sequence,
+    secondary: dict | None = None,
+    usability: dict | None = None,
+    mi_band: float = 0.0,
+    usability_primary: bool = False,
+    name_cache: dict | None = None,
 ):
     """Pick ONE winning ``config`` from a ``{config: mi}`` mapping.
 
@@ -225,6 +231,11 @@ def _select_single_best(
     representations of the same algebraic target) down to a single representative
     per raw pair, restoring the pre-refactor 1-per-pair materialisation. Returns
     ``None`` when ``perf`` is empty.
+
+    ``name_cache``, when passed, memoises ``get_new_feature_name(config)`` by ``config``
+    (a caller-owned dict reused across this and every other name lookup for the same
+    admitted pair) so the winning config's name -- already computed here as part of the
+    name tie-break key -- is not recomputed by the caller.
     """
     if not perf:
         return None
@@ -236,6 +247,15 @@ def _select_single_best(
     from .._fe_mi_contract import quantize_mi_tiebreak
     _sec = secondary or {}
     _use = usability or {}
+
+    def _name(_cfg) -> str:
+        if name_cache is None:
+            return get_new_feature_name(fe_tuple=_cfg, cols_names=cols_names)
+        _n = name_cache.get(_cfg)
+        if _n is None:
+            _n = get_new_feature_name(fe_tuple=_cfg, cols_names=cols_names)
+            name_cache[_cfg] = _n
+        return _n
     # Tie-band width in ABSOLUTE MI (the plug-in MI bias scale; see ``mi_tie_band``). Forms whose MI
     # lands within ``_band`` of the leader are STATISTICALLY tied (the gap is binning noise), so the
     # primary key floors MI to the band and the usability/secondary tie-breaks decide among them.
@@ -282,7 +302,7 @@ def _select_single_best(
                 _primary(kv[1]),
                 quantize_mi_tiebreak(kv[1]),
                 float(_sec.get(kv[0], 0.0)),
-                _NegNameKey(get_new_feature_name(fe_tuple=kv[0], cols_names=cols_names)),
+                _NegNameKey(_name(kv[0])),
             ),
         )[0]
     return max(

@@ -88,6 +88,11 @@ def test_failed_transform_nulls_slot_and_excludes_candidate(monkeypatch):
         logger=__import__("logging").getLogger(__name__),
         discretize_2d_quantile_batch=_stub_discretize_2d_quantile_batch,
         serial_main_thread=True,
+        # "goodxx"/"badxx" are not in the njit op registry -> the caller-hoisted op-code table for
+        # this pool is None (forces the numpy-fallback branch under test, same as before this was a
+        # caller-hoisted parameter instead of an internal per-chunk ``_njit_binary_op_codes`` call).
+        op_code_arr=None,
+        gpu_mat_enabled=True,
     )
 
     candidates, _fe_mi, _times = out[raw_vars_pair]
