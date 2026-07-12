@@ -14,6 +14,23 @@ from __future__ import annotations
 from typing import Callable, Optional, Sequence
 
 import numpy as np
+from scipy import stats as _scipy_stats
+
+
+def _wilson_lower_bound(fraction_improved: float, n_folds: int, confidence: float) -> float:
+    """Wilson score interval lower bound on a binomial proportion.
+
+    Unlike the raw ``fraction_folds_improved``, this discounts the estimate by sample size -- the same 3/5
+    fraction is treated as much less trustworthy than 5/5, and both are treated as less trustworthy than the
+    identical fraction observed over more folds. Used as a continuous "agreement score" so callers can pick
+    their own strictness instead of only getting the hard-coded ``min_fraction`` majority-vote verdict.
+    """
+    z = float(_scipy_stats.norm.ppf(1.0 - (1.0 - confidence) / 2.0))
+    n = float(n_folds)
+    denom = 1.0 + z * z / n
+    center = fraction_improved + z * z / (2.0 * n)
+    adj = z * np.sqrt(fraction_improved * (1.0 - fraction_improved) / n + z * z / (4.0 * n * n))
+    return float(max(0.0, (center - adj) / denom))
 
 
 def per_fold_majority_accept(
@@ -21,6 +38,8 @@ def per_fold_majority_accept(
     candidate_fold_scores: Sequence[float],
     maximize: bool = True,
     min_fraction: float = 0.6,
+    compute_agreement_score: bool = False,
+    agreement_confidence: float = 0.95,
 ) -> dict:
     """Accept a candidate feature change only if it improves the score in a majority of individual folds.
 
@@ -33,12 +52,20 @@ def per_fold_majority_accept(
     min_fraction
         The candidate is accepted when the fraction of folds it improves reaches this threshold (default
         ``0.6`` -- a genuine majority with margin, not a bare 50%+1 tie).
+    compute_agreement_score
+        Opt-in. When ``True``, also returns a continuous ``agreement_score`` (Wilson score interval lower
+        bound on ``fraction_folds_improved``) so callers can tune their own strictness threshold instead of
+        only consuming the binary ``accept`` verdict. Default-``False`` behavior (and the returned dict's
+        keys/values under default args) is unchanged.
+    agreement_confidence
+        Confidence level for the Wilson interval used by ``agreement_score`` (only used when
+        ``compute_agreement_score`` is ``True``).
 
     Returns
     -------
     dict
         ``fraction_folds_improved``, ``mean_delta`` (candidate mean - baseline mean, sign per ``maximize``),
-        ``accept`` (bool).
+        ``accept`` (bool), plus ``agreement_score`` when ``compute_agreement_score`` is ``True``.
     """
     baseline = np.asarray(baseline_fold_scores, dtype=np.float64)
     candidate = np.asarray(candidate_fold_scores, dtype=np.float64)
@@ -53,11 +80,14 @@ def per_fold_majority_accept(
     if not maximize:
         mean_delta = -mean_delta
 
-    return {
+    result = {
         "fraction_folds_improved": fraction_improved,
         "mean_delta": mean_delta,
         "accept": fraction_improved >= min_fraction,
     }
+    if compute_agreement_score:
+        result["agreement_score"] = _wilson_lower_bound(fraction_improved, baseline.shape[0], agreement_confidence)
+    return result
 
 
 def seed_averaged_fold_scores(

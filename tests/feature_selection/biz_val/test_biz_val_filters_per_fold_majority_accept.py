@@ -51,3 +51,49 @@ def test_per_fold_majority_accept_shape_mismatch_raises():
 
     with pytest.raises(ValueError):
         per_fold_majority_accept([0.8, 0.9], [0.8])
+
+
+def test_biz_val_per_fold_majority_agreement_score_distinguishes_borderline_from_strong_majority():
+    """The binary ``accept`` flag treats a bare 3/5 majority and a clean 5/5 sweep identically (both True at
+    the default ``min_fraction=0.6``) -- it can't tell a caller how MUCH to trust the decision. The opt-in
+    continuous ``agreement_score`` (Wilson lower bound) must separate them clearly, so a stricter caller can
+    reject the borderline case without touching the binary vote.
+    """
+    baseline = [0.80, 0.81, 0.79, 0.80, 0.82]
+
+    # Borderline: exactly 3/5 folds improved (bare majority, still >= default min_fraction=0.6).
+    candidate_borderline = [0.83, 0.79, 0.78, 0.83, 0.85]
+    borderline = per_fold_majority_accept(baseline, candidate_borderline, maximize=True, compute_agreement_score=True)
+
+    # Strong: 5/5 folds improved.
+    candidate_strong = [0.83, 0.84, 0.82, 0.83, 0.85]
+    strong = per_fold_majority_accept(baseline, candidate_strong, maximize=True, compute_agreement_score=True)
+
+    # Both cross the same binary bar -- the flag alone can't distinguish them.
+    assert borderline["fraction_folds_improved"] == 0.6
+    assert strong["fraction_folds_improved"] == 1.0
+    assert borderline["accept"] is True
+    assert strong["accept"] is True
+
+    # The continuous agreement_score must separate them with a real numeric margin.
+    assert borderline["agreement_score"] < 0.4, "bare 3/5 majority on 5 folds should score low confidence"
+    assert strong["agreement_score"] > 0.55, "clean 5/5 sweep should score high confidence"
+    assert strong["agreement_score"] - borderline["agreement_score"] >= 0.2
+
+    # A caller tuning a stricter self-chosen threshold (e.g. 0.5) rejects the borderline case even though
+    # the binary majority vote accepted it -- this is the whole point of exposing the continuous score.
+    strict_threshold = 0.5
+    assert borderline["agreement_score"] < strict_threshold
+    assert strong["agreement_score"] >= strict_threshold
+
+
+def test_per_fold_majority_accept_default_unchanged_when_agreement_score_omitted():
+    baseline = [0.80, 0.81, 0.79, 0.80, 0.82]
+    candidate = [0.83, 0.84, 0.78, 0.83, 0.85]
+
+    default_result = per_fold_majority_accept(baseline, candidate, maximize=True)
+    explicit_off_result = per_fold_majority_accept(baseline, candidate, maximize=True, compute_agreement_score=False)
+
+    assert default_result == explicit_off_result
+    assert "agreement_score" not in default_result
+    assert set(default_result.keys()) == {"fraction_folds_improved", "mean_delta", "accept"}
