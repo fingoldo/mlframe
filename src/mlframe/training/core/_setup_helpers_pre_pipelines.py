@@ -69,6 +69,14 @@ def _build_pre_pipelines(
     shap_proxied_fs_kwargs: dict[str, Any] | None = None,
     use_ace_fs: bool = False,
     ace_kwargs: dict[str, Any] | None = None,
+    use_forward_select_fs: bool = False,
+    forward_select_kwargs: dict[str, Any] | None = None,
+    use_greedy_backward_elimination_fs: bool = False,
+    greedy_backward_elimination_kwargs: dict[str, Any] | None = None,
+    use_zero_importance_pruning_fs: bool = False,
+    zero_importance_pruning_kwargs: dict[str, Any] | None = None,
+    use_cascade_select_fs: bool = False,
+    cascade_select_kwargs: dict[str, Any] | None = None,
     use_sample_weights_in_fs: bool = False,
     mrmr_identity_cache: dict | None = None,
     target_type: Any = None,
@@ -266,6 +274,40 @@ def _build_pre_pipelines(
         _ace._mlframe_selector_kind_ = "ACE"
         pre_pipelines.append(_ace)
         pre_pipeline_names.append("ACE ")
+
+    if use_forward_select_fs:
+        # Registry-driven dispatch (mirrors ACE). ForwardSelect is a plain function returning a selected-column
+        # list; the ForwardSelectSelector adapter exposes the sklearn fit/get_support/transform contract.
+        from mlframe.feature_selection.registry import get as _get_selector_spec
+        _fwd_spec = _get_selector_spec("ForwardSelect")
+        _fwd = _fwd_spec.instantiate(**dict(forward_select_kwargs or {}))
+        _fwd._mlframe_selector_kind_ = "ForwardSelect"
+        pre_pipelines.append(_fwd)
+        pre_pipeline_names.append("ForwardSelect ")
+
+    if use_greedy_backward_elimination_fs:
+        from mlframe.feature_selection.registry import get as _get_selector_spec
+        _gbe_spec = _get_selector_spec("GreedyBackwardElimination")
+        _gbe = _gbe_spec.instantiate(**dict(greedy_backward_elimination_kwargs or {}))
+        _gbe._mlframe_selector_kind_ = "GreedyBackwardElimination"
+        pre_pipelines.append(_gbe)
+        pre_pipeline_names.append("GreedyBackwardElimination ")
+
+    if use_zero_importance_pruning_fs:
+        from mlframe.feature_selection.registry import get as _get_selector_spec
+        _zip_spec = _get_selector_spec("ZeroImportancePruning")
+        _zip = _zip_spec.instantiate(**dict(zero_importance_pruning_kwargs or {}))
+        _zip._mlframe_selector_kind_ = "ZeroImportancePruning"
+        pre_pipelines.append(_zip)
+        pre_pipeline_names.append("ZeroImportancePruning ")
+
+    if use_cascade_select_fs:
+        from mlframe.feature_selection.registry import get as _get_selector_spec
+        _cas_spec = _get_selector_spec("CascadeSelect")
+        _cas = _cas_spec.instantiate(**dict(cascade_select_kwargs or {}))
+        _cas._mlframe_selector_kind_ = "CascadeSelect"
+        pre_pipelines.append(_cas)
+        pre_pipeline_names.append("CascadeSelect ")
 
     if custom_pre_pipelines:
         # Clone every user-supplied pre-pipeline before insertion so fit-time

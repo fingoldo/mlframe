@@ -296,7 +296,8 @@ def _unwrap_selector(pre_pipeline) -> Any:
 
 
 def _selector_kind(selector) -> str | None:
-    """Classify the fitted selector as 'MRMR' / 'RFECV' / 'BorutaShap' / 'ShapProxiedFS' / 'ACE' / None.
+    """Classify the fitted selector as 'MRMR' / 'RFECV' / 'BorutaShap' / 'ShapProxiedFS' / 'ACE' /
+    'ForwardSelect' / 'GreedyBackwardElimination' / 'ZeroImportancePruning' / 'CascadeSelect' / None.
 
     Uses class-name suffix rather than ``isinstance`` so the import of MRMR / RFECV / BorutaShap stays
     confined to ``_build_pre_pipelines`` (BorutaShap pulls shap + matplotlib + seaborn). ``None`` for
@@ -310,7 +311,10 @@ def _selector_kind(selector) -> str | None:
         _kind_marker = getattr(selector, "_mlframe_selector_kind_", None)
     except Exception:
         _kind_marker = None
-    if isinstance(_kind_marker, str) and _kind_marker in ("MRMR", "RFECV", "BorutaShap", "ShapProxiedFS", "ACE"):
+    if isinstance(_kind_marker, str) and _kind_marker in (
+        "MRMR", "RFECV", "BorutaShap", "ShapProxiedFS", "ACE",
+        "ForwardSelect", "GreedyBackwardElimination", "ZeroImportancePruning", "CascadeSelect",
+    ):
         return _kind_marker
     try:
         _cls_name = type(selector).__name__
@@ -326,6 +330,14 @@ def _selector_kind(selector) -> str | None:
         return "ShapProxiedFS"
     if _cls_name == "ACESelector":
         return "ACE"
+    if _cls_name == "ForwardSelectSelector":
+        return "ForwardSelect"
+    if _cls_name == "GreedyBackwardEliminationSelector":
+        return "GreedyBackwardElimination"
+    if _cls_name == "ZeroImportancePruningSelector":
+        return "ZeroImportancePruning"
+    if _cls_name == "CascadeSelectSelector":
+        return "CascadeSelect"
     # Defence: the suite stamps ``_mlframe_use_sample_weights_in_fs_`` on MRMR / RFECV but not
     # BorutaShap; if the marker exists, classify via attribute shape (support_ -> selector-like).
     try:

@@ -78,6 +78,26 @@ class FeatureSelectionConfig(BaseConfig):
     # Forwarded verbatim to ``ACESelector.__init__``; keys validated against the constructor signature so misspelt knobs fail at config time rather than deep inside fit. ACE auto-derives classification/regression from the target dtype internally (no target_type threading), so unlike BorutaShap / ShapProxiedFS there is no ``classification`` key to auto-fill here.
     ace_kwargs: Optional[Dict[str, Any]] = None
 
+    # ForwardSelect / GreedyBackwardElimination / ZeroImportancePruning / CascadeSelect are OFF by default for the
+    # same reason as BorutaShap / ShapProxiedFS / ACE: each wraps a CV-scored search loop (greedy forward growth,
+    # greedy backward removal, iterative batch-drop refits, or a 3-stage Boruta->forward->RFECV cascade) so is
+    # markedly more expensive than a single MRMR / RFECV pass. Enable when that search's signal is worth the
+    # compute. Mirrors the ACE wiring: registered in the selector registry (via a thin sklearn adapter over the
+    # underlying function -- see ``functional_adapters.py``) AND reachable from the suite via this flag + a
+    # ``_build_pre_pipelines`` branch.
+    use_forward_select_fs: bool = False
+    # Forwarded verbatim to ``ForwardSelectSelector.__init__``; keys validated against the constructor signature.
+    forward_select_kwargs: Optional[Dict[str, Any]] = None
+    use_greedy_backward_elimination_fs: bool = False
+    # Forwarded verbatim to ``GreedyBackwardEliminationSelector.__init__``; keys validated against the constructor signature.
+    greedy_backward_elimination_kwargs: Optional[Dict[str, Any]] = None
+    use_zero_importance_pruning_fs: bool = False
+    # Forwarded verbatim to ``ZeroImportancePruningSelector.__init__``; keys validated against the constructor signature.
+    zero_importance_pruning_kwargs: Optional[Dict[str, Any]] = None
+    use_cascade_select_fs: bool = False
+    # Forwarded verbatim to ``CascadeSelectSelector.__init__``; keys validated against the constructor signature.
+    cascade_select_kwargs: Optional[Dict[str, Any]] = None
+
     # When a feature-selection pipeline (MRMR / RFECV / custom) is identity-equivalent - keeps every input column and creates no new ones - training models on it duplicates the ordinary (no-pipeline) branch. Set False to still train both (eg for ensembling diversities from different random seeds). Default True skips the duplicate branch, logging a [Dedup] info.
     skip_identity_equivalent_pre_pipelines: bool = True
 
@@ -246,6 +266,66 @@ class FeatureSelectionConfig(BaseConfig):
             raise ValueError(f"FeatureSelectionConfig.ace_kwargs: unknown key(s) {unknown}. " f"Valid keys: {sorted(valid_keys)}")
         return v
 
+    @field_validator("forward_select_kwargs")
+    @classmethod
+    def _validate_forward_select_kwargs(cls, v: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        """Rejects any key in ``forward_select_kwargs`` that ``ForwardSelectSelector.__init__`` does not accept."""
+        if not v:
+            return v
+        import inspect
+        from mlframe.feature_selection.functional_adapters import ForwardSelectSelector
+
+        valid_keys = set(inspect.signature(ForwardSelectSelector.__init__).parameters) - {"self"}
+        unknown = sorted(set(v) - valid_keys)
+        if unknown:
+            raise ValueError(f"FeatureSelectionConfig.forward_select_kwargs: unknown key(s) {unknown}. " f"Valid keys: {sorted(valid_keys)}")
+        return v
+
+    @field_validator("greedy_backward_elimination_kwargs")
+    @classmethod
+    def _validate_greedy_backward_elimination_kwargs(cls, v: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        """Rejects any key in ``greedy_backward_elimination_kwargs`` that ``GreedyBackwardEliminationSelector.__init__`` does not accept."""
+        if not v:
+            return v
+        import inspect
+        from mlframe.feature_selection.functional_adapters import GreedyBackwardEliminationSelector
+
+        valid_keys = set(inspect.signature(GreedyBackwardEliminationSelector.__init__).parameters) - {"self"}
+        unknown = sorted(set(v) - valid_keys)
+        if unknown:
+            raise ValueError(f"FeatureSelectionConfig.greedy_backward_elimination_kwargs: unknown key(s) {unknown}. " f"Valid keys: {sorted(valid_keys)}")
+        return v
+
+    @field_validator("zero_importance_pruning_kwargs")
+    @classmethod
+    def _validate_zero_importance_pruning_kwargs(cls, v: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        """Rejects any key in ``zero_importance_pruning_kwargs`` that ``ZeroImportancePruningSelector.__init__`` does not accept."""
+        if not v:
+            return v
+        import inspect
+        from mlframe.feature_selection.functional_adapters import ZeroImportancePruningSelector
+
+        valid_keys = set(inspect.signature(ZeroImportancePruningSelector.__init__).parameters) - {"self"}
+        unknown = sorted(set(v) - valid_keys)
+        if unknown:
+            raise ValueError(f"FeatureSelectionConfig.zero_importance_pruning_kwargs: unknown key(s) {unknown}. " f"Valid keys: {sorted(valid_keys)}")
+        return v
+
+    @field_validator("cascade_select_kwargs")
+    @classmethod
+    def _validate_cascade_select_kwargs(cls, v: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        """Rejects any key in ``cascade_select_kwargs`` that ``CascadeSelectSelector.__init__`` does not accept."""
+        if not v:
+            return v
+        import inspect
+        from mlframe.feature_selection.functional_adapters import CascadeSelectSelector
+
+        valid_keys = set(inspect.signature(CascadeSelectSelector.__init__).parameters) - {"self"}
+        unknown = sorted(set(v) - valid_keys)
+        if unknown:
+            raise ValueError(f"FeatureSelectionConfig.cascade_select_kwargs: unknown key(s) {unknown}. " f"Valid keys: {sorted(valid_keys)}")
+        return v
+
     @field_validator("rfecv_cluster_corr_method")
     @classmethod
     def _validate_rfecv_cluster_corr_method(cls, v: str) -> str:
@@ -359,5 +439,29 @@ class FeatureSelectionConfig(BaseConfig):
                 "FeatureSelectionConfig: ace_kwargs supplied but use_ace_fs=False. "
                 "The kwargs would be silently ignored. Set use_ace_fs=True OR drop "
                 "ace_kwargs to make the intent explicit."
+            )
+        if self.forward_select_kwargs and not self.use_forward_select_fs:
+            raise ValueError(
+                "FeatureSelectionConfig: forward_select_kwargs supplied but use_forward_select_fs=False. "
+                "The kwargs would be silently ignored. Set use_forward_select_fs=True OR drop "
+                "forward_select_kwargs to make the intent explicit."
+            )
+        if self.greedy_backward_elimination_kwargs and not self.use_greedy_backward_elimination_fs:
+            raise ValueError(
+                "FeatureSelectionConfig: greedy_backward_elimination_kwargs supplied but "
+                "use_greedy_backward_elimination_fs=False. The kwargs would be silently ignored. Set "
+                "use_greedy_backward_elimination_fs=True OR drop greedy_backward_elimination_kwargs to make the intent explicit."
+            )
+        if self.zero_importance_pruning_kwargs and not self.use_zero_importance_pruning_fs:
+            raise ValueError(
+                "FeatureSelectionConfig: zero_importance_pruning_kwargs supplied but use_zero_importance_pruning_fs=False. "
+                "The kwargs would be silently ignored. Set use_zero_importance_pruning_fs=True OR drop "
+                "zero_importance_pruning_kwargs to make the intent explicit."
+            )
+        if self.cascade_select_kwargs and not self.use_cascade_select_fs:
+            raise ValueError(
+                "FeatureSelectionConfig: cascade_select_kwargs supplied but use_cascade_select_fs=False. "
+                "The kwargs would be silently ignored. Set use_cascade_select_fs=True OR drop "
+                "cascade_select_kwargs to make the intent explicit."
             )
         return self

@@ -182,6 +182,30 @@ def _instantiate_ace(**kwargs):
     return ACESelector(**kwargs)
 
 
+def _instantiate_forward_select(**kwargs):
+    """Registry factory for ForwardSelect: forwards kwargs verbatim to ``ForwardSelectSelector``."""
+    from mlframe.feature_selection.functional_adapters import ForwardSelectSelector
+    return ForwardSelectSelector(**kwargs)
+
+
+def _instantiate_greedy_backward_elimination(**kwargs):
+    """Registry factory for GreedyBackwardElimination: forwards kwargs verbatim to ``GreedyBackwardEliminationSelector``."""
+    from mlframe.feature_selection.functional_adapters import GreedyBackwardEliminationSelector
+    return GreedyBackwardEliminationSelector(**kwargs)
+
+
+def _instantiate_zero_importance_pruning(**kwargs):
+    """Registry factory for ZeroImportancePruning: forwards kwargs verbatim to ``ZeroImportancePruningSelector``."""
+    from mlframe.feature_selection.functional_adapters import ZeroImportancePruningSelector
+    return ZeroImportancePruningSelector(**kwargs)
+
+
+def _instantiate_cascade_select(**kwargs):
+    """Registry factory for CascadeSelect: forwards kwargs verbatim to ``CascadeSelectSelector``."""
+    from mlframe.feature_selection.functional_adapters import CascadeSelectSelector
+    return CascadeSelectSelector(**kwargs)
+
+
 def _report_extract_shap_proxied_fs(selector, kept) -> dict:
     """Per-feature ShapProxiedFS report fragment consumed by ``_build_feature_selection_report``.
 
@@ -219,3 +243,12 @@ register(_SimpleSpec(name="ShapProxiedFS", instantiate=_instantiate_shap_proxied
 # + the matching ``_build_pre_pipelines`` branch. ``ace_select`` is a function returning ``ACEResult``; the
 # ACESelector adapter exposes the sklearn fit/get_support/transform contract the suite drives selectors through.
 register(_SimpleSpec(name="ACE", instantiate=_instantiate_ace))
+# The four functional-utility selectors (forward_select / greedy_backward_elimination /
+# iterative_zero_importance_pruning / cascade_select) are wrapped by sklearn fit/transform adapters in
+# ``functional_adapters.py`` since the underlying functions return plain column lists, not fitted
+# estimators. Reachable from the suite via ``FeatureSelectionConfig.use_<sel>_fs`` + the matching
+# ``_build_pre_pipelines`` branch (mirrors ACE).
+register(_SimpleSpec(name="ForwardSelect", instantiate=_instantiate_forward_select))
+register(_SimpleSpec(name="GreedyBackwardElimination", instantiate=_instantiate_greedy_backward_elimination))
+register(_SimpleSpec(name="ZeroImportancePruning", instantiate=_instantiate_zero_importance_pruning))
+register(_SimpleSpec(name="CascadeSelect", instantiate=_instantiate_cascade_select))
