@@ -17,7 +17,7 @@ plus raw days-to-nearest-holiday (the source's own explicit feature shapes), not
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
@@ -60,57 +60,25 @@ def _cached_holiday_dates_and_names(country: str, years: Tuple[int, ...]) -> Tup
     return dates, names
 
 
-def holiday_calendar_features(
-    dates: pd.Series,
+def _single_country_arrays(
+    dates_np: np.ndarray,
     country: str,
-    years: Optional[range] = None,
-    column_prefix: str = "holiday",
-    include_nearest_name: bool = False,
-    none_sentinel: str = "none",
-    name_window_days: Optional[float] = None,
-) -> pd.DataFrame:
-    """Per-row holiday-calendar features: is-holiday, is-eve, days-since/until nearest holiday.
+    years: range,
+    include_nearest_name: bool,
+    none_sentinel: str,
+    name_window_days: Optional[float],
+) -> Dict[str, np.ndarray]:
+    """Core per-country computation shared by the single- and multi-country entry points.
 
-    Parameters
-    ----------
-    dates
-        ``(n,)`` datetime-like series.
-    country
-        ISO country code understood by the ``holidays`` package (e.g. ``"US"``, ``"ES"``).
-    years
-        Year range to build the holiday calendar over; defaults to ``[dates.year.min()-1, dates.year.max()+1]``
-        (a 1-year pad on each side so "days until next holiday" is defined near the series' edges).
-    column_prefix
-        Output column-name prefix.
-    include_nearest_name
-        When ``True``, add ``{prefix}_nearest_holiday_name`` -- unlike the blanket ``is_holiday`` flag (one
-        average effect size across every holiday), this lets a downstream target-encoder learn a PER-HOLIDAY
-        magnitude (e.g. Christmas vs a minor observance) since the ``holidays`` package's own dict values
-        already carry each holiday's name and were otherwise discarded.
-    none_sentinel
-        Category emitted for rows outside ``name_window_days`` of any holiday.
-    name_window_days
-        Rows with the nearest holiday further than this many days away (in either direction) get
-        ``none_sentinel`` instead of a name; ``None`` means always name the nearest holiday, however far.
-
-    Returns
-    -------
-    pd.DataFrame
-        ``{prefix}_is_holiday`` (bool), ``{prefix}_is_eve`` (bool, the day immediately before a holiday),
-        ``{prefix}_days_since`` / ``{prefix}_days_until`` (float, nearest holiday in either direction; NaN
-        only possible at the very edges of the padded calendar range), and, if ``include_nearest_name``,
-        ``{prefix}_nearest_holiday_name`` (str category).
+    Factored out so :func:`holiday_calendar_features`'s opt-in ``countries`` blend mode can compute each
+    region's flags with the exact same logic as the single-``country`` path (bit-identical per-region
+    output), rather than a parallel reimplementation that could silently drift.
     """
-    dates_dt = pd.to_datetime(dates)
-    if years is None:
-        years = range(int(dates_dt.dt.year.min()) - 1, int(dates_dt.dt.year.max()) + 2)
-
     if include_nearest_name:
         holiday_dates, holiday_names = _cached_holiday_dates_and_names(country, tuple(years))
     else:
         holiday_dates = _cached_holiday_dates(country, tuple(years))
 
-    dates_np = dates_dt.to_numpy()
     is_holiday = np.isin(dates_np, holiday_dates)
 
     eve_dates = holiday_dates - np.timedelta64(1, "D")
@@ -131,10 +99,10 @@ def holiday_calendar_features(
     days_since[has_before] = (dates_np[has_before] - holiday_dates[idx_before[has_before]]) / np.timedelta64(1, "D")
 
     out: Dict[str, np.ndarray] = {
-        f"{column_prefix}_is_holiday": is_holiday,
-        f"{column_prefix}_is_eve": is_eve,
-        f"{column_prefix}_days_since": days_since,
-        f"{column_prefix}_days_until": days_until,
+        "is_holiday": is_holiday,
+        "is_eve": is_eve,
+        "days_since": days_since,
+        "days_until": days_until,
     }
 
     if include_nearest_name:
@@ -154,7 +122,103 @@ def holiday_calendar_features(
             in_window = has_any & (nearest_dist <= name_window_days)
         names_arr = np.asarray(holiday_names, dtype=object)
         nearest_name[in_window] = names_arr[nearest_idx[in_window]]
-        out[f"{column_prefix}_nearest_holiday_name"] = nearest_name
+        out["nearest_holiday_name"] = nearest_name
+
+    return out
+
+
+def holiday_calendar_features(
+    dates: pd.Series,
+    country: str,
+    years: Optional[range] = None,
+    column_prefix: str = "holiday",
+    include_nearest_name: bool = False,
+    none_sentinel: str = "none",
+    name_window_days: Optional[float] = None,
+    countries: Optional[Sequence[str]] = None,
+) -> pd.DataFrame:
+    """Per-row holiday-calendar features: is-holiday, is-eve, days-since/until nearest holiday.
+
+    Parameters
+    ----------
+    dates
+        ``(n,)`` datetime-like series.
+    country
+        ISO country code understood by the ``holidays`` package (e.g. ``"US"``, ``"ES"``). Still required
+        (and used verbatim for the default single-region output) even when ``countries`` is also given.
+    years
+        Year range to build the holiday calendar over; defaults to ``[dates.year.min()-1, dates.year.max()+1]``
+        (a 1-year pad on each side so "days until next holiday" is defined near the series' edges).
+    column_prefix
+        Output column-name prefix.
+    include_nearest_name
+        When ``True``, add ``{prefix}_nearest_holiday_name`` -- unlike the blanket ``is_holiday`` flag (one
+        average effect size across every holiday), this lets a downstream target-encoder learn a PER-HOLIDAY
+        magnitude (e.g. Christmas vs a minor observance) since the ``holidays`` package's own dict values
+        already carry each holiday's name and were otherwise discarded.
+    none_sentinel
+        Category emitted for rows outside ``name_window_days`` of any holiday.
+    name_window_days
+        Rows with the nearest holiday further than this many days away (in either direction) get
+        ``none_sentinel`` instead of a name; ``None`` means always name the nearest holiday, however far.
+    countries
+        Opt-in multi-region blend mode, ``None`` by default (single fixed ``country``, output unchanged).
+        When given a list of ISO country codes (e.g. a multinational entity's operating subsidiaries), emits
+        PER-COUNTRY ``{prefix}_{code}_is_holiday`` / ``{prefix}_{code}_is_eve`` flags plus combined
+        ``{prefix}_any_is_holiday`` / ``{prefix}_any_is_eve`` (OR across all listed countries) and
+        ``{prefix}_any_days_since`` / ``{prefix}_any_days_until`` (nearest holiday in ANY listed region).
+        A single fixed ``country`` misses a spike driven by a subsidiary region's local holiday that isn't
+        also a holiday in the entity's primary country -- the combined flag catches it without the caller
+        having to enumerate every region's columns downstream. ``include_nearest_name``/``none_sentinel``/
+        ``name_window_days`` are ignored in this mode (per-region holiday names would need per-region
+        cross-locale handling, already covered separately by
+        :func:`mlframe.feature_engineering.holiday_locale_target_encoding.holiday_name_target_encode_cross_locale`).
+
+    Returns
+    -------
+    pd.DataFrame
+        Single-region mode (default): ``{prefix}_is_holiday`` (bool), ``{prefix}_is_eve`` (bool, the day
+        immediately before a holiday), ``{prefix}_days_since`` / ``{prefix}_days_until`` (float, nearest
+        holiday in either direction; NaN only possible at the very edges of the padded calendar range), and,
+        if ``include_nearest_name``, ``{prefix}_nearest_holiday_name`` (str category).
+        Multi-region mode (``countries`` given): one ``{prefix}_{code}_is_holiday`` / ``{prefix}_{code}_is_eve``
+        pair per listed country plus the four combined ``{prefix}_any_*`` columns described above.
+    """
+    dates_dt = pd.to_datetime(dates)
+    if years is None:
+        years = range(int(dates_dt.dt.year.min()) - 1, int(dates_dt.dt.year.max()) + 2)
+    dates_np = dates_dt.to_numpy()
+
+    if countries is not None:
+        n = len(dates_np)
+        out_multi: Dict[str, np.ndarray] = {}
+        any_is_holiday = np.zeros(n, dtype=bool)
+        any_is_eve = np.zeros(n, dtype=bool)
+        any_days_since = np.full(n, np.nan)
+        any_days_until = np.full(n, np.nan)
+        for code in countries:
+            arrs = _single_country_arrays(dates_np, code, years, False, none_sentinel, name_window_days)
+            out_multi[f"{column_prefix}_{code}_is_holiday"] = arrs["is_holiday"]
+            out_multi[f"{column_prefix}_{code}_is_eve"] = arrs["is_eve"]
+            any_is_holiday |= arrs["is_holiday"]
+            any_is_eve |= arrs["is_eve"]
+            any_days_since = np.fmin(any_days_since, arrs["days_since"])
+            any_days_until = np.fmin(any_days_until, arrs["days_until"])
+        out_multi[f"{column_prefix}_any_is_holiday"] = any_is_holiday
+        out_multi[f"{column_prefix}_any_is_eve"] = any_is_eve
+        out_multi[f"{column_prefix}_any_days_since"] = any_days_since
+        out_multi[f"{column_prefix}_any_days_until"] = any_days_until
+        return pd.DataFrame(out_multi, index=dates.index if isinstance(dates, pd.Series) else None)
+
+    arrs = _single_country_arrays(dates_np, country, years, include_nearest_name, none_sentinel, name_window_days)
+    out: Dict[str, np.ndarray] = {
+        f"{column_prefix}_is_holiday": arrs["is_holiday"],
+        f"{column_prefix}_is_eve": arrs["is_eve"],
+        f"{column_prefix}_days_since": arrs["days_since"],
+        f"{column_prefix}_days_until": arrs["days_until"],
+    }
+    if include_nearest_name:
+        out[f"{column_prefix}_nearest_holiday_name"] = arrs["nearest_holiday_name"]
 
     return pd.DataFrame(out, index=dates.index if isinstance(dates, pd.Series) else None)
 
