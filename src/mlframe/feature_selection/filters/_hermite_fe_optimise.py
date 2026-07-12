@@ -56,15 +56,13 @@ def _eval_coef_pair(coef_a, coef_b, *, z_a, z_b, eval_func, bf_callables,
     ``eval_func_b`` defaults to ``eval_func`` (single-eval). Factory bases like RBF need per-feature preprocess fns, so the caller passes a separate
     ``eval_func_b`` closure over ``preprocess_b`` to evaluate ``h_b``. Without this the b-side silently re-used preprocess_a, biasing RBF fits.
 
-    2026-05-18 PERFORMANCE: when ``B_a`` / ``B_b`` (precomputed basis
-    matrices of shape ``(n, max_degree + 1)``) are supplied, evaluation
-    uses BLAS GEMV ``h = B[:, :len(c)] @ c`` instead of recomputing
-    Horner per call. Builds via ``build_basis_matrix`` are done ONCE
-    per pair before CMA-ES; per-trial cost drops from ~340us (njit Horner
-    at n=1500) to ~30-80us (BLAS GEMV) - 4-10x speedup. Factory bases
-    (RBF / Sigmoid) need per-feature preprocess closures and DON'T
-    support basis-matrix caching; the caller leaves B_a / B_b at None
-    for those.
+    2026-05-18 PERFORMANCE: when ``B_a`` / ``B_b`` (precomputed basis matrices, PRE-TRUNCATED by the caller
+    to exactly ``(n, len(coef_a))`` / ``(n, len(coef_b))``) are supplied, evaluation uses BLAS GEMV
+    ``h = B @ c`` instead of recomputing Horner per call. Builds via ``build_basis_matrix`` plus the
+    per-degree truncation are done ONCE per pair/degree before CMA-ES; per-trial cost drops from ~340us
+    (njit Horner at n=1500) to ~30-80us (BLAS GEMV) - 4-10x speedup. Factory bases (RBF / Sigmoid) need
+    per-feature preprocess closures and DON'T support basis-matrix caching; the caller leaves B_a / B_b at
+    None for those.
     """
     # Lazy import of parent-resident helpers: ``.hermite_fe`` re-imports
     # this sibling at its bottom, so a top-level ``from .hermite_fe
@@ -76,7 +74,7 @@ def _eval_coef_pair(coef_a, coef_b, *, z_a, z_b, eval_func, bf_callables,
         coef_a, coef_b = _l2_normalize_pair(coef_a, coef_b, target_norm=1.0)
     # 2026-05-18 BASIS-MATRIX FASTPATH (kept but disabled by default):
     # ``B_a`` / ``B_b`` are optional precomputed basis matrices that allow
-    # ``h = B[:, :len(c)] @ c`` (BLAS GEMV) instead of Horner. Numerical
+    # ``h = B @ c`` (BLAS GEMV) instead of Horner. Numerical
     # identity to Horner verified to 1e-16 across all four orthogonal
     # bases. HOWEVER, measured at n=1M / subsample=200k production budget
     # (cProfile 2026-05-18): GEMV on the 1500-sample multi-fidelity
@@ -84,9 +82,8 @@ def _eval_coef_pair(coef_a, coef_b, *, z_a, z_b, eval_func, bf_callables,
     # @njit(parallel=True) Horner kernel - the JIT'd recurrence with
     # prange is already cache-friendly enough that BLAS dgemv has no
     # margin. The build cost (one ``build_basis_matrix`` call per pair
-    # x per restart, ~5ms each) and the per-call ``ascontiguousarray``
-    # slice copy roughly cancels the GEMV win on the 1500-sample inner
-    # loop.
+    # x per restart, ~5ms each) roughly cancels the GEMV win on the
+    # 1500-sample inner loop.
     #
     # Optimization left in place because it WOULD help when:
     # - ``multi_fidelity=False`` (CMA-ES on full data per call)
@@ -94,18 +91,22 @@ def _eval_coef_pair(coef_a, coef_b, *, z_a, z_b, eval_func, bf_callables,
     # - future popsize-batched evaluation (where many coefs share one
     #   z, GEMM ``H = B @ C.T`` would amortise the build cost)
     #
-    # CALLERS PASSING B_a / B_b MUST size them to match z_a / z_b. The
+    # CALLERS PASSING B_a / B_b MUST pre-truncate them to EXACTLY
+    # (n, coef_a.shape[0]) / (n, coef_b.shape[0]) -- this function no longer
+    # re-slices per trial (that re-slice+copy ran on every CMA-ES/random-batch
+    # trial, tens of thousands of times per pair; the only caller,
+    # ``optimise_hermite_pair``, now truncates once per degree). The
     # refinement step in ``optimise_hermite_pair`` explicitly sets B_a
-    # = B_b = None when switching to full-n z (line 1665) - omitting
-    # that produced shape (1500,) vs (n,) errors / silent hermite=0
-    # regression measured in development.
+    # = B_b = None when switching to full-n z - omitting that produced
+    # shape (1500,) vs (n,) errors / silent hermite=0 regression measured
+    # in development.
     if B_a is not None and B_b is not None:
-        _Ba_slice = np.ascontiguousarray(B_a[:, : coef_a.shape[0]])
-        _Bb_slice = np.ascontiguousarray(B_b[:, : coef_b.shape[0]])
+        # B_a / B_b arrive PRE-TRUNCATED to (ca_size, cb_size) by the only caller that ever sets them
+        # (optimise_hermite_pair slices once per degree, before the trial loop) -- do not re-slice per trial.
         _ca = np.ascontiguousarray(coef_a, dtype=np.float64)
         _cb = np.ascontiguousarray(coef_b, dtype=np.float64)
-        h_a = _Ba_slice @ _ca
-        h_b = _Bb_slice @ _cb
+        h_a = B_a @ _ca
+        h_b = B_b @ _cb
     else:
         h_a = eval_func(z_a, coef_a)
         h_b = (eval_func_b if eval_func_b is not None else eval_func)(z_b, coef_b)
@@ -204,12 +205,12 @@ def _eval_coef_pair_batch(coefs_a, coefs_b, *, z_a, z_b, eval_func, bf_callables
         ca = coefs_a[p]
         cb = coefs_b[p]
         if B_a is not None and B_b is not None:
-            _Ba_slice = np.ascontiguousarray(B_a[:, : ca.shape[0]])
-            _Bb_slice = np.ascontiguousarray(B_b[:, : cb.shape[0]])
+            # B_a / B_b are pre-truncated to (ca_size, cb_size) by the caller (once per degree) -- see the
+            # matching note in _eval_coef_pair; no per-candidate re-slice.
             _ca = np.ascontiguousarray(ca, dtype=np.float64)
             _cb = np.ascontiguousarray(cb, dtype=np.float64)
-            h_a = _Ba_slice @ _ca
-            h_b = _Bb_slice @ _cb
+            h_a = B_a @ _ca
+            h_b = B_b @ _cb
         else:
             h_a = eval_func(z_a, ca)
             h_b = (eval_func_b if eval_func_b is not None else eval_func)(z_b, cb)
@@ -886,4 +887,4 @@ def optimise_pair_multimode(
 # lives in ``_hermite_fe_optimise_pair.py`` so this file stays below
 # the 1k-LOC monolith threshold.
 # ----------------------------------------------------------------------
-from ._hermite_fe_optimise_pair import optimise_hermite_pair  # noqa: F401
+from ._hermite_fe_optimise_pair import optimise_hermite_pair, precompute_hermite_pair_basis  # noqa: F401

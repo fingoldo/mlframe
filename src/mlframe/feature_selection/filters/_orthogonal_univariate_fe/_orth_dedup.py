@@ -5,8 +5,10 @@ re-exports ``_dedup_collinear_source_cols`` from its bottom). Self-contained -- 
 """
 from __future__ import annotations
 
+import contextlib
 import logging
-from typing import Sequence
+import threading
+from typing import Optional, Sequence
 
 import numpy as np
 import pandas as pd
@@ -22,6 +24,61 @@ logger = logging.getLogger(__name__)
 import os as _os
 
 _MAX_CORR_ROWS = int(_os.environ.get("MLFRAME_FE_DEDUP_MAX_CORR_ROWS", "100000") or "100000")
+
+
+def _dedup_sample_idx(n_rows: int) -> Optional[np.ndarray]:
+    """Deterministic row-sample index for the correlation pass (see ``_MAX_CORR_ROWS``), factored out so the
+    fit-scoped memo's cache-key hash (:func:`_dedup_cache_key`) samples the EXACT same rows the correlation
+    pass itself would -- same seed, same ``n_rows`` -> same draw both times."""
+    if n_rows > _MAX_CORR_ROWS:
+        return np.sort(np.random.default_rng(0).choice(n_rows, size=_MAX_CORR_ROWS, replace=False))
+    return None
+
+
+# Fit-scoped memo for _dedup_collinear_source_cols: mirrors heavy_tail_memo_scope() in
+# hermite_fe._hermite_robust. Five independent opt-in FE-family builders (orth / extra-basis / gpu-resident /
+# wavelet / hinge) each call this dedup on their own candidate columns; a "kitchen sink" config with several
+# families on would otherwise repeat the identical O(P^2) corrcoef pass 2-5x within ONE MRMR.fit() call. The
+# memo is OFF by default (cache is None) so every call outside an explicit dedup_collinear_memo_scope() is
+# byte-for-byte unchanged. threading.local -> no cross-worker contamination.
+_DEDUP_MEMO = threading.local()
+
+
+@contextlib.contextmanager
+def dedup_collinear_memo_scope():
+    """Enable the fit-scoped ``_dedup_collinear_source_cols`` memo for one MRMR.fit() call, then clear it.
+    Nesting-safe: an inner scope reuses the outer cache and the outer owner clears it."""
+    if getattr(_DEDUP_MEMO, "cache", None) is not None:
+        yield  # reuse outer scope; outer owner clears
+        return
+    _DEDUP_MEMO.cache = {}
+    try:
+        yield
+    finally:
+        _DEDUP_MEMO.cache = None
+
+
+def _dedup_cache_key(X: pd.DataFrame, cols: Sequence[str], corr_threshold: float) -> tuple:
+    """Content-hash key for the fit-scoped dedup memo: per-column ``(name, shape, content hash)`` over the
+    SAME row-capped sample the correlation pass itself uses (:func:`_dedup_sample_idx`), so two calls that
+    would run the identical corrcoef pass collapse to one cache entry regardless of which DataFrame OBJECT
+    each FE-family caller built its view from. Non-numeric / missing columns always pass through
+    unconditionally (Pass 1 below never reads their values), so only their identity needs to be in the key."""
+    from .._fe_resident_operands import _content_hash
+
+    n_rows = len(X)
+    sample_idx = _dedup_sample_idx(n_rows)
+    parts: list[tuple] = []
+    for c in cols:
+        if c not in X.columns or not pd.api.types.is_numeric_dtype(X[c]):
+            parts.append((c, "non_numeric"))
+            continue
+        arr = np.asarray(X[c].to_numpy(), dtype=np.float64)
+        if sample_idx is not None:
+            arr = arr[sample_idx]
+        arr = np.ascontiguousarray(arr)
+        parts.append((c, arr.shape, _content_hash(arr)))
+    return (tuple(parts), float(corr_threshold))
 
 
 def _pc_corr_numpy(Q: np.ndarray, R: np.ndarray) -> np.ndarray:
@@ -193,9 +250,23 @@ def _dedup_collinear_source_cols(
 
     Bench at p=200 n=2000 all-finite synthetic frame: 5.0s -> ~0.05s
     (100x).
+
+    2026-07-12 FIT-SCOPED MEMO: wrap the call site in ``dedup_collinear_memo_scope()`` to memoize repeated
+    calls with the SAME (cols content, corr_threshold) within one MRMR.fit() call -- five independent opt-in
+    FE-family builders (orth / extra-basis / gpu-resident / wavelet / hinge) each call this dedup on their own
+    candidate columns, and a "kitchen sink" config with several families on would otherwise repeat the
+    identical O(P^2) corrcoef pass 2-5x. The memo is OFF by default (cache is None) so every call outside an
+    explicit scope is byte-for-byte unchanged.
     """
     if not cols:
         return list(cols)
+    _memo = getattr(_DEDUP_MEMO, "cache", None)
+    _memo_key = None
+    if _memo is not None:
+        _memo_key = _dedup_cache_key(X, cols, corr_threshold)
+        _hit = _memo.get(_memo_key)
+        if _hit is not None:
+            return list(_hit)
     # ---- Pass 1: classify columns -------------------------------------------
     # Pre-classify each column so the bulk corrcoef in pass 2 only sees fully-
     # finite varying columns. Order-preservation matters because the kept
@@ -204,20 +275,19 @@ def _dedup_collinear_source_cols(
     n_rows = len(X)
     # Row-cap the correlation estimate (see _MAX_CORR_ROWS note). Deterministic seed so a fit is reproducible; sorted so
     # the sampled rows keep their original order (irrelevant to Pearson, but avoids surprising downstream if reused).
-    _sample_idx = None
-    if n_rows > _MAX_CORR_ROWS:
-        _sample_idx = np.sort(np.random.default_rng(0).choice(n_rows, size=_MAX_CORR_ROWS, replace=False))
+    _sample_idx = _dedup_sample_idx(n_rows)
     classes: list[str] = []  # one of: "pass_through", "dense", "partial_nan"
     dense_idx: list[int] = []  # candidate index in cols -> dense-matrix row
     dense_rows: list[np.ndarray] = []  # the dense arrays themselves
     partial_arrays: dict[int, np.ndarray] = {}  # candidate index -> arr (with NaN)
 
+    from .._fe_usability_signal import _crit_np_dtype
+    _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); coarse corr-threshold dedup is scale-robust. Hoisted out of the loop (was re-invoked once per column).
     for i, c in enumerate(cols):
         if c not in X.columns or not pd.api.types.is_numeric_dtype(X[c]):
             classes.append("pass_through")
             continue
-        from .._fe_usability_signal import _crit_np_dtype
-        arr = np.asarray(X[c].to_numpy(), dtype=_crit_np_dtype())  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); coarse corr-threshold dedup is scale-robust
+        arr = np.asarray(X[c].to_numpy(), dtype=_dt)
         if _sample_idx is not None:
             arr = arr[_sample_idx]
         finite = np.isfinite(arr)
@@ -316,4 +386,6 @@ def _dedup_collinear_source_cols(
         if not is_dup:
             kept.append(c)
             kept_partial_pos.append(p)
+    if _memo is not None:
+        _memo[_memo_key] = kept
     return kept

@@ -17,6 +17,53 @@ from sklearn.feature_selection import mutual_info_classif, mutual_info_regressio
 logger = logging.getLogger("mlframe.feature_selection.filters.hermite_fe")
 
 
+def precompute_hermite_pair_basis(
+    x_a: np.ndarray,
+    x_b: np.ndarray,
+    y: np.ndarray,
+    *,
+    discrete_target: bool = True,
+    basis: str = "chebyshev",
+    mi_estimator: str = "plugin",
+    plugin_n_bins: int = 20,
+    n_neighbors: int | None = None,
+) -> tuple:
+    """Precompute the basis fit + identity baseline that ``optimise_hermite_pair`` would otherwise redo
+    byte-for-byte on every ``fe_smart_polynom_iters`` restart of the SAME ``(x_a, x_b, y)`` (only ``seed``
+    differs across restarts -- mirrors the existing ``precomputed_trivial_baseline`` plumbing, which already
+    hoists the trivial-baseline recompute out of that same restart loop).
+
+    Call ONCE per pair before the restart loop and thread the five return values into every
+    ``optimise_hermite_pair`` call via ``precomputed_z_a`` / ``precomputed_preprocess_a`` / ``precomputed_z_b``
+    / ``precomputed_preprocess_b`` / ``precomputed_identity_baseline``.
+
+    Returns ``(z_a, preprocess_a, z_b, preprocess_b, identity_baseline)``.
+    """
+    from .hermite_fe import _POLY_BASES
+
+    from ._hermite_fe_optimise import _baseline_mi_pair
+    if basis not in _POLY_BASES:
+        raise ValueError(f"unknown basis {basis!r}; expected one of {list(_POLY_BASES)}")
+    basis_info = _POLY_BASES[basis]
+    n = len(y)
+    if n_neighbors is None:
+        if n >= 5000:
+            n_neighbors = 3
+        elif n >= 1000:
+            n_neighbors = 5
+        else:
+            n_neighbors = 7
+    z_a, preprocess_a = basis_info["fit"](x_a)
+    z_b, preprocess_b = basis_info["fit"](x_b)
+    z_a = np.ascontiguousarray(z_a, dtype=np.float64)
+    z_b = np.ascontiguousarray(z_b, dtype=np.float64)
+    identity_baseline = _baseline_mi_pair(
+        z_a, z_b, y, discrete_target=discrete_target, n_neighbors=n_neighbors,
+        mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins,
+    )
+    return z_a, preprocess_a, z_b, preprocess_b, identity_baseline
+
+
 def optimise_hermite_pair(
     x_a: np.ndarray,
     x_b: np.ndarray,
@@ -53,6 +100,17 @@ def optimise_hermite_pair(
     use_trivial_baseline: bool = True,
     precomputed_trivial_baseline: float | None = None,
     precomputed_trivial_name: str | None = None,
+    # PRECOMPUTED BASIS FIT + IDENTITY BASELINE: mirrors precomputed_trivial_baseline above -- a caller running
+    # multiple fe_smart_polynom_iters restarts on the SAME (x_a, x_b, y) (only ``seed`` differs) can precompute
+    # the basis fit (z_a/preprocess_a/z_b/preprocess_b via basis_info["fit"]) and the identity baseline
+    # (_baseline_mi_pair) ONCE and pass them here to short-circuit the byte-identical per-restart recompute.
+    # All four of precomputed_z_a/precomputed_preprocess_a/precomputed_z_b/precomputed_preprocess_b must be
+    # supplied together to take effect; None (default) preserves the legacy per-call fit.
+    precomputed_z_a: np.ndarray | None = None,
+    precomputed_preprocess_a: Any | None = None,
+    precomputed_z_b: np.ndarray | None = None,
+    precomputed_preprocess_b: Any | None = None,
+    precomputed_identity_baseline: float | None = None,
     noise_floor_perm_ratio: float = 1.50,
     noise_floor_n_perms: int = 50,
 ) -> HermiteResult | None:
@@ -150,9 +208,16 @@ def optimise_hermite_pair(
         raise ValueError(f"unknown basis {basis!r}; expected one of {list(_POLY_BASES)}")
     basis_info = _POLY_BASES[basis]
 
-    # Preprocess inputs to the basis's natural domain.
-    z_a, preprocess_a = basis_info["fit"](x_a)
-    z_b, preprocess_b = basis_info["fit"](x_b)
+    # Preprocess inputs to the basis's natural domain. A caller running multiple fe_smart_polynom_iters
+    # restarts on the SAME (x_a, x_b) can precompute this fit ONCE (see precomputed_z_a et al. above) --
+    # basis_info["fit"] is a pure deterministic function of (x_a/x_b, basis), so reusing it across restarts
+    # is byte-identical to refitting every time.
+    if precomputed_z_a is not None and precomputed_preprocess_a is not None and precomputed_z_b is not None and precomputed_preprocess_b is not None:
+        z_a, preprocess_a = precomputed_z_a, precomputed_preprocess_a
+        z_b, preprocess_b = precomputed_z_b, precomputed_preprocess_b
+    else:
+        z_a, preprocess_a = basis_info["fit"](x_a)
+        z_b, preprocess_b = basis_info["fit"](x_b)
     z_a = np.ascontiguousarray(z_a, dtype=np.float64)
     z_b = np.ascontiguousarray(z_b, dtype=np.float64)
     # Hoist size-aware dispatch out of the hot trial loop: pick the backend ONCE per call (n is fixed across trials).
@@ -175,7 +240,10 @@ def optimise_hermite_pair(
         # Other non-polynomial basis with simple eval_njit (Fourier, Pade).
         eval_func = basis_info["eval_njit"]
 
-    baseline = _baseline_mi_pair(z_a, z_b, y, discrete_target=discrete_target, n_neighbors=n_neighbors, mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins)
+    if precomputed_identity_baseline is not None:
+        baseline = float(precomputed_identity_baseline)
+    else:
+        baseline = _baseline_mi_pair(z_a, z_b, y, discrete_target=discrete_target, n_neighbors=n_neighbors, mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins)
     logger.debug("baseline MI(pair, y) = %.4f", baseline)
 
     # Stronger gate than the identity max(MI(x_a, y), MI(x_b, y)): try trivial pair-feature transforms
@@ -289,6 +357,12 @@ def optimise_hermite_pair(
     for degree in degree_grid:
         ca_size = coef_size_func(degree)
         cb_size = coef_size_func(degree)
+        # Truncate the basis matrices to THIS degree's coefficient length ONCE here instead of per-trial
+        # inside _eval_coef_pair / _eval_coef_pair_batch (CMA-ES / random-batch trials only vary coefficient
+        # VALUES, never ca_size/cb_size, within one degree) -- tens of thousands of redundant slice+copies/pair
+        # collapse to one per degree.
+        B_a_deg = np.ascontiguousarray(B_a_search[:, :ca_size]) if B_a_search is not None else None
+        B_b_deg = np.ascontiguousarray(B_b_search[:, :cb_size]) if B_b_search is not None else None
 
         # Shared kwargs for both Optuna and CMA paths. When eval_func differs per feature (factory-based bases
         # like RBF), wrap _eval_coef_pair to use both eval_func and eval_func_b.
@@ -355,9 +429,10 @@ def optimise_hermite_pair(
             n_neighbors=n_neighbors, discrete_target=discrete_target,
             l2_penalty=l2_penalty,
             l2_penalty_saturation=l2_penalty_saturation,
-            # Precomputed basis matrices for BLAS GEMV fastpath (None when
-            # factory-based basis or polynomial basis not in registry).
-            B_a=B_a_search, B_b=B_b_search,
+            # Precomputed basis matrices for BLAS GEMV fastpath, PRE-TRUNCATED to (ca_size, cb_size) above
+            # (None when factory-based basis or polynomial basis not in registry). _eval_coef_pair(_batch) no
+            # longer re-slices these per trial -- they must already match coef_a.shape[0] / coef_b.shape[0].
+            B_a=B_a_deg, B_b=B_b_deg,
         )
 
         # Canonical warm-start: low-degree polynomial identities matching common targets (XOR, saddle, radial).
@@ -373,10 +448,11 @@ def optimise_hermite_pair(
         # ``warm_start_als``; requires a polynomial basis with a precomputed
         # basis matrix (factory bases / KSG-only paths skip it).
         if warm_start_als and B_a_search is not None and B_b_search is not None and ca_size <= B_a_search.shape[1] and cb_size <= B_b_search.shape[1]:
+            assert B_a_deg is not None and B_b_deg is not None  # derived from B_a_search/B_b_search, non-None per the guard above
             try:
                 als_a, als_b = warm_start_als_seed(
-                    np.ascontiguousarray(B_a_search[:, :ca_size]),
-                    np.ascontiguousarray(B_b_search[:, :cb_size]),
+                    B_a_deg,
+                    B_b_deg,
                     y_search_any,
                     # DEVICE-BORN design (2026-06-30, H2D collapse): the standardised
                     # columns + basis B_a_search/B_b_search were built from are in

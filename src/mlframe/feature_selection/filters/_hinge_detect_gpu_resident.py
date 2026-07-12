@@ -232,11 +232,19 @@ def detect_hinge_breakpoints_gpu(
         # The candidate relu-leg block and row-guard mask depend only on (xg, cand); hoist them ONCE
         # out of the round loop (they are re-scored against each round's growing design via proj/r_yk).
         R_cand, ok_cand = _fwl_relu_legs(cp, xg, cand, n, min_seg_rows)
-        for _ in range(max(1, int(max_breakpoints))):
-            Bk = cp.stack([ones, xg, *extra_legs], axis=1)
-            projk = _gram_projector(cp, Bk)
-            r_yk = yg - projk(yg)
-            sse_B = float(r_yk @ r_yk)
+        for _round_idx in range(max(1, int(max_breakpoints))):
+            if _round_idx == 0:
+                # Round 0's fixed design IS B=[1, xg] (extra_legs still empty) -- the SAME block + Gram
+                # projector already built for the pre-check above (identical GEMM sequence); reuse instead of
+                # re-running it.
+                projk = proj
+                r_yk = r_y
+                sse_B = sse_lin
+            else:
+                Bk = cp.stack([ones, xg, *extra_legs], axis=1)
+                projk = _gram_projector(cp, Bk)
+                r_yk = yg - projk(yg)
+                sse_B = float(r_yk @ r_yk)
             sse_all = _batched_fwl_sse(cp, R_cand, ok_cand, r_yk, projk, sse_B, cand, found)
             _bi = int(np.argmin(sse_all))
             if not np.isfinite(sse_all[_bi]):

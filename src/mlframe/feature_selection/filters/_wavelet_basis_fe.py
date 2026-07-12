@@ -360,6 +360,127 @@ def _x_codes(v: np.ndarray, nbins: int = 10) -> np.ndarray:
     return np.digitize(v, edges)
 
 
+def _heldout_incremental_mi_prep(x: np.ndarray, y: np.ndarray, *, nbins: int = 10) -> Optional[dict]:
+    """Per-SOURCE-COLUMN prep for :func:`_heldout_incremental_mi`: everything depending only on ``(x, y,
+    nbins)`` -- NOT on any particular leg -- computed ONCE per source column, including the expensive 8-shuffle
+    permutation-null baseline (``Yp`` / ``bm``). A column can emit up to ``_WAVELET_MAX_LEGS`` legs, each of
+    which used to redo this identical work; :func:`hybrid_wavelet_fe_with_recipes` now groups legs by source
+    column and calls this once per group, reusing the result via :func:`_heldout_incremental_mi_from_prep`.
+    Returns ``None`` on the same guards the original function used to return ``(0.0, 0.0)`` for -- the caller
+    then scores every leg of this column as ``(0.0, 0.0)``."""
+    x = np.asarray(x, dtype=np.float64).ravel()
+    y = np.asarray(y).ravel()
+    n = x.size
+    if n != y.size or n < _WAVELET_MIN_ROWS:
+        return None
+    idx = np.arange(n)
+    va = (idx % 3) == 0
+    if int(va.sum()) < 32:
+        return None
+    xc = _x_codes(x[va], nbins=nbins)
+    y_va = np.asarray(y[va])
+    base_nb = max(nbins, int(xc.max()) + 1)
+    base_mi = _binned_mi(xc.astype(np.float64), y_va, nbins=base_nb, discrete=True)
+
+    n_perm = int(_WAVELET_INCR_NULL_PERMS)
+    Yp: Optional[np.ndarray] = None
+    bm: Optional[np.ndarray] = None
+    if n_perm > 0:
+        _rng = np.random.default_rng(0)
+        xc_f = xc.astype(np.float64)
+        Yp = np.empty((int(y_va.size), n_perm), dtype=np.int64)
+        for _p in range(n_perm):
+            Yp[:, _p] = y_va[_rng.permutation(y_va.size)]
+        # bm (the null's xc-side term) depends only on (xc, y_va, Yp) -- leg-independent, unlike jm (the
+        # joint-side term, computed per leg in _heldout_incremental_mi_from_prep). BATCHED (launch-reduction):
+        # stack the n_perm permuted-y columns and score them all in ONE binned_mi_from_codes_gpu workload --
+        # the SAME plain plug-in-MI kernel _binned_mi(discrete) uses, so selection-equivalent.
+        try:
+            import cupy as cp
+
+            from ._fe_batched_mi import binned_mi_from_codes_gpu
+
+            n_cls = int(y_va.max()) + 1 if y_va.size else 1
+            Yp_d = cp.asarray(Yp)
+            xc_d = cp.asarray(np.ascontiguousarray(xc.astype(np.int64)))
+            bm = np.asarray(binned_mi_from_codes_gpu(Yp_d, xc_d, kx_per_col=[n_cls] * n_perm, ky=int(base_nb)), dtype=np.float64)
+        except Exception:
+            bm = None
+        if bm is None:
+            bm = np.empty(n_perm, dtype=np.float64)
+            for _p in range(n_perm):
+                bm[_p] = _binned_mi(xc_f, Yp[:, _p], nbins=base_nb, discrete=True)
+
+    # SMOOTH-refinement competitor: finer (2*nbins) location binning of raw x. Leg-independent.
+    xc_fine = _x_codes(x[va], nbins=2 * nbins)
+    fine_mi = _binned_mi(
+        xc_fine.astype(np.float64), y[va], nbins=max(2 * nbins, int(xc_fine.max()) + 1), discrete=True,
+    )
+    smooth_gain = float(fine_mi - base_mi)
+    return {
+        "va": va, "xc": xc, "y_va": y_va, "base_mi": base_mi, "base_nb": base_nb,
+        "n_perm": n_perm, "Yp": Yp, "bm": bm, "smooth_gain": smooth_gain,
+    }
+
+
+def _heldout_incremental_mi_from_prep(prep: Optional[dict], leg: np.ndarray) -> tuple[float, float]:
+    """Leg-dependent completion of :func:`_heldout_incremental_mi` given a source column's cached ``prep``
+    (:func:`_heldout_incremental_mi_prep`): only ``joint`` / ``joint_mi`` / the null's joint-side term (``jm``)
+    are recomputed per leg; everything else is reused from ``prep``."""
+    if prep is None:
+        return 0.0, 0.0
+    va = prep["va"]
+    leg = np.asarray(leg, dtype=np.float64).ravel()
+    if leg.size != va.size:
+        return 0.0, 0.0
+    xc = prep["xc"]
+    y_va = prep["y_va"]
+    base_mi = prep["base_mi"]
+    legc = np.asarray(leg[va], dtype=np.float64)
+    # 3-cell leg codes {-1,0,+1} -> {0,1,2}; joint code = xc * 3 + legcode.
+    leg_code = np.searchsorted(np.array([-1.0, 0.0, 1.0]), legc)
+    leg_code = np.clip(leg_code, 0, 2)
+    joint = xc * 3 + leg_code
+    joint_mi = _binned_mi(joint.astype(np.float64), y_va, nbins=int(joint.max()) + 1, discrete=True)
+    leg_incr_raw = float(joint_mi - base_mi)
+    # PERMUTATION-NULL DEBIAS: subtract the worst-shuffle incremental MI so the leg's finite-sample plug-in
+    # bias (the extra leg cells inflate the joint MI even on noise) cancels. The permutations themselves
+    # (``Yp``) and the null's xc-side term (``bm``) are cached in ``prep``; only the joint-side term is redone.
+    n_perm = prep["n_perm"]
+    Yp = prep["Yp"]
+    bm = prep["bm"]
+    if n_perm > 0 and Yp is not None and bm is not None:
+        joint_f = joint.astype(np.float64)
+        joint_nb = int(joint.max()) + 1
+        null = None
+        try:
+            import cupy as cp
+
+            from ._fe_batched_mi import binned_mi_from_codes_gpu
+
+            n_cls = int(y_va.max()) + 1 if y_va.size else 1
+            Yp_d = cp.asarray(Yp)
+            joint_d = cp.asarray(np.ascontiguousarray(joint.astype(np.int64)))
+            jm = np.asarray(binned_mi_from_codes_gpu(Yp_d, joint_d, kx_per_col=[n_cls] * n_perm, ky=int(joint_nb)), dtype=np.float64)
+            null = jm - bm
+        except Exception:
+            null = None
+        if null is None:
+            null = np.empty(n_perm, dtype=np.float64)
+            for _p in range(n_perm):
+                null[_p] = _binned_mi(joint_f, Yp[:, _p], nbins=joint_nb, discrete=True) - bm[_p]
+        # Subtract the MAX incremental MI over the shuffles: the leg survives only if its incremental MI beats
+        # every shuffled-y replicate -- a permutation test (p < 1/(n_perm+1)) on the leg's extra cells. The
+        # extra contingency cells inflate the joint MI even on noise (finite-sample plug-in bias) and that bias
+        # has high variance on the small held-out slice, so a pure-noise leg can still hit a large positive raw
+        # incr; subtracting the worst shuffle cancels both the bias and its spread. A genuine localized
+        # step/bump clears the null by a wide margin; a noise leg lands at <= 0.
+        leg_incr = float(leg_incr_raw - float(null.max()))
+    else:
+        leg_incr = leg_incr_raw
+    return leg_incr, prep["smooth_gain"]
+
+
 def _heldout_incremental_mi(
     x: np.ndarray, leg: np.ndarray, y: np.ndarray, *, nbins: int = 10,
 ) -> tuple[float, float]:
@@ -386,81 +507,12 @@ def _heldout_incremental_mi(
     incremental MI conditions on raw x and so measures exactly the localized value
     the wavelet adds. The split is the same deterministic ``%3`` stride the
     scale-selection + the hinge / adaptive-Fourier detectors use (no RNG,
-    recipe-free)."""
-    x = np.asarray(x, dtype=np.float64).ravel()
-    leg = np.asarray(leg, dtype=np.float64).ravel()
-    y = np.asarray(y).ravel()
-    n = x.size
-    if n != leg.size or n != y.size or n < _WAVELET_MIN_ROWS:
-        return 0.0, 0.0
-    idx = np.arange(n)
-    va = (idx % 3) == 0
-    if int(va.sum()) < 32:
-        return 0.0, 0.0
-    xc = _x_codes(x[va], nbins=nbins)
-    legc = np.asarray(leg[va], dtype=np.float64)
-    # 3-cell leg codes {-1,0,+1} -> {0,1,2}; joint code = xc * 3 + legcode.
-    leg_code = np.searchsorted(np.array([-1.0, 0.0, 1.0]), legc)
-    leg_code = np.clip(leg_code, 0, 2)
-    joint = xc * 3 + leg_code
-    y_va = np.asarray(y[va])
-    base_mi = _binned_mi(xc.astype(np.float64), y_va, nbins=max(nbins, int(xc.max()) + 1), discrete=True)
-    joint_mi = _binned_mi(joint.astype(np.float64), y_va, nbins=int(joint.max()) + 1, discrete=True)
-    leg_incr_raw = float(joint_mi - base_mi)
-    # PERMUTATION-NULL DEBIAS: subtract the worst-shuffle incremental MI so the leg's finite-sample plug-in
-    # bias (the extra leg cells inflate the joint MI even on noise) cancels. Deterministic seed -> reproducible
-    # gate; only the leg's contribution ABOVE its own bias survives.
-    n_perm = int(_WAVELET_INCR_NULL_PERMS)
-    if n_perm > 0:
-        _rng = np.random.default_rng(0)
-        xc_f = xc.astype(np.float64)
-        joint_f = joint.astype(np.float64)
-        base_nb = max(nbins, int(xc.max()) + 1)
-        joint_nb = int(joint.max()) + 1
-        null = None
-        # BATCHED null (launch-reduction): joint_f / xc_f are FIXED across the n_perm shuffles; only the
-        # permuted y varies. Plain plug-in MI is symmetric, so MI(joint; yp) == MI(yp; joint): stack the SAME
-        # _rng-drawn permuted-y columns into one (n, nperm) matrix and score them all in TWO
-        # binned_mi_from_codes_gpu workloads (one vs joint, one vs xc) -- the SAME plain-plug-in kernel
-        # _binned_mi(discrete) uses, so selection-equivalent. Identical permutations -> identical null.max().
-        try:
-            import cupy as cp
+    recipe-free).
 
-            from ._fe_batched_mi import binned_mi_from_codes_gpu
-
-            n_cls = int(y_va.max()) + 1 if y_va.size else 1
-            Yp = np.empty((int(y_va.size), n_perm), dtype=np.int64)
-            for _p in range(n_perm):
-                Yp[:, _p] = y_va[_rng.permutation(y_va.size)]
-            Yp_d = cp.asarray(Yp)
-            joint_d = cp.asarray(np.ascontiguousarray(joint.astype(np.int64)))
-            xc_d = cp.asarray(np.ascontiguousarray(xc.astype(np.int64)))
-            jm = np.asarray(binned_mi_from_codes_gpu(Yp_d, joint_d, kx_per_col=[n_cls] * n_perm, ky=int(joint_nb)), dtype=np.float64)
-            bm = np.asarray(binned_mi_from_codes_gpu(Yp_d, xc_d, kx_per_col=[n_cls] * n_perm, ky=int(base_nb)), dtype=np.float64)
-            null = jm - bm
-        except Exception:
-            null = None
-        if null is None:
-            null = np.empty(n_perm, dtype=np.float64)
-            for _p in range(n_perm):
-                yp = y_va[_rng.permutation(y_va.size)]
-                null[_p] = _binned_mi(joint_f, yp, nbins=joint_nb, discrete=True) - _binned_mi(xc_f, yp, nbins=base_nb, discrete=True)
-        # Subtract the MAX incremental MI over the shuffles: the leg survives only if its incremental MI beats
-        # every shuffled-y replicate -- a permutation test (p < 1/(n_perm+1)) on the leg's extra cells. The
-        # extra contingency cells inflate the joint MI even on noise (finite-sample plug-in bias) and that bias
-        # has high variance on the small held-out slice, so a pure-noise leg can still hit a large positive raw
-        # incr; subtracting the worst shuffle cancels both the bias and its spread. A genuine localized
-        # step/bump clears the null by a wide margin; a noise leg lands at <= 0.
-        leg_incr = float(leg_incr_raw - float(null.max()))
-    else:
-        leg_incr = leg_incr_raw
-    # SMOOTH-refinement competitor: finer (2*nbins) location binning of raw x.
-    xc_fine = _x_codes(x[va], nbins=2 * nbins)
-    fine_mi = _binned_mi(
-        xc_fine.astype(np.float64), y[va], nbins=max(2 * nbins, int(xc_fine.max()) + 1), discrete=True,
-    )
-    smooth_gain = float(fine_mi - base_mi)
-    return leg_incr, smooth_gain
+    Thin wrapper over :func:`_heldout_incremental_mi_prep` + :func:`_heldout_incremental_mi_from_prep`; a
+    caller scoring MULTIPLE legs of the same source column should call those directly and cache the prep
+    (see :func:`hybrid_wavelet_fe_with_recipes`) instead of recomputing it per leg via this wrapper."""
+    return _heldout_incremental_mi_from_prep(_heldout_incremental_mi_prep(x, y, nbins=nbins), leg)
 
 
 def _select_wavelet_legs(
@@ -472,7 +524,8 @@ def _select_wavelet_legs(
     max_scale: int = _WAVELET_MAX_SCALE,
     max_legs: int = _WAVELET_MAX_LEGS,
     scale_sigma: float = _WAVELET_SCALE_SIGMA,
-) -> list[tuple[int, int]]:
+    return_arrays: bool = False,
+) -> list:
     """Held-out scale-selection: rank the dyadic Haar legs by TRAIN-side marginal
     MI, keep only those whose HELD-OUT marginal MI clears a noise-aware MAD floor.
 
@@ -487,14 +540,24 @@ def _select_wavelet_legs(
     Pure noise -> every leg's held-out MI sits in the noise band -> none clears
     -> empty list (no wavelet). A genuine localized leg is a multi-sigma outlier
     in held-out MI -> admitted. Returns ``[]`` on too-few rows / degenerate x.
-    """
+
+    ``return_arrays`` (default False, byte-identical legacy return of ``(j, k)`` tuples): when True, each
+    admitted entry is ``(j, k, leg_array)`` -- ``leg_array`` is the SAME ``_dyadic_haar_leg(z, j, k)`` array
+    already built here to rank the candidate, so :func:`generate_wavelet_features` can reuse it instead of
+    rebuilding an identical array from scratch for every survivor. The GPU-batched delegate path (which
+    returns bare ``(j, k)`` tuples only) rebuilds the array for survivors when ``return_arrays=True`` -- still
+    correct, just without the reuse (the batched twin lives in a separate module)."""
     # BATCHED born-on-device path under STRICT (default OFF -> CPU below, byte-identical). The batched twin
     # scores all candidate legs' train+held-out MI in two device workloads (one cp.bincount each) instead of
     # ~2 per-leg _binned_mi calls; parity-pinned to return the SAME admitted legs (test_wavelet_batched_mi_parity).
     if _binnedmi_gpu_enabled():
         try:
             from ._wavelet_basis_fe_batched import select_wavelet_legs_batched
-            return select_wavelet_legs_batched(x, y, lo, span, max_scale=max_scale, max_legs=max_legs, scale_sigma=scale_sigma)
+            _legs = select_wavelet_legs_batched(x, y, lo, span, max_scale=max_scale, max_legs=max_legs, scale_sigma=scale_sigma)
+            if not return_arrays:
+                return _legs
+            _z = np.clip((np.asarray(x, dtype=np.float64).ravel() - lo) / span, 0.0, 1.0)
+            return [(j, k, _dyadic_haar_leg(_z, j, k)) for j, k in _legs]
         except Exception:  # nosec B110 - optional dependency import guard
             pass
     x = np.asarray(x, dtype=np.float64).ravel()
@@ -516,6 +579,7 @@ def _select_wavelet_legs(
     yb_tr = _bin_y_codes(y[tr])
     yb_va = _bin_y_codes(y[va])
     cand: list[tuple] = []  # (train_mi, heldout_mi, j, k)
+    leg_arrays: dict = {}
     for j in range(int(max_scale) + 1):
         for k in range(2**j):
             leg = _dyadic_haar_leg(z, j, k)
@@ -527,6 +591,8 @@ def _select_wavelet_legs(
             mi_tr = _binned_mi(leg[tr], y[tr], y_codes=yb_tr)
             mi_va = _binned_mi(leg[va], y[va], y_codes=yb_va)
             cand.append((mi_tr, mi_va, j, k))
+            if return_arrays:
+                leg_arrays[(j, k)] = leg
     if not cand:
         return []
     heldout = np.array([c[1] for c in cand], dtype=np.float64)
@@ -543,7 +609,10 @@ def _select_wavelet_legs(
         return []
     # Rank survivors by TRAIN MI (the held-out floor already validated them).
     admitted.sort(key=lambda c: c[0], reverse=True)
-    return [(int(c[2]), int(c[3])) for c in admitted[: int(max_legs)]]
+    top = admitted[: int(max_legs)]
+    if return_arrays:
+        return [(int(c[2]), int(c[3]), leg_arrays[(int(c[2]), int(c[3]))]) for c in top]
+    return [(int(c[2]), int(c[3])) for c in top]
 
 
 def generate_wavelet_features(
@@ -632,6 +701,7 @@ def generate_wavelet_features(
             legs = _select_wavelet_legs(
                 x, y_arr, lo, span,
                 max_scale=max_scale, max_legs=max_legs, scale_sigma=scale_sigma,
+                return_arrays=True,
             )
         except Exception as exc:
             logger.warning(
@@ -639,9 +709,12 @@ def generate_wavelet_features(
                 "skipping wavelet for that column.", col, exc,
             )
             continue
-        z = np.clip((x - lo) / span, 0.0, 1.0)
-        for j, k in legs:
-            leg = _dyadic_haar_leg(z, j, k, dtype=feature_dtype)
+        for j, k, leg_arr in legs:
+            # Reuse the array _select_wavelet_legs already built to rank this survivor instead of rebuilding
+            # it from scratch; a plain dtype cast (when feature_dtype differs from the selection's default
+            # float32) is cheaper than a fresh zeros_like + two boolean-mask assigns, and exact -- the leg
+            # only ever holds {-1, 0, +1}, bit-identically representable in any float dtype.
+            leg = leg_arr if leg_arr.dtype == np.dtype(feature_dtype) else leg_arr.astype(feature_dtype)
             if float(np.std(leg)) <= 1e-12:
                 continue
             name = f"{col}__haar_j{j}k{k}"
@@ -776,22 +849,30 @@ def hybrid_wavelet_fe_with_recipes(
     else:
         y_codes = y_arr.astype(np.int64)
     rows = []
+    # Most of _heldout_incremental_mi's work (x_src extraction/fill, xc, base_mi, the 8-shuffle permutation-
+    # null baseline, xc_fine/fine_mi/smooth_gain) depends only on (src, y_codes, nbins), not on the leg -- up
+    # to _WAVELET_MAX_LEGS legs per source column used to redo it identically. Group by src and cache the prep.
+    _prep_cache: dict = {}
     for name in engineered.columns:
         m = meta.get(name, {})
         src = str(m.get("src", name.split("__", 1)[0]))
+        leg_vals = engineered[name].to_numpy()
         if src in X.columns and pd.api.types.is_numeric_dtype(X[src]):
-            x_src = np.asarray(X[src].to_numpy(), dtype=np.float64)
-            finite = np.isfinite(x_src)
-            if not finite.all():
-                x_src = np.where(
-                    finite, x_src,
-                    float(np.nanmean(x_src[finite])) if finite.any() else 0.0,
-                )
+            if src not in _prep_cache:
+                x_src = np.asarray(X[src].to_numpy(), dtype=np.float64)
+                finite = np.isfinite(x_src)
+                if not finite.all():
+                    x_src = np.where(
+                        finite, x_src,
+                        float(np.nanmean(x_src[finite])) if finite.any() else 0.0,
+                    )
+                _prep_cache[src] = _heldout_incremental_mi_prep(x_src, y_codes, nbins=nbins)
+            incr, smooth_gain = _heldout_incremental_mi_from_prep(_prep_cache[src], leg_vals)
         else:
-            x_src = engineered[name].to_numpy(dtype=np.float64)
-        incr, smooth_gain = _heldout_incremental_mi(
-            x_src, engineered[name].to_numpy(), y_codes, nbins=nbins,
-        )
+            # src isn't a real numeric column in X (rare/defensive): each leg scores against ITS OWN values,
+            # exactly as the pre-grouping code did, so nothing is cacheable across legs in this branch.
+            x_src_fallback = engineered[name].to_numpy(dtype=np.float64)
+            incr, smooth_gain = _heldout_incremental_mi(x_src_fallback, leg_vals, y_codes, nbins=nbins)
         # Two-condition admission: (a) absolute incremental floor, (b) the leg
         # beats the smooth-refinement competitor (complementarity guard).
         passed = bool((incr >= float(min_incr_mi)) and (incr >= float(smooth_complement_ratio) * max(smooth_gain, 0.0)))

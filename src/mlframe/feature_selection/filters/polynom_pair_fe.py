@@ -35,7 +35,7 @@ from joblib._parallel_backends import LokyBackend
 from ._joblib_safe import POLYNOM_LOKY_IDLE_WORKER_TIMEOUT, disable_cuda_in_worker, run_in_big_stack_thread
 from .discretization import discretize_array
 from .engineered_recipes import build_hermite_pair_recipe
-from .hermite_fe import optimise_hermite_pair
+from .hermite_fe import optimise_hermite_pair, precompute_hermite_pair_basis
 
 logger = logging.getLogger(__name__)
 
@@ -325,6 +325,25 @@ def run_polynom_pair_fe(
                 if poly_cheap_skip_min_corr <= 0.0 or _trivial_corr >= poly_cheap_skip_min_corr:
                     return (raw_vars_pair, _POLY_CHEAP_SKIP, vals_a_full, vals_b_full)
 
+        # Precompute the basis fit (z_a/preprocess_a/z_b/preprocess_b) + the identity baseline ONCE per pair --
+        # the SAME bug class as the trivial-baseline hoist above (_trivial_baseline), just for the basis fit +
+        # _baseline_mi_pair that optimise_hermite_pair would otherwise redo byte-for-byte on every one of the
+        # fe_smart_polynom_iters restarts (only ``seed`` differs; vals_a_sub/vals_b_sub/classes_y_sub are identical).
+        _pz_a = _pp_a = _pz_b = _pp_b = _pib = None
+        try:
+            _pz_a, _pp_a, _pz_b, _pp_b, _pib = precompute_hermite_pair_basis(
+                vals_a_sub, vals_b_sub, classes_y_sub,
+                discrete_target=True,
+                basis=fe_polynomial_basis,
+                mi_estimator=fe_mi_estimator,
+            )
+        except Exception as _e:
+            logger.debug(
+                "precompute_hermite_pair_basis failed for pair %s: %r; " "optimise_hermite_pair will recompute internally.",
+                raw_vars_pair,
+                _e,
+            )
+
         best_res = None
         for seed_offset in range(fe_smart_polynom_iters):
             res = optimise_hermite_pair(
@@ -345,6 +364,11 @@ def run_polynom_pair_fe(
                 multi_fidelity=fe_multi_fidelity,
                 precomputed_trivial_baseline=_trivial_baseline,
                 precomputed_trivial_name=_trivial_name,
+                precomputed_z_a=_pz_a,
+                precomputed_preprocess_a=_pp_a,
+                precomputed_z_b=_pz_b,
+                precomputed_preprocess_b=_pp_b,
+                precomputed_identity_baseline=_pib,
             )
             if res is not None and (best_res is None or res.mi > best_res.mi):
                 best_res = res
@@ -458,6 +482,16 @@ def run_polynom_pair_fe(
     # Serial reduce: log + uplift gate + inject into data/cols/X.
     _uplift_gate = float(fe_min_engineered_mi_prevalence)
     _n_cheap_skipped = 0
+    # Accumulate surviving columns/names/nbins in lists and do ONE concat after the loop instead of a
+    # np.append (= np.concatenate) per survivor: np.append reallocates + copies the ENTIRE existing `data`
+    # matrix on every iteration, O(N x F x K) traffic for K survivors instead of O(N x F). `_existing_col_names`
+    # substitutes for the incremental `cols` growth the dedup check used to read (nothing else in this loop
+    # reads back from `data`/`cols`/`nbins` before they're rebuilt below -- `_src_a`/`_src_b` index into the
+    # ORIGINAL `cols` by position, unaffected either way).
+    _existing_col_names = set(cols)
+    _new_data_cols: List[np.ndarray] = []
+    _new_col_names: List[str] = []
+    _new_col_nbins: List[int] = []
     for _pair_result in _poly_pair_results:
         if _pair_result is None:
             continue
@@ -490,7 +524,7 @@ def run_polynom_pair_fe(
             _src_a = cols[raw_vars_pair[0]] if 0 <= raw_vars_pair[0] < len(cols) else f"col{raw_vars_pair[0]}"
             _src_b = cols[raw_vars_pair[1]] if 0 <= raw_vars_pair[1] < len(cols) else f"col{raw_vars_pair[1]}"
             _new_col_name = f"_polynom_{best_res.basis}_{best_res.bin_func_name}" f"__{_src_a}__{_src_b}"
-            if _new_col_name in cols:
+            if _new_col_name in _existing_col_names:
                 continue
             _new_binned = discretize_array(
                 arr=_t_vals,
@@ -498,12 +532,10 @@ def run_polynom_pair_fe(
                 method=quantization_method,
                 dtype=quantization_dtype,
             ).reshape(-1, 1)
-            data = np.append(data, _new_binned, axis=1)
-            nbins = np.concatenate([
-                np.asarray(nbins),
-                np.asarray([int(quantization_nbins)], dtype=nbins.dtype),
-            ])
-            cols = [*cols, _new_col_name]
+            _new_data_cols.append(_new_binned)
+            _new_col_nbins.append(int(quantization_nbins))
+            _new_col_names.append(_new_col_name)
+            _existing_col_names.add(_new_col_name)
             if is_polars_input:
                 X = X.with_columns(pl.Series(_new_col_name, _t_vals))
             else:
@@ -538,6 +570,14 @@ def run_polynom_pair_fe(
                     raw_vars_pair,
                     _inj_err,
                 )
+    if _new_data_cols:
+        # ONE reallocation for all survivors instead of one per survivor (see the loop-entry comment).
+        data = np.concatenate([data, *_new_data_cols], axis=1)
+        nbins = np.concatenate([
+            np.asarray(nbins),
+            np.asarray(_new_col_nbins, dtype=nbins.dtype),
+        ])
+        cols = [*cols, *_new_col_names]
     if _n_cheap_skipped:
         logger.info(
             "Polynomial-pair FE cheap-first dispatch: skipped the optimiser for "

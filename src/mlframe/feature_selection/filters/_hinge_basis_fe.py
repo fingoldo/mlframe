@@ -122,10 +122,25 @@ _HINGE_PRECHECK_QS: tuple = (0.30, 0.50, 0.70)
 _HINGE_PRECHECK_MIN_SSE_DROP: float = 0.005
 
 
+def _linear_qr_fit(x: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, np.ndarray, float]:
+    """QR fit of ``y ~ [1, x]``: returns ``(Q, r_y, sse)`` where ``Q`` is the thin QR factor of ``B=[1,x]``,
+    ``r_y = y - Q @ (Q.T @ y)`` is the residual after projecting out the linear design, and ``sse = r_y @ r_y``.
+
+    Same numeric path (QR + projection) that ``_detect_hinge_breakpoints``'s round-0 FWL scan uses for its
+    fixed design block (``extra_legs`` empty on round 0 -> ``B=[1,x]`` there is IDENTICAL to this one), so a
+    caller needing both the precheck's SSE and round-0's projection basis can share ONE factorization instead
+    of computing it twice via two different numerical paths (this used to be lstsq here vs QR there)."""
+    B = np.column_stack([np.ones_like(x), x])
+    Q, _ = np.linalg.qr(B)
+    r_y = y - Q @ (Q.T @ y)
+    return Q, r_y, float(r_y @ r_y)
+
+
 def _hinge_slope_change_plausible(
     x: np.ndarray, y: np.ndarray,
     *, qs: Sequence[float] = _HINGE_PRECHECK_QS,
     min_sse_drop: float = _HINGE_PRECHECK_MIN_SSE_DROP,
+    qr_out: Optional[dict] = None,
 ) -> bool:
     """Cheap O(len(qs)) gate: is a slope change plausible enough to justify the
     full ``_HINGE_N_CANDIDATES``-cut scan?
@@ -136,17 +151,25 @@ def _hinge_slope_change_plausible(
     The full scan + the held-out tau-validation downstream are unchanged; this
     only SKIPS the scan for a column whose best coarse cut cannot even dent the
     line (the common case on wide data), so default-on does not bloat wide fits.
-    A genuine kink trips at least one of the coarse cuts well above the floor."""
+    A genuine kink trips at least one of the coarse cuts well above the floor.
+
+    ``qr_out``, when passed an empty dict, is populated with ``{"Q", "r_y", "sse_B"}`` -- the round-0 QR
+    factorization of ``B=[1,x]`` this precheck already computes for ``sse_lin`` -- so
+    ``_detect_hinge_breakpoints`` can reuse it for round 0 instead of re-factoring the identical design."""
     x = np.asarray(x, dtype=np.float64).ravel()
     y = np.asarray(y, dtype=np.float64).ravel()
     n = x.size
     if n != y.size or n < _HINGE_MIN_ROWS:
         return False
-    sse_lin = _linear_sse(x, y)
+    Q, r_y, sse_lin = _linear_qr_fit(x, y)
     if not np.isfinite(sse_lin) or sse_lin <= 1e-24:
         # Plain linear already fits perfectly (or degenerate y) -> a hinge cannot
         # add a second slope; skip.
         return False
+    if qr_out is not None:
+        qr_out["Q"] = Q
+        qr_out["r_y"] = r_y
+        qr_out["sse_B"] = sse_lin
     try:
         cuts = np.unique(np.quantile(x, np.asarray(qs, dtype=np.float64)))
     except Exception:
@@ -180,15 +203,6 @@ def _segmented_sse(x: np.ndarray, y: np.ndarray, tau: float) -> float:
     return float(resid @ resid)
 
 
-def _linear_sse(x: np.ndarray, y: np.ndarray) -> float:
-    """Residual SSE of the 1-segment (plain linear) fit ``y ~ [1, x]``."""
-    A = np.column_stack([np.ones_like(x), x])
-    try:
-        coef, *_ = np.linalg.lstsq(A, y, rcond=None)
-    except Exception:
-        return float("inf")
-    resid = y - A @ coef
-    return float(resid @ resid)
 
 
 def _heldout_hinge_r2_uplift(
@@ -303,8 +317,9 @@ def _detect_hinge_breakpoints(
     # 3-cut probe cannot dent the plain-linear SSE (no plausible slope change).
     # Keeps default-on cheap on wide data without changing the outcome on a
     # column that genuinely has a kink (it always trips the probe).
+    _qr0: dict = {}
     if not _hinge_slope_change_plausible(
-        x, y, min_sse_drop=_HINGE_PRECHECK_MIN_SSE_DROP,
+        x, y, min_sse_drop=_HINGE_PRECHECK_MIN_SSE_DROP, qr_out=_qr0,
     ):
         return []
     # Candidate cuts at inner quantiles -- avoid the tails where a segment is
@@ -319,7 +334,7 @@ def _detect_hinge_breakpoints(
     # distinct kink (not a re-detection of the first one).
     extra_legs: list[np.ndarray] = []
     ones = np.ones_like(x)  # intercept column is invariant across every candidate cut and round; build once, not per-cut.
-    for _ in range(max(1, int(max_breakpoints))):
+    for _round_idx in range(max(1, int(max_breakpoints))):
         best_tau = None
         best_sse = float("inf")
         # The fixed design block ``B = [1, x, *extra_legs]`` is identical across every candidate cut in this round; only the ``relu`` column varies. So we
@@ -327,10 +342,17 @@ def _detect_hinge_breakpoints(
         # ``SSE_B - (r_relu . r_y)^2 / (r_relu . r_relu)`` where ``r_relu`` / ``r_y`` are the residuals of relu / y after projecting out B (one O(n*k) projection
         # per cut, no per-cut SVD). This is mathematically identical to the full ``lstsq`` SSE (FP reduction order ~1e-12, far below any tau-selection scale) and
         # ~2.4x faster on the n=4000 / 24-cut scan (the lstsq SVD per cut was the stage hotspot). bench: profiling/bench_hinge_fwl_rank1.py.
-        B = np.column_stack([ones, x, *extra_legs])
-        Q, _ = np.linalg.qr(B)
-        r_y = y - Q @ (Q.T @ y)
-        sse_B = float(r_y @ r_y)
+        # Round 0's fixed design IS B=[1,x] (extra_legs still empty) -- IDENTICAL to what the precheck above
+        # just QR-factored for sse_lin, so reuse (Q, r_y, sse_B) from there instead of re-factoring.
+        if _round_idx == 0 and _qr0:
+            Q = _qr0["Q"]
+            r_y = _qr0["r_y"]
+            sse_B = _qr0["sse_B"]
+        else:
+            B = np.column_stack([ones, x, *extra_legs])
+            Q, _ = np.linalg.qr(B)
+            r_y = y - Q @ (Q.T @ y)
+            sse_B = float(r_y @ r_y)
         for c in cand:
             # Require enough rows on each side for trustworthy segment slopes.
             n_right = int(np.count_nonzero(x > c))
@@ -514,6 +536,67 @@ def _apply_hinge_basis(recipe, X) -> np.ndarray:
     raise ValueError(f"hinge_basis recipe '{recipe.name}': unknown side {side!r}")
 
 
+def _heldout_incremental_r2_prep(x: np.ndarray, y: np.ndarray) -> Optional[dict]:
+    """Per-SOURCE-COLUMN prep for :func:`_heldout_incremental_r2`: the ``%3`` split and ``r2_base`` (held-out
+    R^2 of ``[1, x]`` ALONE) do not depend on any particular leg, yet a column emitting several legs had this
+    recomputed byte-for-byte once per leg. Compute ONCE per source column (:func:`hybrid_hinge_fe_with_recipes`
+    groups legs by source column) and reuse via :func:`_heldout_incremental_r2_from_prep`. Returns ``None`` on
+    the same guards :func:`_heldout_incremental_r2` used to return ``0.0`` for -- the caller then scores every
+    leg of this column as ``0.0``."""
+    x = np.asarray(x, dtype=np.float64).ravel()
+    y = np.asarray(y, dtype=np.float64).ravel()
+    n = x.size
+    if n != y.size or n < _HINGE_MIN_ROWS:
+        return None
+    idx = np.arange(n)
+    va = (idx % 3) == 0
+    tr = ~va
+    if int(tr.sum()) < 32 or int(va.sum()) < 16:
+        return None
+    yv = y[va]
+    yv_ss = float(np.sum((yv - yv.mean()) ** 2))
+    if yv_ss < 1e-24:
+        return None
+    x_tr, x_va = x[tr], x[va]
+
+    def _val_r2(cols_tr, cols_va) -> float:
+        """Fit an OLS model on ``cols_tr`` (already-assembled design columns) and return its held-out R^2 on ``cols_va``; ``-inf`` if lstsq fails."""
+        A_tr = np.column_stack(cols_tr)
+        A_va = np.column_stack(cols_va)
+        try:
+            coef, *_ = np.linalg.lstsq(A_tr, y[tr], rcond=None)
+        except Exception:
+            return -np.inf
+        pred = A_va @ coef
+        sse = float(np.sum((yv - pred) ** 2))
+        return 1.0 - sse / yv_ss
+
+    r2_base = _val_r2([np.ones_like(x_tr), x_tr], [np.ones_like(x_va), x_va])
+    return {"tr": tr, "va": va, "x_tr": x_tr, "x_va": x_va, "r2_base": r2_base, "_val_r2": _val_r2}
+
+
+def _heldout_incremental_r2_from_prep(prep: Optional[dict], leg: np.ndarray) -> float:
+    """Leg-dependent completion of :func:`_heldout_incremental_r2` given a source column's cached ``prep``
+    (:func:`_heldout_incremental_r2_prep`) -- only ``r2_full`` (which DOES depend on the leg) is recomputed."""
+    if prep is None:
+        return 0.0
+    tr = prep["tr"]
+    leg = np.asarray(leg, dtype=np.float64).ravel()
+    if leg.size != tr.size:
+        return 0.0
+    va = prep["va"]
+    x_tr, x_va = prep["x_tr"], prep["x_va"]
+    leg_tr, leg_va = leg[tr], leg[va]
+    r2_full = prep["_val_r2"](
+        [np.ones_like(x_tr), x_tr, leg_tr],
+        [np.ones_like(x_va), x_va, leg_va],
+    )
+    r2_base = prep["r2_base"]
+    if not (np.isfinite(r2_base) and np.isfinite(r2_full)):
+        return 0.0
+    return float(r2_full - r2_base)
+
+
 def _heldout_incremental_r2(
     x: np.ndarray, leg: np.ndarray, y: np.ndarray,
 ) -> float:
@@ -528,47 +611,12 @@ def _heldout_incremental_r2(
     it hands a downstream linear / shallow model: ``[1, x, relu(x-tau)]`` fits a
     two-slope kink that ``[1, x]`` cannot. So we admit a leg on its held-out
     INCREMENTAL linear usability over raw x, not on MI. The split is the same
-    deterministic ``%3`` stride the detector's tau-validation uses (no RNG)."""
-    x = np.asarray(x, dtype=np.float64).ravel()
-    leg = np.asarray(leg, dtype=np.float64).ravel()
-    y = np.asarray(y, dtype=np.float64).ravel()
-    n = x.size
-    if n != y.size or n != leg.size or n < _HINGE_MIN_ROWS:
-        return 0.0
-    idx = np.arange(n)
-    va = (idx % 3) == 0
-    tr = ~va
-    if int(tr.sum()) < 32 or int(va.sum()) < 16:
-        return 0.0
-    yv = y[va]
-    yv_ss = float(np.sum((yv - yv.mean()) ** 2))
-    if yv_ss < 1e-24:
-        return 0.0
+    deterministic ``%3`` stride the detector's tau-validation uses (no RNG).
 
-    def _val_r2(cols_tr, cols_va) -> float:
-        """Fit an OLS model on ``cols_tr`` (already-assembled design columns) and return its held-out R^2 on ``cols_va``; ``-inf`` if lstsq fails."""
-        A_tr = np.column_stack(cols_tr)
-        A_va = np.column_stack(cols_va)
-        try:
-            coef, *_ = np.linalg.lstsq(A_tr, y[tr], rcond=None)
-        except Exception:
-            return -np.inf
-        pred = A_va @ coef
-        sse = float(np.sum((yv - pred) ** 2))
-        return 1.0 - sse / yv_ss
-
-    x_tr, x_va = x[tr], x[va]
-    leg_tr, leg_va = leg[tr], leg[va]
-    r2_base = _val_r2(
-        [np.ones_like(x_tr), x_tr], [np.ones_like(x_va), x_va],
-    )
-    r2_full = _val_r2(
-        [np.ones_like(x_tr), x_tr, leg_tr],
-        [np.ones_like(x_va), x_va, leg_va],
-    )
-    if not (np.isfinite(r2_base) and np.isfinite(r2_full)):
-        return 0.0
-    return float(r2_full - r2_base)
+    Thin wrapper over :func:`_heldout_incremental_r2_prep` + :func:`_heldout_incremental_r2_from_prep`; a
+    caller scoring MULTIPLE legs of the same source column should call those directly and cache the prep
+    (see :func:`hybrid_hinge_fe_with_recipes`) instead of recomputing it per leg via this wrapper."""
+    return _heldout_incremental_r2_from_prep(_heldout_incremental_r2_prep(x, y), leg)
 
 
 def hybrid_hinge_fe_with_recipes(
@@ -616,20 +664,30 @@ def hybrid_hinge_fe_with_recipes(
         return X.copy(), empty_scores, []
     y_arr = np.asarray(y, dtype=np.float64).ravel()
     rows = []
+    # r2_base (the held-out R^2 of [1, x] alone) and the extracted/filled x_src don't depend on the LEG, only
+    # on the source column -- cache the prep per src (a column can emit several legs) instead of recomputing
+    # it once per emitted leg.
+    _prep_cache: dict = {}
     for name in engineered.columns:
         m = meta.get(name, {})
         src = str(m.get("src", name.split("__", 1)[0]))
+        leg_vals = engineered[name].to_numpy()
         if src in X.columns and pd.api.types.is_numeric_dtype(X[src]):
-            x_src = np.asarray(X[src].to_numpy(), dtype=np.float64)
-            finite = np.isfinite(x_src)
-            if not finite.all():
-                x_src = np.where(
-                    finite, x_src,
-                    float(np.nanmean(x_src[finite])) if finite.any() else 0.0,
-                )
+            if src not in _prep_cache:
+                x_src = np.asarray(X[src].to_numpy(), dtype=np.float64)
+                finite = np.isfinite(x_src)
+                if not finite.all():
+                    x_src = np.where(
+                        finite, x_src,
+                        float(np.nanmean(x_src[finite])) if finite.any() else 0.0,
+                    )
+                _prep_cache[src] = _heldout_incremental_r2_prep(x_src, y_arr)
+            incr = _heldout_incremental_r2_from_prep(_prep_cache[src], leg_vals)
         else:
-            x_src = engineered[name].to_numpy(dtype=np.float64)
-        incr = _heldout_incremental_r2(x_src, engineered[name].to_numpy(), y_arr)
+            # src isn't a real numeric column in X (rare/defensive): each leg scores against ITS OWN values,
+            # exactly as the pre-grouping code did, so nothing is cacheable across legs in this branch.
+            x_src_fallback = engineered[name].to_numpy(dtype=np.float64)
+            incr = _heldout_incremental_r2(x_src_fallback, leg_vals, y_arr)
         rows.append({
             "engineered_col": name, "source_col": src,
             "incr_r2": float(incr),
