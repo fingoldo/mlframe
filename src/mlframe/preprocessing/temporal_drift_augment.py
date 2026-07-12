@@ -23,6 +23,8 @@ def augment_temporal_drift(
     feature_cols: Optional[Sequence[str]] = None,
     n_drop_options: Sequence[int] = (1,),
     min_history: int = 2,
+    weight_by_recency: bool = False,
+    min_augmented_weight: float = 0.1,
 ) -> pd.DataFrame:
     """Return ``df`` concatenated with synthetic "earlier vintage" rows.
 
@@ -43,12 +45,23 @@ def augment_temporal_drift(
     min_history
         An entity needs strictly more than ``n_drop`` rows AND at least this many rows remaining after the
         drop to be eligible (a single-row truncated history has no variance to standardize against).
+    weight_by_recency
+        Opt-in. When ``True``, adds a ``_sample_weight`` column: ``1.0`` on true (non-augmented) rows, and
+        ``max(min_augmented_weight, retained_periods / full_periods)`` on augmented rows. Naive 50/50
+        duplication treats a synthetic row truncated to 2-of-8 periods the same as one truncated to 5-of-6 --
+        when entity history lengths vary a lot, the heavier-truncation copies are a much less faithful proxy
+        for the true inference-time distribution and can dilute the signal from genuinely full-history rows
+        if left equal-weighted. Default ``False`` leaves output (including columns) bit-identical to before.
+    min_augmented_weight
+        Floor applied to the recency-based weight so a very-heavily-truncated synthetic row still contributes
+        some signal rather than being effectively dropped. Only used when ``weight_by_recency=True``.
 
     Returns
     -------
     pd.DataFrame
         ``df`` with augmented rows appended (index reset), plus a bool ``_temporal_drift_augmented`` column
-        (``False`` on original rows) so callers can filter/weight them separately if desired.
+        (``False`` on original rows) so callers can filter/weight them separately if desired. When
+        ``weight_by_recency=True``, also includes a float ``_sample_weight`` column.
     """
     if feature_cols is None:
         feature_cols = [c for c in df.select_dtypes(include=[np.number]).columns if c not in (entity_col, time_col)]
@@ -72,7 +85,10 @@ def augment_temporal_drift(
 
     count_within_entity = entity_groups[entity_col].transform("size")
 
-    augmented_frames = [ordered.assign(_temporal_drift_augmented=False)]
+    first_frame = ordered.assign(_temporal_drift_augmented=False)
+    if weight_by_recency:
+        first_frame["_sample_weight"] = 1.0
+    augmented_frames = [first_frame]
     for n_drop in n_drop_options:
         if n_drop < 1:
             raise ValueError(f"augment_temporal_drift: n_drop_options must be >= 1; got {n_drop}")
@@ -88,6 +104,10 @@ def augment_temporal_drift(
         standardized = (raw - mean) / safe_std
         synth[feature_cols] = standardized.where(safe_std.notna(), 0.0)
         synth["_temporal_drift_augmented"] = True
+        if weight_by_recency:
+            retained = (new_last_rank + 1).loc[eligible].astype(np.float64)
+            full = count_within_entity.loc[eligible].astype(np.float64)
+            synth["_sample_weight"] = (retained / full).clip(lower=min_augmented_weight)
         augmented_frames.append(synth)
 
     return pd.concat(augmented_frames, axis=0, ignore_index=True)
