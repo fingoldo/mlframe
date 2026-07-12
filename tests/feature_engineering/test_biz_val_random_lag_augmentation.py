@@ -66,6 +66,83 @@ def test_biz_val_randomize_as_of_lag_beats_freshest_only_training_under_serve_st
     assert improvement > 0.3, f"expected >30% MSE reduction vs. freshest-only training under a fixed serving staleness, got {improvement:.4f} (baseline={mse_baseline:.2f}, randomized={mse_randomized:.2f})"
 
 
+def test_biz_val_randomize_as_of_lag_histogram_beats_uniform_under_skewed_serving_lag():
+    """Real serving-pipeline staleness is rarely uniform -- most requests hit a fast-refreshed cache
+    (short lag) and a minority hit a slow/stale path (long tail). Training with ``randomize_as_of_lag``'s
+    default UNIFORM draw over the same ``[min_lag, max_lag]`` range oversamples the rare long-lag regime
+    relative to its true frequency, biasing the learned coefficient away from the short-lag-dominated
+    regime the model actually sees served. Training with the opt-in empirical ``lag_histogram_edges``/
+    ``lag_histogram_counts`` mode -- shaped to match the true observed staleness histogram -- should
+    generalize better to test rows whose serving lag is drawn from that same skewed distribution."""
+    n_entities, n_history = 600, 40
+    history_df, y, label_t = _make_entity_history(n_entities, n_history, seed=2)
+    train_entities = np.arange(0, 400)
+    test_entities = np.arange(400, 600)
+    aggs = {"value": ["mean"]}
+
+    # Empirical staleness histogram: mostly short lags (fast refresh path), occasional long tail (stale path).
+    hist_edges = [0.0, 1.0, 2.0, 5.0, 15.0]
+    hist_counts = [70.0, 15.0, 10.0, 5.0]
+
+    as_of_train_fresh = pd.DataFrame({"entity": train_entities, "as_of": label_t})
+
+    as_of_train_uniform = randomize_as_of_lag(as_of_train_fresh, "as_of", max_lag=15.0, min_lag=0.0, random_state=0)
+    X_train_uniform = leakage_safe_aggregate(history_df, "entity", "t", as_of_train_uniform, aggs).set_index("entity").reindex(train_entities)
+
+    as_of_train_hist = randomize_as_of_lag(
+        as_of_train_fresh, "as_of", max_lag=15.0, min_lag=0.0, random_state=0, lag_histogram_edges=hist_edges, lag_histogram_counts=hist_counts
+    )
+    X_train_hist = leakage_safe_aggregate(history_df, "entity", "t", as_of_train_hist, aggs).set_index("entity").reindex(train_entities)
+
+    # Test rows' true serving lag is drawn from the SAME skewed histogram -- the realistic production scenario.
+    as_of_test_fresh = pd.DataFrame({"entity": test_entities, "as_of": label_t})
+    as_of_test = randomize_as_of_lag(
+        as_of_test_fresh, "as_of", max_lag=15.0, min_lag=0.0, random_state=99, lag_histogram_edges=hist_edges, lag_histogram_counts=hist_counts
+    )
+    X_test = leakage_safe_aggregate(history_df, "entity", "t", as_of_test, aggs).set_index("entity").reindex(test_entities)
+
+    y_train, y_test = y[train_entities], y[test_entities]
+
+    uniform_model = LinearRegression().fit(X_train_uniform.to_numpy(), y_train)
+    mse_uniform = mean_squared_error(y_test, uniform_model.predict(X_test.to_numpy()))
+
+    hist_model = LinearRegression().fit(X_train_hist.to_numpy(), y_train)
+    mse_hist = mean_squared_error(y_test, hist_model.predict(X_test.to_numpy()))
+
+    improvement = 1.0 - mse_hist / mse_uniform
+    assert improvement > 0.15, f"expected >15% MSE reduction vs. uniform-lag training under skewed serving staleness, got {improvement:.4f} (uniform={mse_uniform:.2f}, histogram={mse_hist:.2f})"
+
+
+def test_randomize_as_of_lag_histogram_requires_both_edges_and_counts():
+    as_of = pd.DataFrame({"entity": range(10), "as_of": 100.0})
+    try:
+        randomize_as_of_lag(as_of, "as_of", max_lag=10.0, lag_histogram_edges=[0.0, 5.0, 10.0])
+        assert False, "expected ValueError when only lag_histogram_edges is supplied"
+    except ValueError:
+        pass
+    try:
+        randomize_as_of_lag(as_of, "as_of", max_lag=10.0, lag_histogram_counts=[1.0, 1.0])
+        assert False, "expected ValueError when only lag_histogram_counts is supplied"
+    except ValueError:
+        pass
+
+
+def test_randomize_as_of_lag_histogram_shifts_within_bin_bounds():
+    as_of = pd.DataFrame({"entity": range(2000), "as_of": 100.0})
+    shifted = randomize_as_of_lag(as_of, "as_of", max_lag=15.0, lag_histogram_edges=[0.0, 1.0, 2.0, 5.0, 15.0], lag_histogram_counts=[70.0, 15.0, 10.0, 5.0], random_state=0)
+    offsets = 100.0 - shifted["as_of"].to_numpy()
+    assert (offsets >= 0.0).all() and (offsets <= 15.0).all()
+    # Skewed toward the short-lag bin -- most offsets should land under 1.0 given a 70% weight there.
+    assert (offsets < 1.0).mean() > 0.5
+
+
+def test_randomize_as_of_lag_datetime_cutoff_matches_default_when_histogram_omitted():
+    as_of = pd.DataFrame({"entity": [1, 2, 3], "as_of": 100.0})
+    default = randomize_as_of_lag(as_of, "as_of", max_lag=15.0, min_lag=0.0, random_state=0)
+    explicit_none = randomize_as_of_lag(as_of, "as_of", max_lag=15.0, min_lag=0.0, random_state=0, lag_histogram_edges=None, lag_histogram_counts=None)
+    pd.testing.assert_frame_equal(default, explicit_none)
+
+
 def test_randomize_as_of_lag_shifts_cutoff_within_bounds():
     as_of = pd.DataFrame({"entity": range(500), "as_of": 100.0})
     shifted = randomize_as_of_lag(as_of, "as_of", max_lag=10.0, min_lag=2.0, random_state=0)

@@ -23,12 +23,35 @@ def _run(n: int) -> None:
     randomize_as_of_lag(_make_as_of(n), "as_of", max_lag=15.0, min_lag=0.0, random_state=0)
 
 
+# Empirical staleness histogram skewed toward short lags with a long tail, e.g. observed serving logs.
+_HIST_EDGES = [0.0, 1.0, 2.0, 5.0, 15.0]
+_HIST_COUNTS = [70.0, 15.0, 10.0, 5.0]
+
+
+def _run_histogram(n: int) -> None:
+    randomize_as_of_lag(
+        _make_as_of(n),
+        "as_of",
+        max_lag=15.0,
+        min_lag=0.0,
+        random_state=0,
+        lag_histogram_edges=_HIST_EDGES,
+        lag_histogram_counts=_HIST_COUNTS,
+    )
+
+
 if __name__ == "__main__":
     for n in [10_000, 100_000, 1_000_000]:
         t0 = time.perf_counter()
         _run(n)
         wall = time.perf_counter() - t0
-        print(f"n={n:>9,} -> {wall * 1000:9.2f} ms")
+        print(f"uniform      n={n:>9,} -> {wall * 1000:9.2f} ms")
+
+    for n in [10_000, 100_000, 1_000_000]:
+        t0 = time.perf_counter()
+        _run_histogram(n)
+        wall = time.perf_counter() - t0
+        print(f"histogram    n={n:>9,} -> {wall * 1000:9.2f} ms")
 
     profiler = cProfile.Profile()
     profiler.enable()
@@ -37,4 +60,15 @@ if __name__ == "__main__":
     buf = StringIO()
     stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
     stats.print_stats(15)
+    print("uniform path:")
+    print(buf.getvalue())
+
+    profiler = cProfile.Profile()
+    profiler.enable()
+    _run_histogram(1_000_000)
+    profiler.disable()
+    buf = StringIO()
+    stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
+    stats.print_stats(15)
+    print("histogram path:")
     print(buf.getvalue())
