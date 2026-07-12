@@ -15,18 +15,27 @@ import pandas as pd
 from mlframe.preprocessing.regime_conditioned_imputation import regime_conditioned_median_fill
 
 
-def _make_data(n_rows: int, n_features: int, n_regimes: int, seed: int) -> pd.DataFrame:
+def _make_data(n_rows: int, n_features: int, n_regimes: int, seed: int, n_extra_regimes: int = 0) -> pd.DataFrame:
     rng = np.random.default_rng(seed)
     cols = {f"f{i}": rng.normal(0, 1, n_rows) for i in range(n_features)}
     for c in cols:
         nan_mask = rng.random(n_rows) < 0.2
         cols[c][nan_mask] = np.nan
-    return pd.DataFrame({"regime": rng.integers(0, n_regimes, n_rows), **cols})
+    data = {"regime": rng.integers(0, n_regimes, n_rows), **cols}
+    for j in range(n_extra_regimes):
+        data[f"regime_extra{j}"] = rng.integers(0, n_regimes, n_rows)
+    return pd.DataFrame(data)
 
 
 def _run(n_rows: int, n_features: int, n_regimes: int) -> None:
     df = _make_data(n_rows, n_features, n_regimes, seed=0)
     regime_conditioned_median_fill(df, regime_col="regime")
+
+
+def _run_hierarchical(n_rows: int, n_features: int, n_regimes: int, n_extra_regimes: int) -> None:
+    df = _make_data(n_rows, n_features, n_regimes, seed=0, n_extra_regimes=n_extra_regimes)
+    extra_cols = [f"regime_extra{j}" for j in range(n_extra_regimes)]
+    regime_conditioned_median_fill(df, regime_col="regime", extra_regime_cols=extra_cols, min_group_size=10)
 
 
 if __name__ == "__main__":
@@ -36,6 +45,15 @@ if __name__ == "__main__":
         wall = time.perf_counter() - t0
         print(f"n_rows={n_rows:>9,} n_features={n_features:>3} n_regimes={n_regimes:>3} -> {wall * 1000:9.2f} ms")
 
+    for n_rows, n_features, n_regimes, n_extra_regimes in [(20_000, 10, 5, 2), (500_000, 20, 10, 2)]:
+        t0 = time.perf_counter()
+        _run_hierarchical(n_rows, n_features, n_regimes, n_extra_regimes)
+        wall = time.perf_counter() - t0
+        print(
+            f"[hierarchical] n_rows={n_rows:>9,} n_features={n_features:>3} n_regimes={n_regimes:>3} "
+            f"n_extra_regimes={n_extra_regimes:>2} -> {wall * 1000:9.2f} ms"
+        )
+
     profiler = cProfile.Profile()
     profiler.enable()
     _run(20_000, 10, 5)
@@ -43,4 +61,14 @@ if __name__ == "__main__":
     buf = StringIO()
     stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
     stats.print_stats(15)
+    print(buf.getvalue())
+
+    profiler = cProfile.Profile()
+    profiler.enable()
+    _run_hierarchical(20_000, 10, 5, 2)
+    profiler.disable()
+    buf = StringIO()
+    stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
+    stats.print_stats(15)
+    print("[hierarchical]")
     print(buf.getvalue())

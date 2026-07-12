@@ -62,3 +62,48 @@ def test_regime_conditioned_fill_missing_regime_value_falls_back_to_global_media
     df = pd.DataFrame({"regime": [0, 0, np.nan], "x": [10.0, 20.0, np.nan]})
     result = regime_conditioned_median_fill(df, regime_col="regime", feature_cols=["x"])
     assert result["x"].iloc[2] == 15.0  # no regime to condition on -> global median
+
+
+def test_biz_val_regime_conditioned_fill_hierarchical_composite_beats_single_column():
+    # x depends on an A/B INTERACTION (XOR-like 2x3 mean grid): neither A alone nor B alone separates the
+    # groups (each marginal averages to ~0), only the joint (A, B) key does -- a genuine composite-regime
+    # win that single-column conditioning on A (or B) alone structurally cannot capture.
+    rng = np.random.default_rng(0)
+    n = 6000
+
+    a = rng.integers(0, 2, n)
+    b = np.empty(n, dtype=int)
+    # for A=0, B is uniform (0/1/2); for A=1, B=2 is made deliberately rare so the composite (A=1, B=2)
+    # group ends up too sparse to trust directly, forcing the hierarchical fallback to the A-only median.
+    for i in range(n):
+        if a[i] == 0:
+            b[i] = rng.choice([0, 1, 2])
+        else:
+            b[i] = rng.choice([0, 1, 2], p=[0.495, 0.495, 0.01])
+
+    mean_grid = {(0, 0): -6.0, (0, 1): 0.0, (0, 2): 6.0, (1, 0): 6.0, (1, 1): 0.0, (1, 2): -6.0}
+    true_x = np.array([mean_grid[(ai, bi)] for ai, bi in zip(a, b)]) + rng.normal(0, 0.5, n)
+
+    df = pd.DataFrame({"a": a, "b": b, "x": true_x})
+    nan_mask = rng.random(n) < 0.3
+    df_missing = df.copy()
+    df_missing.loc[nan_mask, "x"] = np.nan
+
+    single_filled = regime_conditioned_median_fill(df_missing, regime_col="a", feature_cols=["x"])
+    composite_filled = regime_conditioned_median_fill(
+        df_missing, regime_col="a", feature_cols=["x"], extra_regime_cols=["b"], min_group_size=25
+    )
+
+    single_error = float(np.mean(np.abs(single_filled.loc[nan_mask, "x"] - true_x[nan_mask])))
+    composite_error = float(np.mean(np.abs(composite_filled.loc[nan_mask, "x"] - true_x[nan_mask])))
+
+    assert composite_error < single_error * 0.6, (
+        f"hierarchical composite-regime fill should recover the A/B interaction far better than A-only "
+        f"conditioning: composite={composite_error:.4f} single={single_error:.4f}"
+    )
+
+    # the sparse (A=1, B=2) composite group must not be left NaN or blown up by a noisy few-sample median --
+    # the hierarchical fallback to the A-only median must have kicked in for it.
+    sparse_rows = nan_mask & (df["a"] == 1) & (df["b"] == 2)
+    assert sparse_rows.sum() > 0
+    assert not composite_filled.loc[sparse_rows, "x"].isna().any()
