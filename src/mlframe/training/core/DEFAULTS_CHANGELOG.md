@@ -331,3 +331,33 @@ codebase, so speculatively stripping it here (or anywhere) without stronger evid
 unproven fix with real blast radius if generalized incorrectly. Verdict: genuine environmental
 artifact under this session's sustained heavy concurrent-process load, not a code defect — closing
 this follow-up as verified-correct-under-load-only, no code change.
+
+## Perf fix: LightGBM n_jobs pinned to avoid Windows physical-core-detection subprocess (2026-07-13)
+
+Profiling `BaggedCompositeEstimator.fit()` (batch E) found `joblib`'s
+`loky.backend.context._count_physical_cores_win32` consuming 59% of total fit time (5.1 of 8.6s).
+Root cause: leaving `n_jobs` unset on a LightGBM estimator resolves via
+`joblib.cpu_count(only_physical_cores=True)`, which shells out to a subprocess on Windows —
+measured ~2s on a quiet box, 5s+ under this session's concurrent-process load, paid once per
+process on the first LightGBM fit. Fixed by pinning `n_jobs=-1` (routes through
+`joblib.cpu_count(only_physical_cores=False)`, i.e. plain `os.cpu_count()`, <1ms, same "use all
+cores" intent) at all four sites mlframe constructs a default LightGBM estimator: the suite's own
+`LGB_GENERAL_PARAMS` (affects every ordinary `"lgb"` fit, not just this session's new composites),
+the three standalone-safe defaults for `gated_outlier`/`bagging`/`composite_classification`, and
+the shared E3-composite base (`_estimator_dispatch._default_base_estimator`). Bit-identical output
+verified (n_jobs only affects thread count, not the deterministic histogram-based fit result).
+Measured ~2.3x wall-time reduction on `BaggedCompositeEstimator.fit()+predict()` (8.85s → 3.77s,
+20,000-row/15-column synthetic). This is very likely a contributing factor to several of this
+session's earlier "mysteriously slow" single-combo fuzz/test runs, since it's a real, previously-
+unaccounted-for per-process cold-start tax that gets paid repeatedly across many short-lived
+pytest worker processes.
+
+While verifying, also fixed two unrelated pre-existing test bugs surfaced by the full regression
+run (both now committed alongside): `test_gated_outlier_registry_key.py` had the same stale
+hardcoded-3-raw-column predict pattern already fixed in `test_batch_e_registry_keys.py` (wave-2's
+default-ON row-wise preprocessing extensions changed the trained feature count); and the
+`getattr(fitted, "feature_names_in_", None) or range(...)` fallback used to fix that is itself
+unsafe (a numpy array with >1 elements raises under Python's `or` truthiness) — fixed with an
+explicit `is not None` check at all three occurrences across both files, not just the one that
+happened to crash (the other two "worked" only by accident, since those composites don't set
+`feature_names_in_` on themselves and always fell through to `None`).
