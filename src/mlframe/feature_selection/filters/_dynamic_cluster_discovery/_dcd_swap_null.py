@@ -190,6 +190,8 @@ def run_member_null(
     if B_ <= 0:
         return 0.0
 
+    if state.factors_data is None:
+        return 1.0
     member_col_orig = state.factors_data[:, member_idx].copy()
     # Preserve the EXACT legacy seeding + rolling-seed bump (reproducibility contract).
     base_seed = int(getattr(state, "_perm_seed", 0))

@@ -254,6 +254,20 @@ def _get_infonet_model(device: str = "auto"):
         return model
 
 
+_INFONET_Y_PREP_CACHE: dict[tuple, np.ndarray] = {}
+
+
+def _jitter_if_discrete(arr: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """Adds negligible-magnitude Gaussian noise to a low-cardinality array so InfoNet's rank-normalisation
+    doesn't collapse it to a constant; continuous inputs (high unique-value count) pass through unchanged."""
+    uniq = np.unique(arr)
+    if uniq.size <= max(8, arr.size // 50):
+        std = float(np.std(arr))
+        jitter_scale = max(std, 1.0) * 1e-6
+        return arr + rng.standard_normal(arr.size) * jitter_scale
+    return arr
+
+
 def infonet_mi(x: np.ndarray, y: np.ndarray, *, point_cloud_size: int = 4781, device: str = "auto", seed: int = 0) -> float:
     """InfoNet feed-forward MI estimator (Hu et al., ICML 2024).
 
@@ -283,32 +297,51 @@ def infonet_mi(x: np.ndarray, y: np.ndarray, *, point_cloud_size: int = 4781, de
     n = x.size
     if n < 16:
         return 0.0
+
+    # y is FIT-INVARIANT across MRMR's pairwise MI sweep (only x changes per call); its subsample +
+    # jitter + rank-normalisation depend only on (y, n, seed, point_cloud_size), never on x, so the
+    # finished ``yr`` is cached per distinct y instead of re-running the np.unique cardinality scan +
+    # O(n log n) rankdata sort on every pair. Jitter draws for x and y come from INDEPENDENT streams
+    # (spawned from the same seed) rather than one rng consumed sequentially across x-then-y, so y's
+    # stream -- and therefore the cached ``yr`` -- never depends on whether x needed jittering.
+    _y_key = None
+    try:
+        _y_key = (y.shape, hash(y.tobytes()), int(seed), int(point_cloud_size))
+        _cached_yr = _INFONET_Y_PREP_CACHE.get(_y_key)
+    except Exception:
+        _y_key = None
+        _cached_yr = None
+
     rng = np.random.default_rng(int(seed))
     if n > point_cloud_size:
         idx = rng.choice(n, size=point_cloud_size, replace=False)
         x = x[idx]
-        y = y[idx]
+        if _cached_yr is None:
+            y = y[idx]
         n = point_cloud_size
+
     # 2026-05-29 fix: jitter discrete inputs so rank-normalise doesn't collapse to
     # degenerate few-value sequences. Without this fix InfoNet on a binary
     # classification y returns 0 (the model sees a constant input).
     # The jitter magnitude is tiny relative to the data std so the rank ordering
     # for continuous inputs is preserved; for discrete inputs it breaks ties
     # uniformly at random.
-    def _jitter_if_discrete(arr, label):
-        """Adds negligible-magnitude Gaussian noise to a low-cardinality array so InfoNet's rank-normalisation
-        doesn't collapse it to a constant; continuous inputs (high unique-value count) pass through unchanged."""
-        uniq = np.unique(arr)
-        if uniq.size <= max(8, arr.size // 50):
-            std = float(np.std(arr))
-            jitter_scale = max(std, 1.0) * 1e-6
-            return arr + rng.standard_normal(arr.size) * jitter_scale
-        return arr
-    x_j = _jitter_if_discrete(x, "x")
-    y_j = _jitter_if_discrete(y, "y")
+    rng_x_jitter = np.random.default_rng([int(seed), 0])
+    x_j = _jitter_if_discrete(x, rng_x_jitter)
     # Rank-normalise to (0, 1] per InfoNet README contract.
     xr = rankdata(x_j) / n
-    yr = rankdata(y_j) / n
+
+    if _cached_yr is not None:
+        yr = _cached_yr
+    else:
+        rng_y_jitter = np.random.default_rng([int(seed), 1])
+        y_j = _jitter_if_discrete(y, rng_y_jitter)
+        yr = rankdata(y_j) / n
+        if _y_key is not None:
+            if len(_INFONET_Y_PREP_CACHE) > 8:
+                _INFONET_Y_PREP_CACHE.pop(next(iter(_INFONET_Y_PREP_CACHE)))
+            _INFONET_Y_PREP_CACHE[_y_key] = yr
+
     pkg_root = Path(__file__).resolve().parent
     vendored = str(pkg_root / "_vendored" / "infonet")
     if vendored not in sys.path:
@@ -460,14 +493,35 @@ def _compute_mist_calibration(cache_key, device, N, seed, n_calibration_per_rho,
     return raw_sorted, nats_sorted
 
 
+_Y_KIND_CACHE: dict[tuple, str] = {}
+
+
 def _classify_y_kind(y: np.ndarray) -> str:
-    """Auto-detect the y-type for MIST calibration routing."""
+    """Auto-detect the y-type for MIST calibration routing.
+
+    Content-memoised: ``mist_mi`` calls this on the FULL (non-subsampled) y on every call though y is
+    fit-invariant across MRMR's pairwise MI sweep (only x varies); mirrors the ``_MIST_CALIBRATION_CACHE``
+    / ``_MIST_MODEL_CACHE`` idiom already used in this file for the other y/device-keyed lookups."""
+    _key = None
+    try:
+        _key = (y.shape, str(y.dtype), hash(y.tobytes()))
+        _hit = _Y_KIND_CACHE.get(_key)
+        if _hit is not None:
+            return _hit
+    except Exception:
+        _key = None
     uniq = np.unique(y)
     if uniq.size == 2:
-        return "binary"
-    if uniq.size <= 32 and np.all(uniq == uniq.astype(np.int64)):
-        return "multiclass"
-    return "continuous"
+        _res = "binary"
+    elif uniq.size <= 32 and np.all(uniq == uniq.astype(np.int64)):
+        _res = "multiclass"
+    else:
+        _res = "continuous"
+    if _key is not None:
+        if len(_Y_KIND_CACHE) > 8:
+            _Y_KIND_CACHE.pop(next(iter(_Y_KIND_CACHE)))
+        _Y_KIND_CACHE[_key] = _res
+    return _res
 
 
 def mist_mi(x: np.ndarray, y: np.ndarray, *, loss: str = "mse", calibrated: bool = True, max_input_n: int = 2000, device: str = "auto", seed: int = 0) -> float:

@@ -371,13 +371,20 @@ def _discover_clusters(
         # (The friend-graph conditional-MI "sink" test is NOT used here: for reflections it conflates
         # denoising-gain with distinct-signal info and would wrongly reject good clusters.)
         M = _continuous_cols(X, [cols[m] for m in members])
-        Z, _mu, _sd, _sg = _standardize_align(M, 0)
+        Z, mu, sd, sg = _standardize_align(M, 0)
         Zc = Z - Z.mean(axis=0)
         sv = np.linalg.svd(Zc, full_matrices=False, compute_uv=False)
         var_ratio = float((sv[0] ** 2) / max(np.sum(sv**2), 1e-12))
         if var_ratio < homogeneity_tau:
             continue
-        clusters.append({"members": members, "rep": rep, "rel": {m: rel[m] for m in members}})
+        # ``members[0] == rep`` always (set two lines above, or forced to index 0 by the max_cluster_size
+        # truncation branch), so Z/mu/sd/sg (standardized against ref_col=0) are exactly what
+        # run_cluster_aggregate_step would rebuild for this cluster's aggregate -- stash them so it reuses
+        # this array instead of re-extracting + re-standardizing the same member columns.
+        clusters.append({
+            "members": members, "rep": rep, "rel": {m: rel[m] for m in members},
+            "Z": Z, "mean": mu, "std": sd, "signs": sg,
+        })
         used.update(members)
     return clusters
 
@@ -412,6 +419,15 @@ def run_cluster_aggregate_step(
         edge_significance=edge_significance, dtype=dtype,
     )
 
+    # Target block + its nbins are invariant across every cluster/method scored below: `data`'s target
+    # columns and `nbins` are only ever appended to at the tail (after this whole loop), so the target
+    # indices' values never shift while clusters are being scored. Hoisted out of both the per-cluster
+    # and per-method loops (was rebuilt on every method iteration of every cluster).
+    _tcols = target
+    _target_block = data[:, _tcols]
+    _n_t = _tcols.shape[0]
+    _compact_nbins = np.concatenate([np.asarray(nbins)[_tcols], [int(quantization_nbins)]]).astype(np.int64)
+
     n_added = 0
     removed_member_names: list = []
     added_indices: list = []  # cols-space indices of accepted aggregates (appended to selected_vars by caller)
@@ -421,8 +437,10 @@ def run_cluster_aggregate_step(
         members = cl["members"]
         member_names = [cols[m] for m in members]
         rep = cl["rep"]
-        M = _continuous_cols(X, member_names)
-        Z, mean, std, signs = _standardize_align(M, members.index(rep))
+        # members[0] == rep by construction (_discover_clusters), so this is exactly the Z/mean/std/signs
+        # _discover_clusters already built (against the same ref_col=0) for the homogeneity gate -- reuse
+        # it instead of re-extracting + re-standardizing the same member columns from X.
+        Z, mean, std, signs = cl["Z"], cl["mean"], cl["std"], cl["signs"]
         best_member_mi = max(cl["rel"].values())
 
         best = None  # (mi, recipe, binned_col, method)
@@ -510,10 +528,7 @@ def run_cluster_aggregate_step(
             # nbins, not on column position), skipping the full (n, n_features) copy
             # that was rebuilt EVERY method-iteration. ~25-89x on this score at
             # realistic shapes (bench: _benchmarks/bench_cluster_aggregate_mi_compact_stack.py).
-            _tcols = np.asarray(target, dtype=np.int64)
-            _compact = np.column_stack([data[:, _tcols], binned.astype(data.dtype)])
-            _n_t = _tcols.shape[0]
-            _compact_nbins = np.concatenate([np.asarray(nbins)[_tcols], [int(quantization_nbins)]]).astype(np.int64)
+            _compact = np.column_stack([_target_block, binned.astype(data.dtype)])
             agg_mi = float(mi(_compact, np.array([_n_t], dtype=np.int64), np.arange(_n_t, dtype=np.int64), _compact_nbins, dtype=dtype))
             if best is None or agg_mi > best[0]:
                 best = (agg_mi, recipe, binned, method)

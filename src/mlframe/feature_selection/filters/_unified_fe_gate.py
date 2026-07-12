@@ -145,6 +145,9 @@ def _coerce_y_classes_impl(y_arr: np.ndarray) -> np.ndarray:
 # the SIGMA threshold or an absolute-MI anchor, not the pooling of the candidate.
 
 
+_RAW_MI_FLOOR_MEMO: dict[tuple, float] = {}
+
+
 def raw_mi_noise_floor(
     raw_X: pd.DataFrame,
     y,
@@ -163,6 +166,11 @@ def raw_mi_noise_floor(
 
     Returns 0.0 when there are no usable numeric raw columns (degenerate: the
     caller then keeps everything that clears 0, i.e. any column with MI > 0).
+
+    Content-memoised (same pattern as ``_coerce_y_classes``): ``raw_X``/``y`` are fit-constant and
+    several independent FE gates call this within one fit, each paying the full ``_mi_classif_batch``
+    scan over the raw numeric columns. Keyed on a cheap content hash instead of the recompute; bounded
+    FIFO. Unlike ``_coerce_y_classes`` the return value is an immutable float, so no defensive copy.
     """
     from ._orthogonal_univariate_fe import _mi_classif_batch
 
@@ -173,6 +181,16 @@ def raw_mi_noise_floor(
         return 0.0
     y_bin = _coerce_y_classes(y)
     arr = raw_X[num_cols].to_numpy(dtype=np.float64)
+
+    _key = None
+    try:
+        _key = (tuple(num_cols), arr.shape, hash(arr.tobytes()), hash(y_bin.tobytes()), int(nbins), float(mad_mult))
+        _hit = _RAW_MI_FLOOR_MEMO.get(_key)
+        if _hit is not None:
+            return _hit
+    except Exception:
+        _key = None
+
     # Class-B :311 collapse (2026-06-30): under STRICT-residency ``_mi_classif_batch(arr)`` already routes
     # through the resident plug-in but re-uploads this FIT-CONSTANT raw matrix fresh at _orth_mi_backends:311.
     # The matrix is the raw numeric columns verbatim (a pure baseline, re-scored across the fit), so route it
@@ -187,12 +205,19 @@ def raw_mi_noise_floor(
     raw_mi = np.asarray(raw_mi, dtype=np.float64)
     raw_mi = raw_mi[np.isfinite(raw_mi)]
     if raw_mi.size == 0:
-        return 0.0
-    med = float(np.median(raw_mi))
-    mad = float(np.median(np.abs(raw_mi - med)))
-    # MAD scaled to a std-equivalent (1.4826) so ``mad_mult`` reads like a
-    # sigma multiplier on a roughly-normal raw-MI distribution.
-    return med + float(mad_mult) * 1.4826 * mad
+        _res = 0.0
+    else:
+        med = float(np.median(raw_mi))
+        mad = float(np.median(np.abs(raw_mi - med)))
+        # MAD scaled to a std-equivalent (1.4826) so ``mad_mult`` reads like a
+        # sigma multiplier on a roughly-normal raw-MI distribution.
+        _res = med + float(mad_mult) * 1.4826 * mad
+
+    if _key is not None:
+        if len(_RAW_MI_FLOOR_MEMO) > 8:
+            _RAW_MI_FLOOR_MEMO.pop(next(iter(_RAW_MI_FLOOR_MEMO)))
+        _RAW_MI_FLOOR_MEMO[_key] = _res
+    return _res
 
 
 def local_mi_gate(

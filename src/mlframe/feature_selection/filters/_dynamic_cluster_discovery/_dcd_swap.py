@@ -484,7 +484,7 @@ def evaluate_swap_candidate(
         try:
             rng = np.random.default_rng(int(getattr(state, "_perm_seed", 0)) + int(anchor))
             # Persist rolling seed so successive swaps don't reuse the same null draws.
-            state._perm_seed = int(getattr(state, "_perm_seed", 0)) + B + 1  # type: ignore[attr-defined]
+            state._perm_seed = int(getattr(state, "_perm_seed", 0)) + B + 1
             target_arr = np.asarray(target, dtype=np.int64)
             n_exceed = 0
             data_with_rep_perm = data_with_rep.copy()
@@ -601,6 +601,7 @@ def evaluate_swap_candidate(
         branch="aggregate",
         member_col_idx=best_member_idx,
         member_relevance=(best_member_rel if best_member_idx >= 0 else 0.0),
+        rep_continuous=rep_continuous,
     )
 
 def commit_swap(
@@ -757,13 +758,22 @@ def commit_swap(
                 if _bin.size > 0:
                     n_bins_eff = int(_bin.max()) + 1
                     _q_arr = np.linspace(0.0, 100.0, n_bins_eff + 1)
-                    # Reconstruct continuous rep so we can derive edges
-                    # consistent with the fit-time binning.
+                    # Derive edges from the continuous rep consistent with the fit-time binning.
                     try:
-                        # Use the same standardized + sign-aligned matrix the
-                        # swap was evaluated against. X_raw_ref + src_names are
-                        # the canonical sources.
-                        if state.X_raw_ref is not None and hasattr(state.X_raw_ref, "columns"):
+                        if decision.rep_continuous is not None:
+                            # evaluate_swap_candidate already built the standardized + sign-aligned
+                            # aggregate (Z / rep_continuous) that these edges must match -- reuse it
+                            # directly instead of re-deriving M/Z from X_raw + the recipe's stored
+                            # mean/std/signs (own comment below).
+                            _cont = np.nan_to_num(
+                                np.asarray(decision.rep_continuous, dtype=np.float64),
+                                copy=False, nan=0.0, posinf=0.0, neginf=0.0,
+                            )
+                            _edges = np.nanpercentile(_cont, _q_arr)
+                            _quant["edges"] = _edges.tolist()
+                        elif state.X_raw_ref is not None and hasattr(state.X_raw_ref, "columns"):
+                            # Fallback: reconstruct the standardized + sign-aligned matrix the swap
+                            # was evaluated against. X_raw_ref + src_names are the canonical sources.
                             _M = state.X_raw_ref[list(_src_names)].to_numpy(
                                 dtype=np.float64, copy=True,
                             )

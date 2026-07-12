@@ -183,10 +183,22 @@ def build_usability_candidate_pool(
     binary = create_binary_transformations(preset=binary_preset)
     base_names = [b for b in base_names if b in X_df.columns]
 
+    # Per-base-name RAW extraction + float64 scrub, computed ONCE and reused everywhere a base column
+    # is needed at float64 precision: the marginal-MI pair ranking, the joint-MI pair ranking, the
+    # resident-GPU pair rebuild, and the main per-pair combo loop all previously re-extracted / re-
+    # scrubbed the SAME column (avg ~7-8x redundant per base name at the default pair cap). The raw
+    # (unscrubbed) extraction is ALSO cached for the raw-candidate loop below, which needs a SEPARATE
+    # ``feature_dtype`` scrub (default float32) -- not derived from ``base_f64`` because downcasting an
+    # already-scrubbed float64 value can differ from scrubbing straight to the narrower dtype (a finite
+    # float64 value that overflows to +/-inf in float32 must scrub to 0, which only holds when the
+    # feature_dtype cast happens BEFORE the finite check).
+    raw_np = {nm: X_df[nm].to_numpy() for nm in base_names}
+    base_f64 = {nm: _scrub(raw_np[nm]) for nm in base_names}
+
     pool: list[UsableCandidate] = []
     # raw columns are always candidates (a linear model often wants a raw operand too).
     for nm in base_names:
-        col = _scrub(X_df[nm].to_numpy(), feature_dtype)
+        col = _scrub(raw_np[nm], feature_dtype)
         if float(np.std(col)) <= 1e-9:
             continue
         pool.append(UsableCandidate(nm, col, _binned_mi(col, y_codes, quantization_nbins, y_terms), None, (nm,), ()))
@@ -202,7 +214,7 @@ def build_usability_candidate_pool(
         # it -- whereas the MM/occupancy-floored estimator zeroes EVERY pair once rows/cell is small (the
         # 3000-row subsample x 10x10 grid), which would prune the genuine pairs too. Default OFF -> marginal
         # rank, byte-identical.
-        _pj_codes = {nm: _quantile_bin(_f64(_scrub(X_df[nm].to_numpy())), quantization_nbins).astype(np.int64) for nm in base_names}
+        _pj_codes = {nm: _quantile_bin(base_f64[nm], quantization_nbins).astype(np.int64) for nm in base_names}
         _nb = int(quantization_nbins)
 
         def _pair_joint_mi(p):
@@ -234,7 +246,7 @@ def build_usability_candidate_pool(
         pairs = pairs[:max_pairs]
     else:
         # rank pairs by marginal-MI sum so a wide-p sweep keeps the most promising first.
-        marg = {nm: _binned_mi(_scrub(X_df[nm].to_numpy()), y_codes, quantization_nbins, y_terms) for nm in base_names}
+        marg = {nm: _binned_mi(base_f64[nm], y_codes, quantization_nbins, y_terms) for nm in base_names}
         pairs.sort(key=lambda p: marg[p[0]] + marg[p[1]], reverse=True)
         pairs = pairs[:max_pairs]
 
@@ -300,15 +312,15 @@ def build_usability_candidate_pool(
             from ._usability_pool_resident import score_pair_combos_table_resident
 
             assert _ub_codes is not None and _bn_codes is not None  # ua/ub/bn are set together at the same tuple-unpack site
-            _res_ops = [(_f64(_scrub(X_df[n1].to_numpy())), _f64(_scrub(X_df[n2].to_numpy()))) for n1, n2 in pairs]
+            _res_ops = [(base_f64[n1], base_f64[n2]) for n1, n2 in pairs]
             _resident_table = score_pair_combos_table_resident(
                 _res_ops, y_codes, y_terms, quantization_nbins, _ua_codes, _ub_codes, _bn_codes,
             )
         except Exception:
             _resident_table = None
     for _pidx, (n1, n2) in enumerate(pairs):
-        x1 = _f64(_scrub(X_df[n1].to_numpy()))
-        x2 = _f64(_scrub(X_df[n2].to_numpy()))
+        x1 = base_f64[n1]
+        x2 = base_f64[n2]
         cand_here: list[UsableCandidate] = []
         if _ua_codes is not None:
             # njit-scored retention path. The kernel enumerates ``for ua: for ub: for bn`` in the SAME
@@ -590,11 +602,24 @@ def usability_greedy(
     _fold_tr = [folds != fo for fo in range(n_folds)]
     _fold_va = [folds == fo for fo in range(n_folds)]
 
+    # Candidates get re-visited across greedy steps (shortlisted again, re-scored in _cv_per_fold /
+    # _shortlist) and pool[i].values never changes for the life of this call, so cache each candidate's
+    # float64 upcast once instead of re-casting its (often float32) stored array on every visit.
+    _f64_by_idx: dict[int, np.ndarray] = {}
+
+    def _pv(i: int) -> np.ndarray:
+        """Cache-backed ``_f64(pool[i].values)`` for the life of this ``usability_greedy`` call."""
+        v = _f64_by_idx.get(i)
+        if v is None:
+            v = _f64(pool[i].values)
+            _f64_by_idx[i] = v
+        return v
+
     def _cv_candidates_incremental(sel_idx, cand_list) -> dict:
         """Return {cand_i: per-fold MAE array} for the regression path via the bordered normal equations.
         Falls back to a per-candidate ``_cv_per_fold`` for any fold where the centered border is singular."""
         # Precompute, ONCE per step per fold: centered selected design (train+val), ybar, Gs, bs.
-        Xsel = np.column_stack([_f64(pool[j].values) for j in sel_idx]) if sel_idx else None
+        Xsel = np.column_stack([_pv(j) for j in sel_idx]) if sel_idx else None
         per_fold = []
         for fo in range(n_folds):
             tr, va = _fold_tr[fo], _fold_va[fo]
@@ -615,7 +640,7 @@ def usability_greedy(
 
         out: dict = {}
         for i in cand_list:
-            ci = _f64(pool[i].values)
+            ci = _pv(i)
             errs = np.empty(n_folds, dtype=np.float64)
             singular = False
             for fo in range(n_folds):
@@ -672,7 +697,7 @@ def usability_greedy(
                     proba = np.tile(prior, (int(vam.sum()), 1))
                     errs.append(_logloss(y_enc[vam], proba))
                 return np.asarray(errs, dtype=np.float64)
-            Xs = np.column_stack([_f64(pool[i].values) for i in sel_idx])
+            Xs = np.column_stack([_pv(i) for i in sel_idx])
             errs = []
             for fo in range(n_folds):
                 trm, vam = folds != fo, folds == fo
@@ -685,7 +710,7 @@ def usability_greedy(
             return np.asarray(errs, dtype=np.float64)
         if not sel_idx:
             return np.array([float(np.mean(np.abs(y_cont[folds == fo] - float(np.mean(y_cont[folds != fo]))))) for fo in range(n_folds)])
-        Xs = np.column_stack([_f64(pool[i].values) for i in sel_idx])
+        Xs = np.column_stack([_pv(i) for i in sel_idx])
         errs = []
         for fo in range(n_folds):
             trm, vam = folds != fo, folds == fo
@@ -719,7 +744,7 @@ def usability_greedy(
                 _maj = int(np.argmax(np.bincount(y_enc, minlength=n_classes)))
                 pos = (y_enc == _maj).astype(np.float64)
             if sel_idx:
-                Xs = np.column_stack([_f64(pool[i].values) for i in sel_idx])
+                Xs = np.column_stack([_pv(i) for i in sel_idx])
                 ho = folds == 0
                 tr = ~ho
                 if np.unique(y_enc[tr]).size >= 2:
@@ -737,7 +762,7 @@ def usability_greedy(
                 resid = pos - float(np.mean(pos))
                 rows = slice(None)
         elif sel_idx:
-            Xs = np.column_stack([_f64(pool[i].values) for i in sel_idx])
+            Xs = np.column_stack([_pv(i) for i in sel_idx])
             ho = folds == 0
             tr = ~ho
             m = _mk().fit(Xs[tr], y_cont[tr])
@@ -756,7 +781,7 @@ def usability_greedy(
         if _GPU_USABILITY() and cand_ids:
             try:
                 from ._usability_gpu import gpu_abscorr_batch
-                cols = np.column_stack([_f64(pool[i].values[rows]) for i in cand_ids])
+                cols = np.column_stack([_pv(i)[rows] for i in cand_ids])
                 uses = gpu_abscorr_batch(cols, _f64(np.asarray(resid)))
             except Exception:
                 uses = None  # fall back to the exact CPU path

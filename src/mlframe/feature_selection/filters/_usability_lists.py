@@ -114,7 +114,7 @@ def build_usability_lists(mrmr: Any, X: Any, y_cont: "np.ndarray | None") -> Non
     if df.shape[0] != y_cont.size:
         return  # row mismatch (e.g. target-row dropping); skip rather than misalign
 
-    from ._usability_aware_selection import select_usability_aware_features
+    from ._usability_aware_selection import build_usability_candidate_pool, usability_greedy
 
     max_base = int(getattr(mrmr, "usability_max_base_features", 16) or 16)
     base_names = _scope_base_names(df, y_cont, max_base)
@@ -127,14 +127,16 @@ def build_usability_lists(mrmr: Any, X: Any, y_cont: "np.ndarray | None") -> Non
     w_lin = float(getattr(mrmr, "usability_w_linear", 0.85))
     w_uni = float(getattr(mrmr, "usability_w_universal", 0.5))
 
-    mrmr.support_linear_ = _drop_stored_values(select_usability_aware_features(
-        df, y_cont, base_names, w=w_lin, seed=seed,
-        pool_kwargs=pool_kwargs, greedy_kwargs=greedy_kwargs,
-    ))
-    mrmr.support_universal_ = _drop_stored_values(select_usability_aware_features(
-        df, y_cont, base_names, w=w_uni, seed=seed,
-        pool_kwargs=pool_kwargs, greedy_kwargs=greedy_kwargs,
-    ))
+    # ``w`` only affects usability_greedy's pre-rank, never build_usability_candidate_pool (no RNG in
+    # there either), so the linear/universal passes can share ONE pool build instead of two -- the
+    # dominant cost of this whole pass. _drop_stored_values must run on BOTH result lists only AFTER
+    # both greedy calls finish: it mutates candidates' .values in place, and a candidate object can be
+    # shared between the two result lists since both greedy calls read the same pool.
+    pool = build_usability_candidate_pool(df, y_cont, base_names, **pool_kwargs)
+    linear = usability_greedy(pool, y_cont, w=w_lin, seed=seed, **greedy_kwargs)
+    universal = usability_greedy(pool, y_cont, w=w_uni, seed=seed, **greedy_kwargs)
+    mrmr.support_linear_ = _drop_stored_values(linear)
+    mrmr.support_universal_ = _drop_stored_values(universal)
 
 
 def _drop_stored_values(candidates: list):

@@ -395,13 +395,17 @@ class MetaFERecommender:
         fingerprint (exact bucket or near-neighbour), return it. Otherwise fall
         back to the rule-based cold-start prior. Always returns a dict over
         :data:`ALL_FE_MASTER_FLAGS`."""
-        rules = recommend_fe_flags_by_rules(X, y)
         fp = self._fingerprint(X, y)
         if not self._has_confident_history(fp):
-            return rules
+            return recommend_fe_flags_by_rules(X, y)
         learned = self.oracle.recommend(fp, fn_name=self.fn_name)
-        # Normalise to the full flag universe (recommend can return the bare
-        # caller-default first-combo when history is thin).
+        # ``rules`` is only a per-flag FALLBACK default for whatever ``learned`` is missing (it can
+        # return the bare caller-default first-combo when history is thin) -- the full column scan
+        # (incl. skew/kurtosis) is wasted whenever ``learned`` already covers every flag, so only
+        # compute it lazily when a flag is actually absent.
+        if all(f in learned for f in ALL_FE_MASTER_FLAGS):
+            return {f: bool(learned[f]) for f in ALL_FE_MASTER_FLAGS}
+        rules = recommend_fe_flags_by_rules(X, y)
         return {f: bool(learned.get(f, rules.get(f, False))) for f in ALL_FE_MASTER_FLAGS}
 
     def _has_confident_history(self, fp: Mapping[str, Any]) -> bool:

@@ -103,6 +103,10 @@ class SwapDecision:
     branch: str = "none"
     member_col_idx: int = -1
     member_relevance: float = 0.0
+    # The standardized+sign-aligned continuous aggregate (pre-binning) evaluate_swap_candidate already
+    # built to score this candidate; commit_swap reuses it verbatim for the recipe's fit-time bin edges
+    # instead of re-deriving M/Z from X_raw + the recipe's stored mean/std/signs. Aggregate branch only.
+    rep_continuous: Optional[np.ndarray] = None
 
 
 @dataclass
@@ -194,6 +198,9 @@ class DCDState:
     factors_nbins: Optional[np.ndarray] = None
     cols: Optional[list] = None
     nbins: Optional[np.ndarray] = None
+    # Rolling seed for member-null permutation draws (run_member_null); carried forward across
+    # re-screen passes so a later pass does not replay the prior pass's exact permutation sequence.
+    _perm_seed: int = 0
     # -- coexistence policy --
     suppress_legacy_postoc: bool = True
     # Layer 47 (2026-05-31): tau-auto calibration diagnostics. None when the
@@ -314,7 +321,7 @@ def _carry_forward_dcd_bookkeeping(state: "DCDState", existing_state: "DCDState"
         # reuse the prior pass's exact draws.
         _ps = getattr(existing_state, "_perm_seed", None)
         if _ps is not None:
-            state._perm_seed = int(_ps)  # type: ignore[attr-defined]
+            state._perm_seed = int(_ps)
     except Exception as exc:
         logger.warning("DCD: failed to carry forward prior-pass bookkeeping: %r", exc)
 
@@ -573,6 +580,16 @@ def discover_cluster_members(
         return set()
     anchors = state.cluster_anchors.setdefault(anchor, set())
     newly_added: set = set()
+    # Anchor-only cache for the warp tie-break below: ``_a_raw`` (the anchor's raw column) and
+    # ``_lin_a`` (its linear-usability score) depend only on ``anchor``, which is fixed across every
+    # candidate in this loop unless a displacement re-anchors the cluster (see ``anchor = c_int`` below)
+    # -- so both are computed once per anchor instead of once per SU-redundant candidate that reaches
+    # the tie-break. ``_lin_a_ready`` (not "is None") marks "computed" so a real ``_linear_usability``
+    # result of None (a degenerate anchor column) is still cached rather than retried every candidate.
+    _anchor_cache_id: Optional[int] = None
+    _a_raw: Optional[np.ndarray] = None
+    _lin_a: Optional[float] = None
+    _lin_a_ready = False
     # Batch-warm the pairwise-SU cache for every statically-eligible
     # candidate against ``anchor`` in ONE prange-over-pairs joint-entropy
     # pass, then let the loop below read those values as cache hits. The
@@ -633,12 +650,18 @@ def discover_cluster_members(
             # twin of the anchor AND strictly more linearly-usable, DISPLACE the anchor: prune the anchor and keep ``c`` selected instead. Exactly one leg is kept either way, so support_ can never empty
             # and no unvalidated column is introduced. Guarded so a degenerate / non-twin / non-tie pair falls through to the order-decided default (byte-identical selection on those).
             if getattr(state, "warp_tiebreak_prefer_linear", False) and selected_vars is not None and int(anchor) in [int(s) for s in selected_vars]:
-                _a_raw = _raw_column(state, anchor)
+                if _anchor_cache_id != anchor:
+                    _a_raw = _raw_column(state, anchor)
+                    _lin_a = None
+                    _lin_a_ready = False
+                    _anchor_cache_id = anchor
                 _c_raw = _raw_column(state, c_int)
                 if _a_raw is not None and _c_raw is not None and _a_raw.shape == _c_raw.shape:
                     _rc = _raw_rank_corr(_a_raw, _c_raw)
                     if _rc is not None and _rc >= float(state.warp_twin_rank_corr):
-                        _lin_a = _linear_usability(_a_raw)
+                        if not _lin_a_ready:
+                            _lin_a = _linear_usability(_a_raw)
+                            _lin_a_ready = True
                         _lin_c = _linear_usability(_c_raw)
                         if _lin_a is not None and _lin_c is not None and _lin_c - _lin_a > float(state.warp_linear_margin):
                             # ``c`` is the linear-usable leg of a monotone twin -> swap roles with the anchor.
@@ -660,6 +683,7 @@ def discover_cluster_members(
                             state.member_to_anchor.pop(c_int, None)
                             anchor = c_int
                             anchors = state.cluster_anchors[c_int]
+                            _anchor_cache_id = None  # anchor changed -> force recompute on next hit
                             continue
             anchors.add(c_int)
             state.member_to_anchor[c_int] = anchor
