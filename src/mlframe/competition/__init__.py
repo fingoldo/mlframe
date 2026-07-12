@@ -47,6 +47,10 @@ from mlframe.competition.frequency_power_interaction import (
     FrequencyPowerInteractionResult,
 )
 from mlframe.competition.naive_bayes_log_odds import NaiveBayesLogOddsEnsembler
+from mlframe.competition.known_label_override import (
+    monotonic_entity_override,
+    known_label_override,
+)
 
 __all__ = [
     *globals().get("__all__", []),
@@ -75,4 +79,6 @@ __all__ = [
     "frequency_power_interaction",
     "FrequencyPowerInteractionResult",
     "NaiveBayesLogOddsEnsembler",
+    "monotonic_entity_override",
+    "known_label_override",
 ]
