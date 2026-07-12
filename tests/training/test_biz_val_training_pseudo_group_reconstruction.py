@@ -82,3 +82,28 @@ def test_biz_val_reconstructed_groups_close_a_real_leakage_gap():
         f"GroupKFold on reconstructed ids should show a materially lower, more honest accuracy: "
         f"leaky={leaky_acc:.3f} honest={honest_acc:.3f}"
     )
+
+
+def test_biz_val_fuzzy_radius_recovers_partition_exact_rounding_fragments():
+    # noise_std deliberately larger than the decimals=1 rounding-bucket width (0.1): replicate rows
+    # routinely straddle a rounding-grid boundary, so exact rounding-based matching fragments many entities
+    # into several groups even though every replicate is within a small Euclidean distance of its siblings.
+    X, _, true_entity_id = _make_replicate_data(n_entities=120, n_replicates=5, n_features=8, seed=7, noise_std=0.35)
+
+    exact = reconstruct_pseudo_group_ids(X, decimals=1)
+    fuzzy = reconstruct_pseudo_group_ids(X, fuzzy_radius=1.5)
+
+    exact_ari = adjusted_rand_score(true_entity_id, exact)
+    fuzzy_ari = adjusted_rand_score(true_entity_id, fuzzy)
+
+    assert exact_ari < 0.8, f"sanity: rounding should visibly fragment entities under this noise, got ARI={exact_ari:.3f}"
+    assert fuzzy_ari > 0.95, f"fuzzy radius-linkage should near-perfectly recover the true partition, got ARI={fuzzy_ari:.3f}"
+    assert fuzzy_ari > exact_ari + 0.15, f"fuzzy mode should materially beat exact rounding: fuzzy={fuzzy_ari:.3f} exact={exact_ari:.3f}"
+
+
+def test_reconstruct_pseudo_group_ids_fuzzy_radius_omitted_matches_exact_default():
+    # bit-identical default behavior: omitting fuzzy_radius must reproduce the pre-existing exact path.
+    X, _, _ = _make_replicate_data(n_entities=30, n_replicates=4, n_features=6, seed=0, noise_std=0.0)
+    baseline = reconstruct_pseudo_group_ids(X)
+    with_default_fuzzy_off = reconstruct_pseudo_group_ids(X, decimals=6)
+    assert np.array_equal(baseline, with_default_fuzzy_off)
