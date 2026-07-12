@@ -8,7 +8,7 @@ pattern to an arbitrary horizon list in one call, complementing the existing lea
 """
 from __future__ import annotations
 
-from typing import Dict, Sequence, Union
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -24,7 +24,14 @@ def multi_window_aggregate(
     agg_funcs: Dict[str, Sequence[str]],
     lookback_horizons: Sequence[float],
     query_entity_col: str = "as_of",
-) -> pd.DataFrame:
+    auto_select: bool = False,
+    target: Optional[Union[pd.Series, np.ndarray]] = None,
+    cv: int = 5,
+    scoring: str = "roc_auc",
+    min_lift: float = 0.005,
+    estimator: Optional[Any] = None,
+    return_selection_info: bool = False,
+) -> Union[pd.DataFrame, Tuple[pd.DataFrame, Dict[str, Any]]]:
     """Aggregate ``history_df`` per entity at several fixed lookback horizons before each query's cutoff.
 
     Parameters
@@ -37,15 +44,23 @@ def multi_window_aggregate(
         Window lengths (same units as ``time_col``), e.g. ``[90, 180, 270, 365]`` for "last 3/6/9/12 months"
         in day units. Each horizon ``h`` aggregates only rows with ``cutoff - h <= time_col < cutoff``
         (strictly before the cutoff, same leakage-safety contract as the full-history version).
-
-    Returns
-    -------
-    pd.DataFrame
-        One row per query row, entity key plus ``{agg_column}_{agg_name}_last_{horizon}`` columns for every
-        ``(agg_column, agg_name, horizon)`` combination.
+    auto_select, target, cv, scoring, min_lift, estimator, return_selection_info
+        Opt-in automatic horizon-selection mode (all default to caller-hand-picked-horizons behavior when
+        ``auto_select`` is left ``False`` -- the rest of these params are then ignored). When ``auto_select``
+        is ``True``, ``target`` (the downstream label/regression target, one value per ``as_of`` row) is
+        required: candidate horizons are greedily forward-selected by cross-validated ``scoring`` lift of
+        ``estimator`` (default ``LogisticRegression``) on top of the horizons already kept, in the order
+        given by ``lookback_horizons``; a horizon is kept only if it improves the CV score by more than
+        ``min_lift`` over the best score achievable without it. This directly answers "does this lookback
+        window carry incremental signal beyond the others", rather than requiring the caller to guess which
+        of a candidate grid of horizons are worth computing downstream. Only the columns of kept horizons are
+        returned. Pass ``return_selection_info=True`` to also get back a dict with the per-horizon CV lift
+        and the kept/dropped horizon lists (evaluation detail, not part of the default return contract).
     """
     if not lookback_horizons:
         raise ValueError("multi_window_aggregate: lookback_horizons must be non-empty")
+    if auto_select and target is None:
+        raise ValueError("multi_window_aggregate: auto_select=True requires a non-None target")
 
     query = as_of.reset_index(drop=True)
     out = pd.DataFrame({entity_col: query[entity_col].to_numpy()})
@@ -97,7 +112,73 @@ def multi_window_aggregate(
                     # snapshots; fall back to the direct windowed computation for just this (col, fn, horizon).
                     out[windowed_name] = _direct_window_agg(history_df, entity_col, time_col, query, query_entity_col, horizon, col, fn)
 
-    return out
+    if not auto_select:
+        return out
+
+    horizon_columns: Dict[float, List[str]] = {horizon: [] for horizon in lookback_horizons}
+    for horizon in lookback_horizons:
+        suffix = f"_last_{horizon}"
+        horizon_columns[horizon] = [c for c in out.columns if c != entity_col and c.endswith(suffix)]
+
+    kept_horizons, lifts = _select_predictive_horizons(
+        out, lookback_horizons, horizon_columns, target=target, cv=cv, scoring=scoring, min_lift=min_lift, estimator=estimator
+    )
+    kept_cols = [entity_col] + [c for horizon in kept_horizons for c in horizon_columns[horizon]]
+    selected_out = out[kept_cols]
+
+    if return_selection_info:
+        dropped_horizons = [h for h in lookback_horizons if h not in kept_horizons]
+        info = {"kept_horizons": kept_horizons, "dropped_horizons": dropped_horizons, "lift_by_horizon": lifts}
+        return selected_out, info
+    return selected_out
+
+
+def _select_predictive_horizons(
+    out: pd.DataFrame,
+    lookback_horizons: Sequence[float],
+    horizon_columns: Dict[float, List[str]],
+    target: Optional[Union[pd.Series, np.ndarray]],
+    cv: int,
+    scoring: str,
+    min_lift: float,
+    estimator: Optional[Any],
+) -> Tuple[List[float], Dict[float, float]]:
+    """Greedy forward-selection of horizons by cross-validated incremental score lift.
+
+    Each horizon is scored against the *already-kept* feature set rather than in isolation, so a horizon that
+    duplicates signal already captured by a previously-kept horizon (e.g. two highly-overlapping windows) is
+    correctly dropped as non-incremental, while a horizon carrying genuinely new signal is kept even if its
+    standalone score is unremarkable.
+    """
+    from sklearn.dummy import DummyClassifier
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.model_selection import cross_val_score
+
+    model = estimator if estimator is not None else LogisticRegression(max_iter=1000)
+    y = np.asarray(target)
+
+    def _score(cols: List[str]) -> float:
+        if not cols:
+            # no-feature baseline: a constant/majority predictor, the real floor a horizon must beat.
+            X_dummy = np.zeros((len(y), 1))
+            return float(np.mean(cross_val_score(DummyClassifier(strategy="prior"), X_dummy, y, cv=cv, scoring=scoring)))
+        X = out[cols].fillna(0.0)
+        return float(np.mean(cross_val_score(model, X, y, cv=cv, scoring=scoring)))
+
+    kept: List[str] = []
+    kept_horizons: List[float] = []
+    lifts: Dict[float, float] = {}
+    baseline_score = _score([])
+    for horizon in lookback_horizons:
+        candidate_cols = kept + horizon_columns[horizon]
+        candidate_score = _score(candidate_cols)
+        lift = candidate_score - baseline_score
+        lifts[horizon] = lift
+        if lift > min_lift:
+            kept.extend(horizon_columns[horizon])
+            kept_horizons.append(horizon)
+            baseline_score = candidate_score
+    return kept_horizons, lifts
 
 
 def _direct_window_agg(

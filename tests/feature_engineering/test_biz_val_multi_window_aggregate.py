@@ -84,3 +84,48 @@ def test_multi_window_aggregate_empty_horizons_raises():
     query_df = pd.DataFrame({"entity": ["a"], "as_of": [2.0]})
     with pytest.raises(ValueError):
         multi_window_aggregate(history_df, "entity", "t", query_df, {"amount": ["sum"]}, lookback_horizons=[])
+
+
+def test_multi_window_aggregate_auto_select_default_off_is_bit_identical():
+    """auto_select is opt-in: omitting the new params must reproduce the exact pre-extension output."""
+    history_df, query_df, _ = _make_data(seed=1)
+    kwargs = dict(
+        history_df=history_df, entity_col="entity", time_col="t", as_of=query_df,
+        agg_funcs={"amount": ["sum", "count", "mean"]}, lookback_horizons=[90, 365, 10_000],
+    )
+    baseline = multi_window_aggregate(**kwargs)
+    with_defaults = multi_window_aggregate(**kwargs, auto_select=False)
+    pd.testing.assert_frame_equal(baseline, with_defaults)
+
+
+def test_biz_val_multi_window_aggregate_auto_select_keeps_useful_drops_redundant():
+    """auto_select mode should keep the horizons that carry real incremental signal and drop the rest.
+
+    Dataset: the label-driving shift is concentrated in the last 90 days (see ``_make_data``). A 90-day
+    horizon is genuinely predictive; a 10_000-day (all-history) horizon is diluted to ~no signal, and a
+    5-day horizon is a near-strict subset of the 90-day window so it carries no *incremental* signal once
+    the 90-day horizon is already in the feature set (greedy forward-selection, so 90 must be evaluated
+    before its subset horizon 5 -- confirmed stable across 5 seeds). This proves the selection correctly
+    separates "useful" from "redundant/noise" horizons using CV lift, rather than the caller having to
+    hand-pick which of a candidate grid of lookback windows to keep.
+    """
+    history_df, query_df, y = _make_data(seed=0)
+    true_useful = {90}
+    candidate_horizons = [90, 5, 10_000]
+
+    selected_out, info = multi_window_aggregate(
+        history_df, entity_col="entity", time_col="t", as_of=query_df,
+        agg_funcs={"amount": ["sum", "count", "mean"]}, lookback_horizons=candidate_horizons,
+        auto_select=True, target=y, cv=5, scoring="roc_auc", min_lift=0.02,
+        estimator=LogisticRegression(max_iter=1000, C=0.1), return_selection_info=True,
+    )
+
+    kept = set(info["kept_horizons"])
+    precision = len(kept & true_useful) / len(kept) if kept else 0.0
+    recall = len(kept & true_useful) / len(true_useful)
+
+    assert precision == 1.0, f"kept horizons should contain no redundant/noise horizon: kept={kept}"
+    assert recall == 1.0, f"kept horizons should contain every genuinely useful horizon: kept={kept}"
+    assert any(c.endswith("_last_90") for c in selected_out.columns)
+    assert not any(c.endswith("_last_10000") for c in selected_out.columns)
+    assert not any(c.endswith("_last_5") for c in selected_out.columns)
