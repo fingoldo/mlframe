@@ -204,6 +204,7 @@ feature_engineering = [
     "cma>=3.2",
     "optuna>=3.0",
     "holidays>=0.100",  # country/locale-aware holiday calendars (holiday_calendar_features).
+    "rapidfuzz>=3.0",  # C++ edit-distance backend for fuzzy_entity_group_features(fuzzy_key_matching=True).
 ]
 
 # Resampling, encoding, stratification.

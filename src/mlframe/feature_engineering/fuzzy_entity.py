@@ -16,10 +16,58 @@ import numpy as np
 import pandas as pd
 
 
+def _cluster_fuzzy_keys(group_ids: np.ndarray, max_distance: int, block_prefix_len: int) -> np.ndarray:
+    """Union-find near-duplicate clustering of string keys, blocked by shared prefix to stay sub-quadratic.
+
+    A heuristic key built from noisy real-world identifiers (typos, OCR errors, inconsistent formatting)
+    under-groups an entity into several exact-match keys that differ by 1-2 characters. Full pairwise edit
+    distance is O(n^2) and infeasible past a few thousand unique keys, so candidates are first bucketed by
+    a shared prefix (``block_prefix_len`` chars) — genuinely different entities essentially never share a
+    long prefix by chance, while typo'd variants of the same key usually do — and only within-block pairs
+    pay the ``rapidfuzz`` Levenshtein cost. ``score_cutoff=max_distance`` lets rapidfuzz short-circuit each
+    comparison instead of computing the exact distance for pairs already known to be too far apart.
+
+    Returns a ``(n,)`` array of canonical cluster labels (one representative original key per cluster),
+    which the caller uses in place of the raw ``group_ids`` for the exact-match grouping logic below.
+    """
+    from rapidfuzz.distance import Levenshtein  # lazy: only importable/needed when fuzzy_key_matching=True
+
+    str_keys = np.asarray(group_ids, dtype=str)
+    unique_keys = np.unique(str_keys)
+
+    parent = {k: k for k in unique_keys}
+
+    def find(k: str) -> str:
+        while parent[k] != k:
+            parent[k] = parent[parent[k]]
+            k = parent[k]
+        return k
+
+    blocks: dict[str, list[str]] = {}
+    for k in unique_keys:
+        blocks.setdefault(k[:block_prefix_len], []).append(k)
+
+    for block_keys in blocks.values():
+        for i in range(len(block_keys)):
+            a = block_keys[i]
+            for j in range(i + 1, len(block_keys)):
+                b = block_keys[j]
+                if Levenshtein.distance(a, b, score_cutoff=max_distance) <= max_distance:
+                    ra, rb = find(a), find(b)
+                    if ra != rb:
+                        parent[ra] = rb
+
+    cluster_of = {k: find(k) for k in unique_keys}
+    return np.array([cluster_of[k] for k in str_keys], dtype=object)
+
+
 def fuzzy_entity_group_features(
     group_ids: np.ndarray,
     values: np.ndarray,
     time_order: Optional[np.ndarray] = None,
+    fuzzy_key_matching: bool = False,
+    fuzzy_max_distance: int = 1,
+    fuzzy_block_prefix_len: int = 4,
 ) -> dict[str, np.ndarray]:
     """Outlier-within-group features for an approximate ``(group_ids, values)`` pairing.
 
@@ -33,6 +81,18 @@ def fuzzy_entity_group_features(
         Optional ``(n,)`` numeric ordering key (timestamp or a monotonic event index). When given,
         ``value_occurrence_count_in_group`` and ``days_since_value_last_seen_in_group`` are computed
         strictly from PRIOR rows only (leak-safe, causal). Defaults to the input row order when omitted.
+    fuzzy_key_matching
+        Opt-in (default ``False`` = unchanged exact-key-match behavior). When ``True``, ``group_ids`` are
+        first coerced to strings and near-duplicate keys (edit distance <= ``fuzzy_max_distance``) are
+        merged into one cluster BEFORE the exact-match grouping logic runs, so noisy identifiers that
+        differ by typos/formatting (e.g. ``"cust_00042"`` vs ``"cust_00043"`` vs ``"cust_0OO42"``) still
+        link to the same group instead of silently splitting one entity into several under-populated ones.
+    fuzzy_max_distance
+        Maximum Levenshtein edit distance for two keys to merge. Only used when ``fuzzy_key_matching=True``.
+    fuzzy_block_prefix_len
+        Blocking-key length (shared-prefix chars) used to avoid full O(n^2) pairwise comparison; only keys
+        sharing this prefix are ever compared. Only used when ``fuzzy_key_matching=True`` — pick a length
+        that covers the part of the key least likely to contain the typo (e.g. a fixed entity-type prefix).
 
     Returns
     -------
@@ -48,7 +108,11 @@ def fuzzy_entity_group_features(
     n = len(group_ids)
     order = np.arange(n, dtype=np.float64) if time_order is None else np.asarray(time_order, dtype=np.float64)
 
-    df = pd.DataFrame({"group": np.asarray(group_ids), "value": np.asarray(values), "order": order})
+    group_arr = np.asarray(group_ids)
+    if fuzzy_key_matching:
+        group_arr = _cluster_fuzzy_keys(group_arr, max_distance=fuzzy_max_distance, block_prefix_len=fuzzy_block_prefix_len)
+
+    df = pd.DataFrame({"group": group_arr, "value": np.asarray(values), "order": order})
     df["_orig_idx"] = np.arange(n)
 
     # Vectorised group-mode: groupby(["group","value"]).size() + idxmax() per group, entirely in pandas'
