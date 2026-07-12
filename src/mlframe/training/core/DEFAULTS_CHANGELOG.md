@@ -220,3 +220,74 @@ switch. Confirmed via live probe, no source change needed; the existing `feature
 None` opt-in default is correct as-is.
 
 No code change. No new tests needed — this batch is a documented negative result, not a wiring gap.
+
+## Batch E: `mlframe_models` registry entries — bagging / composite_classification (2026-07-12)
+
+Audited the composite/ensemble estimator zoo (`src/mlframe/training/composite/`) for generically-instantiable
+estimators not yet reachable as an `mlframe_models` string key. Confirmed prior audits' verdicts still hold
+(`SegmentedModelFactory`, `GatedRegressionMixture`, `RegimeSplitEnsemble`, `CountWeightedBlendEnsemble` all
+require a task-specific constructor arg — left opt-in, reachable only via the generic estimator-instance path).
+
+Registered two genuinely dataset-agnostic composites, explicit-allowlist-only (no auto-detection heuristic,
+unlike `gated_outlier`'s point-mass trigger — see rationale inline at each registration site in
+`_trainer_configure.py`):
+
+- **`"bagging"` (`BaggedCompositeEstimator`)**: bootstrap-bagged variance reduction over a plain GBDT regressor.
+  No required dataset-specific arg. No auto-detection: bagging (`n_estimators=10` full refits by default) is a
+  real Nx compute multiplier with no generic trigger signal analogous to "target has a point mass" — blanket
+  inclusion would silently 10x every caller's regression fit time.
+- **`"composite_classification"` (`CompositeClassificationEstimator`)**: base-margin (init-score) residual
+  composite for classification; auto-fits its own `LogisticRegression` base margin when no
+  `base_margin_column` is supplied, so it needs no caller-supplied column either. No auto-detection: every
+  classification target benefits from *some* base margin, so there is no principled "only some targets need
+  this" heuristic to gate a default-ON auto-append on.
+
+Both registered in `MODEL_STRATEGIES` (`training/strategies/__init__.py`) as `_TREE_STRATEGY` (inner estimator
+is the suite's standalone-safe default LGBM, matching `gated_outlier`'s registered strategy).
+
+### Bugs found and fixed while verifying live (both confirmed via a real `train_mlframe_models_suite` run)
+
+1. **Dichotomic early-stopping wrapper misread `BaggedCompositeEstimator.n_estimators` as a boosting-round
+   budget**: `maybe_wrap_for_partial_fit_es`'s generic `get_params()` probe (`_data_helpers.py`) picks up any
+   top-level int named `max_iter`/`n_estimators`/`max_trials` as a dichotomic-searchable ES budget knob.
+   `BaggedCompositeEstimator.n_estimators` is the bag COUNT, not boosting rounds — each dichotomic-search
+   candidate re-fit the WHOLE bagged ensemble (all N member refits), multiplying fit cost by the search's
+   candidate count on top of the composite's own internal per-member cost. Symptom: a single `"bagging"` suite
+   fit hung past a 900s `pytest-timeout` under moderate load. Fixed by adding `"bagging"`/
+   `"composite_classification"` to `_BUDGET_PARAM_BY_CATEGORY` mapped to `None` (no usable budget knob — each
+   composite already manages its own iteration budget internally).
+2. **Pre-existing sentinel bug in `_detect_budget_param` masked bug #1's first fix attempt**: `explicit =
+   _BUDGET_PARAM_BY_CATEGORY.get(model_category); if explicit is not None: return explicit` cannot distinguish
+   "key explicitly mapped to `None`" from "key absent" — both look like `None`, so the just-added
+   `"bagging": None` entry silently fell through to the runtime probe anyway, reproducing the exact same hang.
+   This is a LATENT bug that predates this batch: the existing `"linear": None` entry never triggered it only
+   because `LinearRegression`/`LogisticRegression` are closed-form and happen to expose no probeable int
+   param — the masking was coincidental, not by design. Fixed with an explicit `model_category in
+   _BUDGET_PARAM_BY_CATEGORY` membership check before falling back to the runtime probe.
+3. **Stale test assumption about the trained feature count**: `test_e2e_bagging_key_trains_and_predicts` /
+   `test_e2e_composite_classification_key_trains_and_predicts` called `fitted.predict(...)` on a hardcoded
+   3-raw-column (`f0`,`f1`,`f2`) zero frame, but the wave-2 default-ON `row_wise_summary_stats_enabled` /
+   `row_wise_extreme_columns_enabled` preprocessing extensions append engineered columns before the model
+   sees the frame (3 raw → 11 trained columns in the test fixture) — a real `LightGBMError: number of features
+   ... not the same as it was in training data`. Per the "validated improvement breaks a test → re-frame the
+   test" rule: fixed by predicting with the fitted estimator's own `feature_names_in_`/`n_features_in_`
+   instead of a hardcoded raw column list — the test's actual intent (predict works post-fit through the full
+   suite) is unaffected by exactly how many engineered columns preprocessing produced.
+
+Verified via 6 live end-to-end `train_mlframe_models_suite` tests (`tests/training/test_batch_e_registry_keys.py`),
+all passing after both fixes.
+
+## A–I completeness check (2026-07-13)
+
+All batches from the original wiring plan now have a documented entry in this file:
+- **A** (FeatureSelectionConfig selectors) — wired + flipped default-ON, wave 1.
+- **B** (PreprocessingExtensionsConfig FE) — wired + flipped default-ON, wave 2.
+- **C** (OutputConfig.run_diagnostics) — wired + flipped default-ON, wave 1.
+- **D** (composite_target_discovery_config) — audited, already fully wired; master switch correctly left opt-in.
+- **E** (mlframe_models registry entries) — wired (`bagging`/`composite_classification`), explicit-allowlist-only.
+- **F** (RegressionCalibrationConfig) — wired + flipped default-ON, wave 1/2.
+- **G** (ConformalConfig) — audited, documented negative result (no safe generic fit found for 3 candidates).
+- **H** (FeatureHandlingConfig) — audited, already fully wired; zero-config default correctly left as a no-op.
+- **I** (TrainingBehaviorConfig / votenrank diversity) — wired + flipped default-ON, wave 2.
+
+No remaining unstarted batch from the original A–I plan.
