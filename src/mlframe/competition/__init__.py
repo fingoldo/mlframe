@@ -51,6 +51,10 @@ from mlframe.competition.known_label_override import (
     monotonic_entity_override,
     known_label_override,
 )
+from mlframe.competition.train_test_union_frequency import (
+    train_test_union_frequency_encode,
+    train_test_union_frequency_encode_hierarchical_components,
+)
 
 __all__ = [
     *globals().get("__all__", []),
@@ -81,4 +85,6 @@ __all__ = [
     "NaiveBayesLogOddsEnsembler",
     "monotonic_entity_override",
     "known_label_override",
+    "train_test_union_frequency_encode",
+    "train_test_union_frequency_encode_hierarchical_components",
 ]
