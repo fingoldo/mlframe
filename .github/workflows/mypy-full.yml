@@ -1,6 +1,6 @@
-name: MyPy-full
+name: MyPy
 
-# Whole-project mypy check, separate from the fast mypy.yml strict-mode beachhead. Extracted to
+# Whole-project mypy check (the fast strict-mode beachhead workflow was retired). Extracted to
 # fingoldo/py-ci-shared (2026-07-09); the install-command below mirrors ci.yml's `test` job
 # install step PLUS [gpu] (cupy/numba.cuda) -- mypy needs cupy/numba.cuda's real stubs to
 # type-check the GPU-optional code paths (``try: import cupy as cp / except ImportError: cp =
