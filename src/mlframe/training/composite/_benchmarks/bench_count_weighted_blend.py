@@ -46,12 +46,27 @@ def _run(n_entities: int) -> None:
     blend.predict(X)
 
 
+def _run_auto_k(n_entities: int) -> None:
+    X, y = _make_dataset(n_entities, seed=0)
+    blend = CountWeightedBlendEnsemble(
+        entity_estimator=_entity_pipeline(), global_estimator=LinearRegression(), entity_col="entity", metadata_cols=["x"], auto_k=True, k_cv=3, random_state=0
+    )
+    blend.fit(X, y)
+    blend.predict(X)
+
+
 if __name__ == "__main__":
     for n_entities in [100, 1_000, 5_000]:
         t0 = time.perf_counter()
         _run(n_entities)
         wall = time.perf_counter() - t0
-        print(f"n_entities={n_entities:>6,} -> {wall * 1000:9.2f} ms")
+        print(f"fixed-k    n_entities={n_entities:>6,} -> {wall * 1000:9.2f} ms")
+
+    for n_entities in [100, 1_000, 5_000]:
+        t0 = time.perf_counter()
+        _run_auto_k(n_entities)
+        wall = time.perf_counter() - t0
+        print(f"auto_k     n_entities={n_entities:>6,} -> {wall * 1000:9.2f} ms")
 
     profiler = cProfile.Profile()
     profiler.enable()
@@ -60,4 +75,15 @@ if __name__ == "__main__":
     buf = StringIO()
     stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
     stats.print_stats(15)
+    print("fixed-k profile:")
     print(buf.getvalue())
+
+    profiler_auto = cProfile.Profile()
+    profiler_auto.enable()
+    _run_auto_k(5_000)
+    profiler_auto.disable()
+    buf_auto = StringIO()
+    stats_auto = pstats.Stats(profiler_auto, stream=buf_auto).sort_stats("cumulative")
+    stats_auto.print_stats(15)
+    print("auto_k profile (CV grid search dominates cost -- entity/global model refit k_cv times):")
+    print(buf_auto.getvalue())

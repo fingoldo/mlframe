@@ -76,6 +76,61 @@ def test_count_weighted_blend_weight_increases_with_observation_count():
     assert weights[dense_mask].mean() > weights[sparse_mask].mean()
 
 
+def test_biz_val_count_weighted_blend_auto_k_beats_bad_fixed_k_mse():
+    """A caller who picks a badly-oversized fixed ``k`` (here 300, which nearly always defers to the
+    global model even for well-observed entities) loses most of the blend's benefit. ``auto_k=True``
+    should recover a near-optimal ``k`` via CV and materially beat that bad fixed choice, without the
+    caller having to guess.
+    """
+    X_train, y_train, X_test, y_test = _make_skewed_entity_dataset(n_entities=400, seed=3)
+
+    bad_k = 300.0
+    blend_bad_fixed = CountWeightedBlendEnsemble(
+        entity_estimator=_entity_pipeline(), global_estimator=LinearRegression(), entity_col="entity", metadata_cols=["x"], k=bad_k
+    )
+    blend_bad_fixed.fit(X_train, y_train)
+    mse_bad_fixed = mean_squared_error(y_test, blend_bad_fixed.predict(X_test))
+
+    blend_auto = CountWeightedBlendEnsemble(
+        entity_estimator=_entity_pipeline(),
+        global_estimator=LinearRegression(),
+        entity_col="entity",
+        metadata_cols=["x"],
+        k=bad_k,
+        auto_k=True,
+        k_cv=3,
+        random_state=0,
+    )
+    blend_auto.fit(X_train, y_train)
+    mse_auto = mean_squared_error(y_test, blend_auto.predict(X_test))
+
+    improvement = 1.0 - mse_auto / mse_bad_fixed
+    assert improvement > 0.10, f"expected auto_k to beat the bad fixed k=300 baseline by >10% MSE, got {improvement:.4f}"
+    assert blend_auto.k_ < 100.0, f"expected CV-selected k_ to move well away from the bad fixed k=300, got {blend_auto.k_}"
+    assert blend_bad_fixed.k_ == bad_k  # fixed-k path is untouched: k_ mirrors caller-supplied k exactly
+
+
+def test_count_weighted_blend_auto_k_false_is_bit_identical_to_legacy_fixed_k():
+    """Default (``auto_k=False``) behavior must be provably unchanged: predictions must match exactly
+    (bit-for-bit) what the class produced before ``auto_k`` was added.
+    """
+    X_train, y_train, X_test, _ = _make_skewed_entity_dataset(n_entities=150, seed=4)
+
+    blend = CountWeightedBlendEnsemble(entity_estimator=_entity_pipeline(), global_estimator=LinearRegression(), entity_col="entity", metadata_cols=["x"], k=10.0)
+    blend.fit(X_train, y_train)
+    pred = blend.predict(X_test)
+
+    counts = X_test["entity"].map(X_train["entity"].value_counts().to_dict()).fillna(0).to_numpy()
+    w_expected = counts / (counts + 10.0)
+    pred_entity = blend.entity_model_.predict(X_test)
+    pred_global = blend.global_model_.predict(X_test[["x"]])
+    pred_expected = w_expected * pred_entity + (1.0 - w_expected) * pred_global
+
+    assert np.array_equal(pred, pred_expected)
+    assert blend.k_ == 10.0
+    assert not hasattr(blend, "k_cv_scores_")
+
+
 def test_count_weighted_blend_unseen_entity_gets_zero_weight():
     X_train, y_train, _, _ = _make_skewed_entity_dataset(n_entities=50, seed=2)
     blend = CountWeightedBlendEnsemble(entity_estimator=_entity_pipeline(), global_estimator=LinearRegression(), entity_col="entity", metadata_cols=["x"], k=10.0)
