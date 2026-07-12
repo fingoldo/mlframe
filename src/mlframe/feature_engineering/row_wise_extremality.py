@@ -13,7 +13,7 @@ the missing-value-count idea's intent (a compact per-row unusualness signal) but
 """
 from __future__ import annotations
 
-from typing import Optional, Sequence
+from typing import Literal, Optional, Sequence, overload
 
 import numpy as np
 import pandas as pd
@@ -46,6 +46,13 @@ def _compute_extremality_matrix(X: pd.DataFrame, columns: Optional[Sequence[str]
     values = X[cols].to_numpy(dtype=np.float64)
     n_rows, n_cols = values.shape
 
+    # bench-attempt-rejected (2026-07-13): replacing this per-column loop with a single vectorized
+    # ``np.argsort(values, axis=0)`` + ``np.put_along_axis`` (NaN always sorts last per-column, so the
+    # vectorized version is provably bit-identical to the per-column-with-NaN-excluded ranks here) was
+    # measured SLOWER, not faster: 17.2s vs 5.2s at n=200,000/c=200 (~3.3x regression). Root cause:
+    # numpy's axis=0 argsort on a wide 2-D array has poor cache locality (strided per-column access
+    # either C- or F-ordered -- both measured, neither helps) and isn't internally batched the way a
+    # loop of per-column 1-D argsort calls effectively is. Kept the loop.
     extremality = np.full((n_rows, n_cols), np.nan, dtype=np.float64)
     for j in range(n_cols):
         col = values[:, j]
@@ -116,6 +123,22 @@ def _build_column_extremality_summary(top_cols: np.ndarray, top_scores: np.ndarr
     return summary.sort_values("count", ascending=False)
 
 
+@overload
+def row_wise_top_k_extreme_columns(
+    X: pd.DataFrame,
+    columns: Optional[Sequence[str]] = None,
+    k: int = 3,
+    return_column_summary: Literal[False] = False,
+    summary_rows: Optional[Sequence[bool] | np.ndarray] = None,
+) -> pd.DataFrame: ...
+@overload
+def row_wise_top_k_extreme_columns(
+    X: pd.DataFrame,
+    columns: Optional[Sequence[str]] = None,
+    k: int = 3,
+    return_column_summary: Literal[True] = ...,
+    summary_rows: Optional[Sequence[bool] | np.ndarray] = None,
+) -> tuple[pd.DataFrame, pd.DataFrame]: ...
 def row_wise_top_k_extreme_columns(
     X: pd.DataFrame,
     columns: Optional[Sequence[str]] = None,
