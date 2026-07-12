@@ -22,6 +22,7 @@ def control_difference_augment(
     feature_cols: Optional[Sequence[str]] = None,
     n_augmented_per_treated: int = 1,
     random_state: int = 0,
+    n_control_pairs: int = 1,
 ) -> pd.DataFrame:
     """Synthesize ``treated + control_1 - control_2`` augmented rows for every treated sample.
 
@@ -40,6 +41,13 @@ def control_difference_augment(
         pair of control samples).
     random_state
         Seed for the control-sample draws.
+    n_control_pairs
+        Number of independent control-pair differences to average into the noise term for each augmented row
+        (opt-in; default ``1`` reproduces the original single-pair draw bit-identically). Averaging ``k`` iid
+        pair-differences shrinks the noise term's variance by ``1/k`` while keeping its mean at zero, so the
+        augmented row's noise stays a realistic (lower-variance) draw from the batch-noise distribution instead
+        of a single noisy sample of it -- trades a little augmented-row diversity for less label-irrelevant
+        scatter, useful once ``n_augmented_per_treated`` is already large enough that diversity is plentiful.
 
     Returns
     -------
@@ -51,6 +59,8 @@ def control_difference_augment(
     feature_cols = list(feature_cols)
     if len(control_df) < 2:
         raise ValueError("control_difference_augment: control_df needs at least 2 rows to draw a difference pair")
+    if n_control_pairs < 1:
+        raise ValueError("control_difference_augment: n_control_pairs must be >= 1")
 
     rng = np.random.default_rng(random_state)
     n_treated = len(treated_df)
@@ -66,9 +76,16 @@ def control_difference_augment(
     # n_aug=10), while this is one bulk block assignment per copy. ~2.4x faster at n=10k/100 features.
     augmented_frames = []
     for _ in range(n_augmented_per_treated):
-        idx_1 = rng.integers(0, n_control, n_treated)
-        idx_2 = rng.integers(0, n_control, n_treated)
-        noise_diff = control_values[idx_1] - control_values[idx_2]
+        if n_control_pairs == 1:
+            # kept as the plain 1-D-index path (rather than folding into the n_control_pairs>1 branch with
+            # pairs=1) so the default call is bit-identical to the pre-multi-sample implementation.
+            idx_1 = rng.integers(0, n_control, n_treated)
+            idx_2 = rng.integers(0, n_control, n_treated)
+            noise_diff = control_values[idx_1] - control_values[idx_2]
+        else:
+            idx_1 = rng.integers(0, n_control, (n_control_pairs, n_treated))
+            idx_2 = rng.integers(0, n_control, (n_control_pairs, n_treated))
+            noise_diff = (control_values[idx_1] - control_values[idx_2]).mean(axis=0)
         augmented_values = treated_values + noise_diff
 
         feature_block = pd.DataFrame(augmented_values, columns=feature_cols)
