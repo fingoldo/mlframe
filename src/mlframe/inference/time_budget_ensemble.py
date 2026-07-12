@@ -34,17 +34,58 @@ class TimeBudgetEnsemble:
     min_models
         Always run at least this many models regardless of budget (default 1 -- never return an empty
         ensemble).
+    value_per_ms
+        OPT-IN. Per-model priority score (typically holdout-metric-lift / measured-latency-ms), same length
+        and order as ``models``. When provided, ``self.models`` is re-sorted DESCENDING by this score before
+        any prediction happens -- so a caller-supplied static order (e.g. cheap-first) can no longer starve
+        a slower-but-far-more-accurate model out of a tight budget. When ``None`` (the default), the
+        caller-supplied order in ``models`` is used verbatim -- behavior is bit-identical to before this
+        parameter existed. See ``compute_value_per_ms`` to derive scores from a holdout benchmark.
     """
 
-    def __init__(self, models: Sequence[Any], time_budget_seconds: float, use_predict_proba: bool = False, min_models: int = 1) -> None:
+    def __init__(
+        self,
+        models: Sequence[Any],
+        time_budget_seconds: float,
+        use_predict_proba: bool = False,
+        min_models: int = 1,
+        value_per_ms: Optional[Sequence[float]] = None,
+    ) -> None:
         if len(models) == 0:
             raise ValueError("models must be non-empty")
-        self.models: List[Any] = list(models)
+        if value_per_ms is not None and len(value_per_ms) != len(models):
+            raise ValueError(f"value_per_ms must have the same length as models, got {len(value_per_ms)} vs {len(models)}")
+
+        if value_per_ms is None:
+            self.models: List[Any] = list(models)
+        else:
+            # Stable sort: ties keep the caller's original relative order rather than being shuffled.
+            order = sorted(range(len(models)), key=lambda i: value_per_ms[i], reverse=True)
+            self.models = [models[i] for i in order]
+
+        self.value_per_ms = None if value_per_ms is None else list(value_per_ms)
         self.time_budget_seconds = float(time_budget_seconds)
         self.use_predict_proba = use_predict_proba
         self.min_models = max(1, min_models)
         self.last_n_models_used_: Optional[int] = None
         self.last_model_costs_: List[float] = []
+
+    @staticmethod
+    def compute_value_per_ms(metric_lift: Sequence[float], latency_seconds: Sequence[float]) -> List[float]:
+        """Derive a per-model priority score from a holdout-metric benchmark: lift-per-millisecond.
+
+        ``metric_lift`` is each model's improvement over some common reference (e.g. AUC/accuracy gain, or
+        error REDUCTION so higher is always better) measured on a holdout set; ``latency_seconds`` is that
+        model's measured single-call inference latency. A cheap-but-mediocre model can have a high lift/cost
+        ratio only if its lift is genuinely competitive -- a merely-fast model with near-zero lift scores low
+        and drops in priority, letting a slower-but-much-more-accurate model fire first instead.
+        """
+        if len(metric_lift) != len(latency_seconds):
+            raise ValueError(f"metric_lift and latency_seconds must have equal length, got {len(metric_lift)} vs {len(latency_seconds)}")
+        ms = np.asarray(latency_seconds, dtype=np.float64) * 1000.0
+        if np.any(ms <= 0):
+            raise ValueError("latency_seconds must be strictly positive")
+        return list(np.asarray(metric_lift, dtype=np.float64) / ms)
 
     def _predict_one(self, model: Any, X: Any) -> np.ndarray:
         fn = model.predict_proba if self.use_predict_proba else model.predict

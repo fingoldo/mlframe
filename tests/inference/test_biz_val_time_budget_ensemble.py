@@ -83,6 +83,63 @@ def test_time_budget_ensemble_always_runs_at_least_min_models():
     assert ensemble.last_n_models_used_ == 1
 
 
+def test_biz_val_time_budget_ensemble_value_per_ms_avoids_starving_accurate_model():
+    """Naive cheap-first priority order under a tight budget can starve a slower-but-far-more-accurate model
+    out entirely. ``value_per_ms`` reordering fires the high-lift model first instead, materially cutting
+    ensemble MSE for the SAME time budget."""
+    rng = np.random.default_rng(3)
+    n_trials = 40
+    n_rows = 5
+    time_budget_seconds = 0.012  # enough for exactly one 0.01s model plus scheduling slack
+
+    y_true = np.zeros(n_rows)
+
+    # Cheap-first (naive static priority): several near-worthless fast models ranked ahead of one slow but
+    # much more accurate model -- under a tight budget the naive order never reaches the accurate model.
+    def _make_cheap_first(rng):
+        cheap = [_LatencyModel(true_offset=3.0, noise_scale=1.0, latency_seconds=0.001, rng=rng) for _ in range(4)]
+        accurate = _LatencyModel(true_offset=0.0, noise_scale=0.05, latency_seconds=0.01, rng=rng)
+        return cheap + [accurate]
+
+    naive_errors = []
+    valuemode_errors = []
+
+    for _ in range(n_trials):
+        models = _make_cheap_first(rng)
+
+        naive = TimeBudgetEnsemble(models, time_budget_seconds=time_budget_seconds)
+        pred_naive = naive.predict(np.zeros((n_rows, 1)))
+        naive_errors.append(mean_squared_error(y_true, pred_naive))
+
+        # Holdout benchmark: cheap models have near-zero metric lift (offset 3.0 is nearly useless), the
+        # accurate model has a large lift -- value_per_ms promotes it ahead of the cheap models.
+        metric_lift = [0.01, 0.01, 0.01, 0.01, 5.0]
+        latencies = [0.001, 0.001, 0.001, 0.001, 0.01]
+        scores = TimeBudgetEnsemble.compute_value_per_ms(metric_lift, latencies)
+        valuemode = TimeBudgetEnsemble(models, time_budget_seconds=time_budget_seconds, value_per_ms=scores)
+        pred_valuemode = valuemode.predict(np.zeros((n_rows, 1)))
+        valuemode_errors.append(mean_squared_error(y_true, pred_valuemode))
+
+    mean_naive_mse = float(np.mean(naive_errors))
+    mean_valuemode_mse = float(np.mean(valuemode_errors))
+    rel_improvement = (mean_naive_mse - mean_valuemode_mse) / mean_naive_mse
+
+    assert rel_improvement > 0.5, (
+        f"expected >50% MSE reduction from value_per_ms reordering vs naive cheap-first order, "
+        f"got {rel_improvement:.4f} (naive_mse={mean_naive_mse:.4f}, valuemode_mse={mean_valuemode_mse:.4f})"
+    )
+
+
+def test_time_budget_ensemble_value_per_ms_default_none_preserves_caller_order():
+    """OPT-IN contract: when ``value_per_ms`` is not passed, model order and predictions must be bit-identical
+    to the pre-extension behavior."""
+    rng = np.random.default_rng(4)
+    models = _make_models(rng, n_models=4)
+    baseline = TimeBudgetEnsemble(models, time_budget_seconds=0.5)
+    assert baseline.models == models
+    assert baseline.value_per_ms is None
+
+
 def test_time_budget_ensemble_uses_more_models_with_larger_budget():
     rng = np.random.default_rng(2)
     models = [_LatencyModel(true_offset=0.0, noise_scale=1.0, latency_seconds=0.01, rng=rng) for _ in range(6)]
