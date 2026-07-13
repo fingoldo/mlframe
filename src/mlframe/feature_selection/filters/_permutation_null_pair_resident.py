@@ -249,7 +249,7 @@ def pair_maxt_perm_null_gpu_enabled(n: int, n_pairs: int) -> bool:
     try:
         from ._fe_gpu_strict import fe_gpu_strict_enabled
 
-        return bool(fe_gpu_strict_enabled())
+        return bool(fe_gpu_strict_enabled(n=int(n), p=int(n_pairs)))
     except Exception:
         return False
 

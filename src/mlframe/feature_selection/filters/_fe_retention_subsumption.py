@@ -125,7 +125,7 @@ def retention_form_is_subsumed(
             try:
                 from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
                 from ._mi_greedy_cmi_fe import _cmi_gpu_enabled
-                _resident = bool(fe_gpu_strict_resident_enabled()) and bool(_cmi_gpu_enabled())
+                _resident = bool(fe_gpu_strict_resident_enabled()) and bool(_cmi_gpu_enabled(n=int(cand.shape[0]), p=1 + len(inc)))
             except Exception:
                 _resident = False
         cand_dev = None

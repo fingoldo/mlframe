@@ -111,7 +111,7 @@ def raw_retains_signal_given_genuine_children(
         try:
             from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
             from ._mi_greedy_cmi_fe import _cmi_gpu_enabled
-            if bool(fe_gpu_strict_resident_enabled()) and bool(_cmi_gpu_enabled()):
+            if bool(fe_gpu_strict_resident_enabled()) and bool(_cmi_gpu_enabled(n=int(rb.size), p=1)):
                 from ._fe_resident_operands import resident_code_operand
                 _rb_cand = resident_code_operand(rb, "cmi_cand_x")
         except Exception:

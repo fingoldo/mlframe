@@ -10,7 +10,7 @@ importance-proxy or a fixed unanimity rule.
 """
 from __future__ import annotations
 
-from typing import Any, Callable, List, Optional, Sequence
+from typing import Any, Callable, List, Optional
 
 import numpy as np
 import pandas as pd
@@ -24,11 +24,12 @@ def _cv_score(estimator, X: pd.DataFrame, y: np.ndarray, cv, scoring: Callable[[
     # bare bracket indexing resolve train_idx/test_idx (KFold's 0-based POSITIONS) as LABELS instead,
     # raising a spurious KeyError once the index has any gaps relative to a dense 0..n-1 range.
     y_arr = np.asarray(y)
+    row_select = (lambda idx: X.iloc[idx]) if hasattr(X, "iloc") else (lambda idx: X[idx])
     scores = []
     for train_idx, test_idx in cv.split(X):
         model = clone(estimator)
-        model.fit(X.iloc[train_idx], y_arr[train_idx])
-        preds = model.predict(X.iloc[test_idx])
+        model.fit(row_select(train_idx), y_arr[train_idx])
+        preds = model.predict(row_select(test_idx))
         scores.append(scoring(y_arr[test_idx], preds))
     return float(np.mean(scores))
 

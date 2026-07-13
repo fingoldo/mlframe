@@ -17,6 +17,7 @@ WHERE the operator-search compute goes, not admission.
   * cProfile -- the rung-0 screen (a sort + dict comprehension) is a negligible share of
     fit time (it spends NOTHING on MI -- it reuses the gate's pair_mi).
 """
+
 from __future__ import annotations
 
 import io
@@ -38,7 +39,6 @@ from mlframe.feature_selection.filters._fe_rung_schedule import (
     _optin_keep_frac,
 )
 from mlframe.feature_selection.filters.mrmr import MRMR
-
 
 _RAW = {"a", "b", "c", "d", "e"}
 
@@ -165,7 +165,8 @@ def test_dispatch_keep_frac_never_spawns_sweep_thread(_fresh_ktc_cache_dir, monk
 
     spawn_calls = {"n": 0}
     monkeypatch.setattr(
-        KernelTuningCache, "_spawn_async_sweep",
+        KernelTuningCache,
+        "_spawn_async_sweep",
         lambda self, *a, **kw: spawn_calls.__setitem__("n", spawn_calls["n"] + 1),
     )
     monkeypatch.delenv("MLFRAME_FE_RUNG_KEEP_FRAC", raising=False)
@@ -181,8 +182,7 @@ def test_dispatch_keep_frac_never_spawns_sweep_thread(_fresh_ktc_cache_dir, monk
 
 
 def test_ctor_knobs_exposed_and_pickle_safe():
-    m = MRMR(fe_rung_schedule_enable=True, fe_rung_keep_frac=0.3,
-             fe_rung_rel_floor=0.35, fe_rung_min_pairs=8)
+    m = MRMR(fe_rung_schedule_enable=True, fe_rung_keep_frac=0.3, fe_rung_rel_floor=0.35, fe_rung_min_pairs=8)
     p = m.get_params()
     assert p["fe_rung_schedule_enable"] is True
     assert p["fe_rung_keep_frac"] == 0.3
@@ -190,6 +190,31 @@ def test_ctor_knobs_exposed_and_pickle_safe():
     assert p["fe_rung_min_pairs"] == 8
     m2 = pickle.loads(pickle.dumps(m))
     assert m2.get_params()["fe_rung_keep_frac"] == 0.3
+
+
+def test_ranked_order_equivalent_to_double_pm_call():
+    """Wave 13 finding #4: ``apply_rung_schedule`` used to call ``_pm(key)`` once to build
+    ``pms`` and then AGAIN per key inside ``sorted(keys, key=_pm, ...)`` -- a literal
+    duplicate pass. Pins that the fixed single-pass ranking (sorting the already-computed
+    ``pms`` paired with ``keys``) selects the IDENTICAL kept set as the legacy double-call
+    ranking, including tie-break order (stable sort on ties)."""
+    # Duplicate pair_mi values exercise the stable-sort tie-break path.
+    pms = [0.40, 0.30, 0.30, 0.20, 0.10, 0.10, 0.05, 0.04]
+    pool = _mk_pool(pms)
+
+    def _pm_legacy(key):
+        try:
+            return float(key[1])
+        except (TypeError, IndexError, ValueError):
+            return 0.0
+
+    keys = list(pool.keys())
+    legacy_ranked = sorted(keys, key=_pm_legacy, reverse=True)
+
+    kept, info = apply_rung_schedule(pool, n_rows=5000, keep_frac=0.375, rel_floor=1.1, min_pairs=6)
+    assert info["applied"] is True
+    keep_n = max(1, round(len(pool) * 0.375))
+    assert set(kept.keys()) == set(legacy_ranked[:keep_n])
 
 
 def test_default_on():
@@ -203,10 +228,13 @@ def test_default_on():
 def _make_canonical(n=4000, p_noise=20, seed=42, scale=3.0):
     """y = a**2/b + log(c)*sin(d) + noise, padded with p_noise pure-noise columns."""
     rng = np.random.default_rng(seed)
-    a = rng.uniform(1.0, 5.0, n); b = rng.uniform(1.0, 5.0, n)
-    c = rng.uniform(1.0, 5.0, n); d = rng.uniform(0.0, 2.0 * np.pi, n)
-    e = rng.normal(0.0, 1.0, n); f = rng.normal(0.0, 1.0, n)
-    y = a ** 2 / b + f / 5.0 + scale * np.log(c) * np.sin(d)
+    a = rng.uniform(1.0, 5.0, n)
+    b = rng.uniform(1.0, 5.0, n)
+    c = rng.uniform(1.0, 5.0, n)
+    d = rng.uniform(0.0, 2.0 * np.pi, n)
+    e = rng.normal(0.0, 1.0, n)
+    f = rng.normal(0.0, 1.0, n)
+    y = a**2 / b + f / 5.0 + scale * np.log(c) * np.sin(d)
     cols = {"a": a, "b": b, "c": c, "d": d, "e": e}
     for j in range(p_noise):
         cols[f"n{j}"] = rng.normal(0.0, 1.0, n)
@@ -275,9 +303,8 @@ def test_bizvalue_speedup_on_wide_pool_at_identical_selection():
     eng_off = [nm for nm in off_names if nm not in df.columns]
     assert eng_off, "wide-pool fixture produced no engineered features without the rung schedule"
     # rung schedule must be at least as fast (it searches a fraction of the pool).
-    assert t_on <= t_off * 1.05, (
-        f"rung schedule was not faster: flat={t_off:.1f}s rung={t_on:.1f}s"
-    )
+    assert t_on <= t_off * 1.05, f"rung schedule was not faster: flat={t_off:.1f}s rung={t_on:.1f}s"
+
     # and it must not lose a genuine SIGNAL-pair engineered feature: any feature over
     # the signal operands a/b/c/d kept by flat must still be present (allowing the
     # rung to additionally PRUNE spurious (c,noise) survivors -- a denoising bonus).
@@ -290,6 +317,7 @@ def test_bizvalue_speedup_on_wide_pool_at_identical_selection():
             if toks & {"a", "b", "c", "d"}:
                 out.add(nm)
         return out
+
     sig_off = _signal_eng(off_names)
     sig_on = _signal_eng(on_names)
     # do not drop EVERY signal-pair feature
@@ -311,8 +339,7 @@ def test_bizvalue_equal_wall_deeper_needle():
     # True@25k). Production MRMR runs are orders of magnitude larger than 4k. See I4/I5 / s319.
     np.random.seed(7)
     df, y = _make_canonical(n=25000, p_noise=30, seed=7, scale=3.0)
-    base = dict(verbose=0, random_seed=42, n_jobs=1,
-                fe_min_pair_mi_prevalence=1.0, fe_pair_maxt_null_permutations=0)
+    base = dict(verbose=0, random_seed=42, n_jobs=1, fe_min_pair_mi_prevalence=1.0, fe_pair_maxt_null_permutations=0)
 
     # FLAT with a hard small top-K budget: only a few pairs reach the operator search;
     # the (c,d) low-marginal signal pair can fall outside it.
@@ -320,8 +347,7 @@ def test_bizvalue_equal_wall_deeper_needle():
 
     # RUNG: feed a LARGER pool (bigger synergy cap) but screen by pair_mi to a comparable
     # rung-1 size -- so the operator-search cost stays bounded while reaching the needle.
-    m_rung = MRMR(fe_rung_schedule_enable=True, fe_synergy_max_pairs=60,
-                  fe_rung_keep_frac=0.25, **base).fit(df.copy(), y.copy())
+    m_rung = MRMR(fe_rung_schedule_enable=True, fe_synergy_max_pairs=60, fe_rung_keep_frac=0.25, **base).fit(df.copy(), y.copy())
 
     flat_eng = _n_eng(m_flat)
     rung_eng = _n_eng(m_rung)
@@ -360,8 +386,7 @@ def test_bizvalue_equal_wall_deeper_needle():
     # count is recorded for the report but not used as a floor -- a higher flat count is a
     # cross-mix-retention artefact, not a recovery advantage.
     assert rung_eng >= 2, (
-        f"rung deeper-search recovered too few engineered features ({rung_eng}); "
-        f"expected >= 2 (the (c,d) needle + at least one more). flat_eng={flat_eng}"
+        f"rung deeper-search recovered too few engineered features ({rung_eng}); " f"expected >= 2 (the (c,d) needle + at least one more). flat_eng={flat_eng}"
     )
 
 

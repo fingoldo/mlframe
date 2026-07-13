@@ -295,6 +295,87 @@ def batch_triple_mi_prange(
     return out
 
 
+@njit(parallel=True, nogil=True, cache=True)
+def batch_triple_mi_perm_batched(
+    factors_data: np.ndarray,
+    triple_a: np.ndarray,
+    triple_b: np.ndarray,
+    triple_c: np.ndarray,
+    nbins: np.ndarray,
+    y_perms: np.ndarray,
+    freqs_y: np.ndarray,
+) -> np.ndarray:
+    """Permutation-batched TRIPLE joint MI for the order-3 maxT null: joint MI of every (a,b,c) triple vs EACH of
+    the ``K`` permuted targets in ``y_perms`` (shape ``(K, n)``), returned as ``(K, n_triples)``. The order-3 twin
+    of :func:`batch_pair_mi_perm_batched`: the dense-renumbered 3-way joint code and its x-marginal are INVARIANT
+    under a y-permutation (they depend only on the fixed (X_a, X_b, X_c) columns), so the raw-code build + dense
+    remap run ONCE per triple and are reused across all K shuffles; only the ``(dense_x, y_perm)`` contingency +
+    MI sum re-run per shuffle. Bit-identical to calling :func:`batch_triple_mi_prange` once per shuffle (max|d|=0)
+    -- same dense-renumber, same ``jf*log(jf/(px*py))`` reduction order."""
+    n = factors_data.shape[0]
+    n_triples = triple_a.shape[0]
+    K = y_perms.shape[0]
+    n_classes_y = freqs_y.shape[0]
+    out = np.empty((K, n_triples), dtype=np.float64)
+    if n == 0:
+        out[:, :] = 0.0
+        return out
+    inv_n = 1.0 / n
+    for p in prange(n_triples):
+        a = triple_a[p]
+        b = triple_b[p]
+        c = triple_c[p]
+        nb_a = int(nbins[a])
+        nb_b = int(nbins[b])
+        nb_c = int(nbins[c])
+        if nb_a <= 0 or nb_b <= 0 or nb_c <= 0 or nb_b > MAX_JOINT_CARDINALITY // nb_c or nb_a > MAX_JOINT_CARDINALITY // (nb_b * nb_c):
+            for k in range(K):
+                out[k, p] = 0.0
+            continue
+        raw_card = nb_a * nb_b * nb_c
+
+        dense_x = np.empty(n, dtype=np.int64)  # invariant dense triple-joint code per row -- built once, reused across shuffles
+        remap = np.full(raw_card, -1, dtype=np.int64)
+        n_dense = 0
+        for i in range(n):
+            va = int(factors_data[i, a])
+            vb = int(factors_data[i, b])
+            vc = int(factors_data[i, c])
+            rc = (va * nb_b + vb) * nb_c + vc
+            r = remap[rc]
+            if r == -1:
+                r = n_dense
+                remap[rc] = r
+                n_dense += 1
+            dense_x[i] = r
+
+        freqs_x_int = np.zeros(n_dense, dtype=np.int64)
+        for i in range(n):
+            freqs_x_int[dense_x[i]] += 1
+
+        joint_counts = np.empty((n_dense, n_classes_y), dtype=np.int64)
+        for k in range(K):
+            joint_counts[:, :] = 0
+            for i in range(n):
+                joint_counts[dense_x[i], int(y_perms[k, i])] += 1
+            total = 0.0
+            for di in range(n_dense):
+                fx = freqs_x_int[di]
+                if fx == 0:
+                    continue
+                prob_x = fx * inv_n
+                for cj in range(n_classes_y):
+                    jc = joint_counts[di, cj]
+                    if jc == 0:
+                        continue
+                    jf = jc * inv_n
+                    prob_y = freqs_y[cj]
+                    if prob_y > 0.0:
+                        total += jf * math.log(jf / (prob_x * prob_y))
+            out[k, p] = total
+    return out
+
+
 @njit(nogil=True, cache=True)
 def _perm_failcount_col(
     classes_dense: np.ndarray, k: int, freqs_dense: np.ndarray, K_x: int,

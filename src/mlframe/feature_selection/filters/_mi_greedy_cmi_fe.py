@@ -758,7 +758,7 @@ def _cmi_from_binned(
     # GPU route (2026-06-25): same partition-entropy-via-cp.unique offload as cmi_from_binned_fixed_yz,
     # covering the general CMI callers (conditional-perm null, candidate scoring). value-order densify ->
     # same partition -> same CMI; selection-identical. Gated (STRICT / MLFRAME_CMI_GPU), default CPU.
-    if _cmi_gpu_enabled():
+    if _cmi_gpu_enabled(n=int(x.size), p=1):
         try:
             return _cmi_from_binned_cupy(x, y, z_joint, return_cards=return_cards, kx=kx, kz=kz)
         except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
@@ -896,7 +896,7 @@ def cmi_from_binned_fixed_yz(
     # identical). Routes the dominant mi_greedy CMI compute (combine_factorize + entropy) onto the GPU under
     # MLFRAME_FE_GPU_STRICT / the KTC gate, instead of the host njit renumber+entropy. Falls back to CPU on
     # any cupy error.
-    if _cmi_gpu_enabled():
+    if _cmi_gpu_enabled(n=int(np.asarray(x).size), p=1):
         try:
             return _cmi_from_binned_fixed_yz_cupy(x, y_i, z_i, h_yz, h_z, k_yz, k_z, n)
         except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
@@ -917,16 +917,20 @@ def cmi_from_binned_fixed_yz(
     return max(0.0, cmi_plugin - cmi_bias)
 
 
-def _cmi_gpu_enabled() -> bool:
+def _cmi_gpu_enabled(*, n: Optional[int] = None, p: Optional[int] = None) -> bool:
     """Route the mi_greedy CMI entropies to the GPU when STRICT-GPU is on (or a future KTC gate). Default
     OFF -> host path, byte-identical. STRICT_GPU=1 forces it (the user's "make GPU actually carry the FE
-    compute" knob: most FE families were CPU-only, this puts the dominant CMI on the device)."""
+    compute" knob: most FE families were CPU-only, this puts the dominant CMI on the device).
+
+    ``n``/``p`` (optional): the calling dispatch's own shape, forwarded to ``fe_gpu_strict_enabled`` so the
+    STRICT/AUTO decision is size-aware for THIS call instead of shape-blind. Omit when no natural shape is
+    available at the call site (preserves prior behavior)."""
     import os as _os
     if _os.environ.get("MLFRAME_CMI_GPU", "") == "1":
         return True
     try:
         from ._fe_gpu_strict import fe_gpu_strict_enabled
-        return bool(fe_gpu_strict_enabled())
+        return bool(fe_gpu_strict_enabled(n=n, p=p))
     except Exception:
         return False
 
@@ -1295,7 +1299,7 @@ def score_candidates_by_cmi(
     # BATCHED born-on-device path under STRICT (default OFF -> per-candidate CPU loop, byte-identical):
     # bin all candidates into one (n, K) code matrix and score CMI for EVERY candidate in ONE device
     # workload (batched_cmi_gpu), instead of a per-candidate cp.unique CMI. Parity-pinned selection-equiv.
-    if _cmi_gpu_enabled() and len(cand_cols) > 1:
+    if _cmi_gpu_enabled(n=int(y_bin.shape[0]), p=len(cand_cols)) and len(cand_cols) > 1:
         try:
             from ._fe_batched_mi import batched_cmi_gpu, batched_quantile_bin_gpu
             X_float = np.empty((y_bin.shape[0], len(cand_cols)), dtype=np.float64)
@@ -1439,7 +1443,7 @@ def greedy_cmi_fe_construct(
     # DISTINCT role from the per-permutation shuffled y so the transient null-draw y can never evict it. None when
     # GPU is off (host path uses y_bin directly, byte-identical).
     y_bin_dev = None
-    if _cmi_gpu_enabled():
+    if _cmi_gpu_enabled(n=n_samples):
         try:
             import cupy as _cp  # noqa: F401
             from ._fe_resident_operands import resident_code_operand as _resident_code_operand
@@ -1488,7 +1492,7 @@ def greedy_cmi_fe_construct(
         # CMI in ONE batched_cmi_gpu workload instead of a per-candidate loop. The floor is the 0.95 quantile
         # (order-independent) -> selection-equivalent. Per-candidate loop fallback on any error / GPU-off.
         try:
-            if _cmi_gpu_enabled() and len(sample_names) > 1:
+            if _cmi_gpu_enabled(n=int(y_shuf.size), p=len(sample_names)) and len(sample_names) > 1:
                 from ._fe_batched_mi import batched_cmi_gpu
 
                 # bench-attempt-rejected (2026-07): np.column_stack([cand_bins[nm] ...]).astype(int64) vs this per-column loop was noise
@@ -1570,7 +1574,7 @@ def greedy_cmi_fe_construct(
         _scan = [name for name in remaining if cand_fp[name] not in winner_fps]
         _batched_done = False
         try:
-            if _cmi_gpu_enabled() and len(_scan) > 1:
+            if _cmi_gpu_enabled(n=int(y_bin.shape[0]), p=len(_scan)) and len(_scan) > 1:
                 from ._fe_batched_mi import batched_cmi_gpu, cmi_device_argmax
 
                 # bench-attempt-rejected (2026-07): np.column_stack(...).astype(int64) vs this per-column loop was noise (-9.8%..+8.8%, no consistent >=5%).

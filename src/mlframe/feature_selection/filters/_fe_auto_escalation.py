@@ -476,6 +476,19 @@ def find_underdelivering_pairs(
     seed = int(getattr(self, "random_seed", 0) or 0)
     excess_frac = float(getattr(self, "fe_escalation_underdelivery_excess_frac", 0.05))
     self_ratio = float(getattr(self, "fe_escalation_underdelivery_self_ratio", 3.0))
+    # Per-column quantile-bin memo: a popular raw column recurs across many prospective pairs
+    # (this loop iterates the FULL prospective_pairs set), and its O(n log n) quantile-bin was
+    # being recomputed once PER PAIR it participates in. Lazily built, keyed by column name,
+    # reused across every pair referencing that column within this call.
+    _qbin_memo: dict = {}
+
+    def _qbin_cached(name, x):
+        c = _qbin_memo.get(name)
+        if c is None:
+            c = _quantile_bin(x[sl], nbins=nbq).astype(np.int64)
+            _qbin_memo[name] = c
+        return c
+
     for _k in prospective_pairs:
         try:
             pair, pair_mi = _k[0], float(_k[1])
@@ -493,8 +506,8 @@ def find_underdelivering_pairs(
             x_b = _resolve_operand(X, nb, eng_cont)
             if x_a is None or x_b is None or x_a.size != n or x_b.size != n:
                 continue
-            ca = _quantile_bin(x_a[sl], nbins=nbq).astype(np.int64)
-            cb = _quantile_bin(x_b[sl], nbins=nbq).astype(np.int64)
+            ca = _qbin_cached(na, x_a)
+            cb = _qbin_cached(nb, x_b)
             joint = ca * (int(cb.max()) + 1) + cb
             _, joint = np.unique(joint, return_inverse=True)
             joint = joint.astype(np.int64)

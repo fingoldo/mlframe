@@ -56,7 +56,7 @@ dCor / HSIC), so batching just the plug-in leg would fork the uniform scorer dis
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from itertools import combinations
 from typing import Optional, Sequence
 
@@ -240,6 +240,10 @@ class ModularHit:
     residue_mi: float
     baseline_mi: float  # raw-combiner MI = the best a smooth basis could recover
     null_hi: float  # permutation-null upper band on residue MI
+    # Optional: the exact combiner column cheap_modular_scan already built for this hit, so
+    # escalate_modulus can reuse it instead of rebuilding via _combine (finding 4). compare=False /
+    # excluded from repr so a bare ndarray payload never breaks equality/hash on the scored fields.
+    c_arr: "np.ndarray | None" = field(default=None, repr=False, compare=False)
 
     @property
     def margin_over_baseline(self) -> float:
@@ -300,6 +304,7 @@ def cheap_modular_scan(
     max_triples: int = 12,
     nbins: int = 12,
     seed: int = 0,
+    _cols_prefiltered: bool = False,
 ) -> list[ModularHit]:
     """Cheap first-pass scan for modular structure over integer columns of X.
 
@@ -315,8 +320,10 @@ def cheap_modular_scan(
 
     if cols is None:
         cols = [c for c in X.columns if _is_integer_col(np.asarray(X[c]))]
-    else:
+    elif not _cols_prefiltered:
         cols = [c for c in cols if _is_integer_col(np.asarray(X[c]))]
+    # else: caller (e.g. hybrid_pairwise_modular_fe_with_recipes) already ran this exact filter to
+    # build ``cols`` -- re-scanning it here was pure duplicate work (finding 4).
     # Canonicalize eligible-column order so the budgeted pair/triple enumeration scans the same combinations regardless of caller column order (reversed-column invariance).
     cols = sorted(cols, key=lambda c: str(c))
     yi = np.asarray(y).astype(np.int64)
@@ -350,7 +357,7 @@ def cheap_modular_scan(
             null_hi = _perm_null_hi(c_arr, yi, best_k, nbins, seed=seed)
         else:
             null_hi = float("inf")
-        hits.append(ModularHit(op, cset, best_k, best_mi, base, null_hi))
+        hits.append(ModularHit(op, cset, best_k, best_mi, base, null_hi, c_arr))
 
     for c in cols:
         _scan_one("self", (c,), _combine([arrs[c]], "self"))
@@ -389,8 +396,13 @@ def escalate_modulus(
     coarse divisor often spikes at a multiple of the true modulus). Returns ``(best_m, best_mi,
     residue_column)``; the residue column is the materialised ``combiner mod best_m`` for the selector."""
     k0 = hit.modulus
-    arrs = [np.asarray(X[c]) for c in hit.cols]
-    c_arr = _combine(arrs, hit.op)
+    # Reuse the combiner column cheap_modular_scan already built for this hit when available (the
+    # common path -- detect_pairwise_modular / hybrid_pairwise_modular_fe_with_recipes always escalate
+    # a hit cheap_modular_scan just produced); rebuild only for a standalone/bare ModularHit lacking it.
+    c_arr = hit.c_arr
+    if c_arr is None:
+        arrs = [np.asarray(X[c]) for c in hit.cols]
+        c_arr = _combine(arrs, hit.op)
     yi = np.asarray(y).astype(np.int64)
 
     grid = set(range(max(2, k0 - span), k0 + span + 1))
@@ -541,6 +553,7 @@ def hybrid_pairwise_modular_fe_with_recipes(
 
     hits = cheap_modular_scan(
         X, y, int_cols, moduli=moduli, nbins=nbins, seed=seed, max_triples=max_triples,
+        _cols_prefiltered=True,  # int_cols above already ran the identical _is_integer_col filter
     )
     appended: list[str] = []
     recipes = []

@@ -327,6 +327,29 @@ def _evaluate_candidates_inner(
 
     classes_y_safe = classes_y.copy()
 
+    # RelaxMRMR (finding 3, Wave 13): y_col/k_y and every already-selected column's materialize_var
+    # result depend only on (y, factors_data, factors_nbins, dtype, selected_vars), none of which
+    # change across this workload's per-candidate loop -- selected_vars is a fixed list threaded
+    # through unmutated (see the loop below). Hoist the SAME condition evaluate_candidate gates the
+    # RelaxMRMR block on and compute once per greedy iteration instead of once per candidate. Gated
+    # behind relaxmrmr_alpha>0 (default OFF); any failure here falls through to per-candidate
+    # recomputation inside evaluate_candidate (its own precomputed-args check no-ops to None).
+    _relax_y_col: Optional[np.ndarray] = None
+    _relax_k_y: Optional[int] = None
+    _relax_sel_cols: Optional[list] = None
+    _relax_sel_nbins: Optional[list] = None
+    if get_relaxmrmr_alpha() > 0.0 and selected_vars and not use_simple_mode and str(mrmr_relevance_algo) == "fleuret":
+        try:
+            from .evaluation import _materialize_var
+            _relax_y_col, _relax_k_y = _materialize_var(factors_data, y, factors_nbins, dtype=dtype)
+            _relax_sel_cols, _relax_sel_nbins = [], []
+            for _z in selected_vars:
+                _zc, _zk = _materialize_var(factors_data, _z, factors_nbins, dtype=dtype)
+                _relax_sel_cols.append(_zc)
+                _relax_sel_nbins.append(_zk)
+        except Exception:
+            _relax_y_col = _relax_k_y = _relax_sel_cols = _relax_sel_nbins = None
+
     for cand_idx, X, nexisting in tqdmu(workload, leave=False, desc="Thread Candidates", disable=not verbose):
 
         current_gain, _sink_reasons = evaluate_candidate(
@@ -360,6 +383,10 @@ def _evaluate_candidates_inner(
             ndigits=ndigits,
             dtype=dtype,
             use_simple_mode=use_simple_mode,
+            _relax_y_col=_relax_y_col,
+            _relax_k_y=_relax_k_y,
+            _relax_sel_cols=_relax_sel_cols,
+            _relax_sel_nbins=_relax_sel_nbins,
         )
 
         best_gain, best_candidate, run_out_of_time = handle_best_candidate(

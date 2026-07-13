@@ -48,42 +48,43 @@ def _binned_mi_legacy(feat, y, nbins=10):
 
 from mlframe.feature_selection.filters._wavelet_basis_fe import _binned_mi as _binned_mi_new
 
-rng = np.random.default_rng(0)
-max_abs = 0.0
-configs = []
-for _ in range(400):
-    n = int(rng.integers(60, 2500))
-    # Haar-leg-like ternary feature OR continuous; both code paths
-    if rng.random() < 0.5:
-        feat = rng.choice([-1.0, 0.0, 1.0], size=n, p=[0.3, 0.4, 0.3])
-    else:
-        feat = rng.normal(size=n)
-    if rng.random() < 0.6:
-        y = rng.integers(0, int(rng.integers(2, 8)), size=n)  # discrete classes
-    else:
-        y = rng.normal(size=n)  # continuous -> quantile binned
-    a = _binned_mi_legacy(feat, y)
-    b = _binned_mi_new(feat, y)
-    max_abs = max(max_abs, abs(a - b))
-    configs.append((feat, y))
+if __name__ == "__main__":
+    rng = np.random.default_rng(0)
+    max_abs = 0.0
+    configs = []
+    for _ in range(400):
+        n = int(rng.integers(60, 2500))
+        # Haar-leg-like ternary feature OR continuous; both code paths
+        if rng.random() < 0.5:
+            feat = rng.choice([-1.0, 0.0, 1.0], size=n, p=[0.3, 0.4, 0.3])
+        else:
+            feat = rng.normal(size=n)
+        if rng.random() < 0.6:
+            y = rng.integers(0, int(rng.integers(2, 8)), size=n)  # discrete classes
+        else:
+            y = rng.normal(size=n)  # continuous -> quantile binned
+        a = _binned_mi_legacy(feat, y)
+        b = _binned_mi_new(feat, y)
+        max_abs = max(max_abs, abs(a - b))
+        configs.append((feat, y))
 
-print(f"bit-identity max abs diff over {len(configs)} configs: {max_abs:.3e}")
+    print(f"bit-identity max abs diff over {len(configs)} configs: {max_abs:.3e}")
 
-# warm
-for feat, y in configs[:5]:
-    _binned_mi_legacy(feat, y); _binned_mi_new(feat, y)
+    # warm
+    for feat, y in configs[:5]:
+        _binned_mi_legacy(feat, y); _binned_mi_new(feat, y)
 
-def timeit(fn):
-    best = 1e9
-    for _ in range(5):
-        t = time.perf_counter()
-        for feat, y in configs:
-            fn(feat, y)
-        best = min(best, time.perf_counter() - t)
-    return best
+    def timeit(fn):
+        best = 1e9
+        for _ in range(5):
+            t = time.perf_counter()
+            for feat, y in configs:
+                fn(feat, y)
+            best = min(best, time.perf_counter() - t)
+        return best
 
-tl = timeit(_binned_mi_legacy)
-tn = timeit(_binned_mi_new)
-print(f"legacy: {tl*1e3:.2f} ms / {len(configs)} calls")
-print(f"new   : {tn*1e3:.2f} ms / {len(configs)} calls")
-print(f"speedup: {tl/tn:.2f}x")
+    tl = timeit(_binned_mi_legacy)
+    tn = timeit(_binned_mi_new)
+    print(f"legacy: {tl*1e3:.2f} ms / {len(configs)} calls")
+    print(f"new   : {tn*1e3:.2f} ms / {len(configs)} calls")
+    print(f"speedup: {tl/tn:.2f}x")

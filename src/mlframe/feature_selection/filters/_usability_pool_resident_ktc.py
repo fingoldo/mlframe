@@ -41,7 +41,7 @@ def pool_table_use_resident(n_rows: int, npairs: int, n_combos: int) -> bool:
     default OFF) forces the resident path: it is bit-faithful to the njit table (~6e-15) -> selection-equivalent."""
     try:
         from ._fe_gpu_strict import fe_gpu_strict_enabled
-        if fe_gpu_strict_enabled():
+        if fe_gpu_strict_enabled(n=int(n_rows), p=int(npairs)):
             return True
     except Exception:  # nosec B110 - optional dependency import guard
         pass

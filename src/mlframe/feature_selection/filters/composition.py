@@ -64,6 +64,10 @@ def compose_pair_fe(
     rounds_log = []
     cur_X = X.copy()
     cur_names = feature_names[:]
+    # Columns carried over unchanged from a prior round (every original column, plus any
+    # engineered column added before round r) have a fixed name + fixed data, so their
+    # single-feature MI never changes across rounds -- cache by name instead of recomputing.
+    single_mi_cache: dict[str, float] = {}
 
     for r in range(n_rounds):
         if verbose:
@@ -74,7 +78,11 @@ def compose_pair_fe(
             xj = cur_X[:, j]
             if np.std(xj) < 1e-12:
                 continue
-            mi = _mi_1d(xj, y, discrete_target=discrete_target, mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins)
+            name_j = cur_names[j]
+            mi = single_mi_cache.get(name_j)
+            if mi is None:
+                mi = _mi_1d(xj, y, discrete_target=discrete_target, mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins)
+                single_mi_cache[name_j] = mi
             single_mi.append((j, mi))
         # Wave 58 (2026-05-20): plugin MI quantises -> ties realistic; secondary
         # key on feature index for deterministic top-K across runs.

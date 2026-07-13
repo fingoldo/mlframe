@@ -144,7 +144,7 @@ def _fe_gpu_discretize_enabled(n_rows: int, n_cands: int) -> bool:
     # The GPU pair-MI path is bit-identical to the CPU analytic dispatch (verified maxdiff 0) -> selection-equivalent.
     try:
         from .._fe_gpu_strict import fe_gpu_strict_enabled
-        if fe_gpu_strict_enabled():
+        if fe_gpu_strict_enabled(n=int(n_rows), p=int(n_cands)):
             return True
     except Exception:  # nosec B110 - optional dependency import guard
         pass
@@ -187,7 +187,7 @@ def _fe_gpu_binning_enabled(n_rows: int, n_cands: int) -> bool:
     # crossover. The GPU binning is bit-identical to the CPU njit binning (verified maxdiff 0) -> selection-equivalent.
     try:
         from .._fe_gpu_strict import fe_gpu_strict_enabled
-        if fe_gpu_strict_enabled():
+        if fe_gpu_strict_enabled(n=int(n_rows), p=int(n_cands)):
             return True
     except Exception:  # nosec B110 - optional dependency import guard
         pass
@@ -1051,7 +1051,7 @@ def check_prospective_fe_pairs(
         if _pipe_env:
             try:
                 from .._fe_gpu_strict import fe_gpu_strict_enabled
-                _pipe_on = bool(fe_gpu_strict_enabled())
+                _pipe_on = bool(fe_gpu_strict_enabled(n=len(X), p=int(_chunk_buf_width)))
             except Exception:
                 _pipe_on = False
         if _pipe_on:

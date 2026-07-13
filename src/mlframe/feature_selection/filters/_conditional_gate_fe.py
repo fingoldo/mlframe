@@ -430,6 +430,7 @@ def cheap_row_argmax_scan(
     nbins: int = 12,
     seed: int = 0,
     max_triples: int = 40,
+    _cols_prefiltered: bool = False,
 ) -> list[ArgmaxHit]:
     """Cheap first-pass scan for row-argmax structure over column TRIPLES of X.
 
@@ -437,11 +438,16 @@ def cheap_row_argmax_scan(
     (max over raw / product / ratio / diff / min / max) by ``_MIN_MARGIN`` AND a 12-perm null band. The hardened floor (not the
     raw single-operand MI) is what keeps argmax clean on the ordinary-multiplicative control at scale. Pairs are skipped (a 2-col
     argmax == sign of the diff, already on the diff list). Budgeted by ``max_triples``. The null is early-rejected (computed only
-    for triples already clearing the operand margin)."""
+    for triples already clearing the operand margin).
+
+    ``_cols_prefiltered`` is internal-only: set by callers that already built ``cols`` via ``_is_argmax_eligible`` themselves
+    (e.g. ``hybrid_row_argmax_fe_with_recipes``), to skip the redundant re-check below. External callers must leave it False."""
     import pandas as pd  # noqa: F401  (X may be pandas or polars; we pull ndarrays)
 
     if cols is None:
         cols = [c for c in X.columns if _is_argmax_eligible(np.asarray(X[c]))]
+    elif _cols_prefiltered:
+        cols = [c for c in cols if c in X.columns]
     else:
         cols = [c for c in cols if c in X.columns and _is_argmax_eligible(np.asarray(X[c]))]
     # Canonicalize the eligible-column order so the budgeted triple enumeration below scans the SAME triples regardless of the caller's input column order; without this a reversed-column frame walks a different ``max_triples`` prefix and synthesizes different argmax features, making the downstream selection column-order dependent.
@@ -603,6 +609,7 @@ def cheap_conditional_gate_scan(
     k_gate: int = 8,
     k_operand: int = 10,
     subsample_n: int = 0,
+    _cols_prefiltered: bool = False,
 ) -> list[GateHit]:
     """Cheap first-pass scan for conditional-gate structure (regime-switch + masked-interaction) over X.
 
@@ -617,11 +624,16 @@ def cheap_conditional_gate_scan(
     For each candidate the best tau is found by a ~17-point quantile scan over c (per-tau residue MIs batch into one kernel call),
     then the best-tau column is gated vs the HARDENED best-existing-op baseline (max MI over raw / product / ratio / diff / min /
     max on the candidate's operands) by ``_MIN_MARGIN`` AND a 12-perm null band. The null is early-rejected (computed only for a
-    candidate already clearing the hardened baseline). The tau-scan + hardened gate are unchanged -- only the candidate SET shrinks."""
+    candidate already clearing the hardened baseline). The tau-scan + hardened gate are unchanged -- only the candidate SET shrinks.
+
+    ``_cols_prefiltered`` is internal-only: set by callers that already built ``cols`` via ``_is_argmax_eligible`` themselves
+    (e.g. ``hybrid_conditional_gate_fe_with_recipes``), to skip the redundant re-check below. External callers must leave it False."""
     import pandas as pd  # noqa: F401
 
     if cols is None:
         cols = [c for c in X.columns if _is_argmax_eligible(np.asarray(X[c]))]
+    elif _cols_prefiltered:
+        cols = [c for c in cols if c in X.columns]
     else:
         cols = [c for c in cols if c in X.columns and _is_argmax_eligible(np.asarray(X[c]))]
     cols = list(cols)
@@ -898,7 +910,7 @@ def hybrid_row_argmax_fe_with_recipes(
         )
         return [], []
 
-    hits = cheap_row_argmax_scan(X, y, elig, nbins=nbins, seed=seed)
+    hits = cheap_row_argmax_scan(X, y, elig, nbins=nbins, seed=seed, _cols_prefiltered=True)
     appended: list[str] = []
     recipes = []
     seen: set[str] = set()
@@ -948,7 +960,10 @@ def hybrid_conditional_gate_fe_with_recipes(
         )
         return [], []
 
-    hits = cheap_conditional_gate_scan(X, y, elig, nbins=nbins, seed=seed, k_gate=k_gate, k_operand=k_operand, subsample_n=subsample_n)
+    hits = cheap_conditional_gate_scan(
+        X, y, elig, nbins=nbins, seed=seed, k_gate=k_gate, k_operand=k_operand, subsample_n=subsample_n,
+        _cols_prefiltered=True,
+    )
     appended: list[str] = []
     recipes = []
     seen: set[str] = set()

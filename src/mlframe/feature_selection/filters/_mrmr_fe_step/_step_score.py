@@ -80,7 +80,7 @@ def materialise_and_finalise_fe_candidates(
         try:
             from .._gpu_strict_fe import fe_gpu_strict_resident_enabled
             from .._mi_greedy_cmi_fe import _cmi_gpu_enabled
-            _gate_resident = bool(fe_gpu_strict_resident_enabled()) and bool(_cmi_gpu_enabled())
+            _gate_resident = bool(fe_gpu_strict_resident_enabled()) and bool(_cmi_gpu_enabled(n=int(X.shape[0]), p=len(cols)))
         except Exception:
             _gate_resident = False
 

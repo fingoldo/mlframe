@@ -486,6 +486,10 @@ def evaluate_candidate(
     verbose: int = 1,
     ndigits: int = 5,
     use_simple_mode: bool = True,
+    _relax_y_col: np.ndarray | None = None,
+    _relax_k_y: int | None = None,
+    _relax_sel_cols: list | None = None,
+    _relax_sel_nbins: list | None = None,
 ) -> Tuple[float, set]:
     """Score one MRMR candidate (relevance minus redundancy against already-selected vars, optionally confidence-gated by a permutation baseline) and update the ``expected_gains``/``partial_gains``/``failed_candidates`` bookkeeping in place; this is the per-candidate body invoked in the main selection loop's inner scan over ``combs``."""
     sink_reasons: set = set()
@@ -803,12 +807,23 @@ def evaluate_candidate(
         try:
             from ._relaxmrmr_3d import relax_mrmr_score
             x_col, k_x = _materialize_var(factors_data, X, factors_nbins, dtype=dtype)
-            y_col, k_y = _materialize_var(factors_data, y, factors_nbins, dtype=dtype)
-            sel_cols, sel_nbins = [], []
-            for _z in selected_vars:
-                _zc, _zk = _materialize_var(factors_data, _z, factors_nbins, dtype=dtype)
-                sel_cols.append(_zc)
-                sel_nbins.append(_zk)
+            # y_col/k_y and every selected column's materialize_var result depend only on (y,
+            # factors_data, factors_nbins, dtype, selected_vars) -- NOT on the candidate X -- and
+            # selected_vars is stable across the caller's per-candidate workload loop within one
+            # greedy iteration, so the caller (_evaluate_candidates_inner) hoists and passes these
+            # once per iteration instead of every candidate rebuilding them from scratch. Falls back
+            # to the identical inline computation when called standalone (e.g. unit tests / direct
+            # callers) that don't pass the precomputed values.
+            if _relax_y_col is not None and _relax_k_y is not None and _relax_sel_cols is not None and _relax_sel_nbins is not None:
+                y_col, k_y = _relax_y_col, _relax_k_y
+                sel_cols, sel_nbins = _relax_sel_cols, _relax_sel_nbins
+            else:
+                y_col, k_y = _materialize_var(factors_data, y, factors_nbins, dtype=dtype)
+                sel_cols, sel_nbins = [], []
+                for _z in selected_vars:
+                    _zc, _zk = _materialize_var(factors_data, _z, factors_nbins, dtype=dtype)
+                    sel_cols.append(_zc)
+                    sel_nbins.append(_zk)
             current_gain = float(relax_mrmr_score(x_col, sel_cols, y_col, k_x, sel_nbins, k_y, alpha=_relax_alpha))
             if cand_idx in partial_gains:
                 _g, _k = partial_gains[cand_idx]

@@ -37,7 +37,7 @@ def permnull_use_resident(n: int, ncand: int, nperm: int) -> bool:
     path: the two paths differ only in FP reduction order (~1e-15) -> selection-equivalent."""
     try:
         from ._fe_gpu_strict import fe_gpu_strict_enabled
-        if fe_gpu_strict_enabled():
+        if fe_gpu_strict_enabled(n=int(n), p=int(ncand)):
             return True
     except Exception:  # nosec B110 - optional dependency import guard
         pass

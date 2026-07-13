@@ -45,18 +45,21 @@ def _mi_classif_batch_sklearn(X: np.ndarray, y: np.ndarray, *, nbins: int = 10) 
     return mis
 
 
-def _orth_mi_gpu_enabled() -> bool:
+def _orth_mi_gpu_enabled(*, n: int | None = None, p: int | None = None) -> bool:
     """STRICT-GPU full-coverage mode: route the orth-FE batch MI through the resident-GPU plugin-MI so the
     whole FE path runs on the device (MLFRAME_FE_GPU_STRICT / MLFRAME_CMI_GPU). Default OFF -> njit
     dispatcher. STRICT is a diagnostic FULL-GPU mode (every gateable kernel on the device for nsys GPU-load
     profiling), not a wall-optimised default -- the per-call H2D of host-built candidates is paid here; the
-    wall win needs born-on-device candidates."""
+    wall win needs born-on-device candidates.
+
+    ``n``/``p`` (optional): the calling batch's own (rows, cols) shape, forwarded to ``fe_gpu_strict_enabled``
+    so the STRICT/AUTO decision is size-aware for THIS call. Omit to preserve the shape-blind default."""
     import os as _os
     if _os.environ.get("MLFRAME_CMI_GPU", "") == "1":
         return True
     try:
         from .._fe_gpu_strict import fe_gpu_strict_enabled
-        return bool(fe_gpu_strict_enabled())
+        return bool(fe_gpu_strict_enabled(n=n, p=p))
     except Exception:
         return False
 
@@ -124,7 +127,7 @@ def _mi_classif_batch_numba(X: np.ndarray, y: np.ndarray, *, nbins: int = 10) ->
         else:
             X_dense = np.ascontiguousarray(X[:, dense_cols])
         try:
-            if _orth_mi_gpu_enabled():
+            if _orth_mi_gpu_enabled(n=int(_n), p=int(dense_cols.size)):
                 # Full-residency GPU path -> the FE batcher: VRAM-budget column-chunked, CP-SAT-packed across
                 # heterogeneous GPUs (multi_gpu_fe_batch_mi collapses to one device on a 1-GPU host). Same
                 # resident edge-binned plug-in MI as the prior direct _plugin_mi_classif_batch_cuda_resident
@@ -306,7 +309,7 @@ def _mi_classif_batch(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, rank_bin
     try:
         from .._fe_gpu_strict import fe_gpu_strict_enabled
 
-        if fe_gpu_strict_enabled():
+        if fe_gpu_strict_enabled(n=int(X.shape[0]), p=int(X.shape[1]) if X.ndim > 1 else 1):
             import cupy as cp
 
             from ..hermite_fe import _plugin_mi_classif_batch_cuda_resident

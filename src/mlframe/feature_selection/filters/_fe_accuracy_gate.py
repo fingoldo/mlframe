@@ -32,6 +32,29 @@ logger = logging.getLogger(__name__)
 # Minimum held-out score uplift (engineered over its raw source) to keep a candidate. Set just above the variance-reduced CV noise floor: with 10-fold averaging the per-column noise band is ~+-0.015, so this separates pure-noise / redundant columns (~0) from real signal while a genuine win clears it by an order of magnitude (~0.4).
 _FE_UPLIFT_MIN: float = 0.015
 
+# Content-keyed cache of the per-fold X_base-only CV scores (the ``_score(X_base)`` baseline).
+# Several engineered SIBLINGS derived from the SAME raw source (x__He2, x__He3, x__T2, x__L2,
+# ...) call ``measure_feature_uplift`` with an IDENTICAL X_base/y/seed -- the baseline is
+# deterministic (same KFold/StratifiedKFold split given the same seed) and was being refit
+# from scratch for every sibling. Keyed on the exact inputs that determine the split + the
+# baseline fit (X_base bytes, y bytes, classification, n_splits, seed); bounded FIFO like
+# ``_INFER_CLS_MEMO`` above.
+_BASELINE_CV_MEMO: dict = {}
+_BASELINE_CV_MEMO_MAXSIZE = 64
+
+
+def _baseline_cv_key(X_base: np.ndarray, y: np.ndarray, *, classification: bool, n_splits: int, seed: int):
+    """Content-hash cache key for the ``X_base``-only CV baseline, or ``None`` when the
+    inputs cannot be hashed cheaply (falls back to always recomputing -- never crashes)."""
+    try:
+        return (
+            X_base.shape, hash(X_base.tobytes()),
+            y.shape, hash(y.tobytes()),
+            bool(classification), int(n_splits), int(seed),
+        )
+    except Exception:
+        return None
+
 
 def measure_feature_uplift(
     X_base: np.ndarray,
@@ -88,7 +111,14 @@ def measure_feature_uplift(
         split_iter = KFold(n_splits=n_splits, shuffle=True, random_state=seed).split(X_base)
 
     deltas = []
+    # Siblings derived from the SAME raw source share an IDENTICAL X_base/y_enc/seed, so the
+    # X_base-only baseline CV score is deterministic across sibling calls -- cache it keyed on
+    # the exact content that determines the split + fit (see ``_baseline_cv_key``).
+    _bkey = _baseline_cv_key(X_base, y_enc, classification=classification, n_splits=n_splits, seed=seed)
+    _bcache = _BASELINE_CV_MEMO.get(_bkey) if _bkey is not None else None
+    _base_scores: list[float] = []
     try:
+        _fold_i = 0
         for tr, va in split_iter:
             if classification and np.unique(y_enc[tr]).size < 2:
                 continue
@@ -110,12 +140,23 @@ def measure_feature_uplift(
                 m.fit(Xt, y_enc[tr])
                 return fast_r2_score(y_enc[va], m.predict(Xv))
 
-            deltas.append(_score(X_aug) - _score(X_base))
+            aug_score = _score(X_aug)
+            if _bcache is not None and _fold_i < len(_bcache):
+                base_score = _bcache[_fold_i]
+            else:
+                base_score = _score(X_base)
+                _base_scores.append(base_score)
+            _fold_i += 1
+            deltas.append(aug_score - base_score)
     except Exception as exc:  # pragma: no cover - the probe must never break a fit
         logger.debug("measure_feature_uplift: probe failed (%s); fail-open (None)", exc)
         return None
     if not deltas:
         return None
+    if _bkey is not None and _bcache is None and _base_scores:
+        if len(_BASELINE_CV_MEMO) > _BASELINE_CV_MEMO_MAXSIZE:
+            _BASELINE_CV_MEMO.pop(next(iter(_BASELINE_CV_MEMO)))
+        _BASELINE_CV_MEMO[_bkey] = _base_scores
     return float(np.mean(deltas))
 
 

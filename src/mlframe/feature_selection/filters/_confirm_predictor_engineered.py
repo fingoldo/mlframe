@@ -9,6 +9,7 @@ state, so they live apart from the score/confirm bodies in ``_confirm_predictor`
 from __future__ import annotations
 
 import re
+from typing import Dict, List
 
 import numpy as np
 
@@ -248,13 +249,28 @@ def _confirmable_engineered_child(ctx, X, winner_idx, winner_gain, expected_gain
     selected = ctx.selected_vars or []
     band_floor = winner_gain * (1.0 - rel_eps)
 
+    # Precompute (once per candidates-pool identity, reused across every confirmed
+    # winner in this interactions_order) a parent_name -> [idx, ...] index so each
+    # winner only rescans the candidates that actually share its raw parent instead
+    # of the full pool (thousands of entries) via a regex/string match every time.
+    parent_index_cache = ctx._engineered_parent_index_cache
+    parent_index: Dict[str, List[int]]
+    if parent_index_cache is not None and parent_index_cache[0] is candidates:
+        parent_index = parent_index_cache[1]
+    else:
+        parent_index = {}
+        for idx, cand in enumerate(candidates):
+            p = _extract_single_raw_parent(cand, factors_names, raw_names)
+            if p is not None:
+                parent_index.setdefault(p, []).append(idx)
+        ctx._engineered_parent_index_cache = (candidates, parent_index)
+
     best_child = None  # (gain, idx, cand)
-    for idx, cand in enumerate(candidates):
+    for idx in parent_index.get(parent_name, ()):
+        cand = candidates[idx]
         if idx == winner_idx or idx in added or idx in failed:
             continue
         if any(sub in selected for sub in cand):
-            continue
-        if _extract_single_raw_parent(cand, factors_names, raw_names) != parent_name:
             continue
         g = float(expected_gains[idx]) if idx < len(expected_gains) else 0.0
         pg = partial_gains.get(idx)

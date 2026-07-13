@@ -330,26 +330,46 @@ def edges_optimal_joint(
         return edges_freedman_diaconis(x, base=base)
     rng = np.random.default_rng(random_state)
     fold_idx = rng.permutation(n) % n_splits
+    # LOOP ORDER (outer k, inner M): the pre-fix ``for M: for k:`` nesting recomputed the SAME
+    # train/val fold slices and re-quantized the SAME val_y (via _plug_in_mi's np.quantile call)
+    # once per (M, k) pair, even though neither depends on M. Swapping to outer-k makes the fold
+    # slice and val_y quantization happen ONCE per k and get reused across every candidate M, with
+    # the exact same per-(M, k) skip conditions and running per-M fold-score aggregation as before
+    # (only the ORDER the (M, k) cells are visited in changes, not which cells are skipped/scored).
+    fold_scores_by_M: "dict[int, list]" = {M: [] for M in candidates if M >= 2}
+    for k in range(n_splits):
+        train_mask = fold_idx != k
+        val_mask = ~train_mask
+        if val_mask.sum() < 4:
+            continue  # val-fold-too-small check does not depend on M -> applies to every M for this k
+        train_x = x[train_mask]
+        val_x, val_y = x[val_mask], y[val_mask]
+        n_train = int(train_mask.sum())
+        # val_y quantization (_plug_in_mi's np.quantile-based 10-bin regression target) depends only
+        # on val_y, not on M -> computed once per k and reused for every candidate M below.
+        val_y_b, K_y = _bin_y_for_mi(val_y)
+        for M in candidates:
+            if M < 2:
+                continue
+            if n_train < M:
+                continue
+            edges = _edges_from_quantiles(train_x, M) if base == "quantile" else _edges_from_uniform(train_x, M)
+            if edges.size == 0:
+                continue
+            binned_val_x = np.searchsorted(edges, val_x, side="right")
+            x_b = np.ascontiguousarray(binned_val_x.astype(np.int64), dtype=np.int64)
+            if x_b.size == 0 or val_y_b.size == 0:
+                mi = 0.0
+            else:
+                K_x = int(x_b.max()) + 1 if x_b.size else 1
+                mi = 0.0 if (K_x < 1 or K_y < 1) else float(_plug_in_mi_njit(x_b, val_y_b, K_x, K_y, False))
+            fold_scores_by_M[M].append(mi)
     best_score = -np.inf
     best_M = candidates[0]
     for M in candidates:
         if M < 2:
             continue
-        fold_scores = []
-        for k in range(n_splits):
-            train_mask = fold_idx != k
-            val_mask = ~train_mask
-            if train_mask.sum() < M or val_mask.sum() < 4:
-                continue
-            train_x = x[train_mask]
-            val_x, val_y = x[val_mask], y[val_mask]
-            edges = _edges_from_quantiles(train_x, M) if base == "quantile" else _edges_from_uniform(train_x, M)
-            if edges.size == 0:
-                continue
-            binned_val_x = np.searchsorted(edges, val_x, side="right")
-            # Plug-in MI estimation on val fold.
-            mi = _plug_in_mi(binned_val_x.astype(np.int64), val_y)
-            fold_scores.append(mi)
+        fold_scores = fold_scores_by_M.get(M, [])
         if fold_scores:
             mean_mi = float(np.mean(fold_scores))
             if mean_mi > best_score:
@@ -398,6 +418,28 @@ def _plug_in_mi_njit(x_binned: np.ndarray, y_b: np.ndarray, K_x: int, K_y: int, 
     return mi
 
 
+def _bin_y_for_mi(y: np.ndarray) -> "tuple[np.ndarray, int]":
+    """Quantize ``y`` to int class codes the way :func:`_plug_in_mi` does internally (10-quantile bins
+    for a non-integer/bool dtype, pass-through int codes otherwise). Factored out so a caller looping
+    the SAME ``y`` over multiple candidate x-binnings (:func:`edges_optimal_joint`) can quantize once
+    and reuse, instead of paying the ``np.quantile`` re-sort on every candidate.
+
+    Returns ``(y_b, K_y)`` with ``y_b`` empty when the quantization degenerates (constant/near-constant
+    y); the caller should then treat MI as 0.0, matching :func:`_plug_in_mi`'s degenerate-y behavior.
+    """
+    if y.dtype.kind not in "iub":
+        q = np.quantile(y.astype(np.float64), np.linspace(0, 1, 11))
+        q = np.unique(q)
+        if q.size < 2:
+            return np.zeros(0, dtype=np.int64), 0
+        y_b = np.searchsorted(q[1:-1], y.astype(np.float64), side="right").astype(np.int64)
+    else:
+        # ascontiguousarray (not astype) so an already-contiguous int64 code array is NOT re-copied every call.
+        y_b = np.ascontiguousarray(y, np.int64)
+    K_y = int(y_b.max()) + 1 if y_b.size else 1
+    return y_b, K_y
+
+
 def _plug_in_mi(x_binned: np.ndarray, y: np.ndarray, miller_madow: bool = False) -> float:
     """Plug-in MI estimator: I(X; Y) = H(X) + H(Y) - H(X, Y) on counts.
 
@@ -412,21 +454,10 @@ def _plug_in_mi(x_binned: np.ndarray, y: np.ndarray, miller_madow: bool = False)
     """
     if x_binned.size == 0:
         return 0.0
-    if y.dtype.kind not in "iub":
-        q = np.quantile(y.astype(np.float64), np.linspace(0, 1, 11))
-        q = np.unique(q)
-        if q.size < 2:
-            return 0.0
-        y_b = np.searchsorted(q[1:-1], y.astype(np.float64), side="right").astype(np.int64)
-    else:
-        # ascontiguousarray (not astype) so an already-contiguous int64 code array is NOT re-copied every call --
-        # callers pass int64 np.unique/factorize codes + a fixed int y_bin (e.g. _cat_triple scores 8 codes vs the
-        # SAME y_bin per triple), so the per-call astype copy was pure waste. njit still gets a contiguous int64 array.
-        y_b = np.ascontiguousarray(y, np.int64)
+    y_b, K_y = _bin_y_for_mi(y)
     x_b = np.ascontiguousarray(x_binned, np.int64)
     if x_b.size == 0 or y_b.size == 0:
         return 0.0
-    K_y = int(y_b.max()) + 1 if y_b.size else 1
     K_x = int(x_b.max()) + 1 if x_b.size else 1
     if K_x < 1 or K_y < 1:
         return 0.0
@@ -555,7 +586,13 @@ def per_feature_edges(
         path can run under a thread pool. Touches no shared state -> thread-safe.
         """
         _finite = col[np.isfinite(col)]
-        _uniq = np.unique(_finite) if _finite.size > 0 else np.empty(0, dtype=np.float64)
+        # return_counts=True up front so the rare sparse-dominance fallback below (which needs the
+        # per-value counts) reuses THIS array instead of re-running np.unique a second time.
+        if _finite.size > 0:
+            _uniq, _uniq_counts = np.unique(_finite, return_counts=True)
+        else:
+            _uniq = np.empty(0, dtype=np.float64)
+            _uniq_counts = np.empty(0, dtype=np.int64)
         if 1 < _uniq.size <= _low_card_cap:
             # Use midpoints between consecutive uniques as edges so
             # each unique value lands in its own bin.
@@ -643,7 +680,7 @@ def per_feature_edges(
         # explicitly and split into a separate-bin for the dominant
         # value + quantile bins on the non-dominant subset.
         if _finite.size >= 4 and (edges is None or (hasattr(edges, "size") and edges.size <= 1)):
-            _vals_sp, _counts_sp = np.unique(_finite, return_counts=True)
+            _vals_sp, _counts_sp = _uniq, _uniq_counts
             if _vals_sp.size >= 2:
                 _max_idx = int(_counts_sp.argmax())
                 _dom_frac = float(_counts_sp[_max_idx]) / float(_finite.size)

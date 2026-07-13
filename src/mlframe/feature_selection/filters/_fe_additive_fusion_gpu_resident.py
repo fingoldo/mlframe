@@ -124,7 +124,12 @@ def propose_additive_fusions_gpu(
     and every fused-pair sum/bin/MI/OLS-R run resident. Bounded host control-flow
     (the relevance-MI vector, the per-half/per-pair bin-code rows the floor +
     raw-subsumption probes consume, the scalar gate compares) mirrors the CPU
-    pre-pass's OWN host code arrays."""
+    pre-pass's OWN host code arrays.
+
+    A raw token can recur as an operand of multiple accepted fusions; ``resident_operand``
+    already dedupes its H2D upload by content, but the downstream quantile-binning of that
+    SAME resident array was still recomputed per recurrence -- ``_raw_bin_cache`` below
+    dedupes that too (keyed by raw column name, mirroring the CPU twin's ``_raw_bin_cache``)."""
     import cupy as cp
 
     from ._mi_greedy_cmi_fe import _cmi_from_binned
@@ -139,6 +144,7 @@ def propose_additive_fusions_gpu(
 
     _floor_margin = float(getattr(self, "fe_additive_fusion_floor_margin", 1.0))
     _max_fusions = int(getattr(self, "fe_additive_fusion_max", 4))
+    _raw_bin_cache: dict[str, tuple[Any, np.ndarray]] = {}
 
     # y codes (dense int) the MI primitives score against -- host preamble identical to the CPU path.
     _y = np.asarray(classes_y).ravel()
@@ -359,22 +365,28 @@ def propose_additive_fusions_gpu(
                     _rv = None
                 if _rv is None or _rv.shape[0] != n_rows:
                     continue
-                # Subsample the raw operand onto the SAME scoring rows as the fused child codes (``fvb`` is the
-                # subsampled fused sum) so the keep-probe's raw / child / y all share the strided sample -- the
-                # subsumption verdict is a wide-margin decision, selection-equivalent to the full-n probe.
-                _rv_sc = _rv[::_stride] if _stride > 1 else _rv
-                # The same raw token column recurs across accepted fusions -> content-keyed resident cache so it
-                # uploads once (H2D audit: 4x re-uploads). Read-only (binned below) -> selection-equivalent.
-                from ._fe_resident_operands import resident_operand
+                _cached = _raw_bin_cache.get(_rn)
+                if _cached is not None:
+                    _rvb_dev, _rvb = _cached
+                else:
+                    # Subsample the raw operand onto the SAME scoring rows as the fused child codes (``fvb`` is
+                    # the subsampled fused sum) so the keep-probe's raw / child / y all share the strided sample
+                    # -- the subsumption verdict is a wide-margin decision, selection-equivalent to the full-n probe.
+                    _rv_sc = _rv[::_stride] if _stride > 1 else _rv
+                    # The same raw token column recurs across accepted fusions -> content-keyed resident cache so it
+                    # uploads once (H2D audit: 4x re-uploads). Read-only (binned below) -> selection-equivalent.
+                    from ._fe_resident_operands import resident_operand
 
-                _rv_dev = resident_operand(np.nan_to_num(_rv_sc, nan=0.0, posinf=0.0, neginf=0.0), ("addfusion_rawprobe", _rn))  # 1 col, cached once
-                _rvb_dev, _kxr = _gpu_quantile_bin_codes(_rv_dev[None, :], qs)  # resident bin codes
-                _rvb = cp.asnumpy(_rvb_dev[0])  # probe-input D2H
+                    _rv_dev = resident_operand(np.nan_to_num(_rv_sc, nan=0.0, posinf=0.0, neginf=0.0), ("addfusion_rawprobe", _rn))  # 1 col, cached once
+                    _rvb_dev_full, _kxr = _gpu_quantile_bin_codes(_rv_dev[None, :], qs)  # resident bin codes
+                    _rvb_dev = _rvb_dev_full[0]
+                    _rvb = cp.asnumpy(_rvb_dev)  # probe-input D2H
+                    _raw_bin_cache[_rn] = (_rvb_dev, _rvb)
                 # Hand the probe the RESIDENT raw candidate + fused-child codes so its conditioning support is
                 # built DEVICE-BORN (no cmi_z / order/z_rank H2D); the host copies stay the fallback.
                 _retains = raw_retains_signal_given_genuine_children(
                     raw_bin=_rvb, y_bin=y_dense_sc, genuine_child_bins=[fvb], seed=seed,
-                    raw_bin_dev=_rvb_dev[0], genuine_child_bins_dev=[fvb_dev],
+                    raw_bin_dev=_rvb_dev, genuine_child_bins_dev=[fvb_dev],
                 )
                 if not _retains:
                     subsumed_raws.add(_rn)

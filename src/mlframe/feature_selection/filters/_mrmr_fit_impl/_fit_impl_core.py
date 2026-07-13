@@ -8613,12 +8613,29 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # the main sweep kept is not re-dropped by the stricter post-retention margin).
     _retention_added_eng_names: set = set()
     if fe_max_steps > 0:
+        # SHARED RETENTION PREP: both retain_usable_pure_forms and retain_usable_raw_columns below
+        # independently rebuild the same numeric-dtype base_names filter, std-trim-to-max_base_features,
+        # and (same seed) row subsample from this SAME (X, y_cont) -- computed once here and passed to
+        # both so the identical-seed X.iloc[_idx] draw is materialized once, not twice, per fit.
+        _retention_prep_cache = None
+        try:
+            import pandas as _ret_pd
+            from .._fe_pure_form_retention import _retention_prep as _ret_prep_fn
+
+            _ret_y_prep = getattr(self, "_fe_prewarp_y_continuous_", None)
+            if isinstance(X, _ret_pd.DataFrame) and _ret_y_prep is not None:
+                _retention_prep_cache = _ret_prep_fn(
+                    self, X, _ret_y_prep, seed=int(getattr(self, "random_seed", 0) or 0),
+                )
+        except Exception:
+            _retention_prep_cache = None
         try:
             from .._fe_pure_form_retention import retain_usable_pure_forms
 
             _retain_extra = retain_usable_pure_forms(
                 self, X, getattr(self, "_fe_prewarp_y_continuous_", None),
                 seed=int(getattr(self, "random_seed", 0) or 0), verbose=verbose,
+                _prep=_retention_prep_cache,
             )
             # ENGINEERED-SUBSUMPTION GUARD (2026-06-20). The pure-form retention runs AFTER the post-FE
             # engineered-vs-engineered CMI redundancy gate, so a re-attached pure form is never tested
@@ -8711,6 +8728,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             _raw_extra = retain_usable_raw_columns(
                 self, X, getattr(self, "_fe_prewarp_y_continuous_", None),
                 seed=int(getattr(self, "random_seed", 0) or 0), verbose=verbose,
+                _prep=_retention_prep_cache,
             )
             # CLUSTER-COLLAPSE EXCLUSION (2026-06-18). ``retain_usable_raw_columns`` ranks raws by
             # linear usability and is OBLIVIOUS to the cluster-aggregate / DCD redundancy collapse that

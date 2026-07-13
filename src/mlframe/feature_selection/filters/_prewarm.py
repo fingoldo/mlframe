@@ -15,12 +15,29 @@ from __future__ import annotations
 
 import numpy as np
 
+# Idempotency guards, mirroring ``_numba_warmup.warmup_typed_dict``'s ``_warmup_done`` pattern:
+# each prewarm does real (if per-kernel-swallowed) compile/load work, so a second call in the
+# same process should be a no-op rather than re-running the whole synthetic-input sweep.
+_fs_numba_prewarmed = False
+_fs_cupy_prewarmed = False
+
 
 def prewarm_fs_numba_cache(verbose: bool = False) -> None:
     """Trigger JIT compilation of feature_selection numba kernels.
 
     Safe to call from anywhere; no-op on numba-unavailable systems. Each kernel is exercised on a tiny synthetic input that matches its production signature.
+    Idempotent: a second call in the same process is a no-op (see ``_fs_numba_prewarmed``); the guard lives in this thin
+    wrapper so it doesn't add another branch to the already-complex sweep body below (``_prewarm_fs_numba_cache_impl``).
     """
+    global _fs_numba_prewarmed
+    if _fs_numba_prewarmed:
+        return
+    _fs_numba_prewarmed = True
+    _prewarm_fs_numba_cache_impl(verbose=verbose)
+
+
+def _prewarm_fs_numba_cache_impl(verbose: bool = False) -> None:
+    """The actual synthetic-input compile sweep; see ``prewarm_fs_numba_cache`` for the idempotent public entry point."""
     import time
     import logging
     _log = logging.getLogger(__name__)
@@ -391,9 +408,13 @@ def prewarm_fs_cupy_kernels(verbose: bool = False) -> None:
     moves the 1.65s out of the timed first-fit path. Subsequent fits hit the
     in-process CuPy module cache and pay zero.
 
-    No-op on CuPy-unavailable / no-CUDA hosts. Idempotent: the second call
-    completes in milliseconds because every kernel is already loaded.
+    No-op on CuPy-unavailable / no-CUDA hosts. Idempotent: a second call in the same process
+    returns immediately (see ``_fs_cupy_prewarmed``) rather than repeating the CUDA-side probes.
     """
+    global _fs_cupy_prewarmed
+    if _fs_cupy_prewarmed:
+        return
+    _fs_cupy_prewarmed = True
     import time
     import logging
     _log = logging.getLogger(__name__)

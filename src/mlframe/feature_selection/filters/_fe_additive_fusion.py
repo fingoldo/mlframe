@@ -251,6 +251,9 @@ def propose_additive_fusions(
     admitted: list[dict] = []
     subsumed: set = set()
     subsumed_raws: set = set()
+    # A recurring raw operand (shared across multiple admitted fusions) would otherwise be
+    # re-extracted and re-quantile-binned once per fusion below; cache by raw column name.
+    _raw_bin_cache: dict[str, np.ndarray] = {}
     used: set = set()  # half names already consumed by an admitted fusion
     existing_names = set(engineered_recipes) | {cols[i] for i in range(len(cols))}
 
@@ -369,15 +372,18 @@ def propose_additive_fusions(
             for _rn in (ha["tokens"] | hb["tokens"]):
                 if _rn in subsumed_raws:
                     continue
-                _rv = None
-                try:
-                    if hasattr(X, "columns") and _rn in getattr(X, "columns", []):
-                        _rv = np.asarray(X[_rn], dtype=np.float64).ravel()
-                except Exception:
+                _rvb = _raw_bin_cache.get(_rn)
+                if _rvb is None:
                     _rv = None
-                if _rv is None or _rv.shape[0] != n_rows:
-                    continue
-                _rvb = _quantile_bin(np.nan_to_num(_rv, nan=0.0, posinf=0.0, neginf=0.0), nbins=int(nbins))
+                    try:
+                        if hasattr(X, "columns") and _rn in getattr(X, "columns", []):
+                            _rv = np.asarray(X[_rn], dtype=np.float64).ravel()
+                    except Exception:
+                        _rv = None
+                    if _rv is None or _rv.shape[0] != n_rows:
+                        continue
+                    _rvb = _quantile_bin(np.nan_to_num(_rv, nan=0.0, posinf=0.0, neginf=0.0), nbins=int(nbins))
+                    _raw_bin_cache[_rn] = _rvb
                 _retains = raw_retains_signal_given_genuine_children(
                     raw_bin=_rvb, y_bin=y_dense, genuine_child_bins=[fvb], seed=seed,
                 )

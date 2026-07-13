@@ -120,7 +120,7 @@ def shufflegen_use_gpu(n: int, nperm: int) -> bool:
     # fallback if VRAM is short, so this never crashes. Verified F2 selection unchanged.
     try:
         from ._fe_gpu_strict import fe_gpu_strict_enabled
-        if fe_gpu_strict_enabled():
+        if fe_gpu_strict_enabled(n=int(n)):
             return True
     except Exception:  # nosec B110 - optional dependency import guard
         pass

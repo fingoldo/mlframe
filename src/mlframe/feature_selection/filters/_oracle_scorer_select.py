@@ -43,6 +43,7 @@ unchanged; ``"auto_oracle"`` is the new unified path.
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any, Mapping, Optional, Sequence
 
 import numpy as np
@@ -76,6 +77,38 @@ ORACLE_SCORER_NAMES = (
 # keyed in the oracle store. A single key means cold-start rules, the
 # bake-off, and the learned posterior all share one history namespace.
 ORACLE_FN_NAME = "orth_scorer_select"
+
+# Module-level (file-path, mtime) -> rows cache for ``_learned_scorer``'s ``store.read_rows()`` call.
+# The store is append-only parquet re-read+re-parsed from disk on EVERY ``recommend_scorer`` call
+# (finding 6, Wave 13) even though it only changes when the oracle appends a new observation (rare
+# relative to recommend-calls). Keying on mtime means a write invalidates the cache for free (no
+# explicit invalidation needed) while a read-only burst of calls between writes hits the cache. Small
+# LRU-ish cap so a long-lived process cycling through many distinct store paths does not grow unbounded.
+_ROWS_CACHE: "dict[tuple[str, float], list[dict]]" = {}
+_ROWS_CACHE_MAX = 8
+
+
+def _cached_read_rows(store: Any) -> "list[dict]":
+    """Read ``store``'s rows, cached by ``(store._path, mtime)`` so a burst of ``recommend_scorer``
+    calls between oracle writes re-parses the parquet file once instead of on every call. Falls back
+    to the uncached ``store.read_rows()`` for any store lacking a ``_path`` (defensive; the production
+    ``_ParquetStore`` always has one) or on any stat/cache-bookkeeping failure."""
+    path = getattr(store, "_path", None)
+    if path is None:
+        return list(store.read_rows())
+    try:
+        mtime = os.path.getmtime(path) if os.path.isfile(path) else -1.0
+    except OSError:
+        return list(store.read_rows())
+    key = (path, mtime)
+    cached = _ROWS_CACHE.get(key)
+    if cached is not None:
+        return cached
+    rows: "list[dict]" = list(store.read_rows())
+    if len(_ROWS_CACHE) >= _ROWS_CACHE_MAX:
+        _ROWS_CACHE.pop(next(iter(_ROWS_CACHE)))  # evict oldest (insertion order)
+    _ROWS_CACHE[key] = rows
+    return rows
 
 
 def _quality_objective(output: Any, elapsed_s: float, rss_delta_mb):
@@ -175,7 +208,7 @@ class OracleScorerSelector:
         cold-start cascade instead of an over-eager global best. So we read
         the exact-bucket rows directly and apply only the confidence gate.
         """
-        rows = [r for r in self.oracle.store.read_rows() if r.get("fn_name") == ORACLE_FN_NAME and r.get("host") == self.oracle.host]
+        rows = [r for r in _cached_read_rows(self.oracle.store) if r.get("fn_name") == ORACLE_FN_NAME and r.get("host") == self.oracle.host]
         if not rows:
             return None
         from mlframe.utils import stable_json

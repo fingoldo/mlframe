@@ -27,7 +27,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from timeit import default_timer as timer
-from typing import Sequence
+from typing import List, Optional, Sequence, Tuple, cast
 
 import numba
 import numpy as np
@@ -125,6 +125,13 @@ class ScreenContext:
     cached_jmim_MIs: object = None
     jmim_hit_counter: object = None
     entropy_cache: object = None
+    # 2026-07-13 (Wave 13 finding 1): (candidates, cand_names, name_rank) tuple cached across the
+    # ~100-150 confirm_one_predictor calls per interactions_order -- the pool (``ctx.candidates``,
+    # thousands of entries) is reassigned only once per order, so the identity check below is exact.
+    _name_rank_cache: object = None
+    # 2026-07-13 (Wave 13 finding 2): (candidates, {parent_name: [idx, ...]}) index cached the same
+    # way, for ``_confirmable_engineered_child``'s per-winner parent-name rescan (prefer_engineered_rel_eps path).
+    _engineered_parent_index_cache: object = None
     # --- per-interactions-order / per-node mutable state ---
     # These five are ALWAYS populated by the orchestrator before use (never read as None at
     # runtime); ``None`` is only a dataclass placeholder default (a required-after-defaulted-
@@ -715,10 +722,15 @@ def confirm_one_predictor(
     # reproducible at n=400 AND n=25000). Tie-break instead on the candidate's
     # NAME, which is invariant under column reordering; rank gives a stable,
     # contiguous integer key for ``np.lexsort``.
-    _cand_names = [get_candidate_name(c, factors_names=factors_names) for c in candidates]
-    _name_rank = np.empty(len(candidates), dtype=np.int64)
-    for _rank, _pos in enumerate(sorted(range(len(_cand_names)), key=lambda i: _cand_names[i])):
-        _name_rank[_pos] = _rank
+    _rank_cache = cast(Optional[Tuple[list, List[str], np.ndarray]], ctx._name_rank_cache)
+    if _rank_cache is not None and _rank_cache[0] is candidates:
+        _cand_names, _name_rank = _rank_cache[1], _rank_cache[2]
+    else:
+        _cand_names = [get_candidate_name(c, factors_names=factors_names) for c in candidates]
+        _name_rank = np.empty(len(candidates), dtype=np.int64)
+        for _rank, _pos in enumerate(sorted(range(len(_cand_names)), key=lambda i: _cand_names[i])):
+            _name_rank[_pos] = _rank
+        ctx._name_rank_cache = (candidates, _cand_names, _name_rank)
 
     while True:  # confirmation loop (by random permutations)
 

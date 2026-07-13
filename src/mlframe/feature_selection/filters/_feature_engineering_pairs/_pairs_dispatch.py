@@ -246,7 +246,7 @@ def _dispatch_batch_mi_with_noise_gate(
     # still wins); a no-op without CUDA. Any GPU failure still falls through to the CPU njit kernel below.
     try:
         from .._fe_gpu_strict import fe_gpu_strict_enabled
-        if fe_gpu_strict_enabled():
+        if fe_gpu_strict_enabled(n=int(n), p=int(K)):
             backend = "gpu"
     except Exception:  # nosec B110 - optional dependency import guard
         pass

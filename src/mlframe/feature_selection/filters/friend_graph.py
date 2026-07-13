@@ -225,7 +225,7 @@ def _apply_edge_floor(m, a, b, factors_nbins, n_samples, mi_eps=1e-6, edge_signi
     return m if m > floor else None
 
 
-def neighbor_unique_target(factors_data, i, neighbor_indices, target, rel_i, factors_nbins, dtype=np.int32):
+def neighbor_unique_target(factors_data, i, neighbor_indices, target, rel_i, factors_nbins, dtype=np.int32, cached_MIs: Optional[dict] = None):
     """Sum_j I(Y; X_j | X_i) over neighbors via the chain rule ``I((X_i,X_j);Y) - I(X_i;Y)``.
 
     Returns ``(total_unique, [(j, cmi_raw), ...])``. Large total => neighbors carry target info beyond X_i
@@ -237,11 +237,23 @@ def neighbor_unique_target(factors_data, i, neighbor_indices, target, rel_i, fac
     for the red-flag comparison, which must be a non-negative "how much extra do the friends know" quantity. Previously the per-neighbor value was clamped too, which
     silently zeroed every noisy-but-real positive neighbor and could leave a red node flagged-but-unprunable (no justifier survived the clamp); keeping the raw sign in
     ``detail`` lets ``prune_by_friend_graph`` recognise a weakly-positive justifier instead of discarding it.
+
+    ``cached_MIs`` (optional, keyed by the order-independent ``(min(i,j), max(i,j))`` pair): the joint
+    ``I((X_i,X_j);Y)`` is symmetric in ``i``/``j``, so when the caller iterates suspects and both ``i``
+    and ``j`` are suspects that are each other's neighbors, this value is computed twice (once per side)
+    without the cache. Threading a dict shared across the caller's suspect loop makes the second side a
+    lookup instead of a recompute -- bit-identical (same ``mi()`` value, just reused).
     """
     detail: List[Tuple[int, float]] = []
     total_unique = 0.0
     for j in neighbor_indices:
-        joint = float(mi(factors_data, np.array([i, j], dtype=np.int64), target, factors_nbins, dtype=dtype))
+        key = (i, j) if i <= j else (j, i)
+        if cached_MIs is not None and key in cached_MIs:
+            joint = cached_MIs[key]
+        else:
+            joint = float(mi(factors_data, np.array([i, j], dtype=np.int64), target, factors_nbins, dtype=dtype))
+            if cached_MIs is not None:
+                cached_MIs[key] = joint
         cmi = joint - rel_i
         detail.append((int(j), cmi))
         total_unique += max(0.0, cmi)
@@ -440,6 +452,10 @@ def build_friend_graph(
     for _t in np.asarray(target, dtype=np.int64).ravel():
         n_y_card *= int(factors_nbins[int(_t)])
     n_y_card = max(2, n_y_card)
+    # Shared across the whole suspect loop: I((X_i,X_j);Y) is symmetric, so when both i and j are
+    # suspects and neighbors of each other this cache turns the second side's computation into a
+    # lookup instead of a full mi() recompute (see neighbor_unique_target docstring).
+    _joint_mi_cache: dict = {}
     for i in sel:
         if edges_skipped:
             klass[i] = "yellow"
@@ -449,9 +465,14 @@ def build_friend_graph(
         degree = len(neighbors[i])
         if degree >= garbage_min_degree:
             # sum_j I(Y; X_j | X_i) via the chain rule (shared helper).
-            total_unique, detail = neighbor_unique_target(factors_data, i, [j for j, _m in neighbors[i]], target, rel[i], factors_nbins, dtype=dtype)
+            total_unique, detail = neighbor_unique_target(
+                factors_data, i, [j for j, _m in neighbors[i]], target, rel[i], factors_nbins, dtype=dtype, cached_MIs=_joint_mi_cache,
+            )
             neighbors_unique[i] = total_unique
             graph._neighbor_unique_detail[i] = detail
+            # detail is built in the same order as neighbors[i] two lines above; index it once here
+            # instead of a linear next(...) scan per neighbor below (O(degree) instead of O(degree^2)).
+            detail_by_j = {jj: c for jj, c in detail}
             # F3 finite-sample debias: the red-flag compares ``total_unique`` (a SUM of ``degree`` chain-rule CMIs, each carrying the upward plug-in bias of a 2-variable
             # joint MI ~ (n_i*n_j-1)(n_y-1)/(2n)) against ``rel[i]`` (a single 1-variable MI, bias ~ (n_i-1)(n_y-1)/(2n)). Comparing the inflated multi-term sum against the
             # less-inflated single term tilts the decision toward flagging high-cardinality nodes red purely from bias, flipping which features ``prune_by_friend_graph``
@@ -462,7 +483,7 @@ def build_friend_graph(
             for j, _m in neighbors[i]:
                 n_j = int(factors_nbins[j])
                 cmi_bias = (n_i * n_j - 1 - (n_i - 1)) * (n_y_card - 1) / (2.0 * n_samples_garbage)
-                idx_cmi = next((c for jj, c in detail if jj == int(j)), 0.0)
+                idx_cmi = detail_by_j.get(int(j), 0.0)
                 total_unique_db += max(0.0, idx_cmi - cmi_bias)
             rel_i_db = max(0.0, rel[i] - (n_i - 1) * (n_y_card - 1) / (2.0 * n_samples_garbage))
             if total_unique_db > max(mi_eps, garbage_unique_ratio * rel_i_db):

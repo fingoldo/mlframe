@@ -217,7 +217,7 @@ def apply_rung_schedule(
         # never cut blindly. Byte-identical flat sweep.
         return prospective_pairs, info
 
-    ranked = sorted(keys, key=_pm, reverse=True)
+    ranked = [k for _, k in sorted(zip(pms, keys), key=lambda pk: pk[0], reverse=True)]
     keep_n = max(1, round(n_pairs * keep_frac))
     floor_val = rel_floor * max_pm
     kept_set = set(ranked[:keep_n])

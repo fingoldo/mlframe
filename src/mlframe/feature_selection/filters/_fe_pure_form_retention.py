@@ -44,6 +44,57 @@ def _gpu_usability_on() -> bool:
         return False
 
 
+def _retention_prep(
+    mrmr: Any,
+    X: Any,
+    y_cont: "np.ndarray | None",
+    *,
+    seed: int = 0,
+    max_base_features: int = 14,
+    max_rows: int = 3000,
+    is_clf: "bool | None" = None,
+) -> "dict[str, Any]":
+    """Shared numeric-dtype ``base_names`` filter + std-based trim-to-``max_base_features`` + seeded
+    row-subsample-to-``max_rows`` for :func:`retain_usable_pure_forms` and :func:`retain_usable_raw_columns`.
+
+    Both callers run this SAME prep independently on the SAME ``(X, y_cont)`` from the identical call
+    site (same ``seed`` -> the identical row draw ``_idx``), so ``X.iloc[_idx]`` was being copied twice
+    per fit. Call once at the shared call site and pass the result into both functions via their
+    ``_prep`` kwarg; each function still recomputes internally when ``_prep`` is None (standalone /
+    test call), so the public API and behavior of each is unchanged when called alone.
+    """
+    import pandas as pd
+
+    feat_in = list(getattr(mrmr, "feature_names_in_", []))
+    base_names = [nm for nm in feat_in if nm in X.columns and pd.api.types.is_numeric_dtype(X[nm].dtype)]
+    base_names_trimmed = base_names
+    if len(base_names) > max_base_features:
+        stds = {nm: float(np.nanstd(X[nm].to_numpy())) for nm in base_names}
+        base_names_trimmed = sorted(base_names, key=lambda nm: -stds.get(nm, 0.0))[:max_base_features]
+
+    X_fit, y_fit = X, y_cont
+    n_rows = len(X)
+    if n_rows > max_rows and y_cont is not None:
+        if is_clf is None:
+            from ._fe_accuracy_gate import infer_classification
+            is_clf = bool(infer_classification(y_cont))
+        _rng = np.random.default_rng(int(seed))
+        from ._fe_subsample import _resolve_fe_subsample_stratify, stratified_subsample_idx
+        if _resolve_fe_subsample_stratify(getattr(mrmr, "fe_subsample_stratify", None), y_cont, is_clf=is_clf):
+            _idx = stratified_subsample_idx(_rng, y_cont, int(max_rows), is_clf=is_clf)
+        else:
+            _idx = np.sort(_rng.choice(n_rows, size=max_rows, replace=False))
+        X_fit = X.iloc[_idx]
+        y_fit = y_cont[_idx]
+    return {
+        "base_names": base_names,
+        "base_names_trimmed": base_names_trimmed,
+        "X_fit": X_fit,
+        "y_fit": y_fit,
+        "is_clf": is_clf,
+    }
+
+
 def retain_usable_pure_forms(
     mrmr: Any,
     X: Any,
@@ -58,6 +109,7 @@ def retain_usable_pure_forms(
     min_resid_frac: float = 0.10,
     min_resid_corr: float = 0.08,
     verbose: int = 0,
+    _prep: "dict[str, Any] | None" = None,
 ):
     """Return ``[(recipe, name), ...]`` of PURE single-pair engineered forms to ADD to
     ``mrmr._engineered_recipes_`` so a linearly-usable pair interaction the MI greedy left trapped
@@ -148,7 +200,9 @@ def retain_usable_pure_forms(
 
         # Base operands: numeric raw columns only (the usability pool builds pair forms over these).
         # feature_names_in_ is an ndarray; "or []" would test truthiness and raise on a multi-element array.
-        base_names = [nm for nm in list(getattr(mrmr, "feature_names_in_", [])) if nm in X.columns and pd.api.types.is_numeric_dtype(X[nm].dtype)]
+        base_names = _prep["base_names"] if _prep is not None else [
+            nm for nm in list(getattr(mrmr, "feature_names_in_", [])) if nm in X.columns and pd.api.types.is_numeric_dtype(X[nm].dtype)
+        ]
         if len(base_names) < 2:
             return []
 
@@ -256,29 +310,35 @@ def retain_usable_pure_forms(
             pass  # gate is an optimisation; on any failure fall through to the (correct) full path
 
         # Scope wide frames: keep the highest-variance base operands so the O(pairs) pool stays bounded
-        # (the usability pool itself also caps pairs, but trimming here bounds its input).
-        if len(base_names) > max_base_features:
-            stds = {nm: float(np.nanstd(X[nm].to_numpy())) for nm in base_names}
-            base_names = sorted(base_names, key=lambda nm: -stds.get(nm, 0.0))[:max_base_features]
+        # (the usability pool itself also caps pairs, but trimming here bounds its input). ROW SUBSAMPLE
+        # for the pool build + CV greedy: recovering WHICH pure pair forms are linearly usable is a
+        # representative-sample question, and the chosen form is a replayable recipe whose quantile edges
+        # from a subsample track the full-column edges closely. Bounds the O(pool*folds) CV cost so the
+        # retention does not blow the per-fit budget at large n. Shared with ``retain_usable_raw_columns``
+        # via ``_prep`` (same seed -> same draw) when the call site precomputes it; falls back to the
+        # identical inline computation for a standalone call (e.g. unit tests).
+        if _prep is not None:
+            base_names = _prep["base_names_trimmed"]
+            X_fit, y_fit = _prep["X_fit"], _prep["y_fit"]
+        else:
+            if len(base_names) > max_base_features:
+                stds = {nm: float(np.nanstd(X[nm].to_numpy())) for nm in base_names}
+                base_names = sorted(base_names, key=lambda nm: -stds.get(nm, 0.0))[:max_base_features]
 
-        # ROW SUBSAMPLE for the pool build + CV greedy: recovering WHICH pure pair forms are linearly
-        # usable is a representative-sample question, and the chosen form is a replayable recipe whose
-        # quantile edges from a 5k subsample track the full-column edges closely. Bounds the O(pool*folds)
-        # CV cost so the retention does not blow the per-fit budget at large n (the nsweep's n=50k cells).
-        X_fit, y_fit = X, y_cont
-        n_rows = len(X)
-        if n_rows > max_rows:
-            _rng = np.random.default_rng(int(seed))
-            # R1: stratify the pool/CV row subsample on the target when the MRMR knob resolves ON
-            # (per-class for classification, y-quantile for regression) so a rare class / target tail
-            # is not dropped from the linear-usability recovery. Default-OFF path is byte-identical.
-            from ._fe_subsample import _resolve_fe_subsample_stratify, stratified_subsample_idx
-            if _resolve_fe_subsample_stratify(getattr(mrmr, "fe_subsample_stratify", None), y_cont, is_clf=is_clf):
-                _idx = stratified_subsample_idx(_rng, y_cont, int(max_rows), is_clf=is_clf)
-            else:
-                _idx = np.sort(_rng.choice(n_rows, size=max_rows, replace=False))
-            X_fit = X.iloc[_idx]
-            y_fit = y_cont[_idx]
+            X_fit, y_fit = X, y_cont
+            n_rows = len(X)
+            if n_rows > max_rows:
+                _rng = np.random.default_rng(int(seed))
+                # R1: stratify the pool/CV row subsample on the target when the MRMR knob resolves ON
+                # (per-class for classification, y-quantile for regression) so a rare class / target tail
+                # is not dropped from the linear-usability recovery. Default-OFF path is byte-identical.
+                from ._fe_subsample import _resolve_fe_subsample_stratify, stratified_subsample_idx
+                if _resolve_fe_subsample_stratify(getattr(mrmr, "fe_subsample_stratify", None), y_cont, is_clf=is_clf):
+                    _idx = stratified_subsample_idx(_rng, y_cont, int(max_rows), is_clf=is_clf)
+                else:
+                    _idx = np.sort(_rng.choice(n_rows, size=max_rows, replace=False))
+                X_fit = X.iloc[_idx]
+                y_fit = y_cont[_idx]
 
         from ._usability_aware_selection import (
             build_usability_candidate_pool, usability_greedy, _f64, _scrub,
@@ -314,7 +374,6 @@ def retain_usable_pure_forms(
         # with y -> kept; both holes -> rejected.
         from sklearn.linear_model import LinearRegression
         from sklearn.preprocessing import StandardScaler
-        from sklearn.pipeline import make_pipeline
 
         def _abscorr(u, v):
             """Absolute Pearson correlation between ``u`` and ``v``, returning 0.0 when either is (near-)constant to avoid a divide-by-zero."""
@@ -332,6 +391,13 @@ def retain_usable_pure_forms(
             xs = (x - x.mean()) / (x.std() + 1e-12)
             cols = [xs, xs * xs, xs * xs * xs, np.sign(xs) * np.sqrt(np.abs(xs)), np.sign(xs) * np.log1p(np.abs(xs)), 1.0 / (np.abs(xs) + 1.0)]
             return cols
+
+        # Cache the (nm_a, nm_b) additive-basis design matrix, ALREADY StandardScaler-transformed, keyed
+        # by the unordered operand pair: it depends only on (xa, xb), not on the per-candidate form
+        # values, yet _adds_nonlinear_value is called once per CANDIDATE and up to 8/3 candidates can
+        # share the same pair -- rebuilding + refitting the scaler from scratch each time was pure waste.
+        # Only the OLS leg (which fits the candidate-specific target) still runs per candidate.
+        _basis_cache: "dict[frozenset, np.ndarray]" = {}
 
         # min_resid_frac / min_resid_corr are exposed as tunable kwargs (default 0.10 / 0.08). bench-attempt-rejected (qual-23, 2026-06-18): lowering
         # min_resid_corr 0.08 -> 0.05 to recover weak-but-relevant joint forms is a DEAD KNOB at tractable scale -- on every synthetic tried (weak-joint
@@ -363,9 +429,14 @@ def retain_usable_pure_forms(
                     except Exception:
                         resid = None
                 if resid is None:
-                    Xr = np.column_stack(_single_operand_basis(xa) + _single_operand_basis(xb))
-                    lr = make_pipeline(StandardScaler(), LinearRegression()).fit(Xr, fv)
-                    resid = fv - lr.predict(Xr)
+                    _pair_key = frozenset((nm_a, nm_b))
+                    Xr_scaled = _basis_cache.get(_pair_key)
+                    if Xr_scaled is None:
+                        Xr = np.column_stack(_single_operand_basis(xa) + _single_operand_basis(xb))
+                        Xr_scaled = StandardScaler().fit_transform(Xr)
+                        _basis_cache[_pair_key] = Xr_scaled
+                    lr = LinearRegression().fit(Xr_scaled, fv)
+                    resid = fv - lr.predict(Xr_scaled)
                 # (a) the form must be genuinely NON-separable in its operands (rejects a linear sum AND a
                 #     separable cross-pair sum-of-single-operand-nonlinearities).
                 if float(np.std(resid)) < min_resid_frac * f_std:
@@ -503,6 +574,7 @@ def retain_usable_raw_columns(
     max_base_features: int = 14,
     max_rows: int = 3000,
     verbose: int = 0,
+    _prep: "dict[str, Any] | None" = None,
 ):
     """Return ``[raw_name, ...]`` of RAW columns the MI greedy dropped from ``support_`` even though a
     CROSS-VALIDATED LINEAR wrapper confirms they carry genuine linear-usable signal toward y.
@@ -550,26 +622,32 @@ def retain_usable_raw_columns(
         base_names = [nm for nm in feat_in if nm in X.columns and pd.api.types.is_numeric_dtype(X[nm].dtype)]
         if len(base_names) < 2:
             return []
-        if len(base_names) > max_base_features:
-            stds = {nm: float(np.nanstd(X[nm].to_numpy())) for nm in base_names}
-            base_names = sorted(base_names, key=lambda nm: -stds.get(nm, 0.0))[:max_base_features]
+        # Shared with ``retain_usable_pure_forms`` via ``_prep`` (same seed -> the same row draw) when
+        # the call site precomputes it; falls back to the identical inline computation standalone.
+        if _prep is not None:
+            base_names = _prep["base_names_trimmed"]
+            X_fit, y_fit = _prep["X_fit"], _prep["y_fit"]
+        else:
+            if len(base_names) > max_base_features:
+                stds = {nm: float(np.nanstd(X[nm].to_numpy())) for nm in base_names}
+                base_names = sorted(base_names, key=lambda nm: -stds.get(nm, 0.0))[:max_base_features]
 
-        X_fit, y_fit = X, y_cont
-        n_rows = len(X)
-        if n_rows > max_rows:
-            _rng = np.random.default_rng(int(seed))
-            # R1: stratify the raw-passthrough row subsample on the target when the MRMR knob resolves
-            # ON. is_clf is detected locally (this probe otherwise treats y as continuous). Default-OFF
-            # path is byte-identical to the legacy uniform draw.
-            from ._fe_accuracy_gate import infer_classification
-            from ._fe_subsample import _resolve_fe_subsample_stratify, stratified_subsample_idx
-            _is_clf = bool(infer_classification(y_cont))
-            if _resolve_fe_subsample_stratify(getattr(mrmr, "fe_subsample_stratify", None), y_cont, is_clf=_is_clf):
-                _idx = stratified_subsample_idx(_rng, y_cont, int(max_rows), is_clf=_is_clf)
-            else:
-                _idx = np.sort(_rng.choice(n_rows, size=max_rows, replace=False))
-            X_fit = X.iloc[_idx]
-            y_fit = y_cont[_idx]
+            X_fit, y_fit = X, y_cont
+            n_rows = len(X)
+            if n_rows > max_rows:
+                _rng = np.random.default_rng(int(seed))
+                # R1: stratify the raw-passthrough row subsample on the target when the MRMR knob resolves
+                # ON. is_clf is detected locally (this probe otherwise treats y as continuous). Default-OFF
+                # path is byte-identical to the legacy uniform draw.
+                from ._fe_accuracy_gate import infer_classification
+                from ._fe_subsample import _resolve_fe_subsample_stratify, stratified_subsample_idx
+                _is_clf = bool(infer_classification(y_cont))
+                if _resolve_fe_subsample_stratify(getattr(mrmr, "fe_subsample_stratify", None), y_cont, is_clf=_is_clf):
+                    _idx = stratified_subsample_idx(_rng, y_cont, int(max_rows), is_clf=_is_clf)
+                else:
+                    _idx = np.sort(_rng.choice(n_rows, size=max_rows, replace=False))
+                X_fit = X.iloc[_idx]
+                y_fit = y_cont[_idx]
 
         from ._usability_aware_selection import (
             build_usability_candidate_pool, usability_greedy, _scrub,

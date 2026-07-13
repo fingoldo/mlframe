@@ -23,6 +23,7 @@ Covers:
 * Target-rebin guard: the adaptive ``nbins_strategy`` (default mdlp) must never leave a
   degenerate self-referential encoding on a heavy-tailed CONTINUOUS target.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -63,13 +64,11 @@ def test_biz_val_escalation_recovers_inner_frequency_pair_and_replays():
     # ``_engineered_recipes_`` is a LIST of EngineeredRecipe (selected ones only).
     recipes = {r.name: r for r in (getattr(sel, "_engineered_recipes_", None) or [])}
     esc_names = [nm for nm in recipes if nm.startswith("esc_")]
-    assert esc_names, (
-        f"escalation must admit a richer-basis pair feature; recipes={list(recipes)}; "
-        f"info={getattr(sel, 'fe_escalation_info_', None)}"
-    )
+    assert esc_names, f"escalation must admit a richer-basis pair feature; recipes={list(recipes)}; " f"info={getattr(sel, 'fe_escalation_info_', None)}"
     # The detected z-space frequency must map back to ~3.7 rad on the raw x0 axis:
     # inner_freq = 2*pi*f_z / span.
     import orjson
+
     name = esc_names[0]
     extra = dict(recipes[name].extra)
     pp = orjson.loads(extra["prewarp_a_preprocess"])
@@ -101,13 +100,9 @@ def test_escalation_silent_when_library_capture_is_exact():
     sel = MRMR(verbose=0, random_seed=7)
     sel.fit(df, pd.Series(y, name="y"))
     recipes = {r.name: r for r in (getattr(sel, "_engineered_recipes_", None) or [])}
-    assert any(("x0" in nm and "x1" in nm) for nm in recipes), (
-        f"the exact library capture should be admitted+selected: {list(recipes)}"
-    )
+    assert any(("x0" in nm and "x1" in nm) for nm in recipes), f"the exact library capture should be admitted+selected: {list(recipes)}"
     for h in getattr(sel, "fe_escalation_history_", []) or []:
-        assert ("x0", "x1") not in (h.get("eligible_pairs") or []), (
-            "a COMPLETELY captured pair must never be escalated (leg-3 control)"
-        )
+        assert ("x0", "x1") not in (h.get("eligible_pairs") or []), "a COMPLETELY captured pair must never be escalated (leg-3 control)"
     assert not [nm for nm in recipes if nm.startswith("esc_")]
 
 
@@ -142,9 +137,7 @@ def test_biz_val_escalation_skips_complete_he3_capture():
     # leg-3 control): the continuous-y ALS makes the He3 capture complete, so the
     # (x0, x1) pair must NOT appear in any escalation round's eligible_pairs.
     for h in getattr(sel, "fe_escalation_history_", []) or []:
-        assert ("x0", "x1") not in (h.get("eligible_pairs") or []), (
-            "a COMPLETELY captured He3 pair must never be escalated"
-        )
+        assert ("x0", "x1") not in (h.get("eligible_pairs") or []), "a COMPLETELY captured He3 pair must never be escalated"
 
     Xt = rng.normal(size=(4000, 6))
     out = sel.transform(pd.DataFrame(Xt, columns=df.columns))
@@ -169,9 +162,7 @@ def test_biz_val_escalation_skips_complete_he3_capture():
     # No esc complement was needed for x0*x1; if one was admitted at all it must not
     # have been for the already-complete He3 pair.
     esc_cols = [c for c in out.columns if c.startswith("esc_") and ("x0" in c and "x1" in c)]
-    assert not esc_cols, (
-        f"no escalation complement should target the already-complete He3 pair: {esc_cols}"
-    )
+    assert not esc_cols, f"no escalation complement should target the already-complete He3 pair: {esc_cols}"
 
 
 # ---------------------------------------------------------------------------
@@ -201,14 +192,18 @@ def test_escalation_noise_control_zero_admissions():
         sel._fe_escalation_y_rank_ = rk / (n - 1)
         failed = [((i, j), 0.01) for i, j in combinations(range(p), 2)]
         admitted = run_fe_auto_escalation(
-            sel, failed_pairs=failed, X=X, cols=list(X.columns), classes_y=classes_y,
-            pair_maxt_floor=0.0, admitted_pool={}, verbose=0,
+            sel,
+            failed_pairs=failed,
+            X=X,
+            cols=list(X.columns),
+            classes_y=classes_y,
+            pair_maxt_floor=0.0,
+            admitted_pool={},
+            verbose=0,
         )
         total_admitted += len(admitted)
         total_proposed += sel.fe_escalation_info_["proposed"]
-    assert total_admitted == 0, (
-        f"noise control violated: {total_admitted} admitted, {total_proposed} proposed"
-    )
+    assert total_admitted == 0, f"noise control violated: {total_admitted} admitted, {total_proposed} proposed"
 
 
 # ---------------------------------------------------------------------------
@@ -219,7 +214,8 @@ def test_escalation_noise_control_zero_admissions():
 @pytest.mark.parametrize("arg", ["linear", "quadratic"])
 def test_fourier_adaptive_prewarp_replay_bit_identical(arg):
     from mlframe.feature_selection.filters.engineered_recipes import (
-        _apply_unary_binary, build_unary_binary_recipe,
+        _apply_unary_binary,
+        build_unary_binary_recipe,
     )
     from mlframe.feature_selection.filters.hermite_fe import apply_operand_prewarp
 
@@ -227,33 +223,37 @@ def test_fourier_adaptive_prewarp_replay_bit_identical(arg):
     x = rng.normal(size=1000)
     m = rng.normal(size=1000)
     if arg == "linear":
-        pp = {"arg": "linear", "lo": float(x.min()), "span": float(x.max() - x.min()),
-              "freqs": [3.925, 1.5]}
+        pp = {"arg": "linear", "lo": float(x.min()), "span": float(x.max() - x.min()), "freqs": [3.925, 1.5]}
     else:
         z = (x - x.mean()) / x.std()
         u = np.sign(z) * z * z
-        pp = {"arg": "quadratic", "mean": float(x.mean()), "std": float(x.std()),
-              "lo": float(u.min()), "span": float(u.max() - u.min()), "freqs": [5.0]}
+        pp = {"arg": "quadratic", "mean": float(x.mean()), "std": float(x.std()), "lo": float(u.min()), "span": float(u.max() - u.min()), "freqs": [5.0]}
     coef = np.asarray([0.7, -0.3, 0.2, 0.1][: 2 * len(pp["freqs"])], dtype=np.float64)
-    spec_w = {"basis": "fourier_adaptive", "degree": len(pp["freqs"]), "coef": coef,
-              "preprocess": pp}
+    spec_w = {"basis": "fourier_adaptive", "degree": len(pp["freqs"]), "coef": coef, "preprocess": pp}
     warped = apply_operand_prewarp(x, spec_w)
     assert np.all(np.isfinite(warped)) and float(np.std(warped)) > 0
 
     # Identity mate spec (chebyshev degree-1 coef [0,1]).
     from mlframe.feature_selection.filters.hermite_fe import _POLY_BASES
+
     _, mp = _POLY_BASES["chebyshev"]["fit"](m)
-    spec_m = {"basis": "chebyshev", "degree": 1,
-              "coef": np.asarray([0.0, 1.0]), "preprocess": dict(mp)}
-    fit_vals = np.nan_to_num(warped * apply_operand_prewarp(m, spec_m),
-                             nan=0.0, posinf=0.0, neginf=0.0)
+    spec_m = {"basis": "chebyshev", "degree": 1, "coef": np.asarray([0.0, 1.0]), "preprocess": dict(mp)}
+    fit_vals = np.nan_to_num(warped * apply_operand_prewarp(m, spec_m), nan=0.0, posinf=0.0, neginf=0.0)
     recipe = build_unary_binary_recipe(
-        name=f"esc_test_{arg}", src_a_name="xa", src_b_name="xb",
-        unary_a_name="prewarp", unary_b_name="prewarp", binary_name="mul",
-        unary_preset="medium", binary_preset="minimal",
-        quantization_nbins=10, quantization_method="quantile",
-        quantization_dtype=np.int32, fit_values_for_edges=fit_vals,
-        prewarp_a=spec_w, prewarp_b=spec_m,
+        name=f"esc_test_{arg}",
+        src_a_name="xa",
+        src_b_name="xb",
+        unary_a_name="prewarp",
+        unary_b_name="prewarp",
+        binary_name="mul",
+        unary_preset="medium",
+        binary_preset="minimal",
+        quantization_nbins=10,
+        quantization_method="quantile",
+        quantization_dtype=np.int32,
+        fit_values_for_edges=fit_vals,
+        prewarp_a=spec_w,
+        prewarp_b=spec_m,
     )
     df = pd.DataFrame({"xa": x, "xb": m})
     replayed = _apply_unary_binary(recipe, df)
@@ -276,11 +276,12 @@ def test_escalation_poly_proposer_recovers_smooth_product_term():
 
     n = 8000
     rng = np.random.default_rng(0)
-    a = rng.normal(size=n); b = rng.normal(size=n)
+    a = rng.normal(size=n)
+    b = rng.normal(size=n)
     c = np.abs(rng.normal(size=n)) + 0.1
     d = rng.normal(size=n)
     f = rng.normal(size=n)
-    y = 0.2 * a ** 2 / b + f / 5 + np.log(c * 2) * np.sin(d / 3)
+    y = 0.2 * a**2 / b + f / 5 + np.log(c * 2) * np.sin(d / 3)
     X = pd.DataFrame({"a": a, "b": b, "c": c, "d": d, "f": f})
     classes_y = discretize_array(arr=y, n_bins=10, method="quantile", dtype=np.int32)
     sel = MRMR(verbose=0, random_seed=42)
@@ -288,8 +289,14 @@ def test_escalation_poly_proposer_recovers_smooth_product_term():
     rk = np.argsort(np.argsort(y, kind="stable"), kind="stable").astype(np.float64)
     sel._fe_escalation_y_rank_ = rk / (n - 1)
     admitted = run_fe_auto_escalation(
-        sel, failed_pairs=[((0, 1), 0.5), ((2, 3), 0.4)], X=X, cols=list(X.columns),
-        classes_y=classes_y, pair_maxt_floor=0.0, admitted_pool={}, verbose=0,
+        sel,
+        failed_pairs=[((0, 1), 0.5), ((2, 3), 0.4)],
+        X=X,
+        cols=list(X.columns),
+        classes_y=classes_y,
+        pair_maxt_floor=0.0,
+        admitted_pool={},
+        verbose=0,
     )
     cd = [x for x in admitted if x["pair"] == ("c", "d")]
     assert cd, f"(c,d) must be admitted; info={sel.fe_escalation_info_}"
@@ -314,14 +321,88 @@ def test_target_rebin_guard_fires_on_heavy_tailed_continuous_target(caplog):
 
     n = 4000
     rng = np.random.default_rng(0)
-    a = rng.normal(size=n); b = rng.normal(size=n)
+    a = rng.normal(size=n)
+    b = rng.normal(size=n)
     e = rng.normal(size=n)
-    y = 0.2 * a ** 2 / b + 0.1 * rng.normal(size=n)  # heavy-tailed via 1/b
+    y = 0.2 * a**2 / b + 0.1 * rng.normal(size=n)  # heavy-tailed via 1/b
     df = pd.DataFrame({"a": a, "b": b, "e": e})
     sel = MRMR(verbose=1, random_seed=42)
     with caplog.at_level(logging.INFO, logger="mlframe.feature_selection.filters.mrmr"):
         sel.fit(df, pd.Series(y, name="y"))
     assert any("target-rebin guard" in r.message for r in caplog.records), (
-        "the target-rebin guard must fire on a heavy-tailed continuous target under "
-        "the adaptive nbins_strategy default"
+        "the target-rebin guard must fire on a heavy-tailed continuous target under " "the adaptive nbins_strategy default"
     )
+
+
+# ---------------------------------------------------------------------------
+# Wave 13 finding #3: per-column quantile-bin memo in find_underdelivering_pairs
+# ---------------------------------------------------------------------------
+
+
+def test_find_underdelivering_pairs_memoizes_per_column_quantile_bin():
+    """A popular raw column recurring across many prospective pairs used to get its
+    O(n log n) quantile-bin recomputed once PER PAIR it participates in. Pins that
+    ``find_underdelivering_pairs`` now calls ``_quantile_bin`` on each RAW operand
+    column exactly ONCE per call, not once per (pair, operand) occurrence, while the
+    returned trigger set is unchanged vs an unmemoized reference implementation."""
+    from types import SimpleNamespace
+
+    from mlframe.feature_selection.filters import _fe_auto_escalation as esc
+    from mlframe.feature_selection.filters import _mi_greedy_cmi_fe as mgcf
+
+    rng = np.random.default_rng(0)
+    n = 3000
+    a = rng.standard_normal(n)
+    b = rng.standard_normal(n)
+    c = rng.standard_normal(n)
+    d = rng.standard_normal(n)
+    y = (a > 0).astype(int)
+    df = pd.DataFrame({"a": a, "b": b, "c": c, "d": d})
+    cols = ["a", "b", "c", "d"]
+
+    # 3 pairs all sharing raw column 'a' -- (a,b), (a,c), (a,d) -- 4 unique columns total.
+    prospective_pairs = [((0, 1), 0.10), ((0, 2), 0.09), ((0, 3), 0.08)]
+    # v[2] (names) non-empty but v[1] (tvals) has 0 columns -> the capture loop never
+    # calls _quantile_bin, isolating the count to the raw-operand (ca, cb) memo.
+    empty_tvals = np.empty((n, 0), dtype=np.float64)
+    prospective_additions = {
+        (0, 1): (True, empty_tvals, ["cap"]),
+        (0, 2): (True, empty_tvals, ["cap"]),
+        (0, 3): (True, empty_tvals, ["cap"]),
+    }
+    self_ns = SimpleNamespace(
+        quantization_nbins=8,
+        feature_names_in_=np.array(cols),
+        _engineered_continuous_=None,
+        random_seed=0,
+        fe_escalation_underdelivery_excess_frac=0.05,
+        fe_escalation_underdelivery_self_ratio=3.0,
+    )
+
+    calls = {"n": 0, "arrays": []}
+    _orig = mgcf._quantile_bin
+
+    def _counting_qbin(col, nbins):
+        calls["n"] += 1
+        calls["arrays"].append(np.asarray(col))
+        return _orig(col, nbins)
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(esc, "_quantile_bin", _counting_qbin, raising=False)
+        # find_underdelivering_pairs imports _quantile_bin locally at call time from
+        # _mi_greedy_cmi_fe, so patch the source module's attribute.
+        mp.setattr(mgcf, "_quantile_bin", _counting_qbin)
+        out = esc.find_underdelivering_pairs(
+            self_ns,
+            prospective_pairs=prospective_pairs,
+            prospective_additions=prospective_additions,
+            X=df,
+            cols=cols,
+            classes_y=y,
+            done=set(),
+        )
+
+    # 4 unique raw columns (a, b, c, d) touched across 3 pairs -> exactly 4 calls, not 6
+    # (2 per pair x 3 pairs, the pre-fix behaviour).
+    assert calls["n"] == 4, f"expected 4 memoized _quantile_bin calls (one per unique column), got {calls['n']}"
+    assert out == [], "no pair should trigger escalation (0-column capture -> best_codes stays None)"

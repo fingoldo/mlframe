@@ -277,7 +277,7 @@ def apply_cmi_redundancy_gate(
         try:
             from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
             from ._mi_greedy_cmi_fe import _cmi_gpu_enabled
-            _gate_resident = bool(fe_gpu_strict_resident_enabled()) and bool(_cmi_gpu_enabled())
+            _gate_resident = bool(fe_gpu_strict_resident_enabled()) and bool(_cmi_gpu_enabled(n=int(np.asarray(y_bin).shape[0]), p=len(names)))
         except Exception:
             _gate_resident = False
 
@@ -543,7 +543,7 @@ def apply_cmi_redundancy_gate(
         _rem_list = sorted(remaining, key=_tie_key)
         try:
             from ._mi_greedy_cmi_fe import _cmi_gpu_enabled
-            if _cmi_gpu_enabled() and len(_rem_list) > 1:
+            if _cmi_gpu_enabled(n=int(y_dense.shape[0]), p=len(_rem_list)) and len(_rem_list) > 1:
                 from ._fe_batched_mi import batched_cmi_gpu
                 # RESIDENT candidate-matrix build: when every round candidate has a device-resident code
                 # (device-born binning), stack them into a RESIDENT (n, K) cupy matrix so the derived codes

@@ -165,7 +165,7 @@ def _conditional_perm_null(
                 if precomp_cards is not None:
                     # round-batched cards (same occupied-cell definition -> bit-identical df); no per-cand call
                     _ks = precomp_cards
-                elif _cmi_gpu_enabled():
+                elif _cmi_gpu_enabled(n=n_size, p=1):
                     try:
                         from ._mi_greedy_cmi_fe import joint_cardinalities_cupy
                         # RESIDENT candidate code + RESIDENT support (joint_cardinalities_cupy resident-input
@@ -215,7 +215,7 @@ def _conditional_perm_null(
     # the support / order / z_rank / candidate never cross H2D. Only on a cupy fault does control fall through to
     # the host order/z_rank path below (which materialises z from the device copy). Selection-equivalent (this
     # GPU null already uses a device-RNG shuffle; the device stratum grouping is another valid grouping).
-    if z_support_dev is not None and getattr(z_support_dev, "size", 0) > 0 and _cmi_gpu_enabled() and int(n_permutations) > 1:
+    if z_support_dev is not None and getattr(z_support_dev, "size", 0) > 0 and _cmi_gpu_enabled(n=n_size, p=int(n_permutations)) and int(n_permutations) > 1:
         try:
             from ._fe_cmi_perm_null_gpu import perm_null_gpu_resident_enabled, conditional_perm_null_gpu
             if perm_null_gpu_resident_enabled():
@@ -247,7 +247,7 @@ def _conditional_perm_null(
             _resident = perm_null_gpu_resident_enabled()
         except Exception:
             _resident = False
-        if _resident and _cmi_gpu_enabled() and nperm > 1:
+        if _resident and _cmi_gpu_enabled(n=n_size, p=nperm) and nperm > 1:
             try:
                 from ._fe_cmi_perm_null_gpu import conditional_perm_null_gpu
                 # Pass the RESIDENT candidate code directly (conditional_perm_null_gpu resident-input branch) so
@@ -261,7 +261,7 @@ def _conditional_perm_null(
         # BATCHED marginal null under STRICT (default OFF -> CPU loop): all nperm free-shuffled columns
         # into one (n, nperm) matrix (SAME rng draws) -> one batched_cmi_gpu(..., z=None) call.
         _xh = _host_x()
-        if _cmi_gpu_enabled() and nperm > 1:
+        if _cmi_gpu_enabled(n=n_size, p=nperm) and nperm > 1:
             try:
                 import cupy as cp
                 from ._fe_batched_mi import batched_cmi_gpu
@@ -352,7 +352,7 @@ def _conditional_perm_null(
         _resident = perm_null_gpu_resident_enabled()
     except Exception:
         _resident = False
-    if _resident and _cmi_gpu_enabled() and _nperm > 1:
+    if _resident and _cmi_gpu_enabled(n=n_size, p=_nperm) and _nperm > 1:
         try:
             from ._fe_cmi_perm_null_gpu import conditional_perm_null_gpu
             # Pass the RESIDENT candidate code directly (conditional_perm_null_gpu resident-input branch reorders
@@ -368,7 +368,7 @@ def _conditional_perm_null(
     # shuffle-invariant; only the within-stratum-shuffled candidate varies per perm -> build all _nperm
     # shuffled columns into one (n, _nperm) matrix (SAME rng draws as the loop) and score CMI(x_perm; y|z)
     # for every perm in ONE batched_cmi_gpu workload, replacing _nperm per-call cp.unique CMIs.
-    if _cmi_gpu_enabled() and _nperm > 1:
+    if _cmi_gpu_enabled(n=n_size, p=_nperm) and _nperm > 1:
         try:
             from ._fe_batched_mi import batched_cmi_gpu
             import cupy as cp

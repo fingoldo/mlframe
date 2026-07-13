@@ -10,6 +10,7 @@ DROPPED (fail-CLOSED). The fix makes every can't-measure path return ``None``
 (the fail-open sentinel); these tests pin both the genuine win/redundant
 decisions AND the fail-open / fail-closed contract.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -28,8 +29,8 @@ from mlframe.feature_selection.filters._fe_accuracy_gate import (
 def _quadratic_problem(n=2000, seed=0):
     rng = np.random.default_rng(seed)
     x = rng.standard_normal(n)
-    y = (x ** 2 > 1.0).astype(int)  # even-symmetric: x alone is near-useless linearly
-    eng = (x ** 2)[:, None]         # the engineered He2-like feature linearises it
+    y = (x**2 > 1.0).astype(int)  # even-symmetric: x alone is near-useless linearly
+    eng = (x**2)[:, None]  # the engineered He2-like feature linearises it
     return x[:, None], eng, y
 
 
@@ -144,6 +145,64 @@ def test_bin_y_for_class_mi_numeric_classification_unchanged():
     np.testing.assert_array_equal(bin_y_for_class_mi(y_int), y_int.astype(np.int64))
     y_bool = np.array([True, False, True, False])
     np.testing.assert_array_equal(bin_y_for_class_mi(y_bool), y_bool.astype(np.int64))
+
+
+# ------------------------------------------------------ baseline-CV sibling cache
+def test_sibling_baseline_cv_is_cached_and_equivalent():
+    """Wave 13 finding #1: several engineered SIBLINGS derived from the same raw source
+    (x__He2, x__He3, x__T2, x__L2, ...) share an IDENTICAL X_base/y/seed, so the
+    ``_score(X_base)`` CV baseline is deterministic across sibling calls and must be
+    computed ONCE, not refit from scratch for every sibling. This pins (1) the cached
+    result is bit-identical to an uncached computation and (2) the sklearn baseline
+    fit ``Ridge.fit``/``LogisticRegression.fit`` on ``X_base`` is invoked far fewer times
+    across 4 siblings sharing one base than the naive 4x."""
+    import sklearn.linear_model as _lm
+
+    gate._BASELINE_CV_MEMO.clear()
+
+    rng = np.random.default_rng(11)
+    n = 2000
+    x = rng.standard_normal(n)
+    y = (x**2 > 1.0).astype(int)
+    X_base = x[:, None]
+    siblings = [
+        (x**2)[:, None],
+        (x**3)[:, None],
+        np.sin(x)[:, None],
+        np.abs(x)[:, None],
+    ]
+
+    fit_calls = {"n": 0}
+    _orig_fit = _lm.LogisticRegression.fit
+
+    def _counting_fit(self, *a, **k):
+        fit_calls["n"] += 1
+        return _orig_fit(self, *a, **k)
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(_lm.LogisticRegression, "fit", _counting_fit)
+        ups_cached = [measure_feature_uplift(X_base, eng, y, classification=True, seed=0) for eng in siblings]
+    calls_cached = fit_calls["n"]
+
+    # Uncached reference: clear the memo before EVERY sibling so each recomputes its own baseline.
+    fit_calls["n"] = 0
+    ups_uncached = []
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(_lm.LogisticRegression, "fit", _counting_fit)
+        for eng in siblings:
+            gate._BASELINE_CV_MEMO.clear()
+            ups_uncached.append(measure_feature_uplift(X_base, eng, y, classification=True, seed=0))
+    calls_uncached = fit_calls["n"]
+
+    for a, b in zip(ups_cached, ups_uncached):
+        assert a is not None and b is not None
+        assert a == pytest.approx(b, abs=1e-12), "cached sibling baseline must be bit-identical to uncached"
+
+    # 10-fold CV: uncached does 2 fits/fold (X_aug + X_base) x 10 folds x 4 siblings = 80.
+    # cached does 2 fits/fold for sibling 1 (populates the cache) then 1 fit/fold (X_aug only)
+    # for the remaining 3 siblings = 10*2 + 3*10*1 = 50 -- a real reduction, not just a memo no-op.
+    assert calls_cached < calls_uncached, (calls_cached, calls_uncached)
+    gate._BASELINE_CV_MEMO.clear()
 
 
 def test_bin_y_for_class_mi_continuous_still_qcut_binned():

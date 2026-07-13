@@ -572,7 +572,8 @@ def hybrid_orth_mi_fe(
     try:
         from .._gpu_resident_fe import fe_gpu_resident_basis_mi_enabled, _cuda_present
         from .._fe_gpu_strict import fe_gpu_strict_enabled
-        if (fe_gpu_resident_basis_mi_enabled() or fe_gpu_strict_enabled()) and _cuda_present():
+        _p_cols = len(cols) if cols else int(X.shape[1])
+        if (fe_gpu_resident_basis_mi_enabled() or fe_gpu_strict_enabled(n=int(X.shape[0]), p=_p_cols)) and _cuda_present():
             _g_mat, _g_names, scores = _gpu_build_and_score_univariate(X, cols, degrees, basis, y, nbins)
             if _g_mat is None:
                 return X.copy(), scores

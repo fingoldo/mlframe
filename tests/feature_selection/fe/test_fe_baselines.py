@@ -33,7 +33,6 @@ from mlframe.feature_selection.filters import (
     discretize_array,
 )
 
-
 # ================================================================================================
 # trivial_pair_features
 # ================================================================================================
@@ -50,8 +49,18 @@ class TestTrivialPairFeatures:
         feats = trivial_pair_features(x_a, x_b)
 
         expected_keys = {
-            "mul", "add", "sub", "ratio_ab", "ratio_ba", "sq_dist", "sum_sq",
-            "maxab", "minab", "log_abs_mul", "atan2", "geo_mean",
+            "mul",
+            "add",
+            "sub",
+            "ratio_ab",
+            "ratio_ba",
+            "sq_dist",
+            "sum_sq",
+            "maxab",
+            "minab",
+            "log_abs_mul",
+            "atan2",
+            "geo_mean",
         }
         assert expected_keys.issubset(set(feats.keys()))
         for name, arr in feats.items():
@@ -162,6 +171,34 @@ class TestAutoUnaryTransforms:
         assert "identity" in out
         ident_arr, ident_mi = out["identity"]
         np.testing.assert_allclose(ident_arr, x.astype(np.float64))
+
+    def test_regression_identity_mi_not_recomputed(self, monkeypatch):
+        """Wave 13 finding 6: the identity transform is the literal same input as ``base``, already
+        scored once before the transform loop; it must not pay a second ``_mi_1d`` call. Equivalence:
+        the reused value must equal a fresh direct computation on the same (x, y)."""
+        from mlframe.feature_selection.filters import fe_baselines as fb
+
+        orig_mi_1d = fb._mi_1d
+        calls = {"n": 0}
+
+        def counted(*a, **kw):
+            calls["n"] += 1
+            return orig_mi_1d(*a, **kw)
+
+        monkeypatch.setattr(fb, "_mi_1d", counted)
+        rng = np.random.default_rng(11)
+        n = 500
+        x = rng.standard_normal(n)
+        y = (x > 0).astype(np.int64)
+        out = fb.auto_unary_transforms(x, y, discrete_target=True, min_uplift=0.0)
+        n_transforms = 7  # identity, log_abs, sqrt_abs_signed, inv, square, cube, tanh
+        # Pre-fix: 1 (base) + n_transforms (one per transform incl. identity) = 8.
+        # Post-fix: 1 (base) + (n_transforms - 1) (identity skipped) = 7.
+        assert calls["n"] == n_transforms, f"expected {n_transforms} _mi_1d calls (base once + 6 non-identity transforms), got {calls['n']}"
+
+        _, ident_mi = out["identity"]
+        direct_base = orig_mi_1d(x, y, discrete_target=True, mi_estimator="plugin", plugin_n_bins=20)
+        assert ident_mi == pytest.approx(direct_base, abs=0.0), "identity MI must equal the base MI it was reused from, bit-for-bit"
 
     def test_min_uplift_gating(self):
         """Non-identity transforms appear only if mi >= base * min_uplift."""
@@ -309,21 +346,23 @@ def test_biz_random_baseline_below_signal_floor():
     freqs_y = np.bincount(classes_y, minlength=2).astype(np.float64) / n
 
     mi_signal = compute_mi_from_classes(
-        classes_x=classes_signal, freqs_x=freqs_signal,
-        classes_y=classes_y, freqs_y=freqs_y,
+        classes_x=classes_signal,
+        freqs_x=freqs_signal,
+        classes_y=classes_y,
+        freqs_y=freqs_y,
     )
     mi_random = compute_mi_from_classes(
-        classes_x=classes_random, freqs_x=freqs_random,
-        classes_y=classes_y, freqs_y=freqs_y,
+        classes_x=classes_random,
+        freqs_x=freqs_random,
+        classes_y=classes_y,
+        freqs_y=freqs_y,
     )
 
     # True signal must clear 0.4 nats (theoretical ceiling ~ ln 2 = 0.693 for perfect binary recovery).
     assert mi_signal > 0.4, f"signal MI={mi_signal:.4f} below expected ~0.5"
     # Random baseline must lie an order of magnitude below the signal AND below the 0.1 floor.
     assert mi_random < 0.1, f"random baseline MI={mi_random:.4f} exceeds 0.1 floor"
-    assert mi_random < 0.2 * mi_signal, (
-        f"random baseline MI={mi_random:.4f} not << signal MI={mi_signal:.4f}"
-    )
+    assert mi_random < 0.2 * mi_signal, f"random baseline MI={mi_random:.4f} not << signal MI={mi_signal:.4f}"
 
 
 if __name__ == "__main__":

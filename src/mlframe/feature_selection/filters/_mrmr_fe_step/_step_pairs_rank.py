@@ -20,17 +20,20 @@ logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 from .._fe_rejection_ledger import record_fe_rejection as _record_fe_rejection
 
 
-def _pair_gate_resident_enabled() -> bool:
+def _pair_gate_resident_enabled(*, n: int | None = None, p: int | None = None) -> bool:
     """True when the device-born candidate-code residency is active for the prospective-pair CMI gate.
 
     Mirrors the CMI-redundancy gate (409d63fe): default ON under ``fe_gpu_strict_resident_enabled`` +
-    ``_cmi_gpu_enabled``; opt-out ``MLFRAME_FE_GATE_RESIDENT_CANDS=0``. Any import fault -> off (host path)."""
+    ``_cmi_gpu_enabled``; opt-out ``MLFRAME_FE_GATE_RESIDENT_CANDS=0``. Any import fault -> off (host path).
+
+    ``n``/``p`` (optional): the calling dispatch's own shape, forwarded to ``_cmi_gpu_enabled`` so the
+    STRICT/AUTO decision is size-aware for THIS call. Omit to preserve the shape-blind default."""
     if os.environ.get("MLFRAME_FE_GATE_RESIDENT_CANDS", "1").strip().lower() not in ("1", "true", "on", "yes"):
         return False
     try:
         from .._gpu_strict_fe import fe_gpu_strict_resident_enabled
         from .._mi_greedy_cmi_fe import _cmi_gpu_enabled
-        return bool(fe_gpu_strict_resident_enabled()) and bool(_cmi_gpu_enabled())
+        return bool(fe_gpu_strict_resident_enabled()) and bool(_cmi_gpu_enabled(n=n, p=p))
     except Exception:
         return False
 
@@ -460,7 +463,7 @@ def score_prospective_pairs(
     # resident-input branch) so it never re-crosses H2D at the ``cmi_cand_x`` / ``card_cand_x`` /
     # ``permnull_cand_x`` sites. The partner / anchor stays host (it is the conditioning ``z``, uploaded by the
     # primitives). Computed once (fit-constant predicate). Byte-identical: same int codes, same partition.
-    _pair_resident = _pair_gate_resident_enabled()
+    _pair_resident = _pair_gate_resident_enabled(n=int(data.shape[0]), p=len(numeric_vars_to_consider))
     # See _maybe_relax_prevalence_for_tail_concentrated_pool's docstring for the full rationale (moved out
     # of this function to keep score_prospective_pairs' own cyclomatic complexity manageable).
     fe_min_pair_mi_prevalence = _maybe_relax_prevalence_for_tail_concentrated_pool(

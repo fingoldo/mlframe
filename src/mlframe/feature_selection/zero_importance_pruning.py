@@ -20,11 +20,12 @@ from sklearn.model_selection import KFold
 
 
 def _cv_score(estimator, X: pd.DataFrame, y: np.ndarray, cv, scoring: Callable[[np.ndarray, np.ndarray], float]) -> float:
+    row_select = (lambda idx: X.iloc[idx]) if hasattr(X, "iloc") else (lambda idx: X[idx])
     scores = []
     for train_idx, test_idx in cv.split(X):
         model = clone(estimator)
-        model.fit(X.iloc[train_idx], y[train_idx])
-        preds = model.predict(X.iloc[test_idx])
+        model.fit(row_select(train_idx), y[train_idx])
+        preds = model.predict(row_select(test_idx))
         scores.append(scoring(y[test_idx], preds))
     return float(np.mean(scores))
 

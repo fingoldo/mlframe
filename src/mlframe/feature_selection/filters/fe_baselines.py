@@ -170,7 +170,9 @@ def auto_unary_transforms(x: np.ndarray, y: np.ndarray, *,
     for name, arr in transforms.items():
         if not np.all(np.isfinite(arr)):
             continue
-        mi = _mi_1d(arr, y, discrete_target=discrete_target, mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins, n_neighbors=n_neighbors)
+        # "identity" is the literal same input already scored as ``base`` above -- reuse it
+        # instead of recomputing an identical _mi_1d call.
+        mi = base if name == "identity" else _mi_1d(arr, y, discrete_target=discrete_target, mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins, n_neighbors=n_neighbors)
         if name == "identity" or mi >= base * min_uplift:
             out[name] = (arr, float(mi))
     return out

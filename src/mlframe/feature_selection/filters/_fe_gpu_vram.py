@@ -82,7 +82,7 @@ def _cushion_bytes(total_b: int) -> int:
     return cushion_b
 
 
-def fe_gpu_has_vram_cushion(bytes_needed: int = 0) -> bool:
+def fe_gpu_has_vram_cushion(bytes_needed: int = 0, *, free_b: "int | None" = None, total_b: "int | None" = None) -> bool:
     """Is there enough FREE VRAM to safely launch a GPU-FE kernel needing ``bytes_needed`` extra bytes?
 
     Returns ``free_b - bytes_needed >= cushion`` where ``cushion = min(MLFRAME_FE_GPU_MIN_FREE_MB,
@@ -93,18 +93,27 @@ def fe_gpu_has_vram_cushion(bytes_needed: int = 0) -> bool:
     or ``memGetInfo`` is unavailable / raises, so non-GPU hosts and probe failures are unaffected: the
     cushion can only DECLINE the GPU on a genuinely near-full card, never block a host that has no cupy.
 
+    ``free_b``/``total_b``: pass the caller's OWN already-probed ``memGetInfo()`` result to skip this
+    function's internal probe entirely (e.g. ``_cmi_cuda._should_use_cuda`` already queries ``memGetInfo``
+    for its relative cap just above this call -- probing twice per dispatch is redundant). Either both or
+    neither must be given; a partial pair falls back to probing (never silently mixes a stale value).
+
     Also lazily installs the own-pool cap on first call (see ``ensure_fe_gpu_pool_limit``)."""
-    try:
-        import cupy as cp
-    except Exception:  # -- no cupy: non-GPU host, stay permissive (caller's other gates decide)
-        return True
-    # Lazily cap our own pool so even the first cushion probe benefits from headroom.
-    ensure_fe_gpu_pool_limit()
-    try:
-        free_b, total_b = cp.cuda.runtime.memGetInfo()
-    except Exception as exc:  # -- probe failed: permissive, do not block the GPU on a probe error
-        logger.debug("fe_gpu_has_vram_cushion: memGetInfo failed (%s); permissive", exc)
-        return True
+    if free_b is None or total_b is None:
+        try:
+            import cupy as cp
+        except Exception:  # -- no cupy: non-GPU host, stay permissive (caller's other gates decide)
+            return True
+        # Lazily cap our own pool so even the first cushion probe benefits from headroom.
+        ensure_fe_gpu_pool_limit()
+        try:
+            free_b, total_b = cp.cuda.runtime.memGetInfo()
+        except Exception as exc:  # -- probe failed: permissive, do not block the GPU on a probe error
+            logger.debug("fe_gpu_has_vram_cushion: memGetInfo failed (%s); permissive", exc)
+            return True
+    else:
+        # Caller already probed; still ensure the pool cap is installed (idempotent, no extra memGetInfo).
+        ensure_fe_gpu_pool_limit()
     cushion_b = _cushion_bytes(total_b)
     return bool((free_b - int(bytes_needed)) >= cushion_b)
 

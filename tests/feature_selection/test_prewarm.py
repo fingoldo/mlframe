@@ -66,6 +66,45 @@ class TestPrewarmSmoke:
         from mlframe.feature_selection.filters._prewarm import prewarm_fs_numba_cache
         prewarm_fs_numba_cache(verbose=True)
 
+    def test_regression_module_level_guard_short_circuits_second_call(self, monkeypatch):
+        # Wave 13 finding 7: prewarm_fs_numba_cache had no self-idempotency guard (unlike its sibling
+        # ``_numba_warmup.warmup_typed_dict``'s ``_warmup_done`` flag), so a second call in the same
+        # process re-ran the entire synthetic-input sweep instead of returning immediately.
+        # Fails pre-fix (second call's ``np.random.default_rng`` count > first call's) and passes
+        # post-fix (second call is a true no-op: same count).
+        import numpy as np
+        from mlframe.feature_selection.filters import _prewarm as pw
+
+        calls = {"n": 0}
+        orig_default_rng = np.random.default_rng
+
+        def counted(*a, **kw):
+            calls["n"] += 1
+            return orig_default_rng(*a, **kw)
+
+        monkeypatch.setattr(np.random, "default_rng", counted)
+        # Other tests in this module (the ``warmed`` fixture) may have already prewarmed the process;
+        # force a clean "first call" state for this test.
+        monkeypatch.setattr(pw, "_fs_numba_prewarmed", False)
+        pw.prewarm_fs_numba_cache(verbose=False)
+        n1 = calls["n"]
+        assert n1 > 0, "prewarm body did not run at all on the first call"
+        pw.prewarm_fs_numba_cache(verbose=False)
+        n2 = calls["n"]
+        assert n2 == n1, f"second call re-ran the prewarm body (n1={n1}, n2={n2}); guard not effective"
+
+    def test_regression_cupy_prewarm_has_module_level_guard(self):
+        # Same guard pattern must exist on the CuPy twin; the guard is decided before any cupy import,
+        # so this is checkable even on a CUDA-less CI host.
+        from mlframe.feature_selection.filters import _prewarm as pw
+
+        assert hasattr(pw, "_fs_cupy_prewarmed")
+        pw._fs_cupy_prewarmed = False
+        pw.prewarm_fs_cupy_kernels(verbose=False)
+        assert pw._fs_cupy_prewarmed is True
+        # Second call must return immediately (guard true) regardless of CUDA availability.
+        pw.prewarm_fs_cupy_kernels(verbose=False)
+
 
 # ----------------------------------------------------------------------------------------------------------------------------------------------------
 # Coverage: known dispatchers compiled

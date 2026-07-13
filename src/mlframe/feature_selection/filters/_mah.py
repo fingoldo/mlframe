@@ -45,9 +45,66 @@ Implementation notes (per README.md optimization methodology):
 from __future__ import annotations
 
 import math
+import threading
+import weakref
+from collections import OrderedDict
 
 import numpy as np
 from numba import njit
+
+# Y-BINNING CACHE (Wave 13): ``per_feature_edges``/``mah_mi`` dispatchers call ``mah_bin_edges``/``mah_mi`` ONCE PER
+# COLUMN (up to 500 columns for one fit) with the SAME ``y`` object every time -- yet each call re-derives y's
+# quantile/label binning (``np.unique``/``np.quantile``/``np.searchsorted``) from scratch. y is fixed for the whole
+# dispatch, so cache the binning keyed on ``(id(y), K)`` with a weakref identity guard (mirrors the ``_cmi_cuda``
+# resident-cache pattern): a recycled id (y GC'd, allocator reuses the address) fails the ``ref() is y`` check and
+# recomputes, never returning a stale binning. Small bound (a handful of concurrent fits/folds) since each entry is
+# only an O(n) int array, not a big buffer.
+_Y_BINNING_CACHE: "OrderedDict[tuple[int, int], tuple[weakref.ReferenceType, tuple[np.ndarray, int]]]" = OrderedDict()
+_Y_BINNING_CACHE_MAX_ENTRIES = 8
+_Y_BINNING_LOCK = threading.Lock()
+
+
+def _compute_y_binning(y: np.ndarray, K: int) -> tuple[np.ndarray, int]:
+    """(yb, K_y): discrete y label-encode, else K-quantile-bin. Extracted verbatim from the original inline logic
+    in ``mah_bin_edges``/``mah_mi`` so caching wraps it without changing the binning itself."""
+    if y.dtype.kind in "iub" or np.unique(y).size <= K:
+        uniq_y = np.unique(y)
+        yb = np.searchsorted(uniq_y, y).astype(np.int64)
+    else:
+        qy = np.quantile(y.astype(np.float64), np.linspace(0, 1, K + 1))
+        qy_unique = np.unique(qy)
+        if qy_unique.size < 3:
+            return np.array([], dtype=np.int64), 0
+        yb = np.searchsorted(qy_unique[1:-1], y.astype(np.float64), side="right").astype(np.int64)
+    K_y = int(yb.max()) + 1 if yb.size else 0
+    return yb, K_y
+
+
+def _get_y_binning(y: np.ndarray, K: int) -> tuple[np.ndarray, int]:
+    """Cached ``(yb, K_y)`` for ``y``+``K``, computed once per distinct ``y`` identity (see module docstring above)."""
+    key = (id(y), int(K))
+    with _Y_BINNING_LOCK:
+        ent = _Y_BINNING_CACHE.get(key)
+        if ent is not None and ent[0]() is y:
+            _Y_BINNING_CACHE.move_to_end(key)
+            return ent[1]
+        dead = [k for k, v in _Y_BINNING_CACHE.items() if v[0]() is None]
+        for k in dead:
+            del _Y_BINNING_CACHE[k]
+        result = _compute_y_binning(y, K)
+        try:
+            ref = weakref.ref(y)
+        except TypeError:
+            return result  # y doesn't support weakref (unlikely for ndarray) -- skip caching, still correct
+        _Y_BINNING_CACHE[key] = (ref, result)
+        if len(_Y_BINNING_CACHE) > _Y_BINNING_CACHE_MAX_ENTRIES:
+            _Y_BINNING_CACHE.popitem(last=False)
+        return result
+
+
+def clear_mah_y_binning_cache() -> None:
+    """Drop the resident y-binning cache (call at FE-step teardown alongside the other resident caches)."""
+    _Y_BINNING_CACHE.clear()
 
 
 @njit(nogil=True, cache=True)
@@ -328,18 +385,11 @@ def mah_bin_edges(x: np.ndarray, y: np.ndarray, *, initial_k: int = 16) -> np.nd
         return np.array([], dtype=np.float64)
     initial_inner = qx_unique[1:-1].astype(np.float64)
     xb = np.searchsorted(initial_inner, x, side="right").astype(np.int64)
-    # Discrete y label-encode, else K-quantile-bin.
-    if y.dtype.kind in "iub" or np.unique(y).size <= K:
-        uniq_y = np.unique(y)
-        yb = np.searchsorted(uniq_y, y).astype(np.int64)
-    else:
-        qy = np.quantile(y.astype(np.float64), np.linspace(0, 1, K + 1))
-        qy_unique = np.unique(qy)
-        if qy_unique.size < 3:
-            return initial_inner
-        yb = np.searchsorted(qy_unique[1:-1], y.astype(np.float64), side="right").astype(np.int64)
+    # y is fit-constant across the whole per_feature_edges column dispatch -> cached binning (see _get_y_binning).
+    yb, K_y = _get_y_binning(y, K)
+    if K_y == 0:
+        return initial_inner
     K_x = int(xb.max()) + 1
-    K_y = int(yb.max()) + 1
     if K_x < 2 or K_y < 2:
         return initial_inner
     joint = np.bincount(xb * K_y + yb, minlength=K_x * K_y).reshape(K_x, K_y).astype(np.float64)
@@ -364,17 +414,11 @@ def mah_mi(x: np.ndarray, y: np.ndarray, *, initial_k: int = 16, return_sci: boo
     if qx_unique.size < 3:
         return 0.0
     xb = np.searchsorted(qx_unique[1:-1], x, side="right").astype(np.int64)
-    if y.dtype.kind in "iub" or np.unique(y).size <= K:
-        uniq_y = np.unique(y)
-        yb = np.searchsorted(uniq_y, y).astype(np.int64)
-    else:
-        qy = np.quantile(y.astype(np.float64), np.linspace(0, 1, K + 1))
-        qy_unique = np.unique(qy)
-        if qy_unique.size < 3:
-            return 0.0
-        yb = np.searchsorted(qy_unique[1:-1], y.astype(np.float64), side="right").astype(np.int64)
+    # y is fit-constant across the whole per_feature_edges column dispatch -> cached binning (see _get_y_binning).
+    yb, K_y = _get_y_binning(y, K)
+    if K_y == 0:
+        return 0.0
     K_x = int(xb.max()) + 1
-    K_y = int(yb.max()) + 1
     if K_x < 2 or K_y < 2:
         return 0.0
     joint = np.bincount(xb * K_y + yb, minlength=K_x * K_y).reshape(K_x, K_y).astype(np.float64)

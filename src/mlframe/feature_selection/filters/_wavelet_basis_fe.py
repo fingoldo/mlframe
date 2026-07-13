@@ -201,14 +201,17 @@ def _bin_y_codes(y: np.ndarray, nbins: int = 10) -> np.ndarray:
     return np.asarray(np.digitize(y, edges_y))
 
 
-def _binnedmi_gpu_enabled() -> bool:
-    """Route wavelet leg-rank binned-MI to the GPU when STRICT-GPU / MLFRAME_CMI_GPU is on. Default OFF."""
+def _binnedmi_gpu_enabled(*, n: int | None = None, p: int | None = None) -> bool:
+    """Route wavelet leg-rank binned-MI to the GPU when STRICT-GPU / MLFRAME_CMI_GPU is on. Default OFF.
+
+    ``n``/``p`` (optional): the calling dispatch's own shape, forwarded to ``fe_gpu_strict_enabled`` so the
+    STRICT/AUTO decision is size-aware for THIS call. Omit to preserve the shape-blind default."""
     import os as _os
     if _os.environ.get("MLFRAME_CMI_GPU", "") == "1":
         return True
     try:
         from ._fe_gpu_strict import fe_gpu_strict_enabled
-        return bool(fe_gpu_strict_enabled())
+        return bool(fe_gpu_strict_enabled(n=n, p=p))
     except Exception:
         return False
 
@@ -304,7 +307,7 @@ def _binned_mi(feat: np.ndarray, y: np.ndarray, nbins: int = 10, y_codes: Option
     # GPU route (2026-06-25): MI(feat;y) = H(feat)+H(y)-H(feat,y) on device via cp.unique partition counts
     # (the binning's np.unique/digitize over n rows is the wavelet leg-rank hot cost). Same partition ->
     # same MI -> same leg RANKING (selection-identical). Gated (STRICT / MLFRAME_CMI_GPU), default CPU.
-    if _binnedmi_gpu_enabled():
+    if _binnedmi_gpu_enabled(n=int(n), p=1):
         try:
             return _binned_mi_cupy(feat, y, int(nbins), y_codes, discrete=discrete)
         except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
@@ -557,7 +560,7 @@ def _select_wavelet_legs(
     # BATCHED born-on-device path under STRICT (default OFF -> CPU below, byte-identical). The batched twin
     # scores all candidate legs' train+held-out MI in two device workloads (one cp.bincount each) instead of
     # ~2 per-leg _binned_mi calls; parity-pinned to return the SAME admitted legs (test_wavelet_batched_mi_parity).
-    if _binnedmi_gpu_enabled():
+    if _binnedmi_gpu_enabled(n=int(np.asarray(x).size)):
         try:
             from ._wavelet_basis_fe_batched import select_wavelet_legs_batched
             _legs = select_wavelet_legs_batched(x, y, lo, span, max_scale=max_scale, max_legs=max_legs, scale_sigma=scale_sigma)

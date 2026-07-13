@@ -766,10 +766,12 @@ def _should_use_cuda(n: int, p: int, joint_size: int, nbins_x: int = 0, nbins_y:
     # worker). Best-effort free-VRAM probe; falls back to a fixed cap.
     bytes_needed = p * n * 4 + p * joint_size * 4
     cap = 1536 * 1024 * 1024  # 1.5 GB conservative cap (shared 4 GB card)
+    free_b: Optional[int] = None
+    total_b: Optional[int] = None
     try:
         import cupy as cp
 
-        free_b, _total = cp.cuda.runtime.memGetInfo()
+        free_b, total_b = cp.cuda.runtime.memGetInfo()
         cap = min(cap, int(free_b * 0.5))
     except Exception as e:
         logger.debug("swallowed exception in _cmi_cuda.py: %s", e)
@@ -779,9 +781,16 @@ def _should_use_cuda(n: int, p: int, joint_size: int, nbins_x: int = 0, nbins_y:
     # ABSOLUTE cushion guard (2026-07-05): the relative cap above is computed only AFTER the cupy pool may
     # have already eaten the card; on a near-full / SHARED 4 GB card that lets the next launch fault. Require
     # an ABSOLUTE free-VRAM floor (default >=1 GB) BEFORE touching the GPU. Pure ADD -- tightens, never loosens.
+    # Reuses the ``memGetInfo`` probe already taken above for the relative cap (``free_b``/``total_b``) instead
+    # of letting ``fe_gpu_has_vram_cushion`` re-query the device a second time per dispatch (2026-07-13 fix) --
+    # falls back to that function's own probe when the probe above failed (``free_b``/``total_b`` still None).
     try:
         from mlframe.feature_selection.filters._fe_gpu_vram import fe_gpu_has_vram_cushion
-        if not fe_gpu_has_vram_cushion(bytes_needed):
+        if free_b is not None and total_b is not None:
+            cushion_ok = fe_gpu_has_vram_cushion(bytes_needed, free_b=free_b, total_b=total_b)
+        else:
+            cushion_ok = fe_gpu_has_vram_cushion(bytes_needed)
+        if not cushion_ok:
             return False
     except Exception as e:
         logger.debug("swallowed exception in _cmi_cuda.py: %s", e)
