@@ -228,12 +228,39 @@ the bottleneck sits upstream. Do NOT treat the shipped fix as resolving the orig
 symptom; it closes a real, narrower bug (the prescreen/knee noise-floor blindness) that is still
 worth having, just not sufficient to explain this fixture's e2e recall=0.
 
-**Concrete first action for next session:** re-run
-`debug_rescue_e2e3.txt`'s script (already written, just needs a non-contended machine) to get the
-index-level `stage1_survivors` / F-score evidence and settle this definitively. If confirmed as a
-stage-1 F-score cut problem, the fix is the SAME noise_floor_rescue_keep_set pattern (already
-shipped, reusable) applied to the prefilter's stage-1 keep-set construction (see
-`_shap_proxy_prefilter.py`, `two_stage` method) rather than (or in addition to) the prescreen.
+**DEFINITIVE root cause (probe 3 landed, `debug_rescue_e2e3.txt`):**
+```
+weak indices in stage1_survivors: {50, 51, 52, 55} / 6
+xor indices in stage1_survivors: set() / 2
+strong indices in stage1_survivors: {0, 1, 2, 3, 4, 5} / 6
+f-scores strong: [120.9 90.5 71.8 115.6 106.0 126.7]
+f-scores weak:   [3.5 13.1 6.6 1.3 2.7 3.5]
+f-scores xor:    [0.70 0.39]
+f-scores median/max overall: 0.48 / 126.7
+```
+This settles it: **stage-1 (the F-score cut, 3000 -> 224) is NOT the bottleneck for the weak
+features** — all 6 strong AND 4/6 weak indices survive it comfortably (weak F-scores 1.3-13.1, well
+above the 0.48 overall median). The **XOR pair is correctly absent at stage-1** (F-scores 0.70/0.39,
+barely above median) — expected and unfixable at this stage: a univariate F-score is structurally
+blind to a pure interaction with ~0 marginal effect (same well-documented limitation the
+`interaction_aware`/`proxy_mode="interaction"`/`su_seeded_interactions` opt-in levers exist for).
+
+Since stage-1 survivors DO include the weak indices but `selected_features_` ends up with ZERO of
+them (and even drops one strong index, f2), **the loss happens somewhere between stage-1 (224
+survivors) and final selection** — i.e. in stage-B (the booster-based narrowing 224 -> 112,
+`_shap_proxy_prefilter.py`'s `two_stage` method), clustering, the prescreen (this session's fix
+already covers this stage and evidently isn't sufficient alone), search, or revalidation. The
+prescreen fix shipped this session is confirmed NOT wrong, just addressing a stage that isn't where
+THIS fixture's loss occurs (or at least isn't the only stage involved).
+
+**Concrete first action for next session:** instrument stage-B specifically — print the booster's
+`feature_importances_` (or SHAP if it's a shap-aware stage-B) for indices 50-55 right after the
+224->112 narrowing, before clustering touches anything. If the weak indices already show low
+importance THERE, stage-B's own booster-importance ranking is the real bottleneck (a fresh booster
+fit on 224 columns may legitimately not rank 0.25-weight linear signal above noise as reliably as a
+univariate F-score does) and needs its own noise-floor-rescue treatment (same reusable pattern) or
+a wider `shap_aware_stage1_cushion`. If they're already gone by then, the loss is even earlier in
+stage-B's OWN internal narrowing logic and needs a look at `_shap_proxy_prefilter.py` directly.
 
 **Still outstanding (next session, in priority order):**
 1. **Distinguish the two hypotheses above** before trusting or further building on this fix. If
