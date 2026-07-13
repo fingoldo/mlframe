@@ -399,6 +399,15 @@ def _phase_fit_pipeline(
             train_idx, val_idx, test_idx, metadata=metadata, verbose=verbose,
         )
 
+    # Cross-sectional-neighbor FE -- column-declaration-driven (snapshot key is a frame column, not
+    # a side-array), same pre-encoding point.
+    if preprocessing_extensions is not None and getattr(preprocessing_extensions, "cross_sectional_neighbors_snapshot_col", None):
+        from ..pipeline._cross_sectional_composite_fe import apply_cross_sectional_composite_fe
+
+        train_df, val_df, test_df = apply_cross_sectional_composite_fe(
+            train_df, val_df, test_df, preprocessing_extensions, metadata=metadata, verbose=verbose,
+        )
+
     t0_fit_pipeline = timer()
     train_df, val_df, test_df, pipeline, cat_features = fit_and_transform_pipeline(
         train_df=train_df,

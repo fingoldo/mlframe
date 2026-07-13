@@ -433,6 +433,16 @@ class PreprocessingExtensionsConfig(BaseConfig):
     recency_aggregation_param: float = 1.0
     recency_aggregation_agg: Literal["mean", "sum", "min", "max", "std", "var"] = "mean"
 
+    # Cross-sectional-neighbor FE (``mlframe.feature_engineering.cross_sectional_neighbors``).
+    # Unlike the entity/time steps above, the key here is a COLUMN already in the frame (e.g. a
+    # ``time_id`` snapshot key), not a side-array -- purely column-declaration-driven, no
+    # group_ids/timestamps needed. Same pre-encoding point, no fit-time state (predict-time replay
+    # just re-runs the computation). ``None`` snapshot_col (default) is a genuine no-op.
+    cross_sectional_neighbors_snapshot_col: Optional[str] = None
+    cross_sectional_neighbors_feature_cols: List[str] = Field(default_factory=list)
+    cross_sectional_neighbors_k: int = Field(default=10, ge=1)
+    cross_sectional_neighbors_agg_stats: List[str] = Field(default_factory=lambda: ["mean", "std"])
+
     memory_safety_max_features: int = 100_000
     # iter-69 byte-aware guard: PolynomialFeatures' projected column count
     # alone (memory_safety_max_features) doesn't capture the actual
