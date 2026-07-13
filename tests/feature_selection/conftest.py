@@ -126,6 +126,12 @@ def make_fast_mrmr(*, fe: bool = False, dcd: bool = False, **overrides):
         fe_integer_lattice_enable=False,
         fe_row_argmax_enable=False,
         fe_conditional_gate_enable=False,
+        # Same "lightest config" contract for the hybrid-orth triplet/quadruplet cross-basis FE: both are default-ON
+        # ctor params (independent of fe_max_steps), and a ``a*b*c__He1_He1_He1`` composite column can outrank a
+        # weaker-MI raw/derived column (e.g. a missingness indicator) under the tiny max_features budgets these
+        # biz_value layers use, breaking the "no-FE baseline" contract. Pin off here; an explicit override re-enables.
+        fe_hybrid_orth_triplet_enable=False,
+        fe_hybrid_orth_quadruplet_enable=False,
     )
     if fe:
         kwargs["fe_max_steps"] = 1
@@ -135,6 +141,8 @@ def make_fast_mrmr(*, fe: bool = False, dcd: bool = False, **overrides):
         kwargs["fe_integer_lattice_enable"] = True
         kwargs["fe_row_argmax_enable"] = True
         kwargs["fe_conditional_gate_enable"] = True
+        kwargs["fe_hybrid_orth_triplet_enable"] = True
+        kwargs["fe_hybrid_orth_quadruplet_enable"] = True
     if dcd:
         kwargs["dcd_enable"] = True
     kwargs.update(overrides)
