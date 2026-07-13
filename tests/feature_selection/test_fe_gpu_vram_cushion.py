@@ -54,8 +54,68 @@ def test_declines_when_needed_pushes_below_cushion(monkeypatch, vram):
     """Enough free, but bytes_needed eats the cushion -> False."""
     pytest.importorskip("cupy")
     _patch_meminfo(monkeypatch, free_b=1500 * MB, total_b=4 * GB)  # 1.5 GB free
+    import cupy as cp
+
+    class _EmptyPool:
+        def free_bytes(self):
+            return 0
+
+        def free_all_blocks(self):
+            raise AssertionError("must not free blocks when the pool holds none")
+
+    monkeypatch.setattr(cp, "get_default_memory_pool", lambda: _EmptyPool())
     assert vram.fe_gpu_has_vram_cushion(0) is True  # 1.5 GB >= 1 GB
     assert vram.fe_gpu_has_vram_cushion(1 * GB) is False  # 1.5 - 1.0 = 0.5 GB < 1 GB cushion
+
+
+def test_pool_retained_blocks_released_before_declining(monkeypatch, vram):
+    """Regression (2026-07-14 wellbore 100k): memGetInfo counts our own cupy pool's internally-FREE
+    (retained) blocks as used -- a batch_pair_mi upload of 0.16GB was rejected at free=0.52GB/4GB while
+    the pool held ~3GB of instantly-reusable blocks. The cushion must release the pool's free blocks and
+    re-probe before declining, so a stale-pool reading can no longer knock the fit off the GPU path."""
+    pytest.importorskip("cupy")
+    import cupy as cp
+
+    state = {"freed": False}
+
+    class _FatPool:
+        def free_bytes(self):
+            return 3 * GB
+
+        def free_all_blocks(self):
+            state["freed"] = True
+
+    def _meminfo():
+        # 0.52 GB free before the pool is flushed; 3.5 GB free after (the observed live condition).
+        return (int(3.5 * GB), 4 * GB) if state["freed"] else (int(0.52 * GB), 4 * GB)
+
+    monkeypatch.setattr(cp, "get_default_memory_pool", lambda: _FatPool())
+    monkeypatch.setattr(cp.cuda.runtime, "memGetInfo", _meminfo)
+    assert vram.fe_gpu_has_vram_cushion(int(0.16 * GB)) is True
+    assert state["freed"] is True
+
+
+def test_pool_flush_still_declines_when_genuinely_full(monkeypatch, vram):
+    """After the pool flush the card is STILL near-full (another process owns the memory) -> decline."""
+    pytest.importorskip("cupy")
+    import cupy as cp
+
+    state = {"freed": False}
+
+    class _SmallPool:
+        def free_bytes(self):
+            return 100 * MB
+
+        def free_all_blocks(self):
+            state["freed"] = True
+
+    def _meminfo():
+        return (620 * MB, 4 * GB) if state["freed"] else (520 * MB, 4 * GB)
+
+    monkeypatch.setattr(cp, "get_default_memory_pool", lambda: _SmallPool())
+    monkeypatch.setattr(cp.cuda.runtime, "memGetInfo", _meminfo)
+    assert vram.fe_gpu_has_vram_cushion(int(0.16 * GB)) is False
+    assert state["freed"] is True
 
 
 def test_env_override_min_free_mb(monkeypatch, vram):

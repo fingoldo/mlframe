@@ -324,6 +324,15 @@ def _gpu_upload_fits(required_bytes: int, *, n_samples: int = 0, n_cols: int = 0
 
         free_b, total_b = cp.cuda.runtime.memGetInfo()
         cap = min(cap, int(free_b * 0.5))
+        if required_bytes > cap:
+            # memGetInfo counts blocks RETAINED by our own cupy pool as used (see
+            # fe_gpu_has_vram_cushion's identical note) -- release the pool's internally-free blocks and
+            # re-probe before letting a stale-pool free reading reject the upload.
+            pool = cp.get_default_memory_pool()
+            if int(pool.free_bytes()) > 0:
+                pool.free_all_blocks()
+                free_b, total_b = cp.cuda.runtime.memGetInfo()
+                cap = min(1536 * 1024 * 1024, int(free_b * 0.5))
     except Exception as e:
         logger.debug("%s._gpu_upload_fits: memGetInfo failed (%s); permissive", context, e)
         return True

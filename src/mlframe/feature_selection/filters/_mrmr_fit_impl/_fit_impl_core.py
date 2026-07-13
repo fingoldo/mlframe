@@ -7701,7 +7701,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         return float(cached_MIs.get((_v,), 0.0))
                     except Exception:
                         return 0.0
-                from ._feature_engineering_pairs._pairs_core import _abs_corr_finite_njit as _mt_corr_njit
+                from .._feature_engineering_pairs._pairs_core import _abs_corr_finite_njit as _mt_corr_njit
                 _mt_keep: list[int] = []
                 _mt_drop: set[int] = set()
                 # Keep order = selection order, so an earlier-selected twin is preferred on a tie.
