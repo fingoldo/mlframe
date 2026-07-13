@@ -109,10 +109,13 @@ repos:
     hooks:
       - id: black-filtered-blocking
         name: "black (filtered, blocking) -- mirrors CI black-filtered.yml"
-        entry: python -m py_ci_shared.black_filtered_apply --config pyproject.toml --check src/mlframe
+        # Scoped to the files THIS commit touches (pass_filenames: true), not the whole src/mlframe
+        # tree -- CI's black-filtered.yml still checks the full tree on every push, so a full-repo
+        # backlog is still caught there; this local hook only needs to stop a commit from ADDING a
+        # new violation, and scanning ~1300 files on every commit made local commits take minutes.
+        entry: python -m py_ci_shared.black_filtered_apply --config pyproject.toml --check
         language: system
         types: [python]
-        pass_filenames: false
         stages: [pre-commit]
 
   # Mypy: scoped to the full strict-mode beachhead per [tool.mypy.overrides] in pyproject.toml.
@@ -376,18 +379,21 @@ repos:
         always_run: false
         stages: [manual]
 
-  # Whole-project mypy. Mirrors CI's mypy-full.yml, which is BLOCKING for this repo (advisory:
-  # false, closed to 0 backlog 2026-07-08) -- so this now runs on every commit too instead of only
-  # in CI. Flipped from ``stages: [manual]`` 2026-07-12: that setting meant a commit with a
-  # whole-project mypy error would pass locally and only fail once pushed to CI, exactly the gap
-  # this policy pass exists to close. Accepted tradeoff: this is the slowest hook here (whole
-  # project, 1300+ files) -- that cost is intentional, not a bug; do not make it advisory or
-  # manual again to "speed up" commits.
+  # Mypy on the files THIS commit touches. Mirrors CI's mypy-full.yml, which is BLOCKING for this
+  # repo (advisory: false, closed to 0 backlog 2026-07-08) -- so this now runs on every commit too
+  # instead of only in CI. Flipped from ``stages: [manual]`` 2026-07-12: that setting meant a
+  # commit with a whole-project mypy error would pass locally and only fail once pushed to CI,
+  # exactly the gap this policy pass exists to close.
+  # Scoped to changed files (2026-07-13): mypy still resolves each changed file's full transitive
+  # import graph (so cross-file errors it CAUSES are still caught), it just doesn't re-check every
+  # unrelated file in the other ~1300 -- CI's mypy-full.yml still runs the true whole-project check
+  # on every push, so a pre-existing whole-repo issue unrelated to this commit is still caught
+  # there. Local commits going from minutes to seconds is the point of this change.
   - repo: https://github.com/fingoldo/py-ci-shared
     rev: v1.0.0
     hooks:
       - id: mypy-full-manual
-        args: ['src/mlframe']
+        pass_filenames: true
         # The shared hook definition itself hardcodes stages: [manual] (it's a generic hook
         # meant for repos where mypy-full is advisory, e.g. pyutilz) -- this repo-local override
         # is what actually makes it run on every commit, since mlframe's mypy-full.yml IS

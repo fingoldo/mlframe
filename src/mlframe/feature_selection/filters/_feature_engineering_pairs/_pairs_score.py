@@ -1134,18 +1134,19 @@ def _score_one_pair(
             # pair adds nothing a single warped operand does not -- veto so the clean single-source form wins.
             # A genuine 2-var pair (a/b, a*b) sits FAR below 0.999 with EITHER operand and is untouched.
             if (_passes_joint_gate or _prewarp_accept or _marginal_uplift_accept or _usability_accept) and _win_vals is not None:
+                from ._pairs_core import _abs_corr_zerofill_njit
                 _tp2 = best_config[0]
                 _max_single_op_corr = 0.0
+                _win_vals_f64 = np.asarray(_win_vals, dtype=np.float64)
                 for _side in (0, 1):
                     _opk = _tp2[_side] if isinstance(_tp2, (tuple, list)) and len(_tp2) > _side else None
                     if _opk is not None and _opk in vars_transformations:
                         _ov = transformed_vars[:, vars_transformations[_opk]]
-                        _r = np.corrcoef(
-                            np.nan_to_num(np.asarray(_win_vals, dtype=np.float64), nan=0.0, posinf=0.0, neginf=0.0),
-                            np.nan_to_num(np.asarray(_ov, dtype=np.float64), nan=0.0, posinf=0.0, neginf=0.0),
-                        )[0, 1]
-                        if np.isfinite(_r):
-                            _max_single_op_corr = max(_max_single_op_corr, abs(float(_r)))
+                        # One-pass njit correlation (bit-equivalent to the previous
+                        # nan_to_num-then-np.corrcoef -- see _abs_corr_zerofill_njit's docstring)
+                        # instead of 2 full-array nan_to_num allocations + a 2x2 corrcoef matrix.
+                        _r = _abs_corr_zerofill_njit(_win_vals_f64, np.asarray(_ov, dtype=np.float64))
+                        _max_single_op_corr = max(_max_single_op_corr, _r)
                 if _max_single_op_corr >= _DEGENERATE_PAIR_SINGLE_OPERAND_CORR:
                     _passes_joint_gate = _prewarp_accept = _marginal_uplift_accept = False
                     _usability_accept = _usability_primary = False

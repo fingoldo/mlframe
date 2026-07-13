@@ -4704,6 +4704,21 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         # so we reuse them instead of re-sorting both columns per pair -- removing the O(K^2) rank-sorts the
         # dedup did (only the O(K^2) corrcoef remains). Bit-identical: same arrays -> same average ranks.
         _eng_ranks: dict[str, np.ndarray] = {}
+        # Per-column full-finiteness (zero NaN), cached alongside the ranks: the fast-path condition below
+        # (``_mask.all()``) can only ever be True when BOTH sides are fully finite, so a fully-finite
+        # candidate's O(K) kept-column comparisons can be BATCHED in one parallel call (see
+        # ``_eng_dedup_batch_corr.one_vs_many_abs_corr_masked``) instead of K separate ``np.corrcoef``
+        # calls -- only for the subset of kept columns that are themselves fully finite (and hence carry a
+        # buffer row); a NaN-containing kept/candidate pair keeps the original per-pair masked path.
+        # APPEND-ONLY rank buffer (2026-07-13, bench-attempt-rejected note in _eng_dedup_batch_corr.py):
+        # a naive per-candidate ``np.vstack`` of the CURRENT kept ranks re-copies O(K) rows on EVERY
+        # candidate (O(K^2 * n) total memcpy, the SAME order as the corrcoef calls it replaces -- measured
+        # a NET LOSS). This buffer is written ONCE per fully-finite column (when first admitted) and never
+        # copied again; the kernel takes a zero-copy VIEW of it plus a boolean "still live" mask.
+        _eng_rank_buf = np.empty((len(_eng_cols_appended), len(X)), dtype=np.float64)
+        _eng_row_of: dict[str, int] = {}
+        _eng_next_free_row = 0
+        _eng_fully_finite: dict[str, bool] = {}
         for _c in _eng_cols_appended:
             if _c in _eng_drop:
                 continue
@@ -4727,6 +4742,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _col_view = _col_view.iloc[:, 0]
             _arr_c = np.asarray(_col_view.to_numpy(), dtype=np.float64)
             _fin_c = np.isfinite(_arr_c)
+            _eng_fully_finite[_c] = bool(_fin_c.all())
             if not _fin_c.any() or _arr_c[_fin_c].std() <= 1e-12:
                 _eng_keep.append(_c)
                 _eng_arrs[_c] = _arr_c
@@ -4743,7 +4759,31 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             _ranks_c = pd.Series(_arr_c).rank(method="average").to_numpy()
             _eng_ranks[_c] = _ranks_c
             _colliding_kept: list[str] = []
+            # BATCHED FAST PATH (2026-07-13): the ``_mask.all()`` fast-path condition below can only ever
+            # be True when BOTH the candidate and the kept column are fully finite -- so when the candidate
+            # itself is fully finite, every currently-kept column that is ALSO fully finite (and hence
+            # already has a row in the append-only rank buffer) can be compared in ONE batched+parallel
+            # call instead of one ``np.corrcoef`` call per kept column. Kept columns with any NaN (rare
+            # per this loop's own comment) fall through to the unchanged per-pair path below, unaffected.
+            _fast_kept_set: set = set()
+            if _eng_fully_finite[_c] and _arr_c.shape[0] >= 8 and _eng_next_free_row > 0:
+                from ._eng_dedup_batch_corr import one_vs_many_abs_corr_masked
+                _active_mask = np.zeros(_eng_next_free_row, dtype=np.bool_)
+                _row_to_kc: dict[int, str] = {}
+                for _kc in _eng_keep:
+                    _r = _eng_row_of.get(_kc)
+                    if _r is not None:
+                        _active_mask[_r] = True
+                        _row_to_kc[_r] = _kc
+                if _active_mask.any():
+                    _fast_corrs = one_vs_many_abs_corr_masked(_ranks_c, _eng_rank_buf[:_eng_next_free_row], _active_mask)
+                    for _r, _kc in _row_to_kc.items():
+                        _fast_kept_set.add(_kc)
+                        if _fast_corrs[_r] >= 0.99:
+                            _colliding_kept.append(_kc)
             for _kept_col in _eng_keep:
+                if _kept_col in _fast_kept_set:
+                    continue
                 _arr_k = _eng_arrs[_kept_col]
                 _mask = _fin_c & np.isfinite(_arr_k)
                 if _mask.sum() < 8:
@@ -4780,9 +4820,17 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         _eng_arrs.pop(_kept_col, None)
                     _eng_keep.append(_c)
                     _eng_arrs[_c] = _arr_c
+                    if _eng_fully_finite[_c]:
+                        _eng_rank_buf[_eng_next_free_row] = _ranks_c
+                        _eng_row_of[_c] = _eng_next_free_row
+                        _eng_next_free_row += 1
             else:
                 _eng_keep.append(_c)
                 _eng_arrs[_c] = _arr_c
+                if _eng_fully_finite[_c]:
+                    _eng_rank_buf[_eng_next_free_row] = _ranks_c
+                    _eng_row_of[_c] = _eng_next_free_row
+                    _eng_next_free_row += 1
         if _eng_drop:
             # Dependency-closure guard: never drop an engineered column / recipe that a
             # SURVIVING recipe consumes via src_names (e.g. a cat_pair_cross producer
@@ -7653,6 +7701,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         return float(cached_MIs.get((_v,), 0.0))
                     except Exception:
                         return 0.0
+                from ._feature_engineering_pairs._pairs_core import _abs_corr_finite_njit as _mt_corr_njit
                 _mt_keep: list[int] = []
                 _mt_drop: set[int] = set()
                 # Keep order = selection order, so an earlier-selected twin is preferred on a tie.
@@ -7661,12 +7710,19 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         _mt_keep.append(_v)
                         continue
                     _twin_of = None
+                    # ``_mt_ranks`` values are already guaranteed fully finite (the ``np.all(np.isfinite(_cv))``
+                    # check above), so a serial one-pair njit reduction (no masking needed, no ``prange``
+                    # launch overhead) reproduces ``np.corrcoef`` bit-faithfully without the 2x2-matrix
+                    # build; this loop is bounded by the FINAL selected-feature count (small), so the plain
+                    # single-pair kernel already used for the SAME pattern in ``_ratio_delta_fe.py`` fits
+                    # better than a batched/parallel one at this scale.
+                    _v_finite_mask = np.ones(_mt_ranks[_v].shape[0], dtype=np.bool_)
                     for _k in _mt_keep:
                         _rk = _mt_ranks.get(_k)
                         if _rk is None:
                             continue
-                        _rho = float(np.corrcoef(_mt_ranks[_v], _rk)[0, 1])
-                        if np.isfinite(_rho) and abs(_rho) >= _MONO_TWIN_RHO:
+                        _rho = float(_mt_corr_njit(_mt_ranks[_v], _rk, _v_finite_mask, 2))
+                        if _rho >= _MONO_TWIN_RHO:
                             _twin_of = _k
                             break
                     if _twin_of is None:

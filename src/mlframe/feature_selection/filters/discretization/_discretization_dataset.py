@@ -293,12 +293,36 @@ def categorize_dataset(
                 f"Use a wider dtype or constrain the strategy (e.g. knuth_m_max_cap=64)."
             )
         data = np.empty((n_rows, n_cols), dtype=dtype)
-        for j in range(n_cols):
-            ej = edges_per_col[j]
-            if ej.size == 0:
-                data[:, j] = 0
-            else:
-                data[:, j] = np.searchsorted(ej, arr[:, j].astype(np.float64), side="right").astype(dtype)
+        # BATCHED (2026-07-13): pad every column's interior-edge vector to the SAME length
+        # (``n_edges_max``, already implied by ``max_bins`` above) with ``+inf`` sentinels, then run ONE
+        # ``_searchsorted_2d_right_njit_parallel`` call over the padded (n_edges_max, n_cols) matrix instead
+        # of a per-column ``np.searchsorted`` Python-dispatch loop -- this file's own prior comment flagged
+        # this exact gap ("max_bins is already computed one line above"). Padding is safe: ``side='right'``
+        # counts edges <= v, and a finite v is never >= +inf, so padding entries are never counted --
+        # identical to the per-column call with that column's OWN (shorter) edge vector. A column with
+        # ``ej.size == 0`` is an all-``+inf`` row: every comparison resolves to bin 0, matching the
+        # original explicit ``data[:, j] = 0`` branch exactly. NaN never reaches this call (``_handle_missing``
+        # above unconditionally fills or raises on NaN for every strategy), so the kernel's separate
+        # NaN-walks-to-``len(edges)`` contract -- which WOULD differ under padding -- never engages here.
+        # PARALLEL (not the serial ``nogil`` twin): measured -- the serial kernel is a WASH-TO-SLIGHT-LOSS
+        # against numpy's per-column ``searchsorted`` (0.83-1.26x across n=20k-100k, p=200-4000; numpy's C
+        # binary search is already fast per call, so a single-threaded scalar njit loop doesn't beat it) while
+        # the ``prange``-parallel twin is a consistent 6-10x win at the same scales. Safe here (unlike the
+        # FE pair-search hot path, which must stay serial to avoid nesting under joblib ``backend="threading"``):
+        # ``categorize_dataset`` has exactly ONE call site (``_fit_impl_core.py``, ``MRMR.fit``'s top-level
+        # entry, before any joblib worker spawns), so there is no nested-parallelism hazard.
+        n_edges_max = max((int(e.size) for e in edges_per_col), default=0)
+        edges_padded = np.full((n_edges_max, n_cols), np.inf, dtype=np.float64)
+        for j, ej in enumerate(edges_per_col):
+            if ej.size:
+                edges_padded[: ej.size, j] = ej
+        _codes = np.empty((n_rows, n_cols), dtype=np.int64)
+        from ._kernels import _searchsorted_2d_right_njit_parallel
+        # ``arr`` passed at its NATIVE dtype (float32 or float64): the kernel promotes per-element against
+        # the float64 edges, byte-identical to pre-upcasting the whole column (see the kernel's own
+        # docstring) -- avoids an (n_rows, n_cols) float64 copy on top of the input buffer.
+        _searchsorted_2d_right_njit_parallel(edges_padded, arr, _codes)
+        data[:, :] = _codes.astype(dtype)
     else:
         # Unsupervised numeric path: each column binned independently of others AND of the target, so per-column
         # codes are cached cross-instance (huge win across a suite's many targets on one feature frame). Bit-identical.

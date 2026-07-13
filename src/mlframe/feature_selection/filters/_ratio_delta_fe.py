@@ -232,23 +232,29 @@ def _passes_redundancy(
 ) -> bool:
     """Reject the candidate column if |Pearson(candidate, a)| > threshold or
     |Pearson(candidate, b)| > threshold -- i.e. it would carry no new info
-    over the source pair."""
-    cand = candidate
+    over the source pair.
+
+    One-pass njit correlation (``_abs_corr_finite_njit``, shared with the FE-pairs scorer's
+    identical masked-Pearson pattern) replaces the previous isfinite-mask + boolean-index
+    copies + full 2x2 ``np.corrcoef`` per (candidate, source) check -- this fires up to
+    O(p^2) times per call (every ordered column pair x 2 sources), the dominant cost of
+    ``pairwise_ratio_features``/``pairwise_log_ratio_features`` per the file's own
+    bench-attempt-rejected note above. ``min_n=2`` (not the kernel's small-sample-noise
+    default of 8) matches what a masked ``np.corrcoef`` call implicitly requires -- variance,
+    and hence Pearson r, is defined from as few as 2 points -- so the redundancy verdict on a
+    thin joint-finite overlap between candidate and source is unchanged, not just close.
+    """
+    from ._feature_engineering_pairs._pairs_core import _abs_corr_finite_njit
+    cand = np.ascontiguousarray(candidate, dtype=np.float64)
     if cand.std() <= 1e-12:
         return False
     for src in (a_vals, b_vals):
+        src = np.ascontiguousarray(src, dtype=np.float64)
         if src.std() <= 1e-12:
             continue
-        # Pearson on the finite mask only.
-        mask = np.isfinite(cand) & np.isfinite(src)
-        if not mask.any():
-            continue
-        c2 = cand[mask]
-        s2 = src[mask]
-        if c2.std() <= 1e-12 or s2.std() <= 1e-12:
-            continue
-        rho = float(np.corrcoef(c2, s2)[0, 1])
-        if abs(rho) > float(threshold):
+        src_finite = np.isfinite(src)
+        rho_abs = _abs_corr_finite_njit(cand, src, src_finite, 2)
+        if rho_abs > float(threshold):
             return False
     return True
 

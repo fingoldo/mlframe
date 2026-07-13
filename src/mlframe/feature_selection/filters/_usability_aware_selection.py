@@ -384,7 +384,24 @@ def build_usability_candidate_pool(
             # already MI-sorted + diversity-filtered + capped -> feed straight to the recipe builder.
             cand_here = _njit_kept
         else:
-            # Default / fallback Python loop. Precompute each operand's unary transforms ONCE per pair.
+            # Default / fallback Python loop (``rank_pairs_by_joint_mi=False``, the shipped default).
+            #
+            # bench-attempt-rejected (2026-07-13, Wave 11 audit item M11): swapping this branch to the
+            # SAME ``score_pair_combos`` njit kernel the ``True`` branch uses is NOT a safe drop-in here,
+            # despite looking like one. ``score_pair_combos`` is documented "bit-faithful to the Python MI
+            # (verified ~6e-15)" -- NOT bit-identical -- and this function's own docstring states the
+            # DEFAULT (marginal-rank) path is "byte-identical" by design (the ``_mi_key`` grid-snap that
+            # absorbs sub-quantum ties is deliberately gated to the resident-GPU-strict path only, see
+            # ``_seleq`` above). The retention loop below is a STABLE sort by MI keeping only the top
+            # ``max_per_pair`` DISTINCT forms; a prior investigation into feeding njit-computed MI into this
+            # exact retention/diversity logic on the non-resident path (see the "RESIDENT PAIR-COMBO MI
+            # TABLE" bench-attempt-rejected note above, ~90 lines up) measured ~6e-15 reassociation flipping
+            # the retained SET on a real 125-form pool (~6 forms differed) -- selection-altering, not a pure
+            # FP-reorder. Feeding ``score_pair_combos`` output into the default path's un-snapped ``_mi_key``
+            # would reproduce that exact regression for the SHIPPED DEFAULT config, not an opt-in one.
+            # A snap-then-batch variant (grid-snapping this path's MI too) would trade the "byte-identical
+            # default" contract for a "selection-equivalent-only" one -- a real behavior-contract change,
+            # not a pure perf refactor, so it is out of scope for this pass; not applied.
             ta_by_ua: dict = {}
             for _ua in unary:
                 try:

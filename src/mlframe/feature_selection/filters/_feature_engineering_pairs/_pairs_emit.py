@@ -526,11 +526,14 @@ def _emit_pair_features(
                 continue
             # DIVERSITY: skip a near-duplicate of any already-emitted column.
             _dup = False
+            from ._pairs_core import _abs_corr_zerofill_njit
             for _ec in _emitted_cols:
                 if float(np.std(_ec)) <= 1e-9:
                     continue
-                _r = np.corrcoef(_col, _ec)[0, 1]
-                if np.isfinite(_r) and abs(_r) > _div_corr:
+                # One-pass njit correlation (bit-equivalent to the previous np.corrcoef on
+                # nan_to_num'd inputs -- both _col and _ec are already finite by contract via
+                # _resolve_col; see _abs_corr_zerofill_njit's docstring) instead of a 2x2 corrcoef matrix.
+                if _abs_corr_zerofill_njit(_col, _ec) > _div_corr:
                     _dup = True
                     break
             if _dup:

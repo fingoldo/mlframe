@@ -81,27 +81,35 @@ def monotonic_deviation_stability_filter(
 
     y = np.asarray(y, dtype=np.float64)
     group_means = df.groupby(group_col, sort=False)[feature_cols].transform("mean")
-    deviations = df[feature_cols] - group_means
+    # Materialise the (n, p) deviation matrix ONCE -- the loops below used to call ``.to_numpy()`` on a
+    # single column per (subsample, feature)/(segment, feature) cell (30x500 = ~15,000 re-materialisations
+    # by default); every consumer below slices ROWS out of this one array instead.
+    dev_matrix = np.asarray(df[feature_cols].to_numpy(), dtype=np.float64) - np.asarray(group_means.to_numpy(), dtype=np.float64)
 
     groups = df[group_col].to_numpy()
     unique_groups = np.unique(groups)
     n_groups_per_draw = max(1, round(group_fraction * len(unique_groups)))
     rng = np.random.default_rng(random_state)
 
-    full_sample_corr = {col: _spearman_corr(deviations[col].to_numpy(), y) for col in feature_cols}
+    full_sample_corr_arr = _spearman_corr_batch(dev_matrix, y)
+    full_sample_corr = dict(zip(feature_cols, full_sample_corr_arr.tolist()))
+    full_sign_arr = np.sign(full_sample_corr_arr)
 
-    agreement_counts = {col: 0 for col in feature_cols}
+    # BATCHED SPEARMAN (2026-07-13): the pre-fix code called ``scipy.stats.spearmanr`` ONCE PER (subsample,
+    # feature) -- default 30 x 500 = ~15,000 individual scipy calls. Spearman correlation IS Pearson
+    # correlation of the (average-tie) ranks by definition, so every feature sharing one subsample's row
+    # mask can be rank-transformed and correlated in ONE batched pass instead of one scipy call per column
+    # (see ``_spearman_corr_batch``). ``agreement_counts_arr`` replaces the per-column dict with a running
+    # vector, summed once at the end.
+    agreement_counts_arr = np.zeros(len(feature_cols), dtype=np.int64)
     for _ in range(n_subsamples):
         chosen_groups = rng.choice(unique_groups, size=n_groups_per_draw, replace=False)
         row_mask = np.isin(groups, chosen_groups)
         y_sub = y[row_mask]
-        for col in feature_cols:
-            dev_sub = deviations[col].to_numpy()[row_mask]
-            corr = _spearman_corr(dev_sub, y_sub)
-            full_sign = np.sign(full_sample_corr[col])
-            sub_sign = np.sign(corr)
-            if full_sign == 0 or sub_sign == full_sign:
-                agreement_counts[col] += 1
+        corr_arr = _spearman_corr_batch(dev_matrix[row_mask, :], y_sub)
+        sub_sign_arr = np.sign(corr_arr)
+        agreement_counts_arr += (full_sign_arr == 0) | (sub_sign_arr == full_sign_arr)
+    agreement_counts = dict(zip(feature_cols, agreement_counts_arr.tolist()))
 
     segment_agreement_fraction: Dict[str, float] = {}
     segment_stable: Dict[str, bool] = {}
@@ -109,7 +117,7 @@ def monotonic_deviation_stability_filter(
         seg_min_agreement = min_stable_fraction if segment_min_agreement is None else segment_min_agreement
         segments = df[segment_col].to_numpy()
         unique_segments = np.unique(segments)
-        segment_agreement_counts = {col: 0 for col in feature_cols}
+        segment_agreement_counts_arr = np.zeros(len(feature_cols), dtype=np.int64)
         n_valid_segments = 0
         for seg in unique_segments:
             seg_mask = segments == seg
@@ -117,13 +125,10 @@ def monotonic_deviation_stability_filter(
                 continue
             n_valid_segments += 1
             y_seg = y[seg_mask]
-            for col in feature_cols:
-                dev_seg = deviations[col].to_numpy()[seg_mask]
-                corr = _spearman_corr(dev_seg, y_seg)
-                full_sign = np.sign(full_sample_corr[col])
-                seg_sign = np.sign(corr)
-                if full_sign == 0 or seg_sign == full_sign:
-                    segment_agreement_counts[col] += 1
+            corr_arr = _spearman_corr_batch(dev_matrix[seg_mask, :], y_seg)
+            seg_sign_arr = np.sign(corr_arr)
+            segment_agreement_counts_arr += (full_sign_arr == 0) | (seg_sign_arr == full_sign_arr)
+        segment_agreement_counts = dict(zip(feature_cols, segment_agreement_counts_arr.tolist()))
         for col in feature_cols:
             frac = segment_agreement_counts[col] / n_valid_segments if n_valid_segments > 0 else np.nan
             segment_agreement_fraction[col] = frac
@@ -152,6 +157,51 @@ def _spearman_corr(x: np.ndarray, y: np.ndarray) -> float:
 
     corr, _p = spearmanr(x, y)
     return float(corr) if np.isfinite(corr) else 0.0
+
+
+def _spearman_corr_batch(x: np.ndarray, y: np.ndarray) -> np.ndarray:
+    """Batched twin of ``_spearman_corr``: signed Spearman correlation of every column of ``x`` (n, p)
+    against the shared ``y`` (n,), in ONE rank-transform + ONE vectorized Pearson-on-ranks pass instead of
+    one ``scipy.stats.spearmanr`` call per column.
+
+    Spearman correlation IS Pearson correlation of the (average-tie) ranks by definition -- not an
+    approximation -- and ``scipy.stats.rankdata(x, axis=0)`` ranks each column of a 2D array
+    INDEPENDENTLY (a NaN confined to one column only poisons that column's own rank vector, verified), the
+    same average-tie method ``scipy.stats.spearmanr`` uses internally, so batching the rank transform
+    across every column sharing one ``y`` reproduces ``_spearman_corr``'s per-column results to ~1e-12.
+
+    Matches ``_spearman_corr``'s degenerate-input contract per column: 0.0 when ``n < 2``, ``y`` is
+    NaN-containing or constant (checked once, since ``y`` is shared -- the sub-loop calling this once per
+    subsample no longer re-derives that per feature), or the column itself is NaN-containing or constant
+    (``scipy.stats.spearmanr`` propagates any NaN in either side to the WHOLE correlation, matching the
+    isfinite-mask precheck here rather than a masked/partial-overlap correlation).
+    """
+    x = np.asarray(x, dtype=np.float64)
+    n, p = x.shape
+    out = np.zeros(p, dtype=np.float64)
+    if n < 2:
+        return out
+    y = np.asarray(y, dtype=np.float64)
+    if y.shape[0] != n or not np.isfinite(y).all() or np.std(y) == 0.0:
+        return out
+    col_finite = np.isfinite(x).all(axis=0)
+    col_std = np.std(x, axis=0)
+    valid = col_finite & (col_std != 0.0)
+    if not valid.any():
+        return out
+    from scipy.stats import rankdata
+
+    ranks = rankdata(x[:, valid], axis=0)
+    y_rank = rankdata(y)
+    y_rank_c = y_rank - y_rank.mean()
+    y_ss = float(np.dot(y_rank_c, y_rank_c))
+    ranks_c = ranks - ranks.mean(axis=0, keepdims=True)
+    num = ranks_c.T @ y_rank_c
+    den = np.sqrt(np.sum(ranks_c * ranks_c, axis=0) * y_ss)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        corr = np.where(den > 0.0, num / den, 0.0)
+    out[valid] = np.nan_to_num(corr, nan=0.0, posinf=0.0, neginf=0.0)
+    return out
 
 
 __all__ = ["monotonic_deviation_stability_filter"]

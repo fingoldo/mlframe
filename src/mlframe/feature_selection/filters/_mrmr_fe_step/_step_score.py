@@ -523,14 +523,37 @@ def materialise_and_finalise_fe_candidates(
                     logger.info(mes)
                 # logger.info(f"Features {new_cols} are recommended to use as new features!")
             if fe_max_steps >= 1:
-                new_vals = np.empty(shape=(len(X), len(this_pair_features)), dtype=self.quantization_dtype)
-                for j in range(len(this_pair_features)):
-                    new_vals[:, j] = discretize_array(
-                        arr=transformed_vals[:, j],
-                        n_bins=self.quantization_nbins,
-                        method=self.quantization_method,
-                        dtype=self.quantization_dtype,
+                _n_forms = len(this_pair_features)
+                if self.quantization_method == "quantile":
+                    # BATCHED (2026-07-13): one ``discretize_2d_quantile_batch`` call over the whole
+                    # (n, _n_forms) ``transformed_vals`` block instead of ``_n_forms`` separate
+                    # ``discretize_array`` calls -- bit-identical per its own docstring (same quantile
+                    # grid / percentile-edge / searchsorted per column), the SAME pattern already the
+                    # default one layer up in ``_pairs_score.py``/``_pairs_emit.py`` (gated on
+                    # ``quantization_method == "quantile"`` there too, see ``_use_batch_disc``).
+                    from ..discretization import discretize_2d_quantile_batch
+                    new_vals = discretize_2d_quantile_batch(
+                        transformed_vals, n_bins=self.quantization_nbins, dtype=self.quantization_dtype,
                     )
+                else:
+                    # Pre-widen the buffer dtype the SAME way ``discretize_array`` widens its own return
+                    # value internally (``_safe_code_dtype``): the pre-fix code preallocated ``new_vals``
+                    # at the raw (possibly too-narrow) ``self.quantization_dtype`` and wrote each
+                    # already-widened column into it, which silently DOWNCASTS back to the narrow dtype on
+                    # assignment -- wrapping codes negative for ``n_bins > 127`` under the (non-default)
+                    # ``quantization_dtype=int8`` config, exactly the bug ``_safe_code_dtype`` exists to
+                    # prevent everywhere else it's used (``discretize_array``/``discretize_2d_quantile_batch``/
+                    # ``discretize_2d_array``).
+                    from ..discretization import _safe_code_dtype
+                    _safe_dtype = _safe_code_dtype(self.quantization_nbins, self.quantization_dtype)
+                    new_vals = np.empty(shape=(len(X), _n_forms), dtype=_safe_dtype)
+                    for j in range(_n_forms):
+                        new_vals[:, j] = discretize_array(
+                            arr=transformed_vals[:, j],
+                            n_bins=self.quantization_nbins,
+                            method=self.quantization_method,
+                            dtype=self.quantization_dtype,
+                        )
                 _n_cols_before = len(cols)
                 _data_chunks.append(new_vals)
                 # ``nbins`` is a numpy.ndarray (returned by categorize_dataset), so plain ``+`` does

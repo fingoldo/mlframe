@@ -102,14 +102,17 @@ def boruta_select(
         if is_frame:
             import pandas as pd
 
-            shadow = X[cols].apply(lambda col: rng.permutation(col.to_numpy()), axis=0)
-            shadow.columns = [f"{c}__shadow" for c in cols]
+            # ``Generator.permuted(x, axis=0)`` shuffles each column INDEPENDENTLY along axis 0 in one
+            # vectorised call -- bit-identical to the per-column ``rng.permutation(col)`` loop
+            # (``.apply(..., axis=0)`` dispatches one Python-level call per column under the hood; verified
+            # both consume the SAME rng draw sequence per column) without the ``n_features``-call overhead.
+            real_cols = X[cols].to_numpy()
+            shadow_arr = rng.permuted(real_cols, axis=0)
+            shadow = pd.DataFrame(shadow_arr, columns=[f"{c}__shadow" for c in cols])
             X_shadowed = pd.concat([X[cols].reset_index(drop=True), shadow.reset_index(drop=True)], axis=1)
         else:
             X_arr = np.asarray(X)
-            shadow_arr = np.empty_like(X_arr)
-            for j in range(n_features):
-                shadow_arr[:, j] = rng.permutation(X_arr[:, j])
+            shadow_arr = rng.permuted(X_arr, axis=0)
             X_shadowed = np.concatenate([X_arr, shadow_arr], axis=1)
 
         importances = np.asarray(importance_fn(X_shadowed, y), dtype=np.float64)

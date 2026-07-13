@@ -21,10 +21,14 @@ from pyutilz.system import tqdmu
 
 
 @numba.njit(cache=True, fastmath=False)
-def _abs_corr_finite_njit(a, y, yfin):
+def _abs_corr_finite_njit(a, y, yfin, min_n=8):
     """|Pearson corr| of ``a`` vs ``y`` over rows where both are finite, in one pass (no boolean-index temporaries,
-    no 2x2 corrcoef matrix). Returns 0.0 when <8 joint-finite rows or either side is (near-)constant. FP-equivalent
-    to the numpy ``abs(corrcoef(a[m], y[m])[0,1])`` to ~1e-15 -- selection-safe for the noise-wrap |corr| gate."""
+    no 2x2 corrcoef matrix). Returns 0.0 when fewer than ``min_n`` joint-finite rows or either side is
+    (near-)constant. FP-equivalent to the numpy ``abs(corrcoef(a[m], y[m])[0,1])`` to ~1e-15 -- selection-safe for
+    the noise-wrap |corr| gate. ``min_n`` defaults to 8 (small-sample-noise protection for the y-correlation call
+    sites); callers replicating a masked ``np.corrcoef`` call site with no such floor (e.g. the ratio/log-ratio FE
+    redundancy gate, which rejects on ANY finite overlap corrcoef defines, however small) pass ``min_n=2`` --
+    the minimum sample size for which variance -- and hence Pearson r -- is even defined."""
     n = 0
     sa = 0.0; sy = 0.0; saa = 0.0; syy = 0.0; say = 0.0
     for i in range(a.shape[0]):
@@ -33,7 +37,7 @@ def _abs_corr_finite_njit(a, y, yfin):
             yv = y[i]
             n += 1
             sa += av; sy += yv; saa += av * av; syy += yv * yv; say += av * yv
-    if n < 8:
+    if n < min_n:
         return 0.0
     va = saa - sa * sa / n
     vy = syy - sy * sy / n
@@ -44,6 +48,40 @@ def _abs_corr_finite_njit(a, y, yfin):
     if denom <= 0.0:
         return 0.0
     r = (say - sa * sy / n) / denom
+    return -r if r < 0.0 else r
+
+
+@numba.njit(cache=True, fastmath=False)
+def _abs_corr_zerofill_njit(a, b):
+    """|Pearson corr| of ``a`` vs ``b`` treating any non-finite entry (NaN/+-inf) as 0.0 INLINE, in one pass --
+    bit-equivalent to ``abs(np.corrcoef(np.nan_to_num(a), np.nan_to_num(b))[0, 1])`` without materialising either
+    zero-filled copy or the 2x2 corrcoef matrix. This is the ZERO-FILL twin of ``_abs_corr_finite_njit`` (which
+    instead MASKS non-finite rows out) -- deliberately kept separate rather than unified: a veto/dedup check
+    comparing two ENGINEERED columns (e.g. a winning composite against one of its own transformed operands, which
+    can legitimately contain NaN/Inf from a domain-invalid unary like log/sqrt) that was written against
+    nan_to_num-then-corrcoef semantics must keep that exact statistic -- masking those rows out instead would
+    silently change which rows influence the veto decision. Returns 0.0 when either side is (near-)constant
+    post-zero-fill."""
+    n = a.shape[0]
+    sa = 0.0; sb = 0.0; saa = 0.0; sbb = 0.0; sab = 0.0
+    for i in range(n):
+        av = a[i]
+        bv = b[i]
+        if not np.isfinite(av):
+            av = 0.0
+        if not np.isfinite(bv):
+            bv = 0.0
+        sa += av; sb += bv; saa += av * av; sbb += bv * bv; sab += av * bv
+    if n == 0:
+        return 0.0
+    va = saa - sa * sa / n
+    vb = sbb - sb * sb / n
+    if va <= 1e-24 * n or vb <= 1e-24 * n:
+        return 0.0
+    denom = (va * vb) ** 0.5
+    if denom <= 0.0:
+        return 0.0
+    r = (sab - sa * sb / n) / denom
     return -r if r < 0.0 else r
 
 from ._pairs_chunks import _FE_CHUNK_MAX_COLS_HARD_CAP, _plan_fe_chunks

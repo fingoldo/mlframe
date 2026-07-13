@@ -256,28 +256,32 @@ def run_cat_interaction_step(
 
     # ---- Pair enumeration with cardinality budget ----
     max_combined = resolve_max_combined_nbins(cfg, n_samples)
-    pairs_a_list = []
-    pairs_b_list = []
-    for ii in range(len(candidate_idxs_arr)):
-        for jj in range(ii + 1, len(candidate_idxs_arr)):
-            i = int(candidate_idxs_arr[ii])
-            j = int(candidate_idxs_arr[jj])
-            nb_prod = int(nbins[i]) * int(nbins[j])
-            if nb_prod > max_combined:
-                continue
-            # Strict int32-overflow gate: the inner merge_vars loop computes ``current_nclasses * sample_class`` in int32. With current_nclasses==nbins[i],
-            # this multiplied by (nbins[j]-1) must stay below 2^31. Conservative: nb_prod < 2^31.
-            if nb_prod >= 2**31:
-                continue
-            pairs_a_list.append(i)
-            pairs_b_list.append(j)
-    if not pairs_a_list:
+    # VECTORIZED (2026-07-13): ``np.triu_indices`` enumerates every unordered (ii, jj) pair in one call
+    # instead of a pure-Python nested loop (~125K iterations at p~500 per the audit) -- the cardinality-
+    # budget filter is then a single boolean mask over the whole pair set rather than an if/continue per
+    # iteration. Bit-identical selection: the SAME two conditions (``nb_prod <= max_combined`` and
+    # ``nb_prod < 2**31``) gate the SAME candidate pairs, in the SAME (ii, jj) enumeration order
+    # ``triu_indices`` produces (row-major upper triangle, matching the nested loop's iteration order).
+    # ``nb_prod`` is computed in int64 (not numpy's default-width product) so a wide-cardinality pair
+    # cannot silently wrap before the ``>= 2**31`` overflow check gets to see it -- the whole point of
+    # that guard.
+    _n_cand = len(candidate_idxs_arr)
+    if _n_cand >= 2:
+        _ii, _jj = np.triu_indices(_n_cand, k=1)
+        _i_arr = np.asarray(candidate_idxs_arr, dtype=np.int64)[_ii]
+        _j_arr = np.asarray(candidate_idxs_arr, dtype=np.int64)[_jj]
+        _nbins_i64 = np.asarray(nbins, dtype=np.int64)
+        nb_prod = _nbins_i64[_i_arr] * _nbins_i64[_j_arr]
+        _keep = (nb_prod <= int(max_combined)) & (nb_prod < 2**31)
+        pairs_a = _i_arr[_keep]
+        pairs_b = _j_arr[_keep]
+    else:
+        pairs_a = np.empty(0, dtype=np.int64)
+        pairs_b = np.empty(0, dtype=np.int64)
+    if pairs_a.size == 0:
         if verbose:
             logger.info("cat-FE skipped: 0 pairs cleared cardinality budget %d", max_combined)
         return orig_data, orig_cols, orig_nbins, state
-
-    pairs_a = np.asarray(pairs_a_list, dtype=np.int64)
-    pairs_b = np.asarray(pairs_b_list, dtype=np.int64)
     if verbose:
         logger.info(
             "cat-FE: pair search over %d candidate pairs (cardinality budget %d)",
