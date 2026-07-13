@@ -46,9 +46,11 @@ __all__ = [
     "_ratio_inverse",
     "_ratio_domain",
     "_rolling_quantile_ratio_fit",
+    "_rolling_quantile_ratio_centered_fit",
     "_rolling_quantile_ratio_forward",
     "_rolling_quantile_ratio_inverse",
     "_rolling_quantile_ratio_domain",
+    "_rolling_median_trailing",
 ]
 
 
@@ -355,7 +357,13 @@ def _ratio_domain(y: np.ndarray | None, base: np.ndarray) -> np.ndarray:
 # ----------------------------------------------------------------------
 # rolling_quantile_ratio (R10c brainstorm #5b).
 #
-# T = y / max(RollingQ50_k(base), eps), where RollingQ50_k is the centred rolling median of ``base`` over a window of ``k`` rows. Inverse: y_hat = T_hat * RollingQ50_k(base). For the first ``k-1`` rows the window is left-truncated, falling back to the median of available rows.
+# T = y / max(RollingQ50_k(base), eps), where RollingQ50_k is the rolling median of ``base`` over a window of ``k`` rows. Inverse: y_hat = T_hat * RollingQ50_k(base).
+#
+# Two window modes, selected at fit time and stored in params:
+# - ``"trailing"`` (default): position ``i`` sees rows ``[i-k+1 .. i]`` only -- past-only, no look-ahead, safe for time-ordered deployment.
+# - ``"centered"``: position ``i`` sees rows ``[i-k//2 .. i+(k-1)//2]`` -- reads FUTURE base rows (leaks forward in time order); kept for
+#   non-chronological / cross-sectional use via the ``rolling_quantile_ratio_centered`` registry entry.
+# Params fitted before the mode field existed carry no ``"mode"`` key and keep their historical centred behaviour on load.
 #
 # Use case: multiplicative DGP where the local-median of base sets the y-scale. Logratio captures global multiplicative structure but not local windowing. ``rolling_quantile_ratio`` is the localised version.
 # ----------------------------------------------------------------------
@@ -363,12 +371,54 @@ def _ratio_domain(y: np.ndarray | None, base: np.ndarray) -> np.ndarray:
 _ROLLING_QUANTILE_DEFAULT_K: int = 7
 
 
+def _rolling_median_trailing(arr: np.ndarray, k: int) -> np.ndarray:
+    """Trailing (past-only) rolling median: position ``i`` is the median of ``arr[max(0, i-k+1) .. i]``.
+
+    Contract = pandas ``rolling(window=k, min_periods=1).median()`` (head windows truncate; NaN inside a window is skipped).
+    Fast path: ``bottleneck.move_median`` computes EXACTLY this trailing window; like :func:`~mlframe.training.composite.transforms.nonlinear._rolling_median`
+    it does not NaN-skip, so non-finite input routes to the pandas reference. Residual NaN (all-non-finite window) falls back to the row's own value / 0.0.
+    """
+    arr_f = np.asarray(arr, dtype=np.float64).reshape(-1)
+    if arr_f.size == 0:
+        return np.asarray(arr_f.copy())
+    n = arr_f.size
+    k = max(1, int(k))
+    out: np.ndarray | None = None
+    if np.isfinite(arr_f).all():
+        try:
+            import bottleneck as _bn  # lazy; optional dep but present in mlframe[all]
+            out = np.asarray(_bn.move_median(arr_f, window=min(k, n), min_count=1), dtype=np.float64)
+        except ImportError:
+            out = None
+    if out is None:
+        import pandas as pd  # lazy
+        out = np.asarray(pd.Series(arr_f).rolling(window=k, min_periods=1).median().to_numpy())
+    bad = ~np.isfinite(out)
+    if bad.any():
+        fallback = np.where(np.isfinite(arr_f), arr_f, 0.0)
+        out = np.where(bad, fallback, out)
+    return out
+
+
+def _rqr_rolling_median(base_f: np.ndarray, k: int, mode: str) -> np.ndarray:
+    """Route to the trailing or centred rolling median per the fitted ``mode``."""
+    if mode == "trailing":
+        return _rolling_median_trailing(base_f, k)
+    # Lazy import: ``_rolling_median`` lives in the nonlinear sibling, which
+    # imports the parent at top, so a top-level import would cycle.
+    from .nonlinear import _rolling_median
+    return _rolling_median(base_f, k)
+
+
 def _rolling_quantile_ratio_fit(
     y: np.ndarray, base: np.ndarray, k: int = _ROLLING_QUANTILE_DEFAULT_K,
+    mode: str = "trailing",
     _finite_mask: np.ndarray | None = None,
 ) -> dict[str, Any]:
-    """Stores the window span ``k`` and an eps floor derived from train base scale to keep division safe at predict time on near-zero rolling medians."""
+    """Stores the window span ``k``, the window ``mode`` (trailing = past-only default; centered = legacy look-ahead) and an eps floor derived from train base scale to keep division safe at predict time on near-zero rolling medians."""
     k = max(1, int(k))
+    if mode not in ("trailing", "centered"):
+        raise ValueError(f"rolling_quantile_ratio: mode must be 'trailing' or 'centered', got {mode!r}")
     base_f = np.asarray(base, dtype=np.float64).reshape(-1)
     if _finite_mask is not None:
         finite = _finite_mask & (base_f != 0)
@@ -376,20 +426,26 @@ def _rolling_quantile_ratio_fit(
         finite = np.isfinite(base_f) & (base_f != 0)
     scale = float(np.median(np.abs(base_f[finite]))) if finite.any() else 1.0
     eps = max(scale * 1e-6, 1e-12)
-    return {"k": k, "eps": eps}
+    return {"k": k, "eps": eps, "mode": mode}
+
+
+def _rolling_quantile_ratio_centered_fit(
+    y: np.ndarray, base: np.ndarray, k: int = _ROLLING_QUANTILE_DEFAULT_K,
+    _finite_mask: np.ndarray | None = None,
+) -> dict[str, Any]:
+    """Fit for the ``rolling_quantile_ratio_centered`` registry entry: same params with ``mode='centered'`` pinned."""
+    return _rolling_quantile_ratio_fit(y, base, k=k, mode="centered", _finite_mask=_finite_mask)
 
 
 def _rolling_quantile_ratio_forward(
     y: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
-    """Apply ``T = y / max(RollingQ50_k(base), eps)``, the centred rolling median of ``base`` over window ``k``."""
-    # Lazy import: ``_rolling_median`` lives in the nonlinear sibling, which
-    # imports the parent at top, so this top-level import would cycle.
-    from .nonlinear import _rolling_median
+    """Apply ``T = y / max(RollingQ50_k(base), eps)`` with the rolling median of ``base`` over window ``k`` in the fitted mode (params without a ``mode`` key predate the field and keep the historical centred window)."""
     k = int(params["k"])
     eps = float(params["eps"])
+    mode = str(params.get("mode", "centered"))
     base_f = np.asarray(base, dtype=np.float64).reshape(-1)
-    roll_med = _rolling_median(base_f, k)
+    roll_med = _rqr_rolling_median(base_f, k, mode)
     safe = np.where(np.abs(roll_med) < eps, np.sign(roll_med + 1e-300) * eps, roll_med)
     return np.asarray(np.asarray(y, dtype=np.float64) / safe)
 
@@ -397,11 +453,11 @@ def _rolling_quantile_ratio_forward(
 def _rolling_quantile_ratio_inverse(
     t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
-    """Undo the transform: ``y = T_hat * max(RollingQ50_k(base), eps)``."""
-    from .nonlinear import _rolling_median
+    """Undo the transform: ``y = T_hat * max(RollingQ50_k(base), eps)`` with the same fitted window mode as the forward."""
     k = int(params["k"])
+    mode = str(params.get("mode", "centered"))
     base_f = np.asarray(base, dtype=np.float64).reshape(-1)
-    roll_med = _rolling_median(base_f, k)
+    roll_med = _rqr_rolling_median(base_f, k, mode)
     # Mirror the forward eps-floor so the round-trip is exact on near-zero rolling medians.
     eps = float(params["eps"])
     safe = np.where(np.abs(roll_med) < eps, np.sign(roll_med + 1e-300) * eps, roll_med)

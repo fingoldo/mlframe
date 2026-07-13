@@ -44,6 +44,7 @@ from .simple import (
     _ratio_inverse,
     _rolling_quantile_ratio_domain,
     _rolling_quantile_ratio_fit,
+    _rolling_quantile_ratio_centered_fit,
     _rolling_quantile_ratio_forward,
     _rolling_quantile_ratio_inverse,
     _y_quantile_clip_domain,
@@ -149,6 +150,59 @@ from ._rank_ecdf import (
     _rank_ecdf_residual_forward,
     _rank_ecdf_residual_inverse,
 )
+from ._seasonal import (
+    _seasonal_residual_domain,
+    _seasonal_residual_fit,
+    _seasonal_residual_forward,
+    _seasonal_residual_inverse,
+)
+from ._volatility import (
+    _volatility_normalized_residual_domain,
+    _volatility_normalized_residual_fit,
+    _volatility_normalized_residual_forward,
+    _volatility_normalized_residual_inverse,
+)
+from ._multi_extra import (
+    _asinh_residual_multi_domain,
+    _asinh_residual_multi_fit,
+    _asinh_residual_multi_forward,
+    _asinh_residual_multi_inverse,
+    _linear_residual_multi_robust_fit,
+)
+from ._nadaraya_watson import (
+    _nadaraya_watson_residual_domain,
+    _nadaraya_watson_residual_fit,
+    _nadaraya_watson_residual_forward,
+    _nadaraya_watson_residual_inverse,
+)
+from ._gaussian_copula import (
+    _gaussian_copula_residual_domain,
+    _gaussian_copula_residual_fit,
+    _gaussian_copula_residual_forward,
+    _gaussian_copula_residual_inverse,
+)
+from ._grouped_extra import (
+    _ewma_residual_grouped_domain,
+    _ewma_residual_grouped_fit,
+    _ewma_residual_grouped_forward,
+    _ewma_residual_grouped_inverse,
+    _frac_diff_grouped_domain,
+    _frac_diff_grouped_fit,
+    _frac_diff_grouped_forward,
+    _frac_diff_grouped_inverse,
+    _monotonic_residual_grouped_domain,
+    _monotonic_residual_grouped_fit,
+    _monotonic_residual_grouped_forward,
+    _monotonic_residual_grouped_inverse,
+    _quantile_residual_grouped_domain,
+    _quantile_residual_grouped_fit,
+    _quantile_residual_grouped_forward,
+    _quantile_residual_grouped_inverse,
+    _rolling_quantile_ratio_grouped_domain,
+    _rolling_quantile_ratio_grouped_fit,
+    _rolling_quantile_ratio_grouped_forward,
+    _rolling_quantile_ratio_grouped_inverse,
+)
 from .unary import (
     cbrt_y_domain as _cbrt_y_domain_raw,
     cbrt_y_fit as _cbrt_y_fit_raw,
@@ -170,6 +224,10 @@ from .unary import (
     yeo_johnson_y_fit as _yj_y_fit_raw,
     yeo_johnson_y_forward as _yj_y_forward_raw,
     yeo_johnson_y_inverse as _yj_y_inverse_raw,
+    box_cox_y_domain as _bc_y_domain_raw,
+    box_cox_y_fit as _bc_y_fit_raw,
+    box_cox_y_forward as _bc_y_forward_raw,
+    box_cox_y_inverse as _bc_y_inverse_raw,
 )
 
 
@@ -254,6 +312,10 @@ _qn_fit_a, _qn_forward_a, _qn_inverse_a, _qn_domain_a, _qn_domain_fitted_a = _ma
 _sp_fit_a, _sp_forward_a, _sp_inverse_a, _sp_domain_a, _sp_domain_fitted_a = _make_unary_registry_adapter(
     _sp_y_fit_raw, _sp_y_forward_raw, _sp_y_inverse_raw,
     lambda y: _sp_y_domain_raw(y),
+)
+_bc_fit_a, _bc_forward_a, _bc_inverse_a, _bc_domain_a, _bc_domain_fitted_a = _make_unary_registry_adapter(
+    _bc_y_fit_raw, _bc_y_forward_raw, _bc_y_inverse_raw,
+    lambda y: _bc_y_domain_raw(y),
 )
 
 
@@ -481,12 +543,25 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
         fit=_rolling_quantile_ratio_fit,
         domain_check=_rolling_quantile_ratio_domain,
         description=(
-            "Localised multiplicative residual: T = y / RollingMedian_k(base), with a centred window of ``k`` rows and an eps floor derived from train base scale to keep division safe at near-zero rolling medians. Inverse: y_hat = T_hat * RollingMedian_k(base). Like logratio but tracks the LOCAL base level instead of the global scale -- useful when y scales with a windowed median of base rather than the instantaneous value. LOOK-AHEAD: the centred window reads FUTURE base rows, so in time-ordered deployment T leaks forward; gated out of default discovery for this reason (a trailing-only mode is not yet implemented)."
+            "Localised multiplicative residual: T = y / RollingMedian_k(base), with a TRAILING (past-only) window of ``k`` rows and an eps floor derived from train base scale to keep division safe at near-zero rolling medians. Inverse: y_hat = T_hat * RollingMedian_k(base). Like logratio but tracks the LOCAL base level instead of the global scale -- useful when y scales with a windowed median of base rather than the instantaneous value. The trailing window never reads future rows, so the transform is safe in time-ordered deployment; the legacy look-ahead centred window remains available as ``rolling_quantile_ratio_centered``. Params fitted before the mode field existed keep their historical centred behaviour on load."
         ),
         tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
-        # Centred rolling median reads neighbouring rows; compacting the
-        # sequence before the forward would shrink each window across a
-        # filtered gap, so the forward runs full-then-mask (see Transform.recurrent).
+        # The rolling median reads neighbouring rows (past rows in trailing
+        # mode); compacting the sequence before the forward would shrink each
+        # window across a filtered gap, so the forward runs full-then-mask
+        # (see Transform.recurrent).
+        recurrent=True,
+    ),
+    "rolling_quantile_ratio_centered": Transform(
+        name="rolling_quantile_ratio_centered",
+        forward=_rolling_quantile_ratio_forward,
+        inverse=_rolling_quantile_ratio_inverse,
+        fit=_rolling_quantile_ratio_centered_fit,
+        domain_check=_rolling_quantile_ratio_domain,
+        description=(
+            "Centred-window variant of ``rolling_quantile_ratio``: T = y / RollingMedian_k(base) with a CENTRED window of ``k`` rows. LOOK-AHEAD: the centred window reads FUTURE base rows, so in time-ordered deployment T leaks forward -- use only on non-chronological / cross-sectional row sequences; the trailing default is the time-safe choice."
+        ),
+        tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
         recurrent=True,
     ),
     "frac_diff": Transform(
@@ -874,5 +949,155 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
         tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
         requires_groups=True,
         requires_base=False,
+    ),
+    # Grouped variants of the recurrent trio: recurrence state resets at every group boundary (rows of one group need not be contiguous; each group is
+    # processed in its stable original order). For stacked panels where the ungrouped recurrences bleed one entity's level into the next entity's first rows.
+    "ewma_residual_grouped": Transform(
+        name="ewma_residual_grouped",
+        forward=_ewma_residual_grouped_forward,
+        inverse=_ewma_residual_grouped_inverse,
+        fit=_ewma_residual_grouped_fit,
+        domain_check=_ewma_residual_grouped_domain,
+        description=(
+            "Per-group ewma_residual: T = y - EWMA_k(base) with the EWMA recursion reset at each group boundary and seeded by the GROUP's train-base mean (per-group tail state under recurrence continuation). Unseen groups at predict fall back to the global anchor. Caller is responsible for chronological order within each group."
+        ),
+        tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
+        requires_groups=True,
+        recurrent=True,
+    ),
+    "rolling_quantile_ratio_grouped": Transform(
+        name="rolling_quantile_ratio_grouped",
+        forward=_rolling_quantile_ratio_grouped_forward,
+        inverse=_rolling_quantile_ratio_grouped_inverse,
+        fit=_rolling_quantile_ratio_grouped_fit,
+        domain_check=_rolling_quantile_ratio_grouped_domain,
+        description=(
+            "Per-group rolling_quantile_ratio: T = y / max(RollingMedian_k(base), eps) with the (trailing, past-only) window confined to each row's group, so the local level of one entity never leaks into another. eps floor is fitted on the global train base scale."
+        ),
+        tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
+        requires_groups=True,
+        recurrent=True,
+    ),
+    "frac_diff_grouped": Transform(
+        name="frac_diff_grouped",
+        forward=_frac_diff_grouped_forward,
+        inverse=_frac_diff_grouped_inverse,
+        fit=_frac_diff_grouped_fit,
+        domain_check=_frac_diff_grouped_domain,
+        description=(
+            "Per-group frac_diff: the truncated (1-L)^d convolution runs independently within each group, padding each group's pre-window history with ITS OWN train-y mean (per-group tail mean under recurrence continuation) so entity-level differences never contaminate the weight tail across a boundary. y-only like frac_diff (requires_base=False)."
+        ),
+        tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
+        requires_groups=True,
+        requires_base=False,
+        recurrent=True,
+    ),
+    "quantile_residual_grouped": Transform(
+        name="quantile_residual_grouped",
+        forward=_quantile_residual_grouped_forward,
+        inverse=_quantile_residual_grouped_inverse,
+        fit=_quantile_residual_grouped_fit,
+        domain_check=_quantile_residual_grouped_domain,
+        description=(
+            "Per-group quantile_residual: each group with >= _GROUPED_MIN_GROUP_SIZE train rows gets its own per-bin median/IQR fit, with a James-Stein-style shrinkage of the per-group level (bin medians) toward the global fit; smaller and unseen-at-predict groups fall back to the global params entirely."
+        ),
+        tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
+        requires_groups=True,
+    ),
+    "monotonic_residual_grouped": Transform(
+        name="monotonic_residual_grouped",
+        forward=_monotonic_residual_grouped_forward,
+        inverse=_monotonic_residual_grouped_inverse,
+        fit=_monotonic_residual_grouped_fit,
+        domain_check=_monotonic_residual_grouped_domain,
+        description=(
+            "Per-group monotonic_residual: each group with >= _GROUPED_MIN_GROUP_SIZE train rows gets its own monotone PCHIP g(base), with a James-Stein-style shrinkage of the per-group level (knot values) toward the global fit; smaller and unseen-at-predict groups fall back to the global spline entirely."
+        ),
+        tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
+        requires_groups=True,
+    ),
+    "box_cox_y": Transform(
+        name="box_cox_y",
+        forward=_bc_forward_a,
+        inverse=_bc_inverse_a,
+        fit=_bc_fit_a,
+        domain_check=_bc_domain_a,
+        description=(
+            "Box-Cox power transform for STRICTLY-POSITIVE targets with lambda fitted by MLE (scipy.stats.boxcox). "
+            "T = (y^lambda - 1) / lambda (log(y) at lambda=0); inverse is the closed form (t*lambda + 1)^(1/lambda) via scipy's inv_boxcox algebra "
+            "with an asymptote floor. Sibling of yeo_johnson_y: on y > 0 the classical Box-Cox likelihood is a slightly tighter fit; mixed-sign "
+            "targets must use yeo_johnson_y instead (domain_check gates y > 0)."
+        ),
+        tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
+        requires_base=False,
+    ),
+    "seasonal_residual": Transform(
+        name="seasonal_residual",
+        forward=_seasonal_residual_forward,
+        inverse=_seasonal_residual_inverse,
+        fit=_seasonal_residual_fit,
+        domain_check=_seasonal_residual_domain,
+        description=(
+            "T = y - seasonal_mean(phase) with phase = row_index % period. ``period`` may be supplied via fit kwargs or is selected on train by minimum residual variance over a small grid ({4, 5, 7, 12, 24, 52} capped at n/3). Index-position-based like ewma_residual: phase is the row's position in the batch, not a calendar field -- caller supplies chronological, gap-free rows and a predict batch starts at phase 0. Pointwise given the phase (recurrent=False)."
+        ),
+        tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
+        requires_base=False,
+    ),
+    "volatility_normalized_residual": Transform(
+        name="volatility_normalized_residual",
+        forward=_volatility_normalized_residual_forward,
+        inverse=_volatility_normalized_residual_inverse,
+        fit=_volatility_normalized_residual_fit,
+        domain_check=_volatility_normalized_residual_domain,
+        description=(
+            "T = (y - EWMA_k(base)) / max(EWMA_k(|base - EWMA_k(base)|), floor): the ewma_residual level residual normalised by a recency-weighted volatility of the BASE series (volatility must be base-derived for the inverse to exist). Gives downstream models a unit-variance-ish target across calm and turbulent regimes. Inverse: y_hat = T_hat * vol + EWMA_k(base)."
+        ),
+        tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
+        # Both EWMA traces carry state across the row sequence (see ewma_residual).
+        recurrent=True,
+    ),
+    "asinh_residual_multi": Transform(
+        name="asinh_residual_multi",
+        forward=_asinh_residual_multi_forward,
+        inverse=_asinh_residual_multi_inverse,
+        fit=_asinh_residual_multi_fit,
+        domain_check=_asinh_residual_multi_domain,
+        description=(
+            "Multi-base sibling of asinh_residual: T = arcsinh(y) - sum_j(alpha_j * arcsinh(base_j)) - beta with joint OLS in arcsinh space over a K-column base matrix. Inverse y_hat = sinh(T_hat + arcsinh(base) @ alphas + beta). Inherits linear_residual_multi's condition-number guard (falls back to zero-alpha + intercept above _MULTI_BASE_COND_NUMBER_MAX)."
+        ),
+        tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
+    ),
+    "linear_residual_multi_robust": Transform(
+        name="linear_residual_multi_robust",
+        forward=_linear_residual_multi_forward,
+        inverse=_linear_residual_multi_inverse,
+        fit=_linear_residual_multi_robust_fit,
+        domain_check=_linear_residual_multi_domain,
+        description=(
+            "Trimmed-LS variant of linear_residual_multi: joint OLS first pass -> drop rows where |resid| > 3 * sigma_MAD -> refit on the inlier set. Forward / inverse identical to linear_residual_multi once (alphas, beta) are fitted; keeps the condition-number guard of both passes. Stamped ``is_redundant_with_linres_multi=True`` when no row is trimmed so discovery can skip the duplicate evaluation."
+        ),
+        tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
+    ),
+    "nadaraya_watson_residual": Transform(
+        name="nadaraya_watson_residual",
+        forward=_nadaraya_watson_residual_forward,
+        inverse=_nadaraya_watson_residual_inverse,
+        fit=_nadaraya_watson_residual_fit,
+        domain_check=_nadaraya_watson_residual_domain,
+        description=(
+            "T = y - g(base) where g is a Gaussian-kernel Nadaraya-Watson regression with Silverman's-rule bandwidth on the train base. fit stores (base, y) knots subsampled to ~2000 points evenly along the base-sorted order (bounded O(n*m) predict); far-from-support rows converge to the nearest knot's y. Captures arbitrary non-monotone local dependence that monotonic_residual (monotone) and smoothing_spline_residual (global smoothness) miss. Inverse y_hat = T_hat + g(base)."
+        ),
+        tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
+    ),
+    "gaussian_copula_residual": Transform(
+        name="gaussian_copula_residual",
+        forward=_gaussian_copula_residual_forward,
+        inverse=_gaussian_copula_residual_inverse,
+        fit=_gaussian_copula_residual_fit,
+        domain_check=_gaussian_copula_residual_domain,
+        description=(
+            "Gaussian-copula residual: T = Phi^-1(ecdf_y(y)) - alpha * Phi^-1(ecdf_base(base)) - beta with (alpha, beta) OLS-fitted in normal-scores space on the TRAIN empirical CDFs. Collapses any monotone marginal distortion (like rank_ecdf_residual) while keeping the residual on a Gaussian scale RMSE inners like. Inverse maps back through the stored y-ECDF knots (y_hat = quantile_y(Phi(T_hat + alpha*z_b + beta))), so reconstructions cannot leave the train y-support."
+        ),
+        tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
     ),
 }
