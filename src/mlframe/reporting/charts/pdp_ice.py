@@ -73,7 +73,22 @@ def _predict_fn(model: Any) -> Tuple[Callable[[np.ndarray], Optional[np.ndarray]
     predict = getattr(model, "predict", None)
     if not callable(predict):
         raise TypeError("model must expose predict_proba or predict")
-    return (lambda arr: np.asarray(predict(arr)).ravel()), "predict"
+    return (lambda arr: _scalar_from_predict_output(predict(arr))), "predict"
+
+
+def _scalar_from_predict_output(out: Any) -> np.ndarray:
+    """Reduce a raw ``predict`` output to one scalar per row.
+
+    A bare ``.ravel()`` silently flattens an (n_rows, n_classes) multiclass proba-like output into an
+    n_rows*n_classes 1-D array -- caught via a fuzz combo where a multiclass wrapper's ``predict`` returns per-class
+    scores, breaking every downstream ``ice_full[k] = ...`` assignment with a shape-mismatch
+    (e.g. (5925,) into (1975,)). 2-D output is reduced to the predicted class index (argmax) instead, matching
+    the same "the class the model would output" semantic the multiclass proba fallback already documents.
+    """
+    arr = np.asarray(out)
+    if arr.ndim == 2:
+        return arr[:, 0].astype(np.float64) if arr.shape[1] == 1 else arr.argmax(axis=1).astype(np.float64)
+    return arr.ravel().astype(np.float64)
 
 
 def _scalar_predict(model: Any) -> Tuple[Callable[[np.ndarray], np.ndarray], str]:
@@ -87,7 +102,7 @@ def _scalar_predict(model: Any) -> Tuple[Callable[[np.ndarray], np.ndarray], str
         if out is None:
             if not callable(predict):
                 raise TypeError("multiclass predict_proba but no predict to fall back on")
-            return np.asarray(predict(arr)).ravel()
+            return _scalar_from_predict_output(predict(arr))
         return np.asarray(out, dtype=np.float64).ravel()
 
     return call, ("predict" if kind == "predict" else "proba")

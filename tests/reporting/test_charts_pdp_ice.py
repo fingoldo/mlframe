@@ -110,6 +110,34 @@ def test_compute_pdp_falls_back_to_predict_when_proba_raises_at_call_time():
     assert abs(slope - 2.0) < 1e-6
 
 
+class _MulticlassScoreModel:
+    """3-class model: ``predict_proba`` has 3 columns (ambiguous -> fallback), and ``predict`` itself returns a
+    2-D per-class score array (as some multiclass wrappers do) instead of 1-D class labels."""
+
+    def predict_proba(self, X):
+        z = np.asarray(X, dtype=np.float64)[:, 0]
+        raw = np.column_stack([-z, np.zeros_like(z), z])
+        e = np.exp(raw - raw.max(axis=1, keepdims=True))
+        return e / e.sum(axis=1, keepdims=True)
+
+    def predict(self, X):
+        return self.predict_proba(X)
+
+
+def test_compute_pdp_multiclass_predict_fallback_reduces_2d_score_output():
+    """Pre-fix, ``ice_full[k] = predict(block)`` broadcast an (m, 3)-shaped multiclass score array's raveled
+    (m*3,) output into the (m,)-shaped row, raising ``could not broadcast input array from shape (m*3,) into
+    shape (m,)`` for any m>1 (caught by a fuzz combo with sample=1975, 3 classes -> shape (5925,))."""
+    rng = np.random.default_rng(11)
+    X = rng.normal(size=(400, 3))
+    model = _MulticlassScoreModel()
+    res = pdp_ice.compute_pdp(model, X, 0, grid=10, sample=150, ice=True)
+    assert res["pdp"].shape == (10,)
+    assert res["ice"].shape == (150, 10)
+    # Predicted class index rises from 0 toward 2 as feature 0 sweeps its range (matches the argmax semantic).
+    assert res["pdp"][0] < res["pdp"][-1]
+
+
 def test_compute_pdp_discrete_feature_grid_is_categories():
     rng = np.random.default_rng(3)
     cont = rng.normal(size=2000)
