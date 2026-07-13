@@ -20,7 +20,6 @@ import pandas as pd
 import polars as pl
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Fix 2 — stale _warn_on_unsupported_polars_dtypes is gone; post-fail
 #         schema dump no longer claims Enum-is-culprit.
@@ -49,10 +48,7 @@ def test_fix2_schema_dump_reframes_enum_as_info_not_culprit():
         "job_type": pl.Series("job_type", ["red"] * 20, dtype=enum_dt),
     })
     dump = _polars_schema_diagnostic(df, cat_features=["job_type"], text_features=[])
-    assert "most likely cause" not in dump, (
-        "Fix 2 regressed: schema dump again blames Enum as the culprit, "
-        "which is empirically wrong on CB 1.2.10."
-    )
+    assert "most likely cause" not in dump, "Fix 2 regressed: schema dump again blames Enum as the culprit, " "which is empirically wrong on CB 1.2.10."
     # Must still mention the column (operators need per-column info for the real culprit).
     assert "job_type" in dump
 
@@ -113,10 +109,7 @@ def test_fix3a_default_deep_true_preserves_behaviour():
     # The kwarg should still exist and accept False.
     explicit_shallow = get_df_memory_consumption(df, deep=False)
     if explicit_shallow == explicit_deep:
-        pytest.skip(
-            f"Installed pyutilz get_df_memory_consumption ignores the deep "
-            f"kwarg; upgrade to differentiate."
-        )
+        pytest.skip(f"Installed pyutilz get_df_memory_consumption ignores the deep " f"kwarg; upgrade to differentiate.")
     assert explicit_shallow < explicit_deep
 
 
@@ -245,7 +238,7 @@ def test_fix5_upfront_filter_faster_on_skewed_workload():
     for i in range(n_valid):
         start = tail + i * 2  # 2-sample groups
         if start + 1 < n:
-            group_ids[start:start + 2] = 10_000_000 + i
+            group_ids[start : start + 2] = 10_000_000 + i
     y_true = rng.integers(0, 2, size=n).astype(np.float64)
     y_score = rng.random(n)
 
@@ -554,9 +547,7 @@ def test_fix9_build_logging_fires_on_dmatrix(caplog):
     with caplog.at_level(logging.INFO, logger="mlframe.training.trainer"):
         xgb.DMatrix(X)
     msgs = [r.message for r in caplog.records if r.name == "mlframe.training.trainer"]
-    assert any("[dataset-build] xgboost.DMatrix" in m and "shape=200x5" in m for m in msgs), (
-        f"expected DMatrix build-log; got {msgs}"
-    )
+    assert any("[dataset-build] xgboost.DMatrix" in m and "shape=200x5" in m for m in msgs), f"expected DMatrix build-log; got {msgs}"
 
 
 def test_fix9_build_logging_fires_on_pool(caplog):
@@ -600,16 +591,14 @@ def test_internal_loop_build_demoted_to_debug_via_stack_scan(caplog):
     src = "def _loop_build():\n    return lgb.Dataset(data=X, label=y)\n_loop_build()"
     with caplog.at_level(logging.INFO, logger="mlframe.training.trainer"):
         exec(compile(src, "<composite_oof_loop>", "exec"), ns)
-    info_builds = [r for r in caplog.records
-                   if r.name == "mlframe.training.trainer" and "[dataset-build]" in r.message and r.levelno >= logging.INFO]
+    info_builds = [r for r in caplog.records if r.name == "mlframe.training.trainer" and "[dataset-build]" in r.message and r.levelno >= logging.INFO]
     assert info_builds == [], f"internal-loop build must be demoted to DEBUG, not INFO; got {[r.message for r in info_builds]}"
 
     # A build from a normal (non-loop) frame -- this test module -- stays at INFO.
     caplog.clear()
     with caplog.at_level(logging.INFO, logger="mlframe.training.trainer"):
         lgb.Dataset(data=X, label=y)
-    main_builds = [r.message for r in caplog.records
-                   if r.name == "mlframe.training.trainer" and "[dataset-build]" in r.message and r.levelno >= logging.INFO]
+    main_builds = [r.message for r in caplog.records if r.name == "mlframe.training.trainer" and "[dataset-build]" in r.message and r.levelno >= logging.INFO]
     assert any("shape=120x4" in m for m in main_builds), f"main-path build must stay INFO; got {main_builds}"
 
 
@@ -629,6 +618,31 @@ def test_fix9_build_logging_fires_on_lgb_dataset(caplog):
         lgb.Dataset(data=X, label=y)
     msgs = [r.message for r in caplog.records if r.name == "mlframe.training.trainer"]
     assert any("[dataset-build] lightgbm.Dataset" in m and "shape=80x4" in m for m in msgs)
+
+
+def test_fix9_build_logging_skips_introspection_when_disabled_but_still_builds(caplog):
+    """When the build logger is below INFO (the default), the wrapper must skip its stack-walking
+    introspection (_infer_callsite / _originates_in_internal_loop) -- verified indirectly by asserting no
+    [dataset-build] record is emitted -- while still constructing the underlying object correctly and
+    propagating exceptions from the real constructor (a `return` mistakenly placed in the wrapper's
+    `finally` block would silently swallow such an exception instead)."""
+    from mlframe.training import trainer  # noqa: F401
+    from mlframe.training._model_factories import apply_third_party_patches_once
+    apply_third_party_patches_once()
+    pytest.importorskip("xgboost")
+    import xgboost as xgb
+
+    rng = np.random.default_rng(0)
+    X = rng.random((50, 3)).astype(np.float32)
+    logging.getLogger("mlframe.training.trainer").setLevel(logging.WARNING)
+    with caplog.at_level(logging.WARNING, logger="mlframe.training.trainer"):
+        dm = xgb.DMatrix(X)
+    assert dm.num_row() == 50
+    build_msgs = [r for r in caplog.records if r.name == "mlframe.training.trainer" and "[dataset-build]" in r.getMessage()]
+    assert build_msgs == [], f"expected no dataset-build log at WARNING level; got {build_msgs}"
+
+    with pytest.raises(Exception):
+        xgb.DMatrix("this-path-does-not-exist.libsvm")
 
 
 def test_fix9_build_logger_patch_is_idempotent():
@@ -674,10 +688,7 @@ def test_fix9_cb_pool_label_swap_detected_on_current_install():
 
     caps = _detect_dataset_reuse_capabilities()
     if not (caps.get("cb_pool_set_label") and caps.get("cb_pool_set_weight")):
-        pytest.skip(
-            "Installed CatBoost lacks Pool.set_label / set_weight; "
-            "reuse fast-path is intentionally inert on this build."
-        )
+        pytest.skip("Installed CatBoost lacks Pool.set_label / set_weight; " "reuse fast-path is intentionally inert on this build.")
     assert caps["cb_pool_set_label"] is True
     assert caps["cb_pool_set_weight"] is True
     assert caps["cb_pool_label_swap"] is True
@@ -698,10 +709,7 @@ def test_fix9_cb_pool_reuse_weight_only_swap_no_rebuild():
 
     _caps = _detect_dataset_reuse_capabilities()
     if not (_caps.get("cb_pool_set_label") and _caps.get("cb_pool_set_weight")):
-        pytest.skip(
-            "Installed CatBoost Pool lacks set_label / set_weight; the reuse "
-            "fast-path is intentionally inert and would rebuild every fit."
-        )
+        pytest.skip("Installed CatBoost Pool lacks set_label / set_weight; the reuse " "fast-path is intentionally inert and would rebuild every fit.")
 
     rng = np.random.default_rng(0)
     n = 300
@@ -742,9 +750,7 @@ def test_fix9_cb_pool_reuse_weight_only_swap_no_rebuild():
 
     # Exactly 1 Pool build for the 2 fits. Pre-Fix-9 this would have
     # been at least 2 (one per fit) as CB's wrapper always rebuilds.
-    assert build_count["n"] == 1, (
-        f"expected 1 Pool build across 2 weight-only fits; got {build_count['n']}"
-    )
+    assert build_count["n"] == 1, f"expected 1 Pool build across 2 weight-only fits; got {build_count['n']}"
 
 
 def test_honor_user_dtype_preserves_polars_categorical():
@@ -784,9 +790,7 @@ def test_honor_user_dtype_preserves_polars_categorical():
         cat_features=["user_cat"],
         verbose=False,
     )
-    assert t_honor == [], (
-        f"honor_user_dtype=True must preserve pl.Categorical; got text_features={t_honor}"
-    )
+    assert t_honor == [], f"honor_user_dtype=True must preserve pl.Categorical; got text_features={t_honor}"
 
 
 def test_honor_user_dtype_still_promotes_raw_string():
@@ -809,10 +813,7 @@ def test_honor_user_dtype_still_promotes_raw_string():
         cat_features=[],
         verbose=False,
     )
-    assert "raw_str" in t, (
-        "honor_user_dtype must NOT block raw String promotion — no user "
-        f"dtype signal there. Got text_features={t}"
-    )
+    assert "raw_str" in t, "honor_user_dtype must NOT block raw String promotion — no user " f"dtype signal there. Got text_features={t}"
 
 
 def test_honor_user_dtype_pandas_category_parity():
@@ -958,9 +959,7 @@ def test_align_polars_categorical_dicts_no_test_leakage(tmp_path):
     # test_only_cat is absent from it (strict substring check).
     assert cats_seen is not None, "'my_cat' not found in any model_schema"
     assert "test_only_cat" not in cats_seen, (
-        f"Future-leakage regression: 'test_only_cat' (test-only "
-        f"category) leaked into the trained Enum vocabulary. "
-        f"dtype snapshot: {cats_seen!r}"
+        f"Future-leakage regression: 'test_only_cat' (test-only " f"category) leaked into the trained Enum vocabulary. " f"dtype snapshot: {cats_seen!r}"
     )
 
 
@@ -977,10 +976,7 @@ def test_orch1_cb_val_pool_reuse_across_weight_swaps():
 
     _caps = _detect_dataset_reuse_capabilities()
     if not (_caps.get("cb_pool_set_label") and _caps.get("cb_pool_set_weight")):
-        pytest.skip(
-            "Installed CatBoost Pool lacks set_label / set_weight; the val "
-            "Pool reuse fast-path is intentionally inert and would rebuild."
-        )
+        pytest.skip("Installed CatBoost Pool lacks set_label / set_weight; the val " "Pool reuse fast-path is intentionally inert and would rebuild.")
 
     rng = np.random.default_rng(0)
     n, nv = 300, 80
@@ -1021,10 +1017,7 @@ def test_orch1_cb_val_pool_reuse_across_weight_swaps():
     # Exactly 2 Pool builds (1 train + 1 val) for 3 fits. Pre-Orch-1:
     # 6 builds total (3 train rebuilds × pre-Fix-9.4.3 would be that;
     # with 9.4.3 train=1 but val=3; now val=1 too).
-    assert build_count["n"] == 2, (
-        f"expected 1 train + 1 val Pool build (2 total) across 3 weight-only fits; "
-        f"got {build_count['n']}"
-    )
+    assert build_count["n"] == 2, f"expected 1 train + 1 val Pool build (2 total) across 3 weight-only fits; " f"got {build_count['n']}"
 
 
 def test_fix943_cb_val_pool_reused_on_predict_path_too():
@@ -1044,10 +1037,7 @@ def test_fix943_cb_val_pool_reused_on_predict_path_too():
 
     _caps = _detect_dataset_reuse_capabilities()
     if not (_caps.get("cb_pool_set_label") and _caps.get("cb_pool_set_weight")):
-        pytest.skip(
-            "Installed CatBoost Pool lacks set_label / set_weight; the val "
-            "Pool reuse fast-path is intentionally inert and would rebuild."
-        )
+        pytest.skip("Installed CatBoost Pool lacks set_label / set_weight; the val " "Pool reuse fast-path is intentionally inert and would rebuild.")
 
     rng = np.random.default_rng(0)
     n, nv = 300, 80

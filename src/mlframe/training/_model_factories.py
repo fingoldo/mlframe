@@ -254,37 +254,46 @@ def _patch_dataset_constructors_with_logging() -> None:
                 orig_init(self, *args, **kwargs)
             finally:
                 elapsed = _time.perf_counter() - t0
-                shape = _infer_shape(args, kwargs)
-                callsite = _infer_callsite()
-                if shape and shape[1] >= 0:
-                    shape_str = f"{shape[0]}x{shape[1]}"
-                elif shape:
-                    shape_str = f"{shape[0]}x?"
-                else:
-                    shape_str = "?x?"
-                # I3 fix (2026-05-11): demote internal-diagnostic build events to
-                # DEBUG so per-feature ablation / per-trial discovery loops don't
-                # drown out actually-useful build events on production-size datasets.
-                # Tightened 2026-05-16: only demote when callsite originates in
-                # one of the known internal-loop modules (the previous "OR row
-                # count below 50K" half of the heuristic hid every legitimate
-                # small-data build from INFO; caught by
-                # test_fix9_build_logging_fires_on_dmatrix on a 200x5 frame).
-                # Extended 2026-05-20: BaselineDiagnostics' ablation loop fits a
-                # fresh LGB.Dataset per feature-subset (7-15 builds per training
-                # run on a wide frame) - same nuisance pattern as composite /
-                # screening, demote it too.
-                # Demote when the build originates anywhere inside an internal fit loop (scanning the full stack, not
-                # just the shim-masked call site), so per-fold / per-feature-subset builds don't drown the log at INFO.
-                _level = logging.DEBUG if _originates_in_internal_loop() else logging.INFO
-                _build_logger.log(
-                    _level,
-                    "[dataset-build] %s shape=%s took=%.3fs site=%s",
-                    label,
-                    shape_str,
-                    elapsed,
-                    callsite,
-                )
+                # INFO is the LEAST restrictive level this wrapper ever logs at (the internal-loop branch
+                # further demotes to DEBUG, never promotes past INFO), so if INFO is disabled neither
+                # branch can ever fire -- skip the stack-walking introspection (_infer_callsite up to 8
+                # frames, _originates_in_internal_loop up to 25) entirely rather than computing args nobody
+                # reads. Default logging config (root level WARNING) hits this on every DMatrix/Pool/Dataset
+                # build; a caller who raises this logger to INFO/DEBUG is unaffected (both branches still run).
+                # NOTE: must be an `if`, not an early `return` -- this is inside the wrapped __init__'s
+                # `finally`, and a `return` there would silently swallow any exception orig_init raised.
+                if _build_logger.isEnabledFor(logging.INFO):
+                    shape = _infer_shape(args, kwargs)
+                    callsite = _infer_callsite()
+                    if shape and shape[1] >= 0:
+                        shape_str = f"{shape[0]}x{shape[1]}"
+                    elif shape:
+                        shape_str = f"{shape[0]}x?"
+                    else:
+                        shape_str = "?x?"
+                    # I3 fix (2026-05-11): demote internal-diagnostic build events to
+                    # DEBUG so per-feature ablation / per-trial discovery loops don't
+                    # drown out actually-useful build events on production-size datasets.
+                    # Tightened 2026-05-16: only demote when callsite originates in
+                    # one of the known internal-loop modules (the previous "OR row
+                    # count below 50K" half of the heuristic hid every legitimate
+                    # small-data build from INFO; caught by
+                    # test_fix9_build_logging_fires_on_dmatrix on a 200x5 frame).
+                    # Extended 2026-05-20: BaselineDiagnostics' ablation loop fits a
+                    # fresh LGB.Dataset per feature-subset (7-15 builds per training
+                    # run on a wide frame) - same nuisance pattern as composite /
+                    # screening, demote it too.
+                    # Demote when the build originates anywhere inside an internal fit loop (scanning the full stack, not
+                    # just the shim-masked call site), so per-fold / per-feature-subset builds don't drown the log at INFO.
+                    _level = logging.DEBUG if _originates_in_internal_loop() else logging.INFO
+                    _build_logger.log(
+                        _level,
+                        "[dataset-build] %s shape=%s took=%.3fs site=%s",
+                        label,
+                        shape_str,
+                        elapsed,
+                        callsite,
+                    )
 
         _logged_init.__wrapped__ = orig_init  # type: ignore[attr-defined]
         cls.__init__ = _logged_init
