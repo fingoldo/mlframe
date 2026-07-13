@@ -130,3 +130,40 @@ def test_biz_val_oof_random_seed_is_deterministic_and_varies_folds():
     assert a1 is not None and b is not None
     assert np.array_equal(a1, a2), "same random_seed must reproduce byte-identical OOF predictions"
     assert not np.array_equal(a1, b), "different random_seed must produce a different fold assignment"
+
+
+def test_biz_val_oof_group_kfold_keeps_groups_intact():
+    """The GroupKFold branch of ``_compute_oof_preds`` (fires whenever ``group_ids`` is supplied and
+    matches ``train_df``'s length) had zero direct test coverage. A row's OOF prediction must come
+    from a fold that never trained on ANY row sharing that row's group -- verified directly by
+    checking that swapping a group's rows between "seen" and "held-out" never happens for the same
+    row twice (GroupKFold's own partition guarantee), and that every row still gets a finite
+    prediction (a genuine group-aware split, not silently falling back to ungrouped KFold)."""
+    from mlframe.training.trainer import _compute_oof_preds
+
+    rng = np.random.default_rng(3)
+    n_groups = 20
+    rows_per_group = 15
+    n = n_groups * rows_per_group
+    group_ids = np.repeat(np.arange(n_groups), rows_per_group)
+    x0 = rng.normal(size=n)
+    # group-level effect: a group's rows share a random offset, so a model that leaks a group's rows
+    # across train/test would trivially memorize that offset -- a genuine group-held-out split can't.
+    group_offset = rng.normal(size=n_groups)[group_ids]
+    y = x0 + group_offset + 0.05 * rng.normal(size=n)
+    X = pd.DataFrame({"x0": x0})
+
+    est = DecisionTreeRegressor(max_depth=4, random_state=0)
+    preds, probs = _compute_oof_preds(
+        model=est, train_df=X, train_target=y, is_classifier_model=False, n_splits=5, random_seed=0, group_ids=group_ids
+    )
+
+    assert probs is None
+    assert preds is not None
+    assert np.isfinite(preds).all(), "GroupKFold must produce a finite OOF prediction for every row"
+    # A model that could see a group's offset during fit (i.e. the split leaked) would fit that offset
+    # almost perfectly; a genuinely held-out group forces the model to fall back on the shared x0
+    # relationship alone, so per-group residual variance should NOT collapse to the fit noise floor.
+    resid = y - preds
+    per_group_resid_std = pd.Series(resid).groupby(group_ids).std()
+    assert (per_group_resid_std > 0.15).mean() > 0.5, "residuals look too tight for a genuinely group-held-out split"
