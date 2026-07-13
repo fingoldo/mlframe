@@ -459,6 +459,15 @@ def _phase_fit_pipeline(
             train_idx, val_idx, test_idx, metadata=metadata, verbose=verbose,
         )
 
+    # Nearest-past as-of join -- needs the SAME SEPARATE auxiliary events table, no fit-time state
+    # (the backward as-of match is inherently leak-safe by construction).
+    if preprocessing_extensions is not None and getattr(preprocessing_extensions, "nearest_past_join_on", None):
+        from ..pipeline._nearest_past_join_composite_fe import apply_nearest_past_join_composite_fe
+
+        train_df, val_df, test_df = apply_nearest_past_join_composite_fe(
+            train_df, val_df, test_df, preprocessing_extensions, auxiliary_events_df, metadata=metadata, verbose=verbose,
+        )
+
     t0_fit_pipeline = timer()
     train_df, val_df, test_df, pipeline, cat_features = fit_and_transform_pipeline(
         train_df=train_df,

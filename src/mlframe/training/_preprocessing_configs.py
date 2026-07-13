@@ -479,6 +479,18 @@ class PreprocessingExtensionsConfig(BaseConfig):
     latent_interaction_svd_use_tfidf: bool = True
     latent_interaction_svd_n_components: int = Field(default=10, ge=1)
 
+    # Nearest-past as-of join (``mlframe.feature_engineering.nearest_past_join``). Like
+    # latent_interaction_svd, consumes the SAME top-level ``auxiliary_events_df`` (a separate
+    # reference table), but has no fit-time state -- the backward as-of match
+    # (``right_df[on] <= left_df[on]``) is inherently leak-safe by construction, so predict-time
+    # replay just re-runs the same join against a fresh ``auxiliary_events_df``. ``on``/``by`` must
+    # be real columns present in BOTH train/val/test AND ``auxiliary_events_df``.
+    nearest_past_join_on: Optional[str] = None
+    nearest_past_join_by: List[str] = Field(default_factory=list)
+    nearest_past_join_value_cols: Optional[List[str]] = None
+    nearest_past_join_fallback_by_chain: Optional[List[Optional[List[str]]]] = None
+    nearest_past_join_min_group_size: int = Field(default=1, ge=1)
+
     memory_safety_max_features: int = 100_000
     # iter-69 byte-aware guard: PolynomialFeatures' projected column count
     # alone (memory_safety_max_features) doesn't capture the actual

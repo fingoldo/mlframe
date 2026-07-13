@@ -87,6 +87,7 @@ def predict_mlframe_models_suite(
     from ..pipeline._target_encoding_composite_fe import replay_target_encoding_composite_fe
     from ..pipeline._ma_crossover_composite_fe import replay_ma_crossover_composite_fe
     from ..pipeline._latent_interaction_svd_composite_fe import replay_latent_interaction_svd_composite_fe
+    from ..pipeline._nearest_past_join_composite_fe import replay_nearest_past_join_composite_fe
     # Validate inputs
     if not isinstance(df, (pd.DataFrame, pl.DataFrame)):
         raise TypeError(f"df must be pandas or polars DataFrame, got {type(df).__name__}")
@@ -225,6 +226,7 @@ def predict_mlframe_models_suite(
     df = replay_target_encoding_composite_fe(df, metadata, _predict_group_ids, verbose=verbose)
     df = replay_ma_crossover_composite_fe(df, metadata, _predict_group_ids, _predict_timestamps, verbose=verbose)
     df = replay_latent_interaction_svd_composite_fe(df, metadata, auxiliary_events_df, _predict_group_ids, verbose=verbose)
+    df = replay_nearest_past_join_composite_fe(df, metadata, auxiliary_events_df, verbose=verbose)
 
     df = _validate_input_columns_against_metadata(df, metadata, verbose=bool(verbose))
 
