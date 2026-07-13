@@ -150,7 +150,11 @@ def split_into_train_test(
             X_train = X[train_index, :]
             X_test = X[test_index, :]
         else:
-            fi = np.asarray(features_indices)
+            # ``features_indices`` may arrive as an object-dtype array of Python ints (e.g. built via
+            # ``np.asarray(fit_features, dtype=object)`` upstream) - np.ix_ requires an integer/bool dtype,
+            # so coerce explicitly rather than relying on np.asarray to infer it from an object array.
+            fi_raw = np.asarray(features_indices)
+            fi = fi_raw.astype(np.intp) if fi_raw.dtype == object else fi_raw
             X_train = X[np.ix_(np.asarray(train_index), fi)]
             X_test = X[np.ix_(np.asarray(test_index), fi)]
         # train_index/test_index are POSITIONAL (KFold.split output). A pandas y reaching this
