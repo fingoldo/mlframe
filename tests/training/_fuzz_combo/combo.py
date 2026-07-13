@@ -778,6 +778,12 @@ class FuzzCombo:
     diversity_recommendation_correlation_threshold_cfg: float = 0.85
     diversity_recommendation_min_improvement_cfg: float = 0.0
     diversity_recommendation_top_k_cfg: "int | None" = None
+    # PreprocessingExtensionsConfig categorical composite FE (pre-cat-encoding powerset/auto-group
+    # concat) -- both default OFF in production, so this axis is the ONLY fuzz coverage for the
+    # ``_categorical_composite_fe.py`` code path (row_wise_* siblings above are default-ON and always
+    # exercised; these opt-in siblings need their own axis or they're permanently dark).
+    categorical_powerset_concat_enabled_cfg: bool = False
+    categorical_group_concat_auto_enabled_cfg: bool = False
     apply_confidence_shrinkage_cfg: bool = True
     row_wise_summary_stats_enabled_cfg: bool = True
     row_wise_extreme_columns_enabled_cfg: bool = True
@@ -2774,6 +2780,10 @@ class FuzzCombo:
             self.diversity_recommendation_top_k_cfg
             if (self.recommend_diversity_additions_in_leaderboard_cfg and self.oof_n_splits_cfg >= 2)
             else None,
+            # Categorical composite FE needs >=2 categorical source columns to produce anything
+            # (_categorical_composite_fe.py no-ops below that); collapse to default otherwise.
+            self.categorical_powerset_concat_enabled_cfg if self.cat_feature_count >= 2 else False,
+            self.categorical_group_concat_auto_enabled_cfg if self.cat_feature_count >= 2 else False,
             self.apply_confidence_shrinkage_cfg,
             self.row_wise_summary_stats_enabled_cfg,
             self.row_wise_extreme_columns_enabled_cfg,

@@ -1865,6 +1865,11 @@ AXES: dict[str, tuple[Any, ...]] = {
     "diversity_recommendation_correlation_threshold_cfg": (0.85, 0.5),
     "diversity_recommendation_min_improvement_cfg": (0.0, 0.05),
     "diversity_recommendation_top_k_cfg": (None, 3),
+    # Categorical composite FE (pre-cat-encoding powerset/auto-group concat, both default OFF) --
+    # the only fuzz coverage for ``_categorical_composite_fe.py``. Needs cat_feature_count>=2 to
+    # fire (see combo.py canonical_key gating).
+    "categorical_powerset_concat_enabled_cfg": (False, True),
+    "categorical_group_concat_auto_enabled_cfg": (False, True),
     # Batch F: RegressionCalibrationConfig.apply_confidence_shrinkage flipped
     # True. Never previously threaded into the fuzz suite call at all (no
     # regression_calibration_config kwarg was passed), so both the True

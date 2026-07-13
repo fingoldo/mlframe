@@ -816,6 +816,8 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         ),
         diversity_recommendation_min_improvement_cfg=axes.get("diversity_recommendation_min_improvement_cfg", 0.0),
         diversity_recommendation_top_k_cfg=axes.get("diversity_recommendation_top_k_cfg"),
+        categorical_powerset_concat_enabled_cfg=axes.get("categorical_powerset_concat_enabled_cfg", False),
+        categorical_group_concat_auto_enabled_cfg=axes.get("categorical_group_concat_auto_enabled_cfg", False),
         apply_confidence_shrinkage_cfg=axes.get("apply_confidence_shrinkage_cfg", True),
         row_wise_summary_stats_enabled_cfg=axes.get("row_wise_summary_stats_enabled_cfg", True),
         row_wise_extreme_columns_enabled_cfg=axes.get("row_wise_extreme_columns_enabled_cfg", True),

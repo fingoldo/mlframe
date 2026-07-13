@@ -338,6 +338,45 @@ def _phase_fit_pipeline(
             }
         except Exception:
             train_df_pandas_pre_meta = None
+
+    # Normalize preprocessing_extensions BEFORE the categorical-composite check below (needs a real
+    # PreprocessingExtensionsConfig instance, not a raw dict/None) -- hoisted from its original
+    # post-fit_and_transform_pipeline position so this earlier, pre-encoding step can read it too.
+    if preprocessing_extensions is not None and isinstance(preprocessing_extensions, dict):
+        preprocessing_extensions = PreprocessingExtensionsConfig(**preprocessing_extensions)
+    elif preprocessing_extensions is None:
+        # A caller who never touches ``preprocessing_extensions`` still gets the config's own
+        # DEFAULT-ON steps (row_wise_summary_stats_enabled / row_wise_extreme_columns_enabled) --
+        # every other field (pysr_enabled, scaler, kbins, categorical_*_concat_*, ...) keeps its own
+        # inert None/False default, so this only activates the generically-safe additive row-wise FE
+        # steps, not the whole sklearn-bridge feature set. Explicit ``PreprocessingExtensionsConfig(...)``
+        # callers are unaffected (they already construct their own instance upstream).
+        preprocessing_extensions = PreprocessingExtensionsConfig()
+
+    # Categorical composite FE (powerset concat / auto MI-grouped concat) -- MUST run before
+    # fit_and_transform_pipeline's categorical encoding: a composite column produced after encoding
+    # would be dropped by apply_preprocessing_extensions' numeric-only gate before any downstream
+    # step saw it. See PreprocessingExtensionsConfig's docstring.
+    if preprocessing_extensions is not None and (
+        getattr(preprocessing_extensions, "categorical_powerset_concat_enabled", False)
+        or getattr(preprocessing_extensions, "categorical_group_concat_auto_enabled", False)
+    ):
+        from ..pipeline._categorical_composite_fe import apply_categorical_composite_fe
+
+        _y_for_composite = None
+        if target_by_type is not None and hasattr(target_by_type, "items"):
+            try:
+                for _v in target_by_type.values():
+                    _cand = next(iter(_v.values())) if hasattr(_v, "values") else _v
+                    if _cand is not None:
+                        _y_for_composite = _cand.to_numpy() if hasattr(_cand, "to_numpy") else np.asarray(_cand)
+                        break
+            except Exception:
+                _y_for_composite = None
+        train_df, val_df, test_df = apply_categorical_composite_fe(
+            train_df, val_df, test_df, preprocessing_extensions, _y_for_composite, metadata, verbose=verbose,
+        )
+
     t0_fit_pipeline = timer()
     train_df, val_df, test_df, pipeline, cat_features = fit_and_transform_pipeline(
         train_df=train_df,
@@ -354,16 +393,6 @@ def _phase_fit_pipeline(
 
     polars_pipeline_applied = was_polars_input and pipeline_config.prefer_polarsds and pipeline is not None
 
-    if preprocessing_extensions is not None and isinstance(preprocessing_extensions, dict):
-        preprocessing_extensions = PreprocessingExtensionsConfig(**preprocessing_extensions)
-    elif preprocessing_extensions is None:
-        # A caller who never touches ``preprocessing_extensions`` still gets the config's own
-        # DEFAULT-ON steps (row_wise_summary_stats_enabled / row_wise_extreme_columns_enabled) --
-        # every other field (pysr_enabled, scaler, kbins, ...) keeps its own inert None/False
-        # default, so this only activates the generically-safe additive row-wise FE steps, not the
-        # whole sklearn-bridge feature set. Explicit ``PreprocessingExtensionsConfig(...)`` callers
-        # are unaffected (they already construct their own instance upstream).
-        preprocessing_extensions = PreprocessingExtensionsConfig()
     # PySR symbolic regression (inside apply_preprocessing_extensions) needs a
     # 1-D y_train. Multi-target pipelines pass a target_by_type dict; pick the
     # first regression target as the supervised signal for symbolic feature

@@ -337,6 +337,11 @@ class PreprocessingExtensionsConfig(BaseConfig):
       4. PolynomialFeatures (guarded by ``memory_safety_max_features``).
       5. Non-linear feature map (RBFSampler / Nystroem / ...).
       6. Dim reducer (PCA / UMAP / ...).
+
+    ``categorical_powerset_concat_enabled`` / ``categorical_group_concat_auto_enabled`` are the
+    exception to the above: they run in ``_phase_fit_pipeline``, BEFORE categorical encoding, not
+    inside ``apply_preprocessing_extensions`` -- a composite string-concat column produced after
+    encoding would be dropped by step 1.5's numeric-only gate before any downstream step saw it.
     """
 
     scaler: Optional[Literal[
@@ -391,6 +396,25 @@ class PreprocessingExtensionsConfig(BaseConfig):
     # Same generic-additive rationale as ``row_wise_summary_stats_enabled`` -- defaults to ON.
     row_wise_extreme_columns_enabled: bool = True
     row_wise_extreme_columns_k: int = Field(default=3, ge=1)
+
+    # Categorical composite FE (``mlframe.feature_engineering.categorical_powerset_concat`` /
+    # ``categorical_group_concat``). Unlike the row-wise steps above, these run BEFORE categorical
+    # encoding (inside ``_phase_fit_pipeline``, not ``apply_preprocessing_extensions`` -- a composite
+    # string-concat column produced AFTER encoding would be dropped by the extensions stage's
+    # numeric-only gate before any downstream step could see it). Both default OFF: unlike
+    # row_wise_summary_stats/row_wise_extreme_columns (fixed, bounded output size), these can blow up
+    # column count (powerset is 2^n - 1 in the source column count) or add MI-scoring compute
+    # (auto-group discovery), so they're opt-in rather than generically-safe-by-default.
+    categorical_powerset_concat_enabled: bool = False
+    # Cap subset order (2 = pairwise composites only) -- keeps the 2^n blowup bounded by default.
+    categorical_powerset_concat_max_order: int = 2
+    categorical_group_concat_auto_enabled: bool = False
+    categorical_group_concat_min_mi_gain: float = 0.0
+    categorical_group_concat_max_group_size: Optional[int] = None
+    # Shared safety cap for BOTH steps: skip (WARN, don't raise) when the detected raw categorical
+    # column count exceeds this, so a wide-schema caller can't accidentally trigger a
+    # 2^30-column powerset or an O(n^2) MI-scoring pass across hundreds of categorical columns.
+    categorical_composite_max_source_columns: int = Field(default=12, ge=2)
 
     memory_safety_max_features: int = 100_000
     # iter-69 byte-aware guard: PolynomialFeatures' projected column count

@@ -75,6 +75,7 @@ def predict_from_models(
     # import ...`` would create a hard cycle the meta-test flags.
     from .predict import _apply_extensions_pipeline, _apply_pre_pipeline_with_passthrough, _coerce_cat_dtype_for_lgb_xgb, _combine_probs, _ensure_pandas_view, _is_polars_native_model, _is_post_hoc_calibrated_model, _replay_suite_datetime_decomposition, _resolve_chosen_ensemble_params, _resolve_chosen_flavour, _resolve_quantile_alphas, _run_batched, _try_predict_with_pp_fallback
     from .._classif_helpers import _canonical_predict_proba_shape
+    from ..pipeline._categorical_composite_fe import replay_categorical_composite_fe
     # Validate inputs
     if not isinstance(df, (pd.DataFrame, pl.DataFrame)):
         raise TypeError(f"df must be pandas or polars DataFrame, got {type(df).__name__}")
@@ -139,6 +140,7 @@ def predict_from_models(
 
     # Replay suite-owned datetime decomposition before validation/pipeline so the predict frame has the SAME derived columns as training; FTE already handled its own ts_field on the line above.
     df = _replay_suite_datetime_decomposition(df, metadata, verbose=verbose)
+    df = replay_categorical_composite_fe(df, metadata, verbose=verbose)
 
     df = _validate_input_columns_against_metadata(df, metadata, verbose=bool(verbose))
 

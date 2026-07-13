@@ -540,9 +540,14 @@ def _maybe_preprocessing_extensions(combo: FuzzCombo, config_cls):
     # force-construct the config here when row-wise is being toggled OFF.
     row_wise_summary = combo.row_wise_summary_stats_enabled_cfg
     row_wise_extreme = combo.row_wise_extreme_columns_enabled_cfg
+    # Categorical composite FE (powerset/auto-group concat) -- both default OFF, so unlike
+    # row_wise_* above (default True), only force-construct the config when either is toggled ON.
+    cat_powerset = combo.categorical_powerset_concat_enabled_cfg
+    cat_group_auto = combo.categorical_group_concat_auto_enabled_cfg
     if (
         scaler is None and kbins is None and poly_deg is None and dim_red is None and nonlin is None
         and row_wise_summary and row_wise_extreme
+        and not cat_powerset and not cat_group_auto
     ):
         return None
     # PreprocessingExtensionsConfig validates that binarization_threshold
@@ -571,6 +576,8 @@ def _maybe_preprocessing_extensions(combo: FuzzCombo, config_cls):
             config_cls,
             row_wise_summary_stats_enabled=row_wise_summary,
             row_wise_extreme_columns_enabled=row_wise_extreme,
+            categorical_powerset_concat_enabled=cat_powerset,
+            categorical_group_concat_auto_enabled=cat_group_auto,
         ),
     )
 
