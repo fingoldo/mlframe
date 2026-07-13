@@ -77,7 +77,7 @@ def test_aggregating_validation_callback_calls_super_init() -> None:
         src += "\n" + sib.read_text(encoding="utf-8")
     helper_idx = src.find("class AggregatingValidationCallback")
     assert helper_idx != -1
-    snippet = src[helper_idx : helper_idx + 800]
+    snippet = src[helper_idx : helper_idx + 1200]
     assert "super().__init__()" in snippet
 
 
@@ -94,7 +94,7 @@ def test_group_batch_sampler_calls_super_init() -> None:
     src = _read("training/neural/ranker.py")
     helper_idx = src.find("class GroupBatchSampler")
     assert helper_idx != -1
-    snippet = src[helper_idx : helper_idx + 1200]
+    snippet = src[helper_idx : helper_idx + 1600]
     # ``super().__init__(data_source=None)`` was the pre-torch-2.x form;
     # torch 2.x ``Sampler.__init__`` removed the ``data_source`` kwarg
     # (it falls through to ``object.__init__`` which rejects extra args

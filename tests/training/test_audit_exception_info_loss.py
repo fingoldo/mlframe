@@ -90,7 +90,10 @@ def test_predict_per_model_loop_uses_exc_info() -> None:
             src += p.read_text(encoding="utf-8")
             src += "\n"
     assert 'logger.error(f"Error predicting with model {model_name}: {e}")' not in src
-    assert 'logger.error("Error predicting with model %s", model_name, exc_info=True)' in src
+    # Switched from logger.error(..., exc_info=True) to logger.exception(...), the standard
+    # idiom for logging from an except block -- equivalent traceback capture without the
+    # explicit exc_info=True kwarg.
+    assert 'logger.exception("Error predicting with model %s", model_name)' in src
 
 
 def test_inference_predict_uses_raise_from() -> None:

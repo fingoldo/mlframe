@@ -74,16 +74,20 @@ def test_rfecv_load_checkpoint_tolerates_missing_file() -> None:
 
 def test_pipelines_verify_sidecar_tolerates_missing() -> None:
     """The verify_sidecar helper moved out of estimators/pipelines.py into
-    utils/safe_pickle.py and the implementation switched from
+    utils/safe_pickle.py, then further out into pyutilz.core.safe_pickle (mlframe's
+    utils/safe_pickle.py now only wraps it), and the implementation switched from
     ``try/except FileNotFoundError`` to a direct ``if not isfile(sidecar)``
     branch. Functionally equivalent: missing sidecar is tolerated (returns
     True under MLFRAME_ALLOW_UNVERIFIED_PICKLE=1 env var, False default
     fail-closed; the test's "tolerate" intent matches the env-opt-in
     path). Accept either source shape so the sensor stays valid post-move.
     """
+    import pyutilz.core.safe_pickle as _pyutilz_safe_pickle
+
     facade = _read("estimators/pipelines.py")
     sibling = _read("utils/safe_pickle.py")
-    src = facade + "\n" + sibling
+    upstream = Path(_pyutilz_safe_pickle.__file__).read_text(encoding="utf-8")
+    src = facade + "\n" + sibling + "\n" + upstream
     # Old leak-through pattern (silent-true on missing) must still be gone.
     assert "if not os.path.isfile(sidecar):\n        return True" not in src
     # Post-fix: either the old try/except FileNotFoundError shape OR the

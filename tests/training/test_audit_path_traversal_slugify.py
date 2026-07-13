@@ -89,11 +89,12 @@ def test_calibration_post_final_models_dir_slugifies_all_components() -> None:
     src = _read("calibration/post.py")
     # Forbid the raw 4-arg join.
     assert "join(models_dir, target_name, featureset_name, task_type, model_name)" not in src
-    # Require slugify on each component.
-    assert "_slugify(target_name)" in src
-    assert "_slugify(featureset_name)" in src
-    assert "_slugify(str(task_type))" in src
-    assert "_slugify(model_name)" in src
+    # Require slugify on each component. Switched from a local ``_slugify`` helper to
+    # pyutilz's shared ``slugify`` (imported directly, unprefixed).
+    assert "slugify(target_name)" in src
+    assert "slugify(featureset_name)" in src
+    assert "slugify(str(task_type))" in src
+    assert "slugify(model_name)" in src
 
 
 def test_phase_finalize_ct_ensemble_dir_slugified() -> None:
