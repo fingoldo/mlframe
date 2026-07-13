@@ -468,6 +468,17 @@ def _phase_fit_pipeline(
             train_df, val_df, test_df, preprocessing_extensions, auxiliary_events_df, metadata=metadata, verbose=verbose,
         )
 
+    # Event-proximity decay -- caller-supplied literal event dates (domain knowledge); dates come
+    # from timestamps (captured before the earlier datetime-column-decomposition phase), not a
+    # train/val/test column.
+    if preprocessing_extensions is not None and getattr(preprocessing_extensions, "event_proximity_decay_event_dates", None):
+        from ..pipeline._event_proximity_decay_composite_fe import apply_event_proximity_decay_composite_fe
+
+        train_df, val_df, test_df = apply_event_proximity_decay_composite_fe(
+            train_df, val_df, test_df, preprocessing_extensions, timestamps,
+            train_idx, val_idx, test_idx, metadata=metadata, verbose=verbose,
+        )
+
     t0_fit_pipeline = timer()
     train_df, val_df, test_df, pipeline, cat_features = fit_and_transform_pipeline(
         train_df=train_df,

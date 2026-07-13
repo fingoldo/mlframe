@@ -491,6 +491,21 @@ class PreprocessingExtensionsConfig(BaseConfig):
     nearest_past_join_fallback_by_chain: Optional[List[Optional[List[str]]]] = None
     nearest_past_join_min_group_size: int = Field(default=1, ge=1)
 
+    # Event-proximity decay FE (``mlframe.feature_engineering.event_proximity_decay``). Unlike every
+    # other composite-FE step, the "reference" here isn't derivable from the training frame OR an
+    # auxiliary table at all -- it's caller-supplied domain knowledge (e.g. a known holiday
+    # calendar), so the event dates are a literal config value. Uses ``timestamps`` (the
+    # FeaturesAndTargetsExtractor's ts_field resolution, same source as the entity/time composite-FE
+    # steps) rather than a train/val/test column: the suite decomposes datetime COLUMNS into numeric
+    # day/month/weekday parts in an earlier phase, before this step's insertion point would see them.
+    # No fit-time state; predict-time replay re-runs the same computation using the SAME persisted
+    # event-date list against the predict frame's own timestamps.
+    event_proximity_decay_event_dates: List[Any] = Field(default_factory=list)
+    event_proximity_decay_cap: int = 30
+    event_proximity_decay_cap_before: Optional[int] = None
+    event_proximity_decay_cap_after: Optional[int] = None
+    event_proximity_decay_column_prefix: str = "event_proximity"
+
     memory_safety_max_features: int = 100_000
     # iter-69 byte-aware guard: PolynomialFeatures' projected column count
     # alone (memory_safety_max_features) doesn't capture the actual
