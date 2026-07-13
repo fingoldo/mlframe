@@ -758,12 +758,27 @@ def _cmi_from_binned(
     # GPU route (2026-06-25): same partition-entropy-via-cp.unique offload as cmi_from_binned_fixed_yz,
     # covering the general CMI callers (conditional-perm null, candidate scoring). value-order densify ->
     # same partition -> same CMI; selection-identical. Gated (STRICT / MLFRAME_CMI_GPU), default CPU.
-    if _cmi_gpu_enabled(n=int(x.size), p=1):
+    #
+    # ``x`` may ALREADY be device-resident (e.g. _step_score.py's DEVICE-BORN marginal-MI path binning a
+    # candidate via _quantile_bin_gpu_resident before ever calling here) -- the shape-based gate below only
+    # decides whether it's worth PROACTIVELY uploading, it has no way to know the array is already on-device.
+    # An already-device x MUST take the cupy path regardless of that heuristic (np.ascontiguousarray on a
+    # cupy array raises TypeError -- cupy forbids the implicit host conversion __array__ would trigger), and
+    # a cupy failure there must explicitly pull x/y/z_joint to host before falling back (the swallow-and-
+    # retry-on-CPU pattern below assumes host arrays).
+    _x_device = hasattr(x, "__cuda_array_interface__")
+    if _x_device or _cmi_gpu_enabled(n=int(x.size), p=1):
         try:
             return _cmi_from_binned_cupy(x, y, z_joint, return_cards=return_cards, kx=kx, kz=kz)
         except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
             logger.debug("suppressed in _mi_greedy_cmi_fe.py:761: %s", e)
-            pass
+            if _x_device:
+                import cupy as cp
+                x = cp.asnumpy(x)
+                if hasattr(y, "__cuda_array_interface__"):
+                    y = cp.asnumpy(y)
+                if z_joint is not None and hasattr(z_joint, "__cuda_array_interface__"):
+                    z_joint = cp.asnumpy(z_joint)
     x_i = np.ascontiguousarray(x, dtype=np.int64)
     y_i = np.ascontiguousarray(y, dtype=np.int64)
     n = float(max(1, x_i.size))
@@ -896,12 +911,23 @@ def cmi_from_binned_fixed_yz(
     # identical). Routes the dominant mi_greedy CMI compute (combine_factorize + entropy) onto the GPU under
     # MLFRAME_FE_GPU_STRICT / the KTC gate, instead of the host njit renumber+entropy. Falls back to CPU on
     # any cupy error.
-    if _cmi_gpu_enabled(n=int(np.asarray(x).size), p=1):
+    #
+    # ``x`` may already be device-resident (see _cmi_from_binned's identical note) -- the shape gate cannot
+    # see that, so an already-device x forces the cupy path regardless, and a cupy failure there pulls x/y_i/
+    # z_i to host explicitly before falling through (np.ascontiguousarray cannot accept a cupy array).
+    _x_device = hasattr(x, "__cuda_array_interface__")
+    if _x_device or _cmi_gpu_enabled(n=int(np.asarray(x).size), p=1):
         try:
             return _cmi_from_binned_fixed_yz_cupy(x, y_i, z_i, h_yz, h_z, k_yz, k_z, n)
         except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
             logger.debug("suppressed in _mi_greedy_cmi_fe.py:896: %s", e)
-            pass
+            if _x_device:
+                import cupy as cp
+                x = cp.asnumpy(x)
+                if hasattr(y_i, "__cuda_array_interface__"):
+                    y_i = cp.asnumpy(y_i)
+                if hasattr(z_i, "__cuda_array_interface__"):
+                    z_i = cp.asnumpy(z_i)
     x_i = np.ascontiguousarray(x, dtype=np.int64).ravel()
     # Fused densify+entropy: xz / xyz labels are consumed ONLY by the entropy, so build the joint histogram
     # inline and skip the length-n relabel array + the second bincount pass (see _joint_entropy_two).
