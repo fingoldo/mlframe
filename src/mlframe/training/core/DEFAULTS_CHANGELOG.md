@@ -395,3 +395,14 @@ immediately surfaced two real, previously-unreachable bugs:
 Verified via 2 new tests (`test_oof_n_splits_wiring.py`) plus the updated existing unit test for
 `compute_calib_and_oof_outputs`'s new return arity (`test_monolith_split_calib_oof_outputs.py`),
 plus a side-check against 17 tests in adjacent calibration/diagnostics files, all passing.
+
+**Broader impact note (2026-07-13):** bug #1's fix (disabling early stopping on the OOF clone) is
+not limited to the new `oof_n_splits`/diversity-recommendations surface — `models/ensembling/
+score_gate.py`'s `select_gate_source_split` also prefers `oof_preds`/`oof_probs` over val-source
+gating whenever they're present. Before this fix, ANY caller requesting OOF (`oof_n_splits>=2`) on
+an early-stopping-configured `"lgb"`/`"xgb"` regression model silently got `oof_preds=None`, so
+`select_gate_source_split` silently fell back to val-source gating instead of the intended
+OOF-preferred behavior — the same root cause, a second silent consumer. `select_gate_source_split`'s
+own unit tests (`test_ensembling_score_gate_split.py`, 7 tests) use synthetic arrays directly and
+were unaffected either way; re-ran them post-fix as a sanity check (still 7/7 passing) — the real
+behavioral fix is in `_compute_oof_preds` itself, already covered by this section's fix.
