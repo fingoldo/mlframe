@@ -211,14 +211,17 @@ def batch_pair_usability_corr_njit_parallel(
 
     Parameters
     ----------
-    y : (n,) float64 -- shared target (already subsampled/cast by the caller).
-    operand_matrix : (n_operands, n) float64 -- unique raw operand columns, row-major (one row per operand).
+    y : (n,) float32 or float64 -- shared target, already subsampled + cast to ``_crit_np_dtype()`` by the
+        caller (numba specializes per input dtype; NOT force-upcast here -- see the dispatcher's own note).
+    operand_matrix : (n_operands, n) float32 or float64 -- unique raw operand columns, row-major (one row per
+        operand), same dtype as ``y``.
     pair_a, pair_b : (n_pairs,) int64 -- operand-matrix row indices for each pair's two operands.
     form_ids : (n_forms,) int64 -- which of the 9 FORM_* ids to evaluate for every pair.
 
     Returns
     -------
-    (n_pairs, n_forms) float64 -- ``|corr|`` for each (pair, form).
+    (n_pairs, n_forms) float64 -- ``|corr|`` for each (pair, form); the reduction accumulator stays float64
+        regardless of input dtype (precision, not memory footprint, is what the accumulator affects).
     """
     n_pairs = pair_a.shape[0]
     n_forms = form_ids.shape[0]
@@ -278,8 +281,8 @@ def batch_pair_usability_corr_cuda(y: np.ndarray, operand_matrix: np.ndarray, pa
     # with numba.cuda.to_device-produced arrays (verified on this host), so no new infra is needed here.
     # pair_a/pair_b/form_ids genuinely vary per call and stay raw uploads.
     from ._fe_resident_operands import resident_operand
-    y_d = resident_operand(y, "batch_pair_usability_corr_y", dtype=np.float64)
-    operand_d = resident_operand(operand_matrix, "batch_pair_usability_corr_operand", dtype=np.float64)
+    y_d = resident_operand(y, "batch_pair_usability_corr_y", dtype=None)
+    operand_d = resident_operand(operand_matrix, "batch_pair_usability_corr_operand", dtype=None)
     pair_a_d = _nb_cuda.to_device(np.ascontiguousarray(pair_a, dtype=np.int64))
     pair_b_d = _nb_cuda.to_device(np.ascontiguousarray(pair_b, dtype=np.int64))
     form_ids_d = _nb_cuda.to_device(np.ascontiguousarray(form_ids, dtype=np.int64))
@@ -381,9 +384,15 @@ def dispatch_batch_pair_usability_corr(
                 type(exc).__name__, exc,
             )
 
+    # y/operand_matrix keep the CALLER's dtype (mirrors batch_pair_tail_concentration_rankaware's
+    # "caller already applied _crit_np_dtype()" contract) instead of force-upcasting to float64 --
+    # forcing float64 here would silently discard a caller's careful _crit_np_dtype() pre-cast (see
+    # _step_pairs_rank.py's dominant-pair prescan, which casts to _crit_np_dtype() specifically to
+    # match usability_form_corrs's own internal precision) and reintroduce the exact f32-vs-f64
+    # divergence that pre-cast exists to avoid.
     result = batch_pair_usability_corr_njit_parallel(
-        np.ascontiguousarray(y, dtype=np.float64),
-        np.ascontiguousarray(operand_matrix, dtype=np.float64),
+        np.ascontiguousarray(y),
+        np.ascontiguousarray(operand_matrix),
         np.ascontiguousarray(pair_a, dtype=np.int64),
         np.ascontiguousarray(pair_b, dtype=np.int64),
         form_ids,

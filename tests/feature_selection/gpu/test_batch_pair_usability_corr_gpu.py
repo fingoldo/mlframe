@@ -19,7 +19,6 @@ from mlframe.feature_selection.filters.batch_pair_usability_corr_gpu import (
     ALL_FORM_IDS,
     FORM_X0,
     FORM_X0_DIV_X1,
-    FORM_X0_MUL_X1,
     FORM_X0_SQ,
     FORM_X0SQ_DIV_X1,
     FORM_X1,
@@ -81,6 +80,49 @@ def test_cpu_backend_matches_abs_pearson_reference_all_forms():
             v = _eval_form_numpy(int(form_id), x0, x1)
             expected = abs_pearson(y, v)
             assert abs(result[p, f_idx] - expected) <= 1e-9, (p, form_id, result[p, f_idx], expected)
+
+
+def test_dispatcher_preserves_caller_dtype_instead_of_forcing_float64():
+    """Regression: dispatch_batch_pair_usability_corr used to force-upcast y/operand_matrix to float64
+    regardless of the caller's dtype, silently discarding a caller's careful _crit_np_dtype() pre-cast
+    (see _step_pairs_rank.py's dominant-pair prescan) and doubling the memory footprint for no reliable
+    precision gain. The CPU backend must now accept float32 arrays as float32."""
+    n, n_operands, n_pairs = 500, 4, 6
+    y64, operand64, pair_a, pair_b = _build_pairs(n_operands, n_pairs, n, seed=7)
+    y32 = y64.astype(np.float32)
+    operand32 = operand64.astype(np.float32)
+
+    result32 = batch_pair_usability_corr_njit_parallel(y32, operand32, pair_a, pair_b, ALL_FORM_IDS)
+    result64 = batch_pair_usability_corr_njit_parallel(y64, operand64, pair_a, pair_b, ALL_FORM_IDS)
+    # NOT bit-identical: _abs_pearson_form_reduction promotes each element to float64 before arithmetic
+    # (matching abs_pearson's own per-element promotion), but a float32-STORED value has already lost
+    # precision relative to its float64 counterpart before that promotion ever runs -- measured max
+    # relative difference ~3.3e-6 on this fixture, consistent with the project's established relaxed-
+    # float32 tolerance (see _fe_usability_signal.py's _crit_np_dtype() convention).
+    np.testing.assert_allclose(result32, result64, rtol=1e-5, atol=1e-6)
+
+    dispatched32, backend = dispatch_batch_pair_usability_corr(y32, operand32, pair_a, pair_b, form_ids=ALL_FORM_IDS, force_backend="cpu")
+    assert backend == "cpu"
+    np.testing.assert_array_equal(dispatched32, result32)
+
+    # The dtype-preservation itself: pre-fix, the dispatcher unconditionally re-cast y/operand_matrix to
+    # float64 before calling the njit backend, discarding the caller's float32 -- assert on the ACTUAL
+    # array dtype the njit backend receives, not just the (dtype-invariant) numeric result.
+    import mlframe.feature_selection.filters.batch_pair_usability_corr_gpu as _mod
+
+    seen_dtypes = {}
+
+    def _spy(y, operand_matrix, pair_a, pair_b, form_ids):
+        seen_dtypes["y"] = y.dtype
+        seen_dtypes["operand_matrix"] = operand_matrix.dtype
+        return _mod.batch_pair_usability_corr_njit_parallel.py_func(y, operand_matrix, pair_a, pair_b, form_ids)
+
+    from unittest.mock import patch
+
+    with patch.object(_mod, "batch_pair_usability_corr_njit_parallel", side_effect=_spy):
+        _mod.dispatch_batch_pair_usability_corr(y32, operand32, pair_a, pair_b, form_ids=ALL_FORM_IDS, force_backend="cpu")
+    assert seen_dtypes["y"] == np.float32, f"expected float32 preserved, got {seen_dtypes['y']}"
+    assert seen_dtypes["operand_matrix"] == np.float32, f"expected float32 preserved, got {seen_dtypes['operand_matrix']}"
 
 
 def test_cpu_backend_matches_reference_with_nan_rows():
