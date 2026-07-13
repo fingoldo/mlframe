@@ -435,6 +435,16 @@ def _phase_fit_pipeline(
             train_idx, val_idx, test_idx, metadata=metadata, verbose=verbose,
         )
 
+    # MA-crossover FE -- no rolling-MA step of its own in the suite; computed here from declared
+    # numeric columns before feeding the underlying pairwise-crossover function.
+    if preprocessing_extensions is not None and getattr(preprocessing_extensions, "ma_crossover_columns", None):
+        from ..pipeline._ma_crossover_composite_fe import apply_ma_crossover_composite_fe
+
+        train_df, val_df, test_df = apply_ma_crossover_composite_fe(
+            train_df, val_df, test_df, preprocessing_extensions, group_ids, timestamps,
+            train_idx, val_idx, test_idx, metadata=metadata, verbose=verbose,
+        )
+
     t0_fit_pipeline = timer()
     train_df, val_df, test_df, pipeline, cat_features = fit_and_transform_pipeline(
         train_df=train_df,

@@ -453,6 +453,15 @@ class PreprocessingExtensionsConfig(BaseConfig):
     two_step_target_encode_decay_half_life: float = 30.0
     two_step_target_encode_smoothing: float = 1.0
 
+    # MA-crossover FE (``mlframe.feature_engineering.ma_crossover``). The suite has no rolling-MA
+    # step of its own -- moving averages are computed here (per-entity via group_ids if available,
+    # else a single global series ordered by timestamps/row order) before being fed to the
+    # underlying pairwise-crossover function. No fit-time state; predict-time replay re-runs the
+    # same computation. Needs >=2 distinct windows to produce any pair.
+    ma_crossover_columns: List[str] = Field(default_factory=list)
+    ma_crossover_windows: List[int] = Field(default_factory=lambda: [3, 5, 10])
+    ma_crossover_long_window_weight_power: float = 0.0
+
     memory_safety_max_features: int = 100_000
     # iter-69 byte-aware guard: PolynomialFeatures' projected column count
     # alone (memory_safety_max_features) doesn't capture the actual
