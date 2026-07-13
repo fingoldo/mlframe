@@ -361,3 +361,37 @@ unsafe (a numpy array with >1 elements raises under Python's `or` truthiness) �
 explicit `is not None` check at all three occurrences across both files, not just the one that
 happened to crash (the other two "worked" only by accident, since those composites don't set
 `feature_names_in_` on themselves and always fell through to `None`).
+
+## Two real bugs found in K-fold OOF wiring while adding test coverage (2026-07-13)
+
+`TrainingBehaviorConfig.oof_n_splits` (wave 2 — see the "Left opt-in" section above) had zero
+dedicated test coverage: `oof_n_splits` was previously unreachable from the public suite entry
+point at all, so the underlying `_compute_oof_preds`/OOF-stamping machinery had never been
+exercised through a real config path. Writing `tests/training/test_oof_n_splits_wiring.py`
+immediately surfaced two real, previously-unreachable bugs:
+
+1. **`_compute_oof_preds` silently failed for every early-stopping-configured estimator**
+   (`"lgb"`/`"xgb"` registry entries bake in `early_stopping_rounds` via `LGB_GENERAL_PARAMS`):
+   `cross_val_predict`'s internal per-fold `.fit(X_train, y_train)` call never supplies an
+   `eval_set`, so every fold raised `ValueError("For early stopping, at least one dataset and
+   eval metric is required for evaluation")`, silently caught and returning `(None, None)`.
+   Fixed in `trainer.py` by disabling early stopping on the OOF **clone only** (the original
+   already-fit model is untouched) — OOF folds need a fixed round count, not a per-fold tuned
+   stopping point.
+2. **`oof_target` was never mirrored onto the returned results namespace for ANY model,
+   regardless of task type**: `compute_calib_and_oof_outputs` (`_calib_oof_outputs.py`) mirrored
+   `oof_preds`/`oof_probs` off the fitted `model` but never `oof_target`, and
+   `_trainer_train_and_evaluate.py`'s `SimpleNamespace(...)` entry construction never listed an
+   `oof_target` field at all. Root-caused via `id()`-tracked instrumentation: the assignment onto
+   the raw fitted estimator succeeds correctly, but the entry object `ctx.models[type][name]`
+   actually holds is a **separate namespace rebuilt from an explicit field list**, not a generic
+   attribute copy — so `oof_target` was silently dropped for every model. This directly breaks
+   `recommend_diversity_additions_in_leaderboard` (wave 2, batch I): its own docstring states it
+   "fires only when every member exposes `.oof_preds`/`.oof_probs` + `.oof_target`" — for
+   regression targets (`oof_probs` always `None`, only `oof_target` matters) the feature could
+   never fire at all. Fixed by mirroring `oof_target` the same way, adding it as a 6th return
+   value of `compute_calib_and_oof_outputs` and a field on the `SimpleNamespace` entry.
+
+Verified via 2 new tests (`test_oof_n_splits_wiring.py`) plus the updated existing unit test for
+`compute_calib_and_oof_outputs`'s new return arity (`test_monolith_split_calib_oof_outputs.py`),
+plus a side-check against 17 tests in adjacent calibration/diagnostics files, all passing.
