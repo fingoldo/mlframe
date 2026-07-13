@@ -406,3 +406,11 @@ OOF-preferred behavior — the same root cause, a second silent consumer. `selec
 own unit tests (`test_ensembling_score_gate_split.py`, 7 tests) use synthetic arrays directly and
 were unaffected either way; re-ran them post-fix as a sanity check (still 7/7 passing) — the real
 behavioral fix is in `_compute_oof_preds` itself, already covered by this section's fix.
+
+**Cross-backend confirmation (2026-07-13):** the `getattr(estimator, "early_stopping_rounds", None)`
+guard added to `_compute_oof_preds` covers LightGBM AND XGBoost (both sklearn wrappers expose
+`early_stopping_rounds` as a real attribute, confirmed directly). CatBoost's sklearn wrapper does
+NOT expose it as an attribute (`hasattr` is `False`), but doesn't need the guard either: confirmed
+directly that `cross_val_predict` on a `CatBoostRegressor(early_stopping_rounds=5, ...)` with no
+eval_set trains successfully (CatBoost gracefully skips early stopping rather than raising, unlike
+LightGBM/XGBoost) — a clean negative result, not a gap.
