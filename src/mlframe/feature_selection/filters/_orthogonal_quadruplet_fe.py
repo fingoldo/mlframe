@@ -120,8 +120,6 @@ def generate_quadruplet_cross_basis_features(
     -------
     DataFrame of quadruplet-cross-basis columns.
     """
-    from ._fe_usability_signal import _crit_np_dtype
-    _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); hoisted so _dt is bound on every branch
     if not quadruplets:
         return pd.DataFrame(index=X.index)
     cache: dict[tuple[str, int, str], np.ndarray] = {}
@@ -151,7 +149,9 @@ def generate_quadruplet_cross_basis_features(
         ):
             continue
         from ._fe_usability_signal import _crit_np_dtype
-        _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
+        _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); matches the GPU device
+        # builder's operand dtype (_gpu_resident_cross_basis.py) so host and device run the polynomial
+        # recurrence at the SAME precision -- see build_leg_product_matrix_gpu's docstring.
         x_i = np.asarray(X[col_i].to_numpy(), dtype=_dt)
         x_j = np.asarray(X[col_j].to_numpy(), dtype=_dt)
         x_k = np.asarray(X[col_k].to_numpy(), dtype=_dt)
@@ -516,8 +516,6 @@ def hybrid_orth_mi_quadruplet_fe_with_recipes(
     that ``MRMR.transform`` can replay each engineered column from X
     alone (no y).
     """
-    from ._fe_usability_signal import _crit_np_dtype
-    _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); hoisted so _dt is bound on every branch
     from .engineered_recipes import build_orth_univariate_recipe
     from ._orthogonal_quadruplet_fe_recipes import build_orth_quadruplet_cross_recipe
 
@@ -576,12 +574,12 @@ def hybrid_orth_mi_quadruplet_fe_with_recipes(
                 )
                 continue
             col_i, col_j, col_k, col_l = legs
-            from ._fe_usability_signal import _crit_np_dtype
-            _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
-            x_i = X[col_i].to_numpy(dtype=_dt)
-            x_j = X[col_j].to_numpy(dtype=_dt)
-            x_k = X[col_k].to_numpy(dtype=_dt)
-            x_l = X[col_l].to_numpy(dtype=_dt)
+            # Value-construction (recovers the basis preprocess params for recipe replay): always
+            # float64, matching the fresh-path's own dtype (see generate_quadruplet_cross_basis_features).
+            x_i = X[col_i].to_numpy(dtype=np.float64)
+            x_j = X[col_j].to_numpy(dtype=np.float64)
+            x_k = X[col_k].to_numpy(dtype=np.float64)
+            x_l = X[col_l].to_numpy(dtype=np.float64)
             if basis == "auto":
                 try:
                     basis_a = basis_route_by_moments(x_i)
@@ -626,8 +624,7 @@ def hybrid_orth_mi_quadruplet_fe_with_recipes(
             # REPLAY-FIDELITY FIX (2026-06-13): freeze the fit-time basis-preprocess params.
             _pp_u = None
             try:
-                from ._fe_usability_signal import _crit_np_dtype
-                _x_u = X[src].to_numpy(dtype=_crit_np_dtype())  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
+                _x_u = X[src].to_numpy(dtype=np.float64)  # value-construction: always float64, see above
                 _, _pp_u = _evaluate_basis_column(_x_u, chosen_basis, chosen_degree, return_params=True)
             except Exception:  # nosec B110 - optional dependency import guard
                 pass

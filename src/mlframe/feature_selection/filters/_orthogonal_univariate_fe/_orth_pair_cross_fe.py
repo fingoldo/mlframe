@@ -134,8 +134,6 @@ def generate_pair_cross_basis_features(
     control (manufactured spurious weaker pairs 0.60-0.96, leak-free over-search).
     Don't re-add joint product routing here. (D:/Temp/item5_product_routing_findings.md)
     """
-    from .._fe_usability_signal import _crit_np_dtype
-    _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); hoisted so _dt is bound on every branch
     from . import _evaluate_basis_column
 
     if not pairs:
@@ -161,7 +159,11 @@ def generate_pair_cross_basis_features(
         # contiguous float64 column, and the np.copyto NaN-fill below would then mutate the CALLER's X
         # (corrupting downstream missingness-FE). A fresh copy keeps the fill local to this function.
         from .._fe_usability_signal import _crit_np_dtype
-        _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
+        _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); matches the device
+        # builder's operand dtype (_gpu_resident_cross_basis.py's _leg() now uploads at this SAME
+        # dtype instead of forcing float64) so host and device run the polynomial recurrence in the
+        # SAME arithmetic precision -- see build_leg_product_matrix_gpu's docstring for the resulting
+        # host/device tolerance under relaxed mode.
         x_i = np.array(X[col_i].to_numpy(), dtype=_dt)
         x_j = np.array(X[col_j].to_numpy(), dtype=_dt)
         for x in (x_i, x_j):

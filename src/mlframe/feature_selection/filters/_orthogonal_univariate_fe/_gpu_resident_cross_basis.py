@@ -81,7 +81,9 @@ def _operand_filled(X: pd.DataFrame, col: str) -> np.ndarray:
     that EXACT host pre-fill so the device leg sees the same operand values (otherwise NaN handling could diverge
     a row). ``np.array(copy=True)`` to never alias / mutate the caller's frame (the host path's no-mutation note)."""
     from .._fe_usability_signal import _crit_np_dtype
-    x = np.array(X[col].to_numpy(), dtype=_crit_np_dtype())  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
+    x = np.array(X[col].to_numpy(), dtype=_crit_np_dtype())  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default);
+    # matches the host's _orth_pair_cross_fe.py operand dtype -- see build_leg_product_matrix_gpu's docstring
+    # for why the leg cache below must upload at this SAME dtype rather than upcasting to float64.
     finite_mask = np.isfinite(x)
     if not finite_mask.all():
         fill = float(np.nanmean(x[finite_mask])) if finite_mask.any() else 0.0
@@ -100,8 +102,17 @@ def build_leg_product_matrix_gpu(cp: Any, X: pd.DataFrame, col_specs: Sequence[d
     pin an EXPLICIT basis name (e.g. ``"laguerre"``) -- used when the engineered column NAME already carries the
     exact basis code the host generator chose (the univariate uplift scorer), so the device must reproduce THAT
     basis rather than re-deriving it from moments (which can route differently). Returns an (n, K) cupy float64
-    matrix whose columns are the device reconstructions, matching the host products within ~1e-12 (FP; the device
-    Clenshaw vs host forward recurrence delta at the default low degrees).
+    matrix whose columns are the device reconstructions.
+
+    The per-leg operand and its polynomial recurrence run at ``_crit_np_dtype()`` -- f32 under the default
+    ``MLFRAME_CRIT_DTYPE_RELAXED=1``, matching the host generators (_orth_pair_cross_fe.py /
+    _orthogonal_{triplet,quadruplet}_fe.py use the SAME dtype for their operand) -- only the returned matrix's
+    CONTAINER is float64; no extra precision is recovered by that final cast. Under relaxed mode this makes the
+    device/host match within ~5e-6 (measured worst case across families/bases/degrees: 2.52e-6, quadruplet
+    degree 2 -- see test_device_born_cross_basis_parity.py), not the ~1e-12 that pure float64 arithmetic on
+    both sides would give (device backward-Clenshaw vs host forward recurrence delta) -- set
+    MLFRAME_CRIT_DTYPE_RELAXED=0 to recover that tighter bound at the cost of the memory/bandwidth win relaxed
+    mode gives the wide candidate-generation loop on the host side.
 
     Each distinct ``(col, basis, degree)`` basis leg is evaluated ONCE on the device (cache) and reused across
     every product that references it (the host generators cache identically). The raw operand columns ride the
@@ -141,7 +152,10 @@ def build_leg_product_matrix_gpu(cp: Any, X: pd.DataFrame, col_specs: Sequence[d
         h = leg_cache.get(key)
         if h is None:
             xf = basis_of_col[("_x", col)]
-            xg = resident_operand(np.ascontiguousarray(xf), ("xbasis_op", col), dtype=cp.float64)
+            # dtype=None (not cp.float64): upload at xf's own dtype so the on-device polynomial
+            # recurrence runs at the SAME precision as the host's, matching under relaxed mode
+            # instead of silently upcasting past what the host ever computes with.
+            xg = resident_operand(np.ascontiguousarray(xf), ("xbasis_op", col), dtype=None)
             # _gpu_evaluate_basis_matrix is BATCHED over (n, K) columns x degrees; here one column, one degree.
             cand, _meta = _gpu_evaluate_basis_matrix(
                 cp, xg[:, None], [b], [int(degree)], robust_axis=robust_axis,

@@ -8,8 +8,16 @@ and the per-family scorers route both it and the raw / lower-arity baseline thro
 
 These tests pin the SELECTION-EQUIVALENCE hard gate per family:
 
-* device product matrix == host product matrix within ~1e-12 (FP; device backward-Clenshaw vs host forward
-  recurrence at the default low degrees -- laguerre is forward on both so bit-consistent); AND
+* device product matrix == host product matrix within ~5e-6 under the default MLFRAME_CRIT_DTYPE_RELAXED=1
+  (2026-07-13): both host (_orth_pair_cross_fe.py / _orthogonal_{triplet,quadruplet}_fe.py) and device
+  (_gpu_resident_cross_basis.py) now operate on the operand at ``_crit_np_dtype()`` -- f32 by default -- so
+  the polynomial recurrence runs at the SAME precision on both sides instead of the device silently
+  upcasting to float64 underneath a nominally-relaxed host. Measured worst case across pair/triplet/
+  quadruplet x {hermite,auto,legendre,chebyshev} x degree {1,2}: 2.52e-6 (quadruplet, degree 2 -- more
+  multiplied legs compounds the per-leg f32 rounding). 5e-6 gives margin above that without masking a real
+  regression. Under a non-relaxed MLFRAME_CRIT_DTYPE_RELAXED=0 host, both sides run in float64 and the gap
+  collapses to the algorithm-only ~1e-12 (device backward-Clenshaw vs host forward recurrence; laguerre is
+  forward on both so bit-consistent); AND
 * the resident-scored selection (top winner + the ranking the family consumes) == the host selection.
 """
 from __future__ import annotations
@@ -39,7 +47,7 @@ def _strict(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# Device product matrix == host product matrix within ~1e-12 (all four families)
+# Device product matrix == host product matrix within ~5e-6 under relaxed dtype (all four families)
 # ---------------------------------------------------------------------------
 
 
@@ -52,7 +60,7 @@ def _host_pair_matrix(X, pairs, max_degree, basis):
 
 @pytest.mark.parametrize("basis", ["hermite", "auto", "legendre", "chebyshev"])
 @pytest.mark.parametrize("max_degree", [1, 2])
-def test_pair_device_matrix_matches_host_1e12(basis, max_degree, monkeypatch):
+def test_pair_device_matrix_matches_host(basis, max_degree, monkeypatch):
     _strict(monkeypatch)
     from mlframe.feature_selection.filters._orthogonal_univariate_fe._orth_pair_cross_fe import (
         _pair_device_col_specs,
@@ -77,14 +85,15 @@ def test_pair_device_matrix_matches_host_1e12(basis, max_degree, monkeypatch):
     dev = cp.asnumpy(mat)
     h = host.to_numpy(dtype=np.float64)
     assert dev.shape == h.shape
-    # relative tolerance ~1e-12 (the products span several orders of magnitude at degree 2)
+    # relative tolerance ~5e-6 under the default relaxed (f32) dtype -- see module docstring for the
+    # measured worst case and why (the products span several orders of magnitude at degree 2).
     denom = np.maximum(np.abs(h), 1.0)
     maxrel = float(np.max(np.abs(dev - h) / denom))
-    assert maxrel < 1e-10, f"pair device/host product reldiff {maxrel:.3e} exceeds 1e-10 (basis={basis}, deg={max_degree})"
+    assert maxrel < 5e-6, f"pair device/host product reldiff {maxrel:.3e} exceeds 5e-6 (basis={basis}, deg={max_degree})"
 
 
 @pytest.mark.parametrize("basis", ["hermite", "auto"])
-def test_triplet_device_matrix_matches_host_1e12(basis, monkeypatch):
+def test_triplet_device_matrix_matches_host(basis, monkeypatch):
     _strict(monkeypatch)
     from mlframe.feature_selection.filters._orthogonal_triplet_fe import (
         generate_triplet_cross_basis_features,
@@ -109,11 +118,11 @@ def test_triplet_device_matrix_matches_host_1e12(basis, monkeypatch):
     h = host.to_numpy(dtype=np.float64)
     denom = np.maximum(np.abs(h), 1.0)
     maxrel = float(np.max(np.abs(dev - h) / denom))
-    assert maxrel < 1e-10, f"triplet device/host reldiff {maxrel:.3e} (basis={basis})"
+    assert maxrel < 5e-6, f"triplet device/host reldiff {maxrel:.3e} exceeds 5e-6 (basis={basis})"
 
 
 @pytest.mark.parametrize("basis", ["hermite", "auto"])
-def test_quadruplet_device_matrix_matches_host_1e12(basis, monkeypatch):
+def test_quadruplet_device_matrix_matches_host(basis, monkeypatch):
     _strict(monkeypatch)
     from mlframe.feature_selection.filters._orthogonal_quadruplet_fe import (
         generate_quadruplet_cross_basis_features,
@@ -139,7 +148,7 @@ def test_quadruplet_device_matrix_matches_host_1e12(basis, monkeypatch):
     h = host.to_numpy(dtype=np.float64)
     denom = np.maximum(np.abs(h), 1.0)
     maxrel = float(np.max(np.abs(dev - h) / denom))
-    assert maxrel < 1e-10, f"quadruplet device/host reldiff {maxrel:.3e} (basis={basis})"
+    assert maxrel < 5e-6, f"quadruplet device/host reldiff {maxrel:.3e} exceeds 5e-6 (basis={basis})"
 
 
 # ---------------------------------------------------------------------------
