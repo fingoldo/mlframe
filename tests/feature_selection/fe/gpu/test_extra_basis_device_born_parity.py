@@ -3,11 +3,21 @@
 SF1c device-borns the WHOLE extra-basis engineered matrix (spline / Fourier / chirp / wavelet) on the GPU from
 the resident raw operands + the per-column fit ``meta``, so the host matrix never uploads at
 ``_orth_mi_backends.py:311``. Correctness bar: each device column reproduces the host formula verbatim (same
-lo/span/mean/std/freq/power/knots from meta, same axis + clip), differing only in FP reduction order. This test
-builds a frame whose target excites all four detectors, generates the host matrix + meta, rebuilds it on the
-device via ``_build_extra_basis_matrix_gpu``, and asserts every column matches to ~1e-8 -- the guarantee that the
-device-born path never silently changes an engineered column (which would drift the binned-MI partition and thus
-selection). It also asserts all four bases are actually exercised."""
+lo/span/mean/std/freq/power/knots from meta, same axis + clip). This test builds a frame whose target excites all
+four detectors, generates the host matrix + meta, rebuilds it on the device via ``_build_extra_basis_matrix_gpu``,
+and asserts every column matches to ~1e-5 -- the guarantee that the device-born path never silently changes an
+engineered column (which would drift the binned-MI partition and thus selection). It also asserts all four bases
+are actually exercised.
+
+Tolerance 1e-5 (2026-07-13), not ~1e-8: under the default ``MLFRAME_CRIT_DTYPE_RELAXED=1`` both host and device
+operate on the raw operand at f32, so the SAME residual arithmetic-precision gap documented in
+``_gpu_resident_cross_basis.py``'s ``build_leg_product_matrix_gpu`` docstring applies here too (measured worst
+case on this fixture: 3.66e-6). This test ALSO caught a genuine, larger, pre-existing bug (fixed alongside this
+tolerance change): ``_bspline_col_gpu`` was missing the unconditional float64 upcast its host twin
+``_bspline_basis_values`` has before the boundary-safety clip -- float32 can't represent the clip's 1e-12 margin
+near a repeated boundary knot (epsilon below float32's ~1.19e-7 resolution at 1.0), so the clip silently no-opped
+and the last B-spline basis function's degenerate-knot recursion collapsed to 0 instead of ~1.0 (maxerr was
+exactly 1.0 pre-fix, an obvious formula bug, not a precision one)."""
 from __future__ import annotations
 
 import numpy as np
@@ -62,6 +72,7 @@ def test_device_born_extra_basis_matches_host_all_bases():
     dev = cp.asnumpy(_build_extra_basis_matrix_gpu(cp, X, names, meta))
     host = eng.to_numpy(dtype=np.float64)
     assert dev.shape == host.shape
-    # per-column max abs error -- FP reduction order only; a formula bug would be orders of magnitude larger.
+    # per-column max abs error -- relaxed-dtype arithmetic-precision gap (see module docstring); a
+    # formula bug is orders of magnitude larger (this test caught one at maxerr=1.0, see docstring).
     maxerr = float(np.max(np.abs(dev - host)))
-    assert maxerr < 1e-8, f"device extra-basis diverges from host by {maxerr:.3e}"
+    assert maxerr < 1e-5, f"device extra-basis diverges from host by {maxerr:.3e}"

@@ -525,11 +525,21 @@ class TestMixedBasisPairCrossReplay:
             )
             if basis_i != basis_j:
                 saw_mixed = True
-            # Replay must reproduce the fit-time engineered column EXACTLY,
-            # using the per-leg bases from extra (not the name).
+            # Replay must reproduce the fit-time engineered column, using the per-leg bases from
+            # extra (not the name). Tolerance 5e-6 (2026-07-13), not bit-identical: under the default
+            # MLFRAME_CRIT_DTYPE_RELAXED=1 both fit (generate_pair_cross_basis_features) and replay
+            # (_apply_orth_pair_cross) now operate on the operand at the SAME relaxed (f32) dtype, but
+            # _eval_orth_basis_column's own internal `np.asarray(x, dtype=np.float64)` still runs the
+            # polynomial recurrence in float64 arithmetic on those f32-rounded values regardless of
+            # caller dtype -- a smaller second-order version of the host/device arithmetic-precision
+            # gap documented in _gpu_resident_cross_basis.py's build_leg_product_matrix_gpu docstring.
+            # Measured worst case on this fixture: 7.91e-7 absolute, near a zero-crossing where rtol
+            # alone contributes ~0 -- atol must independently cover that (2e-6 gives ~2.5x margin);
+            # 5e-6 rtol matches the tolerance already established for the same bug class in
+            # test_device_born_cross_basis_parity.py.
             replay = np.asarray(apply_recipe(r, X), dtype=float)
             fit_vals = np.asarray(X_aug[r.name], dtype=float)
-            assert np.allclose(replay, fit_vals, rtol=1e-9, atol=1e-12), (
+            assert np.allclose(replay, fit_vals, rtol=5e-6, atol=2e-6), (
                 f"mixed-basis pair recipe {r.name!r} (basis_i={basis_i}, "
                 f"basis_j={basis_j}) replay drifted from fit: "
                 f"max|d|={float(np.max(np.abs(replay - fit_vals)))}; "

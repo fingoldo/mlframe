@@ -233,7 +233,14 @@ def _apply_orth_pair_cross(
             _cached = basis_cache.get(_key)
             if _cached is not None:
                 return _cached
-        _vals = _extract_column(X, name, col_cache=col_cache)
+        # Cast to _crit_np_dtype() (f32 under the default MLFRAME_CRIT_DTYPE_RELAXED) to match
+        # generate_pair_cross_basis_features's operand dtype at fit time -- _extract_column returns
+        # the column's native dtype (float64 for a plain numeric frame) with no cast, so without this
+        # replay would run the basis recurrence at a different precision than fit even though both
+        # read the identical row values, reproducing the fit/replay drift bug documented in
+        # _orthogonal_univariate_fe/_orth_pair_cross_fe.py's own value-construction comment.
+        from .._fe_usability_signal import _crit_np_dtype
+        _vals = np.asarray(_extract_column(X, name, col_cache=col_cache), dtype=_crit_np_dtype())
         _out = _eval_orth_basis_column(_vals, basis, degree, preprocess_params=pp)
         if basis_cache is not None:
             basis_cache[_key] = _out
@@ -411,62 +418,50 @@ def build_orth_cluster_basis_recipe(
 def _bspline_basis_values(z: np.ndarray, knots: np.ndarray, idx: int, degree: int = 3) -> np.ndarray:
     """Evaluate the ``idx``-th cubic B-spline basis function at points ``z``.
 
-    Uses the Cox-de Boor recursion. ``knots`` is the full augmented knot
-    vector (with degree+1 repeated boundary knots). Returns shape (n,).
+    Uses the Cox-de Boor recursion, fully vectorised across all points at once (no
+    per-point Python loop): this is the CPU/numpy twin of the GPU-resident
+    ``_orthogonal_univariate_fe/_extra_basis_resident.py::_bspline_col_gpu`` -- same
+    memoised recursion ``B_{i,0}(z) = 1[knots[i] <= z < knots[i+1]]`` then
+    ``B_{i,p} = (z-k_i)/(k_{i+p}-k_i) B_{i,p-1} + (k_{i+p+1}-z)/(k_{i+p+1}-k_{i+1}) B_{i+1,p-1}``
+    with the same zero-denominator guard, just with ``np`` in place of ``cp``. ``knots``
+    is the full augmented knot vector (with degree+1 repeated boundary knots). Returns
+    shape (n,).
+
+    The eval-point clip (into ``[knots[degree]+1e-12, knots[nk-degree-1]-1e-12]``) uses
+    ``np.clip`` here instead of the original two-branch if/elif; the two differ only
+    inside a ``1e-12``-wide boundary sliver immediately above ``knots[degree]``, well
+    below FP-reorder tolerance and never hit by real (non-adversarial) data.
     """
     z = np.asarray(z, dtype=np.float64)
-    n = z.shape[0]
-    out = np.zeros(n, dtype=np.float64)
-    # Degree-0 indicator [t_k, t_{k+1})
-    # Build up the Cox-de Boor recursion for the single basis index `idx`.
-    # We do it in O(degree+1) per point by computing the full row of B-splines
-    # via the standard algorithm, then picking the column we need.
-    nk = len(knots)
-    for i in range(n):
-        zi = z[i]
-        # Find span: largest k with knots[k] <= zi < knots[k+1]
-        # Handle boundary: clip zi to [knots[degree], knots[-degree-1]]
-        if zi >= knots[nk - degree - 1]:
-            zi_eff = knots[nk - degree - 1] - 1e-12
-        elif zi <= knots[degree]:
-            zi_eff = knots[degree] + 1e-12
+    knots = np.asarray(knots, dtype=np.float64)
+    nk = knots.shape[0]
+    degree = int(degree)
+    idx = int(idx)
+    lo_c = float(knots[degree]) + 1e-12
+    hi_c = float(knots[nk - degree - 1]) - 1e-12
+    zc = np.clip(z, lo_c, hi_c)
+    cache: dict[tuple[int, int], np.ndarray] = {}
+
+    def _basis(i: int, p: int) -> np.ndarray:
+        """Memoised Cox-de Boor value ``B_{i,p}(zc)`` over the whole point array."""
+        key = (i, p)
+        v = cache.get(key)
+        if v is not None:
+            return v
+        if p == 0:
+            v = ((zc >= knots[i]) & (zc < knots[i + 1])).astype(np.float64)
         else:
-            zi_eff = zi
-        # Compute non-zero B-splines of given degree at zi_eff using standard
-        # de Boor algorithm (returns degree+1 non-zero values starting at span k-degree)
-        # Locate k such that knots[k] <= zi_eff < knots[k+1]
-        k = degree
-        for kk in range(degree, nk - degree - 1):
-            if knots[kk] <= zi_eff < knots[kk + 1]:
-                k = kk
-                break
-        else:
-            k = nk - degree - 2
-        # B-splines of degree d at zi_eff for span k.
-        # left[j] = zi - knots[k+1-j]; right[j] = knots[k+j] - zi
-        # N[0] = 1, then for d = 1..degree update.
-        N = np.zeros(degree + 1, dtype=np.float64)
-        N[0] = 1.0
-        for d in range(1, degree + 1):
-            saved = 0.0
-            for r in range(d):
-                t_left = knots[k + 1 + r - d]
-                t_right = knots[k + 1 + r]
-                denom = t_right - t_left
-                if denom <= 1e-12:
-                    temp = 0.0
-                else:
-                    temp = N[r] / denom
-                N[r] = saved + (t_right - zi_eff) * temp
-                saved = (zi_eff - t_left) * temp
-            N[d] = saved
-        # Non-zero basis indices for this span are k-degree..k.
-        # The column we want is `idx`. If idx in [k-degree, k] return N[idx - (k-degree)], else 0.
-        rel = idx - (k - degree)
-        if 0 <= rel <= degree:
-            out[i] = N[rel]
-        # else: 0 (already initialized)
-    return out
+            d1 = knots[i + p] - knots[i]
+            d2 = knots[i + p + 1] - knots[i + 1]
+            v = np.zeros(zc.shape, dtype=np.float64)
+            if d1 > 1e-12:
+                v = v + ((zc - knots[i]) / d1) * _basis(i, p - 1)
+            if d2 > 1e-12:
+                v = v + ((knots[i + p + 1] - zc) / d2) * _basis(i + 1, p - 1)
+        cache[key] = v
+        return v
+
+    return _basis(idx, degree)
 
 
 def _fit_spline_knots(x: np.ndarray, n_inner_knots: int, degree: int = 3) -> tuple[np.ndarray, float, float]:

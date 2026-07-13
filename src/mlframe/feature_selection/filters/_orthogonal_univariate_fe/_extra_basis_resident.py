@@ -76,6 +76,14 @@ def _bspline_col_gpu(cp, z_g, knots: np.ndarray, idx: int, degree: int = 3):
     nk = int(knots.shape[0])
     lo_c = float(knots[degree]) + 1e-12
     hi_c = float(knots[nk - degree - 1]) - 1e-12
+    # Unconditional float64 (matches the host's `z = np.asarray(z, dtype=np.float64)`, NOT gated on
+    # MLFRAME_CRIT_DTYPE_RELAXED): the 1e-12 boundary-safety clip below is only representable in
+    # float64 -- float32's epsilon near 1.0 is ~1.19e-7, so clipping a float32 z to hi_c=1.0-1e-12
+    # silently no-ops (rounds back to exactly 1.0), leaving z sitting ON a repeated boundary knot and
+    # collapsing the LAST basis function's degenerate recursion to 0 instead of its correct ~1.0 value
+    # (found via test_extra_basis_device_born_parity.py: maxerr=1.0 on the *__sp8 column, pre-existing,
+    # reproduces on a clean pre-wave-10 baseline).
+    z_g = cp.asarray(z_g, dtype=cp.float64)
     zc = cp.clip(z_g, lo_c, hi_c)
     _cache: dict = {}
 
