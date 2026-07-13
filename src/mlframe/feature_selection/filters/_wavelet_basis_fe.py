@@ -225,14 +225,21 @@ def _binned_mi_cupy(feat, y, nbins: int, y_codes, discrete: bool = False) -> flo
     fused MI-from-codes RawKernel. Selection-EXACT (no approximation), no sort."""
     import cupy as cp
 
+    # y / y_codes are the FIT-CONSTANT target (invariant across every leg of a source column, AND across
+    # every source column in the fit, since the %3 train/held-out mask is the same for all of them) --
+    # resident-cache them so repeated calls within one fit (up to 6 legs/column via _heldout_incremental_mi)
+    # upload ONCE instead of every call. feat/df is the candidate leg/joint code, which genuinely varies per
+    # call, and stays a raw upload.
+    from ._fe_resident_operands import resident_operand
+
     df = cp.asarray(np.asarray(feat, dtype=np.float64).ravel())
     if discrete:
         from ._fe_batched_mi import binned_mi_from_codes_gpu
         fb = (df - df.min()).astype(cp.int64)
         if y_codes is not None:
-            yb = cp.asarray(np.asarray(y_codes).ravel()).astype(cp.int64, copy=False)
+            yb = resident_operand(np.asarray(y_codes).ravel(), "wavelet_y_codes", dtype=np.int64)
         else:
-            dy = cp.asarray(np.asarray(y).ravel()).astype(cp.int64, copy=False)
+            dy = resident_operand(np.asarray(y).ravel(), "wavelet_y", dtype=np.int64)
             yb = dy - dy.min()
         return float(max(float(binned_mi_from_codes_gpu(fb[:, None], yb)[0]), 0.0))
     # Sort-free EXACT quantile edges via radix-select (launch-reduction): cp.quantile bins via a comparison
@@ -259,9 +266,9 @@ def _binned_mi_cupy(feat, y, nbins: int, y_codes, discrete: bool = False) -> flo
     else:
         fb = cp.digitize(df, _interior_edges(df))
     if y_codes is not None:
-        yb = cp.asarray(np.asarray(y_codes).ravel())
+        yb = resident_operand(np.asarray(y_codes).ravel(), "wavelet_y_codes")
     else:
-        dy = cp.asarray(np.asarray(y).ravel()) if not isinstance(y, cp.ndarray) else y.ravel()
+        dy = resident_operand(np.asarray(y).ravel(), "wavelet_y") if not isinstance(y, cp.ndarray) else y.ravel()
         uy = cp.unique(dy)
         if int(uy.size) <= 20:
             yb = cp.searchsorted(uy, dy)

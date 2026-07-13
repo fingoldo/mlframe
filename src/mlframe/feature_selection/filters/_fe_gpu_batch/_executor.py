@@ -2,9 +2,15 @@
 
 Scores a candidate matrix on ONE device by the resident edge-binned plain plug-in MI
 (``_hermite_fe_mi._plugin_mi_classif_batch_cuda_resident``), VRAM-budget column-chunked so peak device
-memory stays inside a fraction of free VRAM (``_gpu_resident_fe._gpu_k_chunk``). y is uploaded ONCE and
-its class span (y_min / n_classes) computed ONCE, then reused across chunks. Math is identical to the CPU
-twin ``_fe_cpu_batch.cpu_fe_batch_mi`` (same percentile-edge binning + plug-in MI) so the two backends
+memory stays inside a fraction of free VRAM (``_gpu_resident_fe._gpu_k_chunk``). Within one call, y is
+uploaded ONCE and its class span (y_min / n_classes) computed ONCE, then reused across chunks. ACROSS
+calls (this function is reached once per candidate-matrix batch from ``_fe_batch_dispatch.fe_batch_mi`` /
+``_orth_mi_backends._mi_classif_batch_numba``, many times per fit with an UNCHANGED ``y_codes``), the
+device upload of ``y`` is deduplicated too via ``resident_operand`` (content-hash keyed, shared with every
+other resident-cache consumer in this package), and ``y_min``/``n_classes`` are derived HOST-side from
+``y_codes`` directly instead of via a device ``.min()``/``.max()`` sync -- both a repeat-call H2D and the
+2 blocking D2H syncs per call are avoided, not merely cached. Math is identical to the CPU twin
+``_fe_cpu_batch.cpu_fe_batch_mi`` (same percentile-edge binning + plug-in MI) so the two backends
 select the same forms.
 
 NaN policy: candidate columns are scrubbed to 0 on upload (the FE nan_to_num convention) -- a no-op on the
@@ -58,9 +64,16 @@ def gpu_fe_batch_mi(
 
     dev_ctx = cp.cuda.Device(device) if device is not None else cp.cuda.Device()
     with dev_ctx:
-        y_gpu = cp.asarray(np.ascontiguousarray(y_codes, dtype=np.int64))
-        y_min = int(y_gpu.min().item())
-        n_classes = int(y_gpu.max().item()) - y_min + 1
+        # RESIDENT UPLOAD (2026-07-13): y_codes is fit-constant across every call this executor sees in one
+        # fit (see module docstring); resident_operand dedups the H2D on repeat content instead of a fresh
+        # cp.asarray every call. y_min/n_classes are derived HOST-side (numpy min/max on the same array the
+        # upload hashes) instead of a device .min()/.max().item(), which is a blocking D2H sync -- computing
+        # them host-side removes that sync entirely, on both a cache hit AND a miss.
+        from .._fe_resident_operands import resident_operand
+        y_host = np.ascontiguousarray(y_codes, dtype=np.int64)
+        y_min = int(y_host.min())
+        n_classes = int(y_host.max()) - y_min + 1
+        y_gpu = resident_operand(y_host, "gpu_fe_batch_y", dtype=np.int64)
         # VRAM-budget column chunk: the candidate matrix is the dominant resident footprint (4B f32 / 8B f64).
         chunk = _gpu_k_chunk(n, bytes_per_elem=(4 if _f32 else 8), max_cols=k)
         for s in range(0, k, chunk):
@@ -78,6 +91,12 @@ def gpu_fe_batch_mi(
             out[sl] = np.asarray(_plugin_mi_classif_batch_cuda_resident(Xg, y_gpu, nbins, y_min=y_min, n_classes=n_classes, keep_dtype=_f32))
             del Xg
             if free_blocks:
+                # Investigated (2026-07-13): this forces a real cudaFree + fresh cudaMalloc on the NEXT
+                # chunk instead of cupy pool reuse -- a genuine cost. Left unchanged: this executor is
+                # reached repeatedly across a whole fit (once per candidate-matrix batch, many batches) and
+                # concurrently across devices from ``multi_gpu_fe_batch_mi``'s ThreadPoolExecutor, and
+                # verifying pool-retention is safe under both (no cross-call/cross-device VRAM-budget
+                # understatement) needs live multi-GPU profiling this wave didn't run; not changed without it.
                 cp.get_default_memory_pool().free_all_blocks()
     return out
 

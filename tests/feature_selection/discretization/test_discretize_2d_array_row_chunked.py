@@ -50,7 +50,7 @@ def test_dispatch_tries_row_chunked_before_cpu_when_vram_insufficient(monkeypatc
 
     calls = {"row_chunked": 0}
 
-    def _fake_row_chunked(arr, n_bins, method, dtype):
+    def _fake_row_chunked(arr, n_bins, method, dtype, **kw):
         calls["row_chunked"] += 1
         return np.zeros(arr.shape, dtype=dtype)
 
@@ -122,6 +122,37 @@ class TestRealHardware:
         out = disc_mod.discretize_2d_array_cuda_row_chunked(arr, n_bins=5, method="quantile", dtype=np.int32, quantile_subsample_rows=1_000_000)
         assert out.shape == arr.shape
         assert np.all(out >= 0) and np.all(out < 5)
+
+    def test_quantile_row_chunked_hoists_cuts_transpose_once_across_chunks(self, monkeypatch):
+        """The (n_cols, n_bins-1) cut-point transpose (``bin_edges[1:-1, :].T``) is fit-constant across
+        every row-chunk of one quantile row-chunked call -- ``bin_edges`` is computed ONCE before the
+        chunk loop and never changes -- so it must be derived ONCE, not re-transposed inside
+        ``_discretize_quantile_rawkernel`` on every chunk. Forces >=10 tiny chunks with n_cols=1200 (>=
+        the RawKernel threshold) and counts ``cp.ascontiguousarray`` calls matching the cuts shape."""
+        import cupy as cp
+
+        rng = np.random.default_rng(13)
+        n_cols = 1200
+        n_bins = 10
+        arr = rng.standard_normal(size=(20_000, n_cols)).astype(np.float32)
+        monkeypatch.setattr(disc_mod, "_choose_discretize_row_chunk_rows", lambda *a, **kw: 1777)  # forces >=10 chunks
+
+        calls = {"n": 0}
+        orig_ascontig = cp.ascontiguousarray
+
+        def _counting_ascontig(a_, *a, **kw):
+            if getattr(a_, "shape", None) == (n_cols, n_bins - 1):
+                calls["n"] += 1
+            return orig_ascontig(a_, *a, **kw)
+
+        cp.ascontiguousarray = _counting_ascontig
+        try:
+            out = disc_mod.discretize_2d_array_cuda_row_chunked(arr, n_bins=n_bins, method="quantile", dtype=np.int32)
+        finally:
+            cp.ascontiguousarray = orig_ascontig
+
+        assert calls["n"] == 1, f"cuts transpose recomputed {calls['n']} times across row-chunks (expected 1)"
+        assert out.shape == arr.shape
 
 
 if __name__ == "__main__":

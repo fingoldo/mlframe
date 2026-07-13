@@ -243,15 +243,20 @@ def _count_nfailed_joint_indep_cupy(
     """
     import cupy as cp  # lazy import
 
-    # Single host->device transfer per array.
+    from ._fe_resident_operands import resident_operand
+
+    # Per-survivor-pair operands genuinely vary every call (a different pair (X1, X2) each iteration of
+    # the caller's survivor loop) -- plain per-call upload.
     classes_pair_g = cp.asarray(classes_pair, dtype=cp.int64)
     classes_x1_g = cp.asarray(classes_x1, dtype=cp.int64)
     classes_x2_g = cp.asarray(classes_x2, dtype=cp.int64)
-    classes_y_g = cp.asarray(classes_y, dtype=cp.int64)
     freqs_pair_g = cp.asarray(freqs_pair, dtype=cp.float64)
     freqs_x1_g = cp.asarray(freqs_x1, dtype=cp.float64)
     freqs_x2_g = cp.asarray(freqs_x2, dtype=cp.float64)
-    freqs_y_g = cp.asarray(freqs_y, dtype=cp.float64)
+    # classes_y / freqs_y are the SAME target passed to EVERY survivor of the caller's confirmation loop
+    # (~10-100 iterations/fit) -- content-keyed resident upload instead of a fresh re-upload per pair.
+    classes_y_g = resident_operand(classes_y, "cat_confirm_y", dtype=np.int64)
+    freqs_y_g = resident_operand(freqs_y, "cat_confirm_freqs_y", dtype=np.float64)
 
     K_pair = int(freqs_pair_g.size)
     K_x1 = int(freqs_x1_g.size)

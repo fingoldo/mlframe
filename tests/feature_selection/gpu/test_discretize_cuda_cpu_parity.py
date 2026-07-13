@@ -72,3 +72,42 @@ def test_cuda_int8_widens_like_cpu_at_large_nbins():
     assert g.min() >= 0, f"GPU int8 wrapped negative at n_bins=200: min={g.min()}"
     assert g.dtype == c.dtype
     np.testing.assert_array_equal(g, c)
+
+
+def test_discretize_quantile_rawkernel_built_once_across_calls():
+    """The fused per-column searchsorted ``cp.RawKernel`` (used at n_cols>=1000) must be compiled ONCE
+    (module-level singleton, ``_get_searchsorted_right_2d_kernel``) and REUSED across every call -- not
+    rebuilt from CUDA source text every time ``_discretize_quantile_rawkernel`` runs. Proven two ways:
+    (1) ``cp.RawKernel`` itself is constructed at most once across TWO separate wide-n_cols discretize
+    calls; (2) the singleton getter returns the IDENTICAL kernel object both times."""
+    import cupy as cp
+
+    from mlframe.feature_selection.filters import discretization as disc_mod
+
+    disc_mod._searchsorted_right_2d_cuda = None  # force a fresh build for this test, regardless of import order
+    k1 = disc_mod._get_searchsorted_right_2d_kernel()
+    k2 = disc_mod._get_searchsorted_right_2d_kernel()
+    assert k1 is k2, "the RawKernel singleton getter built a NEW kernel on the second call"
+
+    calls = {"n": 0}
+    orig_rawkernel = cp.RawKernel
+
+    def _counting_rawkernel(*a, **kw):
+        calls["n"] += 1
+        return orig_rawkernel(*a, **kw)
+
+    cp.RawKernel = _counting_rawkernel
+    try:
+        rng = np.random.default_rng(9)
+        a1 = rng.normal(size=(2000, 1200))
+        a2 = rng.normal(size=(3000, 1200))
+        discretize_2d_array_cuda(a1, n_bins=10, method="quantile", dtype=np.int32)
+        discretize_2d_array_cuda(a2, n_bins=10, method="quantile", dtype=np.int32)
+    finally:
+        cp.RawKernel = orig_rawkernel
+
+    assert calls["n"] == 0, (
+        f"cp.RawKernel was (re)constructed {calls['n']} time(s) by real discretize calls after the "
+        "singleton was already built -- the kernel should have been reused, not recompiled"
+    )
+    assert disc_mod._get_searchsorted_right_2d_kernel() is k1, "the module-level kernel singleton object changed"

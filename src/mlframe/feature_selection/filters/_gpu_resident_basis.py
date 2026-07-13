@@ -19,6 +19,7 @@ avoid an import cycle. No kernel-source, dispatch-threshold, residency, or selec
 from __future__ import annotations
 
 import os
+from typing import Optional
 
 import numpy as np
 
@@ -1231,7 +1232,10 @@ def grand_fused_pair_mi(
 
     from ._gpu_resident_select import _gpu_resident_discretize_codes  # type: ignore[attr-defined]  # dynamically re-exported via globals(); lazy: cross-sibling, avoids cycle
     from . import hermite_fe as _hf  # noqa: F401 -- full-init parent before the GPU MI import cycle
-    from .batch_mi_noise_gate_gpu import dispatch_batch_mi_with_noise_gate_gpu
+    from .batch_mi_noise_gate_gpu import (
+        batch_mi_with_noise_gate_cuda_resident,
+        dispatch_batch_mi_with_noise_gate_gpu,
+    )
 
     a_gpu = cp.asarray(a, dtype=cp.float64)
     b_gpu = cp.asarray(b, dtype=cp.float64)
@@ -1243,29 +1247,72 @@ def grand_fused_pair_mi(
     fy = np.ascontiguousarray(freqs_y, dtype=np.float64)
     k_chunk = _gpu_k_chunk(n)
     parts: list[np.ndarray] = []
+
+    def _ensure_disc_host(cache: list[Optional[np.ndarray]], dev: np.ndarray) -> np.ndarray:
+        """LAZY host materialisation of the resident disc codes ``dev`` -- D2H'd (once, cached in
+        ``cache``) only if a host-reading path actually needs them; the resident GPU gate (the common
+        case) never triggers this, so it never touches the host for this data. ``cache`` is a fresh
+        ``[None]`` per block (passed in, not captured, to keep this def loop-variable-safe)."""
+        val = cache[0]
+        if val is None:
+            val = np.asarray(cp.asnumpy(dev))
+            cache[0] = val
+        return val
+
     for start in range(0, len(_COMBOS), k_chunk):
         block = _COMBOS[start : start + k_chunk]
         cand = _fused_generate_block(ua_cm, ub_cm, block)  # GPU gen (resident)
-        disc_host = cp.asnumpy(_gpu_resident_discretize_codes(cand, nbins).astype(cp.int8))  # GPU disc -> small D2H
+        disc_dev = _gpu_resident_discretize_codes(cand, nbins).astype(cp.int8)  # GPU disc -- KEPT resident
         del cand
         fnb = np.full(len(block), int(nbins), dtype=np.int64)
+        _disc_host_cache: list[Optional[np.ndarray]] = [None]
+
+        out = None
+        if not bool(use_su):
+            # RESIDENT noise-gate (2026-07-13): feed the on-device disc codes straight into the resident
+            # CUDA kernel via ``d_disc_resident`` -- it reads them in place, so the codes never round-trip
+            # GPU -> host -> GPU (the D2H-then-H2D this fix eliminates). ``disc_2d`` below is a metadata-
+            # only placeholder (matching shape/dtype, uninitialised) -- the resident kernel only reads its
+            # ``.shape``/``.dtype`` when ``d_disc_resident`` is given (its own OOB-screen skips reading the
+            # host bytes in that branch), so no data ever needs to be D2H'd for the common (successful) case.
+            # ``batch_mi_with_noise_gate_cuda_resident`` does not support ``use_su=True`` (its own docstring
+            # -- SU has no GPU-entropy form), so that case is excluded here and falls through unchanged below.
+            try:
+                _placeholder = np.empty(disc_dev.shape, dtype=disc_dev.dtype)
+                out = batch_mi_with_noise_gate_cuda_resident(
+                    disc_2d=_placeholder, factors_nbins=fnb, classes_y=y_i64, classes_y_safe=csafe, freqs_y=fy,
+                    npermutations=int(npermutations), base_seed=np.uint64(0),
+                    min_nonzero_confidence=float(min_nonzero_confidence), use_su=False,
+                    dtype=np.int32, d_disc_resident=disc_dev,
+                )
+            except Exception as _res_exc:
+                import logging
+                logging.getLogger(__name__).debug(
+                    "grand_fused_pair_mi resident noise-gate failed (%s: %s); D2H fallback",
+                    type(_res_exc).__name__, _res_exc,
+                )
+                out = None
         # FORCE the GPU noise-gate: measured 15x faster than CPU here (K=384 n=200k: cupy 3093ms vs
         # CPU njit 46176ms -- the noise-gate is the REAL bottleneck, not gen/discretize). The default
         # chooser (_batch_mi_noise_gate_backend_choice) picks CPU on this host -- a tuner mis-calibration
         # (it under-rates the GPU gate, same class as the MI-dispatch issue); force cupy/cuda so the
         # grand-fused path actually runs the gate on the GPU. Falls back to CPU only if no GPU backend.
-        out = None
-        for _fb in ("cupy", "cuda"):
-            out = dispatch_batch_mi_with_noise_gate_gpu(
-                disc_2d=disc_host, factors_nbins=fnb, classes_y=y_i64, classes_y_safe=csafe, freqs_y=fy,
-                npermutations=int(npermutations), base_seed=np.uint64(0),
-                min_nonzero_confidence=float(min_nonzero_confidence), use_su=bool(use_su),
-                dtype=np.int32, force_backend=_fb,
-            )
-            if out is not None:
-                break
+        # Reached when use_su=True (the resident kernel's excluded case, eager D2H below) or when the
+        # resident attempt above failed/was skipped.
+        if out is None:
+            disc_host = _ensure_disc_host(_disc_host_cache, disc_dev)
+            for _fb in ("cupy", "cuda"):
+                out = dispatch_batch_mi_with_noise_gate_gpu(
+                    disc_2d=disc_host, factors_nbins=fnb, classes_y=y_i64, classes_y_safe=csafe, freqs_y=fy,
+                    npermutations=int(npermutations), base_seed=np.uint64(0),
+                    min_nonzero_confidence=float(min_nonzero_confidence), use_su=bool(use_su),
+                    dtype=np.int32, force_backend=_fb,
+                )
+                if out is not None:
+                    break
         if out is None:  # GPU noise-gate unavailable -> the always-correct CPU kernel on the same disc
             from .info_theory import batch_mi_with_noise_gate as _cpu_gate
+            disc_host = _ensure_disc_host(_disc_host_cache, disc_dev)
             fe_mi = _cpu_gate(
                 disc_2d=disc_host, factors_nbins=fnb, classes_y=y_i64, classes_y_safe=csafe, freqs_y=fy,
                 npermutations=int(npermutations), base_seed=np.uint64(0),

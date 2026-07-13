@@ -169,6 +169,8 @@ def detect_hinge_breakpoints_gpu(
     try:
         import cupy as cp
 
+        from ._fe_resident_operands import resident_operand
+
         x = np.asarray(x, dtype=np.float64).ravel()
         y = np.asarray(y, dtype=np.float64).ravel()
         n = x.size
@@ -197,8 +199,15 @@ def detect_hinge_breakpoints_gpu(
                 y = y[::_st]
                 n = int(x.size)
 
-        xg = cp.asarray(x)
-        yg = cp.asarray(y)
+        xg = cp.asarray(x)  # candidate column -- a fresh column every call, never cacheable
+        # y is fit-constant across every no-NaN candidate column of this fit (same target, same
+        # deterministic subsample stride at a given n) -- route through the content-keyed resident cache
+        # so repeated calls share ONE upload instead of re-uploading the same (n,) float64 target per
+        # column. A column WITH NaNs takes the finite-mask filter above, which can legitimately produce a
+        # DIFFERENT filtered y per column (the mask depends on that column's own NaN pattern) -- content
+        # hashing handles this correctly: a genuinely different y just misses the cache (a fresh upload,
+        # never a wrong reuse), it never merges non-identical content.
+        yg = resident_operand(y, "hinge_y", dtype=np.float64)
 
         # PLAUSIBILITY PRE-CHECK (device): plain-linear SSE via the same FWL machinery with B=[1, x]; the
         # 3 coarse cuts' 2-segment SSE from one batched evaluation. Same decision as the host pre-check

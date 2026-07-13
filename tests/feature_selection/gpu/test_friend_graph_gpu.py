@@ -97,6 +97,57 @@ def test_cuda_stats_bit_identical_to_cpu(n, k, seed):
         assert gpu.edge_mi[e] == cpu.edge_mi[e], f"edge {e} MI differs"
 
 
+@pytest.mark.gpu
+@pytest.mark.skipif(not (_CUDA_AVAIL and _CUPY_AVAIL), reason="needs both numba.cuda and cupy")
+def test_cuda_backend_does_not_reupload_sub_for_node_codes(monkeypatch):
+    """RESIDENT UPLOAD (2026-07-13): ``d_node_codes`` (the int64 widening of ``d_sub``) must be produced by
+    an ON-DEVICE cast (mirrors ``friend_graph_stats_cupy``'s ``d_sub.astype(cp.int64)``), not a second
+    ``to_device`` upload of the SAME ``sub`` content from host within one call."""
+    import mlframe.feature_selection.filters.friend_graph_gpu as fgg
+
+    sel, data, nbins, tgt = _synthetic_selected_set(n=3000, k=15, seed=13)
+    sub_expected = np.ascontiguousarray(data[:, np.asarray(sel, dtype=np.int64)], dtype=np.int32)
+
+    calls = {"n": 0}
+    orig_to_device = fgg._nb_cuda.to_device
+
+    def spy(arr, *a, **kw):
+        if isinstance(arr, np.ndarray) and arr.shape == sub_expected.shape and np.array_equal(
+            np.asarray(arr, dtype=np.int64), sub_expected.astype(np.int64),
+        ):
+            calls["n"] += 1
+        return orig_to_device(arr, *a, **kw)
+
+    monkeypatch.setattr(fgg._nb_cuda, "to_device", spy)
+    fgg.friend_graph_stats_cuda(sel, data, nbins, tgt, np.int32)
+
+    assert calls["n"] == 1, (
+        f"sub-content uploaded via to_device {calls['n']}x (expected 1 -- d_node_codes must be an "
+        f"on-device cast of d_sub, not a second host upload of the same content)"
+    )
+
+
+@pytest.mark.gpu
+@pytest.mark.skipif(not (_CUDA_AVAIL and _CUPY_AVAIL), reason="needs both numba.cuda and cupy")
+def test_cuda_node_codes_ondevice_cast_matches_forced_reupload_fallback(monkeypatch):
+    """Bit-identity: the on-device-cast fast path must match the pre-fix double-upload fallback (forced by
+    monkeypatching ``_CUPY_AVAIL`` off, which routes ``d_node_codes`` back through a second ``to_device``
+    upload of ``sub``, cast to int64 host-side -- exactly the pre-fix code path)."""
+    import mlframe.feature_selection.filters.friend_graph_gpu as fgg
+
+    sel, data, nbins, tgt = _synthetic_selected_set(n=3000, k=15, seed=17)
+
+    gpu_fast = fgg.friend_graph_stats_cuda(sel, data, nbins, tgt, np.int32)
+
+    monkeypatch.setattr(fgg, "_CUPY_AVAIL", False)
+    gpu_fallback = fgg.friend_graph_stats_cuda(sel, data, nbins, tgt, np.int32)
+
+    for i in sel:
+        assert gpu_fast.H[i] == gpu_fallback.H[i], f"node {i} entropy differs between on-device-cast and re-upload fallback"
+        assert gpu_fast.rel[i] == gpu_fallback.rel[i], f"node {i} relevance differs between on-device-cast and re-upload fallback"
+    assert gpu_fast.edge_mi == gpu_fallback.edge_mi
+
+
 # ---------------------------------------------------------------------------
 # build_friend_graph-level parity (nodes / edges / classification / prune)
 # ---------------------------------------------------------------------------
@@ -185,9 +236,15 @@ def test_multi_target_relevance_falls_back_to_cpu():
     leave ``rel=None`` (caller computes relevance on CPU) while H + edges stay GPU +
     bit-identical."""
     sel, data, nbins, tgt = _synthetic_selected_set(n=3000, k=12, seed=8)
-    # Use two target columns (append a second).
-    data2 = np.column_stack([data, (data[:, 0] ^ 1).astype(np.int32)])
-    nbins2 = np.append(nbins, 2)
+    # Use two target columns (append a second). XOR-1 only flips bit 0, so the derived
+    # column's value range matches the source column's, NOT a hardcoded 2 -- declaring it
+    # as binary when the source has >2 classes understates its true cardinality to the
+    # joint-entropy njit kernel, which trusts nbins as an upper bound and writes its
+    # histogram out of bounds (silent heap corruption, no bounds-checking in @njit) when
+    # violated. Derive the declared bin count from the actual data instead of assuming.
+    second_col = (data[:, 0] ^ 1).astype(np.int32)
+    data2 = np.column_stack([data, second_col])
+    nbins2 = np.append(nbins, int(second_col.max()) + 1)
     tgt2 = np.array([data.shape[1] - 1, data2.shape[1] - 1], dtype=np.int64)
     backend = "cupy" if _CUPY_AVAIL else "cuda"
     fn = friend_graph_stats_cupy if _CUPY_AVAIL else friend_graph_stats_cuda

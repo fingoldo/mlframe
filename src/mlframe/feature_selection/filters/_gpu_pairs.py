@@ -114,18 +114,27 @@ def mi_direct_gpu_batched_pairs(
             f"max_combined_nbins or run on CPU."
         )
 
-    # Transposed factors_data for coalesced reads
+    # RESIDENT UPLOAD (2026-07-13): this function is invoked ONCE per fit (the cat-FE step runs it once
+    # before the screening loop -- see ``_fit_impl_core.py``'s "Runs once before the screening loop"
+    # comment at its call site), so ``resident_operand``'s cross-call dedup has no repeat-call win to claim
+    # for the CURRENT callers; applied anyway (cheap + correct via content-hash, never a perf regression)
+    # in case a future/other caller invokes this more than once per fit. ``classes_y``/``nbins_a``/
+    # ``joint_offsets`` are genuinely fit-constant-shaped operands; ``factors_data_T`` is rebuilt fresh
+    # from ``factors_data.T`` every call (a transient transpose, not a stored fit-constant), so its content
+    # generally differs call-to-call and the resident cache will practically never hit for it in this
+    # single-call-per-fit codepath -- kept for correctness/consistency, not for a measured win.
+    from ._fe_resident_operands import resident_operand
     factors_data_T = np.ascontiguousarray(factors_data.T.astype(np.int32))
-    factors_data_T_gpu = cp.asarray(factors_data_T)
-    classes_y_gpu = cp.asarray(np.asarray(classes_y).astype(np.int32))
+    factors_data_T_gpu = resident_operand(factors_data_T, "pairs_factors_data_T", dtype=np.int32)
+    classes_y_gpu = resident_operand(np.asarray(classes_y), "pairs_classes_y", dtype=np.int32)
     pairs_a_gpu = cp.asarray(pairs_a.astype(np.int32))
     pairs_b_gpu = cp.asarray(pairs_b.astype(np.int32))
-    nbins_a_gpu = cp.asarray(nbins_a)
+    nbins_a_gpu = resident_operand(nbins_a, "pairs_nbins_a", dtype=np.int32)
     # Host-side joint_offsets is int64 (overflow-safe cumsum); the kernel
     # signature ``const int *joint_offsets`` (int32) is preserved by
     # narrowing here -- safe because the earlier 4 GB total_cells guard
     # enforces ``total_cells < 2**30 < 2**31``, which fits int32 exactly.
-    joint_offsets_gpu = cp.asarray(joint_offsets.astype(np.int32))
+    joint_offsets_gpu = resident_operand(joint_offsets, "pairs_joint_offsets", dtype=np.int32)
     joint_counts_flat = cp.zeros(total_cells, dtype=cp.int32)
 
     # block_size via per-host kernel_tuning_cache (cache miss -> hand-tuned

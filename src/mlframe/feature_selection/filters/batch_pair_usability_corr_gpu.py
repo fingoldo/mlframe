@@ -270,8 +270,16 @@ def batch_pair_usability_corr_cuda(y: np.ndarray, operand_matrix: np.ndarray, pa
     if _CUDA_KERNEL is None:
         raise RuntimeError("CUDA is not available for batch_pair_usability_corr_cuda")
 
-    y_d = _nb_cuda.to_device(np.ascontiguousarray(y, dtype=np.float64))
-    operand_d = _nb_cuda.to_device(np.ascontiguousarray(operand_matrix, dtype=np.float64))
+    # y / operand_matrix are the fit-constant target + raw-operand block shared by every (pair, form_ids)
+    # dispatch within one FE round (e.g. batch_pair_tail_concentration_rankaware's two back-to-back
+    # dispatcher calls, pair-form then single-form, on the SAME operand_matrix). resident_operand's content-
+    # hash cache uploads them ONCE and hands back the cached cupy device array on every repeat call with the
+    # same bytes -- a cupy device array is a valid direct argument to a numba.cuda.jit kernel launch mixed
+    # with numba.cuda.to_device-produced arrays (verified on this host), so no new infra is needed here.
+    # pair_a/pair_b/form_ids genuinely vary per call and stay raw uploads.
+    from ._fe_resident_operands import resident_operand
+    y_d = resident_operand(y, "batch_pair_usability_corr_y", dtype=np.float64)
+    operand_d = resident_operand(operand_matrix, "batch_pair_usability_corr_operand", dtype=np.float64)
     pair_a_d = _nb_cuda.to_device(np.ascontiguousarray(pair_a, dtype=np.int64))
     pair_b_d = _nb_cuda.to_device(np.ascontiguousarray(pair_b, dtype=np.int64))
     form_ids_d = _nb_cuda.to_device(np.ascontiguousarray(form_ids, dtype=np.int64))

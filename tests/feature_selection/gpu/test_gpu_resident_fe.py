@@ -236,10 +236,23 @@ def test_grand_fused_pair_mi_bit_identical_to_cpu():
 
 
 def test_grand_fusion_fused_bit_identical_to_nonfused():
-    """GRAND FUSION (never materialise (n,K)): the fully-fused histogram path must produce the EXACT same
+    """GRAND FUSION (never materialise (n,K)): the fully-fused histogram path must produce the SAME
     noise-gated MI as the non-fused grand_fused_pair_mi (same percentile edges -> same codes -> same
-    counts -> bit-identical MI), so the FE selection is preserved while the (n,K) float/codes/disc/d_base
-    are eliminated. maxdiff 0 + argmax match is the acceptance bar."""
+    counts), so the FE selection is preserved while the (n,K) float/codes/disc/d_base are eliminated.
+
+    TOLERANCE (2026-07-13): the non-fused leg's ``use_su=False`` noise-gate now calls
+    ``batch_mi_with_noise_gate_cuda_resident`` directly with the discretized codes kept GPU-resident
+    (``d_disc_resident=``) instead of a D2H-then-H2D round trip through ``dispatch_batch_mi_with_noise_
+    gate_gpu`` -- see ``grand_fused_pair_mi``. That resident kernel reduces the MI entropy ON the device
+    (its own docstring: "GPU MI reproduces the CPU reduction order to fp round-off"), whereas the fused
+    kernel here still reduces via the CPU-bit-exact ``_mi_from_counts_cpu``/``_gate_from_mi`` -- so the two
+    no longer share the identical reduction order. Measured maxdiff 2.22e-16 (1 ULP) at n=40k/nbins=20/
+    nperm=25, seed=1 -- confirmed to be this FP-reduction-order difference, NOT a counts/selection
+    regression: with ``use_su=True`` (which the resident kernel does not support, so it still takes the
+    old CPU-bit-exact route unchanged) maxdiff is 0.0 exactly. This mirrors the project's documented FE/
+    MRMR exception (selection-equivalence, not bit-identical MI, is the bar for GPU-resident entropy
+    reduction -- see e.g. ``_pairs_dispatch.py``'s resident gate, verified maxdiff ~1e-18 there). Argmax
+    match is still required (selection-bearing)."""
     pytest.importorskip("cupy")
     from mlframe.feature_selection.filters._gpu_resident_fe import (
         grand_fused_pair_mi, grand_fused_pair_mi_fused,
@@ -264,8 +277,66 @@ def test_grand_fusion_fused_bit_identical_to_nonfused():
             _os.environ["MLFRAME_FE_GPU_GRAND_FUSION"] = prev
     _, fused = grand_fused_pair_mi_fused(a, b, yc, yc, fy, nbins=20, npermutations=25)
 
-    assert np.array_equal(fused, nonfused) or float(np.max(np.abs(fused - nonfused))) == 0.0
+    np.testing.assert_allclose(fused, nonfused, rtol=1e-9, atol=1e-12)
     assert int(np.argmax(fused)) == int(np.argmax(nonfused))
+
+
+def test_grand_fused_pair_mi_resident_gate_skips_d2h_then_h2d_round_trip():
+    """The non-fused fallback's ``use_su=False`` noise-gate must feed the resident (n, K) int8 disc codes
+    straight into ``batch_mi_with_noise_gate_cuda_resident`` via ``d_disc_resident=`` -- so the codes never
+    round-trip GPU -> host (``cp.asnumpy``) -> GPU (a re-upload the plain dispatcher's ``force_backend``
+    path used to pay). ``use_su=True`` is the documented exception (the resident kernel does not support
+    it, per its own docstring): it still D2Hs the codes eagerly through the unchanged fallback path. Counts
+    ``cp.asnumpy`` calls on int8 arrays (the disc codes' narrow dtype) to prove the round trip is gone for
+    ``use_su=False`` and unchanged (>=1) for ``use_su=True``."""
+    pytest.importorskip("cupy")
+    import cupy as cp
+
+    from mlframe.feature_selection.filters._gpu_resident_fe import grand_fused_pair_mi
+    from mlframe.feature_selection.filters.batch_mi_noise_gate_gpu import _CUDA_AVAIL
+
+    if not _CUDA_AVAIL:
+        pytest.skip("numba.cuda not available on this host -- the resident kernel requires it")
+
+    rng = np.random.default_rng(7)
+    n = 6_000
+    a = rng.uniform(1, 5, n); b = rng.uniform(1, 5, n); y = a**2 / b
+    e = np.quantile(y, np.linspace(0, 1, 21)[1:-1]); yc = np.searchsorted(e, y).astype(np.int64)
+    fy = np.bincount(yc, minlength=int(yc.max()) + 1).astype(np.float64) / n
+
+    import os as _os
+    prev = _os.environ.get("MLFRAME_FE_GPU_GRAND_FUSION")
+    _os.environ["MLFRAME_FE_GPU_GRAND_FUSION"] = "0"  # force the non-fused leg under test
+
+    orig_asnumpy = cp.asnumpy
+    int8_calls = {"n": 0}
+
+    def _counting_asnumpy(arr, *a_, **kw):
+        if getattr(arr, "dtype", None) == cp.int8:
+            int8_calls["n"] += 1
+        return orig_asnumpy(arr, *a_, **kw)
+
+    cp.asnumpy = _counting_asnumpy
+    try:
+        int8_calls["n"] = 0
+        grand_fused_pair_mi(a, b, yc, yc, fy, nbins=20, npermutations=25, use_su=False)
+        calls_su_false = int8_calls["n"]
+
+        int8_calls["n"] = 0
+        grand_fused_pair_mi(a, b, yc, yc, fy, nbins=20, npermutations=25, use_su=True)
+        calls_su_true = int8_calls["n"]
+    finally:
+        cp.asnumpy = orig_asnumpy
+        if prev is None:
+            _os.environ.pop("MLFRAME_FE_GPU_GRAND_FUSION", None)
+        else:
+            _os.environ["MLFRAME_FE_GPU_GRAND_FUSION"] = prev
+
+    assert calls_su_false == 0, (
+        f"use_su=False resident noise-gate should skip the codes D2H entirely; "
+        f"got {calls_su_false} int8 cp.asnumpy call(s)"
+    )
+    assert calls_su_true >= 1, "use_su=True (unsupported by the resident kernel) should still D2H the codes"
 
 
 def test_grand_fusion_falls_back_when_shared_hist_too_big():

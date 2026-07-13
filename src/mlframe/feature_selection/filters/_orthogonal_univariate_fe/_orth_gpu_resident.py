@@ -180,7 +180,24 @@ def _gpu_build_and_score_univariate(X, cols, degrees, basis, y, nbins):
     if _Mr is not None:
         M = _Mr if used_idx == list(range(_Mr.shape[1])) else _Mr[:, used_idx]
     else:
-        M = cp.asarray(np.ascontiguousarray(np.column_stack(used_x), dtype=np.float64))
+        # NOTE (wave-10 audit): ``used_idx`` indexes into ``cand_x``/``cand_cols`` (the host-skip-filtered
+        # candidate set), NOT into ``raw_mat``'s ``raw_cols`` ordering -- ``cand_cols`` drops non-finite /
+        # int-as-cat columns that ``raw_cols`` does not, so the two lists can diverge and a literal
+        # ``raw_mat[:, used_idx]`` reuse would silently pick the WRONG columns whenever any column was
+        # dropped. What IS always true is that every ``used_src[j]`` name is the SAME raw column
+        # ``X[used_src[j]]`` verbatim that ``raw_mat`` (when built) sources from -- so instead of an
+        # index-based reuse, assemble THIS matrix from its own per-column resident operands keyed by NAME
+        # (``used_src``), at the SAME dtype (float64) ``_Mr`` uses for its own per-column uploads (matching
+        # the ``_Mr is not None`` branch above so both take the same downstream dtype). ``raw_mat``'s OWN
+        # per-column uploads are at ``_rm_dt`` (``_crit_np_dtype()``, float32 by DEFAULT under
+        # ``MLFRAME_CRIT_DTYPE_RELAXED``, float64 only when that is disabled) -- so this content-hits
+        # ``raw_mat``'s cached columns whenever ``_rm_dt`` happens to be float64 (the non-default strict
+        # mode), and ALWAYS content-hits ``_Mr``'s cached columns (same float64 dtype) or ANY other
+        # same-fit caller later requesting the same column at float64 -- without ever re-uploading the
+        # whole (n, n_used) matrix as one un-deduped blob (the prior behaviour here).
+        M = assemble_resident_matrix(
+            np.column_stack(used_x), used_src, ("orth_used_M", tuple(used_src)), dtype=np.float64,
+        )
     eng_mat, meta = _gpu_evaluate_basis_matrix(cp, M, used_bases, list(degrees), robust_axis=ra)
     if eng_mat is None:
         return None, [], _empty

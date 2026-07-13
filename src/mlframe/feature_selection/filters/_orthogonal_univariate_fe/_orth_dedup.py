@@ -150,8 +150,19 @@ def _pc_corr_cupy(Q: np.ndarray, R: np.ndarray) -> np.ndarray:
     worker GPU contention, so it is not the auto-default. OOM / no-cupy -> the dispatcher falls back to numpy."""
     import cupy as cp
 
-    Qd = cp.asarray(Q)
-    Rd = cp.asarray(R)
+    # Q/R (the partial-NaN candidate block and its dense/partial comparison block) can recur with IDENTICAL
+    # content across the <=6 _dedup_collinear_source_cols calls/fit (independent FE families -- orth/
+    # extra-basis/gpu-resident/wavelet/hinge -- each deduping their own candidate columns against the SAME
+    # underlying source frame): resident-cache the upload so a repeat-content call hits instead of re-
+    # uploading. When Q/R genuinely differ per call (the common case, since each family's candidate set
+    # differs), this is a plain cache miss -> a fresh upload, identical cost to the old raw cp.asarray -- so
+    # the fix is correctness-neutral either way, only a possible win when content does recur. No ``dtype=``
+    # override: Q/R keep their CALLER dtype (f32 under MLFRAME_CRIT_DTYPE_RELAXED), matching the original
+    # ``cp.asarray(Q)``'s native-dtype passthrough exactly (unlike the njit backend, which explicitly
+    # upcasts to f64) -- forcing float64 here would change the matmul precision, not just cache it.
+    from .._fe_resident_operands import resident_operand
+    Qd = resident_operand(Q, "orth_dedup_Q")
+    Rd = resident_operand(R, "orth_dedup_R")
     Qm = cp.isfinite(Qd)
     Rm = cp.isfinite(Rd)
     Q0 = cp.where(Qm, Qd, 0.0)

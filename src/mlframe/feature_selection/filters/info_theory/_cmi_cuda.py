@@ -379,8 +379,114 @@ def clear_cmi_resident_cache() -> None:
     _CMI_RESIDENT_CACHE.clear()
 
 
+# --------------------------------------------------------------------------------------------------------------------
+# XC RESIDENT MATRIX (2026-07-12): ``factors_data`` (ALL candidate columns) is a fit-CONSTANT across the whole
+# greedy CMI loop -- same object for every round -- yet the dispatch below re-sliced the round's candidate subset
+# via ``factors_data[:, cand_indices].T`` on the HOST every round and handed the fresh host array to
+# ``conditional_mi_batched_cuda``, which then re-uploaded it via ``cp.asarray`` -- a host slice-copy PLUS an H2D
+# transfer, repeated every round, of the single LARGEST operand any GPU kernel in this package touches (bigger
+# than y/z by a factor of p, the audit's biggest-magnitude finding: tens of GB of redundant PCIe traffic over a
+# 100k x 500 fit). y/z already got the resident treatment above (FIX3) for exactly this reason; Xc did not,
+# because it is genuinely PER-CANDIDATE -- but every round's candidates are always a SUBSET of the SAME
+# fit-constant ``factors_data``, so the fix is to upload ``factors_data`` itself ONCE (keyed on its identity,
+# mirroring ``_cmi_forder_view``'s weakref-identity guard a few dozen lines above) and GATHER the round's
+# candidate columns ON-DEVICE (cupy fancy-indexing + transpose) -- the host never sees the big matrix again
+# after the first round. Selection-equivalent by construction: the gathered device values are byte-identical to
+# the old host-sliced-then-uploaded ones (same source array, same column selection, same dtype cast).
+# OrderedDict (not plain dict) for O(1) LRU: bounded at a handful of entries (each a FULL factors_data
+# copy, potentially ~100s of MB of VRAM) so a long-lived process running many fits/CV-folds never grows
+# this cache unboundedly -- move-to-end on hit, evict only the single coldest entry on overflow (mirrors
+# ``_fe_resident_operands.py``'s ``_FE_RESIDENT_OPERANDS`` LRU discipline for the exact same VRAM-safety
+# reason). 4 is enough to keep 2-3 concurrently-alive folds/fits resident without ever approaching a 4 GB
+# card's budget (at ~200 MB/entry that is <=800 MB worst case, comfortable alongside the other resident
+# caches + working buffers documented in ``_fe_resident_operands.py``).
+from collections import OrderedDict as _OrderedDict
+
+_FACTORS_DEVICE_CACHE: "_OrderedDict" = _OrderedDict()
+_FACTORS_DEVICE_MAX_ENTRIES = 4
+_FACTORS_DEVICE_LOCK = threading.Lock()
+
+
+def _xc_resident_enabled() -> bool:
+    """Diagnostic A/B switch only (default ON): MLFRAME_CMI_XC_RESIDENT=0 forces a fresh host slice + upload of
+    the candidate matrix every call, reproducing the pre-fix H2D/host-slice churn for the wall A/B."""
+    return _os_thr.environ.get("MLFRAME_CMI_XC_RESIDENT", "1").strip().lower() not in ("0", "false", "off", "no")
+
+
+def _assert_codes_in_range_2d_per_column(host2d: np.ndarray, factors_nbins: np.ndarray) -> None:
+    """One-time, WHOLE-matrix OOB guard: every column's codes must lie in ``[0, factors_nbins[col])``.
+
+    Strictly a SUPERSET of the per-round candidate-subset check the old code ran every round (that check
+    only validated the round's own ``cand_indices`` against the round's ``nbins_x = max(factors_nbins[cand])``
+    upper bound); checking every column against its OWN nbins entry is at least as strict, so it can only catch
+    an invalid code EARLIER, never later. Run ONCE per ``factors_data`` identity (see
+    ``_resident_factors_device``) instead of every greedy round -- cheaper in total than the old per-round
+    re-scan (which repeats across dozens of rounds over overlapping candidate sets) while never weakening the
+    safety net the OOB screen exists for (a code indexing outside the device histogram is a hard
+    ``cudaErrorIllegalAddress`` crash, not a catchable Python error).
+    """
+    if host2d.size == 0:
+        return
+    bins = np.asarray(factors_nbins)
+    col_min = host2d.min(axis=0)
+    col_max = host2d.max(axis=0)
+    if bool((col_min < 0).any()):
+        j = int(np.argmax(col_min < 0))
+        raise ValueError(f"factors_data column {j} contains a negative integer code (min={int(col_min[j])}); codes must be 0-based.")
+    bad = col_max >= bins
+    if bool(bad.any()):
+        j = int(np.argmax(bad))
+        raise ValueError(f"factors_data column {j} code out of range (max={int(col_max[j])} >= nbins={int(bins[j])}).")
+
+
+def _resident_factors_device(factors_data: np.ndarray, factors_nbins: np.ndarray) -> Any:
+    """Return the WHOLE ``factors_data`` matrix resident on-device as int32, uploaded ONCE per fit.
+
+    Keyed on ``id(factors_data)`` with a weakref identity guard -- mirrors ``_cmi_forder_view`` a few dozen
+    lines above (the SAME object, already trusted with an id-only guard in this exact file): a recycled id
+    (allocator reuse after the original ``factors_data`` is GC'd) fails the ``ref() is factors_data`` check and
+    re-uploads, never returning a stale buffer. The one-time OOB guard (see
+    ``_assert_codes_in_range_2d_per_column``) runs on every fresh upload (cache miss OR the disabled A/B path),
+    so every device array this function returns has already been fully validated -- callers may pass
+    ``codes_trusted=True`` downstream.
+    """
+    import weakref
+
+    import cupy as cp
+
+    if not _xc_resident_enabled():
+        host = np.ascontiguousarray(factors_data, dtype=np.int32)
+        _assert_codes_in_range_2d_per_column(host, factors_nbins)
+        return cp.asarray(host)
+
+    # Cache-hit fast path never touches the host array at all (no ascontiguousarray/dtype check on the
+    # hot loop) -- the identity key alone decides the hit, matching the "gather on-device, never re-touch
+    # the host" goal this cache exists for.
+    key = id(factors_data)
+    with _FACTORS_DEVICE_LOCK:
+        ent = _FACTORS_DEVICE_CACHE.get(key)
+        if ent is not None and ent[0]() is factors_data:
+            _FACTORS_DEVICE_CACHE.move_to_end(key)  # LRU: this factors_data is hot
+            return ent[1]
+        dead = [k for k, v in _FACTORS_DEVICE_CACHE.items() if v[0]() is None]
+        for k in dead:
+            del _FACTORS_DEVICE_CACHE[k]
+        host = np.ascontiguousarray(factors_data, dtype=np.int32)
+        _assert_codes_in_range_2d_per_column(host, factors_nbins)
+        dev = cp.asarray(host)
+        _FACTORS_DEVICE_CACHE[key] = (weakref.ref(factors_data), dev)
+        if len(_FACTORS_DEVICE_CACHE) > _FACTORS_DEVICE_MAX_ENTRIES:
+            _FACTORS_DEVICE_CACHE.popitem(last=False)  # evict ONLY the coldest entry, never the whole table
+        return dev
+
+
+def clear_cmi_xc_resident_cache() -> None:
+    """Drop the resident whole-factors_data device cache (call at FE-step teardown alongside the y/z cache)."""
+    _FACTORS_DEVICE_CACHE.clear()
+
+
 def conditional_mi_batched_cuda(
-    Xc: np.ndarray,
+    Xc: Optional[np.ndarray],
     y: np.ndarray,
     z: np.ndarray,
     nbins_x: int,
@@ -389,25 +495,36 @@ def conditional_mi_batched_cuda(
     block_size: int = 256,
     y_g: Any = None,
     z_g: Any = None,
+    Xc_g: Any = None,
+    codes_trusted: bool = False,
 ) -> np.ndarray:
     """Compute ``I(X_j; Y | Z)`` for all ``p`` candidate columns in one launch -> (p,) float64.
 
     Parameters
     ----------
-    Xc : (p, n) int32 -- candidate codes, one row per candidate (0..nbins_x-1).
+    Xc : (p, n) int32 -- candidate codes, one row per candidate (0..nbins_x-1). May be ``None`` when
+        ``Xc_g`` (an already-uploaded, already-validated device array) is supplied instead -- the
+        resident-gather dispatch path below does exactly this so the host never rebuilds the big matrix.
     y, z : (n,) int32 -- target / conditioning codes.
     nbins_x, nbins_y, nbins_z : per-variable cardinalities (max code + 1 is fine; empty bins cost
         only shared-mem, not correctness).
     block_size : threads per block (one block per candidate).
+    Xc_g : pre-uploaded, pre-gathered (p, n) int32 device array (skips the host ``Xc`` -> ``cp.asarray``
+        round-trip entirely when supplied).
+    codes_trusted : when True, skips the OOB guard on ``Xc``/``Xc_g`` (the caller has already validated the
+        WHOLE parent matrix once via ``_resident_factors_device`` -- see that function's docstring).
 
     Returns RAW CMI clamped at 0, mirroring the CPU ``conditional_mi``.
     """
     import cupy as cp
 
-    Xc = np.ascontiguousarray(Xc, dtype=np.int32)
     y = np.ascontiguousarray(y, dtype=np.int32)
     z = np.ascontiguousarray(z, dtype=np.int32)
-    p, n = Xc.shape
+    if Xc_g is None:
+        Xc = np.ascontiguousarray(Xc, dtype=np.int32)
+        p, n = Xc.shape
+    else:
+        p, n = int(Xc_g.shape[0]), int(Xc_g.shape[1])
     joint_size = int(nbins_x) * int(nbins_y) * int(nbins_z)
 
     # OOB SCREEN (FIX2, 2026-06-28): the joint-hist kernel uses raw codes DIRECTLY as a flat shared-mem
@@ -415,19 +532,22 @@ def conditional_mi_batched_cuda(
     # sentinel or a code >= its nbins indexes OUTSIDE the histogram -> cudaErrorIllegalAddress (a hard,
     # unrecoverable GPU crash, NOT a Python error). Mirror the host min/max screen batch_pair_mi_cuda
     # already does so an upstream OOB surfaces as a clear ValueError instead. Cheap: one min+max per
-    # array on the host inputs (already materialized as numpy above).
+    # array on the host inputs (already materialized as numpy above). Skipped when ``codes_trusted`` (the
+    # resident dispatch path already ran the equivalent, strictly-superset check once for the whole matrix).
     from .._fe_batched_mi import _assert_codes_in_range
-    _assert_codes_in_range(Xc, int(nbins_x), "conditional_mi_batched_cuda X codes")
+    if not codes_trusted:
+        _assert_codes_in_range(Xc if Xc_g is None else Xc_g, int(nbins_x), "conditional_mi_batched_cuda X codes")
     _assert_codes_in_range(y, int(nbins_y), "conditional_mi_batched_cuda y codes")
     _assert_codes_in_range(z, int(nbins_z), "conditional_mi_batched_cuda z codes")
 
     kern = _get_kernel()
 
-    Xc_g = cp.asarray(Xc)
-    # FIX3: y and z are fit-constants across the greedy CMI loop -> the dispatch passes their cached device
-    # uploads (keyed on factors_data identity + column index) so they are NOT re-uploaded per candidate
+    # FIX3/XC-RESIDENT: y, z, and now Xc are fit-constants (Xc a SUBSET-gather of the fit-constant
+    # factors_data) -> the dispatch passes their cached device uploads so none are re-uploaded per candidate
     # batch (kills the per-call H2D churn). When called directly (tests/benches) they arrive None -> upload
-    # once here. Xc IS per-candidate -> uploaded fresh every call. Same values -> selection-equivalent.
+    # once here (the old behaviour, preserved for direct callers).
+    if Xc_g is None:
+        Xc_g = cp.asarray(Xc)
     if y_g is None:
         y_g = cp.asarray(y)
     if z_g is None:
@@ -758,17 +878,20 @@ def conditional_mi_batched_dispatch(
         use_cuda = False
 
     if use_cuda:
-        Xc = np.ascontiguousarray(factors_data[:, cand_indices].T, dtype=np.int32)
         y = np.ascontiguousarray(factors_data[:, y_index], dtype=np.int32)
         z = np.ascontiguousarray(factors_data[:, z_index], dtype=np.int32)
         # OOB SCREEN (FIX2, 2026-06-28): screen HERE, BEFORE the GPU try/except below, so a -1 /
         # out-of-range code (illegal-address) surfaces as a ValueError instead of being swallowed by
         # the device-fault fallback (which would silently mask a real bug -> CPU). Cheap host min/max.
+        # Xc's OOB check is now the ONE-TIME whole-matrix guard inside ``_resident_factors_device``
+        # (see XC RESIDENT MATRIX above) -- it is strictly a superset of the old per-round Xc-subset
+        # check, so it is not repeated here.
         from .._fe_batched_mi import _assert_codes_in_range
-        _assert_codes_in_range(Xc, int(nbins_x), "conditional_mi_batched_dispatch X codes")
         _assert_codes_in_range(y, int(nbins_y), "conditional_mi_batched_dispatch y codes")
         _assert_codes_in_range(z, int(nbins_z), "conditional_mi_batched_dispatch z codes")
         try:
+            import cupy as cp
+
             # FIX3: y/z are fit-constants across the greedy loop -> upload ONCE per (factors_data, column)
             # and reuse the device copy on every candidate batch, eliminating the per-call H2D churn (the
             # safe_cuda_api / .get() overhead measured on the CPU-strict path). Keyed on the stable parent
@@ -776,7 +899,15 @@ def conditional_mi_batched_dispatch(
             _fid = id(factors_data)
             y_g = _resident_upload(y, (_fid, "y", int(y_index), int(nbins_y)))
             z_g = _resident_upload(z, (_fid, "z", int(z_index), int(nbins_z)))
-            return conditional_mi_batched_cuda(Xc, y, z, nbins_x, nbins_y, nbins_z, y_g=y_g, z_g=z_g)
+            # XC RESIDENT: factors_data itself is uploaded ONCE per fit (id-keyed, weakref-guarded) and the
+            # round's candidate columns are GATHERED on-device (fancy-index + transpose) -- no host re-slice,
+            # no re-upload, of the single largest operand any GPU kernel here touches. codes_trusted=True
+            # because _resident_factors_device already ran the (strictly stronger) whole-matrix OOB guard.
+            factors_dev = _resident_factors_device(factors_data, factors_nbins)
+            Xc_g = cp.ascontiguousarray(factors_dev[:, cand_indices].T)
+            return conditional_mi_batched_cuda(
+                None, y, z, nbins_x, nbins_y, nbins_z, y_g=y_g, z_g=z_g, Xc_g=Xc_g, codes_trusted=True,
+            )
         except Exception as _exc:
             # Trip the process-level circuit breaker: a launch fault poisons the CUDA context, so every subsequent
             # GPU CMI would fault identically (the wellbore 1515-retry cascade). Route all further CMI to CPU.
@@ -792,4 +923,5 @@ __all__ = [
     "conditional_mi_batched_dispatch",
     "cupy_available",
     "clear_cmi_resident_cache",
+    "clear_cmi_xc_resident_cache",
 ]

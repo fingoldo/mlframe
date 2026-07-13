@@ -585,9 +585,12 @@ def batch_pair_mi_cuda_row_chunked(
     factors_data_c = np.ascontiguousarray(factors_data, dtype=np.int32)
     classes_y_c = np.ascontiguousarray(classes_y, dtype=np.int32)
     freqs_y_c = np.ascontiguousarray(freqs_y, dtype=np.float64)
-    # nbins is indexed by raw column id (not pair position) and is small -- upload once, reuse across
-    # every pair-subchunk, unlike pair_a/pair_b/the accumulator which are genuinely per-subchunk.
-    d_nb = _nb_cuda.to_device(np.ascontiguousarray(nbins, dtype=np.int32))
+    # nbins is indexed by raw column id (not pair position), small, and fit-constant (cardinalities never
+    # change) -- resident_operand (content-hash keyed) shares the upload not just across this call's
+    # pair-subchunks but across every OUTER call to this function within the same fit too, instead of a
+    # fresh to_device on every call (2026-07-12, was re-uploaded every outer call despite never changing).
+    from ._fe_resident_operands import resident_operand
+    d_nb = resident_operand(nbins, "bpmi_nbins", dtype=np.int32)
 
     mi_out = np.empty(n_pairs, dtype=np.float64)
     total_row_chunk_launches = 0
@@ -735,14 +738,24 @@ def batch_pair_mi_cuda(
 
     n_samples = int(factors_data.shape[0])
 
-    # Move inputs to device. ``ascontiguousarray`` guards against non-C-layout
-    # numpy arrays that the harness occasionally produces (e.g. .T views).
-    d_data = _nb_cuda.to_device(np.ascontiguousarray(factors_data, dtype=np.int32))
+    # RESIDENT UPLOAD (2026-07-12): ``factors_data``/``nbins``/``classes_y``/``freqs_y`` are all
+    # fit-constant across the whole greedy FE round (this kernel is reached once per pair-chunk of the
+    # SAME candidate pool, per ``dispatch_batch_pair_mi_chunked``), yet were re-uploaded via raw
+    # ``_nb_cuda.to_device`` on EVERY call -- ~200MB of ``factors_data`` alone at 100k x 500, the
+    # single highest-magnitude finding in the whole-file audit. ``resident_operand`` (this package's
+    # proven fit-constant GPU cache, already used by 28+ sibling files) content-hashes each array and
+    # returns a cached cupy device array on a repeat upload -- verified (see module docstring / CUDA
+    # Array Interface) that a cupy device array is a drop-in argument for a ``numba.cuda.jit`` kernel
+    # launch, so no separate numba.cuda-flavored cache is needed. ``pair_a``/``pair_b`` genuinely vary
+    # per call (the chunk's own pair ids) and stay a fresh per-call upload; ``d_out`` is a fresh output
+    # buffer every call (never cached). Bit-identical: same values, only the transfer is deduplicated.
+    from ._fe_resident_operands import resident_operand
+    d_data = resident_operand(factors_data, "bpmi_factors_data", dtype=np.int32)
+    d_nb = resident_operand(nbins, "bpmi_nbins", dtype=np.int32)
+    d_cy = resident_operand(classes_y, "bpmi_classes_y", dtype=np.int32)
+    d_fy = resident_operand(freqs_y, "bpmi_freqs_y", dtype=np.float64)
     d_pa = _nb_cuda.to_device(np.ascontiguousarray(pair_a, dtype=np.int64))
     d_pb = _nb_cuda.to_device(np.ascontiguousarray(pair_b, dtype=np.int64))
-    d_nb = _nb_cuda.to_device(np.ascontiguousarray(nbins, dtype=np.int32))
-    d_cy = _nb_cuda.to_device(np.ascontiguousarray(classes_y, dtype=np.int32))
-    d_fy = _nb_cuda.to_device(np.ascontiguousarray(freqs_y, dtype=np.float64))
     d_out = _nb_cuda.device_array(n_pairs, dtype=np.float64)
 
     _CUDA_KERNEL[n_pairs, threads_per_block](

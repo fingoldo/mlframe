@@ -334,6 +334,7 @@ def _cheap_mi_with_y(col: np.ndarray, y_codes: np.ndarray, nbins: int = 10) -> f
         if _os.environ.get("MLFRAME_FE_CHEAP_MI_GPU", "1").strip().lower() in ("1", "true", "on", "yes") and fe_gpu_strict_resident_enabled():
             import cupy as cp
             from ._resident_bincount import resident_bincount
+            from ._fe_resident_operands import resident_operand
             cvd = cp.asarray(cv)
             _n = int(cvd.size)
             # Sync-free interior percentile edges (manual sort + linear interp, no cp.quantile host read) and NO
@@ -349,7 +350,16 @@ def _cheap_mi_with_y(col: np.ndarray, y_codes: np.ndarray, nbins: int = 10) -> f
             _frac = _pos - _lo
             e_d = _xs[_lo] * (1.0 - _frac) + _xs[_hi] * _frac
             xc_d = cp.searchsorted(e_d, cvd, side="right").astype(cp.int64)
-            yc_d = cp.asarray(np.ascontiguousarray(y_codes, dtype=np.int64))
+            # y_codes is the SAME target re-used by every gcands candidate in this loop (fit-constant) AND
+            # by the downstream survivor-stage device gate (_binned_numeric_agg_resident.local_mi_gate_binagg_
+            # resident, role "y_mi_classif") -- route through the content-keyed resident cache under the SAME
+            # role string so a repeat/cross-call upload of identical y-code bytes shares one device buffer
+            # instead of re-uploading. Content-keyed, so this is safe even when the two sites' y-encodings
+            # differ (classification: both paths reduce to the same np.unique(..., return_inverse=True) codes
+            # and always dedupe; continuous y: this site's quantile_edges+searchsorted vs the resident gate's
+            # _quantile_bin can legitimately produce different edge/code bytes on tied/degenerate data, in
+            # which case this is simply a cache miss -- never a correctness issue).
+            yc_d = resident_operand(np.ascontiguousarray(y_codes), "y_mi_classif", dtype=np.int64)
             na = int(nbins)
             nb = int(yc_d.max()) + 1
             joint = resident_bincount(cp, xc_d * nb + yc_d, na * nb, dtype=cp.float64).reshape(na, nb)

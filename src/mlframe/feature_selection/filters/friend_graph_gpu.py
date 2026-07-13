@@ -445,7 +445,15 @@ def friend_graph_stats_cuda(
     # ---- Node marginals: codes == sub (va), per-column offsets by nbins.
     off_node = np.zeros(k + 1, dtype=np.int64)
     off_node[1:] = np.cumsum(nb_sel)
-    d_node_codes = _nb_cuda.to_device(np.ascontiguousarray(sub, dtype=np.int64))
+    # ``d_node_codes`` is just ``d_sub`` widened to int64 -- cast ON DEVICE (mirrors
+    # ``friend_graph_stats_cupy``'s ``d_sub.astype(cp.int64)``) instead of re-uploading ``sub`` from host a
+    # second time with the same content. ``numba.cuda.DeviceNDArray`` implements the CUDA Array Interface,
+    # so wrapping ``d_sub`` with ``cp.asarray`` is a zero-copy view (no H2D); the resulting cupy array is a
+    # verified drop-in argument for the ``numba.cuda.jit`` kernel launch below (see module wave notes).
+    if _CUPY_AVAIL:
+        d_node_codes = _cp.asarray(d_sub).astype(_cp.int64)
+    else:
+        d_node_codes = _nb_cuda.to_device(np.ascontiguousarray(sub, dtype=np.int64))
     node_counts = _launch_node(d_node_codes, off_node[:k], int(off_node[k]))
     H: dict = {}
     for i in range(k):

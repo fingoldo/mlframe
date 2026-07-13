@@ -16,6 +16,8 @@ from __future__ import annotations
 import logging
 import math
 import os
+import sys
+import threading
 import warnings
 from typing import Any, Optional, Union
 
@@ -878,6 +880,7 @@ def discretize_2d_array(
                 _bytes_needed = arr.nbytes * 2 + (arr.shape[0] * arr.shape[1] * np.dtype(dtype).itemsize)
                 _vram_ok = True
                 _free_gb = _total_gb = None
+                _free_b: Optional[int] = None
                 try:
                     import cupy as _cp_probe
                     _free_b, _total_b = _cp_probe.cuda.runtime.memGetInfo()
@@ -902,7 +905,15 @@ def discretize_2d_array(
                         f"{_total_gb:.2f}GB" if _total_gb is not None else "unknown",
                     )
                     try:
-                        result = discretize_2d_array_cuda_row_chunked(arr=arr, n_bins=n_bins, method=method, dtype=dtype)
+                        # Thread the ALREADY-PROBED free-VRAM value through (memGetInfo is a read-only counter
+                        # query -- no GPU state changes between the probe above and here) so the row-chunked
+                        # fallback's OWN internal memGetInfo call is skipped: this reject-path used to call it
+                        # 3x total (this probe, the cushion check's internal probe, and the row-chunked one)
+                        # for one decision. ``None`` (probe failed above) keeps the row-chunked function's own
+                        # self-probe unchanged.
+                        result = discretize_2d_array_cuda_row_chunked(
+                            arr=arr, n_bins=n_bins, method=method, dtype=dtype, free_bytes=_free_b,
+                        )
                         logger.info("discretize_2d_array: completed via row-chunked CUDA (GPU speed preserved, VRAM-safe)")
                         return result
                     except Exception as exc:
@@ -987,7 +998,10 @@ def discretize_2d_array_cuda(
     # a silent cross-backend divergence on the public API. (Verified: NaN routing already matches CPU.)
     dtype = _safe_code_dtype(n_bins, dtype)
     d_arr = cp.asarray(arr)  # H2D once for the whole frame
-    _out_cp_dtype = cp.int8 if dtype == np.int8 else cp.asarray(np.zeros(1, dtype=dtype)).dtype
+    # No throwaway GPU allocation just to read a dtype object -- ``np.dtype(dtype)`` produces the identical
+    # ``numpy.dtype`` instance cupy's own ``.dtype`` attribute would (cupy dtypes ARE numpy dtypes), so the
+    # 1-element ``cp.asarray``/upload this used to pay per call is pure overhead with no different result.
+    _out_cp_dtype = cp.int8 if dtype == np.int8 else np.dtype(dtype)
     out = cp.empty((n_rows, n_cols), dtype=_out_cp_dtype)
 
     if method == "quantile":
@@ -1003,7 +1017,8 @@ def discretize_2d_array_cuda(
             # Per-row col-wise: ravel bin_edges to (n_cols * (n_bins+1)) and do
             # one fused 2D searchsorted via a hand-rolled RawKernel. ~10x
             # speedup vs the per-col Python loop on n_cols=10k.
-            out = _discretize_quantile_rawkernel(d_arr, bin_edges, n_bins, _out_cp_dtype)
+            cuts = cp.ascontiguousarray(bin_edges[1:-1, :].T)  # (n_cols, n_bins-1)
+            out = _discretize_quantile_rawkernel(d_arr, cuts, n_bins, _out_cp_dtype)
         else:
             for j in range(n_cols):
                 out[:, j] = cp.searchsorted(bin_edges[1:-1, j], d_arr[:, j], side="right")
@@ -1056,6 +1071,7 @@ def discretize_2d_array_cuda_row_chunked(
     method: str = "quantile",
     dtype: type = np.int8,
     quantile_subsample_rows: Optional[int] = None,
+    free_bytes: Optional[int] = None,
 ) -> np.ndarray:
     """Row-chunked variant of :func:`discretize_2d_array_cuda` for when the FULL ``arr`` upload would not
     safely fit in free VRAM. Uploads ``arr`` in row-chunks small enough to fit; the two methods handle the
@@ -1078,6 +1094,13 @@ def discretize_2d_array_cuda_row_chunked(
       closeness/selection-equivalence validation.
 
     Returns a plain ``np.ndarray`` (D2H happens per row-chunk, not as one giant transfer at the end).
+
+    ``free_bytes``: an optional already-probed free-VRAM byte count (``cp.cuda.runtime.memGetInfo()``'s
+    first element). When the caller (``discretize_2d_array``'s CUDA-eligibility gate) already probed
+    free VRAM microseconds earlier for its own reject decision, passing it here skips this function's
+    own redundant ``memGetInfo`` call -- ``memGetInfo`` is a read-only device counter query with no
+    intervening GPU allocation between the two probes, so reusing the value changes no decision.
+    ``None`` (the default -- direct/standalone calls) keeps the self-probe unchanged.
     """
     import cupy as cp
 
@@ -1096,12 +1119,18 @@ def discretize_2d_array_cuda_row_chunked(
         return np.empty(arr.shape, dtype=dtype)
 
     dtype = _safe_code_dtype(n_bins, dtype)
-    _out_cp_dtype = cp.int8 if dtype == np.int8 else cp.asarray(np.zeros(1, dtype=dtype)).dtype
+    # No throwaway GPU allocation just to read a dtype object -- ``np.dtype(dtype)`` produces the identical
+    # ``numpy.dtype`` instance cupy's own ``.dtype`` attribute would (cupy dtypes ARE numpy dtypes), so the
+    # 1-element ``cp.asarray``/upload this used to pay per call is pure overhead with no different result.
+    _out_cp_dtype = cp.int8 if dtype == np.int8 else np.dtype(dtype)
 
-    try:
-        free_b, _total_b = cp.cuda.runtime.memGetInfo()
-    except Exception:
-        free_b = 512 * 1024 * 1024  # conservative fallback if the probe is unavailable
+    if free_bytes is not None:
+        free_b = int(free_bytes)
+    else:
+        try:
+            free_b, _total_b = cp.cuda.runtime.memGetInfo()
+        except Exception:
+            free_b = 512 * 1024 * 1024  # conservative fallback if the probe is unavailable
     row_chunk_rows = _choose_discretize_row_chunk_rows(n_cols, arr.dtype.itemsize, free_b)
     _quantile_subsample_note = f", quantile_subsample_rows={min(n_rows, quantile_subsample_rows)}/{n_rows}" if method == "quantile" else ""
     logger.info(
@@ -1148,11 +1177,15 @@ def discretize_2d_array_cuda_row_chunked(
         qs = cp.linspace(0.0, 100.0, n_bins + 1)
         bin_edges = cp.percentile(d_sub, qs, axis=0)
         del d_sub
+        # Cut points are derived from ``bin_edges`` ONCE here (fit-constant across every row-chunk below)
+        # instead of being re-transposed inside ``_discretize_quantile_rawkernel`` on every chunk call --
+        # that re-derivation was an O(n_cols * n_bins) transpose+copy repeated per chunk for identical output.
+        cuts = cp.ascontiguousarray(bin_edges[1:-1, :].T) if n_cols >= 1000 else None  # (n_cols, n_bins-1)
         for row_start in range(0, n_rows, row_chunk_rows):
             row_end = min(row_start + row_chunk_rows, n_rows)
             d_chunk = cp.asarray(arr[row_start:row_end])
             if n_cols >= 1000:
-                chunk_out = _discretize_quantile_rawkernel(d_chunk, bin_edges, n_bins, _out_cp_dtype)
+                chunk_out = _discretize_quantile_rawkernel(d_chunk, cuts, n_bins, _out_cp_dtype)
             else:
                 chunk_out = cp.empty((row_end - row_start, n_cols), dtype=_out_cp_dtype)
                 for j in range(n_cols):
@@ -1168,7 +1201,59 @@ def discretize_2d_array_cuda_row_chunked(
     return out
 
 
-def _discretize_quantile_rawkernel(d_arr, bin_edges, n_bins, out_cp_dtype):
+_SEARCHSORTED_RIGHT_2D_SRC = r"""
+extern "C" __global__ void searchsorted_right_2d(
+    const double* __restrict__ arr,    // (n_rows, n_cols) C-order
+    const double* __restrict__ cuts,    // (n_cols, n_cuts) C-order
+    int* __restrict__ out,              // (n_rows, n_cols)
+    const int n_rows, const int n_cols, const int n_cuts
+){
+    int gid = blockIdx.x * blockDim.x + threadIdx.x;
+    int total = n_rows * n_cols;
+    if (gid >= total) return;
+    int row = gid / n_cols;
+    int col = gid % n_cols;
+    double v = arr[row * n_cols + col];
+    // searchsorted side='right': bin = first index i s.t. cuts[i] > v,
+    // OR n_cuts if every cut <= v.
+    int lo = 0, hi = n_cuts;
+    while (lo < hi) {
+        int mid = (lo + hi) >> 1;
+        if (cuts[col * n_cuts + mid] > v) hi = mid;
+        else lo = mid + 1;
+    }
+    out[row * n_cols + col] = lo;
+}
+"""
+_searchsorted_right_2d_cuda = None
+_DISCRETIZE_KERNEL_LOCK = threading.Lock()
+
+
+def _get_searchsorted_right_2d_kernel():
+    """Build (idempotently) and return the fused per-column searchsorted RawKernel.
+
+    Mirrors ``info_theory._cmi_cuda._get_kernel``'s module-level-singleton pattern. ``cp.RawKernel`` used
+    to be rebuilt from CUDA source text on EVERY call to ``_discretize_quantile_rawkernel`` -- which
+    ``discretize_2d_array_cuda_row_chunked``'s quantile branch calls once per row-chunk (up to 10-50+
+    times per large discretize call) -- so the source was recompiled that many times per fit instead of
+    once for the whole process lifetime.
+    """
+    global _searchsorted_right_2d_cuda
+    if _searchsorted_right_2d_cuda is not None:
+        return _searchsorted_right_2d_cuda
+    import cupy as cp
+
+    with _DISCRETIZE_KERNEL_LOCK:
+        if _searchsorted_right_2d_cuda is not None:
+            return _searchsorted_right_2d_cuda
+        module = sys.modules[__name__]
+        module._searchsorted_right_2d_cuda = cp.RawKernel(  # type: ignore[attr-defined]
+            _SEARCHSORTED_RIGHT_2D_SRC, "searchsorted_right_2d",
+        )
+        return module._searchsorted_right_2d_cuda
+
+
+def _discretize_quantile_rawkernel(d_arr, cuts, n_bins, out_cp_dtype):
     """Fused per-column searchsorted via cupy RawKernel.
 
     Replaces the Python-loop calling ``cp.searchsorted`` once per column,
@@ -1177,41 +1262,15 @@ def _discretize_quantile_rawkernel(d_arr, bin_edges, n_bins, out_cp_dtype):
     binary searches in parallel; for n=1M / p=1000 / n_bins=10 measured ~7ms
     vs ~70ms for the per-col loop on cc 6.1.
 
-    bin_edges shape: (n_bins+1, n_cols); we use rows [1, n_bins-1] inclusive
-    (i.e. n_bins-1 right-side cut points per column) and use searchsorted-right
-    semantics.
+    ``cuts`` is the caller's PRE-TRANSPOSED, contiguous ``(n_cols, n_bins-1)`` cut-point matrix (its
+    ``bin_edges[1:-1, :].T``) -- hoisted out of this function because ``bin_edges``/``cuts`` are fit-
+    constant across every row-chunk of one ``discretize_2d_array_cuda_row_chunked`` call, so re-deriving
+    them here on every call re-paid an O(n_cols * n_bins) transpose+copy per chunk for identical output.
     """
     import cupy as cp
     n_rows, n_cols = d_arr.shape
-    # Cut points: shape (n_bins-1, n_cols). Contiguous in column-major so each
-    # column's edges are adjacent in memory after .T.copy().
-    cuts = cp.ascontiguousarray(bin_edges[1:-1, :].T)  # (n_cols, n_bins-1)
     out_int32 = cp.empty((n_rows, n_cols), dtype=cp.int32)
-    src = r"""
-    extern "C" __global__ void searchsorted_right_2d(
-        const double* __restrict__ arr,    // (n_rows, n_cols) C-order
-        const double* __restrict__ cuts,    // (n_cols, n_cuts) C-order
-        int* __restrict__ out,              // (n_rows, n_cols)
-        const int n_rows, const int n_cols, const int n_cuts
-    ){
-        int gid = blockIdx.x * blockDim.x + threadIdx.x;
-        int total = n_rows * n_cols;
-        if (gid >= total) return;
-        int row = gid / n_cols;
-        int col = gid % n_cols;
-        double v = arr[row * n_cols + col];
-        // searchsorted side='right': bin = first index i s.t. cuts[i] > v,
-        // OR n_cuts if every cut <= v.
-        int lo = 0, hi = n_cuts;
-        while (lo < hi) {
-            int mid = (lo + hi) >> 1;
-            if (cuts[col * n_cuts + mid] > v) hi = mid;
-            else lo = mid + 1;
-        }
-        out[row * n_cols + col] = lo;
-    }
-    """
-    kernel = cp.RawKernel(src, "searchsorted_right_2d")
+    kernel = _get_searchsorted_right_2d_kernel()
     threads = 256
     blocks = (n_rows * n_cols + threads - 1) // threads
     kernel((blocks,), (threads,), (

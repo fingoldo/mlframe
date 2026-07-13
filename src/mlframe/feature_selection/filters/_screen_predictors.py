@@ -558,10 +558,31 @@ def screen_predictors(
         # numpy buffer survives for the return; the device buffer only goes to ctx.
         classes_y_safe_host = classes_y_safe  # numpy, returned to the FE step
         if use_gpu:
-            import cupy as cp
+            # RESIDENT UPLOAD (2026-07-13): ``screen_predictors`` runs 3-10 rounds per fit with an IDENTICAL
+            # ``classes_y``/``freqs_y`` across rounds (the target never changes mid-fit; ``seed_maxt_floor_cache``
+            # / ``seed_workers_pool`` above already thread other round-carried state through this same call, so
+            # the pattern for reusing state across rounds is established) -- resident_operand needs no caller-side
+            # plumbing beyond this call site since it self-caches by content, unlike those explicit seed_* kwargs.
+            #
+            # ``.copy()`` on ``classes_y_safe`` is NOT optional: ``ctx.classes_y_safe`` reaches
+            # ``gpu.py:mi_direct_gpu``'s pre-warmed-buffer path, which SHUFFLES it IN PLACE
+            # (``classes_y_safe[:] = classes_y_safe[cp.argsort(...)]``) once per permutation, for every
+            # candidate confirmed this round. Pre-fix that was harmless -- ``classes_y_safe`` was a fresh
+            # disposable ``cp.asarray`` built new every ``screen_predictors()`` call, never read by anyone
+            # else. Handing the RESIDENT (shared, content-keyed, cross-call, cross-file) buffer straight into
+            # that mutator would let one candidate's permutation shuffle permanently corrupt the row-order
+            # every OTHER resident-cache consumer of the same target content relies on (e.g.
+            # ``_gpu_batched.py``'s ``classes_y_gpu``, which assumes its rows stay aligned with
+            # ``classes_x_gpu``) -- a real cross-file aliasing regression this exact copy is NOT theoretical
+            # (it was live: 4 GPU/CPU selection-equivalence tests hit it before this ``.copy()`` was added).
+            # ``.copy()`` is a cheap device-to-device memcpy (not a host re-upload), so the H2D-avoidance win
+            # from ``resident_operand`` is preserved; only the shuffle-safety copy is paid, once per round.
+            # ``freqs_y_safe`` is never mutated in place anywhere in this package (verified by grep), so it is
+            # shared directly with no copy.
+            from ._fe_resident_operands import resident_operand
 
-            classes_y_safe = cp.asarray(classes_y.astype(np.int32))  # device buffer for ctx -> mi_direct_gpu
-            freqs_y_safe = cp.asarray(freqs_y)
+            classes_y_safe = resident_operand(classes_y, "screen_classes_y", dtype=np.int32).copy()  # device buffer for ctx -> mi_direct_gpu
+            freqs_y_safe = resident_operand(freqs_y, "screen_freqs_y", dtype=np.float64)
         else:
             freqs_y_safe = None
 

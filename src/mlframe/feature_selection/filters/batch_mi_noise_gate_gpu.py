@@ -36,6 +36,7 @@ import os
 import time
 import logging
 from collections import OrderedDict
+from typing import Any
 
 import numpy as np
 
@@ -235,19 +236,15 @@ def batch_mi_with_noise_gate_cupy(
     d_base = d_offsets + d_disc.astype(idx_dtype) * cp.asarray(K_y, dtype=idx_dtype)  # (n, K) idx_dtype
 
     nperm = int(npermutations) if npermutations and npermutations > 0 else 0
+    P1 = nperm + 1  # number of y-vectors = nperm + 1
 
-    # ---- ONE H2D: the original codes + the full shuffle matrix, stacked as the
-    # set of y-vectors to score: row 0 = original y, rows 1.. = the nperm shuffles.
-    y_orig = np.ascontiguousarray(classes_y, dtype=np.int64).reshape(1, n)
-    if nperm > 0:
-        shuf = _build_shuffle_matrix(np.asarray(classes_y_safe), np.uint64(base_seed), nperm)
-        y_all_host = np.empty((nperm + 1, n), dtype=np.int64)
-        y_all_host[0, :] = y_orig[0, :]
-        y_all_host[1:, :] = shuf.astype(np.int64)
-    else:
-        y_all_host = y_orig
-    P1 = y_all_host.shape[0]  # number of y-vectors = nperm + 1
-    d_y_all = cp.asarray(y_all_host).astype(idx_dtype)  # (P1, n) -- y codes < K_y, fit idx_dtype
+    # RESIDENT shuffle matrix (2026-07-13): row 0 = original y, rows 1.. = the nperm shuffles -- built +
+    # uploaded ONCE per (target, seed, nperm) and reused across a fit's cupy dispatches, mirroring the
+    # numba.cuda resident gate's ``_resident_y_all_device`` cache (this path previously had NO cache analog
+    # and rebuilt + re-H2D'd this (P1, n) matrix on every one of a fit's ~30 dispatches). See
+    # ``_resident_y_all_device_for_cupy``.
+    d_y_all_resident = _resident_y_all_device_for_cupy(classes_y, classes_y_safe, base_seed, nperm, n, P1)
+    d_y_all = d_y_all_resident.astype(idx_dtype)  # (P1, n) -- y codes < K_y, fit idx_dtype (always a fresh cast, never aliases the cached int32 buffer)
 
     # ---- 4GB tiling over the permutation axis. Each tile of ``rows`` y-vectors
     # materialises a (rows, n) int64 index array + a (rows, total_size) int64 count
@@ -358,6 +355,21 @@ _DY_DEVICE_CACHE: "OrderedDict[tuple, tuple]" = OrderedDict()  # key -> (weakref
 _DY_DEVICE_CACHE_MAX = 8
 
 
+def _histgate_upload(host_arr: np.ndarray, role: str, dtype: Any) -> Any:
+    """Upload a host operand for the numba.cuda histgate kernels, content-cached via
+    ``resident_operand`` when cupy is installed alongside numba.cuda -- a numba.cuda kernel accepts a
+    cupy device array directly (CUDA Array Interface; confirmed no host round-trip), so this is a
+    drop-in for ``_nb_cuda.to_device`` that additionally dedups fit-constant operands (``freqs_y`` /
+    the per-column ``offsets`` / ``nbins``) re-uploaded under a different role elsewhere (the cupy
+    backend, other resident-operand FE consumers). Falls back to a plain ``_nb_cuda.to_device`` when
+    cupy is absent (a numba.cuda-only host) so that combination is never regressed."""
+    if _CUPY_AVAIL:
+        from ._fe_resident_operands import resident_operand
+
+        return resident_operand(host_arr, role, dtype=dtype)
+    return _nb_cuda.to_device(np.ascontiguousarray(host_arr, dtype=dtype))
+
+
 def _resident_y_all_device(classes_y, classes_y_safe, base_seed, nperm, n, P):
     """Device (P, n) int32 [orig y; nperm shuffles], cached by (id+weakref(classes_y), base_seed, nperm, n, P).
     Built + uploaded once per (target, key); reused across a fit's noise-gate dispatches for the same target."""
@@ -384,6 +396,57 @@ def _resident_y_all_device(classes_y, classes_y_safe, base_seed, nperm, n, P):
     except TypeError:
         c.pop(key, None)
     return d_y
+
+
+# CUPY-NATIVE twin of ``_DY_DEVICE_CACHE`` (2026-07-13), used only when numba.cuda is unavailable on this
+# host (cupy-only): mirrors the SAME (id+weakref(classes_y), base_seed, nperm, n, P) key + LRU discipline,
+# built via ``cp.asarray`` instead of ``_nb_cuda.to_device``.
+_DY_DEVICE_CACHE_CUPY: "OrderedDict[tuple, tuple]" = OrderedDict()  # key -> (weakref(classes_y), d_y)
+_DY_DEVICE_CACHE_CUPY_MAX = 8
+
+
+def _resident_y_all_device_cupy(classes_y, classes_y_safe, base_seed, nperm, n, P):
+    """CUPY-native fallback for ``_resident_y_all_device_for_cupy`` on a cupy-only host (no numba.cuda):
+    same (id+weakref(classes_y), base_seed, nperm, n, P) keying and LRU eviction, built via ``cp.asarray``."""
+    import weakref
+    cp = _cp
+    c = _DY_DEVICE_CACHE_CUPY
+    key = (id(classes_y), int(base_seed), int(nperm), int(n), int(P))
+    hit = c.get(key)
+    if hit is not None:
+        ref, d_y = hit
+        if ref() is classes_y and d_y is not None:
+            c.move_to_end(key)
+            return d_y
+        c.pop(key, None)  # weakref dead (id recycled onto a different target) -> drop the stale entry
+    y_all = np.empty((P, n), dtype=np.int32)
+    y_all[0, :] = np.asarray(classes_y, dtype=np.int32)
+    if nperm > 0:
+        y_all[1:, :] = _build_shuffle_matrix(np.asarray(classes_y_safe), np.uint64(base_seed), nperm).astype(np.int32)
+    d_y = cp.asarray(np.ascontiguousarray(y_all))
+    try:
+        c[key] = (weakref.ref(classes_y), d_y)
+        c.move_to_end(key)
+        while len(c) > _DY_DEVICE_CACHE_CUPY_MAX:
+            c.popitem(last=False)
+    except TypeError:
+        c.pop(key, None)
+    return d_y
+
+
+def _resident_y_all_device_for_cupy(classes_y, classes_y_safe, base_seed, nperm, n, P):
+    """Return a (P, n) int32 CUPY device array of [orig y; nperm shuffles] for ``batch_mi_with_noise_gate_cupy``.
+
+    When numba.cuda is ALSO available, this reuses ``_resident_y_all_device``'s cache via a ZERO-COPY
+    ``cp.asarray`` view (confirmed: cupy wraps a foreign CUDA-Array-Interface buffer by device pointer, no
+    copy -- ``cp_view.data.ptr == numba_device_array.__cuda_array_interface__['data'][0]``) instead of a
+    second independent upload, so a cuda dispatch followed by a cupy dispatch on the SAME target (or
+    vice versa) shares the identical device buffer -- true cross-backend dedup, not just a same-backend
+    cache. Falls back to the cupy-native ``_resident_y_all_device_cupy`` when numba.cuda is unavailable
+    (a cupy-only host), so that combination still gets the per-fit reuse win."""
+    if _CUDA_AVAIL:
+        return _cp.asarray(_resident_y_all_device(classes_y, classes_y_safe, base_seed, nperm, n, P))
+    return _resident_y_all_device_cupy(classes_y, classes_y_safe, base_seed, nperm, n, P)
 
 
 def batch_mi_with_noise_gate_cuda_resident(
@@ -414,10 +477,28 @@ def batch_mi_with_noise_gate_cuda_resident(
     D2H'd) -> counts, MI and the gate decision are BIT-IDENTICAL to the host-codes path. ``None`` (the
     default, and any narrow-dtype mismatch) keeps the H2D-from-host path unchanged."""
     if use_su:
+        # SU (Symmetric Uncertainty) has no on-device entropy form, so this delegates to the CPU-entropy
+        # ``batch_mi_with_noise_gate_cuda`` twin -- but that twin's per-permutation loop used to rebuild
+        # (CPU Fisher-Yates) AND re-upload (H2D) the shuffled-y codes from scratch on every one of the
+        # ~30 noise-gate dispatches of a fit, even though the target/seed/nperm are fit-constant and the
+        # SAME (P, n) shuffle matrix is exactly what ``_resident_y_all_device`` already builds+caches for
+        # the non-SU resident path. Build/fetch that cached device matrix here and hand it through
+        # (``d_y_all_resident``) so the SU delegate slices its rows directly instead of re-shuffling +
+        # re-uploading -- BIT-IDENTICAL (same LCG stream; a device-array row slice returns the exact bytes
+        # ``_fisher_yates_shuffle`` + ``to_device`` produced, confirmed no host round-trip).
+        _n_su = int(disc_2d.shape[0])
+        _nperm_su = int(npermutations) if npermutations and npermutations > 0 else 0
+        _d_y_all_su = None
+        if _CUDA_AVAIL and _n_su > 0:
+            try:
+                _d_y_all_su = _resident_y_all_device(classes_y, classes_y_safe, base_seed, _nperm_su, _n_su, _nperm_su + 1)
+            except Exception:
+                _d_y_all_su = None  # best-effort: any failure falls back to the per-call shuffle+upload path
         return batch_mi_with_noise_gate_cuda(
             disc_2d, factors_nbins, classes_y, classes_y_safe, freqs_y, npermutations,
             base_seed, min_nonzero_confidence, use_su, dtype,
             128 if threads_per_block is None else threads_per_block,
+            d_y_all_resident=_d_y_all_su,
         )
     global _CUDA_HIST_KERNEL_BATCHED, _CUDA_HIST_KERNEL_BATCHED_SHARED, _CUDA_HIST_KERNEL_BATCHED_SHARED_CM, _CUDA_MI_KERNEL
     if not _CUDA_AVAIL:
@@ -503,10 +584,17 @@ def batch_mi_with_noise_gate_cuda_resident(
         except Exception:
             d_disc = None
     if d_disc is None:
+        # disc_2d is the discretized FE-CANDIDATE matrix -- a different chunk of engineered columns on
+        # (almost) every dispatch, so it is NOT fit-constant like y/freqs_y; content-hashing it here would
+        # pay an O(n*K) hash on every call for a near-guaranteed miss. Left as a plain per-call upload
+        # (the resident-codes handoff above is the real lever for this operand).
         d_disc = _nb_cuda.to_device(np.ascontiguousarray(disc_2d, dtype=_disc_dt))
-    d_off = _nb_cuda.to_device(np.ascontiguousarray(offsets[:K], dtype=np.int64))
-    d_nb = _nb_cuda.to_device(np.ascontiguousarray(nbins_arr, dtype=np.int32))
-    d_freq = _nb_cuda.to_device(np.ascontiguousarray(freqs_y, dtype=np.float64))
+    # offsets/nbins/freqs_y ARE fit-constant (the target's class table + the per-column bin-count layout
+    # recur across a fit's dispatches) -- route through the content-keyed resident cache instead of a
+    # fresh to_device every call (see _histgate_upload).
+    d_off = _histgate_upload(offsets[:K], "histgate_off", np.int64)
+    d_nb = _histgate_upload(nbins_arr, "histgate_nb", np.int32)
+    d_freq = _histgate_upload(freqs_y, "histgate_freq", np.float64)
     d_counts = _nb_cuda.device_array(P * total_size, dtype=np.int64)
     d_ref = _nb_cuda.to_device(np.ones(K, dtype=np.float64))  # compute every (k,p); host applies the gate
     d_out = _nb_cuda.device_array((P, K), dtype=np.float64)
@@ -589,6 +677,7 @@ def batch_mi_with_noise_gate_cuda(
     use_su: bool,
     dtype: type = np.int32,
     threads_per_block: int = 128,
+    d_y_all_resident: "Any | None" = None,
 ) -> np.ndarray:
     """numba.cuda GPU twin of ``batch_mi_with_noise_gate``. BIT-IDENTICAL.
 
@@ -596,6 +685,15 @@ def batch_mi_with_noise_gate_cuda(
     the original y and each CPU-shuffled y. MI reduced from the integer counts on
     the CPU via ``_mi_from_counts_cpu`` (bit-exact). Raises ``RuntimeError`` if
     numba.cuda is unavailable.
+
+    ``d_y_all_resident`` -- an optional cached (P, n) int32 device matrix (row 0 = original ``classes_y``,
+    rows 1.. = the ``nperm`` Fisher-Yates shuffles), typically ``_resident_y_all_device``'s return value.
+    When given, each per-target pass slices the matching row directly (a device view, no host round-trip)
+    INSTEAD OF rebuilding the shuffle on the CPU and re-uploading it -- the SU delegate in
+    ``batch_mi_with_noise_gate_cuda_resident`` passes this so the fit-constant shuffle stream is uploaded
+    ONCE per fit instead of once per dispatch. Row slicing returns the exact bytes the CPU
+    shuffle+``to_device`` path would have produced (same LCG stream), so this is bit-identical; ``None``
+    (the default) keeps the original per-call CPU-shuffle + H2D path unchanged.
     """
     global _CUDA_HIST_KERNEL
     if not _CUDA_AVAIL:
@@ -618,9 +716,13 @@ def batch_mi_with_noise_gate_cuda(
     offsets[1:] = np.cumsum(per_col_size)
     total_size = int(offsets[K])
 
+    # disc_2d is the FE-candidate matrix -- varies per dispatch (a different candidate-column chunk each
+    # time), so it is NOT fit-constant and is left as a plain per-call upload (see the twin resident
+    # function's identical reasoning for its own d_disc fallback).
     d_disc = _nb_cuda.to_device(np.ascontiguousarray(disc_2d, dtype=np.int32))
-    d_off = _nb_cuda.to_device(np.ascontiguousarray(offsets[:K], dtype=np.int64))
-    d_nb = _nb_cuda.to_device(np.ascontiguousarray(nbins_arr, dtype=np.int32))
+    # offsets/nbins ARE fit-constant across a fit's dispatches -> content-keyed resident cache.
+    d_off = _histgate_upload(offsets[:K], "histgate_off", np.int64)
+    d_nb = _histgate_upload(nbins_arr, "histgate_nb", np.int32)
 
     # One block per column; for tiny K the grid is small (low-occupancy) -- the
     # cupy backend is preferred at the realistic large-batch sizes where GPU wins,
@@ -631,9 +733,8 @@ def batch_mi_with_noise_gate_cuda(
     except Exception:
         _NbPerfWarn = None
 
-    def _counts_for(y_codes_host: np.ndarray) -> np.ndarray:
-        """Upload one target's discretized codes to device and launch the joint-histogram CUDA kernel across all K candidate columns, returning the flat per-column counts array copied back to host."""
-        d_y = _nb_cuda.to_device(np.ascontiguousarray(y_codes_host, dtype=np.int32))
+    def _counts_from_device_y(d_y) -> np.ndarray:
+        """Launch the joint-histogram CUDA kernel against an ALREADY-RESIDENT target-codes device array, returning the flat per-column counts array copied back to host."""
         d_counts = _nb_cuda.device_array(total_size, dtype=np.int64)
         d_counts[:] = 0
         with _warnings.catch_warnings():
@@ -642,9 +743,17 @@ def batch_mi_with_noise_gate_cuda(
             _CUDA_HIST_KERNEL[K, threads_per_block](d_disc, d_off, d_nb, d_y, d_counts, n, K_y)  # type: ignore[index]  # numba cuda kernel[grid, block] launch syntax, not real indexing
         return np.asarray(d_counts.copy_to_host())
 
+    def _counts_for(y_codes_host: np.ndarray) -> np.ndarray:
+        """Upload one target's discretized codes to device and launch the joint-histogram CUDA kernel across all K candidate columns, returning the flat per-column counts array copied back to host."""
+        d_y = _nb_cuda.to_device(np.ascontiguousarray(y_codes_host, dtype=np.int32))
+        return _counts_from_device_y(d_y)
+
     _col_off = offsets[:K]
     _all_pos = np.ones(K, dtype=np.float64)  # original-y pass: compute every column
-    counts_orig = _counts_for(np.asarray(classes_y, dtype=np.int32))
+    if d_y_all_resident is not None:
+        counts_orig = _counts_from_device_y(d_y_all_resident[0])
+    else:
+        counts_orig = _counts_for(np.asarray(classes_y, dtype=np.int32))
     original_mi = _mi_columns_from_counts_cpu(counts_orig, _col_off, nbins_arr, K_y, freqs_y, n, use_su, _all_pos)
 
     if npermutations <= 0:
@@ -658,8 +767,11 @@ def batch_mi_with_noise_gate_cuda(
     # old inner loop did; bit-identical, kills the 224k per-call dispatch overhead.
     perm_mis = []
     for i in range(npermutations):
-        shuffled = _fisher_yates_shuffle(cy_safe, np.uint64(base_seed), i)
-        counts_p = _counts_for(np.asarray(shuffled, dtype=np.int32))
+        if d_y_all_resident is not None:
+            counts_p = _counts_from_device_y(d_y_all_resident[i + 1])
+        else:
+            shuffled = _fisher_yates_shuffle(cy_safe, np.uint64(base_seed), i)
+            counts_p = _counts_for(np.asarray(shuffled, dtype=np.int32))
         mp = _mi_columns_from_counts_cpu(counts_p, _col_off, nbins_arr, K_y, freqs_y, n, use_su, original_mi)
         perm_mis.append(mp)
 

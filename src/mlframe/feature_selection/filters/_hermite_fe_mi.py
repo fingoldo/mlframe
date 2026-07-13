@@ -266,7 +266,13 @@ def _plugin_mi_classif_batch_cuda(X_cols: np.ndarray, y: np.ndarray, n_bins: int
     # import ...`` would create a hard cycle the meta-test flags.
     import cupy as cp
     X_gpu = cp.asarray(X_cols, dtype=cp.float64)
-    y_gpu = cp.asarray(y, dtype=cp.int64)
+    # y is the fit-constant target: resident-cache it (same role string as the already-fixed
+    # ``_orth_mi_backends.py`` / ``_binned_numeric_agg_fe.py`` sites) so it uploads ONCE per fit instead of
+    # once per call, AND so the SAME device object comes back across calls -- which lets the downstream
+    # ``(id(y_gpu), y_min)`` shift memo in ``_plugin_mi_classif_batch_cuda_resident`` actually hit (it can
+    # never hit while y_gpu is rebuilt fresh every call, since id(y_gpu) changes every time).
+    from ._fe_resident_operands import resident_operand
+    y_gpu = resident_operand(y, "y_mi_classif", dtype=np.int64)
     return np.asarray(_plugin_mi_classif_batch_cuda_resident(X_gpu, y_gpu, n_bins))
 
 

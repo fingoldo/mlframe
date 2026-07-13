@@ -114,10 +114,16 @@ def mi_direct_gpu_batched(
     if batch_size > safe_batch:
         batch_size = safe_batch
 
+    # RESIDENT UPLOAD (2026-07-13): ``classes_y``/``freqs_y`` are the MRMR TARGET -- fit-constant across
+    # every candidate this function is called for in the greedy screening loop (``mi_direct_gpu`` fans out
+    # here once per candidate x). ``classes_x``/``freqs_x`` genuinely vary per call (the candidate column),
+    # so they stay a fresh per-call ``cp.asarray`` -- caching them would either never hit (distinct content
+    # every call) or grow the resident cache unboundedly across a wide candidate pool.
+    from ._fe_resident_operands import resident_operand
     classes_x_gpu = cp.asarray(classes_x.astype(np.int32))
-    classes_y_gpu = cp.asarray(classes_y.astype(np.int32))
+    classes_y_gpu = resident_operand(classes_y, "mi_batched_classes_y", dtype=np.int32)
     freqs_x_gpu = cp.asarray(freqs_x).astype(cp.float64)
-    freqs_y_gpu = cp.asarray(freqs_y).astype(cp.float64)
+    freqs_y_gpu = resident_operand(freqs_y, "mi_batched_freqs_y", dtype=np.float64)
 
     # Joint-hist kernel dispatch via the per-host kernel_tuning_cache. The
     # cache is built on first use by a 30s sweep and persisted to
@@ -348,10 +354,13 @@ def mi_direct_gpu_batched_streamed(
     if batch_size > safe_batch:
         batch_size = safe_batch
 
+    # RESIDENT UPLOAD (2026-07-13): mirrors the non-streamed twin above -- ``classes_y``/``freqs_y`` are
+    # the fit-constant MRMR target, ``classes_x``/``freqs_x`` genuinely vary per candidate call.
+    from ._fe_resident_operands import resident_operand
     classes_x_gpu = cp.asarray(classes_x.astype(np.int32))
-    classes_y_gpu = cp.asarray(classes_y.astype(np.int32))
+    classes_y_gpu = resident_operand(classes_y, "mi_batched_classes_y", dtype=np.int32)
     freqs_x_gpu = cp.asarray(freqs_x).astype(cp.float64)
-    freqs_y_gpu = cp.asarray(freqs_y).astype(cp.float64)
+    freqs_y_gpu = resident_operand(freqs_y, "mi_batched_freqs_y", dtype=np.float64)
 
     joint_size = nbins_x * nbins_y
     # Wave 23 #1 fix (2026-05-20): mirror the sibling lookup at L466-475

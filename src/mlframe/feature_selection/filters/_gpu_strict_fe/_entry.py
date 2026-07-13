@@ -4,7 +4,17 @@
 Phase 0: this is a SCAFFOLD. ``run_fe_step_gpu_strict`` raises ``NotImplementedError`` so the caller's
 try/except falls back to the existing per-family FE step -> zero behavior change until a later phase implements
 the resident pipeline and the resident flag is turned on. The branch in ``_run_fe_step`` is gated behind the
-default-OFF resident flag, so STRICT itself is unaffected too."""
+default-OFF resident flag, so STRICT itself is unaffected too.
+
+SUPERSEDED (investigated 2026-07-13, see ``RESIDENCY_WIRING_PLAN.md`` in this directory for the full
+evidence): ``ResidentFEState``/``run_fe_step_gpu_strict`` Phases 1-3 were never implemented because the goal
+they targeted (per-family H2D leaks under STRICT) was solved differently, three days after this scaffold
+landed, by the ten ``fe_gpu_device_born_*_enabled()`` / ``fe_gpu_resident_raw_baseline_enabled`` predicates
+below -- each DEFAULT ON, each gating a REAL per-family device-born rebuild via ``resident_operand`` /
+``assemble_resident_matrix`` (content-hash-keyed, incrementally adopted file-by-file) instead of this class's
+upfront bulk-upload design. That alternate mechanism is live, tested (``test_device_born_cross_basis_parity.py``
+et al.), and has been the actual residency delivery vehicle since 2026-06-30 -- ``ResidentFEState`` itself has
+zero production callers. Do not wire this stub up; see the plan doc before investing further here."""
 from __future__ import annotations
 
 import os

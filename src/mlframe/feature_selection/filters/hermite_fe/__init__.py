@@ -236,7 +236,11 @@ def _polyeval_cuda(basis: str, x: np.ndarray, c: np.ndarray, device: int | None 
     _ctx = cp.cuda.Device(device) if device is not None else contextlib.nullcontext()
     with _ctx:
         _ensure_cuda_kernels()
-        x_gpu = cp.asarray(x, dtype=cp.float64)
+        # x (the column being evaluated) is invariant across CMA-ES/Optuna trials for the SAME column;
+        # resident-cache it so repeated trials on one column upload ONCE. c (the coefficients) genuinely
+        # vary per trial -- that is the thing being optimized -- so it stays a raw per-call upload.
+        from .._fe_resident_operands import resident_operand
+        x_gpu = resident_operand(x, "hermite_polyeval_x", dtype=np.float64)
         c_gpu = cp.asarray(c, dtype=cp.float64)
         n = x.shape[0]
         out_gpu = cp.empty(n, dtype=cp.float64)

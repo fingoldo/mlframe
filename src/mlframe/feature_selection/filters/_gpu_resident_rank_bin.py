@@ -61,6 +61,26 @@ def _bin_boundaries(n: int, n_bins: int) -> np.ndarray:
     return np.cumsum(sizes)
 
 
+# (n, n_bins) -> cp.asarray(_bin_boundaries(n, n_bins)) device vector; read-only, shared. ``n`` (dataset row
+# count) and ``n_bins`` are fit-constant across a whole FE scan's rank-bin calls, yet the boundary vector was
+# rebuilt (host cumsum) AND re-uploaded (H2D) on EVERY call -- mirrors ``_gpu_resident_fe._QLEVELS_CACHE`` /
+# ``_quantile_levels_dev``. searchsorted never mutates ``bnd``, so sharing the device array across calls is
+# safe; the cached array is byte-identical to the inline ``cp.asarray(_bin_boundaries(...))`` (deterministic
+# in its args).
+_BIN_BOUNDARIES_CACHE: dict = {}
+
+
+def _bin_boundaries_dev(cp, n: int, n_bins: int):
+    """Cached device (n_bins,) cumulative bin-size boundary vector for ``(n, n_bins)``; builds + uploads via
+    :func:`_bin_boundaries` on a miss, returns the shared device array on a hit."""
+    key = (int(n), int(n_bins))
+    hit = _BIN_BOUNDARIES_CACHE.get(key)
+    if hit is None:
+        hit = cp.asarray(_bin_boundaries(int(n), int(n_bins)))
+        _BIN_BOUNDARIES_CACHE[key] = hit
+    return hit
+
+
 def rank_bin_codes_gpu_resident(x_gpu: Any, n_bins: int) -> Any:
     """RANK (argsort equi-frequency) bin codes for a RESIDENT 1-D cupy column. Returns an (n,) cupy int32 code
     vector, or ``None`` on any cupy failure.
@@ -83,7 +103,7 @@ def rank_bin_codes_gpu_resident(x_gpu: Any, n_bins: int) -> Any:
         if nb <= 1:
             return cp.zeros(n, dtype=cp.int32)
         si = cp.argsort(xg)  # cupy argsort is stable -> bit-identical rank on tie-free columns
-        bnd = cp.asarray(_bin_boundaries(n, nb))
+        bnd = _bin_boundaries_dev(cp, n, nb)
         pos = cp.arange(n, dtype=cp.int64)
         binid = cp.searchsorted(bnd, pos, side="right").astype(cp.int32)
         out = cp.empty(n, dtype=cp.int32)
@@ -129,7 +149,7 @@ def rank_bin_codes_batch_gpu_resident(X_gpu: Any, n_bins: int) -> Any:
         # Byte-identical but only ~1% faster (scatter is ~12% of the path; argsort dominates) -- not worth the
         # less-readable flat indexing. Kept the 2D scatter.
         si = cp.argsort(Xg, axis=0)  # (n, k) stable per-column sort indices
-        bnd = cp.asarray(_bin_boundaries(n, nb))
+        bnd = _bin_boundaries_dev(cp, n, nb)
         pos = cp.arange(n, dtype=cp.int64)
         binid = cp.searchsorted(bnd, pos, side="right").astype(cp.int32)  # (n,) rank->bin, shared across cols
         out = cp.empty((n, k), dtype=cp.int32)
