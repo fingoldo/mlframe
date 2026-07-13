@@ -35,10 +35,10 @@ def test_anchors_calibration_point_is_about_30():
 
 
 def test_anchors_clamps_low_and_high():
-    assert _resolve_adaptive_n_anchors(1) == 10        # floor
-    assert _resolve_adaptive_n_anchors(0) == 10        # degenerate -> floor
+    assert _resolve_adaptive_n_anchors(1) == 10  # floor
+    assert _resolve_adaptive_n_anchors(0) == 10  # degenerate -> floor
     assert _resolve_adaptive_n_anchors(10_000) == 100  # ceiling
-    assert _resolve_adaptive_n_anchors(2000) == 100    # already ceiling by p~=278
+    assert _resolve_adaptive_n_anchors(2000) == 100  # already ceiling by p~=278
 
 
 def test_anchors_monotone_in_width():
@@ -91,11 +91,108 @@ def test_knee_handles_degenerate_short_input():
 
 
 # --------------------------------------------------------------------------------------------------
+# Lever 2 bug fix: noise-floor rescue -- the knee only reads the shape of the top-`default_cap`
+# window, so a few dominant (strong) columns make ANY frame look front-loaded even when the tail past
+# the knee carries real, weaker-but-genuine signal (not noise). Without the rescue this silently drops
+# real features whenever the pipeline opts into the knee ladder. Confirmed empirically in-session: on
+# a synthetic 8-strong/8-weak/2984-noise importance vector, the pre-fix cap narrowed to 16 (dropping
+# all 8 weak features at ranks 8-15); the noise-floor rescue widens back to 28 (covers all 8).
+# --------------------------------------------------------------------------------------------------
+def test_knee_rescue_recovers_weak_signal_past_the_knee():
+    rng = np.random.default_rng(0)
+    strong = rng.uniform(2.0, 3.0, 8)
+    weak = rng.uniform(0.15, 0.3, 8)
+    noise = np.abs(rng.normal(0, 0.01, 2984))
+    importance = np.concatenate([strong, weak, noise])
+
+    cap, info = _resolve_knee_prescreen_cap(importance, default_cap=28)
+
+    order = np.argsort(-importance)
+    weak_ranks = sorted(int(np.where(order == i)[0][0]) for i in range(8, 16))
+    assert all(r < cap for r in weak_ranks), f"weak feature ranks {weak_ranks} not all covered by cap={cap}"
+    assert info["rescued"] > 0
+    assert info["noise_floor"] > 0
+
+
+def test_knee_rescue_is_a_pure_widening_never_narrows_below_unrescued_cap():
+    # A frame with NO weak tail (just strong + noise, no rescue candidates): rescue must not
+    # perturb the plain knee-narrowed cap.
+    imp = np.array([10.0, 9.0, 8.0, 1.0] + [0.001] * 36)
+    cap, info = _resolve_knee_prescreen_cap(imp, default_cap=28)
+    assert info["rescued"] == 0
+    assert cap < 28  # still narrows -- the rescue found nothing to widen for
+
+
+def test_knee_rescue_noise_floor_uses_full_tail_not_just_head():
+    # Regression pin: noise_floor must be derived from the FULL importance vector's tail, not just
+    # the top-default_cap head -- otherwise a wide frame with many noise columns beyond the head
+    # would compute an inflated (head-only) floor and under-rescue.
+    rng = np.random.default_rng(1)
+    strong = rng.uniform(2.0, 3.0, 4)
+    weak = rng.uniform(0.1, 0.2, 4)
+    noise_small = np.abs(rng.normal(0, 0.005, 20))  # inside the default_cap head window
+    noise_large_tail = np.abs(rng.normal(0, 0.005, 5000))  # outside the head window
+    importance = np.concatenate([strong, weak, noise_small, noise_large_tail])
+
+    cap, info = _resolve_knee_prescreen_cap(importance, default_cap=28)
+    order = np.argsort(-importance)
+    weak_ranks = sorted(int(np.where(order == i)[0][0]) for i in range(4, 8))
+    assert all(r < cap for r in weak_ranks), f"weak feature ranks {weak_ranks} not covered by cap={cap}"
+
+
+# --------------------------------------------------------------------------------------------------
+# Shared noise-floor rescue primitive (finding 5: flat default-path prescreen, _shap_proxied_fit.py)
+# --------------------------------------------------------------------------------------------------
+def test_noise_floor_rescue_keep_set_recovers_weak_signal_past_the_cap():
+    # Properly stressing fixture: 8 weak features deliberately ranked at positions 33-40, past a
+    # cap of 28, among 25 spuriously-elevated noise columns that outrank them by chance. Confirmed
+    # empirically in-session: naive top-28 cut covers only 5/8 weak features; the rescue covers 8/8.
+    rng = np.random.default_rng(0)
+    strong = rng.uniform(2.0, 3.0, 8)
+    noise_between = np.abs(rng.normal(0, 0.5, 25))
+    weak = rng.uniform(0.15, 0.3, 8)
+    noise_rest = np.abs(rng.normal(0, 0.01, 71))
+    importance = np.concatenate([strong, noise_between, weak, noise_rest])
+    weak_idx = set(range(33, 41))
+
+    top_keep = np.argsort(-importance)[:28]
+    pre_rescue_covered = len(weak_idx & set(int(i) for i in top_keep))
+    keep = noise_floor_rescue_keep_set(importance, top_keep)
+    post_rescue_covered = len(weak_idx & keep)
+
+    assert pre_rescue_covered < 8, "fixture should reproduce the pre-fix bug (a real recall gap)"
+    assert post_rescue_covered == 8, f"rescue should recover all weak features, got {post_rescue_covered}/8"
+
+
+def test_noise_floor_rescue_keep_set_never_drops_original_keep():
+    rng = np.random.default_rng(1)
+    importance = np.abs(rng.normal(0, 1, 50))
+    top_keep = np.argsort(-importance)[:10]
+    keep = noise_floor_rescue_keep_set(importance, top_keep)
+    assert set(int(i) for i in top_keep) <= keep
+
+
+def test_noise_floor_rescue_keep_set_is_noop_when_nothing_clears_the_floor():
+    # A frame with a hard cliff (top-K all strong, rest pure near-zero noise): rescue adds nothing.
+    imp = np.array([10.0, 9.0, 8.0] + [1e-6] * 47)
+    top_keep = np.argsort(-imp)[:3]
+    keep = noise_floor_rescue_keep_set(imp, top_keep)
+    assert keep == set(int(i) for i in top_keep)
+
+
+def test_noise_floor_rescue_keep_set_handles_empty_and_degenerate_input():
+    keep = noise_floor_rescue_keep_set(np.array([]), np.array([], dtype=np.int64))
+    assert keep == set()
+    keep = noise_floor_rescue_keep_set(np.array([np.nan, np.nan]), np.array([0], dtype=np.int64))
+    assert keep == {0}
+
+
+# --------------------------------------------------------------------------------------------------
 # Constructor defaults
 # --------------------------------------------------------------------------------------------------
 def test_defaults_anchors_auto_ladder_hardcoded():
     s = ShapProxiedFS()
-    assert s.n_anchors == "auto"               # lever 1 flipped to adaptive
+    assert s.n_anchors == "auto"  # lever 1 flipped to adaptive
     assert s.prescreen_ladder_mode == "hardcoded"  # lever 2 rejected as default
 
 
@@ -115,8 +212,8 @@ def _make_wide(seed, width=2000, n_inf=4, n_red=4, snr=2.5, rho=0.85):
     from mlframe.feature_selection._benchmarks._shap_proxy_regime_data import make_regime_dataset
 
     X, y, _ = make_regime_dataset(
-        n_samples=4000, n_informative=n_inf, n_redundant=n_red, redundancy_rho=rho,
-        n_noise=width - n_inf - n_red, snr=snr, task="binary", seed=seed)
+        n_samples=4000, n_informative=n_inf, n_redundant=n_red, redundancy_rho=rho, n_noise=width - n_inf - n_red, snr=snr, task="binary", seed=seed
+    )
     return X, pd.Series(y)
 
 
@@ -167,8 +264,7 @@ def test_biz_val_knee_ge_off_on_sparse_holdout():
 
     def holdout_auc(cols):
         Xtr, Xte, ytr, yte = train_test_split(X[cols], y, test_size=0.3, random_state=0, stratify=y)
-        m = xgb.XGBClassifier(n_estimators=120, max_depth=4, n_jobs=1, random_state=0,
-                              tree_method="hist", verbosity=0)
+        m = xgb.XGBClassifier(n_estimators=120, max_depth=4, n_jobs=1, random_state=0, tree_method="hist", verbosity=0)
         m.fit(Xtr, ytr)
         return roc_auc_score(yte, m.predict_proba(Xte)[:, 1])
 
