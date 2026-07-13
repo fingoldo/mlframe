@@ -82,6 +82,10 @@ def _phase_fit_pipeline(
     # simply no-op (see ``_entity_time_composite_fe.py``).
     group_ids: np.ndarray | None = None,
     timestamps: Any = None,
+    # Auxiliary relational table (interaction/events log distinct from train/val/test) for steps
+    # that need a SEPARATE reference table: latent_interaction_svd, nearest_past_join. None (default)
+    # is a genuine no-op for both.
+    auxiliary_events_df: Any = None,
 ) -> "FitPipelineResult":
     """Pipeline fitting and transformation.
 
@@ -442,6 +446,16 @@ def _phase_fit_pipeline(
 
         train_df, val_df, test_df = apply_ma_crossover_composite_fe(
             train_df, val_df, test_df, preprocessing_extensions, group_ids, timestamps,
+            train_idx, val_idx, test_idx, metadata=metadata, verbose=verbose,
+        )
+
+    # SVD latent-interaction embeddings -- needs a SEPARATE auxiliary events table, not columns on
+    # train/val/test. Real fit-time state (the fitted TF-IDF/SVD basis) persisted onto metadata.
+    if preprocessing_extensions is not None and getattr(preprocessing_extensions, "latent_interaction_svd_row_entity", None):
+        from ..pipeline._latent_interaction_svd_composite_fe import apply_latent_interaction_svd_composite_fe
+
+        train_df, val_df, test_df = apply_latent_interaction_svd_composite_fe(
+            train_df, val_df, test_df, preprocessing_extensions, auxiliary_events_df, group_ids,
             train_idx, val_idx, test_idx, metadata=metadata, verbose=verbose,
         )
 

@@ -161,3 +161,18 @@ def test_latent_interaction_features_transform_new_entities_partial_oov():
     mixed_events = pd.DataFrame({"entity": [8001, 8001], "item": [known_item, -999]})
     out = fitted.transform_new_entities(mixed_events)
     assert 0.0 < out.loc[8001, "oov_weight_fraction"] < 1.0
+
+
+def test_latent_interaction_features_transform_new_entities_empty_events_returns_empty_frame():
+    """A predict-time batch whose entities have ZERO interaction history yet (a legitimate cold-start
+    scenario, not a caller error) must return an empty-but-correctly-shaped DataFrame rather than
+    crashing inside TfidfTransformer.transform on a 0-sample matrix."""
+    events_df, _, _ = _make_clustered_interactions(seed=0)
+    _, _, fitted = latent_interaction_features(events_df, "entity", "item", n_components=8, use_tfidf=True, return_fitted=True)
+
+    empty_events = pd.DataFrame({"entity": pd.Series(dtype="int64"), "item": pd.Series(dtype="int64")})
+    out = fitted.transform_new_entities(empty_events)
+    assert len(out) == 0
+    assert out.index.name == "entity"
+    assert "oov_weight_fraction" in out.columns
+    assert len([c for c in out.columns if c != "oov_weight_fraction"]) == 8

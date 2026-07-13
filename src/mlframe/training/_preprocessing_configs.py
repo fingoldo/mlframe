@@ -462,6 +462,23 @@ class PreprocessingExtensionsConfig(BaseConfig):
     ma_crossover_windows: List[int] = Field(default_factory=lambda: [3, 5, 10])
     ma_crossover_long_window_weight_power: float = 0.0
 
+    # SVD latent-interaction embeddings (``mlframe.feature_engineering.latent_interaction_svd``).
+    # Unlike every other composite-FE step, this one needs a SEPARATE auxiliary reference table --
+    # ``train_mlframe_models_suite(auxiliary_events_df=...)`` -- an entity x item interaction log
+    # (e.g. customer x product purchases), not columns on train/val/test. The SVD basis is fit ONCE
+    # on the auxiliary table; row (entity) embeddings join onto train/val/test via ``group_ids``.
+    # REAL fit-time state (the fitted TF-IDF/SVD basis) is persisted directly onto metadata
+    # (pickled with the model bundle, same precedent as ``extensions_pipeline``) for predict-time
+    # replay, which needs its OWN fresh ``auxiliary_events_df`` at predict time. ``None`` row/col
+    # entity (default) is a genuine no-op.
+    latent_interaction_svd_row_entity: Optional[str] = None
+    latent_interaction_svd_col_entity: Optional[str] = None
+    latent_interaction_svd_weight_col: Optional[str] = None
+    latent_interaction_svd_time_col: Optional[str] = None
+    latent_interaction_svd_decay_half_life: Optional[float] = None
+    latent_interaction_svd_use_tfidf: bool = True
+    latent_interaction_svd_n_components: int = Field(default=10, ge=1)
+
     memory_safety_max_features: int = 100_000
     # iter-69 byte-aware guard: PolynomialFeatures' projected column count
     # alone (memory_safety_max_features) doesn't capture the actual

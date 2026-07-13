@@ -108,6 +108,13 @@ def train_mlframe_models_suite(
     split_config: Optional[Union[TrainingSplitConfig, Dict]] = None,
     pipeline_config: Optional[Union[PreprocessingBackendConfig, Dict]] = None,
     preprocessing_extensions: Optional[Union["PreprocessingExtensionsConfig", Dict]] = None,
+    # Auxiliary relational table (e.g. an interaction/events log distinct from the row-per-sample
+    # training frame) consumed by PreprocessingExtensionsConfig steps that need a SEPARATE reference
+    # table rather than columns already on train/val/test: latent_interaction_svd (entity x item
+    # interaction log for SVD embeddings) and nearest_past_join (historical rows to as-of match
+    # against). None (default) is a genuine no-op for both -- the suite behaves exactly as before
+    # this param existed.
+    auxiliary_events_df: Optional[Union[pd.DataFrame, pl.DataFrame]] = None,
     feature_types_config: Optional[Union[FeatureTypesConfig, Dict]] = None,
     linear_model_config: Optional[LinearModelConfig] = None,
     hyperparams_config: Optional[Union[ModelHyperparamsConfig, Dict]] = None,
@@ -452,6 +459,7 @@ def train_mlframe_models_suite(
         test_idx=ctx.test_idx,
         group_ids=group_ids,
         timestamps=timestamps,
+        auxiliary_events_df=auxiliary_events_df,
     )
     _bulk_setattr_to_ctx(ctx, (
         "train_df", "val_df", "test_df", "pipeline", "extensions_pipeline",
