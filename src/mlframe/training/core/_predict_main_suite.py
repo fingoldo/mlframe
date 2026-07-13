@@ -80,6 +80,7 @@ def predict_mlframe_models_suite(
     # import ...`` would create a hard cycle the meta-test flags.
     from .predict import _apply_extensions_pipeline, _combine_probs, _ensure_pandas_view, _is_polars_native_model, _is_post_hoc_calibrated_model, _replay_suite_datetime_decomposition, _resolve_chosen_ensemble_params, _resolve_chosen_flavour, _resolve_quantile_alphas, _run_batched, _validate_metadata_version_envelope
     from ..pipeline._categorical_composite_fe import replay_categorical_composite_fe
+    from ..pipeline._entity_time_composite_fe import replay_entity_time_composite_fe
     # Validate inputs
     if not isinstance(df, (pd.DataFrame, pl.DataFrame)):
         raise TypeError(f"df must be pandas or polars DataFrame, got {type(df).__name__}")
@@ -171,8 +172,10 @@ def predict_mlframe_models_suite(
     if verbose:
         logger.info("Preprocessing input data...")
 
+    _predict_group_ids = None
+    _predict_timestamps = None
     if features_and_targets_extractor is not None:
-        df, _, _, _, _, _, columns_to_drop, _ = features_and_targets_extractor.transform(df)
+        df, _, _, _predict_group_ids, _predict_timestamps, _, columns_to_drop, _ = features_and_targets_extractor.transform(df)
         df = _drop_cols_df(df, columns_to_drop)
 
     # Polars fastpath: decide BEFORE the eager pandas materialisation. If every loaded model is CB / XGB sklearn-API
@@ -211,6 +214,7 @@ def predict_mlframe_models_suite(
     # Replay suite-owned datetime decomposition before validation/pipeline so the predict frame has the SAME derived columns as training; FTE already handled its own ts_field on the line above.
     df = _replay_suite_datetime_decomposition(df, metadata, verbose=verbose)
     df = replay_categorical_composite_fe(df, metadata, verbose=verbose)
+    df = replay_entity_time_composite_fe(df, metadata, _predict_group_ids, _predict_timestamps, verbose=verbose)
 
     df = _validate_input_columns_against_metadata(df, metadata, verbose=bool(verbose))
 

@@ -416,6 +416,23 @@ class PreprocessingExtensionsConfig(BaseConfig):
     # 2^30-column powerset or an O(n^2) MI-scoring pass across hundreds of categorical columns.
     categorical_composite_max_source_columns: int = Field(default=12, ge=2)
 
+    # Entity/time-keyed FE (``mlframe.feature_engineering.state_duration`` /
+    # ``recency_aggregation``). Both need a per-row entity key (``group_ids``, threaded through from
+    # the FeaturesAndTargetsExtractor's own group-key resolution) and run at the SAME pre-encoding
+    # point as the categorical composite steps above (no fit-time state to persist -- these are pure
+    # functions of (values, group_ids, order), so predict-time replay just re-runs the same
+    # computation on the predict frame's own group_ids/timestamps, no metadata-persisted groups
+    # needed). No-op entirely when ``group_ids`` is unavailable (e.g. no FeaturesAndTargetsExtractor,
+    # or one that doesn't resolve a group key). Column lists are explicit (mirrors ``tfidf_columns``)
+    # since duration/recency semantics only make sense for a CALLER-known boolean/numeric column,
+    # not something auto-detectable from dtype alone.
+    state_duration_columns: List[str] = Field(default_factory=list)
+    state_duration_include_activation_count: bool = False
+    recency_aggregation_columns: List[str] = Field(default_factory=list)
+    recency_aggregation_scheme: Literal["poly", "exp", "power"] = "poly"
+    recency_aggregation_param: float = 1.0
+    recency_aggregation_agg: Literal["mean", "sum", "min", "max", "std", "var"] = "mean"
+
     memory_safety_max_features: int = 100_000
     # iter-69 byte-aware guard: PolynomialFeatures' projected column count
     # alone (memory_safety_max_features) doesn't capture the actual

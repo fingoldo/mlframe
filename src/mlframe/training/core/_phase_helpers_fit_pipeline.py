@@ -73,6 +73,15 @@ def _phase_fit_pipeline(
     verbose: bool,
     target_by_type: Any = None,
     train_idx: np.ndarray | None = None,
+    val_idx: np.ndarray | None = None,
+    test_idx: np.ndarray | None = None,
+    # Full-length (pre-split), aligned to the ORIGINAL df -- sliced by train_idx/val_idx/test_idx
+    # below for the entity/time-keyed FE steps (state_duration, recency_aggregation, ...) that need
+    # a group/time key the suite already computes for CV/splitting but never threaded this far
+    # before. ``None`` when the caller has no grouping/time-awareness configured -- those steps
+    # simply no-op (see ``_entity_time_composite_fe.py``).
+    group_ids: np.ndarray | None = None,
+    timestamps: Any = None,
 ) -> "FitPipelineResult":
     """Pipeline fitting and transformation.
 
@@ -375,6 +384,19 @@ def _phase_fit_pipeline(
                 _y_for_composite = None
         train_df, val_df, test_df = apply_categorical_composite_fe(
             train_df, val_df, test_df, preprocessing_extensions, _y_for_composite, metadata, verbose=verbose,
+        )
+
+    # Entity/time-keyed FE (state_duration / recency_aggregation) -- same pre-encoding point, needs
+    # group_ids (threaded through from the FeaturesAndTargetsExtractor's own group-key resolution).
+    if preprocessing_extensions is not None and (
+        getattr(preprocessing_extensions, "state_duration_columns", None)
+        or getattr(preprocessing_extensions, "recency_aggregation_columns", None)
+    ):
+        from ..pipeline._entity_time_composite_fe import apply_entity_time_composite_fe
+
+        train_df, val_df, test_df = apply_entity_time_composite_fe(
+            train_df, val_df, test_df, preprocessing_extensions, group_ids, timestamps,
+            train_idx, val_idx, test_idx, metadata=metadata, verbose=verbose,
         )
 
     t0_fit_pipeline = timer()

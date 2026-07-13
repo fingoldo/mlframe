@@ -448,6 +448,10 @@ def train_mlframe_models_suite(
         # PRE-split target down to train-set rows so PySR sees train-only y.
         target_by_type=target_by_type,
         train_idx=ctx.train_idx,
+        val_idx=ctx.val_idx,
+        test_idx=ctx.test_idx,
+        group_ids=group_ids,
+        timestamps=timestamps,
     )
     _bulk_setattr_to_ctx(ctx, (
         "train_df", "val_df", "test_df", "pipeline", "extensions_pipeline",
