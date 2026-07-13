@@ -130,26 +130,36 @@ def _prefill_cond_MIs_gpu(
         y_index = int(np.asarray(y).ravel()[0])
         factors_nbins_arr = np.asarray(factors_nbins)
 
+        # Candidate-key strings are z-independent -- build them once, reuse across every z below.
+        cand_keys = [arr2str(np.asarray([ci], dtype=np.int64)) for ci in cand_indices]
+
         n_written = 0
         for z in selected_vars:
             z_idx = int(z)
             z_key_arr = np.asarray([z_idx], dtype=np.int32)
             z_str = arr2str(z_key_arr)
+            # Dispatch ONLY the (cand, z) pairs missing from the cache. The greedy loop calls this
+            # prefill EVERY round with the full selected_vars list, but each round adds just ONE new z --
+            # every (surviving-candidate, older-z) CMI was already computed and cached in a prior round,
+            # and the old code recomputed the ENTIRE (candidates x z) matrix per round only to discard
+            # the already-cached values at write time (measured on the wellbore-100k profile: 4375
+            # dispatches / ~500s of _cpu_cmi_loop, the single largest FE-phase hotspot, mostly redundant).
+            missing_pos = [j for j, ck in enumerate(cand_keys) if (ck + "|" + z_str) not in cached_cond_MIs]
+            if not missing_pos:
+                continue
+            missing_arr = cand_indices_arr[np.asarray(missing_pos, dtype=np.int64)]
             cmi_vec = conditional_mi_batched_dispatch(
                 factors_data=factors_data,
-                cand_indices=cand_indices_arr,
+                cand_indices=missing_arr,
                 y_index=y_index,
                 z_index=z_idx,
                 factors_nbins=factors_nbins_arr,
                 dtype=dtype,
                 force=force,
             )
-            for ci, val in zip(cand_indices, cmi_vec):
-                key = arr2str(np.asarray([ci], dtype=np.int64)) + "|" + z_str
-                # Store RAW CMI; never overwrite a value the loop already cached.
-                if key not in cached_cond_MIs:
-                    cached_cond_MIs[key] = float(val)
-                    n_written += 1
+            for j, val in zip(missing_pos, cmi_vec):
+                cached_cond_MIs[cand_keys[j] + "|" + z_str] = float(val)
+                n_written += 1
         return n_written
     except Exception as _exc:
         logger.debug("gpu cmi pre-fill skipped (%s); scalar CPU path used", _exc)
