@@ -200,19 +200,40 @@ inspect `fs.shap_proxy_report_['prefilter']['stage1_survivors']` / clustering un
 check whether weak/xor original columns survive the PREFILTER (a separate, earlier stage this fix
 does not touch) before ever reaching the prescreen this fix targets.
 
-**Follow-up probe launched (result recorded here since it landed very late in the session):**
-Prefilter stage report on the same fixture: `{'kept': 112, 'of': 3000}` — confirms prefilter is a
-real narrowing step (3000 -> 112) that runs BEFORE clustering/prescreen. A second background script
-was launched to check directly whether `f50`-`f55` (weak) and `f100`/`f101` (xor) are among the 112
-`stage1_survivors`, or among `fs.selected_features_` at all — this is the decisive test between
-hypothesis 1 (lost at prefilter, before this session's fix even applies) and hypothesis 2
-(present but under the rescue's noise floor). The script did not return a result before this
-session ended (persistent slow/stalled execution throughout — see housekeeping notes above). If a
-future session finds `debug_rescue_e2e2.txt` still present in a stale scratchpad, check it first;
-otherwise re-run the check described immediately above (`stage1_survivors` / `selected_features_`
-membership for f50-f55/f100/f101) as the FIRST action on this thread — it is a single fast query
-against an already-fitted model in the fixture-generation script above, not a fresh fit, so should
-resolve in seconds once machine load is normal.
+**Follow-up probes (landed very late in the session — recorded here as the most complete evidence
+gathered, though not fully conclusive):**
+
+Probe 2 (`debug_rescue_e2e2.txt`): `stage1_survivors` has 224 entries (post stage-1 F-score cut,
+prefilter's two_stage method); `proxy_best.features` (the winning candidate's post-clustering unit
+indices, 19 units) maps to `selected_features_ = [f0, f1, f3, f4, f5]` — **only 5 of the 6 strong
+features, ZERO weak, ZERO xor.** Notably even ONE strong feature (`f2`) is missing from the final
+selection, which is itself unexpected on such a strong, unambiguous signal (weight 1.0, clean
+additive) — this is a hint that noise/instability affects more than just the intentionally-weak
+features on this fixture, not a clean single-stage story.
+
+Probe 3 (`debug_rescue_e2e3.txt`, index-level `stage1_survivors` membership + F-scores for
+weak/xor/strong indices) was launched to pin down definitively whether f50-55/f100-101 survive the
+prefilter's stage-1 F-score cut, but did NOT return a result before this session ended (persistent
+slow/stalled execution throughout — see housekeeping notes above).
+
+**Working conclusion for next session (not 100% proven, but the strongest evidence available):**
+Given probe 2's result (missing even one strong feature, zero weak, zero xor), the most likely
+explanation is loss BEFORE or INDEPENDENT of the prescreen this session's fix targets — most likely
+at the prefilter's stage-1 F-score cut (3000 -> 224, a univariate/ANOVA-style ranking that is
+blind to the XOR pair by construction, and may rank the 0.25-weight weak features unfavourably
+against 2985 noise columns even before the booster-based stage-B narrowing). This session's shipped
+prescreen fix (commit `ffb48f539`) is therefore validated as technically correct and
+unit-tested in isolation, but is **not the fix that closes this specific fixture's recall gap** —
+the bottleneck sits upstream. Do NOT treat the shipped fix as resolving the originally-observed
+symptom; it closes a real, narrower bug (the prescreen/knee noise-floor blindness) that is still
+worth having, just not sufficient to explain this fixture's e2e recall=0.
+
+**Concrete first action for next session:** re-run
+`debug_rescue_e2e3.txt`'s script (already written, just needs a non-contended machine) to get the
+index-level `stage1_survivors` / F-score evidence and settle this definitively. If confirmed as a
+stage-1 F-score cut problem, the fix is the SAME noise_floor_rescue_keep_set pattern (already
+shipped, reusable) applied to the prefilter's stage-1 keep-set construction (see
+`_shap_proxy_prefilter.py`, `two_stage` method) rather than (or in addition to) the prescreen.
 
 **Still outstanding (next session, in priority order):**
 1. **Distinguish the two hypotheses above** before trusting or further building on this fix. If
