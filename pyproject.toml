@@ -595,7 +595,7 @@ DEP001 = [
     "ml_insights", "dirichletcal", "pycaret", "sklearnex", "hnswlib", "xxhash", "ndd", "BorutaShap",
     "powershap", "ngboost", "autogluon", "lightautoml", "quantile_forest", "sksurv", "tensorflow",
     "keras", "experiment_impact_tracker", "concepts", "gudhi", "loky", "mist_statinf",
-    "infer", "model", "finance",
+    "infer", "model", "finance", "pyod",
 ]
 
 # DEP003 (transitive dependency imported directly): mirrors DEP002's stance -- these are pulled in
