@@ -62,3 +62,45 @@ def test_greedy_backward_elimination_no_removal_helps_returns_all_features():
     cv = KFold(n_splits=4, shuffle=True, random_state=0)
     survivors = greedy_backward_elimination(Ridge(alpha=0.01), X, y, scoring=r2_score, cv=cv, min_features=1)
     assert set(survivors) == {"a", "b", "c"}
+
+
+def test_greedy_backward_elimination_matches_fresh_per_call_kfold_reference():
+    """``_cv_score`` used to call ``cv.split(X)`` fresh on every column-drop candidate; the fold indices only ever
+    depend on row count (never on which columns remain), so re-deriving them per candidate was pure wasted
+    shuffling -- the fix precomputes the fold indices ONCE per ``greedy_backward_elimination`` call and reuses
+    them. Pin bit-identical selection against a reference that re-derives a KFold(shuffle=True, random_state=0)
+    split fresh for every single candidate (the pre-fix behavior), proving the hoist changed no result."""
+    from sklearn.base import clone
+
+    def _reference_score(estimator, frame, y_arr, n_splits, scoring):
+        cv = KFold(n_splits=n_splits, shuffle=True, random_state=0)
+        row_select = (lambda idx: frame.iloc[idx]) if hasattr(frame, "iloc") else (lambda idx: frame[idx])
+        scores = []
+        for train_idx, test_idx in cv.split(frame):
+            model = clone(estimator)
+            model.fit(row_select(train_idx), y_arr[train_idx])
+            preds = model.predict(row_select(test_idx))
+            scores.append(scoring(y_arr[test_idx], preds))
+        return float(np.mean(scores))
+
+    def _reference_greedy_backward_elimination(estimator, X, y, scoring, n_splits, min_features=1, tol=0.0):
+        y_arr = np.asarray(y)
+        remaining = list(X.columns)
+        current_score = _reference_score(estimator, X[remaining], y_arr, n_splits, scoring)
+        while len(remaining) > min_features:
+            best_candidate, best_score = None, current_score
+            for col in remaining:
+                candidate_cols = [c for c in remaining if c != col]
+                score = _reference_score(estimator, X[candidate_cols], y_arr, n_splits, scoring)
+                if score > best_score + tol:
+                    best_score, best_candidate = score, col
+            if best_candidate is None:
+                break
+            remaining.remove(best_candidate)
+            current_score = best_score
+        return remaining
+
+    X, y = _make_overparameterized_regression(n=80, n_signal=3, n_noise=12, seed=5)
+    reference = _reference_greedy_backward_elimination(Ridge(alpha=0.1), X, y, r2_score, n_splits=4)
+    actual = greedy_backward_elimination(Ridge(alpha=0.1), X, y, scoring=r2_score, cv=KFold(n_splits=4, shuffle=True, random_state=0), min_features=1)
+    assert actual == reference, f"hoisted-fold-precompute changed the selection: {actual} != {reference}"

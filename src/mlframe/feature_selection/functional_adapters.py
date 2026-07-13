@@ -59,6 +59,56 @@ def _support_from_selected(feature_names: list, selected: list) -> np.ndarray:
     return np.asarray([str(c) in selected_set for c in feature_names], dtype=bool)
 
 
+def _numeric_view_for_selection(X):
+    """Return an all-numeric view of ``X`` (same column order/names) for the tree-estimator-driven selection loop.
+
+    ``forward_select`` / ``greedy_backward_elimination`` / ``iterative_zero_importance_pruning`` / ``cascade_select``
+    all fit the estimator on raw candidate-column subsets of ``X`` -- with the default ``_default_tree_estimator``
+    (plain sklearn RandomForest) this crashes with "could not convert string to float" on ANY non-numeric column,
+    e.g. a CatBoost-native categorical kept as a raw string (``skip_categorical_encoding=True``): caught live via a
+    fuzz combo where ``use_forward_select_fs`` (default-ON) silently dropped the whole cb model from the suite.
+    Ordinal-encode (``pd.factorize``) any non-numeric column so the default/any bare-numeric-only estimator can
+    consume it; a fully-numeric ``X`` is returned unchanged (no copy). Only affects the internal selection fit --
+    ``_finalize`` still reads column NAMES off the original ``X``, so the selected features returned to the caller
+    are unaffected.
+    """
+    import pandas as pd
+
+    if isinstance(X, pd.DataFrame):
+        non_numeric = [c for c in X.columns if X[c].dtype.kind not in "iufb"]
+        if not non_numeric:
+            return X
+        out = X.copy()
+        for c in non_numeric:
+            codes, _ = pd.factorize(out[c], use_na_sentinel=True)
+            out[c] = np.where(codes < 0, np.nan, codes).astype(np.float64)
+        return out
+    if hasattr(X, "dtypes") and hasattr(X, "with_columns"):
+        # polars DataFrame: encoding must stay a polars frame (never bare np.asarray(X), which silently
+        # strips column names -- forward_select/cascade_select need those to name candidate subsets, and
+        # dropping them was caught live as a correctness regression, not just a cosmetic type mismatch).
+        non_numeric = [c for c, dt in zip(X.columns, X.dtypes) if not dt.is_numeric()]
+        if not non_numeric:
+            return X
+        import polars as pl
+
+        out = X
+        for c in non_numeric:
+            codes, _ = pd.factorize(out[c].to_numpy(), use_na_sentinel=True)
+            out = out.with_columns(pl.Series(c, np.where(codes < 0, np.nan, codes).astype(np.float64)))
+        return out
+    if isinstance(X, np.ndarray) and X.dtype.kind in "iufb":
+        return X
+    arr = np.asarray(X)
+    if arr.dtype.kind in "iufb":
+        return arr
+    out = np.empty(arr.shape, dtype=np.float64)
+    for j in range(arr.shape[1]):
+        codes, _ = pd.factorize(pd.Series(arr[:, j]), use_na_sentinel=True)
+        out[:, j] = np.where(codes < 0, np.nan, codes).astype(np.float64)
+    return out
+
+
 class _FunctionalSelectorBase(BaseEstimator, TransformerMixin):
     """Shared fit/transform/get_support plumbing for the functional-utility adapters below."""
 
@@ -131,7 +181,7 @@ class ForwardSelectSelector(_FunctionalSelectorBase):
             return clone(base_estimator)
 
         selected = forward_select(
-            X, y, estimator_factory, scoring=scoring, cv=self.cv, max_features=self.max_features,
+            _numeric_view_for_selection(X), y, estimator_factory, scoring=scoring, cv=self.cv, max_features=self.max_features,
             min_improvement=self.min_improvement, patience=self.patience, significance_level=self.significance_level,
             return_report=False,
         )
@@ -169,7 +219,7 @@ class GreedyBackwardEliminationSelector(_FunctionalSelectorBase):
         scoring = self.scoring if self.scoring is not None else _default_pointwise_scoring(y)
 
         selected = greedy_backward_elimination(
-            base_estimator, X, y, scoring, cv=self.cv, min_features=self.min_features, tol=self.tol,
+            base_estimator, _numeric_view_for_selection(X), y, scoring, cv=self.cv, min_features=self.min_features, tol=self.tol,
             n_repeats=self.n_repeats, seed_base=self.seed_base,
         )
         self._finalize(X, selected)
@@ -203,7 +253,7 @@ class ZeroImportancePruningSelector(_FunctionalSelectorBase):
         scoring = self.scoring if self.scoring is not None else _default_pointwise_scoring(y)
 
         selected = iterative_zero_importance_pruning(
-            base_estimator, X, y, scoring, cv=self.cv, importance_threshold=self.importance_threshold,
+            base_estimator, _numeric_view_for_selection(X), y, scoring, cv=self.cv, importance_threshold=self.importance_threshold,
             max_rounds=self.max_rounds, importance_fn=self.importance_fn,
         )
         self._finalize(X, selected)
@@ -246,7 +296,7 @@ class CascadeSelectSelector(_FunctionalSelectorBase):
             return clone(base_estimator)
 
         result = cascade_select(
-            X, y, estimator_factory, n_boruta_iterations=self.n_boruta_iterations, boruta_alpha=self.boruta_alpha,
+            _numeric_view_for_selection(X), y, estimator_factory, n_boruta_iterations=self.n_boruta_iterations, boruta_alpha=self.boruta_alpha,
             forward_max_features=self.forward_max_features, forward_min_improvement=self.forward_min_improvement,
             cv=self.cv, scoring=scoring, random_state=self.random_state, rfecv_kwargs=self.rfecv_kwargs,
         )
