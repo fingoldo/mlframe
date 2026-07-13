@@ -47,6 +47,16 @@ try:
 except Exception:
     pass
 
+# A fuzz combo's Unicode category value (e.g. accented / Cyrillic text under input=polars_utf8) can end up inside a
+# caught exception's message; printing it on a cp1251 Windows console then raises UnicodeEncodeError, killing the
+# whole profiling run on an otherwise-handled error. errors="replace" makes any unprintable character a "?" instead
+# of crashing the harness.
+try:
+    sys.stdout.reconfigure(errors="replace")
+    sys.stderr.reconfigure(errors="replace")
+except Exception:
+    pass
+
 # Quiet down noisy loggers so the cProfile output dominates the screen.
 logging.basicConfig(level=logging.WARNING)
 for noisy in ("sklearn", "lightgbm", "xgboost", "catboost", "matplotlib"):
