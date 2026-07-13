@@ -17,7 +17,9 @@ and PyTorch Lightning models on one dataset. It handles polars and pandas frames
 mixed dtypes, text features, ranking and quantile targets, and composite-target
 stacking through a uniform API.
 
-The changelog lives in [CHANGELOG.md](CHANGELOG.md).
+The changelog lives in [CHANGELOG.md](CHANGELOG.md). Full guide index, including
+baseline diagnostics, honest-diagnostics, calibration policy, composite-target
+config reference, and error-decoding guides: [docs/README.md](docs/README.md).
 
 ## Installation
 
@@ -46,7 +48,7 @@ pip install -e "./mlframe[calibration]"          # shap + venn-abers + netcal + 
 pip install -e "./mlframe[neural]"               # torch + lightning + captum + transformers
 pip install -e "./mlframe[automl]"               # flaml (HPO)
 pip install -e "./mlframe[feature_engineering]"  # pysr (symbolic regression) + optbinning
-pip install -e "./mlframe[sampling]"             # imbalanced-learn + category-encoders + iterative-stratification
+pip install -e "./mlframe[sampling]"             # imbalanced-learn + iterative-stratification
 pip install -e "./mlframe[polars_ext]"           # polars-talib + polars-ds
 pip install -e "./mlframe[viz]"                  # matplotlib + plotly + seaborn + altair + hvplot
 pip install -e "./mlframe[mlflow]"               # mlflow experiment tracking
@@ -89,11 +91,15 @@ pytest
 | `mlframe.preprocessing`       | NaN cleaning, scaling, outlier handling, clustering |
 | `mlframe.inference`           | Batch and streaming prediction, SHAP / permutation explainability |
 | `mlframe.reporting`           | Matplotlib and plotly chart backends, spec-driven panel rendering |
-| `mlframe.core`                | numba-accelerated array ops, statistical helpers, EWMA |
+| `mlframe.core`                | numba-accelerated array ops, statistical helpers, EWMA, spectral matrix seriation, robust location estimators |
 | `mlframe.data`                | Built-in and synthetic dataset generators |
 | `mlframe.testing`             | Parametric frame generation for property-based tests |
 | `mlframe.integrations`        | Optional third-party integrations (MLflow) |
-| `mlframe.utils`               | EDA, experiments, text, and miscellaneous helpers |
+| `mlframe.utils`               | EDA, experiments, text, `ParamOracle` data-dependent parameter learning, and miscellaneous helpers |
+| `mlframe.inspection`          | Model-agnostic interpretation primitives absent from `sklearn.inspection` (Friedman-Popescu H-statistic interaction detection) |
+| `mlframe.signal`               | DTW alignment and Gaussian-Process smoothing/confidence features for irregularly-sampled series |
+| `mlframe.system`              | GPU import guards and kernel-tuning-cache integration shared across subpackages |
+| `mlframe.votenrank`           | Ensemble-blending strategies beyond `mlframe.models` (confidence-gated, adversarial-stochastic, rank-splice, KNN-fallback blends) |
 
 ## Quick examples
 
@@ -457,6 +463,91 @@ preds = get_models_raw_predictions(models, X_aligned, Y=None)
 print(preds)
 ```
 
+## Suite-level composite feature engineering (opt-in)
+
+`train_mlframe_models_suite` can run eight composite feature-engineering tricks
+directly as part of its own preprocessing pass, before categorical encoding —
+each is off by default and enabled by setting the relevant fields on
+`PreprocessingExtensionsConfig` (passed as `preprocessing_config=`):
+
+- **Categorical composite concat** — `categorical_powerset_concat_enabled` /
+  `categorical_group_concat_auto_enabled`: concatenate categorical columns
+  (all pairs/subsets, or MI-selected groups) into new joint categorical features.
+- **Entity/time state duration & recency aggregation** — `state_duration_columns`,
+  `recency_aggregation_columns`: how long an entity has held its current
+  state, and poly/exp/power recency-weighted aggregates over its history.
+- **Cross-sectional neighbor aggregates** — `cross_sectional_neighbors_snapshot_col`
+  / `cross_sectional_neighbors_feature_cols`: per-row summary stats (mean/std/...)
+  over the k nearest peers sharing a snapshot key.
+- **Two-step target encoding** — `two_step_target_encode_columns`: a
+  leakage-safe (train-fit, predict-replay) target encoder with recency-decayed
+  smoothing toward a global prior.
+- **Moving-average crossover** — `ma_crossover_columns` / `ma_crossover_windows`:
+  short/long window moving averages and their crossover signal per entity.
+- **Latent interaction SVD** — `latent_interaction_svd_row_entity` /
+  `latent_interaction_svd_col_entity`: dense embeddings from the SVD of an
+  entity-by-entity co-occurrence/interaction matrix built from a separate
+  `auxiliary_events_df`.
+- **Nearest-past join** — `nearest_past_join_on` / `nearest_past_join_by`:
+  as-of (leakage-safe, most-recent-past-only) enrichment from `auxiliary_events_df`.
+- **Event-proximity decay** — `event_proximity_decay_event_dates`: distance-to-nearest-event
+  decay features from a fixed list of event dates.
+
+The two auxiliary-table tricks (latent interaction SVD, nearest-past join) read
+from a new top-level `auxiliary_events_df: Optional[Union[pd.DataFrame, pl.DataFrame]]`
+parameter on `train_mlframe_models_suite` and the predict entry points — a
+separate events/entities table with its own row identity, distinct from the
+main training frame. Each trick persists what it needs (config, a fitted
+entity-lookup, or a fitted SVD embedding object) onto the trained bundle's
+`metadata` and replays identically at predict time; pass a fresh
+`auxiliary_events_df` at predict time to pick up new entities/events without
+refitting.
+
+## Also worth knowing about
+
+Smaller, well-tested primitives that don't need a full walkthrough but are worth
+knowing exist — each has a docstring, unit tests, and (where relevant) a
+quantitative business-value test under `tests/`:
+
+- **`mlframe.models.rf_proximity.rf_proximity_matrix` / `rf_outlier_measure`** —
+  Breiman's random-forest proximity (fraction of trees where two rows share a
+  leaf) as a reusable N×N similarity/distance metric plus an outlier score,
+  computed from any fitted forest's leaf indices — numba-accelerated, memory-guarded.
+- **`mlframe.core.matrix_seriation.seriate`** — reorders a correlation/similarity
+  matrix by spectral score (Fiedler vector or leading SVD vector) so correlated
+  feature blocks become visually contiguous instead of scattered across an
+  unreadable `df.corr()` heatmap; doubles as a feature-clustering primitive.
+- **`mlframe.core.composite_similarity.fit_composite_similarity`** — Dyakonov's
+  LENKOR technique (1st place, ECML-PKDD 2011 Discovery Challenge): coordinate-descent-tunes
+  weights to blend several precomputed per-attribute-block similarities (authors,
+  category, co-view counts, ...) into one learned metric, for tasks where how to
+  compare the whole is unclear but how to compare its parts is.
+- **`mlframe.evaluation.group_leakage_guard.assert_no_group_leakage`** — a
+  runtime assertion that no group/entity ID appears on both sides of a CV
+  split, plus near-duplicate-feature detection across fold boundaries for the
+  implicit leaks an explicit group column can't catch.
+- **`mlframe.evaluation.AdversarialValidator`** — unifies adversarial
+  train/test-shift AUC, per-feature drift importance, and test-like
+  validation-fold selection (picking train rows most similar to the true test
+  distribution) into one object.
+- **`mlframe.votenrank`** — ensemble-blending strategies beyond stack/blend/vote:
+  confidence-gated blending (mix in an auxiliary model only where it's
+  confident, not by a fixed weight), adversarial-stochastic blend, rank-splice,
+  KNN-fallback, and geometric/correlation-diversity-aware blends.
+- **`mlframe.signal.gp_smoothing.compute_gp_smoothed_features`** — a Gaussian-Process
+  front end for irregularly-sampled time series (the PLAsTiCC-winning technique):
+  fits a Matern-kernel GP per series and extracts both the smoothed value and the
+  posterior standard deviation as a built-in local-data-density feature.
+- **`mlframe.core.robust_location`** — redescending M-estimator mean (Meshalkin /
+  Huber / Tukey-biweight weighting) and the geometric median (Weiszfeld
+  iteration) for outlier-robust aggregation where the plain mean is too
+  sensitive and the coordinate-wise median is ill-defined in >1D.
+- **`mlframe.testing.parametric`** — a thin, mlframe-tuned wrapper around
+  `polars.testing.parametric` that generates test frames hitting the dtype /
+  nullability shapes that actually crash CatBoost/XGBoost/LightGBM in
+  production (nulls inside `pl.Categorical`, all-null high-cardinality text
+  columns, constant/inf/NaN numeric columns), rather than hand-picked happy-path fixtures.
+
 ## Visualization & Diagnostics
 
 `train_mlframe_models_suite` emits a task-appropriate set of diagnostic charts
@@ -543,9 +634,9 @@ mode of a stale hit differ between them.
 **Layer 1: `_PRE_PIPELINE_CACHE` (content-keyed).** Caches the output of
 `(SimpleImputer + StandardScaler + feature selectors).fit_transform(train_df, val_df)`
 so consecutive models in one suite call that share the same pre-pipeline structure
-reuse the fitted transforms. Keys come from a content fingerprint of `train_df`,
-`val_df`, the pipeline signature, the target, the target name, and optionally sample
-weights. Consecutive lookups see the same Python objects (same `id()`) but the value
+reuse the fitted transforms. Keys come from content fingerprints of `train_df`,
+`val_df`, and the target array, the pipeline signature, the target name, and
+optionally sample weights. Consecutive lookups see the same Python objects (same `id()`) but the value
 differs across targets, so id-keying would alias entries and content-keying is the
 only safe option. The hash cost is amortised across the pre-pipeline fit a hit skips.
 

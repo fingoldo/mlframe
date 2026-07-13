@@ -15,6 +15,8 @@ deeper material in the docs root.
 | [`feature_handling_examples.md`](feature_handling_examples.md) | `FeatureHandlingConfig` cookbook — text / categorical / per-model handling recipes wired via `feature_handling_config=` |
 | [`composite_targets_tutorial.ipynb`](composite_targets_tutorial.ipynb) | End-to-end TVT walkthrough notebook for composite-target discovery |
 | [`sidecar_verification_guide.md`](sidecar_verification_guide.md) | What a sha256 "sidecar" file is, why saved models are loaded through one, and what it does/doesn't protect against |
+| [`composite_targets_guide.md`](composite_targets_guide.md) | `CompositeTargetEstimator` and automatic composite-target discovery — transform catalog, config, and when a composite target beats the raw one |
+| [`composite_config_reference.md`](composite_config_reference.md) | `CompositeTargetDiscoveryConfig` field-by-field reference |
 | [`MULTI_OUTPUT.md`](MULTI_OUTPUT.md) | Multilabel / multiclass classification design notes |
 | [`MULTI_TARGET_REGRESSION.md`](MULTI_TARGET_REGRESSION.md) | Multi-target (K-column) regression support matrix and integration roadmap |
 | [`SELECTION_BIAS.md`](SELECTION_BIAS.md) | PU-learning and drift-correction wrappers for biased-sampling problems |
