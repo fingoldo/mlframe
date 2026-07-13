@@ -443,6 +443,16 @@ class PreprocessingExtensionsConfig(BaseConfig):
     cross_sectional_neighbors_k: int = Field(default=10, ge=1)
     cross_sectional_neighbors_agg_stats: List[str] = Field(default_factory=lambda: ["mean", "std"])
 
+    # Two-step recency-weighted target encoding (``mlframe.feature_engineering.two_step_target_encode``).
+    # Needs group_ids (entity key) AND y_train -- unlike the entity/time steps above, this has REAL
+    # fit-time state (a per-entity encoded-value lookup table, persisted onto metadata) since predict
+    # time has no target to encode from. Train rows get the leak-free causal=True expanding-window
+    # encoding; val/test/predict rows look up their entity's train-only terminal encoding, falling
+    # back to a smoothed global prior for entities unseen in train. ``None`` (default) is a no-op.
+    two_step_target_encode_columns: List[str] = Field(default_factory=list)
+    two_step_target_encode_decay_half_life: float = 30.0
+    two_step_target_encode_smoothing: float = 1.0
+
     memory_safety_max_features: int = 100_000
     # iter-69 byte-aware guard: PolynomialFeatures' projected column count
     # alone (memory_safety_max_features) doesn't capture the actual

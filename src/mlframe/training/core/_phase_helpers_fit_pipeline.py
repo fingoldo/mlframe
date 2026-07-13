@@ -362,6 +362,33 @@ def _phase_fit_pipeline(
         # callers are unaffected (they already construct their own instance upstream).
         preprocessing_extensions = PreprocessingExtensionsConfig()
 
+    # Shared train-only y extraction for the composite-FE steps below (categorical auto-group
+    # discovery + two-step target encoding) that need a supervised signal. Cheap no-op when unused.
+    # target_by_type carries the PRE-split full target -- slice to train_idx (mirrors the PySR
+    # extraction below) so these steps never see val/test rows' targets.
+    _y_for_composite = None
+    if target_by_type is not None and hasattr(target_by_type, "items"):
+        try:
+            for _v in target_by_type.values():
+                _cand = next(iter(_v.values())) if hasattr(_v, "values") else _v
+                if _cand is not None:
+                    _y_for_composite = _cand.to_numpy() if hasattr(_cand, "to_numpy") else np.asarray(_cand)
+                    break
+        except Exception:
+            _y_for_composite = None
+    if (
+        _y_for_composite is not None and train_idx is not None
+        and train_df is not None and hasattr(train_df, "shape") and len(_y_for_composite) != train_df.shape[0]
+    ):
+        try:
+            _idx_arr_composite = np.asarray(train_idx)
+            if train_df is not None and len(_idx_arr_composite) == train_df.shape[0] and int(_idx_arr_composite.max()) < len(_y_for_composite):
+                _y_for_composite = _y_for_composite[_idx_arr_composite]
+            else:
+                _y_for_composite = None
+        except Exception:
+            _y_for_composite = None
+
     # Categorical composite FE (powerset concat / auto MI-grouped concat) -- MUST run before
     # fit_and_transform_pipeline's categorical encoding: a composite column produced after encoding
     # would be dropped by apply_preprocessing_extensions' numeric-only gate before any downstream
@@ -372,16 +399,6 @@ def _phase_fit_pipeline(
     ):
         from ..pipeline._categorical_composite_fe import apply_categorical_composite_fe
 
-        _y_for_composite = None
-        if target_by_type is not None and hasattr(target_by_type, "items"):
-            try:
-                for _v in target_by_type.values():
-                    _cand = next(iter(_v.values())) if hasattr(_v, "values") else _v
-                    if _cand is not None:
-                        _y_for_composite = _cand.to_numpy() if hasattr(_cand, "to_numpy") else np.asarray(_cand)
-                        break
-            except Exception:
-                _y_for_composite = None
         train_df, val_df, test_df = apply_categorical_composite_fe(
             train_df, val_df, test_df, preprocessing_extensions, _y_for_composite, metadata, verbose=verbose,
         )
@@ -406,6 +423,16 @@ def _phase_fit_pipeline(
 
         train_df, val_df, test_df = apply_cross_sectional_composite_fe(
             train_df, val_df, test_df, preprocessing_extensions, metadata=metadata, verbose=verbose,
+        )
+
+    # Two-step recency-weighted target encoding -- needs group_ids AND train-only y (real fit-time
+    # state: a per-entity lookup table persisted onto metadata for val/test/predict).
+    if preprocessing_extensions is not None and getattr(preprocessing_extensions, "two_step_target_encode_columns", None):
+        from ..pipeline._target_encoding_composite_fe import apply_target_encoding_composite_fe
+
+        train_df, val_df, test_df = apply_target_encoding_composite_fe(
+            train_df, val_df, test_df, preprocessing_extensions, group_ids, timestamps, _y_for_composite,
+            train_idx, val_idx, test_idx, metadata=metadata, verbose=verbose,
         )
 
     t0_fit_pipeline = timer()
