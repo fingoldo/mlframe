@@ -133,13 +133,13 @@ def test_rfecv_sffs_swap_uses_secondary_name_key() -> None:
 
 def test_rfecv_stability_topk_uses_lexsort() -> None:
     import re
-    src = _read("feature_selection/wrappers/rfecv/__init__.py")
-    # Indent-tolerant: the body was dedented by 4 spaces during the rfecv
-    # monolith split (class-method extraction). Match the lexsort + tiebreak
-    # tuple shape rather than the literal whitespace.
+    # Monolith split: the stability-selection top-k logic moved out of __init__.py into the
+    # sibling _stability_select.py; the site is now a single line, not the indented multi-line
+    # shape from before the split.
+    src = _read("feature_selection/wrappers/rfecv/_stability_select.py")
     pattern = re.compile(
-        r"np\.lexsort\(\s*\n\s+\(np\.arange\(len\(per_feature_score_sum\)\), "
-        r"-per_feature_score_sum\)"
+        r"np\.lexsort\(\(np\.arange\(len\(per_feature_score_sum\)\), "
+        r"-per_feature_score_sum\)\)"
     )
     assert pattern.search(src) is not None
 
@@ -198,9 +198,14 @@ def test_metrics_core_uses_stable_argsort() -> None:
     # group_y_score sites (now split across _auc_per_group.py: one stable,
     # one mergesort variant).
     assert _has_stable_kind(src, "np.argsort(group_y_score", count=1)
-    # The y_p site at the end of the fast_numba_aucs body (moved to
-    # _classification_report.py).
-    assert _has_stable_kind(src, "np.argsort(-y_p", count=1)
+    # The old y_p site at the end of the fast_numba_aucs body was hoisted out to the caller in
+    # _classification_report.py's batch ICE/AUC kernel as `np.argsort(-y_pred_NK, axis=0)`
+    # (deliberately unstable/quicksort, not stable/mergesort): that kernel's docstring proves the
+    # walk only accumulates at tie-run boundaries, so it's provably invariant to within-tie order
+    # -- a stable sort there would just be wasted work, not a correctness requirement. Re-framed
+    # 2026-07-13 per the "validated improvement changed the contract" rule rather than asserting
+    # a now-nonexistent stable-kind call.
+    assert "np.argsort(-y_pred_NK, axis=0)" in src
 
 
 def test_metrics_ranking_uses_stable_argsort() -> None:

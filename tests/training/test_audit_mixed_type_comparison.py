@@ -83,8 +83,12 @@ def test_custom_feature_selector_classes_sort_dtype_aware() -> None:
 
 
 def test_optimization_sampled_inputs_sort_uses_str_key() -> None:
-    src = _read("models/optimization.py")
-    assert "_sort_key = lambda v: (v is None, str(v))" in src
+    # Monolith split (2026-07-12): the sort_key logic moved from optimization.py into the sibling
+    # _optimization_search.py; optimization.py now only re-exports. _read()'s compat shim only
+    # handles the X.py -> X/__init__.py subpackage form, not this flat-sibling form, so read both.
+    src = _read("models/optimization.py") + _read("models/_optimization_search.py")
+    assert "def _sort_key(v):" in src
+    assert "return (v is None, str(v))" in src
     assert "sampled_inputs = sorted(sampled_inputs, key=_sort_key)" in src
     assert "sampled_inputs = sorted(sampled_inputs, key=_sort_key)[::-1]" in src
 

@@ -153,13 +153,16 @@ def test_mrmr_select_features_input_checks_raise_value_error():
     td = np.random.default_rng(1).integers(0, 2, (50, 1))
     with pytest.raises(ValueError, match="mrmr_relevance_algo must be"):
         screen_predictors(factors_data=fd, factors_nbins=[3, 3, 3], targets_data=td,
-                          targets_nbins=[2], mrmr_relevance_algo="banana")
+                          targets_nbins=[2], y=[0], mrmr_relevance_algo="banana")
+    # y is checked before the row-count guard (2026-05-30 Wave 9.1: "y (target column indices)
+    # must be provided" added ahead of the length check), so it must be supplied here too or
+    # these sub-calls hit that earlier check instead of the one under test.
     with pytest.raises(ValueError, match="at least 10 rows"):
         screen_predictors(factors_data=fd[:5], factors_nbins=[3, 3, 3],
-                          targets_data=td[:5], targets_nbins=[2])
+                          targets_data=td[:5], targets_nbins=[2], y=[0])
     with pytest.raises(ValueError, match=r"must equal len\(targets_nbins\)"):
         screen_predictors(factors_data=fd, factors_nbins=[3, 3, 3], targets_data=td,
-                          targets_nbins=[2, 2])
+                          targets_nbins=[2, 2], y=[0])
 
 
 def test_mrmr_invariant_no_self_target_raises_runtime_error():
