@@ -809,6 +809,13 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
             "recommend_diversity_additions_in_leaderboard_cfg", True
         ),
         oof_n_splits_cfg=axes.get("oof_n_splits_cfg", 0),
+        oof_has_time_cfg=axes.get("oof_has_time_cfg", False),
+        oof_random_seed_cfg=axes.get("oof_random_seed_cfg", 42),
+        diversity_recommendation_correlation_threshold_cfg=axes.get(
+            "diversity_recommendation_correlation_threshold_cfg", 0.85
+        ),
+        diversity_recommendation_min_improvement_cfg=axes.get("diversity_recommendation_min_improvement_cfg", 0.0),
+        diversity_recommendation_top_k_cfg=axes.get("diversity_recommendation_top_k_cfg"),
         apply_confidence_shrinkage_cfg=axes.get("apply_confidence_shrinkage_cfg", True),
         row_wise_summary_stats_enabled_cfg=axes.get("row_wise_summary_stats_enabled_cfg", True),
         row_wise_extreme_columns_enabled_cfg=axes.get("row_wise_extreme_columns_enabled_cfg", True),

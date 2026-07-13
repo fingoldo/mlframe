@@ -770,6 +770,14 @@ class FuzzCombo:
     check_isotonic_overfit_risk_cfg: bool = True
     recommend_diversity_additions_in_leaderboard_cfg: bool = True
     oof_n_splits_cfg: int = 0
+    # TrainingBehaviorConfig OOF/diversity sub-knobs left dark by the original oof_n_splits_cfg /
+    # recommend_diversity_additions_in_leaderboard_cfg axes (both only exercised their top-level bool/count).
+    # Defaults mirror TrainingBehaviorConfig; canon collapses each to its default when its parent feature is off.
+    oof_has_time_cfg: bool = False
+    oof_random_seed_cfg: int = 42
+    diversity_recommendation_correlation_threshold_cfg: float = 0.85
+    diversity_recommendation_min_improvement_cfg: float = 0.0
+    diversity_recommendation_top_k_cfg: "int | None" = None
     apply_confidence_shrinkage_cfg: bool = True
     row_wise_summary_stats_enabled_cfg: bool = True
     row_wise_extreme_columns_enabled_cfg: bool = True
@@ -2750,6 +2758,22 @@ class FuzzCombo:
             self.check_isotonic_overfit_risk_cfg,
             self.recommend_diversity_additions_in_leaderboard_cfg,
             self.oof_n_splits_cfg,
+            # oof_has_time/oof_random_seed only affect behavior once oof_n_splits>=2 (below that OOF
+            # computation is skipped entirely, per TrainingBehaviorConfig's docstring); collapse to default
+            # otherwise so dedup doesn't waste combos varying a no-op.
+            self.oof_has_time_cfg if self.oof_n_splits_cfg >= 2 else False,
+            self.oof_random_seed_cfg if self.oof_n_splits_cfg >= 2 else 42,
+            # Diversity thresholds only matter when the recommender itself runs, which requires BOTH the
+            # top-level flag on AND OOF available (oof_n_splits>=2 -- see recommend_diversity_additions_in_leaderboard's docstring).
+            self.diversity_recommendation_correlation_threshold_cfg
+            if (self.recommend_diversity_additions_in_leaderboard_cfg and self.oof_n_splits_cfg >= 2)
+            else 0.85,
+            self.diversity_recommendation_min_improvement_cfg
+            if (self.recommend_diversity_additions_in_leaderboard_cfg and self.oof_n_splits_cfg >= 2)
+            else 0.0,
+            self.diversity_recommendation_top_k_cfg
+            if (self.recommend_diversity_additions_in_leaderboard_cfg and self.oof_n_splits_cfg >= 2)
+            else None,
             self.apply_confidence_shrinkage_cfg,
             self.row_wise_summary_stats_enabled_cfg,
             self.row_wise_extreme_columns_enabled_cfg,

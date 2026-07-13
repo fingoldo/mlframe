@@ -282,6 +282,11 @@ def _configs_for_combo(combo: FuzzCombo) -> dict:
         "check_isotonic_overfit_risk": combo.check_isotonic_overfit_risk_cfg,
         "recommend_diversity_additions_in_leaderboard": combo.recommend_diversity_additions_in_leaderboard_cfg,
         "oof_n_splits": combo.oof_n_splits_cfg,
+        "oof_has_time": combo.oof_has_time_cfg,
+        "oof_random_seed": combo.oof_random_seed_cfg,
+        "diversity_recommendation_correlation_threshold": combo.diversity_recommendation_correlation_threshold_cfg,
+        "diversity_recommendation_min_improvement": combo.diversity_recommendation_min_improvement_cfg,
+        "diversity_recommendation_top_k": combo.diversity_recommendation_top_k_cfg,
     }
     # Defensive filter: drop any behavior key that's not a model_fields entry.
     behavior_kwargs = _safe_cfg_kwargs(TrainingBehaviorConfig, **behavior_kwargs)

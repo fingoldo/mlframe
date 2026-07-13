@@ -1857,6 +1857,14 @@ AXES: dict[str, tuple[Any, ...]] = {
     # 3 exercises the real K-fold OOF retrain path the diversity/quality-gate
     # code can consume.
     "oof_n_splits_cfg": (0, 3),
+    # OOF/diversity sub-knobs previously dark despite the parent oof_n_splits_cfg /
+    # recommend_diversity_additions_in_leaderboard_cfg axes existing -- see combo.py's
+    # canonical_key gating (collapses to default when oof_n_splits_cfg < 2).
+    "oof_has_time_cfg": (False, True),
+    "oof_random_seed_cfg": (42, 7),
+    "diversity_recommendation_correlation_threshold_cfg": (0.85, 0.5),
+    "diversity_recommendation_min_improvement_cfg": (0.0, 0.05),
+    "diversity_recommendation_top_k_cfg": (None, 3),
     # Batch F: RegressionCalibrationConfig.apply_confidence_shrinkage flipped
     # True. Never previously threaded into the fuzz suite call at all (no
     # regression_calibration_config kwarg was passed), so both the True
