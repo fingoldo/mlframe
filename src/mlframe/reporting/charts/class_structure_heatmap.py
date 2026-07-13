@@ -68,6 +68,17 @@ def class_structure_matrix(group_codes: np.ndarray, time_codes: np.ndarray, y: n
     gc = np.ascontiguousarray(group_codes, dtype=np.int64)
     tc = np.ascontiguousarray(time_codes, dtype=np.int64)
     yv = np.ascontiguousarray(y, dtype=np.float64)
+    # _accumulate_group_time's njit path has no bounds checking (numba default): a length mismatch between gc/tc/yv,
+    # or a code outside [0, n_groups)/[0, n_time), silently reads/writes past the allocated (n_groups, n_time) buffer
+    # -- a memory-corrupting "Windows fatal exception: access violation" that kills the whole process, bypassing even
+    # a caller's try/except (caught live via an ensembling COARSE-gate path handing this a shorter y than group/time
+    # codes). Validate the contract here so a violation raises a normal, catchable ValueError instead.
+    if not (gc.shape[0] == tc.shape[0] == yv.shape[0]):
+        raise ValueError(f"class_structure_matrix: length mismatch group_codes={gc.shape[0]} time_codes={tc.shape[0]} y={yv.shape[0]}")
+    if gc.shape[0] > 0 and (gc.min() < 0 or gc.max() >= n_groups):
+        raise ValueError(f"class_structure_matrix: group_codes out of range [0, {n_groups})")
+    if tc.shape[0] > 0 and (tc.min() < 0 or tc.max() >= n_time):
+        raise ValueError(f"class_structure_matrix: time_codes out of range [0, {n_time})")
     sums, counts = _accumulate_group_time(gc, tc, yv, int(n_groups), int(n_time))
     with np.errstate(invalid="ignore", divide="ignore"):
         rate = np.where(counts > 0.0, sums / counts, np.nan)

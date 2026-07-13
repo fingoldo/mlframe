@@ -46,6 +46,33 @@ def test_matrix_matches_bincount_reference():
     assert np.allclose(rate, ref_rate, equal_nan=True)
 
 
+def test_matrix_rejects_mismatched_lengths_instead_of_crashing():
+    """The njit accumulate kernel has no bounds checking: a length mismatch between group_codes/time_codes/y (as
+    happened live via an ensembling COARSE-gate path handing a shorter y than group/time codes) would silently
+    index past the (n_groups, n_time) buffer, corrupting memory ("Windows fatal exception: access violation" --
+    kills the whole process, uncatchable by any caller try/except). Must raise a normal ValueError instead."""
+    import pytest
+
+    rng = np.random.default_rng(1)
+    n_groups, n_time = 4, 6
+    gc = rng.integers(0, n_groups, size=100).astype(np.int64)
+    tc = rng.integers(0, n_time, size=100).astype(np.int64)
+    y_short = rng.integers(0, 2, size=50).astype(np.float64)  # shorter than gc/tc
+    with pytest.raises(ValueError, match="length mismatch"):
+        class_structure_matrix(gc, tc, y_short, n_groups, n_time)
+
+
+def test_matrix_rejects_out_of_range_codes_instead_of_crashing():
+    """A group/time code >= n_groups/n_time (e.g. an off-by-one in a caller's cap) must raise, not corrupt memory."""
+    import pytest
+
+    gc = np.array([0, 1, 2], dtype=np.int64)  # 2 is out of range for n_groups=2
+    tc = np.array([0, 0, 0], dtype=np.int64)
+    y = np.array([1.0, 0.0, 1.0])
+    with pytest.raises(ValueError, match="out of range"):
+        class_structure_matrix(gc, tc, y, 2, 5)
+
+
 def test_empty_cell_is_nan():
     # Group 1 never co-occurs with time 0 -> that cell must be nan, not 0.
     gc = np.array([0, 0, 1, 1], dtype=np.int64)
