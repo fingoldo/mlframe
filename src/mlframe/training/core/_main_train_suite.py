@@ -194,6 +194,12 @@ def train_mlframe_models_suite(
             LEARNING_TO_RANK routes to the ranker suite. See ``TargetTypes``.
         ranking_config: LTR-only dispatch knobs (objectives, eval cutoffs, rank fusion). See ``LearningToRankConfig``.
         preprocessing_extensions: Optional FE-extension transforms (PySR, polynomial, etc.). See ``PreprocessingExtensionsConfig``.
+        auxiliary_events_df: Separate events/entities table (distinct row identity from ``df``) consumed by the
+            ``preprocessing_extensions`` steps that need a reference table rather than columns already on
+            train/val/test: ``latent_interaction_svd_*`` (entity x item interaction log for SVD embeddings) and
+            ``nearest_past_join_*`` (historical rows to as-of match against). None (default) is a no-op for both.
+            Pass a fresh table at predict time (``read_trained_models``/predict entry points accept the same
+            kwarg) to pick up new entities/events without refitting.
         feature_types_config: Numeric/categorical/text type-detection overrides. See ``FeatureTypesConfig``.
         linear_model_config: Linear-model family hyperparameters. See ``LinearModelConfig``.
         multilabel_dispatch_config: Multilabel-only strategy (wrapper/chain/native). See ``MultilabelDispatchConfig``.
