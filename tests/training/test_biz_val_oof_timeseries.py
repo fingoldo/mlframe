@@ -104,3 +104,29 @@ def test_early_stopping_disabled_estimator_survives_timeseries_path():
     oof_preds, oof_probs = _compute_oof_preds_timeseries(estimator=est, train_df=X, train_target=y, method="predict", n_splits=3)
     assert oof_preds is not None
     assert np.isfinite(oof_preds).sum() > 0
+
+
+def test_biz_val_oof_random_seed_is_deterministic_and_varies_folds():
+    """``_compute_oof_preds``'s ``random_seed`` param (the non-temporal KFold path) had zero direct
+    determinism coverage: same seed must reproduce byte-identical OOF predictions across repeated
+    calls (the KFold shuffle -- and therefore which rows land in which fold -- is seeded), and a
+    DIFFERENT seed must produce a genuinely different fold assignment (not a no-op knob)."""
+    from mlframe.training.trainer import _compute_oof_preds
+
+    X, y = _time_ordered_frame(n=400)
+    X = X.drop(columns=["t"])  # KFold path has no temporal structure to preserve
+
+    def _run(seed):
+        est = DecisionTreeRegressor(max_depth=4, random_state=0)
+        preds, _ = _compute_oof_preds(
+            model=est, train_df=X, train_target=y, is_classifier_model=False, n_splits=5, random_seed=seed
+        )
+        return preds
+
+    a1 = _run(seed=0)
+    a2 = _run(seed=0)
+    b = _run(seed=1)
+
+    assert a1 is not None and b is not None
+    assert np.array_equal(a1, a2), "same random_seed must reproduce byte-identical OOF predictions"
+    assert not np.array_equal(a1, b), "different random_seed must produce a different fold assignment"
