@@ -200,6 +200,20 @@ inspect `fs.shap_proxy_report_['prefilter']['stage1_survivors']` / clustering un
 check whether weak/xor original columns survive the PREFILTER (a separate, earlier stage this fix
 does not touch) before ever reaching the prescreen this fix targets.
 
+**Follow-up probe launched (result recorded here since it landed very late in the session):**
+Prefilter stage report on the same fixture: `{'kept': 112, 'of': 3000}` — confirms prefilter is a
+real narrowing step (3000 -> 112) that runs BEFORE clustering/prescreen. A second background script
+was launched to check directly whether `f50`-`f55` (weak) and `f100`/`f101` (xor) are among the 112
+`stage1_survivors`, or among `fs.selected_features_` at all — this is the decisive test between
+hypothesis 1 (lost at prefilter, before this session's fix even applies) and hypothesis 2
+(present but under the rescue's noise floor). The script did not return a result before this
+session ended (persistent slow/stalled execution throughout — see housekeeping notes above). If a
+future session finds `debug_rescue_e2e2.txt` still present in a stale scratchpad, check it first;
+otherwise re-run the check described immediately above (`stage1_survivors` / `selected_features_`
+membership for f50-f55/f100/f101) as the FIRST action on this thread — it is a single fast query
+against an already-fitted model in the fixture-generation script above, not a fresh fit, so should
+resolve in seconds once machine load is normal.
+
 **Still outstanding (next session, in priority order):**
 1. **Distinguish the two hypotheses above** before trusting or further building on this fix. If
    hypothesis 1 (true negative / prefilter-stage loss, not prescreen-stage), the ACTUAL fix needed
