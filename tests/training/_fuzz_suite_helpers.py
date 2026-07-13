@@ -544,10 +544,21 @@ def _maybe_preprocessing_extensions(combo: FuzzCombo, config_cls):
     # row_wise_* above (default True), only force-construct the config when either is toggled ON.
     cat_powerset = combo.categorical_powerset_concat_enabled_cfg
     cat_group_auto = combo.categorical_group_concat_auto_enabled_cfg
+    # Wave-2 composite-FE modules (2026-07-13) -- all "enabled" via a non-empty
+    # columns/dates list on the config, no separate boolean field. Column refs
+    # use the fuzz frame builder's fixed names (num_0/num_1/cat_0); event dates
+    # are literal strings within the deterministic ts range (2026-01-01 start).
+    cross_sec_neighbors = combo.cross_sectional_neighbors_enabled_cfg
+    ma_crossover = combo.ma_crossover_enabled_cfg
+    event_prox_decay = combo.event_proximity_decay_enabled_cfg
+    two_step_target_enc = combo.two_step_target_encode_enabled_cfg
+    recency_agg = combo.recency_aggregation_enabled_cfg
     if (
         scaler is None and kbins is None and poly_deg is None and dim_red is None and nonlin is None
         and row_wise_summary and row_wise_extreme
         and not cat_powerset and not cat_group_auto
+        and not cross_sec_neighbors and not ma_crossover and not event_prox_decay
+        and not two_step_target_enc and not recency_agg
     ):
         return None
     # PreprocessingExtensionsConfig validates that binarization_threshold
@@ -578,6 +589,16 @@ def _maybe_preprocessing_extensions(combo: FuzzCombo, config_cls):
             row_wise_extreme_columns_enabled=row_wise_extreme,
             categorical_powerset_concat_enabled=cat_powerset,
             categorical_group_concat_auto_enabled=cat_group_auto,
+        ),
+        **_safe_cfg_kwargs(
+            config_cls,
+            cross_sectional_neighbors_snapshot_col=("cat_0" if cross_sec_neighbors else None),
+            cross_sectional_neighbors_feature_cols=(["num_0", "num_1"] if cross_sec_neighbors else []),
+            ma_crossover_columns=(["num_0"] if ma_crossover else []),
+            ma_crossover_windows=([3, 5] if ma_crossover else [3, 5, 10]),
+            event_proximity_decay_event_dates=(["2026-01-05", "2026-01-15"] if event_prox_decay else []),
+            two_step_target_encode_columns=(["cat_0"] if two_step_target_enc else []),
+            recency_aggregation_columns=(["num_0"] if recency_agg else []),
         ),
     )
 

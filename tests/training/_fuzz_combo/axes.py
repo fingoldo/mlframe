@@ -1870,6 +1870,14 @@ AXES: dict[str, tuple[Any, ...]] = {
     # fire (see combo.py canonical_key gating).
     "categorical_powerset_concat_enabled_cfg": (False, True),
     "categorical_group_concat_auto_enabled_cfg": (False, True),
+    # Wave-2 composite-FE modules (2026-07-13), all default OFF -- see combo.py canonical_key for
+    # per-axis gating (cross_sectional_neighbors/two_step_target_encode/recency_aggregation need
+    # cat_feature_count>=1/LTR respectively; event_proximity_decay needs with_datetime_col=True).
+    "cross_sectional_neighbors_enabled_cfg": (False, True),
+    "ma_crossover_enabled_cfg": (False, True),
+    "event_proximity_decay_enabled_cfg": (False, True),
+    "two_step_target_encode_enabled_cfg": (False, True),
+    "recency_aggregation_enabled_cfg": (False, True),
     # Batch F: RegressionCalibrationConfig.apply_confidence_shrinkage flipped
     # True. Never previously threaded into the fuzz suite call at all (no
     # regression_calibration_config kwarg was passed), so both the True

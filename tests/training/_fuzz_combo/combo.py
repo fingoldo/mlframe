@@ -784,6 +784,22 @@ class FuzzCombo:
     # exercised; these opt-in siblings need their own axis or they're permanently dark).
     categorical_powerset_concat_enabled_cfg: bool = False
     categorical_group_concat_auto_enabled_cfg: bool = False
+    # Wave-2 composite-FE modules (2026-07-13): cross_sectional_neighbors/ma_crossover/
+    # event_proximity_decay/two_step_target_encode/recency_aggregation all default OFF in
+    # production, so each of these axes is the ONLY fuzz coverage for its respective
+    # _*_composite_fe.py module. cross_sectional_neighbors/ma_crossover fire on any combo
+    # (no group_ids/timestamps hard-required -- see canonical_key gating below); event_proximity_decay
+    # needs with_datetime_col=True (the only source of ``timestamps`` in the fuzz frame);
+    # two_step_target_encode/recency_aggregation need real group_ids, only available on LTR combos
+    # (the frame builder's only source of a group_field -- 'qid'). state_duration has no fuzz
+    # coverage: the frame builder has no boolean-typed column to feed it. latent_interaction_svd/
+    # nearest_past_join have no fuzz coverage: both need a SEPARATE auxiliary_events_df table the
+    # frame builder doesn't generate -- out of scope for this axis batch.
+    cross_sectional_neighbors_enabled_cfg: bool = False
+    ma_crossover_enabled_cfg: bool = False
+    event_proximity_decay_enabled_cfg: bool = False
+    two_step_target_encode_enabled_cfg: bool = False
+    recency_aggregation_enabled_cfg: bool = False
     apply_confidence_shrinkage_cfg: bool = True
     row_wise_summary_stats_enabled_cfg: bool = True
     row_wise_extreme_columns_enabled_cfg: bool = True
@@ -2784,6 +2800,17 @@ class FuzzCombo:
             # (_categorical_composite_fe.py no-ops below that); collapse to default otherwise.
             self.categorical_powerset_concat_enabled_cfg if self.cat_feature_count >= 2 else False,
             self.categorical_group_concat_auto_enabled_cfg if self.cat_feature_count >= 2 else False,
+            # cross_sectional_neighbors/ma_crossover use num_0/num_1/cat_0 -- generically available,
+            # no gating needed beyond the flag itself.
+            self.cross_sectional_neighbors_enabled_cfg if self.cat_feature_count >= 1 else False,
+            self.ma_crossover_enabled_cfg,
+            # event_proximity_decay needs timestamps, only present when with_datetime_col=True (the
+            # fuzz frame builder's only source of a 'ts' column).
+            self.event_proximity_decay_enabled_cfg if self.with_datetime_col else False,
+            # two_step_target_encode/recency_aggregation need real group_ids, only present on LTR
+            # combos (the frame builder's only source of a group_field -- 'qid').
+            self.two_step_target_encode_enabled_cfg if self.target_type == "learning_to_rank" else False,
+            self.recency_aggregation_enabled_cfg if self.target_type == "learning_to_rank" else False,
             self.apply_confidence_shrinkage_cfg,
             self.row_wise_summary_stats_enabled_cfg,
             self.row_wise_extreme_columns_enabled_cfg,
