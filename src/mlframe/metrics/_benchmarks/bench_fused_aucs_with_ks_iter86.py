@@ -37,32 +37,33 @@ def aucs_with_ks(y_true, y_score, desc):
 from mlframe.metrics._core_auc_brier import _argsort_desc_for_metrics, fast_numba_aucs
 from mlframe.metrics.classification._classification_extras import ks_statistic
 
-rng = np.random.default_rng(1)
-for n in (1000, 50000, 1_000_000):
-    yp = rng.beta(2, 5, n)
-    yt = (rng.random(n) < yp).astype(np.float64)
-    desc = _argsort_desc_for_metrics(yp)
-    roc, pr, ks = aucs_with_ks(yt, yp, np.ascontiguousarray(desc))
-    roc0, pr0 = fast_numba_aucs(yt, yp, desc)
-    ks0 = ks_statistic(yt.astype(np.int64), yp, desc_order=desc)
-    print(f"n={n}: dROC={abs(roc-roc0):.2e} dPR={abs(pr-pr0):.2e} dKS={abs(ks-ks0):.2e}")
+if __name__ == "__main__":
+    rng = np.random.default_rng(1)
+    for n in (1000, 50000, 1_000_000):
+        yp = rng.beta(2, 5, n)
+        yt = (rng.random(n) < yp).astype(np.float64)
+        desc = _argsort_desc_for_metrics(yp)
+        roc, pr, ks = aucs_with_ks(yt, yp, np.ascontiguousarray(desc))
+        roc0, pr0 = fast_numba_aucs(yt, yp, desc)
+        ks0 = ks_statistic(yt.astype(np.int64), yp, desc_order=desc)
+        print(f"n={n}: dROC={abs(roc-roc0):.2e} dPR={abs(pr-pr0):.2e} dKS={abs(ks-ks0):.2e}")
 
-# tied/discrete check
-yp=np.round(rng.beta(2,5,200000),2); yt=(rng.random(200000)<yp).astype(np.float64)
-desc=_argsort_desc_for_metrics(yp)
-roc,pr,ks=aucs_with_ks(yt,yp,np.ascontiguousarray(desc))
-roc0,pr0=fast_numba_aucs(yt,yp,desc); ks0=ks_statistic(yt.astype(np.int64),yp,desc_order=desc)
-print(f"tied: dROC={abs(roc-roc0):.2e} dPR={abs(pr-pr0):.2e} dKS={abs(ks-ks0):.2e}")
+    # tied/discrete check
+    yp=np.round(rng.beta(2,5,200000),2); yt=(rng.random(200000)<yp).astype(np.float64)
+    desc=_argsort_desc_for_metrics(yp)
+    roc,pr,ks=aucs_with_ks(yt,yp,np.ascontiguousarray(desc))
+    roc0,pr0=fast_numba_aucs(yt,yp,desc); ks0=ks_statistic(yt.astype(np.int64),yp,desc_order=desc)
+    print(f"tied: dROC={abs(roc-roc0):.2e} dPR={abs(pr-pr0):.2e} dKS={abs(ks-ks0):.2e}")
 
-# timing at 1M
-yp=rng.beta(2,5,1_000_000); yt=(rng.random(1_000_000)<yp).astype(np.float64)
-desc=_argsort_desc_for_metrics(yp); descc=np.ascontiguousarray(desc)
-def best(fn,k=7):
-    ts=[]
-    for _ in range(k):
-        t=time.perf_counter(); fn(); ts.append(time.perf_counter()-t)
-    return min(ts)*1000
-aucs_with_ks(yt,yp,descc)
-print("fused auc+ks :", round(best(lambda: aucs_with_ks(yt,yp,descc)),2))
-print("auc only     :", round(best(lambda: fast_numba_aucs(yt,yp,desc)),2))
-print("ks separate  :", round(best(lambda: ks_statistic(yt.astype(np.int64),yp,desc_order=desc)),2))
+    # timing at 1M
+    yp=rng.beta(2,5,1_000_000); yt=(rng.random(1_000_000)<yp).astype(np.float64)
+    desc=_argsort_desc_for_metrics(yp); descc=np.ascontiguousarray(desc)
+    def best(fn,k=7):
+        ts=[]
+        for _ in range(k):
+            t=time.perf_counter(); fn(); ts.append(time.perf_counter()-t)
+        return min(ts)*1000
+    aucs_with_ks(yt,yp,descc)
+    print("fused auc+ks :", round(best(lambda: aucs_with_ks(yt,yp,descc)),2))
+    print("auc only     :", round(best(lambda: fast_numba_aucs(yt,yp,desc)),2))
+    print("ks separate  :", round(best(lambda: ks_statistic(yt.astype(np.int64),yp,desc_order=desc)),2))

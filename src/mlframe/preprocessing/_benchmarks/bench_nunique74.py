@@ -56,32 +56,33 @@ def get_nunique_new(vals, skip_vals):
     return _count_distinct_float(sv, skip0, skip1)
 
 
-rng = np.random.default_rng(0)
-N = 200000
-arrs = {
-    "frac": np.modf(np.round(rng.uniform(0, 1000, N), 3))[0],
-    "intpart": np.modf(rng.uniform(-1e6, 1e6, N))[1],
-}
-skipsets = {"frac": (0.0, 1.0), "intpart": (0.0,)}
+if __name__ == "__main__":
+    rng = np.random.default_rng(0)
+    N = 200000
+    arrs = {
+        "frac": np.modf(np.round(rng.uniform(0, 1000, N), 3))[0],
+        "intpart": np.modf(rng.uniform(-1e6, 1e6, N))[1],
+    }
+    skipsets = {"frac": (0.0, 1.0), "intpart": (0.0,)}
 
-# correctness
-for k, a in arrs.items():
-    o = get_nunique_old(a, skip_vals=skipsets[k])
-    n = get_nunique_new(a, skipsets[k])
-    print(f"{k}: old={o} new={n} match={o==n}")
+    # correctness
+    for k, a in arrs.items():
+        o = get_nunique_old(a, skip_vals=skipsets[k])
+        n = get_nunique_new(a, skipsets[k])
+        print(f"{k}: old={o} new={n} match={o==n}")
 
-# warm njit
-get_nunique_new(arrs["frac"], (0.0, 1.0))
+    # warm njit
+    get_nunique_new(arrs["frac"], (0.0, 1.0))
 
-REP = 200
-for k, a in arrs.items():
-    sk = skipsets[k]
-    t0 = time.perf_counter()
-    for _ in range(REP):
-        get_nunique_old(a, skip_vals=sk)
-    t_old = time.perf_counter() - t0
-    t0 = time.perf_counter()
-    for _ in range(REP):
-        get_nunique_new(a, sk)
-    t_new = time.perf_counter() - t0
-    print(f"{k}: old={t_old/REP*1e3:.3f}ms new={t_new/REP*1e3:.3f}ms speedup={t_old/t_new:.2f}x")
+    REP = 200
+    for k, a in arrs.items():
+        sk = skipsets[k]
+        t0 = time.perf_counter()
+        for _ in range(REP):
+            get_nunique_old(a, skip_vals=sk)
+        t_old = time.perf_counter() - t0
+        t0 = time.perf_counter()
+        for _ in range(REP):
+            get_nunique_new(a, sk)
+        t_new = time.perf_counter() - t0
+        print(f"{k}: old={t_old/REP*1e3:.3f}ms new={t_new/REP*1e3:.3f}ms speedup={t_old/t_new:.2f}x")
