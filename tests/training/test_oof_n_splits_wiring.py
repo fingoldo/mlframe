@@ -90,3 +90,56 @@ def test_default_oof_n_splits_leaves_oof_preds_unset(tmp_path):
 
     fitted = trained[0]
     assert getattr(fitted, "oof_preds", None) is None, "default oof_n_splits=0 unexpectedly stamped oof_preds"
+
+
+def test_e2e_oof_n_splits_unlocks_diversity_recommendations(tmp_path):
+    """The full oof_n_splits -> oof_preds/oof_target -> recommend_diversity_additions_in_leaderboard
+    pipeline must actually populate metadata["diversity_recommendations"] with >=2 fitted regression
+    models and oof_n_splits>=2 -- the end-to-end path both the OOF wiring fix (this file) and the
+    oof_target mirroring fix (2026-07-13, see DEFAULTS_CHANGELOG.md) were required to unlock.
+    """
+    from mlframe.training.core import train_mlframe_models_suite
+    from mlframe.training.configs import (
+        PreprocessingBackendConfig,
+        OutputConfig,
+        TrainingBehaviorConfig,
+        BaselineDiagnosticsConfig,
+        DummyBaselinesConfig,
+        ReportingConfig,
+    )
+    from mlframe.training._preprocessing_configs import TrainingSplitConfig
+    from .shared import SimpleFeaturesAndTargetsExtractor
+
+    models, metadata = train_mlframe_models_suite(
+        df=_regression_frame(),
+        target_name="ce",
+        model_name="ce_run",
+        features_and_targets_extractor=SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True),
+        mlframe_models=["lgb", "xgb"],
+        use_ordinary_models=True,
+        # ens_models (what compute_diversity_recommendations reads) is only ever populated when
+        # use_mlframe_ensembles=True (see _phase_train_one_target_body.py:187) -- required for this test.
+        use_mlframe_ensembles=True,
+        pipeline_config=PreprocessingBackendConfig(prefer_polarsds=False, categorical_encoding=None, scaler_name=None, imputer_strategy=None),
+        split_config=TrainingSplitConfig(test_size=0.25, val_size=0.1),
+        behavior_config=TrainingBehaviorConfig(
+            prefer_gpu_configs=False, oof_n_splits=3, recommend_diversity_additions_in_leaderboard=True
+        ),
+        hyperparams_config={"iterations": 40},
+        baseline_diagnostics_config=BaselineDiagnosticsConfig(enabled=False),
+        dummy_baselines_config=DummyBaselinesConfig(enabled=False),
+        reporting_config=ReportingConfig(honest_estimator_diagnostics=False),
+        enable_target_distribution_analyzer=False,
+        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+        verbose=0,
+    )
+    trained = _trained_entries(models)
+    assert len(trained) >= 2, f"need >=2 fitted models to exercise diversity recommendations, got {len(trained)}"
+    # Per-member oof_preds/oof_target stamping onto INDIVIDUAL "lgb"/"xgb" entries is already covered by
+    # test_e2e_oof_n_splits_stamps_oof_preds_on_model above; with use_mlframe_ensembles=True, ``models``
+    # also contains composite ensemble entries which don't carry oof_preds the same way, so re-asserting
+    # it per-entry here would be redundant AND fragile. The real end-to-end claim this test makes is that
+    # metadata["diversity_recommendations"] gets populated -- check that directly.
+    div = (metadata or {}).get("diversity_recommendations")
+    assert div is not None, 'metadata["diversity_recommendations"] was never stamped despite >=2 OOF-complete models'
+    assert isinstance(div, dict) and div, "diversity_recommendations metadata is empty"
