@@ -90,20 +90,7 @@ def _mrmr_y_is_multioutput(y) -> bool:
     return arr.ndim >= 2 and arr.shape[-1] >= 2
 
 
-def _mrmr_y_columns(y):
-    """Yield (label, y_column_1d) for each output column of a 2D y (pandas / polars DataFrame, or 2D ndarray)."""
-    if isinstance(y, pd.DataFrame):
-        for col in y.columns:
-            yield str(col), y[col].to_numpy()
-        return
-    if str(type(y).__module__).startswith("polars") and type(y).__name__ == "DataFrame":
-        for col in y.columns:
-            yield str(col), y[col].to_numpy()
-        return
-    arr = np.asarray(y)
-    for k in range(arr.shape[1]):
-        yield f"y{k}", arr[:, k]
-
+from ._mrmr_class_shared import _mrmr_y_columns  # noqa: F401 -- re-exported for callers importing from here
 
 from ._mrmr_class_config import _MRMRConfigMixin
 from ._mrmr_class_transform import _MRMRTransformMixin

@@ -16,7 +16,7 @@ import pandas as pd
 
 from sklearn.base import clone
 
-from ._mrmr_class import _mrmr_y_columns
+from ._mrmr_class_shared import _mrmr_y_columns
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
