@@ -224,14 +224,19 @@ repos:
   # findings (see the CI lint-blocking job), so this mirrors that CI gate exactly instead of only
   # warning locally and failing later in CI. Called directly (not through the warn-only wrapper
   # -- that one is py_ci_shared.bandit_warn, kept for repos still working down a backlog).
+  # Scoped to changed files (2026-07-14): bandit's findings are per-file (no cross-file analysis
+  # needed, unlike deptry's project-wide import graph), so -r's directory recursion is unneeded
+  # once pre-commit passes the actual changed file list -- CI's lint-blocking job still runs the
+  # true whole-project scan (-r src/mlframe) on every push, so pre-existing whole-repo findings
+  # are still caught there.
   - repo: local
     hooks:
       - id: bandit-blocking
         name: "bandit security scan (blocking)"
-        entry: python -m bandit -r src/mlframe -ll
+        entry: python -m bandit -ll
         language: system
         types: [python]
-        pass_filenames: false
+        pass_filenames: true
         stages: [pre-commit]
 
   # Dead-code gate: vulture --min-confidence 80. Blocking since 2026-07-09 -- triaged to 0
@@ -249,14 +254,19 @@ repos:
 
   # Docstring-coverage gate: 100% (see [tool.interrogate] in pyproject.toml). Blocking since
   # 2026-07-09, mirroring the CI lint-blocking job.
+  # Scoped to changed files (2026-07-14): interrogate's coverage % is computed per invocation
+  # over whatever paths it's given, so scoping to the changed files means a commit is only
+  # responsible for ITS OWN files' docstring coverage, not the whole repo's pre-existing gaps
+  # (matches the black/mypy changed-files precedent) -- CI's lint-blocking job still runs the
+  # true whole-project --fail-under 100 src/mlframe on every push.
   - repo: local
     hooks:
       - id: interrogate-blocking
         name: "interrogate docstring coverage (blocking, 100%)"
-        entry: python -m interrogate --fail-under 100 src/mlframe
+        entry: python -m interrogate --fail-under 100
         language: system
         types: [python]
-        pass_filenames: false
+        pass_filenames: true
         stages: [pre-commit]
 
   # Dependency-drift gate: deptry (unused/missing/transitive). Blocking since 2026-07-09,
@@ -264,6 +274,10 @@ repos:
   # on. Assumes the local dev env has the [all,dev] extras (+ sibling pyutilz) installed, same
   # assumption CI makes via its explicit install step; deptry's DEP001/DEP002/DEP003 are
   # meaningless without a real environment to check imports against.
+  # NOT scoped to changed files (considered 2026-07-14, rejected): deptry's whole point is
+  # cross-file -- "is dependency X imported ANYWHERE" / "is import Y declared ANYWHERE" requires
+  # seeing every file's imports at once. Restricting the scan to just the touched files would
+  # make it blind to legitimate uses elsewhere and produce false unused/missing findings.
   - repo: local
     hooks:
       - id: deptry-blocking
@@ -275,13 +289,16 @@ repos:
 
   # Prose-typo gate: codespell. Blocking since 2026-07-09, mirroring the CI lint-blocking job
   # (config/ignore-words-list comes from [tool.codespell] in pyproject.toml, same as CI).
+  # Scoped to changed files (2026-07-14): codespell checks each file's own prose independently
+  # (no cross-file state), so a whole-tree scan on every commit was pure overhead -- CI's
+  # lint-blocking job still runs the true whole-project scan on every push.
   - repo: local
     hooks:
       - id: codespell-blocking
         name: "codespell prose typo check (blocking)"
-        entry: python -m codespell_lib --toml pyproject.toml src/mlframe
+        entry: python -m codespell_lib --toml pyproject.toml
         language: system
-        pass_filenames: false
+        pass_filenames: true
         stages: [pre-commit]
 
   # Workflow-YAML style gate: yamllint. Blocking since 2026-07-09, mirroring the CI
