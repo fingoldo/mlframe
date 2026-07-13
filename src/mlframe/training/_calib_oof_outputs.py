@@ -74,11 +74,11 @@ def compute_calib_and_oof_outputs(
     fit_params: dict,
     model_type_name: str,
     model_name: str,
-) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], Optional[np.ndarray], Any, Any]:
-    """Run the fitted model's calib-slice predict (proba for classification, point for regression) and mirror OOF preds/probs.
+) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], Optional[np.ndarray], Any, Any, Any]:
+    """Run the fitted model's calib-slice predict (proba for classification, point for regression) and mirror OOF preds/probs/target.
 
-    Returns ``(calib_probs, calib_target, calib_preds, oof_preds, oof_probs)``. ``calib_probs`` is
-    ``None`` for regression / no-``predict_proba`` models; ``calib_preds`` is the regression point
+    Returns ``(calib_probs, calib_target, calib_preds, oof_preds, oof_probs, oof_target)``. ``calib_probs``
+    is ``None`` for regression / no-``predict_proba`` models; ``calib_preds`` is the regression point
     prediction on the calib slice (``None`` for classification or when no calib frame exists) -- the
     leakage-free residual source for split-conformal in finalize. The OOF outputs mirror whatever was
     stamped on ``model`` during training.
@@ -148,9 +148,13 @@ def compute_calib_and_oof_outputs(
         except Exception as _calib_reg_err:
             logger.warning("calib-slice regression predict failed for %s; finalize conformal will fall back: %s", model_name, _calib_reg_err)
 
-    # OOF preds/probs were stamped on ``model`` right after training (see ``_compute_oof_preds`` call above). Mirror them onto
-    # the returned namespace so ensemble member shapes carry the OOF signal alongside the per-split predictions without
-    # callers having to fish them off the model object.
+    # OOF preds/probs/target were stamped on ``model`` right after training (see ``_compute_oof_preds`` call above).
+    # Mirror them onto the returned namespace so ensemble member shapes carry the OOF signal alongside the
+    # per-split predictions without callers having to fish them off the model object. oof_target must be
+    # mirrored the same way oof_preds/oof_probs are -- consumers like
+    # ``recommend_diversity_additions_in_leaderboard`` require oof_preds/oof_probs AND oof_target together
+    # on every member regardless of task type (regression stamps oof_preds+oof_target with no oof_probs).
     oof_preds = getattr(model, "oof_preds", None) if model is not None else None
     oof_probs = getattr(model, "oof_probs", None) if model is not None else None
-    return calib_probs, calib_target_out, calib_preds, oof_preds, oof_probs
+    oof_target = getattr(model, "oof_target", None) if model is not None else None
+    return calib_probs, calib_target_out, calib_preds, oof_preds, oof_probs, oof_target

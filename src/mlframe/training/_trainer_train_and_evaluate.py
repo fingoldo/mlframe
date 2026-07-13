@@ -730,15 +730,19 @@ def train_and_evaluate_model(
                             model.oof_preds = _oof_preds  # type: ignore[attr-defined]  # mlframe-injected bookkeeping attr on an arbitrary (object-typed) model
                         if _oof_probs is not None:
                             model.oof_probs = _oof_probs  # type: ignore[attr-defined]
+                        if _oof_preds is not None or _oof_probs is not None:
                             # Stamp the train-aligned target so post-hoc OOF
                             # calibration pairs each OOF prob with its OWN row's
-                            # label. cross_val_predict returns predictions in
-                            # train-row order, so train_target (train_idx order)
-                            # is the row-for-row match. Without this,
-                            # post_calibrate_model fell back to a POSITIONAL
-                            # target_series slice that is correct only when train
-                            # is the leading contiguous block (wrong under
-                            # shuffled / group-aware splits).
+                            # label, AND so regression-side consumers (e.g.
+                            # ``recommend_diversity_additions_in_leaderboard``,
+                            # which requires oof_preds/oof_probs + oof_target on
+                            # every member regardless of task type) can find it.
+                            # cross_val_predict returns predictions in train-row
+                            # order, so train_target (train_idx order) is the
+                            # row-for-row match. Without this, post_calibrate_model
+                            # fell back to a POSITIONAL target_series slice that is
+                            # correct only when train is the leading contiguous
+                            # block (wrong under shuffled / group-aware splits).
                             model.oof_target = _y_arr  # type: ignore[attr-defined]
                     except AttributeError:
                         # Some frozen-attribute estimators (sklearn 1.4+ slots) refuse new attrs; stamp on the wrapper carrier instead.
@@ -930,7 +934,7 @@ def train_and_evaluate_model(
 
     _maybe_clean_ram()
 
-    _calib_probs_out, _calib_target_out, _calib_preds_out, _oof_preds_out, _oof_probs_out = compute_calib_and_oof_outputs(
+    _calib_probs_out, _calib_target_out, _calib_preds_out, _oof_preds_out, _oof_probs_out, _oof_target_out = compute_calib_and_oof_outputs(
         model=model,
         calib_df=calib_df,
         calib_target=calib_target,
@@ -957,6 +961,7 @@ def train_and_evaluate_model(
             train_target=train_target,
             oof_preds=_oof_preds_out,
             oof_probs=_oof_probs_out,
+            oof_target=_oof_target_out,
             calib_probs=_calib_probs_out,
             calib_target=_calib_target_out,
             calib_preds=_calib_preds_out,

@@ -219,6 +219,19 @@ def _compute_oof_preds(
         # Some custom wrappers (Catboost shim, TTR, ClassifierChain) don't survive sklearn.clone; skip OOF gracefully.
         return None, None
 
+    # A model configured with native early stopping (LGB_GENERAL_PARAMS bakes in
+    # early_stopping_rounds for every "lgb"/"xgb" registry entry) requires an eval_set at fit time --
+    # cross_val_predict's internal per-fold .fit(X_train, y_train) call never supplies one, so every
+    # fold raises ValueError("For early stopping, at least one dataset and eval metric is required
+    # for evaluation") and the whole OOF computation silently no-ops via the except-block below.
+    # Disable early stopping on the CLONE only (the original, already-fit model is untouched) -- OOF
+    # folds need a fixed round count, not a per-fold tuned stopping point.
+    try:
+        if getattr(estimator, "early_stopping_rounds", None):
+            estimator.set_params(early_stopping_rounds=None)
+    except (ValueError, TypeError):
+        pass
+
     method = "predict_proba" if is_classifier_model and hasattr(estimator, "predict_proba") else "predict"
 
     if has_time and not (group_ids is not None and len(group_ids) == n_rows):
