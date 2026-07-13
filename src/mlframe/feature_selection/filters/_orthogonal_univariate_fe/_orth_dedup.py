@@ -210,6 +210,19 @@ def _resolve_pc_backend(q: int, r: int, n: int) -> str:
         return forced
     if forced in ("cupy", "cuda"):
         return "cupy"
+    # STRICT GPU mode: prefer the cupy backend (solo-benched 2.0-2.7x over numpy in the moderate band;
+    # 12 numpy calls cost 335s on the wellbore-100k GPU-strict cProfile). The numpy default exists because
+    # cupy's solo win erodes under joblib-worker GPU contention -- but STRICT mode's explicit contract is
+    # "carry the FE compute on the device", and the per-call work floor inside fe_gpu_strict_enabled already
+    # keeps trivially small dedups (p < 64 or n*p < 1M) on the CPU. Non-strict hosts keep the measured
+    # default via the KTC lookup below, unchanged.
+    try:
+        from .._fe_gpu_strict import fe_gpu_strict_enabled
+
+        if fe_gpu_strict_enabled(n=n, p=max(q, r)):
+            return "cupy"
+    except Exception:  # nosec B110 -- strict-gate probe failure must never break the dedup itself
+        pass
     try:
         from mlframe.feature_selection._benchmarks.kernel_tuning_cache.dispatch import lookup_pairwise_corr_backend
 
