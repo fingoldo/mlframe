@@ -34,6 +34,68 @@ class CompositeTargetDiscoveryConfig(CompositeTargetDiscoveryConfigBase):
     for automatic discovery via MI-gain ranking.
     """
 
+    @classmethod
+    def preset(cls, name: str, **overrides: object) -> "CompositeTargetDiscoveryConfig":
+        """Coherent bundles of the ~30 discovery knobs: ``preset("fast")`` / ``preset("thorough")``.
+
+        ``fast`` minimises wall time for interactive / CI runs while keeping every CORRECTIVE gate ON
+        (honest holdout + RMSE gate, y-scale gate, alpha-drift, structural fragility -- speed presets
+        never trade safety). ``thorough`` maximises selection quality for production discovery runs.
+        Explicit ``**overrides`` win over the preset. Each choice, one line:
+
+        fast:
+        * ``screening="mi"`` -- skip the tiny-model rerank entirely (Phase B dominates wall time).
+        * ``mi_sample_n=20_000`` -- a 5x smaller MI screen sample; adequate for coarse ranking.
+        * ``auto_base_top_k=2`` / ``max_base_candidates=2`` -- the grid is bases x transforms; halve the base axis.
+        * ``top_k_after_mi=8`` -- fewer survivors flow into the (holdout-gated) tail stages.
+        * ``tiny_model_n_seed_repeats=1`` -- single-seed CV wherever a tiny model does run.
+        * ``auto_base_null_perms=0`` -- skip the permutation-MI null (20 extra MI evals per feature).
+        * ``transform_waic_validation_enabled=False`` -- skip the WAIC tie-break OOF pass.
+        * ``multi_base_enabled=False`` -- skip the forward-stepwise multi-base promotion.
+        * ``interaction_base_discovery_enabled=False`` / ``auto_chain_discovery_enabled=False`` -- skip the extra opt-in passes.
+
+        thorough:
+        * ``screening="hybrid"`` -- full MI screen + tiny-model rerank on the y-scale objective.
+        * ``mi_sample_n=200_000`` -- 2x the default screen sample for stabler MI ranking.
+        * ``auto_base_top_k=5`` -- widen the base axis so weaker secondary bases get evaluated.
+        * ``tiny_model_n_seed_repeats=5`` -- median-of-5-seeds rerank (low-variance ordering).
+        * ``mi_gain_bootstrap_n=50`` -- bootstrap CI on mi_gain; gate on the LCB, feed the FDR pass.
+        * ``use_wilcoxon_gate=True`` -- non-parametric paired significance vs raw (powered by the seed repeats).
+        * ``auto_base_null_perms=30`` -- stronger permutation-MI null against trend-only features.
+        * ``multi_base_enabled=True`` / ``interaction_base_discovery_enabled=True`` / ``auto_chain_discovery_enabled=True`` -- all extensions on.
+        * ``auto_chain_top_k=3`` -- chain a wider survivor set.
+        """
+        return cls(**{**cls.preset_fields(name), **overrides})
+
+    @classmethod
+    def preset_fields(cls, name: str) -> dict:
+        """The raw field bundle behind :meth:`preset` (see there for the per-choice rationale).
+
+        Exposed separately so composers like ``suggest_discovery_config`` can overlay ONLY the
+        fields a preset deliberately pins, leaving their own data-derived suggestions in place for
+        everything else (a full ``model_dump`` would pin every default too).
+        """
+        presets: dict[str, dict[str, object]] = {
+            "fast": dict(
+                enabled=True, screening="mi", mi_sample_n=20_000, auto_base_top_k=2,
+                max_base_candidates=2, top_k_after_mi=8, tiny_model_n_seed_repeats=1,
+                auto_base_null_perms=0, transform_waic_validation_enabled=False,
+                multi_base_enabled=False, interaction_base_discovery_enabled=False,
+                auto_chain_discovery_enabled=False,
+            ),
+            "thorough": dict(
+                enabled=True, screening="hybrid", mi_sample_n=200_000, auto_base_top_k=5,
+                tiny_model_n_seed_repeats=5, mi_gain_bootstrap_n=50, use_wilcoxon_gate=True,
+                auto_base_null_perms=30, transform_waic_validation_enabled=True,
+                multi_base_enabled=True, interaction_base_discovery_enabled=True,
+                auto_chain_discovery_enabled=True, auto_chain_top_k=3,
+            ),
+        }
+        key = str(name).lower()
+        if key not in presets:
+            raise ValueError(f"preset must be one of {sorted(presets)}, got '{name}'")
+        return dict(presets[key])
+
     @field_validator("screening", mode="before")
     @classmethod
     def _normalise_screening(cls, v: str) -> str:

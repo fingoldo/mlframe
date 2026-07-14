@@ -12,6 +12,10 @@ it creates a new binding instead of referencing an existing one).
 This file is never imported by production code. Pass it alongside the real target on
 the vulture command line: ``vulture src/mlframe scripts/vulture_whitelist.py``.
 """
+# Every bare name below is intentionally undefined (vulture's own --make-whitelist convention
+# treats a bare-name expression statement as a "use"); this file is never imported or executed,
+# only parsed by vulture, so the undefined names are not bugs.
+# mypy: ignore-errors
 
 # --- votenrank/leaderboard/leaderboard_impl.py: class-body imports invoked via
 # getattr(self, f"{method}_election") dynamic dispatch in elect_all(). ---
@@ -97,3 +101,8 @@ decoder_query_dim  # feature_selection/filters/_vendored/infonet -- vendored thi
 neighbours_xy  # feature_selection/filters/_ksg.py -- deprecated kernel retained for A/B parity (see docstring)
 concentration  # feature_selection/filters/_neural_mi.py dpmine_mi -- explicitly marked EXPERIMENTAL/SKELETON
 composite_config  # training/_precompute.py -- the function's own docstring documents this precompute path as deferred/NotImplementedError
+_FE_BUFFER_ABSOLUTE_MAX_GB  # feature_selection/filters/feature_engineering.py -- re-exported from _feature_engineering_mem_budget.py (noqa: F401), not directly referenced here
+_FE_HOIST_HEADROOM_OVERHEAD
+_FE_MIN_FREE_RAM_GB
+_FE_PEAK_OVERHEAD_FACTOR
+_FE_VMEM_CACHE

@@ -119,6 +119,7 @@ def suggest_discovery_config(
     *,
     sample_n: int = _AUTOCONFIG_SAMPLE_N,
     seed: int = 0,
+    preset: Optional[str] = None,
     **config_overrides: Any,
 ) -> Tuple[Any, Dict[str, str]]:
     """Inspect ``df`` cheaply and return a populated discovery config + rationale.
@@ -138,6 +139,11 @@ def suggest_discovery_config(
         statistics, so this bounds cost on 100+ GB frames.
     seed : int, default 0
         Seed for the inspection-sample draw (reproducible suggestion).
+    preset : {"fast", "thorough"}, optional
+        Compose with ``CompositeTargetDiscoveryConfig.preset``: the preset's field bundle overlays
+        the data-derived suggestions (an explicit speed/quality intent beats a heuristic), and
+        ``**config_overrides`` still win over both. Data-derived fields the preset does not pin
+        (time_column / heavy-tail strata / transform additions / dominant_features_hint) survive.
     **config_overrides
         Forwarded to the ``CompositeTargetDiscoveryConfig`` constructor, taking
         precedence over every suggested field (caller wins).
@@ -156,6 +162,12 @@ def suggest_discovery_config(
     feature_cols = list(feature_cols)
     rationale: Dict[str, str] = {}
     suggested: Dict[str, Any] = {"enabled": True}
+    # Preset composition: the preset's deliberately-pinned bundle overlays the data-derived
+    # suggestions at construction time (see the two construction sites below); overrides win last.
+    _preset_fields: Dict[str, Any] = {}
+    if preset is not None:
+        _preset_fields = CompositeTargetDiscoveryConfig.preset_fields(preset)
+        rationale["preset"] = f"'{preset}' preset overlays its pinned fields on the data-derived suggestions: {sorted(_preset_fields)}."
 
     n_rows = len(df)
 
@@ -175,7 +187,7 @@ def suggest_discovery_config(
     # Degenerate frame: no rows / no target -> conservative defaults only.
     if n_rows == 0 or target_col not in _frame_columns(df):
         rationale["enabled"] = "Empty frame or target absent: returning conservative defaults."
-        cfg = CompositeTargetDiscoveryConfig(**{**suggested, **config_overrides})
+        cfg = CompositeTargetDiscoveryConfig(**{**suggested, **_preset_fields, **config_overrides})
         return cfg, rationale
 
     sample_idx = _sample_indices(n_rows, max(2, int(sample_n)), seed)
@@ -244,7 +256,7 @@ def suggest_discovery_config(
             f"structural detectors surfaced obvious base(s): {kind_desc} -- " "seeded as dominant_features_hint so auto-base starts from them."
         )
 
-    cfg = CompositeTargetDiscoveryConfig(**{**suggested, **config_overrides})
+    cfg = CompositeTargetDiscoveryConfig(**{**suggested, **_preset_fields, **config_overrides})
     return cfg, rationale
 
 

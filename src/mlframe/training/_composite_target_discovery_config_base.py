@@ -771,6 +771,36 @@ class CompositeTargetDiscoveryConfigBase(BaseConfig):
     # (callers who need every row for screening, e.g. tiny train_idx).
     honest_holdout_frac: Optional[float] = 0.2
 
+    # Honest-holdout OOS predictive-error gate. The honest-holdout MI re-score above de-biases the REPORTED gain but MI
+    # is monotone-invariant and bias-inflated: a transform can raise MI while WORSENING y-scale OOS RMSE (canonical case:
+    # a ratio dividing by a small noisy base amplifies noise, yet MI(T, X) still climbs). This gate replicates the actual
+    # prediction objective on the same never-touched holdout: fit the tiny screening model on the screening rows for each
+    # spec's T, invert to y-scale on the holdout, and compare the holdout RMSE against the same tiny model on raw y.
+    # Specs whose y-scale holdout RMSE loses to raw by more than ``honest_rmse_gate_tolerance`` are DROPPED, and
+    # ``honest_holdout_rmse`` / ``honest_holdout_rmse_gain`` are stamped on the survivors. Crucially this protects the
+    # ``screening="mi"`` path too, which otherwise has NO OOS predictive gate end-to-end. Default ON ("enable corrective
+    # mechanisms by default"); no-ops when the honest holdout is absent (``honest_holdout_frac`` disabled / too small).
+    honest_rmse_gate_enabled: bool = True
+    # A spec survives only when its y-scale holdout RMSE <= raw-y tiny RMSE * this tolerance (1.05 = within 5% of raw).
+    honest_rmse_gate_tolerance: float = 1.05
+    # Row cap per side (screen fit rows / holdout eval rows) for the gate's tiny-model fits; bounds cost on huge frames.
+    honest_rmse_gate_sample_n: int = 20_000
+
+    # Hard cap on the base-candidate grid entering the per-(base, transform) MI screen. The "auto" path is already
+    # capped by ``auto_base_top_k``; an EXPLICIT ``base_candidates`` list had no cap, so a long list multiplied the
+    # whole transform grid. When set and the surviving explicit list is longer, the candidates are re-ranked by a
+    # cheap direct MI(y, x) pass and trimmed to the cap; the cap also trims the auto path when tighter than
+    # ``auto_base_top_k``. ``None`` (default) preserves current behavior.
+    max_base_candidates: Optional[int] = None
+
+    # knn-MI cost guard. The Kraskov estimator is O(n log n) PER COLUMN PER (base, transform) pair; on a large screen
+    # sample with many features/pairs a knn fit can silently take hours where bin-MI takes seconds. When enabled and
+    # ``mi_estimator="knn"``, discovery times a small per-column probe on the screen sample, extrapolates the full
+    # sweep cost (n_pairs * per-pair per-column cost), and DOWNGRADES the estimator to "bin" for this fit (with a
+    # warning) when the estimate exceeds ``knn_mi_budget_seconds``. Set False (or budget <= 0) to never downgrade.
+    knn_mi_auto_downgrade: bool = True
+    knn_mi_budget_seconds: float = 600.0
+
     # Rank composite specs by HONEST group-OOF reconstruction RMSE (predict-T -> invert-to-y on the never-touched
     # group-disjoint honest holdout) instead of the optimistic group-INTERNAL CV-RMSE. MI-gain stays the cheap pre-filter
     # (top_k_after_mi); only the tiny-rerank's final ORDERING key changes. The honest holdout contains the out-of-range
