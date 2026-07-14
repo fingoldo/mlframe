@@ -5,11 +5,59 @@ Note: autouse fixtures (cleanup_memory, suppress_convergence_warnings) live in
 tests/conftest.py and apply to all test modules automatically.
 """
 
+import hashlib
+import json
 import os
+import subprocess
+import sys
+import tempfile
 
 # Set matplotlib backend to 'Agg' BEFORE any matplotlib import to prevent plt.show() from blocking
 import matplotlib
 matplotlib.use('Agg')
+
+
+def _neural_prewarm_is_safe() -> bool:
+    """One-time, per-machine, cached probe: does importing ``mlframe.training.neural`` crash
+    THIS interpreter (Windows native access violation via torchmetrics -> transformers ->
+    triton's module-level GPU/driver probe, observed on at least one dev machine)? A native
+    access violation is not a Python exception -- no try/except in this process can catch it --
+    so the probe runs the risky import in an isolated CHILD process instead and remembers the
+    verdict. Self-detecting: no manual CUDA_VISIBLE_DEVICES opt-out required on any machine.
+    ``CUDA_VISIBLE_DEVICES=""`` still short-circuits straight to "unsafe" (matches the rest of
+    this repo's GPU-warm-up convention and skips the subprocess entirely when the caller has
+    already declared CPU-only). Cached in a tempdir file keyed by the interpreter path so a
+    stale verdict from a different venv/python build never applies; first run per machine pays
+    one subprocess spawn (a genuine crash is near-instant, not a hang), every later run/worker
+    just reads the cached JSON.
+    """
+    if os.environ.get("CUDA_VISIBLE_DEVICES") == "":
+        return False
+    cache_path = os.path.join(
+        tempfile.gettempdir(),
+        f"mlframe_neural_prewarm_safe_{hashlib.sha1(sys.executable.encode('utf-8'), usedforsecurity=False).hexdigest()[:12]}.json",
+    )
+    try:
+        with open(cache_path, encoding="utf-8") as f:
+            return bool(json.load(f)["safe"])
+    except (OSError, ValueError, KeyError):
+        pass
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-c", "import mlframe.training.neural"],
+            capture_output=True,
+            timeout=120,
+        )
+        safe = proc.returncode == 0
+    except Exception:
+        safe = False
+    try:
+        with open(cache_path, "w", encoding="utf-8") as f:
+            json.dump({"safe": safe}, f)
+    except OSError:
+        pass
+    return safe
+
 
 # Pre-warm heavy optional dependencies BEFORE the per-test pytest-timeout
 # clock starts. On Windows cold cache, the first import of
@@ -20,17 +68,7 @@ matplotlib.use('Agg')
 # the actual classes; this prewarm here just touches disk so the OS file
 # cache is hot before the first test starts. We swallow ImportError
 # because some of these are optional extras.
-#
-# Guarded by CUDA_VISIBLE_DEVICES="" (same convention as the torch cuBLAS warm-up in
-# tests/conftest.py): ``mlframe.training.neural`` pulls in torchmetrics, which on a
-# text-metric call path imports transformers -> triton. On at least one dev machine
-# triton's module-level GPU/driver probe (triton/knobs.py) raised a Windows native
-# access violation at IMPORT time -- a hard process crash that no try/except can catch,
-# hit by every pytest-xdist worker collecting anything under tests/training/ regardless
-# of ``-m "not gpu"`` (marker deselection happens after collection, not before this
-# conftest import runs). CUDA_VISIBLE_DEVICES="" is the established escape hatch for
-# this whole bug class in this repo.
-if os.environ.get("CUDA_VISIBLE_DEVICES") != "":
+if _neural_prewarm_is_safe():
     try:
         import mlframe.training.neural  # noqa: F401
     except (ImportError, OSError):
