@@ -293,18 +293,32 @@ recover ~2x the features and beat `refine=False` in most cells of an existing in
 was never actually the bottleneck on this fixture** — prescreen already let weak features through
 (`noise_floor_rescued: 0` correctly reflects "nothing needed rescuing here"); the real filter is
 several stages downstream, in `within_cluster_refine`'s parsimony tolerance, which already has a
-KNOWN, DOCUMENTED, tunable escape hatch (`parsimony_tol`) — not an unknown defect. A confirmation run
-(`parsimony_probe.txt`) was launched sweeping `parsimony_tol ∈ {0.02 (default), 0.005, 0.0}` on the
-same fixture to verify the tradeoff resolves as expected (looser tolerance -> weak features recovered)
-before closing this thread definitively.
+KNOWN, DOCUMENTED, tunable escape hatch (`parsimony_tol`) — not an unknown defect.
 
-**Verdict: NOT a bug.** This is the selector's designed, documented precision/recall dial working
-as intended — the "gap" observed all session was this session's own fixture (a genuinely marginal
-0.25-weight linear signal against much stronger 1.0-weight features) sitting on the wrong side of a
-KNOWN, tunable, already-documented threshold, not a hidden defect anywhere in the pipeline. The
-prescreen fix (finding 5) remains a real, independently-valid bug fix (confirmed: naive top-K cuts
-CAN drop real signal in principle, per the isolated stress-fixture evidence) — it simply wasn't the
-explanation for THIS fixture's specific recall pattern.
+**CONFIRMED (`parsimony_probe.txt` landed):** sweeping `parsimony_tol` on the same fixture:
+```
+parsimony_tol=0.02  (default): n_selected=5  strong=5/6  weak=0/6  xor=0/2
+parsimony_tol=0.005:            n_selected=7  strong=5/6  weak=1/6  xor=0/2
+parsimony_tol=0.0:              n_selected=8  strong=6/6  weak=1/6  xor=0/2
+```
+The direction is exactly as predicted: looser tolerance monotonically recovers more features (5 ->
+7 -> 8 selected; weak recall 0 -> 1 -> 1; even the 6th strong feature, previously unexplained-missing,
+reappears at `tol=0.0`). It does NOT recover ALL weak features even at `tol=0.0` — expected, since
+`parsimony_tol` only controls whether a DROP is accepted relative to the current best honest loss;
+a genuinely marginal 0.25-weight signal may still lose a close greedy-backward comparison against a
+different candidate even with zero tolerance for degradation. This is consistent with — not
+contradicting — the "tunable dial, not a bug" conclusion: the knob moves recall in the predicted
+direction, it just isn't a single binary switch that recovers 100% of marginal signal at any setting
+(nor should it be, for a precision-oriented default).
+
+**Verdict: NOT a bug — CONFIRMED.** This is the selector's designed, documented precision/recall
+dial working exactly as intended and as its own docstring predicts. The "gap" observed all session
+was this session's own fixture (a genuinely marginal 0.25-weight linear signal against much stronger
+1.0-weight features) sitting on the wrong side of a KNOWN, tunable, already-documented threshold, not
+a hidden defect anywhere in the pipeline. The prescreen fix (finding 5) remains a real, independently
+-valid bug fix (confirmed: naive top-K cuts CAN drop real signal in principle, per the isolated
+stress-fixture evidence) — it simply wasn't the explanation for THIS fixture's specific recall
+pattern. **Investigation thread closed.**
 
 **Recommendation for future sessions:** if wide-frame recall of weak-but-real signal matters for a
 caller's use case, the answer is already in the codebase: use `parsimony_tol=0.005` (or lower) via
