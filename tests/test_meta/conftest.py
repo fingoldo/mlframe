@@ -12,8 +12,8 @@ they reach test code. Register all the refresh flags here as no-op
 options so pytest accepts them on the command line; the tests then read
 them from sys.argv as before.
 """
-from __future__ import annotations
 
+from __future__ import annotations
 
 _REFRESH_FLAGS = [
     "--refresh-api-snapshot",
@@ -25,10 +25,12 @@ _REFRESH_FLAGS = [
     "--refresh-logger-baseline",
     "--refresh-mutable-defaults-baseline",
     "--refresh-resource-handle-baseline",
+    "--refresh-code-audit-baseline",
 ]
 
 
 def pytest_addoption(parser):
+    """Register every ``--refresh-*-baseline`` flag as a no-op boolean toggle."""
     for flag in _REFRESH_FLAGS:
         # action=store_true so each flag is a boolean toggle; default off.
         # The tests themselves check sys.argv for the literal flag string,
