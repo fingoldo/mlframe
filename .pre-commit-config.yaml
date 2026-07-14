@@ -171,12 +171,16 @@ repos:
         language: system
         types: [python]
         pass_filenames: false
-        # Run on every commit that touches Python source. The meta-tests
-        # are quick enough that the per-commit cost is fine; if a
-        # contributor wants to skip in a hurry, ``git commit --no-verify``
-        # is the one-time escape hatch.
         always_run: false
-        stages: [pre-commit]
+        # MANUAL stage (2026-07-14): even parallelised (pytest-xdist, -n 8) this is still
+        # ~150s -- the single biggest per-commit tax after mypy's cold-cache fix landed.
+        # tests/test_meta/ is already covered on every push by CI's main pytest job
+        # (testpaths=["tests"] in pyproject.toml includes it, sharded 8-ways with -n auto in
+        # ci.yml), so a regression here still gets caught before merge -- it just isn't
+        # re-paid locally on every single commit. Run explicitly via
+        # ``pre-commit run --hook-stage manual mlframe-meta-tests`` before pushing, or let CI
+        # catch it.
+        stages: [manual]
 
   # Real-bug gate: pyflakes (undefined names, redefinitions, undefined exports)
   # + syntax errors. Blocks the commit (exit 1 on finding any). False-positive
@@ -263,7 +267,13 @@ repos:
         language: system
         types: [python]
         pass_filenames: false
-        stages: [pre-commit]
+        # MANUAL stage (2026-07-14): ~100-110s per commit with no further speedup available
+        # (see the whole-repo-scan note above) -- CI's lint-blocking job (ci.yml -> py-ci-shared
+        # lint-blocking.yml, vulture-whitelist-path: scripts/vulture_whitelist.py) already runs
+        # this exact whole-repo scan on every push, so dead code still can't reach master. Run
+        # explicitly via ``pre-commit run --hook-stage manual vulture-blocking`` before pushing,
+        # or let CI catch it.
+        stages: [manual]
 
   # Docstring-coverage gate: 100% (see [tool.interrogate] in pyproject.toml). Blocking since
   # 2026-07-09, mirroring the CI lint-blocking job.

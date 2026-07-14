@@ -167,9 +167,16 @@ def _class_is_dumped(cls: type[BaseModel], corpus: str) -> bool:
     before ``.model_dump(``. Brittle if callers name their variable in
     creative ways; ``_KNOWN_INDIRECT_CONSUMERS`` is the explicit-whitelist
     escape hatch.
+
+    Plain substring check, not ``\b``-anchored regex: measured 89x faster on the
+    ~26MB corpus (75s -> 0.85s dominated this test's wall time) with no behaviour
+    loss in the direction that matters -- the only candidates that gain a match
+    without the word-boundary anchor make a class MORE likely to be treated as
+    dumped (fewer fields flagged unused), the same lenient-by-design direction
+    the rest of this heuristic already accepts.
     """
     candidates = _class_to_var_candidates(cls.__name__)
-    return any(re.search(rf"\b{re.escape(c)}\.model_dump\(", corpus) is not None for c in candidates)
+    return any(f"{c}.model_dump(" in corpus for c in candidates)
 
 
 def _is_referenced(field_name: str, corpus: str) -> bool:
