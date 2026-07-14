@@ -29,9 +29,8 @@ production code worth policing. These tests catch:
 from __future__ import annotations
 
 import ast
-import os
 import re
-import sys
+from functools import cache
 from pathlib import Path
 
 import pytest
@@ -42,8 +41,7 @@ _TEST_META_DIR = Path(__file__).resolve().parent
 # Match a colon (file:line, key: value), a slash (path), an angle (template
 # placeholder), or any of the fix-prompt verbs.
 _ACTIONABLE_RE = re.compile(
-    r"[:/<>]|\b(Add|Either|Refresh|Whitelist|Fix|Run|Update|Remove|Document|"
-    r"Check|See|Catches|Replace|OR)\b",
+    r"[:/<>]|\b(Add|Either|Refresh|Whitelist|Fix|Run|Update|Remove|Document|" r"Check|See|Catches|Replace|OR)\b",
     re.IGNORECASE,
 )
 
@@ -63,12 +61,28 @@ _PERMITTED_PRIVATE_IMPORTS: set[str] = {
 
 
 def _meta_test_files() -> list[Path]:
+    """Every ``test_*.py`` file under ``tests/test_meta/`` except this one."""
     out: list[Path] = []
     for py in _TEST_META_DIR.glob("test_*.py"):
         if py.name == Path(__file__).name:
             continue
         out.append(py)
     return sorted(out)
+
+
+@cache
+def _parsed_ast(py: Path) -> ast.AST | None:
+    """Read + AST-parse ``py`` once, cached: both F1 and F2 scanners below walk
+    the same meta-test file set independently, so an uncached read_text()+ast.parse()
+    per scanner doubles the I/O + parse cost."""
+    try:
+        src = py.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+    try:
+        return ast.parse(src)
+    except SyntaxError:
+        return None
 
 
 def _pytest_fail_strings(tree: ast.AST) -> list[tuple[int, str, bool]]:
@@ -79,8 +93,8 @@ def _pytest_fail_strings(tree: ast.AST) -> list[tuple[int, str, bool]]:
     chunk of the first arg, and ``has_dynamic`` is True when the message
     is built from an f-string / ``%``-format / ``+`` concat with a
     non-constant operand — the rich detail then comes from the
-    dynamic substitution and the joined statics alone won't reflect
-    that.
+    dynamic substitution and the joined constant-only text alone
+    won't reflect that.
     """
     out: list[tuple[int, str, bool]] = []
     for node in ast.walk(tree):
@@ -106,8 +120,7 @@ def _pytest_fail_strings(tree: ast.AST) -> list[tuple[int, str, bool]]:
                 chunks.append(sub.value)
             elif isinstance(sub, ast.FormattedValue):
                 has_dynamic = True
-            elif isinstance(sub, (ast.Name, ast.Attribute, ast.Subscript,
-                                  ast.Call)) and sub is not first:
+            elif isinstance(sub, (ast.Name, ast.Attribute, ast.Subscript, ast.Call)) and sub is not first:
                 # A non-string-constant inside the message expression.
                 has_dynamic = True
         out.append((node.lineno, " ".join(chunks), has_dynamic))
@@ -138,16 +151,12 @@ def _imports(tree: ast.AST) -> list[str]:
 
 
 def test_every_pytest_fail_call_has_actionable_text():
+    """F1: every ``pytest.fail(...)`` call in the meta-test directory must carry actionable detail."""
     bad: list[str] = []
     audited = 0
     for py in _meta_test_files():
-        try:
-            src = py.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
-            continue
-        try:
-            tree = ast.parse(src)
-        except SyntaxError:
+        tree = _parsed_ast(py)
+        if tree is None:
             continue
         for lineno, text, has_dynamic in _pytest_fail_strings(tree):
             audited += 1
@@ -160,9 +169,7 @@ def test_every_pytest_fail_call_has_actionable_text():
                 bad.append(f"{py.name}:{lineno} (empty message)")
                 continue
             if not _ACTIONABLE_RE.search(text):
-                bad.append(
-                    f"{py.name}:{lineno} → {text[:80]!r}"
-                )
+                bad.append(f"{py.name}:{lineno} → {text[:80]!r}")
 
     if audited == 0:
         pytest.skip("no pytest.fail calls found in meta-test directory")
@@ -171,8 +178,7 @@ def test_every_pytest_fail_call_has_actionable_text():
             f"{len(bad)} pytest.fail message(s) lack actionable detail "
             f"(file paths, fix verbs, or template placeholders). The "
             f"reviewer will need to read the test source to figure out "
-            f"what to do — improve the message:\n  "
-            + "\n  ".join(bad[:20])
+            f"what to do — improve the message:\n  " + "\n  ".join(bad[:20])
         )
 
 
@@ -182,16 +188,12 @@ def test_every_pytest_fail_call_has_actionable_text():
 
 
 def test_meta_tests_dont_reach_private_internals():
+    """F2: meta-tests must cover the public contract, not reach into unwhitelisted private internals."""
     bad: list[str] = []
     for py in _meta_test_files():
         stem = py.stem
-        try:
-            src = py.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
-            continue
-        try:
-            tree = ast.parse(src)
-        except SyntaxError:
+        tree = _parsed_ast(py)
+        if tree is None:
             continue
         for imp in _imports(tree):
             # Only audit our own package imports.
@@ -209,8 +211,7 @@ def test_meta_tests_dont_reach_private_internals():
         pytest.fail(
             f"{len(bad)} meta-test(s) import a private symbol without "
             f"justification. Either use the public API instead, OR "
-            f"whitelist via _PERMITTED_PRIVATE_IMPORTS with reasoning:\n  "
-            + "\n  ".join(sorted(set(bad)))
+            f"whitelist via _PERMITTED_PRIVATE_IMPORTS with reasoning:\n  " + "\n  ".join(sorted(set(bad)))
         )
 
 
@@ -238,7 +239,4 @@ def test_perf_budget_overrides_are_documented():
     test_stems = {p.stem for p in _meta_test_files()}
     stale = [k for k in _PERF_BUDGET_OVERRIDES if k not in test_stems]
     if stale:
-        pytest.fail(
-            f"_PERF_BUDGET_OVERRIDES has entries for {stale} which no "
-            f"longer exist in the meta-test dir — clean up after rename"
-        )
+        pytest.fail(f"_PERF_BUDGET_OVERRIDES has entries for {stale} which no " f"longer exist in the meta-test dir — clean up after rename")
