@@ -74,6 +74,20 @@ _TRANSFORM_RTOL: dict[str, float] = {
     "reciprocal_residual": 1e-6,
     "geometric_mean_residual": 1e-9,  # exact: y / g * g = y
     "pairwise_interaction_residual": 1e-9,
+    # T1-T10 extension batch.
+    "rolling_quantile_ratio_centered": 1e-6,
+    "ewma_residual_grouped": 1e-6,
+    "rolling_quantile_ratio_grouped": 1e-6,
+    "frac_diff_grouped": 1e-6,
+    "quantile_residual_grouped": 1.0,   # binned IQR division, lossy (see quantile_residual)
+    "monotonic_residual_grouped": 0.5,  # PCHIP interpolation (see monotonic_residual)
+    "box_cox_y": 1e-6,
+    "seasonal_residual": 1e-9,          # pure additive per-phase means
+    "volatility_normalized_residual": 1e-9,  # exact: same floored vol on both legs
+    "asinh_residual_multi": 1e-9,       # exact OLS in arcsinh space
+    "linear_residual_multi_robust": 1e-9,
+    "nadaraya_watson_residual": 1e-9,   # pure additive g(base)
+    "gaussian_copula_residual": 0.5,    # ECDF knot + tail eps-clip loss like quantile_normal_y
 }
 
 

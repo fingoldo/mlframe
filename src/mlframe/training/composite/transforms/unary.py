@@ -372,6 +372,62 @@ def yeo_johnson_y_domain(y: np.ndarray, params: Dict[str, Any] | None = None) ->
 
 
 # ----------------------------------------------------------------------
+# box_cox_y -- Box-Cox power transform with lambda fitted by MLE.
+# Sibling of yeo_johnson_y for STRICTLY-POSITIVE targets: on y > 0 the
+# Box-Cox MLE is the classical, slightly tighter fit (no negative-branch
+# compromise in the likelihood). Mixed-sign targets must use yeo_johnson_y.
+# ----------------------------------------------------------------------
+
+_BOX_COX_LAMBDA_RANGE: tuple[float, float] = (-2.0, 4.0)
+"""Fitted lambda is clipped to this range, matching the yeo_johnson_y convention: it covers all practical tail compression / expansion needs while keeping the inverse power ``(t*lam+1)**(1/lam)`` numerically tame."""
+
+_BC_INV_BASE_FLOOR: float = 1e-12
+"""Same asymptote guard as ``_YJ_INV_BASE_FLOOR``: for lam != 0 the inverse base ``t*lam + 1`` can go non-positive on an out-of-range inner T-prediction; flooring it saturates the inverse at a large finite y instead of emitting NaN."""
+
+
+def box_cox_y_fit(y: np.ndarray) -> Dict[str, Any]:
+    """Fit lambda by MLE via ``scipy.stats.boxcox`` on the finite strictly-positive train rows; falls back to lambda=1.0 (identity-ish) when fewer than 4 usable rows, constant y, or numerical failure."""
+    arr = np.asarray(y, dtype=np.float64)
+    pos = arr[np.isfinite(arr) & (arr > 0.0)]
+    if pos.size < 4 or float(pos.min()) == float(pos.max()):
+        return {"lambda": 1.0}
+    try:
+        from scipy.stats import boxcox
+        _, lam = boxcox(pos)
+        lam = float(lam)
+        if not np.isfinite(lam):
+            lam = 1.0
+    except Exception:
+        lam = 1.0
+    return {"lambda": float(np.clip(lam, *_BOX_COX_LAMBDA_RANGE))}
+
+
+def box_cox_y_forward(y: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
+    """Box-Cox forward: ``(y**lam - 1) / lam`` (``log(y)`` at lam=0) using the fitted ``params["lambda"]``. Defined for y > 0 only (domain-gated upstream)."""
+    from scipy.special import boxcox as _bc
+    arr = np.asarray(y, dtype=np.float64)
+    # A stray non-positive row (predict-time domain fallback handles it) yields NaN; silence the expected warning.
+    with np.errstate(invalid="ignore", divide="ignore"):
+        return np.asarray(_bc(arr, float(params["lambda"])), dtype=np.float64)
+
+
+def box_cox_y_inverse(t: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
+    """Closed-form Box-Cox inverse ``(t*lam + 1)**(1/lam)`` (``exp(t)`` at lam=0), flooring the power base at ``_BC_INV_BASE_FLOOR`` so out-of-range t saturates instead of producing NaN."""
+    lam = float(params["lambda"])
+    arr = np.asarray(t, dtype=np.float64)
+    if abs(lam) < 1e-12:
+        return np.exp(arr)
+    base = np.maximum(arr * lam + 1.0, _BC_INV_BASE_FLOOR)
+    return np.asarray(np.power(base, 1.0 / lam))
+
+
+def box_cox_y_domain(y: np.ndarray, params: Dict[str, Any] | None = None) -> np.ndarray:
+    """Domain mask for Box-Cox: finite AND strictly positive y."""
+    arr = np.asarray(y, dtype=np.float64)
+    return np.asarray(np.isfinite(arr) & (arr > 0.0))
+
+
+# ----------------------------------------------------------------------
 # quantile_normal_y -- empirical-CDF mapping y -> standard Normal.
 # ----------------------------------------------------------------------
 
@@ -547,6 +603,7 @@ __all__ = [
     "signed_power_y_fit", "signed_power_y_forward", "signed_power_y_inverse", "signed_power_y_domain",
     "log_y_fit", "log_y_forward", "log_y_inverse", "log_y_domain",
     "yeo_johnson_y_fit", "yeo_johnson_y_forward", "yeo_johnson_y_inverse", "yeo_johnson_y_domain",
+    "box_cox_y_fit", "box_cox_y_forward", "box_cox_y_inverse", "box_cox_y_domain",
     "quantile_normal_y_fit", "quantile_normal_y_forward", "quantile_normal_y_inverse", "quantile_normal_y_domain",
     "chain_bivariate_then_unary_fit",
     "chain_bivariate_then_unary_forward",

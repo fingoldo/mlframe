@@ -152,6 +152,52 @@ def test_prefill_key_format_matches_evaluate_gain():
     assert expected == "5|3"
 
 
+def test_prefill_dispatches_only_cache_missing_pairs(monkeypatch):
+    """Regression (wellbore-100k profile): the greedy loop calls the prefill EVERY round with the full
+    selected_vars list, but each round adds ONE new z -- the old code recomputed the WHOLE
+    (candidates x selected_vars) CMI matrix per round and discarded the already-cached values at write
+    time (4375 dispatches / ~500s of _cpu_cmi_loop, mostly redundant). The prefill must dispatch only
+    the (cand, z) pairs missing from cached_cond_MIs: a fully-cached z is skipped outright (no dispatch),
+    a partially-cached z dispatches only the missing candidate subset, and cached values are never
+    overwritten."""
+    from mlframe.feature_selection.filters._numba_utils import arr2str
+
+    rng = np.random.default_rng(0)
+    factors_data = rng.integers(0, 3, size=(50, 8)).astype(np.int32)
+    factors_nbins = np.full(8, 3, dtype=np.int64)
+    workload = [(0, np.array([0]), 0), (1, np.array([1]), 0), (2, np.array([2]), 0)]
+
+    calls = []
+
+    def _spy_dispatch(*, factors_data, cand_indices, y_index, z_index, factors_nbins, dtype, force):
+        calls.append((int(z_index), sorted(int(c) for c in cand_indices)))
+        return np.full(len(cand_indices), 0.123, dtype=np.float64)
+
+    import mlframe.feature_selection.filters.info_theory._cmi_cuda as _cmi_mod
+
+    monkeypatch.setattr(_cmi_mod, "conditional_mi_batched_dispatch", _spy_dispatch)
+
+    def _key(c, z):
+        return arr2str(np.asarray([c], dtype=np.int64)) + "|" + arr2str(np.asarray([z], dtype=np.int32))
+
+    # z=3 fully cached -> must be SKIPPED (no dispatch); z=4 partially cached -> only cand 2 missing.
+    cache = {_key(0, 3): 0.5, _key(1, 3): 0.6, _key(2, 3): 0.7, _key(0, 4): 0.8, _key(1, 4): 0.9}
+    written = _eval_mod._prefill_cond_MIs_gpu(
+        workload=workload, y=np.array([7]),
+        factors_data=factors_data, factors_nbins=factors_nbins,
+        selected_vars=[3, 4, 5],
+        cached_cond_MIs=cache,
+        use_simple_mode=False,
+        mrmr_relevance_algo="fleuret",
+        max_veteranes_interactions_order=1,
+    )
+    assert calls == [(4, [2]), (5, [0, 1, 2])], f"unexpected dispatch pattern: {calls}"
+    assert written == 4  # 1 missing for z=4 + 3 for the new z=5
+    # Cached values never overwritten; missing pairs filled with the dispatched value.
+    assert cache[_key(0, 3)] == 0.5 and cache[_key(1, 4)] == 0.9
+    assert cache[_key(2, 4)] == 0.123 and cache[_key(0, 5)] == 0.123
+
+
 def test_prefill_no_op_when_no_gpu_keeps_cpu_path(monkeypatch):
     """No-GPU graceful path: with the env switch ON but no CUDA device, MRMR must still fit and
     produce a valid selection (the dispatch falls back to the exact CPU loop / pre-fill is harmless).

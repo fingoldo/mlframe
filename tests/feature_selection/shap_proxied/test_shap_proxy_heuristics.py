@@ -46,6 +46,28 @@ def test_beam_recovers_truth(easy_problem):
     assert _check(top, phi, base, y, truth) == truth
 
 
+def test_beam_recovers_truth_with_max_card_capacity_for_mixed_strength_signal():
+    """Wide, mixed-strength regression check: with enough max_card HEADROOM for both a strong and a
+    weak informative group, beam recovers all of them regardless of individual single-feature rank
+    (beam_width=8 only bounds the PER-LAYER survivors, not final reachability -- greedy growth from
+    strong-only seeds naturally discovers weak additions once there is subset-size room for them).
+    Guards against re-introducing a seed-blindness regression (investigated and ruled out this
+    session: see ``_benchmarks/PLAN_wide_dataframe_improvements.md``)."""
+    rng = np.random.default_rng(0)
+    n, f, n_strong, n_weak = 2000, 500, 10, 10
+    base = np.zeros(n)
+    y = rng.integers(0, 2, n).astype(np.float64)
+    phi = rng.normal(0, 0.02, (n, f))
+    for i in range(n_strong):
+        phi[:, i] = np.where(y == 1, 0.6, -0.6) + rng.normal(0, 0.1, n)
+    for i in range(n_strong, n_strong + n_weak):
+        phi[:, i] = np.where(y == 1, 0.03, -0.03) + rng.normal(0, 0.02, n)
+
+    top = H.beam_search(phi, base, y, classification=True, metric="logloss", beam_width=8, min_card=1, max_card=n_strong + n_weak, top_n=15)
+    best = set(top[0][1])
+    assert best == set(range(n_strong + n_weak))
+
+
 def test_greedy_forward_recovers_truth(easy_problem):
     phi, base, y, truth = easy_problem
     top = H.greedy_forward(phi, base, y, classification=False, metric="rmse", top_n=5)
@@ -60,22 +82,19 @@ def test_greedy_backward_recovers_truth(easy_problem):
 
 def test_multistart_beats_random(easy_problem):
     phi, base, y, truth = easy_problem
-    top = H.multistart_local(phi, base, y, classification=False, metric="rmse",
-                             rng=np.random.default_rng(0), n_starts=8, top_n=5)
+    top = H.multistart_local(phi, base, y, classification=False, metric="rmse", rng=np.random.default_rng(0), n_starts=8, top_n=5)
     _check(top, phi, base, y, truth)
 
 
 def test_genetic_beats_random(easy_problem):
     phi, base, y, truth = easy_problem
-    top = H.genetic(phi, base, y, classification=False, metric="rmse",
-                    rng=np.random.default_rng(0), pop_size=30, n_generations=20, top_n=5)
+    top = H.genetic(phi, base, y, classification=False, metric="rmse", rng=np.random.default_rng(0), pop_size=30, n_generations=20, top_n=5)
     _check(top, phi, base, y, truth)
 
 
 def test_annealing_beats_random(easy_problem):
     phi, base, y, truth = easy_problem
-    top = H.simulated_annealing(phi, base, y, classification=False, metric="rmse",
-                                rng=np.random.default_rng(0), n_iter=1500, top_n=5)
+    top = H.simulated_annealing(phi, base, y, classification=False, metric="rmse", rng=np.random.default_rng(0), n_iter=1500, top_n=5)
     _check(top, phi, base, y, truth)
 
 
@@ -95,8 +114,7 @@ def test_evaluator_loss_fast_parity(metric):
     phi = rng.standard_normal((n, f)).astype(np.float64)
     base = rng.standard_normal(n).astype(np.float64)
     classification = metric in ("brier", "logloss", "auc")
-    y = ((rng.random(n) > 0.5).astype(np.float64)
-         if classification else rng.standard_normal(n).astype(np.float64))
+    y = (rng.random(n) > 0.5).astype(np.float64) if classification else rng.standard_normal(n).astype(np.float64)
     phi_p, base_p, y_p, metric_resolved = H._prep(phi, base, y, classification, metric)
     ev = H._Evaluator(phi_p, base_p, y_p, metric_resolved)
     for _ in range(40):

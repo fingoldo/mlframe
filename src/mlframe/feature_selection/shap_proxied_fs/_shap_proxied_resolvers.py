@@ -129,6 +129,46 @@ def _resolve_adaptive_n_anchors(
     return int(min(int(hi), max(int(lo), n)))
 
 
+def noise_floor_rescue_keep_set(importance_full: np.ndarray, keep_idx: np.ndarray, *, safety_factor: float = 4.0) -> set:
+    """Widen a prescreen ``keep_idx`` set to also cover any column (anywhere in
+    ``importance_full``) whose importance clears a noise floor, even when it was cut by the
+    original selection.
+
+    Shared rescue primitive: a column with genuine (even weak) signal is separable from noise by
+    its RAW mean|phi| magnitude, which a fixed top-K cut can miss whenever there are more than K
+    non-noise columns. ``noise_floor = median(bottom half of importance_full) * safety_factor`` is
+    robust because on any reasonably wide frame the bottom half is dominated by genuine noise
+    columns, regardless of how many real (strong or weak) informative columns exist above it. Only
+    ever WIDENS ``keep_idx`` -- never drops a column the caller already decided to keep. Used by
+    both the knee-ladder cap resolver (``_resolve_knee_prescreen_cap``) and the flat importance
+    prescreen (``_shap_proxied_fit.py``) so the two independent cut points share one calibrated
+    rescue rule instead of drifting apart.
+    """
+    imp = np.asarray(importance_full, dtype=np.float64)
+    finite = imp[np.isfinite(imp)]
+    if finite.size == 0:
+        return set(int(i) for i in keep_idx)
+    tail = np.sort(finite)[: max(1, finite.size // 2)]
+    noise_floor = float(np.median(tail)) * float(safety_factor)
+    rescued = np.nonzero(imp > noise_floor)[0]
+    return set(int(i) for i in keep_idx) | {int(i) for i in rescued}
+
+
+# Knee-rescue noise floor (bug fix): the knee only reads the shape of the TOP `default_cap`
+# columns, so a frame with a handful of dominant features (typical wide-data regime: a few strong
+# drivers + a longer tail of real-but-weaker signal) always looks "front-loaded" and narrows the
+# cap -- even when the tail past the knee is not noise. Measured on synthetic wide frames
+# (p=3000-10000, strong+weak+xor-interaction generative signal): the unguarded knee dropped
+# weak-signal recall from ~0.88 (post-prefilter survivor rate) to 0.0-0.12 (final selection),
+# because narrowing `effective_brute_force_cap` directly shrinks `prescreen_top` in
+# ``_shap_proxied_fit.py``, discarding real signal before the search even sees it. The rescue
+# compares each candidate past the knee against a noise floor estimated from the BOTTOM HALF of
+# the full (not just top-`default_cap`) importance vector -- the tail is dominated by genuine noise
+# columns in a wide frame, so its median * safety_factor is a robust "clearly-not-noise" bar.
+# Columns clearing it are never pruned by the knee, regardless of the sparsity gate.
+_KNEE_RESCUE_SAFETY_FACTOR = 4.0
+
+
 def _resolve_knee_prescreen_cap(importance, default_cap: int, *, floor: int = _ADAPTIVE_PRESCREEN_FLOOR) -> tuple[int, dict]:
     """Data-driven prescreen cap from the sorted |phi| importance curve (knee detection).
 
@@ -137,15 +177,31 @@ def _resolve_knee_prescreen_cap(importance, default_cap: int, *, floor: int = _A
     dominant columns, long noise tail) prunes harder. The knee is the kneedle-style point of maximum
     drop below the diagonal of the normalised cumulative-importance curve over the top ``default_cap``
     candidates. ``cap = clip(knee+1, floor, default_cap)`` -- this lever only ever NARROWS, mirroring
-    the stability ladder's contract, so a dense frame is never penalised. Returns (cap, info).
+    the stability ladder's contract, so a dense frame is never penalised.
+
+    A noise-floor RESCUE (see ``_KNEE_RESCUE_SAFETY_FACTOR``) widens the cap back out, past the knee,
+    to cover any column (within ``default_cap``) whose importance clears
+    ``median(bottom half of the FULL importance vector) * safety_factor`` -- protecting real
+    weak-signal / interaction-operand columns from a knee that only reads local curve shape. Returns
+    ``(cap, info)``; ``info`` carries ``noise_floor`` and ``rescued`` (count of columns the rescue
+    widened the cap to cover) for diagnostics.
     """
-    imp = np.sort(np.abs(np.asarray(importance, dtype=np.float64)))[::-1]
+    imp_full = np.abs(np.asarray(importance, dtype=np.float64))
+    order = np.argsort(-imp_full)
+    imp = imp_full[order]
     head = imp[: int(default_cap)]
     info = dict(mode="knee", default_cap=int(default_cap))
     if head.shape[0] < 3 or not np.isfinite(head).all() or head[0] <= 0:
         info["effective_cap"] = int(default_cap)
         info["knee"] = None
         return int(default_cap), info
+    # Noise floor from the tail of the FULL importance vector (not just the top-default_cap head):
+    # in a wide frame the bottom half is dominated by genuine noise columns, so its median is a
+    # robust floor even when the top-cap curve alone looks deceptively front-loaded.
+    finite_full = imp_full[np.isfinite(imp_full)]
+    tail = np.sort(finite_full)[: max(1, finite_full.shape[0] // 2)] if finite_full.shape[0] > 0 else np.array([0.0])
+    noise_floor = float(np.median(tail)) * _KNEE_RESCUE_SAFETY_FACTOR
+    info["noise_floor"] = noise_floor
     # Normalised cumulative-importance curve; concave for sparse signal (mass front-loaded).
     cum = np.cumsum(head)
     cum = cum / cum[-1]
@@ -157,10 +213,19 @@ def _resolve_knee_prescreen_cap(importance, default_cap: int, *, floor: int = _A
     # across the cap) => KEEP the full default cap; large => front-loaded/sparse => narrow to the knee.
     sparsity = float(diff[knee_idx])
     if sparsity < _KNEE_SPARSITY_GATE:
-        info.update(effective_cap=int(default_cap), knee=int(knee_idx), sparsity=sparsity)
+        info.update(effective_cap=int(default_cap), knee=int(knee_idx), sparsity=sparsity, rescued=0)
         return int(default_cap), info
     cap = int(min(int(default_cap), max(int(floor), knee_idx + 1)))
-    info.update(effective_cap=int(cap), knee=int(knee_idx), sparsity=sparsity)
+    # Rescue: widen cap to cover any head column (within default_cap) clearing the noise floor,
+    # even past the knee -- never narrows below `cap`, only ever widens back toward default_cap.
+    above_floor = np.nonzero(head > noise_floor)[0]
+    rescued = 0
+    if above_floor.size:
+        rescue_cap = int(above_floor[-1]) + 1
+        if rescue_cap > cap:
+            rescued = rescue_cap - cap
+            cap = min(int(default_cap), rescue_cap)
+    info.update(effective_cap=int(cap), knee=int(knee_idx), sparsity=sparsity, rescued=int(rescued))
     return cap, info
 
 

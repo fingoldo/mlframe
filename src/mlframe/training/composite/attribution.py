@@ -63,6 +63,8 @@ _MULTIPLICATIVE_NEUTRAL_T: dict[str, float] = {
     "logratio": 0.0,
     "centered_ratio": 1.0,
     "rolling_quantile_ratio": 1.0,
+    "rolling_quantile_ratio_centered": 1.0,
+    "rolling_quantile_ratio_grouped": 1.0,
     "geometric_mean_residual": 1.0,
 }
 

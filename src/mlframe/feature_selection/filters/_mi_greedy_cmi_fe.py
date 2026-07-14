@@ -943,7 +943,7 @@ def cmi_from_binned_fixed_yz(
     return max(0.0, cmi_plugin - cmi_bias)
 
 
-def _cmi_gpu_enabled(*, n: Optional[int] = None, p: Optional[int] = None) -> bool:
+def _cmi_gpu_enabled(*, n: Optional[int] = None, p: Optional[int] = None, min_p: Optional[int] = None) -> bool:
     """Route the mi_greedy CMI entropies to the GPU when STRICT-GPU is on (or a future KTC gate). Default
     OFF -> host path, byte-identical. STRICT_GPU=1 forces it (the user's "make GPU actually carry the FE
     compute" knob: most FE families were CPU-only, this puts the dominant CMI on the device).
@@ -956,7 +956,7 @@ def _cmi_gpu_enabled(*, n: Optional[int] = None, p: Optional[int] = None) -> boo
         return True
     try:
         from ._fe_gpu_strict import fe_gpu_strict_enabled
-        return bool(fe_gpu_strict_enabled(n=n, p=p))
+        return bool(fe_gpu_strict_enabled(n=n, p=p, min_p=min_p))
     except Exception:
         return False
 

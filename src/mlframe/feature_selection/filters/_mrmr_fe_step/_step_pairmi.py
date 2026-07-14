@@ -315,6 +315,14 @@ def compute_pair_mis_and_floor(
         # exact "10h44m fit, weak CPU/GPU utilization" pathology the whole audit started from.
         _LOKY_POOL_WALL_CLOCK_TIMEOUT = 300
 
+        # Ship the fit-constant ``data`` matrix as a READ-ONLY memmap: joblib passes an existing
+        # np.memmap to loky workers by FILENAME, skipping the per-Parallel-invocation re-dump of the
+        # whole ~hundreds-of-MB buffer to a fresh temp file (45 dumps / ~315s of _pickle.dumps on the
+        # wellbore-100k profile). One dump per fit (content-keyed cache in _joblib_safe); fallback on
+        # any failure is the original array -- identical behavior, only the dedup is lost.
+        from .._joblib_safe import fit_constant_memmap
+        _data_shipped = fit_constant_memmap(data)
+
         def _run_loky_pair_mi_pool():
             return list(
                 Parallel(
@@ -326,7 +334,7 @@ def compute_pair_mis_and_floor(
                 )(
                     delayed(compute_pairs_mis)(
                         all_pairs=chunk,
-                        data=data,
+                        data=_data_shipped,
                         target_indices=target_indices,
                         nbins=nbins,
                         classes_y=classes_y,

@@ -506,6 +506,19 @@ except (OSError, RuntimeError) as exc:  # pragma: no cover
 #
 # Same idempotency sentinel guards as the RFECV block above - see that comment
 # for the rationale.
+#
+# KNOWN ENVIRONMENT BUG (2026-07-14): this import chain (pyutilz.system ->
+# pyutilz.text.strings -> pandas.compat.pyarrow -> pyarrow) is the exact trigger for a
+# reproducible Windows access violation (SIGSEGV) with pyarrow==24.0.0's cp314 wheel,
+# but ONLY when the import runs through pytest's assertion-rewrite loader
+# (_pytest.assertion.rewrite.exec_module) -- a plain `python -c "import pyarrow"` or
+# `python -c "import pyutilz.system"` does NOT crash. Root-caused via an isolated venv
+# A/B (pyarrow 24.0.0 crashed 3/3 runs; 25.0.0 was stable 3/3 runs) -- fixed by pinning
+# pyarrow>=25.0.0 in pyproject.toml. If pytest ever segfaults again on this exact import
+# chain with zero output (the crash pre-empts any test output, easy to mistake for a
+# hang), suspect a pyarrow/cp3xx wheel regression first, not GPU/CUDA contention (an
+# earlier hypothesis this session, ruled out: the crash reproduces at LOW machine load
+# and is deterministic per pyarrow version, not load-dependent).
 try:
     import pyutilz.system as _pus  # noqa: E402
     # Inner module holds the LIVE definition; pyutilz.system re-exports via

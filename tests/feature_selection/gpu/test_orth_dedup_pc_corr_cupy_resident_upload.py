@@ -145,3 +145,23 @@ def test_pc_corr_cupy_matches_numpy_backend():
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "-s", "--tb=short"])
+
+
+def test_resolve_pc_backend_prefers_cupy_under_strict(monkeypatch):
+    """STRICT GPU mode routes the dedup correlation to the cupy backend (its 2.0-2.7x solo win is the
+    point of strict mode's "carry FE compute on the device" contract); non-strict keeps the measured
+    numpy default. The strict gate's own per-call work floor (p >= 64, n*p >= 1M) keeps tiny dedups on CPU."""
+    from mlframe.feature_selection.filters._orthogonal_univariate_fe import _orth_dedup as od
+
+    monkeypatch.delenv("MLFRAME_FE_DEDUP_CORR_BACKEND", raising=False)
+    monkeypatch.setenv("MLFRAME_FE_GPU_STRICT", "1")
+    # Big enough to clear the strict per-call work floor (p=max(q,r)=500 >= 64; n*p = 25M >= 1M).
+    assert od._resolve_pc_backend(500, 300, 50_000) == "cupy"
+    # Tiny call: below the work floor -> falls through to the KTC/numpy default, NOT forced to cupy.
+    assert od._resolve_pc_backend(4, 3, 100) != "cupy"
+    monkeypatch.setenv("MLFRAME_FE_GPU_STRICT", "0")
+    assert od._resolve_pc_backend(500, 300, 50_000) == "numpy"
+    # Env force still wins over strict.
+    monkeypatch.setenv("MLFRAME_FE_GPU_STRICT", "1")
+    monkeypatch.setenv("MLFRAME_FE_DEDUP_CORR_BACKEND", "numpy")
+    assert od._resolve_pc_backend(500, 300, 50_000) == "numpy"

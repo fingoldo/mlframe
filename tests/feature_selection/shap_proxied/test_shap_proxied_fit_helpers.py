@@ -11,10 +11,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from mlframe.feature_selection.shap_proxied_fs._shap_proxied_fit import (
-    _apply_min_selected_ratio,
-    _inject_operand_pairs,
-)
+from mlframe.feature_selection.shap_proxied_fs._shap_proxied_fit import _apply_min_selected_ratio
+from mlframe.feature_selection.shap_proxied_fs._shap_proxied_fit_interactions import _inject_operand_pairs
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_objective import subset_loss
 
 

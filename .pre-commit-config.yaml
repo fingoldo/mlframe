@@ -381,7 +381,12 @@ repos:
         files: '^src/mlframe/.*\.py$'
         pass_filenames: false
         always_run: false
-        stages: [pre-commit]
+        # Moved off the pre-commit path (2026-07-14): despite the --check/no-sweep design, this hook was
+        # observed taking minutes per commit and piling up concurrent instances across sessions sharing this
+        # working tree -- disproportionate to what it catches (a kernel code_version moving without a
+        # regenerated JSON). Run explicitly via `pre-commit run --hook-stage manual gen-default-tuning-check`
+        # (or the CI-equivalent check) when a kernel's tuning surface actually changed.
+        stages: [manual]
 
       # MANUAL fast stage: actually (re)generate the defaults. Use after a kernel
       # edit moved a code_version:  pre-commit run --hook-stage manual gen-default-tuning

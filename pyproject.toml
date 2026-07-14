@@ -61,7 +61,12 @@ dependencies = [
     # >=1.6: category-encoders (a hard dep below) imports ``sklearn.utils.Tags``, which only exists from
     # sklearn 1.6; on older sklearn ``import category_encoders`` fails, so 1.6 is mlframe's effective floor.
     "scikit-learn>=1.6",
-    "pyarrow>=10.0",
+    # >=25.0.0: pyarrow 24.0.0's cp314 wheel segfaults (Windows access violation) on import when
+    # triggered through pytest's assertion-rewrite loader (reproduces in tests/conftest.py's
+    # pyutilz.system -> pyutilz.text.strings -> pandas.compat.pyarrow -> pyarrow import chain; a
+    # plain `python -c "import pyarrow"` does NOT crash, only the pytest-loader path does).
+    # Confirmed via an isolated venv A/B: 24.0.0 crashes reproducibly (3/3), 25.0.0 is stable (3/3).
+    "pyarrow>=25.0.0",
     "joblib>=1.2",
     "tqdm>=4.65",
     "pydantic>=2.0",

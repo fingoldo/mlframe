@@ -547,8 +547,21 @@ class ShapProxiedFitMixin:
             prescreen_top = effective_brute_force_cap
         if prescreen_top is not None and prescreen_top < n_proxy:
             with _stage("prescreen"):
+                from mlframe.feature_selection.shap_proxied_fs._shap_proxied_resolvers import noise_floor_rescue_keep_set
+
                 importance = np.abs(phi).mean(axis=0)
-                keep_set = set(int(i) for i in np.argsort(-importance)[:prescreen_top])
+                top_keep = np.argsort(-importance)[:prescreen_top]
+                # Noise-floor rescue (bug fix, iter-2026-07-14): a flat top-K cut by mean|phi| alone
+                # silently drops any real weak-signal column ranked below K whenever the frame has
+                # more than K non-noise proxy columns -- confirmed on a real wide/clustered fit
+                # (112 post-clustering units, cap=28): weak/interaction-operand recall collapsed to
+                # 0.0 while strong-signal recall stayed 1.0. The rescue widens the keep set to also
+                # cover any column clearing a noise floor derived from the FULL importance vector's
+                # tail, mirroring the same fix already shipped for the knee-ladder cap (see
+                # ``noise_floor_rescue_keep_set`` -- shared primitive, not duplicated logic).
+                top_keep_set = set(int(i) for i in top_keep)
+                rescued_set = noise_floor_rescue_keep_set(importance, top_keep) - top_keep_set
+                keep_set = top_keep_set | rescued_set
                 # Rescue su_seeded synergistic operands the marginal-|phi| ranking would discard.
                 keep_set |= {int(i) for i in _su_rescue_proxy_idx if 0 <= int(i) < n_proxy}
                 keep = np.sort(np.fromiter(keep_set, dtype=np.int64))
@@ -560,7 +573,10 @@ class ShapProxiedFitMixin:
                     unit_to_members = [unit_to_members[i] for i in keep]
                 else:
                     unit_to_members = [np.array([int(i)], dtype=np.int64) for i in keep]
-                report["prescreen"] = dict(kept=len(keep), of=int(n_proxy), su_rescued=len(_su_rescue_proxy_idx))
+                report["prescreen"] = dict(
+                    kept=len(keep), of=int(n_proxy), su_rescued=len(_su_rescue_proxy_idx),
+                    noise_floor_rescued=len(rescued_set),
+                )
 
         optimizer = self._resolve_optimizer(phi.shape[1])
         with _stage("search"):
