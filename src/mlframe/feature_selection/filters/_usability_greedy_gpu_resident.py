@@ -219,10 +219,13 @@ def usability_greedy_gpu_resident(
             sel_set = set(sel_idx)
             scored = []
             mi_host = cp.asnumpy(mi_dev)
+            # One batched D2H for the whole (P,) use-vector: `float(uses[i])` inside the loop was a
+            # blocking 8-byte device sync PER CANDIDATE per round (P scalar .get()s where one suffices).
+            uses_host = cp.asnumpy(uses) if hasattr(uses, "__cuda_array_interface__") else np.asarray(uses)
             for i in range(P):
                 if i in sel_set:
                     continue
-                use = float(uses[i])
+                use = float(uses_host[i])
                 scored.append((i, (1.0 - w) * (mi_host[i] / mi_max) + w * use))
             scored.sort(key=lambda t: t[1], reverse=True)
             return [i for i, _ in scored[: max(1, shortlist)]]
