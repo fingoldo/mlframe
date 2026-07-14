@@ -171,15 +171,14 @@ repos:
         language: system
         types: [python]
         pass_filenames: false
-        # Run on every commit that touches Python source. Briefly moved to
-        # stages:[manual] (2026-07-14) when the suite was ~150-190s; after fixing the
-        # dominant hotspot (test_every_config_field_has_a_consumer: 96.4s -> 4.9s, a
-        # \b-anchored regex -> substring swap) plus the earlier -n 8 xdist
-        # parallelisation, the full suite runs in ~110s -- back to a cost worth
-        # re-paying on every commit. If a contributor wants to skip in a hurry,
-        # ``git commit --no-verify`` is the one-time escape hatch.
         always_run: false
-        stages: [pre-commit]
+        # MANUAL stage (2026-07-14, re-flipped same day after user feedback that even the
+        # optimized ~110s is too long to re-pay on every single commit): already covered on
+        # every push by CI's main pytest job (testpaths=["tests"] in pyproject.toml includes
+        # tests/test_meta/, sharded 8-ways with -n auto in ci.yml). Run explicitly via
+        # ``pre-commit run --hook-stage manual mlframe-meta-tests`` before pushing, or let CI
+        # catch it.
+        stages: [manual]
 
   # Real-bug gate: pyflakes (undefined names, redefinitions, undefined exports)
   # + syntax errors. Blocks the commit (exit 1 on finding any). False-positive
