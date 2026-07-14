@@ -72,7 +72,7 @@ class _CpuSampler(threading.Thread):
 
 
 if __name__ == "__main__":
-    VARIANTS = ("cma_batch", "numba_kernel", "random_batch", "cma", "optuna")
+    VARIANTS = ("cma_batch", "numba_kernel", "cupy_kernel", "random_batch", "cma", "optuna")
     results = {}
     for opt in VARIANTS:
         per_case = {}

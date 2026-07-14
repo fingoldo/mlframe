@@ -45,3 +45,23 @@ def test_numba_kernel_recovers_cubic_inner_winner():
     )
     assert res is not None, "kernel must clear the baseline-uplift gate on the cubic-inner case"
     assert res.mi >= 0.45, f"expected ~0.4813 parity with the reference optimizers, got {res.mi:.4f}"
+
+
+def test_cupy_kernel_recovers_cubic_inner_winner():
+    """The GPU generation-batched optimizer must recover the same cubic-inner logabs winner as every
+    reference-scored backend (selection-equivalence bar; cp.argsort tie-order is the only permitted
+    divergence source and is measure-zero on continuous GEMM outputs)."""
+    pytest.importorskip("cupy")
+    from mlframe.feature_selection.filters.hermite_fe import optimise_hermite_pair
+
+    r = np.random.default_rng(7)
+    a = r.standard_normal(20000)
+    b = r.standard_normal(20000)
+    y = ((a**3 - 2 * a) * b > 0).astype(np.int64)
+    res = optimise_hermite_pair(
+        x_a=a, x_b=b, y=y, seed=42, optimizer="cupy_kernel",
+        n_trials=100, min_degree=3, max_degree=6, coef_range=(-2.0, 2.0), l2_penalty=0.05,
+        sweep_degrees=True, basis="chebyshev", mi_estimator="plugin", discrete_target=True,
+        warm_start=True, multi_fidelity=False,
+    )
+    assert res is not None and res.mi >= 0.45, f"expected ~0.4813, got {None if res is None else res.mi}"

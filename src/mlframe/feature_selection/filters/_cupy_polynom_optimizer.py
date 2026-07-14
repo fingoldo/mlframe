@@ -1,0 +1,209 @@
+"""CuPy (GPU-resident) polynom-pair FE optimizer -- the device twin of ``_numba_polynom_optimizer``.
+
+One generation of P coefficient candidates is scored as TWO GEMMs plus batched elementwise/binning/MI
+device work, instead of P independent host evaluations:
+
+  1. Basis matrices ``B_a (n, D+1)`` / ``B_b`` are built ONCE per (pair, degree) on the device via the
+     exact numpy.polynomial recurrences (He/P/T/L -- parity with the ``_*val_njit`` kernels).
+  2. ``H_A = B_a @ C_a^T`` -> (n, P) for the whole generation in one cuBLAS GEMM (same trick as the
+     host BLAS fastpath, but for all candidates at once).
+  3. The six binary functions are cupy elementwise ops at BIT-PARITY with ``_DEFAULT_BIN_FUNCS``
+     (incl. the sign-preserving ``_safe_div`` and the sum-of-factor-logs ``_log_abs_signed``).
+  4. Rank-based equi-frequency binning of every combined column in ONE batched ``cp.argsort(axis=0)``
+     (the same block-size rule as ``_quantile_bin_njit``), then plug-in MI for every column in one
+     fused launch via the existing ``_fe_batched_mi.binned_mi_from_codes_gpu``.
+  5. The saturating L2 penalty (``lambda * s / (s + 1)``) matches ``_l2_penalty_value``'s default.
+
+Search structure mirrors the numba kernel: random init (+ warm seeds), elitism, Gaussian perturbation;
+all random draws come from a HOST ``np.random.default_rng(seed)`` so runs are deterministic and
+seed-comparable across backends regardless of device.
+
+CORRECTNESS BAR: selection-equivalence, not bit-identity -- ``cp.argsort`` breaks ties differently from
+the host quicksort ``np.argsort``, so tied feature values may bin differently (ties in a GEMM-produced
+continuous feature are measure-zero in practice; the e2e regression pins winner recovery).
+
+Public entry point: ``run_cupy_kernel_search`` -- same return contract as ``run_numba_kernel_search`` /
+``_run_cma_search_batch`` so the pair-optimiser dispatch swaps it in via ``optimizer="cupy_kernel"``.
+Limitations (same set as the numba kernel): plugin MI only, the 4 polynomial bases only, no
+multi-fidelity closures.
+"""
+from __future__ import annotations
+
+import logging
+from typing import Optional, Sequence
+
+import numpy as np
+
+logger = logging.getLogger(__name__)
+
+_BASIS_IDS = {"hermite": 0, "legendre": 1, "chebyshev": 2, "laguerre": 3}
+_BF_ORDER = ("mul", "add", "sub", "div", "atan2", "logabs")
+
+
+def _basis_matrix_gpu(cp, x, degree: int, basis_id: int):
+    """(n, degree+1) device basis matrix via the exact numpy.polynomial recurrences."""
+    n = x.shape[0]
+    B = cp.empty((n, degree + 1), dtype=cp.float64)
+    B[:, 0] = 1.0
+    if degree >= 1:
+        B[:, 1] = x
+    for k in range(2, degree + 1):
+        if basis_id == 0:  # hermite_e: He_k = x*He_{k-1} - (k-1)*He_{k-2}
+            B[:, k] = x * B[:, k - 1] - (k - 1) * B[:, k - 2]
+        elif basis_id == 1:  # legendre: k*P_k = (2k-1)*x*P_{k-1} - (k-1)*P_{k-2}
+            B[:, k] = ((2 * k - 1) * x * B[:, k - 1] - (k - 1) * B[:, k - 2]) / k
+        elif basis_id == 2:  # chebyshev: T_k = 2x*T_{k-1} - T_{k-2}
+            B[:, k] = 2.0 * x * B[:, k - 1] - B[:, k - 2]
+        else:  # laguerre: k*L_k = (2k-1-x)*L_{k-1} - (k-1)*L_{k-2}
+            B[:, k] = ((2 * k - 1 - x) * B[:, k - 1] - (k - 1) * B[:, k - 2]) / k
+    return B
+
+
+def _bf_apply_gpu(cp, bf_name: str, A, Bm):
+    """Elementwise binary function on (n, P) device matrices, bit-parity with _DEFAULT_BIN_FUNCS."""
+    if bf_name == "mul":
+        return A * Bm
+    if bf_name == "add":
+        return A + Bm
+    if bf_name == "sub":
+        return A - Bm
+    if bf_name == "div":  # _safe_div: exact sign-preserving divide, eps only at exact zero
+        return A / cp.where(Bm == 0.0, 1e-9, Bm)
+    if bf_name == "atan2":
+        return cp.arctan2(A, Bm)
+    # logabs: sign(a*b + eps) * (log(|a|+eps) + log(|b|+eps))
+    eps = 1e-9
+    return cp.sign(A * Bm + eps) * (cp.log(cp.abs(A) + eps) + cp.log(cp.abs(Bm) + eps))
+
+
+def _rank_bin_batched_gpu(cp, M, n_bins: int):
+    """Column-wise rank-based equi-frequency codes for (n, P) M -- one batched argsort; the SAME
+    block-size rule (first n%n_bins bins get one extra element) as ``_quantile_bin_njit``."""
+    n = int(M.shape[0])
+    order = cp.argsort(M, axis=0)  # (n, P) column-wise sort positions
+    base, rem = divmod(n, n_bins)
+    sizes = np.full(n_bins, base, dtype=np.int64)
+    sizes[:rem] += 1
+    bin_of_pos = cp.asarray(np.repeat(np.arange(n_bins, dtype=np.int64), sizes))  # (n,)
+    codes = cp.empty(M.shape, dtype=cp.int64)
+    cp.put_along_axis(codes, order, cp.broadcast_to(bin_of_pos[:, None], M.shape), axis=0)
+    return codes
+
+
+def _score_generation_gpu(cp, Ba, Bb, Ca, Cb, y_codes_dev, ky: int, n_bins: int,
+                          l2_penalty: float, direction_only: bool, bf_names: Sequence[str]):
+    """Score P candidates across all binary funcs; returns host (score, raw_mi, bf_idx) arrays of len P."""
+    from ._fe_batched_mi import binned_mi_from_codes_gpu
+
+    P = Ca.shape[0]
+    if direction_only:
+        norm = cp.sqrt((Ca * Ca).sum(axis=1) + (Cb * Cb).sum(axis=1))
+        norm = cp.where(norm > 1e-12, norm, 1.0)
+        Ca = Ca / norm[:, None]
+        Cb = Cb / norm[:, None]
+        penalty = np.zeros(P, dtype=np.float64)
+    elif l2_penalty > 0.0:
+        s_norm = cp.asnumpy((Ca * Ca).sum(axis=1) + (Cb * Cb).sum(axis=1))
+        penalty = l2_penalty * s_norm / (s_norm + 1.0)  # saturating parity with _l2_penalty_value
+    else:
+        penalty = np.zeros(P, dtype=np.float64)
+
+    HA = Ba @ Ca.T  # (n, P)
+    HB = Bb @ Cb.T
+    col_finite = cp.asnumpy(cp.isfinite(HA).all(axis=0) & cp.isfinite(HB).all(axis=0))
+
+    best_score = np.full(P, -np.inf)
+    best_raw = np.zeros(P)
+    best_bf = np.full(P, -1, dtype=np.int64)
+    for k, bf in enumerate(bf_names):
+        C = _bf_apply_gpu(cp, bf, HA, HB)
+        finite = col_finite & cp.asnumpy(cp.isfinite(C).all(axis=0))
+        if not finite.any():
+            continue
+        codes = _rank_bin_batched_gpu(cp, C, n_bins)
+        mi = binned_mi_from_codes_gpu(codes, y_codes_dev, ky=ky, codes_trusted=True)  # host (P,)
+        score = mi - penalty
+        upd = finite & (score > best_score)
+        best_score[upd] = score[upd]
+        best_raw[upd] = mi[upd]
+        best_bf[upd] = k
+    return best_score, best_raw, best_bf
+
+
+def run_cupy_kernel_search(*, ca_size: int, cb_size: int, coef_range: tuple, n_trials: int, seed: int,
+                           direction_only: bool, warm_start_seeds: Optional[Sequence[np.ndarray]],
+                           eval_kwargs: dict, batch_size: int = 20, elitism_k: int = 4,
+                           perturb_sigma_frac: float = 0.1) -> Optional[tuple]:
+    """GPU generation-batched random+elitism search; same return contract as ``run_numba_kernel_search``:
+    ``(coef_a_best, coef_b_best, bf_idx_best, raw_mi_best, best_score)`` or ``None``."""
+    import cupy as cp
+
+    fn_name = getattr(eval_kwargs.get("eval_func"), "__name__", "")
+    basis = next((b for b in _BASIS_IDS if b[:4] in fn_name or b in fn_name), None)
+    if basis is None:
+        for key, frag in (("hermite", "herm"), ("legendre", "leg"), ("chebyshev", "cheb"), ("laguerre", "lag")):
+            if frag in fn_name:
+                basis = key
+                break
+    if basis is None:
+        raise ValueError(f"cannot infer basis from eval_func={fn_name!r}")
+    bf_names = list(eval_kwargs["bf_names"])
+    if any(b not in _BF_ORDER for b in bf_names):
+        raise ValueError(f"unsupported bf in {bf_names}; cupy kernel supports {_BF_ORDER}")
+    if eval_kwargs.get("mi_estimator", "plugin") != "plugin" or not bool(eval_kwargs["discrete_target"]):
+        raise ValueError("cupy kernel supports plugin MI on a discrete target only")
+
+    z_a = np.ascontiguousarray(eval_kwargs["z_a"], dtype=np.float64)
+    z_b = np.ascontiguousarray(eval_kwargs["z_b"], dtype=np.float64)
+    y = np.asarray(eval_kwargs["y_njit"]).astype(np.int64).ravel()
+    y_min = int(y.min()) if y.size else 0
+    y_codes = y - y_min  # dense 0-based labels for the fused-MI shared tile
+    ky = int(y_codes.max()) + 1 if y.size else 1
+    n_bins = int(eval_kwargs["plugin_n_bins"])
+    l2_penalty = float(eval_kwargs["l2_penalty"]) if not direction_only else 0.0
+
+    xa_d = cp.asarray(z_a)
+    xb_d = cp.asarray(z_b)
+    y_d = cp.asarray(y_codes)
+    Ba = _basis_matrix_gpu(cp, xa_d, ca_size - 1, _BASIS_IDS[basis])
+    Bb = _basis_matrix_gpu(cp, xb_d, cb_size - 1, _BASIS_IDS[basis])
+
+    rng = np.random.default_rng(seed)
+    lo, hi = float(coef_range[0]), float(coef_range[1])
+    dim = ca_size + cb_size
+
+    pop = rng.uniform(lo, hi, size=(batch_size, dim))
+    if warm_start_seeds:
+        for i, s in enumerate(warm_start_seeds[: min(len(warm_start_seeds), batch_size)]):
+            sv = np.asarray(s, dtype=np.float64).ravel()
+            if sv.size == dim:
+                pop[i] = np.clip(sv, lo, hi)
+
+    best_vec = None
+    best_score = -np.inf
+    best_raw = 0.0
+    best_bf = -1
+    sigma = perturb_sigma_frac * (hi - lo)
+    n_gens = max(1, n_trials // batch_size)
+    for _gen in range(n_gens):
+        Ca = cp.asarray(np.ascontiguousarray(pop[:, :ca_size]))
+        Cb = cp.asarray(np.ascontiguousarray(pop[:, ca_size:]))
+        scores, raws, bfs = _score_generation_gpu(
+            cp, Ba, Bb, Ca, Cb, y_d, ky, n_bins, l2_penalty, direction_only, bf_names,
+        )
+        gi = int(np.argmax(scores))
+        if scores[gi] > best_score:
+            best_score = float(scores[gi])
+            best_raw = float(raws[gi])
+            best_bf = int(bfs[gi])
+            best_vec = pop[gi].copy()
+        order = np.argsort(scores)[::-1]
+        elites = pop[order[:elitism_k]]
+        n_perturb = batch_size - elitism_k - max(1, batch_size // 4)
+        perturbed = elites[rng.integers(0, elitism_k, size=n_perturb)] + rng.normal(0.0, sigma, size=(n_perturb, dim))
+        fresh = rng.uniform(lo, hi, size=(max(1, batch_size // 4), dim))
+        pop = np.clip(np.vstack([elites, perturbed, fresh]), lo, hi)[:batch_size]
+
+    if best_vec is None or not np.isfinite(best_score):
+        return None
+    return (best_vec[:ca_size].copy(), best_vec[ca_size:].copy(), best_bf, best_raw, best_score)

@@ -160,8 +160,8 @@ def optimise_hermite_pair(
     from ._hermite_fe_optimise import _baseline_mi_pair, _eval_coef_pair, _run_cma_search
     if mi_estimator not in ("plugin", "ksg"):
         raise ValueError(f"unknown mi_estimator={mi_estimator!r}; expected 'plugin' or 'ksg'")
-    if optimizer not in ("optuna", "cma", "cma_batch", "random_batch", "numba_kernel"):
-        raise ValueError(f"unknown optimizer={optimizer!r}; expected one of " f"'optuna', 'cma', 'cma_batch', 'random_batch', 'numba_kernel'")
+    if optimizer not in ("optuna", "cma", "cma_batch", "random_batch", "numba_kernel", "cupy_kernel"):
+        raise ValueError(f"unknown optimizer={optimizer!r}; expected one of " f"'optuna', 'cma', 'cma_batch', 'random_batch', 'numba_kernel', 'cupy_kernel'")
     if l2_penalty_saturation is None:
         l2_penalty_saturation = _L2_PENALTY_SATURATION_DEFAULT
     # Auto-pick n_neighbors based on n.
@@ -537,7 +537,7 @@ def optimise_hermite_pair(
         bf_idx_best = -1
         raw_mi_best = -np.inf
 
-        if optimizer in ("cma", "cma_batch", "random_batch", "numba_kernel"):
+        if optimizer in ("cma", "cma_batch", "random_batch", "numba_kernel", "cupy_kernel"):
             # 2026-05-20 NEW-D: translate the Optuna-trial-based
             # ``early_stop_no_improve`` knob into a CMA-generation count.
             _early_stop_gens = None
@@ -580,6 +580,18 @@ def optimise_hermite_pair(
                     # Optuna, no CMA dependency. One MI batch call per iter.
                     from ._hermite_fe_optimise import _run_random_batch_search
                     cma_result = _run_random_batch_search(
+                        ca_size=ca_size, cb_size=cb_size,
+                        coef_range=coef_range, n_trials=n_trials, seed=seed,
+                        direction_only=direction_only,
+                        warm_start_seeds=warm_seeds,
+                        eval_kwargs=eval_kwargs,
+                    )
+                elif optimizer == "cupy_kernel":
+                    # GPU generation-batched twin of numba_kernel: one cuBLAS GEMM per generation for all
+                    # candidates' basis evaluation + batched device binning/MI. Same plugin-MI/polynomial-
+                    # basis limitations as numba_kernel; raises without cupy -> the except below falls back.
+                    from ._cupy_polynom_optimizer import run_cupy_kernel_search
+                    cma_result = run_cupy_kernel_search(
                         ca_size=ca_size, cb_size=cb_size,
                         coef_range=coef_range, n_trials=n_trials, seed=seed,
                         direction_only=direction_only,
