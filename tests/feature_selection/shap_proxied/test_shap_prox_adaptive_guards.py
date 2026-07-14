@@ -24,6 +24,7 @@ from mlframe.feature_selection.shap_proxied_fs import (
     _resolve_adaptive_n_anchors,
     _resolve_knee_prescreen_cap,
 )
+from mlframe.feature_selection.shap_proxied_fs._shap_proxied_resolvers import noise_floor_rescue_keep_set
 
 
 # --------------------------------------------------------------------------------------------------
