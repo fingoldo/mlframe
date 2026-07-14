@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any, Dict, List, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import numpy as np
 from joblib import Parallel, delayed
@@ -212,6 +212,24 @@ def run_polynom_pair_fe(
         X_ndarr = X.to_numpy()  # polars -> (N, F) contiguous ndarray
     else:
         X_ndarr = X.values if hasattr(X, "values") else np.asarray(X)
+    # A frame with ANY non-numeric column makes the WHOLE .values array object-dtype (the per-pair worker's
+    # own docstring documents this trap) -- and an object ndarray can neither be memmapped by joblib NOR
+    # content-hashed by fit_constant_memmap, so it was CLOUDPICKLED WHOLESALE into the pool on every call:
+    # dump-audit on the wellbore-100k fit caught 16 dumps of a (99401, 620) object array at 493MB each
+    # (~7.9GB of pure pickling). Pre-coerce per column to float64 ONCE here; columns that fail coercion
+    # become NaN placeholders and their positions are recorded so the per-pair guard skips exactly the
+    # same pairs the old per-worker ValueError/TypeError path skipped.
+    _uncoercible: Optional[np.ndarray] = None
+    if X_ndarr.dtype == object:
+        _Xf = np.empty(X_ndarr.shape, dtype=np.float64)
+        _uncoercible = np.zeros(X_ndarr.shape[1], dtype=bool)
+        for _j in range(X_ndarr.shape[1]):
+            try:  # noqa: PERF203 -- per-column fault isolation is the point: one bad column must not poison the rest
+                _Xf[:, _j] = np.asarray(X_ndarr[:, _j], dtype=np.float64)
+            except (ValueError, TypeError):
+                _Xf[:, _j] = np.nan
+                _uncoercible[_j] = True
+        X_ndarr = _Xf
     # run_polynom_pair_fe is called once per FE round (up to fe_max_steps times per fit) with the SAME
     # X content each time -- a fresh Parallel(...) call below re-triggers joblib's memmapping reducer's
     # OWN dump of X_ndarr per call (it only dedups WITHIN one Parallel() invocation's tasks, not ACROSS
@@ -229,10 +247,12 @@ def run_polynom_pair_fe(
         linear-usability guard), and otherwise runs ``optimise_hermite_pair`` for ``fe_smart_polynom_iters`` restarts,
         keeping the best-MI result. Returns ``(raw_vars_pair, best_res_or_sentinel, vals_a_full, vals_b_full)`` on the
         FULL (non-subsampled) columns so the injection step transforms every row."""
-        # X_arr is X.to_numpy()/.values; a frame with ANY string column makes the WHOLE array object dtype, so even a
-        # numeric operand extracts as an object slice that the Hermite basis (np.isfinite / z-score / minmax) rejects.
-        # The pair already passed the numeric-position guard above, so coerce to float64; a genuinely non-numeric operand
-        # that slipped the guard raises here and the pair is skipped (no polynomial FE for it).
+        # X_arr arrives float64 (object-dtype frames are pre-coerced ONCE before the pool -- see the
+        # _uncoercible block above -- so workers never receive an unpicklable-as-memmap object array).
+        # A pair touching a column that failed that coercion is skipped here, exactly matching the set the
+        # old per-worker ValueError/TypeError coercion path skipped.
+        if _uncoercible is not None and (_uncoercible[raw_vars_pair[0]] or _uncoercible[raw_vars_pair[1]]):
+            return None
         try:
             vals_a_full = np.ascontiguousarray(X_arr[:, raw_vars_pair[0]], dtype=np.float64)
             vals_b_full = np.ascontiguousarray(X_arr[:, raw_vars_pair[1]], dtype=np.float64)
