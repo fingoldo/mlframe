@@ -618,8 +618,19 @@ def _get_qbin_coder_kernel():
     global _QBIN_CODER_RAW
     if _QBIN_CODER_RAW is None:
         import cupy as cp
+        # FP64-compare avoidance (ncu 2026-07-15, cc 8.9: the double-compare loop pinned the FP64 pipeline
+        # at 84.4% while memory sat at 24.5% -- consumer Ada runs FP64 at 1:64). Finite IEEE doubles order
+        # identically (signed compare) to key = b >= 0 ? b : b ^ 0x7FFF..F (flip magnitude bits of negatives), so convert x
+        # ONCE per element and the edges once per call, then all ne comparisons run on the integer pipeline.
+        # Signed zeros normalized via +0.0 (else key(-0) < key(+0) diverges from IEEE -0 == +0); non-finite
+        # values only occur in columns the caller discards wholesale, so their key order is irrelevant.
         _QBIN_CODER_RAW = cp.RawKernel(r"""
-extern "C" __global__ void qbin_code(const double* __restrict__ x, const double* __restrict__ edges,
+__device__ __forceinline__ long long mono_key(double v) {
+    v = v + 0.0;                                 // normalize -0.0 -> +0.0
+    long long b = __double_as_longlong(v);
+    return b >= 0 ? b : (b ^ 0x7FFFFFFFFFFFFFFFLL);   // signed-compare monotonic map
+}
+extern "C" __global__ void qbin_code(const double* __restrict__ x, const long long* __restrict__ edge_keys,
                                      const bool* __restrict__ interior, const long long* __restrict__ ndistinct,
                                      const long long n, const long long K, const int ne,
                                      long long* __restrict__ codes) {
@@ -627,12 +638,12 @@ extern "C" __global__ void qbin_code(const double* __restrict__ x, const double*
     long long total = n * K;
     if (t >= total) return;
     long long k = t % K;
-    double v = x[t];
+    long long vk = mono_key(x[t]);
     long long c = 0;
     for (int j = 1; j < ne; ++j) {              // j=0 is never interior (== column min)
-        if (interior[(long long)j * K + k] && v >= edges[(long long)j * K + k]) ++c;
+        if (interior[(long long)j * K + k] && vk >= edge_keys[(long long)j * K + k]) ++c;
     }
-    if (ndistinct[k] == 2 && v >= edges[(long long)(ne - 1) * K + k]) ++c;
+    if (ndistinct[k] == 2 && vk >= edge_keys[(long long)(ne - 1) * K + k]) ++c;
     codes[t] = c;
 }
 """, "qbin_code")
@@ -698,8 +709,10 @@ def batched_quantile_bin_gpu(x_cols: Any, nbins: int) -> Any:
         total = n * K
         threads = 256
         blocks = (total + threads - 1) // threads
+        eb = (cp.ascontiguousarray(edges_all) + 0.0).view(cp.int64)  # normalize -0.0, reinterpret bits
+        edge_keys = cp.where(eb >= 0, eb, eb ^ np.int64(0x7FFFFFFFFFFFFFFF))
         kern((int(blocks),), (threads,), (
-            cp.ascontiguousarray(Xd), cp.ascontiguousarray(edges_all),
+            cp.ascontiguousarray(Xd), cp.ascontiguousarray(edge_keys),
             cp.ascontiguousarray(interior), cp.ascontiguousarray(ndistinct),
             np.int64(n), np.int64(K), np.int32(edges_all.shape[0]), codes,
         ))
