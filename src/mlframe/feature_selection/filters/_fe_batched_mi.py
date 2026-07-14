@@ -631,19 +631,21 @@ __device__ __forceinline__ long long mono_key(double v) {
     return b >= 0 ? b : (b ^ 0x7FFFFFFFFFFFFFFFLL);   // signed-compare monotonic map
 }
 extern "C" __global__ void qbin_code(const double* __restrict__ x, const long long* __restrict__ edge_keys,
-                                     const bool* __restrict__ interior, const long long* __restrict__ ndistinct,
-                                     const long long n, const long long K, const int ne,
+                                     const long long n, const long long K, const int ne1,
                                      long long* __restrict__ codes) {
+    // edge_keys is (ne1, K) with non-interior slots pre-set to INT64_MAX host-side (compare always false)
+    // and the binary-column top-edge duplicated into the extra last row -- so the whole coder is one
+    // branch-free strided int-compare loop.
     long long t = (long long)blockIdx.x * blockDim.x + threadIdx.x;
     long long total = n * K;
     if (t >= total) return;
-    long long k = t % K;
     long long vk = mono_key(x[t]);
+    long long idx = t % K + K;                  // start at j=1: j=0 is never interior (== column min)
     long long c = 0;
-    for (int j = 1; j < ne; ++j) {              // j=0 is never interior (== column min)
-        if (interior[(long long)j * K + k] && vk >= edge_keys[(long long)j * K + k]) ++c;
+    #pragma unroll 7
+    for (int j = 1; j < ne1; ++j, idx += K) {
+        c += (long long)(vk >= edge_keys[idx]);
     }
-    if (ndistinct[k] == 2 && vk >= edge_keys[(long long)(ne - 1) * K + k]) ++c;
     codes[t] = c;
 }
 """, "qbin_code")
@@ -710,11 +712,15 @@ def batched_quantile_bin_gpu(x_cols: Any, nbins: int) -> Any:
         threads = 256
         blocks = (total + threads - 1) // threads
         eb = (cp.ascontiguousarray(edges_all) + 0.0).view(cp.int64)  # normalize -0.0, reinterpret bits
-        edge_keys = cp.where(eb >= 0, eb, eb ^ np.int64(0x7FFFFFFFFFFFFFFF))
+        keys = cp.where(eb >= 0, eb, eb ^ np.int64(0x7FFFFFFFFFFFFFFF))
+        imax = np.int64(np.iinfo(np.int64).max)
+        keys = cp.where(interior, keys, imax)   # fold the interior mask into the key table (false -> never counted)
+        # fold the ndistinct==2 extra count into one appended row: the binary top edge, else +inf-key
+        extra = cp.where(ndistinct == 2, cp.where(eb[-1] >= 0, eb[-1], eb[-1] ^ np.int64(0x7FFFFFFFFFFFFFFF)), imax)
+        keys = cp.concatenate([keys, extra[None, :]], axis=0)
         kern((int(blocks),), (threads,), (
-            cp.ascontiguousarray(Xd), cp.ascontiguousarray(edge_keys),
-            cp.ascontiguousarray(interior), cp.ascontiguousarray(ndistinct),
-            np.int64(n), np.int64(K), np.int32(edges_all.shape[0]), codes,
+            cp.ascontiguousarray(Xd), cp.ascontiguousarray(keys),
+            np.int64(n), np.int64(K), np.int32(keys.shape[0]), codes,
         ))
         return codes
     except Exception:

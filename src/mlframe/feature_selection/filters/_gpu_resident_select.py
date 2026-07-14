@@ -660,6 +660,123 @@ void radix_select_interp_f64_v2(const double* __restrict__ data, const long long
 _RADIX_SELECT_INTERP_F64_V2_KERNEL = None
 
 
+# V3 FUSED select+interp f64 with CANDIDATE COMPACTION (ncu-driven). ncu (--set full, cc 8.9,
+# 99401x617/R=40) showed v2 DRAM-bound at 93.3% memory throughput: 8 byte-passes each re-read the FULL
+# column (8x traffic). But after bytes 7-6 resolve the top 16 bits, only elements matching an active
+# 16-bit window prefix can still influence any rank -- typically a few % of n. v3 fuses a compaction into
+# the byte-5 full scan: every window-matching element's monotonic u64 key is appended to a per-column
+# candidate buffer, and bytes 4..0 scan ONLY that buffer (candidate sets only shrink as prefixes refine).
+# Traffic: 3 full passes + ~5 tiny ones vs 8 full. Histogram counts are order-independent sums over the
+# same element sets -> BIT-IDENTICAL chosen digits, order statistics, and interp edges. Overflow guard:
+# if a column's candidates exceed ``cap`` (heavy ties concentrating mass in one window), the shared flag
+# drops to 0 and the remaining passes revert to full scans -- still exact. v2 stays the automatic fallback
+# on compile/launch/alloc failure and via MLFRAME_RADIX_F64_V3=0.
+_RADIX_SELECT_INTERP_F64_V3_SRC = r"""
+#define MAXR 64
+extern "C" __global__
+void radix_select_interp_f64_v3(const double* __restrict__ data, const long long n, const int K,
+                      const long long* __restrict__ ranks, const int R,
+                      const long long* __restrict__ bi, const long long* __restrict__ ai,
+                      const double* __restrict__ w, const int ne,
+                      unsigned long long* __restrict__ cand, const long long cap,
+                      double* __restrict__ edges){
+    int col=blockIdx.x, tid=threadIdx.x, nt=blockDim.x;
+    extern __shared__ unsigned int sh[];
+    __shared__ unsigned long long prefix[MAXR];
+    __shared__ unsigned long long below[MAXR];
+    __shared__ unsigned long long wpref[MAXR];
+    __shared__ int rank2w[MAXR];
+    __shared__ unsigned long long wsort[MAXR];
+    __shared__ int wsort2w[MAXR];
+    __shared__ int W;
+    __shared__ double osv_sh[MAXR];
+    __shared__ unsigned long long scount;
+    __shared__ int cand_ok;      // compaction still allowed (no permanent overflow)
+    __shared__ int have_cand;    // candidate buffer valid for the NEXT passes
+    __shared__ int overflowed;   // this pass's compaction attempt overflowed
+    if(tid<R){prefix[tid]=0ULL;below[tid]=0ULL;}
+    if(tid==0){scount=0ULL;cand_ok=(cap>0)?1:0;have_cand=0;overflowed=0;}
+    __syncthreads();
+    for(int byte=7;byte>=0;--byte){
+        int shift=byte*8;
+        unsigned long long hmask=(byte==7)?0ULL:(0xFFFFFFFFFFFFFFFFULL<<((byte+1)*8));
+        if(tid==0){int w_=0;for(int r=0;r<R;++r){unsigned long long p=prefix[r]&hmask;int f=-1;
+            for(int q=0;q<w_;++q)if(wpref[q]==p){f=q;break;} if(f<0){wpref[w_]=p;rank2w[r]=w_;w_++;}else rank2w[r]=f;} W=w_;
+            for(int q=0;q<w_;++q){wsort[q]=wpref[q];wsort2w[q]=q;}
+            for(int a=1;a<w_;++a){unsigned long long kv=wsort[a];int kw=wsort2w[a];int b=a-1;
+                while(b>=0&&wsort[b]>kv){wsort[b+1]=wsort[b];wsort2w[b+1]=wsort2w[b];--b;}
+                wsort[b+1]=kv;wsort2w[b+1]=kw;}}
+        __syncthreads();
+        int Wl=W;
+        int full=!have_cand;
+        // bench-attempt-rejected: cascading byte-6-then-byte-5 compaction measured 23.0ms vs 19.7ms here --
+        // 8-bit key prefixes of real-valued columns concentrate in 1-2 exponent buckets, so the byte-6
+        // attempt overflows ``cap`` almost always and its atomics/writes are pure waste. Byte-5 (16-bit
+        // prefix) is the first selective-enough level.
+        int compact=full&&cand_ok&&(byte==5);
+        if(tid==0&&compact){scount=0ULL;overflowed=0;}
+        for(int s=tid;s<Wl*256;s+=nt)sh[s]=0u;
+        __syncthreads();
+        if(full){
+            for(long long i=tid;i<n;i+=nt){
+                double d=data[(long long)col*n+i];unsigned long long u;memcpy(&u,&d,8);
+                u=(u&0x8000000000000000ULL)?~u:(u|0x8000000000000000ULL);
+                unsigned long long pm=u&hmask;
+                int lo=0,hi=Wl;
+                while(lo<hi){int mid=(lo+hi)>>1;if(wsort[mid]<pm)lo=mid+1;else hi=mid;}
+                if(lo<Wl&&wsort[lo]==pm){int win=wsort2w[lo];
+                    int dig=(int)((u>>shift)&0xFFULL);atomicAdd(&sh[win*256+dig],1u);
+                    if(compact){unsigned long long slot=atomicAdd(&scount,1ULL);
+                        if(slot<(unsigned long long)cap)cand[(long long)col*cap+(long long)slot]=u;
+                        else overflowed=1;}}
+            }
+        } else {
+            long long m=(long long)scount; if(m>cap)m=cap;
+            for(long long i=tid;i<m;i+=nt){
+                unsigned long long u=cand[(long long)col*cap+i];
+                unsigned long long pm=u&hmask;
+                int lo=0,hi=Wl;
+                while(lo<hi){int mid=(lo+hi)>>1;if(wsort[mid]<pm)lo=mid+1;else hi=mid;}
+                if(lo<Wl&&wsort[lo]==pm){int win=wsort2w[lo];
+                    int dig=(int)((u>>shift)&0xFFULL);atomicAdd(&sh[win*256+dig],1u);}
+            }
+        }
+        __syncthreads();
+        if(tid==0&&compact){if(!overflowed)have_cand=1;if(byte==5)cand_ok=0;}
+        if(tid<R){int w2=rank2w[tid];unsigned long long acc=below[tid];int chosen=0;long long want=ranks[tid];
+            for(int b=0;b<256;++b){unsigned long long c=sh[w2*256+b];if(acc+c>(unsigned long long)want){chosen=b;break;}acc+=c;}
+            below[tid]=acc;prefix[tid]=(prefix[tid]&hmask)|((unsigned long long)chosen<<shift);}
+        __syncthreads();
+    }
+    if(tid<R){unsigned long long u=prefix[tid];u=(u&0x8000000000000000ULL)?(u&0x7FFFFFFFFFFFFFFFULL):~u;
+        double d;memcpy(&d,&u,8);osv_sh[tid]=d;}
+    __syncthreads();
+    for(int e=tid;e<ne;e+=nt){
+        double ab=osv_sh[bi[e]], aa=osv_sh[ai[e]], ww=w[e]; double diff=aa-ab;
+        edges[(long long)e*K+col] = ww<0.5 ? (ab+diff*ww) : (aa-diff*(1.0-ww));
+    }
+}
+"""
+_RADIX_SELECT_INTERP_F64_V3_KERNEL = None
+
+
+def _get_radix_select_interp_f64_v3_kernel():
+    """The candidate-compaction v3 fused f64 select+interp kernel (or None when disabled / compile failure).
+    Bit-identical edges to v2/v1; needs the extra (K, cap) u64 candidate scratch buffer at launch."""
+    global _RADIX_SELECT_INTERP_F64_V3_KERNEL
+    import cupy as cp
+    if os.environ.get("MLFRAME_RADIX_F64_V3", "1").strip().lower() not in ("1", "true", "on", "yes"):
+        return None
+    if _RADIX_SELECT_INTERP_F64_V3_KERNEL is None:
+        try:
+            _RADIX_SELECT_INTERP_F64_V3_KERNEL = cp.RawKernel(_RADIX_SELECT_INTERP_F64_V3_SRC, "radix_select_interp_f64_v3")
+        except Exception:
+            import logging
+            logging.getLogger(__name__).debug("f64 v3 compaction kernel compile failed; v2", exc_info=True)
+            _RADIX_SELECT_INTERP_F64_V3_KERNEL = False
+    return _RADIX_SELECT_INTERP_F64_V3_KERNEL or None
+
+
 def _get_radix_select_interp_f64_kernel():
     """The fused f64 select+interp kernel. Returns the parallel-per-rank-scan + binary-search v2 (the measured
     win) when it compiles, else the original serial-tid0 kernel. Both produce BIT-IDENTICAL interior edges."""
@@ -883,6 +1000,19 @@ def _radix_select_interior_edges(cand_gpu, nbins: int, cm_hint=None):
         # radix_interp launch. Bit-identical to the two-kernel f64 path (same select body + same f64 interp).
         try:
             edges = cp.empty((ne_rows, K), dtype=cp.float64)
+            kern3 = _get_radix_select_interp_f64_v3_kernel()
+            if kern3 is not None:
+                try:
+                    cap = max(1024, int(n) // 4)
+                    cand = cp.empty((K, cap), dtype=cp.uint64)
+                    kern3((K,), (threads,),
+                        (data_cm, np.int64(n), np.int32(K), ranks_g, np.int32(R),
+                         bi, ai, cp.ascontiguousarray(w), np.int32(ne_rows),
+                         cand, np.int64(cap), edges), shared_mem=shmem)
+                    return edges          # (nbins-1, K) float64
+                except Exception:
+                    import logging
+                    logging.getLogger(__name__).debug("v3 compaction launch failed (likely scratch OOM); v2", exc_info=True)
             _get_radix_select_interp_f64_kernel()((K,), (threads,),
                 (data_cm, np.int64(n), np.int32(K), ranks_g, np.int32(R),
                  bi, ai, cp.ascontiguousarray(w), np.int32(ne_rows), edges), shared_mem=shmem)

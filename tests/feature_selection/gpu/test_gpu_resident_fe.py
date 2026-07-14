@@ -476,6 +476,31 @@ def test_radix_select_edges_codes_bit_identical_to_percentile(monkeypatch):
             assert maxdiff == 0, f"dt={dt.__name__} n={n} K={K} radix vs percentile code maxdiff={maxdiff}"
 
 
+def test_radix_f64_v3_compaction_bit_identical_to_v2(monkeypatch):
+    """The candidate-compaction v3 fused f64 select+interp kernel must emit interior edges BIT-IDENTICAL to
+    v2 -- including columns that OVERFLOW the candidate cap (heavy ties concentrating a whole column into
+    one 16-bit key window force the in-kernel full-scan fallback) and const/binary/subnormal columns."""
+    cp = pytest.importorskip("cupy")
+    import mlframe.feature_selection.filters._gpu_resident_select as gs
+
+    rng = np.random.default_rng(11)
+    X = rng.standard_normal((30_000, 64))
+    X[:, 0] = 1.0
+    X[:, 1] = (X[:, 1] > 0).astype(float)
+    X[:, 2] = np.repeat(np.arange(5), 6000)[:30_000]  # 5 distinct values -> guaranteed cap overflow
+    X[:, 3] *= -1e-300
+    Xd = cp.ascontiguousarray(cp.asarray(X))
+
+    def edges(v3: str):
+        monkeypatch.setenv("MLFRAME_RADIX_F64_V3", v3)
+        gs._RADIX_SELECT_INTERP_F64_V3_KERNEL = None
+        return cp.asnumpy(gs._radix_select_interior_edges(Xd, 21))
+
+    e3, e2 = edges("1"), edges("0")
+    gs._RADIX_SELECT_INTERP_F64_V3_KERNEL = None
+    assert np.array_equal(e3, e2, equal_nan=True), "v3 compaction edges diverge from v2"
+
+
 def test_radix_f32_bsearch_variant_bit_identical_to_linear(monkeypatch):
     """LEVER C: the binary-search window-match f32 radix-select variant (radix_select_f32_bsearch) must
     produce codes BIT-IDENTICAL (maxdiff 0) to the base linear-scan radix_select_f32 -- it only replaces
