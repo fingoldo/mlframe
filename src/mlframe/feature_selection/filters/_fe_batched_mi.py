@@ -641,14 +641,24 @@ def batched_quantile_bin_gpu(x_cols: Any, nbins: int) -> Any:
     if edges_all is None:
         qs = cp.linspace(0.0, 100.0, nbins + 1)
         edges_all = cp.percentile(Xd, qs, axis=0)  # (nbins+1, K) -- one batched device sort
+    # Vectorized per-column coding (replaces a K-iteration Python loop of cp.unique + cp.searchsorted +
+    # per-column copy -- ~3 kernel launches PER COLUMN, 617 columns = ~1850 launches per call on the
+    # wellbore-100k trace). The searchsorted-on-deduped-interior-edges semantics reduce to counting, per
+    # row value x, the DISTINCT interior edge values <= x: with the ascending (nbins+1, K) edge matrix,
+    # a first-occurrence mask kills duplicate edges, and excluding each column's min/max edge leaves the
+    # interior. The <=2-distinct-edges branches fold in exactly: 1 distinct -> no interior, all-zero codes;
+    # 2 distinct -> the legacy special case codes = (x >= max_edge), reproduced via the ndistinct==2 term.
+    # Total launches: ~nbins+3 fused elementwise ops over (n, K), independent of K.
+    e_first = edges_all[0, :]  # (K,) column min edge (q=0)
+    e_last = edges_all[-1, :]  # (K,) column max edge (q=100)
+    first_occ = cp.ones(edges_all.shape, dtype=cp.bool_)
+    first_occ[1:, :] = edges_all[1:, :] != edges_all[:-1, :]
+    interior = first_occ & (edges_all > e_first[None, :]) & (edges_all < e_last[None, :])
+    ndistinct = first_occ.sum(axis=0)  # (K,)
     codes = cp.zeros((n, K), dtype=cp.int64)
-    for k in range(K):
-        edges = cp.unique(edges_all[:, k])  # dedupe equi-freq edges (mirror np.unique on host)
-        if int(edges.size) <= 2:
-            if int(edges.size) == 2:
-                codes[:, k] = (Xd[:, k] >= edges[1]).astype(cp.int64)
-            continue
-        codes[:, k] = cp.searchsorted(edges[1:-1], Xd[:, k], side="right").astype(cp.int64)
+    for j in range(1, int(edges_all.shape[0])):  # j=0 is never interior (== column min)
+        codes += (interior[j, :][None, :] & (Xd >= edges_all[j, :][None, :])).astype(cp.int64)
+    codes += ((ndistinct == 2)[None, :] & (Xd >= e_last[None, :])).astype(cp.int64)
     return codes
 
 
