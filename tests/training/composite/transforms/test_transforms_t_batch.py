@@ -30,14 +30,16 @@ from mlframe.training.composite.transforms import (
 )
 from mlframe.training.composite.transforms.simple import _rolling_median_trailing
 
-
 # ---------------------------------------------------------------------------
 # T1: trailing rolling_quantile_ratio
 # ---------------------------------------------------------------------------
 
 
 class TestRollingQuantileRatioTrailing:
+    """T1: rolling_quantile_ratio defaults to a past-only trailing window, distinct from the centred variant."""
+
     def test_default_fit_mode_is_trailing(self) -> None:
+        """Fitting rolling_quantile_ratio with default kwargs reports mode="trailing"."""
         t = get_transform("rolling_quantile_ratio")
         base = np.linspace(1.0, 10.0, 50)
         y = base * 1.1
@@ -45,6 +47,7 @@ class TestRollingQuantileRatioTrailing:
         assert params["mode"] == "trailing"
 
     def test_centered_variant_registered(self) -> None:
+        """The separately-registered centred variant reports mode="centered" and is flagged recurrent."""
         t = get_transform("rolling_quantile_ratio_centered")
         base = np.linspace(1.0, 10.0, 50)
         y = base * 1.1
@@ -65,6 +68,7 @@ class TestRollingQuantileRatioTrailing:
         )
 
     def test_trailing_median_matches_pandas_reference(self) -> None:
+        """_rolling_median_trailing matches pandas' rolling(window=k, min_periods=1).median() across window sizes."""
         import pandas as pd
         rng = np.random.default_rng(1)
         arr = rng.normal(size=101)
@@ -73,12 +77,14 @@ class TestRollingQuantileRatioTrailing:
             np.testing.assert_allclose(_rolling_median_trailing(arr, k), ref, atol=1e-12)
 
     def test_trailing_median_skips_nan_like_pandas(self) -> None:
+        """A NaN inside the trailing window is skipped when computing the median, matching pandas semantics."""
         arr = np.array([1.0, np.nan, 3.0, 5.0])
         out = _rolling_median_trailing(arr, 3)
         # Window at i=2 is [1, nan, 3] -> pandas median skips NaN -> 2.0.
         assert out[2] == 2.0
 
     def test_round_trip_trailing(self) -> None:
+        """forward followed by inverse recovers y exactly for the trailing-mode transform."""
         t = get_transform("rolling_quantile_ratio")
         rng = np.random.default_rng(2)
         base = np.abs(rng.normal(10.0, 2.0, 300)) + 1.0
@@ -87,11 +93,23 @@ class TestRollingQuantileRatioTrailing:
         np.testing.assert_allclose(t.inverse(t.forward(y, base, params), base, params), y, rtol=1e-9)
 
     def test_regression_centered_leaks_future_regime_jump_trailing_does_not(self) -> None:
-        """A base regime jump at row 100 must NOT move trailing-T of rows BEFORE the jump; the centred window reads future rows so its pre-jump tail T shifts. This test fails if the trailing path were secretly centred."""
+        """A base regime jump at row 100 must NOT move trailing-T of rows BEFORE the jump; the centred window
+        reads future rows so its pre-jump tail T shifts. This test fails if the trailing path were secretly
+        centred.
+
+        DGP note: the jump must land on a MONOTONIC RAMP, not a two-level step. A rolling MEDIAN is a
+        majority vote over its window's rank order; with a binary step and an odd, symmetric ``center=True``
+        window, no row strictly before the jump can ever have a future-side majority (for row ``i`` the
+        future count in an ``h``-wide symmetric window is ``i + h - jump_at + 1``, which only reaches the
+        ``h + 1`` needed for a majority once ``i >= jump_at``) -- so a step DGP is mathematically incapable
+        of demonstrating the leak this test targets, regardless of whether the window implementation is
+        correct or buggy. A monotonic ramp makes every window element distinct, so even a MINORITY of
+        future values shifts which element ranks 4th (the median) -- a real, measurable leak.
+        """
         n = 200
         jump_at = 100
-        base = np.ones(n)
-        base[jump_at:] = 100.0
+        base = np.arange(n, dtype=np.float64) + 100.0  # ramp kept well clear of the eps floor near 0
+        base[jump_at:] += 500.0  # regime jump superimposed on the ramp, still strictly increasing
         y = np.ones(n)  # constant y isolates the denominator's window behaviour
         k = 7
         t_trail = get_transform("rolling_quantile_ratio")
@@ -100,17 +118,20 @@ class TestRollingQuantileRatioTrailing:
         p_cent = t_cent.fit(y, base, k=k)
         T_trail = t_trail.forward(y, base, p_trail)
         T_cent = t_cent.forward(y, base, p_cent)
-        # Rows just before the jump: centred window includes post-jump base rows once the
-        # window majority flips, so its rolling median jumps BEFORE row 100 -> T drops early.
+        # Reference: trailing-T on the ramp WITHOUT the jump -- trailing must be jump-blind everywhere,
+        # so it should match this jump-free reference exactly for every row whose trailing window never
+        # reaches row jump_at (i.e. every row with i < jump_at, since the window is past-only).
+        base_no_jump = np.arange(n, dtype=np.float64) + 100.0
+        p_trail_ref = t_trail.fit(y, base_no_jump, k=k)
+        T_trail_ref = t_trail.forward(y, base_no_jump, p_trail_ref)
+        # Rows just before the jump: the centred window already includes post-jump rows, so on this
+        # ramp (unlike a step function) even a minority of future rows moves the rank-4 median value.
         pre = slice(jump_at - k // 2, jump_at)
-        assert np.allclose(T_trail[pre], 1.0), (
-            f"trailing T reflected the FUTURE jump in pre-jump rows: {T_trail[pre]}"
-        )
-        assert not np.allclose(T_cent[pre], 1.0), (
-            "centred variant no longer reflects the future jump pre-jump; window semantics changed"
-        )
+        np.testing.assert_allclose(T_trail[:jump_at], T_trail_ref[:jump_at], rtol=1e-12)
+        assert not np.allclose(T_cent[pre], T_trail[pre]), "centred variant no longer reflects the future jump pre-jump; window semantics changed"
 
     def test_naming_and_registry(self) -> None:
+        """The centred variant composes to its "rqrC" short name and is recognised as a composite target name."""
         assert compose_target_name("y", "rolling_quantile_ratio_centered", "b") == "y-rqrC-b"
         assert is_composite_target_name("y-rqrC-b")
 
@@ -137,7 +158,10 @@ def _panel(seed: int, n_per_group: int = 300, levels: tuple[float, ...] = (0.0, 
 
 
 class TestGroupedRecurrent:
+    """T2: grouped recurrent transforms reset their internal state at group boundaries."""
+
     def test_ewma_grouped_flags(self) -> None:
+        """Grouped recurrent transforms are flagged requires_groups + recurrent; frac_diff_grouped needs no base."""
         for name in ("ewma_residual_grouped", "rolling_quantile_ratio_grouped", "frac_diff_grouped"):
             t = TRANSFORMS_REGISTRY[name]
             assert t.requires_groups and t.recurrent, name
@@ -202,6 +226,7 @@ class TestGroupedRecurrent:
         np.testing.assert_allclose(T, 2.0, rtol=1e-12)
 
     def test_ewma_grouped_unseen_group_falls_back_to_global_anchor(self) -> None:
+        """Forwarding rows with a group id never seen at fit time still yields finite output (falls back to a global anchor)."""
         y, base, groups, _r, _n = _panel(4)
         t = get_transform("ewma_residual_grouped")
         p = t.fit(y, base, k=5, groups=groups)
@@ -210,12 +235,13 @@ class TestGroupedRecurrent:
         assert np.all(np.isfinite(T))
 
     def test_grouped_params_pickle_round_trip(self) -> None:
+        """Fitted params for every grouped recurrent transform survive a pickle round trip and reproduce identical forward output."""
         y, base, groups, _r, _n = _panel(5, n_per_group=100)
         for name in ("ewma_residual_grouped", "rolling_quantile_ratio_grouped", "frac_diff_grouped"):
             t = TRANSFORMS_REGISTRY[name]
             b = base if t.requires_base else None
             p = t.fit(y, b, groups=groups)
-            p2 = pickle.loads(pickle.dumps(p))
+            p2 = pickle.loads(pickle.dumps(p))  # nosec B301 -- round-tripping this test's own fitted params dict, not untrusted data
             np.testing.assert_array_equal(
                 t.forward(y, b, p, groups=groups), t.forward(y, b, p2, groups=groups),
             )
@@ -227,6 +253,8 @@ class TestGroupedRecurrent:
 
 
 class TestBoxCoxY:
+    """T3: box_cox_y's MLE lambda estimation and strictly-positive domain."""
+
     def test_lambda_recovers_log_scale(self) -> None:
         """Lognormal y: the Box-Cox MLE lambda must land near 0 (log transform)."""
         rng = np.random.default_rng(0)
@@ -236,11 +264,13 @@ class TestBoxCoxY:
         assert abs(p["lambda"]) < 0.12, p
 
     def test_domain_rejects_non_positive(self) -> None:
+        """domain_check flags zero, negative, and NaN values as out of domain while positive values pass."""
         t = get_transform("box_cox_y")
         mask = t.domain_check(np.array([1.0, 0.0, -3.0, np.nan, 2.0]), None)
         assert mask.tolist() == [True, False, False, False, True]
 
     def test_round_trip_and_inverse_matches_scipy(self) -> None:
+        """box_cox_y round-trips exactly and its inverse matches scipy's inv_boxcox for the fitted lambda."""
         from scipy.special import inv_boxcox
         rng = np.random.default_rng(1)
         y = np.exp(rng.normal(size=500)) + 0.1
@@ -252,6 +282,7 @@ class TestBoxCoxY:
         np.testing.assert_allclose(y_back, inv_boxcox(T, p["lambda"]), rtol=1e-10)
 
     def test_degenerate_constant_y_identity_lambda(self) -> None:
+        """Fitting on a constant y (zero variance) falls back to the identity lambda=1.0 instead of an undefined MLE."""
         t = get_transform("box_cox_y")
         assert t.fit(np.full(50, 3.0), None)["lambda"] == 1.0
 
@@ -262,7 +293,10 @@ class TestBoxCoxY:
 
 
 class TestSeasonalResidual:
+    """T4: seasonal_residual's period selection and phase-mean round trip."""
+
     def test_period_selected_from_grid(self) -> None:
+        """Fitting on a strict period-7 pattern selects period=7 from the candidate grid and removes most of the variance."""
         rng = np.random.default_rng(0)
         n = 600
         pattern = np.array([0.0, 5.0, -3.0, 8.0, 1.0, -6.0, 2.0])  # period 7
@@ -274,18 +308,21 @@ class TestSeasonalResidual:
         assert float(np.var(T)) < 0.1 * float(np.var(y))
 
     def test_explicit_period_kwarg(self) -> None:
+        """An explicit period kwarg overrides grid search and yields that many phase means."""
         y = np.arange(100, dtype=np.float64)
         t = get_transform("seasonal_residual")
         p = t.fit(y, None, period=12)
         assert p["period"] == 12 and len(p["phase_means"]) == 12
 
     def test_period_grid_capped_at_n_over_3(self) -> None:
+        """With a short series the candidate period grid is capped at n//3, so the selected period never exceeds it."""
         rng = np.random.default_rng(1)
         y = rng.normal(size=30)  # n//3 = 10 -> candidates {4, 5, 7}
         t = get_transform("seasonal_residual")
         assert t.fit(y, None)["period"] in (4, 5, 7)
 
     def test_round_trip_exact(self) -> None:
+        """forward followed by inverse recovers y exactly for seasonal_residual."""
         rng = np.random.default_rng(2)
         y = rng.normal(size=200)
         t = get_transform("seasonal_residual")
@@ -299,6 +336,8 @@ class TestSeasonalResidual:
 
 
 class TestVolatilityNormalizedResidual:
+    """T5: volatility_normalized_residual keeps residual scale invariant across volatility regimes."""
+
     def test_regime_invariant_scale(self) -> None:
         """Calm-then-turbulent base: the vol-normalised T has a similar scale in both regimes while the plain EWMA residual scale explodes with the regime."""
         rng = np.random.default_rng(0)
@@ -318,6 +357,7 @@ class TestVolatilityNormalizedResidual:
         assert ratio_v < 0.25 * ratio_e, f"vol-normalised regime ratio {ratio_v:.2f} vs ewma {ratio_e:.2f}"
 
     def test_round_trip_exact_including_floor_rows(self) -> None:
+        """forward/inverse round-trips exactly even on zero-volatility rows where the denominator floor is active."""
         t = get_transform("volatility_normalized_residual")
         base = np.full(100, 5.0)  # zero volatility -> floor active on every row
         y = base + np.linspace(-1, 1, 100)
@@ -325,6 +365,7 @@ class TestVolatilityNormalizedResidual:
         np.testing.assert_allclose(t.inverse(t.forward(y, base, p), base, p), y, rtol=1e-10)
 
     def test_recurrent_flag(self) -> None:
+        """volatility_normalized_residual is registered as a recurrent transform."""
         assert TRANSFORMS_REGISTRY["volatility_normalized_residual"].recurrent
 
 
@@ -334,7 +375,10 @@ class TestVolatilityNormalizedResidual:
 
 
 class TestMultiBaseExtras:
+    """T6/T8: multi-base arcsinh and trimmed-LS joint OLS transforms."""
+
     def test_asinh_multi_recovers_arcsinh_plane(self) -> None:
+        """asinh_residual_multi recovers the true per-base alphas and intercept when y is an arcsinh-plane of two bases."""
         rng = np.random.default_rng(0)
         n = 3000
         b = rng.normal(size=(n, 2)) * 3.0
@@ -347,6 +391,7 @@ class TestMultiBaseExtras:
         assert abs(p["beta"] - 0.3) < 0.02
 
     def test_asinh_multi_collinear_guard(self) -> None:
+        """When the two bases are near-collinear, asinh_residual_multi flags collinear_fallback and zeroes the alphas."""
         rng = np.random.default_rng(1)
         b0 = rng.normal(size=500)
         b = np.column_stack([b0, b0 * (1 + 1e-12)])
@@ -355,6 +400,7 @@ class TestMultiBaseExtras:
         assert p["collinear_fallback"] and p["alphas"] == [0.0, 0.0]
 
     def test_multi_robust_ignores_outliers(self) -> None:
+        """linear_residual_multi_robust recovers the true coefficients far better than the plain OLS fit when 5% of y is contaminated by large outliers."""
         rng = np.random.default_rng(2)
         n = 5000
         b = rng.normal(size=(n, 2))
@@ -370,6 +416,7 @@ class TestMultiBaseExtras:
         assert robust["is_redundant_with_linres_multi"] is False
 
     def test_multi_robust_redundant_flag_when_nothing_trimmed(self) -> None:
+        """On an exact zero-residual plane the robust fit trims nothing, so it sets is_redundant_with_linres_multi=True."""
         rng = np.random.default_rng(3)
         b = rng.normal(size=(50, 2))
         y = b @ np.array([1.0, 2.0])  # exact plane, zero residual -> sigma_MAD == 0 -> first pass
@@ -383,6 +430,8 @@ class TestMultiBaseExtras:
 
 
 class TestNadarayaWatson:
+    """T7: nadaraya_watson_residual recovers non-monotone g(base) relationships that a monotone fit cannot."""
+
     def test_recovers_non_monotone_g(self) -> None:
         """y = sin(base) + noise: NW residual variance far below raw y variance (monotone PCHIP cannot capture the sine)."""
         rng = np.random.default_rng(0)
@@ -395,6 +444,7 @@ class TestNadarayaWatson:
         assert float(np.var(T)) < 0.15 * float(np.var(y))
 
     def test_knot_cap(self) -> None:
+        """Fitting on 10k points caps the number of stored knots at the 2000 knot limit."""
         rng = np.random.default_rng(1)
         base = rng.normal(size=10_000)
         y = base + rng.normal(size=10_000)
@@ -402,6 +452,7 @@ class TestNadarayaWatson:
         assert len(p["knots_x"]) == 2000
 
     def test_far_from_support_converges_to_edge_knot(self) -> None:
+        """Evaluating _nw_g far outside the training base range converges to the finite edge-knot value instead of diverging."""
         rng = np.random.default_rng(2)
         base = rng.uniform(0, 1, 500)
         y = 2.0 * base
@@ -418,7 +469,10 @@ class TestNadarayaWatson:
 
 
 class TestGroupedNonParametric:
+    """T9: grouped quantile/monotonic transforms fall back to the global fit for tiny or unseen groups."""
+
     def _data(self, seed: int, small_group_n: int = 5):
+        """Build a 3-group panel: two large groups with distinct level offsets plus one tiny group."""
         rng = np.random.default_rng(seed)
         n_big = 400
         base = np.concatenate([rng.uniform(0, 10, n_big), rng.uniform(0, 10, n_big), rng.uniform(0, 10, small_group_n)])
@@ -428,6 +482,7 @@ class TestGroupedNonParametric:
         return y, base, groups
 
     def test_small_group_falls_back_to_global(self) -> None:
+        """A group too small to fit its own quantile/monotonic model is excluded from per_group and routed to the global fallback."""
         for name in ("quantile_residual_grouped", "monotonic_residual_grouped"):
             y, base, groups = self._data(0)
             t = get_transform(name)
@@ -449,6 +504,7 @@ class TestGroupedNonParametric:
         assert err_g < 0.25 * err_u, (err_g, err_u)
 
     def test_unseen_group_routes_to_global(self) -> None:
+        """Forwarding rows with a group id never seen at fit time still yields finite output (routed to the global fit)."""
         y, base, groups = self._data(2)
         t = get_transform("monotonic_residual_grouped")
         p = t.fit(y, base, groups=groups)
@@ -456,6 +512,7 @@ class TestGroupedNonParametric:
         assert np.all(np.isfinite(T))
 
     def test_shrinkage_factor_in_unit_interval(self) -> None:
+        """The fitted per-group shrinkage_factor stays within the valid [0, 1] interval."""
         y, base, groups = self._data(3)
         p = get_transform("quantile_residual_grouped").fit(y, base, groups=groups)
         assert 0.0 <= p["shrinkage_factor"] <= 1.0
@@ -467,19 +524,22 @@ class TestGroupedNonParametric:
 
 
 class TestGaussianCopula:
+    """T10: gaussian_copula_residual's normal-scores algebra and bounded inverse."""
+
     def test_alpha_matches_copula_correlation(self) -> None:
         """Monotone-warped joint-Gaussian pair: fitted alpha must recover the latent normal-scores slope regardless of the marginal warps."""
         rng = np.random.default_rng(0)
         n = 6000
         z_b = rng.normal(size=n)
         z_y = 0.8 * z_b + np.sqrt(1 - 0.8**2) * rng.normal(size=n)
-        y = np.exp(z_y)          # lognormal warp of the y marginal
-        base = np.sinh(z_b)      # sinh warp of the base marginal
+        y = np.exp(z_y)  # lognormal warp of the y marginal
+        base = np.sinh(z_b)  # sinh warp of the base marginal
         p = get_transform("gaussian_copula_residual").fit(y, base)
         assert abs(p["alpha"] - 0.8) < 0.05, p["alpha"]
         assert abs(p["beta"]) < 0.05
 
     def test_inverse_bounded_by_train_support(self) -> None:
+        """Inverting wildly out-of-range T values clips y back into the range observed at fit time."""
         rng = np.random.default_rng(1)
         y = np.exp(rng.normal(size=1000))
         base = rng.normal(size=1000)
@@ -490,6 +550,7 @@ class TestGaussianCopula:
         assert np.all(y_hat >= y.min()) and np.all(y_hat <= y.max())
 
     def test_round_trip_median_error_small(self) -> None:
+        """forward followed by inverse recovers y with a negligible median absolute error."""
         rng = np.random.default_rng(2)
         base = rng.normal(size=2000)
         y = np.exp(0.5 * base + rng.normal(scale=0.3, size=2000))
@@ -520,6 +581,7 @@ class TestGaussianCopula:
     ("gaussian_copula_residual", "gcopula"),
 ])
 def test_t_batch_short_names_registered(name: str, short: str) -> None:
+    """Every T1-T10 batch transform is registered and maps to its expected short composite-name abbreviation."""
     from mlframe.training.composite.transforms import TRANSFORM_NAME_SHORT
     assert name in TRANSFORMS_REGISTRY
     assert TRANSFORM_NAME_SHORT[name] == short
