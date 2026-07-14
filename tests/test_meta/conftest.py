@@ -25,7 +25,6 @@ _REFRESH_FLAGS = [
     "--refresh-logger-baseline",
     "--refresh-mutable-defaults-baseline",
     "--refresh-resource-handle-baseline",
-    "--refresh-code-audit-baseline",
 ]
 
 
@@ -40,3 +39,6 @@ def pytest_addoption(parser):
         except ValueError:
             # already registered elsewhere; ignore
             pass
+    from py_ci_shared.code_audit_meta import register_refresh_option
+
+    register_refresh_option(parser)  # --refresh-code-audit-baseline, shared with every other consumer
