@@ -203,6 +203,7 @@
   "feature_selection/filters/_internals.py::group_key_strings",
   "feature_selection/filters/_internals.py::sanitize",
   "feature_selection/filters/_internals.py::suppress_numba_warnings",
+  "feature_selection/filters/_joblib_safe.py::fit_constant_memmap",
   "feature_selection/filters/_meta_fe_recommender.py::recommend_fe_flags_by_rules",
   "feature_selection/filters/_mi_greedy_cmi_fe.py::greedy_cmi_fe_construct_with_recipes",
   "feature_selection/filters/_mi_greedy_fe.py::greedy_mi_fe_construct_with_recipes",

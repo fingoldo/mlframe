@@ -22,6 +22,8 @@ import pytest
 
 import mlframe
 
+from tests.test_meta._shared_ast_cache import parsed_ast
+
 MLFRAME_DIR = Path(mlframe.__file__).resolve().parent
 PKG_NAME = "mlframe"
 
@@ -119,7 +121,7 @@ def _module_name_from_path(path: Path) -> str:
         parts[-1] = parts[-1][: -len(".py")]
     if parts[-1] == "__init__":
         parts.pop()
-    return ".".join([PKG_NAME] + parts)
+    return ".".join([PKG_NAME, *parts])
 
 
 def _internal_imports(tree: ast.AST, current: str) -> set[str]:
@@ -174,13 +176,8 @@ def _build_graph() -> dict[str, set[str]]:
             continue
         if py.name.endswith(".py.old"):
             continue
-        try:
-            src = py.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
-            continue
-        try:
-            tree = ast.parse(src)
-        except SyntaxError:
+        tree = parsed_ast(py)
+        if tree is None:
             continue
         mod_name = _module_name_from_path(py)
         graph[mod_name].update(_internal_imports(tree, mod_name))
@@ -198,6 +195,7 @@ def _strongly_connected_components(graph: dict[str, set[str]]) -> list[list[str]
     result: list[list[str]] = []
 
     def strongconnect(v: str):
+        """Tarjan's DFS step: assign ``v`` an index/lowlink and pop its completed SCC off the stack."""
         index[v] = index_counter[0]
         lowlinks[v] = index_counter[0]
         index_counter[0] += 1
@@ -234,6 +232,7 @@ def _strongly_connected_components(graph: dict[str, set[str]]) -> list[list[str]
 
 
 def test_no_import_cycles_in_package():
+    """E4: the package's internal import graph must be acyclic, beyond the deferred/documented whitelist."""
     graph = _build_graph()
     assert graph, "no modules discovered — package layout broken?"
 
@@ -251,10 +250,5 @@ def test_no_import_cycles_in_package():
             cycles.append(comp)
 
     if cycles:
-        details = []
-        for cyc in cycles:
-            details.append(" → ".join(cyc + [cyc[0]]))
-        pytest.fail(
-            f"{len(cycles)} import cycle(s) detected in {PKG_NAME}:\n  "
-            + "\n  ".join(details)
-        )
+        details = [" → ".join([*cyc, cyc[0]]) for cyc in cycles]
+        pytest.fail(f"{len(cycles)} import cycle(s) detected in {PKG_NAME}:\n  " + "\n  ".join(details))

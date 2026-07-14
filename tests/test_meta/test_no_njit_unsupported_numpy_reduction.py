@@ -26,6 +26,8 @@ from pathlib import Path
 
 import mlframe
 
+from tests.test_meta._shared_ast_cache import parsed_ast
+
 PKG_ROOT = Path(mlframe.__file__).resolve().parent
 
 # np.median (+ its NaN variant) -- the reduction with direct CI evidence of a numba
@@ -60,11 +62,11 @@ def _forbidden_np_call(node: ast.Call) -> str | None:
 
 
 def test_no_unsupported_numpy_reduction_in_njit():
+    """No forbidden NumPy reduction call inside an ``@njit`` function body."""
     violations: list[str] = []
     for path in PKG_ROOT.rglob("*.py"):
-        try:
-            tree = ast.parse(path.read_text(encoding="utf-8"))
-        except (SyntaxError, UnicodeDecodeError):
+        tree = parsed_ast(path)
+        if tree is None:
             continue
         for fn in ast.walk(tree):
             if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -81,6 +83,5 @@ def test_no_unsupported_numpy_reduction_in_njit():
     if violations:
         raise AssertionError(
             "Forbidden NumPy reduction(s) called inside @njit functions (numba nopython support "
-            "is version-fragile -- derive from np.sort instead, see _hermite_robust._median_sorted_njit):\n  "
-            + "\n  ".join(sorted(violations))
+            "is version-fragile -- derive from np.sort instead, see _hermite_robust._median_sorted_njit):\n  " + "\n  ".join(sorted(violations))
         )

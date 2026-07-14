@@ -78,16 +78,21 @@ def boruta_select(
     """
     from scipy.stats import binomtest
 
+    import pandas as pd
+
     if hasattr(X, "columns"):
         cols = list(X.columns)
         n_features = len(cols)
         names = list(feature_names) if feature_names is not None else cols
-        is_frame = True
+        # ``hasattr(X, "columns")`` also matches polars.DataFrame, which has no ``.reset_index()``
+        # / isn't accepted by ``pd.concat`` -- only route through the pandas-specific shadow
+        # construction below for an actual pandas.DataFrame; every other columned frame type
+        # (polars, etc.) falls through to the dtype-agnostic numpy path, which needs no index.
+        is_pandas_frame = isinstance(X, pd.DataFrame)
     else:
-        X_arr = np.asarray(X)
-        n_features = X_arr.shape[1]
+        n_features = np.asarray(X).shape[1]
         names = list(feature_names) if feature_names is not None else [f"f{i}" for i in range(n_features)]
-        is_frame = False
+        is_pandas_frame = False
 
     rng = np.random.default_rng(random_state)
     hit_counts = np.zeros(n_features, dtype=np.int64)
@@ -99,9 +104,7 @@ def boruta_select(
 
     for it in range(n_iterations):
         rounds_run = it + 1
-        if is_frame:
-            import pandas as pd
-
+        if is_pandas_frame:
             # ``Generator.permuted(x, axis=0)`` shuffles each column INDEPENDENTLY along axis 0 in one
             # vectorised call -- bit-identical to the per-column ``rng.permutation(col)`` loop
             # (``.apply(..., axis=0)`` dispatches one Python-level call per column under the hood; verified
@@ -132,9 +135,7 @@ def boruta_select(
                         if result.pvalue < corrected_alpha:
                             resolved[j] = "confirmed" if hit_counts[j] / rounds_run > 0.5 else "rejected"
                 elif correction == "bh":
-                    pvals = np.array(
-                        [binomtest(int(hit_counts[j]), rounds_run, p=0.5, alternative="two-sided").pvalue for j in undecided]
-                    )
+                    pvals = np.array([binomtest(int(hit_counts[j]), rounds_run, p=0.5, alternative="two-sided").pvalue for j in undecided])
                     order = np.argsort(pvals)
                     m = len(pvals)
                     crit = alpha * np.arange(1, m + 1) / m

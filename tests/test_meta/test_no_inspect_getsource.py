@@ -20,11 +20,25 @@ are NOT source-text proxies and are not flagged.
 from __future__ import annotations
 
 import ast
+from functools import cache
 from pathlib import Path
 
-import pytest
-
 _REPO_TESTS = Path(__file__).resolve().parent.parent  # tests/
+
+
+@cache
+def _parsed_ast(path: Path) -> ast.Module | None:
+    """Read + AST-parse ``path`` once, cached: both scanners below (getsource calls,
+    source-text-position proxies) walk the same tests/ file set independently, so an
+    uncached read_text()+ast.parse() per scanner doubles the I/O + parse cost."""
+    try:
+        src = path.read_text(encoding="utf-8")
+    except (UnicodeDecodeError, OSError):
+        return None
+    try:
+        return ast.parse(src, filename=str(path))
+    except SyntaxError:
+        return None
 
 # Files that legitimately use inspect.getsourcefile / inspect.getfile (NOT getsource).
 # Use forward slashes for cross-platform path comparison.
@@ -46,13 +60,8 @@ WHITELIST: set[str] = {
 
 def _find_getsource_calls(path: Path) -> list[tuple[int, str]]:
     """Return list of (line_no, kind) for each inspect.getsource(...) call."""
-    try:
-        src = path.read_text(encoding="utf-8")
-    except (UnicodeDecodeError, OSError):
-        return []
-    try:
-        tree = ast.parse(src, filename=str(path))
-    except SyntaxError:
+    tree = _parsed_ast(path)
+    if tree is None:
         return []
     hits: list[tuple[int, str]] = []
     for node in ast.walk(tree):
@@ -128,10 +137,7 @@ def _prod_source_read_text_names(tree: ast.Module) -> set[str]:
         value = node.value
         if value is None:
             continue
-        if not any(
-            isinstance(s, ast.Call) and isinstance(s.func, ast.Attribute) and s.func.attr == "read_text"
-            for s in ast.walk(value)
-        ):
+        if not any(isinstance(s, ast.Call) and isinstance(s.func, ast.Attribute) and s.func.attr == "read_text" for s in ast.walk(value)):
             continue
         seg = ast.unparse(value)
         if "mlframe" not in seg and not ("__file__" in seg and "test" not in seg.lower()):
@@ -145,13 +151,8 @@ def _prod_source_read_text_names(tree: ast.Module) -> set[str]:
 
 def _find_source_position_proxies(path: Path) -> list[tuple[int, str]]:
     """Return [(lineno, method)] for ``<prod-read_text-var>.find/index/rfind(...)`` calls."""
-    try:
-        src = path.read_text(encoding="utf-8")
-    except (UnicodeDecodeError, OSError):
-        return []
-    try:
-        tree = ast.parse(src, filename=str(path))
-    except SyntaxError:
+    tree = _parsed_ast(path)
+    if tree is None:
         return []
     names = _prod_source_read_text_names(tree)
     if not names:

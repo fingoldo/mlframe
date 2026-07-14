@@ -20,7 +20,7 @@ from __future__ import annotations
 import ast
 import pathlib
 
-import pytest
+from tests.test_meta._shared_ast_cache import parsed_ast, source_text
 
 SRC_ROOT = pathlib.Path(__file__).resolve().parents[2] / "src" / "mlframe"
 
@@ -37,6 +37,7 @@ def _is_test_adjacent(path: pathlib.Path) -> bool:
 
 
 def _iter_python_files(root: pathlib.Path):
+    """Yield every non-test-adjacent ``.py`` file under ``root``."""
     for path in root.rglob("*.py"):
         if not _is_test_adjacent(path):
             yield path
@@ -48,15 +49,11 @@ def _find_save_calls_without_explicit_lean() -> list[tuple[str, int, str]]:
     ``# forensic_save`` annotation."""
     violations: list[tuple[str, int, str]] = []
     for path in _iter_python_files(SRC_ROOT):
-        try:
-            src = path.read_text(encoding="utf-8")
-        except (UnicodeDecodeError, OSError):
+        tree = parsed_ast(path)
+        if tree is None:
             continue
-        try:
-            tree = ast.parse(src)
-        except SyntaxError:
-            continue
-        lines = src.splitlines()
+        src = source_text(path)
+        lines = src.splitlines() if src is not None else []
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
                 continue
@@ -81,12 +78,12 @@ def _find_save_calls_without_explicit_lean() -> list[tuple[str, int, str]]:
             # call at io.py:637 passes lean=True via positional? No -- it
             # passes lean=True via kwarg, so kw_names includes lean. Anything
             # that lands here is a real missing-lean violation.
-            violations.append((str(path.relative_to(SRC_ROOT.parent.parent)),
-                               int(lineno), line_text.strip()))
+            violations.append((str(path.relative_to(SRC_ROOT.parent.parent)), int(lineno), line_text.strip()))
     return violations
 
 
 def test_every_save_mlframe_model_call_has_explicit_lean_or_forensic_marker():
+    """E2.3: every ``save_mlframe_model(...)`` call must pass ``lean=`` explicitly or carry ``# forensic_save``."""
     violations = _find_save_calls_without_explicit_lean()
     assert not violations, (
         "E2.3 (2026-05-22): ``save_mlframe_model(...)`` call must pass "
@@ -94,6 +91,5 @@ def test_every_save_mlframe_model_call_has_explicit_lean_or_forensic_marker():
         "call line. The lean default is False (forensic round-trip parity) "
         "but real prod save sites should opt INTO lean=True to avoid leaking "
         "16-32 MB per-split arrays at 4M-row scale (TVT-2026-05-21 prod "
-        "incident). Found violations:\n"
-        + "\n".join(f"  {p}:{ln}  {ln_text}" for p, ln, ln_text in violations)
+        "incident). Found violations:\n" + "\n".join(f"  {p}:{ln}  {ln_text}" for p, ln, ln_text in violations)
     )

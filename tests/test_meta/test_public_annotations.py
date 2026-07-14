@@ -27,15 +27,17 @@ import pytest
 
 import mlframe
 
+from tests.test_meta._shared_ast_cache import parsed_ast
+
 MLFRAME_DIR = Path(mlframe.__file__).resolve().parent
 _BASELINE_PATH = Path(__file__).resolve().parent / "_annotation_baseline.json"
 
 _EXEMPT_FILES = {"version.py", "__init__.py", "__main__.py"}
-_EXEMPT_PATH_FRAGMENTS = ("__pycache__", "tests", "legacy",
-                          "profiling", "explore", "_benchmarks")
+_EXEMPT_PATH_FRAGMENTS = ("__pycache__", "tests", "legacy", "profiling", "explore", "_benchmarks")
 
 
 def _refresh_requested() -> bool:
+    """True if ``--refresh-annotation-baseline`` was passed on the pytest command line."""
     return "--refresh-annotation-baseline" in sys.argv
 
 
@@ -65,17 +67,14 @@ def _is_fully_annotated(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
 
 
 def _is_class_node(node) -> bool:
+    """True for an ``ast.ClassDef`` node."""
     return isinstance(node, ast.ClassDef)
 
 
 def _public_top_level_nodes(path: Path):
-    try:
-        src = path.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
-        return
-    try:
-        tree = ast.parse(src)
-    except SyntaxError:
+    """Yield every public (non-underscore) top-level function/class def in ``path``."""
+    tree = parsed_ast(path)
+    if tree is None:
         return
     for node in tree.body:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
@@ -84,6 +83,7 @@ def _public_top_level_nodes(path: Path):
 
 
 def _build_missing_set() -> set[str]:
+    """``{relpath:lineno::name}`` for every public top-level function missing a full signature annotation."""
     bare: set[str] = set()
     for py in MLFRAME_DIR.rglob("*.py"):
         if py.name in _EXEMPT_FILES:
@@ -102,6 +102,7 @@ def _build_missing_set() -> set[str]:
 
 
 def test_no_new_unannotated_public_functions():
+    """No new public top-level function missing a full signature annotation beyond the frozen baseline."""
     current = _build_missing_set()
 
     if _refresh_requested() or not _BASELINE_PATH.exists():
@@ -109,10 +110,7 @@ def test_no_new_unannotated_public_functions():
             orjson.dumps(sorted(current), option=orjson.OPT_INDENT_2).decode("utf-8"),
             encoding="utf-8",
         )
-        pytest.skip(
-            f"annotation baseline refreshed at {_BASELINE_PATH.name} "
-            f"({len(current)} unannotated function(s))"
-        )
+        pytest.skip(f"annotation baseline refreshed at {_BASELINE_PATH.name} " f"({len(current)} unannotated function(s))")
 
     baseline = set(orjson.loads(_BASELINE_PATH.read_bytes()))
     new = sorted(current - baseline)
@@ -133,7 +131,5 @@ def test_no_new_unannotated_public_functions():
         pytest.fail(
             f"{len(new)} new public function(s) without complete type "
             f"annotations. Add types to params + return, OR refresh the "
-            f"baseline if intentional:\n  "
-            + "\n  ".join(new[:30])
-            + (f"\n  ... and {len(new) - 30} more" if len(new) > 30 else "")
+            f"baseline if intentional:\n  " + "\n  ".join(new[:30]) + (f"\n  ... and {len(new) - 30} more" if len(new) > 30 else "")
         )

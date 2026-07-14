@@ -16,6 +16,17 @@ Since meta-tests never touch the GPU, force CPU-only here too.
 
 CI workflows (.github/workflows/ci.yml + sklearn-matrix-ci.yml) leave the
 env unset so the full numba prewarm + JIT path fires there.
+
+Parallelised via pytest-xdist: the suite is ~120 independent, side-effect-free
+AST/config scanners (writes, where any test does write, go through pytest's
+per-test ``tmp_path``, so workers never race on shared files) -- a textbook
+xdist fit. Measured on a 22-core dev box: 616s serial -> 147s at ``-n auto``,
+152s at ``-n 8`` (statistically the same; the wall-clock floor is a handful of
+single, non-parallelisable whole-repo-corpus scans, e.g.
+``test_config_field_consumption.py``). Defaulting to 8 workers instead of
+``auto`` deliberately leaves headroom for concurrent sessions on a shared dev
+box rather than claiming every core; override via ``MLFRAME_META_TESTS_WORKERS``
+(e.g. ``0`` to disable xdist entirely for a serial debug run).
 """
 from __future__ import annotations
 
@@ -35,6 +46,8 @@ def main() -> int:
     env.setdefault("NUMBA_DISABLE_JIT", "1")
     env.setdefault("MLFRAME_SKIP_NUMBA_PREWARM", "1")
     env.setdefault("CUDA_VISIBLE_DEVICES", "")
+    workers = os.environ.get("MLFRAME_META_TESTS_WORKERS", "8").strip()
+    xdist_args = [] if workers == "0" else ["-n", workers, "--dist=loadscope"]
     cmd = [
         sys.executable,
         "-m",
@@ -45,6 +58,7 @@ def main() -> int:
         "no:randomly",
         "-q",
         "-x",
+        *xdist_args,
         *sys.argv[1:],
     ]
     return subprocess.call(cmd, env=env)

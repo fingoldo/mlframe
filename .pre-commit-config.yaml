@@ -142,7 +142,11 @@ repos:
         # follow-imports="normal" walks into every module they import, collapses each
         # missing-dep expression to Any, and reports noise from dozens of files never meant
         # to be covered by this beachhead (same fix applied to the now-retired mypy.yml, 2026-07-08).
-        args: ['--follow-imports=silent']
+        # --cache-dir points OUTSIDE this checkout, at a dir shared by every mlframe worktree
+        # (they're all siblings under the same parent per the repo's worktree-per-task
+        # convention) -- a fresh worktree's mypy hook would otherwise start from a cold cache
+        # every time. See reference_mlframe_shared_mypy_cache_dir memory note.
+        args: ['--follow-imports=silent', '--cache-dir=../.mlframe_mypy_cache_shared_beachhead']
         # Every dep here is EXACT-pinned, not range-pinned: an unpinned/range-pinned resolve
         # in this isolated hook env drifts silently over time (observed 2026-07-06: picked up
         # numpy 2.5.1, whose bundled .pyi stubs use PEP 695 `type` statements that mypy rejects
@@ -167,12 +171,14 @@ repos:
         language: system
         types: [python]
         pass_filenames: false
-        # Run on every commit that touches Python source. The meta-tests
-        # are quick enough that the per-commit cost is fine; if a
-        # contributor wants to skip in a hurry, ``git commit --no-verify``
-        # is the one-time escape hatch.
         always_run: false
-        stages: [pre-commit]
+        # MANUAL stage (2026-07-14, re-flipped same day after user feedback that even the
+        # optimized ~110s is too long to re-pay on every single commit): already covered on
+        # every push by CI's main pytest job (testpaths=["tests"] in pyproject.toml includes
+        # tests/test_meta/, sharded 8-ways with -n auto in ci.yml). Run explicitly via
+        # ``pre-commit run --hook-stage manual mlframe-meta-tests`` before pushing, or let CI
+        # catch it.
+        stages: [manual]
 
   # Real-bug gate: pyflakes (undefined names, redefinitions, undefined exports)
   # + syntax errors. Blocks the commit (exit 1 on finding any). False-positive
@@ -242,6 +248,15 @@ repos:
   # Dead-code gate: vulture --min-confidence 80. Blocking since 2026-07-09 -- triaged to 0
   # findings (see the CI lint-blocking job). The whitelist stays local to this repo
   # (project-specific dynamic-dispatch names).
+  #
+  # INTENTIONALLY whole-repo (pass_filenames: false), unlike the changed-files-scoped hooks
+  # above/below: vulture has no cross-file analysis of its own, so scoping its invocation to
+  # only the touched files hides every OTHER file that references a symbol -- a name used
+  # exclusively from a file outside the scan set reads as dead and false-positives. Tried and
+  # reverted once already; keep whole-repo. Costs ~100-110s on a ~1300-file src/mlframe tree
+  # (no meaningful further speedup found: vulture has no built-in cache/parallelism, and
+  # excluding legacy/benchmarks/profiling the way ruff does would reintroduce the same
+  # cross-file blind spot for symbols used only from those directories).
   - repo: local
     hooks:
       - id: vulture-blocking
@@ -250,7 +265,13 @@ repos:
         language: system
         types: [python]
         pass_filenames: false
-        stages: [pre-commit]
+        # MANUAL stage (2026-07-14): ~100-110s per commit with no further speedup available
+        # (see the whole-repo-scan note above) -- CI's lint-blocking job (ci.yml -> py-ci-shared
+        # lint-blocking.yml, vulture-whitelist-path: scripts/vulture_whitelist.py) already runs
+        # this exact whole-repo scan on every push, so dead code still can't reach master. Run
+        # explicitly via ``pre-commit run --hook-stage manual vulture-blocking`` before pushing,
+        # or let CI catch it.
+        stages: [manual]
 
   # Docstring-coverage gate: 100% (see [tool.interrogate] in pyproject.toml). Blocking since
   # 2026-07-09, mirroring the CI lint-blocking job.
@@ -421,3 +442,13 @@ repos:
         # is what actually makes it run on every commit, since mlframe's mypy-full.yml IS
         # blocking (advisory: false) unlike pyutilz's.
         stages: [pre-commit]
+        # --cache-dir points OUTSIDE this checkout, at a dir shared by every mlframe worktree
+        # (siblings under the same parent per the worktree-per-task convention). Measured
+        # 2026-07-14: a fresh worktree's cold .mypy_cache made this hook take 2-3 MINUTES on as
+        # few as 7 changed files (default follow_imports="normal" still walks + type-checks the
+        # full transitive closure); with the shared cache warm it drops to 6-8s. Runs in the
+        # real project env (language: system, real deps installed, unlike the isolated
+        # beachhead hook above) so it gets its own cache dir -- mixing cache formats across
+        # different dependency-version environments would just thrash. See
+        # reference_mlframe_shared_mypy_cache_dir memory note.
+        args: ['--cache-dir=../.mlframe_mypy_cache_shared']

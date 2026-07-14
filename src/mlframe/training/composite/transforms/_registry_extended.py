@@ -1,74 +1,48 @@
-"""Second half of the transforms registry dict literal (yeo_johnson_y .. gaussian_copula_residual),
-split out of ``registry.py`` to keep it under the 1k-line monolith threshold. See
-``_registry_setup.py`` for the shared imports/adapters the entries below reference."""
+"""Second half of the transforms registry, carved out of registry.py to keep it under the 1k-LOC ceiling.
+
+Merged into _TRANSFORMS_REGISTRY at the parent module bottom.
+
+Builds the ``_TRANSFORMS_REGISTRY`` dict mapping transform name -> :class:`Transform`. The four functional clusters (simple / linear / nonlinear / unary) define the underlying fit/forward/inverse/domain functions; this module wires them into the public registry.
+
+Imported by the parent AFTER all four functional siblings load (init-order matters: the registry literal references every per-transform function by binding-resolution at module-import time).
+
+Bound back into the parent's namespace via re-export at the parent's
+module bottom so historical
+``from mlframe.training.composite_transforms import _TRANSFORMS_REGISTRY`` resolves.
+"""
 from __future__ import annotations
 
-from ._registry_setup import (
+
+import numpy as np
+
+# Parent's ``Transform`` dataclass + TAG_* sentinel constants live in
+# ``composite_transforms.py``, which imports this sibling at its bottom
+# AFTER defining Transform + the TAG constants. The static cycle is
+# whitelisted in ``tests/test_meta/test_no_import_cycles.py`` (same
+# pattern as ``_composite_transforms_linear`` / ``_nonlinear``).
+from . import (
     TAG_EXTENDED,
     TAG_REGRESSION,
     Transform,
+)
+from .linear import (
+    _linear_residual_multi_domain,
+    _linear_residual_multi_forward,
+    _linear_residual_multi_inverse,
+)
+from .extended import (
     _asinh_residual_domain,
     _asinh_residual_fit,
     _asinh_residual_forward,
     _asinh_residual_inverse,
-    _asinh_residual_multi_domain,
-    _asinh_residual_multi_fit,
-    _asinh_residual_multi_forward,
-    _asinh_residual_multi_inverse,
-    _bc_domain_a,
-    _bc_fit_a,
-    _bc_forward_a,
-    _bc_inverse_a,
-    _causal_anchor_residual_domain,
-    _causal_anchor_residual_fit,
-    _causal_anchor_residual_forward,
-    _causal_anchor_residual_inverse,
-    _cbrt_y_fit_raw,
-    _cbrt_y_forward_raw,
-    _cbrt_y_inverse_raw,
     _centered_ratio_domain,
-    _centered_ratio_domain_fitted,
     _centered_ratio_fit,
     _centered_ratio_forward,
     _centered_ratio_inverse,
-    _ewma_residual_grouped_domain,
-    _ewma_residual_grouped_fit,
-    _ewma_residual_grouped_forward,
-    _ewma_residual_grouped_inverse,
-    _frac_diff_grouped_domain,
-    _frac_diff_grouped_fit,
-    _frac_diff_grouped_forward,
-    _frac_diff_grouped_inverse,
-    _gaussian_copula_residual_domain,
-    _gaussian_copula_residual_fit,
-    _gaussian_copula_residual_forward,
-    _gaussian_copula_residual_inverse,
     _geometric_mean_residual_domain,
     _geometric_mean_residual_fit,
     _geometric_mean_residual_forward,
     _geometric_mean_residual_inverse,
-    _linear_residual_domain,
-    _linear_residual_fit,
-    _linear_residual_forward,
-    _linear_residual_inverse,
-    _linear_residual_multi_domain,
-    _linear_residual_multi_forward,
-    _linear_residual_multi_inverse,
-    _linear_residual_multi_robust_fit,
-    _make_chain_transform,
-    _make_multi_chain_transform,
-    _monotonic_residual_domain,
-    _monotonic_residual_fit,
-    _monotonic_residual_forward,
-    _monotonic_residual_grouped_domain,
-    _monotonic_residual_grouped_fit,
-    _monotonic_residual_grouped_forward,
-    _monotonic_residual_grouped_inverse,
-    _monotonic_residual_inverse,
-    _nadaraya_watson_residual_domain,
-    _nadaraya_watson_residual_fit,
-    _nadaraya_watson_residual_forward,
-    _nadaraya_watson_residual_inverse,
     _pairwise_interaction_residual_domain,
     _pairwise_interaction_residual_fit,
     _pairwise_interaction_residual_forward,
@@ -77,21 +51,6 @@ from ._registry_setup import (
     _polynomial_residual_deg2_fit,
     _polynomial_residual_deg2_forward,
     _polynomial_residual_deg2_inverse,
-    _qn_domain_a,
-    _qn_fit_a,
-    _qn_forward_a,
-    _qn_inverse_a,
-    _qn_y_fit_raw,
-    _qn_y_forward_raw,
-    _qn_y_inverse_raw,
-    _quantile_residual_grouped_domain,
-    _quantile_residual_grouped_fit,
-    _quantile_residual_grouped_forward,
-    _quantile_residual_grouped_inverse,
-    _rank_ecdf_residual_domain,
-    _rank_ecdf_residual_fit,
-    _rank_ecdf_residual_forward,
-    _rank_ecdf_residual_inverse,
     _rank_residual_domain,
     _rank_residual_fit,
     _rank_residual_forward,
@@ -100,151 +59,232 @@ from ._registry_setup import (
     _reciprocal_residual_fit,
     _reciprocal_residual_forward,
     _reciprocal_residual_inverse,
-    _rolling_quantile_ratio_grouped_domain,
-    _rolling_quantile_ratio_grouped_fit,
-    _rolling_quantile_ratio_grouped_forward,
-    _rolling_quantile_ratio_grouped_inverse,
-    _seasonal_residual_domain,
-    _seasonal_residual_fit,
-    _seasonal_residual_forward,
-    _seasonal_residual_inverse,
-    _second_diff_domain,
-    _second_diff_fit,
-    _second_diff_forward,
-    _second_diff_inverse,
     _smoothing_spline_residual_domain,
     _smoothing_spline_residual_fit,
     _smoothing_spline_residual_forward,
     _smoothing_spline_residual_inverse,
+)
+from .categorical import (
     _target_encoding_residual_domain,
     _target_encoding_residual_fit,
     _target_encoding_residual_forward,
     _target_encoding_residual_inverse,
+)
+from ._causal_anchor import (
+    _causal_anchor_residual_domain,
+    _causal_anchor_residual_fit,
+    _causal_anchor_residual_forward,
+    _causal_anchor_residual_inverse,
+)
+from ._second_diff import (
+    _second_diff_domain,
+    _second_diff_fit,
+    _second_diff_forward,
+    _second_diff_inverse,
+)
+from ._rank_ecdf import (
+    _rank_ecdf_residual_domain,
+    _rank_ecdf_residual_fit,
+    _rank_ecdf_residual_forward,
+    _rank_ecdf_residual_inverse,
+)
+from ._seasonal import (
+    _seasonal_residual_domain,
+    _seasonal_residual_fit,
+    _seasonal_residual_forward,
+    _seasonal_residual_inverse,
+)
+from ._volatility import (
     _volatility_normalized_residual_domain,
     _volatility_normalized_residual_fit,
     _volatility_normalized_residual_forward,
     _volatility_normalized_residual_inverse,
-    _yj_domain_a,
-    _yj_fit_a,
-    _yj_forward_a,
-    _yj_inverse_a,
-    _yj_y_fit_raw,
-    _yj_y_forward_raw,
-    _yj_y_inverse_raw,
+)
+from ._multi_extra import (
+    _asinh_residual_multi_domain,
+    _asinh_residual_multi_fit,
+    _asinh_residual_multi_forward,
+    _asinh_residual_multi_inverse,
+    _linear_residual_multi_robust_fit,
+)
+from ._nadaraya_watson import (
+    _nadaraya_watson_residual_domain,
+    _nadaraya_watson_residual_fit,
+    _nadaraya_watson_residual_forward,
+    _nadaraya_watson_residual_inverse,
+)
+from ._gaussian_copula import (
+    _gaussian_copula_residual_domain,
+    _gaussian_copula_residual_fit,
+    _gaussian_copula_residual_forward,
+    _gaussian_copula_residual_inverse,
+)
+from ._grouped_extra import (
+    _ewma_residual_grouped_domain,
+    _ewma_residual_grouped_fit,
+    _ewma_residual_grouped_forward,
+    _ewma_residual_grouped_inverse,
+    _frac_diff_grouped_domain,
+    _frac_diff_grouped_fit,
+    _frac_diff_grouped_forward,
+    _frac_diff_grouped_inverse,
+    _monotonic_residual_grouped_domain,
+    _monotonic_residual_grouped_fit,
+    _monotonic_residual_grouped_forward,
+    _monotonic_residual_grouped_inverse,
+    _quantile_residual_grouped_domain,
+    _quantile_residual_grouped_fit,
+    _quantile_residual_grouped_forward,
+    _quantile_residual_grouped_inverse,
+    _rolling_quantile_ratio_grouped_domain,
+    _rolling_quantile_ratio_grouped_fit,
+    _rolling_quantile_ratio_grouped_forward,
+    _rolling_quantile_ratio_grouped_inverse,
+)
+from .unary import (
+    cbrt_y_domain as _cbrt_y_domain_raw,
+    cbrt_y_fit as _cbrt_y_fit_raw,
+    cbrt_y_forward as _cbrt_y_forward_raw,
+    cbrt_y_inverse as _cbrt_y_inverse_raw,
+    log_y_domain as _log_y_domain_raw,
+    log_y_fit as _log_y_fit_raw,
+    log_y_forward as _log_y_forward_raw,
+    log_y_inverse as _log_y_inverse_raw,
+    quantile_normal_y_domain as _qn_y_domain_raw,
+    quantile_normal_y_fit as _qn_y_fit_raw,
+    quantile_normal_y_forward as _qn_y_forward_raw,
+    quantile_normal_y_inverse as _qn_y_inverse_raw,
+    signed_power_y_domain as _sp_y_domain_raw,
+    signed_power_y_fit as _sp_y_fit_raw,
+    signed_power_y_forward as _sp_y_forward_raw,
+    signed_power_y_inverse as _sp_y_inverse_raw,
+    yeo_johnson_y_domain as _yj_y_domain_raw,
+    yeo_johnson_y_fit as _yj_y_fit_raw,
+    yeo_johnson_y_forward as _yj_y_forward_raw,
+    yeo_johnson_y_inverse as _yj_y_inverse_raw,
+    box_cox_y_domain as _bc_y_domain_raw,
+    box_cox_y_fit as _bc_y_fit_raw,
+    box_cox_y_forward as _bc_y_forward_raw,
+    box_cox_y_inverse as _bc_y_inverse_raw,
 )
 
-_REGISTRY_PART2: dict[str, Transform] = {
-    "yeo_johnson_y": Transform(
-        name="yeo_johnson_y",
-        forward=_yj_forward_a,
-        inverse=_yj_inverse_a,
-        fit=_yj_fit_a,
-        domain_check=_yj_domain_a,
-        description=(
-            "Yeo-Johnson power transform with lambda fitted by MLE (scipy Brent, range "
-            "clipped to [-2, 4]). Works on mixed-sign y unlike Box-Cox. Inverse is the "
-            "closed-form YJ inverse with the same lambda."
-        ),
-        tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
-        requires_base=False,
-    ),
-    "quantile_normal_y": Transform(
-        name="quantile_normal_y",
-        forward=_qn_forward_a,
-        inverse=_qn_inverse_a,
-        fit=_qn_fit_a,
-        domain_check=_qn_domain_a,
-        description=(
-            "Empirical-CDF -> standard Normal: T = Phi^-1(rank(y) / (n + 1)) via knot "
-            "interpolation. Inverse interpolates the fitted CDF. Robust to any monotone "
-            "distortion of y but loses absolute scale -- use when the noise-distribution "
-            "hypothesis is itself uncertain."
-        ),
-        tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
-        requires_base=False,
-    ),
-    # Chain transforms: bivariate residual + unary tail compression, composed by the chain factory above.
-    "chain_linres_cbrt": _make_chain_transform(
-        name="chain_linres_cbrt", short_name="linres+cbrt",
-        bivariate_fit=_linear_residual_fit,
-        bivariate_forward=_linear_residual_forward,
-        bivariate_inverse=_linear_residual_inverse,
-        bivariate_domain=_linear_residual_domain,
-        unary_fit=_cbrt_y_fit_raw,
-        unary_forward=_cbrt_y_forward_raw,
-        unary_inverse=_cbrt_y_inverse_raw,
-        description=(
-            "Chain: T1 = y - alpha*base - beta (linear_residual, OLS-fitted alpha+beta), then "
-            "T2 = sign(T1) * |T1|^(1/3) (signed cube root). Inverse runs cbrt^-1 then "
-            "y = T1 + alpha*base + beta. Targets heavy-tailed residual on top of a "
-            "single-base linear regression -- a real heavy-residual case "
-            "with excess_kurt=+2.40."
-        ),
-    ),
-    "chain_linres_yj": _make_chain_transform(
-        name="chain_linres_yj", short_name="linres+yj",
-        bivariate_fit=_linear_residual_fit,
-        bivariate_forward=_linear_residual_forward,
-        bivariate_inverse=_linear_residual_inverse,
-        bivariate_domain=_linear_residual_domain,
-        unary_fit=_yj_y_fit_raw,
-        unary_forward=_yj_y_forward_raw,
-        unary_inverse=_yj_y_inverse_raw,
-        description=(
-            "Chain: linear_residual + Yeo-Johnson(lambda MLE). YJ adapts to the actual "
-            "residual skew + tail shape so the inner boosting sees a near-Gaussian target."
-        ),
-    ),
-    "chain_monres_cbrt": _make_chain_transform(
-        name="chain_monres_cbrt", short_name="monres+cbrt",
-        bivariate_fit=_monotonic_residual_fit,
-        bivariate_forward=_monotonic_residual_forward,
-        bivariate_inverse=_monotonic_residual_inverse,
-        bivariate_domain=_monotonic_residual_domain,
-        unary_fit=_cbrt_y_fit_raw,
-        unary_forward=_cbrt_y_forward_raw,
-        unary_inverse=_cbrt_y_inverse_raw,
-        description=(
-            "Chain: monotonic_residual (PCHIP-fitted g(base)) + signed cube root. " "Combines a nonlinear-monotone base absorber with tail compression."
-        ),
-    ),
-    "chain_monres_yj": _make_chain_transform(
-        name="chain_monres_yj", short_name="monres+yj",
-        bivariate_fit=_monotonic_residual_fit,
-        bivariate_forward=_monotonic_residual_forward,
-        bivariate_inverse=_monotonic_residual_inverse,
-        bivariate_domain=_monotonic_residual_domain,
-        unary_fit=_yj_y_fit_raw,
-        unary_forward=_yj_y_forward_raw,
-        unary_inverse=_yj_y_inverse_raw,
-        description=("Chain: monotonic_residual + Yeo-Johnson power transform."),
-    ),
-    # 3-stage chain. For VERY heavy-tail residuals where a single unary still leaves leptokurtosis, follow up with quantile-normalisation to map
-    # any remaining structure to a standard Normal. Lossy on absolute scale (quantile_normal forgets the original units) but RMSE on the
-    # doubly-compressed T is cleaner for boosting inners.
-    "chain_linres_cbrt_qn": _make_multi_chain_transform(
-        name="chain_linres_cbrt_qn", short_name="linresCbrtQn",
-        bivariate_fit=_linear_residual_fit,
-        bivariate_forward=_linear_residual_forward,
-        bivariate_inverse=_linear_residual_inverse,
-        bivariate_domain=_linear_residual_domain,
-        unary_stages=[
-            (_cbrt_y_fit_raw, _cbrt_y_forward_raw, _cbrt_y_inverse_raw),
-            (_qn_y_fit_raw, _qn_y_forward_raw, _qn_y_inverse_raw),
-        ],
-        description=(
-            "3-stage chain: T1 = y - alpha*base - beta (linear_residual); "
-            "T2 = sign(T1) * |T1|^(1/3) (signed cbrt); "
-            "T3 = Phi^-1(rank(T2) / (n+1)) (quantile-normal). "
-            "For VERY heavy-tail residuals where a single unary still leaves "
-            "leptokurtosis. Lossy on absolute scale; RMSE on T3 cleaner for "
-            "boosting inners."
-        ),
-    ),
-    # Extended bivariate + multi-base transforms. Plug specific failure modes observed in production where the existing core/extended set didn't reach:
-    # signed bases for log-like residuals (``asinh_residual``), expanded ratio domain via learned shift (``centered_ratio``), curvature beyond OLS line
-    # (``polynomial_residual_deg2``), distribution-free monotone (``rank_residual``), arbitrary smooth non-monotone (``smoothing_spline_residual``),
-    # multiplicative-jump dynamics (``reciprocal_residual``), and two multi-base variants (``geometric_mean_residual``, ``pairwise_interaction_residual``).
+
+def _make_unary_registry_adapter(
+    fit_fn, forward_fn, inverse_fn, domain_fn, domain_fitted_fn=None,
+):
+    """Adapt a unary (y, params) signature to the registry's (y, base, params) signature by ignoring ``base``. Returns (fit_adapter, forward_adapter, inverse_adapter, domain_adapter[, domain_fitted_adapter]).
+
+    ``domain_fitted_fn`` (optional, signature ``(y, params) -> mask``) wires
+    the fitted-params-aware domain hook for unary transforms whose validity
+    depends on a learned parameter (e.g. ``log_y``'s ``offset``: rows with
+    ``y + offset <= 0`` are out of domain only once ``offset`` is known). When
+    ``None`` the returned 5th element is ``None`` and the registry entry leaves
+    ``domain_check_fitted`` unset (params-free ``domain_check`` is exact)."""
+
+    def _fit(y, base):
+        """Registry-shaped fit adapter: drop ``base``, delegate to the unary ``fit_fn(y)``."""
+        return fit_fn(y)
+
+    def _forward(y, base, params):
+        """Registry-shaped forward adapter: drop ``base``, delegate to the unary ``forward_fn(y, params)``."""
+        return forward_fn(y, params)
+
+    def _inverse(t_hat, base, params):
+        """Registry-shaped inverse adapter: drop ``base``, delegate to the unary ``inverse_fn(t_hat, params)``."""
+        return inverse_fn(t_hat, params)
+
+    def _domain(y, base):
+        """Registry-shaped domain adapter: params-free unary domain at fit time, all-True at predict time (no base constraint for unary transforms)."""
+        # The unary helper accepts (y) or (y, params); the registry
+        # contract is domain_check(y, base) at fit-time and (None, base)
+        # at predict-time. Predict-side call passes y=None so we cannot
+        # apply the unary domain on y -- gate on finite base / always-True
+        # for unary which has no base constraint at predict.
+        if y is None:
+            return np.ones(len(base) if hasattr(base, "__len__") else 1, dtype=bool)
+        return domain_fn(y)
+
+    if domain_fitted_fn is None:
+        return _fit, _forward, _inverse, _domain, None
+
+    def _domain_fitted(y, base, params):
+        """Registry-shaped fitted-domain adapter: params-aware unary domain at fit time, all-True at predict time (see docstring below)."""
+        # Fitted-domain for unary: no base constraint, so at predict time
+        # (y is None) the per-row domain cannot be re-checked from base
+        # alone (e.g. log_y's ``y + offset > 0`` needs y). Return all-True
+        # for the predict-side row count, matching ``_domain``. At fit/
+        # screening time y is present and we gate on the params-aware
+        # unary domain (e.g. ``y + offset > 0``).
+        if y is None:
+            return np.ones(len(base) if hasattr(base, "__len__") else 1, dtype=bool)
+        return domain_fitted_fn(y, params)
+
+    return _fit, _forward, _inverse, _domain, _domain_fitted
+
+
+# Pre-build per-unary adapters (cheap, done once at import). The 5th element
+# is the fitted-params-aware domain adapter (``None`` for transforms whose
+# params-free domain is exact).
+_cbrt_fit, _cbrt_forward, _cbrt_inverse, _cbrt_domain, _cbrt_domain_fitted = _make_unary_registry_adapter(
+    _cbrt_y_fit_raw, _cbrt_y_forward_raw, _cbrt_y_inverse_raw, _cbrt_y_domain_raw,
+)
+_log_fit_a, _log_forward_a, _log_inverse_a, _log_domain_a, _log_domain_fitted_a = _make_unary_registry_adapter(
+    _log_y_fit_raw, _log_y_forward_raw, _log_y_inverse_raw,
+    # log_y_domain is the 2-arg form (y, params); wrap to drop params at fit-time.
+    lambda y: _log_y_domain_raw(y),
+    # The pre-fit domain only checks isfinite(y); the TRUE log_y domain is
+    # ``y + offset > 0``, knowable only after ``fit`` sets offset. Without
+    # this hook, screening forwards log() over ``y <= -offset`` rows (silent
+    # NaN T -> biased MI gain) and the wrapper later hard-raises
+    # DomainViolationError on the same rows. Pass the params-aware raw form.
+    domain_fitted_fn=_log_y_domain_raw,
+)
+_yj_fit_a, _yj_forward_a, _yj_inverse_a, _yj_domain_a, _yj_domain_fitted_a = _make_unary_registry_adapter(
+    _yj_y_fit_raw, _yj_y_forward_raw, _yj_y_inverse_raw,
+    lambda y: _yj_y_domain_raw(y),
+)
+_qn_fit_a, _qn_forward_a, _qn_inverse_a, _qn_domain_a, _qn_domain_fitted_a = _make_unary_registry_adapter(
+    _qn_y_fit_raw, _qn_y_forward_raw, _qn_y_inverse_raw,
+    lambda y: _qn_y_domain_raw(y),
+)
+_sp_fit_a, _sp_forward_a, _sp_inverse_a, _sp_domain_a, _sp_domain_fitted_a = _make_unary_registry_adapter(
+    _sp_y_fit_raw, _sp_y_forward_raw, _sp_y_inverse_raw,
+    lambda y: _sp_y_domain_raw(y),
+)
+_bc_fit_a, _bc_forward_a, _bc_inverse_a, _bc_domain_a, _bc_domain_fitted_a = _make_unary_registry_adapter(
+    _bc_y_fit_raw, _bc_y_forward_raw, _bc_y_inverse_raw,
+    lambda y: _bc_y_domain_raw(y),
+)
+
+
+def _centered_ratio_domain_fitted(y, base, params):
+    """Fitted-domain for ``centered_ratio`` (T = y / (base + c)).
+
+    The pre-fit ``_centered_ratio_domain`` only gates on finite y / base; the
+    real per-row validity depends on the learned shift ``c`` and eps-floor:
+    a row whose ``base + c`` lands inside the near-zero ``[-eps, eps]`` band
+    has its denominator clamped to ``+/- eps`` in ``forward``/``inverse``, so
+    T no longer reflects the true ratio and the round-trip is only approximate
+    on that row. Those rows are excluded from screening + fit so the divisor
+    clamp never silently distorts the MI estimate / fitted scale. Mirrors the
+    ``domain_check`` ``y=None`` predict-time contract: with ``y`` unknown we
+    still gate the base-side ``|base + c| >= eps`` condition (knowable from
+    params), so the same rows are flagged at predict time.
+    """
+    base_arr = np.asarray(base, dtype=np.float64)
+    if params is None:
+        # No fitted params yet -> fall back to the params-free domain.
+        return _centered_ratio_domain(y, base)
+    c = float(params.get("c", 0.0))
+    eps = float(params.get("eps", 0.0))
+    shifted = base_arr + c
+    base_ok = np.isfinite(base_arr) & (np.abs(shifted) >= eps)
+    if y is None:
+        return base_ok
+    return base_ok & np.isfinite(np.asarray(y, dtype=np.float64))
+
+
+_TRANSFORMS_REGISTRY_EXTENDED: dict[str, Transform] = {
     "asinh_residual": Transform(
         name="asinh_residual",
         forward=_asinh_residual_forward,

@@ -28,6 +28,8 @@ import pytest
 
 import mlframe
 
+from tests.test_meta._shared_ast_cache import parsed_ast
+
 MLFRAME_DIR = Path(mlframe.__file__).resolve().parent
 _BASELINE_PATH = Path(__file__).resolve().parent / "_console_unicode_baseline.json"
 
@@ -35,15 +37,16 @@ _EXEMPT_PATH_FRAGMENTS = ("__pycache__",)
 
 # Console-output sinks we audit. Cover bare ``print`` and the standard
 # ``logger.X`` family.
-_LOG_METHOD_NAMES = {"info", "warning", "error", "critical", "debug",
-                     "exception", "log"}
+_LOG_METHOD_NAMES = {"info", "warning", "error", "critical", "debug", "exception", "log"}
 
 
 def _refresh_requested() -> bool:
+    """True if ``--refresh-console-unicode-baseline`` was passed on the pytest command line."""
     return "--refresh-console-unicode-baseline" in sys.argv
 
 
 def _is_console_call(call: ast.Call) -> bool:
+    """True for a ``print(...)`` call or a logging-method call (``logger.info`` etc.)."""
     func = call.func
     if isinstance(func, ast.Name) and func.id in {"print"}:
         return True
@@ -62,32 +65,26 @@ def _first_str_arg_value(call: ast.Call) -> str | None:
         return first.value
     # f-strings are ``ast.JoinedStr`` — flatten the literal parts.
     if isinstance(first, ast.JoinedStr):
-        parts: list[str] = []
-        for v in first.values:
-            if isinstance(v, ast.Constant) and isinstance(v.value, str):
-                parts.append(v.value)
+        parts: list[str] = [v.value for v in first.values if isinstance(v, ast.Constant) and isinstance(v.value, str)]
         return "".join(parts) if parts else None
     return None
 
 
 def _has_non_ascii(s: str) -> bool:
+    """True if ``s`` contains any character outside the printable-ASCII range."""
     return any(ord(c) > 127 for c in s)
 
 
 def _build_offending_set() -> set[str]:
+    """``{relpath:lineno}`` for every console/log call whose string literal has a non-ASCII character."""
     out: set[str] = set()
     for py in MLFRAME_DIR.rglob("*.py"):
         if any(frag in py.parts for frag in _EXEMPT_PATH_FRAGMENTS):
             continue
         if py.name.endswith(".py.old"):
             continue
-        try:
-            src = py.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
-            continue
-        try:
-            tree = ast.parse(src)
-        except SyntaxError:
+        tree = parsed_ast(py)
+        if tree is None:
             continue
         rel = py.relative_to(MLFRAME_DIR).as_posix()
         for node in ast.walk(tree):
@@ -102,6 +99,7 @@ def _build_offending_set() -> set[str]:
 
 
 def test_no_new_non_ascii_console_output():
+    """No new non-ASCII console/log literal beyond the frozen baseline."""
     current = _build_offending_set()
 
     if _refresh_requested() or not _BASELINE_PATH.exists():
@@ -109,10 +107,7 @@ def test_no_new_non_ascii_console_output():
             orjson.dumps(sorted(current), option=orjson.OPT_INDENT_2).decode("utf-8"),
             encoding="utf-8",
         )
-        pytest.skip(
-            f"console-Unicode baseline refreshed at {_BASELINE_PATH.name} "
-            f"({len(current)} call site(s) with non-ASCII string literal)"
-        )
+        pytest.skip(f"console-Unicode baseline refreshed at {_BASELINE_PATH.name} " f"({len(current)} call site(s) with non-ASCII string literal)")
 
     baseline = set(orjson.loads(_BASELINE_PATH.read_bytes()))
     new = sorted(current - baseline)
@@ -133,7 +128,5 @@ def test_no_new_non_ascii_console_output():
             f"non-ASCII string literals. On Windows this crashes with "
             f"UnicodeEncodeError on cp1251/cp1252 stdout. Replace fancy "
             f"chars (→, ✓, ✗, em-dash) with ASCII (->, [OK], [X], --), "
-            f"OR refresh the baseline if intentional:\n  "
-            + "\n  ".join(new[:30])
-            + (f"\n  ... and {len(new) - 30} more" if len(new) > 30 else "")
+            f"OR refresh the baseline if intentional:\n  " + "\n  ".join(new[:30]) + (f"\n  ... and {len(new) - 30} more" if len(new) > 30 else "")
         )

@@ -33,6 +33,8 @@ import pytest
 
 import mlframe
 
+from tests.test_meta._shared_ast_cache import parsed_ast
+
 MLFRAME_DIR = Path(mlframe.__file__).resolve().parent
 _BASELINE_PATH = Path(__file__).resolve().parent / "_resource_handle_baseline.json"
 
@@ -40,6 +42,7 @@ _EXEMPT_PATH_FRAGMENTS = ("__pycache__", "tests", "legacy", "profiling", "explor
 
 
 def _refresh_requested() -> bool:
+    """True if ``--refresh-resource-handle-baseline`` was passed on the pytest command line."""
     return "--refresh-resource-handle-baseline" in sys.argv
 
 
@@ -54,8 +57,7 @@ def _is_resource_call(call: ast.Call) -> bool:
     if isinstance(func, ast.Name):
         return func.id == "open"
     if isinstance(func, ast.Attribute):
-        if func.attr in {"NamedTemporaryFile", "TemporaryFile",
-                         "SpooledTemporaryFile"}:
+        if func.attr in {"NamedTemporaryFile", "TemporaryFile", "SpooledTemporaryFile"}:
             return True
         if func.attr == "Popen":
             return True
@@ -72,8 +74,7 @@ def _walk_with_parents(tree: ast.AST):
         yield node, parent_map.get(id(node))
 
 
-def _is_under_with_statement(call: ast.Call, ancestors_by_id: dict[int, ast.AST],
-                             call_to_chain: dict[int, list[ast.AST]]) -> bool:
+def _is_under_with_statement(call: ast.Call, ancestors_by_id: dict[int, ast.AST], call_to_chain: dict[int, list[ast.AST]]) -> bool:
     """True if any ancestor of ``call`` is a ``with`` statement and the
     call appears inside one of its ``items`` (the context-manager position).
     """
@@ -89,19 +90,15 @@ def _is_under_with_statement(call: ast.Call, ancestors_by_id: dict[int, ast.AST]
 
 
 def _build_offending_set() -> set[str]:
+    """``{relpath:lineno}`` for every resource-acquisition call not wrapped in a ``with`` statement."""
     out: set[str] = set()
     for py in MLFRAME_DIR.rglob("*.py"):
         if any(frag in py.parts for frag in _EXEMPT_PATH_FRAGMENTS):
             continue
         if py.name.endswith(".py.old"):
             continue
-        try:
-            src = py.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
-            continue
-        try:
-            tree = ast.parse(src)
-        except SyntaxError:
+        tree = parsed_ast(py)
+        if tree is None:
             continue
         # Build parent chain map for ancestor lookup.
         parent_map: dict[int, ast.AST] = {}
@@ -128,16 +125,12 @@ def _build_offending_set() -> set[str]:
 
 
 def test_no_new_unmanaged_resource_acquisition():
+    """No new resource-acquisition call outside a ``with`` statement beyond the frozen baseline."""
     current = _build_offending_set()
 
     if _refresh_requested() or not _BASELINE_PATH.exists():
-        _BASELINE_PATH.write_text(
-            orjson.dumps(sorted(current), option=orjson.OPT_INDENT_2).decode("utf-8"), encoding="utf-8"
-        )
-        pytest.skip(
-            f"resource-handle baseline refreshed at "
-            f"{_BASELINE_PATH.name} ({len(current)} bare-acquisition site(s))"
-        )
+        _BASELINE_PATH.write_text(orjson.dumps(sorted(current), option=orjson.OPT_INDENT_2).decode("utf-8"), encoding="utf-8")
+        pytest.skip(f"resource-handle baseline refreshed at " f"{_BASELINE_PATH.name} ({len(current)} bare-acquisition site(s))")
 
     baseline = set(orjson.loads(_BASELINE_PATH.read_bytes()))
     new = sorted(current - baseline)
@@ -159,7 +152,5 @@ def test_no_new_unmanaged_resource_acquisition():
             f"should be context-managed so handles close on exception. "
             f"Replace with ``with open(...) as f:`` form, OR refresh the "
             f"baseline if intentional (e.g. handle is returned as part of "
-            f"the public API):\n  "
-            + "\n  ".join(new[:30])
-            + (f"\n  ... and {len(new) - 30} more" if len(new) > 30 else "")
+            f"the public API):\n  " + "\n  ".join(new[:30]) + (f"\n  ... and {len(new) - 30} more" if len(new) > 30 else "")
         )

@@ -31,9 +31,10 @@ from __future__ import annotations
 
 import ast
 import pathlib
-import sys
 
 import pytest
+
+from tests.test_meta._shared_ast_cache import parsed_ast, source_text
 
 SRC_ROOT = pathlib.Path(__file__).resolve().parents[2] / "src" / "mlframe"
 IGNORE_MARKER = "joblib-import-race-ok"
@@ -68,16 +69,12 @@ def _find_lazy_from_imports(func: ast.FunctionDef, lines: list[str]) -> list[tup
 def _scan_module(path: pathlib.Path) -> list[tuple[str, int, str]]:
     """Return (callee_name, lineno, source_line) for every lazy-import
     violation inside a callee that this module passes to ``delayed(...)``."""
-    try:
-        src = path.read_text(encoding="utf-8")
-    except (UnicodeDecodeError, OSError):
-        return []
-    try:
-        tree = ast.parse(src)
-    except SyntaxError:
+    tree = parsed_ast(path)
+    if tree is None:
         return []
     func_defs = _function_defs_by_name(tree)
-    lines = src.splitlines()
+    src = source_text(path)
+    lines = src.splitlines() if src is not None else []
     delayed_callees: set[str] = set()
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):

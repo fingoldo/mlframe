@@ -12,6 +12,7 @@ The ALLOWLIST is empty: the 9 baseline entries surfaced when this sensor first r
 from __future__ import annotations
 
 import ast
+from functools import cache
 from pathlib import Path
 
 import pytest
@@ -24,6 +25,7 @@ ALLOWLIST: set[tuple[str, str]] = set()
 
 
 def _is_test_adjacent(path: Path) -> bool:
+    """True for benchmark/profiling files exempt from the cross-package underscore-import check."""
     parts = path.parts
     if "_benchmarks" in parts:
         return True
@@ -34,6 +36,7 @@ def _is_test_adjacent(path: Path) -> bool:
 
 
 def _iter_imports(tree: ast.AST):
+    """Yield each imported module's dotted name from ``import X`` and ``from X import ...`` statements."""
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom) and node.module:
             yield node.module
@@ -70,7 +73,10 @@ def _file_in_cluster(py_path: Path, cluster_dir: Path) -> bool:
         return False
 
 
+@cache
 def _collect_offenders() -> set[tuple[str, str]]:
+    """Cached: both tests below call this to full-scan ``src/mlframe``; without caching
+    the whole-tree ast.parse pass runs twice per pytest session for identical input."""
     offenders: set[tuple[str, str]] = set()
     for py_path in SRC.rglob("*.py"):
         if _is_test_adjacent(py_path):

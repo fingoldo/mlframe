@@ -39,6 +39,8 @@ import pytest
 
 import mlframe
 
+from tests.test_meta._shared_ast_cache import parsed_ast
+
 MLFRAME_DIR = Path(mlframe.__file__).resolve().parent
 _BASELINE_PATH = Path(__file__).resolve().parent / "_mutable_defaults_baseline.json"
 
@@ -55,6 +57,7 @@ _MUTABLE_CONSTRUCTORS = {
 
 
 def _refresh_requested() -> bool:
+    """True if ``--refresh-mutable-defaults-baseline`` was passed on the pytest command line."""
     return "--refresh-mutable-defaults-baseline" in sys.argv
 
 
@@ -73,12 +76,10 @@ def _is_mutable_default(default: ast.expr) -> bool:
     return False
 
 
-def _audit_function(fn: ast.FunctionDef | ast.AsyncFunctionDef,
-                    rel: str) -> list[str]:
+def _audit_function(fn: ast.FunctionDef | ast.AsyncFunctionDef, rel: str) -> list[str]:
+    """``["relpath:lineno::fname(param)", ...]`` for every mutable-default parameter on ``fn``."""
     out: list[str] = []
     args = fn.args
-    # Walk every parameter slot that can have a default.
-    all_params = list(args.posonlyargs) + list(args.args) + list(args.kwonlyargs)
     # ``args.defaults`` covers posonly + args (right-aligned with the
     # positional list); ``args.kw_defaults`` matches kwonlyargs slot
     # for slot (None => no default).
@@ -95,19 +96,15 @@ def _audit_function(fn: ast.FunctionDef | ast.AsyncFunctionDef,
 
 
 def _build_offending_set() -> set[str]:
+    """``{relpath:lineno::fname(param), ...}`` for every mutable-default parameter under ``src/mlframe``."""
     out: set[str] = set()
     for py in MLFRAME_DIR.rglob("*.py"):
         if any(frag in py.parts for frag in _EXEMPT_PATH_FRAGMENTS):
             continue
         if py.name.endswith(".py.old"):
             continue
-        try:
-            src = py.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
-            continue
-        try:
-            tree = ast.parse(src)
-        except SyntaxError:
+        tree = parsed_ast(py)
+        if tree is None:
             continue
         rel = py.relative_to(MLFRAME_DIR).as_posix()
         for node in ast.walk(tree):
@@ -118,16 +115,12 @@ def _build_offending_set() -> set[str]:
 
 
 def test_no_new_mutable_default_arguments():
+    """No new mutable-default-argument function beyond the frozen baseline."""
     current = _build_offending_set()
 
     if _refresh_requested() or not _BASELINE_PATH.exists():
-        _BASELINE_PATH.write_text(
-            orjson.dumps(sorted(current), option=orjson.OPT_INDENT_2).decode("utf-8"), encoding="utf-8"
-        )
-        pytest.skip(
-            f"mutable-defaults baseline refreshed at {_BASELINE_PATH.name} "
-            f"({len(current)} site(s))"
-        )
+        _BASELINE_PATH.write_text(orjson.dumps(sorted(current), option=orjson.OPT_INDENT_2).decode("utf-8"), encoding="utf-8")
+        pytest.skip(f"mutable-defaults baseline refreshed at {_BASELINE_PATH.name} " f"({len(current)} site(s))")
 
     baseline = set(orjson.loads(_BASELINE_PATH.read_bytes()))
     new = sorted(current - baseline)
@@ -146,7 +139,5 @@ def test_no_new_mutable_default_arguments():
             f"{len(new)} new function(s) with a mutable default argument. "
             f"Replace with the sentinel pattern: ``def f(x=None): if x is None: "
             f"x = []`` — mutable defaults are shared across all calls and "
-            f"silently accumulate state:\n  "
-            + "\n  ".join(new[:30])
-            + (f"\n  ... and {len(new) - 30} more" if len(new) > 30 else "")
+            f"silently accumulate state:\n  " + "\n  ".join(new[:30]) + (f"\n  ... and {len(new) - 30} more" if len(new) > 30 else "")
         )
