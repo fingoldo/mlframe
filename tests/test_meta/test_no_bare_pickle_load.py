@@ -12,6 +12,8 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+from tests.test_meta._shared_ast_cache import parsed_ast
+
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent  # mlframe/
 _SRC_ROOT = _REPO_ROOT / "src" / "mlframe"
 
@@ -59,13 +61,8 @@ def _find_pickle_load_calls(path: Path) -> list[tuple[int, str]]:
     (any ``<obj>.load`` from a module aliased ``pickle`` / ``_pickle`` / ``pkl`` is
     flagged) -- the whitelist absorbs the legit cases.
     """
-    try:
-        src = path.read_text(encoding="utf-8")
-    except (UnicodeDecodeError, OSError):
-        return []
-    try:
-        tree = ast.parse(src, filename=str(path))
-    except SyntaxError:
+    tree = parsed_ast(path)
+    if tree is None:
         return []
 
     # Track which module names refer to pickle by walking the import statements.

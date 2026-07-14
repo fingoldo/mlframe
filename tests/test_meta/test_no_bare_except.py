@@ -29,6 +29,8 @@ import pytest
 
 import mlframe
 
+from tests.test_meta._shared_ast_cache import parsed_ast
+
 MLFRAME_DIR = Path(mlframe.__file__).resolve().parent
 _BASELINE_PATH = Path(__file__).resolve().parent / "_bare_except_baseline.json"
 
@@ -36,6 +38,7 @@ _EXEMPT_PATH_FRAGMENTS = ("__pycache__", "tests", "legacy", "profiling", "explor
 
 
 def _refresh_requested() -> bool:
+    """True if ``--refresh-bare-except-baseline`` was passed on the pytest command line."""
     return "--refresh-bare-except-baseline" in sys.argv
 
 
@@ -61,19 +64,15 @@ def _is_bare_except(handler: ast.ExceptHandler) -> bool:
 
 
 def _build_offending_set() -> set[str]:
+    """``{relpath:lineno}`` for every bare/BaseException ``except`` clause under ``src/mlframe``."""
     out: set[str] = set()
     for py in MLFRAME_DIR.rglob("*.py"):
         if any(frag in py.parts for frag in _EXEMPT_PATH_FRAGMENTS):
             continue
         if py.name.endswith(".py.old"):
             continue
-        try:
-            src = py.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
-            continue
-        try:
-            tree = ast.parse(src)
-        except SyntaxError:
+        tree = parsed_ast(py)
+        if tree is None:
             continue
         rel = py.relative_to(MLFRAME_DIR).as_posix()
         for node in ast.walk(tree):
@@ -86,16 +85,12 @@ def _build_offending_set() -> set[str]:
 
 
 def test_no_new_bare_except_clauses():
+    """No new bare/BaseException ``except`` clause beyond the frozen baseline."""
     current = _build_offending_set()
 
     if _refresh_requested() or not _BASELINE_PATH.exists():
-        _BASELINE_PATH.write_text(
-            orjson.dumps(sorted(current), option=orjson.OPT_INDENT_2).decode("utf-8"), encoding="utf-8"
-        )
-        pytest.skip(
-            f"bare-except baseline refreshed at {_BASELINE_PATH.name} "
-            f"({len(current)} bare clauses)"
-        )
+        _BASELINE_PATH.write_text(orjson.dumps(sorted(current), option=orjson.OPT_INDENT_2).decode("utf-8"), encoding="utf-8")
+        pytest.skip(f"bare-except baseline refreshed at {_BASELINE_PATH.name} " f"({len(current)} bare clauses)")
 
     baseline = set(orjson.loads(_BASELINE_PATH.read_bytes()))
     new = sorted(current - baseline)
@@ -114,7 +109,5 @@ def test_no_new_bare_except_clauses():
             f"{len(new)} new bare ``except:`` (or ``except BaseException:``) "
             f"clause(s). Replace with ``except Exception:`` or a narrower "
             f"specific exception type — bare-except swallows "
-            f"KeyboardInterrupt/SystemExit and masks real bugs:\n  "
-            + "\n  ".join(new[:30])
-            + (f"\n  ... and {len(new) - 30} more" if len(new) > 30 else "")
+            f"KeyboardInterrupt/SystemExit and masks real bugs:\n  " + "\n  ".join(new[:30]) + (f"\n  ... and {len(new) - 30} more" if len(new) > 30 else "")
         )

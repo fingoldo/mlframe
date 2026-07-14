@@ -26,6 +26,8 @@ from pathlib import Path
 
 import mlframe
 
+from tests.test_meta._shared_ast_cache import parsed_ast
+
 PKG_ROOT = Path(mlframe.__file__).resolve().parent
 
 
@@ -45,6 +47,7 @@ def _is_compiled_decorator(dec: ast.expr) -> bool:
 
 
 def _is_cast_call(node: ast.Call) -> bool:
+    """True for a bare ``cast(...)`` or ``<module>.cast(...)`` call."""
     f = node.func
     if isinstance(f, ast.Name):
         return f.id == "cast"
@@ -54,11 +57,11 @@ def _is_cast_call(node: ast.Call) -> bool:
 
 
 def test_no_cast_call_in_compiled_functions():
+    """No ``cast(...)`` call inside the body of an ``@njit``/``@torch.jit.script`` function (dead at runtime)."""
     violations: list[str] = []
     for path in PKG_ROOT.rglob("*.py"):
-        try:
-            tree = ast.parse(path.read_text(encoding="utf-8"))
-        except (SyntaxError, UnicodeDecodeError):
+        tree = parsed_ast(path)
+        if tree is None:
             continue
         for fn in ast.walk(tree):
             if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -74,6 +77,5 @@ def test_no_cast_call_in_compiled_functions():
         raise AssertionError(
             "typing.cast() called inside a compiled (@njit / @torch.jit.script) function -- "
             "both TorchScript and numba nopython reject it as an unresolvable builtin call. "
-            "cast() is a runtime no-op; drop the wrapper inside the compiled body:\n  "
-            + "\n  ".join(sorted(violations))
+            "cast() is a runtime no-op; drop the wrapper inside the compiled body:\n  " + "\n  ".join(sorted(violations))
         )

@@ -28,6 +28,8 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+from tests.test_meta._shared_ast_cache import parsed_ast
+
 _SRC = Path(__file__).resolve().parents[2] / "src" / "mlframe"
 
 # Production subpackages the fast-kernel policy applies to, tree-wide. Paths are POSIX-relative to _SRC.
@@ -186,9 +188,8 @@ def _banned_hits(path: Path) -> list[tuple[int, str]]:
     of the banned names (``brier_score_loss(...)``, ``_auc(...)`` bound to a banned import).
     Comments and docstrings never match -- this walks the AST, not the text.
     """
-    try:
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-    except (SyntaxError, UnicodeDecodeError, OSError):
+    tree = parsed_ast(path)
+    if tree is None:
         return []
 
     hits: list[tuple[int, str]] = []
