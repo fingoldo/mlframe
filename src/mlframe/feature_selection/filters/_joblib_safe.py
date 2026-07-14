@@ -197,3 +197,66 @@ def run_in_big_stack_thread(
     if exc_holder[0] is not None:
         raise exc_holder[0]
     return result_holder[0]
+
+
+# ---------------------------------------------------------------------------
+# Fit-constant memmap cache for loky-shipped big arrays
+# ---------------------------------------------------------------------------
+
+# joblib's memmapping reducer dumps every over-``max_nbytes`` ndarray argument to a fresh temp file on
+# EVERY ``Parallel(...)`` invocation -- for the fit-constant ``data`` matrix shipped to the FE loky pools
+# that meant re-writing the same ~200-400MB buffer to disk once per pool call (wellbore-100k GPU-strict
+# profile: 45 memmap dumps, ~315s of _pickle.dumps). An ndarray that is ALREADY a np.memmap is instead
+# passed to workers by FILENAME (no dump at all), so: dump each fit-constant array ONCE per process
+# (content-keyed), hand back the read-only memmap view, and let every subsequent Parallel call ship it
+# for free. Keyed by (shape, dtype, sampled content hash) -- cheap, and a genuinely different array
+# (next fit) gets its own entry. Files live in joblib's own temp folder convention and are freed on
+# process exit (best-effort unlink; Windows may defer until handles close).
+_FIT_MEMMAP_CACHE: dict = {}
+
+
+def _fit_constant_key(arr) -> tuple:
+    """Cheap content key: shape + dtype + blake2 of a bounded sample of the buffer (first/last 64KB +
+    strided middle) -- collision-safe enough for the per-fit cache while staying O(1) in array size."""
+    import hashlib
+
+    import numpy as _np
+
+    a = _np.ascontiguousarray(arr)
+    raw = a.view(_np.uint8).ravel()
+    h = hashlib.blake2b(digest_size=16)
+    h.update(raw[:65536].tobytes())
+    if raw.size > 65536:
+        h.update(raw[-65536:].tobytes())
+        h.update(raw[:: max(1, raw.size // 65536)].tobytes())
+    return (a.shape, str(a.dtype), h.hexdigest())
+
+
+def fit_constant_memmap(arr):
+    """Return a READ-ONLY ``np.memmap`` view of ``arr``, dumped to disk at most once per process per
+    content (see module note above). Falls back to the original array on any failure -- callers lose
+    only the dump-dedup, never correctness. The view is read-only ('r') so a worker bug can never
+    corrupt the shared file."""
+    import numpy as _np
+
+    try:
+        if isinstance(arr, _np.memmap):
+            return arr
+        key = _fit_constant_key(arr)
+        cached = _FIT_MEMMAP_CACHE.get(key)
+        if cached is not None:
+            return cached
+        import os
+        import tempfile
+
+        fd, path = tempfile.mkstemp(prefix="mlframe_fitconst_", suffix=".mmap")
+        os.close(fd)
+        a = _np.ascontiguousarray(arr)
+        mm = _np.memmap(path, dtype=a.dtype, mode="w+", shape=a.shape)
+        mm[...] = a
+        mm.flush()
+        ro = _np.memmap(path, dtype=a.dtype, mode="r", shape=a.shape)
+        _FIT_MEMMAP_CACHE[key] = ro
+        return ro
+    except Exception:
+        return arr

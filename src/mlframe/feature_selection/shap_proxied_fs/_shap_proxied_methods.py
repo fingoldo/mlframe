@@ -230,12 +230,7 @@ class ShapProxiedMethodsMixin:
         return np.where(self.support_)[0] if indices else self.support_
 
     def get_feature_names_out(self, input_features=None):
-        """TODO C (2026-05-28): sklearn TransformerMixin convention. Returns the
-        selected feature names; pairs with the existing ``get_support`` so both
-        sklearn API surfaces work uniformly with the other mlframe selectors
-        (MRMR has get_feature_names_out, RFECV has both, ShapProxied previously
-        had only get_support). Surfaced by the shared FS contract suite.
-        """
+        """Selected feature names (sklearn ``get_feature_names_out`` convention); raises ``NotFittedError`` if called before ``fit``."""
         from sklearn.exceptions import NotFittedError
 
         if not hasattr(self, "selected_features_"):

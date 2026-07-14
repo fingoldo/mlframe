@@ -164,7 +164,7 @@ def _cuda_usable() -> bool:
     return _CUDA_USABLE_CACHE
 
 
-def fe_gpu_strict_enabled(*, n: int | None = None, p: int | None = None) -> bool:
+def fe_gpu_strict_enabled(*, n: int | None = None, p: int | None = None, min_p: int | None = None) -> bool:
     """Whether STRICT GPU mode is active. Three-state ``MLFRAME_FE_GPU_STRICT``:
 
     * ``1``/``true``/``on``/``yes`` -- force STRICT (subject to a usable CUDA device AND, when the caller passes
@@ -185,7 +185,14 @@ def fe_gpu_strict_enabled(*, n: int | None = None, p: int | None = None) -> bool
     def _passes_call_work_floor() -> bool:
         if n is None or p is None:
             return True  # no per-call shape given -> caller not yet shape-aware; fit-level gate alone decides
-        return (int(n) * int(p)) >= _STRICT_MIN_CALL_WORK and int(p) >= _STRICT_MIN_CALL_P
+        # ``min_p`` overrides ONLY the p-floor leg: the default 64 mirrors the CANDIDATE-batch CPU/CUDA
+        # crossover (p = candidate columns, each its own reduction). A PERMUTATION-null workload (p = nperm,
+        # every permutation re-reading the SAME resident candidate) does not share that crossover -- holding
+        # it to p >= 64 forced every nperm<=24 null onto the CPU for the whole fit (wellbore-100k GPU-strict
+        # profile: 2232 _conditional_perm_null calls / ~261s on CPU). Such callers pass min_p=2; the n*p
+        # total-work leg still binds either way.
+        p_floor = _STRICT_MIN_CALL_P if min_p is None else int(min_p)
+        return (int(n) * int(p)) >= _STRICT_MIN_CALL_WORK and int(p) >= p_floor
 
     raw = os.environ.get("MLFRAME_FE_GPU_STRICT", "").strip().lower()
     if raw in ("0", "false", "off", "no"):

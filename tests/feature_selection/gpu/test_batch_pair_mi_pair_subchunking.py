@@ -24,6 +24,7 @@ import numpy as np
 import pytest
 
 import mlframe.feature_selection.filters.batch_pair_mi_gpu as bpmg
+import mlframe.feature_selection.filters._batch_pair_mi_cuda_kernels as bpmk
 
 
 def _build_pair_inputs(n_samples, n_cols, nbins_val, n_classes_y, seed=0):
@@ -83,8 +84,8 @@ def test_near_zero_free_vram_bails_to_cpu_instead_of_71_million_launches(monkeyp
     data, nbins, classes_y, freqs_y, pair_a, pair_b = _build_pair_inputs(
         n_samples=5000, n_cols=50, nbins_val=21, n_classes_y=20, seed=1,
     )
-    monkeypatch.setattr(bpmg, "_choose_row_chunk_rows", lambda *a, **kw: 1000)
-    monkeypatch.setattr(bpmg, "_choose_pair_subchunk_rows", lambda *a, **kw: 1)
+    monkeypatch.setattr(bpmk, "_choose_row_chunk_rows", lambda *a, **kw: 1000)
+    monkeypatch.setattr(bpmk, "_choose_pair_subchunk_rows", lambda *a, **kw: 1)
 
     with pytest.raises(RuntimeError, match="too fragmented to be worthwhile"):
         bpmg.batch_pair_mi_cuda_row_chunked(data, pair_a, pair_b, nbins, classes_y, freqs_y)
@@ -99,8 +100,8 @@ def test_near_zero_free_vram_dispatch_falls_back_to_cpu_end_to_end(monkeypatch):
     )
     mi_ref = bpmg.batch_pair_mi_njit_prange(data, pair_a, pair_b, nbins, classes_y, freqs_y)
 
-    monkeypatch.setattr(bpmg, "_choose_row_chunk_rows", lambda *a, **kw: 1000)
-    monkeypatch.setattr(bpmg, "_choose_pair_subchunk_rows", lambda *a, **kw: 1)
+    monkeypatch.setattr(bpmk, "_choose_row_chunk_rows", lambda *a, **kw: 1000)
+    monkeypatch.setattr(bpmk, "_choose_pair_subchunk_rows", lambda *a, **kw: 1)
     monkeypatch.setattr(bpmg, "_gpu_upload_fits", lambda *a, **kw: False)
 
     mi, backend = bpmg.dispatch_batch_pair_mi(data, pair_a, pair_b, nbins, classes_y, freqs_y, force_backend="cuda")

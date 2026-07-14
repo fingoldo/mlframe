@@ -127,7 +127,21 @@ from .transforms import (
     _monotonic_residual_forward, _monotonic_residual_inverse, _monotonic_residual_fit, _monotonic_residual_domain,
     _ewma_residual_forward, _ewma_residual_inverse, _ewma_residual_fit, _ewma_residual_domain,
     _rolling_quantile_ratio_forward, _rolling_quantile_ratio_inverse, _rolling_quantile_ratio_fit, _rolling_quantile_ratio_domain,
+    _rolling_quantile_ratio_centered_fit, _rolling_median_trailing,
     _frac_diff_forward, _frac_diff_inverse, _frac_diff_fit, _frac_diff_domain,
+    # Grouped / robust / unary / copula extension batch.
+    _ewma_residual_grouped_forward, _ewma_residual_grouped_inverse, _ewma_residual_grouped_fit, _ewma_residual_grouped_domain,
+    _rolling_quantile_ratio_grouped_forward, _rolling_quantile_ratio_grouped_inverse, _rolling_quantile_ratio_grouped_fit, _rolling_quantile_ratio_grouped_domain,
+    _frac_diff_grouped_forward, _frac_diff_grouped_inverse, _frac_diff_grouped_fit, _frac_diff_grouped_domain,
+    _quantile_residual_grouped_forward, _quantile_residual_grouped_inverse, _quantile_residual_grouped_fit, _quantile_residual_grouped_domain,
+    _monotonic_residual_grouped_forward, _monotonic_residual_grouped_inverse, _monotonic_residual_grouped_fit, _monotonic_residual_grouped_domain,
+    _seasonal_residual_forward, _seasonal_residual_inverse, _seasonal_residual_fit, _seasonal_residual_domain,
+    _volatility_normalized_residual_forward, _volatility_normalized_residual_inverse, _volatility_normalized_residual_fit, _volatility_normalized_residual_domain,
+    _asinh_residual_multi_forward, _asinh_residual_multi_inverse, _asinh_residual_multi_fit, _asinh_residual_multi_domain,
+    _linear_residual_multi_robust_fit,
+    _nadaraya_watson_residual_forward, _nadaraya_watson_residual_inverse, _nadaraya_watson_residual_fit, _nadaraya_watson_residual_domain,
+    _gaussian_copula_residual_forward, _gaussian_copula_residual_inverse, _gaussian_copula_residual_fit, _gaussian_copula_residual_domain,
+    _group_segments,
 )
 
 # ----------------------------------------------------------------------
@@ -245,6 +259,11 @@ from ..configs import CompositeTargetDiscoveryConfig
 # Classification composite (base-margin residual modelling) + split-conformal
 # prediction interval helper -- the two FUTURE extensions.
 from .classification import CompositeClassificationEstimator
+from .classification_discovery import (
+    CompositeClassificationDiscovery,
+    ClassificationDiscoveryResult,
+    discover_and_wrap_classification,
+)
 from .conformal import conformal_quantile
 
 # Purged/embargoed time-series CV + base-target-leakage detection.
@@ -384,6 +403,8 @@ from .calendar_anomaly import detect_calendar_anomalies, apply_calendar_anomaly_
 __all__ = [
     # estimators / discovery / ensemble
     "CompositeTargetEstimator", "CompositeClassificationEstimator",
+    "CompositeClassificationDiscovery", "ClassificationDiscoveryResult",
+    "discover_and_wrap_classification",
     "CompositeGLMEstimator", "CompositeQuantileEstimator",
     "CompositeMultiOutputEstimator", "make_per_column_specs",
     "make_composite_regressor", "CompositeTargetTransformer",

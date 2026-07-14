@@ -142,6 +142,46 @@ def test_biz_cascade_select_shrinks_noisy_frame():
     assert hasattr(sel, "cascade_result_")
 
 
+# --------------------------------------------------------------------------- regression: raw categorical column crashes the default tree estimator
+
+
+def _make_classification_frame_with_categorical(n=200, seed=0):
+    """Same signal/noise shape as ``_make_classification_frame`` plus one raw string categorical column, mirroring a
+    CatBoost-native ``skip_categorical_encoding=True`` frame (categorical kept as object dtype, not pre-encoded)."""
+    rng = np.random.default_rng(seed)
+    df, y = _make_classification_frame(n=n, seed=seed)
+    df["cat_0"] = rng.choice(["A", "B", "C"], size=n)
+    return df, y
+
+
+@pytest.mark.parametrize(
+    "flag,kwargs_field,kwargs",
+    [
+        ("use_forward_select_fs", "forward_select_kwargs", {"cv": 3, "min_improvement": 0.001}),
+        ("use_greedy_backward_elimination_fs", "greedy_backward_elimination_kwargs", {"cv": None}),
+        ("use_zero_importance_pruning_fs", "zero_importance_pruning_kwargs", {}),
+        ("use_cascade_select_fs", "cascade_select_kwargs", {"n_boruta_iterations": 10, "cv": 3}),
+    ],
+)
+def test_selector_handles_raw_categorical_column_instead_of_crashing(flag, kwargs_field, kwargs):
+    """The default ``_default_tree_estimator`` is a plain sklearn RandomForest, which raises "could not convert
+    string to float" on ANY raw string column -- caught live via a fuzz combo where ``use_forward_select_fs``
+    (default-ON in FeatureSelectionConfig) silently dropped a whole CatBoost model+weight combo from the suite
+    because its categorical columns are kept as native strings (``skip_categorical_encoding=True``). Each selector
+    must ordinal-encode non-numeric columns internally instead of crashing."""
+    names_key = {
+        "use_forward_select_fs": "ForwardSelect ",
+        "use_greedy_backward_elimination_fs": "GreedyBackwardElimination ",
+        "use_zero_importance_pruning_fs": "ZeroImportancePruning ",
+        "use_cascade_select_fs": "CascadeSelect ",
+    }[flag]
+    df, y = _make_classification_frame_with_categorical()
+    pps, names = _build(**{flag: True, kwargs_field: kwargs})
+    sel = pps[names.index(names_key)]
+    kept = list(sel.fit(df, y).transform(df).columns)
+    assert set(kept) <= set(df.columns)
+
+
 # --------------------------------------------------------------------------- regression: polars frame support (2026-07-12)
 # Surfaced by the 2026-07-12 default-on flip: the suite's pre-pipeline slot is polars-native, but these
 # selectors/adapters were only ever exercised with pandas while opt-in. Two distinct bugs found:

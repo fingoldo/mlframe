@@ -1,4 +1,4 @@
-"""Composite-target transform registry: 11 transforms (diff, ratio, logratio, linear_residual + multi/grouped/quantile/monotonic/ewma/rolling_quantile/frac_diff extended set) + Transform dataclass + UnknownTransformError / DomainViolationError. Split out of composite.py to keep transform-implementation surface separate from the wrapper + discovery surface; composite.py re-exports every symbol below at its bottom for full back-compat."""
+"""Composite-target transform registry (the full registered set lives in ``registry._TRANSFORMS_REGISTRY``: core diff/ratio/logratio/linear_residual plus the extended multi/grouped/robust/quantile/monotonic/recurrent/unary/chain families) + Transform dataclass + UnknownTransformError / DomainViolationError. Split out of composite.py to keep transform-implementation surface separate from the wrapper + discovery surface; composite.py re-exports every symbol below at its bottom for full back-compat."""
 
 from __future__ import annotations
 
@@ -158,7 +158,7 @@ class Transform:
     # Unary transforms (``cbrt_y``, ``log_y``, ``yeo_johnson_y``,
     # ``quantile_normal_y``) declare ``requires_base=False`` so callers
     # may instantiate ``CompositeTargetEstimator`` without configuring
-    # a base column. Default True keeps the 11 legacy bivariate
+    # a base column. Default True keeps the legacy bivariate
     # transforms unchanged.
     requires_base: bool = True
     # Time-recurrent forward support. When True, ``forward`` reads each row's
@@ -173,8 +173,9 @@ class Transform:
     # exactly mirroring the predict path (which never compacts). Default False:
     # the 30+ pointwise transforms see their forward applied to the already-
     # filtered rows, which is bit-identical to the full-then-mask order for
-    # them. Set True only for ``ewma_residual`` / ``rolling_quantile_ratio`` /
-    # ``frac_diff``.
+    # them. Set True only for the recurrent family: ``ewma_residual`` /
+    # ``rolling_quantile_ratio`` (+ centered) / ``frac_diff`` /
+    # ``volatility_normalized_residual`` and their ``*_grouped`` variants.
     recurrent: bool = False
 
 
@@ -273,6 +274,10 @@ from .unary import (
     yeo_johnson_y_forward as _yj_y_forward_raw,
     yeo_johnson_y_inverse as _yj_y_inverse_raw,
     yeo_johnson_y_domain as _yj_y_domain_raw,
+    box_cox_y_fit as _bc_y_fit_raw,
+    box_cox_y_forward as _bc_y_forward_raw,
+    box_cox_y_inverse as _bc_y_inverse_raw,
+    box_cox_y_domain as _bc_y_domain_raw,
     quantile_normal_y_fit as _qn_y_fit_raw,
     quantile_normal_y_forward as _qn_y_forward_raw,
     quantile_normal_y_inverse as _qn_y_inverse_raw,
@@ -332,6 +337,41 @@ from .nonlinear import (
     _quantile_residual_domain, _quantile_residual_fit, _quantile_residual_forward,
     _quantile_residual_inverse, _rolling_median, _row_alpha_beta,
 )
+from ._seasonal import (
+    _seasonal_residual_domain, _seasonal_residual_fit,
+    _seasonal_residual_forward, _seasonal_residual_inverse,
+)
+from ._volatility import (
+    _volatility_normalized_residual_domain, _volatility_normalized_residual_fit,
+    _volatility_normalized_residual_forward, _volatility_normalized_residual_inverse,
+)
+from ._multi_extra import (
+    _asinh_residual_multi_domain, _asinh_residual_multi_fit,
+    _asinh_residual_multi_forward, _asinh_residual_multi_inverse,
+    _linear_residual_multi_robust_fit,
+)
+from ._nadaraya_watson import (
+    _nadaraya_watson_residual_domain, _nadaraya_watson_residual_fit,
+    _nadaraya_watson_residual_forward, _nadaraya_watson_residual_inverse,
+    _nw_g,
+)
+from ._gaussian_copula import (
+    _gaussian_copula_residual_domain, _gaussian_copula_residual_fit,
+    _gaussian_copula_residual_forward, _gaussian_copula_residual_inverse,
+)
+from ._grouped_extra import (
+    _ewma_residual_grouped_domain, _ewma_residual_grouped_fit,
+    _ewma_residual_grouped_forward, _ewma_residual_grouped_inverse,
+    _frac_diff_grouped_domain, _frac_diff_grouped_fit,
+    _frac_diff_grouped_forward, _frac_diff_grouped_inverse,
+    _monotonic_residual_grouped_domain, _monotonic_residual_grouped_fit,
+    _monotonic_residual_grouped_forward, _monotonic_residual_grouped_inverse,
+    _quantile_residual_grouped_domain, _quantile_residual_grouped_fit,
+    _quantile_residual_grouped_forward, _quantile_residual_grouped_inverse,
+    _rolling_quantile_ratio_grouped_domain, _rolling_quantile_ratio_grouped_fit,
+    _rolling_quantile_ratio_grouped_forward, _rolling_quantile_ratio_grouped_inverse,
+    _group_segments,
+)
 
 # ----------------------------------------------------------------------
 # Registry + naming: imported AFTER all functional siblings load so the
@@ -347,6 +387,7 @@ from .registry import (
     _yj_fit_a, _yj_forward_a, _yj_inverse_a, _yj_domain_a, _yj_domain_fitted_a,
     _qn_fit_a, _qn_forward_a, _qn_inverse_a, _qn_domain_a, _qn_domain_fitted_a,
     _sp_fit_a, _sp_forward_a, _sp_inverse_a, _sp_domain_a, _sp_domain_fitted_a,
+    _bc_fit_a, _bc_forward_a, _bc_inverse_a, _bc_domain_a, _bc_domain_fitted_a,
     _centered_ratio_domain_fitted,
 )
 from .naming import (

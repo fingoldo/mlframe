@@ -371,11 +371,13 @@ def _f_ewma_residual(t: str, b: str, p: dict) -> tuple[str, str]:
 
 
 def _f_rolling_quantile_ratio(t: str, b: str, p: dict) -> tuple[str, str]:
-    """Formula strings for 'rolling_quantile_ratio': ratio of target to a rolling median of the base feature (local multiplicative level, look-ahead centred window)."""
+    """Formula strings for 'rolling_quantile_ratio': ratio of target to a rolling median of the base feature (local multiplicative level); mode-aware -- trailing (past-only) is the default, the centred window (params without a mode key predate the field) is flagged LOOK-AHEAD."""
     k = int(p.get("k", 0))
     eps = float(p.get("eps", 0.0))
+    mode = str(p.get("mode", "centered"))
+    window = f"trailing k={k} (past-only)" if mode == "trailing" else f"centred k={k}; LOOK-AHEAD"
     return (
-        f"T = {t} / RollingMedian_k({b})  (centred k={k}, eps floor {eps:.3g}; LOOK-AHEAD)",
+        f"T = {t} / RollingMedian_k({b})  ({window}, eps floor {eps:.3g})",
         f"y_hat = T_hat * RollingMedian_k({b})",
     )
 

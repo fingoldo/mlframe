@@ -75,6 +75,16 @@ except Exception:
 # Fallback: if pyutilz is unavailable OR the probe fails, we use the cc 6.x
 # safe defaults (128, 16) -> 17 KB.
 
+# bench-attempt-rejected (2026-07-14): raising this 16 -> 20 to admit the wellbore-100k production
+# target (n_classes_y=20, whose rejection sent the whole batched pair-MI into the row-chunked path,
+# 118 launches / 227.7s) DOES fit shared memory (256*(20+1)*8 = 43,008 B <= 48 KB, joint stays 256)
+# -- but it cannot restore the full-resident kernel for that workload anyway: the same production
+# shape has max_joint = 441 (nbins=21 -> 21*21), which exceeds MAX_JOINT_BINS_CUDA=256, so the full
+# kernel is rejected on the JOINT cap regardless of the y cap. Meanwhile the y cap leaks into the
+# row-chunked path's own shared-vs-global kernel-variant selection, changing its chunk geometry and
+# breaking its fragmentation-bail contract at y=20 fixtures. The real fix for the 227s row-chunked
+# cost is a global-memory-histogram kernel variant for large joint*y shapes (no smem caps at all),
+# not a cap bump -- tracked as the follow-up.
 MAX_Y_BINS_CUDA = 16  # supports up to 16-class multiclass targets
 
 

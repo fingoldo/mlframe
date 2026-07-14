@@ -289,6 +289,16 @@ def beam_search(phi, base, y, *, classification, metric=None, beam_width=8, min_
     lowest-loss children survive into the next layer. Stops early if a layer produces no children.
     Returns the evaluator's ``top_n`` best-loss subsets seen across the whole search (not just the
     final beam), so weaker intermediate-size subsets can still surface in the result.
+
+    bench-attempt-rejected (2026-07-14): a "seed-rescue" widening of the initial single-feature
+    seed pool past ``beam_width`` (protecting weak-signal seeds for extra layers past their raw-loss
+    rank) was prototyped to fix a suspected wide-frame recall gap. Root-caused as a FALSE POSITIVE:
+    the stress fixture that motivated it capped ``max_card`` at exactly the strong-feature count, so
+    an all-strong subset was genuinely loss-optimal (confirmed: 8-strong subset loss 0.0086 beats
+    every 7-strong+1-weak substitution at 0.0150) -- beam was pruning correctly, not seed-blind. A
+    follow-up A/B with headroom (``max_card`` wide enough for both groups) recovered 100% of both
+    strong and weak informatives with or without the rescue. See
+    ``_benchmarks/PLAN_wide_dataframe_improvements.md`` for the full investigation notes.
     """
     phi, base, y, metric = _prep(phi, base, y, classification, metric)
     f = phi.shape[1]

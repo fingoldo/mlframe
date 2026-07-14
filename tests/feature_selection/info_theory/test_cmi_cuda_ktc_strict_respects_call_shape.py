@@ -60,5 +60,18 @@ def test_auto_mode_column_aware_gate_still_respects_call_shape(monkeypatch):
     assert result is not True
 
 
+def test_strict_min_p_override_admits_perm_null_shapes(monkeypatch):
+    """Regression (wellbore-100k GPU-strict profile): a permutation-null workload's p is n_permutations
+    (12-24 by design, every permutation re-reading the SAME resident candidate), so the candidate-batch
+    p >= 64 crossover does not apply -- holding it to 64 forced all 2232 _conditional_perm_null calls
+    (~261s) onto the CPU. min_p overrides ONLY the p-floor leg; the n*p total-work leg still binds."""
+    monkeypatch.setenv("MLFRAME_FE_GPU_STRICT", "1")
+    # nperm=12 at n=250k: n*p = 3M >= 1M but p < 64 -> declined WITHOUT min_p, admitted WITH min_p=2.
+    assert _strict_mod.fe_gpu_strict_enabled(n=250_000, p=12) is False
+    assert _strict_mod.fe_gpu_strict_enabled(n=250_000, p=12, min_p=2) is True
+    # The total-work leg still binds under min_p: tiny n*p stays declined.
+    assert _strict_mod.fe_gpu_strict_enabled(n=1_000, p=12, min_p=2) is False
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--tb=short", "-x", "--no-cov"])

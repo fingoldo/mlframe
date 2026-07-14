@@ -18,15 +18,17 @@ from sklearn.base import clone
 from sklearn.model_selection import KFold
 
 
-def _cv_score(estimator, X: pd.DataFrame, y: np.ndarray, cv, scoring: Callable[[np.ndarray, np.ndarray], float]) -> float:
-    # Coerce to a plain ndarray so bare ``y[idx]`` is unambiguously positional: a pd.Series ``y`` with a
-    # non-default (gapped) index -- e.g. after an upstream row filter that didn't reset_index() -- makes
-    # bare bracket indexing resolve train_idx/test_idx (KFold's 0-based POSITIONS) as LABELS instead,
-    # raising a spurious KeyError once the index has any gaps relative to a dense 0..n-1 range.
-    y_arr = np.asarray(y)
+def _cv_score(estimator, X: pd.DataFrame, y_arr: np.ndarray, folds, scoring: Callable[[np.ndarray, np.ndarray], float]) -> float:
+    """``folds`` is a precomputed ``[(train_idx, test_idx), ...]`` list, not a CV splitter to call ``.split()`` on.
+
+    ``greedy_backward_elimination``'s O(d^2) removal search calls this once per remaining column per round, always
+    with the SAME row count (only columns change) -- ``cv.split(X)`` reshuffles and re-derives the identical fold
+    index arrays every single call, pure wasted work since the row count (and therefore the split) never changes
+    across candidates. The caller now computes ``folds`` ONCE and passes it in; see ``greedy_backward_elimination``.
+    """
     row_select = (lambda idx: X.iloc[idx]) if hasattr(X, "iloc") else (lambda idx: X[idx])
     scores = []
-    for train_idx, test_idx in cv.split(X):
+    for train_idx, test_idx in folds:
         model = clone(estimator)
         model.fit(row_select(train_idx), y_arr[train_idx])
         preds = model.predict(row_select(test_idx))
@@ -37,22 +39,18 @@ def _cv_score(estimator, X: pd.DataFrame, y: np.ndarray, cv, scoring: Callable[[
 def _cv_score_repeated(
     estimator: Any,
     X: pd.DataFrame,
-    y: np.ndarray,
+    y_arr: np.ndarray,
     scoring: Callable[[np.ndarray, np.ndarray], float],
-    n_splits: int,
-    n_repeats: int,
-    seed_base: int,
+    repeat_folds: list,
 ) -> float:
-    """Average ``_cv_score`` across ``n_repeats`` independently-shuffled ``KFold`` splits.
+    """Average ``_cv_score`` across the precomputed per-repeat fold sets in ``repeat_folds``.
 
-    Each repeat gets its own ``random_state`` (``seed_base + repeat_idx``) so the removal decision reflects
-    the score across several splits rather than a single noisy one.
+    Each repeat set was built from its own ``random_state`` (``seed_base + repeat_idx``) so the removal decision
+    reflects the score across several splits rather than a single noisy one; computed once by the caller (see
+    ``greedy_backward_elimination``) since the row count -- and therefore every repeat's split -- never changes
+    across the O(d^2) column-drop candidates.
     """
-    repeat_scores = []
-    for repeat_idx in range(n_repeats):
-        cv = KFold(n_splits=n_splits, shuffle=True, random_state=seed_base + repeat_idx)
-        repeat_scores.append(_cv_score(estimator, X, y, cv, scoring))
-    return float(np.mean(repeat_scores))
+    return float(np.mean([_cv_score(estimator, X, y_arr, folds, scoring) for folds in repeat_folds]))
 
 
 def greedy_backward_elimination(
@@ -102,18 +100,29 @@ def greedy_backward_elimination(
     list of str
         Surviving column names, in original order.
     """
+    # Coerce to a plain ndarray ONCE so bare ``y_arr[idx]`` is unambiguously positional: a pd.Series ``y`` with a
+    # non-default (gapped) index -- e.g. after an upstream row filter that didn't reset_index() -- makes bare
+    # bracket indexing resolve train_idx/test_idx (KFold's 0-based POSITIONS) as LABELS instead, raising a
+    # spurious KeyError once the index has any gaps relative to a dense 0..n-1 range.
+    y_arr = np.asarray(y)
+    n = len(X)
+
     if n_repeats > 1:
         n_splits = cv.get_n_splits() if cv is not None and hasattr(cv, "get_n_splits") else 5
+        # Precompute every repeat's fold index arrays ONCE: the row count (hence every split) is invariant across
+        # the O(d^2) column-drop candidates below, so re-deriving them per candidate is pure wasted shuffling.
+        repeat_folds = [list(KFold(n_splits=n_splits, shuffle=True, random_state=seed_base + repeat_idx).split(np.empty(n))) for repeat_idx in range(n_repeats)]
 
         def score_fn(frame: pd.DataFrame) -> float:
-            return _cv_score_repeated(estimator, frame, y, scoring, n_splits=n_splits, n_repeats=n_repeats, seed_base=seed_base)
+            return _cv_score_repeated(estimator, frame, y_arr, scoring, repeat_folds)
 
     else:
         if cv is None:
             cv = KFold(n_splits=5, shuffle=True, random_state=0)
+        folds = list(cv.split(np.empty(n)))
 
         def score_fn(frame: pd.DataFrame) -> float:
-            return _cv_score(estimator, frame, y, cv, scoring)
+            return _cv_score(estimator, frame, y_arr, folds, scoring)
 
     remaining = list(X.columns)
     current_score = score_fn(X[remaining])
