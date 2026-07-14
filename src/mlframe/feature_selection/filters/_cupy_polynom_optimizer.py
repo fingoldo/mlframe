@@ -83,17 +83,18 @@ def _bf_apply_gpu(cp, bf_name: str, A, Bm):
 
 
 def _rank_bin_batched_gpu(cp, M, n_bins: int):
-    """Column-wise rank-based equi-frequency codes for (n, P) M -- one batched argsort; the SAME
-    block-size rule (first n%n_bins bins get one extra element) as ``_quantile_bin_njit``."""
-    n = int(M.shape[0])
-    order = cp.argsort(M, axis=0)  # (n, P) column-wise sort positions
-    base, rem = divmod(n, n_bins)
-    sizes = np.full(n_bins, base, dtype=np.int64)
-    sizes[:rem] += 1
-    bin_of_pos = cp.asarray(np.repeat(np.arange(n_bins, dtype=np.int64), sizes))  # (n,)
-    codes = cp.empty(M.shape, dtype=cp.int64)
-    cp.put_along_axis(codes, order, cp.broadcast_to(bin_of_pos[:, None], M.shape), axis=0)
-    return codes
+    """Column-wise equi-frequency codes for (n, P) M via the sort-free radix-edge binner.
+
+    nsys on the production-shaped search (n=99401, P=100): the original argsort-based rank binning was
+    ~80%% of ALL kernel GPU time (52.4%% cub sort at 5040 x 4.2ms + 16.1%% put_along_axis scatter + 8.1%%
+    more sort segments), while the MI itself was 4.5%%. ``batched_quantile_bin_gpu`` computes the SAME
+    equi-frequency partition from radix-selected value edges + a vectorized coder (~nbins+3 fused
+    elementwise launches, no sort at all). Value-edge vs rank coding differs only on TIED feature values
+    (ties get one bin instead of an arbitrary rank split) -- measure-zero on continuous GEMM outputs and
+    arguably more correct on genuine ties; the e2e winner-recovery regressions pin the quality bar."""
+    from ._fe_batched_mi import batched_quantile_bin_gpu
+
+    return batched_quantile_bin_gpu(M, n_bins)
 
 
 def _score_generation_gpu(cp, Ba, Bb, Ca, Cb, y_codes_dev, ky: int, n_bins: int,
