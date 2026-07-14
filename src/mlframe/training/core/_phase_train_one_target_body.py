@@ -65,6 +65,10 @@ from ._phase_train_one_target_post import (
     _forward_selector_sticky_attrs,  # re-exported for back-compat (test_weight_aware_fs_suite imports it from this module)
     _run_per_model_post_train_tail,
 )
+from ._phase_train_one_target_cache_helpers import (
+    compute_cached_model_input_fingerprint,
+    compute_model_pipeline_cache_key,
+)
 
 logger = logging.getLogger("mlframe.training.core._phase_train_one_target")
 
@@ -397,49 +401,16 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
             # Pass the polars train frame (if present) so dtype changes between targets / runs
             # invalidate the cache; pandas frames don't reach this branch typed-distinct enough to
             # need the suffix (handled upstream in split_features), so it's safe to skip there.
-            _cache_key_train_df = train_df_polars if strategy.supports_polars else None
-            # Use a CONTENT-based cache key derived from the preprocessing-
-            # requirements tuple instead of strategy.cache_key (name-based).
-            # Two strategies that consume IDENTICAL ``imp+scaler`` pipelines
-            # MUST hit the same cache slot; name-keyed lookups
-            # (LinearStrategy.cache_key="linear" vs NeuralStrategy.cache_key=
-            # "neural") miss-on-name and re-do the 17s pre_pipeline transform
-            # for the second tier (e.g. MLP after Ridge) on the same 4M rows.
-            # The content key folds (requires_imputation, requires_scaling,
-            # requires_encoding) into a stable string so any two strategies
-            # with matching requirements share the cache slot. The encoding
-            # bit is the EFFECTIVE one (``requires_encoding AND there are cats
-            # to encode``): a strategy that target-encodes only differs in its
-            # produced frame when cat columns actually exist, so on an
-            # all-numeric frame Linear (requires_encoding True) and the MLP
-            # with learnable cat embeddings (requires_encoding False) still
-            # share the identical imp+scale slot. With cats present the bit
-            # diverges -> distinct slots -> the MLP never receives Linear's
-            # target-encoded frame.
-            _effective_enc = bool(getattr(strategy, "requires_encoding", False)) and bool(cat_features)
-            _content_key = (
-                f"imp{int(getattr(strategy, 'requires_imputation', False))}"
-                f"_scale{int(getattr(strategy, 'requires_scaling', False))}"
-                f"_enc{int(_effective_enc)}"
-            )
-            # feature_tier = (supports_text, supports_embedding) segments the trimmed frame per
-            # text/embedding-support level. When the data carries NO text/embedding columns there is
-            # nothing to trim, so every tier yields the IDENTICAL frame -- collapse the tier to a neutral
-            # value so two strategies with matching imp+scale+enc (e.g. linear (F,F) + MLP (T,T)) share
-            # the slot instead of each re-running the pre_pipeline. With text/embedding present the real
-            # tier segments them (a text/embedding-bearing frame must not be served to a tier that trims it).
-            _effective_tier = strategy.feature_tier() if (text_features or embedding_features) else (False, False)
-            cache_key = _compute_pipeline_cache_key(
-                _content_key,
-                pre_pipeline_name,
-                _effective_tier,
-                strategy.supports_polars,
-                cat_features,
-                text_features,
-                embedding_features,
-                train_df=_cache_key_train_df,
-                target_name=cur_target_name,
-                train_target=current_train_target,
+            cache_key = compute_model_pipeline_cache_key(
+                strategy=strategy,
+                pre_pipeline_name=pre_pipeline_name,
+                cat_features=cat_features,
+                text_features=text_features,
+                embedding_features=embedding_features,
+                train_df_polars=train_df_polars,
+                cur_target_name=cur_target_name,
+                current_train_target=current_train_target,
+                _compute_pipeline_cache_key=_compute_pipeline_cache_key,
             )
 
             # Polars fastpath substitutes original Polars DataFrames for natively-Polars consumers
@@ -480,50 +451,21 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
             # schema hash depends on column names/dtypes, NOT on y, so target N reuses target 1's
             # fingerprint without recomputation. Audit-checked vs compute_model_input_fingerprint:
             # signature takes train_df + cat/text/embedding_features only, no target.
-            _fp_train_df_pre = prepared_train if polars_fastpath_active else tier_pandas["train_df"]
-            # FP-KEY-OMITS-CONTENT: original key excluded the train_df identity, so when the same
-            # strategy / tier / kind / pp_name combination was hit by two different per-target
-            # frames (filtered_train_df rebuilt across targets), the cache would return target 1's
-            # schema hash for target 2. Fold ``id(train_df)`` (strong-ref-pinned at this point) and
-            # the schema column-count to disambiguate; full schema hash isn't needed here because a
-            # mismatch in id alone forces recompute.
-            _fp_train_df_id = id(_fp_train_df_pre) if _fp_train_df_pre is not None else 0
-            _fp_train_df_ncols = len(_fp_train_df_pre.columns) if _fp_train_df_pre is not None and hasattr(_fp_train_df_pre, "columns") else 0
-            _fp_cache_key = (
-                id(strategy),
-                strategy.feature_tier(),
-                strategy.supports_polars,
-                pre_pipeline_name,
-                _fp_train_df_id,
-                _fp_train_df_ncols,
+            # FP-KEY-OMITS-CONTENT: the key folds ``id(train_df)`` (strong-ref-pinned at this point) so
+            # two different per-target frames hitting the same strategy/tier/kind/pp_name combination
+            # never replay target 1's stale schema hash for target 2.
+            _schema_hash, _input_schema = compute_cached_model_input_fingerprint(
+                ctx=ctx,
+                polars_fastpath_active=polars_fastpath_active,
+                prepared_train=prepared_train,
+                tier_pandas=tier_pandas,
+                strategy=strategy,
+                pre_pipeline_name=pre_pipeline_name,
+                cat_features=cat_features,
+                text_features=text_features,
+                embedding_features=embedding_features,
+                compute_model_input_fingerprint=compute_model_input_fingerprint,
             )
-            # Fingerprint cache stats: HIT when the per-(strategy, tier, kind, pp_name) key is already
-            # cached, MISS when we have to compute. Same proxy-counter pattern as the pandas-view
-            # cache above (the underlying cache is a plain dict on ctx with no counters of its own).
-            _cs_fp = ctx._cache_stats.setdefault("fingerprint_cache", {"hits": 0, "misses": 0})
-            _fp_cached = ctx._model_input_fingerprint_cache.get(_fp_cache_key)
-            # Pin-invariant guard: the key folds id(train_df), which is only safe because the frame is
-            # strong-ref-pinned at this point. A GC-recycled id collision (freed frame, new same-ncols
-            # frame) would otherwise serve the wrong schema. On a hit, assert the cached schema's column
-            # names still match the live frame's columns (cheap O(ncols), no content hash); recompute on
-            # mismatch so a recycled id can never silently replay a stale fingerprint.
-            if _fp_cached is not None and _fp_train_df_pre is not None and hasattr(_fp_train_df_pre, "columns"):
-                _live_cols = list(_fp_train_df_pre.columns)
-                _cached_cols = [rec.get("name") for rec in _fp_cached[1]] if _fp_cached[1] else []
-                if sorted(str(c) for c in _cached_cols) != sorted(str(c) for c in _live_cols):
-                    _fp_cached = None
-            if _fp_cached is not None:
-                _cs_fp["hits"] += 1
-                _schema_hash, _input_schema = _fp_cached
-            else:
-                _cs_fp["misses"] += 1
-                _schema_hash, _input_schema = compute_model_input_fingerprint(
-                    _fp_train_df_pre,
-                    cat_features=cat_features,
-                    text_features=text_features,
-                    embedding_features=embedding_features,
-                )
-                ctx._model_input_fingerprint_cache[_fp_cache_key] = (_schema_hash, _input_schema)
 
             # Per-PP NGBoost-fallback invariant: when ``clone(original_model)`` raises ``TypeError`` (NGBoost: ``get_params`` exposes non-constructor
             # attrs), the fallback path re-pays ``original_model.get_params(deep=False)`` + ``{k:v for k in sig}`` once per weight iteration. The snapshot

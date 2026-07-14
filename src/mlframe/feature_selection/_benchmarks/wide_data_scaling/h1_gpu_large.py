@@ -6,13 +6,17 @@ if __name__ == "__main__":
     sys.path.insert(0, r"D:/Upd/Programming/PythonCodeRepository")
     PROG = r"D:/Temp/synergy_scale_bench/progress.txt"
     def ck(m):
-        open(PROG,"a").write(time.strftime("%H:%M:%S")+" | "+m+"\n"); print(m, flush=True)
+        """Append a timestamped progress line to PROG and echo it to stdout."""
+        with open(PROG, "a") as _f:
+            _f.write(time.strftime("%H:%M:%S") + " | " + m + "\n")
+        print(m, flush=True)
 
     from mlframe.feature_selection.filters.batch_pair_mi_gpu import batch_pair_mi_cuda, _CUDA_AVAIL
     import cupy as cp
 
     N, NBINS = 8000, 8
     def make(p, seed=0):
+        """Synthetic (N, p) discretized normal features + a 2-column-derived binary target."""
         rng = np.random.default_rng(seed)
         X = rng.standard_normal((N, p))
         codes = np.empty((N, p), dtype=np.int32)

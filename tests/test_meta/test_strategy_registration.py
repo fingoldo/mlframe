@@ -52,6 +52,9 @@ _TRAINER_EXTRA_ALIASES: dict[str, str] = {
     "xgboost": "long-form alias for 'xgb' (XGBoost strategy)",
     "histgradientboosting": "long-form alias for 'hgb' (sklearn HistGradientBoosting)",
     "lr": "common shorthand for 'linear' (logistic / ridge linear strategy); previously silently fell through to TreeStrategy + UserWarning",
+    "gated_outlier": "opt-in gated-outlier regression variant (LGBMRegressor-backed); built via _trainer_configure.py's _should_create_model gate, routed through the tree strategy",
+    "bagging": "opt-in feature-subset-bagging regression variant (LGBMRegressor-backed); built via _trainer_configure.py's _should_create_model gate, routed through the tree strategy",
+    "composite_classification": "opt-in composite-target classification variant (LGBMClassifier-backed); built via _trainer_configure.py's _should_create_model gate, routed through the tree strategy",
 }
 
 
@@ -92,8 +95,7 @@ def test_every_strategy_is_either_a_public_alias_or_a_documented_extra():
         pytest.fail(
             f"{len(orphan)} strategy key(s) in MODEL_STRATEGIES are not in "
             f"any public allow-list and not documented in "
-            f"_TRAINER_EXTRA_ALIASES (typo or undocumented alias?):\n  "
-            + "\n  ".join(orphan)
+            f"_TRAINER_EXTRA_ALIASES (typo or undocumented alias?):\n  " + "\n  ".join(orphan)
         )
 
 
@@ -107,7 +109,4 @@ def test_every_strategy_value_is_a_strategy_instance():
         if not isinstance(strategy, ModelPipelineStrategy):
             bad.append(f"{key!r}: {type(strategy).__name__}")
     if bad:
-        pytest.fail(
-            "MODEL_STRATEGIES values must be instances of "
-            "ModelPipelineStrategy:\n  " + "\n  ".join(bad)
-        )
+        pytest.fail("MODEL_STRATEGIES values must be instances of " "ModelPipelineStrategy:\n  " + "\n  ".join(bad))

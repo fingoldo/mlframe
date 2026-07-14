@@ -22,6 +22,7 @@ Note: ``src/mlframe/calibration/`` is intentionally NOT scanned here -- it is co
 by its own calibration swap + tests. This gate guards the directories converted by
 the "use our own fast metric kernels" policy pass.
 """
+
 from __future__ import annotations
 
 import ast
@@ -136,10 +137,31 @@ _ALLOWLIST: dict[tuple[str, str], str] = {
         "training/reporting/_reporting.py",
         "classification_report",
     ): "shared single-source sklearn fallback re-exported for the sibling probabilistic report's multilabel-indicator / exception path; format_classification_report is single-label-only, so multilabel keeps sklearn.",
+    (
+        "feature_selection/functional_adapters.py",
+        "accuracy_score",
+    ): "generic default scoring for greedy_backward_elimination/iterative_zero_importance_pruning, dispatched on the caller's own target (binary or multiclass); mlframe has no fast accuracy kernel.",
+    (
+        "feature_selection/functional_adapters.py",
+        "r2_score",
+    ): "generic default scoring for greedy_backward_elimination/iterative_zero_importance_pruning's regression branch; mlframe has no fast r2 kernel.",
+    (
+        "training/composite/feature_subset_bagging.py",
+        "r2_score",
+    ): "OOF weighting for correlation-cluster regression subsets (regression-only feature); mlframe has no fast r2 kernel.",
+    (
+        "training/core/_diagnostics_registry.py",
+        "r2_score",
+    ): "default diagnostics metric_fn shared across classification and regression targets (accuracy-style metrics reject the caller's continuous leaked-dummy prediction); mlframe has no fast r2 kernel.",
+    (
+        "training/core/_phase_finalize_calibration.py",
+        "balanced_accuracy_score",
+    ): "default threshold-optimizer metric_fn, overridable by the caller but must work for both binary and multiclass by default; balanced_accuracy_binary is binary-only.",
 }
 
 
 def _iter_prod_files() -> list[Path]:
+    """Every ``.py`` file under the scanned production directories, excluding benchmarks/caches."""
     files: list[Path] = []
     for d in _SCANNED_DIRS:
         base = _SRC / d
@@ -196,6 +218,7 @@ def _banned_hits(path: Path) -> list[tuple[int, str]]:
 
 
 def test_no_sklearn_metrics_in_production() -> None:
+    """No production file may call a banned sklearn metric outside _ALLOWLIST."""
     offenders: list[str] = []
     for path in _iter_prod_files():
         rel = path.relative_to(_SRC).as_posix()
@@ -209,8 +232,7 @@ def test_no_sklearn_metrics_in_production() -> None:
         "roc_auc_score / brier_score_loss / log_loss. Import the drop-in replacements "
         "from mlframe.metrics.core: fast_roc_auc, fast_brier_score_loss, fast_log_loss "
         "(binary-only). For genuinely multiclass calls that have no fast equivalent, add "
-        "the (path, name) pair to _ALLOWLIST with a concrete reason. Offenders:\n  "
-        + "\n  ".join(sorted(offenders))
+        "the (path, name) pair to _ALLOWLIST with a concrete reason. Offenders:\n  " + "\n  ".join(sorted(offenders))
     )
 
 
@@ -219,7 +241,7 @@ def test_allowlist_entries_are_still_live() -> None:
     that file, else the entry is dead and should be removed (keeps the allowlist honest --
     a resolved leftover must not linger and mask a future re-introduction elsewhere)."""
     dead: list[str] = []
-    for (rel, name), _reason in _ALLOWLIST.items():
+    for rel, name in _ALLOWLIST.keys():
         path = _SRC / rel
         if not path.exists():
             dead.append(f"{rel} (file missing)")
@@ -227,7 +249,4 @@ def test_allowlist_entries_are_still_live() -> None:
         names = {n for _ln, n in _banned_hits(path)}
         if name not in names:
             dead.append(f"{rel}:{name}")
-    assert not dead, (
-        "Stale _ALLOWLIST entries (site no longer uses the sklearn metric -- remove them):\n  "
-        + "\n  ".join(sorted(dead))
-    )
+    assert not dead, "Stale _ALLOWLIST entries (site no longer uses the sklearn metric -- remove them):\n  " + "\n  ".join(sorted(dead))

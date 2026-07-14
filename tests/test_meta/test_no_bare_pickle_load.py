@@ -39,7 +39,7 @@ WHITELIST_LINES: set[tuple[str, int]] = {
     # pkl.zst metadata loaders verify the on-disk sidecar via verify_sidecar(file, allow_unverified=True)
     # immediately above the loads() of the in-memory zstd-decompressed bytes.
     ("src/mlframe/training/core/predict.py", 675),
-    ("src/mlframe/training/core/_predict_main_suite.py", 149),
+    ("src/mlframe/training/core/_predict_main_suite.py", 159),
 }
 
 # TODO(next-PR): migrate to safe_pickle.safe_load + write_sidecar on writers; tracked by W7 scope-out.
@@ -89,6 +89,7 @@ def _find_pickle_load_calls(path: Path) -> list[tuple[int, str]]:
 
 
 def _iter_src_files() -> list[Path]:
+    """Every ``.py`` file under ``src/mlframe``, excluding ``__pycache__``."""
     files: list[Path] = []
     if not _SRC_ROOT.is_dir():
         return files

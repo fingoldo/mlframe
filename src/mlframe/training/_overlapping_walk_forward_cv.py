@@ -15,7 +15,7 @@ from typing import Iterator, Optional, Sequence, Tuple
 
 import numpy as np
 
-from mlframe.training.targets._target_distribution_analyzer_stats import _max_abs_lag_autocorr
+from mlframe.training.targets import _max_abs_lag_autocorr
 
 
 def _resolve_adaptive_gap(
@@ -103,9 +103,11 @@ class OverlappingWalkForwardCV:
         self.max_extra_gap = max_extra_gap
 
     def _max_gap_cap(self) -> Optional[int]:
+        """Upper bound on the adaptive gap, or None (uncapped) when ``max_extra_gap`` is unset."""
         return None if self.max_extra_gap is None else self.gap + self.max_extra_gap
 
     def split(self, X, y=None, groups=None) -> Iterator[Tuple[np.ndarray, np.ndarray]]:
+        """Yield (train_idx, test_idx) walk-forward windows, widening the gap adaptively if configured."""
         if not self.adaptive_gap:
             n_samples = len(X)
             train_start = 0
@@ -129,9 +131,7 @@ class OverlappingWalkForwardCV:
             train_end = train_start + self.window_length
             if train_end > n_samples:
                 break
-            effective_gap = _resolve_adaptive_gap(
-                y_arr[train_start:train_end], self.gap, self.autocorr_lags, self.autocorr_threshold, max_gap_cap
-            )
+            effective_gap = _resolve_adaptive_gap(y_arr[train_start:train_end], self.gap, self.autocorr_lags, self.autocorr_threshold, max_gap_cap)
             test_start = train_end + effective_gap
             test_end = test_start + self.test_length
             if test_end > n_samples:
@@ -140,6 +140,7 @@ class OverlappingWalkForwardCV:
             train_start += self.step
 
     def get_n_splits(self, X=None, y=None, groups=None) -> int:
+        """Number of splits this CV would yield for X (fixed-gap count; adaptive_gap uses the same window arithmetic)."""
         if X is None:
             raise ValueError("OverlappingWalkForwardCV.get_n_splits requires X to determine n_samples")
         if not self.adaptive_gap:

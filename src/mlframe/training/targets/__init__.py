@@ -40,7 +40,7 @@ from ._target_distribution_analyzer import (
 )
 from ._train_eval_select_target import select_target
 from ._ttr_eval_set_scaling import _TTRWithEvalSetScaling
-from ._target_distribution_analyzer_stats import _lag1_autocorr_grouped
+from ._target_distribution_analyzer_stats import _lag1_autocorr_grouped, _max_abs_lag_autocorr
 
 __all__ = [
     "audit_targets_over_time",

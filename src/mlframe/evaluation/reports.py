@@ -44,8 +44,6 @@ try:
 except (ImportError, ModuleNotFoundError):
     from sklearn.pipeline import Pipeline
 
-from IPython.display import display, Markdown
-
 # `finance` is a sibling private library (not on PyPI). The
 # show_classifier_calibration helper is only used by a single optional
 # reporting path; guard the import so consumers without finance installed
@@ -157,6 +155,11 @@ def evaluate_estimators(
 
     target_wrapper: lambda est: TransformedTargetRegressor(regressor=est,func=np.log1p,inverse_func=np.expm1)
     """
+    # Lazy: IPython transitively pulls in jedi's completion engine, one of the slowest imports in
+    # the ecosystem -- module-level import here made every ``import mlframe.evaluation.reports``
+    # (incl. kernel-tuning discovery's whole-package walk) pay that cost even outside a notebook.
+    from IPython.display import display, Markdown
+
     if competing_probs is None:
         competing_probs = []
     if estimators is None:

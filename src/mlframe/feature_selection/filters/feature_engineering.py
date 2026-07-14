@@ -19,25 +19,20 @@ from numpy.polynomial.hermite import hermval
 from scipy import special as sp
 
 from ._feature_engineering_mem_budget import (
-    _time,
-    _TIMES_SPENT_LOCK,
-    _FE_BUFFER_RAM_BUDGET_RATIO,
-    _FE_PEAK_OVERHEAD_FACTOR,
-    _FE_HOIST_HEADROOM_OVERHEAD,
-    _fe_hoist_headroom_overhead,
-    _FE_MIN_FREE_RAM_GB,
-    _fe_min_free_ram_bytes,
-    _FE_BUFFER_ABSOLUTE_MAX_GB,
-    _fe_buffer_absolute_max_bytes,
-    _fe_effective_buffer_budget_bytes,
-    UNIFIED_FE_SUBSAMPLE_N,
-    _estimate_fe_shared_buffer_bytes,
-    _FE_VMEM_TTL_S,
-    _FE_VMEM_CACHE,
-    _FE_VMEM_LOCK,
-    _available_ram_bytes_cached,
-    _can_hoist_shared_buffer,
-)  # noqa: F401 -- re-exported (RAM-budget/hoist logic split out; see _feature_engineering_mem_budget.py)
+    _time,  # noqa: F401 -- re-exported, see _feature_engineering_mem_budget.py
+    _TIMES_SPENT_LOCK,  # noqa: F401 -- re-exported, see _feature_engineering_mem_budget.py
+    _FE_BUFFER_RAM_BUDGET_RATIO,  # noqa: F401 -- re-exported, see _feature_engineering_mem_budget.py
+    _fe_hoist_headroom_overhead,  # noqa: F401 -- re-exported, see _feature_engineering_mem_budget.py
+    _fe_min_free_ram_bytes,  # noqa: F401 -- re-exported, see _feature_engineering_mem_budget.py
+    _fe_buffer_absolute_max_bytes,  # noqa: F401 -- re-exported, see _feature_engineering_mem_budget.py
+    _fe_effective_buffer_budget_bytes,  # noqa: F401 -- re-exported, see _feature_engineering_mem_budget.py
+    UNIFIED_FE_SUBSAMPLE_N,  # noqa: F401 -- re-exported, see _feature_engineering_mem_budget.py
+    _estimate_fe_shared_buffer_bytes,  # noqa: F401 -- re-exported, see _feature_engineering_mem_budget.py
+    _FE_VMEM_TTL_S,  # noqa: F401 -- re-exported, see _feature_engineering_mem_budget.py
+    _FE_VMEM_LOCK,  # noqa: F401 -- re-exported, see _feature_engineering_mem_budget.py
+    _available_ram_bytes_cached,  # noqa: F401 -- re-exported, see _feature_engineering_mem_budget.py
+    _can_hoist_shared_buffer,  # noqa: F401 -- re-exported, see _feature_engineering_mem_budget.py
+)
 
 
 def _rebuild_full_survivor_col(

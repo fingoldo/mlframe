@@ -530,3 +530,81 @@ def run_distribution_analyzer_and_estimator_injection(
         train_idx=ctx.train_idx, train_df=train_df, behavior_config=behavior_config,
     )
     return hyperparams_config, train_df, val_df, test_df, mlframe_models
+
+
+def run_optional_diagnostics_and_composite_discovery(
+    *, output_config: Any, target_by_type: Any, target_name: Any, filtered_train_idx: Any,
+    filtered_train_df: Any, filtered_val_df: Any, test_df: Any, cat_features: Any, group_ids: Any,
+    metadata: dict, data_dir: Any, _precomp_fp_ok: Any, precomputed: Any, verbose: Any,
+    maybe_apply_composite_target_specs_precomputed: Any, pr_module: Any,
+    composite_target_discovery_config: Any, mlframe_models: list, train_df_pd: Any, val_df_pd: Any,
+    test_df_pd: Any, train_idx: Any, val_idx: Any, test_idx: Any, baseline_diagnostics_config: Any,
+    split_config: Any, save_charts: Any,
+) -> tuple:
+    """Run opt-in per-target diagnostics, then composite-target discovery.
+
+    Both blocks are independent side-effect passes over ``metadata``/``target_by_type`` that only fire
+    under their own opt-in gates (``output_config.run_diagnostics``, ``composite_target_discovery_config``)
+    -- lifted together since they sit back-to-back in the original control flow. Returns
+    ``(target_by_type, metadata)``.
+    """
+    import numpy as np
+    from pathlib import Path
+
+    _run_diagnostics = output_config.run_diagnostics if output_config is not None else None
+    if _run_diagnostics:
+        from ._diagnostics_registry import DIAGNOSTICS_REGISTRY
+
+        _diag_y = None
+        try:
+            for _diag_targets_map in target_by_type.values():
+                if target_name in _diag_targets_map:
+                    _diag_y = np.asarray(_diag_targets_map[target_name])[filtered_train_idx]
+                    break
+        except Exception as e:
+            logger.debug("diagnostics: could not derive y for target %r: %s", target_name, e)
+
+        _diagnostics_kwargs = (output_config.diagnostics_kwargs if output_config is not None else None) or {}
+        _diag_results: dict = {}
+        for _diag_name in _run_diagnostics:
+            _diag_fn = DIAGNOSTICS_REGISTRY.get(_diag_name)
+            if _diag_fn is None:
+                _diag_results[_diag_name] = {"error": f"unknown diagnostic name: {_diag_name!r}"}
+                continue
+            try:
+                _diag_results[_diag_name] = _diag_fn(
+                    train_df=filtered_train_df,
+                    val_df=filtered_val_df,
+                    test_df=test_df,
+                    target_col=target_name,
+                    cat_features=cat_features,
+                    group_ids=group_ids,
+                    y=_diag_y,
+                    **_diagnostics_kwargs.get(_diag_name, {}),
+                )
+            except Exception as e:
+                logger.debug("diagnostics.%s failed: %s", _diag_name, e)
+                _diag_results[_diag_name] = {"error": str(e)}
+        metadata["diagnostics"] = _diag_results
+
+    _discovery_cache_dir = None
+    try:
+        if data_dir:
+            _discovery_cache_dir = str(Path(data_dir) / ".discovery_cache")
+    except (TypeError, OSError) as e:
+        logger.debug("discovery cache dir disabled (data_dir=%r): %s", data_dir, e)
+        _discovery_cache_dir = None
+    if not maybe_apply_composite_target_specs_precomputed(
+        _precomp_fp_ok=_precomp_fp_ok, precomputed=precomputed, metadata=metadata, verbose=verbose,
+    ):
+        target_by_type, metadata = pr_module.run_composite_target_discovery(
+            composite_target_discovery_config=composite_target_discovery_config,
+            target_by_type=target_by_type, mlframe_models=mlframe_models, metadata=metadata,
+            filtered_train_df=filtered_train_df, filtered_train_idx=filtered_train_idx,
+            train_df_pd=train_df_pd, val_df_pd=val_df_pd, test_df_pd=test_df_pd,
+            train_idx=train_idx, val_idx=val_idx, test_idx=test_idx,
+            baseline_diagnostics_config=baseline_diagnostics_config, cat_features=cat_features,
+            verbose=bool(verbose), discovery_cache_dir=_discovery_cache_dir, group_ids=group_ids,
+            split_config=split_config, data_dir=data_dir, save_charts=save_charts,
+        )
+    return target_by_type, metadata

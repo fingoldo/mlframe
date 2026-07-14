@@ -7,6 +7,7 @@ CV estimate. The fix (a widely-used adversarial-validation pattern): fit a train
 TRAIN rows the classifier finds most "test-like" (highest predicted is-test probability) as the validation
 fold -- a validation set that's actually representative of what the model will be scored on.
 """
+
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
@@ -45,9 +46,7 @@ def _oof_is_test_proba(
         # importance_type="gain" (not the LGBMClassifier default "split" count): a feature that gives one
         # massive, near-perfectly-separating split ranks low by split COUNT (it's used sparingly) but should
         # rank highest for peel-back purposes -- gain reflects how much it actually drove the classification.
-        importance_clf = lgb.LGBMClassifier(
-            n_estimators=100, max_depth=6, random_state=seed, verbosity=-1, importance_type="gain"
-        )
+        importance_clf = lgb.LGBMClassifier(n_estimators=100, max_depth=6, random_state=seed, verbosity=-1, importance_type="gain")
         importance_clf.fit(union, source_label)
         importances = importance_clf.feature_importances_
 
@@ -107,7 +106,7 @@ def build_test_like_validation_fold(
         True, a third element ``history`` (list of per-iteration dicts with keys ``iteration``, ``n_features``,
         ``auc``, ``dropped_features``) is appended.
     """
-    from sklearn.metrics import roc_auc_score
+    from ..metrics.core import fast_roc_auc
 
     if hasattr(X_train, "to_numpy"):
         cols = list(X_train.columns) if feature_names is None else list(feature_names)
@@ -135,7 +134,7 @@ def build_test_like_validation_fold(
         is_last_iteration = it == n_effective_iterations - 1
         can_drop = not is_last_iteration and top_k_drop_per_iteration > 0 and len(active_cols) > top_k_drop_per_iteration
         oof_is_test_proba, importances = _oof_is_test_proba(train_arr, test_arr, n_splits, seed, need_importance=can_drop)
-        auc = float(roc_auc_score(source_label, oof_is_test_proba))
+        auc = float(fast_roc_auc(source_label, oof_is_test_proba))
 
         dropped_names: List[str] = []
         if can_drop and importances is not None:

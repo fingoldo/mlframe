@@ -32,7 +32,6 @@ import polars as pl
 from pyutilz.strings import slugify
 from pyutilz.system import tqdmu_lazy_start
 
-from pathlib import Path  # PATHLIB-IMPORT-PER-CALL: hoist to module scope (was paid per suite call)
 from ..extractors import FeaturesAndTargetsExtractor
 from ..feature_handling.fingerprint import reset_session as reset_fh_session
 from ..helpers import TrainMlframeSuitePrecomputed
@@ -76,6 +75,7 @@ from ._main_train_suite_phases import (
     maybe_apply_dummy_baselines_precomputed,
     maybe_autoroute_autodetected_ltr,
     run_distribution_analyzer_and_estimator_injection,
+    run_optional_diagnostics_and_composite_discovery,
     run_recurrent_finalize_and_composite_post,
     validate_suite_inputs,
     warn_on_empty_target_by_type,
@@ -194,12 +194,6 @@ def train_mlframe_models_suite(
             LEARNING_TO_RANK routes to the ranker suite. See ``TargetTypes``.
         ranking_config: LTR-only dispatch knobs (objectives, eval cutoffs, rank fusion). See ``LearningToRankConfig``.
         preprocessing_extensions: Optional FE-extension transforms (PySR, polynomial, etc.). See ``PreprocessingExtensionsConfig``.
-        auxiliary_events_df: Separate events/entities table (distinct row identity from ``df``) consumed by the
-            ``preprocessing_extensions`` steps that need a reference table rather than columns already on
-            train/val/test: ``latent_interaction_svd_*`` (entity x item interaction log for SVD embeddings) and
-            ``nearest_past_join_*`` (historical rows to as-of match against). None (default) is a no-op for both.
-            Pass a fresh table at predict time (``read_trained_models``/predict entry points accept the same
-            kwarg) to pick up new entities/events without refitting.
         feature_types_config: Numeric/categorical/text type-detection overrides. See ``FeatureTypesConfig``.
         linear_model_config: Linear-model family hyperparameters. See ``LinearModelConfig``.
         multilabel_dispatch_config: Multilabel-only strategy (wrapper/chain/native). See ``MultilabelDispatchConfig``.
@@ -257,7 +251,6 @@ def train_mlframe_models_suite(
         )
         ```
     """
-
     # Map the 0/1/2 verbose contract to a logging level once at entry so
     # ``verbose=2`` actually surfaces DEBUG output (the per-site ``if verbose:``
     # gates only distinguish silent vs non-silent; the level does the 1-vs-2 work).
@@ -637,81 +630,21 @@ def train_mlframe_models_suite(
     ctx.train_od_idx = train_od_idx
     ctx.val_od_idx = val_od_idx
 
-    # Opt-in diagnostics (default None -> this whole block is a no-op, bit-identical to omitting
-    # ``output_config.run_diagnostics``). See ``_diagnostics_registry.py`` for the adapters and
-    # ``OutputConfig.run_diagnostics`` / ``.diagnostics_kwargs`` for the config surface.
-    _run_diagnostics = output_config.run_diagnostics if output_config is not None else None
-    if _run_diagnostics:
-        from ._diagnostics_registry import DIAGNOSTICS_REGISTRY
-
-        _diag_y = None
-        try:
-            for _diag_targets_map in target_by_type.values():
-                if target_name in _diag_targets_map:
-                    _diag_y = np.asarray(_diag_targets_map[target_name])[filtered_train_idx]
-                    break
-        except Exception as e:
-            logger.debug("diagnostics: could not derive y for target %r: %s", target_name, e)
-
-        _diagnostics_kwargs = (output_config.diagnostics_kwargs if output_config is not None else None) or {}
-        _diag_results: Dict[str, Any] = {}
-        for _diag_name in _run_diagnostics:
-            _diag_fn = DIAGNOSTICS_REGISTRY.get(_diag_name)
-            if _diag_fn is None:
-                _diag_results[_diag_name] = {"error": f"unknown diagnostic name: {_diag_name!r}"}
-                continue
-            try:
-                _diag_results[_diag_name] = _diag_fn(
-                    train_df=filtered_train_df,
-                    val_df=filtered_val_df,
-                    test_df=test_df,
-                    target_col=target_name,
-                    cat_features=cat_features,
-                    group_ids=group_ids,
-                    y=_diag_y,
-                    **_diagnostics_kwargs.get(_diag_name, {}),
-                )
-            except Exception as e:
-                logger.debug("diagnostics.%s failed: %s", _diag_name, e)
-                _diag_results[_diag_name] = {"error": str(e)}
-        metadata["diagnostics"] = _diag_results
-
-    # Discovery cache lives under ``data_dir/.discovery_cache`` when data_dir is set; a value of None disables caching (back-compat for callers without an output_config).
-    _discovery_cache_dir = None
-    try:
-        if data_dir:
-            _discovery_cache_dir = str(Path(data_dir) / ".discovery_cache")
-    except (TypeError, OSError) as e:
-        logger.debug("discovery cache dir disabled (data_dir=%r): %s", data_dir, e)
-        _discovery_cache_dir = None
-    if not maybe_apply_composite_target_specs_precomputed(
-        _precomp_fp_ok=_precomp_fp_ok,
-        precomputed=precomputed,
-        metadata=metadata,
-        verbose=verbose,
-    ):
-        target_by_type, metadata = pr.run_composite_target_discovery(
-            composite_target_discovery_config=composite_target_discovery_config,
-            target_by_type=target_by_type,
-            mlframe_models=mlframe_models,
-            metadata=metadata,
-            filtered_train_df=filtered_train_df,
-            filtered_train_idx=filtered_train_idx,
-            train_df_pd=train_df_pd,
-            val_df_pd=val_df_pd,
-            test_df_pd=test_df_pd,
-            train_idx=train_idx,
-            val_idx=val_idx,
-            test_idx=test_idx,
-            baseline_diagnostics_config=baseline_diagnostics_config,
-            cat_features=cat_features,
-            verbose=bool(verbose),
-            discovery_cache_dir=_discovery_cache_dir,
-            group_ids=group_ids,
-            split_config=split_config,
-            data_dir=data_dir,
-            save_charts=save_charts,
-        )
+    # Opt-in per-target diagnostics, then composite-target discovery -- see the helper's own
+    # docstring; both are no-ops absent their respective opt-in config.
+    target_by_type, metadata = run_optional_diagnostics_and_composite_discovery(
+        output_config=output_config, target_by_type=target_by_type, target_name=target_name,
+        filtered_train_idx=filtered_train_idx, filtered_train_df=filtered_train_df,
+        filtered_val_df=filtered_val_df, test_df=test_df, cat_features=cat_features,
+        group_ids=group_ids, metadata=metadata, data_dir=data_dir, _precomp_fp_ok=_precomp_fp_ok,
+        precomputed=precomputed, verbose=verbose,
+        maybe_apply_composite_target_specs_precomputed=maybe_apply_composite_target_specs_precomputed,
+        pr_module=pr, composite_target_discovery_config=composite_target_discovery_config,
+        mlframe_models=mlframe_models, train_df_pd=train_df_pd, val_df_pd=val_df_pd,
+        test_df_pd=test_df_pd, train_idx=train_idx, val_idx=val_idx, test_idx=test_idx,
+        baseline_diagnostics_config=baseline_diagnostics_config, split_config=split_config,
+        save_charts=save_charts,
+    )
 
     (
         train_df_polars, val_df_polars, test_df_polars,

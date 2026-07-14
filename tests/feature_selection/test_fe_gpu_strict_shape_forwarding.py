@@ -19,6 +19,7 @@ import mlframe.feature_selection.filters._fe_gpu_strict as _S
 
 @pytest.fixture(autouse=True)
 def _isolate(monkeypatch):
+    """Clear all FE-GPU-strict env vars and the auto-fit-n cache before and after each test."""
     monkeypatch.delenv("MLFRAME_FE_GPU_STRICT", raising=False)
     monkeypatch.delenv("MLFRAME_CMI_GPU", raising=False)
     monkeypatch.delenv("MLFRAME_FE_GPU_DISCRETIZE", raising=False)
@@ -30,6 +31,7 @@ def _isolate(monkeypatch):
 
 
 def _force_strict_with_cuda(monkeypatch):
+    """Force fe_gpu_strict_enabled's CUDA-usable + MLFRAME_FE_GPU_STRICT=1 path for this test."""
     monkeypatch.setattr(_S, "_cuda_usable", lambda: True)
     monkeypatch.setenv("MLFRAME_FE_GPU_STRICT", "1")
 
@@ -40,6 +42,7 @@ _BIG = dict(n=1_000_000, p=64)
 
 
 def test_cmi_gpu_enabled_forwards_shape(monkeypatch):
+    """_cmi_gpu_enabled gates on the caller's own (n, p) shape, not a bare shape-blind call."""
     _force_strict_with_cuda(monkeypatch)
     from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _cmi_gpu_enabled
 
@@ -50,6 +53,7 @@ def test_cmi_gpu_enabled_forwards_shape(monkeypatch):
 
 
 def test_orth_mi_gpu_enabled_forwards_shape(monkeypatch):
+    """_orth_mi_gpu_enabled gates on the caller's own (n, p) shape."""
     _force_strict_with_cuda(monkeypatch)
     from mlframe.feature_selection.filters._orthogonal_univariate_fe._orth_mi_backends import _orth_mi_gpu_enabled
 
@@ -59,6 +63,7 @@ def test_orth_mi_gpu_enabled_forwards_shape(monkeypatch):
 
 
 def test_binnedmi_gpu_enabled_forwards_shape(monkeypatch):
+    """_binnedmi_gpu_enabled gates on the caller's own (n, p) shape."""
     _force_strict_with_cuda(monkeypatch)
     from mlframe.feature_selection.filters._wavelet_basis_fe import _binnedmi_gpu_enabled
 
@@ -68,6 +73,7 @@ def test_binnedmi_gpu_enabled_forwards_shape(monkeypatch):
 
 
 def test_pair_gate_resident_enabled_forwards_shape(monkeypatch):
+    """_pair_gate_resident_enabled gates on the caller's own (n, p) shape."""
     _force_strict_with_cuda(monkeypatch)
     from mlframe.feature_selection.filters._mrmr_fe_step._step_pairs_rank import _pair_gate_resident_enabled
 
@@ -77,6 +83,7 @@ def test_pair_gate_resident_enabled_forwards_shape(monkeypatch):
 
 
 def test_permnull_use_resident_forwards_shape(monkeypatch):
+    """permnull_use_resident gates on the caller's own (n, ncand) shape."""
     _force_strict_with_cuda(monkeypatch)
     from mlframe.feature_selection.filters._permutation_null_resident_ktc import permnull_use_resident
 
@@ -85,6 +92,7 @@ def test_permnull_use_resident_forwards_shape(monkeypatch):
 
 
 def test_rescand_use_resident_forwards_shape(monkeypatch):
+    """rescand_use_resident gates on the caller's own (n, k) shape."""
     _force_strict_with_cuda(monkeypatch)
     from mlframe.feature_selection.filters._resident_candidate_mi_ktc import rescand_use_resident
 
@@ -93,6 +101,7 @@ def test_rescand_use_resident_forwards_shape(monkeypatch):
 
 
 def test_pool_table_use_resident_forwards_shape(monkeypatch):
+    """pool_table_use_resident gates on the caller's own (n_rows, npairs, n_combos) shape."""
     _force_strict_with_cuda(monkeypatch)
     from mlframe.feature_selection.filters._usability_pool_resident_ktc import pool_table_use_resident
 
@@ -101,6 +110,7 @@ def test_pool_table_use_resident_forwards_shape(monkeypatch):
 
 
 def test_shufflegen_use_gpu_forwards_shape(monkeypatch):
+    """shufflegen_use_gpu forwards n (no natural per-call column count) to the shape-aware gate."""
     _force_strict_with_cuda(monkeypatch)
     from mlframe.feature_selection.filters._permutation_null_shufflegen_ktc import shufflegen_use_gpu
 
@@ -112,6 +122,7 @@ def test_shufflegen_use_gpu_forwards_shape(monkeypatch):
 
 
 def test_fe_gpu_discretize_and_binning_enabled_forward_shape(monkeypatch):
+    """_fe_gpu_discretize_enabled / _fe_gpu_binning_enabled both gate on the caller's own (n_rows, n_cands) shape."""
     _force_strict_with_cuda(monkeypatch)
     import pyutilz.core.pythonlib as _pl
     monkeypatch.setattr(_pl, "is_cuda_available", lambda: True)
