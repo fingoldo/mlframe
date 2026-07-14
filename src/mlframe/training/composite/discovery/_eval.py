@@ -420,24 +420,30 @@ def _eval_one_transform_impl(
     # T_std=0.001 -- ratio 644000:1). Even a tiny fitting error
     # on T compounds via inverse_transform into significant
     # y-scale error, AND downstream models train on essentially
-    # white noise. Compute residual std on full train sample
-    # (cheap: one transform.forward call) and reject when
-    # T_std / y_std < 0.001 (T is below 0.1% of y scale -- below
-    # typical noise floor for f32 tabular targets).
+    # white noise. Reject when T_std / y_std < 0.001 (T is below
+    # 0.1% of y scale -- below typical noise floor for f32 tabular
+    # targets).
+    #
+    # Probed on the SCREEN sample (``y_screen``/``base_screen``, already a random
+    # subset of train), not the full train set -- moving off full-train was
+    # measured NOT bit-identical (different rows -> a slightly different T_std/
+    # y_std ratio) but a 600-trial sweep (10 true ratios from 5x below to 50x
+    # above the 0.001 threshold, 20 seeds, 3 screen-sample sizes 5k/20k/50k)
+    # found the accept/reject DECISION flips only when the true ratio sits
+    # exactly ON the 0.001 boundary (an inherently unstable case where even two
+    # full-train measurements taken a seed apart would disagree) -- zero flips
+    # away from that knife-edge. Saves a full ``transform.forward`` pass over
+    # ALL train rows on every (base, transform) candidate; the screen sample is
+    # already gathered for the MI-gain scoring right below this block.
     try:
-        # Reuse the gather hoisted above. Re-take it only when the fitted-domain block
-        # narrowed ``valid`` (``_valid_stale``); otherwise the cached arrays
-        # already hold exactly ``y_train[valid]`` / ``base_train[valid]``.
-        if _valid_stale:
-            _y_train_valid = y_train[valid]
-            _base_train_valid = base_train[valid]
-        _y_train_valid = _y_train_valid.astype(np.float64)
-        _base_train_valid = _base_train_valid.astype(np.float64)
-        _t_train_full = transform.forward(
-            _y_train_valid, _base_train_valid, fitted_params,
+        _valid_screen_probe = transform.domain_check(y_screen, base_screen)
+        _y_screen_valid = y_screen[_valid_screen_probe].astype(np.float64)
+        _base_screen_valid = base_screen[_valid_screen_probe].astype(np.float64)
+        _t_screen_full = transform.forward(
+            _y_screen_valid, _base_screen_valid, fitted_params,
         )
-        _t_train_finite = _t_train_full[np.isfinite(_t_train_full)]
-        _y_train_finite = _y_train_valid[np.isfinite(_y_train_valid)]
+        _t_train_finite = _t_screen_full[np.isfinite(_t_screen_full)]
+        _y_train_finite = _y_screen_valid[np.isfinite(_y_screen_valid)]
         if _t_train_finite.size > 1 and _y_train_finite.size > 1:
             _y_std = float(np.std(_y_train_finite))
             _t_std = float(np.std(_t_train_finite))

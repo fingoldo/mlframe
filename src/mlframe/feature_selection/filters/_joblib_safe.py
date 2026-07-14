@@ -232,7 +232,7 @@ def _fit_constant_key(arr) -> tuple:
     return (a.shape, str(a.dtype), h.hexdigest())
 
 
-def fit_constant_memmap(arr):
+def fit_constant_memmap(arr: "Any") -> "Any":
     """Return a READ-ONLY ``np.memmap`` view of ``arr``, dumped to disk at most once per process per
     content (see module note above). Falls back to the original array on any failure -- callers lose
     only the dump-dedup, never correctness. The view is read-only ('r') so a worker bug can never

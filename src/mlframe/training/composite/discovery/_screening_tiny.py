@@ -498,11 +498,30 @@ def _tiny_cv_rmse_raw_y(
     return mean_rmse, per_bin_mean
 
 
+def _seed_median_lower_bound(observed_finite: list[float], n_remaining: int) -> float:
+    """Rigorous LOWER BOUND on ``median(observed_finite + <n_remaining more finite seed scores>)``,
+    for ANY values those remaining scores turn out to take.
+
+    RMSE-like seed scores are non-negative. Inserting a hypothetical 0 for every not-yet-run seed
+    can only shift the sorted sample toward its low end, so ``median(observed_finite + [0]*n_remaining)``
+    is <= the median of ``observed_finite`` plus ANY n_remaining non-negative reals (median is
+    monotone non-decreasing in each element, and a failed/NaN future seed -- excluded from the
+    eventual median -- is equivalent to inserting a value at the current position, never lower than
+    inserting an explicit 0). Used to decide whether a candidate is GUARANTEED to still land at or
+    above the raw-baseline rejection threshold regardless of unrun seeds, i.e. safe to early-stop.
+    """
+    if not observed_finite and n_remaining <= 0:
+        return float("nan")
+    padded = list(observed_finite) + [0.0] * max(0, n_remaining)
+    return float(np.median(padded))
+
+
 def _tiny_cv_rmse_y_scale_multiseed(
     *args,
     n_seed_repeats: int = 1,
     base_random_state: int = 0,
     return_per_seed: bool = False,
+    seed_early_stop_threshold: float = float("inf"),
     **kwargs,
 ):
     """Multi-seed wrapper around :func:`_tiny_cv_rmse_y_scale`.
@@ -565,6 +584,10 @@ def _tiny_cv_rmse_y_scale_multiseed(
     seed_results = []
     seed_per_bins = []
     return_pb = kwargs.get("return_per_bin", False)
+    # Sequential early-stop is only proven safe for cv_selector_mode == "mean" -- see
+    # ``enable_multiseed_early_stop`` docstring in ``_composite_target_discovery_config_base``. Any
+    # other fold-aggregation mode leaves ``_early_stop_active`` False, a strict no-op (all seeds run).
+    _early_stop_active = math.isfinite(seed_early_stop_threshold) and kwargs.get("cv_selector_mode", "mean") == "mean"
     # One slot per scheduled seed; NaN where that seed failed.
     per_seed_full = np.full(_effective_repeats, float("nan"), dtype=np.float64)
     for s_idx in range(_effective_repeats):
@@ -580,6 +603,12 @@ def _tiny_cv_rmse_y_scale_multiseed(
             if math.isfinite(result):
                 per_seed_full[s_idx] = result
                 seed_results.append(result)
+        if _early_stop_active and s_idx < _effective_repeats - 1:
+            _lb = _seed_median_lower_bound(seed_results, _effective_repeats - 1 - s_idx)
+            if math.isfinite(_lb) and _lb >= seed_early_stop_threshold:
+                # True median can only be >= this lower bound (see ``_seed_median_lower_bound``);
+                # the candidate is already guaranteed to be rejected -- stop running seeds.
+                break
     seed_arr = per_seed_full
     if not seed_results:
         if return_pb:
@@ -607,11 +636,18 @@ def _tiny_cv_rmse_raw_y_multiseed(
     n_seed_repeats: int = 1,
     base_random_state: int = 0,
     return_per_seed: bool = False,
+    seed_early_stop_threshold: float = float("inf"),
     **kwargs,
 ):
     """Multi-seed wrapper around :func:`_tiny_cv_rmse_raw_y`. See
     :func:`_tiny_cv_rmse_y_scale_multiseed` for the rationale (including
-    the fixed-length NaN-padded per-seed contract)."""
+    the fixed-length NaN-padded per-seed contract).
+
+    ``seed_early_stop_threshold`` is accepted for call-signature parity with the composite sibling
+    but the raw-y baseline is never called with a finite threshold in practice: it IS the quantity the
+    rejection threshold is derived from, so early-stopping it against its own derived threshold would
+    be circular. Left wired through only so a future caller with an independent reference (e.g. a prior
+    iteration's raw baseline) can opt in without a signature change."""
     # Seed-invariant splitters (TimeSeriesSplit / GroupKFold) collapse to one
     # honest measurement -- see _tiny_cv_rmse_y_scale_multiseed.
     _seed_invariant = bool(kwargs.get("time_aware", False)) or (kwargs.get("groups", None) is not None)
@@ -630,6 +666,7 @@ def _tiny_cv_rmse_raw_y_multiseed(
     seed_results = []
     seed_per_bins = []
     return_pb = kwargs.get("return_per_bin", False)
+    _early_stop_active = math.isfinite(seed_early_stop_threshold) and kwargs.get("cv_selector_mode", "mean") == "mean"
     # One slot per scheduled seed; NaN where that seed failed.
     per_seed_full = np.full(_effective_repeats, float("nan"), dtype=np.float64)
     for s_idx in range(_effective_repeats):
@@ -645,6 +682,10 @@ def _tiny_cv_rmse_raw_y_multiseed(
             if math.isfinite(result):
                 per_seed_full[s_idx] = result
                 seed_results.append(result)
+        if _early_stop_active and s_idx < _effective_repeats - 1:
+            _lb = _seed_median_lower_bound(seed_results, _effective_repeats - 1 - s_idx)
+            if math.isfinite(_lb) and _lb >= seed_early_stop_threshold:
+                break
     seed_arr = per_seed_full
     if not seed_results:
         if return_pb:

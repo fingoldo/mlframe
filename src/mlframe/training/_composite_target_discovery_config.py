@@ -640,7 +640,10 @@ class CompositeTargetDiscoveryConfig(CompositeTargetDiscoveryConfigBase):
         enabling without a time signal is allowed but warned by discovery.
         """
         if getattr(self, "time_series_transforms_enabled", False):
-            _ts = ["ewma_residual", "rolling_quantile_ratio", "frac_diff"]
+            # volatility_normalized_residual is recurrent=True (EWMA state across the
+            # row sequence, like ewma_residual) -- must not sit in the plain default
+            # list; it only activates once chronological order is guaranteed here.
+            _ts = ["ewma_residual", "rolling_quantile_ratio", "frac_diff", "volatility_normalized_residual"]
             _present = set(self.transforms)
             for _t in _ts:
                 if _t not in _present:

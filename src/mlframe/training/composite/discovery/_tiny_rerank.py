@@ -223,6 +223,146 @@ def _tiny_model_rerank(
     _cv_sel_conf = float(getattr(self.config, "cv_selector_confidence", 0.9))
     _cv_sel_qlevel = float(getattr(self.config, "cv_selector_quantile_level", 0.9))
 
+    # Early raw-y baseline pass (moved ahead of the per-candidate loop below) so the raw-baseline
+    # rejection threshold is known BEFORE candidates are scored, enabling the sequential multiseed
+    # early-stop (``enable_multiseed_early_stop``): a candidate whose running seed-median is already
+    # guaranteed to clear the threshold (see ``_seed_median_lower_bound`` in ``_screening_tiny.py``)
+    # skips its remaining seeds. This raw-y computation REPLACES (not duplicates) the raw-baseline
+    # computation that used to run after the candidate loop -- the later block below reuses these
+    # values instead of recomputing them, so total raw-y compute cost is unchanged.
+    _require_raw_baseline = bool(getattr(self.config, "require_beats_raw_baseline", True))
+    raw_rmse_per_family: dict[str, float] = {}
+    raw_per_bin_per_base: dict[str, np.ndarray] = {}
+    raw_baseline: float = float("nan")
+    raw_per_seed_per_family: dict[str, np.ndarray] = {}
+    _early_any_base_monotone = False
+    if _require_raw_baseline:
+        x_full = _x_full
+        n_seed_repeats_raw = max(1, int(getattr(
+            self.config, "tiny_model_n_seed_repeats", 1,
+        )))
+        _early_any_base_monotone = bool(getattr(self, "_screen_time_ordered_", False)) or (
+            _groups_screen is None
+            and any(
+                _is_monotone_nondecreasing(_base_arr)
+                for spec in kept_specs
+                if (_base_arr := _per_base_cache.get(spec.base_column, (None, None))[0]) is not None
+            )
+        )
+        for family in families:
+            if use_wilcoxon:
+                res = _tiny_cv_rmse_raw_y_multiseed(
+                    y_train=y_screen,
+                    x_train_matrix=x_full,
+                    family=family,
+                    n_estimators=self.config.tiny_model_n_estimators,
+                    num_leaves=self.config.tiny_model_num_leaves,
+                    learning_rate=self.config.tiny_model_learning_rate,
+                    cv_folds=self.config.tiny_model_cv_folds,
+                    n_jobs=_tiny_n_jobs_auto,
+                    deterministic=getattr(
+                        self.config, "deterministic_screening_models", False,
+                    ),
+                    n_seed_repeats=n_seed_repeats_raw,
+                    base_random_state=self.config.random_state,
+                    return_per_seed=True,
+                    time_aware=_early_any_base_monotone,
+                    groups=_groups_screen,
+                    cv_selector_mode=_cv_sel_mode,
+                    cv_selector_alpha=_cv_sel_alpha,
+                    cv_selector_confidence=_cv_sel_conf,
+                    cv_selector_quantile_level=_cv_sel_qlevel,
+                )
+                raw_rmse_per_family[family] = res[0]
+                raw_per_seed_per_family[family] = res[-1]
+            else:
+                raw_rmse_per_family[family] = _tiny_cv_rmse_raw_y_multiseed(
+                    y_train=y_screen,
+                    x_train_matrix=x_full,
+                    family=family,
+                    n_estimators=self.config.tiny_model_n_estimators,
+                    num_leaves=self.config.tiny_model_num_leaves,
+                    learning_rate=self.config.tiny_model_learning_rate,
+                    cv_folds=self.config.tiny_model_cv_folds,
+                    n_jobs=_tiny_n_jobs_auto,
+                    deterministic=getattr(
+                        self.config, "deterministic_screening_models", False,
+                    ),
+                    n_seed_repeats=n_seed_repeats_raw,
+                    base_random_state=self.config.random_state,
+                    time_aware=_early_any_base_monotone,
+                    groups=_groups_screen,
+                    cv_selector_mode=_cv_sel_mode,
+                    cv_selector_alpha=_cv_sel_alpha,
+                    cv_selector_confidence=_cv_sel_conf,
+                    cv_selector_quantile_level=_cv_sel_qlevel,
+                )
+        if per_bin_enabled_pre:
+            _raw_fold_preds = None
+            _y_screen_finite = np.isfinite(np.asarray(y_screen))
+            _bin_var_needs_mask = not bool(_y_screen_finite.all())
+            for spec in kept_specs:
+                if spec.base_column in raw_per_bin_per_base:
+                    continue
+                cached = _per_base_cache.get(spec.base_column)
+                if cached is None:
+                    continue
+                base_screen, _ = cached
+                family = families[0]
+                if _raw_fold_preds is None:
+                    raw_result = _tiny_cv_rmse_raw_y(
+                        y_train=y_screen,
+                        x_train_matrix=x_full,
+                        family=family,
+                        n_estimators=self.config.tiny_model_n_estimators,
+                        num_leaves=self.config.tiny_model_num_leaves,
+                        learning_rate=self.config.tiny_model_learning_rate,
+                        cv_folds=self.config.tiny_model_cv_folds,
+                        random_state=self.config.random_state,
+                        n_jobs=_tiny_n_jobs_auto,
+                        deterministic=getattr(
+                            self.config, "deterministic_screening_models", False,
+                        ),
+                        return_fold_preds=True,
+                        groups=_groups_screen,
+                        time_aware=_early_any_base_monotone,
+                    )
+                    _raw_fold_preds = raw_result[1] if isinstance(raw_result, tuple) else []
+                if not _raw_fold_preds:
+                    continue
+                _bin_var_clean = base_screen[_y_screen_finite] if _bin_var_needs_mask else base_screen
+                raw_per_bin = _per_bin_from_fold_preds(
+                    _raw_fold_preds, _bin_var_clean, n_bins=per_bin_n_bins_pre,
+                )
+                raw_per_bin_per_base[spec.base_column] = raw_per_bin
+        _finite_raw_early = [r for r in raw_rmse_per_family.values() if math.isfinite(r)]
+        if _finite_raw_early:
+            if self.config.tiny_consensus == "union":
+                raw_baseline = min(_finite_raw_early)
+            else:
+                raw_baseline = float(np.mean(_finite_raw_early))
+
+    # Sequential multiseed early-stop threshold: only sound when (a) the flag is on, (b) a finite
+    # raw baseline was measured, and (c) honest-OOF selection will NOT later override the threshold
+    # with a different (possibly higher) value -- honest-OOF's reconstruction RMSE is only known
+    # AFTER candidates are scored, so a threshold derived from it can't be used here, and using the
+    # raw-baseline threshold instead could be unsafely tight if honest-OOF ends up more lenient. Skip
+    # early-stop entirely in that case (candidates run all seeds, matching the pre-existing behaviour).
+    _honest_oof_will_run = (
+        bool(getattr(self.config, "honest_oof_selection", True))
+        and getattr(self, "_group_ids_for_rerank", None) is not None
+        and getattr(self, "honest_holdout_idx_", None) is not None
+    )
+    _early_stop_threshold = float("inf")
+    if (
+        bool(getattr(self.config, "enable_multiseed_early_stop", True))
+        and math.isfinite(raw_baseline)
+        and not _honest_oof_will_run
+        and not use_wilcoxon  # Wilcoxon needs the FULL per-seed sample for the paired test power count; skip early-stop rather than prove that interaction safe too.
+    ):
+        _tol_early = float(getattr(self.config, "raw_baseline_tolerance", 1.02))
+        _early_stop_threshold = raw_baseline * _tol_early
+
     def _rerank_one_spec(spec: CompositeSpec):
         """Per-spec worker for the rerank loop.
 
@@ -317,6 +457,7 @@ def _tiny_model_rerank(
                     cv_selector_alpha=_cv_sel_alpha,
                     cv_selector_confidence=_cv_sel_conf,
                     cv_selector_quantile_level=_cv_sel_qlevel,
+                    seed_early_stop_threshold=_early_stop_threshold,
                 )
                 if want_per_bin and isinstance(result, tuple):
                     rmse, per_bin_first = result[0], result[1]
@@ -523,141 +664,16 @@ def _tiny_model_rerank(
     # any composite whose tiny RMSE >= raw_baseline * tolerance.
     # Configured via ``require_beats_raw_baseline`` /
     # ``raw_baseline_tolerance``.
-    raw_rmse_per_family: dict[str, float] = {}
-    raw_per_bin_per_base: dict[str, np.ndarray] = {}
-    raw_baseline: float = float("nan")
+    # raw_rmse_per_family / raw_per_bin_per_base / raw_baseline / raw_per_seed_per_family were already
+    # computed in the early raw-y baseline pass above (before the candidate loop, so its threshold
+    # could feed the sequential multiseed early-stop). Reused here as-is -- this block used to
+    # recompute them AFTER the candidate loop; moving the computation earlier changes only WHEN it
+    # runs, not the inputs (same families/x_full/y_screen/groups/cv_selector knobs), so the values are
+    # bit-identical to the pre-existing post-loop computation.
     gate_rejected_names: list[tuple[str, float, float]] = []
     per_bin_rejected_names: list[tuple[str, str, float, float]] = []
     if getattr(self.config, "require_beats_raw_baseline", True):
-        # Reuse the ALL-usable_features matrix already built once above (``_x_full``); the raw-y baseline needs the
-        # identical matrix (same df / usable_features / screen rows) and the per-base loop only np.delete-copies from
-        # it, never mutates it -- so this is bit-identical to rebuilding and saves one full feature-matrix build.
-        x_full = _x_full
-        n_seed_repeats_raw = max(1, int(getattr(
-            self.config, "tiny_model_n_seed_repeats", 1,
-        )))
-        use_wilcoxon = bool(getattr(
-            self.config, "use_wilcoxon_gate", False,
-        ))
-        # Time-aware raw-y baseline: TimeSeriesSplit folds when the data is
-        # temporal, so the raw-vs-composite tiny-CVs stay apples-to-apples.
-        # Explicit time_ordering (screen sorted by fit) forces it for ALL
-        # specs; otherwise fall back to "any spec's base is monotone". Using
-        # the same predicate as the per-spec side (base_t_aware) avoids the
-        # cross-scheme mismatch where a monotone base put the raw baseline
-        # on TSS while non-monotone specs were scored on shuffled KFold.
-        _any_base_monotone = bool(getattr(self, "_screen_time_ordered_", False)) or (
-            _groups_screen is None
-            and any(
-                _is_monotone_nondecreasing(_base_arr)
-                for spec in kept_specs
-                if (_base_arr := _per_base_cache.get(spec.base_column, (None, None))[0]) is not None
-            )
-        )
-        raw_per_seed_per_family: dict[str, np.ndarray] = {}
-        for family in families:
-            if use_wilcoxon:
-                res = _tiny_cv_rmse_raw_y_multiseed(
-                    y_train=y_screen,
-                    x_train_matrix=x_full,
-                    family=family,
-                    n_estimators=self.config.tiny_model_n_estimators,
-                    num_leaves=self.config.tiny_model_num_leaves,
-                    learning_rate=self.config.tiny_model_learning_rate,
-                    cv_folds=self.config.tiny_model_cv_folds,
-                    n_jobs=_tiny_n_jobs_auto,
-                    deterministic=getattr(
-                        self.config, "deterministic_screening_models", False,
-                    ),
-                    n_seed_repeats=n_seed_repeats_raw,
-                    base_random_state=self.config.random_state,
-                    return_per_seed=True,
-                    time_aware=_any_base_monotone,
-                    groups=_groups_screen,
-                    cv_selector_mode=_cv_sel_mode,
-                    cv_selector_alpha=_cv_sel_alpha,
-                    cv_selector_confidence=_cv_sel_conf,
-                    cv_selector_quantile_level=_cv_sel_qlevel,
-                )
-                raw_rmse_per_family[family] = res[0]
-                raw_per_seed_per_family[family] = res[-1]
-            else:
-                raw_rmse_per_family[family] = _tiny_cv_rmse_raw_y_multiseed(
-                    y_train=y_screen,
-                    x_train_matrix=x_full,
-                    family=family,
-                    n_estimators=self.config.tiny_model_n_estimators,
-                    num_leaves=self.config.tiny_model_num_leaves,
-                    learning_rate=self.config.tiny_model_learning_rate,
-                    cv_folds=self.config.tiny_model_cv_folds,
-                    n_jobs=_tiny_n_jobs_auto,
-                    deterministic=getattr(
-                        self.config, "deterministic_screening_models", False,
-                    ),
-                    n_seed_repeats=n_seed_repeats_raw,
-                    base_random_state=self.config.random_state,
-                    time_aware=_any_base_monotone,
-                    groups=_groups_screen,
-                    cv_selector_mode=_cv_sel_mode,
-                    cv_selector_alpha=_cv_sel_alpha,
-                    cv_selector_confidence=_cv_sel_conf,
-                    cv_selector_quantile_level=_cv_sel_qlevel,
-                )
-        # Per-base raw-y per-bin breakdown for the regime gate. The raw-y model
-        # is trained on ``x_full`` and is INDEPENDENT of the per-base bin_var,
-        # so fit the K-fold raw-y model ONCE (capturing per-fold predictions)
-        # and re-bin those cached predictions for each distinct base. Memoised
-        # by base column. Bit-identical to the prior per-base refit (the binning
-        # operates on the same fold predictions either way), but the dominant
-        # K-fold LGBM fit no longer repeats per base.
-        if per_bin_enabled:
-            _raw_fold_preds = None
-            # bin_var aligns to the isfinite(y_screen)-masked space, matching the
-            # masking _tiny_cv_rmse_raw_y applies to bin_var internally.
-            _y_screen_finite = np.isfinite(np.asarray(y_screen))
-            _bin_var_needs_mask = not bool(_y_screen_finite.all())
-            for spec in kept_specs:
-                if spec.base_column in raw_per_bin_per_base:
-                    continue
-                cached = _per_base_cache.get(spec.base_column)
-                if cached is None:
-                    continue
-                base_screen, _ = cached
-                family = families[0]
-                if _raw_fold_preds is None:
-                    raw_result = _tiny_cv_rmse_raw_y(
-                        y_train=y_screen,
-                        x_train_matrix=x_full,
-                        family=family,
-                        n_estimators=self.config.tiny_model_n_estimators,
-                        num_leaves=self.config.tiny_model_num_leaves,
-                        learning_rate=self.config.tiny_model_learning_rate,
-                        cv_folds=self.config.tiny_model_cv_folds,
-                        random_state=self.config.random_state,
-                        n_jobs=_tiny_n_jobs_auto,
-                        deterministic=getattr(
-                            self.config, "deterministic_screening_models", False,
-                        ),
-                        return_fold_preds=True,
-                        groups=_groups_screen,
-                        time_aware=_any_base_monotone,
-                    )
-                    # (mean_rmse, fold_preds) when return_fold_preds=True.
-                    _raw_fold_preds = raw_result[1] if isinstance(raw_result, tuple) else []
-                if not _raw_fold_preds:
-                    continue
-                _bin_var_clean = base_screen[_y_screen_finite] if _bin_var_needs_mask else base_screen
-                raw_per_bin = _per_bin_from_fold_preds(
-                    _raw_fold_preds, _bin_var_clean, n_bins=per_bin_n_bins,
-                )
-                raw_per_bin_per_base[spec.base_column] = raw_per_bin
-        finite_raw = [r for r in raw_rmse_per_family.values() if math.isfinite(r)]
-        if finite_raw:
-            # Apples-to-apples with consensus aggregation above.
-            if consensus == "union":
-                raw_baseline = min(finite_raw)
-            else:
-                raw_baseline = float(np.mean(finite_raw))
+        _any_base_monotone = _early_any_base_monotone
         tol = float(getattr(self.config, "raw_baseline_tolerance", 1.02))
         # When honest-OOF selection is active and produced a finite raw-y honest-OOF baseline, gate against the SAME
         # honest objective the ordering now uses, so the gate and the rank are consistent (a spec ranked by its honest

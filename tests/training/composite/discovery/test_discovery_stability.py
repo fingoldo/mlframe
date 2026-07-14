@@ -25,8 +25,15 @@ The sensors below FAIL on the pre-fix code:
 * ``test_m3_runs_use_distinct_row_subsamples`` -- pins that each run sees a
   genuinely different (and smaller-than-full) row population by default.
 * ``test_m3_legacy_full_sample_opt_out`` -- ``subsample_fraction=1.0`` recovers
-  the full ``train_idx`` (legacy reseed-only behaviour, decorrelated seeds
-  retained).
+  the full SCREEN POOL per run (legacy reseed-only behaviour, decorrelated
+  seeds retained). NOT bit-identical to the caller's original ``train_idx``
+  since a later fix (shared honest-holdout carve across all replicates, see
+  ``fit_with_stability_check``'s docstring) means every replicate -- even at
+  frac=1.0 -- only ever draws from the post-holdout-carve screen pool; a true
+  100% draw of the ORIGINAL train_idx would leak the shared holdout into
+  every replicate's training data, defeating the honest-holdout gate this
+  whole pipeline depends on. The opt-out's real ceiling is "everything except
+  the shared holdout," not "everything."
 
 biz_value:
 
@@ -45,11 +52,11 @@ from mlframe.training.composite.discovery import CompositeTargetDiscovery
 from mlframe.training.composite.ensemble import derive_seeds
 from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
-
 _INNER_STRIDE = 7919  # _screening_tiny multiseed: base_random_state + s_idx*7919
 
 
 def _noise_df(n: int = 500, seed: int = 99) -> pd.DataFrame:
+    """Pure-noise frame (no feature carries any signal about ``y``) for stability-gate sensors."""
     rng = np.random.default_rng(seed)
     return pd.DataFrame({
         "f0": rng.standard_normal(n), "f1": rng.standard_normal(n),
@@ -63,8 +70,8 @@ def _capture_run_calls(disc: CompositeTargetDiscovery, monkeypatch):
     actually running the heavy discovery. Returns the recording list."""
     calls: list[tuple[int, np.ndarray]] = []
 
-    def _fake_fit(self, df, target_col, feature_cols, train_idx,
-                  val_idx=None, test_idx=None, time_ordering=None):
+    def _fake_fit(self, df, target_col, feature_cols, train_idx, val_idx=None, test_idx=None, time_ordering=None):
+        """Recording stand-in for ``fit``: logs (random_state, train_idx) instead of running discovery."""
         calls.append((int(self.config.random_state), np.asarray(train_idx).copy()))
         self.specs_ = []  # no specs -> gate keeps nothing, fine for these sensors
         return self
@@ -107,9 +114,7 @@ def test_m3_run_seeds_dont_collide_with_inner_multiseed_stride(monkeypatch):
     # Pre-fix EXACT seeds: [42, 42+7919, 42+2*7919, ...] == the legacy ladder.
     # The fix must NOT reproduce that sequence.
     legacy_ladder_seeds = [base + i * _INNER_STRIDE for i in range(5)]
-    assert seeds != legacy_ladder_seeds, (
-        "run seeds are still the legacy base + i*7919 ladder (M3 not applied)"
-    )
+    assert seeds != legacy_ladder_seeds, "run seeds are still the legacy base + i*7919 ladder (M3 not applied)"
     # The master seeds must equal the sha256-derived ones (the fix).
     derived = derive_seeds(base, [f"stability_run_{i}" for i in range(5)])
     expected = [int(derived[f"stability_run_{i}"]) & 0x7FFFFFFF for i in range(5)]
@@ -157,11 +162,29 @@ def test_m3_runs_use_distinct_row_subsamples(monkeypatch):
 
 
 def test_m3_legacy_full_sample_opt_out(monkeypatch):
-    """``subsample_fraction=1.0`` recovers the full ``train_idx`` per run
-    (legacy reseed-only behaviour) while keeping the decorrelated seeds."""
+    """``subsample_fraction=1.0`` recovers the full SCREEN POOL per run (legacy
+    reseed-only behaviour) while keeping the decorrelated seeds. NOT bit-identical
+    to the original ``train_idx``: the shared honest-holdout carve (see
+    ``fit_with_stability_check``'s docstring) removes ``honest_holdout_frac`` of
+    train_idx up front for the whole sweep, so even a "no subsampling" opt-out
+    can never include those rows without leaking the holdout into every
+    replicate's training data -- the real ceiling is "the screen pool," not
+    "everything the caller passed in."""
     cfg = CompositeTargetDiscoveryConfig(enabled=True, mi_sample_n=200, random_state=7)
     disc = CompositeTargetDiscovery(config=cfg)
     calls = _capture_run_calls(disc, monkeypatch)
+    # ``_stability_shared_holdout_idx`` is reset to None in fit_with_stability_check's ``finally``
+    # block once the sweep completes, so it must be captured DURING a run (inside the monkeypatched
+    # fit), not read off ``disc`` afterward.
+    holdout_snapshots: list[np.ndarray] = []
+    _orig_fake_fit = CompositeTargetDiscovery.fit
+
+    def _snapshot_holdout_fit(self, *a, **kw):
+        """Recording stand-in for ``fit``: snapshots the shared holdout before delegating to the real ``fit``."""
+        holdout_snapshots.append(np.asarray(self._stability_shared_holdout_idx).copy())
+        return _orig_fake_fit(self, *a, **kw)
+
+    monkeypatch.setattr(CompositeTargetDiscovery, "fit", _snapshot_holdout_fit, raising=True)
 
     df = _noise_df()
     full_train = np.arange(400)
@@ -170,8 +193,13 @@ def test_m3_legacy_full_sample_opt_out(monkeypatch):
         train_idx=full_train, val_idx=np.arange(400, 500),
         n_bootstrap_runs=4, min_keep_fraction=0.6, subsample_fraction=1.0,
     )
+    assert holdout_snapshots, "the monkeypatched fit must have run at least once"
+    shared_holdout = holdout_snapshots[0]
+    assert all(np.array_equal(h, shared_holdout) for h in holdout_snapshots), "the shared holdout must be identical across every run in the sweep"
+    expected_pool = np.setdiff1d(full_train, shared_holdout)
     for _, ti in calls:
-        assert np.array_equal(ti, full_train), "frac=1.0 must use the full train_idx"
+        assert set(ti.tolist()).issubset(set(full_train.tolist())), "opt-out rows must still come from train_idx"
+        assert np.array_equal(np.sort(ti), expected_pool), "frac=1.0 must use the full SCREEN POOL (train_idx minus the shared honest holdout), identically across all runs"
     # Seeds are still decorrelated even on the opt-out path.
     seeds = [s for s, _ in calls]
     assert len(set(seeds)) == 4
@@ -218,6 +246,7 @@ def test_biz_val_subsampling_improves_lucky_spec_filtering():
     val_idx = np.arange(400, 500)
 
     def _kept(frac: float) -> int:
+        """Number of specs kept by a stability-check run at row-subsample fraction ``frac``."""
         cfg = CompositeTargetDiscoveryConfig(enabled=True, mi_sample_n=300, random_state=99)
         disc = CompositeTargetDiscovery(config=cfg)
         disc.fit_with_stability_check(
@@ -227,16 +256,12 @@ def test_biz_val_subsampling_improves_lucky_spec_filtering():
         )
         return len(disc.specs_)
 
-    legacy_kept = _kept(1.0)   # reseed-only on the identical full sample
-    fixed_kept = _kept(0.5)    # M-B 50% subsample per run (the new default)
+    legacy_kept = _kept(1.0)  # reseed-only on the identical full sample
+    fixed_kept = _kept(0.5)  # M-B 50% subsample per run (the new default)
 
     # The fixed gate never keeps MORE noise specs than the legacy gate.
     assert fixed_kept <= legacy_kept, (
-        f"subsampled gate kept MORE noise specs ({fixed_kept}) than the legacy "
-        f"full-sample gate ({legacy_kept}) -- regression in M-B filtering"
+        f"subsampled gate kept MORE noise specs ({fixed_kept}) than the legacy " f"full-sample gate ({legacy_kept}) -- regression in M-B filtering"
     )
     # And on pure noise it should keep essentially nothing.
-    assert fixed_kept <= 1, (
-        f"subsampled stability gate kept {fixed_kept} noise specs -- "
-        "lucky-split survivors not filtered"
-    )
+    assert fixed_kept <= 1, f"subsampled stability gate kept {fixed_kept} noise specs -- " "lucky-split survivors not filtered"

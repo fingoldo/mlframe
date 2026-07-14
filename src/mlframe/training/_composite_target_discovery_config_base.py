@@ -183,7 +183,20 @@ class CompositeTargetDiscoveryConfigBase(BaseConfig):
     #   - ``monotonic_residual`` -- monotone PCHIP spline residual.
     # These accept the standard ``(y, base)`` signature and need no special orchestration -- discovery evaluates them like ``linear_residual``.
     #
-    # NOT in default list (need orchestration): ``linear_residual_multi`` (multi-column base selection via forward stepwise; single-base mode == linear_residual), ``linear_residual_grouped`` (group_column extraction + groups kwarg), and the three chronological-order transforms ``ewma_residual`` / ``rolling_quantile_ratio`` / ``frac_diff`` (now reachable via ``time_series_transforms_enabled`` + ``time_column``). All accessible via explicit ``CompositeTargetEstimator(...)`` and ship their own tests.
+    # NOT in default list (need orchestration): ``linear_residual_multi`` (multi-column base selection via forward stepwise; single-base mode == linear_residual), ``linear_residual_grouped`` (group_column extraction + groups kwarg), and the four chronological-order / recurrent transforms ``ewma_residual`` / ``rolling_quantile_ratio`` / ``frac_diff`` / ``volatility_normalized_residual`` (now reachable via ``time_series_transforms_enabled`` + ``time_column``). ``asinh_residual_multi`` and ``linear_residual_multi_robust`` are also excluded -- both are multi-base transforms needing the same forward-stepwise orchestration as ``linear_residual_multi``. All accessible via explicit ``CompositeTargetEstimator(...)`` and ship their own tests.
+    #
+    # REJECTED default-list addition (measured, not just untried): ``box_cox_y`` /
+    # ``seasonal_residual`` / ``nadaraya_watson_residual`` / ``gaussian_copula_residual`` are
+    # single-base drop-in candidates with the standard signature (no orchestration blocker) --
+    # trying them in ISOLATION against a deliberately narrow 5-transform list finds real lift
+    # (``gaussian_copula_residual`` beats ``monotonic_residual`` by 1.35% honest y-RMSE on a
+    # lognormal/distorted-marginal DGP), but against the REAL (already 29-transform) default
+    # pool the measured full-pool A/B shows 0.00% RMSE improvement (the existing pool already
+    # covers this DGP class via ``quantile_normal_y``) at +1433% / +605.7% wall-clock overhead on
+    # the positive and negative-control DGPs respectively (``discovery/_benchmarks/
+    # bench_widened_default_transforms.py``). All four remain fully available via explicit
+    # ``transforms=[...]`` (own tests, own registry entries) -- only default-pool membership is
+    # rejected, on measured cost/benefit, not on principle.
     transforms: List[str] = Field(
         default_factory=lambda: [
             "diff", "additive_residual", "median_residual",
@@ -625,6 +638,23 @@ class CompositeTargetDiscoveryConfigBase(BaseConfig):
     # losing the actual winning spec.
     tiny_model_n_seed_repeats: int = 3
 
+    # Sequential early-stop across the multiseed rerank loop. The final per-candidate score is
+    # ``median(seed_scores)`` over the finite (non-degenerate) seeds. Because RMSE-like scores are
+    # non-negative, inserting hypothetical zeros for every remaining un-run seed can only ever
+    # DECREASE (or leave unchanged) the eventual median -- so ``median(observed_finite + [0]*remaining)``
+    # is a rigorous LOWER BOUND on the true multiseed median, no distributional assumption needed. Once
+    # that lower bound already clears the raw-baseline rejection threshold, no possible outcome of the
+    # remaining seeds can pull the true median back under the threshold, so the candidate is doomed and
+    # further seeds are skipped. This never touches the ACCEPT path (an accepted spec's exact score is
+    # still needed for cross-candidate ranking), so early-stopped candidates are always rejects -- the
+    # kept-spec set and the ranking among survivors are unaffected. Only sound for
+    # ``cv_selector_mode == "mean"`` (see ``_screening_tiny._seed_median_lower_bound``); every other
+    # selector mode is a strict no-op (all seeds always run, bit-identical to the flag being off).
+    # Default True: proven no accuracy cost (identical kept-spec sets/rankings vs all-seeds) in
+    # tests/training/composite/discovery/test_multiseed_early_stop.py; cuts wasted seed-fits on
+    # candidates the raw-baseline gate rejects anyway.
+    enable_multiseed_early_stop: bool = True
+
     # Paired one-sided Wilcoxon signed-rank
     # test on per-fold-pair RMSE differences (composite minus raw).
     # Replaces the static ``raw_baseline * tolerance`` threshold with
@@ -821,3 +851,17 @@ class CompositeTargetDiscoveryConfigBase(BaseConfig):
     # The floor is measured on the group-disjoint holdout; a spec whose holdout measurement degenerated is never
     # floor-dropped (falls back to the group-internal CV rank). Set False for legacy rank-only behaviour.
     honest_oof_floor_reject_enabled: bool = True
+
+    # Per-group/per-cluster composite discovery (OPT-IN; formerly a REJECTED design decision -- see
+    # ``discovery/__init__.py`` module docstring near ``CompositeTargetDiscovery.fit``). The original
+    # proposal was rejected for "10-15 values per cluster too few for stable per-cluster discovery",
+    # with an explicit reopen condition: "revisit at 500+ rows per cluster". This flag implements that
+    # reopened path: when True, ``fit`` ALSO runs discovery independently per distinct value of
+    # ``per_group_column`` (delegating to a fresh ``CompositeTargetDiscovery`` instance per group --
+    # never a duplicated pipeline), for every group with >= ``per_group_min_rows`` rows. Groups below
+    # the floor fall back to the single GLOBAL spec set (``specs_``, unchanged). Results land on
+    # ``specs_by_group_``. Default False: the global-only path (``specs_``) stays byte-identical when
+    # this flag is off, which is the default.
+    per_group_discovery_enabled: bool = False
+    per_group_column: Optional[str] = None
+    per_group_min_rows: int = 500

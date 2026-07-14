@@ -98,6 +98,10 @@ _ALLOWLIST: dict[tuple[str, str], str] = {
         "roc_auc_score",
     ): "one-vs-rest macro AUC: roc_auc_score(proba, multi_class='ovr'); fast_roc_auc is binary-only (binary path already swapped).",
     (
+        "training/composite/classification_discovery.py",
+        "log_loss",
+    ): "CompositeClassificationDiscovery documents binary AND multiclass support (log_loss(proba(n,C), labels=classes) with C=classes.size>=2); fast_log_loss is binary-only.",
+    (
         "evaluation/reports.py",
         "balanced_accuracy_score",
     ): "multiclass balanced accuracy (macro recall over C>2 classes); balanced_accuracy_binary is binary-only. Binary path uses balanced_accuracy_binary; sklearn only on the nclasses>2 branch.",
