@@ -22,6 +22,12 @@ CORRECTNESS BAR: selection-equivalence, not bit-identity -- ``cp.argsort`` break
 the host quicksort ``np.argsort``, so tied feature values may bin differently (ties in a GEMM-produced
 continuous feature are measure-zero in practice; the e2e regression pins winner recovery).
 
+DEFAULTS (batch_size=100, elitism_k=10, sigma_frac=0.1) come from the 2026-07-15 sweep
+(scratch harness, cases ratio_regime + cubic_inner, 3 seeds x 3 restarts): bs=100 lifted cubic_inner
+0.4901 -> 0.5834 at 39.6s (vs bs=20's 8-10s and bs=300's 138s/0.5267 -- the sweet spot), and the
+speed->restarts conversion closes the ratio_regime gap entirely (bs=100 x 15 restarts finds it 3/3
+seeds at 0.465-0.487 in 102.9s vs cma_batch's 4/5 at 492.5s full-budget wall).
+
 Public entry point: ``run_cupy_kernel_search`` -- same return contract as ``run_numba_kernel_search`` /
 ``_run_cma_search_batch`` so the pair-optimiser dispatch swaps it in via ``optimizer="cupy_kernel"``.
 Limitations (same set as the numba kernel): plugin MI only, the 4 polynomial bases only, no
@@ -132,7 +138,7 @@ def _score_generation_gpu(cp, Ba, Bb, Ca, Cb, y_codes_dev, ky: int, n_bins: int,
 
 def run_cupy_kernel_search(*, ca_size: int, cb_size: int, coef_range: tuple, n_trials: int, seed: int,
                            direction_only: bool, warm_start_seeds: Optional[Sequence[np.ndarray]],
-                           eval_kwargs: dict, batch_size: int = 20, elitism_k: int = 4,
+                           eval_kwargs: dict, batch_size: int = 100, elitism_k: int = 10,
                            perturb_sigma_frac: float = 0.1) -> Optional[tuple]:
     """GPU generation-batched random+elitism search; same return contract as ``run_numba_kernel_search``:
     ``(coef_a_best, coef_b_best, bf_idx_best, raw_mi_best, best_score)`` or ``None``."""
