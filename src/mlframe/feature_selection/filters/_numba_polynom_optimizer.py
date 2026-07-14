@@ -18,6 +18,16 @@ Random draws (uniform sampling + Gaussian perturbation) are pre-
 generated outside numba and passed as flat streams so the inner kernel
 has no global RNG state to share across threads.
 
+KNOWN QUALITY LIMITATION (2026-07-15, budget-matched A/B in
+``_benchmarks/bench_polynom_optimizer_variants_ab.py``): on the cubic-inner hard case
+(``y = ((a**3 - 2a) * b > 0)``, n=20k, chebyshev, 5 seeds x 5 restarts x 100 trials) this backend
+returns ``None`` (its best candidate never clears the 1.01x baseline-uplift gate) while EVERY other
+optimizer (cma_batch / cma / random_batch / optuna) recovers mi=0.4813 from the same warm seeds --
+and it is also SLOWER than cma_batch there (353.9s vs 246.9s wall at 67% vs 89% avg CPU). Until the
+evaluation-parity gap vs ``_eval_coef_pair`` is root-caused (suspects: internal binning/preprocess
+divergence from the precomputed z_a/z_b path, or the inline plugin-MI's bin handling), this backend
+must NOT be made the default; reproducer: run the bench above or the 8-line snippet in its docstring.
+
 Public entry point: ``run_numba_kernel_search`` -- single-pair drop-in
 matching the ``_run_cma_search`` / ``_run_random_batch_search`` return
 shape. The full multi-pair kernel is exposed via
