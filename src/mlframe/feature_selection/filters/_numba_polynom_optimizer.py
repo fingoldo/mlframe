@@ -18,15 +18,16 @@ Random draws (uniform sampling + Gaussian perturbation) are pre-
 generated outside numba and passed as flat streams so the inner kernel
 has no global RNG state to share across threads.
 
-KNOWN QUALITY LIMITATION (2026-07-15, budget-matched A/B in
-``_benchmarks/bench_polynom_optimizer_variants_ab.py``): on the cubic-inner hard case
-(``y = ((a**3 - 2a) * b > 0)``, n=20k, chebyshev, 5 seeds x 5 restarts x 100 trials) this backend
-returns ``None`` (its best candidate never clears the 1.01x baseline-uplift gate) while EVERY other
-optimizer (cma_batch / cma / random_batch / optuna) recovers mi=0.4813 from the same warm seeds --
-and it is also SLOWER than cma_batch there (353.9s vs 246.9s wall at 67% vs 89% avg CPU). Until the
-evaluation-parity gap vs ``_eval_coef_pair`` is root-caused (suspects: internal binning/preprocess
-divergence from the precomputed z_a/z_b path, or the inline plugin-MI's bin handling), this backend
-must NOT be made the default; reproducer: run the bench above or the 8-line snippet in its docstring.
+EVALUATION-PARITY HISTORY (2026-07-15): a budget-matched A/B
+(``_benchmarks/bench_polynom_optimizer_variants_ab.py``) caught this backend returning ``None`` on the
+cubic-inner hard case (``y = ((a**3 - 2a) * b > 0)``) that every reference-scored optimizer solved at
+mi=0.4813 -- even with the known winner PLANTED into its warm seeds. Root cause was a THREE-way
+evaluation divergence from ``_eval_coef_pair``: (1) BF_LOGABS computed ``sign(ab)*log1p(|ab|)`` instead
+of the reference sum-of-factor-logs; (2) BF_DIV used the sign-breaking ``a/(|b|+1e-9)`` instead of
+``_safe_div``'s exact sign-preserving divide; (3) the L2 penalty was the RAW ``lambda*s`` instead of the
+saturating ``lambda*s/(s+1)`` default -- suppressing exactly the high-||c|| solutions the saturating
+regime exists to admit. All three fixed to bit-parity (see ``test_numba_bf_dispatch_parity.py`` and the
+planted-winner regression test); the kernel now recovers the same mi=0.4813 logabs winner.
 
 Public entry point: ``run_numba_kernel_search`` -- single-pair drop-in
 matching the ``_run_cma_search`` / ``_run_random_batch_search`` return
@@ -122,8 +123,7 @@ def _bf_dispatch_njit(bf_id: int, a: np.ndarray, b: np.ndarray) -> np.ndarray:
     """Integer-dispatched binary function. Operates element-wise.
 
     Mirrors the six bf entries in ``_DEFAULT_BIN_FUNCS`` (mul / add /
-    sub / div / atan2 / logabs). ``div`` uses the safe ``a / (|b| + 1e-9)``
-    pattern that matches ``_safe_div`` in hermite_fe.
+    sub / div / atan2 / logabs) at BIT-PARITY -- see test_numba_bf_dispatch_parity.py.
     """
     n = a.shape[0]
     out = np.empty(n, dtype=np.float64)
@@ -137,19 +137,25 @@ def _bf_dispatch_njit(bf_id: int, a: np.ndarray, b: np.ndarray) -> np.ndarray:
         for i in range(n):
             out[i] = a[i] - b[i]
     elif bf_id == BF_DIV:
+        # Parity with hermite_fe._safe_div: EXACT divide for every nonzero denominator (sign preserved),
+        # eps only at exact zero. The old |b|+1e-9 spelling flipped the sign for negative b and rescaled
+        # every value -- a different feature entirely, so the kernel could never reproduce a div winner.
         for i in range(n):
-            denom = b[i]
-            denom_abs = denom if denom >= 0.0 else -denom
-            out[i] = a[i] / (denom_abs + 1e-9)
+            denom = b[i] if b[i] != 0.0 else 1e-9
+            out[i] = a[i] / denom
     elif bf_id == BF_ATAN2:
         for i in range(n):
             out[i] = np.arctan2(a[i], b[i])
     else:  # BF_LOGABS
+        # Parity with hermite_fe._log_abs_signed: sign(a*b + eps) * (log(|a|+eps) + log(|b|+eps)) --
+        # the sum of factor logs (negative magnitude for sub-unit factors), NOT log1p of the product the
+        # old spelling used; the mismatch made logabs winners (e.g. the cubic-inner case) unreachable.
         for i in range(n):
-            val = a[i] * b[i]
-            sign = 1.0 if val >= 0.0 else -1.0
-            abs_val = val if val >= 0.0 else -val
-            out[i] = sign * np.log(abs_val + 1.0)
+            eps = 1e-9
+            s = 1.0 if (a[i] * b[i] + eps) >= 0.0 else -1.0
+            aa = a[i] if a[i] >= 0.0 else -a[i]
+            ab = b[i] if b[i] >= 0.0 else -b[i]
+            out[i] = s * (np.log(aa + eps) + np.log(ab + eps))
     return out
 
 
@@ -207,7 +213,12 @@ def _eval_one_candidate_njit(
             a_sq += coef_a[i] * coef_a[i]
         for i in range(coef_b.shape[0]):
             b_sq += coef_b[i] * coef_b[i]
-        penalty = l2_penalty * (a_sq + b_sq)
+        # Parity with hermite_fe._l2_penalty_value's DEFAULT saturating regime: lambda * s / (s + sat)
+        # with sat = _L2_PENALTY_SATURATION_DEFAULT (1.0). The old RAW lambda * s penalty grew unbounded
+        # with coefficient magnitude and systematically suppressed genuinely-high-MI large-||c|| solutions
+        # (the exact cubic-inner failure: winner ||c||^2 ~ 12 -> raw penalty 0.6 dwarfing the MI gain).
+        s_norm = a_sq + b_sq
+        penalty = l2_penalty * s_norm / (s_norm + 1.0)
 
     best_score = -np.inf
     best_raw = 0.0
@@ -321,7 +332,8 @@ def _eval_batch_candidates_njit(
                 a_sq += coefs_a_batch[b, i] * coefs_a_batch[b, i]
             for i in range(cb_size):
                 b_sq += coefs_b_batch[b, i] * coefs_b_batch[b, i]
-            penalty = l2_penalty * (a_sq + b_sq)
+            s_norm = a_sq + b_sq
+            penalty = l2_penalty * s_norm / (s_norm + 1.0)  # saturating parity, see the single-eval note
         for k in range(K):
             col_idx = b * K + k
             if not col_valid_scratch[col_idx]:

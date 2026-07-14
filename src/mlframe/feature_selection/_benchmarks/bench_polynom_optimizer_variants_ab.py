@@ -27,10 +27,20 @@ N = 20000
 CASES = {}
 _r = np.random.default_rng(7)
 a = _r.standard_normal(N); b = _r.standard_normal(N)
-CASES["cubic_inner"] = (a, b, ((a**3 - 2 * a) * b > 0).astype(np.int64))          # non-monotone inner
-CASES["bilinear_xor"] = (a, b, ((a * b) > 0).astype(np.int64))                    # sign-product
+CASES["cubic_inner"] = (a, b, ((a**3 - 2 * a) * b > 0).astype(np.int64))          # non-monotone inner (logabs-winner regime)
 c = _r.standard_normal(N); d = _r.standard_normal(N)
 CASES["cheb_mix"] = (c, d, ((2 * c**2 - 1) + (4 * d**3 - 3 * d) + 0.3 * _r.standard_normal(N) > 0).astype(np.int64))
+# HARDER CASES (2026-07-15 extension). bilinear_xor dropped: non-discriminative (trivial baseline captures it).
+e = np.exp(_r.standard_normal(N)); f = np.exp(_r.standard_normal(N))              # heavy-tail lognormal operands
+CASES["logmult_heavy"] = (e, f, ((np.log(e) * np.log(f)) > 0.2).astype(np.int64)) # multiplicative heavy-tail
+g = _r.standard_normal(N); h = _r.standard_normal(N) * (1 + 2 * (_r.random(N) < 0.1))  # 10% variance-outlier rows
+CASES["ratio_regime"] = (g, h, ((g / np.where(np.abs(h) < 0.05, 0.05, h)) > 1.0).astype(np.int64))  # ratio threshold
+i_ = _r.standard_normal(N); j = _r.standard_normal(N)
+_saddle = np.sign((i_**2 - 1) - (j**2 - 1))
+_flip = _r.random(N) < 0.2                                                        # 20% label noise
+CASES["saddle_noisy"] = (i_, j, np.where(_flip, -_saddle, _saddle).astype(np.int64).clip(0))  # noisy saddle
+k = _r.standard_normal(N); l_ = _r.standard_normal(N)
+CASES["cross_cheb"] = (k, l_, (((2*k**2 - 1) * (4*l_**3 - 3*l_) + 0.5*k) > 0).astype(np.int64))  # cross-term product
 
 BUDGET = dict(n_trials=100, min_degree=3, max_degree=6, coef_range=(-2.0, 2.0), l2_penalty=0.05,
               sweep_degrees=True, basis="chebyshev", mi_estimator="plugin", discrete_target=True,
