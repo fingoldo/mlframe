@@ -10,7 +10,7 @@ distinctively (down-weighting categories common across every entity), a genuinel
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Dict, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Dict, Tuple, Union
 
 import numpy as np
 import pandas as pd

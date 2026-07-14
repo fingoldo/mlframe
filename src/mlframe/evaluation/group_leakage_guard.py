@@ -113,23 +113,18 @@ def _assert_no_near_duplicate_leakage(
 
     if metric == "cosine":
         if cosine_similarity_threshold is None:
-            raise ValueError(
-                "assert_no_group_leakage: near_duplicate_threshold is required when near_duplicate_metric='cosine'."
-            )
+            raise ValueError("assert_no_group_leakage: near_duplicate_threshold is required when near_duplicate_metric='cosine'.")
         nn = NearestNeighbors(n_neighbors=1, metric="cosine").fit(train_x)
-        distances, neighbor_pos = nn.kneighbors(test_x)
+        distances, _neighbor_pos = nn.kneighbors(test_x)
         similarities = 1.0 - distances[:, 0]
         flagged = similarities >= cosine_similarity_threshold
         best_score = float(similarities.max()) if len(similarities) else float("-inf")
         score_name, score_op = "cosine similarity", ">="
     elif metric == "euclidean":
         if euclidean_max_distance is None:
-            raise ValueError(
-                "assert_no_group_leakage: near_duplicate_max_neighbor_distance is required when "
-                "near_duplicate_metric='euclidean'."
-            )
+            raise ValueError("assert_no_group_leakage: near_duplicate_max_neighbor_distance is required when " "near_duplicate_metric='euclidean'.")
         nn = NearestNeighbors(n_neighbors=1, metric="euclidean").fit(train_x)
-        distances, neighbor_pos = nn.kneighbors(test_x)
+        distances, _neighbor_pos = nn.kneighbors(test_x)
         flagged = distances[:, 0] <= euclidean_max_distance
         best_score = float(distances[:, 0].min()) if len(distances) else float("inf")
         score_name, score_op = "euclidean distance", "<="

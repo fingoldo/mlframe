@@ -9,7 +9,7 @@ itself a column (each entity/row can have its own cutoff) or globally when it's 
 """
 from __future__ import annotations
 
-from typing import Dict, Sequence, Union
+from typing import Dict, Sequence, Union, Optional
 
 import numpy as np
 import pandas as pd
@@ -27,7 +27,7 @@ def leakage_safe_aggregate(
     time_col: str,
     as_of: Union[str, pd.DataFrame],
     agg_funcs: Dict[str, Sequence[str]],
-    query_entity_col: str = None,  # type: ignore[assignment]
+    query_entity_col: Optional[str] = None,
 ) -> pd.DataFrame:
     """Aggregate ``history_df`` per entity using only rows strictly before each query's cutoff.
 
@@ -103,7 +103,7 @@ def leakage_safe_aggregate(
                         out_cols[f"{col}_mean"][row_positions] = np.where(has_history, col_sum / np.where(col_count == 0, 1, col_count), np.nan)
 
             if slow_fns:
-                for i, (pos, n) in enumerate(zip(row_positions, n_eligible)):
+                for _i, (pos, n) in enumerate(zip(row_positions, n_eligible)):
                     if n == 0:
                         continue
                     eligible_vals = sorted_col[:n]

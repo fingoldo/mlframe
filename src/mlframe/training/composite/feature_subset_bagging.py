@@ -12,7 +12,7 @@ arbitrary random draw.
 """
 from __future__ import annotations
 
-from typing import Any, Callable, List, Optional, Sequence
+from typing import Any, Callable, List, Optional
 
 import numpy as np
 import pandas as pd
@@ -147,6 +147,7 @@ class FeatureSubsetBaggingEnsemble(BaseEstimator, RegressorMixin):
         self.weighted_cv = weighted_cv
 
     def fit(self, X: pd.DataFrame, y: np.ndarray) -> "FeatureSubsetBaggingEnsemble":
+        """Fit one estimator per correlation-clustered feature subset, optionally OOF-weighted."""
         if self.aggregation not in ("mean", "weighted"):
             raise ValueError(f"FeatureSubsetBaggingEnsemble: aggregation must be 'mean' or 'weighted', got {self.aggregation!r}.")
         self.feature_subsets_ = correlation_cluster_feature_subsets(X, self.n_subsets, self.subset_size, self.n_clusters, self.random_state)
@@ -175,6 +176,7 @@ class FeatureSubsetBaggingEnsemble(BaseEstimator, RegressorMixin):
         return self
 
     def predict(self, X: pd.DataFrame) -> np.ndarray:
+        """Average (optionally weighted) predictions across every subset's fitted estimator."""
         preds = np.stack([model.predict(X[subset]) for model, subset in zip(self.estimators_, self.feature_subsets_)], axis=0)
         if self.aggregation == "weighted" and self.weights_ is not None:
             return np.asarray(np.average(preds, axis=0, weights=self.weights_))

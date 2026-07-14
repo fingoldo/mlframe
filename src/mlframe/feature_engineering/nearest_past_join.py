@@ -26,8 +26,8 @@ def _nearest_past_join_single_tier(
     try:
         import polars as pl
 
-        left_pl = pl.from_pandas(left_df[[on] + by_list].reset_index(drop=True)).with_row_index("_row_idx")
-        right_pl = pl.from_pandas(right_df[[on] + by_list + right_value_cols].reset_index(drop=True))
+        left_pl = pl.from_pandas(left_df[[on, *by_list]].reset_index(drop=True)).with_row_index("_row_idx")
+        right_pl = pl.from_pandas(right_df[[on, *by_list, *right_value_cols]].reset_index(drop=True))
         # a common source of `on` being int in one frame and float in the other (e.g. left is a computed
         # query timestamp, right is raw integer periods) -- join_asof requires identical key dtypes.
         if left_pl.schema[on] != right_pl.schema[on]:
@@ -50,7 +50,7 @@ def _nearest_past_join_single_tier(
         return out
     except ImportError:
         left_sorted = left_df.sort_values(on).reset_index()
-        right_sorted = right_df[[on] + by_list + right_value_cols].sort_values(on)
+        right_sorted = right_df[[on, *by_list, *right_value_cols]].sort_values(on)
         merged = pd.merge_asof(left_sorted, right_sorted, on=on, by=by_list or None, direction="backward", suffixes=("", suffix))
         merged = merged.set_index("index").sort_index()
         merged.index.name = None
@@ -132,9 +132,7 @@ def nearest_past_join(
         if not unresolved.any():
             break
         unresolved_idx = out.index[unresolved.to_numpy()]
-        candidate = _nearest_past_join_single_tier(
-            left_df.loc[unresolved_idx].reset_index(drop=True), right_df, on, tier_by_list, right_value_cols, suffix
-        )
+        candidate = _nearest_past_join_single_tier(left_df.loc[unresolved_idx].reset_index(drop=True), right_df, on, tier_by_list, right_value_cols, suffix)
         candidate.index = unresolved_idx
 
         # a group with fewer than ``min_group_size`` historical rows counts as "too sparse" even when a
@@ -142,12 +140,7 @@ def nearest_past_join(
         # vectorized via merge (not a per-row dict/tuple lookup, which dominates wall time on large inputs).
         if tier_by_list:
             group_sizes = right_df.groupby(tier_by_list).size().rename("_group_size").reset_index()
-            row_group_sizes = (
-                left_df.loc[unresolved_idx, tier_by_list]
-                .merge(group_sizes, on=tier_by_list, how="left")["_group_size"]
-                .fillna(0)
-                .to_numpy()
-            )
+            row_group_sizes = left_df.loc[unresolved_idx, tier_by_list].merge(group_sizes, on=tier_by_list, how="left")["_group_size"].fillna(0).to_numpy()
         else:
             row_group_sizes = np.full(len(candidate), len(right_df))
 

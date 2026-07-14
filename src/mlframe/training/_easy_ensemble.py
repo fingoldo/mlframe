@@ -8,7 +8,7 @@ be seen across the bag while each individual fit trains on a balanced, cheap-to-
 """
 from __future__ import annotations
 
-from typing import Any, Callable, List, Optional, Sequence
+from typing import Any, Callable, List, Optional
 
 import numpy as np
 

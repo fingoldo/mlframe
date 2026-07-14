@@ -17,7 +17,7 @@ degradation callable with the same ``(X_train, X_test, rng) -> X_degraded`` sign
 """
 from __future__ import annotations
 
-from typing import Callable, List, Optional, Sequence, Tuple
+from typing import Callable, List, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
@@ -44,7 +44,7 @@ def match_missingness_rate(X_train: pd.DataFrame, X_test: pd.DataFrame, rng: np.
         if additional_rate <= 0:
             continue
         non_null_idx = np.flatnonzero(~np.isnan(col_vals))
-        n_to_null = int(round(additional_rate * n_rows))
+        n_to_null = round(additional_rate * n_rows)
         n_to_null = min(n_to_null, len(non_null_idx))
         if n_to_null > 0:
             drop_idx = rng.choice(non_null_idx, size=n_to_null, replace=False)

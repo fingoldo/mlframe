@@ -85,14 +85,12 @@ def ks_stability_filter(
         if not multi_split:
             result = ks_2samp(train_vals, test_vals)
             p_value = float(result.pvalue)
-            rows.append(
-                {"column": col, "ks_statistic": float(result.statistic), "p_value": p_value, "stable": p_value > p_value_threshold}
-            )
+            rows.append({"column": col, "ks_statistic": float(result.statistic), "p_value": p_value, "stable": p_value > p_value_threshold})
             continue
 
         assert rng is not None
-        train_size = max(1, int(round(train_vals.size * split_frac)))
-        test_size = max(1, int(round(test_vals.size * split_frac)))
+        train_size = max(1, round(train_vals.size * split_frac))
+        test_size = max(1, round(test_vals.size * split_frac))
         statistics = []
         p_values = []
         n_unstable = 0

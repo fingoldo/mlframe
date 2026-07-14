@@ -9,7 +9,7 @@ reuses :func:`cascade_select` unmodified as the inner selector, run B times over
 """
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List
 
 import numpy as np
 

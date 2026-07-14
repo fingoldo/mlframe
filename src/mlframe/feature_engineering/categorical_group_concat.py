@@ -135,7 +135,7 @@ def discover_categorical_groups(
         while candidates and len(group) < cap:
             trial_mis = {}
             for cand in candidates:
-                trial_cols = group + [cand]
+                trial_cols = [*group, cand]
                 composite = df[trial_cols[0]].astype(str).str.cat([df[c].astype(str) for c in trial_cols[1:]], sep=separator)
                 trial_mis[cand] = _composite_mi_with_target(composite, y_arr, random_state)
             best_cand = max(trial_mis, key=lambda c: trial_mis[c])
@@ -181,9 +181,7 @@ def auto_concat_categorical_groups(
         ``df`` (shallow copy) plus one new composite column per discovered group of size >= 2, and the
         discovered groups themselves (including singletons) for caller inspection/logging.
     """
-    groups = discover_categorical_groups(
-        df, columns, y, separator=separator, min_mi_gain=min_mi_gain, max_group_size=max_group_size, random_state=random_state
-    )
+    groups = discover_categorical_groups(df, columns, y, separator=separator, min_mi_gain=min_mi_gain, max_group_size=max_group_size, random_state=random_state)
 
     out = df.copy(deep=False)
     for group in groups:

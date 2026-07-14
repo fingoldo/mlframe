@@ -97,12 +97,12 @@ def adversarial_validation_feature_audit(
     rest_frac = pseudo_public_frac + pseudo_private_frac
 
     def _run_split(split_seed: int) -> list[dict]:
+        """Run one pseudo-public/private train/eval split and score the AUC drop from removing each feature."""
         idx_train, idx_rest = train_test_split(np.arange(len(y_train)), test_size=rest_frac, random_state=split_seed, stratify=y_train)
-        idx_public, idx_private = train_test_split(
-            idx_rest, test_size=pseudo_private_frac / rest_frac, random_state=split_seed, stratify=y_train[idx_rest]
-        )
+        _idx_public, idx_private = train_test_split(idx_rest, test_size=pseudo_private_frac / rest_frac, random_state=split_seed, stratify=y_train[idx_rest])
 
         def _fit_auc(feature_cols: Sequence[str]) -> float:
+            """Fit an LGBM classifier on ``feature_cols`` and return its pseudo-private AUC."""
             model = lgb.LGBMClassifier(**(lgbm_params or {"n_estimators": 100, "verbosity": -1}), random_state=split_seed)
             model.fit(X_train_df.iloc[idx_train][list(feature_cols)], y_train[idx_train])
             proba = model.predict_proba(X_train_df.iloc[idx_private][list(feature_cols)])[:, 1]

@@ -41,6 +41,8 @@ class ConfidenceBucket:
 
 @dataclass
 class OverrideBacktestResult:
+    """Per-bucket backtest result for one smoothing/override coefficient ``a``."""
+
     a: float
     buckets: list[ConfidenceBucket] = field(default_factory=list)
     safe_threshold: float = 1.0
@@ -49,9 +51,12 @@ class OverrideBacktestResult:
     mae_blend_safe: float = 0.0
 
     def summary(self) -> str:
+        """Render a human-readable multi-line report of this backtest's buckets and overall MAEs."""
         lines = [f"backtest_override(a={self.a}): safe_threshold={self.safe_threshold:.4f}"]
-        for b in self.buckets:
-            lines.append(f"  conf[{b.conf_lo:.3f},{b.conf_hi:.3f}] n={b.n:>6} mae_model={b.mae_model:.4f} mae_blend={b.mae_blend:.4f} improvement={b.improvement:+.4f}")
+        lines.extend(
+            f"  conf[{b.conf_lo:.3f},{b.conf_hi:.3f}] n={b.n:>6} mae_model={b.mae_model:.4f} mae_blend={b.mae_blend:.4f} improvement={b.improvement:+.4f}"
+            for b in self.buckets
+        )
         lines.append(f"  overall: mae_model={self.mae_model_overall:.4f} mae_blend_all={self.mae_blend_all:.4f} mae_blend_safe={self.mae_blend_safe:.4f}")
         return "\n".join(lines)
 

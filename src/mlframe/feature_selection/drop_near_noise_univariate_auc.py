@@ -78,7 +78,7 @@ def drop_near_noise_univariate_auc(
         raise ValueError(f"n_bootstrap must be a positive int when provided, got {n_bootstrap}")
 
     n_rows = X.shape[0]
-    sample_size = max(2, int(round(n_rows * bootstrap_frac)))
+    sample_size = max(2, round(n_rows * bootstrap_frac))
     rng = np.random.default_rng(random_state)
 
     resampled_aucs = np.empty((n_bootstrap, len(cols)), dtype=np.float64)

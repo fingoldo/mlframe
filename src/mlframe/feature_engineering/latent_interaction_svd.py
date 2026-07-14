@@ -108,9 +108,7 @@ class FittedLatentInteractionSvd:
         and the row is embedded as an all-zero vector, i.e. a cold-start fallback at the SVD origin).
         """
         if self.row_entity not in events_df.columns or self.col_entity not in events_df.columns:
-            raise ValueError(
-                f"transform_new_entities: {self.row_entity!r}/{self.col_entity!r} must both be columns of events_df"
-            )
+            raise ValueError(f"transform_new_entities: {self.row_entity!r}/{self.col_entity!r} must both be columns of events_df")
         # An empty events_df (a predict batch whose entities have zero interaction history yet) has
         # no row entities to look up at all -- TfidfTransformer.transform rejects a 0-sample matrix,
         # so short-circuit here with an empty (but correctly-shaped/typed) result rather than crash.
@@ -119,7 +117,7 @@ class FittedLatentInteractionSvd:
         # EVERY row entity in the batch is missing, not only some of them.
         if len(events_df) == 0:
             col_names = [f"svd_{i}" for i in range(self.svd.n_components)]
-            empty = pd.DataFrame(columns=col_names + ["oov_weight_fraction"])
+            empty = pd.DataFrame(columns=[*col_names, "oov_weight_fraction"])
             empty.index.name = self.row_entity
             return empty
         row_uniq = np.unique(events_df[self.row_entity].to_numpy())

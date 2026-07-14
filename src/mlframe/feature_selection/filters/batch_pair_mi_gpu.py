@@ -26,10 +26,7 @@ available; auto-skip otherwise).
 from __future__ import annotations
 
 import logging
-import math
-from typing import Any
 
-import numba
 import numpy as np
 
 # Re-export CPU baseline for callers who want a single import point.
@@ -46,13 +43,13 @@ logger = logging.getLogger(__name__)
 # this file under the repo's 1000-LOC gate). ``_CUDA_AVAIL`` is re-exported
 # from there as the single source of truth.
 from ._batch_pair_mi_cuda_kernels import (
-    MAX_JOINT_BINS_CUDA,
-    MAX_Y_BINS_CUDA,
+    MAX_JOINT_BINS_CUDA,  # noqa: F401 -- re-exported facade name, imported directly by tests/benchmarks
+    MAX_Y_BINS_CUDA,  # noqa: F401 -- re-exported facade name, imported directly by tests/benchmarks
     _CUDA_AVAIL,
-    _choose_pair_subchunk_rows,
-    _choose_row_chunk_rows,
-    _hist_kernel_shared_fits_budget,
-    _new_zeroed_device_array,
+    _choose_pair_subchunk_rows,  # noqa: F401 -- re-exported facade name, imported directly by tests/benchmarks
+    _choose_row_chunk_rows,  # noqa: F401 -- re-exported facade name, imported directly by tests/benchmarks
+    _hist_kernel_shared_fits_budget,  # noqa: F401 -- re-exported facade name, imported directly by tests/benchmarks
+    _new_zeroed_device_array,  # noqa: F401 -- re-exported facade name, imported directly by tests/benchmarks
     batch_pair_mi_cuda,
     batch_pair_mi_cuda_row_chunked,
 )
@@ -389,6 +386,7 @@ def dispatch_batch_pair_mi(
     _vram_ok = _gpu_upload_fits(_req_bytes, n_samples=n_samples, n_cols=n_cols, n_pairs=n_pairs)
 
     def _try_cuda_row_chunked(reason: str) -> tuple[np.ndarray, str] | None:
+        """Attempt the row-chunked CUDA kernel; returns None (falls through to CPU) on any failure."""
         if not _CUDA_AVAIL:
             return None
         try:

@@ -133,7 +133,7 @@ def apply_group_zero_sum_constraint(
     for c in coefs:
         if c.shape != preds.shape:
             raise ValueError("apply_group_zero_sum_constraint: every constraint coefficient array must share preds' shape")
-    targets = [target_sum] + list(extra_constraint_targets)
+    targets = [target_sum, *list(extra_constraint_targets)]
     n_constraints = len(coefs)
 
     with np.errstate(invalid="ignore", divide="ignore"):

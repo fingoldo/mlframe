@@ -224,9 +224,9 @@ def run_polynom_pair_fe(
         _Xf = np.empty(X_ndarr.shape, dtype=np.float64)
         _uncoercible = np.zeros(X_ndarr.shape[1], dtype=bool)
         for _j in range(X_ndarr.shape[1]):
-            try:  # noqa: PERF203 -- per-column fault isolation is the point: one bad column must not poison the rest
+            try:
                 _Xf[:, _j] = np.asarray(X_ndarr[:, _j], dtype=np.float64)
-            except (ValueError, TypeError):
+            except (ValueError, TypeError):  # noqa: PERF203 -- per-column coercion needs its own try; runs once per FE round, not hot
                 _Xf[:, _j] = np.nan
                 _uncoercible[_j] = True
         X_ndarr = _Xf

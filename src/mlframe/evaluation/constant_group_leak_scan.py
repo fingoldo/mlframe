@@ -12,7 +12,7 @@ chance.
 from __future__ import annotations
 
 from itertools import combinations
-from typing import Optional, Sequence
+from typing import Sequence
 
 import numpy as np
 import pandas as pd
@@ -32,6 +32,7 @@ def _column_stats(df: pd.DataFrame, group_cols: Sequence[str], y: np.ndarray, mi
 
 
 def _scan_one(name: object, group_cols: Sequence[str], df: pd.DataFrame, y: np.ndarray, min_group_size: int, overall_var: float, variance_ratio_threshold: float) -> dict:
+    """Score one candidate column (or column combo) for the constant-target-per-group leak pattern."""
     eligible, n_groups = _column_stats(df, group_cols, y, min_group_size)
     if eligible.empty:
         return {
@@ -118,8 +119,7 @@ def constant_group_target_scan(
     if combo_max_size > 1:
         combo_cols = list(candidate_cols)[:combo_max_cols]
         for depth in range(2, combo_max_size + 1):
-            for combo in combinations(combo_cols, depth):
-                rows.append(_scan_one(combo, combo, df, y, min_group_size, overall_var, variance_ratio_threshold))
+            rows.extend(_scan_one(combo, combo, df, y, min_group_size, overall_var, variance_ratio_threshold) for combo in combinations(combo_cols, depth))
 
     result = pd.DataFrame(rows)
     return result.sort_values("min_group_variance_ratio", ascending=True, na_position="last").reset_index(drop=True)

@@ -10,7 +10,7 @@ frame, so predict-time replay just re-runs the same computation, config persiste
 from __future__ import annotations
 
 import logging
-from typing import Any, List, Optional
+from typing import Any, Optional
 
 import pandas as pd
 import polars as pl
@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 def _to_pandas(df: Any) -> Optional[pd.DataFrame]:
+    """Convert a polars DataFrame to pandas; pass through pandas/None unchanged."""
     if df is None:
         return None
     if isinstance(df, pl.DataFrame):
@@ -29,6 +30,7 @@ def _to_pandas(df: Any) -> Optional[pd.DataFrame]:
 
 
 def _attach_new_columns(df: Any, new_cols: "pd.DataFrame") -> Any:
+    """Attach ``new_cols`` (a pandas frame) onto ``df``, matching df's own polars/pandas type."""
     if new_cols.shape[1] == 0:
         return df
     if isinstance(df, pl.DataFrame):
@@ -94,6 +96,8 @@ def apply_cross_sectional_composite_fe(
 
 
 class _ReplayConfig:
+    """Replays this FE step's config from fitted-pipeline metadata (for inference-time reapplication)."""
+
     def __init__(self, metadata: dict):
         self.cross_sectional_neighbors_snapshot_col = metadata.get("cross_sectional_neighbors_snapshot_col")
         self.cross_sectional_neighbors_feature_cols = metadata.get("cross_sectional_neighbors_feature_cols") or []

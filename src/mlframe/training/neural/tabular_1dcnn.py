@@ -16,7 +16,7 @@ pieces for niche architectures where the full Lightning fit/predict loop isn't t
 """
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import List
 
 import numpy as np
 import torch
@@ -87,12 +87,15 @@ class _Tabular1DCNNBackbone(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Apply the conv stack, adding the singleton channel dim the Conv1d layers expect."""
         x = x.unsqueeze(1)  # (batch, 1, n_features)
         out: torch.Tensor = self.conv(x)
         return out
 
 
 class _Tabular1DCNNModule(nn.Module):
+    """Regression head: conv backbone -> global average pool -> single linear output."""
+
     def __init__(self, n_features: int, n_channels: int = 16, kernel_size: int = 5) -> None:
         super().__init__()
         self.backbone = _Tabular1DCNNBackbone(n_channels=n_channels, kernel_size=kernel_size)
@@ -103,11 +106,14 @@ class _Tabular1DCNNModule(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Backbone -> pooled head -> squeeze to a (batch,) regression output."""
         out: torch.Tensor = self.head(self.backbone(x)).squeeze(-1)
         return out
 
 
 class _Tabular1DCNNClassifierModule(nn.Module):
+    """Classification head: conv backbone -> global average pool -> n_classes-wide linear logits."""
+
     def __init__(self, n_features: int, n_classes: int, n_channels: int = 16, kernel_size: int = 5) -> None:
         super().__init__()
         self.backbone = _Tabular1DCNNBackbone(n_channels=n_channels, kernel_size=kernel_size)
@@ -118,6 +124,7 @@ class _Tabular1DCNNClassifierModule(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Backbone -> pooled head -> (batch, n_classes) logits."""
         out: torch.Tensor = self.head(self.backbone(x))  # (batch, n_classes) logits
         return out
 
@@ -147,6 +154,7 @@ class Tabular1DCNNRegressor(BaseEstimator, RegressorMixin):
         self.random_state = random_state
 
     def fit(self, X: np.ndarray, y: np.ndarray) -> "Tabular1DCNNRegressor":
+        """Correlation-order features, then train the 1D-CNN regressor with full-batch Adam/MSE."""
         X_arr = np.asarray(X, dtype=np.float32)
         y_arr = np.asarray(y, dtype=np.float32).reshape(-1)
 
@@ -172,6 +180,7 @@ class Tabular1DCNNRegressor(BaseEstimator, RegressorMixin):
         return self
 
     def predict(self, X: np.ndarray) -> np.ndarray:
+        """Predict continuous targets for X (applies the fitted feature order first)."""
         X_arr = np.asarray(X, dtype=np.float32)[:, self.feature_order_]
         self.model_.eval()
         with torch.no_grad():
@@ -209,6 +218,7 @@ class Tabular1DCNNClassifier(BaseEstimator, ClassifierMixin):
         self.random_state = random_state
 
     def fit(self, X: np.ndarray, y: np.ndarray) -> "Tabular1DCNNClassifier":
+        """Correlation-order features, then train the 1D-CNN classifier with full-batch Adam/cross-entropy."""
         X_arr = np.asarray(X, dtype=np.float32)
 
         self.label_encoder_ = LabelEncoder()
@@ -242,6 +252,7 @@ class Tabular1DCNNClassifier(BaseEstimator, ClassifierMixin):
         return self
 
     def predict_proba(self, X: np.ndarray) -> np.ndarray:
+        """Per-class probabilities for X (applies the fitted feature order first)."""
         X_arr = np.asarray(X, dtype=np.float32)[:, self.feature_order_]
         self.model_.eval()
         with torch.no_grad():
@@ -250,6 +261,7 @@ class Tabular1DCNNClassifier(BaseEstimator, ClassifierMixin):
         return np.asarray(proba.numpy())
 
     def predict(self, X: np.ndarray) -> np.ndarray:
+        """Predict the most likely class label for X."""
         proba = self.predict_proba(X)
         idx = np.argmax(proba, axis=-1)
         labels: np.ndarray = self.label_encoder_.inverse_transform(idx)

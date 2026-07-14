@@ -106,7 +106,7 @@ def detect_regime_changepoints(
 
     result = {"regime_id": regime_id, "breakpoints": filtered_breakpoints, "n_regimes": len(filtered_breakpoints) + 1}
     if return_segment_stats:
-        bounds = [0] + filtered_breakpoints + [n]
+        bounds = [0, *filtered_breakpoints, n]
         result["segment_stats"] = [_segment_stats(y, bounds[i], bounds[i + 1]) for i in range(len(bounds) - 1)]
     return result
 

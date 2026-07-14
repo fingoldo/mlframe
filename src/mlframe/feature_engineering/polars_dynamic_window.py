@@ -11,7 +11,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Dict, Optional, Sequence, Union
 
-import numpy as np
 import pandas as pd
 
 if TYPE_CHECKING:
@@ -19,6 +18,7 @@ if TYPE_CHECKING:
 
 
 def _prepare_lazy_frame(df: pd.DataFrame, time_col: str, value_cols: Sequence[str], group_col: Optional[str]) -> "pl.LazyFrame":
+    """Convert the needed pandas columns to a polars LazyFrame with time_col coerced to Datetime."""
     import polars as pl
 
     pl_df = pl.from_pandas(df[[time_col, *value_cols] + ([group_col] if group_col else [])])

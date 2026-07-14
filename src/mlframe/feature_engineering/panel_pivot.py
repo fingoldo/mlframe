@@ -86,7 +86,7 @@ def pivot_time_indexed_panel(
         # avoiding a second separate groupby pass).
         latest_time = ordered.groupby(id_col, sort=False)[time_index_col].transform("max")
         ordered = ordered.assign(_gap=latest_time - ordered[time_index_col])
-        pivot_cols = pivot_cols + ["_gap"]
+        pivot_cols = [*pivot_cols, "_gap"]
 
     # pivoting all value columns in ONE call reuses pandas' (expensive) group-index-sorting/reshaping setup
     # across every column, instead of repeating it per column -- measured as the dominant cProfile cost when

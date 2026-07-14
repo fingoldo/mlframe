@@ -10,7 +10,7 @@ beyond the config itself.
 from __future__ import annotations
 
 import logging
-from typing import Any, List, Optional
+from typing import Any, Optional
 
 import numpy as np
 import pandas as pd
@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 
 def _attach_new_columns(df: Any, new_cols: "pd.DataFrame") -> Any:
+    """Attach ``new_cols`` (a pandas frame) onto ``df``, matching df's own polars/pandas type."""
     if new_cols.shape[1] == 0:
         return df
     if isinstance(df, pl.DataFrame):
@@ -31,6 +32,7 @@ def _attach_new_columns(df: Any, new_cols: "pd.DataFrame") -> Any:
 
 
 def _to_numpy_column(df: Any, col: str) -> Optional[np.ndarray]:
+    """Return column ``col`` of ``df`` as a numpy array, or None if df/col is missing."""
     if df is None or col not in (df.columns if hasattr(df, "columns") else []):
         return None
     if isinstance(df, pl.DataFrame):
@@ -39,6 +41,7 @@ def _to_numpy_column(df: Any, col: str) -> Optional[np.ndarray]:
 
 
 def _row_count(df: Any) -> int:
+    """Row count of ``df``, or 0 if ``df`` is None."""
     return df.shape[0] if df is not None else 0
 
 
@@ -82,6 +85,7 @@ def apply_entity_time_composite_fe(
     ts_arr = np.asarray(timestamps) if timestamps is not None else None
 
     def _slice(idx: Optional[np.ndarray], n_rows: int):
+        """Slice group_ids/timestamps down to ``idx``, or return None if idx doesn't match n_rows."""
         if idx is None:
             return None
         idx_arr = np.asarray(idx)

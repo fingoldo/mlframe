@@ -747,4 +747,4 @@ def _enumerate_grid(
 # know about the split. ``hpo_ensembling`` no longer imports anything back from this module at runtime
 # (its scorer default comes from the leaf ``_hpo_metrics`` module both siblings share), so this stays a
 # one-directional edge; kept at the bottom purely for readability (re-export next to the rest of __all__).
-from .hpo_ensembling import OOFPoolSelectionResult, select_oof_pool_ensemble  # noqa: E402
+from .hpo_ensembling import OOFPoolSelectionResult, select_oof_pool_ensemble

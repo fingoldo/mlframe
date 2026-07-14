@@ -129,7 +129,7 @@ def multi_decomposition_feature_bank(
         assert y is not None  # guaranteed by the prune_uninformative_methods/y validation above
         near_noise = set(drop_near_noise_univariate_auc(bank, y, columns=list(out.keys()), tolerance=prune_tolerance))
         keep_cols: List[str] = []
-        for method, method_cols in method_columns.items():
+        for method_cols in method_columns.values():
             if all(c in near_noise for c in method_cols):
                 continue  # every component of this method is near-chance -- drop the whole method group
             keep_cols.extend(method_cols)
@@ -139,6 +139,7 @@ def multi_decomposition_feature_bank(
 
 
 def _fit_transform(method: str, X: np.ndarray, k: int, random_state: int) -> np.ndarray:
+    """Fit the named decomposition method with a fixed ``k`` components and return the projection."""
     if method == "svd":
         from sklearn.decomposition import TruncatedSVD
 
@@ -207,6 +208,7 @@ def _reconstruction_errors(X: np.ndarray, projection: np.ndarray, inverse_transf
 
 
 def _fit_transform_auto_k(method: str, X: np.ndarray, k_max: int, random_state: int, variance_ratio: float) -> np.ndarray:
+    """Fit the named decomposition method at ``k_max`` components, then trim to the auto-selected k."""
     if method == "svd":
         from sklearn.decomposition import TruncatedSVD
 

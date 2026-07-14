@@ -96,7 +96,7 @@ def frequency_power_interaction(
     if not (low <= high):
         raise ValueError(f"count_clip_range must have low <= high, got {count_clip_range}")
 
-    uniques, inverse, raw_counts = np.unique(arr, return_inverse=True, return_counts=True)
+    _uniques, inverse, raw_counts = np.unique(arr, return_inverse=True, return_counts=True)
     counts = raw_counts[inverse].astype(np.int64)
 
     scaler = MinMaxScaler(feature_range=feature_range)

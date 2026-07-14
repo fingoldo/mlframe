@@ -42,7 +42,7 @@ class DenoiseResult:
     COMPETITION / EXPLORATORY ONLY — see module docstring.
     """
 
-    __slots__ = ("denominator", "residual_score", "denoised")
+    __slots__ = ("denoised", "denominator", "residual_score")
 
     def __init__(self, denominator: float, residual_score: float, denoised: npt.NDArray[np.float64]) -> None:
         self.denominator = denominator
@@ -88,11 +88,13 @@ class FloatPrecisionDenoiser:
         self.residual_score_: float = np.inf
 
     def _candidate_denominators(self) -> npt.NDArray[np.float64]:
+        """Build the pool of candidate denominators to try (powers of 10 plus small integers)."""
         pows = np.power(10.0, np.arange(0, self.max_decimal_pow + 1, dtype=np.float64))
         ints = np.arange(1, self.max_denominator + 1, dtype=np.float64)
         return np.unique(np.concatenate([pows, ints]))
 
     def _residual_for_denominator(self, x: npt.NDArray[np.float64], denominator: float) -> float:
+        """Mean fractional residual of ``x * denominator`` -- lower means a better-fitting denominator."""
         scaled = x * denominator
         if self.use_floor:
             frac = scaled - np.floor(scaled)

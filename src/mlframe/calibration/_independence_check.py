@@ -81,7 +81,7 @@ def member_residual_correlation(member_probs: np.ndarray, clip: float = 1e-7) ->
     p = np.asarray(member_probs, dtype=np.float64)
     if p.ndim != 2:
         raise ValueError(f"member_residual_correlation: member_probs must be 2D (n_samples, n_members); got shape {p.shape}")
-    n, k = p.shape
+    _n, k = p.shape
     if k < 2:
         return {"mean_abs_residual_correlation": 0.0, "max_abs_residual_correlation": 0.0, "per_member_consensus_correlation": np.zeros(k)}
 

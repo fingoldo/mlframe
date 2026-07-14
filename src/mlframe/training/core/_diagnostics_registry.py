@@ -31,6 +31,7 @@ def _numeric_frame(df: Optional[pd.DataFrame], cat_features: Optional[List[str]]
 
 
 def _looks_classification(y: Optional[np.ndarray]) -> bool:
+    """Heuristic: treat y as classification when its distinct-value count is small relative to n."""
     if y is None:
         return False
     uniq = np.unique(y[~pd.isnull(y)]) if len(y) else np.array([])
@@ -57,6 +58,7 @@ def _default_model_and_metric(y: Optional[np.ndarray]):
 
 
 def adapt_cv_informativeness(train_df, val_df, test_df, target_col, cat_features, group_ids, y, **kwargs) -> dict:
+    """Registry adapter for cv_informativeness_check: builds a KFold split over numeric train_df and scores it."""
     try:
         from mlframe.evaluation.cv_informativeness import cv_informativeness_check
         from sklearn.model_selection import KFold
@@ -80,6 +82,7 @@ def adapt_cv_informativeness(train_df, val_df, test_df, target_col, cat_features
 
 
 def adapt_compare_cv_schemes(train_df, val_df, test_df, target_col, cat_features, group_ids, y, **kwargs) -> dict:
+    """Registry adapter for compare_cv_schemes: compares KFold vs ShuffleSplit against an out-of-time holdout."""
     try:
         from mlframe.evaluation.compare_cv_schemes import compare_cv_schemes
         from sklearn.model_selection import KFold, ShuffleSplit
@@ -115,6 +118,7 @@ def adapt_compare_cv_schemes(train_df, val_df, test_df, target_col, cat_features
 
 
 def adapt_group_leakage(train_df, val_df, test_df, target_col, cat_features, group_ids, y, **kwargs) -> dict:
+    """Registry adapter for assert_no_group_leakage over the train/val fold."""
     try:
         from mlframe.evaluation.group_leakage_guard import assert_no_group_leakage
 
@@ -137,6 +141,7 @@ def adapt_group_leakage(train_df, val_df, test_df, target_col, cat_features, gro
 
 
 def adapt_constant_group_leak(train_df, val_df, test_df, target_col, cat_features, group_ids, y, **kwargs) -> dict:
+    """Registry adapter for constant_group_target_scan over the categorical feature columns."""
     try:
         from mlframe.evaluation.constant_group_leak_scan import constant_group_target_scan
 
@@ -153,6 +158,7 @@ def adapt_constant_group_leak(train_df, val_df, test_df, target_col, cat_feature
 
 
 def adapt_adversarial_fold_selection(train_df, val_df, test_df, target_col, cat_features, group_ids, y, **kwargs) -> dict:
+    """Registry adapter for build_test_like_validation_fold over shared numeric train/test columns."""
     try:
         from mlframe.evaluation.adversarial_fold_selection import build_test_like_validation_fold
 
@@ -165,13 +171,14 @@ def adapt_adversarial_fold_selection(train_df, val_df, test_df, target_col, cat_
         kwargs.pop("return_history", None)  # keep the 2-tuple contract this adapter returns
         _fold_result = build_test_like_validation_fold(X_train=X_train, X_test=X_test, return_history=False, **kwargs)
         val_idx, remaining_idx = _fold_result[0], _fold_result[1]
-        return {"val_idx": val_idx.tolist(), "n_selected": int(len(val_idx)), "n_remaining": int(len(remaining_idx))}
+        return {"val_idx": val_idx.tolist(), "n_selected": len(val_idx), "n_remaining": len(remaining_idx)}
     except Exception as e:
         logger.debug("diagnostics.adversarial_fold_selection failed: %s", e)
         return {"error": str(e)}
 
 
 def adapt_subpopulation_drift(train_df, val_df, test_df, target_col, cat_features, group_ids, y, **kwargs) -> dict:
+    """Registry adapter for subpopulation_ratio_drift_check over a resolved subgroup column."""
     try:
         from mlframe.evaluation.subpopulation_drift import subpopulation_ratio_drift_check
 

@@ -43,7 +43,7 @@ def _summary_stats_block(values: np.ndarray, stats: Sequence[Union[str, float]],
     _quantile_names: list[str] = []
     _quantile_qs: list[float] = []
     for stat in stats:
-        stat_name = stat if isinstance(stat, str) else f"q{int(round(stat * 100))}"
+        stat_name = stat if isinstance(stat, str) else f"q{round(stat * 100)}"
         if stat == "mean":
             out[f"{column_prefix}_mean"] = np.nanmean(values, axis=1)
         elif stat == "std":
@@ -71,8 +71,7 @@ def _summary_stats_block(values: np.ndarray, stats: Sequence[Union[str, float]],
         out[_quantile_names[0]] = quantile_fn(values, _quantile_qs[0], axis=1)
     elif _quantile_qs:
         _q_result = quantile_fn(values, _quantile_qs, axis=1)
-        for _name, _row in zip(_quantile_names, _q_result):
-            out[_name] = _row
+        out.update(zip(_quantile_names, _q_result))
     return out
 
 

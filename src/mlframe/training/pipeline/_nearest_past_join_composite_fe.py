@@ -12,7 +12,7 @@ FRESH ``auxiliary_events_df`` (the predict-time entities' own up-to-date histori
 from __future__ import annotations
 
 import logging
-from typing import Any, List, Optional
+from typing import Any, Optional
 
 import pandas as pd
 import polars as pl
@@ -23,12 +23,14 @@ logger = logging.getLogger(__name__)
 
 
 def _to_pandas(df: Any) -> Optional[pd.DataFrame]:
+    """Convert a polars DataFrame to pandas; pass through pandas/None unchanged."""
     if df is None:
         return None
     return df.to_pandas() if isinstance(df, pl.DataFrame) else df
 
 
 def _restore_frame_type(original: Any, result_pd: pd.DataFrame) -> Any:
+    """Convert ``result_pd`` back to polars if ``original`` was a polars DataFrame."""
     return pl.from_pandas(result_pd) if isinstance(original, pl.DataFrame) else result_pd
 
 
@@ -101,6 +103,8 @@ def apply_nearest_past_join_composite_fe(
 
 
 class _ReplayConfig:
+    """Replays this FE step's join config from fitted-pipeline metadata (for inference-time reapplication)."""
+
     def __init__(self, metadata: dict):
         self.nearest_past_join_on = metadata.get("nearest_past_join_on")
         self.nearest_past_join_by = metadata.get("nearest_past_join_by") or []

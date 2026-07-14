@@ -8,7 +8,7 @@ other columns" that captures most of that context at near-zero extra cost.
 """
 from __future__ import annotations
 
-from typing import Dict, Optional, Sequence
+from typing import Optional, Sequence
 
 import numpy as np
 import pandas as pd

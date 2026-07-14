@@ -23,18 +23,17 @@ import numpy as np
 # Shared with ._optimization_search (both siblings import these from the leaf module to avoid the
 # circular partial-import a direct cross-import between the two would create); re-exported here for BC.
 from ._optimization_shared import (
-    BIG_VALUE,
+    BIG_VALUE,  # noqa: F401
     NOT_READY,
-    SMALL_VALUE,
+    SMALL_VALUE,  # noqa: F401
     CandidateSamplingMethod,
     OptimizationDirection,
     OptimizationProgressPlotting,
     _SearchNotReady,  # noqa: F401
-    compute_candidates_exploration_scores,
-    generate_fibonacci,
-    plot_search_state,
+    compute_candidates_exploration_scores,  # noqa: F401
+    generate_fibonacci,  # noqa: F401
+    plot_search_state,  # noqa: F401
 )
-
 
 # Wave 100 (2026-07-11): _ETRWithStd + MBHOptimizer (~600 lines: ctor param
 # checks, RNG discipline, init sampling, suggest_candidate/submit_evaluations)

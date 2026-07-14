@@ -66,7 +66,7 @@ class RoundedNumericCategoricalInteraction:
         propagating NaN into the composite.
     """
 
-    __slots__ = ("decimals", "sep", "missing_token")
+    __slots__ = ("decimals", "missing_token", "sep")
 
     def __init__(self, decimals: int = 2, sep: str = "|", missing_token: str = "<NA>") -> None:
         if decimals < 0:
@@ -78,6 +78,7 @@ class RoundedNumericCategoricalInteraction:
         self.missing_token = missing_token
 
     def _stringify_numeric(self, numeric: npt.NDArray[np.float64]) -> npt.NDArray[np.str_]:
+        """Round then format a numeric column to fixed-decimal strings, mapping non-finite values to ``missing_token``."""
         rounded = np.round(numeric.astype(np.float64), self.decimals)
         out = np.empty(rounded.shape, dtype=object)
         finite_mask = np.isfinite(rounded)
@@ -87,6 +88,7 @@ class RoundedNumericCategoricalInteraction:
         return out.astype(str)
 
     def _stringify_categorical(self, categorical: Union[pd.Series, npt.NDArray]) -> npt.NDArray[np.str_]:
+        """Format a categorical column to strings, mapping missing values to ``missing_token``."""
         series = categorical if isinstance(categorical, pd.Series) else pd.Series(categorical)
         filled = series.where(series.notna(), self.missing_token)
         return np.asarray(filled.astype(str).to_numpy())

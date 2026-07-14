@@ -109,6 +109,7 @@ def forward_select(
     all_candidates = list(candidate_features) if candidate_features is not None else (list(X.columns) if is_frame else list(range(np.asarray(X).shape[1])))
 
     def _subset(cols: List[Any]) -> Any:
+        """Column-select ``cols`` from X, working for both a DataFrame and a bare ndarray."""
         return X[cols] if is_frame else np.asarray(X)[:, cols]
 
     diagnostics_needed = patience is not None or return_report
@@ -133,7 +134,7 @@ def forward_select(
         trial_scores: dict[Any, float] = {}
         trial_fold_scores: dict[Any, np.ndarray] = {}
         for candidate in remaining:
-            trial_cols = selected + [candidate]
+            trial_cols = [*selected, candidate]
             model = estimator_factory()
             fold_scores = cross_val_score(model, _subset(trial_cols), y, cv=cv, scoring=scoring)
             trial_scores[candidate] = float(np.mean(fold_scores))
