@@ -622,8 +622,25 @@ def batched_quantile_bin_gpu(x_cols: Any, nbins: int) -> Any:
         Xd = Xd[:, None]
     Xd = Xd.astype(cp.float64, copy=False)
     n, K = int(Xd.shape[0]), int(Xd.shape[1])
-    qs = cp.linspace(0.0, 100.0, nbins + 1)
-    edges_all = cp.percentile(Xd, qs, axis=0)  # (nbins+1, K) -- one batched device sort
+    # Sort-free radix-select edges first (default ON): cp.percentile(axis=0) implements the batched edge
+    # computation as ONE FULL MERGE SORT of the whole (n, K) matrix -- nsys on the wellbore-100k strict fit
+    # showed exactly this cub DeviceMergeSort at 74% of ALL GPU time (143.5s, 180 launches, ~2.4s each at
+    # 61M elements). _radix_select_interior_edges produces bit-identical interior edges (documented maxdiff
+    # 0 in the resulting codes) via rank-select without sorting; q=0/q=100 are exact column min/max (plain
+    # reductions). cp.percentile stays the exact fallback when radix is inapplicable (R/shared-mem caps) or
+    # gated off via MLFRAME_FE_GPU_RADIX_EDGES=0.
+    edges_all = None
+    try:
+        from ._gpu_resident_select import _radix_select_interior_edges, fe_gpu_radix_edges_enabled
+        if fe_gpu_radix_edges_enabled():
+            interior = _radix_select_interior_edges(cp.ascontiguousarray(Xd), int(nbins))  # (nbins-1, K) or None
+            if interior is not None:
+                edges_all = cp.concatenate([Xd.min(axis=0)[None, :], interior, Xd.max(axis=0)[None, :]], axis=0)
+    except Exception:
+        edges_all = None
+    if edges_all is None:
+        qs = cp.linspace(0.0, 100.0, nbins + 1)
+        edges_all = cp.percentile(Xd, qs, axis=0)  # (nbins+1, K) -- one batched device sort
     codes = cp.zeros((n, K), dtype=cp.int64)
     for k in range(K):
         edges = cp.unique(edges_all[:, k])  # dedupe equi-freq edges (mirror np.unique on host)
