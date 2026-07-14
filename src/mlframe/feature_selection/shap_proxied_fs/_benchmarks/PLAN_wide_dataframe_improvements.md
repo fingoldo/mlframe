@@ -326,13 +326,30 @@ the constructor, exactly as the existing docstring recommends for "AUC-optimisin
 max recovery for a downstream model". No further pipeline changes are needed to close this
 investigation thread.
 
-**Confirmed outstanding housekeeping (independent of the above):**
-1. Upgrade `test_noise_floor_rescue_keep_set_recovers_weak_signal` to the properly-stressing fixture
-   (still valid as a pure-function regression pin for finding 5, regardless of the root-cause finding
-   above — the rescue mechanism itself is correct and worth keeping).
-2. Full regression run of `tests/feature_selection/shap_proxied/` once the machine is not
-   contended — none of this session's changes have a CONFIRMED clean full-suite run; only isolated/
-   synchronous checks succeeded throughout.
+**Housekeeping — CLOSED:**
+1. ~~Upgrade `test_noise_floor_rescue_keep_set_recovers_weak_signal` to the properly-stressing
+   fixture~~ — DONE: the committed test already uses the stressing fixture (8 weak features at ranks
+   33-40, past the top-28 cut; asserts a real pre-rescue gap AND full post-rescue recovery).
+2. ~~Full regression run~~ — DONE. Full `tests/feature_selection/shap_proxied/` directory run in
+   3 batches (monolithic runs kept dying on the per-test 600s timeout under machine load; batching
+   isolates the slow tail). All with `CUDA_VISIBLE_DEVICES="" -p no:anyio -m "not slow"
+   --timeout=600` (the pyarrow>=25.0.0 fix was required first — see the pytest-SIGSEGV note in
+   `tests/conftest.py`):
+
+   | Batch | Scope | Result |
+   |---|---|---|
+   | 1 (critical: code directly changed this session) | guards / heuristics / fit_helpers / biz_val parsimony / adaptive_prescreen / brute_force_cap / knobs / fs_contract | **77 passed, 0 failed** |
+   | 2 (fit-pipeline, indirect coverage) | search / objective / revalidate* / split_memory / prefilter* / shap_prefilter | **189 passed, 0 failed** |
+   | 3 (untouched: clustering / GPU / interactions / rest) | remaining ~50 files | **249 passed, 1 failed, 1 skipped** |
+
+   The single batch-3 failure is `test_shap_proxy_cluster_su_column_major.py::
+   test_column_major_speedup_vs_row_major_reference` — the wall-clock ratio assert (needs >=1.7x,
+   measured ~1.03x under concurrent CPU pressure). The test's own comment documents this exact
+   load-sensitivity; the code it measures was not touched this session. Classified pre-existing /
+   load-flake per plan; not fixed.
+
+   **Net: 515 passed / 1 known load-flake across the entire directory — zero regressions from this
+   session's changes.**
 
 ## Recommendations for making ShapProxiedFS shine on WIDE dataframes (design-level, not yet coded)
 

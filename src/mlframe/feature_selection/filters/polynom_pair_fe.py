@@ -32,7 +32,7 @@ import numpy as np
 from joblib import Parallel, delayed
 from joblib._parallel_backends import LokyBackend
 
-from ._joblib_safe import POLYNOM_LOKY_IDLE_WORKER_TIMEOUT, disable_cuda_in_worker, run_in_big_stack_thread
+from ._joblib_safe import POLYNOM_LOKY_IDLE_WORKER_TIMEOUT, disable_cuda_in_worker, fit_constant_memmap, run_in_big_stack_thread
 from .discretization import discretize_array
 from .engineered_recipes import build_hermite_pair_recipe
 from .hermite_fe import optimise_hermite_pair, precompute_hermite_pair_basis
@@ -212,6 +212,13 @@ def run_polynom_pair_fe(
         X_ndarr = X.to_numpy()  # polars -> (N, F) contiguous ndarray
     else:
         X_ndarr = X.values if hasattr(X, "values") else np.asarray(X)
+    # run_polynom_pair_fe is called once per FE round (up to fe_max_steps times per fit) with the SAME
+    # X content each time -- a fresh Parallel(...) call below re-triggers joblib's memmapping reducer's
+    # OWN dump of X_ndarr per call (it only dedups WITHIN one Parallel() invocation's tasks, not ACROSS
+    # separate calls). fit_constant_memmap (shared with _step_pairmi.py's identical fix) dumps content
+    # ONCE per process and hands back the read-only memmap on every subsequent round -- joblib passes an
+    # existing np.memmap to loky workers by filename with no re-dump at all.
+    X_ndarr = fit_constant_memmap(X_ndarr)
 
     def _eval_one_pair_impl(raw_vars_pair, X_arr, y_arr):
         """Search + fit the best polynomial-basis feature for one raw variable pair; runs inside a worker.

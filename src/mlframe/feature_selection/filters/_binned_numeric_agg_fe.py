@@ -594,7 +594,7 @@ def binned_numeric_agg_with_recipes(
                 # is selection-equivalent; falls back to the per-perm loop on any error / when GPU is off.
                 _null = None
                 try:
-                    if _cmi_gpu_enabled(n=int(y_cls.shape[0]), p=int(_n_perm)) and int(_n_perm) > 1:
+                    if _cmi_gpu_enabled(n=int(y_cls.shape[0]), p=int(_n_perm), min_p=2) and int(_n_perm) > 1:
                         from ._fe_batched_mi import batched_cmi_gpu
 
                         _Yp = np.empty((y_cls.shape[0], int(_n_perm)), dtype=np.int64)

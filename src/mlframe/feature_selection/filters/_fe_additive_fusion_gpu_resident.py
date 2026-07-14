@@ -223,13 +223,16 @@ def propose_additive_fusions_gpu(
     halves: list[dict] = []
     for j in range(H):
         mi = float(mis[j])
-        # The permutation-null floor is a CPU-interface helper (host int codes, GPU-routed internally). Pull
-        # THIS half's resident code row back ONCE for the floor probe -- a probe-input D2H, not a binning D2H
-        # (binning stayed resident above). Mirrors the CPU pre-pass's own host code array (_Xh).
-        vb = cp.asnumpy(cp.ascontiguousarray(codes_dev[:, j]))
-        floor, _ = _conditional_perm_null(vb, y_dense_sc, None, seed=seed)
+        # _conditional_perm_null accepts an ALREADY-RESIDENT cupy candidate (its resident-input branch
+        # consumes it without a re-upload), so the floor probe runs on the resident column directly.
+        # The host copy of the codes is only needed by the downstream fusion probe for halves that
+        # actually SURVIVE the floor gate -- pulling it before the gate paid a per-half D2H for every
+        # irrelevant half too (most of the pool, by design).
+        col_dev = cp.ascontiguousarray(codes_dev[:, j])
+        floor, _ = _conditional_perm_null(col_dev, y_dense_sc, None, seed=seed)
         if mi <= floor:
             continue  # not relevant -- never a fusion half
+        vb = cp.asnumpy(col_dev)
         halves.append({
             "name": _names[j], "recipe": _recs[j], "tokens": _toks[j],
             "mi": mi, "floor": float(floor), "col": j, "binned": vb,

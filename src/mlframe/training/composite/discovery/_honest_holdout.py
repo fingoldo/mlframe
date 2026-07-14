@@ -23,6 +23,7 @@ materialised, never a frame copy.
 from __future__ import annotations
 
 import logging
+import threading
 from typing import Any, Sequence
 
 import numpy as np
@@ -123,6 +124,24 @@ def carve_screening_holdout(self, train_idx: np.ndarray) -> tuple[np.ndarray, np
     transform params + score, so it stays aligned to ``_auto_base_pool`` which holds
     ``base[train_idx]``). ``holdout_idx`` is ``None`` when the split is disabled / too small.
     """
+    # Stability-check sharing: ``fit_with_stability_check`` carves the honest holdout ONCE for the
+    # whole replicate sweep and hands each replicate a subsample of the SCREEN pool only. Each
+    # replicate must then reuse that shared holdout instead of carving its own -- per-replicate
+    # carves draw holdouts that overlap other replicates' screening pools, so no row set stays
+    # "never touched" across the sweep (plus each replicate pays a redundant carve). The attribute is
+    # a (possibly empty) index array; empty means the holdout is disabled for the whole sweep.
+    _shared = getattr(self, "_stability_shared_holdout_idx", None)
+    if _shared is not None:
+        shared = np.asarray(_shared)
+        if shared.size and np.intersect1d(train_idx, shared).size:
+            logger.warning(
+                "[CompositeTargetDiscovery] stability-shared holdout overlaps the replicate's " "train subsample; falling back to a per-replicate carve."
+            )
+        else:
+            self.full_train_idx_ = np.sort(np.concatenate([train_idx, shared])) if shared.size else train_idx
+            self.honest_holdout_idx_ = shared if shared.size else None
+            self.train_idx_ = train_idx
+            return train_idx, (shared if shared.size else None)
     self.full_train_idx_ = train_idx
     screen_idx, holdout_idx = split_screening_holdout(
         train_idx,
@@ -229,6 +248,12 @@ def rescore_specs_on_holdout(
     n_neighbors = int(getattr(cfg, "mi_n_neighbors", 3))
     random_state = int(getattr(cfg, "random_state", 0))
     y_holdout = y_full[holdout_idx]
+    # ``mi_y = MI(y_holdout, X_remaining)`` depends only on (the spec's base-column set, the valid
+    # row mask) -- specs sharing both would recompute the identical scalar. Memoise across specs;
+    # the biggest win is on the knn estimator where each per-column Kraskov call dominates cost.
+    # Lock-guarded -- the per-spec re-scores run from a thread pool below.
+    _mi_y_memo: dict[tuple, float] = {}
+    _mi_y_memo_lock = threading.Lock()
 
     def _rescore_one(spec) -> None:
         """Recompute one spec's honest MI gain on the held-out rows and write it back onto the frozen spec in place via ``object.__setattr__``; any failure (unknown transform, empty remaining-feature matrix) leaves the spec's honest fields untouched."""
@@ -290,11 +315,19 @@ def rescore_specs_on_holdout(
             n_neighbors=n_neighbors, random_state=random_state,
             estimator=estimator, **_mi_kwargs,
         )
-        mi_y = _mi_to_target(
-            x_valid, y_h[valid],
-            n_neighbors=n_neighbors, random_state=random_state,
-            estimator=estimator, **_mi_kwargs,
-        )
+        _memo_key = (tuple(base_columns), hash(valid.tobytes()))
+        with _mi_y_memo_lock:
+            _mi_y_cached = _mi_y_memo.get(_memo_key)
+        if _mi_y_cached is None:
+            mi_y = _mi_to_target(
+                x_valid, y_h[valid],
+                n_neighbors=n_neighbors, random_state=random_state,
+                estimator=estimator, **_mi_kwargs,
+            )
+            with _mi_y_memo_lock:
+                _mi_y_memo[_memo_key] = float(mi_y)
+        else:
+            mi_y = _mi_y_cached
         honest_gain = float(mi_t - mi_y)
         object.__setattr__(spec, "honest_holdout_gain", honest_gain)
         object.__setattr__(spec, "honest_holdout_mi_t", float(mi_t))

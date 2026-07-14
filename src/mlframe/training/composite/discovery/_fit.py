@@ -245,6 +245,15 @@ def fit(
     train_idx_screen, sample_idx, self._screen_time_ordered_ = order_screen_by_time(train_idx_screen, sample_idx, time_ordering)
     y_screen = y_full[train_idx_screen]
 
+    # knn-MI cost guard: probe one column's Kraskov cost on the real screen sample and downgrade
+    # knn -> bin (warning) when the extrapolated sweep exceeds ``knn_mi_budget_seconds`` -- a knn
+    # config on a large screen can otherwise take hours where bin takes seconds. Swaps only a
+    # per-fit config copy; see ``_knn_budget`` for why T-side neighbor caching is not an option.
+    if self.config.mi_estimator == "knn" and getattr(self.config, "knn_mi_auto_downgrade", True):
+        from ._knn_budget import maybe_downgrade_knn_estimator
+
+        maybe_downgrade_knn_estimator(self, df, usable_features, base_candidates, train_idx_screen, y_screen)
+
     # Bin-MI floors every value to 0.0 when the screening sample has fewer than
     # 5*nbins finite rows (joint-histogram cells too sparse), so top-K ranking
     # silently degenerates to the rerank/alphabetical tiebreaker. Warn rather
@@ -886,6 +895,22 @@ def fit(
         )
         if _ram_profiler_on:
             _phase_ram_report(_ram_state, "yscale_holdout_gate_done")
+
+    # Honest-holdout OOS predictive-error gate. MI (and the MI-based honest re-score below) is
+    # monotone-invariant, so a spec can raise MI while WORSENING the y-scale OOS RMSE (canonical case:
+    # a ratio dividing by a small noisy base amplifies noise). Replicate the real prediction objective
+    # on the never-touched holdout with a tiny model and DROP specs whose y-scale holdout RMSE loses to
+    # raw y. This is the only OOS predictive gate on the ``screening="mi"`` path. Runs before the MI
+    # re-score so the heavier per-spec MI pass only touches survivors (``honest_rmse_gate_enabled``).
+    if kept_specs and getattr(self.config, "honest_rmse_gate_enabled", True):
+        from ._honest_rmse_gate import apply_honest_rmse_gate
+
+        kept_specs = apply_honest_rmse_gate(
+            self, df, target_col, kept_specs, usable_features,
+            train_idx, _honest_holdout_idx, y_full,
+        )
+        if _ram_profiler_on:
+            _phase_ram_report(_ram_state, "honest_rmse_gate_done")
 
     # Honest holdout re-score (SA27). The winner set is now FINAL; re-score ONLY these
     # survivors on the holdout the discovery never touched (see ``apply_honest_holdout``).

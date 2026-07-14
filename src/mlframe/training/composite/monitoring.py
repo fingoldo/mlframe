@@ -159,6 +159,11 @@ class CompositeDriftMonitor:
         Which signals, when alerting, set ``recommend_update=True`` (the hook
         the ``online_refit`` ``update()`` path consumes). Default: any base or
         residual alert (prediction PSI alone is advisory).
+    on_drift
+        Optional callback invoked as ``on_drift(report)`` at the end of :meth:`monitor` whenever
+        ``recommend_update`` is True -- the streaming hook for automatic reactions such as
+        :func:`check_and_rediscover`. Exceptions from the callback are logged, never raised (a
+        reaction failure must not break the monitoring loop).
     """
 
     def __init__(
@@ -173,6 +178,7 @@ class CompositeDriftMonitor:
         rolling_rmse_window: int = 20,
         sketch_quantiles: int = _DEFAULT_SKETCH_QUANTILES,
         recommend_update_on: Sequence[str] = ("base", "residual"),
+        on_drift: Any = None,
     ) -> None:
         if not hasattr(estimator, "fitted_params_"):
             raise ValueError("CompositeDriftMonitor: estimator is not fitted " "(no fitted_params_); fit it before monitoring.")
@@ -184,6 +190,7 @@ class CompositeDriftMonitor:
         self.residual_scale_log_threshold = float(residual_scale_log_threshold)
         self.sketch_quantiles = int(sketch_quantiles)
         self.recommend_update_on = tuple(recommend_update_on)
+        self.on_drift = on_drift
         self._rolling_rmse: Deque[float] = deque(maxlen=int(rolling_rmse_window))
 
     # ------------------------------------------------------------------
@@ -317,13 +324,16 @@ class CompositeDriftMonitor:
 
         any_alert = any(s["alert"] for s in signals.values())
         recommend = self._recommend_update(signals)
-        return {
+        report = {
             "signals": signals,
             "alert": bool(any_alert),
             "recommend_update": bool(recommend),
             "n": int(y_hat.size),
             "has_y": bool(has_y),
         }
+        if recommend and self.on_drift is not None:
+            self.on_drift(report)
+        return report
 
     def _residual_signals(
         self, y: Any, y_hat: np.ndarray, sketch: Dict[str, Any],
@@ -382,3 +392,8 @@ class CompositeDriftMonitor:
     def rolling_rmse(self) -> Tuple[float, ...]:
         """Snapshot of the rolling residual-RMSE history (oldest -> newest)."""
         return tuple(self._rolling_rmse)
+
+
+# Drift-aware rediscovery helper lives in the sibling module (LOC discipline); re-exported here so
+# callers import both the monitor and its automatic reaction from one place.
+from .monitoring_rediscovery import check_and_rediscover  # noqa: F401

@@ -27,6 +27,7 @@ class RejectStage:
     RAW_DOMINATES_SKIP = "raw_dominates_skip"
     STRUCTURAL_FRAGILITY = "structural_fragility"
     YSCALE_HOLDOUT = "yscale_holdout"
+    HONEST_RMSE = "honest_rmse"
     AUTO_BASE_NULL = "auto_base_null"
     AUTO_BASE_NEAR_COPY_Y = "auto_base_near_copy_y"
     AUTO_BASE_DEDUP = "auto_base_dedup"

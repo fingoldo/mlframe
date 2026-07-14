@@ -67,3 +67,13 @@ class CompositeSpec:
     honest_holdout_mi_t: float | None = None
     honest_holdout_mi_y: float | None = None
     honest_holdout_n_rows: int | None = None
+    # Honest-holdout OOS predictive-error re-score (the RMSE analogue of ``honest_holdout_gain``). MI is
+    # monotone-invariant, so a spec can raise MI while WORSENING y-scale OOS RMSE; these fields carry the direct
+    # predictive check on the same never-touched holdout: a tiny screening model fit on the screening rows for T,
+    # inverted to y-scale on the holdout, compared against the same tiny model on raw y. ``honest_holdout_rmse`` is
+    # the spec's y-scale holdout RMSE, ``honest_holdout_raw_rmse`` the raw-y baseline on the identical split, and
+    # ``honest_holdout_rmse_gain = raw - spec`` (positive = the composite predicts y better OOS). ``None`` when the
+    # gate did not run. Set post-construction via ``object.__setattr__`` (frozen dataclass).
+    honest_holdout_rmse: float | None = None
+    honest_holdout_raw_rmse: float | None = None
+    honest_holdout_rmse_gain: float | None = None

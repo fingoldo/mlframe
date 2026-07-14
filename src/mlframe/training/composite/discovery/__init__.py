@@ -145,6 +145,10 @@ class CompositeTargetDiscovery:
     _df_ref: Any
     _screen_time_ordered_: bool
     _fit_data_signature: str
+    # Sweep-shared honest holdout set by ``fit_with_stability_check`` (consumed by
+    # ``carve_screening_holdout``); ``None`` outside a stability sweep.
+    _stability_shared_holdout_idx: np.ndarray | None
+    stability_counts_: dict[str, int]
 
     def __init__(self, config: Any) -> None:
         if isinstance(config, dict):
@@ -308,13 +312,9 @@ class CompositeTargetDiscovery:
         # inner CV seed. Masked to int32 to stay a valid numpy/config seed.
         _run_seeds = derive_seeds(base_seed, [f"stability_run_{i}" for i in range(int(n_bootstrap_runs))])
         train_idx = np.asarray(train_idx)
-        _n_train = int(train_idx.size)
-        # M-B subsample size: clamp to [2, n_train]. A degenerate (<2 rows)
-        # subsample is meaningless for fitting transform params, so fall back to
-        # the full train_idx in that pathological case.
+        # M-B subsample size is computed against the SCREEN POOL below (post shared-holdout carve),
+        # clamped to [2, pool] -- a degenerate (<2 rows) subsample cannot fit transform params.
         _frac = float(subsample_fraction)
-        _sub_n = _n_train if _frac >= 1.0 else max(2, round(_frac * _n_train))
-        _sub_n = min(_sub_n, _n_train)
         keep_counter: Counter = Counter()
         spec_by_name: dict[str, CompositeSpec] = {}
         # Group-aware resampling: on grouped data resample whole GROUPS (leave-wells-out), not rows -- a row draw puts a
@@ -324,38 +324,64 @@ class CompositeTargetDiscovery:
         from ._stability import _align_group_labels, _resolve_group_ids, _subsample_groups
         _stab_group_aware = bool(getattr(self.config, "stability_group_aware", True))
         _group_labels_train = None
-        if _stab_group_aware and _sub_n < _n_train:
+        if _stab_group_aware:
             _grp_full = _resolve_group_ids(None, getattr(self.config, "group_column", None), df, self)
             _aligned = _align_group_labels(_grp_full, train_idx) if _grp_full is not None else None
             if _aligned is not None and np.unique(_aligned).size >= 2:
                 _group_labels_train = _aligned
-        for i in range(int(n_bootstrap_runs)):
-            _run_seed = int(_run_seeds[f"stability_run_{i}"]) & 0x7FFFFFFF
-            self.config.random_state = _run_seed
-            # Per-run subsample (defect 2 above): a dedicated RNG seeded from the decorrelated run seed keeps the draw
-            # reproducible per base seed while making each run a genuinely different population. Sorted to preserve any
-            # time/order semantics train_idx carried (fit reads rows positionally).
-            if _sub_n < _n_train:
-                _run_rng = np.random.default_rng(_run_seed)
-                if _group_labels_train is not None:
-                    _run_train_idx = _subsample_groups(train_idx, _group_labels_train, _frac, _run_rng)
+        # Carve the honest holdout ONCE for the whole sweep (shared across replicates). Per-replicate
+        # carves each drew a fresh 20% of that run's subsample, so every replicate's holdout landed
+        # inside other replicates' screening pools -- no row set stayed "never touched" sweep-wide,
+        # and each run paid a redundant carve. Now the holdout is fixed up front, every replicate
+        # subsamples the SCREEN pool only, and ``carve_screening_holdout`` reuses the shared indices
+        # (see ``_stability_shared_holdout_idx`` in ``_honest_holdout``). Seeded by the base seed,
+        # group-aware when a key resolves -- identical carve semantics to a single fit.
+        from ._honest_holdout import split_screening_holdout
+        _screen_pool, _shared_holdout = split_screening_holdout(
+            train_idx,
+            getattr(self.config, "honest_holdout_frac", 0.2),
+            base_seed,
+            group_ids=_group_labels_train,
+        )
+        self._stability_shared_holdout_idx = _shared_holdout if _shared_holdout is not None else np.empty(0, dtype=train_idx.dtype)
+        _pool_n = int(_screen_pool.size)
+        _pool_sub_n = _pool_n if _frac >= 1.0 else min(max(2, round(_frac * _pool_n)), _pool_n)
+        _group_labels_pool = None
+        if _group_labels_train is not None:
+            _pool_pos = np.isin(train_idx, _screen_pool)
+            _group_labels_pool = _group_labels_train[_pool_pos]
+        try:
+            for i in range(int(n_bootstrap_runs)):
+                _run_seed = int(_run_seeds[f"stability_run_{i}"]) & 0x7FFFFFFF
+                self.config.random_state = _run_seed
+                # Per-run subsample (defect 2 above) drawn from the SCREEN POOL (never the shared
+                # holdout): a dedicated RNG seeded from the decorrelated run seed keeps the draw
+                # reproducible per base seed while making each run a genuinely different population.
+                # Sorted to preserve any time/order semantics train_idx carried.
+                if _pool_sub_n < _pool_n:
+                    _run_rng = np.random.default_rng(_run_seed)
+                    if _group_labels_pool is not None:
+                        _run_train_idx = _subsample_groups(_screen_pool, _group_labels_pool, _frac, _run_rng)
+                    else:
+                        _run_train_idx = np.sort(_run_rng.choice(_screen_pool, size=_pool_sub_n, replace=False))
                 else:
-                    _run_train_idx = np.sort(_run_rng.choice(train_idx, size=_sub_n, replace=False))
-            else:
-                _run_train_idx = train_idx
-            try:
-                self.fit(df, target_col, feature_cols, _run_train_idx, val_idx, test_idx)
-            except Exception as _exc:
-                logger.warning(
-                    "[CompositeTargetDiscovery.stability] bootstrap run %d failed: %s",
-                    i, _exc,
-                )
-                continue
-            for spec in self.specs_:
-                keep_counter[spec.name] += 1
-                spec_by_name.setdefault(spec.name, spec)
-        # Restore the caller's original config and write the stable spec set.
-        self.config = _saved_cfg
+                    _run_train_idx = _screen_pool
+                try:
+                    self.fit(df, target_col, feature_cols, _run_train_idx, val_idx, test_idx)
+                except Exception as _exc:
+                    logger.warning(
+                        "[CompositeTargetDiscovery.stability] bootstrap run %d failed: %s",
+                        i, _exc,
+                    )
+                    continue
+                for spec in self.specs_:
+                    keep_counter[spec.name] += 1
+                    spec_by_name.setdefault(spec.name, spec)
+        finally:
+            # Restore the caller's original config and drop the shared-holdout marker so later
+            # standalone ``fit`` calls carve normally.
+            self.config = _saved_cfg
+            self._stability_shared_holdout_idx = None
         threshold = max(1, int(min_keep_fraction * n_bootstrap_runs))
         stable_names = [n for n, c in keep_counter.items() if c >= threshold]
         self.specs_ = [spec_by_name[n] for n in stable_names if n in spec_by_name]
@@ -364,7 +390,7 @@ class CompositeTargetDiscovery:
             "[CompositeTargetDiscovery.stability] n_runs=%d, threshold=%d/%d, "
             "subsample=%d/%d rows (frac=%.2f). Kept %d spec(s); counts: %s",
             n_bootstrap_runs, threshold, n_bootstrap_runs,
-            _sub_n, _n_train, _frac,
+            _pool_sub_n, _pool_n, _frac,
             len(self.specs_), dict(keep_counter),
         )
         return self
@@ -402,6 +428,12 @@ class CompositeTargetDiscovery:
                 "honest_holdout_mi_t": getattr(s, "honest_holdout_mi_t", None),
                 "honest_holdout_mi_y": getattr(s, "honest_holdout_mi_y", None),
                 "honest_holdout_n_rows": getattr(s, "honest_holdout_n_rows", None),
+                # OOS predictive-error re-score on the same holdout (the RMSE analogue of the MI gain;
+                # ``None`` when the honest RMSE gate did not run). ``rmse_gain`` = raw - spec, so
+                # positive = the composite predicts y better out-of-sample than the raw-y tiny baseline.
+                "honest_holdout_rmse": getattr(s, "honest_holdout_rmse", None),
+                "honest_holdout_raw_rmse": getattr(s, "honest_holdout_raw_rmse", None),
+                "honest_holdout_rmse_gain": getattr(s, "honest_holdout_rmse_gain", None),
             }
             for s in getattr(self, "specs_", [])
         ]
@@ -498,7 +530,19 @@ class CompositeTargetDiscovery:
         through a global trend.
         """
         config = self.config
+        cap = getattr(config, "max_base_candidates", None)
         if isinstance(config.base_candidates, str) and config.base_candidates == "auto":
+            # ``auto_base_top_k`` already bounds the auto path via the full ``_auto_base`` machinery
+            # (structural boost / null-perm filter / near-copy exclusion / dedup); the cap only needs
+            # to trim FURTHER when it is tighter, so it is cheapest to just cap ``auto_base_top_k``
+            # for this call rather than re-rank a second time post-hoc.
+            if cap is not None and int(cap) > 0 and int(cap) < int(getattr(config, "auto_base_top_k", 3)):
+                _saved_cfg = self.config
+                try:
+                    self.config = config.model_copy(update={"auto_base_top_k": int(cap)})
+                    return self._auto_base(df, usable_features, y_train, train_idx)
+                finally:
+                    self.config = _saved_cfg
             return self._auto_base(df, usable_features, y_train, train_idx)
         # Explicit list. Keep only entries that survived feature filters.
         explicit = list(config.base_candidates)
@@ -509,7 +553,61 @@ class CompositeTargetDiscovery:
                 "[CompositeTargetDiscovery] explicit base_candidates dropped " "by filters (forbidden/constant/non-numeric/leak-corr): %s",
                 dropped,
             )
+        # Early pruning of an over-long EXPLICIT base grid (``max_base_candidates``). Each extra base
+        # multiplies the whole per-(base, transform) MI screen, and the explicit path had no cap at
+        # all. Rank the survivors by a CHEAP, DIRECT per-pair MI(y, x) on the screening sample (the
+        # same primitive ``_auto_base`` starts from) -- deliberately NOT the full ``_auto_base``
+        # pipeline: that pipeline's null-permutation filter + near-copy-of-y exclusion + demoters can
+        # legitimately drop every candidate (a small/correlated explicit pool routinely fails the
+        # permutation-null z-test or the |corr(base,y)|>0.9995 near-copy gate), which would make the
+        # CAP -- an early-pruning optimisation with no business rejecting bases -- silently produce
+        # ZERO base candidates. A first attempt reused ``_auto_base`` directly and hit exactly that:
+        # on a 12-base synthetic grid it returned 0 candidates and, because the heavy null-perm /
+        # structural-boost machinery still ran on the full uncapped pool before pruning, was 6x
+        # SLOWER than no cap at all (measured in ``_benchmarks/bench_base_candidate_cap.py``).
+        if cap is not None and int(cap) > 0 and len(kept) > int(cap):
+            try:
+                ranked = self._rank_bases_by_mi_for_cap(df, kept, y_train, train_idx)[: int(cap)]
+            except Exception as _cap_err:  # -- pruning is an optimisation; keep order-truncation fallback
+                logger.warning(
+                    "[CompositeTargetDiscovery] max_base_candidates ranking failed (%s); truncating the explicit list in given order.",
+                    _cap_err,
+                )
+                ranked = kept[: int(cap)]
+            logger.info(
+                "[CompositeTargetDiscovery] max_base_candidates=%d pruned the explicit base grid %d -> %d: %s",
+                int(cap), len(kept), len(ranked), ranked,
+            )
+            return ranked
         return kept
+
+    def _rank_bases_by_mi_for_cap(
+        self, df: Any, candidates: Sequence[str], y_train: np.ndarray, train_idx: np.ndarray,
+    ) -> list[str]:
+        """Cheap per-pair MI(y, x) ranking used ONLY to prune an over-long base grid (``max_base_candidates``).
+
+        Deliberately simpler than ``_auto_base``: no permutation-null filter, no near-copy-of-y
+        exclusion, no structural boost / demote / dedup -- those are SELECTION-quality gates with
+        their own semantics, and running them here would let a pure early-pruning cap reject bases
+        the actual (uncapped) discovery pipeline would have kept (or accepted zero from a small
+        pool), and pays their cost before any pruning happens. This method exists solely to pick
+        the top-``max_base_candidates`` most-informative bases via the same MI primitive
+        ``_auto_base`` starts from, cheaply.
+        """
+        from .screening import _mi_per_feature_y_fixed_per_col
+
+        cfg = self.config
+        sample_idx = _sample_indices(
+            train_idx.size, cfg.mi_sample_n, cfg.random_state,
+            strategy=getattr(cfg, "mi_sample_strategy", "random"), y=y_train,
+            n_strata=getattr(cfg, "mi_n_strata", 10),
+        )
+        train_idx_screen = train_idx[sample_idx]
+        y_screen = y_train[sample_idx]
+        x_matrix = self._build_feature_matrix(df, list(candidates), train_idx_screen)
+        mi = _mi_per_feature_y_fixed_per_col(x_matrix, y_screen, nbins=int(cfg.mi_nbins))
+        ranked = sorted(zip(mi.tolist(), candidates), key=lambda t: -t[0])
+        return [c for _m, c in ranked]
 
     # ``_auto_base`` is implemented in ``_composite_discovery_auto_base.py``
     # and bound onto this class at the bottom of this module.
@@ -535,6 +633,7 @@ class CompositeTargetDiscovery:
         self, base: str, transform_name: str, mi_y: float, valid_frac: float,
         reason: str,
     ) -> dict[str, Any]:
+        """Build a rejected-candidate work-item entry (``spec=None``) carrying the reason for the rejection ledger."""
         return {
             "spec": None,
             "kept": False,
@@ -547,6 +646,7 @@ class CompositeTargetDiscovery:
         }
 
     def _entry_to_report(self, entry: dict[str, Any]) -> dict[str, Any]:
+        """Flatten a rejected or surviving work-item entry into the public per-candidate report row."""
         spec = entry.get("spec")
         if spec is None:
             return {
