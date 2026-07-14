@@ -75,7 +75,12 @@ except ImportError:
 
 @njit(cache=True, fastmath=True)
 def _quantile_bin_njit(x: np.ndarray, n_bins: int) -> np.ndarray:
-    """Quantile-bin a 1-D continuous array into n_bins equi-frequency bins. Returns int32 bin indices in [0, n_bins)."""
+    """Quantile-bin a 1-D continuous array into n_bins equi-frequency bins. Returns int32 bin indices in [0, n_bins).
+
+    bench-attempt-rejected: kth-order-statistic edges via numba np.partition + searchsorted (the CPU analogue
+    of the GPU radix-edge binner) measured 2.6x SLOWER than this argsort form (99401: 17.8ms vs 46.5ms) --
+    numba's np.partition re-copies the array per edge, and no multi-kth variant exists. argsort stays optimal
+    (third measured rejection at this site; see also the two in _plugin_mi_classif_batch_njit)."""
     n = x.shape[0]
     sort_idx = np.argsort(x)
     out = np.empty(n, dtype=np.int32)
