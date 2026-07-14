@@ -589,9 +589,21 @@ def optimise_hermite_pair(
                 elif optimizer == "cupy_kernel":
                     # GPU generation-batched twin of numba_kernel: one cuBLAS GEMM per generation for all
                     # candidates' basis evaluation + batched device binning/MI. Same plugin-MI/polynomial-
-                    # basis limitations as numba_kernel; raises without cupy -> the except below falls back.
-                    from ._cupy_polynom_optimizer import run_cupy_kernel_search
-                    cma_result = run_cupy_kernel_search(
+                    # basis limitations as numba_kernel. On a cupy-less host fall back to cma_batch (the
+                    # prior default, same quality tier) instead of letting the generic except route to the
+                    # much slower optuna path -- cupy_kernel is the DEFAULT since 2026-07-15 (production
+                    # wellbore-100k validation: fit wall 854s -> 480s, selection identical; quality A/B in
+                    # _benchmarks/bench_polynom_optimizer_variants_ab.py), so CPU-only hosts must keep the
+                    # exact legacy behavior transparently.
+                    try:
+                        import cupy  # noqa: F401
+                        from ._cupy_polynom_optimizer import run_cupy_kernel_search
+                        _kernel_search = run_cupy_kernel_search
+                    except Exception:
+                        logger.debug("cupy unavailable; cupy_kernel default falls back to cma_batch")
+                        from ._hermite_fe_optimise import _run_cma_search_batch
+                        _kernel_search = lambda **kw: _run_cma_search_batch(**kw)  # noqa: E731
+                    cma_result = _kernel_search(
                         ca_size=ca_size, cb_size=cb_size,
                         coef_range=coef_range, n_trials=n_trials, seed=seed,
                         direction_only=direction_only,

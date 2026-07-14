@@ -14,9 +14,12 @@ one H2D of the (n,K) candidate code matrix. Same Miller-Madow plug-in CMI as the
 """
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 def _assert_codes_in_range(arr, K: int, name: str, codes_trusted: bool = False) -> None:
@@ -603,6 +606,39 @@ def binned_mi_from_codes_gpu(code_cols: Any, y_codes: Any, kx_per_col: Any = Non
     return np.asarray(cp.asnumpy(mi_out))
 
 
+_QBIN_CODER_RAW = None
+
+
+def _get_qbin_coder_kernel():
+    """Fused one-pass coder for batched_quantile_bin_gpu: per element, count the distinct interior edge
+    values <= x (plus the 2-distinct special case) in a single (n, K) read/write, instead of the
+    ~3*(nbins+1) full-matrix elementwise passes the broadcast loop costs (nsys on the cupy polynom
+    search: that loop was ~76%% of kernel GPU time -- add 41.3%% + greater 15.8%% + bool-copy 14.1%%).
+    Bit-identical: same interior/first-occurrence/ndistinct==2 terms, just fused."""
+    global _QBIN_CODER_RAW
+    if _QBIN_CODER_RAW is None:
+        import cupy as cp
+        _QBIN_CODER_RAW = cp.RawKernel(r"""
+extern "C" __global__ void qbin_code(const double* __restrict__ x, const double* __restrict__ edges,
+                                     const bool* __restrict__ interior, const long long* __restrict__ ndistinct,
+                                     const long long n, const long long K, const int ne,
+                                     long long* __restrict__ codes) {
+    long long t = (long long)blockIdx.x * blockDim.x + threadIdx.x;
+    long long total = n * K;
+    if (t >= total) return;
+    long long k = t % K;
+    double v = x[t];
+    long long c = 0;
+    for (int j = 1; j < ne; ++j) {              // j=0 is never interior (== column min)
+        if (interior[(long long)j * K + k] && v >= edges[(long long)j * K + k]) ++c;
+    }
+    if (ndistinct[k] == 2 && v >= edges[(long long)(ne - 1) * K + k]) ++c;
+    codes[t] = c;
+}
+""", "qbin_code")
+    return _QBIN_CODER_RAW
+
+
 def batched_quantile_bin_gpu(x_cols: Any, nbins: int) -> Any:
     """Born-on-device equi-frequency binning of an (n,K) float matrix -> (n,K) int codes, RESIDENT on GPU.
 
@@ -654,7 +690,22 @@ def batched_quantile_bin_gpu(x_cols: Any, nbins: int) -> Any:
     first_occ = cp.ones(edges_all.shape, dtype=cp.bool_)
     first_occ[1:, :] = edges_all[1:, :] != edges_all[:-1, :]
     interior = first_occ & (edges_all > e_first[None, :]) & (edges_all < e_last[None, :])
-    ndistinct = first_occ.sum(axis=0)  # (K,)
+    ndistinct = first_occ.sum(axis=0).astype(cp.int64)  # (K,)
+    try:
+        # Fused one-pass coder (see _get_qbin_coder_kernel) -- bit-identical to the broadcast loop below.
+        kern = _get_qbin_coder_kernel()
+        codes = cp.empty((n, K), dtype=cp.int64)
+        total = n * K
+        threads = 256
+        blocks = (total + threads - 1) // threads
+        kern((int(blocks),), (threads,), (
+            cp.ascontiguousarray(Xd), cp.ascontiguousarray(edges_all),
+            cp.ascontiguousarray(interior), cp.ascontiguousarray(ndistinct),
+            np.int64(n), np.int64(K), np.int32(edges_all.shape[0]), codes,
+        ))
+        return codes
+    except Exception:
+        logger.debug("qbin fused coder failed; broadcast-loop fallback", exc_info=True)
     codes = cp.zeros((n, K), dtype=cp.int64)
     for j in range(1, int(edges_all.shape[0])):  # j=0 is never interior (== column min)
         codes += (interior[j, :][None, :] & (Xd >= edges_all[j, :][None, :])).astype(cp.int64)

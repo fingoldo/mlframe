@@ -1018,7 +1018,7 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
         # cma_batch is the new default (20.58x faster than
         # optuna, within_1%=1.00 vs all other optimizers on a 12-pair bench).
         # See profiling/bench_polynom_optimizers.py.
-        fe_optimizer: str = "cma_batch",
+        fe_optimizer: str = "cupy_kernel",
         fe_warm_start: bool = True,
         fe_multi_fidelity: bool = True,
         # verbosity and formatting
