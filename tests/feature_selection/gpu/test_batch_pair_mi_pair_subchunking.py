@@ -70,6 +70,29 @@ def test_choose_pair_subchunk_rows_clamped_to_at_least_one():
     assert n >= 1
 
 
+@pytest.mark.skipif(not bpmg._CUDA_AVAIL or not bpmk._CUPY_AVAIL, reason="numba.cuda/cupy not available")
+def test_pair_subchunked_finalize_avoids_full_accumulator_readback(monkeypatch):
+    """Regression: device-side finalize must avoid copy_to_host on the histogram accumulator."""
+    data, nbins, classes_y, freqs_y, pair_a, pair_b = _build_pair_inputs(
+        n_samples=2000, n_cols=30, nbins_val=6, n_classes_y=4, seed=5,
+    )
+    monkeypatch.setattr(bpmk, "_choose_pair_subchunk_rows", lambda *a, **kw: 50)
+    import numba.cuda.cudadrv.devicearray as _devicearray
+    calls = {"n": 0}
+    orig_copy_to_host = _devicearray.DeviceNDArray.copy_to_host
+
+    def _spy_copy_to_host(self, *a, **kw):
+        if getattr(self, "ndim", 0) >= 2 and getattr(self, "dtype", None) is not None and "int64" in str(self.dtype):
+            calls["n"] += 1
+        return orig_copy_to_host(self, *a, **kw)
+
+    monkeypatch.setattr(_devicearray.DeviceNDArray, "copy_to_host", _spy_copy_to_host)
+    mi_gpu = bpmg.batch_pair_mi_cuda_row_chunked(data, pair_a, pair_b, nbins, classes_y, freqs_y)
+    assert calls["n"] == 0
+    mi_cpu = bpmg.batch_pair_mi_njit_prange(data, pair_a, pair_b, nbins, classes_y, freqs_y)
+    np.testing.assert_allclose(mi_gpu, mi_cpu, atol=1e-9, rtol=1e-9)
+
+
 @pytest.mark.skipif(not bpmg._CUDA_AVAIL, reason="numba.cuda not available on this host")
 def test_near_zero_free_vram_bails_to_cpu_instead_of_71_million_launches(monkeypatch):
     """Regression test: a real 1M-row wellbore run hit ``free_vram=0.00GB`` (a cupy pool cap + other

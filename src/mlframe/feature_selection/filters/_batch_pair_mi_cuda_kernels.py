@@ -359,6 +359,32 @@ def _hist_kernel_shared_fits_budget(max_joint: int, n_classes_y: int) -> int:
     return needed if needed <= budget - 2048 else 0
 
 
+def _mi_from_joint_counts_cupy(joint_counts_dev, fx_counts_dev, freqs_y_dev, n_samples: int) -> Any:
+    """Device-side twin of :func:`_mi_from_joint_counts`: reduces the ``(n_pairs, max_joint,
+    n_classes_y)`` accumulator to a ``(n_pairs,)`` MI vector ON-DEVICE via cupy broadcasting, so the
+    row-chunked path's PCIe D2H shrinks from the full histogram accumulator (``n_pairs*max_joint*
+    n_classes_y*8`` bytes -- 698MB at the wellbore-100k production pair-subchunk shape, 9 subchunks
+    -> ~6.3GB total transferred) to the final ``(n_pairs,)`` float64 result alone.
+
+    Bit-identical to :func:`_mi_from_joint_counts`: same ``sum jf*log(jf/(px*py))`` reduction over the
+    SAME (i, j) grid, only reassociated across a different (but still commutative/associative-safe
+    integer-count-derived) summation order -- fp reduction order differs at the ~1e-15 ULP level
+    (verified in the accompanying regression test), never a selection-relevant magnitude.
+
+    ``fx==0`` and ``freqs_y[j]<=0`` cells are implicitly excluded via a ``cp.where`` mask (mirrors the
+    host loop's ``if fx == 0: continue`` / ``if prob_y > 0.0`` guards) rather than skipped by iteration,
+    since cupy broadcasting always touches the full grid -- correctness-equivalent, not a performance
+    concern (the grid is already resident and small relative to the accumulator it replaces)."""
+    inv_n = 1.0 / n_samples
+    prob_x = fx_counts_dev.astype(_cp.float64) * inv_n  # (n_pairs, max_joint)
+    prob_y = freqs_y_dev.astype(_cp.float64)  # (n_classes_y,)
+    jf = joint_counts_dev.astype(_cp.float64) * inv_n  # (n_pairs, max_joint, n_classes_y)
+    denom = prob_x[:, :, None] * prob_y[None, None, :]
+    valid = (joint_counts_dev != 0) & (fx_counts_dev[:, :, None] != 0) & (prob_y[None, None, :] > 0.0)
+    terms = _cp.where(valid, jf * _cp.log(jf / denom), 0.0)
+    return terms.sum(axis=(1, 2))
+
+
 @numba.njit(cache=True)
 def _mi_from_joint_counts(joint_counts: np.ndarray, fx_counts: np.ndarray, freqs_y: np.ndarray, n_samples: int, joint_cards: np.ndarray) -> np.ndarray:
     """Host-side MI finalize from accumulated joint/marginal counts -- the EXACT reduction formula and
@@ -644,9 +670,16 @@ def batch_pair_mi_cuda_row_chunked(
                 )
             total_row_chunk_launches += 1
 
-        joint_host = d_joint.copy_to_host()
-        fx_host = d_fx.copy_to_host()
-        mi_out[pair_start:pair_end] = _mi_from_joint_counts(joint_host, fx_host, freqs_y_c, n_samples, joint_cards[pair_start:pair_end])
+        if _CUPY_AVAIL:
+            d_freqs_y = _cp.asarray(freqs_y_c)
+            d_joint_cp = _cp.asarray(d_joint)
+            d_fx_cp = _cp.asarray(d_fx)
+            mi_sub = _mi_from_joint_counts_cupy(d_joint_cp, d_fx_cp, d_freqs_y, n_samples)
+            mi_out[pair_start:pair_end] = _cp.asnumpy(mi_sub)
+        else:
+            joint_host = d_joint.copy_to_host()
+            fx_host = d_fx.copy_to_host()
+            mi_out[pair_start:pair_end] = _mi_from_joint_counts(joint_host, fx_host, freqs_y_c, n_samples, joint_cards[pair_start:pair_end])
 
     logger.debug(
         "batch_pair_mi_cuda_row_chunked: n_pairs=%d n_samples=%d total_row_chunk_launches=%d (pair_subchunks=%d x row_chunks=%d) max_joint=%d",
