@@ -5,6 +5,8 @@ Note: autouse fixtures (cleanup_memory, suppress_convergence_warnings) live in
 tests/conftest.py and apply to all test modules automatically.
 """
 
+import os
+
 # Set matplotlib backend to 'Agg' BEFORE any matplotlib import to prevent plt.show() from blocking
 import matplotlib
 matplotlib.use('Agg')
@@ -18,15 +20,26 @@ matplotlib.use('Agg')
 # the actual classes; this prewarm here just touches disk so the OS file
 # cache is hot before the first test starts. We swallow ImportError
 # because some of these are optional extras.
-try:
-    import mlframe.training.neural  # noqa: F401
-except (ImportError, OSError):
-    pass
+#
+# Guarded by CUDA_VISIBLE_DEVICES="" (same convention as the torch cuBLAS warm-up in
+# tests/conftest.py): ``mlframe.training.neural`` pulls in torchmetrics, which on a
+# text-metric call path imports transformers -> triton. On at least one dev machine
+# triton's module-level GPU/driver probe (triton/knobs.py) raised a Windows native
+# access violation at IMPORT time -- a hard process crash that no try/except can catch,
+# hit by every pytest-xdist worker collecting anything under tests/training/ regardless
+# of ``-m "not gpu"`` (marker deselection happens after collection, not before this
+# conftest import runs). CUDA_VISIBLE_DEVICES="" is the established escape hatch for
+# this whole bug class in this repo.
+if os.environ.get("CUDA_VISIBLE_DEVICES") != "":
+    try:
+        import mlframe.training.neural  # noqa: F401
+    except (ImportError, OSError):
+        pass
 try:
     # networkx is pulled in transitively by some sklearn / pyutilz paths;
     # touching it here lets the cold-cache wallclock land outside the
     # per-test timeout window.
-    import networkx  # noqa: F401
+    import networkx
     import networkx.algorithms  # noqa: F401
 except (ImportError, OSError):
     pass
@@ -36,7 +49,6 @@ import numpy as np
 import pandas as pd
 import polars as pl
 import warnings
-from pathlib import Path
 
 from .synthetic import (
     make_categorical_classification_data,
@@ -108,10 +120,7 @@ def _prewarm_numba_once():
     if os.environ.get("MLFRAME_SKIP_NUMBA_PREWARM", "").strip() in ("1", "true", "True", "yes"):
         yield
         return
-    is_xdist_coordinator = (
-        os.environ.get("PYTEST_XDIST_TESTRUNUID") is not None
-        and not os.environ.get("PYTEST_XDIST_WORKER")
-    )
+    is_xdist_coordinator = os.environ.get("PYTEST_XDIST_TESTRUNUID") is not None and not os.environ.get("PYTEST_XDIST_WORKER")
     if is_xdist_coordinator:
         yield
         return
@@ -149,9 +158,8 @@ def _session_fixture_immutability_sensor():
             leaked.append((name, original, current))
     if leaked:
         import sys
-        sys.stderr.write(
-            "[session-fixture-immutability-sensor] DETECTED MUTATION of session-scope fixtures:\n"
-        )
+
+        sys.stderr.write("[session-fixture-immutability-sensor] DETECTED MUTATION of session-scope fixtures:\n")
         for name, before, after in leaked:
             sys.stderr.write(f"  {name}: shape/cols/dtypes before={before} after={after}\n")
         sys.stderr.write(
@@ -228,14 +236,14 @@ def sample_timeseries_data():
     n_samples = 1000
     n_features = 5
 
-    dates = pd.date_range('2020-01-01', periods=n_samples, freq='1h')
+    dates = pd.date_range("2020-01-01", periods=n_samples, freq="1h")
     X = rng.standard_normal((n_samples, n_features))
     y = np.sin(np.arange(n_samples) / 50) + rng.standard_normal(n_samples) * 0.1
 
     feature_names = [f"feature_{i}" for i in range(n_features)]
     df = pd.DataFrame(X, columns=feature_names)
-    df['timestamp'] = dates
-    df['target'] = y
+    df["timestamp"] = dates
+    df["target"] = y
 
     _SESSION_FIXTURE_SHAPES["sample_timeseries_data"] = _df_shape_signature(df)
     _SESSION_FIXTURE_REFS["sample_timeseries_data"] = df
@@ -276,12 +284,7 @@ def sample_categorical_data():
     cat_1 = rng.choice([f"cat_A_{i}" for i in range(100)], n_samples)
     cat_2 = rng.choice([f"cat_B_{i}" for i in range(50)], n_samples)
     cat_3 = rng.choice(["X", "Y", "Z"], n_samples)
-    y = (
-        2 * X_numeric[:, 0]
-        + 3 * X_numeric[:, 1]
-        + (cat_1 == "cat_A_10").astype(float) * 5
-        + rng.standard_normal(n_samples) * 0.5
-    )
+    y = 2 * X_numeric[:, 0] + 3 * X_numeric[:, 1] + (cat_1 == "cat_A_10").astype(float) * 5 + rng.standard_normal(n_samples) * 0.5
     df = pd.DataFrame(X_numeric, columns=[f"num_{i}" for i in range(n_numeric)])
     df["cat_1"] = cat_1
     df["cat_2"] = cat_2
@@ -340,11 +343,7 @@ def check_lgb_gpu_available():
         import lightgbm as lgb
 
         # Try to create and fit a tiny GPU model
-        model = lgb.LGBMClassifier(
-            n_estimators=1,
-            device_type="cuda",
-            verbose=-1
-        )
+        model = lgb.LGBMClassifier(n_estimators=1, device_type="cuda", verbose=-1)
         X = np.random.randn(10, 5)
         y = np.random.randint(0, 2, 10)
 
@@ -412,7 +411,7 @@ def fast_iterations():
 @pytest.fixture(scope="session")
 def fast_config_override(fast_iterations):
     """Config params override for fast test execution."""
-    return {'iterations': fast_iterations}
+    return {"iterations": fast_iterations}
 
 
 @pytest.fixture(scope="session")
@@ -445,7 +444,7 @@ def trained_suite_regression(sample_regression_data, common_init_params, fast_it
     from mlframe.training.core import train_mlframe_models_suite
     from .shared import SimpleFeaturesAndTargetsExtractor
 
-    df, feature_names, _y = sample_regression_data
+    df, _feature_names, _y = sample_regression_data
     extractor = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
     suite = train_mlframe_models_suite(
         df=df,
@@ -475,7 +474,7 @@ def trained_suite_binary(sample_classification_data, common_init_params, fast_it
     from mlframe.training.core import train_mlframe_models_suite
     from .shared import SimpleFeaturesAndTargetsExtractor
 
-    df, feature_names, *_, _y = sample_classification_data
+    df, _feature_names, *_, _y = sample_classification_data
     extractor = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
     suite = train_mlframe_models_suite(
         df=df,
@@ -506,7 +505,7 @@ def trained_suite_multi_target(sample_regression_data, common_init_params, fast_
     from mlframe.training.core import train_mlframe_models_suite
     from .shared import SimpleFeaturesAndTargetsExtractor
 
-    df, feature_names, _y = sample_regression_data
+    df, _feature_names, _y = sample_regression_data
     extractor = SimpleFeaturesAndTargetsExtractor(
         target_column="target", regression=True, extra_targets="same_type_2",
     )
