@@ -630,6 +630,12 @@ def batch_pair_mi_cuda_row_chunked(
 
     mi_out = np.empty(n_pairs, dtype=np.float64)
     total_row_chunk_launches = 0
+    # freqs_y_c is fit-constant (the y-marginal never changes across pair-subchunks OR row-chunks within
+    # this call) but the finalize step re-uploaded it via cp.asarray on EVERY pair-subchunk iteration
+    # (cProfile, 2026-07-15 wellbore fit: cupy._core.core.array 56.1s / 19620 calls, ~6540 outer iterations
+    # x 3 asarray calls -- freqs_y_c was one of the 3, purely wasted since only d_joint/d_fx change per
+    # iteration). Upload it ONCE before the loop; bit-identical (same array, same device, same dtype).
+    _d_freqs_y_const = _cp.asarray(freqs_y_c) if _CUPY_AVAIL else None
 
     # Prefer the shared-memory-staged kernel (cuts global-atomic traffic ~O(max_joint*n_classes_y) vs
     # O(chunk_rows) per block -- see _cuda_hist_kernel_shared_factory's docstring for the ncu evidence)
@@ -671,10 +677,9 @@ def batch_pair_mi_cuda_row_chunked(
             total_row_chunk_launches += 1
 
         if _CUPY_AVAIL:
-            d_freqs_y = _cp.asarray(freqs_y_c)
             d_joint_cp = _cp.asarray(d_joint)
             d_fx_cp = _cp.asarray(d_fx)
-            mi_sub = _mi_from_joint_counts_cupy(d_joint_cp, d_fx_cp, d_freqs_y, n_samples)
+            mi_sub = _mi_from_joint_counts_cupy(d_joint_cp, d_fx_cp, _d_freqs_y_const, n_samples)
             mi_out[pair_start:pair_end] = _cp.asnumpy(mi_sub)
         else:
             joint_host = d_joint.copy_to_host()
