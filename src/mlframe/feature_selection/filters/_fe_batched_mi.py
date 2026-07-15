@@ -15,6 +15,7 @@ one H2D of the (n,K) candidate code matrix. Same Miller-Madow plug-in CMI as the
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 
 import numpy as np
@@ -556,6 +557,74 @@ _MI_FROM_CODES_KERNEL = None  # module-level singleton (lazy-compiled; never on 
 _MI_FROM_CODES_MAX_SHARED = 44000  # bytes; stay under the 48KB default shared cap (Kx*Ky*4 must fit)
 
 
+# bench-attempt-rejected x2 (ncu-led, 2026-07-15, cc 8.9): ncu flagged mi_from_codes' stride-K reads as 80%
+# excessive sectors (est. speedup 72%) -- both coalescing rewrites LOST at (99401,100)/Kx=Ky=21:
+#   (a) flat grid-stride + GLOBAL per-column int32 hist atomics: 9.14ms vs 4.07ms (0.44x) -- each warp's 32
+#       consecutive t hit 32 DIFFERENT columns' histograms = one cache line per thread, serialized L2 atomics;
+#   (b) this int16-cast + tiled-transpose + contiguous-column variant (kept, opt-in MLFRAME_MI_FROM_CODES_V2=1):
+#       7.49ms (0.52x) -- the cast+transpose passes cost more than the strided reads they remove.
+# Root cause of the ncu false lead: the per-column blocks stream the same rows nearly in lockstep, so the
+# "excessive" L1 wavefronts are served from L2 (no DRAM amplification); the real limiter is the shared-memory
+# histogram atomics, which every variant pays identically. The row-major one-kernel form is the measured
+# optimum; v2 stays as a runnable option for future hardware where L2 no longer absorbs the broadcast.
+_MI_FROM_CODES_V2_SRC = r"""
+extern "C" __global__
+void mi_from_codes_cm_i16(const short* __restrict__ codes_cm,  // (K, n) C-order: column c contiguous
+                          const short* __restrict__ y,          // (n,) int16 codes in [0,Ky)
+                          const long long n, const int K, const int Kx, const int Ky,
+                          const double inv_n, double* __restrict__ mi_out) {
+    extern __shared__ int sh[];
+    int c = blockIdx.x;
+    if (c >= K) return;
+    int M = Kx * Ky;
+    int tid = threadIdx.x, nt = blockDim.x;
+    for (int s = tid; s < M; s += nt) sh[s] = 0;
+    __syncthreads();
+    const short* col = codes_cm + (long long)c * n;
+    for (long long i = tid; i < n; i += nt) {
+        atomicAdd(&sh[(int)col[i] * Ky + (int)y[i]], 1);
+    }
+    __syncthreads();
+    if (tid == 0) {
+        double mi = 0.0;
+        for (int xx = 0; xx < Kx; ++xx) {
+            long long rx = 0;
+            for (int yy = 0; yy < Ky; ++yy) rx += sh[xx * Ky + yy];
+            if (rx == 0) continue;
+            double px = (double)rx * inv_n;
+            for (int yy = 0; yy < Ky; ++yy) {
+                long long nxy = sh[xx * Ky + yy];
+                if (nxy == 0) continue;
+                long long ry = 0;
+                for (int xx2 = 0; xx2 < Kx; ++xx2) ry += sh[xx2 * Ky + yy];
+                double pxy = (double)nxy * inv_n;
+                double py = (double)ry * inv_n;
+                mi += pxy * log(pxy / (px * py));
+            }
+        }
+        mi_out[c] = mi > 0.0 ? mi : 0.0;
+    }
+}
+"""
+_MI_FROM_CODES_V2_KERNELS = None
+
+
+def _get_mi_from_codes_v2_kernels():
+    """Lazy-compiled column-major int16 RawKernel of the coalesced v2 path, or None when disabled
+    (MLFRAME_MI_FROM_CODES_V2=0) / compile failure (the row-major one-kernel form is the automatic fallback)."""
+    global _MI_FROM_CODES_V2_KERNELS
+    if os.environ.get("MLFRAME_MI_FROM_CODES_V2", "0").strip().lower() not in ("1", "true", "on", "yes"):
+        return None
+    if _MI_FROM_CODES_V2_KERNELS is None:
+        import cupy as cp
+        try:
+            _MI_FROM_CODES_V2_KERNELS = cp.RawKernel(_MI_FROM_CODES_V2_SRC, "mi_from_codes_cm_i16")
+        except Exception:
+            logger.debug("mi_from_codes v2 compile failed; one-kernel fallback", exc_info=True)
+            _MI_FROM_CODES_V2_KERNELS = False
+    return _MI_FROM_CODES_V2_KERNELS or None
+
+
 def _get_mi_from_codes_kernel():
     """Lazy-compile + cache the ``mi_from_codes`` RawKernel (plug-in MI over a pre-binned (n,K) code matrix)."""
     global _MI_FROM_CODES_KERNEL
@@ -599,6 +668,17 @@ def binned_mi_from_codes_gpu(code_cols: Any, y_codes: Any, kx_per_col: Any = Non
         return batched_binned_mi_gpu(C, y, kx_per_col=kx_per_col, ky=Ky)
     mi_out = cp.empty(K, dtype=cp.float64)
     threads = 256
+    v2 = _get_mi_from_codes_v2_kernels()
+    if v2 is not None and Kx < 32768 and Ky < 32768:
+        try:
+            from ._gpu_resident_select import transpose_codes_to_cm
+            codes_cm = transpose_codes_to_cm(cp.ascontiguousarray(C.astype(cp.int16, copy=False)))  # (K, n)
+            y16 = y.astype(cp.int16, copy=False)
+            v2((K,), (threads,), (codes_cm, y16, np.int64(n), np.int32(K), np.int32(Kx), np.int32(Ky),
+                                  np.float64(1.0 / float(max(1, n))), mi_out), shared_mem=Kx * Ky * 4)
+            return np.asarray(cp.asnumpy(mi_out))
+        except Exception:
+            logger.debug("mi_from_codes v2 launch failed; one-kernel fallback", exc_info=True)
     self_kernel = _get_mi_from_codes_kernel()
     self_kernel((K,), (threads,), (C.ravel(), y, np.int64(n), np.int32(K), np.int32(Kx), np.int32(Ky),
                                    np.float64(1.0 / float(max(1, n))), mi_out),
