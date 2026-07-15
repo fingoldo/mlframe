@@ -97,10 +97,30 @@ def _rank_bin_batched_gpu(cp, M, n_bins: int):
     return batched_quantile_bin_gpu(M, n_bins)
 
 
+_ALL_FINITE_AXIS0_KERNEL = None
+
+
+def _get_all_finite_axis0_kernel(cp):
+    """Lazy-compiled ``cp.ReductionKernel`` fusing ``cp.isfinite(x).all(axis=0)`` into ONE kernel launch
+    (nsys, 2026-07-15: the two-kernel form -- elementwise isfinite materializing a full boolean array, then
+    a separate .all() reduce -- cost cupy_isfinite 5.9%% + cupy_all 10%% of GPU time in the cupy-search
+    microbench, ~480 launches each). Bit-identical (verified incl. NaN columns): 'isfinite(x)' as the map
+    expression, '&&' as the reduce, avoids ever materializing the intermediate boolean array. ~7x faster
+    isolated at (20, 20000)."""
+    global _ALL_FINITE_AXIS0_KERNEL
+    if _ALL_FINITE_AXIS0_KERNEL is None:
+        _ALL_FINITE_AXIS0_KERNEL = cp.ReductionKernel(
+            "T x", "bool y", "isfinite(x)", "a && b", "y = a", "true", "all_finite_axis0",
+        )
+    return _ALL_FINITE_AXIS0_KERNEL
+
+
 def _score_generation_gpu(cp, Ba, Bb, Ca, Cb, y_codes_dev, ky: int, n_bins: int,
                           l2_penalty: float, direction_only: bool, bf_names: Sequence[str]):
     """Score P candidates across all binary funcs; returns host (score, raw_mi, bf_idx) arrays of len P."""
     from ._fe_batched_mi import binned_mi_from_codes_gpu
+
+    all_finite0 = _get_all_finite_axis0_kernel(cp)
 
     P = Ca.shape[0]
     if direction_only:
@@ -117,14 +137,14 @@ def _score_generation_gpu(cp, Ba, Bb, Ca, Cb, y_codes_dev, ky: int, n_bins: int,
 
     HA = Ba @ Ca.T  # (n, P)
     HB = Bb @ Cb.T
-    col_finite = cp.asnumpy(cp.isfinite(HA).all(axis=0) & cp.isfinite(HB).all(axis=0))
+    col_finite = cp.asnumpy(all_finite0(HA, axis=0) & all_finite0(HB, axis=0))
 
     best_score = np.full(P, -np.inf)
     best_raw = np.zeros(P)
     best_bf = np.full(P, -1, dtype=np.int64)
     for k, bf in enumerate(bf_names):
         C = _bf_apply_gpu(cp, bf, HA, HB)
-        finite = col_finite & cp.asnumpy(cp.isfinite(C).all(axis=0))
+        finite = col_finite & cp.asnumpy(all_finite0(C, axis=0))
         if not finite.any():
             continue
         codes = _rank_bin_batched_gpu(cp, C, n_bins)
