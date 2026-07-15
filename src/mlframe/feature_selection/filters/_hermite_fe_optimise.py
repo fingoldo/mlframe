@@ -222,35 +222,49 @@ def _eval_coef_pair_batch(coefs_a, coefs_b, *, z_a, z_b, eval_func, bf_callables
     # Phase 2: accumulate (candidate, bf) columns into one stacked
     # X_batch. Track (cand_idx, bf_idx) per column for the per-candidate
     # argmax later.
-    all_cols: list = []
+    # njit bf twins (bit-parity with the numpy callables pinned by test_numba_bf_dispatch_parity) replace
+    # the numpy ufunc chains: cProfile showed _atan2 (0.44s) + _log_abs_signed (0.41s) + np.column_stack
+    # (0.43s) = ~40%% of a cma_batch search. Columns are written straight into the preallocated X_batch
+    # (no per-column copy, no stack); unknown bf names keep the numpy callable path.
+    try:
+        from ._numba_polynom_optimizer import _BF_NAME_TO_ID, _bf_dispatch_njit
+    except Exception:
+        _BF_NAME_TO_ID, _bf_dispatch_njit = {}, None
     col_meta: list = []  # tuples (p, k)
+    X_batch = np.empty((n_rows, P * len(bf_callables)), dtype=np.float64)
+    nc = 0
     for p in range(P):
         if not cand_valid[p]:
             continue
         h_a = h_a_arr[p]
         h_b = h_b_arr[p]
         for k, bf in enumerate(bf_callables):
+            bfid = _BF_NAME_TO_ID.get(bf_names[k], -1) if _bf_dispatch_njit is not None else -1
             try:
-                with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
-                    combined = bf(h_a, h_b)
+                if bfid >= 0:
+                    combined = _bf_dispatch_njit(bfid, h_a, h_b)
+                else:
+                    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+                        combined = bf(h_a, h_b)
             except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
                 logger.debug("suppressed in _hermite_fe_optimise.py:234: %s", e)
                 continue
             if np.all(np.isfinite(combined)):
-                all_cols.append(np.ascontiguousarray(combined, dtype=np.float64))
+                X_batch[:, nc] = combined
                 col_meta.append((p, k))
+                nc += 1
 
     best_scores = np.full(P, -np.inf, dtype=np.float64)
     best_raws = np.zeros(P, dtype=np.float64)
     best_idxs = np.full(P, -1, dtype=np.int64)
-    if not all_cols:
+    if nc == 0:
         return best_scores, best_raws, best_idxs
 
     # Phase 3: ONE batched MI call across all (P * K_bf_valid) columns.
     # _plugin_mi_classif_batch_njit kernel pranges over columns -- with
     # P=20 candidates and ~5 bf_callables we feed 100 columns into one
     # call, saturating all cores in a single numba launch.
-    X_batch = np.ascontiguousarray(np.column_stack(all_cols), dtype=np.float64)
+    X_batch = np.ascontiguousarray(X_batch[:, :nc])
     if mi_estimator == "plugin":
         if discrete_target:
             mi_arr = _plugin_mi_classif_batch_njit(X_batch, y_njit, plugin_n_bins)
