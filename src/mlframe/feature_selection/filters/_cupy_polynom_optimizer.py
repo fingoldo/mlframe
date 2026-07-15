@@ -128,7 +128,10 @@ def _score_generation_gpu(cp, Ba, Bb, Ca, Cb, y_codes_dev, ky: int, n_bins: int,
         if not finite.any():
             continue
         codes = _rank_bin_batched_gpu(cp, C, n_bins)
-        mi = binned_mi_from_codes_gpu(codes, y_codes_dev, ky=ky, codes_trusted=True)  # host (P,)
+        # kx_per_col=n_bins (codes are always in [0, n_bins) by construction of the quantile binner) skips
+        # binned_mi_from_codes_gpu's int(C.max())+1 fallback -- a BLOCKING device sync that nsys showed
+        # costing more than the MI kernel itself (cupy_max ~9.1% of GPU time, one sync every generation).
+        mi = binned_mi_from_codes_gpu(codes, y_codes_dev, kx_per_col=n_bins, ky=ky, codes_trusted=True)  # host (P,)
         score = mi - penalty
         upd = finite & (score > best_score)
         best_score[upd] = score[upd]
