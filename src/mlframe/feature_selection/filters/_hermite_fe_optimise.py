@@ -225,6 +225,13 @@ def _eval_coef_pair_batch(coefs_a, coefs_b, *, z_a, z_b, eval_func, bf_callables
     # Phase 1: compute h_a / h_b per candidate (one numba call each;
     # Python loop). Skip candidates that produce non-finite h_a/h_b --
     # they get -inf score downstream.
+    # bench-attempt-rejected (2026-07-15): one GEMM (B_a @ coefs_a.T).T instead of P per-candidate GEMVs
+    # measured 2.7x faster ISOLATED (n=20000, P=20, cs=7: 4.7ms loop vs 1.7ms batched; ~1e-15 abs FP-reorder
+    # divergence, within tolerance) but NET FLAT end-to-end (1.49s -> 1.52s over a full cma_batch search,
+    # within run-to-run noise) -- the coefs.T ascontiguousarray + single large-P GEMM's BLAS thread dispatch
+    # overhead cancels the win at this P/n scale in-process alongside numba's own thread pool. Kept as the
+    # simpler per-candidate loop; the batched form would need re-measuring at a much larger P (e.g. a wider
+    # cupy-side generation batch) before it nets positive.
     n_rows = z_a.shape[0]
     h_a_arr = np.empty((P, n_rows), dtype=np.float64)
     h_b_arr = np.empty((P, n_rows), dtype=np.float64)
