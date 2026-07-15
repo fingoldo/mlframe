@@ -67,7 +67,7 @@ def _eval_coef_pair(coef_a, coef_b, *, z_a, z_b, eval_func, bf_callables,
     # Lazy import of parent-resident helpers: ``.hermite_fe`` re-imports
     # this sibling at its bottom, so a top-level ``from .hermite_fe
     # import ...`` would create a hard cycle the meta-test flags.
-    from .hermite_fe import _L2_PENALTY_SATURATION_DEFAULT, _l2_normalize_pair, _l2_penalty_value, _plugin_mi_classif_batch_njit, _plugin_mi_regression_batch_njit
+    from .hermite_fe import _L2_PENALTY_SATURATION_DEFAULT, _l2_normalize_pair, _l2_penalty_value, _plugin_mi_regression_batch_njit
     if l2_penalty_saturation is None:
         l2_penalty_saturation = _L2_PENALTY_SATURATION_DEFAULT
     if direction_only:
@@ -112,25 +112,53 @@ def _eval_coef_pair(coef_a, coef_b, *, z_a, z_b, eval_func, bf_callables,
         h_b = (eval_func_b if eval_func_b is not None else eval_func)(z_b, coef_b)
     if not (np.all(np.isfinite(h_a)) and np.all(np.isfinite(h_b))):
         return -np.inf, 0.0, -1
+    # Same njit bf twins + fused row-major fill as the batched evaluator (P=1 degenerate case): one prange
+    # call computes every bf column, finiteness-scanned in-kernel, rows feeding the copy-free MI rows twin.
+    # Optuna's per-trial objective goes through HERE, so the cma_batch-round optimizations carry over to it.
+    try:
+        from ._numba_polynom_optimizer import _BF_NAME_TO_ID, _fill_bf_batch_njit
+    except Exception:
+        _BF_NAME_TO_ID, _fill_bf_batch_njit = {}, None
+    _bf_ids1 = [_BF_NAME_TO_ID.get(nm, -1) for nm in bf_names] if _BF_NAME_TO_ID else [-1]
     cols = []
     valid_idx = []
-    for k, bf in enumerate(bf_callables):
-        try:
-            combined = bf(h_a, h_b)
-        except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
-            logger.debug("suppressed in _hermite_fe_optimise.py:119: %s", e)
-            continue
-        if np.all(np.isfinite(combined)):
-            cols.append(combined)
-            valid_idx.append(k)
-    if not cols:
-        return -np.inf, 0.0, -1
-    X_batch = np.ascontiguousarray(np.column_stack(cols), dtype=np.float64)
+    if _fill_bf_batch_njit is not None and all(i >= 0 for i in _bf_ids1):
+        KBF = len(bf_callables)
+        rows = np.empty((KBF, h_a.shape[0]), dtype=np.float64)
+        finite = np.zeros(KBF, dtype=np.bool_)
+        _fill_bf_batch_njit(np.ascontiguousarray(h_a, dtype=np.float64)[None, :],
+                            np.ascontiguousarray(h_b, dtype=np.float64)[None, :],
+                            np.ones(1, dtype=np.bool_), np.asarray(_bf_ids1, dtype=np.int64), rows, finite)
+        nc1 = 0
+        for k in range(KBF):
+            if finite[k]:
+                if k != nc1:
+                    rows[nc1] = rows[k]
+                valid_idx.append(k)
+                nc1 += 1
+        if nc1 == 0:
+            return -np.inf, 0.0, -1
+        X_rows = rows[:nc1]
+    else:
+        for k, bf in enumerate(bf_callables):
+            try:
+                combined = bf(h_a, h_b)
+            except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
+                logger.debug("suppressed in _hermite_fe_optimise.py:119: %s", e)
+                continue
+            if np.all(np.isfinite(combined)):
+                cols.append(combined)
+                valid_idx.append(k)
+        if not cols:
+            return -np.inf, 0.0, -1
+        X_rows = np.ascontiguousarray(np.stack(cols, axis=0), dtype=np.float64)
+    X_batch = X_rows.T  # (n, K_valid) view for the ksg legs below; plugin uses the rows form directly
     if mi_estimator == "plugin":
+        from .hermite_fe import _plugin_mi_classif_batch_rows_njit
         if discrete_target:
-            mi_arr = _plugin_mi_classif_batch_njit(X_batch, y_njit, plugin_n_bins)
+            mi_arr = _plugin_mi_classif_batch_rows_njit(X_rows, y_njit, plugin_n_bins)
         else:
-            mi_arr = _plugin_mi_regression_batch_njit(X_batch, y_njit, plugin_n_bins)
+            mi_arr = _plugin_mi_regression_batch_njit(np.ascontiguousarray(X_batch), y_njit, plugin_n_bins)
     else:  # ksg
         if discrete_target:
             mi_arr = mutual_info_classif(X_batch, y, n_neighbors=n_neighbors, random_state=42, discrete_features=False)
@@ -227,32 +255,47 @@ def _eval_coef_pair_batch(coefs_a, coefs_b, *, z_a, z_b, eval_func, bf_callables
     # (0.43s) = ~40%% of a cma_batch search. Columns are written straight into the preallocated X_batch
     # (no per-column copy, no stack); unknown bf names keep the numpy callable path.
     try:
-        from ._numba_polynom_optimizer import _BF_NAME_TO_ID, _bf_dispatch_njit
+        from ._numba_polynom_optimizer import _BF_NAME_TO_ID, _bf_dispatch_njit, _fill_bf_batch_njit
     except Exception:
-        _BF_NAME_TO_ID, _bf_dispatch_njit = {}, None
+        _BF_NAME_TO_ID, _bf_dispatch_njit, _fill_bf_batch_njit = {}, None, None
     col_meta: list = []  # tuples (p, k)
-    X_batch = np.empty((P * len(bf_callables), n_rows), dtype=np.float64)  # ROW-major: contiguous writes + copy-free MI rows kernel
+    KBF = len(bf_callables)
+    X_batch = np.empty((P * KBF, n_rows), dtype=np.float64)  # ROW-major: contiguous writes + copy-free MI rows kernel
     nc = 0
-    for p in range(P):
-        if not cand_valid[p]:
-            continue
-        h_a = h_a_arr[p]
-        h_b = h_b_arr[p]
-        for k, bf in enumerate(bf_callables):
-            bfid = _BF_NAME_TO_ID.get(bf_names[k], -1) if _bf_dispatch_njit is not None else -1
-            try:
-                if bfid >= 0:
-                    combined = _bf_dispatch_njit(bfid, h_a, h_b)
-                else:
-                    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
-                        combined = bf(h_a, h_b)
-            except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
-                logger.debug("suppressed in _hermite_fe_optimise.py:234: %s", e)
-                continue
-            if np.all(np.isfinite(combined)):
-                X_batch[nc] = combined
-                col_meta.append((p, k))
+    # The all-known-bfs case runs ONE parallel njit fill over every (candidate, bf) row -- bf compute,
+    # finiteness scan, and the row store all inside a single prange (no 120x Python->njit crossings, allocs,
+    # or isfinite passes). Any unknown bf name falls back to the per-column Python loop below.
+    _bf_ids = [_BF_NAME_TO_ID.get(nm, -1) for nm in bf_names] if _BF_NAME_TO_ID else [-1] * KBF
+    if _fill_bf_batch_njit is not None and all(i >= 0 for i in _bf_ids):
+        finite = np.zeros(P * KBF, dtype=np.bool_)
+        _fill_bf_batch_njit(h_a_arr, h_b_arr, cand_valid, np.asarray(_bf_ids, dtype=np.int64), X_batch, finite)
+        for r_row in range(P * KBF):
+            if finite[r_row]:
+                if r_row != nc:
+                    X_batch[nc] = X_batch[r_row]
+                col_meta.append((r_row // KBF, r_row % KBF))
                 nc += 1
+    else:
+        for p in range(P):
+            if not cand_valid[p]:
+                continue
+            h_a = h_a_arr[p]
+            h_b = h_b_arr[p]
+            for k, bf in enumerate(bf_callables):
+                bfid = _bf_ids[k] if _bf_dispatch_njit is not None else -1
+                try:
+                    if bfid >= 0:
+                        combined = _bf_dispatch_njit(bfid, h_a, h_b)
+                    else:
+                        with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+                            combined = bf(h_a, h_b)
+                except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
+                    logger.debug("suppressed in _hermite_fe_optimise.py:234: %s", e)
+                    continue
+                if np.all(np.isfinite(combined)):
+                    X_batch[nc] = combined
+                    col_meta.append((p, k))
+                    nc += 1
 
     best_scores = np.full(P, -np.inf, dtype=np.float64)
     best_raws = np.zeros(P, dtype=np.float64)

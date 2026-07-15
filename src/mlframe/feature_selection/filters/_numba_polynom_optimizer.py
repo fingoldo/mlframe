@@ -118,6 +118,31 @@ def _polyeval_dispatch_njit(basis_id: int, x: np.ndarray, c: np.ndarray) -> np.n
     return np.asarray(_lagval_njit(x, c))
 
 
+@njit(cache=True, fastmath=True, parallel=True)
+def _fill_bf_batch_njit(ha_arr: np.ndarray, hb_arr: np.ndarray, cand_valid: np.ndarray,
+                        bf_ids: np.ndarray, x_rows: np.ndarray, finite: np.ndarray) -> None:
+    """Fill the (P*n_bf, n) row-major bf-combination batch in ONE parallel njit call: row r = candidate
+    r//n_bf x bf r%n_bf, computed via ``_bf_dispatch_njit`` (bit-parity with the numpy callables) with the
+    finiteness scan fused in. Replaces the Python-side loop of 120 separate njit calls + allocs + memcpys +
+    np.isfinite passes in ``_eval_coef_pair_batch`` -- one prange over all rows instead."""
+    n_bf = bf_ids.shape[0]
+    total = ha_arr.shape[0] * n_bf
+    for r_row in prange(total):
+        p_c = r_row // n_bf
+        finite[r_row] = False
+        if not cand_valid[p_c]:
+            continue
+        c = _bf_dispatch_njit(bf_ids[r_row % n_bf], ha_arr[p_c], hb_arr[p_c])
+        ok = True
+        for i in range(c.shape[0]):
+            if not np.isfinite(c[i]):
+                ok = False
+                break
+        if ok:
+            x_rows[r_row] = c
+            finite[r_row] = True
+
+
 @njit(cache=True, fastmath=True)
 def _bf_dispatch_njit(bf_id: int, a: np.ndarray, b: np.ndarray) -> np.ndarray:
     """Integer-dispatched binary function. Operates element-wise.
