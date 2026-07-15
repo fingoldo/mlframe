@@ -67,7 +67,7 @@ def _eval_coef_pair(coef_a, coef_b, *, z_a, z_b, eval_func, bf_callables,
     # Lazy import of parent-resident helpers: ``.hermite_fe`` re-imports
     # this sibling at its bottom, so a top-level ``from .hermite_fe
     # import ...`` would create a hard cycle the meta-test flags.
-    from .hermite_fe import _L2_PENALTY_SATURATION_DEFAULT, _l2_normalize_pair, _l2_penalty_value, _plugin_mi_classif_batch_rows_njit, _plugin_mi_regression_batch_njit
+    from .hermite_fe import _L2_PENALTY_SATURATION_DEFAULT, _l2_normalize_pair, _l2_penalty_value, _plugin_mi_classif_batch_njit, _plugin_mi_regression_batch_njit
     if l2_penalty_saturation is None:
         l2_penalty_saturation = _L2_PENALTY_SATURATION_DEFAULT
     if direction_only:
