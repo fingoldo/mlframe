@@ -910,12 +910,22 @@ def _get_radix_interp_kernel():
     return _RADIX_INTERP_KERNEL
 
 
-def _radix_select_interior_edges(cand_gpu, nbins: int, cm_hint=None):
+def _radix_select_interior_edges(cand_gpu, nbins: int, cm_hint=None, with_extremes: bool = False):
     """Return the (nbins-1, K) INTERIOR quantile edges of the resident (n, K) cupy ``cand_gpu`` via the
     sort-free radix-select kernel + cupy's exact 'linear' interpolation (reproduced in float64). The edges
     are BIT-IDENTICAL (in the resulting codes) to ``cp.percentile(cand, linspace(0,100,nbins+1))[1:-1]``.
     Returns ``None`` if the radix path is inapplicable (R over the kernel cap, shared-mem over the device
     limit) so the caller uses the cp.percentile fallback. ``cand_gpu`` must be C-contiguous (n, K).
+
+    ``with_extremes`` (ncu/nsys-driven, 2026-07-15): also emit the column min/max as extra EXACT order
+    statistics (rank 0 and rank n-1, interp weight 0 -> the interp formula degenerates to the order stat
+    itself, no special-casing needed) computed in the SAME select pass, returning the FULL (nbins+1, K)
+    edge matrix (min, interior..., max) instead of interior-only. This lets ``batched_quantile_bin_gpu``
+    skip its separate ``Xd.min(axis=0)``/``Xd.max(axis=0)`` reduction kernels (nsys: ~18%% of GPU time in the
+    cupy-search microbench) for the price of +2 order statistics in an already-shared-mem-bounded kernel --
+    a no-op when nbins-1 interior ranks already include ranks near 0/n-1 (union dedups), and at worst +2
+    slots against the R<=64 cap. Cached under a SEPARATE key from the interior-only path -- the two modes
+    never share or corrupt each other's cache entries.
 
     ``cm_hint`` (LAUNCH-FUSION 2026-06-27): an OPTIONAL (K, n) C-order column-major view of the SAME data as
     ``cand_gpu`` (e.g. the materialise kernel's pre-transpose cm buffer). When supplied, the internal
@@ -936,13 +946,18 @@ def _radix_select_interior_edges(cand_gpu, nbins: int, cm_hint=None):
     # None records the "radix inapplicable" verdict (R over the kernel cap / shared-mem over the device limit) so
     # the caller's cp.percentile fallback is taken without recomputing. Selection-IDENTICAL: same ranks -> same
     # order statistics -> bit-identical edges.
-    _ik = (int(n), int(nbins))
+    _ik = (int(n), int(nbins), bool(with_extremes))
     if _ik not in _RADIX_INTERP_CACHE:
         # cupy 'linear' positions for the nbins-1 interior quantiles (q in (0,1)), float64 throughout.
         qfr = np.linspace(0.0, 100.0, int(nbins) + 1)[1:-1] / 100.0  # (nbins-1,) fractions
         idx = qfr * (n - 1)
         bel = np.floor(idx).astype(np.int64)
         abv = np.minimum(bel + 1, n - 1)
+        if with_extremes:
+            # exact order stats: rank 0 (min) and rank n-1 (max), interp weight 0 (bel==abv==that rank).
+            idx = np.concatenate([[0.0], idx, [float(n - 1)]])
+            bel = np.concatenate([[0], bel, [n - 1]]).astype(np.int64)
+            abv = np.concatenate([[0], abv, [n - 1]]).astype(np.int64)
         uniq = np.unique(np.concatenate([bel, abv]))  # the order-statistic ranks to extract
         R = int(uniq.size)
         # shared-mem budget: R*256 uint32 histogram (host gate vs the device's per-block shared limit). The gate

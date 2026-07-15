@@ -476,6 +476,45 @@ def test_radix_select_edges_codes_bit_identical_to_percentile(monkeypatch):
             assert maxdiff == 0, f"dt={dt.__name__} n={n} K={K} radix vs percentile code maxdiff={maxdiff}"
 
 
+def test_radix_with_extremes_bit_identical_to_separate_minmax(monkeypatch):
+    """The ``with_extremes=True`` fused radix path (min/max ride along as 2 extra exact order statistics in
+    the select kernel) must produce codes BIT-IDENTICAL to the separate Xd.min(axis=0)/Xd.max(axis=0) +
+    interior-only concatenate it replaces -- across normal, const, tied, binary, low-cardinality, subnormal,
+    and signed-zero columns (the edge-dedup/ndistinct logic is exact-value-sensitive at the extremes)."""
+    cp = pytest.importorskip("cupy")
+    import mlframe.feature_selection.filters._fe_batched_mi as m
+    import mlframe.feature_selection.filters._gpu_resident_select as gs
+
+    rng = np.random.default_rng(3)
+    base = rng.standard_normal((30_000, 64))
+    variants = {"normal": base.copy()}
+    v = base.copy(); v[:, 0] = 1.0; variants["const_col"] = v
+    v = base.copy(); v[:15_000, 1] = v[0, 1]; variants["half_tied"] = v
+    v = base.copy(); v[:, 2] = (v[:, 2] > 0).astype(float); variants["binary_col"] = v
+    v = base.copy(); v[:, 3] = np.repeat(np.arange(5), 6_000); variants["5_distinct"] = v
+    v = base.copy(); v[:, 4] *= -1e-300; variants["subnormal"] = v
+    v = base.copy(); v[:100, 5] = -0.0; variants["neg_zero"] = v
+
+    orig_fn = gs._radix_select_interior_edges
+
+    def old_path(cand, nbins, cm_hint=None, with_extremes=False):
+        interior = orig_fn(cand, nbins, cm_hint=cm_hint, with_extremes=False)
+        if interior is None:
+            return None
+        return cp.concatenate([cand.min(axis=0)[None, :], interior, cand.max(axis=0)[None, :]], axis=0)
+
+    for name, Xn in variants.items():
+        Xd = cp.ascontiguousarray(cp.asarray(Xn))
+        gs._RADIX_INTERP_CACHE.clear()
+        new = cp.asnumpy(m.batched_quantile_bin_gpu(Xd, 21))
+        monkeypatch.setattr(gs, "_radix_select_interior_edges", old_path)
+        gs._RADIX_INTERP_CACHE.clear()
+        old = cp.asnumpy(m.batched_quantile_bin_gpu(Xd, 21))
+        monkeypatch.setattr(gs, "_radix_select_interior_edges", orig_fn)
+        gs._RADIX_INTERP_CACHE.clear()
+        assert np.array_equal(new, old), f"variant={name}: with_extremes diverges from separate min/max"
+
+
 def test_radix_f64_v3_compaction_bit_identical_to_v2(monkeypatch):
     """The candidate-compaction v3 fused f64 select+interp kernel must emit interior edges BIT-IDENTICAL to
     v2 -- including columns that OVERFLOW the candidate cap (heavy ties concentrating a whole column into

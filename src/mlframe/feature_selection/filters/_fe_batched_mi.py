@@ -762,9 +762,10 @@ def batched_quantile_bin_gpu(x_cols: Any, nbins: int) -> Any:
     try:
         from ._gpu_resident_select import _radix_select_interior_edges, fe_gpu_radix_edges_enabled
         if fe_gpu_radix_edges_enabled():
-            interior = _radix_select_interior_edges(cp.ascontiguousarray(Xd), int(nbins))  # (nbins-1, K) or None
-            if interior is not None:
-                edges_all = cp.concatenate([Xd.min(axis=0)[None, :], interior, Xd.max(axis=0)[None, :]], axis=0)
+            # with_extremes=True: min/max ride along as 2 extra exact order statistics in the SAME select
+            # pass (ncu/nsys-driven, 2026-07-15) instead of two standalone Xd.min(axis=0)/Xd.max(axis=0)
+            # reduction kernels -- returns the full (nbins+1, K) edge matrix directly, no concatenate.
+            edges_all = _radix_select_interior_edges(cp.ascontiguousarray(Xd), int(nbins), with_extremes=True)
     except Exception:
         edges_all = None
     if edges_all is None:
