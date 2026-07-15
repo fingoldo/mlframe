@@ -125,6 +125,21 @@ def _plugin_mi_classif_batch_njit(X_cols: np.ndarray, y: np.ndarray, n_bins: int
     return out
 
 
+@njit(cache=True, fastmath=True, parallel=True)
+def _plugin_mi_classif_batch_rows_njit(X_rows: np.ndarray, y: np.ndarray, n_bins: int = 20) -> np.ndarray:
+    """ROW-major twin of ``_plugin_mi_classif_batch_njit``: takes (k, n) with each candidate column stored as a
+    CONTIGUOUS row, so the per-column ``.copy()`` the (n, k) form needs before numba argsort disappears
+    entirely. Bit-identical MI (same values, same contiguous argsort). Built for _eval_coef_pair_batch, which
+    now fills its bf-combination batch row-major from the start (contiguous writes, no strided column stores).
+    NOT a replacement for the (n, k) form: callers holding naturally column-major data keep the original
+    (the measured-rejected transpose of an EXISTING (n, k) matrix is a different, losing lever -- see above)."""
+    k = X_rows.shape[0]
+    out = np.zeros(k, dtype=np.float64)
+    for j in prange(k):
+        out[j] = _plugin_mi_classif_njit(X_rows[j], y, n_bins)
+    return out
+
+
 def _quantile_bin_numpy(x: np.ndarray, n_bins: int) -> np.ndarray:
     """Pure-numpy quantile binning. ~1.6x faster than the numba version
     at n=1500 because numpy's ``np.argsort`` dispatches to a SIMD-optimised

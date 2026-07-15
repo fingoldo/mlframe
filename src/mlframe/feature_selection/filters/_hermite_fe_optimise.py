@@ -67,7 +67,7 @@ def _eval_coef_pair(coef_a, coef_b, *, z_a, z_b, eval_func, bf_callables,
     # Lazy import of parent-resident helpers: ``.hermite_fe`` re-imports
     # this sibling at its bottom, so a top-level ``from .hermite_fe
     # import ...`` would create a hard cycle the meta-test flags.
-    from .hermite_fe import _L2_PENALTY_SATURATION_DEFAULT, _l2_normalize_pair, _l2_penalty_value, _plugin_mi_classif_batch_njit, _plugin_mi_regression_batch_njit
+    from .hermite_fe import _L2_PENALTY_SATURATION_DEFAULT, _l2_normalize_pair, _l2_penalty_value, _plugin_mi_classif_batch_rows_njit, _plugin_mi_regression_batch_njit
     if l2_penalty_saturation is None:
         l2_penalty_saturation = _L2_PENALTY_SATURATION_DEFAULT
     if direction_only:
@@ -179,7 +179,7 @@ def _eval_coef_pair_batch(coefs_a, coefs_b, *, z_a, z_b, eval_func, bf_callables
     polyeval (cheap numba calls), this is the bulk of the speedup vs
     Optuna's per-trial sequential evaluation.
     """
-    from .hermite_fe import _L2_PENALTY_SATURATION_DEFAULT, _l2_normalize_pair, _l2_penalty_value, _plugin_mi_classif_batch_njit, _plugin_mi_regression_batch_njit
+    from .hermite_fe import _L2_PENALTY_SATURATION_DEFAULT, _l2_normalize_pair, _l2_penalty_value, _plugin_mi_classif_batch_rows_njit, _plugin_mi_regression_batch_njit
     if l2_penalty_saturation is None:
         l2_penalty_saturation = _L2_PENALTY_SATURATION_DEFAULT
 
@@ -231,7 +231,7 @@ def _eval_coef_pair_batch(coefs_a, coefs_b, *, z_a, z_b, eval_func, bf_callables
     except Exception:
         _BF_NAME_TO_ID, _bf_dispatch_njit = {}, None
     col_meta: list = []  # tuples (p, k)
-    X_batch = np.empty((n_rows, P * len(bf_callables)), dtype=np.float64)
+    X_batch = np.empty((P * len(bf_callables), n_rows), dtype=np.float64)  # ROW-major: contiguous writes + copy-free MI rows kernel
     nc = 0
     for p in range(P):
         if not cand_valid[p]:
@@ -250,7 +250,7 @@ def _eval_coef_pair_batch(coefs_a, coefs_b, *, z_a, z_b, eval_func, bf_callables
                 logger.debug("suppressed in _hermite_fe_optimise.py:234: %s", e)
                 continue
             if np.all(np.isfinite(combined)):
-                X_batch[:, nc] = combined
+                X_batch[nc] = combined
                 col_meta.append((p, k))
                 nc += 1
 
@@ -264,17 +264,17 @@ def _eval_coef_pair_batch(coefs_a, coefs_b, *, z_a, z_b, eval_func, bf_callables
     # _plugin_mi_classif_batch_njit kernel pranges over columns -- with
     # P=20 candidates and ~5 bf_callables we feed 100 columns into one
     # call, saturating all cores in a single numba launch.
-    X_batch = np.ascontiguousarray(X_batch[:, :nc])
+    X_batch = X_batch[:nc]  # (nc, n) row-major view; rows already contiguous
     if mi_estimator == "plugin":
         if discrete_target:
-            mi_arr = _plugin_mi_classif_batch_njit(X_batch, y_njit, plugin_n_bins)
+            mi_arr = _plugin_mi_classif_batch_rows_njit(X_batch, y_njit, plugin_n_bins)
         else:
-            mi_arr = _plugin_mi_regression_batch_njit(X_batch, y_njit, plugin_n_bins)
+            mi_arr = _plugin_mi_regression_batch_njit(np.ascontiguousarray(X_batch.T), y_njit, plugin_n_bins)
     else:  # ksg
         if discrete_target:
-            mi_arr = mutual_info_classif(X_batch, y, n_neighbors=n_neighbors, random_state=42, discrete_features=False)
+            mi_arr = mutual_info_classif(X_batch.T, y, n_neighbors=n_neighbors, random_state=42, discrete_features=False)
         else:
-            mi_arr = mutual_info_regression(X_batch, y, n_neighbors=n_neighbors, random_state=42, discrete_features=False)
+            mi_arr = mutual_info_regression(X_batch.T, y, n_neighbors=n_neighbors, random_state=42, discrete_features=False)
 
     # Phase 4: per-candidate l2 penalty + best-bf selection
     penalties = np.zeros(P, dtype=np.float64)
