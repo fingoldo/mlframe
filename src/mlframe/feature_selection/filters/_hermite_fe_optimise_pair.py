@@ -589,20 +589,45 @@ def optimise_hermite_pair(
                 elif optimizer == "cupy_kernel":
                     # GPU generation-batched twin of numba_kernel: one cuBLAS GEMM per generation for all
                     # candidates' basis evaluation + batched device binning/MI. Same plugin-MI/polynomial-
-                    # basis limitations as numba_kernel. On a cupy-less host fall back to cma_batch (the
-                    # prior default, same quality tier) instead of letting the generic except route to the
-                    # much slower optuna path -- cupy_kernel is the DEFAULT since 2026-07-15 (production
-                    # wellbore-100k validation: fit wall 854s -> 480s, selection identical; quality A/B in
-                    # _benchmarks/bench_polynom_optimizer_variants_ab.py), so CPU-only hosts must keep the
-                    # exact legacy behavior transparently.
+                    # basis limitations as numba_kernel. cupy_kernel is the DEFAULT since 2026-07-15
+                    # (production wellbore-100k validation: fit wall 854s -> 480s -> 538s under load,
+                    # selection identical). On a cupy-less host, fall back to random_batch -- NOT cma_batch
+                    # -- per the time-to-first-best comparison below (random_batch matches cma_batch's
+                    # bit-identical winners at equal-or-lower wall on every measured case; instead of
+                    # letting the generic except route to the much slower/worse-converging optuna path).
+                    #
+                    # OPTIMIZER COMPARISON (2026-07-15, protocol: 3 seeds x 3 restarts x 60 trials, plugin
+                    # MI, chebyshev basis, n=20000; "time to first best" = wall-clock offset at which the
+                    # EVENTUAL best MI was first reached, median across seeds; see
+                    # _benchmarks/bench_polynom_optimizer_bases_ab.py + results/bench_polynom_optimizer_bases.json):
+                    #
+                    #   variant       | cubic_inner MI / t-to-best | cross_cheb MI / t-to-best | quintic_mix MI / t-to-best
+                    #   optuna        | 0.4813 / ~4.2s   (restart0)| 0.3078 / ~4.0s   (restart0)| 0.14-0.15 / ~13s  (restart2, EVERY seed)
+                    #   cma_batch     | 0.4813 / ~1.6s   (restart0)| 0.3078 / ~1.3s   (restart0)| 0.15-0.17 / 1.3-4.2s (restart0-2)
+                    #   random_batch  | 0.4813 / ~1.1s   (restart0)| 0.3078 / ~1.2s   (restart0)| 0.16      / 1.1-3.3s (restart0-2)
+                    #   numba_kernel  | 0.4813 / ~3.4s   (restart0)| 0.3078 / ~3.4s   (restart0)| 0.14-0.15 / 6.8-11.0s(restart1-2)
+                    #   cupy_kernel   | 0.4813 / 0.3-1.2s(restart0)| 0.3078 / ~0.3s   (restart0)| 0.14-0.15 / 0.3-0.85s(restart0-2)
+                    #
+                    # optuna is 3-4x slower than cma_batch/random_batch at IDENTICAL quality on easy cases,
+                    # and on the hard case (quintic_mix) additionally needs its FULL budget (restart 2) on
+                    # every seed while landing WORSE MI (0.135-0.152) than cma_batch/random_batch (0.15-0.17)
+                    # -- TPE's model-based sampling buys nothing here, only orchestration overhead.
+                    # numba_kernel is architecturally mismatched for single-pair search: its
+                    # @njit(parallel=True) outer kernel prange's over PAIRS, so a single-pair caller (every
+                    # caller today) pays full thread-pool dispatch/barrier overhead for a 1-iteration loop,
+                    # AND its per-candidate basis eval is a scalar Horner recompute (_polyeval_dispatch_njit
+                    # called per candidate) instead of the batched BLAS GEMM (B @ C.T) cma_batch/random_batch
+                    # use via _eval_coef_pair_batch -- fixing this would duplicate random_batch's already-
+                    # faster BLAS path inside njit for no measured benefit, so numba_kernel is NOT
+                    # recommended for single-pair search and stays available only as an explicit opt-in.
                     try:
                         import cupy  # noqa: F401
                         from ._cupy_polynom_optimizer import run_cupy_kernel_search
                         _kernel_search = run_cupy_kernel_search
                     except Exception:
-                        logger.debug("cupy unavailable; cupy_kernel default falls back to cma_batch")
-                        from ._hermite_fe_optimise import _run_cma_search_batch
-                        _kernel_search = lambda **kw: _run_cma_search_batch(**kw)  # noqa: E731
+                        logger.debug("cupy unavailable; cupy_kernel default falls back to random_batch")
+                        from ._hermite_fe_optimise import _run_random_batch_search
+                        _kernel_search = lambda **kw: _run_random_batch_search(**kw)  # noqa: E731
                     cma_result = _kernel_search(
                         ca_size=ca_size, cb_size=cb_size,
                         coef_range=coef_range, n_trials=n_trials, seed=seed,
