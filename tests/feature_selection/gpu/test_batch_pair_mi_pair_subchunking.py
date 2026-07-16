@@ -27,7 +27,54 @@ import mlframe.feature_selection.filters.batch_pair_mi_gpu as bpmg
 import mlframe.feature_selection.filters._batch_pair_mi_cuda_kernels as bpmk
 
 
+@pytest.fixture(autouse=True)
+def _clean_gpu_state():
+    """Clear the resident-operand cache + cupy's memory pool, and re-arm the once-per-process pool
+    cap guard, before/after each test in this file.
+
+    This file deliberately runs VRAM-boundary tests (near-zero-free-VRAM fallback, a production-shape
+    allocation right at the accumulator budget). Two independent SESSION-STICKY pieces of state can
+    starve them regardless of what they're actually testing, if an earlier test/file already touched
+    the GPU in the same pytest session:
+
+    1. ``resident_operand`` (``_fe_resident_operands.py``) caches fit-constant-sized ``factors_data``
+       (used by both ``batch_pair_mi_cuda`` (2026-07-12) and ``batch_pair_mi_cupy`` (2026-07-16));
+       its LRU capacity (192 entries) was sized for small subsample-column operands (a few MB each),
+       not full ``(n_samples, n_cols)`` matrices, so accumulating several sibling test files' distinct
+       (differently-content) large buffers can leave real allocations starved by the time this file's
+       own tests run.
+    2. ``_fe_gpu_vram.ensure_fe_gpu_pool_limit`` caps cupy's default memory pool via
+       ``set_limit(fraction=...)`` ONCE per process (module-global ``_POOL_LIMIT_DONE`` flag) -- a
+       deliberate, correct production safeguard against unbounded VRAM growth, but ``set_limit`` does
+       NOT self-adjust: once ANY earlier test in the session triggers it (any ``dispatch_batch_pair_mi``
+       call does), the cap sticks at whatever fraction-of-free-VRAM was measured at THAT moment, which
+       can be tighter than what's actually free now. ``_reset_fe_gpu_pool_limit_flag`` + an explicit
+       ``set_limit(size=0)`` (cupy's documented uncap) restore a fresh, un-capped baseline so the next
+       real dispatch call re-measures against CURRENT free VRAM instead of a stale prior snapshot.
+
+    Together these keep this file's OOM-boundary tests deterministic regardless of suite run order."""
+    from mlframe.feature_selection.filters._fe_resident_operands import clear_fe_resident_operands
+    from mlframe.feature_selection.filters._fe_gpu_vram import _reset_fe_gpu_pool_limit_flag
+
+    def _reset():
+        """Clear resident FE operands, the GPU pool-limit flag, and uncap/free cupy's default pool."""
+        clear_fe_resident_operands()
+        _reset_fe_gpu_pool_limit_flag()
+        try:
+            import cupy as cp
+
+            cp.get_default_memory_pool().set_limit(size=0)
+            cp.get_default_memory_pool().free_all_blocks()
+        except Exception:  # nosec B110 - cupy optional; best-effort cleanup
+            pass
+
+    _reset()
+    yield
+    _reset()
+
+
 def _build_pair_inputs(n_samples, n_cols, nbins_val, n_classes_y, seed=0):
+    """Build all-pairs factors/pair/class inputs for the pair-subchunking OOM-boundary tests."""
     rng = np.random.default_rng(seed)
     cols = [rng.integers(0, nbins_val, size=n_samples) for _ in range(n_cols)]
     data = np.column_stack(cols).astype(np.int32)
@@ -82,6 +129,7 @@ def test_pair_subchunked_finalize_avoids_full_accumulator_readback(monkeypatch):
     orig_copy_to_host = _devicearray.DeviceNDArray.copy_to_host
 
     def _spy_copy_to_host(self, *a, **kw):
+        """Count copy_to_host calls on 2D int64 device arrays -- a proxy for full-accumulator readbacks."""
         if getattr(self, "ndim", 0) >= 2 and getattr(self, "dtype", None) is not None and "int64" in str(self.dtype):
             calls["n"] += 1
         return orig_copy_to_host(self, *a, **kw)

@@ -32,6 +32,7 @@ import pytest
 
 
 def _read(rel: str) -> str:
+    """Read a source file relative to the installed mlframe package root."""
     import mlframe as _mlframe
     _path = pathlib.Path(_mlframe.__file__).resolve().parent / rel
     if not _path.exists() and _path.suffix == ".py":
@@ -49,9 +50,10 @@ def _read(rel: str) -> str:
 
 
 @pytest.mark.parametrize("rel,marker,site", [
-    # #1: gpu.py streamed variant lookup_joint_hist
+    # #1: streamed variant lookup_joint_hist. Moved to ``_gpu_batched.py`` when ``gpu.py`` was split
+    # into siblings (the batched joint-hist dispatch, including this cache lookup, now lives there).
     (
-        "feature_selection/filters/gpu.py",
+        "feature_selection/filters/_gpu_batched.py",
         "lookup_joint_hist(n_samples=n, joint_size=joint_size)",
         "streamed_joint_hist",
     ),
@@ -169,16 +171,13 @@ def test_wave23_falls_back_to_source_default_when_cache_unavailable():
         has_uplevel_shim = "from .._kernel_tuning_cache.dispatch import" in src
         has_bench_dispatch = "from mlframe.feature_selection._benchmarks.kernel_tuning_cache.dispatch import" in src
         has_registry = "from pyutilz.performance.kernel_tuning.registry import kernel_tuner" in src
-        assert (has_direct or has_shim or has_pkg_shim or has_uplevel_shim or has_bench_dispatch or has_registry), (
+        assert has_direct or has_shim or has_pkg_shim or has_uplevel_shim or has_bench_dispatch or has_registry, (
             f"{rel}: kernel_tuning_cache integration missing -- expected "
             f"either the direct pyutilz import OR the project-local "
             f"_kernel_tuning shim OR the _benchmarks.kernel_tuning_cache "
             f"dispatch helper. The lookup path was removed?"
         )
-        assert "except Exception" in src, (
-            f"{rel}: the cache lookup must have a try/except fallback; "
-            f"missing pyutilz module would otherwise break dispatch."
-        )
+        assert "except Exception" in src, f"{rel}: the cache lookup must have a try/except fallback; " f"missing pyutilz module would otherwise break dispatch."
 
 
 def test_wave23_smoke_imports():
