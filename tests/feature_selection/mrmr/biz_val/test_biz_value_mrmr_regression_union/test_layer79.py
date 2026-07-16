@@ -39,6 +39,7 @@ import importlib
 import re
 import time
 import warnings
+from functools import cache
 from pathlib import Path
 
 import numpy as np
@@ -117,8 +118,10 @@ def _build_composite(seed: int, n: int = 2000):
 
 
 class TestPriorLayerDiscoverability:
+    """Contract 1: the on-disk biz_value test-module roster has not shrunk."""
 
     def test_all_prior_layer_modules_present_on_disk(self):
+        """The biz_value test-module count stays at or above the shipped floor (110)."""
         root = Path(__file__).parent.parent
         # Silent-delete guard for the prior-layer roster. Some prior layers were consolidated into
         # themed subpackages under non-``layerN`` filenames (e.g. test_biz_value_mrmr_dcd/
@@ -126,15 +129,13 @@ class TestPriorLayerDiscoverability:
         # holds; instead assert the on-disk biz_value test-module roster has not shrunk below the
         # shipped floor. A glob count over the tree catches a dropped/renamed module directly,
         # without depending on docstring provenance markers (which a source-text grep would).
-        module_count = len(sorted(root.glob("test_biz_value_*.py"))) + len(
-            sorted(root.glob("test_biz_value_mrmr_*/test_*.py"))
-        )
+        module_count = len(sorted(root.glob("test_biz_value_*.py"))) + len(sorted(root.glob("test_biz_value_mrmr_*/test_*.py")))
         assert module_count >= 110, (
-            f"biz_value test-module roster shrank to {module_count} (floor 110); "
-            f"a prior-layer test module was likely dropped or renamed."
+            f"biz_value test-module roster shrank to {module_count} (floor 110); " f"a prior-layer test module was likely dropped or renamed."
         )
 
     def test_layer_count_matches_expected_78(self):
+        """The layerN.py roster (incl. relocated/consolidated numbers) matches the expected count."""
         root = Path(__file__).parent.parent
         present_set = {
             int(p.stem.replace("test_biz_value_mrmr_layer", ""))
@@ -152,16 +153,10 @@ class TestPriorLayerDiscoverability:
         # Silent-delete floor: the biz_value test-module roster on disk (flat + themed-subpackage
         # submodules, some consolidated under non-layerN names) must not shrink below the shipped
         # floor; a glob count is the direct guard, independent of docstring provenance markers.
-        module_count = len(sorted(root.glob("test_biz_value_*.py"))) + len(
-            sorted(root.glob("test_biz_value_mrmr_*/test_*.py"))
-        )
-        assert module_count >= 110, (
-            f"biz_value test-module roster shrank to {module_count} (floor 110): {present}"
-        )
+        module_count = len(sorted(root.glob("test_biz_value_*.py"))) + len(sorted(root.glob("test_biz_value_mrmr_*/test_*.py")))
+        assert module_count >= 110, f"biz_value test-module roster shrank to {module_count} (floor 110): {present}"
         # Pin the upper boundary so a future drift (layer skip) is caught.
-        assert max(present) >= 78, (
-            f"highest prior-layer module should be >= 78, got {max(present)}"
-        )
+        assert max(present) >= 78, f"highest prior-layer module should be >= 78, got {max(present)}"
 
 
 # ---------------------------------------------------------------------------
@@ -236,24 +231,33 @@ def _all_on_kwargs():
     )
 
 
+@cache
+def _composite_all_on_fit():
+    """Cached ``(X, y, m, fit_seconds)`` for the composite all-on fit.
+
+    Contracts 2 and 3 (``TestCompositeAllOnSmoke`` / ``TestProvenanceDiversity``)
+    both fit an identical all-on MRMR on the same seed=42/n=2000 composite dataset
+    to check different assertions on the same fitted model -- compute the fit (the
+    expensive step) once instead of twice. Nothing downstream mutates X/y/m in place.
+    """
+    X, y = _build_composite(seed=42, n=2000)
+    m = _make_mrmr(**_all_on_kwargs())
+    t0 = time.perf_counter()
+    m.fit(X, y)
+    dt = time.perf_counter() - t0
+    return X, y, m, dt
+
+
 class TestCompositeAllOnSmoke:
+    """Contract 2: composite all-on fit completes within the 180s budget."""
 
     def test_composite_all_on_fit_under_180s(self):
-        X, y = _build_composite(seed=42, n=2000)
-        m = _make_mrmr(**_all_on_kwargs())
-        t0 = time.perf_counter()
-        m.fit(X, y)
-        dt = time.perf_counter() - t0
-        assert dt < 180.0, (
-            f"composite all-on fit took {dt:.1f}s; budget 180s. Slowdown is "
-            f"a regression in the L65-L78 dispatch / FE-compose path."
-        )
+        """Composite all-on fit+transform completes under 180s and produces non-empty support_."""
+        _X, _y, m, dt = _composite_all_on_fit()
+        assert dt < 180.0, f"composite all-on fit took {dt:.1f}s; budget 180s. Slowdown is " f"a regression in the L65-L78 dispatch / FE-compose path."
         # Smoke: the fit produced *some* support.
         sup = getattr(m, "support_", None)
-        assert sup is not None and len(sup) > 0, (
-            "composite all-on fit produced empty support_; FE-compose dropped "
-            "every candidate"
-        )
+        assert sup is not None and len(sup) > 0, "composite all-on fit produced empty support_; FE-compose dropped " "every candidate"
 
 
 # ---------------------------------------------------------------------------
@@ -262,15 +266,13 @@ class TestCompositeAllOnSmoke:
 
 
 class TestProvenanceDiversity:
+    """Contract 3: composite all-on fit surfaces >= 5 distinct fe_provenance_ origins."""
 
     def test_composite_fit_emits_at_least_5_distinct_origins(self):
-        X, y = _build_composite(seed=42, n=2000)
-        m = _make_mrmr(**_all_on_kwargs()).fit(X, y)
+        """fe_provenance_ surfaces >= 5 distinct origin labels including 'raw'."""
+        _X, _y, m, _dt = _composite_all_on_fit()
         prov = getattr(m, "fe_provenance_", None)
-        assert prov is not None and not prov.empty, (
-            "fe_provenance_ frame missing / empty after composite fit; L54 "
-            "provenance wiring regressed"
-        )
+        assert prov is not None and not prov.empty, "fe_provenance_ frame missing / empty after composite fit; L54 " "provenance wiring regressed"
         origins = set(prov["origin"].dropna().unique().tolist())
         assert len(origins) >= 5, (
             f"composite all-on fit surfaced only {len(origins)} distinct "
@@ -278,9 +280,7 @@ class TestProvenanceDiversity:
             f"hybrid_orth + at least 3 other engineered families)"
         )
         # The raw bucket must always be present.
-        assert "raw" in origins, (
-            f"raw-origin bucket missing from provenance; got {sorted(origins)}"
-        )
+        assert "raw" in origins, f"raw-origin bucket missing from provenance; got {sorted(origins)}"
 
 
 # ---------------------------------------------------------------------------
@@ -289,8 +289,10 @@ class TestProvenanceDiversity:
 
 
 class TestLogRegAucOnComposite:
+    """Contract 4: LogReg holdout AUC on the composite signal clears 0.85."""
 
     def test_logreg_holdout_auc_at_least_0_85(self):
+        """LogReg holdout AUC on the MRMR-selected composite features is >= 0.85."""
         # Numeric-only composite (x1+x2 additive + x3*x4 XOR pair). The
         # pair FE stage emits the x3*x4__He1_He1 cell which lifts LogReg
         # AUC well above the 0.85 gate. The categorical / missingness /
@@ -324,9 +326,7 @@ class TestLogRegAucOnComposite:
             fe_hybrid_orth_cmim_enable=True,
         ).fit(X, y)
         Xt = m.transform(X)
-        assert Xt.shape[1] > 0, (
-            "MRMR.transform returned empty frame on composite fit"
-        )
+        assert Xt.shape[1] > 0, "MRMR.transform returned empty frame on composite fit"
         Xt_num = Xt.select_dtypes(include=[np.number, "bool"]).fillna(0.0)
         Xtr, Xte, ytr, yte = train_test_split(
             Xt_num, y, test_size=0.3, random_state=0, stratify=y,
@@ -377,6 +377,7 @@ def _build_xor_dataset(seed: int, n: int = 3000):
 
 
 class TestCrossBasisHierarchyActivation:
+    """Contract: every orth-poly arity layer (L21/L22/L56/L77/L78) contributes engineered columns."""
 
     def test_all_orth_arity_layers_contribute(self):
         """With L21/L22/L56/L77/L78 enabled together on a multi-arity
@@ -445,41 +446,28 @@ class TestCrossBasisHierarchyActivation:
             kwargs.pop(k, None)
         m = _make_mrmr(**kwargs).fit(X, y)
         orth = list(getattr(m, "hybrid_orth_features_", None) or [])
-        assert orth, (
-            "hybrid_orth_features_ empty after L21-L78 all-on fit; FE "
-            "compose did not append any orthogonal-basis columns"
-        )
-        n_star = lambda s: str(s).split("__", 1)[0].count("*")
+        assert orth, "hybrid_orth_features_ empty after L21-L78 all-on fit; FE " "compose did not append any orthogonal-basis columns"
+
+        def n_star(s):
+            """Count '*' occurrences in the source-name segment of an engineered column label."""
+            return str(s).split("__", 1)[0].count("*")
         # Production check against the L54 fe_provenance_ audit ledger: every
         # engineered column the orth-poly stage produced this fit, survivor or
         # screened-out. The hybrid_orth bucket subsumes L21/L22/L56/L77/L78.
         prov = getattr(m, "fe_provenance_", None)
-        assert prov is not None and not prov.empty, (
-            "fe_provenance_ missing/empty after L21-L78 all-on fit"
-        )
-        produced_orth = [
-            str(r["feature_name"]) for _, r in prov.iterrows()
-            if r["origin"] == "hybrid_orth"
-        ]
+        assert prov is not None and not prov.empty, "fe_provenance_ missing/empty after L21-L78 all-on fit"
+        produced_orth = [str(r["feature_name"]) for _, r in prov.iterrows() if r["origin"] == "hybrid_orth"]
         uni = [c for c in produced_orth if n_star(c) == 0]
         pair = [c for c in produced_orth if n_star(c) == 1]
-        assert uni, (
-            f"L21 univariate stage produced no columns; produced hybrid_orth "
-            f"columns={produced_orth!r}"
-        )
-        assert pair, (
-            f"L22 pair stage produced no columns; produced hybrid_orth "
-            f"columns={produced_orth!r}"
-        )
+        assert uni, f"L21 univariate stage produced no columns; produced hybrid_orth " f"columns={produced_orth!r}"
+        assert pair, f"L22 pair stage produced no columns; produced hybrid_orth " f"columns={produced_orth!r}"
         # L56/L77/L78 wiring intact post-fit (ctor flags survive).
         for flag in (
             "fe_hybrid_orth_triplet_enable",
             "fe_hybrid_orth_quadruplet_enable",
             "fe_hybrid_orth_adaptive_arity_enable",
         ):
-            assert getattr(m, flag) is True, (
-                f"{flag} cleared mid-fit; ctor-param mutation regression"
-            )
+            assert getattr(m, flag) is True, f"{flag} cleared mid-fit; ctor-param mutation regression"
 
 
 # ---------------------------------------------------------------------------
@@ -516,7 +504,6 @@ class TestOrthPolyFamilyImport:
         "_orthogonal_meta_scorer_fe",       # L76
     ])
     def test_module_imports(self, modname):
-        mod = importlib.import_module(
-            f"mlframe.feature_selection.filters.{modname}"
-        )
+        """Each orth-poly family submodule imports cleanly and is not None."""
+        mod = importlib.import_module(f"mlframe.feature_selection.filters.{modname}")
         assert mod is not None, f"{modname} import returned None"
