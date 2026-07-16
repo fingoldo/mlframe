@@ -49,6 +49,7 @@ SEEDS = (1, 7, 13, 42, 101)
 
 
 def _import_hsic_fe():
+    """Lazily import the Layer-71 HSIC scoring/FE functions."""
     from mlframe.feature_selection.filters._orthogonal_hsic_fe import (
         hsic,
         median_heuristic_sigma,
@@ -66,6 +67,7 @@ def _import_hsic_fe():
 
 
 def _import_plug_in_fe():
+    """Lazily import the Layer-21 plug-in univariate basis-feature generator."""
     from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
         generate_univariate_basis_features,
     )
@@ -99,14 +101,14 @@ def _build_non_monotone_classif(seed: int, n: int = 1500, n_noise: int = 4):
     for k in range(n_noise):
         cols[f"noise_{k}"] = rng.standard_normal(n)
     X = pd.DataFrame(cols)
-    signal = x1 ** 2 + 0.4 * np.cos(2.0 * np.pi * x1)
+    signal = x1**2 + 0.4 * np.cos(2.0 * np.pi * x1)
     thr = float(np.median(signal))
     y = ((signal + 0.1 * rng.standard_normal(n)) > thr).astype(int)
     return X, pd.Series(y, name="y")
 
 
-
 from tests.feature_selection._biz_val_synth import _build_linear, _build_quadratic_classif
+
 # ---------------------------------------------------------------------------
 # Contract 1: HSIC near zero on independent noise pairs
 # ---------------------------------------------------------------------------
@@ -121,6 +123,7 @@ class TestHsicZeroOnIndependence:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_hsic_near_zero_on_independent_gaussian(self, seed):
+        """HSIC on an independent Gaussian pair stays below 0.001 at n=500."""
         hsic, _, _, _, _ = _import_hsic_fe()
         rng = np.random.default_rng(int(seed))
         n = 500
@@ -131,10 +134,7 @@ class TestHsicZeroOnIndependence:
         ))
         # HSIC_b on independent Gaussian pairs at n=500 with median-
         # heuristic bandwidth: empirically well under 0.001 across seeds.
-        assert val < 0.001, (
-            f"seed={seed}: HSIC on independent Gaussian pair = {val:.6f}; "
-            f"expected < 0.001 (independence sanity at n=500)."
-        )
+        assert val < 0.001, f"seed={seed}: HSIC on independent Gaussian pair = {val:.6f}; " f"expected < 0.001 (independence sanity at n=500)."
 
     def test_hsic_signal_above_noise(self):
         """Aggregate witness: HSIC on cos signal beats HSIC on paired
@@ -175,6 +175,7 @@ class TestHsicPositiveOnNonMonotone:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_hsic_above_threshold_on_cos_signal(self, seed):
+        """HSIC clears 0.001 on y=cos(2*pi*x) while Pearson stays near zero (the Pearson blind spot)."""
         hsic, _, _, _, _ = _import_hsic_fe()
         x, y = _build_cos_signal(seed, n=500)
         val = float(hsic(
@@ -188,16 +189,10 @@ class TestHsicPositiveOnNonMonotone:
         # which was overcalibrated from a docstring claim). Signal-to-
         # noise discrimination is verified separately in
         # test_hsic_signal_above_independence_floor (3-7x ratio).
-        assert val > 0.001, (
-            f"seed={seed}: HSIC on y = cos(2*pi*x) = {val:.6f}; "
-            f"expected > 0.001 (universal-detection contract)."
-        )
+        assert val > 0.001, f"seed={seed}: HSIC on y = cos(2*pi*x) = {val:.6f}; " f"expected > 0.001 (universal-detection contract)."
         # Pearson exactly zero in the limit (cos is even on symmetric
         # uniform); small-sample tail at n=500 comfortably below 0.20.
-        assert abs(pearson) < 0.20, (
-            f"seed={seed}: Pearson on y = cos(2*pi*x) = {pearson:.4f}; "
-            f"expected near zero (Pearson blind spot)."
-        )
+        assert abs(pearson) < 0.20, f"seed={seed}: Pearson on y = cos(2*pi*x) = {pearson:.4f}; " f"expected near zero (Pearson blind spot)."
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_hsic_above_threshold_on_quadratic(self, seed):
@@ -229,6 +224,7 @@ class TestMedianHeuristicBandwidth:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_median_sigma_on_standard_normal(self, seed):
+        """median_heuristic_sigma on standard-normal draws lands in (0.5, 2.5)."""
         _, median_heuristic_sigma, _, _, _ = _import_hsic_fe()
         rng = np.random.default_rng(int(seed))
         z = rng.standard_normal(500)
@@ -236,22 +232,18 @@ class TestMedianHeuristicBandwidth:
         # Median |z_i - z_j| for N(0,1) draws is around 1.0 - 1.2
         # (theoretical median pairwise |diff| of two N(0,1)'s is
         # ~1.0488 = sqrt(2) * 0.7416). Bound generously.
-        assert 0.5 < s < 2.5, (
-            f"seed={seed}: median-heuristic sigma = {s:.4f}; expected in "
-            f"(0.5, 2.5) for standard normal."
-        )
+        assert 0.5 < s < 2.5, f"seed={seed}: median-heuristic sigma = {s:.4f}; expected in " f"(0.5, 2.5) for standard normal."
 
     def test_median_sigma_constant_returns_one(self):
+        """A constant array (all pairwise distances zero) falls back to sigma=1.0."""
         _, median_heuristic_sigma, _, _, _ = _import_hsic_fe()
         z = np.ones(100, dtype=np.float64)
         s = float(median_heuristic_sigma(z))
         # All pairwise distances are zero -> fallback to 1.0.
-        assert s == 1.0, (
-            f"median-heuristic sigma on constant array = {s}; expected "
-            f"1.0 fallback."
-        )
+        assert s == 1.0, f"median-heuristic sigma on constant array = {s}; expected " f"1.0 fallback."
 
     def test_median_sigma_too_small_n_returns_one(self):
+        """Empty or single-element arrays fall back to sigma=1.0."""
         _, median_heuristic_sigma, _, _, _ = _import_hsic_fe()
         assert float(median_heuristic_sigma(np.asarray([]))) == 1.0
         assert float(median_heuristic_sigma(np.asarray([3.14]))) == 1.0
@@ -264,8 +256,7 @@ class TestMedianHeuristicBandwidth:
         s1 = float(median_heuristic_sigma(z))
         s2 = float(median_heuristic_sigma(10.0 * z))
         assert s2 == pytest.approx(10.0 * s1, rel=1e-9), (
-            f"median-heuristic sigma not scale-equivariant: "
-            f"sigma(z) = {s1}, sigma(10z) = {s2}, expected {10 * s1}"
+            f"median-heuristic sigma not scale-equivariant: " f"sigma(z) = {s1}, sigma(10z) = {s2}, expected {10 * s1}"
         )
 
 
@@ -281,6 +272,7 @@ class TestAucLiftOnNonMonotone:
     """
 
     def test_hsic_augmented_logreg_auc_beats_raw(self):
+        """HSIC-augmented LogReg AUC beats raw by >= 0.05 mean lift on a non-monotone classification fixture."""
         _, _, _, _, hybrid_with_recipes = _import_hsic_fe()
         gen = _import_plug_in_fe()
         aucs_raw, aucs_hsic = [], []
@@ -303,16 +295,17 @@ class TestAucLiftOnNonMonotone:
             )
             added = [c for c in X_aug_tr.columns if c not in X_tr.columns]
             eng_te = gen(X_te, degrees=(2, 3), basis="hermite")
-            X_aug_te = (
-                pd.concat([X_te, eng_te[added]], axis=1)
-                if added else X_te
-            )
+            X_aug_te = pd.concat([X_te, eng_te[added]], axis=1) if added else X_te
             lr_aug = LogisticRegression(
-                max_iter=2000, solver="lbfgs",
+                max_iter=2000,
+                solver="lbfgs",
             ).fit(X_aug_tr, y_tr)
-            aucs_hsic.append(roc_auc_score(
-                y_te, lr_aug.predict_proba(X_aug_te)[:, 1],
-            ))
+            aucs_hsic.append(
+                roc_auc_score(
+                    y_te,
+                    lr_aug.predict_proba(X_aug_te)[:, 1],
+                )
+            )
         raw_mean = float(np.mean(aucs_raw))
         hsic_mean = float(np.mean(aucs_hsic))
         assert hsic_mean > raw_mean + 0.05, (
@@ -322,10 +315,7 @@ class TestAucLiftOnNonMonotone:
             f"hsic_per_seed={aucs_hsic}"
         )
         wins = sum(d > r for d, r in zip(aucs_hsic, aucs_raw))
-        assert wins >= len(aucs_raw) - 1, (
-            f"HSIC-augmented AUC beat raw on only {wins}/{len(aucs_raw)} "
-            f"seeds; per-seed floor too soft."
-        )
+        assert wins >= len(aucs_raw) - 1, f"HSIC-augmented AUC beat raw on only {wins}/{len(aucs_raw)} " f"seeds; per-seed floor too soft."
 
 
 # ---------------------------------------------------------------------------
@@ -342,14 +332,15 @@ class TestAutoPoolIncludesHsic:
     """
 
     def test_scorer_names_contains_hsic(self):
+        """Layer-68 SCORER_NAMES includes 'hsic'."""
         from mlframe.feature_selection.filters._orthogonal_scorer_auto_fe import (
             SCORER_NAMES,
         )
-        assert "hsic" in SCORER_NAMES, (
-            f"SCORER_NAMES missing 'hsic': {SCORER_NAMES}"
-        )
+
+        assert "hsic" in SCORER_NAMES, f"SCORER_NAMES missing 'hsic': {SCORER_NAMES}"
 
     def test_auto_selector_can_pick_hsic(self):
+        """The auto-selector picks HSIC as best_scorer at least once across the seed sweep."""
         from mlframe.feature_selection.filters._orthogonal_scorer_auto_fe import (
             select_best_scorer_per_column,
         )
@@ -369,8 +360,7 @@ class TestAutoPoolIncludesHsic:
         # the auto pool is competitive with KSG / copula / dCor; this
         # contract pins that HSIC is reachable, not that it dominates.
         assert "hsic" in set(chosen), (
-            f"HSIC never selected as best_scorer across {len(SEEDS)} "
-            f"seeds; auto-pool integration broken.\nchosen_set={set(chosen)}"
+            f"HSIC never selected as best_scorer across {len(SEEDS)} " f"seeds; auto-pool integration broken.\nchosen_set={set(chosen)}"
         )
 
 
@@ -380,18 +370,18 @@ class TestAutoPoolIncludesHsic:
 
 
 class TestDefaultDisabledByteIdentical:
+    """fe_hybrid_orth_hsic_enable defaults to False and leaves hybrid_orth_features_ empty."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_default_off_no_hsic_columns(self, seed):
+        """With the flag left at its False default, no HSIC columns are appended."""
         X, y = _build_linear(seed)
         m = _make_mrmr().fit(X, y)
         added = list(getattr(m, "hybrid_orth_features_", []) or [])
-        assert added == [], (
-            f"seed={seed}: default fe_hybrid_orth_hsic_enable=False "
-            f"should NOT append any engineered columns; got {added}"
-        )
+        assert added == [], f"seed={seed}: default fe_hybrid_orth_hsic_enable=False " f"should NOT append any engineered columns; got {added}"
 
     def test_default_ctor_values(self):
+        """fe_hybrid_orth_hsic_enable defaults to False, kernel='rbf', and n_sample=500."""
         m = _make_mrmr()
         assert m.fe_hybrid_orth_hsic_enable is False
         assert m.fe_hybrid_orth_hsic_kernel == "rbf"
@@ -404,8 +394,10 @@ class TestDefaultDisabledByteIdentical:
 
 
 class TestPickleAndClone:
+    """HSIC ctor params and recipes must survive clone/pickle round-trips."""
 
     def test_clone_preserves_hsic_params(self):
+        """sklearn clone() copies every fe_hybrid_orth_hsic_* ctor param."""
         m = _make_mrmr(
             fe_hybrid_orth_hsic_enable=True,
             fe_hybrid_orth_hsic_kernel="rbf",
@@ -417,12 +409,10 @@ class TestPickleAndClone:
             ("fe_hybrid_orth_hsic_kernel", "rbf"),
             ("fe_hybrid_orth_hsic_n_sample", 300),
         ]:
-            assert getattr(m2, name) == expected, (
-                f"clone() dropped {name}: expected {expected}, got "
-                f"{getattr(m2, name)}"
-            )
+            assert getattr(m2, name) == expected, f"clone() dropped {name}: expected {expected}, got " f"{getattr(m2, name)}"
 
     def test_pickle_roundtrip_preserves_hsic_recipes(self):
+        """A pickle round-trip preserves feature names, appended columns, and every orth_univariate recipe field."""
         X, y = _build_quadratic_classif(seed=42, n=1500)
         m = _make_mrmr(
             fe_hybrid_orth_hsic_enable=True,
@@ -433,43 +423,28 @@ class TestPickleAndClone:
             fe_hybrid_orth_top_k=3,
         ).fit(X, y)
         blob = pickle.dumps(m)
-        m2 = pickle.loads(blob)
-        assert list(m2.feature_names_in_) == list(m.feature_names_in_), (
-            "pickle changed feature_names_in_"
-        )
+        m2 = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
+        assert list(m2.feature_names_in_) == list(m.feature_names_in_), "pickle changed feature_names_in_"
         added_before = list(getattr(m, "hybrid_orth_features_", []) or [])
         added_after = list(getattr(m2, "hybrid_orth_features_", []) or [])
-        assert added_before == added_after, (
-            f"pickle changed hybrid_orth_features_: "
-            f"before={added_before}, after={added_after}"
-        )
+        assert added_before == added_after, f"pickle changed hybrid_orth_features_: " f"before={added_before}, after={added_after}"
 
         def _extract_orth_recipes(model):
+            """Return {name: recipe} for the orth_univariate recipes, regardless of container list/dict shape."""
             container = getattr(model, "_engineered_recipes_", None)
             if isinstance(container, dict):
-                return {
-                    r.name: r for r in container.values()
-                    if getattr(r, "kind", None) == "orth_univariate"
-                }
-            return {
-                r.name: r for r in (container or [])
-                if getattr(r, "kind", None) == "orth_univariate"
-            }
+                return {r.name: r for r in container.values() if getattr(r, "kind", None) == "orth_univariate"}
+            return {r.name: r for r in (container or []) if getattr(r, "kind", None) == "orth_univariate"}
+
         recipes_before = _extract_orth_recipes(m)
         recipes_after = _extract_orth_recipes(m2)
         assert set(recipes_before.keys()) == set(recipes_after.keys()), (
-            f"pickle dropped or added orth_univariate recipe names: "
-            f"before={set(recipes_before.keys())}, "
-            f"after={set(recipes_after.keys())}"
+            f"pickle dropped or added orth_univariate recipe names: " f"before={set(recipes_before.keys())}, " f"after={set(recipes_after.keys())}"
         )
         for name, r_before in recipes_before.items():
             r_after = recipes_after[name]
-            assert r_before.src_names == r_after.src_names, (
-                f"pickle changed src_names for {name!r}: "
-                f"before={r_before.src_names}, after={r_after.src_names}"
-            )
+            assert r_before.src_names == r_after.src_names, f"pickle changed src_names for {name!r}: " f"before={r_before.src_names}, after={r_after.src_names}"
             for key in ("basis", "degree"):
                 assert r_before.extra.get(key) == r_after.extra.get(key), (
-                    f"pickle changed '{key}' for recipe {name!r}: "
-                    f"before={r_before.extra}, after={r_after.extra}"
+                    f"pickle changed '{key}' for recipe {name!r}: " f"before={r_before.extra}, after={r_after.extra}"
                 )
