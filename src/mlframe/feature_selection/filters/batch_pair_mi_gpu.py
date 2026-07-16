@@ -53,6 +53,10 @@ from ._batch_pair_mi_cuda_kernels import (
     batch_pair_mi_cuda,
     batch_pair_mi_cuda_row_chunked,
 )
+from ._batch_pair_mi_cuda_shared_fused import (
+    batch_pair_mi_cuda_shared_fused,
+    shared_fused_kernel_fits_budget,
+)
 
 try:
     import cupy as _cp
@@ -91,9 +95,17 @@ def batch_pair_mi_cupy(
     if pair_a.shape[0] == 0:
         return np.empty(0, dtype=np.float64)
 
-    d_data = cp.asarray(factors_data, dtype=cp.int32)
-    d_classes_y = cp.asarray(classes_y, dtype=cp.int32)
-    d_freqs_y = cp.asarray(freqs_y, dtype=cp.float64)
+    # RESIDENT UPLOAD (2026-07-16): factors_data/classes_y/freqs_y are fit-constant across the whole
+    # greedy FE round (this kernel is reached once per pair-chunk of the SAME candidate pool, per
+    # dispatch_batch_pair_mi_chunked), yet were re-uploaded via a raw cp.asarray on EVERY call --
+    # batch_pair_mi_cuda got the equivalent fix on 2026-07-12 (see _batch_pair_mi_cuda_kernels.py's
+    # batch_pair_mi_cuda docstring) but this CuPy sibling was missed. resident_operand (this package's
+    # proven fit-constant GPU cache) content-hashes each array and returns a cached cupy device array on
+    # a repeat upload. Bit-identical: same values, only the transfer is deduplicated.
+    from ._fe_resident_operands import resident_operand
+    d_data = resident_operand(factors_data, "bpmi_cupy_factors_data", dtype=np.int32)
+    d_classes_y = resident_operand(classes_y, "bpmi_cupy_classes_y", dtype=np.int32)
+    d_freqs_y = resident_operand(freqs_y, "bpmi_cupy_freqs_y", dtype=np.float64)
     nb_arr = np.asarray(nbins, dtype=np.int32)
     pa_arr = np.asarray(pair_a, dtype=np.int64)
     pb_arr = np.asarray(pair_b, dtype=np.int64)
@@ -385,6 +397,37 @@ def dispatch_batch_pair_mi(
     _req_bytes = _required_gpu_bytes(factors_data, pair_a, nbins, classes_y, freqs_y)
     _vram_ok = _gpu_upload_fits(_req_bytes, n_samples=n_samples, n_cols=n_cols, n_pairs=n_pairs)
 
+    def _try_cuda_shared_fused(reason: str) -> tuple[np.ndarray, str] | None:
+        """Attempt the single-launch dynamic-shared-memory CUDA kernel; returns None (falls through to
+        row-chunked CUDA) on any failure or when the shape exceeds the opt-in shared-memory budget.
+
+        Requires the FULL ``factors_data`` to already fit VRAM (same precondition as
+        :func:`batch_pair_mi_cuda`, checked by the caller's ``_vram_ok``) -- unlike the row-chunked
+        kernel this one does not chunk rows, only sidesteps the static-shared-memory kernel's
+        ``MAX_JOINT_BINS_CUDA``/``MAX_Y_BINS_CUDA`` compile-time caps via opt-in dynamic shared memory.
+        Preferred over row-chunked whenever it fits: ONE launch regardless of free VRAM (the row-chunked
+        path's launch count grows with VRAM pressure -- 151+ launches measured at 200MB free for a
+        production-shape 85k-pair call, vs this kernel's constant 1), see
+        ``_batch_pair_mi_cuda_shared_fused.py``'s module docstring for the full writeup and
+        ``bench_batch_pair_mi_shared_fused.py`` for the A/B numbers.
+        """
+        if not _CUDA_AVAIL or not _CUPY_AVAIL:
+            return None
+        try:
+            nbins_i = np.asarray(nbins)
+            max_joint = int((nbins_i[pair_a].astype(np.int64) * nbins_i[pair_b].astype(np.int64)).max()) if n_pairs else 0
+        except Exception:
+            return None
+        if shared_fused_kernel_fits_budget(max_joint, int(freqs_y.shape[0])) == 0:
+            return None
+        try:
+            mi = batch_pair_mi_cuda_shared_fused(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y)
+            logger.info("batch_pair_mi: %s -- completed via single-launch shared-fused CUDA (max_joint=%d)", reason, max_joint)
+            return mi, "cuda_shared_fused"
+        except Exception as e:
+            logger.warning("batch_pair_mi: shared-fused CUDA failed (%s: %s) -- trying row-chunked CUDA", type(e).__name__, e)
+            return None
+
     def _try_cuda_row_chunked(reason: str) -> tuple[np.ndarray, str] | None:
         """Attempt the row-chunked CUDA kernel; returns None (falls through to CPU) on any failure."""
         if not _CUDA_AVAIL:
@@ -405,8 +448,11 @@ def dispatch_batch_pair_mi(
                 try:
                     return batch_pair_mi_cuda(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y), "cuda"
                 except Exception as e:
-                    logger.warning("batch_pair_mi: forced CUDA backend failed (%s: %s) -- trying row-chunked CUDA", type(e).__name__, e)
-                    _result = _try_cuda_row_chunked("forced CUDA backend failed on the full-upload path")
+                    logger.warning("batch_pair_mi: forced CUDA backend failed (%s: %s) -- trying single-launch shared-fused CUDA", type(e).__name__, e)
+                    _result = _try_cuda_shared_fused("forced CUDA backend failed on the full-upload path")
+                    if _result is not None:
+                        return _result
+                    _result = _try_cuda_row_chunked("forced CUDA backend and shared-fused CUDA both failed on the full-upload path")
                     if _result is not None:
                         return _result
             else:
@@ -437,11 +483,17 @@ def dispatch_batch_pair_mi(
             try:
                 return batch_pair_mi_cuda(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y), "cuda"
             except Exception:
-                # Shape guard tripped or a runtime/driver fault -> try row-chunked CUDA, then CPU. Broadened
+                # Shape guard tripped (most commonly max_joint/n_classes_y exceeding the STATIC
+                # shared-memory kernel's compile-time caps) or a runtime/driver fault -> try the single-
+                # launch shared-fused kernel (sidesteps the static caps via opt-in dynamic shared memory,
+                # still one launch regardless of VRAM pressure), then row-chunked CUDA, then CPU. Broadened
                 # from ``(ValueError, RuntimeError)`` (2026-07-10): numba's ``CudaAPIError``/``CudaDriverError``
                 # derive directly from ``Exception``, not ``RuntimeError``, so a genuine CUDA driver fault
                 # used to skip this handler and propagate to the caller uncaught.
-                _result = _try_cuda_row_chunked("full-upload CUDA kernel raised")
+                _result = _try_cuda_shared_fused("full-upload CUDA kernel raised (shape exceeds static shared-memory caps)")
+                if _result is not None:
+                    return _result
+                _result = _try_cuda_row_chunked("full-upload CUDA kernel and shared-fused CUDA both raised")
                 if _result is not None:
                     return _result
         else:

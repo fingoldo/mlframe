@@ -49,9 +49,10 @@ def _read(rel: str) -> str:
 
 
 @pytest.mark.parametrize("rel,marker,site", [
-    # #1: gpu.py streamed variant lookup_joint_hist
+    # #1: streamed variant lookup_joint_hist. Moved to ``_gpu_batched.py`` when ``gpu.py`` was split
+    # into siblings (the batched joint-hist dispatch, including this cache lookup, now lives there).
     (
-        "feature_selection/filters/gpu.py",
+        "feature_selection/filters/_gpu_batched.py",
         "lookup_joint_hist(n_samples=n, joint_size=joint_size)",
         "streamed_joint_hist",
     ),
