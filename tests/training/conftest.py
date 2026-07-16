@@ -6,11 +6,12 @@ tests/conftest.py and apply to all test modules automatically.
 """
 
 import hashlib
-import json
 import os
 import subprocess
 import sys
 import tempfile
+
+import orjson
 
 # Set matplotlib backend to 'Agg' BEFORE any matplotlib import to prevent plt.show() from blocking
 import matplotlib
@@ -38,8 +39,8 @@ def _neural_prewarm_is_safe() -> bool:
         f"mlframe_neural_prewarm_safe_{hashlib.sha1(sys.executable.encode('utf-8'), usedforsecurity=False).hexdigest()[:12]}.json",
     )
     try:
-        with open(cache_path, encoding="utf-8") as f:
-            return bool(json.load(f)["safe"])
+        with open(cache_path, "rb") as f:
+            return bool(orjson.loads(f.read())["safe"])
     except (OSError, ValueError, KeyError):
         pass
     try:
@@ -52,8 +53,8 @@ def _neural_prewarm_is_safe() -> bool:
     except Exception:
         safe = False
     try:
-        with open(cache_path, "w", encoding="utf-8") as f:
-            json.dump({"safe": safe}, f)
+        with open(cache_path, "wb") as f:
+            f.write(orjson.dumps({"safe": safe}))
     except OSError:
         pass
     return safe
