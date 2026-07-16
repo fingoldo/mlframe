@@ -67,9 +67,11 @@ hybrid-orth partial win, the true-negative pins, and a pure-noise negative
 control (the saturating penalty must NOT fabricate an engineered feature on
 ``y`` independent of ``a, b``) are ALL pinned, every one falsifiable.
 """
+
 from __future__ import annotations
 
 import warnings
+from functools import cache
 
 import numpy as np
 import pandas as pd
@@ -91,9 +93,10 @@ _LEAN = dict(dcd_enable=False, build_friend_graph=False, cluster_aggregate_enabl
 # cannot alias one fixture's result onto another).
 # ---------------------------------------------------------------------------
 def _make_mono(seed: int = 101, n: int = N):
+    """F-MONO fixture: y = exp(a)*log(b), a monotone inner distortion MI is invariant to."""
     rng = np.random.default_rng(seed)
-    a = rng.uniform(0.2, 2.0, n)   # exp(a) monotone
-    b = rng.uniform(1.2, 5.0, n)   # log(b) monotone, positive
+    a = rng.uniform(0.2, 2.0, n)  # exp(a) monotone
+    b = rng.uniform(1.2, 5.0, n)  # log(b) monotone, positive
     c = rng.normal(0, 1, n)
     e = rng.normal(0, 1, n)
     true = np.exp(a) * np.log(b)
@@ -102,6 +105,7 @@ def _make_mono(seed: int = 101, n: int = N):
 
 
 def _make_poly(seed: int = 202, n: int = N):
+    """F-POLY fixture: y = (a**3-2a)*(b**2-b), a non-monotone polynomial inner distortion."""
     rng = np.random.default_rng(seed)
     a = rng.uniform(-2.5, 2.5, n)
     b = rng.uniform(-2.5, 2.5, n)
@@ -113,6 +117,7 @@ def _make_poly(seed: int = 202, n: int = N):
 
 
 def _make_osc(seed: int = 303, n: int = N):
+    """F-OSC fixture: y = sin(a**2)*b, an oscillatory high-curvature inner distortion."""
     rng = np.random.default_rng(seed)
     a = rng.uniform(-2.5, 2.5, n)
     b = rng.uniform(-2.5, 2.5, n)
@@ -172,64 +177,159 @@ def _fit(make_mrmr, df, y):
 
 
 def _unb():
+    """Elementary unary/binary pair search only (no smart-polynom, no hybrid orth, prewarp off)."""
     # The ELEMENTARY unary/binary pair search ONLY: no smart-polynom, no hybrid
     # orth, and prewarp OFF. ``fe_pair_prewarp_enable`` defaults to True (it is a
     # learned compose-then-expand warp that CAN represent a non-monotone inner --
     # see ``test_fpoly_unary_binary_prewarp_recovers``), so it must be disabled
     # here for the boundary tests to measure the elementary library-unary search
     # in isolation, which is what their docstrings describe.
-    return MRMR(verbose=0, n_jobs=1, random_seed=0,
-                fe_smart_polynom_iters=0, fe_hybrid_orth_enable=False,
-                fe_pair_prewarp_enable=False, **_LEAN)
+    return MRMR(verbose=0, n_jobs=1, random_seed=0, fe_smart_polynom_iters=0, fe_hybrid_orth_enable=False, fe_pair_prewarp_enable=False, **_LEAN)
 
 
 def _unb_no_escalation():
+    """Elementary unary/binary pair search with FE auto-escalation off."""
     # Elementary unary/binary search with FE auto-escalation OFF: isolates the
     # base search's intrinsic (true-negative) behaviour on a non-representable
     # inner, so the escalation recovery is attributable, not baked into the base.
-    return MRMR(verbose=0, n_jobs=1, random_seed=0,
-                fe_smart_polynom_iters=0, fe_hybrid_orth_enable=False,
-                fe_pair_prewarp_enable=False, fe_auto_escalation_enable=False,
-                **_LEAN)
+    return MRMR(
+        verbose=0,
+        n_jobs=1,
+        random_seed=0,
+        fe_smart_polynom_iters=0,
+        fe_hybrid_orth_enable=False,
+        fe_pair_prewarp_enable=False,
+        fe_auto_escalation_enable=False,
+        **_LEAN,
+    )
 
 
 def _orth_hybrid_pair_no_escalation():
+    """Fixed-cell hybrid orthogonal-pair path with FE auto-escalation off."""
     # Fixed-cell hybrid orthogonal-pair path with FE auto-escalation OFF.
-    return MRMR(verbose=0, n_jobs=1, random_seed=0,
-                fe_smart_polynom_iters=0, fe_hybrid_orth_enable=True,
-                fe_hybrid_orth_pair_enable=True, fe_hybrid_orth_degrees=(2, 3, 4),
-                fe_hybrid_orth_pair_max_degree=4, fe_hybrid_orth_top_k=8,
-                fe_pair_prewarp_enable=False, fe_auto_escalation_enable=False,
-                **_LEAN)
+    return MRMR(
+        verbose=0,
+        n_jobs=1,
+        random_seed=0,
+        fe_smart_polynom_iters=0,
+        fe_hybrid_orth_enable=True,
+        fe_hybrid_orth_pair_enable=True,
+        fe_hybrid_orth_degrees=(2, 3, 4),
+        fe_hybrid_orth_pair_max_degree=4,
+        fe_hybrid_orth_top_k=8,
+        fe_pair_prewarp_enable=False,
+        fe_auto_escalation_enable=False,
+        **_LEAN,
+    )
 
 
 def _unb_prewarp():
+    """Elementary unary/binary pair search with the production-default prewarp on."""
     # Elementary unary/binary search WITH the production-default prewarp on.
-    return MRMR(verbose=0, n_jobs=1, random_seed=0,
-                fe_smart_polynom_iters=0, fe_hybrid_orth_enable=False,
-                fe_pair_prewarp_enable=True, **_LEAN)
+    return MRMR(verbose=0, n_jobs=1, random_seed=0, fe_smart_polynom_iters=0, fe_hybrid_orth_enable=False, fe_pair_prewarp_enable=True, **_LEAN)
 
 
 def _orth_smart_polynom(basis="chebyshev"):
+    """Orthogonal-poly smart_polynom path with the production-default cma_batch optimiser."""
     # Default optimiser is cma_batch (the production default).
-    return MRMR(verbose=0, n_jobs=1, random_seed=0,
-                fe_smart_polynom_iters=20, fe_smart_polynom_optimization_steps=400,
-                fe_polynomial_basis=basis, fe_optimizer="cma_batch",
-                fe_hybrid_orth_enable=False, **_LEAN)
+    return MRMR(
+        verbose=0,
+        n_jobs=1,
+        random_seed=0,
+        fe_smart_polynom_iters=20,
+        fe_smart_polynom_optimization_steps=400,
+        fe_polynomial_basis=basis,
+        fe_optimizer="cma_batch",
+        fe_hybrid_orth_enable=False,
+        **_LEAN,
+    )
 
 
 def _orth_hybrid_pair():
+    """Fixed-cell hybrid orthogonal-pair path with prewarp off (default escalation on)."""
     # Prewarp OFF: this config isolates the FIXED-CELL hybrid orthogonal-pair
     # path's intrinsic behaviour. Prewarp (default on) is a separate
     # compose-then-expand mechanism that recovers F-POLY via
     # ``mul(prewarp(a),prewarp(b))`` regardless of the path it rides on (see the
     # dedicated prewarp recovery test), which would mask what THIS path does on
     # its own.
-    return MRMR(verbose=0, n_jobs=1, random_seed=0,
-                fe_smart_polynom_iters=0, fe_hybrid_orth_enable=True,
-                fe_hybrid_orth_pair_enable=True, fe_hybrid_orth_degrees=(2, 3, 4),
-                fe_hybrid_orth_pair_max_degree=4, fe_hybrid_orth_top_k=8,
-                fe_pair_prewarp_enable=False, **_LEAN)
+    return MRMR(
+        verbose=0,
+        n_jobs=1,
+        random_seed=0,
+        fe_smart_polynom_iters=0,
+        fe_hybrid_orth_enable=True,
+        fe_hybrid_orth_pair_enable=True,
+        fe_hybrid_orth_degrees=(2, 3, 4),
+        fe_hybrid_orth_pair_max_degree=4,
+        fe_hybrid_orth_top_k=8,
+        fe_pair_prewarp_enable=False,
+        **_LEAN,
+    )
+
+
+@cache
+def _poly_data():
+    """Cached ``(df, y, true)`` for the default-seeded F-POLY fixture; every
+    caller uses the default seed so this is a single deterministic triple.
+    """
+    return _make_poly()
+
+
+@cache
+def _osc_data():
+    """Cached ``(df, y, true)`` for the default-seeded F-OSC fixture; every
+    caller uses the default seed so this is a single deterministic triple.
+    """
+    return _make_osc()
+
+
+_POLY_FIT_CONFIGS = {
+    "unb": _unb,
+    "unb_no_escalation": _unb_no_escalation,
+    "orth_hybrid_pair": _orth_hybrid_pair,
+    "orth_hybrid_pair_no_escalation": _orth_hybrid_pair_no_escalation,
+    "orth_smart_polynom_chebyshev": lambda: _orth_smart_polynom(basis="chebyshev"),
+}
+
+_OSC_FIT_CONFIGS = {
+    "unb_no_escalation": _unb_no_escalation,
+}
+
+
+@cache
+def _poly_fit(config_name: str):
+    """Cached fitted MRMR for a named config on the (shared, cached) F-POLY
+    fixture. Several differently-named tests fit the SAME config on the
+    SAME default-seeded data to check different assertions on the result;
+    this collapses each such group to a single ``MRMR.fit`` call. Nothing
+    downstream mutates the fitted estimator in place (only inspected via
+    ``get_feature_names_out()``/``transform()``).
+    """
+    df, y, _true = _poly_data()
+    return _fit(_POLY_FIT_CONFIGS[config_name], df, y)
+
+
+@cache
+def _osc_fit(config_name: str):
+    """Cached fitted MRMR for a named config on the (shared, cached) F-OSC
+    fixture. See ``_poly_fit`` for the sharing rationale.
+    """
+    df, y, _true = _osc_data()
+    return _fit(_OSC_FIT_CONFIGS[config_name], df, y)
+
+
+@cache
+def _poly_baseline_r2():
+    """Cached ``(raw_r2, true_r2)`` Ridge baselines on the F-POLY fixture,
+    shared between test_fpoly_downstream_score_recovers_for_smart_polynom
+    and test_fpoly_downstream_score_recovers_for_base_paths (both compute
+    the identical 5-fold Ridge CV on the identical default-seeded data).
+    """
+    df, y, true = _poly_data()
+    raw_r2 = _ridge_r2(df.values, y)
+    true_r2 = _ridge_r2(np.asarray(true), y)
+    return raw_r2, true_r2
 
 
 # ---------------------------------------------------------------------------
@@ -276,8 +376,8 @@ def test_fpoly_unary_binary_recovers_via_auto_escalation():
     on its own (``test_fpoly_unary_binary_recovers_even_with_escalation_off``,
     |corr| ~0.76); escalation here matches rather than exceeds it. This pins the
     default path recovers the non-monotone inner at >=0.65."""
-    df, y, true = _make_poly()
-    fs = _fit(_unb, df, y)
+    df, _y, true = _poly_data()
+    fs = _poly_fit("unb")
     name, corr = _best_engineered_corr(fs, df, true)
     assert name is not None, "F-POLY/UNB auto-escalation engineered nothing"
     assert corr >= 0.65, (
@@ -298,8 +398,8 @@ def test_fpoly_unary_binary_recovers_even_with_escalation_off():
     artifact) is stale: the unary/binary library + combine now reaches the inner
     without escalation. The escalation companion still holds the higher-fidelity
     bar -- this only asserts the base path is no longer a structural negative."""
-    df, y, true = _make_poly()
-    fs = _fit(_unb_no_escalation, df, y)
+    df, _y, true = _poly_data()
+    fs = _poly_fit("unb_no_escalation")
     name, corr = _best_engineered_corr(fs, df, true)
     assert name is not None, "F-POLY/UNB (escalation OFF) engineered nothing"
     assert corr >= 0.60, (
@@ -324,17 +424,11 @@ def test_fpoly_unary_binary_prewarp_recovers():
     smart_polynom recovery -- prewarp (on by default) closes the former
     unary/binary boundary, so the only way to OBSERVE that boundary now is to
     explicitly disable prewarp (which ``_unb`` does)."""
-    df, y, true = _make_poly()
+    df, y, true = _poly_data()
     fs = _fit(_unb_prewarp, df, y)
     name, corr = _best_engineered_corr(fs, df, true)
-    assert name is not None, (
-        "F-POLY/UNB+prewarp engineered nothing; prewarp is expected to recover "
-        "the non-monotone inner"
-    )
-    assert corr >= 0.70, (
-        f"F-POLY/UNB+prewarp best engineered |corr|={corr:.3f} < 0.70 ({name}); "
-        f"the prewarp recovery of the non-monotone inner regressed"
-    )
+    assert name is not None, "F-POLY/UNB+prewarp engineered nothing; prewarp is expected to recover " "the non-monotone inner"
+    assert corr >= 0.70, f"F-POLY/UNB+prewarp best engineered |corr|={corr:.3f} < 0.70 ({name}); " f"the prewarp recovery of the non-monotone inner regressed"
 
 
 @pytest.mark.parametrize("basis", ["chebyshev", "hermite"])
@@ -354,12 +448,15 @@ def test_fpoly_orth_smart_polynom_default_recovers(basis):
     ``test_fpoly_downstream_score_recovers_for_smart_polynom``. The
     ``test_fpoly_recovery_is_real_and_warm_start_is_the_lever`` control proves
     disabling the ALS warm start sends it back to corr ~0."""
-    df, y, true = _make_poly()
-    fs = _fit(lambda: _orth_smart_polynom(basis=basis), df, y)
+    df, y, true = _poly_data()
+    if basis == "chebyshev":
+        # Same config as test_fpoly_downstream_score_recovers_for_smart_polynom's fit.
+        fs = _poly_fit("orth_smart_polynom_chebyshev")
+    else:
+        fs = _fit(lambda: _orth_smart_polynom(basis=basis), df, y)
     name, corr = _best_engineered_corr(fs, df, true)
     assert name is not None, (
-        f"F-POLY/ORTH-{basis} engineered nothing; the smart_polynom path is "
-        f"expected to recover the non-monotone inner at default settings"
+        f"F-POLY/ORTH-{basis} engineered nothing; the smart_polynom path is " f"expected to recover the non-monotone inner at default settings"
     )
     assert corr >= 0.70, (
         f"F-POLY/ORTH-{basis} (cma_batch default) best engineered |corr|="
@@ -385,14 +482,11 @@ def test_fpoly_orth_hybrid_pair_recovers_via_auto_escalation():
     ~0.76); escalation here matches rather than exceeds it. A higher-fidelity
     recovery is still the smart_polynom path's job
     (``test_fpoly_orth_smart_polynom_default_recovers``, corr ~0.97)."""
-    df, y, true = _make_poly()
-    fs = _fit(_orth_hybrid_pair, df, y)
+    df, _y, true = _poly_data()
+    fs = _poly_fit("orth_hybrid_pair")
     name, corr = _best_engineered_corr(fs, df, true)
     assert name is not None, "F-POLY/hybrid-orth auto-escalation engineered nothing"
-    assert corr >= 0.65, (
-        f"F-POLY/hybrid-orth+auto-escalation best engineered |corr|={corr:.3f} "
-        f"< 0.65 ({name}); the auto-escalation recovery regressed"
-    )
+    assert corr >= 0.65, f"F-POLY/hybrid-orth+auto-escalation best engineered |corr|={corr:.3f} " f"< 0.65 ({name}); the auto-escalation recovery regressed"
 
 
 def test_fpoly_orth_hybrid_pair_recovers_even_with_escalation_off():
@@ -405,13 +499,12 @@ def test_fpoly_orth_hybrid_pair_recovers_even_with_escalation_off():
     artifact) is stale: the base search recovers a strong separable approximation
     on its own. The smart_polynom path still owns the highest fidelity
     (``test_fpoly_orth_smart_polynom_default_recovers``, corr ~0.97)."""
-    df, y, true = _make_poly()
-    fs = _fit(_orth_hybrid_pair_no_escalation, df, y)
+    df, _y, true = _poly_data()
+    fs = _poly_fit("orth_hybrid_pair_no_escalation")
     name, corr = _best_engineered_corr(fs, df, true)
     assert name is not None, "F-POLY/hybrid-orth (escalation OFF) engineered nothing"
     assert corr >= 0.60, (
-        f"F-POLY/hybrid-orth (escalation OFF) best engineered |corr|={corr:.3f} "
-        f"< 0.60 ({name}); the base recovery of the non-monotone inner regressed"
+        f"F-POLY/hybrid-orth (escalation OFF) best engineered |corr|={corr:.3f} " f"< 0.60 ({name}); the base recovery of the non-monotone inner regressed"
     )
 
 
@@ -421,14 +514,13 @@ def _ridge_r2(X, y):
     from sklearn.preprocessing import StandardScaler
     from sklearn.pipeline import make_pipeline
     from sklearn.model_selection import cross_val_score, KFold
+
     if np.ndim(X) == 1:
         X = np.asarray(X).reshape(-1, 1)
     if X.shape[1] == 0:
         return float("nan")
     cv = KFold(n_splits=5, shuffle=True, random_state=0)
-    return float(np.mean(cross_val_score(
-        make_pipeline(StandardScaler(), Ridge(alpha=1.0)),
-        X, np.asarray(y, dtype=float), cv=cv, scoring="r2")))
+    return float(np.mean(cross_val_score(make_pipeline(StandardScaler(), Ridge(alpha=1.0)), X, np.asarray(y, dtype=float), cv=cv, scoring="r2")))
 
 
 def test_fpoly_downstream_score_recovers_for_smart_polynom():
@@ -438,13 +530,12 @@ def test_fpoly_downstream_score_recovers_for_smart_polynom():
     ~= 0.95. Pinned within 0.10 of the true-signal R^2 AND a large lift over raw
     -- the downstream half of the recovery contract (so "an engineered feature
     exists" is not enough; it must actually be USABLE for prediction)."""
-    df, y, true = _make_poly()
-    raw_r2 = _ridge_r2(df.values, y)
-    true_r2 = _ridge_r2(np.asarray(true), y)
+    df, y, _true = _poly_data()
+    raw_r2, true_r2 = _poly_baseline_r2()
     assert true_r2 > 0.95, f"sanity: true-signal Ridge R^2={true_r2:.3f} should be ~1.0"
     assert raw_r2 < 0.5, f"sanity: all-raw Ridge R^2={raw_r2:.3f} should be low"
 
-    fs = _fit(_orth_smart_polynom, df, y)
+    fs = _poly_fit("orth_smart_polynom_chebyshev")
     sel_r2 = _ridge_r2(np.asarray(fs.transform(df)), y)
     assert sel_r2 >= true_r2 - 0.10, (
         f"F-POLY/ORTH-cma downstream R^2={sel_r2:.3f} is not within 0.10 of the "
@@ -452,8 +543,7 @@ def test_fpoly_downstream_score_recovers_for_smart_polynom():
         f"the predictive lift"
     )
     assert sel_r2 >= raw_r2 + 0.40, (
-        f"F-POLY/ORTH-cma downstream R^2={sel_r2:.3f} did not materially beat the "
-        f"all-raw baseline {raw_r2:.3f}; recovery regressed"
+        f"F-POLY/ORTH-cma downstream R^2={sel_r2:.3f} did not materially beat the " f"all-raw baseline {raw_r2:.3f}; recovery regressed"
     )
 
 
@@ -472,28 +562,25 @@ def test_fpoly_downstream_score_recovers_for_base_paths():
     without requiring escalation > baseline. Higher-fidelity recovery (R^2 ~0.95)
     remains the smart_polynom path's job
     (``test_fpoly_downstream_score_recovers_for_smart_polynom``)."""
-    df, y, true = _make_poly()
-    raw_r2 = _ridge_r2(df.values, y)
-    true_r2 = _ridge_r2(np.asarray(true), y)
+    df, y, _true = _poly_data()
+    raw_r2, true_r2 = _poly_baseline_r2()
     assert true_r2 > 0.95, f"sanity: true-signal Ridge R^2={true_r2:.3f} should be ~1.0"
     assert raw_r2 < 0.5, f"sanity: all-raw Ridge R^2={raw_r2:.3f} should be low"
 
-    for label, maker, maker_off in [
-        ("UNB", _unb, _unb_no_escalation),
-        ("hybrid-orth", _orth_hybrid_pair, _orth_hybrid_pair_no_escalation),
+    for label, config_name, config_name_off in [
+        ("UNB", "unb", "unb_no_escalation"),
+        ("hybrid-orth", "orth_hybrid_pair", "orth_hybrid_pair_no_escalation"),
     ]:
-        fs = _fit(maker, df, y)
+        fs = _poly_fit(config_name)
         sel_r2 = _ridge_r2(np.asarray(fs.transform(df)), y)
-        fs_off = _fit(maker_off, df, y)
+        fs_off = _poly_fit(config_name_off)
         off_r2 = _ridge_r2(np.asarray(fs_off.transform(df)), y)
         # Both the default and the escalation-OFF runs lift downstream over raw.
         assert sel_r2 >= raw_r2 + 0.30, (
-            f"F-POLY/{label}+default downstream R^2={sel_r2:.3f} did not lift "
-            f"over raw baseline {raw_r2:.3f}; the recovery regressed"
+            f"F-POLY/{label}+default downstream R^2={sel_r2:.3f} did not lift " f"over raw baseline {raw_r2:.3f}; the recovery regressed"
         )
         assert off_r2 >= raw_r2 + 0.30, (
-            f"F-POLY/{label} (escalation OFF) downstream R^2={off_r2:.3f} did not "
-            f"lift over raw baseline {raw_r2:.3f}; the base recovery regressed"
+            f"F-POLY/{label} (escalation OFF) downstream R^2={off_r2:.3f} did not " f"lift over raw baseline {raw_r2:.3f}; the base recovery regressed"
         )
 
 
@@ -516,10 +603,12 @@ def test_fpoly_recovery_is_real_and_warm_start_is_the_lever():
     pytest.importorskip("cma")
     from numpy.polynomial import chebyshev as C
     from mlframe.feature_selection.filters.hermite_fe import (
-        optimise_hermite_pair, _POLY_BASES, _plugin_mi_regression_njit,
+        optimise_hermite_pair,
+        _POLY_BASES,
+        _plugin_mi_regression_njit,
     )
 
-    df, y, true = _make_poly()
+    df, y, true = _poly_data()
     a = df["a"].values
     b = df["b"].values
     yf = np.ascontiguousarray(np.asarray(y, dtype=np.float64))
@@ -534,33 +623,36 @@ def test_fpoly_recovery_is_real_and_warm_start_is_the_lever():
     ca = C.chebfit(za, a**3 - 2 * a, 3)
     cb = C.chebfit(zb, b**2 - b, 2)
     ideal = C.chebval(za, ca) * C.chebval(zb, cb)
-    assert abs(float(np.corrcoef(ideal, true)[0, 1])) > 0.99, (
-        "ideal Chebyshev reconstruction should match P(a)*Q(b) almost exactly"
-    )
+    assert abs(float(np.corrcoef(ideal, true)[0, 1])) > 0.99, "ideal Chebyshev reconstruction should match P(a)*Q(b) almost exactly"
     mi_ideal = float(_plugin_mi_regression_njit(np.ascontiguousarray(ideal), yf, 20))
     mi_a = float(_plugin_mi_regression_njit(np.ascontiguousarray(a.astype(np.float64)), yf, 20))
     mi_b = float(_plugin_mi_regression_njit(np.ascontiguousarray(b.astype(np.float64)), yf, 20))
     gate = 0.90 * max(mi_a, mi_b)  # MRMR fe_min_engineered_mi_prevalence (default 0.90)
     assert mi_ideal > gate, (
-        f"ideal feature MI={mi_ideal:.3f} does NOT clear the injection gate "
-        f"{gate:.3f}; the boundary would then be the gate, not the optimiser"
+        f"ideal feature MI={mi_ideal:.3f} does NOT clear the injection gate " f"{gate:.3f}; the boundary would then be the gate, not the optimiser"
     )
     # Large true coefficients are exactly why the OLD raw L2 penalty crushed the
     # solution; pin that the solution lives in the large-coef region.
-    assert (np.sum(ca**2) + np.sum(cb**2)) > 20.0, (
-        "true Chebyshev coefficients should be large (drives the penalty effect)"
-    )
+    assert (np.sum(ca**2) + np.sum(cb**2)) > 20.0, "true Chebyshev coefficients should be large (drives the penalty effect)"
 
     # (2) Single-knob A/B on the per-operand ALS warm start. Everything else is
     # the production default (cma_batch + saturating penalty). max_degree=4 is
     # the natural degree of the cubic*quadratic product and keeps the control
     # fast.
-    common = dict(discrete_target=False, max_degree=4, min_degree=1,
-                  basis="chebyshev", coef_range=(-10.0, 10.0),
-                  optimizer="cma_batch", mi_estimator="plugin",
-                  multi_fidelity=False, baseline_uplift_threshold=1.01)
+    common = dict(
+        discrete_target=False,
+        max_degree=4,
+        min_degree=1,
+        basis="chebyshev",
+        coef_range=(-10.0, 10.0),
+        optimizer="cma_batch",
+        mi_estimator="plugin",
+        multi_fidelity=False,
+        baseline_uplift_threshold=1.01,
+    )
 
     def _corr_of(res):
+        """|corr| of the combined bin_func(f(a), f(b)) output against the true signal, or 0.0 if None/degenerate."""
         if res is None:
             return 0.0
         fa = C.chebval(za, res.coef_a)
@@ -570,17 +662,12 @@ def test_fpoly_recovery_is_real_and_warm_start_is_the_lever():
             return 0.0
         return abs(float(np.corrcoef(comb, true)[0, 1]))
 
-    res_on = optimise_hermite_pair(a, b, np.asarray(y), n_trials=400,
-                                   warm_start_als=True, **common)
-    res_off = optimise_hermite_pair(a, b, np.asarray(y), n_trials=400,
-                                    warm_start_als=False, **common)
+    res_on = optimise_hermite_pair(a, b, np.asarray(y), n_trials=400, warm_start_als=True, **common)
+    res_off = optimise_hermite_pair(a, b, np.asarray(y), n_trials=400, warm_start_als=False, **common)
     corr_on = _corr_of(res_on)
     corr_off = _corr_of(res_off)
     # Default (warm start ON) recovers the true signal.
-    assert corr_on >= 0.70, (
-        f"default cma_batch + ALS warm start did not recover F-POLY "
-        f"(corr={corr_on:.3f}); the recovery regressed"
-    )
+    assert corr_on >= 0.70, f"default cma_batch + ALS warm start did not recover F-POLY " f"(corr={corr_on:.3f}); the recovery regressed"
     # Disabling the warm start collapses recovery -- proves it is the lever.
     assert corr_on >= corr_off + 0.30, (
         f"ALS warm start ON (corr={corr_on:.3f}) did not beat warm start OFF "
@@ -607,13 +694,12 @@ def test_fosc_unary_binary_recovers_via_auto_escalation():
     The recovery is ATTRIBUTABLE to the escalation: the
     ``test_fosc_unary_binary_no_recovery_with_escalation_off`` control (escalation
     OFF, same config) engineers nothing (corr ~0)."""
-    df, y, true = _make_osc()
+    df, y, true = _osc_data()
     fs = _fit(_unb, df, y)
     name, corr = _best_engineered_corr(fs, df, true)
     assert name is not None, "F-OSC/UNB auto-escalation engineered nothing"
     assert corr >= 0.85, (
-        f"F-OSC/UNB+auto-escalation best engineered |corr|={corr:.3f} < 0.85 "
-        f"({name}); the auto-escalation recovery of the oscillatory inner regressed"
+        f"F-OSC/UNB+auto-escalation best engineered |corr|={corr:.3f} < 0.85 " f"({name}); the auto-escalation recovery of the oscillatory inner regressed"
     )
 
 
@@ -625,13 +711,10 @@ def test_fosc_unary_binary_no_recovery_with_escalation_off():
 
     Preserves the original true-negative and proves the companion recovery is
     fully attributable to the auto-escalation."""
-    df, y, true = _make_osc()
-    fs = _fit(_unb_no_escalation, df, y)
+    df, _y, true = _osc_data()
+    fs = _osc_fit("unb_no_escalation")
     _name, corr = _best_engineered_corr(fs, df, true)
-    assert corr < 0.30, (
-        f"F-OSC/UNB (escalation OFF) unexpectedly recovered |corr|={corr:.3f} "
-        f"({_name})"
-    )
+    assert corr < 0.30, f"F-OSC/UNB (escalation OFF) unexpectedly recovered |corr|={corr:.3f} " f"({_name})"
 
 
 def test_fosc_hybrid_orth_pair_partially_recovers_and_beats_unb():
@@ -648,22 +731,17 @@ def test_fosc_hybrid_orth_pair_partially_recovers_and_beats_unb():
     this comparison (both paths equal). Disabling escalation isolates the hybrid
     path's INTRINSIC bilinear partial-recovery advantage over the elementary
     search, which is what this test pins."""
-    df, y, true = _make_osc()
+    df, y, true = _osc_data()
 
-    fs_unb = _fit(_unb_no_escalation, df, y)
+    fs_unb = _osc_fit("unb_no_escalation")
     _n_unb, corr_unb = _best_engineered_corr(fs_unb, df, true)
 
     fs_hyb = _fit(_orth_hybrid_pair_no_escalation, df, y)
     name_hyb, corr_hyb = _best_engineered_corr(fs_hyb, df, true)
 
     assert name_hyb is not None, "F-OSC/hybrid-orth engineered nothing"
-    assert corr_hyb >= 0.45, (
-        f"F-OSC/hybrid-orth best engineered |corr|={corr_hyb:.3f} < 0.45 ({name_hyb})"
-    )
-    assert corr_hyb > corr_unb + 0.30, (
-        f"F-OSC/hybrid-orth ({corr_hyb:.3f}) did not beat unary/binary "
-        f"({corr_unb:.3f}) by the expected margin"
-    )
+    assert corr_hyb >= 0.45, f"F-OSC/hybrid-orth best engineered |corr|={corr_hyb:.3f} < 0.45 ({name_hyb})"
+    assert corr_hyb > corr_unb + 0.30, f"F-OSC/hybrid-orth ({corr_hyb:.3f}) did not beat unary/binary " f"({corr_unb:.3f}) by the expected margin"
 
 
 def test_fosc_orth_smart_polynom_default_recovers():
@@ -673,19 +751,14 @@ def test_fosc_orth_smart_polynom_default_recovers():
     hybrid-orth fixed cells) miss. Measured |corr| ~= 0.95, downstream Ridge
     R^2 ~= 0.91 (vs ~0.07 raw). Pinned >= 0.70 corr AND a downstream lift; this
     is a documented improvement over the F-OSC hybrid-orth partial (~0.67)."""
-    df, y, true = _make_osc()
+    df, y, true = _osc_data()
     raw_r2 = _ridge_r2(df.values, y)
     fs = _fit(_orth_smart_polynom, df, y)
     name, corr = _best_engineered_corr(fs, df, true)
     assert name is not None, "F-OSC/ORTH-smart_polynom engineered nothing"
-    assert corr >= 0.70, (
-        f"F-OSC/ORTH-smart_polynom best engineered |corr|={corr:.3f} < 0.70 ({name})"
-    )
+    assert corr >= 0.70, f"F-OSC/ORTH-smart_polynom best engineered |corr|={corr:.3f} < 0.70 ({name})"
     sel_r2 = _ridge_r2(np.asarray(fs.transform(df)), y)
-    assert sel_r2 >= raw_r2 + 0.40, (
-        f"F-OSC/ORTH-smart_polynom downstream R^2={sel_r2:.3f} did not lift over "
-        f"the raw baseline {raw_r2:.3f}"
-    )
+    assert sel_r2 >= raw_r2 + 0.40, f"F-OSC/ORTH-smart_polynom downstream R^2={sel_r2:.3f} did not lift over " f"the raw baseline {raw_r2:.3f}"
 
 
 # ---------------------------------------------------------------------------
@@ -717,8 +790,7 @@ def test_noise_control_smart_polynom_engineers_no_spurious_feature():
     raw_r2 = _ridge_r2(df.values, y)
     sel_r2 = _ridge_r2(np.asarray(fs.transform(df)), y)
     assert sel_r2 <= raw_r2 + 0.10, (
-        f"noise control downstream R^2={sel_r2:.3f} beats the raw noise baseline "
-        f"{raw_r2:.3f}: a spurious feature is leaking predictive signal"
+        f"noise control downstream R^2={sel_r2:.3f} beats the raw noise baseline " f"{raw_r2:.3f}: a spurious feature is leaking predictive signal"
     )
 
 
@@ -730,20 +802,29 @@ def test_noise_control_optimiser_uplift_is_rejected_by_gate():
     not manufacture an uplift on noise."""
     pytest.importorskip("cma")
     from mlframe.feature_selection.filters.hermite_fe import optimise_hermite_pair
+
     df, y, _ = _make_noise()
     res = optimise_hermite_pair(
-        df["a"].values, df["b"].values, np.asarray(y),
-        discrete_target=False, max_degree=6, min_degree=1, n_trials=400,
-        basis="chebyshev", optimizer="cma_batch", mi_estimator="plugin",
-        multi_fidelity=False, warm_start=True, warm_start_als=True,
+        df["a"].values,
+        df["b"].values,
+        np.asarray(y),
+        discrete_target=False,
+        max_degree=6,
+        min_degree=1,
+        n_trials=400,
+        basis="chebyshev",
+        optimizer="cma_batch",
+        mi_estimator="plugin",
+        multi_fidelity=False,
+        warm_start=True,
+        warm_start_als=True,
         baseline_uplift_threshold=1.01,
     )
     # Either None (failed the uplift gate) or, if a marginal result slips
     # through, its uplift must be negligible (<= 1.10x) -- never a real signal.
     if res is not None:
         assert res.uplift <= 1.10, (
-            f"noise pair produced uplift {res.uplift:.2f}x (> 1.10x); the warm "
-            f"start is manufacturing signal on a target independent of (a, b)"
+            f"noise pair produced uplift {res.uplift:.2f}x (> 1.10x); the warm " f"start is manufacturing signal on a target independent of (a, b)"
         )
 
 
@@ -757,32 +838,49 @@ def test_noise_floor_permutation_guard_is_the_lever():
     pytest.importorskip("cma")
     from mlframe.feature_selection.filters.hermite_fe import optimise_hermite_pair
     from mlframe.feature_selection.filters.discretization import discretize_array
+
     df, y, _ = _make_noise()
     a = df["a"].values
     e = df["e"].values  # the fabricated pair in the regression was (a, e), both pure noise
-    y_disc = discretize_array(
-        arr=np.asarray(y, dtype=np.float64), n_bins=10, method="quantile", dtype=np.int32,
-    ).reshape(-1).astype(np.int64)
+    y_disc = (
+        discretize_array(
+            arr=np.asarray(y, dtype=np.float64),
+            n_bins=10,
+            method="quantile",
+            dtype=np.int32,
+        )
+        .reshape(-1)
+        .astype(np.int64)
+    )
 
     def _sweep(noise_floor_perm_ratio):
+        """Count how many of 20 restarts pass the uplift gate under the given permutation-null ratio."""
         n_pass = 0
         for so in range(20):
             res = optimise_hermite_pair(
-                x_a=a, x_b=e, y=y_disc, discrete_target=True,
-                max_degree=6, min_degree=1, n_trials=400, coef_range=(-10.0, 10.0),
-                l2_penalty=0.05, seed=42 + so, sweep_degrees=True, basis="chebyshev",
-                mi_estimator="plugin", optimizer="cma_batch", warm_start=True,
-                multi_fidelity=True, noise_floor_perm_ratio=noise_floor_perm_ratio,
+                x_a=a,
+                x_b=e,
+                y=y_disc,
+                discrete_target=True,
+                max_degree=6,
+                min_degree=1,
+                n_trials=400,
+                coef_range=(-10.0, 10.0),
+                l2_penalty=0.05,
+                seed=42 + so,
+                sweep_degrees=True,
+                basis="chebyshev",
+                mi_estimator="plugin",
+                optimizer="cma_batch",
+                warm_start=True,
+                multi_fidelity=True,
+                noise_floor_perm_ratio=noise_floor_perm_ratio,
             )
             if res is not None:
                 n_pass += 1
         return n_pass
 
     # Guard ON (default): every restart is rejected on pure noise.
-    assert _sweep(1.50) == 0, (
-        "noise-floor guard ON still let a restart fabricate a feature on a pair independent of y"
-    )
+    assert _sweep(1.50) == 0, "noise-floor guard ON still let a restart fabricate a feature on a pair independent of y"
     # Guard OFF: at least one restart slips a spurious feature through -- the guard is the lever.
-    assert _sweep(0.0) >= 1, (
-        "disabling the noise-floor guard did NOT surface the fabricated feature; the guard is not the lever the regression needs"
-    )
+    assert _sweep(0.0) >= 1, "disabling the noise-floor guard did NOT surface the fabricated feature; the guard is not the lever the regression needs"
