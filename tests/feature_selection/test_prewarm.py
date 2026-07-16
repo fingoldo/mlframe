@@ -155,6 +155,47 @@ class TestPrewarmCoverage:
         from mlframe.feature_selection.filters.discretization import _discretize_array_impl
         assert len(_discretize_array_impl.signatures) >= 1
 
+    def test_renumber_joint_kernels_compiled(self, warmed):
+        # Regression sensor: _conditional_perm_null's host-fallback k_xz/k_yz/k_xyz card computation
+        # (6207+ calls/fit) drove ~14s of un-prewarmed cold JIT compile, discovered via a saved cProfile
+        # .prof on the canonical 100k-row wellbore fit (top callee under _conditional_perm_null was
+        # _renumber_joint at 3.825s tottime / 6207 calls, largely first-compile cost).
+        from mlframe.feature_selection.filters._mi_greedy_cmi_fe import (
+            _combine_factorize_njit, _joint_entropy_two_dense_njit, _renumber_two_dense_njit,
+        )
+        assert len(_renumber_two_dense_njit.signatures) >= 1
+        assert len(_joint_entropy_two_dense_njit.signatures) >= 1
+        assert len(_combine_factorize_njit.signatures) >= 1
+
+    def test_unary_transform_registry_compiled(self, warmed):
+        # Regression sensor: create_unary_transformations' njit-wrapped LAMBDA entries (a bare numpy ufunc
+        # like the OLD "cos"/"sin"/"abs" entries fails njit-wrapping silently in njit_functions_dict and
+        # stays a raw ufunc -- only the lambda-bodied transforms below actually become numba Dispatchers)
+        # were not covered by prewarm; the first FE round's _build_operand_table call paid their JIT
+        # compile inline (~14s cumulative, measured via a saved cProfile .prof on the canonical 100k-row
+        # wellbore fit). Includes both the original lambda-native transforms (identity/sqr/reciproc/...)
+        # and the measured-win bare-ufunc-to-lambda conversions (see bench_unary_transform_njit_wrap.py):
+        # sign/tanh/neg/rint/cbrt/arccos/arctan/cosh/arcsinh.
+        from mlframe.feature_selection.filters.feature_engineering import create_unary_transformations
+        d = create_unary_transformations(preset="maximal")
+        for name in (
+            "identity", "sqr", "reciproc", "sqrt", "qubed", "invsquared", "invqubed", "invcbrt", "invsqrt",
+            "sign", "tanh", "neg", "rint", "cbrt", "arccos", "arctan", "cosh", "arcsinh",
+        ):
+            fn = d[name]
+            assert len(fn.signatures) >= 1, f"unary transform {name!r} was not compiled by prewarm"
+
+    def test_unary_transform_bare_ufunc_entries_stay_unwrapped(self, warmed):
+        # Companion to the above: bench_unary_transform_njit_wrap.py measured these entries FLAT-TO-
+        # REGRESSING when njit-wrapped (numpy's C loop already wins), so they were deliberately left as
+        # bare ufuncs. A future edit accidentally converting one without re-benchmarking would silently
+        # regress -- this pins the current (intentional) unwrapped state so such a change is caught.
+        from mlframe.feature_selection.filters.feature_engineering import create_unary_transformations
+        d = create_unary_transformations(preset="maximal")
+        for name in ("abs", "sin", "exp", "cos", "tan", "sinh", "arcsin", "arccosh", "arctanh"):
+            fn = d[name]
+            assert not hasattr(fn, "signatures"), f"unary transform {name!r} is now njit-wrapped -- update the rejected-conversion bench/comment if this is an intentional, re-measured win"
+
     def test_post_warm_no_inf_or_nan_in_smoke_kernel(self, warmed):
         # Spot-check the canonical kernel: after prewarm, computing MI on tiny input must return a finite non-negative scalar.
         from mlframe.feature_selection.filters.info_theory import compute_mi_from_classes

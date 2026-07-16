@@ -22,6 +22,11 @@ from ._feature_engineering_mem_budget import (
     _time,  # noqa: F401 -- re-exported, see _feature_engineering_mem_budget.py
     _TIMES_SPENT_LOCK,  # noqa: F401 -- re-exported, see _feature_engineering_mem_budget.py
     _FE_BUFFER_RAM_BUDGET_RATIO,  # noqa: F401 -- re-exported, see _feature_engineering_mem_budget.py
+    _FE_PEAK_OVERHEAD_FACTOR,  # noqa: F401 -- re-exported, see _feature_engineering_mem_budget.py
+    _FE_HOIST_HEADROOM_OVERHEAD,  # noqa: F401 -- re-exported, see _feature_engineering_mem_budget.py
+    _FE_BUFFER_ABSOLUTE_MAX_GB,  # noqa: F401 -- re-exported, see _feature_engineering_mem_budget.py
+    _FE_VMEM_CACHE,  # noqa: F401 -- re-exported, see _feature_engineering_mem_budget.py
+    _FE_MIN_FREE_RAM_GB,  # noqa: F401 -- re-exported, see _feature_engineering_mem_budget.py
     _fe_hoist_headroom_overhead,  # noqa: F401 -- re-exported, see _feature_engineering_mem_budget.py
     _fe_min_free_ram_bytes,  # noqa: F401 -- re-exported, see _feature_engineering_mem_budget.py
     _fe_buffer_absolute_max_bytes,  # noqa: F401 -- re-exported, see _feature_engineering_mem_budget.py
@@ -463,11 +468,25 @@ def create_unary_transformations(preset: str = "minimal"):
     #   medium -- minimal + exp, reciprocal/inverse powers, cbrt, rint.
     #   maximal -- medium + trig/hyperbolic/special families (below).
     preset = _resolve_preset(preset)
+    # NJIT-WRAPPING (2026-07-16): `njit_functions_dict` below can only wrap a PLAIN PYTHON FUNCTION --
+    # a bare numpy ufunc (e.g. `np.cos`) fails at decoration (`TypeError: The decorated object is not a
+    # function`), so registering one directly leaves it un-jitted forever (the failure is silently
+    # swallowed). A `lambda x: np.cos(x)` wrapper compiles fine (numba lowers most numpy ufunc calls
+    # inside a jitted body as intrinsics). Benchmarked every bare-ufunc entry at n in {1e3, 3e4, 1e5}
+    # (`_benchmarks/bench_unary_transform_njit_wrap.py`) before converting: only entries with a clear,
+    # consistent win (>=1.02x, several far higher) were switched to a wrapping lambda -- `sign` (numpy's
+    # float64 sign has an unexpectedly slow path, ~18x), `tanh` (~1.8-2.7x), `neg`/`rint`/`cbrt`/`arccos`/
+    # `arctan`/`cosh`/`arcsinh` (~1.02-1.13x). `abs`/`sin`/`exp`/`cos`/`tan`/`sinh`/`arcsin`/`arccosh`/
+    # `arctanh` measured FLAT-TO-REGRESSING (0.6-0.99x, numpy's already-vectorized C loop wins) and stay
+    # bare numpy -- bench-attempt-rejected, kept as the measured-correct default. `erf`/`gammaln` (scipy
+    # special) fail njit compilation entirely (`Unknown attribute 'erf' of type Module(scipy.special)`,
+    # no numba-scipy extension installed) and must stay bare regardless of speed. All conversions verified
+    # bit-identical or ~1 ULP FP-reorder (`cbrt`/`tanh`; max abs diff ~4e-16/~1e-16 on a 200k-row fuzz).
     unary_transformations = {
         # simplest
         "identity": lambda x: x,
         # sign / magnitude companions
-        "neg": np.negative,
+        "neg": lambda x: np.negative(x),
         "abs": np.abs,
         # powers
         "sqr": lambda x: np.power(x, 2),
@@ -481,17 +500,17 @@ def create_unary_transformations(preset: str = "minimal"):
     if preset != "minimal":
         unary_transformations.update(
             {
-                "sign": np.sign,
+                "sign": lambda x: np.sign(x),
                 # outliers removal
                 # Rounding
-                "rint": np.rint,
+                "rint": lambda x: np.rint(x),
                 # np.modf Return the fractional and integral parts of an array, element-wise.
                 # clip
                 # powers
                 "qubed": lambda x: np.power(x, 3),
                 "invsquared": lambda x: _safe_pow(x, -2),
                 "invqubed": lambda x: _safe_pow(x, -3),
-                "cbrt": np.cbrt,
+                "cbrt": lambda x: np.cbrt(x),
                 "invcbrt": lambda x: _safe_pow(x, -1 / 3),
                 "invsqrt": lambda x: _safe_pow(x, -1 / 2),
                 # logarithms
@@ -513,14 +532,14 @@ def create_unary_transformations(preset: str = "minimal"):
                 "tan": np.tan,
                 # reverse trigonometric
                 "arcsin": np.arcsin,
-                "arccos": np.arccos,
-                "arctan": np.arctan,
+                "arccos": lambda x: np.arccos(x),
+                "arctan": lambda x: np.arctan(x),
                 # hyperbolic
                 "sinh": np.sinh,
-                "cosh": np.cosh,
-                "tanh": np.tanh,
+                "cosh": lambda x: np.cosh(x),
+                "tanh": lambda x: np.tanh(x),
                 # reverse hyperbolic
-                "arcsinh": np.arcsinh,
+                "arcsinh": lambda x: np.arcsinh(x),
                 "arccosh": np.arccosh,
                 "arctanh": np.arctanh,
                 # special
