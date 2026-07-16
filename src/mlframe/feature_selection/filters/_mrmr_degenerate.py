@@ -29,12 +29,22 @@ column-side diagnostic.
 """
 from __future__ import annotations
 
+from typing import Callable, Optional
+
 import numpy as np
 import pandas as pd
 
 # Perfect-collinearity tolerance. |Pearson| within this of 1.0 counts as a perfect
 # linear dependence (covers float round-off in an exact 2*x+3 relationship).
 _COLLINEAR_TOL = 1e-9
+
+_xxh3_64: Optional[Callable] = None
+try:
+    import xxhash as _xxhash
+
+    _xxh3_64 = _xxhash.xxh3_64_intdigest
+except Exception:  # nosec B110 - xxhash optional: falls back to pandas hash_array below
+    pass
 
 
 def _column_arrays(X):
@@ -93,14 +103,28 @@ def _is_constant(values: np.ndarray) -> bool:
 
 def _content_key(values: np.ndarray):
     """A hashable, NaN-aware fingerprint of a column's content for exact-duplicate
-    detection. ``pandas.util.hash_array`` is dtype-agnostic and maps NaN to a single
-    stable sentinel, so two columns hash equal iff they are element-wise identical
-    (NaN positions included)."""
+    detection. Two columns fingerprint equal iff they are element-wise identical
+    (NaN bit patterns included) -- standard IEEE NaN encodings are consistent within
+    one numpy/pandas process, so a raw byte-content hash preserves the same equality
+    contract ``pandas.util.hash_array`` gave, without allocating a fresh (n,) hash
+    array + its own ``.tobytes()`` copy per column (measured ~17ms/column on a
+    99401-row wellbore-shaped frame -> the #1 self-time line of this whole scan at
+    ~500 raw columns). ``xxh3_64_intdigest`` reads the array's own buffer directly
+    (copy-free for C-contiguous arrays -- the same technique already used by
+    ``_fe_resident_operands._content_hash``), falling back to pandas' hash_array
+    (numeric/object-safe, handles non-contiguous input) when xxhash is unavailable
+    or the fast path errors for any reason."""
+    arr = np.asarray(values)
+    if _xxh3_64 is not None and arr.dtype.kind in "fiub" and arr.flags["C_CONTIGUOUS"]:
+        try:
+            return _xxh3_64(arr)
+        except Exception:  # nosec B110 - best-effort path, pandas fallback below
+            pass
     try:
-        return pd.util.hash_array(np.asarray(values)).tobytes()
+        return pd.util.hash_array(arr).tobytes()
     except Exception:
         try:
-            return np.asarray(values).tobytes()
+            return arr.tobytes()
         except Exception:
             return None
 
@@ -149,22 +173,28 @@ def audit_degenerate_columns(X) -> dict:
     if len(live) >= 2:
         names = [n for (n, _, _) in live]
         n_rows = live[0][1].shape[0]
-        M = np.empty((n_rows, len(live)), dtype=np.float64)
+        # ROW-major (K, n_rows), not (n_rows, K): writing ``M[k, :] = col`` fills a CONTIGUOUS row,
+        # while the previous ``M[:, k] = col`` wrote a column of a C-order (n_rows, K) array --
+        # every element strided by K*8 bytes, the classic column-into-row-major antipattern (measured
+        # ~13ms/column on a 99401x~500 wellbore-shaped frame, 15% of this whole scan's wall). The GEMM
+        # below is transposed to match (``M @ M.T`` instead of ``M.T @ M``) -- same Gram matrix, same
+        # BLAS call, just the operand layout that lets each per-column write stay contiguous.
+        M = np.empty((len(live), n_rows), dtype=np.float64)
         for k, (_, v, fin) in enumerate(live):
             col = v.copy()
             if not fin.all():
                 col_mean = float(np.nanmean(col)) if fin.any() else 0.0
                 col = np.where(fin, col, col_mean)
-            M[:, k] = col
+            M[k, :] = col
         # Standardise; zero-variance columns (shouldn't reach here -- caught as constant)
         # are guarded by a non-zero std floor so they cannot spuriously read |corr|=1.
         with np.errstate(invalid="ignore"):  # a non-finite-derived col_mean can make the centre subtract NaN; the std floor below handles it
-            M -= M.mean(axis=0, keepdims=True)
-            stds = np.sqrt((M * M).sum(axis=0))
+            M -= M.mean(axis=1, keepdims=True)
+            stds = np.sqrt((M * M).sum(axis=1))
         good = stds > 0
         with np.errstate(invalid="ignore", divide="ignore"):
-            M = np.where(good, M / np.where(stds == 0, 1.0, stds), 0.0)
-        corr = M.T @ M  # unit-norm columns -> Gram matrix == correlation matrix
+            M = np.where(good[:, None], M / np.where(stds == 0, 1.0, stds)[:, None], 0.0)
+        corr = M @ M.T  # unit-norm rows -> Gram matrix == correlation matrix
         np.fill_diagonal(corr, 0.0)
         abs_corr = np.abs(corr)
         for j in range(len(live)):

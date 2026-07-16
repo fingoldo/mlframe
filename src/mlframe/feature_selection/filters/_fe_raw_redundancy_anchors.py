@@ -270,17 +270,23 @@ def build_raw_redundancy_anchors(
             return {p for p in _p if _raw_is_signal_bearing(p)}
 
         for ei, _subtree in _consumer_subtrees.items():
+            # ``_subexpr_signal_parents(_sub)`` depends only on ``_sub`` (fixed per ``(ei, _sname)``), NOT on
+            # ``_rn`` -- the old code recomputed it once per ``_rn in raw_name_set`` (hundreds of raw columns)
+            # for the SAME sub-expression set, an O(|raw_name_set|) redundant recompute. Hoisted to run ONCE
+            # per ``ei`` (56980 calls / 0.97s tottime on a 99401x~519 wellbore-shaped profile), reused across
+            # every ``_rn`` below via a plain dict lookup. Selection-identical (same values, just computed once).
+            _sub_parents = {_sname: _subexpr_signal_parents(_sub) for _sname, _sub in _subtree.items()}
             for _rn in raw_name_set:
                 _cands = []
                 for _sname, _sub in _subtree.items():
-                    _sp = _subexpr_signal_parents(_sub)
+                    _sp = _sub_parents[_sname]
                     if _rn in _sp and len(_sp - {_rn}) >= 1:
                         _cands.append((len(_sp), _sname, _sub))
                 if not _cands:
                     continue
                 _cands.sort(key=lambda t: (t[0], len(t[1])))
                 _, _best_name, _best_sub = _cands[0]
-                if len(_subexpr_signal_parents(_best_sub)) >= len(_eng_signal_parents.get(ei, set())):
+                if len(_sub_parents[_best_name]) >= len(_eng_signal_parents.get(ei, set())):
                     continue
                 _vals = _subexpr_continuous(_best_sub, raw_X)
                 if _vals is None or _vals.shape[0] != n_rows:

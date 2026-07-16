@@ -11,7 +11,7 @@ meant to run BEFORE the heavier MRMR/RFECV passes on a huge feature set, not to 
 """
 from __future__ import annotations
 
-from typing import Any, Callable, List, Optional
+from typing import Any, Callable, Optional
 
 import numpy as np
 import pandas as pd
@@ -22,12 +22,18 @@ from sklearn.model_selection import KFold
 def _cv_score(estimator, X: pd.DataFrame, y: np.ndarray, cv, scoring: Callable[[np.ndarray, np.ndarray], float]) -> float:
     """Fit a cloned estimator on each CV fold and return the mean out-of-fold score."""
     row_select = (lambda idx: X.iloc[idx]) if hasattr(X, "iloc") else (lambda idx: X[idx])
+    # A pandas Series' bracket indexing is LABEL-based, not positional, once its index is no
+    # longer the default 0..n-1 RangeIndex (e.g. y still carries an upstream row-filter's index) --
+    # cv.split(X) always yields plain 0..n-1 positional indices, so y[train_idx] then raises
+    # KeyError / silently mis-selects rows on a non-default index. .iloc is positional regardless
+    # of the index, matching X's own row_select above.
+    y_select = (lambda idx: y.iloc[idx]) if hasattr(y, "iloc") else (lambda idx: y[idx])
     scores = []
     for train_idx, test_idx in cv.split(X):
         model = clone(estimator)
-        model.fit(row_select(train_idx), y[train_idx])
+        model.fit(row_select(train_idx), y_select(train_idx))
         preds = model.predict(row_select(test_idx))
-        scores.append(scoring(y[test_idx], preds))
+        scores.append(scoring(y_select(test_idx), preds))
     return float(np.mean(scores))
 
 
@@ -40,7 +46,7 @@ def iterative_zero_importance_pruning(
     importance_threshold: float = 0.0,
     max_rounds: int = 20,
     importance_fn: Optional[Callable[[Any, pd.DataFrame, np.ndarray], np.ndarray]] = None,
-) -> List[str]:
+) -> list[Any]:
     """Repeatedly drop the WHOLE batch of near-zero-importance features per round, stopping on CV degradation.
 
     Parameters
@@ -71,24 +77,30 @@ def iterative_zero_importance_pruning(
 
     Returns
     -------
-    list of str
-        The best-scoring surviving feature set seen across all rounds (not necessarily the LAST round's set --
+    list
+        The best-scoring surviving feature set seen across all rounds (column names for a DataFrame input,
+        integer positions for a bare ndarray input; not necessarily the LAST round's set --
         the round with the highest CV score is kept, matching the source's "keeps the exclusion set with
         lowest CV log loss" convention, generalized to "highest ``scoring``").
     """
     if cv is None:
         cv = KFold(n_splits=5, shuffle=True, random_state=0)
 
-    remaining = list(X.columns)
-    best_score = _cv_score(estimator, X[remaining], y, cv, scoring)
+    # ``forward_select``/``cascade_select`` document ndarray input as "columns addressed by integer
+    # index"; mirror that here instead of unconditionally assuming ``X.columns`` exists.
+    has_columns = hasattr(X, "columns")
+    col_select = (lambda cols: X[cols]) if has_columns else (lambda cols: X[:, cols])
+
+    remaining = list(X.columns) if has_columns else list(range(X.shape[1]))
+    best_score = _cv_score(estimator, col_select(remaining), y, cv, scoring)
     best_remaining = list(remaining)
 
     for _ in range(max_rounds):
-        full_fit_estimator = clone(estimator).fit(X[remaining], y)
+        full_fit_estimator = clone(estimator).fit(col_select(remaining), y)
         if importance_fn is None:
             importances = np.asarray(full_fit_estimator.feature_importances_)
         else:
-            importances = np.asarray(importance_fn(full_fit_estimator, X[remaining], y))
+            importances = np.asarray(importance_fn(full_fit_estimator, col_select(remaining), y))
         zero_mask = importances <= importance_threshold
         if not zero_mask.any():
             break
@@ -97,7 +109,7 @@ def iterative_zero_importance_pruning(
         if not candidate_remaining:
             break  # never drop every feature -- degenerate case, stop here.
 
-        candidate_score = _cv_score(estimator, X[candidate_remaining], y, cv, scoring)
+        candidate_score = _cv_score(estimator, col_select(candidate_remaining), y, cv, scoring)
         remaining = candidate_remaining
         if candidate_score > best_score:
             best_score = candidate_score

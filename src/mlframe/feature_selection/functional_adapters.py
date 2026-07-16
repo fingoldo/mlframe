@@ -54,7 +54,21 @@ def _default_sklearn_scorer_name(y: np.ndarray) -> str:
 
 
 def _support_from_selected(feature_names: list, selected: list) -> np.ndarray:
-    """Boolean support mask (input-column order) marking columns present in ``selected``."""
+    """Boolean support mask (input-column order) marking columns present in ``selected``.
+
+    ``forward_select`` / ``greedy_backward_elimination`` / ``iterative_zero_importance_pruning`` /
+    ``cascade_select`` address columns by NAME on a DataFrame input but by INTEGER POSITION on a
+    bare ndarray input (see their own docstrings: "ndarray (columns addressed by integer index)").
+    ``_finalize`` always builds ``feature_names`` as strings (``x{i}`` synthetic names for an
+    ndarray fit), so a positional ``selected`` (e.g. ``[0, 1, 4]``) must be resolved by INDEX, not
+    by string-matching "0" against "x0" -- the latter always misses, silently zeroing out the
+    entire support mask (0 selected columns) for every ndarray-input fit. A DataFrame-input fit's
+    ``selected`` are the real column names/values, which the fallback string-match path still
+    handles correctly (covers non-str name types too, e.g. integer column labels)."""
+    if selected and all(isinstance(c, (int, np.integer)) and not isinstance(c, bool) for c in selected):
+        mask = np.zeros(len(feature_names), dtype=bool)
+        mask[list(selected)] = True
+        return mask
     selected_set = set(str(c) for c in selected)
     return np.asarray([str(c) in selected_set for c in feature_names], dtype=bool)
 
@@ -149,7 +163,12 @@ class _FunctionalSelectorBase(BaseEstimator, TransformerMixin):
         self.feature_names_in_ = np.asarray(names, dtype=object)
         self.n_features_in_ = len(names)
         self.support_ = _support_from_selected(names, selected)
-        self.selected_features_ = [str(c) for c in selected]
+        # Derived from the RESOLVED mask (not `selected` directly): for a bare-ndarray fit,
+        # `selected` holds integer positions, not the synthetic "x{i}" names `names` uses -- see
+        # _support_from_selected's docstring. Deriving from `names[support_]` keeps
+        # selected_features_ (get_feature_names_out's source) in the same naming convention as
+        # feature_names_in_ regardless of whether `selected` was positional or name-based.
+        self.selected_features_ = [n for n, keep in zip(names, self.support_) if keep]
 
 
 class ForwardSelectSelector(_FunctionalSelectorBase):
@@ -297,6 +316,7 @@ class CascadeSelectSelector(_FunctionalSelectorBase):
 
     def fit(self, X, y=None):
         """Run cascade_select on X/y and record the selected feature names."""
+        import pandas as pd
         from sklearn.base import clone
 
         base_estimator = self.estimator if self.estimator is not None else _default_tree_estimator(y, self.random_state)
@@ -306,8 +326,17 @@ class CascadeSelectSelector(_FunctionalSelectorBase):
             """Clone a fresh, unfitted copy of the base estimator."""
             return clone(base_estimator)
 
+        numeric_view = _numeric_view_for_selection(X)
+        # cascade_select requires a named-column DataFrame (Boruta/forward_select/RFECV all address
+        # columns by name internally) -- a bare ndarray input must be wrapped with the SAME synthetic
+        # "x{i}" names ``_finalize`` uses, so the returned selection matches by name rather than
+        # raising/silently mismatching against ``_finalize``'s own naming convention.
+        if not hasattr(numeric_view, "columns"):
+            arr = np.asarray(numeric_view)
+            numeric_view = pd.DataFrame(arr, columns=[f"x{i}" for i in range(arr.shape[1])])
+
         result = cascade_select(
-            _numeric_view_for_selection(X), y, estimator_factory, n_boruta_iterations=self.n_boruta_iterations, boruta_alpha=self.boruta_alpha,
+            numeric_view, y, estimator_factory, n_boruta_iterations=self.n_boruta_iterations, boruta_alpha=self.boruta_alpha,
             forward_max_features=self.forward_max_features, forward_min_improvement=self.forward_min_improvement,
             cv=self.cv, scoring=scoring, random_state=self.random_state, rfecv_kwargs=self.rfecv_kwargs,
         )

@@ -28,6 +28,7 @@ from mlframe.feature_selection.filters.batch_pair_usability_corr_gpu import (
     _CUDA_AVAIL,
     batch_pair_tail_concentration_rankaware,
     batch_pair_usability_corr_cuda,
+    batch_pair_usability_corr_cuda_warp,
     batch_pair_usability_corr_njit_parallel,
     dispatch_batch_pair_usability_corr,
 )
@@ -58,6 +59,7 @@ def _eval_form_numpy(form_id, x0, x1, eps=1e-12):
 
 
 def _build_pairs(n_operands, n_pairs, n, seed):
+    """Build a random (y, operand_matrix, pair_a, pair_b) fixture for the batched-corr backends."""
     rng = np.random.default_rng(seed)
     operand_matrix = rng.standard_normal((n_operands, n)).astype(np.float64)
     y = rng.standard_normal(n).astype(np.float64)
@@ -67,6 +69,7 @@ def _build_pairs(n_operands, n_pairs, n, seed):
 
 
 def test_cpu_backend_matches_abs_pearson_reference_all_forms():
+    """The CPU batched backend must match the scalar abs_pearson reference for all 9 forms, every pair."""
     n, n_operands, n_pairs = 2000, 8, 15
     y, operand_matrix, pair_a, pair_b = _build_pairs(n_operands, n_pairs, n, seed=0)
 
@@ -113,6 +116,7 @@ def test_dispatcher_preserves_caller_dtype_instead_of_forcing_float64():
     seen_dtypes = {}
 
     def _spy(y, operand_matrix, pair_a, pair_b, form_ids):
+        """Records the dtypes the CPU backend actually received, then delegates to the real implementation."""
         seen_dtypes["y"] = y.dtype
         seen_dtypes["operand_matrix"] = operand_matrix.dtype
         return _mod.batch_pair_usability_corr_njit_parallel.py_func(y, operand_matrix, pair_a, pair_b, form_ids)
@@ -166,6 +170,7 @@ def test_degenerate_near_constant_column_returns_zero_not_cancellation_artifact(
 
 
 def test_dispatcher_cpu_force_matches_direct_call():
+    """force_backend="cpu" must return byte-identical results to calling the CPU backend directly."""
     n, n_operands, n_pairs = 1500, 5, 10
     y, operand_matrix, pair_a, pair_b = _build_pairs(n_operands, n_pairs, n, seed=5)
     direct = batch_pair_usability_corr_njit_parallel(y, operand_matrix, pair_a, pair_b, ALL_FORM_IDS)
@@ -175,6 +180,7 @@ def test_dispatcher_cpu_force_matches_direct_call():
 
 
 def test_dispatcher_defaults_to_all_forms_when_omitted():
+    """Omitting form_ids must score all 9 candidate forms, not a subset."""
     n, n_operands, n_pairs = 800, 4, 5
     y, operand_matrix, pair_a, pair_b = _build_pairs(n_operands, n_pairs, n, seed=6)
     result, _ = dispatch_batch_pair_usability_corr(y, operand_matrix, pair_a, pair_b, force_backend="cpu")
@@ -182,6 +188,7 @@ def test_dispatcher_defaults_to_all_forms_when_omitted():
 
 
 def test_dispatcher_rejects_unknown_backend():
+    """An unrecognized force_backend value must raise ValueError, not silently fall back to a default."""
     n, n_operands, n_pairs = 200, 3, 3
     y, operand_matrix, pair_a, pair_b = _build_pairs(n_operands, n_pairs, n, seed=7)
     with pytest.raises(ValueError, match="force_backend"):
@@ -191,6 +198,7 @@ def test_dispatcher_rejects_unknown_backend():
 @pytest.mark.gpu
 @pytest.mark.skipif(not _CUDA_AVAIL, reason="CUDA not available on this host")
 def test_cuda_backend_matches_cpu_backend():
+    """The thread-per-item CUDA backend must match the CPU reference to the established FP-reorder tolerance."""
     n, n_operands, n_pairs = 4000, 10, 25
     y, operand_matrix, pair_a, pair_b = _build_pairs(n_operands, n_pairs, n, seed=11)
 
@@ -223,6 +231,7 @@ def test_cuda_backend_degenerate_case_matches_cpu():
 @pytest.mark.gpu
 @pytest.mark.skipif(not _CUDA_AVAIL, reason="CUDA not available on this host")
 def test_dispatcher_cuda_force_matches_cpu_result():
+    """force_backend="cuda" (thread-per-item) must route through the dispatcher and match the CPU result."""
     n, n_operands, n_pairs = 3000, 8, 20
     y, operand_matrix, pair_a, pair_b = _build_pairs(n_operands, n_pairs, n, seed=13)
     cpu_result, cpu_backend = dispatch_batch_pair_usability_corr(y, operand_matrix, pair_a, pair_b, force_backend="cpu")
@@ -230,6 +239,70 @@ def test_dispatcher_cuda_force_matches_cpu_result():
     assert cpu_backend == "cpu"
     assert cuda_backend == "cuda"
     np.testing.assert_allclose(cuda_result, cpu_result, atol=1e-9, rtol=1e-9)
+
+
+@pytest.mark.gpu
+@pytest.mark.skipif(not _CUDA_AVAIL, reason="CUDA not available on this host")
+def test_cuda_warp_backend_matches_cpu_backend():
+    """2026-07-17: warp-coalesced CUDA variant (one WARP per (pair, form), strided reads across the warp
+    instead of one thread doing a full serial pass over its own row) -- must reproduce the CPU reference
+    to the same FP-reorder tolerance the existing thread-per-item CUDA backend is held to."""
+    n, n_operands, n_pairs = 4000, 10, 25
+    y, operand_matrix, pair_a, pair_b = _build_pairs(n_operands, n_pairs, n, seed=11)
+
+    cpu_result = batch_pair_usability_corr_njit_parallel(y, operand_matrix, pair_a, pair_b, ALL_FORM_IDS)
+    warp_result = batch_pair_usability_corr_cuda_warp(y, operand_matrix, pair_a, pair_b, ALL_FORM_IDS)
+
+    assert warp_result.shape == cpu_result.shape
+    np.testing.assert_allclose(warp_result, cpu_result, atol=1e-9, rtol=1e-9)
+
+
+@pytest.mark.gpu
+@pytest.mark.skipif(not _CUDA_AVAIL, reason="CUDA not available on this host")
+def test_cuda_warp_backend_degenerate_case_matches_cpu():
+    """The catastrophic-cancellation adversarial case must ALSO hold on the warp-coalesced backend."""
+    n = 1000
+    x_const = (1.0 + np.linspace(0, 1e-15, n)).astype(np.float64)
+    rng = np.random.default_rng(12)
+    x_other = rng.standard_normal(n)
+    y = rng.standard_normal(n)
+    operand_matrix = np.vstack([x_const, x_other])
+    pair_a = np.array([0], dtype=np.int64)
+    pair_b = np.array([1], dtype=np.int64)
+    form_ids = np.array([FORM_X0], dtype=np.int64)
+
+    warp_result = batch_pair_usability_corr_cuda_warp(y, operand_matrix, pair_a, pair_b, form_ids)
+    assert warp_result[0, 0] == 0.0, f"warp CUDA backend must ALSO return exact 0.0, got {warp_result[0, 0]!r}"
+
+
+@pytest.mark.gpu
+@pytest.mark.skipif(not _CUDA_AVAIL, reason="CUDA not available on this host")
+def test_cuda_warp_backend_non_multiple_of_warp_size_row_count():
+    """n_rows not a multiple of 32 (the warp size) must still visit every row exactly once across the
+    strided per-lane partition -- a boundary this backend's loop structure (unlike the thread-per-item
+    kernel) introduces that the other backends don't need to guard."""
+    for n in (1, 5, 31, 33, 97, 12345):
+        rng = np.random.default_rng(n)
+        y = rng.standard_normal(n)
+        operand_matrix = rng.standard_normal((2, n))
+        pair_a = np.array([0], dtype=np.int64)
+        pair_b = np.array([1], dtype=np.int64)
+        cpu_result = batch_pair_usability_corr_njit_parallel(y, operand_matrix, pair_a, pair_b, ALL_FORM_IDS)
+        warp_result = batch_pair_usability_corr_cuda_warp(y, operand_matrix, pair_a, pair_b, ALL_FORM_IDS)
+        np.testing.assert_allclose(warp_result, cpu_result, atol=1e-8, rtol=1e-8, err_msg=f"n={n}")
+
+
+@pytest.mark.gpu
+@pytest.mark.skipif(not _CUDA_AVAIL, reason="CUDA not available on this host")
+def test_dispatcher_cuda_warp_force_matches_cpu_result():
+    """force_backend="cuda_warp" must route through the dispatcher and match the CPU result."""
+    n, n_operands, n_pairs = 3000, 8, 20
+    y, operand_matrix, pair_a, pair_b = _build_pairs(n_operands, n_pairs, n, seed=13)
+    cpu_result, cpu_backend = dispatch_batch_pair_usability_corr(y, operand_matrix, pair_a, pair_b, force_backend="cpu")
+    warp_result, warp_backend = dispatch_batch_pair_usability_corr(y, operand_matrix, pair_a, pair_b, force_backend="cuda_warp")
+    assert cpu_backend == "cpu"
+    assert warp_backend == "cuda_warp"
+    np.testing.assert_allclose(warp_result, cpu_result, atol=1e-9, rtol=1e-9)
 
 
 # ---------------------------------------------------------------------------
@@ -259,6 +332,7 @@ def _outlier_ratio_fixture(seed=7, n=6000, w_tail=0.055):
 
 
 def _serial_verdicts(y, operands, pair_a, pair_b, min_corr, pairness_margin, max_rank_frac):
+    """Reference per-pair tail-concentration verdicts via the serial pair_is_tail_concentrated_rankaware."""
     return np.array([
         pair_is_tail_concentrated_rankaware(
             y, operands[int(a)], operands[int(b)], min_corr=min_corr, pairness_margin=pairness_margin, max_rank_frac=max_rank_frac,
@@ -313,6 +387,7 @@ def test_batch_tail_concentration_precomputed_single_corr_matches_internal():
 
 
 def test_batch_tail_concentration_empty_input_returns_empty_array():
+    """An empty pair pool must return a shape-(0,) bool array, not raise or return a scalar."""
     y = np.zeros(10)
     operand_matrix = np.zeros((2, 10))
     pair_a = np.array([], dtype=np.int64)
