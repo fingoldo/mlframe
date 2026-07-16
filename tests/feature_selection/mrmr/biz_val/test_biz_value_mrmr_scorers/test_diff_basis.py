@@ -63,6 +63,7 @@ SEEDS = (1, 7, 13, 42, 101)
 
 
 def _import_diff_fe():
+    """Lazily import the Layer-59 diff-basis FE functions."""
     from mlframe.feature_selection.filters._orthogonal_diff_basis_fe import (
         detect_correlated_pairs,
         generate_diff_basis_features,
@@ -109,7 +110,7 @@ def _build_diff_signal(seed: int, n: int = 4000):
     # y depends on the SQUARED residual -- LogReg with two linear inputs
     # cannot recover this without the He_2(diff) column.
     residual = price_today - price_yesterday
-    sig = residual ** 2 + 0.1 * rng.standard_normal(n)
+    sig = residual**2 + 0.1 * rng.standard_normal(n)
     y = (sig > np.median(sig)).astype(int)
     X = pd.DataFrame({
         "price_today": price_today,
@@ -136,7 +137,7 @@ def _build_quadratic_diff_signal(seed: int, n: int = 4000):
     residual = p_today - p_yesterday
     # Quadratic signal: y triggers on extreme residuals (large positive OR
     # negative daily moves).
-    sig = residual ** 2 + 0.1 * rng.standard_normal(n)
+    sig = residual**2 + 0.1 * rng.standard_normal(n)
     y = (sig > np.median(sig)).astype(int)
     X = pd.DataFrame({
         "p_today": p_today,
@@ -194,9 +195,11 @@ def _build_linear(seed: int, n: int = 1500):
 
 
 class TestDiffSignal:
+    """The diff-basis path must capture the residual signal invisible to either marginal column."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_diff_basis_emits_for_correlated_pair(self, seed):
+        """diff-basis emits >= 1 column referencing the correlated (price_today, price_yesterday) pair."""
         _, gen_diff, _, _ = _import_diff_fe()
         X, y = _build_diff_signal(seed)
         eng, meta = gen_diff(
@@ -213,28 +216,23 @@ class TestDiffSignal:
         # At least one of the emitted columns must reference the residual
         # pair.
         pairs_seen = {(info["col_a"], info["col_b"]) for info in meta.values()}
-        assert ("price_today", "price_yesterday") in pairs_seen or (
-            "price_yesterday", "price_today"
-        ) in pairs_seen, (
-            f"seed={seed}: diff-basis emitted columns but none reference the "
-            f"(price_today, price_yesterday) pair; pairs={pairs_seen}"
+        assert ("price_today", "price_yesterday") in pairs_seen or ("price_yesterday", "price_today") in pairs_seen, (
+            f"seed={seed}: diff-basis emitted columns but none reference the " f"(price_today, price_yesterday) pair; pairs={pairs_seen}"
         )
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_diff_he1_beats_both_raw_baselines(self, seed):
+        """The strongest diff-basis winner has uplift > 1.0 over the best raw-column baseline."""
         _, gen_diff, _, _ = _import_diff_fe()
         X, y = _build_diff_signal(seed)
-        eng, meta = gen_diff(
+        _eng, meta = gen_diff(
             X, y.values,
             degrees=(1, 2, 3),
             pair_corr_threshold=0.7,
             top_k=5,
         )
         if not meta:
-            pytest.fail(
-                f"seed={seed}: diff-basis emitted zero columns; expected the "
-                f"residual signal to clear the uplift gate."
-            )
+            pytest.fail(f"seed={seed}: diff-basis emitted zero columns; expected the " f"residual signal to clear the uplift gate.")
         # The strongest winner must have uplift > 1.0 (engineered MI exceeds
         # the BEST of the two raw column baselines).
         best = max(meta.values(), key=lambda d: d["uplift"])
@@ -246,9 +244,10 @@ class TestDiffSignal:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_quadratic_diff_emits_higher_degree(self, seed):
+        """On a quadratic-residual target, diff-basis still emits a column referencing the residual pair."""
         _, gen_diff, _, _ = _import_diff_fe()
         X, y = _build_quadratic_diff_signal(seed)
-        eng, meta = gen_diff(
+        _eng, meta = gen_diff(
             X, y.values,
             degrees=(1, 2, 3),
             pair_corr_threshold=0.7,
@@ -258,16 +257,10 @@ class TestDiffSignal:
         # which exact degree wins varies by seed (He_2 SHOULD dominate but
         # downstream MI ranks are noisy at finite n).
         if not meta:
-            pytest.fail(
-                f"seed={seed}: quadratic-diff frame produced no diff-basis "
-                f"columns; expected residual basis expansion to clear gates."
-            )
+            pytest.fail(f"seed={seed}: quadratic-diff frame produced no diff-basis " f"columns; expected residual basis expansion to clear gates.")
         pairs = {(i["col_a"], i["col_b"]) for i in meta.values()}
-        assert ("p_today", "p_yesterday") in pairs or (
-            "p_yesterday", "p_today"
-        ) in pairs, (
-            f"seed={seed}: quadratic-diff frame: emitted pairs {pairs} do "
-            f"not include the residual pair."
+        assert ("p_today", "p_yesterday") in pairs or ("p_yesterday", "p_today") in pairs, (
+            f"seed={seed}: quadratic-diff frame: emitted pairs {pairs} do " f"not include the residual pair."
         )
 
 
@@ -277,9 +270,11 @@ class TestDiffSignal:
 
 
 class TestAucLift:
+    """Diff-basis augmentation must lift downstream LogReg AUC over the raw two-column baseline."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_logreg_auc_lifts_with_diff_he1(self, seed):
+        """Augmented LogReg AUC clears 0.85 and beats raw by >= 0.15 on the diff-signal fixture."""
         _, _, hybrid_diff, _ = _import_diff_fe()
         X, y = _build_diff_signal(seed)
         # Baseline: LogReg on (price_today, price_yesterday) -- both columns
@@ -299,10 +294,7 @@ class TestAucLift:
         )
         aug_cols = [c for c in X_aug.columns if c not in X.columns]
         if not aug_cols:
-            pytest.fail(
-                f"seed={seed}: diff-basis emitted zero columns; cannot test "
-                f"AUC lift. baseline AUC = {auc_raw:.3f}"
-            )
+            pytest.fail(f"seed={seed}: diff-basis emitted zero columns; cannot test " f"AUC lift. baseline AUC = {auc_raw:.3f}")
         X_full = X_aug[baseline_cols + aug_cols].values
         lr_aug = LogisticRegression(max_iter=2000, random_state=seed).fit(
             X_full, y.values,
@@ -311,15 +303,9 @@ class TestAucLift:
         # Tight upper bound: with the He_1 column LogReg essentially sees
         # the daily return directly so AUC should be >= 0.85 (the construction
         # noise floor) on every seed.
-        assert auc_aug >= 0.85, (
-            f"seed={seed}: aug AUC={auc_aug:.3f} below 0.85 contract floor; "
-            f"raw AUC={auc_raw:.3f}; aug cols={aug_cols}"
-        )
+        assert auc_aug >= 0.85, f"seed={seed}: aug AUC={auc_aug:.3f} below 0.85 contract floor; " f"raw AUC={auc_raw:.3f}; aug cols={aug_cols}"
         # Sanity: aug AUC must improve over raw by a meaningful margin.
-        assert auc_aug - auc_raw >= 0.15, (
-            f"seed={seed}: AUC lift {auc_aug - auc_raw:.3f} below 0.15 "
-            f"contract floor; raw={auc_raw:.3f} aug={auc_aug:.3f}"
-        )
+        assert auc_aug - auc_raw >= 0.15, f"seed={seed}: AUC lift {auc_aug - auc_raw:.3f} below 0.15 " f"contract floor; raw={auc_raw:.3f} aug={auc_aug:.3f}"
 
 
 # ---------------------------------------------------------------------------
@@ -328,19 +314,18 @@ class TestAucLift:
 
 
 class TestAutoPairDetection:
+    """The auto-pair detector must find highly-correlated pairs and never flag uncorrelated noise pairs."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_only_correlated_pairs_enumerated(self, seed):
+        """detect_correlated_pairs finds the price pair and never flags an uncorrelated noise pair."""
         detect_pairs, _, _, _ = _import_diff_fe()
         X, _ = _build_diff_signal(seed)
         pairs = detect_pairs(X, corr_threshold=0.7)
         # The price pair MUST be detected (constructed with corr > 0.99).
         names = {(a, b) for (a, b, _) in pairs}
-        assert ("price_today", "price_yesterday") in names or (
-            "price_yesterday", "price_today"
-        ) in names, (
-            f"seed={seed}: auto-pair detection missed the (price_today, "
-            f"price_yesterday) pair; got {names}"
+        assert ("price_today", "price_yesterday") in names or ("price_yesterday", "price_today") in names, (
+            f"seed={seed}: auto-pair detection missed the (price_today, " f"price_yesterday) pair; got {names}"
         )
         # Noise pairs (uncorrelated by construction) must NOT be enumerated.
         noise_names = {"noise_0", "noise_1", "noise_2"}
@@ -354,13 +339,11 @@ class TestAutoPairDetection:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_uncorrelated_frame_returns_no_pairs(self, seed):
+        """A frame of independent Gaussians produces zero detected pairs at threshold 0.7."""
         detect_pairs, _, _, _ = _import_diff_fe()
         X, _ = _build_uncorrelated_frame(seed)
         pairs = detect_pairs(X, corr_threshold=0.7)
-        assert pairs == [], (
-            f"seed={seed}: uncorrelated frame produced {len(pairs)} pairs "
-            f"at threshold 0.7; expected empty. Pairs: {pairs}"
-        )
+        assert pairs == [], f"seed={seed}: uncorrelated frame produced {len(pairs)} pairs " f"at threshold 0.7; expected empty. Pairs: {pairs}"
 
 
 # ---------------------------------------------------------------------------
@@ -369,12 +352,14 @@ class TestAutoPairDetection:
 
 
 class TestNoSpuriousNoiseDiffs:
+    """A p>=16 pure-noise frame must clear the MAD noise floor and emit no diff-basis columns."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_noise_only_p20_emits_nothing(self, seed):
+        """A pure-noise frame at p=20 emits zero diff-basis columns."""
         _, gen_diff, _, _ = _import_diff_fe()
         X, y = _build_noise_only_large(seed, p=20)
-        eng, meta = gen_diff(
+        eng, _meta = gen_diff(
             X, y.values,
             degrees=(1, 2, 3),
             pair_corr_threshold=0.7,
@@ -394,19 +379,19 @@ class TestNoSpuriousNoiseDiffs:
 
 
 class TestDefaultDisabledByteIdentical:
+    """fe_hybrid_orth_diff_basis_enable defaults to False; enabling it must fire and append columns."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_default_off_no_diff_columns(self, seed):
+        """With the flag left at its False default, no diff-basis columns are appended."""
         X, y = _build_linear(seed)
         m = _make_mrmr().fit(X, y)
         added = list(getattr(m, "hybrid_orth_features_", []) or [])
-        assert added == [], (
-            f"seed={seed}: default fe_hybrid_orth_diff_basis_enable=False "
-            f"should NOT append any engineered columns; got {added}"
-        )
+        assert added == [], f"seed={seed}: default fe_hybrid_orth_diff_basis_enable=False " f"should NOT append any engineered columns; got {added}"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_enable_diff_basis_appends_engineered(self, seed):
+        """Enabling the flag appends a column referencing the residual pair on the diff-signal fixture."""
         X, y = _build_diff_signal(seed, n=2500)
         m = _make_mrmr(
             fe_hybrid_orth_diff_basis_enable=True,
@@ -415,16 +400,10 @@ class TestDefaultDisabledByteIdentical:
             fe_hybrid_orth_diff_basis_top_k=3,
         ).fit(X, y)
         added = list(getattr(m, "hybrid_orth_features_", []) or [])
-        assert added, (
-            f"seed={seed}: diff-basis flag ON should append at least one "
-            f"engineered column to hybrid_orth_features_; got {added}"
-        )
+        assert added, f"seed={seed}: diff-basis flag ON should append at least one " f"engineered column to hybrid_orth_features_; got {added}"
         # At least one engineered column must reference the residual pair.
-        assert any(
-            "price_today" in c and "price_yesterday" in c for c in added
-        ), (
-            f"seed={seed}: diff-basis should reference the residual pair; "
-            f"engineered names = {added}"
+        assert any("price_today" in c and "price_yesterday" in c for c in added), (
+            f"seed={seed}: diff-basis should reference the residual pair; " f"engineered names = {added}"
         )
 
 
@@ -434,8 +413,10 @@ class TestDefaultDisabledByteIdentical:
 
 
 class TestPickleAndClone:
+    """Diff-basis ctor params and recipes must survive clone/pickle round-trips."""
 
     def test_clone_preserves_diff_basis_params(self):
+        """sklearn clone() copies every fe_hybrid_orth_diff_basis_* ctor param."""
         m = _make_mrmr(
             fe_hybrid_orth_diff_basis_enable=True,
             fe_hybrid_orth_diff_basis_corr_threshold=0.8,
@@ -449,12 +430,10 @@ class TestPickleAndClone:
             ("fe_hybrid_orth_diff_basis_degrees", (1, 2)),
             ("fe_hybrid_orth_diff_basis_top_k", 7),
         ]:
-            assert getattr(m2, name) == expected, (
-                f"clone() dropped {name}: expected {expected}, got "
-                f"{getattr(m2, name)}"
-            )
+            assert getattr(m2, name) == expected, f"clone() dropped {name}: expected {expected}, got " f"{getattr(m2, name)}"
 
     def test_pickle_roundtrip_preserves_diff_basis_recipe(self):
+        """A pickle round-trip preserves feature names, appended columns, and every orth_diff_basis recipe field."""
         X, y = _build_diff_signal(seed=42, n=2500)
         m = _make_mrmr(
             fe_hybrid_orth_diff_basis_enable=True,
@@ -463,39 +442,22 @@ class TestPickleAndClone:
             fe_hybrid_orth_diff_basis_top_k=3,
         ).fit(X, y)
         blob = pickle.dumps(m)
-        m2 = pickle.loads(blob)
-        assert list(m2.feature_names_in_) == list(m.feature_names_in_), (
-            "pickle changed feature_names_in_"
-        )
+        m2 = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
+        assert list(m2.feature_names_in_) == list(m.feature_names_in_), "pickle changed feature_names_in_"
         added_before = list(getattr(m, "hybrid_orth_features_", []) or [])
         added_after = list(getattr(m2, "hybrid_orth_features_", []) or [])
-        assert added_before == added_after, (
-            f"pickle changed hybrid_orth_features_: before={added_before}, "
-            f"after={added_after}"
-        )
-        recipes_before = {
-            r.name: r for r in getattr(m, "_engineered_recipes_", []) or []
-            if r.kind == "orth_diff_basis"
-        }
-        recipes_after = {
-            r.name: r for r in getattr(m2, "_engineered_recipes_", []) or []
-            if r.kind == "orth_diff_basis"
-        }
+        assert added_before == added_after, f"pickle changed hybrid_orth_features_: before={added_before}, " f"after={added_after}"
+        recipes_before = {r.name: r for r in getattr(m, "_engineered_recipes_", []) or [] if r.kind == "orth_diff_basis"}
+        recipes_after = {r.name: r for r in getattr(m2, "_engineered_recipes_", []) or [] if r.kind == "orth_diff_basis"}
         assert set(recipes_before.keys()) == set(recipes_after.keys()), (
-            f"pickle dropped or added orth_diff_basis recipe names: "
-            f"before={set(recipes_before.keys())}, "
-            f"after={set(recipes_after.keys())}"
+            f"pickle dropped or added orth_diff_basis recipe names: " f"before={set(recipes_before.keys())}, " f"after={set(recipes_after.keys())}"
         )
         for name, r_before in recipes_before.items():
             r_after = recipes_after[name]
-            assert r_before.src_names == r_after.src_names, (
-                f"pickle changed src_names for {name!r}: "
-                f"before={r_before.src_names}, after={r_after.src_names}"
-            )
+            assert r_before.src_names == r_after.src_names, f"pickle changed src_names for {name!r}: " f"before={r_before.src_names}, after={r_after.src_names}"
             for key in ("basis", "degree"):
                 assert r_before.extra.get(key) == r_after.extra.get(key), (
-                    f"pickle changed '{key}' for recipe {name!r}: "
-                    f"before={r_before.extra}, after={r_after.extra}"
+                    f"pickle changed '{key}' for recipe {name!r}: " f"before={r_before.extra}, after={r_after.extra}"
                 )
 
 
@@ -505,6 +467,7 @@ class TestPickleAndClone:
 
 
 class TestRecipeReplay:
+    """apply_recipe at transform time must reproduce the fit-time diff-basis engineered column."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_recipe_replay_matches_fit_time_values(self, seed):
@@ -513,30 +476,21 @@ class TestRecipeReplay:
         """
         _, _, _, hybrid_with_recipes = _import_diff_fe()
         X, y = _build_diff_signal(seed)
-        X_aug, scores, recipes = hybrid_with_recipes(
+        X_aug, _scores, recipes = hybrid_with_recipes(
             X, y.values,
             degrees=(1, 2, 3),
             pair_corr_threshold=0.7,
             top_k=5,
         )
         if not recipes:
-            pytest.fail(
-                f"seed={seed}: diff-basis emitted no recipes; replay test "
-                f"requires at least one recipe."
-            )
+            pytest.fail(f"seed={seed}: diff-basis emitted no recipes; replay test " f"requires at least one recipe.")
         from mlframe.feature_selection.filters.engineered_recipes import (
             apply_recipe,
         )
         appended = [c for c in X_aug.columns if c not in X.columns]
         for r in recipes:
-            assert r.name in appended, (
-                f"seed={seed}: recipe {r.name!r} not in appended columns "
-                f"{appended}"
-            )
-            assert r.kind == "orth_diff_basis", (
-                f"seed={seed}: recipe {r.name!r} kind={r.kind!r}, expected "
-                f"'orth_diff_basis'."
-            )
+            assert r.name in appended, f"seed={seed}: recipe {r.name!r} not in appended columns " f"{appended}"
+            assert r.kind == "orth_diff_basis", f"seed={seed}: recipe {r.name!r} kind={r.kind!r}, expected " f"'orth_diff_basis'."
             replayed = apply_recipe(r, X)
             fit_time = X_aug[r.name].to_numpy()
             assert np.allclose(replayed, fit_time, rtol=1e-9, atol=1e-12), (
