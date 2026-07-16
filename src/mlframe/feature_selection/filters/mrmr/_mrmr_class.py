@@ -3097,6 +3097,8 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
         # 'complementary_pairs', delegate to the bootstrap aggregator before
         # the legacy single-fit body executes.
         _stab_method = getattr(self, "stability_selection_method", "classic")
+        if _stab_method not in ("classic", "cluster", "complementary_pairs"):
+            raise ValueError(f"stability_selection_method must be 'classic', 'cluster', or 'complementary_pairs'; got {_stab_method!r}.")
         if _stab_method != "classic":
             try:
                 _stab_result = self._stability_outer_fit(
@@ -3345,7 +3347,7 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
                 _Xarr = X.to_numpy() if hasattr(X, "to_numpy") else np.asarray(X)
                 _yarr = y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
                 _jmim_on, _syn_info = detect_synergy(_Xarr, _yarr, random_seed=int(getattr(self, "random_seed", 0) or 0))
-                self._synergy_auto_decision_ = {"jmim_engaged": bool(_jmim_on), **_syn_info}
+                self._synergy_auto_decision_ = {"jmim_engaged": bool(_jmim_on), "detector_failed": False, **_syn_info}
                 logger.info("[MRMR] redundancy_aggregator='auto' -> synergy detector: %s", self._synergy_auto_decision_)
             except Exception as _exc:
                 warnings.warn(
@@ -3353,7 +3355,10 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
                     UserWarning,
                     stacklevel=2,
                 )
-                self._synergy_auto_decision_ = {"jmim_engaged": False, "error": str(_exc)}
+                # ``detector_failed`` is the explicit, documented way to tell "detector crashed"
+                # apart from "detector ran and judged the data non-synergistic" -- both otherwise
+                # look identical (jmim_engaged=False) to a caller who only checks that one key.
+                self._synergy_auto_decision_ = {"jmim_engaged": False, "detector_failed": True, "error": str(_exc)}
         else:
             _jmim_on = _redundancy_agg == "jmim"
         _bur_lambda = float(getattr(self, "bur_lambda", 0.0) or 0.0)
@@ -3368,7 +3373,15 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
         # not the classes-based compute_relevance_score); it currently degrades to the plug-in 'none' behaviour for BOTH observed and null. Surface that instead of silently
         # ignoring it -- since observed and null degrade together there is no estimator mismatch (critique N-F6), but the user should know the correction is a no-op today.
         if _mi_corr == "chao_shen":
-            logger.warning("[MRMR] mi_correction='chao_shen' is not yet wired into the relevance/null path and falls back to plug-in MI ('none'); no bias correction is applied this fit.")
+            # A logger.warning here would be silently swallowed by any caller with unconfigured
+            # logging (the common case for a plain script) -- the correction being a no-op is a
+            # real, requested-but-unmet accuracy contract, so it must survive that.
+            warnings.warn(
+                "MRMR mi_correction='chao_shen' is not yet wired into the relevance/null path and "
+                "falls back to plug-in MI ('none'); no bias correction is applied this fit.",
+                UserWarning,
+                stacklevel=2,
+            )
         # Group-aware relevance MI: per-group I(X;Y|G) so a between-group-level feature (high global MI, ~0 within-group)
         # is demoted. Row resampling under non-uniform sample_weight reshuffles X but not groups, so restrict to the
         # no-resample case (sample_weight is None); otherwise disable with a warning rather than mis-assign rows.

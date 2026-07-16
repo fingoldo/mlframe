@@ -67,14 +67,14 @@ class _MRMRTransformMixin:
             # the sklearn column-drift contract -
             # ``get_feature_names_out(['totally_wrong_A','B','C'])``
             # returned ``['totally_wrong_A']`` instead of raising.
-            # Back-compat fallback for unpickled pre-iter-27 estimators
-            # without the sentinel: require an EXACT regex match
-            # (anchored, ``feature_\d+$``) AND count parity, not just
-            # ``startswith``.
+            # Back-compat fallback for unpickled estimators without the
+            # sentinel: require an EXACT regex match (anchored, ``f\d+$``
+            # or the older ``feature_\d+$`` placeholder convention) AND
+            # count parity, not just ``startswith``.
             synthesized = getattr(self, "_feature_names_in_synthesized_", None)
             if synthesized is None:
                 import re as _re
-                _placeholder = _re.compile(r"^feature_\d+$")
+                _placeholder = _re.compile(r"^(?:f|feature_)\d+$")
                 synthesized = all(_placeholder.match(str(n)) is not None for n in saved)
             if not synthesized:
                 if len(in_names) != len(saved) or not np.array_equal(in_names, saved):
