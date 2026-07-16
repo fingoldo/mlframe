@@ -62,10 +62,12 @@ Contracts pinned
     Repeated fits on the same (X, y) with hybrid enabled return the
     same ``hybrid_orth_features_`` list (deterministic ranking).
 """
+
 from __future__ import annotations
 
 import pickle
 import warnings
+from functools import cache
 
 import numpy as np
 import pandas as pd
@@ -75,7 +77,6 @@ from sklearn.base import clone
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
 
-
 warnings.filterwarnings("ignore")
 
 
@@ -83,18 +84,22 @@ SEEDS = (1, 13, 42)
 
 
 from tests.feature_selection.conftest import make_fast_mrmr as _make_mrmr
+
+
 def _build_quadratic(seed: int, n: int = 1200):
     """``y = sign(x1^2 - 1)`` -- He_2(z1) on z-scored Gaussian carries the
     signal. Raw x1 has near-zero MI to y by symmetry.
     """
     rng = np.random.default_rng(seed)
     x1 = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "x1": x1,
-        "x2": rng.standard_normal(n),
-        "noise_a": rng.standard_normal(n),
-        "noise_b": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "x1": x1,
+            "x2": rng.standard_normal(n),
+            "noise_a": rng.standard_normal(n),
+            "noise_b": rng.standard_normal(n),
+        }
+    )
     y = ((x1 * x1 - 1.0) + 0.05 * rng.standard_normal(n) > 0).astype(int)
     return X, pd.Series(y, name="y")
 
@@ -106,31 +111,69 @@ def _build_xor(seed: int, n: int = 1500):
     rng = np.random.default_rng(seed)
     x1 = rng.standard_normal(n)
     x2 = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "x1": x1,
-        "x2": x2,
-        "noise_a": rng.standard_normal(n),
-        "noise_b": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "x1": x1,
+            "x2": x2,
+            "noise_a": rng.standard_normal(n),
+            "noise_b": rng.standard_normal(n),
+        }
+    )
     y = ((x1 * x2) + 0.02 * rng.standard_normal(n) > 0).astype(int)
     return X, pd.Series(y, name="y")
 
 
 def _build_linear(seed: int, n: int = 1200):
-    """Plain linear-additive signal. Used for the default-is-legacy contract.
-    """
+    """Plain linear-additive signal. Used for the default-is-legacy contract."""
     rng = np.random.default_rng(seed)
     x1 = rng.standard_normal(n)
     x2 = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "x1": x1,
-        "x2": x2,
-        "noise_a": rng.standard_normal(n),
-        "noise_b": rng.standard_normal(n),
-        "noise_c": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "x1": x1,
+            "x2": x2,
+            "noise_a": rng.standard_normal(n),
+            "noise_b": rng.standard_normal(n),
+            "noise_c": rng.standard_normal(n),
+        }
+    )
     y = ((x1 + 0.7 * x2) > 0).astype(int)
     return X, pd.Series(y, name="y")
+
+
+@cache
+def _linear_off_fit(seed: int):
+    """Cached ``(X, y, m)`` for the explicit ``fe_hybrid_orth_enable=False``
+    fit on the default-config linear fixture. Shared between
+    test_explicit_off_no_hybrid_columns and
+    test_explicit_off_transform_no_engineered_cols (both fit the identical
+    config on identical per-seed data); test_explicit_off_support_deterministic
+    reuses this as its FIRST of the two independent fits it needs to prove
+    determinism, and still performs a genuinely separate second fit.
+    Nothing downstream mutates X/y/m in place.
+    """
+    X, y = _build_linear(seed)
+    m = _make_mrmr(fe_hybrid_orth_enable=False)
+    m.fit(X, y)
+    return X, y, m
+
+
+@cache
+def _quadratic_pair_off_bare_fit(seed: int):
+    """Cached ``(X, y, m)`` for the bare ``fe_hybrid_orth_enable=True,
+    fe_hybrid_orth_pair_enable=False`` (all other params default) fit on the
+    default-config quadratic fixture. Shared between
+    test_transform_no_y_required, test_transform_is_y_independent (both
+    SEEDS), and test_pickle_roundtrip_transform_equal (seeds 1, 13 -- a
+    subset of SEEDS). Nothing downstream mutates X/y/m in place.
+    """
+    X, y = _build_quadratic(seed)
+    m = _make_mrmr(
+        fe_hybrid_orth_enable=True,
+        fe_hybrid_orth_pair_enable=False,
+    )
+    m.fit(X, y)
+    return X, y, m
 
 
 # ---------------------------------------------------------------------------
@@ -147,46 +190,39 @@ class TestDefaultIsLegacyByteIdentical:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_default_is_now_on(self, seed):
+        """The fe_hybrid_orth_enable master switch defaults to True."""
         # New default: the master switch is ON.
         assert _make_mrmr().fe_hybrid_orth_enable is True
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_explicit_off_no_hybrid_columns(self, seed):
-        X, y = _build_linear(seed)
-        m = _make_mrmr(fe_hybrid_orth_enable=False)  # explicit opt-out = legacy
-        m.fit(X, y)
+        """Explicit fe_hybrid_orth_enable=False produces no hybrid columns and matches raw feature_names_in_."""
+        X, _y, m = _linear_off_fit(seed)
         assert m.fe_hybrid_orth_enable is False
         # No hybrid features lifted under the explicit opt-out.
         assert m.hybrid_orth_features_ == [], (
-            f"seed={seed}: explicit fe_hybrid_orth_enable=False should "
-            f"produce empty hybrid_orth_features_, got "
-            f"{m.hybrid_orth_features_}"
+            f"seed={seed}: explicit fe_hybrid_orth_enable=False should " f"produce empty hybrid_orth_features_, got " f"{m.hybrid_orth_features_}"
         )
         # feature_names_in_ matches the raw input columns exactly.
         assert list(m.feature_names_in_) == list(X.columns), (
-            f"seed={seed}: feature_names_in_ must equal raw X.columns when "
-            f"hybrid FE is off; got {list(m.feature_names_in_)} vs "
-            f"{list(X.columns)}"
+            f"seed={seed}: feature_names_in_ must equal raw X.columns when " f"hybrid FE is off; got {list(m.feature_names_in_)} vs " f"{list(X.columns)}"
         )
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_explicit_off_support_deterministic(self, seed):
         """Two explicit opt-out runs must agree on support_ (legacy path stable)."""
         X, y = _build_linear(seed)
-        m_a = _make_mrmr(fe_hybrid_orth_enable=False)
+        _X_cached, _y_cached, m_a = _linear_off_fit(seed)
         m_b = _make_mrmr(fe_hybrid_orth_enable=False)
-        m_a.fit(X, y)
         m_b.fit(X, y)
-        assert list(m_a.support_) == list(m_b.support_), (
-            f"seed={seed}: two explicit-off runs disagreed on support_"
-        )
+        assert list(m_a.support_) == list(m_b.support_), f"seed={seed}: two explicit-off runs disagreed on support_"
         assert m_a.hybrid_orth_features_ == m_b.hybrid_orth_features_
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_explicit_off_transform_no_engineered_cols(self, seed):
-        X, y = _build_linear(seed)
-        m = _make_mrmr(fe_hybrid_orth_enable=False)
-        Xt = m.fit(X, y).transform(X)
+        """transform() output contains no engineered-column suffixes when hybrid FE is off."""
+        X, _y, m = _linear_off_fit(seed)
+        Xt = m.transform(X)
         # Output frame contains only raw selected columns; no hybrid suffixes.
         for c in Xt.columns:
             assert "__He" not in str(c)
@@ -201,9 +237,11 @@ class TestDefaultIsLegacyByteIdentical:
 
 
 class TestEnableAddsQuadraticDetector:
+    """Enabling hybrid FE (univariate-only) lifts the He_2(x1) quadratic detector."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_x1_he2_in_hybrid_features(self, seed):
+        """X-univariate hybrid FE lifts the He_2(x1) quadratic detector into hybrid_orth_features_."""
         X, y = _build_quadratic(seed)
         m = _make_mrmr(
             fe_hybrid_orth_enable=True,
@@ -215,8 +253,7 @@ class TestEnableAddsQuadraticDetector:
         m.fit(X, y)
         appended = list(m.hybrid_orth_features_)
         assert any(("x1__He2" == c) or ("x1__He3" == c) for c in appended), (
-            f"seed={seed}: x1__He2 (the quadratic detector) should be in "
-            f"hybrid_orth_features_={appended}"
+            f"seed={seed}: x1__He2 (the quadratic detector) should be in " f"hybrid_orth_features_={appended}"
         )
 
     @pytest.mark.parametrize("seed", SEEDS)
@@ -234,10 +271,7 @@ class TestEnableAddsQuadraticDetector:
             fe_hybrid_orth_basis="hermite",
         )
         m.fit(X, y)
-        assert len(m.hybrid_orth_features_) >= 1, (
-            f"seed={seed}: hybrid stage should append at least one "
-            f"engineered column; got {m.hybrid_orth_features_}"
-        )
+        assert len(m.hybrid_orth_features_) >= 1, f"seed={seed}: hybrid stage should append at least one " f"engineered column; got {m.hybrid_orth_features_}"
 
 
 # ---------------------------------------------------------------------------
@@ -246,9 +280,11 @@ class TestEnableAddsQuadraticDetector:
 
 
 class TestEnablePairDiscoversXor:
+    """Enabling fe_hybrid_orth_pair discovers the He_1*He_1 XOR cross-basis term."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_xor_pair_in_hybrid_features(self, seed):
+        """Enabling fe_hybrid_orth_pair discovers the He_1*He_1 XOR cross-basis term."""
         X, y = _build_xor(seed)
         m = _make_mrmr(
             fe_hybrid_orth_enable=True,
@@ -261,14 +297,8 @@ class TestEnablePairDiscoversXor:
         appended = list(m.hybrid_orth_features_)
         # The XOR cross-basis term has '*' between the two source columns
         # AND 'He1_He1' suffix. Allow either ordering of legs.
-        ok = any(
-            ("*" in c) and ("He1_He1" in c) and (("x1" in c) and ("x2" in c))
-            for c in appended
-        )
-        assert ok, (
-            f"seed={seed}: He_1*He_1 XOR pair term should be in "
-            f"hybrid_orth_features_={appended}"
-        )
+        ok = any(("*" in c) and ("He1_He1" in c) and (("x1" in c) and ("x2" in c)) for c in appended)
+        assert ok, f"seed={seed}: He_1*He_1 XOR pair term should be in " f"hybrid_orth_features_={appended}"
 
 
 # ---------------------------------------------------------------------------
@@ -277,9 +307,11 @@ class TestEnablePairDiscoversXor:
 
 
 class TestDownstreamLogRegLift:
+    """Hybrid FE's He_1*He_1 XOR term measurably lifts a downstream LogReg's holdout AUC."""
 
     @pytest.mark.parametrize("seed", (1, 13))
     def test_xor_logreg_auc_lift(self, seed):
+        """Hybrid-augmented LogReg beats raw-feature LogReg by >= +0.15 AUC on the XOR fixture."""
         X, y = _build_xor(seed, n=2000)
         n_train = 1400
         Xtr, ytr = X.iloc[:n_train], y.iloc[:n_train]
@@ -287,9 +319,7 @@ class TestDownstreamLogRegLift:
 
         # Raw LogReg on the source columns: XOR is unsolvable.
         m_raw = LogisticRegression(max_iter=500).fit(Xtr.to_numpy(), ytr.to_numpy())
-        auc_raw = roc_auc_score(
-            yte.to_numpy(), m_raw.predict_proba(Xte.to_numpy())[:, 1]
-        )
+        auc_raw = roc_auc_score(yte.to_numpy(), m_raw.predict_proba(Xte.to_numpy())[:, 1])
 
         # Hybrid-augmented LogReg via MRMR.transform.
         mrmr_h = _make_mrmr(
@@ -302,12 +332,8 @@ class TestDownstreamLogRegLift:
         mrmr_h.fit(Xtr, ytr)
         Xtr_aug = mrmr_h.transform(Xtr)
         Xte_aug = mrmr_h.transform(Xte)
-        m_aug = LogisticRegression(max_iter=500).fit(
-            np.asarray(Xtr_aug), ytr.to_numpy()
-        )
-        auc_aug = roc_auc_score(
-            yte.to_numpy(), m_aug.predict_proba(np.asarray(Xte_aug))[:, 1]
-        )
+        m_aug = LogisticRegression(max_iter=500).fit(np.asarray(Xtr_aug), ytr.to_numpy())
+        auc_aug = roc_auc_score(yte.to_numpy(), m_aug.predict_proba(np.asarray(Xte_aug))[:, 1])
         # The XOR-augmented pipeline must clear a meaningful threshold:
         # raw is ~0.50, with He_1*He_1 it should be solid.
         assert auc_aug >= 0.80, (
@@ -315,10 +341,7 @@ class TestDownstreamLogRegLift:
             f"clear 0.80 on XOR with hybrid FE; raw AUC {auc_raw:.3f}; "
             f"hybrid_orth_features_={mrmr_h.hybrid_orth_features_}"
         )
-        assert auc_aug > auc_raw + 0.15, (
-            f"seed={seed}: hybrid FE should lift LogReg holdout AUC by "
-            f">= +0.15 on XOR. raw={auc_raw:.3f}, aug={auc_aug:.3f}"
-        )
+        assert auc_aug > auc_raw + 0.15, f"seed={seed}: hybrid FE should lift LogReg holdout AUC by " f">= +0.15 on XOR. raw={auc_raw:.3f}, aug={auc_aug:.3f}"
 
 
 # ---------------------------------------------------------------------------
@@ -327,17 +350,12 @@ class TestDownstreamLogRegLift:
 
 
 class TestTransformConsistency:
+    """transform()'s engineered columns at replay time match the fit-time values byte-for-byte."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_transform_no_y_required(self, seed):
-        """transform() must accept X without y (sklearn contract).
-        """
-        X, y = _build_quadratic(seed)
-        m = _make_mrmr(
-            fe_hybrid_orth_enable=True,
-            fe_hybrid_orth_pair_enable=False,
-        )
-        m.fit(X, y)
+        """transform() must accept X without y (sklearn contract)."""
+        X, _y, m = _quadratic_pair_off_bare_fit(seed)
         # No y kwarg -- must not raise.
         out = m.transform(X)
         assert out is not None
@@ -353,6 +371,7 @@ class TestTransformConsistency:
         from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
             generate_univariate_basis_features,
         )
+
         X, y = _build_quadratic(seed)
         m = _make_mrmr(
             fe_hybrid_orth_enable=True,
@@ -367,7 +386,10 @@ class TestTransformConsistency:
         # Independently compute the basis cols for x1 (Hermite, the
         # quadratic detector's source).
         ref = generate_univariate_basis_features(
-            X[["x1"]], cols=["x1"], degrees=(2, 3), basis="hermite",
+            X[["x1"]],
+            cols=["x1"],
+            degrees=(2, 3),
+            basis="hermite",
         )
         # Find which He cols ended up in transform output.
         for he_col in ref.columns:
@@ -375,11 +397,10 @@ class TestTransformConsistency:
                 np.testing.assert_allclose(
                     np.asarray(out[he_col], dtype=np.float64),
                     np.asarray(ref[he_col], dtype=np.float64),
-                    rtol=1e-9, atol=1e-9,
+                    rtol=1e-9,
+                    atol=1e-9,
                     err_msg=(
-                        f"seed={seed}: transform-time {he_col} mismatched "
-                        f"fit-time independent computation; recipe replay "
-                        f"should be bit-equivalent."
+                        f"seed={seed}: transform-time {he_col} mismatched " f"fit-time independent computation; recipe replay " f"should be bit-equivalent."
                     ),
                 )
 
@@ -390,6 +411,7 @@ class TestTransformConsistency:
 
 
 class TestNoYLeakage:
+    """transform() output is a pure function of X; passing y must not change engineered column values."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_transform_is_y_independent(self, seed):
@@ -397,12 +419,7 @@ class TestNoYLeakage:
         must NOT change the engineered column values. Recipes are pure
         functions of X.
         """
-        X, y = _build_quadratic(seed)
-        m = _make_mrmr(
-            fe_hybrid_orth_enable=True,
-            fe_hybrid_orth_pair_enable=False,
-        )
-        m.fit(X, y)
+        X, y, m = _quadratic_pair_off_bare_fit(seed)
         out_no_y = m.transform(X)
         # Shuffle y; transform should produce the same output.
         rng = np.random.default_rng(seed + 999)
@@ -420,8 +437,10 @@ class TestNoYLeakage:
 
 
 class TestPickleAndClone:
+    """clone() and pickle round-trips preserve hybrid params, recipes, and transform output."""
 
     def test_clone_preserves_hybrid_params(self):
+        """clone() copies all fe_hybrid_orth_* params without carrying over fitted state."""
         m = _make_mrmr(
             fe_hybrid_orth_enable=True,
             fe_hybrid_orth_degrees=(2, 4),
@@ -442,15 +461,11 @@ class TestPickleAndClone:
 
     @pytest.mark.parametrize("seed", (1, 13))
     def test_pickle_roundtrip_transform_equal(self, seed):
-        X, y = _build_quadratic(seed)
-        m = _make_mrmr(
-            fe_hybrid_orth_enable=True,
-            fe_hybrid_orth_pair_enable=False,
-        )
-        m.fit(X, y)
+        """pickle.dumps/loads round-trip preserves hybrid state; transform output matches pre-pickle exactly."""
+        X, _y, m = _quadratic_pair_off_bare_fit(seed)
         out_pre = m.transform(X)
         blob = pickle.dumps(m)
-        m2 = pickle.loads(blob)
+        m2 = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
         # State preserved.
         assert m2.fe_hybrid_orth_enable is True
         assert list(m2.hybrid_orth_features_) == list(m.hybrid_orth_features_)
@@ -467,9 +482,11 @@ class TestPickleAndClone:
 
 
 class TestPairAppendOrderStable:
+    """hybrid_orth_features_ is deterministic and order-stable across independent re-fits."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_repeated_fits_yield_same_hybrid_features(self, seed):
+        """Two independent fits on identical data yield identical hybrid_orth_features_ (same order)."""
         X, y = _build_xor(seed)
         m1 = _make_mrmr(
             fe_hybrid_orth_enable=True,
@@ -486,6 +503,5 @@ class TestPairAppendOrderStable:
         m1.fit(X, y)
         m2.fit(X, y)
         assert list(m1.hybrid_orth_features_) == list(m2.hybrid_orth_features_), (
-            f"seed={seed}: hybrid_orth_features_ should be deterministic; "
-            f"got m1={m1.hybrid_orth_features_} vs m2={m2.hybrid_orth_features_}"
+            f"seed={seed}: hybrid_orth_features_ should be deterministic; " f"got m1={m1.hybrid_orth_features_} vs m2={m2.hybrid_orth_features_}"
         )
