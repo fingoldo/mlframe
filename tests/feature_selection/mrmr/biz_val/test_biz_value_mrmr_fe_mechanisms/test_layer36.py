@@ -62,13 +62,12 @@ from __future__ import annotations
 
 import pickle
 import warnings
+from functools import cache
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from sklearn.base import clone
-
 
 warnings.filterwarnings("ignore")
 
@@ -119,7 +118,7 @@ def _make_strong_signal(seed: int, n: int = 1500):
     rng = np.random.default_rng(seed)
     x = rng.standard_normal(n)
     noise = rng.standard_normal((n, 6))
-    logit = 3.0 * np.sign(x ** 2 - 1.0) + 0.2 * noise[:, 0]
+    logit = 3.0 * np.sign(x**2 - 1.0) + 0.2 * noise[:, 0]
     p = 1.0 / (1.0 + np.exp(-logit))
     y = (rng.random(n) < p).astype(int)
     X = pd.DataFrame({
@@ -137,7 +136,7 @@ def _make_moderate_signal(seed: int, n: int = 600):
     rng = np.random.default_rng(seed)
     x = rng.standard_normal(n)
     noise = rng.standard_normal((n, 6))
-    logit = 1.5 * np.sign(x ** 2 - 1.0) + 0.3 * noise[:, 0]
+    logit = 1.5 * np.sign(x**2 - 1.0) + 0.3 * noise[:, 0]
     p = 1.0 / (1.0 + np.exp(-logit))
     y = (rng.random(n) < p).astype(int)
     X = pd.DataFrame({
@@ -152,37 +151,43 @@ def _make_moderate_signal(seed: int, n: int = 600):
 # ---------------------------------------------------------------------------
 
 
+@cache
+def _strong_signal_stability_result():
+    """Cached ``(X, y, result)`` for the headline-seed strong-signal fit.
+
+    Contracts 1 and 2 (``TestStableSignalHasHighFrequency`` /
+    ``TestNoiseTransformsHaveLowFrequency``) both call ``stability_select_fe``
+    with IDENTICAL data and params to check different assertions on the SAME
+    result -- compute the bootstrap-aggregate MRMR fit (the expensive step)
+    once instead of twice. Nothing downstream mutates X/y/result in place.
+    """
+    from mlframe.feature_selection.filters._stability_fe import stability_select_fe
+
+    X, y = _make_strong_signal(seed=HEADLINE_SEED)
+    result = stability_select_fe(
+        X, y,
+        base_mrmr_params=_base_mrmr_params(),
+        n_bootstraps=N_BOOTSTRAPS,
+        sample_fraction=SAMPLE_FRACTION,
+        support_threshold=SUPPORT_THRESHOLD,
+        random_state=HEADLINE_SEED,
+    )
+    return X, y, result
+
+
 class TestStableSignalHasHighFrequency:
+    """Contract 1: x__He2 appears in >= 80% of bootstraps on strong signal."""
 
     def test_x_he2_appears_in_at_least_80pct_of_bootstraps(self):
-        from mlframe.feature_selection.filters._stability_fe import (
-            stability_select_fe,
-        )
-
-        X, y = _make_strong_signal(seed=HEADLINE_SEED)
-        result = stability_select_fe(
-            X, y,
-            base_mrmr_params=_base_mrmr_params(),
-            n_bootstraps=N_BOOTSTRAPS,
-            sample_fraction=SAMPLE_FRACTION,
-            support_threshold=SUPPORT_THRESHOLD,
-            random_state=HEADLINE_SEED,
-        )
+        """x__He2 selection_frequency >= 0.8 and it enters the stable_set."""
+        _X, _y, result = _strong_signal_stability_result()
         freq = result["frequencies"]
-        assert "x__He2" in freq["engineered_name"].tolist(), (
-            f"x__He2 did not appear in any bootstrap; freqs=\n{freq}"
-        )
-        x_he2_freq = float(
-            freq.loc[freq["engineered_name"] == "x__He2", "selection_frequency"].iloc[0]
-        )
-        assert x_he2_freq >= 0.8, (
-            f"x__He2 selection_frequency {x_he2_freq:.2f} below the 0.8 contract;\n"
-            f"full freq table:\n{freq}"
-        )
+        assert "x__He2" in freq["engineered_name"].tolist(), f"x__He2 did not appear in any bootstrap; freqs=\n{freq}"
+        x_he2_freq = float(freq.loc[freq["engineered_name"] == "x__He2", "selection_frequency"].iloc[0])
+        assert x_he2_freq >= 0.8, f"x__He2 selection_frequency {x_he2_freq:.2f} below the 0.8 contract;\n" f"full freq table:\n{freq}"
         # And the stable set should include it.
         assert "x__He2" in result["stable_set"], (
-            f"x__He2 freq={x_he2_freq:.2f} >= 0.8 but did not enter the stable_set "
-            f"(threshold={SUPPORT_THRESHOLD}); stable_set={result['stable_set']}"
+            f"x__He2 freq={x_he2_freq:.2f} >= 0.8 but did not enter the stable_set " f"(threshold={SUPPORT_THRESHOLD}); stable_set={result['stable_set']}"
         )
 
 
@@ -192,21 +197,11 @@ class TestStableSignalHasHighFrequency:
 
 
 class TestNoiseTransformsHaveLowFrequency:
+    """Contract 2: any noise-derived engineered name has selection_frequency <= 30%."""
 
     def test_no_noise_transform_exceeds_30pct_frequency(self):
-        from mlframe.feature_selection.filters._stability_fe import (
-            stability_select_fe,
-        )
-
-        X, y = _make_strong_signal(seed=HEADLINE_SEED)
-        result = stability_select_fe(
-            X, y,
-            base_mrmr_params=_base_mrmr_params(),
-            n_bootstraps=N_BOOTSTRAPS,
-            sample_fraction=SAMPLE_FRACTION,
-            support_threshold=SUPPORT_THRESHOLD,
-            random_state=HEADLINE_SEED,
-        )
+        """No noise*__He<k> name exceeds 30% frequency, and none enters the stable_set."""
+        _X, _y, result = _strong_signal_stability_result()
         freq = result["frequencies"]
         # A "noise transform" is any engineered name whose underlying source
         # is one of the noise* columns. The orth-poly naming convention is
@@ -220,16 +215,10 @@ class TestNoiseTransformsHaveLowFrequency:
             f = float(row["selection_frequency"])
             if name.startswith("noise") and f > 0.3:
                 offenders.append((name, f))
-        assert not offenders, (
-            f"Noise transforms exceeded the 30% frequency cap: {offenders};\n"
-            f"full freq table:\n{freq}"
-        )
+        assert not offenders, f"Noise transforms exceeded the 30% frequency cap: {offenders};\n" f"full freq table:\n{freq}"
         # And the stable set must contain ZERO noise transforms.
         bad_in_stable = [c for c in result["stable_set"] if c.startswith("noise")]
-        assert not bad_in_stable, (
-            f"Noise transforms leaked into stable_set: {bad_in_stable}; "
-            f"full stable_set={result['stable_set']}"
-        )
+        assert not bad_in_stable, f"Noise transforms leaked into stable_set: {bad_in_stable}; " f"full stable_set={result['stable_set']}"
 
 
 # ---------------------------------------------------------------------------
@@ -238,6 +227,7 @@ class TestNoiseTransformsHaveLowFrequency:
 
 
 class TestStabilityRanksMatchOrBeatSingleFit:
+    """Contract 3: across 5 seeds, stability hit-rate >= single-fit hit-rate for x__He2."""
 
     def test_stable_x_he2_hit_rate_at_least_single_fit(self):
         """Across 5 distinct data realisations:
@@ -296,10 +286,7 @@ class TestStabilityRanksMatchOrBeatSingleFit:
             f"{single_hits}/{len(MULTI_SEEDS)}; the wrapper regressed reliability "
             f"(per-seed single/stable hits: {per_seed_hits})"
         )
-        assert not noise_in_stable_seeds, (
-            f"Noise transforms leaked into stable_set on at least one seed: "
-            f"{noise_in_stable_seeds}"
-        )
+        assert not noise_in_stable_seeds, f"Noise transforms leaked into stable_set on at least one seed: " f"{noise_in_stable_seeds}"
 
 
 # ---------------------------------------------------------------------------
@@ -308,8 +295,10 @@ class TestStabilityRanksMatchOrBeatSingleFit:
 
 
 class TestPickleAndCloneAllParamsPreserved:
+    """Contract 4: pickle/clone round-trips preserve every constructor param and fitted state."""
 
     def _build(self):
+        """Build an unfitted StabilityFESelector with the layer-36 default params."""
         from mlframe.feature_selection.filters._stability_fe import (
             StabilityFESelector,
         )
@@ -322,6 +311,7 @@ class TestPickleAndCloneAllParamsPreserved:
         )
 
     def test_clone_preserves_all_params(self):
+        """sklearn.base.clone preserves every constructor param on an unfitted clone."""
         m = self._build()
         m2 = clone(m)
         p1 = m.get_params()
@@ -333,15 +323,14 @@ class TestPickleAndCloneAllParamsPreserved:
             "support_threshold",
             "random_state",
         ):
-            assert p1[key] == p2[key], (
-                f"clone lost param '{key}': orig={p1[key]!r} clone={p2[key]!r}"
-            )
+            assert p1[key] == p2[key], f"clone lost param '{key}': orig={p1[key]!r} clone={p2[key]!r}"
         # Clone is unfitted.
         assert not hasattr(m2, "frequencies_")
         assert not hasattr(m2, "stable_set_")
         assert not hasattr(m2, "full_mrmr_")
 
     def test_pickle_roundtrip_preserves_fitted_state(self):
+        """pickle.loads(pickle.dumps(m)) preserves fitted state and transform output bit-for-bit."""
         X, y = _make_strong_signal(seed=HEADLINE_SEED)
         m = self._build()
         m.fit(X, y)
@@ -349,7 +338,7 @@ class TestPickleAndCloneAllParamsPreserved:
         pre_stable = list(m.stable_set_)
         pre_out = m.transform(X)
 
-        m2 = pickle.loads(pickle.dumps(m))
+        m2 = pickle.loads(pickle.dumps(m))  # nosec B301 -- round-trip of a locally-created, trusted object, not untrusted input
 
         # Fitted attrs survive.
         assert hasattr(m2, "frequencies_")
@@ -364,8 +353,7 @@ class TestPickleAndCloneAllParamsPreserved:
         # Transform output bit-identical for numeric cols.
         post_out = m2.transform(X)
         assert list(post_out.columns) == list(pre_out.columns), (
-            f"pickle changed transform columns: "
-            f"pre={list(pre_out.columns)} post={list(post_out.columns)}"
+            f"pickle changed transform columns: " f"pre={list(pre_out.columns)} post={list(post_out.columns)}"
         )
         for col in pre_out.columns:
             if pd.api.types.is_numeric_dtype(pre_out[col]):
