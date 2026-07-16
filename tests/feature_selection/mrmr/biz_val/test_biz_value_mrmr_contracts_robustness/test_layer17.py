@@ -92,13 +92,13 @@ relevance computation, no interaction synthesis required.
 from __future__ import annotations
 
 import warnings
+from functools import cache
 
 import numpy as np
 import pandas as pd
 import pytest
 from sklearn.linear_model import Ridge
 from sklearn.metrics import r2_score
-
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -133,11 +133,7 @@ def _build_leaky_frame(seed: int):
     rng = np.random.default_rng(seed)
     x1 = rng.standard_normal(N_TOTAL)
     x2 = rng.standard_normal(N_TOTAL)
-    y_arr = (
-        1.5 * x1
-        + 0.8 * x2
-        + 0.3 * rng.standard_normal(N_TOTAL)
-    )
+    y_arr = 1.5 * x1 + 0.8 * x2 + 0.3 * rng.standard_normal(N_TOTAL)
 
     # A. Direct leak: copy of y with 1% jitter.
     leaky_direct = y_arr + 0.01 * np.std(y_arr) * rng.standard_normal(N_TOTAL)
@@ -209,9 +205,24 @@ def _make_mrmr(**overrides):
 
 
 def _fit_quiet(sel, X, y):
+    """Fit ``sel`` on ``(X, y)`` with warnings silenced; return the fitted estimator."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         return sel.fit(X, y)
+
+
+@cache
+def _build_and_fit_layer17(seed):
+    """Cache-dedupe the (seed) leaky-frame fit shared by 7 tests across 5 classes below
+    (TestMrmrSurvivesLeakyFrame's 2 tests, TestLeakSurfacedToSupport, TestGainRatioAuditSignal's
+    2 tests, TestNearDuplicateNotPurgedAsLeak, TestSupportGainsAlignment's per-seed test and its
+    fixed-seed=1 test) that each independently rebuilt and refit the identical (X, y, config)
+    triple. TestDownstreamLeakSignatureVisible fits on a train/test split of X and is left as-is.
+    """
+    X, y = _build_leaky_frame(seed)
+    sel = _make_mrmr(random_seed=seed)
+    _fit_quiet(sel, X.copy(), y)
+    return X, y, sel
 
 
 # ---------------------------------------------------------------------------
@@ -228,22 +239,17 @@ class TestMrmrSurvivesLeakyFrame:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_fit_does_not_crash(self, seed):
-        X, y = _build_leaky_frame(seed)
-        sel = _make_mrmr(random_seed=seed)
-        _fit_quiet(sel, X.copy(), y)
+        """MRMR.fit on a leaky frame does not crash and yields non-empty support_."""
+        _X, _y, sel = _build_and_fit_layer17(seed)
         assert sel.support_ is not None
-        assert sel.n_features_ >= 1, (
-            f"MRMR returned empty support_ on leaky frame; seed={seed}"
-        )
+        assert sel.n_features_ >= 1, f"MRMR returned empty support_ on leaky frame; seed={seed}"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_no_noise_above_leak(self, seed):
         """A noise column appearing in ``support_`` while ALL leaks
         are absent would mean MRMR mis-ranked relevance. At least one
         leak must outrank every noise column."""
-        X, y = _build_leaky_frame(seed)
-        sel = _make_mrmr(random_seed=seed)
-        _fit_quiet(sel, X.copy(), y)
+        _X, _y, sel = _build_and_fit_layer17(seed)
         names = list(sel.get_feature_names_out())
         any_leak = any(n in LEAK_COLS for n in names)
         any_noise = any(n.startswith("noise_") for n in names)
@@ -251,9 +257,7 @@ class TestMrmrSurvivesLeakyFrame:
         # relevance signal is fundamentally broken on this frame.
         if any_noise and not any_leak:
             pytest.fail(
-                f"noise column selected while ALL leaks dropped; "
-                f"seed={seed}, support={names}. Relevance maximiser is "
-                f"misranking high-MI features."
+                f"noise column selected while ALL leaks dropped; " f"seed={seed}, support={names}. Relevance maximiser is " f"misranking high-MI features."
             )
 
 
@@ -272,9 +276,8 @@ class TestLeakSurfacedToSupport:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_at_least_one_leak_in_support(self, seed):
-        X, y = _build_leaky_frame(seed)
-        sel = _make_mrmr(random_seed=seed)
-        _fit_quiet(sel, X.copy(), y)
+        """At least one of the three real leak columns appears in support_ on every seed."""
+        _X, _y, sel = _build_and_fit_layer17(seed)
         names = list(sel.get_feature_names_out())
         selected_leaks = [n for n in names if n in LEAK_COLS]
         assert selected_leaks, (
@@ -312,13 +315,10 @@ class TestGainRatioAuditSignal:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_gains_attribute_exposed_and_aligned(self, seed):
-        X, y = _build_leaky_frame(seed)
-        sel = _make_mrmr(random_seed=seed)
-        _fit_quiet(sel, X.copy(), y)
+        """mrmr_gains_ is exposed, length-aligned to support_, finite and non-negative."""
+        _X, _y, sel = _build_and_fit_layer17(seed)
         assert hasattr(sel, "mrmr_gains_"), (
-            "MRMR.mrmr_gains_ must be exposed for user-level leak "
-            "auditing (gain[top] / gain[median] is the canonical "
-            "audit heuristic)."
+            "MRMR.mrmr_gains_ must be exposed for user-level leak " "auditing (gain[top] / gain[median] is the canonical " "audit heuristic)."
         )
         gains = np.asarray(sel.mrmr_gains_, dtype=np.float64)
         assert gains.shape == (sel.n_features_,), (
@@ -328,21 +328,14 @@ class TestGainRatioAuditSignal:
             f"seed={seed}"
         )
         assert np.all(np.isfinite(gains)), (
-            f"mrmr_gains_ contains non-finite entries {gains} -- a "
-            f"user can't divide top/median on a NaN/Inf gain vector. "
-            f"seed={seed}"
+            f"mrmr_gains_ contains non-finite entries {gains} -- a " f"user can't divide top/median on a NaN/Inf gain vector. " f"seed={seed}"
         )
-        assert np.all(gains >= 0.0), (
-            f"mrmr_gains_ has negative entries {gains}; gains are "
-            f"defined as marginal MI deltas and must be >= 0. "
-            f"seed={seed}"
-        )
+        assert np.all(gains >= 0.0), f"mrmr_gains_ has negative entries {gains}; gains are " f"defined as marginal MI deltas and must be >= 0. " f"seed={seed}"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_gain_ratio_flags_direct_leak(self, seed):
-        X, y = _build_leaky_frame(seed)
-        sel = _make_mrmr(random_seed=seed)
-        _fit_quiet(sel, X.copy(), y)
+        """Top-leak-gain / top-legit-gain ratio is >= 2.0, usable as a leak-audit heuristic."""
+        _X, _y, sel = _build_and_fit_layer17(seed)
         names = list(sel.get_feature_names_out())
         gains = np.asarray(sel.mrmr_gains_, dtype=np.float64)
         # Audit signal: ratio of top-leak gain to the BEST legitimate
@@ -351,9 +344,7 @@ class TestGainRatioAuditSignal:
         # the production heuristic a user wires up is "any feature with
         # gain >> top non-leak gain is suspicious".
         leak_idx = [i for i, n in enumerate(names) if n in LEAK_COLS]
-        legit_idx = [
-            i for i, n in enumerate(names) if n in ("x_legit_1", "x_legit_2")
-        ]
+        legit_idx = [i for i, n in enumerate(names) if n in ("x_legit_1", "x_legit_2")]
         # The leak IS in support on every seed by construction (the three leaks
         # have near-perfect MI with y; pinned independently by
         # TestLeakSurfacedToSupport). If MRMR stops selecting any leak this is a
@@ -401,9 +392,8 @@ class TestNearDuplicateNotPurgedAsLeak:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_legit_signal_survives(self, seed):
-        X, y = _build_leaky_frame(seed)
-        sel = _make_mrmr(random_seed=seed)
-        _fit_quiet(sel, X.copy(), y)
+        """x_legit_1 or its near-duplicate sibling survives selection whenever a noise column does."""
+        _X, _y, sel = _build_and_fit_layer17(seed)
         names = set(sel.get_feature_names_out())
         has_x1_pair = ("x_legit_1" in names) or ("x1_sibling" in names)
         has_noise = any(n.startswith("noise_") for n in names)
@@ -448,6 +438,7 @@ class TestDownstreamLeakSignatureVisible:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_leaked_support_overfits_train(self, seed):
+        """Ridge on a support containing the direct-copy leak saturates train R^2 near 1.0."""
         X, y = _build_leaky_frame(seed)
         X_tr, X_te = X.iloc[:-N_HOLDOUT].copy(), X.iloc[-N_HOLDOUT:].copy()
         y_tr, y_te = y.iloc[:-N_HOLDOUT], y.iloc[-N_HOLDOUT:]
@@ -455,11 +446,7 @@ class TestDownstreamLeakSignatureVisible:
         _fit_quiet(sel, X_tr, y_tr)
         names = list(sel.get_feature_names_out())
         if "leaky_direct" not in names:
-            pytest.skip(
-                f"direct-leak column not selected on this seed; "
-                f"can't probe the train-saturation signature. "
-                f"seed={seed}, support={names}"
-            )
+            pytest.skip(f"direct-leak column not selected on this seed; " f"can't probe the train-saturation signature. " f"seed={seed}, support={names}")
         Xs_tr = sel.transform(X_tr)
         Xs_te = sel.transform(X_te)
         model = Ridge(alpha=1.0).fit(Xs_tr, y_tr)
@@ -501,16 +488,13 @@ class TestSupportGainsAlignment:
         here would silently mis-attribute the top-MI feature in every
         downstream audit.
         """
-        X, y = _build_leaky_frame(seed)
-        sel = _make_mrmr(random_seed=seed)
-        _fit_quiet(sel, X.copy(), y)
+        _X, _y, sel = _build_and_fit_layer17(seed)
         gains = np.asarray(sel.mrmr_gains_, dtype=np.float64)
         # A non-empty support is a hard contract on the leaky frame (the direct
         # leak alone has near-perfect MI with y); an empty gains array means MRMR
         # selected nothing, which is a regression, not a skippable case.
         assert gains.size >= 1, (
-            f"empty support on the leaky frame (seed={seed}); MRMR selected no "
-            f"feature despite the direct leak having near-perfect MI with y."
+            f"empty support on the leaky frame (seed={seed}); MRMR selected no " f"feature despite the direct leak having near-perfect MI with y."
         )
         # gain[0] is the FIRST greedy pick == largest relevance gain.
         # The remaining picks have STRICTLY non-increasing gains (relative-gain
@@ -527,14 +511,8 @@ class TestSupportGainsAlignment:
         """Pinned independently of the per-seed parametrisation so
         the sklearn-contract length check is a single explicit assertion.
         """
-        X, y = _build_leaky_frame(seed=1)
-        sel = _make_mrmr(random_seed=1)
-        _fit_quiet(sel, X.copy(), y)
+        _X, _y, sel = _build_and_fit_layer17(1)
         assert len(sel.mrmr_gains_) == len(sel.support_), (
-            f"mrmr_gains_ length {len(sel.mrmr_gains_)} != support_ "
-            f"length {len(sel.support_)}; bit-alignment broken."
+            f"mrmr_gains_ length {len(sel.mrmr_gains_)} != support_ " f"length {len(sel.support_)}; bit-alignment broken."
         )
-        assert len(sel.mrmr_gains_) == sel.n_features_, (
-            f"mrmr_gains_ length {len(sel.mrmr_gains_)} != "
-            f"n_features_ {sel.n_features_}."
-        )
+        assert len(sel.mrmr_gains_) == sel.n_features_, f"mrmr_gains_ length {len(sel.mrmr_gains_)} != " f"n_features_ {sel.n_features_}."
