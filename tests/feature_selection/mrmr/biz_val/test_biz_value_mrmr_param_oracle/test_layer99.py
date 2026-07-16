@@ -35,7 +35,6 @@ import warnings
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from sklearn.base import clone
 from sklearn.linear_model import LogisticRegression
@@ -121,7 +120,10 @@ def _build_clean_continuous(seed: int, n: int = 3000, p: int = 6):
 
 
 class TestRuleRecommender:
+    """Rule-based cold-start FE recommender must react to the data's shape."""
+
     def test_group_data_enables_grouped_agg(self):
+        """Group-structured data enables every FE_GROUP_FLAGS entry, including fe_grouped_agg_enable."""
         X, y = _build_group_fixture(13)
         flags = recommend_fe_flags_by_rules(X, y)
         for f in FE_GROUP_FLAGS:
@@ -129,6 +131,7 @@ class TestRuleRecommender:
         assert flags["fe_grouped_agg_enable"] is True
 
     def test_cat_data_enables_cat_encodings(self):
+        """Categorical-heavy data enables every FE_CAT_FLAGS entry, including fe_cat_triple_enable for >= 3 cats."""
         X, y = _build_cat_fixture(7)
         flags = recommend_fe_flags_by_rules(X, y)
         for f in FE_CAT_FLAGS:
@@ -137,12 +140,10 @@ class TestRuleRecommender:
         assert flags["fe_cat_triple_enable"] is True
 
     def test_time_entity_enables_temporal(self):
+        """A datetime column plus an entity column enables fe_temporal_agg_enable."""
         X, y = _build_time_entity_fixture(42)
         flags = recommend_fe_flags_by_rules(X, y)
-        assert flags["fe_temporal_agg_enable"] is True, (
-            f"time + entity must enable temporal; got "
-            f"{ {k: v for k, v in flags.items() if v} }"
-        )
+        assert flags["fe_temporal_agg_enable"] is True, f"time + entity must enable temporal; got " f"{ {k: v for k, v in flags.items() if v} }"
 
     def test_clean_continuous_no_spurious_enables(self):
         """Pure Gaussian numerics with linear signal -> NO cat / temporal /
@@ -165,11 +166,10 @@ class TestRuleRecommender:
                 "fe_modular_enable",
             }
             on = {f for f in spurious if flags.get(f)}
-            assert not on, (
-                f"seed={s}: clean continuous data spuriously enabled {on}"
-            )
+            assert not on, f"seed={s}: clean continuous data spuriously enabled {on}"
 
     def test_missingness_enabled_on_nan_data(self):
+        """Injecting NaNs into a clean fixture enables fe_missingness_indicator_enable."""
         X, y = _build_clean_continuous(1)
         X = X.copy()
         # Inject 5% NaN into one column.
@@ -179,6 +179,7 @@ class TestRuleRecommender:
         assert flags["fe_missingness_indicator_enable"] is True
 
     def test_returns_full_flag_universe(self):
+        """The recommendation covers exactly ALL_FE_MASTER_FLAGS with boolean values."""
         X, y = _build_clean_continuous(1)
         flags = recommend_fe_flags_by_rules(X, y)
         assert set(flags) == set(ALL_FE_MASTER_FLAGS)
@@ -191,7 +192,10 @@ class TestRuleRecommender:
 
 
 class TestRecommendEnabledFe:
+    """MRMR.recommend_enabled_fe(X, y) must wire the rule-based recommender into the classmethod."""
+
     def test_classmethod_returns_recommendations_for_group_data(self):
+        """Passing group data recommends fe_grouped_agg_enable alongside the static flip_safe taxonomy."""
         from mlframe.feature_selection.filters.mrmr import MRMR
         X, y = _build_group_fixture(13)
         rep = MRMR.recommend_enabled_fe(X, y)
@@ -200,6 +204,7 @@ class TestRecommendEnabledFe:
         assert "fe_local_mi_gate" in rep["flip_safe"]
 
     def test_classmethod_empty_recommendation_without_data(self):
+        """Without X/y, recommended_enable is empty but the static taxonomy is still returned."""
         from mlframe.feature_selection.filters.mrmr import MRMR
         rep = MRMR.recommend_enabled_fe()
         assert rep["recommended_enable"] == []
@@ -212,6 +217,8 @@ class TestRecommendEnabledFe:
 
 
 class TestFeAutoEndToEnd:
+    """MRMR(fe_auto=True) must auto-enable the right FE family and match manual-best AUC within tolerance."""
+
     def test_fe_auto_enables_grouped_agg_and_lifts_auc(self):
         """MRMR(fe_auto=True) auto-enables grouped_agg on the group fixture,
         produces grouped features, and the downstream AUC is within 0.02 of the
@@ -230,10 +237,7 @@ class TestFeAutoEndToEnd:
             m_auto = MRMR(max_runtime_mins=1.0, fe_auto=True)
             m_auto.fit(Xtr, ytr)
             ga_auto = list(getattr(m_auto, "grouped_agg_features_", []) or [])
-            assert ga_auto, (
-                f"seed={s}: fe_auto=True produced no grouped_agg features "
-                f"(support should include the auto-enabled grouped aggregates)."
-            )
+            assert ga_auto, f"seed={s}: fe_auto=True produced no grouped_agg features " f"(support should include the auto-enabled grouped aggregates)."
 
             # Manual-best: explicitly enable grouped_agg with the right cols.
             m_manual = MRMR(
@@ -253,8 +257,7 @@ class TestFeAutoEndToEnd:
         mean_auto = float(np.mean([a for a, _ in auto_lifts]))
         mean_manual = float(np.mean([m for _, m in auto_lifts]))
         assert mean_auto >= mean_manual - 0.02, (
-            f"fe_auto AUC {mean_auto:.4f} fell more than 0.02 below the "
-            f"manual-best {mean_manual:.4f} (per-seed {auto_lifts})."
+            f"fe_auto AUC {mean_auto:.4f} fell more than 0.02 below the " f"manual-best {mean_manual:.4f} (per-seed {auto_lifts})."
         )
 
     def test_fe_auto_false_byte_identical_default(self):
@@ -283,9 +286,7 @@ class TestFeAutoEndToEnd:
         assert bool(m.fe_grouped_agg_enable) is False
         m.fit(X, pd.Series(y, name="y"))
         # auto flipped it ON during fit, but restored to the ctor value after.
-        assert bool(m.fe_grouped_agg_enable) is False, (
-            "fe_auto leaked an enabled flag past the fit boundary."
-        )
+        assert bool(m.fe_grouped_agg_enable) is False, "fe_auto leaked an enabled flag past the fit boundary."
 
 
 def _downstream_auc(m, Xtr, Xte, ytr, yte):
@@ -307,6 +308,8 @@ def _downstream_auc(m, Xtr, Xte, ytr, yte):
 
 
 class TestLearnedRecommender:
+    """The Param-Oracle-backed learned recommender must match rules cold-start and override them once confident."""
+
     def test_cold_start_equals_rules(self, tmp_path):
         """Empty Param-Oracle history -> recommend == rule-based."""
         store = os.path.join(str(tmp_path), "meta_fe_cold.parquet")
@@ -314,9 +317,7 @@ class TestLearnedRecommender:
         X, y = _build_group_fixture(13)
         learned = rec.recommend(X, y)
         rules = recommend_fe_flags_by_rules(X, y)
-        assert learned == rules, (
-            "cold-start recommendation must equal the rule-based prior."
-        )
+        assert learned == rules, "cold-start recommendation must equal the rule-based prior."
 
     def test_learned_recommender_improves_over_rules(self, tmp_path):
         """After observing that flag-set A beats flag-set B on fingerprint F,
@@ -334,7 +335,7 @@ class TestLearnedRecommender:
         assert not any(rules.values()), "precondition: rules pick nothing here"
 
         flags_A = dict.fromkeys(ALL_FE_MASTER_FLAGS, False)
-        flags_A["fe_hybrid_orth_enable"] = True   # the learned winner
+        flags_A["fe_hybrid_orth_enable"] = True  # the learned winner
         flags_B = dict.fromkeys(ALL_FE_MASTER_FLAGS, False)  # == rules
 
         # A consistently scores higher than B on this fingerprint.
@@ -347,12 +348,9 @@ class TestLearnedRecommender:
         learned = rec.recommend(X_fresh, y_fresh)
         rules_fresh = recommend_fe_flags_by_rules(X_fresh, y_fresh)
 
-        assert learned != rules_fresh, (
-            "learned recommender failed to override the cold-start rules."
-        )
+        assert learned != rules_fresh, "learned recommender failed to override the cold-start rules."
         assert learned["fe_hybrid_orth_enable"] is True, (
-            f"learned recommender did not pick the empirically-best flag-set A; "
-            f"got {{k: v for k, v in learned.items() if v}}."
+            f"learned recommender did not pick the empirically-best flag-set A; " f"got {{k: v for k, v in learned.items() if v}}."
         )
 
     def test_fit_observe_is_stat_only(self, tmp_path):
@@ -368,16 +366,12 @@ class TestLearnedRecommender:
         assert rows, "fit_observe recorded nothing"
         for r in rows:
             for col, val in r.items():
-                assert not isinstance(val, (list, tuple, dict, np.ndarray)), (
-                    f"non-scalar persisted in {col}: {type(val)}"
-                )
+                assert not isinstance(val, (list, tuple, dict, np.ndarray)), f"non-scalar persisted in {col}: {type(val)}"
             fp_bucket = orjson.loads(r["fp_bucket_json"])
             for v in fp_bucket.values():
                 assert isinstance(v, (int, float, str)), f"non-scalar fp: {v!r}"
         store_bytes = os.path.getsize(rec.oracle.store._path)
-        assert store_bytes < X.to_numpy().astype(np.float64).nbytes, (
-            "store larger than raw array -> likely leaking data"
-        )
+        assert store_bytes < X.to_numpy().astype(np.float64).nbytes, "store larger than raw array -> likely leaking data"
 
 
 # ---------------------------------------------------------------------------
@@ -386,17 +380,21 @@ class TestLearnedRecommender:
 
 
 class TestPickleClonePreservesFeAuto:
+    """fe_auto must survive both clone() and pickle round-trips, including the default False value."""
+
     def test_clone_preserves_fe_auto(self):
+        """sklearn clone() preserves fe_auto=True."""
         from mlframe.feature_selection.filters.mrmr import MRMR
         m = MRMR(fe_auto=True)
         c = clone(m)
         assert bool(c.fe_auto) is True
 
     def test_pickle_round_trip_preserves_fe_auto(self):
+        """A pickle round-trip preserves fe_auto=True, and the default MRMR() round-trips to fe_auto=False."""
         from mlframe.feature_selection.filters.mrmr import MRMR
         m = MRMR(fe_auto=True, max_runtime_mins=0.5)
-        m2 = pickle.loads(pickle.dumps(m))
+        m2 = pickle.loads(pickle.dumps(m))  # nosec B301 -- round-trip of a locally-created, trusted object
         assert bool(m2.fe_auto) is True
         # Default still round-trips to False.
-        m3 = pickle.loads(pickle.dumps(MRMR()))
+        m3 = pickle.loads(pickle.dumps(MRMR()))  # nosec B301 -- round-trip of a locally-created, trusted object
         assert bool(m3.fe_auto) is False
