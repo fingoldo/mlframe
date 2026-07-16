@@ -123,7 +123,10 @@ def _build_group_anomaly(seed: int, n: int = 6000, n_groups: int = 24):
 
 
 class TestPeriodicSignal:
+    """Modular (x mod period) FE recovers a hidden hour-of-day signal that raw x hides."""
+
     def test_modular_recovers_period_mi(self):
+        """x mod 24 gains >= 0.15 MI over raw t on the hour-of-day fixture."""
         from mlframe.feature_selection.filters._periodic_fe import apply_modular
         gains = []
         for s in SEEDS:
@@ -140,6 +143,7 @@ class TestPeriodicSignal:
         )
 
     def test_logreg_auc_lift(self):
+        """LogReg AUC on modular-augmented features beats raw t by >= 0.10 on the hour-of-day fixture."""
         from mlframe.feature_selection.filters._periodic_fe import (
             hybrid_modular_fe_with_recipes,
         )
@@ -180,7 +184,10 @@ class TestPeriodicSignal:
 
 
 class TestCyclicContinuity:
+    """sin/cos phase encoding beats raw mod for a smoothly-cyclic target by avoiding the period-boundary discontinuity."""
+
     def test_sincos_beats_raw_mod_for_smooth_cyclic_target(self):
+        """sin/cos encoding LogReg AUC beats raw-mod LogReg AUC by >= 0.03 on a smoothly-cyclic target."""
         from mlframe.feature_selection.filters._periodic_fe import apply_modular
         lifts = []
         for s in SEEDS:
@@ -196,12 +203,11 @@ class TestCyclicContinuity:
                 apply_modular(t, 24.0, "cos"),
             ])
 
-            def _auc(F):
+            def _auc(F, y=y, tr=tr, te=te):
+                """Fit LogReg on feature matrix F and return holdout AUC."""
                 return roc_auc_score(
                     y[te],
-                    LogisticRegression(max_iter=2000)
-                    .fit(F[tr], y[tr])
-                    .predict_proba(F[te])[:, 1],
+                    LogisticRegression(max_iter=2000).fit(F[tr], y[tr]).predict_proba(F[te])[:, 1],
                 )
             lifts.append(_auc(sincos) - _auc(mod))
         mean_lift = float(np.mean(lifts))
@@ -220,7 +226,10 @@ class TestCyclicContinuity:
 
 
 class TestAutoPeriod:
+    """The bootstrap-MI gate's ranking selects the correct period (24) over wrong candidate periods (7, 12)."""
+
     def test_correct_period_selected(self):
+        """The top-ranked modular survivor is period 24 in the majority of seeds; wrong periods never outrank it."""
         from mlframe.feature_selection.filters._periodic_fe import (
             hybrid_modular_fe_with_recipes,
             _parse_modular_name,
@@ -228,7 +237,7 @@ class TestAutoPeriod:
         correct = 0
         for s in SEEDS:
             X, y = _build_hour_of_day(s)
-            _, appended, recipes, scores = hybrid_modular_fe_with_recipes(
+            _, appended, _recipes, _scores = hybrid_modular_fe_with_recipes(
                 X, y, periods=(7, 12, 24, 30), top_k=6, seed=s,
             )
             assert appended, f"seed={s}: no survivors for auto-period."
@@ -241,21 +250,14 @@ class TestAutoPeriod:
                 correct += 1
             # The wrong periods 7 / 12 must NOT beat 24: no period-7 or
             # period-12 column ranks above the first period-24 column.
-            periods_in_order = [
-                int(_parse_modular_name(c)[2]) for c in appended
-                if _parse_modular_name(c) is not None
-            ]
+            periods_in_order = [int(_parse_modular_name(c)[2]) for c in appended if _parse_modular_name(c) is not None]
             first_24 = periods_in_order.index(24) if 24 in periods_in_order else 999
             for wrong in (7, 12):
                 if wrong in periods_in_order:
                     assert periods_in_order.index(wrong) > first_24, (
-                        f"seed={s}: wrong period {wrong} ranked above the "
-                        f"correct period 24 ({periods_in_order})."
+                        f"seed={s}: wrong period {wrong} ranked above the " f"correct period 24 ({periods_in_order})."
                     )
-        assert correct >= 4, (
-            f"correct period (24) was the top survivor in only {correct}/5 "
-            f"seeds; auto-period detection is unreliable."
-        )
+        assert correct >= 4, f"correct period (24) was the top survivor in only {correct}/5 " f"seeds; auto-period detection is unreliable."
 
 
 # ---------------------------------------------------------------------------
@@ -264,7 +266,10 @@ class TestAutoPeriod:
 
 
 class TestGroupAnomalySignal:
+    """Per-group distributional distance (KL) captures a shape-anomaly signal that raw values hide."""
+
     def test_group_distance_captures_anomaly_mi(self):
+        """The per-group KL-distance feature gains >= 0.05 MI over raw v on the group-anomaly fixture."""
         from mlframe.feature_selection.filters._group_distance_fe import (
             generate_group_distance_features,
             engineered_name_group_kl,
@@ -286,6 +291,7 @@ class TestGroupAnomalySignal:
         )
 
     def test_logreg_auc_lift(self):
+        """LogReg AUC on group-distance-augmented features beats raw v by >= 0.05 on the group-anomaly fixture."""
         from mlframe.feature_selection.filters._group_distance_fe import (
             hybrid_group_distance_fe,
         )
@@ -326,7 +332,10 @@ class TestGroupAnomalySignal:
 
 
 class TestNoYLeak:
+    """Recipe replay and candidate generators (both modular and group-distance) never leak y."""
+
     def test_modular_transform_same_under_shuffled_y(self):
+        """A fitted modular recipe's replayed column is a pure function of X, carries no y reference."""
         from mlframe.feature_selection.filters._periodic_fe import (
             hybrid_modular_fe_with_recipes,
         )
@@ -335,40 +344,38 @@ class TestNoYLeak:
         rng = np.random.default_rng(0)
         y_shuf = y.copy()
         rng.shuffle(y_shuf)
-        _, appended, recipes, _ = hybrid_modular_fe_with_recipes(
+        _, _appended, recipes, _ = hybrid_modular_fe_with_recipes(
             X, y, periods=(7, 12, 24, 30), top_k=6, seed=7,
         )
         assert recipes, "no modular recipes for leakage test."
         for r in recipes:
             np.testing.assert_array_equal(apply_recipe(r, X), apply_recipe(r, X))
-            assert "y" not in dict(r.extra), (
-                f"recipe {r.name!r} captured a y reference -- leakage risk."
-            )
+            assert "y" not in dict(r.extra), f"recipe {r.name!r} captured a y reference -- leakage risk."
 
     def test_group_distance_transform_same_under_shuffled_y(self):
+        """A fitted group-distance recipe's replayed column is a pure function of X, carries no y reference."""
         from mlframe.feature_selection.filters._group_distance_fe import (
             hybrid_group_distance_fe,
         )
         from mlframe.feature_selection.filters.engineered_recipes import apply_recipe
         X, y = _build_group_anomaly(13)
-        _, appended, recipes, _ = hybrid_group_distance_fe(
+        _, _appended, recipes, _ = hybrid_group_distance_fe(
             X, y, group_cols=["g"], num_cols=["v"], top_k=6,
         )
         assert recipes, "no group-distance recipes for leakage test."
         for r in recipes:
             np.testing.assert_array_equal(apply_recipe(r, X), apply_recipe(r, X))
-            assert "y" not in dict(r.extra), (
-                f"recipe {r.name!r} captured a y reference -- leakage risk."
-            )
+            assert "y" not in dict(r.extra), f"recipe {r.name!r} captured a y reference -- leakage risk."
 
     def test_generators_never_see_y(self):
+        """Modular and group-distance feature generators are deterministic pure functions of X."""
         from mlframe.feature_selection.filters._periodic_fe import (
             generate_modular_features,
         )
         from mlframe.feature_selection.filters._group_distance_fe import (
             generate_group_distance_features,
         )
-        X, y = _build_hour_of_day(42)
+        X, _y = _build_hour_of_day(42)
         m1 = generate_modular_features(X, periods=(7, 24))
         m2 = generate_modular_features(X, periods=(7, 24))
         pd.testing.assert_frame_equal(m1, m2)
@@ -385,16 +392,15 @@ class TestNoYLeak:
 
 
 class TestDefaultDisabledByteIdentical:
+    """fe_modular_enable / fe_group_distance_enable default to False and add columns only when explicitly enabled."""
+
     def test_mrmr_default_off_adds_nothing(self):
+        """With both modular and group-distance FE disabled (default), no engineered columns are added."""
         from mlframe.feature_selection.filters.mrmr import MRMR
         X, y = _build_hour_of_day(42, n=2000)
         m = MRMR(max_runtime_mins=0.5)
-        assert bool(getattr(m, "fe_modular_enable", False)) is False, (
-            "fe_modular_enable must default to False."
-        )
-        assert bool(getattr(m, "fe_group_distance_enable", False)) is False, (
-            "fe_group_distance_enable must default to False."
-        )
+        assert bool(getattr(m, "fe_modular_enable", False)) is False, "fe_modular_enable must default to False."
+        assert bool(getattr(m, "fe_group_distance_enable", False)) is False, "fe_group_distance_enable must default to False."
         m.fit(X, pd.Series(y, name="y"))
         md = list(getattr(m, "modular_features_", []) or [])
         gd = list(getattr(m, "group_distance_features_", []) or [])
@@ -402,6 +408,7 @@ class TestDefaultDisabledByteIdentical:
         assert gd == [], f"group_distance added columns with feature disabled: {gd}"
 
     def test_mrmr_modular_enabled_adds_columns(self):
+        """With fe_modular_enable=True, modular columns are added on the hour-of-day fixture."""
         from mlframe.feature_selection.filters.mrmr import MRMR
         X, y = _build_hour_of_day(42, n=4000)
         m = MRMR(
@@ -412,12 +419,10 @@ class TestDefaultDisabledByteIdentical:
         )
         m.fit(X, pd.Series(y, name="y"))
         md = list(getattr(m, "modular_features_", []) or [])
-        assert len(md) >= 1, (
-            "modular enabled but produced no engineered columns on the "
-            "hour-of-day fixture."
-        )
+        assert len(md) >= 1, "modular enabled but produced no engineered columns on the " "hour-of-day fixture."
 
     def test_mrmr_group_distance_enabled_adds_columns(self):
+        """With fe_group_distance_enable=True, group-distance columns are added on the group-anomaly fixture."""
         from mlframe.feature_selection.filters.mrmr import MRMR
         X, y = _build_group_anomaly(42, n=4000)
         m = MRMR(
@@ -430,10 +435,7 @@ class TestDefaultDisabledByteIdentical:
         )
         m.fit(X, pd.Series(y, name="y"))
         gd = list(getattr(m, "group_distance_features_", []) or [])
-        assert len(gd) >= 1, (
-            "group_distance enabled but produced no engineered columns on the "
-            "group-anomaly fixture."
-        )
+        assert len(gd) >= 1, "group_distance enabled but produced no engineered columns on the " "group-anomaly fixture."
 
 
 # ---------------------------------------------------------------------------
@@ -442,37 +444,42 @@ class TestDefaultDisabledByteIdentical:
 
 
 class TestPickleClone:
+    """Recipes (modular and group-distance) and ctor params survive pickle / sklearn clone round-trips."""
+
     def test_modular_recipe_pickle_round_trip(self):
+        """A pickled modular recipe round-trips equal and replays identically."""
         from mlframe.feature_selection.filters._periodic_fe import (
             hybrid_modular_fe_with_recipes,
         )
         from mlframe.feature_selection.filters.engineered_recipes import apply_recipe
         X, y = _build_hour_of_day(1)
-        _, appended, recipes, _ = hybrid_modular_fe_with_recipes(
+        _, _appended, recipes, _ = hybrid_modular_fe_with_recipes(
             X, y, periods=(7, 12, 24, 30), top_k=6, seed=1,
         )
         assert recipes, "no modular recipes for pickle test."
         for r in recipes:
-            r2 = pickle.loads(pickle.dumps(r))
+            r2 = pickle.loads(pickle.dumps(r))  # nosec B301 -- round-trip of a locally-created, trusted object
             assert r2 == r, f"recipe {r.name!r} != its pickle round-trip."
             np.testing.assert_array_equal(apply_recipe(r, X), apply_recipe(r2, X))
 
     def test_group_distance_recipe_pickle_round_trip(self):
+        """A pickled group-distance recipe round-trips equal and replays identically."""
         from mlframe.feature_selection.filters._group_distance_fe import (
             hybrid_group_distance_fe,
         )
         from mlframe.feature_selection.filters.engineered_recipes import apply_recipe
         X, y = _build_group_anomaly(1)
-        _, appended, recipes, _ = hybrid_group_distance_fe(
+        _, _appended, recipes, _ = hybrid_group_distance_fe(
             X, y, group_cols=["g"], num_cols=["v"], top_k=6,
         )
         assert recipes, "no group-distance recipes for pickle test."
         for r in recipes:
-            r2 = pickle.loads(pickle.dumps(r))
+            r2 = pickle.loads(pickle.dumps(r))  # nosec B301 -- round-trip of a locally-created, trusted object
             assert r2 == r, f"recipe {r.name!r} != its pickle round-trip."
             np.testing.assert_array_equal(apply_recipe(r, X), apply_recipe(r2, X))
 
     def test_mrmr_clone_preserves_params(self):
+        """sklearn clone() preserves every fe_modular_*/fe_group_distance_* ctor param."""
         from mlframe.feature_selection.filters.mrmr import MRMR
         m = MRMR(
             fe_modular_enable=True,

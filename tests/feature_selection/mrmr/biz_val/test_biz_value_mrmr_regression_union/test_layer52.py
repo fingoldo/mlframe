@@ -39,7 +39,8 @@ import warnings
 
 import numpy as np
 import pandas as pd
-import pytest
+
+from tests.conftest import perf_time_budget
 
 warnings.filterwarnings("ignore")
 
@@ -53,15 +54,15 @@ warnings.filterwarnings("ignore")
 # discovery sweep covers the whole filters/ surface that L1..L51 touch.
 # ---------------------------------------------------------------------------
 LAYER_PRIMARY_MODULES: tuple[tuple[int, str], ...] = (
-    (1,  "mlframe.feature_selection.filters.mrmr"),
-    (2,  "mlframe.feature_selection.filters._mrmr_fit_impl"),
-    (3,  "mlframe.feature_selection.filters.info_theory"),
-    (4,  "mlframe.feature_selection.filters.fleuret"),
-    (5,  "mlframe.feature_selection.filters.evaluation"),
-    (6,  "mlframe.feature_selection.filters._screen_predictors"),
-    (7,  "mlframe.feature_selection.filters._missingness_fe"),
-    (8,  "mlframe.feature_selection.filters.polynom_pair_fe"),
-    (9,  "mlframe.feature_selection.filters._feature_engineering_pairs"),
+    (1, "mlframe.feature_selection.filters.mrmr"),
+    (2, "mlframe.feature_selection.filters._mrmr_fit_impl"),
+    (3, "mlframe.feature_selection.filters.info_theory"),
+    (4, "mlframe.feature_selection.filters.fleuret"),
+    (5, "mlframe.feature_selection.filters.evaluation"),
+    (6, "mlframe.feature_selection.filters._screen_predictors"),
+    (7, "mlframe.feature_selection.filters._missingness_fe"),
+    (8, "mlframe.feature_selection.filters.polynom_pair_fe"),
+    (9, "mlframe.feature_selection.filters._feature_engineering_pairs"),
     (10, "mlframe.feature_selection.filters.cat_fe_state"),
     (11, "mlframe.feature_selection.filters._mah"),
     (12, "mlframe.feature_selection.filters.stability"),
@@ -122,9 +123,7 @@ def _kitchen_sink(seed: int = 42, n: int = 3000):
     hot_regions = set(regions[:4])
     cat_region = rng.choice(regions, size=n)
     hot_mask = np.array([(c in hot_regions) for c in cat_region], dtype=float)
-    region_means = dict(
-        zip(regions, rng.uniform(20.0, 120.0, size=len(regions)))
-    )
+    region_means = dict(zip(regions, rng.uniform(20.0, 120.0, size=len(regions))))
     price_mean = np.array([region_means[c] for c in cat_region])
     price = price_mean + rng.normal(0.0, 10.0, size=n)
     counts = pd.Series(cat_user).value_counts()
@@ -139,7 +138,7 @@ def _kitchen_sink(seed: int = 42, n: int = 3000):
     box = ((x_threshold > 0.3) & (x_threshold < 1.2)).astype(float)
     logit = (
         0.5 * x_num1
-        + 2.0 * (x_quad ** 2 - 1.0)
+        + 2.0 * (x_quad**2 - 1.0)
         + 2.5 * np.sin(2.0 * np.pi * x_periodic)
         + 2.5 * box
         + 2.5 * hot_mask
@@ -158,8 +157,8 @@ def _kitchen_sink(seed: int = 42, n: int = 3000):
     return X, y
 
 
-def _train_holdout_split(X: pd.DataFrame, y: pd.Series, *,
-                         train_frac: float = 0.7, seed: int = 42):
+def _train_holdout_split(X: pd.DataFrame, y: pd.Series, *, train_frac: float = 0.7, seed: int = 42):
+    """Shuffle-split X/y into a train/holdout pair at train_frac."""
     rng = np.random.default_rng(seed + 100)
     idx = np.arange(len(X))
     rng.shuffle(idx)
@@ -230,6 +229,7 @@ def _all_fe_kwargs():
 
 
 class TestLayer52_RosterImportSmoke:
+    """Every L1..L51 primary entry-point module imports cleanly and the roster covers >=25 distinct modules."""
 
     def test_every_layer_primary_module_imports_cleanly(self):
         """Every layer's primary entry-point module imports without raise."""
@@ -239,12 +239,7 @@ class TestLayer52_RosterImportSmoke:
                 importlib.import_module(mod_path)
             except Exception as exc:
                 failures.append((layer_no, mod_path, repr(exc)))
-        assert not failures, (
-            f"{len(failures)} layer primary modules failed to import:\n"
-            + "\n".join(
-                f"  L{lno}: {mp} -> {err}" for lno, mp, err in failures
-            )
-        )
+        assert not failures, f"{len(failures)} layer primary modules failed to import:\n" + "\n".join(f"  L{lno}: {mp} -> {err}" for lno, mp, err in failures)
 
     def test_at_least_50_distinct_modules_discoverable(self):
         """The discoverable roster is at least 50 distinct prod modules.
@@ -258,13 +253,8 @@ class TestLayer52_RosterImportSmoke:
         # entry-point set must clear 25 distinct modules (50% of layers)
         # AND the raw entry list must clear 50 layers - so a silent prune
         # of either trips the floor.
-        assert len(LAYER_PRIMARY_MODULES) >= 50, (
-            f"raw roster size dropped below 50: {len(LAYER_PRIMARY_MODULES)}"
-        )
-        assert len(distinct) >= 25, (
-            f"distinct prod-module count dropped below 25: {len(distinct)}; "
-            f"modules={sorted(distinct)}"
-        )
+        assert len(LAYER_PRIMARY_MODULES) >= 50, f"raw roster size dropped below 50: {len(LAYER_PRIMARY_MODULES)}"
+        assert len(distinct) >= 25, f"distinct prod-module count dropped below 25: {len(distinct)}; " f"modules={sorted(distinct)}"
 
 
 # ---------------------------------------------------------------------------
@@ -278,6 +268,7 @@ class TestLayer52_CompositeAllFEOnBenchmark:
     """
 
     def test_composite_fit_completes_and_logreg_auc_at_least_0_85(self):
+        """The all-FE-on composite fits within budget, clears AUC>=0.85, and holds the L39 recipe-parity contract."""
         from mlframe.feature_selection.filters.mrmr import MRMR
         from sklearn.linear_model import LogisticRegression
         from sklearn.metrics import roc_auc_score
@@ -315,9 +306,8 @@ class TestLayer52_CompositeAllFEOnBenchmark:
         # configuration in the suite). p99 on the dev host is ~25s; 120s
         # leaves a wide margin against CI slowness without silently
         # accepting a 10x regression.
-        assert fit_elapsed <= 120.0, (
-            f"composite all-FE-on fit must finish <= 120s; got {fit_elapsed:.2f}s"
-        )
+        budget = perf_time_budget(120.0)
+        assert fit_elapsed <= budget, f"composite all-FE-on fit must finish <= {budget:.0f}s; got {fit_elapsed:.2f}s"
 
         # (b) holdout AUC contract.
         X_tr_t = m.transform(X_tr)
@@ -327,25 +317,17 @@ class TestLayer52_CompositeAllFEOnBenchmark:
         num_tr = X_tr_t.select_dtypes(include=[np.number]).fillna(0.0)
         num_ho = X_ho_t.select_dtypes(include=[np.number]).fillna(0.0)
         common = [c for c in num_tr.columns if c in num_ho.columns]
-        assert len(common) >= 1, (
-            "composite transform produced 0 numeric columns common to "
-            "train + holdout; cannot score AUC"
-        )
+        assert len(common) >= 1, "composite transform produced 0 numeric columns common to " "train + holdout; cannot score AUC"
         clf = LogisticRegression(max_iter=500, C=1.0)
         clf.fit(num_tr[common].to_numpy(), y_tr.to_numpy())
         proba = clf.predict_proba(num_ho[common].to_numpy())[:, 1]
         auc = roc_auc_score(y_ho.to_numpy(), proba)
-        assert auc >= 0.85, (
-            f"composite all-FE-on LogReg holdout AUC must be >= 0.85; "
-            f"got {auc:.4f}"
-        )
+        assert auc >= 0.85, f"composite all-FE-on LogReg holdout AUC must be >= 0.85; " f"got {auc:.4f}"
 
         # (c) Layer 39 recipe-parity contract under the FULLY enabled
         # composite, not just under L35's subset.
         eng_feats = list(getattr(m, "_engineered_features_", []) or [])
         eng_recipes = list(getattr(m, "_engineered_recipes_", []) or [])
         assert len(eng_feats) == len(eng_recipes), (
-            f"recipe-count parity FAILED under composite all-FE-on: "
-            f"{len(eng_feats)} engineered names but "
-            f"{len(eng_recipes)} recipes"
+            f"recipe-count parity FAILED under composite all-FE-on: " f"{len(eng_feats)} engineered names but " f"{len(eng_recipes)} recipes"
         )

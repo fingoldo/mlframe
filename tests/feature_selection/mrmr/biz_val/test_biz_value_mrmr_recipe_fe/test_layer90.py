@@ -124,7 +124,10 @@ def _build_price_anchored(seed: int, n: int = 6000):
 
 
 class TestCentsDigitSignal:
+    """Digit-extraction FE recovers the hidden cents-digit signal that raw x hides."""
+
     def test_digit_extraction_beats_raw_by_0p15_mi(self):
+        """Digit extraction at k=1 beats raw price by >= +0.15 MI on the cents-digit fixture."""
         from mlframe.feature_selection.filters._numeric_decompose_fe import (
             apply_digit_extract,
         )
@@ -151,6 +154,8 @@ class TestCentsDigitSignal:
 
 
 class TestRoundingPrecisionSignal:
+    """Rounding is MI-neutral under quantile-binned estimation but unlocks linear-model AUC via one-hot anchors."""
+
     def test_rounding_is_mi_neutral_but_downstream_useful(self):
         """Rounding is a DETERMINISTIC function of x, so by the data-processing
         inequality MI(round(x); y) <= MI(x; y) at the population level. Under a
@@ -200,9 +205,7 @@ class TestRoundingPrecisionSignal:
             )
             auc_raw = roc_auc_score(
                 yte,
-                LogisticRegression(max_iter=2000)
-                .fit(xtr.reshape(-1, 1), ytr)
-                .predict_proba(xte.reshape(-1, 1))[:, 1],
+                LogisticRegression(max_iter=2000).fit(xtr.reshape(-1, 1), ytr).predict_proba(xte.reshape(-1, 1))[:, 1],
             )
             anchors_tr = apply_rounding(xtr, 1.0).astype(int)
             anchors_te = apply_rounding(xte, 1.0).astype(int)
@@ -212,16 +215,14 @@ class TestRoundingPrecisionSignal:
             )
             auc_round = roc_auc_score(
                 yte,
-                LogisticRegression(max_iter=2000)
-                .fit(oh_tr.to_numpy(), ytr)
-                .predict_proba(oh_te.to_numpy())[:, 1],
+                LogisticRegression(max_iter=2000).fit(oh_tr.to_numpy(), ytr).predict_proba(oh_te.to_numpy())[:, 1],
             )
             lin_lifts.append(auc_round - auc_raw)
         mean_lift = float(np.mean(lin_lifts))
         assert mean_lift >= 0.20, (
             f"one-hot(round(x,1.0)) LogReg AUC lift {mean_lift:.4f} < 0.20 "
             f"over raw-x LogReg on the step-parity target (per-seed "
-            f"{[round(l, 4) for l in lin_lifts]}); rounding's downstream "
+            f"{[round(x, 4) for x in lin_lifts]}); rounding's downstream "
             f"value for linear models is not materialising."
         )
 
@@ -232,6 +233,7 @@ class TestRoundingPrecisionSignal:
 
 
 class TestBootstrapGateDropsNoise:
+    """The bootstrap-MI gate correctly drops every decomposition candidate on a smooth (no-decomposition-signal) target."""
     def test_smooth_target_all_decompositions_dropped(self):
         """Ground truth on a smooth target: NO decomposition candidate adds
         stable MI over raw x, so the correct keep/drop label for every
@@ -239,8 +241,7 @@ class TestBootstrapGateDropsNoise:
         recall of the drop decision >= 0.9 (i.e. it drops ~all candidates and
         keeps ~none)."""
         from mlframe.feature_selection.filters._numeric_decompose_fe import (
-            hybrid_numeric_decompose_fe, generate_rounding_features,
-            generate_digit_features,
+            hybrid_numeric_decompose_fe,
         )
         precisions = (1, 0.1, 0.01, 0.001)
         digits = (0, 1, 2)
@@ -249,12 +250,7 @@ class TestBootstrapGateDropsNoise:
         tp = fp = fn = 0  # for the DROP decision (positive = "should drop")
         for s in SEEDS:
             X, y = _build_smooth(s)
-            _, scores = hybrid_numeric_decompose_fe(
-                X, y, precisions=precisions, digit_positions=digits,
-                top_k=5, n_boot=10, seed=s,
-            )
-            # reconstruct kept set from the same gate logic the hybrid applies.
-            X_aug, _ = hybrid_numeric_decompose_fe(
+            X_aug, scores = hybrid_numeric_decompose_fe(
                 X, y, precisions=precisions, digit_positions=digits,
                 top_k=5, n_boot=10, seed=s,
             )
@@ -263,9 +259,9 @@ class TestBootstrapGateDropsNoise:
             # ground-truth: every candidate should be dropped (smooth target).
             dropped = [c for c in scores["engineered_col"] if c not in kept]
             # DROP positives: predicted-drop that are true-drop (all true-drop).
-            tp += len(dropped)       # every dropped candidate is a correct drop
-            fp += 0                  # no candidate is a true-keep, so no FP
-            fn += len(kept)          # any kept candidate is a missed drop
+            tp += len(dropped)  # every dropped candidate is a correct drop
+            fp += 0  # no candidate is a true-keep, so no FP
+            fn += len(kept)  # any kept candidate is a missed drop
         precision = tp / (tp + fp) if (tp + fp) else 1.0
         recall = tp / (tp + fn) if (tp + fn) else 1.0
         assert precision >= 0.9 and recall >= 0.9, (
@@ -281,7 +277,10 @@ class TestBootstrapGateDropsNoise:
 
 
 class TestAucLift:
+    """Numeric decomposition FE lifts LogReg AUC on the price-anchored fixture."""
+
     def test_logreg_auc_lift(self):
+        """LogReg AUC on decomposition-augmented features beats raw price by >= 0.15."""
         from mlframe.feature_selection.filters._numeric_decompose_fe import (
             hybrid_numeric_decompose_fe_with_recipes,
         )
@@ -337,7 +336,10 @@ class TestAucLift:
 
 
 class TestNoYLeak:
+    """Recipe replay and candidate generators never leak y into the resulting columns."""
+
     def test_transform_same_under_shuffled_y(self):
+        """A fitted recipe's replayed column is a pure function of X, independent of y."""
         from mlframe.feature_selection.filters._numeric_decompose_fe import (
             hybrid_numeric_decompose_fe_with_recipes,
         )
@@ -352,7 +354,7 @@ class TestNoYLeak:
         # the survivor name; the REPLAYED column is a pure function of X. So a
         # recipe fitted on the real y must replay identically regardless of any
         # y -- and crucially carries no y reference.
-        _, appended, recipes, _ = hybrid_numeric_decompose_fe_with_recipes(
+        _, _appended, recipes, _ = hybrid_numeric_decompose_fe_with_recipes(
             X, y, precisions=(1, 0.1, 0.01), digit_positions=(0, 1, 2),
             top_k=5, n_boot=10, seed=7,
         )
@@ -361,15 +363,14 @@ class TestNoYLeak:
             c1 = apply_recipe(r, X)
             c2 = apply_recipe(r, X)
             np.testing.assert_array_equal(c1, c2)
-            assert "y" not in dict(r.extra), (
-                f"recipe {r.name!r} captured a y reference -- leakage risk."
-            )
+            assert "y" not in dict(r.extra), f"recipe {r.name!r} captured a y reference -- leakage risk."
 
     def test_generators_never_see_y(self):
+        """Rounding/digit feature generators are deterministic pure functions of X."""
         from mlframe.feature_selection.filters._numeric_decompose_fe import (
             generate_rounding_features, generate_digit_features,
         )
-        X, y, _ = _build_cents_digit(42)
+        X, _y, _ = _build_cents_digit(42)
         r1 = generate_rounding_features(X, precisions=(1, 0.1))
         r2 = generate_rounding_features(X, precisions=(1, 0.1))
         d1 = generate_digit_features(X, digit_positions=(0, 1, 2))
@@ -384,20 +385,20 @@ class TestNoYLeak:
 
 
 class TestDefaultDisabledByteIdentical:
+    """fe_numeric_decompose_enable defaults to False and adds columns only when explicitly enabled."""
+
     def test_mrmr_default_off_adds_nothing(self):
+        """With fe_numeric_decompose_enable=False (default), no decomposition columns are added."""
         from mlframe.feature_selection.filters.mrmr import MRMR
         X, y = _build_price_anchored(42, n=2000)
         m = MRMR(max_runtime_mins=0.5)
-        assert bool(getattr(m, "fe_numeric_decompose_enable", False)) is False, (
-            "fe_numeric_decompose_enable must default to False."
-        )
+        assert bool(getattr(m, "fe_numeric_decompose_enable", False)) is False, "fe_numeric_decompose_enable must default to False."
         m.fit(X, pd.Series(y, name="y"))
         nd = list(getattr(m, "numeric_decompose_features_", []) or [])
-        assert nd == [], (
-            f"numeric_decompose added columns with the feature disabled: {nd}"
-        )
+        assert nd == [], f"numeric_decompose added columns with the feature disabled: {nd}"
 
     def test_mrmr_enabled_adds_decompose(self):
+        """With fe_numeric_decompose_enable=True, decomposition columns are added on the cents-digit fixture."""
         from mlframe.feature_selection.filters.mrmr import MRMR
         X, y = _build_cents_digit(42, n=4000)[:2]
         m = MRMR(
@@ -409,10 +410,7 @@ class TestDefaultDisabledByteIdentical:
         )
         m.fit(X, pd.Series(y, name="y"))
         nd = list(getattr(m, "numeric_decompose_features_", []) or [])
-        assert len(nd) >= 1, (
-            "numeric_decompose enabled but produced no engineered columns on "
-            "the cents-digit fixture."
-        )
+        assert len(nd) >= 1, "numeric_decompose enabled but produced no engineered columns on " "the cents-digit fixture."
 
 
 # ---------------------------------------------------------------------------
@@ -421,7 +419,10 @@ class TestDefaultDisabledByteIdentical:
 
 
 class TestPickleClone:
+    """Recipes and ctor params survive pickle / sklearn clone round-trips."""
+
     def test_recipe_pickle_round_trip(self):
+        """A pickled recipe round-trips equal and replays identically."""
         from mlframe.feature_selection.filters._numeric_decompose_fe import (
             hybrid_numeric_decompose_fe_with_recipes,
         )
@@ -429,19 +430,19 @@ class TestPickleClone:
             apply_recipe,
         )
         X, y, _ = _build_cents_digit(1)
-        _, appended, recipes, _ = hybrid_numeric_decompose_fe_with_recipes(
+        _, _appended, recipes, _ = hybrid_numeric_decompose_fe_with_recipes(
             X, y, precisions=(1, 0.1, 0.01), digit_positions=(0, 1, 2),
             top_k=5, n_boot=10, seed=1,
         )
         assert recipes, "no recipes for pickle test."
-        kinds = {r.kind for r in recipes}
         for r in recipes:
             blob = pickle.dumps(r)
-            r2 = pickle.loads(blob)
+            r2 = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
             assert r2 == r, f"recipe {r.name!r} != its pickle round-trip."
             np.testing.assert_array_equal(apply_recipe(r, X), apply_recipe(r2, X))
 
     def test_mrmr_clone_preserves_params(self):
+        """sklearn clone() preserves every fe_numeric_decompose_* ctor param."""
         from mlframe.feature_selection.filters.mrmr import MRMR
         m = MRMR(
             fe_numeric_decompose_enable=True,

@@ -95,10 +95,10 @@ class TestDefaultPlugInByteIdentical:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_default_value_is_plug_in(self, seed):
+        """The ctor default of fe_hybrid_orth_default_scorer is 'plug_in'."""
         m = _make_mrmr()
         assert m.fe_hybrid_orth_default_scorer == "plug_in", (
-            f"seed={seed}: default ctor value drifted from 'plug_in' to "
-            f"{m.fe_hybrid_orth_default_scorer!r}"
+            f"seed={seed}: default ctor value drifted from 'plug_in' to " f"{m.fe_hybrid_orth_default_scorer!r}"
         )
 
     @pytest.mark.parametrize("seed", SEEDS)
@@ -110,10 +110,7 @@ class TestDefaultPlugInByteIdentical:
         X, y = _build_linear(seed)
         m = _make_mrmr().fit(X, y)
         added = list(getattr(m, "hybrid_orth_features_", []) or [])
-        assert added == [], (
-            f"seed={seed}: with master OFF, no engineered columns should "
-            f"appear; got {added}"
-        )
+        assert added == [], f"seed={seed}: with master OFF, no engineered columns should " f"appear; got {added}"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_plug_in_explicit_matches_default(self, seed):
@@ -140,8 +137,7 @@ class TestDefaultPlugInByteIdentical:
         added_default = list(getattr(m_default, "hybrid_orth_features_", []) or [])
         added_explicit = list(getattr(m_explicit, "hybrid_orth_features_", []) or [])
         assert added_default == added_explicit, (
-            f"seed={seed}: explicit 'plug_in' diverged from the implicit "
-            f"default. implicit={added_default}, explicit={added_explicit}"
+            f"seed={seed}: explicit 'plug_in' diverged from the implicit " f"default. implicit={added_default}, explicit={added_explicit}"
         )
 
 
@@ -156,6 +152,7 @@ class TestInvalidValueRaises:
     """
 
     def test_invalid_value_raises_with_actionable_message(self):
+        """An unrecognised scorer string raises ValueError listing the accepted values."""
         X, y = _build_linear(seed=0)
         m = _make_mrmr(fe_hybrid_orth_default_scorer="not_a_real_scorer")
         with pytest.raises(ValueError) as exc:
@@ -166,12 +163,10 @@ class TestInvalidValueRaises:
         # The error message must list the valid values for the caller to
         # know which knobs are accepted. Spot-check a few canonical ones.
         for accepted in ("plug_in", "cmim", "jmim", "ksg"):
-            assert accepted in msg, (
-                f"error message does not mention valid value {accepted!r}; "
-                f"got msg={msg!r}"
-            )
+            assert accepted in msg, f"error message does not mention valid value {accepted!r}; " f"got msg={msg!r}"
 
     def test_non_string_value_raises(self):
+        """A non-string scorer value raises ValueError mentioning the flag name."""
         X, y = _build_linear(seed=0)
         m = _make_mrmr(fe_hybrid_orth_default_scorer=42)
         with pytest.raises(ValueError) as exc:
@@ -208,6 +203,7 @@ class TestCmimRoutingMatchesDirectCmim:
 
     @pytest.mark.parametrize("seed", (0, 7, 42))
     def test_routing_matches_direct_call(self, seed):
+        """default_scorer='cmim' routing selects the same support as a direct CMIM call."""
         from mlframe.feature_selection.filters._orthogonal_cmim_fe import (
             hybrid_orth_mi_cmim_fe_with_recipes,
         )
@@ -230,19 +226,14 @@ class TestCmimRoutingMatchesDirectCmim:
             fe_hybrid_orth_pair_enable=False,
             fe_hybrid_orth_default_scorer="cmim",
         ).fit(X, y)
-        routed_added = sorted(
-            list(getattr(m, "hybrid_orth_features_", []) or [])
-        )
+        routed_added = sorted(list(getattr(m, "hybrid_orth_features_", []) or []))
         # ``scores_direct`` is a DataFrame: pick the same top_k=2 winners
         # by descending engineered_mi (already sorted by the scorer).
         # Note: the scorer's gate floors (min_uplift/min_abs_mi_frac) are
         # nonzero by default, so it may admit fewer than top_k columns.
-        direct_added = sorted(list(scores_direct["engineered_col"].head(
-            len(routed_added)
-        )))
+        direct_added = sorted(list(scores_direct["engineered_col"].head(len(routed_added))))
         assert set(routed_added) == set(direct_added), (
-            f"seed={seed}: routed CMIM support diverged from direct "
-            f"call. routed={routed_added}, direct={direct_added}"
+            f"seed={seed}: routed CMIM support diverged from direct " f"call. routed={routed_added}, direct={direct_added}"
         )
 
 
@@ -259,6 +250,7 @@ class TestCmimAucGteDefault:
     """
 
     def test_cmim_auc_geq_plug_in_on_redundant_pool(self):
+        """CMIM-routed features give AUC >= plug-in features on a redundant fixture."""
         aucs_plug, aucs_cmim = [], []
         for s in (1, 7, 13, 42, 101, 202):
             X, y = _build_redundant_multi(s, n=1800)
@@ -336,24 +328,24 @@ class TestCmimAucGteDefault:
 
 
 class TestPickleClonePreserveScorerFlag:
+    """clone() and pickle round-trip preserve fe_hybrid_orth_default_scorer."""
 
     def test_clone_preserves_default_scorer(self):
+        """clone() preserves fe_hybrid_orth_default_scorer."""
         m = _make_mrmr(fe_hybrid_orth_default_scorer="cmim")
         m2 = clone(m)
-        assert m2.fe_hybrid_orth_default_scorer == "cmim", (
-            f"clone() dropped fe_hybrid_orth_default_scorer: "
-            f"got {m2.fe_hybrid_orth_default_scorer!r}"
-        )
+        assert m2.fe_hybrid_orth_default_scorer == "cmim", f"clone() dropped fe_hybrid_orth_default_scorer: " f"got {m2.fe_hybrid_orth_default_scorer!r}"
 
     def test_pickle_preserves_default_scorer_unfitted(self):
+        """Pickle round-trip on an unfitted estimator preserves fe_hybrid_orth_default_scorer."""
         m = _make_mrmr(fe_hybrid_orth_default_scorer="jmim")
-        m2 = pickle.loads(pickle.dumps(m))
+        m2 = pickle.loads(pickle.dumps(m))  # nosec B301 -- round-trip of a locally-created, trusted object
         assert m2.fe_hybrid_orth_default_scorer == "jmim", (
-            f"pickle round-trip dropped fe_hybrid_orth_default_scorer: "
-            f"got {m2.fe_hybrid_orth_default_scorer!r}"
+            f"pickle round-trip dropped fe_hybrid_orth_default_scorer: " f"got {m2.fe_hybrid_orth_default_scorer!r}"
         )
 
     def test_pickle_preserves_default_scorer_fitted(self):
+        """Pickle round-trip on a fitted estimator preserves the scorer flag and hybrid_orth_features_."""
         X, y = _build_redundant_multi(seed=42, n=1200)
         m = _make_mrmr(
             fe_hybrid_orth_enable=True,
@@ -363,14 +355,11 @@ class TestPickleClonePreserveScorerFlag:
             fe_hybrid_orth_pair_enable=False,
             fe_hybrid_orth_default_scorer="cmim",
         ).fit(X, y)
-        m2 = pickle.loads(pickle.dumps(m))
+        m2 = pickle.loads(pickle.dumps(m))  # nosec B301 -- round-trip of a locally-created, trusted object
         assert m2.fe_hybrid_orth_default_scorer == "cmim"
         added_before = list(getattr(m, "hybrid_orth_features_", []) or [])
         added_after = list(getattr(m2, "hybrid_orth_features_", []) or [])
-        assert added_before == added_after, (
-            f"pickle changed hybrid_orth_features_ under cmim routing: "
-            f"before={added_before}, after={added_after}"
-        )
+        assert added_before == added_after, f"pickle changed hybrid_orth_features_ under cmim routing: " f"before={added_before}, after={added_after}"
 
 
 # ---------------------------------------------------------------------------
@@ -385,10 +374,10 @@ class TestRecommendDefaultScorer:
     """
 
     def test_recommend_returns_cmim(self):
+        """recommend_default_scorer() returns the L83 leaderboard winner 'cmim'."""
         from mlframe.feature_selection.filters.mrmr import MRMR
         assert MRMR.recommend_default_scorer() == "cmim", (
-            f"recommend_default_scorer() drifted from the L83 winner "
-            f"'cmim': got {MRMR.recommend_default_scorer()!r}"
+            f"recommend_default_scorer() drifted from the L83 winner " f"'cmim': got {MRMR.recommend_default_scorer()!r}"
         )
 
     def test_recommend_value_is_valid(self):
@@ -398,8 +387,7 @@ class TestRecommendDefaultScorer:
         from mlframe.feature_selection.filters.mrmr import MRMR
         rec = MRMR.recommend_default_scorer()
         assert rec in MRMR._VALID_FE_HYBRID_ORTH_DEFAULT_SCORERS, (
-            f"recommend_default_scorer()={rec!r} not in the valid "
-            f"allowlist {MRMR._VALID_FE_HYBRID_ORTH_DEFAULT_SCORERS}"
+            f"recommend_default_scorer()={rec!r} not in the valid " f"allowlist {MRMR._VALID_FE_HYBRID_ORTH_DEFAULT_SCORERS}"
         )
 
     def test_recommend_is_classmethod(self):
@@ -407,6 +395,4 @@ class TestRecommendDefaultScorer:
         from mlframe.feature_selection.filters.mrmr import MRMR
         # No instance constructed -- direct class-level call.
         result = MRMR.recommend_default_scorer()
-        assert isinstance(result, str) and result, (
-            "recommend_default_scorer() must return a non-empty string"
-        )
+        assert isinstance(result, str) and result, "recommend_default_scorer() must return a non-empty string"

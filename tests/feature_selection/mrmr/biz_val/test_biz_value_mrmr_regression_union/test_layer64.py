@@ -65,6 +65,8 @@ import pytest
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
 
+from tests.conftest import perf_time_budget
+
 warnings.filterwarnings("ignore")
 
 
@@ -77,31 +79,24 @@ warnings.filterwarnings("ignore")
 # layer's own biz_value test's ``_import_*`` helper so this stays in sync
 # with the contracts the layer tests already pin.
 _LAYER_ENTRY_POINTS: tuple[tuple[int, str, str], ...] = (
-    (56, "mlframe.feature_selection.filters._orthogonal_triplet_fe",
-        "hybrid_orth_mi_triplet_fe"),
-    (57, "mlframe.feature_selection.filters._orthogonal_adaptive_degree_fe",
-        "hybrid_orth_mi_adaptive_degree_fe"),
-    (58, "mlframe.feature_selection.filters._orthogonal_routing_fe",
-        "hybrid_orth_mi_conditional_routing_fe"),
-    (59, "mlframe.feature_selection.filters._orthogonal_diff_basis_fe",
-        "hybrid_orth_mi_diff_basis_fe"),
-    (60, "mlframe.feature_selection.filters._mi_greedy_cmi_fe",
-        "greedy_cmi_fe_construct"),
-    (61, "mlframe.feature_selection.filters._orthogonal_cluster_basis_fe",
-        "hybrid_orth_mi_cluster_basis_fe"),
-    (62, "mlframe.feature_selection.filters._orthogonal_bootstrap_mi_fe",
-        "hybrid_orth_mi_bootstrap_fe"),
-    (63, "mlframe.feature_selection.filters._orthogonal_three_gate_mi_fe",
-        "hybrid_orth_mi_three_gate_fe"),
+    (56, "mlframe.feature_selection.filters._orthogonal_triplet_fe", "hybrid_orth_mi_triplet_fe"),
+    (57, "mlframe.feature_selection.filters._orthogonal_adaptive_degree_fe", "hybrid_orth_mi_adaptive_degree_fe"),
+    (58, "mlframe.feature_selection.filters._orthogonal_routing_fe", "hybrid_orth_mi_conditional_routing_fe"),
+    (59, "mlframe.feature_selection.filters._orthogonal_diff_basis_fe", "hybrid_orth_mi_diff_basis_fe"),
+    (60, "mlframe.feature_selection.filters._mi_greedy_cmi_fe", "greedy_cmi_fe_construct"),
+    (61, "mlframe.feature_selection.filters._orthogonal_cluster_basis_fe", "hybrid_orth_mi_cluster_basis_fe"),
+    (62, "mlframe.feature_selection.filters._orthogonal_bootstrap_mi_fe", "hybrid_orth_mi_bootstrap_fe"),
+    (63, "mlframe.feature_selection.filters._orthogonal_three_gate_mi_fe", "hybrid_orth_mi_three_gate_fe"),
 )
 
 
 class TestSmokeL56_63Imports:
+    """Every L56-L63 sibling module imports cleanly and exposes its documented entry-point."""
 
     @pytest.mark.parametrize(
         "layer,module_name,expected_callable",
         _LAYER_ENTRY_POINTS,
-        ids=[f"L{l}-{m.rsplit('.', 1)[-1]}" for l, m, _ in _LAYER_ENTRY_POINTS],
+        ids=[f"L{lyr}-{m.rsplit('.', 1)[-1]}" for lyr, m, _ in _LAYER_ENTRY_POINTS],
     )
     def test_module_imports_cleanly(self, layer, module_name, expected_callable):
         """Each L56-L63 sibling module must import without raising and
@@ -115,8 +110,7 @@ class TestSmokeL56_63Imports:
         # Belt-and-braces: the named attribute must be callable (a
         # silent ``= None`` reassignment would still pass hasattr).
         assert callable(getattr(mod, expected_callable)), (
-            f"L{layer} {module_name}.{expected_callable} is no longer "
-            f"callable; got {type(getattr(mod, expected_callable))!r}"
+            f"L{layer} {module_name}.{expected_callable} is no longer " f"callable; got {type(getattr(mod, expected_callable))!r}"
         )
 
 
@@ -152,9 +146,9 @@ def _build_kitchen_sink_frame(seed: int = 0, n: int = 1500):
     rng = np.random.default_rng(int(seed))
 
     x_gauss = rng.standard_normal(n)
-    x_gauss_corr = x_gauss * 0.95 + rng.standard_normal(n) * np.sqrt(1 - 0.95 ** 2)
+    x_gauss_corr = x_gauss * 0.95 + rng.standard_normal(n) * np.sqrt(1 - 0.95**2)
     x_uni = rng.uniform(-1, 1, n)
-    x_uni_corr = x_uni * 0.95 + rng.uniform(-1, 1, n) * np.sqrt(1 - 0.95 ** 2)
+    x_uni_corr = x_uni * 0.95 + rng.uniform(-1, 1, n) * np.sqrt(1 - 0.95**2)
 
     x1 = rng.standard_normal(n)
     x2 = rng.standard_normal(n)
@@ -165,9 +159,7 @@ def _build_kitchen_sink_frame(seed: int = 0, n: int = 1500):
     region = pd.Series(rng.choice(list("NSWE"), size=n))
 
     t = pd.Series(np.arange(n, dtype="int64"))
-    temperature = pd.Series(
-        20.0 + 5.0 * np.sin(np.arange(n) / 50.0) + rng.standard_normal(n)
-    )
+    temperature = pd.Series(20.0 + 5.0 * np.sin(np.arange(n) / 50.0) + rng.standard_normal(n))
 
     maybe_a = rng.standard_normal(n).astype(float)
     maybe_b = rng.standard_normal(n).astype(float)
@@ -202,9 +194,9 @@ def _build_kitchen_sink_frame(seed: int = 0, n: int = 1500):
     score = (
         1.2 * x_gauss
         + 0.8 * x_uni
-        + 0.6 * (x1 ** 2 - 1.0)        # L21 Hermite_2 signal
-        + 0.6 * (x1 * x2 * x3)         # L56 triplet 3-way signal
-        + 0.5 * cat_lo_effect          # L33/34 categorical signal
+        + 0.6 * (x1**2 - 1.0)  # L21 Hermite_2 signal
+        + 0.6 * (x1 * x2 * x3)  # L56 triplet 3-way signal
+        + 0.5 * cat_lo_effect  # L33/34 categorical signal
         + 0.3 * np.where(mask_a, 1.0, 0.0)  # L37 missingness-as-signal
         + 0.5 * rng.standard_normal(n)
     )
@@ -330,18 +322,18 @@ def _build_kitchen_sink_mrmr():
 # pair + triplet + spline + fourier recipes, so one expected origin
 # covers the whole family.
 _EXPECTED_ENABLED_ORIGINS_MIN: tuple[str, ...] = (
-    "hybrid_orth",      # L21/L56-63
-    "mi_greedy",        # L26 + L60
-    "kfold_te",         # L33
-    "count_enc",        # L34
-    "freq_enc",         # L34
+    "hybrid_orth",  # L21/L56-63
+    "mi_greedy",  # L26 + L60
+    "kfold_te",  # L33
+    "count_enc",  # L34
+    "freq_enc",  # L34
     "missing_indicator",  # L37
-    "missing_count",    # L37
+    "missing_count",  # L37
     "missing_pattern",  # L37
-    "pairwise_ratio",   # L38
+    "pairwise_ratio",  # L38
     "pairwise_log_ratio",  # L38
-    "grouped_delta",    # L38
-    "lagged_diff",      # L38
+    "grouped_delta",  # L38
+    "lagged_diff",  # L38
 )
 
 
@@ -359,14 +351,16 @@ def kitchen_sink_fitted():
 
 
 class TestKitchenSinkComposite:
+    """The all-FE-knobs-on kitchen-sink fit stays within budget and clears the LogReg holdout AUC floor."""
 
     def test_fit_inside_budget(self, kitchen_sink_fitted):
         """Composite fit (every FE knob ON) must complete inside the
         90s wall-clock budget on the kitchen-sink frame (Layer 64 spec).
         """
         _, _, _, elapsed = kitchen_sink_fitted
-        assert elapsed < 90.0, (
-            f"Kitchen-sink MRMR fit took {elapsed:.1f}s; budget is 90s. "
+        budget = perf_time_budget(90.0)
+        assert elapsed < budget, (
+            f"Kitchen-sink MRMR fit took {elapsed:.1f}s; budget is {budget:.0f}s. "
             f"A regression in one of the FE stages most likely added an "
             f"O(p^k) blow-up; profile the new layer rather than relaxing "
             f"the gate."
@@ -408,20 +402,16 @@ class TestKitchenSinkComposite:
 
 
 class TestProvenanceSpansEnabledMechanisms:
+    """fe_provenance_ carries a row from every enabled mechanism's origin label, with a diversity floor."""
 
-    def test_every_enabled_mechanism_has_at_least_one_provenance_row(
-        self, kitchen_sink_fitted
-    ):
+    def test_every_enabled_mechanism_has_at_least_one_provenance_row(self, kitchen_sink_fitted):
         """fe_provenance_ should carry at least one row from each origin
         label whose mechanism was enabled in the ctor. This is the
         precise pin: a silent regression that drops one mechanism out of
         the ledger fails here with the missing label named.
         """
         m = kitchen_sink_fitted[0]
-        assert hasattr(m, "fe_provenance_"), (
-            "MRMR must populate fe_provenance_ on every successful fit "
-            "(L54 contract)."
-        )
+        assert hasattr(m, "fe_provenance_"), "MRMR must populate fe_provenance_ on every successful fit " "(L54 contract)."
         prov = m.fe_provenance_
         assert isinstance(prov, pd.DataFrame)
         observed_origins = set(prov["origin"].tolist())
@@ -440,8 +430,7 @@ class TestProvenanceSpansEnabledMechanisms:
         # completeness contract -- every ENABLED mechanism contributes a
         # provenance row -- is asserted just below and is unchanged.)
         assert len(observed_origins) >= 1, (
-            f"fe_provenance_ carries no origin rows at all; the recipe "
-            f"ledger is empty. Observed origins: {observed_origins!r}"
+            f"fe_provenance_ carries no origin rows at all; the recipe " f"ledger is empty. Observed origins: {observed_origins!r}"
         )
         # Of the enabled mechanisms, allow a small documented shortfall
         # for buckets whose outputs are NEAR-DUPLICATES (Spearman |rho|
@@ -486,9 +475,7 @@ class TestProvenanceSpansEnabledMechanisms:
         returns silently)."""
         m = kitchen_sink_fitted[0]
         prov = m.fe_provenance_
-        engineered_origins = {
-            o for o in prov["origin"].tolist() if o not in ("raw", "engineered_unknown")
-        }
+        engineered_origins = {o for o in prov["origin"].tolist() if o not in ("raw", "engineered_unknown")}
         assert len(engineered_origins) >= 3, (
             f"fe_provenance_ engineered origins = {sorted(engineered_origins)!r}; "
             f"floor is 3 distinct labels. Layer 64 spec: provenance diversity "
@@ -505,6 +492,7 @@ _LAYER_TEST_GLOB = "test_biz_value_mrmr_layer*.py"
 
 
 class TestLayerRoster:
+    """Every prior layer's biz_value test module remains discoverable on disk."""
 
     def test_full_layer_module_roster_discoverable(self):
         """Every L6..L64 biz_value test module (plus the L1-L5 catch-all
@@ -544,10 +532,7 @@ class TestLayerRoster:
         # L64 itself must be discoverable on disk (some prior layers were consolidated into themed
         # submodules under non-layerN names, so a strict [6,64] contiguity over layerN filenames no
         # longer holds; the module-count floor below is the silent-delete guard).
-        assert 64 in layer_numbers, (
-            f"L64 layer module not discovered on disk; layer numbers present: "
-            f"{sorted(layer_numbers)!r}."
-        )
+        assert 64 in layer_numbers, f"L64 layer module not discovered on disk; layer numbers present: " f"{sorted(layer_numbers)!r}."
         # 2. L1..L5 catch-all modules check.
         catchall_required = (
             "test_biz_value_mrmr_extreme.py",
@@ -556,10 +541,7 @@ class TestLayerRoster:
             "test_biz_value_mrmr_quality_metrics.py",
             "test_biz_value_mrmr_ultra.py",
         )
-        missing_catchall = [
-            n for n in catchall_required
-            if not os.path.isfile(os.path.join(this_dir, n))
-        ]
+        missing_catchall = [n for n in catchall_required if not os.path.isfile(os.path.join(this_dir, n))]
         assert not missing_catchall, (
             f"Missing L1..L5 catch-all biz_value module(s): "
             f"{missing_catchall!r}; these carry the legacy baseline / "
@@ -573,8 +555,7 @@ class TestLayerRoster:
             glob.glob(os.path.join(this_dir, "test_biz_value_mrmr_*", "test_*.py"))
         )
         assert module_count >= 110, (
-            f"biz_value test-module roster shrank to {module_count} (floor 110); "
-            f"a prior-layer test module was likely dropped or renamed."
+            f"biz_value test-module roster shrank to {module_count} (floor 110); " f"a prior-layer test module was likely dropped or renamed."
         )
 
 
@@ -601,6 +582,7 @@ _ENGINEERED_ROSTER_ATTRS: tuple[str, ...] = (
 
 
 class TestNoEngineeredNameCollisions:
+    """No two FE stages emit an engineered column with the same name, within or across specific-bucket rosters."""
 
     def test_no_duplicate_engineered_names_post_fit(self, kitchen_sink_fitted):
         """Every engineered column name produced by the kitchen-sink fit
@@ -628,10 +610,7 @@ class TestNoEngineeredNameCollisions:
         # the cumulative tracker). The cross-stage dedup pass in
         # ``_fit_impl`` already handles X-frame collisions; this test
         # pins the contract that no SPECIFIC bucket emits a duplicate.
-        within_specific = tuple(
-            a for a in _ENGINEERED_ROSTER_ATTRS
-            if a != "hybrid_orth_features_"
-        )
+        within_specific = tuple(a for a in _ENGINEERED_ROSTER_ATTRS if a != "hybrid_orth_features_")
         per_roster_dupes: dict[str, list[str]] = {}
         for attr in within_specific:
             roster = getattr(m, attr, None)
@@ -663,10 +642,7 @@ class TestNoEngineeredNameCollisions:
         # invariant) that specific buckets WIN the per-name lookup, so
         # cross-collision with the cumulative tracker is expected and
         # harmless.
-        specific_rosters = tuple(
-            a for a in _ENGINEERED_ROSTER_ATTRS
-            if a not in ("hybrid_orth_features_", "mi_greedy_features_")
-        )
+        specific_rosters = tuple(a for a in _ENGINEERED_ROSTER_ATTRS if a not in ("hybrid_orth_features_", "mi_greedy_features_"))
         owner: dict[str, str] = {}
         cross_dupes: dict[str, list[str]] = {}
         for attr in specific_rosters:
