@@ -233,7 +233,7 @@ def _run_fe_parallelism_sweep() -> list:
         _materialise_chunk_njit_parallel(tv, a_cols, b_cols, ops, out)
         return out
 
-    return sweep_backend_grid(  # type: ignore[no-any-return]  # pyutilz helper returns the declared list of results
+    return sweep_backend_grid(
         {"serial": _serial, "parallel": _parallel},
         {"n_cols": list(_FE_PARALLELISM_SWEEP_COLS)},
         _make_fe_parallelism_inputs,

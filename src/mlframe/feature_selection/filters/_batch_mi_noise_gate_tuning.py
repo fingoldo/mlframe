@@ -127,7 +127,7 @@ def _run_batch_mi_noise_gate_sweep() -> list:
     max_n = max(n_rows) if n_rows else 1
     fitting = [k for k in n_cols if max_n * int(k) * 8 * 3 <= budget]
     n_cols = fitting or [min(n_cols)]  # always keep at least the smallest column
-    return sweep_backend_grid(  # type: ignore[no-any-return]  # pyutilz helper returns the declared list of results
+    return sweep_backend_grid(
         variants,
         {"n_rows": n_rows, "n_cols": n_cols},
         _make_batch_mi_noise_gate_inputs,

@@ -138,17 +138,12 @@ def _resolve_gpu_min_features(default: int = 2000) -> int:
 
     Below this width the cold cupy/CUDA load + NVRTC kernel compile (~17s on the dev box) dwarfs
     even a single-threaded CPU `Z.T @ Z` on the bench (~0.3s at f=704/n=10000, ~50ms multithreaded).
-    The blocked CPU path picks up >`max_dense_features`. The threshold is dispatcher-tunable per
-    HW via ``pyutilz.performance.kernel_tuning.cache`` (key:
-    ``mlframe.shap_proxied_fs.cluster_corr.gpu_min_features``).
-    """
-    try:
-        from pyutilz.performance.kernel_tuning import cache as kernel_tuning_cache
+    The blocked CPU path picks up >`max_dense_features`.
 
-        value = kernel_tuning_cache.get("mlframe.shap_proxied_fs.cluster_corr.gpu_min_features", default=default)
-        return int(value)
-    except Exception:
-        return default
+    A cache-tuned override was attempted here via the non-existent ``kernel_tuning_cache.get(key,
+    default=...)`` API described in ``_shap_proxy_cluster_su_bitmap._resolve_bitmap_min_features`` --
+    removed as dead, always-``default``-returning code."""
+    return default
 
 
 def cluster_correlated_features(

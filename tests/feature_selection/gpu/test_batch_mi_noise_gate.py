@@ -164,7 +164,7 @@ def test_su_mode_bit_identical(monkeypatch):
 # accumulation (one n-row pass instead of two). It MUST be bit-identical to v1 (and thus to the per-column
 # mi_direct reference) -- any drift would change which engineered features MRMR keeps. These pin the
 # bit-identity across the same n/K/nbins/npermutations/min_nonzero_confidence grid + SU + pure-noise.
-from mlframe.feature_selection.filters.info_theory import (  # noqa: E402
+from mlframe.feature_selection.filters.info_theory import (
     batch_mi_with_noise_gate_v2,
     select_batch_mi_kernel,
 )
@@ -226,3 +226,41 @@ def test_select_batch_mi_kernel_env_override(monkeypatch):
     assert select_batch_mi_kernel(30_000, 600) is batch_mi_with_noise_gate_v2
     monkeypatch.delenv("MLFRAME_BATCH_MI_KERNEL", raising=False)
     assert callable(select_batch_mi_kernel(30_000, 600))
+
+
+def test_sweep_uses_kernel_choice_as_the_decision_key(monkeypatch):
+    """Regression (2026-07-16): _run_batch_mi_kernel_sweep called sweep_backend_grid(result_key=...), a
+    kwarg pyutilz's sweep_backend_grid has never accepted (the real parameter is decision_key) -- every
+    call raised TypeError, silently caught by a fallback re-call that OMITTED the key entirely, so every
+    result region stored its winner under the default "backend_choice" key while select_batch_mi_kernel
+    always reads "kernel_choice" (always missing -> always silently defaulted to "v2"). A per-host tuning
+    sweep that measured v1 as the winner for some shape was therefore SILENTLY IGNORED: the
+    kernel_tuning_cache path never actually influenced which kernel ran.
+
+    Spies on the real sweep_backend_grid call to verify the decision_key it's invoked with, so this
+    fails pre-fix (result_key was passed, decision_key wasn't -- or the call needed 2 tries) and passes
+    post-fix (decision_key="kernel_choice" passed directly, first try)."""
+    from mlframe.feature_selection.filters.info_theory import _batch_kernels as bk
+    import pyutilz.dev.benchmarking as _bench
+
+    calls = []
+    orig = _bench.sweep_backend_grid
+
+    def _spy(*a, **kw):
+        calls.append(kw)
+        # Short-circuit the real (slow) sweep -- we only need to observe the call signature.
+        return [{"n_rows_max": None, "kernel_choice": "v1"}]
+
+    monkeypatch.setattr(_bench, "sweep_backend_grid", _spy)
+    try:
+        bk._run_batch_mi_kernel_sweep()
+    finally:
+        monkeypatch.setattr(_bench, "sweep_backend_grid", orig)
+
+    assert len(calls) == 1, f"sweep_backend_grid should be called exactly once (no TypeError-retry dead path); got {len(calls)} calls"
+    assert calls[0].get("decision_key") == "kernel_choice", (
+        f"sweep_backend_grid must be called with decision_key='kernel_choice' (pyutilz's real parameter "
+        f"name) so select_batch_mi_kernel's res.get('kernel_choice', ...) actually finds the tuned "
+        f"winner instead of silently defaulting to v2; got kwargs={calls[0]!r}"
+    )
+    assert "result_key" not in calls[0], "result_key is not a real sweep_backend_grid parameter -- it always raised TypeError"

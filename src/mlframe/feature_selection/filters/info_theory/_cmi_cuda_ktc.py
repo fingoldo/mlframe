@@ -121,9 +121,9 @@ def _cmi_fallback_choice(n_samples: int, p: int = 64) -> str:
 
 
 try:
-    from pyutilz.performance.kernel_tuning.registry import kernel_tuner
+    from pyutilz.performance.kernel_tuning.registry import TunerSpec, kernel_tuner
 
-    _CMI_SPEC = kernel_tuner(
+    _CMI_SPEC: "TunerSpec | None" = kernel_tuner(
         kernel_name="cmi_batched_cpu_cuda_crossover",
         variant_fns=(),  # CUDA path covered by salt; CPU is the reference
         tuner=_run_cmi_sweep,

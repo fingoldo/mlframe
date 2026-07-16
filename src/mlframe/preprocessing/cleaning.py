@@ -468,7 +468,7 @@ def fragment_df_on_ram_usage_increase(df: pd.DataFrame, prev_mem_usage: float, m
     """Defragment ``df`` (via ``.copy()``) when process RAM usage grew by more than ``max_increase_percent`` since ``prev_mem_usage``, which is the usual symptom of pandas fragmenting a frame after many in-place column assignments. Skipped when the frame exceeds ``_DEFRAG_COPY_MAX_BYTES`` since a copy would double peak RAM on a huge frame. Returns ``(df, mem_usage_to_compare_against_next_time)``."""
     new_mem_usage = get_own_memory_usage()
     if prev_mem_usage:
-        if new_mem_usage >= prev_mem_usage * (1 + max_increase_percent):
+        if new_mem_usage is not None and new_mem_usage >= prev_mem_usage * (1 + max_increase_percent):
             try:
                 df_bytes = int(df.memory_usage(deep=True).sum())
             except Exception:

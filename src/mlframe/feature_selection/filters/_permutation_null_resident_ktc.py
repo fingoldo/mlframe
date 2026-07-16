@@ -107,7 +107,7 @@ def _run_permnull_sweep() -> list:
     from pyutilz.dev.benchmarking import sweep_backend_grid
 
     variants = {"njit": _permnull_njit, "resident": _permnull_resident}
-    return sweep_backend_grid(  # type: ignore[no-any-return]  # pyutilz helper returns the declared list of results
+    return sweep_backend_grid(
         variants,
         {"n_samples": _PERMNULL_SWEEP_N, "ncand": _PERMNULL_SWEEP_NCAND, "nperm": _PERMNULL_SWEEP_NPERM},
         _make_permnull_inputs,
@@ -122,9 +122,9 @@ def _permnull_fallback_choice(n_samples: int, ncand: int = 8, nperm: int = 200) 
 
 
 try:
-    from pyutilz.performance.kernel_tuning.registry import kernel_tuner
+    from pyutilz.performance.kernel_tuning.registry import TunerSpec, kernel_tuner
 
-    _PERMNULL_SPEC = kernel_tuner(
+    _PERMNULL_SPEC: "TunerSpec | None" = kernel_tuner(
         kernel_name="fe_maxt_permnull_floor_resident_crossover",
         variant_fns=(),  # GPU resident path covered by salt; njit is the reference
         tuner=_run_permnull_sweep,

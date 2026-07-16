@@ -89,7 +89,7 @@ def _run_rescand_sweep() -> list:
     from pyutilz.dev.benchmarking import sweep_backend_grid
 
     variants = {"njit": _rescand_njit, "resident": _rescand_resident}
-    return sweep_backend_grid(  # type: ignore[no-any-return]  # pyutilz helper returns the declared list of results
+    return sweep_backend_grid(
         variants,
         {"n_samples": _RESCAND_SWEEP_N_SAMPLES, "k": _RESCAND_SWEEP_K},
         _make_rescand_inputs,
@@ -104,9 +104,9 @@ def _rescand_fallback_choice(n_samples: int, k: int = 16) -> str:
 
 
 try:
-    from pyutilz.performance.kernel_tuning.registry import kernel_tuner
+    from pyutilz.performance.kernel_tuning.registry import TunerSpec, kernel_tuner
 
-    _RESCAND_SPEC = kernel_tuner(
+    _RESCAND_SPEC: "TunerSpec | None" = kernel_tuner(
         kernel_name="fe_gate_resident_candidate_mi_crossover",
         variant_fns=(),  # GPU resident path covered by salt; njit is the reference
         tuner=_run_rescand_sweep,

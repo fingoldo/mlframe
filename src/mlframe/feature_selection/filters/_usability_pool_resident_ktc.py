@@ -114,7 +114,7 @@ def _run_pooltable_sweep() -> list:
     from pyutilz.dev.benchmarking import sweep_backend_grid
 
     variants = {"njit": _pooltable_njit, "resident": _pooltable_resident}
-    return sweep_backend_grid(  # type: ignore[no-any-return]  # pyutilz helper returns the declared list of results
+    return sweep_backend_grid(
         variants,
         {"n_rows": _POOLRES_SWEEP_N, "npairs": _POOLRES_SWEEP_NPAIRS, "n_combos": _POOLRES_SWEEP_NCOMBOS},
         _make_pooltable_inputs,
@@ -129,9 +129,9 @@ def _pooltable_fallback_choice(n_rows: int, npairs: int = 16, n_combos: int = 57
 
 
 try:
-    from pyutilz.performance.kernel_tuning.registry import kernel_tuner
+    from pyutilz.performance.kernel_tuning.registry import TunerSpec, kernel_tuner
 
-    _POOLRES_SPEC = kernel_tuner(
+    _POOLRES_SPEC: "TunerSpec | None" = kernel_tuner(
         kernel_name="fe_usability_pool_combo_mi_table_resident_crossover",
         variant_fns=(),  # GPU resident path covered by salt; njit is the reference
         tuner=_run_pooltable_sweep,

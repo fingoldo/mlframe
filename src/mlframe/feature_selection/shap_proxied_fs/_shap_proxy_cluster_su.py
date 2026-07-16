@@ -39,18 +39,12 @@ def _resolve_parallel_min_features(default: int = 50) -> int:
     """Smallest feature count at which the parallel prange kernel beats the serial path.
 
     Below this width the per-pair work is small enough that prange thread-spawn dwarfs
-    the saved CPU time. Above it, the O(f^2) pair count scales the wall and parallel
-    pays off. The default (50) is dispatcher-tunable per HW via
-    ``pyutilz.performance.kernel_tuning.cache`` (key
-    ``mlframe.shap_proxied_fs.cluster_su.parallel_min_features``).
-    """
-    try:
-        from pyutilz.performance.kernel_tuning import cache as kernel_tuning_cache
+    the saved CPU time. Above it, the O(f^2) pair count scales the wall and parallel pays off.
 
-        value = kernel_tuning_cache.get("mlframe.shap_proxied_fs.cluster_su.parallel_min_features", default=default)
-        return int(value)
-    except Exception:
-        return default
+    A cache-tuned override was attempted here via the non-existent ``kernel_tuning_cache.get(key,
+    default=...)`` API described in ``_shap_proxy_cluster_su_bitmap._resolve_bitmap_min_features`` --
+    removed as dead, always-``default``-returning code."""
+    return default
 
 
 def _resolve_gpu_min_features(default: int = 500) -> int:
@@ -58,16 +52,10 @@ def _resolve_gpu_min_features(default: int = 500) -> int:
 
     Below this width the cupy/CUDA launch overhead + onehot-pack allocation dwarfs even the
     parallel CPU kernel's wall (~0.14s at f=500 / n_bins=10 / n=1500 on iter69's bench).
-    Dispatcher-tunable per HW via ``pyutilz.performance.kernel_tuning.cache`` (key
-    ``mlframe.shap_proxied_fs.cluster_su.gpu_min_features``); default 500.
-    """
-    try:
-        from pyutilz.performance.kernel_tuning import cache as kernel_tuning_cache
 
-        value = kernel_tuning_cache.get("mlframe.shap_proxied_fs.cluster_su.gpu_min_features", default=default)
-        return int(value)
-    except Exception:
-        return default
+    A cache-tuned override was attempted here via the same non-existent ``kernel_tuning_cache.get``
+    API -- removed as dead, always-``default``-returning code."""
+    return default
 
 
 _GPU_AVAILABLE_CACHE: bool | None = None

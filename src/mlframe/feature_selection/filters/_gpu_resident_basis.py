@@ -1002,7 +1002,7 @@ def _run_fe_gpu_pairs_mi_sweep() -> list:
         """GPU-path timing: the resident-basis pair-MI kernel on the same inputs, for crossover comparison against ``_cpu``."""
         return gpu_pairs_fe_mi(cand, nbins, yc, yc, fy, 3, 0.0, False)
 
-    return sweep_backend_grid(  # type: ignore[no-any-return]  # pyutilz helper returns the declared list of results
+    return sweep_backend_grid(
         {"cpu": _cpu, "gpu": _gpu},
         {"n_rows": [50_000, 100_000, 300_000]},  # GPU path engages only at n >= analytic_null_min_n
         _make_fe_gpu_pairs_inputs,
@@ -1129,7 +1129,7 @@ def _run_fe_gpu_binning_sweep() -> list:
         """GPU-path timing: the resident-select discretize kernel, for crossover comparison against ``_cpu``."""
         return gpu_discretize_codes_host(cand, nbins, dtype=np.int8)
 
-    return sweep_backend_grid(  # type: ignore[no-any-return]  # pyutilz helper returns the declared list of results
+    return sweep_backend_grid(
         {"cpu": _cpu, "gpu": _gpu},
         {"n_rows": [20_000, 50_000, 100_000, 300_000]},
         _make_fe_gpu_binning_inputs,
@@ -1179,7 +1179,7 @@ def ensure_fe_gpu_binning_tuning(force: bool = False) -> list | None:
         if not force:
             existing = cache.get_regions("fe_gpu_binning")
             if existing:
-                return existing  # type: ignore[no-any-return]  # cache stores the list[dict] regions this function returns
+                return existing
         regions = _run_fe_gpu_binning_sweep()
         if regions:
             cache.update("fe_gpu_binning", axes=["n_rows"], regions=regions, code_version=_fe_gpu_binning_code_version())
