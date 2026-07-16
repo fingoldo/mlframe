@@ -62,11 +62,11 @@ interaction / FE synthesis paths don't change what counts as
 from __future__ import annotations
 
 import warnings
+from functools import cache
 
 import numpy as np
 import pandas as pd
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -188,9 +188,24 @@ def _make_mrmr(**overrides):
 
 
 def _fit_quiet(sel, X, y):
+    """Fit ``sel`` on ``(X, y)`` with warnings silenced; return the fitted estimator."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         return sel.fit(X, y)
+
+
+@cache
+def _build_and_fit_layer18(seed):
+    """Cache-dedupe the (seed) degenerate-frame fit shared by 6 tests across 5 classes below
+    (TestMrmrSurvivesDegenerateFrame's 2 tests, TestZeroInfoColumnsExcluded, TestExactDuplicateAtMostOneOfPair,
+    TestNearConstantNotPreferredOverSignal, TestSupportGainsAlignmentDegenerate) that each independently
+    rebuilt and refit the identical (X, y, config) triple. TestUnusualDtypesDoNotCrash, TestInfOnlyColumnRaisesActionable
+    and TestPureDegenerateFrameDegradesSafely build their own distinct frames and are left as-is.
+    """
+    X, y = _build_degenerate_frame(seed, include_inf=False)
+    sel = _make_mrmr(random_seed=seed)
+    _fit_quiet(sel, X.copy(), y)
+    return X, y, sel
 
 
 # ---------------------------------------------------------------------------
@@ -206,9 +221,8 @@ class TestMrmrSurvivesDegenerateFrame:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_fit_does_not_crash(self, seed):
-        X, y = _build_degenerate_frame(seed, include_inf=False)
-        sel = _make_mrmr(random_seed=seed)
-        _fit_quiet(sel, X.copy(), y)
+        """MRMR.fit on a degenerate-column frame does not crash and yields non-empty support_."""
+        _X, _y, sel = _build_and_fit_layer18(seed)
         assert sel.support_ is not None
         assert sel.n_features_ >= 1, (
             f"MRMR returned empty support_ on degenerate frame; "
@@ -218,13 +232,10 @@ class TestMrmrSurvivesDegenerateFrame:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_at_least_one_real_signal_in_support(self, seed):
-        X, y = _build_degenerate_frame(seed, include_inf=False)
-        sel = _make_mrmr(random_seed=seed)
-        _fit_quiet(sel, X.copy(), y)
+        """At least one real signal (x_signal_1/2 or its duplicate) survives despite 8 degenerate neighbours."""
+        _X, _y, sel = _build_and_fit_layer18(seed)
         names = list(sel.get_feature_names_out())
-        signal_present = any(
-            n in ("x_signal_1", "x_signal_2", "dup_signal_1") for n in names
-        )
+        signal_present = any(n in ("x_signal_1", "x_signal_2", "dup_signal_1") for n in names)
         assert signal_present, (
             f"NO real signal (x_signal_1 / x_signal_2 / dup_signal_1) "
             f"in support despite carrying >88% of var(y); seed={seed}, "
@@ -248,9 +259,8 @@ class TestZeroInfoColumnsExcluded:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_zero_info_cols_not_selected(self, seed):
-        X, y = _build_degenerate_frame(seed, include_inf=False)
-        sel = _make_mrmr(random_seed=seed)
-        _fit_quiet(sel, X.copy(), y)
+        """Constant, all-NaN, single-value-int, and almost-all-NaN columns never enter support_."""
+        _X, _y, sel = _build_and_fit_layer18(seed)
         names = set(sel.get_feature_names_out())
         leaked = [c for c in DEGENERATE_ZERO_INFO_COLS if c in names]
         assert not leaked, (
@@ -275,9 +285,8 @@ class TestExactDuplicateAtMostOneOfPair:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_at_most_one_of_dup_pair(self, seed):
-        X, y = _build_degenerate_frame(seed, include_inf=False)
-        sel = _make_mrmr(random_seed=seed)
-        _fit_quiet(sel, X.copy(), y)
+        """At most one of x_signal_1/dup_signal_1 (byte-identical duplicates) survives DCD."""
+        _X, _y, sel = _build_and_fit_layer18(seed)
         names = list(sel.get_feature_names_out())
         pair_count = sum(1 for n in names if n in ("x_signal_1", "dup_signal_1"))
         assert pair_count <= 1, (
@@ -314,9 +323,7 @@ class TestUnusualDtypesDoNotCrash:
         y = pd.Series(y_arr, name="y_reg")
         sel = _make_mrmr(random_seed=seed)
         _fit_quiet(sel, X.copy(), y)
-        assert sel.n_features_ >= 1, (
-            f"bool-column frame crashed selection silently; seed={seed}"
-        )
+        assert sel.n_features_ >= 1, f"bool-column frame crashed selection silently; seed={seed}"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_mostly_zero_does_not_crash(self, seed):
@@ -336,9 +343,7 @@ class TestUnusualDtypesDoNotCrash:
         y = pd.Series(y_arr, name="y_reg")
         sel = _make_mrmr(random_seed=seed)
         _fit_quiet(sel, X.copy(), y)
-        assert sel.n_features_ >= 1, (
-            f"mostly-zero sparse-flag frame crashed; seed={seed}"
-        )
+        assert sel.n_features_ >= 1, f"mostly-zero sparse-flag frame crashed; seed={seed}"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_near_constant_does_not_crash(self, seed):
@@ -358,9 +363,7 @@ class TestUnusualDtypesDoNotCrash:
         y = pd.Series(y_arr, name="y_reg")
         sel = _make_mrmr(random_seed=seed)
         _fit_quiet(sel, X.copy(), y)
-        assert sel.n_features_ >= 1, (
-            f"near-constant frame crashed; seed={seed}"
-        )
+        assert sel.n_features_ >= 1, f"near-constant frame crashed; seed={seed}"
 
 
 # ---------------------------------------------------------------------------
@@ -377,18 +380,15 @@ class TestNearConstantNotPreferredOverSignal:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_near_const_not_selected_above_signal(self, seed):
-        X, y = _build_degenerate_frame(seed, include_inf=False)
-        sel = _make_mrmr(random_seed=seed)
-        _fit_quiet(sel, X.copy(), y)
+        """If near_const lands in support_, a real signal must be present too -- it never replaces both."""
+        _X, _y, sel = _build_and_fit_layer18(seed)
         names = list(sel.get_feature_names_out())
         if "near_const" not in names:
             return  # contract trivially satisfied
         # If near_const IS in support, at least one real signal must
         # be too. near_const winning over BOTH signals would mean MI
         # ranking is broken.
-        has_signal = any(
-            n in ("x_signal_1", "x_signal_2", "dup_signal_1") for n in names
-        )
+        has_signal = any(n in ("x_signal_1", "x_signal_2", "dup_signal_1") for n in names)
         assert has_signal, (
             f"near_const in support but NO real signal -- a column "
             f"with 1% jitter outranked features carrying >88% of "
@@ -411,6 +411,7 @@ class TestInfOnlyColumnRaisesActionable:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_inf_only_raises_valueerror(self, seed):
+        """A +inf-only column raises ValueError referencing inf and an actionable remediation verb."""
         X, y = _build_degenerate_frame(seed, include_inf=True)
         sel = _make_mrmr(random_seed=seed)
         with warnings.catch_warnings():
@@ -418,14 +419,8 @@ class TestInfOnlyColumnRaisesActionable:
             with pytest.raises(ValueError) as exc_info:
                 sel.fit(X.copy(), y)
         msg = str(exc_info.value).lower()
-        assert "inf" in msg, (
-            f"seed={seed}: ValueError raised but message doesn't "
-            f"reference inf. Got: {exc_info.value!r}"
-        )
-        assert "replace" in msg or "drop" in msg, (
-            f"seed={seed}: ValueError missing actionable remediation "
-            f"verb (replace / drop). Got: {exc_info.value!r}"
-        )
+        assert "inf" in msg, f"seed={seed}: ValueError raised but message doesn't " f"reference inf. Got: {exc_info.value!r}"
+        assert "replace" in msg or "drop" in msg, f"seed={seed}: ValueError missing actionable remediation " f"verb (replace / drop). Got: {exc_info.value!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -441,23 +436,16 @@ class TestSupportGainsAlignmentDegenerate:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_gains_aligned_with_support(self, seed):
-        X, y = _build_degenerate_frame(seed, include_inf=False)
-        sel = _make_mrmr(random_seed=seed)
-        _fit_quiet(sel, X.copy(), y)
+        """mrmr_gains_ stays length-aligned to support_, finite and non-negative under degenerate input."""
+        _X, _y, sel = _build_and_fit_layer18(seed)
         gains = np.asarray(sel.mrmr_gains_, dtype=np.float64)
-        assert gains.shape == (sel.n_features_,), (
-            f"mrmr_gains_ length {gains.shape} != n_features_ "
-            f"{sel.n_features_} on degenerate frame; seed={seed}"
-        )
+        assert gains.shape == (sel.n_features_,), f"mrmr_gains_ length {gains.shape} != n_features_ " f"{sel.n_features_} on degenerate frame; seed={seed}"
         assert np.all(np.isfinite(gains)), (
             f"mrmr_gains_ has non-finite entries {gains} on degenerate "
             f"frame -- a degenerate column propagated NaN/Inf MI into "
             f"the diagnostic array. seed={seed}"
         )
-        assert np.all(gains >= 0.0), (
-            f"mrmr_gains_ has negative entries {gains} on degenerate "
-            f"frame; gains are MI deltas and must be >= 0. seed={seed}"
-        )
+        assert np.all(gains >= 0.0), f"mrmr_gains_ has negative entries {gains} on degenerate " f"frame; gains are MI deltas and must be >= 0. seed={seed}"
 
 
 # ---------------------------------------------------------------------------
