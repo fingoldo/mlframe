@@ -175,7 +175,7 @@ def analytic_mi_null_batch(raw_mi_row: np.ndarray, n_rows: int, bx_per_col: np.n
 
 
 @njit(nogil=True, cache=True, parallel=True)
-def _occupied_bins_per_col(disc_2d: np.ndarray) -> np.ndarray:
+def _occupied_bins_per_col(disc_2d: np.ndarray, nt: int) -> np.ndarray:
     """Count OCCUPIED (distinct, non-negative) bin codes per column in one O(n*K) pass.
 
     Exact replacement for the per-column ``np.unique(disc_2d[:, k]).size`` loop, which sorted each
@@ -188,7 +188,13 @@ def _occupied_bins_per_col(disc_2d: np.ndarray) -> np.ndarray:
     threads. Column-parallel would stride ``disc_2d[i, k]`` by K and thrash cache (measured 0.48x at
     K=200); row-chunk keeps the sequential access AND parallelises -> 1.34x @300k/K=200, 1.39x @K=800,
     bit-identical at every K. ``M = max_code+1`` is tiny (quantile bin codes: nbins + sentinel ~<=21).
-    """
+
+    ``nt`` (thread count) is a CALLER-supplied argument, not queried internally via
+    ``numba.get_num_threads()``: that call reads numba's runtime-mutable threading-layer state, which numba
+    treats as a "dynamic global" and refuses to disk-cache the function for (warned every fresh process:
+    "Cannot cache compiled function ... uses dynamic globals") -- paying a full LLVM recompile on every
+    process launch despite ``cache=True``. Passing the thread count as a plain int argument removes the
+    dynamic global and restores real disk-cache hits (verified: no cache warning with this form)."""
     n, K = disc_2d.shape
     out = np.zeros(K, dtype=np.int64)
     if n == 0:
@@ -202,7 +208,6 @@ def _occupied_bins_per_col(disc_2d: np.ndarray) -> np.ndarray:
     if gmax < 0:
         return out
     M = gmax + 1
-    nt = numba.get_num_threads()
     local = np.zeros((nt, K, M), dtype=np.bool_)
     chunk = (n + nt - 1) // nt
     for t in numba.prange(nt):
@@ -264,7 +269,7 @@ def analytic_batch_noise_gate(
     # ``bx_per_col`` may be PRECOMPUTED by the caller (the device-resident FE pair-MI path counts occupied bins ON
     # device from the resident codes, so the (n,K) code matrix never crosses the bus just to run this host njit).
     if bx_per_col is None:
-        bx_per_col = _occupied_bins_per_col(np.ascontiguousarray(disc_2d))
+        bx_per_col = _occupied_bins_per_col(np.ascontiguousarray(disc_2d), numba.get_num_threads())
     else:
         bx_per_col = np.asarray(bx_per_col, dtype=np.int64)
     # VECTORISED (2026-07-03): the per-column loop below previously called scipy ``chi2.sf`` ONCE per

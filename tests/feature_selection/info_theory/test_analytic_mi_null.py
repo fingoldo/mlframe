@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import time
 
+import numba
 import numpy as np
 import pytest
 
@@ -234,6 +235,6 @@ def test_occupied_bins_per_col_rowchunk_parallel_matches_np_unique():
     for n, K, nb in [(3000, 5, 10), (20000, 40, 12), (50000, 130, 8)]:
         disc = np.ascontiguousarray(rng.integers(0, nb, size=(n, K)).astype(np.int16))
         disc[rng.random((n, K)) < 0.03] = -1  # masked -> ignored by both
-        got = _occupied_bins_per_col(disc)
+        got = _occupied_bins_per_col(disc, numba.get_num_threads())
         ref = np.array([np.unique(disc[disc[:, k] >= 0, k]).size for k in range(K)], dtype=np.int64)
         assert np.array_equal(got, ref), f"K={K}"

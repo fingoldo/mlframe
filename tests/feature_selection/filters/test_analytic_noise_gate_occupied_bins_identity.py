@@ -8,6 +8,7 @@ slip through unnoticed.
 """
 from __future__ import annotations
 
+import numba
 import numpy as np
 import pytest
 
@@ -27,7 +28,7 @@ def test_occupied_bins_matches_np_unique(nbins, dtype):
     rng = np.random.default_rng(nbins)
     n, K = 4000, 25
     disc = rng.integers(0, nbins, size=(n, K)).astype(dtype)
-    assert np.array_equal(_occupied_bins_per_col(disc), _np_unique_counts(disc))
+    assert np.array_equal(_occupied_bins_per_col(disc, numba.get_num_threads()), _np_unique_counts(disc))
 
 
 def test_occupied_bins_sparse_and_unoccupied_columns():
@@ -40,13 +41,13 @@ def test_occupied_bins_sparse_and_unoccupied_columns():
         dtype=np.int16,
     )
     # col0 occupies {0,2,4}=3; col1 {5}=1; col2 {3,7}=2; col3 {0}=1.
-    assert list(_occupied_bins_per_col(disc)) == [3, 1, 2, 1]
-    assert np.array_equal(_occupied_bins_per_col(disc), _np_unique_counts(disc))
+    assert list(_occupied_bins_per_col(disc, numba.get_num_threads())) == [3, 1, 2, 1]
+    assert np.array_equal(_occupied_bins_per_col(disc, numba.get_num_threads()), _np_unique_counts(disc))
 
 
 def test_occupied_bins_empty_matrix():
     disc = np.zeros((0, 5), dtype=np.int16)
-    assert list(_occupied_bins_per_col(disc)) == [0, 0, 0, 0, 0]
+    assert list(_occupied_bins_per_col(disc, numba.get_num_threads())) == [0, 0, 0, 0, 0]
 
 
 def test_gate_output_identical_to_np_unique_path():

@@ -421,7 +421,7 @@ def _resolve_preset(preset: str | None) -> str:
     raise ValueError(f"unknown FE preset {preset!r}; expected one of " f"{_KNOWN_UNARY_PRESETS} (or aliases 'rich'/'full' -> 'maximal')")
 
 
-@njit
+@njit(cache=True)
 def _safe_pow(x, exponent):
     """Element-wise ``x**exponent`` for the reciprocal/negative-power unary transforms (``reciproc``,
     ``invsquared``, ``invqubed``, ``invcbrt``, ``invsqrt``) that is EXACT for every nonzero ``x`` and finite

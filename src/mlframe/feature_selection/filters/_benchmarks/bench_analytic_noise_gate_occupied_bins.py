@@ -17,6 +17,7 @@ import sys
 import time
 from pathlib import Path
 
+import numba
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[5] / "src"))
@@ -32,7 +33,7 @@ def _old_counts(disc_2d):
 
 
 def _new_counts(disc_2d):
-    return _occupied_bins_per_col(disc_2d)
+    return _occupied_bins_per_col(disc_2d, numba.get_num_threads())
 
 
 def _best_of(fn, arg, reps=7):
