@@ -39,6 +39,7 @@ paper over a regression — per house rule).
 
 2026-05-31 Layer 29.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -58,7 +59,6 @@ from sklearn.metrics import accuracy_score, r2_score
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 
-
 warnings.filterwarnings("ignore")
 
 
@@ -72,6 +72,8 @@ SUPPORT_SIZE_SLACK = 5
 
 
 from tests.feature_selection.conftest import make_fast_mrmr as _make_mrmr
+
+
 def _fit_transform_pair(X_tr, y_tr, X_te, *, hybrid: bool):
     """Fit MRMR with hybrid on/off, transform train + holdout.
 
@@ -115,16 +117,12 @@ def _score_regression(X_tr, y_tr, X_te, y_te) -> float:
 
 def _split_classification(X, y, *, test_size=0.25, random_state=0):
     """Stratified split for classification."""
-    return train_test_split(
-        X, y, test_size=test_size, random_state=random_state, stratify=y
-    )
+    return train_test_split(X, y, test_size=test_size, random_state=random_state, stratify=y)
 
 
 def _split_regression(X, y, *, test_size=0.25, random_state=0):
     """Unstratified split for continuous y."""
-    return train_test_split(
-        X, y, test_size=test_size, random_state=random_state
-    )
+    return train_test_split(X, y, test_size=test_size, random_state=random_state)
 
 
 def _run_classification_pair(X, y, *, random_state=0):
@@ -141,6 +139,7 @@ def _run_classification_pair(X, y, *, random_state=0):
 
 
 def _run_regression_pair(X, y, *, random_state=0):
+    """Full pair-run for a regression target: split once, fit-transform-score baseline + hybrid."""
     X_tr, X_te, y_tr, y_te = _split_regression(X, y, random_state=random_state)
     Xtr_b, Xte_b, size_b = _fit_transform_pair(X_tr, y_tr, X_te, hybrid=False)
     Xtr_h, Xte_h, size_h = _fit_transform_pair(X_tr, y_tr, X_te, hybrid=True)
@@ -166,8 +165,10 @@ def _assert_support_bounded(size_b: int, size_h: int, dataset: str) -> None:
 
 
 class TestBreastCancerHybrid:
+    """On load_breast_cancer, hybrid FE must not regress downstream LogReg accuracy vs the hybrid-off baseline."""
 
     def test_breast_cancer_hybrid_matches_baseline(self):
+        """Hybrid holdout accuracy stays within ACC_TOLERANCE of baseline and support size stays bounded."""
         bc = load_breast_cancer(as_frame=True)
         X, y = bc.data, bc.target
         s_b, s_h, size_b, size_h = _run_classification_pair(X, y, random_state=0)
@@ -187,8 +188,10 @@ class TestBreastCancerHybrid:
 
 
 class TestDiabetesHybrid:
+    """On load_diabetes, hybrid FE must not regress downstream LinearRegression R^2 vs the hybrid-off baseline."""
 
     def test_diabetes_hybrid_matches_baseline(self):
+        """Baseline R^2 clears 0.30 (cell-budget pre-screen sanity) and hybrid R^2 stays within R2_TOLERANCE of it."""
         d = load_diabetes(as_frame=True)
         X, y = d.data, d.target
         s_b, s_h, size_b, size_h = _run_regression_pair(X, y, random_state=0)
@@ -218,8 +221,10 @@ class TestDiabetesHybrid:
 
 
 class TestIrisHybrid:
+    """On load_iris, hybrid FE must not regress downstream LogReg accuracy vs the hybrid-off baseline."""
 
     def test_iris_hybrid_matches_baseline(self):
+        """Hybrid holdout accuracy stays within ACC_TOLERANCE of baseline and support size stays bounded."""
         ir = load_iris(as_frame=True)
         X, y = ir.data, ir.target
         s_b, s_h, size_b, size_h = _run_classification_pair(X, y, random_state=0)
@@ -238,8 +243,10 @@ class TestIrisHybrid:
 
 
 class TestWineHybrid:
+    """On load_wine, hybrid FE must not regress downstream LogReg accuracy vs the hybrid-off baseline."""
 
     def test_wine_hybrid_matches_baseline(self):
+        """Hybrid holdout accuracy stays within ACC_TOLERANCE of baseline and support size stays bounded."""
         w = load_wine(as_frame=True)
         X, y = w.data, w.target
         s_b, s_h, size_b, size_h = _run_classification_pair(X, y, random_state=0)
@@ -258,8 +265,10 @@ class TestWineHybrid:
 
 
 class TestMakeClassificationHybrid:
+    """On a synthetic mostly-noise make_classification frame, hybrid FE must not regress downstream accuracy."""
 
     def test_make_classification_hybrid_matches_baseline(self):
+        """Hybrid holdout accuracy stays within ACC_TOLERANCE of baseline and support size stays bounded."""
         Xa, ya = make_classification(
             n_samples=1500,
             n_features=20,
