@@ -80,9 +80,25 @@ def _quantile_bin_njit(x: np.ndarray, n_bins: int) -> np.ndarray:
     bench-attempt-rejected: kth-order-statistic edges via numba np.partition + searchsorted (the CPU analogue
     of the GPU radix-edge binner) measured 2.6x SLOWER than this argsort form (99401: 17.8ms vs 46.5ms) --
     numba's np.partition re-copies the array per edge, and no multi-kth variant exists. argsort stays optimal
-    (third measured rejection at this site; see also the two in _plugin_mi_classif_batch_njit)."""
+    (third measured rejection at this site; see also the two in _plugin_mi_classif_batch_njit).
+
+    ``kind="mergesort"`` (2026-07-16, cProfile/cross-backend-parity investigation): numba's default argsort
+    (quicksort family) is NOT stable, so on tie-heavy columns (e.g. an integer combiner with many exact
+    duplicate values) its tie order is an unspecified implementation detail -- and it does NOT match cupy's
+    ``cp.argsort`` (verified stable, matches ``np.argsort(..., kind="stable")`` bit-for-bit). Every GPU rank-
+    binning path in this codebase (``_gpu_resident_rank_bin.rank_bin_codes_batch_gpu_resident`` et al.) is
+    documented as "byte-identical to this CPU njit rank binner" -- a contract that silently broke on tied
+    data (found via test_sf2_combiner_baseline_and_residue_mi_byte_identical: ~6%% MI divergence on a
+    -999..999 integer combiner, n=50000, traced to exactly this tie-order mismatch). Mergesort is numba's
+    stable-sort kind (verified bit-identical to ``np.argsort(kind="stable")``, which cupy's argsort already
+    matches), so this is the ROOT fix, not a narrower patch on one caller -- every GPU-vs-CPU rank-binning
+    byte-identity claim in the codebase now actually holds instead of only holding on tie-free data.
+    Measured cost: 0.93x-1.22x vs the old (arbitrary-tie-order) quicksort default across n in
+    {5k,20k,99k,500k} on continuous AND tie-heavy synthetic columns -- within noise to a modest ~20%% on this
+    one sort step, accepted for a correctness fix (this function was never a documented-arbitrary-tie-order
+    contract; nothing should have depended on quicksort's specific, unspecified tie behaviour)."""
     n = x.shape[0]
-    sort_idx = np.argsort(x)
+    sort_idx = np.argsort(x, kind="mergesort")
     out = np.empty(n, dtype=np.int32)
     pos = 0
     base = n // n_bins
