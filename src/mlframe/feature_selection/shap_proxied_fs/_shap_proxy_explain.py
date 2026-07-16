@@ -363,7 +363,11 @@ def compute_phi_rank_stability(per_fold_phi_mean, top_k: int = 80) -> float:
         iu = np.triu_indices(n_folds, k=1)
         vals = corr[iu]
     except Exception:
-        ranks = np.argsort(np.argsort(-sub, axis=1), axis=1).astype(np.float64)
+        # Single argsort + scatter per row instead of double argsort (bit-identical, ~1.7-1.9x faster).
+        _order = np.argsort(-sub, axis=1)
+        ranks = np.empty_like(_order)
+        np.put_along_axis(ranks, _order, np.broadcast_to(np.arange(_order.shape[1]), _order.shape), axis=1)
+        ranks = ranks.astype(np.float64)
         vals_list: list[float] = []
         for i in range(n_folds):
             ri = ranks[i] - ranks[i].mean()

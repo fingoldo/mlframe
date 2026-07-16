@@ -41,7 +41,9 @@ def _rank_columns(x: np.ndarray) -> np.ndarray:
 def _spearman_against(x_mat: np.ndarray, y: np.ndarray) -> np.ndarray:
     """Vectorised Spearman-style rank correlation of every column of ``x_mat`` against ``y``."""
     ranks_x = _rank_columns(x_mat)
-    ranks_y = np.argsort(np.argsort(y))
+    # Same single-argsort+scatter _rank_columns already uses for x_mat -- this 1D y leg still had the old
+    # double-argsort (a miss when _rank_columns was introduced, not a deliberate different path).
+    ranks_y = _rank_columns(y[:, None]).ravel()
 
     rx_centered = ranks_x - ranks_x.mean(axis=0, keepdims=True)
     ry_centered = ranks_y - ranks_y.mean()
