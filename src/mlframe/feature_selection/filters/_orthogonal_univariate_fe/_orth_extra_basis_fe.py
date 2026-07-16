@@ -829,7 +829,7 @@ def _heldout_smooth_r2_fast(x: np.ndarray, prep: tuple) -> float:
         return 0.0
     pred = np.vander(zx[va], 4) @ coef
     sse = float(np.sum((yv - pred) ** 2))
-    return 1.0 - sse / sst
+    return float(1.0 - sse / sst)
 
 
 def _detect_fourier_freq_for_col(

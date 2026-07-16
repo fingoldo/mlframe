@@ -627,10 +627,14 @@ DEP001 = [
 # DEP001 and DEP003 because deptry's classification of it flips depending on whether the sibling
 # checkout happens to be resolvable in the environment deptry runs in (DEP003 when resolvable
 # locally, as in this dev environment; DEP001 "missing" in a clean CI checkout that never has it).
+# `concepts` (formal-concept-analysis lib, feature_engineering/transformer/fca_closed_concepts.py)
+# has the identical flip: DEP001-listed above for a clean env, but deptry reports it as DEP003 in
+# any environment where it happens to be installed (2026-07-16) -- ignored under both for the same
+# reason, not because it's an actual transitive dep of anything else here.
 DEP003 = [
     "filelock", "cpuinfo", "kaleido", "torchvision", "torchmetrics", "lightning_fabric",
     "pytorch_lightning", "triton", "networkx", "llvmlite", "dtaidistance", "mlxtend", "sympy",
-    "bottleneck", "ortools", "yaml", "model_diagnostics", "finance",
+    "bottleneck", "ortools", "yaml", "model_diagnostics", "finance", "concepts",
 ]
 
 # ---------------------------------------------------------------------------
