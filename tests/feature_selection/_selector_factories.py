@@ -28,7 +28,6 @@ import numpy as np
 import pytest
 from sklearn.linear_model import LogisticRegression, Ridge
 
-
 # ---------------------------------------------------------------------------
 # Robust selected-mask extraction. Selectors expose their selection in three
 # different shapes; normalise all of them to a bool mask of length
@@ -69,6 +68,7 @@ def selected_mask(selector) -> np.ndarray:
 
 
 def _to_bool_mask(s: np.ndarray, n: int) -> np.ndarray:
+    """Coerce a bool mask or int-index array into a length-``n`` bool mask."""
     if s.dtype == bool or s.dtype == np.bool_:
         return s.astype(bool)
     mask = np.zeros(n, dtype=bool)
@@ -133,6 +133,7 @@ class SelectorSpec:
 
 
 def _make_mrmr(task: str = "binary"):
+    """Fast, unfitted MRMR selector for the contract battery."""
     from mlframe.feature_selection.filters.mrmr import MRMR
     return MRMR(
         min_relevance_gain=0.0, cv=3, run_additional_rfecv_minutes=False,
@@ -141,18 +142,18 @@ def _make_mrmr(task: str = "binary"):
 
 
 def _make_rfecv(task: str = "binary"):
+    """Fast, unfitted RFECV selector (task-aware base estimator) for the contract battery."""
     from mlframe.feature_selection.wrappers import RFECV
     est = Ridge() if task == "regression" else LogisticRegression(max_iter=200, random_state=0)
-    return RFECV(estimator=est, cv=3, max_refits=3, random_state=0,
-                 leakage_corr_threshold=None, n_features_selection_rule="argmax")
+    return RFECV(estimator=est, cv=3, max_refits=3, random_state=0, leakage_corr_threshold=None, n_features_selection_rule="argmax")
 
 
 def _make_shap_proxied(task: str = "binary"):
+    """Fast, unfitted ShapProxiedFS selector (task-aware forest) for the contract battery."""
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
     from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
     cls = task != "regression"
-    model = (RandomForestClassifier(n_estimators=10, random_state=0) if cls
-             else RandomForestRegressor(n_estimators=10, random_state=0))
+    model = RandomForestClassifier(n_estimators=10, random_state=0) if cls else RandomForestRegressor(n_estimators=10, random_state=0)
     return ShapProxiedFS(
         model=model, classification=cls, n_splits=3, n_models=1, max_features=None,
         top_n=10, holdout_size=0.25, revalidate=False, trust_guard=False,
@@ -161,16 +162,16 @@ def _make_shap_proxied(task: str = "binary"):
 
 
 def _make_boruta_shap(task: str = "binary"):
+    """Fast, unfitted BorutaShap selector (task-aware forest, few trials) for the contract battery."""
     from mlframe.feature_selection.boruta_shap import BorutaShap
     from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
     cls = task != "regression"
-    model = (RandomForestClassifier(n_estimators=20, random_state=0) if cls
-             else RandomForestRegressor(n_estimators=20, random_state=0))
-    return BorutaShap(model=model, classification=cls, n_trials=10,
-                      random_state=0, train_or_test="train", verbose=False)
+    model = RandomForestClassifier(n_estimators=20, random_state=0) if cls else RandomForestRegressor(n_estimators=20, random_state=0)
+    return BorutaShap(model=model, classification=cls, n_trials=10, random_state=0, train_or_test="train", verbose=False)
 
 
 def _make_hybrid(task: str = "binary"):
+    """Fast, unfitted HybridSelector (FE/tree members off) for the contract battery."""
     # use_fe / use_tree_member off keeps it deterministic + as fast as the heavy
     # members allow; the MRMR + ShapProxied members still run (that is the point
     # of exercising the real composition through the contract).
@@ -179,6 +180,7 @@ def _make_hybrid(task: str = "binary"):
 
 
 def _make_ace(task: str = "binary"):
+    """Fast, unfitted ACESelector (task-aware forest, few replicates) for the contract battery."""
     # Small forest + few replicates keep the contract fit fast; ACE auto-derives task from y dtype.
     from mlframe.feature_selection.ace import ACESelector
     from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
@@ -187,7 +189,37 @@ def _make_ace(task: str = "binary"):
     return ACESelector(estimator=est, n_replicates=5, n_masking_rounds=1, random_state=0)
 
 
+def _make_forward_select(task: str = "binary"):
+    """Fast, unfitted ForwardSelectSelector for the contract battery."""
+    from mlframe.feature_selection.functional_adapters import ForwardSelectSelector
+    return ForwardSelectSelector(cv=3, random_state=0)
+
+
+def _make_greedy_backward_elimination(task: str = "binary"):
+    """Fast, unfitted GreedyBackwardEliminationSelector for the contract battery."""
+    # greedy_backward_elimination's own cv= param takes a real splitter (it calls cv.split()
+    # directly), unlike ForwardSelectSelector/CascadeSelectSelector's sklearn-style int cv=.
+    from sklearn.model_selection import KFold
+    from mlframe.feature_selection.functional_adapters import GreedyBackwardEliminationSelector
+    return GreedyBackwardEliminationSelector(cv=KFold(n_splits=3, shuffle=True, random_state=0), n_repeats=1, random_state=0)
+
+
+def _make_zero_importance_pruning(task: str = "binary"):
+    """Fast, unfitted ZeroImportancePruningSelector for the contract battery."""
+    # iterative_zero_importance_pruning's own cv= param takes a real splitter, same as above.
+    from sklearn.model_selection import KFold
+    from mlframe.feature_selection.functional_adapters import ZeroImportancePruningSelector
+    return ZeroImportancePruningSelector(cv=KFold(n_splits=3, shuffle=True, random_state=0), max_rounds=3, random_state=0)
+
+
+def _make_cascade_select(task: str = "binary"):
+    """Fast, unfitted CascadeSelectSelector (few Boruta iterations) for the contract battery."""
+    from mlframe.feature_selection.functional_adapters import CascadeSelectSelector
+    return CascadeSelectSelector(n_boruta_iterations=5, cv=3, random_state=0)
+
+
 def _make_group_aware_rfecv(task: str = "binary"):
+    """Fast, unfitted GroupAware(RFECV) built through the production registry for the contract battery."""
     # The PRODUCTION-DEFAULT wrap the training suite instantiates via the registry
     # (cluster_reduce=True). Built through the registry so the contract exercises
     # the exact default-ON code path users get, not a hand-rolled GroupAwareMRMR.
@@ -239,6 +271,31 @@ SELECTOR_SPECS: dict[str, SelectorSpec] = {
         column_order_invariant=False,       # RF split-subset ordering is column-order sensitive
         validates_transform_width=False,    # transform narrows positionally; no width guard
         slow=True,
+    ),
+    "ForwardSelect": SelectorSpec(
+        name="ForwardSelect", make=_make_forward_select, tasks=("binary",),
+        supports_sample_weight=False, nan_in_X_policy="unknown", determinism=1.0,
+        column_order_invariant=False,       # greedy stepwise gain comparison is tie-break/order sensitive
+        validates_transform_width=False,    # base adapter transform() has no width guard
+    ),
+    "GreedyBackwardElimination": SelectorSpec(
+        name="GreedyBackwardElimination", make=_make_greedy_backward_elimination, tasks=("binary",),
+        supports_sample_weight=False, nan_in_X_policy="unknown", determinism=1.0,
+        column_order_invariant=False,       # greedy stepwise elimination order is tie-break/order sensitive
+        validates_transform_width=False,    # base adapter transform() has no width guard
+    ),
+    "ZeroImportancePruning": SelectorSpec(
+        name="ZeroImportancePruning", make=_make_zero_importance_pruning, tasks=("binary",),
+        supports_sample_weight=False, nan_in_X_policy="unknown", determinism=1.0,
+        column_order_invariant=False,       # tree-importance ties are column-order sensitive
+        validates_transform_width=False,    # base adapter transform() has no width guard
+    ),
+    "CascadeSelect": SelectorSpec(
+        name="CascadeSelect", make=_make_cascade_select, tasks=("binary",),
+        supports_sample_weight=False, nan_in_X_policy="unknown", determinism=1.0,
+        column_order_invariant=False,       # composes Boruta + forward-select + RFECV, all order-sensitive
+        validates_transform_width=False,    # base adapter transform() has no width guard
+        slow=True,                          # 3-stage cascade (Boruta screen -> forward select -> RFECV)
     ),
     "GroupAware(RFECV)": SelectorSpec(
         name="GroupAware(RFECV)", make=_make_group_aware_rfecv, tasks=("binary",),

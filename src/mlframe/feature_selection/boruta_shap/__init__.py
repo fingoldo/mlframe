@@ -1,3 +1,6 @@
+"""BorutaShap: a wrapper feature-selection method combining the Boruta shadow-feature
+all-relevant test with SHAP importances instead of Boruta's original impurity/permutation
+importance, for a model-agnostic, more stable relevance signal."""
 from __future__ import annotations
 
 from typing import Optional
@@ -17,6 +20,7 @@ try:
     from scipy.stats import binomtest as _binomtest
 
     def binom_test(x, n, p, alternative="two-sided"):
+        """SciPy 1.7+ shim: forward to ``binomtest``, coercing the float hit-count to int."""
         # SciPy 1.7+ ``binomtest`` requires ``k`` integer; our hit-count vector is float (np.zeros), so coerce on the boundary.
         return _binomtest(int(x), n=int(n), p=p, alternative=alternative).pvalue
 except ImportError:  # SciPy < 1.7 fallback
@@ -67,6 +71,9 @@ logger = logging.getLogger(__name__)
 # Pure selector (shadow features are internal, transform emits a column subset), but it intentionally hand-rolls the
 # SelectorMixin surface (get_support / get_feature_names_out) rather than inheriting SelectorMixin, to keep full control
 # over the fitted-mask semantics; SelectorMixin is deliberately NOT added to avoid clashing with those hand-rolled methods.
+# TODO(naming): rename this class/module from BorutaShap to plain Boruta -- track every call site, docs
+# reference, and pickle-compat shim (``__module__``/``__qualname__`` rewrites, like MRMR's) needed for a
+# non-breaking rename, since existing pickles + user code reference the current name.
 class BorutaShap(BaseEstimator, TransformerMixin):
     """
     BorutaShap is a wrapper feature selection method built on the foundations of both the SHAP and Boruta algorithms.
@@ -534,6 +541,7 @@ class BorutaShap(BaseEstimator, TransformerMixin):
         self,
         X,
     ):
+        """Column-select X down to the accepted features, realigned by name."""
         # Name-based selection: ``self.X`` was mutated in place during fit
         # (rejected columns dropped by ``remove_features_if_rejected``), so its
         # column ordering is NOT the input X's ordering. Using ``X[selected]`` /
@@ -554,13 +562,16 @@ class BorutaShap(BaseEstimator, TransformerMixin):
             raise NotFittedError(
                 "BorutaShap.transform called before fit. Call fit_transform " "or fit + transform before using the selector.",
             )
-        # sklearn contract: validate the transform-time feature space against what fit saw. A width mismatch
-        # (n_features_in_) or, for named frames, a column-name mismatch means the caller is transforming a frame
-        # the selector was not fitted on -- name-based selection would then silently pull the wrong / missing columns.
-        n_in = getattr(self, "n_features_in_", None)
-        _width = X.shape[1] if getattr(X, "ndim", 1) >= 2 else None
-        if n_in is not None and _width is not None and _width != n_in:
-            raise ValueError(f"BorutaShap.transform: X has {_width} features, but the selector was fitted on {n_in}.")
+        # sklearn contract: validate the transform-time feature space against what fit saw. For a BARE ndarray
+        # (no column names to realign by) a width mismatch means the caller is transforming an unrelated frame.
+        # Named DataFrames instead rely solely on the name-based "missing selected feature" check just below --
+        # an ETL-prepended extra column (harmless width mismatch) must still realign by name and succeed, not
+        # raise here before that check gets a chance to run.
+        if not hasattr(X, "columns"):
+            n_in = getattr(self, "n_features_in_", None)
+            _width = X.shape[1] if getattr(X, "ndim", 1) >= 2 else None
+            if n_in is not None and _width is not None and _width != n_in:
+                raise ValueError(f"BorutaShap.transform: X has {_width} features, but the selector was fitted on {n_in}.")
         names_in = getattr(self, "feature_names_in_", None)
         if names_in is not None and hasattr(X, "columns"):
             missing = [c for c in self.selected_features_ if c not in set(X.columns)]
@@ -572,6 +583,7 @@ class BorutaShap(BaseEstimator, TransformerMixin):
         return X[selected]
 
     def fit_transform(self, X, y):
+        """Fit then transform in one call."""
         self.fit(X, y)
         return self.transform(X)
 
@@ -700,13 +712,16 @@ class BorutaShap(BaseEstimator, TransformerMixin):
 
     @staticmethod
     def average_of_list(lst):
+        """Arithmetic mean of a list of numbers."""
         return sum(lst) / len(lst)
 
     @staticmethod
     def flatten_list(array):
+        """Flatten one level of nested lists into a single list."""
         return [item for sublist in array for item in sublist]
 
     def create_mapping_between_cols_and_indices(self):
+        """Build the column-name <-> positional-index maps used by the shadow-feature loop."""
         # Wave 54 (2026-05-20): refuse duplicate-column input -- prior dict(zip(...))
         # silently collapsed dupes to the LAST index, so any earlier-duplicated column
         # would never be shuffled / tested by Boruta's shadow-feature loop.
