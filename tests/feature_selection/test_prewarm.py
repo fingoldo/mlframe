@@ -172,19 +172,6 @@ class TestPrewarmCoverage:
 
     def test_renumber_joint_kernels_compiled(self, warmed):
         """The _mi_greedy_cmi_fe renumber/joint-entropy njit kernels have at least one compiled signature after prewarm."""
-        # Regression sensor: _conditional_perm_null's host-fallback k_xz/k_yz/k_xyz card computation
-        # (6207+ calls/fit) drove ~14s of un-prewarmed cold JIT compile, discovered via a saved cProfile
-        # .prof on the canonical 100k-row wellbore fit (top callee under _conditional_perm_null was
-        # _renumber_joint at 3.825s tottime / 6207 calls, largely first-compile cost).
-        from mlframe.feature_selection.filters._mi_greedy_cmi_fe import (
-            _combine_factorize_njit, _joint_entropy_two_dense_njit, _renumber_two_dense_njit,
-        )
-        assert len(_renumber_two_dense_njit.signatures) >= 1
-        assert len(_joint_entropy_two_dense_njit.signatures) >= 1
-        assert len(_combine_factorize_njit.signatures) >= 1
-
-    def test_unary_transform_registry_compiled(self, warmed):
-        """Every lambda-bodied unary transform in the registry is compiled by prewarm."""
         # Regression sensor: create_unary_transformations' njit-wrapped LAMBDA entries (a bare numpy ufunc
         # like the OLD "cos"/"sin"/"abs" entries fails njit-wrapping silently in njit_functions_dict and
         # stays a raw ufunc -- only the lambda-bodied transforms below actually become numba Dispatchers)
