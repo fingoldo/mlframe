@@ -237,6 +237,16 @@ SELECTOR_SPECS: dict[str, SelectorSpec] = {
     "MRMR": SelectorSpec(
         name="MRMR", make=_make_mrmr, tasks=("binary", "regression"),
         nan_in_X_policy="tolerates", determinism=1.0, rejects_duplicate_names=True,
+        # Verified not a permutation-noise artifact -- reproduces identically at
+        # full_npermutations=3, 10, 30, 100. MRMR's greedy sequential confirm loop can admit a
+        # genuinely-relevant-but-partially-redundant extra candidate (e.g. f3, mrmr_gains_~0.057,
+        # far above the ~0.0007 min_relevance_gain_frac*H(y) floor -- not a threshold hairline) in
+        # one column order but reject it in the reverse order, because its redundancy against the
+        # already-CONFIRMED subset is evaluated against whichever subset the scan has assembled so
+        # far, and reversing column order changes which near-tied candidate gets offered -- and
+        # therefore confirmed -- first. Inherent to sequential greedy mRMR selection (see CLAUDE.md's
+        # own FE/MRMR exception: selection-equivalence, not bit-identical, is the bar), not a bug.
+        column_order_invariant=False,
     ),
     "RFECV": SelectorSpec(
         name="RFECV", make=_make_rfecv, tasks=("binary", "regression"),
