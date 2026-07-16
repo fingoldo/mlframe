@@ -16,7 +16,9 @@ decision untouched (canonical fixtures never loosened on error).
 from __future__ import annotations
 
 import os
-from typing import Any, Hashable, Mapping, Optional, Union
+from typing import Any, Hashable, Literal, Mapping, Optional, TypeVar, Union, overload
+
+_ConfigKeyT = TypeVar("_ConfigKeyT", bound=Hashable)
 
 import numba
 import numpy as np
@@ -246,6 +248,26 @@ def _single_operand_usability_corr(y, x):
     return max(_abs_pearson_fast(_yc, _xc), _abs_pearson_fast(_yc, _xsq))
 
 
+@overload
+def usability_form_corrs(
+    y: np.ndarray,
+    x0: np.ndarray,
+    x1: np.ndarray,
+    *,
+    return_best_pair_form: Literal[False] = False,
+    precomputed_single_corr: Optional[tuple] = None,
+) -> tuple[float, float]:
+    """Overload: ``return_best_pair_form=False`` -> ``(best_pair_corr, best_single_corr)``."""
+@overload
+def usability_form_corrs(
+    y: np.ndarray,
+    x0: np.ndarray,
+    x1: np.ndarray,
+    *,
+    return_best_pair_form: Literal[True],
+    precomputed_single_corr: Optional[tuple] = None,
+) -> tuple[float, float, Optional[np.ndarray]]:
+    """Overload: ``return_best_pair_form=True`` -> ``(best_pair_corr, best_single_corr, best_pair_form)``."""
 def usability_form_corrs(
     y: np.ndarray,
     x0: np.ndarray,
@@ -387,14 +409,14 @@ def pair_is_tail_concentrated_rankaware(
 
 
 def tail_concentration_form_override(
-    perf: Mapping[Hashable, float],
-    usability: Mapping[Hashable, float],
+    perf: Mapping[_ConfigKeyT, float],
+    usability: Mapping[_ConfigKeyT, float],
     *,
     min_corr: float,
     pairness_margin: float,
     mi_band: float,
     best_single_corr: float = 0.0,
-) -> Optional[Hashable]:
+) -> Optional[_ConfigKeyT]:
     """Return the FORM (a ``perf`` key) to PROMOTE when a per-pair form set is tail-concentrated, else None.
 
     ``perf`` is ``{form_config: rank_mi}``; ``usability`` is ``{form_config: |corr(continuous y)|}``. Override

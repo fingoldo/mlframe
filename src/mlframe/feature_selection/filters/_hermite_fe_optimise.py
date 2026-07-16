@@ -115,11 +115,13 @@ def _eval_coef_pair(coef_a, coef_b, *, z_a, z_b, eval_func, bf_callables,
     # Same njit bf twins + fused row-major fill as the batched evaluator (P=1 degenerate case): one prange
     # call computes every bf column, finiteness-scanned in-kernel, rows feeding the copy-free MI rows twin.
     # Optuna's per-trial objective goes through HERE, so the cma_batch-round optimizations carry over to it.
+    _bf_name_to_id: dict[str, int]
     try:
-        from ._numba_polynom_optimizer import _BF_NAME_TO_ID, _fill_bf_batch_njit
+        from ._numba_polynom_optimizer import _BF_NAME_TO_ID as _bf_name_to_id, _fill_bf_batch_njit  # noqa: N811
     except Exception:
-        _BF_NAME_TO_ID, _fill_bf_batch_njit = {}, None
-    _bf_ids1 = [_BF_NAME_TO_ID.get(nm, -1) for nm in bf_names] if _BF_NAME_TO_ID else [-1]
+        _bf_name_to_id = {}
+        _fill_bf_batch_njit = None
+    _bf_ids1 = [_bf_name_to_id.get(nm, -1) for nm in bf_names] if _bf_name_to_id else [-1]
     cols = []
     valid_idx = []
     if _fill_bf_batch_njit is not None and all(i >= 0 for i in _bf_ids1):
@@ -261,10 +263,11 @@ def _eval_coef_pair_batch(coefs_a, coefs_b, *, z_a, z_b, eval_func, bf_callables
     # the numpy ufunc chains: cProfile showed _atan2 (0.44s) + _log_abs_signed (0.41s) + np.column_stack
     # (0.43s) = ~40%% of a cma_batch search. Columns are written straight into the preallocated X_batch
     # (no per-column copy, no stack); unknown bf names keep the numpy callable path.
+    _bf_name_to_id: dict[str, int]
     try:
-        from ._numba_polynom_optimizer import _BF_NAME_TO_ID, _bf_dispatch_njit, _fill_bf_batch_njit
+        from ._numba_polynom_optimizer import _BF_NAME_TO_ID as _bf_name_to_id, _bf_dispatch_njit, _fill_bf_batch_njit  # noqa: N811
     except Exception:
-        _BF_NAME_TO_ID, _bf_dispatch_njit, _fill_bf_batch_njit = {}, None, None
+        _bf_name_to_id, _bf_dispatch_njit, _fill_bf_batch_njit = {}, None, None
     col_meta: list = []  # tuples (p, k)
     KBF = len(bf_callables)
     X_batch = np.empty((P * KBF, n_rows), dtype=np.float64)  # ROW-major: contiguous writes + copy-free MI rows kernel
@@ -272,7 +275,7 @@ def _eval_coef_pair_batch(coefs_a, coefs_b, *, z_a, z_b, eval_func, bf_callables
     # The all-known-bfs case runs ONE parallel njit fill over every (candidate, bf) row -- bf compute,
     # finiteness scan, and the row store all inside a single prange (no 120x Python->njit crossings, allocs,
     # or isfinite passes). Any unknown bf name falls back to the per-column Python loop below.
-    _bf_ids = [_BF_NAME_TO_ID.get(nm, -1) for nm in bf_names] if _BF_NAME_TO_ID else [-1] * KBF
+    _bf_ids = [_bf_name_to_id.get(nm, -1) for nm in bf_names] if _bf_name_to_id else [-1] * KBF
     if _fill_bf_batch_njit is not None and all(i >= 0 for i in _bf_ids):
         finite = np.zeros(P * KBF, dtype=np.bool_)
         _fill_bf_batch_njit(h_a_arr, h_b_arr, cand_valid, np.asarray(_bf_ids, dtype=np.int64), X_batch, finite)
