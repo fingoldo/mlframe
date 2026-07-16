@@ -6144,8 +6144,16 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         _adaptive = bool(getattr(self, "fe_adaptive_threshold_relax", True))
         _relax_factor = float(getattr(self, "fe_adaptive_relax_factor", 0.9))
         if n_recommended_features == 0 and _adaptive and fe_max_steps > 0 and num_fs_steps == 0:  # only on the very first FE step
+            # fe_min_pair_mi_prevalence may be the sentinel string "auto" (debiased-ratio mode --
+            # see _step_core.py's own isinstance check) rather than a float; resolve it to that
+            # same established numeric convention (1.05) just for this relaxation arithmetic, same
+            # as _step_core.py/_step_pairs_rank.py already do at their own use sites. Passing "auto"
+            # straight into `* _relax_factor` raised TypeError: can't multiply sequence by float.
+            _pair_mi_prevalence_for_relax = (
+                1.05 if isinstance(fe_min_pair_mi_prevalence, str) and fe_min_pair_mi_prevalence.strip().lower() == "auto" else float(fe_min_pair_mi_prevalence)
+            )
             _relaxed_engineered = fe_min_engineered_mi_prevalence * _relax_factor
-            _relaxed_pair = max(1.001, fe_min_pair_mi_prevalence * _relax_factor)
+            _relaxed_pair = max(1.001, _pair_mi_prevalence_for_relax * _relax_factor)
             if verbose:
                 logger.info(
                     "MRMR FE: first pass found 0 engineered features; "
@@ -6155,7 +6163,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     "Skipping Hermite Optuna re-run (already cached in "
                     "_hermite_features_).",
                     fe_min_engineered_mi_prevalence, _relaxed_engineered,
-                    fe_min_pair_mi_prevalence, _relaxed_pair,
+                    _pair_mi_prevalence_for_relax, _relaxed_pair,
                 )
             fe_result_retry = self._run_fe_step(
                 data=data, cols=cols, nbins=nbins, X=X,
