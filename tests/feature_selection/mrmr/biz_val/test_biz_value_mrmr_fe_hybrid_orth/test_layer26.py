@@ -50,10 +50,12 @@ Contracts pinned
 
 NEVER xfail. NEVER mask bugs via runtime workarounds.
 """
+
 from __future__ import annotations
 
 import pickle
 import warnings
+from functools import cache
 
 import numpy as np
 import pandas as pd
@@ -63,7 +65,6 @@ from sklearn.base import clone
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
 
-
 warnings.filterwarnings("ignore")
 
 
@@ -71,22 +72,26 @@ SEEDS = (1, 7, 13)
 
 
 from tests.feature_selection.conftest import make_fast_mrmr as _make_mrmr
+
 # ---------------------------------------------------------------------------
 # Signal builders
 # ---------------------------------------------------------------------------
 
 
 def _build_linear(seed: int, n: int = 1200):
+    """``y = sign(x1 + 0.7*x2)`` -- plain linear signal, no engineered transform needed."""
     rng = np.random.default_rng(seed)
     x1 = rng.standard_normal(n)
     x2 = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "x1": x1,
-        "x2": x2,
-        "noise_a": rng.standard_normal(n),
-        "noise_b": rng.standard_normal(n),
-        "noise_c": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "x1": x1,
+            "x2": x2,
+            "noise_a": rng.standard_normal(n),
+            "noise_b": rng.standard_normal(n),
+            "noise_c": rng.standard_normal(n),
+        }
+    )
     y = ((x1 + 0.7 * x2) > 0).astype(int)
     return X, pd.Series(y, name="y")
 
@@ -100,12 +105,14 @@ def _build_log_signal(seed: int, n: int = 2000):
     # Multiplicative-scale signal: |x| ranges from ~0 to ~5, log(|x|+1) is
     # near-monotone in MI -> y target.
     x = rng.standard_normal(n) * 1.5
-    X = pd.DataFrame({
-        "x": x,
-        "noise_a": rng.standard_normal(n),
-        "noise_b": rng.standard_normal(n),
-        "noise_c": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "x": x,
+            "noise_a": rng.standard_normal(n),
+            "noise_b": rng.standard_normal(n),
+            "noise_c": rng.standard_normal(n),
+        }
+    )
     log_abs_x = np.log1p(np.abs(x))
     # Use the median as the threshold so y is balanced; without that, y is
     # heavily skewed because log1p(|x|) > 0.5 is the upper ~60% of the
@@ -128,13 +135,15 @@ def _build_ratio_signal(seed: int, n: int = 2000):
     rng = np.random.default_rng(seed)
     x_revenue = np.exp(rng.normal(0.0, 1.5, size=n))
     x_cost = np.exp(rng.normal(0.0, 1.5, size=n))
-    X = pd.DataFrame({
-        "x_revenue": x_revenue,
-        "x_cost": x_cost,
-        "noise_a": rng.standard_normal(n),
-        "noise_b": rng.standard_normal(n),
-        "noise_c": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "x_revenue": x_revenue,
+            "x_cost": x_cost,
+            "noise_a": rng.standard_normal(n),
+            "noise_b": rng.standard_normal(n),
+            "noise_c": rng.standard_normal(n),
+        }
+    )
     ratio = x_revenue / x_cost
     # Non-monotone band: in-class iff 0.7 < ratio < 1.5 (roughly the
     # central 30% of log-ratio mass). Linear LogReg cannot draw this band
@@ -149,14 +158,31 @@ def _build_square_signal(seed: int, n: int = 2000):
     """
     rng = np.random.default_rng(seed)
     x = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "x": x,
-        "noise_a": rng.standard_normal(n),
-        "noise_b": rng.standard_normal(n),
-        "noise_c": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "x": x,
+            "noise_a": rng.standard_normal(n),
+            "noise_b": rng.standard_normal(n),
+            "noise_c": rng.standard_normal(n),
+        }
+    )
     y = ((x * x - 1.0) + 0.05 * rng.standard_normal(n) > 0).astype(int)
     return X, pd.Series(y, name="y")
+
+
+@cache
+def _linear_default_fit(seed: int):
+    """Cached ``(X, y, m)`` for the default (all-defaults) ``_make_mrmr()`` fit
+    on the linear fixture. Shared between test_default_off_no_mi_greedy_columns
+    and test_default_off_transform_no_engineered_cols (both fit the identical
+    config on identical per-seed data); test_default_off_support_identical_to_explicit_off
+    reuses this as its ``m_default`` and still performs a genuinely separate
+    ``m_explicit`` fit. Nothing downstream mutates X/y/m in place.
+    """
+    X, y = _build_linear(seed)
+    m = _make_mrmr()
+    m.fit(X, y)
+    return X, y, m
 
 
 # ---------------------------------------------------------------------------
@@ -165,39 +191,34 @@ def _build_square_signal(seed: int, n: int = 2000):
 
 
 class TestDefaultIsLegacyByteIdentical:
+    """``fe_mi_greedy_enable=False`` (default) preserves pre-Layer-26 behaviour exactly."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_default_off_no_mi_greedy_columns(self, seed):
-        X, y = _build_linear(seed)
-        m = _make_mrmr()
-        m.fit(X, y)
+        """Default fe_mi_greedy_enable=False produces empty mi_greedy_features_ and unchanged feature_names_in_."""
+        X, _y, m = _linear_default_fit(seed)
         assert m.fe_mi_greedy_enable is False
         assert m.mi_greedy_features_ == [], (
-            f"seed={seed}: default fe_mi_greedy_enable=False should produce "
-            f"empty mi_greedy_features_, got {m.mi_greedy_features_}"
+            f"seed={seed}: default fe_mi_greedy_enable=False should produce " f"empty mi_greedy_features_, got {m.mi_greedy_features_}"
         )
         assert list(m.feature_names_in_) == list(X.columns), (
-            f"seed={seed}: feature_names_in_ must equal raw X.columns when "
-            f"MI-greedy FE is off; got {list(m.feature_names_in_)}"
+            f"seed={seed}: feature_names_in_ must equal raw X.columns when " f"MI-greedy FE is off; got {list(m.feature_names_in_)}"
         )
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_default_off_support_identical_to_explicit_off(self, seed):
-        X, y = _build_linear(seed)
-        m_default = _make_mrmr()
+        """support_ and mi_greedy_features_ are identical between the default config and an explicit fe_mi_greedy_enable=False fit."""
+        X, y, m_default = _linear_default_fit(seed)
         m_explicit = _make_mrmr(fe_mi_greedy_enable=False)
-        m_default.fit(X, y)
         m_explicit.fit(X, y)
-        assert list(m_default.support_) == list(m_explicit.support_), (
-            f"seed={seed}: explicit False vs default disagreed on support_"
-        )
+        assert list(m_default.support_) == list(m_explicit.support_), f"seed={seed}: explicit False vs default disagreed on support_"
         assert m_default.mi_greedy_features_ == m_explicit.mi_greedy_features_
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_default_off_transform_no_engineered_cols(self, seed):
-        X, y = _build_linear(seed)
-        m = _make_mrmr()
-        Xt = m.fit(X, y).transform(X)
+        """transform() output contains no MI-greedy engineered-column naming markers when the constructor is off."""
+        X, _y, m = _linear_default_fit(seed)
+        Xt = m.transform(X)
         # No engineered MI-greedy naming markers in the output.
         for c in Xt.columns:
             cstr = str(c)
@@ -215,9 +236,11 @@ class TestDefaultIsLegacyByteIdentical:
 
 
 class TestLogSignalRecovered:
+    """``y = sign(log(|x|+1) > c)`` lifts a |x|-monotone unary transform into mi_greedy_features_."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_log_abs_x_appears_in_engineered(self, seed):
+        """At least one |x|-monotone unary transform (log_abs/sqrt_abs/abs/square of x) appears in mi_greedy_features_."""
         X, y = _build_log_signal(seed)
         m = _make_mrmr(
             fe_mi_greedy_enable=True,
@@ -233,17 +256,12 @@ class TestLogSignalRecovered:
         # |x|-derived transform of x is appended (the contract is that the
         # MI-greedy constructor recovers the signal; which specific monotone
         # transform wins among log_abs / sqrt_abs / abs is bench-driven).
-        x_derived = [
-            c for c in appended
-            if c in {"log_abs(x)", "sqrt_abs(x)", "abs(x)", "square(x)"}
-        ]
-        assert x_derived, (
-            f"seed={seed}: at least one |x|-monotone transform should appear "
-            f"in mi_greedy_features_; got {appended}"
-        )
+        x_derived = [c for c in appended if c in {"log_abs(x)", "sqrt_abs(x)", "abs(x)", "square(x)"}]
+        assert x_derived, f"seed={seed}: at least one |x|-monotone transform should appear " f"in mi_greedy_features_; got {appended}"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_log_signal_appears_in_support_or_recipes(self, seed):
+        """The log signal produces at least one mi_greedy engineered feature."""
         X, y = _build_log_signal(seed)
         m = _make_mrmr(
             fe_mi_greedy_enable=True,
@@ -262,9 +280,11 @@ class TestLogSignalRecovered:
 
 
 class TestRatioSignalRecovered:
+    """``y = sign(c1 < x_revenue/x_cost < c2)`` lifts a ratio-surrogate binary transform into mi_greedy_features_."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_div_pair_in_engineered(self, seed):
+        """A (x_revenue, x_cost) div/ratio_log surrogate column appears in mi_greedy_features_."""
         X, y = _build_ratio_signal(seed)
         m = _make_mrmr(
             fe_mi_greedy_enable=True,
@@ -278,17 +298,8 @@ class TestRatioSignalRecovered:
         # The ratio of x_revenue / x_cost is THE signal. Either div or
         # ratio_log (both surrogates for the ratio) on the right pair must
         # show up in the engineered columns.
-        ratio_like = [
-            c for c in appended
-            if (
-                ("x_revenue" in c) and ("x_cost" in c)
-                and (("__div__" in c) or ("__ratio_log__" in c))
-            )
-        ]
-        assert ratio_like, (
-            f"seed={seed}: at least one (x_revenue ? x_cost) ratio-surrogate "
-            f"engineered column should appear; got {appended}"
-        )
+        ratio_like = [c for c in appended if (("x_revenue" in c) and ("x_cost" in c) and (("__div__" in c) or ("__ratio_log__" in c)))]
+        assert ratio_like, f"seed={seed}: at least one (x_revenue ? x_cost) ratio-surrogate " f"engineered column should appear; got {appended}"
 
 
 # ---------------------------------------------------------------------------
@@ -297,9 +308,11 @@ class TestRatioSignalRecovered:
 
 
 class TestSquareSignalRecovered:
+    """``y = sign(x^2 - 1)`` lifts a square-monotone unary transform into mi_greedy_features_, parallel to Layer 23's He_2 path."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_square_x_in_engineered(self, seed):
+        """At least one x^2-monotone unary transform (square/abs/sqrt_abs/log_abs of x) appears in mi_greedy_features_."""
         X, y = _build_square_signal(seed)
         m = _make_mrmr(
             fe_mi_greedy_enable=True,
@@ -312,14 +325,9 @@ class TestSquareSignalRecovered:
         appended = list(m.mi_greedy_features_)
         # square(x) or one of its monotone-in-x^2 siblings (abs / sqrt_abs)
         # must appear -- the |x| family carries the signal of sign(x^2-1).
-        x2_derived = [
-            c for c in appended
-            if c in {"square(x)", "abs(x)", "sqrt_abs(x)", "log_abs(x)"}
-        ]
+        x2_derived = [c for c in appended if c in {"square(x)", "abs(x)", "sqrt_abs(x)", "log_abs(x)"}]
         assert x2_derived, (
-            f"seed={seed}: at least one x^2-monotone unary transform "
-            f"(square / abs / sqrt_abs / log_abs of x) should appear; "
-            f"got {appended}"
+            f"seed={seed}: at least one x^2-monotone unary transform " f"(square / abs / sqrt_abs / log_abs of x) should appear; " f"got {appended}"
         )
 
 
@@ -338,17 +346,20 @@ class TestDownstreamLogRegLift:
 
     @pytest.mark.parametrize("seed", (1, 13))
     def test_xor_product_auc_lift(self, seed):
+        """MI-greedy-augmented LogReg beats raw-feature LogReg by >= +0.20 AUC on the x1*x2 product signal."""
         rng = np.random.default_rng(seed)
         n = 2500
         x1 = rng.standard_normal(n)
         x2 = rng.standard_normal(n)
-        X = pd.DataFrame({
-            "x1": x1,
-            "x2": x2,
-            "noise_a": rng.standard_normal(n),
-            "noise_b": rng.standard_normal(n),
-            "noise_c": rng.standard_normal(n),
-        })
+        X = pd.DataFrame(
+            {
+                "x1": x1,
+                "x2": x2,
+                "noise_a": rng.standard_normal(n),
+                "noise_b": rng.standard_normal(n),
+                "noise_c": rng.standard_normal(n),
+            }
+        )
         y = pd.Series(
             ((x1 * x2 + 0.02 * rng.standard_normal(n)) > 0).astype(int),
             name="y",
@@ -360,10 +371,12 @@ class TestDownstreamLogRegLift:
 
         # Raw LogReg cannot solve XOR; AUC pinned near 0.5.
         m_raw = LogisticRegression(max_iter=500).fit(
-            Xtr.to_numpy(), ytr.to_numpy(),
+            Xtr.to_numpy(),
+            ytr.to_numpy(),
         )
         auc_raw = roc_auc_score(
-            yte.to_numpy(), m_raw.predict_proba(Xte.to_numpy())[:, 1],
+            yte.to_numpy(),
+            m_raw.predict_proba(Xte.to_numpy())[:, 1],
         )
 
         mrmr_mg = _make_mrmr(
@@ -377,7 +390,8 @@ class TestDownstreamLogRegLift:
         Xtr_aug = mrmr_mg.transform(Xtr)
         Xte_aug = mrmr_mg.transform(Xte)
         m_aug = LogisticRegression(max_iter=500).fit(
-            np.asarray(Xtr_aug), ytr.to_numpy(),
+            np.asarray(Xtr_aug),
+            ytr.to_numpy(),
         )
         auc_aug = roc_auc_score(
             yte.to_numpy(),
@@ -389,9 +403,7 @@ class TestDownstreamLogRegLift:
             f"mi_greedy_features_={mrmr_mg.mi_greedy_features_}"
         )
         assert auc_aug - auc_raw >= 0.20, (
-            f"seed={seed}: MI-greedy FE should lift LogReg holdout AUC by "
-            f">= +0.20 on XOR product. raw={auc_raw:.3f}, "
-            f"aug={auc_aug:.3f}"
+            f"seed={seed}: MI-greedy FE should lift LogReg holdout AUC by " f">= +0.20 on XOR product. raw={auc_raw:.3f}, " f"aug={auc_aug:.3f}"
         )
 
 
@@ -401,9 +413,11 @@ class TestDownstreamLogRegLift:
 
 
 class TestNoYLeakage:
+    """transform() output is a pure function of X; MI-greedy recipes carry no y reference."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_transform_independent_of_y(self, seed):
+        """Repeated transform(X) calls on the same fitted estimator produce identical output."""
         X, y = _build_ratio_signal(seed)
         m = _make_mrmr(
             fe_mi_greedy_enable=True,
@@ -429,11 +443,11 @@ class TestNoYLeakage:
         arr_a = np.asarray(out_a, dtype=np.float64)
         arr_b = np.asarray(out_b, dtype=np.float64)
         np.testing.assert_allclose(
-            arr_a, arr_b, rtol=1e-12, atol=1e-12,
-            err_msg=(
-                f"seed={seed}: transform is non-deterministic in X; the "
-                f"engineered columns must depend ONLY on X."
-            ),
+            arr_a,
+            arr_b,
+            rtol=1e-12,
+            atol=1e-12,
+            err_msg=(f"seed={seed}: transform is non-deterministic in X; the " f"engineered columns must depend ONLY on X."),
         )
 
     @pytest.mark.parametrize("seed", SEEDS)
@@ -442,9 +456,11 @@ class TestNoYLeakage:
         the result must equal the direct call of the registered transform
         on the source column(s). Closed-form replay with no y reference."""
         from mlframe.feature_selection.filters._mi_greedy_fe import (
-            UNARY_TRANSFORMS, BINARY_TRANSFORMS,
-            engineered_name_unary, engineered_name_binary,
+            UNARY_TRANSFORMS,
+            BINARY_TRANSFORMS,
+            engineered_name_unary,
         )
+
         X, y = _build_ratio_signal(seed)
         m = _make_mrmr(
             fe_mi_greedy_enable=True,
@@ -466,16 +482,19 @@ class TestNoYLeakage:
             for tname, fn in UNARY_TRANSFORMS.items():
                 if col == engineered_name_unary(_strip_paren_arg(col), tname) and col.startswith(tname + "("):
                     # Extract inner col name
-                    inner = col[len(tname) + 1:-1]
+                    inner = col[len(tname) + 1 : -1]
                     if inner in X.columns:
                         ref = np.nan_to_num(
                             fn(X[inner].to_numpy()),
-                            nan=0.0, posinf=0.0, neginf=0.0,
+                            nan=0.0,
+                            posinf=0.0,
+                            neginf=0.0,
                         )
                         np.testing.assert_allclose(
                             np.asarray(out[col], dtype=np.float64),
                             ref.astype(np.float64),
-                            rtol=1e-9, atol=1e-9,
+                            rtol=1e-9,
+                            atol=1e-9,
                             err_msg=f"seed={seed}: {col} replay mismatch",
                         )
                         matched = True
@@ -489,16 +508,19 @@ class TestNoYLeakage:
                     inner = col[1:-1]
                     idx = inner.find(token)
                     col_i = inner[:idx]
-                    col_j = inner[idx + len(token):]
+                    col_j = inner[idx + len(token) :]
                     if col_i in X.columns and col_j in X.columns:
                         ref = np.nan_to_num(
                             fn_b(X[col_i].to_numpy(), X[col_j].to_numpy()),
-                            nan=0.0, posinf=0.0, neginf=0.0,
+                            nan=0.0,
+                            posinf=0.0,
+                            neginf=0.0,
                         )
                         np.testing.assert_allclose(
                             np.asarray(out[col], dtype=np.float64),
                             ref.astype(np.float64),
-                            rtol=1e-9, atol=1e-9,
+                            rtol=1e-9,
+                            atol=1e-9,
                             err_msg=f"seed={seed}: {col} replay mismatch",
                         )
                         matched = True
@@ -518,8 +540,10 @@ def _strip_paren_arg(s: str) -> str:
 
 
 class TestPickleAndCloneRecipes:
+    """clone() and pickle round-trips preserve fe_mi_greedy_* params and fitted recipes."""
 
     def test_clone_preserves_constructor_params(self):
+        """clone() copies all fe_mi_greedy_* params without carrying over fitted state."""
         m = _make_mrmr(
             fe_mi_greedy_enable=True,
             fe_mi_greedy_top_k=7,
@@ -535,11 +559,10 @@ class TestPickleAndCloneRecipes:
             "fe_mi_greedy_include_unary",
             "fe_mi_greedy_include_binary",
         ):
-            assert getattr(m_clone, attr) == getattr(m, attr), (
-                f"clone failed to preserve {attr}"
-            )
+            assert getattr(m_clone, attr) == getattr(m, attr), f"clone failed to preserve {attr}"
 
     def test_pickle_roundtrip_preserves_recipes(self):
+        """pickle.dumps/loads round-trip preserves mi_greedy recipes; transform output matches pre-pickle exactly."""
         X, y = _build_ratio_signal(7)
         m = _make_mrmr(
             fe_mi_greedy_enable=True,
@@ -551,12 +574,13 @@ class TestPickleAndCloneRecipes:
         out_pre = m.transform(X)
 
         blob = pickle.dumps(m)
-        m_rt = pickle.loads(blob)
+        m_rt = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
         out_post = m_rt.transform(X)
         np.testing.assert_allclose(
             np.asarray(out_pre, dtype=np.float64),
             np.asarray(out_post, dtype=np.float64),
-            rtol=1e-12, atol=1e-12,
+            rtol=1e-12,
+            atol=1e-12,
         )
         assert list(m_rt.mi_greedy_features_) == list(m.mi_greedy_features_)
 
@@ -567,6 +591,7 @@ class TestPickleAndCloneRecipes:
 
 
 class TestCombineWithHybridOrth:
+    """fe_hybrid_orth_enable and fe_mi_greedy_enable can co-exist without engineered-column name collisions."""
 
     @pytest.mark.parametrize("seed", (1, 7))
     def test_both_enabled_no_conflict(self, seed):
@@ -583,13 +608,15 @@ class TestCombineWithHybridOrth:
         x_q = rng.standard_normal(n)
         x_rev = np.exp(rng.normal(0.0, 1.0, size=n))
         x_cost = np.exp(rng.normal(0.0, 1.0, size=n))
-        X = pd.DataFrame({
-            "x_q": x_q,
-            "x_rev": x_rev,
-            "x_cost": x_cost,
-            "noise_a": rng.standard_normal(n),
-            "noise_b": rng.standard_normal(n),
-        })
+        X = pd.DataFrame(
+            {
+                "x_q": x_q,
+                "x_rev": x_rev,
+                "x_cost": x_cost,
+                "noise_a": rng.standard_normal(n),
+                "noise_b": rng.standard_normal(n),
+            }
+        )
         # Combined signal: quadratic OR ratio.
         sig_q = (x_q * x_q - 1.0) > 0
         sig_r = (x_rev / x_cost) > 1.0
@@ -629,15 +656,11 @@ class TestCombineWithHybridOrth:
             f"mig={m.mi_greedy_features_}"
         )
         assert len(m.mi_greedy_features_) >= 1, (
-            f"seed={seed}: mi_greedy_features_ unexpectedly empty when both "
-            f"signals present; got {m.mi_greedy_features_}"
+            f"seed={seed}: mi_greedy_features_ unexpectedly empty when both " f"signals present; got {m.mi_greedy_features_}"
         )
         # No name overlap.
         overlap = set(m.hybrid_orth_features_) & set(m.mi_greedy_features_)
-        assert not overlap, (
-            f"seed={seed}: hybrid and MI-greedy feature names overlapped: "
-            f"{overlap}"
-        )
+        assert not overlap, f"seed={seed}: hybrid and MI-greedy feature names overlapped: " f"{overlap}"
         # transform() doesn't crash and returns a DataFrame.
         out = m.transform(X)
         assert out.shape[0] == X.shape[0]
