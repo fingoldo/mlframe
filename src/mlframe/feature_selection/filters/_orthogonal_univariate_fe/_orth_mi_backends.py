@@ -73,7 +73,7 @@ def _fe_edge_binning_enabled() -> bool:
     return _os.environ.get("MLFRAME_FE_EDGE_BINNING", "").strip().lower() in ("1", "true", "on", "yes")
 
 
-def _mi_classif_batch_numba(X: np.ndarray, y: np.ndarray, *, nbins: int = 10) -> np.ndarray:
+def _mi_classif_batch_numba(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, rank_binning: bool = False) -> np.ndarray:
     """Numba prange batch MI(X_j; y) for classification.
 
     Defers to ``plugin_mi_classif_batch_dispatch`` from ``hermite_fe``, which routes (n, k) to the njit
@@ -98,6 +98,21 @@ def _mi_classif_batch_numba(X: np.ndarray, y: np.ndarray, *, nbins: int = 10) ->
     Handles partial-NaN columns by masking to the finite subset per column,
     matching ``_mi_classif_batch_sklearn`` semantics. An all-NaN column or a
     column where every value collapses to a single bin returns 0.0.
+
+    ``rank_binning`` (2026-07-16, correctness fix): when the caller explicitly requested RANK binning (the
+    STRICT/rank-resident GPU path in ``_mi_classif_batch`` was requested but not taken -- e.g. its own
+    ``fe_gpu_strict_enabled(n, p)`` shape floor blocked it), this function must NOT silently substitute the
+    ``_orth_mi_gpu_enabled`` EDGE-binned GPU path below: that gate returns True unconditionally whenever
+    ``MLFRAME_CMI_GPU=1`` (a diagnostic full-GPU-coverage env flag, NOT shape-gated), so a caller requesting
+    rank binning at a shape below the STRICT floor (e.g. n=50000, p=1 -- common for the pairwise-modular
+    combiner's per-column MI) silently got edge-binned MI instead, diverging from the CPU/GPU rank-resident
+    paths by as much as ~6%% on tie-heavy integer columns (found via
+    test_sf2_combiner_baseline_and_residue_mi_byte_identical). When ``rank_binning=True`` this skips the
+    edge-binned GPU branch and routes straight to the RANK-binned CPU dispatcher
+    (``plugin_mi_classif_batch_dispatch`` -> ``_quantile_bin_njit``, itself fixed the same day to use a
+    stable sort so its tie order matches ``cp.argsort``'s -- see that function's docstring), so
+    ``rank_binning=True`` is now an HONORED contract end-to-end instead of being silently dropped once past
+    the outer STRICT gate.
     """
     from .._fe_usability_signal import _crit_np_dtype
     _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); hoisted so _dt is bound on every branch
@@ -127,7 +142,7 @@ def _mi_classif_batch_numba(X: np.ndarray, y: np.ndarray, *, nbins: int = 10) ->
         else:
             X_dense = np.ascontiguousarray(X[:, dense_cols])
         try:
-            if _orth_mi_gpu_enabled(n=int(_n), p=int(dense_cols.size)):
+            if (not rank_binning) and _orth_mi_gpu_enabled(n=int(_n), p=int(dense_cols.size)):
                 # Full-residency GPU path -> the FE batcher: VRAM-budget column-chunked, CP-SAT-packed across
                 # heterogeneous GPUs (multi_gpu_fe_batch_mi collapses to one device on a 1-GPU host). Same
                 # resident edge-binned plug-in MI as the prior direct _plugin_mi_classif_batch_cuda_resident
@@ -386,7 +401,7 @@ def _mi_classif_batch(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, rank_bin
         logger.debug("suppressed in _orth_mi_backends.py:381: %s", e)
         pass
     if _MI_BACKEND == "numba":
-        return _mi_classif_batch_numba(X, y, nbins=nbins)
+        return _mi_classif_batch_numba(X, y, nbins=nbins, rank_binning=rank_binning)
     return _mi_classif_batch_sklearn(X, y, nbins=nbins)
 
 
