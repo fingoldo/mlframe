@@ -47,6 +47,7 @@ What the contract classes pin
   reach the augmented frame -- the absolute MI floor catches them even
   when relative uplifts look attractive on tiny baselines.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -64,11 +65,13 @@ SEEDS = (1, 7, 13, 42, 101)
 
 
 def _import_fe():
+    """Lazily import the pair cross-basis orthogonal-polynomial FE functions."""
     from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
         generate_pair_cross_basis_features,
         score_pair_cross_basis_by_mi_uplift,
         hybrid_orth_mi_pair_fe,
     )
+
     return (
         generate_pair_cross_basis_features,
         score_pair_cross_basis_by_mi_uplift,
@@ -88,12 +91,14 @@ def _build_xor(seed: int, n: int = 2500):
     rng = np.random.default_rng(seed)
     x1 = rng.standard_normal(n)
     x2 = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "x1": x1,
-        "x2": x2,
-        "noise_a": rng.standard_normal(n),
-        "noise_b": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "x1": x1,
+            "x2": x2,
+            "noise_a": rng.standard_normal(n),
+            "noise_b": rng.standard_normal(n),
+        }
+    )
     y = (x1 * x2 + 0.02 * rng.standard_normal(n) > 0).astype(int)
     return X, pd.Series(y)
 
@@ -106,13 +111,15 @@ def _build_he2_pair_saddle(seed: int, n: int = 2500):
     rng = np.random.default_rng(seed)
     x1 = rng.standard_normal(n)
     x2 = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "x1": x1,
-        "x2": x2,
-        "noise_a": rng.standard_normal(n),
-        "noise_b": rng.standard_normal(n),
-    })
-    raw = (x1 ** 2 - 1.0) * (x2 ** 2 - 1.0)
+    X = pd.DataFrame(
+        {
+            "x1": x1,
+            "x2": x2,
+            "noise_a": rng.standard_normal(n),
+            "noise_b": rng.standard_normal(n),
+        }
+    )
+    raw = (x1**2 - 1.0) * (x2**2 - 1.0)
     y = (raw + 0.05 * rng.standard_normal(n) > 0).astype(int)
     return X, pd.Series(y)
 
@@ -128,15 +135,17 @@ def _build_mixed_signals(seed: int, n: int = 3000):
     x_solo = rng.standard_normal(n)
     x_pa = rng.standard_normal(n)
     x_pb = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "x_solo": x_solo,
-        "x_pa": x_pa,
-        "x_pb": x_pb,
-        "noise_a": rng.standard_normal(n),
-        "noise_b": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "x_solo": x_solo,
+            "x_pa": x_pa,
+            "x_pb": x_pb,
+            "noise_a": rng.standard_normal(n),
+            "noise_b": rng.standard_normal(n),
+        }
+    )
     # Weight the two signals comparably so both reach above the noise floor.
-    raw = (x_solo ** 2 - 1.0) + 1.5 * (x_pa * x_pb)
+    raw = (x_solo**2 - 1.0) + 1.5 * (x_pa * x_pb)
     y = (raw + 0.05 * rng.standard_normal(n) > 0).astype(int)
     return X, pd.Series(y)
 
@@ -149,14 +158,16 @@ def _build_xor_with_noise_pair(seed: int, n: int = 2500):
     rng = np.random.default_rng(seed)
     x1 = rng.standard_normal(n)
     x2 = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "x1": x1,
-        "x2": x2,
-        "noise_a": rng.standard_normal(n),
-        "noise_b": rng.standard_normal(n),
-        "noise_c": rng.standard_normal(n),
-        "noise_d": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "x1": x1,
+            "x2": x2,
+            "noise_a": rng.standard_normal(n),
+            "noise_b": rng.standard_normal(n),
+            "noise_c": rng.standard_normal(n),
+            "noise_d": rng.standard_normal(n),
+        }
+    )
     y = (x1 * x2 + 0.02 * rng.standard_normal(n) > 0).astype(int)
     return X, pd.Series(y)
 
@@ -167,29 +178,28 @@ def _build_xor_with_noise_pair(seed: int, n: int = 2500):
 
 
 class TestCrossBasisGeneration:
+    """generate_pair_cross_basis_features emits the expected (deg_a, deg_b) cells per pair."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_emits_per_pair_per_degree_cell(self, seed):
+        """One pair times max_degree=2 emits exactly 4 correctly-named, NaN-free cross-basis cells."""
         gen_pair, _, _ = _import_fe()
         X, _ = _build_xor(seed)
         eng = gen_pair(X, pairs=[("x1", "x2")], max_degree=2, basis="hermite")
         # 1 pair * (2*2) cells = 4 columns (min_degree=1, max_degree=2 by default)
-        assert eng.shape == (X.shape[0], 4), (
-            f"expected 4 cells (1 pair * 2x2 degrees), got shape {eng.shape}"
-        )
+        assert eng.shape == (X.shape[0], 4), f"expected 4 cells (1 pair * 2x2 degrees), got shape {eng.shape}"
         expected = {
             "x1*x2__He1_He1",
             "x1*x2__He1_He2",
             "x1*x2__He2_He1",
             "x1*x2__He2_He2",
         }
-        assert set(eng.columns) == expected, (
-            f"col set mismatch: got {list(eng.columns)}, expected {expected}"
-        )
+        assert set(eng.columns) == expected, f"col set mismatch: got {list(eng.columns)}, expected {expected}"
         assert eng.notna().all().all(), f"NaN in cross-basis output seed={seed}"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_skips_self_pair_and_missing(self, seed):
+        """A self-pair and a pair referencing a missing column are silently skipped; only the valid pair emits cells."""
         gen_pair, _, _ = _import_fe()
         X, _ = _build_xor(seed)
         eng = gen_pair(
@@ -206,6 +216,7 @@ class TestCrossBasisGeneration:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_empty_pairs_returns_empty_frame(self, seed):
+        """An empty pairs list returns a frame with zero columns."""
         gen_pair, _, _ = _import_fe()
         X, _ = _build_xor(seed)
         eng = gen_pair(X, pairs=[], max_degree=2, basis="hermite")
@@ -218,9 +229,11 @@ class TestCrossBasisGeneration:
 
 
 class TestXorDiscovery:
+    """``y = sign(x1*x2)`` (XOR) is dominated by the He_1*He_1 cross-basis cell in the ranking and augmented frame."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_he1_he1_term_dominates_cross_ranking(self, seed):
+        """He_1*He_1 is the top-ranked cross-basis cell by MI uplift, with substantial engineered MI."""
         _, score_pair, _ = _import_fe()
         gen_pair, _, _ = _import_fe()
         X, y = _build_xor(seed)
@@ -229,21 +242,19 @@ class TestXorDiscovery:
         # Top winner by uplift must be the He_1 * He_1 cell.
         top = sc.iloc[0]
         assert top["engineered_col"] == "x1*x2__He1_He1", (
-            f"seed={seed}: top cross-basis winner should be x1*x2__He1_He1, "
-            f"got {top['engineered_col']}; full ranking:\n{sc}"
+            f"seed={seed}: top cross-basis winner should be x1*x2__He1_He1, " f"got {top['engineered_col']}; full ranking:\n{sc}"
         )
         # MI should be substantial (>= 0.4 nats on a clean XOR with n=2500).
-        assert top["engineered_mi"] >= 0.4, (
-            f"seed={seed}: XOR He_1*He_1 engineered_mi {top['engineered_mi']:.3f} "
-            f"should clear 0.4 on n=2500"
-        )
+        assert top["engineered_mi"] >= 0.4, f"seed={seed}: XOR He_1*He_1 engineered_mi {top['engineered_mi']:.3f} " f"should clear 0.4 on n=2500"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_xor_term_enters_augmented_frame(self, seed):
+        """The He_1*He_1 XOR cross-basis term enters the hybrid-augmented frame."""
         _, _, hybrid = _import_fe()
         X, y = _build_xor(seed)
-        X_aug, uni_sc, cross_sc = hybrid(
-            X, y.values,
+        X_aug, _uni_sc, cross_sc = hybrid(
+            X,
+            y.values,
             cols=["x1", "x2", "noise_a", "noise_b"],
             degrees=(2, 3),
             basis="hermite",
@@ -256,14 +267,8 @@ class TestXorDiscovery:
         pair_cols = [c for c in X_aug.columns if "*" in c and "__" in c]
         # The HE_1*HE_1 XOR term must be among the appended pair columns.
         # Order of legs (x1*x2 vs x2*x1) depends on seed pool order; allow both.
-        ok = any(
-            (("x1*x2__He1_He1" == c) or ("x2*x1__He1_He1" == c))
-            for c in pair_cols
-        )
-        assert ok, (
-            f"seed={seed}: XOR cross-basis He1*He1 should be in augmented "
-            f"frame, got pair cols {pair_cols}; cross_sc:\n{cross_sc.head(6)}"
-        )
+        ok = any((("x1*x2__He1_He1" == c) or ("x2*x1__He1_He1" == c)) for c in pair_cols)
+        assert ok, f"seed={seed}: XOR cross-basis He1*He1 should be in augmented " f"frame, got pair cols {pair_cols}; cross_sc:\n{cross_sc.head(6)}"
 
 
 # ---------------------------------------------------------------------------
@@ -272,9 +277,11 @@ class TestXorDiscovery:
 
 
 class TestSaddleDiscovery:
+    """``y = sign((x1^2-1)(x2^2-1))`` (saddle) is dominated by the He_2*He_2 (or adjacent) cross-basis cell."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_he2_he2_term_top_ranked(self, seed):
+        """He_2*He_2 or an adjacent cell is the top-ranked cross-basis cell, with substantial engineered MI."""
         gen_pair, score_pair, _ = _import_fe()
         X, y = _build_he2_pair_saddle(seed)
         eng = gen_pair(X, pairs=[("x1", "x2")], max_degree=2, basis="hermite")
@@ -288,20 +295,18 @@ class TestSaddleDiscovery:
             "x1*x2__He2_He1",
             "x1*x2__He1_He2",
         }, (
-            f"seed={seed}: top He_2 saddle winner should be He_2*He_2 or "
-            f"adjacent cell, got {top['engineered_col']}; full ranking:\n{sc}"
+            f"seed={seed}: top He_2 saddle winner should be He_2*He_2 or " f"adjacent cell, got {top['engineered_col']}; full ranking:\n{sc}"
         )
-        assert top["engineered_mi"] >= 0.20, (
-            f"seed={seed}: saddle top cross engineered_mi "
-            f"{top['engineered_mi']:.3f} should clear 0.20 at n=2500"
-        )
+        assert top["engineered_mi"] >= 0.20, f"seed={seed}: saddle top cross engineered_mi " f"{top['engineered_mi']:.3f} should clear 0.20 at n=2500"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_saddle_cross_enters_augmented(self, seed):
+        """At least one (x1, x2) He_? cross-basis cell enters the hybrid-augmented frame for the saddle signal."""
         _, _, hybrid = _import_fe()
         X, y = _build_he2_pair_saddle(seed)
         X_aug, _, cross_sc = hybrid(
-            X, y.values,
+            X,
+            y.values,
             cols=["x1", "x2", "noise_a", "noise_b"],
             degrees=(2, 3),
             basis="hermite",
@@ -313,14 +318,8 @@ class TestSaddleDiscovery:
         )
         pair_cols = [c for c in X_aug.columns if "*" in c and "__" in c]
         # At least one (x1, x2) cross-basis He_? cell entered.
-        ok = any(
-            (("x1*x2__" in c) or ("x2*x1__" in c))
-            for c in pair_cols
-        )
-        assert ok, (
-            f"seed={seed}: saddle cross-basis should be in augmented frame, "
-            f"got pair cols {pair_cols}; cross_sc:\n{cross_sc.head(6)}"
-        )
+        ok = any((("x1*x2__" in c) or ("x2*x1__" in c)) for c in pair_cols)
+        assert ok, f"seed={seed}: saddle cross-basis should be in augmented frame, " f"got pair cols {pair_cols}; cross_sc:\n{cross_sc.head(6)}"
 
 
 # ---------------------------------------------------------------------------
@@ -329,13 +328,16 @@ class TestSaddleDiscovery:
 
 
 class TestMixedSignalsBothSurfaced:
+    """A dataset with both a univariate and a cross-basis signal surfaces winners from both stages."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_both_univariate_and_cross_winners_appear(self, seed):
+        """x_solo__He2 (univariate) and x_pa*x_pb__He1_He1 (cross-basis) both enter the augmented frame."""
         _, _, hybrid = _import_fe()
         X, y = _build_mixed_signals(seed)
         X_aug, uni_sc, cross_sc = hybrid(
-            X, y.values,
+            X,
+            y.values,
             cols=["x_solo", "x_pa", "x_pb", "noise_a", "noise_b"],
             degrees=(2, 3),
             basis="hermite",
@@ -351,16 +353,11 @@ class TestMixedSignalsBothSurfaced:
         # have entered.
         uni_added = [c for c in added_cols if "*" not in c]
         assert any("x_solo__He2" == c for c in uni_added), (
-            f"seed={seed}: x_solo__He2 should be in augmented frame as the "
-            f"univariate He_2 winner; uni_added={uni_added}; uni_sc:\n"
-            f"{uni_sc.head(6)}"
+            f"seed={seed}: x_solo__He2 should be in augmented frame as the " f"univariate He_2 winner; uni_added={uni_added}; uni_sc:\n" f"{uni_sc.head(6)}"
         )
         # Pair-side: x_pa*x_pb__He1_He1 (or x_pb*x_pa__He1_He1) must be there.
         pair_added = [c for c in added_cols if "*" in c]
-        ok_pair = any(
-            (("x_pa*x_pb__He1_He1" == c) or ("x_pb*x_pa__He1_He1" == c))
-            for c in pair_added
-        )
+        ok_pair = any((("x_pa*x_pb__He1_He1" == c) or ("x_pb*x_pa__He1_He1" == c)) for c in pair_added)
         assert ok_pair, (
             f"seed={seed}: x_pa*x_pb__He1_He1 should be in augmented frame "
             f"as the cross-basis XOR winner; pair_added={pair_added}; "
@@ -374,9 +371,11 @@ class TestMixedSignalsBothSurfaced:
 
 
 class TestXorLogRegLift:
+    """Cross-basis-augmented LogReg measurably lifts holdout AUC over raw LogReg on the unsolvable XOR target."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_logreg_auc_lifts_with_cross_basis_fe(self, seed):
+        """Cross-basis-augmented LogReg clears 0.85 AUC and beats raw LogReg by >= +0.20 on XOR."""
         _, _, hybrid = _import_fe()
         X, y = _build_xor(seed, n=3000)
         n_train = 2000
@@ -384,13 +383,12 @@ class TestXorLogRegLift:
         Xtr, ytr = X.iloc[:n_train], y.iloc[:n_train]
         Xte, yte = X.iloc[n_train:], y.iloc[n_train:]
         m_raw = LogisticRegression(max_iter=500).fit(Xtr.to_numpy(), ytr.to_numpy())
-        auc_raw = roc_auc_score(
-            yte.to_numpy(), m_raw.predict_proba(Xte.to_numpy())[:, 1]
-        )
+        auc_raw = roc_auc_score(yte.to_numpy(), m_raw.predict_proba(Xte.to_numpy())[:, 1])
         # Hybrid FE on the full frame, then refit LogReg on the augmented
         # support. The augmented frame must contain x1*x2__He1_He1.
         X_aug_joint, _, cross_sc = hybrid(
-            X, y.values,
+            X,
+            y.values,
             cols=["x1", "x2", "noise_a", "noise_b"],
             degrees=(2, 3),
             basis="hermite",
@@ -402,22 +400,14 @@ class TestXorLogRegLift:
         )
         Xtr_aug = X_aug_joint.iloc[:n_train]
         Xte_aug = X_aug_joint.iloc[n_train:]
-        m_aug = LogisticRegression(max_iter=500).fit(
-            Xtr_aug.to_numpy(), ytr.to_numpy()
-        )
-        auc_aug = roc_auc_score(
-            yte.to_numpy(), m_aug.predict_proba(Xte_aug.to_numpy())[:, 1]
-        )
+        m_aug = LogisticRegression(max_iter=500).fit(Xtr_aug.to_numpy(), ytr.to_numpy())
+        auc_aug = roc_auc_score(yte.to_numpy(), m_aug.predict_proba(Xte_aug.to_numpy())[:, 1])
         # XOR is unsolvable by linear LogReg on raw -- AUC ~ 0.50.
         # With He_1(x1) * He_1(x2) feature added it should jump to >= 0.85.
         assert auc_aug >= 0.85, (
-            f"seed={seed}: augmented LogReg AUC {auc_aug:.3f} should clear "
-            f"0.85 on XOR with cross-basis FE; cross_sc:\n{cross_sc.head(5)}"
+            f"seed={seed}: augmented LogReg AUC {auc_aug:.3f} should clear " f"0.85 on XOR with cross-basis FE; cross_sc:\n{cross_sc.head(5)}"
         )
-        assert auc_aug > auc_raw + 0.20, (
-            f"seed={seed}: cross-basis FE should lift LogReg holdout AUC "
-            f">= +0.20 on XOR. raw={auc_raw:.3f}, aug={auc_aug:.3f}"
-        )
+        assert auc_aug > auc_raw + 0.20, f"seed={seed}: cross-basis FE should lift LogReg holdout AUC " f">= +0.20 on XOR. raw={auc_raw:.3f}, aug={auc_aug:.3f}"
 
 
 # ---------------------------------------------------------------------------
@@ -426,6 +416,7 @@ class TestXorLogRegLift:
 
 
 class TestNoisePairPruned:
+    """Pure-noise cross-basis pairs are pruned by the absolute MI floor even when relative uplift looks attractive."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_noise_noise_pair_filtered_by_abs_floor(self, seed):
@@ -436,8 +427,9 @@ class TestNoisePairPruned:
         """
         _, _, hybrid = _import_fe()
         X, y = _build_xor_with_noise_pair(seed)
-        X_aug, uni_sc, cross_sc = hybrid(
-            X, y.values,
+        X_aug, _uni_sc, cross_sc = hybrid(
+            X,
+            y.values,
             cols=list(X.columns),
             degrees=(2, 3),
             basis="hermite",
@@ -451,22 +443,19 @@ class TestNoisePairPruned:
         new_cols = [c for c in X_aug.columns if c not in X.columns]
         # Real XOR pair winner must enter.
         pair_added = [c for c in new_cols if "*" in c]
-        ok_real = any(
-            (("x1*x2__He1_He1" == c) or ("x2*x1__He1_He1" == c))
-            for c in pair_added
-        )
-        assert ok_real, (
-            f"seed={seed}: x1*x2 He1*He1 (the genuine signal) should enter "
-            f"augmented frame; pair_added={pair_added}"
-        )
+        ok_real = any((("x1*x2__He1_He1" == c) or ("x2*x1__He1_He1" == c)) for c in pair_added)
+        assert ok_real, f"seed={seed}: x1*x2 He1*He1 (the genuine signal) should enter " f"augmented frame; pair_added={pair_added}"
+
         # NO noise*noise pair term may slip in: every term whose BOTH legs
         # start with 'noise_' must be filtered.
         def _both_legs_noise(name: str) -> bool:
+            """Check whether a cross-basis column name's two source legs both start with 'noise_'."""
             head = name.split("__", 1)[0]
             if "*" not in head:
                 return False
             a, b = head.split("*", 1)
             return a.startswith("noise_") and b.startswith("noise_")
+
         noise_pair_added = [c for c in pair_added if _both_legs_noise(c)]
         assert not noise_pair_added, (
             f"seed={seed}: noise-noise cross-basis terms should be filtered "
@@ -489,6 +478,7 @@ class TestMixedBasisPairCrossReplay:
     """
 
     def test_mixed_basis_pair_recipe_replays_exactly(self):
+        """A mixed-domain He_2(Gaussian)*T_2(bounded) product replays from the recipe's per-leg extra bases, not the lossy name."""
         from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
             hybrid_orth_mi_pair_fe_with_recipes,
         )
@@ -496,32 +486,31 @@ class TestMixedBasisPairCrossReplay:
 
         rng = np.random.default_rng(0)
         n = 3000
-        x_i = rng.standard_normal(n)           # Gaussian domain -> Hermite-natural
-        x_j = rng.uniform(-1.0, 1.0, n)        # bounded domain  -> Chebyshev-natural
+        x_i = rng.standard_normal(n)  # Gaussian domain -> Hermite-natural
+        x_j = rng.uniform(-1.0, 1.0, n)  # bounded domain  -> Chebyshev-natural
         # He_2(x_i) * T_2(x_j): a genuinely mixed-domain product target.
-        y = (((x_i * x_i - 1.0) * (2.0 * x_j * x_j - 1.0)
-              + 0.2 * rng.standard_normal(n)) > 0).astype(int)
+        y = (((x_i * x_i - 1.0) * (2.0 * x_j * x_j - 1.0) + 0.2 * rng.standard_normal(n)) > 0).astype(int)
         X = pd.DataFrame({"x_i": x_i, "x_j": x_j})
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             X_aug, _uni, _cross, recipes = hybrid_orth_mi_pair_fe_with_recipes(
-                X, y, degrees=(2,), pair_max_degree=2,
-                pair_min_uplift=1.0, top_pair_count=3,
+                X,
+                y,
+                degrees=(2,),
+                pair_max_degree=2,
+                pair_min_uplift=1.0,
+                top_pair_count=3,
             )
 
         pair_recipes = [r for r in recipes if getattr(r, "kind", None) == "orth_pair_cross"]
-        assert pair_recipes, (
-            "the mixed-domain product target should engineer at least one "
-            "orth_pair_cross feature"
-        )
+        assert pair_recipes, "the mixed-domain product target should engineer at least one " "orth_pair_cross feature"
         saw_mixed = False
         for r in pair_recipes:
             basis_i = r.extra.get("basis_i")
             basis_j = r.extra.get("basis_j")
             assert basis_i is not None and basis_j is not None, (
-                f"orth_pair_cross recipe {r.name!r} must carry both per-leg bases "
-                f"in extra (not derive from the lossy name); extra={dict(r.extra)}"
+                f"orth_pair_cross recipe {r.name!r} must carry both per-leg bases " f"in extra (not derive from the lossy name); extra={dict(r.extra)}"
             )
             if basis_i != basis_j:
                 saw_mixed = True
