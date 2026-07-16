@@ -41,7 +41,6 @@ from sklearn.base import clone
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
 
-
 warnings.filterwarnings("ignore")
 
 
@@ -57,6 +56,7 @@ from tests.feature_selection.conftest import make_fast_mrmr as _make_mrmr
 from tests.feature_selection._biz_val_synth import _train_holdout_split
 
 def _logreg_auc(X_tr: pd.DataFrame, y_tr: pd.Series, X_ho: pd.DataFrame, y_ho: pd.Series) -> float:
+    """Fit LogReg on the numeric-only columns of X_tr and return holdout ROC-AUC."""
     num_cols = [c for c in X_tr.columns if pd.api.types.is_numeric_dtype(X_tr[c])]
     if not num_cols:
         return 0.5
@@ -181,12 +181,15 @@ def _build_lagged_diff_signal(seed: int, n: int = 3000):
 
 
 class TestPairwiseRatioKernel:
+    """Direct unit tests on the pairwise-ratio FE kernel."""
+
     def test_fit_returns_safe_division(self):
+        """A perfectly-linear ratio pair (constant ratio) is rejected by the redundancy gate."""
         from mlframe.feature_selection.filters._ratio_delta_fe import (
             pairwise_ratio_features,
         )
         X = pd.DataFrame({"a": [1.0, 2.0, 3.0], "b": [2.0, 4.0, 6.0]})
-        enc, accepted = pairwise_ratio_features(X, ["a", "b"])
+        enc, _accepted = pairwise_ratio_features(X, ["a", "b"])
         # a/b = 0.5, 0.5, 0.5 -- constant -> rejected by the redundancy gate.
         # b/a = 2.0, 2.0, 2.0 -- also constant -> rejected.
         # So accepted should be empty when the ratio is perfectly linear in the inputs.
@@ -194,6 +197,7 @@ class TestPairwiseRatioKernel:
         assert "ratio__b__a" not in enc.columns
 
     def test_fit_keeps_informative_ratio(self):
+        """An informative (non-constant) ratio pair is accepted in both directions."""
         from mlframe.feature_selection.filters._ratio_delta_fe import (
             pairwise_ratio_features,
         )
@@ -209,6 +213,7 @@ class TestPairwiseRatioKernel:
         assert ("b", "a") in accepted
 
     def test_handles_zero_denominator(self):
+        """Safe division never produces NaN/inf, even with a zero denominator."""
         from mlframe.feature_selection.filters._ratio_delta_fe import apply_ratio
         X = pd.DataFrame({"a": [1.0, 2.0, 3.0], "b": [0.0, 4.0, -0.0]})
         out = apply_ratio(X, "a", "b", eps=1e-9)
@@ -216,6 +221,7 @@ class TestPairwiseRatioKernel:
         assert np.all(np.isfinite(out))
 
     def test_empty_X_rejected(self):
+        """An empty DataFrame raises ValueError referencing empty."""
         from mlframe.feature_selection.filters._ratio_delta_fe import (
             pairwise_ratio_features,
         )
@@ -224,7 +230,10 @@ class TestPairwiseRatioKernel:
 
 
 class TestPairwiseLogRatioKernel:
+    """Direct unit tests on the pairwise-log-ratio FE kernel."""
+
     def test_handles_negative_values(self):
+        """log1p(|.|) difference stays finite for any real (including negative) input."""
         from mlframe.feature_selection.filters._ratio_delta_fe import (
             apply_log_ratio,
         )
@@ -235,7 +244,10 @@ class TestPairwiseLogRatioKernel:
 
 
 class TestGroupedDeltaKernel:
+    """Direct unit tests on the grouped-delta/zscore FE kernel."""
+
     def test_fit_recovers_train_mean(self):
+        """grouped_delta_ equals the row's value minus its group's train mean."""
         from mlframe.feature_selection.filters._ratio_delta_fe import (
             grouped_delta_features,
         )
@@ -243,13 +255,14 @@ class TestGroupedDeltaKernel:
             "region": ["A", "A", "A", "B", "B", "B"],
             "age": [10.0, 20.0, 30.0, 40.0, 50.0, 60.0],
         })
-        enc, recipes = grouped_delta_features(X, "region", ["age"])
+        enc, _recipes = grouped_delta_features(X, "region", ["age"])
         assert "grouped_delta_age__region" in enc.columns
         assert "grouped_zscore_age__region" in enc.columns
         delta = enc["grouped_delta_age__region"].to_numpy()
         np.testing.assert_allclose(delta, [-10.0, 0.0, 10.0, -10.0, 0.0, 10.0])
 
     def test_apply_uses_train_stats_for_unseen_group(self):
+        """An unseen group at transform time falls back to the global train mean."""
         from mlframe.feature_selection.filters._ratio_delta_fe import (
             grouped_delta_features, apply_grouped_delta,
         )
@@ -257,7 +270,7 @@ class TestGroupedDeltaKernel:
             "region": ["A", "A", "B", "B"],
             "age": [10.0, 20.0, 30.0, 40.0],
         })
-        enc, recipes = grouped_delta_features(X_tr, "region", ["age"])
+        _enc, recipes = grouped_delta_features(X_tr, "region", ["age"])
         recipe = recipes["grouped_delta_age__region"]
         # Test frame contains an unseen region "C".
         X_te = pd.DataFrame({"region": ["A", "C"], "age": [25.0, 50.0]})
@@ -268,16 +281,20 @@ class TestGroupedDeltaKernel:
 
 
 class TestLaggedDiffKernel:
+    """Direct unit tests on the lagged-diff FE kernel."""
+
     def test_fit_returns_first_difference(self):
+        """lagged_diff_x__period1 equals the first difference of x in time order."""
         from mlframe.feature_selection.filters._ratio_delta_fe import (
             lagged_diff_features,
         )
         X = pd.DataFrame({"t": [0, 1, 2, 3], "x": [1.0, 3.0, 6.0, 10.0]})
-        enc, recipes = lagged_diff_features(X, "t", ["x"], periods=(1,))
+        enc, _recipes = lagged_diff_features(X, "t", ["x"], periods=(1,))
         diff = enc["lagged_diff_x__period1"].to_numpy()
         np.testing.assert_allclose(diff, [0.0, 2.0, 3.0, 4.0])
 
     def test_fit_respects_time_col_order(self):
+        """Rows in scrambled time order are sorted by time_col before differencing, then mapped back."""
         from mlframe.feature_selection.filters._ratio_delta_fe import (
             lagged_diff_features,
         )
@@ -296,8 +313,11 @@ class TestLaggedDiffKernel:
 
 
 class TestRatioAUCLift:
+    """Ratio-augmented LogReg clears an AUC lift over the raw-pair baseline."""
+
     @pytest.mark.parametrize("seed", SEEDS)
     def test_logreg_auc_lift_via_ratio(self, seed: int):
+        """Ratio-augmented LogReg AUC beats the raw baseline by >= 0.15 on the two-sided ratio-band signal."""
         from mlframe.feature_selection.filters._ratio_delta_fe import (
             pairwise_ratio_with_recipes,
         )
@@ -307,9 +327,7 @@ class TestRatioAUCLift:
         X_tr_aug, _, _ = pairwise_ratio_with_recipes(X_tr, cols=["revenue", "cost"])
         X_ho_aug, _, _ = pairwise_ratio_with_recipes(X_ho, cols=["revenue", "cost"])
         auc_aug = _logreg_auc(X_tr_aug, y_tr, X_ho_aug, y_ho)
-        assert auc_aug >= auc_base + 0.15, (
-            f"Ratio-augmented AUC {auc_aug:.3f} not >= baseline {auc_base:.3f} + 0.15"
-        )
+        assert auc_aug >= auc_base + 0.15, f"Ratio-augmented AUC {auc_aug:.3f} not >= baseline {auc_base:.3f} + 0.15"
 
 
 # ---------------------------------------------------------------------------
@@ -323,6 +341,7 @@ class TestMRMRSelectsGroupedDelta:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_grouped_delta_enters_support(self, seed: int):
+        """grouped_delta_age__region (or its z-score sibling) enters MRMR support on the within-group signal."""
         X, y = _build_grouped_delta_signal(seed)
         sel = _make_mrmr(
             fe_grouped_delta_enable=True,
@@ -330,10 +349,7 @@ class TestMRMRSelectsGroupedDelta:
             fe_grouped_delta_num_cols=("age",),
         ).fit(X, y)
         names = list(sel.get_feature_names_out())
-        assert any(
-            nm in ("grouped_delta_age__region", "grouped_zscore_age__region")
-            for nm in names
-        ), f"grouped delta / zscore not in support; got {names}"
+        assert any(nm in ("grouped_delta_age__region", "grouped_zscore_age__region") for nm in names), f"grouped delta / zscore not in support; got {names}"
 
 
 class TestMRMRSelectsLaggedDiff:
@@ -342,6 +358,7 @@ class TestMRMRSelectsLaggedDiff:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_lagged_diff_enters_support(self, seed: int):
+        """lagged_diff_temperature__period1 enters MRMR support on the first-order-change signal."""
         X, y = _build_lagged_diff_signal(seed)
         sel = _make_mrmr(
             fe_lagged_diff_enable=True,
@@ -350,9 +367,7 @@ class TestMRMRSelectsLaggedDiff:
             fe_lagged_diff_periods=(1, 2),
         ).fit(X, y)
         names = list(sel.get_feature_names_out())
-        assert "lagged_diff_temperature__period1" in names, (
-            f"lagged_diff_temperature__period1 not in support; got {names}"
-        )
+        assert "lagged_diff_temperature__period1" in names, f"lagged_diff_temperature__period1 not in support; got {names}"
 
 
 # ---------------------------------------------------------------------------
@@ -361,6 +376,8 @@ class TestMRMRSelectsLaggedDiff:
 
 
 class TestNoLeakage:
+    """Every Layer 38 replay path is a pure closed-form function of X; none read y."""
+
     def test_ratio_replay_bit_identical_under_shuffled_y(self):
         """The replay path is a closed-form function of X; shuffling y must
         not change a single value of the engineered column."""
@@ -390,6 +407,7 @@ class TestNoLeakage:
                 )
 
     def test_lagged_diff_replay_no_y(self):
+        """apply_lagged_diff is a pure function of X and the recipe; repeated calls are bit-identical."""
         from mlframe.feature_selection.filters._ratio_delta_fe import (
             apply_lagged_diff,
         )
@@ -406,7 +424,10 @@ class TestNoLeakage:
 
 
 class TestPickleClone:
+    """clone() and pickle round-trips preserve every Layer 38 ctor param and fitted transform output."""
+
     def _build(self):
+        """Return an unfitted MRMR with all three Layer 38 FE mechanisms enabled."""
         return _make_mrmr(
             fe_pairwise_ratio_enable=True,
             fe_pairwise_ratio_cols=("revenue", "cost"),
@@ -420,6 +441,7 @@ class TestPickleClone:
         )
 
     def test_clone_preserves_layer38_params(self):
+        """clone() round-trips every Layer 38 ctor param bit-exactly."""
         m = self._build()
         m2 = clone(m)
         p1 = m.get_params()
@@ -438,11 +460,10 @@ class TestPickleClone:
             "fe_lagged_diff_value_cols",
             "fe_lagged_diff_periods",
         ):
-            assert p1[key] == p2[key], (
-                f"clone lost param {key!r}: orig={p1[key]!r} clone={p2[key]!r}"
-            )
+            assert p1[key] == p2[key], f"clone lost param {key!r}: orig={p1[key]!r} clone={p2[key]!r}"
 
     def test_pickle_roundtrip_preserves_transform_grouped(self):
+        """pickle round-trip preserves transform() output values for a grouped-delta fit."""
         X, y = _build_grouped_delta_signal(seed=3801)
         m = _make_mrmr(
             fe_grouped_delta_enable=True,
@@ -450,7 +471,7 @@ class TestPickleClone:
             fe_grouped_delta_num_cols=("age",),
         ).fit(X, y)
         pre = m.transform(X)
-        m2 = pickle.loads(pickle.dumps(m))
+        m2 = pickle.loads(pickle.dumps(m))  # nosec B301 -- round-trip of a locally-created, trusted object
         post = m2.transform(X)
         assert list(pre.columns) == list(post.columns)
         for col in pre.columns:
@@ -473,6 +494,7 @@ class TestDefaultDisabledByteIdentical:
     output must match a vanilla instance bit-for-bit."""
 
     def test_no_layer38_features_appear_by_default(self):
+        """A vanilla MRMR and one with every Layer 38 flag explicitly False select identical columns."""
         X, y = _build_ratio_signal(seed=3801)
         vanilla = _make_mrmr().fit(X, y)
         defaulted = _make_mrmr(
@@ -483,23 +505,10 @@ class TestDefaultDisabledByteIdentical:
         ).fit(X, y)
         v_names = list(vanilla.get_feature_names_out())
         d_names = list(defaulted.get_feature_names_out())
-        assert v_names == d_names, (
-            f"Default-disabled Layer 38 changed selection: "
-            f"vanilla={v_names} defaulted={d_names}"
-        )
+        assert v_names == d_names, f"Default-disabled Layer 38 changed selection: " f"vanilla={v_names} defaulted={d_names}"
         for nm in v_names:
-            assert not nm.startswith("ratio__"), (
-                f"vanilla selection contains an unexpected ratio col: {nm}"
-            )
-            assert not nm.startswith("log_ratio__"), (
-                f"vanilla selection contains an unexpected log_ratio col: {nm}"
-            )
-            assert not nm.startswith("grouped_delta_"), (
-                f"vanilla selection contains an unexpected grouped_delta col: {nm}"
-            )
-            assert not nm.startswith("grouped_zscore_"), (
-                f"vanilla selection contains an unexpected grouped_zscore col: {nm}"
-            )
-            assert not nm.startswith("lagged_diff_"), (
-                f"vanilla selection contains an unexpected lagged_diff col: {nm}"
-            )
+            assert not nm.startswith("ratio__"), f"vanilla selection contains an unexpected ratio col: {nm}"
+            assert not nm.startswith("log_ratio__"), f"vanilla selection contains an unexpected log_ratio col: {nm}"
+            assert not nm.startswith("grouped_delta_"), f"vanilla selection contains an unexpected grouped_delta col: {nm}"
+            assert not nm.startswith("grouped_zscore_"), f"vanilla selection contains an unexpected grouped_zscore col: {nm}"
+            assert not nm.startswith("lagged_diff_"), f"vanilla selection contains an unexpected lagged_diff col: {nm}"
