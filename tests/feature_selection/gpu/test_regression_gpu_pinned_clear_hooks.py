@@ -13,6 +13,7 @@ from mlframe.feature_selection.filters import _gpu_resident_select
 
 
 def test_clear_pinned_buffers_empties_pool_and_reports_count():
+    """Clear pinned buffers empties pool and reports count."""
     _kernels_cupy._PINNED_BUFFERS.clear()
     _kernels_cupy._PINNED_BUFFERS[("t", "a", (1,), "f4")] = object()
     _kernels_cupy._PINNED_BUFFERS[("t", "b", (2,), "f4")] = object()
@@ -24,8 +25,12 @@ def test_clear_pinned_buffers_empties_pool_and_reports_count():
 
 
 def test_clear_pinned_d2h_drops_thread_local_buffer():
-    _gpu_resident_select._PINNED_D2H_TLS.buf = object()
+    """Clear pinned d2h drops thread local buffer."""
+    # ``bufs`` (plural, a dict keyed by DMA slot) is the real attribute ``clear_pinned_d2h`` reads/clears
+    # (see ``_gpu_resident_materialise.py``'s ``_pinned_view`` / ``clear_pinned_d2h``) -- a stale singular
+    # ``buf`` here silently no-ops the whole test (``getattr(..., "bufs", None)`` reads None regardless).
+    _gpu_resident_select._PINNED_D2H_TLS.bufs = {0: object()}
     assert _gpu_resident_select.clear_pinned_d2h() is True
-    assert getattr(_gpu_resident_select._PINNED_D2H_TLS, "buf", None) is None
+    assert getattr(_gpu_resident_select._PINNED_D2H_TLS, "bufs", None) is None
     # Idempotent: nothing left to drop.
     assert _gpu_resident_select.clear_pinned_d2h() is False

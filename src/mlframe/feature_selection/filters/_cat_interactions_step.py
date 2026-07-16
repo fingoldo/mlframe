@@ -12,10 +12,38 @@ import math
 
 import numpy as np
 
+from ._fe_gpu_strict import _STRICT_MIN_CALL_P
 from .cat_fe_state import CatFEConfig, CatFEState
 from .engineered_recipes import EngineeredRecipe
 
 logger = logging.getLogger(__name__)
+
+# cfg.backend="auto" GPU-eligibility floor: the ORIGINAL two-independent-thresholds contract was
+# "n_cols_eff >= 200 AND n_samples >= 500_000" (see the docstring at ``run_cat_interaction_step``'s
+# work-based gate below for why that's structurally wrong). Kept as named constants -- not inlined --
+# so the SAME combined work magnitude is reused, not duplicated, at the one call site.
+_AUTO_GPU_MIN_COLS = 200
+_AUTO_GPU_MIN_N = 500_000
+
+
+def _cat_fe_auto_wants_gpu(n_samples: int, n_cols_eff: int) -> bool:
+    """Whether ``cfg.backend="auto"`` should attempt the GPU dispatch for this (n_samples, n_cols_eff)
+    shape (CuPy availability is checked separately by the caller).
+
+    WORK-BASED gate (2026-07-16). The old rule required BOTH ``n_cols_eff >= _AUTO_GPU_MIN_COLS`` AND
+    ``n_samples >= _AUTO_GPU_MIN_N`` as two INDEPENDENT thresholds -- ignoring their PRODUCT, so a wide-
+    but-under-500k-row fit could NEVER qualify purely for sitting under the row mark, no matter how many
+    columns it had (and vice versa: a huge-row, ~100-column fit never qualified either, despite comparable
+    total work). Converted to a work-PRODUCT check against the SAME combined magnitude the original two-
+    threshold rule implied (no new/invented calibration -- the same two constants, now multiplied instead
+    of AND'ed), plus the SAME p-floor the validated n*p CPU/CUDA crossover uses elsewhere in MRMR
+    (``_should_use_cuda`` / ``_fe_gpu_strict._STRICT_MIN_CALL_P``) so a degenerate huge-n/tiny-p shape with
+    no real column-batching parallelism still declines GPU. Note this does NOT, by itself, flip the
+    wellbore-100k shape (n=99401, ~500 candidate cols, work~49.7M) to GPU -- that shape is still under the
+    100M combined floor; a fit with either somewhat more columns or somewhat more rows at comparable width
+    now correctly qualifies where the old AND-of-independent-thresholds rule never could, regardless of how
+    large one dimension grew alone."""
+    return n_cols_eff >= _STRICT_MIN_CALL_P and (n_samples * n_cols_eff) >= (_AUTO_GPU_MIN_COLS * _AUTO_GPU_MIN_N)
 
 
 def _quantile_bin_with_edges(raw: np.ndarray, n_bins: int) -> tuple:
@@ -306,7 +334,7 @@ def run_cat_interaction_step(
         use_gpu = True
     elif cfg.backend == "auto":
         n_cols_eff = len(candidate_idxs_arr)
-        if n_cols_eff >= 200 and n_samples >= 500_000:
+        if _cat_fe_auto_wants_gpu(n_samples, n_cols_eff):
             from mlframe.feature_engineering.transformer import is_gpu_available
             if is_gpu_available():
                 use_gpu = True

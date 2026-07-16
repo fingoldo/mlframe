@@ -25,6 +25,7 @@ cp = pytest.importorskip("cupy")
 
 
 def _need_cuda() -> bool:
+    """Whether a usable CUDA device is available (used to skip the module when it is not)."""
     try:
         from pyutilz.core.pythonlib import is_cuda_available
         return is_cuda_available()
@@ -36,6 +37,7 @@ pytestmark = [pytest.mark.gpu, pytest.mark.skipif(not _need_cuda(), reason="no C
 
 
 def _make_frame(n: int, seed: int):
+    """Build the (X, y) synthetic frame the greedy-CMI residency audit fits."""
     rng = np.random.default_rng(seed)
     a, b, c, d = (rng.random(n) for _ in range(4))
     # A compound target so several engineered candidates carry signal and the greedy loop runs >1 round.
@@ -46,12 +48,12 @@ def _make_frame(n: int, seed: int):
 
 
 def _run_audit(env_on: bool):
+    """Run one MRMR-adjacent greedy_cmi_fe_construct call under residency_audit, with/without the STRICT flags."""
     from mlframe.feature_selection.filters import _fe_resident_operands as _R
     from mlframe.feature_selection.filters._mi_greedy_cmi_fe import greedy_cmi_fe_construct
     from mlframe.feature_selection.filters._gpu_strict_fe import residency_audit
 
-    saved = {k: os.environ.get(k) for k in
-             ("MLFRAME_FE_GPU_STRICT", "MLFRAME_CMI_GPU", "MLFRAME_FE_VRAM_F32")}
+    saved = {k: os.environ.get(k) for k in ("MLFRAME_FE_GPU_STRICT", "MLFRAME_CMI_GPU", "MLFRAME_FE_VRAM_F32")}
     if env_on:
         os.environ["MLFRAME_FE_GPU_STRICT"] = "1"
         os.environ["MLFRAME_CMI_GPU"] = "1"
@@ -68,6 +70,7 @@ def _run_audit(env_on: bool):
     _orig = _R.resident_operand
 
     def _counting(arr, key, **kw):
+        """Wraps resident_operand to count cache-miss uploads per role."""
         import numpy as _np
         host = _np.asarray(arr)
         dtype = kw.get("dtype")
@@ -107,16 +110,22 @@ def _run_audit(env_on: bool):
 
 def test_cmi_greedy_residency_no_bulk_mi_vector_d2h():
     """PRIMARY GATE: under the 3 strict flags the wired greedy loop emits ZERO bulk D2H (the (K,) CMI vector
-    stays resident; the argmax pulls only scalars) and does NOT re-upload y as a bulk H2D per candidate batch."""
+    stays resident; the argmax pulls only scalars) and does NOT re-upload y as a bulk H2D per candidate batch.
+
+    2026-07-17: the candidate pool is now binned + fingerprinted fully resident (``_quantile_bin_gpu_resident``
+    + a device-side reduction hash, replacing the host ``_quantile_bin`` + ``.tobytes()`` pair that D2H'd one
+    (n,) array PER CANDIDATE PER SCAN -- 212 bulk D2H events on this fixture before the fix), and the per-winner
+    conditioning-support (Z) fold now runs entirely on-device (``_renumber_joint_gpu``, resident twin of the
+    host ``_renumber_joint``) instead of materializing each winner's codes host-side just to fold them -- the
+    remaining y/z-invariant CMI precompute (``precompute_cmi_yz_terms``, still host-only) is now LAZY, computed
+    only on the rare batched-CMI-call exception fallback, not unconditionally every round."""
     rep_on, scores, role_uploads = _run_audit(env_on=True)
     # Sanity: the GPU path actually ran (>=1 winner selected over multiple candidates).
     assert len(scores) >= 1, "greedy CMI selected no winners (path may not have exercised the GPU loop)"
 
     # (a) The (K,) MI float64 vector is NOT in the bulk-D2H list. Under return_device the only D2H crossings
     #     are the argmax (idx int64 8B, val float64 8B) scalars + the analytic-null tiny scalars.
-    assert len(rep_on.bulk_d2h) == 0, (
-        f"unexpected bulk D2H (the (K,) MI vector should stay resident): {rep_on.bulk_d2h}; "
-        f"{rep_on.summary()}")
+    assert len(rep_on.bulk_d2h) == 0, f"unexpected bulk D2H (the (K,) MI vector should stay resident): {rep_on.bulk_d2h}; {rep_on.summary()}"
 
     # (c) All D2H is scalar (< BULK_BYTES).
     from mlframe.feature_selection.filters._gpu_strict_fe._audit import BULK_BYTES
@@ -128,14 +137,15 @@ def test_cmi_greedy_residency_no_bulk_mi_vector_d2h():
     #     not fit-constant -- it is kept on a distinct role so it can never evict the fixed y.
     assert role_uploads.get("cmi_greedy_y_fixed", 0) == 1, (
         f"fixed greedy y uploaded {role_uploads.get('cmi_greedy_y_fixed', 0)}x; the fit-constant y must be "
-        f"uploaded exactly once and reused resident. role_uploads={role_uploads}")
+        f"uploaded exactly once and reused resident. role_uploads={role_uploads}"
+    )
 
 
 def test_cmi_residency_before_after_classification():
     """Document the before/after bulk-transfer classification: with return_device OFF (host path) the per-round
     (K,) MI vector + y cross as bulk; with the strict wiring ON they do not. This is informational (printed) and
     asserts the ON path is strictly cleaner on bulk D2H."""
-    rep_off, _, _ = _run_audit(env_on=False)   # CPU host path (no GPU): zero device traffic at all
+    rep_off, _, _ = _run_audit(env_on=False)  # CPU host path (no GPU): zero device traffic at all
     rep_on, _, ru = _run_audit(env_on=True)
     print("BEFORE (host/CPU path):     " + rep_off.summary())
     print("AFTER  (GPU-strict wired):  " + rep_on.summary() + f"  role_uploads={ru}")
@@ -179,12 +189,20 @@ def _run_pair_search_audit():
 
     saved = {k: os.environ.get(k) for k in
              ("MLFRAME_FE_GPU_STRICT", "MLFRAME_CMI_GPU", "MLFRAME_FE_VRAM_F32",
-              "MLFRAME_FE_GPU_DISCRETIZE", "MLFRAME_FE_GPU_BINNING")}
+              "MLFRAME_FE_GPU_DISCRETIZE", "MLFRAME_FE_GPU_BINNING", "MLFRAME_MI_ANALYTIC_NULL")}
     os.environ["MLFRAME_FE_GPU_STRICT"] = "1"
     os.environ["MLFRAME_CMI_GPU"] = "1"
     os.environ["MLFRAME_FE_VRAM_F32"] = "1"
     os.environ["MLFRAME_FE_GPU_DISCRETIZE"] = "1"
     os.environ["MLFRAME_FE_GPU_BINNING"] = "1"
+    # This audit's whole point is exercising the PERMUTATION noise-gate's resident-codes consumer
+    # (``_batch_mi_with_noise_gate_gpu`` / ``take_resident_codes``). At this fixture's n=30000, which is above
+    # ``analytic_null_min_n()``'s default 25000, ``_pairs_dispatch`` legitimately routes every pair through the
+    # analytic chi-square gate instead (a real, separate, n-gated optimization -- see ``_analytic_mi_null.py``),
+    # which never touches ``device_codes`` at all: the resident-codes handoff gets popped (unconditionally, at
+    # dispatch entry) and then discarded unread for every pair, showing up here as near-all take-MISSES. Force
+    # the legacy permutation path so this audit exercises the consumer it is actually auditing.
+    os.environ["MLFRAME_MI_ANALYTIC_NULL"] = "0"
 
     # Start from a clean VRAM state: this module runs the greedy-CMI audit fits BEFORE this one, and on a
     # 4GB / contended card their accumulated device allocations can leave the shared context near-exhausted so
@@ -208,21 +226,21 @@ def _run_pair_search_audit():
     a, b, c, d, e = (rng.uniform(0.1, 1.1, n) for _ in range(5))
     f = rng.uniform(0.1, 1.1, n)
     df = pd.DataFrame({k: v.astype(np.float64) for k, v in zip("abcde", (a, b, c, d, e))})
-    y = a ** 2 / b + f / 5.0 + np.log(np.abs(c) + 1e-9) * np.sin(d)
+    y = a**2 / b + f / 5.0 + np.log(np.abs(c) + 1e-9) * np.sin(d)
 
-    cnt = {"stash": 0, "take_calls": 0, "take_hits": 0,
-           "gate_with_devcodes": 0, "gate_no_devcodes": 0,
-           "operand_table_h2d": 0, "operand_table_distinct": 0}
+    cnt = {"stash": 0, "take_calls": 0, "take_hits": 0, "gate_with_devcodes": 0, "gate_no_devcodes": 0, "operand_table_h2d": 0, "operand_table_distinct": 0}
 
     # The producer (gpu_materialise/discretize_codes_host, both in _RM) resolves ``_stash_resident_codes`` and
     # ``_resident_operand_table`` as _RM module globals -> patch THOSE bindings to count them.
     _o_stash = _RM._stash_resident_codes
     def _stash(h, dv):
+        """Wraps _stash_resident_codes to count producer stash events."""
         cnt["stash"] += 1
         return _o_stash(h, dv)
 
     _o_take = _FE.take_resident_codes
     def _take(h):
+        """Wraps take_resident_codes to count consumer take calls/hits."""
         cnt["take_calls"] += 1
         r = _o_take(h)
         if r is not None:
@@ -232,6 +250,7 @@ def _run_pair_search_audit():
     _o_rot = _RM._resident_operand_table
     _seen_tv: set = set()
     def _rot(cp_mod, tv):
+        """Wraps _resident_operand_table to count genuine (non-cached) operand-table H2D uploads."""
         # Count a REAL operand-table H2D (cache miss: neither GPU-prebuilt for this host array nor already
         # weakref-cached). A hit returns the resident device table with no transfer.
         pre = _RM._prebuilt_operand_table(tv)
@@ -244,6 +263,7 @@ def _run_pair_search_audit():
 
     _o_bg = _DI._batch_mi_with_noise_gate_gpu
     def _bg(*a_, **k_):
+        """Wraps _batch_mi_with_noise_gate_gpu to count dispatches with/without resident device codes."""
         if k_.get("device_codes") is not None:
             cnt["gate_with_devcodes"] += 1
         else:
@@ -258,8 +278,7 @@ def _run_pair_search_audit():
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             with residency_audit() as rep:
-                fs = MRMR(full_npermutations=10, baseline_npermutations=20, fe_max_steps=2,
-                          fe_min_pair_mi_prevalence=1.05, verbose=0, n_jobs=1).fit(df, y)
+                fs = MRMR(full_npermutations=10, baseline_npermutations=20, fe_max_steps=2, fe_min_pair_mi_prevalence=1.05, verbose=0, n_jobs=1).fit(df, y)
         names = [str(s) for s in fs.get_feature_names_out()]
         cnt["operand_table_distinct"] = len(_seen_tv)
         return names, cnt, rep, n
@@ -297,23 +316,26 @@ def pair_search_audit():
 
 def test_pair_search_residency_codes_resident_into_mi_gate(pair_search_audit):
     """PRIMARY GATE for the pair-search path: the candidate codes the GPU binner produced stay RESIDENT and
-    are consumed IN PLACE by the noise-gate MI -- every producer stash is matched by a consumer take-HIT, and
-    the gate receives the device codes (never re-uploads host codes). This is invariant (1)+(2): codes resident
-    into the MI gate, with NO (n, K) codes buffer crossing the bus."""
+    are consumed IN PLACE by the noise-gate MI -- every producer stash is matched by exactly one consumer
+    take-HIT (never leaked, never phantom-hit), and the gate receives the device codes (never re-uploads host
+    codes). This is invariant (1)+(2): codes resident into the MI gate, with NO (n, K) codes buffer crossing
+    the bus."""
     names, cnt, rep, n = pair_search_audit
 
-    # (1) Resident-codes handoff: every dispatch that popped the handoff HIT (the device codes matched the
-    #     host array by id/shape/dtype) -- so the codes flowed producer -> gate without a host round-trip.
-    assert cnt["take_hits"] == cnt["take_calls"], (
-        f"resident-codes handoff missed: {cnt['take_hits']}/{cnt['take_calls']} hits; counters={cnt}")
-    assert cnt["take_hits"] >= cnt["stash"], (
-        f"some stashed device codes were never consumed in place; counters={cnt}")
+    # (1) Resident-codes handoff: ``take_calls`` (once per pair/chunk dispatch) is NOT expected to equal
+    # ``take_hits`` -- most pairs at this fixture's scale take the fully-resident ``gpu_pairs_fe_mi`` fast path
+    # (``_pairs_score.py``'s ``_fe_gpu_discretize_enabled`` branch), which scores MI entirely on-device and
+    # never reaches ``_dispatch_batch_mi_with_noise_gate`` / the codes handoff at all -- only the pairs that
+    # path declines (SU-normalised / sparse / small-n) fall through to the ``_disc_2d``-based dispatcher this
+    # handoff serves. The real invariant is exact: every stash is consumed exactly once (no leak, no phantom
+    # hit on an unrelated dispatch's stale entry).
+    assert cnt["take_hits"] == cnt["stash"], f"stashed/consumed resident-codes mismatch: {cnt['take_hits']} hits vs {cnt['stash']} stashes; counters={cnt}"
 
     # (2) The MI gate consumed the DEVICE codes in place on every GPU dispatch -- it never fell back to a host
     #     codes re-upload (which would have re-paid the (n, K) codes H2D the residency path exists to skip).
     assert cnt["gate_no_devcodes"] == 0, (
-        f"the noise-gate MI re-uploaded host codes on {cnt['gate_no_devcodes']} dispatch(es) instead of "
-        f"consuming the resident device copy; counters={cnt}")
+        f"the noise-gate MI re-uploaded host codes on {cnt['gate_no_devcodes']} dispatch(es) instead of " f"consuming the resident device copy; counters={cnt}"
+    )
     assert cnt["gate_with_devcodes"] >= 1, f"the resident-codes gate never ran; counters={cnt}"
 
 

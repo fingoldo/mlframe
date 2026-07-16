@@ -132,6 +132,9 @@ class ScreenContext:
     # 2026-07-13 (Wave 13 finding 2): (candidates, {parent_name: [idx, ...]}) index cached the same
     # way, for ``_confirmable_engineered_child``'s per-winner parent-name rescan (prefer_engineered_rel_eps path).
     _engineered_parent_index_cache: object = None
+    # 2026-07-16 (wellbore-100k profiling): (z_key, z_classes, z_nclasses) cache for
+    # ``_conditioning_rows_per_cell``'s Z=selected_vars encoding -- see that function's docstring.
+    _z_merge_cache: object = None
     # --- per-interactions-order / per-node mutable state ---
     # These five are ALWAYS populated by the orchestrator before use (never read as None at
     # runtime); ``None`` is only a dataclass placeholder default (a required-after-defaulted-

@@ -50,8 +50,8 @@ from mlframe.feature_selection.filters.cat_interactions import (
     resolve_min_interaction_information,
     run_cat_interaction_step,
 )
+from mlframe.feature_selection.filters._cat_interactions_step import _cat_fe_auto_wants_gpu
 from mlframe.feature_selection.filters.info_theory import merge_vars
-
 
 # ---------------------------------------------------------------------------
 # Shared fixtures
@@ -129,13 +129,16 @@ def _run(fx, cfg, **extras):
 
 
 class TestColumnSignatureAndKL:
+    """Test group: column-signature construction and KL-divergence reuse gate."""
     def test_column_signature_normalises_to_probability(self):
+        """Column signature normalises to probability."""
         vals = np.array([0, 0, 1, 1, 2], dtype=np.int32)
         sig = _column_signature(vals, nbins=3)
         np.testing.assert_allclose(sig, [0.4, 0.4, 0.2])
         assert sig.sum() == pytest.approx(1.0)
 
     def test_column_signature_empty_handles_division(self):
+        """Column signature empty handles division."""
         vals = np.array([], dtype=np.int32)
         sig = _column_signature(vals, nbins=2)
         assert sig.shape == (2,)
@@ -143,10 +146,12 @@ class TestColumnSignatureAndKL:
         assert np.all(sig == 0.0)
 
     def test_kl_divergence_identical_is_zero(self):
+        """Kl divergence identical is zero."""
         p = np.array([0.25, 0.75])
         assert _kl_divergence(p, p) == pytest.approx(0.0, abs=1e-9)
 
     def test_kl_divergence_known_value(self):
+        """Kl divergence known value."""
         # KL(p || q) with eps-smoothed inputs; sanity-check it's positive
         p = np.array([0.9, 0.1])
         q = np.array([0.1, 0.9])
@@ -154,7 +159,9 @@ class TestColumnSignatureAndKL:
 
 
 class TestRestoreCachedMarginalMIs:
+    """Test group: restoring cached marginal MIs when the target distribution is stable."""
     def test_reuses_when_distribution_stable(self):
+        """Reuses when distribution stable."""
         rng = np.random.default_rng(0)
         n = 300
         data = rng.integers(0, 3, size=(n, 3)).astype(np.int32)
@@ -184,6 +191,7 @@ class TestRestoreCachedMarginalMIs:
         assert 0 in new_sigs and 1 in new_sigs
 
     def test_no_reuse_when_column_not_in_cache(self):
+        """No reuse when column not in cache."""
         data = np.zeros((100, 2), dtype=np.int32)
         data[:, 1] = 1
         nbins = np.array([2, 2], dtype=np.int64)
@@ -199,6 +207,7 @@ class TestRestoreCachedMarginalMIs:
         assert np.isnan(mi_reused).all()
 
     def test_no_reuse_when_kl_exceeds_threshold(self):
+        """No reuse when kl exceeds threshold."""
         rng = np.random.default_rng(1)
         n = 200
         data = rng.integers(0, 3, size=(n, 1)).astype(np.int32)
@@ -220,20 +229,25 @@ class TestRestoreCachedMarginalMIs:
 
 
 class TestResolveDefaults:
+    """Test Resolve Defaults."""
     def test_max_combined_explicit_clamped(self):
+        """Max combined explicit clamped."""
         cfg = CatFEConfig(max_combined_nbins=10**9)
         assert resolve_max_combined_nbins(cfg, n_samples=1000) == 10**7
 
     def test_max_combined_none_paninski(self):
+        """Max combined none paninski."""
         cfg = CatFEConfig(max_combined_nbins=None)
         assert resolve_max_combined_nbins(cfg, n_samples=3000) == int(3000 * 0.05 / 3) + 1
         assert resolve_max_combined_nbins(cfg, n_samples=5) == 4
 
     def test_max_combined_explicit_small(self):
+        """Max combined explicit small."""
         cfg = CatFEConfig(max_combined_nbins=20)
         assert resolve_max_combined_nbins(cfg, n_samples=10_000) == 20
 
     def test_min_ii_none(self):
+        """Min ii none."""
         cfg = CatFEConfig(min_interaction_information=None)
         # n=10000 -> -3/100 = -0.03
         assert resolve_min_interaction_information(cfg, n_samples=10000) == pytest.approx(-0.03)
@@ -241,16 +255,20 @@ class TestResolveDefaults:
         assert resolve_min_interaction_information(cfg, n_samples=0) == pytest.approx(-3.0)
 
     def test_min_ii_explicit_negative(self):
+        """Min ii explicit negative."""
         cfg = CatFEConfig(min_interaction_information=-0.5)
         assert resolve_min_interaction_information(cfg, n_samples=100) == -0.5
 
     def test_min_ii_explicit_positive(self):
+        """Min ii explicit positive."""
         cfg = CatFEConfig(min_interaction_information=0.1)
         assert resolve_min_interaction_information(cfg, n_samples=100) == 0.1
 
 
 class TestSelectCandidateIndices:
+    """Test Select Candidate Indices."""
     def test_drop_singleton(self):
+        """Drop singleton."""
         cfg = CatFEConfig()
         state = CatFEState()
         kept = _select_candidate_indices(
@@ -262,6 +280,7 @@ class TestSelectCandidateIndices:
         assert state.dropped_singleton_nbins == [0]
 
     def test_skip_on_high_cardinality_by_default(self):
+        """Skip on high cardinality by default."""
         cfg = CatFEConfig()
         state = CatFEState()
         with pytest.warns(UserWarning, match="(?i)skipping"):
@@ -274,6 +293,7 @@ class TestSelectCandidateIndices:
         assert (1, 500) in state.high_cardinality_warnings
 
     def test_raise_on_high_cardinality_when_opted_in(self):
+        """Raise on high cardinality when opted in."""
         cfg = CatFEConfig(on_high_cardinality="raise")
         state = CatFEState()
         with pytest.raises(ValueError, match="(?i)high-cardinality"):
@@ -284,6 +304,7 @@ class TestSelectCandidateIndices:
             )
 
     def test_all_singletons_returns_empty(self):
+        """All singletons returns empty."""
         cfg = CatFEConfig()
         state = CatFEState()
         kept = _select_candidate_indices(
@@ -295,7 +316,9 @@ class TestSelectCandidateIndices:
 
 
 class TestSelectTopKPairs:
+    """Test Select Top K Pairs."""
     def test_synergy_selects_positive_ii(self):
+        """Synergy selects positive ii."""
         ii = np.array([0.5, -0.2, 0.3, -0.1, 0.4])
         cfg = CatFEConfig(top_k_pairs=2, min_interaction_information=0.0)
         out = _select_top_k_pairs(
@@ -308,6 +331,7 @@ class TestSelectTopKPairs:
         assert set(out.tolist()) == {0, 4}
 
     def test_redundancy_selects_negative_ii(self):
+        """Redundancy selects negative ii."""
         ii = np.array([0.5, -0.3, 0.1, -0.4])
         cfg = CatFEConfig(top_k_pairs=2, min_interaction_information=-0.05, select_on="redundancy")
         out = _select_top_k_pairs(
@@ -319,6 +343,7 @@ class TestSelectTopKPairs:
         assert set(out.tolist()) == {1, 3}
 
     def test_absolute_selects_largest_magnitude(self):
+        """Absolute selects largest magnitude."""
         ii = np.array([0.5, -0.6, 0.05, -0.1])
         cfg = CatFEConfig(top_k_pairs=2, min_interaction_information=0.0, select_on="absolute")
         out = _select_top_k_pairs(
@@ -330,6 +355,7 @@ class TestSelectTopKPairs:
         assert set(out.tolist()) == {0, 1}
 
     def test_no_eligible_returns_empty(self):
+        """No eligible returns empty."""
         ii = np.array([-0.5, -0.3])
         cfg = CatFEConfig(top_k_pairs=2, min_interaction_information=0.1)
         out = _select_top_k_pairs(
@@ -341,6 +367,7 @@ class TestSelectTopKPairs:
         assert out.size == 0
 
     def test_unknown_select_on_raises(self):
+        """Unknown select on raises."""
         ii = np.array([0.5, 0.1])
         cfg = CatFEConfig()
         # Bypass __post_init__: mutate after construction
@@ -352,6 +379,7 @@ class TestSelectTopKPairs:
             )
 
     def test_argpartition_path_when_many_eligible(self):
+        """Argpartition path when many eligible."""
         ii = np.linspace(0.01, 0.5, 20)
         cfg = CatFEConfig(top_k_pairs=5, min_interaction_information=0.0)
         out = _select_top_k_pairs(
@@ -364,12 +392,15 @@ class TestSelectTopKPairs:
 
 
 class TestEntropyForMode:
+    """Test Entropy For Mode."""
     def test_plain_plugin(self):
+        """Plain plugin."""
         freqs = np.array([0.5, 0.5])
         h = _entropy_for_mode(freqs, n_samples=100, use_mm=False)
         assert h == pytest.approx(np.log(2), abs=1e-6)
 
     def test_miller_madow_path(self):
+        """Miller madow path."""
         freqs = np.array([0.5, 0.5])
         h_pl = _entropy_for_mode(freqs, n_samples=100, use_mm=False)
         h_mm = _entropy_for_mode(freqs, n_samples=100, use_mm=True)
@@ -377,6 +408,7 @@ class TestEntropyForMode:
         assert h_mm != h_pl
 
     def test_kt_smoothing_path(self):
+        """Kt smoothing path."""
         freqs = np.array([0.5, 0.5])
         h_kt = _entropy_for_mode(freqs, n_samples=100, use_mm=False, use_kt=True)
         # KT smoothing finite output
@@ -385,13 +417,16 @@ class TestEntropyForMode:
 
 
 class TestShouldApplyMM:
+    """Test group: the Miller-Madow bias-correction gate."""
     def test_folklore_gate_threshold(self):
+        """Folklore gate threshold."""
         # Joint cardinality / n > 0.05 -> True
         assert _should_apply_mm_for_pair(10, 10, 2, 100) is True
         # Below threshold -> False
         assert _should_apply_mm_for_pair(2, 2, 2, 10000) is False
 
     def test_analytical_gate(self):
+        """Analytical gate."""
         # (a-1)(b-1)(c-1) >= 6*sqrt(n)
         # Large cardinality, small n -> True
         assert _should_apply_mm_for_pair_analytical(20, 20, 5, 100) is True
@@ -400,30 +435,36 @@ class TestShouldApplyMM:
 
 
 class TestApplyFwerCorrection:
+    """Test Apply Fwer Correction."""
     def test_none_passthrough(self):
+        """None passthrough."""
         conf = {(0, 1): 0.99, (0, 2): 0.5}
         cfg = CatFEConfig(fwer_correction="none")
         out = _apply_fwer_correction(conf, cfg, n_search_pairs=10)
         assert out == conf
 
     def test_empty_passthrough(self):
+        """Empty passthrough."""
         cfg = CatFEConfig(fwer_correction="bonferroni")
         out = _apply_fwer_correction({}, cfg, n_search_pairs=10)
         assert out == {}
 
     def test_bonferroni_inflates_p(self):
+        """Bonferroni inflates p."""
         # Confidence 0.99 -> p=0.01. With m=10 -> corrected p=0.1 -> conf=0.9
         cfg = CatFEConfig(fwer_correction="bonferroni")
         out = _apply_fwer_correction({(0, 1): 0.99}, cfg, n_search_pairs=10)
         assert out[(0, 1)] == pytest.approx(0.9, abs=1e-6)
 
     def test_bonferroni_clamps_at_1(self):
+        """Bonferroni clamps at 1."""
         # Confidence 0.5 -> p=0.5; with m=10 -> p*m=5.0 clamps to 1 -> conf=0
         cfg = CatFEConfig(fwer_correction="bonferroni")
         out = _apply_fwer_correction({(0, 1): 0.5}, cfg, n_search_pairs=10)
         assert out[(0, 1)] == pytest.approx(0.0)
 
     def test_bh_fdr(self):
+        """Bh fdr."""
         # Two ordered p-values; BH adjusts step-up
         cfg = CatFEConfig(fwer_correction="bh_fdr")
         out = _apply_fwer_correction(
@@ -436,11 +477,13 @@ class TestApplyFwerCorrection:
             assert 0.0 <= v <= 1.0
 
     def test_westfall_young_fallback(self):
+        """Westfall young fallback."""
         cfg = CatFEConfig(fwer_correction="westfall_young")
         out = _apply_fwer_correction({(0, 1): 0.95}, cfg, n_search_pairs=4)
         assert (0, 1) in out
 
     def test_unknown_correction_raises(self):
+        """Unknown correction raises."""
         cfg = CatFEConfig()
         object.__setattr__(cfg, "fwer_correction", "bogus")
         with pytest.raises(ValueError, match="fwer_correction"):
@@ -448,18 +491,64 @@ class TestApplyFwerCorrection:
 
 
 class TestPermKernelDispatch:
+    """Test Perm Kernel Dispatch."""
     def test_backend_cpu_returns_false(self):
+        """Backend cpu returns false."""
         # backend="cpu" must never reach GPU
         assert _perm_kernel_dispatch_use_gpu(n_samples=10_000_000, n_perms=100, backend="cpu") is False
 
     def test_backend_auto_small_n_returns_false(self):
+        """Backend auto small n returns false."""
         assert _perm_kernel_dispatch_use_gpu(n_samples=1000, n_perms=100, backend="auto") is False
 
     def test_backend_gpu_without_cupy(self):
+        """Backend gpu without cupy."""
         # If cupy is missing, this returns False; if present, returns True.
         # Either way the call must not raise.
         out = _perm_kernel_dispatch_use_gpu(n_samples=100, n_perms=10, backend="gpu")
         assert out in (True, False)
+
+
+class TestCatFEAutoBackendWorkGate:
+    """Regression for the 2026-07-16 fix: ``cfg.backend="auto"`` used to require BOTH
+    ``n_cols_eff >= 200`` AND ``n_samples >= 500_000`` as two INDEPENDENT thresholds, so a wide-but-
+    under-500k-row fit could never qualify for GPU no matter how many columns it had. Fixed to a
+    work-PRODUCT check against the SAME combined magnitude (200*500_000) plus a p-floor of 64."""
+
+    def test_old_rule_shape_still_qualifies(self):
+        """Old rule shape still qualifies."""
+        # The exact old-rule boundary (200 cols, 500_000 rows) must still qualify under the new rule
+        # (work = 100M, exactly at the floor) -- the fix must never NARROW what already qualified.
+        assert _cat_fe_auto_wants_gpu(n_samples=500_000, n_cols_eff=200) is True
+
+    def test_wide_under_500k_rows_now_qualifies(self):
+        """Wide under 500k rows now qualifies."""
+        # The bug this fixes: n_cols_eff=1000 far exceeds the old col floor, and n_samples=200_000 was
+        # PREVIOUSLY DISQUALIFYING purely for being under 500_000, despite work=200M >> the 100M floor.
+        assert _cat_fe_auto_wants_gpu(n_samples=200_000, n_cols_eff=1000) is True
+
+    def test_tall_under_200_cols_now_qualifies(self):
+        """Tall under 200 cols now qualifies."""
+        # Symmetric case: n_cols_eff=100 was PREVIOUSLY DISQUALIFYING purely for being under 200,
+        # despite n_samples=2_000_000 giving work=200M >> the 100M floor.
+        assert _cat_fe_auto_wants_gpu(n_samples=2_000_000, n_cols_eff=100) is True
+
+    def test_degenerate_tiny_p_declines_despite_huge_work(self):
+        """Degenerate tiny p declines despite huge work."""
+        # A huge-n/tiny-p shape clears the work product but has no real column-batching parallelism
+        # for the GPU kernel to amortize over -- the p-floor must still decline it.
+        assert _cat_fe_auto_wants_gpu(n_samples=1_000_000_000, n_cols_eff=1) is False
+
+    def test_genuinely_small_shape_declines(self):
+        """Genuinely small shape declines."""
+        assert _cat_fe_auto_wants_gpu(n_samples=1000, n_cols_eff=10) is False
+
+    def test_wellbore_100k_shape_still_declines(self):
+        """Wellbore 100k shape still declines."""
+        # Documented in the fix's docstring: this specific production shape sits under the 100M floor
+        # (work ~49.7M) even after the fix -- pinned here so a future recalibration is a deliberate,
+        # visible change rather than an accidental side effect.
+        assert _cat_fe_auto_wants_gpu(n_samples=99_401, n_cols_eff=500) is False
 
 
 # ---------------------------------------------------------------------------
@@ -468,6 +557,7 @@ class TestPermKernelDispatch:
 
 
 class TestComputePairIIMM:
+    """Test group: pairwise interaction-information with Miller-Madow correction."""
     def test_runs_with_mm_disabled(self, xor_small):
         """Direct MM-disabled path: should return finite II close to ln(2)
         for the XOR pair."""
@@ -488,6 +578,7 @@ class TestComputePairIIMM:
         assert ii > 0.3  # strong synergy
 
     def test_runs_with_mm_enabled(self, xor_small):
+        """Runs with mm enabled."""
         from mlframe.feature_selection.filters.info_theory import entropy
         h_y = entropy(xor_small["freqs_y"])
         ii = _compute_pair_ii_mm(
@@ -510,7 +601,9 @@ class TestComputePairIIMM:
 
 
 class TestMaybeRerankWithMM:
+    """Test group: optional Miller-Madow reranking of selected pairs."""
     def _make_inputs(self, xor):
+        """Make inputs."""
         candidate_idxs = np.array([0, 1, 2, 3], dtype=np.int64)
         marginal_mi = _marginal_screen_njit(
             factors_data=xor["data"],
@@ -537,6 +630,7 @@ class TestMaybeRerankWithMM:
         return pairs_a, pairs_b, ii_arr, marginal_full
 
     def test_disabled_returns_unchanged(self, xor_small):
+        """Disabled returns unchanged."""
         pairs_a, pairs_b, ii_arr, _ = self._make_inputs(xor_small)
         selected = np.array([0, 1], dtype=np.int64)
         cfg = CatFEConfig(use_miller_madow=False)
@@ -554,6 +648,7 @@ class TestMaybeRerankWithMM:
         np.testing.assert_array_equal(sel_out, selected)
 
     def test_empty_selected_returns_unchanged(self, xor_small):
+        """Empty selected returns unchanged."""
         pairs_a, pairs_b, ii_arr, _ = self._make_inputs(xor_small)
         cfg = CatFEConfig(use_miller_madow=True)
         selected = np.array([], dtype=np.int64)
@@ -570,6 +665,7 @@ class TestMaybeRerankWithMM:
         assert sel_out.size == 0
 
     def test_force_true_applies_mm(self, xor_small):
+        """Force true applies mm."""
         pairs_a, pairs_b, ii_arr, _ = self._make_inputs(xor_small)
         selected = np.array([0, 1, 2], dtype=np.int64)
         cfg = CatFEConfig(use_miller_madow=True)
@@ -608,6 +704,7 @@ class TestMaybeRerankWithMM:
 
     @pytest.mark.parametrize("select_on", ["synergy", "redundancy", "absolute"])
     def test_select_on_resorts(self, xor_small, select_on):
+        """Select on resorts."""
         pairs_a, pairs_b, ii_arr, _ = self._make_inputs(xor_small)
         selected = np.array([0, 1, 2], dtype=np.int64)
         cfg = CatFEConfig(use_miller_madow=True, select_on=select_on)
@@ -630,7 +727,9 @@ class TestMaybeRerankWithMM:
 
 
 class TestConfirmPermutation:
+    """Test Confirm Permutation."""
     def test_no_perms_returns_empty_confidence(self, xor_small):
+        """No perms returns empty confidence."""
         cfg = CatFEConfig(full_npermutations=0)
         selected = np.array([0, 1], dtype=np.int64)
         ii = np.array([0.5, 0.3])
@@ -649,6 +748,7 @@ class TestConfirmPermutation:
         assert conf == {}
 
     def test_empty_selected_returns_empty(self, xor_small):
+        """Empty selected returns empty."""
         cfg = CatFEConfig(full_npermutations=5)
         out_sel, conf = _confirm_pairs_via_permutation(
             factors_data=xor_small["data"],
@@ -672,7 +772,9 @@ class TestConfirmPermutation:
 
 
 class TestKfoldStability:
+    """Test Kfold Stability."""
     def test_disabled_passthrough(self, xor_small):
+        """Disabled passthrough."""
         cfg = CatFEConfig(n_folds_stability=0)
         selected = np.array([0], dtype=np.int64)
         out_sel, fold_d = _kfold_stability_filter(
@@ -688,6 +790,7 @@ class TestKfoldStability:
         assert fold_d == {}
 
     def test_empty_selected_passthrough(self, xor_small):
+        """Empty selected passthrough."""
         cfg = CatFEConfig(n_folds_stability=2)
         out_sel, fold_d = _kfold_stability_filter(
             factors_data=xor_small["data"],
@@ -729,7 +832,9 @@ class TestKfoldStability:
 
 
 class TestAntiRedundancy:
+    """Test Anti Redundancy."""
     def test_beta_zero_passthrough(self, xor_small):
+        """Beta zero passthrough."""
         cfg = CatFEConfig(anti_redundancy_beta=0.0)
         selected = np.array([0], dtype=np.int64)
         ii = np.array([0.5])
@@ -747,6 +852,7 @@ class TestAntiRedundancy:
         np.testing.assert_array_equal(sel_out, selected)
 
     def test_empty_selected_so_far_passthrough(self, xor_small):
+        """Empty selected so far passthrough."""
         cfg = CatFEConfig(anti_redundancy_beta=0.5)
         selected = np.array([0], dtype=np.int64)
         ii = np.array([0.5])
@@ -764,6 +870,7 @@ class TestAntiRedundancy:
 
     @pytest.mark.parametrize("select_on", ["synergy", "redundancy", "absolute"])
     def test_select_on_variants(self, xor_small, select_on):
+        """Select on variants."""
         cfg = CatFEConfig(anti_redundancy_beta=0.3, select_on=select_on)
         # Two pairs to give re-ranking something to do
         marginal_mi = np.zeros(xor_small["data"].shape[1])
@@ -797,6 +904,7 @@ class TestAntiRedundancy:
 
 
 class TestGreedyExpand:
+    """Test Greedy Expand."""
     def test_no_extension_returns_none(self, xor_small):
         """With max_kway_order=2 we don't extend beyond pairs - returns None."""
         marginal_mi = np.zeros(xor_small["data"].shape[1])
@@ -822,7 +930,9 @@ class TestGreedyExpand:
 
 
 class TestPairSearchWeighted:
+    """Test Pair Search Weighted."""
     def test_uniform_weights_matches_unweighted(self, xor_small):
+        """Uniform weights matches unweighted."""
         candidate_idxs = np.array([0, 1, 2, 3], dtype=np.int64)
         marginal_mi = _marginal_screen_njit(
             factors_data=xor_small["data"],
@@ -862,6 +972,7 @@ class TestPairSearchWeighted:
         np.testing.assert_allclose(ii_w[0], ii_u[0], rtol=1e-6)
 
     def test_nonuniform_weights_runs(self, xor_small):
+        """Nonuniform weights runs."""
         marginal_full = np.zeros(xor_small["data"].shape[1])
         pairs_a = np.array([0], dtype=np.int64)
         pairs_b = np.array([1], dtype=np.int64)
@@ -886,7 +997,9 @@ class TestPairSearchWeighted:
 
 
 class TestBuildFactorizeLookup:
+    """Test Build Factorize Lookup."""
     def _make_pair_data(self):
+        """Make pair data."""
         # 2x2 cartesian product with renumbering
         data = np.array(
             [[0, 0], [0, 1], [1, 0], [1, 1], [0, 0], [1, 1]],
@@ -896,6 +1009,7 @@ class TestBuildFactorizeLookup:
         return data, classes_pair_post
 
     def test_clip_strategy(self):
+        """Clip strategy."""
         data, classes = self._make_pair_data()
         lookup, n_eff = _build_factorize_lookup(
             factors_data=data, idx_a=0, idx_b=1, nbins_a=2, nbins_b=2,
@@ -905,6 +1019,7 @@ class TestBuildFactorizeLookup:
         assert n_eff == 4
 
     def test_sentinel_strategy_no_unseen(self):
+        """Sentinel strategy no unseen."""
         data, classes = self._make_pair_data()
         lookup, n_eff = _build_factorize_lookup(
             factors_data=data, idx_a=0, idx_b=1, nbins_a=2, nbins_b=2,
@@ -915,6 +1030,7 @@ class TestBuildFactorizeLookup:
         assert n_eff == 4
 
     def test_clip_with_unseen_cells(self):
+        """Clip with unseen cells."""
         # 2x3 table but only (0,0) and (1,1) seen -> 4 unseen
         data = np.array([[0, 0], [1, 1]], dtype=np.int32)
         classes = np.array([0, 1], dtype=np.int32)
@@ -926,6 +1042,7 @@ class TestBuildFactorizeLookup:
         assert (lookup >= 0).all()
 
     def test_sentinel_with_unseen_cells(self):
+        """Sentinel with unseen cells."""
         data = np.array([[0, 0], [1, 1]], dtype=np.int32)
         classes = np.array([0, 1], dtype=np.int32)
         lookup, n_eff = _build_factorize_lookup(
@@ -937,6 +1054,7 @@ class TestBuildFactorizeLookup:
         assert (lookup == 2).sum() > 0
 
     def test_raise_strategy_leaves_negative_one(self):
+        """Raise strategy leaves negative one."""
         data = np.array([[0, 0], [1, 1]], dtype=np.int32)
         classes = np.array([0, 1], dtype=np.int32)
         lookup, _ = _build_factorize_lookup(
@@ -946,6 +1064,7 @@ class TestBuildFactorizeLookup:
         assert (lookup == -1).sum() > 0
 
     def test_unknown_strategy_raises(self):
+        """Unknown strategy raises."""
         data = np.array([[0, 0], [1, 1]], dtype=np.int32)
         classes = np.array([0, 1], dtype=np.int32)
         with pytest.raises(ValueError, match="unknown_strategy"):
@@ -961,8 +1080,10 @@ class TestBuildFactorizeLookup:
 
 
 class TestOrchestratorKnobs:
+    """Test Orchestrator Knobs."""
     @pytest.mark.fast
     def test_baseline_xor_runs(self, xor_small):
+        """Baseline xor runs."""
         cfg = CatFEConfig(
             enable=True, top_k_pairs=4,
             min_interaction_information=0.05,
@@ -974,12 +1095,14 @@ class TestOrchestratorKnobs:
         assert len(state.recipes) >= 1
 
     def test_disabled_via_min_n(self, xor_small):
+        """Disabled via min n."""
         cfg = CatFEConfig(min_n_samples=10_000)
         data_out, cols_out, _, state = _run(xor_small, cfg)
         assert data_out is xor_small["data"]
         assert state.recipes == []
 
     def test_select_on_redundancy(self, xor_small):
+        """Select on redundancy."""
         cfg = CatFEConfig(
             top_k_pairs=2,
             min_interaction_information=-0.05,
@@ -992,6 +1115,7 @@ class TestOrchestratorKnobs:
         assert isinstance(state.recipes, list)
 
     def test_select_on_absolute(self, xor_small):
+        """Select on absolute."""
         cfg = CatFEConfig(
             top_k_pairs=2,
             min_interaction_information=0.01,
@@ -1003,6 +1127,7 @@ class TestOrchestratorKnobs:
         assert isinstance(state.recipes, list)
 
     def test_use_miller_madow_true(self, xor_small):
+        """Use miller madow true."""
         cfg = CatFEConfig(
             top_k_pairs=2,
             min_interaction_information=0.05,
@@ -1015,6 +1140,7 @@ class TestOrchestratorKnobs:
         assert len(state.recipes) >= 1
 
     def test_use_miller_madow_false(self, xor_small):
+        """Use miller madow false."""
         cfg = CatFEConfig(
             top_k_pairs=2,
             min_interaction_information=0.05,
@@ -1026,6 +1152,7 @@ class TestOrchestratorKnobs:
         assert len(state.recipes) >= 1
 
     def test_use_miller_madow_auto(self, xor_small):
+        """Use miller madow auto."""
         cfg = CatFEConfig(
             top_k_pairs=2,
             min_interaction_information=0.05,
@@ -1037,6 +1164,7 @@ class TestOrchestratorKnobs:
         assert len(state.recipes) >= 1
 
     def test_use_kt_smoothing(self, xor_small):
+        """Use kt smoothing."""
         cfg = CatFEConfig(
             top_k_pairs=2,
             min_interaction_information=0.05,
@@ -1049,6 +1177,7 @@ class TestOrchestratorKnobs:
         assert isinstance(state.recipes, list)
 
     def test_permutation_with_full_n_perms(self, xor_small):
+        """Permutation with full n perms."""
         cfg = CatFEConfig(
             top_k_pairs=2,
             min_interaction_information=0.05,
@@ -1061,6 +1190,7 @@ class TestOrchestratorKnobs:
         assert isinstance(state.recipes, list)
 
     def test_permutation_conditional_null(self, xor_small):
+        """Permutation conditional null."""
         cfg = CatFEConfig(
             top_k_pairs=2,
             min_interaction_information=0.05,
@@ -1074,6 +1204,7 @@ class TestOrchestratorKnobs:
         assert isinstance(state.recipes, list)
 
     def test_permutation_conditional_full_ipf(self, xor_small):
+        """Permutation conditional full ipf."""
         cfg = CatFEConfig(
             top_k_pairs=2,
             min_interaction_information=0.05,
@@ -1088,6 +1219,7 @@ class TestOrchestratorKnobs:
         assert isinstance(state.recipes, list)
 
     def test_perm_budget_bandit_ucb1(self, xor_small):
+        """Perm budget bandit ucb1."""
         cfg = CatFEConfig(
             top_k_pairs=3,
             min_interaction_information=0.05,
@@ -1101,6 +1233,7 @@ class TestOrchestratorKnobs:
 
     @pytest.mark.parametrize("correction", ["bonferroni", "bh_fdr"])
     def test_fwer_correction_variants(self, xor_small, correction):
+        """Fwer correction variants."""
         cfg = CatFEConfig(
             top_k_pairs=2,
             min_interaction_information=0.05,
@@ -1114,6 +1247,7 @@ class TestOrchestratorKnobs:
         assert isinstance(state.recipes, list)
 
     def test_fwer_westfall_young(self, xor_small):
+        """Fwer westfall young."""
         cfg = CatFEConfig(
             top_k_pairs=2,
             min_interaction_information=0.05,
@@ -1127,6 +1261,7 @@ class TestOrchestratorKnobs:
         assert isinstance(state.recipes, list)
 
     def test_n_folds_stability(self, xor_small):
+        """N folds stability."""
         cfg = CatFEConfig(
             top_k_pairs=2,
             min_interaction_information=0.05,
@@ -1140,6 +1275,7 @@ class TestOrchestratorKnobs:
         assert isinstance(state.ii_stability, dict)
 
     def test_anti_redundancy_beta_with_selected_so_far(self, xor_small):
+        """Anti redundancy beta with selected so far."""
         cfg = CatFEConfig(
             top_k_pairs=2,
             min_interaction_information=-0.5,  # generous floor
@@ -1152,6 +1288,7 @@ class TestOrchestratorKnobs:
         assert isinstance(state.recipes, list)
 
     def test_max_kway_order_3(self, xor_small):
+        """Max kway order 3."""
         cfg = CatFEConfig(
             top_k_pairs=2,
             min_interaction_information=0.05,
@@ -1163,6 +1300,7 @@ class TestOrchestratorKnobs:
         assert isinstance(state.recipes, list)
 
     def test_max_kway_with_refine(self, xor_small):
+        """Max kway with refine."""
         cfg = CatFEConfig(
             top_k_pairs=2,
             min_interaction_information=0.05,
@@ -1175,6 +1313,7 @@ class TestOrchestratorKnobs:
         assert isinstance(state.recipes, list)
 
     def test_marginal_floor_prunes_aggressively(self, xor_small):
+        """Marginal floor prunes aggressively."""
         # All XOR marginals are ~0 so a floor of 0.5 prunes everything
         cfg = CatFEConfig(
             top_k_pairs=2,
@@ -1189,6 +1328,7 @@ class TestOrchestratorKnobs:
         assert state.recipes == []
 
     def test_max_combined_nbins_too_tight(self, xor_small):
+        """Max combined nbins too tight."""
         # Force a tight cap so the 2x2 XOR pair is rejected
         cfg = CatFEConfig(
             top_k_pairs=2,
@@ -1202,6 +1342,7 @@ class TestOrchestratorKnobs:
         assert isinstance(state.recipes, list)
 
     def test_min_ii_unreachable_returns_unchanged(self, xor_small):
+        """Min ii unreachable returns unchanged."""
         cfg = CatFEConfig(
             top_k_pairs=2,
             min_interaction_information=10.0,  # impossibly high
@@ -1213,6 +1354,7 @@ class TestOrchestratorKnobs:
         assert cols_out == xor_small["cols"]
 
     def test_bootstrap_ci(self, xor_small):
+        """Bootstrap ci."""
         cfg = CatFEConfig(
             top_k_pairs=2,
             min_interaction_information=0.05,
@@ -1227,6 +1369,7 @@ class TestOrchestratorKnobs:
         assert isinstance(state.recipes, list)
 
     def test_target_encoding_emit(self, xor_small):
+        """Target encoding emit."""
         cfg = CatFEConfig(
             top_k_pairs=2,
             min_interaction_information=0.05,
@@ -1242,6 +1385,7 @@ class TestOrchestratorKnobs:
         assert isinstance(state.recipes, list)
 
     def test_target_encoding_oof_zero(self, xor_small):
+        """Target encoding oof zero."""
         cfg = CatFEConfig(
             top_k_pairs=2,
             min_interaction_information=0.05,
@@ -1255,6 +1399,7 @@ class TestOrchestratorKnobs:
         assert isinstance(state.recipes, list)
 
     def test_streaming_cache_first_fit(self, xor_small):
+        """Streaming cache first fit."""
         cfg = CatFEConfig(
             top_k_pairs=2,
             min_interaction_information=0.05,
@@ -1268,6 +1413,7 @@ class TestOrchestratorKnobs:
         assert "marginal_mis" in state.streaming_cache_out
 
     def test_streaming_cache_warm_reuse(self, xor_small):
+        """Streaming cache warm reuse."""
         cfg = CatFEConfig(
             top_k_pairs=2,
             min_interaction_information=0.05,
@@ -1283,6 +1429,7 @@ class TestOrchestratorKnobs:
         assert isinstance(state2.recipes, list)
 
     def test_with_uniform_weights(self, xor_small):
+        """With uniform weights."""
         cfg = CatFEConfig(
             top_k_pairs=2,
             min_interaction_information=0.05,
@@ -1295,6 +1442,7 @@ class TestOrchestratorKnobs:
         assert isinstance(state.recipes, list)
 
     def test_with_nonuniform_weights(self, xor_small):
+        """With nonuniform weights."""
         cfg = CatFEConfig(
             top_k_pairs=2,
             min_interaction_information=0.05,
@@ -1308,6 +1456,7 @@ class TestOrchestratorKnobs:
         assert isinstance(state.recipes, list)
 
     def test_unknown_strategy_sentinel(self, xor_small):
+        """Unknown strategy sentinel."""
         cfg = CatFEConfig(
             top_k_pairs=2,
             min_interaction_information=0.05,
@@ -1319,6 +1468,7 @@ class TestOrchestratorKnobs:
         assert isinstance(state.recipes, list)
 
     def test_unknown_strategy_raise(self, xor_small):
+        """Unknown strategy raise."""
         cfg = CatFEConfig(
             top_k_pairs=2,
             min_interaction_information=0.05,
@@ -1330,6 +1480,7 @@ class TestOrchestratorKnobs:
         assert isinstance(state.recipes, list)
 
     def test_emit_diagnostics_off(self, xor_small):
+        """Emit diagnostics off."""
         cfg = CatFEConfig(
             top_k_pairs=2,
             min_interaction_information=0.05,
@@ -1342,6 +1493,7 @@ class TestOrchestratorKnobs:
         assert state.diagnostics == {}
 
     def test_empty_target_indices_raises(self, xor_small):
+        """Empty target indices raises."""
         cfg = CatFEConfig(min_n_samples=50)
         with pytest.raises(ValueError, match="empty target_indices"):
             run_cat_interaction_step(
@@ -1357,6 +1509,7 @@ class TestOrchestratorKnobs:
             )
 
     def test_only_one_eligible_column_returns_unchanged(self, xor_small):
+        """Only one eligible column returns unchanged."""
         # categorical_vars list with only one valid column -> skip
         cfg = CatFEConfig(min_n_samples=50)
         data_out, cols_out, _, state = run_cat_interaction_step(
@@ -1380,6 +1533,7 @@ class TestOrchestratorKnobs:
 
 
 class TestOrchestratorCombined:
+    """Test Orchestrator Combined."""
     @pytest.mark.slow
     def test_perm_with_mm_and_bandit(self, xor_medium):
         """Exercise MM + bandit UCB1 + bonferroni in one shot."""
@@ -1413,6 +1567,7 @@ class TestOrchestratorCombined:
 
     @pytest.mark.slow
     def test_kfold_plus_anti_redundancy(self, xor_medium):
+        """Kfold plus anti redundancy."""
         cfg = CatFEConfig(
             top_k_pairs=2,
             min_interaction_information=0.01,
@@ -1427,6 +1582,7 @@ class TestOrchestratorCombined:
 
     @pytest.mark.slow
     def test_max_kway_3_with_refine(self, xor_medium):
+        """Max kway 3 with refine."""
         cfg = CatFEConfig(
             top_k_pairs=3,
             min_interaction_information=-0.5,

@@ -36,6 +36,22 @@ STRICT IS A NO-OP WHEN CUDA IS ABSENT: with no usable device the gate returns Fa
 exact CPU path -- byte-for-byte the legacy no-GPU behavior. The AUTO default only engages STRICT where it is
 selection-equivalent to CPU (large n, GPU present), so the SAME compound + recipes are recovered; small-n / no-GPU
 fits are byte-identical to the legacy default. Force ``MLFRAME_FE_GPU_STRICT=0`` to pin the exact CPU path at any n.
+
+RESIDENCY GAP FOUND AND CLOSED (found 2026-07-16, fixed 2026-07-17; ``_mi_greedy_cmi_fe.greedy_cmi_fe_construct``,
+called ONLY from the standalone benchmark script ``_benchmarks/bench_cmi_greedy_noisefloor_marginal_hoist.py``,
+never from ``MRMR.fit``): its STRICT branch used to bin every candidate through the host-materializing
+``_quantile_bin`` (D2H per candidate for the ``.tobytes()`` fingerprint) and fold each selected winner into the
+conditioning support Z via the host-only ``_renumber_joint`` -- 212 bulk D2H events / fit on an 8000x11 synthetic
+frame (``test_cmi_residency_traffic.py``). Closed by: (1) binning every candidate once via
+``_quantile_bin_gpu_resident`` and fingerprinting the resident codes with a device-side reduction hash instead of
+host bytes; (2) folding the Z conditioning support fully on-device via ``_renumber_joint_gpu`` (the existing
+device twin of ``_renumber_joint``) instead of materializing each winner's codes host-side; (3) making the
+y/z-invariant CMI precompute (``precompute_cmi_yz_terms``, still host-only -- no resident twin) LAZY, computed
+only on the rare batched-CMI-call exception fallback instead of unconditionally every round. Verified: 0 bulk D2H
+on the same fixture (down from 212), selection-equivalent (bit-identical fold partition via ``_renumber_joint_gpu``
+-- see its own docstring), full CMI-greedy test suite green. The host ``_quantile_bin`` / ``_renumber_joint`` /
+eager-``cand_bins`` code paths are kept intact as the non-resident fallback (GPU off, or a resident call faults
+mid-fit) -- see ``_host_bins`` / the ``cand_bins_dev`` truthiness checks throughout ``greedy_cmi_fe_construct``.
 """
 from __future__ import annotations
 

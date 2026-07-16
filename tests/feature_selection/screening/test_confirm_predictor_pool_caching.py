@@ -41,6 +41,7 @@ def _multi_signal_fixture(seed: int = 0, n: int = 500, n_features: int = 10):
 
 
 def _mrmr_kw(**overrides):
+    """Shared MRMR constructor kwargs for the pool-caching fixtures (order-1, FE off)."""
     kw = dict(
         verbose=0,
         interactions_max_order=1,
@@ -62,7 +63,9 @@ def _mrmr_kw(**overrides):
 
 
 class TestNameRankCache:
+    """Test Name Rank Cache."""
     def test_cache_field_present_and_used(self):
+        """Cache field present and used."""
         from mlframe.feature_selection.filters._confirm_predictor import ScreenContext
 
         assert "_name_rank_cache" in ScreenContext.__dataclass_fields__
@@ -79,6 +82,7 @@ class TestNameRankCache:
         calls = {"n": 0}
 
         def counted(*a, **kw):
+            """Wraps the target function to count how many times it is actually called."""
             calls["n"] += 1
             return orig(*a, **kw)
 
@@ -107,6 +111,7 @@ class TestNameRankCache:
         orig_confirm_one_predictor = cp.confirm_one_predictor
 
         def uncached_confirm_one_predictor(ctx, *a, **kw):
+            """Forces ctx._name_rank_cache to miss on every call, exercising the pre-fix rebuild-every-call path."""
             # Simulate the pre-fix behaviour: never let the cache survive across calls.
             ctx._name_rank_cache = None
             return orig_confirm_one_predictor(ctx, *a, **kw)
@@ -129,7 +134,9 @@ class TestNameRankCache:
 
 
 class TestEngineeredParentIndexCache:
+    """Test Engineered Parent Index Cache."""
     def test_cache_field_present(self):
+        """Cache field present."""
         from mlframe.feature_selection.filters._confirm_predictor import ScreenContext
 
         assert "_engineered_parent_index_cache" in ScreenContext.__dataclass_fields__
@@ -145,6 +152,7 @@ class TestEngineeredParentIndexCache:
         calls = {"n": 0}
 
         def counted(*a, **kw):
+            """Wraps _extract_single_raw_parent to count how many times it is actually called."""
             calls["n"] += 1
             return orig(*a, **kw)
 
@@ -180,6 +188,7 @@ class TestEngineeredParentIndexCache:
         orig_confirmable = cpe._confirmable_engineered_child
 
         def uncached_confirmable_engineered_child(ctx, *a, **kw2):
+            """Forces ctx._engineered_parent_index_cache to miss on every call, exercising the pre-fix rescan path."""
             ctx._engineered_parent_index_cache = None
             return orig_confirmable(ctx, *a, **kw2)
 
@@ -193,3 +202,50 @@ class TestEngineeredParentIndexCache:
         support_uncached = sorted(sel_uncached.feature_names_in_[sel_uncached.support_])
 
         assert support_cached == support_uncached, f"cached path selected {support_cached}, forced-uncached path selected {support_uncached}"
+
+
+# ---------------------------------------------------------------------------
+# Finding 3 (2026-07-16): _conditioning_rows_per_cell's Z=selected_vars merge cache
+# ---------------------------------------------------------------------------
+
+
+class TestZMergeCache:
+    """``_conditioning_rows_per_cell`` (the RC2 undersampling diagnostic) re-encoded the FULL
+    ``(X, Y, selected_vars)`` joint via ``merge_vars`` on every ``confirm_one_predictor`` call --
+    including the round-constant ``selected_vars`` (Z) part, which only grows once per
+    interactions_order (same round-constant-pool pattern as findings 1/2 above). Fixed by caching
+    Z's folded encoding on ``ctx._z_merge_cache`` keyed on its content, then folding the small
+    per-candidate ``(X, Y)`` on top. Occupied-cell count is fold-order-invariant, so this is
+    bit-identical to the pre-fix full-merge call; this test pins the higher-level, selection-
+    equivalence contract: the greedy pick sequence must be unchanged with the cache force-
+    disabled (mimicking the pre-fix always-full-merge behaviour) vs enabled."""
+
+    def test_cache_and_uncached_paths_select_identically(self):
+        """Cache and uncached paths select identically."""
+        from mlframe.feature_selection.filters.mrmr import MRMR
+
+        X, y = _multi_signal_fixture(seed=3, n_features=14)
+        kw = _mrmr_kw(fe_confirm_undersample_rows_per_cell=50.0)  # >0 activates the RC2 gate
+
+        sel_cached = MRMR(**kw).fit(X, y)
+        support_cached = sorted(sel_cached.feature_names_in_[sel_cached.support_])
+
+        import mlframe.feature_selection.filters._confirm_predictor_engineered as cpe
+
+        orig_fn = cpe._conditioning_rows_per_cell
+
+        def uncached_conditioning_rows_per_cell(ctx, X):
+            """Force ctx._z_merge_cache to miss on every call, exercising the pre-fix full-merge path."""
+            ctx._z_merge_cache = None
+            return orig_fn(ctx, X)
+
+        import mlframe.feature_selection.filters._confirm_predictor as cp
+
+        cp._conditioning_rows_per_cell = uncached_conditioning_rows_per_cell
+        try:
+            sel_uncached = MRMR(**kw).fit(X, y)
+        finally:
+            cp._conditioning_rows_per_cell = orig_fn
+        support_uncached = sorted(sel_uncached.feature_names_in_[sel_uncached.support_])
+
+        assert support_cached == support_uncached, f"Z-merge-cached path selected {support_cached}, forced-uncached path selected {support_uncached}"

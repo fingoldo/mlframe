@@ -37,32 +37,61 @@ def _conditioning_rows_per_cell(ctx, X: tuple) -> float:
     returns ``current_nclasses`` = number of NON-empty bins after pruning, which
     is exactly the occupied-cell count. Returns ``+inf`` when the joint is
     empty/degenerate so the strict conditional path is kept.
-    """
+
+    Z=SELECTED_VARS CACHE (2026-07-16, wellbore-100k profiling: 10s tottime / 144 calls, the single
+    hottest confirm-path function). ``selected_vars`` is round-constant across the ~100-150
+    ``confirm_one_predictor`` calls per interactions_order (same pattern already exploited by
+    ``ctx._name_rank_cache``), yet the pre-fix code re-encoded the FULL (X, Y, Z) joint -- INCLUDING
+    the whole selected-features set Z -- on every single call, even though only the small (X, Y)
+    part actually changes between candidates. The occupied-cell COUNT of a joint distribution does
+    not depend on the order its dimensions are folded in (it's the size of the set of distinct
+    observed tuples, not a property of any particular encoding), so folding Z once (cached, keyed on
+    its content so a stale cache can never silently reuse a previous round's Z) and then folding the
+    per-candidate (X, Y) on TOP of that cached encoding produces the bit-identical occupied-cell
+    count merge_vars(X+Y+Z) would, at a fraction of the cost once Z is warm."""
     factors_data = ctx.factors_data
     n_samples = len(factors_data)
     if n_samples == 0:
         return float("inf")
     n_cols = factors_data.shape[1] if factors_data.ndim == 2 else 0
-    cond_indices: list = []
-    cond_indices.extend(int(c) for c in X)
+    xy_indices: list = []
+    xy_indices.extend(int(c) for c in X)
     # Include the target Y: the conditional-MI estimator histograms (X, Y, Z).
     # In the standard MRMR setup ``targets_data is factors_data`` so y indexes
     # into ``factors_data``; guard the (rare) separate-target-array case by
     # skipping out-of-range y indices (the (X, Z) cell count is then a lower
     # bound on the support, still a valid undersampling signal).
-    cond_indices.extend(int(yi) for yi in ctx.y if 0 <= int(yi) < n_cols)
+    xy_indices.extend(int(yi) for yi in ctx.y if 0 <= int(yi) < n_cols)
+    z_indices: list = []
     for z in ctx.selected_vars:
         if hasattr(z, "__len__"):
-            cond_indices.extend(int(c) for c in z)
+            z_indices.extend(int(c) for c in z)
         else:
-            cond_indices.append(int(z))
+            z_indices.append(int(z))
     try:
+        z_key = tuple(z_indices)
+        cache = ctx._z_merge_cache
+        if cache is not None and cache[0] == z_key:
+            _, z_classes, z_nclasses = cache
+        elif z_indices:
+            z_classes, _, z_nclasses = merge_vars(
+                factors_data=factors_data,
+                vars_indices=z_indices,
+                var_is_nominal=None,
+                factors_nbins=ctx.factors_nbins,
+                dtype=np.int32,
+            )
+            ctx._z_merge_cache = (z_key, z_classes, z_nclasses)
+        else:
+            z_classes, z_nclasses = np.zeros(n_samples, dtype=np.int32), 1
         _, _, n_nonempty_cells = merge_vars(
             factors_data=factors_data,
-            vars_indices=cond_indices,
+            vars_indices=xy_indices,
             var_is_nominal=None,
             factors_nbins=ctx.factors_nbins,
             dtype=np.int32,
+            current_nclasses=z_nclasses,
+            final_classes=z_classes.copy(),
         )
     except Exception:
         return float("inf")

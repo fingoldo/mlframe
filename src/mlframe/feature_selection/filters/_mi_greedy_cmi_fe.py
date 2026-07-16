@@ -1471,12 +1471,13 @@ def greedy_cmi_fe_construct(
     y_bin_dev = None
     if _cmi_gpu_enabled(n=n_samples):
         try:
-            import cupy as _cp  # noqa: F401
+            import cupy as _cp
             from ._fe_resident_operands import resident_code_operand as _resident_code_operand
             y_bin_dev = _resident_code_operand(y_bin, "cmi_greedy_y_fixed")
         except Exception:
             y_bin_dev = None
     z_joint: Optional[np.ndarray] = None
+    z_joint_dev = None  # resident twin of z_joint, maintained alongside it once cand_bins_dev is available
     z_card = 1
 
     # 4. Bin every engineered candidate up front. Compute a sortable
@@ -1487,13 +1488,69 @@ def greedy_cmi_fe_construct(
     #    plug-in CMI and all get picked.
     cand_names = list(engineered.columns)
     name_to_parsed = dict(zip(cand_names, parsed))
-    cand_bins: dict[str, np.ndarray] = {name: _quantile_bin(engineered[name].to_numpy(), nbins=nbins) for name in cand_names}
 
     def _bin_fingerprint(b: np.ndarray) -> bytes:
         """Hashable fingerprint of a binned candidate array; monotone-equivalent candidates (identical bin assignment under equi-frequency quantization) collapse to the same fingerprint for dedup against already-picked winners."""
         return b.tobytes()
 
-    cand_fp: dict[str, bytes] = {name: _bin_fingerprint(cand_bins[name]) for name in cand_names}
+    # RESIDENT candidate codes (2026-07-17): when GPU-strict-resident is on, bin every candidate ONCE on-device
+    # (``cand_bins_dev``) and fingerprint via a device-side reduction instead of the host ``_quantile_bin`` +
+    # ``.tobytes()`` pair below. This closes the confirmed residency gap (``_fe_gpu_strict.py`` docstring, "KNOWN
+    # NON-PRODUCTION RESIDENCY GAP"): the host path forces one bulk (n,) D2H PER CANDIDATE just to hash its
+    # bytes. ``cand_bins`` (host) stays LAZY here -- populated on demand only for the small subset of names the
+    # Z-fold step actually touches (at most ``top_k`` winners, via ``_host_bins`` below), not eagerly for every
+    # candidate. Falls back to the fully-eager host path (unchanged, byte-identical) on any cupy failure or when
+    # GPU-strict-resident is off -- selection-identical either way (fingerprint is a dedup key, not a scored
+    # quantity; a 64-bit reduction hash is the same collision-domain acceptance the resident cache
+    # (``_content_hash``) already uses elsewhere in this codebase).
+    cand_bins: dict[str, np.ndarray] = {}
+    cand_bins_dev: dict = {}
+    cand_fp: dict[str, bytes | int] = {}
+    _resident_fp_ok = False
+    try:
+        from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
+        if fe_gpu_strict_resident_enabled():
+            import cupy as _cp
+
+            for _name in cand_names:
+                _codes_dev = _quantile_bin_gpu_resident(engineered[_name].to_numpy(dtype=np.float64), nbins)
+                if _codes_dev is None:
+                    cand_bins_dev = {}
+                    break
+                cand_bins_dev[_name] = _codes_dev
+            if cand_bins_dev:
+                # cupy (this version) has no ``bitwise_xor.reduce`` -- a weighted-sum reduction is an
+                # equally-cheap, equally-accepted (see module docstring) content hash: same n for every
+                # candidate this fit, so the odd-prime weight vector is built once and reused.
+                _fp_n = next(iter(cand_bins_dev.values())).size
+                _weights = _cp.arange(1, _fp_n + 1, dtype=_cp.int64) * _cp.int64(2654435761)
+                for _name in cand_names:
+                    _c = cand_bins_dev[_name].astype(_cp.int64, copy=False)
+                    cand_fp[_name] = int(_cp.sum((_c + 1) * _weights, dtype=_cp.int64).item())
+                _resident_fp_ok = True
+    except Exception:
+        logger.debug("resident candidate binning failed; host fingerprint fallback", exc_info=True)
+        cand_bins_dev = {}
+        cand_fp = {}
+        _resident_fp_ok = False
+    if not _resident_fp_ok:
+        cand_bins = {name: _quantile_bin(engineered[name].to_numpy(), nbins=nbins) for name in cand_names}
+        cand_fp = {name: _bin_fingerprint(cand_bins[name]) for name in cand_names}
+
+    def _host_bins(name: str) -> np.ndarray:
+        """Host projection of a candidate's binned codes, materialized LAZILY (only when the host-only Z-fold
+        step below needs it) instead of eagerly for the whole candidate pool -- the one remaining, deliberate
+        per-winner D2H (bounded by ``top_k``, not by candidate count)."""
+        b = cand_bins.get(name)
+        if b is None:
+            if cand_bins_dev:
+                import cupy as _cp
+
+                b = _cp.asnumpy(cand_bins_dev[name])
+            else:
+                b = _quantile_bin(engineered[name].to_numpy(), nbins=nbins)
+            cand_bins[name] = b
+        return b
 
     # Permutation-based noise-floor for the current Z: shuffle y once,
     # rebin, sample 24 candidates' CMI; take the 95th percentile as
@@ -1521,12 +1578,21 @@ def greedy_cmi_fe_construct(
             if _cmi_gpu_enabled(n=int(y_shuf.size), p=len(sample_names)) and len(sample_names) > 1:
                 from ._fe_batched_mi import batched_cmi_gpu
 
+                _zc = z_joint_dev if z_joint_dev is not None else (z_joint if (z_joint is not None and z_joint.size > 0) else None)
+                if cand_bins_dev:
+                    # RESIDENT: assemble the sampled columns from the already-device-resident candidate codes
+                    # (no per-round H2D of X) and keep the (K,) CMI vector resident too -- only the FINAL scalar
+                    # 0.95-quantile crosses back, not the bulk (K,) vector the non-resident branch below D2Hs.
+                    import cupy as _cp
+
+                    _Xs_dev = _cp.stack([cand_bins_dev[_nm] for _nm in sample_names], axis=1)
+                    _mi_dev = batched_cmi_gpu(_Xs_dev, y_shuf, _zc, return_device=True)
+                    return float(_cp.percentile(_mi_dev, 95.0).item())
                 # bench-attempt-rejected (2026-07): np.column_stack([cand_bins[nm] ...]).astype(int64) vs this per-column loop was noise
                 # across n{50k,200k,1M} x k{24,100} x dtype{i32,i64}: -9.8%..+8.8%, no consistent >=5% win (memory-bandwidth-bound copy either way).
                 _Xs = np.empty((int(y_shuf.shape[0]), len(sample_names)), dtype=np.int64)
                 for _j, _nm in enumerate(sample_names):
-                    _Xs[:, _j] = cand_bins[_nm]
-                _zc = z_joint if (z_joint is not None and z_joint.size > 0) else None
+                    _Xs[:, _j] = _host_bins(_nm)
                 _cmis = np.asarray(batched_cmi_gpu(_Xs, y_shuf, _zc), dtype=np.float64)
                 return float(np.quantile(_cmis, 0.95))
         except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
@@ -1538,22 +1604,29 @@ def greedy_cmi_fe_construct(
         # -- pure wasted _renumber_joint / _entropy_from_classes work. Precompute the invariant block once and
         # score each sample via the x-only fixed helper. Bit-identical to the plain path (same MM plug-in CMI;
         # only fp reduction order can differ ~1e-15), and the floor is the order-independent 0.95 quantile.
-        _zc = z_joint if (z_joint is not None and z_joint.size > 0) else None
+        if z_joint is not None and z_joint.size > 0:
+            _zc = z_joint
+        elif z_joint_dev is not None:
+            import cupy as _cp
+
+            _zc = _cp.asnumpy(z_joint_dev)
+        else:
+            _zc = None
         cmis_shuf: list[float]
         if _zc is None:
             _yt = precompute_marginal_y_terms(y_shuf)
-            cmis_shuf = [marginal_mi_binned_fixed_y(cand_bins[nm], *_yt) for nm in sample_names]
+            cmis_shuf = [marginal_mi_binned_fixed_y(_host_bins(nm), *_yt) for nm in sample_names]
         else:
             _yi, _zi, _hyz, _hz, _kyz, _kz, _nf = precompute_cmi_yz_terms(y_shuf, _zc)
             _yzd, _ = _renumber_joint(_yi, _zi)  # round-fixed (y,z) dense codes reused per sampled candidate
-            cmis_shuf = [cmi_from_binned_fixed_yz(cand_bins[nm], _yi, _zi, _hyz, _hz, _kyz, _kz, _nf, yz_i=_yzd) for nm in sample_names]
+            cmis_shuf = [cmi_from_binned_fixed_yz(_host_bins(nm), _yi, _zi, _hyz, _hz, _kyz, _kz, _nf, yz_i=_yzd) for nm in sample_names]
         if not cmis_shuf:
             return 0.0
         return float(np.quantile(np.asarray(cmis_shuf), 0.95))
 
     # 5. Greedy CMI loop.
     winners: list[str] = []
-    winner_fps: set[bytes] = set()
+    winner_fps: set[bytes | int] = set()
     rows: list[dict] = []
     remaining = set(cand_names)
     step = 0
@@ -1568,30 +1641,7 @@ def greedy_cmi_fe_construct(
         effective_floor = max(float(min_cmi_gain), cur_floor)
         best_name = None
         best_cmi = -1.0
-        # Hoist the y/z-invariant CMI block out of the per-candidate scan: y_bin
-        # and z_joint are fixed across the inner loop, so H(Y,Z) / H(Z) and their
-        # renumberings are recomputed-and-discarded once per candidate by the
-        # plain ``_cmi_from_binned``. When Z is non-empty, precompute them once
-        # per step and score candidates via ``cmi_from_binned_fixed_yz`` (same
-        # arithmetic, x-block only). Marginal (empty-Z) step keeps the original
-        # path since the hoist helpers assume a present Z.
-        _have_z = z_joint is not None and z_joint.size > 0
-        _yz_dense = None
-        _y_marg = None
-        if not _have_z:
-            # Marginal step (empty Z, i.e. step 0 scanning the full candidate pool): H(Y) and the y int64
-            # cast are invariant across every candidate, yet the plain ``_cmi_from_binned`` marginal path
-            # recomputed ``_entropy_from_classes(y_bin)`` per candidate. Hoist the y-only block once and score
-            # via ``marginal_mi_binned_fixed_y`` (bit-identical). Halves the _entropy_from_classes call volume
-            # of the (largest) marginal scan -- only the genuine per-candidate H(X) + H(X,Y) remain.
-            _y_marg = precompute_marginal_y_terms(y_bin)
-        if _have_z:
-            assert z_joint is not None  # _have_z guarantees this
-            _y_i, _z_i, _h_yz, _h_z, _k_yz, _k_z, _n = precompute_cmi_yz_terms(y_bin, z_joint)
-            # Round-fixed dense (y,z) joint codes: reused per-candidate so H(X,Y,Z) is a 2-array
-            # densify against this partition instead of a fresh 3-column renumber(x,y,z). One extra
-            # renumber per STEP (not per candidate); the winner-fold below rebuilds z each step anyway.
-            _yz_dense, _ = _renumber_joint(_y_i, _z_i)
+        _have_z = (z_joint_dev is not None) or (z_joint is not None and z_joint.size > 0)
         # The fingerprint-skip set is fixed for this step -> the candidates to score are
         # ``_scan`` (a list over ``remaining`` preserving its iteration order). y_bin / z_joint are fixed
         # across them, so score ALL their CMI in ONE batched_cmi_gpu workload and take the first-max argmax
@@ -1603,11 +1653,23 @@ def greedy_cmi_fe_construct(
             if _cmi_gpu_enabled(n=int(y_bin.shape[0]), p=len(_scan)) and len(_scan) > 1:
                 from ._fe_batched_mi import batched_cmi_gpu, cmi_device_argmax
 
-                # bench-attempt-rejected (2026-07): np.column_stack(...).astype(int64) vs this per-column loop was noise (-9.8%..+8.8%, no consistent >=5%).
-                _Xc = np.empty((int(y_bin.shape[0]), len(_scan)), dtype=np.int64)
-                for _j, _nm in enumerate(_scan):
-                    _Xc[:, _j] = cand_bins[_nm]
-                _zc = z_joint if _have_z else None
+                if cand_bins_dev:
+                    # RESIDENT: the candidate codes are already device-resident (binned once up front via
+                    # ``_quantile_bin_gpu_resident``) -- stack them directly instead of rebuilding + re-uploading
+                    # a host (n, K) matrix every round.
+                    import cupy as _cp
+
+                    _Xc = _cp.stack([cand_bins_dev[_nm] for _nm in _scan], axis=1)
+                else:
+                    # bench-attempt-rejected (2026-07): np.column_stack(...).astype(int64) vs this per-column loop was noise (-9.8%..+8.8%, no consistent >=5%).
+                    _Xc = np.empty((int(y_bin.shape[0]), len(_scan)), dtype=np.int64)
+                    for _j, _nm in enumerate(_scan):
+                        _Xc[:, _j] = _host_bins(_nm)
+                # RESIDENT Z (2026-07-17): prefer the resident conditioning support -- folded fully on-device by
+                # ``_renumber_joint_gpu`` at the winner-fold step below -- over the host mirror. batched_cmi_gpu
+                # accepts a resident z as-is (no H2D), closing the round-constant ``cmi_z`` re-upload this loop
+                # otherwise pays every round Z changes.
+                _zc = z_joint_dev if z_joint_dev is not None else (z_joint if _have_z else None)
                 # RESIDENCY: the greedy loop only needs the argmax of the (K,) CMI vector (rest is discarded),
                 # and y_bin is fit-constant / z_joint round-constant. Pass the RESIDENT y_bin_dev (uploaded once)
                 # so y never re-crosses H2D; return_device keeps the (K,) vector on the device (no per-round bulk
@@ -1624,12 +1686,31 @@ def greedy_cmi_fe_construct(
         if _batched_done:
             pass
         else:
+            # FALLBACK ONLY (GPU-off / batched call faulted): the y/z-invariant CMI block
+            # (H(Y,Z)/H(Z) + their renumberings) is only needed by this per-candidate loop, not the batched
+            # path above -- computed here, lazily, instead of eagerly every round (2026-07-17: it used to run
+            # unconditionally even when the batched path succeeded and its output went unused, and it forced
+            # ``z_joint`` to be a HOST array every round). ``_host_z()`` materializes the host mirror of
+            # ``z_joint_dev`` on first use in this fallback only.
+            _yz_dense = None
+            _y_marg = None
+            if not _have_z:
+                _y_marg = precompute_marginal_y_terms(y_bin)
+            else:
+                if z_joint is not None:
+                    _z_host = z_joint
+                else:
+                    import cupy as _cp
+
+                    _z_host = _cp.asnumpy(z_joint_dev)
+                _y_i, _z_i, _h_yz, _h_z, _k_yz, _k_z, _n = precompute_cmi_yz_terms(y_bin, _z_host)
+                _yz_dense, _ = _renumber_joint(_y_i, _z_i)
             for name in _scan:
                 if _have_z:
-                    cmi = cmi_from_binned_fixed_yz(cand_bins[name], _y_i, _z_i, _h_yz, _h_z, _k_yz, _k_z, _n, yz_i=_yz_dense)
+                    cmi = cmi_from_binned_fixed_yz(_host_bins(name), _y_i, _z_i, _h_yz, _h_z, _k_yz, _k_z, _n, yz_i=_yz_dense)
                 else:
                     assert _y_marg is not None  # not _have_z guarantees this was precomputed above
-                    cmi = marginal_mi_binned_fixed_y(cand_bins[name], *_y_marg)
+                    cmi = marginal_mi_binned_fixed_y(_host_bins(name), *_y_marg)
                 if cmi > best_cmi:
                     best_cmi = cmi
                     best_name = name
@@ -1654,16 +1735,36 @@ def greedy_cmi_fe_construct(
         # past ``frag_cap`` cells, freeze Z (the winner still counts as
         # selected, but later CMI continues against the previous Z so
         # downstream candidates are still measurable).
-        new_support_bin = cand_bins[best_name]
-        if z_joint is None or z_joint.size == 0:
-            z_joint = new_support_bin.copy()
-            z_card = int(np.unique(z_joint).size)
+        if cand_bins_dev:
+            # RESIDENT fold (2026-07-17): the winner's codes are already device-resident
+            # (``cand_bins_dev[best_name]``) -- fold them into Z entirely on-device via
+            # ``_renumber_joint_gpu`` instead of materializing the winner's (n,) codes host-side just to
+            # call the host ``_renumber_joint``. ``z_joint`` (host) is left ``None`` and only backfilled
+            # lazily (``_host_z`` in the fallback branch above) if a later round's batched CMI call faults
+            # and needs a host mirror -- the common, all-batched-rounds-succeed path never materializes it.
+            import cupy as _cp
+
+            new_support_dev = cand_bins_dev[best_name]
+            if z_joint_dev is None:
+                z_joint_dev = new_support_dev.copy()
+                z_card = int(_cp.unique(z_joint_dev).size)
+            else:
+                candidate_joint_dev, _ = _renumber_joint_gpu(z_joint_dev, new_support_dev)
+                cand_card = int(_cp.unique(candidate_joint_dev).size)
+                if cand_card <= frag_cap:
+                    z_joint_dev = candidate_joint_dev
+                    z_card = cand_card
         else:
-            candidate_joint, _ = _renumber_joint(z_joint, new_support_bin)
-            cand_card = int(np.unique(candidate_joint).size)
-            if cand_card <= frag_cap:
-                z_joint = candidate_joint
-                z_card = cand_card
+            new_support_bin = _host_bins(best_name)
+            if z_joint is None or z_joint.size == 0:
+                z_joint = new_support_bin.copy()
+                z_card = int(np.unique(z_joint).size)
+            else:
+                candidate_joint, _ = _renumber_joint(z_joint, new_support_bin)
+                cand_card = int(np.unique(candidate_joint).size)
+                if cand_card <= frag_cap:
+                    z_joint = candidate_joint
+                    z_card = cand_card
             # else: leave z_joint unchanged; subsequent CMI uses prev Z.
         remaining.discard(best_name)
         step += 1
