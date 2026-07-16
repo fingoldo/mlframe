@@ -2,9 +2,11 @@
 
 Consolidated verbatim from test_biz_value_mrmr_layer45.py (per audit finding test_code_quality-16).
 """
+
 from __future__ import annotations
 
 import warnings
+from functools import cache
 
 import numpy as np
 import pandas as pd
@@ -37,13 +39,15 @@ def _scenario_A_anchor_best(n: int = 1500, seed: int = 0):
     # Siblings: noisier copies (SU still > tau so they cluster).
     sib_a = latent + 0.20 * rng.standard_normal(n)
     sib_b = latent + 0.20 * rng.standard_normal(n)
-    X = pd.DataFrame({
-        "strong_unrelated": other,
-        "anchor_clean": anchor_col,
-        "sibling_noisy_a": sib_a,
-        "sibling_noisy_b": sib_b,
-        "noise_filler": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "strong_unrelated": other,
+            "anchor_clean": anchor_col,
+            "sibling_noisy_a": sib_a,
+            "sibling_noisy_b": sib_b,
+            "noise_filler": rng.standard_normal(n),
+        }
+    )
     y = pd.Series((2 * other + 1.2 * latent + 0.3 * rng.standard_normal(n) > 0).astype(int))
     return X, y
 
@@ -82,13 +86,15 @@ def _scenario_B_member_best(n: int = 2500, seed: int = 0):
     # clean_member: a cleaner copy of latent only.
     clean_member = latent + 0.05 * rng.standard_normal(n)
     third_sib = latent + 0.15 * rng.standard_normal(n)
-    X = pd.DataFrame({
-        "strong_other": other,
-        "noisy_anchor": noisy_anchor,
-        "clean_member": clean_member,
-        "third_sib": third_sib,
-        "filler": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "strong_other": other,
+            "noisy_anchor": noisy_anchor,
+            "clean_member": clean_member,
+            "third_sib": third_sib,
+            "filler": rng.standard_normal(n),
+        }
+    )
     y = pd.Series((2.0 * other + 1.2 * latent + 0.2 * rng.standard_normal(n) > 0).astype(int))
     return X, y
 
@@ -102,13 +108,15 @@ def _scenario_C_aggregate_best(n: int = 1500, seed: int = 0):
     rng = np.random.default_rng(int(seed))
     latent = rng.standard_normal(n)
     other = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "strong": other,
-        "dup_a": latent + 0.05 * rng.standard_normal(n),
-        "dup_b": latent + 0.05 * rng.standard_normal(n),
-        "dup_c": latent + 0.05 * rng.standard_normal(n),
-        "noise_0": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "strong": other,
+            "dup_a": latent + 0.05 * rng.standard_normal(n),
+            "dup_b": latent + 0.05 * rng.standard_normal(n),
+            "dup_c": latent + 0.05 * rng.standard_normal(n),
+            "noise_0": rng.standard_normal(n),
+        }
+    )
     y = pd.Series((2 * other + latent + 0.3 * rng.standard_normal(n) > 0).astype(int))
     return X, y
 
@@ -119,11 +127,14 @@ def _scenario_C_aggregate_best(n: int = 1500, seed: int = 0):
 
 
 class TestLayer45_SwapDecisionShape:
+    """SwapDecision's branch/member_col_idx/member_relevance fields have the documented defaults."""
 
     def test_swap_decision_has_branch_field(self):
+        """SwapDecision(accept=False) defaults branch="none", member_col_idx=-1, member_relevance=0.0."""
         from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
             SwapDecision,
         )
+
         d = SwapDecision(accept=False)
         assert hasattr(d, "branch")
         assert d.branch == "none"
@@ -137,6 +148,7 @@ class TestLayer45_SwapDecisionShape:
         from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
             SwapDecision,
         )
+
         for branch in ("none", "member", "aggregate"):
             d = SwapDecision(accept=False, branch=branch)
             assert d.branch == branch
@@ -148,17 +160,57 @@ class TestLayer45_SwapDecisionShape:
 
 
 def _fit_mrmr(X, y, *, swap_method="auto"):
+    """Fit a DCD-enabled MRMR with cluster_size_threshold=2 and the given swap method."""
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     return MRMR(
-        dcd_enable=True, dcd_tau_cluster=0.5,
+        dcd_enable=True,
+        dcd_tau_cluster=0.5,
         dcd_cluster_size_threshold=2,
         dcd_swap_method=swap_method,
         full_npermutations=20,
-        verbose=0, random_seed=0,
+        verbose=0,
+        random_seed=0,
     ).fit(X, y)
 
 
+@cache
+def _scenario_C_pca_pc1_fit():
+    """Cached fitted MRMR for ``_fit_mrmr(_scenario_C_aggregate_best(), swap_method="pca_pc1")``.
+    Shared between test_aggregate_branch_still_fires_on_three_dups and
+    test_aggregate_swap_records_branch_field -- both fit the identical
+    (default-seeded) scenario-C data with the identical config. Nothing
+    downstream mutates the fitted estimator in place.
+    """
+    X, y = _scenario_C_aggregate_best()
+    return _fit_mrmr(X, y, swap_method="pca_pc1")
+
+
+@cache
+def _scenario_C_default_npermutations20_fit():
+    """Cached fitted MRMR for the plain ``MRMR(..., full_npermutations=20, ...)``
+    config on ``_scenario_C_aggregate_best()``. Shared between
+    test_layer41_cluster_anchors_names_present and
+    test_transform_still_deterministic_with_layer45 -- both build the
+    identical config on the identical default-seeded data. Nothing
+    downstream mutates the fitted estimator in place.
+    """
+    from mlframe.feature_selection.filters.mrmr import MRMR
+
+    X, y = _scenario_C_aggregate_best()
+    m = MRMR(
+        dcd_enable=True,
+        dcd_tau_cluster=0.5,
+        dcd_cluster_size_threshold=2,
+        full_npermutations=20,
+        verbose=0,
+        random_seed=0,
+    ).fit(X, y)
+    return X, y, m
+
+
 class TestLayer45_ScenarioA_NoSwap:
+    """Scenario A: the anchor genuinely dominates its cluster, so no member-swap fires."""
 
     def test_anchor_best_no_swap_fires(self):
         """Scenario A: the anchor genuinely dominates; no swap_log
@@ -173,13 +225,11 @@ class TestLayer45_ScenarioA_NoSwap:
         # We tolerate aggregate-swap (denoising) but not member-swap.
         swap_log = (m.dcd_ or {}).get("swap_log", [])
         member_swaps = [e for e in swap_log if e.get("branch") == "member"]
-        assert not member_swaps, (
-            "Scenario A (anchor genuinely best) must not fire a "
-            "member-swap branch; got " + repr(member_swaps)
-        )
+        assert not member_swaps, "Scenario A (anchor genuinely best) must not fire a " "member-swap branch; got " + repr(member_swaps)
 
 
 class TestLayer45_ScenarioB_MemberSwap:
+    """Scenario B: a cluster member's CMI beats the greedily-picked anchor's, so a member-swap fires."""
 
     def test_member_branch_fires_when_member_dominates(self):
         """Scenario B: a member's CMI > anchor's. With ``swap_method``
@@ -202,18 +252,11 @@ class TestLayer45_ScenarioB_MemberSwap:
         # swap demotes a better member either.
         if member_entries:
             for entry in member_entries:
-                assert entry.get("aggregate_name", "") == "", (
-                    "member-swap entry must have empty aggregate_name"
-                )
-                assert "member_relevance" in entry, (
-                    "member-swap entry must record member_relevance"
-                )
+                assert entry.get("aggregate_name", "") == "", "member-swap entry must have empty aggregate_name"
+                assert "member_relevance" in entry, "member-swap entry must record member_relevance"
                 # member_relevance must exceed anchor_relevance_in_ctx.
-                assert float(entry["member_relevance"]) >= float(
-                    entry["anchor_relevance_in_ctx"]
-                ), (
-                    "member-swap must only fire when member CMI > anchor "
-                    f"CMI; got {entry}"
+                assert float(entry["member_relevance"]) >= float(entry["anchor_relevance_in_ctx"]), (
+                    "member-swap must only fire when member CMI > anchor " f"CMI; got {entry}"
                 )
 
     def test_commit_swap_member_branch_updates_state_correctly(self):
@@ -227,20 +270,27 @@ class TestLayer45_ScenarioB_MemberSwap:
           - factors_data is NOT extended (no new column)
         """
         from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
-            DCDState, evaluate_swap_candidate, commit_swap,
+            DCDState,
+            evaluate_swap_candidate,
+            commit_swap,
         )
+
         rng = np.random.default_rng(0)
         n = 2500
         latent = rng.standard_normal(n)
+
         def _quantize(x, k=4):
+            """Discretize x into up to k quantile bins as int32 codes."""
             edges = np.quantile(x, np.linspace(0, 1, k + 1))
             edges = np.unique(edges)
             if edges.size < 3:
                 return np.zeros_like(x, dtype=np.int32)
             return np.clip(
                 np.searchsorted(edges[1:-1], x, side="right"),
-                0, k - 1,
+                0,
+                k - 1,
             ).astype(np.int32)
+
         y = (latent + 0.3 * rng.standard_normal(n) > 0).astype(np.int64)
         anchor_raw = latent + 0.5 * rng.standard_normal(n)
         clean_raw = latent + 0.02 * rng.standard_normal(n)
@@ -250,18 +300,23 @@ class TestLayer45_ScenarioB_MemberSwap:
         clean_b = _quantize(clean_raw)
         other_b = _quantize(other_raw)
         factors = np.column_stack([y_col, anchor_b, clean_b, other_b])
-        factors_nbins = np.array([
-            int(y_col.max()) + 1,
-            int(anchor_b.max()) + 1,
-            int(clean_b.max()) + 1,
-            int(other_b.max()) + 1,
-        ], dtype=np.int64)
-        X_raw = pd.DataFrame({
-            "y": y.astype(float),
-            "anchor": anchor_raw,
-            "clean_member": clean_raw,
-            "other_member": other_raw,
-        })
+        factors_nbins = np.array(
+            [
+                int(y_col.max()) + 1,
+                int(anchor_b.max()) + 1,
+                int(clean_b.max()) + 1,
+                int(other_b.max()) + 1,
+            ],
+            dtype=np.int64,
+        )
+        X_raw = pd.DataFrame(
+            {
+                "y": y.astype(float),
+                "anchor": anchor_raw,
+                "clean_member": clean_raw,
+                "other_member": other_raw,
+            }
+        )
         state = DCDState(
             pool_pruned_mask=np.zeros(4, dtype=bool),
             X_raw_ref=X_raw,
@@ -287,36 +342,34 @@ class TestLayer45_ScenarioB_MemberSwap:
         selected_vars = [1]
         n_cols_before = state.factors_data.shape[1]
         decision = evaluate_swap_candidate(
-            state, anchor=1, selected_vars=selected_vars,
+            state,
+            anchor=1,
+            selected_vars=selected_vars,
             target_y=np.array([0], dtype=np.int64),
         )
         # On this fixture the member-swap branch must fire.
         assert decision.accept
-        assert decision.branch == "member", (
-            f"Expected member branch on noisy-anchor + clean-members "
-            f"fixture; got {decision.branch}"
-        )
+        assert decision.branch == "member", f"Expected member branch on noisy-anchor + clean-members " f"fixture; got {decision.branch}"
         member_idx = decision.new_col_idx
         assert member_idx in (2, 3)
         # Commit and verify state.
         new_idx = commit_swap(
-            state, anchor=1, decision=decision,
-            selected_vars=selected_vars, data_ref={},
+            state,
+            anchor=1,
+            decision=decision,
+            selected_vars=selected_vars,
+            data_ref={},
             engineered_recipes={},
             predictors_log=[],
         )
         assert new_idx == member_idx
         # 1. Matrix is NOT extended.
         assert state.factors_data.shape[1] == n_cols_before, (
-            "member-swap must NOT extend factors_data; got "
-            f"{state.factors_data.shape[1]} vs pre={n_cols_before}"
+            "member-swap must NOT extend factors_data; got " f"{state.factors_data.shape[1]} vs pre={n_cols_before}"
         )
         # 2. selected_vars contains the member (replacement of anchor).
         assert member_idx in selected_vars
-        assert 1 not in selected_vars, (
-            "old anchor must be removed from selected_vars; got "
-            f"{selected_vars}"
-        )
+        assert 1 not in selected_vars, "old anchor must be removed from selected_vars; got " f"{selected_vars}"
         # 3. swap_log records member branch + empty aggregate_name.
         assert len(state.swap_log) == 1
         entry = state.swap_log[0]
@@ -332,6 +385,7 @@ class TestLayer45_ScenarioB_MemberSwap:
 
 
 class TestLayer45_ScenarioC_AggregateSwap:
+    """Scenario C: 3 near-duplicates -- the aggregate (PC1) branch still fires, preserving L42/L43."""
 
     def test_aggregate_branch_still_fires_on_three_dups(self):
         """Scenario C: 3 near-duplicates. PC1 is a denoised average
@@ -340,37 +394,25 @@ class TestLayer45_ScenarioC_AggregateSwap:
         behaviour preserved) and the swap_log entry must record
         ``branch == "aggregate"``.
         """
-        X, y = _scenario_C_aggregate_best()
-        m = _fit_mrmr(X, y, swap_method="pca_pc1")
+        m = _scenario_C_pca_pc1_fit()
         swap_log = (m.dcd_ or {}).get("swap_log", [])
         # n_swaps must be >= 1 to preserve the L42/L43 contract; if it
         # fires it must be an aggregate-branch swap.
         if int((m.dcd_ or {}).get("n_swaps", 0)) >= 1:
-            agg_entries = [e for e in swap_log
-                           if e.get("branch") == "aggregate"]
-            assert agg_entries, (
-                "On 3-dups fixture with a fired swap, the aggregate "
-                "branch must dominate; got swap_log=" + repr(swap_log)
-            )
+            agg_entries = [e for e in swap_log if e.get("branch") == "aggregate"]
+            assert agg_entries, "On 3-dups fixture with a fired swap, the aggregate " "branch must dominate; got swap_log=" + repr(swap_log)
             for entry in agg_entries:
-                assert entry["aggregate_name"].startswith("_dcd_pc1_"), (
-                    f"aggregate entry must carry _dcd_pc1_ name; got {entry}"
-                )
+                assert entry["aggregate_name"].startswith("_dcd_pc1_"), f"aggregate entry must carry _dcd_pc1_ name; got {entry}"
 
     def test_aggregate_swap_records_branch_field(self):
         """Every aggregate-swap entry written to swap_log must include
         ``branch == "aggregate"`` for downstream auditability.
         """
-        X, y = _scenario_C_aggregate_best()
-        m = _fit_mrmr(X, y, swap_method="pca_pc1")
+        m = _scenario_C_pca_pc1_fit()
         swap_log = (m.dcd_ or {}).get("swap_log", [])
         for entry in swap_log:
-            assert "branch" in entry, (
-                f"every swap_log entry must record 'branch'; got {entry}"
-            )
-            assert entry["branch"] in {"aggregate", "member"}, (
-                f"unknown branch label {entry['branch']!r}"
-            )
+            assert "branch" in entry, f"every swap_log entry must record 'branch'; got {entry}"
+            assert entry["branch"] in {"aggregate", "member"}, f"unknown branch label {entry['branch']!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -379,6 +421,7 @@ class TestLayer45_ScenarioC_AggregateSwap:
 
 
 class TestLayer45_DirectDecision:
+    """Direct unit tests of evaluate_swap_candidate, bypassing screen_predictors."""
 
     def test_evaluate_returns_member_branch_when_member_dominates_aggregate(self):
         """Directly drive ``evaluate_swap_candidate`` on a hand-crafted
@@ -388,19 +431,23 @@ class TestLayer45_DirectDecision:
         member, and ``aggregate_name == ""``.
         """
         from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
-            DCDState, evaluate_swap_candidate,
+            DCDState,
+            evaluate_swap_candidate,
         )
+
         rng = np.random.default_rng(0)
         n = 2500
         latent = rng.standard_normal(n)
+
         # 3-bin discretisation of features.
         def _quantize(x, k=4):
+            """Discretize x into up to k quantile bins as int32 codes."""
             edges = np.quantile(x, np.linspace(0, 1, k + 1))
             edges = np.unique(edges)
             if edges.size < 3:
                 return np.zeros_like(x, dtype=np.int32)
-            return np.clip(np.searchsorted(edges[1:-1], x, side="right"),
-                            0, k - 1).astype(np.int32)
+            return np.clip(np.searchsorted(edges[1:-1], x, side="right"), 0, k - 1).astype(np.int32)
+
         y = (latent + 0.3 * rng.standard_normal(n) > 0).astype(np.int64)
         # anchor: noisy copy of latent
         anchor_raw = latent + 0.5 * rng.standard_normal(n)
@@ -413,18 +460,23 @@ class TestLayer45_DirectDecision:
         clean_b = _quantize(clean_raw)
         other_b = _quantize(other_raw)
         factors = np.column_stack([y_col, anchor_b, clean_b, other_b])
-        factors_nbins = np.array([
-            int(y_col.max()) + 1,
-            int(anchor_b.max()) + 1,
-            int(clean_b.max()) + 1,
-            int(other_b.max()) + 1,
-        ], dtype=np.int64)
-        X_raw = pd.DataFrame({
-            "y": y.astype(float),
-            "anchor": anchor_raw,
-            "clean_member": clean_raw,
-            "other_member": other_raw,
-        })
+        factors_nbins = np.array(
+            [
+                int(y_col.max()) + 1,
+                int(anchor_b.max()) + 1,
+                int(clean_b.max()) + 1,
+                int(other_b.max()) + 1,
+            ],
+            dtype=np.int64,
+        )
+        X_raw = pd.DataFrame(
+            {
+                "y": y.astype(float),
+                "anchor": anchor_raw,
+                "clean_member": clean_raw,
+                "other_member": other_raw,
+            }
+        )
         state = DCDState(
             pool_pruned_mask=np.zeros(4, dtype=bool),
             X_raw_ref=X_raw,
@@ -451,7 +503,9 @@ class TestLayer45_DirectDecision:
         # No conditioning context (S_minus_anchor empty) so MI is
         # unconditional — clean copies will dominate the noisy anchor.
         decision = evaluate_swap_candidate(
-            state, anchor=1, selected_vars=[1],
+            state,
+            anchor=1,
+            selected_vars=[1],
             target_y=np.array([0], dtype=np.int64),
         )
         # Either a member-swap or an aggregate-swap must fire. If the
@@ -464,16 +518,11 @@ class TestLayer45_DirectDecision:
             f"member_relevance={decision.member_relevance}"
         )
         if decision.branch == "member":
-            assert decision.new_col_idx in (2, 3), (
-                f"member-swap new_col_idx must be one of the clean "
-                f"members; got {decision.new_col_idx}"
-            )
+            assert decision.new_col_idx in (2, 3), f"member-swap new_col_idx must be one of the clean " f"members; got {decision.new_col_idx}"
             assert decision.aggregate_name == ""
             assert decision.binned_rep is None
             # member_relevance must beat anchor_relevance by the gain.
-            assert decision.member_relevance > (
-                decision.anchor_relevance_in_ctx * 1.05
-            ), (
+            assert decision.member_relevance > (decision.anchor_relevance_in_ctx * 1.05), (
                 f"member-swap requires member_rel > anchor_rel * 1.05; "
                 f"got member={decision.member_relevance}, "
                 f"anchor={decision.anchor_relevance_in_ctx}"
@@ -485,18 +534,22 @@ class TestLayer45_DirectDecision:
         ``accept=False`` with ``branch="none"``.
         """
         from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
-            DCDState, evaluate_swap_candidate,
+            DCDState,
+            evaluate_swap_candidate,
         )
+
         rng = np.random.default_rng(7)
         n = 2000
         latent = rng.standard_normal(n)
+
         def _quantize(x, k=4):
+            """Discretize x into up to k quantile bins as int32 codes."""
             edges = np.quantile(x, np.linspace(0, 1, k + 1))
             edges = np.unique(edges)
             if edges.size < 3:
                 return np.zeros_like(x, dtype=np.int32)
-            return np.clip(np.searchsorted(edges[1:-1], x, side="right"),
-                            0, k - 1).astype(np.int32)
+            return np.clip(np.searchsorted(edges[1:-1], x, side="right"), 0, k - 1).astype(np.int32)
+
         y = (latent + 0.3 * rng.standard_normal(n) > 0).astype(np.int64)
         # anchor: clean copy of latent.
         anchor_raw = latent + 0.02 * rng.standard_normal(n)
@@ -508,18 +561,23 @@ class TestLayer45_DirectDecision:
         m1_b = _quantize(m1_raw)
         m2_b = _quantize(m2_raw)
         factors = np.column_stack([y_col, anchor_b, m1_b, m2_b])
-        factors_nbins = np.array([
-            int(y_col.max()) + 1,
-            int(anchor_b.max()) + 1,
-            int(m1_b.max()) + 1,
-            int(m2_b.max()) + 1,
-        ], dtype=np.int64)
-        X_raw = pd.DataFrame({
-            "y": y.astype(float),
-            "anchor": anchor_raw,
-            "m1": m1_raw,
-            "m2": m2_raw,
-        })
+        factors_nbins = np.array(
+            [
+                int(y_col.max()) + 1,
+                int(anchor_b.max()) + 1,
+                int(m1_b.max()) + 1,
+                int(m2_b.max()) + 1,
+            ],
+            dtype=np.int64,
+        )
+        X_raw = pd.DataFrame(
+            {
+                "y": y.astype(float),
+                "anchor": anchor_raw,
+                "m1": m1_raw,
+                "m2": m2_raw,
+            }
+        )
         state = DCDState(
             pool_pruned_mask=np.zeros(4, dtype=bool),
             X_raw_ref=X_raw,
@@ -543,7 +601,9 @@ class TestLayer45_DirectDecision:
         state.pool_pruned_mask[2] = True
         state.pool_pruned_mask[3] = True
         decision = evaluate_swap_candidate(
-            state, anchor=1, selected_vars=[1],
+            state,
+            anchor=1,
+            selected_vars=[1],
             target_y=np.array([0], dtype=np.int64),
         )
         # When anchor genuinely dominates, the result is NOT accepted as
@@ -553,9 +613,7 @@ class TestLayer45_DirectDecision:
         # every member.
         if decision.accept and decision.branch == "member":
             pytest.fail(
-                f"member-swap fired even though anchor dominates: "
-                f"anchor_rel={decision.anchor_relevance_in_ctx}, "
-                f"member_rel={decision.member_relevance}"
+                f"member-swap fired even though anchor dominates: " f"anchor_rel={decision.anchor_relevance_in_ctx}, " f"member_rel={decision.member_relevance}"
             )
 
 
@@ -565,6 +623,7 @@ class TestLayer45_DirectDecision:
 
 
 class TestLayer45_Regression:
+    """Layer 45's member-swap addition must not regress the Layers 41-44 DCD contracts."""
 
     def test_layer42_three_dups_threshold2_still_fires_swap(self):
         """L42 contract: ``dcd_cluster_size_threshold=2`` on the 3-dups
@@ -573,32 +632,23 @@ class TestLayer45_Regression:
         aggregate or member branch).
         """
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _scenario_C_aggregate_best()
         m = MRMR(
-            dcd_enable=True, dcd_tau_cluster=0.5,
+            dcd_enable=True,
+            dcd_tau_cluster=0.5,
             dcd_cluster_size_threshold=2,
             full_npermutations=50,
-            verbose=0, random_seed=0,
+            verbose=0,
+            random_seed=0,
         ).fit(X, y)
-        assert int(m.dcd_["n_swaps"]) >= 1, (
-            f"Layer 42 contract: threshold=2 must fire >=1 swap on the "
-            f"3-dup fixture; got n_swaps={m.dcd_['n_swaps']}"
-        )
+        assert int(m.dcd_["n_swaps"]) >= 1, f"Layer 42 contract: threshold=2 must fire >=1 swap on the " f"3-dup fixture; got n_swaps={m.dcd_['n_swaps']}"
 
     def test_layer41_cluster_anchors_names_present(self):
         """L41 contract: ``cluster_anchors_names`` map is in the summary."""
-        from mlframe.feature_selection.filters.mrmr import MRMR
-        X, y = _scenario_C_aggregate_best()
-        m = MRMR(
-            dcd_enable=True, dcd_tau_cluster=0.5,
-            dcd_cluster_size_threshold=2,
-            full_npermutations=20,
-            verbose=0, random_seed=0,
-        ).fit(X, y)
+        _X, _y, m = _scenario_C_default_npermutations20_fit()
         assert m.dcd_ is not None
-        assert "cluster_anchors_names" in m.dcd_, (
-            "L41 contract: cluster_anchors_names must be in dcd_ summary"
-        )
+        assert "cluster_anchors_names" in m.dcd_, "L41 contract: cluster_anchors_names must be in dcd_ summary"
 
     def test_layer44_auto_pool_unchanged(self):
         """L44 contract: the auto bake-off pool is still the 7-element
@@ -607,26 +657,23 @@ class TestLayer45_Regression:
         from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
             _AUTO_METHOD_CANDIDATES,
         )
+
         assert set(_AUTO_METHOD_CANDIDATES) == {
-            "mean_z", "mean_inv_var", "pca_pc1",
-            "pca_pc2", "median_z", "signed_max_abs", "signed_l2_sum",
+            "mean_z",
+            "mean_inv_var",
+            "pca_pc1",
+            "pca_pc2",
+            "median_z",
+            "signed_max_abs",
+            "signed_l2_sum",
         }
 
     def test_transform_still_deterministic_with_layer45(self):
         """The transform must remain deterministic with Layer 45
         active, regardless of which branch fired.
         """
-        from mlframe.feature_selection.filters.mrmr import MRMR
-        X, y = _scenario_C_aggregate_best()
-        m = MRMR(
-            dcd_enable=True, dcd_tau_cluster=0.5,
-            dcd_cluster_size_threshold=2,
-            full_npermutations=20,
-            verbose=0, random_seed=0,
-        ).fit(X, y)
+        X, _y, m = _scenario_C_default_npermutations20_fit()
         Xt1 = np.asarray(m.transform(X), dtype=np.float64)
         Xt2 = np.asarray(m.transform(X), dtype=np.float64)
         assert Xt1.shape == Xt2.shape
-        assert np.allclose(Xt1, Xt2, equal_nan=True), (
-            "transform must be deterministic with Layer 45 active"
-        )
+        assert np.allclose(Xt1, Xt2, equal_nan=True), "transform must be deterministic with Layer 45 active"
