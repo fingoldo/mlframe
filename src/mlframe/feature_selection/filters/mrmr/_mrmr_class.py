@@ -18,7 +18,7 @@ import os
 import psutil
 import warnings
 from collections import OrderedDict
-from typing import Any, ClassVar, Iterable, Optional, Sequence, cast
+from typing import Any, Callable, ClassVar, Iterable, Optional, Sequence, cast
 
 import numpy as np
 import pandas as pd
@@ -126,6 +126,20 @@ def _mrmr_y_is_multioutput(y) -> bool:
         logger.debug("mrmr: multi-target detection np.asarray(y) failed; treating as single-target: %r", exc, exc_info=True)
         return False
     return arr.ndim >= 2 and arr.shape[-1] >= 2
+
+
+def _safe_restore(action: Callable[[], Any], description: str) -> None:
+    """Run a single ``fit()``-finally restore action, swallowing any exception it raises into a debug
+    log line instead of letting a failed restore mask the fit's real outcome (success or a genuine
+    error) or abort the remaining restores. Replaces 11 near-identical
+    ``try: ... except Exception as e: logger.debug("suppressed in _mrmr_class.py:<N>: %s", e)`` blocks
+    that each hardcoded their own source line number -- numbers which drifted out of sync with the
+    actual line on every subsequent edit, silently giving false diagnostics forever once stale.
+    ``description`` is a short human-readable label instead, which cannot go stale the same way."""
+    try:
+        action()
+    except Exception as exc:  # nosec B110 - a restore-step failure must never break/mask the fit's real outcome
+        logger.debug("mrmr: fit()-finally restore failed (%s): %r", description, exc, exc_info=True)
 
 
 from ._mrmr_class_shared import _mrmr_y_columns  # noqa: F401 -- re-exported for callers importing from here
@@ -3600,51 +3614,24 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
             # hardcoded literals: an inner fit must leave an outer fit's toggles intact. Mirrors the
             # _prev_* restore in _evaluation_driver.py's worker path.
             _su0, _jmim0, _bur0, _mm0, _relax0, _pid0, _cmi0, _cpt0 = _toggles_snapshot
-            try:
-                set_su_normalization(_su0)
-            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                logger.debug("suppressed in _mrmr_class.py:3574: %s", e)
-                pass
-            try:
-                set_jmim_aggregator(_jmim0)
-            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                logger.debug("suppressed in _mrmr_class.py:3578: %s", e)
-                pass
-            try:
-                set_bur_lambda(_bur0)
-            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                logger.debug("suppressed in _mrmr_class.py:3582: %s", e)
-                pass
-            try:
-                set_mi_miller_madow(_mm0)
-            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                logger.debug("suppressed in _mrmr_class.py:3586: %s", e)
-                pass
-            try:
-                _set_group_mi(None)
-            except Exception:  # nosec B110 - optional dependency import guard
-                pass
-            try:
+
+            def _restore_synergy_bonuses() -> None:
+                """Restore RelaxMRMR/PID/CMI-perm/CPT thread-locals to their fit-entry snapshot."""
                 set_relaxmrmr_alpha(_relax0)
                 set_pid_synergy_bonus(_pid0)
                 set_cmi_perm_stop(_cmi0[0], _cmi0[1], _cmi0[2])
                 set_cpt_test(_cpt0[0], _cpt0[1])
-            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                logger.debug("suppressed in _mrmr_class.py:3597: %s", e)
-                pass
-            # reset DCD thread-local and restore
-            # cluster_aggregate_enable to its constructor value (Critic2 fix:
-            # missing reset in v1 plan).
-            try:
-                _set_dcd_active(False)
-            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                logger.debug("suppressed in _mrmr_class.py:3604: %s", e)
-                pass
-            try:
-                self.cluster_aggregate_enable = _orig_cluster_aggregate_enable
-            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                logger.debug("suppressed in _mrmr_class.py:3608: %s", e)
-                pass
+
+            _safe_restore(lambda: set_su_normalization(_su0), "SU normalization thread-local")
+            _safe_restore(lambda: set_jmim_aggregator(_jmim0), "JMIM aggregator thread-local")
+            _safe_restore(lambda: set_bur_lambda(_bur0), "BUR lambda thread-local")
+            _safe_restore(lambda: set_mi_miller_madow(_mm0), "Miller-Madow thread-local")
+            _safe_restore(lambda: _set_group_mi(None), "group-aware MI thread-local")
+            _safe_restore(_restore_synergy_bonuses, "RelaxMRMR/PID/CMI-perm/CPT synergy thread-locals")
+            # reset DCD thread-local and restore cluster_aggregate_enable to its constructor value
+            # (Critic2 fix: missing reset in v1 plan).
+            _safe_restore(lambda: _set_dcd_active(False), "DCD active thread-local")
+            _safe_restore(lambda: setattr(self, "cluster_aggregate_enable", _orig_cluster_aggregate_enable), "cluster_aggregate_enable")
             # Restore the lazily-reconciled ctor aliases so ``get_params`` / ``clone`` see the unmodified
             # user-supplied values (sklearn round-trip contract). ``_UNSET`` => never overridden.
             if _orig_random_seed is not _UNSET:
@@ -3656,53 +3643,60 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
             # Restore the default screen-subsample knobs to their pre-fit (constructor) values so
             # clone / pickle / repeated-fit see unchanged constructor-arg semantics.
             if _default_screen_saved:
+
+                def _make_default_screen_restorer(_k: str, _v: Any) -> Callable[[], None]:
+                    """Bind (_k, _v) into a niladic restorer so the loop variables are captured by value, not by reference."""
+                    return lambda: setattr(self, _k, _v)
+
                 for _k, _v in _default_screen_saved.items():
-                    try:
-                        setattr(self, _k, _v)
-                    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
-                        logger.debug("suppressed in _mrmr_class.py:3623: %s", e)
-                        pass
+                    _safe_restore(_make_default_screen_restorer(_k, _v), f"default-screen-subsample knob {_k!r}")
             if _fast_search_saved:
-                for _k, _v in _fast_search_saved.items():
-                    try:
-                        if _k == "__fdcap__":
-                            if _v is None:
-                                clear_fourier_detect_cap()
-                            else:
-                                set_fourier_detect_cap(_v)
-                        elif _k.startswith("__env__"):
-                            _envk = _k[len("__env__") :]
-                            if _v is None:
-                                os.environ.pop(_envk, None)
-                            else:
-                                os.environ[_envk] = _v
+
+                def _restore_fast_search_knob(_k: str, _v: Any) -> None:
+                    """Restore one saved fast-search knob (plain attr, Fourier-detect cap, or an os.environ entry)."""
+                    if _k == "__fdcap__":
+                        if _v is None:
+                            clear_fourier_detect_cap()
                         else:
-                            setattr(self, _k, _v)
-                    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
-                        logger.debug("suppressed in _mrmr_class.py:3643: %s", e)
-                        pass
-            # restore any fe_*_enable flags fe_auto flipped ON, so the
-            # constructor-arg semantics are stable across fits / clone / pickle.
-            try:
+                            set_fourier_detect_cap(_v)
+                    elif _k.startswith("__env__"):
+                        _envk = _k[len("__env__") :]
+                        if _v is None:
+                            os.environ.pop(_envk, None)
+                        else:
+                            os.environ[_envk] = _v
+                    else:
+                        setattr(self, _k, _v)
+
+                def _make_fast_search_restorer(_k: str, _v: Any) -> Callable[[], None]:
+                    """Bind (_k, _v) into a niladic restorer so the loop variables are captured by value, not by reference."""
+                    return lambda: _restore_fast_search_knob(_k, _v)
+
+                for _k, _v in _fast_search_saved.items():
+                    _safe_restore(_make_fast_search_restorer(_k, _v), f"fast-search knob {_k!r}")
+
+            def _restore_fe_auto_flags() -> None:
+                """Restore every fe_*_enable flag fe_auto flipped ON back to its pre-fit value."""
                 for _flag, _orig in _fe_auto_restore.items():
                     setattr(self, _flag, _orig)
-            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                logger.debug("suppressed in _mrmr_class.py:3650: %s", e)
-                pass
+
+            # restore any fe_*_enable flags fe_auto flipped ON, so the
+            # constructor-arg semantics are stable across fits / clone / pickle.
+            _safe_restore(_restore_fe_auto_flags, "fe_auto-flipped fe_*_enable flags")
             frame = getattr(self, "_pandas_frame_for_target_cleanup", None)
             names = getattr(self, "_target_names_for_cleanup", None)
             if frame is not None and names:
                 # Drop only columns that actually exist (success path already removed them).
                 present = [c for c in names if c in frame.columns]
                 if present:
-                    try:
-                        # Restore the caller's frame in place (it stored this exact object for cleanup); option_context
-                        # silences the conservative SettingWithCopy heuristic on a possibly-viewed frame, no copy.
+                    # Restore the caller's frame in place (it stored this exact object for cleanup); option_context
+                    # silences the conservative SettingWithCopy heuristic on a possibly-viewed frame, no copy.
+                    def _drop_target_cleanup_columns() -> None:
+                        """Drop the temporary targ_* columns this fit injected into the caller's own frame."""
                         with pd.option_context("mode.chained_assignment", None):
                             frame.drop(columns=present, inplace=True)
-                    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                        logger.debug("suppressed in _mrmr_class.py:3663: %s", e)
-                        pass
+
+                    _safe_restore(_drop_target_cleanup_columns, "target-cleanup column drop on caller frame")
             self._pandas_frame_for_target_cleanup = None
             self._target_names_for_cleanup = None
 
