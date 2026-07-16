@@ -74,11 +74,13 @@ Contracts pinned
 NEVER xfail. Real LogReg AUC numbers. If a contract breaks, fix prod /
 calibrate the fixture / surface the issue - per the layer-35 ground rules.
 """
+
 from __future__ import annotations
 
 import pickle
 import time
 import warnings
+from functools import cache
 
 import numpy as np
 import pandas as pd
@@ -87,7 +89,6 @@ import pytest
 from sklearn.base import clone
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
-
 
 warnings.filterwarnings("ignore")
 
@@ -106,7 +107,9 @@ AUX_SEEDS = (1, 101)
 
 
 def _make_mrmr(**overrides):
+    """Default-config MRMR with wall-time pins; individual FE mechanisms enabled via overrides."""
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     kwargs = dict(
         verbose=0,
         interactions_max_order=1,
@@ -213,7 +216,7 @@ def _kitchen_sink(seed: int = HEADLINE_SEED, n: int = 3000):
     # only x_num1 cleanly.
     logit = (
         0.5 * x_num1
-        + 2.0 * (x_quad ** 2 - 1.0)
+        + 2.0 * (x_quad**2 - 1.0)
         + 2.5 * np.sin(2.0 * np.pi * x_periodic)
         + 2.5 * box
         + 2.5 * hot_mask
@@ -222,25 +225,27 @@ def _kitchen_sink(seed: int = HEADLINE_SEED, n: int = 3000):
     )
     p = 1.0 / (1.0 + np.exp(-logit))
     y = pd.Series((rng.random(n) < p).astype(int), name="y")
-    X = pd.DataFrame({
-        "x_num1": x_num1,
-        "x_num2": x_num2,
-        "x_quad": x_quad,
-        "x_periodic": x_periodic,
-        "x_threshold": x_threshold,
-        "cat_region": cat_region,
-        "cat_user": cat_user,
-        "price": price,
-        "n0": noise[:, 0],
-        "n1": noise[:, 1],
-        "n2": noise[:, 2],
-        "n3": noise[:, 3],
-    })
+    X = pd.DataFrame(
+        {
+            "x_num1": x_num1,
+            "x_num2": x_num2,
+            "x_quad": x_quad,
+            "x_periodic": x_periodic,
+            "x_threshold": x_threshold,
+            "cat_region": cat_region,
+            "cat_user": cat_user,
+            "price": price,
+            "n0": noise[:, 0],
+            "n1": noise[:, 1],
+            "n2": noise[:, 2],
+            "n3": noise[:, 3],
+        }
+    )
     return X, y
 
 
-def _train_holdout_split(X: pd.DataFrame, y: pd.Series, *,
-                         train_frac: float = 0.7, seed: int = HEADLINE_SEED):
+def _train_holdout_split(X: pd.DataFrame, y: pd.Series, *, train_frac: float = 0.7, seed: int = HEADLINE_SEED):
+    """Deterministic train/holdout split of (X, y) by shuffled row index."""
     rng = np.random.default_rng(seed + 100)
     idx = np.arange(len(X))
     rng.shuffle(idx)
@@ -255,6 +260,7 @@ def _train_holdout_split(X: pd.DataFrame, y: pd.Series, *,
 
 
 def _numeric_matrix(df: pd.DataFrame) -> np.ndarray:
+    """Extract df's numeric columns as a float64 ndarray, or a zero column if none are numeric."""
     num_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
     if not num_cols:
         # Degenerate baseline: zeros => LogReg fits to noise => AUC ~ 0.5.
@@ -262,14 +268,35 @@ def _numeric_matrix(df: pd.DataFrame) -> np.ndarray:
     return df[num_cols].to_numpy(dtype=np.float64)
 
 
-def _logreg_auc(X_tr: pd.DataFrame, y_tr: pd.Series,
-                X_ho: pd.DataFrame, y_ho: pd.Series) -> float:
+def _logreg_auc(X_tr: pd.DataFrame, y_tr: pd.Series, X_ho: pd.DataFrame, y_ho: pd.Series) -> float:
+    """Fit a LogisticRegression on the numeric columns of X_tr and return holdout AUC."""
     Xn_tr = _numeric_matrix(X_tr)
     Xn_ho = _numeric_matrix(X_ho)
-    clf = LogisticRegression(max_iter=500, solver="lbfgs").fit(
-        Xn_tr, y_tr.to_numpy()
-    )
+    clf = LogisticRegression(max_iter=500, solver="lbfgs").fit(Xn_tr, y_tr.to_numpy())
     return float(roc_auc_score(y_ho.to_numpy(), clf.predict_proba(Xn_ho)[:, 1]))
+
+
+@cache
+def _kitchen_sink_all_fe_fit():
+    """Cached ``(X_tr, y_tr, X_ho, y_ho, m, elapsed)`` for the default-seeded
+    kitchen-sink train split fit with all 8 FE mechanisms enabled
+    (``_all_fe_kwargs()``, no extra overrides). 6 differently-named tests
+    fit this IDENTICAL (data, config) pair to check different assertions
+    (fit/transform sanity, engineered-column count, lift over baseline,
+    pickle round-trip, fit-time budget, support-size bound) -- this is the
+    heaviest fit in the file (all 8 mechanisms), so collapsing 6 calls to 1
+    is the file's single biggest win. ``elapsed`` is the real measured fit
+    time from the one actual fit, so the budget assertion stays meaningful
+    under caching. Nothing downstream mutates X_tr/y_tr/X_ho/y_ho/m in
+    place (only transform()/get_params()/pickle are used afterward).
+    """
+    X, y = _kitchen_sink()
+    X_tr, y_tr, X_ho, y_ho = _train_holdout_split(X, y)
+    m = _make_mrmr(**_all_fe_kwargs())
+    t0 = time.perf_counter()
+    m.fit(X_tr, y_tr)
+    elapsed = time.perf_counter() - t0
+    return X_tr, y_tr, X_ho, y_ho, m, elapsed
 
 
 # ---------------------------------------------------------------------------
@@ -278,12 +305,11 @@ def _logreg_auc(X_tr: pd.DataFrame, y_tr: pd.Series,
 
 
 class TestAllEnabledFitsAndTransforms:
+    """All 8 FE mechanisms enabled simultaneously: fit and transform both complete cleanly."""
 
     def test_fit_completes_and_transform_runs(self):
-        X, y = _kitchen_sink()
-        X_tr, y_tr, X_ho, _ = _train_holdout_split(X, y)
-        m = _make_mrmr(**_all_fe_kwargs())
-        m.fit(X_tr, y_tr)
+        """fit() populates every aux feature-list attr and transform() runs without raising."""
+        X_tr, _y_tr, X_ho, _y_ho, m, _elapsed = _kitchen_sink_all_fe_fit()
         # All six aux feature-list attrs are populated lists (not None).
         for attr in (
             "hybrid_orth_features_",
@@ -293,9 +319,7 @@ class TestAllEnabledFitsAndTransforms:
             "frequency_encoding_features_",
             "cat_num_interaction_features_",
         ):
-            assert isinstance(getattr(m, attr, None), list), (
-                f"{attr} missing or not a list after fit with all FE enabled"
-            )
+            assert isinstance(getattr(m, attr, None), list), f"{attr} missing or not a list after fit with all FE enabled"
         # Transform runs without raising (the bug Layer 35 surfaced: spline-on-
         # He2 recipe chaining was broken pre-fix; transform raised KeyError
         # because ``_append_engineered`` looked up engineered intermediates
@@ -310,15 +334,9 @@ class TestAllEnabledFitsAndTransforms:
         """All 8 mechanisms enabled - we expect at minimum 3 engineered
         columns to clear the MI screen and reach the augmented output
         (orth He2, Fourier sin, kfold_te or cat_num residual)."""
-        X, y = _kitchen_sink()
-        X_tr, y_tr, _, _ = _train_holdout_split(X, y)
-        m = _make_mrmr(**_all_fe_kwargs())
-        m.fit(X_tr, y_tr)
+        _X_tr, _y_tr, _X_ho, _y_ho, m, _elapsed = _kitchen_sink_all_fe_fit()
         eng = getattr(m, "_engineered_features_", []) or []
-        assert len(eng) >= 3, (
-            f"Expected >= 3 engineered columns to surface from kitchen-sink "
-            f"with all 8 mechanisms enabled; got {eng}"
-        )
+        assert len(eng) >= 3, f"Expected >= 3 engineered columns to surface from kitchen-sink " f"with all 8 mechanisms enabled; got {eng}"
 
 
 # ---------------------------------------------------------------------------
@@ -327,8 +345,10 @@ class TestAllEnabledFitsAndTransforms:
 
 
 class TestAllEnabledLogRegAUC:
+    """Downstream LogReg on the augmented frame clears an absolute AUC bar."""
 
     def test_logreg_auc_clears_absolute_bar(self):
+        """Downstream LogReg AUC on the all-FE-augmented frame clears 0.85."""
         X, y = _kitchen_sink()
         X_tr, y_tr, X_ho, y_ho = _train_holdout_split(X, y)
         # fe_local_mi_gate is OFF for the end-to-end AUC contract. The gate (default-ON since L91, a corrective sub-noise pruner) legitimately keys on the per-column local-MI of an engineered output, and on
@@ -340,10 +360,7 @@ class TestAllEnabledLogRegAUC:
         out_tr = m.transform(X_tr)
         out_ho = m.transform(X_ho)
         auc_all = _logreg_auc(out_tr, y_tr, out_ho, y_ho)
-        assert auc_all >= 0.85, (
-            f"All-FE-enabled downstream LogReg AUC {auc_all:.4f} did not "
-            f"clear the 0.85 contract; transform cols={list(out_tr.columns)}"
-        )
+        assert auc_all >= 0.85, f"All-FE-enabled downstream LogReg AUC {auc_all:.4f} did not " f"clear the 0.85 contract; transform cols={list(out_tr.columns)}"
 
 
 # ---------------------------------------------------------------------------
@@ -352,22 +369,18 @@ class TestAllEnabledLogRegAUC:
 
 
 class TestAllEnabledLiftOverNoFEBaseline:
+    """Augmented AUC beats the raw-only-numeric LogReg AUC by at least +0.10."""
 
     def test_all_enabled_lifts_at_least_010_over_no_fe(self):
-        X, y = _kitchen_sink()
-        X_tr, y_tr, X_ho, y_ho = _train_holdout_split(X, y)
+        """All-FE-enabled AUC lift over the no-FE baseline clears +0.10."""
+        X_tr, y_tr, X_ho, y_ho, m, _elapsed = _kitchen_sink_all_fe_fit()
         # No-FE baseline = raw numeric LogReg (categorical object cols dropped).
         auc_raw = _logreg_auc(X_tr, y_tr, X_ho, y_ho)
-        m = _make_mrmr(**_all_fe_kwargs())
-        m.fit(X_tr, y_tr)
         out_tr = m.transform(X_tr)
         out_ho = m.transform(X_ho)
         auc_all = _logreg_auc(out_tr, y_tr, out_ho, y_ho)
         lift = auc_all - auc_raw
-        assert lift >= 0.10, (
-            f"All-enabled lift over no-FE baseline {lift:+.4f} did not "
-            f"clear the +0.10 contract; raw={auc_raw:.4f} all={auc_all:.4f}"
-        )
+        assert lift >= 0.10, f"All-enabled lift over no-FE baseline {lift:+.4f} did not " f"clear the +0.10 contract; raw={auc_raw:.4f} all={auc_all:.4f}"
 
 
 # ---------------------------------------------------------------------------
@@ -386,15 +399,18 @@ class TestPerMechanismIndividualLift:
 
     @pytest.fixture(scope="class")
     def fixture(self):
+        """Shared kitchen-sink train/holdout split for this class's per-mechanism tests."""
         X, y = _kitchen_sink()
         return _train_holdout_split(X, y)
 
     @pytest.fixture(scope="class")
     def baseline_auc(self, fixture):
+        """No-FE baseline LogReg AUC on the shared fixture."""
         X_tr, y_tr, X_ho, y_ho = fixture
         return _logreg_auc(X_tr, y_tr, X_ho, y_ho)
 
     def _run_one_mech(self, fixture, **mech_kwargs) -> float:
+        """Fit MRMR with only the given mechanism kwargs enabled and return downstream LogReg AUC."""
         X_tr, y_tr, X_ho, y_ho = fixture
         m = _make_mrmr(**mech_kwargs)
         m.fit(X_tr, y_tr)
@@ -403,6 +419,7 @@ class TestPerMechanismIndividualLift:
         return _logreg_auc(out_tr, y_tr, out_ho, y_ho)
 
     def test_orth_univariate_lifts_on_quadratic(self, fixture, baseline_auc):
+        """orth-univariate alone lifts AUC by >=0.02 on the quadratic signal."""
         auc = self._run_one_mech(
             fixture,
             fe_hybrid_orth_enable=True,
@@ -410,11 +427,11 @@ class TestPerMechanismIndividualLift:
             fe_hybrid_orth_basis="hermite",
         )
         assert auc - baseline_auc >= 0.02, (
-            f"orth-univariate alone: lift={auc - baseline_auc:+.4f} below +0.02 "
-            f"(baseline={baseline_auc:.4f}, mech={auc:.4f})"
+            f"orth-univariate alone: lift={auc - baseline_auc:+.4f} below +0.02 " f"(baseline={baseline_auc:.4f}, mech={auc:.4f})"
         )
 
     def test_fourier_lifts_on_periodic(self, fixture, baseline_auc):
+        """Fourier alone lifts AUC by >=0.02 on the periodic signal."""
         auc = self._run_one_mech(
             fixture,
             fe_hybrid_orth_enable=True,
@@ -423,12 +440,10 @@ class TestPerMechanismIndividualLift:
             fe_hybrid_orth_extra_bases=("fourier",),
             fe_hybrid_orth_fourier_freqs=(1.0, 2.0),
         )
-        assert auc - baseline_auc >= 0.02, (
-            f"fourier alone: lift={auc - baseline_auc:+.4f} below +0.02 "
-            f"(baseline={baseline_auc:.4f}, mech={auc:.4f})"
-        )
+        assert auc - baseline_auc >= 0.02, f"fourier alone: lift={auc - baseline_auc:+.4f} below +0.02 " f"(baseline={baseline_auc:.4f}, mech={auc:.4f})"
 
     def test_spline_lifts_on_threshold(self, fixture, baseline_auc):
+        """Spline alone lifts AUC by >=0.02 on the box-threshold signal."""
         auc = self._run_one_mech(
             fixture,
             fe_hybrid_orth_enable=True,
@@ -437,12 +452,10 @@ class TestPerMechanismIndividualLift:
             fe_hybrid_orth_extra_bases=("spline",),
             fe_hybrid_orth_spline_knots=7,
         )
-        assert auc - baseline_auc >= 0.02, (
-            f"spline alone: lift={auc - baseline_auc:+.4f} below +0.02 "
-            f"(baseline={baseline_auc:.4f}, mech={auc:.4f})"
-        )
+        assert auc - baseline_auc >= 0.02, f"spline alone: lift={auc - baseline_auc:+.4f} below +0.02 " f"(baseline={baseline_auc:.4f}, mech={auc:.4f})"
 
     def test_cat_num_residual_lifts_on_price_within_region(self, fixture, baseline_auc):
+        """cat-num residual alone lifts AUC by >=0.02 on the region-conditional price signal."""
         auc = self._run_one_mech(
             fixture,
             fe_cat_num_interaction_enable=True,
@@ -450,8 +463,7 @@ class TestPerMechanismIndividualLift:
             fe_cat_num_interaction_num_cols=("price",),
         )
         assert auc - baseline_auc >= 0.02, (
-            f"cat-num residual alone: lift={auc - baseline_auc:+.4f} below +0.02 "
-            f"(baseline={baseline_auc:.4f}, mech={auc:.4f})"
+            f"cat-num residual alone: lift={auc - baseline_auc:+.4f} below +0.02 " f"(baseline={baseline_auc:.4f}, mech={auc:.4f})"
         )
 
 
@@ -470,6 +482,7 @@ class TestOrderIndependence:
 
     @pytest.mark.parametrize("seed", (HEADLINE_SEED,) + AUX_SEEDS)
     def test_kfold_te_then_orth_equals_orth_then_kfold_te(self, seed):
+        """The combined orth+kfold_te fit's engineered set is a superset of each mechanism fit alone."""
         X, y = _kitchen_sink(seed=seed)
         X_tr, y_tr, _, _ = _train_holdout_split(X, y, seed=seed)
         # Mechanism A: orth-univ alone
@@ -520,39 +533,36 @@ class TestOrderIndependence:
 
 
 class TestPickleAndCloneAllEnabled:
+    """clone() and pickle round-trip preserve the kitchen-sink-configured estimator."""
 
     def test_clone_preserves_all_fe_params(self):
+        """clone() round-trips every one of the 8-mechanism FE ctor params."""
         m = _make_mrmr(**_all_fe_kwargs())
         m2 = clone(m)
         params_orig = m.get_params()
         params_clone = m2.get_params()
         for key in _all_fe_kwargs().keys():
-            assert params_orig[key] == params_clone[key], (
-                f"clone lost FE param '{key}': "
-                f"orig={params_orig[key]!r} clone={params_clone[key]!r}"
-            )
+            assert params_orig[key] == params_clone[key], f"clone lost FE param '{key}': " f"orig={params_orig[key]!r} clone={params_clone[key]!r}"
         # Clone is unfitted.
         assert not hasattr(m2, "support_")
 
     def test_pickle_roundtrip_transform_bit_identical(self):
-        X, y = _kitchen_sink()
-        X_tr, y_tr, X_ho, _ = _train_holdout_split(X, y)
-        m = _make_mrmr(**_all_fe_kwargs())
-        m.fit(X_tr, y_tr)
+        """pickle round-trip reproduces bit-identical transform() output columns and values."""
+        _X_tr, _y_tr, X_ho, _y_ho, m, _elapsed = _kitchen_sink_all_fe_fit()
         out_pre = m.transform(X_ho)
-        m_pkl = pickle.loads(pickle.dumps(m))
+        m_pkl = pickle.loads(pickle.dumps(m))  # nosec B301 -- round-trip of a locally-created, trusted object
         out_post = m_pkl.transform(X_ho)
         # Same columns, same dtypes, same values for numeric cols.
         assert list(out_pre.columns) == list(out_post.columns), (
-            f"pickle changed transform columns: "
-            f"pre={list(out_pre.columns)} post={list(out_post.columns)}"
+            f"pickle changed transform columns: " f"pre={list(out_pre.columns)} post={list(out_post.columns)}"
         )
         for col in out_pre.columns:
             if pd.api.types.is_numeric_dtype(out_pre[col]):
                 np.testing.assert_allclose(
                     np.asarray(out_pre[col], dtype=np.float64),
                     np.asarray(out_post[col], dtype=np.float64),
-                    rtol=1e-9, atol=1e-9,
+                    rtol=1e-9,
+                    atol=1e-9,
                     err_msg=f"pickle changed values of column {col!r}",
                 )
 
@@ -573,6 +583,7 @@ class TestNoDoubleCountingAbsFamily:
 
     @pytest.mark.parametrize("seed", (HEADLINE_SEED,) + AUX_SEEDS)
     def test_at_most_one_abs_family_col_in_support(self, seed):
+        """At most one |x_quad|-family engineered column survives cross-stage Spearman dedup."""
         X, y = _kitchen_sink(seed=seed)
         X_tr, y_tr, _, _ = _train_holdout_split(X, y, seed=seed)
         m = _make_mrmr(
@@ -606,18 +617,12 @@ class TestNoDoubleCountingAbsFamily:
 
 
 class TestFitTimeBudget:
+    """End-to-end fit with all 8 mechanisms enabled completes within the wall-time budget."""
 
     def test_all_enabled_fit_under_30s(self):
-        X, y = _kitchen_sink()
-        X_tr, y_tr, _, _ = _train_holdout_split(X, y)
-        m = _make_mrmr(**_all_fe_kwargs())
-        t0 = time.perf_counter()
-        m.fit(X_tr, y_tr)
-        elapsed = time.perf_counter() - t0
-        assert elapsed <= 30.0, (
-            f"All-FE-enabled fit on (n={len(X_tr)}, p={X_tr.shape[1]}) took "
-            f"{elapsed:.2f}s, exceeding the 30s budget"
-        )
+        """All-FE-enabled fit on (n=3000, p=12) completes in <= 30s."""
+        X_tr, _y_tr, _X_ho, _y_ho, _m, elapsed = _kitchen_sink_all_fe_fit()
+        assert elapsed <= 30.0, f"All-FE-enabled fit on (n={len(X_tr)}, p={X_tr.shape[1]}) took " f"{elapsed:.2f}s, exceeding the 30s budget"
 
 
 # ---------------------------------------------------------------------------
@@ -626,14 +631,10 @@ class TestFitTimeBudget:
 
 
 class TestSupportSizeBounded:
+    """Final support size never exceeds fe_ntop_features even with every constructor active."""
 
     def test_transform_cols_under_25(self):
-        X, y = _kitchen_sink()
-        X_tr, y_tr, _, _ = _train_holdout_split(X, y)
-        m = _make_mrmr(**_all_fe_kwargs())
-        m.fit(X_tr, y_tr)
+        """Transform output stays at or under fe_ntop_features=25 columns."""
+        X_tr, _y_tr, _X_ho, _y_ho, m, _elapsed = _kitchen_sink_all_fe_fit()
         out = m.transform(X_tr)
-        assert len(out.columns) <= 25, (
-            f"Transform produced {len(out.columns)} columns with "
-            f"fe_ntop_features=25: {list(out.columns)}"
-        )
+        assert len(out.columns) <= 25, f"Transform produced {len(out.columns)} columns with " f"fe_ntop_features=25: {list(out.columns)}"
