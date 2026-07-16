@@ -56,9 +56,11 @@ F. **Regression target with hybrid + scaler**
 NEVER xfail. If sklearn integration has rough edges, fix them on the
 spot.
 """
+
 from __future__ import annotations
 
 import warnings
+from functools import cache
 
 import numpy as np
 import pandas as pd
@@ -70,7 +72,6 @@ from sklearn.model_selection import GridSearchCV, KFold, cross_val_score
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
-
 warnings.filterwarnings("ignore")
 
 
@@ -78,6 +79,8 @@ SEEDS = (1, 13, 42)
 
 
 from tests.feature_selection.conftest import make_fast_mrmr as _make_mrmr
+
+
 def _build_quadratic_binary(seed: int, n: int = 1500):
     """``y = sign(x1^2 - 1)`` binary target. He_2(x1) is the signal.
 
@@ -89,13 +92,15 @@ def _build_quadratic_binary(seed: int, n: int = 1500):
     rng = np.random.default_rng(seed)
     x1 = rng.standard_normal(n)
     x2 = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "x1": x1,
-        "x2": x2,
-        "noise_a": rng.standard_normal(n),
-        "noise_b": rng.standard_normal(n),
-        "noise_c": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "x1": x1,
+            "x2": x2,
+            "noise_a": rng.standard_normal(n),
+            "noise_b": rng.standard_normal(n),
+            "noise_c": rng.standard_normal(n),
+        }
+    )
     y = ((x1 * x1 - 1.0) + 0.05 * rng.standard_normal(n) > 0).astype(int)
     return X, pd.Series(y, name="y")
 
@@ -108,13 +113,15 @@ def _build_quadratic_regression(seed: int, n: int = 1500):
     rng = np.random.default_rng(seed)
     x1 = rng.standard_normal(n)
     x2 = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "x1": x1,
-        "x2": x2,
-        "noise_a": rng.standard_normal(n),
-        "noise_b": rng.standard_normal(n),
-        "noise_c": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "x1": x1,
+            "x2": x2,
+            "noise_a": rng.standard_normal(n),
+            "noise_b": rng.standard_normal(n),
+            "noise_c": rng.standard_normal(n),
+        }
+    )
     y_arr = (x1 * x1 - 1.0) + 0.1 * rng.standard_normal(n)
     return X, pd.Series(y_arr, name="y")
 
@@ -125,6 +132,7 @@ def _build_quadratic_regression(seed: int, n: int = 1500):
 
 
 class TestGridSearchCVOverFEParams:
+    """GridSearchCV over fe_hybrid_orth_* hyperparameters completes cleanly and surfaces a solving config."""
 
     def test_gridsearch_4_candidates_complete(self):
         """2x2 grid over (fe_hybrid_orth_enable, fe_hybrid_orth_basis)
@@ -134,14 +142,19 @@ class TestGridSearchCVOverFEParams:
         downstream accuracy).
         """
         X, y = _build_quadratic_binary(seed=1, n=1200)
-        pipe = Pipeline([
-            ("mrmr", _make_mrmr(
-                fe_hybrid_orth_enable=True,
-                fe_hybrid_orth_pair_enable=False,
-                fe_hybrid_orth_top_k=3,
-            )),
-            ("clf", LogisticRegression(max_iter=300)),
-        ])
+        pipe = Pipeline(
+            [
+                (
+                    "mrmr",
+                    _make_mrmr(
+                        fe_hybrid_orth_enable=True,
+                        fe_hybrid_orth_pair_enable=False,
+                        fe_hybrid_orth_top_k=3,
+                    ),
+                ),
+                ("clf", LogisticRegression(max_iter=300)),
+            ]
+        )
         grid = GridSearchCV(
             pipe,
             param_grid={
@@ -155,14 +168,11 @@ class TestGridSearchCVOverFEParams:
         grid.fit(X, y)
         # 2 x 2 = 4 candidates evaluated.
         assert len(grid.cv_results_["params"]) == 4, (
-            f"expected 4 grid candidates (2 x 2), got "
-            f"{len(grid.cv_results_['params'])}; "
-            f"params={grid.cv_results_['params']}"
+            f"expected 4 grid candidates (2 x 2), got " f"{len(grid.cv_results_['params'])}; " f"params={grid.cv_results_['params']}"
         )
         # Every candidate produced a finite mean_test_score.
         assert np.all(np.isfinite(grid.cv_results_["mean_test_score"])), (
-            f"non-finite mean_test_score among candidates: "
-            f"{grid.cv_results_['mean_test_score']}"
+            f"non-finite mean_test_score among candidates: " f"{grid.cv_results_['mean_test_score']}"
         )
 
     def test_gridsearch_finds_config_that_solves_quadratic(self):
@@ -187,14 +197,19 @@ class TestGridSearchCVOverFEParams:
         that SOME engineered config clears the legacy baseline by a wide margin.
         """
         X, y = _build_quadratic_binary(seed=13, n=1500)
-        pipe = Pipeline([
-            ("mrmr", _make_mrmr(
-                fe_hybrid_orth_enable=True,
-                fe_hybrid_orth_pair_enable=False,
-                fe_hybrid_orth_top_k=3,
-            )),
-            ("clf", LogisticRegression(max_iter=300)),
-        ])
+        pipe = Pipeline(
+            [
+                (
+                    "mrmr",
+                    _make_mrmr(
+                        fe_hybrid_orth_enable=True,
+                        fe_hybrid_orth_pair_enable=False,
+                        fe_hybrid_orth_top_k=3,
+                    ),
+                ),
+                ("clf", LogisticRegression(max_iter=300)),
+            ]
+        )
         grid = GridSearchCV(
             pipe,
             param_grid={
@@ -214,11 +229,8 @@ class TestGridSearchCVOverFEParams:
             fe_univariate_fourier_enable=False,
             fe_hybrid_orth_enable=False,
         )
-        legacy_pipe = Pipeline([("mrmr", legacy),
-                                ("clf", LogisticRegression(max_iter=300))])
-        legacy_score = float(
-            cross_val_score(legacy_pipe, X, y, cv=3).mean()
-        )
+        legacy_pipe = Pipeline([("mrmr", legacy), ("clf", LogisticRegression(max_iter=300))])
+        legacy_score = float(cross_val_score(legacy_pipe, X, y, cv=3).mean())
         best_score = float(grid.best_score_)
         # The engineered path solves the quadratic; measured best 0.983.
         assert best_score >= 0.95, (
@@ -229,9 +241,7 @@ class TestGridSearchCVOverFEParams:
         )
         # And it must crush the legacy linear baseline (no symmetric-in-x1 fix).
         assert best_score >= legacy_score + 0.15, (
-            f"Engineered FE must clear the legacy linear baseline by a wide "
-            f"margin on the quadratic; best={best_score:.4f}, "
-            f"legacy={legacy_score:.4f}"
+            f"Engineered FE must clear the legacy linear baseline by a wide " f"margin on the quadratic; best={best_score:.4f}, " f"legacy={legacy_score:.4f}"
         )
 
     def test_gridsearch_best_estimator_serializes(self):
@@ -239,15 +249,21 @@ class TestGridSearchCVOverFEParams:
         Production model-registry path: GridSearch -> pickle the best.
         """
         import pickle
+
         X, y = _build_quadratic_binary(seed=42, n=1200)
-        pipe = Pipeline([
-            ("mrmr", _make_mrmr(
-                fe_hybrid_orth_enable=True,
-                fe_hybrid_orth_pair_enable=False,
-                fe_hybrid_orth_top_k=3,
-            )),
-            ("clf", LogisticRegression(max_iter=300)),
-        ])
+        pipe = Pipeline(
+            [
+                (
+                    "mrmr",
+                    _make_mrmr(
+                        fe_hybrid_orth_enable=True,
+                        fe_hybrid_orth_pair_enable=False,
+                        fe_hybrid_orth_top_k=3,
+                    ),
+                ),
+                ("clf", LogisticRegression(max_iter=300)),
+            ]
+        )
         grid = GridSearchCV(
             pipe,
             param_grid={
@@ -260,7 +276,7 @@ class TestGridSearchCVOverFEParams:
         )
         grid.fit(X, y)
         blob = pickle.dumps(grid.best_estimator_)
-        reloaded = pickle.loads(blob)
+        reloaded = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
         # Predict on the training data with both originals and reloaded:
         # exact match.
         preds_orig = grid.best_estimator_.predict(X)
@@ -274,23 +290,30 @@ class TestGridSearchCVOverFEParams:
 
 
 class TestPipelineWithScalerAndClassifier:
+    """MRMR + StandardScaler + LogisticRegression with hybrid FE solves a quadratic-signal target end-to-end."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_pipeline_predict_quadratic_accuracy(self, seed):
+        """The full Pipeline clears 0.85 holdout accuracy on the quadratic-signal binary target."""
         X, y = _build_quadratic_binary(seed=seed, n=2000)
         n_train = 1500
         Xtr, ytr = X.iloc[:n_train], y.iloc[:n_train]
         Xte, yte = X.iloc[n_train:], y.iloc[n_train:]
-        pipe = Pipeline([
-            ("mrmr", _make_mrmr(
-                fe_hybrid_orth_enable=True,
-                fe_hybrid_orth_pair_enable=False,
-                fe_hybrid_orth_basis="hermite",
-                fe_hybrid_orth_top_k=5,
-            )),
-            ("scaler", StandardScaler()),
-            ("clf", LogisticRegression(max_iter=500)),
-        ])
+        pipe = Pipeline(
+            [
+                (
+                    "mrmr",
+                    _make_mrmr(
+                        fe_hybrid_orth_enable=True,
+                        fe_hybrid_orth_pair_enable=False,
+                        fe_hybrid_orth_basis="hermite",
+                        fe_hybrid_orth_top_k=5,
+                    ),
+                ),
+                ("scaler", StandardScaler()),
+                ("clf", LogisticRegression(max_iter=500)),
+            ]
+        )
         pipe.fit(Xtr, ytr)
         preds = pipe.predict(Xte)
         acc = (preds == yte.to_numpy()).mean()
@@ -310,22 +333,24 @@ class TestPipelineWithScalerAndClassifier:
         n_train = 1300
         Xtr, ytr = X.iloc[:n_train], y.iloc[:n_train]
         Xte = X.iloc[n_train:]
-        pipe = Pipeline([
-            ("mrmr", _make_mrmr(
-                fe_hybrid_orth_enable=True,
-                fe_hybrid_orth_pair_enable=False,
-                fe_hybrid_orth_top_k=5,
-            )),
-            ("scaler", StandardScaler()),
-            ("clf", LogisticRegression(max_iter=500)),
-        ])
+        pipe = Pipeline(
+            [
+                (
+                    "mrmr",
+                    _make_mrmr(
+                        fe_hybrid_orth_enable=True,
+                        fe_hybrid_orth_pair_enable=False,
+                        fe_hybrid_orth_top_k=5,
+                    ),
+                ),
+                ("scaler", StandardScaler()),
+                ("clf", LogisticRegression(max_iter=500)),
+            ]
+        )
         pipe.fit(Xtr, ytr)
         proba = pipe.predict_proba(Xte)
         assert proba.shape == (Xte.shape[0], 2), proba.shape
-        assert np.all(np.isfinite(proba)), (
-            f"seed={seed}: non-finite probabilities in predict_proba: "
-            f"{proba[~np.isfinite(proba)][:5]}"
-        )
+        assert np.all(np.isfinite(proba)), f"seed={seed}: non-finite probabilities in predict_proba: " f"{proba[~np.isfinite(proba)][:5]}"
         # Rows sum to 1.
         np.testing.assert_allclose(proba.sum(axis=1), 1.0, atol=1e-9)
 
@@ -336,28 +361,32 @@ class TestPipelineWithScalerAndClassifier:
 
 
 class TestCrossValWithHybridFE:
+    """Cross-validation with hybrid FE returns finite scores and fits fresh recipes per fold without y-leakage."""
 
     def test_cross_val_score_5_finite_scores(self):
+        """cross_val_score returns 5 finite scores with mean accuracy >= 0.80 on the quadratic-signal target."""
         X, y = _build_quadratic_binary(seed=1, n=1800)
-        pipe = Pipeline([
-            ("mrmr", _make_mrmr(
-                fe_hybrid_orth_enable=True,
-                fe_hybrid_orth_pair_enable=False,
-                fe_hybrid_orth_top_k=5,
-            )),
-            ("scaler", StandardScaler()),
-            ("clf", LogisticRegression(max_iter=500)),
-        ])
+        pipe = Pipeline(
+            [
+                (
+                    "mrmr",
+                    _make_mrmr(
+                        fe_hybrid_orth_enable=True,
+                        fe_hybrid_orth_pair_enable=False,
+                        fe_hybrid_orth_top_k=5,
+                    ),
+                ),
+                ("scaler", StandardScaler()),
+                ("clf", LogisticRegression(max_iter=500)),
+            ]
+        )
         cv = KFold(n_splits=5, shuffle=True, random_state=42)
         scores = cross_val_score(pipe, X, y, cv=cv, n_jobs=1)
         assert scores.shape == (5,), scores.shape
         assert np.all(np.isfinite(scores)), f"non-finite CV scores: {scores}"
         # The pipeline solves the quadratic task on every fold -- mean
         # accuracy must be solid even if some folds are noisier.
-        assert scores.mean() >= 0.80, (
-            f"cross_val_score mean {scores.mean():.3f} below 0.80 on "
-            f"quadratic signal with hybrid FE; per-fold: {scores}"
-        )
+        assert scores.mean() >= 0.80, f"cross_val_score mean {scores.mean():.3f} below 0.80 on " f"quadratic signal with hybrid FE; per-fold: {scores}"
 
     def test_each_fold_fits_hybrid_recipes_fresh(self):
         """Manual 5-fold loop: every fold's MRMR fit produces a non-
@@ -378,9 +407,7 @@ class TestCrossValWithHybridFE:
             )
             m.fit(X.iloc[tr_idx], y.iloc[tr_idx])
             assert len(m.hybrid_orth_features_) > 0, (
-                f"fold={fold_idx}: hybrid_orth_features_ empty on a "
-                f"quadratic signal; FE pipeline failed to engage on "
-                f"this fold's training slice"
+                f"fold={fold_idx}: hybrid_orth_features_ empty on a " f"quadratic signal; FE pipeline failed to engage on " f"this fold's training slice"
             )
 
     def test_no_y_leakage_across_folds(self):
@@ -407,9 +434,7 @@ class TestCrossValWithHybridFE:
         # Permute holdout y, refit on the unchanged training slice.
         rng = np.random.default_rng(123)
         y_holdout_scrambled = y.copy()
-        y_holdout_scrambled.iloc[te_idx] = rng.permutation(
-            y_holdout_scrambled.iloc[te_idx].to_numpy()
-        )
+        y_holdout_scrambled.iloc[te_idx] = rng.permutation(y_holdout_scrambled.iloc[te_idx].to_numpy())
         m2 = _make_mrmr(
             fe_hybrid_orth_enable=True,
             fe_hybrid_orth_pair_enable=False,
@@ -418,8 +443,7 @@ class TestCrossValWithHybridFE:
         m2.fit(Xtr, y_holdout_scrambled.iloc[tr_idx])
         # Training slice y is unchanged so the recipe must match.
         assert list(m2.hybrid_orth_features_) == feats_baseline, (
-            f"holdout-y scramble leaked into training fit: "
-            f"baseline={feats_baseline} vs scrambled-holdout={m2.hybrid_orth_features_}"
+            f"holdout-y scramble leaked into training fit: " f"baseline={feats_baseline} vs scrambled-holdout={m2.hybrid_orth_features_}"
         )
 
 
@@ -429,8 +453,10 @@ class TestCrossValWithHybridFE:
 
 
 class TestDeepClonePreserves:
+    """clone(clone(clone(m))) preserves all hybrid params bit-exactly and stays unfitted."""
 
     def test_three_deep_clone_preserves_params_and_unfitted(self):
+        """Three clone hops preserve get_params() identically and produce an unfitted estimator."""
         m = _make_mrmr(
             fe_hybrid_orth_enable=True,
             fe_hybrid_orth_degrees=(2, 4),
@@ -472,9 +498,7 @@ class TestDeepClonePreserves:
         assert hasattr(m, "support_")
         # Now triple-clone; descendants must shed fit state.
         m1 = clone(clone(clone(m)))
-        assert not hasattr(m1, "support_"), (
-            "triple-clone of fitted MRMR must produce an unfitted clone"
-        )
+        assert not hasattr(m1, "support_"), "triple-clone of fitted MRMR must produce an unfitted clone"
         # And the surviving constructor params still match.
         assert m.get_params(deep=True) == m1.get_params(deep=True)
 
@@ -484,27 +508,39 @@ class TestDeepClonePreserves:
 # ---------------------------------------------------------------------------
 
 
+@cache
+def _seed1_n1200_pandas_hybrid_fit():
+    """Cached ``(X, y, m, out)`` for the seed=1, n=1200 set_output(pandas)
+    hybrid fit + transform. Shared between
+    test_transform_returns_dataframe_when_hybrid_enabled and
+    test_engineered_column_values_finite, which both fit the identical
+    config on identical data. Nothing downstream mutates X/y/m/out in place.
+    """
+    X, y = _build_quadratic_binary(seed=1, n=1200)
+    m = _make_mrmr(
+        fe_hybrid_orth_enable=True,
+        fe_hybrid_orth_pair_enable=False,
+        fe_hybrid_orth_basis="hermite",
+        fe_hybrid_orth_top_k=5,
+    ).set_output(transform="pandas")
+    m.fit(X, y)
+    out = m.transform(X)
+    return X, y, m, out
+
+
 class TestSetOutputPandasWithHybrid:
+    """set_output(transform='pandas') with hybrid FE returns a DataFrame whose columns match get_feature_names_out()."""
 
     def test_transform_returns_dataframe_when_hybrid_enabled(self):
-        X, y = _build_quadratic_binary(seed=1, n=1200)
-        m = _make_mrmr(
-            fe_hybrid_orth_enable=True,
-            fe_hybrid_orth_pair_enable=False,
-            fe_hybrid_orth_basis="hermite",
-            fe_hybrid_orth_top_k=5,
-        ).set_output(transform="pandas")
-        m.fit(X, y)
+        """With hybrid FE engaged, set_output(pandas) makes transform() return a DataFrame."""
+        _X, _y, m, out = _seed1_n1200_pandas_hybrid_fit()
         # Hybrid stage engaged.
         assert len(m.hybrid_orth_features_) > 0, m.hybrid_orth_features_
         # transform on a DataFrame returns DataFrame.
-        out = m.transform(X)
-        assert isinstance(out, pd.DataFrame), (
-            f"set_output(pandas) + hybrid FE: transform should return "
-            f"DataFrame, got {type(out).__name__}"
-        )
+        assert isinstance(out, pd.DataFrame), f"set_output(pandas) + hybrid FE: transform should return " f"DataFrame, got {type(out).__name__}"
 
     def test_feature_names_out_includes_engineered_names(self):
+        """Every engineered hybrid_orth_features_ name appears in get_feature_names_out()."""
         X, y = _build_quadratic_binary(seed=13, n=1200)
         m = _make_mrmr(
             fe_hybrid_orth_enable=True,
@@ -516,12 +552,10 @@ class TestSetOutputPandasWithHybrid:
         names_out = list(m.get_feature_names_out())
         # Every engineered name appears in feature_names_out.
         for eng_name in m.hybrid_orth_features_:
-            assert eng_name in names_out, (
-                f"engineered name {eng_name!r} not in "
-                f"get_feature_names_out()={names_out}"
-            )
+            assert eng_name in names_out, f"engineered name {eng_name!r} not in " f"get_feature_names_out()={names_out}"
 
     def test_transform_columns_match_feature_names_out(self):
+        """transform()'s DataFrame column order matches get_feature_names_out() exactly."""
         X, y = _build_quadratic_binary(seed=42, n=1200)
         m = _make_mrmr(
             fe_hybrid_orth_enable=True,
@@ -539,22 +573,13 @@ class TestSetOutputPandasWithHybrid:
         )
 
     def test_engineered_column_values_finite(self):
-        X, y = _build_quadratic_binary(seed=1, n=1200)
-        m = _make_mrmr(
-            fe_hybrid_orth_enable=True,
-            fe_hybrid_orth_pair_enable=False,
-            fe_hybrid_orth_basis="hermite",
-            fe_hybrid_orth_top_k=5,
-        ).set_output(transform="pandas")
-        m.fit(X, y)
-        out = m.transform(X)
+        """Every engineered hybrid_orth_features_ column value in transform() output is finite."""
+        _X, _y, m, out = _seed1_n1200_pandas_hybrid_fit()
         for eng_name in m.hybrid_orth_features_:
             if eng_name in out.columns:
                 col = out[eng_name].to_numpy()
                 assert np.all(np.isfinite(col)), (
-                    f"engineered column {eng_name!r} has non-finite "
-                    f"values; first bad rows: "
-                    f"{np.flatnonzero(~np.isfinite(col))[:5]}"
+                    f"engineered column {eng_name!r} has non-finite " f"values; first bad rows: " f"{np.flatnonzero(~np.isfinite(col))[:5]}"
                 )
 
 
@@ -564,6 +589,7 @@ class TestSetOutputPandasWithHybrid:
 
 
 class TestRegressionWithHybridFE:
+    """MRMR + StandardScaler + LinearRegression with hybrid FE solves a quadratic-signal regression target."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_regression_pipeline_r2_on_quadratic(self, seed):
@@ -576,16 +602,21 @@ class TestRegressionWithHybridFE:
         n_train = 1500
         Xtr, ytr = X.iloc[:n_train], y.iloc[:n_train]
         Xte, yte = X.iloc[n_train:], y.iloc[n_train:]
-        pipe = Pipeline([
-            ("mrmr", _make_mrmr(
-                fe_hybrid_orth_enable=True,
-                fe_hybrid_orth_pair_enable=False,
-                fe_hybrid_orth_basis="hermite",
-                fe_hybrid_orth_top_k=5,
-            )),
-            ("scaler", StandardScaler()),
-            ("reg", LinearRegression()),
-        ])
+        pipe = Pipeline(
+            [
+                (
+                    "mrmr",
+                    _make_mrmr(
+                        fe_hybrid_orth_enable=True,
+                        fe_hybrid_orth_pair_enable=False,
+                        fe_hybrid_orth_basis="hermite",
+                        fe_hybrid_orth_top_k=5,
+                    ),
+                ),
+                ("scaler", StandardScaler()),
+                ("reg", LinearRegression()),
+            ]
+        )
         pipe.fit(Xtr, ytr)
         preds = pipe.predict(Xte)
         r2 = r2_score(yte.to_numpy(), preds)
@@ -604,19 +635,21 @@ class TestRegressionWithHybridFE:
         n_train = 1100
         Xtr, ytr = X.iloc[:n_train], y.iloc[:n_train]
         Xte = X.iloc[n_train:]
-        pipe = Pipeline([
-            ("mrmr", _make_mrmr(
-                fe_hybrid_orth_enable=True,
-                fe_hybrid_orth_pair_enable=False,
-                fe_hybrid_orth_top_k=5,
-            )),
-            ("scaler", StandardScaler()),
-            ("reg", LinearRegression()),
-        ])
+        pipe = Pipeline(
+            [
+                (
+                    "mrmr",
+                    _make_mrmr(
+                        fe_hybrid_orth_enable=True,
+                        fe_hybrid_orth_pair_enable=False,
+                        fe_hybrid_orth_top_k=5,
+                    ),
+                ),
+                ("scaler", StandardScaler()),
+                ("reg", LinearRegression()),
+            ]
+        )
         pipe.fit(Xtr, ytr)
         preds = pipe.predict(Xte)
         assert preds.shape == (Xte.shape[0],), preds.shape
-        assert np.all(np.isfinite(preds)), (
-            f"seed={seed}: non-finite predictions: "
-            f"{preds[~np.isfinite(preds)][:5]}"
-        )
+        assert np.all(np.isfinite(preds)), f"seed={seed}: non-finite predictions: " f"{preds[~np.isfinite(preds)][:5]}"
