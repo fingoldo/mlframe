@@ -41,6 +41,7 @@ Contracts pinned
 
 NEVER xfail.
 """
+
 from __future__ import annotations
 
 import pickle
@@ -61,6 +62,7 @@ SEEDS = (1, 7, 13, 42, 101)
 
 
 def _import_meta_fe():
+    """Lazily import the meta-scorer auto-selection FE functions."""
     from mlframe.feature_selection.filters._orthogonal_meta_scorer_fe import (
         META_SCORER_NAMES,
         fingerprint_signal,
@@ -68,6 +70,7 @@ def _import_meta_fe():
         hybrid_orth_mi_meta_fe,
         hybrid_orth_mi_meta_fe_with_recipes,
     )
+
     return (
         META_SCORER_NAMES,
         fingerprint_signal,
@@ -78,6 +81,7 @@ def _import_meta_fe():
 
 
 from tests.feature_selection.conftest import make_fast_mrmr as _make_mrmr
+
 # ---------------------------------------------------------------------------
 # Fixture builders -- mirror the L75 5-fixture roster so the meta-cascade's
 # predictions can be cross-validated against the L75 empirical matrix
@@ -85,58 +89,75 @@ from tests.feature_selection.conftest import make_fast_mrmr as _make_mrmr
 
 
 def _build_linear_monotone(seed: int, n: int = 2000):
+    """``y = sign(1.2*x1 + 0.8*x2 + 0.5*x3)`` -- mirrors the L75 linear_monotone fixture (plug_in should win)."""
     rng = np.random.default_rng(int(seed))
     x1 = rng.standard_normal(n)
     x2 = rng.standard_normal(n)
     x3 = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "x1": x1, "x2": x2, "x3": x3,
-        "noise_0": rng.standard_normal(n),
-        "noise_1": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "x1": x1,
+            "x2": x2,
+            "x3": x3,
+            "noise_0": rng.standard_normal(n),
+            "noise_1": rng.standard_normal(n),
+        }
+    )
     y = ((1.2 * x1 + 0.8 * x2 + 0.5 * x3 + 0.3 * rng.standard_normal(n)) > 0).astype(int)
     return X, pd.Series(y, name="y")
 
 
 def _build_quadratic(seed: int, n: int = 2000):
+    """``y = sign(x1^2 + 0.6*x2^2 - median)`` -- mirrors the L75 quadratic (Pearson-blind) fixture (hsic should win)."""
     rng = np.random.default_rng(int(seed))
     x1 = rng.standard_normal(n)
     x2 = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "x1": x1, "x2": x2,
-        "noise_0": rng.standard_normal(n),
-        "noise_1": rng.standard_normal(n),
-        "noise_2": rng.standard_normal(n),
-    })
-    signal = x1 ** 2 + 0.6 * (x2 ** 2)
+    X = pd.DataFrame(
+        {
+            "x1": x1,
+            "x2": x2,
+            "noise_0": rng.standard_normal(n),
+            "noise_1": rng.standard_normal(n),
+            "noise_2": rng.standard_normal(n),
+        }
+    )
+    signal = x1**2 + 0.6 * (x2**2)
     thr = float(np.median(signal))
     y = ((signal + 0.05 * rng.standard_normal(n)) > thr).astype(int)
     return X, pd.Series(y, name="y")
 
 
 def _build_non_monotone_cubic(seed: int, n: int = 400):
+    """A cubic non-monotone signal -- mirrors the L75 non_monotone_cubic fixture."""
     rng = np.random.default_rng(int(seed))
     x1 = rng.standard_normal(n)
     x2 = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "x1": x1, "x2": x2,
-        "noise_0": rng.standard_normal(n),
-        "noise_1": rng.standard_normal(n),
-    })
-    signal = x1 ** 3 - 2.0 * x1 + 0.3 * (x2 ** 3 - 2.0 * x2)
+    X = pd.DataFrame(
+        {
+            "x1": x1,
+            "x2": x2,
+            "noise_0": rng.standard_normal(n),
+            "noise_1": rng.standard_normal(n),
+        }
+    )
+    signal = x1**3 - 2.0 * x1 + 0.3 * (x2**3 - 2.0 * x2)
     y = ((signal + 0.3 * rng.standard_normal(n)) > 0).astype(int)
     return X, pd.Series(y, name="y")
 
 
 def _build_heavy_tail(seed: int, n: int = 1500):
+    """A log-signal on Pareto-heavy-tailed columns -- mirrors the L75 heavy_tail fixture."""
     rng = np.random.default_rng(int(seed))
     x1 = rng.pareto(1.5, n) + 1.0
     x2 = rng.pareto(1.5, n) + 1.0
-    X = pd.DataFrame({
-        "x1": x1, "x2": x2,
-        "noise_0": rng.pareto(1.5, n) + 1.0,
-        "noise_1": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "x1": x1,
+            "x2": x2,
+            "noise_0": rng.pareto(1.5, n) + 1.0,
+            "noise_1": rng.standard_normal(n),
+        }
+    )
     signal = np.log(x1) + 0.7 * np.log(x2)
     y = ((signal + 0.3 * rng.standard_normal(n)) > 0).astype(int)
     return X, pd.Series(y, name="y")
@@ -150,11 +171,11 @@ from tests.feature_selection._biz_val_synth import _build_xor_redundant
 # because L75 itself pins ALTERNATE READING markers on the cubic and
 # heavy_tail fixtures.
 _L75_ACCEPTABLE_WINNERS = {
-    "linear_monotone":   {"plug_in", "ksg", "copula", "dcor", "hsic"},
-    "quadratic":         {"hsic", "plug_in", "copula", "dcor", "jmim", "tc", "cmim"},
+    "linear_monotone": {"plug_in", "ksg", "copula", "dcor", "hsic"},
+    "quadratic": {"hsic", "plug_in", "copula", "dcor", "jmim", "tc", "cmim"},
     "non_monotone_cubic": {"jmim", "cmim", "tc", "hsic", "dcor"},
-    "heavy_tail":        {"plug_in", "ksg", "copula", "dcor", "hsic", "jmim", "tc"},
-    "xor_redundant":     {"cmim", "jmim", "tc", "hsic"},
+    "heavy_tail": {"plug_in", "ksg", "copula", "dcor", "hsic", "jmim", "tc"},
+    "xor_redundant": {"cmim", "jmim", "tc", "hsic"},
 }
 
 
@@ -171,14 +192,12 @@ class TestMetaPicksPluginOnLinear:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_meta_picks_plug_in(self, seed):
+        """The meta-cascade dispatches the linear-monotone fingerprint to plug_in for every seed."""
         _, fingerprint_signal, predict_best_scorer, _, _ = _import_meta_fe()
         X, y = _build_linear_monotone(seed)
         fp = fingerprint_signal(X, y.to_numpy(), random_state=int(seed))
         chosen = predict_best_scorer(fp)
-        assert chosen == "plug_in", (
-            f"seed={seed}: linear-monotone fixture dispatched to {chosen!r}; "
-            f"expected 'plug_in'. fingerprint={fp!r}"
-        )
+        assert chosen == "plug_in", f"seed={seed}: linear-monotone fixture dispatched to {chosen!r}; " f"expected 'plug_in'. fingerprint={fp!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -195,14 +214,12 @@ class TestMetaPicksHsicOnQuadratic:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_meta_picks_hsic(self, seed):
+        """The meta-cascade dispatches the quadratic (Pearson-blind) fingerprint to hsic for every seed."""
         _, fingerprint_signal, predict_best_scorer, _, _ = _import_meta_fe()
         X, y = _build_quadratic(seed)
         fp = fingerprint_signal(X, y.to_numpy(), random_state=int(seed))
         chosen = predict_best_scorer(fp)
-        assert chosen == "hsic", (
-            f"seed={seed}: quadratic fixture dispatched to {chosen!r}; "
-            f"expected 'hsic'. fingerprint={fp!r}"
-        )
+        assert chosen == "hsic", f"seed={seed}: quadratic fixture dispatched to {chosen!r}; " f"expected 'hsic'. fingerprint={fp!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -218,14 +235,12 @@ class TestMetaPicksCmimOnRedundant:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_meta_picks_cmim(self, seed):
+        """The meta-cascade dispatches the highly-redundant fingerprint to cmim for every seed."""
         _, fingerprint_signal, predict_best_scorer, _, _ = _import_meta_fe()
         X, y = _build_xor_redundant(seed)
         fp = fingerprint_signal(X, y.to_numpy(), random_state=int(seed))
         chosen = predict_best_scorer(fp)
-        assert chosen == "cmim", (
-            f"seed={seed}: xor_redundant fixture dispatched to {chosen!r}; "
-            f"expected 'cmim'. fingerprint={fp!r}"
-        )
+        assert chosen == "cmim", f"seed={seed}: xor_redundant fixture dispatched to {chosen!r}; " f"expected 'cmim'. fingerprint={fp!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -247,13 +262,14 @@ class TestMetaMatchesL75OnAtLeastThree:
     """
 
     def test_meta_matches_l75_on_three_of_five(self):
+        """The meta-cascade's majority pick matches an L75-acceptable winner on >= 3 of the 5 spec fixtures."""
         _, fingerprint_signal, predict_best_scorer, _, _ = _import_meta_fe()
         fixtures = {
-            "linear_monotone":   _build_linear_monotone,
-            "quadratic":         _build_quadratic,
+            "linear_monotone": _build_linear_monotone,
+            "quadratic": _build_quadratic,
             "non_monotone_cubic": _build_non_monotone_cubic,
-            "heavy_tail":        _build_heavy_tail,
-            "xor_redundant":     _build_xor_redundant,
+            "heavy_tail": _build_heavy_tail,
+            "xor_redundant": _build_xor_redundant,
         }
         matches: list[str] = []
         mismatches: list[str] = []
@@ -270,15 +286,11 @@ class TestMetaMatchesL75OnAtLeastThree:
             if majority in accepted:
                 matches.append(f"{name}:{majority}")
             else:
-                mismatches.append(
-                    f"{name}: majority={majority!r}, accepted={accepted!r}, "
-                    f"per_seed={picks!r}"
-                )
+                mismatches.append(f"{name}: majority={majority!r}, accepted={accepted!r}, " f"per_seed={picks!r}")
         assert len(matches) >= 3, (
             f"Meta-cascade matched L75 acceptable winners on only "
             f"{len(matches)} of 5 fixtures (floor: 3).\n"
-            f"matches: {matches!r}\nmismatches:\n  "
-            + "\n  ".join(mismatches)
+            f"matches: {matches!r}\nmismatches:\n  " + "\n  ".join(mismatches)
         )
 
 
@@ -292,16 +304,17 @@ def _augment_test(X_tr, X_tr_aug, X_te, degrees=(2, 3), basis="hermite"):
     from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
         generate_univariate_basis_features,
     )
+
     added = [c for c in X_tr_aug.columns if c not in X_tr.columns]
     if not added:
         return X_te
     eng_te_all = generate_univariate_basis_features(
-        X_te, degrees=degrees, basis=basis,
+        X_te,
+        degrees=degrees,
+        basis=basis,
     )
     have = [c for c in added if c in eng_te_all.columns]
-    return (
-        pd.concat([X_te, eng_te_all[have]], axis=1) if have else X_te
-    )
+    return pd.concat([X_te, eng_te_all[have]], axis=1) if have else X_te
 
 
 class TestAucCompetitiveWithEnsemble:
@@ -320,42 +333,64 @@ class TestAucCompetitiveWithEnsemble:
     """
 
     def test_meta_auc_within_001_of_ensemble(self):
+        """Meta-cascade-augmented LogReg AUC stays within 0.01 of the full 5-scorer ensemble's AUC on the quadratic fixture."""
         from mlframe.feature_selection.filters._orthogonal_scorer_auto_fe import (
             hybrid_orth_mi_ensemble_fe,
         )
+
         _, _, _, hybrid_meta, _ = _import_meta_fe()
         aucs_meta, aucs_ens = [], []
         for s in SEEDS:
             X, y = _build_quadratic(s)
             X_tr, X_te, y_tr, y_te = train_test_split(
-                X, y, test_size=0.3, random_state=s, stratify=y,
+                X,
+                y,
+                test_size=0.3,
+                random_state=s,
+                stratify=y,
             )
             X_meta_tr, _scores_m, _chosen, _fp = hybrid_meta(
-                X_tr, y_tr.to_numpy(),
-                degrees=(2, 3), basis="hermite",
-                top_k=3, min_uplift=0.0, min_abs_mi_frac=0.0,
+                X_tr,
+                y_tr.to_numpy(),
+                degrees=(2, 3),
+                basis="hermite",
+                top_k=3,
+                min_uplift=0.0,
+                min_abs_mi_frac=0.0,
                 random_state=int(s),
             )
             X_meta_te = _augment_test(X_tr, X_meta_tr, X_te)
             lr_m = LogisticRegression(max_iter=2000, solver="lbfgs").fit(
-                X_meta_tr, y_tr,
+                X_meta_tr,
+                y_tr,
             )
-            aucs_meta.append(roc_auc_score(
-                y_te, lr_m.predict_proba(X_meta_te)[:, 1],
-            ))
+            aucs_meta.append(
+                roc_auc_score(
+                    y_te,
+                    lr_m.predict_proba(X_meta_te)[:, 1],
+                )
+            )
             X_ens_tr, _scores_e = hybrid_orth_mi_ensemble_fe(
-                X_tr, y_tr.to_numpy(),
-                degrees=(2, 3), basis="hermite",
-                top_k=3, min_uplift=0.0, min_abs_mi_frac=0.0,
+                X_tr,
+                y_tr.to_numpy(),
+                degrees=(2, 3),
+                basis="hermite",
+                top_k=3,
+                min_uplift=0.0,
+                min_abs_mi_frac=0.0,
                 random_state=int(s),
             )
             X_ens_te = _augment_test(X_tr, X_ens_tr, X_te)
             lr_e = LogisticRegression(max_iter=2000, solver="lbfgs").fit(
-                X_ens_tr, y_tr,
+                X_ens_tr,
+                y_tr,
             )
-            aucs_ens.append(roc_auc_score(
-                y_te, lr_e.predict_proba(X_ens_te)[:, 1],
-            ))
+            aucs_ens.append(
+                roc_auc_score(
+                    y_te,
+                    lr_e.predict_proba(X_ens_te)[:, 1],
+                )
+            )
         meta_mean = float(np.mean(aucs_meta))
         ens_mean = float(np.mean(aucs_ens))
         assert meta_mean >= ens_mean - 0.01, (
@@ -373,18 +408,18 @@ class TestAucCompetitiveWithEnsemble:
 
 
 class TestDefaultDisabledByteIdentical:
+    """fe_hybrid_orth_meta_enable=False (the default) leaves hybrid_orth_features_ empty."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_default_off_no_meta_columns(self, seed):
+        """Default fe_hybrid_orth_meta_enable=False appends no engineered columns."""
         X, y = _build_linear_monotone(seed)
         m = _make_mrmr().fit(X, y)
         added = list(getattr(m, "hybrid_orth_features_", []) or [])
-        assert added == [], (
-            f"seed={seed}: default fe_hybrid_orth_meta_enable=False "
-            f"should NOT append any engineered columns; got {added}"
-        )
+        assert added == [], f"seed={seed}: default fe_hybrid_orth_meta_enable=False " f"should NOT append any engineered columns; got {added}"
 
     def test_default_ctor_values(self):
+        """The meta ctor params default to disabled/no forced scorer."""
         m = _make_mrmr()
         assert m.fe_hybrid_orth_meta_enable is False
         assert m.fe_hybrid_orth_meta_force_scorer is None
@@ -396,8 +431,10 @@ class TestDefaultDisabledByteIdentical:
 
 
 class TestPickleAndClone:
+    """clone() preserves the meta ctor params; pickle preserves appended features, chosen scorer, and recipes."""
 
     def test_clone_preserves_meta_params(self):
+        """clone() copies fe_hybrid_orth_meta_enable/force_scorer without carrying over fitted state."""
         m = _make_mrmr(
             fe_hybrid_orth_meta_enable=True,
             fe_hybrid_orth_meta_force_scorer="hsic",
@@ -407,12 +444,10 @@ class TestPickleAndClone:
             ("fe_hybrid_orth_meta_enable", True),
             ("fe_hybrid_orth_meta_force_scorer", "hsic"),
         ]:
-            assert getattr(m2, name) == expected, (
-                f"clone() dropped {name}: expected {expected}, got "
-                f"{getattr(m2, name)}"
-            )
+            assert getattr(m2, name) == expected, f"clone() dropped {name}: expected {expected}, got " f"{getattr(m2, name)}"
 
     def test_pickle_roundtrip_preserves_meta_state(self):
+        """pickle.dumps/loads preserves hybrid_orth_features_, chosen scorer, fingerprint, and orth_univariate recipes."""
         X, y = _build_quadratic(seed=42)
         m = _make_mrmr(
             fe_hybrid_orth_meta_enable=True,
@@ -421,58 +456,37 @@ class TestPickleAndClone:
             fe_hybrid_orth_top_k=2,
         ).fit(X, y)
         blob = pickle.dumps(m)
-        m2 = pickle.loads(blob)
-        assert list(m2.feature_names_in_) == list(m.feature_names_in_), (
-            "pickle changed feature_names_in_"
-        )
+        m2 = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
+        assert list(m2.feature_names_in_) == list(m.feature_names_in_), "pickle changed feature_names_in_"
         added_before = list(getattr(m, "hybrid_orth_features_", []) or [])
         added_after = list(getattr(m2, "hybrid_orth_features_", []) or [])
-        assert added_before == added_after, (
-            f"pickle changed hybrid_orth_features_: "
-            f"before={added_before}, after={added_after}"
-        )
+        assert added_before == added_after, f"pickle changed hybrid_orth_features_: " f"before={added_before}, after={added_after}"
         # Chosen scorer and fingerprint survive pickle.
         chosen_before = getattr(m, "hybrid_orth_meta_chosen_scorer_", None)
         chosen_after = getattr(m2, "hybrid_orth_meta_chosen_scorer_", None)
-        assert chosen_before == chosen_after, (
-            f"pickle changed hybrid_orth_meta_chosen_scorer_: "
-            f"before={chosen_before!r}, after={chosen_after!r}"
-        )
+        assert chosen_before == chosen_after, f"pickle changed hybrid_orth_meta_chosen_scorer_: " f"before={chosen_before!r}, after={chosen_after!r}"
         fp_before = getattr(m, "hybrid_orth_meta_fingerprint_", None)
         fp_after = getattr(m2, "hybrid_orth_meta_fingerprint_", None)
-        assert fp_before == fp_after, (
-            f"pickle changed hybrid_orth_meta_fingerprint_: "
-            f"before={fp_before!r}, after={fp_after!r}"
-        )
+        assert fp_before == fp_after, f"pickle changed hybrid_orth_meta_fingerprint_: " f"before={fp_before!r}, after={fp_after!r}"
 
         def _extract_orth_recipes(model):
+            """Collect the model's orth_univariate-kind recipes keyed by name."""
             container = getattr(model, "_engineered_recipes_", None)
             if isinstance(container, dict):
-                return {
-                    r.name: r for r in container.values()
-                    if getattr(r, "kind", None) == "orth_univariate"
-                }
-            return {
-                r.name: r for r in (container or [])
-                if getattr(r, "kind", None) == "orth_univariate"
-            }
+                return {r.name: r for r in container.values() if getattr(r, "kind", None) == "orth_univariate"}
+            return {r.name: r for r in (container or []) if getattr(r, "kind", None) == "orth_univariate"}
+
         recipes_before = _extract_orth_recipes(m)
         recipes_after = _extract_orth_recipes(m2)
         assert set(recipes_before.keys()) == set(recipes_after.keys()), (
-            f"pickle dropped or added orth_univariate recipe names: "
-            f"before={set(recipes_before.keys())}, "
-            f"after={set(recipes_after.keys())}"
+            f"pickle dropped or added orth_univariate recipe names: " f"before={set(recipes_before.keys())}, " f"after={set(recipes_after.keys())}"
         )
         for name, r_before in recipes_before.items():
             r_after = recipes_after[name]
-            assert r_before.src_names == r_after.src_names, (
-                f"pickle changed src_names for {name!r}: "
-                f"before={r_before.src_names}, after={r_after.src_names}"
-            )
+            assert r_before.src_names == r_after.src_names, f"pickle changed src_names for {name!r}: " f"before={r_before.src_names}, after={r_after.src_names}"
             for key in ("basis", "degree"):
                 assert r_before.extra.get(key) == r_after.extra.get(key), (
-                    f"pickle changed '{key}' for recipe {name!r}: "
-                    f"before={r_before.extra}, after={r_after.extra}"
+                    f"pickle changed '{key}' for recipe {name!r}: " f"before={r_before.extra}, after={r_after.extra}"
                 )
 
 
