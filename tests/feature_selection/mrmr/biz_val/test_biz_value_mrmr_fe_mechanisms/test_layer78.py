@@ -21,6 +21,7 @@ Contracts pinned
 
 NEVER xfail.
 """
+
 from __future__ import annotations
 
 import pickle
@@ -38,11 +39,13 @@ SEEDS = (1, 7, 13, 42, 101)
 
 
 def _import_aa_fe():
+    """Lazily import the adaptive-arity cross-basis orthogonal-polynomial FE functions."""
     from mlframe.feature_selection.filters._orthogonal_adaptive_arity_fe import (
         generate_adaptive_arity_cross_basis,
         score_adaptive_arity_cross_basis,
         hybrid_orth_mi_adaptive_arity_fe,
     )
+
     return (
         generate_adaptive_arity_cross_basis,
         score_adaptive_arity_cross_basis,
@@ -51,6 +54,7 @@ def _import_aa_fe():
 
 
 from tests.feature_selection.conftest import make_fast_mrmr as _make_mrmr
+
 # ---------------------------------------------------------------------------
 # Data builders
 # ---------------------------------------------------------------------------
@@ -66,9 +70,14 @@ def _build_xor2(seed: int, n: int = 3000):
     x2 = rng.standard_normal(n)
     x3 = rng.standard_normal(n)
     x4 = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "x1": x1, "x2": x2, "x3": x3, "x4": x4,
-    })
+    X = pd.DataFrame(
+        {
+            "x1": x1,
+            "x2": x2,
+            "x3": x3,
+            "x4": x4,
+        }
+    )
     y = ((x1 * x2) + 0.02 * rng.standard_normal(n) > 0).astype(int)
     return X, pd.Series(y, name="y")
 
@@ -85,9 +94,14 @@ def _build_xor3(seed: int, n: int = 4000):
     x2 = rng.standard_normal(n)
     x3 = rng.standard_normal(n)
     x4 = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "x1": x1, "x2": x2, "x3": x3, "x4": x4,
-    })
+    X = pd.DataFrame(
+        {
+            "x1": x1,
+            "x2": x2,
+            "x3": x3,
+            "x4": x4,
+        }
+    )
     y = ((x1 * x2 * x3) + 0.02 * rng.standard_normal(n) > 0).astype(int)
     return X, pd.Series(y, name="y")
 
@@ -101,9 +115,14 @@ def _build_xor4(seed: int, n: int = 5000):
     x2 = rng.standard_normal(n)
     x3 = rng.standard_normal(n)
     x4 = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "x1": x1, "x2": x2, "x3": x3, "x4": x4,
-    })
+    X = pd.DataFrame(
+        {
+            "x1": x1,
+            "x2": x2,
+            "x3": x3,
+            "x4": x4,
+        }
+    )
     y = ((x1 * x2 * x3 * x4) + 0.02 * rng.standard_normal(n) > 0).astype(int)
     return X, pd.Series(y, name="y")
 
@@ -115,11 +134,14 @@ def _build_linear(seed: int, n: int = 1500):
     rng = np.random.default_rng(seed)
     x1 = rng.standard_normal(n)
     x2 = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "x1": x1, "x2": x2,
-        "noise_a": rng.standard_normal(n),
-        "noise_b": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "x1": x1,
+            "x2": x2,
+            "noise_a": rng.standard_normal(n),
+            "noise_b": rng.standard_normal(n),
+        }
+    )
     y = ((x1 + 0.7 * x2) > 0).astype(int)
     return X, pd.Series(y, name="y")
 
@@ -130,42 +152,33 @@ def _build_linear(seed: int, n: int = 1500):
 
 
 class TestArityDiscovery2Way:
+    """``y = sign(x1*x2)`` (2-way XOR) makes adaptive-arity pick the 2-way pair, never a higher-arity superset."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_adaptive_picks_arity_2(self, seed):
+        """The {x1,x2} pair is the top-uplift winner at arity 2; no higher-arity superset of it is emitted."""
         gen_aa, _, _ = _import_aa_fe()
         X, y = _build_xor2(seed)
-        eng_X, scores = gen_aa(
-            X, y.values,
+        _eng_X, scores = gen_aa(
+            X,
+            y.values,
             source_cols=["x1", "x2", "x3", "x4"],
-            max_arity=4, max_degree=1, basis="hermite",
+            max_arity=4,
+            max_degree=1,
+            basis="hermite",
         )
-        assert not scores.empty, (
-            f"seed={seed}: adaptive-arity must emit at least the 2-way "
-            f"winner (x1,x2)"
-        )
+        assert not scores.empty, f"seed={seed}: adaptive-arity must emit at least the 2-way " f"winner (x1,x2)"
         # The (x1, x2) pair must be the top-uplift winner at arity 2.
         # No 3-way / 4-way cell that includes {x1, x2} should be emitted:
         # its MI does not beat the pair MI on a pure 2-way XOR target.
         top = scores.iloc[0]
-        assert top["arity"] == 2, (
-            f"seed={seed}: top winner arity should be 2, got {top['arity']}; "
-            f"scores:\n{scores}"
-        )
-        assert set(top["source_cols"]) == {"x1", "x2"}, (
-            f"seed={seed}: top winner tuple should be {{x1,x2}}, got "
-            f"{top['source_cols']}; scores:\n{scores}"
-        )
+        assert top["arity"] == 2, f"seed={seed}: top winner arity should be 2, got {top['arity']}; " f"scores:\n{scores}"
+        assert set(top["source_cols"]) == {"x1", "x2"}, f"seed={seed}: top winner tuple should be {{x1,x2}}, got " f"{top['source_cols']}; scores:\n{scores}"
         # No emitted cell should be a strict SUPERSET of {x1, x2}:
         # adaptive eclipses higher-arity dilutions.
-        offenders = [
-            row for _, row in scores.iterrows()
-            if row["arity"] > 2 and {"x1", "x2"}.issubset(set(row["source_cols"]))
-        ]
+        offenders = [row for _, row in scores.iterrows() if row["arity"] > 2 and {"x1", "x2"}.issubset(set(row["source_cols"]))]
         assert not offenders, (
-            f"seed={seed}: adaptive-arity emitted a higher-arity superset of "
-            f"{{x1,x2}} on a pure 2-way XOR signal: {offenders}; "
-            f"scores:\n{scores}"
+            f"seed={seed}: adaptive-arity emitted a higher-arity superset of " f"{{x1,x2}} on a pure 2-way XOR signal: {offenders}; " f"scores:\n{scores}"
         )
 
 
@@ -175,40 +188,31 @@ class TestArityDiscovery2Way:
 
 
 class TestArityDiscovery3Way:
+    """``y = sign(x1*x2*x3)`` (3-way XOR) makes adaptive-arity pick the (x1,x2,x3) triplet, never a 4-way superset."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_adaptive_picks_arity_3(self, seed):
+        """The (x1,x2,x3) triplet wins at arity 3; no 4-way superset of it is emitted."""
         gen_aa, _, _ = _import_aa_fe()
         X, y = _build_xor3(seed)
-        eng_X, scores = gen_aa(
-            X, y.values,
+        _eng_X, scores = gen_aa(
+            X,
+            y.values,
             source_cols=["x1", "x2", "x3", "x4"],
-            max_arity=4, max_degree=1, basis="hermite",
+            max_arity=4,
+            max_degree=1,
+            basis="hermite",
         )
         # Find the row whose source_cols == {x1, x2, x3} (the true signal).
-        signal_rows = [
-            row for _, row in scores.iterrows()
-            if set(row["source_cols"]) == {"x1", "x2", "x3"}
-        ]
-        assert signal_rows, (
-            f"seed={seed}: adaptive-arity must emit the (x1,x2,x3) triplet "
-            f"on a 3-way XOR target; scores:\n{scores}"
-        )
+        signal_rows = [row for _, row in scores.iterrows() if set(row["source_cols"]) == {"x1", "x2", "x3"}]
+        assert signal_rows, f"seed={seed}: adaptive-arity must emit the (x1,x2,x3) triplet " f"on a 3-way XOR target; scores:\n{scores}"
         row = signal_rows[0]
-        assert row["arity"] == 3, (
-            f"seed={seed}: (x1,x2,x3) should win at arity 3, got "
-            f"{row['arity']}; scores:\n{scores}"
-        )
+        assert row["arity"] == 3, f"seed={seed}: (x1,x2,x3) should win at arity 3, got " f"{row['arity']}; scores:\n{scores}"
         # No emitted superset {x1, x2, x3, x4} -- the 4-way dilution does
         # NOT strictly beat the triplet (x4 randomises and integrates out).
-        offenders = [
-            row for _, row in scores.iterrows()
-            if row["arity"] == 4 and {"x1", "x2", "x3"}.issubset(set(row["source_cols"]))
-        ]
+        offenders = [row for _, row in scores.iterrows() if row["arity"] == 4 and {"x1", "x2", "x3"}.issubset(set(row["source_cols"]))]
         assert not offenders, (
-            f"seed={seed}: adaptive-arity emitted a 4-way superset of "
-            f"(x1,x2,x3) on a pure 3-way XOR signal: {offenders}; "
-            f"scores:\n{scores}"
+            f"seed={seed}: adaptive-arity emitted a 4-way superset of " f"(x1,x2,x3) on a pure 3-way XOR signal: {offenders}; " f"scores:\n{scores}"
         )
 
 
@@ -218,30 +222,28 @@ class TestArityDiscovery3Way:
 
 
 class TestArityDiscovery4Way:
+    """``y = sign(x1*x2*x3*x4)`` (4-way XOR) makes adaptive-arity pick the full 4-way quadruplet as the top MI winner."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_adaptive_picks_arity_4(self, seed):
+        """The (x1,x2,x3,x4) quadruplet is the top engineered-MI winner, with substantial MI."""
         gen_aa, _, _ = _import_aa_fe()
         X, y = _build_xor4(seed)
-        eng_X, scores = gen_aa(
-            X, y.values,
+        _eng_X, scores = gen_aa(
+            X,
+            y.values,
             source_cols=["x1", "x2", "x3", "x4"],
-            max_arity=4, max_degree=1, basis="hermite",
+            max_arity=4,
+            max_degree=1,
+            basis="hermite",
         )
         # The top engineered_mi winner should be the quadruplet (x1..x4).
         top = scores.sort_values("engineered_mi", ascending=False).iloc[0]
         assert set(top["source_cols"]) == {"x1", "x2", "x3", "x4"}, (
-            f"seed={seed}: top MI cell on 4-way XOR should be the quadruplet, "
-            f"got {top['source_cols']}; scores:\n{scores}"
+            f"seed={seed}: top MI cell on 4-way XOR should be the quadruplet, " f"got {top['source_cols']}; scores:\n{scores}"
         )
-        assert top["arity"] == 4, (
-            f"seed={seed}: arity should be 4, got {top['arity']}; "
-            f"scores:\n{scores}"
-        )
-        assert top["engineered_mi"] >= 0.2, (
-            f"seed={seed}: 4-way XOR engineered_mi {top['engineered_mi']:.3f} "
-            f"should clear 0.2 at n=5000"
-        )
+        assert top["arity"] == 4, f"seed={seed}: arity should be 4, got {top['arity']}; " f"scores:\n{scores}"
+        assert top["engineered_mi"] >= 0.2, f"seed={seed}: 4-way XOR engineered_mi {top['engineered_mi']:.3f} " f"should clear 0.2 at n=5000"
 
 
 # ---------------------------------------------------------------------------
@@ -250,8 +252,10 @@ class TestArityDiscovery4Way:
 
 
 class TestCombinatorialBound:
+    """The emitted cell count matches the combinatorial bound: sum of C(seed_k, arity) for arity in [2, max_arity]."""
 
     def test_seed_k_4_max_arity_3_at_most_10_tuples(self):
+        """4 sources at max_arity=3 (C(4,2)+C(4,3)=10 candidates) emits at most 10 cells."""
         gen_aa, _, _ = _import_aa_fe()
         # 4 sources, max_arity=3 -> C(4,2)+C(4,3) = 6+4 = 10 candidate
         # tuples evaluated. With max_degree=1 -> exactly 10 cells before
@@ -265,32 +269,33 @@ class TestCombinatorialBound:
         X = pd.DataFrame({"x1": x1, "x2": x2, "x3": x3, "x4": x4})
         # random y -- the MI gates will keep at most all 10, never more.
         y = (rng.standard_normal(n) > 0).astype(int)
-        eng_X, scores = gen_aa(
-            X, y, source_cols=list(X.columns),
-            max_arity=3, max_degree=1, basis="hermite",
+        eng_X, _scores = gen_aa(
+            X,
+            y,
+            source_cols=list(X.columns),
+            max_arity=3,
+            max_degree=1,
+            basis="hermite",
         )
-        assert eng_X.shape[1] <= 10, (
-            f"seed_k=4 + max_arity=3 should produce <= 10 emitted cells, "
-            f"got {eng_X.shape[1]}"
-        )
+        assert eng_X.shape[1] <= 10, f"seed_k=4 + max_arity=3 should produce <= 10 emitted cells, " f"got {eng_X.shape[1]}"
 
     def test_seed_k_4_max_arity_4_at_most_11_tuples(self):
+        """4 sources at max_arity=4 (C(4,2)+C(4,3)+C(4,4)=11 candidates) emits at most 11 cells."""
         gen_aa, _, _ = _import_aa_fe()
         # C(4,2)+C(4,3)+C(4,4) = 6+4+1 = 11.
         rng = np.random.default_rng(0)
         n = 1000
-        X = pd.DataFrame({
-            f"x{i}": rng.standard_normal(n) for i in range(1, 5)
-        })
+        X = pd.DataFrame({f"x{i}": rng.standard_normal(n) for i in range(1, 5)})
         y = (rng.standard_normal(n) > 0).astype(int)
         eng_X, _ = gen_aa(
-            X, y, source_cols=list(X.columns),
-            max_arity=4, max_degree=1, basis="hermite",
+            X,
+            y,
+            source_cols=list(X.columns),
+            max_arity=4,
+            max_degree=1,
+            basis="hermite",
         )
-        assert eng_X.shape[1] <= 11, (
-            f"seed_k=4 + max_arity=4 should produce <= 11 emitted cells, "
-            f"got {eng_X.shape[1]}"
-        )
+        assert eng_X.shape[1] <= 11, f"seed_k=4 + max_arity=4 should produce <= 11 emitted cells, " f"got {eng_X.shape[1]}"
 
 
 # ---------------------------------------------------------------------------
@@ -299,26 +304,26 @@ class TestCombinatorialBound:
 
 
 class TestDefaultDisabledByteIdentical:
+    """fe_hybrid_orth_adaptive_arity_enable=False (the default) leaves feature_names_in_ / hybrid_orth_features_ clear."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_default_off_no_adaptive_arity_columns(self, seed):
+        """Default fe_hybrid_orth_adaptive_arity_enable=False injects no cross columns."""
         X, y = _build_linear(seed)
         m = _make_mrmr().fit(X, y)
         # No cross columns (>=1 '*') surfaced in feature_names_in_.
         names = list(m.feature_names_in_)
         cross_names = [n for n in names if "*" in str(n)]
         assert not cross_names, (
-            f"seed={seed}: default fe_hybrid_orth_adaptive_arity_enable=False "
-            f"should NOT inject adaptive-arity cross columns; got "
-            f"{cross_names}"
+            f"seed={seed}: default fe_hybrid_orth_adaptive_arity_enable=False " f"should NOT inject adaptive-arity cross columns; got " f"{cross_names}"
         )
         assert list(getattr(m, "hybrid_orth_features_", []) or []) == [], (
-            f"seed={seed}: hybrid_orth_features_ should be empty when "
-            f"all hybrid flags are off"
+            f"seed={seed}: hybrid_orth_features_ should be empty when " f"all hybrid flags are off"
         )
 
     @pytest.mark.parametrize("seed", (1, 7, 13))
     def test_enable_adaptive_arity_appends_engineered(self, seed):
+        """fe_hybrid_orth_adaptive_arity_enable=True appends at least one cross column to hybrid_orth_features_."""
         X, y = _build_xor3(seed, n=3000)
         m = _make_mrmr(
             fe_hybrid_orth_adaptive_arity_enable=True,
@@ -327,10 +332,7 @@ class TestDefaultDisabledByteIdentical:
             fe_hybrid_orth_adaptive_arity_seed_k=4,
             fe_hybrid_orth_adaptive_arity_top_count=3,
         ).fit(X, y)
-        added = [
-            n for n in (getattr(m, "hybrid_orth_features_", None) or [])
-            if "*" in str(n)
-        ]
+        added = [n for n in (getattr(m, "hybrid_orth_features_", None) or []) if "*" in str(n)]
         assert added, (
             f"seed={seed}: adaptive-arity flag ON should append at least one "
             f"cross column to hybrid_orth_features_; got "
@@ -344,8 +346,10 @@ class TestDefaultDisabledByteIdentical:
 
 
 class TestPickleAndClone:
+    """clone() preserves the adaptive-arity ctor params; pickle round-trips a fitted MRMR with adaptive-arity recipes."""
 
     def test_clone_preserves_adaptive_arity_params(self):
+        """clone() copies all fe_hybrid_orth_adaptive_arity_* params without carrying over fitted state."""
         m = _make_mrmr(
             fe_hybrid_orth_adaptive_arity_enable=True,
             fe_hybrid_orth_adaptive_arity_max_arity=4,
@@ -361,12 +365,10 @@ class TestPickleAndClone:
             ("fe_hybrid_orth_adaptive_arity_seed_k", 5),
             ("fe_hybrid_orth_adaptive_arity_top_count", 4),
         ]:
-            assert getattr(m2, name) == expected, (
-                f"clone() dropped {name}: expected {expected}, got "
-                f"{getattr(m2, name)}"
-            )
+            assert getattr(m2, name) == expected, f"clone() dropped {name}: expected {expected}, got " f"{getattr(m2, name)}"
 
     def test_pickle_roundtrip_fitted_with_adaptive_arity(self):
+        """pickle.dumps/loads preserves feature_names_in_ and hybrid_orth_features_ for an adaptive-arity-enabled fit."""
         X, y = _build_xor3(seed=42, n=2500)
         m = _make_mrmr(
             fe_hybrid_orth_adaptive_arity_enable=True,
@@ -376,11 +378,8 @@ class TestPickleAndClone:
             fe_hybrid_orth_adaptive_arity_top_count=3,
         ).fit(X, y)
         blob = pickle.dumps(m)
-        m2 = pickle.loads(blob)
-        assert list(m2.feature_names_in_) == list(m.feature_names_in_), (
-            "pickle changed feature_names_in_"
-        )
-        assert (
-            list(getattr(m2, "hybrid_orth_features_", []) or [])
-            == list(getattr(m, "hybrid_orth_features_", []) or [])
+        m2 = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
+        assert list(m2.feature_names_in_) == list(m.feature_names_in_), "pickle changed feature_names_in_"
+        assert list(getattr(m2, "hybrid_orth_features_", []) or []) == list(
+            getattr(m, "hybrid_orth_features_", []) or []
         ), "pickle changed hybrid_orth_features_"
