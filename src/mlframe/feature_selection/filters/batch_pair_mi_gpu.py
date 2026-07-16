@@ -262,7 +262,7 @@ def _run_batch_pair_mi_sweep() -> list:
         variants["cuda"] = lambda *a: batch_pair_mi_cuda(*a)
     if _CUPY_AVAIL:
         variants["cupy"] = lambda *a: batch_pair_mi_cupy(*a)
-    return sweep_backend_grid(  # type: ignore[no-any-return]  # pyutilz helper returns the declared list of results
+    return sweep_backend_grid(
         variants,
         {"n_samples": _BPMI_SWEEP_N_SAMPLES, "n_pairs": _BPMI_SWEEP_N_PAIRS_GRID},
         _make_batch_pair_mi_inputs,

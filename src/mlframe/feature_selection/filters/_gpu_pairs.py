@@ -165,21 +165,45 @@ def mi_direct_gpu_batched_pairs(
     # via pyutilz.system.gpu_dispatch.get_shared_mem_budget_per_block
     # (the helper that batch_pair_mi_gpu._derive_max_joint_bins already
     # uses); fall back to 4096 only when the probe is unavailable.
+    #
+    # BUG (found 2026-07-16, fixed here): the probe call below was ``_shared_budget()`` with NO
+    # arguments, but ``get_shared_mem_budget_per_block`` requires ``(cc_major, cc_minor,
+    # allow_opt_in=False)`` -- every call raised TypeError, silently caught by the bare except, so this
+    # "fix" never actually engaged on ANY host; every dispatch fell back to the pre-2026-05-20 4096-cell
+    # default regardless of hardware. Also switched to ``allow_opt_in=True`` (the comment above already
+    # says cc7+ opt-in reaches 96-227 KB, matching this kernel's own opt-in ``max_dynamic_shared_size_bytes``
+    # wiring below -- see ``_batch_pair_mi_cuda_shared_fused.py`` for the sibling fix and the verified-live
+    # opt-in numbers on this host, 48KB static vs 99KB opt-in on an RTX 500 Ada).
     max_joint_size_y = int(pair_joint_sizes.max()) if len(pair_joint_sizes) else 0
     try:
-        from pyutilz.system.gpu_dispatch import get_shared_mem_budget_per_block as _shared_budget
+        from pyutilz.system.gpu_dispatch import gpu_capability_summary, get_shared_mem_budget_per_block
+
+        _summary = gpu_capability_summary(0)
+        if _summary is None:
+            raise RuntimeError("gpu_capability_summary returned None")
         # Reserve 1/8th of the shared budget per pair (matches the
         # _derive_max_joint_bins partitioning in batch_pair_mi_gpu).
         # Each cell is int32 (4 bytes), so capacity in CELLS = budget // 4 // 8.
-        _budget_bytes = _shared_budget()
+        _budget_bytes = get_shared_mem_budget_per_block(_summary["cc_major"], _summary["cc_minor"], allow_opt_in=True)
         _SHARED_MULTI_PAIR_MAX = max(4096, _budget_bytes // 4 // 8)
     except Exception:
         # No probe available -> fall back to the pre-2026-05-20 default.
+        _budget_bytes = 0
         _SHARED_MULTI_PAIR_MAX = 4096
     use_shared_multi_pair = max_joint_size_y > 0 and max_joint_size_y <= _SHARED_MULTI_PAIR_MAX
 
     # SINGLE kernel launch processes all pairs via 3D grid (rows along X, pairs along Y); per-pair launch overhead amortised to zero.
     if use_shared_multi_pair:
+        _needed_shared_bytes = max_joint_size_y * 4
+        # Opt into extended dynamic shared memory (cp.RawKernel-native; verified working, see
+        # _batch_pair_mi_cuda_shared_fused.py) only when the STATIC 48KB-per-block default would not
+        # cover this call's actual shared-memory need -- avoids touching the property (which some
+        # driver versions reject below the static default) on the common small-shape path.
+        if _needed_shared_bytes > 49152 - 2048 and _budget_bytes > 0:
+            try:
+                _gpu_module.compute_joint_hist_multi_pair_shared_cuda.max_dynamic_shared_size_bytes = _needed_shared_bytes
+            except Exception:
+                logger.debug("compute_joint_hist_multi_pair_shared_cuda: opt-in shared-mem set failed; launch may fail and fall back", exc_info=True)
         _gpu_module.compute_joint_hist_multi_pair_shared_cuda(
             (grid_x, n_pairs),
             (block_size,),
@@ -189,7 +213,7 @@ def mi_direct_gpu_batched_pairs(
                 joint_counts_flat, n_rows, n_pairs, nbins_y,
                 np.int32(max_joint_size_y),
             ),
-            shared_mem=max_joint_size_y * 4,
+            shared_mem=_needed_shared_bytes,
         )
     else:
         _gpu_module.compute_joint_hist_multi_pair_cuda(
