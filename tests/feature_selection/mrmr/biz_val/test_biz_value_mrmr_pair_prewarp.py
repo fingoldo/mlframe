@@ -34,13 +34,14 @@ Falsifiable pins (all measured n=4000):
 * Replay: ``transform()`` on held-out rows reproduces the engineered column
   deterministically from X alone (no y); |corr| to fit-time values ~1.0.
 """
+
 from __future__ import annotations
 
 import warnings
+from functools import cache
 
 import numpy as np
 import pandas as pd
-import pytest
 
 warnings.filterwarnings("ignore")
 
@@ -55,6 +56,7 @@ _LEAN = dict(dcd_enable=False, build_friend_graph=False, cluster_aggregate_enabl
 # Fixtures (distinct seeds; the process-wide fit cache is cleared per fit).
 # ---------------------------------------------------------------------------
 def _make_poly(seed: int = 202, n: int = N):
+    """F-POLY fixture: y = (a**3-2a)*(b**2-b), a non-monotone polynomial inner distortion."""
     rng = np.random.default_rng(seed)
     a = rng.uniform(-2.5, 2.5, n)
     b = rng.uniform(-2.5, 2.5, n)
@@ -66,6 +68,7 @@ def _make_poly(seed: int = 202, n: int = N):
 
 
 def _make_mono(seed: int = 101, n: int = N):
+    """F-MONO fixture: y = exp(a)*log(b), a monotone inner distortion MI is invariant to."""
     rng = np.random.default_rng(seed)
     a = rng.uniform(0.2, 2.0, n)
     b = rng.uniform(1.2, 5.0, n)
@@ -77,6 +80,7 @@ def _make_mono(seed: int = 101, n: int = N):
 
 
 def _make_linear(seed: int = 606, n: int = N):
+    """Negative-control fixture: y = a+b, a purely linear target the elementary library already covers."""
     rng = np.random.default_rng(seed)
     a = rng.uniform(-2.5, 2.5, n)
     b = rng.uniform(-2.5, 2.5, n)
@@ -88,6 +92,7 @@ def _make_linear(seed: int = 606, n: int = N):
 
 
 def _make_noise(seed: int = 404, n: int = N):
+    """Negative-control fixture: y is pure noise, independent of every feature."""
     rng = np.random.default_rng(seed)
     a = rng.uniform(-2.5, 2.5, n)
     b = rng.uniform(-2.5, 2.5, n)
@@ -104,23 +109,45 @@ def _unb(prewarp: bool):
     """UNB pair path with the orthogonal-poly + hybrid paths DISABLED, so the
     only thing under test is the elementary unary/binary search with or without
     the per-operand pre-warp."""
-    return MRMR(verbose=0, n_jobs=1, random_seed=0,
-                fe_smart_polynom_iters=0, fe_hybrid_orth_enable=False,
-                fe_pair_prewarp_enable=prewarp, **_LEAN)
+    return MRMR(verbose=0, n_jobs=1, random_seed=0, fe_smart_polynom_iters=0, fe_hybrid_orth_enable=False, fe_pair_prewarp_enable=prewarp, **_LEAN)
 
 
 def _fit(make, df, y):
+    """Fit a fresh MRMR with the process-wide fit cache cleared first, so a
+    prior fit on the same (X, y) cannot alias its result onto this config."""
     MRMR.clear_fit_cache()
     fs = make()
     fs.fit(df, y)
     return fs
 
 
+@cache
+def _poly_data():
+    """Cached ``(df, y, true)`` for the default-seeded F-POLY fixture; every
+    caller uses the default seed so this is a single deterministic triple.
+    """
+    return _make_poly()
+
+
+@cache
+def _poly_unb_fit(prewarp: bool):
+    """Cached fitted MRMR for ``_unb(prewarp=prewarp)`` on the (shared, cached)
+    F-POLY fixture. 4 differently-named tests fit prewarp=True and 2 fit
+    prewarp=False on the identical default-seeded data to check different
+    assertions; this collapses each such group to a single ``MRMR.fit`` call.
+    Nothing downstream mutates the fitted estimator in place.
+    """
+    df, y, _true = _poly_data()
+    return _fit(lambda: _unb(prewarp=prewarp), df, y)
+
+
 def _eng_names(fs):
+    """Return the fitted MRMR's selected column names that are NOT one of the raw input columns."""
     return [nm for nm in fs.get_feature_names_out() if nm not in RAW]
 
 
 def _best_engineered_corr(fs, df, true):
+    """(name, |pearson|) of the engineered column most correlated with the true pre-distorted signal."""
     names = list(fs.get_feature_names_out())
     eng = [nm for nm in names if nm not in RAW]
     if not eng or true is None:
@@ -140,18 +167,18 @@ def _best_engineered_corr(fs, df, true):
 
 
 def _ridge_r2(X, y):
+    """5-fold standardized Ridge R^2; nan for a 0-column X."""
     from sklearn.linear_model import Ridge
     from sklearn.preprocessing import StandardScaler
     from sklearn.pipeline import make_pipeline
     from sklearn.model_selection import cross_val_score, KFold
+
     if np.ndim(X) == 1:
         X = np.asarray(X).reshape(-1, 1)
     if X.shape[1] == 0:
         return float("nan")
     cv = KFold(n_splits=5, shuffle=True, random_state=0)
-    return float(np.mean(cross_val_score(
-        make_pipeline(StandardScaler(), Ridge(alpha=1.0)),
-        X, np.asarray(y, dtype=float), cv=cv, scoring="r2")))
+    return float(np.mean(cross_val_score(make_pipeline(StandardScaler(), Ridge(alpha=1.0)), X, np.asarray(y, dtype=float), cv=cv, scoring="r2")))
 
 
 # ---------------------------------------------------------------------------
@@ -164,8 +191,11 @@ def test_prewarp_helpers_joint_als_beats_independent_on_product_target():
     Also pins that ``apply_operand_prewarp`` replays the fitted spec closed-form
     (corr 1.0 to the fit-time warp) from x alone."""
     from mlframe.feature_selection.filters.hermite_fe import (
-        apply_operand_prewarp, fit_operand_prewarp, fit_pair_prewarp_als,
+        apply_operand_prewarp,
+        fit_operand_prewarp,
+        fit_pair_prewarp_als,
     )
+
     rng = np.random.default_rng(202)
     n = N
     a = rng.uniform(-2.5, 2.5, n)
@@ -205,21 +235,16 @@ def test_fpoly_unary_binary_with_prewarp_recovers():
     """The per-operand pre-warp lets the elementary unary/binary path engineer a
     feature highly correlated with the true non-monotone ``P(a)*Q(b)`` signal.
     Measured |corr| ~= 0.97 (was ~0 without the prewarp). Pinned >= 0.70."""
-    df, y, true = _make_poly()
-    fs = _fit(lambda: _unb(prewarp=True), df, y)
+    df, _y, true = _poly_data()
+    fs = _poly_unb_fit(True)
     name, corr = _best_engineered_corr(fs, df, true)
     assert name is not None, (
-        "F-POLY/UNB+prewarp engineered nothing; the per-operand pre-warp is "
-        "expected to recover the non-monotone inner via the unary/binary path"
+        "F-POLY/UNB+prewarp engineered nothing; the per-operand pre-warp is " "expected to recover the non-monotone inner via the unary/binary path"
     )
     assert "prewarp" in name, (
-        f"F-POLY recovery used '{name}' which does NOT involve the prewarp "
-        f"pseudo-unary; the recovery should be attributable to the prewarp"
+        f"F-POLY recovery used '{name}' which does NOT involve the prewarp " f"pseudo-unary; the recovery should be attributable to the prewarp"
     )
-    assert corr >= 0.70, (
-        f"F-POLY/UNB+prewarp best engineered |corr|={corr:.3f} < 0.70 ({name}); "
-        f"the per-operand pre-warp recovery regressed"
-    )
+    assert corr >= 0.70, f"F-POLY/UNB+prewarp best engineered |corr|={corr:.3f} < 0.70 ({name}); " f"the per-operand pre-warp recovery regressed"
 
 
 def test_fpoly_prewarp_is_the_lever_vs_no_prewarp_control():
@@ -239,20 +264,16 @@ def test_fpoly_prewarp_is_the_lever_vs_no_prewarp_control():
     that beats the best the library can do WITHOUT it by a clear margin -- that
     margin is the lever proof, and it survives the control's higher partial-recovery
     ceiling."""
-    df, y, true = _make_poly()
-    fs_on = _fit(lambda: _unb(prewarp=True), df, y)
-    fs_off = _fit(lambda: _unb(prewarp=False), df, y)
+    df, _y, true = _poly_data()
+    fs_on = _poly_unb_fit(True)
+    fs_off = _poly_unb_fit(False)
     n_on, corr_on = _best_engineered_corr(fs_on, df, true)
     _n_off, corr_off = _best_engineered_corr(fs_off, df, true)
     # Prewarp ON must reach a near-exact reconstruction AND use the prewarp pseudo-
     # unary -- this is what makes it the lever (not a generic library unary).
-    assert corr_on >= 0.85, (
-        f"F-POLY/UNB+prewarp best engineered |corr|={corr_on:.3f} < 0.85 ({n_on}); "
-        f"the per-operand prewarp recovery regressed"
-    )
+    assert corr_on >= 0.85, f"F-POLY/UNB+prewarp best engineered |corr|={corr_on:.3f} < 0.85 ({n_on}); " f"the per-operand prewarp recovery regressed"
     assert n_on is not None and "prewarp" in n_on, (
-        f"F-POLY recovery used '{n_on}' which does NOT involve the prewarp pseudo-"
-        f"unary; the recovery should be attributable to the prewarp"
+        f"F-POLY recovery used '{n_on}' which does NOT involve the prewarp pseudo-" f"unary; the recovery should be attributable to the prewarp"
     )
     # The lever margin: prewarp ON beats the best the library does WITHOUT it. A
     # 0.20 margin tolerates the control's partial-recovery ceiling (OFF reaches
@@ -271,25 +292,22 @@ def test_fpoly_downstream_score_recovers_with_prewarp():
     the all-raw baseline (~0.22; raw cannot linearly express P(a)*Q(b)) to near
     the true-signal fit (~1.0). Pinned within 0.10 of the true-signal R^2 AND a
     large lift over raw. The no-prewarp control stays stuck at the raw baseline."""
-    df, y, true = _make_poly()
+    df, y, true = _poly_data()
     raw_r2 = _ridge_r2(df.values, y)
     true_r2 = _ridge_r2(np.asarray(true), y)
     assert true_r2 > 0.95, f"sanity: true-signal Ridge R^2={true_r2:.3f} should be ~1.0"
     assert raw_r2 < 0.5, f"sanity: all-raw Ridge R^2={raw_r2:.3f} should be low"
 
-    fs_on = _fit(lambda: _unb(prewarp=True), df, y)
+    fs_on = _poly_unb_fit(True)
     sel_r2 = _ridge_r2(np.asarray(fs_on.transform(df)), y)
     assert sel_r2 >= true_r2 - 0.10, (
         f"F-POLY/UNB+prewarp downstream R^2={sel_r2:.3f} not within 0.10 of the "
         f"true-signal R^2 {true_r2:.3f}; the engineered feature did not deliver "
         f"the predictive lift"
     )
-    assert sel_r2 >= raw_r2 + 0.40, (
-        f"F-POLY/UNB+prewarp downstream R^2={sel_r2:.3f} did not materially beat "
-        f"the all-raw baseline {raw_r2:.3f}"
-    )
+    assert sel_r2 >= raw_r2 + 0.40, f"F-POLY/UNB+prewarp downstream R^2={sel_r2:.3f} did not materially beat " f"the all-raw baseline {raw_r2:.3f}"
 
-    fs_off = _fit(lambda: _unb(prewarp=False), df, y)
+    fs_off = _poly_unb_fit(False)
     sel_r2_off = _ridge_r2(np.asarray(fs_off.transform(df)), y)
     # The no-prewarp control can PARTIALLY lift R^2 above raw via a relu-threshold
     # unary (a piecewise approximation of the quadratic inner; ~0.43 depending on the
@@ -316,10 +334,7 @@ def test_fmono_prewarp_does_not_disturb_monotone_recovery():
     fs = _fit(lambda: _unb(prewarp=True), df, y)
     name, corr = _best_engineered_corr(fs, df, true)
     assert name is not None, "F-MONO/UNB+prewarp engineered nothing (must still recover)"
-    assert corr >= 0.80, (
-        f"F-MONO/UNB+prewarp best engineered |corr|={corr:.3f} < 0.80 ({name}); "
-        f"the prewarp disturbed the monotone recovery"
-    )
+    assert corr >= 0.80, f"F-MONO/UNB+prewarp best engineered |corr|={corr:.3f} < 0.80 ({name}); " f"the prewarp disturbed the monotone recovery"
 
 
 # ---------------------------------------------------------------------------
@@ -335,16 +350,14 @@ def test_noise_control_prewarp_engineers_nothing():
     fs_on = _fit(lambda: _unb(prewarp=True), df, y)
     fs_off = _fit(lambda: _unb(prewarp=False), df, y)
     eng_on = _eng_names(fs_on)
-    assert not eng_on, (
-        f"noise control fabricated engineered feature(s) {eng_on} with prewarp "
-        f"ON; the uplift gate let a spurious prewarp feature through"
-    )
+    eng_off = _eng_names(fs_off)
+    assert not eng_on, f"noise control fabricated engineered feature(s) {eng_on} with prewarp " f"ON; the uplift gate let a spurious prewarp feature through"
+    assert not eng_off, f"noise control fabricated engineered feature(s) {eng_off} with prewarp " f"OFF; the elementary library overfit pure noise"
     # Downstream stays at the (near-zero) noise baseline.
     raw_r2 = _ridge_r2(df.values, y)
     sel_r2 = _ridge_r2(np.asarray(fs_on.transform(df)), y)
     assert sel_r2 <= raw_r2 + 0.10, (
-        f"noise control downstream R^2={sel_r2:.3f} beats the raw noise baseline "
-        f"{raw_r2:.3f}: a spurious prewarp feature is leaking signal"
+        f"noise control downstream R^2={sel_r2:.3f} beats the raw noise baseline " f"{raw_r2:.3f}: a spurious prewarp feature is leaking signal"
     )
 
 
@@ -353,20 +366,18 @@ def test_linear_control_prewarp_adds_no_spurious_overfit_feature():
     over-fit engineered feature beyond what the raw path recovers: enabling the
     prewarp must not engineer a *prewarp* column, and downstream Ridge R^2 must
     not be worse than the no-prewarp path."""
-    df, y, true = _make_linear()
+    df, y, _true = _make_linear()
     fs_on = _fit(lambda: _unb(prewarp=True), df, y)
     fs_off = _fit(lambda: _unb(prewarp=False), df, y)
     eng_on = _eng_names(fs_on)
     prewarp_cols = [nm for nm in eng_on if "prewarp" in nm]
     assert not prewarp_cols, (
-        f"linear control fabricated prewarp feature(s) {prewarp_cols}; the prewarp "
-        f"over-fit a linear target the elementary library already covers"
+        f"linear control fabricated prewarp feature(s) {prewarp_cols}; the prewarp " f"over-fit a linear target the elementary library already covers"
     )
     r2_on = _ridge_r2(np.asarray(fs_on.transform(df)), y)
     r2_off = _ridge_r2(np.asarray(fs_off.transform(df)), y)
     assert r2_on >= r2_off - 0.05, (
-        f"linear control downstream R^2 with prewarp ON ({r2_on:.3f}) is worse "
-        f"than OFF ({r2_off:.3f}); the prewarp degraded a linear target"
+        f"linear control downstream R^2 with prewarp ON ({r2_on:.3f}) is worse " f"than OFF ({r2_off:.3f}); the prewarp degraded a linear target"
     )
 
 
@@ -380,8 +391,8 @@ def test_prewarp_recipe_replay_is_deterministic_and_leak_free():
     and the held-out engineered values correlate ~1.0 with the recipe applied to
     the same rows (no y is consulted at replay -- the fitted coeffs live in the
     EngineeredRecipe)."""
-    df, y, true = _make_poly()
-    fs = _fit(lambda: _unb(prewarp=True), df, y)
+    _df, _y, _true = _poly_data()
+    fs = _poly_unb_fit(True)
     eng = _eng_names(fs)
     assert eng, "no engineered feature to replay"
 
@@ -394,21 +405,18 @@ def test_prewarp_recipe_replay_is_deterministic_and_leak_free():
     Xt1 = np.asarray(fs.transform(df_test))
     Xt2 = np.asarray(fs.transform(df_test))
     for i in eng_idx:
-        np.testing.assert_allclose(Xt1[:, i], Xt2[:, i], rtol=0, atol=0,
-                                   err_msg=f"replay of '{names[i]}' is non-deterministic")
+        np.testing.assert_allclose(Xt1[:, i], Xt2[:, i], rtol=0, atol=0, err_msg=f"replay of '{names[i]}' is non-deterministic")
         col = Xt1[:, i]
         assert np.isfinite(col).all(), f"replayed '{names[i]}' has non-finite values"
         assert float(np.std(col)) > 1e-9, f"replayed '{names[i]}' is constant"
 
     # Direct recipe-apply parity: the stored recipe reproduces the same column.
     from mlframe.feature_selection.filters.engineered_recipes import apply_recipe
+
     recipes = {r.name: r for r in fs._engineered_recipes_}
     for i in eng_idx:
         nm = names[i]
         assert nm in recipes, f"no recipe stored for engineered column '{nm}'"
         direct = np.asarray(apply_recipe(recipes[nm], df_test)).reshape(-1)
         r = abs(float(np.corrcoef(direct, Xt1[:, i])[0, 1]))
-        assert r > 0.999, (
-            f"recipe-apply replay of '{nm}' diverges from transform() output "
-            f"(|corr|={r:.4f}); replay is not deterministic / leak-free"
-        )
+        assert r > 0.999, f"recipe-apply replay of '{nm}' diverges from transform() output " f"(|corr|={r:.4f}); replay is not deterministic / leak-free"

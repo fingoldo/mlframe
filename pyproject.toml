@@ -630,7 +630,7 @@ DEP001 = [
 DEP003 = [
     "filelock", "cpuinfo", "kaleido", "torchvision", "torchmetrics", "lightning_fabric",
     "pytorch_lightning", "triton", "networkx", "llvmlite", "dtaidistance", "mlxtend", "sympy",
-    "bottleneck", "ortools", "yaml", "model_diagnostics", "finance",
+    "bottleneck", "ortools", "yaml", "model_diagnostics", "finance", "concepts",
 ]
 
 # ---------------------------------------------------------------------------
