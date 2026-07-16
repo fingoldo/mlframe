@@ -2,9 +2,11 @@
 
 Consolidated verbatim from test_biz_value_mrmr_layer46.py + test_biz_value_mrmr_layer47.py (per audit finding test_code_quality-16).
 """
+
 from __future__ import annotations
 
 import warnings
+from functools import cache
 
 import numpy as np
 import pandas as pd
@@ -27,18 +29,18 @@ def _linear_dup_cluster(n: int = 2000, seed: int = 0):
     rng = np.random.default_rng(int(seed))
     latent = rng.standard_normal(n)
     other = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "strong_unrelated": other,
-        "dup_a": latent + 0.02 * rng.standard_normal(n),
-        "dup_b": latent + 0.02 * rng.standard_normal(n),
-        "dup_c": latent + 0.02 * rng.standard_normal(n),
-        "dup_d": latent + 0.02 * rng.standard_normal(n),
-        "dup_e": latent + 0.02 * rng.standard_normal(n),
-        "noise_filler": rng.standard_normal(n),
-    })
-    y = pd.Series(
-        (2 * other + latent + 0.3 * rng.standard_normal(n) > 0).astype(int)
+    X = pd.DataFrame(
+        {
+            "strong_unrelated": other,
+            "dup_a": latent + 0.02 * rng.standard_normal(n),
+            "dup_b": latent + 0.02 * rng.standard_normal(n),
+            "dup_c": latent + 0.02 * rng.standard_normal(n),
+            "dup_d": latent + 0.02 * rng.standard_normal(n),
+            "dup_e": latent + 0.02 * rng.standard_normal(n),
+            "noise_filler": rng.standard_normal(n),
+        }
     )
+    y = pd.Series((2 * other + latent + 0.3 * rng.standard_normal(n) > 0).astype(int))
     return X, y
 
 
@@ -57,13 +59,15 @@ def _nonlinear_cluster(n: int = 3000, seed: int = 1):
     rng = np.random.default_rng(int(seed))
     latent = rng.standard_normal(n)
     other = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "strong_unrelated": other,
-        "x_lin": latent,
-        "x_sq": latent ** 2,
-        "x_cub": latent ** 3,
-        "noise_filler": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "strong_unrelated": other,
+            "x_lin": latent,
+            "x_sq": latent**2,
+            "x_cub": latent**3,
+            "noise_filler": rng.standard_normal(n),
+        }
+    )
     # y depends only on ``other`` so the non-linear-cluster of
     # transformations of ``latent`` is genuinely redundant (none of
     # them helps for y once one is in Selected). This is the harshest
@@ -79,20 +83,24 @@ def _nonlinear_cluster(n: int = 3000, seed: int = 1):
 
 
 class TestLayer46_PairVI_Helper:
+    """Unit tests for the pair_vi analytical helper (export + VI sanity checks)."""
 
     def test_pair_vi_exported(self):
         """``pair_vi`` is importable from the module __all__."""
         from mlframe.feature_selection.filters import (
             _dynamic_cluster_discovery as dcd,
         )
+
         assert "pair_vi" in dcd.__all__
         assert callable(dcd.pair_vi)
 
     def test_pair_vi_self_is_zero(self):
         """VI(X, X) == 0 by construction."""
         from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
-            DCDState, pair_vi,
+            DCDState,
+            pair_vi,
         )
+
         rng = np.random.default_rng(0)
         x = rng.integers(0, 4, size=500).astype(np.int32)
         factors = np.column_stack([x, x])
@@ -113,8 +121,10 @@ class TestLayer46_PairVI_Helper:
         For X and a perfect copy, H(X|Y) = H(Y|X) = 0 -> VI = 0.
         """
         from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
-            DCDState, pair_vi,
+            DCDState,
+            pair_vi,
         )
+
         rng = np.random.default_rng(1)
         x = rng.integers(0, 5, size=1000).astype(np.int32)
         # ``y_col`` is byte-identical with ``x``.
@@ -129,9 +139,7 @@ class TestLayer46_PairVI_Helper:
             distance="vi",
         )
         vi = pair_vi(state, 0, 1)
-        assert vi == pytest.approx(0.0, abs=1e-9), (
-            f"VI of a feature with itself must be 0; got {vi}"
-        )
+        assert vi == pytest.approx(0.0, abs=1e-9), f"VI of a feature with itself must be 0; got {vi}"
 
     def test_pair_vi_independent_is_large(self):
         """VI between two independent features ~= H(X_a) + H(X_b) -- i.e.
@@ -139,8 +147,10 @@ class TestLayer46_PairVI_Helper:
         equals the sum of the marginal entropies.
         """
         from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
-            DCDState, pair_vi,
+            DCDState,
+            pair_vi,
         )
+
         rng = np.random.default_rng(2)
         x = rng.integers(0, 4, size=2000).astype(np.int32)
         y = rng.integers(0, 4, size=2000).astype(np.int32)
@@ -157,10 +167,7 @@ class TestLayer46_PairVI_Helper:
         vi = pair_vi(state, 0, 1)
         # H(X) for uniform 4-bin = log(4) ~ 1.386 nats; two such
         # features ~= 2.77 nats; allow some sampling slack.
-        assert vi > 1.5, (
-            f"VI of independent uniform 4-bin features should be > 1.5 nats; "
-            f"got {vi}"
-        )
+        assert vi > 1.5, f"VI of independent uniform 4-bin features should be > 1.5 nats; " f"got {vi}"
 
 
 # ---------------------------------------------------------------------------
@@ -169,36 +176,61 @@ class TestLayer46_PairVI_Helper:
 
 
 def _fit_with_distance(X, y, *, distance: str, tau: float = 0.7):
+    """Fit a DCD-enabled MRMR with the given pair-distance metric and cluster tau."""
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     return MRMR(
         dcd_enable=True,
         dcd_distance=distance,
         dcd_tau_cluster=tau,
         dcd_cluster_size_threshold=2,
         full_npermutations=20,
-        verbose=0, random_seed=0,
+        verbose=0,
+        random_seed=0,
     ).fit(X, y)
 
 
+@cache
+def _linear_dup_fit(distance: str):
+    """Cached ``(X, y, m)`` for ``_fit_with_distance(_linear_dup_cluster(), distance=distance, tau=0.5)``.
+
+    Shared across test_su_detects_5_dup_cluster / test_vi_detects_5_dup_cluster /
+    test_auto_produces_cluster_anchors / test_l41_cluster_anchors_names_present /
+    test_transform_deterministic -- 9 identical-config calls collapse to 3
+    (one per distance). Nothing downstream mutates X/y/m in place.
+    """
+    X, y = _linear_dup_cluster()
+    m = _fit_with_distance(X, y, distance=distance, tau=0.5)
+    return X, y, m
+
+
+@cache
+def _nonlinear_fit(distance: str):
+    """Cached ``(X, y, m)`` for ``_fit_with_distance(_nonlinear_cluster(), distance=distance, tau=0.5)``.
+
+    Shared across test_vi_cluster_size_at_least_su_on_nonlinear and
+    test_auto_at_least_as_tight_as_either -- 5 identical-config calls
+    collapse to 3 (one per distance). Nothing downstream mutates X/y/m in place.
+    """
+    X, y = _nonlinear_cluster()
+    m = _fit_with_distance(X, y, distance=distance, tau=0.5)
+    return X, y, m
+
+
 class TestLayer46_LinearCluster:
+    """SU and VI distances both detect a 5-near-duplicate linear cluster."""
 
     def test_su_detects_5_dup_cluster(self):
-        X, y = _linear_dup_cluster()
-        m = _fit_with_distance(X, y, distance="su", tau=0.5)
+        """SU-distance DCD prunes at least 3 of the 5 near-duplicate columns."""
+        _X, _y, m = _linear_dup_fit("su")
         n_pruned = int((m.dcd_ or {}).get("n_pruned", 0))
-        assert n_pruned >= 3, (
-            f"SU must detect the 5-perfect-dup cluster (>= 3 pruned); "
-            f"got n_pruned={n_pruned}"
-        )
+        assert n_pruned >= 3, f"SU must detect the 5-perfect-dup cluster (>= 3 pruned); " f"got n_pruned={n_pruned}"
 
     def test_vi_detects_5_dup_cluster(self):
-        X, y = _linear_dup_cluster()
-        m = _fit_with_distance(X, y, distance="vi", tau=0.5)
+        """VI-distance DCD prunes at least 3 of the 5 near-duplicate columns."""
+        _X, _y, m = _linear_dup_fit("vi")
         n_pruned = int((m.dcd_ or {}).get("n_pruned", 0))
-        assert n_pruned >= 3, (
-            f"VI must detect the 5-perfect-dup cluster (>= 3 pruned); "
-            f"got n_pruned={n_pruned}"
-        )
+        assert n_pruned >= 3, f"VI must detect the 5-perfect-dup cluster (>= 3 pruned); " f"got n_pruned={n_pruned}"
 
 
 # ---------------------------------------------------------------------------
@@ -207,6 +239,7 @@ class TestLayer46_LinearCluster:
 
 
 class TestLayer46_NonLinearCluster:
+    """VI distance must not lose to SU on a non-monotone (x, x**2, x**3) redundancy cluster."""
 
     def test_vi_cluster_size_at_least_su_on_nonlinear(self):
         """On (x, x**2, x**3) of a shared latent, VI must detect at
@@ -215,33 +248,26 @@ class TestLayer46_NonLinearCluster:
         contract is "VI does not lose to SU here", not "VI strictly
         beats SU on every fixture".
         """
-        X, y = _nonlinear_cluster()
-        m_su = _fit_with_distance(X, y, distance="su", tau=0.5)
-        m_vi = _fit_with_distance(X, y, distance="vi", tau=0.5)
+        _X, _y, m_su = _nonlinear_fit("su")
+        _X2, _y2, m_vi = _nonlinear_fit("vi")
         n_pruned_su = int((m_su.dcd_ or {}).get("n_pruned", 0))
         n_pruned_vi = int((m_vi.dcd_ or {}).get("n_pruned", 0))
         assert n_pruned_vi >= n_pruned_su, (
-            f"VI must catch at least as many non-linear cluster members "
-            f"as SU; got n_pruned_vi={n_pruned_vi}, n_pruned_su={n_pruned_su}"
+            f"VI must catch at least as many non-linear cluster members " f"as SU; got n_pruned_vi={n_pruned_vi}, n_pruned_su={n_pruned_su}"
         )
 
     def test_auto_at_least_as_tight_as_either(self):
         """``"auto"`` returns max(SU, VI) per pair, so its pruned count
         must be >= both individual distances on every fixture.
         """
-        X, y = _nonlinear_cluster()
-        m_su = _fit_with_distance(X, y, distance="su", tau=0.5)
-        m_vi = _fit_with_distance(X, y, distance="vi", tau=0.5)
-        m_auto = _fit_with_distance(X, y, distance="auto", tau=0.5)
+        _X, _y, m_su = _nonlinear_fit("su")
+        _X2, _y2, m_vi = _nonlinear_fit("vi")
+        _X3, _y3, m_auto = _nonlinear_fit("auto")
         n_su = int((m_su.dcd_ or {}).get("n_pruned", 0))
         n_vi = int((m_vi.dcd_ or {}).get("n_pruned", 0))
         n_auto = int((m_auto.dcd_ or {}).get("n_pruned", 0))
-        assert n_auto >= n_su, (
-            f"AUTO must prune >= SU; got auto={n_auto}, su={n_su}"
-        )
-        assert n_auto >= n_vi, (
-            f"AUTO must prune >= VI; got auto={n_auto}, vi={n_vi}"
-        )
+        assert n_auto >= n_su, f"AUTO must prune >= SU; got auto={n_auto}, su={n_su}"
+        assert n_auto >= n_vi, f"AUTO must prune >= VI; got auto={n_auto}, vi={n_vi}"
 
 
 # ---------------------------------------------------------------------------
@@ -250,17 +276,20 @@ class TestLayer46_NonLinearCluster:
 
 
 class TestLayer46_AutoDistance:
+    """``dcd_distance="auto"`` end-to-end correctness (validator, cluster anchors, swap-method integration)."""
 
     def test_auto_validator_accepts(self):
         """``dcd_distance="auto"`` must pass the string-param validator."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         # No fit needed -- ctor validation runs on construction.
         m = MRMR(
             dcd_enable=True,
             dcd_distance="auto",
             dcd_tau_cluster=0.5,
             full_npermutations=10,
-            verbose=0, random_seed=0,
+            verbose=0,
+            random_seed=0,
         )
         # ``_validate_string_params`` runs on first fit, so call it
         # explicitly via a tiny fit.
@@ -271,19 +300,20 @@ class TestLayer46_AutoDistance:
     def test_auto_validator_rejects_bogus(self):
         """``dcd_distance="bogus"`` must raise."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _linear_dup_cluster(n=200, seed=4)
         with pytest.raises((ValueError, AssertionError)):
             MRMR(
                 dcd_enable=True,
                 dcd_distance="bogus",
                 full_npermutations=5,
-                verbose=0, random_seed=0,
+                verbose=0,
+                random_seed=0,
             ).fit(X, y)
 
     def test_auto_produces_cluster_anchors(self):
         """``"auto"`` produces a non-None cluster_anchors map."""
-        X, y = _linear_dup_cluster()
-        m = _fit_with_distance(X, y, distance="auto", tau=0.5)
+        _X, _y, m = _linear_dup_fit("auto")
         ca = (m.dcd_ or {}).get("cluster_anchors", None)
         assert ca is not None
         assert isinstance(ca, dict)
@@ -293,6 +323,7 @@ class TestLayer46_AutoDistance:
         under ``dcd_distance="auto"``.
         """
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _linear_dup_cluster()
         m = MRMR(
             dcd_enable=True,
@@ -301,7 +332,8 @@ class TestLayer46_AutoDistance:
             dcd_cluster_size_threshold=2,
             dcd_swap_method="auto",
             full_npermutations=20,
-            verbose=0, random_seed=0,
+            verbose=0,
+            random_seed=0,
         ).fit(X, y)
         assert m.dcd_ is not None
 
@@ -312,18 +344,16 @@ class TestLayer46_AutoDistance:
 
 
 class TestLayer46_ReplayInvariant:
+    """transform() is deterministic regardless of the DCD distance metric used at fit."""
 
     @pytest.mark.parametrize("distance", ["su", "vi", "auto"])
     def test_transform_deterministic(self, distance):
         """``transform`` must be deterministic regardless of distance."""
-        X, y = _linear_dup_cluster()
-        m = _fit_with_distance(X, y, distance=distance, tau=0.5)
+        X, _y, m = _linear_dup_fit(distance)
         Xt1 = np.asarray(m.transform(X), dtype=np.float64)
         Xt2 = np.asarray(m.transform(X), dtype=np.float64)
         assert Xt1.shape == Xt2.shape
-        assert np.allclose(Xt1, Xt2, equal_nan=True), (
-            f"transform must be deterministic for distance={distance!r}"
-        )
+        assert np.allclose(Xt1, Xt2, equal_nan=True), f"transform must be deterministic for distance={distance!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -332,28 +362,32 @@ class TestLayer46_ReplayInvariant:
 
 
 class TestLayer46_RegressionL41toL45:
+    """Layer 46 must not regress the Layers 41-45 cluster-anchor / swap / pool-of-methods contracts."""
 
     @pytest.mark.parametrize("distance", ["su", "vi", "auto"])
     def test_l41_cluster_anchors_names_present(self, distance):
-        X, y = _linear_dup_cluster()
-        m = _fit_with_distance(X, y, distance=distance, tau=0.5)
+        """cluster_anchors_names remains populated in dcd_ regardless of the distance metric."""
+        _X, _y, m = _linear_dup_fit(distance)
         assert m.dcd_ is not None
         assert "cluster_anchors_names" in m.dcd_
 
     def test_l42_threshold2_fires_swap_under_su(self):
         """L42: threshold=2 fires >=1 swap on 3-dups under SU."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         rng = np.random.default_rng(7)
         n = 1500
         latent = rng.standard_normal(n)
         other = rng.standard_normal(n)
-        X = pd.DataFrame({
-            "strong": other,
-            "dup_a": latent + 0.05 * rng.standard_normal(n),
-            "dup_b": latent + 0.05 * rng.standard_normal(n),
-            "dup_c": latent + 0.05 * rng.standard_normal(n),
-            "noise": rng.standard_normal(n),
-        })
+        X = pd.DataFrame(
+            {
+                "strong": other,
+                "dup_a": latent + 0.05 * rng.standard_normal(n),
+                "dup_b": latent + 0.05 * rng.standard_normal(n),
+                "dup_c": latent + 0.05 * rng.standard_normal(n),
+                "noise": rng.standard_normal(n),
+            }
+        )
         y = pd.Series((2 * other + latent + 0.3 * rng.standard_normal(n) > 0).astype(int))
         m = MRMR(
             dcd_enable=True,
@@ -361,23 +395,33 @@ class TestLayer46_RegressionL41toL45:
             dcd_tau_cluster=0.5,
             dcd_cluster_size_threshold=2,
             full_npermutations=50,
-            verbose=0, random_seed=0,
+            verbose=0,
+            random_seed=0,
         ).fit(X, y)
         assert int(m.dcd_["n_swaps"]) >= 1
 
     def test_l44_auto_pool_unchanged(self):
+        """The L44 auto-method candidate pool is unchanged by the Layer 46 distance work."""
         from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
             _AUTO_METHOD_CANDIDATES,
         )
+
         assert set(_AUTO_METHOD_CANDIDATES) == {
-            "mean_z", "mean_inv_var", "pca_pc1",
-            "pca_pc2", "median_z", "signed_max_abs", "signed_l2_sum",
+            "mean_z",
+            "mean_inv_var",
+            "pca_pc1",
+            "pca_pc2",
+            "median_z",
+            "signed_max_abs",
+            "signed_l2_sum",
         }
 
     def test_l45_swap_decision_branch_field(self):
+        """SwapDecision's branch field defaults to "none" when accept=False."""
         from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
             SwapDecision,
         )
+
         d = SwapDecision(accept=False)
         assert hasattr(d, "branch")
         assert d.branch == "none"
@@ -387,6 +431,7 @@ class TestLayer46_RegressionL41toL45:
         ``"auto"`` as opt-in, does not flip the default).
         """
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         m = MRMR()
         assert m.dcd_distance == "su"
 
@@ -409,29 +454,29 @@ def _bimodal_su_data(n: int = 1500, seed: int = 0):
     latent_A = rng.standard_normal(n)
     latent_B = rng.standard_normal(n)
     other = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "strong_unrelated": other,
-        # Cluster A: 5 noisy copies of latent_A
-        "A_a": latent_A + 0.05 * rng.standard_normal(n),
-        "A_b": latent_A + 0.05 * rng.standard_normal(n),
-        "A_c": latent_A + 0.05 * rng.standard_normal(n),
-        "A_d": latent_A + 0.05 * rng.standard_normal(n),
-        "A_e": latent_A + 0.05 * rng.standard_normal(n),
-        # Cluster B: 3 noisy copies of latent_B
-        "B_a": latent_B + 0.05 * rng.standard_normal(n),
-        "B_b": latent_B + 0.05 * rng.standard_normal(n),
-        "B_c": latent_B + 0.05 * rng.standard_normal(n),
-        # Independent fillers
-        "f1": rng.standard_normal(n),
-        "f2": rng.standard_normal(n),
-        "f3": rng.standard_normal(n),
-        "f4": rng.standard_normal(n),
-        "f5": rng.standard_normal(n),
-        "f6": rng.standard_normal(n),
-    })
-    y = pd.Series(
-        (2 * other + latent_A + latent_B + 0.3 * rng.standard_normal(n) > 0).astype(int)
+    X = pd.DataFrame(
+        {
+            "strong_unrelated": other,
+            # Cluster A: 5 noisy copies of latent_A
+            "A_a": latent_A + 0.05 * rng.standard_normal(n),
+            "A_b": latent_A + 0.05 * rng.standard_normal(n),
+            "A_c": latent_A + 0.05 * rng.standard_normal(n),
+            "A_d": latent_A + 0.05 * rng.standard_normal(n),
+            "A_e": latent_A + 0.05 * rng.standard_normal(n),
+            # Cluster B: 3 noisy copies of latent_B
+            "B_a": latent_B + 0.05 * rng.standard_normal(n),
+            "B_b": latent_B + 0.05 * rng.standard_normal(n),
+            "B_c": latent_B + 0.05 * rng.standard_normal(n),
+            # Independent fillers
+            "f1": rng.standard_normal(n),
+            "f2": rng.standard_normal(n),
+            "f3": rng.standard_normal(n),
+            "f4": rng.standard_normal(n),
+            "f5": rng.standard_normal(n),
+            "f6": rng.standard_normal(n),
+        }
     )
+    y = pd.Series((2 * other + latent_A + latent_B + 0.3 * rng.standard_normal(n) > 0).astype(int))
     return X, y
 
 
@@ -479,40 +524,47 @@ def _quantize_X(X, n_bins: int = 10) -> tuple:
 
 
 class TestLayer47_ValidatorSurface:
+    """``dcd_tau_cluster`` accepts 'auto' or a numeric value; rejects any other string."""
 
     def test_auto_string_accepted(self):
         """``dcd_tau_cluster='auto'`` must pass validator."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _bimodal_su_data(n=600, seed=2)
         m = MRMR(
             dcd_enable=True,
             dcd_tau_cluster="auto",
             full_npermutations=5,
-            verbose=0, random_seed=0,
+            verbose=0,
+            random_seed=0,
         ).fit(X, y)
         assert m.dcd_ is not None
 
     def test_bogus_string_rejected(self):
         """Non-'auto' strings must raise ValueError."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _bimodal_su_data(n=400, seed=3)
         with pytest.raises((ValueError, AssertionError)):
             MRMR(
                 dcd_enable=True,
                 dcd_tau_cluster="bogus",
                 full_npermutations=2,
-                verbose=0, random_seed=0,
+                verbose=0,
+                random_seed=0,
             ).fit(X, y)
 
     def test_numeric_tau_still_validates(self):
         """Numeric in-range tau still works."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _bimodal_su_data(n=400, seed=4)
         m = MRMR(
             dcd_enable=True,
             dcd_tau_cluster=0.5,
             full_npermutations=2,
-            verbose=0, random_seed=0,
+            verbose=0,
+            random_seed=0,
         ).fit(X, y)
         assert m.dcd_ is not None
 
@@ -523,6 +575,7 @@ class TestLayer47_ValidatorSurface:
 
 
 class TestLayer47_BimodalDetection:
+    """The valley-detection heuristic and its end-to-end auto-tau calibration wiring."""
 
     def test_valley_detector_on_synthetic_bimodal(self):
         """Direct unit test of ``_detect_valley_between_modes``: a clearly
@@ -530,6 +583,7 @@ class TestLayer47_BimodalDetection:
         from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
             _detect_valley_between_modes,
         )
+
         rng = np.random.default_rng(0)
         low = rng.normal(0.15, 0.04, size=120).clip(0.0, 1.0)
         high = rng.normal(0.80, 0.04, size=80).clip(0.0, 1.0)
@@ -537,15 +591,14 @@ class TestLayer47_BimodalDetection:
         tau = _detect_valley_between_modes(scores)
         assert tau is not None, "valley must be detected on clear bimodal data"
         # Valley should sit between the two modes (modes at 0.15 and 0.80).
-        assert 0.30 <= tau <= 0.75, (
-            f"valley must sit between the two modes; got tau={tau}"
-        )
+        assert 0.30 <= tau <= 0.75, f"valley must sit between the two modes; got tau={tau}"
 
     def test_valley_detector_unimodal_returns_none(self):
         """Unimodal data -> detector returns None (no false-positive valley)."""
         from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
             _detect_valley_between_modes,
         )
+
         rng = np.random.default_rng(1)
         scores = rng.normal(0.30, 0.08, size=200).clip(0.0, 1.0)
         tau = _detect_valley_between_modes(scores)
@@ -561,6 +614,7 @@ class TestLayer47_BimodalDetection:
         from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
             _detect_valley_between_modes,
         )
+
         rng = np.random.default_rng(7)
         # Broad decaying low-SU bulk + a thin high-SU cluster tail (small count).
         bulk = np.abs(rng.normal(0.0, 0.12, size=190)).clip(0.0, 0.45)
@@ -571,9 +625,7 @@ class TestLayer47_BimodalDetection:
         # Valley lands in the empty gap between the bulk (clipped at ~0.35) and the tail (~0.70);
         # the deepest (lowest-count) gap bin sits anywhere in that span. The contract is only that
         # it separates the two modes -- i.e. above the bulk top and below the cluster tail.
-        assert 0.35 <= tau <= 0.68, (
-            f"valley must sit between the low-SU bulk and the high-SU cluster tail; got tau={tau}"
-        )
+        assert 0.35 <= tau <= 0.68, f"valley must sit between the low-SU bulk and the high-SU cluster tail; got tau={tau}"
 
     def test_calibrate_tau_auto_on_bimodal_data(self):
         """End-to-end: ``_calibrate_tau_auto`` reports ``mode='bimodal'`` on
@@ -581,6 +633,7 @@ class TestLayer47_BimodalDetection:
         from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
             _calibrate_tau_auto,
         )
+
         X, _ = _bimodal_su_data(n=1500, seed=10)
         factors_data, factors_nbins = _quantize_X(X)
         tau, diag = _calibrate_tau_auto(
@@ -601,8 +654,10 @@ class TestLayer47_BimodalDetection:
     def test_calibrate_tau_auto_on_pure_noise_falls_back(self):
         """Pure-noise data -> ``mode='unimodal'`` and tau falls back to 0.7."""
         from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
-            _calibrate_tau_auto, _DCD_AUTO_TAU_FALLBACK,
+            _calibrate_tau_auto,
+            _DCD_AUTO_TAU_FALLBACK,
         )
+
         X, _ = _unimodal_pure_noise(n=1500, seed=11)
         factors_data, factors_nbins = _quantize_X(X)
         tau, diag = _calibrate_tau_auto(
@@ -612,10 +667,7 @@ class TestLayer47_BimodalDetection:
             n_pairs=100,
             seed=0,
         )
-        assert diag["mode"] == "unimodal", (
-            f"pure noise must NOT trigger bimodal detection; got mode="
-            f"{diag['mode']!r}, valley_su={diag.get('valley_su')!r}"
-        )
+        assert diag["mode"] == "unimodal", f"pure noise must NOT trigger bimodal detection; got mode=" f"{diag['mode']!r}, valley_su={diag.get('valley_su')!r}"
         assert tau == pytest.approx(_DCD_AUTO_TAU_FALLBACK)
 
 
@@ -625,23 +677,24 @@ class TestLayer47_BimodalDetection:
 
 
 class TestLayer47_FitIntegration:
+    """MRMR.fit end-to-end with dcd_tau_cluster='auto' -- diagnostics and fallback behaviour."""
 
     def test_auto_tau_records_diagnostics_on_dcd_summary(self):
         """``MRMR.dcd_['tau_calibration']`` is populated when auto-tau ran."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _bimodal_su_data(n=1500, seed=20)
         m = MRMR(
             dcd_enable=True,
             dcd_tau_cluster="auto",
             full_npermutations=10,
-            verbose=0, random_seed=0,
+            verbose=0,
+            random_seed=0,
         ).fit(X, y)
         assert m.dcd_ is not None
         assert "tau_calibration" in m.dcd_
         cal = m.dcd_["tau_calibration"]
-        assert cal is not None, (
-            "tau_calibration must be populated when dcd_tau_cluster='auto'"
-        )
+        assert cal is not None, "tau_calibration must be populated when dcd_tau_cluster='auto'"
         assert cal["requested"] == "auto"
         assert cal["mode"] in ("bimodal", "unimodal", "degenerate")
         # Effective tau gets reported on dcd_['tau_cluster'].
@@ -651,33 +704,32 @@ class TestLayer47_FitIntegration:
         """Default numeric tau leaves ``tau_calibration`` at None
         (calibration didn't run -> legacy behaviour preserved)."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _bimodal_su_data(n=1000, seed=21)
         m = MRMR(
             dcd_enable=True,  # default tau=0.7
             full_npermutations=10,
-            verbose=0, random_seed=0,
+            verbose=0,
+            random_seed=0,
         ).fit(X, y)
         assert m.dcd_ is not None
         assert "tau_calibration" in m.dcd_  # key always present
-        assert m.dcd_["tau_calibration"] is None, (
-            "Numeric tau must leave calibration None"
-        )
+        assert m.dcd_["tau_calibration"] is None, "Numeric tau must leave calibration None"
 
     def test_auto_tau_bimodal_data_produces_finite_tau(self):
         """On clear bimodal data, auto-tau picks a tau in [0.3, 0.95]."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _bimodal_su_data(n=1500, seed=22)
         m = MRMR(
             dcd_enable=True,
             dcd_tau_cluster="auto",
             full_npermutations=10,
-            verbose=0, random_seed=0,
+            verbose=0,
+            random_seed=0,
         ).fit(X, y)
         tau = float(m.dcd_["tau_cluster"])
-        assert 0.3 <= tau <= 0.95, (
-            f"auto-tau on bimodal data must produce a tau in [0.3, 0.95]; "
-            f"got tau={tau} (mode={m.dcd_['tau_calibration']['mode']!r})"
-        )
+        assert 0.3 <= tau <= 0.95, f"auto-tau on bimodal data must produce a tau in [0.3, 0.95]; " f"got tau={tau} (mode={m.dcd_['tau_calibration']['mode']!r})"
 
     def test_auto_tau_unimodal_falls_back_to_default(self):
         """On pure-noise data, auto-tau falls back to 0.7."""
@@ -685,18 +737,18 @@ class TestLayer47_FitIntegration:
         from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
             _DCD_AUTO_TAU_FALLBACK,
         )
+
         X, y = _unimodal_pure_noise(n=1500, seed=23)
         m = MRMR(
             dcd_enable=True,
             dcd_tau_cluster="auto",
             full_npermutations=10,
-            verbose=0, random_seed=0,
+            verbose=0,
+            random_seed=0,
         ).fit(X, y)
         cal = m.dcd_["tau_calibration"]
         # Either unimodal or degenerate (too few features) -> tau falls back.
-        assert cal["mode"] in ("unimodal", "degenerate"), (
-            f"pure-noise data must NOT trigger bimodal; got mode={cal['mode']!r}"
-        )
+        assert cal["mode"] in ("unimodal", "degenerate"), f"pure-noise data must NOT trigger bimodal; got mode={cal['mode']!r}"
         assert m.dcd_["tau_cluster"] == pytest.approx(_DCD_AUTO_TAU_FALLBACK)
 
 
@@ -706,16 +758,19 @@ class TestLayer47_FitIntegration:
 
 
 class TestLayer47_Determinism:
+    """Auto-tau calibration and its downstream transform are deterministic under a fixed seed."""
 
     def test_auto_tau_transform_deterministic(self):
         """``transform`` deterministic under auto-tau."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _bimodal_su_data(n=1500, seed=30)
         m = MRMR(
             dcd_enable=True,
             dcd_tau_cluster="auto",
             full_npermutations=10,
-            verbose=0, random_seed=0,
+            verbose=0,
+            random_seed=0,
         ).fit(X, y)
         Xt1 = np.asarray(m.transform(X), dtype=np.float64)
         Xt2 = np.asarray(m.transform(X), dtype=np.float64)
@@ -725,18 +780,21 @@ class TestLayer47_Determinism:
     def test_auto_tau_same_seed_reproducible(self):
         """Two fits with the same seed pick the same tau."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _bimodal_su_data(n=1500, seed=31)
         m1 = MRMR(
             dcd_enable=True,
             dcd_tau_cluster="auto",
             full_npermutations=10,
-            verbose=0, random_seed=0,
+            verbose=0,
+            random_seed=0,
         ).fit(X, y)
         m2 = MRMR(
             dcd_enable=True,
             dcd_tau_cluster="auto",
             full_npermutations=10,
-            verbose=0, random_seed=0,
+            verbose=0,
+            random_seed=0,
         ).fit(X, y)
         assert m1.dcd_["tau_cluster"] == pytest.approx(m2.dcd_["tau_cluster"])
 
@@ -747,52 +805,68 @@ class TestLayer47_Determinism:
 
 
 class TestLayer47_RegressionL41toL46:
+    """Layer 47 must not regress the Layers 41-46 default-tau / cluster-anchor / swap contracts."""
 
     def test_default_tau_value_unchanged(self):
         """The default ``dcd_tau_cluster`` constructor value stays 0.7
         (Layer 47 adds 'auto' as opt-in, does not flip the default)."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         m = MRMR()
         assert m.dcd_tau_cluster == 0.7
 
     def test_l41_cluster_anchors_names_present_with_auto_tau(self):
+        """cluster_anchors_names stays populated when dcd_tau_cluster='auto'."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _bimodal_su_data(n=1200, seed=40)
         m = MRMR(
             dcd_enable=True,
             dcd_tau_cluster="auto",
             full_npermutations=5,
-            verbose=0, random_seed=0,
+            verbose=0,
+            random_seed=0,
         ).fit(X, y)
         assert "cluster_anchors_names" in m.dcd_
 
     def test_l46_distance_auto_with_tau_auto(self):
         """L46 ``dcd_distance='auto'`` composes with L47 ``dcd_tau_cluster='auto'``."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _bimodal_su_data(n=1200, seed=41)
         m = MRMR(
             dcd_enable=True,
             dcd_distance="auto",
             dcd_tau_cluster="auto",
             full_npermutations=5,
-            verbose=0, random_seed=0,
+            verbose=0,
+            random_seed=0,
         ).fit(X, y)
         assert m.dcd_ is not None
         assert m.dcd_["tau_calibration"] is not None
 
     def test_l45_swap_decision_branch_field_intact(self):
+        """SwapDecision's branch field still defaults to "none" after the Layer 47 changes."""
         from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
             SwapDecision,
         )
+
         d = SwapDecision(accept=False)
         assert hasattr(d, "branch")
         assert d.branch == "none"
 
     def test_l44_auto_method_pool_unchanged(self):
+        """The L44 auto-method candidate pool is unchanged by the Layer 47 auto-tau work."""
         from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
             _AUTO_METHOD_CANDIDATES,
         )
+
         assert set(_AUTO_METHOD_CANDIDATES) == {
-            "mean_z", "mean_inv_var", "pca_pc1",
-            "pca_pc2", "median_z", "signed_max_abs", "signed_l2_sum",
+            "mean_z",
+            "mean_inv_var",
+            "pca_pc1",
+            "pca_pc2",
+            "median_z",
+            "signed_max_abs",
+            "signed_l2_sum",
         }
