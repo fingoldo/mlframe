@@ -55,6 +55,7 @@ SEEDS = (1, 7, 13, 42, 101)
 
 
 def _import_tc_fe():
+    """Lazily import the Layer-73 total-correlation scoring/FE functions."""
     from mlframe.feature_selection.filters._orthogonal_total_correlation_fe import (
         total_correlation,
         score_features_by_tc_uplift,
@@ -70,6 +71,7 @@ def _import_tc_fe():
 
 
 def _import_plug_in_fe():
+    """Lazily import the Layer-21 plug-in marginal-MI univariate FE functions."""
     from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
         generate_univariate_basis_features,
         score_features_by_mi_uplift,
@@ -106,7 +108,7 @@ def _build_xor_triple(seed: int, n: int = 2000):
     rng = np.random.default_rng(int(seed))
     a = rng.integers(0, 2, size=n).astype(np.float64)
     b = rng.integers(0, 2, size=n).astype(np.float64)
-    c = ((a.astype(int) ^ b.astype(int)).astype(np.float64))
+    c = (a.astype(int) ^ b.astype(int)).astype(np.float64)
     y_drv = rng.standard_normal(n)
     y = (y_drv > 0.0).astype(int)
     X = pd.DataFrame({"a": a, "b": b, "c": c})
@@ -165,27 +167,20 @@ class TestTCCatchesHigherOrderRedundancy:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_xor_triple_has_positive_tc_and_zero_pairwise_mi(self, seed):
+        """XOR-triple TC is materially positive and dominates the sum of pairwise MIs, which sit at noise floor."""
         total_correlation, _, _, _ = _import_tc_fe()
         X, _y = _build_xor_triple(seed, n=4000)
         cols = X.to_numpy()
         tc = total_correlation(cols, n_bins=10)
         # Compute pairwise MI on the SAME binned columns the local
         # binner produces, so the comparison is apples-to-apples.
-        bins = [
-            _quantile_bin_local(cols[:, j], nbins=10) for j in range(cols.shape[1])
-        ]
-        mi_pairs = []
-        for i in range(3):
-            for j in range(i + 1, 3):
-                mi_pairs.append(float(mutual_info_score(bins[i], bins[j])))
+        bins = [_quantile_bin_local(cols[:, j], nbins=10) for j in range(cols.shape[1])]
+        mi_pairs = [float(mutual_info_score(bins[i], bins[j])) for i in range(3) for j in range(i + 1, 3)]
         max_pairwise = float(max(mi_pairs))
         # TC must be CLEARLY above the noise floor and above max pairwise:
         # log 2 ~ 0.693 in nats; allow >= 0.3 to absorb finite-sample drift
         # plus binning of an already-binary col into 10 quantile bins.
-        assert tc >= 0.3, (
-            f"seed={seed}: TC({tc:.4f}) of XOR triple is at noise floor; "
-            f"higher-order detection contract violated."
-        )
+        assert tc >= 0.3, f"seed={seed}: TC({tc:.4f}) of XOR triple is at noise floor; " f"higher-order detection contract violated."
         # Every pairwise MI on independent fair bits is at noise floor
         # (~ 1/n nats); a healthy gate is ``tc >> max_pairwise * 3``.
         assert tc >= 3.0 * max_pairwise + 0.1, (
@@ -210,6 +205,7 @@ class TestTCRanksNewInfoOverRedundant:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_tc_delta_lower_for_redundant_than_for_novel(self, seed):
+        """TC delta for the novel x2__He2 column exceeds the TC delta for the redundant x1__He2 column."""
         gen, _, _ = _import_plug_in_fe()
         _, score_features_by_tc_uplift, _, _ = _import_tc_fe()
         X, y = _build_redundant_multi(seed, n=2000)
@@ -246,6 +242,7 @@ class TestAucLiftOnMultiRedundantFixture:
     """
 
     def test_tc_augmented_logreg_auc_beats_marginal_mi(self):
+        """TC-augmented LogReg AUC beats marginal-MI-augmented AUC by >= 0.005 on the redundant fixture."""
         gen, _, hybrid_marginal = _import_plug_in_fe()
         _, _, _, hybrid_tc_with_recipes = _import_tc_fe()
         aucs_marg, aucs_tc = [], []
@@ -260,20 +257,19 @@ class TestAucLiftOnMultiRedundantFixture:
                 degrees=(2,), basis="hermite",
                 top_k=2, min_uplift=0.0, min_abs_mi_frac=0.0, nbins=10,
             )
-            marg_added = [
-                c for c in X_marg_tr.columns if c not in X_tr.columns
-            ]
+            marg_added = [c for c in X_marg_tr.columns if c not in X_tr.columns]
             eng_te_all = gen(X_te, degrees=(2,), basis="hermite")
-            X_marg_te = (
-                pd.concat([X_te, eng_te_all[marg_added]], axis=1)
-                if marg_added else X_te
-            )
+            X_marg_te = pd.concat([X_te, eng_te_all[marg_added]], axis=1) if marg_added else X_te
             lr_marg = LogisticRegression(
-                max_iter=2000, solver="lbfgs",
+                max_iter=2000,
+                solver="lbfgs",
             ).fit(X_marg_tr, y_tr)
-            aucs_marg.append(roc_auc_score(
-                y_te, lr_marg.predict_proba(X_marg_te)[:, 1],
-            ))
+            aucs_marg.append(
+                roc_auc_score(
+                    y_te,
+                    lr_marg.predict_proba(X_marg_te)[:, 1],
+                )
+            )
             # TC augmentation: condition on x1 as the already-picked
             # support so the TC uplift suppresses the redundant He_2(x_dup_*)
             # duplicates and surfaces He_2(x2) instead.
@@ -283,19 +279,18 @@ class TestAucLiftOnMultiRedundantFixture:
                 degrees=(2,), basis="hermite",
                 top_k=2, min_uplift=0.0, min_abs_mi_frac=0.0, n_bins=10,
             )
-            tc_added = [
-                c for c in X_tc_tr.columns if c not in X_tr.columns
-            ]
-            X_tc_te = (
-                pd.concat([X_te, eng_te_all[tc_added]], axis=1)
-                if tc_added else X_te
-            )
+            tc_added = [c for c in X_tc_tr.columns if c not in X_tr.columns]
+            X_tc_te = pd.concat([X_te, eng_te_all[tc_added]], axis=1) if tc_added else X_te
             lr_tc = LogisticRegression(
-                max_iter=2000, solver="lbfgs",
+                max_iter=2000,
+                solver="lbfgs",
             ).fit(X_tc_tr, y_tr)
-            aucs_tc.append(roc_auc_score(
-                y_te, lr_tc.predict_proba(X_tc_te)[:, 1],
-            ))
+            aucs_tc.append(
+                roc_auc_score(
+                    y_te,
+                    lr_tc.predict_proba(X_tc_te)[:, 1],
+                )
+            )
         marg_mean = float(np.mean(aucs_marg))
         tc_mean = float(np.mean(aucs_tc))
         # TC's higher-order redundancy control lets a non-x1 secondary
@@ -316,18 +311,18 @@ class TestAucLiftOnMultiRedundantFixture:
 
 
 class TestDefaultDisabledByteIdentical:
+    """fe_hybrid_orth_tc_enable defaults to False and leaves hybrid_orth_features_ empty."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_default_off_no_tc_columns(self, seed):
+        """With the flag left at its False default, no total-correlation columns are appended."""
         X, y = _build_linear(seed)
         m = _make_mrmr().fit(X, y)
         added = list(getattr(m, "hybrid_orth_features_", []) or [])
-        assert added == [], (
-            f"seed={seed}: default fe_hybrid_orth_tc_enable=False should "
-            f"NOT append any engineered columns; got {added}"
-        )
+        assert added == [], f"seed={seed}: default fe_hybrid_orth_tc_enable=False should " f"NOT append any engineered columns; got {added}"
 
     def test_default_ctor_values(self):
+        """fe_hybrid_orth_tc_enable defaults to False and fe_hybrid_orth_tc_n_bins defaults to 10."""
         m = _make_mrmr()
         assert m.fe_hybrid_orth_tc_enable is False
         assert m.fe_hybrid_orth_tc_n_bins == 10
@@ -339,8 +334,10 @@ class TestDefaultDisabledByteIdentical:
 
 
 class TestPickleAndClone:
+    """Total-correlation ctor params and recipes must survive clone/pickle round-trips."""
 
     def test_clone_preserves_tc_params(self):
+        """sklearn clone() copies every fe_hybrid_orth_tc_* ctor param."""
         m = _make_mrmr(
             fe_hybrid_orth_tc_enable=True,
             fe_hybrid_orth_tc_n_bins=15,
@@ -350,12 +347,10 @@ class TestPickleAndClone:
             ("fe_hybrid_orth_tc_enable", True),
             ("fe_hybrid_orth_tc_n_bins", 15),
         ]:
-            assert getattr(m2, name) == expected, (
-                f"clone() dropped {name}: expected {expected}, got "
-                f"{getattr(m2, name)}"
-            )
+            assert getattr(m2, name) == expected, f"clone() dropped {name}: expected {expected}, got " f"{getattr(m2, name)}"
 
     def test_pickle_roundtrip_preserves_tc_recipes(self):
+        """A pickle round-trip preserves feature names, appended columns, and every orth_univariate recipe field."""
         X, y = _build_redundant_multi(seed=42, n=2000)
         m = _make_mrmr(
             fe_hybrid_orth_tc_enable=True,
@@ -365,43 +360,28 @@ class TestPickleAndClone:
             fe_hybrid_orth_top_k=2,
         ).fit(X, y)
         blob = pickle.dumps(m)
-        m2 = pickle.loads(blob)
-        assert list(m2.feature_names_in_) == list(m.feature_names_in_), (
-            "pickle changed feature_names_in_"
-        )
+        m2 = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
+        assert list(m2.feature_names_in_) == list(m.feature_names_in_), "pickle changed feature_names_in_"
         added_before = list(getattr(m, "hybrid_orth_features_", []) or [])
         added_after = list(getattr(m2, "hybrid_orth_features_", []) or [])
-        assert added_before == added_after, (
-            f"pickle changed hybrid_orth_features_: "
-            f"before={added_before}, after={added_after}"
-        )
+        assert added_before == added_after, f"pickle changed hybrid_orth_features_: " f"before={added_before}, after={added_after}"
 
         def _extract_orth_recipes(model):
+            """Return {name: recipe} for the orth_univariate recipes, regardless of container list/dict shape."""
             container = getattr(model, "_engineered_recipes_", None)
             if isinstance(container, dict):
-                return {
-                    r.name: r for r in container.values()
-                    if getattr(r, "kind", None) == "orth_univariate"
-                }
-            return {
-                r.name: r for r in (container or [])
-                if getattr(r, "kind", None) == "orth_univariate"
-            }
+                return {r.name: r for r in container.values() if getattr(r, "kind", None) == "orth_univariate"}
+            return {r.name: r for r in (container or []) if getattr(r, "kind", None) == "orth_univariate"}
+
         recipes_before = _extract_orth_recipes(m)
         recipes_after = _extract_orth_recipes(m2)
         assert set(recipes_before.keys()) == set(recipes_after.keys()), (
-            f"pickle dropped or added orth_univariate recipe names: "
-            f"before={set(recipes_before.keys())}, "
-            f"after={set(recipes_after.keys())}"
+            f"pickle dropped or added orth_univariate recipe names: " f"before={set(recipes_before.keys())}, " f"after={set(recipes_after.keys())}"
         )
         for name, r_before in recipes_before.items():
             r_after = recipes_after[name]
-            assert r_before.src_names == r_after.src_names, (
-                f"pickle changed src_names for {name!r}: "
-                f"before={r_before.src_names}, after={r_after.src_names}"
-            )
+            assert r_before.src_names == r_after.src_names, f"pickle changed src_names for {name!r}: " f"before={r_before.src_names}, after={r_after.src_names}"
             for key in ("basis", "degree"):
                 assert r_before.extra.get(key) == r_after.extra.get(key), (
-                    f"pickle changed '{key}' for recipe {name!r}: "
-                    f"before={r_before.extra}, after={r_after.extra}"
+                    f"pickle changed '{key}' for recipe {name!r}: " f"before={r_before.extra}, after={r_after.extra}"
                 )
