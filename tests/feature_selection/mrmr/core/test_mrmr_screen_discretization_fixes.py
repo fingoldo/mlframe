@@ -17,6 +17,7 @@ from mlframe.feature_selection.filters import screen as screen_mod
 
 
 def _toy_dataset(n_rows: int = 200, n_cols: int = 6, seed: int = 0):
+    """Build a small synthetic classification fixture with signal on columns 0 and 1."""
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(n_rows, n_cols)).astype(np.float64)
     y = (X[:, 0] + 0.3 * X[:, 1] > 0).astype(np.int64)
@@ -40,9 +41,7 @@ def _capture_target_prefix(mrmr: MRMR, X: pd.DataFrame, y) -> str:
     # and inspecting the columns mutation via a monkey-patched categorize_dataset.
     # Post-fix MRMR exposes _resolve_target_prefix as a stable seam; pre-fix this skip-mask hid
     # the absence of the seam. The fix has landed (mrmr.py:632), so the attribute is required.
-    assert hasattr(mrmr, "_resolve_target_prefix"), (
-        "MRMR must expose _resolve_target_prefix; the fix at mrmr.py:632 regressed."
-    )
+    assert hasattr(mrmr, "_resolve_target_prefix"), "MRMR must expose _resolve_target_prefix; the fix at mrmr.py:632 regressed."
     return mrmr._resolve_target_prefix()
 
 
@@ -91,6 +90,7 @@ def test_fix2_pandas_target_columns_cleaned_after_fit_exception(monkeypatch):
     original_columns = list(X.columns)
 
     def _boom(*args, **kwargs):
+        """Stand in for the patched call and always raise."""
         raise RuntimeError("forced failure inside fit() after target injection")
 
     # Force a failure inside the post-injection / pre-drop section by patching
@@ -100,13 +100,11 @@ def test_fix2_pandas_target_columns_cleaned_after_fit_exception(monkeypatch):
         _boom,
     )
 
-    m = MRMR(verbose=0, n_jobs=1, full_npermutations=2, baseline_npermutations=2, skip_retraining_on_same_shape=False)
+    m = MRMR(verbose=0, n_jobs=1, full_npermutations=2, baseline_npermutations=2, skip_retraining_on_same_content=False)
     with pytest.raises(RuntimeError, match="forced failure"):
         m.fit(X, y)
 
-    assert list(X.columns) == original_columns, (
-        f"caller's DataFrame leaked target columns: extra={set(X.columns) - set(original_columns)}"
-    )
+    assert list(X.columns) == original_columns, f"caller's DataFrame leaked target columns: extra={set(X.columns) - set(original_columns)}"
 
 
 # ----------------------------------------------------------------------
@@ -124,16 +122,14 @@ def test_fix3_screen_does_not_mutate_global_numpy_rng():
     np.random.seed(99)
     before = np.random.get_state()
 
-    m = MRMR(random_seed=42, verbose=0, n_jobs=1, full_npermutations=2, baseline_npermutations=2,
-             skip_retraining_on_same_shape=False, fe_max_steps=0)
+    m = MRMR(random_seed=42, verbose=0, n_jobs=1, full_npermutations=2, baseline_npermutations=2, skip_retraining_on_same_content=False, fe_max_steps=0)
     m.fit(X.copy(), y)
 
     after = np.random.get_state()
     assert before[0] == after[0]
     # Critical assertion: byte-identical uint32 state array.
     assert np.array_equal(before[1], after[1]), (
-        "screen_predictors / MRMR.fit reseeded the global numpy RNG; "
-        "use np.random.default_rng(seed) instead of np.random.seed(seed)."
+        "screen_predictors / MRMR.fit reseeded the global numpy RNG; " "use np.random.default_rng(seed) instead of np.random.seed(seed)."
     )
 
 
@@ -150,9 +146,7 @@ def test_fix4_cv_param_wired_into_rfecv_kwargs():
     """MRMR.cv and MRMR.cv_shuffle must be threaded into RFECV constructor kwargs."""
     m = MRMR(cv=7, cv_shuffle=True, verbose=0)
     # Post-fix MRMR exposes _rfecv_cv_kwargs as a stable seam; the fix at mrmr.py:674 has landed.
-    assert hasattr(m, "_rfecv_cv_kwargs"), (
-        "MRMR must expose _rfecv_cv_kwargs; the fix at mrmr.py:674 regressed."
-    )
+    assert hasattr(m, "_rfecv_cv_kwargs"), "MRMR must expose _rfecv_cv_kwargs; the fix at mrmr.py:674 regressed."
     kwargs = m._rfecv_cv_kwargs()
     assert kwargs.get("cv") == 7
     assert kwargs.get("cv_shuffle") is True
@@ -168,24 +162,20 @@ def test_fix5_int64_downcast_silent_under_verbose0(capsys):
     X, y = _toy_dataset()
     assert y.dtype == np.int64
 
-    m = MRMR(verbose=0, n_jobs=1, full_npermutations=2, baseline_npermutations=2,
-             skip_retraining_on_same_shape=False, fe_max_steps=0)
+    m = MRMR(verbose=0, n_jobs=1, full_npermutations=2, baseline_npermutations=2, skip_retraining_on_same_content=False, fe_max_steps=0)
     try:
         m.fit(X.copy(), y)
     except Exception:
         # We only care about stdout, not the (possibly noisy) fit completing.
         pass
     captured = capsys.readouterr()
-    assert "Converted targets from int64 to int16" not in captured.out, (
-        f"stdout pollution under verbose=0: {captured.out!r}"
-    )
+    assert "Converted targets from int64 to int16" not in captured.out, f"stdout pollution under verbose=0: {captured.out!r}"
 
 
 def test_fix5_int64_downcast_logged_under_verbose1(caplog):
     """Verbose >= 1 must route the downcast notice through logger.info, not print."""
     X, y = _toy_dataset()
-    m = MRMR(verbose=1, n_jobs=1, full_npermutations=2, baseline_npermutations=2,
-             skip_retraining_on_same_shape=False, fe_max_steps=0)
+    m = MRMR(verbose=1, n_jobs=1, full_npermutations=2, baseline_npermutations=2, skip_retraining_on_same_content=False, fe_max_steps=0)
     with caplog.at_level(logging.INFO, logger="mlframe.feature_selection.filters.mrmr"):
         try:
             m.fit(X.copy(), y)
@@ -209,17 +199,12 @@ def test_fix6_int64_downcast_skipped_when_out_of_int16_range():
     y = rng.integers(low=40_000, high=60_000, size=len(X)).astype(np.int64)
     y_orig_unique = sorted(set(y.tolist()))
 
-    m = MRMR(verbose=0, n_jobs=1, full_npermutations=2, baseline_npermutations=2,
-             skip_retraining_on_same_shape=False, fe_max_steps=0)
+    m = MRMR(verbose=0, n_jobs=1, full_npermutations=2, baseline_npermutations=2, skip_retraining_on_same_content=False, fe_max_steps=0)
     # The downcast happens early in fit, BEFORE any categorisation. Reach in via the
     # newly-introduced helper.
-    assert hasattr(m, "_coerce_target_dtype"), (
-        "MRMR must expose _coerce_target_dtype; the fix at mrmr.py:650 regressed."
-    )
+    assert hasattr(m, "_coerce_target_dtype"), "MRMR must expose _coerce_target_dtype; the fix at mrmr.py:650 regressed."
     coerced = m._coerce_target_dtype(y)
-    assert coerced.dtype != np.int16, (
-        f"out-of-range int64 silently downcast to int16; original max={max(y)}"
-    )
+    assert coerced.dtype != np.int16, f"out-of-range int64 silently downcast to int16; original max={max(y)}"
     # Round-trip preservation: unique values match (no truncation).
     assert sorted(set(coerced.tolist())) == y_orig_unique
 

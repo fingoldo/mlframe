@@ -7,20 +7,18 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-
 # -------------------------------------------------------------------------
 # §1 P1 FS-FALLBACK mrmr.py:436 min_features_fallback default now 1 (was 0)
 # -------------------------------------------------------------------------
 
 
 def test_mrmr_min_features_fallback_default_is_one():
+    """min_features_fallback must default to 1, not 0, to prevent empty support_ crashes."""
     import inspect
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     sig = inspect.signature(MRMR.__init__)
-    assert sig.parameters["min_features_fallback"].default == 1, (
-        "min_features_fallback default should be 1 to prevent empty support_ crashes"
-    )
+    assert sig.parameters["min_features_fallback"].default == 1, "min_features_fallback default should be 1 to prevent empty support_ crashes"
 
 
 # -------------------------------------------------------------------------
@@ -33,6 +31,7 @@ def test_mrmr_min_features_fallback_default_is_one():
 
 
 def test_mrmr_random_seed_default_remains_none():
+    """random_seed must default to None, preserving the random_state-alias resolution path."""
     import inspect
     from mlframe.feature_selection.filters.mrmr import MRMR
 
@@ -62,17 +61,14 @@ def test_mrmr_same_shape_skip_distinguishes_y_content():
 
     # First fit signature.
     MRMR._FIT_CACHE.clear()
-    mrmr = MRMR(quantization_nbins=5, full_npermutations=1, baseline_npermutations=1,
-                verbose=0, skip_retraining_on_same_shape=True, random_seed=0)
+    mrmr = MRMR(quantization_nbins=5, full_npermutations=1, baseline_npermutations=1, verbose=0, skip_retraining_on_same_content=True, random_seed=0)
     mrmr.fit(X_df, y1)
     sig1 = mrmr.signature
 
     # Re-fit on different y, same shape -- post-fix signature changes.
     mrmr.fit(X_df, y2)
     sig2 = mrmr.signature
-    assert sig1 != sig2, (
-        "Same-shape skip must distinguish different y content; pre-fix returned same signature."
-    )
+    assert sig1 != sig2, "Same-shape skip must distinguish different y content; pre-fix returned same signature."
 
 
 # -------------------------------------------------------------------------
@@ -118,9 +114,7 @@ def test_rfecv_polars_to_pandas_arrow_bridge():
     except TypeError:
         pdf = df.to_pandas()
     # The "cat" column should NOT be plain object after Arrow bridge.
-    assert str(pdf["cat"].dtype) != "object", (
-        "Arrow-bridge to_pandas must preserve pl.Enum as an extension dtype, not object."
-    )
+    assert str(pdf["cat"].dtype) != "object", "Arrow-bridge to_pandas must preserve pl.Enum as an extension dtype, not object."
 
 
 # -------------------------------------------------------------------------
@@ -134,10 +128,15 @@ def test_composite_oof_predictions_time_aware_uses_timeseries_split():
     from mlframe.training.composite.ensemble.feature_stacking import composite_oof_predictions
 
     class _Identity:
+        """Stub predictor returning zeros, used only to exercise the CV-split routing."""
+
         def fit(self, X, y):
+            """Record y and return self."""
             self._y = np.asarray(y, dtype=float)
             return self
+
         def predict(self, X):
+            """Return zeros for every row."""
             return np.zeros(len(X), dtype=float)
 
     n = 60
@@ -146,9 +145,7 @@ def test_composite_oof_predictions_time_aware_uses_timeseries_split():
     out_time = composite_oof_predictions(_Identity, X, y, n_splits=4, time_aware=True)
     # TimeSeriesSplit leaves the first n//(n_splits+1) rows never in a val fold -> NaN.
     first_chunk = n // 5  # n_splits=4 -> 5 chunks
-    assert np.isnan(out_time[:first_chunk]).all(), (
-        "TimeSeriesSplit must not produce val preds for the first chunk"
-    )
+    assert np.isnan(out_time[:first_chunk]).all(), "TimeSeriesSplit must not produce val preds for the first chunk"
 
     # Random-KFold path covers every row.
     out_rand = composite_oof_predictions(_Identity, X, y, n_splits=4, time_aware=False)

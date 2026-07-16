@@ -1094,8 +1094,6 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
         # attribute assignment alike; params are re-read at every fit call) -- so it never replays a stale fit for a changed
         # target or changed settings. Both layers honour this: the in-object identity skip and the process-wide _FIT_CACHE.
         skip_retraining_on_same_content: bool = True,
-        # Deprecated alias for ``skip_retraining_on_same_content`` (the old name implied shape-only keying, which was always a misnomer). Pass ``None`` to defer to the new name; a non-None value overrides it with a DeprecationWarning.
-        skip_retraining_on_same_shape: bool | None = None,
         # Cardinality cutoff for the confirmation step. ``None`` (default) computes
         # ``quantization_nbins ** interactions_max_order * 2`` (20 for the defaults). Pin to 50 for legacy behaviour.
         # Conservative default skips high-cardinality conditioning sets where permutation-based confirmation does not
@@ -2875,24 +2873,16 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
         # assert isinstance(estimator, (BaseEstimator,))
 
         # sklearn contract: ``__init__`` MUST store every constructor argument UNMODIFIED so ``get_params``
-        # round-trips and ``clone`` is a true copy. ``random_state``/``random_seed`` reconciliation and the
-        # deprecated ``skip_retraining_on_same_shape`` alias are therefore resolved LAZILY at fit time
-        # (``_effective_random_seed`` + the fit-entry save/restore of ``skip_retraining_on_same_content``),
-        # NOT here -- mutating the locals before ``store_params_in_object`` made ``get_params`` echo the
-        # promoted value (``random_seed`` showing ``random_state``) and re-emit the deprecation warning on
-        # every ``clone`` of even a default-constructed estimator. The only thing done at construction time
+        # round-trips and ``clone`` is a true copy. ``random_state``/``random_seed`` reconciliation is
+        # therefore resolved LAZILY at fit time (``_effective_random_seed``), NOT here -- mutating the
+        # locals before ``store_params_in_object`` made ``get_params`` echo the promoted value
+        # (``random_seed`` showing ``random_state``) and re-emit the deprecation warning on every
+        # ``clone`` of even a default-constructed estimator. The only thing done at construction time
         # is to WARN when the user actually passed a conflicting / deprecated argument.
         if random_state is not None and random_seed is not None and random_seed != random_state:
             warnings.warn(
                 "MRMR: both random_seed and random_state were set to different values; "
                 f"using random_seed={random_seed} and ignoring random_state={random_state}.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-        if skip_retraining_on_same_shape is not None:
-            warnings.warn(
-                "MRMR: skip_retraining_on_same_shape is deprecated and misnamed (the fit cache keys on "
-                "CONTENT, not shape); use skip_retraining_on_same_content instead.",
                 DeprecationWarning,
                 stacklevel=2,
             )
@@ -3493,18 +3483,22 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
                 logger.debug("mrmr: fast-search profile application failed; using unmodified knobs: %r", exc, exc_info=True)
                 _fast_search_saved = {}
         # LAZY ctor-alias reconciliation (sklearn ``get_params`` stays byte-identical to what the user
-        # passed). The constructor no longer promotes ``random_state`` -> ``random_seed`` nor folds the
-        # deprecated ``skip_retraining_on_same_shape`` into ``skip_retraining_on_same_content``; that is
+        # passed). The constructor no longer promotes ``random_state`` -> ``random_seed``; that is
         # resolved HERE and the EFFECTIVE value is written onto the public attr for the fit duration so
         # every reader (this module + _fit_impl_core's skip check + the cross-file ``self.random_seed``
         # uses) sees it, then the original stored value is restored in ``finally`` (saved == _UNSET means
-        # "not overridden, leave alone"). ``skip_retraining_on_same_shape`` non-None wins (explicit legacy
-        # intent), mirroring the pre-fix folding.
+        # "not overridden, leave alone").
         _eff_seed = self._effective_random_seed()
         _orig_random_seed = _UNSET
         if _eff_seed != getattr(self, "random_seed", None):
             _orig_random_seed = getattr(self, "random_seed", None)
             self.random_seed = _eff_seed
+        # PICKLE-ONLY migration (NOT a ctor alias -- the ctor no longer accepts
+        # ``skip_retraining_on_same_shape`` at all, see finding #15): an already-pickled MRMR predating
+        # the content/shape rename can still carry the old attribute verbatim in its ``__dict__``
+        # (``__setstate__`` never removes it), so a genuinely-legacy saved model's explicit
+        # True/False choice is still honoured here rather than silently reset to the current default.
+        # A freshly-constructed instance never has this attribute, so this is a no-op for it.
         _orig_skip_content = _UNSET
         _skip_shape = getattr(self, "skip_retraining_on_same_shape", None)
         if _skip_shape is not None:

@@ -31,7 +31,6 @@ from sklearn.base import clone
 
 from mlframe.feature_selection.filters import MRMR
 
-
 # ---------------------------------------------------------------------------
 # Helpers / small fixtures (n=200, random_seed=42)
 # ---------------------------------------------------------------------------
@@ -133,9 +132,7 @@ def test_mrmr_all_constant_column_dropped():
         warnings.simplefilter("ignore")
         mrmr.fit(X, y)
     names = _support_names(mrmr)
-    assert "constant" not in names, (
-        f"constant column leaked into support_: {names}"
-    )
+    assert "constant" not in names, f"constant column leaked into support_: {names}"
 
 
 # ---------------------------------------------------------------------------
@@ -222,10 +219,7 @@ def test_mrmr_perfectly_correlated_pair_keeps_one():
     names = _support_names(mrmr)
     n_dup = sum(1 for n in names if n in ("x0", "x0_copy"))
     # !TODO! verify keeping both copies when use_simple_mode=False is intended
-    assert n_dup <= 1, (
-        f"redundant pair kept both copies even with use_simple_mode=False: "
-        f"{names} (expected at most one of x0/x0_copy)"
-    )
+    assert n_dup <= 1, f"redundant pair kept both copies even with use_simple_mode=False: " f"{names} (expected at most one of x0/x0_copy)"
 
 
 # ---------------------------------------------------------------------------
@@ -251,7 +245,7 @@ def test_mrmr_pickle_roundtrip_preserves_transform():
         mrmr.fit(X, y)
     A = mrmr.transform(X)
     payload = pickle.dumps(mrmr)
-    restored = pickle.loads(payload)
+    restored = pickle.loads(payload)  # nosec B301 -- round-trip of a locally-created, trusted object
     B = restored.transform(X)
 
     a_arr = np.asarray(A.values if hasattr(A, "values") else A)
@@ -286,9 +280,7 @@ def test_mrmr_clone_preserves_constructor_params():
     assert cloned.get_params(deep=False) == mrmr.get_params(deep=False)
     # No fitted state on the clone.
     for attr in ("support_", "n_features_", "feature_names_in_"):
-        assert not hasattr(cloned, attr), (
-            f"clone leaked fitted attribute: {attr}"
-        )
+        assert not hasattr(cloned, attr), f"clone leaked fitted attribute: {attr}"
 
 
 # ---------------------------------------------------------------------------
@@ -309,7 +301,7 @@ def test_mrmr_fit_cache_hit_replays_state():
 
     MRMR._FIT_CACHE.clear()
     mrmr1 = _fast_mrmr(
-        skip_retraining_on_same_shape=False,  # force cache path, not signature short-circuit
+        skip_retraining_on_same_content=False,  # force cache path, not signature short-circuit
         min_features_fallback=1,
     )
     t0 = time.perf_counter()
@@ -333,8 +325,5 @@ def test_mrmr_fit_cache_hit_replays_state():
     np.testing.assert_array_equal(first_support, second_support)
     # Cache hit must be at least as fast as the cold fit; allow 2x slack for
     # noisy CI. The point is to detect a full re-fit (which would be 5-50x).
-    assert second_dt <= max(first_dt * 2.0, 0.5), (
-        f"_FIT_CACHE hit did not short-circuit: cold={first_dt:.3f}s, "
-        f"warm={second_dt:.3f}s"
-    )
+    assert second_dt <= max(first_dt * 2.0, 0.5), f"_FIT_CACHE hit did not short-circuit: cold={first_dt:.3f}s, " f"warm={second_dt:.3f}s"
     MRMR._FIT_CACHE.clear()

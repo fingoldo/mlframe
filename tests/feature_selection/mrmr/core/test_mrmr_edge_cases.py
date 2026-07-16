@@ -44,30 +44,20 @@ class TestMRMREdgeCases:
         })
         y = (X['informative'] > 0).astype(int)
 
-        mrmr = MRMR(
-            full_npermutations=3,
-            baseline_npermutations=3,
-            verbose=0,
-            n_jobs=1
-        )
+        mrmr = MRMR(full_npermutations=3, baseline_npermutations=3, verbose=0, n_jobs=1)
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             mrmr.fit(X, y)
 
         # Should handle constant feature gracefully
-        assert hasattr(mrmr, 'n_features_')
+        assert hasattr(mrmr, "n_features_")
 
     def test_highly_correlated_features(self, correlated_features_data):
         """Test MRMR with highly correlated features."""
         X, y, _ = correlated_features_data
 
-        mrmr = MRMR(
-            full_npermutations=5,
-            baseline_npermutations=5,
-            verbose=0,
-            n_jobs=1
-        )
+        mrmr = MRMR(full_npermutations=5, baseline_npermutations=5, verbose=0, n_jobs=1)
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -80,20 +70,14 @@ class TestMRMREdgeCases:
     # test_selectors_shared.py::TestSharedInputTypes::test_numpy_array_input.
 
     def test_skip_retraining_parameter_exists(self, simple_classification_data):
-        """Test skip_retraining_on_same_shape parameter can be set."""
+        """Test skip_retraining_on_same_content parameter can be set."""
         X, y, _ = simple_classification_data
 
         # Just test that the parameter can be set without error
-        mrmr = MRMR(
-            full_npermutations=3,
-            baseline_npermutations=3,
-            skip_retraining_on_same_shape=True,
-            verbose=0,
-            n_jobs=1
-        )
+        mrmr = MRMR(full_npermutations=3, baseline_npermutations=3, skip_retraining_on_same_content=True, verbose=0, n_jobs=1)
 
         mrmr.fit(X, y)
-        assert hasattr(mrmr, 'n_features_')
+        assert hasattr(mrmr, "n_features_")
 
     def test_target_container_normalization(self):
         """MRMR target normalization accepts numpy, pandas and polars
@@ -183,7 +167,7 @@ class TestMRMREdgeCases:
         """
         rng = np.random.default_rng(42)
         # Create data where features have zero correlation with target
-        X = pd.DataFrame(rng.standard_normal((200, 5)), columns=['a', 'b', 'c', 'd', 'e'])
+        X = pd.DataFrame(rng.standard_normal((200, 5)), columns=["a", "b", "c", "d", "e"])
         y = rng.integers(0, 2, 200)
 
         mrmr = MRMR(
@@ -192,7 +176,7 @@ class TestMRMREdgeCases:
             min_relevance_gain=10.0,  # Extremely high threshold - nothing will pass
             min_nonzero_confidence=0.99,  # Very strict confidence requirement
             verbose=0,
-            n_jobs=1
+            n_jobs=1,
         )
 
         with warnings.catch_warnings():
@@ -204,7 +188,7 @@ class TestMRMREdgeCases:
 
         # Completed without IndexError; rows preserved and column count == n_features_
         # (engineered features may still be produced even when no raw column is kept).
-        assert hasattr(mrmr, 'n_features_')
+        assert hasattr(mrmr, "n_features_")
         assert X_transformed.shape[0] == X.shape[0]
         assert X_transformed.shape[1] == mrmr.n_features_
         assert len(mrmr.get_feature_names_out()) == X_transformed.shape[1]
@@ -224,21 +208,16 @@ class TestMRMREdgeCases:
             'noise3': rng.standard_normal(n),
         })
         # Perfect feature: target is directly derived from it
-        X['perfect'] = rng.standard_normal(n)
-        y = (X['perfect'] > 0).astype(int)  # Binary classification from perfect feature
+        X["perfect"] = rng.standard_normal(n)
+        y = (X["perfect"] > 0).astype(int)  # Binary classification from perfect feature
 
-        mrmr = MRMR(
-            full_npermutations=5,
-            baseline_npermutations=5,
-            verbose=0,
-            n_jobs=1
-        )
+        mrmr = MRMR(full_npermutations=5, baseline_npermutations=5, verbose=0, n_jobs=1)
 
         mrmr.fit(X, y)
 
         # The perfect feature should be selected - check via support_ mask
-        selected_features = X.columns[mrmr.support_].tolist() if hasattr(mrmr, 'support_') else []
-        assert 'perfect' in selected_features, f"Perfect feature not selected. Selected: {selected_features}"
+        selected_features = X.columns[mrmr.support_].tolist() if hasattr(mrmr, "support_") else []
+        assert "perfect" in selected_features, f"Perfect feature not selected. Selected: {selected_features}"
         # It should be among the top features
         assert mrmr.n_features_ >= 1
 
@@ -248,5 +227,5 @@ class TestMRMREdgeCases:
 # ================================================================================================
 
 
-if __name__ == '__main__':
-    pytest.main([__file__, '-v', '--tb=short', '-x'])
+if __name__ == "__main__":
+    pytest.main([__file__, "-v", "--tb=short", "-x"])

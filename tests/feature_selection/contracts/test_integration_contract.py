@@ -32,7 +32,6 @@ from mlframe.feature_selection.filters.engineered_recipes import (
 )
 from mlframe.feature_selection.wrappers import RFECV
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -57,6 +56,7 @@ def xor_cat_df():
     rng = np.random.default_rng(11)
 
     def _make(n: int):
+        """Draw n rows of the XOR-categorical fixture."""
         x1 = rng.integers(0, 2, n).astype(np.int8)
         x2 = rng.integers(0, 2, n).astype(np.int8)
         noise = rng.integers(0, 4, size=(n, 4)).astype(np.int8)
@@ -72,6 +72,7 @@ def xor_cat_df():
 
 
 def _fit_quiet(estimator, X, y):
+    """Fit estimator on (X, y) with warnings silenced."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         return estimator.fit(X, y)
@@ -122,8 +123,7 @@ def test_mrmr_rfecv_pipeline_no_feature_names_drift(small_classification_df):
     # Order alignment: the names RFECV kept appear in the same relative order as in MRMR's output.
     kept_order = [n for n in mrmr_names if n in set(rfecv_names)]
     assert kept_order == rfecv_names, (
-        f"Order drift: MRMR emitted {mrmr_names}, RFECV recorded {rfecv_names}; "
-        f"expected RFECV order to match MRMR's (filtered) order {kept_order}."
+        f"Order drift: MRMR emitted {mrmr_names}, RFECV recorded {rfecv_names}; " f"expected RFECV order to match MRMR's (filtered) order {kept_order}."
     )
 
 
@@ -165,7 +165,7 @@ def test_mrmr_sklearn_clone_preserves_params(small_classification_df):
     # Fitted state is stripped.
     assert not hasattr(cloned, "support_"), "clone must not carry fitted support_"
     assert not hasattr(cloned, "_engineered_recipes_"), "clone must not carry fitted recipes"
-    # ``signature`` is reset (skip_retraining_on_same_shape sentinel).
+    # ``signature`` is reset (skip_retraining_on_same_content sentinel).
     assert getattr(cloned, "signature", None) is None
 
 
@@ -180,6 +180,7 @@ def test_mrmr_fit_cache_shared_across_instances(small_classification_df):
     MRMR._FIT_CACHE.clear()
 
     def _new_mrmr():
+        """Build a fast, fixed-seed MRMR instance for the cache-sharing comparison."""
         return MRMR(
             full_npermutations=2,
             baseline_npermutations=2,
@@ -210,10 +211,7 @@ def test_mrmr_fit_cache_shared_across_instances(small_classification_df):
     # Second fit is materially faster. Use a generous 2x threshold (the actual speedup is ~10-100x on a cache hit since cat-FE + screening + permutation are
     # all skipped) with an absolute floor: if first fit was already <50ms there's no meaningful work left to skip and the ratio is dominated by replay overhead.
     if t_first > 0.05:
-        assert t_second * 2 <= t_first, (
-            f"Cache hit did not deliver >=2x speedup: "
-            f"first={t_first*1000:.1f}ms second={t_second*1000:.1f}ms"
-        )
+        assert t_second * 2 <= t_first, f"Cache hit did not deliver >=2x speedup: " f"first={t_first*1000:.1f}ms second={t_second*1000:.1f}ms"
 
     MRMR._FIT_CACHE.clear()
 
@@ -250,9 +248,9 @@ def test_cat_fe_recipes_replay_matches_manual(xor_cat_df):
         # test still exercises the code path it was designed for. The xor fixture's interaction signal is strong enough that 0 candidate recipes points at a
         # real regression in the cat-FE pipeline, not at a seed-unlucky outcome.
         cat_state = getattr(mrmr, "_cat_fe_state_", None)
-        assert cat_state is not None and cat_state.recipes, (
-            "cat-FE on the XOR fixture produced 0 candidate recipes; the deterministic-encoding contract cannot be exercised. Investigate cat-FE pipeline."
-        )
+        assert (
+            cat_state is not None and cat_state.recipes
+        ), "cat-FE on the XOR fixture produced 0 candidate recipes; the deterministic-encoding contract cannot be exercised. Investigate cat-FE pipeline."
         # Promote one cat-FE candidate to a "would-be" recipe and apply it manually -- we still verify deterministic encoding even when MRMR didn't keep it.
         recipe = cat_state.recipes[0]
         manual = apply_recipe(recipe, df_te)
@@ -265,9 +263,7 @@ def test_cat_fe_recipes_replay_matches_manual(xor_cat_df):
     for recipe in recipes:
         if recipe.name not in out.columns:
             # Defensive: get_feature_names_out / transform must include every recipe; surface the mismatch.
-            raise AssertionError(
-                f"Recipe {recipe.name!r} missing from MRMR.transform output columns {list(out.columns)}"
-            )
+            raise AssertionError(f"Recipe {recipe.name!r} missing from MRMR.transform output columns {list(out.columns)}")
         manual = apply_recipe(recipe, df_te)
         from_transform = out[recipe.name].to_numpy()
         np.testing.assert_array_equal(
@@ -378,7 +374,7 @@ def test_engineered_recipe_serializes_via_pickle():
     })
     pre = apply_recipe(recipe, X)
 
-    restored = pickle.loads(pickle.dumps(recipe))
+    restored = pickle.loads(pickle.dumps(recipe))  # nosec B301 -- round-trip of a locally-created, trusted object
     assert restored == recipe, "EngineeredRecipe.__eq__ must survive pickle"
     post = apply_recipe(restored, X)
 
@@ -423,7 +419,4 @@ def test_get_feature_names_out_consistent_with_support_(small_classification_df)
     # transform() column order must match get_feature_names_out().
     out = mrmr.transform(X)
     if isinstance(out, pd.DataFrame):
-        assert list(out.columns) == list(actual), (
-            f"transform column order {list(out.columns)} != "
-            f"get_feature_names_out() {list(actual)}"
-        )
+        assert list(out.columns) == list(actual), f"transform column order {list(out.columns)} != " f"get_feature_names_out() {list(actual)}"
