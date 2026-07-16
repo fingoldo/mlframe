@@ -58,6 +58,8 @@ import pytest
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
 
+from tests.conftest import perf_time_budget
+
 warnings.filterwarnings("ignore")
 
 
@@ -74,15 +76,9 @@ def _build_kitchen_sink_frame(seed: int = 0, n: int = 1500):
     rng = np.random.default_rng(int(seed))
 
     x_gauss = rng.standard_normal(n)
-    x_gauss_corr = (
-        x_gauss * 0.95
-        + rng.standard_normal(n) * np.sqrt(1 - 0.95 ** 2)
-    )
+    x_gauss_corr = x_gauss * 0.95 + rng.standard_normal(n) * np.sqrt(1 - 0.95**2)
     x_uni = rng.uniform(-1, 1, n)
-    x_uni_corr = (
-        x_uni * 0.95
-        + rng.uniform(-1, 1, n) * np.sqrt(1 - 0.95 ** 2)
-    )
+    x_uni_corr = x_uni * 0.95 + rng.uniform(-1, 1, n) * np.sqrt(1 - 0.95**2)
 
     x1 = rng.standard_normal(n)
     x2 = rng.standard_normal(n)
@@ -93,9 +89,7 @@ def _build_kitchen_sink_frame(seed: int = 0, n: int = 1500):
     region = pd.Series(rng.choice(list("NSWE"), size=n))
 
     t = pd.Series(np.arange(n, dtype="int64"))
-    temperature = pd.Series(
-        20.0 + 5.0 * np.sin(np.arange(n) / 50.0) + rng.standard_normal(n)
-    )
+    temperature = pd.Series(20.0 + 5.0 * np.sin(np.arange(n) / 50.0) + rng.standard_normal(n))
 
     maybe_a = rng.standard_normal(n).astype(float)
     maybe_b = rng.standard_normal(n).astype(float)
@@ -124,13 +118,11 @@ def _build_kitchen_sink_frame(seed: int = 0, n: int = 1500):
         "noise_2": rng.standard_normal(n),
     })
 
-    cat_lo_effect = cat_lo.map(
-        {"A": 1.0, "B": 0.5, "C": 0.0, "D": -0.5, "E": -1.0}
-    ).astype(float).to_numpy()
+    cat_lo_effect = cat_lo.map({"A": 1.0, "B": 0.5, "C": 0.0, "D": -0.5, "E": -1.0}).astype(float).to_numpy()
     score = (
         1.2 * x_gauss
         + 0.8 * x_uni
-        + 0.6 * (x1 ** 2 - 1.0)
+        + 0.6 * (x1**2 - 1.0)
         + 0.6 * (x1 * x2 * x3)
         + 0.5 * cat_lo_effect
         + 0.3 * np.where(mask_a, 1.0, 0.0)
@@ -291,21 +283,24 @@ def all_on_fitted():
 
 
 class TestAllOnCompositeFitsInBudget:
+    """The L21-L69 all-on composite fit stays within its wall-clock budget."""
 
     def test_fit_inside_120s_budget(self, all_on_fitted):
         """All-on (L21-L69) composite fit on the kitchen-sink frame must
         complete inside 120s. Budget is doubled vs L64's 90s because the
         L65-L69 paths add 4 extra per-column MI ranking passes."""
         _, _, _, elapsed = all_on_fitted
-        assert elapsed < 120.0, (
+        budget = perf_time_budget(120.0)
+        assert elapsed < budget, (
             f"L70 all-on composite fit took {elapsed:.1f}s; budget is "
-            f"120s. A regression in one of the L65-L69 MI scorer paths "
+            f"{budget:.0f}s. A regression in one of the L65-L69 MI scorer paths "
             f"most likely added an O(n_boot * n_cols^2) blow-up; profile "
             f"the new layer rather than relaxing the gate."
         )
 
 
 class TestProvenanceDiversityFloor:
+    """fe_provenance_ carries at least 4 distinct engineered-origin labels on the all-on composite frame."""
 
     def test_provenance_has_at_least_4_engineered_origins(self, all_on_fitted):
         """``fe_provenance_`` must carry >= 4 DISTINCT engineered-origin
@@ -317,18 +312,10 @@ class TestProvenanceDiversityFloor:
         emits and every L33/L34/L37/L38 mechanism early-returns silently.
         """
         m = all_on_fitted[0]
-        assert hasattr(m, "fe_provenance_"), (
-            "MRMR must populate fe_provenance_ on every successful fit "
-            "(L54 contract)."
-        )
+        assert hasattr(m, "fe_provenance_"), "MRMR must populate fe_provenance_ on every successful fit " "(L54 contract)."
         prov = m.fe_provenance_
-        assert isinstance(prov, pd.DataFrame), (
-            f"fe_provenance_ must be a DataFrame; got {type(prov).__name__}"
-        )
-        engineered_origins = {
-            o for o in prov["origin"].tolist()
-            if o not in ("raw", "engineered_unknown")
-        }
+        assert isinstance(prov, pd.DataFrame), f"fe_provenance_ must be a DataFrame; got {type(prov).__name__}"
+        engineered_origins = {o for o in prov["origin"].tolist() if o not in ("raw", "engineered_unknown")}
         assert len(engineered_origins) >= 4, (
             f"fe_provenance_ engineered origins = "
             f"{sorted(engineered_origins)!r}; L70 floor is 4 distinct "
@@ -339,6 +326,7 @@ class TestProvenanceDiversityFloor:
 
 
 class TestLogRegAucFloor:
+    """The all-on composite selection clears the LogReg holdout AUC floor on the kitchen-sink frame."""
 
     def test_logreg_holdout_auc_at_least_0_85(self, all_on_fitted):
         """End-to-end biz_value: LogReg on the selected + engineered view
@@ -379,6 +367,7 @@ class TestLogRegAucFloor:
 
 
 class TestRosterSizeAtLeast69:
+    """The biz_value layer test module roster on disk covers at least 69 shipped layers."""
 
     def test_layer_module_roster_at_least_69(self):
         """The biz_value layer test module roster on disk must cover
@@ -390,9 +379,7 @@ class TestRosterSizeAtLeast69:
         """
         # Module relocated into a themed subpackage; the flat roster lives one level up in tests/feature_selection/.
         this_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        matched = sorted(glob.glob(
-            os.path.join(this_dir, "test_biz_value_mrmr_layer*.py")
-        ))
+        matched = sorted(glob.glob(os.path.join(this_dir, "test_biz_value_mrmr_layer*.py")))
         rx = re.compile(r"test_biz_value_mrmr_layer(\d+)\.py$")
         layer_numbers: set[int] = set()
         for path in matched:
@@ -420,10 +407,7 @@ class TestRosterSizeAtLeast69:
             "test_biz_value_mrmr_auto_scorer_selection.py",
             "test_biz_value_mrmr_interaction_info_prefilter_speedup.py",
         )
-        catchall_on_disk = [
-            n for n in catchall_required
-            if os.path.isfile(os.path.join(this_dir, n))
-        ]
+        catchall_on_disk = [n for n in catchall_required if os.path.isfile(os.path.join(this_dir, n))]
         total = len(layer_numbers) + len(catchall_on_disk)
         assert total >= 69, (
             f"Combined biz_value module roster size = {total}; floor is "
@@ -434,13 +418,11 @@ class TestRosterSizeAtLeast69:
         # L70 itself must be on disk -- the floor above could pass even
         # if L70 was somehow missing as long as other layers compensate.
         # Pin L70 explicitly so a future rename does not slip past.
-        assert 70 in layer_numbers, (
-            f"L70 layer module not discovered on disk; layer numbers "
-            f"present: {sorted(layer_numbers)!r}."
-        )
+        assert 70 in layer_numbers, f"L70 layer module not discovered on disk; layer numbers " f"present: {sorted(layer_numbers)!r}."
 
 
 class TestNoEngineeredNameCollisions:
+    """No two FE stages emit an engineered column with the same name under the L21-L69 all-on composite."""
 
     def test_no_duplicate_engineered_names_post_fit(self, all_on_fitted):
         """Every engineered column name produced by the all-on fit must
@@ -455,10 +437,7 @@ class TestNoEngineeredNameCollisions:
         """
         m = all_on_fitted[0]
         # Within-roster: every specific bucket must have unique entries.
-        within_specific = tuple(
-            a for a in _ENGINEERED_ROSTER_ATTRS
-            if a != "hybrid_orth_features_"
-        )
+        within_specific = tuple(a for a in _ENGINEERED_ROSTER_ATTRS if a != "hybrid_orth_features_")
         per_roster_dupes: dict[str, list[str]] = {}
         for attr in within_specific:
             roster = getattr(m, attr, None)
@@ -484,10 +463,7 @@ class TestNoEngineeredNameCollisions:
             f"a 2-column DataFrame and rank/correlation paths break."
         )
         # Cross-roster: specific buckets must not share a name.
-        specific_rosters = tuple(
-            a for a in _ENGINEERED_ROSTER_ATTRS
-            if a not in ("hybrid_orth_features_", "mi_greedy_features_")
-        )
+        specific_rosters = tuple(a for a in _ENGINEERED_ROSTER_ATTRS if a not in ("hybrid_orth_features_", "mi_greedy_features_"))
         owner: dict[str, str] = {}
         cross_dupes: dict[str, list[str]] = {}
         for attr in specific_rosters:
