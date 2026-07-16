@@ -23,9 +23,11 @@ default-on protection path):
 * REPLAY:         transform() reproduces the fit-time chirp column byte-for-byte
                   (recipe replay is a pure function of X, y-independent).
 """
+
 from __future__ import annotations
 
 import warnings
+from functools import cache
 
 import numpy as np
 import pandas as pd
@@ -35,7 +37,6 @@ from sklearn.linear_model import Ridge
 from sklearn.metrics import r2_score
 from sklearn.model_selection import train_test_split
 
-
 warnings.filterwarnings("ignore")
 
 SEEDS = (0, 5, 11)
@@ -43,7 +44,9 @@ CHIRP_GRID = tuple(0.5 * k for k in range(1, 49))  # 0.5 .. 24.0 (the chirp swee
 
 
 def _make_mrmr(**overrides):
+    """Default-config MRMR; adaptive-Fourier chirp detection is ON unless overridden."""
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     kwargs = dict(verbose=0, random_seed=0)
     kwargs.update(overrides)
     return MRMR(**kwargs)
@@ -58,14 +61,31 @@ def _build_fast_chirp(seed: int, n: int = 6000, fmul: float = 2.5):
     rng = np.random.default_rng(seed)
     x = rng.uniform(-3.0, 3.0, size=n)
     z = (x - x.mean()) / x.std()
-    X = pd.DataFrame({
-        "a": x,
-        "n1": rng.standard_normal(n),
-        "n2": rng.standard_normal(n),
-        "n3": rng.standard_normal(n),
-    })
-    y = np.sin(2.0 * np.pi * fmul * (z ** 2)) + 0.05 * rng.standard_normal(n)
+    X = pd.DataFrame(
+        {
+            "a": x,
+            "n1": rng.standard_normal(n),
+            "n2": rng.standard_normal(n),
+            "n3": rng.standard_normal(n),
+        }
+    )
+    y = np.sin(2.0 * np.pi * fmul * (z**2)) + 0.05 * rng.standard_normal(n)
     return X, pd.Series(y, name="y")
+
+
+@cache
+def _fast_chirp_full_fit(seed: int):
+    """Cached ``(X, y, sel)`` for the default-config (chirp ON) fit on the FULL
+    (unsplit) fast-chirp fixture at a given seed. Shared between
+    test_chirp_feature_present_and_protected and
+    test_transform_replays_chirp_column_byte_for_byte, both parametrized over
+    the same SEEDS tuple. Nothing downstream mutates X/y/sel in place (only
+    inspected via attributes / transform()).
+    """
+    X, y = _build_fast_chirp(seed)
+    sel = _make_mrmr()
+    sel.fit(X, y)
+    return X, y, sel
 
 
 # ---------------------------------------------------------------------------
@@ -74,6 +94,7 @@ def _build_fast_chirp(seed: int, n: int = 6000, fmul: float = 2.5):
 
 
 class TestChirpDetectorUnit:
+    """Unit tests for the quadratic-warp + Fourier-frequency chirp detector."""
 
     @pytest.mark.parametrize("true_f", [1.0, 1.5, 2.5])
     def test_detects_chirp_on_quadratic_warp(self, true_f):
@@ -85,15 +106,21 @@ class TestChirpDetectorUnit:
             _fit_chirp_warp_for_col,
             _chirp_axis,
         )
+
         rng = np.random.default_rng(0)
         n = 6000
         x = rng.uniform(-3.0, 3.0, size=n)
         z = (x - x.mean()) / x.std()
-        y = np.sin(2.0 * np.pi * true_f * (z ** 2))
+        y = np.sin(2.0 * np.pi * true_f * (z**2))
         mean, std, lo, span = _fit_chirp_warp_for_col(x)
         u = _chirp_axis(x, mean, std, lo, span)
         freqs = _detect_fourier_freqs_for_col(
-            u, y, f_grid=CHIRP_GRID, min_val_corr=0.15, min_rows=800, max_freqs=6,
+            u,
+            y,
+            f_grid=CHIRP_GRID,
+            min_val_corr=0.15,
+            min_rows=800,
+            max_freqs=6,
         )
         assert freqs, f"chirp detector returned nothing for sin(2pi*{true_f}*z^2)"
         # The dominant warp-space frequency should be near true_f (the chirp is
@@ -101,30 +128,41 @@ class TestChirpDetectorUnit:
         # by span); allow a wide tolerance because the [0,1] rescale shifts the
         # nominal frequency and multitone deflation splits power across nearby
         # tones. Key contract: SOMETHING is locked, and recovery (below) is high.
-        assert min(abs(f - true_f * span) for f in freqs) < max(2.0, true_f), (
-            f"no detected warp freq near the planted chirp; got {freqs}"
-        )
+        assert min(abs(f - true_f * span) for f in freqs) < max(2.0, true_f), f"no detected warp freq near the planted chirp; got {freqs}"
 
     def test_chirp_n_gate_below_min_rows(self):
+        """The detector does not fire below its min_rows gate (avoids small-n false positives)."""
         from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
-            _detect_fourier_freqs_for_col, _fit_chirp_warp_for_col, _chirp_axis,
+            _detect_fourier_freqs_for_col,
+            _fit_chirp_warp_for_col,
+            _chirp_axis,
         )
+
         rng = np.random.default_rng(1)
         n = 400  # train slice (2/3) below 800
         x = rng.uniform(-3.0, 3.0, size=n)
         z = (x - x.mean()) / x.std()
-        y = np.sin(2.0 * np.pi * 2.5 * (z ** 2))
+        y = np.sin(2.0 * np.pi * 2.5 * (z**2))
         mean, std, lo, span = _fit_chirp_warp_for_col(x)
         u = _chirp_axis(x, mean, std, lo, span)
         freqs = _detect_fourier_freqs_for_col(
-            u, y, f_grid=CHIRP_GRID, min_val_corr=0.15, min_rows=800, max_freqs=6,
+            u,
+            y,
+            f_grid=CHIRP_GRID,
+            min_val_corr=0.15,
+            min_rows=800,
+            max_freqs=6,
         )
         assert not freqs, "chirp detector fired below min_rows (small-n FP)"
 
     def test_chirp_noise_returns_nothing(self):
+        """The detector fires no frequencies on pure noise (x, y independent)."""
         from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
-            _detect_fourier_freqs_for_col, _fit_chirp_warp_for_col, _chirp_axis,
+            _detect_fourier_freqs_for_col,
+            _fit_chirp_warp_for_col,
+            _chirp_axis,
         )
+
         rng = np.random.default_rng(2)
         n = 4000
         x = rng.standard_normal(n)
@@ -132,15 +170,22 @@ class TestChirpDetectorUnit:
         mean, std, lo, span = _fit_chirp_warp_for_col(x)
         u = _chirp_axis(x, mean, std, lo, span)
         freqs = _detect_fourier_freqs_for_col(
-            u, y, f_grid=CHIRP_GRID, min_val_corr=0.15, min_rows=800, max_freqs=6,
+            u,
+            y,
+            f_grid=CHIRP_GRID,
+            min_val_corr=0.15,
+            min_rows=800,
+            max_freqs=6,
         )
         assert not freqs, "chirp detector fired on pure noise"
 
     def test_chirp_warp_replay_is_pure_function_of_x(self):
         """``_chirp_axis`` reproduces the warp from stored params byte-for-byte."""
         from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
-            _fit_chirp_warp_for_col, _chirp_axis,
+            _fit_chirp_warp_for_col,
+            _chirp_axis,
         )
+
         rng = np.random.default_rng(3)
         x = rng.uniform(-3.0, 3.0, size=2000)
         mean, std, lo, span = _fit_chirp_warp_for_col(x)
@@ -149,7 +194,7 @@ class TestChirpDetectorUnit:
         np.testing.assert_array_equal(u1, u2)
         # And the manual formula matches.
         zs = (x - mean) / std
-        u_manual = (np.sign(zs) * zs ** 2 - lo) / span
+        u_manual = (np.sign(zs) * zs**2 - lo) / span
         np.testing.assert_allclose(u1, u_manual, rtol=0.0, atol=0.0)
 
 
@@ -159,14 +204,19 @@ class TestChirpDetectorUnit:
 
 
 class TestGateAChirpRecovery:
+    """Gate A: chirp-ON support recovers a fast chirp and materially beats chirp-OFF."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     @pytest.mark.timeout(300)
     def test_support_model_recovers_fast_chirp_and_beats_off(self, seed):
+        """chirp-ON support clears OOS R^2 >= 0.85 and beats chirp-OFF by >= 0.3."""
         X, y = _build_fast_chirp(seed)
         yv = y.to_numpy()
         Xtr, Xte, ytr, yte = train_test_split(
-            X, yv, test_size=0.3, random_state=seed,
+            X,
+            yv,
+            test_size=0.3,
+            random_state=seed,
         )
 
         sel_on = _make_mrmr()  # chirp ON by default
@@ -181,10 +231,7 @@ class TestGateAChirpRecovery:
         Zte2 = np.asarray(sel_off.transform(Xte), dtype=np.float64)
         r2_off = r2_score(yte, Ridge(alpha=1.0).fit(Ztr2, ytr).predict(Zte2))
 
-        assert r2_on >= 0.85, (
-            f"GATE A: chirp-ON support must recover the fast chirp at OOS "
-            f"R^2 >= 0.85; got {r2_on:.4f}"
-        )
+        assert r2_on >= 0.85, f"GATE A: chirp-ON support must recover the fast chirp at OOS " f"R^2 >= 0.85; got {r2_on:.4f}"
         assert r2_on - r2_off >= 0.3, (
             f"GATE A: chirp-ON ({r2_on:.4f}) must materially beat chirp-OFF "
             f"({r2_off:.4f}); the linear-argument path alone cannot represent a "
@@ -194,20 +241,13 @@ class TestGateAChirpRecovery:
     @pytest.mark.parametrize("seed", SEEDS)
     @pytest.mark.timeout(300)
     def test_chirp_feature_present_and_protected(self, seed):
-        X, y = _build_fast_chirp(seed)
-        sel = _make_mrmr()
-        sel.fit(X, y)
+        """A chirp (__qsin/__qcos) feature is detected and protected into the engineered support."""
+        _X, _y, sel = _fast_chirp_full_fit(seed)
         adaptive = list(getattr(sel, "_adaptive_fourier_features_", []) or [])
         chirp_legs = [a for a in adaptive if ("qsin" in a or "qcos" in a)]
-        assert chirp_legs, (
-            f"no chirp (__qsin/__qcos) feature detected on a fast chirp; "
-            f"adaptive set={adaptive}"
-        )
+        assert chirp_legs, f"no chirp (__qsin/__qcos) feature detected on a fast chirp; " f"adaptive set={adaptive}"
         eng = set(getattr(sel, "_engineered_features_", []) or [])
-        assert any(c in eng for c in chirp_legs), (
-            f"chirp leg(s) {chirp_legs} not protected into the support "
-            f"engineered set {sorted(eng)}"
-        )
+        assert any(c in eng for c in chirp_legs), f"chirp leg(s) {chirp_legs} not protected into the support " f"engineered set {sorted(eng)}"
 
 
 # ---------------------------------------------------------------------------
@@ -216,10 +256,12 @@ class TestGateAChirpRecovery:
 
 
 class TestGateCChirpNoiseControl:
+    """Gate C: a pure-noise frame (random y) adds no chirp column."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     @pytest.mark.timeout(300)
     def test_pure_noise_adds_no_chirp_column(self, seed):
+        """Pure-noise y triggers no chirp detection and no engineered chirp column."""
         rng = np.random.default_rng(seed)
         n = 2000
         Xn = pd.DataFrame({f"c{i}": rng.standard_normal(n) for i in range(6)})
@@ -228,14 +270,10 @@ class TestGateCChirpNoiseControl:
         sel.fit(Xn, yn)
         adaptive = list(getattr(sel, "_adaptive_fourier_features_", []) or [])
         chirp_legs = [a for a in adaptive if ("qsin" in a or "qcos" in a)]
-        assert not chirp_legs, (
-            f"GATE C: chirp detector fired on a pure-noise frame: {chirp_legs}"
-        )
+        assert not chirp_legs, f"GATE C: chirp detector fired on a pure-noise frame: {chirp_legs}"
         eng = list(getattr(sel, "_engineered_features_", []) or [])
         chirp_eng = [c for c in eng if ("qsin" in c or "qcos" in c)]
-        assert not chirp_eng, (
-            f"GATE C: chirp engineered column(s) injected on noise: {chirp_eng}"
-        )
+        assert not chirp_eng, f"GATE C: chirp engineered column(s) injected on noise: {chirp_eng}"
 
 
 # ---------------------------------------------------------------------------
@@ -244,37 +282,35 @@ class TestGateCChirpNoiseControl:
 
 
 class TestGateDChirpSelfGating:
+    """Gate D: below the n-gate, support is byte-identical chirp-on vs chirp-off."""
 
     @pytest.mark.parametrize("n", [300, 600])
     @pytest.mark.timeout(300)
     def test_support_byte_identical_below_n_gate(self, n):
+        """Below the min-rows n-gate, no chirp column is emitted and the support matches chirp-off."""
         rng = np.random.default_rng(7)
         x = rng.uniform(-3.0, 3.0, size=n)
         z = (x - x.mean()) / x.std()
-        X = pd.DataFrame({
-            "a": x,
-            "n1": rng.standard_normal(n),
-            "n2": rng.standard_normal(n),
-        })
+        X = pd.DataFrame(
+            {
+                "a": x,
+                "n1": rng.standard_normal(n),
+                "n2": rng.standard_normal(n),
+            }
+        )
         y = pd.Series(
-            np.sin(2.0 * np.pi * 2.5 * (z ** 2)) + 0.05 * rng.standard_normal(n),
+            np.sin(2.0 * np.pi * 2.5 * (z**2)) + 0.05 * rng.standard_normal(n),
             name="y",
         )
         on = _make_mrmr()
         on.fit(X, y)
         off = _make_mrmr(fe_univariate_fourier_chirp=False)
         off.fit(X, y)
-        chirp_eng = [
-            c for c in (on._engineered_features_ or [])
-            if ("qsin" in c or "qcos" in c)
-        ]
+        chirp_eng = [c for c in (on._engineered_features_ or []) if ("qsin" in c or "qcos" in c)]
         assert not chirp_eng, f"n={n}: chirp fired below the n-gate: {chirp_eng}"
         s_on = sorted(getattr(on, "selected_features_names_", []) or [])
         s_off = sorted(getattr(off, "selected_features_names_", []) or [])
-        assert s_on == s_off, (
-            f"GATE D: support differs chirp-on vs off below n-gate: "
-            f"{s_on} vs {s_off}"
-        )
+        assert s_on == s_off, f"GATE D: support differs chirp-on vs off below n-gate: " f"{s_on} vs {s_off}"
 
 
 # ---------------------------------------------------------------------------
@@ -283,13 +319,13 @@ class TestGateDChirpSelfGating:
 
 
 class TestChirpReplayByteMatch:
+    """transform()/recipe replay of the chirp column byte-matches the fit-time computation."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     @pytest.mark.timeout(300)
     def test_transform_replays_chirp_column_byte_for_byte(self, seed):
-        X, y = _build_fast_chirp(seed)
-        sel = _make_mrmr()
-        sel.fit(X, y)
+        """transform() reproduces the fit-time chirp column byte-for-byte and is y-independent at replay."""
+        X, y, sel = _fast_chirp_full_fit(seed)
         adaptive = list(getattr(sel, "_adaptive_fourier_features_", []) or [])
         chirp_legs = [a for a in adaptive if ("qsin" in a or "qcos" in a)]
         assert chirp_legs, "no chirp feature to test replay against"
@@ -297,10 +333,7 @@ class TestChirpReplayByteMatch:
         out1 = sel.transform(X)
         assert isinstance(out1, pd.DataFrame), "expected a named DataFrame output"
         present = [c for c in chirp_legs if c in out1.columns]
-        assert present, (
-            f"no chirp feature {chirp_legs} present in transform output "
-            f"columns {list(out1.columns)}"
-        )
+        assert present, f"no chirp feature {chirp_legs} present in transform output " f"columns {list(out1.columns)}"
 
         # Replay is a pure function of X: a SHUFFLED y must not change it.
         rng = np.random.default_rng(seed + 2000)
@@ -310,18 +343,17 @@ class TestChirpReplayByteMatch:
 
         # And the transform output equals a standalone recipe replay.
         from mlframe.feature_selection.filters.engineered_recipes import apply_recipe
-        recipes = {
-            r.name: r for r in (getattr(sel, "_engineered_recipes_", []) or [])
-        }
+
+        recipes = {r.name: r for r in (getattr(sel, "_engineered_recipes_", []) or [])}
         for c in present:
             assert c in recipes, f"chirp feature {c} has no replayable recipe"
             # Confirm it really is the quadratic-warp recipe.
-            assert str(dict(recipes[c].extra).get("arg")) == "quadratic", (
-                f"chirp recipe {c} is not arg='quadratic'"
-            )
+            assert str(dict(recipes[c].extra).get("arg")) == "quadratic", f"chirp recipe {c} is not arg='quadratic'"
             replayed = np.asarray(apply_recipe(recipes[c], X), dtype=np.float64)
             np.testing.assert_allclose(
-                out1[c].to_numpy(dtype=np.float64), replayed,
-                rtol=0.0, atol=0.0,
+                out1[c].to_numpy(dtype=np.float64),
+                replayed,
+                rtol=0.0,
+                atol=0.0,
                 err_msg=f"transform output for {c} != standalone recipe replay",
             )
