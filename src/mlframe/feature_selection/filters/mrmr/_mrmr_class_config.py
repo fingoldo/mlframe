@@ -201,7 +201,7 @@ class _MRMRConfigMixin:
     def recommend_default_scorer(cls) -> str:
         """Return the empirically-best ``fe_hybrid_orth_default_scorer`` value.
 
-        's 7-dataset x 10-mechanism showdown placed CMIM (Layer 74)
+        Layer 83's 7-dataset x 10-mechanism showdown placed CMIM (Layer 74)
         first on real sklearn data: 5/7 dataset wins on top-AUC of the
         downstream LogReg over the marginal-MI baseline, including all
         three high-redundancy fixtures where the conditional-MI
@@ -210,7 +210,7 @@ class _MRMRConfigMixin:
         last on every redundant fixture. Callers that do not know which
         scorer to pick should default to the return value of this method.
 
-        accelerated JMIM (~2.3x) and TC (~5.0x)
+        Layer 86 (2026-06-01) accelerated JMIM (~2.3x) and TC (~5.0x)
         via batched quantile binning + invariant support-side joint
         precompute; the perf improvement does NOT change the L83 AUC
         leaderboard (CMIM still wins 5/7) because the scorer math is

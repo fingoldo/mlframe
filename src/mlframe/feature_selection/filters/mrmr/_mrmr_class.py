@@ -3703,23 +3703,18 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
     # ``_run_fe_step`` is implemented in ``_mrmr_fe_step.py`` and bound
     # onto this class at the bottom of this module.
 
-    # ``transform`` + ``_append_engineered`` are implemented in
-    # ``_mrmr_validate_transform.py`` and bound onto this class at the
-    # bottom of this module.
+    # ``_append_engineered`` is implemented in ``_mrmr_validate_transform.py`` and bound onto
+    # this class at the bottom of this module. ``transform`` itself, unlike its siblings above,
+    # is NOT late-bound the same way -- see its own docstring immediately below for why.
     def transform(self, X, y=None):
-        """sklearn-1.x transformer protocol. Delegates to the
-        implementation in ``_mrmr_validate_transform.py``.
-
-        Defined directly on the
-        class body (rather than late-bound at module bottom) so
-        ``_SetOutputMixin.__init_subclass__`` actually wraps it. Pre-fix
-        the bottom-of-module ``MRMR.transform = _transform_func`` rebind
-        nuked the wrapper that ``__init_subclass__`` had attached
-        during class definition, silently making
-        ``MRMR.set_output(transform='pandas')`` a no-op when transform
-        was called directly with ndarray input (the canonical sklearn
-        contract requires a DataFrame).
-        """
+        """sklearn-1.x transformer protocol. Delegates to the implementation in
+        ``_mrmr_validate_transform.py``, but is defined directly on this class body (rather than
+        late-bound at module bottom like ``_fit_impl``/``_run_fe_step``/``_append_engineered``)
+        so ``_SetOutputMixin.__init_subclass__`` actually wraps it. Pre-fix, the bottom-of-module
+        ``MRMR.transform = _transform_func`` rebind nuked the wrapper ``__init_subclass__`` had
+        attached during class definition, silently making ``MRMR.set_output(transform='pandas')``
+        a no-op when transform was called directly with ndarray input (the canonical sklearn
+        contract requires a DataFrame)."""
         out = _mrmr_transform_impl(self, X, y)
         if getattr(self, "usability_aware_lists", False) and (getattr(self, "support_linear_", None) or getattr(self, "support_universal_", None)):
             out = self._append_usability_union(out, X)
