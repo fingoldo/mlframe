@@ -13,7 +13,7 @@ import numpy as np
 import pytest
 
 from mlframe.feature_selection.filters import MRMR
-import mlframe.feature_selection.filters._synergy_detector as _synergy_detector_mod
+import mlframe.feature_selection.filters.mrmr._mrmr_class as _mrmr_class_mod
 
 
 def _fast(**kw):
@@ -48,7 +48,13 @@ def test_synergy_detector_crash_sets_detector_failed_true(monkeypatch):
         """Stand in for ``detect_synergy`` and always raise, simulating a detector crash."""
         raise RuntimeError("simulated synergy-detector crash")
 
-    monkeypatch.setattr(_synergy_detector_mod, "detect_synergy", _boom)
+    # Patch the name as bound in ``_mrmr_class`` (where ``fit()`` resolves it from), not the
+    # source ``_synergy_detector`` module: ``detect_synergy`` is imported at MODULE level (perf
+    # audit finding #6 -- hoisted out of fit()'s body), so ``fit()`` reads the reference already
+    # bound in ``_mrmr_class``'s own namespace, not a fresh lookup on the source module each
+    # call. Patching the source module would silently no-op here -- the standard
+    # "patch where it's used" rule for ``from x import y``-style imports.
+    monkeypatch.setattr(_mrmr_class_mod, "detect_synergy", _boom)
 
     X, y = _xy()
     MRMR._FIT_CACHE.clear()

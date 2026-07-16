@@ -63,6 +63,23 @@ class _MRMRFitHelpersMixin:
         X_df = X if hasattr(X, "iloc") else pd.DataFrame(np.asarray(X))
         y_arr = (y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)).ravel()
         feature_names = list(X_df.columns)
+        # Computed ONCE outside the bootstrap/complementary-pairs loop (perf audit finding #9,
+        # 2026-07-17): every replicate previously re-ran ``self.get_params()`` (a full ~300-key
+        # dict) plus a fresh filter comprehension, even though the filtered base params are
+        # identical across all ``stability_n_bootstrap`` (default 50) replicates -- only the
+        # subsampled (X_sub, y_sub) differ per replicate, not the params.
+        _sub_base_params = {
+            k: v for k, v in self.get_params().items()
+            if k not in (
+                "stability_selection_method",
+                "stability_selection_corr_threshold",
+                "uaed_auto_size",
+                "cmi_perm_stop",
+                "cpt_test",
+            )
+        }
+        _sub_base_params["stability_selection_method"] = "classic"
+        _sub_base_params["verbose"] = 0
 
         def _inner_selector(X_sub, y_sub):
             """Fit a fresh classic-mode sibling MRMR on a bootstrap/pair row-subset and return its selected column indices (empty array if the sub-fit produced no support)."""
@@ -73,20 +90,7 @@ class _MRMRFitHelpersMixin:
             y_sub_s = pd.Series(np.asarray(y_sub), name="y")
             # Use a fresh sibling instance with classic method to avoid
             # recursion AND drop bootstrap-incompatible settings.
-            sub = type(self)(
-                **{
-                    **{k: v for k, v in self.get_params().items()
-                       if k not in (
-                           "stability_selection_method",
-                           "stability_selection_corr_threshold",
-                           "uaed_auto_size",
-                           "cmi_perm_stop",
-                           "cpt_test",
-                       )},
-                    "stability_selection_method": "classic",
-                    "verbose": 0,
-                }
-            )
+            sub = type(self)(**_sub_base_params)
             sub.fit(X_sub_df, y_sub_s)
             if not hasattr(sub, "support_") or sub.support_ is None:
                 return np.asarray([], dtype=np.int64)
@@ -198,11 +202,18 @@ class _MRMRFitHelpersMixin:
             prov = getattr(self, "fe_provenance_", None)
             if prov is not None and hasattr(prov, "empty") and not prov.empty:
                 disp_cols = [c for c in ("support_rank", "feature_name", "origin", "mrmr_gain") if c in prov.columns]
-                disp = prov[disp_cols].copy()
+                disp = prov[disp_cols]
                 if "support_rank" in disp.columns:
                     # Show in greedy selection order (rank 0 first), not the raw
-                    # provenance-frame row order.
+                    # provenance-frame row order. sort_values always returns a NEW
+                    # frame, so no separate .copy() is needed on this branch.
                     disp = disp.sort_values("support_rank", kind="stable")
+                else:
+                    # No reordering happens on this branch, so disp_cols'
+                    # column-list selection is still possibly a pandas view of
+                    # ``prov`` -- copy once here (only branch that needs it)
+                    # before the in-place mrmr_gain formatting below.
+                    disp = disp.copy()
                 if "mrmr_gain" in disp.columns:
                     disp["mrmr_gain"] = disp["mrmr_gain"].map(lambda v: f"{float(v):.4f}" if pd.notna(v) else "")
                 print(disp.to_string(index=False))

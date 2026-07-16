@@ -11,11 +11,25 @@ from __future__ import annotations
 import inspect
 import logging
 import os
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Optional
 
 import numpy as np
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
+
+# Process-lifetime caches keyed by class object (perf audit findings #4/#7/#8, 2026-07-17).
+# All three values below are HOST/CLASS-constant -- the ctor signature never changes at
+# runtime, and a fresh instance's resolved defaults (n_jobs=-1 -> cpu_count, etc.) and the
+# kernel_tuning_cache lookups only depend on the installed package + host hardware, not on
+# any particular fit's data. Recomputing them on every fit()/__setstate__ call was pure
+# repeated-reflection/IO overhead; caching once per process removes it entirely without
+# changing any resolved value (the cache is populated by calling the exact same code path
+# that used to run unconditionally, just once instead of every time).
+_CTOR_DEFAULTS_CACHE: dict[type, dict] = {}
+_FE_ENABLE_ATTR_NAMES_CACHE: dict[type, frozenset] = {}
+_FRESH_INSTANCE_DEFAULTS_CACHE: dict[type, Optional[dict]] = {}
+_FAST_SEARCH_SUBSAMPLE_N_CACHE: dict[type, int] = {}
+_DEFAULT_SCREEN_SUBSAMPLE_N_CACHE: dict[type, int] = {}
 
 
 class _MRMRConfigMixin:
@@ -54,8 +68,16 @@ class _MRMRConfigMixin:
         bounds the screen cost. Never hardcode per-HW thresholds (mlframe is shared infra); the cache lets
         a quiet/large-RAM box record a better value. Fallback 90_000: the smallest screen-n that kept the
         warped (c,d) interaction's selection bit-stable on the n=100k synthetics (75k/85k flipped the
-        (a,b) composite at the MI tie; 90k did not)."""
+        (a,b) composite at the MI tie; 90k did not).
+
+        The KTC lookup result is host/class-constant (it depends only on the installed
+        kernel_tuning_cache entry for this machine, never on a particular fit's data), so it is
+        resolved once per class per process and cached -- every subsequent fit reuses the cached
+        int instead of round-tripping through ``get_kernel_tuning_cache().lookup(...)`` again."""
+        if cls in _FAST_SEARCH_SUBSAMPLE_N_CACHE:
+            return _FAST_SEARCH_SUBSAMPLE_N_CACHE[cls]
         _fallback = 90_000
+        _result = _fallback
         try:
             from .._kernel_tuning import get_kernel_tuning_cache
 
@@ -65,17 +87,23 @@ class _MRMRConfigMixin:
                 if tuned:
                     _v = int(tuned.get("subsample_n", 0) or 0)
                     if _v > 0:
-                        return _v
+                        _result = _v
         except Exception as exc:
             logger.debug("mrmr: fast_search screen_n KTC lookup failed; using fallback %d: %r", _fallback, exc, exc_info=True)
-        return _fallback
+        _FAST_SEARCH_SUBSAMPLE_N_CACHE[cls] = _result
+        return _result
 
     @classmethod
     def _default_screen_subsample_n(cls) -> int:
         """Feature-recovery default screen-subsample size, kernel_tuning_cache-resolved when a tuned entry
         exists for this host, else the HW-agnostic ``_DEFAULT_SCREEN_SUBSAMPLE_N`` floor. See the class
-        attribute docstring for the rank-stability rationale + measured wins."""
+        attribute docstring for the rank-stability rationale + measured wins.
+
+        Cached per class per process, same rationale as ``_fast_search_default_subsample_n``."""
+        if cls in _DEFAULT_SCREEN_SUBSAMPLE_N_CACHE:
+            return _DEFAULT_SCREEN_SUBSAMPLE_N_CACHE[cls]
         _fallback = int(cls._DEFAULT_SCREEN_SUBSAMPLE_N)
+        _result = _fallback
         try:
             from .._kernel_tuning import get_kernel_tuning_cache
 
@@ -85,10 +113,11 @@ class _MRMRConfigMixin:
                 if tuned:
                     _v = int(tuned.get("subsample_n", 0) or 0)
                     if _v > 0:
-                        return _v
+                        _result = _v
         except Exception as exc:
             logger.debug("mrmr: default screen_n KTC lookup failed; using fallback %d: %r", _fallback, exc, exc_info=True)
-        return _fallback
+        _DEFAULT_SCREEN_SUBSAMPLE_N_CACHE[cls] = _result
+        return _result
 
     def _apply_default_screen_subsample(self, n_rows: int) -> dict:
         """Shrink the FE/MI screen subsamplers to the feature-recovery default for large n, returning
@@ -97,11 +126,9 @@ class _MRMRConfigMixin:
         intent: a knob is only touched when it is still at its package default, and only SHRUNK (never
         raised). No-op when ``n_rows`` is below the resolved screen size (small-n behaviour is unchanged --
         the subsamplers treat subsample_n>=n as full-n). The selected columns are replayed at full n."""
-        import inspect
-
         saved: dict = {}
         try:
-            _defaults = {p.name: p.default for p in inspect.signature(type(self).__init__).parameters.values() if p.default is not inspect._empty}
+            _defaults = type(self)._ctor_defaults()
         except Exception as exc:
             logger.debug("mrmr: ctor-default introspection failed in _apply_default_screen_subsample; leaving knobs unchanged: %r", exc, exc_info=True)
             return saved
@@ -128,11 +155,9 @@ class _MRMRConfigMixin:
         """Override the fast-search sub-knobs for this fit, returning {attr: pre_fit_value} to restore in
         ``finally``. Only knobs still at their package default are touched (explicit user value wins). See
         the ``fe_fast_search`` __init__ docstring for the rationale and measured wins."""
-        import inspect
-
         saved: dict = {}
         try:
-            _defaults = {p.name: p.default for p in inspect.signature(type(self).__init__).parameters.values() if p.default is not inspect._empty}
+            _defaults = type(self)._ctor_defaults()
         except Exception as exc:
             logger.debug("mrmr: ctor-default introspection failed in _apply_fast_search_profile; treating all knobs as user-set: %r", exc, exc_info=True)
             _defaults = {}
@@ -275,9 +300,60 @@ class _MRMRConfigMixin:
         e.g. ``cluster_aggregate_mode``). ``__setstate__`` overlays these onto its
         legacy-injection dict for every ctor-param key EXCEPT the documented
         legacy-pickle overrides below.
+
+        The ~300-parameter ``__init__`` signature never changes at runtime, so this is
+        resolved via ``inspect.signature`` once per class per process and cached -- every
+        other call site that used to independently re-run the same reflection
+        (``_apply_default_screen_subsample``, ``_apply_fast_search_profile``, ``__setstate__``'s
+        legacy-pickle path) now shares this one cached dict instead of re-deriving it.
         """
+        if cls in _CTOR_DEFAULTS_CACHE:
+            return _CTOR_DEFAULTS_CACHE[cls]
         sig = inspect.signature(cls.__init__)
-        return {name: param.default for name, param in sig.parameters.items() if param.default is not inspect.Parameter.empty}
+        result = {name: param.default for name, param in sig.parameters.items() if param.default is not inspect.Parameter.empty}
+        _CTOR_DEFAULTS_CACHE[cls] = result
+        return result
+
+    @classmethod
+    def _fe_enable_attr_names(cls) -> frozenset:
+        """Cached set of every ``fe_*_enable`` constructor-parameter name, resolved via
+        ``_ctor_defaults()`` (itself cached) so it never drifts from the real ctor surface as
+        new FE generators are added. Lets ``fit()`` answer "will any FE stage run" by checking
+        only these ~70 known attribute names via ``getattr``, instead of scanning the FULL
+        instance ``__dict__`` (~300 attrs, two string ops each) on every single fit."""
+        if cls in _FE_ENABLE_ATTR_NAMES_CACHE:
+            return _FE_ENABLE_ATTR_NAMES_CACHE[cls]
+        result = frozenset(name for name in cls._ctor_defaults() if name.startswith("fe_") and name.endswith("_enable"))
+        _FE_ENABLE_ATTR_NAMES_CACHE[cls] = result
+        return result
+
+    @classmethod
+    def _resolve_fresh_instance_defaults(cls) -> Optional[dict]:
+        """Cached snapshot of a freshly-constructed instance's ``__dict__``, used by
+        ``__setstate__`` to source ctor params whose ``__init__`` BODY resolves them to a
+        concrete value (``n_jobs=-1`` -> ``psutil.cpu_count()``, ``parallel_kwargs=None`` ->
+        a dict) rather than leaving them at the raw signature default -- ``_ctor_defaults()``
+        alone would inject the unresolved sentinel (``-1``/``None``) for those two keys,
+        diverging from what a real fresh instance actually carries.
+
+        These resolved values are host-constant (same install, same machine) for the
+        lifetime of the process, so constructing a throwaway ``MRMR()`` -- which pays the
+        FULL ~300-parameter constructor cost, including ``store_params_in_object``'s
+        frame-reflection -- happened on EVERY legacy-pickle unpickle before this cache;
+        now it happens at most once per class per process. Returns ``None`` when
+        construction fails (e.g. a legacy pickle in a version whose ctor now requires
+        something unavailable), matching the pre-cache fallback behaviour.
+        """
+        if cls in _FRESH_INSTANCE_DEFAULTS_CACHE:
+            return _FRESH_INSTANCE_DEFAULTS_CACHE[cls]
+        try:
+            _fresh = cls()
+            result: Optional[dict] = dict(_fresh.__dict__)
+        except Exception as exc:
+            logger.debug("mrmr: fresh-instance ctor-default cache-population failed; setstate will use raw ctor defaults: %r", exc, exc_info=True)
+            result = None
+        _FRESH_INSTANCE_DEFAULTS_CACHE[cls] = result
+        return result
 
     @classmethod
     def recommend_enabled_fe(cls, X=None, y=None) -> dict:
