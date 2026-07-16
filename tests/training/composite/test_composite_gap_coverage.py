@@ -55,9 +55,7 @@ def _two_signal_frame(n: int = 600, seed: int = 7) -> pd.DataFrame:
     x_a = rng.normal(50.0, 10.0, n)
     x_b = rng.normal(0.0, 5.0, n)
     y = 1.5 * x_a + 0.5 + 2.0 * x_b + rng.normal(0.0, 1.0, n)
-    return pd.DataFrame(
-        {"x_a": x_a, "x_b": x_b, "n0": rng.standard_normal(n), "y": y}
-    )
+    return pd.DataFrame({"x_a": x_a, "x_b": x_b, "n0": rng.standard_normal(n), "y": y})
 
 
 class TestA34StackedPass2Training:
@@ -65,6 +63,7 @@ class TestA34StackedPass2Training:
     pass-2 re-fit on the augmented frame -- the rebuild path that A6/A7 guard."""
 
     def _config(self):
+        """Small two-transform discovery config so the pass-1 + OOF-augment + pass-2 rebuild path stays under the per-test budget."""
         from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
         # Restrict the transform set + rerank repeats so the two-pass discovery
@@ -82,6 +81,7 @@ class TestA34StackedPass2Training:
         )
 
     def test_fit_stacked_end_to_end_runs_pass2(self) -> None:
+        """fit_stacked's full pass-1 + OOF-augment + pass-2 rebuild path returns a coherent specs_ list on a clean two-base signal."""
         from mlframe.training.composite.discovery import CompositeTargetDiscovery
 
         df = _two_signal_frame()
@@ -96,9 +96,7 @@ class TestA34StackedPass2Training:
         # The full pass-1 + augment + pass-2 path returns a coherent specs_ list
         # on a clean two-base signal where pass 1 finds at least one composite.
         assert hasattr(disc, "specs_")
-        assert len(disc.specs_) >= 1, (
-            "stacked discovery found no specs on a clean two-base linear signal"
-        )
+        assert len(disc.specs_) >= 1, "stacked discovery found no specs on a clean two-base linear signal"
 
     def test_warn_unrebuildable_oof_specs_fires_on_oof_base(self) -> None:
         """A6: a pass-2 spec adopting an ephemeral ``_oof_*`` column as its base
@@ -112,6 +110,7 @@ class TestA34StackedPass2Training:
         from mlframe.training.composite import CompositeSpec
 
         def _spec(name: str, base_column: str) -> CompositeSpec:
+            """Minimal CompositeSpec fixture naming one base column."""
             return CompositeSpec(
                 name=name, target_col="y", transform_name="linear_residual",
                 base_column=base_column, fitted_params={}, mi_gain=0.1,
@@ -121,13 +120,8 @@ class TestA34StackedPass2Training:
         bad = _spec("y-linres-oofa", f"{_OOF_FEATURE_PREFIX}linres-x_a")
         good = _spec("y-linres-xb", "x_b")
         flagged = _warn_unrebuildable_oof_specs([bad, good], existing_names=set())
-        assert bad.name in flagged, (
-            "spec whose base is an ephemeral _oof_ column must be flagged "
-            "unrebuildable"
-        )
-        assert good.name not in flagged, (
-            "spec on a real feature column must NOT be flagged"
-        )
+        assert bad.name in flagged, "spec whose base is an ephemeral _oof_ column must be flagged " "unrebuildable"
+        assert good.name not in flagged, "spec on a real feature column must NOT be flagged"
 
     def test_residual_stacked_warns_on_residual_fitted_specs(self, caplog) -> None:
         """A7: pass-2 specs discovered on the RESIDUAL target carry residual-
@@ -151,17 +145,10 @@ class TestA34StackedPass2Training:
         # Either pass-2 found new residual specs (the warning fired) or it found
         # none (nothing to warn about). When new residual specs are merged the
         # discovered_on_residual flag must be set AND the A7 warning emitted.
-        new_residual = [
-            s for s in disc.specs_
-            if getattr(s, "discovered_on_residual", False)
-        ]
+        new_residual = [s for s in disc.specs_ if getattr(s, "discovered_on_residual", False)]
         if new_residual:
-            assert any(
-                "discovered on the RESIDUAL target" in rec.message
-                for rec in caplog.records
-            ), (
-                "residual-fitted pass-2 specs were merged without the A7 "
-                "residual-vs-raw warning"
+            assert any("discovered on the RESIDUAL target" in rec.message for rec in caplog.records), (
+                "residual-fitted pass-2 specs were merged without the A7 " "residual-vs-raw warning"
             )
 
 
@@ -189,6 +176,7 @@ class TestDX18DocsSymbols:
 
     @pytest.mark.parametrize("module_path,symbol", _DOCS_SYMBOLS)
     def test_documented_symbol_importable(self, module_path: str, symbol: str) -> None:
+        """Every symbol the docs reference actually exists on the module it's documented against."""
         mod = importlib.import_module(module_path)
         assert hasattr(mod, symbol), f"{module_path!r} is missing {symbol!r}"
 
@@ -212,16 +200,19 @@ class _QuantileConstInner(BaseEstimator, RegressorMixin):
     the wrapped y-scale quantiles are finite + ordered."""
 
     def fit(self, X, y, **kw):
+        """Store the train-T mean/std as the point estimate + quantile spread."""
         self.n_features_in_ = np.asarray(X).shape[1] if hasattr(X, "shape") else len(X.columns)
         self._t = float(np.mean(np.asarray(y, dtype=np.float64)))
         self._s = float(np.std(np.asarray(y, dtype=np.float64))) or 1.0
         return self
 
     def predict(self, X):
+        """Return the fitted train-T mean, broadcast to every row."""
         n = X.shape[0] if hasattr(X, "shape") else len(X)
         return np.full(n, self._t, dtype=np.float64)
 
     def predict_quantile(self, X, alpha=0.5):
+        """Return mean +/- a fixed spread per requested quantile level."""
         n = X.shape[0] if hasattr(X, "shape") else len(X)
         levels = np.atleast_1d(np.asarray(alpha, dtype=np.float64))
         # Monotone in alpha: low alpha -> below mean, high alpha -> above.
@@ -233,6 +224,7 @@ class _QuantileConstInner(BaseEstimator, RegressorMixin):
 
 
 def _e21_frame(n: int = 200, seed: int = 0) -> tuple[pd.DataFrame, np.ndarray]:
+    """Randomized (X, y) fixture with two bases, one plain feature, and a group column."""
     rng = np.random.default_rng(seed)
     base = rng.normal(0.0, 1.0, size=n)
     b2 = rng.normal(0.0, 1.0, size=n)
@@ -249,6 +241,7 @@ class TestE21ComplianceUncoveredRows:
     all-finite predictions of the right shape."""
 
     def test_unary_cbrt_y_fit_predict_finite(self) -> None:
+        """Unary transform (no base column) fit+predict returns finite, right-shaped predictions."""
         X, y = _e21_frame()
         from mlframe.training.composite import CompositeTargetEstimator
 
@@ -262,6 +255,7 @@ class TestE21ComplianceUncoveredRows:
         assert np.all(np.isfinite(preds))
 
     def test_multi_base_linear_residual_multi_fit_predict_finite(self) -> None:
+        """Multi-base transform (2 base columns) fit+predict returns finite, right-shaped predictions."""
         X, y = _e21_frame()
         from mlframe.training.composite import CompositeTargetEstimator
 
@@ -276,6 +270,7 @@ class TestE21ComplianceUncoveredRows:
         assert np.all(np.isfinite(preds))
 
     def test_grouped_linear_residual_grouped_fit_predict_finite(self) -> None:
+        """Grouped transform fit+predict returns finite, right-shaped predictions."""
         X, y = _e21_frame()
         from mlframe.training.composite import CompositeTargetEstimator
 
@@ -291,6 +286,7 @@ class TestE21ComplianceUncoveredRows:
         assert np.all(np.isfinite(preds))
 
     def test_polars_input_fit_predict_finite(self) -> None:
+        """A polars-DataFrame input fit+predict returns finite, right-shaped predictions."""
         pl = pytest.importorskip("polars")
         X, y = _e21_frame()
         from mlframe.training.composite import CompositeTargetEstimator
@@ -307,6 +303,7 @@ class TestE21ComplianceUncoveredRows:
         assert np.all(np.isfinite(preds))
 
     def test_predict_quantile_fit_predict_finite(self) -> None:
+        """predict_quantile round-trips through the wrapper's y-scale inverse with finite, properly ordered quantiles."""
         X, y = _e21_frame()
         from mlframe.training.composite import CompositeTargetEstimator
 
@@ -349,10 +346,7 @@ class TestE21ComplianceUncoveredRows:
         X_pred = pd.DataFrame({"base": base_pred, "feat": feat})
         preds = est.predict(X_pred)
         assert preds.shape == (n,)
-        assert np.all(np.isfinite(preds)), (
-            "out-of-domain base rows produced non-finite predictions instead of "
-            "routing to the fallback value"
-        )
+        assert np.all(np.isfinite(preds)), "out-of-domain base rows produced non-finite predictions instead of " "routing to the fallback value"
 
 
 # ===========================================================================
@@ -369,6 +363,7 @@ class _SwRecordingRaw(BaseEstimator, RegressorMixin):
     pred_gids: set = set()
 
     def fit(self, X, y, eval_set=None, sample_weight=None, **kw):
+        """Record whether sample_weight was passed and which group ids were fit on."""
         if sample_weight is not None:
             type(self).saw_sample_weight = True
         type(self).fit_gids |= set(np.asarray(X["gid"]).tolist())
@@ -377,11 +372,14 @@ class _SwRecordingRaw(BaseEstimator, RegressorMixin):
         return self
 
     def predict(self, X):
+        """Record which group ids were predicted on, return the fitted train-T mean."""
         type(self).pred_gids |= set(np.asarray(X["gid"]).tolist())
         return np.full(X.shape[0], self._t, dtype=np.float64)
 
 
 class TestN28OofHygieneGaps:
+    """OOF-hygiene combinations the audit test omitted: group_ids + sample_weight together, and out-of-domain rows falling back cleanly."""
+
     def test_group_ids_with_per_fold_sample_weight_together(self) -> None:
         """group_ids AND a per-row sample_weight passed together: the group-aware
         single-split OOF must (a) carve whole groups so none spans refit-train and
@@ -413,14 +411,9 @@ class TestN28OofHygieneGaps:
             sample_weight=sw,
             group_ids=gid,
         )
-        assert _SwRecordingRaw.saw_sample_weight, (
-            "per-row sample_weight was not threaded to the inner fit"
-        )
+        assert _SwRecordingRaw.saw_sample_weight, "per-row sample_weight was not threaded to the inner fit"
         overlap = _SwRecordingRaw.fit_gids & _SwRecordingRaw.pred_gids
-        assert not overlap, (
-            f"group(s) {sorted(overlap)[:5]} span fit + holdout "
-            f"(group-blind split leak under combined group_ids+sample_weight)"
-        )
+        assert not overlap, f"group(s) {sorted(overlap)[:5]} span fit + holdout " f"(group-blind split leak under combined group_ids+sample_weight)"
 
     def test_non_monotone_time_kfold_downgrade_warns(self, caplog) -> None:
         """kfold>1 with a NON-monotone time_ordering cannot be forward-walked
@@ -452,12 +445,8 @@ class TestN28OofHygieneGaps:
                 kfold=3,
                 time_ordering=time_ordering,
             )
-        assert any(
-            "NON-monotone" in rec.message and "Downgrading" in rec.message
-            for rec in caplog.records
-        ), (
-            "non-monotone-time kfold downgrade did not emit the expected warning; "
-            f"got: {[r.message for r in caplog.records]}"
+        assert any("NON-monotone" in rec.message and "Downgrading" in rec.message for rec in caplog.records), (
+            "non-monotone-time kfold downgrade did not emit the expected warning; " f"got: {[r.message for r in caplog.records]}"
         )
 
     def test_conformal_calibrate_predict_interval_coverage(self) -> None:
@@ -486,9 +475,7 @@ class TestN28OofHygieneGaps:
         covered = np.mean((y[te] >= lower) & (y[te] <= upper))
         # Split-conformal guarantees >= 1 - alpha marginal coverage under
         # exchangeability; allow a small finite-sample slack below the nominal.
-        assert covered >= (1.0 - alpha) - 0.05, (
-            f"conformal coverage {covered:.3f} below nominal {1.0 - alpha:.2f}"
-        )
+        assert covered >= (1.0 - alpha) - 0.05, f"conformal coverage {covered:.3f} below nominal {1.0 - alpha:.2f}"
         assert np.all(np.isfinite(lower)) and np.all(np.isfinite(upper))
 
 
@@ -515,10 +502,17 @@ _T25_MULTI_BASE = {
 _T25_POSITIVE_DOMAIN = {
     "ratio", "logratio", "reciprocal_residual",
     "geometric_mean_residual", "rolling_quantile_ratio",
+    # box_cox_y: unlike log_y (fits an offset so any y-range is in-domain),
+    # box_cox_y's classical Box-Cox likelihood strictly requires y > 0 --
+    # scipy.special.boxcox returns NaN on non-positive input by design
+    # (domain_check gates this in production; the round-trip fixture must
+    # respect the same gate).
+    "box_cox_y",
 }
 
 
 def _t25_transform_names() -> list[str]:
+    """Registered transform names eligible for the T25 (y, base) round-trip sweep -- excludes grouped and non-invertible transforms."""
     from mlframe.training.composite import list_transforms, get_transform
 
     names = []
@@ -556,6 +550,7 @@ def _t25_make_data(name: str, seed: int) -> tuple:
 
 
 def _t25_base_matrix(name: str, base: np.ndarray, seed: int) -> np.ndarray:
+    """2-column base matrix (base, a correlated second column) for multi-base transforms in the T25 sweep."""
     rng = np.random.default_rng(seed + 1000)
     n = base.shape[0]
     b2 = base * 0.5 + rng.normal(0.0, 0.3, n)
@@ -573,6 +568,7 @@ class TestT25RoundTripParitySweep:
     @pytest.mark.parametrize("name", _t25_transform_names())
     @pytest.mark.parametrize("seed", [0, 17])
     def test_forward_inverse_recovers_y(self, name: str, seed: int) -> None:
+        """inverse(forward(y)) recovers y within tolerance on randomized in-domain (y, base) data."""
         from mlframe.training.composite import get_transform
 
         t = get_transform(name)
@@ -584,14 +580,49 @@ class TestT25RoundTripParitySweep:
         params = t.fit(y, base_arg)
         fwd = t.forward(y, base_arg, params)
         inv = t.inverse(fwd, base_arg, params)
-        assert np.all(np.isfinite(inv)), (
-            f"transform {name!r}: inverse produced non-finite values"
-        )
+        assert np.all(np.isfinite(inv)), f"transform {name!r}: inverse produced non-finite values"
         rel_err = float(np.max(np.abs(inv - y))) / (float(np.std(y)) + 1e-12)
         # All invertible transforms recover y to ~machine precision on in-domain
         # data; a generous 1e-6 absorbs the rank / spline / quantile transforms'
         # interpolation rounding without masking a real forward/inverse defect.
-        assert rel_err < 1e-6, (
-            f"transform {name!r}: round-trip rel-error {rel_err:.3e} exceeds tol "
-            f"(forward/inverse parity broken)"
+        assert rel_err < 1e-6, f"transform {name!r}: round-trip rel-error {rel_err:.3e} exceeds tol " f"(forward/inverse parity broken)"
+
+
+class TestT25DomainClassificationCoverage:
+    """A registered transform whose true domain excludes some of the default
+    any-real T25 fixture (e.g. box_cox_y requiring y > 0) but is missing from
+    ``_T25_POSITIVE_DOMAIN`` gets silently fed out-of-domain data: forward()
+    itself already produces NaN there, and ``test_forward_inverse_recovers_y``
+    only reports the SYMPTOM ("inverse produced non-finite values") with no
+    pointer to the actual fix (2026-07-16 incident: box_cox_y was registered
+    with a real provenance formula + domain_check but never added to this
+    list, and the round-trip failure gave no hint that the fixture -- not the
+    transform -- was wrong).
+
+    This test probes forward() directly on the default any-real fixture for
+    every transform NOT already classified in ``_T25_POSITIVE_DOMAIN`` and
+    fails with an actionable message naming the missing classification,
+    BEFORE the round-trip sweep's opaque NaN assertion would fire."""
+
+    def test_unclassified_transform_forward_is_finite_on_any_real_fixture(self) -> None:
+        """Every transform not in _T25_POSITIVE_DOMAIN must tolerate the default any-real fixture -- see class docstring for the incident this guards."""
+        from mlframe.training.composite import get_transform
+
+        offenders = []
+        for name in _t25_transform_names():
+            if name in _T25_POSITIVE_DOMAIN:
+                continue
+            t = get_transform(name)
+            y, base = _t25_make_data(name, seed=0)  # any-real fixture (name not in _T25_POSITIVE_DOMAIN)
+            base_arg = _t25_base_matrix(name, base, seed=0) if name in _T25_MULTI_BASE else base
+            params = t.fit(y, base_arg)
+            fwd = np.asarray(t.forward(y, base_arg, params), dtype=np.float64)
+            if not np.all(np.isfinite(fwd)):
+                offenders.append(name)
+        assert not offenders, (
+            f"{offenders}: forward() produced non-finite output on the default any-real T25 "
+            "fixture. If this transform genuinely requires a restricted domain (e.g. y > 0), add "
+            "it to _T25_POSITIVE_DOMAIN (or _T25_NON_INVERTIBLE with a reason if round-tripping "
+            "is inherently lossy) -- do not leave it unclassified, which silently defaults to "
+            "'domain = all reals' and surfaces as an opaque NaN failure elsewhere."
         )

@@ -223,6 +223,19 @@ _TRANSFORM_DESCRIPTIONS: dict[str, str] = {
     "pairwise_interaction_residual": ("predicts the residual after subtracting a " "fitted multiple of the product of several base features"),
     "signed_power_y": ("predicts the signed power of the target, |y|^p with p fitted " "to minimise skew, symmetrising a heavy-tailed target"),
     "target_encoding_residual": ("predicts the residual after subtracting the " "empirical-Bayes smoothed per-category mean of the target"),
+    "box_cox_y": ("predicts the Box-Cox power transform of the target (lambda " "fitted by MLE via scipy), a strictly-positive-only sibling of yeo_johnson_y"),
+    "nadaraya_watson_residual": ("predicts the residual after subtracting a fitted " "Gaussian-kernel Nadaraya-Watson regression of the base feature"),
+    "gaussian_copula_residual": ("predicts the residual in Gaussian-copula (normal-" "scores) space, collapsing monotone marginal distortion on both target and base"),
+    "seasonal_residual": ("predicts the residual after subtracting the per-phase " "(row_index modulo a fitted period) mean of the target"),
+    "volatility_normalized_residual": ("predicts the EWMA-level residual of the base " "feature normalised by its own recency-weighted volatility"),
+    "asinh_residual_multi": ("predicts the residual after subtracting a fitted " "linear combination of several base features in arcsinh space"),
+    "linear_residual_multi_robust": ("predicts the residual after subtracting a " "trimmed-LS (outlier-robust) fitted linear combination of several base features"),
+    "rolling_quantile_ratio_centered": ("predicts the ratio of target to a CENTRED " "rolling median of the base feature (look-ahead; non-chronological use only)"),
+    "ewma_residual_grouped": ("predicts the residual after subtracting a per-group " "exponentially-weighted moving average of the base feature"),
+    "frac_diff_grouped": ("predicts the fractionally-differenced target with " "per-group pre-window anchors (long-memory-preserving, per-entity)"),
+    "quantile_residual_grouped": ("predicts the per-group heteroscedasticity-" "standardised residual, James-Stein shrunk toward the global fit"),
+    "monotonic_residual_grouped": ("predicts the residual after subtracting a " "per-group monotone (PCHIP) function of the base, James-Stein shrunk to the global fit"),
+    "rolling_quantile_ratio_grouped": ("predicts the ratio of target to a per-group " "rolling median of the base feature (entity-local level, no cross-entity leakage)"),
 }
 
 
@@ -619,6 +632,109 @@ def _f_target_encoding_residual(t: str, b: str, p: dict) -> tuple[str, str]:
     )
 
 
+def _f_box_cox_y(t: str, b: str, p: dict) -> tuple[str, str]:
+    """Formula strings for 'box_cox_y': Box-Cox power transform of the raw target (lambda fitted by MLE), strictly-positive-only; inverse is the closed-form power, floored to stay finite."""
+    lam = _fmt(p.get("lambda"))
+    return (
+        f"T = ({t}^lambda - 1) / lambda  (lambda={lam}, log({t}) at lambda=0; requires {t} > 0)",
+        f"y_hat = (T_hat*lambda + 1)^(1/lambda)  (lambda={lam}, exp(T_hat) at lambda=0; base floored to stay finite)",
+    )
+
+
+def _f_nadaraya_watson_residual(t: str, b: str, p: dict) -> tuple[str, str]:
+    """Formula strings for 'nadaraya_watson_residual': residual after subtracting a fitted Gaussian-kernel Nadaraya-Watson regression of the base feature."""
+    bw = _fmt(p.get("bandwidth"))
+    return (
+        f"T = {t} - g({b})  (g = Gaussian-kernel Nadaraya-Watson, bandwidth={bw}, " "subsampled knots; far-from-support rows converge to the nearest knot)",
+        f"y_hat = T_hat + g({b})",
+    )
+
+
+def _f_gaussian_copula_residual(t: str, b: str, p: dict) -> tuple[str, str]:
+    """Formula strings for 'gaussian_copula_residual': residual in Gaussian-copula (normal-scores) space, OLS-fitted, collapsing monotone marginal distortion on both target and base."""
+    alpha = _fmt(p.get("alpha"))
+    beta = _fmt(p.get("beta"))
+    return (
+        f"T = z_y - {alpha} * z_b - ({beta})  (z_y=Phi^-1(ecdf_{t}), z_b=Phi^-1(ecdf_{b}), " "train empirical CDFs)",
+        f"y_hat = quantile_{t}(Phi(T_hat + {alpha} * z_b + ({beta})))  (train y-ECDF knot lookup)",
+    )
+
+
+def _f_seasonal_residual(t: str, b: str, p: dict) -> tuple[str, str]:
+    """Formula strings for 'seasonal_residual': residual after subtracting the per-phase (row_index modulo a fitted period) mean of the target; parameter-free forward besides the fitted period."""
+    period = p.get("period")
+    return (
+        f"T = {t} - phase_mean[row_index mod {period}]  (period={period}, phase 0 = first row of the batch)",
+        f"y_hat = T_hat + phase_mean[row_index mod {period}]",
+    )
+
+
+def _f_volatility_normalized_residual(t: str, b: str, p: dict) -> tuple[str, str]:
+    """Formula strings for 'volatility_normalized_residual': EWMA-level residual of the base feature normalised by its own recency-weighted (EWMA of |base - level|) volatility, floored to stay finite."""
+    k = int(p.get("k", 0))
+    floor = _fmt(p.get("floor"))
+    return (
+        f"T = ({t} - EWMA_k({b})) / max(EWMA_k(|{b} - EWMA_k({b})|), {floor})  (k={k})",
+        f"y_hat = T_hat * max(EWMA_k(|{b} - EWMA_k({b})|), {floor}) + EWMA_k({b})",
+    )
+
+
+def _f_asinh_residual_multi(t: str, b: str, p: dict) -> tuple[str, str]:
+    """Formula strings for 'asinh_residual_multi': multi-base sibling of asinh_residual, joint OLS in arcsinh space over several base columns."""
+    bases = _join_base_columns(b, p)
+    beta = _fmt(p.get("beta"))
+    if p.get("collinear_fallback"):
+        note = "  (collinear fallback: alphas=0, beta=train_mean)"
+    else:
+        note = ""
+    return (
+        f"T = asinh({t}) - alphas . asinh({bases}) - ({beta}){note}",
+        f"y_hat = sinh(T_hat + alphas . asinh({bases}) + ({beta}))",
+    )
+
+
+def _f_rolling_quantile_ratio_grouped(t: str, b: str, p: dict) -> tuple[str, str]:
+    """Formula strings for 'rolling_quantile_ratio_grouped': per-group sibling of rolling_quantile_ratio -- same window/eps math, but the rolling median resets at each group boundary (delegates to the ungrouped renderer since the interpolated params are identical)."""
+    forward, inverse = _f_rolling_quantile_ratio(t, b, p)
+    return (forward + "  (window confined to each row's group)", inverse)
+
+
+def _f_ewma_residual_grouped(t: str, b: str, p: dict) -> tuple[str, str]:
+    """Formula strings for 'ewma_residual_grouped': per-group sibling of ewma_residual -- same EWMA math, recursion reset at each group boundary and seeded by the group's own train-base mean."""
+    k = int(p.get("k", 7))
+    alpha = 2.0 / (k + 1.0)
+    return (
+        f"T = {t} - EWMA_k({b})  (k={k}, alpha=2/(k+1)={alpha:.4g}; per-group recursion reset, " "unseen groups use the global anchor)",
+        f"y_hat = T_hat + EWMA_k({b})",
+    )
+
+
+def _f_frac_diff_grouped(t: str, b: str, p: dict) -> tuple[str, str]:
+    """Formula strings for 'frac_diff_grouped': per-group sibling of frac_diff -- same fractional-differencing weights, but each group's history pads with its own train-y mean at the group boundary."""
+    d = _fmt(p.get("d"))
+    lags = int(p.get("lags", 0))
+    return (
+        f"T_i = sum_k w_k * {t}_(i-k)  (Lopez de Prado frac-diff, d={d}, {lags} lags; " "per-group pre-window padding, each group padded with its OWN train-y mean)",
+        "y_hat_i = (T_i - sum_(k>=1) w_k * y_hat_(i-k)) / w_0  (iterative reconstruction, per group)",
+    )
+
+
+def _f_quantile_residual_grouped(t: str, b: str, p: dict) -> tuple[str, str]:
+    """Formula strings for 'quantile_residual_grouped': per-group sibling of quantile_residual -- per-group bin medians/IQR, James-Stein shrunk toward the global fit; small/unseen groups fall back to the global fit entirely."""
+    return (
+        f"T = ({t} - median_bin_group({t})) / IQR_bin_group({t})  (quantile bins of {b}, " "per-group James-Stein shrunk toward the global fit)",
+        "y_hat = T_hat * IQR_bin_group + median_bin_group  (small/unseen groups use the global fit)",
+    )
+
+
+def _f_monotonic_residual_grouped(t: str, b: str, p: dict) -> tuple[str, str]:
+    """Formula strings for 'monotonic_residual_grouped': per-group sibling of monotonic_residual -- per-group monotone PCHIP, James-Stein shrunk toward the global fit; small/unseen groups fall back to the global fit entirely."""
+    return (
+        f"T = {t} - g_group({b})  (g_group = per-group monotone PCHIP, James-Stein " "shrunk toward the global fit)",
+        f"y_hat = T_hat + g_group({b})  (small/unseen groups use the global g)",
+    )
+
+
 # name -> builder. Source of truth alongside ``_TRANSFORM_DESCRIPTIONS``;
 # both are coverage-pinned against the live registry by the formula-coverage meta-test.
 _TRANSFORM_FORMULA_BUILDERS: dict[str, Any] = {
@@ -660,6 +776,19 @@ _TRANSFORM_FORMULA_BUILDERS: dict[str, Any] = {
     "chain_linres_cbrt_qn": _f_chain_linres_cbrt_qn,
     "signed_power_y": _f_signed_power_y,
     "target_encoding_residual": _f_target_encoding_residual,
+    "box_cox_y": _f_box_cox_y,
+    "nadaraya_watson_residual": _f_nadaraya_watson_residual,
+    "gaussian_copula_residual": _f_gaussian_copula_residual,
+    "seasonal_residual": _f_seasonal_residual,
+    "volatility_normalized_residual": _f_volatility_normalized_residual,
+    "asinh_residual_multi": _f_asinh_residual_multi,
+    "linear_residual_multi_robust": _f_linear_residual_multi,
+    "rolling_quantile_ratio_centered": _f_rolling_quantile_ratio,
+    "ewma_residual_grouped": _f_ewma_residual_grouped,
+    "frac_diff_grouped": _f_frac_diff_grouped,
+    "quantile_residual_grouped": _f_quantile_residual_grouped,
+    "monotonic_residual_grouped": _f_monotonic_residual_grouped,
+    "rolling_quantile_ratio_grouped": _f_rolling_quantile_ratio_grouped,
 }
 
 
