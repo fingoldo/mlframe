@@ -69,6 +69,7 @@ SEEDS = (1, 7, 13, 42, 101)
 
 
 def _import_cluster_basis_fe():
+    """Lazily import the Layer-61 per-cluster shared-basis FE functions."""
     from mlframe.feature_selection.filters._orthogonal_cluster_basis_fe import (
         detect_clusters_by_correlation,
         compute_cluster_aggregate,
@@ -91,9 +92,7 @@ from tests.feature_selection.conftest import make_fast_mrmr as _make_mrmr
 # ---------------------------------------------------------------------------
 
 
-def _build_sensor_mesh(seed: int, n: int = 1500, n_latents: int = 5,
-                       n_sensors: int = 3, noise_sd: float = 0.1,
-                       n_noise: int = 5):
+def _build_sensor_mesh(seed: int, n: int = 1500, n_latents: int = 5, n_sensors: int = 3, noise_sd: float = 0.1, n_noise: int = 5):
     """``n_latents`` latents, each loading on ``n_sensors`` sensors with
     small noise, plus ``n_noise`` pure-noise fillers. y depends on the
     QUADRATIC of a weighted combination of latents so the He_2 aggregate
@@ -160,33 +159,27 @@ from tests.feature_selection._biz_val_synth import _build_linear
 
 
 class TestSensorMesh:
+    """The correlation-based cluster detector must find one cluster per latent and emit He_2 aggregates."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_detector_finds_one_cluster_per_latent(self, seed):
+        """detect_clusters_by_correlation finds exactly 5 clusters of 3 same-latent sensors each."""
         detect, _, _, _, _ = _import_cluster_basis_fe()
         X, _, _ = _build_sensor_mesh(seed, n_latents=5, n_sensors=3, noise_sd=0.1)
         clusters = detect(X, corr_threshold=0.7, min_cluster_size=2)
         # Each latent's 3 sensors are strongly correlated (corr > 0.99 with
         # noise_sd=0.1); the detector must return exactly 5 clusters.
-        assert len(clusters) == 5, (
-            f"seed={seed}: detector found {len(clusters)} clusters; expected "
-            f"5 (one per latent). Detected: {dict(clusters)}"
-        )
+        assert len(clusters) == 5, f"seed={seed}: detector found {len(clusters)} clusters; expected " f"5 (one per latent). Detected: {dict(clusters)}"
         # Every cluster has exactly 3 members.
         for anchor, members in clusters.items():
-            assert len(members) == 3, (
-                f"seed={seed}: anchor {anchor!r} has {len(members)} members; "
-                f"expected 3 (one per sensor)."
-            )
+            assert len(members) == 3, f"seed={seed}: anchor {anchor!r} has {len(members)} members; " f"expected 3 (one per sensor)."
             # All members must share the same latent prefix (L{i}_s).
             prefixes = {m.split("_s")[0] for m in members}
-            assert len(prefixes) == 1, (
-                f"seed={seed}: cluster {anchor!r} crosses latents: members="
-                f"{members}; prefixes={prefixes}."
-            )
+            assert len(prefixes) == 1, f"seed={seed}: cluster {anchor!r} crosses latents: members=" f"{members}; prefixes={prefixes}."
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_cluster_basis_emits_one_he2_per_cluster(self, seed):
+        """generate_cluster_basis_features emits >= 1 column, each referencing a known cluster anchor."""
         _, _, gen_cb, _, _ = _import_cluster_basis_fe()
         X, y, _ = _build_sensor_mesh(seed, n_latents=5, n_sensors=3, noise_sd=0.1)
         # Auto-detect clusters internally.
@@ -198,16 +191,12 @@ class TestSensorMesh:
             X, y.values, cm,
             degrees=(2,), aggregator="mean_z", top_k=5,
         )
-        assert eng.shape[1] >= 1, (
-            f"seed={seed}: cluster-basis emitted no columns; expected >=1 "
-            f"for the 5-latent mesh. Detected clusters: {cm}"
-        )
+        assert eng.shape[1] >= 1, f"seed={seed}: cluster-basis emitted no columns; expected >=1 " f"for the 5-latent mesh. Detected clusters: {cm}"
         # Every emitted column references a known cluster anchor.
         anchors_seen = {info["anchor"] for info in meta.values()}
         anchors_known = set(cm.keys())
         assert anchors_seen.issubset(anchors_known), (
-            f"seed={seed}: cluster-basis emitted columns referencing unknown "
-            f"anchors: {anchors_seen - anchors_known}"
+            f"seed={seed}: cluster-basis emitted columns referencing unknown " f"anchors: {anchors_seen - anchors_known}"
         )
 
 
@@ -218,6 +207,7 @@ class TestSensorMesh:
 
 
 class TestAggregateDenoising:
+    """The aggregate He_2(mean_z) column must materially beat the best per-member He_2 by MI."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_aggregate_he2_beats_per_member_he2(self, seed):
@@ -257,6 +247,7 @@ class TestAggregateDenoising:
 
 
 class TestClusterAggregateSignal:
+    """End-to-end: the cluster-basis path must emit an aggregate He_2 winner that beats the best per-member baseline."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_cluster_basis_recovers_aggregate_he2(self, seed):
@@ -273,16 +264,10 @@ class TestClusterAggregateSignal:
             basis="hermite", degrees=(2, 3), aggregator="mean_z",
             top_k=3, min_uplift=1.05,
         )
-        assert eng.shape[1] >= 1, (
-            f"seed={seed}: cluster-basis emitted zero columns; expected >=1 "
-            f"He_2 aggregate winner for the He_2(z) target."
-        )
+        assert eng.shape[1] >= 1, f"seed={seed}: cluster-basis emitted zero columns; expected >=1 " f"He_2 aggregate winner for the He_2(z) target."
         # The best winner must reference our cluster anchor.
         best = max(meta.values(), key=lambda d: d["uplift"])
-        assert best["anchor"] == anchor, (
-            f"seed={seed}: best winner anchor {best['anchor']!r} != "
-            f"expected {anchor!r}"
-        )
+        assert best["anchor"] == anchor, f"seed={seed}: best winner anchor {best['anchor']!r} != " f"expected {anchor!r}"
         # The engineered MI must exceed the BEST member's marginal MI.
         assert best["engineered_mi"] > best["baseline_mi"], (
             f"seed={seed}: engineered_mi {best['engineered_mi']:.4f} did "
@@ -298,19 +283,19 @@ class TestClusterAggregateSignal:
 
 
 class TestDefaultDisabledByteIdentical:
+    """fe_hybrid_orth_cluster_basis_enable defaults to False; enabling it must fire and append columns."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_default_off_no_cluster_basis_columns(self, seed):
+        """With the flag left at its False default, no cluster-basis columns are appended."""
         X, y = _build_linear(seed)
         m = _make_mrmr().fit(X, y)
         added = list(getattr(m, "hybrid_orth_features_", []) or [])
-        assert added == [], (
-            f"seed={seed}: default fe_hybrid_orth_cluster_basis_enable=False "
-            f"should NOT append any engineered columns; got {added}"
-        )
+        assert added == [], f"seed={seed}: default fe_hybrid_orth_cluster_basis_enable=False " f"should NOT append any engineered columns; got {added}"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_enable_cluster_basis_appends_engineered(self, seed):
+        """Enabling the flag on an auto-detectable cluster fixture appends a cluster_-prefixed engineered column."""
         # member_noise=0.55 keeps the per-pair correlation ~0.76 (above the
         # auto-detect default 0.7) so the MRMR-fit auto-detection path
         # actually fires; the aggregate-denoising tests above use 0.7
@@ -323,15 +308,11 @@ class TestDefaultDisabledByteIdentical:
             fe_hybrid_orth_cluster_basis_top_k=3,
         ).fit(X, y)
         added = list(getattr(m, "hybrid_orth_features_", []) or [])
-        assert added, (
-            f"seed={seed}: cluster-basis flag ON should append at least one "
-            f"engineered column to hybrid_orth_features_; got {added}"
-        )
+        assert added, f"seed={seed}: cluster-basis flag ON should append at least one " f"engineered column to hybrid_orth_features_; got {added}"
         # At least one appended column must be a cluster-basis name
         # (prefix ``cluster_``).
         assert any(c.startswith("cluster_") for c in added), (
-            f"seed={seed}: cluster-basis flag ON should append at least one "
-            f"``cluster_`` engineered column; got {added}"
+            f"seed={seed}: cluster-basis flag ON should append at least one " f"``cluster_`` engineered column; got {added}"
         )
 
 
@@ -341,8 +322,10 @@ class TestDefaultDisabledByteIdentical:
 
 
 class TestPickleAndClone:
+    """Cluster-basis ctor params and recipes must survive clone/pickle round-trips."""
 
     def test_clone_preserves_cluster_basis_params(self):
+        """sklearn clone() copies every fe_hybrid_orth_cluster_basis_* ctor param."""
         m = _make_mrmr(
             fe_hybrid_orth_cluster_basis_enable=True,
             fe_hybrid_orth_cluster_basis_aggregator="median_z",
@@ -356,12 +339,10 @@ class TestPickleAndClone:
             ("fe_hybrid_orth_cluster_basis_degrees", (2, 3, 4)),
             ("fe_hybrid_orth_cluster_basis_top_k", 7),
         ]:
-            assert getattr(m2, name) == expected, (
-                f"clone() dropped {name}: expected {expected}, got "
-                f"{getattr(m2, name)}"
-            )
+            assert getattr(m2, name) == expected, f"clone() dropped {name}: expected {expected}, got " f"{getattr(m2, name)}"
 
     def test_pickle_roundtrip_preserves_cluster_basis_recipe(self):
+        """A pickle round-trip preserves feature names, appended columns, and every orth_cluster_basis recipe field."""
         # member_noise=0.55 -- see TestDefaultDisabledByteIdentical for rationale.
         X, y, _ = _build_aggregate_signal_frame(seed=42, n=2500, member_noise=0.55)
         m = _make_mrmr(
@@ -371,39 +352,22 @@ class TestPickleAndClone:
             fe_hybrid_orth_cluster_basis_top_k=3,
         ).fit(X, y)
         blob = pickle.dumps(m)
-        m2 = pickle.loads(blob)
-        assert list(m2.feature_names_in_) == list(m.feature_names_in_), (
-            "pickle changed feature_names_in_"
-        )
+        m2 = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
+        assert list(m2.feature_names_in_) == list(m.feature_names_in_), "pickle changed feature_names_in_"
         added_before = list(getattr(m, "hybrid_orth_features_", []) or [])
         added_after = list(getattr(m2, "hybrid_orth_features_", []) or [])
-        assert added_before == added_after, (
-            f"pickle changed hybrid_orth_features_: before={added_before}, "
-            f"after={added_after}"
-        )
-        recipes_before = {
-            r.name: r for r in getattr(m, "_engineered_recipes_", []) or []
-            if r.kind == "orth_cluster_basis"
-        }
-        recipes_after = {
-            r.name: r for r in getattr(m2, "_engineered_recipes_", []) or []
-            if r.kind == "orth_cluster_basis"
-        }
+        assert added_before == added_after, f"pickle changed hybrid_orth_features_: before={added_before}, " f"after={added_after}"
+        recipes_before = {r.name: r for r in getattr(m, "_engineered_recipes_", []) or [] if r.kind == "orth_cluster_basis"}
+        recipes_after = {r.name: r for r in getattr(m2, "_engineered_recipes_", []) or [] if r.kind == "orth_cluster_basis"}
         assert set(recipes_before.keys()) == set(recipes_after.keys()), (
-            f"pickle dropped or added orth_cluster_basis recipe names: "
-            f"before={set(recipes_before.keys())}, "
-            f"after={set(recipes_after.keys())}"
+            f"pickle dropped or added orth_cluster_basis recipe names: " f"before={set(recipes_before.keys())}, " f"after={set(recipes_after.keys())}"
         )
         for name, r_before in recipes_before.items():
             r_after = recipes_after[name]
-            assert r_before.src_names == r_after.src_names, (
-                f"pickle changed src_names for {name!r}: "
-                f"before={r_before.src_names}, after={r_after.src_names}"
-            )
+            assert r_before.src_names == r_after.src_names, f"pickle changed src_names for {name!r}: " f"before={r_before.src_names}, after={r_after.src_names}"
             for key in ("basis", "degree", "aggregator"):
                 assert r_before.extra.get(key) == r_after.extra.get(key), (
-                    f"pickle changed '{key}' for recipe {name!r}: "
-                    f"before={r_before.extra}, after={r_after.extra}"
+                    f"pickle changed '{key}' for recipe {name!r}: " f"before={r_before.extra}, after={r_after.extra}"
                 )
 
 
@@ -413,9 +377,11 @@ class TestPickleAndClone:
 
 
 class TestRecipeReplay:
+    """apply_recipe on held-out data must reproduce the fit-time engineered values bit-equivalently."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_recipe_replay_matches_fit_time_values(self, seed):
+        """Replaying the fit-time recipes on the same X reproduces identical engineered values."""
         _, _, _, _, hybrid_with_recipes = _import_cluster_basis_fe()
         X, y, members = _build_aggregate_signal_frame(seed, n=3000, member_noise=0.7)
         cluster_members = {sorted(members)[0]: members}
@@ -426,23 +392,14 @@ class TestRecipeReplay:
             top_k=3,
         )
         if not recipes:
-            pytest.fail(
-                f"seed={seed}: cluster-basis emitted no recipes; replay test "
-                f"requires at least one recipe."
-            )
+            pytest.fail(f"seed={seed}: cluster-basis emitted no recipes; replay test " f"requires at least one recipe.")
         from mlframe.feature_selection.filters.engineered_recipes import (
             apply_recipe,
         )
         appended = [c for c in X_aug.columns if c not in X.columns]
         for r in recipes:
-            assert r.name in appended, (
-                f"seed={seed}: recipe {r.name!r} not in appended columns "
-                f"{appended}"
-            )
-            assert r.kind == "orth_cluster_basis", (
-                f"seed={seed}: recipe {r.name!r} kind={r.kind!r}, expected "
-                f"'orth_cluster_basis'."
-            )
+            assert r.name in appended, f"seed={seed}: recipe {r.name!r} not in appended columns " f"{appended}"
+            assert r.kind == "orth_cluster_basis", f"seed={seed}: recipe {r.name!r} kind={r.kind!r}, expected " f"'orth_cluster_basis'."
             replayed = apply_recipe(r, X)
             fit_time = X_aug[r.name].to_numpy()
             assert np.allclose(replayed, fit_time, rtol=1e-9, atol=1e-12), (
@@ -459,9 +416,11 @@ class TestRecipeReplay:
 
 
 class TestAggregatorVariants:
+    """Every aggregator variant (mean_z, median_z, pc1) must emit a properly-named, replayable recipe."""
 
     @pytest.mark.parametrize("aggregator", ["mean_z", "median_z", "pc1"])
     def test_each_aggregator_emits_recipe_that_replays(self, aggregator):
+        """Each aggregator emits a recipe whose replayed values reproduce the fit-time engineered column."""
         _, _, _, _, hybrid_with_recipes = _import_cluster_basis_fe()
         X, y, members = _build_aggregate_signal_frame(seed=7, n=3000, member_noise=0.7)
         cluster_members = {sorted(members)[0]: members}
@@ -472,16 +431,10 @@ class TestAggregatorVariants:
             top_k=3,
         )
         appended = [c for c in X_aug.columns if c not in X.columns]
-        assert appended, (
-            f"aggregator={aggregator}: expected at least one cluster-basis "
-            f"column on the He_2(z) target; got {appended}"
-        )
+        assert appended, f"aggregator={aggregator}: expected at least one cluster-basis " f"column on the He_2(z) target; got {appended}"
         # Every appended name encodes the aggregator.
         for name in appended:
-            assert f"agg_{aggregator}" in name, (
-                f"aggregator={aggregator}: appended name {name!r} does not "
-                f"encode the aggregator in its identifier."
-            )
+            assert f"agg_{aggregator}" in name, f"aggregator={aggregator}: appended name {name!r} does not " f"encode the aggregator in its identifier."
         from mlframe.feature_selection.filters.engineered_recipes import (
             apply_recipe,
         )
