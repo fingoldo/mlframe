@@ -9,7 +9,7 @@ stay reachable via the MRO.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional, cast
 
 import numpy as np
 import pandas as pd
@@ -19,6 +19,9 @@ from sklearn.base import clone
 from ._mrmr_class_shared import _mrmr_y_columns
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
+
+if TYPE_CHECKING:
+    from ._mrmr_class import MRMR
 
 
 class _MRMRFitHelpersMixin:
@@ -31,12 +34,12 @@ class _MRMRFitHelpersMixin:
     """
 
     if TYPE_CHECKING:
-        get_params: Any
-        fit: Any
-        random_seed: Any
-        get_feature_names_out: Any
+        get_params: Callable[..., dict]
+        fit: Callable[..., "MRMR"]
+        random_seed: Optional[int]
+        get_feature_names_out: Callable[..., np.ndarray]
 
-        def _effective_random_seed(self) -> Any:
+        def _effective_random_seed(self) -> Optional[int]:
             """Type-checking-only stub; resolves at runtime via the concrete ``MRMR`` MRO."""
             ...
 
@@ -125,7 +128,9 @@ class _MRMRFitHelpersMixin:
         return self
 
     # Pickle BC: old MRMR pickles lacking newer attributes resurface with the legacy defaults injected.
-    def _maybe_resample_for_sample_weight(self, X, y, sample_weight: np.ndarray | None):
+    def _maybe_resample_for_sample_weight(
+        self, X: pd.DataFrame | np.ndarray | Any, y: pd.Series | np.ndarray | Any, sample_weight: np.ndarray | None
+    ) -> tuple[Any, Any]:
         """When ``sample_weight`` is provided AND not effectively uniform, draw n=len(X) rows with replacement
         using probabilities w_i / sum(w). The resampled empirical bincount approximates the weighted bincount
         (np.bincount(x, weights=w) up to MC noise), so MI relevance / redundancy estimated downstream from
@@ -329,7 +334,15 @@ class _MRMRFitHelpersMixin:
         # Mark for transform() to know we're in shortcut state. Some downstream code looks at .signature; safe-default to a stable string.
         self.signature: Optional[str] = f"_mrmr_identity_shortcut_n{n_cols}"
 
-    def _fit_multioutput(self, X, y, groups, sample_weight, strategy: str, fit_params):
+    def _fit_multioutput(
+        self,
+        X: pd.DataFrame | np.ndarray | Any,
+        y: pd.DataFrame | np.ndarray | Any,
+        groups: pd.Series | np.ndarray | None,
+        sample_weight: np.ndarray | pd.Series | None,
+        strategy: str,
+        fit_params: Optional[dict],
+    ) -> "MRMR":
         """Fit one single-target MRMR per output column of a 2D ``y`` and aggregate the selected RAW columns via ``strategy`` ('union'/'intersect').
 
         Sets the standard fitted attributes (``support_`` as integer column indices, ``feature_names_in_``, ``n_features_in_``, ``n_features_``)
@@ -394,4 +407,4 @@ class _MRMRFitHelpersMixin:
         from .._fe_rejection_ledger import populate_fe_rejection_ledger
         populate_fe_provenance(self)
         populate_fe_rejection_ledger(self)
-        return self
+        return cast("MRMR", self)

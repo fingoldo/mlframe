@@ -18,12 +18,13 @@ import os
 import psutil
 import warnings
 from collections import OrderedDict
-from typing import Any, Optional, Sequence, cast
+from typing import Any, ClassVar, Iterable, Optional, Sequence, cast
 
 import numpy as np
 import pandas as pd
 
 from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.model_selection import BaseCrossValidator
 
 # Top-level helpers (histogram + fingerprint/hash + replay + chunker) live in
 # ``_mrmr_fingerprints.py``; re-imported below so the parent module and
@@ -198,7 +199,7 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
     # do not leak; ``MRMR._FIT_CACHE.clear()`` between suites still drains the lot. Cache hit: replay all
     # fitted attributes onto ``self`` and return early; constructor params are NEVER overwritten (the key
     # already includes the params signature, so a hit guarantees matching state).
-    _FIT_CACHE: "OrderedDict[tuple, MRMR]" = OrderedDict()  # noqa: RUF012 -- intentional shared class-level LRU cache, not a per-instance mutable-default bug
+    _FIT_CACHE: "ClassVar[OrderedDict[tuple, MRMR]]" = OrderedDict()  # noqa: RUF012 -- intentional shared class-level LRU cache, not a per-instance mutable-default bug
 
     # Fast-search sub-knob overrides applied for the duration of a fit when ``fe_fast_search=True``.
     # Each entry is (attr, fast_value). The override is applied ONLY when the current attr value still
@@ -354,7 +355,7 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
         additional_rfecv_kwargs: dict | None = None,
         # performance
         extra_x_shuffling: bool = True,
-        dtype=np.int32,
+        dtype: type = np.int32,
         # ``None`` (legacy default) triggers process-stable but seedable random_state derivation
         # downstream (see ``_resolve_target_prefix``: uses pid ^ id(self) instead of touching the
         # numpy global RNG). For bit-exact reproducibility across runs / mlflow hash stability, pass
@@ -1063,7 +1064,7 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
         ndigits: int = 5,
         parallel_kwargs: dict | None = None,
         # CV
-        cv: object | int | None = 3,
+        cv: int | BaseCrossValidator | Iterable | None = 3,
         cv_shuffle: bool = False,
         # service
         random_state: int | None = None,
@@ -2891,12 +2892,12 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
         # repr because it equals its default, while ``n_jobs`` shows RESOLVED (-1 -> cpu_count) and is easily misread as
         # "MI runs on n_jobs threads". n_jobs only drives CPU sub-helpers (permutation-null MI, wide-frame nbins edges),
         # each self-gated (pair-search forces serial under GPU-strict). Surface n_workers so the parallelism is unambiguous.
-        r = super().__repr__(N_CHAR_MAX=N_CHAR_MAX)
+        r: str = super().__repr__(N_CHAR_MAX=N_CHAR_MAX)
         if "n_workers=" not in r and r.endswith(")"):
             _inner = r[:-1]
             _sep = "" if _inner.endswith("(") else ", "
             r = f"{_inner}{_sep}n_workers={getattr(self, 'n_workers', 1)})"
-        return str(r)
+        return r
 
     # Constructor-param validation allow-lists. Carved VERBATIM into the leaf module
     # ``_mrmr_param_constants.py`` (no class refs -> no cycle) and re-bound here as class
@@ -2987,7 +2988,14 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
         self.__dict__.update(state)
 
     @hygienic_fit
-    def fit(self, X: pd.DataFrame | np.ndarray | Any, y: pd.DataFrame | pd.Series | np.ndarray | Any, groups: pd.Series | np.ndarray = None, sample_weight: np.ndarray | pd.Series | None = None, **fit_params):
+    def fit(
+        self,
+        X: pd.DataFrame | np.ndarray | Any,
+        y: pd.DataFrame | pd.Series | np.ndarray | Any,
+        groups: pd.Series | np.ndarray | None = None,
+        sample_weight: np.ndarray | pd.Series | None = None,
+        **fit_params,
+    ):
         """Public ``fit`` wrapper. The body (``_fit_impl``) is run inside a try / finally so the
         temporary target columns injected into a caller-supplied pandas frame are always dropped,
         even if screening / cat-FE / discretization raises. Pre-fix code dropped only on success,
@@ -3640,9 +3648,10 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
             # Restore the lazily-reconciled ctor aliases so ``get_params`` / ``clone`` see the unmodified
             # user-supplied values (sklearn round-trip contract). ``_UNSET`` => never overridden.
             if _orig_random_seed is not _UNSET:
-                self.random_seed = _orig_random_seed
+                # cast: narrowed by the is-not-_UNSET sentinel check above; mypy can't track object-identity narrowing.
+                self.random_seed = cast(Optional[int], _orig_random_seed)
             if _orig_skip_content is not _UNSET:
-                self.skip_retraining_on_same_content = _orig_skip_content  # type: ignore[assignment]  # narrowed by the is-not-_UNSET sentinel check above; mypy can't track object-identity narrowing
+                self.skip_retraining_on_same_content = cast(bool, _orig_skip_content)
             # restore the fast-search profile overrides (constructor-arg stability).
             # Restore the default screen-subsample knobs to their pre-fit (constructor) values so
             # clone / pickle / repeated-fit see unchanged constructor-arg semantics.

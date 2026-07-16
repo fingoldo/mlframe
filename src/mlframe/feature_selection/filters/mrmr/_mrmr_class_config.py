@@ -11,9 +11,11 @@ from __future__ import annotations
 import inspect
 import logging
 import os
-from typing import Any, ClassVar, Optional
+from collections import OrderedDict
+from typing import Any, ClassVar, Iterable, Optional
 
 import numpy as np
+from sklearn.model_selection import BaseCrossValidator
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
@@ -41,14 +43,14 @@ class _MRMRConfigMixin:
     class attributes and ``random_seed`` / ``verbose`` / ``cv`` / ``cv_shuffle`` as constructor params.
     """
 
-    _FIT_CACHE: Any
-    _FAST_SEARCH_OVERRIDES: Any
+    _FIT_CACHE: "ClassVar[OrderedDict[tuple, Any]]"
+    _FAST_SEARCH_OVERRIDES: ClassVar[tuple[tuple[str, Any], ...]]
     _DEFAULT_SCREEN_SUBSAMPLE_N: ClassVar[int]
-    random_seed: Any
-    random_state: Any
-    verbose: Any
-    cv: Any
-    cv_shuffle: Any
+    random_seed: Optional[int]
+    random_state: Optional[int]
+    verbose: bool | int
+    cv: int | BaseCrossValidator | Iterable | None
+    cv_shuffle: bool
 
     @classmethod
     def clear_fit_cache(cls) -> int:

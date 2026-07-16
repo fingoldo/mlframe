@@ -6,11 +6,13 @@ straight from _mrmr_class, which itself imports the mixin).
 """
 from __future__ import annotations
 
+from typing import Any, Iterator
+
 import numpy as np
 import pandas as pd
 
 
-def _mrmr_y_columns(y):
+def _mrmr_y_columns(y: Any) -> Iterator[tuple[str, np.ndarray]]:
     """Yield (label, y_column_1d) for each output column of a 2D y (pandas / polars DataFrame, or 2D ndarray)."""
     if isinstance(y, pd.DataFrame):
         for col in y.columns:
