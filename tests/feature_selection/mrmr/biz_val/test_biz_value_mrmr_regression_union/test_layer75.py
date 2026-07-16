@@ -237,11 +237,11 @@ def _xor_redundant(seed: int, n: int = 2000):
 
 
 _FIXTURES = {
-    "linear_monotone":   _linear_monotone,
-    "quadratic":         _quadratic,
+    "linear_monotone": _linear_monotone,
+    "quadratic": _quadratic,
     "non_monotone_cubic": _non_monotone_cubic,
-    "heavy_tail":        _heavy_tail,
-    "xor_redundant":     _xor_redundant,
+    "heavy_tail": _heavy_tail,
+    "xor_redundant": _xor_redundant,
 }
 
 
@@ -271,13 +271,12 @@ def _ensure_test_aug(X_tr_aug, X_tr, X_te):
         X_te, degrees=(2, 3), basis="hermite",
     )
     have = [c for c in added if c in eng_te_all.columns]
-    X_te_aug = (
-        pd.concat([X_te, eng_te_all[have]], axis=1) if have else X_te
-    )
+    X_te_aug = pd.concat([X_te, eng_te_all[have]], axis=1) if have else X_te
     return X_tr_aug, X_te_aug
 
 
 def _run_plugin(X_tr, y_tr, X_te):
+    """Run the L21 plug-in MI scorer and replay its picked columns onto the holdout."""
     from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
         hybrid_orth_mi_fe,
     )
@@ -290,6 +289,7 @@ def _run_plugin(X_tr, y_tr, X_te):
 
 
 def _run_ksg(X_tr, y_tr, X_te):
+    """Run the L65 KSG k-NN MI scorer and replay its picked columns onto the holdout."""
     from mlframe.feature_selection.filters._orthogonal_ksg_mi_fe import (
         hybrid_orth_mi_ksg_fe,
     )
@@ -303,6 +303,7 @@ def _run_ksg(X_tr, y_tr, X_te):
 
 
 def _run_copula(X_tr, y_tr, X_te):
+    """Run the L66 copula rank-uniform MI scorer and replay its picked columns onto the holdout."""
     from mlframe.feature_selection.filters._orthogonal_copula_mi_fe import (
         hybrid_orth_mi_copula_fe,
     )
@@ -315,6 +316,7 @@ def _run_copula(X_tr, y_tr, X_te):
 
 
 def _run_dcor(X_tr, y_tr, X_te):
+    """Run the L67 distance-correlation scorer and replay its picked columns onto the holdout."""
     from mlframe.feature_selection.filters._orthogonal_dcor_fe import (
         hybrid_orth_mi_dcor_fe,
     )
@@ -328,6 +330,7 @@ def _run_dcor(X_tr, y_tr, X_te):
 
 
 def _run_hsic(X_tr, y_tr, X_te):
+    """Run the L71 HSIC scorer and replay its picked columns onto the holdout."""
     from mlframe.feature_selection.filters._orthogonal_hsic_fe import (
         hybrid_orth_mi_hsic_fe,
     )
@@ -341,6 +344,7 @@ def _run_hsic(X_tr, y_tr, X_te):
 
 
 def _run_jmim(X_tr, y_tr, X_te):
+    """Run the L72 JMIM scorer and replay its picked columns onto the holdout."""
     from mlframe.feature_selection.filters._orthogonal_jmim_fe import (
         hybrid_orth_mi_jmim_fe,
     )
@@ -353,6 +357,7 @@ def _run_jmim(X_tr, y_tr, X_te):
 
 
 def _run_tc(X_tr, y_tr, X_te):
+    """Run the L73 total-correlation scorer and replay its picked columns onto the holdout."""
     from mlframe.feature_selection.filters._orthogonal_total_correlation_fe import (
         hybrid_orth_mi_tc_fe,
     )
@@ -365,6 +370,7 @@ def _run_tc(X_tr, y_tr, X_te):
 
 
 def _run_cmim(X_tr, y_tr, X_te):
+    """Run the L74 CMIM scorer and replay its picked columns onto the holdout."""
     from mlframe.feature_selection.filters._orthogonal_cmim_fe import (
         hybrid_orth_mi_cmim_fe,
     )
@@ -378,13 +384,13 @@ def _run_cmim(X_tr, y_tr, X_te):
 
 _SCORERS = [
     ("plug_in", _run_plugin),
-    ("KSG",     _run_ksg),
-    ("copula",  _run_copula),
-    ("dCor",    _run_dcor),
-    ("HSIC",    _run_hsic),
-    ("JMIM",    _run_jmim),
-    ("TC",      _run_tc),
-    ("CMIM",    _run_cmim),
+    ("KSG", _run_ksg),
+    ("copula", _run_copula),
+    ("dCor", _run_dcor),
+    ("HSIC", _run_hsic),
+    ("JMIM", _run_jmim),
+    ("TC", _run_tc),
+    ("CMIM", _run_cmim),
 ]
 
 
@@ -439,20 +445,15 @@ class TestEveryFixtureHasOneScorerAbove085:
     """
 
     def test_every_fixture_has_a_winner_above_085(self, auc_matrix):
+        """Every fixture has at least one of the 8 scorers posting mean AUC >= 0.85."""
         floor = 0.85
         failures = []
         for fx_name, scorer_to_auc in auc_matrix.items():
             best_scorer = max(scorer_to_auc, key=lambda s: scorer_to_auc[s])
             best_auc = scorer_to_auc[best_scorer]
             if best_auc < floor:
-                failures.append(
-                    f"  {fx_name}: best={best_scorer}@{best_auc:.4f} < {floor}"
-                )
-        assert not failures, (
-            "Some fixtures have NO scorer above the 0.85 AUC floor:\n"
-            + "\n".join(failures)
-            + f"\nFull matrix: {auc_matrix!r}"
-        )
+                failures.append(f"  {fx_name}: best={best_scorer}@{best_auc:.4f} < {floor}")
+        assert not failures, "Some fixtures have NO scorer above the 0.85 AUC floor:\n" + "\n".join(failures) + f"\nFull matrix: {auc_matrix!r}"
 
 
 class TestRedundancyAwareWinsRedundantFixture:
@@ -474,6 +475,7 @@ class TestRedundancyAwareWinsRedundantFixture:
     """
 
     def test_redundancy_aware_beats_marginal_by_030(self, auc_matrix):
+        """The weakest redundancy-aware scorer beats the strongest marginal scorer by >= 0.30 AUC on xor_redundant."""
         row = auc_matrix["xor_redundant"]
         marginal = ("plug_in", "KSG", "copula", "dCor")
         red_aware = ("CMIM", "JMIM", "TC")
@@ -500,6 +502,7 @@ class TestCmimStrongestOnRedundant:
     """
 
     def test_cmim_above_jmim_tc_by_010(self, auc_matrix):
+        """CMIM dominates the JMIM/TC pack by >= 0.10 absolute AUC on xor_redundant."""
         row = auc_matrix["xor_redundant"]
         cmim = row["CMIM"]
         jmim = row["JMIM"]
@@ -522,6 +525,7 @@ class TestPlugInAdequateOnLinearMonotone:
     """
 
     def test_plug_in_within_0005_of_best(self, auc_matrix):
+        """plug_in matches the best scorer's AUC within 0.005 on linear_monotone."""
         row = auc_matrix["linear_monotone"]
         best = max(row.values())
         plug = row["plug_in"]
@@ -553,6 +557,7 @@ class TestDcorImprovesOverPluginOnNonMonotone:
     """
 
     def test_dcor_beats_plug_in_by_0005_on_cubic(self, auc_matrix):
+        """dCor strictly beats plug_in by > 0.005 AUC on non_monotone_cubic."""
         row = auc_matrix["non_monotone_cubic"]
         dcor = row["dCor"]
         plug = row["plug_in"]
@@ -577,11 +582,10 @@ class TestRosterAtLeast74:
     """
 
     def test_layer_module_roster_at_least_74(self):
+        """The biz_value layer test module roster on disk covers at least 74 shipped layers."""
         # Module relocated into a themed subpackage; the flat roster lives one level up in tests/feature_selection/.
         this_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        matched = sorted(glob.glob(
-            os.path.join(this_dir, "test_biz_value_mrmr_layer*.py")
-        ))
+        matched = sorted(glob.glob(os.path.join(this_dir, "test_biz_value_mrmr_layer*.py")))
         rx = re.compile(r"test_biz_value_mrmr_layer(\d+)\.py$")
         layer_numbers: set[int] = set()
         for path in matched:
@@ -603,13 +607,8 @@ class TestRosterAtLeast74:
             "test_biz_value_mrmr_quality_metrics.py",
             "test_biz_value_mrmr_ultra.py",
         )
-        missing_catchall = [
-            n for n in catchall_required
-            if not os.path.isfile(os.path.join(this_dir, n))
-        ]
-        assert not missing_catchall, (
-            f"Missing catch-all biz_value module(s): {missing_catchall!r}."
-        )
+        missing_catchall = [n for n in catchall_required if not os.path.isfile(os.path.join(this_dir, n))]
+        assert not missing_catchall, f"Missing catch-all biz_value module(s): {missing_catchall!r}."
         # Silent-delete guard: the biz_value test-module roster on disk (flat layer files + themed
         # subpackage submodules, some consolidated under non-layerN names) must not shrink below the
         # shipped floor. A glob count over the tree catches a dropped/renamed module directly,
@@ -618,13 +617,9 @@ class TestRosterAtLeast74:
             glob.glob(os.path.join(this_dir, "test_biz_value_mrmr_*", "test_*.py"))
         )
         assert module_count >= 110, (
-            f"biz_value test-module roster shrank to {module_count} (floor 110); "
-            f"a prior-layer test module was likely dropped or renamed."
+            f"biz_value test-module roster shrank to {module_count} (floor 110); " f"a prior-layer test module was likely dropped or renamed."
         )
-        assert 75 in layer_numbers, (
-            f"L75 layer module not discovered on disk; layer numbers "
-            f"present: {sorted(layer_numbers)!r}."
-        )
+        assert 75 in layer_numbers, f"L75 layer module not discovered on disk; layer numbers " f"present: {sorted(layer_numbers)!r}."
 
 
 if __name__ == "__main__":
