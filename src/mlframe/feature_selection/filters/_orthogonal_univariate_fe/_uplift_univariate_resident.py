@@ -58,7 +58,8 @@ def _specs_from_engineered_names(eng_names, raw_cols):
     raw_set = set(raw_cols)
     specs = []
     for name in eng_names:
-        src = _source_from_engineered_name(name, raw_cols)
+        # Pass the already-built set (not raw_cols) -> _source_from_engineered_name's O(1) fast path.
+        src = _source_from_engineered_name(name, raw_set)
         if src not in raw_set:
             return None
         if not name.startswith(src + "__"):
