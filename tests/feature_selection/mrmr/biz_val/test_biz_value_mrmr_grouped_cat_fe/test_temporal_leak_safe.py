@@ -36,7 +36,6 @@ import warnings
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
@@ -65,8 +64,7 @@ def _build_lookahead_leak(seed: int, n_ent: int = 200, per: int = 12):
     for e in range(n_ent):
         ts = np.sort(rng.uniform(0.0, 1000.0, per))
         vals = np.cumsum(rng.normal(0.0, 1.0, per)) + rng.uniform(-3.0, 3.0)
-        for k in range(per):
-            rows.append((e, ts[k], vals[k]))
+        rows.extend((e, ts[k], vals[k]) for k in range(per))
     df = pd.DataFrame(rows, columns=["entity", "ts", "value"])
     df = df.sort_values("ts").reset_index(drop=True)
     full_mean = df.groupby("entity")["value"].transform("mean").to_numpy()
@@ -85,16 +83,10 @@ def _build_past_mean_causal(seed: int, n_ent: int = 200, per: int = 12):
         lvl = rng.uniform(-2.5, 2.5)
         ts = np.sort(rng.uniform(0.0, 1000.0, per))
         vals = lvl + rng.normal(0.0, 1.0, per)
-        for k in range(per):
-            rows.append((e, ts[k], vals[k]))
+        rows.extend((e, ts[k], vals[k]) for k in range(per))
     df = pd.DataFrame(rows, columns=["entity", "ts", "value"])
     df = df.sort_values("ts").reset_index(drop=True)
-    pm = (
-        df.groupby("entity")["value"]
-        .transform(lambda s: s.expanding().mean().shift(1))
-        .bfill()
-        .to_numpy()
-    )
+    pm = df.groupby("entity")["value"].transform(lambda s: s.expanding().mean().shift(1)).bfill().to_numpy()
     y = (pm + 0.3 * rng.normal(size=len(df)) > 0.0).astype(int)
     return df, y
 
@@ -108,8 +100,7 @@ def _build_lag1_autoregressive(seed: int, n_ent: int = 150, per: int = 20):
         days = np.sort(rng.uniform(0.0, 300.0, per))
         ts = base + pd.to_timedelta(days, unit="D")
         vals = rng.normal(0.0, 1.0, per)
-        for k in range(per):
-            rows.append((e, ts[k], vals[k]))
+        rows.extend((e, ts[k], vals[k]) for k in range(per))
     df = pd.DataFrame(rows, columns=["entity", "ts", "value"])
     df = df.sort_values("ts").reset_index(drop=True)
     prev = df.groupby("entity")["value"].shift(1).bfill().to_numpy()
@@ -128,8 +119,7 @@ def _build_rolling_window(seed: int, n_ent: int = 120, per: int = 25):
         days = np.sort(rng.uniform(0.0, 200.0, per))
         ts = base + pd.to_timedelta(days, unit="D")
         vals = lvl + rng.normal(0.0, 0.7, per)
-        for k in range(per):
-            rows.append((e, ts[k], vals[k]))
+        rows.extend((e, ts[k], vals[k]) for k in range(per))
     df = pd.DataFrame(rows, columns=["entity", "ts", "value"])
     df = df.sort_values("ts").reset_index(drop=True)
     lvl_map = df.groupby("entity")["value"].transform("mean").to_numpy()
@@ -138,6 +128,7 @@ def _build_rolling_window(seed: int, n_ent: int = 120, per: int = 25):
 
 
 def _forward_split(df: pd.DataFrame, y: np.ndarray, frac: float = 0.6):
+    """Split by row order (time-sorted) into an early-train / late-holdout pair."""
     cut = int(len(df) * frac)
     df = df.reset_index(drop=True)
     tr = np.asarray(df.index < cut)
@@ -155,6 +146,7 @@ class TestL87WholeFoldLeaksOnTimeSeries:
     future on time-series data -> high leaky CV, poor forward holdout."""
 
     def test_L87_wholefold_agg_leaks_on_timeseries(self):
+        """Whole-fold grouped-mean scores far higher under random CV than a forward holdout."""
         from mlframe.feature_selection.filters._grouped_agg_fe import (
             generate_grouped_agg_features,
             engineered_name_grouped_agg,
@@ -169,9 +161,7 @@ class TestL87WholeFoldLeaksOnTimeSeries:
             # random 5-fold CV -- every fold's per-entity mean still saw the
             # held-out rows, so the look-ahead leaks straight into the OOF score.
             enc_full, _ = generate_grouped_agg_features(df, ["entity"], ["value"])
-            feat = np.column_stack(
-                [df["value"].to_numpy(), enc_full[gm].to_numpy()]
-            )
+            feat = np.column_stack([df["value"].to_numpy(), enc_full[gm].to_numpy()])
             oof = cross_val_predict(
                 LogisticRegression(max_iter=1000), feat, y, cv=5,
                 method="predict_proba",
@@ -208,7 +198,10 @@ class TestL87WholeFoldLeaksOnTimeSeries:
 
 
 class TestL92LeakSafe:
+    """L92 expanding aggregations must not leak the future into train-time CV."""
+
     def test_expanding_train_cv_approx_forward_holdout(self):
+        """Train-CV AUC on the expanding-mean feature closely tracks the forward-holdout AUC."""
         from mlframe.feature_selection.filters._temporal_agg_fe import (
             hybrid_temporal_agg_fe,
             engineered_name_expanding,
@@ -241,9 +234,7 @@ class TestL92LeakSafe:
             gaps.append(abs(auc_cv - auc_fwd))
         mean_gap = float(np.mean(gaps))
         assert mean_gap < 0.05, (
-            f"L92 expanding agg is not leak-safe: |train-CV - forward-holdout| "
-            f"AUC gap {mean_gap:.4f} >= 0.05 "
-            f"(per-seed {[round(g, 4) for g in gaps]})."
+            f"L92 expanding agg is not leak-safe: |train-CV - forward-holdout| " f"AUC gap {mean_gap:.4f} >= 0.05 " f"(per-seed {[round(g, 4) for g in gaps]})."
         )
 
 
@@ -253,7 +244,10 @@ class TestL92LeakSafe:
 
 
 class TestL92RecoversPastMeanSignal:
+    """The expanding-mean feature must recover the past-mean-driven signal on the forward holdout."""
+
     def test_expanding_mean_forward_auc_at_least_0p80(self):
+        """Forward-holdout AUC using the expanding-mean feature is at least 0.80."""
         from mlframe.feature_selection.filters._temporal_agg_fe import (
             hybrid_temporal_agg_fe,
             engineered_name_expanding,
@@ -266,7 +260,7 @@ class TestL92RecoversPastMeanSignal:
         for s in SEEDS:
             df, y = _build_past_mean_causal(s)
             Xtr, Xte, ytr, yte = _forward_split(df, y)
-            X_aug, appended, recipes, _ = hybrid_temporal_agg_fe(
+            X_aug, _appended, recipes, _ = hybrid_temporal_agg_fe(
                 Xtr, ytr, entity_cols=["entity"], value_cols=["value"],
                 time_col="ts", stats=("mean", "std", "count"), lags=(1,),
                 top_k=10,
@@ -292,7 +286,10 @@ class TestL92RecoversPastMeanSignal:
 
 
 class TestRollingWindow:
+    """A time-windowed rolling stat must recover a per-entity level signal."""
+
     def test_rolling_window_recovers_level(self):
+        """Rolling 30D window mean has AUC >= 0.80 (symmetric) against the entity-level signal on most seeds."""
         from mlframe.feature_selection.filters._temporal_agg_fe import (
             generate_rolling_window_agg_features,
         )
@@ -305,15 +302,12 @@ class TestRollingWindow:
                 stats=("mean",),
             )
             assert enc.shape[1] >= 1, f"seed={s}: no rolling columns produced."
-            rn = list(enc.columns)[0]
+            rn = next(iter(enc.columns))
             auc = roc_auc_score(y, enc[rn].to_numpy())
             # AUC can be < 0.5 if anti-correlated; use the symmetric measure.
             if max(auc, 1.0 - auc) >= 0.80:
                 wins += 1
-        assert wins >= 4, (
-            f"rolling 30D window recovered the level signal on only "
-            f"{wins}/{len(SEEDS)} seeds; expected >= 4."
-        )
+        assert wins >= 4, f"rolling 30D window recovered the level signal on only " f"{wins}/{len(SEEDS)} seeds; expected >= 4."
 
 
 # ---------------------------------------------------------------------------
@@ -322,7 +316,10 @@ class TestRollingWindow:
 
 
 class TestLagFeatures:
+    """Lag-1 features must capture an autoregressive dependency on the prior value."""
+
     def test_lag1_captures_autoregressive_signal(self):
+        """Lag-1 feature AUC against y = f(value_{t-1}) is at least 0.80."""
         from mlframe.feature_selection.filters._temporal_agg_fe import (
             generate_lag_features,
             engineered_name_lag,
@@ -351,6 +348,8 @@ class TestLagFeatures:
 
 
 class TestTransformLeakSafe:
+    """Recipe replay must never let future rows change an earlier row's computed stat."""
+
     def test_replay_prefix_matches_full(self):
         """Replaying a recipe on a time-prefix of the frame must yield the SAME
         values as replaying on the full frame for those prefix rows -- i.e.
@@ -374,13 +373,13 @@ class TestTransformLeakSafe:
         df = df.sort_values("ts").reset_index(drop=True)
         prefix = df.iloc[: int(len(df) * 0.7)].copy()
 
-        enc_e, raw_e = generate_expanding_agg_features(
+        _enc_e, raw_e = generate_expanding_agg_features(
             df, ["entity"], ["value"], "ts", stats=("mean", "count"),
         )
-        enc_l, raw_l = generate_lag_features(
+        _enc_l, raw_l = generate_lag_features(
             df, ["entity"], ["value"], "ts", lags=(1, 2),
         )
-        enc_r, raw_r = generate_rolling_window_agg_features(
+        _enc_r, raw_r = generate_rolling_window_agg_features(
             df, ["entity"], ["value"], "ts", windows=("30D",), stats=("mean",),
         )
 
@@ -408,6 +407,7 @@ class TestTransformLeakSafe:
             )
 
     def test_replay_independent_of_y(self):
+        """Temporal recipes carry no stored y reference and replay deterministically from df alone."""
         from mlframe.feature_selection.filters._temporal_agg_fe import (
             hybrid_temporal_agg_fe,
         )
@@ -416,16 +416,14 @@ class TestTransformLeakSafe:
         )
 
         df, y = _build_past_mean_causal(13)
-        _, appended, recipes, _ = hybrid_temporal_agg_fe(
+        _, _appended, recipes, _ = hybrid_temporal_agg_fe(
             df, y, entity_cols=["entity"], value_cols=["value"],
             time_col="ts", stats=("mean", "std", "count"), lags=(1,),
             top_k=10,
         )
         assert recipes, "no recipes produced."
         for r in recipes:
-            assert "y" not in dict(r.extra), (
-                f"recipe {r.name!r} captured a y reference -- leakage risk."
-            )
+            assert "y" not in dict(r.extra), f"recipe {r.name!r} captured a y reference -- leakage risk."
             c1 = apply_recipe(r, df)
             c2 = apply_recipe(r, df)
             np.testing.assert_array_equal(c1, c2)
@@ -437,21 +435,21 @@ class TestTransformLeakSafe:
 
 
 class TestDefaultDisabledByteIdentical:
+    """fe_temporal_agg_enable defaults to False and, when enabled, produces temporal_agg columns."""
+
     def test_mrmr_default_off_does_not_add_temporal_agg(self):
+        """With the family disabled by default, MRMR.fit adds no temporal_agg_features_."""
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         df, y = _build_past_mean_causal(42, n_ent=80, per=8)
         m = MRMR(max_runtime_mins=0.5)
-        assert bool(getattr(m, "fe_temporal_agg_enable", False)) is False, (
-            "fe_temporal_agg_enable must default to False."
-        )
+        assert bool(getattr(m, "fe_temporal_agg_enable", False)) is False, "fe_temporal_agg_enable must default to False."
         m.fit(df, pd.Series(y, name="y"))
         ta = list(getattr(m, "temporal_agg_features_", []) or [])
-        assert ta == [], (
-            f"temporal_agg added columns with the feature disabled: {ta}"
-        )
+        assert ta == [], f"temporal_agg added columns with the feature disabled: {ta}"
 
     def test_mrmr_enabled_adds_temporal_agg(self):
+        """Enabling the family produces at least one temporal_agg engineered column."""
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         df, y = _build_past_mean_causal(42, n_ent=150, per=10)
@@ -467,10 +465,7 @@ class TestDefaultDisabledByteIdentical:
         )
         m.fit(df, pd.Series(y, name="y"))
         ta = list(getattr(m, "temporal_agg_features_", []) or [])
-        assert len(ta) >= 1, (
-            "temporal_agg enabled but produced no engineered columns on the "
-            "past-mean causal fixture."
-        )
+        assert len(ta) >= 1, "temporal_agg enabled but produced no engineered columns on the " "past-mean causal fixture."
 
 
 # ---------------------------------------------------------------------------
@@ -479,7 +474,10 @@ class TestDefaultDisabledByteIdentical:
 
 
 class TestPickleClone:
+    """Temporal recipes and MRMR params must survive pickle/clone round-trips intact."""
+
     def test_recipe_pickle_round_trip(self):
+        """Recipe pickle round-trip preserves equality and replay output."""
         from mlframe.feature_selection.filters._temporal_agg_fe import (
             hybrid_temporal_agg_fe,
         )
@@ -488,20 +486,21 @@ class TestPickleClone:
         )
 
         df, y = _build_lag1_autoregressive(1)
-        _, appended, recipes, _ = hybrid_temporal_agg_fe(
+        _, _appended, recipes, _ = hybrid_temporal_agg_fe(
             df, y, entity_cols=["entity"], value_cols=["value"],
             time_col="ts", stats=("mean", "std", "count"),
             windows=("30D",), lags=(1, 2), top_k=20,
         )
         assert recipes, "no recipes for pickle test."
         for r in recipes:
-            r2 = pickle.loads(pickle.dumps(r))
+            r2 = pickle.loads(pickle.dumps(r))  # nosec B301 -- round-trip of a locally-created, trusted object
             assert r2 == r, f"recipe {r.name!r} != its pickle round-trip."
             c1 = apply_recipe(r, df)
             c2 = apply_recipe(r2, df)
             np.testing.assert_array_equal(c1, c2)
 
     def test_mrmr_clone_preserves_params(self):
+        """sklearn clone() copies every fe_temporal_agg_* ctor param without fitted state."""
         from sklearn.base import clone
         from mlframe.feature_selection.filters.mrmr import MRMR
 

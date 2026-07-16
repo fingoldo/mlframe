@@ -67,12 +67,13 @@ def _build_bounded_many_cat_signal(seed: int, n: int = 3000, n_noise_cats: int =
 
 
 class TestFlippedDefaults:
+    """fe_local_mi_gate now defaults to True; fe_unified_second_pass_gate stays opt-in."""
+
     def test_fe_local_mi_gate_default_true(self):
+        """MRMR() ctor default for fe_local_mi_gate is True with top_k unchanged at 20."""
         from mlframe.feature_selection.filters.mrmr import MRMR
         m = MRMR()
-        assert m.fe_local_mi_gate is True, (
-            "Layer 97: fe_local_mi_gate must default to True (corrective gate)"
-        )
+        assert m.fe_local_mi_gate is True, "Layer 97: fe_local_mi_gate must default to True (corrective gate)"
         # top_k unchanged.
         assert m.fe_local_mi_gate_top_k == 20
 
@@ -84,13 +85,15 @@ class TestFlippedDefaults:
         assert m.fe_unified_second_pass_gate is False
 
     def test_clone_preserves_flipped_default(self):
+        """sklearn clone() preserves the new fe_local_mi_gate=True default."""
         m = _make_mrmr()
         m2 = clone(m)
         assert m2.get_params()["fe_local_mi_gate"] is True
 
     def test_pickle_round_trip_default(self):
+        """A pickle round-trip preserves the new fe_local_mi_gate=True default."""
         m = _make_mrmr()
-        m2 = pickle.loads(pickle.dumps(m))
+        m2 = pickle.loads(pickle.dumps(m))  # nosec B301 -- round-trip of a locally-created, trusted object
         assert m2.fe_local_mi_gate is True
 
 
@@ -100,7 +103,10 @@ class TestFlippedDefaults:
 
 
 class TestRecommendEnabledFe:
+    """MRMR.recommend_enabled_fe() must classify every FE flag into exactly one bucket."""
+
     def test_local_mi_gate_classified_flip_safe(self):
+        """fe_local_mi_gate is classified flip_safe and never flip_risky."""
         from mlframe.feature_selection.filters.mrmr import MRMR
         rec = MRMR.recommend_enabled_fe()
         assert "fe_local_mi_gate" in rec["flip_safe"]
@@ -108,6 +114,7 @@ class TestRecommendEnabledFe:
         assert "fe_local_mi_gate" not in rec["flip_risky"]
 
     def test_generators_classified_risky(self):
+        """Every accuracy-affecting FE generator is classified flip_risky."""
         from mlframe.feature_selection.filters.mrmr import MRMR
         rec = MRMR.recommend_enabled_fe()
         for gen in (
@@ -117,6 +124,7 @@ class TestRecommendEnabledFe:
             assert gen in rec["flip_risky"], f"{gen} should be flip_risky"
 
     def test_already_default_listed(self):
+        """Flags already default-on (dcd_enable, cardinality_bias_correction) appear in already_default."""
         from mlframe.feature_selection.filters.mrmr import MRMR
         rec = MRMR.recommend_enabled_fe()
         assert "dcd_enable" in rec["already_default"]
@@ -129,6 +137,7 @@ class TestRecommendEnabledFe:
         assert rec["recommended_enable"] == []
 
     def test_no_flag_in_two_buckets(self):
+        """The flip_safe, already_default, and flip_risky buckets are mutually exclusive."""
         from mlframe.feature_selection.filters.mrmr import MRMR
         rec = MRMR.recommend_enabled_fe()
         safe, default, risky = (
@@ -145,6 +154,8 @@ class TestRecommendEnabledFe:
 
 
 class TestSignalSurvivesNewDefault:
+    """The new-default gate must not drop a genuinely predictive engineered signal."""
+
     @pytest.mark.parametrize("seed", SEEDS)
     def test_predictive_count_survives_default_gate(self, seed: int):
         """With the gate at its NEW default (True), the genuinely predictive
@@ -166,12 +177,9 @@ class TestSignalSurvivesNewDefault:
         m_def.fit(X, y)
         assert m_def.fe_local_mi_gate is True
 
-        assert "pred_cat__count" in m_off.count_encoding_features_, (
-            f"seed={seed}: ungated path should select the predictive count"
-        )
+        assert "pred_cat__count" in m_off.count_encoding_features_, f"seed={seed}: ungated path should select the predictive count"
         assert "pred_cat__count" in m_def.count_encoding_features_, (
-            f"seed={seed}: NEW-default gate dropped the real signal "
-            f"pred_cat__count; survivors={m_def.count_encoding_features_}"
+            f"seed={seed}: NEW-default gate dropped the real signal " f"pred_cat__count; survivors={m_def.count_encoding_features_}"
         )
 
 
@@ -181,6 +189,8 @@ class TestSignalSurvivesNewDefault:
 
 
 class TestPoolShrinksUnderNewDefault:
+    """The new-default gate must shrink the engineered candidate pool relative to the ungated path."""
+
     @pytest.mark.parametrize("seed", (1, 7))
     def test_default_gate_shrinks_count_pool(self, seed: int, monkeypatch):
         """41 cats (1 predictive + 40 noise). The ungated count-encoding emits
@@ -202,7 +212,10 @@ class TestPoolShrinksUnderNewDefault:
         _pool = {}
 
         def _capture(tag):
+            """Build a count_encode_with_recipes wrapper that records the appended pool size under ``tag``."""
+
             def _wrapped(Xarg, **kw):
+                """Call the original count_encode_with_recipes and record its appended-pool size."""
                 res = _orig_count_enc(Xarg, **kw)
                 _pool[tag] = len(res[1])
                 return res
@@ -223,13 +236,8 @@ class TestPoolShrinksUnderNewDefault:
         m_def.fit(X, y)
         n_def = _pool["def"]
 
-        assert n_def <= m_def.fe_local_mi_gate_top_k, (
-            f"seed={seed}: default-gated pool {n_def} exceeds top_k"
-        )
-        assert n_def < n_off, (
-            f"seed={seed}: default gate did NOT shrink the pool "
-            f"(off={n_off}, default={n_def})"
-        )
+        assert n_def <= m_def.fe_local_mi_gate_top_k, f"seed={seed}: default-gated pool {n_def} exceeds top_k"
+        assert n_def < n_off, f"seed={seed}: default gate did NOT shrink the pool " f"(off={n_off}, default={n_def})"
 
 
 # ---------------------------------------------------------------------------
@@ -238,7 +246,10 @@ class TestPoolShrinksUnderNewDefault:
 
 
 class TestRepresentativeLayersSmoke:
+    """A smoke check that representative layer modules still import and fit under the new defaults."""
+
     def test_representative_layer_modules_import(self):
+        """Representative layer test modules import cleanly under the new fe_local_mi_gate default."""
         import importlib
         # Representative layers, now relocated into themed subpackages (the flat
         # test_biz_value_mrmr_layer<N>.py files were consolidated).

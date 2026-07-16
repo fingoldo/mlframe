@@ -64,17 +64,21 @@ class _FakeKTC:
         self.mutations: list[str] = []
 
     def get_regions(self, kernel_name):
+        """Return the stand-in region list, ignoring the requested kernel name."""
         return list(self._regions)
 
     # Any write API the bridge must NOT touch -- record if hit.
     def update(self, *a, **k):
+        """Record an attempted write so the read-only-bridge contract can be asserted."""
         self.mutations.append("update")
 
     def _save(self, *a, **k):
+        """Record an attempted write so the read-only-bridge contract can be asserted."""
         self.mutations.append("_save")
 
 
 def _fresh_oracle(tmp_path, name="poly_l103.parquet", **kw):
+    """Build a ParamOracle over the {njit, njit_par} CPU-backend param space, defaulted for inference."""
     kw.setdefault("param_space", {"backend": ["njit", "njit_par"]})
     kw.setdefault("minimize", "elapsed_s")
     kw.setdefault("mode", "inference")
@@ -87,6 +91,7 @@ def _fresh_oracle(tmp_path, name="poly_l103.parquet", **kw):
 # ---------------------------------------------------------------------------
 
 def test_bridge_imports_ktc_regions(tmp_path):
+    """read_ktc_regions imports sized regions as cold-start observations, skips the catch-all, and never writes back."""
     fake = _FakeKTC([
         {"n_samples_max": 1000, "backend": "njit", "wall_ms": 0.05},
         {"n_samples_max": 1_000_000, "backend": "njit_par", "wall_ms": 2.0},
@@ -116,6 +121,7 @@ def test_bridge_imports_ktc_regions(tmp_path):
 
 
 def test_bridge_from_classmethod(tmp_path):
+    """ParamOracle.from_kernel_tuning_cache builds an oracle pre-seeded from KTC regions via the same read-only bridge."""
     fake = _FakeKTC([
         {"n_samples_max": 1000, "backend": "njit", "wall_ms": 0.05},
         {"n_samples_max": 1_000_000, "backend": "njit_par", "wall_ms": 2.0},
@@ -136,6 +142,7 @@ def test_bridge_from_classmethod(tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_oracle_learns_cpu_crossover(tmp_path):
+    """After benchmarking small/large n, the oracle learns njit wins small and njit_par wins large."""
     if running_under_xdist():
         pytest.skip(
             "wall-time-learned njit/njit_par crossover inverts under -n CPU "
@@ -159,6 +166,7 @@ def test_oracle_learns_cpu_crossover(tmp_path):
 
 
 def test_dispatch_uses_oracle_when_enabled(tmp_path, monkeypatch):
+    """With MLFRAME_POLYEVAL_ORACLE set, the dispatcher's CPU backend pick follows the learned oracle recommendation."""
     if running_under_xdist():
         pytest.skip(
             "the dispatcher's CPU pick is derived from the wall-time-learned "
@@ -186,6 +194,7 @@ def test_dispatch_uses_oracle_when_enabled(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize("basis", _BASES)
 def test_bit_equivalence_njit_vs_njit_par(basis, tmp_path, monkeypatch):
+    """njit and njit_par compute bit-equivalent output, and the oracle-routed dispatcher matches the direct njit reference."""
     c = np.array([0.3, -0.7, 0.2, 0.5, -0.1], dtype=np.float64)
     x = np.linspace(0.1, 2.0, 500_000).astype(np.float64)
     ref = H._NJIT_FUNCS[basis](x, c)
@@ -221,8 +230,7 @@ def test_default_off_byte_identical(basis, n, monkeypatch):
     c = np.array([0.3, -0.7, 0.2, 0.5, -0.1], dtype=np.float64)
     x = np.linspace(0.1, 2.0, n).astype(np.float64)
     par_threshold, _ = H._lookup_polyeval_thresholds(basis, n)
-    legacy = (H._NJIT_FUNCS[basis](x, c) if n < par_threshold
-              else H._NJIT_PAR_FUNCS[basis](x, c))
+    legacy = H._NJIT_FUNCS[basis](x, c) if n < par_threshold else H._NJIT_PAR_FUNCS[basis](x, c)
     got = H.polyeval_dispatch(basis, x, c)
     assert np.array_equal(legacy, got)  # byte-identical, not merely close
 
@@ -233,9 +241,9 @@ def test_oracle_enabled_does_not_alter_small_n_decision(monkeypatch):
     monkeypatch.setenv("MLFRAME_POLYEVAL_ORACLE", "1")
     monkeypatch.delenv("MLFRAME_POLYEVAL_BACKEND", raising=False)
     with tempfile.TemporaryDirectory() as d:
-        cold = ParamOracle(os.path.join(d, "cold.parquet"),
-                           param_space={"backend": ["njit", "njit_par"]},
-                           minimize="elapsed_s", mode="inference", min_observations=1)
+        cold = ParamOracle(
+            os.path.join(d, "cold.parquet"), param_space={"backend": ["njit", "njit_par"]}, minimize="elapsed_s", mode="inference", min_observations=1
+        )
         monkeypatch.setattr(HO, "_polyeval_oracle_singleton", cold, raising=False)
         assert H._polyeval_oracle_pick_cpu_backend(200) == "njit"
 
@@ -279,20 +287,22 @@ def test_bridge_never_writes_kernel_tuning_cache(tmp_path):
     calls: list[str] = []
 
     class _Spy:
+        """Cache spy that records get_regions calls and raises on any write attempt."""
+
         def get_regions(self, name):
+            """Record the read call and return a single synthetic njit region."""
             calls.append("get_regions")
             return [{"n_samples_max": 1000, "backend": "njit", "wall_ms": 0.1}]
 
         def __getattr__(self, item):
+            """Treat any non-get_regions attribute access as a forbidden write attempt."""
             # Any non-get_regions attribute access (e.g. update/_save) is a
             # write attempt -> record and raise so the test fails loudly.
             calls.append(f"WRITE:{item}")
             raise AssertionError(f"bridge touched cache.{item} (must be read-only)")
 
     oracle = _fresh_oracle(tmp_path)
-    oracle.read_ktc_regions("k", param_field="backend",
-                            fixed_fp={"p": 1, "dtype_kind": "f"},
-                            cache=_Spy(), fn_name="poly")
+    oracle.read_ktc_regions("k", param_field="backend", fixed_fp={"p": 1, "dtype_kind": "f"}, cache=_Spy(), fn_name="poly")
     assert calls == ["get_regions"]
 
 
