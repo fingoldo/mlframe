@@ -70,16 +70,17 @@ DCD ON, relative-gain stop ON, Miller-Madow ON, MDLP nbins_strategy ON
 wall-time bounded. They do NOT interact with multiclass/ordinal
 target handling.
 """
+
 from __future__ import annotations
 
 import warnings
+from functools import cache
 
 import numpy as np
 import pandas as pd
 import pytest
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import f1_score, recall_score
-
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -194,6 +195,7 @@ def _make_mrmr(**overrides):
     ordinal target handling path tested here.
     """
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     kwargs = dict(
         verbose=0,
         interactions_max_order=1,
@@ -204,9 +206,48 @@ def _make_mrmr(**overrides):
 
 
 def _fit_quiet(sel, X, y):
+    """Fit ``sel`` on ``(X, y)`` with warnings silenced; return the fitted estimator."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         return sel.fit(X, y)
+
+
+@cache
+def _multiclass_5way_fit(seed: int):
+    """Cached ``(X, y, sel)`` for the full-data 5-class fit shared across
+    TestMulticlassNominalSignalRecovery's 2 tests. Nothing downstream mutates
+    X/y/sel in place (fit is called on ``X.copy()``; sel is only inspected).
+    """
+    X, y = _build_multiclass_5way_data(seed)
+    sel = _make_mrmr(random_seed=seed)
+    _fit_quiet(sel, X.copy(), y)
+    return X, y, sel
+
+
+@cache
+def _int_ordinal_fit(seed: int):
+    """Cached ``(X, y, sel)`` for the int-coded ordinal fit shared across
+    TestOrdinalIntCoded's 3 tests and the int half of
+    test_float_ordinal_matches_int_ordinal_support. Nothing downstream
+    mutates X/y/sel in place.
+    """
+    X, y = _build_ordinal_data(seed, encoding="int")
+    sel = _make_mrmr(random_seed=seed)
+    _fit_quiet(sel, X.copy(), y)
+    return X, y, sel
+
+
+@cache
+def _float_ordinal_fit(seed: int):
+    """Cached ``(X, y, sel)`` for the float-coded ordinal fit shared across
+    test_float_ordinal_recovers_signals and the float half of
+    test_float_ordinal_matches_int_ordinal_support. Nothing downstream
+    mutates X/y/sel in place.
+    """
+    X, y = _build_ordinal_data(seed, encoding="float")
+    sel = _make_mrmr(random_seed=seed)
+    _fit_quiet(sel, X.copy(), y)
+    return X, y, sel
 
 
 # ---------------------------------------------------------------------------
@@ -222,10 +263,9 @@ class TestMulticlassNominalSignalRecovery:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_both_signals_in_support_5class(self, seed):
-        X, y = _build_multiclass_5way_data(seed)
+        """Both x1 and x2 (raw or engineered) survive selection on every seed."""
+        _X, y, sel = _multiclass_5way_fit(seed)
         assert y.nunique() == 5, f"test bug: y has {y.nunique()} classes"
-        sel = _make_mrmr(random_seed=seed)
-        _fit_quiet(sel, X.copy(), y)
         names = list(sel.get_feature_names_out())
         # Each signal must be RECOVERED -- as the raw column OR named inside an engineered feature
         # (e.g. x2 surfaces via ``x2__relu_lt...`` or ``gate_mask__x1__x2__...``, a stronger
@@ -233,26 +273,19 @@ class TestMulticlassNominalSignalRecovery:
         import re as _re_sig
 
         def _recovered(comp):
+            """True if ``comp`` appears as a standalone token (raw or engineered) in ``names``."""
             return any(_re_sig.search(r"(?<![A-Za-z0-9])" + comp + r"(?![0-9])", str(nm)) for nm in names)
 
-        assert _recovered("x1"), (
-            f"signal x1 not recovered (raw or engineered) in 5-class support_; seed={seed}, support={names}"
-        )
-        assert _recovered("x2"), (
-            f"signal x2 not recovered (raw or engineered) in 5-class support_; seed={seed}, support={names}"
-        )
+        assert _recovered("x1"), f"signal x1 not recovered (raw or engineered) in 5-class support_; seed={seed}, support={names}"
+        assert _recovered("x2"), f"signal x2 not recovered (raw or engineered) in 5-class support_; seed={seed}, support={names}"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_no_noise_leak_5class(self, seed):
-        X, y = _build_multiclass_5way_data(seed)
-        sel = _make_mrmr(random_seed=seed)
-        _fit_quiet(sel, X.copy(), y)
+        """No noise_* column leaks into the 5-class support_."""
+        _X, _y, sel = _multiclass_5way_fit(seed)
         names = list(sel.get_feature_names_out())
         leaked = [n for n in names if n.startswith("noise_")]
-        assert not leaked, (
-            f"noise column(s) {leaked} leaked into 5-class support_; "
-            f"seed={seed}, support={names}"
-        )
+        assert not leaked, f"noise column(s) {leaked} leaked into 5-class support_; " f"seed={seed}, support={names}"
 
 
 # ---------------------------------------------------------------------------
@@ -269,6 +302,7 @@ class TestMulticlassDownstreamAnchor:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_logreg_macro_f1_on_support(self, seed):
+        """LogReg on the MRMR support beats macro-F1 >= 0.70 on 5-class holdout."""
         X, y = _build_multiclass_5way_data(seed)
         X_tr, X_te = X.iloc[:-N_HOLDOUT].copy(), X.iloc[-N_HOLDOUT:].copy()
         y_tr, y_te = y.iloc[:-N_HOLDOUT], y.iloc[-N_HOLDOUT:]
@@ -308,33 +342,27 @@ class TestImbalancedMulticlassMinorityRecall:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_signals_in_support_imbalanced(self, seed):
+        """Both signals appear in support_ and no noise leaks, under 70/20/10 imbalance."""
         X, y = _build_imbalanced_3class_data(seed)
         sel = _make_mrmr(random_seed=seed)
         _fit_quiet(sel, X.copy(), y)
         names = list(sel.get_feature_names_out())
         assert "x1" in names and "x2" in names, (
-            f"imbalanced 3-class: signals missing from support_; "
-            f"seed={seed}, support={names}, class counts="
-            f"{np.bincount(y.to_numpy())}"
+            f"imbalanced 3-class: signals missing from support_; " f"seed={seed}, support={names}, class counts=" f"{np.bincount(y.to_numpy())}"
         )
         leaked = [n for n in names if n.startswith("noise_")]
-        assert not leaked, (
-            f"imbalanced 3-class: noise leaked into support_ "
-            f"({leaked}); seed={seed}, support={names}"
-        )
+        assert not leaked, f"imbalanced 3-class: noise leaked into support_ " f"({leaked}); seed={seed}, support={names}"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_minority_class_recall_preserved(self, seed):
+        """Minority-class (10%) recall on the MRMR support stays >= 0.40."""
         X, y = _build_imbalanced_3class_data(seed)
         X_tr, X_te = X.iloc[:-N_HOLDOUT].copy(), X.iloc[-N_HOLDOUT:].copy()
         y_tr, y_te = y.iloc[:-N_HOLDOUT], y.iloc[-N_HOLDOUT:]
         # Sanity: holdout must contain at least a few minority samples
         # for the recall number to be meaningful.
         if int((y_te == 2).sum()) < 10:
-            pytest.skip(
-                f"holdout has <10 minority rows on seed={seed}; "
-                f"recall estimate would be unstable"
-            )
+            pytest.skip(f"holdout has <10 minority rows on seed={seed}; " f"recall estimate would be unstable")
         sel = _make_mrmr(random_seed=seed)
         _fit_quiet(sel, X_tr, y_tr)
         Xs_tr = sel.transform(X_tr)
@@ -365,46 +393,30 @@ class TestOrdinalIntCoded:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_int_ordinal_recovers_signals(self, seed):
-        X, y = _build_ordinal_data(seed, encoding="int")
+        """Both x1 and x2 survive selection on int-coded ordinal y."""
+        _X, y, sel = _int_ordinal_fit(seed)
         assert y.dtype.kind in "iu", f"int ordinal y dtype={y.dtype}"
-        sel = _make_mrmr(random_seed=seed)
-        _fit_quiet(sel, X.copy(), y)
         names = list(sel.get_feature_names_out())
-        assert "x1" in names, (
-            f"int ordinal: x1 (stronger signal) missing from "
-            f"support_; seed={seed}, support={names}"
-        )
-        assert "x2" in names, (
-            f"int ordinal: x2 missing from support_; "
-            f"seed={seed}, support={names}"
-        )
+        assert "x1" in names, f"int ordinal: x1 (stronger signal) missing from " f"support_; seed={seed}, support={names}"
+        assert "x2" in names, f"int ordinal: x2 missing from support_; " f"seed={seed}, support={names}"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_int_ordinal_x1_picked_first(self, seed):
         """x1 has a 1.5x coefficient and x2 has 0.8x -- the stronger
         signal should be selected first by MRMR's greedy step.
         """
-        X, y = _build_ordinal_data(seed, encoding="int")
-        sel = _make_mrmr(random_seed=seed)
-        _fit_quiet(sel, X.copy(), y)
+        _X, _y, sel = _int_ordinal_fit(seed)
         names = list(sel.get_feature_names_out())
         assert len(names) >= 1
-        assert names[0] == "x1", (
-            f"int ordinal: stronger signal x1 (coef=1.5) not picked "
-            f"first; got {names[0]} on seed={seed}, support={names}"
-        )
+        assert names[0] == "x1", f"int ordinal: stronger signal x1 (coef=1.5) not picked " f"first; got {names[0]} on seed={seed}, support={names}"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_int_ordinal_no_noise(self, seed):
-        X, y = _build_ordinal_data(seed, encoding="int")
-        sel = _make_mrmr(random_seed=seed)
-        _fit_quiet(sel, X.copy(), y)
+        """No noise_* column leaks into the int-ordinal support_."""
+        _X, _y, sel = _int_ordinal_fit(seed)
         names = list(sel.get_feature_names_out())
         leaked = [n for n in names if n.startswith("noise_")]
-        assert not leaked, (
-            f"int ordinal: noise {leaked} in support_; "
-            f"seed={seed}, support={names}"
-        )
+        assert not leaked, f"int ordinal: noise {leaked} in support_; " f"seed={seed}, support={names}"
 
 
 # ---------------------------------------------------------------------------
@@ -422,20 +434,28 @@ class TestOrdinalStringCoded:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_string_ordinal_either_works_or_raises_clean(self, seed):
+        """String-coded ordinal y either recovers x1/x2 or raises an actionable error."""
         X, y = _build_ordinal_data(seed, encoding="str")
-        assert y.dtype.kind in ("O", "U") or str(y.dtype) == "str", (
-            f"test bug: expected object/string dtype, got {y.dtype}"
-        )
+        assert y.dtype.kind in ("O", "U") or str(y.dtype) == "str", f"test bug: expected object/string dtype, got {y.dtype}"
         sel = _make_mrmr(random_seed=seed)
         try:
             _fit_quiet(sel, X.copy(), y)
         except (ValueError, TypeError) as exc:
             msg = str(exc).lower()
             # Must be actionable: mention dtype, object, str, label, or encode.
-            assert any(kw in msg for kw in (
-                "dtype", "object", "string", "str", "label",
-                "encode", "categor", "non-numeric",
-            )), (
+            assert any(
+                kw in msg
+                for kw in (
+                    "dtype",
+                    "object",
+                    "string",
+                    "str",
+                    "label",
+                    "encode",
+                    "categor",
+                    "non-numeric",
+                )
+            ), (
                 f"string ordinal: raised {type(exc).__name__} but "
                 f"message {exc!r} is not actionable; expected to name "
                 f"dtype/object/string/label/encode/categorical/"
@@ -467,21 +487,16 @@ class TestOrdinalOrderedCategorical:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_ordered_cat_recovers_signals(self, seed):
+        """Ordered pd.Categorical y recovers x1/x2 with no noise leak."""
         X, y = _build_ordinal_data(seed, encoding="ordered_cat")
         assert isinstance(y.dtype, pd.CategoricalDtype)
         assert y.cat.ordered, "test bug: cat must be ordered"
         sel = _make_mrmr(random_seed=seed)
         _fit_quiet(sel, X.copy(), y)
         names = list(sel.get_feature_names_out())
-        assert "x1" in names and "x2" in names, (
-            f"ordered cat ordinal: signals missing from support_; "
-            f"seed={seed}, support={names}"
-        )
+        assert "x1" in names and "x2" in names, f"ordered cat ordinal: signals missing from support_; " f"seed={seed}, support={names}"
         leaked = [n for n in names if n.startswith("noise_")]
-        assert not leaked, (
-            f"ordered cat ordinal: noise leaked ({leaked}); "
-            f"seed={seed}, support={names}"
-        )
+        assert not leaked, f"ordered cat ordinal: noise leaked ({leaked}); " f"seed={seed}, support={names}"
 
 
 # ---------------------------------------------------------------------------
@@ -498,24 +513,14 @@ class TestOrdinalFloatCoded:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_float_ordinal_recovers_signals(self, seed):
-        X, y = _build_ordinal_data(seed, encoding="float")
+        """Float32-coded ordinal y recovers x1/x2 with no noise leak."""
+        _X, y, sel = _float_ordinal_fit(seed)
         assert y.dtype.kind == "f"
-        assert y.nunique() == 5, (
-            f"test bug: float-coded ordinal lost levels (nunique="
-            f"{y.nunique()})"
-        )
-        sel = _make_mrmr(random_seed=seed)
-        _fit_quiet(sel, X.copy(), y)
+        assert y.nunique() == 5, f"test bug: float-coded ordinal lost levels (nunique=" f"{y.nunique()})"
         names = list(sel.get_feature_names_out())
-        assert "x1" in names and "x2" in names, (
-            f"float ordinal: signals missing from support_; "
-            f"seed={seed}, support={names}"
-        )
+        assert "x1" in names and "x2" in names, f"float ordinal: signals missing from support_; " f"seed={seed}, support={names}"
         leaked = [n for n in names if n.startswith("noise_")]
-        assert not leaked, (
-            f"float ordinal: noise leaked ({leaked}); "
-            f"seed={seed}, support={names}"
-        )
+        assert not leaked, f"float ordinal: noise leaked ({leaked}); " f"seed={seed}, support={names}"
 
     @pytest.mark.parametrize("seed", (7, 42))
     def test_float_ordinal_matches_int_ordinal_support(self, seed):
@@ -523,23 +528,14 @@ class TestOrdinalFloatCoded:
         signals should be the same set; the order is allowed to flip
         because MDLP bin edges can differ marginally on float vs int.
         """
-        X_int, y_int = _build_ordinal_data(seed, encoding="int")
-        X_float, y_float = _build_ordinal_data(seed, encoding="float")
-        # Both data builders use the same seed so X is bit-identical.
-        sel_int = _make_mrmr(random_seed=seed)
-        _fit_quiet(sel_int, X_int.copy(), y_int)
-        sel_float = _make_mrmr(random_seed=seed)
-        _fit_quiet(sel_float, X_float.copy(), y_float)
+        _X_int, _y_int, sel_int = _int_ordinal_fit(seed)
+        _X_float, _y_float, sel_float = _float_ordinal_fit(seed)
         sup_int = set(sel_int.get_feature_names_out())
         sup_float = set(sel_float.get_feature_names_out())
         # The signal pair must be in both; the noise/other-feature
         # tail may differ marginally between int- and float-binned y.
-        assert {"x1", "x2"}.issubset(sup_int), (
-            f"int-ordinal lost signals: {sup_int}, seed={seed}"
-        )
-        assert {"x1", "x2"}.issubset(sup_float), (
-            f"float-ordinal lost signals: {sup_float}, seed={seed}"
-        )
+        assert {"x1", "x2"}.issubset(sup_int), f"int-ordinal lost signals: {sup_int}, seed={seed}"
+        assert {"x1", "x2"}.issubset(sup_float), f"float-ordinal lost signals: {sup_float}, seed={seed}"
 
 
 # ---------------------------------------------------------------------------
@@ -555,6 +551,7 @@ class TestTransformShapeOnMulticlass:
     """
 
     def test_transform_columns_match_support(self):
+        """transform() column count matches n_features_ and len(get_feature_names_out())."""
         X, y = _build_multiclass_5way_data(seed=1)
         sel = _make_mrmr(random_seed=1)
         _fit_quiet(sel, X.copy(), y)
@@ -564,6 +561,7 @@ class TestTransformShapeOnMulticlass:
         assert out.shape[1] == len(sel.get_feature_names_out())
 
     def test_transform_holdout_shape(self):
+        """transform() on a held-out frame returns the expected (n_holdout, n_features_) shape."""
         X, y = _build_multiclass_5way_data(seed=1)
         X_tr, X_te = X.iloc[:-N_HOLDOUT].copy(), X.iloc[-N_HOLDOUT:].copy()
         y_tr = y.iloc[:-N_HOLDOUT]
