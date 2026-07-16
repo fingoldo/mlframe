@@ -12,7 +12,7 @@ chosen) rather than reimplementing either.
 """
 from __future__ import annotations
 
-from typing import Optional, Sequence
+from typing import Any, Optional, Sequence
 
 import numpy as np
 import numpy.typing as npt
@@ -65,7 +65,16 @@ def check_pairwise_score_correlation(
     corr = float(corr) if np.isfinite(corr) else 0.0
 
     n = a.shape[0]
-    rank_a, rank_b = np.argsort(np.argsort(a)), np.argsort(np.argsort(b))
+    # Single argsort + scatter instead of double argsort (bit-identical ranks, ~1.7x faster at n=99401 in
+    # the mlframe FE benchmark this pattern was found in -- see _orth_extra_basis_fe.py's docstring for the
+    # derivation): argsort once for the sort order, scatter 0..n-1 into that order's positions.
+    def _ranks(v: np.ndarray) -> np.ndarray:
+        order = np.argsort(v)
+        r = np.empty(v.size, dtype=np.intp)
+        r[order] = np.arange(v.size)
+        return r
+
+    rank_a, rank_b = _ranks(a), _ranks(b)
     # vectorized pairwise-comparison matrices instead of an O(n^2) Python double loop (44x faster at n=500,
     # bit-identical) -- broadcast each rank vector against itself to get every pair's ">" relation in one
     # pass, then compare the two boolean matrices only on the upper triangle (each unordered pair once).
@@ -75,7 +84,7 @@ def check_pairwise_score_correlation(
     total = iu[0].shape[0]
     rank_agreement = float(np.sum(a_gt[iu] == b_gt[iu])) / total if total > 0 else 1.0
 
-    result = {
+    result: dict[str, Any] = {
         "spearman_correlation": corr,
         "rank_agreement": rank_agreement,
         "trust_source_a": corr >= 0.5,
