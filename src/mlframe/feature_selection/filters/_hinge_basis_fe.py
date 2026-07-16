@@ -53,6 +53,7 @@ returns ``EngineeredRecipe`` objects for leak-safe transform-time replay.
 from __future__ import annotations
 
 import logging
+import os
 from typing import TYPE_CHECKING, Optional, Sequence
 
 import numpy as np
@@ -384,6 +385,72 @@ def _detect_hinge_breakpoints(
     return found
 
 
+# Batch-vs-per-column crossover for the hinge breakpoint detector (2026-07-16, cProfile-driven; measured
+# A/B in bench_hinge_batch_vs_percolumn.py, wellbore-100k-like shape n=99401): K=1 batch=167.8ms
+# per-col=57.3ms (0.34x, batch LOSES -- fixed setup cost with nothing to amortise), K=2 1.05x,
+# K=4 2.88x, K=8 1.76x, K=16 1.63x, K=32 1.57x, K=64 1.64x, K=216 1.87x (all K>=2 batch WINS). Threshold
+# set at the measured crossover; MLFRAME_HINGE_BATCH_MIN_K overrides for re-benching on other hardware.
+def _hinge_batch_min_k() -> int:
+    """Minimum surviving-column count at which the batched precheck (``detect_hinge_breakpoints_gpu_batch``)
+    is used instead of the per-column detector loop -- see the crossover measurement above the caller."""
+    raw = os.environ.get("MLFRAME_HINGE_BATCH_MIN_K", "").strip()
+    if raw:
+        try:
+            v = int(raw)
+            if v > 0:
+                return v
+        except ValueError:
+            pass
+    return 2
+
+
+def _detect_hinge_breakpoints_for_columns(
+    cols_x: list, y_arr: np.ndarray, *, max_breakpoints: int, min_heldout_r2_uplift: float,
+) -> dict:
+    """Detect breakpoints for every ``(col_name, x)`` in ``cols_x`` (all already finite, sharing len(y_arr)
+    rows -- the caller's precondition), preferring the batched cross-column precheck
+    (``detect_hinge_breakpoints_gpu_batch``, WINS at K>=2 -- see the crossover comment above) with a
+    fallback to the per-column detector (``_detect_hinge_breakpoints``, WINS at K=1 and is also the exact
+    host/GPU-per-column path used whenever the batch call is unavailable or errors) for every remaining
+    column. Returns ``{col_name: [tau, ...]}`` -- columns whose detector raised or found nothing are simply
+    absent/empty, matching the prior per-column loop's ``continue``-on-exception behaviour."""
+    out: dict = {}
+    remaining = list(cols_x)
+    if len(remaining) >= _hinge_batch_min_k():
+        try:
+            from ._hinge_detect_gpu_resident import hinge_gpu_enabled
+            from ._hinge_detect_gpu_resident_batch import detect_hinge_breakpoints_gpu_batch
+            if hinge_gpu_enabled():
+                xs = [x for _c, x in remaining]
+                batch_out = detect_hinge_breakpoints_gpu_batch(
+                    xs, y_arr, max_breakpoints=max_breakpoints, min_heldout_r2_uplift=min_heldout_r2_uplift,
+                    precheck_qs=_HINGE_PRECHECK_QS, precheck_min_sse_drop=_HINGE_PRECHECK_MIN_SSE_DROP,
+                    cand_q_lo=_HINGE_CAND_Q_LO, cand_q_hi=_HINGE_CAND_Q_HI, n_candidates=_HINGE_N_CANDIDATES,
+                    min_rows=_HINGE_MIN_ROWS, min_seg_rows=_HINGE_MIN_SEG_ROWS,
+                )
+                if batch_out is not None:
+                    for (col, _x), taus in zip(remaining, batch_out):
+                        if taus:
+                            out[col] = taus
+                    remaining = []
+        except Exception as exc:  # nosec B110 - falls through to the per-column path below, non-fatal
+            logger.debug("generate_hinge_features: batched detector unavailable (%s); per-column fallback", exc)
+    for col, x in remaining:
+        try:
+            taus = _detect_hinge_breakpoints(
+                x, y_arr, max_breakpoints=max_breakpoints, min_heldout_r2_uplift=min_heldout_r2_uplift,
+            )
+        except Exception as exc:
+            logger.warning(
+                "generate_hinge_features: breakpoint detect on col=%r raised %r; skipping hinge for that column.",
+                col, exc,
+            )
+            continue
+        if taus:
+            out[col] = taus
+    return out
+
+
 def generate_hinge_features(
     X: pd.DataFrame,
     *,
@@ -441,8 +508,7 @@ def generate_hinge_features(
     y_arr = np.asarray(y, dtype=np.float64).ravel()
     if y_arr.size != len(X) or not np.all(np.isfinite(y_arr)):
         return pd.DataFrame(index=X.index), {}
-    out_cols: dict = {}
-    meta: dict = {}
+    valid_cols: list = []
     for col in cols:
         if col not in X.columns or not pd.api.types.is_numeric_dtype(X[col]):
             continue
@@ -454,17 +520,14 @@ def generate_hinge_features(
             # A hinge basis over a NaN column is unsound: the nanmean-imputed hinge becomes a missingness proxy that displaces the genuine missingness-FE
             # columns, and the recipe replay does not impute (transform() emits all-NaN). Skip; the missingness signal belongs to the missingness-FE family.
             continue
-        try:
-            taus = _detect_hinge_breakpoints(
-                x, y_arr, max_breakpoints=max_breakpoints,
-                min_heldout_r2_uplift=min_heldout_r2_uplift,
-            )
-        except Exception as exc:
-            logger.warning(
-                "generate_hinge_features: breakpoint detect on col=%r raised "
-                "%r; skipping hinge for that column.", col, exc,
-            )
-            continue
+        valid_cols.append((col, x))
+    taus_by_col = _detect_hinge_breakpoints_for_columns(
+        valid_cols, y_arr, max_breakpoints=max_breakpoints, min_heldout_r2_uplift=min_heldout_r2_uplift,
+    )
+    out_cols: dict = {}
+    meta: dict = {}
+    for col, x in valid_cols:
+        taus = taus_by_col.get(col, [])
         for tau in taus:
             relu_gt = np.maximum(x - tau, 0.0)
             relu_lt = np.maximum(tau - x, 0.0)

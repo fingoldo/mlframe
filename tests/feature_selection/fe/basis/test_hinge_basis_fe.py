@@ -137,35 +137,35 @@ def test_detect_hinge_fwl_rank1_taus_bit_identical_to_lstsq_per_cut():
     ``SSE_B - (r_relu . r_y)^2 / (r_relu . r_relu)`` per cut) instead of a full ``lstsq`` per cut. That is mathematically identical to the full-design SSE, so the argmin
     ``best_tau`` (and thus the returned breakpoint list) must be BIT-IDENTICAL to the legacy lstsq-per-cut reference. This pins the optimisation so a future rewrite that
     perturbs the SSE comparison (and could flip a near-tied tau) is caught. Covers kink / linear / quadratic / noise / 2-kink columns across sizes."""
-    from mlframe.feature_selection.filters import _hinge_basis_fe as H
+    from mlframe.feature_selection.filters import _hinge_basis_fe as hinge_mod
     from mlframe.feature_selection.filters._hinge_basis_fe import _detect_hinge_breakpoints
 
     def legacy(x, y, *, max_breakpoints=2, min_heldout_r2_uplift=0.02):
         x = np.asarray(x, float).ravel(); y = np.asarray(y, float).ravel(); n = x.size
-        if n < H._HINGE_MIN_ROWS:
+        if n < hinge_mod._HINGE_MIN_ROWS:
             return []
         f = np.isfinite(x) & np.isfinite(y)
         if not f.all():
             x = x[f]; y = y[f]; n = x.size
-        if n < H._HINGE_MIN_ROWS:
+        if n < hinge_mod._HINGE_MIN_ROWS:
             return []
         if np.std(x) < 1e-12 or np.std(y) < 1e-12:
             return []
-        if not H._hinge_slope_change_plausible(x, y, min_sse_drop=H._HINGE_PRECHECK_MIN_SSE_DROP):
+        if not hinge_mod._hinge_slope_change_plausible(x, y, min_sse_drop=hinge_mod._HINGE_PRECHECK_MIN_SSE_DROP):
             return []
-        qs = np.linspace(H._HINGE_CAND_Q_LO, H._HINGE_CAND_Q_HI, H._HINGE_N_CANDIDATES)
+        qs = np.linspace(hinge_mod._HINGE_CAND_Q_LO, hinge_mod._HINGE_CAND_Q_HI, hinge_mod._HINGE_N_CANDIDATES)
         cand = np.unique(np.quantile(x, qs))
         found = []; extra = []
         for _ in range(max(1, int(max_breakpoints))):
             bt = None; bs = float("inf")
             for c in cand:
                 nr = int(np.count_nonzero(x > c))
-                if nr < H._HINGE_MIN_SEG_ROWS or (n - nr) < H._HINGE_MIN_SEG_ROWS:
+                if nr < hinge_mod._HINGE_MIN_SEG_ROWS or (n - nr) < hinge_mod._HINGE_MIN_SEG_ROWS:
                     continue
                 if any(abs(c - t) < 1e-9 for t in found):
                     continue
                 relu = np.maximum(x - c, 0.0)
-                A = np.column_stack([np.ones_like(x), x, relu] + extra)
+                A = np.column_stack([np.ones_like(x), x, relu, *extra])
                 try:
                     coef, *_ = np.linalg.lstsq(A, y, rcond=None)
                 except Exception:
@@ -176,7 +176,7 @@ def test_detect_hinge_fwl_rank1_taus_bit_identical_to_lstsq_per_cut():
                     bs = sse; bt = float(c)
             if bt is None:
                 break
-            if H._heldout_hinge_r2_uplift(x, y, bt) < min_heldout_r2_uplift:
+            if hinge_mod._heldout_hinge_r2_uplift(x, y, bt) < min_heldout_r2_uplift:
                 break
             found.append(bt); extra.append(np.maximum(x - bt, 0.0))
         return found
@@ -248,7 +248,7 @@ def test_biz_value_slope_change_beats_raw_cheby_spline():
     spline_legs = [_bspline_basis_values(z, knots, i, degree=3) for i in range(n_basis)]
     spline_legs = [v for v in spline_legs if float(np.std(v)) > 1e-12]
     r2_spline = _heldout_r2(spline_legs, y)
-    r2_hinge = _heldout_r2([x] + hinge_legs, y)
+    r2_hinge = _heldout_r2([x, *hinge_legs], y)
 
     assert r2_hinge > r2_raw, (r2_hinge, r2_raw)
     assert r2_hinge > r2_cheby, (r2_hinge, r2_cheby)
@@ -268,7 +268,7 @@ def test_biz_value_smooth_complementarity_loses_to_poly2():
     taus = _detect_hinge_breakpoints(xs, ys, max_breakpoints=2)
     hinge_legs = [np.maximum(xs - t, 0.0) for t in taus]
     r2_poly2 = _heldout_r2([xs, xs ** 2], ys)
-    r2_hinge = _heldout_r2([xs] + hinge_legs, ys)
+    r2_hinge = _heldout_r2([xs, *hinge_legs], ys)
     assert r2_hinge <= r2_poly2 + 1e-6, (
         f"hinge {r2_hinge:.4f} should NOT beat degree-2 poly {r2_poly2:.4f} "
         f"on a smooth target"
@@ -309,6 +309,53 @@ def test_cost_precheck_passes_genuine_kink():
     assert _hinge_slope_change_plausible(x, y), "kink column must pass the pre-check"
     taus = _detect_hinge_breakpoints(x, y, max_breakpoints=2)
     assert taus and min(abs(t - 0.7) for t in taus) < 0.06
+
+
+def test_batched_detector_matches_percolumn_detector():
+    """Batched cross-column precheck (detect_hinge_breakpoints_gpu_batch) must find the SAME breakpoints
+    as the per-column detector across noise / linear / genuine-kink / near-zero-variance columns -- the
+    generate_hinge_features dispatcher picks whichever measured faster (K=1 per-column, K>=2 batch; see
+    _benchmarks/bench_hinge_batch_vs_percolumn.py), so both must agree exactly regardless of which the
+    caller lands on."""
+    import cupy as cp
+
+    from mlframe.feature_selection.filters._hinge_detect_gpu_resident import (
+        detect_hinge_breakpoints_gpu, hinge_gpu_enabled,
+    )
+    from mlframe.feature_selection.filters._hinge_detect_gpu_resident_batch import (
+        detect_hinge_breakpoints_gpu_batch,
+    )
+    if not hinge_gpu_enabled():
+        pytest.skip("GPU-strict-resident hinge path not engaged on this host")
+
+    rng = np.random.default_rng(3)
+    n = 20000
+    y = rng.standard_normal(n)
+    cols = []
+    for i in range(20):
+        if i % 4 == 0:
+            tau = rng.uniform(-1, 1)
+            x = rng.standard_normal(n)
+            x = x + np.maximum(x - tau, 0) * 3.0 + 0.3 * y
+        elif i % 4 == 1:
+            x = rng.standard_normal(n)
+        elif i % 4 == 2:
+            x = 0.5 * y + 0.01 * rng.standard_normal(n)
+        else:
+            x = rng.standard_normal(n) * 1e-8
+        cols.append(x)
+
+    kw = dict(max_breakpoints=2, min_heldout_r2_uplift=0.01, precheck_qs=(0.25, 0.5, 0.75),
+              precheck_min_sse_drop=0.02, cand_q_lo=0.1, cand_q_hi=0.9, n_candidates=24,
+              min_rows=500, min_seg_rows=100)
+    batch_out = detect_hinge_breakpoints_gpu_batch(cols, y, **kw)
+    assert batch_out is not None
+    cp.cuda.Stream.null.synchronize()
+    for j, x in enumerate(cols):
+        ref = detect_hinge_breakpoints_gpu(x, y, **kw)
+        b_l = sorted(round(t, 6) for t in (batch_out[j] or []))
+        r_l = sorted(round(t, 6) for t in (ref or []))
+        assert b_l == r_l, f"col {j}: batch={b_l} per-column={r_l}"
 
 
 # ---------------------------------------------------------------------------

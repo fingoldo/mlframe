@@ -341,9 +341,15 @@ transformer_full = [
 
 # Convenience meta-extra: union of all runtime extras (CPU only; GPU via [gpu]
 # / [transformer_gpu], docs via [docs], dev tooling via [dev] are intentionally
-# excluded since they are not runtime concerns).
+# excluded since they are not runtime concerns). mlflow is ALSO excluded: every
+# mlflow release (including current prereleases) caps pyarrow<25, while this
+# project requires pyarrow>=25.0.0 (see that constraint's own comment -- a
+# real cp314/Windows import crash on pyarrow 24.0.0) -- no mutually
+# satisfiable version pair currently exists. Install mlflow support
+# separately via `mlframe[mlflow]` if you need it and can tolerate an older
+# pyarrow.
 all = [
-    "mlframe[boosting,calibration,neural,automl,feature_engineering,sampling,polars_ext,viz,mlflow,db,signal,unsupervised,stats,transformer_ann]",
+    "mlframe[boosting,calibration,neural,automl,feature_engineering,sampling,polars_ext,viz,db,signal,unsupervised,stats,transformer_ann]",
 ]
 
 # Documentation site (MkDocs Material). Build with `mkdocs build` / serve with `mkdocs serve`.
@@ -522,7 +528,7 @@ skips = ["B101"]
 # ---------------------------------------------------------------------------
 [tool.codespell]
 # Every entry below is a confirmed false positive from the 2026-07-08 sweep: a domain
-# abbreviation (MIs=mutual informations, ALS=alternating least squares, MAPE/mape=mean
+# abbreviation (MIs=mutual-information values, ALS=alternating least squares, MAPE/mape=mean
 # absolute percentage error, LAMA/lama=LightAutoML, ACI=adaptive conformal inference,
 # COO=coordinate sparse format, ttest/disjointness/unparseable=valid English), or a
 # short substring codespell matched inside a longer identifier/comment fragment
@@ -665,7 +671,7 @@ exclude = ["tests", "scripts", ".git", "__pycache__", "build", "dist", "legacy",
 [tool.ruff.lint]
 extend-ignore = [
     "UP035",  # collections.abc import modernization: 640 hits, pure import-source churn, no correctness value
-    "N815",   # mixedCase class-scope variable: flags domain-abbreviation names like cached_MIs (MIs = mutual informations)
+    "N815",   # mixedCase class-scope variable: flags domain-abbreviation names like cached_MIs (MIs = mutual-information values)
 ]
 
 [tool.ruff.lint.mccabe]
