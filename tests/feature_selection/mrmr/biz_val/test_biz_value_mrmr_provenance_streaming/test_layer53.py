@@ -108,8 +108,10 @@ def _fast_mrmr(**overrides):
 
 
 class TestLayer53_APISmoke:
+    """partial_fit is bound on the class and rejects invalid inputs up front."""
 
     def test_method_bound_on_class(self):
+        """partial_fit is bound on the MRMR class with an sklearn-style (self, X_new, y_new, ...) signature."""
         from mlframe.feature_selection.filters.mrmr import MRMR
         assert hasattr(MRMR, "partial_fit"), (
             "MRMR.partial_fit must be bound on the class at module import "
@@ -121,10 +123,7 @@ class TestLayer53_APISmoke:
         sig = inspect.signature(MRMR.partial_fit)
         params = list(sig.parameters.keys())
         # self + X_new + y_new at minimum.
-        assert params[:3] == ["self", "X_new", "y_new"], (
-            f"partial_fit signature should start with (self, X_new, y_new); "
-            f"got {params[:3]!r}"
-        )
+        assert params[:3] == ["self", "X_new", "y_new"], f"partial_fit signature should start with (self, X_new, y_new); " f"got {params[:3]!r}"
 
     def test_default_knobs_off_by_default(self):
         """Ctor defaults: decay=0, min_recompute=100, window=None."""
@@ -134,29 +133,34 @@ class TestLayer53_APISmoke:
         assert m.partial_fit_window is None
 
     def test_unfitted_buffer_state_is_none(self):
+        """Before any partial_fit call, the internal buffer attributes are None."""
         m = _fast_mrmr()
         assert getattr(m, "_partial_fit_X_buffer_", None) is None
         assert getattr(m, "_partial_fit_y_buffer_", None) is None
 
     def test_invalid_decay_rejected(self):
+        """An out-of-range partial_fit_decay raises ValueError."""
         m = _fast_mrmr(partial_fit_decay=1.5)
         X, y = _simple_binary_frame(n=120)
         with pytest.raises(ValueError, match=r"partial_fit_decay"):
             m.partial_fit(X, y)
 
     def test_invalid_window_rejected(self):
+        """A non-positive partial_fit_window raises ValueError."""
         m = _fast_mrmr(partial_fit_window=0)
         X, y = _simple_binary_frame(n=120)
         with pytest.raises(ValueError, match=r"partial_fit_window"):
             m.partial_fit(X, y)
 
     def test_empty_batch_rejected(self):
+        """An empty (X_new, y_new) batch raises ValueError."""
         m = _fast_mrmr()
         X, y = _simple_binary_frame(n=10)
         with pytest.raises(ValueError, match=r"non-empty"):
             m.partial_fit(X.iloc[0:0], y.iloc[0:0])
 
     def test_shape_mismatch_rejected(self):
+        """A row-count mismatch between X_new and y_new raises ValueError."""
         m = _fast_mrmr()
         X, y = _simple_binary_frame(n=100)
         with pytest.raises(ValueError, match=r"rows"):
@@ -169,6 +173,7 @@ class TestLayer53_APISmoke:
 
 
 class TestLayer53_C1_FirstCallEquivalence:
+    """C1: the first partial_fit call behaves like a plain fit on the same batch."""
 
     def test_first_call_support_matches_fit(self):
         """C1: first partial_fit call -> support_ identical to fit on the
@@ -178,19 +183,20 @@ class TestLayer53_C1_FirstCallEquivalence:
         m_pf = _fast_mrmr().partial_fit(X, y)
         # Support contents (not insertion order) must match.
         assert set(m_fit.support_.tolist()) == set(m_pf.support_.tolist()), (
-            f"partial_fit first-call support {m_pf.support_.tolist()!r} "
-            f"differs from fit support {m_fit.support_.tolist()!r}"
+            f"partial_fit first-call support {m_pf.support_.tolist()!r} " f"differs from fit support {m_fit.support_.tolist()!r}"
         )
         # n_features_in_ contract preserved.
         assert m_fit.n_features_in_ == m_pf.n_features_in_
 
     def test_first_call_returns_self(self):
+        """partial_fit returns self, per sklearn convention."""
         m = _fast_mrmr()
         X, y = _simple_binary_frame(n=200, seed=5)
         out = m.partial_fit(X, y)
         assert out is m, "sklearn convention: partial_fit must return self"
 
     def test_first_call_populates_buffer(self):
+        """The first partial_fit call populates the internal buffer with all rows seen."""
         m = _fast_mrmr()
         X, y = _simple_binary_frame(n=200, seed=5)
         m.partial_fit(X, y)
@@ -206,6 +212,7 @@ class TestLayer53_C1_FirstCallEquivalence:
 
 
 class TestLayer53_C2_BatchAccumulation:
+    """C2: support_ carries over below the recompute threshold and refits once it's crossed."""
 
     def test_below_threshold_no_refit(self):
         """C2a: when fewer than ``partial_fit_min_recompute`` new rows have
@@ -252,6 +259,7 @@ class TestLayer53_C2_BatchAccumulation:
 
 
 class TestLayer53_C3_DecayBiasesRecent:
+    """C3: partial_fit_decay > 0 biases the fit toward the most recent batch's target relationship."""
 
     def test_decay_one_essentially_replaces_history(self):
         """C3: with decay=1.0, historical rows are weighted to the floor;
@@ -273,10 +281,7 @@ class TestLayer53_C3_DecayBiasesRecent:
         feature_names = list(m.feature_names_in_)
         selected = [feature_names[i] for i in m.support_]
         # x_other must beat x_signal in the recent-biased fit.
-        assert "x_other" in selected, (
-            f"With decay=1.0 + recent batch driven by x_other, "
-            f"selected={selected!r} must include x_other."
-        )
+        assert "x_other" in selected, f"With decay=1.0 + recent batch driven by x_other, " f"selected={selected!r} must include x_other."
 
     def test_decay_zero_keeps_both_drivers_equal(self):
         """C3 sentry: decay=0 keeps the historic buffer at equal weight,
@@ -294,10 +299,7 @@ class TestLayer53_C3_DecayBiasesRecent:
         # No-decay: both batches contribute equally; at least one of the
         # two signals should be present (both are weak alone after the
         # 50/50 mix, but neither is excluded by construction).
-        assert selected & {"x_signal", "x_other"}, (
-            f"decay=0 should keep at least one of the two drivers in "
-            f"support_; got {selected!r}"
-        )
+        assert selected & {"x_signal", "x_other"}, f"decay=0 should keep at least one of the two drivers in " f"support_; got {selected!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -306,6 +308,7 @@ class TestLayer53_C3_DecayBiasesRecent:
 
 
 class TestLayer53_C4_RollingWindow:
+    """C4: partial_fit_window caps the buffer to the most recent N rows."""
 
     def test_window_truncates_buffer(self):
         """C4a: with window=150, after pushing 100+100 rows the buffer is
@@ -323,9 +326,7 @@ class TestLayer53_C4_RollingWindow:
         # The newest batch (100 rows) is preserved intact; 50 from the
         # historic batch survive.
         batch_sizes = m._partial_fit_batch_sizes_
-        assert batch_sizes[-1] == 100, (
-            f"Newest batch must be preserved intact; batch_sizes={batch_sizes!r}"
-        )
+        assert batch_sizes[-1] == 100, f"Newest batch must be preserved intact; batch_sizes={batch_sizes!r}"
         assert sum(batch_sizes) == 150
 
     def test_window_smaller_than_first_batch(self):
@@ -346,8 +347,10 @@ class TestLayer53_C4_RollingWindow:
 
 
 class TestLayer53_C5_PicklePreserves:
+    """C5: pickle round-trip and sklearn clone() preserve the right partial_fit state."""
 
     def test_pickle_round_trip_preserves_buffer_and_support(self):
+        """Pickle round-trip preserves the partial_fit buffer, ctor params, and support_."""
         m = _fast_mrmr(
             partial_fit_decay=0.3,
             partial_fit_min_recompute=50,
@@ -356,7 +359,7 @@ class TestLayer53_C5_PicklePreserves:
         X1, y1 = _simple_binary_frame(n=200, seed=80)
         m.partial_fit(X1, y1)
         blob = pickle.dumps(m)
-        m2 = pickle.loads(blob)
+        m2 = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
         # Ctor params preserved.
         assert m2.partial_fit_decay == 0.3
         assert m2.partial_fit_min_recompute == 50
@@ -400,11 +403,11 @@ class TestLayer53_C5_PicklePreserves:
 
 
 class TestLayer53_C6_Regressions:
+    """C6: prior-layer contracts (L41, L48, L52) still hold alongside the new partial_fit sibling."""
 
     def test_sibling_module_importable(self):
-        mod = importlib.import_module(
-            "mlframe.feature_selection.filters._mrmr_partial_fit"
-        )
+        """The _mrmr_partial_fit sibling module is importable and exposes partial_fit."""
+        mod = importlib.import_module("mlframe.feature_selection.filters._mrmr_partial_fit")
         assert hasattr(mod, "partial_fit")
 
     def test_layer41_cluster_members_attr_still_set_on_classic_fit(self):
@@ -429,9 +432,7 @@ class TestLayer53_C6_Regressions:
     def test_layer52_roster_discovery_sibling_module(self):
         """Layer 52-style roster: Layer 53's sibling module is discoverable
         via importlib (analogous to the L52 roster sweep)."""
-        mod = importlib.import_module(
-            "mlframe.feature_selection.filters._mrmr_partial_fit"
-        )
+        mod = importlib.import_module("mlframe.feature_selection.filters._mrmr_partial_fit")
         # Must expose the public function name.
         assert callable(getattr(mod, "partial_fit", None))
 
