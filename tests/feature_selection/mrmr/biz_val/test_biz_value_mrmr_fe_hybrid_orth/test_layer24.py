@@ -171,7 +171,7 @@ def _build_financial(seed: int, n: int = 3000):
     return X, pd.Series(y, name="y")
 
 
-class TestScenarioA_FinancialCross:
+class TestScenarioAFinancialCross:
     """``y = sign(price*volume)`` -- hybrid FE lifts holdout AUC and the price*volume cross enters support."""
 
     @pytest.mark.parametrize("seed", SEEDS)
@@ -235,7 +235,7 @@ def _has_univariate_basis_of(support, var):
     return any(str(s).startswith(f"{var}__") for s in support)
 
 
-class TestScenarioB_SensorUShape:
+class TestScenarioBSensorUShape:
     """``y = sign(temperature^2 - 1)`` -- the DEFAULT MRMR recovers the U-shape via a univariate basis detector."""
 
     @pytest.mark.parametrize("seed", SEEDS)
@@ -285,7 +285,7 @@ def _build_asymmetric_churn(seed: int, n: int = 3000):
     return X, pd.Series(y, name="y")
 
 
-class TestScenarioC_AsymmetricChurn:
+class TestScenarioCAsymmetricChurn:
     """``y = sign(usage^2 - 1)`` -- the DEFAULT MRMR recovers the churn non-linearity via usage__He2."""
 
     @pytest.mark.parametrize("seed", SEEDS)
@@ -333,7 +333,7 @@ def _build_quadratic_regression(seed: int, n: int = 3000):
     return X, pd.Series(y, name="y")
 
 
-class TestScenarioD_PolynomialRegression:
+class TestScenarioDPolynomialRegression:
     """``y = x^2 + 0.2x + noise`` -- the DEFAULT MRMR recovers the quadratic regression via x__He2."""
 
     @pytest.mark.parametrize("seed", SEEDS)
@@ -384,7 +384,7 @@ def _build_mixed_bag(seed: int, n: int = 3000):
     return X, pd.Series(y, name="y")
 
 
-class TestScenarioE_MixedBag:
+class TestScenarioEMixedBag:
     """A 9-column mixed FE scenario -- the DEFAULT MRMR recovers at least 2 of the 3 engineered winners."""
 
     @pytest.mark.parametrize("seed", SEEDS)
@@ -438,7 +438,7 @@ def _build_linear_negative_control(seed: int, n: int = 3000):
     return X, pd.Series(y, name="y")
 
 
-class TestNegativeControl_LinearSignal:
+class TestNegativeControlLinearSignal:
     """Verify hybrid FE does NOT manufacture engineered columns when the
     underlying signal is purely linear / additive. Spurious He_n entries
     would bloat the model and signal that the absolute-MI floor in
