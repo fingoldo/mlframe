@@ -66,7 +66,7 @@ def frames():
     ("ind", lambda v, tau: (v > tau).astype(float)),
 ])
 def test_hinge_basis_closed_form_replay_on_heldout(frames, side, fn):
-    X, Xnew = frames
+    _X, Xnew = frames
     tau = 0.5
     rec = build_hinge_basis_recipe(name=f"hinge_{side}(a)", src_name="a", tau=tau, side=side)
     out = apply_recipe(rec, Xnew)
@@ -77,7 +77,7 @@ def test_hinge_basis_closed_form_replay_on_heldout(frames, side, fn):
 def test_hinge_tau_is_frozen_not_refit(frames):
     """The change-point tau is frozen at fit; replaying on a wider held-out frame must
     keep the SAME tau, so a value below tau in BOTH frames maps to 0 either way."""
-    X, Xnew = frames
+    _X, Xnew = frames
     rec = build_hinge_basis_recipe(name="h", src_name="a", tau=0.5, side="gt")
     # Manually clamp: any held-out value <= 0.5 must give exactly 0.
     out = apply_recipe(rec, Xnew)
@@ -156,8 +156,20 @@ def test_fourier_quadratic_chirp_replays_leakfree(frames):
 
 def test_orth_pair_cross_is_product_of_univariate_legs(frames):
     """A pair-cross column must equal the elementwise PRODUCT of its two univariate
-    basis legs (the documented ``h_a * h_b`` replay)."""
-    X, Xnew = frames
+    basis legs (the documented ``h_a * h_b`` replay), to FLOAT32 precision -- not bit-exact.
+
+    ``_apply_orth_pair_cross``'s ``_eval_side`` deliberately casts each operand to
+    ``_crit_np_dtype()`` (float32 under the default ``MLFRAME_CRIT_DTYPE_RELAXED``) before
+    evaluating the basis, to match ``generate_pair_cross_basis_features``'s fit-time operand dtype
+    (see that function's own comment: this cast FIXES a fit/replay precision-drift bug). The
+    standalone ``_apply_orth_univariate`` path used for ``leg_i``/``leg_j`` here has no such cast
+    (native float64), so ``cross`` and ``leg_i * leg_j`` are genuinely two DIFFERENT-precision
+    computations of the same mathematical identity -- comparing them at ``atol=1e-10`` compares f32
+    accumulation against f64 and fails on every run (verified: max diff 1.38e-7, exactly float32
+    epsilon-scale, not a bug). ``atol=1e-6`` comfortably covers a degree-3 Legendre eval + multiply
+    at float32 precision while still catching a genuine correctness break (a wrong basis/degree/side
+    diverges by orders of magnitude more than rounding noise)."""
+    _X, Xnew = frames
     deg = 3
     rec_i = build_orth_univariate_recipe(name="L(a)", src_name="a", basis="legendre", degree=deg)
     rec_j = build_orth_univariate_recipe(name="L(b)", src_name="b", basis="legendre", degree=deg)
@@ -168,7 +180,7 @@ def test_orth_pair_cross_is_product_of_univariate_legs(frames):
     leg_i = apply_recipe(rec_i, Xnew)
     leg_j = apply_recipe(rec_j, Xnew)
     cross = apply_recipe(rec_cross, Xnew)
-    np.testing.assert_allclose(cross, leg_i * leg_j, rtol=0, atol=1e-10)
+    np.testing.assert_allclose(cross, leg_i * leg_j, rtol=0, atol=1e-6)
 
 
 # ---------------------------------------------------------------------------
