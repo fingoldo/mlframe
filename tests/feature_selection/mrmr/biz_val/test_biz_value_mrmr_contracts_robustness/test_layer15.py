@@ -70,13 +70,13 @@ respects those defaults and probes them in regression mode.
 from __future__ import annotations
 
 import warnings
+from functools import cache
 
 import numpy as np
 import pandas as pd
 import pytest
 from sklearn.linear_model import Ridge
 from sklearn.metrics import r2_score
-
 
 # ---------------------------------------------------------------------------
 # Data builders
@@ -105,12 +105,7 @@ def _build_linear_regression_data(
     x1 = rng.standard_normal(N_TOTAL)
     x2 = rng.standard_normal(N_TOTAL)
     x3 = rng.standard_normal(N_TOTAL)
-    y_arr = (
-        1.5 * x1
-        + 0.8 * x2
-        + x3_coef * x3
-        + noise_scale * rng.standard_normal(N_TOTAL)
-    )
+    y_arr = 1.5 * x1 + 0.8 * x2 + x3_coef * x3 + noise_scale * rng.standard_normal(N_TOTAL)
     cols = {"x_signal_1": x1, "x_signal_2": x2, "x_signal_3": x3}
     for k in range(N_NOISE):
         cols[f"noise_{k}"] = rng.standard_normal(N_TOTAL)
@@ -131,12 +126,7 @@ def _build_lognormal_regression_data(seed: int):
     x1 = rng.standard_normal(N_TOTAL)
     x2 = rng.standard_normal(N_TOTAL)
     x3 = rng.standard_normal(N_TOTAL)
-    latent = (
-        1.5 * x1
-        + 0.8 * x2
-        + 0.5 * x3
-        + 0.3 * rng.standard_normal(N_TOTAL)
-    )
+    latent = 1.5 * x1 + 0.8 * x2 + 0.5 * x3 + 0.3 * rng.standard_normal(N_TOTAL)
     y_arr = np.exp(latent)
     cols = {"x_signal_1": x1, "x_signal_2": x2, "x_signal_3": x3}
     for k in range(N_NOISE):
@@ -159,12 +149,7 @@ def _build_bimodal_regression_data(seed: int):
     x1 = rng.standard_normal(N_TOTAL)
     x2 = rng.standard_normal(N_TOTAL)
     x3 = rng.standard_normal(N_TOTAL)
-    raw = (
-        1.5 * x1
-        + 0.8 * x2
-        + 0.5 * x3
-        + 0.3 * rng.standard_normal(N_TOTAL)
-    )
+    raw = 1.5 * x1 + 0.8 * x2 + 0.5 * x3 + 0.3 * rng.standard_normal(N_TOTAL)
     # +/- 2 mixture component, independent of x_signal_*
     mode = rng.integers(0, 2, N_TOTAL).astype(np.float64) * 4.0 - 2.0
     y_arr = raw + mode
@@ -196,12 +181,37 @@ def _make_mrmr(**overrides):
 
 
 def _fit_quiet(sel, X, y):
+    """Fit ``sel`` on ``(X, y)`` with warnings silenced; return the fitted estimator."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         return sel.fit(X, y)
 
 
 SEEDS = (1, 7, 13, 42, 101)
+
+
+@cache
+def _linear_fit(seed):
+    """Cache-dedupe the linear-regression (seed) fit shared by 4 tests across 3 classes below
+    (TestContinuousYDoesNotCrash, TestTopTwoSignalsRecovered's 2 tests, TestNoiseExcluded)
+    that each independently rebuilt and refit the identical (X, y, config) triple.
+    """
+    X, y = _build_linear_regression_data(seed)
+    sel = _make_mrmr(random_seed=seed)
+    _fit_quiet(sel, X, y)
+    return X, y, sel
+
+
+@cache
+def _lognormal_fit(seed):
+    """Cache-dedupe the log-normal-regression (seed) fit shared by 4 tests across 3 classes below
+    (TestContinuousYDoesNotCrash, TestNoiseExcluded, TestLogNormalAllThreeSignals's 2 tests)
+    that each independently rebuilt and refit the identical (X, y, config) triple.
+    """
+    X, y = _build_lognormal_regression_data(seed)
+    sel = _make_mrmr(random_seed=seed)
+    _fit_quiet(sel, X, y)
+    return X, y, sel
 
 
 # ---------------------------------------------------------------------------
@@ -218,29 +228,24 @@ class TestContinuousYDoesNotCrash:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_continuous_y_fit_runs(self, seed):
-        X, y = _build_linear_regression_data(seed)
+        """Continuous float y with 5-seed linear-design data does not crash MRMR and yields non-empty support."""
+        _X, y, sel = _linear_fit(seed)
         # Sanity: y really is continuous (>> 2 unique values).
-        assert y.nunique() > 100, (
-            f"test bug: continuous y has only {y.nunique()} unique vals"
-        )
+        assert y.nunique() > 100, f"test bug: continuous y has only {y.nunique()} unique vals"
         assert y.dtype.kind == "f", f"y must be float; got {y.dtype}"
-        sel = _make_mrmr(random_seed=seed)
-        _fit_quiet(sel, X, y)
         assert sel.support_ is not None
-        assert sel.n_features_ >= 1, (
-            f"MRMR returned empty support_ on continuous y, seed={seed}"
-        )
+        assert sel.n_features_ >= 1, f"MRMR returned empty support_ on continuous y, seed={seed}"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_lognormal_y_fit_runs(self, seed):
-        X, y = _build_lognormal_regression_data(seed)
+        """Heavy-tailed log-normal y does not crash MRMR and yields non-empty support."""
+        _X, y, sel = _lognormal_fit(seed)
         assert y.min() > 0, "log-normal y must be strictly positive"
-        sel = _make_mrmr(random_seed=seed)
-        _fit_quiet(sel, X, y)
         assert sel.n_features_ >= 1
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_bimodal_y_fit_runs(self, seed):
+        """Bimodal-mixture y does not crash MRMR and yields non-empty support."""
         X, y = _build_bimodal_regression_data(seed)
         sel = _make_mrmr(random_seed=seed)
         _fit_quiet(sel, X, y)
@@ -262,32 +267,21 @@ class TestTopTwoSignalsRecovered:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_x_signal_1_and_2_in_support(self, seed):
-        X, y = _build_linear_regression_data(seed)
-        sel = _make_mrmr(random_seed=seed)
-        _fit_quiet(sel, X, y)
+        """The two strongest signals (coef 1.5 and 0.8) appear in support_ on every seed."""
+        _X, _y, sel = _linear_fit(seed)
         names = list(sel.get_feature_names_out())
-        assert "x_signal_1" in names, (
-            f"Strongest signal x_signal_1 (coef=1.5) missing from "
-            f"support_; seed={seed}, support={names}"
-        )
-        assert "x_signal_2" in names, (
-            f"Second-strongest signal x_signal_2 (coef=0.8) missing "
-            f"from support_; seed={seed}, support={names}"
-        )
+        assert "x_signal_1" in names, f"Strongest signal x_signal_1 (coef=1.5) missing from " f"support_; seed={seed}, support={names}"
+        assert "x_signal_2" in names, f"Second-strongest signal x_signal_2 (coef=0.8) missing " f"from support_; seed={seed}, support={names}"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_strongest_signal_is_picked_first(self, seed):
         """x_signal_1 has the largest coefficient (1.5) so it should
         be the FIRST feature MRMR selects on the linear design.
         """
-        X, y = _build_linear_regression_data(seed)
-        sel = _make_mrmr(random_seed=seed)
-        _fit_quiet(sel, X, y)
+        _X, _y, sel = _linear_fit(seed)
         names = list(sel.get_feature_names_out())
         assert names[0] == "x_signal_1", (
-            f"MRMR top-1 on linear regression must be x_signal_1 "
-            f"(coef=1.5); got {names[0]} on seed={seed}; full "
-            f"support={names}"
+            f"MRMR top-1 on linear regression must be x_signal_1 " f"(coef=1.5); got {names[0]} on seed={seed}; full " f"support={names}"
         )
 
 
@@ -297,29 +291,23 @@ class TestTopTwoSignalsRecovered:
 
 
 class TestNoiseExcluded:
+    """Noise columns must never appear in support_ on continuous-y selection."""
+
     @pytest.mark.parametrize("seed", SEEDS)
     def test_no_noise_column_selected_linear(self, seed):
-        X, y = _build_linear_regression_data(seed)
-        sel = _make_mrmr(random_seed=seed)
-        _fit_quiet(sel, X, y)
+        """No noise column leaks into support_ on the linear-regression design."""
+        _X, _y, sel = _linear_fit(seed)
         names = list(sel.get_feature_names_out())
         leaked = [n for n in names if n.startswith("noise_")]
-        assert not leaked, (
-            f"noise column(s) {leaked} leaked into support_ on "
-            f"continuous-y selection; seed={seed}, support={names}"
-        )
+        assert not leaked, f"noise column(s) {leaked} leaked into support_ on " f"continuous-y selection; seed={seed}, support={names}"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_no_noise_column_selected_lognormal(self, seed):
-        X, y = _build_lognormal_regression_data(seed)
-        sel = _make_mrmr(random_seed=seed)
-        _fit_quiet(sel, X, y)
+        """No noise column leaks into support_ on the log-normal-regression design."""
+        _X, _y, sel = _lognormal_fit(seed)
         names = list(sel.get_feature_names_out())
         leaked = [n for n in names if n.startswith("noise_")]
-        assert not leaked, (
-            f"noise column(s) {leaked} leaked into log-normal y "
-            f"support_; seed={seed}, support={names}"
-        )
+        assert not leaked, f"noise column(s) {leaked} leaked into log-normal y " f"support_; seed={seed}, support={names}"
 
 
 # ---------------------------------------------------------------------------
@@ -336,15 +324,11 @@ class TestLogNormalAllThreeSignals:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_lognormal_y_recovers_all_three_signals(self, seed):
-        X, y = _build_lognormal_regression_data(seed)
-        sel = _make_mrmr(random_seed=seed)
-        _fit_quiet(sel, X, y)
+        """All 3 signal columns appear in support_ on the log-normal design, every seed."""
+        _X, _y, sel = _lognormal_fit(seed)
         names = list(sel.get_feature_names_out())
         for s in ("x_signal_1", "x_signal_2", "x_signal_3"):
-            assert s in names, (
-                f"signal {s!r} missing from log-normal y support_; "
-                f"seed={seed}, support={names}"
-            )
+            assert s in names, f"signal {s!r} missing from log-normal y support_; " f"seed={seed}, support={names}"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_lognormal_y_gains_rank_order(self, seed):
@@ -353,27 +337,21 @@ class TestLogNormalAllThreeSignals:
         path picks features in descending gain so the order in
         ``support_`` is the order in ``mrmr_gains_``.
         """
-        X, y = _build_lognormal_regression_data(seed)
-        sel = _make_mrmr(random_seed=seed)
-        _fit_quiet(sel, X, y)
+        _X, _y, sel = _lognormal_fit(seed)
         names = list(sel.get_feature_names_out())
         # All 3 must be there for the rank check to be meaningful.
         assert {"x_signal_1", "x_signal_2", "x_signal_3"}.issubset(set(names))
         # Map name -> position in support_ (= selection order).
         pos = {n: i for i, n in enumerate(names)}
         assert pos["x_signal_1"] < pos["x_signal_2"] < pos["x_signal_3"], (
-            f"Selection order does not match effect-size order on "
-            f"seed={seed}: support={names}, gains={list(sel.mrmr_gains_)}"
+            f"Selection order does not match effect-size order on " f"seed={seed}: support={names}, gains={list(sel.mrmr_gains_)}"
         )
         # And the underlying gains are strictly descending across the
         # greedy steps (MRMR's invariant; pinned here as a regression
         # guard against a future change that would let later steps
         # report a higher gain than the previous one).
         gains = [sel.mrmr_gains_[pos[n]] for n in ("x_signal_1", "x_signal_2", "x_signal_3")]
-        assert gains[0] > gains[1] > gains[2], (
-            f"mrmr_gains_ not strictly descending across the 3 signals "
-            f"on seed={seed}: {gains}"
-        )
+        assert gains[0] > gains[1] > gains[2], f"mrmr_gains_ not strictly descending across the 3 signals " f"on seed={seed}: {gains}"
 
 
 # ---------------------------------------------------------------------------
@@ -395,6 +373,7 @@ class TestContinuousYBinning:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_mdlp_gives_y_more_than_two_bins(self, seed):
+        """MDLP-discretized continuous y retains at least 3 distinct bin codes."""
         from mlframe.feature_selection.filters.discretization import (
             categorize_dataset,
         )
@@ -404,7 +383,7 @@ class TestContinuousYBinning:
         # via y_for_strategy so the MDLP supervised binner is fed.
         df = X.copy()
         df["targ_y"] = y.values
-        data, cols, nbins = categorize_dataset(
+        data, cols, _nbins = categorize_dataset(
             df=df,
             method="quantile",
             n_bins=10,
@@ -437,6 +416,7 @@ class TestDownstreamRidgeAnchor:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_ridge_on_mrmr_support_beats_zero_r2(self, seed):
+        """Ridge on MRMR-selected continuous-y support achieves R2 > 0.70 on holdout."""
         X, y = _build_linear_regression_data(seed)
         X_tr, X_te = X.iloc[:-N_HOLDOUT], X.iloc[-N_HOLDOUT:]
         y_tr, y_te = y.iloc[:-N_HOLDOUT], y.iloc[-N_HOLDOUT:]
@@ -469,6 +449,7 @@ class TestFloat32YParity:
 
     @pytest.mark.parametrize("seed", (7, 42))
     def test_float32_y_matches_float64_support(self, seed):
+        """float32 y produces the same support_ as float64 y on the same seed."""
         X, y64 = _build_linear_regression_data(seed)
         y32 = y64.astype(np.float32)
 
@@ -480,7 +461,4 @@ class TestFloat32YParity:
         _fit_quiet(sel32, X.copy(), y32)
         sup32 = list(sel32.get_feature_names_out())
 
-        assert sup64 == sup32, (
-            f"float32 y diverged from float64 y on the same seed: "
-            f"f64 support={sup64}, f32 support={sup32}, seed={seed}"
-        )
+        assert sup64 == sup32, f"float32 y diverged from float64 y on the same seed: " f"f64 support={sup64}, f32 support={sup32}, seed={seed}"
