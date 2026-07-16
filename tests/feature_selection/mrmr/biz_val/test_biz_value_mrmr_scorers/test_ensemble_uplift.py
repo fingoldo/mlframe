@@ -71,6 +71,7 @@ SUPPORT_SIZE_SLACK = 5
 
 
 def _import_ensemble_fe():
+    """Lazily import the Layer-69 ensemble-of-scorers rank-fusion functions."""
     from mlframe.feature_selection.filters._orthogonal_scorer_auto_fe import (
         ENSEMBLE_AGGREGATORS,
         SCORER_NAMES,
@@ -88,6 +89,7 @@ def _import_ensemble_fe():
 
 
 def _import_auto_fe():
+    """Lazily import the Layer-68 bootstrap-LCB auto-scorer FE function."""
     from mlframe.feature_selection.filters._orthogonal_scorer_auto_fe import (
         hybrid_orth_mi_auto_scorer_fe_with_recipes,
     )
@@ -95,6 +97,7 @@ def _import_auto_fe():
 
 
 def _import_plug_in_fe():
+    """Lazily import the Layer-21 plug-in univariate basis-feature generator."""
     from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
         generate_univariate_basis_features,
     )
@@ -128,11 +131,8 @@ def _build_heterogeneous_fixture(seed: int, n: int = 1500):
     for k in range(2):
         cols[f"noise_{k}"] = rng.standard_normal(n)
     X = pd.DataFrame(cols)
-    sig_smooth = s_smooth ** 3 - 3.0 * s_smooth
-    sig_heavy = (
-        np.log(np.abs(s_heavy) + 1e-12)
-        - float(np.median(np.log(np.abs(s_heavy) + 1e-12)))
-    )
+    sig_smooth = s_smooth**3 - 3.0 * s_smooth
+    sig_heavy = np.log(np.abs(s_heavy) + 1e-12) - float(np.median(np.log(np.abs(s_heavy) + 1e-12)))
     sig_nonmono = np.cos(np.pi * s_nonmono)
     combined = sig_smooth + sig_heavy + 2.0 * sig_nonmono
     thr = float(np.median(combined))
@@ -141,6 +141,7 @@ def _build_heterogeneous_fixture(seed: int, n: int = 1500):
 
 
 def _build_linear(seed: int, n: int = 1200):
+    """Plain linear-additive signal used for the default-disabled byte-identical contract."""
     rng = np.random.default_rng(int(seed))
     x1 = rng.standard_normal(n)
     x2 = rng.standard_normal(n)
@@ -221,39 +222,30 @@ class TestEnsembleStableAcrossSeeds:
                 X_sub, engineered, y_sub,
                 aggregator="mean_rank", random_state=s,
             )
-            supports["ensemble"].append(
-                set(ens_scores.head(TOP_K)["engineered_col"])
-            )
+            supports["ensemble"].append(set(ens_scores.head(TOP_K)["engineered_col"]))
 
             ksg_scores = score_features_by_ksg_mi_uplift(
                 X_sub, engineered, y_sub,
                 n_neighbors=3, random_state=s,
             )
-            supports["ksg"].append(
-                set(ksg_scores.head(TOP_K)["engineered_col"])
-            )
+            supports["ksg"].append(set(ksg_scores.head(TOP_K)["engineered_col"]))
 
             cop_scores = score_features_by_copula_mi_uplift(
                 X_sub, engineered, y_sub, n_bins=20,
             )
-            supports["copula"].append(
-                set(cop_scores.head(TOP_K)["engineered_col"])
-            )
+            supports["copula"].append(set(cop_scores.head(TOP_K)["engineered_col"]))
 
             dcor_scores = score_features_by_dcor_uplift(
                 X_sub, engineered, y_sub,
                 n_sample=400, random_state=s,
             )
-            supports["dcor"].append(
-                set(dcor_scores.head(TOP_K)["engineered_col"])
-            )
+            supports["dcor"].append(set(dcor_scores.head(TOP_K)["engineered_col"]))
 
         def _avg_adj_jaccard(seq):
+            """Average pairwise Jaccard similarity between adjacent support sets in a sequence."""
             if len(seq) < 2:
                 return 1.0
-            vals = [
-                _jaccard(seq[i], seq[i + 1]) for i in range(len(seq) - 1)
-            ]
+            vals = [_jaccard(seq[i], seq[i + 1]) for i in range(len(seq) - 1)]
             return float(np.mean(vals))
 
         j_ens = _avg_adj_jaccard(supports["ensemble"])
@@ -300,6 +292,7 @@ class TestEnsembleVsAutoComparison:
     """
 
     def test_ensemble_auc_matches_or_beats_auto(self):
+        """Ensemble-augmented LogReg AUC matches or beats L68 auto-augmented AUC within 0.01 on the heterogeneous fixture."""
         _, _, _, _, hybrid_ens = _import_ensemble_fe()
         hybrid_auto = _import_auto_fe()
         gen = _import_plug_in_fe()
@@ -322,16 +315,17 @@ class TestEnsembleVsAutoComparison:
                 aggregator="mean_rank", random_state=s,
             )
             added_ens = [c for c in X_aug_ens.columns if c not in X_tr.columns]
-            X_aug_te_ens = (
-                pd.concat([X_te, eng_te[added_ens]], axis=1)
-                if added_ens else X_te
-            )
+            X_aug_te_ens = pd.concat([X_te, eng_te[added_ens]], axis=1) if added_ens else X_te
             lr = LogisticRegression(max_iter=2000, solver="lbfgs").fit(
-                X_aug_ens, y_tr,
+                X_aug_ens,
+                y_tr,
             )
-            aucs_ens.append(roc_auc_score(
-                y_te, lr.predict_proba(X_aug_te_ens)[:, 1],
-            ))
+            aucs_ens.append(
+                roc_auc_score(
+                    y_te,
+                    lr.predict_proba(X_aug_te_ens)[:, 1],
+                )
+            )
 
             X_aug_auto, _, _ = hybrid_auto(
                 X_tr, y_tr_arr,
@@ -340,16 +334,17 @@ class TestEnsembleVsAutoComparison:
                 n_boot=5, random_state=s,
             )
             added_auto = [c for c in X_aug_auto.columns if c not in X_tr.columns]
-            X_aug_te_auto = (
-                pd.concat([X_te, eng_te[added_auto]], axis=1)
-                if added_auto else X_te
-            )
+            X_aug_te_auto = pd.concat([X_te, eng_te[added_auto]], axis=1) if added_auto else X_te
             lr_a = LogisticRegression(max_iter=2000, solver="lbfgs").fit(
-                X_aug_auto, y_tr,
+                X_aug_auto,
+                y_tr,
             )
-            aucs_auto.append(roc_auc_score(
-                y_te, lr_a.predict_proba(X_aug_te_auto)[:, 1],
-            ))
+            aucs_auto.append(
+                roc_auc_score(
+                    y_te,
+                    lr_a.predict_proba(X_aug_te_auto)[:, 1],
+                )
+            )
 
         ens_mean = float(np.mean(aucs_ens))
         auto_mean = float(np.mean(aucs_auto))
@@ -359,9 +354,7 @@ class TestEnsembleVsAutoComparison:
         # delivers; if it does, the rank aggregation is destroying
         # signal that the LCB winner-take-all kept.
         assert ens_mean >= auto_mean - 0.01, (
-            f"ensemble AUC mean ({ens_mean:.4f}) regressed vs L68 auto "
-            f"mean ({auto_mean:.4f}); per-seed ens={aucs_ens}, "
-            f"auto={aucs_auto}"
+            f"ensemble AUC mean ({ens_mean:.4f}) regressed vs L68 auto " f"mean ({auto_mean:.4f}); per-seed ens={aucs_ens}, " f"auto={aucs_auto}"
         )
 
 
@@ -380,6 +373,7 @@ class TestBordaVsMeanRankAgreement:
     """
 
     def test_borda_and_mean_rank_top_k_agree_majority_of_seeds(self):
+        """borda_count and mean_rank top-K winners agree on a majority (>= 3/5) of seeds."""
         _, _, score_ensemble, _, _ = _import_ensemble_fe()
         gen = _import_plug_in_fe()
 
@@ -411,9 +405,7 @@ class TestBordaVsMeanRankAgreement:
         # systematic divergence here would mean the aggregator
         # implementations disagree on the underlying rank semantics.
         assert n_agree >= 3, (
-            f"borda_count and mean_rank top-K agreed on only "
-            f"{n_agree}/{len(seeds)} seeds; expected >= 3 (affine "
-            f"equivalence contract)."
+            f"borda_count and mean_rank top-K agreed on only " f"{n_agree}/{len(seeds)} seeds; expected >= 3 (affine " f"equivalence contract)."
         )
 
 
@@ -429,6 +421,7 @@ class TestAucLiftOnMixedSignal:
     """
 
     def test_ensemble_aug_auc_geq_best_single(self):
+        """Ensemble-augmented AUC matches or beats the best of ksg/copula/dcor single-scorer AUC within 0.01."""
         from mlframe.feature_selection.filters._orthogonal_ksg_mi_fe import (
             hybrid_orth_mi_ksg_fe_with_recipes,
         )
@@ -452,15 +445,10 @@ class TestAucLiftOnMixedSignal:
             eng_te = gen(X_te, degrees=(2, 3), basis="hermite")
 
             for hybrid_call, kwargs, bucket in (
-                (hybrid_ens,
-                 dict(aggregator="mean_rank", random_state=s),
-                 aucs_ens),
-                (hybrid_orth_mi_ksg_fe_with_recipes,
-                 dict(n_neighbors=3, random_state=s), aucs_ksg),
-                (hybrid_orth_mi_copula_fe_with_recipes,
-                 dict(n_bins=20), aucs_cop),
-                (hybrid_orth_mi_dcor_fe_with_recipes,
-                 dict(n_sample=400, random_state=s), aucs_dcor),
+                (hybrid_ens, dict(aggregator="mean_rank", random_state=s), aucs_ens),
+                (hybrid_orth_mi_ksg_fe_with_recipes, dict(n_neighbors=3, random_state=s), aucs_ksg),
+                (hybrid_orth_mi_copula_fe_with_recipes, dict(n_bins=20), aucs_cop),
+                (hybrid_orth_mi_dcor_fe_with_recipes, dict(n_sample=400, random_state=s), aucs_dcor),
             ):
                 X_aug, _, _ = hybrid_call(
                     X_tr, y_tr_arr,
@@ -469,16 +457,17 @@ class TestAucLiftOnMixedSignal:
                     **kwargs,
                 )
                 added = [c for c in X_aug.columns if c not in X_tr.columns]
-                X_aug_te = (
-                    pd.concat([X_te, eng_te[added]], axis=1)
-                    if added else X_te
-                )
+                X_aug_te = pd.concat([X_te, eng_te[added]], axis=1) if added else X_te
                 lr = LogisticRegression(max_iter=2000, solver="lbfgs").fit(
-                    X_aug, y_tr,
+                    X_aug,
+                    y_tr,
                 )
-                bucket.append(roc_auc_score(
-                    y_te, lr.predict_proba(X_aug_te)[:, 1],
-                ))
+                bucket.append(
+                    roc_auc_score(
+                        y_te,
+                        lr.predict_proba(X_aug_te)[:, 1],
+                    )
+                )
 
         ens_mean = float(np.mean(aucs_ens))
         best_single = max(
@@ -507,18 +496,18 @@ class TestAucLiftOnMixedSignal:
 
 
 class TestDefaultDisabledByteIdentical:
+    """fe_hybrid_orth_ensemble_enable defaults to False, with the documented scorer pool and aggregator defaults."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_default_off_no_ensemble_columns(self, seed):
+        """With the flag left at its False default, no ensemble columns are appended."""
         X, y = _build_linear(seed)
         m = _make_mrmr().fit(X, y)
         added = list(getattr(m, "hybrid_orth_features_", []) or [])
-        assert added == [], (
-            f"seed={seed}: default fe_hybrid_orth_ensemble_enable=False "
-            f"should NOT append any engineered columns; got {added}"
-        )
+        assert added == [], f"seed={seed}: default fe_hybrid_orth_ensemble_enable=False " f"should NOT append any engineered columns; got {added}"
 
     def test_default_ctor_values(self):
+        """Default aggregator is mean_rank and the default scorer pool includes plug_in/ksg/copula/dcor/hsic."""
         m = _make_mrmr()
         assert m.fe_hybrid_orth_ensemble_enable is False
         assert m.fe_hybrid_orth_ensemble_aggregator == "mean_rank"
@@ -534,8 +523,10 @@ class TestDefaultDisabledByteIdentical:
 
 
 class TestPickleAndClone:
+    """Ensemble ctor params and recipes must survive clone/pickle round-trips."""
 
     def test_clone_preserves_ensemble_params(self):
+        """sklearn clone() copies every fe_hybrid_orth_ensemble_* ctor param."""
         m = _make_mrmr(
             fe_hybrid_orth_ensemble_enable=True,
             fe_hybrid_orth_ensemble_aggregator="borda_count",
@@ -546,15 +537,13 @@ class TestPickleAndClone:
             ("fe_hybrid_orth_ensemble_enable", True),
             ("fe_hybrid_orth_ensemble_aggregator", "borda_count"),
         ]:
-            assert getattr(m2, name) == expected, (
-                f"clone() dropped {name}: expected {expected}, got "
-                f"{getattr(m2, name)}"
-            )
+            assert getattr(m2, name) == expected, f"clone() dropped {name}: expected {expected}, got " f"{getattr(m2, name)}"
         assert tuple(m2.fe_hybrid_orth_ensemble_scorers) == (
             "plug_in", "ksg", "copula",
         )
 
     def test_pickle_roundtrip_preserves_ensemble_recipes(self):
+        """A pickle round-trip preserves feature names, appended columns, and every orth_univariate recipe field."""
         X, y = _build_heterogeneous_fixture(seed=42, n=900)
         m = _make_mrmr(
             fe_hybrid_orth_ensemble_enable=True,
@@ -564,26 +553,19 @@ class TestPickleAndClone:
             fe_hybrid_orth_top_k=3,
         ).fit(X, y)
         blob = pickle.dumps(m)
-        m2 = pickle.loads(blob)
+        m2 = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
         assert list(m2.feature_names_in_) == list(m.feature_names_in_)
         added_before = list(getattr(m, "hybrid_orth_features_", []) or [])
         added_after = list(getattr(m2, "hybrid_orth_features_", []) or [])
-        assert added_before == added_after, (
-            f"pickle changed hybrid_orth_features_: "
-            f"before={added_before}, after={added_after}"
-        )
+        assert added_before == added_after, f"pickle changed hybrid_orth_features_: " f"before={added_before}, after={added_after}"
 
         def _extract_orth_recipes(model):
+            """Return {name: recipe} for the orth_univariate recipes, regardless of container list/dict shape."""
             container = getattr(model, "_engineered_recipes_", None)
             if isinstance(container, dict):
-                return {
-                    r.name: r for r in container.values()
-                    if getattr(r, "kind", None) == "orth_univariate"
-                }
-            return {
-                r.name: r for r in (container or [])
-                if getattr(r, "kind", None) == "orth_univariate"
-            }
+                return {r.name: r for r in container.values() if getattr(r, "kind", None) == "orth_univariate"}
+            return {r.name: r for r in (container or []) if getattr(r, "kind", None) == "orth_univariate"}
+
         recipes_before = _extract_orth_recipes(m)
         recipes_after = _extract_orth_recipes(m2)
         assert set(recipes_before.keys()) == set(recipes_after.keys())
@@ -600,18 +582,21 @@ class TestPickleAndClone:
 
 
 def _split_classification(X, y, *, test_size=0.25, random_state=0):
+    """Stratified train/test split for a classification dataset."""
     return train_test_split(
         X, y, test_size=test_size, random_state=random_state, stratify=y,
     )
 
 
 def _split_regression(X, y, *, test_size=0.25, random_state=0):
+    """Plain train/test split for a regression dataset."""
     return train_test_split(
         X, y, test_size=test_size, random_state=random_state,
     )
 
 
 def _score_classification(X_tr, y_tr, X_te, y_te) -> float:
+    """Fit a scaled LogisticRegression and return holdout accuracy."""
     scaler = StandardScaler()
     Xtr = scaler.fit_transform(X_tr)
     Xte = scaler.transform(X_te)
@@ -621,6 +606,7 @@ def _score_classification(X_tr, y_tr, X_te, y_te) -> float:
 
 
 def _score_regression(X_tr, y_tr, X_te, y_te) -> float:
+    """Fit a scaled LinearRegression and return holdout R^2."""
     scaler = StandardScaler()
     Xtr = scaler.fit_transform(X_tr)
     Xte = scaler.transform(X_te)
@@ -630,6 +616,7 @@ def _score_regression(X_tr, y_tr, X_te, y_te) -> float:
 
 
 def _fit_transform_pair(X_tr, y_tr, X_te, *, ensemble: bool):
+    """Fit MRMR (ensemble-enabled or baseline) and return the transformed train/test frames plus support size."""
     if ensemble:
         m = _make_mrmr(
             fe_hybrid_orth_ensemble_enable=True,
@@ -646,6 +633,7 @@ def _fit_transform_pair(X_tr, y_tr, X_te, *, ensemble: bool):
 
 
 def _assert_support_bounded(size_b: int, size_h: int, dataset: str) -> None:
+    """Assert the ensemble support size does not exceed 1.5x the baseline plus a fixed slack."""
     upper = size_b * SUPPORT_SIZE_FACTOR + SUPPORT_SIZE_SLACK
     assert size_h <= upper, (
         f"[{dataset}] ensemble support_size={size_h} exceeds bound "
@@ -664,6 +652,7 @@ class TestSklearnDatasetBenchmark:
     """
 
     def test_breast_cancer_ensemble_matches_baseline(self):
+        """Ensemble accuracy on breast_cancer does not regress from baseline by more than the tolerance."""
         bc = load_breast_cancer(as_frame=True)
         X, y = bc.data, bc.target
         X_tr, X_te, y_tr, y_te = _split_classification(X, y, random_state=0)
@@ -684,6 +673,7 @@ class TestSklearnDatasetBenchmark:
         )
 
     def test_diabetes_ensemble_matches_baseline(self):
+        """Ensemble R^2 on diabetes does not regress from baseline by more than the tolerance."""
         d = load_diabetes(as_frame=True)
         X, y = d.data, d.target
         X_tr, X_te, y_tr, y_te = _split_regression(X, y, random_state=0)
@@ -704,6 +694,7 @@ class TestSklearnDatasetBenchmark:
         )
 
     def test_wine_ensemble_matches_baseline(self):
+        """Ensemble accuracy on wine does not regress from baseline by more than the tolerance."""
         w = load_wine(as_frame=True)
         X, y = w.data, w.target
         X_tr, X_te, y_tr, y_te = _split_classification(X, y, random_state=0)
