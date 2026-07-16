@@ -84,19 +84,15 @@ def _resolve_bitmap_min_features(default: int = 200) -> int:
     Below this width the one-time onehot-pack cost (single sweep over
     ``n_features * n_samples`` int32 reads writing ``n_features * n_bins * ceil(n_samples/64)``
     uint64 cells) dominates the saved per-pair work. Above it the f^2 pair count amortizes
-    the pack and the per-pair POPCNT speedup wins. Dispatcher-tunable per HW via
-    ``pyutilz.performance.kernel_tuning.cache`` (key
-    ``mlframe.shap_proxied_fs.cluster_su.bitmap_min_features``).
-    """
-    try:
-        from pyutilz.performance.kernel_tuning import cache as kernel_tuning_cache
+    the pack and the per-pair POPCNT speedup wins.
 
-        value = kernel_tuning_cache.get(
-            "mlframe.shap_proxied_fs.cluster_su.bitmap_min_features", default=default,
-        )
-        return int(value)
-    except Exception:
-        return default
+    A per-HW cache-tuned override was attempted here via ``pyutilz.performance.kernel_tuning.cache``'s
+    module-level ``.get(key, default=...)`` -- that method has never existed on the module (current
+    pyutilz only exposes the class-based, dimensional ``KernelTuningCache.lookup(kernel_name, **dims)``),
+    so the call always raised ``AttributeError``, silently caught, always returning ``default``. Removed
+    the always-dead attempt rather than invent an unverified new cache schema; this is a behavior-
+    preserving cleanup (the source default was the only value this ever returned)."""
+    return default
 
 
 def _resolve_bitmap_max_n_bins(default: int = 12) -> int:
@@ -115,36 +111,24 @@ def _resolve_bitmap_max_n_bins(default: int = 12) -> int:
 
     The default ceiling is 12: above that the n_bins^2 POPCNT work dominates the
     parallel-friendly memory access savings. The dispatcher routes back to the
-    scalar prange kernel beyond this threshold. Tunable via
-    ``mlframe.shap_proxied_fs.cluster_su.bitmap_max_n_bins``.
-    """
-    try:
-        from pyutilz.performance.kernel_tuning import cache as kernel_tuning_cache
+    scalar prange kernel beyond this threshold.
 
-        value = kernel_tuning_cache.get(
-            "mlframe.shap_proxied_fs.cluster_su.bitmap_max_n_bins", default=default,
-        )
-        return int(value)
-    except Exception:
-        return default
+    A per-HW cache-tuned override was attempted here via the same non-existent
+    ``kernel_tuning_cache.get(key, default=...)`` API described in
+    :func:`_resolve_bitmap_min_features` -- removed as dead, always-``default``-returning code."""
+    return default
 
 
 def _resolve_bitmap_min_samples(default: int = 256) -> int:
     """Smallest ``n_samples`` at which the bitmap pack overhead amortizes.
 
     Below this the constant pack cost (and the SWAR / POPCNT pipeline startup) dwarfs
-    the per-pair savings. Tunable via
-    ``mlframe.shap_proxied_fs.cluster_su.bitmap_min_samples``; default 256.
-    """
-    try:
-        from pyutilz.performance.kernel_tuning import cache as kernel_tuning_cache
+    the per-pair savings; default 256.
 
-        value = kernel_tuning_cache.get(
-            "mlframe.shap_proxied_fs.cluster_su.bitmap_min_samples", default=default,
-        )
-        return int(value)
-    except Exception:
-        return default
+    A per-HW cache-tuned override was attempted here via the same non-existent
+    ``kernel_tuning_cache.get(key, default=...)`` API described in
+    :func:`_resolve_bitmap_min_features` -- removed as dead, always-``default``-returning code."""
+    return default
 
 
 def should_route_bitmap(

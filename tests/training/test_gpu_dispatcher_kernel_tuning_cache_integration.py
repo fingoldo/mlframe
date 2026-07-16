@@ -78,10 +78,13 @@ def _read(rel: str) -> str:
         "rmse_block_n",
     ),
     # #4: _gpu_pairs.py multi-pair shared-mem device probe (moved out of
-    # gpu.py during the multi-pair-MI split).
+    # gpu.py during the multi-pair-MI split). 2026-07-16: the probe call itself was found broken
+    # (get_shared_mem_budget_per_block() called with 0 args -- always raised TypeError, silently
+    # swallowed, so the dynamic probe never actually engaged); fixed to pass (cc_major, cc_minor,
+    # allow_opt_in=True), which no longer imports the function under an alias.
     (
         "feature_selection/filters/_gpu_pairs.py",
-        "get_shared_mem_budget_per_block as _shared_budget",
+        "get_shared_mem_budget_per_block(_summary[",
         "multi_pair_shared_cap",
     ),
     # #5: cat_interactions perm-kernel cache lookup. The @kernel_tuner registration

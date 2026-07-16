@@ -113,17 +113,14 @@ def _resolve_adaptive_n_anchors(
 ) -> int:
     """Self-tuning anchor count for the trust guard: ``clip(round(c*sqrt(p)), lo, hi)``.
 
-    ``p`` is the post-prefilter proxy search width (``phi.shape[1]``). Reads override params from
-    kernel_tuning_cache key ``mlframe.shap_proxied_fs.adaptive_n_anchors_params`` as ``[c, lo, hi]``.
-    """
-    try:
-        from pyutilz.performance.kernel_tuning import cache as kernel_tuning_cache
+    ``p`` is the post-prefilter proxy search width (``phi.shape[1]``).
 
-        params = kernel_tuning_cache.get("mlframe.shap_proxied_fs.adaptive_n_anchors_params", default=None)
-        if params:
-            c, lo, hi = float(params[0]), int(params[1]), int(params[2])
-    except Exception:  # nosec B110 - best-effort path
-        pass
+    A cache-tuned override for (c, lo, hi) was attempted here via
+    ``pyutilz.performance.kernel_tuning.cache``'s module-level ``.get(key, default=...)`` -- that method
+    has never existed on the module (current pyutilz only exposes the class-based, dimensional
+    ``KernelTuningCache.lookup(kernel_name, **dims)``), so the call always raised ``AttributeError``,
+    silently caught, always leaving (c, lo, hi) at their source defaults. Removed the always-dead
+    attempt rather than invent an unverified new cache schema; behavior-preserving cleanup."""
     p = max(1, int(n_search_cols))
     n = round(float(c) * float(np.sqrt(p)))
     return int(min(int(hi), max(int(lo), n)))
@@ -230,28 +227,21 @@ def _resolve_knee_prescreen_cap(importance, default_cap: int, *, floor: int = _A
 
 
 def _resolve_brute_force_max_features(default: int = _DEFAULT_BRUTE_FORCE_MAX_FEATURES) -> int:
-    """Per-HW brute-force cap from ``pyutilz.performance.kernel_tuning.cache`` (key
-    ``mlframe.shap_proxied_fs.brute_force_max_features``), falling back to the module default."""
-    try:
-        from pyutilz.performance.kernel_tuning import cache as kernel_tuning_cache
+    """Per-HW brute-force cap, falling back to the module default.
 
-        value = kernel_tuning_cache.get("mlframe.shap_proxied_fs.brute_force_max_features", default=default)
-        return int(value)
-    except Exception:
-        return default
+    A cache-tuned override was attempted here via the non-existent ``kernel_tuning_cache.get(key,
+    default=...)`` API described in ``_shap_proxy_cluster_su_bitmap._resolve_bitmap_min_features`` --
+    removed as dead, always-``default``-returning code."""
+    return default
 
 
 def _resolve_brute_force_n_sub_gate(default: int = _DEFAULT_BRUTE_FORCE_N_SUB_GATE) -> int:
-    """Per-HW feasibility cap on enumerated subset count (key
-    ``mlframe.shap_proxied_fs.brute_force_n_sub_gate``). Above this the dispatcher falls through
-    to ``beam`` regardless of ``brute_force_max_features``."""
-    try:
-        from pyutilz.performance.kernel_tuning import cache as kernel_tuning_cache
+    """Per-HW feasibility cap on enumerated subset count. Above this the dispatcher falls through
+    to ``beam`` regardless of ``brute_force_max_features``.
 
-        value = kernel_tuning_cache.get("mlframe.shap_proxied_fs.brute_force_n_sub_gate", default=default)
-        return int(value)
-    except Exception:
-        return default
+    A cache-tuned override was attempted here via the same non-existent ``kernel_tuning_cache.get``
+    API -- removed as dead, always-``default``-returning code."""
+    return default
 
 
 def _resolve_cluster_su_auto_max_features(
@@ -260,33 +250,21 @@ def _resolve_cluster_su_auto_max_features(
     """Per-HW upper width at which ``cluster_backend='auto'`` still picks SU when no precomputed
     bins are supplied. Above this the auto path falls back to Pearson (the pairwise SU O(f^2)
     scan no longer amortises the iter73-era 33x-over-naive cost into a wall-clock win vs the
-    vectorised Pearson |corr|). Reads kernel_tuning_cache key
-    ``mlframe.shap_proxied_fs.cluster_su_auto_max_features``."""
-    try:
-        from pyutilz.performance.kernel_tuning import cache as kernel_tuning_cache
+    vectorised Pearson |corr|).
 
-        value = kernel_tuning_cache.get("mlframe.shap_proxied_fs.cluster_su_auto_max_features", default=default)
-        return int(value)
-    except Exception:
-        return default
+    A cache-tuned override was attempted here via the same non-existent ``kernel_tuning_cache.get``
+    API -- removed as dead, always-``default``-returning code."""
+    return default
 
 
 def _resolve_adaptive_prescreen_thresholds():
     """Return the (stability, delta) threshold list, ordered descending by stability.
 
-    Reads ``mlframe.shap_proxied_fs.adaptive_prescreen_stability_thresholds`` from kernel_tuning_cache
-    when present (expected as an iterable of (stability, delta) pairs). Falls back to the module
-    default. Always coerced to a tuple of (float, int) pairs sorted by descending stability.
+    A cache-tuned override was attempted here via the same non-existent ``kernel_tuning_cache.get``
+    API -- removed as dead, always-source-default code. Always coerced to a tuple of (float, int)
+    pairs sorted by descending stability.
     """
     raw = _DEFAULT_ADAPTIVE_PRESCREEN_THRESHOLDS
-    try:
-        from pyutilz.performance.kernel_tuning import cache as kernel_tuning_cache
-
-        cached = kernel_tuning_cache.get("mlframe.shap_proxied_fs.adaptive_prescreen_stability_thresholds", default=None)
-        if cached:
-            raw = cached
-    except Exception:  # nosec B110 - best-effort path
-        pass
     pairs = [(float(s), int(d)) for s, d in raw]
     pairs.sort(key=lambda p: -p[0])
     return tuple(pairs)

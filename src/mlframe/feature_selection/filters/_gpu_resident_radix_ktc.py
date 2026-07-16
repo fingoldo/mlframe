@@ -148,7 +148,7 @@ def _run_radix_f32_variant_sweep() -> list:
     from pyutilz.dev.benchmarking import sweep_backend_grid
 
     variants = {v: (lambda cand, _v=v: _radix_edges_with_f32_variant(cand, 20, _v)) for v in _RADIX_F32_VARIANTS}
-    return sweep_backend_grid(  # type: ignore[no-any-return]  # pyutilz helper returns the declared list of results
+    return sweep_backend_grid(
         variants,
         {"n_samples": _RADIX_THREADS_SWEEP_N_SAMPLES},
         _make_radix_inputs,
@@ -205,7 +205,7 @@ def _run_radix_threads_sweep() -> list:
     from pyutilz.dev.benchmarking import sweep_backend_grid
 
     variants = {f"th_{t}": (lambda cand, _t=t: _radix_edges_with_threads(cand, 20, _t)) for t in _RADIX_THREADS_VARIANTS}
-    return sweep_backend_grid(  # type: ignore[no-any-return]  # pyutilz helper returns the declared list of results
+    return sweep_backend_grid(
         variants,
         {"n_samples": _RADIX_THREADS_SWEEP_N_SAMPLES},
         _make_radix_inputs,
@@ -220,9 +220,9 @@ def _radix_threads_fallback_choice(n_samples: int) -> str:
 
 
 try:
-    from pyutilz.performance.kernel_tuning.registry import kernel_tuner
+    from pyutilz.performance.kernel_tuning.registry import TunerSpec, kernel_tuner
 
-    _RADIX_THREADS_SPEC = kernel_tuner(
+    _RADIX_THREADS_SPEC: "TunerSpec | None" = kernel_tuner(
         kernel_name="gpu_fe_radix_select_threads",
         variant_fns=(),  # GPU-only cupy path; covered by salt
         tuner=_run_radix_threads_sweep,
@@ -237,9 +237,9 @@ except Exception:
 
 
 try:
-    from pyutilz.performance.kernel_tuning.registry import kernel_tuner
+    from pyutilz.performance.kernel_tuning.registry import TunerSpec, kernel_tuner
 
-    _RADIX_F32_VARIANT_SPEC = kernel_tuner(
+    _RADIX_F32_VARIANT_SPEC: "TunerSpec | None" = kernel_tuner(
         kernel_name="gpu_fe_radix_select_f32_variant",
         variant_fns=(),  # GPU-only cupy path; covered by salt
         tuner=_run_radix_f32_variant_sweep,

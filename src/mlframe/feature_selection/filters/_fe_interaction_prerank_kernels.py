@@ -37,8 +37,12 @@ from __future__ import annotations
 
 import logging
 import time
+from typing import TYPE_CHECKING
 
 import numpy as np
+
+if TYPE_CHECKING:
+    from pyutilz.performance.kernel_tuning.registry import TunerSpec
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
@@ -337,13 +341,13 @@ def _run_sweep() -> list:
     variants = {"numpy": discrete_score_numpy}
     if _gpu_available():
         variants["cupy"] = discrete_score_cupy
-    return sweep_backend_crossover(  # type: ignore[no-any-return]  # pyutilz helper returns the declared list of results
+    return sweep_backend_crossover(
         variants, _SWEEP_WORK, _make_inputs, "work",
         reference="numpy", repeats=3, equiv_rtol=1e-6, equiv_atol=1e-8,
     )
 
 
-_SPEC = None
+_SPEC: "TunerSpec | bool | None" = None
 
 
 def _get_spec():

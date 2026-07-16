@@ -141,7 +141,7 @@ def _run_shufflegen_sweep() -> list:
     from pyutilz.dev.benchmarking import sweep_backend_grid
 
     variants = {"numpy": _shufflegen_numpy, "numba": _shufflegen_numba, "gpu": _shufflegen_gpu}
-    return sweep_backend_grid(  # type: ignore[no-any-return]  # pyutilz helper returns the declared list of results
+    return sweep_backend_grid(
         variants,
         {"n_samples": _SHUFFLEGEN_SWEEP_N, "nperm": _SHUFFLEGEN_SWEEP_NPERM},
         _make_shufflegen_inputs,
@@ -156,9 +156,9 @@ def _shufflegen_fallback_choice(n_samples: int, nperm: int = 200) -> str:
 
 
 try:
-    from pyutilz.performance.kernel_tuning.registry import kernel_tuner
+    from pyutilz.performance.kernel_tuning.registry import TunerSpec, kernel_tuner
 
-    _SHUFFLEGEN_SPEC = kernel_tuner(
+    _SHUFFLEGEN_SPEC: "TunerSpec | None" = kernel_tuner(
         kernel_name="fe_maxt_permnull_shufflegen_backend",
         variant_fns=(),
         tuner=_run_shufflegen_sweep,

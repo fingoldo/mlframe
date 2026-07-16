@@ -626,7 +626,7 @@ def _run_friend_graph_sweep() -> list:
         variants["cuda"] = _vec(friend_graph_stats_cuda)
     if _CUPY_AVAIL:
         variants["cupy"] = _vec(friend_graph_stats_cupy)
-    return sweep_backend_grid(  # type: ignore[no-any-return]  # pyutilz helper returns the declared list of results
+    return sweep_backend_grid(
         variants,
         {"n_rows": _FG_SWEEP_N_ROWS, "k": _FG_SWEEP_K},
         _make_friend_graph_inputs,

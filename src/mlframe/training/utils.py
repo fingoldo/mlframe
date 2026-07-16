@@ -787,12 +787,18 @@ def get_pandas_view_of_polars_df(
     _elapsed = _time.perf_counter() - _t0
     if _elapsed >= log_threshold_seconds:
         _rss_after_gb = get_own_memory_usage()
-        logger.info(
-            "get_pandas_view_of_polars_df %s: %.2fs, RAM %.2f->%.2f GB (delta%+.2f), "
-            "self_destruct=%s",
-            _shape_str, _elapsed, _rss_before_gb, _rss_after_gb,
-            _rss_after_gb - _rss_before_gb, self_destruct,
-        )
+        if _rss_before_gb is not None and _rss_after_gb is not None:
+            logger.info(
+                "get_pandas_view_of_polars_df %s: %.2fs, RAM %.2f->%.2f GB (delta%+.2f), "
+                "self_destruct=%s",
+                _shape_str, _elapsed, _rss_before_gb, _rss_after_gb,
+                _rss_after_gb - _rss_before_gb, self_destruct,
+            )
+        else:
+            logger.info(
+                "get_pandas_view_of_polars_df %s: %.2fs, RAM usage unavailable, self_destruct=%s",
+                _shape_str, _elapsed, self_destruct,
+            )
 
     # iter628 (perf): populate the single-entry memo so the NEXT
     # identical-id call returns the cached view. Skip when

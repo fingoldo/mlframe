@@ -918,18 +918,10 @@ def _run_batch_mi_kernel_sweep():
             )
         return _f
 
-    try:
-        return sweep_backend_grid(
-            {"v1": _call(batch_mi_with_noise_gate), "v2": _call(batch_mi_with_noise_gate_v2)},
-            {"n_rows": [30_000, 100_000], "n_cols": [600, 3888]},
-            _make_inputs,
-            reference="v1", repeats=3, equiv_rtol=1e-12, equiv_atol=1e-15,
-            result_key="kernel_choice",
-        )
-    except TypeError:
-        return sweep_backend_grid(
-            {"v1": _call(batch_mi_with_noise_gate), "v2": _call(batch_mi_with_noise_gate_v2)},
-            {"n_rows": [30_000, 100_000], "n_cols": [600, 3888]},
-            _make_inputs,
-            reference="v1", repeats=3, equiv_rtol=1e-12, equiv_atol=1e-15,
-        )
+    return sweep_backend_grid(
+        {"v1": _call(batch_mi_with_noise_gate), "v2": _call(batch_mi_with_noise_gate_v2)},
+        {"n_rows": [30_000, 100_000], "n_cols": [600, 3888]},
+        _make_inputs,
+        reference="v1", repeats=3, equiv_rtol=1e-12, equiv_atol=1e-15,
+        decision_key="kernel_choice",
+    )
