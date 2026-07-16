@@ -139,11 +139,11 @@ NOT PINNED (deliberately)
 from __future__ import annotations
 
 import warnings
+from functools import cache
 
 import numpy as np
 import pandas as pd
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Data builder
@@ -153,8 +153,8 @@ import pytest
 N_TOTAL = 15_000
 
 # Imbalance levels we test, named for readability of parametrize IDs.
-IMBALANCE_MILD = 0.01      # 1% positives, ~150 positives at n=15000
-IMBALANCE_STRONG = 0.005   # 0.5% positives, ~75 positives at n=15000
+IMBALANCE_MILD = 0.01  # 1% positives, ~150 positives at n=15000
+IMBALANCE_STRONG = 0.005  # 0.5% positives, ~75 positives at n=15000
 IMBALANCE_EXTREME = 0.001  # 0.1% positives, ~15 positives at n=15000
 
 NOISE_COL_COUNT = 6
@@ -204,11 +204,9 @@ def _build_imbalanced_data(imbalance: float, seed: int):
     """
     rng = np.random.default_rng(seed)
 
-    n_pos = int(round(N_TOTAL * imbalance))
+    n_pos = round(N_TOTAL * imbalance)
     if n_pos < 1:
-        raise ValueError(
-            f"imbalance={imbalance} on n={N_TOTAL} yields zero positives"
-        )
+        raise ValueError(f"imbalance={imbalance} on n={N_TOTAL} yields zero positives")
 
     # Deterministic positive count: pick exactly n_pos row indices to be
     # positive. This removes binomial variance from the test so failures
@@ -270,6 +268,23 @@ def _selected_names(sel):
     return list(sel.get_feature_names_out())
 
 
+@cache
+def _build_and_fit_layer13(imbalance: float, seed: int):
+    """Cache-dedupe (imbalance, seed) fits shared by every contract class below.
+
+    Every ``Test*`` class re-derives a different contract from the SAME deterministic
+    (data, fit) pair -- every test in this file rebuilt (X, y) and refit MRMR from scratch
+    for the same (imbalance, seed) combination independently exercised by multiple test
+    methods/classes (e.g. mild/strong imbalance is refit by its own dedicated class, by
+    ``TestNoFalsePositiveBinningArtefact``'s three tests, and by ``TestMRMRRobustToImbalance``).
+    Nothing mutates ``X``/``y``/``sel`` in place (MRMR's fit contract), so sharing the cached
+    objects by reference across test classes is safe.
+    """
+    X, y, n_pos = _build_imbalanced_data(imbalance, seed=seed)
+    sel = _fit_mrmr(X, y)
+    return X, y, n_pos, sel
+
+
 # 3 seeds (not 2): at extreme imbalance the per-seed variance is genuine
 # and a 2-seed grid is too easy to luck through. 3 also fits comfortably
 # under the 300s timeout per the layer config.
@@ -313,8 +328,7 @@ class TestMildImbalanceFindsBothSignals:
         """
         from tests.feature_selection._biz_val_synth import downstream_auc, baseline_signal_auc
 
-        X, y, n_pos = _build_imbalanced_data(IMBALANCE_MILD, seed=seed)
-        sel = _fit_mrmr(X, y)
+        X, y, n_pos, sel = _build_and_fit_layer13(IMBALANCE_MILD, seed)
         kept = _selected_names(sel)
         assert "x_signal" in kept, (
             f"seed={seed} n_pos={n_pos} (p=1%): x_signal missing from "
@@ -350,8 +364,8 @@ class TestStrongImbalanceFindsStrongSignal:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_strong_signal_in_support(self, seed):
-        X, y, n_pos = _build_imbalanced_data(IMBALANCE_STRONG, seed=seed)
-        sel = _fit_mrmr(X, y)
+        """Contract 2: x_signal is recovered at 0.5% imbalance (~75 positives)."""
+        _X, _y, n_pos, sel = _build_and_fit_layer13(IMBALANCE_STRONG, seed)
         kept = _selected_names(sel)
         assert "x_signal" in kept, (
             f"seed={seed} n_pos={n_pos} (p=0.5%): x_signal missing from "
@@ -403,25 +417,19 @@ class TestExtremeImbalanceDocumentedBehaviour:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_runs_and_produces_wellformed_support(self, seed):
-        X, y, n_pos = _build_imbalanced_data(IMBALANCE_EXTREME, seed=seed)
-        sel = _fit_mrmr(X, y)
+        """Contract 3: at 0.1% imbalance MRMR does not crash and returns a well-formed support."""
+        X, _y, n_pos, sel = _build_and_fit_layer13(IMBALANCE_EXTREME, seed)
         kept = _selected_names(sel)
         # Well-formed: list of strings, each a real column.
-        assert isinstance(kept, list), (
-            f"seed={seed} n_pos={n_pos} (p=0.1%): get_feature_names_out "
-            f"returned non-list {type(kept).__name__}"
-        )
+        assert isinstance(kept, list), f"seed={seed} n_pos={n_pos} (p=0.1%): get_feature_names_out " f"returned non-list {type(kept).__name__}"
         cols = set(X.columns)
         bogus = [name for name in kept if name not in cols]
-        assert not bogus, (
-            f"seed={seed} n_pos={n_pos} (p=0.1%): MRMR returned column "
-            f"names not present in input: {bogus}. kept={kept}"
-        )
+        assert not bogus, f"seed={seed} n_pos={n_pos} (p=0.1%): MRMR returned column " f"names not present in input: {bogus}. kept={kept}"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_signal_in_support_at_extreme(self, seed):
-        X, y, n_pos = _build_imbalanced_data(IMBALANCE_EXTREME, seed=seed)
-        sel = _fit_mrmr(X, y)
+        """Contract 3: x_signal is in support at 0.1% imbalance (~15 positives) on the SEEDS grid."""
+        _X, _y, n_pos, sel = _build_and_fit_layer13(IMBALANCE_EXTREME, seed)
         kept = _selected_names(sel)
         assert "x_signal" in kept, (
             f"seed={seed} n_pos={n_pos} (p=0.1%): x_signal not in "
@@ -434,8 +442,8 @@ class TestExtremeImbalanceDocumentedBehaviour:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_at_most_two_noise_in_support(self, seed):
-        X, y, n_pos = _build_imbalanced_data(IMBALANCE_EXTREME, seed=seed)
-        sel = _fit_mrmr(X, y)
+        """Contract 3: at most two noise columns leak into support at 0.1% imbalance."""
+        _X, _y, n_pos, sel = _build_and_fit_layer13(IMBALANCE_EXTREME, seed)
         kept = _selected_names(sel)
         noise_in_support = [n for n in kept if n.startswith("noise_")]
         assert len(noise_in_support) <= 2, (
@@ -489,11 +497,9 @@ class TestNoFalsePositiveBinningArtefact:
         ids=["p=1pct", "p=0.5pct"],
     )
     @pytest.mark.parametrize("seed", SEEDS)
-    def test_signal_present_alongside_any_noise_leakage(
-        self, imbalance, seed
-    ):
-        X, y, n_pos = _build_imbalanced_data(imbalance, seed=seed)
-        sel = _fit_mrmr(X, y)
+    def test_signal_present_alongside_any_noise_leakage(self, imbalance, seed):
+        """Contract 4(a): x_signal stays in support at every resolvable imbalance level."""
+        _X, _y, n_pos, sel = _build_and_fit_layer13(imbalance, seed)
         kept = _selected_names(sel)
         assert "x_signal" in kept, (
             f"seed={seed} imbalance={imbalance} n_pos={n_pos}: "
@@ -533,8 +539,7 @@ class TestNoFalsePositiveBinningArtefact:
         """
         from tests.feature_selection._biz_val_synth import downstream_auc, baseline_signal_auc
 
-        X, y, n_pos = _build_imbalanced_data(imbalance, seed=seed)
-        sel = _fit_mrmr(X, y)
+        X, y, n_pos, sel = _build_and_fit_layer13(imbalance, seed)
         kept = _selected_names(sel)
         noise_in_support = [n for n in kept if n.startswith("noise_")]
         assert len(noise_in_support) <= 1, (
@@ -581,15 +586,12 @@ class TestNoFalsePositiveBinningArtefact:
         non-signal contamination is bounded to 1 -- which still rules
         out a gate collapse (which would admit several spurious columns).
         """
-        X, y, n_pos = _build_imbalanced_data(imbalance, seed=seed)
-        sel = _fit_mrmr(X, y)
+        _X, _y, n_pos, sel = _build_and_fit_layer13(imbalance, seed)
         kept = set(_selected_names(sel))
         signals = {"x_signal", "x_uniform_signal"}
         non_signal = kept - signals
         assert "x_signal" in kept, (
-            f"seed={seed} imbalance={imbalance} n_pos={n_pos}: x_signal "
-            f"missing from support; strong signal must be recovered. "
-            f"kept={kept}"
+            f"seed={seed} imbalance={imbalance} n_pos={n_pos}: x_signal " f"missing from support; strong signal must be recovered. " f"kept={kept}"
         )
         assert len(non_signal) <= 1, (
             f"seed={seed} imbalance={imbalance} n_pos={n_pos}: support "
@@ -619,10 +621,7 @@ class TestMRMRRobustToImbalance:
     )
     @pytest.mark.parametrize("seed", SEEDS)
     def test_fit_succeeds_and_returns_nonempty_support(self, imbalance, seed):
-        X, y, n_pos = _build_imbalanced_data(imbalance, seed=seed)
-        sel = _fit_mrmr(X, y)
+        """Contract 5: MRMR completes end-to-end with non-empty support at every imbalance level."""
+        _X, _y, n_pos, sel = _build_and_fit_layer13(imbalance, seed)
         kept = _selected_names(sel)
-        assert len(kept) >= 1, (
-            f"seed={seed} imbalance={imbalance} n_pos={n_pos}: MRMR "
-            f"returned empty support; rare-class handling failure."
-        )
+        assert len(kept) >= 1, f"seed={seed} imbalance={imbalance} n_pos={n_pos}: MRMR " f"returned empty support; rare-class handling failure."

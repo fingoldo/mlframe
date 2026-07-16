@@ -89,11 +89,11 @@ OBSERVED + DOCUMENTED (not pinned tightly)
 from __future__ import annotations
 
 import warnings
+from functools import cache
 
 import numpy as np
 import pandas as pd
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Data builders
@@ -188,6 +188,23 @@ def _fit_layer11(X, y):
 SEEDS = [11_001, 22_002, 33_003, 44_004, 55_005]
 
 
+@cache
+def _build_and_fit_layer11(seed, outlier_frac=0.0, nan_frac=0.0, noise_outlier_frac=0.0):
+    """Cache-dedupe (seed, outlier_frac, nan_frac, noise_outlier_frac) fits shared by contracts 1, 2, 3 and 4.
+
+    ``outlier_frac in {0.01, 0.05}``, ``nan_frac == 0.05`` and ``noise_outlier_frac in {0.01, 0.05}`` each get
+    exercised twice per seed -- once by their dedicated single-mode class and once again as one of
+    ``TestSecondarySignalSurvivesOutliers``'s five ``mode_kw`` cases -- with byte-identical kwargs both times.
+    """
+    X, y = _build_outlier_data(
+        seed=seed,
+        outlier_frac=outlier_frac,
+        nan_frac=nan_frac,
+        noise_outlier_frac=noise_outlier_frac,
+    )
+    return _fit_layer11(X, y)
+
+
 # ---------------------------------------------------------------------------
 # Contract 1: x1 stays rank #0 under extreme outliers
 # ---------------------------------------------------------------------------
@@ -207,16 +224,14 @@ class TestExtremeOutliersX1SignalSurvives:
     @pytest.mark.parametrize("seed", SEEDS)
     @pytest.mark.parametrize("frac", [0.01, 0.05])
     def test_x1_signal_survives_extreme(self, seed, frac):
-        X, y = _build_outlier_data(seed=seed, outlier_frac=frac)
-        names = _fit_layer11(X, y)
+        """1%/5% 1000x-scale outliers in x1 keep x1's signal (raw or a derived child) and leak no noise column."""
+        names = _build_and_fit_layer11(seed, outlier_frac=frac)
         assert names, f"seed={seed} frac={frac}: empty support"
-        assert any(n == "x1" or n.split("__")[0] == "x1" for n in names), (
-            f"seed={seed} extreme_frac={frac}: x1 signal lost entirely -- neither raw x1 nor an x1-derived child survived. support={names}"
-        )
+        assert any(
+            n == "x1" or n.split("__")[0] == "x1" for n in names
+        ), f"seed={seed} extreme_frac={frac}: x1 signal lost entirely -- neither raw x1 nor an x1-derived child survived. support={names}"
         noise_leaked = [n for n in names if n.split("__")[0].startswith("noise_")]
-        assert not noise_leaked, (
-            f"seed={seed} extreme_frac={frac}: noise column(s) {noise_leaked} leaked into support under outlier injection. support={names}"
-        )
+        assert not noise_leaked, f"seed={seed} extreme_frac={frac}: noise column(s) {noise_leaked} leaked into support under outlier injection. support={names}"
 
 
 # ---------------------------------------------------------------------------
@@ -245,12 +260,10 @@ class TestSecondarySignalSurvivesOutliers:
         ],
     )
     def test_x2_in_support(self, seed, mode_kw):
-        X, y = _build_outlier_data(seed=seed, **mode_kw)
-        names = _fit_layer11(X, y)
+        """x2 (secondary signal) survives every non-inf outlier/NaN mode."""
+        names = _build_and_fit_layer11(seed, **mode_kw)
         assert "x2" in names, (
-            f"seed={seed} mode={mode_kw}: x2 (secondary signal) dropped "
-            f"from support; outlier mode is masking weak signal. "
-            f"support={names}"
+            f"seed={seed} mode={mode_kw}: x2 (secondary signal) dropped " f"from support; outlier mode is masking weak signal. " f"support={names}"
         )
 
 
@@ -271,18 +284,12 @@ class TestNanClusterDoesNotDropSignal:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_x1_kept_with_nan_cluster(self, seed):
-        X, y = _build_outlier_data(seed=seed, nan_frac=0.05)
-        names = _fit_layer11(X, y)
-        assert "x1" in names, (
-            f"seed={seed}: x1 dropped from support after 5% NaN "
-            f"injection; separate_bin NaN path is broken. support={names}"
-        )
+        """A 5% NaN cluster in x1 must not drop x1 or demote it from rank #0."""
+        names = _build_and_fit_layer11(seed, nan_frac=0.05)
+        assert "x1" in names, f"seed={seed}: x1 dropped from support after 5% NaN " f"injection; separate_bin NaN path is broken. support={names}"
         # And x1 should still be at rank 0 -- the NaN cluster shouldn't
         # cost it the top spot to a noise column.
-        assert names[0] == "x1", (
-            f"seed={seed}: x1 demoted from rank #0 by NaN cluster; "
-            f"support={names}"
-        )
+        assert names[0] == "x1", f"seed={seed}: x1 demoted from rank #0 by NaN cluster; " f"support={names}"
 
 
 # ---------------------------------------------------------------------------
@@ -306,18 +313,12 @@ class TestNoiseOutlierDecoyAttack:
     @pytest.mark.parametrize("seed", SEEDS)
     @pytest.mark.parametrize("frac", [0.01, 0.05])
     def test_noise_outliers_dont_outrank_signal(self, seed, frac):
-        X, y = _build_outlier_data(seed=seed, noise_outlier_frac=frac)
-        names = _fit_layer11(X, y)
+        """Noise-column decoy spikes must not displace x1 from rank #0 or let any noise column outrank x2."""
+        names = _build_and_fit_layer11(seed, noise_outlier_frac=frac)
         assert names, f"seed={seed} nout_frac={frac}: empty support"
-        assert names[0] == "x1", (
-            f"seed={seed} nout_frac={frac}: noise outlier injection "
-            f"displaced x1 from rank #0. support={names}"
-        )
+        assert names[0] == "x1", f"seed={seed} nout_frac={frac}: noise outlier injection " f"displaced x1 from rank #0. support={names}"
         # x2 must outrank every noise column that made it into support.
-        assert "x2" in names, (
-            f"seed={seed} nout_frac={frac}: x2 dropped by decoy attack. "
-            f"support={names}"
-        )
+        assert "x2" in names, f"seed={seed} nout_frac={frac}: x2 dropped by decoy attack. " f"support={names}"
         x2_idx = names.index("x2")
         noise_in_support = [n for n in names if n.startswith("noise_")]
         for noise_name in noise_in_support:
@@ -345,24 +346,17 @@ class TestInfRaisesActionableError:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_inf_raises_valueerror(self, seed):
+        """+/-inf in x1 raises ValueError whose message references both inf and a remediation verb."""
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         X, y = _build_outlier_data(seed=seed, inf_frac=0.01)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             with pytest.raises(ValueError) as exc_info:
-                MRMR(
-                    verbose=0, interactions_max_order=1, fe_max_steps=0
-                ).fit(X, y)
+                MRMR(verbose=0, interactions_max_order=1, fe_max_steps=0).fit(X, y)
         msg = str(exc_info.value).lower()
-        assert "inf" in msg, (
-            f"seed={seed}: ValueError raised but message doesn't "
-            f"reference inf. Got: {exc_info.value!r}"
-        )
-        assert "replace" in msg or "drop" in msg, (
-            f"seed={seed}: ValueError missing actionable remediation "
-            f"(replace / drop). Got: {exc_info.value!r}"
-        )
+        assert "inf" in msg, f"seed={seed}: ValueError raised but message doesn't " f"reference inf. Got: {exc_info.value!r}"
+        assert "replace" in msg or "drop" in msg, f"seed={seed}: ValueError missing actionable remediation " f"(replace / drop). Got: {exc_info.value!r}"
 
     def test_neg_inf_raises_valueerror(self):
         """Inject ONLY -inf (not +inf) to confirm the check catches both
@@ -379,13 +373,8 @@ class TestInfRaisesActionableError:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             with pytest.raises(ValueError) as exc_info:
-                MRMR(
-                    verbose=0, interactions_max_order=1, fe_max_steps=0
-                ).fit(X, y)
-        assert "inf" in str(exc_info.value).lower(), (
-            f"-inf-only injection: message doesn't reference inf. "
-            f"Got: {exc_info.value!r}"
-        )
+                MRMR(verbose=0, interactions_max_order=1, fe_max_steps=0).fit(X, y)
+        assert "inf" in str(exc_info.value).lower(), f"-inf-only injection: message doesn't reference inf. " f"Got: {exc_info.value!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -407,6 +396,7 @@ class TestMixedOutlierAndNanDoesNotCrash:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_mixed_extreme_and_nan(self, seed):
+        """Simultaneous extreme spikes + NaN cluster + noise-outlier decoy must not crash and must keep x1 at rank #0."""
         X, y = _build_outlier_data(
             seed=seed,
             outlier_frac=0.02,
@@ -416,22 +406,10 @@ class TestMixedOutlierAndNanDoesNotCrash:
         try:
             names = _fit_layer11(X, y)
         except Exception as exc:
-            pytest.fail(
-                f"seed={seed}: mixed extreme+NaN input crashed MRMR with "
-                f"{type(exc).__name__}: {exc}"
-            )
-        assert "x1" in names, (
-            f"seed={seed}: x1 dropped under mixed extreme+NaN; "
-            f"support={names}"
-        )
-        assert "x2" in names, (
-            f"seed={seed}: x2 dropped under mixed extreme+NaN; "
-            f"support={names}"
-        )
-        assert names[0] == "x1", (
-            f"seed={seed}: x1 demoted from rank #0 under mixed "
-            f"extreme+NaN; support={names}"
-        )
+            pytest.fail(f"seed={seed}: mixed extreme+NaN input crashed MRMR with " f"{type(exc).__name__}: {exc}")
+        assert "x1" in names, f"seed={seed}: x1 dropped under mixed extreme+NaN; " f"support={names}"
+        assert "x2" in names, f"seed={seed}: x2 dropped under mixed extreme+NaN; " f"support={names}"
+        assert names[0] == "x1", f"seed={seed}: x1 demoted from rank #0 under mixed " f"extreme+NaN; support={names}"
 
 
 # ---------------------------------------------------------------------------
@@ -449,6 +427,7 @@ class TestCleanBaselineIsTheCeiling:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_clean_baseline_recovers_signal(self, seed):
+        """On the clean (no injection) baseline, support_ keeps {x1, x2} with x1 ranked #0."""
         X, y = _build_outlier_data(seed=seed)
         names = _fit_layer11(X, y)
         assert "x1" in names and "x2" in names, (
@@ -456,7 +435,4 @@ class TestCleanBaselineIsTheCeiling:
             f"layer-11 outlier contracts are vacuous on this seed until "
             f"the baseline is fixed. support={names}"
         )
-        assert names[0] == "x1", (
-            f"seed={seed}: CLEAN baseline did not rank x1 #0; "
-            f"support={names}"
-        )
+        assert names[0] == "x1", f"seed={seed}: CLEAN baseline did not rank x1 #0; " f"support={names}"
