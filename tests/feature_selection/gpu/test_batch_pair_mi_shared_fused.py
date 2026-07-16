@@ -54,12 +54,14 @@ pytestmark = pytest.mark.skipif(not (_CUDA_AVAIL and _CUPY_AVAIL), reason="numba
 
 @pytest.fixture(autouse=True)
 def _clean_gpu_state():
+    """Clear resident FE GPU operands before and after every test so cached uploads never leak across tests."""
     clear_fe_resident_operands()
     yield
     clear_fe_resident_operands()
 
 
 def _build_pair_inputs(n_samples, n_features, n_pairs, n_classes_y, nbins_range, seed):
+    """Build a random factors/pair/class fixture for the shared-fused-kernel test suite."""
     rng = np.random.default_rng(seed)
     nbins = rng.integers(nbins_range[0], nbins_range[1] + 1, n_features).astype(np.int32)
     factors_data = np.column_stack([rng.integers(0, int(nb), n_samples) for nb in nbins]).astype(np.int32)
@@ -84,8 +86,14 @@ class TestBitIdentity:
         ],
     )
     def test_matches_cpu_reference(self, n_samples, n_features, n_pairs, n_classes_y, nbins_range, seed):
+        """The shared-fused GPU kernel matches the CPU njit reference within a ~1e-9 FP-reorder tolerance."""
         factors_data, nbins, classes_y, freqs_y, pair_a, pair_b = _build_pair_inputs(
-            n_samples, n_features, n_pairs, n_classes_y, nbins_range, seed,
+            n_samples,
+            n_features,
+            n_pairs,
+            n_classes_y,
+            nbins_range,
+            seed,
         )
         max_joint = int((nbins[pair_a].astype(np.int64) * nbins[pair_b].astype(np.int64)).max())
         if shared_fused_kernel_fits_budget(max_joint, n_classes_y) == 0:
@@ -100,13 +108,16 @@ class TestBudgetGate:
     never silently truncate or launch an oversized allocation."""
 
     def test_tiny_shape_fits(self):
+        """A tiny (max_joint, n_classes_y) shape fits the opt-in shared-memory budget."""
         assert shared_fused_kernel_fits_budget(4, 2) > 0
 
     def test_absurdly_large_shape_rejected(self):
+        """A shape far exceeding any real device's shared-memory budget is rejected (returns 0)."""
         # 100_000 * 10_000 int32 cells -> far beyond any real device's opt-in shared-memory budget.
         assert shared_fused_kernel_fits_budget(100_000, 10_000) == 0
 
     def test_rejected_shape_raises_cleanly_not_silently_wrong(self):
+        """Calling the kernel directly on a budget-rejected shape raises RuntimeError rather than silently misbehaving."""
         factors_data, nbins, classes_y, freqs_y, pair_a, pair_b = _build_pair_inputs(200, 3, 3, 5000, (2, 3), 7)
         with pytest.raises(RuntimeError):
             batch_pair_mi_cuda_shared_fused(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y)
@@ -118,6 +129,7 @@ class TestDispatcherIntegration:
     to shortcut (static kernel -> shared-fused -> row-chunked -> CPU)."""
 
     def test_forced_cuda_routes_to_shared_fused_for_wide_y(self):
+        """dispatch_batch_pair_mi routes to cuda_shared_fused when n_classes_y exceeds the static kernel's cap."""
         # n_classes_y=20 > MAX_Y_BINS_CUDA=16 -> batch_pair_mi_cuda raises -> shared-fused should catch it.
         factors_data, nbins, classes_y, freqs_y, pair_a, pair_b = _build_pair_inputs(99401, 30, 200, 20, (15, 22), 8)
         mi, backend = dispatch_batch_pair_mi(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y, force_backend="cuda")
@@ -126,8 +138,9 @@ class TestDispatcherIntegration:
         np.testing.assert_allclose(mi, mi_cpu, atol=1e-9, rtol=1e-9)
 
     def test_small_shape_still_uses_static_kernel(self):
+        """dispatch_batch_pair_mi still routes a shape that fits the static kernel's caps to the static kernel."""
         # A shape that fits the STATIC kernel's caps must still use it -- the new backend must not
-        # pre-empt the (equally correct, no dynamic-shared-memory dependency) faster default path.
+        # preempt the (equally correct, no dynamic-shared-memory dependency) faster default path.
         factors_data, nbins, classes_y, freqs_y, pair_a, pair_b = _build_pair_inputs(2000, 6, 10, 4, (2, 4), 9)
         _mi, backend = dispatch_batch_pair_mi(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y, force_backend="cuda")
         assert backend == "cuda"
@@ -141,6 +154,7 @@ class TestParallelReductionRegression:
     version's catches a regression back to the serial form without being a flaky microbenchmark."""
 
     def test_reduction_is_parallelized_not_serial(self):
+        """A warm shared-fused-kernel call completes well under the serial-reduction regression ceiling."""
         import time
 
         factors_data, nbins, classes_y, freqs_y, pair_a, pair_b = _build_pair_inputs(50000, 20, 5000, 20, (15, 22), 10)
@@ -162,6 +176,7 @@ class TestCupyResidentUploadRegression:
     (n=2) and passes post-fix (n=1) -- verified empirically before shipping."""
 
     def test_batch_pair_mi_cupy_uploads_factors_data_once_across_calls(self):
+        """Two batch_pair_mi_cupy calls sharing identical factors_data content upload it via cp.asarray only once."""
         import cupy as cp
 
         factors_data, nbins, classes_y, freqs_y, pair_a, pair_b = _build_pair_inputs(2000, 6, 10, 4, (2, 5), 11)
@@ -172,6 +187,7 @@ class TestCupyResidentUploadRegression:
         orig_asarray = cp.asarray
 
         def _counting_asarray(arr, *a, **kw):
+            """Count cp.asarray calls whose input shape matches factors_data (a proxy for redundant uploads)."""
             if getattr(arr, "shape", None) == factors_data.shape:
                 upload_calls["n"] += 1
             return orig_asarray(arr, *a, **kw)

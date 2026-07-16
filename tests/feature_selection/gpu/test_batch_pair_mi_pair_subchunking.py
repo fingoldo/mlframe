@@ -57,6 +57,7 @@ def _clean_gpu_state():
     from mlframe.feature_selection.filters._fe_gpu_vram import _reset_fe_gpu_pool_limit_flag
 
     def _reset():
+        """Clear resident FE operands, the GPU pool-limit flag, and uncap/free cupy's default pool."""
         clear_fe_resident_operands()
         _reset_fe_gpu_pool_limit_flag()
         try:
@@ -73,6 +74,7 @@ def _clean_gpu_state():
 
 
 def _build_pair_inputs(n_samples, n_cols, nbins_val, n_classes_y, seed=0):
+    """Build all-pairs factors/pair/class inputs for the pair-subchunking OOM-boundary tests."""
     rng = np.random.default_rng(seed)
     cols = [rng.integers(0, nbins_val, size=n_samples) for _ in range(n_cols)]
     data = np.column_stack(cols).astype(np.int32)
@@ -127,6 +129,7 @@ def test_pair_subchunked_finalize_avoids_full_accumulator_readback(monkeypatch):
     orig_copy_to_host = _devicearray.DeviceNDArray.copy_to_host
 
     def _spy_copy_to_host(self, *a, **kw):
+        """Count copy_to_host calls on 2D int64 device arrays -- a proxy for full-accumulator readbacks."""
         if getattr(self, "ndim", 0) >= 2 and getattr(self, "dtype", None) is not None and "int64" in str(self.dtype):
             calls["n"] += 1
         return orig_copy_to_host(self, *a, **kw)

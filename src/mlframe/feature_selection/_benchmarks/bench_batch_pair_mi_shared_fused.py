@@ -28,6 +28,7 @@ import numpy as np
 
 
 def _build_pair_inputs(n_samples, n_features, n_pairs, n_classes_y, nbins_range, seed):
+    """Build a random factors/pair/class fixture for the fused-vs-row-chunked A/B bench."""
     rng = np.random.default_rng(seed)
     nbins = rng.integers(nbins_range[0], nbins_range[1] + 1, n_features).astype(np.int32)
     factors_data = np.column_stack([rng.integers(0, int(nb), n_samples) for nb in nbins]).astype(np.int32)
@@ -39,6 +40,7 @@ def _build_pair_inputs(n_samples, n_features, n_pairs, n_classes_y, nbins_range,
 
 
 def _free_pool() -> None:
+    """Release cupy's default and pinned memory pools so successive bench runs start from clean VRAM."""
     import cupy as cp
 
     cp.get_default_memory_pool().free_all_blocks()
@@ -46,6 +48,7 @@ def _free_pool() -> None:
 
 
 def _bench_one(fn, factors_data, pair_a, pair_b, nbins, classes_y, freqs_y, reps: int = 3) -> float:
+    """Warm fn once, then time reps runs (freeing VRAM between each) and return the median wall time."""
     import cupy as cp
 
     _free_pool()
@@ -63,6 +66,7 @@ def _bench_one(fn, factors_data, pair_a, pair_b, nbins, classes_y, freqs_y, reps
 
 
 def main() -> None:
+    """Run the fused-vs-row-chunked A/B at the wellbore-100k production shape and print the speedup."""
     from mlframe.feature_selection.filters._batch_pair_mi_cuda_kernels import batch_pair_mi_cuda_row_chunked
     from mlframe.feature_selection.filters._batch_pair_mi_cuda_shared_fused import batch_pair_mi_cuda_shared_fused
 
