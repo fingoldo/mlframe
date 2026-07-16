@@ -4,6 +4,7 @@ Root pytest fixtures shared across all test modules.
 
 import gc
 import os
+import time
 import warnings
 
 # Best-effort silence for native-stderr chatter from Intel OpenMP. BLAS xerbla
@@ -136,6 +137,7 @@ import pytest
 # ---------------------------------------------------------------------------
 @pytest.fixture(autouse=True)
 def _catboost_per_worker_train_dir(tmp_path, monkeypatch):
+    """Redirect CatBoost's default ``train_dir`` to a per-test tmp dir so parallel workers don't race on one file."""
     try:
         from catboost import core as _cb_core
     except ImportError:
@@ -143,6 +145,7 @@ def _catboost_per_worker_train_dir(tmp_path, monkeypatch):
     _orig_get_train_dir = _cb_core._get_train_dir
 
     def _patched_get_train_dir(params):
+        """Return the caller's explicit ``train_dir``, else a fresh per-worker tmp dir."""
         if not isinstance(params, dict) or "train_dir" in params:
             return _orig_get_train_dir(params)
         per_worker = tmp_path / "catboost_info"
@@ -237,12 +240,40 @@ def running_under_xdist() -> bool:
     return bool(os.environ.get("PYTEST_XDIST_WORKER"))
 
 
-def perf_time_budget(base_seconds: float, *, xdist_factor: float = 4.0) -> float:
-    """Wall-clock time budgets are unreliable under ``-n`` parallel contention: a 2h full-suite run can starve any one
+def _host_cpu_contended(min_other_python_procs: int = 5) -> bool:
+    """True when enough OTHER python processes are running that a standalone (non-xdist) wall-clock perf test would
+    flake from host contention.
+
+    This repo runs many independent worktree sessions concurrently on the same physical machine (each running its
+    own pytest process outside this one's control) -- contention that ``running_under_xdist()`` cannot see because
+    it only detects ``-n`` workers spawned by THIS pytest invocation. Aggregate ``cpu_percent`` is NOT a reliable
+    signal here: on a high-core-count box, a dozen bursty sibling fits (numba JIT compiles, short numpy/BLAS calls
+    separated by Python-level bookkeeping) can average well under 50% system-wide CPU while still starving any one
+    process's wall-clock scheduling by 2-3x. Process COUNT is the robust signal -- each sibling session is a
+    long-lived python.exe regardless of its instantaneous CPU burst state.
+    """
+    if psutil is None:
+        return False
+    try:
+        this_pid = os.getpid()
+        n_other = sum(1 for p in psutil.process_iter(["pid", "name"]) if p.info["pid"] != this_pid and p.info["name"] and "python" in p.info["name"].lower())
+        return n_other >= min_other_python_procs
+    except Exception:
+        return False
+
+
+def perf_time_budget(base_seconds: float, *, xdist_factor: float = 4.0, contention_factor: float = 4.0) -> float:
+    """Wall-clock time budgets are unreliable under parallel contention: a 2h full-suite run can starve any one
     worker for seconds, so a quiet-box budget that is correct standalone flakes under load. Multiply the budget when
-    running under xdist so it still trips on a gross (order-of-magnitude) regression without flaking on transient
-    scheduler stalls; standalone keeps the tight budget. Use for absolute ``elapsed <= budget`` assertions."""
-    return base_seconds * xdist_factor if running_under_xdist() else base_seconds
+    running under xdist, OR when system-wide CPU load indicates other concurrent processes (e.g. sibling worktree
+    sessions on this shared machine) are contending for the same cores, so it still trips on a gross
+    (order-of-magnitude) regression without flaking on transient scheduler stalls; a genuinely quiet box keeps the
+    tight budget. Use for absolute ``elapsed <= budget`` assertions."""
+    if running_under_xdist():
+        return base_seconds * xdist_factor
+    if _host_cpu_contended():
+        return base_seconds * contention_factor
+    return base_seconds
 
 
 def perf_speedup_floor(base_ratio: float, *, xdist_factor: float = 0.6) -> float:
@@ -305,33 +336,34 @@ def pytest_sessionfinish(session, exitstatus):
 
 
 def pytest_addoption(parser):
+    """Register the ``--fast`` / ``--run-fuzz`` / ``--run-biz-transformer`` CLI flags."""
     parser.addoption(
         "--fast",
         action="store_true",
         default=False,
-        help="Fast mode: parametrized tests run one representative variant per group "
-             f"(also enabled by {_FAST_ENV}=1).",
+        help="Fast mode: parametrized tests run one representative variant per group " f"(also enabled by {_FAST_ENV}=1).",
     )
     parser.addoption(
         "--run-fuzz",
         action="store_true",
         default=False,
         help="Include long-running fuzz-combo tests (test_fuzz_suite, "
-             "test_fuzz_3way_suite, ...). They are deselected by default even "
-             "without --fast because each runs ~150 combos through the suite.",
+        "test_fuzz_3way_suite, ...). They are deselected by default even "
+        "without --fast because each runs ~150 combos through the suite.",
     )
     parser.addoption(
         "--run-biz-transformer",
         action="store_true",
         default=False,
         help="Include the feature_engineering/transformer/test_biz_val_*.py "
-             "business-value tests. Each fits multiple boostings on real "
-             "datasets (kin8nm, mammography, California Housing, ...) and "
-             "takes minutes per case; deselected from the default run.",
+        "business-value tests. Each fits multiple boostings on real "
+        "datasets (kin8nm, mammography, California Housing, ...) and "
+        "takes minutes per case; deselected from the default run.",
     )
 
 
 def pytest_configure(config):
+    """Wire ``--fast`` into the fast-mode env var and register conftest-private markers."""
     if config.getoption("--fast"):
         os.environ[_FAST_ENV] = "1"
     # Markers ``slow_only`` / ``no_xdist`` are registered in pyproject.toml
@@ -359,13 +391,12 @@ def pytest_configure(config):
 
 
 def pytest_collection_modifyitems(config, items):
+    """Deselect fuzz/biz_transformer-marked items unless their opt-in flags are passed."""
     # Always: deselect ``fuzz``-marked items unless --run-fuzz is given. Applies
     # in BOTH fast and full modes - fuzz combos run hundreds of train_mlframe_models_suite
     # iterations and should never be in the standard CI loop. Opt in explicitly.
     if not config.getoption("--run-fuzz"):
-        skip_fuzz = pytest.mark.skip(
-            reason="skipped by default; pass --run-fuzz to include long fuzz-combo tests"
-        )
+        skip_fuzz = pytest.mark.skip(reason="skipped by default; pass --run-fuzz to include long fuzz-combo tests")
         for item in items:
             if "fuzz" in item.keywords:
                 item.add_marker(skip_fuzz)
@@ -374,10 +405,7 @@ def pytest_collection_modifyitems(config, items):
     # tests: real-dataset fits across multiple boostings, several minutes
     # per test, not standard CI loop material.
     if not config.getoption("--run-biz-transformer"):
-        skip_bt = pytest.mark.skip(
-            reason="skipped by default; pass --run-biz-transformer to include "
-                   "feature_engineering/transformer biz_val tests"
-        )
+        skip_bt = pytest.mark.skip(reason="skipped by default; pass --run-biz-transformer to include " "feature_engineering/transformer biz_val tests")
         for item in items:
             if "biz_transformer" in item.keywords:
                 item.add_marker(skip_bt)
@@ -393,9 +421,7 @@ def pytest_collection_modifyitems(config, items):
     # silently run (and native-crash) on workers.
     _dist_opt = getattr(config.option, "dist", "no")
     if _dist_opt != "no" or running_under_xdist():
-        skip_xdist = pytest.mark.skip(
-            reason="requires sequential execution; xdist parallelism active"
-        )
+        skip_xdist = pytest.mark.skip(reason="requires sequential execution; xdist parallelism active")
         for item in items:
             if "no_xdist" in item.keywords:
                 item.add_marker(skip_xdist)
@@ -452,6 +478,7 @@ try:
     _thinc_original_fix = _thinc_util.fix_random_seed
 
     def _thinc_clamped_fix_random_seed(seed: int = 0) -> None:
+        """Clamp the seed into uint32 range and fall back to python+numpy seeding if cupy's seed call crashes."""
         try:
             return _thinc_original_fix(int(seed) % (2**32))
         except Exception as _seed_err:
@@ -481,10 +508,7 @@ try:
     try:
         import pytest_randomly as _pr  # noqa: E402
         if getattr(_pr, "entrypoint_reseeds", None):
-            _pr.entrypoint_reseeds = [
-                _thinc_clamped_fix_random_seed if r is _thinc_original_fix else r
-                for r in _pr.entrypoint_reseeds
-            ]
+            _pr.entrypoint_reseeds = [_thinc_clamped_fix_random_seed if r is _thinc_original_fix else r for r in _pr.entrypoint_reseeds]
     except Exception:  # pragma: no cover
         pass
 except ImportError:  # pragma: no cover
@@ -515,7 +539,7 @@ except (OSError, RuntimeError) as exc:  # pragma: no cover
 # `python -c "import pyutilz.system"` does NOT crash. Root-caused via an isolated venv
 # A/B (pyarrow 24.0.0 crashed 3/3 runs; 25.0.0 was stable 3/3 runs) -- fixed by pinning
 # pyarrow>=25.0.0 in pyproject.toml. If pytest ever segfaults again on this exact import
-# chain with zero output (the crash pre-empts any test output, easy to mistake for a
+# chain with zero output (the crash preempts any test output, easy to mistake for a
 # hang), suspect a pyarrow/cp3xx wheel regression first, not GPU/CUDA contention (an
 # earlier hypothesis this session, ruled out: the crash reproduces at LOW machine load
 # and is deterministic per pyarrow version, not load-dependent).
@@ -529,6 +553,7 @@ try:
         _orig_tqdmu = _pus.tqdmu
 
         def _quiet_tqdmu(*args, **kwargs):
+            """Wrap tqdmu with progress bars disabled by default for quiet test output."""
             kwargs.setdefault("disable", True)
             return _orig_tqdmu(*args, **kwargs)
 
@@ -635,16 +660,13 @@ def cleanup_memory(request):
     """
     import os
 
-    has_heavy_marker = (
-        request.node.get_closest_marker("uses_matplotlib") is not None
-        or request.node.get_closest_marker("uses_torch") is not None
-    )
+    has_heavy_marker = request.node.get_closest_marker("uses_matplotlib") is not None or request.node.get_closest_marker("uses_torch") is not None
     if not has_heavy_marker:
         yield
         gc.collect()
         return
 
-    is_main_process = os.environ.get('PYTEST_CURRENT_TEST') is not None
+    is_main_process = os.environ.get("PYTEST_CURRENT_TEST") is not None
     # [MEM] print is opt-in via MLFRAME_TEST_MEM_LOG=1; default off so CI scrollback isn't filled with one line per heavy-marker test.
     _mem_log_enabled = os.environ.get("MLFRAME_TEST_MEM_LOG", "").lower() in ("1", "true", "yes")
 
@@ -752,7 +774,6 @@ def _purge_stale_test_caches():
     if os.environ.get("MLFRAME_KEEP_TEST_CACHES", "").strip() in ("1", "true", "True"):
         yield
         return
-    import time
     from pathlib import Path
     cutoff = time.time() - 7 * 24 * 3600
     repo_root = Path(__file__).resolve().parent.parent

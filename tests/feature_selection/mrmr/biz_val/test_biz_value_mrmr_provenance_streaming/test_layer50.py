@@ -64,8 +64,7 @@ warnings.filterwarnings("ignore")
 # ---------------------------------------------------------------------------
 
 
-def _make_layer50_fixture(p=200, n=5000, n_clusters=10,
-                            features_per_cluster=20, seed=0):
+def _make_layer50_fixture(p=200, n=5000, n_clusters=10, features_per_cluster=20, seed=0):
     """Layer 50 benchmark fixture: p=200 features in n_clusters latent groups
     of features_per_cluster each; y depends on the first 5 latents."""
     rng = np.random.default_rng(int(seed))
@@ -89,8 +88,8 @@ def _warm_jit_caches():
     dependencies, so the Layer 50 perf budget measures DCD work rather than
     one-time JIT compile + module-import cost."""
     from mlframe.feature_selection.filters.mrmr import MRMR
-    Xw, yw = _make_layer50_fixture(p=20, n=500, n_clusters=2,
-                                    features_per_cluster=10, seed=99)
+
+    Xw, yw = _make_layer50_fixture(p=20, n=500, n_clusters=2, features_per_cluster=10, seed=99)
     MRMR(
         dcd_enable=True, dcd_tau_cluster="auto",
         dcd_distance="auto", dcd_swap_method="auto",
@@ -114,6 +113,7 @@ class TestLayer50_PerfBudget:
     """
 
     def test_dcd_all_auto_under_30s(self):
+        """DCD all-auto MRMR.fit at p=200, n=5000 completes within the 30s budget."""
         from mlframe.feature_selection.filters.mrmr import MRMR
         _warm_jit_caches()
         X, y = _make_layer50_fixture(p=200, n=5000)
@@ -132,10 +132,7 @@ class TestLayer50_PerfBudget:
         if running_under_xdist():
             pytest.skip("timing assertion unreliable under -n contention")
         budget = perf_time_budget(30.0)
-        assert elapsed <= budget, (
-            f"Layer 50 DCD all-auto fit took {elapsed:.2f}s > {budget:.0f}s budget "
-            f"(p=200, n=5000, 10 latents); selected={n_sel}"
-        )
+        assert elapsed <= budget, f"Layer 50 DCD all-auto fit took {elapsed:.2f}s > {budget:.0f}s budget " f"(p=200, n=5000, 10 latents); selected={n_sel}"
 
 
 # ---------------------------------------------------------------------------
@@ -157,6 +154,7 @@ class TestLayer50_SVDCacheSpeedup:
 
     @staticmethod
     def _make_Z(n: int, k: int, seed: int = 0):
+        """Build a standardized Z matrix with a shared latent factor on the first half of columns."""
         from mlframe.feature_selection.filters._cluster_aggregate import (
             _standardize_align,
         )
@@ -164,20 +162,20 @@ class TestLayer50_SVDCacheSpeedup:
         M = rng.standard_normal((n, k))
         # Latent: first half loads on a shared factor (mirrors the DCD-on
         # case where cluster members share a hidden axis).
-        M[:, :max(2, k // 2)] += 0.7 * rng.standard_normal((n, 1))
+        M[:, : max(2, k // 2)] += 0.7 * rng.standard_normal((n, 1))
         Z, _, _, _ = _standardize_align(M, ref_col=0)
         return Z
 
     @staticmethod
     def _bake_off_with_cache(Z_list, y, state, member_names_list):
+        """Run the bake-off with the shared per-fold SVD cache (post-Layer-50 path)."""
         from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
             _select_swap_method_auto,
         )
         state._auto_method_cache.clear()
         t0 = time.perf_counter()
         for Z, mn in zip(Z_list, member_names_list):
-            _select_swap_method_auto(state=state, Z=Z, target_y=y,
-                                      member_names=mn)
+            _select_swap_method_auto(state=state, Z=Z, target_y=y, member_names=mn)
         return time.perf_counter() - t0
 
     @staticmethod
@@ -206,7 +204,7 @@ class TestLayer50_SVDCacheSpeedup:
             fold_bounds = np.concatenate([[0], np.cumsum(fold_sizes)])
             for method in _AUTO_METHOD_CANDIDATES:
                 for f in range(n_folds):
-                    test_idx = perm[fold_bounds[f]: fold_bounds[f + 1]]
+                    test_idx = perm[fold_bounds[f] : fold_bounds[f + 1]]
                     train_mask = np.ones(n_samples, dtype=bool)
                     train_mask[test_idx] = False
                     if train_mask.sum() < 3 or test_idx.size < 2:
@@ -233,11 +231,11 @@ class TestLayer50_SVDCacheSpeedup:
                     _nb_rep = int(rep_binned.max()) + 1 if rep_binned.size else 10
                     _nb_y = int(y_test.max()) + 1 if y_test.size else 2
                     _nbins_arr = np.array([_nb_rep, _nb_y], dtype=np.int64)
-                    _mi_func(_data, np.array([0], dtype=np.int64),
-                              np.array([1], dtype=np.int64), _nbins_arr)
+                    _mi_func(_data, np.array([0], dtype=np.int64), np.array([1], dtype=np.int64), _nbins_arr)
         return time.perf_counter() - t0
 
     def test_svd_cache_speeds_up_bake_off(self):
+        """The per-fold SVD cache speeds up the bake-off by at least the charter floor."""
         from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
             DCDState,
         )
@@ -259,21 +257,13 @@ class TestLayer50_SVDCacheSpeedup:
         )
         state._auto_method_cache = {}
         Zs = [self._make_Z(n, k, seed=s) for s in range(n_clusters)]
-        member_names_list = [
-            tuple(f"cl{c}_{j}" for j in range(k)) for c in range(n_clusters)
-        ]
+        member_names_list = [tuple(f"cl{c}_{j}" for j in range(k)) for c in range(n_clusters)]
         # Warm-up (JIT + module init).
         self._bake_off_with_cache(Zs, y, state, member_names_list)
         self._bake_off_without_cache(Zs, y, state, member_names_list)
         # Measure: best-of-3 each side to suppress positive-skew jitter.
-        t_with = min(
-            self._bake_off_with_cache(Zs, y, state, member_names_list)
-            for _ in range(3)
-        )
-        t_without = min(
-            self._bake_off_without_cache(Zs, y, state, member_names_list)
-            for _ in range(3)
-        )
+        t_with = min(self._bake_off_with_cache(Zs, y, state, member_names_list) for _ in range(3))
+        t_without = min(self._bake_off_without_cache(Zs, y, state, member_names_list) for _ in range(3))
         speedup = t_without / max(t_with, 1e-9)
         # 1.5x floor per the Layer 50 charter (observed ~1.9-2.4x standalone); xdist-relaxed because the with/without
         # micro-bench ratio compresses under full-suite ``-n`` contention. Still trips a genuine cache regression.
@@ -312,10 +302,9 @@ class TestLayer50_BitEquivalence:
         )
         rng = np.random.default_rng(int(seed))
         M = rng.standard_normal((n, k))
-        M[:, :max(2, k // 2)] += 0.6 * rng.standard_normal((n, 1))
+        M[:, : max(2, k // 2)] += 0.6 * rng.standard_normal((n, 1))
         Z, _, _, _ = _standardize_align(M, ref_col=0)
-        for method in ("mean_z", "mean_inv_var", "pca_pc1", "pca_pc2",
-                        "factor_score"):
+        for method in ("mean_z", "mean_inv_var", "pca_pc1", "pca_pc2", "factor_score"):
             cache: dict = {}
             w_cached = _derive_weights(Z, method, svd_cache=cache)
             w_uncached = _derive_weights(Z, method, svd_cache=None)
@@ -340,7 +329,7 @@ class TestLayer50_BitEquivalence:
         )
         rng = np.random.default_rng(int(seed))
         M = rng.standard_normal((n, k))
-        M[:, :max(2, k // 2)] += 0.6 * rng.standard_normal((n, 1))
+        M[:, : max(2, k // 2)] += 0.6 * rng.standard_normal((n, 1))
         Z, _, _, _ = _standardize_align(M, ref_col=0)
         # Legacy loop reimplemented locally (NOT calling the optimised path).
         v = _svd_flip_pc1(Z)
@@ -349,8 +338,7 @@ class TestLayer50_BitEquivalence:
             [np.corrcoef(Z[:, j], score)[0, 1] ** 2 for j in range(Z.shape[1])],
             dtype=np.float64,
         )
-        comm_legacy = np.clip(np.nan_to_num(comm_legacy, nan=0.0),
-                                1e-6, 1.0 - 1e-6)
+        comm_legacy = np.clip(np.nan_to_num(comm_legacy, nan=0.0), 1e-6, 1.0 - 1e-6)
         comm_new = _pc1_communalities(Z)
         np.testing.assert_allclose(
             comm_new, comm_legacy, rtol=1e-10, atol=1e-14,
@@ -380,9 +368,6 @@ class TestLayer50_BitEquivalence:
         v1_fresh = _svd_flip_pc1(Z, svd_cache={})
         v2_fresh = _svd_flip_pcN(Z, 1, svd_cache={})
         comm_fresh = _pc1_communalities(Z, svd_cache={})
-        np.testing.assert_array_equal(v1_shared, v1_fresh,
-            err_msg="Layer 50: shared-cache PC1 drift")
-        np.testing.assert_array_equal(v2_shared, v2_fresh,
-            err_msg="Layer 50: shared-cache PC2 drift")
-        np.testing.assert_array_equal(comm_shared, comm_fresh,
-            err_msg="Layer 50: shared-cache communalities drift")
+        np.testing.assert_array_equal(v1_shared, v1_fresh, err_msg="Layer 50: shared-cache PC1 drift")
+        np.testing.assert_array_equal(v2_shared, v2_fresh, err_msg="Layer 50: shared-cache PC2 drift")
+        np.testing.assert_array_equal(comm_shared, comm_fresh, err_msg="Layer 50: shared-cache communalities drift")

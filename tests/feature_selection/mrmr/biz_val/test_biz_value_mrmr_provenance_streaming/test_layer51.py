@@ -49,7 +49,6 @@ import warnings
 
 import numpy as np
 import pandas as pd
-import pytest
 
 warnings.filterwarnings("ignore")
 
@@ -129,6 +128,7 @@ def _warm_jit():
 
 
 class TestLayer51_BitEquivalence:
+    """pair_su_batch matches the looped single-pair pair_su path bit-for-bit."""
 
     def test_batch_matches_single_pair_50_random_pairs(self):
         """Batch SU array matches loop of pair_su() within rtol 1e-12."""
@@ -169,8 +169,7 @@ class TestLayer51_BitEquivalence:
         )
         X = _make_random_X(n=1200, p=20, seed=8)
         fd, fn = _quantize_X(X)
-        pairs = [(0, 5), (1, 6), (2, 7), (3, 8), (4, 9),
-                 (10, 11), (12, 13), (14, 15)]
+        pairs = [(0, 5), (1, 6), (2, 7), (3, 8), (4, 9), (10, 11), (12, 13), (14, 15)]
         st_single = _fresh_state(fd, fn, distance="vi")
         st_batch = _fresh_state(fd, fn, distance="vi")
         single = np.array(
@@ -196,6 +195,7 @@ class TestLayer51_BitEquivalence:
         np.testing.assert_allclose(batch, single, rtol=1e-12, atol=1e-12)
 
     def test_empty_pair_list_returns_empty_array(self):
+        """An empty pair list returns an empty float64 array."""
         from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
             pair_su_batch,
         )
@@ -208,6 +208,7 @@ class TestLayer51_BitEquivalence:
         assert out.dtype == np.float64
 
     def test_self_pair_returns_one(self):
+        """A self-pair (a==b) returns SU=1.0, matching pair_su's parity."""
         from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
             pair_su_batch,
         )
@@ -224,6 +225,7 @@ class TestLayer51_BitEquivalence:
 
 
 class TestLayer51_CacheReuse:
+    """The batch path reuses the single-pair path's SU / marginal-entropy caches."""
 
     def test_batch_hits_cache_for_pre_warmed_pairs(self):
         """Pre-warm cache via single calls, then batch on the same pairs
@@ -245,14 +247,8 @@ class TestLayer51_CacheReuse:
         assert out.shape == (len(pairs),)
         hits_after = int(st.n_cache_hits)
         misses_after = int(st.n_cache_misses)
-        assert hits_after - hits_before == len(pairs), (
-            f"every warm pair must hit the cache; "
-            f"hits delta={hits_after - hits_before}, expected={len(pairs)}"
-        )
-        assert misses_after == misses_before, (
-            "warm pair batch must not increment the miss counter; "
-            f"misses delta={misses_after - misses_before}"
-        )
+        assert hits_after - hits_before == len(pairs), f"every warm pair must hit the cache; " f"hits delta={hits_after - hits_before}, expected={len(pairs)}"
+        assert misses_after == misses_before, "warm pair batch must not increment the miss counter; " f"misses delta={misses_after - misses_before}"
 
     def test_batch_warms_marginal_entropy_cache(self):
         """After batch, every unique column from the pairs has a marginal
@@ -267,9 +263,7 @@ class TestLayer51_CacheReuse:
         unique_cols = {c for ab in pairs for c in ab}
         _ = pair_su_batch(st, pairs)
         for c in unique_cols:
-            assert c in st.column_entropy_cache, (
-                f"column {c} marginal entropy was not warmed by the batch"
-            )
+            assert c in st.column_entropy_cache, f"column {c} marginal entropy was not warmed by the batch"
 
 
 # ---------------------------------------------------------------------------
@@ -278,6 +272,7 @@ class TestLayer51_CacheReuse:
 
 
 class TestLayer51_PerfBudget:
+    """Batch dispatch keeps tau-auto calibration and hierarchy build within their wall-clock budgets."""
 
     def test_tau_auto_calibration_p300_under_5s(self):
         """tau-auto calibration at p=300 completes within 5s wall-clock."""
@@ -293,9 +288,7 @@ class TestLayer51_PerfBudget:
             distance="su", n_pairs=100, seed=0,
         )
         elapsed = time.perf_counter() - t0
-        assert elapsed <= 5.0, (
-            f"tau-auto calibration at p=300 must finish <= 5s; got {elapsed:.3f}s"
-        )
+        assert elapsed <= 5.0, f"tau-auto calibration at p=300 must finish <= 5s; got {elapsed:.3f}s"
         # Tau is a finite value in the valid auto-tau window or the fallback.
         assert 0.0 < tau <= 1.0
         assert diag["mode"] in ("bimodal", "unimodal", "degenerate")
@@ -321,18 +314,14 @@ class TestLayer51_PerfBudget:
             cols[f"member_{ai}"] = z + 0.01 * rng.standard_normal(n)
         X = pd.DataFrame(cols)
         dcd_summary = {
-            "cluster_anchors_names": {
-                name: [f"member_{ai}"] for ai, name in enumerate(anchor_names)
-            },
+            "cluster_anchors_names": {name: [f"member_{ai}"] for ai, name in enumerate(anchor_names)},
         }
         t0 = time.perf_counter()
         hierarchy = build_cluster_hierarchy(
             dcd_summary, X, super_tau=0.3, max_levels=2, distance="su",
         )
         elapsed = time.perf_counter() - t0
-        assert elapsed <= 2.0, (
-            f"hierarchy at 20 anchors must finish <= 2s; got {elapsed:.3f}s"
-        )
+        assert elapsed <= 2.0, f"hierarchy at 20 anchors must finish <= 2s; got {elapsed:.3f}s"
         # Hierarchy is a (possibly empty) dict; we don't assert content
         # here -- structural shape is covered by Layer 48 tests.
         assert isinstance(hierarchy, dict)
@@ -344,8 +333,10 @@ class TestLayer51_PerfBudget:
 
 
 class TestLayer51_ExportSurface:
+    """pair_su_batch is importable both from the parent module's __all__ and its sibling."""
 
     def test_pair_su_batch_in_parent_all(self):
+        """pair_su_batch is exported from the parent module's __all__ and callable."""
         from mlframe.feature_selection.filters import (
             _dynamic_cluster_discovery as dcd_mod,
         )
@@ -353,6 +344,7 @@ class TestLayer51_ExportSurface:
         assert callable(dcd_mod.pair_su_batch)
 
     def test_pair_su_batch_importable_from_sibling(self):
+        """pair_su_batch is importable directly from its sibling submodule."""
         from mlframe.feature_selection.filters._dcd_pair_su_batch import (
             pair_su_batch,
         )
@@ -360,6 +352,7 @@ class TestLayer51_ExportSurface:
 
 
 class TestLayer51_RegressionL41toL50:
+    """Layers 41-50's DCD contracts still hold once pairwise SU dispatch is batched."""
 
     def test_l47_tau_auto_still_picks_valley_with_batch(self):
         """L47 contract: bimodal data -> mode='bimodal'. Layer 51 routes
@@ -394,10 +387,7 @@ class TestLayer51_RegressionL41toL50:
             factors_data=fd, factors_nbins=fn,
             distance="su", n_pairs=100, seed=0,
         )
-        assert diag["mode"] == "bimodal", (
-            f"L47 bimodal data must still trigger bimodal detection under "
-            f"the L51 batch path; got mode={diag['mode']!r}"
-        )
+        assert diag["mode"] == "bimodal", f"L47 bimodal data must still trigger bimodal detection under " f"the L51 batch path; got mode={diag['mode']!r}"
         assert 0.3 <= tau <= 0.95
 
     def test_l48_hierarchy_unchanged_under_batch(self):
