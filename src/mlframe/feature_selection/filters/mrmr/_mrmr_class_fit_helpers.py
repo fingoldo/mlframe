@@ -326,7 +326,7 @@ class _MRMRFitHelpersMixin:
         unioned -- their per-column recipes differ; this path recovers the RAW genuine features that the merged-target greedy under-selected.
         Memory: each sub-fit receives the SAME X (no copy) with a single 1D target column, mirroring RFECV's multioutput union.
         """
-        feature_names = list(X.columns) if hasattr(X, "columns") else [f"feature_{i}" for i in range(X.shape[1])]
+        feature_names = list(X.columns) if hasattr(X, "columns") else [f"f{i}" for i in range(X.shape[1])]
         name_to_idx = {str(n): i for i, n in enumerate(feature_names)}
         n_features = len(feature_names)
 
@@ -359,4 +359,28 @@ class _MRMRFitHelpersMixin:
         # the str-vs-tuple type mismatch of a content-free ``f"_mrmr_multioutput_..."`` string to never collide.
         self.signature = None
         self._fit_sample_weight_ = None if sample_weight is None else np.asarray(sample_weight, dtype=np.float64)
+        # This path returns before the legacy single-fit body runs, so the standard
+        # single-target diagnostic surface (degenerate-column audit, provenance_,
+        # fe_provenance_, fe_rejection_ledger_) is otherwise never populated -- these
+        # documented public attributes would simply be absent, raising AttributeError
+        # only in multi-output mode.
+        try:
+            from .._mrmr_degenerate import audit_degenerate_columns
+            self.degenerate_columns_ = audit_degenerate_columns(X)
+        except Exception as exc:
+            logger.debug("mrmr multioutput: degenerate-column audit failed (diagnostic only): %r", exc, exc_info=True)
+            self.degenerate_columns_ = {}
+        _seed_resolved = getattr(self, "random_seed", None)
+        if _seed_resolved is None:
+            _seed_resolved = getattr(self, "random_state", None)
+        self.provenance_ = {
+            "step": "mrmr_multioutput",
+            "source": "train_only",
+            "n_rows": int(X.shape[0]) if hasattr(X, "shape") else None,
+            "seed": int(_seed_resolved) if _seed_resolved is not None else None,
+        }
+        from .._mrmr_fe_provenance import populate_fe_provenance
+        from .._fe_rejection_ledger import populate_fe_rejection_ledger
+        populate_fe_provenance(self)
+        populate_fe_rejection_ledger(self)
         return self
