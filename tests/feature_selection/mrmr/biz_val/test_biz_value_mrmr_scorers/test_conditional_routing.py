@@ -66,6 +66,7 @@ SEEDS = (1, 7, 13, 42, 101)
 
 
 def _import_routing_fe():
+    """Lazily import the Layer-58 conditional-basis-routing FE functions."""
     from mlframe.feature_selection.filters._orthogonal_routing_fe import (
         generate_conditional_basis_routing_features,
         hybrid_orth_mi_conditional_routing_fe,
@@ -114,7 +115,7 @@ def _build_heavy_tail(seed: int, n: int = 4000):
     sign = rng.choice([-1.0, 1.0], size=n)
     x = sign * np.exp(log_mag)
     z = log_mag - log_mag.mean()
-    sig = z ** 2 - float(z.var()) + 0.3 * rng.standard_normal(n)
+    sig = z**2 - float(z.var()) + 0.3 * rng.standard_normal(n)
     y = (sig > np.median(sig)).astype(int)
     cols = {"x": x}
     for i in range(5):
@@ -131,7 +132,7 @@ def _build_bounded_t3(seed: int, n: int = 4000):
     rng = np.random.default_rng(seed)
     x = rng.uniform(-1.0, 1.0, n)
     # T_3(x) = 4 x^3 - 3 x
-    sig = 4.0 * x ** 3 - 3.0 * x + 0.15 * rng.standard_normal(n)
+    sig = 4.0 * x**3 - 3.0 * x + 0.15 * rng.standard_normal(n)
     y = (sig > np.median(sig)).astype(int)
     cols = {"x": x}
     for i in range(5):
@@ -155,13 +156,14 @@ def _build_mixed_routing(seed: int, n: int = 4000):
     x_gauss = rng.standard_normal(n)
 
     def _z(v: np.ndarray) -> np.ndarray:
+        """Standard-deviation-normalize a component so all signal terms carry similar weight."""
         sd = float(np.std(v))
         return v / sd if sd > 1e-12 else v
 
     log_x = np.log(x_lognorm)
     z_log = (log_x - log_x.mean()) / max(log_x.std(), 1e-12)
     s1 = _z(_hermite_he(z_log, 2))
-    s2 = _z(4.0 * x_unif ** 3 - 3.0 * x_unif)
+    s2 = _z(4.0 * x_unif**3 - 3.0 * x_unif)
     s3 = _z(_hermite_he(x_gauss, 3))
     sig = s1 + s2 + s3 + 0.25 * rng.standard_normal(n)
     y = (sig > np.median(sig)).astype(int)
@@ -203,9 +205,11 @@ def _build_linear(seed: int, n: int = 1500):
 
 
 class TestHeavyTailSignal:
+    """On a heavy-tail source, conditional routing must select the log_abs pre-transform."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_routing_picks_log_abs_for_heavy_tail(self, seed):
+        """Routing must survive on the heavy-tail source x and select log_abs as its pre-transform."""
         gen_routing, _, _, _, _ = _import_routing_fe()
         X, y = _build_heavy_tail(seed)
         eng, meta = gen_routing(
@@ -215,20 +219,14 @@ class TestHeavyTailSignal:
             min_uplift=1.10,
             top_k=5,
         )
-        assert eng.shape[1] >= 1, (
-            f"seed={seed}: heavy-tail signal should produce >=1 routing column; "
-            f"got {eng.shape[1]}: {list(eng.columns)}"
-        )
+        assert eng.shape[1] >= 1, f"seed={seed}: heavy-tail signal should produce >=1 routing column; " f"got {eng.shape[1]}: {list(eng.columns)}"
         # x must be among the survivors
         srcs = {info["src"] for info in meta.values()}
-        assert "x" in srcs, (
-            f"seed={seed}: heavy-tail source 'x' must survive routing gates; "
-            f"survivors={srcs}, meta={meta}"
-        )
+        assert "x" in srcs, f"seed={seed}: heavy-tail source 'x' must survive routing gates; " f"survivors={srcs}, meta={meta}"
         # The chosen pre-transform for the x source must be log_abs (or any
         # non-raw transform that handles heavy-tail) -- raw Hermite on a
         # log-normal input is the failure mode this layer fixes.
-        for name, info in meta.items():
+        for info in meta.values():
             if info["src"] == "x":
                 assert info["pre_transform"] == "log_abs", (
                     f"seed={seed}: routing should pick log_abs for heavy-tail "
@@ -245,12 +243,14 @@ class TestHeavyTailSignal:
 
 
 class TestBoundedSignalChebyshev:
+    """On a bounded uniform source driving y = T_3(x), routing must select Chebyshev degree 3."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_routing_picks_chebyshev_for_uniform_t3(self, seed):
+        """Routing selects Chebyshev degree 3 for the uniform T_3(x) target."""
         gen_routing, _, _, _, _ = _import_routing_fe()
         X, y = _build_bounded_t3(seed)
-        eng, meta = gen_routing(
+        _eng, meta = gen_routing(
             X, y.values,
             cols=list(X.columns),
             degrees=(2, 3),
@@ -258,15 +258,14 @@ class TestBoundedSignalChebyshev:
             top_k=5,
         )
         assert "x" in {info["src"] for info in meta.values()}, (
-            f"seed={seed}: bounded T_3 signal on 'x' must produce a routing "
-            f"column for 'x'; survivors={list(meta.values())}"
+            f"seed={seed}: bounded T_3 signal on 'x' must produce a routing " f"column for 'x'; survivors={list(meta.values())}"
         )
         # The Chebyshev T_3 target is best captured by Chebyshev-of-degree-3.
         # We require the basis to be chebyshev (other bases can produce
         # numerically equivalent MI under quantile binning when the support
         # is identical, but T_3 is the construction target -- if the
         # routing picks anything else the layer's premise is broken).
-        for name, info in meta.items():
+        for info in meta.values():
             if info["src"] == "x":
                 assert info["basis"] == "chebyshev", (
                     f"seed={seed}: routing should pick Chebyshev for "
@@ -276,10 +275,7 @@ class TestBoundedSignalChebyshev:
                     f"emi={info['engineered_mi']:.4f}, "
                     f"uplift={info['uplift']:.3f}"
                 )
-                assert info["degree"] == 3, (
-                    f"seed={seed}: routing should pick degree 3 for "
-                    f"y=T_3(x); got degree={info['degree']}"
-                )
+                assert info["degree"] == 3, f"seed={seed}: routing should pick degree 3 for " f"y=T_3(x); got degree={info['degree']}"
 
 
 # ---------------------------------------------------------------------------
@@ -288,12 +284,14 @@ class TestBoundedSignalChebyshev:
 
 
 class TestBestPerColumn:
+    """Routing must recover each source column's own optimal (basis, transform) pair, one column max per source."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_per_column_one_recipe_max(self, seed):
+        """At most one engineered column survives per source column."""
         gen_routing, _, _, _, _ = _import_routing_fe()
         X, y = _build_mixed_routing(seed)
-        eng, meta = gen_routing(
+        _eng, meta = gen_routing(
             X, y.values,
             cols=list(X.columns),
             degrees=(2, 3),
@@ -302,16 +300,14 @@ class TestBestPerColumn:
         )
         # At most one engineered column per source.
         srcs = [info["src"] for info in meta.values()]
-        assert len(srcs) == len(set(srcs)), (
-            f"seed={seed}: routing must emit at most one column per source; "
-            f"got duplicates in {srcs}"
-        )
+        assert len(srcs) == len(set(srcs)), f"seed={seed}: routing must emit at most one column per source; " f"got duplicates in {srcs}"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_heavy_tail_source_routes_to_log_abs(self, seed):
+        """Among mixed sources, the heavy-tail x_lognorm column, if it survives, routes to log_abs."""
         gen_routing, _, _, _, _ = _import_routing_fe()
         X, y = _build_mixed_routing(seed)
-        eng, meta = gen_routing(
+        _eng, meta = gen_routing(
             X, y.values,
             cols=list(X.columns),
             degrees=(2, 3),
@@ -319,12 +315,9 @@ class TestBestPerColumn:
             top_k=10,
         )
         # x_lognorm: if it survives, must pick log_abs.
-        for name, info in meta.items():
+        for info in meta.values():
             if info["src"] == "x_lognorm":
-                assert info["pre_transform"] == "log_abs", (
-                    f"seed={seed}: heavy-tail source 'x_lognorm' should route "
-                    f"to log_abs; got {info}"
-                )
+                assert info["pre_transform"] == "log_abs", f"seed={seed}: heavy-tail source 'x_lognorm' should route " f"to log_abs; got {info}"
                 return
         # If it didn't survive at all that's a separate failure mode; the
         # test for survival belongs to TestHeavyTailSignal -- here we only
@@ -337,12 +330,14 @@ class TestBestPerColumn:
 
 
 class TestNoSpuriousNoise:
+    """A p>=16 pure-noise frame must clear the noise-aware MAD floor and emit no columns."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_noise_only_p20_emits_nothing(self, seed):
+        """A pure-noise frame at p=20 emits zero routing columns."""
         gen_routing, _, _, _, _ = _import_routing_fe()
         X, y = _build_noise_only_large(seed, p=20)
-        eng, meta = gen_routing(
+        eng, _meta = gen_routing(
             X, y.values,
             cols=list(X.columns),
             degrees=(2, 3),
@@ -350,9 +345,7 @@ class TestNoSpuriousNoise:
             top_k=5,
         )
         assert eng.shape[1] == 0, (
-            f"seed={seed}: p=20 pure-noise frame should clear no routing "
-            f"columns through the noise-aware floor; got {eng.shape[1]}: "
-            f"{list(eng.columns)}"
+            f"seed={seed}: p=20 pure-noise frame should clear no routing " f"columns through the noise-aware floor; got {eng.shape[1]}: " f"{list(eng.columns)}"
         )
 
 
@@ -362,19 +355,19 @@ class TestNoSpuriousNoise:
 
 
 class TestDefaultDisabledByteIdentical:
+    """fe_hybrid_orth_conditional_routing_enable defaults to False; enabling it must fire and append columns."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_default_off_no_routing_columns(self, seed):
+        """With the flag left at its False default, no routing columns are appended."""
         X, y = _build_linear(seed)
         m = _make_mrmr().fit(X, y)
         added = list(getattr(m, "hybrid_orth_features_", []) or [])
-        assert added == [], (
-            f"seed={seed}: default fe_hybrid_orth_conditional_routing_enable="
-            f"False should NOT append any engineered columns; got {added}"
-        )
+        assert added == [], f"seed={seed}: default fe_hybrid_orth_conditional_routing_enable=" f"False should NOT append any engineered columns; got {added}"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_enable_routing_appends_engineered(self, seed):
+        """Enabling routing appends at least one engineered column, referencing the heavy-tail source."""
         X, y = _build_heavy_tail(seed, n=2500)
         m = _make_mrmr(
             fe_hybrid_orth_conditional_routing_enable=True,
@@ -383,17 +376,11 @@ class TestDefaultDisabledByteIdentical:
             fe_hybrid_orth_conditional_routing_top_k=5,
         ).fit(X, y)
         added = list(getattr(m, "hybrid_orth_features_", []) or [])
-        assert added, (
-            f"seed={seed}: routing flag ON should append at least one "
-            f"engineered column to hybrid_orth_features_; got {added}"
-        )
+        assert added, f"seed={seed}: routing flag ON should append at least one " f"engineered column to hybrid_orth_features_; got {added}"
         # At least one engineered column should reference the heavy-tail
         # source 'x' (the only source carrying actual non-monotone signal).
         srcs_in_names = [n.split("__", 1)[0] for n in added]
-        assert "x" in srcs_in_names, (
-            f"seed={seed}: routing should pick the heavy-tail source 'x'; "
-            f"engineered names = {added}"
-        )
+        assert "x" in srcs_in_names, f"seed={seed}: routing should pick the heavy-tail source 'x'; " f"engineered names = {added}"
 
 
 # ---------------------------------------------------------------------------
@@ -402,8 +389,10 @@ class TestDefaultDisabledByteIdentical:
 
 
 class TestPickleAndClone:
+    """Routing ctor params and chosen (basis, degree, pre_transform) triples must survive clone/pickle round-trips."""
 
     def test_clone_preserves_routing_params(self):
+        """sklearn clone() copies every fe_hybrid_orth_conditional_routing_* ctor param."""
         m = _make_mrmr(
             fe_hybrid_orth_conditional_routing_enable=True,
             fe_hybrid_orth_conditional_routing_top_k=7,
@@ -417,12 +406,10 @@ class TestPickleAndClone:
             ("fe_hybrid_orth_conditional_routing_min_uplift", 1.15),
             ("fe_hybrid_orth_conditional_routing_degrees", (2, 3, 4)),
         ]:
-            assert getattr(m2, name) == expected, (
-                f"clone() dropped {name}: expected {expected}, got "
-                f"{getattr(m2, name)}"
-            )
+            assert getattr(m2, name) == expected, f"clone() dropped {name}: expected {expected}, got " f"{getattr(m2, name)}"
 
     def test_pickle_roundtrip_preserves_chosen_triples(self):
+        """A pickle round-trip preserves feature names, appended columns, and every chosen-triple recipe field."""
         X, y = _build_heavy_tail(seed=42, n=2500)
         m = _make_mrmr(
             fe_hybrid_orth_conditional_routing_enable=True,
@@ -431,35 +418,22 @@ class TestPickleAndClone:
             fe_hybrid_orth_conditional_routing_top_k=5,
         ).fit(X, y)
         blob = pickle.dumps(m)
-        m2 = pickle.loads(blob)
-        assert list(m2.feature_names_in_) == list(m.feature_names_in_), (
-            "pickle changed feature_names_in_"
-        )
+        m2 = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
+        assert list(m2.feature_names_in_) == list(m.feature_names_in_), "pickle changed feature_names_in_"
         added_before = list(getattr(m, "hybrid_orth_features_", []) or [])
         added_after = list(getattr(m2, "hybrid_orth_features_", []) or [])
-        assert added_before == added_after, (
-            f"pickle changed hybrid_orth_features_: before={added_before}, "
-            f"after={added_after}"
-        )
+        assert added_before == added_after, f"pickle changed hybrid_orth_features_: before={added_before}, " f"after={added_after}"
         # Recipes: per chosen (basis, degree, pre_transform) triple survives.
-        recipes_before = {
-            r.name: r for r in getattr(m, "_engineered_recipes_", []) or []
-            if r.kind == "orth_univariate"
-        }
-        recipes_after = {
-            r.name: r for r in getattr(m2, "_engineered_recipes_", []) or []
-            if r.kind == "orth_univariate"
-        }
+        recipes_before = {r.name: r for r in getattr(m, "_engineered_recipes_", []) or [] if r.kind == "orth_univariate"}
+        recipes_after = {r.name: r for r in getattr(m2, "_engineered_recipes_", []) or [] if r.kind == "orth_univariate"}
         assert set(recipes_before.keys()) == set(recipes_after.keys()), (
-            f"pickle dropped or added recipe names: before="
-            f"{set(recipes_before.keys())}, after={set(recipes_after.keys())}"
+            f"pickle dropped or added recipe names: before=" f"{set(recipes_before.keys())}, after={set(recipes_after.keys())}"
         )
         for name, r_before in recipes_before.items():
             r_after = recipes_after[name]
             for key in ("basis", "degree", "pre_transform"):
                 assert r_before.extra.get(key) == r_after.extra.get(key), (
-                    f"pickle changed '{key}' for recipe {name!r}: "
-                    f"before={r_before.extra}, after={r_after.extra}"
+                    f"pickle changed '{key}' for recipe {name!r}: " f"before={r_before.extra}, after={r_after.extra}"
                 )
 
 
@@ -469,6 +443,7 @@ class TestPickleAndClone:
 
 
 class TestRecipeReplay:
+    """apply_recipe at transform time must reproduce the fit-time engineered column for the chosen routing cell."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_recipe_replay_matches_fit_time_values(self, seed):
@@ -479,7 +454,7 @@ class TestRecipeReplay:
         """
         _, _, hybrid_with_recipes, _, _ = _import_routing_fe()
         X, y = _build_heavy_tail(seed)
-        X_aug, scores, recipes = hybrid_with_recipes(
+        X_aug, _scores, recipes = hybrid_with_recipes(
             X, y.values,
             cols=list(X.columns),
             degrees=(2, 3),
@@ -489,9 +464,7 @@ class TestRecipeReplay:
         # On every seed in SEEDS the heavy-tail fixture deterministically routes x to
         # the log|x|+Hermite cell, so routing MUST emit at least one recipe; a regression
         # that silently drops the routed column now fails here instead of skipping.
-        assert recipes, (
-            f"seed={seed}: routing emitted no recipe on the heavy-tail fixture"
-        )
+        assert recipes, f"seed={seed}: routing emitted no recipe on the heavy-tail fixture"
         # Re-extract appended columns from X_aug.
         appended = [c for c in X_aug.columns if c not in X.columns]
         # For each recipe, replay against the SAME X and compare row-by-row
@@ -500,10 +473,7 @@ class TestRecipeReplay:
             apply_recipe,
         )
         for r in recipes:
-            assert r.name in appended, (
-                f"seed={seed}: recipe {r.name!r} not in appended columns "
-                f"{appended}"
-            )
+            assert r.name in appended, f"seed={seed}: recipe {r.name!r} not in appended columns " f"{appended}"
             replayed = apply_recipe(r, X)
             fit_time = X_aug[r.name].to_numpy()
             assert np.allclose(replayed, fit_time, rtol=1e-9, atol=1e-12), (
@@ -526,6 +496,7 @@ class TestRoutingCriterionCorrDefault:
     """
 
     def test_default_routing_criterion_is_corr(self):
+        """The conditional-routing argmax defaults to routing_criterion='corr' (linear usability)."""
         import inspect
         gen = _import_routing_fe()[0]
         assert (
@@ -554,14 +525,9 @@ class TestRoutingCriterionCorrDefault:
             )
             # Both corr and mi criteria deterministically route x to the log|x|+Hermite
             # cell on this fixture, so each MUST emit a recipe for the held-out comparison.
-            assert recipes, (
-                f"criterion {crit!r} emitted no recipe on the heavy-tail fixture"
-            )
+            assert recipes, f"criterion {crit!r} emitted no recipe on the heavy-tail fixture"
             v = np.asarray(apply_recipe(recipes[0], Xte), dtype=float)
-            held[crit] = (
-                abs(float(np.corrcoef(v, yte)[0, 1]))
-                if float(np.std(v)) > 1e-12 else 0.0
-            )
+            held[crit] = abs(float(np.corrcoef(v, yte)[0, 1])) if float(np.std(v)) > 1e-12 else 0.0
         assert held["corr"] >= held["mi"] - 1e-6, (
             f"corr-routing must generalise at least as well as MI-routing on the "
             f"y=f(log|x|) heavy-tail regime: held-out |corr| "
