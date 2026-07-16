@@ -41,6 +41,8 @@ from ._orth_extra_basis_fe import (
     _fit_fourier_for_col,
     _fit_spline_for_col,
     _heldout_smooth_r2,
+    _heldout_smooth_r2_fast,
+    _heldout_smooth_r2_prep,
     _is_int_as_cat_axis,
 )
 
@@ -175,10 +177,17 @@ def generate_extra_basis_features(
     # The y array is coerced to float once here (Pearson on y is all the
     # phase-invariant periodogram needs); detection is gated per-column below.
     _y_adapt = None
+    _y_adapt_prep = None
     if (fourier_adaptive or fourier_chirp) and y is not None:
         _y_adapt = np.asarray(y, dtype=np.float64).ravel()
         if _y_adapt.size != len(X) or not np.all(np.isfinite(_y_adapt)):
             _y_adapt = None
+        else:
+            # Hoist the y-only (x-independent) pieces of the per-column auto-gate ONCE for this fixed
+            # _y_adapt (cProfile-driven, 2026-07-16: _heldout_smooth_r2 cost 4.6s/50 calls -- same train/val
+            # split + val-side sums recomputed every column despite depending only on y). None on degenerate
+            # y -> the loop below falls back to the exact original per-column function unchanged.
+            _y_adapt_prep = _heldout_smooth_r2_prep(_y_adapt)
     # Coarse z-space frequency sweep grid for the adaptive detector. Covers a
     # wide period range (0.5 .. 8.0) at 0.5 stride; local refinement then
     # snaps to the true non-integer frequency. The set of frequencies the
@@ -217,7 +226,12 @@ def generate_extra_basis_features(
         # Auto-gate: only let the adaptive Fourier/chirp operators fire where the raw column is NOT already a strong smooth predictor of y (see _ADAPTIVE_FE_RAW_USABILITY_CAP).
         _adaptive_fe_ok = True
         if _y_adapt is not None and (fourier_adaptive or fourier_chirp):
-            _adaptive_fe_ok = _heldout_smooth_r2(x, _y_adapt) < _ADAPTIVE_FE_RAW_USABILITY_CAP
+            _r2 = (
+                _heldout_smooth_r2_fast(x, _y_adapt_prep)
+                if _y_adapt_prep is not None
+                else _heldout_smooth_r2(x, _y_adapt)
+            )
+            _adaptive_fe_ok = _r2 < _ADAPTIVE_FE_RAW_USABILITY_CAP
             # Column-count cap on the expensive detector itself (2026-07-09 fix, see max_adaptive_cols
             # docstring) -- columns beyond the cap still get the cheap fixed-grid Fourier basis below,
             # only the held-out frequency-sweep detection is skipped for them.

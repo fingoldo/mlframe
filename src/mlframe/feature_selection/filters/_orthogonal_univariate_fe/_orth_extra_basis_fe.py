@@ -751,7 +751,13 @@ def _heldout_smooth_r2(x: np.ndarray, y: np.ndarray) -> float:
     if int(tr.sum()) < 16 or int(va.sum()) < 8:
         return 0.0
     # Rank-normalise x to [-1, 1] so heavy tails (Cauchy / lognormal outliers) cannot dominate the least-squares fit and understate the raw column's usability. Ranks are a monotone reparametrisation, so a genuine oscillation stays non-cubic (gate keeps letting Fourier fire) while a monotone heavy-tailed signal reads as smooth (gate blocks Fourier on it).
-    ranks = np.argsort(np.argsort(x, kind="stable"), kind="stable").astype(np.float64)
+    # single argsort + scatter (2026-07-16, cProfile-driven: this rank computation was the dominant cost of
+    # the whole function, 34ms/call @ n=99401) instead of a double argsort -- same ranks (verified bit-
+    # identical), ~1.7x faster (32.5ms -> 19.0ms @ n=99401): argsort once for the sort order, then scatter
+    # 0..n-1 into that order's positions, instead of sorting the sort-order array a second time.
+    _order = np.argsort(x, kind="stable")
+    ranks = np.empty(x.size, dtype=np.float64)
+    ranks[_order] = np.arange(x.size, dtype=np.float64)
     zx = (ranks / max(n - 1, 1)) * 2.0 - 1.0
     try:
         _Vtr = np.vander(zx[tr], 4)
@@ -767,6 +773,62 @@ def _heldout_smooth_r2(x: np.ndarray, y: np.ndarray) -> float:
     sst = float(np.sum((yv - yv.mean()) ** 2))
     if sst < 1e-24:
         return 0.0
+    return 1.0 - sse / sst
+
+
+def _heldout_smooth_r2_prep(y: np.ndarray) -> Optional[tuple]:
+    """Precompute the Y-ONLY, x-INDEPENDENT pieces of :func:`_heldout_smooth_r2`'s held-out cubic-fit gate --
+    the train/val split mask, ``y[va]``/``y[tr]``, and the val-side total sum-of-squares ``sst`` -- ONCE for
+    a fixed ``y``, instead of every one of the (per-column) calls redoing them (cProfile, 2026-07-16
+    wellbore-100k fit: 4.6s / 50 calls in ``generate_extra_basis_features``'s adaptive-fire auto-gate loop,
+    same ``y`` every call). The split itself is even seeded identically every call (``np.random.default_rng(0)``)
+    so it was PROVABLY the same mask each time, not just coincidentally reproducible. Returns ``None`` on
+    degenerate ``y`` (caller then uses the exact original per-column function, which returns 0.0 the same
+    way). Use with :func:`_heldout_smooth_r2_fast`."""
+    y = np.asarray(y, dtype=np.float64).ravel()
+    n = y.size
+    if n < 32 or not np.all(np.isfinite(y)) or float(np.std(y)) < 1e-12:
+        return None
+    va = np.zeros(n, dtype=bool)
+    va[np.random.default_rng(0).permutation(n)[: n // 3]] = True
+    tr = ~va
+    if int(tr.sum()) < 16 or int(va.sum()) < 8:
+        return None
+    yv = y[va]
+    sst = float(np.sum((yv - yv.mean()) ** 2))
+    if sst < 1e-24:
+        return None
+    return va, tr, y[tr], yv, sst
+
+
+def _heldout_smooth_r2_fast(x: np.ndarray, prep: tuple) -> float:
+    """Fast twin of :func:`_heldout_smooth_r2` given a precomputed ``prep`` from
+    :func:`_heldout_smooth_r2_prep` (the SAME fixed ``y`` across many columns' ``x``) -- only the
+    x-dependent rank-normalise + cubic Vandermonde fit/predict re-runs per call. Bit-identical to the
+    original (verified: same split mask, same y-side sums, same formula, just hoisted out of the loop)."""
+    va, tr, y_tr, yv, sst = prep
+    x = np.asarray(x, dtype=np.float64).ravel()
+    if x.size != va.size or not np.all(np.isfinite(x)) or float(np.std(x)) < 1e-12:
+        return 0.0
+    # single argsort + scatter (2026-07-16, cProfile-driven: this rank computation was the dominant cost of
+    # the whole function, 34ms/call @ n=99401) instead of a double argsort -- same ranks (verified bit-
+    # identical), ~1.7x faster (32.5ms -> 19.0ms @ n=99401): argsort once for the sort order, then scatter
+    # 0..n-1 into that order's positions, instead of sorting the sort-order array a second time.
+    _order = np.argsort(x, kind="stable")
+    ranks = np.empty(x.size, dtype=np.float64)
+    ranks[_order] = np.arange(x.size, dtype=np.float64)
+    n = x.size
+    zx = (ranks / max(n - 1, 1)) * 2.0 - 1.0
+    try:
+        _Vtr = np.vander(zx[tr], 4)
+        try:
+            coef = np.linalg.solve(_Vtr.T @ _Vtr, _Vtr.T @ y_tr)
+        except np.linalg.LinAlgError:
+            coef, *_ = np.linalg.lstsq(_Vtr, y_tr, rcond=None)
+    except Exception:
+        return 0.0
+    pred = np.vander(zx[va], 4) @ coef
+    sse = float(np.sum((yv - pred) ** 2))
     return 1.0 - sse / sst
 
 
