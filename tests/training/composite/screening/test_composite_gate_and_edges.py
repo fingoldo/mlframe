@@ -38,7 +38,6 @@ pytestmark = pytest.mark.sklearn_matrix
 from mlframe.training.composite import CompositeTargetDiscovery
 from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
-
 # ----------------------------------------------------------------------
 # Synthetic fixtures targeted at specific failure modes
 # ----------------------------------------------------------------------
@@ -68,8 +67,7 @@ def _spatial_trend_y_uninformative_base(n: int = 1500, seed: int = 0):
     })
 
 
-def _slow_ar1_dominant_lag(n: int = 1500, seed: int = 0,
-                           autocorr: float = 0.999):
+def _slow_ar1_dominant_lag(n: int = 1500, seed: int = 0, autocorr: float = 0.999):
     """AR(1) with very high autocorrelation. lag-1 (``y_prev``) carries
     almost all the structure; corr(y_prev, y) ~ autocorr. Pre-hotfix
     the default 0.999 threshold dropped y_prev as "leakage"; new
@@ -116,17 +114,14 @@ class TestRawYBaselineGate:
             raw_baseline_tolerance=1.0,  # strict
         )
         disc = CompositeTargetDiscovery(cfg)
-        disc.fit(df, target_col="y",
-                 feature_cols=["X", "Y", "Z", "f1", "f2"],
-                 train_idx=np.arange(1200))
+        disc.fit(df, target_col="y", feature_cols=["X", "Y", "Z", "f1", "f2"], train_idx=np.arange(1200))
         # Either all composites rejected -> empty specs, or some kept
         # but each kept one's tiny RMSE < raw_y_baseline_rmse_ * 1.0.
         if disc.specs_:
             for s in disc.specs_:
                 composite_rmse = disc.tiny_rerank_scores_[s.name]
                 assert composite_rmse < disc.raw_y_baseline_rmse_, (
-                    f"Gate failed: {s.name} kept with RMSE "
-                    f"{composite_rmse:.4f} >= raw {disc.raw_y_baseline_rmse_:.4f}"
+                    f"Gate failed: {s.name} kept with RMSE " f"{composite_rmse:.4f} >= raw {disc.raw_y_baseline_rmse_:.4f}"
                 )
 
     def test_dominant_lag_passes_gate(self) -> None:
@@ -148,19 +143,14 @@ class TestRawYBaselineGate:
             require_beats_raw_baseline=True,
         )
         disc = CompositeTargetDiscovery(cfg)
-        disc.fit(df, target_col="y",
-                 feature_cols=["y_prev", "f1", "f2"],
-                 train_idx=np.arange(1200))
+        disc.fit(df, target_col="y", feature_cols=["y_prev", "f1", "f2"], train_idx=np.arange(1200))
         assert len(disc.specs_) >= 1
         # At least one survivor has tiny RMSE strictly < raw baseline.
-        assert any(
-            disc.tiny_rerank_scores_[s.name] < disc.raw_y_baseline_rmse_
-            for s in disc.specs_
-        )
+        assert any(disc.tiny_rerank_scores_[s.name] < disc.raw_y_baseline_rmse_ for s in disc.specs_)
 
     def test_gate_disabled_keeps_mi_survivors(self) -> None:
-        """When ``require_beats_raw_baseline=False``, gate is skipped
-        and tiny rerank just sorts by RMSE, keeping top-M."""
+        """When ``require_beats_raw_baseline=False``, the tiny-rerank raw-baseline
+        gate is skipped and tiny rerank just sorts by RMSE, keeping top-M."""
         df = _spatial_trend_y_uninformative_base()
         cfg = CompositeTargetDiscoveryConfig(
             enabled=True, screening="hybrid",
@@ -170,11 +160,15 @@ class TestRawYBaselineGate:
             transforms=["diff"],
             eps_mi_gain=-1.0,
             require_beats_raw_baseline=False,
+            # require_beats_raw_baseline only controls the tiny-rerank gate this
+            # test targets; the honest_rmse_gate is a separate, independently-
+            # flagged OOS predictive check (see _honest_rmse_gate.py's docstring)
+            # that runs regardless -- disabling it here keeps this test scoped to
+            # the one mechanism it verifies.
+            honest_rmse_gate_enabled=False,
         )
         disc = CompositeTargetDiscovery(cfg)
-        disc.fit(df, target_col="y",
-                 feature_cols=["X", "Y", "f1", "f2"],
-                 train_idx=np.arange(1200))
+        disc.fit(df, target_col="y", feature_cols=["X", "Y", "f1", "f2"], train_idx=np.arange(1200))
         # Gate didn't run -> baseline NaN.
         import math
         assert math.isnan(disc.raw_y_baseline_rmse_)
@@ -194,9 +188,7 @@ class TestRawYBaselineGate:
             require_beats_raw_baseline=True,  # ignored under "mi"
         )
         disc = CompositeTargetDiscovery(cfg)
-        disc.fit(df, target_col="y",
-                 feature_cols=["y_prev", "f1", "f2"],
-                 train_idx=np.arange(1200))
+        disc.fit(df, target_col="y", feature_cols=["y_prev", "f1", "f2"], train_idx=np.arange(1200))
         # No tiny rerank -> empty score map, NaN baseline.
         import math
         assert disc.tiny_rerank_scores_ == {}
@@ -217,9 +209,7 @@ class TestRawYBaselineGate:
             raw_baseline_tolerance=1000.0,  # admits everything finite
         )
         disc = CompositeTargetDiscovery(cfg)
-        disc.fit(df, target_col="y",
-                 feature_cols=["X", "f1", "f2"],
-                 train_idx=np.arange(1200))
+        disc.fit(df, target_col="y", feature_cols=["X", "f1", "f2"], train_idx=np.arange(1200))
         # With absurd tolerance, surviving spec's RMSE may exceed raw
         # but stays < raw * 1000.
         if disc.specs_:
@@ -244,24 +234,18 @@ class TestRawYBaselineGate:
         )
         disc = CompositeTargetDiscovery(cfg)
         with caplog.at_level(logging.WARNING):
-            disc.fit(df, target_col="y",
-                     feature_cols=["X", "Y", "Z", "f1", "f2"],
-                     train_idx=np.arange(1200))
+            disc.fit(df, target_col="y", feature_cols=["X", "Y", "Z", "f1", "f2"], train_idx=np.arange(1200))
         # All rejected by gate.
         assert disc.specs_ == []
         # And the WARNING was logged with the gate-rejection signal.
-        warnings = [r for r in caplog.records
-                    if r.levelno == logging.WARNING
-                    and "raw-y baseline gate" in r.getMessage()]
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING and "raw-y baseline gate" in r.getMessage()]
         # Either the gate-rejection warning OR the fail_on_no_gain
         # warning must surface. Don't pin the exact wording -- just
         # that the user gets actionable signal.
-        assert warnings or any(
-            "no candidate cleared" in r.getMessage()
-            for r in caplog.records if r.levelno == logging.WARNING
-        )
+        assert warnings or any("no candidate cleared" in r.getMessage() for r in caplog.records if r.levelno == logging.WARNING)
 
     def test_tiny_rerank_scores_keyed_by_spec_name(self) -> None:
+        """tiny_rerank_scores_ is a per-spec-name dict, safe to read and mutate without poisoning discovery state."""
         df = _slow_ar1_dominant_lag()
         cfg = CompositeTargetDiscoveryConfig(
             enabled=True, screening="hybrid",
@@ -273,14 +257,11 @@ class TestRawYBaselineGate:
             require_beats_raw_baseline=True,
         )
         disc = CompositeTargetDiscovery(cfg)
-        disc.fit(df, target_col="y",
-                 feature_cols=["y_prev", "f1", "f2"],
-                 train_idx=np.arange(1200))
+        disc.fit(df, target_col="y", feature_cols=["y_prev", "f1", "f2"], train_idx=np.arange(1200))
         scores = disc.tiny_rerank_scores_
         assert isinstance(scores, dict)
         for s in disc.specs_:
-            assert s.name in scores, (
-                f"missing tiny RMSE for kept spec {s.name}")
+            assert s.name in scores, f"missing tiny RMSE for kept spec {s.name}"
             assert np.isfinite(scores[s.name])
         # Returned object is a copy, mutations don't poison state.
         scores["__corruption__"] = 99.0
@@ -293,6 +274,8 @@ class TestRawYBaselineGate:
 
 
 class TestCorrThresholdEdges:
+    """The corr-based dedup/redundancy filter compares abs(corr), not signed corr, so a legitimate strongly-NEGATIVE predictor is not mistakenly dropped."""
+
     def test_negative_corr_legitimate_lag_is_kept(self) -> None:
         """An AR(1) with negative coefficient (corr ~ -0.999) is also a
         legitimate strong predictor. ``abs(corr)`` is what gets compared,
@@ -312,11 +295,15 @@ class TestCorrThresholdEdges:
             enabled=True, screening="mi",  # bypass tiny-model cost
             mi_sample_n=600, eps_mi_gain=-1.0,
             base_candidates=["y_prev"], transforms=["diff"],
+            # This test isolates the corr-threshold filter (section B's subject);
+            # the honest_rmse_gate is a separate, independently-flagged OOS
+            # predictive check added later specifically to plug screening="mi"'s
+            # prior lack of any such gate (see _honest_rmse_gate.py's docstring)
+            # -- disabling it here keeps this test scoped to what it verifies.
+            honest_rmse_gate_enabled=False,
         )
         disc = CompositeTargetDiscovery(cfg)
-        disc.fit(df, target_col="y",
-                 feature_cols=["y_prev", "f1"],
-                 train_idx=np.arange(1500))
+        disc.fit(df, target_col="y", feature_cols=["y_prev", "f1"], train_idx=np.arange(1500))
         bases = {s.base_column for s in disc.specs_}
         assert "y_prev" in bases
 
@@ -340,14 +327,10 @@ class TestCorrThresholdEdges:
             base_candidates=["x_near_y"], transforms=["diff"],
         )
         disc = CompositeTargetDiscovery(cfg)
-        disc.fit(df, target_col="y",
-                 feature_cols=["x_near_y", "f1"],
-                 train_idx=np.arange(1200))
+        disc.fit(df, target_col="y", feature_cols=["x_near_y", "f1"], train_idx=np.arange(1200))
         # x_near_y dropped by corr threshold.
         drops = disc.filter_drops()
-        assert any(d["name"] == "x_near_y"
-                   and d["reason"] == "forbidden_base_corr_threshold"
-                   for d in drops)
+        assert any(d["name"] == "x_near_y" and d["reason"] == "forbidden_base_corr_threshold" for d in drops)
         # And specs_ has nothing using x_near_y.
         assert all(s.base_column != "x_near_y" for s in disc.specs_)
 
@@ -361,12 +344,9 @@ class TestCorrThresholdEdges:
             transforms=["diff"],
         )
         disc = CompositeTargetDiscovery(cfg)
-        disc.fit(df, target_col="y",
-                 feature_cols=["y_copy", "y_prev", "f1", "f2"],
-                 train_idx=np.arange(1200))
+        disc.fit(df, target_col="y", feature_cols=["y_copy", "y_prev", "f1", "f2"], train_idx=np.arange(1200))
         # y_copy MUST be in filter_drops with corr-reason.
-        corr_drops = [d for d in disc.filter_drops()
-                      if d["reason"] == "forbidden_base_corr_threshold"]
+        corr_drops = [d for d in disc.filter_drops() if d["reason"] == "forbidden_base_corr_threshold"]
         assert any(d["name"] == "y_copy" for d in corr_drops)
 
     def test_filter_drops_records_insufficient_finite_rows(self) -> None:
@@ -381,11 +361,8 @@ class TestCorrThresholdEdges:
             transforms=["diff"],
         )
         disc = CompositeTargetDiscovery(cfg)
-        disc.fit(df, target_col="y",
-                 feature_cols=["mostly_nan", "y_prev", "f1", "f2"],
-                 train_idx=np.arange(1200))
-        drops = [d for d in disc.filter_drops()
-                 if d["name"] == "mostly_nan"]
+        disc.fit(df, target_col="y", feature_cols=["mostly_nan", "y_prev", "f1", "f2"], train_idx=np.arange(1200))
+        drops = [d for d in disc.filter_drops() if d["name"] == "mostly_nan"]
         assert len(drops) == 1
         assert drops[0]["reason"] == "insufficient_finite_rows"
         assert drops[0]["n_finite"] <= 5
@@ -397,6 +374,8 @@ class TestCorrThresholdEdges:
 
 
 class TestAutoBaseEdges:
+    """Edge cases in the auto-base-candidate selection path."""
+
     def test_seed_determinism(self) -> None:
         """Same seed -> same auto-base picks. Without this we can't
         reproduce production runs."""
@@ -406,17 +385,13 @@ class TestAutoBaseEdges:
             top_k_after_mi=4, eps_mi_gain=-1.0, auto_base_top_k=2,
             random_state=42,
         )
-        d1 = CompositeTargetDiscovery(
-            CompositeTargetDiscoveryConfig(**common)
-        ).fit(df, target_col="y",
-              feature_cols=["y_prev", "f1", "f2"],
-              train_idx=np.arange(1200))
-        d2 = CompositeTargetDiscovery(
-            CompositeTargetDiscoveryConfig(**common)
-        ).fit(df, target_col="y",
-              feature_cols=["y_prev", "f1", "f2"],
-              train_idx=np.arange(1200))
-        assert ([s.name for s in d1.specs_] == [s.name for s in d2.specs_])
+        d1 = CompositeTargetDiscovery(CompositeTargetDiscoveryConfig(**common)).fit(
+            df, target_col="y", feature_cols=["y_prev", "f1", "f2"], train_idx=np.arange(1200)
+        )
+        d2 = CompositeTargetDiscovery(CompositeTargetDiscoveryConfig(**common)).fit(
+            df, target_col="y", feature_cols=["y_prev", "f1", "f2"], train_idx=np.arange(1200)
+        )
+        assert [s.name for s in d1.specs_] == [s.name for s in d2.specs_]
 
     def test_all_features_filtered_returns_empty(self) -> None:
         """Every feature gets dropped (forbidden + non-numeric) ->
@@ -434,15 +409,11 @@ class TestAutoBaseEdges:
             enabled=True, screening="mi", mi_sample_n=600,
         )
         disc = CompositeTargetDiscovery(cfg)
-        disc.fit(df, target_col="y",
-                 feature_cols=["target_enc_a", "y_smooth_b", "obj_c"],
-                 train_idx=np.arange(1200))
+        disc.fit(df, target_col="y", feature_cols=["target_enc_a", "y_smooth_b", "obj_c"], train_idx=np.arange(1200))
         assert disc.specs_ == []
         # And the drops are accountable.
         reasons = {d["reason"] for d in disc.filter_drops()}
-        assert reasons.issuperset(
-            {"forbidden_pattern", "non_numeric"}
-        )
+        assert reasons.issuperset({"forbidden_pattern", "non_numeric"})
 
     def test_auto_base_top_k_larger_than_features(self) -> None:
         """``auto_base_top_k=10`` with only 3 usable features returns
@@ -454,9 +425,7 @@ class TestAutoBaseEdges:
             transforms=["diff"], eps_mi_gain=-10.0,
         )
         disc = CompositeTargetDiscovery(cfg)
-        disc.fit(df, target_col="y",
-                 feature_cols=["y_prev", "f1", "f2"],
-                 train_idx=np.arange(1200))
+        disc.fit(df, target_col="y", feature_cols=["y_prev", "f1", "f2"], train_idx=np.arange(1200))
         bases = {s.base_column for s in disc.specs_}
         assert bases.issubset({"y_prev", "f1", "f2"})
 
@@ -467,6 +436,8 @@ class TestAutoBaseEdges:
 
 
 class TestDataQualityEdges:
+    """Discovery tolerates imperfect real-world data (NaNs, etc.) without crashing."""
+
     def test_y_with_partial_nans_handled(self) -> None:
         """A few NaN rows in y on TRAIN don't crash discovery."""
         df = _slow_ar1_dominant_lag()
@@ -477,9 +448,7 @@ class TestDataQualityEdges:
             eps_mi_gain=-1.0,
         )
         disc = CompositeTargetDiscovery(cfg)
-        disc.fit(df, target_col="y",
-                 feature_cols=["y_prev", "f1", "f2"],
-                 train_idx=np.arange(1200))
+        disc.fit(df, target_col="y", feature_cols=["y_prev", "f1", "f2"], train_idx=np.arange(1200))
         # Discovery either kept y_prev or fell back gracefully -- it
         # MUST NOT crash.
         assert isinstance(disc.specs_, list)
@@ -497,11 +466,8 @@ class TestDataQualityEdges:
             eps_mi_gain=-1.0,
         )
         disc = CompositeTargetDiscovery(cfg)
-        disc.fit(df, target_col="y",
-                 feature_cols=["y_prev", "f1", "f2"],
-                 train_idx=np.arange(1200))
-        drops = [d for d in disc.filter_drops()
-                 if d["name"] == "y_prev"]
+        disc.fit(df, target_col="y", feature_cols=["y_prev", "f1", "f2"], train_idx=np.arange(1200))
+        drops = [d for d in disc.filter_drops() if d["name"] == "y_prev"]
         # y_prev should NOT have been dropped for insufficient finite rows.
         assert all(d["reason"] != "insufficient_finite_rows" for d in drops)
 
@@ -521,9 +487,7 @@ class TestDataQualityEdges:
             eps_mi_gain=-10.0,
         )
         disc = CompositeTargetDiscovery(cfg)
-        disc.fit(df, target_col="y",
-                 feature_cols=["f1", "f2"],
-                 train_idx=np.arange(1200))
+        disc.fit(df, target_col="y", feature_cols=["f1", "f2"], train_idx=np.arange(1200))
         # Just verify no crash; correctness on Cauchy is undefined.
         assert isinstance(disc.specs_, list)
 
@@ -534,13 +498,14 @@ class TestDataQualityEdges:
 
 
 class TestIntegrationEdges:
+    """End-to-end / config-validation edge cases spanning multiple discovery stages."""
+
     def test_default_screening_is_hybrid(self) -> None:
         """Default flipped from 'mi' to 'hybrid' in 2026-05-10. If a
         downstream consumer relies on 'mi' default, this breaks them
         loudly rather than silently."""
         cfg = CompositeTargetDiscoveryConfig()
-        assert cfg.screening == "hybrid", (
-            "Default screening changed -- update consumers")
+        assert cfg.screening == "hybrid", "Default screening changed -- update consumers"
 
     def test_default_corr_threshold_is_99999(self) -> None:
         """Default raised from 0.999 to 0.99999."""
@@ -560,9 +525,7 @@ class TestIntegrationEdges:
             eps_mi_gain=-1.0, require_beats_raw_baseline=True,
         )
         disc = CompositeTargetDiscovery(cfg)
-        disc.fit(df_pl, target_col="y",
-                 feature_cols=["y_prev", "f1", "f2"],
-                 train_idx=np.arange(1200))
+        disc.fit(df_pl, target_col="y", feature_cols=["y_prev", "f1", "f2"], train_idx=np.arange(1200))
         # Either kept (most likely on dominant lag) or empty;
         # never raises.
         assert isinstance(disc.specs_, list)
@@ -583,9 +546,7 @@ class TestIntegrationEdges:
         f1 = rng.normal(size=n)
         # Strong linear contribution -> diff(y, f1) cleans up nicely.
         spatial = rng.uniform(-2, 2, size=n)
-        y = (1.0 * f1
-             + np.sin(spatial * 5) * 3.0  # high MI but no clean residual
-             + rng.normal(scale=0.1, size=n))
+        y = 1.0 * f1 + np.sin(spatial * 5) * 3.0 + rng.normal(scale=0.1, size=n)  # high MI but no clean residual
         df = pd.DataFrame({"f1": f1, "spatial": spatial, "y": y})
         # No hint -> auto-base picks by MI; spatial likely top.
         cfg_nohint = CompositeTargetDiscoveryConfig(
@@ -595,9 +556,7 @@ class TestIntegrationEdges:
             transforms=["diff"],
         )
         d_nohint = CompositeTargetDiscovery(cfg_nohint)
-        d_nohint.fit(df, target_col="y",
-                     feature_cols=["f1", "spatial"],
-                     train_idx=np.arange(1200))
+        d_nohint.fit(df, target_col="y", feature_cols=["f1", "spatial"], train_idx=np.arange(1200))
         # With hint pointing at f1 -> f1 promoted regardless of MI.
         cfg_hint = CompositeTargetDiscoveryConfig(
             enabled=True, screening="mi",
@@ -607,12 +566,9 @@ class TestIntegrationEdges:
             transforms=["diff"],
         )
         d_hint = CompositeTargetDiscovery(cfg_hint)
-        d_hint.fit(df, target_col="y",
-                   feature_cols=["f1", "spatial"],
-                   train_idx=np.arange(1200))
+        d_hint.fit(df, target_col="y", feature_cols=["f1", "spatial"], train_idx=np.arange(1200))
         bases_hint = {s.base_column for s in d_hint.specs_}
-        assert "f1" in bases_hint, (
-            f"Hint did not promote f1; specs={[s.name for s in d_hint.specs_]}")
+        assert "f1" in bases_hint, f"Hint did not promote f1; specs={[s.name for s in d_hint.specs_]}"
 
     def test_dominant_features_hint_combines_with_mi_for_remaining_slots(self) -> None:
         """Hint covers slot 1; MI fills slot 2-3 from remaining features.
@@ -635,15 +591,12 @@ class TestIntegrationEdges:
             top_k_after_mi=8,
         )
         disc = CompositeTargetDiscovery(cfg)
-        disc.fit(df, target_col="y",
-                 feature_cols=["y_prev", "f1", "f2"],
-                 train_idx=np.arange(1200))
+        disc.fit(df, target_col="y", feature_cols=["y_prev", "f1", "f2"], train_idx=np.arange(1200))
         # Every base in {y_prev, f1, f2} should appear as either a
         # kept spec or a candidate in the report. f1 (the hint)
         # MUST appear as a base.
         report_bases = {r["base_column"] for r in disc.report()}
-        assert "f1" in report_bases, (
-            f"hint feature f1 not evaluated as base; report={disc.report()}")
+        assert "f1" in report_bases, f"hint feature f1 not evaluated as base; report={disc.report()}"
         # And the remaining two slots filled by MI ranking pick
         # from {y_prev, f2}.
         assert report_bases.issubset({"y_prev", "f1", "f2"})
@@ -662,9 +615,7 @@ class TestIntegrationEdges:
             transforms=["diff"],
         )
         disc = CompositeTargetDiscovery(cfg)
-        disc.fit(df, target_col="y",
-                 feature_cols=["y_prev", "f1", "f2", "target_enc_bad"],
-                 train_idx=np.arange(1200))
+        disc.fit(df, target_col="y", feature_cols=["y_prev", "f1", "f2", "target_enc_bad"], train_idx=np.arange(1200))
         # target_enc_bad dropped by forbidden_pattern filter; y_prev
         # survives. Discovery should still produce specs based on
         # y_prev (the surviving hint) + MI fill.
@@ -697,19 +648,14 @@ class TestIntegrationEdges:
             transforms=["diff"],
         )
         disc = CompositeTargetDiscovery(cfg)
-        disc.fit(df, target_col="y",
-                 feature_cols=["y_prev", "f1", "f2"],
-                 train_idx=np.arange(1200))
+        disc.fit(df, target_col="y", feature_cols=["y_prev", "f1", "f2"], train_idx=np.arange(1200))
         bases = {s.base_column for s in disc.specs_}
         # y_prev (the AR1 dominant) MUST still be a base — it's both the
         # first hint entry AND the highest-MI feature. The second base
         # is MI-filled (could be f1 or f2, both random noise → low MI;
         # any of them is fine — the assertion is "hint + MI hybrid
         # produced specs", not "specific second base").
-        assert "y_prev" in bases, (
-            f"y_prev (AR1 dominant) missing from bases {bases}; "
-            "hint-cap fix may have over-suppressed hint contribution"
-        )
+        assert "y_prev" in bases, f"y_prev (AR1 dominant) missing from bases {bases}; " "hint-cap fix may have over-suppressed hint contribution"
 
     def test_hint_cap_preserves_mi_fallback_when_hint_dominant_is_autoregressive(self) -> None:
         """End-to-end regression test for the production bug:
@@ -750,18 +696,13 @@ class TestIntegrationEdges:
             transforms=["diff"],
         )
         disc = CompositeTargetDiscovery(cfg)
-        disc.fit(df, target_col="y",
-                 feature_cols=["y_prev", "f_signal", "f_noise"],
-                 train_idx=np.arange(1200))
+        disc.fit(df, target_col="y", feature_cols=["y_prev", "f_signal", "f_noise"], train_idx=np.arange(1200))
         bases = {s.base_column for s in disc.specs_}
         # With hint cap = max(1, 2 // 2) = 1, hint contributes y_prev
         # only. The second slot is MI-ranked → f_signal (best non-hint
         # MI) should appear, NOT just f_noise (which the old "hint
         # covers top_k" early-return would have forced).
-        assert "y_prev" in bases or "f_signal" in bases, (
-            f"neither hint feature nor MI-leader reached bases {bases}; "
-            "cap-fix didn't restore MI fallback path"
-        )
+        assert "y_prev" in bases or "f_signal" in bases, f"neither hint feature nor MI-leader reached bases {bases}; " "cap-fix didn't restore MI fallback path"
 
     def test_dominant_features_hint_default_none(self) -> None:
         """Default config has no hint -> behaves like before."""
@@ -801,9 +742,7 @@ class TestIntegrationEdges:
             top_k_after_mi=8,
         )
         disc = CompositeTargetDiscovery(cfg)
-        disc.fit(df, target_col="y",
-                 feature_cols=["base", "x1", "x2"],
-                 train_idx=np.arange(1200))
+        disc.fit(df, target_col="y", feature_cols=["base", "x1", "x2"], train_idx=np.arange(1200))
         # All 4 transforms produced specs (eps wide open). Rank by
         # mi_gain descending; diff or linear_residual must lead because
         # they both eliminate base linearly (linear_residual fits an
@@ -817,17 +756,12 @@ class TestIntegrationEdges:
         # diff or linear_residual must win over ratio / logratio for
         # pure-additive data.
         assert top_transform in ("diff", "linear_residual"), (
-            f"expected diff/linear_residual to win on additive data, "
-            f"got {top_transform}; rank={[(r['transform_name'], r['mi_gain']) for r in rep]}"
+            f"expected diff/linear_residual to win on additive data, " f"got {top_transform}; rank={[(r['transform_name'], r['mi_gain']) for r in rep]}"
         )
         # Specifically: diff must rank above ratio.
-        diff_gain = next((r["mi_gain"] for r in rep
-                          if r["transform_name"] == "diff"), float("-inf"))
-        ratio_gain = next((r["mi_gain"] for r in rep
-                           if r["transform_name"] == "ratio"), float("-inf"))
-        assert diff_gain > ratio_gain, (
-            f"diff mi_gain {diff_gain:.4f} should beat ratio {ratio_gain:.4f} "
-            f"on additive y=base+g(X)")
+        diff_gain = next((r["mi_gain"] for r in rep if r["transform_name"] == "diff"), float("-inf"))
+        ratio_gain = next((r["mi_gain"] for r in rep if r["transform_name"] == "ratio"), float("-inf"))
+        assert diff_gain > ratio_gain, f"diff mi_gain {diff_gain:.4f} should beat ratio {ratio_gain:.4f} " f"on additive y=base+g(X)"
 
     def test_logratio_wins_on_pure_multiplicative_signal(self) -> None:
         """y = base * exp(g(X)) -> ``T = log(y) - log(base) = g(X)``
@@ -841,8 +775,7 @@ class TestIntegrationEdges:
         x1 = rng.normal(size=n)
         x2 = rng.normal(size=n)
         # Multiplicative: y = base * exp(small clean function of X).
-        y = base * np.exp(0.5 * x1 + 0.3 * np.sin(x2 * 2)
-                          + rng.normal(scale=0.02, size=n))
+        y = base * np.exp(0.5 * x1 + 0.3 * np.sin(x2 * 2) + rng.normal(scale=0.02, size=n))
         df = pd.DataFrame({"base": base, "x1": x1, "x2": x2, "y": y})
         cfg = CompositeTargetDiscoveryConfig(
             enabled=True, screening="mi", mi_sample_n=800,
@@ -851,9 +784,7 @@ class TestIntegrationEdges:
             top_k_after_mi=8,
         )
         disc = CompositeTargetDiscovery(cfg)
-        disc.fit(df, target_col="y",
-                 feature_cols=["base", "x1", "x2"],
-                 train_idx=np.arange(1200))
+        disc.fit(df, target_col="y", feature_cols=["base", "x1", "x2"], train_idx=np.arange(1200))
         rep = sorted(
             [r for r in disc.report() if r.get("name", "").startswith("y-")],
             key=lambda r: -r.get("mi_gain", -np.inf),
@@ -862,19 +793,14 @@ class TestIntegrationEdges:
         # logratio or ratio (proportional scaling) must beat diff
         # on multiplicative DGP. The strict claim: logratio mi_gain
         # > diff mi_gain.
-        logratio_gain = next((r["mi_gain"] for r in rep
-                              if r["transform_name"] == "logratio"),
-                             float("-inf"))
-        diff_gain = next((r["mi_gain"] for r in rep
-                          if r["transform_name"] == "diff"), float("-inf"))
+        logratio_gain = next((r["mi_gain"] for r in rep if r["transform_name"] == "logratio"), float("-inf"))
+        diff_gain = next((r["mi_gain"] for r in rep if r["transform_name"] == "diff"), float("-inf"))
         assert logratio_gain > diff_gain, (
             f"logratio mi_gain {logratio_gain:.4f} should beat "
             f"diff {diff_gain:.4f} on multiplicative y=base*exp(g(X)); "
             f"full rank={[(r['transform_name'], r['mi_gain']) for r in rep]}")
         # And the top-ranked transform should be a multiplicative one.
-        assert rep[0]["transform_name"] in ("logratio", "ratio"), (
-            f"expected logratio/ratio top on multiplicative data; "
-            f"got {rep[0]['transform_name']}")
+        assert rep[0]["transform_name"] in ("logratio", "ratio"), f"expected logratio/ratio top on multiplicative data; " f"got {rep[0]['transform_name']}"
 
     def test_linear_residual_wins_over_diff_when_alpha_not_one(self) -> None:
         """y = alpha*base + g(X) + eps with alpha != 1.0 -- diff
@@ -898,18 +824,13 @@ class TestIntegrationEdges:
             top_k_after_mi=8,
         )
         disc = CompositeTargetDiscovery(cfg)
-        disc.fit(df, target_col="y",
-                 feature_cols=["base", "x1", "x2"],
-                 train_idx=np.arange(1200))
+        disc.fit(df, target_col="y", feature_cols=["base", "x1", "x2"], train_idx=np.arange(1200))
         rep = sorted(
             [r for r in disc.report() if r.get("name", "").startswith("y-")],
             key=lambda r: -r.get("mi_gain", -np.inf),
         )
-        lr_gain = next((r["mi_gain"] for r in rep
-                        if r["transform_name"] == "linear_residual"),
-                       float("-inf"))
-        diff_gain = next((r["mi_gain"] for r in rep
-                          if r["transform_name"] == "diff"), float("-inf"))
+        lr_gain = next((r["mi_gain"] for r in rep if r["transform_name"] == "linear_residual"), float("-inf"))
+        diff_gain = next((r["mi_gain"] for r in rep if r["transform_name"] == "diff"), float("-inf"))
         assert lr_gain >= diff_gain, (
             f"linear_residual mi_gain {lr_gain:.4f} should be >= "
             f"diff mi_gain {diff_gain:.4f} when alpha != 1; "
@@ -934,18 +855,15 @@ class TestIntegrationEdges:
             transforms=["diff", "linear_residual"],
         )
         disc = CompositeTargetDiscovery(cfg)
-        disc.fit(df, target_col="y",
-                 feature_cols=["base", "x1", "x2"],
-                 train_idx=np.arange(1200))
-        rep = {r["transform_name"]: r["mi_gain"] for r in disc.report()
-               if r.get("name", "").startswith("y-")}
+        disc.fit(df, target_col="y", feature_cols=["base", "x1", "x2"], train_idx=np.arange(1200))
+        rep = {r["transform_name"]: r["mi_gain"] for r in disc.report() if r.get("name", "").startswith("y-")}
         assert "diff" in rep and "linear_residual" in rep
         # alpha is fitted to ~1.0 so the two T sequences are nearly
         # identical; their mi_gain values should differ only by MI
         # estimation noise (< 0.05).
         assert abs(rep["diff"] - rep["linear_residual"]) < 0.10, (
-            f"diff={rep['diff']:.4f} vs linear_residual={rep['linear_residual']:.4f} "
-            "should be near-equal when alpha=1.0")
+            f"diff={rep['diff']:.4f} vs linear_residual={rep['linear_residual']:.4f} " "should be near-equal when alpha=1.0"
+        )
 
     # ----------------------------------------------------------------------
     # Multilabel regression (R3.18)
@@ -958,6 +876,7 @@ class TestIntegrationEdges:
         assert cfg.multilabel_strategy == "per_target"
 
     def test_multilabel_strategy_validator_rejects_unknown(self) -> None:
+        """An unrecognized multilabel_strategy value raises at config construction, not silently at fit time."""
         with pytest.raises(ValueError, match="multilabel_strategy"):
             CompositeTargetDiscoveryConfig(multilabel_strategy="weird_mode")
 
@@ -994,12 +913,8 @@ class TestIntegrationEdges:
         assert "multi_y_out1" in target_by_type["regression"]
         assert target_by_type["regression"]["multi_y_out0"].ndim == 1
         assert target_by_type["regression"]["multi_y_out0"].shape == (n,)
-        np.testing.assert_array_equal(
-            target_by_type["regression"]["multi_y_out0"], y_2d[:, 0]
-        )
-        np.testing.assert_array_equal(
-            target_by_type["regression"]["multi_y_out1"], y_2d[:, 1]
-        )
+        np.testing.assert_array_equal(target_by_type["regression"]["multi_y_out0"], y_2d[:, 0])
+        np.testing.assert_array_equal(target_by_type["regression"]["multi_y_out1"], y_2d[:, 1])
 
     def test_multilabel_skip_strategy_preserves_2d(self) -> None:
         """``multilabel_strategy='skip'`` leaves the 2-D entry intact
@@ -1045,14 +960,8 @@ class TestIntegrationEdges:
             transforms=["diff", "linear_residual"],
             top_k_after_mi=8,
         )
-        d0 = CompositeTargetDiscovery(cfg).fit(
-            df0, target_col="multi_y_out0",
-            feature_cols=["base_a", "base_b", "x1"],
-            train_idx=np.arange(1200))
-        d1 = CompositeTargetDiscovery(cfg).fit(
-            df1, target_col="multi_y_out1",
-            feature_cols=["base_a", "base_b", "x1"],
-            train_idx=np.arange(1200))
+        d0 = CompositeTargetDiscovery(cfg).fit(df0, target_col="multi_y_out0", feature_cols=["base_a", "base_b", "x1"], train_idx=np.arange(1200))
+        d1 = CompositeTargetDiscovery(cfg).fit(df1, target_col="multi_y_out1", feature_cols=["base_a", "base_b", "x1"], train_idx=np.arange(1200))
         # Sub-target names propagate into spec names and target_col.
         assert d0.specs_, "no specs discovered for multi_y_out0"
         assert d1.specs_, "no specs discovered for multi_y_out1"
@@ -1062,12 +971,8 @@ class TestIntegrationEdges:
         # which produces "multi_y_out0-diff-base_a" style (dash-separated).
         # We verify target_col is correct (above) and that the name
         # CONTAINS the target_col (more robust than exact substring).
-        assert all(
-            s.target_col in s.name for s in d0.specs_
-        ), f"spec names: {[s.name for s in d0.specs_]}"
-        assert all(
-            s.target_col in s.name for s in d1.specs_
-        ), f"spec names: {[s.name for s in d1.specs_]}"
+        assert all(s.target_col in s.name for s in d0.specs_), f"spec names: {[s.name for s in d0.specs_]}"
+        assert all(s.target_col in s.name for s in d1.specs_), f"spec names: {[s.name for s in d1.specs_]}"
 
     # ----------------------------------------------------------------------
     # R10b improvement #6: collapse linear_residual -> diff when alpha~1
@@ -1096,9 +1001,7 @@ class TestIntegrationEdges:
             collapse_linear_residual_alpha_eps=0.05,
         )
         disc = CompositeTargetDiscovery(cfg)
-        disc.fit(df, target_col="y",
-                 feature_cols=["y_prev", "f1"],
-                 train_idx=np.arange(1200))
+        disc.fit(df, target_col="y", feature_cols=["y_prev", "f1"], train_idx=np.arange(1200))
         # diff must be kept (the simpler equivalent); linear_residual
         # MUST be collapsed.
         kept_transforms = {s.transform_name for s in disc.specs_}
@@ -1124,9 +1027,7 @@ class TestIntegrationEdges:
             collapse_linear_residual_alpha_eps=0.05,
         )
         disc = CompositeTargetDiscovery(cfg)
-        disc.fit(df, target_col="y",
-                 feature_cols=["base", "f1"],
-                 train_idx=np.arange(1200))
+        disc.fit(df, target_col="y", feature_cols=["base", "f1"], train_idx=np.arange(1200))
         kept = {s.transform_name for s in disc.specs_}
         # Both must survive: alpha clearly differs from 1.0.
         assert "linear_residual" in kept
@@ -1152,9 +1053,7 @@ class TestIntegrationEdges:
             collapse_linear_residual_alpha_eps=0.0,  # disable
         )
         disc = CompositeTargetDiscovery(cfg)
-        disc.fit(df, target_col="y",
-                 feature_cols=["y_prev", "f1"],
-                 train_idx=np.arange(1200))
+        disc.fit(df, target_col="y", feature_cols=["y_prev", "f1"], train_idx=np.arange(1200))
         kept = {s.transform_name for s in disc.specs_}
         # Both kept (collapse disabled).
         assert "linear_residual" in kept
@@ -1187,14 +1086,10 @@ class TestIntegrationEdges:
             auto_base_dedup_corr_threshold=0.95,
         )
         disc = CompositeTargetDiscovery(cfg)
-        disc.fit(df, target_col="y",
-                 feature_cols=["base_a", "base_b", "x1"],
-                 train_idx=np.arange(1200))
+        disc.fit(df, target_col="y", feature_cols=["base_a", "base_b", "x1"], train_idx=np.arange(1200))
         # Either base_a OR base_b survives, not both.
-        bases = {s.base_column for s in disc.specs_
-                 if s.base_column in ("base_a", "base_b")}
-        assert len(bases) <= 1, (
-            f"dedup failed: both correlated bases kept: {bases}")
+        bases = {s.base_column for s in disc.specs_ if s.base_column in ("base_a", "base_b")}
+        assert len(bases) <= 1, f"dedup failed: both correlated bases kept: {bases}"
 
     def test_auto_base_dedup_disabled_at_threshold_one(self) -> None:
         """Setting auto_base_dedup_corr_threshold=1.0 disables dedup;
@@ -1216,9 +1111,7 @@ class TestIntegrationEdges:
             auto_base_dedup_corr_threshold=1.0,  # disabled
         )
         disc = CompositeTargetDiscovery(cfg)
-        disc.fit(df, target_col="y",
-                 feature_cols=["base_a", "base_b", "x1"],
-                 train_idx=np.arange(1200))
+        disc.fit(df, target_col="y", feature_cols=["base_a", "base_b", "x1"], train_idx=np.arange(1200))
         bases = {s.base_column for s in disc.specs_}
         # Both bases can survive when dedup is off.
         assert "base_a" in bases or "base_b" in bases  # at least one
@@ -1250,9 +1143,7 @@ class TestIntegrationEdges:
         df = _slow_ar1_dominant_lag()
         cfg = CompositeTargetDiscoveryConfig(enabled=False)
         disc = CompositeTargetDiscovery(cfg)
-        disc.fit(df, target_col="y",
-                 feature_cols=["y_prev", "f1", "f2"],
-                 train_idx=np.arange(1200))
+        disc.fit(df, target_col="y", feature_cols=["y_prev", "f1", "f2"], train_idx=np.arange(1200))
         assert disc.specs_ == []
         # No rerank ran -> empty score map, NaN baseline.
         assert disc.tiny_rerank_scores_ == {}
