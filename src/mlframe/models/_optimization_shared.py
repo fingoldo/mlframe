@@ -9,7 +9,7 @@ instead, so neither has to wait on the other's ``__init__``.
 from __future__ import annotations
 
 from enum import Enum, auto
-from typing import Any, Optional, Sequence
+from typing import Any, Optional, Sequence, Union
 
 import numpy as np
 
@@ -121,7 +121,7 @@ def generate_fibonacci(n: int) -> np.ndarray:
 
 
 def plot_search_state(
-    search_space: Sequence,
+    search_space: Union[Sequence, np.ndarray],
     next_cand: int,
     new_y: float,
     best_candidate: Optional[int],

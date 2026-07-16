@@ -87,7 +87,7 @@ def _batched_precheck_gpu(cp, X_batch, yg, precheck_qs, precheck_min_sse_drop: f
         best_drop = cp.maximum(best_drop, cp.where(cp.isfinite(drop), drop, 0.0))
 
     passes = (~degenerate) & (sse_lin > 1e-24) & (best_drop >= float(precheck_min_sse_drop))
-    return cp.asnumpy(passes)
+    return np.asarray(cp.asnumpy(passes))
 
 
 def detect_hinge_breakpoints_gpu_batch(

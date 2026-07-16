@@ -10,7 +10,7 @@ fold -- a validation set that's actually representative of what the model will b
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, List, Literal, Optional, Sequence, Tuple, Union, overload
 
 import numpy as np
 
@@ -53,6 +53,33 @@ def _oof_is_test_proba(
     return oof_is_test_proba, importances
 
 
+@overload
+def build_test_like_validation_fold(
+    X_train: Any,
+    X_test: Any,
+    feature_names: Optional[Sequence[str]] = None,
+    val_fraction: float = 0.2,
+    n_splits: int = 5,
+    seed: int = 0,
+    n_iterations: int = 1,
+    top_k_drop_per_iteration: int = 0,
+    return_history: Literal[False] = False,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Overload: ``return_history=False`` -> ``(val_idx, train_remainder_idx)``."""
+@overload
+def build_test_like_validation_fold(
+    X_train: Any,
+    X_test: Any,
+    feature_names: Optional[Sequence[str]] = None,
+    val_fraction: float = 0.2,
+    n_splits: int = 5,
+    seed: int = 0,
+    n_iterations: int = 1,
+    top_k_drop_per_iteration: int = 0,
+    *,
+    return_history: Literal[True],
+) -> Tuple[np.ndarray, np.ndarray, List[Dict[str, Any]]]:
+    """Overload: ``return_history=True`` -> ``(val_idx, train_remainder_idx, iteration_history)``."""
 def build_test_like_validation_fold(
     X_train: Any,
     X_test: Any,
