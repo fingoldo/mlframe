@@ -54,6 +54,7 @@ paper over a regression is a violation of the layer's contract.
 
 2026-05-31 Layer 30.
 """
+
 from __future__ import annotations
 
 import time
@@ -93,7 +94,7 @@ def _build_p200_fixture(seed: int):
     cols["c100"] = base + 0.0001 * rng.standard_normal(N_ROWS)
     X = pd.DataFrame(cols)
     # Quadratic He_2 target on c0 so signal recovery is well-defined.
-    y = ((base ** 2 - 1.0) + 0.4 * rng.standard_normal(N_ROWS) > 0).astype(int)
+    y = ((base**2 - 1.0) + 0.4 * rng.standard_normal(N_ROWS) > 0).astype(int)
     return X, pd.Series(y, name="y")
 
 
@@ -146,6 +147,7 @@ def _legacy_dedup(X: pd.DataFrame, cols, *, corr_threshold: float = 0.999):
 
 
 class TestPerfBudget:
+    """hybrid_orth_mi_fe at p=200 n=2000 completes within the perf budget on warm numba cache."""
 
     def test_hybrid_p200_warm_under_budget(self):
         """Wall-clock budget. Run twice and use the second sample to give
@@ -156,19 +158,26 @@ class TestPerfBudget:
         from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
             hybrid_orth_mi_fe,
         )
+
         X, y = _build_p200_fixture(seed=0)
         # Warm-up call (not counted).
         _ = hybrid_orth_mi_fe(
-            X, y.to_numpy(),
-            degrees=(2, 3, 4), basis="hermite", top_k=5,
+            X,
+            y.to_numpy(),
+            degrees=(2, 3, 4),
+            basis="hermite",
+            top_k=5,
         )
         # Two timed calls; take the min to filter GC noise.
         timings = []
         for _ in range(2):
             t0 = time.perf_counter()
             _ = hybrid_orth_mi_fe(
-                X, y.to_numpy(),
-                degrees=(2, 3, 4), basis="hermite", top_k=5,
+                X,
+                y.to_numpy(),
+                degrees=(2, 3, 4),
+                basis="hermite",
+                top_k=5,
             )
             timings.append(time.perf_counter() - t0)
         elapsed = min(timings)
@@ -190,6 +199,7 @@ class TestPerfBudget:
 
 
 class TestDedupBitIdentity:
+    """The optimized _dedup_collinear_source_cols produces the exact same kept-list as the legacy O(p^2) reference."""
 
     @pytest.mark.parametrize("seed", [0, 1, 2, 3, 4])
     def test_p200_matches_legacy(self, seed):
@@ -200,6 +210,7 @@ class TestDedupBitIdentity:
         from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
             _dedup_collinear_source_cols,
         )
+
         X, _ = _build_p200_fixture(seed)
         legacy = _legacy_dedup(X, list(X.columns))
         new = _dedup_collinear_source_cols(X, list(X.columns))
@@ -219,14 +230,18 @@ class TestDedupBitIdentity:
         from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
             _dedup_collinear_source_cols,
         )
+
         rng = np.random.default_rng(0)
         base = rng.standard_normal(1000)
         dup_with_nan = base.copy()
         dup_with_nan[::25] = np.nan
-        X = pd.DataFrame({
-            "base": base, "dup_with_nan": dup_with_nan,
-            "other": rng.standard_normal(1000),
-        })
+        X = pd.DataFrame(
+            {
+                "base": base,
+                "dup_with_nan": dup_with_nan,
+                "other": rng.standard_normal(1000),
+            }
+        )
         legacy = _legacy_dedup(X, list(X.columns))
         new = _dedup_collinear_source_cols(X, list(X.columns))
         assert legacy == new, f"legacy={legacy} new={new}"
@@ -242,14 +257,18 @@ class TestDedupBitIdentity:
         from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
             _dedup_collinear_source_cols,
         )
+
         rng = np.random.default_rng(0)
         base = rng.standard_normal(1000)
         dup_with_nan = base.copy()
         dup_with_nan[::25] = np.nan
-        X = pd.DataFrame({
-            "dup_with_nan": dup_with_nan, "base": base,
-            "other": rng.standard_normal(1000),
-        })
+        X = pd.DataFrame(
+            {
+                "dup_with_nan": dup_with_nan,
+                "base": base,
+                "other": rng.standard_normal(1000),
+            }
+        )
         legacy = _legacy_dedup(X, list(X.columns))
         new = _dedup_collinear_source_cols(X, list(X.columns))
         assert legacy == new, f"legacy={legacy} new={new}"
@@ -262,15 +281,18 @@ class TestDedupBitIdentity:
         from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
             _dedup_collinear_source_cols,
         )
+
         rng = np.random.default_rng(0)
         base = rng.standard_normal(1000)
-        X = pd.DataFrame({
-            "const": np.full(1000, 7.5),
-            "all_nan": np.full(1000, np.nan),
-            "base": base,
-            "dup": base + 0.0001 * rng.standard_normal(1000),
-            "other": rng.standard_normal(1000),
-        })
+        X = pd.DataFrame(
+            {
+                "const": np.full(1000, 7.5),
+                "all_nan": np.full(1000, np.nan),
+                "base": base,
+                "dup": base + 0.0001 * rng.standard_normal(1000),
+                "other": rng.standard_normal(1000),
+            }
+        )
         legacy = _legacy_dedup(X, list(X.columns))
         new = _dedup_collinear_source_cols(X, list(X.columns))
         assert legacy == new, f"legacy={legacy} new={new}"
@@ -280,13 +302,16 @@ class TestDedupBitIdentity:
         from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
             _dedup_collinear_source_cols,
         )
+
         rng = np.random.default_rng(0)
         base = rng.standard_normal(1000)
-        X = pd.DataFrame({
-            "str_col": ["a", "b", "c", "d"] * 250,
-            "base": base,
-            "dup": base + 0.0001 * rng.standard_normal(1000),
-        })
+        X = pd.DataFrame(
+            {
+                "str_col": ["a", "b", "c", "d"] * 250,
+                "base": base,
+                "dup": base + 0.0001 * rng.standard_normal(1000),
+            }
+        )
         legacy = _legacy_dedup(X, list(X.columns))
         new = _dedup_collinear_source_cols(X, list(X.columns))
         assert legacy == new, f"legacy={legacy} new={new}"
@@ -296,6 +321,7 @@ class TestDedupBitIdentity:
         from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
             _dedup_collinear_source_cols,
         )
+
         X = pd.DataFrame({"a": [1.0, 2.0, 3.0]})
         assert _dedup_collinear_source_cols(X, []) == []
 
@@ -304,6 +330,7 @@ class TestDedupBitIdentity:
         from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
             _dedup_collinear_source_cols,
         )
+
         rng = np.random.default_rng(0)
         X = pd.DataFrame({"only": rng.standard_normal(500)})
         assert _dedup_collinear_source_cols(X, list(X.columns)) == ["only"]
@@ -315,6 +342,7 @@ class TestDedupBitIdentity:
 
 
 class TestHybridOutputReproducibility:
+    """hybrid_orth_mi_fe's augmented frame and scores DataFrame are bit-identical run-to-run on the same input."""
 
     @pytest.mark.parametrize("seed", [0, 1, 2])
     def test_hybrid_output_bit_identical_run_to_run(self, seed):
@@ -325,23 +353,26 @@ class TestHybridOutputReproducibility:
         from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
             hybrid_orth_mi_fe,
         )
+
         X, y = _build_p200_fixture(seed)
         y_arr = y.to_numpy()
         X_aug1, scores1 = hybrid_orth_mi_fe(
-            X, y_arr, degrees=(2, 3, 4), basis="hermite", top_k=5,
+            X,
+            y_arr,
+            degrees=(2, 3, 4),
+            basis="hermite",
+            top_k=5,
         )
         X_aug2, scores2 = hybrid_orth_mi_fe(
-            X, y_arr, degrees=(2, 3, 4), basis="hermite", top_k=5,
+            X,
+            y_arr,
+            degrees=(2, 3, 4),
+            basis="hermite",
+            top_k=5,
         )
-        assert list(X_aug1.columns) == list(X_aug2.columns), (
-            f"seed={seed}: column order differs across runs"
-        )
-        assert np.array_equal(X_aug1.to_numpy(), X_aug2.to_numpy()), (
-            f"seed={seed}: augmented values not bit-identical across runs"
-        )
-        assert scores1.equals(scores2), (
-            f"seed={seed}: scores DataFrame not equal across runs"
-        )
+        assert list(X_aug1.columns) == list(X_aug2.columns), f"seed={seed}: column order differs across runs"
+        assert np.array_equal(X_aug1.to_numpy(), X_aug2.to_numpy()), f"seed={seed}: augmented values not bit-identical across runs"
+        assert scores1.equals(scores2), f"seed={seed}: scores DataFrame not equal across runs"
 
 
 # ---------------------------------------------------------------------------
@@ -350,6 +381,7 @@ class TestHybridOutputReproducibility:
 
 
 class TestSignalRecoveryPostOpt:
+    """The canonical quadratic He_2 signal on c0 still survives into the augmented frame after the dedup optimization."""
 
     @pytest.mark.parametrize("seed", [0, 1, 2])
     def test_quadratic_signal_recovered_after_dedup_opt(self, seed):
@@ -361,20 +393,21 @@ class TestSignalRecoveryPostOpt:
         from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
             hybrid_orth_mi_fe,
         )
+
         X, y = _build_p200_fixture(seed)
         X_aug, scores = hybrid_orth_mi_fe(
-            X, y.to_numpy(),
-            degrees=(2, 3, 4), basis="hermite", top_k=5,
+            X,
+            y.to_numpy(),
+            degrees=(2, 3, 4),
+            basis="hermite",
+            top_k=5,
         )
         appended = [c for c in X_aug.columns if c not in X.columns]
         # Layer 25 contract A.2 analogue: recovery is on any c0-related
         # column (raw or engineered). At p=200 the He_2 uplift can be
         # marginal so we accept either signal_in_engineered OR c0 still
         # in dense raw columns.
-        signal_recovered = (
-            any(c.startswith("c0__") for c in appended)
-            or "c0" in X_aug.columns
-        )
+        signal_recovered = any(c.startswith("c0__") for c in appended) or "c0" in X_aug.columns
         assert signal_recovered, (
             f"seed={seed}: quadratic He_2 signal on c0 not recovered "
             f"post-optimization. Appended cols: {appended}. Scores top 5: "

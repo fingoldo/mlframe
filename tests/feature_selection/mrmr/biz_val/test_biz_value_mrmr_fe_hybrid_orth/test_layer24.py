@@ -56,6 +56,7 @@ NEVER xfail. If a real-world contract fails, the prod code is wrong, not
 the test. The contract floors are well below the empirically observed
 lifts so they tolerate seed-level variance without being trivial.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -66,7 +67,6 @@ import pytest
 
 from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.metrics import r2_score, roc_auc_score
-
 
 warnings.filterwarnings("ignore")
 
@@ -98,7 +98,9 @@ def _mrmr_kw(**overrides):
 
 
 def _fit_mrmr(X, y, *, hybrid: bool, pair: bool = True, degrees=(2, 3), top_k: int = 5):
+    """Fit MRMR with hybrid orthogonal-basis FE enabled or explicitly disabled."""
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     if hybrid:
         kw = _mrmr_kw(
             fe_hybrid_orth_enable=True,
@@ -116,14 +118,14 @@ def _fit_mrmr(X, y, *, hybrid: bool, pair: bool = True, degrees=(2, 3), top_k: i
 
 
 def _split(X, y, n_tr: int):
+    """Split X, y into a train prefix and test suffix at row n_tr."""
     Xtr, Xte = X.iloc[:n_tr], X.iloc[n_tr:]
     ytr, yte = y[:n_tr], y[n_tr:]
     return Xtr, ytr, Xte, yte
 
 
 def _classifier_holdout_auc(mrmr_fit, Xtr, ytr, Xte, yte) -> float:
-    """Train LogReg on the MRMR-transformed train frame; report holdout AUC.
-    """
+    """Train LogReg on the MRMR-transformed train frame; report holdout AUC."""
     Xtr_t = np.asarray(mrmr_fit.transform(Xtr))
     Xte_t = np.asarray(mrmr_fit.transform(Xte))
     if Xtr_t.shape[1] == 0:
@@ -134,6 +136,7 @@ def _classifier_holdout_auc(mrmr_fit, Xtr, ytr, Xte, yte) -> float:
 
 
 def _regressor_holdout_r2(mrmr_fit, Xtr, ytr, Xte, yte) -> float:
+    """Train LinearRegression on the MRMR-transformed train frame; report holdout R^2."""
     Xtr_t = np.asarray(mrmr_fit.transform(Xtr))
     Xte_t = np.asarray(mrmr_fit.transform(Xte))
     if Xtr_t.shape[1] == 0:
@@ -157,19 +160,23 @@ def _build_financial(seed: int, n: int = 3000):
     price = rng.standard_normal(n)
     volume = rng.standard_normal(n)
     y = ((price * volume) + 0.35 * rng.standard_normal(n) > 0).astype(int)
-    X = pd.DataFrame({
-        "price": price,
-        "volume": volume,
-        "macd": rng.standard_normal(n),
-        "rsi": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "price": price,
+            "volume": volume,
+            "macd": rng.standard_normal(n),
+            "rsi": rng.standard_normal(n),
+        }
+    )
     return X, pd.Series(y, name="y")
 
 
 class TestScenarioA_FinancialCross:
+    """``y = sign(price*volume)`` -- hybrid FE lifts holdout AUC and the price*volume cross enters support."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_hybrid_lifts_auc_and_picks_cross(self, seed):
+        """Hybrid MRMR clears 0.75 AUC, lifts >= +0.20 over baseline, and picks a price*volume cross-basis column."""
         X, y = _build_financial(seed)
         Xtr, ytr, Xte, yte = _split(X, y.to_numpy(), n_tr=2000)
         mb = _fit_mrmr(Xtr, pd.Series(ytr), hybrid=False)
@@ -186,28 +193,16 @@ class TestScenarioA_FinancialCross:
             f"Either signal is too clean or noise too low."
         )
         # Contract A.2: hybrid clears 0.75 AUC (target from task spec).
-        assert auc_h >= 0.75, (
-            f"A seed={seed}: hybrid AUC {auc_h:.3f} should clear 0.75 on "
-            f"price*volume XOR; support={sup_h}"
-        )
+        assert auc_h >= 0.75, f"A seed={seed}: hybrid AUC {auc_h:.3f} should clear 0.75 on " f"price*volume XOR; support={sup_h}"
         # Contract A.3: per-seed lift floor at +0.20 (task floor +0.10,
         # observed range +0.36..+0.44 in calibration -- the +0.20 floor
         # absorbs seed variance while pinning a real lift, not a tie).
         lift = auc_h - auc_b
-        assert lift >= 0.20, (
-            f"A seed={seed}: hybrid AUC lift {lift:+.3f} should be >= +0.20 "
-            f"(base={auc_b:.3f}, hybrid={auc_h:.3f}); support={sup_h}"
-        )
+        assert lift >= 0.20, f"A seed={seed}: hybrid AUC lift {lift:+.3f} should be >= +0.20 " f"(base={auc_b:.3f}, hybrid={auc_h:.3f}); support={sup_h}"
         # Contract A.4: cross-basis term enters the support. Allow either leg
         # ordering ("price*volume" or "volume*price") since both can appear.
-        has_cross = any(
-            ("*" in c) and ("price" in c) and ("volume" in c)
-            for c in sup_h
-        )
-        assert has_cross, (
-            f"A seed={seed}: expected a price*volume cross-basis column in "
-            f"hybrid support; got {sup_h}"
-        )
+        has_cross = any(("*" in c) and ("price" in c) and ("volume" in c) for c in sup_h)
+        assert has_cross, f"A seed={seed}: expected a price*volume cross-basis column in " f"hybrid support; got {sup_h}"
 
 
 # ---------------------------------------------------------------------------
@@ -221,13 +216,15 @@ def _build_sensor_ushape(seed: int, n: int = 3000):
     """
     rng = np.random.default_rng(seed)
     temp = rng.standard_normal(n)
-    y = ((temp ** 2 - 1.0) + 0.2 * rng.standard_normal(n) > 0).astype(int)
-    X = pd.DataFrame({
-        "temperature": temp,
-        "humidity": rng.standard_normal(n),
-        "pressure": rng.standard_normal(n),
-        "wind": rng.standard_normal(n),
-    })
+    y = ((temp**2 - 1.0) + 0.2 * rng.standard_normal(n) > 0).astype(int)
+    X = pd.DataFrame(
+        {
+            "temperature": temp,
+            "humidity": rng.standard_normal(n),
+            "pressure": rng.standard_normal(n),
+            "wind": rng.standard_normal(n),
+        }
+    )
     return X, pd.Series(y, name="y")
 
 
@@ -239,9 +236,11 @@ def _has_univariate_basis_of(support, var):
 
 
 class TestScenarioB_SensorUShape:
+    """``y = sign(temperature^2 - 1)`` -- the DEFAULT MRMR recovers the U-shape via a univariate basis detector."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_default_recovers_temperature_ushape(self, seed):
+        """Default MRMR selects a temperature univariate basis detector and clears 0.90 AUC."""
         # 2026-06-02: with univariate-basis FE default-ON, the DEFAULT MRMR
         # recovers the y = sign(temperature^2 - 1) U-shape via a single-source
         # ``temperature__He2`` detector -- no explicit hybrid opt-in needed.
@@ -255,8 +254,7 @@ class TestScenarioB_SensorUShape:
         sup_b = list(mb.get_feature_names_out())
 
         assert _has_univariate_basis_of(sup_b, "temperature"), (
-            f"B seed={seed}: a temperature univariate basis detector (the "
-            f"U-shape recoverer) must be in the DEFAULT support; got {sup_b}"
+            f"B seed={seed}: a temperature univariate basis detector (the " f"U-shape recoverer) must be in the DEFAULT support; got {sup_b}"
         )
         assert auc_b >= 0.90, (
             f"B seed={seed}: DEFAULT AUC {auc_b:.3f} should clear 0.90 -- the "
@@ -271,23 +269,28 @@ class TestScenarioB_SensorUShape:
 
 
 def _build_asymmetric_churn(seed: int, n: int = 3000):
+    """``y = sign(usage^2 - 1)`` -- an even non-linearity invisible to a linear model on raw usage."""
     rng = np.random.default_rng(seed)
     usage = rng.standard_normal(n)
-    y = ((usage ** 2 - 1.0) + 0.15 * rng.standard_normal(n) > 0).astype(int)
-    X = pd.DataFrame({
-        "usage": usage,
-        "tenure": rng.standard_normal(n),
-        "contacts": rng.standard_normal(n),
-        "fees": rng.standard_normal(n),
-        "logins": rng.standard_normal(n),
-    })
+    y = ((usage**2 - 1.0) + 0.15 * rng.standard_normal(n) > 0).astype(int)
+    X = pd.DataFrame(
+        {
+            "usage": usage,
+            "tenure": rng.standard_normal(n),
+            "contacts": rng.standard_normal(n),
+            "fees": rng.standard_normal(n),
+            "logins": rng.standard_normal(n),
+        }
+    )
     return X, pd.Series(y, name="y")
 
 
 class TestScenarioC_AsymmetricChurn:
+    """``y = sign(usage^2 - 1)`` -- the DEFAULT MRMR recovers the churn non-linearity via usage__He2."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_default_recovers_asymmetric_churn(self, seed):
+        """Default MRMR selects a usage univariate basis detector and clears 0.90 AUC."""
         # 2026-06-02: y = sign(usage^2 - 1) is invisible to a linear model on RAW
         # usage (usage^2 is even -> raw usage uninformative), which is exactly the
         # univariate-nonlinearity gap. With univariate-basis FE default-ON the
@@ -300,14 +303,9 @@ class TestScenarioC_AsymmetricChurn:
         auc_b = _classifier_holdout_auc(mb, Xtr, ytr, Xte, yte)
         sup_b = list(mb.get_feature_names_out())
 
-        assert _has_univariate_basis_of(sup_b, "usage"), (
-            f"C seed={seed}: a usage univariate basis detector must enter the "
-            f"DEFAULT support; got {sup_b}"
-        )
+        assert _has_univariate_basis_of(sup_b, "usage"), f"C seed={seed}: a usage univariate basis detector must enter the " f"DEFAULT support; got {sup_b}"
         assert auc_b >= 0.90, (
-            f"C seed={seed}: DEFAULT AUC {auc_b:.3f} should clear 0.90 -- the "
-            f"univariate basis recovers the sign(usage^2-1) U-shape; "
-            f"support={sup_b}"
+            f"C seed={seed}: DEFAULT AUC {auc_b:.3f} should clear 0.90 -- the " f"univariate basis recovers the sign(usage^2-1) U-shape; " f"support={sup_b}"
         )
 
 
@@ -323,20 +321,24 @@ def _build_quadratic_regression(seed: int, n: int = 3000):
     """
     rng = np.random.default_rng(seed)
     x = rng.standard_normal(n)
-    y = (x ** 2) + 0.2 * x + 0.3 * rng.standard_normal(n)
-    X = pd.DataFrame({
-        "x": x,
-        "n1": rng.standard_normal(n),
-        "n2": rng.standard_normal(n),
-        "n3": rng.standard_normal(n),
-    })
+    y = (x**2) + 0.2 * x + 0.3 * rng.standard_normal(n)
+    X = pd.DataFrame(
+        {
+            "x": x,
+            "n1": rng.standard_normal(n),
+            "n2": rng.standard_normal(n),
+            "n3": rng.standard_normal(n),
+        }
+    )
     return X, pd.Series(y, name="y")
 
 
 class TestScenarioD_PolynomialRegression:
+    """``y = x^2 + 0.2x + noise`` -- the DEFAULT MRMR recovers the quadratic regression via x__He2."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_default_recovers_quadratic_regression(self, seed):
+        """Default MRMR selects an x univariate basis detector and the downstream LinearRegression clears 0.85 R^2."""
         # 2026-06-02: continuous y = x^2 + 0.2x + noise. Linear regression on raw
         # x is dominated by the symmetry around 0; the univariate ``x__He2`` basis
         # breaks it and fits the quadratic. With univariate-basis FE default-ON
@@ -348,10 +350,7 @@ class TestScenarioD_PolynomialRegression:
         r2_b = _regressor_holdout_r2(mb, Xtr, ytr, Xte, yte)
         sup_b = list(mb.get_feature_names_out())
 
-        assert _has_univariate_basis_of(sup_b, "x"), (
-            f"D seed={seed}: an x univariate basis detector must enter the "
-            f"DEFAULT regression support; got {sup_b}"
-        )
+        assert _has_univariate_basis_of(sup_b, "x"), f"D seed={seed}: an x univariate basis detector must enter the " f"DEFAULT regression support; got {sup_b}"
         assert r2_b >= 0.85, (
             f"D seed={seed}: DEFAULT R^2 {r2_b:.3f} should clear 0.85 -- the "
             f"univariate-basis-augmented LR essentially fits the quadratic; "
@@ -380,15 +379,17 @@ def _build_mixed_bag(seed: int, n: int = 3000):
     for i in range(5):
         cols[f"noise_{i}"] = rng.standard_normal(n)
     X = pd.DataFrame(cols)
-    sig = (a ** 2 - 1.0) + (b ** 2 - 1.0) + 1.5 * c1 * c2
+    sig = (a**2 - 1.0) + (b**2 - 1.0) + 1.5 * c1 * c2
     y = (sig + 0.5 * rng.standard_normal(n) > 0).astype(int)
     return X, pd.Series(y, name="y")
 
 
 class TestScenarioE_MixedBag:
+    """A 9-column mixed FE scenario -- the DEFAULT MRMR recovers at least 2 of the 3 engineered winners."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_default_recovers_at_least_two_winners(self, seed):
+        """Default MRMR recovers >= 2 of (a-univariate, b-univariate, c1*c2 cross) and clears 0.80 AUC."""
         # 2026-06-02: mixed bag = two univariate He_2 signals (a, b) + one cross
         # (c1*c2) + noise. With univariate-basis FE default-ON the DEFAULT MRMR
         # recovers BOTH univariate winners (``a__He2`` + ``b__He2``) -- the two
@@ -411,10 +412,7 @@ class TestScenarioE_MixedBag:
             f"b-univariate, c1*c2 cross); got recovered={recovered} (a={has_a}, "
             f"b={has_b}, cross={has_cross}); support={sup_b}"
         )
-        assert auc_b >= 0.80, (
-            f"E seed={seed}: DEFAULT AUC {auc_b:.3f} should clear 0.80; "
-            f"support={sup_b}"
-        )
+        assert auc_b >= 0.80, f"E seed={seed}: DEFAULT AUC {auc_b:.3f} should clear 0.80; " f"support={sup_b}"
 
 
 # ---------------------------------------------------------------------------
@@ -423,16 +421,19 @@ class TestScenarioE_MixedBag:
 
 
 def _build_linear_negative_control(seed: int, n: int = 3000):
+    """A purely linear-additive signal -- hybrid FE must not manufacture spurious engineered columns."""
     rng = np.random.default_rng(seed)
     a = rng.standard_normal(n)
     b = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "a": a,
-        "b": b,
-        "n1": rng.standard_normal(n),
-        "n2": rng.standard_normal(n),
-        "n3": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "a": a,
+            "b": b,
+            "n1": rng.standard_normal(n),
+            "n2": rng.standard_normal(n),
+            "n3": rng.standard_normal(n),
+        }
+    )
     y = ((1.2 * a + 0.8 * b) + 0.4 * rng.standard_normal(n) > 0).astype(int)
     return X, pd.Series(y, name="y")
 
@@ -446,6 +447,7 @@ class TestNegativeControl_LinearSignal:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_no_engineered_columns_emitted(self, seed):
+        """Hybrid MRMR selects zero engineered columns and stays within a tight AUC-parity band on pure-linear signal."""
         X, y = _build_linear_negative_control(seed)
         Xtr, ytr, Xte, yte = _split(X, y.to_numpy(), n_tr=2000)
         mb = _fit_mrmr(Xtr, pd.Series(ytr), hybrid=False)
@@ -457,13 +459,9 @@ class TestNegativeControl_LinearSignal:
         # Contract NC.1: no engineered columns appear in the selected support.
         # Both signature flavours are checked: ``__He`` suffix (univariate) and
         # ``*`` (cross-basis pair).
-        engineered_in_support = [
-            c for c in sup_h if ("__He" in c) or ("*" in c)
-        ]
+        engineered_in_support = [c for c in sup_h if ("__He" in c) or ("*" in c)]
         assert engineered_in_support == [], (
-            f"NC seed={seed}: pure-linear signal should produce ZERO "
-            f"engineered columns in support; got {engineered_in_support}; "
-            f"full support={sup_h}"
+            f"NC seed={seed}: pure-linear signal should produce ZERO " f"engineered columns in support; got {engineered_in_support}; " f"full support={sup_h}"
         )
         # Contract NC.2: AUC parity within a tight band -- hybrid must not
         # silently degrade by adding noise features either.

@@ -60,6 +60,7 @@ layer with a separate commit and bench numbers.
 
 2026-05-31 Layer 31.
 """
+
 from __future__ import annotations
 
 import os
@@ -98,7 +99,7 @@ def _build_p200_fixture(seed: int):
     cols["c50"] = base + 0.0005 * rng.standard_normal(N_ROWS)
     cols["c100"] = base + 0.0001 * rng.standard_normal(N_ROWS)
     X = pd.DataFrame(cols)
-    y = ((base ** 2 - 1.0) + 0.4 * rng.standard_normal(N_ROWS) > 0).astype(int)
+    y = ((base**2 - 1.0) + 0.4 * rng.standard_normal(N_ROWS) > 0).astype(int)
     return X, pd.Series(y, name="y")
 
 
@@ -110,7 +111,7 @@ def _build_p500_fixture(seed: int):
     cols: dict = {f"c{i}": rng.standard_normal(N_ROWS) for i in range(P_COLS)}
     cols["c0"] = base
     X = pd.DataFrame(cols)
-    y = ((base ** 2 - 1.0) + 0.4 * rng.standard_normal(N_ROWS) > 0).astype(int)
+    y = ((base**2 - 1.0) + 0.4 * rng.standard_normal(N_ROWS) > 0).astype(int)
     return X, pd.Series(y, name="y")
 
 
@@ -120,6 +121,7 @@ def _build_p500_fixture(seed: int):
 
 
 class TestBitEquivalence:
+    """The numba MI batch dispatcher matches the sklearn reference within a tight numerical tolerance."""
 
     @pytest.mark.parametrize("seed", list(range(10)))
     def test_mi_batch_matches_sklearn_within_tol(self, seed):
@@ -132,6 +134,7 @@ class TestBitEquivalence:
             _mi_classif_batch_numba,
             _mi_classif_batch_sklearn,
         )
+
         rng = np.random.default_rng(seed)
         n, p, nbins = 2000, 50, 10
         X = rng.standard_normal((n, p))
@@ -158,6 +161,7 @@ class TestBitEquivalence:
             _mi_classif_batch_numba,
             _mi_classif_batch_sklearn,
         )
+
         rng = np.random.default_rng(0)
         n, p, nbins = 2000, 30, 10
         X = rng.integers(0, 5, (n, p)).astype(np.float64)
@@ -166,10 +170,7 @@ class TestBitEquivalence:
         sk = _mi_classif_batch_sklearn(X, y, nbins=nbins)
         nb = _mi_classif_batch_numba(X, y, nbins=nbins)
         diff = np.max(np.abs(sk - nb))
-        assert diff < BIT_EQ_TOL, (
-            f"with-ties: numba MI batch differs from sklearn by "
-            f"max abs {diff:.3e} > tolerance {BIT_EQ_TOL:.0e}."
-        )
+        assert diff < BIT_EQ_TOL, f"with-ties: numba MI batch differs from sklearn by " f"max abs {diff:.3e} > tolerance {BIT_EQ_TOL:.0e}."
 
     def test_mi_batch_partial_nan_handled(self):
         """A column with partial NaNs must still produce a finite MI; the
@@ -179,11 +180,12 @@ class TestBitEquivalence:
             _mi_classif_batch_numba,
             _mi_classif_batch_sklearn,
         )
+
         rng = np.random.default_rng(0)
         n, nbins = 1000, 10
         X = rng.standard_normal((n, 4))
-        X[::20, 1] = np.nan         # partial NaN
-        X[:, 3] = np.nan            # all NaN
+        X[::20, 1] = np.nan  # partial NaN
+        X[:, 3] = np.nan  # all NaN
         y = rng.integers(0, 2, n).astype(np.int64)
         sk = _mi_classif_batch_sklearn(X, y, nbins=nbins)
         nb = _mi_classif_batch_numba(X, y, nbins=nbins)
@@ -200,6 +202,7 @@ class TestBitEquivalence:
 
 
 class TestPerfBudgets:
+    """hybrid_orth_mi_fe completes within tightened perf budgets at p=200 and p=500 on the numba MI dispatcher."""
 
     def test_hybrid_p200_under_1s(self):
         """``hybrid_orth_mi_fe`` at p=200 n=2000 degrees=(2,3,4) completes
@@ -210,18 +213,27 @@ class TestPerfBudgets:
         from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
             hybrid_orth_mi_fe,
         )
+
         X, y = _build_p200_fixture(seed=0)
         y_arr = y.to_numpy()
         # Warm-up (numba lazy compile of any not-yet-cached kernel).
         _ = hybrid_orth_mi_fe(
-            X, y_arr, degrees=(2, 3, 4), basis="hermite", top_k=5,
+            X,
+            y_arr,
+            degrees=(2, 3, 4),
+            basis="hermite",
+            top_k=5,
         )
         # 3 timed calls; take min to filter GC / Windows scheduler noise.
         timings = []
         for _ in range(3):
             t0 = time.perf_counter()
             _ = hybrid_orth_mi_fe(
-                X, y_arr, degrees=(2, 3, 4), basis="hermite", top_k=5,
+                X,
+                y_arr,
+                degrees=(2, 3, 4),
+                basis="hermite",
+                top_k=5,
             )
             timings.append(time.perf_counter() - t0)
         elapsed = min(timings)
@@ -243,20 +255,26 @@ class TestPerfBudgets:
         from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
             hybrid_orth_mi_fe,
         )
+
         X, y = _build_p500_fixture(seed=0)
         y_arr = y.to_numpy()
         _ = hybrid_orth_mi_fe(
-            X, y_arr, degrees=(2, 3, 4), basis="hermite", top_k=5,
+            X,
+            y_arr,
+            degrees=(2, 3, 4),
+            basis="hermite",
+            top_k=5,
         )
         t0 = time.perf_counter()
         _ = hybrid_orth_mi_fe(
-            X, y_arr, degrees=(2, 3, 4), basis="hermite", top_k=5,
+            X,
+            y_arr,
+            degrees=(2, 3, 4),
+            basis="hermite",
+            top_k=5,
         )
         elapsed = time.perf_counter() - t0
-        assert elapsed <= PERF_BUDGET_P500_SECS, (
-            f"hybrid_orth_mi_fe at p=500 n=2000 took {elapsed:.3f}s, "
-            f"budget is {PERF_BUDGET_P500_SECS:.1f}s."
-        )
+        assert elapsed <= PERF_BUDGET_P500_SECS, f"hybrid_orth_mi_fe at p=500 n=2000 took {elapsed:.3f}s, " f"budget is {PERF_BUDGET_P500_SECS:.1f}s."
 
 
 # ---------------------------------------------------------------------------
@@ -265,6 +283,7 @@ class TestPerfBudgets:
 
 
 class TestSignalRecoveryPostL31:
+    """The quadratic He_2 and XOR pair signals still survive the numba MI dispatcher post-Layer-31."""
 
     @pytest.mark.parametrize("seed", [0, 1, 2])
     def test_quadratic_signal_recovered(self, seed):
@@ -276,16 +295,17 @@ class TestSignalRecoveryPostL31:
         from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
             hybrid_orth_mi_fe,
         )
+
         X, y = _build_p200_fixture(seed)
         X_aug, scores = hybrid_orth_mi_fe(
-            X, y.to_numpy(),
-            degrees=(2, 3, 4), basis="hermite", top_k=5,
+            X,
+            y.to_numpy(),
+            degrees=(2, 3, 4),
+            basis="hermite",
+            top_k=5,
         )
         appended = [c for c in X_aug.columns if c not in X.columns]
-        signal_recovered = (
-            any(c.startswith("c0__") for c in appended)
-            or "c0" in X_aug.columns
-        )
+        signal_recovered = any(c.startswith("c0__") for c in appended) or "c0" in X_aug.columns
         assert signal_recovered, (
             f"seed={seed}: quadratic He_2 signal on c0 not recovered "
             f"post-Layer-31. Appended: {appended}. "
@@ -301,6 +321,7 @@ class TestSignalRecoveryPostL31:
         from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
             hybrid_orth_mi_pair_fe,
         )
+
         rng = np.random.default_rng(0)
         n = 2000
         x1 = rng.standard_normal(n)
@@ -312,7 +333,8 @@ class TestSignalRecoveryPostL31:
         X = pd.DataFrame(cols)
         y = ((np.sign(x1 * x2) + 1) // 2).astype(int)
         X_aug, _, _ = hybrid_orth_mi_pair_fe(
-            X, y,
+            X,
+            y,
             degrees=(2, 3),
             pair_max_degree=2,
             basis="hermite",
@@ -321,13 +343,8 @@ class TestSignalRecoveryPostL31:
         )
         appended = [c for c in X_aug.columns if c not in X.columns]
         # Look for a column derived from BOTH x1 and x2.
-        pair_signal_found = any(
-            ("x1*x2" in c or "x2*x1" in c) for c in appended
-        )
-        assert pair_signal_found, (
-            f"XOR pair signal x1*x2 not recovered post-L31. "
-            f"Appended: {appended}."
-        )
+        pair_signal_found = any(("x1*x2" in c or "x2*x1" in c) for c in appended)
+        assert pair_signal_found, f"XOR pair signal x1*x2 not recovered post-L31. " f"Appended: {appended}."
 
 
 # ---------------------------------------------------------------------------
@@ -336,6 +353,7 @@ class TestSignalRecoveryPostL31:
 
 
 class TestEnvVarOptOut:
+    """MLFRAME_NUMBA_MI=0 actually routes _mi_classif_batch to the sklearn reference path."""
 
     def test_env_var_forces_sklearn_path(self):
         """``MLFRAME_NUMBA_MI=0`` set BEFORE module import forces the
@@ -371,10 +389,7 @@ class TestEnvVarOptOut:
             if had_backend_mod:
                 del sys.modules[backend_mod_name]
             forced = importlib.import_module(mod_name)
-            assert forced._MI_BACKEND == "sklearn", (
-                f"MLFRAME_NUMBA_MI=0 set at import time but "
-                f"_MI_BACKEND={forced._MI_BACKEND!r}; opt-out is not routing."
-            )
+            assert forced._MI_BACKEND == "sklearn", f"MLFRAME_NUMBA_MI=0 set at import time but " f"_MI_BACKEND={forced._MI_BACKEND!r}; opt-out is not routing."
             # Verify the dispatched path produces sklearn-identical answer.
             rng = np.random.default_rng(0)
             n, p, nbins = 1000, 20, 10
@@ -382,10 +397,7 @@ class TestEnvVarOptOut:
             y = rng.integers(0, 3, n).astype(np.int64)
             sk = forced._mi_classif_batch_sklearn(X, y, nbins=nbins)
             dispatched = forced._mi_classif_batch(X, y, nbins=nbins)
-            assert np.array_equal(sk, dispatched), (
-                "Forced-sklearn dispatcher returned a different answer "
-                "from the sklearn reference path."
-            )
+            assert np.array_equal(sk, dispatched), "Forced-sklearn dispatcher returned a different answer " "from the sklearn reference path."
         finally:
             # Restore env.
             if had_env:

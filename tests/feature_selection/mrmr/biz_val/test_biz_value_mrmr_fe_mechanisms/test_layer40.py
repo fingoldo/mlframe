@@ -52,9 +52,9 @@ NEVER xfail. GPU-required tests use ``pytest.importorskip("cupy")``;
 the GPU speedup contract uses ``skipif`` so the absence of a working
 GPU is reported plainly (not as a passing test).
 """
+
 from __future__ import annotations
 
-import os
 import time
 import warnings
 
@@ -93,7 +93,8 @@ def _cupy_ok() -> bool:
     if _CUPY_OK_CACHE is not None:
         return _CUPY_OK_CACHE
     try:
-        import cupy as cp  # noqa: F401
+        import cupy as cp
+
         # Force CUDA context init + a trivial kernel launch.
         a = cp.asarray(np.array([1.0, 2.0], dtype=np.float64))
         _ = cp.asnumpy(a * 2.0)
@@ -138,6 +139,7 @@ def _make_inputs(n: int, basis: str, seed: int = 0):
 
 
 class TestCPUBitEquivalence:
+    """Forced njit/njit_par backends match auto-dispatch and each other within tight numerical tolerance."""
 
     @pytest.mark.parametrize("basis", BASES)
     def test_forced_njit_matches_auto_dispatch_small_n(self, basis, monkeypatch):
@@ -147,6 +149,7 @@ class TestCPUBitEquivalence:
         round-trip).
         """
         from mlframe.feature_selection.filters.hermite_fe import polyeval_dispatch
+
         x, c = _make_inputs(500, basis)
 
         # Auto-dispatch (no env override).
@@ -158,12 +161,11 @@ class TestCPUBitEquivalence:
         out_njit = polyeval_dispatch(basis, x, c)
 
         np.testing.assert_allclose(
-            out_auto, out_njit, rtol=1e-12, atol=0,
-            err_msg=(
-                f"A basis={basis}: auto-dispatch at n=500 should pick "
-                f"njit (n<_PAR_THRESHOLD); auto and forced-njit must "
-                f"match bit-for-bit."
-            ),
+            out_auto,
+            out_njit,
+            rtol=1e-12,
+            atol=0,
+            err_msg=(f"A basis={basis}: auto-dispatch at n=500 should pick " f"njit (n<_PAR_THRESHOLD); auto and forced-njit must " f"match bit-for-bit."),
         )
 
     @pytest.mark.parametrize("basis", BASES)
@@ -174,6 +176,7 @@ class TestCPUBitEquivalence:
         Horner has no cross-row reductions, so we expect tight agreement).
         """
         from mlframe.feature_selection.filters.hermite_fe import polyeval_dispatch
+
         x, c = _make_inputs(2000, basis, seed=1)
 
         monkeypatch.setenv("MLFRAME_POLYEVAL_BACKEND", "njit")
@@ -182,11 +185,12 @@ class TestCPUBitEquivalence:
         out_par = polyeval_dispatch(basis, x, c)
 
         np.testing.assert_allclose(
-            out_par, out_njit, rtol=1e-10, atol=1e-12,
+            out_par,
+            out_njit,
+            rtol=1e-10,
+            atol=1e-12,
             err_msg=(
-                f"A basis={basis}: njit_par must match njit; if you see "
-                f"large deltas the prange recurrence has a bug "
-                f"(off-by-one on the seed terms?)."
+                f"A basis={basis}: njit_par must match njit; if you see " f"large deltas the prange recurrence has a bug " f"(off-by-one on the seed terms?)."
             ),
         )
 
@@ -198,6 +202,7 @@ class TestCPUBitEquivalence:
 
 @pytest.mark.gpu
 class TestGPUBitEquivalence:
+    """The CUDA polyeval backend matches the njit CPU backend within a tight numerical tolerance (cupy required)."""
 
     @_REQUIRES_CUPY
     @pytest.mark.parametrize("basis", BASES)
@@ -224,7 +229,10 @@ class TestGPUBitEquivalence:
         # at test time), out_gpu equals out_cpu -- still fine for the
         # contract.
         np.testing.assert_allclose(
-            out_gpu, out_cpu, rtol=1e-9, atol=1e-10,
+            out_gpu,
+            out_cpu,
+            rtol=1e-9,
+            atol=1e-10,
             err_msg=(
                 f"B basis={basis}: CUDA Horner must match CPU Horner to "
                 f"rtol 1e-9; large delta indicates a recurrence-coefficient "
@@ -250,6 +258,7 @@ class TestGPUSpeedup:
 
     @_REQUIRES_CUPY
     def test_cuda_does_not_regress_vs_njit_par_at_5m(self, monkeypatch):
+        """At n=5e6 the CUDA backend wall time stays within 10x of njit_par (catches a gross regression, not a tie)."""
         pytest.importorskip("cupy")
         from mlframe.feature_selection.filters.hermite_fe import polyeval_dispatch
 
@@ -286,9 +295,7 @@ class TestGPUSpeedup:
         # bound still fires on a real regression (kernel decompile, sync
         # storm).
         assert t_cuda <= 10.0 * t_par + 0.1, (
-            f"C cuda regressed vs njit_par at n=5e6 chebyshev: "
-            f"t_cuda={t_cuda:.3f}s, t_par={t_par:.3f}s "
-            f"(ratio {t_cuda / t_par:.2f}x). Bound: <= 10x."
+            f"C cuda regressed vs njit_par at n=5e6 chebyshev: " f"t_cuda={t_cuda:.3f}s, t_par={t_par:.3f}s " f"(ratio {t_cuda / t_par:.2f}x). Bound: <= 10x."
         )
 
 
@@ -298,6 +305,7 @@ class TestGPUSpeedup:
 
 
 class TestEnvVarFallback:
+    """Every MLFRAME_POLYEVAL_BACKEND value produces finite output, and forcing cuda without cupy falls back silently."""
 
     @pytest.mark.parametrize("backend", ("", "njit", "njit_par"))
     @pytest.mark.parametrize("basis", BASES)
@@ -307,20 +315,15 @@ class TestEnvVarFallback:
         every basis.
         """
         from mlframe.feature_selection.filters.hermite_fe import polyeval_dispatch
+
         x, c = _make_inputs(1500, basis, seed=4)
         if backend == "":
             monkeypatch.delenv("MLFRAME_POLYEVAL_BACKEND", raising=False)
         else:
             monkeypatch.setenv("MLFRAME_POLYEVAL_BACKEND", backend)
         out = polyeval_dispatch(basis, x, c)
-        assert out.shape == x.shape, (
-            f"D backend={backend!r} basis={basis}: output shape "
-            f"{out.shape} != input shape {x.shape}"
-        )
-        assert np.all(np.isfinite(out)), (
-            f"D backend={backend!r} basis={basis}: output has non-finite "
-            f"values; backend force broke the recurrence."
-        )
+        assert out.shape == x.shape, f"D backend={backend!r} basis={basis}: output shape " f"{out.shape} != input shape {x.shape}"
+        assert np.all(np.isfinite(out)), f"D backend={backend!r} basis={basis}: output has non-finite " f"values; backend force broke the recurrence."
 
     @pytest.mark.parametrize("basis", BASES)
     def test_cuda_force_falls_back_when_cupy_missing(self, basis, monkeypatch):
@@ -330,6 +333,7 @@ class TestEnvVarFallback:
         Layer 40 re-pins per basis.
         """
         from mlframe.feature_selection.filters import hermite_fe as hfe
+
         monkeypatch.setenv("MLFRAME_POLYEVAL_BACKEND", "cuda")
         # Temporarily mask cupy availability so we test the fallback
         # path even when cupy IS installed (we want the contract to
@@ -340,9 +344,7 @@ class TestEnvVarFallback:
         out = hfe.polyeval_dispatch(basis, x, c)
         assert out.shape == x.shape
         assert np.all(np.isfinite(out)), (
-            f"D fallback basis={basis}: forced-cuda with masked cupy "
-            f"must silently route to a CPU backend and return finite "
-            f"output."
+            f"D fallback basis={basis}: forced-cuda with masked cupy " f"must silently route to a CPU backend and return finite " f"output."
         )
 
 
@@ -357,18 +359,21 @@ def _build_hybrid_fixture(seed: int = 0, n: int = 1500):
     ``x1__He2`` reliably at n=1500 (Layer 25 calibration)."""
     rng = np.random.default_rng(seed)
     x1 = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "x1": x1,
-        "noise_0": rng.standard_normal(n),
-        "noise_1": rng.standard_normal(n),
-        "noise_2": rng.standard_normal(n),
-        "noise_3": rng.standard_normal(n),
-    })
-    y = ((x1 ** 2 - 1.0) + 0.2 * rng.standard_normal(n) > 0).astype(int)
+    X = pd.DataFrame(
+        {
+            "x1": x1,
+            "noise_0": rng.standard_normal(n),
+            "noise_1": rng.standard_normal(n),
+            "noise_2": rng.standard_normal(n),
+            "noise_3": rng.standard_normal(n),
+        }
+    )
+    y = ((x1**2 - 1.0) + 0.2 * rng.standard_normal(n) > 0).astype(int)
     return X, pd.Series(y, name="y")
 
 
 def _mrmr_hybrid_kw():
+    """Common MRMR kwargs isolating the hybrid orth-poly (Hermite) FE path for the backend round-trip contract."""
     return dict(
         verbose=0,
         interactions_max_order=1,
@@ -397,6 +402,7 @@ def _mrmr_hybrid_kw():
 
 
 class TestRoundTripAcrossBackends:
+    """Fitting under one polyeval backend and transforming under another produces identical support and values."""
 
     @pytest.mark.parametrize(
         "fit_backend,transform_backend",
@@ -408,7 +414,10 @@ class TestRoundTripAcrossBackends:
         ],
     )
     def test_fit_transform_match_across_backends(
-        self, fit_backend, transform_backend, monkeypatch,
+        self,
+        fit_backend,
+        transform_backend,
+        monkeypatch,
     ):
         """Fit MRMR under one backend, transform under another. Support
         and transform-output values must match to numerical tolerance.
@@ -431,10 +440,7 @@ class TestRoundTripAcrossBackends:
         m = MRMR(**kw).fit(X, y)
         sup_fit = list(m.get_feature_names_out())
         # Sanity: hybrid signal was recovered.
-        assert "x1__He2" in sup_fit, (
-            f"E fit_backend={fit_backend!r}: hybrid must recover x1__He2 "
-            f"under fit-time backend; got {sup_fit}"
-        )
+        assert "x1__He2" in sup_fit, f"E fit_backend={fit_backend!r}: hybrid must recover x1__He2 " f"under fit-time backend; got {sup_fit}"
 
         # Transform reference under fit backend.
         X_ref = m.transform(X)
@@ -457,8 +463,10 @@ class TestRoundTripAcrossBackends:
         # the same Horner; the only float diff is associativity inside
         # prange, which Horner doesn't exercise across rows).
         np.testing.assert_allclose(
-            X_swapped.to_numpy(), X_ref.to_numpy(),
-            rtol=1e-9, atol=1e-10,
+            X_swapped.to_numpy(),
+            X_ref.to_numpy(),
+            rtol=1e-9,
+            atol=1e-10,
             err_msg=(
                 f"E fit={fit_backend!r} -> tx={transform_backend!r}: "
                 f"transform output diverged numerically when the polyeval "
@@ -483,11 +491,8 @@ def test_cupy_availability_reported():
     if _cupy_ok():
         msg = "cupy import + CUDA context OK -- GPU contracts will run"
     else:
-        msg = (
-            "cupy unavailable on this host -- GPU contracts skipped via "
-            "pytest.importorskip / skipif. CPU contracts still pinned."
-        )
+        msg = "cupy unavailable on this host -- GPU contracts skipped via " "pytest.importorskip / skipif. CPU contracts still pinned."
     # The "assert True" is here so the test never fails; the message
     # is captured by pytest -s.
-    print(msg)
+    print(msg)  # noqa: T201 -- informational report only visible under pytest -s
     assert True
