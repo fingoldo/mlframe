@@ -63,14 +63,15 @@ CONTRACTS PINNED
    behaviour explicitly so a future refactor that "helpfully" tries to
    re-detect column order doesn't silently break ndarray callers.
 """
+
 from __future__ import annotations
 
 import warnings
+from functools import cache
 
 import numpy as np
 import pandas as pd
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -126,15 +127,14 @@ def _build_cat_train(seed: int):
     rng = np.random.default_rng(seed)
     region = rng.choice(["A", "B", "C"], size=N_TRAIN)
     region_effect = {"A": -3.0, "B": 0.0, "C": 3.0}
-    y_arr = (
-        np.array([region_effect[r] for r in region])
-        + 0.3 * rng.standard_normal(N_TRAIN)
+    y_arr = np.array([region_effect[r] for r in region]) + 0.3 * rng.standard_normal(N_TRAIN)
+    X = pd.DataFrame(
+        {
+            "noise_a": rng.standard_normal(N_TRAIN),
+            "region": pd.Categorical(region, categories=["A", "B", "C"]),
+            "noise_b": rng.standard_normal(N_TRAIN),
+        }
     )
-    X = pd.DataFrame({
-        "noise_a": rng.standard_normal(N_TRAIN),
-        "region": pd.Categorical(region, categories=["A", "B", "C"]),
-        "noise_b": rng.standard_normal(N_TRAIN),
-    })
     return X, pd.Series(y_arr, name="y_reg")
 
 
@@ -146,6 +146,7 @@ def _build_cat_train(seed: int):
 def _make_mrmr(**overrides):
     """Default-config MRMR with wall-time pins; Wave 9 production surface."""
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     kwargs = dict(
         verbose=0,
         interactions_max_order=1,
@@ -156,15 +157,59 @@ def _make_mrmr(**overrides):
 
 
 def _fit_quiet(sel, X, y):
+    """Fit ``sel`` on ``(X, y)`` with warnings silenced; return the fitted estimator."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         return sel.fit(X, y)
 
 
 def _transform_quiet(sel, X):
+    """Transform ``X`` through ``sel`` with warnings silenced."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         return sel.transform(X)
+
+
+@cache
+def _numeric_train_fit(seed: int):
+    """Cached ``(X_train, y_train, sel)`` for the default-config fit on the
+    clean numeric train frame, shared across 8 tests (support-stability,
+    mean/variance/partial shift, all-NaN, reordered DataFrame, combined
+    shift). Nothing downstream mutates X_train/y_train/sel in place --
+    every consumer only calls transform() on a freshly-built X_test or
+    inspects sel's fit-time attributes.
+    """
+    X_train, y_train = _build_numeric_train(seed)
+    sel = _make_mrmr(random_seed=seed)
+    _fit_quiet(sel, X_train, y_train)
+    return X_train, y_train, sel
+
+
+@cache
+def _cat_train_fit(seed: int):
+    """Cached ``(X_train, y_train, sel)`` for the default-config fit on the
+    categorical train frame, shared across TestUnseenCategoricalLevel's 2
+    tests. Nothing downstream mutates X_train/y_train/sel in place.
+    """
+    X_train, y_train = _build_cat_train(seed)
+    sel = _make_mrmr(random_seed=seed)
+    _fit_quiet(sel, X_train, y_train)
+    return X_train, y_train, sel
+
+
+@cache
+def _numeric_train_ndarray_fit(seed: int):
+    """Cached ``(X_arr, y_train, sel)`` for the default-config fit on the
+    naked-ndarray view of the numeric train frame, shared across
+    TestNdarrayShapeMismatch's 2 tests and
+    test_reordered_ndarray_is_positional. Nothing downstream mutates
+    X_arr/y_train/sel in place.
+    """
+    X_train, y_train = _build_numeric_train(seed)
+    X_arr = X_train.to_numpy()
+    sel = _make_mrmr(random_seed=seed)
+    _fit_quiet(sel, X_arr, np.asarray(y_train))
+    return X_arr, y_train, sel
 
 
 # ---------------------------------------------------------------------------
@@ -181,9 +226,8 @@ class TestSupportIsFitTimeDecision:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_support_unchanged_after_transform(self, seed):
-        X_train, y_train = _build_numeric_train(seed)
-        sel = _make_mrmr(random_seed=seed)
-        _fit_quiet(sel, X_train, y_train)
+        """transform() must not mutate support_/feature_names_in_/n_features_in_."""
+        _X_train, _y_train, sel = _numeric_train_fit(seed)
         support_before = np.array(sel.support_, copy=True)
         names_before = list(sel.feature_names_in_)
         n_in_before = sel.n_features_in_
@@ -192,17 +236,10 @@ class TestSupportIsFitTimeDecision:
         _transform_quiet(sel, X_test)
 
         assert np.array_equal(np.array(sel.support_), support_before), (
-            f"support_ mutated by transform on shifted data; seed={seed}. "
-            f"fit-time decision must be frozen across transform calls."
+            f"support_ mutated by transform on shifted data; seed={seed}. " f"fit-time decision must be frozen across transform calls."
         )
-        assert list(sel.feature_names_in_) == names_before, (
-            f"feature_names_in_ mutated by transform on shifted data; "
-            f"seed={seed}."
-        )
-        assert sel.n_features_in_ == n_in_before, (
-            f"n_features_in_ mutated by transform on shifted data; "
-            f"seed={seed}."
-        )
+        assert list(sel.feature_names_in_) == names_before, f"feature_names_in_ mutated by transform on shifted data; " f"seed={seed}."
+        assert sel.n_features_in_ == n_in_before, f"n_features_in_ mutated by transform on shifted data; " f"seed={seed}."
 
 
 # ---------------------------------------------------------------------------
@@ -218,35 +255,24 @@ class TestMeanShiftTransform:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_mean_shift_returns_selected_columns(self, seed):
-        X_train, y_train = _build_numeric_train(seed)
-        sel = _make_mrmr(random_seed=seed)
-        _fit_quiet(sel, X_train, y_train)
+        """Mean-shifted test frame still transforms to the fit-time selected columns."""
+        _X_train, _y_train, sel = _numeric_train_fit(seed)
         selected = list(sel.get_feature_names_out())
         assert len(selected) >= 1, f"empty support_ on clean train; seed={seed}"
 
         X_test = _build_numeric_test(seed) + 2.0
         out = _transform_quiet(sel, X_test)
-        assert isinstance(out, pd.DataFrame), (
-            f"transform should return a DataFrame for DataFrame input; "
-            f"seed={seed}, got {type(out).__name__}"
-        )
+        assert isinstance(out, pd.DataFrame), f"transform should return a DataFrame for DataFrame input; " f"seed={seed}, got {type(out).__name__}"
         assert list(out.columns) == selected, (
-            f"mean-shift transform returned different columns than "
-            f"get_feature_names_out; seed={seed}. "
-            f"got={list(out.columns)}, expected={selected}"
+            f"mean-shift transform returned different columns than " f"get_feature_names_out; seed={seed}. " f"got={list(out.columns)}, expected={selected}"
         )
-        assert out.shape[0] == X_test.shape[0], (
-            f"transform row count {out.shape[0]} != input {X_test.shape[0]}; "
-            f"seed={seed}"
-        )
+        assert out.shape[0] == X_test.shape[0], f"transform row count {out.shape[0]} != input {X_test.shape[0]}; " f"seed={seed}"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_mean_shift_values_match_input_columns(self, seed):
         """The values in transform's output ARE the values in X_test at
         the selected columns -- no silent transformation."""
-        X_train, y_train = _build_numeric_train(seed)
-        sel = _make_mrmr(random_seed=seed)
-        _fit_quiet(sel, X_train, y_train)
+        _X_train, _y_train, sel = _numeric_train_fit(seed)
         selected = list(sel.get_feature_names_out())
         X_test = _build_numeric_test(seed) + 2.0
         out = _transform_quiet(sel, X_test)
@@ -254,11 +280,8 @@ class TestMeanShiftTransform:
             if col not in X_test.columns:
                 # engineered recipe column, skip value comparison
                 continue
-            assert np.array_equal(
-                out[col].to_numpy(), X_test[col].to_numpy()
-            ), (
-                f"mean-shift transform mutated values of column {col!r}; "
-                f"seed={seed}. transform should be a pure column selector."
+            assert np.array_equal(out[col].to_numpy(), X_test[col].to_numpy()), (
+                f"mean-shift transform mutated values of column {col!r}; " f"seed={seed}. transform should be a pure column selector."
             )
 
 
@@ -274,16 +297,12 @@ class TestVarianceShiftTransform:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_variance_shift_returns_correct_columns(self, seed):
-        X_train, y_train = _build_numeric_train(seed)
-        sel = _make_mrmr(random_seed=seed)
-        _fit_quiet(sel, X_train, y_train)
+        """Variance-shifted test frame still transforms to the fit-time selected columns."""
+        _X_train, _y_train, sel = _numeric_train_fit(seed)
         selected = list(sel.get_feature_names_out())
         X_test = _build_numeric_test(seed) * 2.0  # 2x std => 4x variance
         out = _transform_quiet(sel, X_test)
-        assert list(out.columns) == selected, (
-            f"variance-shift transform changed column set; seed={seed}. "
-            f"got={list(out.columns)}, expected={selected}"
-        )
+        assert list(out.columns) == selected, f"variance-shift transform changed column set; seed={seed}. " f"got={list(out.columns)}, expected={selected}"
 
 
 # ---------------------------------------------------------------------------
@@ -300,19 +319,15 @@ class TestPartialShiftTransform:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_partial_shift_preserves_fit_time_selection(self, seed):
-        X_train, y_train = _build_numeric_train(seed)
-        sel = _make_mrmr(random_seed=seed)
-        _fit_quiet(sel, X_train, y_train)
+        """A single-column drift at transform time must not change the selected column set."""
+        _X_train, _y_train, sel = _numeric_train_fit(seed)
         selected_before = list(sel.get_feature_names_out())
 
         X_test = _build_numeric_test(seed)
         X_test["x_signal_1"] = X_test["x_signal_1"] + 5.0  # only this drifts
         out = _transform_quiet(sel, X_test)
 
-        assert list(out.columns) == selected_before, (
-            f"partial-shift transform changed column set; seed={seed}. "
-            f"selection must be frozen at fit time."
-        )
+        assert list(out.columns) == selected_before, f"partial-shift transform changed column set; seed={seed}. " f"selection must be frozen at fit time."
 
 
 # ---------------------------------------------------------------------------
@@ -331,20 +346,19 @@ class TestUnseenCategoricalLevel:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_unseen_level_does_not_crash(self, seed):
-        X_train, y_train = _build_cat_train(seed)
-        sel = _make_mrmr(random_seed=seed)
-        _fit_quiet(sel, X_train, y_train)
+        """A test-time-only categorical level either passes through or raises an actionable error."""
+        _X_train, _y_train, sel = _cat_train_fit(seed)
         selected = list(sel.get_feature_names_out())
 
         rng = np.random.default_rng(seed + 33_333)
         region_test = rng.choice(["B", "C", "D"], size=N_TEST)
-        X_test = pd.DataFrame({
-            "noise_a": rng.standard_normal(N_TEST),
-            "region": pd.Categorical(
-                region_test, categories=["A", "B", "C", "D"]
-            ),
-            "noise_b": rng.standard_normal(N_TEST),
-        })
+        X_test = pd.DataFrame(
+            {
+                "noise_a": rng.standard_normal(N_TEST),
+                "region": pd.Categorical(region_test, categories=["A", "B", "C", "D"]),
+                "noise_b": rng.standard_normal(N_TEST),
+            }
+        )
         # Acceptable outcomes: (a) transform succeeds and returns a frame
         # whose columns match the fit-time selection, OR (b) raises a
         # clean ValueError / RuntimeError naming the offending level.
@@ -362,10 +376,7 @@ class TestUnseenCategoricalLevel:
                 f"through) or ValueError / RuntimeError naming the "
                 f"unseen level."
             )
-        assert list(out.columns) == selected, (
-            f"unseen-level transform changed column set; seed={seed}. "
-            f"got={list(out.columns)}, expected={selected}"
-        )
+        assert list(out.columns) == selected, f"unseen-level transform changed column set; seed={seed}. " f"got={list(out.columns)}, expected={selected}"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_unseen_level_passes_through_when_cat_selected(self, seed):
@@ -373,35 +384,27 @@ class TestUnseenCategoricalLevel:
         appear in the returned column -- the selector does NOT
         silently drop / re-encode rows.
         """
-        X_train, y_train = _build_cat_train(seed)
-        sel = _make_mrmr(random_seed=seed)
-        _fit_quiet(sel, X_train, y_train)
+        _X_train, _y_train, sel = _cat_train_fit(seed)
         selected = list(sel.get_feature_names_out())
         if "region" not in selected:
             return  # cat not selected; passthrough contract trivially holds
 
         rng = np.random.default_rng(seed + 33_333)
         region_test = rng.choice(["B", "C", "D"], size=N_TEST)
-        X_test = pd.DataFrame({
-            "noise_a": rng.standard_normal(N_TEST),
-            "region": pd.Categorical(
-                region_test, categories=["A", "B", "C", "D"]
-            ),
-            "noise_b": rng.standard_normal(N_TEST),
-        })
+        X_test = pd.DataFrame(
+            {
+                "noise_a": rng.standard_normal(N_TEST),
+                "region": pd.Categorical(region_test, categories=["A", "B", "C", "D"]),
+                "noise_b": rng.standard_normal(N_TEST),
+            }
+        )
         try:
             out = _transform_quiet(sel, X_test)
         except (ValueError, RuntimeError):
             return  # accepted alternative
-        assert "region" in out.columns, (
-            f"region selected at fit but dropped at transform; "
-            f"seed={seed}"
-        )
+        assert "region" in out.columns, f"region selected at fit but dropped at transform; " f"seed={seed}"
         # Row count must be preserved (no silent filtering of unseen levels)
-        assert out.shape[0] == X_test.shape[0], (
-            f"transform dropped rows containing unseen level D; "
-            f"seed={seed}. out={out.shape[0]}, in={X_test.shape[0]}"
-        )
+        assert out.shape[0] == X_test.shape[0], f"transform dropped rows containing unseen level D; " f"seed={seed}. out={out.shape[0]}, in={X_test.shape[0]}"
 
 
 # ---------------------------------------------------------------------------
@@ -418,9 +421,8 @@ class TestAllNaNTestTransform:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_all_nan_test_does_not_crash(self, seed):
-        X_train, y_train = _build_numeric_train(seed)
-        sel = _make_mrmr(random_seed=seed)
-        _fit_quiet(sel, X_train, y_train)
+        """An all-NaN test frame transforms without crashing; selector passes NaN through."""
+        _X_train, _y_train, sel = _numeric_train_fit(seed)
         selected = list(sel.get_feature_names_out())
 
         # Build NaN test frame with the SAME columns as train -- column
@@ -429,18 +431,14 @@ class TestAllNaNTestTransform:
         X_test = _build_numeric_test(seed).astype(float)
         X_test[:] = np.nan
         out = _transform_quiet(sel, X_test)
-        assert list(out.columns) == selected, (
-            f"all-NaN transform returned different columns; seed={seed}"
-        )
+        assert list(out.columns) == selected, f"all-NaN transform returned different columns; seed={seed}"
         assert out.shape[0] == X_test.shape[0]
         # Selector passes through; output must still be all-NaN at the
         # selected columns.
         for col in selected:
             if col not in X_test.columns:
                 continue  # engineered recipe -- may not be NaN
-            assert out[col].isna().all(), (
-                f"selector mutated NaN values at col {col!r}; seed={seed}"
-            )
+            assert out[col].isna().all(), f"selector mutated NaN values at col {col!r}; seed={seed}"
 
 
 # ---------------------------------------------------------------------------
@@ -458,9 +456,8 @@ class TestDataFrameColumnReorderRealignByName:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_reordered_dataframe_returns_correct_values(self, seed):
-        X_train, y_train = _build_numeric_train(seed)
-        sel = _make_mrmr(random_seed=seed)
-        _fit_quiet(sel, X_train, y_train)
+        """A column-reordered DataFrame realigns by name and produces identical values."""
+        _X_train, _y_train, sel = _numeric_train_fit(seed)
         selected = list(sel.get_feature_names_out())
 
         X_test = _build_numeric_test(seed)
@@ -471,18 +468,13 @@ class TestDataFrameColumnReorderRealignByName:
 
         assert list(out_orig.columns) == selected
         assert list(out_rev.columns) == selected, (
-            f"reordered DataFrame transform produced different column "
-            f"set than original; seed={seed}. "
-            f"reorder={list(out_rev.columns)}, orig={selected}"
+            f"reordered DataFrame transform produced different column " f"set than original; seed={seed}. " f"reorder={list(out_rev.columns)}, orig={selected}"
         )
         for col in selected:
             if col not in X_test.columns:
                 continue  # engineered
-            assert np.array_equal(
-                out_orig[col].to_numpy(), out_rev[col].to_numpy()
-            ), (
-                f"reordered DataFrame produced different values at col "
-                f"{col!r} -- positional selection bug. seed={seed}"
+            assert np.array_equal(out_orig[col].to_numpy(), out_rev[col].to_numpy()), (
+                f"reordered DataFrame produced different values at col " f"{col!r} -- positional selection bug. seed={seed}"
             )
 
 
@@ -501,30 +493,22 @@ class TestNdarrayShapeMismatch:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_fewer_cols_raises_valueerror(self, seed):
-        X_train, y_train = _build_numeric_train(seed)
-        X_arr = X_train.to_numpy()
-        sel = _make_mrmr(random_seed=seed)
-        _fit_quiet(sel, X_arr, np.asarray(y_train))
+        """A narrower ndarray at transform time raises ValueError naming the expected feature count."""
+        X_arr, _y_train, sel = _numeric_train_ndarray_fit(seed)
         # Drop the last column
         X_test_bad = X_arr[:, :-1]
         with pytest.raises(ValueError) as exc_info:
             _transform_quiet(sel, X_test_bad)
         msg = str(exc_info.value).lower()
-        assert "features" in msg, (
-            f"ValueError message missing 'features'; seed={seed}, "
-            f"got: {exc_info.value!r}"
-        )
+        assert "features" in msg, f"ValueError message missing 'features'; seed={seed}, " f"got: {exc_info.value!r}"
         assert str(X_arr.shape[1]) in str(exc_info.value), (
-            f"ValueError message should mention expected feature count "
-            f"({X_arr.shape[1]}); seed={seed}, got: {exc_info.value!r}"
+            f"ValueError message should mention expected feature count " f"({X_arr.shape[1]}); seed={seed}, got: {exc_info.value!r}"
         )
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_more_cols_raises_valueerror(self, seed):
-        X_train, y_train = _build_numeric_train(seed)
-        X_arr = X_train.to_numpy()
-        sel = _make_mrmr(random_seed=seed)
-        _fit_quiet(sel, X_arr, np.asarray(y_train))
+        """A wider ndarray at transform time raises ValueError."""
+        X_arr, _y_train, sel = _numeric_train_ndarray_fit(seed)
         # Add a junk column
         X_test_bad = np.column_stack([X_arr, np.zeros(X_arr.shape[0])])
         with pytest.raises(ValueError):
@@ -550,10 +534,8 @@ class TestNdarraySameShapeReorderedIsPositional:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_reordered_ndarray_is_positional(self, seed):
-        X_train, y_train = _build_numeric_train(seed)
-        X_arr = X_train.to_numpy()
-        sel = _make_mrmr(random_seed=seed)
-        _fit_quiet(sel, X_arr, np.asarray(y_train))
+        """A naked ndarray with reordered content is transformed by fit-time POSITION, not name."""
+        X_arr, _y_train, sel = _numeric_train_ndarray_fit(seed)
         support = np.asarray(sel.support_)
         if support.dtype == bool:
             support_idx = np.flatnonzero(support)
@@ -568,20 +550,15 @@ class TestNdarraySameShapeReorderedIsPositional:
 
         out_orig = _transform_quiet(sel, X_test)
         out_rev = _transform_quiet(sel, X_test_rev)
-        assert out_orig.shape == out_rev.shape, (
-            f"transform shape changed under content reorder; seed={seed}"
-        )
+        assert out_orig.shape == out_rev.shape, f"transform shape changed under content reorder; seed={seed}"
         # Positional contract: out_orig[:, k] == X_test[:, support_idx[k]],
         # out_rev[:, k] == X_test_rev[:, support_idx[k]]
         for k, j in enumerate(support_idx):
             assert np.array_equal(out_orig[:, k], X_test[:, j]), (
-                f"unreordered ndarray transform did not select position "
-                f"{j} at output slot {k}; seed={seed}"
+                f"unreordered ndarray transform did not select position " f"{j} at output slot {k}; seed={seed}"
             )
             assert np.array_equal(out_rev[:, k], X_test_rev[:, j]), (
-                f"reordered ndarray transform did not select position "
-                f"{j} at output slot {k} -- positional contract broken. "
-                f"seed={seed}"
+                f"reordered ndarray transform did not select position " f"{j} at output slot {k} -- positional contract broken. " f"seed={seed}"
             )
 
 
@@ -598,9 +575,8 @@ class TestEndToEndShiftedTransform:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_combined_shifts_transform_succeeds(self, seed):
-        X_train, y_train = _build_numeric_train(seed)
-        sel = _make_mrmr(random_seed=seed)
-        _fit_quiet(sel, X_train, y_train)
+        """Mean + variance + per-column drift + NaN sprinkle combined: transform still succeeds."""
+        _X_train, _y_train, sel = _numeric_train_fit(seed)
         selected = list(sel.get_feature_names_out())
 
         X_test = _build_numeric_test(seed)
