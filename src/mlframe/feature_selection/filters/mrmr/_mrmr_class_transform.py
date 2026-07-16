@@ -1,11 +1,14 @@
 """sklearn transform-protocol surface (get_feature_names_out / get_support / usability union) for MRMR.
 
-Pure move from ``_mrmr_class`` into a mixin. ``transform`` itself stays on the ``MRMR`` class body (so
-``_SetOutputMixin.__init_subclass__`` still wraps it for ``set_output``); the helpers it and the sklearn
-protocol call live here and resolve through the MRO on the concrete ``MRMR`` instance.
+Pure move from ``_mrmr_class`` into a mixin. ``transform`` itself stays directly on the ``MRMR`` class
+body -- see its docstring in ``_mrmr_class.py`` for why (``_SetOutputMixin.__init_subclass__`` wrapping);
+the helpers it and the sklearn protocol call live here and resolve through the MRO on the concrete
+``MRMR`` instance.
 """
 
 from __future__ import annotations
+
+from typing import Literal
 
 import numpy as np
 
@@ -19,8 +22,8 @@ class _MRMRTransformMixin:
     support_: np.ndarray
 
     def transform(self, X):
-        """sklearn transformer protocol placeholder; the concrete MRMR class overrides this on the class body itself (see module docstring), so calling it on the mixin directly is a programming error."""
-        raise NotImplementedError  # overridden on the concrete MRMR class body (see module docstring)
+        """Placeholder; MRMR.transform (class body, see its docstring) always overrides this."""
+        raise NotImplementedError
 
     def get_feature_names_out(self, input_features=None):
         """sklearn-1.x transformer protocol. Returns the names of selected features as an ndarray of str,
@@ -213,7 +216,7 @@ class _MRMRTransformMixin:
         mat.index = base_out.index
         return pd.concat([base_out, mat], axis=1)
 
-    def transform_usability(self, X, which: str = "linear"):
+    def transform_usability(self, X, which: Literal["linear", "universal", "nonlinear"] = "linear"):
         """Materialise a USABILITY-AWARE feature space on ``X`` -- the linear-downstream selection
         produced when the estimator was fit with ``usability_aware_lists=True``.
 
