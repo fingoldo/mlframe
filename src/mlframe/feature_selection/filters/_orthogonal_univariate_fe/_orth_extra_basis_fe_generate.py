@@ -226,11 +226,7 @@ def generate_extra_basis_features(
         # Auto-gate: only let the adaptive Fourier/chirp operators fire where the raw column is NOT already a strong smooth predictor of y (see _ADAPTIVE_FE_RAW_USABILITY_CAP).
         _adaptive_fe_ok = True
         if _y_adapt is not None and (fourier_adaptive or fourier_chirp):
-            _r2 = (
-                _heldout_smooth_r2_fast(x, _y_adapt_prep)
-                if _y_adapt_prep is not None
-                else _heldout_smooth_r2(x, _y_adapt)
-            )
+            _r2 = _heldout_smooth_r2_fast(x, _y_adapt_prep) if _y_adapt_prep is not None else _heldout_smooth_r2(x, _y_adapt)
             _adaptive_fe_ok = _r2 < _ADAPTIVE_FE_RAW_USABILITY_CAP
             # Column-count cap on the expensive detector itself (2026-07-09 fix, see max_adaptive_cols
             # docstring) -- columns beyond the cap still get the cheap fixed-grid Fourier basis below,
