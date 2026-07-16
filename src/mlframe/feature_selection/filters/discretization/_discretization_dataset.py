@@ -19,6 +19,14 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
+_xxh3_128: Optional[Callable] = None
+try:
+    import xxhash as _xxhash
+
+    _xxh3_128 = _xxhash.xxh3_128_digest
+except Exception:  # nosec B110 - xxhash optional: falls back to blake2b below
+    pass
+
 
 def _discretize_input_dtype():
     """Working dtype for the numeric matrix that ``categorize_dataset`` discretises.
@@ -98,14 +106,24 @@ def _discretize_2d_array_col_cached(arr, *, n_bins, method, min_ncats, dtype, di
         return discretize_2d_array(arr=arr, n_bins=n_bins, method=method, min_ncats=min_ncats, min_values=None, max_values=None, dtype=dtype)
 
     _param_tag = repr((int(n_bins), str(method), int(min_ncats), np.dtype(dtype).str)).encode()
-    # Hash every column FIRST, outside the lock (blake2b over n_rows bytes is the costly part and needs no
-    # shared state), so concurrent threads hash in parallel.
+    # Hash every column FIRST, outside the lock (the hashing is the costly part and needs no shared
+    # state), so concurrent threads hash in parallel.
+    # ONE bulk transpose instead of ``n_cols`` separate ``np.ascontiguousarray(arr[:, j])`` copies: each
+    # column-slice of the C-order ``arr`` is non-contiguous (strided), so copying them one at a time (the
+    # previous code) pays that strided-gather cost ``n_cols`` times; ``arr.T`` made contiguous ONCE gives
+    # each column as a contiguous ROW (``arrT[j]``), no further copy needed. Bit-identical bytes either way.
+    arrT = np.ascontiguousarray(arr.T)
     keys: list = []
-    for j in range(n_cols):
-        col = np.ascontiguousarray(arr[:, j])
-        h = hashlib.blake2b(col.tobytes(), digest_size=16)
-        h.update(_param_tag)
-        keys.append(h.digest())
+    if _xxh3_128 is not None:
+        # xxh3 (non-cryptographic, content-only fingerprint -- this cache key never needs collision
+        # resistance against an adversary) is an order of magnitude faster than blake2b for this purpose;
+        # 128-bit digest keeps the same collision margin blake2b's digest_size=16 gave.
+        keys.extend(_xxh3_128(arrT[j]) + _param_tag for j in range(n_cols))
+    else:
+        for j in range(n_cols):
+            hh = hashlib.blake2b(arrT[j].tobytes(), digest_size=16)
+            hh.update(_param_tag)
+            keys.append(hh.digest())
 
     out = np.empty((n_rows, n_cols), dtype=dtype)
     uncached_cols: list = []

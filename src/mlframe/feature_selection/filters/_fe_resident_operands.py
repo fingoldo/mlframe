@@ -34,7 +34,7 @@ Pickle-safe: this cache is module-level and NEVER stored on an MRMR instance (mi
 
 import os as _os
 from collections import OrderedDict
-from typing import Any
+from typing import Any, Callable, Optional
 
 import numpy as _np
 
@@ -72,12 +72,13 @@ except Exception:  # numba optional: fall through to the tobytes hash below
 # dtype-str still split the space; a 64-bit content hash collides no more than Python's siphash-based
 # ``hash(bytes)`` did), so keying on it is exactly as safe against a stale-buffer alias. If xxhash is absent, or
 # the array is not C-contiguous (buffer protocol would reject it), fall back to the original tobytes hash.
+_xxh3_64: Optional[Callable] = None
 try:
     import xxhash as _xxhash
 
     _xxh3_64 = _xxhash.xxh3_64_intdigest
-except Exception:  # xxhash optional: correctness identical via the tobytes fallback, only the copy churn returns
-    _xxh3_64 = None
+except Exception:  # nosec B110 - xxhash optional: correctness identical via the tobytes fallback, only the copy churn returns
+    pass
 
 
 def _content_hash(host: Any) -> int:
