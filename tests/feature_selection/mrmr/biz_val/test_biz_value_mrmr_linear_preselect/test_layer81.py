@@ -45,6 +45,7 @@ Contracts pinned
 
 NEVER xfail.
 """
+
 from __future__ import annotations
 
 import pickle
@@ -69,26 +70,33 @@ SEEDS = (1, 7, 13, 42, 101)
 
 
 def _import_lasso():
+    """Lazily import the Lasso (L1) coefficient-based FE functions."""
     from mlframe.feature_selection.filters._orthogonal_lasso_fe import (
         hybrid_orth_mi_lasso_fe,
         score_features_by_lasso_coef,
     )
+
     return hybrid_orth_mi_lasso_fe, score_features_by_lasso_coef
 
 
 def _import_mi():
+    """Lazily import the plug-in MI FE function (comparison baseline)."""
     from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
         hybrid_orth_mi_fe,
     )
+
     return hybrid_orth_mi_fe
 
 
 def _import_mrmr():
+    """Lazily import the MRMR class."""
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     return MRMR
 
 
 def _make_mrmr(**overrides):
+    """Build an MRMR with cheap, deterministic default knobs that isolate the Lasso-preselect FE stage."""
     MRMR = _import_mrmr()
     kwargs = dict(
         verbose=0,
@@ -122,15 +130,17 @@ def _build_linear_additive(seed: int, n: int = 1500):
     rng = np.random.default_rng(seed)
     x1 = rng.standard_normal(n)
     x2 = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "x1": x1,
-        "x2": x2,
-        "noise_0": rng.standard_normal(n),
-        "noise_1": rng.standard_normal(n),
-        "noise_2": rng.standard_normal(n),
-    })
-    he2_x1 = x1 ** 2 - 1.0
-    he2_x2 = x2 ** 2 - 1.0
+    X = pd.DataFrame(
+        {
+            "x1": x1,
+            "x2": x2,
+            "noise_0": rng.standard_normal(n),
+            "noise_1": rng.standard_normal(n),
+            "noise_2": rng.standard_normal(n),
+        }
+    )
+    he2_x1 = x1**2 - 1.0
+    he2_x2 = x2**2 - 1.0
     y = 1.5 * he2_x1 + 0.8 * he2_x2 + 0.3 * rng.standard_normal(n)
     return X, y
 
@@ -152,13 +162,15 @@ def _build_single_source_quadratic(seed: int, n: int = 1500):
     rng = np.random.default_rng(seed)
     x1 = rng.standard_normal(n)
     x2 = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "x1": x1,
-        "x2": x2,
-        "noise_0": rng.standard_normal(n),
-        "noise_1": rng.standard_normal(n),
-    })
-    he2_x1 = x1 ** 2 - 1.0
+    X = pd.DataFrame(
+        {
+            "x1": x1,
+            "x2": x2,
+            "noise_0": rng.standard_normal(n),
+            "noise_1": rng.standard_normal(n),
+        }
+    )
+    he2_x1 = x1**2 - 1.0
     y_cont = 1.5 * he2_x1 + 0.3 * rng.standard_normal(n)
     y_bin = (y_cont > 0).astype(int)
     return X, pd.Series(y_bin, name="y"), y_cont
@@ -178,13 +190,15 @@ def _build_oscillatory(seed: int, n: int = 500):
     rng = np.random.default_rng(seed)
     x1 = rng.standard_normal(n)
     x2 = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "x1": x1,
-        "x2": x2,
-        "noise_0": rng.standard_normal(n),
-        "noise_1": rng.standard_normal(n),
-        "noise_2": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "x1": x1,
+            "x2": x2,
+            "noise_0": rng.standard_normal(n),
+            "noise_1": rng.standard_normal(n),
+            "noise_2": rng.standard_normal(n),
+        }
+    )
     y_cont = np.sin(5.0 * x1) + 0.1 * rng.standard_normal(n)
     y_bin = (y_cont > 0).astype(int)
     return X, pd.Series(y_bin, name="y"), y_cont
@@ -196,6 +210,7 @@ def _build_oscillatory(seed: int, n: int = 500):
 
 
 class TestLassoPrefersLinearContributions:
+    """On an additive linear signal, Lasso's |coef| ranking correctly picks both truly-contributing He_2 columns."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_top2_engineered_are_he2_x1_and_x2(self, seed):
@@ -210,9 +225,13 @@ class TestLassoPrefersLinearContributions:
         # Continuous y matches Lasso's regression target; we run with low
         # gates so the test reads raw ranking, not gate filtering.
         _X_aug, scores = hybrid_lasso(
-            X, y_cont,
-            degrees=(2, 3), basis="hermite",
-            top_k=2, min_uplift=0.0, min_abs_mi_frac=0.0,
+            X,
+            y_cont,
+            degrees=(2, 3),
+            basis="hermite",
+            top_k=2,
+            min_uplift=0.0,
+            min_abs_mi_frac=0.0,
             alpha=0.01,
         )
         # Engineered columns sorted by |coef| descending -- the top-2 must
@@ -239,23 +258,19 @@ class TestLassoPrefersLinearContributions:
         hybrid_lasso, _ = _import_lasso()
         X, y_cont = _build_linear_additive(seed)
         _X_aug, scores = hybrid_lasso(
-            X, y_cont,
-            degrees=(2, 3), basis="hermite",
-            top_k=10, min_uplift=0.0, min_abs_mi_frac=0.0,
+            X,
+            y_cont,
+            degrees=(2, 3),
+            basis="hermite",
+            top_k=10,
+            min_uplift=0.0,
+            min_abs_mi_frac=0.0,
             alpha=0.01,
         )
         noise_rows = scores[scores["source_col"].str.startswith("noise_")]
-        signal_rows = scores[scores["engineered_col"].isin(
-            ["x1__He2", "x2__He2"]
-        )]
-        max_noise_coef = (
-            float(noise_rows["engineered_mi"].max())
-            if not noise_rows.empty else 0.0
-        )
-        min_signal_coef = (
-            float(signal_rows["engineered_mi"].min())
-            if not signal_rows.empty else 0.0
-        )
+        signal_rows = scores[scores["engineered_col"].isin(["x1__He2", "x2__He2"])]
+        max_noise_coef = float(noise_rows["engineered_mi"].max()) if not noise_rows.empty else 0.0
+        min_signal_coef = float(signal_rows["engineered_mi"].min()) if not signal_rows.empty else 0.0
         # Signal-to-noise ratio floor: smallest true-signal coefficient
         # dominates the largest surviving noise coefficient by >= 50x.
         # On the seed=101 case, noise coef = 2.5e-3, signal min = 0.79;
@@ -276,6 +291,7 @@ class TestLassoPrefersLinearContributions:
 
 
 class TestLassoAgreesWithMIOnLinearTop1:
+    """On a clean single-source linear-additive signal, Lasso and MI both rank x1__He2 as the top-1 engineered column."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_top1_engineered_is_x1_he2_for_both(self, seed):
@@ -293,25 +309,29 @@ class TestLassoAgreesWithMIOnLinearTop1:
         hybrid_mi = _import_mi()
         X, y_bin, y_cont = _build_single_source_quadratic(seed)
         _X_l, scores_lasso = hybrid_lasso(
-            X, y_cont,
-            degrees=(2, 3), basis="hermite",
-            top_k=3, min_uplift=0.0, min_abs_mi_frac=0.0,
+            X,
+            y_cont,
+            degrees=(2, 3),
+            basis="hermite",
+            top_k=3,
+            min_uplift=0.0,
+            min_abs_mi_frac=0.0,
             alpha=0.01,
         )
         _X_m, scores_mi = hybrid_mi(
-            X, y_bin.to_numpy(),
-            degrees=(2, 3), basis="hermite",
-            top_k=3, min_uplift=0.0, min_abs_mi_frac=0.0,
+            X,
+            y_bin.to_numpy(),
+            degrees=(2, 3),
+            basis="hermite",
+            top_k=3,
+            min_uplift=0.0,
+            min_abs_mi_frac=0.0,
             nbins=10,
         )
         # Rank both by engineered_mi (primary metric: |coef| for Lasso,
         # plug-in MI for the MI path).
-        top1_lasso = scores_lasso.sort_values(
-            "engineered_mi", ascending=False
-        )["engineered_col"].iloc[0]
-        top1_mi = scores_mi.sort_values(
-            "engineered_mi", ascending=False
-        )["engineered_col"].iloc[0]
+        top1_lasso = scores_lasso.sort_values("engineered_mi", ascending=False)["engineered_col"].iloc[0]
+        top1_mi = scores_mi.sort_values("engineered_mi", ascending=False)["engineered_col"].iloc[0]
         assert top1_lasso == "x1__He2", (
             f"seed={seed}: Lasso top-1 engineered should be x1__He2 on "
             f"linear He_2(x_1) signal; got {top1_lasso!r}. "
@@ -330,6 +350,7 @@ class TestLassoAgreesWithMIOnLinearTop1:
 
 
 class TestLassoUnderperformsOnNonMonotone:
+    """On a highly oscillatory target, MI correctly ranks x1__He3 top-3 while Lasso's parametric assumption fails it."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_mi_picks_x1_he3_lasso_does_not(self, seed):
@@ -344,25 +365,29 @@ class TestLassoUnderperformsOnNonMonotone:
         hybrid_mi = _import_mi()
         X, y_bin, y_cont = _build_oscillatory(seed)
         _X_l, scores_lasso = hybrid_lasso(
-            X, y_cont,
-            degrees=(2, 3), basis="hermite",
-            top_k=3, min_uplift=0.0, min_abs_mi_frac=0.0,
+            X,
+            y_cont,
+            degrees=(2, 3),
+            basis="hermite",
+            top_k=3,
+            min_uplift=0.0,
+            min_abs_mi_frac=0.0,
             alpha=0.01,
         )
         _X_m, scores_mi = hybrid_mi(
-            X, y_bin.to_numpy(),
-            degrees=(2, 3), basis="hermite",
-            top_k=3, min_uplift=0.0, min_abs_mi_frac=0.0,
+            X,
+            y_bin.to_numpy(),
+            degrees=(2, 3),
+            basis="hermite",
+            top_k=3,
+            min_uplift=0.0,
+            min_abs_mi_frac=0.0,
             nbins=10,
         )
         # MI's qualifier for x1__He3: in the top-3 by ranking.
-        mi_top3 = list(scores_mi.sort_values(
-            "engineered_mi", ascending=False
-        )["engineered_col"].iloc[:3])
+        mi_top3 = list(scores_mi.sort_values("engineered_mi", ascending=False)["engineered_col"].iloc[:3])
         assert "x1__He3" in mi_top3, (
-            f"seed={seed}: MI did not rank x1__He3 in its top-3 on "
-            f"sin(5*x_1) signal; non-monotone-MI claim regressed. "
-            f"mi_top3={mi_top3!r}"
+            f"seed={seed}: MI did not rank x1__He3 in its top-3 on " f"sin(5*x_1) signal; non-monotone-MI claim regressed. " f"mi_top3={mi_top3!r}"
         )
         # Lasso's top-1 should NOT be x1__He3 (since Lasso can't see
         # oscillatory dependence). Pinning STRICT INEQUALITY: MI's |coef|
@@ -383,6 +408,7 @@ class TestLassoUnderperformsOnNonMonotone:
 
 
 class TestAucLiftViaLasso:
+    """Lasso-augmented LogReg measurably lifts holdout AUC over raw-feature LogReg on a linear-additive target."""
 
     @pytest.mark.parametrize("seed", (1, 7, 13))
     def test_lasso_augmented_logreg_beats_raw_by_002(self, seed):
@@ -393,7 +419,6 @@ class TestAucLiftViaLasso:
         the signal up immediately.
         """
         hybrid_lasso, _ = _import_lasso()
-        rng = np.random.default_rng(int(seed))
         # Train and holdout drawn from the same population.
         X_tr, y_tr = _build_linear_additive_binary(seed, n=1500)
         X_te_raw, y_te_cont = _build_linear_additive(seed + 1000, n=3000)
@@ -403,9 +428,13 @@ class TestAucLiftViaLasso:
         # contract); the AUC measurement is the downstream binary task.
         _, y_tr_cont = _build_linear_additive(seed, n=1500)
         X_tr_aug, _scores = hybrid_lasso(
-            X_tr, y_tr_cont,
-            degrees=(2, 3), basis="hermite",
-            top_k=2, min_uplift=0.0, min_abs_mi_frac=0.0,
+            X_tr,
+            y_tr_cont,
+            degrees=(2, 3),
+            basis="hermite",
+            top_k=2,
+            min_uplift=0.0,
+            min_abs_mi_frac=0.0,
             alpha=0.01,
         )
         appended = [c for c in X_tr_aug.columns if c not in X_tr.columns]
@@ -415,16 +444,17 @@ class TestAucLiftViaLasso:
         from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
             generate_univariate_basis_features,
         )
+
         eng_te_all = generate_univariate_basis_features(
-            X_te_raw, degrees=(2, 3), basis="hermite",
+            X_te_raw,
+            degrees=(2, 3),
+            basis="hermite",
         )
         keep = [c for c in appended if c in eng_te_all.columns]
-        X_te_aug = (
-            pd.concat([X_te_raw, eng_te_all[keep]], axis=1)
-            if keep else X_te_raw
-        )
+        X_te_aug = pd.concat([X_te_raw, eng_te_all[keep]], axis=1) if keep else X_te_raw
 
         def _fit_auc(Xtr, Xte):
+            """Fit LogReg on Xtr/y_tr and return holdout AUC on Xte/y_te."""
             clf = LogisticRegression(max_iter=2000, C=1.0)
             clf.fit(Xtr, y_tr)
             p = clf.predict_proba(Xte)[:, 1]
@@ -446,18 +476,15 @@ class TestAucLiftViaLasso:
 
 
 class TestDefaultDisabledByteIdentical:
+    """fe_hybrid_orth_lasso_enable=False (the default) leaves the selected support byte-identical to the legacy path."""
 
     def test_default_ctor_has_lasso_off(self):
         """A fresh MRMR with no overrides has the Layer 81 master switch
         off. Default pickle byte-equivalence preserved.
         """
         m = _make_mrmr()
-        assert getattr(m, "fe_hybrid_orth_lasso_enable") is False, (
-            "fe_hybrid_orth_lasso_enable defaults to False"
-        )
-        assert getattr(m, "fe_hybrid_orth_lasso_alpha") == 0.01, (
-            "fe_hybrid_orth_lasso_alpha defaults to 0.01"
-        )
+        assert getattr(m, "fe_hybrid_orth_lasso_enable") is False, "fe_hybrid_orth_lasso_enable defaults to False"
+        assert getattr(m, "fe_hybrid_orth_lasso_alpha") == 0.01, "fe_hybrid_orth_lasso_alpha defaults to 0.01"
 
     @pytest.mark.parametrize("seed", (1, 7, 13))
     def test_default_off_fit_byte_identical_to_baseline(self, seed):
@@ -477,9 +504,7 @@ class TestDefaultDisabledByteIdentical:
         sup1 = list(m1.feature_names_in_)
         sup2 = list(m2.feature_names_in_)
         assert sup1 == sup2, (
-            f"seed={seed}: explicit fe_hybrid_orth_lasso_enable=False "
-            f"diverged from implicit-default fit. implicit={sup1}, "
-            f"explicit={sup2}"
+            f"seed={seed}: explicit fe_hybrid_orth_lasso_enable=False " f"diverged from implicit-default fit. implicit={sup1}, " f"explicit={sup2}"
         )
 
 
@@ -489,35 +514,31 @@ class TestDefaultDisabledByteIdentical:
 
 
 class TestPickleAndClone:
+    """clone() and pickle preserve the Lasso ctor flags (fe_hybrid_orth_lasso_enable/alpha), unfitted and fitted."""
 
     def test_clone_preserves_lasso_params(self):
+        """clone() copies fe_hybrid_orth_lasso_enable/alpha without carrying over fitted state."""
         m = _make_mrmr(
             fe_hybrid_orth_lasso_enable=True,
             fe_hybrid_orth_lasso_alpha=0.05,
         )
         m2 = clone(m)
-        assert getattr(m2, "fe_hybrid_orth_lasso_enable") is True, (
-            "clone() dropped fe_hybrid_orth_lasso_enable"
-        )
-        assert getattr(m2, "fe_hybrid_orth_lasso_alpha") == 0.05, (
-            "clone() dropped fe_hybrid_orth_lasso_alpha"
-        )
+        assert getattr(m2, "fe_hybrid_orth_lasso_enable") is True, "clone() dropped fe_hybrid_orth_lasso_enable"
+        assert getattr(m2, "fe_hybrid_orth_lasso_alpha") == 0.05, "clone() dropped fe_hybrid_orth_lasso_alpha"
 
     def test_pickle_roundtrip_unfitted(self):
+        """pickle.dumps/loads on an unfitted MRMR preserves fe_hybrid_orth_lasso_enable/alpha."""
         m = _make_mrmr(
             fe_hybrid_orth_lasso_enable=True,
             fe_hybrid_orth_lasso_alpha=0.05,
         )
         blob = pickle.dumps(m)
-        m2 = pickle.loads(blob)
-        assert getattr(m2, "fe_hybrid_orth_lasso_enable") is True, (
-            "pickle/unpickle dropped fe_hybrid_orth_lasso_enable"
-        )
-        assert getattr(m2, "fe_hybrid_orth_lasso_alpha") == 0.05, (
-            "pickle/unpickle dropped fe_hybrid_orth_lasso_alpha"
-        )
+        m2 = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
+        assert getattr(m2, "fe_hybrid_orth_lasso_enable") is True, "pickle/unpickle dropped fe_hybrid_orth_lasso_enable"
+        assert getattr(m2, "fe_hybrid_orth_lasso_alpha") == 0.05, "pickle/unpickle dropped fe_hybrid_orth_lasso_alpha"
 
     def test_pickle_roundtrip_fitted(self):
+        """pickle.dumps/loads on a Lasso-fitted MRMR preserves feature_names_in_ and transform() output."""
         X, y = _build_linear_additive_binary(seed=42, n=800)
         m = _make_mrmr(
             fe_hybrid_orth_lasso_enable=True,
@@ -525,25 +546,17 @@ class TestPickleAndClone:
         )
         m.fit(X, y)
         blob = pickle.dumps(m)
-        m2 = pickle.loads(blob)
-        assert list(m2.feature_names_in_) == list(m.feature_names_in_), (
-            "pickle changed feature_names_in_"
-        )
+        m2 = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
+        assert list(m2.feature_names_in_) == list(m.feature_names_in_), "pickle changed feature_names_in_"
         Xt = m.transform(X)
         Xt2 = m2.transform(X)
-        assert list(Xt.columns) == list(Xt2.columns), (
-            "pickle changed transform() columns"
-        )
+        assert list(Xt.columns) == list(Xt2.columns), "pickle changed transform() columns"
         for c in Xt.columns:
             if pd.api.types.is_numeric_dtype(Xt[c]):
                 v1 = Xt[c].to_numpy()
                 v2 = Xt2[c].to_numpy()
                 if not np.allclose(v1, v2, equal_nan=True, atol=1e-10):
-                    raise AssertionError(
-                        f"pickle changed transform() values for column "
-                        f"{c!r}: max abs diff "
-                        f"{np.nanmax(np.abs(v1 - v2)):.2e}"
-                    )
+                    raise AssertionError(f"pickle changed transform() values for column " f"{c!r}: max abs diff " f"{np.nanmax(np.abs(v1 - v2)):.2e}")
 
 
 if __name__ == "__main__":

@@ -36,6 +36,7 @@ Contracts pinned
 
 NEVER xfail.
 """
+
 from __future__ import annotations
 
 import pickle
@@ -60,27 +61,33 @@ SEEDS = (1, 7, 13, 42, 101)
 
 
 def _import_elasticnet():
+    """Lazily import the Elastic Net (L1+L2) coefficient-based FE functions."""
     from mlframe.feature_selection.filters._orthogonal_elasticnet_fe import (
         hybrid_orth_mi_elasticnet_fe,
         score_features_by_elasticnet_coef,
     )
+
     return hybrid_orth_mi_elasticnet_fe, score_features_by_elasticnet_coef
 
 
 def _import_lasso():
+    """Lazily import the Lasso (L1) coefficient-based FE functions (comparison baseline)."""
     from mlframe.feature_selection.filters._orthogonal_lasso_fe import (
         hybrid_orth_mi_lasso_fe,
         score_features_by_lasso_coef,
     )
+
     return hybrid_orth_mi_lasso_fe, score_features_by_lasso_coef
 
 
 def _import_ensemble():
+    """Lazily import the ensemble-scorer aggregator constants/functions (including mutual_top_k)."""
     from mlframe.feature_selection.filters._orthogonal_scorer_auto_fe import (
         ENSEMBLE_AGGREGATORS,
         MUTUAL_RANK_AGGREGATORS,
         score_features_by_ensemble_uplift,
     )
+
     return (
         ENSEMBLE_AGGREGATORS,
         MUTUAL_RANK_AGGREGATORS,
@@ -89,11 +96,14 @@ def _import_ensemble():
 
 
 def _import_mrmr():
+    """Lazily import the MRMR class."""
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     return MRMR
 
 
 def _make_mrmr(**overrides):
+    """Build an MRMR with cheap, deterministic default knobs that isolate the Elastic-Net-preselect FE stage."""
     MRMR = _import_mrmr()
     kwargs = dict(
         verbose=0,
@@ -133,20 +143,23 @@ def _build_correlated_pair(seed: int, n: int = 1500, corr: float = 0.99):
     eps2 = rng.standard_normal(n)
     x1 = z
     x2 = corr * z + np.sqrt(max(0.0, 1.0 - corr * corr)) * eps2
-    X = pd.DataFrame({
-        "x1": x1,
-        "x2": x2,
-        "noise_0": rng.standard_normal(n),
-        "noise_1": rng.standard_normal(n),
-        "noise_2": rng.standard_normal(n),
-    })
-    he2_x1 = x1 ** 2 - 1.0
-    he2_x2 = x2 ** 2 - 1.0
+    X = pd.DataFrame(
+        {
+            "x1": x1,
+            "x2": x2,
+            "noise_0": rng.standard_normal(n),
+            "noise_1": rng.standard_normal(n),
+            "noise_2": rng.standard_normal(n),
+        }
+    )
+    he2_x1 = x1**2 - 1.0
+    he2_x2 = x2**2 - 1.0
     y_cont = 1.0 * he2_x1 + 1.0 * he2_x2 + 0.3 * rng.standard_normal(n)
     return X, y_cont
 
 
 def _build_correlated_pair_binary(seed: int, n: int = 1500, corr: float = 0.99):
+    """Binary-thresholded variant of _build_correlated_pair."""
     X, y_cont = _build_correlated_pair(seed, n=n, corr=corr)
     y_bin = (y_cont > 0).astype(int)
     return X, pd.Series(y_bin, name="y"), y_cont
@@ -160,15 +173,17 @@ def _build_linear_additive(seed: int, n: int = 1500):
     rng = np.random.default_rng(seed)
     x1 = rng.standard_normal(n)
     x2 = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "x1": x1,
-        "x2": x2,
-        "noise_0": rng.standard_normal(n),
-        "noise_1": rng.standard_normal(n),
-        "noise_2": rng.standard_normal(n),
-    })
-    he2_x1 = x1 ** 2 - 1.0
-    he2_x2 = x2 ** 2 - 1.0
+    X = pd.DataFrame(
+        {
+            "x1": x1,
+            "x2": x2,
+            "noise_0": rng.standard_normal(n),
+            "noise_1": rng.standard_normal(n),
+            "noise_2": rng.standard_normal(n),
+        }
+    )
+    he2_x1 = x1**2 - 1.0
+    he2_x2 = x2**2 - 1.0
     y_cont = 1.5 * he2_x1 + 0.8 * he2_x2 + 0.3 * rng.standard_normal(n)
     y_bin = (y_cont > 0).astype(int)
     return X, pd.Series(y_bin, name="y"), y_cont
@@ -180,6 +195,7 @@ def _build_linear_additive(seed: int, n: int = 1500):
 
 
 class TestElasticNetGroupsCorrelated:
+    """On a correlated candidate pair, Elastic Net's L2 grouping effect keeps both columns while Lasso splits them."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_elasticnet_keeps_both_correlated_pair(self, seed):
@@ -201,19 +217,30 @@ class TestElasticNetGroupsCorrelated:
         # grouping-effect test requires the regime where Lasso actually
         # starts to split the pair.
         _, scores_en = hybrid_en(
-            X, y_cont,
-            degrees=(2, 3), basis="hermite",
-            top_k=5, min_uplift=0.0, min_abs_mi_frac=0.0,
-            alpha=0.5, l1_ratio=0.3,
+            X,
+            y_cont,
+            degrees=(2, 3),
+            basis="hermite",
+            top_k=5,
+            min_uplift=0.0,
+            min_abs_mi_frac=0.0,
+            alpha=0.5,
+            l1_ratio=0.3,
         )
         _, scores_lasso = hybrid_lasso(
-            X, y_cont,
-            degrees=(2, 3), basis="hermite",
-            top_k=5, min_uplift=0.0, min_abs_mi_frac=0.0,
+            X,
+            y_cont,
+            degrees=(2, 3),
+            basis="hermite",
+            top_k=5,
+            min_uplift=0.0,
+            min_abs_mi_frac=0.0,
             alpha=0.5,
         )
+
         # Pull |coef| for x1__He2 and x2__He2 from each scorer.
         def _coef(df, name):
+            """Look up the engineered_mi (|coef|) value for a given engineered column name, or 0.0 if absent."""
             row = df[df["engineered_col"] == name]
             return float(row["engineered_mi"].iloc[0]) if not row.empty else 0.0
 
@@ -223,9 +250,7 @@ class TestElasticNetGroupsCorrelated:
         c2_l = _coef(scores_lasso, "x2__He2")
 
         # Elastic Net: smaller / larger ratio >= 0.25 (grouping effect).
-        en_ratio = (
-            min(c1_en, c2_en) / max(c1_en, c2_en, 1e-12)
-        )
+        en_ratio = min(c1_en, c2_en) / max(c1_en, c2_en, 1e-12)
         assert en_ratio >= 0.25, (
             f"seed={seed}: Elastic Net failed to share coef mass across "
             f"correlated pair (c1={c1_en:.4f}, c2={c2_en:.4f}, "
@@ -234,9 +259,7 @@ class TestElasticNetGroupsCorrelated:
         # Lasso, same fixture: ratio should be visibly LESS THAN Elastic
         # Net's (the structural failure mode this layer fixes). Strict
         # inequality on the same data is the discriminating test.
-        lasso_ratio = (
-            min(c1_l, c2_l) / max(c1_l, c2_l, 1e-12)
-        )
+        lasso_ratio = min(c1_l, c2_l) / max(c1_l, c2_l, 1e-12)
         assert en_ratio > lasso_ratio, (
             f"seed={seed}: Elastic Net ratio ({en_ratio:.3f}) did not "
             f"exceed Lasso ratio ({lasso_ratio:.3f}) on correlated pair. "
@@ -251,6 +274,7 @@ class TestElasticNetGroupsCorrelated:
 
 
 class TestMutualRankGatesStrictly:
+    """The mutual_top_k aggregator's qualified set is always a strict-conjunction subset of every scorer's top-K."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_mutual_top_k_subset_of_any_single_scorer(self, seed):
@@ -264,8 +288,11 @@ class TestMutualRankGatesStrictly:
         from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
             generate_univariate_basis_features,
         )
+
         engineered = generate_univariate_basis_features(
-            X, degrees=(2, 3), basis="hermite",
+            X,
+            degrees=(2, 3),
+            basis="hermite",
         )
         # Use a 2-scorer ensemble (plug_in + dcor) for a clear strict
         # conjunction. KSG / copula / hsic / dcor all run consistently on
@@ -274,9 +301,11 @@ class TestMutualRankGatesStrictly:
         scorers = ("plug_in", "dcor")
         K = 3
         scores_mutual = score_ensemble(
-            X[["x1", "x2", "noise_0", "noise_1", "noise_2"]], engineered,
+            X[["x1", "x2", "noise_0", "noise_1", "noise_2"]],
+            engineered,
             y_cont,
-            scorers=scorers, aggregator="mutual_top_k",
+            scorers=scorers,
+            aggregator="mutual_top_k",
             mutual_top_k=K,
             random_state=int(seed),
         )
@@ -320,15 +349,20 @@ class TestMutualRankGatesStrictly:
         from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
             generate_univariate_basis_features,
         )
+
         engineered = generate_univariate_basis_features(
-            X, degrees=(2, 3), basis="hermite",
+            X,
+            degrees=(2, 3),
+            basis="hermite",
         )
         scorers = ("plug_in", "dcor")
         K = 4
         scores_mutual = score_ensemble(
-            X[["x1", "x2", "noise_0", "noise_1", "noise_2"]], engineered,
+            X[["x1", "x2", "noise_0", "noise_1", "noise_2"]],
+            engineered,
             y_cont,
-            scorers=scorers, aggregator="mutual_top_k",
+            scorers=scorers,
+            aggregator="mutual_top_k",
             mutual_top_k=K,
             random_state=int(seed),
         )
@@ -343,9 +377,7 @@ class TestMutualRankGatesStrictly:
             f"{scores_mutual.head(8).to_string()}"
         )
         # At least one of x1__He2 / x2__He2 should survive.
-        assert (
-            "x1__He2" in qualified_cols or "x2__He2" in qualified_cols
-        ), (
+        assert "x1__He2" in qualified_cols or "x2__He2" in qualified_cols, (
             f"seed={seed}: neither x1__He2 nor x2__He2 made the mutual-rank "
             f"qualified set on linear-additive y = 1.5*He_2(x1)+0.8*He_2(x2). "
             f"qualified={qualified_cols!r}; scores head:\n"
@@ -360,12 +392,8 @@ class TestMutualRankGatesStrictly:
         accepts it.
         """
         ENSEMBLE_AGGS, MUTUAL_AGGS, _ = _import_ensemble()
-        assert "mutual_top_k" in MUTUAL_AGGS, (
-            f"mutual_top_k missing from MUTUAL_RANK_AGGREGATORS: {MUTUAL_AGGS}"
-        )
-        assert "mutual_top_k" in ENSEMBLE_AGGS, (
-            f"mutual_top_k missing from ENSEMBLE_AGGREGATORS: {ENSEMBLE_AGGS}"
-        )
+        assert "mutual_top_k" in MUTUAL_AGGS, f"mutual_top_k missing from MUTUAL_RANK_AGGREGATORS: {MUTUAL_AGGS}"
+        assert "mutual_top_k" in ENSEMBLE_AGGS, f"mutual_top_k missing from ENSEMBLE_AGGREGATORS: {ENSEMBLE_AGGS}"
 
 
 # ---------------------------------------------------------------------------
@@ -374,6 +402,7 @@ class TestMutualRankGatesStrictly:
 
 
 class TestAucLiftViaElasticNetOnCorrelated:
+    """Elastic-Net-augmented LogReg measurably lifts holdout AUC over raw-feature LogReg on the correlated fixture."""
 
     @pytest.mark.parametrize("seed", (1, 7, 13))
     def test_elasticnet_augmented_logreg_beats_raw_by_002(self, seed):
@@ -391,25 +420,31 @@ class TestAucLiftViaElasticNetOnCorrelated:
         y_te = pd.Series((y_te_cont > 0).astype(int), name="y")
 
         X_tr_aug, _scores = hybrid_en(
-            X_tr, y_tr_cont,
-            degrees=(2, 3), basis="hermite",
-            top_k=4, min_uplift=0.0, min_abs_mi_frac=0.0,
-            alpha=0.01, l1_ratio=0.3,
+            X_tr,
+            y_tr_cont,
+            degrees=(2, 3),
+            basis="hermite",
+            top_k=4,
+            min_uplift=0.0,
+            min_abs_mi_frac=0.0,
+            alpha=0.01,
+            l1_ratio=0.3,
         )
         appended = [c for c in X_tr_aug.columns if c not in X_tr.columns]
         from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
             generate_univariate_basis_features,
         )
+
         eng_te_all = generate_univariate_basis_features(
-            X_te_raw, degrees=(2, 3), basis="hermite",
+            X_te_raw,
+            degrees=(2, 3),
+            basis="hermite",
         )
         keep = [c for c in appended if c in eng_te_all.columns]
-        X_te_aug = (
-            pd.concat([X_te_raw, eng_te_all[keep]], axis=1)
-            if keep else X_te_raw
-        )
+        X_te_aug = pd.concat([X_te_raw, eng_te_all[keep]], axis=1) if keep else X_te_raw
 
         def _fit_auc(Xtr, Xte):
+            """Fit LogReg on Xtr/y_tr_bin and return holdout AUC on Xte/y_te."""
             clf = LogisticRegression(max_iter=2000, C=1.0)
             clf.fit(Xtr, y_tr_bin)
             p = clf.predict_proba(Xte)[:, 1]
@@ -431,21 +466,16 @@ class TestAucLiftViaElasticNetOnCorrelated:
 
 
 class TestDefaultDisabledByteIdentical:
+    """fe_hybrid_orth_elasticnet_enable=False (the default) leaves the selected support byte-identical to legacy."""
 
     def test_default_ctor_has_elasticnet_off(self):
         """Fresh MRMR with no overrides has the Layer 82 master switch off
         and the default alpha / l1_ratio matching the design pin.
         """
         m = _make_mrmr()
-        assert getattr(m, "fe_hybrid_orth_elasticnet_enable") is False, (
-            "fe_hybrid_orth_elasticnet_enable defaults to False"
-        )
-        assert getattr(m, "fe_hybrid_orth_elasticnet_alpha") == 0.01, (
-            "fe_hybrid_orth_elasticnet_alpha defaults to 0.01"
-        )
-        assert getattr(m, "fe_hybrid_orth_elasticnet_l1_ratio") == 0.5, (
-            "fe_hybrid_orth_elasticnet_l1_ratio defaults to 0.5"
-        )
+        assert getattr(m, "fe_hybrid_orth_elasticnet_enable") is False, "fe_hybrid_orth_elasticnet_enable defaults to False"
+        assert getattr(m, "fe_hybrid_orth_elasticnet_alpha") == 0.01, "fe_hybrid_orth_elasticnet_alpha defaults to 0.01"
+        assert getattr(m, "fe_hybrid_orth_elasticnet_l1_ratio") == 0.5, "fe_hybrid_orth_elasticnet_l1_ratio defaults to 0.5"
 
     @pytest.mark.parametrize("seed", (1, 7, 13))
     def test_default_off_fit_byte_identical_to_baseline(self, seed):
@@ -468,9 +498,7 @@ class TestDefaultDisabledByteIdentical:
         sup1 = list(m1.feature_names_in_)
         sup2 = list(m2.feature_names_in_)
         assert sup1 == sup2, (
-            f"seed={seed}: explicit fe_hybrid_orth_elasticnet_enable=False "
-            f"diverged from implicit-default fit. implicit={sup1}, "
-            f"explicit={sup2}"
+            f"seed={seed}: explicit fe_hybrid_orth_elasticnet_enable=False " f"diverged from implicit-default fit. implicit={sup1}, " f"explicit={sup2}"
         )
 
 
@@ -480,43 +508,35 @@ class TestDefaultDisabledByteIdentical:
 
 
 class TestPickleAndClone:
+    """clone() and pickle preserve the Elastic Net ctor flags (enable/alpha/l1_ratio), unfitted and fitted."""
 
     def test_clone_preserves_elasticnet_params(self):
+        """clone() copies fe_hybrid_orth_elasticnet_enable/alpha/l1_ratio without carrying over fitted state."""
         m = _make_mrmr(
             fe_hybrid_orth_elasticnet_enable=True,
             fe_hybrid_orth_elasticnet_alpha=0.05,
             fe_hybrid_orth_elasticnet_l1_ratio=0.3,
         )
         m2 = clone(m)
-        assert getattr(m2, "fe_hybrid_orth_elasticnet_enable") is True, (
-            "clone() dropped fe_hybrid_orth_elasticnet_enable"
-        )
-        assert getattr(m2, "fe_hybrid_orth_elasticnet_alpha") == 0.05, (
-            "clone() dropped fe_hybrid_orth_elasticnet_alpha"
-        )
-        assert getattr(m2, "fe_hybrid_orth_elasticnet_l1_ratio") == 0.3, (
-            "clone() dropped fe_hybrid_orth_elasticnet_l1_ratio"
-        )
+        assert getattr(m2, "fe_hybrid_orth_elasticnet_enable") is True, "clone() dropped fe_hybrid_orth_elasticnet_enable"
+        assert getattr(m2, "fe_hybrid_orth_elasticnet_alpha") == 0.05, "clone() dropped fe_hybrid_orth_elasticnet_alpha"
+        assert getattr(m2, "fe_hybrid_orth_elasticnet_l1_ratio") == 0.3, "clone() dropped fe_hybrid_orth_elasticnet_l1_ratio"
 
     def test_pickle_roundtrip_unfitted(self):
+        """pickle.dumps/loads on an unfitted MRMR preserves fe_hybrid_orth_elasticnet_enable/alpha/l1_ratio."""
         m = _make_mrmr(
             fe_hybrid_orth_elasticnet_enable=True,
             fe_hybrid_orth_elasticnet_alpha=0.05,
             fe_hybrid_orth_elasticnet_l1_ratio=0.3,
         )
         blob = pickle.dumps(m)
-        m2 = pickle.loads(blob)
-        assert getattr(m2, "fe_hybrid_orth_elasticnet_enable") is True, (
-            "pickle/unpickle dropped fe_hybrid_orth_elasticnet_enable"
-        )
-        assert getattr(m2, "fe_hybrid_orth_elasticnet_alpha") == 0.05, (
-            "pickle/unpickle dropped fe_hybrid_orth_elasticnet_alpha"
-        )
-        assert getattr(m2, "fe_hybrid_orth_elasticnet_l1_ratio") == 0.3, (
-            "pickle/unpickle dropped fe_hybrid_orth_elasticnet_l1_ratio"
-        )
+        m2 = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
+        assert getattr(m2, "fe_hybrid_orth_elasticnet_enable") is True, "pickle/unpickle dropped fe_hybrid_orth_elasticnet_enable"
+        assert getattr(m2, "fe_hybrid_orth_elasticnet_alpha") == 0.05, "pickle/unpickle dropped fe_hybrid_orth_elasticnet_alpha"
+        assert getattr(m2, "fe_hybrid_orth_elasticnet_l1_ratio") == 0.3, "pickle/unpickle dropped fe_hybrid_orth_elasticnet_l1_ratio"
 
     def test_pickle_roundtrip_fitted(self):
+        """pickle.dumps/loads on an Elastic-Net-fitted MRMR preserves feature_names_in_ and transform() output."""
         X, y, _ = _build_linear_additive(seed=42)
         X = X.iloc[:800].reset_index(drop=True)
         y = y.iloc[:800].reset_index(drop=True)
@@ -527,25 +547,17 @@ class TestPickleAndClone:
         )
         m.fit(X, y)
         blob = pickle.dumps(m)
-        m2 = pickle.loads(blob)
-        assert list(m2.feature_names_in_) == list(m.feature_names_in_), (
-            "pickle changed feature_names_in_"
-        )
+        m2 = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
+        assert list(m2.feature_names_in_) == list(m.feature_names_in_), "pickle changed feature_names_in_"
         Xt = m.transform(X)
         Xt2 = m2.transform(X)
-        assert list(Xt.columns) == list(Xt2.columns), (
-            "pickle changed transform() columns"
-        )
+        assert list(Xt.columns) == list(Xt2.columns), "pickle changed transform() columns"
         for c in Xt.columns:
             if pd.api.types.is_numeric_dtype(Xt[c]):
                 v1 = Xt[c].to_numpy()
                 v2 = Xt2[c].to_numpy()
                 if not np.allclose(v1, v2, equal_nan=True, atol=1e-10):
-                    raise AssertionError(
-                        f"pickle changed transform() values for column "
-                        f"{c!r}: max abs diff "
-                        f"{np.nanmax(np.abs(v1 - v2)):.2e}"
-                    )
+                    raise AssertionError(f"pickle changed transform() values for column " f"{c!r}: max abs diff " f"{np.nanmax(np.abs(v1 - v2)):.2e}")
 
 
 if __name__ == "__main__":

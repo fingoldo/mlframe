@@ -155,26 +155,31 @@ def _mechanism_kwargs(mechanism: str) -> dict:
 
 
 def _load_breast_cancer():
+    """Load the sklearn breast_cancer classification dataset as a frame."""
     d = load_breast_cancer(as_frame=True)
     return d.data, d.target, "classification"
 
 
 def _load_diabetes():
+    """Load the sklearn diabetes regression dataset as a frame."""
     d = load_diabetes(as_frame=True)
     return d.data, d.target, "regression"
 
 
 def _load_iris():
+    """Load the sklearn iris classification dataset as a frame."""
     d = load_iris(as_frame=True)
     return d.data, d.target, "classification"
 
 
 def _load_wine():
+    """Load the sklearn wine classification dataset as a frame."""
     d = load_wine(as_frame=True)
     return d.data, d.target, "classification"
 
 
 def _load_make_classification():
+    """Build a synthetic 1500x20 binary classification dataset."""
     Xa, ya = make_classification(
         n_samples=1500, n_features=20, n_informative=3, n_redundant=2,
         n_repeated=0, n_classes=2, class_sep=0.8, random_state=0,
@@ -226,6 +231,7 @@ DATASET_LOADERS = {
 
 
 def _split(X, y, *, task: str, test_size: float = 0.25, random_state: int = 0):
+    """Train/holdout split, stratified on the target for classification tasks."""
     stratify = y if task == "classification" else None
     return train_test_split(
         X, y, test_size=test_size, random_state=random_state,
@@ -234,6 +240,7 @@ def _split(X, y, *, task: str, test_size: float = 0.25, random_state: int = 0):
 
 
 def _score(X_tr, y_tr, X_te, y_te, *, task: str) -> float:
+    """Scale, fit a linear downstream estimator, and score on the holdout."""
     Xtr_np = np.asarray(X_tr, dtype=float)
     Xte_np = np.asarray(X_te, dtype=float)
     scaler = StandardScaler()
@@ -311,23 +318,21 @@ def matrix():
 
 
 class TestMechanismOnEveryDataset:
+    """Every (dataset, mechanism) cell in the 7x10 matrix completes without raising."""
 
     def test_full_matrix_populated_no_nans(self, matrix):
+        """No cell in the 7x10 matrix produced a non-finite score."""
         bad: list[tuple[str, str]] = []
         for ds, payload in matrix.items():
             for mech, cell in payload["mech"].items():
                 if not np.isfinite(cell["score"]):
                     bad.append((ds, mech))
-        assert not bad, (
-            f"{len(bad)} (dataset, mechanism) cells produced non-finite "
-            f"score: {bad[:10]} ..."
-        )
+        assert not bad, f"{len(bad)} (dataset, mechanism) cells produced non-finite " f"score: {bad[:10]} ..."
 
     def test_full_matrix_shape_70_cells(self, matrix):
+        """The matrix covers exactly 7 datasets x 10 mechanisms = 70 cells."""
         n_cells = sum(len(p["mech"]) for p in matrix.values())
-        assert n_cells == 7 * 10, (
-            f"expected 70 cells (7 datasets x 10 mechanisms), got {n_cells}"
-        )
+        assert n_cells == 7 * 10, f"expected 70 cells (7 datasets x 10 mechanisms), got {n_cells}"
 
 
 # ---------------------------------------------------------------------------
@@ -336,6 +341,7 @@ class TestMechanismOnEveryDataset:
 
 
 class TestPerDatasetAtLeastOneMechanismMatchesBaseline:
+    """Per dataset, at least one of the 10 mechanisms does not regress vs. baseline."""
 
     def test_per_dataset_best_within_tolerance(self, matrix):
         """The toolkit must be at least useful: across the 10 mechanisms there is at least one whose downstream score does not
@@ -365,9 +371,7 @@ class TestPerDatasetAtLeastOneMechanismMatchesBaseline:
             tight_tol = R2_TOLERANCE if task == "regression" else ACC_TOLERANCE
             base = payload["baseline"]
             n_raw = int(payload.get("n_raw", 0) or 0)
-            finite_cells = [
-                c for c in payload["mech"].values() if np.isfinite(c["score"])
-            ]
+            finite_cells = [c for c in payload["mech"].values() if np.isfinite(c["score"])]
             if not finite_cells:
                 best = float("-inf")
                 best_size = 0
@@ -386,10 +390,7 @@ class TestPerDatasetAtLeastOneMechanismMatchesBaseline:
                     f"n_raw={n_raw}, tol={tol}, "
                     f"selection_budget_limited={selection_budget_limited})"
                 )
-        assert not regressions, (
-            "datasets where the best mechanism regressed beyond the applicable tolerance:\n"
-            + "\n".join(regressions)
-        )
+        assert not regressions, "datasets where the best mechanism regressed beyond the applicable tolerance:\n" + "\n".join(regressions)
 
 
 # ---------------------------------------------------------------------------
@@ -410,21 +411,18 @@ def _get_best_mechanism(matrix: dict, dataset_name: str) -> str:
             best_score = s
             best_mech = mech
     if best_mech is None:
-        raise RuntimeError(
-            f"no finite score on dataset {dataset_name!r}; "
-            f"cells={cells!r}"
-        )
+        raise RuntimeError(f"no finite score on dataset {dataset_name!r}; " f"cells={cells!r}")
     return best_mech
 
 
 class TestPerDatasetBestMechanismDocumented:
+    """The per-dataset best-scoring mechanism is recorded and sane."""
 
     def test_best_mechanism_is_in_roster(self, matrix):
+        """The documented best mechanism for every dataset is a roster member."""
         for ds in DATASET_LOADERS:
             best = _get_best_mechanism(matrix, ds)
-            assert best in MECHANISMS, (
-                f"{ds}: best mechanism {best!r} not in MECHANISMS roster"
-            )
+            assert best in MECHANISMS, f"{ds}: best mechanism {best!r} not in MECHANISMS roster"
 
     def test_best_mechanism_score_geq_median(self, matrix):
         """Sanity: the documented best per-dataset must be >= the median
@@ -434,22 +432,13 @@ class TestPerDatasetBestMechanismDocumented:
         below_median: list[str] = []
         for ds in DATASET_LOADERS:
             cells = matrix[ds]["mech"]
-            scores = [
-                cells[m]["score"] for m in MECHANISMS
-                if np.isfinite(cells[m]["score"])
-            ]
+            scores = [cells[m]["score"] for m in MECHANISMS if np.isfinite(cells[m]["score"])]
             median = float(np.median(scores))
             best_mech = _get_best_mechanism(matrix, ds)
             best_score = cells[best_mech]["score"]
             if best_score < median:
-                below_median.append(
-                    f"{ds}: best={best_mech} score={best_score:.4f} < "
-                    f"median={median:.4f}"
-                )
-        assert not below_median, (
-            "best-mechanism winners that score below median (impossible "
-            "by construction):\n" + "\n".join(below_median)
-        )
+                below_median.append(f"{ds}: best={best_mech} score={best_score:.4f} < " f"median={median:.4f}")
+        assert not below_median, "best-mechanism winners that score below median (impossible " "by construction):\n" + "\n".join(below_median)
 
 
 # ---------------------------------------------------------------------------
@@ -458,6 +447,7 @@ class TestPerDatasetBestMechanismDocumented:
 
 
 class TestLinearDatasetMechanismTieBand:
+    """On linear-friendly datasets, most mechanisms should agree on top columns."""
 
     def test_at_least_5_mechanisms_within_002_on_linear_datasets(
         self, matrix,
@@ -479,15 +469,8 @@ class TestLinearDatasetMechanismTieBand:
         for ds in LINEAR_DATASETS:
             payload = matrix[ds]
             cells = payload["mech"]
-            band = (
-                LINEAR_TIE_BAND_R2
-                if payload["task"] == "regression"
-                else LINEAR_TIE_BAND
-            )
-            scores = sorted(
-                cells[m]["score"] for m in MECHANISMS
-                if np.isfinite(cells[m]["score"])
-            )
+            band = LINEAR_TIE_BAND_R2 if payload["task"] == "regression" else LINEAR_TIE_BAND
+            scores = sorted(cells[m]["score"] for m in MECHANISMS if np.isfinite(cells[m]["score"]))
             # Largest window of width ``band`` covering the most points.
             best_cluster = 0
             for s in scores:
@@ -501,10 +484,7 @@ class TestLinearDatasetMechanismTieBand:
                     f"has only {best_cluster} mechanisms; required >= "
                     f"{LINEAR_TIE_MIN_COUNT}. scores={pretty}"
                 )
-        assert not violations, (
-            "linear-friendly datasets where the mechanism tie-band gate "
-            "failed:\n" + "\n".join(violations)
-        )
+        assert not violations, "linear-friendly datasets where the mechanism tie-band gate " "failed:\n" + "\n".join(violations)
 
 
 # ---------------------------------------------------------------------------
@@ -513,8 +493,10 @@ class TestLinearDatasetMechanismTieBand:
 
 
 class TestRosterAtLeast82PriorLayers:
+    """Discoverability gate: at least 82 prior layer test modules exist on disk."""
 
     def test_roster_holds_at_least_82_layer_modules(self):
+        """The on-disk biz_value test-module roster hasn't shrunk below the shipped floor."""
         # The layer modules + themed subpackages live under tests/feature_selection/mrmr/biz_val/ after
         # the test-tree restructure; anchor on that dir (not the old flat feature_selection root).
         root = next(p for p in Path(__file__).parents if p.name == "biz_val")
@@ -534,31 +516,21 @@ class TestRosterAtLeast82PriorLayers:
         # Silent-delete floor: the biz_value test-module roster on disk (flat + themed-subpackage
         # submodules, some consolidated under non-layerN names) must not shrink below the shipped
         # floor; a glob count is the direct guard, independent of docstring provenance markers.
-        module_count = len(sorted(root.glob("test_biz_value_*.py"))) + len(
-            sorted(root.glob("test_biz_value_mrmr_*/test_*.py"))
-        )
-        assert module_count >= 110, (
-            f"biz_value test-module roster shrank to {module_count} (floor 110): {present}"
-        )
-        assert max(present) >= 83, (
-            f"highest layer module should be >= 83, got {max(present)}; "
-            f"present layers: {present}"
-        )
+        module_count = len(sorted(root.glob("test_biz_value_*.py"))) + len(sorted(root.glob("test_biz_value_mrmr_*/test_*.py")))
+        assert module_count >= 110, f"biz_value test-module roster shrank to {module_count} (floor 110): {present}"
+        assert max(present) >= 83, f"highest layer module should be >= 83, got {max(present)}; " f"present layers: {present}"
 
     def test_layer29_module_present_for_baseline_reference(self):
+        """Layer 29's baseline reference module is present, flat or relocated."""
         # The layer modules + themed subpackages live under tests/feature_selection/mrmr/biz_val/ after
         # the test-tree restructure; anchor on that dir (not the old flat feature_selection root).
         root = next(p for p in Path(__file__).parents if p.name == "biz_val")
         flat = root / "test_biz_value_mrmr_layer29.py"
         # Layer 29 was relocated into a themed subpackage as test_layer29.py; match the FILENAME
         # (not source text) so the baseline-reference presence check survives the consolidation.
-        relocated = any(
-            p.name == "test_layer29.py"
-            for p in root.glob("test_biz_value_mrmr_*/test_layer29.py")
-        )
+        relocated = any(p.name == "test_layer29.py" for p in root.glob("test_biz_value_mrmr_*/test_layer29.py"))
         assert flat.exists() or relocated, (
-            "Layer 29 module missing; Layer 83 expands L29's 5-dataset "
-            "validation to 10 mechanisms and uses it as the reference."
+            "Layer 29 module missing; Layer 83 expands L29's 5-dataset " "validation to 10 mechanisms and uses it as the reference."
         )
 
 
@@ -588,27 +560,22 @@ def _all_mechanisms_on_kwargs() -> dict:
 
 
 class TestCombinedAllOnSmoke:
+    """Every hybrid_orth*/scorer flag enabled at once stays fast and collision-free."""
 
     def test_combined_all_on_fit_under_300s_on_largest_dataset(self):
         """The largest L83 dataset is ``digits`` (subsampled to 600x64).
         With every mechanism flag on, fit + transform must complete in
         under 300 seconds.
         """
-        X, y, task = _load_digits()
+        X, y, _task = _load_digits()
         m = _make_mrmr(**_all_mechanisms_on_kwargs())
         t0 = time.perf_counter()
         m.fit(X, y)
         fit_dt = time.perf_counter() - t0
         Xt = m.transform(X)
         total_dt = time.perf_counter() - t0
-        assert total_dt < 300.0, (
-            f"combined all-on fit+transform on digits-subset took "
-            f"{total_dt:.1f}s; budget 300s. fit alone={fit_dt:.1f}s."
-        )
-        assert Xt.shape[1] > 0, (
-            "combined all-on transform produced 0 columns; FE-compose "
-            "dropped every candidate"
-        )
+        assert total_dt < 300.0, f"combined all-on fit+transform on digits-subset took " f"{total_dt:.1f}s; budget 300s. fit alone={fit_dt:.1f}s."
+        assert Xt.shape[1] > 0, "combined all-on transform produced 0 columns; FE-compose " "dropped every candidate"
 
     def test_combined_all_on_no_engineered_name_collisions(self):
         """When every scorer flag is on, the FE-compose stage must NOT
@@ -626,10 +593,7 @@ class TestCombinedAllOnSmoke:
         Xt = m.transform(X)
         cols = list(Xt.columns)
         dupes = [c for c in set(cols) if cols.count(c) > 1]
-        assert not dupes, (
-            f"combined all-on transform produced duplicate column names: "
-            f"{dupes!r}; FE-compose name-uniqueness invariant violated."
-        )
+        assert not dupes, f"combined all-on transform produced duplicate column names: " f"{dupes!r}; FE-compose name-uniqueness invariant violated."
 
 
 # ---------------------------------------------------------------------------
@@ -638,6 +602,7 @@ class TestCombinedAllOnSmoke:
 
 
 class TestMatrixProvenance:
+    """Print the full 7x10 matrix under -s for human review."""
 
     def test_print_matrix(self, matrix, capsys):
         """Emit the full 7x10 matrix to stdout so the Layer 83 report can
@@ -660,15 +625,12 @@ class TestMatrixProvenance:
         # Append per-dataset best-mechanism row.
         best_row = "best".ljust(22) + " ".rjust(10)
         for mech in MECHANISMS:
-            count = sum(
-                1 for ds in DATASET_LOADERS
-                if _get_best_mechanism(matrix, ds) == mech
-            )
+            count = sum(1 for ds in DATASET_LOADERS if _get_best_mechanism(matrix, ds) == mech)
             best_row += f"{count}".rjust(12)
         lines.append(best_row)
         text = "\n".join(lines)
         # Print uses bare ascii; cp1251-safe.
-        print("\n" + text)
+        print("\n" + text)  # noqa: T201 -- informational report only visible under pytest -s
         # Always pass; the contract on cell finiteness is Contract 1.
         assert True
 

@@ -108,11 +108,7 @@ def _build_l84_fixture(n: int = 2500, seed: int = 0):
     )
     if engineered.shape[1] > 20:
         engineered = engineered.iloc[:, :20]
-    signal = (
-        0.8 * (X_raw["x0"] ** 2)
-        + 0.6 * (X_raw["x1"] ** 2)
-        + 0.4 * (X_raw["x2"] ** 2)
-    )
+    signal = 0.8 * (X_raw["x0"] ** 2) + 0.6 * (X_raw["x1"] ** 2) + 0.4 * (X_raw["x2"] ** 2)
     thr = float(np.median(signal))
     y = ((signal + 0.05 * rng.standard_normal(n)) > thr).astype(int).to_numpy()
     return X_raw, engineered, y
@@ -130,6 +126,7 @@ class TestCmimPerfBudget:
     """
 
     def test_score_features_by_cmim_under_5s(self):
+        """CMIM scoring on the L84 reference fixture completes within the 5s budget."""
         from mlframe.feature_selection.filters._orthogonal_cmim_fe import (
             score_features_by_cmim,
         )
@@ -158,6 +155,7 @@ class TestCmimSpeedupVsBaseline:
     """
 
     def test_post_opt_at_least_1p5x_faster(self):
+        """Post-opt CMIM never regresses below 0.7x pre-opt; ideally reaches 1.5x."""
         from mlframe.feature_selection.filters._orthogonal_cmim_fe import (
             score_features_by_cmim,
         )
@@ -214,6 +212,7 @@ class TestCmimBitEquivalentToReference:
     """
 
     def test_first_five_engineered_scores_match_ref(self):
+        """The first five engineered CMIM scores match the pinned PRE-OPT reference vector."""
         from mlframe.feature_selection.filters._orthogonal_cmim_fe import (
             score_features_by_cmim,
         )
@@ -221,10 +220,7 @@ class TestCmimBitEquivalentToReference:
         out = score_features_by_cmim(raw_X, eng, y, n_bins=10)
         new_vals = out["engineered_mi"].to_numpy()
         ref = PRE_OPT_REFERENCE_SCORES
-        assert new_vals.shape == ref.shape, (
-            f"L84 fixture shape changed: got {new_vals.shape}, "
-            f"expected {ref.shape}; the reference vector is stale."
-        )
+        assert new_vals.shape == ref.shape, f"L84 fixture shape changed: got {new_vals.shape}, " f"expected {ref.shape}; the reference vector is stale."
         np.testing.assert_allclose(
             new_vals, ref, rtol=1e-9, atol=1e-12,
             err_msg=(
@@ -236,16 +232,14 @@ class TestCmimBitEquivalentToReference:
         )
 
     def test_top5_engineered_names_match_ref(self):
+        """The top-5 engineered column ranking is unchanged from the pinned PRE-OPT reference."""
         from mlframe.feature_selection.filters._orthogonal_cmim_fe import (
             score_features_by_cmim,
         )
         raw_X, eng, y = _build_l84_fixture(n=2500, seed=0)
         out = score_features_by_cmim(raw_X, eng, y, n_bins=10)
         top5 = list(out["engineered_col"].head(5))
-        assert top5 == PRE_OPT_REFERENCE_NAMES, (
-            f"Top-5 engineered cols changed: got {top5}, "
-            f"expected {PRE_OPT_REFERENCE_NAMES}; the ranking moved."
-        )
+        assert top5 == PRE_OPT_REFERENCE_NAMES, f"Top-5 engineered cols changed: got {top5}, " f"expected {PRE_OPT_REFERENCE_NAMES}; the ranking moved."
 
 
 # ---------------------------------------------------------------------------
@@ -260,6 +254,7 @@ class TestL74RedundancyContractStillHolds:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_cmim_redundant_far_below_novel(self, seed):
+        """Near-copy redundant candidates score far below a novel signal-carrying candidate."""
         from mlframe.feature_selection.filters._orthogonal_cmim_fe import (
             score_features_by_cmim,
         )
@@ -294,10 +289,7 @@ class TestL74RedundancyContractStillHolds:
             n_bins=10,
         )
         s_map = dict(zip(scores["engineered_col"], scores["engineered_mi"]))
-        eng_dup = [
-            c for c in s_map
-            if c.startswith(("x_dup_a__He", "x_dup_b__He", "x_dup_c__He"))
-        ]
+        eng_dup = [c for c in s_map if c.startswith(("x_dup_a__He", "x_dup_b__He", "x_dup_c__He"))]
         eng_x2 = [c for c in s_map if c.startswith("x2__He")]
         assert eng_dup
         assert eng_x2
@@ -324,6 +316,7 @@ class TestEmptySupportFallback:
     """
 
     def test_single_support_eq_own_source_falls_back_to_marginal(self):
+        """Empty filtered support falls back to marginal MI, matching the public _cmi_from_binned."""
         from mlframe.feature_selection.filters._orthogonal_cmim_fe import (
             score_features_by_cmim,
         )
@@ -341,7 +334,7 @@ class TestEmptySupportFallback:
             X_raw, degrees=(2,), basis="hermite",
         )
         # x1 carries a quadratic signal so He_2(x1) has real MI(.; y).
-        y = ((x1 ** 2 + 0.05 * rng.standard_normal(n)) > 1.0).astype(int)
+        y = ((x1**2 + 0.05 * rng.standard_normal(n)) > 1.0).astype(int)
         # current_support is x1 -- after filtering out the candidate's
         # own source (x1) the filtered cache is EMPTY -> fallback path.
         scores = score_features_by_cmim(
@@ -352,15 +345,12 @@ class TestEmptySupportFallback:
         s_map = dict(zip(scores["engineered_col"], scores["engineered_mi"]))
         # Reference marginal MI from the public _cmi_from_binned.
         x_bin = _quantile_bin(
-            np.ascontiguousarray(engineered["x1__He2"].to_numpy(),
-                                 dtype=np.float64),
+            np.ascontiguousarray(engineered["x1__He2"].to_numpy(), dtype=np.float64),
             nbins=10,
         )
         _, y_bin = np.unique(y.astype(np.int64), return_inverse=True)
         y_bin = y_bin.astype(np.int64)
         expected = float(_cmi_from_binned(x_bin, y_bin, None))
         assert s_map["x1__He2"] == pytest.approx(expected, rel=1e-12), (
-            f"empty-support fallback path drifted: got "
-            f"{s_map['x1__He2']:.10f}, expected marginal MI "
-            f"{expected:.10f}."
+            f"empty-support fallback path drifted: got " f"{s_map['x1__He2']:.10f}, expected marginal MI " f"{expected:.10f}."
         )

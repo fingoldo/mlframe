@@ -58,8 +58,7 @@ def _make_frame(n, K, nbins, seed):
     return cols, classes_y, freqs_y
 
 
-def _per_column_reference(disc_2d, factors_nbins, classes_y, classes_y_safe, freqs_y,
-                          npermutations, min_nonzero_confidence):
+def _per_column_reference(disc_2d, factors_nbins, classes_y, classes_y_safe, freqs_y, npermutations, min_nonzero_confidence):
     """The ORIGINAL per-candidate path: loop mi_direct over columns exactly as the
     FE Phase-3 batch loop does (base_seed=0, parallelism='outer', n_workers=1,
     prefer_gpu False to keep the deterministic CPU path)."""
@@ -86,6 +85,7 @@ def _per_column_reference(disc_2d, factors_nbins, classes_y, classes_y_safe, fre
 @pytest.mark.parametrize("npermutations", [0, 3, 10])
 @pytest.mark.parametrize("min_nonzero_confidence", [0.99, 0.0])
 def test_batch_bit_identical_to_mi_direct(n, K, nbins, npermutations, min_nonzero_confidence):
+    """batch_mi_with_noise_gate matches the per-column mi_direct reference bit-for-bit across the (n, K, nbins) grid."""
     disc_2d, classes_y, freqs_y = _make_frame(n, K, nbins, seed=1234 + n + K + nbins)
     classes_y_safe = classes_y.copy()
     factors_nbins = np.full(K, nbins, dtype=np.int64)
@@ -110,8 +110,7 @@ def test_batch_bit_identical_to_mi_direct(n, K, nbins, npermutations, min_nonzer
     assert got.shape == ref.shape
     # EXACT float equality -- bit-identity is the contract.
     assert np.array_equal(got, ref), (
-        f"mismatch n={n} K={K} nbins={nbins} nperm={npermutations} "
-        f"mnc={min_nonzero_confidence}\n ref={ref}\n got={got}\n diff={got - ref}"
+        f"mismatch n={n} K={K} nbins={nbins} nperm={npermutations} " f"mnc={min_nonzero_confidence}\n ref={ref}\n got={got}\n diff={got - ref}"
     )
 
 
@@ -130,8 +129,7 @@ def test_pure_noise_zeroed_identically():
         dtype=np.int32,
     )
     factors_nbins = np.array([6], dtype=np.int64)
-    ref = _per_column_reference(disc_2d, factors_nbins, classes_y, classes_y.copy(),
-                                freqs_y, npermutations=10, min_nonzero_confidence=0.99)
+    ref = _per_column_reference(disc_2d, factors_nbins, classes_y, classes_y.copy(), freqs_y, npermutations=10, min_nonzero_confidence=0.99)
     got = batch_mi_with_noise_gate(
         disc_2d=disc_2d, factors_nbins=factors_nbins, classes_y=classes_y,
         classes_y_safe=classes_y.copy(), freqs_y=freqs_y, npermutations=10,
@@ -149,8 +147,7 @@ def test_su_mode_bit_identical(monkeypatch):
 
     disc_2d, classes_y, freqs_y = _make_frame(400, 10, 5, seed=7)
     factors_nbins = np.full(10, 5, dtype=np.int64)
-    ref = _per_column_reference(disc_2d, factors_nbins, classes_y, classes_y.copy(),
-                                freqs_y, npermutations=10, min_nonzero_confidence=0.99)
+    ref = _per_column_reference(disc_2d, factors_nbins, classes_y, classes_y.copy(), freqs_y, npermutations=10, min_nonzero_confidence=0.99)
     got = batch_mi_with_noise_gate(
         disc_2d=disc_2d, factors_nbins=factors_nbins, classes_y=classes_y,
         classes_y_safe=classes_y.copy(), freqs_y=freqs_y, npermutations=10,
@@ -174,6 +171,7 @@ from mlframe.feature_selection.filters.info_theory import (
 @pytest.mark.parametrize("npermutations", [0, 3, 10])
 @pytest.mark.parametrize("min_nonzero_confidence", [0.99, 0.0])
 def test_v2_bit_identical_to_v1(n, K, nbins, npermutations, min_nonzero_confidence):
+    """The fused v2 kernel matches v1 bit-for-bit across the (n, K, nbins) grid."""
     disc_2d, classes_y, freqs_y = _make_frame(n, K, nbins, seed=1234 + n + K + nbins)
     factors_nbins = np.full(K, nbins, dtype=np.int64)
     kw = dict(
@@ -184,12 +182,11 @@ def test_v2_bit_identical_to_v1(n, K, nbins, npermutations, min_nonzero_confiden
     )
     v1 = batch_mi_with_noise_gate(**kw)
     v2 = batch_mi_with_noise_gate_v2(**kw)
-    assert np.array_equal(v1, v2), (
-        f"v2 != v1 n={n} K={K} nbins={nbins} nperm={npermutations} mnc={min_nonzero_confidence}"
-    )
+    assert np.array_equal(v1, v2), f"v2 != v1 n={n} K={K} nbins={nbins} nperm={npermutations} mnc={min_nonzero_confidence}"
 
 
 def test_v2_su_mode_bit_identical():
+    """The fused v2 kernel matches v1 bit-for-bit under SU normalization."""
     disc_2d, classes_y, freqs_y = _make_frame(400, 10, 5, seed=7)
     factors_nbins = np.full(10, 5, dtype=np.int64)
     kw = dict(
@@ -201,6 +198,7 @@ def test_v2_su_mode_bit_identical():
 
 
 def test_v2_pure_noise_zeroed_identically():
+    """The fused v2 kernel matches v1 bit-for-bit on a pure-noise column (both zero it out)."""
     n = 800
     rng = np.random.default_rng(99)
     y = rng.integers(0, 4, size=n).astype(np.int32)
@@ -247,6 +245,7 @@ def test_sweep_uses_kernel_choice_as_the_decision_key(monkeypatch):
     orig = _bench.sweep_backend_grid
 
     def _spy(*a, **kw):
+        """Record the kwargs sweep_backend_grid was called with, then short-circuit with a canned result."""
         calls.append(kw)
         # Short-circuit the real (slow) sweep -- we only need to observe the call signature.
         return [{"n_rows_max": None, "kernel_choice": "v1"}]
