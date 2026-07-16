@@ -42,6 +42,7 @@ Contracts pinned
 
 NEVER xfail.
 """
+
 from __future__ import annotations
 
 import pickle
@@ -54,7 +55,6 @@ import pytest
 from sklearn.base import clone
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
-from sklearn.model_selection import train_test_split
 
 warnings.filterwarnings("ignore")
 
@@ -67,12 +67,14 @@ SEEDS = (1, 7, 13, 42, 101)
 
 
 def _import_semi():
+    """Lazily import the semi-supervised (unlabeled-pool) FE functions."""
     from mlframe.feature_selection.filters._semi_supervised_fe import (
         fit_with_unlabeled,
         get_unlabeled_pool,
         unlabeled_pool_active,
         set_unlabeled_pool,
     )
+
     return (
         fit_with_unlabeled,
         get_unlabeled_pool,
@@ -82,19 +84,24 @@ def _import_semi():
 
 
 def _import_mrmr():
+    """Lazily import the MRMR class."""
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     return MRMR
 
 
 def _import_basis():
+    """Lazily import the orthogonal univariate-basis FE functions."""
     from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
         generate_univariate_basis_features,
         _evaluate_basis_column,
     )
+
     return generate_univariate_basis_features, _evaluate_basis_column
 
 
 def _make_mrmr(**overrides):
+    """Build an MRMR with cheap, deterministic default knobs that isolate the semi-supervised FE stage."""
     MRMR = _import_mrmr()
     kwargs = dict(
         verbose=0,
@@ -124,18 +131,22 @@ def _build_quadratic_with_unlabeled(seed: int, n_labeled: int, n_unlabeled: int)
     rng = np.random.default_rng(seed)
     x1_l = rng.standard_normal(n_labeled)
     x1_u = rng.standard_normal(n_unlabeled)
-    X_labeled = pd.DataFrame({
-        "x1": x1_l,
-        "noise_0": rng.standard_normal(n_labeled),
-        "noise_1": rng.standard_normal(n_labeled),
-    })
-    X_unlabeled = pd.DataFrame({
-        "x1": x1_u,
-        "noise_0": rng.standard_normal(n_unlabeled),
-        "noise_1": rng.standard_normal(n_unlabeled),
-    })
+    X_labeled = pd.DataFrame(
+        {
+            "x1": x1_l,
+            "noise_0": rng.standard_normal(n_labeled),
+            "noise_1": rng.standard_normal(n_labeled),
+        }
+    )
+    X_unlabeled = pd.DataFrame(
+        {
+            "x1": x1_u,
+            "noise_0": rng.standard_normal(n_unlabeled),
+            "noise_1": rng.standard_normal(n_unlabeled),
+        }
+    )
     y = pd.Series(
-        (x1_l ** 2 + 0.1 * rng.standard_normal(n_labeled) > 1.0).astype(int),
+        (x1_l**2 + 0.1 * rng.standard_normal(n_labeled) > 1.0).astype(int),
         name="y",
     )
     return X_labeled, y, X_unlabeled
@@ -155,11 +166,7 @@ def _build_linear_with_unlabeled(seed: int, n_labeled: int, n_unlabeled: int):
     X_labeled = pd.DataFrame(Xl, columns=cols)
     X_unlabeled = pd.DataFrame(Xu, columns=cols)
     # Quadratic + linear signal so the orth-poly basis fitting matters.
-    signal = (
-        0.7 * X_labeled["x0"]
-        + 0.5 * (X_labeled["x1"] ** 2 - 1.0)
-        + 0.5 * X_labeled["x2"]
-    )
+    signal = 0.7 * X_labeled["x0"] + 0.5 * (X_labeled["x1"] ** 2 - 1.0) + 0.5 * X_labeled["x2"]
     y = pd.Series(
         (signal + 0.3 * rng.standard_normal(n_labeled) > 0).astype(int),
         name="y",
@@ -173,6 +180,7 @@ def _build_linear_with_unlabeled(seed: int, n_labeled: int, n_unlabeled: int):
 
 
 class TestBetterPreprocessParams:
+    """Basis preprocess params fitted on labeled+unlabeled land closer to the true population than labeled-only."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_zscore_params_closer_to_truth_with_unlabeled(self, seed):
@@ -183,6 +191,7 @@ class TestBetterPreprocessParams:
         from mlframe.feature_selection.filters.hermite_fe import (
             _preprocess_zscore,
         )
+
         rng = np.random.default_rng(seed)
         # 200 labeled + 2000 unlabeled, both drawn from N(0, 1).
         x_l = rng.standard_normal(200)
@@ -196,9 +205,7 @@ class TestBetterPreprocessParams:
         # The concat-pool error should be smaller (more rows -> smaller
         # sampling noise around the true 0/1).
         assert err_p < err_l, (
-            f"seed={seed}: concat-pool z-score params no closer to truth "
-            f"than labeled-only. labeled-only err={err_l:.4f}, "
-            f"concat err={err_p:.4f}"
+            f"seed={seed}: concat-pool z-score params no closer to truth " f"than labeled-only. labeled-only err={err_l:.4f}, " f"concat err={err_p:.4f}"
         )
 
     @pytest.mark.parametrize("seed", SEEDS)
@@ -214,16 +221,17 @@ class TestBetterPreprocessParams:
         x_u = rng.standard_normal(2000)
         vals_labeled_only = _evaluate_basis_column(x_l, "hermite", 2)
         vals_with_aux = _evaluate_basis_column(
-            x_l, "hermite", 2, aux_for_fit=x_u,
+            x_l,
+            "hermite",
+            2,
+            aux_for_fit=x_u,
         )
         # At n=200 the labeled-only mean/std differ from the concat-pool
         # mean/std by a measurable amount, so the two He_2 outputs must
         # differ. (Equality would mean the aux path silently did nothing.)
         assert vals_labeled_only.shape == vals_with_aux.shape
         assert not np.allclose(vals_labeled_only, vals_with_aux), (
-            f"seed={seed}: aux_for_fit had no effect on basis output; "
-            f"max abs diff = "
-            f"{np.max(np.abs(vals_labeled_only - vals_with_aux)):.2e}"
+            f"seed={seed}: aux_for_fit had no effect on basis output; " f"max abs diff = " f"{np.max(np.abs(vals_labeled_only - vals_with_aux)):.2e}"
         )
 
 
@@ -233,6 +241,7 @@ class TestBetterPreprocessParams:
 
 
 class TestDownstreamLift:
+    """Semi-supervised augmentation never underperforms the labeled-only baseline on downstream holdout AUC."""
 
     @pytest.mark.parametrize("seed", (1, 7, 13))
     def test_semi_supervised_auc_at_or_above_labeled_only(self, seed):
@@ -251,23 +260,22 @@ class TestDownstreamLift:
         # Big holdout sampled from the same population so AUC is a real
         # generalisation measure, not a memorisation artefact.
         X_l, y_l, X_u = _build_linear_with_unlabeled(
-            seed, n_labeled=200, n_unlabeled=2000,
+            seed,
+            n_labeled=200,
+            n_unlabeled=2000,
         )
         rng = np.random.default_rng(seed + 100)
         p = X_l.shape[1]
         X_test_arr = rng.standard_normal((3000, p))
         X_test = pd.DataFrame(X_test_arr, columns=list(X_l.columns))
-        signal_test = (
-            0.7 * X_test["x0"]
-            + 0.5 * (X_test["x1"] ** 2 - 1.0)
-            + 0.5 * X_test["x2"]
-        )
+        signal_test = 0.7 * X_test["x0"] + 0.5 * (X_test["x1"] ** 2 - 1.0) + 0.5 * X_test["x2"]
         y_test = pd.Series(
             (signal_test + 0.3 * rng.standard_normal(3000) > 0).astype(int),
             name="y",
         )
 
         def _auc_after_mrmr(use_unlabeled: bool) -> float:
+            """Fit MRMR with or without semi-supervised augmentation and return downstream LogReg holdout AUC."""
             m = _make_mrmr(
                 fe_hybrid_orth_enable=True,
                 fe_hybrid_orth_pair_enable=False,
@@ -283,12 +291,8 @@ class TestDownstreamLift:
             common = [c for c in Xt_train.columns if c in Xt_test.columns]
             if not common:
                 return 0.5
-            Xt_train = Xt_train[common].select_dtypes(
-                include=[np.number, "bool"]
-            ).fillna(0.0)
-            Xt_test = Xt_test[common].select_dtypes(
-                include=[np.number, "bool"]
-            ).fillna(0.0)
+            Xt_train = Xt_train[common].select_dtypes(include=[np.number, "bool"]).fillna(0.0)
+            Xt_test = Xt_test[common].select_dtypes(include=[np.number, "bool"]).fillna(0.0)
             common2 = [c for c in Xt_train.columns if c in Xt_test.columns]
             if not common2:
                 return 0.5
@@ -317,6 +321,7 @@ class TestDownstreamLift:
 
 
 class TestNoLeakage:
+    """y is never inspected by the unlabeled-pool builder or the basis-fitting consumer."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_pool_builder_ignores_y_completely(self, seed):
@@ -327,25 +332,24 @@ class TestNoLeakage:
         from mlframe.feature_selection.filters._semi_supervised_fe import (
             _build_pool_mapping,
         )
+
         X_l, _y, X_u = _build_quadratic_with_unlabeled(
-            seed, n_labeled=200, n_unlabeled=500,
+            seed,
+            n_labeled=200,
+            n_unlabeled=500,
         )
         pool = _build_pool_mapping(X_l, X_u)
         # Mapping covers every numeric column shared by both frames.
-        assert set(pool.keys()) == set(X_l.columns), (
-            f"seed={seed}: pool keys {sorted(pool.keys())} != labeled cols "
-            f"{sorted(X_l.columns)}"
-        )
+        assert set(pool.keys()) == set(X_l.columns), f"seed={seed}: pool keys {sorted(pool.keys())} != labeled cols " f"{sorted(X_l.columns)}"
         # Each entry holds exactly the finite UNLABELED values (no labeled
         # rows, no y).
         for col in X_l.columns:
             expected = X_u[col].to_numpy()
             expected = expected[np.isfinite(expected)]
             np.testing.assert_array_equal(
-                pool[col], expected.astype(np.float64),
-                err_msg=(
-                    f"seed={seed}: pool[{col!r}] not the unlabeled values"
-                ),
+                pool[col],
+                expected.astype(np.float64),
+                err_msg=(f"seed={seed}: pool[{col!r}] not the unlabeled values"),
             )
 
     @pytest.mark.parametrize("seed", (1, 7, 13))
@@ -363,12 +367,15 @@ class TestNoLeakage:
         _, _, unlabeled_pool_active, _ = _import_semi()
         gen, _ = _import_basis()
         X_l, y, X_u = _build_quadratic_with_unlabeled(
-            seed, n_labeled=200, n_unlabeled=500,
+            seed,
+            n_labeled=200,
+            n_unlabeled=500,
         )
         # Build the per-column unlabeled pool the same way the wrapper does.
         from mlframe.feature_selection.filters._semi_supervised_fe import (
             _build_pool_mapping,
         )
+
         pool = _build_pool_mapping(X_l, X_u)
         # Run 1: pretend y is the real labels (irrelevant to FE path).
         with unlabeled_pool_active(pool):
@@ -376,7 +383,7 @@ class TestNoLeakage:
         # Run 2: shuffle y wildly, then run the FE again with the same pool.
         # The engineered output must be bit-equal: y plays no role here.
         rng = np.random.default_rng(seed + 999)
-        _y_shuf = rng.permutation(y.to_numpy())  # noqa: F841 -- intentional unused
+        _y_shuf = rng.permutation(y.to_numpy())
         with unlabeled_pool_active(pool):
             eng2 = gen(X_l, degrees=(2,), basis="hermite")
         assert list(eng1.columns) == list(eng2.columns), (
@@ -403,12 +410,16 @@ class TestNoLeakage:
         from mlframe.feature_selection.filters._semi_supervised_fe import (
             _build_pool_mapping,
         )
+
         X_l, _y, X_u = _build_quadratic_with_unlabeled(
-            seed, n_labeled=200, n_unlabeled=500,
+            seed,
+            n_labeled=200,
+            n_unlabeled=500,
         )
         # Pool depends only on (X_labeled, X_unlabeled); ``_build_pool_mapping``
         # takes no y argument at all.
         import inspect
+
         sig = inspect.signature(_build_pool_mapping)
         assert list(sig.parameters.keys()) == ["X_labeled", "X_unlabeled"], (
             f"seed={seed}: _build_pool_mapping signature changed and now "
@@ -428,6 +439,7 @@ class TestNoLeakage:
 
 
 class TestDefaultDisabledByteIdentical:
+    """With fe_semi_supervised_enable=False (default), fit_with_unlabeled is byte-identical to plain fit()."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_default_off_byte_identical_to_plain_fit(self, seed):
@@ -437,18 +449,16 @@ class TestDefaultDisabledByteIdentical:
         """
         fit_with_unlabeled, _, _, _ = _import_semi()
         X_l, y, X_u = _build_quadratic_with_unlabeled(
-            seed, n_labeled=200, n_unlabeled=500,
+            seed,
+            n_labeled=200,
+            n_unlabeled=500,
         )
         m1 = _make_mrmr()  # default: fe_semi_supervised_enable=False
         with warnings.catch_warnings(record=True) as wlist:
             warnings.simplefilter("always")
             fit_with_unlabeled(m1, X_l, y, X_unlabeled=X_u)
         # Exactly one UserWarning about the disabled flag must surface.
-        flag_warns = [
-            w for w in wlist
-            if issubclass(w.category, UserWarning)
-            and "fe_semi_supervised_enable=False" in str(w.message)
-        ]
+        flag_warns = [w for w in wlist if issubclass(w.category, UserWarning) and "fe_semi_supervised_enable=False" in str(w.message)]
         assert flag_warns, (
             f"seed={seed}: expected UserWarning when fit_with_unlabeled is "
             f"called with X_unlabeled but the flag is off; got "
@@ -460,10 +470,7 @@ class TestDefaultDisabledByteIdentical:
         m2.fit(X_l, y)
         sup1 = list(m1.feature_names_in_)
         sup2 = list(m2.feature_names_in_)
-        assert sup1 == sup2, (
-            f"seed={seed}: default-off fit_with_unlabeled diverged from "
-            f"plain fit. fit_with_unlabeled={sup1}, fit={sup2}"
-        )
+        assert sup1 == sup2, f"seed={seed}: default-off fit_with_unlabeled diverged from " f"plain fit. fit_with_unlabeled={sup1}, fit={sup2}"
 
     @pytest.mark.parametrize("seed", (1, 7))
     def test_enabled_no_unlabeled_no_warning(self, seed):
@@ -472,27 +479,20 @@ class TestDefaultDisabledByteIdentical:
         """
         fit_with_unlabeled, _, _, _ = _import_semi()
         X_l, y, _ = _build_quadratic_with_unlabeled(
-            seed, n_labeled=200, n_unlabeled=500,
+            seed,
+            n_labeled=200,
+            n_unlabeled=500,
         )
         m1 = _make_mrmr(fe_semi_supervised_enable=True)
         with warnings.catch_warnings(record=True) as wlist:
             warnings.simplefilter("always")
             fit_with_unlabeled(m1, X_l, y, X_unlabeled=None)
-        flag_warns = [
-            w for w in wlist
-            if "fe_semi_supervised_enable" in str(w.message)
-        ]
-        assert not flag_warns, (
-            f"seed={seed}: unexpected flag-related warning when "
-            f"X_unlabeled=None: {[str(w.message) for w in flag_warns]}"
-        )
+        flag_warns = [w for w in wlist if "fe_semi_supervised_enable" in str(w.message)]
+        assert not flag_warns, f"seed={seed}: unexpected flag-related warning when " f"X_unlabeled=None: {[str(w.message) for w in flag_warns]}"
         m2 = _make_mrmr(fe_semi_supervised_enable=True)
         m2.fit(X_l, y)
-        assert (
-            list(m1.feature_names_in_) == list(m2.feature_names_in_)
-        ), (
-            f"seed={seed}: flag-on + X_unlabeled=None diverged from plain "
-            f"fit (no augmentation should have happened)"
+        assert list(m1.feature_names_in_) == list(m2.feature_names_in_), (
+            f"seed={seed}: flag-on + X_unlabeled=None diverged from plain " f"fit (no augmentation should have happened)"
         )
 
     def test_thread_local_pool_empty_by_default(self):
@@ -501,9 +501,7 @@ class TestDefaultDisabledByteIdentical:
         labeled-only path in the default case.
         """
         _, get_unlabeled_pool, _, _ = _import_semi()
-        assert get_unlabeled_pool() is None, (
-            "thread-local pool should be None outside the context manager"
-        )
+        assert get_unlabeled_pool() is None, "thread-local pool should be None outside the context manager"
 
 
 # ---------------------------------------------------------------------------
@@ -512,26 +510,28 @@ class TestDefaultDisabledByteIdentical:
 
 
 class TestPickleAndClone:
+    """clone() and pickle preserve the fe_semi_supervised_enable ctor flag, unfitted and fitted."""
 
     def test_clone_preserves_semi_supervised_flag(self):
+        """clone() copies fe_semi_supervised_enable without carrying over fitted state."""
         m = _make_mrmr(fe_semi_supervised_enable=True)
         m2 = clone(m)
-        assert getattr(m2, "fe_semi_supervised_enable") is True, (
-            "clone() dropped fe_semi_supervised_enable"
-        )
+        assert getattr(m2, "fe_semi_supervised_enable") is True, "clone() dropped fe_semi_supervised_enable"
 
     def test_pickle_roundtrip_unfitted(self):
+        """pickle.dumps/loads on an unfitted MRMR preserves fe_semi_supervised_enable."""
         m = _make_mrmr(fe_semi_supervised_enable=True)
         blob = pickle.dumps(m)
-        m2 = pickle.loads(blob)
-        assert getattr(m2, "fe_semi_supervised_enable") is True, (
-            "pickle/unpickle dropped fe_semi_supervised_enable"
-        )
+        m2 = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
+        assert getattr(m2, "fe_semi_supervised_enable") is True, "pickle/unpickle dropped fe_semi_supervised_enable"
 
     def test_pickle_roundtrip_fitted(self):
+        """pickle.dumps/loads on a semi-supervised-fitted MRMR preserves feature_names_in_ and transform() output."""
         fit_with_unlabeled, _, _, _ = _import_semi()
         X_l, y, X_u = _build_quadratic_with_unlabeled(
-            seed=42, n_labeled=200, n_unlabeled=500,
+            seed=42,
+            n_labeled=200,
+            n_unlabeled=500,
         )
         m = _make_mrmr(
             fe_hybrid_orth_enable=True,
@@ -541,23 +541,15 @@ class TestPickleAndClone:
         )
         fit_with_unlabeled(m, X_l, y, X_unlabeled=X_u)
         blob = pickle.dumps(m)
-        m2 = pickle.loads(blob)
-        assert list(m2.feature_names_in_) == list(m.feature_names_in_), (
-            "pickle changed feature_names_in_"
-        )
+        m2 = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
+        assert list(m2.feature_names_in_) == list(m.feature_names_in_), "pickle changed feature_names_in_"
         # Transform must be deterministic post-pickle.
         Xt = m.transform(X_l)
         Xt2 = m2.transform(X_l)
-        assert list(Xt.columns) == list(Xt2.columns), (
-            "pickle changed transform() columns"
-        )
+        assert list(Xt.columns) == list(Xt2.columns), "pickle changed transform() columns"
         for c in Xt.columns:
             if pd.api.types.is_numeric_dtype(Xt[c]):
                 v1 = Xt[c].to_numpy()
                 v2 = Xt2[c].to_numpy()
                 if not np.allclose(v1, v2, equal_nan=True, atol=1e-10):
-                    raise AssertionError(
-                        f"pickle changed transform() values for column "
-                        f"{c!r}: max abs diff "
-                        f"{np.nanmax(np.abs(v1 - v2)):.2e}"
-                    )
+                    raise AssertionError(f"pickle changed transform() values for column " f"{c!r}: max abs diff " f"{np.nanmax(np.abs(v1 - v2)):.2e}")
