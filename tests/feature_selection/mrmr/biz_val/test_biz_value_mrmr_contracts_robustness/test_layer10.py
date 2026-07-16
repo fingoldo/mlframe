@@ -91,12 +91,14 @@ REFERENCES
 from __future__ import annotations
 
 import warnings
+from functools import cache
 
 import numpy as np
 import pandas as pd
 import pytest
 
 
+@cache
 def _build_highcard_data(n: int = 2500, seed: int = 101):
     """Build the layer-10 benchmark.
 
@@ -119,19 +121,13 @@ def _build_highcard_data(n: int = 2500, seed: int = 101):
         # pad if reps undershot n (extreme RNG draws).
         pad = rng.integers(0, n_levels, size=n - len(user_vals))
         user_vals = np.concatenate([user_vals, pad])
-    user_id = pd.Series(
-        [f"u_{i}" for i in user_vals[:n]], name="user_id"
-    ).astype("category")
+    user_id = pd.Series([f"u_{i}" for i in user_vals[:n]], name="user_id").astype("category")
 
     # medium-cardinality region: 50 levels, 6 of them carry signal.
     region_vals = rng.integers(0, 50, size=n)
     hot_levels = {3, 7, 11, 19, 27, 41}
-    region_signal = np.array(
-        [1.5 if v in hot_levels else 0.0 for v in region_vals]
-    )
-    region = pd.Series(
-        [f"r_{v}" for v in region_vals], name="region"
-    ).astype("category")
+    region_signal = np.array([1.5 if v in hot_levels else 0.0 for v in region_vals])
+    region = pd.Series([f"r_{v}" for v in region_vals], name="region").astype("category")
 
     # numeric signal + noise.
     num_signal_1 = rng.standard_normal(n)
@@ -148,12 +144,7 @@ def _build_highcard_data(n: int = 2500, seed: int = 101):
     X = pd.DataFrame(cols)
 
     # y depends ONLY on region (hot levels) + num_signal_1 + num_signal_2.
-    logit = (
-        region_signal
-        + 0.9 * num_signal_1
-        + 0.7 * num_signal_2
-        + 0.3 * rng.standard_normal(n)
-    )
+    logit = region_signal + 0.9 * num_signal_1 + 0.7 * num_signal_2 + 0.3 * rng.standard_normal(n)
     y = pd.Series((logit > 0.0).astype(np.int64), name="y")
     return X, y
 
@@ -174,6 +165,19 @@ def _fit_layer10(X, y, *, mi_normalization: str = "none"):
             mi_normalization=mi_normalization,
         ).fit(X, y)
     return list(sel.get_feature_names_out())
+
+
+@cache
+def _build_and_fit_layer10(seed: int) -> tuple:
+    """Cached ``(X, y, names)`` for the default ``mi_normalization="none"`` fit, per seed.
+
+    9 test methods across 5 classes re-derive different contracts from the SAME deterministic
+    (data, fit) pair for a given seed -- up to 7x redundant identical MRMR.fit() calls per seed
+    before this cache. Nothing downstream mutates X/y/names in place.
+    """
+    X, y = _build_highcard_data(seed=seed)
+    names = _fit_layer10(X, y)
+    return X, y, names
 
 
 # ---------------------------------------------------------------------------
@@ -203,19 +207,13 @@ class TestHighCardDefaultRefuses:
         X, y = _build_highcard_data()
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            sel = MRMR(
-                verbose=0, interactions_max_order=1, fe_max_steps=0
-            ).fit(X, y)
+            sel = MRMR(verbose=0, interactions_max_order=1, fe_max_steps=0).fit(X, y)
         support = list(sel.get_feature_names_out())
         # The 1200-level ``user_id`` must not survive into support (it carries no
         # generalising signal and would violate the int16 binning ceiling).
-        assert not any("user_id" in str(c) for c in support), (
-            f"1200-level high-card column leaked into support: {support}"
-        )
+        assert not any("user_id" in str(c) for c in support), f"1200-level high-card column leaked into support: {support}"
         # The genuine numeric signals must still be recovered.
-        assert any("num_signal" in str(c) for c in support), (
-            f"high-card handling dropped the genuine signals too: {support}"
-        )
+        assert any("num_signal" in str(c) for c in support), f"high-card handling dropped the genuine signals too: {support}"
 
 
 # ---------------------------------------------------------------------------
@@ -229,20 +227,14 @@ class TestHighCardCatFEDisabledNumericSignalsSurvive:
     - the high-card distractor doesn't crowd them out."""
 
     def test_num_signal_1_in_support(self):
-        X, y = _build_highcard_data(seed=101)
-        names = _fit_layer10(X, y)
-        assert "num_signal_1" in names, (
-            f"num_signal_1 (true signal) missing from support; the "
-            f"high-card user_id hijacked the budget. support={names}"
-        )
+        """num_signal_1 (true numeric signal) survives the high-card user_id distractor."""
+        _X, _y, names = _build_and_fit_layer10(101)
+        assert "num_signal_1" in names, f"num_signal_1 (true signal) missing from support; the " f"high-card user_id hijacked the budget. support={names}"
 
     def test_num_signal_2_in_support(self):
-        X, y = _build_highcard_data(seed=101)
-        names = _fit_layer10(X, y)
-        assert "num_signal_2" in names, (
-            f"num_signal_2 (true signal) missing from support; "
-            f"support={names}"
-        )
+        """num_signal_2 (true numeric signal) survives the high-card user_id distractor."""
+        _X, _y, names = _build_and_fit_layer10(101)
+        assert "num_signal_2" in names, f"num_signal_2 (true signal) missing from support; " f"support={names}"
 
 
 class TestHighCardCatFEDisabledRegionSurvives:
@@ -252,12 +244,10 @@ class TestHighCardCatFEDisabledRegionSurvives:
     dropped, and the model loses the only real categorical predictor."""
 
     def test_region_in_support(self):
-        X, y = _build_highcard_data(seed=101)
-        names = _fit_layer10(X, y)
+        """region (medium-card categorical with real signal) is not crowded out."""
+        _X, _y, names = _build_and_fit_layer10(101)
         assert "region" in names, (
-            f"region (medium-card cat with real signal) dropped; the "
-            f"high-card user_id likely crowded it out via false "
-            f"redundancy. support={names}"
+            f"region (medium-card cat with real signal) dropped; the " f"high-card user_id likely crowded it out via false " f"redundancy. support={names}"
         )
 
 
@@ -270,14 +260,11 @@ class TestHighCardCatFEDisabledSeedRobustness:
 
     @pytest.mark.parametrize("seed", [101, 202, 303, 404, 505])
     def test_true_signals_kept_across_seeds(self, seed):
-        X, y = _build_highcard_data(seed=seed)
-        names = _fit_layer10(X, y)
+        """Contract B.1/B.2: all 3 true-signal columns survive on every seed."""
+        _X, _y, names = _build_and_fit_layer10(seed)
         true_signals = {"num_signal_1", "num_signal_2", "region"}
         missing = true_signals - set(names)
-        assert not missing, (
-            f"seed={seed}: true-signal column(s) {missing} missing from "
-            f"support; support={names}"
-        )
+        assert not missing, f"seed={seed}: true-signal column(s) {missing} missing from " f"support; support={names}"
 
     @pytest.mark.parametrize("seed", [202, 303, 404, 505])
     def test_user_id_not_top_pick_majority_seeds(self, seed):
@@ -290,13 +277,9 @@ class TestHighCardCatFEDisabledSeedRobustness:
         the failure mode (see TestHighCardCatFEDisabledKnownHijack
         below).
         """
-        X, y = _build_highcard_data(seed=seed)
-        names = _fit_layer10(X, y)
+        _X, _y, names = _build_and_fit_layer10(seed)
         assert names, f"seed={seed}: empty support"
-        assert names[0] != "user_id", (
-            f"seed={seed}: user_id ranked #1 -- the cardinality-bias "
-            f"hijack escaped onto a normally-clean seed; support={names}"
-        )
+        assert names[0] != "user_id", f"seed={seed}: user_id ranked #1 -- the cardinality-bias " f"hijack escaped onto a normally-clean seed; support={names}"
 
 
 # ---------------------------------------------------------------------------
@@ -335,8 +318,8 @@ class TestHighCardHijackFullyResolved:
 
     @pytest.mark.parametrize("seed", [101, 202, 303, 404, 505])
     def test_user_id_never_in_support(self, seed):
-        X, y = _build_highcard_data(seed=seed)
-        names = _fit_layer10(X, y)
+        """The cells > 0.5*n pre-screen keeps user_id out of support_ on every seed."""
+        _X, _y, names = _build_and_fit_layer10(seed)
         assert "user_id" not in names, (
             f"seed={seed}: user_id leaked into support_ despite the "
             f"cells > 0.5*n pre-screen filter. n=2500, user_id has "
@@ -351,12 +334,10 @@ class TestHighCardHijackFullyResolved:
         survive across all seeds (their effective binned cardinality
         is in {3, 5, 10, 20} - well within the cell budget).
         """
-        X, y = _build_highcard_data(seed=seed)
-        names = _fit_layer10(X, y)
+        _X, _y, names = _build_and_fit_layer10(seed)
         kept = {"num_signal_1", "num_signal_2"} & set(names)
         assert kept == {"num_signal_1", "num_signal_2"}, (
-            f"seed={seed}: pre-screen/MM-correction cut a real numeric "
-            f"signal. support={names}; missing={ {'num_signal_1', 'num_signal_2'} - kept }"
+            f"seed={seed}: pre-screen/MM-correction cut a real numeric " f"signal. support={names}; missing={ {'num_signal_1', 'num_signal_2'} - kept }"
         )
 
     @pytest.mark.parametrize("seed", [101, 202, 303, 404, 505])
@@ -366,8 +347,7 @@ class TestHighCardHijackFullyResolved:
         refuse it. region carries genuine signal (logit weight 1.5 on
         hot levels) and must end up in support_.
         """
-        X, y = _build_highcard_data(seed=seed)
-        names = _fit_layer10(X, y)
+        _X, _y, names = _build_and_fit_layer10(seed)
         assert "region" in names, (
             f"seed={seed}: region (medium-card signal, 100 cells) "
             f"missing from support_; cardinality pre-screen may have "
@@ -397,18 +377,14 @@ class TestHighCardCardinalityPenaltyVisible:
 
     @pytest.mark.parametrize("seed", [202, 303, 404, 505])
     def test_at_least_one_signal_outranks_user_id(self, seed):
-        X, y = _build_highcard_data(seed=seed)
-        names = _fit_layer10(X, y)
+        """Contract: when user_id survives at all, at least one true signal outranks it."""
+        _X, _y, names = _build_and_fit_layer10(seed)
         if "user_id" not in names:
             # user_id correctly dropped - strictly better than the
             # "outranks" contract; nothing to assert.
             return
         user_idx = names.index("user_id")
-        signal_ranks = [
-            names.index(s)
-            for s in ("num_signal_1", "num_signal_2", "region")
-            if s in names
-        ]
+        signal_ranks = [names.index(s) for s in ("num_signal_1", "num_signal_2", "region") if s in names]
         assert any(r < user_idx for r in signal_ranks), (
             f"seed={seed}: user_id (rank {user_idx}) outranks ALL true "
             f"signals; MRMR is following raw-MI order with zero "

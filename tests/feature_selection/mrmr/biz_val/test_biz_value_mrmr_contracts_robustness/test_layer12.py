@@ -123,11 +123,11 @@ NOT PINNED (deliberately)
 from __future__ import annotations
 
 import warnings
+from functools import cache
 
 import numpy as np
 import pandas as pd
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Drifty data builder
@@ -139,6 +139,7 @@ N_SLICES = 5
 N_TOTAL = N_PER_SLICE * N_SLICES  # 3000
 
 
+@cache
 def _build_drifty_data(seed: int = 12_001):
     """Construct the layer-12 concept-drift dataset.
 
@@ -173,9 +174,7 @@ def _build_drifty_data(seed: int = 12_001):
     early_only = rng.standard_normal(N_TOTAL)
     late_only = rng.standard_normal(N_TOTAL)
     flaky = rng.standard_normal(N_TOTAL)
-    noise_cols = {
-        f"noise_{k}": rng.standard_normal(N_TOTAL) for k in range(5)
-    }
+    noise_cols = {f"noise_{k}": rng.standard_normal(N_TOTAL) for k in range(5)}
 
     # Pick 1 random slice out of {0,1,2,3,4} for the flaky feature.
     # Deliberately ONE slice (not 2): with the inner MRMR's relevance
@@ -278,6 +277,22 @@ def _fit_stability(X, y, seed: int):
     return sel
 
 
+@cache
+def _build_and_fit_stability(seed: int):
+    """Cached ``(X, y, flaky_slices, sel)`` per seed.
+
+    Every ``Test*`` class below re-derives a DIFFERENT contract from the SAME
+    deterministic (data, fit) pair -- ~10 classes x 2 seeds previously re-ran
+    ``_fit_stability`` (15 inner MRMR fits each, the dominant cost of this file)
+    from scratch per class. Nothing mutates ``X``/``y``/``sel`` in place (MRMR's
+    ``fit`` contract -- see ``test_fit_does_not_mutate_caller_dataframe``), so
+    sharing the cached objects by reference across test classes is safe.
+    """
+    X, y, flaky_slices = _build_drifty_data(seed=seed)
+    sel = _fit_stability(X, y, seed=seed)
+    return X, y, flaky_slices, sel
+
+
 def _fit_plain_mrmr(X, y):
     """Fit a single non-wrapped MRMR for the baseline contract."""
     from mlframe.feature_selection.filters.mrmr import MRMR
@@ -294,10 +309,7 @@ def _fit_plain_mrmr(X, y):
 
 def _freq_dict(sel, feature_names):
     """Map column name -> selection_probability."""
-    return {
-        name: float(sel.selection_probabilities_[i])
-        for i, name in enumerate(feature_names)
-    }
+    return {name: float(sel.selection_probabilities_[i]) for i, name in enumerate(feature_names)}
 
 
 # Seeds: 2 because each one fits 15 inner MRMRs (heavy). Two seeds is
@@ -331,8 +343,8 @@ class TestStableFeatureSelectedAlmostAlways:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_stable_x_freq_at_least_080(self, seed):
-        X, y, flaky_slices = _build_drifty_data(seed=seed)
-        sel = _fit_stability(X, y, seed=seed)
+        """Contract 1: stable_x selection frequency >= 0.80 across 15 bootstraps."""
+        X, _y, flaky_slices, sel = _build_and_fit_stability(seed)
         freqs = _freq_dict(sel, X.columns.tolist())
         assert freqs["stable_x"] >= 0.80, (
             f"seed={seed} flaky_slices={flaky_slices}: stable_x "
@@ -361,8 +373,8 @@ class TestStableRanksAboveFlaky:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_stable_x_above_flaky(self, seed):
-        X, y, flaky_slices = _build_drifty_data(seed=seed)
-        sel = _fit_stability(X, y, seed=seed)
+        """Contract 2: stable_x frequency strictly greater than flaky frequency."""
+        X, _y, flaky_slices, sel = _build_and_fit_stability(seed)
         freqs = _freq_dict(sel, X.columns.tolist())
         assert freqs["stable_x"] > freqs["flaky"], (
             f"seed={seed} flaky_slices={flaky_slices}: stable_x freq "
@@ -408,8 +420,8 @@ class TestStableOutranksRegimeFeatures:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_stable_ge_early(self, seed):
-        X, y, flaky_slices = _build_drifty_data(seed=seed)
-        sel = _fit_stability(X, y, seed=seed)
+        """Contract 3: stable_x frequency >= early_only frequency."""
+        X, _y, flaky_slices, sel = _build_and_fit_stability(seed)
         freqs = _freq_dict(sel, X.columns.tolist())
         assert freqs["stable_x"] >= freqs["early_only"], (
             f"seed={seed} flaky_slices={flaky_slices}: stable_x "
@@ -421,8 +433,8 @@ class TestStableOutranksRegimeFeatures:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_stable_ge_late(self, seed):
-        X, y, flaky_slices = _build_drifty_data(seed=seed)
-        sel = _fit_stability(X, y, seed=seed)
+        """Contract 3: stable_x frequency >= late_only frequency."""
+        X, _y, flaky_slices, sel = _build_and_fit_stability(seed)
         freqs = _freq_dict(sel, X.columns.tolist())
         assert freqs["stable_x"] >= freqs["late_only"], (
             f"seed={seed} flaky_slices={flaky_slices}: stable_x "
@@ -489,12 +501,9 @@ class TestNoiseStaysBelowFloor:
         across all noise columns. Pin the maximum, not just the mean -
         a single column lifting above floor would also be a regression.
         """
-        X, y, flaky_slices = _build_drifty_data(seed=seed)
-        sel = _fit_stability(X, y, seed=seed)
+        X, _y, flaky_slices, sel = _build_and_fit_stability(seed)
         freqs = _freq_dict(sel, X.columns.tolist())
-        noise_freqs = [
-            f for name, f in freqs.items() if name.startswith("noise_")
-        ]
+        noise_freqs = [f for name, f in freqs.items() if name.startswith("noise_")]
         max_noise = float(np.max(noise_freqs))
         assert max_noise == 0.0, (
             f"seed={seed} flaky_slices={flaky_slices}: max noise "
@@ -513,13 +522,9 @@ class TestNoiseStaysBelowFloor:
         structurally guaranteed (flaky's marginal gain << 5% of
         stable_x's gain).
         """
-        X, y, flaky_slices = _build_drifty_data(seed=seed)
-        sel = _fit_stability(X, y, seed=seed)
+        X, _y, flaky_slices, sel = _build_and_fit_stability(seed)
         freqs = _freq_dict(sel, X.columns.tolist())
-        assert freqs["flaky"] == 0.0, (
-            f"seed={seed} flaky_slices={flaky_slices}: flaky freq "
-            f"{freqs['flaky']:.3f} > 0 post-fix; expected 0.0. freqs={freqs}"
-        )
+        assert freqs["flaky"] == 0.0, f"seed={seed} flaky_slices={flaky_slices}: flaky freq " f"{freqs['flaky']:.3f} > 0 post-fix; expected 0.0. freqs={freqs}"
 
 
 # ---------------------------------------------------------------------------
@@ -536,8 +541,8 @@ class TestSupportIncludesStable:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_stable_x_in_support(self, seed):
-        X, y, flaky_slices = _build_drifty_data(seed=seed)
-        sel = _fit_stability(X, y, seed=seed)
+        """Contract 5: support_ (freq >= support_threshold) contains stable_x."""
+        X, _y, flaky_slices, sel = _build_and_fit_stability(seed)
         cols = X.columns.tolist()
         kept_names = [cols[i] for i in sel.support_]
         assert "stable_x" in kept_names, (
@@ -569,8 +574,8 @@ class TestSupportExcludesNoise:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_at_most_one_noise_in_support(self, seed):
-        X, y, flaky_slices = _build_drifty_data(seed=seed)
-        sel = _fit_stability(X, y, seed=seed)
+        """Contract 6: support_ contains at most ONE pure-noise column."""
+        X, _y, flaky_slices, sel = _build_and_fit_stability(seed)
         cols = X.columns.tolist()
         kept_names = [cols[i] for i in sel.support_]
         noise_in_support = [n for n in kept_names if n.startswith("noise_")]
@@ -595,23 +600,13 @@ class TestSelectionProbabilitiesWellFormed:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_probabilities_shape_and_range(self, seed):
-        X, y, _ = _build_drifty_data(seed=seed)
-        sel = _fit_stability(X, y, seed=seed)
+        """Contract 7: selection_probabilities_ shape == n_features, all entries in [0, 1]."""
+        X, _y, _, sel = _build_and_fit_stability(seed)
         probs = sel.selection_probabilities_
-        assert probs.shape == (X.shape[1],), (
-            f"seed={seed}: selection_probabilities_ shape {probs.shape} "
-            f"!= (n_features={X.shape[1]},)"
-        )
-        assert np.all(np.isfinite(probs)), (
-            f"seed={seed}: selection_probabilities_ has non-finite "
-            f"entries: {probs}"
-        )
-        assert (probs >= 0.0).all(), (
-            f"seed={seed}: negative selection_probabilities_: {probs}"
-        )
-        assert (probs <= 1.0).all(), (
-            f"seed={seed}: selection_probabilities_ > 1.0: {probs}"
-        )
+        assert probs.shape == (X.shape[1],), f"seed={seed}: selection_probabilities_ shape {probs.shape} " f"!= (n_features={X.shape[1]},)"
+        assert np.all(np.isfinite(probs)), f"seed={seed}: selection_probabilities_ has non-finite " f"entries: {probs}"
+        assert (probs >= 0.0).all(), f"seed={seed}: negative selection_probabilities_: {probs}"
+        assert (probs <= 1.0).all(), f"seed={seed}: selection_probabilities_ > 1.0: {probs}"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_probabilities_quantized_to_n_bootstraps(self, seed):
@@ -619,16 +614,13 @@ class TestSelectionProbabilitiesWellFormed:
         [0, n_bootstraps]. Catches a regression where the wrapper
         accidentally divides by the wrong denominator (e.g. number of
         features instead of number of bootstraps)."""
-        X, y, _ = _build_drifty_data(seed=seed)
-        sel = _fit_stability(X, y, seed=seed)
+        _X, _y, _, sel = _build_and_fit_stability(seed)
         probs = sel.selection_probabilities_
         scaled = probs * N_BOOTSTRAPS
         rounded = np.round(scaled)
         max_err = float(np.max(np.abs(scaled - rounded)))
         assert max_err < 1e-9, (
-            f"seed={seed}: selection_probabilities_ are not on the "
-            f"{1.0/N_BOOTSTRAPS:.4f} grid; max round error {max_err}. "
-            f"probs={probs}"
+            f"seed={seed}: selection_probabilities_ are not on the " f"{1.0/N_BOOTSTRAPS:.4f} grid; max round error {max_err}. " f"probs={probs}"
         )
 
 
@@ -653,10 +645,9 @@ class TestBaselinePlainMRMRRecoversStable:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_baseline_keeps_stable(self, seed):
+        """Contract 8: non-wrapped MRMR baseline also picks stable_x."""
         X, y, flaky_slices = _build_drifty_data(seed=seed)
         names = _fit_plain_mrmr(X, y)
         assert "stable_x" in names, (
-            f"seed={seed} flaky_slices={flaky_slices}: plain MRMR "
-            f"baseline dropped stable_x; layer-12 contracts are "
-            f"vacuous. support={names}"
+            f"seed={seed} flaky_slices={flaky_slices}: plain MRMR " f"baseline dropped stable_x; layer-12 contracts are " f"vacuous. support={names}"
         )
