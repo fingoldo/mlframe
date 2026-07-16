@@ -87,7 +87,24 @@ def _free_gpu_fe_mempool() -> bool:
         return False
 
 
-def _run_fe_step(
+def _run_fe_step(self, **kwargs):
+    """Fit-scoped wrapper around ``_run_fe_step_impl``: opens ``dedup_collinear_memo_scope()`` for the
+    WHOLE FE step so every opt-in FE family's ``_dedup_collinear_source_cols`` call within this one round
+    (orth univariate, extra-basis, gpu-resident, wavelet, hinge -- up to 7 call sites, see that function's
+    docstring) shares ONE fit-scoped memo instead of each repeating the identical O(P^2) corrcoef pass on
+    the same candidate columns. cProfile, 2026-07-16 wellbore-100k fit: _dedup_collinear_source_cols cost
+    3.8s (3 calls, orth univariate path) + 2.5s (hinge path) SEPARATELY in one FE step despite operating on
+    overlapping candidate-column sets. The memo mechanism (content-hash keyed, thread-local, nesting-safe)
+    already existed (2026-07-12) but was never actually wired to any call site -- built, never engaged.
+    Wrapping here (not each family's own call site) is the single choke point every family's dedup call
+    passes through, so no per-family wiring can be missed. Purely additive: with no repeated (cols,
+    corr_threshold) pair the memo is a single miss-then-store per key, i.e. free within measurement noise."""
+    from .._orthogonal_univariate_fe._orth_dedup import dedup_collinear_memo_scope
+    with dedup_collinear_memo_scope():
+        return _run_fe_step_impl(self, **kwargs)
+
+
+def _run_fe_step_impl(
     self,
     *,
     # Mutable state from MRMR.fit (returned updated as tuple).
