@@ -480,7 +480,7 @@ class TestOrderIndependence:
     through hidden fit-order-dependent state.
     """
 
-    @pytest.mark.parametrize("seed", (HEADLINE_SEED,) + AUX_SEEDS)
+    @pytest.mark.parametrize("seed", (HEADLINE_SEED, *AUX_SEEDS))
     def test_kfold_te_then_orth_equals_orth_then_kfold_te(self, seed):
         """The combined orth+kfold_te fit's engineered set is a superset of each mechanism fit alone."""
         X, y = _kitchen_sink(seed=seed)
@@ -581,7 +581,7 @@ class TestNoDoubleCountingAbsFamily:
     ``_mrmr_fit_impl.py`` must keep AT MOST ONE in the final support.
     """
 
-    @pytest.mark.parametrize("seed", (HEADLINE_SEED,) + AUX_SEEDS)
+    @pytest.mark.parametrize("seed", (HEADLINE_SEED, *AUX_SEEDS))
     def test_at_most_one_abs_family_col_in_support(self, seed):
         """At most one |x_quad|-family engineered column survives cross-stage Spearman dedup."""
         X, y = _kitchen_sink(seed=seed)
