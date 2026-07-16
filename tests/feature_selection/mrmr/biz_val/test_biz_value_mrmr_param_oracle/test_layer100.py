@@ -36,6 +36,7 @@ Contracts pinned
 
 NEVER xfail.
 """
+
 from __future__ import annotations
 
 import orjson
@@ -64,18 +65,22 @@ FIXED_TS = "2026-01-01T00:00:00+00:00"
 # cross-contaminate via shared learned history.
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture(autouse=True)
 def _isolated_oracle_store(tmp_path, monkeypatch):
+    """Redirect the Param-Oracle store to tmp_path so tests never touch the real store or cross-contaminate."""
     monkeypatch.setenv("PYUTILZ_KERNEL_CACHE_DIR", str(tmp_path))
     yield
 
 
 def _import_selector():
+    """Lazily import the OracleScorerSelector triad (avoids import cost for tests that skip)."""
     from mlframe.feature_selection.filters._oracle_scorer_select import (
         ORACLE_FN_NAME,
         ORACLE_SCORER_NAMES,
         OracleScorerSelector,
     )
+
     return ORACLE_FN_NAME, ORACLE_SCORER_NAMES, OracleScorerSelector
 
 
@@ -86,30 +91,39 @@ def _import_selector():
 
 
 def _build_linear_monotone(seed: int, n: int = 2000):
+    """``y = sign(1.2*x1 + 0.8*x2 + 0.5*x3)`` -- cold-start should route this to plug_in."""
     rng = np.random.default_rng(int(seed))
     x1 = rng.standard_normal(n)
     x2 = rng.standard_normal(n)
     x3 = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "x1": x1, "x2": x2, "x3": x3,
-        "noise_0": rng.standard_normal(n),
-        "noise_1": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "x1": x1,
+            "x2": x2,
+            "x3": x3,
+            "noise_0": rng.standard_normal(n),
+            "noise_1": rng.standard_normal(n),
+        }
+    )
     y = ((1.2 * x1 + 0.8 * x2 + 0.5 * x3 + 0.3 * rng.standard_normal(n)) > 0).astype(int)
     return X, pd.Series(y, name="y")
 
 
 def _build_quadratic(seed: int, n: int = 2000):
+    """``y = sign(x1^2 + 0.6*x2^2 - median)`` -- cold-start should route this to hsic."""
     rng = np.random.default_rng(int(seed))
     x1 = rng.standard_normal(n)
     x2 = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "x1": x1, "x2": x2,
-        "noise_0": rng.standard_normal(n),
-        "noise_1": rng.standard_normal(n),
-        "noise_2": rng.standard_normal(n),
-    })
-    signal = x1 ** 2 + 0.6 * (x2 ** 2)
+    X = pd.DataFrame(
+        {
+            "x1": x1,
+            "x2": x2,
+            "noise_0": rng.standard_normal(n),
+            "noise_1": rng.standard_normal(n),
+            "noise_2": rng.standard_normal(n),
+        }
+    )
+    signal = x1**2 + 0.6 * (x2**2)
     thr = float(np.median(signal))
     y = ((signal + 0.05 * rng.standard_normal(n)) > thr).astype(int)
     return X, pd.Series(y, name="y")
@@ -118,6 +132,7 @@ def _build_quadratic(seed: int, n: int = 2000):
 from tests.feature_selection._biz_val_synth import _build_xor_redundant
 
 from tests.feature_selection.conftest import make_fast_mrmr as _make_mrmr
+
 # ---------------------------------------------------------------------------
 # Contract 1: cold-start == L76 rules
 # ---------------------------------------------------------------------------
@@ -128,27 +143,29 @@ class TestColdStartMatchesL76:
     ``predict_best_scorer`` rule cascade on the SAME (X, y) -- proving the
     cold-start path reuses L76 rather than inventing its own rules."""
 
-    @pytest.mark.parametrize("builder,expected", [
-        (_build_linear_monotone, "plug_in"),
-        (_build_quadratic, "hsic"),
-        (_build_xor_redundant, "cmim"),
-    ])
+    @pytest.mark.parametrize(
+        "builder,expected",
+        [
+            (_build_linear_monotone, "plug_in"),
+            (_build_quadratic, "hsic"),
+            (_build_xor_redundant, "cmim"),
+        ],
+    )
     @pytest.mark.parametrize("seed", SEEDS)
     def test_cold_start_equals_l76(self, builder, expected, seed):
+        """recommend_scorer on an empty oracle equals L76's predict_best_scorer and the expected cold-start rule."""
         from mlframe.feature_selection.filters._orthogonal_meta_scorer_fe import (
-            fingerprint_signal, predict_best_scorer,
+            fingerprint_signal,
+            predict_best_scorer,
         )
+
         _, _, OracleScorerSelector = _import_selector()
         X, y = builder(seed)
         l76 = predict_best_scorer(fingerprint_signal(X, y.to_numpy()))
         sel = OracleScorerSelector(store_path="cold.parquet")
         rec = sel.recommend_scorer(X, y)
-        assert rec == l76, (
-            f"seed={seed}: cold-start {rec!r} != L76 {l76!r}"
-        )
-        assert rec == expected, (
-            f"seed={seed}: expected {expected!r}, got {rec!r}"
-        )
+        assert rec == l76, f"seed={seed}: cold-start {rec!r} != L76 {l76!r}"
+        assert rec == expected, f"seed={seed}: expected {expected!r}, got {rec!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -157,22 +174,27 @@ class TestColdStartMatchesL76:
 
 
 class TestBenchmarkPopulatesOracle:
+    """benchmark_all_scorers records every scorer's quality for the dataset fingerprint."""
 
     def test_benchmark_records_all_scorers(self):
+        """Every scorer in ORACLE_SCORER_NAMES gets a recorded quality row with a quality objective."""
         _, ORACLE_SCORER_NAMES, OracleScorerSelector = _import_selector()
         X, y = _build_xor_redundant(seed=7)
         sel = OracleScorerSelector(store_path="bench.parquet")
         assert sel.oracle.store.read_rows() == []  # cold store
         qualities = sel.benchmark_all_scorers(
-            X, y, degrees=(2,), basis="hermite", n_boot=3, ts=FIXED_TS,
+            X,
+            y,
+            degrees=(2,),
+            basis="hermite",
+            n_boot=3,
+            ts=FIXED_TS,
         )
         # Every scorer in the pool got a recorded quality.
         assert set(qualities.keys()) == set(ORACLE_SCORER_NAMES)
         rows = sel.oracle.store.read_rows()
         recorded = {orjson.loads(r["param_combo_json"])["scorer"] for r in rows}
-        assert recorded == set(ORACLE_SCORER_NAMES), (
-            f"benchmark recorded {recorded}, expected {set(ORACLE_SCORER_NAMES)}"
-        )
+        assert recorded == set(ORACLE_SCORER_NAMES), f"benchmark recorded {recorded}, expected {set(ORACLE_SCORER_NAMES)}"
         # The recorded objective carries the quality metric.
         for r in rows:
             obj = orjson.loads(r["objective_json"])
@@ -190,9 +212,12 @@ class TestLearnedBeatsColdStart:
     return the learned winner -- the posterior overrides the prior."""
 
     def test_learned_overrides_cold_start(self):
+        """After enough confident observations, recommend_scorer switches from the cold-start prior to the learned winner."""
         from mlframe.feature_selection.filters._orthogonal_meta_scorer_fe import (
-            fingerprint_signal, predict_best_scorer,
+            fingerprint_signal,
+            predict_best_scorer,
         )
+
         _, _, OracleScorerSelector = _import_selector()
         # Linear fixture: cold-start picks plug_in.
         X, y = _build_linear_monotone(seed=13)
@@ -209,21 +234,17 @@ class TestLearnedBeatsColdStart:
             sel.observe_scorer(X, "plug_in", 0.10, y=y, ts=FIXED_TS)
 
         learned = sel.recommend_scorer(X, y)
-        assert learned == "cmim", (
-            f"learned-best should override cold-start plug_in -> cmim, "
-            f"got {learned!r}"
-        )
+        assert learned == "cmim", f"learned-best should override cold-start plug_in -> cmim, " f"got {learned!r}"
 
     def test_below_confidence_gate_stays_cold_start(self):
+        """With observation count below min_observations, recommend_scorer must not switch away from the cold-start prior."""
         _, _, OracleScorerSelector = _import_selector()
         X, y = _build_linear_monotone(seed=13)
         sel = OracleScorerSelector(store_path="gate.parquet", min_observations=5)
         # Only 2 observations -- below the gate -> still cold-start.
         for _ in range(2):
             sel.observe_scorer(X, "cmim", 0.99, y=y, ts=FIXED_TS)
-        assert sel.recommend_scorer(X, y) == "plug_in", (
-            "below min_observations the learned scorer must NOT win"
-        )
+        assert sel.recommend_scorer(X, y) == "plug_in", "below min_observations the learned scorer must NOT win"
 
 
 # ---------------------------------------------------------------------------
@@ -232,30 +253,31 @@ class TestLearnedBeatsColdStart:
 
 
 class TestStatOnlyPersistence:
+    """The oracle store persists only scalar stats -- no raw arrays."""
 
     def test_store_has_no_raw_arrays(self):
+        """Every stored row/fp_bucket value is a scalar, and the store file is smaller than the raw array it summarizes."""
         _, _, OracleScorerSelector = _import_selector()
         X, y = _build_xor_redundant(seed=42)
         sel = OracleScorerSelector(store_path="stat.parquet")
         sel.benchmark_all_scorers(
-            X, y, degrees=(2,), basis="hermite", n_boot=3, ts=FIXED_TS,
+            X,
+            y,
+            degrees=(2,),
+            basis="hermite",
+            n_boot=3,
+            ts=FIXED_TS,
         )
         rows = sel.oracle.store.read_rows()
         assert rows, "expected recorded rows"
         for r in rows:
             for col, val in r.items():
-                assert not isinstance(val, (list, tuple, dict, np.ndarray)), (
-                    f"non-scalar persisted in {col}: {type(val)}"
-                )
+                assert not isinstance(val, (list, tuple, dict, np.ndarray)), f"non-scalar persisted in {col}: {type(val)}"
             fp_bucket = orjson.loads(r["fp_bucket_json"])
             for v in fp_bucket.values():
-                assert isinstance(v, (int, float, str)), (
-                    f"non-scalar in fp_bucket: {v!r}"
-                )
+                assert isinstance(v, (int, float, str)), f"non-scalar in fp_bucket: {v!r}"
         store_bytes = os.path.getsize(sel.oracle.store._path)
-        assert store_bytes < X.to_numpy().nbytes, (
-            "store larger than raw array -> likely leaking data"
-        )
+        assert store_bytes < X.to_numpy().nbytes, "store larger than raw array -> likely leaking data"
 
 
 # ---------------------------------------------------------------------------
@@ -270,6 +292,7 @@ class TestMrmrAutoOracleEndToEnd:
     explicit-best scorer (cmim on the redundant fixture)."""
 
     def test_auto_oracle_appends_and_validates(self):
+        """MRMR(default_scorer="auto_oracle") appends engineered columns on the redundant fixture."""
         X, y = _build_xor_redundant(seed=7)
         m = _make_mrmr(
             fe_hybrid_orth_enable=True,
@@ -279,20 +302,23 @@ class TestMrmrAutoOracleEndToEnd:
             fe_hybrid_orth_top_k=3,
         ).fit(X, y)
         added = list(getattr(m, "hybrid_orth_features_", []) or [])
-        assert added, (
-            "auto_oracle should append engineered columns on the redundant "
-            "fixture"
-        )
+        assert added, "auto_oracle should append engineered columns on the redundant " "fixture"
 
     def test_auto_oracle_auc_competitive_with_explicit_best(self):
+        """Averaged over SEEDS, auto_oracle's downstream LogReg AUC is within 0.02 of the explicit-best cmim scorer."""
         aucs_oracle, aucs_explicit = [], []
         for s in SEEDS:
             X, y = _build_xor_redundant(s)
             X_tr, X_te, y_tr, y_te = train_test_split(
-                X, y, test_size=0.3, random_state=s, stratify=y,
+                X,
+                y,
+                test_size=0.3,
+                random_state=s,
+                stratify=y,
             )
 
-            def _fit_auc(scorer):
+            def _fit_auc(scorer, s=s, X_tr=X_tr, X_te=X_te, y_tr=y_tr, y_te=y_te):
+                """Fit MRMR with the given default_scorer and return downstream LogReg holdout AUC."""
                 m = _make_mrmr(
                     fe_hybrid_orth_enable=True,
                     fe_hybrid_orth_default_scorer=scorer,
@@ -305,12 +331,17 @@ class TestMrmrAutoOracleEndToEnd:
                 from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
                     generate_univariate_basis_features,
                 )
+
                 if added:
                     eng_tr = generate_univariate_basis_features(
-                        X_tr, degrees=(2,), basis="hermite",
+                        X_tr,
+                        degrees=(2,),
+                        basis="hermite",
                     )
                     eng_te = generate_univariate_basis_features(
-                        X_te, degrees=(2,), basis="hermite",
+                        X_te,
+                        degrees=(2,),
+                        basis="hermite",
                     )
                     have = [c for c in added if c in eng_tr.columns]
                     X_tr_a = pd.concat([X_tr, eng_tr[have]], axis=1) if have else X_tr
@@ -318,10 +349,12 @@ class TestMrmrAutoOracleEndToEnd:
                 else:
                     X_tr_a, X_te_a = X_tr, X_te
                 lr = LogisticRegression(max_iter=2000, solver="lbfgs").fit(
-                    X_tr_a, y_tr,
+                    X_tr_a,
+                    y_tr,
                 )
                 return roc_auc_score(
-                    y_te, lr.predict_proba(X_te_a)[:, 1],
+                    y_te,
+                    lr.predict_proba(X_te_a)[:, 1],
                 )
 
             aucs_oracle.append(_fit_auc("auto_oracle"))
@@ -341,8 +374,10 @@ class TestMrmrAutoOracleEndToEnd:
 
 
 class TestL68L76StillWork:
+    """The existing L68 (auto bake-off) and L76 (meta cascade) scorer-selection paths remain unbroken."""
 
     def test_l68_auto_path_unbroken(self):
+        """fe_hybrid_orth_auto_scorer_enable=True fits without error and populates hybrid_orth_features_."""
         X, y = _build_quadratic(seed=7)
         m = _make_mrmr(
             fe_hybrid_orth_auto_scorer_enable=True,
@@ -356,6 +391,7 @@ class TestL68L76StillWork:
         assert hasattr(m, "hybrid_orth_features_")
 
     def test_l76_meta_path_unbroken(self):
+        """fe_hybrid_orth_meta_enable=True dispatches the quadratic fixture to hsic."""
         X, y = _build_quadratic(seed=7)
         m = _make_mrmr(
             fe_hybrid_orth_meta_enable=True,
@@ -364,11 +400,10 @@ class TestL68L76StillWork:
             fe_hybrid_orth_top_k=3,
         ).fit(X, y)
         chosen = getattr(m, "hybrid_orth_meta_chosen_scorer_", None)
-        assert chosen == "hsic", (
-            f"L76 meta path should dispatch quadratic to hsic, got {chosen!r}"
-        )
+        assert chosen == "hsic", f"L76 meta path should dispatch quadratic to hsic, got {chosen!r}"
 
     def test_l68_auto_scorer_value_unbroken(self):
+        """The default_scorer="auto" value (L68 bake-off) still routes and fits without error."""
         # The "auto" default-scorer value (L68 bake-off) must still route.
         X, y = _build_quadratic(seed=7)
         m = _make_mrmr(
@@ -387,20 +422,21 @@ class TestL68L76StillWork:
 
 
 class TestFingerprintReuse:
+    """OracleScorerSelector reuses Param-Oracle's default_fingerprint rather than duplicating it."""
 
     def test_selector_reuses_param_oracle_default_fingerprint(self):
+        """The selector's fingerprint and bucketed key match Param-Oracle's default_fingerprint exactly."""
         from mlframe.utils._param_oracle import default_fingerprint
+
         _, _, OracleScorerSelector = _import_selector()
         X, y = _build_linear_monotone(seed=1)
         sel = OracleScorerSelector(store_path="fp.parquet")
         fp_sel = sel.fingerprint(X, y)
         fp_oracle = default_fingerprint((X, y), {})
-        assert fp_sel == fp_oracle, (
-            "selector must reuse Param-Oracle's default_fingerprint, not a "
-            "duplicate fingerprinter"
-        )
+        assert fp_sel == fp_oracle, "selector must reuse Param-Oracle's default_fingerprint, not a " "duplicate fingerprinter"
         # The bucketed key the selector observes under matches the oracle's.
         from mlframe.utils._param_oracle import bucketize_fingerprint
+
         assert bucketize_fingerprint(fp_sel) == bucketize_fingerprint(fp_oracle)
 
 
@@ -410,8 +446,10 @@ class TestFingerprintReuse:
 
 
 class TestPickleAndClone:
+    """OracleScorerSelector pickles/unpickles cleanly and MRMR(auto_oracle) clones/pickles preserve state."""
 
     def test_selector_pickle_roundtrip(self):
+        """pickle.loads/dumps preserves selector config and reconnects to the same learned on-disk store."""
         _, _, OracleScorerSelector = _import_selector()
         X, y = _build_linear_monotone(seed=1)
         sel = OracleScorerSelector(store_path="pk.parquet", min_observations=4)
@@ -419,7 +457,7 @@ class TestPickleAndClone:
         for _ in range(4):
             sel.observe_scorer(X, "cmim", 0.99, y=y, ts=FIXED_TS)
         blob = pickle.dumps(sel)
-        sel2 = pickle.loads(blob)
+        sel2 = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
         assert sel2.store_path == sel.store_path
         assert sel2.min_observations == sel.min_observations
         assert sel2.scorer_names == sel.scorer_names
@@ -428,6 +466,7 @@ class TestPickleAndClone:
         assert sel2.recommend_scorer(X, y) == "cmim"
 
     def test_mrmr_auto_oracle_clone_preserves_param(self):
+        """clone() preserves fe_hybrid_orth_default_scorer="auto_oracle" without carrying over fitted state."""
         m = _make_mrmr(
             fe_hybrid_orth_enable=True,
             fe_hybrid_orth_default_scorer="auto_oracle",
@@ -436,6 +475,7 @@ class TestPickleAndClone:
         assert m2.fe_hybrid_orth_default_scorer == "auto_oracle"
 
     def test_mrmr_auto_oracle_pickle_roundtrip(self):
+        """pickle.dumps/loads round-trip preserves feature_names_in_ and hybrid_orth_features_ for auto_oracle fits."""
         X, y = _build_xor_redundant(seed=42)
         m = _make_mrmr(
             fe_hybrid_orth_enable=True,
@@ -445,7 +485,7 @@ class TestPickleAndClone:
             fe_hybrid_orth_top_k=2,
         ).fit(X, y)
         blob = pickle.dumps(m)
-        m2 = pickle.loads(blob)
+        m2 = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
         assert list(m2.feature_names_in_) == list(m.feature_names_in_)
         before = list(getattr(m, "hybrid_orth_features_", []) or [])
         after = list(getattr(m2, "hybrid_orth_features_", []) or [])
