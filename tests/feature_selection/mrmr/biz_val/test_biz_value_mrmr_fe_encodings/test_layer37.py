@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import pickle
 import warnings
+from functools import cache
 
 import numpy as np
 import pandas as pd
@@ -51,7 +52,6 @@ import pytest
 from sklearn.base import clone
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
-
 
 warnings.filterwarnings("ignore")
 
@@ -67,7 +67,9 @@ SEEDS = (3701, 3702, 3703)
 from tests.feature_selection.conftest import make_fast_mrmr as _make_mrmr
 from tests.feature_selection._biz_val_synth import _train_holdout_split
 
+
 def _logreg_auc(X_tr: pd.DataFrame, y_tr: pd.Series, X_ho: pd.DataFrame, y_ho: pd.Series) -> float:
+    """Fit a LogisticRegression on the numeric columns of X_tr and return holdout AUC."""
     num_cols = [c for c in X_tr.columns if pd.api.types.is_numeric_dtype(X_tr[c])]
     if not num_cols:
         return 0.5
@@ -103,13 +105,15 @@ def _build_mnar_indicator_signal(seed: int, n: int = 3000):
     p = 1.0 / (1.0 + np.exp(-logit))
     y = (rng.random(n) < p).astype(int)
     noise = rng.standard_normal((n, 4))
-    X = pd.DataFrame({
-        "credit_history": credit_history,
-        "noise_a": noise[:, 0],
-        "noise_b": noise[:, 1],
-        "noise_c": noise[:, 2],
-        "noise_d": noise[:, 3],
-    })
+    X = pd.DataFrame(
+        {
+            "credit_history": credit_history,
+            "noise_a": noise[:, 0],
+            "noise_b": noise[:, 1],
+            "noise_c": noise[:, 2],
+            "noise_d": noise[:, 3],
+        }
+    )
     return X, pd.Series(y, name="y")
 
 
@@ -122,7 +126,7 @@ def _build_missing_count_signal(seed: int, n: int = 3000):
     rng = np.random.default_rng(seed)
     n_fields = 6
     # Each field has its own independent ~25% missing rate.
-    masks = (rng.random((n, n_fields)) < 0.25)
+    masks = rng.random((n, n_fields)) < 0.25
     counts = masks.sum(axis=1).astype(np.float64)
     # y depends on the count crossing a threshold (>=4 of 6 missing).
     p = 1.0 / (1.0 + np.exp(-(counts - 3.5) * 1.5))
@@ -169,15 +173,33 @@ def _build_missing_pattern_signal(seed: int, n: int = 3000):
     p = np.where(cluster == 2, 0.9, 0.1)
     y = (rng.random(n) < p).astype(int)
     noise = rng.standard_normal((n, 3))
-    X = pd.DataFrame({
-        "field_a": a,
-        "field_b": b,
-        "field_c": c,
-        "noise_x": noise[:, 0],
-        "noise_y": noise[:, 1],
-        "noise_z": noise[:, 2],
-    })
+    X = pd.DataFrame(
+        {
+            "field_a": a,
+            "field_b": b,
+            "field_c": c,
+            "noise_x": noise[:, 0],
+            "noise_y": noise[:, 1],
+            "noise_z": noise[:, 2],
+        }
+    )
     return X, pd.Series(y, name="y")
+
+
+@cache
+def _indicator_only_fit(seed: int):
+    """Cached ``(X, y, sel)`` for the indicator-only-enabled fit shared
+    between test_indicator_enters_support (all SEEDS) and
+    test_mrmr_transform_no_y_at_replay (fixed seed=3701, which is a
+    member of SEEDS). Nothing downstream mutates X/y/sel in place --
+    both consumers only inspect get_feature_names_out()/transform().
+    """
+    X, y = _build_mnar_indicator_signal(seed)
+    sel = _make_mrmr(
+        fe_missingness_indicator_enable=True,
+        fe_missingness_indicator_cols=("credit_history",),
+    ).fit(X, y)
+    return X, y, sel
 
 
 # ---------------------------------------------------------------------------
@@ -186,58 +208,77 @@ def _build_missing_pattern_signal(seed: int, n: int = 3000):
 
 
 class TestMissingIndicatorKernel:
+    """Unit tests for the missing_indicator_fit/apply_missing_indicator kernel."""
+
     def test_fit_returns_int8_indicator(self):
+        """missing_indicator_fit emits an int8 is_missing__<col> column matching isna()."""
         from mlframe.feature_selection.filters._missingness_fe import (
             missing_indicator_fit,
         )
+
         X = pd.DataFrame({"a": [1.0, np.nan, 3.0, np.nan]})
         enc, recipes = missing_indicator_fit(X, ["a"])
         assert "is_missing__a" in enc.columns
         np.testing.assert_array_equal(
-            enc["is_missing__a"].to_numpy(), np.array([0, 1, 0, 1], dtype=np.int8),
+            enc["is_missing__a"].to_numpy(),
+            np.array([0, 1, 0, 1], dtype=np.int8),
         )
         assert recipes["a"] == {}
 
     def test_empty_X_rejected(self):
+        """missing_indicator_fit raises ValueError on an empty DataFrame."""
         from mlframe.feature_selection.filters._missingness_fe import (
             missing_indicator_fit,
         )
+
         with pytest.raises(ValueError, match="empty"):
             missing_indicator_fit(pd.DataFrame({"a": []}), ["a"])
 
     def test_missing_column_rejected(self):
+        """missing_indicator_fit raises ValueError when a requested column is absent."""
         from mlframe.feature_selection.filters._missingness_fe import (
             missing_indicator_fit,
         )
+
         with pytest.raises(ValueError, match="missing"):
             missing_indicator_fit(pd.DataFrame({"a": [1.0]}), ["b"])
 
     def test_apply_returns_same_isna(self):
+        """apply_missing_indicator replay reproduces the isna() mask directly."""
         from mlframe.feature_selection.filters._missingness_fe import (
             apply_missing_indicator,
         )
+
         X = pd.DataFrame({"a": [1.0, np.nan, 3.0]})
         out = apply_missing_indicator(X, "a", {})
         np.testing.assert_array_equal(out, np.array([0, 1, 0], dtype=np.int8))
 
 
 class TestMissingCountKernel:
+    """Unit tests for the missingness_count_fit/apply_missingness_count kernel."""
+
     def test_fit_returns_per_row_count(self):
+        """missingness_count_fit returns the per-row count of NaNs across the requested cols."""
         from mlframe.feature_selection.filters._missingness_fe import (
             missingness_count_fit,
         )
-        X = pd.DataFrame({
-            "a": [1.0, np.nan, 3.0, np.nan],
-            "b": [np.nan, np.nan, 5.0, 6.0],
-        })
+
+        X = pd.DataFrame(
+            {
+                "a": [1.0, np.nan, 3.0, np.nan],
+                "b": [np.nan, np.nan, 5.0, 6.0],
+            }
+        )
         counts, recipe = missingness_count_fit(X, ["a", "b"])
         np.testing.assert_array_equal(counts, np.array([1, 2, 0, 1], dtype=np.int32))
         assert recipe["cols"] == ("a", "b")
 
     def test_apply_handles_schema_drift(self):
+        """apply_missingness_count counts only the recipe columns actually present in X."""
         from mlframe.feature_selection.filters._missingness_fe import (
             apply_missingness_count,
         )
+
         # Recipe references columns 'a' AND 'b' but X_test only has 'a'.
         # Graceful schema drift: count only what's present.
         X = pd.DataFrame({"a": [np.nan, 1.0, np.nan]})
@@ -246,15 +287,21 @@ class TestMissingCountKernel:
 
 
 class TestMissingPatternKernel:
+    """Unit tests for the missingness_pattern_fit/apply_missingness_pattern kernel."""
+
     def test_fit_assigns_top_k_labels(self):
+        """missingness_pattern_fit assigns the top-K patterns their own label; the rest to "other"."""
         from mlframe.feature_selection.filters._missingness_fe import (
             missingness_pattern_fit,
         )
+
         # Three patterns, two are top-2; the third should go to "other".
-        X = pd.DataFrame({
-            "a": [1.0, np.nan, 1.0, np.nan, 1.0, 1.0, np.nan, np.nan, np.nan, 1.0],
-            "b": [1.0, 1.0, 1.0, 1.0, np.nan, 1.0, 1.0, 1.0, 1.0, 1.0],
-        })
+        X = pd.DataFrame(
+            {
+                "a": [1.0, np.nan, 1.0, np.nan, 1.0, 1.0, np.nan, np.nan, np.nan, 1.0],
+                "b": [1.0, 1.0, 1.0, 1.0, np.nan, 1.0, 1.0, 1.0, 1.0, 1.0],
+            }
+        )
         labels, recipe = missingness_pattern_fit(X, ["a", "b"], top_k=2)
         # Two distinct patterns appear: (a present, b present) and
         # (a missing, b present). The (a present, b missing) pattern at
@@ -268,25 +315,35 @@ class TestMissingPatternKernel:
         assert int((labels == 2).sum()) == 1
 
     def test_apply_unseen_pattern_maps_to_other(self):
+        """apply_missingness_pattern maps a fit-time-unseen pattern to the "other" label."""
         from mlframe.feature_selection.filters._missingness_fe import (
-            missingness_pattern_fit, apply_missingness_pattern,
+            missingness_pattern_fit,
+            apply_missingness_pattern,
         )
-        X_tr = pd.DataFrame({
-            "a": [1.0, np.nan, 1.0, np.nan],
-            "b": [1.0, 1.0, 1.0, 1.0],
-        })
+
+        X_tr = pd.DataFrame(
+            {
+                "a": [1.0, np.nan, 1.0, np.nan],
+                "b": [1.0, 1.0, 1.0, 1.0],
+            }
+        )
         _, recipe = missingness_pattern_fit(X_tr, ["a", "b"], top_k=2)
         # Test frame has an unseen pattern (a present, b missing).
-        X_ho = pd.DataFrame({
-            "a": [1.0, np.nan],
-            "b": [np.nan, np.nan],
-        })
-        out = apply_missingness_pattern(X_ho, {
-            "cols": recipe["cols"],
-            "pattern_to_label": recipe["pattern_to_label"],
-            "other_label": recipe["other_label"],
-            "top_k": recipe["top_k"],
-        })
+        X_ho = pd.DataFrame(
+            {
+                "a": [1.0, np.nan],
+                "b": [np.nan, np.nan],
+            }
+        )
+        out = apply_missingness_pattern(
+            X_ho,
+            {
+                "cols": recipe["cols"],
+                "pattern_to_label": recipe["pattern_to_label"],
+                "other_label": recipe["other_label"],
+                "top_k": recipe["top_k"],
+            },
+        )
         # Both unseen patterns -> "other" label (= top_k = 2)
         assert out[0] == 2
         assert out[1] == 2
@@ -298,35 +355,42 @@ class TestMissingPatternKernel:
 
 
 class TestMissingIndicatorAUCLift:
+    """AUC lift from the missing_indicator FE over a no-missingness-FE baseline."""
+
     @pytest.mark.parametrize("seed", SEEDS)
     def test_logreg_auc_lift_via_indicator(self, seed: int):
+        """Adding is_missing__credit_history lifts LogReg holdout AUC by >0.10 on the MNAR signal."""
         from mlframe.feature_selection.filters._missingness_fe import (
             missing_indicator_with_recipes,
         )
+
         X, y = _build_mnar_indicator_signal(seed)
         X_tr, y_tr, X_ho, y_ho = _train_holdout_split(X, y, seed=seed)
         # Baseline: no indicator, raw numeric cols only.
         auc_base = _logreg_auc(X_tr, y_tr, X_ho, y_ho)
         # With indicator: append is_missing__credit_history to both frames.
         X_tr_aug, _, _ = missing_indicator_with_recipes(
-            X_tr, cols=["credit_history"],
+            X_tr,
+            cols=["credit_history"],
         )
         X_ho_aug, _, _ = missing_indicator_with_recipes(
-            X_ho, cols=["credit_history"],
+            X_ho,
+            cols=["credit_history"],
         )
         auc_aug = _logreg_auc(X_tr_aug, y_tr, X_ho_aug, y_ho)
-        assert auc_aug > auc_base + 0.10, (
-            f"Indicator-augmented AUC {auc_aug:.3f} not measurably above baseline "
-            f"{auc_base:.3f} on the MNAR signal."
-        )
+        assert auc_aug > auc_base + 0.10, f"Indicator-augmented AUC {auc_aug:.3f} not measurably above baseline " f"{auc_base:.3f} on the MNAR signal."
 
 
 class TestMissingCountAUCLift:
+    """AUC lift from the missingness_count FE over a no-missingness-FE baseline."""
+
     @pytest.mark.parametrize("seed", SEEDS)
     def test_logreg_auc_lift_via_count(self, seed: int):
+        """Adding missingness_count lifts LogReg holdout AUC by >0.05 on the fragmentary-record signal."""
         from mlframe.feature_selection.filters._missingness_fe import (
             missingness_count_with_recipes,
         )
+
         X, y = _build_missing_count_signal(seed)
         X_tr, y_tr, X_ho, y_ho = _train_holdout_split(X, y, seed=seed)
         field_cols = [c for c in X_tr.columns if c.startswith("field_")]
@@ -335,10 +399,7 @@ class TestMissingCountAUCLift:
         X_tr_aug, _, _ = missingness_count_with_recipes(X_tr, cols=field_cols)
         X_ho_aug, _, _ = missingness_count_with_recipes(X_ho, cols=field_cols)
         auc_aug = _logreg_auc(X_tr_aug, y_tr, X_ho_aug, y_ho)
-        assert auc_aug > auc_base + 0.05, (
-            f"Count-augmented AUC {auc_aug:.3f} not measurably above baseline "
-            f"{auc_base:.3f} on the high-missing-row signal."
-        )
+        assert auc_aug > auc_base + 0.05, f"Count-augmented AUC {auc_aug:.3f} not measurably above baseline " f"{auc_base:.3f} on the high-missing-row signal."
 
 
 # ---------------------------------------------------------------------------
@@ -352,15 +413,10 @@ class TestMRMRSelectsMissingIndicator:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_indicator_enters_support(self, seed: int):
-        X, y = _build_mnar_indicator_signal(seed)
-        sel = _make_mrmr(
-            fe_missingness_indicator_enable=True,
-            fe_missingness_indicator_cols=("credit_history",),
-        ).fit(X, y)
+        """is_missing__credit_history enters support_ when the indicator FE is enabled."""
+        _X, _y, sel = _indicator_only_fit(seed)
         names = list(sel.get_feature_names_out())
-        assert "is_missing__credit_history" in names, (
-            f"is_missing__credit_history not in support; got {names}"
-        )
+        assert "is_missing__credit_history" in names, f"is_missing__credit_history not in support; got {names}"
 
 
 class TestMRMRSelectsMissingnessCount:
@@ -369,17 +425,14 @@ class TestMRMRSelectsMissingnessCount:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_count_enters_support(self, seed: int):
+        """missingness_count enters support_ when the count FE is enabled."""
         X, y = _build_missing_count_signal(seed)
         sel = _make_mrmr(
             fe_missingness_count_enable=True,
-            fe_missingness_indicator_cols=tuple(
-                c for c in X.columns if c.startswith("field_")
-            ),
+            fe_missingness_indicator_cols=tuple(c for c in X.columns if c.startswith("field_")),
         ).fit(X, y)
         names = list(sel.get_feature_names_out())
-        assert "missingness_count" in names, (
-            f"missingness_count not in support; got {names}"
-        )
+        assert "missingness_count" in names, f"missingness_count not in support; got {names}"
 
 
 class TestMRMRSelectsMissingnessPattern:
@@ -389,6 +442,7 @@ class TestMRMRSelectsMissingnessPattern:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_pattern_enters_support(self, seed: int):
+        """missingness_pattern enters support_ when the pattern FE is enabled."""
         X, y = _build_missing_pattern_signal(seed)
         sel = _make_mrmr(
             fe_missingness_pattern_enable=True,
@@ -396,9 +450,7 @@ class TestMRMRSelectsMissingnessPattern:
             fe_missingness_pattern_top_k=4,
         ).fit(X, y)
         names = list(sel.get_feature_names_out())
-        assert "missingness_pattern" in names, (
-            f"missingness_pattern not in support; got {names}"
-        )
+        assert "missingness_pattern" in names, f"missingness_pattern not in support; got {names}"
 
 
 class TestMissingnessSurvivesInPlaceImpute:
@@ -411,6 +463,7 @@ class TestMissingnessSurvivesInPlaceImpute:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_indicator_survives_binned_numeric_agg_inplace_impute(self, seed: int):
+        """The indicator feature survives an earlier cat-FE stage's in-place NaN impute."""
         X, y = _build_mnar_indicator_signal(seed)
         sel = _make_mrmr(
             fe_missingness_indicator_enable=True,
@@ -418,12 +471,11 @@ class TestMissingnessSurvivesInPlaceImpute:
             fe_binned_numeric_agg_enable=True,
         ).fit(X, y)
         names = list(sel.get_feature_names_out())
-        assert "is_missing__credit_history" in names, (
-            f"is_missing__credit_history must survive the in-place impute of an earlier cat-FE stage; got {names}"
-        )
+        assert "is_missing__credit_history" in names, f"is_missing__credit_history must survive the in-place impute of an earlier cat-FE stage; got {names}"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_pattern_survives_binned_numeric_agg_inplace_impute(self, seed: int):
+        """The pattern feature survives an earlier cat-FE stage's in-place NaN impute."""
         X, y = _build_missing_pattern_signal(seed)
         sel = _make_mrmr(
             fe_missingness_pattern_enable=True,
@@ -432,9 +484,7 @@ class TestMissingnessSurvivesInPlaceImpute:
             fe_binned_numeric_agg_enable=True,
         ).fit(X, y)
         names = list(sel.get_feature_names_out())
-        assert "missingness_pattern" in names, (
-            f"missingness_pattern must survive the in-place impute of an earlier cat-FE stage; got {names}"
-        )
+        assert "missingness_pattern" in names, f"missingness_pattern must survive the in-place impute of an earlier cat-FE stage; got {names}"
 
 
 # ---------------------------------------------------------------------------
@@ -443,25 +493,32 @@ class TestMissingnessSurvivesInPlaceImpute:
 
 
 class TestNoLeakage:
+    """Recipe replay reads only X -- fit-time y must not leak into engineered column values."""
+
     def test_indicator_replay_bit_identical_under_shuffled_y(self):
         """The replay path takes no y, so a shuffled y at fit time must
         produce the SAME engineered column on the same X."""
         from mlframe.feature_selection.filters._missingness_fe import (
             apply_missing_indicator,
         )
+
         X = pd.DataFrame({"x": [1.0, np.nan, 2.0, np.nan, 3.0]})
         out1 = apply_missing_indicator(X, "x", {})
         out2 = apply_missing_indicator(X, "x", {})
         np.testing.assert_array_equal(out1, out2)
 
     def test_count_replay_bit_identical_when_recipe_unchanged(self):
+        """apply_missingness_count replay is deterministic under an unchanged recipe."""
         from mlframe.feature_selection.filters._missingness_fe import (
             apply_missingness_count,
         )
-        X = pd.DataFrame({
-            "a": [1.0, np.nan, 3.0],
-            "b": [np.nan, 1.0, np.nan],
-        })
+
+        X = pd.DataFrame(
+            {
+                "a": [1.0, np.nan, 3.0],
+                "b": [np.nan, 1.0, np.nan],
+            }
+        )
         recipe = {"cols": ("a", "b")}
         out1 = apply_missingness_count(X, recipe)
         out2 = apply_missingness_count(X, recipe)
@@ -471,11 +528,7 @@ class TestNoLeakage:
         """End-to-end: fit on (X, y), call transform on X alone. Output
         must be identical to a re-fit + transform with the same recipe
         (no fit-time-y bleed into the engineered column values)."""
-        X, y = _build_mnar_indicator_signal(seed=3701)
-        sel = _make_mrmr(
-            fe_missingness_indicator_enable=True,
-            fe_missingness_indicator_cols=("credit_history",),
-        ).fit(X, y)
+        X, _y, sel = _indicator_only_fit(3701)
         out1 = sel.transform(X)
         out2 = sel.transform(X)
         if "is_missing__credit_history" in out1.columns:
@@ -491,7 +544,10 @@ class TestNoLeakage:
 
 
 class TestPickleClone:
+    """clone() and pickle round-trip preserve Layer 37 params and fitted transform output."""
+
     def _build(self):
+        """Construct an MRMR with all three Layer 37 missingness FE families enabled."""
         return _make_mrmr(
             fe_missingness_indicator_enable=True,
             fe_missingness_indicator_cols=("credit_history",),
@@ -501,6 +557,7 @@ class TestPickleClone:
         )
 
     def test_clone_preserves_layer37_params(self):
+        """clone() round-trips every Layer 37 missingness-FE param bit-exactly."""
         m = self._build()
         m2 = clone(m)
         p1 = m.get_params()
@@ -512,16 +569,15 @@ class TestPickleClone:
             "fe_missingness_pattern_enable",
             "fe_missingness_pattern_top_k",
         ):
-            assert p1[key] == p2[key], (
-                f"clone lost param {key!r}: orig={p1[key]!r} clone={p2[key]!r}"
-            )
+            assert p1[key] == p2[key], f"clone lost param {key!r}: orig={p1[key]!r} clone={p2[key]!r}"
 
     def test_pickle_roundtrip_preserves_transform(self):
+        """pickle round-trip reproduces the same transform() output columns and values."""
         X, y = _build_mnar_indicator_signal(seed=3701)
         m = self._build()
         m.fit(X, y)
         pre_out = m.transform(X)
-        m2 = pickle.loads(pickle.dumps(m))
+        m2 = pickle.loads(pickle.dumps(m))  # nosec B301 -- round-trip of a locally-created, trusted object
         post_out = m2.transform(X)
         assert list(post_out.columns) == list(pre_out.columns)
         for col in pre_out.columns:
@@ -529,7 +585,8 @@ class TestPickleClone:
                 np.testing.assert_allclose(
                     np.asarray(pre_out[col], dtype=np.float64),
                     np.asarray(post_out[col], dtype=np.float64),
-                    rtol=1e-9, atol=1e-9,
+                    rtol=1e-9,
+                    atol=1e-9,
                     err_msg=f"pickle changed values of column {col!r}",
                 )
 
@@ -544,6 +601,7 @@ class TestDefaultDisabledByteIdentical:
     transform output must match a vanilla instance bit-for-bit."""
 
     def test_no_missingness_features_appear_by_default(self):
+        """With all Layer 37 switches off, selection is byte-identical to a vanilla MRMR."""
         X, y = _build_mnar_indicator_signal(seed=3701)
         vanilla = _make_mrmr().fit(X, y)
         defaulted = _make_mrmr(
@@ -554,18 +612,9 @@ class TestDefaultDisabledByteIdentical:
         ).fit(X, y)
         v_names = list(vanilla.get_feature_names_out())
         d_names = list(defaulted.get_feature_names_out())
-        assert v_names == d_names, (
-            f"Default-disabled Layer 37 changed selection: "
-            f"vanilla={v_names} defaulted={d_names}"
-        )
+        assert v_names == d_names, f"Default-disabled Layer 37 changed selection: " f"vanilla={v_names} defaulted={d_names}"
         # No engineered missingness columns leaked.
         for nm in v_names:
-            assert not nm.startswith("is_missing__"), (
-                f"vanilla selection contains an unexpected missingness col: {nm}"
-            )
-            assert nm != "missingness_count", (
-                "vanilla selection contains missingness_count by default"
-            )
-            assert nm != "missingness_pattern", (
-                "vanilla selection contains missingness_pattern by default"
-            )
+            assert not nm.startswith("is_missing__"), f"vanilla selection contains an unexpected missingness col: {nm}"
+            assert nm != "missingness_count", "vanilla selection contains missingness_count by default"
+            assert nm != "missingness_pattern", "vanilla selection contains missingness_pattern by default"
