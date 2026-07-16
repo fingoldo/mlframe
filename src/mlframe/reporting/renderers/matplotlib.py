@@ -19,7 +19,7 @@ from mlframe.reporting.spec import (
     ScatterPanelSpec, ViolinPanelSpec,
 )
 
-from ._shared_helpers import _finite_range, _thin_tick_positions
+from ._shared_helpers import _HEATMAP_MAX_TICKS, _finite_range, _thin_tick_positions  # noqa: F401 -- re-exported for callers importing the tick-thinning constant from this module
 
 logger = logging.getLogger(__name__)
 

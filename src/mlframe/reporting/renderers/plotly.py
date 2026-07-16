@@ -41,7 +41,7 @@ from ._kaleido import (
 )
 from ._plotly_interactivity import apply_interactivity, html_config
 from ._plotly_color import _axis_ref, _rgba, _mpl_to_plotly_cmap
-from ._shared_helpers import _finite_range, _thin_tick_positions
+from ._shared_helpers import _HEATMAP_MAX_TICKS, _finite_range, _thin_tick_positions  # noqa: F401 -- re-exported for callers importing the tick-thinning constant from this module
 
 logger = logging.getLogger(__name__)
 
