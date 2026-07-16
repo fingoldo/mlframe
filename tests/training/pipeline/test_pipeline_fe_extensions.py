@@ -20,14 +20,16 @@ from mlframe.training.pipeline._pipeline_extensions import (
 )
 from mlframe.training.configs import PreprocessingExtensionsConfig
 
-
 # ----------------------------- A2-02 ---------------------------------------
 
 
 def test_a2_02_no_active_stage_returns_polars_unchanged() -> None:
     """Zero active stages: the polars frame must be returned UNCHANGED (same object, no pandas down-convert)."""
     df = pl.DataFrame({"a": [1.0, 2.0, 3.0], "b": [4.0, 5.0, 6.0]})
-    cfg = PreprocessingExtensionsConfig()  # all stages off by default
+    # row_wise_summary_stats_enabled / row_wise_extreme_columns_enabled default to True (additive,
+    # generic per-row aggregates) -- explicitly off here for a genuine all-stages-off fixture,
+    # matching this test's actual subject (the zero-active-stage fastpath).
+    cfg = PreprocessingExtensionsConfig(row_wise_summary_stats_enabled=False, row_wise_extreme_columns_enabled=False)
     assert _has_active_extension_stage(cfg) is False
     train, val, test, pipe = apply_preprocessing_extensions(df, None, None, cfg)
     assert pipe is None
@@ -54,6 +56,7 @@ def test_a2_03_nonlinear_random_state_reproducible_from_seed() -> None:
     X = pd.DataFrame(rng.standard_normal((200, 6)), columns=[f"f{i}" for i in range(6)])
 
     def _run(seed: int) -> np.ndarray:
+        """Apply the RBFSampler extension with the given random_seed and return its output array."""
         cfg = PreprocessingExtensionsConfig(nonlinear_features="RBFSampler", nonlinear_n_components=8, random_seed=seed)
         out, _, _, _ = apply_preprocessing_extensions(X.copy(), None, None, cfg)
         return out.to_numpy()
@@ -102,6 +105,8 @@ def test_a2_13_deepcopy_fallback_used_in_autotune() -> None:
 
     # A plain object config without model_copy, with a nested mutable field.
     class _PlainCfg:
+        """A minimal config object without model_copy, with a nested mutable field to detect a shallow copy."""
+
         def __init__(self):
             self.dim_reducer = "PCA"
             self.dim_n_components = 50
@@ -121,6 +126,7 @@ def test_a2_13_deepcopy_fallback_used_in_autotune() -> None:
     real_deepcopy = copy.deepcopy
 
     def _spy_deepcopy(obj):
+        """Record that copy.deepcopy was invoked, then delegate to the real implementation."""
         seen["called"] = True
         return real_deepcopy(obj)
 
