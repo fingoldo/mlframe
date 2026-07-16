@@ -235,6 +235,7 @@ def _cuda_hist_kernel_factory():
         fx_counts,  # (n_pairs, max_joint) int64 device-persistent ACCUMULATOR
         chunk_rows,
     ):
+        """One CUDA block per pair: accumulate this row-chunk's joint/marginal histogram via global atomics."""
         p = _nb_cuda.blockIdx.x
         if p >= pair_a.shape[0]:
             return
@@ -299,6 +300,7 @@ def _cuda_hist_kernel_shared_factory():
         max_joint,
         n_classes_y,
     ):
+        """One CUDA block per pair: stage this row-chunk's histogram in shared memory, then flush once to global."""
         sh = _nb_cuda.shared.array(0, dtype=numba.int32)
         n_joint_cells = max_joint * n_classes_y
         total_cells = n_joint_cells + max_joint
@@ -422,11 +424,13 @@ _ZERO_FILL_KERNEL: Any = None  # lazy-bound numba.cuda fallback for hosts withou
 
 
 def _zero_fill_kernel_factory():
+    """Build a CUDA kernel that zero-fills a flat device array in place, or None if CUDA is unavailable."""
     if not _CUDA_AVAIL:
         return None
 
     @_nb_cuda.jit
     def _kernel(flat_arr, n):
+        """Grid-stride zero-fill of ``flat_arr[:n]``."""
         idx = _nb_cuda.grid(1)
         stride = _nb_cuda.gridsize(1)
         for i in range(idx, n, stride):

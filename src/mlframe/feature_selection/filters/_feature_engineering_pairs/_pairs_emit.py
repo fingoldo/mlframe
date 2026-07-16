@@ -132,6 +132,7 @@ def _emit_pair_features(
     _name_cache: dict = {}
 
     def _cached_name(_cfg) -> str:
+        """Return ``_cfg``'s generated feature name, computing and memoizing it on first use."""
         _n: Optional[str] = _name_cache.get(_cfg)
         if _n is None:
             _n = get_new_feature_name(fe_tuple=_cfg, cols_names=cols)
@@ -542,9 +543,7 @@ def _emit_pair_features(
             _already.add(_cfg)
             _emitted_cols.append(_col)
             if verbose:
-                messages.append(
-                    f"{_cached_name(_cfg)} also emitted " f"(diverse multi-candidate, MI={_cfg_mi:.4f} vs best {best_mi:.4f})"
-                )
+                messages.append(f"{_cached_name(_cfg)} also emitted " f"(diverse multi-candidate, MI={_cfg_mi:.4f} vs best {best_mi:.4f})")
 
     transformed_vals, new_cols, new_nbins = None, None, None
 

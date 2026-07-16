@@ -77,6 +77,7 @@ def latent_parameter_recovery_features(
 
 
 def _uniform_summary(df: pd.DataFrame, grid_arr: np.ndarray, consistency: np.ndarray, column_prefix: str) -> pd.DataFrame:
+    """Summarize each row's consistent candidate values with unweighted min/max/mean/median/count columns."""
     n = len(df)
     n_candidates = consistency.sum(axis=1)
     masked_grid = np.where(consistency, grid_arr[np.newaxis, :], np.nan)
@@ -117,6 +118,7 @@ def _weighted_summary(
     weight_fn: Callable[[pd.DataFrame, float], np.ndarray],
     column_prefix: str,
 ) -> pd.DataFrame:
+    """Summarize each row's consistent candidate values with weight_fn-weighted min/max/mean/median/count columns."""
     n = len(df)
     weights = np.zeros((n, len(grid_arr)), dtype=np.float64)
     for col_idx, candidate in enumerate(grid_arr):

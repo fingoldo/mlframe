@@ -87,6 +87,7 @@ def additive_interaction_diagnostic(
     additive_params["num_leaves"] = 2
 
     def _cv_score(params: dict, X_override: Optional[Any] = None) -> float:
+        """Fit an LGBM model per CV fold with ``params`` and return the mean metric across folds."""
         X_source = X if X_override is None else X_override
         fold_scores = []
         for train_idx, test_idx in cv_splits:

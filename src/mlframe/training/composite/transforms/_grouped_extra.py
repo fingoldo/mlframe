@@ -403,6 +403,7 @@ def _quantile_residual_grouped_fit(
     mbn = int(min_bin_n if min_bin_n is not None else _QUANTILE_RESIDUAL_DEFAULT_MIN_BIN_N)
 
     def _fit(y_g: np.ndarray, base_g: np.ndarray) -> dict[str, Any]:
+        """Fit the ungrouped ``quantile_residual`` transform on one group's rows."""
         return _quantile_residual_fit(y_g, base_g, n_bins=nb, min_bin_n=mbn)
 
     return _grouped_np_fit(
@@ -459,6 +460,7 @@ def _monotonic_residual_grouped_fit(
     mkn = int(min_knot_n if min_knot_n is not None else _MONOTONIC_RESIDUAL_DEFAULT_MIN_KNOT_N)
 
     def _fit(y_g: np.ndarray, base_g: np.ndarray) -> dict[str, Any]:
+        """Fit the ungrouped monotonic-residual PCHIP transform on one group's rows."""
         return _monotonic_residual_fit(y_g, base_g, n_knots=nk, min_knot_n=mkn)
 
     return _grouped_np_fit(

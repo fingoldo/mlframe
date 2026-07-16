@@ -86,6 +86,7 @@ class UnseenCategoryImputer:
         self.fallback_stats_: Dict[str, Dict[str, float]] = {}
 
     def fit(self, df: pd.DataFrame) -> "UnseenCategoryImputer":
+        """Learn per-column reliable categories, fallback mode, and (if nearest mode) value-sorted category means."""
         for col in self.columns:
             counts = df[col].value_counts()
             reliable = counts[counts >= self.min_count]
@@ -105,6 +106,7 @@ class UnseenCategoryImputer:
         return self
 
     def transform(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Replace unseen/unreliable categories with the fitted mode or nearest known category by value."""
         out = df.copy(deep=False)
         if self.track_fallback_stats:
             self.fallback_stats_ = {}
@@ -142,6 +144,7 @@ class UnseenCategoryImputer:
         return out
 
     def fit_transform(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Fit on ``df`` then immediately transform it."""
         return self.fit(df).transform(df)
 
 

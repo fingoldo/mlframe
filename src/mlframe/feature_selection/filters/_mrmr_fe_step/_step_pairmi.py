@@ -324,6 +324,7 @@ def compute_pair_mis_and_floor(
         _data_shipped = fit_constant_memmap(data)
 
         def _run_loky_pair_mi_pool():
+            """Score every prospective pair's MI in a loky worker pool against the memmapped ``data``."""
             return list(
                 Parallel(
                     n_jobs=n_jobs,

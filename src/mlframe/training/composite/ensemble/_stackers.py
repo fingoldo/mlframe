@@ -197,16 +197,12 @@ def fit_elasticnet_meta_stacker(
     X, y, finite = _clean_oof_matrix(oof_matrix, oof_y, n_components)
     sw = _validate_sample_weight(sample_weight, np.asarray(oof_matrix).shape[0], finite)
     if X.shape[0] < n_components + 2:
-        raise ValueError(
-            f"fit_elasticnet_meta_stacker: only {X.shape[0]} finite OOF rows for {n_components} components (need >= {n_components + 2})."
-        )
+        raise ValueError(f"fit_elasticnet_meta_stacker: only {X.shape[0]} finite OOF rows for {n_components} components (need >= {n_components + 2}).")
     if elasticnet_alpha is None or elasticnet_l1_ratio is None:
         ecv = ElasticNetCV(alphas=tuple(elasticnet_alpha_grid), l1_ratio=list(elasticnet_l1_ratio_grid), fit_intercept=True)
         ecv.fit(X, y, sample_weight=sw)
         chosen_alpha = float(elasticnet_alpha) if elasticnet_alpha is not None else float(getattr(ecv, "alpha_", elasticnet_alpha_grid[0]))
-        chosen_l1_ratio = (
-            float(elasticnet_l1_ratio) if elasticnet_l1_ratio is not None else float(getattr(ecv, "l1_ratio_", elasticnet_l1_ratio_grid[0]))
-        )
+        chosen_l1_ratio = float(elasticnet_l1_ratio) if elasticnet_l1_ratio is not None else float(getattr(ecv, "l1_ratio_", elasticnet_l1_ratio_grid[0]))
     else:
         chosen_alpha = float(elasticnet_alpha)
         chosen_l1_ratio = float(elasticnet_l1_ratio)

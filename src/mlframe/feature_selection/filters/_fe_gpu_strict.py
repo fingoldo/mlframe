@@ -183,6 +183,7 @@ def fe_gpu_strict_enabled(*, n: int | None = None, p: int | None = None, min_p: 
     The env is read LIVE every call (mid-process toggles observed immediately); only the immutable CUDA-device probe
     is cached. No-op without CUDA. Small-n and no-GPU behavior is byte-identical to the pre-AUTO default."""
     def _passes_call_work_floor() -> bool:
+        """Whether this call's (n, p) shape clears the total-work and per-column floors gating STRICT GPU use."""
         if n is None or p is None:
             return True  # no per-call shape given -> caller not yet shape-aware; fit-level gate alone decides
         # ``min_p`` overrides ONLY the p-floor leg: the default 64 mirrors the CANDIDATE-batch CPU/CUDA

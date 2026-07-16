@@ -40,6 +40,7 @@ _HIGH = "high"
 
 
 def _concat_feature(X: Any, col_name: str, values: np.ndarray) -> Any:
+    """Append ``values`` as a new column named ``col_name`` to ``X``, matching its frame type."""
     if isinstance(X, pd.DataFrame):
         out = X.copy()
         out[col_name] = values
@@ -120,9 +121,11 @@ class GatedRegressionMixture(BaseEstimator, RegressorMixin):
         self.soft_routing_bandwidth = soft_routing_bandwidth
 
     def _predict_proba_1(self, model: Any, X: Any) -> np.ndarray:
+        """Return the positive-class probability column from a classifier's ``predict_proba``."""
         return np.asarray(model.predict_proba(X), dtype=np.float64)[:, 1]
 
     def fit(self, X: Any, y: Any, subpop_label: np.ndarray) -> "GatedRegressionMixture":
+        """Fit the gate classifier via OOF probabilities, then fit a branch regressor per routed subpopulation."""
         y_arr = np.asarray(y, dtype=np.float64)
         label_arr = np.asarray(subpop_label)
         weights = self.branch_sample_weight or {_LOW: 1.0, _HIGH: 1.0}
@@ -158,12 +161,14 @@ class GatedRegressionMixture(BaseEstimator, RegressorMixin):
         return self
 
     def _predict_branch(self, branch: str, X: Any, proba: np.ndarray, mask: np.ndarray) -> np.ndarray:
+        """Predict with the given branch's model on the rows selected by ``mask``."""
         X_branch = X.iloc[np.flatnonzero(mask)] if hasattr(X, "iloc") else np.asarray(X)[mask]
         if self.use_gate_feature:
             X_branch = _concat_feature(X_branch, "gate_proba", proba[mask])
         return np.asarray(self.branch_models_[branch].predict(X_branch), dtype=np.float64)
 
     def predict(self, X: Any) -> np.ndarray:
+        """Route each row by gate probability and predict via the routed (or blended) branch model(s)."""
         proba = self._predict_proba_1(self.gate_model_, X)
         route = np.where(proba >= self.threshold, _HIGH, _LOW)
         n = proba.shape[0]

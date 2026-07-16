@@ -31,6 +31,7 @@ logger = logging.getLogger(__name__)
 
 
 def _select(X: Any, mask: np.ndarray) -> Any:
+    """Select the rows of ``X`` (DataFrame, polars, or array-like) matching a boolean ``mask``."""
     if isinstance(X, pd.DataFrame):
         return X.iloc[np.flatnonzero(mask)]
     try:
@@ -43,6 +44,7 @@ def _select(X: Any, mask: np.ndarray) -> Any:
 
 
 def _concat(a: Any, b: Any) -> Any:
+    """Concatenate ``a`` and ``b`` row-wise, preserving DataFrame type when applicable."""
     if isinstance(a, pd.DataFrame):
         return pd.concat([a.reset_index(drop=True), b.reset_index(drop=True)], axis=0, ignore_index=True)
     return np.concatenate([np.asarray(a), np.asarray(b)], axis=0)
@@ -158,6 +160,7 @@ class PseudoLabelingLoop(BaseEstimator):
         return self.confidence_threshold + frac * (self.threshold_final - self.confidence_threshold)
 
     def _accept_mask(self, mean_pred: np.ndarray, std_pred: np.ndarray, threshold: Optional[float]) -> np.ndarray:
+        """Return a boolean mask of unlabeled rows confident enough to accept as pseudo-labels this round."""
         if threshold is None and self.class_thresholds is None:
             return np.ones_like(mean_pred, dtype=bool)
         if self.task == "classification":
@@ -177,6 +180,7 @@ class PseudoLabelingLoop(BaseEstimator):
         return std_pred <= threshold
 
     def fit(self, X_labeled: Any, y_labeled: np.ndarray, X_unlabeled: Any) -> "PseudoLabelingLoop":
+        """Run the iterative pseudo-labeling rounds, then fit the final model on real + accepted pseudo-labeled rows."""
         y_arr = np.asarray(y_labeled, dtype=np.float64)
         cur_X, cur_y, cur_w = X_labeled, y_arr, np.ones(len(y_arr), dtype=np.float64)
         self.pseudo_labels_history_: List[Tuple[np.ndarray, np.ndarray, np.ndarray]] = []
@@ -206,6 +210,7 @@ class PseudoLabelingLoop(BaseEstimator):
         return self
 
     def predict(self, X: Any) -> np.ndarray:
+        """Predict with the final model fit on real plus accepted pseudo-labeled rows."""
         if self.task == "classification":
             return np.asarray(self.final_model_.predict_proba(X), dtype=np.float64)[:, 1]
         return np.asarray(self.final_model_.predict(X), dtype=np.float64)

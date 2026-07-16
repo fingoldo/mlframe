@@ -35,11 +35,13 @@ _KERNEL_NAME = "calibration_odds_ratio_combine"
 
 
 def _forced_backend() -> str | None:
+    """Return the backend forced via the ``MLFRAME_ODDS_COMBINE_BACKEND`` env var, or ``None`` if unset/invalid."""
     val = os.environ.get(_ENV_KEY, "").strip().lower()
     return val if val in _VALID_BACKENDS else None
 
 
 def _get_cache() -> Any:
+    """Return the shared ``KernelTuningCache`` singleton, or ``None`` if pyutilz/FS is unavailable."""
     try:
         from mlframe.feature_selection.filters import get_kernel_tuning_cache
     except Exception:  # pyutilz / FS package unavailable -> hardcoded fallback.
@@ -66,6 +68,7 @@ def _make_tuner(n: int, k: int) -> Callable[[], list[dict]]:
     region dict for the winner. Closes over ``n, k`` so ``get_or_tune`` can call it with no arguments."""
 
     def _tuner() -> list[dict]:
+        """Measure every available backend at shape ``(n, k)`` and return the region dict for the fastest one."""
         from mlframe.calibration.ensembling import _NUMBA_AVAILABLE, _odds_combine_njit, _odds_combine_njit_parallel
 
         rng = np.random.default_rng(0)
@@ -80,6 +83,7 @@ def _make_tuner(n: int, k: int) -> Callable[[], list[dict]]:
             p_gpu = cp.asarray(p)
 
             def _gpu_call() -> object:
+                """Run one GPU-resident odds-ratio-combine pass and synchronize before returning."""
                 p_c = cp.clip(p_gpu, 1e-7, 1.0 - 1e-7)
                 logits = cp.log(p_c / (1.0 - p_c))
                 combined_logit = logits.sum(axis=1)

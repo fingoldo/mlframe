@@ -178,6 +178,7 @@ def shuffle_arr(arr: np.ndarray) -> None:
 
 @njit(nogil=True, cache=True)
 def _shuffle_arr_lcg_kernel(arr: np.ndarray, state: np.uint64) -> np.uint64:
+    """In-place Fisher-Yates shuffle of ``arr`` driven by an inline LCG; returns the advanced LCG state."""
     n = len(arr)
     for j in range(n - 1, 0, -1):
         state = state * np.uint64(6364136223846793005) + np.uint64(1442695040888963407)

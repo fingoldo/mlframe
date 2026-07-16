@@ -82,6 +82,7 @@ def subpopulation_ratio_drift_check(
 
 
 def _prevalence_ratio(train_prevalence: float, test_prevalence: float) -> float:
+    """Compute the ratio of the larger to the smaller prevalence, or infinity if either is zero."""
     if train_prevalence <= 0.0 or test_prevalence <= 0.0:
         return float("inf")
     hi, lo = max(train_prevalence, test_prevalence), min(train_prevalence, test_prevalence)
@@ -124,9 +125,7 @@ def rank_subpopulation_drift_severity(
     """
     rows = []
     for col in subgroup_cols:
-        report = subpopulation_ratio_drift_check(
-            train_df, test_df, subgroup_col=col, ratio_threshold=ratio_threshold, include_severity_score=True
-        )
+        report = subpopulation_ratio_drift_check(train_df, test_df, subgroup_col=col, ratio_threshold=ratio_threshold, include_severity_score=True)
         weights = (report["train_prevalence"] + report["test_prevalence"]) / 2.0
         total_weight = float(weights.sum())
         agg_score = float((report["drift_severity_score"] * weights).sum() / total_weight) if total_weight > 0.0 else 0.0

@@ -483,6 +483,7 @@ def find_underdelivering_pairs(
     _qbin_memo: dict = {}
 
     def _qbin_cached(name, x):
+        """Return column ``name``'s quantile-bin encoding, computing and memoizing it on first use."""
         c = _qbin_memo.get(name)
         if c is None:
             c = _quantile_bin(x[sl], nbins=nbq).astype(np.int64)

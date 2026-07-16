@@ -80,6 +80,7 @@ class AdditiveDecompositionRegressor(BaseEstimator, RegressorMixin):
         self.random_state = random_state
 
     def _build_trunk_and_heads(self, n_features: int):
+        """Build the shared trunk MLP and one linear head per component."""
         import torch
         import torch.nn as nn
 
@@ -94,6 +95,7 @@ class AdditiveDecompositionRegressor(BaseEstimator, RegressorMixin):
         return trunk, component_heads
 
     def _validate_component_constraints(self) -> Dict[str, str]:
+        """Validate that ``component_constraints`` only names known components and supported constraint kinds."""
         constraints = self.component_constraints or {}
         unknown_components = set(constraints) - set(self.component_names)
         if unknown_components:
@@ -107,6 +109,7 @@ class AdditiveDecompositionRegressor(BaseEstimator, RegressorMixin):
 
     @staticmethod
     def _apply_component_constraint(name: str, raw_output, constraints: Dict[str, str]):
+        """Apply the declared sign/shape constraint for component ``name`` to its raw head output, if any."""
         # Deliberately untyped (torch.Tensor): an explicit annotation flips sum()'s overload resolution to
         # Tensor | int at the call sites below, since nn.Linear.__call__ itself is untyped (Any).
         # Unconstrained components (the default, no entry in ``constraints``) pass through unchanged --

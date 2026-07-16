@@ -346,6 +346,7 @@ def _greedy_backward_elimination_core(
     sign = 1.0 if greater_is_better else -1.0
 
     def _better(a: float, b: float) -> bool:
+        """Return whether score ``a`` beats score ``b`` by more than ``tol``, sign-aware for greater/less-is-better."""
         return sign * (a - b) > tol
 
     kept = list(range(m))
@@ -604,6 +605,7 @@ def stepwise_ensemble_selection(
     sign = 1.0 if greater_is_better else -1.0
 
     def _better(a: float, b: float) -> bool:
+        """Return whether score ``a`` beats score ``b`` by more than ``tol``, sign-aware for greater/less-is-better."""
         return sign * (a - b) > tol
 
     single_scores = np.array([_score_blend(arr[i], yv, metric) for i in range(m)], dtype=np.float64)

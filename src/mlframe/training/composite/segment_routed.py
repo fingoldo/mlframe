@@ -42,6 +42,7 @@ def _extract_column(X: Any, column: Any) -> np.ndarray:
 
 
 def _select_columns(X: Any, mask: np.ndarray, columns: Optional[Sequence[Any]]) -> Any:
+    """Select rows matching ``mask`` and, if given, restrict to ``columns``."""
     if isinstance(X, pd.DataFrame):
         X_seg = X.loc[mask]
         return X_seg[list(columns)] if columns is not None else X_seg
@@ -148,6 +149,7 @@ class SegmentRoutedEstimator(BaseEstimator, RegressorMixin):
         return col_vals <= threshold if self.auto_segment_direction == "low" else col_vals >= threshold
 
     def fit(self, X: Any, y: Any, sample_weight: Optional[np.ndarray] = None) -> "SegmentRoutedEstimator":
+        """Fit the main model on all rows and the specialist model on the segmented (data-sparse) rows."""
         y_arr = np.asarray(y, dtype=np.float64)
         if self.auto_segment_column is None:
             self.segment_threshold_ = None
@@ -170,6 +172,7 @@ class SegmentRoutedEstimator(BaseEstimator, RegressorMixin):
         return self
 
     def predict(self, X: Any) -> np.ndarray:
+        """Predict with the main model, then splice in the specialist's predictions for the segmented rows."""
         seg_mask = self._resolve_segment_mask(X, fitting=False)
         main_pred = np.asarray(self.main_model_.predict(X), dtype=np.float64)
         if not seg_mask.any() or not self._specialist_fitted_:

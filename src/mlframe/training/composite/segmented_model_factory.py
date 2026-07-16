@@ -109,9 +109,11 @@ class SegmentedModelFactory(BaseEstimator, RegressorMixin):
         self.shrinkage_k = shrinkage_k
 
     def _drop_segment_cols(self, X: pd.DataFrame) -> pd.DataFrame:
+        """Return ``X`` with the segment-key columns removed, leaving only model features."""
         return X.drop(columns=list(self.segment_keys))
 
     def _fit_one(self, X_segment: Any, y_segment: np.ndarray) -> Any:
+        """Fit (or HPO-search) one segment's model on its own rows."""
         if self.hpo_search_fn is not None:
             return self.hpo_search_fn(X_segment, y_segment)
         model = clone(self.estimator_factory())
@@ -125,6 +127,7 @@ class SegmentedModelFactory(BaseEstimator, RegressorMixin):
         return tuple(seg_key[i] for i in idx_map)
 
     def fit(self, X: pd.DataFrame, y: Any) -> "SegmentedModelFactory":
+        """Fit one model per segment (skipping too-small segments), optional parent/global pooling models for shrinkage."""
         if not isinstance(X, pd.DataFrame):
             raise TypeError("SegmentedModelFactory: X must be a pandas DataFrame (segment_keys are column names).")
         if self.shrinkage_min_rows is not None and self.shrinkage_min_rows < self.min_segment_rows:
@@ -188,6 +191,7 @@ class SegmentedModelFactory(BaseEstimator, RegressorMixin):
         self.segment_models_.pop(segment_key, None)
 
     def predict(self, X: pd.DataFrame) -> np.ndarray:
+        """Predict each row via its segment's model (with shrinkage/fallback blending) or the global model."""
         n = X.shape[0]
         out = np.zeros(n, dtype=np.float64)
         X_features = self._drop_segment_cols(X)

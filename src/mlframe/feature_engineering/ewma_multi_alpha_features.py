@@ -26,6 +26,7 @@ from numba import njit
 
 @njit(fastmath=False, cache=True)
 def _grouped_ewma_njit(values_sorted: np.ndarray, starts: np.ndarray, ends: np.ndarray, alpha: float) -> np.ndarray:
+    """Compute a per-group exponentially weighted moving average with a fixed alpha over sorted values."""
     n = values_sorted.shape[0]
     out = np.empty(n, dtype=np.float64)
     one_minus = 1.0 - alpha
@@ -48,6 +49,7 @@ def _grouped_ewma_adaptive_njit(
     val_frac: float,
     min_val_points: int,
 ) -> Tuple[np.ndarray, np.ndarray]:
+    """Compute a per-group EWMA using, per entity, the alpha from alphas_grid that best walk-forward-validates."""
     n = values_sorted.shape[0]
     out = np.empty(n, dtype=np.float64)
     chosen_alpha = np.empty(n, dtype=np.float64)

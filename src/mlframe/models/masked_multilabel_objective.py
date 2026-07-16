@@ -78,6 +78,7 @@ def masked_multilabel_logloss_objective(
     """
 
     def objective(y_pred_margin: np.ndarray, dtrain: object) -> Tuple[np.ndarray, np.ndarray]:
+        """Compute sentinel-masked, optionally sample-weighted logloss gradient and hessian for XGBoost."""
         y_pred_margin_arr = np.asarray(y_pred_margin, dtype=np.float64)
         y_true_arr = np.asarray(dtrain.get_label(), dtype=np.float64)  # type: ignore[attr-defined]
 
@@ -103,9 +104,7 @@ def masked_multilabel_logloss_objective(
     return objective
 
 
-def flatten_masked_multilabel_class_weights(
-    y_multilabel: np.ndarray, dont_care_mask: np.ndarray, class_weights: Optional[np.ndarray] = None
-) -> np.ndarray:
+def flatten_masked_multilabel_class_weights(y_multilabel: np.ndarray, dont_care_mask: np.ndarray, class_weights: Optional[np.ndarray] = None) -> np.ndarray:
     """Flatten per-class weights to align with :func:`flatten_masked_multilabel`'s row-major label layout.
 
     Parameters

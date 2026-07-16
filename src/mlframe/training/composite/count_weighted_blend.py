@@ -106,9 +106,11 @@ class CountWeightedBlendEnsemble(BaseEstimator, RegressorMixin):
         self.random_state = random_state
 
     def _metadata_cols(self, X: pd.DataFrame) -> list[str]:
+        """Return the configured metadata columns, or all columns except the entity column by default."""
         return list(self.metadata_cols) if self.metadata_cols is not None else [c for c in X.columns if c != self.entity_col]
 
     def _select_k_via_cv(self, X: pd.DataFrame, y_arr: np.ndarray, meta_cols: list[str], fit_kwargs: dict[str, Any]) -> float:
+        """Cross-validate the blend smoothing constant ``k`` over a grid and return the value with lowest mean squared error."""
         grid = list(self.k_grid) if self.k_grid is not None else list(DEFAULT_K_GRID)
         kf = KFold(n_splits=self.k_cv, shuffle=True, random_state=self.random_state)
         n = len(X)
@@ -140,6 +142,7 @@ class CountWeightedBlendEnsemble(BaseEstimator, RegressorMixin):
         return min(self.k_cv_scores_, key=lambda k: self.k_cv_scores_[k])
 
     def fit(self, X: pd.DataFrame, y: Any, sample_weight: Optional[np.ndarray] = None) -> "CountWeightedBlendEnsemble":
+        """Fit the entity-level and global models (and, if ``auto_k``, the blend constant ``k``) on ``X``, ``y``."""
         if not isinstance(X, pd.DataFrame):
             raise TypeError("CountWeightedBlendEnsemble: X must be a pandas DataFrame.")
         y_arr = np.asarray(y, dtype=np.float64)
@@ -161,10 +164,12 @@ class CountWeightedBlendEnsemble(BaseEstimator, RegressorMixin):
         return self
 
     def _blend_weight(self, X: pd.DataFrame) -> np.ndarray:
+        """Return the per-row entity-vs-global blend weight from fitted entity counts and smoothing constant ``k_``."""
         counts = X[self.entity_col].map(self.entity_counts_).fillna(0).to_numpy(dtype=np.float64)
         return np.asarray(counts / (counts + self.k_))
 
     def predict(self, X: pd.DataFrame) -> np.ndarray:
+        """Blend the entity-level and global model predictions weighted by per-row entity observation count."""
         w = self._blend_weight(X)
         pred_entity = np.asarray(self.entity_model_.predict(X), dtype=np.float64)
         pred_global = np.asarray(self.global_model_.predict(X[self._metadata_cols(X)]), dtype=np.float64)

@@ -142,9 +142,7 @@ def cv_informativeness_check(
         "informative": fraction_informative >= 0.5,
     }
     if check_trend:
-        result["trend_diagnostic"] = _classify_fold_trend(
-            np.asarray(fold_sizes, dtype=np.float64), np.asarray(margins, dtype=np.float64), trend_corr_threshold
-        )
+        result["trend_diagnostic"] = _classify_fold_trend(np.asarray(fold_sizes, dtype=np.float64), np.asarray(margins, dtype=np.float64), trend_corr_threshold)
     return result
 
 

@@ -410,6 +410,7 @@ def score_prospective_pairs(
     _operand_cache: dict = {}
 
     def _cached_operand(_idx):
+        """Return operand ``_idx``'s continuous usability value, computing and memoizing it on first use."""
         if _idx in _operand_cache:
             return _operand_cache[_idx]
         _val = _usability_operand_continuous(self, X, cols, _idx)
@@ -431,6 +432,7 @@ def score_prospective_pairs(
     _single_corr_cache: dict = {}
 
     def _cached_single_corr(_idx):
+        """Return operand ``_idx``'s single-operand usability correlation, memoized across calls."""
         if _idx in _single_corr_cache:
             return _single_corr_cache[_idx]
         _op = _cached_operand(_idx)

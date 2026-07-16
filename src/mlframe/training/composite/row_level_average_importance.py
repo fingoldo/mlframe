@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 
 
 def _feature_names(X_rows: Any) -> list[str]:
+    """Return column names for ``X_rows``, falling back to positional ``f0, f1, ...`` for plain arrays."""
     if isinstance(X_rows, pd.DataFrame):
         return [str(c) for c in X_rows.columns]
     if isinstance(X_rows, pl.DataFrame):
@@ -37,6 +38,7 @@ def _feature_names(X_rows: Any) -> list[str]:
 
 
 def _subset_rows(X_rows: Any, idx: np.ndarray) -> Any:
+    """Select rows of ``X_rows`` (pandas, polars, or array-like) by integer positions ``idx``."""
     if isinstance(X_rows, pl.DataFrame):
         mask = np.isin(np.arange(X_rows.height), idx, assume_unique=True)
         return X_rows.filter(pl.Series(mask))

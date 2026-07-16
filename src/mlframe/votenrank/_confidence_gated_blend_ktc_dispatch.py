@@ -34,11 +34,13 @@ _KERNEL_NAME = "votenrank_confidence_gated_blend"
 
 
 def _forced_backend() -> Optional[str]:
+    """Return the backend forced via the MLFRAME_CONFIDENCE_BLEND_BACKEND env var, or None if unset/invalid."""
     val = os.environ.get(_ENV_KEY, "").strip().lower()
     return val if val in _VALID_BACKENDS else None
 
 
 def _get_cache() -> Any:
+    """Return the shared KernelTuningCache singleton, or None if pyutilz/FS is unavailable."""
     try:
         from mlframe.feature_selection.filters import get_kernel_tuning_cache
     except Exception:  # pyutilz / FS package unavailable -> hardcoded fallback.
@@ -66,6 +68,7 @@ def _make_tuner(n: int) -> Callable[[], list]:
     includes a transfer that a resident caller wouldn't pay."""
 
     def _tuner() -> list:
+        """Measure every available backend at size n and return the region dict for the fastest one."""
         from mlframe.votenrank.confidence_gated_blend import _blend_njit, _blend_njit_parallel, _blend_numpy
 
         rng = np.random.default_rng(0)
@@ -87,6 +90,7 @@ def _make_tuner(n: int) -> Callable[[], list]:
             import cupy as cp
 
             def _gpu_call() -> object:
+                """Run one GPU-resident confidence-gated blend pass and return the host result."""
                 e = cp.asarray(ensemble)
                 a = cp.asarray(aux)
                 c = cp.asarray(conf)

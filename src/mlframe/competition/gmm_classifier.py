@@ -83,6 +83,7 @@ class GaussianMixtureClassifier(BaseEstimator, ClassifierMixin):
         self.random_state = random_state
 
     def fit(self, X: npt.ArrayLike, y: npt.ArrayLike) -> "GaussianMixtureClassifier":
+        """Fit one ``GaussianMixture`` per class on its own samples and store per-class log priors."""
         X_arr, y_arr = check_X_y(X, y)
         self.classes_ = unique_labels(y_arr)
         if self.classes_.shape[0] < 2:
@@ -112,12 +113,14 @@ class GaussianMixtureClassifier(BaseEstimator, ClassifierMixin):
         return self
 
     def _joint_log_likelihood(self, X: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+        """Return per-class joint log-likelihood (per-class GMM log-density plus class log-prior) for each sample."""
         log_probs = np.empty((X.shape[0], self.classes_.shape[0]), dtype=np.float64)
         for idx, cls in enumerate(self.classes_):
             log_probs[:, idx] = self.gmms_[cls].score_samples(X) + self.class_log_priors_[cls]
         return log_probs
 
     def predict_proba(self, X: npt.ArrayLike) -> npt.NDArray[np.float64]:
+        """Return per-class posterior probabilities via softmax-normalized joint log-likelihoods."""
         check_is_fitted(self, ["gmms_", "classes_"])
         X_arr = check_array(X)
         log_joint = self._joint_log_likelihood(X_arr)
@@ -129,5 +132,6 @@ class GaussianMixtureClassifier(BaseEstimator, ClassifierMixin):
         return np.asarray(probs, dtype=np.float64)
 
     def predict(self, X: npt.ArrayLike) -> npt.NDArray[Any]:
+        """Predict the class label with highest posterior probability for each sample."""
         proba = self.predict_proba(X)
         return np.asarray(self.classes_[np.argmax(proba, axis=1)])

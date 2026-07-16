@@ -22,12 +22,14 @@ logger = logging.getLogger(__name__)
 
 
 def _to_pandas(df: Any) -> Optional[pd.DataFrame]:
+    """Convert a polars DataFrame to pandas; pass through pandas/None unchanged."""
     if df is None:
         return None
     return df.to_pandas() if isinstance(df, pl.DataFrame) else df
 
 
 def _attach_new_columns(df: Any, new_cols: "pd.DataFrame") -> Any:
+    """Attach new_cols (a pandas frame) onto df, matching df's own polars/pandas type."""
     if new_cols.shape[1] == 0:
         return df
     if isinstance(df, pl.DataFrame):
@@ -89,6 +91,7 @@ def apply_ma_crossover_composite_fe(
     ts_arr = np.asarray(timestamps) if timestamps is not None else None
 
     def _slice(idx: Optional[np.ndarray], n_rows: int):
+        """Slice group_ids/timestamps down to idx, or return (None, None) if idx doesn't match n_rows."""
         if idx is None or group_ids is None:
             return None, None
         idx_arr = np.asarray(idx)
@@ -130,6 +133,8 @@ def apply_ma_crossover_composite_fe(
 
 
 class _ReplayConfig:
+    """Replays this FE step's config from fitted-pipeline metadata (for inference-time reapplication)."""
+
     def __init__(self, metadata: dict):
         self.ma_crossover_columns = metadata.get("ma_crossover_columns") or []
         self.ma_crossover_windows = metadata.get("ma_crossover_windows") or []

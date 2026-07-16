@@ -795,7 +795,7 @@ def batched_quantile_bin_gpu(x_cols: Any, nbins: int) -> Any:
         eb = (cp.ascontiguousarray(edges_all) + 0.0).view(cp.int64)  # normalize -0.0, reinterpret bits
         keys = cp.where(eb >= 0, eb, eb ^ np.int64(0x7FFFFFFFFFFFFFFF))
         imax = np.int64(np.iinfo(np.int64).max)
-        keys = cp.where(interior, keys, imax)   # fold the interior mask into the key table (false -> never counted)
+        keys = cp.where(interior, keys, imax)  # fold the interior mask into the key table (false -> never counted)
         # fold the ndistinct==2 extra count into one appended row: the binary top edge, else +inf-key
         extra = cp.where(ndistinct == 2, cp.where(eb[-1] >= 0, eb[-1], eb[-1] ^ np.int64(0x7FFFFFFFFFFFFFFF)), imax)
         keys = cp.concatenate([keys, extra[None, :]], axis=0)

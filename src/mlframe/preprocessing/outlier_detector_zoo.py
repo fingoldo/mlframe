@@ -190,7 +190,7 @@ def select_outlier_threshold(
             return np.zeros(n, dtype=bool)
         if n_flag >= n:
             return np.ones(n, dtype=bool)
-        cutoff_idx = np.argpartition(arr, n - n_flag)[n - n_flag:]
+        cutoff_idx = np.argpartition(arr, n - n_flag)[n - n_flag :]
         flags = np.zeros(n, dtype=bool)
         flags[cutoff_idx] = True
         return flags

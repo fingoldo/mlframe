@@ -23,6 +23,8 @@ from torch import nn
 
 
 class _FieldGroupedMLPModule(nn.Module):
+    """Torch module: per-field sub-MLP encoders whose outputs are concatenated and fed to a shared head."""
+
     def __init__(self, field_groups: Dict[str, Sequence[int]], field_hidden: int = 8, head_hidden: int = 16) -> None:
         super().__init__()
         self.field_indices = {name: list(idx) for name, idx in field_groups.items()}
@@ -33,6 +35,7 @@ class _FieldGroupedMLPModule(nn.Module):
         self.head = nn.Sequential(nn.Linear(total_encoded, head_hidden), nn.ReLU(), nn.Linear(head_hidden, 1))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Encode each field group separately, concatenate the encodings, and apply the shared head."""
         encoded = []
         for name, idx in self.field_indices.items():
             field_x = x[:, idx]
@@ -71,6 +74,7 @@ class FieldGroupedMLPRegressor(BaseEstimator, RegressorMixin):
         self.random_state = random_state
 
     def fit(self, X: np.ndarray, y: np.ndarray) -> "FieldGroupedMLPRegressor":
+        """Train the field-grouped MLP module with full-batch Adam."""
         X_arr = np.asarray(X, dtype=np.float32)
         y_arr = np.asarray(y, dtype=np.float32).reshape(-1)
 
@@ -92,6 +96,7 @@ class FieldGroupedMLPRegressor(BaseEstimator, RegressorMixin):
         return self
 
     def predict(self, X: np.ndarray) -> np.ndarray:
+        """Predict with the fitted field-grouped MLP module in eval mode."""
         X_arr = np.asarray(X, dtype=np.float32)
         self.model_.eval()
         with torch.no_grad():

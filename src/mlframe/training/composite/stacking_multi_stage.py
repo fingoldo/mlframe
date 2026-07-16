@@ -43,10 +43,12 @@ class _ProbaAsPredictWrapper:
         self.estimator = estimator
 
     def fit(self, X: Any, y: Any, **fit_kwargs: Any) -> "_ProbaAsPredictWrapper":
+        """Fit the wrapped classifier."""
         self.estimator.fit(X, y, **fit_kwargs)
         return self
 
     def predict(self, X: Any) -> np.ndarray:
+        """Return the wrapped classifier's positive-class probability in place of a hard label."""
         proba = np.asarray(self.estimator.predict_proba(X))
         return proba[:, 1]
 
@@ -111,6 +113,7 @@ class MultiStageMetaFeatureStacker(BaseEstimator):
         self.use_predict_proba = use_predict_proba
 
     def _meta_column_name(self, aux_name: str) -> str:
+        """Return the meta-feature column name for a given auxiliary target."""
         return f"{self.meta_feature_prefix}_{aux_name}"
 
     @staticmethod
@@ -135,6 +138,7 @@ class MultiStageMetaFeatureStacker(BaseEstimator):
         y_auxiliary: Mapping[str, np.ndarray],
         sample_weight: Optional[np.ndarray] = None,
     ) -> "MultiStageMetaFeatureStacker":
+        """Fit stage-1 OOF meta-features from the auxiliary targets, then fit stage 2 on features plus meta-features."""
         if not self.stage1_estimator_factories:
             raise ValueError("stage1_estimator_factories must be non-empty.")
         missing = set(self.stage1_estimator_factories) - set(y_auxiliary)
@@ -184,6 +188,7 @@ class MultiStageMetaFeatureStacker(BaseEstimator):
         return self
 
     def _build_meta_features_at_predict(self, X: Any) -> dict[str, np.ndarray]:
+        """Build stage-1 meta-feature columns at predict time from the refit stage-1 models."""
         meta_cols: dict[str, np.ndarray] = {}
         for aux_name, model in self.stage1_models_.items():
             pred = np.asarray(model.predict(X), dtype=np.float64).reshape(-1)
@@ -195,6 +200,7 @@ class MultiStageMetaFeatureStacker(BaseEstimator):
 
     @staticmethod
     def _concat_meta(X: Any, meta_cols: dict[str, np.ndarray]) -> Any:
+        """Append the meta-feature columns to ``X``, matching its frame type."""
         try:
             import polars as pl
             if isinstance(X, pl.DataFrame):
@@ -212,6 +218,7 @@ class MultiStageMetaFeatureStacker(BaseEstimator):
         return np.concatenate([X_arr, meta_arr], axis=1)
 
     def predict(self, X: Any) -> np.ndarray:
+        """Rebuild the stage-1 meta-features on ``X`` and predict via the fitted stage-2 model."""
         X = self._ensure_frame(X)
         meta_cols = self._build_meta_features_at_predict(X)
         X_meta = self._concat_meta(X, meta_cols)

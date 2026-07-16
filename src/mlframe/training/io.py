@@ -330,6 +330,7 @@ class _SafeUnpickler(dill.Unpickler):
     """Restricted unpickler that only allows a conservative allowlist of modules."""
 
     def find_class(self, module: str, name: str):
+        """Resolve a class, allowing only modules on the conservative allowlist."""
         return _resolve_restricted_class(module, name, super().find_class)
 
 
@@ -370,6 +371,7 @@ class _SafeJoblibUnpickler(_JoblibNumpyUnpickler):
     directory) intentionally support arbitrary custom model classes, so this uses the denylist instead."""
 
     def find_class(self, module: str, name: str):
+        """Resolve a class, blocking only the denylisted RCE-gadget modules/builtins."""
         return _resolve_denylisted_class(module, name, super().find_class)
 
 

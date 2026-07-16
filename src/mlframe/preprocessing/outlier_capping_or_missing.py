@@ -49,6 +49,7 @@ _MAD_K = 3.0
 
 
 def _mad_bounds(finite: np.ndarray) -> Tuple[float, float]:
+    """Return ``(lower, upper)`` outlier bounds from the median-absolute-deviation rule."""
     median = float(np.median(finite))
     mad = float(np.median(np.abs(finite - median)))
     if mad == 0.0:
@@ -71,6 +72,7 @@ def _column_bounds(values: np.ndarray, rule: str = "auto") -> Tuple[float, float
     iqr = q3 - q1
 
     def _iqr_bounds() -> Tuple[float, float]:
+        """Return ``(lower, upper)`` outlier bounds from the 1.5x IQR rule."""
         if iqr == 0.0:
             return -np.inf, np.inf
         return float(q1 - 1.5 * iqr), float(q3 + 1.5 * iqr)

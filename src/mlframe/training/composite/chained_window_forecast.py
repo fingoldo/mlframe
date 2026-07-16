@@ -113,6 +113,7 @@ class ChainedWindowForecaster(BaseEstimator, RegressorMixin):
 
     @staticmethod
     def _stack_rows(X: Any, X_extra: Any) -> Any:
+        """Row-concatenate ``X_extra`` onto ``X``, preserving whichever of pandas/polars/ndarray format ``X`` is in."""
         if isinstance(X, pd.DataFrame):
             return pd.concat([X.reset_index(drop=True), pd.DataFrame(X_extra, columns=X.columns).reset_index(drop=True) if not isinstance(X_extra, pd.DataFrame) else X_extra.reset_index(drop=True)], axis=0, ignore_index=True)
         try:
@@ -125,6 +126,7 @@ class ChainedWindowForecaster(BaseEstimator, RegressorMixin):
         return np.concatenate([np.asarray(X, dtype=np.float64), np.asarray(X_extra, dtype=np.float64)], axis=0)
 
     def _concat_chained(self, X_curr: Any, chained_pred: np.ndarray) -> Any:
+        """Attach the stage-1 chained prediction as a new feature column onto ``X_curr``, format-preserving."""
         if isinstance(X_curr, pd.DataFrame):
             out = X_curr.copy()
             out[self.chained_feature_name] = chained_pred

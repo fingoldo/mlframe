@@ -34,6 +34,7 @@ _DISPATCH_MIN_N = 2_000
 
 
 def _blend_numpy(ensemble: np.ndarray, aux: np.ndarray, conf: np.ndarray, threshold: float, gated_w: float, default_w: float) -> np.ndarray:
+    """Vectorized numpy confidence-gated blend of ensemble/aux predictions."""
     weight = np.where(conf >= threshold, gated_w, default_w)
     return np.asarray((1.0 - weight) * ensemble + weight * aux, dtype=np.float64)
 
@@ -42,6 +43,7 @@ if _NUMBA_AVAILABLE:
 
     @njit(cache=True, fastmath=True)
     def _blend_njit(ensemble: np.ndarray, aux: np.ndarray, conf: np.ndarray, threshold: float, gated_w: float, default_w: float) -> np.ndarray:
+        """Sequential numba njit confidence-gated blend of ensemble/aux predictions."""
         n = ensemble.shape[0]
         out = np.empty(n, dtype=np.float64)
         for i in range(n):
@@ -51,6 +53,7 @@ if _NUMBA_AVAILABLE:
 
     @njit(cache=True, fastmath=True, parallel=True)
     def _blend_njit_parallel(ensemble: np.ndarray, aux: np.ndarray, conf: np.ndarray, threshold: float, gated_w: float, default_w: float) -> np.ndarray:
+        """Parallel numba njit confidence-gated blend of ensemble/aux predictions."""
         n = ensemble.shape[0]
         out = np.empty(n, dtype=np.float64)
         for i in prange(n):
@@ -64,6 +67,7 @@ else:  # pragma: no cover - defensive fallback when numba is unavailable.
 
 
 def _blend_cupy(ensemble: np.ndarray, aux: np.ndarray, conf: np.ndarray, threshold: float, gated_w: float, default_w: float) -> np.ndarray:
+    """CuPy GPU confidence-gated blend of ensemble/aux predictions."""
     import cupy as cp
 
     e = cp.asarray(ensemble)
@@ -75,6 +79,7 @@ def _blend_cupy(ensemble: np.ndarray, aux: np.ndarray, conf: np.ndarray, thresho
 
 
 def _fit_gate_calibrator(calibration_confidence: np.ndarray, calibration_reliability: np.ndarray) -> "IsotonicRegression":
+    """Fit an isotonic calibrator mapping confidence to observed reliability, for gating the blend weight."""
     from sklearn.isotonic import IsotonicRegression
 
     # increasing="auto" (NOT the sklearn default of True) lets the calibrator learn an inverted relationship
@@ -151,9 +156,7 @@ def confidence_gated_blend(
 
     if per_sample_gate_calibration:
         if calibration_confidence is None or calibration_reliability is None:
-            raise ValueError(
-                "confidence_gated_blend: per_sample_gate_calibration=True requires calibration_confidence and calibration_reliability"
-            )
+            raise ValueError("confidence_gated_blend: per_sample_gate_calibration=True requires calibration_confidence and calibration_reliability")
         calibration_confidence = np.asarray(calibration_confidence, dtype=np.float64)
         calibration_reliability = np.asarray(calibration_reliability, dtype=np.float64)
         if calibration_confidence.shape != calibration_reliability.shape:

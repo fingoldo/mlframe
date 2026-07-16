@@ -120,9 +120,7 @@ def cross_validate_asymmetric_rescale(
     for fold_i in range(n_folds):
         test_idx = folds[fold_i]
         train_idx = np.concatenate([folds[j] for j in range(n_folds) if j != fold_i])
-        fold_fit = fit_asymmetric_rescale(
-            y_true_arr[train_idx], y_pred_arr[train_idx], metric_fn, factor_range=factor_range, n_factors=n_factors
-        )
+        fold_fit = fit_asymmetric_rescale(y_true_arr[train_idx], y_pred_arr[train_idx], metric_fn, factor_range=factor_range, n_factors=n_factors)
         fold_factors.append(fold_fit["factor"])
         rescaled_test = apply_asymmetric_rescale(y_pred_arr[test_idx], fold_fit["factor"])
         fold_metrics.append(float(metric_fn(y_true_arr[test_idx], rescaled_test)))

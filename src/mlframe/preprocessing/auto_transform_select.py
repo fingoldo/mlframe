@@ -19,19 +19,31 @@ import pandas as pd
 
 
 class _Probe(Protocol):
-    def fit(self, X: np.ndarray, y: np.ndarray) -> Any: ...
-    def predict(self, X: np.ndarray) -> np.ndarray: ...
-    def predict_proba(self, X: np.ndarray) -> np.ndarray: ...
+    """Structural type for the small sklearn-like estimators used as univariate/multivariate probes."""
+
+    def fit(self, X: np.ndarray, y: np.ndarray) -> Any:
+        """Fit the probe model on features ``X`` and target ``y``."""
+        ...
+
+    def predict(self, X: np.ndarray) -> np.ndarray:
+        """Return the probe model's predictions for ``X``."""
+        ...
+
+    def predict_proba(self, X: np.ndarray) -> np.ndarray:
+        """Return the probe model's predicted class probabilities for ``X``."""
+        ...
 
 from mlframe.feature_selection.filters import generate_rankgauss_features
 from mlframe.preprocessing.scalers import make_all_scalers
 
 
 def _candidate_transforms() -> List[str]:
+    """Return the names of all transforms considered by the per-column selection loop."""
     return ["identity", "log1p_signed", "rankgauss"] + [name for name, _ in make_all_scalers()]
 
 
 def _apply_transform(x: np.ndarray, transform_name: str) -> Optional[np.ndarray]:
+    """Apply the named transform to ``x``, returning ``None`` if the scaler fails on this column."""
     if transform_name == "identity":
         return x
     if transform_name == "log1p_signed":

@@ -440,8 +440,7 @@ def score_features_by_cmim(
         if _s not in _sources_seen:
             _sources_seen.append(_s)
     filtered_by_source: dict[str, list] = {
-        source: [entry for entry, sname in zip(full_cache, support_col_names) if sname != source]
-        for source in _sources_seen
+        source: [entry for entry, sname in zip(full_cache, support_col_names) if sname != source] for source in _sources_seen
     }
 
     rows: list[dict] = []

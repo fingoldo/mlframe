@@ -24,6 +24,8 @@ from torch import nn
 
 
 class _TrunkInjectedBlock(nn.Module):
+    """Residual block that re-injects the shared trunk representation into its own input every forward pass."""
+
     def __init__(self, dim: int) -> None:
         super().__init__()
         self.linear = nn.Linear(dim, dim)
@@ -31,6 +33,7 @@ class _TrunkInjectedBlock(nn.Module):
         self.act = nn.ReLU()
 
     def forward(self, x: torch.Tensor, trunk: torch.Tensor) -> torch.Tensor:
+        """Add the trunk representation into ``x``, transform, and residual-add the result back onto ``x``."""
         # trunk is re-injected (added) at THIS block's input, on top of the running residual carry from x --
         # the block sees both "what the tower has computed so far" and "the original trunk representation",
         # not just the former (which is all an adjacent-only skip would give it this many hops downstream).
@@ -39,6 +42,8 @@ class _TrunkInjectedBlock(nn.Module):
 
 
 class _TrunkResidualMLPModule(nn.Module):
+    """Torch module: a shared trunk block whose output is skip-connected into every subsequent residual block."""
+
     def __init__(self, n_features: int, trunk_dim: int = 32, n_blocks: int = 6) -> None:
         super().__init__()
         self.trunk = nn.Sequential(nn.Linear(n_features, trunk_dim), nn.LayerNorm(trunk_dim), nn.ReLU())
@@ -46,6 +51,7 @@ class _TrunkResidualMLPModule(nn.Module):
         self.head = nn.Linear(trunk_dim, 1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Compute the trunk representation and pass it through every trunk-injected block, then the head."""
         trunk_out = self.trunk(x)
         h = trunk_out
         for block in self.blocks:
@@ -79,6 +85,7 @@ class TrunkResidualMLPRegressor(BaseEstimator, RegressorMixin):
         self.random_state = random_state
 
     def fit(self, X: np.ndarray, y: np.ndarray) -> "TrunkResidualMLPRegressor":
+        """Train the trunk-residual MLP module with full-batch Adam."""
         X_arr = np.asarray(X, dtype=np.float32)
         y_arr = np.asarray(y, dtype=np.float32).reshape(-1)
 
@@ -100,6 +107,7 @@ class TrunkResidualMLPRegressor(BaseEstimator, RegressorMixin):
         return self
 
     def predict(self, X: np.ndarray) -> np.ndarray:
+        """Predict with the fitted trunk-residual MLP module in eval mode."""
         X_arr = np.asarray(X, dtype=np.float32)
         self.model_.eval()
         with torch.no_grad():

@@ -621,6 +621,7 @@ def apply_preprocessing_extensions(
         _rw_cols = list(train.columns)
 
         def _rw_apply(_fn, _df):
+            """Apply a row-wise-stats function to _df's pinned columns and join the result back on."""
             # ``keep_cols`` pinning upstream intersects with each split's own columns, so a raw
             # column genuinely missing from val/test (rather than typo'd) can leave that split with
             # fewer pinned columns than train -- re-intersect ``_rw_cols`` against the actual frame
@@ -635,6 +636,7 @@ def apply_preprocessing_extensions(
             _rw_stats_list = getattr(config, "row_wise_summary_stats_list", None)
 
             def _summary_stats_for(_d, _cols):
+                """Compute row-wise summary stats for _d over _cols, using the configured stat list if set."""
                 _kwargs: Dict = {"columns": _cols}
                 if _rw_stats_list:
                     _kwargs["stats"] = _rw_stats_list
@@ -654,6 +656,7 @@ def apply_preprocessing_extensions(
             def _extreme_scores_only(_df, _cols):
                 """Numeric-only slice of ``row_wise_top_k_extreme_columns`` output -- drops the ``topK_column`` name columns (object dtype), which would otherwise break the numeric-only contract the sklearn-bridge enforces on every downstream step (scaler / kbins / polynomial / dim_reducer)."""
                 _out = row_wise_top_k_extreme_columns(_df, columns=_cols, k=_rw_k)
+                assert isinstance(_out, pd.DataFrame)  # return_column_summary not passed -> always the plain-DataFrame overload
                 _score_cols = [c for c in _out.columns if c.endswith("_score")]
                 return _out[_score_cols].add_prefix("row_extreme_")
 

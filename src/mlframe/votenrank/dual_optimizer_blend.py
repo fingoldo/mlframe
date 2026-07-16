@@ -30,9 +30,7 @@ import numpy as np
 from mlframe.votenrank.constrained_weight_blend import constrained_weight_blend
 
 
-def _coordinate_descent_simplex_search(
-    preds: np.ndarray, y: np.ndarray, loss_fn: Callable, n_iters: int, random_state: int, n_restarts: int = 3
-) -> np.ndarray:
+def _coordinate_descent_simplex_search(preds: np.ndarray, y: np.ndarray, loss_fn: Callable, n_iters: int, random_state: int, n_restarts: int = 3) -> np.ndarray:
     """Independent third optimizer: gradient-free pairwise-coordinate descent on the weight simplex.
 
     Mechanically distinct from both SLSQP (local gradient-based) and Optuna TPE (Bayesian surrogate-model
@@ -44,6 +42,7 @@ def _coordinate_descent_simplex_search(
     rng = np.random.default_rng(random_state)
 
     def _loss(w: np.ndarray) -> float:
+        """Loss of the weighted blend of preds under candidate weights w."""
         blended = np.tensordot(w, preds, axes=(0, 0))
         return float(loss_fn(y, blended))
 
@@ -82,12 +81,14 @@ def _coordinate_descent_simplex_search(
 
 
 def _optuna_simplex_weight_search(preds: np.ndarray, y: np.ndarray, loss_fn: Callable, n_trials: int, random_state: int) -> np.ndarray:
+    """Search simplex-constrained blend weights minimizing loss_fn via Optuna trials."""
     import optuna
 
     optuna.logging.set_verbosity(optuna.logging.WARNING)
     n_models = preds.shape[0]
 
     def _objective(trial: "optuna.Trial") -> float:
+        """Optuna objective: loss of the blend under this trial's simplex-normalized weights."""
         raw = np.array([trial.suggest_float(f"w{i}", 0.0, 1.0) for i in range(n_models)])
         total = raw.sum()
         w = raw / total if total > 0 else np.full(n_models, 1.0 / n_models)

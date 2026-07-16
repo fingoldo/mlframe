@@ -106,7 +106,7 @@ def two_step_recency_weighted_target_encode(
 
     sorted_df = df.iloc[sort_idx]
     b_weight = 0.5 ** ((entity_max_time.iloc[sort_idx].to_numpy() - sorted_df["time"].to_numpy()) / decay_half_life)
-    grouped = (sorted_df["enc"].to_numpy() * b_weight)
+    grouped = sorted_df["enc"].to_numpy() * b_weight
     weighted_cumsum = pd.Series(grouped, index=sorted_df.index).groupby(sorted_df["entity"]).cumsum()
     weight_cumsum = pd.Series(b_weight, index=sorted_df.index).groupby(sorted_df["entity"]).cumsum()
 

@@ -106,6 +106,7 @@ def remediate_drifting_features(
     flagged_mask = importances_arr > threshold
 
     def _build(effective_drop_n_std: float | None) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+        """Build the remediated train/test frames and action report for the given drop threshold."""
         train_out = train_df.copy()
         test_out = test_df.copy()
         train_groups = train_df[group_col].to_numpy()

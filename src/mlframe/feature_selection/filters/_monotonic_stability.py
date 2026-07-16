@@ -151,6 +151,7 @@ def monotonic_deviation_stability_filter(
 
 
 def _spearman_corr(x: np.ndarray, y: np.ndarray) -> float:
+    """Spearman rank correlation between x and y, or 0.0 when either is degenerate (constant/too short)."""
     if len(x) < 2 or np.std(x) == 0 or np.std(y) == 0:
         return 0.0
     from scipy.stats import spearmanr

@@ -44,6 +44,7 @@ def _hill_climb_single_path(
     history = [current_score]
 
     def _better(a: float, b: float) -> bool:
+        """Whether score a beats score b by more than tol, respecting the maximize/minimize direction."""
         return (a > b + tol) if maximize else (a < b - tol)
 
     for _ in range(max_iterations - 1):

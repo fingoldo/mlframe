@@ -156,6 +156,7 @@ def compute_neighbor_aggregate_features(
             raise ValueError(f"agg_values[{col_name!r}] has {arr.shape[0]} rows, expected {n_train} (matching X_train)")
 
     def _scale(Xt: np.ndarray, Xq: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """Fit a RobustScaler on Xt and apply it to both Xt and Xq, or pass them through unchanged if standardize is off."""
         if not standardize:
             return Xt, Xq
         from sklearn.preprocessing import RobustScaler

@@ -72,6 +72,7 @@ class RegimeSplitEnsemble(BaseEstimator, RegressorMixin):
         self.regime_proba_fn = regime_proba_fn
 
     def fit(self, X: Any, y: Any) -> "RegimeSplitEnsemble":
+        """Fit one model per detected regime plus a global fallback model on all rows."""
         if self.combine == "blend" and self.regime_proba_fn is None:
             raise ValueError('combine="blend" requires regime_proba_fn')
 
@@ -93,6 +94,7 @@ class RegimeSplitEnsemble(BaseEstimator, RegressorMixin):
         return self
 
     def predict(self, X: Any) -> np.ndarray:
+        """Predict by averaging, blending, or routing rows to their detected regime's model."""
         if self.combine == "average":
             preds = [np.asarray(model.predict(X), dtype=np.float64) for model in self.regime_models_.values()]
             return np.asarray(np.mean(preds, axis=0))
@@ -116,6 +118,7 @@ class RegimeSplitEnsemble(BaseEstimator, RegressorMixin):
         return out
 
     def _predict_blend(self, X: Any) -> np.ndarray:
+        """Predict as the regime-probability-weighted average of every regime model's prediction."""
         assert self.regime_proba_fn is not None  # enforced in fit()
         proba = self.regime_proba_fn(X)
         n = len(X)

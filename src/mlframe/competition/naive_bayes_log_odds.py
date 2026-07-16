@@ -41,15 +41,18 @@ _EPS = 1e-12
 
 
 def _clip_prob(p: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+    """Clip probabilities to ``[_EPS, 1 - _EPS]`` to avoid +/-inf log-odds."""
     return np.clip(p, _EPS, 1.0 - _EPS)
 
 
 def _to_log_odds(p: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+    """Convert probabilities to log-odds (logit), clipping first for numerical safety."""
     p = _clip_prob(p)
     return np.asarray(np.log(p) - np.log1p(-p), dtype=np.float64)
 
 
 def _from_log_odds(logit: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+    """Convert log-odds (logit) values back to probabilities via the sigmoid."""
     return np.asarray(1.0 / (1.0 + np.exp(-logit)), dtype=np.float64)
 
 
@@ -96,6 +99,7 @@ class NaiveBayesLogOddsEnsembler(BaseEstimator, ClassifierMixin):
         self.prior_correction = prior_correction
 
     def _make_estimator(self) -> ClassifierMixin:
+        """Build a fresh (optionally isotonic-calibrated) clone of the base estimator prototype."""
         proto: ClassifierMixin
         if self.base_estimator is None:
             proto = LogisticRegression(max_iter=1000)
@@ -106,6 +110,7 @@ class NaiveBayesLogOddsEnsembler(BaseEstimator, ClassifierMixin):
         return proto
 
     def fit(self, X: npt.ArrayLike, y: npt.ArrayLike) -> "NaiveBayesLogOddsEnsembler":
+        """Fit one estimator per feature block and store the class-prior log-odds for later correction."""
         X_arr = np.asarray(X, dtype=np.float64)
         y_arr = np.asarray(y)
         if X_arr.ndim != 2:
@@ -135,6 +140,7 @@ class NaiveBayesLogOddsEnsembler(BaseEstimator, ClassifierMixin):
         return self
 
     def _per_model_log_odds(self, X_arr: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+        """Return the per-block-model positive-class log-odds for every sample, one column per block."""
         n_samples = X_arr.shape[0]
         n_models = len(self.models_)
         logits = np.empty((n_samples, n_models), dtype=np.float64)
@@ -146,6 +152,7 @@ class NaiveBayesLogOddsEnsembler(BaseEstimator, ClassifierMixin):
         return logits
 
     def predict_proba(self, X: npt.ArrayLike) -> npt.NDArray[np.float64]:
+        """Combine per-block log-odds via summation (with optional prior correction) into class probabilities."""
         X_arr = np.asarray(X, dtype=np.float64)
         logits = self._per_model_log_odds(X_arr)
         combined = logits.sum(axis=1)
@@ -156,6 +163,7 @@ class NaiveBayesLogOddsEnsembler(BaseEstimator, ClassifierMixin):
         return np.column_stack([1.0 - pos_proba, pos_proba])
 
     def predict(self, X: npt.ArrayLike) -> npt.NDArray[Any]:
+        """Predict the class label with highest combined-log-odds probability for each sample."""
         proba = self.predict_proba(X)
         idx = np.argmax(proba, axis=1)
         return np.asarray(self.classes_[idx])

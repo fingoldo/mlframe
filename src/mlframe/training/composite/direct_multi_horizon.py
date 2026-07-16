@@ -26,6 +26,7 @@ def _contiguous_blocks(n_horizons: int, block_size: int) -> list[list[int]]:
 
 
 def _pooled_rmse(pred: np.ndarray, actual: np.ndarray) -> float:
+    """Compute RMSE pooled over all elements of ``pred`` and ``actual``."""
     return float(np.sqrt(np.mean((pred - actual) ** 2)))
 
 
@@ -98,6 +99,7 @@ class DirectMultiHorizonEnsemble(BaseEstimator, RegressorMixin):
         self.compute_block_diagnostics = compute_block_diagnostics
 
     def _validate_blocks(self, blocks: Sequence[Sequence[int]], n_horizons: int) -> None:
+        """Raise ``ValueError`` unless ``blocks`` partitions ``range(n_horizons)`` exactly once each."""
         seen: set[int] = set()
         for block in blocks:
             for h in block:
@@ -108,10 +110,12 @@ class DirectMultiHorizonEnsemble(BaseEstimator, RegressorMixin):
             raise ValueError(f"horizon_blocks must partition range(n_horizons={n_horizons}) exactly; got indices {sorted(seen)}.")
 
     def _default_block_size_grid(self, n_horizons: int) -> list[int]:
+        """Build the default candidate contiguous block sizes to try under auto search."""
         candidates = sorted({b for b in (1, 2, 3, 4, 6, 8, 12) if b <= n_horizons} | {n_horizons})
         return candidates
 
     def _fit_blocks(self, X: Any, Y_arr: np.ndarray, blocks: Sequence[Sequence[int]]) -> list[Any]:
+        """Fit one fresh estimator clone per block, each on its own horizon columns of ``Y_arr``."""
         models: list[Any] = []
         for block in blocks:
             model = clone(self.estimator_factory())
@@ -122,6 +126,7 @@ class DirectMultiHorizonEnsemble(BaseEstimator, RegressorMixin):
         return models
 
     def _predict_blocks(self, X: Any, blocks: Sequence[Sequence[int]], models: Sequence[Any], n_horizons: int) -> np.ndarray:
+        """Predict each block with its own model and assemble the results into an ``(n, n_horizons)`` array."""
         n = X.shape[0] if hasattr(X, "shape") else len(X)
         out = np.zeros((n, n_horizons), dtype=np.float64)
         for block, model in zip(blocks, models):
@@ -134,6 +139,7 @@ class DirectMultiHorizonEnsemble(BaseEstimator, RegressorMixin):
         return out
 
     def _cv_score_block_size(self, X: Any, Y_arr: np.ndarray, block_size: int) -> float:
+        """Score a candidate contiguous block size via K-fold CV pooled RMSE."""
         n_horizons = Y_arr.shape[1]
         blocks = _contiguous_blocks(n_horizons, block_size)
         n = Y_arr.shape[0]
@@ -149,6 +155,7 @@ class DirectMultiHorizonEnsemble(BaseEstimator, RegressorMixin):
         return float(np.sqrt(np.mean(np.concatenate([e.ravel() for e in fold_errors]))))
 
     def _search_horizon_blocks(self, X: Any, Y_arr: np.ndarray) -> list[list[int]]:
+        """Grid-search contiguous block sizes by CV RMSE and return the winning block partition."""
         n_horizons = Y_arr.shape[1]
         grid = list(self.block_size_grid) if self.block_size_grid is not None else self._default_block_size_grid(n_horizons)
         report = []
@@ -165,6 +172,7 @@ class DirectMultiHorizonEnsemble(BaseEstimator, RegressorMixin):
         return _contiguous_blocks(n_horizons, best_block_size)
 
     def _compute_block_diagnostics(self, n_horizons: int) -> None:
+        """Compute per-block feature importances and cosine similarity between horizon-adjacent blocks."""
         importances: list[Optional[np.ndarray]] = []
         for model in self.block_models_:
             vec: Optional[np.ndarray] = None
@@ -209,6 +217,7 @@ class DirectMultiHorizonEnsemble(BaseEstimator, RegressorMixin):
         return self
 
     def predict(self, X: Any) -> np.ndarray:
+        """Predict all horizons by dispatching to each block's fitted model."""
         return self._predict_blocks(X, self.horizon_blocks_, self.block_models_, self._n_horizons_)
 
 

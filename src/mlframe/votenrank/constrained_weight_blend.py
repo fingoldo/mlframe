@@ -26,6 +26,7 @@ def _solve_simplex_weights(
     n_models = preds.shape[0]
 
     def _objective(w: np.ndarray) -> float:
+        """Loss of the weighted blend of preds under candidate weights w."""
         blended = np.tensordot(w, preds, axes=(0, 0))
         return float(loss_fn(y, blended))
 

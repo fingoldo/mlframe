@@ -31,11 +31,13 @@ _KERNEL_NAME = "inference_apply_logical_constraints"
 
 
 def _forced_backend() -> str | None:
+    """Return the backend name forced via the env-var override, or ``None`` if unset/invalid."""
     val = os.environ.get(_ENV_KEY, "").strip().lower()
     return val if val in _VALID_BACKENDS else None
 
 
 def _get_cache() -> Any:
+    """Return the shared kernel-tuning-cache singleton, or ``None`` if unavailable."""
     try:
         from mlframe.feature_selection.filters import get_kernel_tuning_cache
     except Exception:
@@ -47,6 +49,7 @@ def _get_cache() -> Any:
 
 
 def _measure_backend(fn: Callable[[], object], n_iters: int = 3) -> float:
+    """Warm ``fn`` once then return its best wall-clock time in milliseconds over ``n_iters`` runs."""
     fn()
     best = float("inf")
     for _ in range(n_iters):
@@ -60,6 +63,7 @@ def _make_tuner(n: int, n_labels: int, n_rules: int) -> Callable[[], list[dict]]
     """Zero-arg tuner measuring every available backend at shape ``(n, n_labels, n_rules)``."""
 
     def _tuner() -> list[dict]:
+        """Measure njit-single, njit-parallel, and cupy backends at this shape and return the winning tuning rule."""
         from mlframe.inference.logical_constraints import _NUMBA_AVAILABLE, _apply_njit, _apply_njit_parallel
 
         rng = np.random.default_rng(0)
@@ -78,6 +82,7 @@ def _make_tuner(n: int, n_labels: int, n_rules: int) -> Callable[[], list[dict]]
             rules_gpu = cp.asarray(rules_arr)
 
             def _gpu_call() -> object:
+                """Apply the rule set on the GPU-resident arrays and synchronize before returning the result."""
                 out = preds_gpu.copy()
                 for r in range(rules_gpu.shape[0]):
                     c, p = int(rules_arr[r, 0]), int(rules_arr[r, 1])

@@ -198,6 +198,7 @@ class CompositeClassificationDiscovery:
 
     # -- internals ---------------------------------------------------------
     def _univariate_margin_model(self) -> LogisticRegression:
+        """Construct the logistic-regression model used to score a single candidate column."""
         return LogisticRegression(max_iter=_UNIVARIATE_LR_MAX_ITER)
 
     def _stage1_screen(self, values: np.ndarray, names: list[str], y: np.ndarray, cand_idx: list[int]) -> list[dict[str, Any]]:
@@ -356,17 +357,21 @@ class _UnivariateColumnMargin:
         self.column = column
 
     def get_params(self, deep: bool = False) -> dict[str, Any]:
+        """Return the constructor parameters, for sklearn clone/grid-search compatibility."""
         return {"lr": self.lr, "column": self.column}
 
     def set_params(self, **params: Any) -> "_UnivariateColumnMargin":
+        """Set constructor parameters in place, for sklearn clone/grid-search compatibility."""
         for k, v in params.items():
             setattr(self, k, v)
         return self
 
     def _col(self, X: Any) -> np.ndarray:
+        """Extract and impute this adapter's single named column from ``X``."""
         return _impute_column(_extract_named_column(X, self.column))
 
     def fit(self, X: Any, y: Any, sample_weight: Any = None) -> "_UnivariateColumnMargin":
+        """Fit a fresh clone of the inner logistic regression on this adapter's single column."""
         self.lr = clone(self.lr)
         if sample_weight is not None:
             self.lr.fit(self._col(X), y, sample_weight=sample_weight)
@@ -375,9 +380,11 @@ class _UnivariateColumnMargin:
         return self
 
     def decision_function(self, X: Any) -> np.ndarray:
+        """Return the inner logistic regression's decision function on this adapter's single column."""
         return np.asarray(self.lr.decision_function(self._col(X)))
 
     def predict_proba(self, X: Any) -> np.ndarray:
+        """Return the inner logistic regression's predicted class probabilities on this adapter's single column."""
         return np.asarray(self.lr.predict_proba(self._col(X)))
 
 
@@ -400,9 +407,7 @@ def _take_rows(X: Any, idx: np.ndarray) -> Any:
     return X[idx]
 
 
-def discover_and_wrap_classification(
-    X: Any, y: Any, inner_estimator: Any = None, **discovery_kwargs: Any
-) -> tuple[Any, ClassificationDiscoveryResult]:
+def discover_and_wrap_classification(X: Any, y: Any, inner_estimator: Any = None, **discovery_kwargs: Any) -> tuple[Any, ClassificationDiscoveryResult]:
     """One-call convenience: run discovery, return ``(fitted_model, result)``.
 
     The fitted model is the composite when discovery found an honest win, else

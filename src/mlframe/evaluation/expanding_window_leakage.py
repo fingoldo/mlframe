@@ -166,6 +166,7 @@ def detect_expanding_window_feature_leakage(
         remediated_feature = remediated_sorted[inverse_order]
 
         def _remediated_fit_transform(fit_df: pd.DataFrame, transform_df: pd.DataFrame) -> np.ndarray:
+            """Look up the leakage-safe recomputed feature values for the transform rows."""
             # Ignore fit_df: the caller-visible "feature" is already the leakage-safe recomputation;
             # look values up by original-df position (both frames are row-subsets/views of df_sorted).
             return np.asarray(remediated_sorted[transform_df.index.to_numpy()])

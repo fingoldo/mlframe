@@ -126,9 +126,7 @@ def compute_cross_sectional_neighbor_features(
     if k_values:
         snapshot_out: dict = {}
         for kv in k_values:
-            snapshot_out.update(
-                _snapshot_stats_for_k(vectors, neighbor_idx_sorted, dists_sorted, kv, feature_cols, agg_stats, f"{column_prefix}_k{kv}")
-            )
+            snapshot_out.update(_snapshot_stats_for_k(vectors, neighbor_idx_sorted, dists_sorted, kv, feature_cols, agg_stats, f"{column_prefix}_k{kv}"))
     else:
         snapshot_out = _snapshot_stats_for_k(vectors, neighbor_idx_sorted, dists_sorted, k, feature_cols, agg_stats, column_prefix)
 

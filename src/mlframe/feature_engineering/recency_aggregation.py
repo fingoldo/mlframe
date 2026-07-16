@@ -157,9 +157,7 @@ def per_group_recency_weighted_mean(
 
 
 @njit(fastmath=False, cache=True)
-def _group_recency_weighted_agg_sorted(
-    v_sorted: np.ndarray, starts: np.ndarray, ends: np.ndarray, scheme_code: int, param: float, agg_code: int
-) -> np.ndarray:
+def _group_recency_weighted_agg_sorted(v_sorted: np.ndarray, starts: np.ndarray, ends: np.ndarray, scheme_code: int, param: float, agg_code: int) -> np.ndarray:
     """Per-group aggregation (mean/sum/min/max/std/var) of ``weight * value`` over group-contiguous, oldest-first values.
 
     ``agg_code``: 0=mean (weighted, matches ``_group_recency_weighted_mean_sorted``), 1=sum, 2=min, 3=max,

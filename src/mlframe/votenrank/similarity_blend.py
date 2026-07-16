@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 
 def _identity_embedding(X: np.ndarray) -> np.ndarray:
+    """Default embedding_fn: cast X to float32 unchanged (no dimensionality reduction)."""
     return np.asarray(X, dtype=np.float32)
 
 
@@ -82,6 +83,7 @@ class SimilarityBlendEnsemble(BaseEstimator, RegressorMixin):
         self.region_estimators = region_estimators
 
     def fit(self, X: Any, y: Any, sample_weight: Optional[np.ndarray] = None) -> "SimilarityBlendEnsemble":
+        """Fit both the in-distribution and out-of-distribution estimators and embed the training rows."""
         y_arr = np.asarray(y, dtype=np.float64)
         self.in_dist_model_ = clone(self.in_dist_estimator)
         self.out_dist_model_ = clone(self.out_dist_estimator)
@@ -100,6 +102,7 @@ class SimilarityBlendEnsemble(BaseEstimator, RegressorMixin):
         return np.asarray(np.exp(-mean_dist / self.similarity_scale), dtype=np.float64)
 
     def predict(self, X: Any) -> np.ndarray:
+        """Blend the in-distribution and out-of-distribution predictions by each row's similarity weight."""
         w = self.similarity_weight(X)
         in_pred = np.asarray(self.in_dist_model_.predict(X), dtype=np.float64)
         out_pred = np.asarray(self.out_dist_model_.predict(X), dtype=np.float64)

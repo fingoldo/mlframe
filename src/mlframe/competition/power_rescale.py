@@ -84,6 +84,7 @@ def power_rescale_to_target_sum(probs: np.ndarray, target_sum: float) -> np.ndar
     p_clipped = np.clip(p_arr, eps, 1.0 - eps)
 
     def sum_at_exponent(exponent: float) -> float:
+        """Return the sum of ``p_clipped`` raised to ``exponent``, offset by ``target_sum`` (root at the solution)."""
         return float(np.sum(np.power(p_clipped, exponent))) - target_sum
 
     # sum_at_exponent is strictly decreasing in exponent: at exponent -> -inf the sum

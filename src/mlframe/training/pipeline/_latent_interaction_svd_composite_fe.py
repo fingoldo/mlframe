@@ -32,12 +32,14 @@ logger = logging.getLogger(__name__)
 
 
 def _to_pandas(df: Any) -> Optional[pd.DataFrame]:
+    """Convert a polars DataFrame to pandas; pass through pandas/None unchanged."""
     if df is None:
         return None
     return df.to_pandas() if isinstance(df, pl.DataFrame) else df
 
 
 def _attach_new_columns(df: Any, new_cols: "pd.DataFrame") -> Any:
+    """Attach new_cols (a pandas frame) onto df, matching df's own polars/pandas type."""
     if new_cols.shape[1] == 0:
         return df
     if isinstance(df, pl.DataFrame):
@@ -46,6 +48,7 @@ def _attach_new_columns(df: Any, new_cols: "pd.DataFrame") -> Any:
 
 
 def _join_embeddings(df: Any, group_ids_split: Optional[np.ndarray], row_emb: "pd.DataFrame", column_prefix: str) -> Any:
+    """Attach each row's SVD embedding vector (looked up by group id) onto df as new prefixed columns."""
     if df is None or group_ids_split is None:
         return df
     n = df.shape[0] if hasattr(df, "shape") else 0
@@ -110,6 +113,7 @@ def apply_latent_interaction_svd_composite_fe(
     group_ids = np.asarray(group_ids)
 
     def _slice(idx: Optional[np.ndarray], n_rows: int) -> Optional[np.ndarray]:
+        """Slice group_ids down to idx, or return None if idx doesn't match n_rows."""
         if idx is None:
             return None
         idx_arr = np.asarray(idx)

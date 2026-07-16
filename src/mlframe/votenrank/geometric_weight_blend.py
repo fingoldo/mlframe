@@ -81,9 +81,11 @@ def geometric_weight_blend(
     y = np.asarray(y_true)
 
     def _blend(w: np.ndarray) -> np.ndarray:
+        """Geometric-mean blend of the model predictions under exponents w."""
         return np.asarray(np.exp(np.tensordot(w, log_preds, axes=(0, 0))))
 
     def _objective(w: np.ndarray) -> float:
+        """Loss of the geometric blend under candidate exponents w."""
         return float(loss_fn(y, _blend(w)))
 
     bounds = [(0.0, 3.0)] * n_models  # exponents needn't sum to 1; cap avoids runaway optimization on flat regions
@@ -112,9 +114,11 @@ def geometric_weight_blend(
     arithmetic_pred = np.asarray(np.tensordot(arith_weights, preds, axes=(0, 0)))
 
     def _hybrid(a: float) -> np.ndarray:
+        """Convex combination of the geometric and arithmetic blends at mixing weight a."""
         return a * geometric_pred + (1.0 - a) * arithmetic_pred
 
     def _alpha_objective(a: np.ndarray) -> float:
+        """Loss of the geometric/arithmetic hybrid blend at mixing weight a[0]."""
         return float(loss_fn(y, _hybrid(float(a[0]))))
 
     if fit_alpha:

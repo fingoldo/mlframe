@@ -158,6 +158,7 @@ def _select_predictive_horizons(
     y = np.asarray(target)
 
     def _score(cols: List[str]) -> float:
+        """Cross-validate model against target using only cols, falling back to a no-feature baseline when empty."""
         if not cols:
             # no-feature baseline: a constant/majority predictor, the real floor a horizon must beat.
             X_dummy = np.zeros((len(y), 1))
@@ -184,6 +185,7 @@ def _select_predictive_horizons(
 def _direct_window_agg(
     history_df: pd.DataFrame, entity_col: str, time_col: str, query: pd.DataFrame, query_entity_col: str, horizon: float, col: str, fn: str
 ) -> np.ndarray:
+    """Directly aggregate col over each query row's trailing horizon window from its entity's history, without caching intermediate windows."""
     history_groups = {entity: grp for entity, grp in history_df.groupby(entity_col, sort=False)}
     out = np.full(len(query), np.nan)
     for entity, entity_queries in query.groupby(entity_col, sort=False):

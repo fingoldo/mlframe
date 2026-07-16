@@ -42,6 +42,7 @@ def _make_blended_predict(
     """
 
     def _predict(query_p: np.ndarray) -> np.ndarray:
+        """Blend isotonic and Platt predictions for ``query_p``, weighted by local training density."""
         q = np.asarray(query_p, dtype=np.float64).ravel()
         lo_idx = np.searchsorted(train_p_sorted, q - density_window, side="left")
         hi_idx = np.searchsorted(train_p_sorted, q + density_window, side="right")

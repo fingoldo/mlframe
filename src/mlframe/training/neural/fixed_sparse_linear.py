@@ -106,6 +106,7 @@ class FixedSparseLinear(nn.Module):
             self.linear.weight.mul_(self.mask)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Apply the linear layer with its fixed sparsity mask re-applied to the weight."""
         # Re-apply the mask every forward pass, not just at init: gradient updates would otherwise
         # reintroduce nonzero values at masked positions over training (the mask constrains the FORWARD
         # weight, not the gradient), so masking-at-init alone doesn't keep the sparsity pattern fixed.

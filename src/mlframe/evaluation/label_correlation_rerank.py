@@ -162,6 +162,7 @@ def detect_correlated_label_groups(y_multilabel: np.ndarray, min_cooccurrence_ra
     parent: Dict[int, int] = {}
 
     def find(x: int) -> int:
+        """Return the root of x's union-find set, path-compressing along the way."""
         root = x
         while parent[root] != root:
             root = parent[root]
@@ -170,6 +171,7 @@ def detect_correlated_label_groups(y_multilabel: np.ndarray, min_cooccurrence_ra
         return root
 
     def union(a: int, b: int) -> None:
+        """Merge the union-find sets containing a and b."""
         root_a, root_b = find(a), find(b)
         if root_a != root_b:
             parent[root_a] = root_b

@@ -251,6 +251,7 @@ def _cuda_kernel_factory():
 
     @_nb_cuda.jit
     def _kernel(y, operand_matrix, pair_a, pair_b, form_ids, eps, cv2, out):
+        """One thread per (pair, form): compute that form's usability correlation into ``out``."""
         n_forms = form_ids.shape[0]
         n_pairs = pair_a.shape[0]
         tid = _nb_cuda.blockIdx.x * _nb_cuda.blockDim.x + _nb_cuda.threadIdx.x

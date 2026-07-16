@@ -125,6 +125,7 @@ def cached_dense_finite_corr_matrix(
     cols = [c for c in cols if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]
 
     def _build() -> tuple[list[str], np.ndarray]:
+        """Compute the dense-column names and their absolute-Pearson correlation matrix."""
         dense_arrays: list[np.ndarray] = []
         dense_names: list[str] = []
         for c in cols:

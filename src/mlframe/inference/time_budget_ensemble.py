@@ -88,6 +88,7 @@ class TimeBudgetEnsemble:
         return list(np.asarray(metric_lift, dtype=np.float64) / ms)
 
     def _predict_one(self, model: Any, X: Any) -> np.ndarray:
+        """Run a single model's ``predict_proba`` or ``predict`` (per ``use_predict_proba``) and return the array."""
         fn = model.predict_proba if self.use_predict_proba else model.predict
         return np.asarray(fn(X))
 
@@ -124,6 +125,7 @@ class TimeBudgetEnsemble:
         return np.asarray(np.mean(predictions, axis=0))
 
     def predict_proba(self, X: Any) -> np.ndarray:
+        """Delegate to ``predict`` when the ensemble is configured for probability outputs."""
         if not self.use_predict_proba:
             raise AttributeError("predict_proba is only available when use_predict_proba=True")
         return self.predict(X)

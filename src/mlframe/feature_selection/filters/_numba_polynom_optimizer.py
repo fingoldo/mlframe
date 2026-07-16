@@ -119,8 +119,7 @@ def _polyeval_dispatch_njit(basis_id: int, x: np.ndarray, c: np.ndarray) -> np.n
 
 
 @njit(cache=True, fastmath=True, parallel=True)
-def _fill_bf_batch_njit(ha_arr: np.ndarray, hb_arr: np.ndarray, cand_valid: np.ndarray,
-                        bf_ids: np.ndarray, x_rows: np.ndarray, finite: np.ndarray) -> None:
+def _fill_bf_batch_njit(ha_arr: np.ndarray, hb_arr: np.ndarray, cand_valid: np.ndarray, bf_ids: np.ndarray, x_rows: np.ndarray, finite: np.ndarray) -> None:
     """Fill the (P*n_bf, n) row-major bf-combination batch in ONE parallel njit call: row r = candidate
     r//n_bf x bf r%n_bf, computed via ``_bf_dispatch_njit`` (bit-parity with the numpy callables) with the
     finiteness scan fused in. Replaces the Python-side loop of 120 separate njit calls + allocs + memcpys +

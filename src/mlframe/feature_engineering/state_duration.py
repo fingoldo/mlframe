@@ -25,6 +25,7 @@ except ImportError:  # pragma: no cover - numba is a core mlframe dependency; ex
 
 
 def _state_duration_numpy(state_sorted: np.ndarray, starts: np.ndarray, ends: np.ndarray) -> tuple:
+    """Pure-numpy computation of per-row possession/cancellation run lengths and activation counts within each group."""
     n = state_sorted.shape[0]
     possession = np.full(n, np.nan, dtype=np.float64)
     cancellation = np.full(n, np.nan, dtype=np.float64)
@@ -57,6 +58,7 @@ if _NUMBA_AVAILABLE:
 
     @numba.njit(cache=True)
     def _state_duration_njit(state_sorted: np.ndarray, starts: np.ndarray, ends: np.ndarray) -> tuple:
+        """Numba-accelerated computation of per-row possession/cancellation run lengths and activation counts within each group."""
         n = state_sorted.shape[0]
         possession = np.full(n, np.nan, dtype=np.float64)
         cancellation = np.full(n, np.nan, dtype=np.float64)
@@ -123,9 +125,7 @@ def time_since_state_change(state: np.ndarray, group_ids: np.ndarray, include_ac
     state_sorted = state_arr[sort_idx]
 
     if _NUMBA_AVAILABLE:
-        possession_sorted, cancellation_sorted, activation_count_sorted = _state_duration_njit(
-            state_sorted, starts.astype(np.int64), ends.astype(np.int64)
-        )
+        possession_sorted, cancellation_sorted, activation_count_sorted = _state_duration_njit(state_sorted, starts.astype(np.int64), ends.astype(np.int64))
     else:
         possession_sorted, cancellation_sorted, activation_count_sorted = _state_duration_numpy(state_sorted, starts, ends)
 

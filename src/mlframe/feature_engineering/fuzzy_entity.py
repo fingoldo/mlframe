@@ -38,6 +38,7 @@ def _cluster_fuzzy_keys(group_ids: np.ndarray, max_distance: int, block_prefix_l
     parent = {k: k for k in unique_keys}
 
     def find(k: str) -> str:
+        """Return the canonical cluster representative for key k, path-compressing along the way."""
         while parent[k] != k:
             parent[k] = parent[parent[k]]
             k = parent[k]

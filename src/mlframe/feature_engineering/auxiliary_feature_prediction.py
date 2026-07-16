@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 
 
 def _default_model_factory() -> Any:
+    """Build the default unfitted regressor used when no custom model_factory is supplied."""
     from sklearn.ensemble import GradientBoostingRegressor
     return GradientBoostingRegressor(n_estimators=50, max_depth=3)
 
@@ -87,6 +88,7 @@ def compute_auxiliary_feature_prediction_features(
     want_uncertainty = n_uncertainty_repeats > 1
 
     def _fit_one_model(Xt: pd.DataFrame, other_cols: list[str], feature: str, model_seed: int) -> Any:
+        """Fit a fresh model instance predicting feature from other_cols on Xt."""
         model = factory()
         try:
             model.set_params(random_state=model_seed)
@@ -96,6 +98,7 @@ def compute_auxiliary_feature_prediction_features(
         return model
 
     def _fit_predict_one(Xt: pd.DataFrame, Xq: pd.DataFrame, feature: str, fold_seed: int) -> tuple[np.ndarray, np.ndarray]:
+        """Fit a single model on Xt and return its predictions and residuals for feature on Xq."""
         other_cols = [c for c in Xt.columns if c != feature]
         model = _fit_one_model(Xt, other_cols, feature, fold_seed)
         pred_q = np.asarray(model.predict(Xq[other_cols]), dtype=np.float64)
@@ -103,6 +106,7 @@ def compute_auxiliary_feature_prediction_features(
         return pred_q, resid_q
 
     def _fit_predict_ensemble(Xt: pd.DataFrame, Xq: pd.DataFrame, feature: str, fold_seed: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Fit an ensemble of bootstrap-resampled models and return mean prediction, residual, and prediction std."""
         # Bootstrap-resample the training rows per repeat (not just vary the model's own random_state):
         # many regressors (e.g. GradientBoostingRegressor with its default subsample=1.0, max_features=None)
         # are otherwise deterministic given the same training rows, which would make an across-repeat std
@@ -122,6 +126,7 @@ def compute_auxiliary_feature_prediction_features(
         return pred_mean, resid_q, pred_std
 
     def _make_df(cols: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
+        """Cast every column array in cols to the configured output dtype."""
         return {name: arr.astype(dtype, copy=False) for name, arr in cols.items()}
 
     if X_query is not None:

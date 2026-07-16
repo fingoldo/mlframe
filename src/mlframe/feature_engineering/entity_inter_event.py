@@ -53,6 +53,7 @@ if _NUMBA_AVAILABLE:
 
     @numba.njit(cache=True)
     def _group_mean_std_median_njit(values_sorted: np.ndarray, starts: np.ndarray, ends: np.ndarray) -> tuple:
+        """Compute per-group mean, std, and median over sorted values given each group's [start, end) range."""
         n_groups = starts.shape[0]
         means = np.empty(n_groups, dtype=np.float64)
         stds = np.empty(n_groups, dtype=np.float64)
@@ -72,6 +73,7 @@ if _NUMBA_AVAILABLE:
 
     @numba.njit(cache=True)
     def _windowed_stats_by_count_njit(values_sorted: np.ndarray, starts: np.ndarray, ends: np.ndarray, window_size: int) -> tuple:
+        """Compute per-row trailing fixed-count window mean/std within each group's sorted range."""
         n = values_sorted.shape[0]
         means = np.full(n, np.nan, dtype=np.float64)
         stds = np.full(n, np.nan, dtype=np.float64)
@@ -108,6 +110,7 @@ if _NUMBA_AVAILABLE:
     def _windowed_stats_by_time_njit(
         values_sorted: np.ndarray, timestamps_sorted: np.ndarray, starts: np.ndarray, ends: np.ndarray, window_time: float
     ) -> tuple:
+        """Compute per-row trailing time-windowed mean/std within each group's sorted range."""
         # two-pointer sliding window ended by row `i` -- amortized O(n) per group, since `lo` only advances.
         n = values_sorted.shape[0]
         means = np.full(n, np.nan, dtype=np.float64)
@@ -251,12 +254,15 @@ def _broadcast_group_stats(values: np.ndarray, group_ids: np.ndarray) -> tuple:
     from mlframe.feature_engineering.grouped import per_group_apply
 
     def _mean_fn(seg: np.ndarray) -> np.ndarray:
+        """Broadcast the segment's nan-mean to every row of the segment."""
         return np.full(seg.shape, np.nanmean(seg))
 
     def _std_fn(seg: np.ndarray) -> np.ndarray:
+        """Broadcast the segment's nan-std to every row of the segment."""
         return np.full(seg.shape, np.nanstd(seg))
 
     def _median_fn(seg: np.ndarray) -> np.ndarray:
+        """Broadcast the segment's nan-median to every row of the segment."""
         return np.full(seg.shape, np.nanmedian(seg))
 
     return (

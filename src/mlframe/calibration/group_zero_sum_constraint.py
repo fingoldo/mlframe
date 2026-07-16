@@ -116,6 +116,7 @@ def apply_group_zero_sum_constraint_multi(
 
 
 def _max_abs_group_residual(predictions: np.ndarray, group: np.ndarray, weights: Optional[np.ndarray], target_sum: float) -> float:
+    """Return the largest absolute deviation of any group's weighted prediction sum from ``target_sum``."""
     w_arr = np.ones_like(predictions) if weights is None else weights
     df = pd.DataFrame({"wpred": predictions * w_arr, "group": group})
     sums = df.groupby("group", sort=False)["wpred"].sum().to_numpy()

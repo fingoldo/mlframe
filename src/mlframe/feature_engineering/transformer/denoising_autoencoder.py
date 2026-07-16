@@ -145,6 +145,7 @@ def compute_denoising_autoencoder_features(
         return _extract_bottleneck(dae, scaler, Xq, bottleneck_dim=bottleneck_dim), [f"z{j}" for j in range(bottleneck_dim)]
 
     def _make_df(feats: np.ndarray, suffixes: list[str]) -> dict[str, np.ndarray]:
+        """Build a name-to-column mapping from the latent feature matrix, prefixing and casting each column."""
         return {f"{column_prefix}_{suffixes[j]}": feats[:, j].astype(dtype, copy=False) for j in range(feats.shape[1])}
 
     if X_query is not None:

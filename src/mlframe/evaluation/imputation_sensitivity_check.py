@@ -26,6 +26,7 @@ from sklearn.model_selection import KFold
 
 
 def _split(cv, X: pd.DataFrame):
+    """Generate train/test index splits for X using the given cross-validator."""
     return cv.split(X)
 
 

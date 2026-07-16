@@ -28,6 +28,7 @@ def _noninformative_columns_vs_one_reference(
     feature_cols: Optional[Sequence[str]],
     alpha: float,
 ) -> List[str]:
+    """Columns whose distribution vs one reference mask shows no KS-detectable difference (safe to drop)."""
     mask = np.asarray(reference_mask, dtype=bool)
     reference_df = df.loc[mask]
     rest_df = df.loc[~mask]

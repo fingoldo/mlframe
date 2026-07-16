@@ -228,6 +228,7 @@ def _apply_orth_pair_cross(
     pp_j = recipe.extra.get("preprocess_params_j")
 
     def _eval_side(name: str, basis: str, degree: int, pp: Optional[dict]) -> np.ndarray:
+        """Evaluate (or fetch from ``basis_cache``) one operand's raw polynomial-basis column."""
         if basis_cache is not None:
             _key = _basis_cache_key(name, basis, degree, "raw", pp)
             _cached = basis_cache.get(_key)

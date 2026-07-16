@@ -26,6 +26,7 @@ COMPOSITE_SEPARATOR = "_"
 
 
 def _detect_cat_columns(df: Any) -> List[str]:
+    """Detect categorical/object/string column names of df, working for both polars and pandas."""
     if isinstance(df, pl.DataFrame):
         return get_polars_cat_columns(df)
     if hasattr(df, "select_dtypes"):

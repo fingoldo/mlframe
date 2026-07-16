@@ -156,6 +156,7 @@ class DualDirectionCompositeEstimator(BaseEstimator, RegressorMixin):
         return np.asarray(self.scale_estimator_.predict(X))
 
     def _require_fitted(self) -> None:
+        """Raise ``ValueError`` if ``fit`` has not yet been called."""
         if not hasattr(self, "shape_estimator_") or not hasattr(self, "scale_estimator_"):
             raise ValueError("DualDirectionCompositeEstimator: call fit(X, y, scale_y) before predict.")
 

@@ -63,6 +63,7 @@ class MultiTaskAuxiliaryLossRegressor(BaseEstimator, RegressorMixin):
         self.random_state = random_state
 
     def _build_trunk_and_heads(self, n_features: int, has_aux_binary: bool, has_aux_regression: bool):
+        """Build the shared MLP trunk plus the primary head and any requested auxiliary heads."""
         import torch
         import torch.nn as nn
 
@@ -85,6 +86,7 @@ class MultiTaskAuxiliaryLossRegressor(BaseEstimator, RegressorMixin):
         y_aux_binary: Optional[np.ndarray] = None,
         y_aux_regression: Optional[np.ndarray] = None,
     ) -> "MultiTaskAuxiliaryLossRegressor":
+        """Train the shared trunk jointly on the primary loss plus any weighted auxiliary-task losses."""
         import torch
         import torch.nn as nn
 
@@ -128,6 +130,7 @@ class MultiTaskAuxiliaryLossRegressor(BaseEstimator, RegressorMixin):
         return self
 
     def predict(self, X: np.ndarray) -> np.ndarray:
+        """Predict the primary task's target via the trunk and primary head only."""
         import torch
 
         X_t = torch.from_numpy(np.asarray(X, dtype=np.float32))

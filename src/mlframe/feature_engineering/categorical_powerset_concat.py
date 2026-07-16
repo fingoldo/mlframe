@@ -93,9 +93,7 @@ def categorical_powerset_concat(
     if prune_against_target is not None and composite_names:
         y, min_score = prune_against_target
         y_arr = np.asarray(y)
-        encoded = pd.DataFrame(
-            ordered_target_encode_batch({name: out[name].to_numpy() for name in composite_names}, y_arr, smoothing=prune_smoothing)
-        )
+        encoded = pd.DataFrame(ordered_target_encode_batch({name: out[name].to_numpy() for name in composite_names}, y_arr, smoothing=prune_smoothing))
         dropped = drop_near_noise_univariate_auc(encoded, y_arr, columns=composite_names, tolerance=min_score)
         if dropped:
             out = out.drop(columns=dropped)

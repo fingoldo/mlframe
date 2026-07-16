@@ -15,7 +15,7 @@ from typing import Any, Callable, List, Optional
 import numpy as np
 import pandas as pd
 from sklearn.base import clone
-from sklearn.model_selection import KFold
+from sklearn.model_selection import BaseCrossValidator, KFold
 
 
 def _cv_score(estimator, X: pd.DataFrame, y_arr: np.ndarray, folds, scoring: Callable[[np.ndarray, np.ndarray], float]) -> float:
@@ -58,7 +58,7 @@ def greedy_backward_elimination(
     X: pd.DataFrame,
     y: np.ndarray,
     scoring: Callable[[np.ndarray, np.ndarray], float],
-    cv: Optional[object] = None,
+    cv: Optional[BaseCrossValidator] = None,
     min_features: int = 1,
     tol: float = 0.0,
     n_repeats: int = 1,
@@ -114,6 +114,7 @@ def greedy_backward_elimination(
         repeat_folds = [list(KFold(n_splits=n_splits, shuffle=True, random_state=seed_base + repeat_idx).split(np.empty(n))) for repeat_idx in range(n_repeats)]
 
         def score_fn(frame: pd.DataFrame) -> float:
+            """CV score for this column subset, repeated across the precomputed multi-seed folds."""
             return _cv_score_repeated(estimator, frame, y_arr, scoring, repeat_folds)
 
     else:
@@ -122,6 +123,7 @@ def greedy_backward_elimination(
         folds = list(cv.split(np.empty(n)))
 
         def score_fn(frame: pd.DataFrame) -> float:
+            """CV score for this column subset over the precomputed folds."""
             return _cv_score(estimator, frame, y_arr, folds, scoring)
 
     remaining = list(X.columns)

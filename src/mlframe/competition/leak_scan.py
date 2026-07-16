@@ -228,12 +228,14 @@ def find_shifted_column_groups(
     parent = {c: c for c in numeric_cols}
 
     def find(c: str) -> str:
+        """Return the union-find root of column ``c``, path-compressing along the way."""
         while parent[c] != c:
             parent[c] = parent[parent[c]]
             c = parent[c]
         return c
 
     def union(a: str, b: str) -> None:
+        """Merge the union-find groups containing columns ``a`` and ``b``."""
         ra, rb = find(a), find(b)
         if ra != rb:
             parent[ra] = rb

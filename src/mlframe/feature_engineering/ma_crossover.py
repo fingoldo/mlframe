@@ -102,4 +102,3 @@ def ma_crossover_features(
 
 
 __all__ = ["ma_crossover_features"]
-

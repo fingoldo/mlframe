@@ -55,6 +55,7 @@ def _collapse_short_dwells_numpy(codes_sorted: np.ndarray, starts: np.ndarray, e
 
 
 def _state_history_numpy(codes_sorted: np.ndarray, starts: np.ndarray, ends: np.ndarray, k: int) -> Tuple[np.ndarray, np.ndarray]:
+    """Pure-numpy computation of each row's last-k prior state codes and their run durations within each group."""
     n = codes_sorted.shape[0]
     out_states = np.full((n, k), -1, dtype=np.int64)
     out_durations = np.full((n, k), np.nan, dtype=np.float64)
@@ -93,6 +94,7 @@ if _NUMBA_AVAILABLE:
 
     @numba.njit(cache=True)
     def _collapse_short_dwells_njit(codes_sorted: np.ndarray, starts: np.ndarray, ends: np.ndarray, min_dwell_duration: float) -> None:
+        """In-place merge runs shorter than min_dwell_duration into an adjacent neighboring state, per group."""
         for g in range(starts.shape[0]):
             s, e = starts[g], ends[g]
             changed = True
@@ -120,6 +122,7 @@ if _NUMBA_AVAILABLE:
 
     @numba.njit(cache=True)
     def _state_history_njit(codes_sorted: np.ndarray, starts: np.ndarray, ends: np.ndarray, k: int) -> Tuple[np.ndarray, np.ndarray]:
+        """Numba-accelerated computation of each row's last-k prior state codes and their run durations within each group."""
         n = codes_sorted.shape[0]
         out_states = np.full((n, k), -1, dtype=np.int64)
         out_durations = np.full((n, k), np.nan, dtype=np.float64)

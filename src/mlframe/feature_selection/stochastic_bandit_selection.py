@@ -19,6 +19,7 @@ from sklearn.model_selection import KFold
 
 
 def _cv_score(estimator, X: pd.DataFrame, y: np.ndarray, cv, scoring: Callable[[np.ndarray, np.ndarray], float]) -> float:
+    """Mean CV score of a fresh clone of ``estimator`` fit/scored over ``cv``'s folds."""
     scores = []
     for train_idx, test_idx in cv.split(X):
         model = clone(estimator)

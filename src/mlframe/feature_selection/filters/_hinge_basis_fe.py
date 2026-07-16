@@ -203,8 +203,6 @@ def _segmented_sse(x: np.ndarray, y: np.ndarray, tau: float) -> float:
     return float(resid @ resid)
 
 
-
-
 def _heldout_hinge_r2_uplift(
     x: np.ndarray, y: np.ndarray, tau: float,
 ) -> float:

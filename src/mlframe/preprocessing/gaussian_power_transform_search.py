@@ -31,6 +31,7 @@ _CANDIDATE_TRANSFORMS = ("identity", "sqrt_signed", "log1p_signed", "boxcox", "y
 
 
 def _apply_transform(x: np.ndarray, transform_name: str) -> Optional[np.ndarray]:
+    """Apply the named power/variance-stabilizing transform to ``x``, returning ``None`` if it isn't applicable."""
     if transform_name == "identity":
         return x
     if transform_name == "sqrt_signed":

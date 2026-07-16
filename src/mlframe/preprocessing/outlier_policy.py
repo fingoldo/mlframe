@@ -63,6 +63,7 @@ def is_tree_based_model(model: Any, unwrap_pipeline: bool = False) -> bool:
     """
 
     def _mro_matches(obj: Any) -> bool:
+        """Return whether any class in ``obj``'s MRO name-matches a known tree-family marker."""
         mro_names = [cls.__name__ for cls in type(obj).__mro__]
         return any(marker in name for name in mro_names for marker in _TREE_MODEL_NAME_MARKERS)
 

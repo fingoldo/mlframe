@@ -27,6 +27,7 @@ SentinelSpec = Union[Any, Sequence[Any]]
 
 
 def _as_sentinel_set(spec: SentinelSpec) -> set:
+    """Normalize a single sentinel value or a collection of them into a set of sentinel values."""
     if isinstance(spec, (list, tuple, set, frozenset, np.ndarray)):
         return set(spec)
     return {spec}

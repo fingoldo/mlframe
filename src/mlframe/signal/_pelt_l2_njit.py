@@ -15,6 +15,7 @@ from numba import njit
 
 @njit(cache=True, fastmath=True)
 def _pelt_l2_kernel(y: np.ndarray, min_size: int, penalty: float) -> np.ndarray:
+    """Run PELT changepoint detection with the l2 cost via prefix sums and return the breakpoint indices."""
     n = y.shape[0]
     S = np.zeros(n + 1)
     SS = np.zeros(n + 1)

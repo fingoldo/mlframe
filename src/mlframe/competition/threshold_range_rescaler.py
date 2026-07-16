@@ -122,6 +122,7 @@ class ThresholdRangeRescaler:
         self.final_cv_score_: float = float("nan")
 
     def _cv_score(self, preds: np.ndarray, y: np.ndarray) -> float:
+        """Return the mean ``metric_fn`` score across stratified CV folds, skipping folds missing a class."""
         skf = StratifiedKFold(n_splits=self.n_splits, shuffle=True, random_state=self.random_state)
         fold_scores = []
         for _, test_idx in skf.split(preds, y):
@@ -193,9 +194,7 @@ class ThresholdRangeRescaler:
                         gain = score - current_score
                         if gain > best_gain:
                             best_gain = gain
-                            best_choice = ThresholdCorrection(
-                                subgroup=name, threshold=float(threshold), multiplier=float(multiplier), cv_score=score
-                            )
+                            best_choice = ThresholdCorrection(subgroup=name, threshold=float(threshold), multiplier=float(multiplier), cv_score=score)
                             best_corrected = candidate
 
             if best_choice is None or best_corrected is None:
@@ -223,6 +222,7 @@ class ThresholdRangeRescaler:
         y: np.ndarray,
         subgroups: dict[str, np.ndarray],
     ) -> np.ndarray:
+        """Fit threshold-range corrections then apply them to ``preds`` in one call."""
         self.fit(preds, y, subgroups)
         return self.transform(preds, subgroups)
 

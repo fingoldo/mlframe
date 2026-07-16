@@ -32,6 +32,7 @@ _PARALLEL_THRESHOLD = 20_000
 
 
 def _apply_numpy(out: np.ndarray, rules: Sequence[tuple[int, int]]) -> np.ndarray:
+    """Swap child/parent columns on violating rows using vectorized numpy indexing."""
     for child_idx, parent_idx in rules:
         violates = out[:, child_idx] > out[:, parent_idx]
         child_vals = out[violates, child_idx].copy()
@@ -44,6 +45,7 @@ if _NUMBA_AVAILABLE:
 
     @numba.njit(cache=True)
     def _apply_njit(out: np.ndarray, rules_arr: np.ndarray) -> np.ndarray:
+        """Swap child/parent columns on violating rows via a single-threaded numba kernel."""
         n = out.shape[0]
         n_rules = rules_arr.shape[0]
         for i in range(n):
@@ -58,6 +60,7 @@ if _NUMBA_AVAILABLE:
 
     @numba.njit(cache=True, parallel=True)
     def _apply_njit_parallel(out: np.ndarray, rules_arr: np.ndarray) -> np.ndarray:
+        """Swap child/parent columns on violating rows via a ``prange``-parallel numba kernel."""
         n = out.shape[0]
         n_rules = rules_arr.shape[0]
         for i in prange(n):
@@ -72,6 +75,7 @@ if _NUMBA_AVAILABLE:
 
 
 def _apply_cupy(out: np.ndarray, rules_arr: np.ndarray) -> np.ndarray:
+    """Swap child/parent columns on violating rows on the GPU via cupy and copy the result back to host."""
     import cupy as cp
 
     out_gpu = cp.asarray(out)

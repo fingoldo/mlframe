@@ -66,6 +66,7 @@ _UNIQ_Y_LOCK = threading.Lock()
 
 
 def _get_unique_y(y_arr: np.ndarray) -> np.ndarray:
+    """Return ``np.unique(y_arr)``, memoized (by identity, with an LRU + weakref eviction) across calls."""
     key = id(y_arr)
     with _UNIQ_Y_LOCK:
         ent = _UNIQ_Y_CACHE.get(key)

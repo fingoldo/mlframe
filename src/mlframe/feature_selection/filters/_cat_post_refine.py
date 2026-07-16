@@ -419,7 +419,7 @@ def _refine_kway_coordinate_ascent(
                 # The other k-1 members are frozen for this position's whole candidate sweep -- pre-merge them
                 # once (prefix states keyed by sorted insertion point) instead of re-scanning all k raw columns
                 # for every candidate.
-                frozen_sorted = sorted(current[:pos] + current[pos + 1:])
+                frozen_sorted = sorted(current[:pos] + current[pos + 1 :])
                 prefix_states = _build_merge_prefix_states(factors_data, frozen_sorted, nbins, dtype)
                 for cand in candidate_pool:
                     cand_int = int(cand)
@@ -448,7 +448,7 @@ def _refine_kway_coordinate_ascent(
                         # An accepted swap mid-sweep changes what "frozen" (current minus position pos)
                         # means for the REMAINING candidates at this same pos -- rebuild immediately so
                         # they splice against the just-updated members, not a stale pre-accept snapshot.
-                        frozen_sorted = sorted(current[:pos] + current[pos + 1:])
+                        frozen_sorted = sorted(current[:pos] + current[pos + 1 :])
                         prefix_states = _build_merge_prefix_states(factors_data, frozen_sorted, nbins, dtype)
                         if verbose >= 2:
                             logger.info(

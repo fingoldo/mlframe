@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 
 
 def _attach_new_columns(df: Any, new_cols: "pd.DataFrame") -> Any:
+    """Attach new_cols (a pandas frame) onto df, matching df's own polars/pandas type."""
     if new_cols.shape[1] == 0:
         return df
     if isinstance(df, pl.DataFrame):
@@ -36,6 +37,7 @@ def _attach_new_columns(df: Any, new_cols: "pd.DataFrame") -> Any:
 
 
 def _row_count(df: Any) -> int:
+    """Row count of df, or 0 if df is None."""
     return df.shape[0] if df is not None else 0
 
 
@@ -71,6 +73,7 @@ def apply_event_proximity_decay_composite_fe(
     ts_arr = np.asarray(timestamps)
 
     def _slice(idx: Optional[np.ndarray], n_rows: int) -> Optional[np.ndarray]:
+        """Slice ts_arr down to idx, or return None if idx doesn't match n_rows."""
         if idx is None:
             return None
         idx_arr = np.asarray(idx)
@@ -104,6 +107,8 @@ def apply_event_proximity_decay_composite_fe(
 
 
 class _ReplayConfig:
+    """Replays this FE step's config from fitted-pipeline metadata (for inference-time reapplication)."""
+
     def __init__(self, metadata: dict):
         self.event_proximity_decay_event_dates = metadata.get("event_proximity_decay_event_dates") or []
         self.event_proximity_decay_cap = metadata.get("event_proximity_decay_cap", 30)

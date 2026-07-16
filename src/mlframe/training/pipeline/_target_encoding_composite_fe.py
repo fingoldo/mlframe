@@ -31,12 +31,14 @@ _TIME_COL = "__mlframe_tste_time__"
 
 
 def _to_pandas(df: Any) -> Optional[pd.DataFrame]:
+    """Convert a polars DataFrame to pandas; pass through pandas/None unchanged."""
     if df is None:
         return None
     return df.to_pandas() if isinstance(df, pl.DataFrame) else df
 
 
 def _attach_new_columns(df: Any, new_cols: "pd.DataFrame") -> Any:
+    """Attach new_cols (a pandas frame) onto df, matching df's own polars/pandas type."""
     if new_cols.shape[1] == 0:
         return df
     if isinstance(df, pl.DataFrame):
@@ -45,6 +47,7 @@ def _attach_new_columns(df: Any, new_cols: "pd.DataFrame") -> Any:
 
 
 def _out_col_name(columns: list) -> str:
+    """Generated output column name for a two-step target encoding of the given grouping columns."""
     return "__".join(columns) + "__two_step_target_encode"
 
 
@@ -119,6 +122,7 @@ def apply_target_encoding_composite_fe(
     out_train = _attach_new_columns(train_df, train_new)
 
     def _lookup_split(df: Any, idx: Optional[np.ndarray]) -> Any:
+        """Attach the train-fitted per-entity target encoding onto a val/test split by group id."""
         if df is None:
             return None
         if idx is None or len(np.asarray(idx)) != _row_count(df) or len(group_ids) <= int(np.asarray(idx).max()):
@@ -137,6 +141,7 @@ def apply_target_encoding_composite_fe(
 
 
 def _row_count(df: Any) -> int:
+    """Row count of df, or 0 if df is None."""
     return df.shape[0] if df is not None else 0
 
 

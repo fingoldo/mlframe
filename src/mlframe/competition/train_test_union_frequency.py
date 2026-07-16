@@ -34,11 +34,13 @@ DEFAULT_HIERARCHICAL_LEVEL_NAMES = ("major", "major_minor", "major_minor_patch")
 
 
 def _union_value_counts(train_series: pd.Series, test_series: pd.Series) -> pd.Series:
+    """Return value counts computed over the concatenation of the train and test series."""
     union = pd.concat([train_series, test_series], ignore_index=True)
     return union.value_counts()
 
 
 def _frequency_encode_from_counts(series: pd.Series, counts: pd.Series) -> pd.Series:
+    """Map each value in ``series`` to its frequency in ``counts``, returning a float64 series."""
     encoded = series.map(counts).astype("float64")
     return pd.Series(encoded.to_numpy(), index=series.index, name=series.name)
 
@@ -93,9 +95,7 @@ def train_test_union_frequency_encode(
             _frequency_encode_from_counts(test_series, counts),
         )
 
-    components = train_test_union_frequency_encode_hierarchical_components(
-        train_series, test_series, hierarchical_split_sep
-    )
+    components = train_test_union_frequency_encode_hierarchical_components(train_series, test_series, hierarchical_split_sep)
     train_levels = [enc[0].to_numpy() for enc in components.values()]
     test_levels = [enc[1].to_numpy() for enc in components.values()]
 
@@ -155,11 +155,7 @@ def train_test_union_frequency_encode_hierarchical_components(
 
     components: dict[str, tuple[pd.Series, pd.Series]] = {}
     for depth in range(1, max_depth + 1):
-        level_name = (
-            DEFAULT_HIERARCHICAL_LEVEL_NAMES[depth - 1]
-            if depth <= len(DEFAULT_HIERARCHICAL_LEVEL_NAMES)
-            else f"level_{depth}"
-        )
+        level_name = DEFAULT_HIERARCHICAL_LEVEL_NAMES[depth - 1] if depth <= len(DEFAULT_HIERARCHICAL_LEVEL_NAMES) else f"level_{depth}"
         train_level = train_parts.map(lambda parts, d=depth: hierarchical_split_sep.join(parts[:d]))
         test_level = test_parts.map(lambda parts, d=depth: hierarchical_split_sep.join(parts[:d]))
         train_level = pd.Series(train_level.to_numpy(), index=train_series.index)

@@ -64,6 +64,7 @@ def _build_train_value_to_flag(values: pd.Series, y_train: np.ndarray) -> dict:
 
 
 def _encode_train_column(values: pd.Series, value_to_flag: dict) -> pd.Series:
+    """Map each train value to its precomputed uniqueness/target-co-occurrence flag."""
     flags = values.map(value_to_flag).to_numpy()
     return pd.Series(flags, index=values.index, dtype="object")
 
@@ -178,8 +179,6 @@ def value_uniqueness_encoder(
 
         combined = pd.concat([train_flags, test_flags], ignore_index=False)
         combined.index = result.index
-        result[f"{col}__value_uniqueness"] = pd.Categorical(
-            combined, categories=list(VALUE_UNIQUENESS_CATEGORIES)
-        )
+        result[f"{col}__value_uniqueness"] = pd.Categorical(combined, categories=list(VALUE_UNIQUENESS_CATEGORIES))
 
     return result

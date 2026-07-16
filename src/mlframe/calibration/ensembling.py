@@ -34,6 +34,7 @@ _PARALLEL_THRESHOLD = 20_000  # measurement-backed fallback, used when the KTC h
 
 
 def _odds_combine_numpy(p: np.ndarray, clip: float) -> np.ndarray:
+    """Combine member probabilities via unweighted log-odds summation, numpy baseline."""
     p = np.clip(p, clip, 1.0 - clip)
     logits = np.log(p / (1.0 - p))
     combined_logit = logits.sum(axis=1)
@@ -41,6 +42,7 @@ def _odds_combine_numpy(p: np.ndarray, clip: float) -> np.ndarray:
 
 
 def _odds_combine_numpy_weighted(p: np.ndarray, weights: np.ndarray, clip: float) -> np.ndarray:
+    """Combine member probabilities via per-member weighted log-odds summation, numpy baseline."""
     p = np.clip(p, clip, 1.0 - clip)
     logits = np.log(p / (1.0 - p))
     combined_logit = logits @ weights
@@ -48,6 +50,7 @@ def _odds_combine_numpy_weighted(p: np.ndarray, weights: np.ndarray, clip: float
 
 
 def _odds_combine_cupy(p: np.ndarray, clip: float) -> np.ndarray:
+    """Combine member probabilities via unweighted log-odds summation, cupy GPU backend."""
     import cupy as cp
 
     p_gpu = cp.asarray(p)
@@ -59,6 +62,7 @@ def _odds_combine_cupy(p: np.ndarray, clip: float) -> np.ndarray:
 
 
 def _odds_combine_cupy_weighted(p: np.ndarray, weights: np.ndarray, clip: float) -> np.ndarray:
+    """Combine member probabilities via per-member weighted log-odds summation, cupy GPU backend."""
     import cupy as cp
 
     p_gpu = cp.asarray(p)
@@ -74,6 +78,7 @@ if _NUMBA_AVAILABLE:
 
     @numba.njit(fastmath=True, cache=True)
     def _odds_combine_njit(p: np.ndarray, clip: float) -> np.ndarray:
+        """Combine member probabilities via unweighted log-odds summation, single-thread njit backend."""
         n, k = p.shape
         out = np.empty(n, dtype=np.float64)
         for i in range(n):
@@ -90,6 +95,7 @@ if _NUMBA_AVAILABLE:
 
     @numba.njit(fastmath=True, cache=True, parallel=True)
     def _odds_combine_njit_parallel(p: np.ndarray, clip: float) -> np.ndarray:
+        """Combine member probabilities via unweighted log-odds summation, ``prange``-parallel njit backend."""
         n, k = p.shape
         out = np.empty(n, dtype=np.float64)
         for i in prange(n):
@@ -106,6 +112,7 @@ if _NUMBA_AVAILABLE:
 
     @numba.njit(fastmath=True, cache=True)
     def _odds_combine_njit_weighted(p: np.ndarray, weights: np.ndarray, clip: float) -> np.ndarray:
+        """Combine member probabilities via per-member weighted log-odds summation, single-thread njit backend."""
         n, k = p.shape
         out = np.empty(n, dtype=np.float64)
         for i in range(n):
@@ -122,6 +129,7 @@ if _NUMBA_AVAILABLE:
 
     @numba.njit(fastmath=True, cache=True, parallel=True)
     def _odds_combine_njit_parallel_weighted(p: np.ndarray, weights: np.ndarray, clip: float) -> np.ndarray:
+        """Combine member probabilities via per-member weighted log-odds summation, ``prange``-parallel njit backend."""
         n, k = p.shape
         out = np.empty(n, dtype=np.float64)
         for i in prange(n):
@@ -138,6 +146,7 @@ if _NUMBA_AVAILABLE:
 
 
 def _dispatch(p: np.ndarray, clip: float) -> np.ndarray:
+    """Route unweighted log-odds combination to the KTC-chosen backend, falling back to CPU on GPU failure."""
     n, k = p.shape
     from mlframe.calibration._ktc_dispatch import choose_odds_combine_backend
 
@@ -156,6 +165,7 @@ def _dispatch(p: np.ndarray, clip: float) -> np.ndarray:
 
 
 def _dispatch_weighted(p: np.ndarray, w: np.ndarray, clip: float) -> np.ndarray:
+    """Route per-member weighted log-odds combination to the KTC-chosen backend, falling back to CPU on GPU failure."""
     n, k = p.shape
     from mlframe.calibration._ktc_dispatch import choose_odds_combine_backend
 

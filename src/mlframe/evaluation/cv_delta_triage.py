@@ -47,6 +47,7 @@ class CVDeltaHistory:
 
     @property
     def pooled_dof(self) -> int:
+        """Return the accumulated degrees of freedom across all folded-in updates."""
         return self._pooled_dof
 
     @property

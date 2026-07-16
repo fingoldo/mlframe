@@ -249,6 +249,7 @@ def _select_single_best(
     _use = usability or {}
 
     def _name(_cfg) -> str:
+        """Return ``_cfg``'s generated feature name, using ``name_cache`` to memoize it if given."""
         if name_cache is None:
             return get_new_feature_name(fe_tuple=_cfg, cols_names=cols_names)
         _n = name_cache.get(_cfg)

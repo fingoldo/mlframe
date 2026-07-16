@@ -66,7 +66,7 @@ def event_proximity_decay_features(
         if is_datetime:
             days_to_event = (pd.to_datetime(dates_arr) - pd.Timestamp(event_date)).dt.days.to_numpy().astype(np.float64)
         else:
-            days_to_event = (np.asarray(dates_arr, dtype=np.float64) - float(event_date))
+            days_to_event = np.asarray(dates_arr, dtype=np.float64) - float(event_date)
         if asymmetric:
             # days_to_event < 0 -> row is BEFORE the event (anticipation leg); >= 0 -> AT/AFTER (falloff leg).
             row_cap = np.where(days_to_event < 0, effective_cap_before, effective_cap_after)

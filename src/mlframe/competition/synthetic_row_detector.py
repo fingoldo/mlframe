@@ -83,7 +83,7 @@ def detect_synthetic_rows(test_df: pd.DataFrame, columns: list[str] | None = Non
     for col in cols:
         series = test_df[col]
         counts = series.map(series.value_counts())
-        has_unique_value |= (counts.to_numpy() == 1)
+        has_unique_value |= counts.to_numpy() == 1
 
     return ~has_unique_value
 
@@ -114,6 +114,7 @@ class CountEncodingShiftReport:
 
     @property
     def synthetic_fraction(self) -> float:
+        """Return the fraction of rows flagged as synthetic, or 0.0 if there are no rows."""
         return self.n_synthetic / self.n_total if self.n_total else 0.0
 
 

@@ -155,6 +155,7 @@ def optimize_persistence_floor_per_class(
     candidates = np.linspace(0.0, 1.0, n_thresholds, endpoint=False)
 
     def _score(candidate_floors: np.ndarray) -> float:
+        """Apply the given per-class persistence floors and score the resulting argmax predictions with ``metric_fn``."""
         floored = apply_sticky_state_persistence_floor(probs, active_class, candidate_floors)
         pred_classes = np.argmax(floored, axis=1)
         return float(metric_fn(y_true, pred_classes))

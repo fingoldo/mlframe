@@ -231,6 +231,7 @@ def lead_target_within_group(group_ids: np.ndarray, order: np.ndarray, y: np.nda
 
 
 def _shift_target_within_group(group_ids: np.ndarray, order: np.ndarray, y: np.ndarray, *, periods: int) -> np.ndarray:
+    """Shift ``y`` by ``periods`` ordered steps within each group, returning ``nan`` where no such successor/predecessor exists."""
     if periods == 0:
         raise ValueError("periods must be non-zero")
     group_ids = np.asarray(group_ids)

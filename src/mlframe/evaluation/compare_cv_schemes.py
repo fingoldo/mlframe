@@ -69,6 +69,7 @@ def compare_cv_schemes(
     is_frame = hasattr(X, "iloc")
 
     def _fit_eval(train_idx: np.ndarray, test_idx: np.ndarray) -> float:
+        """Fit a fresh model on ``train_idx`` and return its ``metric_fn`` score on ``test_idx``."""
         X_train = X.iloc[train_idx] if is_frame else X[train_idx]
         X_test = X.iloc[test_idx] if is_frame else X[test_idx]
         model = model_factory()

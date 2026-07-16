@@ -39,6 +39,7 @@ class KNNFallbackPredictor:
         self._y_train: np.ndarray = np.empty(0)
 
     def fit(self, X: np.ndarray, y: np.ndarray) -> "KNNFallbackPredictor":
+        """Store the training data for later nearest-neighbor lookup."""
         self._X_train = np.asarray(X, dtype=np.float32)
         self._y_train = np.asarray(y, dtype=np.float64)
         return self

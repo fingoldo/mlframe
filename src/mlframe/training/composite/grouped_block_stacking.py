@@ -83,6 +83,7 @@ def _discover_feature_groups(X: Any, y_arr: np.ndarray, corr_threshold: float) -
 
 
 def _select_group(X: Any, columns: Sequence[Any]) -> np.ndarray:
+    """Select ``columns`` from ``X`` (DataFrame, polars, or array-like) as a float64 ndarray."""
     if isinstance(X, pd.DataFrame):
         return np.asarray(X[list(columns)].to_numpy(dtype=np.float64))
     try:
@@ -166,9 +167,11 @@ class GroupedBlockStacker(BaseEstimator, RegressorMixin):
         self.block_corr_threshold = block_corr_threshold
 
     def _mask_fn(self) -> Callable[[np.ndarray], np.ndarray]:
+        """Return the valid-row predicate to use: the caller-supplied one, or the default."""
         return self.valid_row_predicate if self.valid_row_predicate is not None else _default_valid_row_mask
 
     def fit(self, X: Any, y: Any, sample_weight: Optional[np.ndarray] = None) -> "GroupedBlockStacker":
+        """Fit one OOF submodel per feature group on its valid rows, then fit the meta-model on the stacked OOF predictions."""
         if self.submodel_factory is None or self.meta_estimator is None:
             raise ValueError("submodel_factory and meta_estimator are required.")
         submodel_factory: Callable[[], Any] = self.submodel_factory
@@ -222,6 +225,7 @@ class GroupedBlockStacker(BaseEstimator, RegressorMixin):
         return self
 
     def predict(self, X: Any) -> np.ndarray:
+        """Predict via each group's submodel to build meta-features, then apply the fitted meta-model."""
         meta_cols: dict[str, np.ndarray] = {}
         for group_name, columns in self.feature_groups_.items():
             X_group = _select_group(X, columns)

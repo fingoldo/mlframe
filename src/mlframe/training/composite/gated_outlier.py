@@ -95,9 +95,11 @@ class GatedOutlierEstimator(BaseEstimator, RegressorMixin):
         self.calibration_cv = calibration_cv
 
     def _is_point_mass(self, y: np.ndarray) -> np.ndarray:
+        """Return a boolean mask of ``y`` entries close to ``point_mass_value``."""
         return np.asarray(np.isclose(y, self.point_mass_value, atol=self.point_mass_atol))
 
     def fit(self, X: Any, y: Any, sample_weight: Optional[np.ndarray] = None) -> "GatedOutlierEstimator":
+        """Fit a point-mass classifier gate and a regressor on the non-point-mass rows."""
         y_arr = np.asarray(y, dtype=np.float64)
         is_point_mass = self._is_point_mass(y_arr)
         self.point_mass_rate_: float = float(is_point_mass.mean()) if y_arr.shape[0] else 0.0
@@ -142,6 +144,7 @@ class GatedOutlierEstimator(BaseEstimator, RegressorMixin):
         return np.asarray(self.classifier_.predict_proba(X)[:, pos_idx], dtype=np.float64)
 
     def predict(self, X: Any) -> np.ndarray:
+        """Blend the point-mass value and the regressor's prediction by the gate's probability."""
         p_point_mass = self.predict_proba_point_mass(X)
         blend_value = self.point_mass_value if self.blend_value is None else self.blend_value
 

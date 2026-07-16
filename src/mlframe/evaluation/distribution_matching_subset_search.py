@@ -29,6 +29,7 @@ _KS_NJIT_COMBINED_SIZE_THRESHOLD = 3000
 
 @njit(cache=True, fastmath=True)
 def _ks_statistic_njit(sample_sorted: np.ndarray, target_sorted: np.ndarray) -> float:
+    """Compute the two-sample KS statistic on pre-sorted arrays via a compiled two-pointer merge scan."""
     na = len(sample_sorted)
     nb = len(target_sorted)
     i = j = 0
@@ -71,6 +72,7 @@ def _ks_statistic(sample_vals: np.ndarray, target_vals: np.ndarray) -> float:
 
 
 def _mean_ks_statistic(sample_df: pd.DataFrame, target_df: pd.DataFrame, feature_cols: Sequence[str]) -> float:
+    """Return the mean per-column KS statistic between ``sample_df`` and ``target_df`` over ``feature_cols``."""
     stats = []
     for col in feature_cols:
         sample_vals = sample_df[col].to_numpy()
@@ -205,6 +207,7 @@ def distribution_matching_subset_search(
         }
 
     def _score(sample_df: pd.DataFrame) -> float:
+        """Score a candidate block subset by mean KS statistic, plus an optional joint-distribution penalty term."""
         base = _mean_ks_statistic(sample_df, target_df, cols)
         if _joint_ctx is None:
             return base

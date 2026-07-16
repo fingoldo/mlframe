@@ -115,8 +115,7 @@ def _get_all_finite_axis0_kernel(cp):
     return _ALL_FINITE_AXIS0_KERNEL
 
 
-def _score_generation_gpu(cp, Ba, Bb, Ca, Cb, y_codes_dev, ky: int, n_bins: int,
-                          l2_penalty: float, direction_only: bool, bf_names: Sequence[str]):
+def _score_generation_gpu(cp, Ba, Bb, Ca, Cb, y_codes_dev, ky: int, n_bins: int, l2_penalty: float, direction_only: bool, bf_names: Sequence[str]):
     """Score P candidates across all binary funcs; returns host (score, raw_mi, bf_idx) arrays of len P."""
     from ._fe_batched_mi import binned_mi_from_codes_gpu
 

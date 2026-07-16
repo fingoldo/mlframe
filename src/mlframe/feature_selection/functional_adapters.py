@@ -113,6 +113,7 @@ class _FunctionalSelectorBase(BaseEstimator, TransformerMixin):
     """Shared fit/transform/get_support plumbing for the functional-utility adapters below."""
 
     def transform(self, X):
+        """Column-select X down to the fitted support mask."""
         from sklearn.exceptions import NotFittedError
 
         if not hasattr(self, "support_"):
@@ -123,9 +124,11 @@ class _FunctionalSelectorBase(BaseEstimator, TransformerMixin):
         return np.asarray(X)[:, self.support_]
 
     def fit_transform(self, X, y=None, **fit_params):
+        """Fit then transform in one call."""
         return self.fit(X, y).transform(X)
 
     def get_support(self, indices: bool = False):
+        """Return the boolean support mask, or the selected indices when ``indices=True``."""
         from sklearn.exceptions import NotFittedError
 
         if not hasattr(self, "support_"):
@@ -133,6 +136,7 @@ class _FunctionalSelectorBase(BaseEstimator, TransformerMixin):
         return np.where(self.support_)[0] if indices else self.support_
 
     def get_feature_names_out(self, input_features=None):
+        """Return the names of the selected features."""
         from sklearn.exceptions import NotFittedError
 
         if not hasattr(self, "selected_features_"):
@@ -140,6 +144,7 @@ class _FunctionalSelectorBase(BaseEstimator, TransformerMixin):
         return np.asarray(self.selected_features_, dtype=object)
 
     def _finalize(self, X, selected: list) -> None:
+        """Record fitted feature-name/support-mask state from the selected column list."""
         names = [str(c) for c in X.columns] if hasattr(X, "columns") else [f"x{i}" for i in range(np.asarray(X).shape[1])]
         self.feature_names_in_ = np.asarray(names, dtype=object)
         self.n_features_in_ = len(names)
@@ -172,12 +177,14 @@ class ForwardSelectSelector(_FunctionalSelectorBase):
         self.random_state = random_state
 
     def fit(self, X, y=None):
+        """Run forward_select on X/y and record the selected feature names."""
         from sklearn.base import clone
 
         base_estimator = self.estimator if self.estimator is not None else _default_tree_estimator(y, self.random_state)
         scoring = self.scoring if self.scoring is not None else _default_sklearn_scorer_name(y)
 
         def estimator_factory():
+            """Clone a fresh, unfitted copy of the base estimator."""
             return clone(base_estimator)
 
         selected = forward_select(
@@ -215,6 +222,7 @@ class GreedyBackwardEliminationSelector(_FunctionalSelectorBase):
         self.random_state = random_state
 
     def fit(self, X, y=None):
+        """Run greedy_backward_elimination on X/y and record the selected feature names."""
         base_estimator = self.estimator if self.estimator is not None else _default_tree_estimator(y, self.random_state)
         scoring = self.scoring if self.scoring is not None else _default_pointwise_scoring(y)
 
@@ -249,6 +257,7 @@ class ZeroImportancePruningSelector(_FunctionalSelectorBase):
         self.random_state = random_state
 
     def fit(self, X, y=None):
+        """Run iterative_zero_importance_pruning on X/y and record the selected feature names."""
         base_estimator = self.estimator if self.estimator is not None else _default_tree_estimator(y, self.random_state)
         scoring = self.scoring if self.scoring is not None else _default_pointwise_scoring(y)
 
@@ -287,12 +296,14 @@ class CascadeSelectSelector(_FunctionalSelectorBase):
         self.rfecv_kwargs = rfecv_kwargs
 
     def fit(self, X, y=None):
+        """Run cascade_select on X/y and record the selected feature names."""
         from sklearn.base import clone
 
         base_estimator = self.estimator if self.estimator is not None else _default_tree_estimator(y, self.random_state)
         scoring = self.scoring if self.scoring is not None else _default_sklearn_scorer_name(y)
 
         def estimator_factory():
+            """Clone a fresh, unfitted copy of the base estimator."""
             return clone(base_estimator)
 
         result = cascade_select(

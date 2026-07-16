@@ -410,8 +410,7 @@ def _phase_fit_pipeline(
     # Entity/time-keyed FE (state_duration / recency_aggregation) -- same pre-encoding point, needs
     # group_ids (threaded through from the FeaturesAndTargetsExtractor's own group-key resolution).
     if preprocessing_extensions is not None and (
-        getattr(preprocessing_extensions, "state_duration_columns", None)
-        or getattr(preprocessing_extensions, "recency_aggregation_columns", None)
+        getattr(preprocessing_extensions, "state_duration_columns", None) or getattr(preprocessing_extensions, "recency_aggregation_columns", None)
     ):
         from ..pipeline._entity_time_composite_fe import apply_entity_time_composite_fe
 

@@ -80,6 +80,7 @@ def cascade_select(
         raise TypeError("cascade_select: X must be a pandas DataFrame with named columns.")
 
     def _importance_fn(X_shadowed: Any, y_arr: np.ndarray) -> np.ndarray:
+        """Fit a fresh estimator on the (possibly shadow-augmented) features and return its feature importances."""
         model = estimator_factory()
         model.fit(X_shadowed, y_arr)
         return np.asarray(model.feature_importances_, dtype=np.float64)
