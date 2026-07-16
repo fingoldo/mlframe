@@ -69,15 +69,16 @@ The contract budgets leave a ~10-25x safety margin to absorb
 co-located numba JIT compilation, CI runners, and the worst-case
 seed.
 """
+
 from __future__ import annotations
 
 import time
 import warnings
+from functools import cache
 
 import numpy as np
 import pandas as pd
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -117,9 +118,7 @@ def _build_embedding_like(seed: int, n: int = N_ROWS, p: int = 200, n_signal: in
     y_arr = sig @ coefs + 0.2 * rng.standard_normal(n)
     noise = rng.standard_normal((n, p - n_signal))
     X = np.hstack([sig, noise])
-    cols = [f"sig_{k}" for k in range(n_signal)] + [
-        f"noise_{k}" for k in range(p - n_signal)
-    ]
+    cols = [f"sig_{k}" for k in range(n_signal)] + [f"noise_{k}" for k in range(p - n_signal)]
     return pd.DataFrame(X, columns=cols), pd.Series(y_arr, name="y_reg")
 
 
@@ -175,9 +174,7 @@ def _build_embedding_cross_terms(seed: int, n: int = N_ROWS, k_per_latent: int =
     emb2 = z2[:, None] * W2 + 0.05 * rng.standard_normal((n, k_per_latent))
     y_arr = 2.0 * z1 + z2 + 0.3 * rng.standard_normal(n)
     X = np.hstack([emb1, emb2])
-    cols = [f"e1_{k}" for k in range(k_per_latent)] + [
-        f"e2_{k}" for k in range(k_per_latent)
-    ]
+    cols = [f"e1_{k}" for k in range(k_per_latent)] + [f"e2_{k}" for k in range(k_per_latent)]
     return pd.DataFrame(X, columns=cols), pd.Series(y_arr, name="y_reg")
 
 
@@ -191,6 +188,7 @@ def _make_mrmr(**overrides):
     for wall-time bound. ``random_seed`` injected per-seed by callers.
     """
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     kwargs = dict(
         verbose=0,
         interactions_max_order=1,
@@ -201,6 +199,7 @@ def _make_mrmr(**overrides):
 
 
 def _fit_quiet(sel, X, y):
+    """Fit ``sel`` on ``(X, y)`` with warnings silenced; return elapsed seconds."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         t0 = time.time()
@@ -220,6 +219,54 @@ def _support_names(sel, columns):
     return [columns[i] for i in idx]
 
 
+@cache
+def _p200_fit(seed: int):
+    """Cached ``(X, y, sel, elapsed)`` for the default-config p=200 fit.
+
+    ``test_p200_walltime_and_signal`` and ``test_fit_then_transform_p200``
+    both build the identical (seed, p=200, n_signal=3) frame and fit the
+    identical default-config MRMR on it -- deterministic, so the second
+    call was pure waste. Nothing downstream mutates X/y/sel in place.
+    """
+    X, y = _build_embedding_like(seed, p=200, n_signal=3)
+    sel = _make_mrmr(random_seed=seed)
+    elapsed = _fit_quiet(sel, X, y)
+    return X, y, sel, elapsed
+
+
+@cache
+def _p500_fit(seed: int):
+    """Cached ``(X, y, sel, elapsed)`` for the default-config p=500 fit.
+
+    ``test_p500_walltime_budget`` and ``test_p500_support_stays_bounded``
+    both build the identical (seed, n=N_ROWS, p=500, n_signal=3) frame and
+    fit the identical default-config MRMR on it. Nothing downstream
+    mutates X/y/sel in place.
+    """
+    X, y = _build_embedding_like(seed, n=N_ROWS, p=500, n_signal=3)
+    sel = _make_mrmr(random_seed=seed)
+    elapsed = _fit_quiet(sel, X, y)
+    return X, y, sel, elapsed
+
+
+@cache
+def _sparse_default_fit(seed: int):
+    """Cached ``(X, y, sel, elapsed)`` for the default-config sparse TF-IDF fit.
+
+    ``test_sparse_does_not_crash``, ``test_sparse_recovers_at_least_one_token``,
+    ``test_sparse_support_stays_bounded`` (all default-config), and
+    ``test_mdlp_recovers_sparse_signal_under_default`` (explicit
+    ``nbins_strategy="mdlp"``, which IS the MRMR default -- see
+    ``_mrmr_class.py``'s ``nbins_strategy: str = "mdlp"``) all fit the
+    IDENTICAL config on the identical (seed, p=100) frame. Nothing
+    downstream mutates X/y/sel in place.
+    """
+    X, y = _build_tfidf_like(seed, p=100)
+    sel = _make_mrmr(random_seed=seed)
+    elapsed = _fit_quiet(sel, X, y)
+    return X, y, sel, elapsed
+
+
 # ---------------------------------------------------------------------------
 # Contract 1: p=200 embedding-like -- wall time under 60s
 # ---------------------------------------------------------------------------
@@ -234,30 +281,23 @@ class TestEmbeddingLikeP200Scales:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_p200_walltime_and_signal(self, seed):
-        X, y = _build_embedding_like(seed, p=200, n_signal=3)
-        sel = _make_mrmr(random_seed=seed)
-        elapsed = _fit_quiet(sel, X, y)
+        """Default-config p=200 fit: under 60s, non-empty, bounded, recovers a signal column."""
+        X, _y, sel, elapsed = _p200_fit(seed)
         assert elapsed < 60.0, (
             f"p=200 fit took {elapsed:.2f}s, budget 60s; seed={seed}. "
             f"Super-linear blow-up at embedding scale silently breaks every "
             f"embedding-backed model in prod."
         )
         names = _support_names(sel, list(X.columns))
-        assert len(names) >= 1, (
-            f"empty support_ on embedding-like p=200; seed={seed}. "
-            f"min_features_fallback=1 default should prevent this."
-        )
+        assert len(names) >= 1, f"empty support_ on embedding-like p=200; seed={seed}. " f"min_features_fallback=1 default should prevent this."
         # Noise filtering: support stays small (<=10 of 200)
         assert len(names) <= 10, (
-            f"support_size={len(names)} on p=200 with 3 real signals "
-            f"(seed={seed}); 197 noise dims should not pile up. "
-            f"selected={names[:15]}"
+            f"support_size={len(names)} on p=200 with 3 real signals " f"(seed={seed}); 197 noise dims should not pile up. " f"selected={names[:15]}"
         )
         # Signal recovery: at least one sig_* column survives
         signals_kept = [c for c in names if c.startswith("sig_")]
         assert len(signals_kept) >= 1, (
-            f"no real signal columns in support_={names}; seed={seed}. "
-            f"Noise outranked every real signal -- classic high-dim hijack."
+            f"no real signal columns in support_={names}; seed={seed}. " f"Noise outranked every real signal -- classic high-dim hijack."
         )
 
     @pytest.mark.parametrize("seed", SEEDS)
@@ -269,16 +309,10 @@ class TestEmbeddingLikeP200Scales:
         X, y = _build_embedding_like(seed, p=200, n_signal=5)
         sel = _make_mrmr(random_seed=seed)
         elapsed = _fit_quiet(sel, X, y)
-        assert elapsed < 60.0, (
-            f"p=200 / n_signal=5 fit took {elapsed:.2f}s, budget 60s; "
-            f"seed={seed}"
-        )
+        assert elapsed < 60.0, f"p=200 / n_signal=5 fit took {elapsed:.2f}s, budget 60s; " f"seed={seed}"
         names = _support_names(sel, list(X.columns))
         signals_kept = [c for c in names if c.startswith("sig_")]
-        assert len(signals_kept) >= 1, (
-            f"no signal columns recovered with 5 real signals in p=200; "
-            f"seed={seed}, support={names[:15]}"
-        )
+        assert len(signals_kept) >= 1, f"no signal columns recovered with 5 real signals in p=200; " f"seed={seed}, support={names[:15]}"
 
 
 # ---------------------------------------------------------------------------
@@ -303,21 +337,16 @@ class TestTfIdfSparseHandled:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_sparse_does_not_crash(self, seed):
-        X, y = _build_tfidf_like(seed, p=100)
-        sel = _make_mrmr(random_seed=seed)
-        elapsed = _fit_quiet(sel, X, y)
-        assert elapsed < 30.0, (
-            f"sparse p=100 fit took {elapsed:.2f}s, budget 30s; seed={seed}"
-        )
+        """Default-config TF-IDF-like sparse fit completes under the 30s budget."""
+        _X, _y, _sel, elapsed = _sparse_default_fit(seed)
+        assert elapsed < 30.0, f"sparse p=100 fit took {elapsed:.2f}s, budget 30s; seed={seed}"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_sparse_recovers_at_least_one_token(self, seed):
         """At least one of the two real token columns (tok_3, tok_17)
         must appear in support_ under PRODUCTION DEFAULT config.
         """
-        X, y = _build_tfidf_like(seed, p=100)
-        sel = _make_mrmr(random_seed=seed)
-        _fit_quiet(sel, X, y)
+        X, _y, sel, _elapsed = _sparse_default_fit(seed)
         names = _support_names(sel, list(X.columns))
         assert len(names) >= 1, (
             f"empty support_ on TF-IDF-like sparse data; seed={seed}. "
@@ -338,14 +367,9 @@ class TestTfIdfSparseHandled:
         random subset of zero-runs; pin that support stays < 15 of 100
         so a quantizer regression doesn't let the noise cloud through.
         """
-        X, y = _build_tfidf_like(seed, p=100)
-        sel = _make_mrmr(random_seed=seed)
-        _fit_quiet(sel, X, y)
+        X, _y, sel, _elapsed = _sparse_default_fit(seed)
         names = _support_names(sel, list(X.columns))
-        assert len(names) <= 15, (
-            f"sparse support_size={len(names)}/100; seed={seed}. "
-            f"Mostly-zero columns should not pile up. selected={names[:15]}"
-        )
+        assert len(names) <= 15, f"sparse support_size={len(names)}/100; seed={seed}. " f"Mostly-zero columns should not pile up. selected={names[:15]}"
 
 
 # ---------------------------------------------------------------------------
@@ -376,9 +400,7 @@ class TestMdlpSparseFixed:
         one of tok_3 / tok_17 must be in support_, AND fallback_used_
         must be False (the sparse-aware path is genuine, not a fallback).
         """
-        X, y = _build_tfidf_like(seed, p=100)
-        sel = _make_mrmr(random_seed=seed, nbins_strategy="mdlp")
-        _fit_quiet(sel, X, y)
+        X, _y, sel, _elapsed = _sparse_default_fit(seed)
         names = _support_names(sel, list(X.columns))
         true_signals = {"tok_3", "tok_17"}
         hit = [c for c in names if c in true_signals]
@@ -410,35 +432,23 @@ class TestP500WideMatrixScales:
 
     @pytest.mark.parametrize("seed", (1, 13, 42))
     def test_p500_walltime_budget(self, seed):
-        X, y = _build_embedding_like(seed, n=N_ROWS, p=500, n_signal=3)
-        sel = _make_mrmr(random_seed=seed)
-        elapsed = _fit_quiet(sel, X, y)
-        assert elapsed < 300.0, (
-            f"p=500 fit took {elapsed:.2f}s, budget 300s; seed={seed}. "
-            f"Embedding-scale wall-time blow-up."
-        )
+        """Default-config p=500 fit: under the 300s budget, recovers a signal column."""
+        X, _y, sel, elapsed = _p500_fit(seed)
+        assert elapsed < 300.0, f"p=500 fit took {elapsed:.2f}s, budget 300s; seed={seed}. " f"Embedding-scale wall-time blow-up."
         names = _support_names(sel, list(X.columns))
         assert len(names) >= 1
         # Real signal must survive even at p=500 noise dim count
         signals_kept = [c for c in names if c.startswith("sig_")]
-        assert len(signals_kept) >= 1, (
-            f"no signal columns in p=500 support={names[:20]}; seed={seed}. "
-            f"497 noise dims crowded out every real signal."
-        )
+        assert len(signals_kept) >= 1, f"no signal columns in p=500 support={names[:20]}; seed={seed}. " f"497 noise dims crowded out every real signal."
 
     @pytest.mark.parametrize("seed", (1, 13, 42))
     def test_p500_support_stays_bounded(self, seed):
         """Even at p=500 the noise cloud must not pile up: support
         stays <= 15 (3 real signals + slack for marginal noise).
         """
-        X, y = _build_embedding_like(seed, n=N_ROWS, p=500, n_signal=3)
-        sel = _make_mrmr(random_seed=seed)
-        _fit_quiet(sel, X, y)
+        X, _y, sel, _elapsed = _p500_fit(seed)
         names = _support_names(sel, list(X.columns))
-        assert len(names) <= 15, (
-            f"p=500 support_size={len(names)} > 15; seed={seed}. "
-            f"Noise pile-up at scale. selected={names[:15]}"
-        )
+        assert len(names) <= 15, f"p=500 support_size={len(names)} > 15; seed={seed}. " f"Noise pile-up at scale. selected={names[:15]}"
 
 
 # ---------------------------------------------------------------------------
@@ -463,29 +473,18 @@ class TestEmbeddingCrossTermsDcd:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_default_keeps_both_latents(self, seed):
+        """Default (DCD-off) config: support covers both latents, no single-latent monopoly."""
         X, y = _build_embedding_cross_terms(seed, k_per_latent=50)
         sel = _make_mrmr(random_seed=seed)
         elapsed = _fit_quiet(sel, X, y)
-        assert elapsed < 60.0, (
-            f"embedding cross-terms p=100 fit took {elapsed:.2f}s, "
-            f"budget 60s; seed={seed}"
-        )
+        assert elapsed < 60.0, f"embedding cross-terms p=100 fit took {elapsed:.2f}s, " f"budget 60s; seed={seed}"
         names = _support_names(sel, list(X.columns))
         e1_picked = sum(1 for c in names if c.startswith("e1_"))
         e2_picked = sum(1 for c in names if c.startswith("e2_"))
-        assert e1_picked >= 1, (
-            f"no e1_* columns selected; seed={seed}, support={names[:10]}. "
-            f"Latent z1 was completely dropped."
-        )
-        assert e2_picked >= 1, (
-            f"no e2_* columns selected; seed={seed}, support={names[:10]}. "
-            f"Latent z2 was completely dropped."
-        )
+        assert e1_picked >= 1, f"no e1_* columns selected; seed={seed}, support={names[:10]}. " f"Latent z1 was completely dropped."
+        assert e2_picked >= 1, f"no e2_* columns selected; seed={seed}, support={names[:10]}. " f"Latent z2 was completely dropped."
         # Sanity bound: don't admit every single column
-        assert len(names) < 100, (
-            f"support_size={len(names)} == 100 means every column was "
-            f"selected; seed={seed}. Relevance gate was bypassed."
-        )
+        assert len(names) < 100, f"support_size={len(names)} == 100 means every column was " f"selected; seed={seed}. Relevance gate was bypassed."
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_dcd_on_collapses_redundancy(self, seed):
@@ -498,10 +497,7 @@ class TestEmbeddingCrossTermsDcd:
         X, y = _build_embedding_cross_terms(seed, k_per_latent=50)
         sel = _make_mrmr(random_seed=seed, use_simple_mode=False)
         elapsed = _fit_quiet(sel, X, y)
-        assert elapsed < 90.0, (
-            f"DCD-on embedding cross-terms fit took {elapsed:.2f}s, "
-            f"budget 90s; seed={seed}"
-        )
+        assert elapsed < 90.0, f"DCD-on embedding cross-terms fit took {elapsed:.2f}s, " f"budget 90s; seed={seed}"
         names = _support_names(sel, list(X.columns))
         assert 1 <= len(names) <= 10, (
             f"DCD-on support_size={len(names)} outside [1, 10]; "
@@ -515,9 +511,7 @@ class TestEmbeddingCrossTermsDcd:
         # the existence of at least ONE block's representative.
         blocks = {c.split("_")[0] for c in names}
         assert "e1" in blocks, (
-            f"strongest latent z1 (coef=2.0) absent from DCD-on support; "
-            f"seed={seed}, support={names}. Redundancy collapse dropped "
-            f"the dominant signal."
+            f"strongest latent z1 (coef=2.0) absent from DCD-on support; " f"seed={seed}, support={names}. Redundancy collapse dropped " f"the dominant signal."
         )
 
 
@@ -534,9 +528,8 @@ class TestHighDimFitTransformRoundTrip:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_fit_then_transform_p200(self, seed):
-        X_train, y_train = _build_embedding_like(seed, p=200, n_signal=3)
-        sel = _make_mrmr(random_seed=seed)
-        _fit_quiet(sel, X_train, y_train)
+        """Reuses the p=200 fit; transform on held-out data preserves row/column shape."""
+        X_train, _y_train, sel, _elapsed = _p200_fit(seed)
         names = _support_names(sel, list(X_train.columns))
         assert len(names) >= 1
 
@@ -546,16 +539,11 @@ class TestHighDimFitTransformRoundTrip:
             warnings.simplefilter("ignore")
             out = sel.transform(X_test)
         assert out.shape[0] == X_test.shape[0], (
-            f"row count mismatch after p=200 transform; seed={seed}. "
-            f"out.shape={out.shape}, expected rows={X_test.shape[0]}"
+            f"row count mismatch after p=200 transform; seed={seed}. " f"out.shape={out.shape}, expected rows={X_test.shape[0]}"
         )
-        assert out.shape[1] == len(names), (
-            f"column count mismatch after p=200 transform; seed={seed}. "
-            f"out.shape={out.shape}, support_size={len(names)}"
-        )
+        assert out.shape[1] == len(names), f"column count mismatch after p=200 transform; seed={seed}. " f"out.shape={out.shape}, support_size={len(names)}"
         # DataFrame path: column names must match support exactly
         if isinstance(out, pd.DataFrame):
             assert list(out.columns) == names, (
-                f"transform returned column names != support; seed={seed}. "
-                f"got={list(out.columns)[:10]}, expected={names[:10]}"
+                f"transform returned column names != support; seed={seed}. " f"got={list(out.columns)[:10]}, expected={names[:10]}"
             )
