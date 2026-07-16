@@ -39,6 +39,7 @@ NEVER xfail. NEVER mask bugs via runtime workarounds.
 
 Consolidated verbatim from test_biz_value_mrmr_layer63.py (per audit finding test_code_quality-16).
 """
+
 from __future__ import annotations
 
 import pickle
@@ -56,11 +57,13 @@ SEEDS = (1, 7, 13, 42, 101)
 
 
 def _import_three_gate_fe():
+    """Lazily import the K-fold OOF three-gate FE functions."""
     from mlframe.feature_selection.filters._orthogonal_three_gate_mi_fe import (
         score_features_by_kfold_oof_mi,
         hybrid_orth_mi_three_gate_fe,
         hybrid_orth_mi_three_gate_fe_with_recipes,
     )
+
     return (
         score_features_by_kfold_oof_mi,
         hybrid_orth_mi_three_gate_fe,
@@ -69,21 +72,26 @@ def _import_three_gate_fe():
 
 
 def _import_point_estimate_fe():
+    """Lazily import the plug-in point-estimate FE functions (Layer 21 baseline)."""
     from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
         generate_univariate_basis_features,
         score_features_by_mi_uplift,
     )
+
     return generate_univariate_basis_features, score_features_by_mi_uplift
 
 
 def _import_bootstrap_fe():
+    """Lazily import the Layer 62 bootstrap-only FE function (comparison baseline)."""
     from mlframe.feature_selection.filters._orthogonal_bootstrap_mi_fe import (
         hybrid_orth_mi_bootstrap_fe,
     )
+
     return hybrid_orth_mi_bootstrap_fe
 
 
 from tests.feature_selection.conftest import make_fast_mrmr as _make_mrmr
+
 # ---------------------------------------------------------------------------
 # Data builders
 # ---------------------------------------------------------------------------
@@ -97,7 +105,7 @@ def _build_quadratic_signal(seed: int, n: int = 2000, n_noise: int = 5):
     for k in range(n_noise):
         cols[f"noise_{k}"] = rng.standard_normal(n)
     X = pd.DataFrame(cols)
-    y = ((x1 ** 2 + 0.1 * rng.standard_normal(n)) > 1.0).astype(int)
+    y = ((x1**2 + 0.1 * rng.standard_normal(n)) > 1.0).astype(int)
     return X, pd.Series(y)
 
 
@@ -149,7 +157,7 @@ def _build_cubic_plus_quadratic(seed: int, n: int = 2000):
     # He_3(x) = x^3 - 3x. Sign is +/- in three regions; quantile-bin MI
     # of raw x1 against this sign is small, MI of He_3 against the sign
     # is near maximal.
-    he3 = x1 ** 3 - 3.0 * x1
+    he3 = x1**3 - 3.0 * x1
     # Tiny noise so the sign boundary is non-deterministic enough to
     # avoid a pathological perfect-separability path.
     y = ((he3 + 0.05 * rng.standard_normal(n)) > 0).astype(int)
@@ -157,12 +165,14 @@ def _build_cubic_plus_quadratic(seed: int, n: int = 2000):
 
 
 from tests.feature_selection._biz_val_synth import _build_linear
+
 # ---------------------------------------------------------------------------
 # Contract 1: OOF MI demotes inflated noise relative to plug-in MI
 # ---------------------------------------------------------------------------
 
 
 class TestOofMiVsPlugIn:
+    """On a noise-only frame, K-fold OOF MI demotes inflated plug-in MI estimates."""
 
     def test_oof_mi_lower_than_plug_in_on_noise(self):
         """Across noise-only seeds the MEAN engineered OOF MI sits below
@@ -209,16 +219,12 @@ class TestOofMiVsPlugIn:
         eng = gen(X, degrees=(2, 3), basis="hermite")
         sc = score_oof(X, eng, y.values, n_folds=5, seed=seed)
         row = sc[sc["engineered_col"] == "x1__He2"]
-        assert not row.empty, (
-            f"seed={seed}: x1__He2 missing from OOF score table"
-        )
+        assert not row.empty, f"seed={seed}: x1__He2 missing from OOF score table"
         signal_oof = float(row["engineered_mi_oof"].iloc[0])
         noise = sc[sc["engineered_col"].str.startswith("noise_")]
         noise_max = float(noise["engineered_mi_oof"].max()) if not noise.empty else 0.0
         assert signal_oof > noise_max, (
-            f"seed={seed}: x1__He2 OOF MI={signal_oof:.4f} not above "
-            f"max noise OOF MI={noise_max:.4f}; OOF over-regularised "
-            f"the genuine signal."
+            f"seed={seed}: x1__He2 OOF MI={signal_oof:.4f} not above " f"max noise OOF MI={noise_max:.4f}; OOF over-regularised " f"the genuine signal."
         )
 
 
@@ -228,6 +234,7 @@ class TestOofMiVsPlugIn:
 
 
 class TestThreeGateRejectsAlreadyExplained:
+    """Gate 3 (conditional MI) rejects a candidate whose signal is already explained by the current support."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_cmi_collapses_for_other_basis_quadratic(self, seed):
@@ -249,15 +256,18 @@ class TestThreeGateRejectsAlreadyExplained:
         # CMI given the He support must collapse for that other-basis
         # quadratic.
         _X_aug, scores = three_gate(
-            X, y.values, current_support=support,
-            cols=["x1"], degrees=(2,), basis="chebyshev",
-            top_k=3, n_folds=5, seed=seed,
+            X,
+            y.values,
+            current_support=support,
+            cols=["x1"],
+            degrees=(2,),
+            basis="chebyshev",
+            top_k=3,
+            n_folds=5,
+            seed=seed,
         )
         row = scores[scores["engineered_col"] == "x1__T2"]
-        assert not row.empty, (
-            f"seed={seed}: x1__T2 missing from three-gate scores; "
-            f"got {list(scores['engineered_col'])}"
-        )
+        assert not row.empty, f"seed={seed}: x1__T2 missing from three-gate scores; " f"got {list(scores['engineered_col'])}"
         cmi = float(row["cmi_support"].iloc[0])
         # The two quadratics describe the SAME function of |x1| up to an
         # affine reparametrisation, so CMI(x1__T2; y | x1__He2) should
@@ -294,15 +304,20 @@ class TestThreeGateRejectsAlreadyExplained:
         eng_he = gen(X, degrees=(2,), basis="hermite")
         support = pd.DataFrame({"x1__He2": eng_he["x1__He2"].values})
         X_aug, _scores = three_gate(
-            X, y.values, current_support=support,
-            cols=["x1"], degrees=(2,), basis="chebyshev",
-            top_k=3, n_folds=5, cmi_min=0.05, seed=seed,
+            X,
+            y.values,
+            current_support=support,
+            cols=["x1"],
+            degrees=(2,),
+            basis="chebyshev",
+            top_k=3,
+            n_folds=5,
+            cmi_min=0.05,
+            seed=seed,
         )
         appended = [c for c in X_aug.columns if c not in X.columns]
         assert "x1__T2" not in appended, (
-            f"seed={seed}: x1__T2 was appended despite being a "
-            f"basis-equivalent duplicate of x1__He2 in support; "
-            f"got appended={appended}"
+            f"seed={seed}: x1__T2 was appended despite being a " f"basis-equivalent duplicate of x1__He2 in support; " f"got appended={appended}"
         )
 
 
@@ -312,6 +327,7 @@ class TestThreeGateRejectsAlreadyExplained:
 
 
 class TestCombinedWinsOverBootstrap:
+    """Three-gate admits genuinely new conditional signal that a support-blind bootstrap selector would miss."""
 
     def test_three_gate_promotes_he3_when_he2_in_support(self):
         """On a cubic+quadratic fixture x1__He3 carries genuinely NEW
@@ -332,9 +348,16 @@ class TestCombinedWinsOverBootstrap:
             eng = gen(X, degrees=(2, 3), basis="hermite")
             support = pd.DataFrame({"x1__He2": eng["x1__He2"].values})
             X_aug, _sc = three_gate(
-                X, y.values, current_support=support,
-                cols=["x1"], degrees=(3,), basis="hermite",
-                top_k=3, n_folds=5, cmi_min=0.001, seed=s,
+                X,
+                y.values,
+                current_support=support,
+                cols=["x1"],
+                degrees=(3,),
+                basis="hermite",
+                top_k=3,
+                n_folds=5,
+                cmi_min=0.001,
+                seed=s,
             )
             appended = [c for c in X_aug.columns if c not in X.columns]
             if "x1__He3" in appended:
@@ -352,18 +375,18 @@ class TestCombinedWinsOverBootstrap:
 
 
 class TestDefaultDisabledByteIdentical:
+    """fe_hybrid_orth_three_gate_enable=False (the default) leaves hybrid_orth_features_ empty."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_default_off_no_three_gate_columns(self, seed):
+        """Default fe_hybrid_orth_three_gate_enable=False appends no engineered columns."""
         X, y = _build_linear(seed)
         m = _make_mrmr().fit(X, y)
         added = list(getattr(m, "hybrid_orth_features_", []) or [])
-        assert added == [], (
-            f"seed={seed}: default fe_hybrid_orth_three_gate_enable=False "
-            f"should NOT append any engineered columns; got {added}"
-        )
+        assert added == [], f"seed={seed}: default fe_hybrid_orth_three_gate_enable=False " f"should NOT append any engineered columns; got {added}"
 
     def test_default_ctor_values(self):
+        """The three ctor params default to disabled/5-folds/cmi_min=0.001."""
         m = _make_mrmr()
         assert m.fe_hybrid_orth_three_gate_enable is False
         assert m.fe_hybrid_orth_three_gate_n_folds == 5
@@ -376,9 +399,11 @@ class TestDefaultDisabledByteIdentical:
 
 
 class TestEnableAppendsEngineered:
+    """Enabling the three-gate flag appends at least one x1-basis column on a clean quadratic-signal frame."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_enable_appends_at_least_one_x1_basis(self, seed):
+        """fe_hybrid_orth_three_gate_enable=True appends at least one x1__ basis column for a clean He_2 signal."""
         X, y = _build_quadratic_signal(seed, n=2000)
         m = _make_mrmr(
             fe_hybrid_orth_three_gate_enable=True,
@@ -389,13 +414,9 @@ class TestEnableAppendsEngineered:
             fe_hybrid_orth_top_k=3,
         ).fit(X, y)
         added = list(getattr(m, "hybrid_orth_features_", []) or [])
-        assert added, (
-            f"seed={seed}: three-gate flag ON should append at least one "
-            f"engineered column to hybrid_orth_features_; got {added}"
-        )
+        assert added, f"seed={seed}: three-gate flag ON should append at least one " f"engineered column to hybrid_orth_features_; got {added}"
         assert any(c.startswith("x1__") for c in added), (
-            f"seed={seed}: three-gate winners should include an x1 basis "
-            f"column for a clean He_2 signal; got {added}"
+            f"seed={seed}: three-gate winners should include an x1 basis " f"column for a clean He_2 signal; got {added}"
         )
 
 
@@ -405,8 +426,10 @@ class TestEnableAppendsEngineered:
 
 
 class TestPickleAndClone:
+    """clone() preserves the 3 three-gate ctor params; pickle preserves hybrid_orth_features_ and recipes."""
 
     def test_clone_preserves_three_gate_params(self):
+        """clone() copies fe_hybrid_orth_three_gate_enable/n_folds/cmi_min without carrying over fitted state."""
         m = _make_mrmr(
             fe_hybrid_orth_three_gate_enable=True,
             fe_hybrid_orth_three_gate_n_folds=7,
@@ -418,12 +441,10 @@ class TestPickleAndClone:
             ("fe_hybrid_orth_three_gate_n_folds", 7),
             ("fe_hybrid_orth_three_gate_cmi_min", 0.005),
         ]:
-            assert getattr(m2, name) == expected, (
-                f"clone() dropped {name}: expected {expected}, got "
-                f"{getattr(m2, name)}"
-            )
+            assert getattr(m2, name) == expected, f"clone() dropped {name}: expected {expected}, got " f"{getattr(m2, name)}"
 
     def test_pickle_roundtrip_preserves_three_gate_recipes(self):
+        """pickle.dumps/loads preserves hybrid_orth_features_ and every orth_univariate recipe's src_names/basis/degree."""
         X, y = _build_quadratic_signal(seed=42, n=2000)
         m = _make_mrmr(
             fe_hybrid_orth_three_gate_enable=True,
@@ -434,44 +455,33 @@ class TestPickleAndClone:
             fe_hybrid_orth_top_k=3,
         ).fit(X, y)
         blob = pickle.dumps(m)
-        m2 = pickle.loads(blob)
-        assert list(m2.feature_names_in_) == list(m.feature_names_in_), (
-            "pickle changed feature_names_in_"
-        )
+        m2 = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
+        assert list(m2.feature_names_in_) == list(m.feature_names_in_), "pickle changed feature_names_in_"
         added_before = list(getattr(m, "hybrid_orth_features_", []) or [])
         added_after = list(getattr(m2, "hybrid_orth_features_", []) or [])
-        assert added_before == added_after, (
-            f"pickle changed hybrid_orth_features_: before={added_before}, "
-            f"after={added_after}"
-        )
+        assert added_before == added_after, f"pickle changed hybrid_orth_features_: before={added_before}, " f"after={added_after}"
+
         # All three-gate-stage recipes are ``orth_univariate``.
         def _orth_recipes(model):
+            """Collect the model's orth_univariate-kind recipes keyed by name."""
             er = getattr(model, "_engineered_recipes_", None)
             if isinstance(er, dict):
                 items = list(er.values())
             else:
                 items = list(er or [])
-            return {
-                r.name: r for r in items
-                if getattr(r, "kind", None) == "orth_univariate"
-            }
+            return {r.name: r for r in items if getattr(r, "kind", None) == "orth_univariate"}
+
         recipes_before = _orth_recipes(m)
         recipes_after = _orth_recipes(m2)
         assert set(recipes_before.keys()) == set(recipes_after.keys()), (
-            f"pickle dropped or added orth_univariate recipe names: "
-            f"before={set(recipes_before.keys())}, "
-            f"after={set(recipes_after.keys())}"
+            f"pickle dropped or added orth_univariate recipe names: " f"before={set(recipes_before.keys())}, " f"after={set(recipes_after.keys())}"
         )
         for name, r_before in recipes_before.items():
             r_after = recipes_after[name]
-            assert r_before.src_names == r_after.src_names, (
-                f"pickle changed src_names for {name!r}: "
-                f"before={r_before.src_names}, after={r_after.src_names}"
-            )
+            assert r_before.src_names == r_after.src_names, f"pickle changed src_names for {name!r}: " f"before={r_before.src_names}, after={r_after.src_names}"
             for key in ("basis", "degree"):
                 assert r_before.extra.get(key) == r_after.extra.get(key), (
-                    f"pickle changed '{key}' for recipe {name!r}: "
-                    f"before={r_before.extra}, after={r_after.extra}"
+                    f"pickle changed '{key}' for recipe {name!r}: " f"before={r_before.extra}, after={r_after.extra}"
                 )
 
 
@@ -481,30 +491,32 @@ class TestPickleAndClone:
 
 
 class TestRecipeReplay:
+    """Each three-gate-stage orth_univariate recipe replays fit-time engineered values bit-equivalently."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_recipe_replay_matches_fit_time(self, seed):
+        """apply_recipe on each emitted recipe reproduces the fit-time column value to 1e-9 relative tolerance."""
         _, _, hybrid_with_recipes = _import_three_gate_fe()
         X, y = _build_quadratic_signal(seed)
         X_aug, _scores, recipes = hybrid_with_recipes(
-            X, y.values, current_support=None,
-            degrees=(2, 3), basis="hermite",
-            top_k=3, n_folds=5, seed=seed,
+            X,
+            y.values,
+            current_support=None,
+            degrees=(2, 3),
+            basis="hermite",
+            top_k=3,
+            n_folds=5,
+            seed=seed,
         )
         if not recipes:
-            pytest.fail(
-                f"seed={seed}: three-gate hybrid emitted no recipes; "
-                f"replay contract requires at least one recipe."
-            )
+            pytest.fail(f"seed={seed}: three-gate hybrid emitted no recipes; " f"replay contract requires at least one recipe.")
         from mlframe.feature_selection.filters.engineered_recipes import (
             apply_recipe,
         )
+
         appended = [c for c in X_aug.columns if c not in X.columns]
         for r in recipes:
-            assert r.name in appended, (
-                f"seed={seed}: recipe {r.name!r} not in appended columns "
-                f"{appended}"
-            )
+            assert r.name in appended, f"seed={seed}: recipe {r.name!r} not in appended columns " f"{appended}"
             assert r.kind == "orth_univariate", (
                 f"seed={seed}: three-gate-stage recipe {r.name!r} kind="
                 f"{r.kind!r}, expected 'orth_univariate' (engineered values "
