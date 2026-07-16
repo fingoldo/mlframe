@@ -369,6 +369,13 @@ def fit(self, X, y):
         # happens only on the independent ``self.X`` copy, the untouched caller ``X`` already IS that
         # snapshot, so we reference it rather than taking a second copy. ``self.y`` is never mutated (only
         # read for splits / model fit), so it is referenced, not copied.
+        # TODO(perf, 100GB-class frames): this IS a real deep copy (ordinal-encoding + column drops mutate
+        # existing cell values in place, so MRMR's "always-shallow-copy-is-safe" fix does NOT apply here
+        # unmodified) -- but a full deep copy of a 100+GB frame is exactly the kind of cost the project's
+        # memory-discipline convention flags as unacceptable. Investigate an in-place-safe alternative:
+        # e.g. mutate-and-restore (try/finally) on the CALLER's own frame instead of copying it, or encode
+        # into a SEPARATE small side-table (object/category columns only, not the full frame) plus a
+        # column-rename/view trick for the shadow features, so the working set never doubles.
         self.starting_X = X
         self.X = X.copy()
         self.y = y

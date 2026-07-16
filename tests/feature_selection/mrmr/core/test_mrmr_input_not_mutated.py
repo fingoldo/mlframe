@@ -19,10 +19,16 @@ pristine master: A's leaked FE columns changed B's content hash, so B never
 hit the replay path and its ``support_`` was neither shared with nor frozen
 against A's).
 
-Fix is at the boundary (``MRMR.fit``): the wrapper copies a pandas input frame
-once (shallow under pandas-3 Copy-on-Write, ~free; deep on older pandas) so all
-downstream appends land on the internal copy and the caller's frame is never
-touched.
+Fix is at the boundary (``MRMR.fit``): the wrapper copies a pandas input frame once
+(ALWAYS shallow -- ``X.copy(deep=False)``, unconditionally, regardless of pandas'
+Copy-on-Write setting; see perf audit finding #2, 2026-07-17) so all downstream
+appends land on the internal copy and the caller's frame is never touched. A shallow
+copy is safe on every pandas version because every internal mutation site only ever
+ADDS a new column key (never overwrites an EXISTING column's values in place), so no
+write can ever land on the original frame's shared arrays -- the previous CoW-gated
+``deep=True`` fallback was defensive-but-unnecessary and cost a real O(n*p)
+alloc+memcpy on every fit on any pandas installation with CoW off (the DEFAULT for
+most installed pandas < 3.0, i.e. the common case, not a rare edge case).
 
 These tests FAIL on pre-fix code (the caller's columns gain engineered names
 and the second-fit support diverges from a fresh-copy fit) and PASS after.
@@ -53,6 +59,7 @@ def _make_xy(n: int = 200, seed: int = 0):
 
 
 def _fit(X, y):
+    """Fit a default-verbosity MRMR on (X, y), silencing its accuracy-suboptimal-param warnings."""
     from mlframe.feature_selection.filters.mrmr import MRMR
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -69,13 +76,9 @@ def test_fit_does_not_append_columns_to_caller_frame():
     shape_before = X.shape
     _fit(X, y)
     assert list(X.columns) == cols_before, (
-        "MRMR.fit appended columns to the caller's DataFrame "
-        f"(before={cols_before}, after={list(X.columns)}); "
-        "fit must not mutate its input."
+        "MRMR.fit appended columns to the caller's DataFrame " f"(before={cols_before}, after={list(X.columns)}); " "fit must not mutate its input."
     )
-    assert X.shape == shape_before, (
-        f"MRMR.fit changed the caller frame shape {shape_before} -> {X.shape}."
-    )
+    assert X.shape == shape_before, f"MRMR.fit changed the caller frame shape {shape_before} -> {X.shape}."
     # No engineered / target columns leaked under any naming convention.
     leaked = [c for c in X.columns if ("__" in str(c)) or str(c).startswith("targ")]
     assert not leaked, f"Engineered / target columns leaked into the caller frame: {leaked}"
@@ -91,9 +94,7 @@ def test_fit_preserves_original_column_values_and_identity():
     dtypes_before = X.dtypes.to_dict()
     _fit(X, y)
     for c, vals in snapshot.items():
-        assert np.array_equal(X[c].to_numpy(), vals, equal_nan=True), (
-            f"MRMR.fit mutated the values of caller column {c!r} in place."
-        )
+        assert np.array_equal(X[c].to_numpy(), vals, equal_nan=True), f"MRMR.fit mutated the values of caller column {c!r} in place."
     assert X.dtypes.to_dict() == dtypes_before, "MRMR.fit changed caller column dtypes."
 
 
@@ -129,16 +130,12 @@ def test_second_fit_on_same_frame_is_independent_of_first():
         f"fresh-copy fit (reused={support_second.tolist()}, "
         f"fresh={support_fresh.tolist()}); the first fit leaked state into the frame."
     )
-    assert names_second == names_fresh, (
-        "Second fit selected different feature names than a fresh-copy fit "
-        f"(reused={names_second}, fresh={names_fresh})."
-    )
+    assert names_second == names_fresh, "Second fit selected different feature names than a fresh-copy fit " f"(reused={names_second}, fresh={names_fresh})."
     # Sanity: the first fit was itself a clean fit on a pristine frame, so its
     # selection should also match the fresh reference (guards against the test
     # silently passing because BOTH reused fits are equally corrupted).
     assert np.array_equal(support_first, support_fresh), (
-        f"First fit support {support_first.tolist()} already differs from the "
-        f"fresh-copy reference {support_fresh.tolist()}."
+        f"First fit support {support_first.tolist()} already differs from the " f"fresh-copy reference {support_fresh.tolist()}."
     )
     assert names_first == names_fresh
 
@@ -157,6 +154,27 @@ def test_polars_input_not_mutated_when_available():
     Xpl = pl.DataFrame({"a": a, "b": b})
     cols_before = list(Xpl.columns)
     _fit(Xpl, y)
-    assert list(Xpl.columns) == cols_before, (
-        f"MRMR.fit mutated the polars input columns {cols_before} -> {list(Xpl.columns)}."
-    )
+    assert list(Xpl.columns) == cols_before, f"MRMR.fit mutated the polars input columns {cols_before} -> {list(Xpl.columns)}."
+
+
+def test_fit_does_not_mutate_input_with_copy_on_write_forced_off():
+    """Explicit regression pin for perf audit finding #2 (2026-07-17): MRMR.fit's internal isolation
+    copy is now ALWAYS shallow (``X.copy(deep=False)``), regardless of pandas' Copy-on-Write setting.
+    Force CoW off here (pandas' own default for most installed 2.x versions, so this is the common
+    case, not a hypothetical one) so this test keeps covering the exact scenario a future pandas
+    default-CoW flip could otherwise silently stop exercising, and assert the caller's frame -- columns,
+    values, AND dtypes -- is completely unchanged after a real FE-heavy fit."""
+    cow_before = pd.get_option("mode.copy_on_write")
+    pd.set_option("mode.copy_on_write", False)
+    try:
+        X, y = _make_xy()
+        cols_before = list(X.columns)
+        dtypes_before = X.dtypes.to_dict()
+        snapshot = {c: X[c].to_numpy(copy=True) for c in X.columns}
+        _fit(X, y)
+        assert list(X.columns) == cols_before, f"MRMR.fit mutated the caller's columns under CoW-off {cols_before} -> {list(X.columns)}."
+        assert X.dtypes.to_dict() == dtypes_before, "MRMR.fit changed caller column dtypes under CoW-off."
+        for c, vals in snapshot.items():
+            assert np.array_equal(X[c].to_numpy(), vals, equal_nan=True), f"MRMR.fit mutated caller column {c!r} in place under CoW-off."
+    finally:
+        pd.set_option("mode.copy_on_write", cow_before)
