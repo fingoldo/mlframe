@@ -133,6 +133,21 @@ def _prefill_cond_MIs_gpu(
         # Candidate-key strings are z-independent -- build them once, reuse across every z below.
         cand_keys = [arr2str(np.asarray([ci], dtype=np.int64)) for ci in cand_indices]
 
+        # Shadow the numba typed-dict's keys in a plain Python set for this call's membership checks
+        # (cProfile, 2026-07-16 wellbore fit: numba.typed.typeddict.__contains__ cost 40.5s / 1.6M calls,
+        # ~1613570 of them from the missing_pos scan below -- EVERY (candidate, z) membership check crosses
+        # the Python<->numba boundary individually. A python 'x in str_key' against a numba typed Dict pays
+        # real per-call marshaling overhead: measured ~25us/check vs ~0.2us against a plain python set/dict,
+        # ~120x. One bulk `set(cached_cond_MIs.keys())` per call (cost scales with dict SIZE, done once)
+        # replaces N_missing_checks cross-boundary lookups (cost scales with candidates x selected_vars,
+        # done every round) -- a clear net win once check-count exceeds dict-size, which happens quickly as
+        # selected_vars grows across rounds. Read-only snapshot; the real numba dict below is still the one
+        # ``evaluate_gain`` reads from and the one every write (here + evaluation.py's scalar-path cache
+        # fill) targets, so no staleness risk -- a key written by that OTHER path after this snapshot is
+        # simply treated as "missing" here too (re-dispatched, then overwritten with the same value at
+        # write time -- redundant work, never a correctness bug: the CMI value is a pure function of
+        # (cand, z), not of which path filled it first).
+        cached_keys_shadow = set(cached_cond_MIs.keys())
         n_written = 0
         for z in selected_vars:
             z_idx = int(z)
@@ -144,7 +159,7 @@ def _prefill_cond_MIs_gpu(
             # and the old code recomputed the ENTIRE (candidates x z) matrix per round only to discard
             # the already-cached values at write time (measured on the wellbore-100k profile: 4375
             # dispatches / ~500s of _cpu_cmi_loop, the single largest FE-phase hotspot, mostly redundant).
-            missing_pos = [j for j, ck in enumerate(cand_keys) if (ck + "|" + z_str) not in cached_cond_MIs]
+            missing_pos = [j for j, ck in enumerate(cand_keys) if (ck + "|" + z_str) not in cached_keys_shadow]
             if not missing_pos:
                 continue
             missing_arr = cand_indices_arr[np.asarray(missing_pos, dtype=np.int64)]
@@ -158,7 +173,9 @@ def _prefill_cond_MIs_gpu(
                 force=force,
             )
             for j, val in zip(missing_pos, cmi_vec):
-                cached_cond_MIs[cand_keys[j] + "|" + z_str] = float(val)
+                new_key = cand_keys[j] + "|" + z_str
+                cached_cond_MIs[new_key] = float(val)
+                cached_keys_shadow.add(new_key)
                 n_written += 1
         return n_written
     except Exception as _exc:
