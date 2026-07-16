@@ -371,6 +371,43 @@ def _prewarm_fs_numba_cache_impl(verbose: bool = False) -> None:
     except Exception:  # nosec B110 - optional dependency import guard
         pass
 
+    # _renumber_joint's 2-column dense fast path + the generic fold kernel + the fused joint-entropy
+    # kernel -- these back _conditional_perm_null's host-fallback k_xz/k_yz/k_xyz card computation, one
+    # of the hottest CPU-orchestration callees in a real fit (6207+ calls/fit). Uncached compile of these
+    # three (~14s cumulative, measured via a saved cProfile .prof) previously landed INSIDE the timed fit
+    # the first time the host-renumber fallback engaged (analytic-null GPU path unavailable/OOM), since
+    # nothing warmed them before. Same pattern as the entropy kernel above.
+    try:
+        from ._mi_greedy_cmi_fe import _combine_factorize_njit, _joint_entropy_two_dense_njit, _renumber_two_dense_njit
+        _warm_a = np.array([0, 1, 1, 2, 0], dtype=np.int64)
+        _warm_b = np.array([1, 0, 1, 0, 2], dtype=np.int64)
+        _ = _renumber_two_dense_njit(_warm_a, _warm_b)
+        _ = _joint_entropy_two_dense_njit(_warm_a, _warm_b)
+        _joint_warm, _mult_warm = _factorize_dense_njit(_warm_a)
+        _ = _combine_factorize_njit(_joint_warm, _warm_b, _mult_warm)
+    except Exception:  # nosec B110 - optional dependency import guard
+        pass
+
+    # Unary-transform registry (`create_unary_transformations`): the FE pair-search unary operand table
+    # (`_build_operand_table`) njit-wraps ~20-30 lambdas (identity/neg/abs/sqr/reciproc/sqrt/sin plus the
+    # medium/maximal tiers) via `njit_functions_dict`'s process-wide `_NJIT_DISPATCHER_CACHE`. Without a
+    # prewarm the FIRST FE round to touch this registry pays every lambda's cold JIT compile inline
+    # (~14s cumulative, measured via a saved cProfile .prof on the canonical 100k-row fit). Calling with
+    # preset="maximal" executes every preset tier's dict-literal block once, so every lambda's underlying
+    # code object (module-compile-time-fixed per source location, shared across presets) gets warmed
+    # regardless of which preset the caller actually selects at runtime.
+    try:
+        from .feature_engineering import create_unary_transformations
+        _warm_x = np.array([1.0, -2.0, 0.5, 0.0, 3.0], dtype=np.float64)
+        _unary_warm = create_unary_transformations(preset="maximal")
+        for _fn in _unary_warm.values():
+            try:
+                _ = _fn(_warm_x)
+            except Exception:  # noqa: PERF203 -- nosec B110 - per-transform fault isolation is intentional, not a hoisting candidate; a handful of transforms need domain-restricted input
+                pass
+    except Exception:  # nosec B110 - optional dependency import guard
+        pass
+
     # Layer-90 numeric-decompose digit-extract kernel.
     try:
         from ._numeric_decompose_fe import _digit_extract_njit

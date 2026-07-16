@@ -15,7 +15,7 @@
 #
 # Policy (2026-07-12): every check that is a REAL blocking gate in CI (job failure fails the
 # workflow / blocks merge -- no `continue-on-error: true`, not a documented advisory job) has a
-# local hook here that runs the SAME command and BLOCKS the commit (default `stages: [pre-commit]`)
+# local hook here that runs the SAME command and BLOCKS the commit (default `stages: [pre-commit, pre-merge-commit]`)
 # on the same finding. Only genuinely advisory CI signal (continue-on-error jobs, documented
 # advisory bundles like lint-advisory.yml's full-select ruff / mccabe complexity / pip-audit, or
 # purely stylistic reformatting like ruff-format/import order that CI itself doesn't block on)
@@ -116,7 +116,7 @@ repos:
         entry: python -m py_ci_shared.black_filtered_apply --config pyproject.toml --check
         language: system
         types: [python]
-        stages: [pre-commit]
+        stages: [pre-commit, pre-merge-commit]
 
   # Mypy: scoped to the full strict-mode beachhead per [tool.mypy.overrides] in pyproject.toml.
   # Expanding this files= regex further is gated on a separate review per the gradual-typing
@@ -211,7 +211,7 @@ repos:
         # never covered, ~4600 findings under the current full select/ignore, wholly unrelated
         # to this repo's src/mlframe cleanup).
         exclude: (^|/)(tests|scripts|legacy|benchmarks|_benchmarks|profiling)/
-        stages: [pre-commit]
+        stages: [pre-commit, pre-merge-commit]
 
   # Warn-only style gate: formatting + style lint (E/W/N/UP/I), never blocks.
   # Runs after the blocking gate. Wrapper script lives in the shared py_ci_shared
@@ -224,7 +224,7 @@ repos:
         language: system
         types: [python]
         verbose: true
-        stages: [pre-commit]
+        stages: [pre-commit, pre-merge-commit]
 
   # Security-lint gate: bandit -ll (medium+ severity). Blocking since 2026-07-09 -- triaged to 0
   # findings (see the CI lint-blocking job), so this mirrors that CI gate exactly instead of only
@@ -243,7 +243,7 @@ repos:
         language: system
         types: [python]
         pass_filenames: true
-        stages: [pre-commit]
+        stages: [pre-commit, pre-merge-commit]
 
   # Dead-code gate: vulture --min-confidence 80. Blocking since 2026-07-09 -- triaged to 0
   # findings (see the CI lint-blocking job). The whitelist stays local to this repo
@@ -288,7 +288,7 @@ repos:
         language: system
         types: [python]
         pass_filenames: true
-        stages: [pre-commit]
+        stages: [pre-commit, pre-merge-commit]
 
   # Dependency-drift gate: deptry (unused/missing/transitive). Blocking since 2026-07-09,
   # mirroring the CI lint-blocking job -- see [tool.deptry] for the per_rule_ignores this relies
@@ -306,7 +306,7 @@ repos:
         entry: python -m deptry .
         language: system
         pass_filenames: false
-        stages: [pre-commit]
+        stages: [pre-commit, pre-merge-commit]
 
   # Prose-typo gate: codespell. Blocking since 2026-07-09, mirroring the CI lint-blocking job
   # (config/ignore-words-list comes from [tool.codespell] in pyproject.toml, same as CI).
@@ -320,7 +320,7 @@ repos:
         entry: python -m codespell_lib --toml pyproject.toml
         language: system
         pass_filenames: true
-        stages: [pre-commit]
+        stages: [pre-commit, pre-merge-commit]
 
   # Workflow-YAML style gate: yamllint. Blocking since 2026-07-09, mirroring the CI
   # lint-blocking job -- catches the SHA-pin comment-spacing / indentation class of nit before
@@ -335,7 +335,7 @@ repos:
         # Only worth running when a workflow file or this config itself changed -- yamllint has
         # nothing to say about a commit that only touches src/mlframe.
         files: '^(\.github/workflows/.*\.ya?ml|\.pre-commit-config\.yaml)$'
-        stages: [pre-commit]
+        stages: [pre-commit, pre-merge-commit]
 
   # Workflow-security gate: zizmor (unpinned actions, template-injection, excessive
   # permissions, credential persistence in .github/workflows/*.yml). Blocking since 2026-07-10
@@ -349,7 +349,7 @@ repos:
         language: system
         pass_filenames: false
         files: '^\.github/workflows/.*\.ya?ml$'
-        stages: [pre-commit]
+        stages: [pre-commit, pre-merge-commit]
 
   # Advisory-taste gate: unrestricted-select ruff (surfaces everything the blocking gate's
   # --ignore C901 hides) + mccabe complexity (C90) + pip-audit (dependency CVE feed, network-bound
@@ -441,7 +441,7 @@ repos:
         # meant for repos where mypy-full is advisory, e.g. pyutilz) -- this repo-local override
         # is what actually makes it run on every commit, since mlframe's mypy-full.yml IS
         # blocking (advisory: false) unlike pyutilz's.
-        stages: [pre-commit]
+        stages: [pre-commit, pre-merge-commit]
         # --cache-dir points OUTSIDE this checkout, at a dir shared by every mlframe worktree
         # (siblings under the same parent per the worktree-per-task convention). Measured
         # 2026-07-14: a fresh worktree's cold .mypy_cache made this hook take 2-3 MINUTES on as
