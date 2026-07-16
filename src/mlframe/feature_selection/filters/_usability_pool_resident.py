@@ -175,10 +175,18 @@ def score_pair_combos_table_resident(
         combo_chunk = int(max(1, min(nc, (free_b // 4) // (max(1, n * 8) * 3))))
         threads = 256
 
+        from ._fe_resident_operands import resident_operand
+
         for p in range(npairs):
             x1, x2 = operands[p]
-            d_x1 = cp.asarray(np.ascontiguousarray(x1, dtype=np.float64))
-            d_x2 = cp.asarray(np.ascontiguousarray(x2, dtype=np.float64))
+            # Content-hash-keyed resident cache (2026-07-16, cProfile-driven): a raw operand column
+            # commonly recurs across MANY pairs (var A paired with B, C, D, ... all share A) -- was
+            # re-uploaded from host on every occurrence despite unchanged content. resident_operand
+            # (already used pervasively elsewhere in the FE-resident stack) uploads each DISTINCT
+            # content ONCE per fit and returns the cached device buffer on every repeat. Read-only
+            # inputs -> sharing the buffer across pairs is safe; values are byte-identical either way.
+            d_x1 = resident_operand(x1, "usability_pool_operand", dtype=np.float64)
+            d_x2 = resident_operand(x2, "usability_pool_operand", dtype=np.float64)
             # Both operand nanmin shifts in one D2H (was two float() syncs per pair).
             xmin_a, xmin_b = (float(_m) for _m in cp.asnumpy(cp.stack([cp.nanmin(d_x1), cp.nanmin(d_x2)]))) if n else (0.0, 0.0)
             # (nu, n) column-major stacks: each operand's nu unaries applied ONCE (reused across all combos).
