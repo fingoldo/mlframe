@@ -53,9 +53,6 @@ import pandas as pd
 import pytest
 
 from sklearn.base import clone
-from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import roc_auc_score
-
 
 warnings.filterwarnings("ignore")
 
@@ -101,14 +98,16 @@ def _build_cat_signal(seed: int, n: int = 3000):
 
 from tests.feature_selection._biz_val_synth import _logreg_auc, _train_holdout_split
 
-
 # ---------------------------------------------------------------------------
 # Direct unit tests on the encoder kernel
 # ---------------------------------------------------------------------------
 
 
 class TestKFoldEncoder:
+    """Direct unit tests on the K-fold target-encoder kernel."""
+
     def test_fit_returns_oof_for_every_row(self):
+        """kfold_target_encode_fit returns an OOF-encoded column plus a lookup recipe per category."""
         from mlframe.feature_selection.filters._target_encoding_fe import (
             kfold_target_encode_fit,
         )
@@ -136,6 +135,7 @@ class TestKFoldEncoder:
         assert abs(oof_a_mean - full_a) < 0.2  # close but generally not equal
 
     def test_rejects_bad_n_folds(self):
+        """n_folds < 2 raises ValueError referencing n_folds."""
         from mlframe.feature_selection.filters._target_encoding_fe import (
             kfold_target_encode_fit,
         )
@@ -145,6 +145,7 @@ class TestKFoldEncoder:
             kfold_target_encode_fit(X, y, ["a"], n_folds=1)
 
     def test_rejects_missing_columns(self):
+        """A requested TE column absent from X raises ValueError referencing the missing column."""
         from mlframe.feature_selection.filters._target_encoding_fe import (
             kfold_target_encode_fit,
         )
@@ -160,7 +161,10 @@ class TestKFoldEncoder:
 
 
 class TestAutoDetectTeCols:
+    """auto_detect_te_cols picks object-dtype columns within a cardinality band."""
+
     def test_picks_object_in_band(self):
+        """A mid-cardinality object column is picked; low-cardinality and numeric columns are excluded."""
         from mlframe.feature_selection.filters._target_encoding_fe import (
             auto_detect_te_cols,
         )
@@ -184,8 +188,11 @@ class TestAutoDetectTeCols:
 
 
 class TestMultiCategorySignalAUCLift:
+    """K-fold TE augmentation lifts LogReg AUC over the raw baseline that cannot consume the object column."""
+
     @pytest.mark.parametrize("seed", SEEDS)
     def test_logreg_auc_lift_via_te(self, seed: int):
+        """TE-augmented LogReg clears both a >0.15 AUC lift over raw and an absolute 0.70 floor."""
         X, y = _build_cat_signal(seed)
         X_tr, y_tr, X_ho, y_ho = _train_holdout_split(X, y, seed=seed)
 
@@ -211,13 +218,9 @@ class TestMultiCategorySignalAUCLift:
         # Meaningful lift -- TE gives the categorical signal to LogReg in a
         # numeric form it can split on. ``auc_te >> auc_raw`` is the
         # contract; the threshold is conservative enough to ride 3 seeds.
-        assert auc_te > auc_raw + 0.15, (
-            f"seed={seed}: TE failed to lift AUC; raw={auc_raw:.3f} te={auc_te:.3f}"
-        )
+        assert auc_te > auc_raw + 0.15, f"seed={seed}: TE failed to lift AUC; raw={auc_raw:.3f} te={auc_te:.3f}"
         # And TE alone clears a meaningful absolute bar.
-        assert auc_te > 0.70, (
-            f"seed={seed}: TE LogReg AUC={auc_te:.3f} below 0.70 floor"
-        )
+        assert auc_te > 0.70, f"seed={seed}: TE LogReg AUC={auc_te:.3f} below 0.70 floor"
 
 
 # ---------------------------------------------------------------------------
@@ -226,6 +229,8 @@ class TestMultiCategorySignalAUCLift:
 
 
 class TestNoLeakage:
+    """apply_target_encoding is a pure function of the fitted recipe and the row's category; it never reads y."""
+
     @pytest.mark.parametrize("seed", SEEDS)
     def test_transform_independent_of_holdout_y(self, seed: int):
         """``apply_target_encoding`` is a pure function of the test row's
@@ -255,6 +260,8 @@ class TestNoLeakage:
 
 
 class TestSmoothingShrinksRareCategories:
+    """Rare categories get pulled toward the global mean; common categories keep their raw estimate."""
+
     def test_rare_cat_pulled_to_global_mean(self):
         """With smoothing=100 and a rare category (n_c=1), the smoothed
         estimate must sit closer to global_mean than to the raw per-cell
@@ -293,7 +300,10 @@ class TestSmoothingShrinksRareCategories:
 
 
 class TestRecipeReplayUnseenCategories:
+    """Categories never observed during fit map to global_mean instead of NaN or a KeyError."""
+
     def test_unseen_category_maps_to_global_mean_no_nan(self):
+        """Unseen categories and NaN both map to global_mean with no NaN propagation."""
         from mlframe.feature_selection.filters._target_encoding_fe import (
             kfold_target_encode_fit, apply_target_encoding,
         )
@@ -321,7 +331,10 @@ class TestRecipeReplayUnseenCategories:
 
 
 class TestPickleCloneRoundTrip:
+    """The TE recipe and a fitted MRMR carrying it survive pickle and sklearn.clone."""
+
     def test_recipe_survives_pickle(self):
+        """A standalone TE recipe round-trips through pickle bit-identically, including unseen-category fallback."""
         from mlframe.feature_selection.filters.engineered_recipes import (
             build_kfold_target_encoded_recipe, apply_recipe,
         )
@@ -330,7 +343,7 @@ class TestPickleCloneRoundTrip:
             lookup={"A": 0.8, "B": 0.2, "C": 0.5},
             global_mean=0.5, smoothing=10.0,
         )
-        rec_pkl = pickle.loads(pickle.dumps(rec))
+        rec_pkl = pickle.loads(pickle.dumps(rec))  # nosec B301 -- round-trip of a locally-created, trusted object
         assert rec_pkl == rec
         X_test = pd.DataFrame({"region": ["A", "B", "Z", "C"]})
         orig = apply_recipe(rec, X_test)
@@ -340,8 +353,9 @@ class TestPickleCloneRoundTrip:
         assert roundtrip[2] == pytest.approx(0.5)
 
     def test_full_mrmr_pickle_with_te(self):
+        """A fitted MRMR with TE enabled survives clone (ctor params) and pickle (fitted recipes/transform)."""
         X, y = _build_cat_signal(seed=1)
-        X_tr, y_tr, X_ho, y_ho = _train_holdout_split(X, y, seed=1)
+        X_tr, y_tr, X_ho, _y_ho = _train_holdout_split(X, y, seed=1)
         m = _make_mrmr(
             fe_kfold_te_enable=True,
             fe_kfold_te_cols=("cat_region",),
@@ -354,11 +368,10 @@ class TestPickleCloneRoundTrip:
         m2 = clone(m)
         params = m.get_params()
         params2 = m2.get_params()
-        for k in ("fe_kfold_te_enable", "fe_kfold_te_cols",
-                  "fe_kfold_te_folds", "fe_kfold_te_smoothing"):
+        for k in ("fe_kfold_te_enable", "fe_kfold_te_cols", "fe_kfold_te_folds", "fe_kfold_te_smoothing"):
             assert params[k] == params2[k], f"clone lost {k}"
         # Pickle preserves fitted state including recipes.
-        m_pkl = pickle.loads(pickle.dumps(m))
+        m_pkl = pickle.loads(pickle.dumps(m))  # nosec B301 -- round-trip of a locally-created, trusted object
         out_orig = m.transform(X_ho)
         out_pkl = m_pkl.transform(X_ho)
         # Both DataFrames, same shape, same engineered columns present.
@@ -380,7 +393,10 @@ class TestPickleCloneRoundTrip:
 
 
 class TestDefaultDisabledByteIdentical:
+    """With fe_kfold_te_enable=False, the TE knobs are pure no-ops."""
+
     def test_no_te_attrs_populated_when_disabled(self):
+        """With the master switch off, kfold_te_features_ stays empty."""
         X, y = _build_cat_signal(seed=1)
         # ``fe_kfold_te_enable`` defaults to True (the accuracy lever is ON by default since commit 94147e02); pin it OFF here to exercise the disabled-master contract.
         m = _make_mrmr(fe_ntop_features=3, fe_kfold_te_enable=False)
@@ -392,7 +408,7 @@ class TestDefaultDisabledByteIdentical:
         """With ``fe_kfold_te_enable=False`` (pinned OFF here; the constructor default is now True), transform output is bit-identical to a fresh instance with
         the same params -- the TE knobs are no-ops when the master switch is off."""
         X, y = _build_cat_signal(seed=7)
-        X_tr, y_tr, X_ho, y_ho = _train_holdout_split(X, y, seed=7)
+        X_tr, y_tr, X_ho, _y_ho = _train_holdout_split(X, y, seed=7)
         m1 = _make_mrmr(fe_ntop_features=3, fe_kfold_te_enable=False)
         m1.fit(X_tr, y_tr)
         out1 = m1.transform(X_ho)
@@ -406,9 +422,7 @@ class TestDefaultDisabledByteIdentical:
         )
         m2.fit(X_tr, y_tr)
         out2 = m2.transform(X_ho)
-        assert list(out1.columns) == list(out2.columns), (
-            "Setting TE cols without master switch changed selected columns"
-        )
+        assert list(out1.columns) == list(out2.columns), "Setting TE cols without master switch changed selected columns"
         for c in out1.columns:
             if pd.api.types.is_numeric_dtype(out1[c]):
                 np.testing.assert_allclose(
@@ -423,6 +437,7 @@ class TestNeverEmptyRescueSupportIndexSpace:
     ``feature_names_in_[i]`` lookup. Pins the remap so support_ always indexes feature_names_in_ and transform replays without error."""
 
     def test_support_indices_within_feature_names_in_and_transform_runs(self):
+        """support_ indices stay in feature_names_in_ space (never cols-space) so transform never IndexErrors."""
         X, y = _build_cat_signal(seed=1, n=2000)
         m = _make_mrmr(fe_ntop_features=3)  # TE ON by default -> cat_region__te becomes the only confirmed feature, support_ rescues the cat_region operand.
         m.fit(X, y)

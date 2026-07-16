@@ -631,10 +631,13 @@ DEP001 = [
 # has the identical flip: DEP001-listed above for a clean env, but deptry reports it as DEP003 in
 # any environment where it happens to be installed (2026-07-16) -- ignored under both for the same
 # reason, not because it's an actual transitive dep of anything else here.
+# `xxhash` has the identical flip too (2026-07-16): DEP001-listed above for a clean env, but
+# deptry reports it as DEP003 (pulled in transitively, e.g. via pandas/numba) whenever it happens
+# to be resolvable in the environment deptry runs in.
 DEP003 = [
     "filelock", "cpuinfo", "kaleido", "torchvision", "torchmetrics", "lightning_fabric",
     "pytorch_lightning", "triton", "networkx", "llvmlite", "dtaidistance", "mlxtend", "sympy",
-    "bottleneck", "ortools", "yaml", "model_diagnostics", "finance", "concepts",
+    "bottleneck", "ortools", "yaml", "model_diagnostics", "finance", "concepts", "xxhash",
 ]
 
 # ---------------------------------------------------------------------------
