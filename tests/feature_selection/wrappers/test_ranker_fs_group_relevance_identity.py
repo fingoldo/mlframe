@@ -34,6 +34,7 @@ def _mi_from_edges_numpy(x, y, xe, ye):
 def test_mi_from_edges_njit_matches_numpy_reference():
     # The njit kernel must reproduce the numpy searchsorted+add.at+entropy formula to entropy-sum
     # FP round-off (~1e-15); the binning (count of inner edges <= v) is exact.
+    """Mi from edges njit matches numpy reference."""
     rng = np.random.default_rng(5)
     worst = 0.0
     for _ in range(3000):
@@ -49,6 +50,7 @@ def test_mi_from_edges_njit_matches_numpy_reference():
 
 
 def _old_reference(cols, arr, y, groups, bins=8):
+    """Old reference."""
     out = {}
     uniq = np.unique(groups)
     sizes = np.array([int(np.sum(groups == g)) for g in uniq], dtype=np.float64)
@@ -65,6 +67,7 @@ def _old_reference(cols, arr, y, groups, bins=8):
 
 
 def test_group_aware_relevance_bit_identical_to_mask_reference():
+    """Group aware relevance bit identical to mask reference."""
     rng = np.random.default_rng(7)
     n, nf, avg_g = 6000, 12, 25
     ngroups = n // avg_g
@@ -84,6 +87,7 @@ def test_group_aware_relevance_bit_identical_with_non_finite_fallback():
     # Non-finite values in some (feature, group) cells force the exact per-pair fallback
     # (the all-finite batched-quantile fast path cannot handle the JOINT per-(x, y) finite
     # mask). The whole-function result must still be bit-identical to the mask reference.
+    """Group aware relevance bit identical with non finite fallback."""
     rng = np.random.default_rng(11)
     n, nf, avg_g = 6000, 10, 25
     ngroups = n // avg_g
@@ -103,6 +107,7 @@ def test_group_aware_relevance_bit_identical_with_non_finite_fallback():
 
 
 def test_constant_within_group_feature_scores_low():
+    """Constant within group feature scores low."""
     rng = np.random.default_rng(3)
     n, avg_g = 4000, 20
     ngroups = n // avg_g
@@ -121,6 +126,7 @@ def test_constant_within_group_feature_scores_low():
 def test_group_features_mi_njit_matches_per_column():
     # The fused per-group kernel must reproduce the per-column _mi_from_edges path bit-for-bit
     # (same batched-quantile edges deduped inline == np.unique, same joint-hist + entropy order).
+    """Group features mi njit matches per column."""
     import numpy as np
     from mlframe.training.ranking._ranker_fs import _group_features_mi_njit, _mi_from_edges
 
@@ -148,9 +154,11 @@ def test_group_aware_mrmr_incremental_redundancy_matches_mean_reference():
     # The greedy loop maintains red_sum incrementally instead of np.mean([red[i,s] for s in selected]) per
     # candidate. Assert the selected feature list is identical to a mean-based reference greedy on the same
     # relevance/redundancy (same summation order -> bit-identical redundancy -> identical argmax selection).
+    """Group aware mrmr incremental redundancy matches mean reference."""
     import numpy as np
 
     def _ref_greedy(rel, red, eff_floor, cap, w=1.0):
+        """Ref greedy."""
         eligible = np.where(rel > eff_floor)[0]
         if eligible.size == 0:
             return []
@@ -172,6 +180,7 @@ def test_group_aware_mrmr_incremental_redundancy_matches_mean_reference():
         return selected
 
     def _inc_greedy(rel, red, eff_floor, cap, w=1.0):
+        """Inc greedy."""
         eligible = np.where(rel > eff_floor)[0]
         if eligible.size == 0:
             return []
@@ -197,6 +206,7 @@ def test_group_aware_mrmr_incremental_redundancy_matches_mean_reference():
     def _vec_greedy(rel, red, eff_floor, cap, w=1.0):
         # Mirror of the shipped vectorised greedy loop: score all remaining candidates in one
         # rel - w*(red_sum/ns) pass + np.argmax (below-floor / selected masked to -inf).
+        """Vec greedy."""
         eligible = np.where(rel > eff_floor)[0]
         if eligible.size == 0:
             return []

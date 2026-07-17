@@ -16,16 +16,19 @@ from mlframe.feature_selection.filters._extra_fe_families import _avg_tie_rank
 
 
 def _reference_two_sweep(fit_sorted: np.ndarray, vals: np.ndarray) -> np.ndarray:
+    """Reference two sweep."""
     lo = np.searchsorted(fit_sorted, vals, side="left")
     hi = np.searchsorted(fit_sorted, vals, side="right")
     return (lo + hi - 1) / 2.0
 
 
 def _count_searchsorted(monkeypatch):
+    """Count searchsorted."""
     calls = {"n": 0}
     real = np.searchsorted
 
     def spy(a, v, side="left", sorter=None):
+        """Helper that spy."""
         calls["n"] += 1
         return real(a, v, side=side, sorter=sorter)
 
@@ -34,6 +37,7 @@ def _count_searchsorted(monkeypatch):
 
 
 def test_avg_tie_rank_single_sweep_on_continuous(monkeypatch):
+    """Avg tie rank single sweep on continuous."""
     rng = np.random.default_rng(0)
     fit_sorted = np.sort(rng.standard_normal(5000))
     vals = rng.standard_normal(20000)  # continuous -> no exact ties with the fit values
@@ -47,6 +51,7 @@ def test_avg_tie_rank_single_sweep_on_continuous(monkeypatch):
 
 
 def test_avg_tie_rank_two_sweep_on_tied():
+    """Avg tie rank two sweep on tied."""
     rng = np.random.default_rng(0)
     fit_sorted = np.sort(rng.integers(0, 50, 5000).astype(np.float64))
     vals = rng.integers(0, 50, 20000).astype(np.float64)  # heavy exact ties
@@ -56,6 +61,7 @@ def test_avg_tie_rank_two_sweep_on_tied():
 
 
 def test_avg_tie_rank_two_sweep_runs_when_tie_present(monkeypatch):
+    """Avg tie rank two sweep runs when tie present."""
     fit_sorted = np.array([0.0, 1.0, 2.0, 3.0])
     vals = np.array([0.5, 1.0, 2.5])  # 1.0 ties a fit value -> exact two-sweep path
     calls = _count_searchsorted(monkeypatch)

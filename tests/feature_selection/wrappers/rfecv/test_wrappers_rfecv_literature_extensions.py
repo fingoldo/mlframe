@@ -30,7 +30,9 @@ from mlframe.feature_selection.wrappers._helpers import (
 
 
 class TestStabilityCurve:
+    """Groups tests covering TestStabilityCurve."""
     def test_curve_and_elbow_smoke(self):
+        """Curve and elbow smoke."""
         X, y = make_classification(n_samples=300, n_features=10, n_informative=5, random_state=0)
         rfecv = RFECV(estimator=LogisticRegression(max_iter=300), cv=3, max_refits=4, random_state=0)
         rfecv.fit(X, y)
@@ -42,6 +44,7 @@ class TestStabilityCurve:
         assert elbow >= 0
 
     def test_curve_dice_metric(self):
+        """Curve dice metric."""
         X, y = make_classification(n_samples=300, n_features=10, n_informative=5, random_state=0)
         rfecv = RFECV(estimator=LogisticRegression(max_iter=300), cv=3, max_refits=4, random_state=0)
         rfecv.fit(X, y)
@@ -51,6 +54,7 @@ class TestStabilityCurve:
         assert set(curve_j.keys()) == set(curve_d.keys())
 
     def test_invalid_metric_raises(self):
+        """Invalid metric raises."""
         X, y = make_classification(n_samples=100, n_features=5, n_informative=3, random_state=0)
         rfecv = RFECV(estimator=LogisticRegression(max_iter=200), cv=3, max_refits=2, random_state=0)
         rfecv.fit(X, y)
@@ -62,7 +66,9 @@ class TestStabilityCurve:
 
 
 class TestKnockoffWStatistic:
+    """Groups tests covering TestKnockoffWStatistic."""
     def test_w_gain_routes_to_feature_importances(self):
+        """W gain routes to feature importances."""
         X, y = make_classification(n_samples=200, n_features=8, n_informative=4, random_state=0)
         Xdf = pd.DataFrame(X, columns=[f"f{i}" for i in range(8)])
         W = knockoff_importance(
@@ -76,6 +82,7 @@ class TestKnockoffWStatistic:
         assert len(W) == 8
 
     def test_w_coef_routes_to_coef(self):
+        """W coef routes to coef."""
         X, y = make_classification(n_samples=200, n_features=8, n_informative=4, random_state=0)
         Xdf = pd.DataFrame(X, columns=[f"f{i}" for i in range(8)])
         W = knockoff_importance(
@@ -88,6 +95,7 @@ class TestKnockoffWStatistic:
         assert len(W) == 8
 
     def test_w_auto_picks_shap_for_tree(self):
+        """W auto picks shap for tree."""
         try:
             import shap  # noqa: F401
         except ImportError:
@@ -108,9 +116,11 @@ class TestKnockoffWStatistic:
 
 
 class TestMultiOutputGuard:
+    """Groups tests covering TestMultiOutputGuard."""
     def test_2d_y_default_union_selects_per_target(self):
         # The friendly default (multioutput_strategy='union') fits one single-target RFECV per output column and
         # OR-aggregates support_ instead of crashing on a 2D y. Pins the default so the friendly behaviour can't regress.
+        """2d y default union selects per target."""
         X, y = make_regression(n_samples=100, n_features=6, n_targets=3, random_state=0)
         rfecv = RFECV(estimator=Ridge(), cv=3, max_refits=2)
         rfecv.fit(X, y)
@@ -122,6 +132,7 @@ class TestMultiOutputGuard:
         # Opting OUT (multioutput_strategy=None) restores the historical clear NotImplementedError at fit entry, BEFORE
         # the deep sklearn error, with an actionable message: the offending y shape AND the per-target-loop + union(OR)
         # recipe. Pins both so a future refactor cannot regress to the opaque sklearn error.
+        """2d y optout raises informative."""
         X, y = make_regression(n_samples=80, n_features=5, n_targets=2, random_state=1)
         rfecv = RFECV(estimator=Ridge(), cv=2, max_refits=2, multioutput_strategy=None)
         with pytest.raises(NotImplementedError) as ei:
@@ -133,6 +144,7 @@ class TestMultiOutputGuard:
     def test_2d_y_one_constant_column_does_not_abort_others(self):
         # F6: a single degenerate output column (all-constant target -> single-class crash in the sub-fit) must NOT
         # abort the other valid columns. The failed column is skipped + recorded; aggregation proceeds over the rest.
+        """2d y one constant column does not abort others."""
         X, y_good = make_classification(n_samples=200, n_features=6, n_informative=4, random_state=3)
         y = np.column_stack([y_good, np.zeros(X.shape[0], dtype=int)])  # 2nd column all-constant -> single class
         rfecv = RFECV(estimator=LogisticRegression(max_iter=300), cv=3, max_refits=2, multioutput_strategy="union")
@@ -144,9 +156,11 @@ class TestMultiOutputGuard:
 
 
 class TestObjectDtypeNaNScan:
+    """Groups tests covering TestObjectDtypeNaNScan."""
     def test_object_dtype_ndarray_nan_is_imputed_not_passed_to_core(self):
         # F5: an object-dtype ndarray carrying embedded float('nan') was NOT scanned (kind 'O' fell through), so the
         # NaN reached the linear core and crashed. The policy now coerces object arrays and median-imputes them.
+        """Object dtype ndarray nan is imputed not passed to core."""
         X_num, y = make_classification(n_samples=120, n_features=5, n_informative=3, random_state=7)
         X = X_num.astype(object)
         X[0, 0] = float("nan")
@@ -157,6 +171,7 @@ class TestObjectDtypeNaNScan:
 
     def test_object_dtype_ndarray_nan_raise_policy_detects(self):
         # The 'raise' policy must also SEE object-dtype NaN; pre-fix it silently passed through (scan skipped kind 'O').
+        """Object dtype ndarray nan raise policy detects."""
         X_num, y = make_classification(n_samples=80, n_features=4, n_informative=2, random_state=8)
         X = X_num.astype(object)
         X[3, 1] = float("nan")
@@ -169,7 +184,9 @@ class TestObjectDtypeNaNScan:
 
 
 class TestBorutaShapPowerSHAPRouting:
+    """Groups tests covering TestBorutaShapPowerSHAPRouting."""
     def test_boruta_shap_without_lib_raises_import(self):
+        """Boruta shap without lib raises import."""
         try:
             import BorutaShap  # noqa: F401
 
@@ -193,11 +210,13 @@ class TestBorutaShapPowerSHAPRouting:
 
     def test_prescreen_callable_restricts_universe(self):
         # L7: user-supplied callable prescreen filters the candidate set before MBH loop.
+        """Prescreen callable restricts universe."""
         X, y = make_classification(n_samples=200, n_features=10, n_informative=5, random_state=0)
         Xdf = pd.DataFrame(X, columns=[f"f{i}" for i in range(10)])
 
         # Prescreen keeps first 4 features only.
         def my_prescreen(X, y):
+            """My prescreen."""
             return [f"f{i}" for i in range(4)]
 
         rfecv = RFECV(
@@ -213,6 +232,7 @@ class TestBorutaShapPowerSHAPRouting:
         assert selected.issubset({f"f{i}" for i in range(4)})
 
     def test_prescreen_unknown_string_warns_and_noops(self, caplog):
+        """Prescreen unknown string warns and noops."""
         X, y = make_classification(n_samples=100, n_features=6, n_informative=3, random_state=0)
         rfecv = RFECV(
             estimator=LogisticRegression(max_iter=300),
@@ -246,10 +266,12 @@ class TestBorutaShapPowerSHAPRouting:
         assert len(selected) <= 10
 
     def test_prescreen_callable_failure_falls_back(self, caplog):
+        """Prescreen callable failure falls back."""
         X, y = make_classification(n_samples=100, n_features=6, n_informative=3, random_state=0)
         Xdf = pd.DataFrame(X, columns=[f"f{i}" for i in range(6)])
 
         def bad_prescreen(X, y):
+            """Bad prescreen."""
             raise RuntimeError("boom")
 
         rfecv = RFECV(
@@ -269,6 +291,7 @@ class TestBorutaShapPowerSHAPRouting:
     def test_shap_oof_alias_routes_to_shap(self):
         # 'shap_oof' is an alias of 'shap' that makes the semantic explicit.
         # If shap is not installed, both raise ImportError with the same module.
+        """Shap oof alias routes to shap."""
         try:
             import shap  # noqa: F401
 
@@ -286,6 +309,7 @@ class TestBorutaShapPowerSHAPRouting:
             )
 
     def test_powershap_without_lib_raises_import(self):
+        """Powershap without lib raises import."""
         try:
             import powershap  # noqa: F401
 

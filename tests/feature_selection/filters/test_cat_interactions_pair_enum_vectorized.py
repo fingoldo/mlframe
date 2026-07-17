@@ -11,6 +11,7 @@ import numpy as np
 
 
 def _old_enum(candidate_idxs_arr, nbins, max_combined):
+    """Old enum."""
     pairs_a_list = []
     pairs_b_list = []
     for ii in range(len(candidate_idxs_arr)):
@@ -28,6 +29,7 @@ def _old_enum(candidate_idxs_arr, nbins, max_combined):
 
 
 def _new_enum(candidate_idxs_arr, nbins, max_combined):
+    """New enum."""
     n_cand = len(candidate_idxs_arr)
     if n_cand >= 2:
         ii, jj = np.triu_indices(n_cand, k=1)
@@ -41,6 +43,7 @@ def _new_enum(candidate_idxs_arr, nbins, max_combined):
 
 
 def test_pair_enum_matches_reference_across_random_configs():
+    """Pair enum matches reference across random configs."""
     rng = np.random.default_rng(0)
     n_checks = 0
     for trial in range(150):

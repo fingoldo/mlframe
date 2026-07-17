@@ -9,6 +9,7 @@ from mlframe.feature_selection.filters._mi_dispatch import _get_unique_y, score_
 
 
 def test_get_unique_y_matches_np_unique():
+    """Get unique y matches np unique."""
     rng = np.random.default_rng(0)
     y = rng.choice([0.0, 1.0], size=200)
     assert np.array_equal(_get_unique_y(y), np.unique(y))
@@ -17,6 +18,7 @@ def test_get_unique_y_matches_np_unique():
 
 
 def test_score_pair_mi_plug_in_unaffected_by_unique_y_cache():
+    """Score pair mi plug in unaffected by unique y cache."""
     rng = np.random.default_rng(1)
     n = 500
     x = rng.normal(size=n)

@@ -25,6 +25,7 @@ from mlframe.feature_selection.filters._permutation_null import (
 
 
 def test_parallel_gen_rows_are_uniform_permutations():
+    """Parallel gen rows are uniform permutations."""
     y = np.random.default_rng(0).integers(0, 10, size=5000).astype(np.int32)
     out = _gen_target_shuffles_par_njit(y, 32, np.int64(123))
     assert out.shape == (32, 5000)
@@ -34,6 +35,7 @@ def test_parallel_gen_rows_are_uniform_permutations():
 
 
 def test_parallel_gen_reproducible_and_thread_independent():
+    """Parallel gen reproducible and thread independent."""
     import numba
 
     y = np.random.default_rng(1).integers(0, 8, size=4000).astype(np.int32)
@@ -50,6 +52,7 @@ def test_parallel_gen_reproducible_and_thread_independent():
 
 
 def test_dispatcher_floor_deterministic_under_both_backends():
+    """Dispatcher floor deterministic under both backends."""
     rng = np.random.default_rng(7)
     n, p, nbins = 3000, 24, 10
     cols = [rng.integers(0, nbins, size=n).astype(np.int32) for _ in range(p)]

@@ -38,6 +38,7 @@ def _fit_tiny_rf(n_features: int = 4, seed: int = 0):
 
 
 class TestPermutationForwardsParams:
+    """Groups tests covering TestPermutationForwardsParams."""
     def test_permutation_forwards_n_repeats_and_random_state(self, monkeypatch):
         """The 'permutation' path must forward the function's n_repeats and the
         caller's random_state into sklearn.inspection.permutation_importance.
@@ -48,11 +49,13 @@ class TestPermutationForwardsParams:
         captured = {}
 
         def _spy(model_, data_, target_, *, n_repeats, random_state, n_jobs, **kw):
+            """Helper that spy."""
             captured["n_repeats"] = n_repeats
             captured["random_state"] = random_state
 
             # Return an object shaped like sklearn's Bunch result.
             class _Res:
+                """Groups tests covering Res."""
                 importances_mean = np.zeros(len(cols), dtype=float)
 
             return _Res()
@@ -82,10 +85,12 @@ class TestPermutationForwardsParams:
         captured = {}
 
         def _spy(model_, data_, target_, *, n_repeats, random_state, n_jobs, **kw):
+            """Helper that spy."""
             captured["n_repeats"] = n_repeats
             captured["random_state"] = random_state
 
             class _Res:
+                """Groups tests covering Res."""
                 importances_mean = np.zeros(len(cols), dtype=float)
 
             return _Res()
@@ -150,6 +155,7 @@ class TestPermutationForwardsParams:
 
 
 class TestBorutaShapRequiresData:
+    """Groups tests covering TestBorutaShapRequiresData."""
     def test_boruta_shap_data_none_raises_valueerror(self):
         """boruta_shap must require data (X). Pre-fix, data=None silently fed
         ``target`` in as the feature matrix (X=data if data is not None else

@@ -887,6 +887,7 @@ def test_biz_val_rfecv_property_no_crash_on_random_configs():
     )
     @settings(max_examples=5, deadline=None)
     def _property(n, p_signal, p_noise, cv, seed):
+        """Helper that property."""
         X, y, _ = make_signal_plus_noise(
             n=n,
             p_signal=p_signal,
@@ -1080,6 +1081,7 @@ def test_biz_val_rfecv_sample_weight_changes_support_under_recency():
     # wrapper end-to-end -- the cloned estimator's fit() must accept the per-fold sample_weight (this is the
     # ENTRY POINT being tested) and the scorer must accept the per-fold sample_weight on the test slice.
     def _rfecv_chosen(sw):
+        """Rfecv chosen."""
         est = LogisticRegression(max_iter=300, random_state=0)
         sel = RFECV(estimator=est, cv=3, verbose=0, random_state=42, max_runtime_mins=0.5)
         sel.fit(df, ys, sample_weight=sw)

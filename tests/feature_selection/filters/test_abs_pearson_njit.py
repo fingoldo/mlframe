@@ -17,6 +17,7 @@ from mlframe.feature_selection.filters._fe_usability_signal import (
 
 
 def _numpy_ref(y, v):
+    """Numpy ref."""
     m = np.isfinite(y) & np.isfinite(v)
     if int(m.sum()) < 2:
         return 0.0
@@ -31,6 +32,7 @@ def _numpy_ref(y, v):
 
 
 def test_abs_pearson_matches_numpy_incl_nan():
+    """Abs pearson matches numpy incl nan."""
     rng = np.random.default_rng(0)
     for n in (500, 2000, 20000):
         y = rng.standard_normal(n)
@@ -43,6 +45,7 @@ def test_abs_pearson_matches_numpy_incl_nan():
 
 
 def test_abs_pearson_short_circuits():
+    """Abs pearson short circuits."""
     n = 1000
     y = np.linspace(0, 1, n)
     assert float(_abs_pearson_njit(np.full(n, 3.0), y)) == 0.0  # constant side -> 0
@@ -52,6 +55,7 @@ def test_abs_pearson_short_circuits():
 
 
 def test_abs_pearson_perfect_and_sign():
+    """Abs pearson perfect and sign."""
     n = 1000
     y = np.linspace(-2, 2, n)
     assert abs(abs_pearson(y, -3.0 * y + 1.0) - 1.0) <= 1e-12  # |corr| == 1, sign folded

@@ -20,6 +20,7 @@ class _FakeRFECVWithSetParams:
         self._set_params_calls: list[dict] = []
 
     def set_params(self, **kwargs):
+        """Set params."""
         self._set_params_calls.append(dict(kwargs))
         for k, v in kwargs.items():
             setattr(self, k, v)
@@ -33,6 +34,7 @@ class _FakeNoSetParams:
 
 
 def test_set_params_path_invoked_for_sklearn_style_instances():
+    """Set params path invoked for sklearn style instances."""
     inst = _FakeRFECVWithSetParams()
     _pre_pipelines, _names = _build_pre_pipelines(
         use_ordinary_models=False,
@@ -55,6 +57,7 @@ def test_set_params_path_invoked_for_sklearn_style_instances():
 
 
 def test_setattr_fallback_for_non_sklearn_instances():
+    """Setattr fallback for non sklearn instances."""
     inst = _FakeNoSetParams()
     _build_pre_pipelines(
         use_ordinary_models=False,

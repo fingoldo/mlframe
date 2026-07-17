@@ -12,6 +12,7 @@ _CC = 48 * 1024
 
 def test_degenerate_axis_kernel2_overflow_is_rejected():
     # nby=1, nbx=120, nbz=100 -> joint_size = 12000, kernel1 = 48000 <= 49152 (PASSES kernel-1 guard) ...
+    """Degenerate axis kernel2 overflow is rejected."""
     nbx, nby, nbz = 120, 1, 100
     joint_size = nbx * nby * nbz
     assert joint_size * 4 <= _CC, "kernel-1 must fit so this exercises the kernel-2 guard specifically"
@@ -22,17 +23,20 @@ def test_degenerate_axis_kernel2_overflow_is_rejected():
 
 
 def test_small_config_accepted():
+    """Small config accepted."""
     nbx, nby, nbz = 10, 10, 10
     assert _cmi_cuda_shmem_fits(nbx * nby * nbz, nbx, nby, nbz) is True
 
 
 def test_kernel1_overflow_rejected():
     # joint_size*4 alone exceeds 48 KB
+    """Kernel1 overflow rejected."""
     nbx, nby, nbz = 40, 40, 40  # joint_size = 64000 -> *4 = 256000 > 49152
     assert _cmi_cuda_shmem_fits(nbx * nby * nbz, nbx, nby, nbz) is False
 
 
 def test_legacy_no_nbins_checks_kernel1_only():
     # nbins unknown (0) -> only kernel 1 is guarded (back-compat for callers not passing nbins)
+    """Legacy no nbins checks kernel1 only."""
     assert _cmi_cuda_shmem_fits(10000) is True  # 40000 <= 49152
     assert _cmi_cuda_shmem_fits(20000) is False  # 80000 > 49152

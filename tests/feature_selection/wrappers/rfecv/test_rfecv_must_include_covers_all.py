@@ -15,6 +15,7 @@ from mlframe.feature_selection.wrappers import RFECV
 
 
 def _data(n_samples=120, n_features=4, seed=3):
+    """Helper that data."""
     rng = np.random.default_rng(seed)
     X = rng.standard_normal((n_samples, n_features))
     y = (X[:, :2].sum(axis=1) + 0.3 * rng.standard_normal(n_samples) > 0).astype(int)
@@ -22,6 +23,7 @@ def _data(n_samples=120, n_features=4, seed=3):
 
 
 def _fit(**overrides):
+    """Helper that fit."""
     base = dict(
         estimator=LogisticRegression(max_iter=300, random_state=0),
         max_refits=4,
@@ -35,6 +37,7 @@ def _fit(**overrides):
 
 
 def test_must_include_covering_all_columns_retains_pins():
+    """Must include covering all columns retains pins."""
     X, y = _data(n_features=4)
     all_cols = list(X.columns)  # must_include == the whole universe -> empty search complement
     rfecv = _fit(must_include=all_cols)

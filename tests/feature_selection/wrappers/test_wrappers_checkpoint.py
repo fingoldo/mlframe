@@ -25,6 +25,7 @@ from tests.training.synthetic import make_sklearn_classification_df
 
 @pytest.fixture(scope="module")
 def small_problem():
+    """Small problem."""
     X_df, y, _ = make_sklearn_classification_df(
         n_samples=200,
         n_features=8,
@@ -40,6 +41,7 @@ def small_problem():
 
 
 def _make_selector(checkpoint_path=None, max_refits=8, random_state=0):
+    """Make selector."""
     return RFECV(
         estimator=LogisticRegression(max_iter=300, random_state=random_state),
         cv=3,
@@ -54,6 +56,7 @@ def _make_selector(checkpoint_path=None, max_refits=8, random_state=0):
 # Defaults: checkpoint_path=None must not write files
 # ----------------------------------------------------------------------------
 class TestCheckpointOptIn:
+    """Groups tests covering TestCheckpointOptIn."""
     def test_no_checkpoint_path_means_no_file_io(self, small_problem, tmp_path):
         """Default: no file should appear anywhere when checkpoint_path is None."""
         X, y = small_problem
@@ -68,7 +71,9 @@ class TestCheckpointOptIn:
 # Save: file is created and contains the documented keys
 # ----------------------------------------------------------------------------
 class TestCheckpointSave:
+    """Groups tests covering TestCheckpointSave."""
     def test_checkpoint_file_created_after_fit(self, small_problem, tmp_path):
+        """Checkpoint file created after fit."""
         X, y = small_problem
         ckpt = tmp_path / "rfecv.pkl"
         sel = _make_selector(checkpoint_path=str(ckpt), max_refits=4)
@@ -119,6 +124,7 @@ class TestCheckpointSave:
 # Load: signature match, mismatch, corrupt
 # ----------------------------------------------------------------------------
 class TestCheckpointLoad:
+    """Groups tests covering TestCheckpointLoad."""
     def test_signature_match_resumes_state(self, small_problem, tmp_path):
         """fit-then-fit-with-checkpoint should resume from the saved state.
         On the second fit (with skip_retraining_on_same_shape=False to force
@@ -186,6 +192,7 @@ class TestCheckpointLoad:
 # Atomic write: pre-existing valid checkpoint survives a write that fails
 # ----------------------------------------------------------------------------
 class TestCheckpointAtomicity:
+    """Groups tests covering TestCheckpointAtomicity."""
     def test_non_writeable_target_raises_inside_save_only(self, small_problem, tmp_path):
         """Direct unit test of _save_checkpoint atomicity: write to a path
         inside a non-existent dir must fail cleanly without leaving stray
@@ -212,12 +219,14 @@ class TestCheckpointAtomicity:
         assert target.read_bytes() == original_bytes, "atomic write violated: failed save corrupted the existing checkpoint"
 
     def test_no_temp_files_left_on_success(self, tmp_path):
+        """No temp files left on success."""
         sel = _make_selector(checkpoint_path=str(tmp_path / "ckpt.pkl"))
         sel._save_checkpoint({"version": 1, "signature": ((1, 1), (1,), ("a",)), "nsteps": 1})
         leftovers = list(tmp_path.glob(".rfecv_ckpt_*"))
         assert leftovers == [], f"stale tempfile after successful save: {leftovers}"
 
     def test_no_temp_files_left_on_failed_save(self, tmp_path):
+        """No temp files left on failed save."""
         sel = _make_selector(checkpoint_path=str(tmp_path / "ckpt.pkl"))
         # Pre-create target so _save_checkpoint sees the dir exists.
         with pytest.raises((pickle.PicklingError, AttributeError, TypeError)):
@@ -230,6 +239,7 @@ class TestCheckpointAtomicity:
 # End-to-end: resume produces valid-shaped support_ and compatible cv_results_
 # ----------------------------------------------------------------------------
 class TestCheckpointEndToEnd:
+    """Groups tests covering TestCheckpointEndToEnd."""
     def test_resumed_fit_produces_valid_outputs(self, small_problem, tmp_path):
         """After resume, all standard sklearn-style attributes must be
         populated as if no checkpoint existed."""

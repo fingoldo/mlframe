@@ -25,6 +25,7 @@ from mlframe.feature_selection.filters._orthogonal_univariate_fe import _mi_clas
 
 @pytest.mark.parametrize("seed", [0, 2, 5])
 def test_batch_matches_per_column(seed):
+    """Batch matches per column."""
     rng = np.random.default_rng(seed)
     n, p = 1200, 30
     X = rng.standard_normal((n, p))
@@ -39,6 +40,7 @@ def test_batch_matches_per_column(seed):
 
 
 def test_rank_table_plug_in_copula_unchanged():
+    """Rank table plug in copula unchanged."""
     rng = np.random.default_rng(0)
     n = 1000
     raw = pd.DataFrame({f"r{j}": rng.standard_normal(n) for j in range(4)})

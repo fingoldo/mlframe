@@ -34,6 +34,7 @@ class TestKendallSubsampleSeed:
     behaviour was the stale proxy; the real contract is full-n determinism + more power."""
 
     def test_distinct_seeds_give_identical_full_n_p_values(self):
+        """Distinct seeds give identical full n p values."""
         rng = np.random.default_rng(1)
         n = 6000  # full-n path; no subsample, so the seed cannot perturb the draw
         x = rng.standard_normal(n)
@@ -43,6 +44,7 @@ class TestKendallSubsampleSeed:
         assert p0 == p1, "full-n Kendall is deterministic; random_state must not change the p-value"
 
     def test_fixed_seed_is_reproducible(self):
+        """Fixed seed is reproducible."""
         rng = np.random.default_rng(2)
         n = 6000
         x = rng.standard_normal(n)
@@ -50,6 +52,7 @@ class TestKendallSubsampleSeed:
         assert _kendall_p_numeric_continuous(x, y, random_state=7) == _kendall_p_numeric_continuous(x, y, random_state=7)
 
     def test_relevance_table_kendall_is_seed_independent(self):
+        """Relevance table kendall is seed independent."""
         rng = np.random.default_rng(3)
         n = 6000
         f0 = rng.standard_normal(n)
@@ -64,11 +67,13 @@ class TestNoiseFloorTaskTypes:
     """F10: noise-floor must run on binary, multiclass AND continuous targets (was binary-only)."""
 
     def test_infer_task_scoring(self):
+        """Infer task scoring."""
         assert _infer_task_scoring(np.array([0, 1, 0, 1])) == ("binary", "roc_auc")
         assert _infer_task_scoring(np.array([0, 1, 2, 0, 1, 2])) == ("multiclass", "roc_auc_ovr")
         assert _infer_task_scoring(np.linspace(0.0, 1.0, 50))[0] == "regression"
 
     def test_multiclass_target_does_not_crash(self):
+        """Multiclass target does not crash."""
         pytest.importorskip("sklearn")
         from sklearn.ensemble import RandomForestClassifier
 
@@ -83,6 +88,7 @@ class TestNoiseFloorTaskTypes:
         assert "n_star" in out and out["n_star"] >= 0
 
     def test_continuous_target_does_not_crash(self):
+        """Continuous target does not crash."""
         pytest.importorskip("sklearn")
         from sklearn.ensemble import RandomForestRegressor
 
@@ -96,6 +102,7 @@ class TestNoiseFloorTaskTypes:
         assert "n_star" in out and out["n_star"] >= 0
 
     def test_binary_target_still_works(self):
+        """Binary target still works."""
         pytest.importorskip("sklearn")
         from sklearn.ensemble import RandomForestClassifier
 
@@ -113,6 +120,7 @@ class TestChi2QcutNaNBins:
     """F11: continuous-target chi2 path must tolerate NaN bins from qcut(duplicates='drop') / NaN in y."""
 
     def test_heavily_tied_continuous_target_no_crash(self):
+        """Heavily tied continuous target no crash."""
         rng = np.random.default_rng(0)
         n = 600
         cat = rng.integers(0, 4, n).astype(object)
@@ -123,6 +131,7 @@ class TestChi2QcutNaNBins:
         assert np.isfinite(out.loc["c", "p_value"])
 
     def test_nan_in_continuous_target_no_crash(self):
+        """Nan in continuous target no crash."""
         rng = np.random.default_rng(1)
         n = 600
         cat = rng.integers(0, 4, n).astype(object)
@@ -138,6 +147,7 @@ class TestChi2SmallCellWarning:
 
     def test_small_cell_emits_warning(self, caplog):
         # 3x3 table with tiny counts -> expected cells well below 5.
+        """Small cell emits warning."""
         x = np.array(list("abcabcabc"))
         y = np.array(list("xyzxyzxyz"))
         with caplog.at_level(logging.WARNING):
@@ -145,6 +155,7 @@ class TestChi2SmallCellWarning:
         assert any("Cochran" in r.message for r in caplog.records)
 
     def test_large_table_no_warning(self, caplog):
+        """Large table no warning."""
         rng = np.random.default_rng(0)
         n = 5000
         x = rng.integers(0, 2, n).astype(str)

@@ -7,6 +7,7 @@ from mlframe.feature_selection.filters._cat_target_encoding_and_weighted import 
 
 
 def test_cell_sum_cnt_njit_bit_identical():
+    """Cell sum cnt njit bit identical."""
     rng = np.random.default_rng(0)
     n, nu = 40000, 300
     classes = rng.integers(0, nu, n).astype(np.int64)
@@ -22,6 +23,7 @@ def test_cell_sum_cnt_njit_bit_identical():
 
 
 def test_kfold_te_fit_runs_and_deterministic():
+    """Kfold te fit runs and deterministic."""
     from mlframe.feature_selection.filters import MRMR
 
     rng = np.random.default_rng(1)
@@ -31,6 +33,7 @@ def test_kfold_te_fit_runs_and_deterministic():
     y = ((X["cat0"] == X["cat1"]) * 0.8 + X["num"] * 0.4 + rng.standard_normal(n) * 0.3 > 0.4).astype(int).to_numpy()
 
     def fit():
+        """Helper that fit."""
         MRMR._FIT_CACHE.clear()
         m = MRMR(
             fe_ntop_features=4,

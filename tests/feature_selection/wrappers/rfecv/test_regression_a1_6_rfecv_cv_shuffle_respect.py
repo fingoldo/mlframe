@@ -22,6 +22,7 @@ from mlframe.feature_selection.wrappers.rfecv._cv_setup import _resolve_cv_and_v
 
 
 def _make_pd_datetime_indexed_xy():
+    """Make pd datetime indexed xy."""
     n = 60
     idx = pd.date_range("2020-01-01", periods=n, freq="D")
     X = pd.DataFrame({"f0": np.arange(n), "f1": np.arange(n)[::-1] * 0.5}, index=idx)
@@ -30,6 +31,7 @@ def _make_pd_datetime_indexed_xy():
 
 
 def test_rfecv_cv_shuffle_true_overrides_temporal_pandas(caplog):
+    """Rfecv cv shuffle true overrides temporal pandas."""
     X, y = _make_pd_datetime_indexed_xy()
     est = LogisticRegression(max_iter=50)
     with caplog.at_level(logging.WARNING, logger="mlframe.feature_selection.wrappers.rfecv"):
@@ -77,6 +79,7 @@ def test_rfecv_cv_shuffle_false_still_swaps_to_tss_on_temporal_pandas(caplog):
 
 
 def test_rfecv_cv_shuffle_true_overrides_polars_hint(caplog):
+    """Rfecv cv shuffle true overrides polars hint."""
     X, y = _make_pd_datetime_indexed_xy()
     est = LogisticRegression(max_iter=50)
     with caplog.at_level(logging.WARNING, logger="mlframe.feature_selection.wrappers.rfecv"):
@@ -101,6 +104,7 @@ def test_rfecv_cv_shuffle_true_overrides_polars_hint(caplog):
 
 
 def test_rfecv_cv_shuffle_true_overrides_timestamps_hint(caplog):
+    """Rfecv cv shuffle true overrides timestamps hint."""
     X, y = _make_pd_datetime_indexed_xy()
     est = LogisticRegression(max_iter=50)
     ts = np.arange(len(y))

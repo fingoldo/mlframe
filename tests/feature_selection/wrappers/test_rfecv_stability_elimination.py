@@ -18,6 +18,7 @@ from mlframe.feature_selection.wrappers._enums import OptimumSearch, VotesAggreg
 
 def test_aggregate_stability_demotes_one_fold_spiker():
     # b: steady top-2 in r0,r2 (freq 2/3); c: spikes high in r1 only (freq 1/3).
+    """Aggregate stability demotes one fold spiker."""
     fi = {
         "r0": {"a": 1.0, "b": 0.9, "c": 0.1},
         "r1": {"a": 1.0, "b": 0.05, "c": 0.9},
@@ -30,6 +31,7 @@ def test_aggregate_stability_demotes_one_fold_spiker():
 
 
 def test_aggregate_stability_empty_and_single_run():
+    """Aggregate stability empty and single run."""
     assert aggregate_stability({}, cut_k=2) == {}
     s = aggregate_stability({"r0": {"a": 1.0, "b": 0.2}}, cut_k=1)
     # single run: a in top-1 -> freq 1.0 -> score = mean (1.0); b out -> 0.
@@ -39,6 +41,7 @@ def test_aggregate_stability_empty_and_single_run():
 
 def test_aggregate_stability_handles_nan_absent_feature():
     # feature c absent in r1 (ragged) -> never counts as surviving that run.
+    """Aggregate stability handles nan absent feature."""
     fi = {"r0": {"a": 1.0, "c": 0.9}, "r1": {"a": 1.0}, "r2": {"a": 1.0, "c": 0.9}}
     s = aggregate_stability(fi, cut_k=1)
     # a is top-1 in all 3 -> freq 1.0; c top-1 in 0 (a always wins) -> 0.
@@ -46,6 +49,7 @@ def test_aggregate_stability_handles_nan_absent_feature():
 
 
 def test_get_next_features_subset_stability_path():
+    """Get next features subset stability path."""
     fi = {
         "r0": {0: 1.0, 1: 0.9, 2: 0.1, 3: 0.05},
         "r1": {0: 1.0, 1: 0.05, 2: 0.95, 3: 0.04},
@@ -74,6 +78,7 @@ def test_get_next_features_subset_stability_path():
 
 
 def test_rfecv_constructor_validates_elimination_rule():
+    """Rfecv constructor validates elimination rule."""
     from sklearn.ensemble import RandomForestClassifier
 
     with pytest.raises(ValueError, match="elimination_rule"):
@@ -84,6 +89,7 @@ def test_rfecv_constructor_validates_elimination_rule():
 
 
 def test_rfecv_default_elimination_rule_is_importance():
+    """Rfecv default elimination rule is importance."""
     from sklearn.ensemble import RandomForestClassifier
 
     r = RFECV(estimator=RandomForestClassifier())

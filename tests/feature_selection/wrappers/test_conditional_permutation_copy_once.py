@@ -15,12 +15,14 @@ class _AllColModel:
         self.seen_ids = []
 
     def fit(self, X, y):
+        """Helper that fit."""
         X = np.asarray(X)
         # Least-squares weights so score reflects each feature's contribution.
         self.w, *_ = np.linalg.lstsq(X, np.asarray(y), rcond=None)
         return self
 
     def score(self, X, y):
+        """Helper that score."""
         Xa = np.asarray(X)
         self.seen_ids.append(id(X))
         pred = Xa @ self.w
@@ -30,6 +32,7 @@ class _AllColModel:
 
 
 def _make_data():
+    """Make data."""
     rng = np.random.default_rng(0)
     n, p = 200, 4
     X = rng.random((n, p))

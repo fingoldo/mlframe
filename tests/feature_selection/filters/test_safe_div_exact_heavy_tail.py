@@ -17,6 +17,7 @@ import pytest
 
 
 def _impls():
+    """Helper that impls."""
     from mlframe.feature_selection.filters.feature_engineering import _safe_div as fe_div
     from mlframe.feature_selection.filters.hermite_fe import _safe_div as h_div
 
@@ -25,6 +26,7 @@ def _impls():
 
 @pytest.mark.parametrize("modname,div", _impls())
 def test_safe_div_is_exact_on_nonzero_denominators(modname, div):
+    """Safe div is exact on nonzero denominators."""
     rng = np.random.default_rng(0)
     x = rng.standard_normal(10_000)
     # span both signs and many magnitudes, incl. the heavy-tail near-zero denominators.
@@ -47,6 +49,7 @@ def test_safe_div_is_exact_on_nonzero_denominators(modname, div):
 
 @pytest.mark.parametrize("modname,div", _impls())
 def test_safe_div_is_finite_at_exact_zero(modname, div):
+    """Safe div is finite at exact zero."""
     x = np.array([1.0, -2.0, 0.0, 3.0])
     y = np.array([0.0, 0.0, 0.0, 0.0])
     got = np.asarray(div(x, y), dtype=np.float64)

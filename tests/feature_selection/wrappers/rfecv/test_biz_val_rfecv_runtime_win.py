@@ -79,6 +79,7 @@ _INIT_DESIGN = 8
 
 
 def _make_data(seed: int = 0):
+    """Make data."""
     X, y = make_classification(
         n_samples=_N_SAMPLES,
         n_features=_N_FEATURES,
@@ -101,6 +102,7 @@ def _quiet(fn):
 
 
 def _make_ours(max_refits: int = _MAX_REFITS):
+    """Make ours."""
     return MlframeRFECV(
         estimator=LogisticRegression(max_iter=200, random_state=0),
         cv=_CV,
@@ -115,6 +117,7 @@ def _make_ours(max_refits: int = _MAX_REFITS):
 
 
 def _make_sklearn():
+    """Make sklearn."""
     return SkRFECV(estimator=LogisticRegression(max_iter=200, random_state=0), step=1, cv=_CV)
 
 

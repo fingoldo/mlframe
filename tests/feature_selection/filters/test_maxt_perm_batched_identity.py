@@ -20,6 +20,7 @@ from mlframe.feature_selection.filters._permutation_null import (
 
 
 def test_perm_batched_bit_identical_to_per_shuffle():
+    """Perm batched bit identical to per shuffle."""
     rng = np.random.default_rng(0)
     n, ncols, nbins, K = 8000, 12, 12, 25
     fd = rng.integers(0, nbins, (n, ncols)).astype(np.int32)
@@ -44,6 +45,7 @@ def test_perm_batched_bit_identical_to_per_shuffle():
 
 
 def test_pooled_pair_floor_runs_and_is_nonneg():
+    """Pooled pair floor runs and is nonneg."""
     rng = np.random.default_rng(1)
     n, ncols, nbins = 6000, 10, 10
     fd = rng.integers(0, nbins, (n, ncols)).astype(np.int32)
@@ -88,6 +90,7 @@ def test_triple_perm_batched_bit_identical_to_per_shuffle():
 
 
 def test_pooled_triple_floor_runs_and_is_nonneg():
+    """Pooled triple floor runs and is nonneg."""
     rng = np.random.default_rng(3)
     n, ncols, nbins = 5000, 9, 8
     fd = rng.integers(0, nbins, (n, ncols)).astype(np.int32)
