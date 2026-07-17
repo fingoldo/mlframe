@@ -28,6 +28,7 @@ def _reference_per_row(X_test, col, recipe):
 
 @pytest.mark.parametrize("seed", [0, 1, 7])
 def test_apply_target_encoding_matches_per_row_loop(seed):
+    """Apply target encoding matches per row loop."""
     rng = np.random.default_rng(seed)
     n = 20_000
     card = 200

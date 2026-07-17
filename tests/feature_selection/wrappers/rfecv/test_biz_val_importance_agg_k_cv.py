@@ -14,10 +14,12 @@ from mlframe.feature_selection.wrappers._helpers_importance_agg import aggregate
 
 def _steady_vs_noisy_fi():
     # steady true feature: gain 1.0 every fold. noisy decoy: identical mean 1.0 but swings 0<->2 fold to fold.
+    """Steady vs noisy fi."""
     return {f"r{k}": {"steady": 1.0, "noisy": (2.0 if k % 2 == 0 else 0.0)} for k in range(6)}
 
 
 def test_biz_val_rfecv_importance_agg_k_cv_zero_cannot_separate_equal_mean_features():
+    """Biz val rfecv importance agg k cv zero cannot separate equal mean features."""
     fi = _steady_vs_noisy_fi()
     s = aggregate_tree(fi, k_cv=0.0)
     ratio = s["steady"] / max(s["noisy"], 1e-9)
@@ -25,6 +27,7 @@ def test_biz_val_rfecv_importance_agg_k_cv_zero_cannot_separate_equal_mean_featu
 
 
 def test_biz_val_rfecv_importance_agg_k_cv_positive_demotes_unstable_decoy():
+    """Biz val rfecv importance agg k cv positive demotes unstable decoy."""
     fi = _steady_vs_noisy_fi()
     s = aggregate_tree(fi, k_cv=1.0)
     ratio = s["steady"] / max(s["noisy"], 1e-9)
@@ -33,6 +36,7 @@ def test_biz_val_rfecv_importance_agg_k_cv_positive_demotes_unstable_decoy():
 
 
 def test_biz_val_rfecv_importance_agg_k_cv_separation_grows_monotonically():
+    """Biz val rfecv importance agg k cv separation grows monotonically."""
     fi = _steady_vs_noisy_fi()
     ratios = []
     for k_cv in (0.0, 0.5, 1.0, 2.0):

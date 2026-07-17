@@ -23,7 +23,9 @@ from mlframe.feature_selection.wrappers import RFECV
 # then has 1 informative signal vs 1 noise to choose from.
 # ----------------------------------------------------------------------------
 class TestC15_ManyCollinearCopies:
+    """Groups tests covering TestC15_ManyCollinearCopies."""
     def test_dedup_collapses_100_copies(self):
+        """Dedup collapses 100 copies."""
         rng = np.random.default_rng(0)
         n = 200
         base = rng.standard_normal(n)
@@ -53,7 +55,9 @@ class TestC15_ManyCollinearCopies:
 # from each strongly-informative block.
 # ----------------------------------------------------------------------------
 class TestC16_BlockDiagonal:
+    """Groups tests covering TestC16_BlockDiagonal."""
     def test_block_diagonal_picks_at_least_one_per_block(self):
+        """Block diagonal picks at least one per block."""
         rng = np.random.default_rng(0)
         n = 500
         # 5 base signals, each replicated 10x with tiny independent noise
@@ -88,7 +92,9 @@ class TestC16_BlockDiagonal:
 # (not all 4, since f0 is fully determined by the others).
 # ----------------------------------------------------------------------------
 class TestC17_NestedRedundancy:
+    """Groups tests covering TestC17_NestedRedundancy."""
     def test_nested_redundant_max_3_of_4_selected(self):
+        """Nested redundant max 3 of 4 selected."""
         rng = np.random.default_rng(0)
         n = 400
         f1 = rng.standard_normal(n)
@@ -124,7 +130,9 @@ class TestC17_NestedRedundancy:
 # a few features but distribution should be tight).
 # ----------------------------------------------------------------------------
 class TestD19_NoSignal:
+    """Groups tests covering TestD19_NoSignal."""
     def test_uniform_y_selection_is_small(self):
+        """Uniform y selection is small."""
         rng = np.random.default_rng(0)
         X = pd.DataFrame(rng.standard_normal((300, 20)), columns=[f"f{i}" for i in range(20)])
         y = rng.integers(0, 2, 300)
@@ -150,7 +158,9 @@ class TestD19_NoSignal:
 # Contract: post-shuffle, no feature is informative; same as D19.
 # ----------------------------------------------------------------------------
 class TestD20_ShuffledTruePredictor:
+    """Groups tests covering TestD20_ShuffledTruePredictor."""
     def test_shuffled_y_no_obvious_overfit(self):
+        """Shuffled y no obvious overfit."""
         rng = np.random.default_rng(0)
         X = pd.DataFrame(rng.standard_normal((300, 10)), columns=list("abcdefghij"))
         # True signal in 'a', then shuffle y to destroy the link
@@ -177,7 +187,9 @@ class TestD20_ShuffledTruePredictor:
 # detect XOR; tree-based estimators can.
 # ----------------------------------------------------------------------------
 class TestD21_XORLabels:
+    """Groups tests covering TestD21_XORLabels."""
     def test_tree_estimator_finds_xor_features(self):
+        """Tree estimator finds xor features."""
         rng = np.random.default_rng(0)
         n = 600
         X = pd.DataFrame(rng.standard_normal((n, 8)), columns=[f"f{i}" for i in range(8)])
@@ -222,7 +234,9 @@ class TestD21_XORLabels:
 # B14: leakage detection now catches Int8 / nullable extension dtypes
 # ----------------------------------------------------------------------------
 class TestB14_NullableIntLeakageDetection:
+    """Groups tests covering TestB14_NullableIntLeakageDetection."""
     def test_int8_leak_column_warns(self, caplog):
+        """Int8 leak column warns."""
         import logging
 
         rng = np.random.default_rng(0)

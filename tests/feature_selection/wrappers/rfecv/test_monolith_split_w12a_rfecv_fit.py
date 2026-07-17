@@ -18,6 +18,7 @@ import pytest
 
 @pytest.fixture(scope="module")
 def parent_module():
+    """Parent module."""
     from mlframe.feature_selection.wrappers.rfecv import _fit
 
     return _fit
@@ -25,6 +26,7 @@ def parent_module():
 
 @pytest.fixture(scope="module")
 def setup_sibling():
+    """Setup sibling."""
     from mlframe.feature_selection.wrappers.rfecv import _fit_setup
 
     return _fit_setup
@@ -32,22 +34,26 @@ def setup_sibling():
 
 @pytest.fixture(scope="module")
 def fold_sibling():
+    """Fold sibling."""
     from mlframe.feature_selection.wrappers.rfecv import _fit_fold
 
     return _fit_fold
 
 
 def test_setup_helpers_resolve(setup_sibling):
+    """Setup helpers resolve."""
     assert hasattr(setup_sibling, "filter_cat_features_by_dtype")
     assert hasattr(setup_sibling, "resolve_effective_n_jobs")
     assert hasattr(setup_sibling, "resolve_default_scoring")
 
 
 def test_fold_helper_resolves(fold_sibling):
+    """Fold helper resolves."""
     assert hasattr(fold_sibling, "_eval_fold_body")
 
 
 def test_facade_loc_budget(parent_module):
+    """Facade loc budget."""
     path = Path(parent_module.__file__)
     n_lines = len(path.read_text(encoding="utf-8").splitlines())
     assert n_lines < 700, f"facade is {n_lines} LOC, expected < 700 after Wave 12 fold-body carve"
@@ -67,11 +73,13 @@ def test_filter_cat_features_drops_numeric_encoded(setup_sibling):
 
 
 def test_filter_cat_features_passthrough_when_none(setup_sibling):
+    """Filter cat features passthrough when none."""
     assert setup_sibling.filter_cat_features_by_dtype(None, None, 0) is None
     assert setup_sibling.filter_cat_features_by_dtype(np.zeros((4, 2)), ["x"], 0) == ["x"]
 
 
 def test_resolve_default_scoring_classifier(setup_sibling):
+    """Resolve default scoring classifier."""
     from sklearn.linear_model import LogisticRegression
 
     est = LogisticRegression()
@@ -80,6 +88,7 @@ def test_resolve_default_scoring_classifier(setup_sibling):
 
 
 def test_resolve_default_scoring_regressor(setup_sibling):
+    """Resolve default scoring regressor."""
     from sklearn.linear_model import LinearRegression
 
     est = LinearRegression()

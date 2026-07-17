@@ -16,6 +16,7 @@ import pytest
 
 
 def _load_nf():
+    """Load nf."""
     here = os.path.dirname(os.path.abspath(__file__))
     mod_path = os.path.join(here, "..", "..", "..", "src", "mlframe", "feature_selection", "wrappers", "_noise_floor.py")
     spec = importlib.util.spec_from_file_location("_noise_floor_test", mod_path)
@@ -52,6 +53,7 @@ def _old_plateau(n_grid, real_curve, perm_curves, pct=95.0):
 @pytest.mark.parametrize("seed", range(12))
 @pytest.mark.parametrize("n_perm", [1, 3, 5, 50])
 def test_vectorized_plateau_bit_identical_to_scalar(seed, n_perm):
+    """Vectorized plateau bit identical to scalar."""
     nf = _load_nf()
     rng = np.random.default_rng(seed)
     G = int(rng.integers(2, 20))

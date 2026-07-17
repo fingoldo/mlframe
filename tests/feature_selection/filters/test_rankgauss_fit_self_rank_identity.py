@@ -20,29 +20,34 @@ from mlframe.feature_selection.filters._extra_fe_families import (
 
 
 def _reference_fit_self_rank(x_finite: np.ndarray) -> np.ndarray:
+    """Reference fit self rank."""
     fs = np.sort(x_finite)
     return _avg_tie_rank(fs, x_finite)
 
 
 def test_self_avg_tie_rank_identical_continuous():
+    """Self avg tie rank identical continuous."""
     rng = np.random.default_rng(3)
     x = rng.standard_normal(50_000)
     assert np.array_equal(_self_avg_tie_rank(x), _reference_fit_self_rank(x))
 
 
 def test_self_avg_tie_rank_identical_tied():
+    """Self avg tie rank identical tied."""
     rng = np.random.default_rng(3)
     x = rng.integers(0, 40, 50_000).astype(np.float64)  # heavy exact ties
     assert np.array_equal(_self_avg_tie_rank(x), _reference_fit_self_rank(x))
 
 
 def test_self_avg_tie_rank_singleton_and_allequal():
+    """Self avg tie rank singleton and allequal."""
     assert np.array_equal(_self_avg_tie_rank(np.array([7.0])), np.array([0.0]))
     x = np.full(1000, 2.5)
     assert np.array_equal(_self_avg_tie_rank(x), _reference_fit_self_rank(x))
 
 
 def test_generate_rankgauss_fit_bit_identical_and_no_searchsorted(monkeypatch):
+    """Generate rankgauss fit bit identical and no searchsorted."""
     import pandas as pd
 
     rng = np.random.default_rng(11)
@@ -70,6 +75,7 @@ def test_generate_rankgauss_fit_bit_identical_and_no_searchsorted(monkeypatch):
     real = np.searchsorted
 
     def spy(a, v, side="left", sorter=None):
+        """Helper that spy."""
         calls["n"] += 1
         return real(a, v, side=side, sorter=sorter)
 

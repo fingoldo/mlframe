@@ -18,6 +18,7 @@ from mlframe.feature_selection.filters._orthogonal_copula_mi_fe import (
 
 
 def _reference(X, y, n_bins=20):
+    """Helper that reference."""
     X = np.asarray(X, dtype=np.float64)
     if X.ndim == 1:
         X = X.reshape(-1, 1)
@@ -43,6 +44,7 @@ def _reference(X, y, n_bins=20):
 @pytest.mark.parametrize("seed", [0, 1, 4])
 @pytest.mark.parametrize("with_nan", [False, True])
 def test_copula_batch_hoist_identical(seed, with_nan):
+    """Copula batch hoist identical."""
     rng = np.random.default_rng(seed)
     n, p = 800, 25
     X = rng.standard_normal((n, p))

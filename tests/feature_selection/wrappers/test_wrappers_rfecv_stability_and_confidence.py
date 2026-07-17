@@ -14,6 +14,7 @@ from tests.training.synthetic import make_sklearn_classification_df
 
 @pytest.fixture(scope="module")
 def small_clf_data():
+    """Small clf data."""
     Xdf, y, _ = make_sklearn_classification_df(
         n_samples=300,
         n_features=15,
@@ -30,6 +31,7 @@ def small_clf_data():
 
 @pytest.fixture(scope="module")
 def fitted_rfecv(small_clf_data):
+    """Fitted rfecv."""
     X, y = small_clf_data
     rfecv = RFECV(
         estimator=LogisticRegression(max_iter=400, random_state=0),
@@ -46,7 +48,9 @@ def fitted_rfecv(small_clf_data):
 # N4: get_feature_names_out()
 # ----------------------------------------------------------------------------
 class TestN4_GetFeatureNamesOut:
+    """Groups tests covering TestN4_GetFeatureNamesOut."""
     def test_returns_selected_columns(self, fitted_rfecv):
+        """Returns selected columns."""
         rfecv, X, _y = fitted_rfecv
         names = rfecv.get_feature_names_out()
         assert isinstance(names, np.ndarray)
@@ -55,11 +59,13 @@ class TestN4_GetFeatureNamesOut:
         assert all(n in X.columns for n in names)
 
     def test_unfitted_raises(self):
+        """Unfitted raises."""
         rfecv = RFECV(estimator=LogisticRegression())
         with pytest.raises(ValueError, match="not fitted"):
             rfecv.get_feature_names_out()
 
     def test_aligned_with_transform_output(self, fitted_rfecv):
+        """Aligned with transform output."""
         rfecv, X, _y = fitted_rfecv
         names = rfecv.get_feature_names_out()
         out = rfecv.transform(X)
@@ -70,30 +76,36 @@ class TestN4_GetFeatureNamesOut:
 # N1: selection_stability_
 # ----------------------------------------------------------------------------
 class TestN1_SelectionStability:
+    """Groups tests covering TestN1_SelectionStability."""
     def test_jaccard_in_unit_range(self, fitted_rfecv):
+        """Jaccard in unit range."""
         rfecv, _X, _y = fitted_rfecv
         s = rfecv.selection_stability_(metric="jaccard")
         if not np.isnan(s):
             assert 0.0 <= s <= 1.0
 
     def test_dice_in_unit_range(self, fitted_rfecv):
+        """Dice in unit range."""
         rfecv, _X, _y = fitted_rfecv
         s = rfecv.selection_stability_(metric="dice")
         if not np.isnan(s):
             assert 0.0 <= s <= 1.0
 
     def test_kuncheva_in_unit_range(self, fitted_rfecv):
+        """Kuncheva in unit range."""
         rfecv, _X, _y = fitted_rfecv
         s = rfecv.selection_stability_(metric="kuncheva")
         if not np.isnan(s):
             assert 0.0 <= s <= 1.0
 
     def test_unknown_metric_raises(self, fitted_rfecv):
+        """Unknown metric raises."""
         rfecv, _X, _y = fitted_rfecv
         with pytest.raises(ValueError, match="Unknown stability metric"):
             rfecv.selection_stability_(metric="bogus")
 
     def test_unfitted_raises(self):
+        """Unfitted raises."""
         rfecv = RFECV(estimator=LogisticRegression())
         with pytest.raises(ValueError, match="not fitted"):
             rfecv.selection_stability_()
@@ -103,6 +115,7 @@ class TestN1_SelectionStability:
 # N2: n_features_one_se_
 # ----------------------------------------------------------------------------
 class TestN2_OneSeRule:
+    """Groups tests covering TestN2_OneSeRule."""
     def test_one_se_at_most_optimal(self, fitted_rfecv):
         """1-SE rule must return a count <= the variance-blind optimum, since
         it picks the SMALLEST N within the SE band."""
@@ -117,6 +130,7 @@ class TestN2_OneSeRule:
             assert n_one_se <= argmax_n, f"1-SE rule N={n_one_se} must be <= variance-blind argmax N={argmax_n}"
 
     def test_one_se_returns_positive(self, fitted_rfecv):
+        """One se returns positive."""
         rfecv, _X, _y = fitted_rfecv
         assert rfecv.n_features_one_se_() >= 1
 
@@ -125,7 +139,9 @@ class TestN2_OneSeRule:
 # N5: must_include hybrid
 # ----------------------------------------------------------------------------
 class TestN5_MustInclude:
+    """Groups tests covering TestN5_MustInclude."""
     def test_must_include_features_always_in_support(self):
+        """Must include features always in support."""
         rng = np.random.default_rng(0)
         n, p = 200, 12
         X = pd.DataFrame(rng.standard_normal((n, p)), columns=[f"f{i}" for i in range(p)])
@@ -143,6 +159,7 @@ class TestN5_MustInclude:
         assert "f7" in names, f"must_include='f7' missing from final selection: {names}"
 
     def test_must_include_validation_on_invalid_name(self):
+        """Must include validation on invalid name."""
         rng = np.random.default_rng(0)
         X = pd.DataFrame(rng.standard_normal((100, 5)), columns=list("abcde"))
         y = (X["a"] > 0).astype(int).values

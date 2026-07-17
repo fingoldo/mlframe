@@ -22,6 +22,7 @@ from mlframe.feature_selection.filters.info_theory._batch_kernels import (
 
 
 def _screen_data(n=30000, p=40, nbins_val=10, seed=7):
+    """Screen data."""
     rng = np.random.default_rng(seed)
     data = rng.integers(0, nbins_val, size=(n, p)).astype(np.int64)
     # plant one strong synergy pair (0,1) and one weak-but-real pair (2,3)
@@ -39,6 +40,7 @@ def _screen_data(n=30000, p=40, nbins_val=10, seed=7):
 
 @pytest.fixture
 def _restore_env():
+    """Restore env."""
     prev = os.environ.get("MLFRAME_FE_PAIR_MAXT_MAX_ROWS")
     yield
     if prev is None:
@@ -48,6 +50,7 @@ def _restore_env():
 
 
 def test_max_rows_default_and_parsing(_restore_env):
+    """Max rows default and parsing."""
     os.environ.pop("MLFRAME_FE_PAIR_MAXT_MAX_ROWS", None)
     assert _pair_maxt_max_rows() == 15000
     os.environ["MLFRAME_FE_PAIR_MAXT_MAX_ROWS"] = "0"
@@ -59,6 +62,7 @@ def test_max_rows_default_and_parsing(_restore_env):
 
 
 def test_cap_disabled_equals_full_n(_restore_env):
+    """Cap disabled equals full n."""
     data, nb, y, fy, pa, pb = _screen_data()
     kw = dict(factors_data=data, nbins=nb, pair_a=pa, pair_b=pb, classes_y=y, freqs_y=fy, n_permutations=15, quantile=0.95, random_seed=123)
     os.environ["MLFRAME_FE_PAIR_MAXT_MAX_ROWS"] = "0"
@@ -68,6 +72,7 @@ def test_cap_disabled_equals_full_n(_restore_env):
 
 
 def test_cap_is_conservative_and_selection_equivalent(_restore_env):
+    """Cap is conservative and selection equivalent."""
     data, nb, y, fy, pa, pb = _screen_data()
     obs = batch_pair_mi_prange(data, pa, pb, nb, y, fy)  # observed pair-MI at FULL n (the gated value)
     kw = dict(factors_data=data, nbins=nb, pair_a=pa, pair_b=pb, classes_y=y, freqs_y=fy, n_permutations=15, quantile=0.95, random_seed=123)
@@ -92,6 +97,7 @@ def test_cap_is_conservative_and_selection_equivalent(_restore_env):
 def test_cap_actually_shrinks_n_via_higher_floor(_restore_env):
     # Pin that the cap DOES engage (floor strictly higher than full-n) at an aggressive cap,
     # so a future "no-op cap" regression is caught.
+    """Cap actually shrinks n via higher floor."""
     data, nb, y, fy, pa, pb = _screen_data()
     kw = dict(factors_data=data, nbins=nb, pair_a=pa, pair_b=pb, classes_y=y, freqs_y=fy, n_permutations=15, quantile=0.95, random_seed=123)
     os.environ["MLFRAME_FE_PAIR_MAXT_MAX_ROWS"] = "0"
@@ -102,6 +108,7 @@ def test_cap_actually_shrinks_n_via_higher_floor(_restore_env):
 
 
 def test_pair_maxt_gpu_circuit_breaker_gates():
+    """Pair maxt gpu circuit breaker gates."""
     from mlframe.feature_selection.filters._permutation_null_pair_resident import (
         pair_maxt_perm_null_gpu_enabled,
         reset_pair_maxt_gpu_circuit_breaker,

@@ -27,6 +27,7 @@ from mlframe.feature_selection.filters.hermite_fe import (
 # ---- Verbatim pre-fix legacy forms (the OLD side of the A/B) ----
 @njit(cache=False, fastmath=True)
 def _herm_old(x, c):
+    """Herm old."""
     n = x.shape[0]
     out = np.zeros(n)
     nc = c.shape[0]
@@ -54,6 +55,7 @@ def _herm_old(x, c):
 
 @njit(cache=False, fastmath=True)
 def _leg_old(x, c):
+    """Leg old."""
     n = x.shape[0]
     out = np.zeros(n)
     nc = c.shape[0]
@@ -83,6 +85,7 @@ def _leg_old(x, c):
 
 @njit(cache=False, fastmath=True)
 def _cheb_old(x, c):
+    """Cheb old."""
     n = x.shape[0]
     out = np.zeros(n)
     nc = c.shape[0]
@@ -109,6 +112,7 @@ def _cheb_old(x, c):
 
 @njit(cache=False, fastmath=True)
 def _lag_old(x, c):
+    """Lag old."""
     n = x.shape[0]
     out = np.zeros(n)
     nc = c.shape[0]
@@ -149,6 +153,7 @@ _CASES = [
 @pytest.mark.parametrize("nc", [1, 2, 3, 5])
 @pytest.mark.parametrize("n", [1, 500, 2000, 10000])
 def test_fused_prologue_bit_identical(name, new_fn, old_fn, nc, n):
+    """Fused prologue bit identical."""
     rng = np.random.default_rng(hash((name, nc, n)) & 0xFFFF)
     x = rng.standard_normal(n)
     c = rng.standard_normal(nc)
@@ -158,6 +163,7 @@ def test_fused_prologue_bit_identical(name, new_fn, old_fn, nc, n):
 
 
 def test_edge_empty_coef():
+    """Edge empty coef."""
     x = np.array([1.0, 2.0, 3.0])
     for _, new_fn, old_fn in _CASES:
         assert np.array_equal(new_fn(x, np.empty(0)), old_fn(x, np.empty(0)))

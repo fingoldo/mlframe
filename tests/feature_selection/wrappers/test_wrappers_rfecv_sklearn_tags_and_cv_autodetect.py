@@ -24,6 +24,7 @@ from tests.training.synthetic import make_sklearn_classification_df
 
 
 def _rfecv(**kw):
+    """Helper that rfecv."""
     from mlframe.feature_selection.wrappers import RFECV as _RFECV
 
     return _RFECV(**kw)
@@ -33,12 +34,15 @@ def _rfecv(**kw):
 # __sklearn_tags__
 # ----------------------------------------------------------------------------
 class TestSklearnTags:
+    """Groups tests covering TestSklearnTags."""
     def test_classifier_estimator_marks_classifier(self):
+        """Classifier estimator marks classifier."""
         rfecv = _rfecv(estimator=LogisticRegression(max_iter=200))
         tags = rfecv.__sklearn_tags__()
         assert tags.estimator_type == "classifier", f"RFECV around a classifier should report estimator_type='classifier'; got {tags.estimator_type}"
 
     def test_regressor_estimator_marks_regressor(self):
+        """Regressor estimator marks regressor."""
         rfecv = _rfecv(estimator=Ridge())
         tags = rfecv.__sklearn_tags__()
         assert tags.estimator_type == "regressor", f"RFECV around a regressor should report estimator_type='regressor'; got {tags.estimator_type}"
@@ -65,6 +69,7 @@ class TestSklearnTags:
 # cv auto-detect: TimeSeriesSplit on DatetimeIndex
 # ----------------------------------------------------------------------------
 class TestCvAutoDetect:
+    """Groups tests covering TestCvAutoDetect."""
     def test_datetime_index_triggers_timeseries_split(self, caplog):
         """X with monotonic DatetimeIndex should auto-select TimeSeriesSplit.
         Uses a regression target so class-imbalance on the first temporal
@@ -162,7 +167,9 @@ class TestCvAutoDetect:
 # cv_results_df_ DataFrame property
 # ----------------------------------------------------------------------------
 class TestCvResultsDataFrame:
+    """Groups tests covering TestCvResultsDataFrame."""
     def test_property_returns_dataframe(self):
+        """Property returns dataframe."""
         Xdf, y, _ = make_sklearn_classification_df(
             n_samples=100,
             n_features=5,
@@ -184,6 +191,7 @@ class TestCvResultsDataFrame:
         assert set(["nfeatures", "cv_mean_perf", "cv_std_perf"]).issubset(df.columns)
 
     def test_columns_match_dict_keys(self):
+        """Columns match dict keys."""
         Xdf, y, _ = make_sklearn_classification_df(
             n_samples=100,
             n_features=5,
@@ -215,6 +223,7 @@ class TestCvResultsDataFrame:
                 assert (a == b).all(), col
 
     def test_property_raises_before_fit(self):
+        """Property raises before fit."""
         rfecv = _rfecv(estimator=LogisticRegression())
         with pytest.raises(ValueError, match="cv_results_df_"):
             _ = rfecv.cv_results_df_
@@ -246,6 +255,7 @@ class TestCvResultsDataFrame:
 # swap_top_k: truncated SFFS final-pass swap
 # ----------------------------------------------------------------------------
 class TestSffsSwap:
+    """Groups tests covering TestSffsSwap."""
     def test_default_disabled(self):
         """swap_top_k=0 (default) must NOT call _sffs_swap_pass."""
         Xdf, y, _ = make_sklearn_classification_df(
@@ -358,6 +368,7 @@ class TestSffsSwap:
 # Phase 9: adaptive MBH surrogate (GP for small budgets, CB for larger)
 # ----------------------------------------------------------------------------
 class TestAdaptiveOptimizerSurrogate:
+    """Groups tests covering TestAdaptiveOptimizerSurrogate."""
     def test_small_budget_picks_fast_surrogate(self):
         """When max_refits / search-space budget <=30, the ETR surrogate
         is selected automatically (CatBoost has a 500ms FFI fixed cost
@@ -456,6 +467,7 @@ class TestAdaptiveOptimizerSurrogate:
             ).fit(Xdf, y)
 
         def _time(cfg):
+            """Helper that time."""
             best = float("inf")
             for _ in range(3):
                 t0 = time.perf_counter()

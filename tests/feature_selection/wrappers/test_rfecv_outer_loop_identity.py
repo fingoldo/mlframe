@@ -25,6 +25,7 @@ import mlframe.feature_selection.wrappers.rfecv._fit_outer_loop as _ol
 
 
 def _make_data():
+    """Make data."""
     rng = np.random.default_rng(7)
     n = 80
     informative = rng.normal(size=(n, 3))
@@ -38,6 +39,7 @@ def _make_data():
 
 
 def _fit(fi_decay_rate: float):
+    """Helper that fit."""
     X, y = _make_data()
     sel = RFECV(
         estimator=DecisionTreeClassifier(max_depth=3, random_state=0),
@@ -55,6 +57,7 @@ def _fit_with_spy(fi_decay_rate: float, monkeypatch):
     real = _ol.get_next_features_subset
 
     def _spy(*args, **kwargs):
+        """Helper that spy."""
         recorded.append(kwargs.get("fi_run_order"))
         return real(*args, **kwargs)
 
@@ -72,6 +75,7 @@ def _fit_with_spy(fi_decay_rate: float, monkeypatch):
 
 
 def test_decay_off_skips_keys_rebuild_passes_none(monkeypatch):
+    """Decay off skips keys rebuild passes none."""
     _sel, recorded = _fit_with_spy(0.0, monkeypatch)
     assert len(recorded) > 0, "outer loop must have run at least one iteration"
     # Default decay-off path never materialises the key list.
@@ -79,6 +83,7 @@ def test_decay_off_skips_keys_rebuild_passes_none(monkeypatch):
 
 
 def test_decay_on_passes_full_insertion_order_keys(monkeypatch):
+    """Decay on passes full insertion order keys."""
     _sel, recorded = _fit_with_spy(0.5, monkeypatch)
     assert len(recorded) > 0
     # With decay on, every call gets the full key list (newest last), not None.
@@ -90,6 +95,7 @@ def test_decay_on_passes_full_insertion_order_keys(monkeypatch):
 
 def test_decay_off_fit_selection_unchanged():
     # End-to-end identity: the skip-when-off optimisation must not alter which features are selected.
+    """Decay off fit selection unchanged."""
     sel_a = _fit(0.0)
     sel_b = _fit(0.0)
     assert list(sel_a.support_) == list(sel_b.support_)

@@ -29,6 +29,7 @@ _KW = dict(
 
 
 def _hinge_data(n, seed=0):
+    """Hinge data."""
     rng = np.random.default_rng(seed)
     x = rng.uniform(-3, 3, n)
     y = np.where(x > 0.5, 2.0 * (x - 0.5), 0.0) + rng.normal(0, 0.05, n)  # clear breakpoint at 0.5
@@ -37,6 +38,7 @@ def _hinge_data(n, seed=0):
 
 @pytest.mark.parametrize("max_rows", ["200000", "0"])
 def test_hinge_subsample_still_finds_breakpoint(max_rows, monkeypatch):
+    """Hinge subsample still finds breakpoint."""
     monkeypatch.setenv("MLFRAME_HINGE_MAX_ROWS", max_rows)
     m = importlib.import_module(MOD)
     _orig_dict = dict(m.__dict__)
@@ -55,6 +57,7 @@ def test_hinge_subsample_still_finds_breakpoint(max_rows, monkeypatch):
 
 
 def test_hinge_cap_actually_subsamples(monkeypatch):
+    """Hinge cap actually subsamples."""
     monkeypatch.setenv("MLFRAME_HINGE_MAX_ROWS", "40000")
     m = importlib.import_module(MOD)
     _orig_dict = dict(m.__dict__)

@@ -21,6 +21,7 @@ from mlframe.feature_selection.filters._permutation_null import (
 
 @numba.njit(cache=True)
 def _serial_reference(scaled_flat, offsets, joint_card, h_x, mm_bias, h_y, y_perms, inv_n):
+    """Serial reference."""
     nperm = y_perms.shape[0]
     n = y_perms.shape[1]
     ncand = offsets.shape[0] - 1
@@ -54,6 +55,7 @@ def _serial_reference(scaled_flat, offsets, joint_card, h_x, mm_bias, h_y, y_per
 
 
 def _make_inputs(n, n_cand, nperm, nbins_x=12, nbins_y=10, seed=0):
+    """Make inputs."""
     rng = np.random.default_rng(seed)
     inv_n = 1.0 / n
     scaled, joint_card, h_x, mm_bias = [], [], [], []
@@ -89,6 +91,7 @@ def _make_inputs(n, n_cand, nperm, nbins_x=12, nbins_y=10, seed=0):
 
 
 def test_prange_kernel_bit_identical_to_serial():
+    """Prange kernel bit identical to serial."""
     for n, n_cand, nperm in [(2000, 40, 50), (5000, 80, 64)]:
         args = _make_inputs(n, n_cand, nperm)
         out_parallel = _pooled_gain_floor_perms_njit(*args)
@@ -98,6 +101,7 @@ def test_prange_kernel_bit_identical_to_serial():
 
 
 def test_public_floor_deterministic_and_nonnegative():
+    """Public floor deterministic and nonnegative."""
     rng = np.random.default_rng(7)
     n, p, nbins = 3000, 40, 10
     cols = [rng.integers(0, nbins, size=n).astype(np.int32) for _ in range(p)]

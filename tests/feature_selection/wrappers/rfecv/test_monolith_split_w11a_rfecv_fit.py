@@ -15,6 +15,7 @@ from sklearn.linear_model import LogisticRegression
 
 @pytest.fixture(scope="module")
 def parent_module():
+    """Parent module."""
     from mlframe.feature_selection.wrappers.rfecv import _fit
 
     return _fit
@@ -22,16 +23,19 @@ def parent_module():
 
 @pytest.fixture(scope="module")
 def init_sibling():
+    """Init sibling."""
     from mlframe.feature_selection.wrappers.rfecv import _fit_init
 
     return _fit_init
 
 
 def test_init_fit_state_imported(parent_module, init_sibling):
+    """Init fit state imported."""
     assert parent_module._init_fit_state is init_sibling._init_fit_state
 
 
 def test_rfecv_fit_bound_to_class(parent_module):
+    """Rfecv fit bound to class."""
     from mlframe.feature_selection.wrappers.rfecv import RFECV
 
     # RFECV.fit is the RNG-hygiene wrapper (functools.wraps of the split-out _fit.fit); the wrapper's
@@ -40,6 +44,7 @@ def test_rfecv_fit_bound_to_class(parent_module):
 
 
 def test_facade_loc_budget(parent_module):
+    """Facade loc budget."""
     path = Path(parent_module.__file__)
     n_lines = len(path.read_text(encoding="utf-8").splitlines())
     assert n_lines < 1000, f"facade is {n_lines} LOC, expected < 1000"

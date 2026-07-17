@@ -19,6 +19,7 @@ from mlframe.feature_selection.wrappers.rfecv import RFECV
 
 
 def _fit_stability_rfecv():
+    """Fit stability rfecv."""
     rng = np.random.default_rng(0)
     n = 60
     informative = rng.normal(size=(n, 2))
@@ -42,6 +43,7 @@ def _fit_stability_rfecv():
 
 
 def test_cv_mean_perf_is_not_silently_the_selection_frequency():
+    """Cv mean perf is not silently the selection frequency."""
     sel = _fit_stability_rfecv()
     cv = sel.cv_results_
 

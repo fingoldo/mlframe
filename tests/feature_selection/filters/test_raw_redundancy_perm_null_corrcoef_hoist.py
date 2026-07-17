@@ -30,6 +30,7 @@ def _legacy_null(rx: np.ndarray, ry: np.ndarray, nperm: int, seed: int) -> np.nd
 
 
 def _hoisted_null(rx: np.ndarray, ry: np.ndarray, nperm: int, seed: int) -> np.ndarray:
+    """Hoisted null."""
     rng = np.random.default_rng(seed)
     n = rx.shape[0]
     ryc = ry - ry.mean()
@@ -43,6 +44,7 @@ def _hoisted_null(rx: np.ndarray, ry: np.ndarray, nperm: int, seed: int) -> np.n
 
 @pytest.mark.parametrize("n", [200, 2000, 10000])
 def test_hoisted_perm_null_bit_identical_to_corrcoef(n: int) -> None:
+    """Hoisted perm null bit identical to corrcoef."""
     rng = np.random.default_rng(7)
     rx = rng.standard_normal(n)
     ry = 0.3 * rx + rng.standard_normal(n)  # mild correlation so |corr| is non-trivial

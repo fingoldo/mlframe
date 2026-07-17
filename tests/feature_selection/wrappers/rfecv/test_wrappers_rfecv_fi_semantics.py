@@ -36,8 +36,10 @@ from mlframe.feature_selection.wrappers._enums import VotesAggregation
 
 
 class TestTieBreaker:
+    """Groups tests covering TestTieBreaker."""
     def test_tied_features_sort_lexicographically(self):
         # Three runs where features a,b,c all have identical importance ranks.
+        """Tied features sort lexicographically."""
         fi = {
             "r0": {"a": 0.5, "b": 0.5, "c": 0.5},
             "r1": {"a": 0.5, "b": 0.5, "c": 0.5},
@@ -47,6 +49,7 @@ class TestTieBreaker:
         assert out == ["a", "b", "c"]
 
     def test_partial_tie_lexicographic_within_tier(self):
+        """Partial tie lexicographic within tier."""
         fi = {
             "r0": {"x": 0.9, "a": 0.5, "b": 0.5, "c": 0.5, "z": 0.1},
         }
@@ -61,10 +64,12 @@ class TestTieBreaker:
 
 
 class TestFiDecay:
+    """Groups tests covering TestFiDecay."""
     def test_decay_weights_shift_ranking_toward_recent_runs(self):
         # Earlier run says A best, latest run says B best.
         # Without decay: tied.
         # With decay rate=0.5 (heavy): latest run wins -> B first.
+        """Decay weights shift ranking toward recent runs."""
         fi = {
             "r0_oldest": {"A": 1.0, "B": 0.0, "C": 0.5},
             "r1_middle": {"A": 1.0, "B": 0.0, "C": 0.5},
@@ -96,7 +101,9 @@ class TestFiDecay:
 
 
 class TestFiRankingSkipForRankBased:
+    """Groups tests covering TestFiRankingSkipForRankBased."""
     def test_borda_skips_pre_ranking(self):
+        """Borda skips pre ranking."""
         fi = {"r0": {"a": 1.0, "b": 0.5, "c": 0.1}}
         out_borda = select_appropriate_feature_importances(
             feature_importances=fi,
@@ -111,6 +118,7 @@ class TestFiRankingSkipForRankBased:
         assert any(v > 0.5 for v in vals)  # would be in [0,1] if pre-ranked
 
     def test_am_still_pre_ranks(self):
+        """Am still pre ranks."""
         fi = {"r0": {"a": 1.0, "b": 0.5, "c": 0.1}}
         out_am = select_appropriate_feature_importances(
             feature_importances=fi,
@@ -129,7 +137,9 @@ class TestFiRankingSkipForRankBased:
 
 
 class TestCoefScaleSource:
+    """Groups tests covering TestCoefScaleSource."""
     def test_default_uses_train_data(self):
+        """Default uses train data."""
         from mlframe.feature_selection.wrappers._helpers import get_feature_importances
 
         rng = np.random.default_rng(0)
@@ -167,7 +177,9 @@ class TestCoefScaleSource:
 
 
 class TestMulticlassCoefAggregation:
+    """Groups tests covering TestMulticlassCoefAggregation."""
     def test_max_vs_sum_differs_on_class_specific_feature(self):
+        """Max vs sum differs on class specific feature."""
         from mlframe.feature_selection.wrappers._helpers import get_feature_importances
         from sklearn.multiclass import OneVsRestClassifier
 
@@ -185,6 +197,7 @@ class TestMulticlassCoefAggregation:
 
         # Wrap into an object that get_feature_importances can read.
         class _Wrap:
+            """Groups tests covering Wrap."""
             coef_ = coefs
 
         model = _Wrap()
@@ -217,7 +230,9 @@ class TestMulticlassCoefAggregation:
 
 
 class TestMultiEstimatorAmGmFallback:
+    """Groups tests covering TestMultiEstimatorAmGmFallback."""
     def test_am_falls_back_to_borda_on_multi(self, caplog):
+        """Am falls back to borda on multi."""
         X, y = make_classification(n_samples=200, n_features=8, n_informative=4, random_state=0)
         rfecv = RFECV(
             estimators=[LogisticRegression(max_iter=300), RandomForestClassifier(n_estimators=10)],
@@ -232,6 +247,7 @@ class TestMultiEstimatorAmGmFallback:
         assert any("Switching to Borda" in rec.getMessage() for rec in caplog.records)
 
     def test_opt_in_preserves_user_choice(self):
+        """Opt in preserves user choice."""
         X, y = make_classification(n_samples=200, n_features=8, n_informative=4, random_state=0)
         rfecv = RFECV(
             estimators=[LogisticRegression(max_iter=300), RandomForestClassifier(n_estimators=10)],
@@ -250,9 +266,11 @@ class TestMultiEstimatorAmGmFallback:
 
 
 class TestCpiKnobs:
+    """Groups tests covering TestCpiKnobs."""
     def test_max_depth_none_grows_deeper(self):
         # Validate that passing max_depth=None to the helper actually grows
         # an unconstrained tree (min_samples_leaf-bounded).
+        """Max depth none grows deeper."""
         from sklearn.linear_model import LinearRegression
 
         rng = np.random.default_rng(0)
@@ -280,14 +298,17 @@ class TestCpiKnobs:
 
 
 class TestNanScoreFiDropped:
+    """Groups tests covering TestNanScoreFiDropped."""
     def test_nan_score_fi_dropped_by_default(self):
         # Construct a scenario where one estimator returns NaN score on a fold.
         # We use a callable scorer that returns NaN for fold-0 only.
+        """Nan score fi dropped by default."""
         from sklearn.metrics import make_scorer
 
         nan_counter = {"i": 0}
 
         def scorer_func(y_true, y_pred):
+            """Scorer func."""
             nan_counter["i"] += 1
             return np.nan if nan_counter["i"] == 1 else 0.5
 

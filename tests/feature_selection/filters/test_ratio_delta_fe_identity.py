@@ -19,6 +19,7 @@ def _ref_map(keys, lookup, global_value):
 
 
 def test_map_group_keys_matches_per_row_loop():
+    """Map group keys matches per row loop."""
     rng = np.random.default_rng(0)
     keys = rng.integers(0, 50, size=10_000)
     lookup = {str(k): float(rng.normal()) for k in range(40)}  # 10 keys unseen
@@ -29,6 +30,7 @@ def test_map_group_keys_matches_per_row_loop():
 
 
 def test_pairwise_ratio_hoist_identity():
+    """Pairwise ratio hoist identity."""
     rng = np.random.default_rng(1)
     cols = [f"c{i}" for i in range(8)]
     X = pd.DataFrame({c: rng.normal(5.0, 2.0, size=2000) for c in cols})
@@ -45,6 +47,7 @@ def test_pairwise_ratio_hoist_identity():
 
 
 def test_pairwise_log_ratio_hoist_identity():
+    """Pairwise log ratio hoist identity."""
     rng = np.random.default_rng(2)
     cols = [f"c{i}" for i in range(8)]
     X = pd.DataFrame({c: rng.normal(5.0, 2.0, size=2000) for c in cols})
@@ -60,6 +63,7 @@ def test_pairwise_log_ratio_hoist_identity():
 
 
 def test_grouped_delta_and_apply_identity():
+    """Grouped delta and apply identity."""
     rng = np.random.default_rng(3)
     n = 20_000
     g = rng.integers(0, 100, size=n)

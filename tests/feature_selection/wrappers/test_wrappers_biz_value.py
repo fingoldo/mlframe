@@ -23,6 +23,7 @@ from tests.training.synthetic import make_sklearn_classification_df
 # Helpers
 # ----------------------------------------------------------------------------
 def _support_as_bool(rfecv, X) -> np.ndarray:
+    """Support as bool."""
     cols = list(X.columns)
     feat_in = list(rfecv.feature_names_in_)
     if len(rfecv.support_) == 0:
@@ -35,6 +36,7 @@ def _support_as_bool(rfecv, X) -> np.ndarray:
 
 
 def _selected_idx(rfecv, X) -> set[int]:
+    """Selected idx."""
     mask = _support_as_bool(rfecv, X)
     return {i for i, s in enumerate(mask) if s}
 
@@ -106,6 +108,7 @@ def test_score_lift_vs_all_features():
 
     # C=1e6 effectively disables L2 so noise features actually hurt.
     def estimator_factory():
+        """Estimator factory."""
         return LogisticRegression(C=1e6, max_iter=2000, random_state=0)
 
     rfecv = RFECV(
@@ -279,6 +282,7 @@ def test_stable_selection_across_seeds():
         supports.append(_selected_idx(rfecv, X_df))
 
     def _jaccard(a: set, b: set) -> float:
+        """Helper that jaccard."""
         if not a and not b:
             return 1.0
         if not a or not b:

@@ -104,6 +104,7 @@ def test_run_numba_kernel_search_single_pair_matches_batched_p1():
     )
 
     def _hermeval_stub(x, c):
+        """Hermeval stub."""
         return x  # name is inspected via __name__, body unused by run_numba_kernel_search
 
     _hermeval_stub.__name__ = "hermeval_placeholder"
@@ -208,6 +209,7 @@ def test_prange_thread_isolation_given_identical_pre_generated_streams():
     warm_b = np.zeros((1, cb_size))
 
     def _run(_pair_indices, _uniform, _normal, _p_count):
+        """Run the numba polynomial optimizer kernel over the given pre-generated random streams and pair indices."""
         out_ca = np.zeros((_p_count, ca_size))
         out_cb = np.zeros((_p_count, cb_size))
         out_score = np.full(_p_count, -np.inf)
@@ -361,6 +363,7 @@ def test_degenerate_constant_column_does_not_crash():
 
 
 def test_unsupported_basis_raises_clear_error():
+    """Unsupported basis raises clear error."""
     x_a, x_b, y = _make_hermite_signal(n=500, seed=4)
     X = np.column_stack([x_a, x_b])
     pair_indices = np.array([[0, 1]], dtype=np.int64)

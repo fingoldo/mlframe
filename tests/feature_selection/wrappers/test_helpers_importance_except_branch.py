@@ -19,10 +19,12 @@ from mlframe.feature_selection.wrappers._helpers_importance import (
 
 
 def test_non_numeric_importances_do_not_raise():
+    """Non numeric importances do not raise."""
     features = ["f0", "f1", "f2"]
 
     def non_numeric_getter(model, data, reference_data, target):
         # Strings cannot be coerced via np.asarray(..., dtype=float) -> hits the except branch.
+        """Non numeric getter."""
         return ["a", "b", "c"]
 
     out = get_feature_importances(
@@ -37,6 +39,7 @@ def test_non_numeric_importances_do_not_raise():
 
 def test_freshest_fi_path_does_not_print(capsys):
     # Hit the use_one_freshest_fi_run branch that pre-fix called print(...).
+    """Freshest fi path does not print."""
     feature_importances = {"run_a": np.array([0.5, 0.3, 0.2])}  # len 3 == n_original_features
     select_appropriate_feature_importances(
         feature_importances=feature_importances,

@@ -19,6 +19,7 @@ from mlframe.feature_selection.filters._orthogonal_univariate_fe._orth_extra_bas
 
 
 def _make_frame(n=2000, p=10, seed=0):
+    """Make frame."""
     rng = np.random.default_rng(seed)
     X = pd.DataFrame({f"f{i}": rng.standard_normal(n) for i in range(p)})
     y = np.sin(2.3 * X["f0"].to_numpy()) + 0.1 * rng.standard_normal(n)  # oscillatory in f0
@@ -26,6 +27,7 @@ def _make_frame(n=2000, p=10, seed=0):
 
 
 def test_max_adaptive_cols_none_preserves_legacy_behavior():
+    """Max adaptive cols none preserves legacy behavior."""
     X, y = _make_frame(p=6)
     eng_unbounded, _meta_unbounded = generate_extra_basis_features(
         X,
@@ -44,6 +46,7 @@ def test_max_adaptive_cols_none_preserves_legacy_behavior():
 
 
 def test_max_adaptive_cols_zero_disables_adaptive_detection_but_keeps_fixed_grid():
+    """Max adaptive cols zero disables adaptive detection but keeps fixed grid."""
     X, y = _make_frame(p=6)
     eng_capped, meta_capped = generate_extra_basis_features(
         X,
@@ -62,6 +65,7 @@ def test_max_adaptive_cols_zero_disables_adaptive_detection_but_keeps_fixed_grid
 
 
 def test_max_adaptive_cols_bounds_which_columns_get_adaptive_detection():
+    """Max adaptive cols bounds which columns get adaptive detection."""
     X, y = _make_frame(p=8, seed=3)
     # All 8 columns are independent standard-normal noise except f0 (oscillatory) -- the adaptive
     # detector should be able to find f0's frequency when unbounded, but with a cap of 1 (only column

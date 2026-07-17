@@ -36,6 +36,7 @@ def _make_self(init_design_size):
 
 
 def _seeded_for(init_design_size, *, p, max_refits):
+    """Seeded for."""
     original_features = list(range(p))
     opt = _build_mbh_optimizer(
         _make_self(init_design_size),

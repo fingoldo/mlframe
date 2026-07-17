@@ -5,6 +5,7 @@ from mlframe.feature_selection.filters._temporal_agg_fe import _expanding_stat_p
 
 
 def _ref(sorted_vals, group_codes, stat):
+    """Helper that ref."""
     n = sorted_vals.size
     out = np.full(n, np.nan)
     ns = {}
@@ -44,6 +45,7 @@ def _ref(sorted_vals, group_codes, stat):
 
 
 def test_all_stats_bit_identical_incl_nan():
+    """All stats bit identical incl nan."""
     rng = np.random.default_rng(0)
     n = 20000
     gc = np.sort(rng.integers(0, 150, n))
@@ -56,6 +58,7 @@ def test_all_stats_bit_identical_incl_nan():
 
 
 def test_empty_and_single_entity():
+    """Empty and single entity."""
     assert _expanding_stat_past_only(np.empty(0), np.empty(0, dtype=np.int64), "mean").size == 0
     sv = np.array([1.0, 2.0, 3.0])
     gc = np.zeros(3, dtype=np.int64)

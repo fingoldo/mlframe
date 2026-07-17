@@ -32,6 +32,7 @@ def _reference(factors_data, pair_a, pair_b, nbins):
 
 
 def _all_pairs(p):
+    """All pairs."""
     pairs = list(combinations(range(p), 2))
     pa = np.fromiter((x[0] for x in pairs), dtype=np.int64, count=len(pairs))
     pb = np.fromiter((x[1] for x in pairs), dtype=np.int64, count=len(pairs))
@@ -39,6 +40,7 @@ def _all_pairs(p):
 
 
 def test_identity_uniform_cardinality():
+    """Identity uniform cardinality."""
     rng = np.random.default_rng(0)
     data = rng.integers(0, 10, size=(500, 8)).astype(np.int32)
     nbins = np.full(8, 10, dtype=np.int64)

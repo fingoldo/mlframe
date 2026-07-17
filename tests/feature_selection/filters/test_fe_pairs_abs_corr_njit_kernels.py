@@ -19,6 +19,7 @@ from mlframe.feature_selection.filters._feature_engineering_pairs._pairs_core im
 
 
 def _zerofill_corrcoef_ref(a, b):
+    """Zerofill corrcoef ref."""
     r = np.corrcoef(
         np.nan_to_num(np.asarray(a, dtype=np.float64), nan=0.0, posinf=0.0, neginf=0.0),
         np.nan_to_num(np.asarray(b, dtype=np.float64), nan=0.0, posinf=0.0, neginf=0.0),
@@ -27,6 +28,7 @@ def _zerofill_corrcoef_ref(a, b):
 
 
 def test_abs_corr_zerofill_matches_nan_to_num_corrcoef_reference():
+    """Abs corr zerofill matches nan to num corrcoef reference."""
     rng = np.random.default_rng(7)
     max_diff = 0.0
     n_cases = 0
@@ -63,6 +65,7 @@ def test_abs_corr_zerofill_matches_nan_to_num_corrcoef_reference():
 
 
 def test_abs_corr_zerofill_floors_constant_columns_to_zero():
+    """Abs corr zerofill floors constant columns to zero."""
     a_const = np.full(500, 3.0)
     rng = np.random.default_rng(8)
     b_rand = rng.normal(size=500)
