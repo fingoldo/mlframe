@@ -9,12 +9,18 @@ stay reachable via the MRO.
 from __future__ import annotations
 
 import logging
+import warnings
 from typing import TYPE_CHECKING, Any, Callable, Optional, cast
 
 import numpy as np
 import pandas as pd
 
 from sklearn.base import clone
+
+from ..info_theory._cmi_cuda import reset_cmi_gpu_circuit_breaker
+from ..permutation import reset_mi_direct_gpu_circuit_breaker
+from .._permutation_null_pair_resident import reset_pair_maxt_gpu_circuit_breaker
+from mlframe.training.utils import get_pandas_view_of_polars_df
 
 from ._mrmr_class_shared import _mrmr_y_columns
 
@@ -42,6 +48,114 @@ class _MRMRFitHelpersMixin:
         def _effective_random_seed(self) -> Optional[int]:
             """Type-checking-only stub; resolves at runtime via the concrete ``MRMR`` MRO."""
             ...
+
+        @classmethod
+        def _fe_enable_attr_names(cls) -> frozenset:
+            """Type-checking-only stub; resolves at runtime via the concrete ``_MRMRConfigMixin`` MRO."""
+            ...
+
+    def _rearm_gpu_circuit_breakers(self) -> None:
+        """Re-arm the process-global CMI / mi_direct / pair-maxT GPU circuit breakers at the start of a
+        fit (finding #2 decomposition; behavior moved verbatim from ``fit()``'s opening block, 2026-07-09
+        fix, MRMR audit finding #31). These breakers are process-global and, once tripped by one launch
+        fault, permanently disable GPU for the rest of the process -- silently degrading every LATER fit
+        in a long-lived worker (notebook, service), not just the one that hit the transient fault.
+        Re-arming here bounds the cost of a genuinely-broken GPU to one extra failed attempt per fit (the
+        breaker still protects WITHIN a fit from thousands of repeated attempts), while a transient fault
+        (contention, a momentary driver hiccup) no longer sticks forever."""
+        try:
+            reset_cmi_gpu_circuit_breaker()
+        except Exception:  # nosec B110 - optional GPU module; re-arm is a resilience nicety, not a hard dependency
+            pass
+        try:
+            reset_mi_direct_gpu_circuit_breaker()
+        except Exception:  # nosec B110 - see above
+            pass
+        try:
+            reset_pair_maxt_gpu_circuit_breaker()
+        except Exception:  # nosec B110 - see above
+            pass
+
+    def _check_groups_contract(self, groups) -> None:
+        """Enforce MRMR's groups-not-consumed contract (finding #2 decomposition; verbatim move from
+        ``fit()``). Sets ``self.groups_ignored_``; raises ``NotImplementedError`` under
+        ``strict_groups=True`` when ``groups`` is supplied but ``group_aware_mi=False``, else warns and
+        stamps ``groups_ignored_=True`` for the legacy group-naive fallback (see finding #20 for the
+        ``strict_groups`` default flip)."""
+        self.groups_ignored_ = False
+        if groups is not None and not getattr(self, "group_aware_mi", False):
+            if getattr(self, "strict_groups", False):
+                raise NotImplementedError(
+                    "MRMR.fit received groups but group_aware_mi=False and strict_groups=True. Set "
+                    "group_aware_mi=True to consume groups via per-group I(X;Y|G) MI, set "
+                    "strict_groups=False to accept the warn-only group-naive fallback, or pass groups=None."
+                )
+            # Surfaced into fit metadata (groups_ignored_) so a downstream report can flag that MI was
+            # estimated group-naively despite a group-aware split.
+            self.groups_ignored_ = True
+            warnings.warn(
+                "MRMR.fit received groups but the current implementation does NOT consume them; "
+                "MI is estimated per-row. For grouped MI estimation, wrap MRMR with a per-group "
+                "selector and aggregate manually. Pass groups=None to silence this warning, or set "
+                "strict_groups=True to raise instead.",
+                UserWarning,
+                stacklevel=2,
+            )
+
+    def _validate_and_bridge_polars_input(self, X, y):
+        """Validate a polars ``X`` input and bridge it to a zero-copy pandas view when FE will run
+        (finding #2 decomposition; verbatim move from ``fit()``). Returns the possibly-rebound ``(X, y)``.
+
+        Independent of whether FE runs: a polars LazyFrame is auto-collected (with a warning, since that
+        materialises the frame the user kept lazy), and a polars Struct column is rejected up front (it
+        has no scalar MI interpretation; flattening is the caller's decision, not a silent one).
+
+        When FE will run (``fe_max_steps>=1`` OR any ``fe_*_enable`` flag) the FE families' decision
+        bodies are pandas-native, so ``X`` bridges to an Arrow-backed ZERO-COPY pandas VIEW
+        (``get_pandas_view_of_polars_df`` -- numeric/bool/string columns share the Arrow buffers; only
+        categoricals get a small codes rebuild) -- no whole-frame copy at any size. This is already
+        optimal (measured: one contiguous plane beats per-column views 8.65x at equal memory; the Arrow
+        view IS that single materialisation, not an extra copy on top) -- do NOT "optimise away"."""
+        if str(type(X).__module__).startswith("polars"):
+            if type(X).__name__ == "LazyFrame":
+                warnings.warn(
+                    "MRMR.fit received a polars LazyFrame; auto-collecting it to a DataFrame before "
+                    "fitting (this materialises the lazy plan in memory). Collect explicitly to control "
+                    "when/where materialisation happens.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+                X = X.collect()
+            if type(X).__name__ == "DataFrame":
+                try:
+                    import polars as _pl
+
+                    _struct_cols = [c for c, dt in zip(X.columns, X.dtypes) if dt == _pl.Struct]
+                except Exception as exc:
+                    logger.debug("mrmr: polars Struct-column detection failed; assuming none: %r", exc, exc_info=True)
+                    _struct_cols = []
+                if _struct_cols:
+                    raise ValueError(
+                        f"MRMR.fit: polars Struct column(s) {_struct_cols} are not supported -- a Struct "
+                        f"has no scalar value for MI estimation. Unnest/flatten them before fitting."
+                    )
+
+        _fe_will_run = int(getattr(self, "fe_max_steps", 0) or 0) >= 1 or any(getattr(self, _k, False) for _k in type(self)._fe_enable_attr_names())
+        if _fe_will_run and str(type(X).__module__).startswith("polars"):
+            if type(X).__name__ in ("DataFrame", "LazyFrame"):
+                try:
+                    _src = X.collect() if type(X).__name__ == "LazyFrame" else X
+                    X = get_pandas_view_of_polars_df(_src)
+                    if str(type(y).__module__).startswith("polars"):
+                        y = y.to_pandas()
+                except Exception as _pl_exc:  # fall through to the native path on any bridge failure
+                    warnings.warn(
+                        f"MRMR.fit: polars->pandas FE bridge failed ({_pl_exc!r}); proceeding on the "
+                        f"native path -- feature engineering may be skipped for this polars input.",
+                        UserWarning,
+                        stacklevel=2,
+                    )
+        return X, y
 
     # opt-in stability-selection outer-loop wrapper.
     # Routes to Faletto-Bien 2022 Cluster Stability Selection or

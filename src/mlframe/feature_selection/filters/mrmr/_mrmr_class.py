@@ -84,9 +84,6 @@ from ..screen import _preserve_global_numpy_rng_state
 # environment. ``import polars as _pl`` at the polars-Struct-column check stays local: it is
 # genuinely conditional on an optional dependency (a caller who never passes polars input
 # should never pay for -- or require -- a polars import).
-from ..info_theory._cmi_cuda import reset_cmi_gpu_circuit_breaker
-from ..permutation import reset_mi_direct_gpu_circuit_breaker
-from .._permutation_null_pair_resident import reset_pair_maxt_gpu_circuit_breaker
 from .._param_accuracy_warnings import warn_accuracy_suboptimal_params
 from .._mrmr_degenerate import audit_degenerate_columns
 from .._meta_fe_recommender import recommend_fe_flags_by_rules
@@ -106,7 +103,6 @@ from ..info_theory import (
     use_su_normalization, use_jmim_aggregator, get_bur_lambda, use_mi_miller_madow,
     get_relaxmrmr_alpha, get_pid_synergy_bonus, get_cmi_perm_stop, get_cpt_test,
 )
-from mlframe.training.utils import get_pandas_view_of_polars_df
 from mlframe.training.provenance import record_provenance as _record_provenance
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
@@ -3044,100 +3040,14 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
         Wrapper / _fit_impl forwarding asymmetry: ``sample_weight`` is CONSUMED at this wrapper level (via ``_maybe_resample_for_sample_weight`` before the ``_fit_impl`` call); ``groups`` is FORWARDED into ``_fit_impl`` which then silently drops them. A future refactor moving ``groups`` consumption into ``_fit_impl`` must also remove or downgrade the wrapper-level warning, otherwise the two ends would emit duplicate / contradictory messages.
 
         Cross-target identity cache. When a prior fit on the SAME X (same columns + same dtypes) produced an identity result (all input columns selected + zero engineered features), subsequent calls with a different y short-circuit the 80+ min FE pipeline and return identity-equivalent output. Opt-in via ``mrmr_skip_when_prior_was_identity=True``."""
-        # GPU circuit-breaker re-arm (2026-07-09 fix, MRMR audit finding #31): the CMI / mi_direct /
-        # pair-maxT GPU breakers are process-global and, once tripped by one launch fault, permanently
-        # disable GPU for the rest of the process -- silently degrading every LATER fit in a long-lived
-        # worker (notebook, service), not just the one that hit the transient fault. Re-arming at the
-        # start of each fit() bounds the cost of a genuinely-broken GPU to one extra failed attempt per
-        # fit (the breaker still protects WITHIN a fit from thousands of repeated attempts), while a
-        # transient fault (contention, a momentary driver hiccup) no longer sticks forever.
-        try:
-            reset_cmi_gpu_circuit_breaker()
-        except Exception:  # nosec B110 - optional GPU module; re-arm is a resilience nicety, not a hard dependency
-            pass
-        try:
-            reset_mi_direct_gpu_circuit_breaker()
-        except Exception:  # nosec B110 - see above
-            pass
-        try:
-            reset_pair_maxt_gpu_circuit_breaker()
-        except Exception:  # nosec B110 - see above
-            pass
-        self.groups_ignored_ = False
-        if groups is not None and not getattr(self, "group_aware_mi", False):
-            if getattr(self, "strict_groups", False):
-                raise NotImplementedError(
-                    "MRMR.fit received groups but group_aware_mi=False and strict_groups=True. Set "
-                    "group_aware_mi=True to consume groups via per-group I(X;Y|G) MI, set "
-                    "strict_groups=False to accept the warn-only group-naive fallback, or pass groups=None."
-                )
-            # Surfaced into fit metadata (groups_ignored_) so a downstream report can flag that MI was
-            # estimated group-naively despite a group-aware split.
-            self.groups_ignored_ = True
-            warnings.warn(
-                "MRMR.fit received groups but the current implementation does NOT consume them; "
-                "MI is estimated per-row. For grouped MI estimation, wrap MRMR with a per-group "
-                "selector and aggregate manually. Pass groups=None to silence this warning, or set "
-                "strict_groups=True to raise instead.",
-                UserWarning,
-                stacklevel=2,
-            )
+        # finding #2 decomposition: GPU-breaker re-arm, groups contract check, and polars
+        # validate+bridge each moved verbatim to a named helper on _MRMRFitHelpersMixin (see their
+        # docstrings for the original rationale) -- zero behavior change, pure extraction.
+        self._rearm_gpu_circuit_breakers()
+        self._check_groups_contract(groups)
         self._pandas_frame_for_target_cleanup = None
         self._target_names_for_cleanup = None
-
-        # ---- polars input-validation contract ----------------------------------------------------
-        # Independent of the FE bridge below (which only fires when FE is enabled): a polars LazyFrame
-        # is auto-collected (with a warning, since that materialises the frame the user kept lazy), and
-        # a polars Struct column is rejected up front (it has no scalar MI interpretation; flattening is
-        # the caller's decision, not a silent one). Runs for ALL polars inputs regardless of fe_max_steps.
-        if str(type(X).__module__).startswith("polars"):
-            if type(X).__name__ == "LazyFrame":
-                warnings.warn(
-                    "MRMR.fit received a polars LazyFrame; auto-collecting it to a DataFrame before "
-                    "fitting (this materialises the lazy plan in memory). Collect explicitly to control "
-                    "when/where materialisation happens.",
-                    UserWarning, stacklevel=2,
-                )
-                X = X.collect()  # type: ignore[union-attr]
-            if type(X).__name__ == "DataFrame":
-                try:
-                    import polars as _pl
-                    _struct_cols = [c for c, dt in zip(X.columns, X.dtypes) if dt == _pl.Struct]  # type: ignore[union-attr]
-                except Exception as exc:
-                    logger.debug("mrmr: polars Struct-column detection failed; assuming none: %r", exc, exc_info=True)
-                    _struct_cols = []
-                if _struct_cols:
-                    raise ValueError(
-                        f"MRMR.fit: polars Struct column(s) {_struct_cols} are not supported -- a Struct "
-                        f"has no scalar value for MI estimation. Unnest/flatten them before fitting."
-                    )
-
-        # ---- polars FE bridge (the OPTIMAL path for polars FE -- do NOT "optimise away") -------------
-        # The FE families' decision bodies are pandas-native. This bridges a polars input to an Arrow-backed
-        # ZERO-COPY pandas VIEW (get_pandas_view_of_polars_df -- numeric/bool/string columns share the Arrow
-        # buffers; only categoricals get a small codes rebuild), so FE runs with NO whole-frame copy at any size.
-        # This is already optimal: a measured bench (feature_selection/_benchmarks/bench_fe_seam_view_vs_plane.py)
-        # showed one contiguous plane feeding the batched MI kernel beats per-column views 8.65x at equal memory,
-        # and the Arrow view IS that single materialisation, not an extra copy on top. Per-family native handling
-        # (the format-agnostic seam in _fit_impl_core / _fe_frame_ops) exists as a fallback / eventual native path,
-        # but the bridge is the fast path and stays the default -- there is nothing to gain by removing it.
-        # Fires whenever ANY FE stage will run (fe_max_steps>=1 OR any fe_*_enable flag), so the edge where an
-        # orth-FE family is enabled with fe_max_steps=0 is covered too; with ALL FE off the native-polars
-        # screening path is preserved (no view built). polars stays the user's primary format.
-        _fe_will_run = int(getattr(self, "fe_max_steps", 0) or 0) >= 1 or any(getattr(self, _k, False) for _k in type(self)._fe_enable_attr_names())
-        if _fe_will_run and str(type(X).__module__).startswith("polars"):
-            if type(X).__name__ in ("DataFrame", "LazyFrame"):
-                try:
-                    _src = X.collect() if type(X).__name__ == "LazyFrame" else X  # type: ignore[union-attr]
-                    X = get_pandas_view_of_polars_df(_src)  # type: ignore[arg-type]
-                    if str(type(y).__module__).startswith("polars"):
-                        y = y.to_pandas()  # type: ignore[union-attr]
-                except Exception as _pl_exc:  # fall through to the native path on any bridge failure
-                    warnings.warn(
-                        f"MRMR.fit: polars->pandas FE bridge failed ({_pl_exc!r}); proceeding on the "
-                        f"native path -- feature engineering may be skipped for this polars input.",
-                        UserWarning, stacklevel=2,
-                    )
+        X, y = self._validate_and_bridge_polars_input(X, y)
 
         # ACCURACY-CAVEAT WARNING. Surface (once) any parameter value that is valid but KNOWN to degrade
         # selection accuracy (an explicit opt-out of an on-by-default accuracy mechanism, or a numeric
