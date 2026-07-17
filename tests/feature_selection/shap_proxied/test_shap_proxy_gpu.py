@@ -9,6 +9,7 @@ cupy = pytest.importorskip("cupy")
 
 
 def _has_device():
+    """True iff cupy reports at least one CUDA device, gating the GPU subset-scan parity tests."""
     try:
         return cupy.cuda.runtime.getDeviceCount() > 0
     except Exception:
@@ -20,6 +21,7 @@ pytestmark = [pytest.mark.gpu, pytest.mark.skipif(not _has_device(), reason="no 
 
 @pytest.mark.parametrize("metric,classification", [("rmse", False), ("mae", False), ("brier", True), ("logloss", True)])
 def test_gpu_matches_numba(metric, classification):
+    """The GPU brute-force top-N subset scan matches the numba CPU version's winning subset and score, and agrees on the top-5 subset set, for every metric/task-type combo."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_gpu import brute_force_top_n_gpu
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_search import brute_force_top_n
 

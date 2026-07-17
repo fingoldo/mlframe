@@ -28,6 +28,7 @@ def _legacy_budget(available_bytes, n_workers=1):
 
 @pytest.fixture(autouse=True)
 def _clean_env(monkeypatch):
+    """Autouse fixture clearing MLFRAME_FE_MIN_FREE_RAM_GB so each test starts from the module's default reserve."""
     monkeypatch.delenv("MLFRAME_FE_MIN_FREE_RAM_GB", raising=False)
     yield
 

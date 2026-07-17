@@ -29,6 +29,7 @@ from mlframe.feature_selection.filters import _screen_predictors as screen_predi
 
 
 def _toy_dataset(n_rows: int = 200, n_cols: int = 4, seed: int = 0):
+    """Build a tiny linearly-separable classification frame used to drive screen_predictors through an exception mid-fit."""
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(n_rows, n_cols)).astype(np.float64)
     y = (X[:, 0] + 0.3 * X[:, 1] > 0).astype(np.int64)
@@ -53,6 +54,7 @@ def test_screen_restores_np_random_state_on_exception(monkeypatch):
     # post the seeding block at lines ~290-298). Patching it to raise
     # reliably exercises the exception path through the seeded region.
     def _boom(*args, **kwargs):
+        """Stand-in for merge_vars that always raises, forcing screen_predictors down its mid-fit exception path."""
         raise RuntimeError("forced failure inside screen_predictors after seeding")
 
     monkeypatch.setattr(screen_predictors_mod, "merge_vars", _boom)

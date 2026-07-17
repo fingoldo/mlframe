@@ -19,6 +19,7 @@ from mlframe.feature_selection.filters import _mi_greedy_cmi_fe as M
 
 
 def _cuda_ok() -> bool:
+    """True iff cupy reports at least one CUDA device, gating the STRICT-resident quantile-bin selection-equivalence tests."""
     try:
         return cp.cuda.runtime.getDeviceCount() > 0
     except Exception:
@@ -31,6 +32,7 @@ pytestmark = pytest.mark.skipif(not _cuda_ok(), reason="no CUDA device")
 @pytest.mark.parametrize("nbins", [2, 5, 10, 12])
 @pytest.mark.parametrize("kind", ["normal", "exponential", "lowcard", "masspoint"])
 def test_gpu_quantile_bin_selection_equivalent(nbins, kind):
+    """GPU quantile-bin codes match the CPU codes in occupied-bin count and value range, with only sub-resolution boundary rows (<=n/10000) 1-offing, across distribution kinds and bin counts."""
     rng = np.random.default_rng(int(nbins) * 17 + hash(kind) % 997)
     n = 120_000  # above _GPU_QBIN_MIN_ROWS so the GPU path engages
     if kind == "normal":

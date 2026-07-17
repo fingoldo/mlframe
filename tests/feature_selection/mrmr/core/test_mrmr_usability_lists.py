@@ -20,6 +20,7 @@ from tests.feature_selection.conftest import is_fast_mode
 
 
 def _case2(n: int, seed: int = 0):
+    """Build the F2-style frame whose target needs a genuine (c,d) interaction for a linear model to approach its noise floor."""
     rng = np.random.default_rng(seed)
     a, b, c, d, e, f = (rng.random(n) for _ in range(6))
     y = 0.2 * a**2 / b + f / 5.0 + np.log(c * 2.0) * np.sin(d / 3.0)
@@ -30,6 +31,7 @@ def _case2(n: int, seed: int = 0):
 @pytest.mark.slow
 @pytest.mark.timeout(300)  # two MRMR fits (FE) + the CV-MAE usability greedy; see PERF TODO
 def test_mrmr_usability_lists_linear_floor_and_byte_identical_support():
+    """usability_aware_lists=True populates a replayable support_linear_ with a genuine (c,d) interaction, reaching near the f/5 MAE floor, while leaving the pure-MI support_ byte-identical to the pass being off."""
     from mlframe.feature_selection.filters import MRMR
     from sklearn.linear_model import LinearRegression
     from sklearn.preprocessing import StandardScaler

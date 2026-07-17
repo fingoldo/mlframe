@@ -51,6 +51,7 @@ cp = pytest.importorskip("cupy")
 
 
 def _gpu_available() -> bool:
+    """True iff cupy can see at least one CUDA device, gating the CPU/GPU threshold-parity test."""
     try:
         import cupy as _cp
 
