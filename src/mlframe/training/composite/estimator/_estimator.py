@@ -33,11 +33,12 @@ except ImportError:
 # Parent helpers needed by CompositeTargetEstimator's methods. The parent's
 # bottom-of-file re-export triggers our load AFTER these helpers have been
 # bound at the parent's top, so the partial-module lookup succeeds.
-from . import (
+from . import (  # noqa: F401 - _is_polars_df: unused in this module, re-exported for the module-split identity contract
     _y_train_clip_bounds,
     _extract_base,
     _extract_groups,
     _extract_base_matrix,
+    _is_polars_df,
     _to_1d_numpy,
 )
 # The fitted-from-spec / fit / predict / predict_invert paths all use these, so
