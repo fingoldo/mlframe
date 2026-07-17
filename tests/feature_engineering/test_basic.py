@@ -253,6 +253,7 @@ def test_cyclical_pass_reuses_precomputed_date_fields_not_redecode(monkeypatch):
     real = basic._resolve_pandas_method
 
     def spy(series_dt, method, dtype):
+        """Record each (method, dtype-kind) pair resolved during the cyclical pass, then delegate to the real resolver."""
         calls.append((method, np.dtype(dtype).kind))
         return real(series_dt, method, dtype)
 
