@@ -28,9 +28,9 @@ def test_biz_val_dual_optimizer_blend_low_divergence_on_clear_optimum():
 
     result = dual_optimizer_weight_blend(good_preds, y_true, _rmse, n_restarts=5, n_optuna_trials=150, random_state=0)
 
-    assert result["max_weight_divergence"] < 0.15, (
-        f"expected the two independent optimizers to corroborate (low divergence) on a clear-optimum objective, got {result['max_weight_divergence']:.4f}"
-    )
+    assert (
+        result["max_weight_divergence"] < 0.15
+    ), f"expected the two independent optimizers to corroborate (low divergence) on a clear-optimum objective, got {result['max_weight_divergence']:.4f}"
     assert np.isclose(result["slsqp_weights"].sum(), 1.0)
 
 
@@ -45,9 +45,9 @@ def test_biz_val_dual_optimizer_blend_prunes_pure_noise_models():
 
     result = dual_optimizer_weight_blend(preds, y_true, _rmse, n_restarts=5, n_optuna_trials=150, random_state=1, zero_weight_threshold=0.05)
 
-    assert set(result["prune_candidates"].tolist()).issuperset({3, 4}), (
-        f"expected the two pure-noise models (indices 3, 4) to be flagged for pruning, got {result['prune_candidates']}"
-    )
+    assert set(result["prune_candidates"].tolist()).issuperset(
+        {3, 4}
+    ), f"expected the two pure-noise models (indices 3, 4) to be flagged for pruning, got {result['prune_candidates']}"
 
 
 def test_biz_val_dual_optimizer_blend_coord_descent_catches_correlated_blind_spot():
@@ -93,9 +93,9 @@ def test_biz_val_dual_optimizer_blend_coord_descent_catches_correlated_blind_spo
     )
 
     # SLSQP and Optuna land on the SAME decoy basin -- low divergence between them, reading as "corroborated".
-    assert result["max_weight_divergence"] < 0.05, (
-        f"expected SLSQP/Optuna to agree (correlated blind spot precondition), got {result['max_weight_divergence']:.4f}"
-    )
+    assert (
+        result["max_weight_divergence"] < 0.05
+    ), f"expected SLSQP/Optuna to agree (correlated blind spot precondition), got {result['max_weight_divergence']:.4f}"
     # Yet coordinate descent independently finds a meaningfully better (lower) loss than either of them.
     assert result["coord_descent_loss"] < 0.6 * min(result["slsqp_loss"], result["optuna_loss"]), (
         f"expected the third optimizer to find a meaningfully better optimum than the two agreeing ones, "

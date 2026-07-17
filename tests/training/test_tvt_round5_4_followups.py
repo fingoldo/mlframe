@@ -24,7 +24,6 @@ from __future__ import annotations
 from pathlib import Path
 
 
-
 def _module_source(mod) -> str:
     """Read a module's source via ``Path.read_text``. ``inspect.getsource``
     is forbidden in tests per ``feedback_behavioral_tests`` (the meta-test

@@ -10,7 +10,6 @@ import subprocess  # nosec B404 -- test-only local trusted subprocess invocation
 import sys
 from pathlib import Path
 
-
 _SRC = str(Path(__file__).resolve().parents[2] / "src")
 
 _SNIPPET = r"""
