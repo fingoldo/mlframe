@@ -16,6 +16,7 @@ from mlframe.feature_selection.filters import MRMR
 
 
 def _toy_dataset(n_rows: int = 200, n_cols: int = 6, seed: int = 0):
+    """Build a small synthetic classification fixture with signal on columns 0 and 1."""
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(n_rows, n_cols)).astype(np.float64)
     y = (X[:, 0] + 0.3 * X[:, 1] > 0).astype(np.int64)
@@ -88,6 +89,7 @@ def test_fix2_pandas_target_columns_cleaned_after_fit_exception(monkeypatch):
     original_columns = list(X.columns)
 
     def _boom(*args, **kwargs):
+        """Stand in for the patched call and always raise."""
         raise RuntimeError("forced failure inside fit() after target injection")
 
     # Force a failure inside the post-injection / pre-drop section by patching
@@ -97,7 +99,7 @@ def test_fix2_pandas_target_columns_cleaned_after_fit_exception(monkeypatch):
         _boom,
     )
 
-    m = MRMR(verbose=0, n_jobs=1, full_npermutations=2, baseline_npermutations=2, skip_retraining_on_same_shape=False)
+    m = MRMR(verbose=0, n_jobs=1, full_npermutations=2, baseline_npermutations=2, skip_retraining_on_same_content=False)
     with pytest.raises(RuntimeError, match="forced failure"):
         m.fit(X, y)
 
@@ -119,14 +121,14 @@ def test_fix3_screen_does_not_mutate_global_numpy_rng():
     np.random.seed(99)
     before = np.random.get_state()
 
-    m = MRMR(random_seed=42, verbose=0, n_jobs=1, full_npermutations=2, baseline_npermutations=2, skip_retraining_on_same_shape=False, fe_max_steps=0)
+    m = MRMR(random_seed=42, verbose=0, n_jobs=1, full_npermutations=2, baseline_npermutations=2, skip_retraining_on_same_content=False, fe_max_steps=0)
     m.fit(X.copy(), y)
 
     after = np.random.get_state()
     assert before[0] == after[0]
     # Critical assertion: byte-identical uint32 state array.
     assert np.array_equal(before[1], after[1]), (
-        "screen_predictors / MRMR.fit reseeded the global numpy RNG; use np.random.default_rng(seed) instead of np.random.seed(seed)."
+        "screen_predictors / MRMR.fit reseeded the global numpy RNG; " "use np.random.default_rng(seed) instead of np.random.seed(seed)."
     )
 
 
@@ -159,7 +161,7 @@ def test_fix5_int64_downcast_silent_under_verbose0(capsys):
     X, y = _toy_dataset()
     assert y.dtype == np.int64
 
-    m = MRMR(verbose=0, n_jobs=1, full_npermutations=2, baseline_npermutations=2, skip_retraining_on_same_shape=False, fe_max_steps=0)
+    m = MRMR(verbose=0, n_jobs=1, full_npermutations=2, baseline_npermutations=2, skip_retraining_on_same_content=False, fe_max_steps=0)
     try:
         m.fit(X.copy(), y)
     except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
@@ -172,7 +174,7 @@ def test_fix5_int64_downcast_silent_under_verbose0(capsys):
 def test_fix5_int64_downcast_logged_under_verbose1(caplog):
     """Verbose >= 1 must route the downcast notice through logger.info, not print."""
     X, y = _toy_dataset()
-    m = MRMR(verbose=1, n_jobs=1, full_npermutations=2, baseline_npermutations=2, skip_retraining_on_same_shape=False, fe_max_steps=0)
+    m = MRMR(verbose=1, n_jobs=1, full_npermutations=2, baseline_npermutations=2, skip_retraining_on_same_content=False, fe_max_steps=0)
     with caplog.at_level(logging.INFO, logger="mlframe.feature_selection.filters.mrmr"):
         try:
             m.fit(X.copy(), y)
@@ -196,7 +198,7 @@ def test_fix6_int64_downcast_skipped_when_out_of_int16_range():
     y = rng.integers(low=40_000, high=60_000, size=len(X)).astype(np.int64)
     y_orig_unique = sorted(set(y.tolist()))
 
-    m = MRMR(verbose=0, n_jobs=1, full_npermutations=2, baseline_npermutations=2, skip_retraining_on_same_shape=False, fe_max_steps=0)
+    m = MRMR(verbose=0, n_jobs=1, full_npermutations=2, baseline_npermutations=2, skip_retraining_on_same_content=False, fe_max_steps=0)
     # The downcast happens early in fit, BEFORE any categorisation. Reach in via the
     # newly-introduced helper.
     assert hasattr(m, "_coerce_target_dtype"), "MRMR must expose _coerce_target_dtype; the fix at mrmr.py:650 regressed."

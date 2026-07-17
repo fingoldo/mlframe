@@ -132,6 +132,7 @@ def test_synergy_ratio_gate_vs_marginal_signal():
 # 2. PSEUDO-REMIX PROTECTION (tokenization + redundancy drop both directions)
 # ======================================================================================
 def test_pseudo_remix_detector_prefixes():
+    """Pseudo-remix prefixes (gate_mask/binagg/argmax) must be detected; genuine composites must not."""
     assert _is_pseudo_remix_child("gate_mask__a__b__t0.1")
     assert _is_pseudo_remix_child("binagg_skew(c|qbin(a))")
     assert _is_pseudo_remix_child("argmax__a__b")
@@ -218,6 +219,7 @@ def test_redundancy_drop_pseudo_remix_child_does_not_drop_raw():
 # 3. COUNT-FLOOR / min_features_fallback ON PURE NOISE
 # ======================================================================================
 def _noise_frame(n=1500, p=6, seed=0):
+    """Build a pure-noise fixture where y is independent of every column in X."""
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(n, p))
     y = rng.integers(0, 2, n)  # target independent of X
@@ -239,7 +241,7 @@ def test_min_features_fallback_on_pure_noise_forces_features():
         baseline_npermutations=2,
         fe_max_steps=0,
         min_features_fallback=2,
-        skip_retraining_on_same_shape=False,
+        skip_retraining_on_same_content=False,
     )
     m.fit(X.copy(), y)
     support = list(getattr(m, "support_", []))
@@ -263,7 +265,7 @@ def test_min_features_fallback_zero_can_select_nothing_on_noise():
         baseline_npermutations=2,
         fe_max_steps=0,
         min_features_fallback=0,
-        skip_retraining_on_same_shape=False,
+        skip_retraining_on_same_content=False,
     )
     m.fit(X.copy(), y)
     support = list(getattr(m, "support_", []))
@@ -283,7 +285,7 @@ def test_seeded_fit_does_not_perturb_global_numpy_rng():
 
     np.random.seed(123456)
     before = np.random.get_state()
-    m = MRMR(random_seed=42, verbose=0, n_jobs=1, full_npermutations=2, baseline_npermutations=2, fe_max_steps=0, skip_retraining_on_same_shape=False)
+    m = MRMR(random_seed=42, verbose=0, n_jobs=1, full_npermutations=2, baseline_npermutations=2, fe_max_steps=0, skip_retraining_on_same_content=False)
     m.fit(X.copy(), y)
     after = np.random.get_state()
     assert before[0] == after[0]
@@ -303,7 +305,7 @@ def test_two_seeded_fits_identical_support():
         full_npermutations=2,
         baseline_npermutations=2,
         fe_max_steps=0,
-        skip_retraining_on_same_shape=False,
+        skip_retraining_on_same_content=False,
         min_features_fallback=2,
     )
     m1 = MRMR(**kw)

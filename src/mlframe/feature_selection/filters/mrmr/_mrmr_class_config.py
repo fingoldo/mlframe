@@ -11,9 +11,11 @@ from __future__ import annotations
 import inspect
 import logging
 import os
-from typing import Any, ClassVar, Optional
+from collections import OrderedDict
+from typing import Any, ClassVar, Iterable, Optional
 
 import numpy as np
+from sklearn.model_selection import BaseCrossValidator
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
@@ -41,14 +43,14 @@ class _MRMRConfigMixin:
     class attributes and ``random_seed`` / ``verbose`` / ``cv`` / ``cv_shuffle`` as constructor params.
     """
 
-    _FIT_CACHE: Any
-    _FAST_SEARCH_OVERRIDES: Any
+    _FIT_CACHE: "ClassVar[OrderedDict[tuple, Any]]"
+    _FAST_SEARCH_OVERRIDES: ClassVar[tuple[tuple[str, Any], ...]]
     _DEFAULT_SCREEN_SUBSAMPLE_N: ClassVar[int]
-    random_seed: Any
-    random_state: Any
-    verbose: Any
-    cv: Any
-    cv_shuffle: Any
+    random_seed: Optional[int]
+    random_state: Optional[int]
+    verbose: bool | int
+    cv: int | BaseCrossValidator | Iterable | None
+    cv_shuffle: bool
 
     @classmethod
     def clear_fit_cache(cls) -> int:
@@ -119,6 +121,19 @@ class _MRMRConfigMixin:
         _DEFAULT_SCREEN_SUBSAMPLE_N_CACHE[cls] = _result
         return _result
 
+    def _override_if_at_default(self, attr: str, new_value, defaults: dict, saved: dict) -> None:
+        """Set ``self.<attr> = new_value`` and stash the pre-fit value into ``saved[attr]`` for a later
+        ``finally``-block restore, UNLESS the caller already customized ``attr`` away from its package
+        default (``defaults[attr]``) -- an explicit user value always wins over a profile override.
+        Shared by ``_apply_default_screen_subsample`` and ``_apply_fast_search_profile`` (finding #21):
+        both used to duplicate this exact "read ctor default, only override if unchanged, save old value"
+        pattern inline."""
+        cur = getattr(self, attr, None)
+        if attr in defaults and cur != defaults[attr]:
+            return
+        saved[attr] = cur
+        setattr(self, attr, new_value)
+
     def _apply_default_screen_subsample(self, n_rows: int) -> dict:
         """Shrink the FE/MI screen subsamplers to the feature-recovery default for large n, returning
         {attr: pre_fit_value} to restore in ``finally``. Applies UNCONDITIONALLY (not gated on
@@ -141,14 +156,15 @@ class _MRMRConfigMixin:
             if _attr not in _defaults:
                 continue
             _cur = getattr(self, _attr, None)
-            # Only when the user left it at the package default (explicit user value always wins).
+            # Only when the user left it at the package default (explicit user value always wins) --
+            # checked here (pre-override) too since the SHRINK-only decision below needs the raw current
+            # value regardless of whether an override ultimately happens.
             if _cur != _defaults[_attr]:
                 continue
             # Only SHRINK: a default of 0/None means "full-n"; treat that as +inf so we still shrink it.
             _cur_eff = int(_cur) if (isinstance(_cur, int) and _cur > 0) else n_rows
             if _screen_n < _cur_eff:
-                saved[_attr] = _cur
-                setattr(self, _attr, _screen_n)
+                self._override_if_at_default(_attr, _screen_n, _defaults, saved)
         return saved
 
     def _apply_fast_search_profile(self) -> dict:
@@ -162,17 +178,8 @@ class _MRMRConfigMixin:
             logger.debug("mrmr: ctor-default introspection failed in _apply_fast_search_profile; treating all knobs as user-set: %r", exc, exc_info=True)
             _defaults = {}
 
-        def _override(attr, fast_value):
-            """Set ``attr`` to ``fast_value`` unless the caller already customized it away from the package default."""
-            cur = getattr(self, attr, None)
-            # Only override when the user left it at the package default (or the attr is absent).
-            if attr in _defaults and cur != _defaults[attr]:
-                return
-            saved[attr] = cur
-            setattr(self, attr, fast_value)
-
         for _attr, _val in self._FAST_SEARCH_OVERRIDES:
-            _override(_attr, _val)
+            self._override_if_at_default(_attr, _val, _defaults, saved)
         # Subsample is HW/size-dependent -> resolve via kernel_tuning_cache. Only shrink it (never raise a
         # user who already set a smaller screen-n); apply when still at the package default.
         _ss_default = _defaults.get("fe_check_pairs_subsample_n", None)
@@ -229,13 +236,14 @@ class _MRMRConfigMixin:
     def _effective_random_seed(self):
         """Resolve the seed actually used by fit from the two stored constructor aliases.
 
-        ``random_seed`` is the canonical name; ``random_state`` is the sklearn-style fallback. The
-        constructor stores BOTH unmodified (sklearn ``get_params`` contract), so the promotion that used to
-        happen in ``__init__`` is done here instead: ``random_seed`` wins when set, otherwise ``random_state``
-        fills in. Returns ``None`` when neither is set (entropy-seeded behaviour preserved)."""
-        seed = getattr(self, "random_seed", None)
+        ``random_state`` (sklearn's name) is canonical; ``random_seed`` is a deprecated alias kept for
+        backward compatibility. The constructor stores BOTH unmodified (sklearn ``get_params`` contract),
+        so the promotion that used to happen in ``__init__`` is done here instead: ``random_state`` wins
+        when set, otherwise ``random_seed`` fills in. Returns ``None`` when neither is set (entropy-seeded
+        behaviour preserved)."""
+        seed = getattr(self, "random_state", None)
         if seed is None:
-            seed = getattr(self, "random_state", None)
+            seed = getattr(self, "random_seed", None)
         return seed
 
     def _resolve_target_prefix(self) -> str:
@@ -244,13 +252,15 @@ class _MRMRConfigMixin:
         Pre-fix code used ``str(np.random.random())[3:9]`` which (a) reseeded
         nothing but consumed from the process-global numpy RNG, breaking
         reproducibility across test orderings, and (b) produced a different
-        prefix every call. With ``random_seed`` set, derive a deterministic 6-hex
+        prefix every call. With an effective seed set (``random_state`` or
+        the deprecated ``random_seed`` alias), derive a deterministic 6-hex
         suffix from a local ``np.random.default_rng``; otherwise fall back to a
         process-stable but seedable PID+id(self)-based source so concurrent
         instances stay collision-resistant without touching global state.
         """
-        if self.random_seed is not None:
-            local_rng = np.random.default_rng(int(self.random_seed))
+        _eff_seed = self._effective_random_seed()
+        if _eff_seed is not None:
+            local_rng = np.random.default_rng(int(_eff_seed))
             tok = int(local_rng.integers(0, 2**24))
         else:
             tok = (os.getpid() ^ id(self)) & 0xFFFFFF

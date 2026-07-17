@@ -31,7 +31,6 @@ from mlframe.feature_selection.filters.engineered_recipes import (
 )
 from mlframe.feature_selection.wrappers import RFECV
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -56,6 +55,7 @@ def xor_cat_df():
     rng = np.random.default_rng(11)
 
     def _make(n: int):
+        """Draw n rows of the XOR-categorical fixture."""
         x1 = rng.integers(0, 2, n).astype(np.int8)
         x2 = rng.integers(0, 2, n).astype(np.int8)
         noise = rng.integers(0, 4, size=(n, 4)).astype(np.int8)
@@ -71,6 +71,7 @@ def xor_cat_df():
 
 
 def _fit_quiet(estimator, X, y):
+    """Fit estimator on (X, y) with warnings silenced."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         return estimator.fit(X, y)
@@ -161,7 +162,7 @@ def test_mrmr_sklearn_clone_preserves_params(small_classification_df):
     # Fitted state is stripped.
     assert not hasattr(cloned, "support_"), "clone must not carry fitted support_"
     assert not hasattr(cloned, "_engineered_recipes_"), "clone must not carry fitted recipes"
-    # ``signature`` is reset (skip_retraining_on_same_shape sentinel).
+    # ``signature`` is reset (skip_retraining_on_same_content sentinel).
     assert getattr(cloned, "signature", None) is None
 
 
@@ -176,6 +177,7 @@ def test_mrmr_fit_cache_shared_across_instances(small_classification_df):
     MRMR._FIT_CACHE.clear()
 
     def _new_mrmr():
+        """Build a fast, fixed-seed MRMR instance for the cache-sharing comparison."""
         return MRMR(
             full_npermutations=2,
             baseline_npermutations=2,
@@ -243,9 +245,9 @@ def test_cat_fe_recipes_replay_matches_manual(xor_cat_df):
         # test still exercises the code path it was designed for. The xor fixture's interaction signal is strong enough that 0 candidate recipes points at a
         # real regression in the cat-FE pipeline, not at a seed-unlucky outcome.
         cat_state = getattr(mrmr, "_cat_fe_state_", None)
-        assert cat_state is not None and cat_state.recipes, (
-            "cat-FE on the XOR fixture produced 0 candidate recipes; the deterministic-encoding contract cannot be exercised. Investigate cat-FE pipeline."
-        )
+        assert (
+            cat_state is not None and cat_state.recipes
+        ), "cat-FE on the XOR fixture produced 0 candidate recipes; the deterministic-encoding contract cannot be exercised. Investigate cat-FE pipeline."
         # Promote one cat-FE candidate to a "would-be" recipe and apply it manually -- we still verify deterministic encoding even when MRMR didn't keep it.
         recipe = cat_state.recipes[0]
         manual = apply_recipe(recipe, df_te)
