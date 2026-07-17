@@ -14,6 +14,7 @@ EPS = 1e-15
 
 
 def _log_loss(y_true: np.ndarray, probs: np.ndarray) -> float:
+    """Compute binary cross-entropy log-loss with a fixed EPS floor/ceiling clip."""
     p = np.clip(probs, EPS, 1 - EPS)
     return float(-np.mean(y_true * np.log(p) + (1 - y_true) * np.log(1 - p)))
 
