@@ -45,6 +45,7 @@ class TestBasisBuildersAgreeWithNumpyPolyval:
         basis: str,
         max_degree: int,
     ) -> None:
+        """Basis matrix matches polyval for random coefs."""
         builder, polyval_fn = _BUILDERS[basis]
         rng = np.random.default_rng(seed=11 + max_degree)
         # Each basis has a natural domain; pick a representative sample
@@ -77,6 +78,7 @@ class TestBasisBuildersAgreeWithNumpyPolyval:
         self,
         basis: str,
     ) -> None:
+        """Public dispatcher returns same as private builder."""
         builder, _ = _BUILDERS[basis]
         rng = np.random.default_rng(seed=11)
         if basis == "hermite":
@@ -91,6 +93,7 @@ class TestBasisBuildersAgreeWithNumpyPolyval:
         np.testing.assert_array_equal(pub, priv)
 
     def test_unknown_basis_raises_keyerror(self) -> None:
+        """Unknown basis raises keyerror."""
         with pytest.raises(KeyError, match="rbf"):
             build_basis_matrix("rbf", np.linspace(0, 1, 50), 3)
 
@@ -100,6 +103,7 @@ class TestBasisBuilderEdgeCases:
 
     @pytest.mark.parametrize("basis", sorted(_BUILDERS))
     def test_max_degree_zero_is_constant_column(self, basis: str) -> None:
+        """Max degree zero is constant column."""
         builder, _ = _BUILDERS[basis]
         rng = np.random.default_rng(seed=11)
         z = rng.normal(size=100)
@@ -146,6 +150,7 @@ class TestBasisGEMVNumericalEquivalence:
         basis: str,
         n: int,
     ) -> None:
+        """Gemv matches horner dispatcher."""
         from mlframe.feature_selection.filters.hermite_fe import polyeval_dispatch
 
         builder, _ = _BUILDERS[basis]

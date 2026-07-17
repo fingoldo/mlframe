@@ -14,11 +14,13 @@ import mlframe.feature_selection.filters.group_aware as ga
 
 
 def _codes_ncats_h(n, p, card, seed):
+    """Codes ncats h."""
     rng = np.random.default_rng(seed)
     codes = np.ascontiguousarray(rng.integers(0, card, size=(n, p)).astype(np.int64))
     ncats = np.full(p, card, dtype=np.int64)
 
     def ent(c):
+        """Helper that ent."""
         t = c.sum()
         pr = c[c > 0] / t
         return float(-(pr * np.log(pr)).sum())
@@ -30,6 +32,7 @@ def _codes_ncats_h(n, p, card, seed):
 @pytest.mark.skipif(not ga._HAVE_NUMBA, reason="numba absent")
 @pytest.mark.parametrize("n,p,card", [(500, 12, 4), (2000, 30, 8), (1500, 20, 12)])
 def test_su_pairs_njit_matches_python_reference(n, p, card):
+    """Su pairs njit matches python reference."""
     codes, ncats, h = _codes_ncats_h(n, p, card, seed=n + p + card)
     nj = ga._su_pairs_njit(codes, ncats, h)
     nj = nj + nj.T
@@ -41,6 +44,7 @@ def test_su_pairs_njit_matches_python_reference(n, p, card):
 
 @pytest.mark.skipif(not ga._HAVE_NUMBA, reason="numba absent")
 def test_su_matrix_is_symmetric_zero_diagonal():
+    """Su matrix is symmetric zero diagonal."""
     X = pd.DataFrame(np.random.default_rng(1).integers(0, 6, size=(800, 15)).astype(float))
     su = ga._su_redundancy_matrix(X)
     assert su.shape == (15, 15)

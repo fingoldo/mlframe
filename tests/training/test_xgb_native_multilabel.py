@@ -30,9 +30,11 @@ class _FakeXGBEstimator:
         pass
 
     def get_params(self, deep=True):
+        """Returns an empty params dict, satisfying the sklearn-estimator get_params contract minimally."""
         return {}
 
     def set_params(self, **kwargs):
+        """No-op params setter that returns self, satisfying the sklearn-estimator set_params contract minimally."""
         return self
 
 

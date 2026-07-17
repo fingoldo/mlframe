@@ -19,6 +19,7 @@ from mlframe.feature_selection.filters._conditional_gate_fe import cheap_row_arg
 
 
 def _frame(n=400, p=10, seed=0):
+    """Helper that frame."""
     rng = np.random.default_rng(seed)
     X = pd.DataFrame({f"f{i}": rng.standard_normal(n) for i in range(p)})
     # a genuine argmax-coded target so some triples actually clear the margin
@@ -30,6 +31,7 @@ def _frame(n=400, p=10, seed=0):
 def test_budgeted_triple_set_is_column_order_invariant():
     # p=10 -> C(10,3)=120 triples >> budget 40, so the budget genuinely truncates
     # and an order-sensitive enumeration would pick a different set on reversal.
+    """Budgeted triple set is column order invariant."""
     X, y = _frame(p=10)
     rev = list(X.columns)[::-1]
     hits_fwd = cheap_row_argmax_scan(X, y, max_triples=40)

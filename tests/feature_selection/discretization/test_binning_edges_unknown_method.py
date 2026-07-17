@@ -13,12 +13,14 @@ from mlframe.feature_selection.filters.discretization._discretization_edges impo
 
 
 def test_known_methods_return_edges():
+    """Known methods return edges."""
     arr = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
     assert len(get_binning_edges(arr, n_bins=4, method="uniform")) == 5
     assert len(get_binning_edges(arr, n_bins=4, method="quantile")) == 5
 
 
 def test_unknown_method_raises_valueerror():
+    """Unknown method raises valueerror."""
     arr = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
     with pytest.raises(ValueError):
         get_binning_edges(arr, n_bins=4, method="kmeans")

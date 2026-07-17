@@ -15,6 +15,7 @@ import pytest
 
 # --------------------------------------------------------------------------- API1
 def test_api1_sibling_selectors_share_random_state_default():
+    """Api1 sibling selectors share random state default."""
     from mlframe.feature_selection.hybrid_selector import HybridSelector
     from mlframe.feature_selection.general import estimate_features_relevancy
 
@@ -44,6 +45,7 @@ def test_api14_two_value_float_regression_with_classification_false_treated_as_r
 
 
 def test_api14_classification_none_warns_on_ambiguous_float_target():
+    """Api14 classification none warns on ambiguous float target."""
     from mlframe.feature_selection.hybrid_selector import HybridSelector
     import pandas as pd
 
@@ -71,6 +73,7 @@ def test_api14_classification_none_warns_on_ambiguous_float_target():
     ],
 )
 def test_api33_all_mi_entrypoints_reject_out_of_range_bin_codes(fn_name):
+    """Api33 all mi entrypoints reject out of range bin codes."""
     import mlframe.feature_selection.mi as mi
 
     fn = getattr(mi, fn_name)
@@ -90,6 +93,7 @@ def test_api33_all_mi_entrypoints_reject_out_of_range_bin_codes(fn_name):
     ],
 )
 def test_api33_valid_input_still_works(fn_name):
+    """Api33 valid input still works."""
     import mlframe.feature_selection.mi as mi
 
     fn = getattr(mi, fn_name)
@@ -102,6 +106,7 @@ def test_api33_valid_input_still_works(fn_name):
 
 # --------------------------------------------------------------------------- API34
 def test_api34_run_efs_does_not_mutate_caller_exclude_columns_list():
+    """Api34 run efs does not mutate caller exclude columns list."""
     pl = pytest.importorskip("polars")
     from mlframe.feature_selection.general import run_efs
 

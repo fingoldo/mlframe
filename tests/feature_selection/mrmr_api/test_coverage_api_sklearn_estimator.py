@@ -27,6 +27,7 @@ from mlframe.feature_selection.filters import MRMR
 
 
 def _data(n: int = 160, m: int = 5, seed: int = 0):
+    """Helper that data."""
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(n, m))
     y = (X[:, 0] + 0.4 * X[:, 2] > 0).astype(np.int32)
@@ -34,6 +35,7 @@ def _data(n: int = 160, m: int = 5, seed: int = 0):
 
 
 def _fast(**kw):
+    """Helper that fast."""
     base = dict(full_npermutations=5, baseline_npermutations=3, n_jobs=1, verbose=0, fe_fast_search=False, interactions_max_order=1)
     base.update(kw)
     return MRMR(**base)
@@ -59,6 +61,7 @@ def test_get_set_params_round_trip_over_ctor():
 
 @pytest.mark.fast
 def test_set_params_mutates_in_place_and_returns_self():
+    """Set params mutates in place and returns self."""
     m = MRMR()
     ret = m.set_params(quantization_nbins=9, random_seed=5)
     assert ret is m
@@ -95,6 +98,7 @@ def test_explicit_n_jobs_passes_through():
 
 @pytest.mark.fast
 def test_fit_returns_self():
+    """Fit returns self."""
     X, y = _data(seed=1)
     MRMR._FIT_CACHE.clear()
     m = _fast(random_seed=7)
@@ -103,6 +107,7 @@ def test_fit_returns_self():
 
 @pytest.mark.fast
 def test_fit_sets_feature_names_in_and_n_features_in():
+    """Fit sets feature names in and n features in."""
     X, y = _data(seed=2)
     MRMR._FIT_CACHE.clear()
     m = _fast(random_seed=7).fit(X, y)
@@ -112,6 +117,7 @@ def test_fit_sets_feature_names_in_and_n_features_in():
 
 @pytest.mark.fast
 def test_ndarray_fit_synthesizes_feature_names():
+    """Ndarray fit synthesizes feature names."""
     X, y = _data(seed=3)
     MRMR._FIT_CACHE.clear()
     m = _fast(random_seed=7).fit(X.to_numpy(), y)

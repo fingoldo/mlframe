@@ -30,9 +30,11 @@ from mlframe.feature_selection.filters._fe_usability_signal import (
 
 
 def _make_cached_operand(self_obj, X, cols, call_log):
+    """Make cached operand."""
     cache: dict = {}
 
     def _cached_operand(idx):
+        """Cached operand."""
         if idx in cache:
             return cache[idx]
         call_log.append(idx)
@@ -44,6 +46,7 @@ def _make_cached_operand(self_obj, X, cols, call_log):
 
 
 def test_cached_operand_returns_identical_values_to_uncached():
+    """Cached operand returns identical values to uncached."""
     rng = np.random.default_rng(0)
     n = 500
     X = pd.DataFrame({f"c{i}": rng.standard_normal(n) for i in range(10)})

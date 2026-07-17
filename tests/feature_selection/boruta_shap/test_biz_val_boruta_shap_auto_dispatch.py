@@ -26,11 +26,13 @@ from sklearn.model_selection import train_test_split
 
 
 def _make(n, p, inf, seed):
+    """Helper that make."""
     X, y = make_classification(n_samples=n, n_features=p, n_informative=inf, n_redundant=0, shuffle=False, random_state=seed)
     return pd.DataFrame(X, columns=[f"f{i}" for i in range(p)]), pd.Series(y)
 
 
 def _holdout_auc(X, y, selected, seed):
+    """Holdout auc."""
     if not selected:
         return 0.5
     Xtr, Xte, ytr, yte = train_test_split(X[selected], y, test_size=0.3, random_state=seed, stratify=y)
@@ -39,6 +41,7 @@ def _holdout_auc(X, y, selected, seed):
 
 
 def _fit(measure, X, y, seed, n_trials=12):
+    """Helper that fit."""
     from mlframe.feature_selection.boruta_shap import BorutaShap
 
     kw = dict(

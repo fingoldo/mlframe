@@ -19,6 +19,7 @@ from mlframe.feature_selection.filters.mrmr import MRMR
 def _clear_mrmr_fit_cache():
     # The process-wide fit memo is keyed by X-content hash; a sibling test that fit the SAME synthetic could otherwise
     # replay a cached selection here and make the pandas/polars A/B compare against a stale entry. Drain it per test.
+    """Clear mrmr fit cache."""
     MRMR._FIT_CACHE.clear()
     yield
     MRMR._FIT_CACHE.clear()
@@ -39,6 +40,7 @@ _FEATURE_LIST_ATTRS = (
 
 
 def _engineered(sel):
+    """Helper that engineered."""
     out = []
     for a in _FEATURE_LIST_ATTRS:
         out.extend(getattr(sel, a, None) or [])
@@ -46,6 +48,7 @@ def _engineered(sel):
 
 
 def _quadratic(seed, n=1500):
+    """Helper that quadratic."""
     rng = np.random.default_rng(seed)
     x1 = rng.standard_normal(n)
     x2, x3 = rng.standard_normal(n), rng.standard_normal(n)
@@ -58,6 +61,7 @@ def _quadratic(seed, n=1500):
 
 
 def _three_way(seed, n=2000):
+    """Three way."""
     rng = np.random.default_rng(seed)
     x1, x2, x3 = (rng.standard_normal(n) for _ in range(3))
     noise = rng.standard_normal((n, 2))
@@ -68,6 +72,7 @@ def _three_way(seed, n=2000):
 
 def _diff_pair(seed, n=2000):
     # Correlated pair (|corr| ~ 0.99) with a NONLINEAR signal in the residual diff, so the diff-basis family engineers it.
+    """Diff pair."""
     rng = np.random.default_rng(seed)
     x1 = rng.standard_normal(n)
     x2 = x1 + 0.15 * rng.standard_normal(n)
@@ -80,6 +85,7 @@ def _diff_pair(seed, n=2000):
 
 def _cluster(seed, n=2000):
     # A 3-member correlated cluster whose SQUARED aggregate carries the signal, so the cluster-basis family engineers it.
+    """Helper that cluster."""
     rng = np.random.default_rng(seed)
     x1 = rng.standard_normal(n)
     x2 = x1 + 0.1 * rng.standard_normal(n)
@@ -91,6 +97,7 @@ def _cluster(seed, n=2000):
 
 
 def _ratio(seed, n=2000):
+    """Helper that ratio."""
     rng = np.random.default_rng(seed)
     x1 = rng.uniform(1.0, 5.0, n)
     x2 = rng.uniform(1.0, 5.0, n)
@@ -101,6 +108,7 @@ def _ratio(seed, n=2000):
 
 
 def _categorical(seed, n=1500):
+    """Helper that categorical."""
     rng = np.random.default_rng(seed)
     cat = rng.integers(0, 8, n)
     eff = np.array([-2, -1, 0, 1, 2, 3, 0, -3], dtype=float)[cat]
@@ -114,6 +122,7 @@ def _categorical(seed, n=1500):
 def _hinge_target(seed, n=2000):
     # Clean MONOTONE slope-change (y depends on relu(x1 - tau)) so the held-out breakpoint search finds an UNAMBIGUOUS tau
     # -- a symmetric target gives no clean breakpoint and the SSE search near-ties become FP-noise-sensitive across formats.
+    """Hinge target."""
     rng = np.random.default_rng(seed)
     x1, x2, x3 = (rng.standard_normal(n) for _ in range(3))
     noise = rng.standard_normal((n, 2))
@@ -124,6 +133,7 @@ def _hinge_target(seed, n=2000):
 
 def _cat_num(seed, n=2000):
     # Category MODULATES the numeric's slope (genuine cat x num interaction), so the residual-by-category encoding is engineered.
+    """Cat num."""
     rng = np.random.default_rng(seed)
     cat = rng.integers(0, 6, n)
     slope = np.array([-3.0, -1.5, 0.0, 1.5, 3.0, -2.0])[cat]
@@ -197,6 +207,7 @@ _CASES = {
 
 
 def _fit(data, y, kwargs, to_polars):
+    """Helper that fit."""
     if to_polars:
         pl = pytest.importorskip("polars")
         X = pl.DataFrame(data)
@@ -218,6 +229,7 @@ def test_bucket_a_family_adds_no_whole_frame_to_pandas_on_polars(monkeypatch):
     import mlframe.training.utils as U
 
     def _bridge_off(*_a, **_k):
+        """Bridge off."""
         raise RuntimeError("polars->pandas FE bridge disabled for the spy")
 
     monkeypatch.setattr(U, "get_pandas_view_of_polars_df", _bridge_off)
@@ -232,6 +244,7 @@ def test_bucket_a_family_adds_no_whole_frame_to_pandas_on_polars(monkeypatch):
     y = pd.Series((data["x1"] ** 2 > 1.0).astype(int))
 
     def _full_count(kwargs):
+        """Full count."""
         heights.clear()
         MRMR._FIT_CACHE.clear()
         sel = MRMR(verbose=0, random_seed=0, fe_check_pairs_subsample_n=500, fe_univariate_basis_enable=True, **kwargs)
@@ -250,6 +263,7 @@ def test_bucket_a_family_adds_no_whole_frame_to_pandas_on_polars(monkeypatch):
 
 @pytest.mark.parametrize("fam", list(_CASES))
 def test_fe_family_runs_on_polars_and_matches_pandas(fam):
+    """Fe family runs on polars and matches pandas."""
     pytest.importorskip("polars")
     kwargs, builder = _CASES[fam]
     # Deterministic per-family seed (never hash(fam) -- PYTHONHASHSEED randomises it, making the fixture non-reproducible).

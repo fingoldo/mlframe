@@ -30,7 +30,9 @@ import pytest
 
 
 class TestChaoShenEntropy:
+    """Groups tests covering TestChaoShenEntropy."""
     def test_binary_uniform_returns_ln2(self):
+        """Binary uniform returns ln2."""
         from mlframe.feature_selection.filters._chao_shen import chao_shen_entropy
 
         rng = np.random.default_rng(0)
@@ -40,12 +42,14 @@ class TestChaoShenEntropy:
         assert 0.65 < h < 0.74, f"Chao-Shen entropy of uniform binary = {h}"
 
     def test_constant_returns_zero(self):
+        """Constant returns zero."""
         from mlframe.feature_selection.filters._chao_shen import chao_shen_entropy
 
         h = chao_shen_entropy(np.zeros(100, dtype=np.int64))
         assert h < 1e-10
 
     def test_mi_perfect_dependence(self):
+        """Mi perfect dependence."""
         from mlframe.feature_selection.filters._chao_shen import chao_shen_mi
 
         rng = np.random.default_rng(0)
@@ -63,7 +67,9 @@ class TestChaoShenEntropy:
 
 
 class TestJMIM:
+    """Groups tests covering TestJMIM."""
     def test_returns_marginal_mi_with_empty_selected(self):
+        """Returns marginal mi with empty selected."""
         from mlframe.feature_selection.filters._jmim_scorer import jmim_score
 
         rng = np.random.default_rng(0)
@@ -74,6 +80,7 @@ class TestJMIM:
         assert sc > 0.05, f"empty-selected JMIM should equal marginal MI: {sc}"
 
     def test_min_aggregator_over_selected(self):
+        """Min aggregator over selected."""
         from mlframe.feature_selection.filters._jmim_scorer import jmim_score
 
         rng = np.random.default_rng(0)
@@ -93,7 +100,9 @@ class TestJMIM:
 
 
 class TestBURTerm:
+    """Groups tests covering TestBURTerm."""
     def test_empty_selected_returns_marginal_mi(self):
+        """Empty selected returns marginal mi."""
         from mlframe.feature_selection.filters._bur_term import bur_term
 
         rng = np.random.default_rng(0)
@@ -104,6 +113,7 @@ class TestBURTerm:
         assert b > 0.05, f"empty-selected BUR = marginal MI; got {b}"
 
     def test_redundant_with_selected_drops_to_zero(self):
+        """Redundant with selected drops to zero."""
         from mlframe.feature_selection.filters._bur_term import bur_term
 
         rng = np.random.default_rng(0)
@@ -122,7 +132,9 @@ class TestBURTerm:
 
 
 class TestRelaxMRMR3D:
+    """Groups tests covering TestRelaxMRMR3D."""
     def test_returns_finite(self):
+        """Returns finite."""
         from mlframe.feature_selection.filters._relaxmrmr_3d import relax_mrmr_score
 
         rng = np.random.default_rng(0)
@@ -141,7 +153,9 @@ class TestRelaxMRMR3D:
 
 
 class TestCMIPermStop:
+    """Groups tests covering TestCMIPermStop."""
     def test_significant_on_real_signal(self):
+        """Significant on real signal."""
         from mlframe.feature_selection.filters._cmi_perm_stop import (
             cmi_permutation_stop,
         )
@@ -164,6 +178,7 @@ class TestCMIPermStop:
         assert obs > 0.01
 
     def test_not_significant_on_noise(self):
+        """Not significant on noise."""
         from mlframe.feature_selection.filters._cmi_perm_stop import (
             cmi_permutation_stop,
         )
@@ -187,7 +202,9 @@ class TestCMIPermStop:
 
 
 class TestUAEDElbow:
+    """Groups tests covering TestUAEDElbow."""
     def test_classic_decay_curve(self):
+        """Classic decay curve."""
         from mlframe.feature_selection.filters._cmi_perm_stop import uaed_elbow
 
         # Curve with elbow around index 2-3.
@@ -197,6 +214,7 @@ class TestUAEDElbow:
         assert 1 <= idx <= 4
 
     def test_flat_curve_picks_endpoint(self):
+        """Flat curve picks endpoint."""
         from mlframe.feature_selection.filters._cmi_perm_stop import uaed_elbow
 
         curve = np.linspace(1.0, 0.5, 6)
@@ -210,7 +228,9 @@ class TestUAEDElbow:
 
 
 class TestConditionalPermutationTest:
+    """Groups tests covering TestConditionalPermutationTest."""
     def test_dependent_x_y_rejects_null(self):
+        """Dependent x y rejects null."""
         from mlframe.feature_selection.filters._conditional_permutation import (
             conditional_permutation_test,
         )
@@ -233,6 +253,7 @@ class TestConditionalPermutationTest:
         assert p <= 0.10
 
     def test_independent_x_y_no_reject(self):
+        """Independent x y no reject."""
         from mlframe.feature_selection.filters._conditional_permutation import (
             conditional_permutation_test,
         )
@@ -261,7 +282,9 @@ class TestConditionalPermutationTest:
 
 
 class TestClusterStability:
+    """Groups tests covering TestClusterStability."""
     def test_returns_subset_indices(self):
+        """Returns subset indices."""
         from mlframe.feature_selection.filters._stability_cluster import (
             cluster_stability_selection,
         )
@@ -271,6 +294,7 @@ class TestClusterStability:
         y = (X[:, 0] > 0).astype(np.int64)
 
         def _sel(X_, y_):
+            """Helper that sel."""
             return np.array([0, 2])
 
         sel, _freq, info = cluster_stability_selection(
@@ -284,7 +308,9 @@ class TestClusterStability:
 
 
 class TestComplementaryPairsStability:
+    """Groups tests covering TestComplementaryPairsStability."""
     def test_returns_subset(self):
+        """Returns subset."""
         from mlframe.feature_selection.filters._stability_cluster import (
             complementary_pairs_stability,
         )
@@ -294,6 +320,7 @@ class TestComplementaryPairsStability:
         y = (X[:, 0] > 0).astype(np.int64)
 
         def _sel(X_, y_):
+            """Helper that sel."""
             return np.array([0, 3])
 
         _sel_result, _freq, info = complementary_pairs_stability(
@@ -311,7 +338,9 @@ class TestComplementaryPairsStability:
 
 
 class TestPIDDecomposition:
+    """Groups tests covering TestPIDDecomposition."""
     def test_xor_synergy(self):
+        """Xor synergy."""
         from mlframe.feature_selection.filters._pid_decomposition import (
             pid_decomposition,
         )
@@ -329,6 +358,7 @@ class TestPIDDecomposition:
         assert pid["redundant"] < 0.05
 
     def test_copy_redundant(self):
+        """Copy redundant."""
         from mlframe.feature_selection.filters._pid_decomposition import (
             pid_decomposition,
         )
@@ -351,7 +381,9 @@ class TestPIDDecomposition:
 
 
 class TestMRMRWiredKnobs:
+    """Groups tests covering TestMRMRWiredKnobs."""
     def _toy(self, n=200, seed=0):
+        """Helper that toy."""
         rng = np.random.default_rng(int(seed))
         X = pd.DataFrame({f"f{i}": rng.standard_normal(n) for i in range(5)})
         y = pd.Series(
@@ -361,6 +393,7 @@ class TestMRMRWiredKnobs:
         return X, y
 
     def test_uaed_auto_size_no_crash(self):
+        """Uaed auto size no crash."""
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         X, y = self._toy()
@@ -371,6 +404,7 @@ class TestMRMRWiredKnobs:
         assert hasattr(sel, "n_features_")
 
     def test_cluster_stability_selection_returns_subset(self):
+        """Cluster stability selection returns subset."""
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         X, y = self._toy(n=180)
@@ -384,6 +418,7 @@ class TestMRMRWiredKnobs:
         assert sel.stability_info_["n_clusters"] >= 1
 
     def test_complementary_pairs_returns_subset(self):
+        """Complementary pairs returns subset."""
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         X, y = self._toy(n=180)
@@ -396,12 +431,14 @@ class TestMRMRWiredKnobs:
         assert hasattr(sel, "stability_info_")
 
     def test_invalid_stability_method_raises(self):
+        """Invalid stability method raises."""
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         with pytest.raises(ValueError):
             MRMR(stability_selection_method="bogus")._validate_string_params()
 
     def test_invalid_mi_correction_raises(self):
+        """Invalid mi correction raises."""
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         with pytest.raises(ValueError):
@@ -414,6 +451,7 @@ class TestJMIMBURInnerLoop:
     """
 
     def _toy(self, n=300, seed=0):
+        """Helper that toy."""
         rng = np.random.default_rng(int(seed))
         true_sig = rng.standard_normal(n)
         X = pd.DataFrame(
@@ -431,6 +469,7 @@ class TestJMIMBURInnerLoop:
         return X, y
 
     def test_jmim_aggregator_completes_fit(self):
+        """Jmim aggregator completes fit."""
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         X, y = self._toy()
@@ -440,6 +479,7 @@ class TestJMIMBURInnerLoop:
         assert sel.get_feature_names_out().size >= 1
 
     def test_bur_bonus_completes_fit(self):
+        """Bur bonus completes fit."""
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         X, y = self._toy()
@@ -448,6 +488,7 @@ class TestJMIMBURInnerLoop:
         assert sel.n_features_ >= 1
 
     def test_jmim_plus_bur_compose(self):
+        """Jmim plus bur compose."""
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         X, y = self._toy()
@@ -456,6 +497,7 @@ class TestJMIMBURInnerLoop:
         assert sel.n_features_ >= 1
 
     def test_defaults_match_legacy_bit_stable(self):
+        """Defaults match legacy bit stable."""
         from mlframe.feature_selection.filters.mrmr import MRMR
         from mlframe.feature_selection.filters.info_theory import (
             use_jmim_aggregator,
@@ -473,6 +515,7 @@ class TestJMIMBURInnerLoop:
         assert get_bur_lambda() == 0.0
 
     def test_invalid_redundancy_aggregator_raises(self):
+        """Invalid redundancy aggregator raises."""
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         with pytest.raises(ValueError):

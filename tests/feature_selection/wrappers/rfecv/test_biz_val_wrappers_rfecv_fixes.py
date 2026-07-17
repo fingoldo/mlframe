@@ -33,6 +33,7 @@ warnings.filterwarnings("ignore")
 
 
 def _make_df(n=600, p_signal=5, p_noise=8, seed=42):
+    """Make df."""
     rng = np.random.default_rng(seed)
     X_sig = rng.normal(size=(n, p_signal))
     X_noise = rng.normal(size=(n, p_noise))
@@ -43,6 +44,7 @@ def _make_df(n=600, p_signal=5, p_noise=8, seed=42):
 
 
 def _support_to_indices(sel):
+    """Support to indices."""
     s = sel.support_
     if hasattr(s, "dtype") and s.dtype == bool:
         return [int(i) for i in np.flatnonzero(s)]

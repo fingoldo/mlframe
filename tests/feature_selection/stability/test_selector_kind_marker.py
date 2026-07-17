@@ -16,6 +16,7 @@ def test_selector_kind_prefers_explicit_marker_over_class_name():
     from mlframe.training.core._phase_train_one_target import _selector_kind
 
     class FakeSelector:
+        """Groups tests covering FakeSelector."""
         pass
 
     sel = FakeSelector()
@@ -42,7 +43,9 @@ def test_selector_params_hash_uses_16_byte_digest():
     from mlframe.training.core._phase_train_one_target import _selector_params_hash
 
     class Selector:
+        """Groups tests covering Selector."""
         def get_params(self, deep=False):
+            """Get params."""
             return {"a": 1, "b": "two"}
 
     digest = _selector_params_hash(Selector())

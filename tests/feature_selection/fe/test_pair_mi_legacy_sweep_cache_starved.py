@@ -27,6 +27,7 @@ from mlframe.feature_selection.filters.feature_engineering import compute_pairs_
 
 
 def _make_inputs(n=200, k=6, seed=0):
+    """Make inputs."""
     rng = np.random.default_rng(seed)
     data = rng.integers(0, 4, size=(n, k + 1)).astype(np.int32)  # last col = target
     nbins = np.array([4] * (k + 1), dtype=np.int32)
@@ -52,6 +53,7 @@ def test_legacy_sweep_skips_mi_direct_when_cache_fully_prepopulated(monkeypatch)
     calls = []
 
     def _spy_mi_direct(*args, **kwargs):
+        """Spy mi direct."""
         calls.append((args, kwargs))
         return 0.0, 1.0
 
@@ -94,6 +96,7 @@ def test_legacy_sweep_only_computes_missing_pairs(monkeypatch):
     computed_pairs = []
 
     def _spy_mi_direct(data, x, y, **kwargs):
+        """Spy mi direct."""
         computed_pairs.append(tuple(x))
         return 0.05, 1.0
 

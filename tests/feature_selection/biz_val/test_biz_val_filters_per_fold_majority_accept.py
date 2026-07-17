@@ -14,6 +14,7 @@ from mlframe.feature_selection.filters._per_fold_majority_accept import per_fold
 
 
 def test_biz_val_per_fold_majority_rejects_lucky_single_fold_despite_positive_mean_delta():
+    """Biz val per fold majority rejects lucky single fold despite positive mean delta."""
     baseline = [0.80, 0.80, 0.80, 0.80, 0.80]
     candidate = [0.95, 0.78, 0.78, 0.78, 0.78]  # one lucky fold, mild hurt elsewhere
 
@@ -24,6 +25,7 @@ def test_biz_val_per_fold_majority_rejects_lucky_single_fold_despite_positive_me
 
 
 def test_biz_val_per_fold_majority_accepts_genuine_majority_improvement():
+    """Biz val per fold majority accepts genuine majority improvement."""
     baseline = [0.80, 0.81, 0.79, 0.80, 0.82]
     candidate = [0.83, 0.84, 0.78, 0.83, 0.85]  # improves 4/5 folds
 
@@ -33,10 +35,12 @@ def test_biz_val_per_fold_majority_accepts_genuine_majority_improvement():
 
 
 def test_seed_averaged_fold_scores_reduces_noise_vs_single_seed():
+    """Seed averaged fold scores reduces noise vs single seed."""
     np.random.default_rng(0)
     true_fold_scores = np.array([0.80, 0.81, 0.79, 0.82, 0.80])
 
     def noisy_score_fn(seed):
+        """Noisy score fn."""
         local_rng = np.random.default_rng(seed)
         return true_fold_scores + local_rng.normal(0, 0.05, size=5)
 
@@ -48,6 +52,7 @@ def test_seed_averaged_fold_scores_reduces_noise_vs_single_seed():
 
 
 def test_per_fold_majority_accept_shape_mismatch_raises():
+    """Per fold majority accept shape mismatch raises."""
     import pytest
 
     with pytest.raises(ValueError):
@@ -89,6 +94,7 @@ def test_biz_val_per_fold_majority_agreement_score_distinguishes_borderline_from
 
 
 def test_per_fold_majority_accept_default_unchanged_when_agreement_score_omitted():
+    """Per fold majority accept default unchanged when agreement score omitted."""
     baseline = [0.80, 0.81, 0.79, 0.80, 0.82]
     candidate = [0.83, 0.84, 0.78, 0.83, 0.85]
 

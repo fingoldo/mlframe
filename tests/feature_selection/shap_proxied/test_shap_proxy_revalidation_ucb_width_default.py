@@ -11,11 +11,13 @@ from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
 
 def test_default_is_none_sentinel():
+    """Default is none sentinel."""
     sel = ShapProxiedFS()
     assert sel.revalidation_ucb_stdev_multiplier is None
 
 
 def test_auto_below_threshold_returns_one_point_zero():
+    """Auto below threshold returns one point zero."""
     sel = ShapProxiedFS()
     assert sel._resolve_revalidation_ucb_stdev_multiplier(1) == 1.0
     assert sel._resolve_revalidation_ucb_stdev_multiplier(100) == 1.0
@@ -23,6 +25,7 @@ def test_auto_below_threshold_returns_one_point_zero():
 
 
 def test_auto_at_and_above_threshold_returns_zero_point_six():
+    """Auto at and above threshold returns zero point six."""
     sel = ShapProxiedFS()
     assert sel._resolve_revalidation_ucb_stdev_multiplier(10000) == 0.6
     assert sel._resolve_revalidation_ucb_stdev_multiplier(20000) == 0.6
@@ -30,12 +33,14 @@ def test_auto_at_and_above_threshold_returns_zero_point_six():
 
 
 def test_user_pinned_overrides_auto_below_threshold():
+    """User pinned overrides auto below threshold."""
     sel = ShapProxiedFS(revalidation_ucb_stdev_multiplier=0.4)
     assert sel.revalidation_ucb_stdev_multiplier == 0.4
     assert sel._resolve_revalidation_ucb_stdev_multiplier(500) == 0.4
 
 
 def test_user_pinned_overrides_auto_above_threshold():
+    """User pinned overrides auto above threshold."""
     sel = ShapProxiedFS(revalidation_ucb_stdev_multiplier=1.5)
     assert sel.revalidation_ucb_stdev_multiplier == 1.5
     assert sel._resolve_revalidation_ucb_stdev_multiplier(50000) == 1.5
@@ -43,12 +48,14 @@ def test_user_pinned_overrides_auto_above_threshold():
 
 def test_user_pinned_zero_is_respected_not_none_coerced():
     # 0.0 is a legitimate (no-std-margin) calibration; must not be treated as falsy sentinel.
+    """User pinned zero is respected not none coerced."""
     sel = ShapProxiedFS(revalidation_ucb_stdev_multiplier=0.0)
     assert sel.revalidation_ucb_stdev_multiplier == 0.0
     assert sel._resolve_revalidation_ucb_stdev_multiplier(20000) == 0.0
 
 
 def test_resolver_returns_float_type():
+    """Resolver returns float type."""
     sel = ShapProxiedFS()
     out = sel._resolve_revalidation_ucb_stdev_multiplier(10000)
     assert isinstance(out, float)
@@ -57,6 +64,7 @@ def test_resolver_returns_float_type():
 def test_refine_multiplier_is_independent():
     # iter35's within_cluster_refine multiplier is independently configured; tightening reval should
     # not perturb the refine default. Guards the same-helper-but-independent-knobs invariant.
+    """Refine multiplier is independent."""
     sel = ShapProxiedFS()
     assert sel.refine_ucb_stdev_multiplier == 1.0
     sel2 = ShapProxiedFS(revalidation_ucb_stdev_multiplier=0.3)

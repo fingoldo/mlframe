@@ -26,6 +26,7 @@ class _NoisyTopK(BaseEstimator):
         self.k = k
 
     def fit(self, X, y):
+        """Helper that fit."""
         Xv = X.values if hasattr(X, "values") else np.asarray(X)
         yv = np.asarray(y)
         cors = np.array([abs(np.corrcoef(Xv[:, j], yv)[0, 1]) if np.std(Xv[:, j]) > 0 else 0.0 for j in range(Xv.shape[1])])
@@ -82,6 +83,7 @@ def test_biz_val_stability_n_bootstraps_reduces_false_positives():
     X, y, true = _noisy_signal_frame()
 
     def mean_fp(B):
+        """Mean fp."""
         fps = [
             len(
                 set(StabilityMRMR(_NoisyTopK(k=5), n_bootstraps=B, sample_fraction=0.6, support_threshold=0.6, random_state=s).fit(X, y).support_.tolist())

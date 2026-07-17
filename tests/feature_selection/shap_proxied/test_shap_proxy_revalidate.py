@@ -15,6 +15,7 @@ from sklearn.linear_model import LinearRegression
 
 @pytest.fixture
 def planted():
+    """Helper that planted."""
     rng = np.random.default_rng(0)
     n, f = 1200, 8
     X = pd.DataFrame(rng.normal(size=(n, f)), columns=[f"x{i}" for i in range(f)])
@@ -27,6 +28,7 @@ def planted():
 
 
 def test_revalidate_recovers_planted_subset(planted):
+    """Revalidate recovers planted subset."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate import revalidate_top_n
 
     X, y, _phi, _base = planted
@@ -43,6 +45,7 @@ def test_revalidate_recovers_planted_subset(planted):
 
 
 def test_trust_guard_high_fidelity_on_clean_proxy(planted):
+    """Trust guard high fidelity on clean proxy."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate import proxy_trust_guard
 
     X, y, phi, base = planted
@@ -58,6 +61,7 @@ def test_trust_guard_high_fidelity_on_clean_proxy(planted):
 
 
 def test_active_learning_respects_budget_and_not_worse_than_proxy_top1(planted):
+    """Active learning respects budget and not worse than proxy top1."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate import _honest_loss, active_learning_revalidate
 
     X, y, phi, _base = planted
@@ -103,6 +107,7 @@ def test_active_learning_respects_budget_and_not_worse_than_proxy_top1(planted):
 
 
 def test_importance_ablation_runs(planted):
+    """Importance ablation runs."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate import importance_topk_ablation
 
     X, y, phi, _base = planted
@@ -452,6 +457,7 @@ def test_full_fit_cached_matches_uncached():
     y = pd.Series((logit + 0.3 * rng.normal(size=n) > 0).astype(int))
 
     def _fit():
+        """Helper that fit."""
         sel = ShapProxiedFS(
             classification=True,
             metric="brier",
@@ -1410,6 +1416,7 @@ def test_biz_value_revalidation_cap_faster_recovery_preserved():
     informative = {name for name, r in roles.items() if r == "informative"}
 
     def _build(cap):
+        """Helper that build."""
         return ShapProxiedFS(
             classification=True,
             metric="brier",
@@ -1432,6 +1439,7 @@ def test_biz_value_revalidation_cap_faster_recovery_preserved():
     # Run AFTER first to warm any one-shot global caches, then BEFORE, then AFTER again for the
     # headline. Mirrors the iter28 _iter28_ab.py bench discipline.
     def _go(cap):
+        """Build a selector at the given revalidation_n_estimators cap, fit it, and time the fit wall-clock."""
         sel = _build(cap)
         sel._stage_timings = {}
         t0 = _time.perf_counter()

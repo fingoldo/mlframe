@@ -33,6 +33,7 @@ from mlframe.feature_selection.filters.mrmr import MRMR
 
 
 def _fitted_mrmr():
+    """Fitted mrmr."""
     rng = np.random.default_rng(0)
     n = 400
     X = pd.DataFrame(
@@ -62,6 +63,7 @@ def test_feature_names_in_is_ndarray_after_main_fit():
 
 
 def test_build_usability_lists_no_crash():
+    """Build usability lists no crash."""
     from mlframe.feature_selection.filters._usability_lists import build_usability_lists
 
     m, X, y = _fitted_mrmr()
@@ -70,6 +72,7 @@ def test_build_usability_lists_no_crash():
 
 
 def test_retain_usable_pure_forms_no_crash():
+    """Retain usable pure forms no crash."""
     from mlframe.feature_selection.filters._fe_pure_form_retention import retain_usable_pure_forms
 
     m, X, y = _fitted_mrmr()
@@ -77,6 +80,7 @@ def test_retain_usable_pure_forms_no_crash():
 
 
 def test_retain_usable_raw_columns_no_crash():
+    """Retain usable raw columns no crash."""
     from mlframe.feature_selection.filters._fe_pure_form_retention import retain_usable_raw_columns
 
     m, X, y = _fitted_mrmr()
@@ -84,6 +88,7 @@ def test_retain_usable_raw_columns_no_crash():
 
 
 def test_compute_fe_provenance_no_crash():
+    """Compute fe provenance no crash."""
     from mlframe.feature_selection.filters._mrmr_fe_provenance import compute_fe_provenance
 
     m, _, _ = _fitted_mrmr()

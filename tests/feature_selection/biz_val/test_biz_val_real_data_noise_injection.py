@@ -117,6 +117,7 @@ def _output_names(sel, all_cols):
 
 
 def _recall_and_rejection(out_names, real, noise):
+    """Recall and rejection."""
     toks = set()
     for nm in out_names:
         toks.update(_TOKEN.findall(nm))
@@ -127,6 +128,7 @@ def _recall_and_rejection(out_names, real, noise):
 
 
 def _downstream(df, y, cols, task, kind):
+    """Helper that downstream."""
     if not cols:
         return float("nan")
     X = df[cols].to_numpy()
@@ -144,12 +146,14 @@ def _downstream(df, y, cols, task, kind):
 
 
 def _make_mrmr(task):
+    """Make mrmr."""
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     return MRMR(min_relevance_gain=0.0, cv=3, run_additional_rfecv_minutes=False, full_npermutations=3, random_seed=0, min_features_fallback=1, verbose=False)
 
 
 def _make_rfecv(task):
+    """Make rfecv."""
     from mlframe.feature_selection.wrappers import RFECV
 
     est = Ridge() if task == "regression" else LogisticRegression(max_iter=200, random_state=0)
@@ -158,6 +162,7 @@ def _make_rfecv(task):
 
 
 def _make_shap_proxied(task):
+    """Make shap proxied."""
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
     from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 
@@ -181,6 +186,7 @@ def _make_shap_proxied(task):
 
 
 def _make_boruta_shap(task):
+    """Make boruta shap."""
     from mlframe.feature_selection.boruta_shap import BorutaShap
     from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 
@@ -194,6 +200,7 @@ def _make_boruta_shap(task):
 
 
 def _load(ds_name):
+    """Helper that load."""
     if ds_name == "breast_cancer":
         d = load_breast_cancer()
         names = [f"bc{i}" for i in range(d.data.shape[1])]
@@ -220,6 +227,7 @@ _CASES = [
 
 
 def _case_id(case):
+    """Case id."""
     return f"{case[0]}-{case[2]}"
 
 
@@ -295,6 +303,7 @@ def _run_case(case):
 @pytest.mark.slow
 @pytest.mark.parametrize("case", _CASES, ids=_case_id)
 def test_biz_val_real_data_noise_injection_value_and_honesty(case):
+    """Biz val real data noise injection value and honesty."""
     _run_case(case)
 
 

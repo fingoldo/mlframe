@@ -54,6 +54,7 @@ def _make(kind, n, seed, *, nan_frac=0.0, with_cat=False):
 
 
 def _mrmr_support(df, y, seed):
+    """Mrmr support."""
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     # This suite asserts the selector RECOVERS the signal raws -- emit_both keeps signal-bearing raw
@@ -67,6 +68,7 @@ def _mrmr_support(df, y, seed):
 
 
 def _rfecv_support(df, y, seed, regression):
+    """Rfecv support."""
     from sklearn.ensemble import HistGradientBoostingClassifier, HistGradientBoostingRegressor
     from mlframe.feature_selection.wrappers import RFECV
 

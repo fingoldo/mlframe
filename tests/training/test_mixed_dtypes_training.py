@@ -1,3 +1,5 @@
+"""Integration coverage: CatBoost training on a ~576-column mixed-dtype Polars frame matching a real 100k-row production shape."""
+
 from mlframe.training import OutputConfig, ReportingConfig
 
 """
@@ -87,6 +89,7 @@ class TestMixedDtypesTraining:
 
     @pytest.fixture(scope="class")
     def synthetic_df(self):
+        """Builds the shared 100k-row mixed-dtype synthetic frame once per test class."""
         return _make_synthetic_mixed_df(n_rows=100_000)
 
     def test_catboost_trains_on_mixed_dtypes(self, synthetic_df, tmp_path):

@@ -173,6 +173,7 @@ class TestMRMRFeatureEngineering:
         # Classify each selected feature by which signal half(s) it references. The two structural halves
         # are {a,b} (the a**2/b term) and {c,d} (the log(c)*sin(d) term); 'e' is pure noise.
         def _cols(nm):
+            """Helper that cols."""
             return set(_IDENT.findall(nm)) & {"a", "b", "c", "d", "e"}
 
         assert all("e" not in _cols(nm) for nm in names), f"noise 'e' referenced: {names}"

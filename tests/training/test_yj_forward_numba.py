@@ -48,7 +48,6 @@ from mlframe.training.composite.transforms.unary import (
     _yj_inverse_numpy,
 )
 
-
 LAMS = [-1.5, -0.5, 0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.5]
 
 
@@ -89,6 +88,7 @@ def test_tiny_input_falls_back_to_numpy(monkeypatch) -> None:
     calls: list[int] = []
 
     def _spy(y, lam):  # type: ignore[no-untyped-def]
+        """Records input length while delegating to the real numba kernel (via py_func if available)."""
         calls.append(len(y))
         # Delegate to the real kernel so output is correct.
         return cut._yj_forward_numba_kernel.py_func(y, lam) if hasattr(cut._yj_forward_numba_kernel, "py_func") else cut._yj_forward_numba_kernel(y, lam)
@@ -114,6 +114,7 @@ def test_yj_forward_speedup_gate() -> None:
     _ = _yj_forward(y, 1.0)
 
     def _time(fn):
+        """Times 3 repetitions of fn over the full lambda sweep and returns the median wall time."""
         t = []
         for _ in range(3):
             s = time.perf_counter()

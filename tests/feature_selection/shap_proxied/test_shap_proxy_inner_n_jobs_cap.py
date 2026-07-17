@@ -21,6 +21,7 @@ import pandas as pd
 
 
 def _make_planted(n=400, f=8, seed=0):
+    """Make planted."""
     rng = np.random.default_rng(seed)
     X = pd.DataFrame(rng.normal(size=(n, f)), columns=[f"x{i}" for i in range(f)])
     y = (1.5 * X["x0"] + 1.0 * X["x1"] - 0.8 * X["x2"] + 0.05 * rng.normal(size=n)).to_numpy()
@@ -28,6 +29,7 @@ def _make_planted(n=400, f=8, seed=0):
 
 
 def test_parallel_honest_losses_accepts_cap_kwarg():
+    """Parallel honest losses accepts cap kwarg."""
     from sklearn.linear_model import LinearRegression
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate import _parallel_honest_losses
 
@@ -64,6 +66,7 @@ def test_compute_shap_matrix_accepts_cap_kwarg():
 
 
 def test_dataset_diagnostics_accepts_cap_kwarg():
+    """Dataset diagnostics accepts cap kwarg."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_preflight import dataset_diagnostics
 
     X, y = _make_planted(n=200, f=8, seed=2)

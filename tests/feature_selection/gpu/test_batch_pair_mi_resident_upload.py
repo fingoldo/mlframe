@@ -24,12 +24,14 @@ from mlframe.feature_selection.filters._fe_resident_operands import clear_fe_res
 
 @pytest.fixture(autouse=True)
 def _clear_resident_cache():
+    """Clear resident cache."""
     clear_fe_resident_operands()
     yield
     clear_fe_resident_operands()
 
 
 def _build_pair_inputs(n_samples, nbins_per_col, n_classes_y, seed):
+    """Build pair inputs."""
     rng = np.random.default_rng(seed)
     cols = [rng.integers(0, nb, size=n_samples) for nb in nbins_per_col]
     data = np.column_stack(cols).astype(np.int32)
@@ -56,6 +58,7 @@ def test_batch_pair_mi_cuda_uploads_factors_data_once_across_calls():
     orig_asarray = cp.asarray
 
     def _counting_asarray(arr, *a, **kw):
+        """Counting asarray."""
         if getattr(arr, "shape", None) == data.shape:
             upload_calls["n"] += 1
         return orig_asarray(arr, *a, **kw)
@@ -75,6 +78,7 @@ def test_batch_pair_mi_cuda_uploads_factors_data_once_across_calls():
 
 @pytest.mark.skipif(not _CUPY_AVAIL, reason="cupy not available on this host")
 def test_batch_pair_mi_cupy_uploads_factors_data_once_across_calls():
+    """Batch pair mi cupy uploads factors data once across calls."""
     import cupy as cp
 
     data, nbins, y, freqs_y, pair_a, pair_b = _build_pair_inputs(2000, [5, 5, 5, 5, 5, 5], 4, seed=4)
@@ -85,6 +89,7 @@ def test_batch_pair_mi_cupy_uploads_factors_data_once_across_calls():
     orig_asarray = cp.asarray
 
     def _counting_asarray(arr, *a, **kw):
+        """Counting asarray."""
         if getattr(arr, "shape", None) == data.shape:
             upload_calls["n"] += 1
         return orig_asarray(arr, *a, **kw)

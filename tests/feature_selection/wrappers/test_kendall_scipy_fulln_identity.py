@@ -47,6 +47,7 @@ def _exact_tau_b(x: np.ndarray, y: np.ndarray) -> float:
 
 @pytest.mark.parametrize("seed", [0, 1, 7])
 def test_scipy_tau_matches_exact_full_n_reference(seed):
+    """Scipy tau matches exact full n reference."""
     rng = np.random.default_rng(seed)
     n = 300  # small enough for the O(n^2) reference, large enough to be non-trivial
     x = rng.normal(size=n)
@@ -57,6 +58,7 @@ def test_scipy_tau_matches_exact_full_n_reference(seed):
 
 
 def test_scipy_tau_matches_exact_reference_with_ties():
+    """Scipy tau matches exact reference with ties."""
     rng = np.random.default_rng(3)
     n = 250
     x = rng.integers(0, 5, size=n).astype(np.float64)  # heavy ties -> tau-b correction exercised

@@ -33,12 +33,14 @@ N_ITERATIONS = 15
 
 
 def _importance_fn(X, y):
+    """Importance fn."""
     model = RandomForestRegressor(n_estimators=15, max_depth=3, random_state=0, n_jobs=1)
     model.fit(X, y)
     return model.feature_importances_
 
 
 def _make_data(seed: int):
+    """Make data."""
     rng = np.random.default_rng(seed)
     cols = {}
     y = np.zeros(N)
@@ -53,6 +55,7 @@ def _make_data(seed: int):
 
 
 def test_biz_val_boruta_select_resolve_tentative_cuts_false_confirms():
+    """Biz val boruta select resolve tentative cuts false confirms."""
     total_false_confirm_single = 0
     total_false_confirm_multi = 0
     total_true_confirm_single = 0

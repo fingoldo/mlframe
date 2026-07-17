@@ -30,6 +30,7 @@ from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
 
 def _make_mixed_strength_fixture(seed=0, n=3000, p=3000, n_strong=6, n_weak=6, strong_weight=1.0, weak_weight=0.25):
+    """Make mixed strength fixture."""
     rng = np.random.default_rng(seed)
     X = rng.standard_normal((n, p)).astype(np.float32)
     strong = list(range(n_strong))
@@ -43,6 +44,7 @@ def _make_mixed_strength_fixture(seed=0, n=3000, p=3000, n_strong=6, n_weak=6, s
 
 
 def _fit_selected(X, y, parsimony_tol, seed=0):
+    """Fit selected."""
     s = ShapProxiedFS(classification=True, random_state=seed, verbose=False, prescreen_ladder_mode="off", parsimony_tol=parsimony_tol, n_jobs=1)
     s.fit(X, y)
     return set(s.selected_features_)

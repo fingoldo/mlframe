@@ -30,71 +30,90 @@ from mlframe.feature_selection.wrappers._helpers import get_feature_importances
 
 
 class TestSearchConfig:
+    """Groups tests covering TestSearchConfig."""
     def test_default_doesnt_clobber_flat(self):
         # Flat max_refits=100 must survive when only a default SearchConfig() is passed.
+        """Default doesnt clobber flat."""
         r = RFECV(estimator=Ridge(), max_refits=100, search_config=SearchConfig())
         assert r.max_refits == 100
 
     def test_explicit_field_overrides_flat(self):
+        """Explicit field overrides flat."""
         r = RFECV(estimator=Ridge(), max_refits=100, search_config=SearchConfig(max_refits=42))
         assert r.max_refits == 42
 
     def test_convergence_tol_via_config(self):
+        """Convergence tol via config."""
         r = RFECV(estimator=Ridge(), search_config=SearchConfig(convergence_tol=1e-3, convergence_tol_window=7))
         assert r.convergence_tol == pytest.approx(1e-3)
         assert r.convergence_tol_window == 7
 
     def test_invalid_optimizer_target_rejected_by_pydantic(self):
+        """Invalid optimizer target rejected by pydantic."""
         with pytest.raises(ValueError, match="optimizer_target"):
             SearchConfig(optimizer_target="bogus")
 
     def test_invalid_dichotomic_epsilon_rejected(self):
+        """Invalid dichotomic epsilon rejected."""
         with pytest.raises(ValueError):
             SearchConfig(dichotomic_epsilon=2.0)  # > 1.0 not allowed
 
 
 class TestFIConfig:
+    """Groups tests covering TestFIConfig."""
     def test_fi_missing_policy_override(self):
+        """Fi missing policy override."""
         r = RFECV(estimator=Ridge(), fi_config=FIConfig(fi_missing_policy="median"))
         assert r.fi_missing_policy == "median"
 
     def test_decay_rate(self):
+        """Decay rate."""
         r = RFECV(estimator=Ridge(), fi_config=FIConfig(fi_decay_rate=0.07))
         assert r.fi_decay_rate == pytest.approx(0.07)
 
     def test_invalid_fi_missing_policy_rejected(self):
+        """Invalid fi missing policy rejected."""
         with pytest.raises(ValueError, match="fi_missing_policy"):
             FIConfig(fi_missing_policy="bogus")
 
     def test_invalid_rule_rejected(self):
+        """Invalid rule rejected."""
         with pytest.raises(ValueError, match="n_features_selection_rule"):
             FIConfig(n_features_selection_rule="bogus")
 
     def test_invalid_coef_scale_source_rejected(self):
+        """Invalid coef scale source rejected."""
         with pytest.raises(ValueError, match="coef_scale_source"):
             FIConfig(coef_scale_source="bogus")
 
 
 class TestRobustnessConfig:
+    """Groups tests covering TestRobustnessConfig."""
     def test_leakage_action_override(self):
+        """Leakage action override."""
         r = RFECV(estimator=Ridge(), robustness_config=RobustnessConfig(leakage_action="raise"))
         assert r.leakage_action == "raise"
 
     def test_must_exclude_strict_via_config(self):
+        """Must exclude strict via config."""
         r = RFECV(estimator=Ridge(), robustness_config=RobustnessConfig(must_exclude_strict=False))
         assert r.must_exclude_strict is False
 
     def test_invalid_leakage_action_rejected(self):
+        """Invalid leakage action rejected."""
         with pytest.raises(ValueError, match="leakage_action"):
             RobustnessConfig(leakage_action="bogus")
 
     def test_prescreen_through_config(self):
+        """Prescreen through config."""
         r = RFECV(estimator=Ridge(), robustness_config=RobustnessConfig(prescreen="univariate_ht"))
         assert r.prescreen == "univariate_ht"
 
 
 class TestEndToEndConfigDriven:
+    """Groups tests covering TestEndToEndConfigDriven."""
     def test_fit_with_all_three_configs(self):
+        """Fit with all three configs."""
         X, y = make_classification(n_samples=200, n_features=10, n_informative=4, random_state=0)
         Xdf = pd.DataFrame(X, columns=[f"f{i}" for i in range(10)])
         sel = RFECV(
@@ -111,7 +130,9 @@ class TestEndToEndConfigDriven:
 
 
 class TestBorutaImportanceGetter:
+    """Groups tests covering TestBorutaImportanceGetter."""
     def test_boruta_returns_shadow_relative_scores(self):
+        """Boruta returns shadow relative scores."""
         X, y = make_classification(n_samples=200, n_features=10, n_informative=4, random_state=0)
         model = RandomForestClassifier(n_estimators=20, random_state=0).fit(X, y)
         fi = get_feature_importances(
@@ -127,6 +148,7 @@ class TestBorutaImportanceGetter:
         assert n_positive >= 2, f"Expected >= 2 features to beat shadow; got {n_positive}"
 
     def test_boruta_requires_data_and_target(self):
+        """Boruta requires data and target."""
         from sklearn.ensemble import RandomForestClassifier as RFC
 
         m = RFC(n_estimators=5, random_state=0).fit(np.random.normal(size=(50, 4)), [0, 1] * 25)
@@ -152,6 +174,7 @@ class TestBorutaImportanceGetter:
         assert max(fi[0], fi[1], fi[2]) > min(fi[3], fi[4])
 
     def test_drop_column_requires_data_target(self):
+        """Drop column requires data target."""
         from sklearn.linear_model import Ridge
 
         m = Ridge().fit(np.random.default_rng(0).normal(size=(50, 4)), np.arange(50) * 0.1)
@@ -159,6 +182,7 @@ class TestBorutaImportanceGetter:
             get_feature_importances(m, list(range(4)), "drop_column", data=None, target=np.arange(50))
 
     def test_rfecv_with_boruta_importance_getter(self):
+        """Rfecv with boruta importance getter."""
         X, y = make_classification(n_samples=200, n_features=8, n_informative=4, random_state=0)
         sel = RFECV(
             estimator=RandomForestClassifier(n_estimators=10, random_state=0),

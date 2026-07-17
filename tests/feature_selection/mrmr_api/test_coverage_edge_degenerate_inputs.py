@@ -47,6 +47,7 @@ def _no_garbage_names(names) -> bool:
 # Non-finite columns
 # ---------------------------------------------------------------------------
 class TestNonFiniteColumns:
+    """Groups tests covering TestNonFiniteColumns."""
     def test_all_nan_column_is_dropped_and_diagnosed(self):
         """An all-NaN column must not crash, must NOT be selected, and must be
         recorded in ``degenerate_columns_`` as ``all_nan``."""
@@ -106,7 +107,9 @@ class TestNonFiniteColumns:
 # Constant / zero-variance columns and targets
 # ---------------------------------------------------------------------------
 class TestConstantInputs:
+    """Groups tests covering TestConstantInputs."""
     def test_constant_column_dropped_and_diagnosed(self):
+        """Constant column dropped and diagnosed."""
         rng = np.random.default_rng(1)
         n = 300
         a = rng.normal(size=n)
@@ -129,6 +132,7 @@ class TestConstantInputs:
             MRMR(verbose=0).fit(X, y)
 
     def test_constant_y_regression_raises(self):
+        """Constant y regression raises."""
         rng = np.random.default_rng(0)
         n = 300
         X = pd.DataFrame({"a": rng.normal(size=n), "b": rng.normal(size=n)})
@@ -141,13 +145,16 @@ class TestConstantInputs:
 # Tiny n
 # ---------------------------------------------------------------------------
 class TestTinyN:
+    """Groups tests covering TestTinyN."""
     def test_n_zero_raises(self):
+        """N zero raises."""
         X = pd.DataFrame({"a": pd.Series([], dtype=float)})
         y = pd.Series([], dtype=int)
         with pytest.raises(ValueError, match="empty input"):
             MRMR(verbose=0).fit(X, y)
 
     def test_n_one_raises(self):
+        """N one raises."""
         X = pd.DataFrame({"a": [1.0], "b": [3.0]})
         y = pd.Series([0])
         with pytest.raises(ValueError, match="single row"):
@@ -174,6 +181,7 @@ class TestTinyN:
 # Cardinality extremes
 # ---------------------------------------------------------------------------
 class TestCardinality:
+    """Groups tests covering TestCardinality."""
     def test_float_id_column_does_not_crash(self):
         """A near-unique float 'id' column (n_unique ~ n) must not crash binning;
         it should NOT outrank the genuine signal."""
@@ -195,7 +203,9 @@ class TestCardinality:
 # Duplicates / perfect collinearity
 # ---------------------------------------------------------------------------
 class TestDuplicatesCollinearity:
+    """Groups tests covering TestDuplicatesCollinearity."""
     def test_exact_duplicate_column_diagnosed_and_not_both_selected(self):
+        """Exact duplicate column diagnosed and not both selected."""
         rng = np.random.default_rng(0)
         n = 400
         a = rng.normal(size=n)
@@ -225,6 +235,7 @@ class TestDuplicatesCollinearity:
 # Informative missingness / all-noise fallback / wide / mixed dtypes
 # ---------------------------------------------------------------------------
 class TestMiscDegenerate:
+    """Groups tests covering TestMiscDegenerate."""
     def test_informative_missingness_recovers_signal(self):
         """When the MISSINGNESS pattern (not the values) drives y, MRMR must still
         select the column whose NaN pattern carries the signal."""
@@ -257,6 +268,7 @@ class TestMiscDegenerate:
         assert getattr(sel, "fallback_used_", False) is True
 
     def test_wide_p_greater_than_n_does_not_crash(self):
+        """Wide p greater than n does not crash."""
         rng = np.random.default_rng(0)
         n, p = 40, 120
         data = {f"x{i}": rng.normal(size=n) for i in range(p)}
@@ -298,6 +310,7 @@ class TestMiscDegenerate:
 # Determinism
 # ---------------------------------------------------------------------------
 class TestDeterminism:
+    """Groups tests covering TestDeterminism."""
     def test_same_seed_same_support_on_degenerate_frame(self):
         """Two fits with the same seed on a frame full of degeneracies (NaN col,
         constant col, duplicate col) must produce IDENTICAL support."""

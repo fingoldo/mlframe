@@ -38,21 +38,25 @@ from mlframe.feature_selection.filters._joblib_safe import maybe_prewarm_polynom
 
 
 def test_gate_off_when_fe_smart_polynom_iters_zero():
+    """Gate off when fe smart polynom iters zero."""
     thread = maybe_prewarm_polynom_loky_pool(fe_smart_polynom_iters=0, n_jobs=16)
     assert thread is None
 
 
 def test_gate_off_when_n_jobs_is_one():
+    """Gate off when n jobs is one."""
     thread = maybe_prewarm_polynom_loky_pool(fe_smart_polynom_iters=5, n_jobs=1)
     assert thread is None
 
 
 def test_gate_off_when_n_jobs_is_none_or_zero():
+    """Gate off when n jobs is none or zero."""
     assert maybe_prewarm_polynom_loky_pool(fe_smart_polynom_iters=5, n_jobs=0) is None
     assert maybe_prewarm_polynom_loky_pool(fe_smart_polynom_iters=5, n_jobs=None) is None  # type: ignore[arg-type]
 
 
 def test_gate_on_starts_a_daemon_thread():
+    """Gate on starts a daemon thread."""
     thread = maybe_prewarm_polynom_loky_pool(fe_smart_polynom_iters=5, n_jobs=2)
     try:
         assert thread is not None
@@ -69,6 +73,7 @@ def test_prewarm_failure_is_swallowed_not_raised(monkeypatch):
     import mlframe.feature_selection.filters._joblib_safe as joblib_safe
 
     def _boom(*args, **kwargs):
+        """Helper that boom."""
         raise RuntimeError("simulated loky failure")
 
     monkeypatch.setattr(joblib_safe, "disable_cuda_in_worker", _boom)
@@ -97,6 +102,7 @@ def test_prewarm_speeds_up_a_real_run_polynom_pair_fe_call():
     prospective_pairs = {(i, i + 1): 1.0 for i in range(16)}
 
     def _run():
+        """Time one run_polynom_pair_fe call on the shared 16-pair fixture, for prewarm-vs-cold timing comparison."""
         t0 = time.perf_counter()
         ppfe.run_polynom_pair_fe(
             X=X,
@@ -157,6 +163,7 @@ def test_idle_worker_timeout_exceeds_joblib_default_and_is_shared_with_real_disp
     real_loky_backend = ppfe.LokyBackend
 
     def _spy_loky_backend(*args, **kwargs):
+        """Spy loky backend."""
         captured["idle_worker_timeout"] = kwargs.get("idle_worker_timeout")
         return real_loky_backend(*args, **kwargs)
 

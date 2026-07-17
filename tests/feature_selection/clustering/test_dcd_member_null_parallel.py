@@ -34,6 +34,7 @@ from mlframe.feature_selection.filters._dynamic_cluster_discovery._dcd_swap_null
 
 
 def _synth(n, ncols, nb, seed):
+    """Helper that synth."""
     rng = np.random.default_rng(seed)
     data = rng.integers(0, nb, size=(n, ncols)).astype(np.int32)
     nbins = np.full(ncols, nb, dtype=np.int64)
@@ -41,6 +42,7 @@ def _synth(n, ncols, nb, seed):
 
 
 def _make_state(data, nbins):
+    """Make state."""
     return types.SimpleNamespace(factors_data=data, factors_nbins=nbins, _perm_seed=0)
 
 

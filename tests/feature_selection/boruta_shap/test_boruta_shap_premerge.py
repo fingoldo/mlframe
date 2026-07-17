@@ -19,6 +19,7 @@ from sklearn.ensemble import RandomForestClassifier
 
 
 def _redundant_data(n=1500, seed=0):
+    """Redundant data."""
     rng = np.random.default_rng(seed)
     z = rng.standard_normal((n, 3))
     y = pd.Series((rng.random(n) < 1.0 / (1.0 + np.exp(-(z @ np.array([1.5, -1.2, 1.0]))))).astype(int))
@@ -31,6 +32,7 @@ def _redundant_data(n=1500, seed=0):
 
 
 def _fit(premerge):
+    """Helper that fit."""
     from mlframe.feature_selection.boruta_shap import BorutaShap
 
     X, y = _redundant_data()
@@ -49,6 +51,7 @@ def _fit(premerge):
 
 
 def test_premerge_is_an_off_by_default_constructor_option():
+    """Premerge is an off by default constructor option."""
     from mlframe.feature_selection.boruta_shap import BorutaShap
 
     p = inspect.signature(BorutaShap.__init__).parameters
@@ -58,6 +61,7 @@ def test_premerge_is_an_off_by_default_constructor_option():
 
 
 def test_premerge_outputs_aligned_to_original_columns_and_recovers_signal():
+    """Premerge outputs aligned to original columns and recovers signal."""
     b, X = _fit(premerge=True)
     # public outputs span the ORIGINAL columns, not the collapsed representatives
     assert len(b.support_) == X.shape[1]

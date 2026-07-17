@@ -17,6 +17,7 @@ from mlframe.feature_selection.filters import _fe_synergy_exhaustive as ex
 
 
 def _stub(mode, *, max_seconds=None, max_mins=None):
+    """Helper that stub."""
     s = types.SimpleNamespace()
     s.fe_synergy_exhaustive = mode
     s.fe_synergy_exhaustive_max_seconds = max_seconds
@@ -26,6 +27,7 @@ def _stub(mode, *, max_seconds=None, max_mins=None):
 
 @pytest.fixture
 def no_gpu(monkeypatch):
+    """No gpu."""
     import mlframe.feature_selection.filters.batch_pair_mi_gpu as bg
 
     monkeypatch.setattr(bg, "_CUDA_AVAIL", False, raising=False)
@@ -33,6 +35,7 @@ def no_gpu(monkeypatch):
 
 
 def test_force_runs_exhaustive_on_cpu_without_gpu(no_gpu):
+    """Force runs exhaustive on cpu without gpu."""
     use, reason = ex.decide_exhaustive_sweep(_stub("force"), n_samples=2000, n_raw=10, verbose=0)
     assert use is True, f"force must run exhaustive even without a GPU (on CPU): {reason}"
     assert "CPU" in reason
@@ -40,6 +43,7 @@ def test_force_runs_exhaustive_on_cpu_without_gpu(no_gpu):
 
 def test_auto_runs_exhaustive_on_cpu_when_affordable(no_gpu):
     # Unlimited budget (no max_runtime_mins / override) -> auto must sweep on CPU, not decline.
+    """Auto runs exhaustive on cpu when affordable."""
     use, reason = ex.decide_exhaustive_sweep(_stub("auto"), n_samples=2000, n_raw=8, verbose=0)
     assert use is True, f"auto + unlimited budget must run exhaustive on CPU: {reason}"
     assert "CPU" in reason
@@ -48,6 +52,7 @@ def test_auto_runs_exhaustive_on_cpu_when_affordable(no_gpu):
 def test_auto_declines_on_cost_not_on_gpu_absence(no_gpu):
     # A tiny budget makes the large CPU sweep unaffordable -> decline, but the REASON must be cost/budget,
     # NOT "no CUDA GPU available" (the old device-gate wording).
+    """Auto declines on cost not on gpu absence."""
     use, reason = ex.decide_exhaustive_sweep(
         _stub("auto", max_seconds=0.001),
         n_samples=1_000_000,
@@ -60,5 +65,6 @@ def test_auto_declines_on_cost_not_on_gpu_absence(no_gpu):
 
 
 def test_never_mode_still_declines(no_gpu):
+    """Never mode still declines."""
     use, _ = ex.decide_exhaustive_sweep(_stub("never"), n_samples=2000, n_raw=10, verbose=0)
     assert use is False

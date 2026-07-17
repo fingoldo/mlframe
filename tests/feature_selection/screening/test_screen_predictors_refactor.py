@@ -20,6 +20,7 @@ warnings.filterwarnings("ignore")
 
 
 def _ordinal_inputs(X: np.ndarray, y: np.ndarray, nbins: int = 8):
+    """Ordinal inputs."""
     from mlframe.feature_selection.filters.discretization import discretize_array
 
     cols = [discretize_array(arr=X[:, j], n_bins=nbins, method="quantile", dtype=np.int32) for j in range(X.shape[1])]

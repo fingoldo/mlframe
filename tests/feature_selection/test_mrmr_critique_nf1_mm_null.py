@@ -11,6 +11,7 @@ from mlframe.feature_selection.filters.permutation import parallel_mi_prange_wit
 
 
 def _fixture(n=1500, kx=4, seed=0):
+    """Helper that fixture."""
     rng = np.random.default_rng(seed)
     classes_x = rng.integers(0, kx, n).astype(np.int32)
     y = ((classes_x + rng.integers(0, 2, n)) % 2).astype(np.int32)  # y correlated with x
@@ -20,6 +21,7 @@ def _fixture(n=1500, kx=4, seed=0):
 
 
 def test_null_kernel_mm_off_is_unchanged_default():
+    """Null kernel mm off is unchanged default."""
     cx, fx, cy, fy = _fixture()
     # default (no use_mm) must equal explicit use_mm=False -> plug-in path bit-identical
     a = parallel_mi_prange_with_null(cx, fx, cy, fy, 32, 0.5, np.uint64(0), np.int32, False)
@@ -28,6 +30,7 @@ def test_null_kernel_mm_off_is_unchanged_default():
 
 
 def test_null_kernel_applies_mm_when_requested():
+    """Null kernel applies mm when requested."""
     cx, fx, cy, fy = _fixture()
     _, _, sum_plugin = parallel_mi_prange_with_null(cx, fx, cy, fy, 64, 0.5, np.uint64(7), np.int32, False, False)
     _, _, sum_mm = parallel_mi_prange_with_null(cx, fx, cy, fy, 64, 0.5, np.uint64(7), np.int32, False, True)

@@ -17,6 +17,7 @@ from mlframe.feature_selection.filters._fe_stability_vote import resolve_adaptiv
 @pytest.mark.parametrize("n", [50, 500, 5000, 100000])
 def test_explicit_int_is_honoured_verbatim(k_int, n):
     # An explicit int must pass through unchanged at every n -> default 5 stays byte-identical.
+    """Explicit int is honoured verbatim."""
     assert resolve_adaptive_vote_k(k_int, n) == k_int
 
 
@@ -34,28 +35,33 @@ def test_explicit_int_is_honoured_verbatim(k_int, n):
     ],
 )
 def test_auto_is_guarded_n_floored(n, expected):
+    """Auto is guarded n floored."""
     assert resolve_adaptive_vote_k("auto", n) == expected
 
 
 def test_auto_never_exceeds_five_and_never_below_two():
+    """Auto never exceeds five and never below two."""
     for n in (1, 10, 250, 600, 10_000, 10_000_000):
         k = resolve_adaptive_vote_k("auto", n)
         assert 2 <= k <= 5
 
 
 def test_auto_case_insensitive_and_whitespace_tolerant():
+    """Auto case insensitive and whitespace tolerant."""
     assert resolve_adaptive_vote_k("AUTO", 5000) == 5
     assert resolve_adaptive_vote_k(" auto ", 300) == 3
 
 
 def test_min_rows_per_fold_override():
     # a stricter per-fold floor reduces K sooner (needs more rows to sustain 5 folds).
+    """Min rows per fold override."""
     assert resolve_adaptive_vote_k("auto", 1000, min_rows_per_fold=300) == 3
     assert resolve_adaptive_vote_k("auto", 2000, min_rows_per_fold=300) == 5
 
 
 def test_min_rows_per_fold_zero_does_not_divide_by_zero():
     # degenerate public-param value must not raise (audit P2): the floor is clamped to >=1.
+    """Min rows per fold zero does not divide by zero."""
     assert resolve_adaptive_vote_k("auto", 5000, min_rows_per_fold=0) == 5
     assert resolve_adaptive_vote_k("auto", 3, min_rows_per_fold=0) == 3
     assert resolve_adaptive_vote_k(5, 5000, min_rows_per_fold=0) == 5  # explicit int unaffected

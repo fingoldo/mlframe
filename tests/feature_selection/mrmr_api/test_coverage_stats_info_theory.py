@@ -68,6 +68,7 @@ def _prewarm_numba():
 
 
 def _two_col(a, b, nb_a, nb_b):
+    """Two col."""
     fd = np.column_stack([a, b]).astype(np.int32)
     fnb = np.array([nb_a, nb_b], dtype=np.int64)
     return fd, fnb
@@ -178,6 +179,7 @@ def test_su_normalizes_away_cardinality_inflation():
 
 
 def _mi_and_classes(x, y, nbx, nby):
+    """Mi and classes."""
     fd, fnb = _two_col(x, y, nbx, nby)
     cx, fx, _ = merge_vars(fd, np.array([0]), None, fnb)
     cy, fy, _ = merge_vars(fd, np.array([1]), None, fnb)
@@ -266,6 +268,7 @@ def test_analytic_batch_gate_keeps_sparse_rejects_dense_noise():
 
     # observed MI per column (raw nats) from the same kernels.
     def _omi(col, nbx):
+        """Helper that omi."""
         omi, *_ = _mi_and_classes(col.astype(np.int32), y.astype(np.int32), nbx, 4)
         return omi
 
@@ -373,6 +376,7 @@ def test_detect_synergy_fires_on_xor_not_on_linear():
 
 
 def _dcd_state(fd, fnb, tau=0.7):
+    """Dcd state."""
     st = DCDState(factors_data=fd, factors_nbins=fnb, tau_cluster=tau)
     st.pool_pruned_mask = np.zeros(fd.shape[1], dtype=bool)
     return st

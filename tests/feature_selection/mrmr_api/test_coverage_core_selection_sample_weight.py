@@ -20,6 +20,7 @@ from mlframe.feature_selection.filters.mrmr import MRMR
 
 
 def _no_fe(**kw):
+    """No fe."""
     base = dict(
         random_seed=0,
         verbose=0,
@@ -41,6 +42,7 @@ def _no_fe(**kw):
 
 
 def _data(n=600, seed=0):
+    """Helper that data."""
     rng = np.random.default_rng(seed)
     x0 = rng.normal(size=n)
     x1 = rng.normal(size=n)
@@ -50,6 +52,7 @@ def _data(n=600, seed=0):
 
 
 def _sup(m):
+    """Helper that sup."""
     return np.sort(np.asarray(m.support_, dtype=np.intp))
 
 
@@ -65,6 +68,7 @@ def test_uniform_weight_equals_no_weight():
 
 
 def test_none_weight_equals_no_weight():
+    """None weight equals no weight."""
     X, y = _data()
     MRMR._FIT_CACHE.clear()
     a = _no_fe().fit(X, y)
@@ -86,12 +90,14 @@ def test_nonuniform_weight_reproducible_same_seed():
 
 
 def test_weight_length_mismatch_raises():
+    """Weight length mismatch raises."""
     X, y = _data()
     with pytest.raises(ValueError):
         _no_fe().fit(X, y, sample_weight=np.ones(len(y) + 1))
 
 
 def test_weight_negative_raises():
+    """Weight negative raises."""
     X, y = _data()
     w = np.ones(len(y))
     w[0] = -1.0
@@ -100,6 +106,7 @@ def test_weight_negative_raises():
 
 
 def test_weight_nonfinite_raises():
+    """Weight nonfinite raises."""
     X, y = _data()
     w = np.ones(len(y))
     w[0] = np.nan
@@ -108,12 +115,14 @@ def test_weight_nonfinite_raises():
 
 
 def test_weight_sums_to_zero_raises():
+    """Weight sums to zero raises."""
     X, y = _data()
     with pytest.raises(ValueError):
         _no_fe().fit(X, y, sample_weight=np.zeros(len(y)))
 
 
 def test_weight_2d_raises():
+    """Weight 2d raises."""
     X, y = _data()
     with pytest.raises(ValueError):
         _no_fe().fit(X, y, sample_weight=np.ones((len(y), 1)))

@@ -27,6 +27,7 @@ from sklearn.ensemble import RandomForestClassifier
 
 
 def _mk(**kw):
+    """Build a BorutaShap selector config dict from sensible test defaults, overridable via kw."""
     base = dict(
         model=RandomForestClassifier(n_estimators=25, n_jobs=1, random_state=0),
         importance_measure="gini",

@@ -27,6 +27,7 @@ except ImportError:
 
 
 def _make_classes_and_freqs(n: int = 200, nbins_x: int = 3, nbins_y: int = 2, seed: int = 0):
+    """Make classes and freqs."""
     rng = np.random.default_rng(seed)
     cx = rng.integers(0, nbins_x, n).astype(np.int32)
     cy = rng.integers(0, nbins_y, n).astype(np.int32)
@@ -37,6 +38,7 @@ def _make_classes_and_freqs(n: int = 200, nbins_x: int = 3, nbins_y: int = 2, se
 
 @pytest.mark.fast
 def test_compute_mi_from_classes_int32():
+    """Compute mi from classes int32."""
     cx, fx, cy, fy = _make_classes_and_freqs(seed=1)
     out = compute_mi_from_classes(classes_x=cx, freqs_x=fx, classes_y=cy, freqs_y=fy, dtype=np.int32)
     assert np.isfinite(out)
@@ -44,6 +46,7 @@ def test_compute_mi_from_classes_int32():
 
 
 def test_compute_mi_from_classes_int64():
+    """Compute mi from classes int64."""
     cx, fx, cy, fy = _make_classes_and_freqs(seed=2)
     cx64 = cx.astype(np.int64)
     cy64 = cy.astype(np.int64)
@@ -52,6 +55,7 @@ def test_compute_mi_from_classes_int64():
 
 
 def test_entropy_uniform_freqs():
+    """Entropy uniform freqs."""
     freqs = np.array([0.25, 0.25, 0.25, 0.25], dtype=np.float64)
     h = entropy(freqs)
     expected = np.log(4)
@@ -75,6 +79,7 @@ def test_entropy_min_occupancy_branch():
 
 
 def test_entropy_miller_madow_smoke():
+    """Entropy miller madow smoke."""
     if not _HAVE_MM:
         pytest.skip("entropy_miller_madow not exported")
     freqs = np.array([0.5, 0.3, 0.2], dtype=np.float64)
@@ -84,6 +89,7 @@ def test_entropy_miller_madow_smoke():
 
 
 def test_merge_vars_two_columns():
+    """Merge vars two columns."""
     rng = np.random.default_rng(3)
     n = 200
     factors_data = rng.integers(0, 3, size=(n, 4)).astype(np.int32)
@@ -102,6 +108,7 @@ def test_merge_vars_two_columns():
 
 
 def test_merge_vars_single_column():
+    """Merge vars single column."""
     rng = np.random.default_rng(4)
     factors_data = rng.integers(0, 5, size=(100, 3)).astype(np.int32)
     nbins = np.array([5, 5, 5], dtype=np.int64)

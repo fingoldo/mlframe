@@ -31,6 +31,7 @@ from mlframe.feature_selection.filters._fe_synergy_exhaustive import (
 
 
 def _cuda_available() -> bool:
+    """Cuda available."""
     try:
         from numba import cuda
 
@@ -49,6 +50,7 @@ _skip_no_cuda = pytest.mark.skipif(not _HAS_CUDA, reason="no CUDA GPU (numba.cud
 
 
 class _Knobs:
+    """Groups tests covering Knobs."""
     def __init__(self, mode, budget=None, max_runtime_mins=None):
         self.fe_synergy_exhaustive = mode
         self.fe_synergy_exhaustive_max_seconds = budget  # explicit override (None => defer to max_runtime_mins)
@@ -56,6 +58,7 @@ class _Knobs:
 
 
 def test_never_mode_always_prerank():
+    """Never mode always prerank."""
     use, reason = decide_exhaustive_sweep(_Knobs("never"), n_samples=5000, n_raw=400, verbose=0)
     assert use is False
     assert "never" in reason.lower()
@@ -63,6 +66,7 @@ def test_never_mode_always_prerank():
 
 def test_auto_declines_when_over_budget():
     # auto with a sub-microsecond budget can never afford exhaustive -> pre-rank (whether GPU present or not).
+    """Auto declines when over budget."""
     use, reason = decide_exhaustive_sweep(_Knobs("auto", budget=1e-9), n_samples=2_000_000, n_raw=10_000, verbose=0)
     assert use is False
     # On a GPU host the reason is the auto->pre-rank budget decline; on a CPU host it declines on availability.
@@ -73,6 +77,7 @@ def test_auto_declines_when_over_budget():
 def test_auto_escalates_to_exhaustive_when_affordable():
     # The key fix: "auto" is NOT "never exhaustive" -- on a GPU it escalates to the full sweep when the
     # predicted wall-time fits the budget, so the default gets the complete (balanced-case) result for free.
+    """Auto escalates to exhaustive when affordable."""
     use, reason = decide_exhaustive_sweep(_Knobs("auto", budget=180.0), n_samples=5000, n_raw=400, verbose=0)
     assert use is True, reason
     assert "exhaustive" in reason.lower()
@@ -83,6 +88,7 @@ def test_default_budget_is_bounded_not_unlimited():
     # used to resolve to budget=None (UNLIMITED), which made auto ALWAYS escalate to the full C(p,2) GPU
     # sweep regardless of predicted cost -- a real production incident ran unbounded for hours. The
     # resolved budget must now be the finite default, never None/unlimited.
+    """Default budget is bounded not unlimited."""
     budget = _resolve_exhaustive_budget_seconds(_Knobs("auto"))
     assert budget is not None
     assert budget == pytest.approx(_DEFAULT_EXHAUSTIVE_BUDGET_SECONDS)
@@ -93,6 +99,7 @@ def test_auto_declines_when_no_budget_set_and_sweep_too_expensive():
     # Companion to test_default_budget_is_bounded_not_unlimited: with NOTHING explicitly set, a sweep wide
     # enough to blow the new finite default budget must fall back to pre-rank -- proving the bounded
     # default actually GATES the decision, not just that the resolver returns a finite number in isolation.
+    """Auto declines when no budget set and sweep too expensive."""
     use, reason = decide_exhaustive_sweep(_Knobs("auto"), n_samples=2_000_000, n_raw=10_000, verbose=0)
     assert use is False, reason
     assert ("pre-rank" in reason.lower()) or ("declined" in reason.lower())
@@ -101,6 +108,7 @@ def test_auto_declines_when_no_budget_set_and_sweep_too_expensive():
 def test_auto_budget_derives_from_max_runtime_mins():
     # The budget comes from MRMR's OWN max_runtime_mins (minutes -> seconds), not a hardcoded constant: a tiny
     # max_runtime_mins makes a large sweep over-budget -> auto falls back to the pre-rank (GPU or not).
+    """Auto budget derives from max runtime mins."""
     use, reason = decide_exhaustive_sweep(_Knobs("auto", max_runtime_mins=1e-6), n_samples=2_000_000, n_raw=10_000, verbose=0)
     assert use is False
     assert ("pre-rank" in reason.lower()) or ("no cuda" in reason.lower())
@@ -109,6 +117,7 @@ def test_auto_budget_derives_from_max_runtime_mins():
 def test_throughput_sourced_not_hardcoded():
     # predict returns (seconds, pairs_per_second, source); source is cache | fallback -- never a magic
     # constant baked into the decision path.
+    """Throughput sourced not hardcoded."""
     sec, pps, source = predict_exhaustive_seconds(5000, 400)
     assert sec > 0 and pps > 0
     assert source in ("cache", "fallback")
@@ -119,6 +128,7 @@ def test_throughput_sourced_not_hardcoded():
 def test_force_ignores_budget():
     # "force" means the user accepts the wall-time: it fires regardless of the budget WHEN a GPU is present,
     # and declines ONLY for lack of a GPU (CPU exhaustive is never run). Contrast test_auto_declines_when_over_budget.
+    """Force ignores budget."""
     use, reason = decide_exhaustive_sweep(_Knobs("force", budget=1e-9), n_samples=200_000, n_raw=5_000, verbose=0)
     if _HAS_CUDA:
         assert use is True, reason  # budget ignored under force
@@ -129,6 +139,7 @@ def test_force_ignores_budget():
 
 @_skip_no_cuda
 def test_force_fires_within_budget_when_gpu():
+    """Force fires within budget when gpu."""
     use, reason = decide_exhaustive_sweep(_Knobs("force", budget=180.0), n_samples=5000, n_raw=400, verbose=0)
     assert use is True
     assert "exhaustive" in reason.lower()
@@ -140,6 +151,7 @@ def test_force_fires_within_budget_when_gpu():
 
 
 def _make_narrow_interaction(seed, n=4000, p=40):
+    """Make narrow interaction."""
     rng = np.random.default_rng(seed)
     X = rng.standard_normal((n, p))
     a, b = X[:, 3], X[:, 17]
@@ -151,6 +163,7 @@ def _make_narrow_interaction(seed, n=4000, p=40):
 
 @_skip_no_cuda
 def test_parity_exhaustive_equals_auto_below_cap():
+    """Parity exhaustive equals auto below cap."""
     X, y = _make_narrow_interaction(0, p=40)  # 40 << cap 250
     m_auto = MRMR(fe_synergy_exhaustive="auto", fe_synergy_screen_max_features=250)
     m_auto.fit(X, y)
@@ -206,6 +219,7 @@ def _operands_recovered(feature_names, operands):
 
 @_skip_no_cuda
 def test_biz_value_exhaustive_recovers_balanced_operands_prerank_cannot():
+    """Biz value exhaustive recovers balanced operands prerank cannot."""
     X, y, operands = _make_balanced_l0(0)
 
     # PRE-RANK path (never): the legacy pre-rank-only behaviour. The O(p) propensity score is blind to a

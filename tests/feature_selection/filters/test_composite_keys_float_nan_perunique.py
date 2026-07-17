@@ -10,10 +10,12 @@ from mlframe.feature_selection.filters._composite_group_agg_fe import build_comp
 
 
 def _per_row_ref(ser):
+    """Per row ref."""
     return ser.astype(object).map(lambda v: "" if v is None else canonical_group_token(v)).to_numpy()
 
 
 def test_float_nan_group_key_bit_identical_to_per_row():
+    """Float nan group key bit identical to per row."""
     rng = np.random.default_rng(0)
     n = 20000
     a = rng.integers(0, 50, n).astype(np.float64)
@@ -28,6 +30,7 @@ def test_float_nan_group_key_bit_identical_to_per_row():
 
 
 def test_multi_col_composite_with_float_nan():
+    """Multi col composite with float nan."""
     rng = np.random.default_rng(1)
     n = 15000
     a = rng.integers(0, 20, n).astype(np.float64)

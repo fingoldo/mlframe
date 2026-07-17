@@ -26,6 +26,7 @@ from mlframe.feature_selection.filters.hermite_fe import _hermeval_njit, _polyev
 
 @pytest.fixture(autouse=True)
 def _clear_cache():
+    """Clear cache."""
     clear_fe_resident_operands()
     yield
     clear_fe_resident_operands()
@@ -47,6 +48,7 @@ def test_polyeval_cuda_uploads_x_once_across_trials_with_same_column():
     orig_asarray = cp.asarray
 
     def _counting_asarray(arr, *a, **kw):
+        """Counting asarray."""
         shp = getattr(arr, "shape", None)
         if shp == x.shape:
             upload_calls["x"] += 1

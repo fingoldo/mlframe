@@ -16,6 +16,7 @@ from mlframe.feature_selection.filters._ks_stability import ks_stability_filter
 
 
 def test_biz_val_ks_stability_filter_multi_split_reduces_false_flag_rate():
+    """Biz val ks stability filter multi split reduces false flag rate."""
     n = 300
     n_seeds = 200
     p_value_threshold = 0.05
@@ -49,6 +50,7 @@ def test_biz_val_ks_stability_filter_multi_split_reduces_false_flag_rate():
 
 
 def test_ks_stability_filter_n_splits_default_matches_single_pair_bit_identical():
+    """Ks stability filter n splits default matches single pair bit identical."""
     rng = np.random.default_rng(1)
     n = 500
     train_df = pd.DataFrame({"a": rng.normal(0, 1, n), "b": rng.normal(2, 1, n)})

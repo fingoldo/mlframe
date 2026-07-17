@@ -21,6 +21,7 @@ import pytest
 
 
 def test_narrow_code_dtype_boundaries():
+    """_narrow_code_dtype picks int8 up to n_bins=127, int16 up to 32767, and falls back to the requested dtype beyond that."""
     from mlframe.feature_selection.filters._feature_engineering_pairs import _narrow_code_dtype
 
     assert _narrow_code_dtype(10, np.int32) == np.int8
@@ -34,6 +35,7 @@ def test_narrow_code_dtype_boundaries():
 @pytest.mark.parametrize("dtype_in", [np.float32, np.float64])
 @pytest.mark.parametrize("n_rows,K,n_bins", [(200, 7, 5), (2407, 64, 10), (500, 30, 100)])
 def test_discretize_codes_value_identical_across_widths(n_rows, K, n_bins, dtype_in):
+    """discretize_2d_quantile_batch produces value-identical ordinal codes whether stored as int8, int16, or int32."""
     from mlframe.feature_selection.filters.discretization import discretize_2d_quantile_batch
 
     rng = np.random.default_rng(5 + n_rows + K + n_bins)
@@ -65,6 +67,7 @@ def test_batch_mi_byte_identical_int8_vs_int32(n_rows, K, n_bins, use_su):
     freqs_y = np.bincount(classes_y, minlength=Ky).astype(np.float64) / n_rows
 
     def run(disc, classes_dtype):
+        """Run batch_mi_with_noise_gate with the given disc_2d/classes dtype pairing, joint_counts always int32."""
         return batch_mi_with_noise_gate(
             disc_2d=np.ascontiguousarray(disc),
             factors_nbins=factors_nbins,

@@ -247,6 +247,7 @@ def test_shapproxiedfs_two_fit_cache_dir_refine_path_identical_subset(tmp_path: 
     cache_dir = tmp_path / "e2e_refine_cache"
 
     def _fit():
+        """Helper that fit."""
         sel = ShapProxiedFS(
             classification=True,
             metric="brier",

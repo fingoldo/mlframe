@@ -14,6 +14,7 @@ from mlframe.feature_selection.filters.discretization import digitize, discretiz
 
 
 def test_digitize_value_above_last_edge_clamps_to_top_bin():
+    """Digitize value above last edge clamps to top bin."""
     bins = np.array([0.0, 1.0, 2.0])
     arr = np.array([5.0, -5.0, 0.5], dtype=np.float64)
     out = digitize(arr, bins)
@@ -25,6 +26,7 @@ def test_digitize_value_above_last_edge_clamps_to_top_bin():
 
 
 def test_digitize_all_above_is_deterministic_across_calls():
+    """Digitize all above is deterministic across calls."""
     bins = np.array([0.0, 1.0, 2.0])
     first = digitize(np.array([9.0, 9.0, 9.0]), bins).copy()
     second = digitize(np.array([9.0, 9.0, 9.0]), bins).copy()
@@ -35,6 +37,7 @@ def test_digitize_all_above_is_deterministic_across_calls():
 def test_digitize_max_value_not_dropped():
     # The column max equals the last edge -> must land in the last bin, not be
     # left uninitialised by an off-by-one in the edge scan.
+    """Digitize max value not dropped."""
     bins = np.array([0.0, 1.0, 2.0])
     out = digitize(np.array([2.0]), bins)
     assert out[0] == len(bins) - 1
@@ -44,6 +47,7 @@ def test_discretize_array_empty_consistent_between_methods():
     # Empty input: quantile path used to raise IndexError from
     # nanpercentile([]) while the uniform sibling returned []. Both must now
     # return an empty array so the degenerate-input contract is consistent.
+    """Discretize array empty consistent between methods."""
     empty = np.array([], dtype=np.float64)
     out_q = discretize_array(empty, n_bins=10, method="quantile")
     out_u = discretize_array(empty, n_bins=10, method="uniform")

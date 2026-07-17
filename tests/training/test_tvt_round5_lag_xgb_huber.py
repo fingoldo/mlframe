@@ -628,9 +628,9 @@ class TestLagPredictFailsafeKnob:
         assert fields is not None
         assert "lag_predict_failsafe_tolerance" in fields
         cfg = CompositeTargetDiscoveryConfig()
-        assert cfg.lag_predict_failsafe_tolerance == 0.10, (
-            f"lag_predict_failsafe_tolerance default is 0.10 since 2026-05-25 group-aware inner eval; got {cfg.lag_predict_failsafe_tolerance}"
-        )
+        assert (
+            cfg.lag_predict_failsafe_tolerance == 0.10
+        ), f"lag_predict_failsafe_tolerance default is 0.10 since 2026-05-25 group-aware inner eval; got {cfg.lag_predict_failsafe_tolerance}"
 
     def test_gate_logic_present_in_phase_composite_post(self) -> None:
         """Behavioural check: import the phase-post module and confirm

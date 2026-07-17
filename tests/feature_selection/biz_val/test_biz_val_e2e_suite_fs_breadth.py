@@ -126,6 +126,7 @@ def _fs_model_used_features(inner_models):
 
 
 def _train(df, fte, target_type, fs_config, *, models=("cb",), iters=10, **suite_kw):
+    """Helper that train."""
     with tempfile.TemporaryDirectory() as d:
         result, metadata = train_mlframe_models_suite(
             df=df,
@@ -474,6 +475,7 @@ def _two_d_signal_noise_frame(n, kind, n_noise=8, seed=0):
 
 
 def _assert_noise_excluded(inner, signal_cols, noise_cols, *, min_signal=2, min_excl=0.75):
+    """Assert noise excluded."""
     used, _fs_model = _fs_model_used_features(inner)
     assert used is not None, "no FS-branch model produced (use_mrmr_fs=True ignored?)"
     noise_kept = used & set(noise_cols)

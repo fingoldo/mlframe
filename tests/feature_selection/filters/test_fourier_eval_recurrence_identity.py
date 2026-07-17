@@ -44,6 +44,7 @@ def _fourier_eval_direct(z, c):
 @pytest.mark.parametrize("K", [0, 1, 2, 3, 5, 8])
 @pytest.mark.parametrize("n", [1, 37, 1000])
 def test_fourier_recurrence_matches_direct(n, K):
+    """Fourier recurrence matches direct."""
     rng = np.random.default_rng(n * 1000 + K)
     z = rng.random(n)  # z in [0, 1) -- the canonical Fourier-fit domain
     c = rng.standard_normal(2 * K) if K > 0 else np.zeros(0, dtype=np.float64)

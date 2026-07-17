@@ -77,9 +77,9 @@ class TestValOnlyNullDetection:
             train,
             cat_features=["col_a", "col_b", "col_c"],
         )
-        assert train_only_nullable == [], (
-            "train has no nulls, so train-only inspection returns []. This is the exact pre-fix state that let val/test nulls escape."
-        )
+        assert (
+            train_only_nullable == []
+        ), "train has no nulls, so train-only inspection returns []. This is the exact pre-fix state that let val/test nulls escape."
 
     def test_union_detects_valtest_only_nulls(self):
         """Round-17 fix: union across train / val / test surfaces
@@ -166,9 +166,9 @@ class TestSuiteRunsFillOnUnion:
         union = train_null | val_null | test_null
 
         # All three frame-specific null columns must be in the union.
-        assert "tn" in union and "vn" in union and "en" in union, (
-            f"union detection missed a frame-specific null cat: train={train_null}, val={val_null}, test={test_null}"
-        )
+        assert (
+            "tn" in union and "vn" in union and "en" in union
+        ), f"union detection missed a frame-specific null cat: train={train_null}, val={val_null}, test={test_null}"
         # Spy fired three times.
         assert calls["n"] == 3, f"expected 3 calls (train/val/test), got {calls['n']}"
 

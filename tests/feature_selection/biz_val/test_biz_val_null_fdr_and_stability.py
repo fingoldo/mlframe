@@ -63,6 +63,7 @@ pytestmark = pytest.mark.timeout(60)  # untimed biz_val real-fit tier: surface a
 
 
 def _null_data(seed: int):
+    """Null data."""
     rng = np.random.default_rng(seed)
     X = pd.DataFrame(rng.standard_normal((_NULL_N, _NULL_P)), columns=[f"x{i}" for i in range(_NULL_P)])
     y = pd.Series(rng.integers(0, 2, _NULL_N).astype(np.int64), name="y")
@@ -105,6 +106,7 @@ _NULL_CEILINGS = {
 
 
 def _spec_param(name: str):
+    """Spec param."""
     spec = SELECTOR_SPECS[name]
     marks = [pytest.mark.slow] if spec.slow else []
     return pytest.param(name, marks=marks, id=name)
@@ -129,6 +131,7 @@ def test_biz_val_null_fdr_selector_families(name):
 
 
 def _hetero_null_count(seed: int, n: int = 600) -> tuple[int, set]:
+    """Hetero null count."""
     from mlframe.feature_selection.hetero_vote import heterogeneous_relevance_vote
 
     rng = np.random.default_rng(seed)
@@ -174,6 +177,7 @@ _MRMR_NULL_SEEDS = [0] if is_fast_mode() else [0, 1]
 
 
 def _mrmr_null_count(seed: int, full_npermutations: int):
+    """Mrmr null count."""
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     X, y = _null_data(seed)

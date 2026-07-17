@@ -37,6 +37,7 @@ def xor_train_test():
     n_train, n_test = 1500, 400
 
     def _make(n):
+        """Helper that make."""
         x1 = rng.integers(0, 2, n).astype(np.int8)
         x2 = rng.integers(0, 2, n).astype(np.int8)
         noise = rng.integers(0, 4, size=(n, 6)).astype(np.int8)
@@ -65,6 +66,7 @@ class TestDefaultEnabled:
     ``CatFEConfig()`` which has ``enable=True``."""
 
     def test_default_constructor_stores_none_as_sentinel(self):
+        """Default constructor stores none as sentinel."""
         mrmr = MRMR()
         # ``None`` is the sentinel for "use default config at fit time".
         assert mrmr.cat_fe_config is None
@@ -130,7 +132,9 @@ class TestDefaultEnabled:
 
 
 class TestCatFEEnabled:
+    """Groups tests covering TestCatFEEnabled."""
     def test_xor_pair_recipe_persists_after_fit(self, xor_train_test):
+        """Xor pair recipe persists after fit."""
         df_tr, y_tr, _, _ = xor_train_test
         mrmr = MRMR(
             full_npermutations=2,
@@ -164,6 +168,7 @@ class TestCatFEEnabled:
             assert isinstance(r.extra["lookup_table"], np.ndarray)
 
     def test_transform_on_test_data_includes_engineered_col(self, xor_train_test):
+        """Transform on test data includes engineered col."""
         df_tr, y_tr, df_te, _ = xor_train_test
         mrmr = MRMR(
             full_npermutations=2,
@@ -252,6 +257,7 @@ class TestCatFEEnabled:
 
 
 class TestCatFEPickleBC:
+    """Groups tests covering TestCatFEPickleBC."""
     def test_legacy_pickle_without_cat_fe_state_loads(self):
         """An MRMR pickle from before cat-FE existed should resurface
         with ``cat_fe_config=None`` and ``_cat_fe_state_=None``

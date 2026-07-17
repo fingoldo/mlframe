@@ -30,6 +30,7 @@ from mlframe.feature_selection.wrappers import (
 # F1: get_next_features_subset raises NotImplementedError for non-wired methods
 # ----------------------------------------------------------------------------
 class TestF1_UnwiredSearchMethods:
+    """Groups tests covering TestF1_UnwiredSearchMethods."""
     @pytest.mark.parametrize(
         "method",
         [OptimumSearch.ScipyLocal, OptimumSearch.ScipyGlobal, OptimumSearch.ExhaustiveDichotomic],
@@ -59,6 +60,7 @@ class TestF1_UnwiredSearchMethods:
 # F5: dummy_scores must always be DIRECTIONALLY worse than the model
 # ----------------------------------------------------------------------------
 class TestF5_DummyScoreSignSafety:
+    """Groups tests covering TestF5_DummyScoreSignSafety."""
     @pytest.mark.parametrize(
         "score, sign",
         [
@@ -83,6 +85,7 @@ class TestF5_DummyScoreSignSafety:
 # F8: select_optimal_nfeatures_ never crashes when only 0-features was evaluated
 # ----------------------------------------------------------------------------
 class TestF8_AllZeroChecked:
+    """Groups tests covering TestF8_AllZeroChecked."""
     def test_only_zero_evaluated_returns_empty_support(self):
         """Pre-fix: UnboundLocalError on best_idx. Post-fix: graceful empty support_."""
         rfecv = RFECV(estimator=LogisticRegression(max_iter=200))
@@ -105,6 +108,7 @@ class TestF8_AllZeroChecked:
 # F14: Zero-variance filter handles ALL dtypes, not just numeric
 # ----------------------------------------------------------------------------
 class TestF14_ZeroVarianceCoversAllDtypes:
+    """Groups tests covering TestF14_ZeroVarianceCoversAllDtypes."""
     def test_constant_categorical_string_bool_dropped(self):
         """A constant string column, a constant bool column, and a constant categorical
         column must all be dropped before RFECV records feature_names_in_."""
@@ -139,6 +143,7 @@ class TestF14_ZeroVarianceCoversAllDtypes:
 # F21: best_score floor of -1e6 was too high; -inf is the only safe sentinel
 # ----------------------------------------------------------------------------
 class TestF21_BestScoreFloor:
+    """Groups tests covering TestF21_BestScoreFloor."""
     def test_high_error_scorer_does_not_trigger_premature_stop(self):
         """With neg-MSE on a noisy regression target, fold scores can exceed -1e6
         in magnitude; the prior -1e6 floor meant best_score never improved, so
@@ -167,12 +172,14 @@ class TestF21_BestScoreFloor:
 # F23: NaN scores in folds must not poison the overall iter's final score
 # ----------------------------------------------------------------------------
 class TestF23_NanScoreSafety:
+    """Groups tests covering TestF23_NanScoreSafety."""
     def test_partial_nan_uses_nanmean(self):
         """With one NaN fold and three valid folds, the iter's final_score must
         be computable from the valid folds via nanmean/nanstd."""
         evaluated_mean, evaluated_std = {}, {}
 
         class _SelfShim:
+            """Groups tests covering SelfShim."""
             mean_perf_weight = 1.0
             std_perf_weight = 0.0
 
@@ -194,6 +201,7 @@ class TestF23_NanScoreSafety:
 # F25: select_appropriate_feature_importances range upper-bound off-by-one
 # ----------------------------------------------------------------------------
 class TestF25_FreshestPrecedingIncludesAllFeatures:
+    """Groups tests covering TestF25_FreshestPrecedingIncludesAllFeatures."""
     def test_full_feature_run_is_visible_as_freshest(self):
         """Pre-fix: range(nfeatures+1, n_original_features) excluded the FI run
         on all features. Post-fix: +1 includes it. This test isolates the
@@ -242,11 +250,13 @@ class TestF25_FreshestPrecedingIncludesAllFeatures:
 # F35: selected_features_per_nfeatures must keep the BEST subset per N
 # ----------------------------------------------------------------------------
 class TestF35_BestPerNfeaturesNotLast:
+    """Groups tests covering TestF35_BestPerNfeaturesNotLast."""
     def test_better_score_overrides_worse_score(self):
         """If the same N is explored twice, the dict must reflect the better score."""
         evaluated_mean, evaluated_std = {}, {}
 
         class _SelfShim:
+            """Groups tests covering SelfShim."""
             mean_perf_weight = 1.0
             std_perf_weight = 0.0
 
@@ -288,6 +298,7 @@ class TestF35_BestPerNfeaturesNotLast:
 # F38: importance_getter='auto' resolves coef_ for linear models post-fit
 # ----------------------------------------------------------------------------
 class TestF38_AutoImportanceForLinearModels:
+    """Groups tests covering TestF38_AutoImportanceForLinearModels."""
     @pytest.mark.parametrize("model_cls", [LinearRegression, Ridge])
     def test_auto_resolves_coef_for_linear_models(self, model_cls):
         """Pre-fix: getattr(LinearRegression, 'feature_importances_') → AttributeError.
@@ -323,6 +334,7 @@ class TestF38_AutoImportanceForLinearModels:
 # F41: get_next_features_subset includes all-features candidate
 # ----------------------------------------------------------------------------
 class TestF41_AllFeaturesIsCandidate:
+    """Groups tests covering TestF41_AllFeaturesIsCandidate."""
     def test_all_features_count_in_remaining(self):
         """The full feature count (k == len(original_features)) must appear in
         the candidate set passed to the optimizer."""
@@ -338,6 +350,7 @@ class TestF41_AllFeaturesIsCandidate:
 # F32 + F33: clone() per fold prevents estimator state bleed across folds
 # ----------------------------------------------------------------------------
 class TestF32F33_ClonePerFold:
+    """Groups tests covering TestF32F33_ClonePerFold."""
     def test_outer_estimator_unfitted_after_rfecv_fit(self):
         """The estimator passed to RFECV must remain unfitted after RFECV.fit;
         any state (n_features_in_, coef_) lives on the per-fold clones, not the
@@ -362,7 +375,9 @@ class TestF32F33_ClonePerFold:
 # Smoke: the bundled fixes produce a fittable RFECV on a tiny problem
 # ----------------------------------------------------------------------------
 class TestSmoke_PostFixIntegration:
+    """Groups tests covering TestSmoke_PostFixIntegration."""
     def test_smoke_logistic_regression(self):
+        """Smoke logistic regression."""
         rng = np.random.default_rng(0)
         n, p = 120, 8
         X = pd.DataFrame(rng.standard_normal((n, p)), columns=[f"f{i}" for i in range(p)])

@@ -16,6 +16,7 @@ warnings.filterwarnings("ignore")
 
 
 def _toy_dataset(seed=11):
+    """Toy dataset."""
     rng = np.random.default_rng(seed)
     n, p = 300, 5
     X = rng.normal(size=(n, p))

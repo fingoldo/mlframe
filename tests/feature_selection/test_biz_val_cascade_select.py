@@ -20,6 +20,7 @@ from mlframe.feature_selection import cascade_select, forward_select
 
 
 def _make_noisy_dataset(n: int, d_informative: int, d_noise: int, seed: int):
+    """Make noisy dataset."""
     rng = np.random.default_rng(seed)
     X_info = rng.normal(size=(n, d_informative))
     X_noise = rng.normal(size=(n, d_noise))
@@ -31,6 +32,7 @@ def _make_noisy_dataset(n: int, d_informative: int, d_noise: int, seed: int):
 
 
 def test_biz_val_cascade_select_beats_full_feature_set_mse():
+    """Biz val cascade select beats full feature set mse."""
     X, y = _make_noisy_dataset(n=300, d_informative=4, d_noise=60, seed=0)
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=0)
 
@@ -52,6 +54,7 @@ def test_biz_val_cascade_select_beats_full_feature_set_mse():
 
 
 def test_forward_select_recovers_informative_subset():
+    """Forward select recovers informative subset."""
     X, y = _make_noisy_dataset(n=200, d_informative=3, d_noise=10, seed=1)
     selected = forward_select(X, y, lambda: RandomForestRegressor(n_estimators=15, random_state=0), scoring="neg_mean_squared_error", cv=3, max_features=6)
     assert len(selected) > 0
@@ -60,6 +63,7 @@ def test_forward_select_recovers_informative_subset():
 
 
 def test_cascade_select_empty_boruta_confirmation_returns_empty_result():
+    """Cascade select empty boruta confirmation returns empty result."""
     rng = np.random.default_rng(2)
     X = pd.DataFrame(rng.normal(size=(60, 5)), columns=[f"noise{i}" for i in range(5)])
     y = rng.normal(size=60)  # pure noise target, no real signal in X at all

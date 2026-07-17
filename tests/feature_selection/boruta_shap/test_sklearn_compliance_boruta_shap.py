@@ -15,6 +15,7 @@ from mlframe.feature_selection.boruta_shap import BorutaShap
 
 
 def _data(seed=0):
+    """Helper that data."""
     rng = np.random.default_rng(seed)
     n = 200
     X = pd.DataFrame(
@@ -30,12 +31,14 @@ def _data(seed=0):
 
 def _fast_selector(**kw):
     # Tiny config so each fit is < ~5s.
+    """Fast selector."""
     params = dict(importance_measure="gini", n_trials=5, percentile=90, verbose=False)
     params.update(kw)
     return BorutaShap(**params)
 
 
 def test_fit_does_not_mutate_model_param_when_default():
+    """Fit does not mutate model param when default."""
     X, y = _data()
     sel = _fast_selector(model=None, random_state=0)
     sel.fit(X, y)
@@ -47,6 +50,7 @@ def test_fit_does_not_mutate_model_param_when_default():
 
 
 def test_clone_of_fitted_roundtrips_params():
+    """Clone of fitted roundtrips params."""
     X, y = _data()
     sel = _fast_selector(model=None, random_state=0)
     sel.fit(X, y)
@@ -57,6 +61,7 @@ def test_clone_of_fitted_roundtrips_params():
 
 
 def test_train_or_test_param_not_mutated_by_auto():
+    """Train or test param not mutated by auto."""
     X, y = _data()
     # 'auto' may pin held-out permutation, which must NOT rewrite the verbatim train_or_test param.
     sel = _fast_selector(model=None, random_state=0, importance_measure="auto", train_or_test="train")
@@ -65,6 +70,7 @@ def test_train_or_test_param_not_mutated_by_auto():
 
 
 def test_set_params_random_state_then_fit_is_reproducible():
+    """Set params random state then fit is reproducible."""
     X, y = _data()
     a = _fast_selector(model=None)
     a.set_params(random_state=7)
@@ -78,6 +84,7 @@ def test_set_params_random_state_then_fit_is_reproducible():
 
 
 def test_transform_validates_feature_space():
+    """Transform validates feature space."""
     X, y = _data()
     sel = _fast_selector(model=None, random_state=0)
     sel.fit(X, y)

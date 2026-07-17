@@ -13,6 +13,7 @@ import pytest
 
 
 def _signal_frame(n=600, seed=0):
+    """Signal frame."""
     rng = np.random.default_rng(seed)
     # 3 strong signal cols + several weak/noise cols so the greedy gain trace has a clear elbow
     x = rng.integers(0, 5, size=(n, 10)).astype(float)
@@ -23,6 +24,7 @@ def _signal_frame(n=600, seed=0):
 
 @pytest.mark.parametrize("with_fe", [False, True])
 def test_uaed_support_transform_gains_consistent(with_fe):
+    """Uaed support transform gains consistent."""
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     X, y = _signal_frame()

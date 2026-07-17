@@ -273,6 +273,7 @@ def test_entropy_invariant_under_label_permutation():
     c = np.array([0, 1, 0, 1], dtype=np.int32)
 
     def _freqs(arr: np.ndarray) -> np.ndarray:
+        """Helper that freqs."""
         counts = np.bincount(arr.astype(np.int64))
         return counts.astype(np.float64) / counts.sum()
 

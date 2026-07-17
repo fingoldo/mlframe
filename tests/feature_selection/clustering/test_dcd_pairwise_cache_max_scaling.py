@@ -19,6 +19,7 @@ from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
 
 
 def _fd_fn(n_cols, n_rows=200, seed=0):
+    """Fd fn."""
     rng = np.random.default_rng(seed)
     fd = rng.integers(0, 4, size=(n_rows, n_cols)).astype(np.int32)
     fn = np.array([4] * n_cols, dtype=np.int64)
@@ -58,6 +59,7 @@ def test_narrow_pool_keeps_the_configured_default():
 
 
 def test_explicit_user_override_above_formula_is_never_lowered():
+    """Explicit user override above formula is never lowered."""
     n_cols = 100  # C(100,2) = 4950
     fd, fn = _fd_fn(n_cols)
     st = make_dcd_state(

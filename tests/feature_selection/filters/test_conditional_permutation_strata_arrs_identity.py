@@ -31,6 +31,7 @@ def _reference(x, y, z, nbx, nby, nbz, n_permutations, seed):
     z = np.asarray(z).astype(np.int64).ravel()
 
     def stat(_x, _y, _z):
+        """Helper that stat."""
         return float(_cmi_plugin_njit(_x, _y, _z, int(nbx), int(nby), int(nbz)))
 
     observed = float(stat(x, y, z))
@@ -65,6 +66,7 @@ def _reference(x, y, z, nbx, nby, nbz, n_permutations, seed):
     ],
 )
 def test_cpt_strata_hoist_bit_identical(n, nbx, nby, nbz, B, seed):
+    """Cpt strata hoist bit identical."""
     rng = np.random.default_rng(seed)
     x = rng.integers(0, nbx, n)
     y = rng.integers(0, nby, n)

@@ -32,10 +32,12 @@ from mlframe.feature_selection.shap_proxied_fs._shap_proxied_resolvers import no
 # --------------------------------------------------------------------------------------------------
 def test_anchors_calibration_point_is_about_30():
     # 6*sqrt(25) = 30 -- reproduces the legacy fixed default at the small-frame regime it was tuned on.
+    """Anchors calibration point is about 30."""
     assert _resolve_adaptive_n_anchors(25) == 30
 
 
 def test_anchors_clamps_low_and_high():
+    """Anchors clamps low and high."""
     assert _resolve_adaptive_n_anchors(1) == 10  # floor
     assert _resolve_adaptive_n_anchors(0) == 10  # degenerate -> floor
     assert _resolve_adaptive_n_anchors(10_000) == 100  # ceiling
@@ -43,6 +45,7 @@ def test_anchors_clamps_low_and_high():
 
 
 def test_anchors_monotone_in_width():
+    """Anchors monotone in width."""
     vals = [_resolve_adaptive_n_anchors(p) for p in (20, 100, 400, 1000)]
     assert vals == sorted(vals)
     assert vals[0] < vals[-1]
@@ -50,6 +53,7 @@ def test_anchors_monotone_in_width():
 
 def test_anchors_override_params_via_kwargs():
     # Custom c/lo/hi tune the curve (mirrors the kernel_tuning_cache override path).
+    """Anchors override params via kwargs."""
     assert _resolve_adaptive_n_anchors(100, c=2.0, lo=5, hi=50) == 20  # 2*sqrt(100)=20
     assert _resolve_adaptive_n_anchors(100, c=2.0, lo=5, hi=15) == 15  # clamped to hi
 
@@ -59,6 +63,7 @@ def test_anchors_override_params_via_kwargs():
 # --------------------------------------------------------------------------------------------------
 def test_knee_keeps_full_cap_on_dense_signal():
     # Uniform importance -> dense -> no narrowing.
+    """Knee keeps full cap on dense signal."""
     cap, info = _resolve_knee_prescreen_cap(np.ones(40), default_cap=28)
     assert cap == 28
     assert info["mode"] == "knee"
@@ -66,12 +71,14 @@ def test_knee_keeps_full_cap_on_dense_signal():
 
 def test_knee_keeps_full_cap_on_mild_slope():
     # A gentle linear decay is still "dense enough" -> keep full cap.
+    """Knee keeps full cap on mild slope."""
     cap, _ = _resolve_knee_prescreen_cap(np.linspace(1.0, 0.5, 40), default_cap=28)
     assert cap == 28
 
 
 def test_knee_narrows_on_sparse_signal():
     # A few dominant columns + long noise tail -> narrow toward the knee, down to the floor.
+    """Knee narrows on sparse signal."""
     imp = np.array([10.0, 9.0, 8.0, 1.0] + [0.01] * 36)
     cap, info = _resolve_knee_prescreen_cap(imp, default_cap=28)
     assert cap < 28
@@ -80,12 +87,14 @@ def test_knee_narrows_on_sparse_signal():
 
 
 def test_knee_floor_honoured_on_extreme_sparsity():
+    """Knee floor honoured on extreme sparsity."""
     imp = np.array([100.0] + [1e-6] * 39)
     cap, _ = _resolve_knee_prescreen_cap(imp, default_cap=28, floor=16)
     assert cap == 16
 
 
 def test_knee_handles_degenerate_short_input():
+    """Knee handles degenerate short input."""
     cap, info = _resolve_knee_prescreen_cap(np.array([1.0, 0.0]), default_cap=28)
     assert cap == 28
     assert info["knee"] is None
@@ -100,6 +109,7 @@ def test_knee_handles_degenerate_short_input():
 # all 8 weak features at ranks 8-15); the noise-floor rescue widens back to 28 (covers all 8).
 # --------------------------------------------------------------------------------------------------
 def test_knee_rescue_recovers_weak_signal_past_the_knee():
+    """Knee rescue recovers weak signal past the knee."""
     rng = np.random.default_rng(0)
     strong = rng.uniform(2.0, 3.0, 8)
     weak = rng.uniform(0.15, 0.3, 8)
@@ -118,6 +128,7 @@ def test_knee_rescue_recovers_weak_signal_past_the_knee():
 def test_knee_rescue_is_a_pure_widening_never_narrows_below_unrescued_cap():
     # A frame with NO weak tail (just strong + noise, no rescue candidates): rescue must not
     # perturb the plain knee-narrowed cap.
+    """Knee rescue is a pure widening never narrows below unrescued cap."""
     imp = np.array([10.0, 9.0, 8.0, 1.0] + [0.001] * 36)
     cap, info = _resolve_knee_prescreen_cap(imp, default_cap=28)
     assert info["rescued"] == 0
@@ -128,6 +139,7 @@ def test_knee_rescue_noise_floor_uses_full_tail_not_just_head():
     # Regression pin: noise_floor must be derived from the FULL importance vector's tail, not just
     # the top-default_cap head -- otherwise a wide frame with many noise columns beyond the head
     # would compute an inflated (head-only) floor and under-rescue.
+    """Knee rescue noise floor uses full tail not just head."""
     rng = np.random.default_rng(1)
     strong = rng.uniform(2.0, 3.0, 4)
     weak = rng.uniform(0.1, 0.2, 4)
@@ -148,6 +160,7 @@ def test_noise_floor_rescue_keep_set_recovers_weak_signal_past_the_cap():
     # Properly stressing fixture: 8 weak features deliberately ranked at positions 33-40, past a
     # cap of 28, among 25 spuriously-elevated noise columns that outrank them by chance. Confirmed
     # empirically in-session: naive top-28 cut covers only 5/8 weak features; the rescue covers 8/8.
+    """Noise floor rescue keep set recovers weak signal past the cap."""
     rng = np.random.default_rng(0)
     strong = rng.uniform(2.0, 3.0, 8)
     noise_between = np.abs(rng.normal(0, 0.5, 25))
@@ -166,6 +179,7 @@ def test_noise_floor_rescue_keep_set_recovers_weak_signal_past_the_cap():
 
 
 def test_noise_floor_rescue_keep_set_never_drops_original_keep():
+    """Noise floor rescue keep set never drops original keep."""
     rng = np.random.default_rng(1)
     importance = np.abs(rng.normal(0, 1, 50))
     top_keep = np.argsort(-importance)[:10]
@@ -175,6 +189,7 @@ def test_noise_floor_rescue_keep_set_never_drops_original_keep():
 
 def test_noise_floor_rescue_keep_set_is_noop_when_nothing_clears_the_floor():
     # A frame with a hard cliff (top-K all strong, rest pure near-zero noise): rescue adds nothing.
+    """Noise floor rescue keep set is noop when nothing clears the floor."""
     imp = np.array([10.0, 9.0, 8.0] + [1e-6] * 47)
     top_keep = np.argsort(-imp)[:3]
     keep = noise_floor_rescue_keep_set(imp, top_keep)
@@ -182,6 +197,7 @@ def test_noise_floor_rescue_keep_set_is_noop_when_nothing_clears_the_floor():
 
 
 def test_noise_floor_rescue_keep_set_handles_empty_and_degenerate_input():
+    """Noise floor rescue keep set handles empty and degenerate input."""
     keep = noise_floor_rescue_keep_set(np.array([]), np.array([], dtype=np.int64))
     assert keep == set()
     keep = noise_floor_rescue_keep_set(np.array([np.nan, np.nan]), np.array([0], dtype=np.int64))
@@ -192,12 +208,14 @@ def test_noise_floor_rescue_keep_set_handles_empty_and_degenerate_input():
 # Constructor defaults
 # --------------------------------------------------------------------------------------------------
 def test_defaults_anchors_auto_ladder_hardcoded():
+    """Defaults anchors auto ladder hardcoded."""
     s = ShapProxiedFS()
     assert s.n_anchors == "auto"  # lever 1 flipped to adaptive
     assert s.prescreen_ladder_mode == "hardcoded"  # lever 2 rejected as default
 
 
 def test_explicit_int_anchors_pins_legacy():
+    """Explicit int anchors pins legacy."""
     s = ShapProxiedFS(n_anchors=30)
     assert s.n_anchors == 30
 
@@ -210,6 +228,7 @@ pytest.importorskip("xgboost")
 
 
 def _make_wide(seed, width=2000, n_inf=4, n_red=4, snr=2.5, rho=0.85):
+    """Make wide."""
     from mlframe.feature_selection._benchmarks._shap_proxy_regime_data import make_regime_dataset
 
     X, y, _ = make_regime_dataset(
@@ -219,6 +238,7 @@ def _make_wide(seed, width=2000, n_inf=4, n_red=4, snr=2.5, rho=0.85):
 
 
 def _fit_fidelity(X, y, n_anchors, seed):
+    """Fit fidelity."""
     s = ShapProxiedFS(
         classification=True,
         metric="brier",
@@ -266,6 +286,7 @@ def test_biz_val_knee_ge_off_on_sparse_holdout():
     X, y = _make_wide(seed=0, n_inf=4, n_red=4, snr=2.5)
 
     def sel_feats(ladder):
+        """Sel feats."""
         s = ShapProxiedFS(
             classification=True,
             metric="brier",
@@ -284,6 +305,7 @@ def test_biz_val_knee_ge_off_on_sparse_holdout():
         return list(s.selected_features_)
 
     def holdout_auc(cols):
+        """Holdout auc."""
         Xtr, Xte, ytr, yte = train_test_split(X[cols], y, test_size=0.3, random_state=0, stratify=y)
         m = xgb.XGBClassifier(n_estimators=120, max_depth=4, n_jobs=1, random_state=0, tree_method="hist", verbosity=0)
         m.fit(Xtr, ytr)

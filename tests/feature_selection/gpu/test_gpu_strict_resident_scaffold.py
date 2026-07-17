@@ -22,6 +22,7 @@ cp = pytest.importorskip("cupy")
 
 
 def _need_cuda() -> bool:
+    """Need cuda."""
     try:
         from pyutilz.core.pythonlib import is_cuda_available
 
@@ -34,6 +35,7 @@ pytestmark = [pytest.mark.gpu, pytest.mark.skipif(not _need_cuda(), reason="no C
 
 
 def test_resident_flag_default_off():
+    """Resident flag default off."""
     from mlframe.feature_selection.filters._gpu_strict_fe import fe_gpu_strict_resident_enabled
 
     # RESIDENT unset -> OFF regardless of STRICT (env not set here in the default test env).
@@ -42,6 +44,7 @@ def test_resident_flag_default_off():
 
 
 def test_entry_stub_is_inert():
+    """Entry stub is inert."""
     from mlframe.feature_selection.filters._gpu_strict_fe import run_fe_step_gpu_strict
 
     with pytest.raises(NotImplementedError):
@@ -49,6 +52,7 @@ def test_entry_stub_is_inert():
 
 
 def test_resident_state_build_and_pickle():
+    """Resident state build and pickle."""
     from mlframe.feature_selection.filters._gpu_strict_fe import ResidentFEState
 
     rng = np.random.default_rng(0)
@@ -71,6 +75,7 @@ def test_resident_state_build_and_pickle():
 
 
 def test_residency_audit_classifies_bulk_vs_scalar():
+    """Residency audit classifies bulk vs scalar."""
     from mlframe.feature_selection.filters._gpu_strict_fe import residency_audit, BULK_BYTES
 
     with residency_audit() as rep:

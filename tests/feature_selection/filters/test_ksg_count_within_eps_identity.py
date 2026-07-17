@@ -19,6 +19,7 @@ from mlframe.feature_selection.filters._ksg import (
 
 
 def _reference_count_within_eps(arr_1d, eps):
+    """Reference count within eps."""
     arr = arr_1d.astype(np.float64).ravel()
     sorter = np.argsort(arr)
     sorted_arr = arr[sorter]
@@ -36,6 +37,7 @@ def _reference_count_within_eps(arr_1d, eps):
 @pytest.mark.parametrize("seed", [0, 1, 7])
 @pytest.mark.parametrize("kind", ["continuous", "tied", "tiny_eps"])
 def test_count_within_eps_bit_identical(seed, kind):
+    """Count within eps bit identical."""
     rng = np.random.default_rng(seed)
     n = 2000
     if kind == "continuous":
@@ -55,6 +57,7 @@ def test_count_within_eps_bit_identical(seed, kind):
 
 
 def test_mixed_ksg_mi_unchanged_on_correlated():
+    """Mixed ksg mi unchanged on correlated."""
     rng = np.random.default_rng(0)
     n = 3000
     x = rng.standard_normal(n)
@@ -66,6 +69,7 @@ def test_mixed_ksg_mi_unchanged_on_correlated():
 
 
 def test_column_knn_cache_removed():
+    """Column knn cache removed."""
     import mlframe.feature_selection.filters._ksg as ksg
 
     assert not hasattr(ksg, "ColumnKNNCache")

@@ -25,7 +25,6 @@ import pytest
 
 from mlframe.training._data_helpers import _validate_target_values
 
-
 # ---- pandas paths ---------------------------------------------------------
 
 

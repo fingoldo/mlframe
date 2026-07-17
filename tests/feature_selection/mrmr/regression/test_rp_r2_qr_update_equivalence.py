@@ -25,6 +25,7 @@ import scipy.linalg as sla
 
 
 def _lstsq_r2(base_tr, base_va, extra, tr, va, y_tr, yv, ss):
+    """Lstsq r2."""
     if extra is None:
         A_tr, A_va = base_tr, base_va
     else:
@@ -35,6 +36,7 @@ def _lstsq_r2(base_tr, base_va, extra, tr, va, y_tr, yv, ss):
 
 
 def _qr_insert_r2(Q, R, base_va, extra, tr, va, y_tr, yv, ss, coef_base=None):
+    """Qr insert r2."""
     if extra is None:
         return 1.0 - float(np.sum((yv - base_va @ coef_base) ** 2)) / ss
     q1, r1 = sla.qr_insert(Q, R, extra[tr], Q.shape[1], which="col")
@@ -44,6 +46,7 @@ def _qr_insert_r2(Q, R, base_va, extra, tr, va, y_tr, yv, ss, coef_base=None):
 
 
 def _make_scenario(seed, n=6000, p_base=25):
+    """Make scenario."""
     rng = np.random.default_rng(seed)
     idx = np.arange(n)
     va = (idx % 3) == 0
@@ -59,6 +62,7 @@ def _make_scenario(seed, n=6000, p_base=25):
 
 @pytest.mark.parametrize("seed", [0, 1, 2, 3, 4])
 def test_qr_insert_r2_matches_lstsq_r2_baseline(seed):
+    """Qr insert r2 matches lstsq r2 baseline."""
     _rng, _n, tr, va, _y, y_tr, yv, _base_cols, base_tr, base_va, ss = _make_scenario(seed)
     old_base = _lstsq_r2(base_tr, base_va, None, tr, va, y_tr, yv, ss)
 

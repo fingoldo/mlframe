@@ -22,6 +22,7 @@ from mlframe.training.composite.transforms.unary import (
 
 
 def test_probit_bit_identical_to_norm_ppf():
+    """Probit bit identical to norm ppf."""
     rng = np.random.default_rng(11)
     u = rng.uniform(1e-9, 1.0 - 1e-9, 20000)
     assert np.array_equal(_probit(u), norm.ppf(u))
@@ -31,6 +32,7 @@ def test_probit_bit_identical_to_norm_ppf():
 
 
 def test_rank_to_gauss_bit_identical_to_norm_ppf():
+    """Rank to gauss bit identical to norm ppf."""
     n = 20000
     ranks = np.arange(n)
     got = _rank_to_gauss(ranks, n)
@@ -40,6 +42,7 @@ def test_rank_to_gauss_bit_identical_to_norm_ppf():
 
 @pytest.mark.parametrize("n", [2000, 20000])
 def test_quantile_normal_forward_inverse_bit_identical(n):
+    """Quantile normal forward inverse bit identical."""
     rng = np.random.default_rng(13)
     y = np.exp(rng.standard_normal(n))
     params = quantile_normal_y_fit(y)

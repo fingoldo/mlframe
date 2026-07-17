@@ -78,6 +78,7 @@ def _heterogeneous_loadings_frame(n: int = 1500, seed: int = 0):
 
 
 class TestPartA_RecipeWiring:
+    """Groups tests covering TestPartA_RecipeWiring."""
     def test_swap_aggregate_recorded_with_pc1_marker(self):
         """When an aggregate-branch swap fires, the PC1 aggregate name
         (carrying the fixed ``_dcd_pc1_`` marker built in ``commit_swap``)
@@ -210,7 +211,9 @@ class TestPartA_RecipeWiring:
 
 
 class TestPartB_AutoMethod:
+    """Groups tests covering TestPartB_AutoMethod."""
     def test_default_swap_method_is_auto(self):
+        """Default swap method is auto."""
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         m = MRMR()
@@ -391,6 +394,7 @@ class TestPartB_AutoMethod:
 
 
 class TestNoRegressionPriorLayers:
+    """Groups tests covering TestNoRegressionPriorLayers."""
     def test_layer42_default_threshold_pinned_at_4(self):
         """Layer 42 contract: ``dcd_cluster_size_threshold`` default
         unchanged at 4 (Layer 43 does NOT lower the threshold). The
@@ -402,6 +406,7 @@ class TestNoRegressionPriorLayers:
         assert int(m.dcd_cluster_size_threshold) == 4
 
     def test_layer42_pin_threshold_2_still_fires_swap(self):
+        """Layer42 pin threshold 2 still fires swap."""
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         X, y = _three_dups_plus_strong_frame()
@@ -617,6 +622,7 @@ def _loudest_member_frame(n: int = 2000, seed: int = 0):
 
 
 class TestLayer44_MethodEnrolment:
+    """Groups tests covering TestLayer44_MethodEnrolment."""
     @pytest.mark.parametrize(
         "method",
         [
@@ -627,6 +633,7 @@ class TestLayer44_MethodEnrolment:
         ],
     )
     def test_valid_dcd_swap_method_includes(self, method):
+        """Valid dcd swap method includes."""
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         assert method in MRMR._VALID_DCD_SWAP_METHODS, f"_VALID_DCD_SWAP_METHODS must include {method!r}; got {MRMR._VALID_DCD_SWAP_METHODS}"
@@ -641,11 +648,13 @@ class TestLayer44_MethodEnrolment:
         ],
     )
     def test_valid_cluster_aggregate_methods_includes(self, method):
+        """Valid cluster aggregate methods includes."""
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         assert method in MRMR._VALID_CLUSTER_AGGREGATE_METHODS, f"_VALID_CLUSTER_AGGREGATE_METHODS must include {method!r}"
 
     def test_cluster_aggregate_methods_tuple_includes_all_seven(self):
+        """Cluster aggregate methods tuple includes all seven."""
         from mlframe.feature_selection.filters._cluster_aggregate import (
             CLUSTER_AGGREGATE_METHODS,
         )
@@ -654,6 +663,7 @@ class TestLayer44_MethodEnrolment:
             assert m in CLUSTER_AGGREGATE_METHODS, f"CLUSTER_AGGREGATE_METHODS missing {m!r}: got {CLUSTER_AGGREGATE_METHODS}"
 
     def test_auto_method_candidates_has_seven(self):
+        """Auto method candidates has seven."""
         from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
             _AUTO_METHOD_CANDIDATES,
         )
@@ -675,6 +685,7 @@ class TestLayer44_MethodEnrolment:
 
 
 class TestLayer44_PinnedFitSmoke:
+    """Groups tests covering TestLayer44_PinnedFitSmoke."""
     @pytest.mark.parametrize(
         "method",
         [
@@ -760,6 +771,7 @@ def _run_bakeoff_direct(X: pd.DataFrame, y: pd.Series, member_names: list):
 
 
 class TestLayer44_BakeoffWins:
+    """Groups tests covering TestLayer44_BakeoffWins."""
     def test_pca_pc2_wins_on_two_correlated_latents(self):
         """Cluster has two correlated latents; y depends on L2 (the PC2
         direction). PC2 should out-score PC1 in the K-fold OOF bake-off.
@@ -811,6 +823,7 @@ class TestLayer44_BakeoffWins:
 
 
 class TestLayer44_RecipeReplayBitIdentity:
+    """Groups tests covering TestLayer44_RecipeReplayBitIdentity."""
     @pytest.mark.parametrize(
         "method",
         [
@@ -908,6 +921,7 @@ class TestLayer44_RecipeReplayBitIdentity:
 
 
 class TestLayer44_LegacyPinByteIdentity:
+    """Groups tests covering TestLayer44_LegacyPinByteIdentity."""
     @pytest.mark.parametrize(
         "method",
         [

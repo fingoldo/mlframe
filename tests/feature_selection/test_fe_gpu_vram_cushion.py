@@ -57,10 +57,13 @@ def test_declines_when_needed_pushes_below_cushion(monkeypatch, vram):
     import cupy as cp
 
     class _EmptyPool:
+        """Groups tests covering EmptyPool."""
         def free_bytes(self):
+            """Free bytes."""
             return 0
 
         def free_all_blocks(self):
+            """Free all blocks."""
             raise AssertionError("must not free blocks when the pool holds none")
 
     monkeypatch.setattr(cp, "get_default_memory_pool", lambda: _EmptyPool())
@@ -79,14 +82,18 @@ def test_pool_retained_blocks_released_before_declining(monkeypatch, vram):
     state = {"freed": False}
 
     class _FatPool:
+        """Groups tests covering FatPool."""
         def free_bytes(self):
+            """Free bytes."""
             return 3 * GB
 
         def free_all_blocks(self):
+            """Free all blocks."""
             state["freed"] = True
 
     def _meminfo():
         # 0.52 GB free before the pool is flushed; 3.5 GB free after (the observed live condition).
+        """Helper that meminfo."""
         return (int(3.5 * GB), 4 * GB) if state["freed"] else (int(0.52 * GB), 4 * GB)
 
     monkeypatch.setattr(cp, "get_default_memory_pool", lambda: _FatPool())
@@ -103,13 +110,17 @@ def test_pool_flush_still_declines_when_genuinely_full(monkeypatch, vram):
     state = {"freed": False}
 
     class _SmallPool:
+        """Groups tests covering SmallPool."""
         def free_bytes(self):
+            """Free bytes."""
             return 100 * MB
 
         def free_all_blocks(self):
+            """Free all blocks."""
             state["freed"] = True
 
     def _meminfo():
+        """Helper that meminfo."""
         return (620 * MB, 4 * GB) if state["freed"] else (520 * MB, 4 * GB)
 
     monkeypatch.setattr(cp, "get_default_memory_pool", lambda: _SmallPool())
@@ -144,6 +155,7 @@ def test_permissive_when_cupy_import_fails(monkeypatch, vram):
     real_import = builtins.__import__
 
     def _fake_import(name, *a, **k):
+        """Fake import."""
         if name == "cupy" or name.startswith("cupy."):
             raise ImportError("simulated: cupy unavailable")
         return real_import(name, *a, **k)
@@ -159,6 +171,7 @@ def test_permissive_when_memgetinfo_raises(monkeypatch, vram):
     import cupy as cp
 
     def _boom():
+        """Helper that boom."""
         raise RuntimeError("simulated memGetInfo failure")
 
     monkeypatch.setattr(cp.cuda.runtime, "memGetInfo", _boom)
@@ -173,7 +186,9 @@ def test_ensure_pool_limit_idempotent(monkeypatch, vram):
     calls = []
 
     class _FakePool:
+        """Groups tests covering FakePool."""
         def set_limit(self, size=None, fraction=None):
+            """Set limit."""
             calls.append((size, fraction))
 
     monkeypatch.setattr(cp, "get_default_memory_pool", lambda: _FakePool())
@@ -194,7 +209,9 @@ def test_ensure_pool_limit_env_fraction(monkeypatch, vram):
     calls = []
 
     class _FakePool:
+        """Groups tests covering FakePool."""
         def set_limit(self, size=None, fraction=None):
+            """Set limit."""
             calls.append(fraction)
 
     monkeypatch.setattr(cp, "get_default_memory_pool", lambda: _FakePool())
@@ -209,6 +226,7 @@ def test_ensure_pool_limit_noop_without_cupy(monkeypatch, vram):
     real_import = builtins.__import__
 
     def _fake_import(name, *a, **k):
+        """Fake import."""
         if name == "cupy" or name.startswith("cupy."):
             raise ImportError("simulated: cupy unavailable")
         return real_import(name, *a, **k)
@@ -233,7 +251,9 @@ def test_pool_cap_plus_cushion_never_exceeds_total_on_small_card(monkeypatch, vr
     calls = []
 
     class _FakePool:
+        """Groups tests covering FakePool."""
         def set_limit(self, size=None, fraction=None):
+            """Set limit."""
             calls.append(fraction)
 
     monkeypatch.setattr(cp, "get_default_memory_pool", lambda: _FakePool())
@@ -260,7 +280,9 @@ def test_pool_cap_unaffected_on_large_card(monkeypatch, vram):
     calls = []
 
     class _FakePool:
+        """Groups tests covering FakePool."""
         def set_limit(self, size=None, fraction=None):
+            """Set limit."""
             calls.append(fraction)
 
     monkeypatch.setattr(cp, "get_default_memory_pool", lambda: _FakePool())

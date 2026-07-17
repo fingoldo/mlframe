@@ -28,12 +28,14 @@ from mlframe.feature_selection.filters.mrmr import MRMR
 
 @pytest.fixture(autouse=True)
 def _clear_cap():
+    """Clear cap."""
     clear_fourier_detect_cap()
     yield
     clear_fourier_detect_cap()
 
 
 def test_env_fallback_and_default(monkeypatch):
+    """Env fallback and default."""
     clear_fourier_detect_cap()
     monkeypatch.delenv("MLFRAME_FOURIER_DETECT_MAX_N", raising=False)
     assert get_fourier_detect_max_n() == 200_000
@@ -44,6 +46,7 @@ def test_env_fallback_and_default(monkeypatch):
 
 
 def test_thread_local_set_takes_precedence_over_env(monkeypatch):
+    """Thread local set takes precedence over env."""
     monkeypatch.setenv("MLFRAME_FOURIER_DETECT_MAX_N", "200000")
     set_fourier_detect_cap(1234)
     assert get_fourier_detect_max_n() == 1234
@@ -54,12 +57,14 @@ def test_thread_local_set_takes_precedence_over_env(monkeypatch):
 
 
 def test_cap_is_isolated_per_thread(monkeypatch):
+    """Cap is isolated per thread."""
     monkeypatch.setenv("MLFRAME_FOURIER_DETECT_MAX_N", "200000")
     set_fourier_detect_cap(777)
     seen = {}
 
     def _worker():
         # A different thread must NOT see the main thread's per-fit cap; it falls back to env/default.
+        """Helper that worker."""
         seen["peek"] = peek_fourier_detect_cap()
         seen["get"] = get_fourier_detect_max_n()
 

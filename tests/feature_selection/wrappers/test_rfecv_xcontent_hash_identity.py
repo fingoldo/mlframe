@@ -17,12 +17,14 @@ from mlframe.feature_selection.wrappers.rfecv._fit_init import _stream_hash_arra
 
 
 def _streamed(arr: np.ndarray) -> str:
+    """Helper that streamed."""
     h = hashlib.blake2b(digest_size=12)
     _stream_hash_array(h, arr)
     return h.hexdigest()
 
 
 def _whole(arr: np.ndarray) -> str:
+    """Helper that whole."""
     return hashlib.blake2b(np.ascontiguousarray(arr).tobytes(), digest_size=12).hexdigest()
 
 
@@ -32,6 +34,7 @@ def _whole(arr: np.ndarray) -> str:
 )
 @pytest.mark.parametrize("dtype", [np.float64, np.float32, np.int64, np.int32, np.bool_])
 def test_stream_hash_matches_whole_tobytes(shape, dtype):
+    """Stream hash matches whole tobytes."""
     rng = np.random.default_rng(0)
     base = rng.integers(0, 5, size=shape)
     arr = (base if dtype != np.bool_ else base % 2).astype(dtype)
@@ -40,6 +43,7 @@ def test_stream_hash_matches_whole_tobytes(shape, dtype):
 
 @pytest.mark.parametrize("order", ["C", "F"])
 def test_stream_hash_matches_on_non_contiguous(order):
+    """Stream hash matches on non contiguous."""
     rng = np.random.default_rng(1)
     arr = np.asarray(rng.random((201, 11)), order=order)
     assert _streamed(arr) == _whole(arr)
@@ -59,6 +63,7 @@ def test_stream_hash_forces_small_chunks(monkeypatch):
 
 
 def test_pandas_polars_numeric_block_fingerprint_match():
+    """Pandas polars numeric block fingerprint match."""
     rng = np.random.default_rng(3)
     data = rng.random((400, 6))
     pdf = pd.DataFrame(data, columns=[f"c{i}" for i in range(6)])

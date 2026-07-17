@@ -105,9 +105,9 @@ class TestXGBClassifierShimAPIParity:
 
     def test_subclass_of_XGBClassifier(self):
         m = XGBClassifierWithDMatrixReuse(n_estimators=3)
-        assert isinstance(m, XGBClassifier), (
-            "shim must subclass XGBClassifier so isinstance checks downstream (sklearn pipelines, mlframe strategy) keep passing"
-        )
+        assert isinstance(
+            m, XGBClassifier
+        ), "shim must subclass XGBClassifier so isinstance checks downstream (sklearn pipelines, mlframe strategy) keep passing"
 
     def test_get_params_includes_xgb_params(self):
         m = XGBClassifierWithDMatrixReuse(
@@ -343,9 +343,9 @@ class TestXGBShimSetLabelSetWeight:
         m.fit(X, y, sample_weight=recency)
         second_dmatrix_id = id(m._cached_train_dmatrix)
 
-        assert first_dmatrix_id == second_dmatrix_id, (
-            "Second fit with new sample_weight rebuilt the DMatrix — the in-place set_weight path is not firing. This was the prod-log saving target."
-        )
+        assert (
+            first_dmatrix_id == second_dmatrix_id
+        ), "Second fit with new sample_weight rebuilt the DMatrix — the in-place set_weight path is not firing. This was the prod-log saving target."
 
 
 # =====================================================================
@@ -636,9 +636,9 @@ class TestXGBShimCacheHandoffInCoreLoop:
             "_cached_val_dmatrix",
             "_cached_val_key",
         ):
-            assert _attr in _DATASET_REUSE_CACHE_ATTRS, (
-                f"{_attr!r} missing from the canonical cache attribute tuple; the shim toggle's single switching point is broken."
-            )
+            assert (
+                _attr in _DATASET_REUSE_CACHE_ATTRS
+            ), f"{_attr!r} missing from the canonical cache attribute tuple; the shim toggle's single switching point is broken."
 
         class _Bag:
             pass
@@ -825,9 +825,9 @@ class TestXGBShimPickleAndCacheLifecycle:
             "_cached_train_key",
             "_cached_val_key",
         ):
-            assert state.get(_attr) is None, (
-                f"__getstate__ must null {_attr!r} before pickling — the QuantileDMatrix holds ctypes pointers that can't be serialised."
-            )
+            assert (
+                state.get(_attr) is None
+            ), f"__getstate__ must null {_attr!r} before pickling — the QuantileDMatrix holds ctypes pointers that can't be serialised."
         # But the LIVE instance's cache is untouched — getstate must
         # not have mutated ``self.__dict__`` as a side effect.
         assert m._cached_train_dmatrix is not None

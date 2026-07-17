@@ -16,6 +16,7 @@ import numpy as np
 
 
 def test_chao_shen_does_not_enable_miller_madow_toggle():
+    """Chao shen does not enable miller madow toggle."""
     from mlframe.feature_selection.filters.info_theory._state_and_dispatch import use_mi_miller_madow, set_mi_miller_madow
 
     try:
@@ -28,6 +29,7 @@ def test_chao_shen_does_not_enable_miller_madow_toggle():
 
 def test_chao_shen_mi_is_standalone_matches_plugin_shape():
     # CS estimator is a direct call, not routed through the null kernels; on a dependent pair it returns a finite MI.
+    """Chao shen mi is standalone matches plugin shape."""
     from mlframe.feature_selection.filters._chao_shen import chao_shen_mi
 
     rng = np.random.default_rng(0)
@@ -40,6 +42,7 @@ def test_chao_shen_mi_is_standalone_matches_plugin_shape():
 
 def test_mrmr_warns_when_chao_shen_requested(caplog):
     # mi_correction='chao_shen' must be surfaced as an unwired no-op, not silently ignored.
+    """Mrmr warns when chao shen requested."""
     import logging
     from mlframe.feature_selection.filters.mrmr._mrmr_class import MRMR
 

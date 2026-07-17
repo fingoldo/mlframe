@@ -130,6 +130,7 @@ def test_mi_out_of_range_codes_raise(kernel, bad_value):
 
 
 def _mk(backend: str, data: dict):
+    """Build a polars or pandas DataFrame from data depending on the requested backend."""
     return pl.DataFrame(data) if backend == "polars" else pd.DataFrame(data)
 
 
@@ -395,6 +396,7 @@ class _FakeSelector:
 
 @pytest.fixture
 def _cmp_frame():
+    """Cmp frame."""
     names = ["f0", "f1", "f2", "f3"]
     X = pd.DataFrame(np.random.default_rng(0).standard_normal((20, 4)), columns=names)
     return X, names

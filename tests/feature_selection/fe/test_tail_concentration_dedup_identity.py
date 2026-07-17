@@ -27,6 +27,7 @@ def _reference(y, x0, x1, *, min_corr, pairness_margin, max_rank_frac=0.7):
             return False
 
         def _sd(n, d):
+            """Safe divide n/d, mapping near-zero denominators to NaN instead of inf."""
             return n / np.where(np.abs(d) < 1e-12, np.nan, d)
 
         with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
@@ -48,6 +49,7 @@ def _reference(y, x0, x1, *, min_corr, pairness_margin, max_rank_frac=0.7):
 
 
 def test_tail_concentration_dedup_is_bit_identical():
+    """Tail concentration dedup is bit identical."""
     rng = np.random.default_rng(0)
     kw = dict(min_corr=0.6, pairness_margin=1.05)
     mism = 0

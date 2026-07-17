@@ -102,6 +102,7 @@ pytest.importorskip("xgboost")
 
 
 def _shap_sel(n_features, *, su_seeded=True, top_k=8, snr_z=3.0, min_selected_ratio=0.0, active_learning=False, active_learning_budget=None):
+    """Shap sel."""
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
     return ShapProxiedFS(
@@ -206,6 +207,7 @@ def test_su_seeded_snr_z_absurdly_high_is_byte_identical_no_op():
 # (c) min_selected_ratio -- selection floor on a noise-heavy frame.
 # --------------------------------------------------------------------------------------------------
 def _noise_heavy(n=3000, n_inf=4, n_noise=12, seed=1):
+    """Noise heavy."""
     rng = np.random.default_rng(seed)
     inf = rng.normal(size=(n, n_inf))
     noise = rng.normal(size=(n, n_noise))
@@ -225,6 +227,7 @@ _C_PREFILTER_TOP = 10
 
 
 def _ratio_sel(ratio):
+    """Ratio sel."""
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
     return ShapProxiedFS(
@@ -289,6 +292,7 @@ def test_min_selected_ratio_floors_selection_in_proxy_column_space():
 # (d) active_learning_budget -- caps the honest-refinement candidate (model) count.
 # --------------------------------------------------------------------------------------------------
 def _al_dataset(n=900, n_inf=6, n_noise=14, seed=2):
+    """Al dataset."""
     rng = np.random.default_rng(seed)
     inf = rng.normal(size=(n, n_inf))
     noise = rng.normal(size=(n, n_noise))
@@ -300,6 +304,7 @@ def _al_dataset(n=900, n_inf=6, n_noise=14, seed=2):
 
 
 def _al_sel(n_features, budget):
+    """Al sel."""
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
     return ShapProxiedFS(

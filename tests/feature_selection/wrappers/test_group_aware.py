@@ -250,13 +250,16 @@ class _FakeInner:
         self.k = k
 
     def fit(self, X, y):
+        """Helper that fit."""
         self.support_ = np.arange(min(self.k, X.shape[1]), dtype=np.int64)
         return self
 
     def get_params(self, deep=True):
+        """Get params."""
         return {"k": self.k}
 
     def set_params(self, **params):
+        """Set params."""
         for key, val in params.items():
             setattr(self, key, val)
         return self
@@ -302,6 +305,7 @@ class TestDuplicateColumnNames:
 
     @pytest.mark.parametrize("method", ["pearson", "spearman", "su"])
     def test_redundancy_methods_handle_duplicate_names(self, method):
+        """Redundancy methods handle duplicate names."""
         from mlframe.feature_selection.filters.group_aware import _redundancy_matrix
 
         rng = np.random.default_rng(0)
@@ -316,6 +320,7 @@ class TestDuplicateColumnNames:
         assert rm[0, 2] < 0.5
 
     def test_cluster_and_medoid_on_duplicate_names(self):
+        """Cluster and medoid on duplicate names."""
         rng = np.random.default_rng(1)
         n = 300
         a = rng.standard_normal(n)
@@ -327,6 +332,7 @@ class TestDuplicateColumnNames:
         assert sorted(med) == [0, 2]
 
     def test_fit_expands_duplicate_name_clusters_never_empty(self):
+        """Fit expands duplicate name clusters never empty."""
         rng = np.random.default_rng(3)
         n = 500
         sig = rng.standard_normal(n)
@@ -350,6 +356,7 @@ class TestRedundancyMatrixComputedOnce:
     """
 
     def test_fit_builds_redundancy_matrix_once(self, monkeypatch):
+        """Fit builds redundancy matrix once."""
         import mlframe.feature_selection.filters.group_aware as _ga
         from sklearn.feature_selection import SelectKBest, f_classif
 
@@ -369,6 +376,7 @@ class TestRedundancyMatrixComputedOnce:
         assert calls["n"] == 1, f"redundancy matrix rebuilt {calls['n']}x per fit (expected 1 -- the double-compute regressed)"
 
     def test_precomputed_corr_is_byte_identical(self):
+        """Precomputed corr is byte identical."""
         from mlframe.feature_selection.filters.group_aware import _redundancy_matrix
 
         rng = np.random.default_rng(2)
@@ -390,6 +398,7 @@ if __name__ == "__main__":
 def test_su_redundancy_lowcard_codes_searchsorted_equals_dict_map():
     # The vectorised np.searchsorted dense-coding of low-cardinality columns must equal the prior
     # dict-lookup list comprehension bit-for-bit, including the non-finite -> len(uniq) sentinel.
+    """Su redundancy lowcard codes searchsorted equals dict map."""
     import numpy as np
 
     rng = np.random.default_rng(4)

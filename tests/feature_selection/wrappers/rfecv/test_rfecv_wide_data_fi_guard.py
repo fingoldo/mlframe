@@ -33,6 +33,7 @@ _AUC = make_scorer(roc_auc_score, response_method="predict_proba")
 
 
 def _wide_frame(n_samples=200, n_features=60, n_informative=6, seed=0):
+    """Wide frame."""
     X, y = make_classification(
         n_samples=n_samples,
         n_features=n_features,
@@ -46,11 +47,14 @@ def _wide_frame(n_samples=200, n_features=60, n_informative=6, seed=0):
 
 def _fast_rf():
     # Tiny RF: cheap per fit so even the perm-FI path (opt-out test) stays quick.
+    """Fast rf."""
     return RandomForestClassifier(n_estimators=12, max_depth=6, random_state=0, n_jobs=1)
 
 
 class TestWideDataGuardFires:
+    """Groups tests covering TestWideDataGuardFires."""
     def test_fallback_to_native_on_wide_frame(self):
+        """Fallback to native on wide frame."""
         Xdf, y = _wide_frame(n_features=60)
         sel = RFECV(
             estimator=_fast_rf(),
@@ -76,6 +80,7 @@ class TestWideDataGuardFires:
         # the MBH explores a real multi-point grid in the SAME refit budget and the parsimonious rule lands below p.
         # roc_auc scorer + clear signal so the model beats the dummy at N=0 (otherwise the early "dummy-beats-first"
         # stop fires at iter 1 -- a synthetic-data artifact unrelated to the perm-FI cost bug).
+        """Wide frame yields multipoint curve and narrow support."""
         Xdf, y = _wide_frame(n_samples=600, n_features=60, n_informative=10)
         sel = RFECV(
             estimator=_fast_rf(),
@@ -99,6 +104,7 @@ class TestWideDataGuardFires:
 
     def test_caps_n_repeats_below_threshold(self):
         # p between threshold//4 and threshold -> n_repeats capped, getter kept.
+        """Caps n repeats below threshold."""
         Xdf, y = _wide_frame(n_features=40)
         sel = RFECV(
             estimator=_fast_rf(),
@@ -119,8 +125,10 @@ class TestWideDataGuardFires:
 
 
 class TestWideDataGuardNoOp:
+    """Groups tests covering TestWideDataGuardNoOp."""
     def test_narrow_frame_keeps_permutation_exactly(self):
         # Narrow frame (p below threshold//4) -> no fallback, no cap: narrow-frame behaviour must not regress.
+        """Narrow frame keeps permutation exactly."""
         Xdf, y = _wide_frame(n_features=8, n_informative=4)
         sel = RFECV(
             estimator=_fast_rf(),
@@ -137,6 +145,7 @@ class TestWideDataGuardNoOp:
         assert sel.n_features_ >= 1
 
     def test_opt_out_keeps_permutation_on_wide_frame(self):
+        """Opt out keeps permutation on wide frame."""
         Xdf, y = _wide_frame(n_features=60)
         sel = RFECV(
             estimator=_fast_rf(),
@@ -155,7 +164,9 @@ class TestWideDataGuardNoOp:
 
 
 class TestWideDataGuardConfig:
+    """Groups tests covering TestWideDataGuardConfig."""
     def test_knobs_via_fi_config(self):
+        """Knobs via fi config."""
         sel = RFECV(
             estimator=_fast_rf(),
             fi_config=FIConfig(
@@ -169,6 +180,7 @@ class TestWideDataGuardConfig:
         assert sel.wide_data_fi_n_repeats == 4
 
     def test_defaults(self):
+        """Helper that defaults."""
         sel = RFECV(estimator=_fast_rf())
         assert sel.wide_data_fi_fallback is True
         assert sel.wide_data_fi_threshold == 200

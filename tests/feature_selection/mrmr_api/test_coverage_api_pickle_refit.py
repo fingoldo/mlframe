@@ -22,6 +22,7 @@ from mlframe.feature_selection.filters import MRMR
 
 
 def _data(n: int = 150, m: int = 4, seed: int = 0):
+    """Helper that data."""
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(n, m))
     y = (X[:, 0] + 0.3 * X[:, 1] > 0).astype(np.int32)
@@ -29,12 +30,14 @@ def _data(n: int = 150, m: int = 4, seed: int = 0):
 
 
 def _fast(**kw):
+    """Helper that fast."""
     base = dict(full_npermutations=5, baseline_npermutations=3, n_jobs=1, verbose=0, fe_fast_search=False, interactions_max_order=1)
     base.update(kw)
     return MRMR(**base)
 
 
 def test_pickle_round_trip_preserves_support_and_transform():
+    """Pickle round trip preserves support and transform."""
     X, y = _data(seed=1)
     MRMR._FIT_CACHE.clear()
     m = _fast(random_seed=7).fit(X, y)

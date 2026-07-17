@@ -26,6 +26,7 @@ _KW = dict(
 
 
 def _mk(rng, n, kind):
+    """Build an (a, b, y) pair fixture of the given interaction kind (e.g. 'prod') for the noise-floor subsample-cap tests."""
     a = rng.standard_normal(n).astype(np.float64)
     b = (rng.standard_normal(n) + 0.3).astype(np.float64)
     if kind == "prod":
@@ -43,6 +44,7 @@ def _mk(rng, n, kind):
 
 @pytest.mark.parametrize("kind", ["prod", "cubic", "noise", "weak"])
 def test_noise_floor_cap_is_selection_equivalent_to_full_n(kind, monkeypatch):
+    """Noise floor cap is selection equivalent to full n."""
     rng = np.random.default_rng(0)
     n = 60000  # above the 30k cap so the strided subsample path is exercised
     xa, xb, y = _mk(rng, n, kind)

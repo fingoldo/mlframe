@@ -57,6 +57,7 @@ def _raw_selected(sel, allowed_cols):
 # (a) REGRESSION: diabetes full-mode recovers >= 6 feats / R2 >= 0.35.
 # ---------------------------------------------------------------------------
 def test_rc2_diabetes_full_mode_recovers_features_and_r2():
+    """Rc2 diabetes full mode recovers features and r2."""
     X, y = load_diabetes(return_X_y=True, as_frame=True)
     assert len(X) == 442  # the small-n regime that triggered the bug
 
@@ -106,6 +107,7 @@ def test_rc2_diabetes_strict_path_also_recovers_after_discrete_fe_gating():
 # (b) Exact-duplicate column is still dropped (dedup preserved by the gain).
 # ---------------------------------------------------------------------------
 def test_rc2_exact_duplicate_dropped():
+    """Rc2 exact duplicate dropped."""
     X, y = load_diabetes(return_X_y=True, as_frame=True)
     Xd = X.copy()
     Xd["s5_dup"] = Xd["s5"]  # exact copy of a strong feature
@@ -123,6 +125,7 @@ def test_rc2_exact_duplicate_dropped():
 # (c) Pure noise (y independent of X), small n -> no spurious admission.
 # ---------------------------------------------------------------------------
 def test_rc2_pure_noise_rejected_small_n():
+    """Rc2 pure noise rejected small n."""
     rng = np.random.RandomState(0)
     n = 300
     Xn = pd.DataFrame(rng.randn(n, 8), columns=[f"n{i}" for i in range(8)])

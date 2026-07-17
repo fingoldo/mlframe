@@ -54,6 +54,7 @@ def _synthetic_selected_set(n=4000, k=20, seed=7):
 
 
 def _graph_fingerprint(graph):
+    """Graph fingerprint."""
     nodes = sorted((n.name, n.entropy, n.relevance, n.weighted_degree, n.shared_frac, n.neighbors_unique_target, n.klass) for n in graph.nodes)
     edges = sorted((e.a, e.b, e.mi) for e in graph.edges)
     return nodes, edges, sorted(graph.suspected_garbage)
@@ -68,6 +69,7 @@ def _graph_fingerprint(graph):
 @pytest.mark.skipif(not _CUPY_AVAIL, reason="cupy not available on this host")
 @pytest.mark.parametrize("n,k,seed", [(4000, 20, 7), (3000, 30, 3), (5000, 50, 5)])
 def test_cupy_stats_bit_identical_to_cpu(n, k, seed):
+    """Cupy stats bit identical to cpu."""
     sel, data, nbins, tgt = _synthetic_selected_set(n=n, k=k, seed=seed)
     cpu = _friend_graph_cpu_stats(sel, data, nbins, tgt, np.int32)
     gpu = friend_graph_stats_cupy(sel, data, nbins, tgt, np.int32)
@@ -83,6 +85,7 @@ def test_cupy_stats_bit_identical_to_cpu(n, k, seed):
 @pytest.mark.skipif(not _CUDA_AVAIL, reason="numba.cuda not available on this host")
 @pytest.mark.parametrize("n,k,seed", [(4000, 20, 7), (3000, 30, 3), (5000, 50, 5)])
 def test_cuda_stats_bit_identical_to_cpu(n, k, seed):
+    """Cuda stats bit identical to cpu."""
     sel, data, nbins, tgt = _synthetic_selected_set(n=n, k=k, seed=seed)
     cpu = _friend_graph_cpu_stats(sel, data, nbins, tgt, np.int32)
     gpu = friend_graph_stats_cuda(sel, data, nbins, tgt, np.int32)
@@ -109,6 +112,7 @@ def test_cuda_backend_does_not_reupload_sub_for_node_codes(monkeypatch):
     orig_to_device = fgg._nb_cuda.to_device
 
     def spy(arr, *a, **kw):
+        """Helper that spy."""
         if (
             isinstance(arr, np.ndarray)
             and arr.shape == sub_expected.shape
@@ -156,6 +160,7 @@ def test_cuda_node_codes_ondevice_cast_matches_forced_reupload_fallback(monkeypa
 
 
 def _redundant_hub_dataset(n=8000, seed=11):
+    """Redundant hub dataset."""
     rng = np.random.default_rng(seed)
     u = [rng.integers(0, 2, n) for _ in range(4)]
     v = [rng.integers(0, 2, n) for _ in range(4)]
@@ -172,6 +177,7 @@ def _redundant_hub_dataset(n=8000, seed=11):
 @pytest.mark.skipif(not (_CUPY_AVAIL or _CUDA_AVAIL), reason="no GPU backend available")
 @pytest.mark.parametrize("backend", [b for b, ok in (("cupy", _CUPY_AVAIL), ("cuda", _CUDA_AVAIL)) if ok])
 def test_build_friend_graph_gpu_matches_cpu_build(backend):
+    """Build friend graph gpu matches cpu build."""
     data, nbins, tgt, names, sel = _redundant_hub_dataset()
     g_cpu = build_friend_graph(sel, data, nbins, tgt, feature_names=names, seed=1, gpu_backend="cpu")
     g_gpu = build_friend_graph(sel, data, nbins, tgt, feature_names=names, seed=1, gpu_backend=backend)
@@ -186,6 +192,7 @@ def test_build_friend_graph_gpu_matches_cpu_build(backend):
 @pytest.mark.skipif(not (_CUPY_AVAIL or _CUDA_AVAIL), reason="no GPU backend available")
 @pytest.mark.parametrize("backend", [b for b, ok in (("cupy", _CUPY_AVAIL), ("cuda", _CUDA_AVAIL)) if ok])
 def test_build_friend_graph_gpu_larger_set_matches_cpu(backend):
+    """Build friend graph gpu larger set matches cpu."""
     sel, data, nbins, tgt = _synthetic_selected_set(n=4000, k=40, seed=2)
     g_cpu = build_friend_graph(sel, data, nbins, tgt, seed=1, gpu_backend="cpu")
     g_gpu = build_friend_graph(sel, data, nbins, tgt, seed=1, gpu_backend=backend)

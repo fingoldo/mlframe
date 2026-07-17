@@ -21,6 +21,7 @@ import pytest
 
 
 def _make_regime(n_samples=1500, n_informative=5, n_redundant=5, n_noise=70, seed=0):
+    """Make regime."""
     from mlframe.feature_selection._benchmarks._shap_proxy_regime_data import (
         make_regime_dataset,
     )
@@ -38,6 +39,7 @@ def _make_regime(n_samples=1500, n_informative=5, n_redundant=5, n_noise=70, see
 
 
 def _common_kwargs():
+    """Common kwargs."""
     return dict(
         random_state=0,
         verbose=False,

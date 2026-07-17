@@ -43,6 +43,7 @@ from mlframe.feature_selection.filters._count_freq_interaction_fe import (
 
 
 def test_canonical_group_token_collapses_integral_dtypes() -> None:
+    """Canonical group token collapses integral dtypes."""
     assert canonical_group_token(1) == canonical_group_token(1.0) == canonical_group_token(np.int64(1)) == canonical_group_token(np.float64(1.0)) == "1"
     assert canonical_group_token(2.5) == repr(2.5)
     assert canonical_group_token("well_A") == "well_A"
@@ -51,6 +52,7 @@ def test_canonical_group_token_collapses_integral_dtypes() -> None:
 
 
 def test_group_key_strings_int_float_agree() -> None:
+    """Group key strings int float agree."""
     gi = group_key_strings(pd.Series([1, 2, 3, 1], dtype="int64"))
     gf = group_key_strings(pd.Series([1.0, 2.0, 3.0, 1.0], dtype="float64"))
     assert list(gi) == list(gf) == ["1", "2", "3", "1"]
@@ -60,6 +62,7 @@ def test_group_key_strings_int_float_agree() -> None:
 
 
 def test_te_and_extra_column_to_str_int_float_agree() -> None:
+    """Te and extra column to str int float agree."""
     for cts in (_te_column_to_str, _xf_column_to_str):
         a = cts(pd.Series([1, 2, 1], dtype="int64"))
         b = cts(pd.Series([1.0, 2.0, 1.0], dtype="float64"))
@@ -67,6 +70,7 @@ def test_te_and_extra_column_to_str_int_float_agree() -> None:
 
 
 def test_build_composite_keys_int_float_agree() -> None:
+    """Build composite keys int float agree."""
     Xi = pd.DataFrame({"a": pd.Series([1, 2], dtype="int64"), "b": pd.Series([3, 4], dtype="int64")})
     Xf = pd.DataFrame(
         {

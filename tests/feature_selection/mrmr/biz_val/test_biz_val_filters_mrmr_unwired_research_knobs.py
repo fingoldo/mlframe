@@ -52,6 +52,7 @@ def _synth(seed: int = 0, n: int = 700):
 
 
 def _fit_support(**knobs):
+    """Fit support."""
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     X, y = _synth()
@@ -67,6 +68,7 @@ def _fit_support(**knobs):
 
 
 def test_relax_mrmr_kernel_runs_and_is_finite():
+    """Relax mrmr kernel runs and is finite."""
     from mlframe.feature_selection.filters._relaxmrmr_3d import relax_mrmr_score
 
     rng = np.random.default_rng(1)
@@ -79,6 +81,7 @@ def test_relax_mrmr_kernel_runs_and_is_finite():
 
 
 def test_cmi_permutation_stop_kernel_discriminates_signal_from_noise():
+    """Cmi permutation stop kernel discriminates signal from noise."""
     from mlframe.feature_selection.filters._cmi_perm_stop import cmi_permutation_stop
 
     rng = np.random.default_rng(2)
@@ -92,6 +95,7 @@ def test_cmi_permutation_stop_kernel_discriminates_signal_from_noise():
 
 
 def test_conditional_permutation_test_kernel_discriminates_signal_from_noise():
+    """Conditional permutation test kernel discriminates signal from noise."""
     from mlframe.feature_selection.filters._conditional_permutation import conditional_permutation_test
 
     rng = np.random.default_rng(4)
@@ -106,6 +110,7 @@ def test_conditional_permutation_test_kernel_discriminates_signal_from_noise():
 
 
 def test_pid_decomposition_kernel_finds_synergy_on_xor():
+    """Pid decomposition kernel finds synergy on xor."""
     from mlframe.feature_selection.filters._pid_decomposition import pid_decomposition
 
     rng = np.random.default_rng(3)
@@ -122,12 +127,14 @@ def test_pid_decomposition_kernel_finds_synergy_on_xor():
 
 
 def test_relaxmrmr_alpha_changes_selection():
+    """Relaxmrmr alpha changes selection."""
     base = _fit_support(relaxmrmr_alpha=0.0, use_simple_mode=False)
     relaxed = _fit_support(relaxmrmr_alpha=9.0, use_simple_mode=False)
     assert relaxed != base, "a large relaxmrmr_alpha 3-D redundancy term must change the selected support vs alpha=0"
 
 
 def test_pid_synergy_bonus_changes_selection():
+    """Pid synergy bonus changes selection."""
     base = _fit_support(pid_synergy_bonus=0.0, use_simple_mode=False)
     bonus = _fit_support(pid_synergy_bonus=9.0, use_simple_mode=False)
     assert bonus != base, "a large pid_synergy_bonus must promote the synergistic (a,b) pair and change the selected support vs 0.0"
@@ -150,6 +157,7 @@ def test_cmi_perm_stop_fires_in_live_fit_and_prunes_candidates():
     calls: list[tuple[bool, float, float]] = []
 
     def _spy(*a, **k):
+        """Helper that spy."""
         res = real_stop(*a, **k)
         calls.append(res)
         return res
@@ -195,6 +203,7 @@ def test_cpt_test_fires_in_live_fit_and_prunes_candidates():
     calls: list[tuple[float, float]] = []
 
     def _spy(*a, **k):
+        """Helper that spy."""
         res = real_test(*a, **k)
         calls.append(res)
         return res

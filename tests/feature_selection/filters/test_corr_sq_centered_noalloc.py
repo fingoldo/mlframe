@@ -30,6 +30,7 @@ def _ref_corr_sq(v, y_centered, y_ss):
 
 @pytest.mark.parametrize("n", [16, 533, 1100, 1667, 3333, 20000])
 def test_corr_sq_centered_matches_centered_reference(n):
+    """Corr sq centered matches centered reference."""
     rng = np.random.default_rng(n)
     z = np.sort(rng.random(n))
     max_diff = 0.0
@@ -46,6 +47,7 @@ def test_corr_sq_centered_matches_centered_reference(n):
 
 
 def test_corr_sq_centered_degenerate_constant_v_returns_zero():
+    """Corr sq centered degenerate constant v returns zero."""
     yc = np.array([1.0, -1.0, 0.5, -0.5])
     assert _corr_sq_centered(np.ones(4), yc, float(yc @ yc)) == 0.0
 
@@ -120,6 +122,7 @@ def test_power_centered_parallel_path_bitidentical_across_thread_counts(n):
 
 
 def test_periodogram_power_nonnegative_and_phase_invariant():
+    """Periodogram power nonnegative and phase invariant."""
     rng = np.random.default_rng(7)
     n = 1000
     z = np.sort(rng.random(n))

@@ -17,6 +17,7 @@ import pandas as pd
 
 
 def _build_case2(n=3000, seed=0):
+    """Build case2."""
     rng = np.random.default_rng(seed)
     a = rng.random(n) + 0.5
     b = rng.random(n) + 0.5
@@ -28,6 +29,7 @@ def _build_case2(n=3000, seed=0):
 
 
 class _Stub:
+    """Groups tests covering Stub."""
     def __init__(self, cols, seed=0):
         self.feature_names_in_ = list(cols)
         self._engineered_recipes_ = []
@@ -55,6 +57,7 @@ def test_basis_scaler_fit_count_less_than_candidate_count():
     real_column_stack = np.column_stack
 
     def _counting_column_stack(arrs, *a, **kw):
+        """Counting column stack."""
         if len(list(arrs)) == 12:
             calls["n"] += 1
         return real_column_stack(arrs, *a, **kw)

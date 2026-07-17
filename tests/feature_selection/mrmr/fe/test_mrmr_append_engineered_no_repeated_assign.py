@@ -35,6 +35,7 @@ def _make_recipes(n, resolved_via_apply=None):
 def _fake_apply_recipe(recipe, chained):
     # Deterministic column derived from the recipe name + the (unmutated) source column, so a test
     # can verify BOTH correctness and that ``chained["a"]`` still holds the ORIGINAL values.
+    """Fake apply recipe."""
     return chained["a"].to_numpy() * 0 + hash(recipe.name) % 97
 
 
@@ -61,6 +62,7 @@ def test_append_engineered_does_not_mutate_callers_original_dataframe(monkeypatc
 
 
 def test_append_engineered_values_and_columns_correct(monkeypatch):
+    """Append engineered values and columns correct."""
     monkeypatch.setattr(
         "mlframe.feature_selection.filters.engineered_recipes.apply_recipe",
         _fake_apply_recipe,

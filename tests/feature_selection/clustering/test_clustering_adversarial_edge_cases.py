@@ -24,6 +24,7 @@ from mlframe.feature_selection.filters._cluster_aggregate import (
 
 
 def _finite(a):
+    """Helper that finite."""
     return np.all(np.isfinite(np.asarray(a, dtype=np.float64)))
 
 
@@ -33,23 +34,28 @@ def _finite(a):
 
 
 class TestStandardizeAlign:
+    """Groups tests covering TestStandardizeAlign."""
     def test_constant_column_no_nan(self):
+        """Constant column no nan."""
         M = np.column_stack([np.zeros(50), np.arange(50.0)])  # col0 constant
         Z, _mean, _std, signs = _standardize_align(M, 0)
         assert _finite(Z) and _finite(signs)
 
     def test_all_constant_matrix(self):
+        """All constant matrix."""
         M = np.full((40, 3), 7.0)
         Z, *_ = _standardize_align(M, 0)
         assert _finite(Z)
 
     def test_n_equals_2(self):
+        """N equals 2."""
         M = np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
         Z, *_ = _standardize_align(M, 0)
         assert _finite(Z)
 
     def test_mixed_sign_alignment(self):
         # cols 1 and 3 are anti-correlated with col 0; signs must flip them.
+        """Mixed sign alignment."""
         rng = np.random.default_rng(0)
         z = rng.standard_normal(200)
         M = np.column_stack([z, -z + 0.01 * rng.standard_normal(200), z + 0.01 * rng.standard_normal(200), -z + 0.01 * rng.standard_normal(200)])
@@ -63,6 +69,7 @@ class TestStandardizeAlign:
         # The canonical aggregate path (compute_cluster_aggregate) fills first;
         # here we assert the raw helper's NaN propagation so a future caller that
         # forgets to fill is caught by this contract test.
+        """Nan input does not silently emit nan aggregate."""
         M = np.array([[1.0, 2.0], [np.nan, 3.0], [3.0, 4.0]])
         Z, *_ = _standardize_align(M, 0)
         # Either it stays finite (guarded) OR NaN propagates; pin current behaviour.
@@ -76,7 +83,9 @@ class TestStandardizeAlign:
 
 
 class TestComputeClusterAggregate:
+    """Groups tests covering TestComputeClusterAggregate."""
     def _agg(self, X, members, aggregator):
+        """Helper that agg."""
         import pandas as pd
         from mlframe.feature_selection.filters._orthogonal_cluster_basis_fe import (
             compute_cluster_aggregate,
@@ -86,6 +95,7 @@ class TestComputeClusterAggregate:
 
     @pytest.mark.parametrize("aggregator", ["mean_z", "median_z", "pc1"])
     def test_all_nan_member_finite(self, aggregator):
+        """All nan member finite."""
         import pandas as pd
 
         n = 100
@@ -95,6 +105,7 @@ class TestComputeClusterAggregate:
 
     @pytest.mark.parametrize("aggregator", ["mean_z", "median_z", "pc1"])
     def test_constant_member_finite(self, aggregator):
+        """Constant member finite."""
         import pandas as pd
 
         n = 100
@@ -105,6 +116,7 @@ class TestComputeClusterAggregate:
 
     @pytest.mark.parametrize("aggregator", ["mean_z", "median_z", "pc1"])
     def test_identical_members_rank_deficient(self, aggregator):
+        """Identical members rank deficient."""
         import pandas as pd
 
         rng = np.random.default_rng(1)
@@ -120,9 +132,11 @@ class TestComputeClusterAggregate:
 
 
 class TestCombiners:
+    """Groups tests covering TestCombiners."""
     @pytest.mark.parametrize("method", list(CLUSTER_AGGREGATE_METHODS))
     def test_combiner_finite_on_degenerate_Z(self, method):
         # Z with a zero column and a constant column.
+        """Combiner finite on degenerate Z."""
         Z = np.column_stack([np.zeros(60), np.ones(60), np.linspace(-1, 1, 60)])
         w = _derive_weights(Z, method)
         out = _apply_method_nonlinear(Z, method) if w is None else (Z @ np.asarray(w))

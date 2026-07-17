@@ -19,6 +19,7 @@ from mlframe.feature_selection.greedy_backward_elimination import greedy_backwar
 
 
 def _make_overparameterized_regression(n: int, n_signal: int, n_noise: int, seed: int):
+    """Make overparameterized regression."""
     rng = np.random.default_rng(seed)
     X_signal = rng.normal(size=(n, n_signal))
     beta = rng.normal(size=n_signal)
@@ -30,6 +31,7 @@ def _make_overparameterized_regression(n: int, n_signal: int, n_noise: int, seed
 
 
 def test_biz_val_greedy_backward_elimination_beats_full_feature_set():
+    """Biz val greedy backward elimination beats full feature set."""
     X, y = _make_overparameterized_regression(n=80, n_signal=3, n_noise=40, seed=2)
     Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.3, random_state=1)
 
@@ -50,6 +52,7 @@ def test_biz_val_greedy_backward_elimination_beats_full_feature_set():
 
 
 def test_greedy_backward_elimination_respects_min_features():
+    """Greedy backward elimination respects min features."""
     X, y = _make_overparameterized_regression(n=60, n_signal=2, n_noise=15, seed=3)
     cv = KFold(n_splits=3, shuffle=True, random_state=0)
     survivors = greedy_backward_elimination(Ridge(alpha=0.1), X, y, scoring=r2_score, cv=cv, min_features=10)
@@ -58,6 +61,7 @@ def test_greedy_backward_elimination_respects_min_features():
 
 def test_greedy_backward_elimination_no_removal_helps_returns_all_features():
     # every column is genuinely informative -> no single removal should improve CV score.
+    """Greedy backward elimination no removal helps returns all features."""
     rng = np.random.default_rng(4)
     n = 200
     X = pd.DataFrame(rng.normal(size=(n, 3)), columns=["a", "b", "c"])
@@ -76,6 +80,7 @@ def test_greedy_backward_elimination_matches_fresh_per_call_kfold_reference():
     from sklearn.base import clone
 
     def _reference_score(estimator, frame, y_arr, n_splits, scoring):
+        """Reference score."""
         cv = KFold(n_splits=n_splits, shuffle=True, random_state=0)
         row_select = (lambda idx: frame.iloc[idx]) if hasattr(frame, "iloc") else (lambda idx: frame[idx])
         scores = []
@@ -87,6 +92,7 @@ def test_greedy_backward_elimination_matches_fresh_per_call_kfold_reference():
         return float(np.mean(scores))
 
     def _reference_greedy_backward_elimination(estimator, X, y, scoring, n_splits, min_features=1, tol=0.0):
+        """Reference greedy backward elimination."""
         y_arr = np.asarray(y)
         remaining = list(X.columns)
         current_score = _reference_score(estimator, X[remaining], y_arr, n_splits, scoring)

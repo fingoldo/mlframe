@@ -63,6 +63,7 @@ AUX_SEEDS = (1, 101)
 
 
 def _make_mrmr(**overrides):
+    """Make mrmr."""
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     kwargs = dict(
@@ -174,6 +175,7 @@ def _kitchen_sink(seed: int = HEADLINE_SEED, n: int = 3000):
 
 
 def _train_holdout_split(X: pd.DataFrame, y: pd.Series, *, train_frac: float = 0.7, seed: int = HEADLINE_SEED):
+    """Train holdout split."""
     rng = np.random.default_rng(seed + 100)
     idx = np.arange(len(X))
     rng.shuffle(idx)
@@ -206,6 +208,7 @@ class TestRecipeCountParity:
 
     @pytest.mark.parametrize("seed", (HEADLINE_SEED, *AUX_SEEDS))
     def test_engineered_features_and_recipes_count_match(self, seed):
+        """Engineered features and recipes count match."""
         X, y = _kitchen_sink(seed=seed)
         X_tr, y_tr, _, _ = _train_holdout_split(X, y, seed=seed)
         m = _make_mrmr(**_all_fe_kwargs())
@@ -266,6 +269,7 @@ class TestFitTimeBudgetMultiSeed:
     """
 
     def test_p95_fit_time_under_30s_3_seeds(self):
+        """P95 fit time under 30s 3 seeds."""
         seeds = (HEADLINE_SEED, *AUX_SEEDS)
         fit_times = []
         for s in seeds:
@@ -297,6 +301,7 @@ class TestMemoryBound:
     """
 
     def test_peak_rss_delta_under_500mb(self):
+        """Peak rss delta under 500mb."""
         X, y = _kitchen_sink()
         X_tr, y_tr, _, _ = _train_holdout_split(X, y)
         m = _make_mrmr(**_all_fe_kwargs())
@@ -359,6 +364,7 @@ class TestPriorLayerImportSmoke:
         # stale) cached module does not mask a current breakage. Snapshot
         # + restore the entry so we don't leave a rebound module behind
         # for sibling tests (per CLAUDE.md test-pollution rule).
+        """Prior layer module imports."""
         original_mod = sys.modules.get(mod_name)
         if mod_name in sys.modules:
             del sys.modules[mod_name]
@@ -386,6 +392,7 @@ class TestPriorLayerRosterSize:
     """
 
     def test_at_least_33_prior_layer_modules_discoverable(self):
+        """At least 33 prior layer modules discoverable."""
         assert len(_LAYER_MODULES) >= 33, (
             f"Discovered only {len(_LAYER_MODULES)} prior-layer biz_value test modules; expected >= 33. Modules found: {[m for m, _, _ in _LAYER_MODULES]}"
         )

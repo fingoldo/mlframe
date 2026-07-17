@@ -18,6 +18,7 @@ from mlframe.feature_selection.ridge_forward_prefilter import ridge_coefficient_
 
 
 def _make_noisy_dataset(n: int, d_informative: int, d_noise: int, seed: int):
+    """Make noisy dataset."""
     rng = np.random.default_rng(seed)
     X_info = rng.normal(size=(n, d_informative))
     X_noise = rng.normal(size=(n, d_noise))
@@ -29,6 +30,7 @@ def _make_noisy_dataset(n: int, d_informative: int, d_noise: int, seed: int):
 
 
 def test_biz_val_ridge_prefilter_prunes_features_with_minimal_cv_loss():
+    """Biz val ridge prefilter prunes features with minimal cv loss."""
     X, y = _make_noisy_dataset(n=400, d_informative=8, d_noise=792, seed=0)  # 800 total features
 
     full_score = float(np.mean(cross_val_score(Ridge(alpha=1.0), X.to_numpy(), y, cv=3, scoring="r2")))
@@ -48,6 +50,7 @@ def test_biz_val_ridge_prefilter_prunes_features_with_minimal_cv_loss():
 
 
 def test_ridge_prefilter_smallest_pool_within_tolerance_is_selected():
+    """Ridge prefilter smallest pool within tolerance is selected."""
     X, y = _make_noisy_dataset(n=300, d_informative=4, d_noise=124, seed=1)  # 128 total features
     selected_tight = ridge_coefficient_prefilter(X.to_numpy(), y, list(X.columns), cv=3, tol=0.005, alpha=1.0)
     selected_loose = ridge_coefficient_prefilter(X.to_numpy(), y, list(X.columns), cv=3, tol=0.2, alpha=1.0)
@@ -57,6 +60,7 @@ def test_ridge_prefilter_smallest_pool_within_tolerance_is_selected():
 
 
 def test_ridge_prefilter_classification_returns_valid_feature_names():
+    """Ridge prefilter classification returns valid feature names."""
     rng = np.random.default_rng(2)
     n, d = 300, 60
     X = rng.normal(size=(n, d))

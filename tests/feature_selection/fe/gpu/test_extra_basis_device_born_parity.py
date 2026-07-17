@@ -29,6 +29,7 @@ cp = pytest.importorskip("cupy")
 
 
 def _need_cuda() -> bool:
+    """Need cuda."""
     try:
         from pyutilz.core.pythonlib import is_cuda_available
 
@@ -44,6 +45,7 @@ pytestmark = [pytest.mark.gpu, pytest.mark.skipif(not _need_cuda(), reason="no C
 
 
 def test_device_born_extra_basis_matches_host_all_bases():
+    """Device born extra basis matches host all bases."""
     from mlframe.feature_selection.filters._orthogonal_univariate_fe._orth_extra_basis_fe_generate import (
         generate_extra_basis_features,
     )

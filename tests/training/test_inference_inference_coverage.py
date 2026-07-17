@@ -35,6 +35,7 @@ def test_run_batched_single_batch_short_circuits_to_entry_fn():
     calls = []
 
     def _fake_entry(d, *args, **kwargs):
+        """Records the batch size it was called with and returns zero predictions of matching length."""
         calls.append(len(d))
         return {"predictions": {"m1": np.zeros(len(d))}}
 
@@ -54,6 +55,7 @@ def test_run_batched_concatenates_predictions_dict_across_batches():
     df = pl.DataFrame({"x": np.arange(n)})
 
     def _entry(d, *args, **kwargs):
+        """Echoes the batch's x column back as the model's predictions, so concatenation order is verifiable."""
         return {
             "predictions": {"m1": np.asarray(d.get_column("x").to_numpy(), dtype=np.float64)},
             "models_used": ["m1"],

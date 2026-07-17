@@ -15,6 +15,7 @@ import mlframe.feature_selection.filters._adaptive_nbins as _adaptive_nbins_mod
 
 
 def _old_adaptive_searchsorted(arr, edges_per_col, dtype):
+    """Old adaptive searchsorted."""
     n_rows, n_cols = arr.shape
     data = np.empty((n_rows, n_cols), dtype=dtype)
     for j in range(n_cols):
@@ -27,6 +28,7 @@ def _old_adaptive_searchsorted(arr, edges_per_col, dtype):
 
 
 def _make_df(n, p, seed, nan_frac=0.0):
+    """Make df."""
     rng = np.random.default_rng(seed)
     cols = {f"c{j}": rng.normal(scale=rng.choice([0.01, 1.0, 100.0]), size=n) + j for j in range(p)}
     df = pd.DataFrame(cols)
@@ -37,10 +39,12 @@ def _make_df(n, p, seed, nan_frac=0.0):
 
 
 def test_adaptive_categorize_dataset_matches_per_column_searchsorted_at_finite_positions():
+    """Adaptive categorize dataset matches per column searchsorted at finite positions."""
     orig_pfe = _adaptive_nbins_mod.per_feature_edges
     captured = {}
 
     def _capture_pfe(arr, **kwargs):
+        """Capture pfe."""
         edges = orig_pfe(arr, **kwargs)
         captured["arr"] = arr.copy()
         captured["edges"] = [e.copy() for e in edges]

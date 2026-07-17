@@ -51,6 +51,7 @@ class TestCatFEConfigDefaults:
         assert cfg.fwer_correction == "none"
 
     def test_select_on_default_is_synergy(self):
+        """Select on default is synergy."""
         cfg = CatFEConfig()
         assert cfg.select_on == "synergy"
 
@@ -92,6 +93,7 @@ class TestPersistence:
     GridSearchCV / Pipeline)."""
 
     def test_config_pickle_round_trip(self):
+        """Config pickle round trip."""
         cfg = CatFEConfig(
             enable=True,
             top_k_pairs=128,
@@ -103,6 +105,7 @@ class TestPersistence:
         assert restored == cfg
 
     def test_state_pickle_round_trip(self):
+        """State pickle round trip."""
         st = CatFEState()
         st.dropped_singleton_nbins.append("col_const")
         st.diagnostics["mul(a,b)"] = {"II": 0.05, "joint_MI": 0.07}
@@ -140,59 +143,72 @@ class TestPostInitValidation:
     construction time (not deep in fit())."""
 
     def test_zero_top_k_rejected(self):
+        """Zero top k rejected."""
         with pytest.raises(ValueError, match="top_k_pairs"):
             CatFEConfig(top_k_pairs=0)
 
     def test_negative_top_k_rejected(self):
+        """Negative top k rejected."""
         with pytest.raises(ValueError, match="top_k_pairs"):
             CatFEConfig(top_k_pairs=-5)
 
     def test_invalid_max_kway_order_rejected(self):
+        """Invalid max kway order rejected."""
         with pytest.raises(ValueError, match="max_kway_order"):
             CatFEConfig(max_kway_order=1)
 
     def test_negative_permutations_rejected(self):
+        """Negative permutations rejected."""
         with pytest.raises(ValueError, match="full_npermutations"):
             CatFEConfig(full_npermutations=-1)
         with pytest.raises(ValueError, match="shortlist_npermutations"):
             CatFEConfig(shortlist_npermutations=-1)
 
     def test_negative_marginal_floor_rejected(self):
+        """Negative marginal floor rejected."""
         with pytest.raises(ValueError, match="marginal_floor"):
             CatFEConfig(marginal_floor=-0.1)
 
     def test_tiny_max_combined_nbins_rejected(self):
+        """Tiny max combined nbins rejected."""
         with pytest.raises(ValueError, match="max_combined_nbins"):
             CatFEConfig(max_combined_nbins=2)
 
     def test_fold_prevalence_out_of_range_rejected(self):
+        """Fold prevalence out of range rejected."""
         with pytest.raises(ValueError, match="min_fold_prevalence"):
             CatFEConfig(min_fold_prevalence=1.5)
         with pytest.raises(ValueError, match="min_fold_prevalence"):
             CatFEConfig(min_fold_prevalence=-0.1)
 
     def test_negative_anti_redundancy_beta_rejected(self):
+        """Negative anti redundancy beta rejected."""
         with pytest.raises(ValueError, match="anti_redundancy_beta"):
             CatFEConfig(anti_redundancy_beta=-0.5)
 
     def test_min_n_samples_below_2_rejected(self):
+        """Min n samples below 2 rejected."""
         with pytest.raises(ValueError, match="min_n_samples"):
             CatFEConfig(min_n_samples=1)
 
     def test_min_class_count_below_1_rejected(self):
+        """Min class count below 1 rejected."""
         with pytest.raises(ValueError, match="min_class_count"):
             CatFEConfig(min_class_count=0)
 
     def test_shortlist_perms_exceeding_full_rejected(self):
+        """Shortlist perms exceeding full rejected."""
         with pytest.raises(ValueError, match="shortlist_npermutations"):
             CatFEConfig(shortlist_npermutations=200, full_npermutations=50)
 
     def test_n_folds_stability_negative_rejected(self):
+        """N folds stability negative rejected."""
         with pytest.raises(ValueError, match="n_folds_stability"):
             CatFEConfig(n_folds_stability=-1)
 
     def test_valid_config_accepted(self):
         # Sanity: well-formed config passes
+        """Valid config accepted."""
         cfg = CatFEConfig(
             enable=True,
             top_k_pairs=16,
@@ -210,25 +226,30 @@ class TestConfigSemantics:
 
     @pytest.mark.parametrize("value", ["none", "bonferroni", "bh_fdr", "westfall_young"])
     def test_fwer_correction_accepts_documented_values(self, value):
+        """Fwer correction accepts documented values."""
         cfg = CatFEConfig(fwer_correction=value)
         assert cfg.fwer_correction == value
 
     @pytest.mark.parametrize("value", ["synergy", "redundancy", "absolute"])
     def test_select_on_accepts_documented_values(self, value):
+        """Select on accepts documented values."""
         cfg = CatFEConfig(select_on=value)
         assert cfg.select_on == value
 
     @pytest.mark.parametrize("value", ["auto", "cpu", "gpu"])
     def test_backend_accepts_documented_values(self, value):
+        """Backend accepts documented values."""
         cfg = CatFEConfig(backend=value)
         assert cfg.backend == value
 
     @pytest.mark.parametrize("value", ["clip", "sentinel", "raise"])
     def test_unknown_strategy_accepts_documented_values(self, value):
+        """Unknown strategy accepts documented values."""
         cfg = CatFEConfig(unknown_strategy=value)
         assert cfg.unknown_strategy == value
 
     @pytest.mark.parametrize("value", ["and", "or", "permutation_primary"])
     def test_gate_logic_accepts_documented_values(self, value):
+        """Gate logic accepts documented values."""
         cfg = CatFEConfig(gate_logic=value)
         assert cfg.gate_logic == value

@@ -24,12 +24,14 @@ class _ClassCountRecordingSelector(BaseEstimator):
         self.support = support
 
     def fit(self, X, y):
+        """Helper that fit."""
         _ClassCountRecordingSelector.seen_class_counts.append(int(np.unique(np.asarray(y)).size))
         self.support_ = np.asarray(self.support, dtype=np.int64)
         return self
 
 
 def _rare_imbalance_data(n=5000, seed=0):
+    """Rare imbalance data."""
     rng = np.random.default_rng(seed)
     X = rng.standard_normal((n, 4))
     y = np.zeros(n, dtype=np.int64)
@@ -40,6 +42,7 @@ def _rare_imbalance_data(n=5000, seed=0):
 
 
 def test_stratify_default_keeps_both_classes_in_every_bootstrap():
+    """Stratify default keeps both classes in every bootstrap."""
     X, y = _rare_imbalance_data()
     _ClassCountRecordingSelector.seen_class_counts = []
     sel = StabilityMRMR(

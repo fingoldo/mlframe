@@ -31,6 +31,7 @@ import pytest
 
 
 def _collinear_frame(n: int = 400, seed: int = 0):
+    """Collinear frame."""
     rng = np.random.default_rng(int(seed))
     true_sig = rng.standard_normal(n)
     X = pd.DataFrame(
@@ -53,6 +54,7 @@ def _collinear_frame(n: int = 400, seed: int = 0):
 
 
 class TestDCDActivation:
+    """Groups tests covering TestDCDActivation."""
     def test_dcd_default_now_enabled_after_2026_05_30_flip(self):
         """2026-05-30: ``dcd_enable=True`` flipped to DEFAULT after
         Layer-6 biz_value confirmed DCD is the production-correct
@@ -71,6 +73,7 @@ class TestDCDActivation:
         assert getattr(m_legacy, "dcd_", None) is None
 
     def test_dcd_summary_populated_when_enabled(self):
+        """Dcd summary populated when enabled."""
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         X, y = _collinear_frame()
@@ -82,6 +85,7 @@ class TestDCDActivation:
         assert "cluster_anchors" in sel.dcd_
 
     def test_dcd_thread_local_reset_on_finally(self):
+        """Dcd thread local reset on finally."""
         from mlframe.feature_selection.filters.mrmr import MRMR
         from mlframe.feature_selection.filters._dynamic_cluster_discovery import use_dcd
 
@@ -92,6 +96,7 @@ class TestDCDActivation:
 
 
 class TestDCDPoolPrune:
+    """Groups tests covering TestDCDPoolPrune."""
     def test_dcd_prunes_collinear_duplicates(self):
         """Plan v2 test #2: DCD pool_pruned grows; legacy keeps all duplicates."""
         from mlframe.feature_selection.filters.mrmr import MRMR
@@ -140,25 +145,30 @@ class TestDCDPoolPrune:
 
 
 class TestDCDValidation:
+    """Groups tests covering TestDCDValidation."""
     def test_invalid_distance_raises(self):
+        """Invalid distance raises."""
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         with pytest.raises(ValueError, match="dcd_distance"):
             MRMR(dcd_distance="nonsense")._validate_string_params()
 
     def test_invalid_swap_method_raises(self):
+        """Invalid swap method raises."""
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         with pytest.raises(ValueError, match="dcd_swap_method"):
             MRMR(dcd_swap_method="invalid")._validate_string_params()
 
     def test_invalid_tau_range_raises(self):
+        """Invalid tau range raises."""
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         with pytest.raises(ValueError, match="dcd_tau_cluster"):
             MRMR(dcd_enable=True, dcd_tau_cluster=1.5)._validate_string_params()
 
     def test_invalid_cluster_size_threshold_raises(self):
+        """Invalid cluster size threshold raises."""
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         # Layer 42 (2026-05-31) lowered the minimum threshold from 2 to 1
@@ -174,6 +184,7 @@ class TestDCDComposability:
     """
 
     def test_dcd_plus_jmim_runs(self):
+        """Dcd plus jmim runs."""
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         X, y = _collinear_frame()
@@ -185,6 +196,7 @@ class TestDCDComposability:
         assert sel.n_features_ >= 1
 
     def test_dcd_plus_bur_runs(self):
+        """Dcd plus bur runs."""
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         X, y = _collinear_frame()
@@ -196,6 +208,7 @@ class TestDCDComposability:
         assert sel.n_features_ >= 1
 
     def test_dcd_plus_su_normalization_runs(self):
+        """Dcd plus su normalization runs."""
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         X, y = _collinear_frame()
@@ -208,6 +221,7 @@ class TestDCDComposability:
 
 
 class TestDCDEdgeCases:
+    """Groups tests covering TestDCDEdgeCases."""
     def test_postoc_compose_warning(self):
         """Critic1/H-3: warn when both DCD and cluster_aggregate active."""
         from mlframe.feature_selection.filters.mrmr import MRMR
@@ -245,6 +259,7 @@ class TestDCDSwapPath:
     """
 
     def _binned_matrix(self, n=200, seed=0):
+        """Binned matrix."""
         import pandas as pd
 
         rng = np.random.default_rng(int(seed))
@@ -273,6 +288,7 @@ class TestDCDSwapPath:
         return data, nbins, target_indices, X_raw
 
     def test_evaluate_swap_candidate_returns_decision(self):
+        """Evaluate swap candidate returns decision."""
         from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
             make_dcd_state,
             discover_cluster_members,
@@ -512,6 +528,7 @@ class TestDCDSwapPath:
         MRMR(dcd_enable=True, dcd_swap_alpha=1e-6).fit(X, y)
 
     def _noise_frame(self, n: int = 200, seed: int = 0):
+        """Noise frame."""
         import pandas as pd
 
         rng = np.random.default_rng(int(seed))
@@ -520,6 +537,7 @@ class TestDCDSwapPath:
         return X, y
 
     def test_commit_swap_extends_data_matrix(self):
+        """Commit swap extends data matrix."""
         from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
             make_dcd_state,
             discover_cluster_members,

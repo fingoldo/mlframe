@@ -25,6 +25,7 @@ from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
 
 
 def _state(distance, fd, fn, target_indices=None):
+    """Helper that state."""
     return make_dcd_state(
         X_raw=None,
         factors_data=fd,
@@ -52,6 +53,7 @@ def _redundant_and_target_informative(seed=0, n=3000):
 
 
 def test_sotoca_pla_membership_score_equals_su():
+    """Sotoca pla membership score equals su."""
     fd, fn = _redundant_and_target_informative()
     tgt = np.array([2], dtype=np.int64)
     s_soto = _state("sotoca_pla", fd, fn, target_indices=tgt)

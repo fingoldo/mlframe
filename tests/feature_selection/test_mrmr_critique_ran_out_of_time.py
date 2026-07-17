@@ -8,6 +8,7 @@ import pandas as pd
 
 
 def test_tiny_budget_sets_ran_out_of_time():
+    """Tiny budget sets ran out of time."""
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     rng = np.random.default_rng(0)
@@ -19,6 +20,7 @@ def test_tiny_budget_sets_ran_out_of_time():
 
 
 def test_ample_budget_does_not_flag_timeout():
+    """Ample budget does not flag timeout."""
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     rng = np.random.default_rng(1)

@@ -15,6 +15,7 @@ from mlframe.feature_selection.filters.permutation import _relevance_mi_1var_fus
 
 
 def _legacy_mi_bx(fd, ix, factors_nbins, classes_y, freqs_y, dtype=np.int32):
+    """Legacy mi bx."""
     ax_classes, ax_freqs, _ = merge_vars(
         factors_data=fd,
         vars_indices=np.array([ix], dtype=np.int64),
@@ -27,6 +28,7 @@ def _legacy_mi_bx(fd, ix, factors_nbins, classes_y, freqs_y, dtype=np.int32):
 
 
 def _make(n, nb_x, nb_y, seed):
+    """Helper that make."""
     rng = np.random.default_rng(seed)
     x = rng.integers(0, nb_x, size=n).astype(np.int32)
     y = ((x + rng.integers(0, nb_y, size=n)) % nb_y).astype(np.int32)
@@ -52,6 +54,7 @@ def _make(n, nb_x, nb_y, seed):
     ],
 )
 def test_fused_1var_bit_identical_to_merge_vars(n, nb_x, nb_y, seed):
+    """Fused 1var bit identical to merge vars."""
     fd, fnb, cy, fy = _make(n, nb_x, nb_y, seed)
     mi_old, bx_old = _legacy_mi_bx(fd, 0, fnb, cy, fy)
     mi_new, bx_new = _relevance_mi_1var_fused(fd, 0, nb_x, cy, fy)

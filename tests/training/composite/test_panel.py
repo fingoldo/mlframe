@@ -105,6 +105,7 @@ def test_single_obs_entity_does_not_crash():
 
 
 def test_missing_entity_column_raises():
+    """Predicting without the fitted entity_column present raises KeyError instead of silently mispredicting."""
     df = _make_panel(n_entities=3, per_entity=5, seed=5)
     est = CompositePanelEstimator(LinearRegression(), entity_column="entity")
     est.fit(df[["entity", "x"]], df["y"])
@@ -139,6 +140,7 @@ def test_biz_val_panel_beats_pooled_on_fixed_effect_panel():
     test = df[df["t"] >= 6]
 
     def _mk():
+        """Builds a fresh depth-limited HistGradientBoostingRegressor, shared by both the pooled and panel-inner fits."""
         return HistGradientBoostingRegressor(max_depth=3, max_iter=120, random_state=0)
 
     # Panel composite: demean entity, inner GBDT on x only.

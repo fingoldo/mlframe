@@ -26,6 +26,7 @@ from mlframe.feature_selection.filters import MRMR
 
 
 def _make_case(case: int, n: int = 20_000):
+    """Make case."""
     rng = np.random.default_rng(0)
     a, b, c, d, e, f = (rng.random(n) for _ in range(6))
     if case == 1:
@@ -37,6 +38,7 @@ def _make_case(case: int, n: int = 20_000):
 
 
 def _ridge_holdout_mae(model, df, y):
+    """Ridge holdout mae."""
     from sklearn.linear_model import Ridge
     from sklearn.preprocessing import StandardScaler
     from sklearn.metrics import mean_absolute_error
@@ -64,6 +66,7 @@ def _covers(names, *operands):
 
 
 def _recovers_signal(case, names):
+    """Recovers signal."""
     ab = _covers(names, "a", "b")
     cd = _covers(names, "c", "d")
     return ab, cd
@@ -72,6 +75,7 @@ def _recovers_signal(case, names):
 @pytest.mark.slow
 @pytest.mark.parametrize("case", [1, 2])
 def test_fast_search_recovers_signal_and_is_faster(case):
+    """Fast search recovers signal and is faster."""
     df, y = _make_case(case)
 
     # Exhaustive reference (fast OFF) -- establishes the MAE bar + timing baseline.

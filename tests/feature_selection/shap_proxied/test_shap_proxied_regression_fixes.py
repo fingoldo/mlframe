@@ -29,7 +29,9 @@ def test_positive_class_proba_handles_single_class_fit():
     )
 
     class _OneColEst:
+        """Groups tests covering OneColEst."""
         def predict_proba(self, X):
+            """Predict proba."""
             return np.ones((len(X), 1))
 
     out = _positive_class_proba(_OneColEst(), np.zeros((5, 3)))
@@ -37,7 +39,9 @@ def test_positive_class_proba_handles_single_class_fit():
     assert np.allclose(out, 1.0)
 
     class _TwoColEst:
+        """Groups tests covering TwoColEst."""
         def predict_proba(self, X):
+            """Predict proba."""
             n = len(X)
             return np.column_stack([np.full(n, 0.3), np.full(n, 0.7)])
 
@@ -92,10 +96,12 @@ def test_interaction_shap_binary_base_uses_positive_class():
     y = np.array([0, 1, 0, 1, 0, 1, 0])
 
     class _FakeExplainer:
+        """Groups tests covering FakeExplainer."""
         def __init__(self, model, **kw):
             pass
 
         def shap_interaction_values(self, X):
+            """Shap interaction values."""
             neg = np.zeros((len(X), p, p))
             pos = np.full((len(X), p, p), 0.5)  # positive class carries the signal
             return [neg, pos]

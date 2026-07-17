@@ -28,6 +28,7 @@ class _TopKByCorr(BaseEstimator):
         self.k = k
 
     def fit(self, X, y):
+        """Helper that fit."""
         Xv = X.values if hasattr(X, "values") else np.asarray(X)
         yv = np.asarray(y)
         cors = np.array([abs(np.corrcoef(Xv[:, j], yv)[0, 1]) if np.std(Xv[:, j]) > 0 else 0.0 for j in range(Xv.shape[1])])

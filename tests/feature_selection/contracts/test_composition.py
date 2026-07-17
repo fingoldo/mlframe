@@ -73,12 +73,14 @@ class TestComposePairFERegression:
     """
 
     def test_regression_single_mi_recomputed_at_most_once_per_column(self, monkeypatch):
+        """Regression single mi recomputed at most once per column."""
         from mlframe.feature_selection.filters import fe_baselines as fb
 
         orig_mi_1d = fb._mi_1d
         call_log: list = []
 
         def counted(arr, *a, **kw):
+            """Helper that counted."""
             call_log.append(np.asarray(arr).tobytes())
             return orig_mi_1d(arr, *a, **kw)
 
@@ -121,6 +123,7 @@ class TestComposePairFE:
     """Unit checks on ``compose_pair_fe`` return contract and edge cases."""
 
     def test_return_keys(self):
+        """Return keys."""
         x_a, x_b, y = _additive_pair(n=400, seed=1)
         X = np.column_stack([x_a, x_b])
         out = compose_pair_fe(X, y, n_rounds=1, top_k_per_round=2, n_trials=6, max_degree=2)
@@ -207,6 +210,7 @@ class TestValidatePairFeCV:
     """Unit checks on ``validate_pair_fe_cv`` return contract, edge cases, determinism."""
 
     def test_return_keys(self):
+        """Return keys."""
         x_a, x_b, y = _additive_pair(n=400, seed=10)
         out = validate_pair_fe_cv(
             x_a,
@@ -302,6 +306,7 @@ class TestWiring:
     score as a finite trivial-baseline candidate when fed back as a 1-D feature."""
 
     def test_engineered_column_is_scorable(self):
+        """Engineered column is scorable."""
         x_a, x_b, y = _additive_pair(n=400, seed=20)
         X = np.column_stack([x_a, x_b])
         # ``_additive_pair`` is y = sign(x_a + x_b): the trivial pair

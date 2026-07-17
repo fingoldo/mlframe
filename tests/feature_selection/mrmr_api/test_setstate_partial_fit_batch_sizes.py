@@ -9,6 +9,7 @@ from mlframe.feature_selection.filters.mrmr import MRMR
 
 
 def test_setstate_injects_partial_fit_batch_sizes():
+    """Setstate injects partial fit batch sizes."""
     m = MRMR.__new__(MRMR)
     m.__setstate__({})
     assert hasattr(m, "_partial_fit_batch_sizes_")
@@ -16,6 +17,7 @@ def test_setstate_injects_partial_fit_batch_sizes():
 
 
 def test_partial_fit_batch_sizes_not_aliased_across_instances():
+    """Partial fit batch sizes not aliased across instances."""
     a = MRMR.__new__(MRMR)
     a.__setstate__({})
     b = MRMR.__new__(MRMR)

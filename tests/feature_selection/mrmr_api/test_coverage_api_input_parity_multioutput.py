@@ -26,6 +26,7 @@ _COLS = [f"f{i}" for i in range(5)]
 
 
 def _xy(seed: int = 5, n: int = 160):
+    """Build a 5-column array with signal on columns 0 and 2, for the multioutput API-input-parity tests."""
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(n, 5))
     # signal on f0 and f2 so a non-empty, stable selection exists
@@ -34,18 +35,21 @@ def _xy(seed: int = 5, n: int = 160):
 
 
 def _fast(**kw):
+    """Helper that fast."""
     base = dict(full_npermutations=5, baseline_npermutations=3, n_jobs=1, verbose=0, fe_fast_search=False, interactions_max_order=1, random_seed=9)
     base.update(kw)
     return MRMR(**base)
 
 
 def _fit_support(Xin, y):
+    """Fit support."""
     MRMR._FIT_CACHE.clear()
     m = _fast().fit(Xin, y)
     return np.sort(np.asarray(m.support_))
 
 
 def test_pandas_polars_ndarray_select_same_features():
+    """Pandas polars ndarray select same features."""
     X, y = _xy()
     sup_pd = _fit_support(pd.DataFrame(X, columns=_COLS), y)
     sup_np = _fit_support(X, y)
@@ -70,6 +74,7 @@ def test_pandas_polars_names_out_agree():
 
 
 def test_multioutput_union_aggregates_per_column_supports():
+    """Multioutput union aggregates per column supports."""
     X, _ = _xy()
     Y2 = np.column_stack([(X[:, 0] > 0).astype(int), (X[:, 2] > 0).astype(int)])
     ydf = pd.DataFrame(Y2, columns=["y0", "y1"])
@@ -87,6 +92,7 @@ def test_multioutput_union_aggregates_per_column_supports():
 
 
 def test_multioutput_intersect_is_subset_of_union():
+    """Multioutput intersect is subset of union."""
     X, _ = _xy()
     Y2 = np.column_stack([(X[:, 0] > 0).astype(int), (X[:, 2] > 0).astype(int)])
     ydf = pd.DataFrame(Y2, columns=["y0", "y1"])
@@ -103,6 +109,7 @@ def test_multioutput_intersect_is_subset_of_union():
 
 
 def test_multioutput_invalid_strategy_raises():
+    """Multioutput invalid strategy raises."""
     X, _ = _xy()
     Y2 = np.column_stack([(X[:, 0] > 0).astype(int), (X[:, 2] > 0).astype(int)])
     ydf = pd.DataFrame(Y2, columns=["y0", "y1"])

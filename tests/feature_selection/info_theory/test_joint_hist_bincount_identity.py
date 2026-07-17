@@ -19,6 +19,7 @@ from mlframe.feature_selection.filters._pid_decomposition import pid_decompositi
 
 @pytest.mark.parametrize("seed", [0, 3, 9])
 def test_bincount_joint_2d_matches_loop(seed):
+    """Bincount joint 2d matches loop."""
     rng = np.random.default_rng(seed)
     n, K_x, K_y = 4000, 16, 10
     xb = rng.integers(0, K_x, n).astype(np.int64)
@@ -32,6 +33,7 @@ def test_bincount_joint_2d_matches_loop(seed):
 
 @pytest.mark.parametrize("seed", [0, 3, 9])
 def test_bincount_joint_3d_matches_loop(seed):
+    """Bincount joint 3d matches loop."""
     rng = np.random.default_rng(seed)
     n, K1, K2, K3 = 4000, 4, 5, 3
     x1 = rng.integers(0, K1, n).astype(np.int64)
@@ -45,6 +47,7 @@ def test_bincount_joint_3d_matches_loop(seed):
 
 
 def test_estimators_deterministic():
+    """Estimators deterministic."""
     rng = np.random.default_rng(0)
     n = 3000
     x = rng.standard_normal(n)

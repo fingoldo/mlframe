@@ -31,6 +31,7 @@ warnings.filterwarnings("ignore")
 
 
 def _make(n: int = 4_000, f: int = 12, seed: int = 0):
+    """Builds a random-walk-based frame where feature 0 is the walk itself, driving y along with two other features."""
     rng = np.random.default_rng(seed)
     x = rng.standard_normal((n, f)).astype(np.float64)
     base = np.cumsum(rng.standard_normal(n)) / np.sqrt(n)
@@ -116,6 +117,7 @@ def test_discovery_fit_knn_baseline_sweeps_columns_once() -> None:
     calls = {"n": 0}
 
     def _spy(*a, **k):
+        """Counts calls to _mi_per_feature_knn, to prove the KNN-MI y-baseline is computed once and reused across columns."""
         calls["n"] += 1
         return real(*a, **k)
 

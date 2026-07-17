@@ -47,6 +47,7 @@ SECOND_SIGNAL_SCALE = 3.0
 
 
 def _make_fixture(seed: int = SEED, n: int = N):
+    """Make fixture."""
     rng = np.random.default_rng(seed)
     a = rng.uniform(1.0, 5.0, n)
     b = rng.uniform(1.0, 5.0, n)
@@ -72,6 +73,7 @@ def _bare_vars(name: str) -> set:
 
 
 def _engineered_names(fs: MRMR) -> list:
+    """Engineered names."""
     return [n for n in fs.get_feature_names_out() if n not in _RAW]
 
 
@@ -470,11 +472,13 @@ def test_user_case_rejects_spurious_cross_signal_feature():
     # spurious artefact instead pulls one operand from EACH group into a single binary
     # node (a&c, a&d, b&c, b&d) -- the two groups are entangled with no term preserved.
     def _bare(s):
+        """Helper that bare."""
         return set(_re.findall(r"(?<![A-Za-z_])([a-e])(?![A-Za-z_])", s))
 
     def _top_args(inner):
         # Split a binary call's argument list ``"<arg1>,<arg2>"`` at the TOP-LEVEL
         # comma (depth 0), ignoring commas nested inside the args' own parens.
+        """Top args."""
         depth = 0
         for i, ch in enumerate(inner):
             if ch == "(":
@@ -498,6 +502,7 @@ def test_user_case_rejects_spurious_cross_signal_feature():
         # ``mul(log(c),sin(d))`` -> {c,d}), so NEITHER side is a single-var leaf and
         # the node is NOT flagged -- only its same-group subtrees recurse, none of
         # which entangle. The single-var-leaf condition is the discriminator.
+        """Has cross group leaf pair."""
         m = _re.match(r"^([A-Za-z_]+)\((.*)\)$", nm.strip())
         if not m:
             return False
@@ -520,6 +525,7 @@ def test_user_case_rejects_spurious_cross_signal_feature():
         # only if it ALSO entangles the two groups at a leaf binary node (no intact
         # term) -- a legitimate additive full-target composite keeps each term intact
         # and has no such cross-group leaf pair.
+        """Spurious present."""
         for nm in _engineered_names(fs):
             bv = _bare_vars(nm)
             if (bv & {"a", "b"}) and (bv & {"c", "d"}) and _has_cross_group_leaf_pair(nm):

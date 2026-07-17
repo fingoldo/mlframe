@@ -18,6 +18,7 @@ from mlframe.feature_selection.filters.mrmr import MRMR
 
 
 def _wide_xy(n=1200, p=50, seed=0):
+    """Wide xy."""
     rng = np.random.default_rng(seed)
     X = pd.DataFrame(rng.normal(size=(n, p)), columns=[f"f{i}" for i in range(p)])
     y = ((X["f0"].to_numpy() + X["f1"].to_numpy() - X["f2"].to_numpy() + 0.1 * rng.normal(size=n)) > 0).astype(int)
@@ -25,11 +26,13 @@ def _wide_xy(n=1200, p=50, seed=0):
 
 
 def test_parallel_workers_receive_distinct_dict_copies(monkeypatch):
+    """Parallel workers receive distinct dict copies."""
     cached_ids: list[int] = []
     partial_ids: list[int] = []
     real = _cp.evaluate_candidates
 
     def _spy(*args, **kwargs):
+        """Helper that spy."""
         cached_ids.append(id(kwargs.get("cached_MIs")))
         partial_ids.append(id(kwargs.get("partial_gains")))
         return real(*args, **kwargs)

@@ -107,6 +107,7 @@ def _build(formula: str, seed: int = 0, n: int = _N_UNIT):
 
 
 def _bin_y(y):
+    """Bin y."""
     z = discretize_array(np.asarray(y, dtype=np.float64), n_bins=10, method="quantile", dtype=np.int64)
     _, inv = np.unique(z, return_inverse=True)
     return inv.astype(np.int64)
@@ -222,6 +223,7 @@ def test_relative_gap_leg_is_load_bearing():
 
 
 def _disc(y, nbins=10):
+    """Helper that disc."""
     y = np.asarray(y, dtype=np.float64)
     edges = np.unique(np.quantile(y, np.linspace(0.0, 1.0, nbins + 1)))
     if edges.size <= 2:
@@ -230,6 +232,7 @@ def _disc(y, nbins=10):
 
 
 def _marg_cands(cols: dict, yb: np.ndarray) -> dict:
+    """Marg cands."""
     return {
         nm: (np.asarray(v, dtype=np.float64), float(_cmi_from_binned(_quantile_bin(np.asarray(v, dtype=np.float64), nbins=10), yb, None)))
         for nm, v in cols.items()
@@ -256,6 +259,7 @@ def _weak_complementary_fixture(seed: int = 1, n: int = 20_000, n_weak: int = 5,
 
 
 def cols_to_cands(cols, yb):
+    """Cols to cands."""
     return _marg_cands(cols, yb)
 
 
@@ -395,6 +399,7 @@ _BARE = re.compile(r"(?<![A-Za-z_])([a-e])(?![A-Za-z_])")
 
 
 def _bare_vars(name: str) -> set:
+    """Bare vars."""
     return set(_BARE.findall(name))
 
 
@@ -415,6 +420,7 @@ def _make_mrmr_fixture(seed=0, n=_N_E2E):
 
 
 def _engineered(fs):
+    """Helper that engineered."""
     raw = {"a", "b", "c", "d", "e"}
     return [n for n in (getattr(fs, "_engineered_features_", []) or []) if n not in raw]
 
@@ -443,6 +449,7 @@ def test_default_on_drops_redundant_keeps_genuine():
     # contract is "the genuine signal is recovered", and clean-vs-folded form is below that line; the
     # strict pure-form check was an artifact of the pre-subsumption pipeline.
     def _recovered(eng, va, vb):
+        """Helper that recovered."""
         return any({va, vb} <= _bare_vars(nm) for nm in eng) or (any(va in _bare_vars(nm) for nm in eng) and any(vb in _bare_vars(nm) for nm in eng))
 
     assert _recovered(eng_cmi, "a", "b"), f"(a,b) a**2/b signal not recovered in ANY form under CMI gate: {eng_cmi}"
@@ -529,6 +536,7 @@ def test_user_f2_e2e_recovers_genuine_drops_noise_and_cross_signal(n):
     support = list(fs.get_feature_names_out())
 
     def _covers(va, vb, exclude=()):
+        """Helper that covers."""
         want, excl = {va, vb}, set(exclude)
         return [nm for nm in support if want <= _bare_vars(nm) and not (_bare_vars(nm) & excl)]
 
@@ -580,6 +588,7 @@ def test_user_f2_e2e_recovers_genuine_drops_noise_and_cross_signal(n):
         yb = yb.astype(np.int64)
 
         def _matched_mi(vals):
+            """Matched mi."""
             vb = _quantile_bin(np.asarray(vals, dtype=np.float64), nbins=nbins)
             return float(_cmi_from_binned(vb, yb, None))
 

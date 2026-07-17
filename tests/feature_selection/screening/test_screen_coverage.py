@@ -13,6 +13,7 @@ from mlframe.feature_selection.filters.screen import (
 
 
 def _make_data(n: int = 50, m: int = 4, seed: int = 0):
+    """Make data."""
     rng = np.random.default_rng(seed)
     factors_data = rng.integers(0, 3, size=(n, m)).astype(np.int32)
     targets_data = rng.integers(0, 2, size=(n, 1)).astype(np.int32)
@@ -22,6 +23,7 @@ def _make_data(n: int = 50, m: int = 4, seed: int = 0):
 
 
 def _common_kwargs(factors_data, factors_nbins, targets_data, targets_nbins, **overrides):
+    """Common kwargs."""
     base = dict(
         factors_data=factors_data,
         factors_nbins=factors_nbins,

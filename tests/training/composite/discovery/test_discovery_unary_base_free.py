@@ -61,6 +61,7 @@ def synthetic_df() -> tuple[pd.DataFrame, np.ndarray]:
 
 
 def _run_disc(df, feature_cols, train_idx, **cfg_kwargs):
+    """Fits CompositeTargetDiscovery with MI-only screening (isolating the MI scoring layer) and returns the fitted object."""
     cfg = CompositeTargetDiscoveryConfig(
         enabled=True,
         mi_sample_n=1500,
@@ -78,6 +79,7 @@ def _run_disc(df, feature_cols, train_idx, **cfg_kwargs):
 
 
 def _report_rows_for(disc, transform_name):
+    """Filters a fitted discovery's report_ list to the rows matching the given transform name."""
     return [r for r in disc.report_ if isinstance(r, dict) and r.get("transform_name") == transform_name]
 
 

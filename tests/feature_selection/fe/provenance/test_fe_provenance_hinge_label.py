@@ -35,6 +35,7 @@ warnings.filterwarnings("ignore")
 
 
 def test_hinge_recipe_kind_maps_to_hinge_basis_origin():
+    """Hinge recipe kind maps to hinge basis origin."""
     from mlframe.feature_selection.filters._hinge_basis_fe import build_hinge_basis_recipe
     from mlframe.feature_selection.filters._mrmr_fe_provenance import _origin_from_recipe
 
@@ -91,6 +92,7 @@ def test_no_real_recipe_kind_falls_to_engineered_unknown():
 
 
 def _canonical_frame(n: int = 800, seed: int = 7):
+    """Canonical frame."""
     rng = np.random.default_rng(int(seed))
     a = rng.standard_normal(n)
     b = rng.uniform(0.5, 2.5, n)
@@ -112,6 +114,7 @@ def _canonical_frame(n: int = 800, seed: int = 7):
 
 
 def _fe_on():
+    """Fe on."""
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     return MRMR(
@@ -129,6 +132,7 @@ def _fe_on():
 
 
 def test_canonical_hinge_legs_labeled_not_unknown():
+    """Canonical hinge legs labeled not unknown."""
     X, y = _canonical_frame()
     est = _fe_on()
     est.fit(X, y)

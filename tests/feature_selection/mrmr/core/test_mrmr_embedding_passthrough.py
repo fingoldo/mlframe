@@ -17,6 +17,7 @@ from mlframe.feature_selection.filters._mrmr_passthrough import detect_passthrou
 
 
 def _make_frame(n=400, seed=0):
+    """Make frame."""
     rng = np.random.default_rng(seed)
     sig = rng.normal(size=n)
     df = pd.DataFrame(
@@ -32,6 +33,7 @@ def _make_frame(n=400, seed=0):
 
 
 def test_detect_passthrough_classifies_embedding_and_text():
+    """Detect passthrough classifies embedding and text."""
     rng = np.random.default_rng(1)
     df = pd.DataFrame(
         {
@@ -49,6 +51,7 @@ def test_detect_passthrough_classifies_embedding_and_text():
 
 
 def test_mrmr_embedding_passed_through_untouched_numerics_selected():
+    """Mrmr embedding passed through untouched numerics selected."""
     df, y = _make_frame()
     m = MRMR(max_runtime_mins=0.5, fe_max_steps=0, random_seed=0)
     with warnings.catch_warnings():
@@ -102,6 +105,7 @@ def test_mrmr_no_embedding_columns_is_noop():
 
 
 def test_mrmr_text_column_passed_through():
+    """Mrmr text column passed through."""
     rng = np.random.default_rng(3)
     n = 300
     sig = rng.normal(size=n)

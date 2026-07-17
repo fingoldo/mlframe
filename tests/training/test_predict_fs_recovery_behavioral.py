@@ -104,6 +104,7 @@ def _build_minimal_suite(*, inner_exposes_feature_names: bool = True):
     from sklearn.exceptions import NotFittedError
 
     def _broken_transform(_X, *_a, **_k):
+        """Always raises NotFittedError, simulating a stale-bundle/clone-not-refit selector at predict time."""
         raise NotFittedError("simulated stale selector state at predict")
 
     pre_pipeline.transform = _broken_transform  # instance-level override
@@ -137,6 +138,7 @@ class _StripNamesModel:
         self._inner = inner
 
     def predict(self, X):
+        """Subsets to the first two columns before delegating, simulating a model with no feature-name introspection."""
         if isinstance(X, pd.DataFrame):
             X = X.loc[:, ["x0", "x1"]]
         return self._inner.predict(X)

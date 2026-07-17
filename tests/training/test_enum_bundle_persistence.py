@@ -60,6 +60,8 @@ def test_s67_predict_cat_cast_uses_persisted_enum_domain():
     from mlframe.training.core.predict import _coerce_cat_dtype_for_lgb_xgb
 
     class _FakeXGBModel:
+        """Duck-types as an XGBClassifier (module/class name only) so the cat-cast dispatch treats it as XGBoost."""
+
         __module__ = "xgboost.sklearn"
         __class__ = type("XGBClassifier", (), {})
 
@@ -85,6 +87,8 @@ def test_s67_predict_cat_cast_legacy_bundle_falls_back_with_warn(caplog):
     from mlframe.training.core.predict import _coerce_cat_dtype_for_lgb_xgb
 
     class _FakeXGBModel:
+        """Bare stand-in later renamed to XGBClassifier, simulating a legacy bundle with no enum_domains."""
+
         pass
 
     fake_model = _FakeXGBModel()

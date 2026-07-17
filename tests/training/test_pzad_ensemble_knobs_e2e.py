@@ -12,6 +12,7 @@ from tests.training._fuzz_suite_helpers import _configs_for_combo
 
 
 def _combo(caruana: bool, rank_average: bool) -> FuzzCombo:
+    """Builds a 2-tree-model binary-classification FuzzCombo with ensembling on, so the simple-ensemble phase reads the blend knobs."""
     # 2 tree models + binary target + ensembling on -> the simple-ensemble phase fires and reads the blend knobs.
     return FuzzCombo(
         models=("cb", "xgb"),
@@ -33,6 +34,7 @@ def _combo(caruana: bool, rank_average: bool) -> FuzzCombo:
 
 
 def _run(combo, tmp_path):
+    """Trains the given FuzzCombo end-to-end through the suite, exercising the ensemble blend-knob wiring."""
     pytest.importorskip("catboost")
     pytest.importorskip("xgboost")
     from mlframe.training import FeatureSelectionConfig, OutlierDetectionConfig, OutputConfig

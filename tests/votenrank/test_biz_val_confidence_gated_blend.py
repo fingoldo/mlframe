@@ -49,9 +49,9 @@ def test_biz_val_confidence_gated_blend_beats_pure_ensemble_and_naive_fixed_blen
     loss_gated_blend = _log_loss(y, gated_blend)
 
     assert loss_gated_blend < loss_pure_ensemble, f"gated blend should beat the pure ensemble: gated={loss_gated_blend:.4f} pure={loss_pure_ensemble:.4f}"
-    assert loss_gated_blend < loss_naive_blend, (
-        f"gated blend should beat a naive fixed-weight-everywhere blend: gated={loss_gated_blend:.4f} naive={loss_naive_blend:.4f}"
-    )
+    assert (
+        loss_gated_blend < loss_naive_blend
+    ), f"gated blend should beat a naive fixed-weight-everywhere blend: gated={loss_gated_blend:.4f} naive={loss_naive_blend:.4f}"
 
 
 def test_confidence_gated_blend_all_low_confidence_returns_default_weight_blend():
@@ -143,9 +143,9 @@ def test_biz_val_confidence_gated_blend_per_sample_gate_calibration_beats_raw_co
         f"calibrated gate should substantially beat the raw-confidence gate (miscalibrated on purpose): "
         f"calibrated={loss_calibrated:.4f} raw={loss_raw_gate:.4f}"
     )
-    assert loss_calibrated < loss_pure_ensemble * 0.85, (
-        f"calibrated gate should beat the pure ensemble: calibrated={loss_calibrated:.4f} pure={loss_pure_ensemble:.4f}"
-    )
+    assert (
+        loss_calibrated < loss_pure_ensemble * 0.85
+    ), f"calibrated gate should beat the pure ensemble: calibrated={loss_calibrated:.4f} pure={loss_pure_ensemble:.4f}"
 
 
 def test_confidence_gated_blend_per_sample_gate_calibration_requires_calibration_data():

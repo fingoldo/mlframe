@@ -36,6 +36,7 @@ def _legacy_scorer(_est, _X, _y):
 
 
 def _perm(model, X, y, scoring, seed=42, n_repeats=5):
+    """Helper that perm."""
     return permutation_importance(
         model,
         X,
@@ -57,6 +58,7 @@ def _perm(model, X, y, scoring, seed=42, n_repeats=5):
     ],
 )
 def test_fast_perm_scorer_bit_identical_to_estimator_score(name, make, regression):
+    """Fast perm scorer bit identical to estimator score."""
     rng = np.random.RandomState(1)
     X = rng.randn(500, 12)
     if regression:

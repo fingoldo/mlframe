@@ -20,6 +20,7 @@ from mlframe.feature_selection.filters.mrmr import MRMR
 
 
 def _no_fe(**kw):
+    """No fe."""
     base = dict(
         random_seed=0,
         verbose=0,
@@ -41,6 +42,7 @@ def _no_fe(**kw):
 
 
 def _data(n=600, seed=0):
+    """Helper that data."""
     rng = np.random.default_rng(seed)
     x0 = rng.normal(size=n)
     x1 = rng.normal(size=n)
@@ -113,6 +115,7 @@ def test_get_support_excludes_redundant_near_duplicate():
 
 
 def test_get_feature_names_out_before_fit_raises_notfitted():
+    """Get feature names out before fit raises notfitted."""
     from sklearn.exceptions import NotFittedError
 
     m = _no_fe()
@@ -121,6 +124,7 @@ def test_get_feature_names_out_before_fit_raises_notfitted():
 
 
 def test_get_support_before_fit_raises_notfitted():
+    """Get support before fit raises notfitted."""
     from sklearn.exceptions import NotFittedError
 
     m = _no_fe()

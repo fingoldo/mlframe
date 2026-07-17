@@ -34,6 +34,7 @@ def _make_dataset():
     # informatives) + 90 noise. n_samples=2000 keeps wall-clock under the
     # 180s/config cap while still letting MRMR rank features above the
     # cardinality-bias floor.
+    """Make dataset."""
     X, y, roles = make_regime_dataset(
         n_samples=2000,
         n_informative=5,

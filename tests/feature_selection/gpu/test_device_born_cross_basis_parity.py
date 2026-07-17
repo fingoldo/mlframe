@@ -31,6 +31,7 @@ cp = pytest.importorskip("cupy")
 
 
 def _need_cuda() -> bool:
+    """Need cuda."""
     try:
         from pyutilz.core.pythonlib import is_cuda_available
 
@@ -43,6 +44,7 @@ pytestmark = [pytest.mark.gpu, pytest.mark.skipif(not _need_cuda(), reason="no C
 
 
 def _strict(monkeypatch):
+    """Helper that strict."""
     monkeypatch.setenv("MLFRAME_FE_GPU_STRICT", "1")
     monkeypatch.setenv("MLFRAME_FE_GPU_STRICT_RESIDENT", "1")
     monkeypatch.setenv("MLFRAME_CMI_GPU", "1")
@@ -54,6 +56,7 @@ def _strict(monkeypatch):
 
 
 def _host_pair_matrix(X, pairs, max_degree, basis):
+    """Host pair matrix."""
     from mlframe.feature_selection.filters._orthogonal_univariate_fe._orth_pair_cross_fe import (
         generate_pair_cross_basis_features,
     )
@@ -64,6 +67,7 @@ def _host_pair_matrix(X, pairs, max_degree, basis):
 @pytest.mark.parametrize("basis", ["hermite", "auto", "legendre", "chebyshev"])
 @pytest.mark.parametrize("max_degree", [1, 2])
 def test_pair_device_matrix_matches_host(basis, max_degree, monkeypatch):
+    """Pair device matrix matches host."""
     _strict(monkeypatch)
     from mlframe.feature_selection.filters._orthogonal_univariate_fe._orth_pair_cross_fe import (
         _pair_device_col_specs,
@@ -99,6 +103,7 @@ def test_pair_device_matrix_matches_host(basis, max_degree, monkeypatch):
 
 @pytest.mark.parametrize("basis", ["hermite", "auto"])
 def test_triplet_device_matrix_matches_host(basis, monkeypatch):
+    """Triplet device matrix matches host."""
     _strict(monkeypatch)
     from mlframe.feature_selection.filters._orthogonal_triplet_fe import (
         generate_triplet_cross_basis_features,
@@ -135,6 +140,7 @@ def test_triplet_device_matrix_matches_host(basis, monkeypatch):
 
 @pytest.mark.parametrize("basis", ["hermite", "auto"])
 def test_quadruplet_device_matrix_matches_host(basis, monkeypatch):
+    """Quadruplet device matrix matches host."""
     _strict(monkeypatch)
     from mlframe.feature_selection.filters._orthogonal_quadruplet_fe import (
         generate_quadruplet_cross_basis_features,
@@ -176,6 +182,7 @@ def test_quadruplet_device_matrix_matches_host(basis, monkeypatch):
 
 
 def _build_xor(seed, n=4000):
+    """Build xor."""
     rng = np.random.default_rng(seed)
     x1 = rng.standard_normal(n)
     x2 = rng.standard_normal(n)
@@ -185,6 +192,7 @@ def _build_xor(seed, n=4000):
 
 
 def test_pair_scorer_selection_equivalent(monkeypatch):
+    """Pair scorer selection equivalent."""
     from mlframe.feature_selection.filters._orthogonal_univariate_fe._orth_pair_cross_fe import (
         generate_pair_cross_basis_features,
         score_pair_cross_basis_by_mi_uplift,

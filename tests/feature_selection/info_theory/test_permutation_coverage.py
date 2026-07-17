@@ -56,6 +56,7 @@ def _build_noise_factors(n: int = 300, seed: int = 7) -> tuple:
 
 
 def _make_classes(factors_data: np.ndarray, factors_nbins: np.ndarray):
+    """Make classes."""
     cx, fx, _ = merge_vars(factors_data, (0,), None, factors_nbins, dtype=np.int32)
     cy, fy, _ = merge_vars(factors_data, (1,), None, factors_nbins, dtype=np.int32)
     mi = float(compute_mi_from_classes(classes_x=cx, freqs_x=fx, classes_y=cy, freqs_y=fy, dtype=np.int32))
@@ -85,12 +86,14 @@ def test_distribute_permutations_remainder_lands_on_last():
 
 
 def test_distribute_permutations_zero_total():
+    """Distribute permutations zero total."""
     out = distribute_permutations(0, 4)
     assert sum(out) == 0
     assert len(out) == 4
 
 
 def test_distribute_permutations_single_worker():
+    """Distribute permutations single worker."""
     out = distribute_permutations(50, 1)
     assert out == [50]
 
@@ -101,6 +104,7 @@ def test_distribute_permutations_single_worker():
 
 
 def test_shuffle_arr_preserves_multiset():
+    """Shuffle arr preserves multiset."""
     arr = np.arange(20, dtype=np.int32)
     expected = sorted(arr.tolist())
     shuffle_arr(arr)
@@ -177,6 +181,7 @@ def test_parallel_mi_max_failed_short_circuits():
 
 
 def test_parallel_mi_prange_zero_permutations():
+    """Parallel mi prange zero permutations."""
     factors, nbins = _build_signal_factors()
     cx, fx, cy, fy, mi = _make_classes(factors, nbins)
     nf, nc = parallel_mi_prange(cx, fx, cy, fy, 0, mi, np.uint64(0), dtype=np.int32)
@@ -234,6 +239,7 @@ def test_besag_clifford_strong_signal_early_stops():
 
 
 def test_besag_clifford_zero_permutations():
+    """Besag clifford zero permutations."""
     factors, nbins = _build_signal_factors()
     cx, fx, cy, fy, mi = _make_classes(factors, nbins)
     nf, nc = parallel_mi_besag_clifford(cx, fx, cy, fy, 0, mi, np.uint64(0), dtype=np.int32)

@@ -79,6 +79,7 @@ def test_legacy_empty_pickle_matches_ctor_for_shared_keys():
 
 def test_named_drift_key_cluster_aggregate_mode():
     # The originally-drifted key: legacy refit must match the corrected ctor default.
+    """Named drift key cluster aggregate mode."""
     assert MRMR().cluster_aggregate_mode == "replace"
     m = MRMR.__new__(MRMR)
     m.__setstate__({})
@@ -86,6 +87,7 @@ def test_named_drift_key_cluster_aggregate_mode():
 
 
 def test_full_pickle_round_trip_preserves_params():
+    """Full pickle round trip preserves params."""
     rng = np.random.default_rng(0)
     X = pd.DataFrame(rng.normal(size=(200, 5)), columns=[f"f{i}" for i in range(5)])
     y = (X["f0"] + X["f1"] > 0).astype(int).to_numpy()

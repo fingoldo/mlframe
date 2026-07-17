@@ -43,6 +43,7 @@ def _linear_composite_df(n: int = 3000, seed: int = 7) -> pd.DataFrame:
 
 
 def _split(n: int, seed: int = 0):
+    """Randomly splits n indices into 60/20/20 train/val/test partitions."""
     rng = np.random.default_rng(seed)
     perm = rng.permutation(n)
     n_tr = int(0.6 * n)
@@ -76,6 +77,7 @@ def _small_inner():
 
 
 def _config():
+    """Builds the shared CompositeTargetDiscoveryConfig used by the highlevel discover_and_wrap tests."""
     from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
     return CompositeTargetDiscoveryConfig(

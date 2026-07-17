@@ -24,6 +24,7 @@ import numpy as np
 
 
 def main(payload: dict) -> None:
+    """Subprocess worker entry point: run one FE suite generator/scenario described by payload and report its results."""
     from tests.feature_selection._suite_fe_helpers import (
         GENERATORS,
         run_suite,

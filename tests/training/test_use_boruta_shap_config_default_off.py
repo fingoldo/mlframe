@@ -32,6 +32,7 @@ def _unwrap_boruta_shap(obj):
 
 
 def test_build_pre_pipelines_no_boruta_shap_by_default():
+    """With no FS config overrides, _build_pre_pipelines never instantiates BorutaShap (avoids the shap import cost)."""
     from mlframe.training.core._setup_helpers import _build_pre_pipelines
 
     pipelines, names = _build_pre_pipelines(
@@ -53,6 +54,7 @@ def test_build_pre_pipelines_no_boruta_shap_by_default():
 
 
 def test_build_pre_pipelines_appends_boruta_shap_when_enabled():
+    """Explicitly enabling BorutaShap causes _build_pre_pipelines to append it to the pipeline list."""
     pytest.importorskip("shap")
     from mlframe.training.core._setup_helpers import _build_pre_pipelines
 

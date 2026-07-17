@@ -14,6 +14,7 @@ from mlframe.feature_selection.shap_proxied_fs._shap_proxy_prefilter_univariate 
 
 
 def test_large_mean_low_variance_informative_column_not_dropped():
+    """Large mean low variance informative column not dropped."""
     rng = np.random.default_rng(0)
     n = 2000
     y = (np.arange(n) % 2).astype(int)
@@ -34,6 +35,7 @@ def test_large_mean_low_variance_informative_column_not_dropped():
 
 
 def test_truly_constant_column_still_dropped():
+    """Truly constant column still dropped."""
     n = 200
     y = (np.arange(n) % 2).astype(int)
     const = np.full(n, 1.0e6, dtype=np.float64)

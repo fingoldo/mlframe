@@ -46,6 +46,7 @@ try:
 except ImportError:  # pragma: no cover
 
     def is_fast_mode() -> bool:
+        """Fallback used when tests.conftest isn't importable: always run the full (non-fast) suite."""
         return False
 
 
@@ -103,6 +104,7 @@ def _extract_metadata(result):
 
 
 def _extract_models(result):
+    """Pulls the models dict out of a suite result, whichever tuple/object shape it was returned as."""
     if isinstance(result, tuple):
         for slot in result:
             if isinstance(slot, dict) and any(hasattr(k, "value") or isinstance(k, str) for k in slot) and "model_schemas" not in slot:

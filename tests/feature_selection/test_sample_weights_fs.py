@@ -31,9 +31,11 @@ def test_passthrough_forwards_sample_weight_when_marker_set():
 
     class _DummySelector:
         # Marker: the suite stamps this on MRMR / RFECV when the config flag is True.
+        """Groups tests covering DummySelector."""
         _mlframe_use_sample_weights_in_fs_ = True
 
         def fit_transform(self, X, y=None, **kwargs):
+            """Fit transform."""
             captured["kwargs"] = dict(kwargs)
             return X
 
@@ -65,7 +67,9 @@ def test_passthrough_skips_sample_weight_when_marker_unset():
 
     class _PlainSelector:
         # No marker attribute -- default getattr returns False.
+        """Groups tests covering PlainSelector."""
         def fit_transform(self, X, y=None, **kwargs):
+            """Fit transform."""
             captured["kwargs"] = dict(kwargs)
             return X
 
@@ -113,10 +117,12 @@ def test_pre_pipeline_cache_key_folds_sample_weight_only_when_marker_set():
     from mlframe.training.pipeline._pipeline_helpers import _pre_pipeline_cache_key
 
     class _MarkedPipeline:
+        """Groups tests covering MarkedPipeline."""
         _mlframe_use_sample_weights_in_fs_ = True
         steps = []  # sklearn-style iterable, empty so signature is stable
 
     class _PlainPipeline:
+        """Groups tests covering PlainPipeline."""
         _mlframe_use_sample_weights_in_fs_ = False
         steps = []
 

@@ -49,6 +49,7 @@ def test_biz_val_bur_lambda_activates_codepath_when_positive():
     orig = ev.get_bur_lambda
 
     def _traced():
+        """Helper that traced."""
         v = _real()
         if v > 0:
             hits["pos"] += 1
@@ -85,6 +86,7 @@ def test_biz_val_bur_lambda_does_not_beat_default_on_known_relevant_set():
     from mlframe.feature_selection.filters import MRMR
 
     def _urec(bur, seed):
+        """Helper that urec."""
         X, y, uidx = _redundant_cluster_unique(seed)
         Xtr, _, ytr, _ = train_test_split(X, y, test_size=0.3, random_state=seed)
         m = MRMR(n_workers=1, verbose=0, fe_max_steps=0, max_runtime_mins=1, bur_lambda=bur).fit(Xtr, ytr)

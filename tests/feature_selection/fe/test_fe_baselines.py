@@ -39,6 +39,7 @@ from mlframe.feature_selection.filters import (
 
 
 class TestTrivialPairFeatures:
+    """Groups tests covering TestTrivialPairFeatures."""
     def test_keys_and_shapes(self):
         """All trivial pair transforms produce 1-D arrays of the same length as inputs."""
         rng = np.random.default_rng(0)
@@ -102,6 +103,7 @@ class TestTrivialPairFeatures:
 
 
 class TestScoreTrivialBaselines:
+    """Groups tests covering TestScoreTrivialBaselines."""
     def test_descending_order(self):
         """Returned dict is iteration-ordered by descending MI."""
         rng = np.random.default_rng(7)
@@ -137,6 +139,7 @@ class TestScoreTrivialBaselines:
 
 
 class TestBestTrivialPair:
+    """Groups tests covering TestBestTrivialPair."""
     def test_returns_tuple_with_max_mi(self):
         """best_trivial_pair returns (name, arr, mi) with mi == max over all candidates."""
         rng = np.random.default_rng(0)
@@ -161,6 +164,7 @@ class TestBestTrivialPair:
 
 
 class TestAutoUnaryTransforms:
+    """Groups tests covering TestAutoUnaryTransforms."""
     def test_identity_always_present(self):
         """The identity transform is always retained, regardless of uplift threshold."""
         rng = np.random.default_rng(1)
@@ -182,6 +186,7 @@ class TestAutoUnaryTransforms:
         calls = {"n": 0}
 
         def counted(*a, **kw):
+            """Helper that counted."""
             calls["n"] += 1
             return orig_mi_1d(*a, **kw)
 
@@ -214,6 +219,7 @@ class TestAutoUnaryTransforms:
 
 
 class TestBestUnaryTransform:
+    """Groups tests covering TestBestUnaryTransform."""
     def test_picks_max_mi_unary(self):
         """best_unary_transform returns the highest-MI unary candidate (top-marginal pick)."""
         rng = np.random.default_rng(3)
@@ -236,7 +242,9 @@ class TestBestUnaryTransform:
 
 
 class TestTriplets:
+    """Groups tests covering TestTriplets."""
     def test_triplet_features_shape(self):
+        """Triplet features shape."""
         rng = np.random.default_rng(4)
         n = 200
         a, b, c = (rng.standard_normal(n) for _ in range(3))
@@ -246,6 +254,7 @@ class TestTriplets:
             assert np.all(np.isfinite(arr)), f"{name} has non-finite values"
 
     def test_score_triplet_baselines_descending(self):
+        """Score triplet baselines descending."""
         rng = np.random.default_rng(5)
         n = 800
         a, b, c = (rng.standard_normal(n) for _ in range(3))
@@ -267,6 +276,7 @@ class TestTriplets:
 
 
 class TestEdgeCases:
+    """Groups tests covering TestEdgeCases."""
     def test_constant_column_pair_features(self):
         """Constant inputs produce finite outputs (no inf/nan blow-ups)."""
         x_a = np.zeros(50)

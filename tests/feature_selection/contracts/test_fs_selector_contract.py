@@ -30,6 +30,7 @@ from sklearn.linear_model import LogisticRegression
 
 
 def _mrmr_factory(task: str = "binary"):
+    """Mrmr factory."""
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     return MRMR(
@@ -43,6 +44,7 @@ def _mrmr_factory(task: str = "binary"):
 
 
 def _rfecv_factory(task: str = "binary"):
+    """Rfecv factory."""
     from mlframe.feature_selection.wrappers import RFECV
 
     est = LogisticRegression(max_iter=200, random_state=0) if task != "regression" else __import__("sklearn.linear_model", fromlist=["Ridge"]).Ridge()
@@ -57,6 +59,7 @@ def _rfecv_factory(task: str = "binary"):
 
 
 def _shap_proxied_factory(task: str = "binary"):
+    """Shap proxied factory."""
     try:
         from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
     except ImportError as exc:
@@ -97,6 +100,7 @@ SELECTOR_FACTORIES = [
 
 @pytest.fixture
 def binary_df():
+    """Binary df."""
     X, y = make_classification(n_samples=200, n_features=10, n_informative=4, n_classes=2, random_state=0)
     Xdf = pd.DataFrame(X, columns=[f"f{i}" for i in range(10)])
     return Xdf, y
@@ -104,6 +108,7 @@ def binary_df():
 
 @pytest.fixture
 def regression_df():
+    """Regression df."""
     X, y = make_regression(n_samples=200, n_features=10, n_informative=4, noise=0.1, random_state=0)
     Xdf = pd.DataFrame(X, columns=[f"f{i}" for i in range(10)])
     return Xdf, y
@@ -148,17 +153,20 @@ class TestUniversalContract:
     """Invariants that must hold for every mlframe feature selector."""
 
     def test_fit_returns_self(self, name, factory, binary_df):
+        """Fit returns self."""
         X, y = binary_df
         sel = factory("binary")
         ret = _fit_safe(sel, X, y)
         assert ret is sel, f"{name}.fit must return self"
 
     def test_n_features_in_matches_input(self, name, factory, binary_df):
+        """N features in matches input."""
         X, y = binary_df
         sel = _fit_safe(factory("binary"), X, y)
         assert getattr(sel, "n_features_in_", None) == X.shape[1]
 
     def test_feature_names_in_when_dataframe(self, name, factory, binary_df):
+        """Feature names in when dataframe."""
         X, y = binary_df
         sel = _fit_safe(factory("binary"), X, y)
         feat_names = getattr(sel, "feature_names_in_", None)
@@ -166,18 +174,21 @@ class TestUniversalContract:
         assert list(feat_names) == list(X.columns)
 
     def test_support_normalised_length(self, name, factory, binary_df):
+        """Support normalised length."""
         X, y = binary_df
         sel = _fit_safe(factory("binary"), X, y)
         mask = _as_bool_mask(sel)
         assert mask.shape == (X.shape[1],), f"{name}: support mask len {mask.shape} != {X.shape[1]}"
 
     def test_at_least_one_feature_selected(self, name, factory, binary_df):
+        """At least one feature selected."""
         X, y = binary_df
         sel = _fit_safe(factory("binary"), X, y)
         mask = _as_bool_mask(sel)
         assert int(mask.sum()) >= 1, f"{name}: selected zero features"
 
     def test_transform_output_shape(self, name, factory, binary_df):
+        """Transform output shape."""
         X, y = binary_df
         sel = _fit_safe(factory("binary"), X, y)
         Xt = sel.transform(X)
@@ -194,18 +205,21 @@ class TestUniversalContract:
         )
 
     def test_transform_preserves_row_count(self, name, factory, binary_df):
+        """Transform preserves row count."""
         X, y = binary_df
         sel = _fit_safe(factory("binary"), X, y)
         Xt = sel.transform(X)
         assert Xt.shape[0] == X.shape[0]
 
     def test_not_fitted_error_before_fit(self, name, factory, binary_df):
+        """Not fitted error before fit."""
         X, _ = binary_df
         sel = factory("binary")
         with pytest.raises((NotFittedError, AttributeError, ValueError)):
             sel.transform(X)
 
     def test_refit_idempotent(self, name, factory, binary_df):
+        """Refit idempotent."""
         X, y = binary_df
         sel1 = _fit_safe(factory("binary"), X, y)
         sel2 = _fit_safe(factory("binary"), X, y)
@@ -219,6 +233,7 @@ class TestUniversalContract:
         assert jacc >= 0.6, f"{name}: refit on same (X,y) gave Jaccard {jacc:.2f} (mask1={m1.tolist()}, mask2={m2.tolist()})"
 
     def test_clone_preserves_params(self, name, factory, binary_df):
+        """Clone preserves params."""
         sel = factory("binary")
         c = clone(sel)
         # get_params equivalence; comparison via repr is robust to nested-object identity differences.
@@ -236,6 +251,7 @@ class TestUniversalContract:
 
 @pytest.mark.parametrize("name,factory", SELECTOR_FACTORIES)
 class TestSklearnParity:
+    """Groups tests covering TestSklearnParity."""
     def test_pipeline_compatibility(self, name, factory, binary_df):
         """Selector must embed in a sklearn Pipeline and fit->predict cleanly,
         with the selected feature set propagating to the downstream estimator.
@@ -295,6 +311,7 @@ class TestSklearnParity:
         assert acc > baseline + 0.05, f"{name}: FS->model Pipeline train acc {acc:.3f} did not beat baseline {baseline:.3f}+0.05"
 
     def test_get_params_set_params_roundtrip(self, name, factory):
+        """Get params set params roundtrip."""
         sel = factory("binary")
         params = sel.get_params(deep=False)
         # Setting params via set_params must be idempotent on the values we just read.
@@ -321,6 +338,7 @@ class TestSklearnParity:
     _GFNO_EXEMPT: frozenset[str] = frozenset()
 
     def test_get_feature_names_out_matches_transform_cols(self, name, factory, binary_df):
+        """Get feature names out matches transform cols."""
         X, y = binary_df
         sel = _fit_safe(factory("binary"), X, y)
         has_gfno = callable(getattr(sel, "get_feature_names_out", None))
@@ -342,7 +360,9 @@ class TestSklearnParity:
 
 @pytest.mark.parametrize("name,factory", SELECTOR_FACTORIES)
 class TestRobustness:
+    """Groups tests covering TestRobustness."""
     def test_rejects_nan_in_y(self, name, factory, binary_df):
+        """Rejects nan in y."""
         X, y = binary_df
         y_nan = y.astype(float).copy()
         y_nan[5] = np.nan
@@ -351,6 +371,7 @@ class TestRobustness:
             _fit_safe(sel, X, y_nan)
 
     def test_rejects_mismatched_X_y_length(self, name, factory, binary_df):
+        """Rejects mismatched X y length."""
         X, y = binary_df
         sel = factory("binary")
         with pytest.raises((ValueError, AssertionError)):
@@ -361,6 +382,7 @@ class TestRobustness:
         # RFECV's zero-variance filter drops constant columns at fit entry, so
         # n_features_in_ may be smaller than X.shape[1]. Either path is fine; the
         # contract is "constant column never appears in the final selected set".
+        """Handles constant column."""
         X, y = binary_df
         Xc = X.copy()
         Xc["constant"] = 1.0
@@ -390,7 +412,9 @@ class TestRobustness:
     ],
 )
 class TestClassificationRobustness:
+    """Groups tests covering TestClassificationRobustness."""
     def test_rejects_single_class_y(self, name, factory, binary_df):
+        """Rejects single class y."""
         X, _ = binary_df
         y_const = np.zeros(X.shape[0], dtype=int)
         sel = factory("binary")

@@ -56,6 +56,7 @@ def test_shap_prox_trust_reval_default_no_cache_subset_identical():
     X, y = _make_clf_data()
 
     def _fit():
+        """Helper that fit."""
         sel = ShapProxiedFS(
             classification=True,
             metric="brier",

@@ -27,6 +27,7 @@ import pytest
 
 
 def _fit_df(n: int = 100):
+    """Fit df."""
     rng = np.random.default_rng(0)
     X = pd.DataFrame(rng.standard_normal((n, 4)), columns=["a", "b", "c", "d"])
     y = pd.Series(rng.integers(0, 2, n), name="y")

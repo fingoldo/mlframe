@@ -27,6 +27,7 @@ _gpu_only = pytest.mark.skipif(not _HAS_GPU, reason="no CUDA/cupy GPU available"
 
 @pytest.fixture(autouse=True)
 def _clear_cache():
+    """Clear cache."""
     import mlframe.feature_selection.filters.info_theory._cmi_cuda as cm
 
     cm.clear_cmi_xc_resident_cache()
@@ -37,6 +38,7 @@ def _clear_cache():
 
 
 def _matrix(n=4000, p=60, nb=12, seed=0):
+    """Helper that matrix."""
     rng = np.random.default_rng(seed)
     nc = p + 2
     fd = np.empty((n, nc), dtype=np.int32, order="C")
@@ -49,6 +51,7 @@ def _matrix(n=4000, p=60, nb=12, seed=0):
 
 
 def _cpu_ref(fd, fnb, p, y_index, z_index):
+    """Cpu ref."""
     return np.array([conditional_mi(fd, np.array([c]), np.array([y_index]), np.array([z_index]), None, fnb) for c in range(p)])
 
 
@@ -66,6 +69,7 @@ def test_cache_reuses_one_device_copy_per_fit():
     orig_asarray = cp.asarray
 
     def _counting_asarray(arr, *a, **kw):
+        """Counting asarray."""
         if getattr(arr, "shape", None) == fd.shape:
             upload_calls["n"] += 1
         return orig_asarray(arr, *a, **kw)

@@ -34,6 +34,7 @@ def _make_3way_xor(n=2000, n_features=8, seed=42):
 
 
 def _make_4way_xor(n=3000, n_features=8, seed=42):
+    """Make 4way xor."""
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(n, n_features))
     y = (np.sign(X[:, 0] * X[:, 1] * X[:, 2] * X[:, 3]) > 0).astype(np.int64)
@@ -41,6 +42,7 @@ def _make_4way_xor(n=3000, n_features=8, seed=42):
 
 
 def _to_df(X, y):
+    """To df."""
     df = pd.DataFrame(X, columns=[f"x{i}" for i in range(X.shape[1])])
     return df, pd.Series(y, name="y")
 
@@ -104,6 +106,7 @@ def test_3way_signal_recovery_better_than_2way():
     X_df, y_ser = _to_df(X, y)
 
     def top5_overlap(order):
+        """Top5 overlap."""
         sel = MRMR(interactions_max_order=order, verbose=0, random_seed=42)
         sel.fit(X_df, y_ser)
         top5 = set(int(i) for i in sel.support_[:5])

@@ -16,6 +16,7 @@ warnings.filterwarnings("ignore")
 
 
 def _dup_cluster_frame(n=1500, seed=0):
+    """Dup cluster frame."""
     rng = np.random.default_rng(seed)
     latent = rng.standard_normal(n)
     other = rng.standard_normal(n)
@@ -33,6 +34,7 @@ def _dup_cluster_frame(n=1500, seed=0):
 
 
 def _fit(X, y, **kw):
+    """Helper that fit."""
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     base = dict(dcd_enable=True, dcd_tau_cluster=0.5, dcd_cluster_size_threshold=2, verbose=0, random_seed=0)
@@ -41,6 +43,7 @@ def _fit(X, y, **kw):
 
 
 def test_dcd_fit_is_deterministic():
+    """Dcd fit is deterministic."""
     X, y = _dup_cluster_frame()
     m1, m2 = _fit(X, y), _fit(X, y)
     assert list(m1.get_feature_names_out()) == list(m2.get_feature_names_out())
@@ -54,6 +57,7 @@ def test_dcd_pickle_transform_parity():
     # fit -> pickle round-trip -> transform must be bit-identical. Stresses the
     # new swap_npermutations field, _fn_arr_cached (excluded/rebuilt), and the
     # aggregate recipe replay surviving serialization.
+    """Dcd pickle transform parity."""
     X, y = _dup_cluster_frame()
     Xte = X.iloc[:400]
     m = _fit(X, y)
@@ -65,6 +69,7 @@ def test_dcd_pickle_transform_parity():
 
 
 def test_dcd_fit_on_perfect_duplicates_no_crash():
+    """Dcd fit on perfect duplicates no crash."""
     rng = np.random.default_rng(3)
     n = 1200
     col = rng.standard_normal(n)
@@ -76,6 +81,7 @@ def test_dcd_fit_on_perfect_duplicates_no_crash():
 
 
 def test_dcd_fit_tiny_n_no_crash():
+    """Dcd fit tiny n no crash."""
     rng = np.random.default_rng(4)
     n = 40
     z = rng.standard_normal(n)
@@ -86,6 +92,7 @@ def test_dcd_fit_tiny_n_no_crash():
 
 
 def test_dcd_fit_with_nan_columns_no_crash():
+    """Dcd fit with nan columns no crash."""
     rng = np.random.default_rng(5)
     n = 1000
     z = rng.standard_normal(n)

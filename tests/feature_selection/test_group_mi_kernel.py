@@ -25,6 +25,7 @@ def _codes(x, nbins):
 
 
 def _global_mi(cx, cy, K_x, K_y):
+    """Global mi."""
     fx = np.bincount(cx[cx >= 0], minlength=K_x).astype(np.float64)
     fx /= fx.sum()
     fy = np.bincount(cy[cy >= 0], minlength=K_y).astype(np.float64)
@@ -33,6 +34,7 @@ def _global_mi(cx, cy, K_x, K_y):
 
 
 def test_single_group_equals_global_mi():
+    """Single group equals global mi."""
     rng = np.random.default_rng(0)
     n, nb = 4000, 8
     x = rng.normal(size=n)
@@ -47,6 +49,7 @@ def test_single_group_equals_global_mi():
 
 def test_between_group_level_has_zero_within_group_mi():
     # x = group id (constant within group); y depends on x -> global MI high, within-group MI ~0.
+    """Between group level has zero within group mi."""
     rng = np.random.default_rng(1)
     n_groups, per, nb = 30, 200, 8
     g = np.repeat(np.arange(n_groups), per)
@@ -64,6 +67,7 @@ def test_between_group_level_has_zero_within_group_mi():
 def test_sign_flip_within_group_is_retained():
     # x correlates +y in even groups, -y in odd groups. Global (pooled) association is weak; per-group MI is high in
     # EVERY group -> group-blocked MI stays high (the case a demean/linear approach would collapse).
+    """Sign flip within group is retained."""
     rng = np.random.default_rng(2)
     n_groups, per, nb = 20, 300, 8
     g = np.repeat(np.arange(n_groups), per)
@@ -77,6 +81,7 @@ def test_sign_flip_within_group_is_retained():
 
 
 def test_min_rows_skips_small_groups():
+    """Min rows skips small groups."""
     rng = np.random.default_rng(3)
     # one big informative group + many size-1 noise groups; min_rows drops the singletons.
     big = np.zeros(500, dtype=np.int64)
@@ -91,6 +96,7 @@ def test_min_rows_skips_small_groups():
 
 
 def test_sentinel_and_empty():
+    """Sentinel and empty."""
     g = np.array([0, 0, 0, 1, 1, 1] * 20)
     cx = np.array([-1, 0, 1, 2, -1, 0] * 20, dtype=np.int64)  # some NaN sentinels
     cy = np.array([0, 1, 2, 0, 1, -1] * 20, dtype=np.int64)
@@ -104,6 +110,7 @@ def test_sentinel_and_empty():
 
 
 def test_equal_vs_size_weight_differ_when_groups_unequal():
+    """Equal vs size weight differ when groups unequal."""
     rng = np.random.default_rng(4)
     # a huge noise group + a small informative group: size-weighted ~0, equal-weight lifts the informative one.
     gbig = np.zeros(4000, dtype=np.int64)

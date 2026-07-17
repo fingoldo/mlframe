@@ -69,9 +69,9 @@ def test_single_unique_day_falls_back_to_row_based(caplog) -> None:
     assert len(test_idx) > 0, "test split must be non-empty after fallback"
     # Fallback WARN must mention the unique-day count + the fallback
     # decision so future debuggers know what happened.
-    assert any("only 1 unique day" in rec.message and "row-based" in rec.message for rec in caplog.records), (
-        f"expected fallback WARN; got: {[r.message for r in caplog.records]}"
-    )
+    assert any(
+        "only 1 unique day" in rec.message and "row-based" in rec.message for rec in caplog.records
+    ), f"expected fallback WARN; got: {[r.message for r in caplog.records]}"
 
 
 def test_numeric_ts_falls_back_to_row_based(caplog) -> None:
@@ -93,9 +93,9 @@ def test_numeric_ts_falls_back_to_row_based(caplog) -> None:
     assert len(train_idx) > 0
     assert len(val_idx) > 0
     assert len(test_idx) > 0
-    assert any("numeric" in rec.message and "row-based" in rec.message for rec in caplog.records), (
-        f"expected numeric-ts WARN; got: {[r.message for r in caplog.records]}"
-    )
+    assert any(
+        "numeric" in rec.message and "row-based" in rec.message for rec in caplog.records
+    ), f"expected numeric-ts WARN; got: {[r.message for r in caplog.records]}"
 
 
 def test_two_unique_days_with_val_and_test_falls_back(caplog) -> None:

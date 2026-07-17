@@ -36,6 +36,7 @@ def _tiny_frame(seed: int, n: int = 120, p: int = 4):
 
 
 def _fast_selector(seed: int) -> MRMR:
+    """Fast selector."""
     return MRMR(
         max_runtime_mins=0.05,
         fe_max_steps=0,
@@ -75,19 +76,23 @@ def test_fit_holds_lock_around_every_cache_mutation():
     lock_states: list[bool] = []
 
     class _AssertingCache(OrderedDict):
+        """Groups tests covering AssertingCache."""
         def __setitem__(self, key, value):
             lock_states.append(_MRMR_FIT_CACHE_LOCK._is_owned())
             super().__setitem__(key, value)
 
         def move_to_end(self, key, last=True):
+            """Move to end."""
             lock_states.append(_MRMR_FIT_CACHE_LOCK._is_owned())
             super().move_to_end(key, last=last)
 
         def popitem(self, last=True):
+            """Helper that popitem."""
             lock_states.append(_MRMR_FIT_CACHE_LOCK._is_owned())
             return super().popitem(last=last)
 
         def clear(self):
+            """Helper that clear."""
             lock_states.append(_MRMR_FIT_CACHE_LOCK._is_owned())
             super().clear()
 
@@ -114,6 +119,7 @@ def test_lock_serializes_concurrent_iterate_and_mutate():
     done = threading.Event()
 
     def mutate():
+        """Helper that mutate."""
         try:
             for i in range(50_000):
                 if done.is_set():
@@ -126,6 +132,7 @@ def test_lock_serializes_concurrent_iterate_and_mutate():
             errors.append(exc)
 
     def read():
+        """Helper that read."""
         try:
             for _ in range(50_000):
                 if done.is_set():
@@ -155,6 +162,7 @@ def test_concurrent_real_fits_no_exception_and_bounded_cache():
     errors: list = []
 
     def worker(tid: int):
+        """Helper that worker."""
         try:
             for k in range(iters_per_thread):
                 seed = tid * 1000 + k

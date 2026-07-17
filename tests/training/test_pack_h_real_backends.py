@@ -16,12 +16,14 @@ import pytest
 
 @pytest.fixture
 def heavy_tail_target() -> np.ndarray:
+    """Laplace-distributed target (fat tails vs Gaussian) to exercise pack_h's heavy-tail-aware backend selection."""
     rng = np.random.default_rng(7)
     return rng.laplace(loc=0.0, scale=1.0, size=5000)
 
 
 @pytest.fixture
 def gaussian_target() -> np.ndarray:
+    """Plain standard-normal target, the baseline distribution pack_h's backend selection is compared against."""
     return np.random.default_rng(11).standard_normal(5000)
 
 

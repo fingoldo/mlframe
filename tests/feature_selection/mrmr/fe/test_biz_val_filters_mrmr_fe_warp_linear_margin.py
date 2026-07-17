@@ -22,6 +22,7 @@ import pandas as pd
 
 
 def _binq(x, nb: int = 10):
+    """Helper that binq."""
     q = np.quantile(x, np.linspace(0, 1, nb + 1))
     q[0] -= 1e-9
     return np.clip(np.searchsorted(q, x) - 1, 0, nb - 1)

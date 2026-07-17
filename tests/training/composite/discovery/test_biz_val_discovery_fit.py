@@ -132,6 +132,7 @@ def test_biz_val_stratified_quantile_guarantees_heavy_tail_coverage() -> None:
 
 
 def _make_config(**overrides):
+    """Builds a CompositeTargetDiscoveryConfig tuned for fast deterministic fits (MI-only screening), overridable per test."""
     from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
     defaults = dict(
@@ -166,6 +167,7 @@ def _drift_dataset(n: int = 2400, seed: int = 7) -> pd.DataFrame:
 
 
 def _run(df: pd.DataFrame, config):
+    """Fits CompositeTargetDiscovery on an 80/20 train/val split of df and returns the fitted discovery object."""
     from mlframe.training.composite import CompositeTargetDiscovery
 
     n = len(df)

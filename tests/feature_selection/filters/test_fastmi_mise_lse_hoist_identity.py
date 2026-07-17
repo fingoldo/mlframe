@@ -46,6 +46,7 @@ def _reference_pre_hoist(zx, zy, n_grid=12, h_min_factor=0.2, h_max_factor=1.5):
 @pytest.mark.parametrize("seed", range(8))
 @pytest.mark.parametrize("rho", [0.0, 0.3, 0.6, 0.95])
 def test_mise_bandwidth_bit_identical_to_pre_hoist(seed, rho):
+    """Mise bandwidth bit identical to pre hoist."""
     rng = np.random.default_rng(seed)
     n = 400
     zx = rng.standard_normal(n)

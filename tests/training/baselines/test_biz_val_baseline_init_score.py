@@ -24,6 +24,7 @@ warnings.filterwarnings("ignore")
 
 
 def _make_config(**overrides):
+    """Builds a BaselineDiagnosticsConfig with sensible small-data defaults, overridable per test."""
     from mlframe.training.configs import BaselineDiagnosticsConfig
 
     defaults = dict(
@@ -40,6 +41,7 @@ def _make_config(**overrides):
 
 
 def _fit(df, feature_cols):
+    """Fits BaselineDiagnostics on df using the given feature columns."""
     from mlframe.training.baselines.diagnostics import BaselineDiagnostics
 
     diag = BaselineDiagnostics(_make_config())

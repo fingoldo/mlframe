@@ -24,6 +24,7 @@ from mlframe.feature_selection.shap_proxied_fs import (
 
 
 def test_shap_prox_rank_stability_identical_folds_returns_one():
+    """Shap prox rank stability identical folds returns one."""
     rng = np.random.default_rng(0)
     base = np.abs(rng.normal(size=20))
     per_fold = np.vstack([base, base, base])
@@ -32,6 +33,7 @@ def test_shap_prox_rank_stability_identical_folds_returns_one():
 
 def test_shap_prox_rank_stability_inverted_folds_yields_negative_one():
     # Two folds whose feature rankings are exact opposites should hit Spearman -1.
+    """Shap prox rank stability inverted folds yields negative one."""
     rank = np.arange(1, 21, dtype=np.float64)
     per_fold = np.vstack([rank, rank[::-1].copy()])
     s = compute_phi_rank_stability(per_fold)
@@ -39,6 +41,7 @@ def test_shap_prox_rank_stability_inverted_folds_yields_negative_one():
 
 
 def test_shap_prox_rank_stability_random_folds_near_zero():
+    """Shap prox rank stability random folds near zero."""
     rng = np.random.default_rng(123)
     # 5 folds of independent random importances; medium n_features so the noise floor is small.
     per_fold = np.abs(rng.normal(size=(5, 200)))
@@ -48,6 +51,7 @@ def test_shap_prox_rank_stability_random_folds_near_zero():
 
 def test_shap_prox_rank_stability_single_fold_is_one():
     # Degenerate input -> the metric is undefined and we return 1.0 (no folds to disagree).
+    """Shap prox rank stability single fold is one."""
     arr = np.array([[3.0, 2.0, 1.0]])
     assert compute_phi_rank_stability(arr) == pytest.approx(1.0)
 
@@ -56,6 +60,7 @@ def test_shap_prox_rank_stability_top_k_truncation_drops_noise_tail():
     # 3 folds: top-5 features are stable, tail-995 features are independent noise per fold.
     # With top_k=5, every fold's top-K is the same 5 indices -> union has size 5 -> Spearman ~ 1.0.
     # Without truncation (top_k=n_features), the noise tail dilutes the ranking toward 0.
+    """Shap prox rank stability top k truncation drops noise tail."""
     rng = np.random.default_rng(7)
     n_features = 1000
     per_fold = rng.normal(size=(3, n_features))
@@ -82,6 +87,7 @@ def test_shap_prox_rank_stability_top_k_truncation_drops_noise_tail():
     ],
 )
 def test_shap_prox_resolve_adaptive_prescreen_width_thresholds(stability, default_cap, expected_cap):
+    """Shap prox resolve adaptive prescreen width thresholds."""
     assert _resolve_adaptive_prescreen_width(stability, default_cap=default_cap) == expected_cap
 
 
@@ -104,6 +110,7 @@ def _make_tiny_dataset(n_samples=400, n_features=80, n_informative=6, snr=8.0, s
 
 
 def _build_tiny_selector(adaptive: bool, seed: int = 0):
+    """Build tiny selector."""
     return ShapProxiedFS(
         classification=True,
         metric="brier",
@@ -127,6 +134,7 @@ def _build_tiny_selector(adaptive: bool, seed: int = 0):
 
 def test_shap_prox_adaptive_prescreen_off_keeps_default_cap_in_report():
     # With the lever off the report should NOT carry the adaptive_prescreen block.
+    """Shap prox adaptive prescreen off keeps default cap in report."""
     X, y = _make_tiny_dataset(snr=8.0, seed=0)
     sel = _build_tiny_selector(adaptive=False)
     sel.fit(X, y)
@@ -135,6 +143,7 @@ def test_shap_prox_adaptive_prescreen_off_keeps_default_cap_in_report():
 
 def test_shap_prox_adaptive_prescreen_on_records_stability_and_cap():
     # High-SNR: stability should land high enough to keep the default cap untouched (28).
+    """Shap prox adaptive prescreen on records stability and cap."""
     X, y = _make_tiny_dataset(snr=8.0, seed=0)
     sel = _build_tiny_selector(adaptive=True)
     sel.fit(X, y)
@@ -152,6 +161,7 @@ def test_shap_prox_adaptive_prescreen_records_valid_cap_at_each_snr():
     # ranking inside the top-K=80 window picks up substantial mid-rank noise even at high SNR on a
     # 400-row dataset. The phase-2 benchmark on C3/C3_hard tests the cap-narrowing direction at the
     # realistic n_informative=20, width=10000 scale where the lever is meant to apply.
+    """Shap prox adaptive prescreen records valid cap at each snr."""
     for snr in (8.0, 0.4):
         X, y = _make_tiny_dataset(snr=snr, seed=11)
         sel = _build_tiny_selector(adaptive=True, seed=11)

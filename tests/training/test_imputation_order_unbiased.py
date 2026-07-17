@@ -27,6 +27,7 @@ def _make_biased_frame() -> pd.DataFrame:
 
 
 def test_preprocess_does_not_pre_fill_nulls_so_imputer_mean_is_unbiased():
+    """preprocess_dataframe must leave numeric nulls untouched pre-split, or SimpleImputer learns a mean biased toward zero-padding."""
     df = _make_biased_frame()
     assert df["x"].isna().sum() == 30, "fixture invariant: 30 null rows in column x"
 
@@ -48,6 +49,7 @@ def test_preprocess_does_not_pre_fill_nulls_so_imputer_mean_is_unbiased():
 
 
 def test_preprocess_normalises_inf_to_nan_for_downstream_imputer():
+    """preprocess_dataframe converts +/-inf to NaN so the downstream imputer treats them as missing, not as outlier values."""
     # Mixing inf with nulls: post-fix inf becomes NaN so the imputer treats both as missing and the non-inf/non-null distribution drives the learned statistic.
     values = np.concatenate(
         [

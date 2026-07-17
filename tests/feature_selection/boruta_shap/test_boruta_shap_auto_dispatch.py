@@ -19,16 +19,19 @@ from sklearn.ensemble import RandomForestClassifier
 
 
 def _clean(n=1500, p=10, inf=6, seed=0):
+    """Helper that clean."""
     X, y = make_classification(n_samples=n, n_features=p, n_informative=inf, n_redundant=0, shuffle=False, random_state=seed)
     return pd.DataFrame(X, columns=[f"f{i}" for i in range(p)]), pd.Series(y)
 
 
 def _noisy(n=250, p=50, inf=4, seed=0):
+    """Helper that noisy."""
     X, y = make_classification(n_samples=n, n_features=p, n_informative=inf, n_redundant=0, shuffle=False, random_state=seed)
     return pd.DataFrame(X, columns=[f"f{i}" for i in range(p)]), pd.Series(y)
 
 
 def test_auto_is_a_real_constructor_option_stored_verbatim():
+    """Auto is a real constructor option stored verbatim."""
     from mlframe.feature_selection.boruta_shap import BorutaShap
 
     b = BorutaShap(importance_measure="auto")
@@ -36,6 +39,7 @@ def test_auto_is_a_real_constructor_option_stored_verbatim():
 
 
 def test_default_driver_is_still_gini_auto_is_opt_in():
+    """Default driver is still gini auto is opt in."""
     from mlframe.feature_selection.boruta_shap import BorutaShap
 
     assert inspect.signature(BorutaShap.__init__).parameters["importance_measure"].default == "gini"
@@ -43,6 +47,7 @@ def test_default_driver_is_still_gini_auto_is_opt_in():
 
 @pytest.mark.parametrize("seed", [0, 1, 2])
 def test_router_picks_permutation_on_noisy_small_np(seed):
+    """Router picks permutation on noisy small np."""
     from mlframe.feature_selection.boruta_shap._auto_dispatch import resolve_auto_importance_measure
 
     X, y = _noisy(seed=seed)
@@ -53,6 +58,7 @@ def test_router_picks_permutation_on_noisy_small_np(seed):
 
 @pytest.mark.parametrize("seed", [0, 1, 2])
 def test_router_picks_gini_on_clean_large_n(seed):
+    """Router picks gini on clean large n."""
     from mlframe.feature_selection.boruta_shap._auto_dispatch import resolve_auto_importance_measure
 
     X, y = _clean(seed=seed)
@@ -62,6 +68,7 @@ def test_router_picks_gini_on_clean_large_n(seed):
 
 
 def test_auto_fit_pins_resolution_and_diagnostics_noisy():
+    """Auto fit pins resolution and diagnostics noisy."""
     from mlframe.feature_selection.boruta_shap import BorutaShap
 
     X, y = _noisy()
@@ -83,6 +90,7 @@ def test_auto_fit_pins_resolution_and_diagnostics_noisy():
 
 
 def test_auto_fit_pins_gini_on_clean_and_keeps_train_split():
+    """Auto fit pins gini on clean and keeps train split."""
     from mlframe.feature_selection.boruta_shap import BorutaShap
 
     X, y = _clean()
@@ -102,6 +110,7 @@ def test_auto_fit_pins_gini_on_clean_and_keeps_train_split():
 
 
 def test_auto_only_forces_test_split_when_user_left_default():
+    """Auto only forces test split when user left default."""
     from mlframe.feature_selection.boruta_shap import BorutaShap
 
     X, y = _noisy()

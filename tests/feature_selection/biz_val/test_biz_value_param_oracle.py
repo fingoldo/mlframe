@@ -42,10 +42,12 @@ FIXED_TS = "2026-01-01T00:00:00+00:00"
 
 
 def _store(tmp_path, name="oracle.parquet"):
+    """Helper that store."""
     return os.path.join(str(tmp_path), name)
 
 
 def _make_dataset(n, p, seed=0, redundant=False):
+    """Make dataset."""
     rng = np.random.default_rng(seed)
     if redundant:
         base = rng.standard_normal((n, 1))
@@ -62,9 +64,11 @@ def _make_dataset(n, p, seed=0, redundant=False):
 
 
 def test_benchmark_mode_records_all_combos(tmp_path):
+    """Benchmark mode records all combos."""
     X = _make_dataset(1000, 4, seed=1)
 
     def toy(x, alpha=1, beta=1):
+        """Helper that toy."""
         return float((x * alpha + beta).sum())
 
     space = {"alpha": [1, 2], "beta": [0, 10]}
@@ -95,6 +99,7 @@ def test_benchmark_mode_records_all_combos(tmp_path):
 
 
 def test_inference_recommends_best_on_similar_fingerprint(tmp_path):
+    """Inference recommends best on similar fingerprint."""
     X = _make_dataset(1000, 4, seed=2)
     fp = default_fingerprint((X,), {})
 
@@ -119,9 +124,11 @@ def test_inference_recommends_best_on_similar_fingerprint(tmp_path):
 
 
 def test_persistence_is_stat_only(tmp_path):
+    """Persistence is stat only."""
     X = _make_dataset(2000, 6, seed=3)
 
     def toy(x, k=1):
+        """Helper that toy."""
         return float((x**k).mean())
 
     oracle = ParamOracle(_store(tmp_path), param_space={"k": [1, 2]}, mode="benchmark", minimize="elapsed_s")
@@ -147,6 +154,7 @@ def test_persistence_is_stat_only(tmp_path):
 
 
 def test_cold_start_returns_caller_default(tmp_path):
+    """Cold start returns caller default."""
     space = {"impl": ["a", "b", "c"]}
     oracle = ParamOracle(_store(tmp_path), param_space=space, mode="inference", minimize="elapsed_s")
     fp = default_fingerprint((_make_dataset(500, 3),), {})
@@ -155,6 +163,7 @@ def test_cold_start_returns_caller_default(tmp_path):
 
 
 def test_cold_start_empty_args_no_crash(tmp_path):
+    """Cold start empty args no crash."""
     oracle = ParamOracle(_store(tmp_path), param_space={"x": [1]}, mode="inference")
     # Fingerprint of nothing array-like must not crash.
     fp = default_fingerprint((), {})
@@ -168,6 +177,7 @@ def test_cold_start_empty_args_no_crash(tmp_path):
 
 
 def test_fingerprint_bucketing_size_stable(tmp_path):
+    """Fingerprint bucketing size stable."""
     X1 = _make_dataset(1000, 5, seed=10)
     X2 = _make_dataset(1050, 5, seed=11)
     b1 = bucketize_fingerprint(default_fingerprint((X1,), {}))
@@ -183,6 +193,7 @@ def test_fingerprint_bucketing_size_stable(tmp_path):
 
 def test_knn_fallback_recommends_neighbor_best(tmp_path):
     # Benchmark on a SMALL dataset (n~100 -> bucket 2.0).
+    """Knn fallback recommends neighbor best."""
     fp_small = default_fingerprint((_make_dataset(100, 4, seed=20),), {})
     oracle = ParamOracle(_store(tmp_path), param_space={"impl": ["x", "y"]}, mode="inference", minimize="elapsed_s", min_observations=3)
     for _ in range(4):
@@ -203,6 +214,7 @@ def test_knn_fallback_recommends_neighbor_best(tmp_path):
 
 
 def test_concurrent_writers_do_not_corrupt(tmp_path):
+    """Concurrent writers do not corrupt."""
     path = _store(tmp_path)
     fp = default_fingerprint((_make_dataset(800, 3, seed=30),), {})
     space = {"impl": ["p", "q"]}
@@ -232,12 +244,14 @@ def test_concurrent_writers_do_not_corrupt(tmp_path):
 
 
 def test_hybrid_epsilon_greedy_explore_vs_exploit(tmp_path):
+    """Hybrid epsilon greedy explore vs exploit."""
     X = _make_dataset(1000, 4, seed=40)
     fp = default_fingerprint((X,), {})
 
     calls = {"count": 0}
 
     def toy(x, impl="a"):
+        """Helper that toy."""
         calls["count"] += 1
         return impl
 
@@ -292,6 +306,7 @@ def test_real_consumer_mi_scorer_selection(tmp_path):
 
     def quality_objective(output, elapsed_s, rss_delta_mb):
         # output is the (scorer_name, simulated_quality) tuple.
+        """Quality objective."""
         _scorer, q = output
         return {"quality": float(q), "elapsed_s": float(elapsed_s)}
 
@@ -308,6 +323,7 @@ def test_real_consumer_mi_scorer_selection(tmp_path):
     def select_features(x, scorer="plug_in"):
         # Simulate: cmim shines when redundancy is high (it conditions on
         # already-selected features); plug_in is fine on clean signals.
+        """Select features."""
         fp = default_fingerprint((x,), {})
         redundancy = fp["mean_abs_corr"]
         if scorer == "cmim":

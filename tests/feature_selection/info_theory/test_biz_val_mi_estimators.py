@@ -39,6 +39,7 @@ RHO_ZERO = 0.0
 
 
 def _gauss_copula(rho: float, n: int = N_DEFAULT, seed: int = 0):
+    """Gauss copula."""
     rng = np.random.default_rng(int(seed))
     cov = np.array([[1.0, rho], [rho, 1.0]])
     XY = rng.multivariate_normal([0, 0], cov, n)
@@ -46,29 +47,35 @@ def _gauss_copula(rho: float, n: int = N_DEFAULT, seed: int = 0):
 
 
 def _fd(x, y):
+    """Bin x via Freedman-Diaconis edges and return the Miller-Madow-corrected plug-in MI with y."""
     e = edges_freedman_diaconis(x)
     bb = np.searchsorted(e, x.astype(np.float64), side="right")
     return _plug_in_mi(bb, np.asarray(y).astype(np.int64), miller_madow=True)
 
 
 def _qs(x, y):
+    """Bin x via quantile-sturges edges and return the Miller-Madow-corrected plug-in MI with y."""
     e = edges_qs(x)
     bb = np.searchsorted(e, x.astype(np.float64), side="right")
     return _plug_in_mi(bb, np.asarray(y).astype(np.int64), miller_madow=True)
 
 
 def _ksg(x, y):
+    """Helper that ksg."""
     return mixed_ksg_mi(x, np.asarray(y).astype(np.float64), k=5)
 
 
 class TestMixedKSG:
+    """Groups tests covering TestMixedKSG."""
     def test_accuracy_high_rho(self):
+        """Accuracy high rho."""
         x, y = _gauss_copula(RHO_HIGH, seed=42)
         mi = mixed_ksg_mi(x, y, k=5)
         # Bench v3 median: 0.296 on rho=0.7 / N=2000.
         assert abs(mi - TRUTH_HIGH) < 0.10, f"Mixed-KSG MI={mi}, truth={TRUTH_HIGH}"
 
     def test_no_signal_floor_clean(self):
+        """No signal floor clean."""
         x, y = _gauss_copula(RHO_ZERO, seed=42)
         mi = mixed_ksg_mi(x, y, k=5)
         # Bench v3 reports ~0.01 on independent gaussians.
@@ -77,6 +84,7 @@ class TestMixedKSG:
     def test_discrete_y_post_fix(self):
         # 2026-05-29 fix: Mixed-KSG on integer-coded y was zero (k-NN ties);
         # post-fix tie-jitter makes it return a real value.
+        """Discrete y post fix."""
         rng = np.random.default_rng(0)
         x = rng.standard_normal(N_DEFAULT)
         y = (x > 0).astype(np.float64)
@@ -85,13 +93,16 @@ class TestMixedKSG:
 
 
 class TestKSGLNC:
+    """Groups tests covering TestKSGLNC."""
     def test_alpha_default_canonical(self):
+        """Alpha default canonical."""
         x, y = _gauss_copula(RHO_HIGH, seed=42)
         mi = ksg_lnc_mi(x, y, k=5)
         # Canonical alpha=0.25 (NPEET_LNC default).
         assert 0.30 < mi < 0.50, f"KSG-LNC out of spec band: {mi}"
 
     def test_low_entropy_skip_falls_back_to_mksg(self):
+        """Low entropy skip falls back to mksg."""
         rng = np.random.default_rng(0)
         x = rng.standard_normal(N_DEFAULT)
         y = (x > 0).astype(np.float64)
@@ -102,12 +113,15 @@ class TestKSGLNC:
 
 
 class TestFastMI:
+    """Groups tests covering TestFastMI."""
     def test_no_signal_zero(self):
+        """No signal zero."""
         x, y = _gauss_copula(RHO_ZERO, seed=42)
         mi = fastmi(x, y, bandwidth="mise")
         assert mi < 0.05, f"fastMI no-signal floor too high: {mi}"
 
     def test_strong_correlation(self):
+        """Strong correlation."""
         x, y = _gauss_copula(0.9, seed=42)
         mi = fastmi(x, y, bandwidth="mise")
         truth = -0.5 * math.log(1 - 0.81)
@@ -116,13 +130,16 @@ class TestFastMI:
 
 
 class TestAggregators:
+    """Groups tests covering TestAggregators."""
     def test_median_panel_noise_clean(self):
+        """Median panel noise clean."""
         x, y = _gauss_copula(RHO_ZERO, seed=42)
         estimators = {"fd": _fd, "qs": _qs, "ksg": _ksg}
         mi = median_mi_panel(x, (y > np.median(y)).astype(np.int64), estimators)
         assert mi < 0.05, f"median panel no_signal too high: {mi}"
 
     def test_genie_panel_signal(self):
+        """Genie panel signal."""
         x, y = _gauss_copula(RHO_HIGH, seed=42)
         estimators = {"fd": _fd, "qs": _qs, "ksg": _ksg}
         mi = genie_mi_panel(x, (y > np.median(y)).astype(np.int64), estimators)
@@ -133,8 +150,10 @@ class TestAggregators:
 
 
 class TestMistCalibration:
+    """Groups tests covering TestMistCalibration."""
     @pytest.mark.skipif(True, reason="requires HuggingFace download + CUDA; gpu-marker test elsewhere")
     def test_binary_y_calibrated(self):
+        """Binary y calibrated."""
         from mlframe.feature_selection.filters._neural_mi import mist_mi
 
         rng = np.random.default_rng(0)
@@ -146,7 +165,9 @@ class TestMistCalibration:
 
 
 class TestNbinsStrategyEndToEnd:
+    """Groups tests covering TestNbinsStrategyEndToEnd."""
     def test_categorize_dataset_respects_strategy(self):
+        """Categorize dataset respects strategy."""
         import pandas as pd
         from mlframe.feature_selection.filters.discretization import categorize_dataset
 
@@ -160,6 +181,7 @@ class TestNbinsStrategyEndToEnd:
         assert nbins[1] >= nbins[0] - 5, "FD adaptive nbins not differentiating"
 
     def test_mrmr_fit_with_nbins_strategy_completes(self):
+        """Mrmr fit with nbins strategy completes."""
         import pandas as pd
         from mlframe.feature_selection.filters.mrmr import MRMR
 
@@ -185,6 +207,7 @@ class TestMRMRNbinsStrategy:
     """
 
     def test_legacy_path_still_works(self):
+        """Legacy path still works."""
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         sel = MRMR(verbose=0)
@@ -198,6 +221,7 @@ class TestMRMRNbinsStrategy:
         assert sel.n_features_ >= 1
 
     def test_invalid_nbins_strategy_raises(self):
+        """Invalid nbins strategy raises."""
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         with pytest.raises(ValueError):
@@ -206,6 +230,7 @@ class TestMRMRNbinsStrategy:
     def test_alternative_estimators_via_standalone_modules(self):
         # Family 2 estimators are intentionally OUT of MRMR; they remain
         # accessible via the standalone module entry points.
+        """Alternative estimators via standalone modules."""
         from mlframe.feature_selection.filters._ksg import mixed_ksg_mi
 
         rng = np.random.default_rng(0)
@@ -233,6 +258,7 @@ class TestMixedTypeWithNbinsStrategy:
     """
 
     def _make_mixed_frame(self, n: int = 400, seed: int = 7):
+        """Make mixed frame."""
         import pandas as pd
 
         rng = np.random.default_rng(int(seed))
@@ -253,6 +279,7 @@ class TestMixedTypeWithNbinsStrategy:
         return df, pd.Series(y, name="y")
 
     def test_mixed_types_legacy_path(self):
+        """Mixed types legacy path."""
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         X, y = self._make_mixed_frame()
@@ -263,6 +290,7 @@ class TestMixedTypeWithNbinsStrategy:
         assert "cont_strong" in selected or "cat_strong" in selected, f"MRMR missed both strong features on mixed data: {selected}"
 
     def test_mixed_types_fd_strategy(self):
+        """Mixed types fd strategy."""
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         X, y = self._make_mixed_frame()
@@ -272,6 +300,7 @@ class TestMixedTypeWithNbinsStrategy:
         assert "cont_strong" in selected, f"FD-strategy MRMR missed cont_strong on mixed data: {selected}"
 
     def test_mixed_types_mdlp_strategy(self):
+        """Mixed types mdlp strategy."""
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         X, y = self._make_mixed_frame()
@@ -282,6 +311,7 @@ class TestMixedTypeWithNbinsStrategy:
         assert "cont_strong" in selected, f"MDLP-strategy MRMR missed cont_strong on mixed data: {selected}"
 
     def test_demoted_knuth_emits_warning(self):
+        """Demoted knuth emits warning."""
         import warnings as _w
         from mlframe.feature_selection.filters.mrmr import MRMR
 
@@ -294,6 +324,7 @@ class TestMixedTypeWithNbinsStrategy:
         assert any("DEMOTED" in m and "knuth" in m for m in msgs), f"AccuracyWarning missing for nbins_strategy='knuth': {msgs}"
 
     def test_demoted_blocks_emits_warning(self):
+        """Demoted blocks emits warning."""
         import warnings as _w
         from mlframe.feature_selection.filters.mrmr import MRMR
 

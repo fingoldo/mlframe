@@ -17,6 +17,7 @@ from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
 
 def _disc(**overrides):
+    """Builds a CompositeTargetDiscovery instance with minimal-screening defaults, overridable per test."""
     cfg = dict(
         enabled=True,
         random_state=0,
@@ -32,6 +33,7 @@ def _disc(**overrides):
 
 
 def test_biz_val_near_copy_of_y_excluded_from_base_pool():
+    """A candidate base that's a near-exact copy of y is excluded from the discovery base pool (leakage guard)."""
     rng = np.random.default_rng(0)
     n = 3000
     signal = rng.normal(50.0, 8.0, n)

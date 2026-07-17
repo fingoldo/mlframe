@@ -12,6 +12,7 @@ from mlframe.feature_selection.filters._fe_subsample import stratified_subsample
 
 @pytest.mark.parametrize("is_clf", [True, False])
 def test_subsample_deterministic_and_does_not_mutate_global_rng(is_clf):
+    """Subsample deterministic and does not mutate global rng."""
     if is_clf:
         y = np.array([0] * 80 + [1] * 20, dtype=np.int64)
     else:
@@ -32,6 +33,7 @@ def test_subsample_deterministic_and_does_not_mutate_global_rng(is_clf):
 
 
 def test_different_seeds_give_different_subsamples():
+    """Different seeds give different subsamples."""
     y = np.array([0] * 80 + [1] * 20, dtype=np.int64)
     a = set(stratified_subsample_idx(np.random.default_rng(1), y, 50, is_clf=True).tolist())
     b = set(stratified_subsample_idx(np.random.default_rng(2), y, 50, is_clf=True).tolist())

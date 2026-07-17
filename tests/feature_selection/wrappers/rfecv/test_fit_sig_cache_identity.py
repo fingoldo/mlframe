@@ -20,21 +20,28 @@ def _raw(est):
 
 
 class _AcceptsSW:
+    """Groups tests covering AcceptsSW."""
     def fit(self, X, y, sample_weight=None):
+        """Helper that fit."""
         return self
 
 
 class _RejectsSW:
+    """Groups tests covering RejectsSW."""
     def fit(self, X, y):
+        """Helper that fit."""
         return self
 
 
 class _Kwargs:
+    """Groups tests covering Kwargs."""
     def fit(self, X, y, **kwargs):
+        """Helper that fit."""
         return self
 
 
 def _cached(est):
+    """Helper that cached."""
     key = getattr(est.fit, "__func__", est.fit)
     return _fit_accepts_sample_weight(key)
 
@@ -44,16 +51,19 @@ def _cached(est):
     [(_AcceptsSW, True), (_RejectsSW, False), (_Kwargs, True)],
 )
 def test_cached_matches_raw_and_expected(cls, expected):
+    """Cached matches raw and expected."""
     est = cls()
     assert _cached(est) == _raw(est) == expected
 
 
 def test_sklearn_estimators_match_raw():
+    """Sklearn estimators match raw."""
     rf = pytest.importorskip("sklearn.ensemble").RandomForestClassifier()
     assert _cached(rf) == _raw(rf)
 
 
 def test_cache_hits_across_instances():
+    """Cache hits across instances."""
     a, b = _AcceptsSW(), _AcceptsSW()
     _fit_accepts_sample_weight.cache_clear()
     _cached(a)

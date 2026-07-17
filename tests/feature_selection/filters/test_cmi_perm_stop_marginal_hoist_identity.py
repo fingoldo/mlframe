@@ -20,6 +20,7 @@ from mlframe.feature_selection.filters._cmi_perm_stop import (
 
 
 def _make(n, K_x, K_y, seed):
+    """Helper that make."""
     rng = np.random.default_rng(seed)
     x = rng.integers(0, K_x, n).astype(np.int64)
     y = rng.integers(0, K_y, n).astype(np.int64)
@@ -60,6 +61,7 @@ def _cmi_hoisted(x, y, z, K_x, K_y, K_z):
 @pytest.mark.parametrize("seed", [0, 1, 7])
 @pytest.mark.parametrize("n", [2000, 8000])
 def test_marginal_hoist_matches_plugin_cmi(seed, n):
+    """Marginal hoist matches plugin cmi."""
     x, y, z, K_z = _make(n, 8, 8, seed)
     prod = _cmi_plugin_njit(x, y, z, 8, 8, K_z)
     hoist = _cmi_hoisted(x, y, z, 8, 8, K_z)
@@ -90,6 +92,7 @@ def test_marginals_invariant_under_within_stratum_permutation():
 
 
 def test_cmi_permutation_stop_runs_and_is_deterministic():
+    """Cmi permutation stop runs and is deterministic."""
     x, y, z_a, _ = _make(3000, 6, 6, 5)
     sel = [(z_a % 5).astype(np.int64), (z_a % 4).astype(np.int64)]
     r1 = cmi_permutation_stop(x, y, sel, 6, 6, [5, 4], n_permutations=50, seed=11)

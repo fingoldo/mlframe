@@ -37,10 +37,12 @@ from mlframe.feature_selection.filters.info_theory import merge_vars
 
 
 def _new_entropy_cache() -> NumbaDict:
+    """New entropy cache."""
     return NumbaDict.empty(key_type=types.unicode_type, value_type=types.float64)
 
 
 def _new_cond_mi_cache() -> NumbaDict:
+    """New cond mi cache."""
     return NumbaDict.empty(key_type=types.unicode_type, value_type=types.float64)
 
 
@@ -107,6 +109,7 @@ def _make_eval_kwargs(factors_data, factors_nbins, factors_names, y_indices=(3,)
 
 @pytest.fixture
 def xor_factors():
+    """Xor factors."""
     return _build_xor_factors()
 
 
@@ -116,10 +119,12 @@ def xor_factors():
 
 
 def test_get_candidate_name_single():
+    """Get candidate name single."""
     assert get_candidate_name([2], ["a", "b", "c", "d"]) == "c"
 
 
 def test_get_candidate_name_multi():
+    """Get candidate name multi."""
     assert get_candidate_name([0, 2], ["a", "b", "c", "d"]) == "a-c"
 
 
@@ -129,6 +134,7 @@ def test_get_candidate_name_multi():
 
 
 def test_should_skip_failed_candidate():
+    """Should skip failed candidate."""
     expected_gains = np.zeros(5, dtype=np.float64)
     skip, nexist = should_skip_candidate(
         cand_idx=2,
@@ -145,6 +151,7 @@ def test_should_skip_failed_candidate():
 
 
 def test_should_skip_added_candidate():
+    """Should skip added candidate."""
     expected_gains = np.zeros(5, dtype=np.float64)
     skip, _ = should_skip_candidate(
         cand_idx=3,
@@ -161,6 +168,7 @@ def test_should_skip_added_candidate():
 
 def test_should_skip_already_scored_candidate():
     # Non-zero expected_gains[cand_idx] also short-circuits.
+    """Should skip already scored candidate."""
     expected_gains = np.zeros(5, dtype=np.float64)
     expected_gains[1] = 0.42
     skip, _ = should_skip_candidate(
@@ -177,6 +185,7 @@ def test_should_skip_already_scored_candidate():
 
 
 def test_should_not_skip_fresh_candidate():
+    """Should not skip fresh candidate."""
     expected_gains = np.zeros(5, dtype=np.float64)
     skip, nexist = should_skip_candidate(
         cand_idx=4,
@@ -194,6 +203,7 @@ def test_should_not_skip_fresh_candidate():
 
 def test_should_skip_interaction_with_selected_subelement():
     # interactions_order > 1: a k-way candidate is skipped if any sub-element is already in selected_interactions_vars at this stage.
+    """Should skip interaction with selected subelement."""
     expected_gains = np.zeros(5, dtype=np.float64)
     skip, _ = should_skip_candidate(
         cand_idx=4,
@@ -210,6 +220,7 @@ def test_should_skip_interaction_with_selected_subelement():
 
 def test_should_skip_interaction_only_unknown_skips_partial_overlap():
     # interactions_order > 1, only_unknown_interactions default True: any sub-element already in selected_vars triggers skip.
+    """Should skip interaction only unknown skips partial overlap."""
     expected_gains = np.zeros(5, dtype=np.float64)
     skip, nexist = should_skip_candidate(
         cand_idx=4,
@@ -228,6 +239,7 @@ def test_should_skip_interaction_only_unknown_skips_partial_overlap():
 
 def test_should_skip_lineage_filter():
     # Engineered column 4 is built from parents {1, 2}; a candidate that pairs 4 with parent 2 must be skipped.
+    """Should skip lineage filter."""
     expected_gains = np.zeros(6, dtype=np.float64)
     lineage = {4: frozenset({1, 2})}
     skip, _ = should_skip_candidate(
@@ -250,6 +262,7 @@ def test_should_skip_lineage_filter():
 
 
 def test_handle_best_candidate_updates_when_gain_exceeds():
+    """Handle best candidate updates when gain exceeds."""
     new_best, new_cand, run_out = handle_best_candidate(
         current_gain=0.5,
         best_gain=0.2,
@@ -264,6 +277,7 @@ def test_handle_best_candidate_updates_when_gain_exceeds():
 
 
 def test_handle_best_candidate_keeps_previous_when_gain_lower():
+    """Handle best candidate keeps previous when gain lower."""
     new_best, new_cand, run_out = handle_best_candidate(
         current_gain=0.1,
         best_gain=0.5,
@@ -279,6 +293,7 @@ def test_handle_best_candidate_keeps_previous_when_gain_lower():
 
 def test_handle_best_candidate_detects_runtime_exhaustion():
     # start_time deep in the past with a tiny budget must trip the timeout path.
+    """Handle best candidate detects runtime exhaustion."""
     past = time.perf_counter() - 3600.0
     _, _, run_out = handle_best_candidate(
         current_gain=0.1,
@@ -299,6 +314,7 @@ def test_handle_best_candidate_detects_runtime_exhaustion():
 
 
 def test_find_best_partial_gain_returns_max():
+    """Find best partial gain returns max."""
     partial_gains = {0: (0.1, 0), 1: (0.5, 1), 2: (0.3, 2)}
     candidates = [(0,), (1,), (2,)]
     best_gain, best_key = find_best_partial_gain(
@@ -313,6 +329,7 @@ def test_find_best_partial_gain_returns_max():
 
 
 def test_find_best_partial_gain_skips_failed_and_added():
+    """Find best partial gain skips failed and added."""
     partial_gains = {0: (0.9, 0), 1: (0.5, 1), 2: (0.7, 2)}
     candidates = [(0,), (1,), (2,)]
     # 0 (best) is failed, 2 (next) is added => 1 wins.
@@ -329,6 +346,7 @@ def test_find_best_partial_gain_skips_failed_and_added():
 
 def test_find_best_partial_gain_skips_selected_subelement():
     # Candidate 0 references variable 5 which is already in selected_vars => skip; candidate 1 (variable 6) wins.
+    """Find best partial gain skips selected subelement."""
     partial_gains = {0: (0.9, 0), 1: (0.4, 1)}
     candidates = [(5,), (6,)]
     best_gain, best_key = find_best_partial_gain(
@@ -343,6 +361,7 @@ def test_find_best_partial_gain_skips_selected_subelement():
 
 
 def test_find_best_partial_gain_empty_returns_none():
+    """Find best partial gain empty returns none."""
     best_gain, best_key = find_best_partial_gain(
         partial_gains={},
         failed_candidates=set(),
@@ -360,6 +379,7 @@ def test_find_best_partial_gain_empty_returns_none():
 
 
 def test_evaluate_candidate_returns_tuple_with_set(xor_factors):
+    """Evaluate candidate returns tuple with set."""
     factors_data, factors_nbins, factors_names = xor_factors
     kwargs = _make_eval_kwargs(factors_data, factors_nbins, factors_names)
     current_gain, sink_reasons = evaluate_candidate(**kwargs)
@@ -368,6 +388,7 @@ def test_evaluate_candidate_returns_tuple_with_set(xor_factors):
 
 
 def test_evaluate_candidate_cached_confident_short_circuits(xor_factors):
+    """Evaluate candidate cached confident short circuits."""
     factors_data, factors_nbins, factors_names = xor_factors
     kwargs = _make_eval_kwargs(factors_data, factors_nbins, factors_names)
     # ``cached_confident_MIs`` stores ``(bootstrapped_gain, confidence)`` tuples
@@ -428,6 +449,7 @@ def test_evaluate_candidate_cached_confident_branch_routed_through_su_floor_scal
 
 
 def test_evaluate_candidate_cached_mi_short_circuits(xor_factors):
+    """Evaluate candidate cached mi short circuits."""
     factors_data, factors_nbins, factors_names = xor_factors
     kwargs = _make_eval_kwargs(factors_data, factors_nbins, factors_names)
     sentinel = 0.789
@@ -437,6 +459,7 @@ def test_evaluate_candidate_cached_mi_short_circuits(xor_factors):
 
 
 def test_evaluate_candidate_populates_cached_MIs_on_miss(xor_factors):
+    """Evaluate candidate populates cached MIs on miss."""
     factors_data, factors_nbins, factors_names = xor_factors
     kwargs = _make_eval_kwargs(factors_data, factors_nbins, factors_names)
     assert (0,) not in kwargs["cached_MIs"]
@@ -448,6 +471,7 @@ def test_evaluate_candidate_populates_cached_MIs_on_miss(xor_factors):
 
 def test_evaluate_candidate_cpu_dispatch_no_gpu_required(xor_factors):
     # ``use_gpu=False`` must not raise even when cupy is absent; this exercises the CPU mi_direct branch.
+    """Evaluate candidate cpu dispatch no gpu required."""
     factors_data, factors_nbins, factors_names = xor_factors
     kwargs = _make_eval_kwargs(factors_data, factors_nbins, factors_names)
     kwargs["use_gpu"] = False
@@ -457,6 +481,7 @@ def test_evaluate_candidate_cpu_dispatch_no_gpu_required(xor_factors):
 
 def test_evaluate_candidate_zero_direct_gain_returns_zero(xor_factors):
     # Force direct_gain=0 via cached_MIs sentinel; the function must short-circuit current_gain to 0.
+    """Evaluate candidate zero direct gain returns zero."""
     factors_data, factors_nbins, factors_names = xor_factors
     kwargs = _make_eval_kwargs(factors_data, factors_nbins, factors_names)
     kwargs["cached_MIs"] = {(0,): 0.0}
@@ -467,6 +492,7 @@ def test_evaluate_candidate_zero_direct_gain_returns_zero(xor_factors):
 
 def test_evaluate_candidate_fleuret_algo_runs_conditional_path(xor_factors):
     # With selected_vars non-empty and use_simple_mode=False the fleuret conditional-MI loop runs and writes cached_cond_MIs.
+    """Evaluate candidate fleuret algo runs conditional path."""
     factors_data, factors_nbins, factors_names = xor_factors
     kwargs = _make_eval_kwargs(factors_data, factors_nbins, factors_names, cand_idx=1, X=(1,), selected_vars=[0])
     cond_cache = kwargs["cached_cond_MIs"]
@@ -478,6 +504,7 @@ def test_evaluate_candidate_fleuret_algo_runs_conditional_path(xor_factors):
 
 def test_evaluate_candidate_partial_gains_early_exit(xor_factors):
     # When a prior partial gain is already <= best_gain the function short-circuits without running evaluate_gain.
+    """Evaluate candidate partial gains early exit."""
     factors_data, factors_nbins, factors_names = xor_factors
     kwargs = _make_eval_kwargs(factors_data, factors_nbins, factors_names, cand_idx=1, X=(1,), selected_vars=[0])
     kwargs["best_gain"] = 0.9

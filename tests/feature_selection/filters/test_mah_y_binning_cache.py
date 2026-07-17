@@ -17,6 +17,7 @@ from mlframe.feature_selection.filters._mah import (
 
 
 def test_get_y_binning_matches_uncached_compute():
+    """Get y binning matches uncached compute."""
     clear_mah_y_binning_cache()
     rng = np.random.default_rng(0)
     y = rng.integers(0, 5, 500).astype(np.int64)
@@ -32,6 +33,7 @@ def test_get_y_binning_matches_uncached_compute():
 
 
 def test_get_y_binning_cache_hit_skips_recompute(monkeypatch):
+    """Get y binning cache hit skips recompute."""
     clear_mah_y_binning_cache()
     rng = np.random.default_rng(1)
     y = rng.integers(0, 5, 500).astype(np.int64)
@@ -39,6 +41,7 @@ def test_get_y_binning_cache_hit_skips_recompute(monkeypatch):
     orig = _compute_y_binning
 
     def counting_compute(y_arr, K):
+        """Counting compute."""
         calls["n"] += 1
         return orig(y_arr, K)
 
@@ -80,6 +83,7 @@ def test_mah_bin_edges_and_mah_mi_equivalent_across_repeated_calls_with_same_y()
 
 
 def test_get_y_binning_distinguishes_different_y_objects():
+    """Get y binning distinguishes different y objects."""
     clear_mah_y_binning_cache()
     rng = np.random.default_rng(3)
     y1 = rng.integers(0, 3, 300).astype(np.int64)

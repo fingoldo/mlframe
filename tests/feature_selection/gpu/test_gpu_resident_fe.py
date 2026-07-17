@@ -17,6 +17,7 @@ from mlframe.feature_selection.filters._gpu_resident_fe import (
 
 
 def _ab_target(n=20000, seed=0):
+    """Ab target."""
     rng = np.random.default_rng(seed)
     a = rng.uniform(1.0, 5.0, n)
     b = rng.uniform(1.0, 5.0, n)
@@ -28,6 +29,7 @@ def _ab_target(n=20000, seed=0):
 
 
 def test_gate_default_off(monkeypatch):
+    """Gate default off."""
     monkeypatch.delenv("MLFRAME_FE_GPU_RESIDENT", raising=False)
     assert fe_gpu_resident_enabled() is False
     monkeypatch.setenv("MLFRAME_FE_GPU_RESIDENT", "on")
@@ -90,6 +92,7 @@ def test_fast_path_preserves_exact_winner():
 
 
 def _target(a, b, kind):
+    """Helper that target."""
     if kind == "a2b":
         y = a**2 / np.where(b == 0, 1e-9, b)
     elif kind == "logsin":
@@ -142,6 +145,7 @@ def test_dispatch_falls_back_to_cpu_on_gpu_error(monkeypatch):
     import mlframe.feature_selection.filters._gpu_resident_fe as G
 
     def _boom(*args, **kwargs):
+        """Helper that boom."""
         raise RuntimeError("simulated GPU failure")
 
     monkeypatch.setattr(G, "gpu_resident_pair_candidate_mi", _boom)
@@ -343,6 +347,7 @@ def test_grand_fused_pair_mi_resident_gate_skips_d2h_then_h2d_round_trip():
     int8_calls = {"n": 0}
 
     def _counting_asnumpy(arr, *a_, **kw):
+        """Counting asnumpy."""
         if getattr(arr, "dtype", None) == cp.int8:
             int8_calls["n"] += 1
         return orig_asnumpy(arr, *a_, **kw)
@@ -545,6 +550,7 @@ def test_radix_with_extremes_bit_identical_to_separate_minmax(monkeypatch):
     orig_fn = gs._radix_select_interior_edges
 
     def old_path(cand, nbins, cm_hint=None, with_extremes=False):
+        """Old path."""
         interior = orig_fn(cand, nbins, cm_hint=cm_hint, with_extremes=False)
         if interior is None:
             return None
@@ -578,6 +584,7 @@ def test_radix_f64_v3_compaction_bit_identical_to_v2(monkeypatch):
     Xd = cp.ascontiguousarray(cp.asarray(X))
 
     def edges(v3: str):
+        """Helper that edges."""
         monkeypatch.setenv("MLFRAME_RADIX_F64_V3", v3)
         gs._RADIX_SELECT_INTERP_F64_V3_KERNEL = None
         return cp.asnumpy(gs._radix_select_interior_edges(Xd, 21))
@@ -601,6 +608,7 @@ def test_radix_f32_bsearch_variant_bit_identical_to_linear(monkeypatch):
     rng = np.random.default_rng(11)
 
     def _codes(cand, variant):
+        """Helper that codes."""
         S._RADIX_F32_VARIANT_OVERRIDE = variant
         try:
             return S._gpu_resident_discretize_codes(cand, 20)

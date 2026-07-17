@@ -112,6 +112,7 @@ def _fit_in_subprocess(body: str, *, timeout: int = 850) -> dict:
 
 
 def _toks(name: str, raw: set) -> set:
+    """Helper that toks."""
     out = set()
     for t in _IDENT.findall(name):
         if t in raw:
@@ -122,6 +123,7 @@ def _toks(name: str, raw: set) -> set:
 
 
 def _flat_tokens(sel, raw: set) -> set:
+    """Flat tokens."""
     s: set = set()
     for nm in sel:
         s |= _toks(nm, raw)
@@ -129,10 +131,12 @@ def _flat_tokens(sel, raw: set) -> set:
 
 
 def _raw_in_support(sel, raw: set) -> set:
+    """Raw in support."""
     return {n for n in sel if n in raw}
 
 
 def _engineered(sel) -> list:
+    """Helper that engineered."""
     return [n for n in sel if ("(" in n) or ("__" in n)]
 
 

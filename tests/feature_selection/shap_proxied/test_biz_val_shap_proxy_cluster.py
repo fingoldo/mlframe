@@ -23,6 +23,7 @@ pytest.importorskip("xgboost")
 
 
 def _make_wide(seed=0, n=1800):
+    """Make wide."""
     rng = np.random.default_rng(seed)
     z = rng.normal(size=(n, 4))
     coefs = [1.0, 0.8, 0.7, 0.5]
@@ -43,6 +44,7 @@ def _make_wide(seed=0, n=1800):
 
 @pytest.mark.slow
 def test_biz_val_cluster_aware_recovers_latent_factors_on_wide_data():
+    """Biz val cluster aware recovers latent factors on wide data."""
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
     X, y = _make_wide(seed=0)

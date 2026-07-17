@@ -40,6 +40,7 @@ from mlframe.feature_selection.filters.info_theory import (
 
 
 def _discretize(X, nb=5):
+    """Helper that discretize."""
     n, p = X.shape
     D = np.zeros((n, p), dtype=np.int32)
     nbins = np.zeros(p, dtype=np.int64)
@@ -55,6 +56,7 @@ def _discretize(X, nb=5):
 
 
 def _ctx(D, y, nbins):
+    """Helper that ctx."""
     n = D.shape[0]
     yc = np.ascontiguousarray(y.astype(np.int64))
     ky = int(np.unique(yc).size)
@@ -63,10 +65,12 @@ def _ctx(D, y, nbins):
 
 
 def _pair_mi(D, nbins, a, b, yc, fy):
+    """Pair mi."""
     return float(batch_pair_mi_prange(D, np.array([a]), np.array([b]), nbins, yc, fy)[0])
 
 
 def _all_pair_mis(D, nbins, p, yc, fy):
+    """All pair mis."""
     pa, pb = zip(*combinations(range(p), 2))
     pa = np.asarray(pa, np.int64)
     pb = np.asarray(pb, np.int64)
@@ -89,6 +93,7 @@ def _grow_from_pair(D, nbins, a, b, p, yc, fy):
 # noise floor, so the needle pair never enters a top-N order-2 frontier.
 # =============================================================================
 def test_pure_3way_xor_subpairs_below_frontier():
+    """Pure 3way xor subpairs below frontier."""
     rng = np.random.default_rng(0)
     n, p = 3000, 40
     X = rng.standard_normal((n, p))
@@ -104,6 +109,7 @@ def test_pure_3way_xor_subpairs_below_frontier():
 
     # ranks of the three needle sub-pairs among all C(40,2) pairs
     def _rank_of(s):
+        """Rank of."""
         for r, i in enumerate(order):
             if {int(pa[i]), int(pb[i])} == s:
                 return r
@@ -130,6 +136,7 @@ def test_pure_3way_xor_subpairs_below_frontier():
 # finding 1 shows that base pair never reaches the frontier.)
 # =============================================================================
 def test_cmi_uplift_ranks_true_third_operand_first_given_base():
+    """Cmi uplift ranks true third operand first given base."""
     rng = np.random.default_rng(0)
     n, p = 3000, 40
     X = rng.standard_normal((n, p))
@@ -150,6 +157,7 @@ def test_cmi_uplift_ranks_true_third_operand_first_given_base():
 # floor) does NOT recover the pure-3-way-XOR needle (it is never grown).
 # =============================================================================
 def test_lattice_misses_pure_3way_needle_end_to_end():
+    """Lattice misses pure 3way needle end to end."""
     rng = np.random.default_rng(0)
     n, p = 3000, 40
     X = rng.standard_normal((n, p))
@@ -177,6 +185,7 @@ def test_lattice_misses_pure_3way_needle_end_to_end():
 # on the SAME pure-3-way-XOR fixture, so #10 closes no gap.
 # =============================================================================
 def test_gbm_seeder_already_recovers_what_lattice_targets():
+    """Gbm seeder already recovers what lattice targets."""
     import pytest
 
     pytest.importorskip("lightgbm")

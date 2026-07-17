@@ -53,6 +53,7 @@ from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
 
 def _disc_kwargs(**overrides):
+    """Builds CompositeTargetDiscoveryConfig kwargs with hybrid-screening defaults, overridable per test."""
     base = dict(
         enabled=True,
         screening="hybrid",
@@ -221,6 +222,7 @@ class TestBug4EnsemblePrePipeline:
         # entry in a shim that applies pre_pipeline before predict.
         # Here we directly assert the shim's expected behaviour.
         def _shim_predict(entry, X_in):
+            """Reproduces the ensemble's per-component predict shim: applies entry.pre_pipeline before predict, if present."""
             X_t = X_in
             if entry.pre_pipeline is not None:
                 X_t = entry.pre_pipeline.transform(X_in)

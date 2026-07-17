@@ -35,7 +35,9 @@ class _Recipe:
 
 
 def _stub(df, recipes=()):
+    """Helper that stub."""
     class _Stub:
+        """Groups tests covering Stub."""
         feature_names_in_ = list(df.columns)
         _engineered_recipes_ = list(recipes)
         _engineered_features_ = [getattr(r, "name", "") for r in recipes]
@@ -55,6 +57,7 @@ def test_biz_val_pure_form_retention_min_resid_corr_kwarg_threads():
     punitive = retain_usable_pure_forms(_stub(df), df, y, seed=0, min_resid_corr=0.99)
 
     def _has_ab(extra):
+        """Has ab."""
         return any(frozenset(getattr(r, "src_names", ()) or ()) == frozenset({"a", "b"}) for r, _ in extra)
 
     assert _has_ab(permissive), "permissive corr floor (0.0) must admit the genuine a**2/b joint form"

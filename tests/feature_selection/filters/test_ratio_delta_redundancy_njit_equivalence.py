@@ -13,6 +13,7 @@ from mlframe.feature_selection.filters._ratio_delta_fe import _passes_redundancy
 
 
 def _passes_redundancy_ref(candidate, a_vals, b_vals, threshold):
+    """Passes redundancy ref."""
     cand = candidate
     if cand.std() <= 1e-12:
         return False
@@ -33,6 +34,7 @@ def _passes_redundancy_ref(candidate, a_vals, b_vals, threshold):
 
 
 def test_passes_redundancy_matches_reference_across_random_configs():
+    """Passes redundancy matches reference across random configs."""
     rng = np.random.default_rng(1)
     n_checks = 0
     for trial in range(400):

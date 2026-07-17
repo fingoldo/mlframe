@@ -25,6 +25,7 @@ def _indexed_per_row_loop(X_test, cat_i, cat_j, mapping, *, encoding="raw", te_l
     lookup = te_lookup or {}
 
     def _value_for_pair(si, sj):
+        """Value for pair."""
         if encoding == "target":
             code = mapping.get((si, sj))
             return global_mean if code is None else float(lookup.get(code, global_mean))
@@ -38,6 +39,7 @@ def _indexed_per_row_loop(X_test, cat_i, cat_j, mapping, *, encoding="raw", te_l
 @pytest.mark.parametrize("ki,kj", [(3, 3), (8, 5), (25, 4)])
 @pytest.mark.parametrize("encoding", ["raw", "target"])
 def test_apply_cat_pair_bit_identical_to_indexed_loop(ki, kj, encoding):
+    """Apply cat pair bit identical to indexed loop."""
     from mlframe.feature_selection.filters._cat_pair_fe import apply_cat_pair_cross, _encode_pair
     from mlframe.feature_selection.filters._target_encoding_fe import _column_to_str
 
@@ -87,6 +89,7 @@ def test_apply_cat_pair_bit_identical_to_indexed_loop(ki, kj, encoding):
 
 
 def test_apply_cat_pair_empty():
+    """Apply cat pair empty."""
     from mlframe.feature_selection.filters._cat_pair_fe import apply_cat_pair_cross
 
     out = apply_cat_pair_cross(pd.DataFrame({"ci": [], "cj": []}), "ci", "cj", {}, encoding="raw")

@@ -21,6 +21,7 @@ from mlframe.feature_selection.filters import (
 
 
 def _two_member_cluster(seed=0, n=300):
+    """Two member cluster."""
     rng = np.random.default_rng(seed)
     base = rng.standard_normal(n)
     X = np.column_stack(
@@ -34,6 +35,7 @@ def _two_member_cluster(seed=0, n=300):
 
 
 def test_signed_l2_sum_not_collapsed_to_median():
+    """Signed l2 sum not collapsed to median."""
     X, labels = _two_member_cluster()
     units_l2, _, _ = build_unit_matrix(X, labels, weighting="signed_l2_sum")
     units_med, _, _ = build_unit_matrix(X, labels, weighting="median")
@@ -43,6 +45,7 @@ def test_signed_l2_sum_not_collapsed_to_median():
 
 
 def test_signed_l2_sum_matches_canonical_reducer():
+    """Signed l2 sum matches canonical reducer."""
     X, labels = _two_member_cluster()
     units_l2, _, _ = build_unit_matrix(X, labels, weighting="signed_l2_sum")
     Z, *_ = standardize_align_cluster(X[:, [0, 1]], 0)
@@ -51,6 +54,7 @@ def test_signed_l2_sum_matches_canonical_reducer():
 
 
 def test_signed_max_abs_not_collapsed_to_median():
+    """Signed max abs not collapsed to median."""
     X, labels = _two_member_cluster(seed=1)
     units_sma, _, _ = build_unit_matrix(X, labels, weighting="signed_max_abs")
     units_med, _, _ = build_unit_matrix(X, labels, weighting="median")

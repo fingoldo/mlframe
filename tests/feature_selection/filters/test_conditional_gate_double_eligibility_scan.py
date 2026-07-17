@@ -25,6 +25,7 @@ from mlframe.feature_selection.filters._conditional_gate_fe import (
 
 
 def _build_frame(seed: int, n: int = 600, p: int = 6):
+    """Build frame."""
     rng = np.random.default_rng(seed)
     X = pd.DataFrame({f"x{i}": rng.standard_normal(n) for i in range(p)})
     y = (X["x0"].to_numpy() > X["x1"].to_numpy()).astype(int)
@@ -33,11 +34,13 @@ def _build_frame(seed: int, n: int = 600, p: int = 6):
 
 @pytest.mark.parametrize("seed", [0, 1, 2])
 def test_row_argmax_eligibility_scanned_once_per_column(seed):
+    """Row argmax eligibility scanned once per column."""
     X, y = _build_frame(seed)
     calls = {"n": 0}
     orig = _is_argmax_eligible
 
     def spy(x):
+        """Helper that spy."""
         calls["n"] += 1
         return orig(x)
 
@@ -49,11 +52,13 @@ def test_row_argmax_eligibility_scanned_once_per_column(seed):
 
 @pytest.mark.parametrize("seed", [0, 1, 2])
 def test_conditional_gate_eligibility_scanned_once_per_column(seed):
+    """Conditional gate eligibility scanned once per column."""
     X, y = _build_frame(seed)
     calls = {"n": 0}
     orig = _is_argmax_eligible
 
     def spy(x):
+        """Helper that spy."""
         calls["n"] += 1
         return orig(x)
 
@@ -65,6 +70,7 @@ def test_conditional_gate_eligibility_scanned_once_per_column(seed):
 
 @pytest.mark.parametrize("seed", [0, 1, 2])
 def test_row_argmax_output_unchanged_by_prefiltered_skip(seed):
+    """Row argmax output unchanged by prefiltered skip."""
     X, y = _build_frame(seed)
     appended, recipes = hybrid_row_argmax_fe_with_recipes(X, y, seed=seed)
     # A second, independent call (fresh eligibility scan each time, no shared cache) must reproduce
@@ -76,6 +82,7 @@ def test_row_argmax_output_unchanged_by_prefiltered_skip(seed):
 
 @pytest.mark.parametrize("seed", [0, 1, 2])
 def test_conditional_gate_output_unchanged_by_prefiltered_skip(seed):
+    """Conditional gate output unchanged by prefiltered skip."""
     X, y = _build_frame(seed)
     appended, recipes = hybrid_conditional_gate_fe_with_recipes(X, y, seed=seed)
     appended2, recipes2 = hybrid_conditional_gate_fe_with_recipes(X, y, seed=seed)

@@ -35,9 +35,9 @@ def test_biz_val_constrained_weight_blend_beats_equal_weight_average():
     equal_weight_pred = np.mean(preds, axis=0)
     equal_weight_rmse = _rmse(y_true, equal_weight_pred)
 
-    assert result["loss"] < equal_weight_rmse, (
-        f"constrained blend should beat naive equal-weight averaging: blend={result['loss']:.4f} equal_weight={equal_weight_rmse:.4f}"
-    )
+    assert (
+        result["loss"] < equal_weight_rmse
+    ), f"constrained blend should beat naive equal-weight averaging: blend={result['loss']:.4f} equal_weight={equal_weight_rmse:.4f}"
     assert np.isclose(result["weights"].sum(), 1.0)
     assert np.all(result["weights"] >= -1e-9)
     assert result["weights"][:5].sum() > 0.7, f"weights should overwhelmingly favor the good models, got {result['weights']}"

@@ -15,7 +15,6 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-
 TESTS_ROOT = Path(__file__).resolve().parent.parent
 
 # Any test_*.py whose stem matches one of these patterns is rejected.
@@ -36,12 +35,12 @@ FORBIDDEN_PATTERNS = [
 
 
 def _iter_test_files() -> list[Path]:
-    """Helper that iter test files."""
+    """Every test_*.py file under the test tree, excluding __pycache__ and this file itself."""
     return [p for p in TESTS_ROOT.rglob("test_*.py") if "__pycache__" not in p.parts and p.name != Path(__file__).name]
 
 
 def test_no_audit_wave_filenames() -> None:
-    """No audit wave filenames."""
+    """No test filename encodes a transient audit-wave/low-polish marker in its stem."""
     offenders: list[str] = []
     for path in _iter_test_files():
         stem = path.stem

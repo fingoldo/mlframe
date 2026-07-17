@@ -69,6 +69,7 @@ def synthetic_pair_inputs():
 
 
 def _run_check(inputs, *, unary_preset: str, binary_preset: str):
+    """Run check_prospective_fe_pairs with the given unary/binary transform presets on the shared inputs fixture."""
     unary = create_unary_transformations(preset=unary_preset)
     binary = create_binary_transformations(preset=binary_preset)
     times_spent: dict = defaultdict(float)
@@ -101,12 +102,15 @@ def _run_check(inputs, *, unary_preset: str, binary_preset: str):
 
 
 class TestDispatcher:
+    """Groups tests covering TestDispatcher."""
     def test_buffer_estimate_matches_byte_count(self):
         # float32 = 4 bytes; ensure the helper returns n*K*|binary|*4.
+        """Buffer estimate matches byte count."""
         assert _estimate_fe_shared_buffer_bytes(100, 64, 18) == 100 * 64 * 18 * 4
 
     def test_can_hoist_returns_false_when_buffer_overshoots(self):
         # 100 TiB request never fits; result must be False regardless of host RAM.
+        """Can hoist returns false when buffer overshoots."""
         big = 100 * (2**40)
         can, bb, _av = _can_hoist_shared_buffer(big)
         assert can is False
@@ -114,6 +118,7 @@ class TestDispatcher:
 
     def test_can_hoist_returns_true_on_zero_byte_request(self):
         # Trivially within any budget.
+        """Can hoist returns true on zero byte request."""
         can, _bb, _av = _can_hoist_shared_buffer(0)
         assert can is True
 
@@ -139,6 +144,7 @@ class TestHoistHeadroomAcceptance:
 
     def _force_avail(self, monkeypatch, available_bytes):
         # Pin the OPT5 vmem cache so the decision is deterministic regardless of host RAM.
+        """Force avail."""
         monkeypatch.setattr(fe_mod, "_FE_VMEM_CACHE", (fe_mod._time.monotonic(), int(available_bytes)))
 
     def test_small_buffer_at_abundant_ram_hoists(self, monkeypatch):
@@ -183,6 +189,7 @@ class TestSubsampleMode:
     columns must still be produced at full n (mrmr.py contract)."""
 
     def _run_with_subsample(self, inputs, *, subsample_n: int):
+        """Run with subsample."""
         unary = create_unary_transformations(preset="minimal")
         binary = create_binary_transformations(preset="minimal")
         times_spent: dict = defaultdict(float)
@@ -250,6 +257,7 @@ class TestFastVsFallbackEquivalence:
     """Same inputs through both paths -> same survivor set and same column data."""
 
     def _normalise_features(self, res_pair):
+        """Normalise features."""
         _this_pair_features, transformed_vals, new_cols, _nbins, _msgs = res_pair
         # Use new_cols as the deterministic key; columns rebuilt from the same
         # (a_key, b_key, bin_func_name) metadata must match bit-for-bit up to
@@ -259,6 +267,7 @@ class TestFastVsFallbackEquivalence:
     @pytest.mark.fast
     def test_minimal_preset_paths_produce_identical_output(self, synthetic_pair_inputs, monkeypatch):
         # Fast path
+        """Minimal preset paths produce identical output."""
         monkeypatch.setattr(fe_mod, "_FE_BUFFER_RAM_BUDGET_RATIO", 1.0)
         fast = _run_check(synthetic_pair_inputs, unary_preset="minimal", binary_preset="minimal")
         # Fallback path
@@ -305,6 +314,7 @@ class TestAbsoluteBufferCeiling:
     ``MLFRAME_FE_BUFFER_MAX_GB``) must cap the decision regardless of how much RAM is free."""
 
     def _force_avail(self, monkeypatch, available_bytes):
+        """Force avail."""
         monkeypatch.setattr(fe_mod, "_FE_VMEM_CACHE", (fe_mod._time.monotonic(), int(available_bytes)))
 
     def test_budget_does_not_scale_unboundedly_with_available_ram(self, monkeypatch):
@@ -335,6 +345,7 @@ class TestAbsoluteBufferCeiling:
         assert can is True
 
     def test_ceiling_env_override(self, monkeypatch):
+        """Ceiling env override."""
         monkeypatch.setenv("MLFRAME_FE_BUFFER_MAX_GB", "2.0")
         assert fe_mod._fe_buffer_absolute_max_bytes() == int(2.0 * 2**30)
         monkeypatch.setenv("MLFRAME_FE_BUFFER_MAX_GB", "garbage")

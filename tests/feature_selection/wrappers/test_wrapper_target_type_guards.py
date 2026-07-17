@@ -13,6 +13,7 @@ import pytest
 
 
 def _Xy(n=400, seed=0):
+    """Build a 4-column frame with two signal columns (s0, s1) and two noise columns, for the target-type guard tests."""
     rng = np.random.default_rng(seed)
     s0, s1 = rng.normal(size=n), rng.normal(size=n)
     X = pd.DataFrame({"s0": s0, "s1": s1, "n0": rng.normal(size=n), "n1": rng.normal(size=n)})
@@ -35,6 +36,7 @@ def test_shapproxied_rejects_2d_multilabel_target_clearly():
 
 
 def test_shapproxied_accepts_single_column_2d_with_hint():
+    """Shapproxied accepts single column 2d with hint."""
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
     X, s0, _ = _Xy()
@@ -59,6 +61,7 @@ def test_hybrid_rejects_regression_target_clearly():
 
 
 def test_hybrid_rejects_multilabel_target_clearly():
+    """Hybrid rejects multilabel target clearly."""
     from mlframe.feature_selection.hybrid_selector import HybridSelector
 
     X, s0, s1 = _Xy()

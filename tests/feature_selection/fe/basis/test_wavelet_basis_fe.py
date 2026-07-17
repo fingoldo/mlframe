@@ -48,6 +48,7 @@ N = 4000
 
 
 def _heldout_r2(feat_cols, y):
+    """Heldout r2."""
     from sklearn.linear_model import Ridge
     from sklearn.preprocessing import StandardScaler
 
@@ -85,6 +86,7 @@ def _best_set_r2(legs, x, y, k=4):
 
 
 def _haar_set(x, lo, span, max_scale=3):
+    """Haar set."""
     from mlframe.feature_selection.filters._wavelet_basis_fe import _dyadic_haar_leg
 
     z = np.clip((x - lo) / span, 0.0, 1.0)
@@ -96,6 +98,7 @@ def _haar_set(x, lo, span, max_scale=3):
 
 
 def _fourier_set(x, lo, span, n_freq=8):
+    """Fourier set."""
     z = (x - lo) / span
     legs = {}
     for f in range(1, n_freq + 1):
@@ -105,6 +108,7 @@ def _fourier_set(x, lo, span, n_freq=8):
 
 
 def _spline_set(x, lo, hi, n_inner=8, degree=3):
+    """Spline set."""
     from scipy.interpolate import BSpline
 
     z = np.clip((x - lo) / max(hi - lo, 1e-12), 0.0, 1.0)
@@ -175,6 +179,7 @@ def test_recipe_replay_is_leak_safe_and_bit_exact():
 
 
 def test_dispatcher_routes_orth_wavelet():
+    """Dispatcher routes orth wavelet."""
     from mlframe.feature_selection.filters.engineered_recipes import (
         apply_recipe,
         build_orth_wavelet_recipe,

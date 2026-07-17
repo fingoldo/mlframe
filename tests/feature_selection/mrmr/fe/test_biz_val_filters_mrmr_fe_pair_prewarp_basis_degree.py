@@ -30,6 +30,7 @@ _LEAN = dict(dcd_enable=False, build_friend_graph=False, cluster_aggregate_enabl
 
 
 def _make_poly(seed: int = 202, n: int = N):
+    """Make poly."""
     rng = np.random.default_rng(seed)
     a = rng.uniform(-2.5, 2.5, n)
     b = rng.uniform(-2.5, 2.5, n)
@@ -41,6 +42,7 @@ def _make_poly(seed: int = 202, n: int = N):
 
 
 def _prewarp_mrmr(basis="chebyshev", max_degree=4):
+    """Prewarp mrmr."""
     return MRMR(
         verbose=0,
         n_jobs=1,
@@ -55,6 +57,7 @@ def _prewarp_mrmr(basis="chebyshev", max_degree=4):
 
 
 def _best_engineered_corr(fs, df, true):
+    """Best engineered corr."""
     names = list(fs.get_feature_names_out())
     eng = [nm for nm in names if nm not in RAW]
     if not eng:
@@ -72,6 +75,7 @@ def _best_engineered_corr(fs, df, true):
 
 
 def _fit(make):
+    """Helper that fit."""
     MRMR.clear_fit_cache()
     df, y, true = _make_poly()
     with warnings.catch_warnings():
@@ -82,12 +86,14 @@ def _fit(make):
 
 @pytest.mark.parametrize("basis", ["hermite", "legendre"])
 def test_prewarp_basis_choice_recovers_non_monotone_inner(basis):
+    """Prewarp basis choice recovers non monotone inner."""
     fs, df, true = _fit(lambda: _prewarp_mrmr(basis=basis, max_degree=4))
     corr = _best_engineered_corr(fs, df, true)
     assert corr >= 0.85, f"prewarp basis={basis} failed to recover F-POLY inner: |corr|={corr:.3f}"
 
 
 def test_prewarp_max_degree_is_a_lever_high_degree_beats_low():
+    """Prewarp max degree is a lever high degree beats low."""
     fs_hi, df, true = _fit(lambda: _prewarp_mrmr(basis="chebyshev", max_degree=4))
     fs_lo, _, _ = _fit(lambda: _prewarp_mrmr(basis="chebyshev", max_degree=2))
     corr_hi = _best_engineered_corr(fs_hi, df, true)

@@ -16,6 +16,7 @@ from mlframe.training._precompute import get_trainset_features_stats
 
 
 def _make_cat_frame(n: int = 1000, n_cols: int = 5, seed: int = 0):
+    """Builds a frame of dtype-declared pandas Categoricals plus one object-dtype column for slow-path branch coverage."""
     rng = np.random.default_rng(seed)
     data = {}
     for i in range(n_cols):
@@ -39,6 +40,7 @@ def test_S06_categorical_dtype_uses_dtype_categories_not_unique_scan():
     orig_unique = pd.Series.unique
 
     def _counting_unique(self, *args, **kwargs):
+        """Records which Series.unique() was called on, to prove CategoricalDtype columns never hit this path."""
         call_log.append(self.name)
         return orig_unique(self, *args, **kwargs)
 

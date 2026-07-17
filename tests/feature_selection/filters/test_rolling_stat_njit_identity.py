@@ -6,6 +6,7 @@ from mlframe.feature_selection.filters._temporal_agg_fe import _rolling_stat_pas
 
 
 def _ref(times, vals, gc, window, stat):
+    """Helper that ref."""
     n = vals.size
     out = np.full(n, np.nan)
     td = pd.Timedelta(window) if _is_datetime_like(times) else _numeric_window(window)
@@ -27,6 +28,7 @@ def _ref(times, vals, gc, window, stat):
 
 
 def _sorted_by_entity_time(n, n_ent, seed):
+    """Sorted by entity time."""
     rng = np.random.default_rng(seed)
     gc = np.sort(rng.integers(0, n_ent, n))
     t = np.zeros(n)
@@ -39,6 +41,7 @@ def _sorted_by_entity_time(n, n_ent, seed):
 
 
 def test_numeric_time_all_stats_bit_identical():
+    """Numeric time all stats bit identical."""
     t, vals, gc = _sorted_by_entity_time(8000, 80, 0)
     for stat in ("count", "mean", "std", "min", "max"):
         got = _rolling_stat_past_only(t, vals, gc, "50", stat)
@@ -47,6 +50,7 @@ def test_numeric_time_all_stats_bit_identical():
 
 
 def test_datetime_time_bit_identical():
+    """Datetime time bit identical."""
     t, vals, gc = _sorted_by_entity_time(6000, 60, 1)
     times = np.datetime64("2020-01-01") + t.astype("int64").astype("timedelta64[h]")
     for stat in ("mean", "std", "count"):

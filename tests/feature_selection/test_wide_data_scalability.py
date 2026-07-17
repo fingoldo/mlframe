@@ -114,6 +114,7 @@ def test_hybrid_selector_completes_and_narrows_wide(p):
     orig = hs.corr_clusters
 
     def _guarded(Xc, *a, **k):
+        """Helper that guarded."""
         seen["ncols"] = Xc.shape[1]
         assert Xc.shape[1] <= cap, f"corr_clusters got {Xc.shape[1]} cols > cap {cap} (full p x p risk)"
         return orig(Xc, *a, **k)
@@ -137,6 +138,7 @@ def test_hybrid_selector_completes_and_narrows_wide(p):
     # under a contended box) with a cheap single-fit LGBM gain importance. The corr_clusters narrowing guard under test
     # is agnostic to HOW the FI was produced -- it only uses FI>0 to pick the relevance-survivor set to cluster.
     def _cheap_fi(X_, y_):
+        """Cheap fi."""
         import lightgbm as lgb
 
         mm = lgb.LGBMClassifier(n_estimators=60, num_leaves=31, n_jobs=1, verbose=-1)

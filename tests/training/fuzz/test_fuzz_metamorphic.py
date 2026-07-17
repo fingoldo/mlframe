@@ -206,6 +206,7 @@ def _run_suite(combo: FuzzCombo, df, target_col: str, tmp_path) -> dict:
 
 
 def _tolerance_for(combo: FuzzCombo) -> float:
+    """Returns the per-target-type metric tolerance (regression/LTR/classification) for metamorphic stability checks."""
     if combo.target_type == "regression":
         return _REG_R2_TOLERANCE
     if combo.target_type == "learning_to_rank":
@@ -237,6 +238,7 @@ def _no_signal(combo: FuzzCombo, m_base: float, m_perturbed: float) -> bool:
 
 
 def _curated_metamorphic_combos() -> list[FuzzCombo]:
+    """Returns one FuzzCombo per model family (or the full sweep under MLFRAME_METAMORPHIC_ALL=1) for metamorphic testing."""
     if os.environ.get("MLFRAME_METAMORPHIC_ALL") == "1":
         return enumerate_combos(target=150, master_seed=20260422)
     combos = enumerate_combos(target=150, master_seed=20260422)

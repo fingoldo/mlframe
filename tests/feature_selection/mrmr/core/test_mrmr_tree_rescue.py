@@ -27,6 +27,7 @@ def _wide_interaction(n=2000, p_noise=80, seed=0):
 
 @pytest.mark.timeout(300)
 def test_rescue_fires_on_wide_underselection_and_recovers_operands():
+    """Rescue fires on wide underselection and recovers operands."""
     X, y = _wide_interaction()
     m0 = MRMR(verbose=0, fe_max_steps=0, n_jobs=4, random_seed=0).fit(X, y)
     m1 = MRMRTreeRescued(verbose=0, fe_max_steps=0, n_jobs=4, random_seed=0).fit(X, y)
@@ -37,6 +38,7 @@ def test_rescue_fires_on_wide_underselection_and_recovers_operands():
 
 @pytest.mark.timeout(300)
 def test_rescue_noop_on_narrow_frame():
+    """Rescue noop on narrow frame."""
     X, y = _wide_interaction(p_noise=25)  # 28 cols <= tree_rescue_min_p (60) -> gate cannot fire
     m0 = MRMR(verbose=0, fe_max_steps=0, n_jobs=4, random_seed=0).fit(X, y)
     m1 = MRMRTreeRescued(verbose=0, fe_max_steps=0, n_jobs=4, random_seed=0).fit(X, y)
@@ -45,6 +47,7 @@ def test_rescue_noop_on_narrow_frame():
 
 @pytest.mark.timeout(300)
 def test_rescue_off_equals_mrmr():
+    """Rescue off equals mrmr."""
     X, y = _wide_interaction()
     m0 = MRMR(verbose=0, fe_max_steps=0, n_jobs=4, random_seed=0).fit(X, y)
     m1 = MRMRTreeRescued(tree_rescue=False, verbose=0, fe_max_steps=0, n_jobs=4, random_seed=0).fit(X, y)
@@ -53,6 +56,7 @@ def test_rescue_off_equals_mrmr():
 
 @pytest.mark.timeout(300)
 def test_rescue_transform_pickle_and_support_consistency():
+    """Rescue transform pickle and support consistency."""
     import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
     X, y = _wide_interaction()
@@ -90,6 +94,7 @@ def test_varargs_ctor_get_params_and_clone_preserve_tree_rescue_params():
 
 @pytest.mark.timeout(300)
 def test_bizvalue_rescue_lifts_downstream_auc_on_interaction_data():
+    """Bizvalue rescue lifts downstream auc on interaction data."""
     from sklearn.model_selection import train_test_split
     from sklearn.metrics import roc_auc_score
     import lightgbm as lgb
@@ -98,6 +103,7 @@ def test_bizvalue_rescue_lifts_downstream_auc_on_interaction_data():
     Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.4, random_state=1, stratify=y)
 
     def auc(sel):
+        """Helper that auc."""
         sel.fit(Xtr, ytr)
         Ztr, Zte = sel.transform(Xtr), sel.transform(Xte)
         m = lgb.LGBMClassifier(n_estimators=fast_n_estimators(200, fast=80), verbose=-1).fit(Ztr, ytr)

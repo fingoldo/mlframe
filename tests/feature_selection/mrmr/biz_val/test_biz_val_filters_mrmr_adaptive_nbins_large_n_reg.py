@@ -18,6 +18,7 @@ warnings.filterwarnings("ignore")
 
 
 def _reg_xy(n: int, p: int = 8, seed: int = 0):
+    """Reg xy."""
     rng = np.random.default_rng(seed)
     X = rng.standard_normal((n, p))
     y = (1.5 * X[:, 0] - X[:, 1] + 0.8 * X[:, 2] + 0.3 * rng.standard_normal(n)).astype(np.float64)
@@ -25,6 +26,7 @@ def _reg_xy(n: int, p: int = 8, seed: int = 0):
 
 
 def _clf_xy(n: int, p: int = 8, seed: int = 0):
+    """Clf xy."""
     rng = np.random.default_rng(seed)
     X = rng.standard_normal((n, p))
     logits = 1.5 * X[:, 0] - X[:, 1] + 0.8 * X[:, 2]
@@ -33,6 +35,7 @@ def _clf_xy(n: int, p: int = 8, seed: int = 0):
 
 
 def _fast_mrmr(**kw):
+    """Fast mrmr."""
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     base = dict(

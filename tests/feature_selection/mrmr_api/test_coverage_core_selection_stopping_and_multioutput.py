@@ -23,6 +23,7 @@ from mlframe.feature_selection.filters.mrmr import MRMR
 
 
 def _no_fe(**kw):
+    """No fe."""
     base = dict(
         random_seed=0,
         verbose=0,
@@ -66,6 +67,7 @@ def _multi_signal_data(n=800, seed=2):
 
 
 def _n_selected(m):
+    """N selected."""
     return int(np.asarray(m.support_, dtype=np.intp).size)
 
 
@@ -113,6 +115,7 @@ def test_min_features_fallback_keeps_support_nonempty():
 
 
 def _mo_data(n=700, seed=3):
+    """Mo data."""
     rng = np.random.default_rng(seed)
     x0 = rng.normal(size=n)
     x1 = rng.normal(size=n)
@@ -165,6 +168,7 @@ def test_multioutput_support_is_input_space_consistent():
 
 
 def test_multioutput_invalid_strategy_raises():
+    """Multioutput invalid strategy raises."""
     X, Y = _mo_data()
     m = _no_fe(multioutput_strategy="bogus")
     with pytest.raises(ValueError):

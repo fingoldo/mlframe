@@ -19,6 +19,7 @@ from mlframe.training.composite.ensemble import CompositeCrossTargetEnsemble
 
 
 def _build_stack_with_three_components(seed: int = 0):
+    """Builds a linear-stack ensemble from 3 mock components whose predictions are y_train plus a per-component bias and noise."""
     rng = np.random.default_rng(seed)
     n = 500
     # Three "components" producing predictions correlated with a target.
@@ -44,6 +45,7 @@ def _build_stack_with_three_components(seed: int = 0):
 
 
 def test_linear_stack_all_components_ok_no_warning(caplog):
+    """When every stacked component predicts successfully, no dropout warning is logged."""
     ens, models, _y_train = _build_stack_with_three_components(seed=0)
     # All components produce the same training-time mean pattern.
     test_y = np.array([10.0, 11.0, 9.0])

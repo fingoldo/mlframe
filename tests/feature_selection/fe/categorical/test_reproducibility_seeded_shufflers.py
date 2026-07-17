@@ -11,11 +11,13 @@ import numpy as np
 
 
 def _global_state_unchanged(before) -> bool:
+    """Global state unchanged."""
     after = np.random.get_state()
     return before[0] == after[0] and np.array_equal(before[1], after[1]) and before[2:] == after[2:]
 
 
 def test_con1_conditional_shuffle_within_strata_seeded():
+    """Con1 conditional shuffle within strata seeded."""
     from mlframe.feature_selection.filters._cat_confirm_permutation import _conditional_shuffle_within_strata
 
     y = np.array([0, 1, 0, 1, 0, 1, 1, 0] * 4, dtype=np.int64)
@@ -35,6 +37,7 @@ def test_con1_conditional_shuffle_within_strata_seeded():
 
 
 def test_con2_full_conditional_shuffle_ipf_seeded():
+    """Con2 full conditional shuffle ipf seeded."""
     from mlframe.feature_selection.filters._cat_confirm_permutation import _full_conditional_shuffle_ipf
 
     y = np.array([0, 1, 0, 1, 0, 1, 1, 0] * 4, dtype=np.int64)
@@ -55,6 +58,7 @@ def test_con2_full_conditional_shuffle_ipf_seeded():
 
 
 def test_con3_shuffle_and_compute_three_mis_seeded():
+    """Con3 shuffle and compute three mis seeded."""
     from mlframe.feature_selection.filters._cat_confirm_permutation import _shuffle_and_compute_three_mis
 
     n = 200
@@ -65,6 +69,7 @@ def test_con3_shuffle_and_compute_three_mis_seeded():
     y = rng.integers(0, 2, n).astype(np.int64)
 
     def _freqs(c, k):
+        """Helper that freqs."""
         return np.bincount(c, minlength=k).astype(np.float64) / n
 
     fq_pair, fq_x1, fq_x2, fq_y = _freqs(cls_pair, 6), _freqs(cls_x1, 3), _freqs(cls_x2, 3), _freqs(y, 2)
@@ -80,6 +85,7 @@ def test_con3_shuffle_and_compute_three_mis_seeded():
 
 
 def test_con4_group_aware_shuffle_seeded():
+    """Con4 group aware shuffle seeded."""
     from mlframe.feature_selection.filters._cat_target_encoding_and_weighted import _group_aware_shuffle
 
     n_groups = 12
