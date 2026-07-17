@@ -34,6 +34,7 @@ _SRC_ROOT = pathlib.Path(_mlframe.__file__).resolve().parent / "training"
 # parent file must also read the body sibling. Resolves the core/ dir from
 # the installed package so it works regardless of where pytest is invoked.
 def _read_phase_train_one_target_combined():
+    """Concatenates the split _phase_train_one_target module and its body sibling for source-pattern greps."""
     import pathlib
     import mlframe as _mlframe
 

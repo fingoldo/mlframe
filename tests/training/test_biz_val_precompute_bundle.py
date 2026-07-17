@@ -77,6 +77,7 @@ def test_biz_val_precompute_bundle_skips_stats_compute(tmp_path):
     # 3) Measure the bundle's lookup branch: this is literally what main.py does instead --
     # a None-check + dict re-assignment. We time the same shape of work so the comparison is fair.
     def _bundle_lookup_branch():
+        """Times the cheap None-check + reuse branch main.py takes when a precomputed bundle exists."""
         # Mirrors main.py: ``if precomputed is not None and precomputed.trainset_features_stats
         # is not None: trainset_features_stats = precomputed.trainset_features_stats``.
         if bundle is not None and bundle.trainset_features_stats is not None:

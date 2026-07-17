@@ -96,6 +96,7 @@ def test_explicit_unit_override_forces_interpretation():
 
 
 def test_explicit_unit_invalid_raises():
+    """An unrecognized explicit_unit value raises ValueError instead of silently defaulting."""
     ts = np.arange(10, dtype=np.int64)
     with pytest.raises(ValueError, match="audit timestamp unit"):
         _coerce_timestamps_for_audit(ts, explicit_unit="bogus")
