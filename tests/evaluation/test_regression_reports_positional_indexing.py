@@ -13,10 +13,12 @@ import pandas as pd
 
 def _positional_select(y, indices):
     # Mirrors the fixed line in reports.py.
+    """Helper that positional select."""
     return y.iloc[indices] if hasattr(y, "iloc") else y[indices]
 
 
 def test_positional_indexing_aligns_with_iloc_on_nondefault_index():
+    """Positional indexing aligns with iloc on nondefault index."""
     n = 10
     X = pd.DataFrame({"f": np.arange(n) * 10.0}, index=[100 + i for i in range(n)])
     # y constructed so label-based [] would pick the WRONG rows on this non-default index.
@@ -33,6 +35,7 @@ def test_positional_indexing_aligns_with_iloc_on_nondefault_index():
 
 
 def test_label_based_indexing_would_misalign_proving_bug():
+    """Label based indexing would misalign proving bug."""
     n = 10
     y = pd.Series(np.arange(n), index=[100 + i for i in range(n)])
     train_indices = [0, 2, 4, 6]

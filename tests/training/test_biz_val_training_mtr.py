@@ -23,6 +23,7 @@ from mlframe.training.core._phase_composite_post_xt_ensemble import MTRPerColumn
 
 
 def _macro_rmse(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    """Returns plain RMSE, used as the macro-averaged per-target error metric."""
     return float(np.sqrt(mean_squared_error(y_true, y_pred)))
 
 

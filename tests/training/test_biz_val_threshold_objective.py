@@ -17,6 +17,7 @@ from mlframe.training.core._setup_helpers import tune_decision_threshold
 
 
 def _gen(rng, n, pos_rate, sep, hetero):
+    """Generates a synthetic binary-classification dataset with tunable separation and heteroscedasticity."""
     norm = pytest.importorskip("scipy.stats").norm
     npos = max(1, round(n * pos_rate))
     nneg = n - npos

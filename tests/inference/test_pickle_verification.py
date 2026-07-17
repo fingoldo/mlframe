@@ -41,6 +41,7 @@ def tmp_pickle(tmp_path: Path):
 
 
 def _sha256_hex(path: Path) -> str:
+    """Helper that sha256 hex."""
     h = hashlib.sha256()
     h.update(path.read_bytes())
     return h.hexdigest()

@@ -18,6 +18,7 @@ from mlframe.evaluation.adversarial_fold_selection import build_test_like_valida
 
 
 def _make_shifted_scenario(seed: int):
+    """Helper that make shifted scenario."""
     rng = np.random.default_rng(seed)
     n_train, n_test = 3000, 600
 
@@ -37,6 +38,7 @@ def _make_shifted_scenario(seed: int):
 
 
 def test_biz_val_adversarial_fold_gives_a_validation_score_closer_to_true_test_score():
+    """Adversarial fold gives a validation score closer to true test score."""
     X_train, y_train, regime, X_test, y_test = _make_shifted_scenario(seed=0)
     n_train = len(y_train)
 
@@ -48,6 +50,7 @@ def test_biz_val_adversarial_fold_gives_a_validation_score_closer_to_true_test_s
     val_idx_random, remainder_idx_random = perm[:n_val], perm[n_val:]
 
     def _fit_eval(remainder_idx, val_idx):
+        """Helper that fit eval."""
         model = LinearRegression().fit(X_train.iloc[remainder_idx][["x"]], y_train[remainder_idx])
         val_mae = mean_absolute_error(y_train[val_idx], model.predict(X_train.iloc[val_idx][["x"]]))
         test_mae = mean_absolute_error(y_test, model.predict(X_test[["x"]]))
@@ -68,6 +71,7 @@ def test_biz_val_adversarial_fold_gives_a_validation_score_closer_to_true_test_s
 
 
 def test_build_test_like_validation_fold_partitions_without_overlap():
+    """Build test like validation fold partitions without overlap."""
     X_train, y_train, _regime, X_test, _y_test = _make_shifted_scenario(seed=2)
     val_idx, remainder_idx = build_test_like_validation_fold(X_train, X_test, val_fraction=0.25, seed=2)
     assert len(set(val_idx.tolist()) & set(remainder_idx.tolist())) == 0
@@ -75,6 +79,7 @@ def test_build_test_like_validation_fold_partitions_without_overlap():
 
 
 def test_build_test_like_validation_fold_empty_train_raises():
+    """Build test like validation fold empty train raises."""
     import pytest
 
     with pytest.raises(ValueError):

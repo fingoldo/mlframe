@@ -96,6 +96,7 @@ def test_anderson_darling_uses_fused_njit_kernel():
     orig = q._anderson_darling_kernel
 
     def spy(sorted_pit, n):
+        """Helper that spy."""
         called["n"] += 1
         return orig(sorted_pit, n)
 
@@ -123,10 +124,12 @@ def test_anderson_darling_parallel_kernel_above_threshold():
     orig_ser = q._anderson_darling_kernel
 
     def spy_par(sorted_pit, m):
+        """Helper that spy par."""
         par_called["n"] += 1
         return orig_par(sorted_pit, m)
 
     def spy_ser(sorted_pit, m):
+        """Helper that spy ser."""
         ser_called["n"] += 1
         return orig_ser(sorted_pit, m)
 
@@ -155,6 +158,7 @@ def test_anderson_darling_serial_kernel_below_threshold():
     orig_par = q._anderson_darling_kernel_parallel
 
     def spy_par(sorted_pit, m):
+        """Helper that spy par."""
         par_called["n"] += 1
         return orig_par(sorted_pit, m)
 

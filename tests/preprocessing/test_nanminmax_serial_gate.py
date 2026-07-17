@@ -20,6 +20,7 @@ pytest.importorskip("numba")
 
 @pytest.mark.parametrize("n,d", [(1, 1), (3, 4), (200, 4), (5000, 8), (50000, 30)])
 def test_serial_matches_parallel_nanminmax(n, d):
+    """Serial matches parallel nanminmax."""
     rng = np.random.default_rng(0)
     X = rng.random((n, d))
     # Sprinkle NaNs, and force one fully-NaN column to exercise the empty-slice collapse.
@@ -36,6 +37,7 @@ def test_serial_matches_parallel_nanminmax(n, d):
 
 
 def test_score_identical_across_gate_boundary(monkeypatch):
+    """Score identical across gate boundary."""
     rng = np.random.default_rng(1)
     X_train = rng.random((300, 5))
     X_test = rng.random((120, 5))

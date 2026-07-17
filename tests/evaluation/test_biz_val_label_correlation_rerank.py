@@ -22,6 +22,7 @@ from mlframe.evaluation.label_correlation_rerank import (
 
 
 def _map_at_k(y_true: np.ndarray, scores: np.ndarray, k: int) -> float:
+    """Helper that map at k."""
     n = y_true.shape[0]
     average_precisions = []
     for i in range(n):
@@ -37,6 +38,7 @@ def _map_at_k(y_true: np.ndarray, scores: np.ndarray, k: int) -> float:
 
 
 def _make_correlated_label_data(n: int, n_labels: int, seed: int):
+    """Helper that make correlated label data."""
     rng = np.random.default_rng(seed)
     latent = rng.random(n) < 0.3  # a single underlying event drives labels 0 and 1 identically.
 
@@ -56,6 +58,7 @@ def _make_correlated_label_data(n: int, n_labels: int, seed: int):
 
 
 def test_biz_val_label_correlation_rerank_improves_map_at_k():
+    """Label correlation rerank improves map at k."""
     y_true, pred = _make_correlated_label_data(n=2000, n_labels=20, seed=3)
 
     map_raw = _map_at_k(y_true, pred, k=7)
@@ -70,6 +73,7 @@ def test_biz_val_label_correlation_rerank_improves_map_at_k():
 
 
 def test_detect_correlated_label_pairs_ignores_low_support_and_uncorrelated():
+    """Detect correlated label pairs ignores low support and uncorrelated."""
     rng = np.random.default_rng(0)
     n = 500
     y = np.zeros((n, 4), dtype=int)
@@ -83,6 +87,7 @@ def test_detect_correlated_label_pairs_ignores_low_support_and_uncorrelated():
 
 
 def test_label_correlation_rerank_averages_only_flagged_pairs():
+    """Label correlation rerank averages only flagged pairs."""
     scores = np.array([[0.2, 0.8, 0.5], [0.6, 0.4, 0.9]])
     reranked = label_correlation_rerank(scores, correlated_pairs=[(0, 1)])
     np.testing.assert_allclose(reranked[:, 0], reranked[:, 1])
@@ -92,6 +97,7 @@ def test_label_correlation_rerank_averages_only_flagged_pairs():
 def _make_3way_group_data(n: int, n_labels: int, seed: int, group_size: int = 4):
     # labels 0..group_size-1 all mirror the SAME underlying event -- a genuine multi-way group that pairwise
     # detection alone still flags edge-by-edge, but sequential pairwise rerank corrupts (see module docstring).
+    """Helper that make 3way group data."""
     rng = np.random.default_rng(seed)
     latent = rng.random(n) < 0.3
 
@@ -111,6 +117,7 @@ def _make_3way_group_data(n: int, n_labels: int, seed: int, group_size: int = 4)
 
 
 def test_biz_val_label_correlation_rerank_group_beats_sequential_pairs_on_3way_group():
+    """Label correlation rerank group beats sequential pairs on 3way group."""
     y_true, pred = _make_3way_group_data(n=3000, n_labels=20, seed=2, group_size=4)
 
     pairs = detect_correlated_label_pairs(y_true, min_cooccurrence_rate=0.9, min_support=5)
@@ -135,6 +142,7 @@ def _make_group_with_uninformative_member(n: int, n_labels: int, seed: int):
     # labels 0,1,2 co-occur near-perfectly (occasional independent flips keep the pairwise threshold met but
     # short of exact identity), label 0/1 have informative scores, label 2's score is pure noise unrelated to
     # its own true label -- full group averaging (w=1.0) over-dilutes 0/1's good signal with 2's garbage.
+    """Helper that make group with uninformative member."""
     rng = np.random.default_rng(seed)
     latent = rng.random(n) < 0.3
     flip1 = rng.random(n) < 0.06
@@ -158,6 +166,7 @@ def _make_group_with_uninformative_member(n: int, n_labels: int, seed: int):
 
 
 def test_biz_val_label_correlation_rerank_cv_weight_beats_fixed_average_on_lrap():
+    """Label correlation rerank cv weight beats fixed average on lrap."""
     y_true, pred = _make_group_with_uninformative_member(n=4000, n_labels=15, seed=3)
 
     groups = detect_correlated_label_groups(y_true, min_cooccurrence_rate=0.85, min_support=5)

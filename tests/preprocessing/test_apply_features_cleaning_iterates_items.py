@@ -1,3 +1,4 @@
+"""Tests for apply features cleaning iterates items."""
 import pandas as pd
 
 from mlframe.preprocessing.cleaning import apply_features_cleaning

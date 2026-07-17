@@ -16,6 +16,7 @@ from mlframe.calibration.smoothed_override_backtest import backtest_override
 
 
 def _make_confidence_gated_scenario(n: int, seed: int):
+    """Helper that make confidence gated scenario."""
     rng = np.random.default_rng(seed)
     y_true = rng.uniform(0, 1, n)
     model_pred = y_true + rng.normal(scale=0.15, size=n)
@@ -30,6 +31,7 @@ def _make_confidence_gated_scenario(n: int, seed: int):
 
 
 def test_biz_val_backtest_override_recovers_safe_confidence_threshold():
+    """Backtest override recovers safe confidence threshold."""
     y_true, model_pred, override_pred, confidence = _make_confidence_gated_scenario(n=6000, seed=0)
 
     result = backtest_override(y_true, model_pred, override_pred, confidence, a=0.9, n_buckets=10)
@@ -54,6 +56,7 @@ def test_biz_val_backtest_override_recovers_safe_confidence_threshold():
 
 
 def test_biz_val_backtest_override_flags_uniformly_bad_source_as_unsafe():
+    """Backtest override flags uniformly bad source as unsafe."""
     rng = np.random.default_rng(1)
     n = 3000
     y_true = rng.uniform(0, 1, n)

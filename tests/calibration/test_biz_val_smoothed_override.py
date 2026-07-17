@@ -15,6 +15,7 @@ from mlframe.calibration.smoothed_override import apply_smoothed_override
 
 
 def _make_override_scenario(n: int, rule_error_rate: float, seed: int):
+    """Helper that make override scenario."""
     rng = np.random.default_rng(seed)
     y_true = rng.uniform(0, 1, n)
 
@@ -31,6 +32,7 @@ def _make_override_scenario(n: int, rule_error_rate: float, seed: int):
 
 
 def test_biz_val_smoothed_override_beats_hard_override_when_rule_occasionally_wrong():
+    """Smoothed override beats hard override when rule occasionally wrong."""
     y_true, model_pred, known_label, override_mask = _make_override_scenario(n=3000, rule_error_rate=0.08, seed=0)
 
     hard_overridden = apply_smoothed_override(model_pred, known_label, override_mask, a=1.0)
@@ -49,6 +51,7 @@ def test_biz_val_smoothed_override_beats_hard_override_when_rule_occasionally_wr
 
 
 def test_apply_smoothed_override_exact_blend_and_mask_respected():
+    """Apply smoothed override exact blend and mask respected."""
     prediction = np.array([1.0, 2.0, 3.0, 4.0])
     known_label = np.array([10.0, 20.0, 30.0, 40.0])
     mask = np.array([True, False, True, False])
@@ -58,6 +61,7 @@ def test_apply_smoothed_override_exact_blend_and_mask_respected():
 
 
 def test_apply_smoothed_override_a_zero_is_noop_a_one_is_hard_replace():
+    """Apply smoothed override a zero is noop a one is hard replace."""
     prediction = np.array([1.0, 2.0])
     known_label = np.array([100.0, 200.0])
     mask = np.array([True, True])
@@ -70,6 +74,7 @@ def test_apply_smoothed_override_a_zero_is_noop_a_one_is_hard_replace():
 
 
 def test_apply_smoothed_override_invalid_a_raises():
+    """Apply smoothed override invalid a raises."""
     import pytest
 
     with pytest.raises(ValueError):

@@ -20,6 +20,7 @@ import pytest
 @pytest.mark.slow
 @pytest.mark.timeout(300)
 def test_maximal_preset_excludes_non_rowwise_pure_and_replays_slice_consistent():
+    """grad1/grad2/logn (not row-wise pure) never get selected, and every selected engineered column replays byte-identically full-vs-slice."""
     from mlframe.feature_selection.filters import MRMR
     from mlframe.feature_selection.filters.engineered_recipes import apply_recipe
 

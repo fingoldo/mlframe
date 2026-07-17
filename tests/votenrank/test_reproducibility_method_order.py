@@ -31,6 +31,7 @@ print("|".join(rank))
 
 
 def _run(hashseed: str) -> str:
+    """Helper that run."""
     env = dict(os.environ)
     env["PYTHONHASHSEED"] = hashseed
     env["CUDA_VISIBLE_DEVICES"] = ""
@@ -48,5 +49,6 @@ def _run(hashseed: str) -> str:
 
 
 def test_con17_method_order_is_pythonhashseed_independent():
+    """Con17 method order is pythonhashseed independent."""
     outputs = {_run(hs) for hs in ("0", "1", "12345", "98765")}
     assert len(outputs) == 1, f"method/row order differs across PYTHONHASHSEED:\n{outputs}"

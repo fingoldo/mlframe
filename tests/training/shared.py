@@ -86,6 +86,7 @@ class SimpleFeaturesAndTargetsExtractor:
         self.extra_targets = extra_targets
 
     def _resolve_target_type(self):
+        """Returns the explicit target type override if set, else infers regression vs binary classification."""
         if self._explicit_target_type is not None:
             return self._explicit_target_type
         return TargetTypes.REGRESSION if self.regression else TargetTypes.BINARY_CLASSIFICATION

@@ -26,6 +26,7 @@ from mlframe.training.extractors import SimpleFeaturesAndTargetsExtractor
 
 
 def _build_df():
+    """Builds a small deterministic frame with numeric and integer-coded categorical columns."""
     rng = np.random.default_rng(42)
     return pd.DataFrame(
         {

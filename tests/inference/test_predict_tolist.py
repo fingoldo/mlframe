@@ -13,6 +13,7 @@ import pandas as pd
 
 
 def test_load_features_file_json_path_returns_list(tmp_path):
+    """Load features file json path returns list."""
     from mlframe.inference.predict import _load_features_file
 
     feats = ["a", "b", "c"]

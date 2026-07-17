@@ -25,6 +25,7 @@ def _make_disjoint_category_data(n_train: int, n_test: int, n_cats_per_split: in
     rng = np.random.default_rng(seed)
 
     def _draw_split(n_rows, cat_offset):
+        """Helper that draw split."""
         zipf_weights = 1.0 / np.arange(1, n_cats_per_split + 1)
         zipf_weights /= zipf_weights.sum()
         cats = rng.choice(np.arange(n_cats_per_split) + cat_offset, size=n_rows, p=zipf_weights)
@@ -43,6 +44,7 @@ def _make_disjoint_category_data(n_train: int, n_test: int, n_cats_per_split: in
 
 
 def test_train_test_support_screen_flags_disjoint_column_for_frequency_encoding():
+    """Train test support screen flags disjoint column for frequency encoding."""
     train_df, test_df, _, _ = _make_disjoint_category_data(3000, 3000, n_cats_per_split=150, seed=0)
     report = train_test_support_screen(train_df, test_df, categorical_cols=["cat_col"])
 
@@ -55,6 +57,7 @@ def test_train_test_support_screen_flags_disjoint_column_for_frequency_encoding(
 
 
 def test_train_test_support_screen_keeps_raw_for_stable_column():
+    """Train test support screen keeps raw for stable column."""
     rng = np.random.default_rng(1)
     n = 2000
     shared_cats = rng.integers(0, 20, size=n)
@@ -65,6 +68,7 @@ def test_train_test_support_screen_keeps_raw_for_stable_column():
 
 
 def test_train_test_support_screen_drops_near_unique_id_column():
+    """Train test support screen drops near unique id column."""
     n = 500
     train_df = pd.DataFrame({"uuid_col": [f"train_{i}" for i in range(n)]})
     test_df = pd.DataFrame({"uuid_col": [f"test_{i}" for i in range(n)]})
@@ -73,6 +77,7 @@ def test_train_test_support_screen_drops_near_unique_id_column():
 
 
 def test_train_test_support_screen_multiple_columns_and_default_column_selection():
+    """Train test support screen multiple columns and default column selection."""
     train_df = pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6], "only_in_train": [7, 8, 9]})
     test_df = pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]})
     report = train_test_support_screen(train_df, test_df)
@@ -80,6 +85,7 @@ def test_train_test_support_screen_multiple_columns_and_default_column_selection
 
 
 def test_biz_val_frequency_encoding_preserves_signal_that_raw_target_mean_encoding_loses():
+    """Frequency encoding preserves signal that raw target mean encoding loses."""
     train_df, test_df, train_freq, test_freq = _make_disjoint_category_data(4000, 4000, n_cats_per_split=200, seed=42)
 
     report = train_test_support_screen(train_df, test_df, categorical_cols=["cat_col"])
@@ -118,6 +124,7 @@ def _make_near_uniform_overlapping_category_data(n_train: int, n_test: int, n_sh
     cat_means = rng.uniform(0.1, 0.9, size=n_cats)
 
     def _draw_split(n_rows, allowed_cat_ids):
+        """Helper that draw split."""
         cats = rng.choice(allowed_cat_ids, size=n_rows)
         y_prob = cat_means[cats]
         y = (rng.random(n_rows) < y_prob).astype(np.float64)
@@ -157,6 +164,7 @@ def test_train_test_support_screen_smoothed_target_encoding_fallback_is_opt_in_d
 
 
 def test_train_test_support_screen_recommends_smoothed_target_encode_when_frequency_would_collapse():
+    """Train test support screen recommends smoothed target encode when frequency would collapse."""
     train_df, test_df = _make_near_uniform_overlapping_category_data(4000, 4000, n_shared_cats=40, n_test_only_cats=6, seed=7)
     report = train_test_support_screen(
         train_df,
@@ -172,6 +180,7 @@ def test_train_test_support_screen_recommends_smoothed_target_encode_when_freque
 
 
 def test_train_test_support_screen_requires_target_col_for_smoothed_fallback():
+    """Train test support screen requires target col for smoothed fallback."""
     train_df, test_df = _make_near_uniform_overlapping_category_data(1000, 1000, n_shared_cats=40, n_test_only_cats=6, seed=3)
     try:
         train_test_support_screen(train_df, test_df, categorical_cols=["cat_col"], enable_smoothed_target_encoding_fallback=True)
@@ -181,6 +190,7 @@ def test_train_test_support_screen_requires_target_col_for_smoothed_fallback():
 
 
 def test_biz_val_smoothed_target_encoding_beats_frequency_encoding_on_near_uniform_shared_categories():
+    """Smoothed target encoding beats frequency encoding on near uniform shared categories."""
     train_df, test_df = _make_near_uniform_overlapping_category_data(6000, 6000, n_shared_cats=40, n_test_only_cats=6, seed=11)
 
     report = train_test_support_screen(

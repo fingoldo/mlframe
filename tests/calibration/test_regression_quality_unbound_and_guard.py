@@ -19,6 +19,7 @@ def test_show_table_path_returns_dataframe_without_unbound_name():
     # branches; before the fix they were bound only inside the per-interval loop body, so the
     # show_table return branch (which reads `data`) hit a NameError. Exercise that exact branch
     # and assert a DataFrame comes back rather than a NameError.
+    """Show table path returns dataframe without unbound name."""
     rng = np.random.default_rng(0)
     y_pred = rng.uniform(0.01, 0.99, size=500)
     y_true = (rng.uniform(size=500) < y_pred).astype(np.int8)
@@ -29,6 +30,7 @@ def test_show_table_path_returns_dataframe_without_unbound_name():
 
 
 def test_show_classifier_calibration_returns_dict_normal_path():
+    """Show classifier calibration returns dict normal path."""
     rng = np.random.default_rng(0)
     y_pred = rng.uniform(0.01, 0.99, size=500)
     y_true = (rng.uniform(size=500) < y_pred).astype(np.int8)
@@ -41,6 +43,7 @@ def test_competing_probs_single_class_does_not_index_crash():
     # primary call uses. With a single class and skip_plotting=True, ax_probs is None, so the
     # unguarded ax_probs[plot_idx] was `None[0]` -> TypeError. The guarded branch passes ax_probs
     # straight through. Drive the actual competing path and assert it completes without crashing.
+    """Competing probs single class does not index crash."""
     rng = np.random.default_rng(0)
     n = 400
     probs = rng.uniform(0.01, 0.99, size=(n, 1))
@@ -68,6 +71,7 @@ def test_multiclass_skip_plotting_does_not_index_none_ax_probs():
     # ax_probs is None (the plotting branch is skipped entirely), so `ax_probs[plot_idx]` raised
     # TypeError: 'NoneType' object is not subscriptable, even though ax is never used downstream
     # when skip_plotting=True. Fixed by short-circuiting to None when skip_plotting.
+    """Multiclass skip plotting does not index none ax probs."""
     rng = np.random.default_rng(0)
     n = 300
     nclasses = 3

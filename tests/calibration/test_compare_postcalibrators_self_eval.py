@@ -18,6 +18,7 @@ import numpy as np
 
 
 def _synth(seed: int = 0, n: int = 300):
+    """Helper that synth."""
     rng = np.random.default_rng(seed)
     p1 = rng.random(n)
     probs = np.column_stack([1 - p1, p1])
@@ -26,6 +27,7 @@ def _synth(seed: int = 0, n: int = 300):
 
 
 def test_compare_postcalibrators_self_evaluates_when_no_oos_set():
+    """Compare postcalibrators self evaluates when no oos set."""
     from mlframe.calibration.post import compare_postcalibrators, named_calibrator
     from sklearn.isotonic import IsotonicRegression
 
@@ -53,6 +55,7 @@ def test_compare_postcalibrators_self_evaluates_when_no_oos_set():
 
 
 def test_train_postcalibrators_returns_and_logs_metrics(caplog, tmp_path):
+    """Train postcalibrators returns and logs metrics."""
     from mlframe.calibration.post import train_postcalibrators, named_calibrator
     from sklearn.isotonic import IsotonicRegression
 
@@ -60,6 +63,7 @@ def test_train_postcalibrators_returns_and_logs_metrics(caplog, tmp_path):
     probs, target = _synth(n=n)
 
     class _FakeModel:
+        """Groups tests covering FakeModel."""
         columns = ["y"]
 
     fake_calibrators = [named_calibrator(IsotonicRegression(out_of_bounds="clip"), name="Iso", lib="sklearn")]

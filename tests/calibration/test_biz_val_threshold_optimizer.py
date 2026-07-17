@@ -16,6 +16,7 @@ from mlframe.calibration.threshold_optimizer import apply_decision_threshold, op
 
 
 def test_biz_val_optimize_decision_threshold_beats_naive_half_cutoff_on_imbalanced_data():
+    """Optimize decision threshold beats naive half cutoff on imbalanced data."""
     rng = np.random.default_rng(0)
     n_pos, n_neg = 60, 6000
     X_pos = rng.normal(2.0, 1.2, (n_pos, 1))
@@ -48,6 +49,7 @@ def test_biz_val_optimize_decision_threshold_beats_naive_half_cutoff_on_imbalanc
 
 
 def test_optimize_decision_threshold_sweep_shape():
+    """Optimize decision threshold sweep shape."""
     y_true = np.array([0, 0, 1, 1, 1])
     y_proba = np.array([0.1, 0.2, 0.6, 0.7, 0.9])
     result = optimize_decision_threshold(y_true, y_proba, metric_fn=f1_score, n_thresholds=50)

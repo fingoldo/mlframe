@@ -64,6 +64,7 @@ def _adversarial_auc(segments: np.ndarray, is_test: np.ndarray) -> float:
 
 
 def test_biz_val_trend_noise_decorrelation_defeats_adversarial_trend_and_preserves_peak_signal() -> None:
+    """Noise+recenter drops adversarial train/test AUC from >=0.90 toward chance while preserving peak-magnitude correlation."""
     rng = np.random.default_rng(42)
     n_segments = 150
     seg_len = 400
@@ -95,6 +96,7 @@ def test_biz_val_trend_noise_decorrelation_defeats_adversarial_trend_and_preserv
 
 
 def test_biz_val_trend_noise_decorrelation_fixed_seed_reproducible() -> None:
+    """Same random_state gives bit-identical output; a different random_state gives a different result."""
     rng = np.random.default_rng(0)
     segment = rng.normal(0.0, 1.0, size=200)
 
@@ -107,6 +109,7 @@ def test_biz_val_trend_noise_decorrelation_fixed_seed_reproducible() -> None:
 
 
 def test_biz_val_trend_noise_decorrelation_recenters_to_zero_median() -> None:
+    """Output is recentered so its median is (near-)exactly zero regardless of the input's original center."""
     rng = np.random.default_rng(1)
     segment = rng.normal(5.0, 2.0, size=1000)
     out = inject_noise_and_recenter(segment, noise_std=0.5, random_state=1)
@@ -114,6 +117,7 @@ def test_biz_val_trend_noise_decorrelation_recenters_to_zero_median() -> None:
 
 
 def test_biz_val_trend_noise_decorrelation_rejects_empty_or_2d() -> None:
+    """Empty input, 2D input, or a negative noise_std each raise ValueError."""
     with pytest.raises(ValueError):
         inject_noise_and_recenter(np.array([]), noise_std=0.5)
     with pytest.raises(ValueError):

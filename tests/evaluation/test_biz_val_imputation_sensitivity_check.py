@@ -20,6 +20,7 @@ from mlframe.evaluation.imputation_sensitivity_check import imputation_sensitivi
 
 
 def _make_regime_shift_missingness_data(n: int, seed: int):
+    """Helper that make regime shift missingness data."""
     rng = np.random.default_rng(seed)
     t = np.arange(n)
     promo_true = rng.integers(0, 2, n).astype(np.float64)
@@ -40,6 +41,7 @@ def _make_regime_shift_missingness_data(n: int, seed: int):
 
 
 def test_biz_val_flags_regime_sensitive_imputation_as_risky():
+    """Flags regime sensitive imputation as risky."""
     X_zero, X_mean, X_mode, y = _make_regime_shift_missingness_data(n=1000, seed=0)
     cv = KFold(n_splits=5, shuffle=False)  # time-ordered blocked folds -- matches the source's own framing.
 
@@ -53,6 +55,7 @@ def test_biz_val_flags_regime_sensitive_imputation_as_risky():
 
 
 def test_imputation_sensitivity_check_sorted_riskiest_first():
+    """Imputation sensitivity check sorted riskiest first."""
     X_zero, X_mean, _X_mode, y = _make_regime_shift_missingness_data(n=800, seed=1)
     cv = KFold(n_splits=5, shuffle=False)
     result = imputation_sensitivity_check(Ridge(alpha=0.1), {"mean_fill": X_mean, "zero_fill": X_zero}, y, r2_score, cv=cv)
@@ -84,6 +87,7 @@ def _make_shift_blind_spot_data(n: int, seed: int):
 
 
 def test_biz_val_shift_split_catches_instability_fold_cv_misses():
+    """Shift split catches instability fold cv misses."""
     n = 2000
     X_zero, X_mean, X_mode, y = _make_shift_blind_spot_data(n=n, seed=0)
     cv = KFold(n_splits=5, shuffle=True, random_state=0)  # shuffled -- mixes regimes within every fold.
@@ -106,6 +110,7 @@ def test_biz_val_shift_split_catches_instability_fold_cv_misses():
 
 
 def test_imputation_sensitivity_check_shift_split_omitted_is_bit_identical():
+    """Imputation sensitivity check shift split omitted is bit identical."""
     X_zero, X_mean, X_mode, y = _make_regime_shift_missingness_data(n=500, seed=2)
     cv = KFold(n_splits=5, shuffle=False)
     variants = {"zero_fill": X_zero, "mean_fill": X_mean, "mode_fill": X_mode}
