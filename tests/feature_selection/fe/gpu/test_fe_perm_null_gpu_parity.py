@@ -13,6 +13,7 @@ import pytest
 
 @pytest.mark.parametrize("seed", [0, 1, 7, 42, 123])
 def test_conditional_perm_null_gpu_bit_identical_to_cpu(seed, monkeypatch):
+    """On the sparse-joint permutation fallback, GPU device-side shuffle+CMI is bit-identical to the CPU per-perm loop (host-drawn RNG keys, no ties)."""
     pytest.importorskip("cupy")
     from mlframe.feature_selection.filters._fe_cmi_redundancy_gate import _conditional_perm_null
 

@@ -17,6 +17,7 @@ warnings.filterwarnings("ignore")
 
 
 def test_hinge_gate_skips_raw_categorical_selected_column():
+    """A raw categorical column reaching the hinge support-protection gate is skipped (not cast to float) so the fit survives and still protects the numeric kink signal."""
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     rng = np.random.default_rng(0)

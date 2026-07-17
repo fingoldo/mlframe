@@ -15,6 +15,7 @@ from mlframe.feature_selection.filters.discretization import discretize_uniform,
 
 @pytest.mark.parametrize("kernel", [discretize_uniform, discretize_uniform_parallel])
 def test_denormal_range_no_garbage_code(kernel):
+    """A subnormal (max-min) range must not overflow rev_bin_width to inf and cast NaN codes to INT_MIN garbage bins."""
     n_bins = 10
     mn = 5e-324  # smallest positive subnormal
     mx = 1e-323  # ~2x mn; max-min is itself a subnormal -> rev_bin_width overflows to inf
