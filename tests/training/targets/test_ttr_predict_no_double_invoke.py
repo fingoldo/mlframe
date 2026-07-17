@@ -10,8 +10,8 @@ double-invocation -- on a 200k MLP that's ~600ms of waste per predict call.
 Fix: inline the parent's ``inverse_transform`` path after the single predict
 call so the sensor probe and the return value reuse the same t_hat.
 """
+
 import numpy as np
-import pytest
 
 
 class _CountingRegressor:

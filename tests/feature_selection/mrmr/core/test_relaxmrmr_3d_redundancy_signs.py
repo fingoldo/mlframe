@@ -14,6 +14,7 @@ A2 -- the 3-way interaction term used only the CONDITIONAL co-information ``I(X;
 These assertions FAIL on the pre-fix code (pair_red==0 for A1; redundant-triple delta is +0.39 instead of negative
 for A2) and PASS post-fix.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -40,14 +41,12 @@ def test_a1_duplicate_candidate_penalised_below_independent_of_equal_relevance()
     latent = rng.integers(0, K, N).astype(np.int64)
     y = latent.copy()
     z_sel = _noisy_copy(rng, latent, K)
-    x_dup = z_sel.copy()                 # exact duplicate of the selected feature
+    x_dup = z_sel.copy()  # exact duplicate of the selected feature
     x_ind = _noisy_copy(rng, latent, K)  # same construction => same marginal I(X; Y), but independent of z_sel
 
     s_dup = relax_mrmr_score(x_dup, [z_sel], y, K, [K], K, alpha=0.0)
     s_ind = relax_mrmr_score(x_ind, [z_sel], y, K, [K], K, alpha=0.0)
-    assert s_dup < s_ind - 0.5, (
-        f"duplicate-of-selected candidate must be heavily penalised; got dup={s_dup:.4f} ind={s_ind:.4f}"
-    )
+    assert s_dup < s_ind - 0.5, f"duplicate-of-selected candidate must be heavily penalised; got dup={s_dup:.4f} ind={s_ind:.4f}"
 
 
 def test_a2_redundant_triple_score_drops_as_alpha_grows():
@@ -78,13 +77,11 @@ def test_a2_synergistic_triple_scored_above_redundant_of_equal_relevance():
         z1 = rng.integers(0, 2, N).astype(np.int64)
         z2 = rng.integers(0, 2, N).astype(np.int64)
         y = (z1 ^ z2).astype(np.int64)
-        x_syn = z1.copy()                              # synergistic: jointly completes XOR with z2
+        x_syn = z1.copy()  # synergistic: jointly completes XOR with z2
         x_noise = rng.integers(0, 2, N).astype(np.int64)  # equal ~0 marginal relevance, no joint structure
         s_syn = relax_mrmr_score(x_syn, [z1, z2], y, 2, [2, 2], 2, alpha=1.0)
         s_noise = relax_mrmr_score(x_noise, [z1, z2], y, 2, [2, 2], 2, alpha=1.0)
-        assert s_syn > s_noise + 0.2, (
-            f"seed {seed}: synergistic candidate must outscore equal-relevance noise; got syn={s_syn:.4f} noise={s_noise:.4f}"
-        )
+        assert s_syn > s_noise + 0.2, f"seed {seed}: synergistic candidate must outscore equal-relevance noise; got syn={s_syn:.4f} noise={s_noise:.4f}"
 
 
 def test_score_is_finite_and_alpha0_matches_marginal_minus_pairwise():

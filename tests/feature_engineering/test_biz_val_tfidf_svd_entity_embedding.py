@@ -6,6 +6,7 @@ categories common across every entity (uninformative) and up-weights rare, entit
 test confirms the TF-IDF+SVD embedding recovers a target driven by rare-category membership that a naive
 raw-count-based representation dilutes.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -42,7 +43,7 @@ def test_biz_val_tfidf_svd_embedding_recovers_rare_category_signal():
     entities = pd.unique(df["entity"])
     y = labels[entities]
 
-    embedding = tfidf_svd_entity_embedding(df, entity_col="entity", token_col="category", n_components=8).set_index("entity").reindex(entities)
+    embedding = tfidf_svd_entity_embedding(df, entity_col="entity", token_col="category", n_components=8).set_index("entity").reindex(entities)  # nosec B106 -- "category" is a column-name kwarg, not a credential
     auc_tfidf = cross_val_score(LogisticRegression(max_iter=500), embedding.to_numpy(), y, cv=5, scoring="roc_auc").mean()
 
     # naive baseline: raw category COUNT vector (no TF-IDF down-weighting of common categories).
@@ -50,13 +51,15 @@ def test_biz_val_tfidf_svd_embedding_recovers_rare_category_signal():
     auc_raw_count = cross_val_score(LogisticRegression(max_iter=500), count_matrix.to_numpy(), y, cv=5, scoring="roc_auc").mean()
 
     assert auc_tfidf > 0.9, f"expected the TF-IDF+SVD embedding to strongly recover the rare-category-driven label, got AUC={auc_tfidf:.4f}"
-    assert auc_tfidf >= auc_raw_count - 0.1, f"expected TF-IDF+SVD to be reasonably close to the raw count baseline (which sees the rare category directly, uncompressed) despite the lossy dimensionality reduction, got tfidf={auc_tfidf:.4f} raw_count={auc_raw_count:.4f}"
+    assert auc_tfidf >= auc_raw_count - 0.1, (
+        f"expected TF-IDF+SVD to be reasonably close to the raw count baseline (which sees the rare category directly, uncompressed) despite the lossy dimensionality reduction, got tfidf={auc_tfidf:.4f} raw_count={auc_raw_count:.4f}"
+    )
 
 
 def test_tfidf_svd_entity_embedding_output_shape():
     rng = np.random.default_rng(1)
     df = pd.DataFrame({"entity": rng.integers(0, 20, 200), "category": rng.integers(0, 8, 200).astype(str)})
-    out = tfidf_svd_entity_embedding(df, entity_col="entity", token_col="category", n_components=4)
+    out = tfidf_svd_entity_embedding(df, entity_col="entity", token_col="category", n_components=4)  # nosec B106 -- "category" is a column-name kwarg, not a credential
     assert out.shape[0] == 20
     assert out.shape[1] == 5  # entity_col + 4 components
 
@@ -66,12 +69,12 @@ def test_tfidf_svd_entity_embedding_default_output_unchanged_by_return_fitted_pa
     # value/type (bit-identical DataFrame) when the caller doesn't opt in.
     rng = np.random.default_rng(2)
     df = pd.DataFrame({"entity": rng.integers(0, 30, 300), "category": rng.integers(0, 10, 300).astype(str)})
-    out_default = tfidf_svd_entity_embedding(df, entity_col="entity", token_col="category", n_components=5)
-    out_explicit_false = tfidf_svd_entity_embedding(df, entity_col="entity", token_col="category", n_components=5, return_fitted=False)
+    out_default = tfidf_svd_entity_embedding(df, entity_col="entity", token_col="category", n_components=5)  # nosec B106 -- "category" is a column-name kwarg, not a credential
+    out_explicit_false = tfidf_svd_entity_embedding(df, entity_col="entity", token_col="category", n_components=5, return_fitted=False)  # nosec B106 -- "category" is a column-name kwarg, not a credential
     assert isinstance(out_default, pd.DataFrame)
     pd.testing.assert_frame_equal(out_default, out_explicit_false)
 
-    out_fitted, fitted = tfidf_svd_entity_embedding(df, entity_col="entity", token_col="category", n_components=5, return_fitted=True)
+    out_fitted, fitted = tfidf_svd_entity_embedding(df, entity_col="entity", token_col="category", n_components=5, return_fitted=True)  # nosec B106 -- "category" is a column-name kwarg, not a credential
     assert isinstance(fitted, FittedTfidfSvdEntityEmbedding)
     # the embedding DataFrame content itself (all columns except being wrapped in a tuple) must be identical.
     pd.testing.assert_frame_equal(out_default, out_fitted)
@@ -92,7 +95,7 @@ def test_biz_val_tfidf_svd_oov_fraction_flags_unreliable_cold_start_entities():
             train_rows.append({"entity": entity, "category": rng.choice(known_categories)})
     train_df = pd.DataFrame(train_rows)
 
-    _, fitted = tfidf_svd_entity_embedding(train_df, entity_col="entity", token_col="category", n_components=6, return_fitted=True)
+    _, fitted = tfidf_svd_entity_embedding(train_df, entity_col="entity", token_col="category", n_components=6, return_fitted=True)  # nosec B106 -- "category" is a column-name kwarg, not a credential
 
     new_rows = []
     low_oov_entities, high_oov_entities = [], []
@@ -106,7 +109,7 @@ def test_biz_val_tfidf_svd_oov_fraction_flags_unreliable_cold_start_entities():
             new_rows.append({"entity": entity, "category": rng.choice(novel_categories)})
     new_df = pd.DataFrame(new_rows)
 
-    out = fitted.transform_new_entities(new_df, entity_col="entity", token_col="category").set_index("entity")
+    out = fitted.transform_new_entities(new_df, entity_col="entity", token_col="category").set_index("entity")  # nosec B106 -- "category" is a column-name kwarg, not a credential
 
     mean_oov_low = out.loc[low_oov_entities, "tfidf_svd_oov_fraction"].mean()
     mean_oov_high = out.loc[high_oov_entities, "tfidf_svd_oov_fraction"].mean()

@@ -14,6 +14,7 @@ Three cases per task:
   B) X clean, y has NaN -> what happens?
   C) X + y both clean -> baseline (must work)
 """
+
 from __future__ import annotations
 
 import sys
@@ -22,14 +23,13 @@ from pathlib import Path
 import numpy as np
 import pytest
 import torch
-from sklearn.datasets import make_classification, make_regression
+from sklearn.datasets import make_regression
 from sklearn.model_selection import train_test_split
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from mlframe.training.neural import (
     MLPTorchModel,
-    PytorchLightningClassifier,
     PytorchLightningRegressor,
     TorchDataModule,
 )
@@ -40,9 +40,12 @@ def _regressor_params():
         "model_class": MLPTorchModel,
         "model_params": {"loss_fn": torch.nn.MSELoss(), "learning_rate": 1e-2},
         "network_params": {
-            "nlayers": 1, "first_layer_num_neurons": 8,
-            "dropout_prob": 0.0, "inputs_dropout_prob": 0.0,
-            "use_layernorm": False, "use_batchnorm": False,
+            "nlayers": 1,
+            "first_layer_num_neurons": 8,
+            "dropout_prob": 0.0,
+            "inputs_dropout_prob": 0.0,
+            "use_layernorm": False,
+            "use_batchnorm": False,
             "activation_function": torch.nn.ReLU,
         },
         "datamodule_class": TorchDataModule,
@@ -52,9 +55,13 @@ def _regressor_params():
             "dataloader_params": {"batch_size": 32, "num_workers": 0},
         },
         "trainer_params": {
-            "max_epochs": 2, "enable_model_summary": False,
-            "enable_progress_bar": False, "log_every_n_steps": 1,
-            "devices": 1, "accelerator": "cpu", "logger": False,
+            "max_epochs": 2,
+            "enable_model_summary": False,
+            "enable_progress_bar": False,
+            "log_every_n_steps": 1,
+            "devices": 1,
+            "accelerator": "cpu",
+            "logger": False,
         },
         "random_state": 0,
     }
@@ -131,9 +138,12 @@ def test_regressor_rejects_nan_in_eval_set(clean_regression_split):
     """F-23: eval_set must also be validated -- pre-fix the val
     DataLoader silently propagated NaN."""
     from sklearn.model_selection import train_test_split
+
     X_tr, X_val, y_tr, y_val = train_test_split(
-        clean_regression_split["X_train"], clean_regression_split["y_train"],
-        test_size=0.3, random_state=0,
+        clean_regression_split["X_train"],
+        clean_regression_split["y_train"],
+        test_size=0.3,
+        random_state=0,
     )
     rng = np.random.default_rng(0)
     X_val_nan = _inject_nan_into_features(X_val, rng)

@@ -5,6 +5,7 @@ on pre-fix code and pass on post-fix; see
 ``mlframe/audit/CODE_REVIEW_2026-05-17.md`` for the full disposition
 table.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -93,7 +94,9 @@ def test_c2_xref_invariant_under_eviction(tmp_path) -> None:
     from mlframe.training.feature_handling.cache import FeatureCache
     from mlframe.training.feature_handling.config import CacheConfig
     from mlframe.training.feature_handling.fingerprint import (
-        ContentFingerprint, DiskKey, InMemoryKey,
+        ContentFingerprint,
+        DiskKey,
+        InMemoryKey,
     )
 
     cfg = CacheConfig(
@@ -107,7 +110,8 @@ def test_c2_xref_invariant_under_eviction(tmp_path) -> None:
     # Build a stable ContentFingerprint to derive DiskKeys (even though
     # persistence is off here, we still exercise the xref code path).
     cf = ContentFingerprint(
-        n_rows=100, n_cols=4,
+        n_rows=100,
+        n_cols=4,
         column_dtypes_hash="a" * 32,
         sampled_rows_hash="b" * 32,
     )
@@ -126,7 +130,8 @@ def test_c2_xref_invariant_under_eviction(tmp_path) -> None:
             provider_signature="prov",
         )
         disk_key = DiskKey(
-            content=cf, column=f"col_{i}",
+            content=cf,
+            column=f"col_{i}",
             params_canonical_hash=f"h{i}" * 8,
             provider_signature="prov",
         )
@@ -141,9 +146,7 @@ def test_c2_xref_invariant_under_eviction(tmp_path) -> None:
         )
         # FH-XREF-NO-EVICT invariant.
         orphan = set(cache._key_xref) - set(cache._mem)
-        assert not orphan, (
-            f"After insert #{i}: xref has {len(orphan)} orphan keys: {orphan}"
-        )
+        assert not orphan, f"After insert #{i}: xref has {len(orphan)} orphan keys: {orphan}"
 
 
 # ---------------------------------------------------------------------------
@@ -159,7 +162,8 @@ def test_c3_pickle_refused_by_default_on_write(tmp_path) -> None:
     for any principal with write access to the cache directory."""
     import io
     from mlframe.training.feature_handling.cache import (
-        CachePickleRefusedError, _serialize,
+        CachePickleRefusedError,
+        _serialize,
     )
 
     # Default allow_pickle=False refuses opaque payload.
@@ -178,9 +182,10 @@ def test_c3_pickle_refused_by_default_on_read(tmp_path) -> None:
     raise with ``allow_pickle=False``. Pre-fix ``np.load(..., allow_pickle=True)``
     was unconditional and the pickle-fallback path was always reached
     on a non-numpy file."""
-    import pickle
+    import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
     from mlframe.training.feature_handling.cache import (
-        CachePickleRefusedError, _deserialize,
+        CachePickleRefusedError,
+        _deserialize,
     )
 
     p = tmp_path / "evil.bin"
@@ -209,7 +214,7 @@ def test_c4_c5_c6_weighted_loss_normalises_by_weight_sum() -> None:
     weighted training -- both fit metric and gradient signal.
     """
     torch = pytest.importorskip("torch")
-    pytest_lightning = pytest.importorskip("lightning")
+    pytest.importorskip("lightning")
 
     # Build a minimal module exposing _compute_weighted_loss by routing
     # through the same code path. We construct a lightweight stand-in
@@ -219,19 +224,15 @@ def test_c4_c5_c6_weighted_loss_normalises_by_weight_sum() -> None:
     class _Stub:
         is_regression = True
         task_type = "regression"
-        _loss_fn_unreduced = staticmethod(
-            lambda preds, targets: (preds - targets) ** 2
-        )
-        _loss_fn_mean = staticmethod(
-            lambda preds, targets: ((preds - targets) ** 2).mean()
-        )
+        _loss_fn_unreduced = staticmethod(lambda preds, targets: (preds - targets) ** 2)
+        _loss_fn_mean = staticmethod(lambda preds, targets: ((preds - targets) ** 2).mean())
 
     stub = _Stub()
     compute = RecurrentTorchModel._compute_weighted_loss.__get__(stub)
 
     # Regression branch: logits (N, 1), labels (N,).
     logits = torch.tensor([[2.0], [3.0], [4.0]])  # preds after squeeze: [2, 3, 4]
-    labels = torch.tensor([1.0, 2.0, 3.0])         # losses: (1)^2=[1, 1, 1]
+    labels = torch.tensor([1.0, 2.0, 3.0])  # losses: (1)^2=[1, 1, 1]
     weights = torch.tensor([10.0, 0.0, 0.0])
     out = compute(logits, labels, weights).item()
 
@@ -243,12 +244,8 @@ def test_c4_c5_c6_weighted_loss_normalises_by_weight_sum() -> None:
     class _StubML:
         is_regression = False
         task_type = "multilabel"
-        _loss_fn_unreduced = staticmethod(
-            lambda logits, labels_f: (logits - labels_f) ** 2
-        )
-        _loss_fn_mean = staticmethod(
-            lambda logits, labels_f: ((logits - labels_f) ** 2).mean()
-        )
+        _loss_fn_unreduced = staticmethod(lambda logits, labels_f: (logits - labels_f) ** 2)
+        _loss_fn_mean = staticmethod(lambda logits, labels_f: ((logits - labels_f) ** 2).mean())
 
     stub_ml = _StubML()
     compute_ml = RecurrentTorchModel._compute_weighted_loss.__get__(stub_ml)
@@ -263,12 +260,8 @@ def test_c4_c5_c6_weighted_loss_normalises_by_weight_sum() -> None:
     class _StubCE:
         is_regression = False
         task_type = "classification"
-        _loss_fn_unreduced = staticmethod(
-            lambda logits, labels: torch.ones(logits.shape[0])
-        )
-        _loss_fn_mean = staticmethod(
-            lambda logits, labels: torch.tensor(1.0)
-        )
+        _loss_fn_unreduced = staticmethod(lambda logits, labels: torch.ones(logits.shape[0]))
+        _loss_fn_mean = staticmethod(lambda logits, labels: torch.tensor(1.0))
 
     stub_ce = _StubCE()
     compute_ce = RecurrentTorchModel._compute_weighted_loss.__get__(stub_ce)
@@ -307,8 +300,7 @@ def test_c7_predict_uses_prediction_datamodule_when_set() -> None:
             self.batch_size = 64
 
         def setup_predict(self, X, batch_size=None):
-            self.setup_predict_calls.append({"X_shape": getattr(X, "shape", None),
-                                              "batch_size": batch_size})
+            self.setup_predict_calls.append({"X_shape": getattr(X, "shape", None), "batch_size": batch_size})
 
         def predict_dataloader(self):  # pragma: no cover - reached after the fix only
             self.predict_dataloader_calls += 1
@@ -348,9 +340,7 @@ def test_c7_predict_uses_prediction_datamodule_when_set() -> None:
         if isinstance(exc, UnboundLocalError):
             raise AssertionError("C7 fix missing: still raises UnboundLocalError") from exc
 
-    assert len(est.prediction_datamodule.setup_predict_calls) == 1, (
-        "C7: pre-attached prediction_datamodule.setup_predict was never reached"
-    )
+    assert len(est.prediction_datamodule.setup_predict_calls) == 1, "C7: pre-attached prediction_datamodule.setup_predict was never reached"
 
 
 # ---------------------------------------------------------------------------
@@ -395,8 +385,7 @@ def test_c8_zero_weight_sum_returns_zero_loss_without_sync(caplog) -> None:
     # all-zero-weight path; the operator notices via flat val loss.
     warn_lines = [r for r in caplog.records if "sample_weight.sum()=0" in r.getMessage()]
     assert not warn_lines, (
-        f"C8: per-batch zero-weight WARN was re-introduced; that re-adds "
-        f"a forced GPU->CPU sync per batch. Got: {[r.getMessage() for r in warn_lines]}"
+        f"C8: per-batch zero-weight WARN was re-introduced; that re-adds a forced GPU->CPU sync per batch. Got: {[r.getMessage() for r in warn_lines]}"
     )
 
 
@@ -445,9 +434,7 @@ def test_c9_config_default_is_none() -> None:
     from mlframe.training.neural._recurrent_config import RecurrentConfig
 
     cfg = RecurrentConfig()
-    assert cfg.sequence_preprocessing == "none", (
-        f"C9: default must be 'none', got {cfg.sequence_preprocessing!r}"
-    )
+    assert cfg.sequence_preprocessing == "none", f"C9: default must be 'none', got {cfg.sequence_preprocessing!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -464,7 +451,9 @@ def test_c10_nan_guard_refuses_when_unprimed_by_default() -> None:
     semantics opt in via ``fit_at_predict=True``.
     """
     from mlframe.training._predict_guards import (
-        NanGuardNotPrimedError, _apply_nan_guard, prime_nan_guard_stats,
+        NanGuardNotPrimedError,
+        _apply_nan_guard,
+        prime_nan_guard_stats,
     )
     from sklearn.linear_model import Ridge
 
@@ -484,7 +473,10 @@ def test_c10_nan_guard_refuses_when_unprimed_by_default() -> None:
     # 2) After priming on train, predict-time guard works fine.
     prime_nan_guard_stats(model, X_train)
     out = _apply_nan_guard(
-        model, X_predict_with_nan, lambda X: model.predict(X), n_rows=20,
+        model,
+        X_predict_with_nan,
+        lambda X: model.predict(X),
+        n_rows=20,
     )
     assert out.shape == (20,)
     assert np.all(np.isfinite(out))
@@ -492,7 +484,10 @@ def test_c10_nan_guard_refuses_when_unprimed_by_default() -> None:
     # 3) Explicit opt-in to legacy fit-on-predict still works.
     model2 = Ridge().fit(X_train, rng.normal(size=100))
     out2 = _apply_nan_guard(
-        model2, X_predict_with_nan, lambda X: model2.predict(X), n_rows=20,
+        model2,
+        X_predict_with_nan,
+        lambda X: model2.predict(X),
+        n_rows=20,
         fit_at_predict=True,
     )
     assert out2.shape == (20,)
@@ -521,11 +516,12 @@ def test_wave15_third_party_patches_not_applied_at_bare_import() -> None:
     value means a caller re-added an import-time apply call.
     """
     import os
-    import subprocess
+    import subprocess  # nosec B404 -- test-only local trusted subprocess invocation (fixed argv, no shell, no untrusted input)
     import sys
     import textwrap
 
     import mlframe as _mlframe_pkg
+
     _src_root = os.path.dirname(os.path.dirname(_mlframe_pkg.__file__))
     _env = {**os.environ, "PYTHONPATH": _src_root + os.pathsep + os.environ.get("PYTHONPATH", "")}
     _probe = textwrap.dedent("""
@@ -533,15 +529,16 @@ def test_wave15_third_party_patches_not_applied_at_bare_import() -> None:
         import mlframe.training._model_factories as mf
         sys.stdout.write(repr(getattr(mf, "_THIRD_PARTY_PATCHES_APPLIED", "MISSING")))
     """)
-    _res = subprocess.run(
+    _res = subprocess.run(  # nosec B603 -- fixed local argv (sys.executable/git + literal args), no shell, no untrusted input
         [sys.executable, "-c", _probe],
-        capture_output=True, text=True, timeout=180, env=_env,
+        capture_output=True,
+        text=True,
+        timeout=180,
+        env=_env,
     )
     assert _res.returncode == 0, f"probe subprocess failed: {_res.stderr}"
     assert _res.stdout.strip() == "False", (
-        f"Wave 1.5: third-party patches were applied at import time "
-        f"(probe printed {_res.stdout!r}). Did someone re-add the "
-        f"import-time call?"
+        f"Wave 1.5: third-party patches were applied at import time (probe printed {_res.stdout!r}). Did someone re-add the import-time call?"
     )
 
 
@@ -551,11 +548,13 @@ def test_wave15_factory_applies_patches_on_first_call() -> None:
     pytest.importorskip("lightgbm")
 
     import mlframe.training._model_factories as mf
+
     # Reset for this test.
     mf._THIRD_PARTY_PATCHES_APPLIED = False
 
     # Construction triggers apply_third_party_patches_once.
     import numpy as np
+
     X = np.zeros((4, 3), dtype=np.float32)
     y = np.array([0, 1, 0, 1], dtype=np.int32)
     _ = mf.make_lgb_dataset(X, label=y)

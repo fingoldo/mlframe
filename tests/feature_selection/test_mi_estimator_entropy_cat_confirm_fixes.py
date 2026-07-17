@@ -13,6 +13,7 @@ Each test pins one bug's failure mode (verified to fail on pre-fix code):
 7. conditional_permutation_test p-value lacked the (1+sum)/(B+1) continuity correction -> could
    return an impossible p == 0.
 """
+
 import logging
 
 import numpy as np
@@ -23,10 +24,13 @@ import pytest
 # Bug 3: joint_freqs_2var / joint_entropy_2var empty-frame guard
 # ---------------------------------------------------------------------------
 
+
 def test_joint_freqs_and_entropy_2var_empty_frame_finite():
     from mlframe.feature_selection.filters.info_theory._class_encoding import (
-        joint_freqs_2var, joint_entropy_2var,
+        joint_freqs_2var,
+        joint_entropy_2var,
     )
+
     empty = np.zeros((0, 2), dtype=np.int64)
     freqs = joint_freqs_2var(empty, 0, 1, 3, 3)
     assert freqs.size == 0
@@ -40,8 +44,10 @@ def test_joint_freqs_and_entropy_2var_empty_frame_finite():
 # Bug 2: genie_aggregate raw return + floor flag live; calibration logs failures
 # ---------------------------------------------------------------------------
 
+
 def test_genie_aggregate_returns_raw_and_floor_flag_controls_clamp():
     from mlframe.feature_selection.filters._mi_aggregator import genie_aggregate, genie_mi_panel
+
     # Weighted combo that is genuinely negative -> raw must NOT be clamped.
     raw = genie_aggregate([-1.0, -0.5], np.array([0.5, 0.5]))
     assert raw < 0.0, "genie_aggregate must return the raw (possibly negative) combination"
@@ -58,6 +64,7 @@ def test_genie_aggregate_returns_raw_and_floor_flag_controls_clamp():
 
 def test_best_on_calibration_logs_estimator_failure(caplog):
     from mlframe.feature_selection.filters._mi_aggregator import best_on_calibration_mi
+
     x = np.array([0.0, 1.0, 2.0, 3.0], dtype=np.float64)
     y = np.array([0, 1, 0, 1], dtype=np.int64)
 
@@ -77,8 +84,10 @@ def test_best_on_calibration_logs_estimator_failure(caplog):
 # Bug 4: constant column must yield a finite (zeroed) basis, not garbage
 # ---------------------------------------------------------------------------
 
+
 def test_fourier_near_constant_column_is_zeroed_not_garbage():
     from mlframe.feature_selection.filters.bases import _fourier_fit, _fourier_apply, _fourier_eval_njit
+
     # Near-constant column: 63 identical values + 1 outlier 1e-9 away. Pre-fix the 1e-12 span floor /
     # raw span (~1e-9) produces a z whose single-outlier point lands far from the bulk, turning
     # sin(2*pi*k*z) into a high-frequency garbage feature off rounding noise.
@@ -98,6 +107,7 @@ def test_fourier_near_constant_column_is_zeroed_not_garbage():
 
 def test_pade_near_constant_column_is_zeroed_not_garbage():
     from mlframe.feature_selection.filters.bases import _pade_fit, _pade_apply, _pade_eval_njit
+
     # Near-constant column: std ~ 1.25e-10 from one outlier. Pre-fix the additive 1e-12 std floor does
     # not dominate, so z = (x - mean)/std blows the outlier to z ~ 8 -> rational eval garbage.
     x = np.array([1.0] * 63 + [1.0 + 1e-9], dtype=np.float64)
@@ -116,8 +126,10 @@ def test_pade_near_constant_column_is_zeroed_not_garbage():
 # Bug 5: CMI permutation-stop warns on conditioning-code truncation
 # ---------------------------------------------------------------------------
 
+
 def test_cmi_perm_stop_warns_on_conditioning_truncation(caplog):
     from mlframe.feature_selection.filters import _cmi_perm_stop
+
     rng = np.random.default_rng(0)
     n = 200
     x_cand = rng.integers(0, 3, n)
@@ -128,29 +140,42 @@ def test_cmi_perm_stop_warns_on_conditioning_truncation(caplog):
     nbins_selected = [5] * n_sel
     with caplog.at_level(logging.WARNING):
         _cmi_perm_stop.cmi_permutation_stop(
-            x_cand=x_cand, y=y, selected_cols=selected_cols,
-            nbins_x=3, nbins_y=3, nbins_selected=nbins_selected,
-            n_permutations=5, alpha=0.05, seed=0,
+            x_cand=x_cand,
+            y=y,
+            selected_cols=selected_cols,
+            nbins_x=3,
+            nbins_y=3,
+            nbins_selected=nbins_selected,
+            n_permutations=5,
+            alpha=0.05,
+            seed=0,
         )
-    assert any("cardinality" in r.message.lower() or "truncat" in r.message.lower()
-               for r in caplog.records), "modulo truncation of conditioning code must warn"
+    assert any("cardinality" in r.message.lower() or "truncat" in r.message.lower() for r in caplog.records), "modulo truncation of conditioning code must warn"
 
 
 # ---------------------------------------------------------------------------
 # Bug 7: conditional permutation p-value never exactly 0 (continuity correction)
 # ---------------------------------------------------------------------------
 
+
 def test_conditional_permutation_pvalue_never_zero():
     from mlframe.feature_selection.filters._conditional_permutation import conditional_permutation_test
+
     rng = np.random.default_rng(1)
     n = 300
     z = rng.integers(0, 2, n)
     # Strong x<->y dependence within strata so observed >> all null -> naive p would be 0.
     x = rng.integers(0, 3, n)
     y = x.copy()
-    obs, p = conditional_permutation_test(
-        x=x, y=y, z=z, nbins_x=3, nbins_y=3, nbins_z=2,
-        n_permutations=50, seed=0,
+    _obs, p = conditional_permutation_test(
+        x=x,
+        y=y,
+        z=z,
+        nbins_x=3,
+        nbins_y=3,
+        nbins_z=2,
+        n_permutations=50,
+        seed=0,
     )
     assert p > 0.0, "continuity-corrected p must never be exactly 0"
     assert abs(p - 1.0 / 51.0) < 1e-12, "p must equal (1+0)/(50+1) when observed beats all null"
@@ -159,6 +184,7 @@ def test_conditional_permutation_pvalue_never_zero():
 # ---------------------------------------------------------------------------
 # Bug 6: Westfall-Young reproducibility + no global-RNG pollution
 # ---------------------------------------------------------------------------
+
 
 def test_westfall_young_reproducible_and_does_not_touch_global_rng():
     from mlframe.feature_selection.filters._cat_confirm_permutation import (
@@ -182,10 +208,18 @@ def test_westfall_young_reproducible_and_does_not_touch_global_rng():
 
     def run():
         return _compute_westfall_young_corrected_p(
-            factors_data=factors_data, pairs_a=pairs_a, pairs_b=pairs_b,
-            ii_obs_arr=ii_obs, selected_idx=selected_idx, nbins=nbins,
-            classes_y=classes_y, freqs_y=freqs_y, marginal_mi=marginal_mi,
-            n_perms=30, dtype=np.int64, verbose=0,
+            factors_data=factors_data,
+            pairs_a=pairs_a,
+            pairs_b=pairs_b,
+            ii_obs_arr=ii_obs,
+            selected_idx=selected_idx,
+            nbins=nbins,
+            classes_y=classes_y,
+            freqs_y=freqs_y,
+            marginal_mi=marginal_mi,
+            n_perms=30,
+            dtype=np.int64,
+            verbose=0,
         )
 
     # Pin the global RNG state, run twice, assert identical result AND untouched global stream.
@@ -206,6 +240,7 @@ def test_westfall_young_reproducible_and_does_not_touch_global_rng():
 # Bug 1: MINE recovers Gaussian-copula MI (biz_value-style)
 # ---------------------------------------------------------------------------
 
+
 def test_mine_dv_loss_uses_canonical_ema_corrected_gradient():
     """The MINE DV marginal term must have value ``log(mean(exp_t))`` and gradient ``grad(mean(exp_t)) / ema``
     (Belghazi 2018 eq. 12). The pre-fix ``(mean/ema) * log(ema)`` form scaled the followed gradient by an
@@ -222,10 +257,10 @@ def test_mine_dv_loss_uses_canonical_ema_corrected_gradient():
     exp_mean = exp_t.mean()
     # Canonical corrected term (the fix): value == log(mean), gradient == grad(mean)/ema.
     log_term = torch.log(exp_mean.detach() + 1e-12) + (exp_mean - exp_mean.detach()) / ema.detach()
-    g_fix, = torch.autograd.grad(log_term, t, retain_graph=True)
+    (g_fix,) = torch.autograd.grad(log_term, t, retain_graph=True)
 
     # Reference: grad(mean(exp_t)) / ema -- what the DV gradient MUST be.
-    g_mean, = torch.autograd.grad(exp_mean, t, retain_graph=True)
+    (g_mean,) = torch.autograd.grad(exp_mean, t, retain_graph=True)
     g_ref = g_mean / ema
     assert torch.allclose(g_fix, g_ref, atol=1e-6), "fix gradient must equal grad(mean(exp_t))/ema"
 
@@ -235,7 +270,7 @@ def test_mine_dv_loss_uses_canonical_ema_corrected_gradient():
     # Pre-fix form: gradient is grad(mean)/ema * log(ema); with ema<1 this points OPPOSITE to g_ref.
     exp_t2 = torch.exp(t)
     prefix_term = (exp_t2.mean() / ema.detach()) * torch.log(ema.detach())
-    g_prefix, = torch.autograd.grad(prefix_term, t)
+    (g_prefix,) = torch.autograd.grad(prefix_term, t)
     assert (g_prefix * g_ref).sum() < 0, "pre-fix gradient must flip sign vs canonical when ema<1"
 
 
@@ -253,8 +288,7 @@ def test_mine_recovers_gaussian_copula_mi():
     true_mi = -0.5 * np.log(1.0 - rho * rho)  # ~0.51 nats
 
     torch.manual_seed(0)
-    est = mine_mi(x, y, n_epochs=400, hidden_dim=64, batch_size=512, lr=1e-3,
-                  early_stop_patience=0, device="cpu", verbose=False)
+    est = mine_mi(x, y, n_epochs=400, hidden_dim=64, batch_size=512, lr=1e-3, early_stop_patience=0, device="cpu", verbose=False)
     # Wide tolerance band: MINE on few epochs is noisy but the corrected gradient must climb to the
     # right neighbourhood. Pre-fix mis-scaled gradient leaves the estimate far below true MI.
     assert est >= 0.5 * true_mi, f"MINE should recover most of Gaussian MI ({true_mi:.3f}); got {est:.3f}"

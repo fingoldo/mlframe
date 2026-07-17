@@ -11,12 +11,13 @@ np.random AND prior in-process GPU/kernel-tuning-cache state perturbs the razor-
 selection, so in-process this pin is order-dependent (it passed alone but failed after the CUDA batcher
 tests in the same process). Subprocess isolation + CPU-forced + sweep-disabled makes the verdict reproducible.
 """
+
 from __future__ import annotations
 
 import json
 import os
 import re
-import subprocess
+import subprocess  # nosec B404 -- test-only local trusted subprocess invocation (fixed argv, no shell, no untrusted input)
 import sys
 
 import pytest
@@ -62,18 +63,15 @@ def _run_f2(full: int, baseline: int, n: int = 10_000, seed: int = 42) -> list:
         "print('RESULT_JSON='+json.dumps(list(fs.get_feature_names_out())))\n"
     )
     env = dict(os.environ)
-    env["CUDA_VISIBLE_DEVICES"] = ""        # force CPU -> no prior-GPU-state contamination
+    env["CUDA_VISIBLE_DEVICES"] = ""  # force CPU -> no prior-GPU-state contamination
     env["MLFRAME_DISABLE_HNSW"] = "1"
     env["PYUTILZ_KERNEL_DISABLE_SWEEP"] = "1"
     env["PYTHONUNBUFFERED"] = "1"
-    proc = subprocess.run([sys.executable, "-c", src], capture_output=True, text=True, timeout=600, env=env)
+    proc = subprocess.run([sys.executable, "-c", src], capture_output=True, text=True, timeout=600, env=env)  # nosec B603 -- fixed local argv (sys.executable/git + literal args), no shell, no untrusted input
     for line in proc.stdout.splitlines():
         if line.startswith("RESULT_JSON="):
-            return json.loads(line[len("RESULT_JSON="):])
-    raise AssertionError(
-        f"subprocess fit returned no selection (rc={proc.returncode}); stderr tail:\n"
-        + "\n".join(proc.stderr.splitlines()[-15:])
-    )
+            return json.loads(line[len("RESULT_JSON=") :])
+    raise AssertionError(f"subprocess fit returned no selection (rc={proc.returncode}); stderr tail:\n" + "\n".join(proc.stderr.splitlines()[-15:]))
 
 
 @pytest.mark.timeout(700)

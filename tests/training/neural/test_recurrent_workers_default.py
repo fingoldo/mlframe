@@ -7,6 +7,7 @@ amortize well).
 The default is exposed via a ``field(default_factory=...)`` so a user
 can still override via RecurrentConfig(num_workers=...).
 """
+
 from __future__ import annotations
 
 import os
@@ -17,7 +18,8 @@ pytest.importorskip("torch")
 pytest.importorskip("lightning")
 
 from mlframe.training.neural._recurrent_config import (
-    RecurrentConfig, _default_num_workers,
+    RecurrentConfig,
+    _default_num_workers,
 )
 
 
@@ -69,16 +71,15 @@ def test_mlp_dataloader_num_workers_os_aware_default():
     X = np.random.randn(32, 4).astype(np.float32)
     y = np.random.randn(32).astype(np.float32)
     dm = TorchDataModule(
-        train_features=X, train_labels=y,
-        features_dtype=torch.float32, labels_dtype=torch.float32,
+        train_features=X,
+        train_labels=y,
+        features_dtype=torch.float32,
+        labels_dtype=torch.float32,
         dataloader_params={"batch_size": 8},  # no num_workers!
     )
     loader = dm.train_dataloader()
     expected = 0 if os.name == "nt" else 2
-    assert loader.num_workers == expected, (
-        f"F-71b: expected MLP DataLoader.num_workers={expected} (OS-aware "
-        f"default); got {loader.num_workers}"
-    )
+    assert loader.num_workers == expected, f"F-71b: expected MLP DataLoader.num_workers={expected} (OS-aware default); got {loader.num_workers}"
 
 
 def test_mlp_dataloader_explicit_num_workers_preserved():
@@ -90,8 +91,10 @@ def test_mlp_dataloader_explicit_num_workers_preserved():
     X = np.random.randn(32, 4).astype(np.float32)
     y = np.random.randn(32).astype(np.float32)
     dm = TorchDataModule(
-        train_features=X, train_labels=y,
-        features_dtype=torch.float32, labels_dtype=torch.float32,
+        train_features=X,
+        train_labels=y,
+        features_dtype=torch.float32,
+        labels_dtype=torch.float32,
         dataloader_params={"batch_size": 8, "num_workers": 5},
     )
     loader = dm.train_dataloader()

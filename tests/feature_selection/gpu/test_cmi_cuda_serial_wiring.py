@@ -17,6 +17,7 @@ the njit loop skips -> the measured ``prefilled slots`` is the scalar-call reduc
 
 RAM-light by mandate: n ~ 8000, p ~ 300, single process, n_workers=1.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -58,8 +59,8 @@ def _fit_mrmr(X, y):
     mrmr = MRMR(
         full_npermutations=3,
         baseline_npermutations=3,
-        fe_max_steps=0,          # keep FE off: this test is about the redundancy CMI path only
-        use_simple_mode=False,   # MUST be off so the conditional-MI redundancy branch runs
+        fe_max_steps=0,  # keep FE off: this test is about the redundancy CMI path only
+        use_simple_mode=False,  # MUST be off so the conditional-MI redundancy branch runs
         max_runtime_mins=None,
         verbose=0,
         # SERIAL path: n_workers=1 routes through _confirm_predictor.score_candidates' else-branch

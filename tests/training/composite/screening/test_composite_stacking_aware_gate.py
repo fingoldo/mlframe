@@ -7,6 +7,7 @@ The measure-first protocol:
 
 Tests cover both halves separately and the integration.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -106,7 +107,7 @@ class TestStackingAwareGate:
 
     def test_orthogonal_predictors_all_kept(self) -> None:
         preds, y = self._make_orthogonal_predictions()
-        survivors, weights = stacking_aware_gate(preds, y, min_weight=0.05)
+        survivors, _weights = stacking_aware_gate(preds, y, min_weight=0.05)
         # f1, f2, f3 all carry independent signal -> all survive.
         assert "f1_only" in survivors
         assert "f2_only" in survivors

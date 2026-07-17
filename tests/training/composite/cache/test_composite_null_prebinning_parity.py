@@ -10,6 +10,7 @@ permutation (``_mi_from_binned_pair``) instead of re-binning every permutation
 (~5x faster on n=20k). This test locks in the exactness the optimization relies
 on; any drift would silently alter which features survive the null threshold.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -54,11 +55,11 @@ def test_prebinned_null_mi_is_bit_identical_to_mi_pair_bin(nbins: int, seed: int
         # array (pairwise summation) while the njit kernel walks cells row-major (sequential accumulation). That lands ~1e-13 worst-case across a
         # 200-seed x 9-nbins grid, far under any MI ranking threshold (~1e-3), so the contract is allclose-not-bitwise. See test_mi_kernel_divergence_bound.
         np.testing.assert_allclose(
-            fast, ref, rtol=1e-9, atol=1e-12,
-            err_msg=(
-                f"prebinned null MI diverged from _mi_pair_bin beyond FP-order tolerance: ref={ref!r} fast={fast!r} "
-                f"(nbins={nbins}, seed={seed})"
-            ),
+            fast,
+            ref,
+            rtol=1e-9,
+            atol=1e-12,
+            err_msg=(f"prebinned null MI diverged from _mi_pair_bin beyond FP-order tolerance: ref={ref!r} fast={fast!r} (nbins={nbins}, seed={seed})"),
         )
 
 
@@ -97,6 +98,7 @@ def test_shuffling_codes_equals_binning_shuffled_values() -> None:
     rebinned = _bin_codes(col[order], nbins)
     # Versus shuffling the once-computed codes.
     np.testing.assert_array_equal(
-        rebinned, codes[order],
+        rebinned,
+        codes[order],
         err_msg="re-binning shuffled values must equal shuffling the precomputed codes",
     )

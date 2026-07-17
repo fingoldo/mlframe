@@ -24,15 +24,16 @@ Fix at info_theory.py:113: return ``h_plugin`` directly when k <= 1.
 Plug-in entropy is exact (= 0) for deterministic distributions, so the
 Miller-Madow bias correction is undefined / unnecessary in that regime.
 """
+
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 
 def test_miller_madow_empty_freqs_returns_zero():
     """Empty freqs (no non-empty bins) must give H = 0, not -1/(2n)."""
     from mlframe.feature_selection.filters.info_theory import entropy_miller_madow
+
     h = entropy_miller_madow(np.array([], dtype=np.float64), n_samples=100)
     assert h >= 0.0, f"empty freqs gave H={h}, must be >= 0"
     assert abs(h) < 1e-12
@@ -41,6 +42,7 @@ def test_miller_madow_empty_freqs_returns_zero():
 def test_miller_madow_all_zero_freqs_returns_zero():
     """All-zero freqs (every count filtered out) must give H = 0."""
     from mlframe.feature_selection.filters.info_theory import entropy_miller_madow
+
     h = entropy_miller_madow(np.array([0.0, 0.0, 0.0]), n_samples=100)
     assert h >= 0.0
 
@@ -52,6 +54,7 @@ def test_miller_madow_single_bin_returns_zero():
     diverged in numba.
     """
     from mlframe.feature_selection.filters.info_theory import entropy_miller_madow
+
     h = entropy_miller_madow(np.array([1.0]), n_samples=100)
     assert h >= 0.0
     assert abs(h) < 1e-12
@@ -63,6 +66,7 @@ def test_miller_madow_valid_distribution_unchanged():
     The fix must not alter behaviour on the multi-bin path.
     """
     from mlframe.feature_selection.filters.info_theory import entropy_miller_madow
+
     n = 100
     # H_plugin for [0.5, 0.5] -> 0.5 ln(2) + 0.5 ln(2) = ln(2) = 0.693
     # MM correction = (2-1) / (2*100) = 0.005
@@ -78,6 +82,7 @@ def test_miller_madow_valid_distribution_unchanged():
 def test_miller_madow_three_bin_uniform():
     """Three-bin uniform: H_plugin = ln(3); MM adds (3-1)/(2*100) = 0.01."""
     from mlframe.feature_selection.filters.info_theory import entropy_miller_madow
+
     n = 100
     third = 1.0 / 3.0
     h = entropy_miller_madow(np.array([third, third, third]), n_samples=n)

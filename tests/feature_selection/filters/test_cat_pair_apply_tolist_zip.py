@@ -44,14 +44,18 @@ def test_apply_cat_pair_bit_identical_to_indexed_loop(ki, kj, encoding):
     rng = np.random.default_rng(7)
     n_fit, n_test = 400, 300
     # Fit on a subset of the grid so some test pairs are UNSEEN (exercise fallbacks).
-    df_fit = pd.DataFrame({
-        "ci": [f"a{v}" for v in rng.integers(0, max(ki - 1, 1), size=n_fit)],
-        "cj": [f"b{v}" for v in rng.integers(0, max(kj - 1, 1), size=n_fit)],
-    })
-    df_test = pd.DataFrame({
-        "ci": [f"a{v}" for v in rng.integers(0, ki, size=n_test)],
-        "cj": [f"b{v}" for v in rng.integers(0, kj, size=n_test)],
-    })
+    df_fit = pd.DataFrame(
+        {
+            "ci": [f"a{v}" for v in rng.integers(0, max(ki - 1, 1), size=n_fit)],
+            "cj": [f"b{v}" for v in rng.integers(0, max(kj - 1, 1), size=n_fit)],
+        }
+    )
+    df_test = pd.DataFrame(
+        {
+            "ci": [f"a{v}" for v in rng.integers(0, ki, size=n_test)],
+            "cj": [f"b{v}" for v in rng.integers(0, kj, size=n_test)],
+        }
+    )
 
     codes, mapping = _encode_pair(_column_to_str(df_fit["ci"]), _column_to_str(df_fit["cj"]))
     te_lookup = None
@@ -62,10 +66,22 @@ def test_apply_cat_pair_bit_identical_to_indexed_loop(ki, kj, encoding):
         global_mean = -0.123
 
     expected = _indexed_per_row_loop(
-        df_test, "ci", "cj", mapping, encoding=encoding, te_lookup=te_lookup, global_mean=global_mean,
+        df_test,
+        "ci",
+        "cj",
+        mapping,
+        encoding=encoding,
+        te_lookup=te_lookup,
+        global_mean=global_mean,
     )
     got = apply_cat_pair_cross(
-        df_test, "ci", "cj", mapping, encoding=encoding, te_lookup=te_lookup, global_mean=global_mean,
+        df_test,
+        "ci",
+        "cj",
+        mapping,
+        encoding=encoding,
+        te_lookup=te_lookup,
+        global_mean=global_mean,
     )
     assert np.array_equal(expected, got), "tolist+zip replay diverged from indexed per-row loop"
 

@@ -95,6 +95,12 @@ dependencies = [
     "category-encoders>=2.6",
     "expiringdict>=1.2",
     "pympler>=1.0",   # used via pyutilz.system; unconditional import in tests/feature_engineering/*
+    # 2026-07-17: promoted from an optional/best-effort import to a hard dep. Used directly for fast
+    # copy-free content hashing on several hot per-column dedup paths (_fe_resident_operands.py's
+    # resident-operand cache, _mrmr_degenerate.py's audit_degenerate_columns, discretization's
+    # per-column code cache) -- measured 1.4-2.6x over the pandas/hashlib fallbacks those paths still
+    # carry (kept as defensive degradation, not exercised once this floor is guaranteed present).
+    "xxhash>=3.0",
     # pyutilz is not yet on PyPI. Install it from GitHub before mlframe:
     #   pip install "pyutilz @ git+https://github.com/fingoldo/pyutilz.git"
     # The version specifier below works once pyutilz is published; until then,
@@ -608,10 +614,19 @@ DEP002 = [
 # can't see the sys.path.insert() a few lines above each such import and misreads them as
 # missing external packages).
 DEP001 = [
-    "ml_insights", "dirichletcal", "pycaret", "sklearnex", "hnswlib", "xxhash", "ndd", "BorutaShap",
+    "ml_insights", "dirichletcal", "pycaret", "sklearnex", "hnswlib", "ndd", "BorutaShap",
     "powershap", "ngboost", "autogluon", "lightautoml", "quantile_forest", "sksurv", "tensorflow",
     "keras", "experiment_impact_tracker", "concepts", "gudhi", "loky", "mist_statinf",
     "infer", "model", "finance", "pyod",
+    # tests/-scoped additions (2026-07-17, when tests/ started being deptry-scanned separately via
+    # `deptry . --exclude ... ` overriding the tests/ exclude below): LOCAL test-helper modules
+    # imported by bare filename from a sibling file in the same tests/ subdirectory (e.g.
+    # tests/perf/profile_training_core.py imported from another tests/perf/ file) -- not pip
+    # packages at all, deptry can't distinguish a same-directory local import from a missing
+    # third-party one. `allpairspy` and `arfs` are genuine undeclared third-party test-only deps
+    # and are deliberately NOT added here -- they should keep surfacing until added to a test
+    # extras group or their call sites are confirmed to always `pytest.importorskip` first.
+    "test_coverage_fill", "training", "profile_training_core", "_source_proxy_scan",
 ]
 
 # DEP003 (transitive dependency imported directly): mirrors DEP002's stance -- these are pulled in
@@ -630,12 +645,18 @@ DEP001 = [
 # `concepts` (formal-concept-analysis lib, feature_engineering/transformer/fca_closed_concepts.py)
 # has the identical flip: DEP001-listed above for a clean env, but deptry reports it as DEP003 in
 # any environment where it happens to be installed -- ignored under both for the same reason, not
-# because it's an actual transitive dep of anything else here. `xxhash` (used directly for fast
-# content hashing across several feature_selection/training modules) has the same flip.
+# because it's an actual transitive dep of anything else here. (`xxhash` USED to have the same flip
+# before it was promoted to a hard `dependencies` entry above, 2026-07-17 -- no longer needs an
+# ignore at all, deptry resolves it as a normal direct dependency now.)
 DEP003 = [
     "filelock", "cpuinfo", "kaleido", "torchvision", "torchmetrics", "lightning_fabric",
     "pytorch_lightning", "triton", "networkx", "llvmlite", "dtaidistance", "mlxtend", "sympy",
-    "bottleneck", "ortools", "yaml", "model_diagnostics", "finance", "concepts", "xxhash",
+    "bottleneck", "ortools", "yaml", "model_diagnostics", "finance", "concepts",
+    # tests/-scoped additions (2026-07-17, see the DEP001 comment above for the scan-scope context):
+    # transitive deps of already-declared direct deps, imported directly from test code -- thinc is
+    # spacy's transitive engine, pydantic_core is pydantic's own transitive Rust core, tomli comes
+    # in via a pytest-plugin's transitive chain, packaging is ubiquitous across the whole toolchain.
+    "thinc", "pydantic_core", "tomli", "packaging",
 ]
 
 # ---------------------------------------------------------------------------

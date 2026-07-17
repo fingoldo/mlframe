@@ -8,11 +8,11 @@ path on Windows) and the end-to-end set/get cycle on a deeply nested
 path so a regression that re-introduces the bare ``str(cache_dir)``
 construction is caught.
 """
+
 from __future__ import annotations
 
 import sys
 
-import pytest
 
 
 def test_discovery_cache_cache_dir_uses_long_path_prefix_on_windows(tmp_path):
@@ -24,14 +24,12 @@ def test_discovery_cache_cache_dir_uses_long_path_prefix_on_windows(tmp_path):
 
     cache = DiscoveryCache(str(tmp_path / "lp_root"))
     if sys.platform == "win32":
-        assert cache.cache_dir.startswith("\\\\?\\"), (
-            f"cache_dir should carry long-path prefix on Windows; got: "
-            f"{cache.cache_dir!r}"
-        )
+        assert cache.cache_dir.startswith("\\\\?\\"), f"cache_dir should carry long-path prefix on Windows; got: {cache.cache_dir!r}"
     else:
         # On POSIX long_path_safe is a no-op - the cache_dir is just the
         # absolute path.
         import os
+
         assert cache.cache_dir == os.path.abspath(str(tmp_path / "lp_root"))
 
 

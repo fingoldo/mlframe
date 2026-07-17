@@ -5,6 +5,7 @@ identical for every valid ``freqs_y`` = bincount(classes_y)/total, including
 distributions with absent (gap) labels -- otherwise the analytic-null applicability
 check would see a wrong df and change which candidates the gate keeps.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -17,13 +18,16 @@ def _freqs_y_from(classes_y: np.ndarray) -> np.ndarray:
     return counts.astype(np.float64) / float(total)
 
 
-@pytest.mark.parametrize("labels", [
-    [0, 1],                         # binary, both present
-    [0, 0, 0, 1],                   # binary, imbalanced
-    [0, 1, 2, 3, 4, 5, 6],          # dense multiclass
-    [0, 2, 4, 6],                   # gaps: labels 1,3,5 absent -> freqs_y has interior zeros
-    [3, 3, 3],                      # single occupied high label -> leading zeros
-])
+@pytest.mark.parametrize(
+    "labels",
+    [
+        [0, 1],  # binary, both present
+        [0, 0, 0, 1],  # binary, imbalanced
+        [0, 1, 2, 3, 4, 5, 6],  # dense multiclass
+        [0, 2, 4, 6],  # gaps: labels 1,3,5 absent -> freqs_y has interior zeros
+        [3, 3, 3],  # single occupied high label -> leading zeros
+    ],
+)
 def test_count_nonzero_freqs_equals_unique_size(labels):
     classes_y = np.array(labels, dtype=np.int64)
     freqs_y = _freqs_y_from(classes_y)

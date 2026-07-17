@@ -6,6 +6,7 @@ frame. The fix is ``copy(deep=False)``: untouched column buffers are SHARED with
 full-column reassignment never writes back into it. These tests fail on the pre-fix deep-copy code
 (``np.shares_memory`` is False after a deep copy) and pass after.
 """
+
 from __future__ import annotations
 
 import numpy as np

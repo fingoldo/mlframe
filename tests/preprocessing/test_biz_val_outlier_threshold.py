@@ -6,6 +6,7 @@ method converts those scores into a boolean flag. The test proves ``method="cont
 planted outlier COUNT almost exactly and does so with near-perfect precision/recall against the known
 ground-truth labels -- the value the helper adds over "each caller hand-rolls a percentile cutoff."
 """
+
 from __future__ import annotations
 
 import numpy as np

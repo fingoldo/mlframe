@@ -5,6 +5,7 @@ the AUC over independent test draws) than the bootstrap-of-AUC SD, and the DeLon
 nominal coverage near the AUC=1 ceiling where the bootstrap under-covers. Ground truth is the Monte-Carlo
 SD of the AUC over many fresh draws of a known normal-shift generative model.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -99,8 +100,14 @@ def test_biz_val_auc_delong_se_tracks_truth_as_well_as_bootstrap():
         y, s = _draw(rng, n, auc_t)
         d_se = auc_variance(y, s)["se"]
         res = bootstrap_metric(
-            y, s, lambda a, b: float(roc_auc_score(a, b)),
-            n_bootstrap=400, alpha=0.05, random_state=1000 + sd, stratify=y, method="bca",
+            y,
+            s,
+            lambda a, b: float(roc_auc_score(a, b)),
+            n_bootstrap=400,
+            alpha=0.05,
+            random_state=1000 + sd,
+            stratify=y,
+            method="bca",
         )
         b_se = float(res["samples"].std(ddof=1))
         de, be = abs(d_se - sd_truth), abs(b_se - sd_truth)
@@ -108,9 +115,7 @@ def test_biz_val_auc_delong_se_tracks_truth_as_well_as_bootstrap():
         b_err.append(be)
         wins += int(de < be)
     assert wins >= 5, f"DeLong should win majority of seeds on auc=0.85/n=200, got {wins}/8"
-    assert np.mean(d_err) <= np.mean(b_err) * 1.10, (
-        f"DeLong mean |SE-truth| {np.mean(d_err):.5f} should be ~<= bootstrap {np.mean(b_err):.5f}"
-    )
+    assert np.mean(d_err) <= np.mean(b_err) * 1.10, f"DeLong mean |SE-truth| {np.mean(d_err):.5f} should be ~<= bootstrap {np.mean(b_err):.5f}"
 
 
 def test_biz_val_auc_delong_ci_coverage_near_nominal_at_ceiling():

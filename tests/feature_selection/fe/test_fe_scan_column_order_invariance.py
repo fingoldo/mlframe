@@ -7,6 +7,7 @@ combination prefix and breaks near-ties positionally, yielding a different set
 of engineered candidates -- which then drives a column-order-dependent MRMR
 selection (the [MRMR] case of test_reversed_columns_select_same_names).
 """
+
 from __future__ import annotations
 
 import numpy as np

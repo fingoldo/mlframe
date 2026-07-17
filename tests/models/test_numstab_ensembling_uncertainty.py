@@ -5,6 +5,7 @@ Pre-fix, with ``normalize_stds_by_mean_preds=True`` the per-class relative sprea
 inf/nan that poisoned the quantile threshold and corrupted the confident-index selection
 for EVERY row. The guard treats a near-zero-mean class as zero relative spread.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -28,7 +29,9 @@ def test_uncertainty_near_zero_mean_class_does_not_poison_selection():
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         _ens, uncertainty, confident_indices = ensemble_probabilistic_predictions(
-            p1, p2, p3,
+            p1,
+            p2,
+            p3,
             ensemble_method="arithm",
             uncertainty_quantile=0.5,
             normalize_stds_by_mean_preds=True,

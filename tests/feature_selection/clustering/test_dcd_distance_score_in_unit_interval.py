@@ -21,6 +21,7 @@ Fix at line 341: ``max(0.0, min(1.0, 1.0 - d))``. Parallel parity fix
 at iter-23 VI branch (line 289) - same defensive upper clamp against
 FP noise.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -31,27 +32,34 @@ def _state(distance: str, fd, fn, target_indices=None):
     from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
         make_dcd_state,
     )
+
     return make_dcd_state(
-        X_raw=None, factors_data=fd, factors_nbins=fn,
-        cols=[f"c{i}" for i in range(fd.shape[1])], nbins=fn,
-        target_indices=target_indices, distance=distance,
+        X_raw=None,
+        factors_data=fd,
+        factors_nbins=fn,
+        cols=[f"c{i}" for i in range(fd.shape[1])],
+        nbins=fn,
+        target_indices=target_indices,
+        distance=distance,
     )
 
 
 def test_sotoca_pla_clamps_to_one_on_target_informative_pair():
     """X_a = X_b = Y -> pre-fix score 1.5, post-fix score 1.0."""
     from mlframe.feature_selection.filters._dynamic_cluster_discovery import pair_su
+
     rng = np.random.default_rng(0)
     n = 1000
     y = rng.integers(0, 2, n).astype(np.int32)
     fd = np.column_stack([y, y, y])
     fn = np.array([2, 2, 2], dtype=np.int64)
     state = _state(
-        "sotoca_pla", fd, fn,
+        "sotoca_pla",
+        fd,
+        fn,
         target_indices=np.array([2], dtype=np.int64),
     )
-    score = pair_su(state, 0, 1, entropy_cache=None,
-                     factors_data=fd, factors_nbins=fn)
+    score = pair_su(state, 0, 1, entropy_cache=None, factors_data=fd, factors_nbins=fn)
     assert 0.0 <= score <= 1.0
     # Identical-to-target pair must give the MAX similarity (1.0),
     # not a phantom 1.5+.
@@ -61,6 +69,7 @@ def test_sotoca_pla_clamps_to_one_on_target_informative_pair():
 def test_sotoca_pla_independent_pair_low_score():
     """Negative control: two independent features -> low similarity."""
     from mlframe.feature_selection.filters._dynamic_cluster_discovery import pair_su
+
     rng = np.random.default_rng(1)
     n = 2000
     a = rng.integers(0, 4, n).astype(np.int32)
@@ -68,10 +77,8 @@ def test_sotoca_pla_independent_pair_low_score():
     y = rng.integers(0, 2, n).astype(np.int32)
     fd = np.column_stack([a, b, y])
     fn = np.array([4, 4, 2], dtype=np.int64)
-    state = _state("sotoca_pla", fd, fn,
-                    target_indices=np.array([2], dtype=np.int64))
-    score = pair_su(state, 0, 1, entropy_cache=None,
-                     factors_data=fd, factors_nbins=fn)
+    state = _state("sotoca_pla", fd, fn, target_indices=np.array([2], dtype=np.int64))
+    score = pair_su(state, 0, 1, entropy_cache=None, factors_data=fd, factors_nbins=fn)
     assert 0.0 <= score <= 1.0
 
 
@@ -80,14 +87,14 @@ def test_vi_clamp_upper_bound():
     [0, 1] against numerical FP noise.
     """
     from mlframe.feature_selection.filters._dynamic_cluster_discovery import pair_su
+
     rng = np.random.default_rng(2)
     n = 1000
     col = rng.integers(0, 4, n).astype(np.int32)
     fd = np.column_stack([col, col])  # identical -> score should be 1.0 max
     fn = np.array([4, 4], dtype=np.int64)
     state = _state("vi", fd, fn)
-    score = pair_su(state, 0, 1, entropy_cache=None,
-                     factors_data=fd, factors_nbins=fn)
+    score = pair_su(state, 0, 1, entropy_cache=None, factors_data=fd, factors_nbins=fn)
     assert 0.0 <= score <= 1.0
 
 
@@ -97,6 +104,7 @@ def test_all_distances_unit_interval_invariant(distance):
     cluster-membership rule to be semantically meaningful.
     """
     from mlframe.feature_selection.filters._dynamic_cluster_discovery import pair_su
+
     rng = np.random.default_rng(3)
     n = 500
     fd = rng.integers(0, 5, (n, 4)).astype(np.int32)
@@ -105,8 +113,5 @@ def test_all_distances_unit_interval_invariant(distance):
     state = _state(distance, fd, fn, target_indices=target)
     for a in range(4):
         for b in range(a + 1, 4):
-            score = pair_su(state, a, b, entropy_cache=None,
-                             factors_data=fd, factors_nbins=fn)
-            assert 0.0 <= score <= 1.0, (
-                f"distance={distance}, pair=({a},{b}), score={score}"
-            )
+            score = pair_su(state, a, b, entropy_cache=None, factors_data=fd, factors_nbins=fn)
+            assert 0.0 <= score <= 1.0, f"distance={distance}, pair=({a},{b}), score={score}"

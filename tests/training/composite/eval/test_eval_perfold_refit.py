@@ -30,12 +30,12 @@ These tests:
   construction (only fold rows enter the fit), degenerate-fold ``None``
   fallback, fitted-domain refinement, and groups threading.
 """
+
 from __future__ import annotations
 
 from typing import Any
 
 import numpy as np
-import pytest
 
 from mlframe.training.composite.discovery._eval import refit_transform_on_fold
 from mlframe.training.composite.transforms import Transform
@@ -98,7 +98,7 @@ def _make_data(n: int = 220, seed: int = 7):
     # True mean is a gentle cubic; the residual T = y - true(base) is pure
     # noise. A flexible degree-9 GLOBAL poly fit will absorb part of that noise
     # (overfit), which is what the held-out fold then unfairly benefits from.
-    true_g = 0.4 * base ** 3 - 1.1 * base
+    true_g = 0.4 * base**3 - 1.1 * base
     noise = rng.normal(0.0, 1.0, size=n)
     y = true_g + noise
     return y.astype(np.float64), base.astype(np.float64)
@@ -137,7 +137,9 @@ def _cv_heldout_rmse(
         train_idx = np.concatenate([folds[j] for j in range(k) if j != vi])
         if per_fold_refit:
             refit = refit_transform_on_fold(
-                transform, y[train_idx], base[train_idx],
+                transform,
+                y[train_idx],
+                base[train_idx],
             )
             params = global_params if refit is None else refit[0]
         else:
@@ -177,10 +179,20 @@ def test_biz_val_perfold_refit_removes_global_fit_optimism():
     for seed in range(8):
         y, base = _make_data(n=160, seed=seed)
         opt = _cv_heldout_rmse(
-            y, base, transform, k=k, seed=100 + seed, per_fold_refit=False,
+            y,
+            base,
+            transform,
+            k=k,
+            seed=100 + seed,
+            per_fold_refit=False,
         )
         hon = _cv_heldout_rmse(
-            y, base, transform, k=k, seed=100 + seed, per_fold_refit=True,
+            y,
+            base,
+            transform,
+            k=k,
+            seed=100 + seed,
+            per_fold_refit=True,
         )
         assert np.isfinite(opt) and np.isfinite(hon)
         opt_rmses.append(opt)
@@ -200,8 +212,7 @@ def test_biz_val_perfold_refit_removes_global_fit_optimism():
     # more than tiny noise -- the leak can only inflate (lower) the score.
     for o, h in zip(opt_rmses, hon_rmses):
         assert h >= o * 0.98, (
-            f"honest RMSE {h:.4f} cannot be meaningfully better than the leaky "
-            f"global-fit RMSE {o:.4f}; the leak only ever flatters the score."
+            f"honest RMSE {h:.4f} cannot be meaningfully better than the leaky global-fit RMSE {o:.4f}; the leak only ever flatters the score."
         )
 
 
@@ -221,12 +232,14 @@ def test_refit_only_sees_fold_rows():
     fold_params, valid = out
     direct = transform.fit(y[train_idx], base[train_idx])
     np.testing.assert_allclose(
-        np.asarray(fold_params["coef"]), np.asarray(direct["coef"]),
+        np.asarray(fold_params["coef"]),
+        np.asarray(direct["coef"]),
     )
     # Differs from the global fit (proof the fold did NOT use all rows).
     global_params = transform.fit(y, base)
     assert not np.allclose(
-        np.asarray(fold_params["coef"]), np.asarray(global_params["coef"]),
+        np.asarray(fold_params["coef"]),
+        np.asarray(global_params["coef"]),
     )
     assert valid.shape == (train_idx.shape[0],)
     assert bool(valid.all())
@@ -258,6 +271,7 @@ def test_refit_drops_invalid_domain_rows():
 def test_refit_returns_none_on_degenerate_params():
     """A fit that flags ``is_degenerate`` yields None so the caller does not
     score the held-out fold on a near-identity refit."""
+
     def _degen_fit(y, base):
         return {"alpha": 0.0, "beta": 0.0, "is_degenerate": True}
 
@@ -266,8 +280,7 @@ def test_refit_returns_none_on_degenerate_params():
         forward=lambda y, b, p: np.asarray(y, dtype=np.float64),
         inverse=lambda t, b, p: np.asarray(t, dtype=np.float64),
         fit=_degen_fit,
-        domain_check=lambda y, b: np.isfinite(np.asarray(b, dtype=np.float64))
-        & (np.isfinite(np.asarray(y, dtype=np.float64)) if y is not None else True),
+        domain_check=lambda y, b: np.isfinite(np.asarray(b, dtype=np.float64)) & (np.isfinite(np.asarray(y, dtype=np.float64)) if y is not None else True),
         description="test-only degenerate-flag transform",
     )
     y, base = _make_data(n=60, seed=1)
@@ -277,6 +290,7 @@ def test_refit_returns_none_on_degenerate_params():
 def test_refit_fitted_domain_refinement_narrows_mask():
     """A ``domain_check_fitted`` hook that drops rows once params exist narrows
     the returned mask (T15 parity)."""
+
     def _fit(y, base):
         # Offset chosen so that base + offset <= 0 for the most-negative
         # bases -> the fitted-domain hook (base + offset > 0) drops them,
@@ -307,7 +321,10 @@ def test_refit_fitted_domain_refinement_narrows_mask():
 
     transform = Transform(
         name="logshift_testonly",
-        forward=_fwd, inverse=_inv, fit=_fit, domain_check=_domain,
+        forward=_fwd,
+        inverse=_inv,
+        fit=_fit,
+        domain_check=_domain,
         domain_check_fitted=_domain_fitted,
         description="test-only log-shift transform with fitted domain",
     )
@@ -341,10 +358,7 @@ def test_refit_threads_groups_when_fit_accepts():
         forward=lambda y, b, p, groups=None: np.asarray(y, dtype=np.float64),
         inverse=lambda t, b, p, groups=None: np.asarray(t, dtype=np.float64),
         fit=_grouped_fit,
-        domain_check=lambda y, b: (
-            np.isfinite(np.asarray(b, dtype=np.float64))
-            & (np.isfinite(np.asarray(y, dtype=np.float64)) if y is not None else True)
-        ),
+        domain_check=lambda y, b: np.isfinite(np.asarray(b, dtype=np.float64)) & (np.isfinite(np.asarray(y, dtype=np.float64)) if y is not None else True),
         description="test-only grouped transform",
         requires_groups=True,
     )

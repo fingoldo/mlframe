@@ -15,6 +15,7 @@ columns OUT of cat_features in the pipeline-fit phase, before the
 joint-Categorical cast. See ``_looks_text`` predicate in
 ``pipeline.fit_and_transform_pipeline``.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -34,19 +35,21 @@ def test_text_object_column_excluded_from_cat_features():
     n = 1_500
     _vocab = np.array("alpha beta gamma delta epsilon zeta eta theta iota kappa".split(), dtype=object)
     _idx = rng.integers(0, len(_vocab), (n, 4))
-    df = pd.DataFrame({
-        "x0": rng.normal(size=n).astype("float32"),
-        "x1": rng.normal(size=n).astype("float32"),
-        "cat_low": np.array(["A", "B", "C"], dtype=object)[rng.integers(0, 3, n)],
-        "text_col": np.array([" ".join(_vocab[r]) for r in _idx], dtype=object),
-    })
+    df = pd.DataFrame(
+        {
+            "x0": rng.normal(size=n).astype("float32"),
+            "x1": rng.normal(size=n).astype("float32"),
+            "cat_low": np.array(["A", "B", "C"], dtype=object)[rng.integers(0, 3, n)],
+            "text_col": np.array([" ".join(_vocab[r]) for r in _idx], dtype=object),
+        }
+    )
 
     config = PreprocessingBackendConfig(
         categorical_encoding="ordinal",
         skip_categorical_encoding=True,
     )
 
-    train_out, val_out, test_out, pipeline, cat_features = fit_and_transform_pipeline(
+    train_out, _val_out, _test_out, _pipeline, cat_features = fit_and_transform_pipeline(
         train_df=df.copy(),
         val_df=None,
         test_df=None,
@@ -57,12 +60,8 @@ def test_text_object_column_excluded_from_cat_features():
         embedding_features=[],
     )
 
-    assert "text_col" not in cat_features, (
-        f"text_col (high-card) should not be in cat_features; got {cat_features}"
-    )
-    assert "cat_low" in cat_features, (
-        f"cat_low (low-card) should be in cat_features; got {cat_features}"
-    )
+    assert "text_col" not in cat_features, f"text_col (high-card) should not be in cat_features; got {cat_features}"
+    assert "cat_low" in cat_features, f"cat_low (low-card) should be in cat_features; got {cat_features}"
     # The contract: text_col must NOT be converted to a pandas Categorical
     # (which would route it into joint-Categorical cast). Accept any
     # string-like dtype -- object / string / StringDtype / "str" (pandas-3
@@ -79,10 +78,12 @@ def test_low_card_object_column_stays_categorical():
     (get joint-Categorical cast for CB native handling)."""
     rng = np.random.default_rng(0)
     n = 1_500
-    df = pd.DataFrame({
-        "x0": rng.normal(size=n).astype("float32"),
-        "cat_low": np.array(["A", "B", "C", "D", "E"], dtype=object)[rng.integers(0, 5, n)],
-    })
+    df = pd.DataFrame(
+        {
+            "x0": rng.normal(size=n).astype("float32"),
+            "cat_low": np.array(["A", "B", "C", "D", "E"], dtype=object)[rng.integers(0, 5, n)],
+        }
+    )
 
     config = PreprocessingBackendConfig(
         categorical_encoding="ordinal",
@@ -101,6 +102,4 @@ def test_low_card_object_column_stays_categorical():
     )
 
     assert "cat_low" in cat_features
-    assert pd.api.types.is_categorical_dtype(train_out["cat_low"]), (
-        f"cat_low should be cast to Categorical; got {train_out['cat_low'].dtype}"
-    )
+    assert pd.api.types.is_categorical_dtype(train_out["cat_low"]), f"cat_low should be cast to Categorical; got {train_out['cat_low'].dtype}"

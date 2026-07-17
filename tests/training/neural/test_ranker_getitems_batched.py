@@ -24,7 +24,7 @@ import numpy as np
 import pytest
 
 torch = pytest.importorskip("torch")
-from mlframe.training.neural.ranker import _RankerDataset, _ranker_passthrough_collate  # noqa: E402
+from mlframe.training.neural.ranker import _RankerDataset, _ranker_passthrough_collate
 
 
 def test_getitem_vs_getitems_equivalence():
@@ -122,6 +122,5 @@ def test_biz_value_batched_path_faster_than_per_row():
 
     speedup = t_per / t_bat
     assert speedup >= 2.0, (
-        f"batched __getitems__+passthrough not delivering: speedup={speedup:.2f}x "
-        f"(per_row={t_per*1000/iters:.2f}ms, batched={t_bat*1000/iters:.2f}ms)"
+        f"batched __getitems__+passthrough not delivering: speedup={speedup:.2f}x (per_row={t_per * 1000 / iters:.2f}ms, batched={t_bat * 1000 / iters:.2f}ms)"
     )

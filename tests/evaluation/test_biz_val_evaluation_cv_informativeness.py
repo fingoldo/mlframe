@@ -6,6 +6,7 @@ unrelated (each group's y is an independent random offset with no relation to X 
 failure mode the source writeup hit), the real model should NOT reliably beat the leaked dummy
 (``informative=False``), correctly flagging that CV-driven decisions are untrustworthy there.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -36,9 +37,7 @@ def test_biz_val_cv_informativeness_flags_uninformative_groups():
     group_offsets = rng.normal(0, 5, n_groups)
     y = group_offsets[group_ids] + rng.normal(0, 0.1, n_groups * rows_per_group)
 
-    result = cv_informativeness_check(
-        X, y, _make_group_splits(group_ids), model_factory=lambda: LinearRegression(), metric_fn=_neg_rmse, maximize=True
-    )
+    result = cv_informativeness_check(X, y, _make_group_splits(group_ids), model_factory=lambda: LinearRegression(), metric_fn=_neg_rmse, maximize=True)
     assert result["informative"] is False, result
 
 
@@ -51,9 +50,7 @@ def test_biz_val_cv_informativeness_confirms_informative_groups():
     # y depends consistently on X across ALL groups -- real cross-group signal.
     y = 3.0 * X[:, 0] - 2.0 * X[:, 1] + rng.normal(0, 0.3, n_groups * rows_per_group)
 
-    result = cv_informativeness_check(
-        X, y, _make_group_splits(group_ids), model_factory=lambda: LinearRegression(), metric_fn=_neg_rmse, maximize=True
-    )
+    result = cv_informativeness_check(X, y, _make_group_splits(group_ids), model_factory=lambda: LinearRegression(), metric_fn=_neg_rmse, maximize=True)
     assert result["informative"] is True, result
     assert result["fraction_folds_informative"] > 0.7
 
@@ -78,8 +75,13 @@ def test_biz_val_cv_informativeness_trend_uniformly_uninformative():
     y = group_offsets[group_ids] + rng.normal(0, 0.1, n)
 
     result = cv_informativeness_check(
-        X, y, _make_variable_size_group_splits(group_ids), model_factory=lambda: LinearRegression(),
-        metric_fn=_neg_rmse, maximize=True, check_trend=True,
+        X,
+        y,
+        _make_variable_size_group_splits(group_ids),
+        model_factory=lambda: LinearRegression(),
+        metric_fn=_neg_rmse,
+        maximize=True,
+        check_trend=True,
     )
     assert result["informative"] is False, result
     trend = result["trend_diagnostic"]
@@ -100,7 +102,7 @@ def test_biz_val_cv_informativeness_trend_decaying_with_group_sparsity():
     X = rng.normal(0, 1, (n, 3))
     y = np.empty(n)
     start = 0
-    for g, size in enumerate(group_sizes):
+    for _g, size in enumerate(group_sizes):
         end = start + size
         if size < 100:
             y[start:end] = rng.normal(0, 5) + rng.normal(0, 0.1, size)
@@ -109,8 +111,13 @@ def test_biz_val_cv_informativeness_trend_decaying_with_group_sparsity():
         start = end
 
     result = cv_informativeness_check(
-        X, y, _make_variable_size_group_splits(group_ids), model_factory=lambda: LinearRegression(),
-        metric_fn=_neg_rmse, maximize=True, check_trend=True,
+        X,
+        y,
+        _make_variable_size_group_splits(group_ids),
+        model_factory=lambda: LinearRegression(),
+        metric_fn=_neg_rmse,
+        maximize=True,
+        check_trend=True,
     )
     trend = result["trend_diagnostic"]
     assert trend["classification"] == "decaying_with_group_sparsity", trend
@@ -130,12 +137,15 @@ def test_cv_informativeness_check_trend_default_off_output_unchanged():
     X = rng.normal(0, 1, (n_groups * rows_per_group, 3))
     y = 3.0 * X[:, 0] + rng.normal(0, 0.3, n_groups * rows_per_group)
 
-    result_default = cv_informativeness_check(
-        X, y, _make_group_splits(group_ids), model_factory=lambda: LinearRegression(), metric_fn=_neg_rmse, maximize=True
-    )
+    result_default = cv_informativeness_check(X, y, _make_group_splits(group_ids), model_factory=lambda: LinearRegression(), metric_fn=_neg_rmse, maximize=True)
     result_explicit_off = cv_informativeness_check(
-        X, y, _make_group_splits(group_ids), model_factory=lambda: LinearRegression(), metric_fn=_neg_rmse,
-        maximize=True, check_trend=False,
+        X,
+        y,
+        _make_group_splits(group_ids),
+        model_factory=lambda: LinearRegression(),
+        metric_fn=_neg_rmse,
+        maximize=True,
+        check_trend=False,
     )
     assert "trend_diagnostic" not in result_default
     assert result_default == result_explicit_off
@@ -146,6 +156,10 @@ def test_cv_informativeness_invalid_stat_raises():
 
     with pytest.raises(ValueError):
         cv_informativeness_check(
-            np.zeros((4, 1)), np.zeros(4), [(np.array([0, 1]), np.array([2, 3]))],
-            model_factory=lambda: LinearRegression(), metric_fn=_neg_rmse, leaked_dummy_stat="bogus"
+            np.zeros((4, 1)),
+            np.zeros(4),
+            [(np.array([0, 1]), np.array([2, 3]))],
+            model_factory=lambda: LinearRegression(),
+            metric_fn=_neg_rmse,
+            leaked_dummy_stat="bogus",
         )

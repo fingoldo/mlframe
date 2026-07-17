@@ -381,9 +381,7 @@ def test_fpoly_unary_binary_recovers_via_auto_escalation():
     name, corr = _best_engineered_corr(fs, df, true)
     assert name is not None, "F-POLY/UNB auto-escalation engineered nothing"
     assert corr >= 0.65, (
-        f"F-POLY/UNB+auto-escalation best engineered |corr|={corr:.3f} < 0.65 "
-        f"({name}); the auto-escalation recovery of the non-monotone inner "
-        f"regressed"
+        f"F-POLY/UNB+auto-escalation best engineered |corr|={corr:.3f} < 0.65 ({name}); the auto-escalation recovery of the non-monotone inner regressed"
     )
 
 
@@ -403,9 +401,7 @@ def test_fpoly_unary_binary_recovers_even_with_escalation_off():
     name, corr = _best_engineered_corr(fs, df, true)
     assert name is not None, "F-POLY/UNB (escalation OFF) engineered nothing"
     assert corr >= 0.60, (
-        f"F-POLY/UNB (escalation OFF) best engineered |corr|={corr:.3f} < 0.60 "
-        f"({name}); the base unary/binary recovery of the non-monotone inner "
-        f"regressed"
+        f"F-POLY/UNB (escalation OFF) best engineered |corr|={corr:.3f} < 0.60 ({name}); the base unary/binary recovery of the non-monotone inner regressed"
     )
 
 
@@ -427,8 +423,8 @@ def test_fpoly_unary_binary_prewarp_recovers():
     df, y, true = _poly_data()
     fs = _fit(_unb_prewarp, df, y)
     name, corr = _best_engineered_corr(fs, df, true)
-    assert name is not None, "F-POLY/UNB+prewarp engineered nothing; prewarp is expected to recover " "the non-monotone inner"
-    assert corr >= 0.70, f"F-POLY/UNB+prewarp best engineered |corr|={corr:.3f} < 0.70 ({name}); " f"the prewarp recovery of the non-monotone inner regressed"
+    assert name is not None, "F-POLY/UNB+prewarp engineered nothing; prewarp is expected to recover the non-monotone inner"
+    assert corr >= 0.70, f"F-POLY/UNB+prewarp best engineered |corr|={corr:.3f} < 0.70 ({name}); the prewarp recovery of the non-monotone inner regressed"
 
 
 @pytest.mark.parametrize("basis", ["chebyshev", "hermite"])
@@ -455,13 +451,9 @@ def test_fpoly_orth_smart_polynom_default_recovers(basis):
     else:
         fs = _fit(lambda: _orth_smart_polynom(basis=basis), df, y)
     name, corr = _best_engineered_corr(fs, df, true)
-    assert name is not None, (
-        f"F-POLY/ORTH-{basis} engineered nothing; the smart_polynom path is " f"expected to recover the non-monotone inner at default settings"
-    )
+    assert name is not None, f"F-POLY/ORTH-{basis} engineered nothing; the smart_polynom path is expected to recover the non-monotone inner at default settings"
     assert corr >= 0.70, (
-        f"F-POLY/ORTH-{basis} (cma_batch default) best engineered |corr|="
-        f"{corr:.3f} < 0.70 ({name}); the warm-start + saturating-penalty "
-        f"recovery regressed"
+        f"F-POLY/ORTH-{basis} (cma_batch default) best engineered |corr|={corr:.3f} < 0.70 ({name}); the warm-start + saturating-penalty recovery regressed"
     )
 
 
@@ -486,7 +478,7 @@ def test_fpoly_orth_hybrid_pair_recovers_via_auto_escalation():
     fs = _poly_fit("orth_hybrid_pair")
     name, corr = _best_engineered_corr(fs, df, true)
     assert name is not None, "F-POLY/hybrid-orth auto-escalation engineered nothing"
-    assert corr >= 0.65, f"F-POLY/hybrid-orth+auto-escalation best engineered |corr|={corr:.3f} " f"< 0.65 ({name}); the auto-escalation recovery regressed"
+    assert corr >= 0.65, f"F-POLY/hybrid-orth+auto-escalation best engineered |corr|={corr:.3f} < 0.65 ({name}); the auto-escalation recovery regressed"
 
 
 def test_fpoly_orth_hybrid_pair_recovers_even_with_escalation_off():
@@ -504,7 +496,7 @@ def test_fpoly_orth_hybrid_pair_recovers_even_with_escalation_off():
     name, corr = _best_engineered_corr(fs, df, true)
     assert name is not None, "F-POLY/hybrid-orth (escalation OFF) engineered nothing"
     assert corr >= 0.60, (
-        f"F-POLY/hybrid-orth (escalation OFF) best engineered |corr|={corr:.3f} " f"< 0.60 ({name}); the base recovery of the non-monotone inner regressed"
+        f"F-POLY/hybrid-orth (escalation OFF) best engineered |corr|={corr:.3f} < 0.60 ({name}); the base recovery of the non-monotone inner regressed"
     )
 
 
@@ -542,9 +534,7 @@ def test_fpoly_downstream_score_recovers_for_smart_polynom():
         f"true-signal R^2 {true_r2:.3f}; the engineered feature did not deliver "
         f"the predictive lift"
     )
-    assert sel_r2 >= raw_r2 + 0.40, (
-        f"F-POLY/ORTH-cma downstream R^2={sel_r2:.3f} did not materially beat the " f"all-raw baseline {raw_r2:.3f}; recovery regressed"
-    )
+    assert sel_r2 >= raw_r2 + 0.40, f"F-POLY/ORTH-cma downstream R^2={sel_r2:.3f} did not materially beat the all-raw baseline {raw_r2:.3f}; recovery regressed"
 
 
 def test_fpoly_downstream_score_recovers_for_base_paths():
@@ -577,10 +567,10 @@ def test_fpoly_downstream_score_recovers_for_base_paths():
         off_r2 = _ridge_r2(np.asarray(fs_off.transform(df)), y)
         # Both the default and the escalation-OFF runs lift downstream over raw.
         assert sel_r2 >= raw_r2 + 0.30, (
-            f"F-POLY/{label}+default downstream R^2={sel_r2:.3f} did not lift " f"over raw baseline {raw_r2:.3f}; the recovery regressed"
+            f"F-POLY/{label}+default downstream R^2={sel_r2:.3f} did not lift over raw baseline {raw_r2:.3f}; the recovery regressed"
         )
         assert off_r2 >= raw_r2 + 0.30, (
-            f"F-POLY/{label} (escalation OFF) downstream R^2={off_r2:.3f} did not " f"lift over raw baseline {raw_r2:.3f}; the base recovery regressed"
+            f"F-POLY/{label} (escalation OFF) downstream R^2={off_r2:.3f} did not lift over raw baseline {raw_r2:.3f}; the base recovery regressed"
         )
 
 
@@ -629,7 +619,7 @@ def test_fpoly_recovery_is_real_and_warm_start_is_the_lever():
     mi_b = float(_plugin_mi_regression_njit(np.ascontiguousarray(b.astype(np.float64)), yf, 20))
     gate = 0.90 * max(mi_a, mi_b)  # MRMR fe_min_engineered_mi_prevalence (default 0.90)
     assert mi_ideal > gate, (
-        f"ideal feature MI={mi_ideal:.3f} does NOT clear the injection gate " f"{gate:.3f}; the boundary would then be the gate, not the optimiser"
+        f"ideal feature MI={mi_ideal:.3f} does NOT clear the injection gate {gate:.3f}; the boundary would then be the gate, not the optimiser"
     )
     # Large true coefficients are exactly why the OLD raw L2 penalty crushed the
     # solution; pin that the solution lives in the large-coef region.
@@ -667,7 +657,7 @@ def test_fpoly_recovery_is_real_and_warm_start_is_the_lever():
     corr_on = _corr_of(res_on)
     corr_off = _corr_of(res_off)
     # Default (warm start ON) recovers the true signal.
-    assert corr_on >= 0.70, f"default cma_batch + ALS warm start did not recover F-POLY " f"(corr={corr_on:.3f}); the recovery regressed"
+    assert corr_on >= 0.70, f"default cma_batch + ALS warm start did not recover F-POLY (corr={corr_on:.3f}); the recovery regressed"
     # Disabling the warm start collapses recovery -- proves it is the lever.
     assert corr_on >= corr_off + 0.30, (
         f"ALS warm start ON (corr={corr_on:.3f}) did not beat warm start OFF "
@@ -699,7 +689,7 @@ def test_fosc_unary_binary_recovers_via_auto_escalation():
     name, corr = _best_engineered_corr(fs, df, true)
     assert name is not None, "F-OSC/UNB auto-escalation engineered nothing"
     assert corr >= 0.85, (
-        f"F-OSC/UNB+auto-escalation best engineered |corr|={corr:.3f} < 0.85 " f"({name}); the auto-escalation recovery of the oscillatory inner regressed"
+        f"F-OSC/UNB+auto-escalation best engineered |corr|={corr:.3f} < 0.85 ({name}); the auto-escalation recovery of the oscillatory inner regressed"
     )
 
 
@@ -714,7 +704,7 @@ def test_fosc_unary_binary_no_recovery_with_escalation_off():
     df, _y, true = _osc_data()
     fs = _osc_fit("unb_no_escalation")
     _name, corr = _best_engineered_corr(fs, df, true)
-    assert corr < 0.30, f"F-OSC/UNB (escalation OFF) unexpectedly recovered |corr|={corr:.3f} " f"({_name})"
+    assert corr < 0.30, f"F-OSC/UNB (escalation OFF) unexpectedly recovered |corr|={corr:.3f} ({_name})"
 
 
 def test_fosc_hybrid_orth_pair_partially_recovers_and_beats_unb():
@@ -741,7 +731,7 @@ def test_fosc_hybrid_orth_pair_partially_recovers_and_beats_unb():
 
     assert name_hyb is not None, "F-OSC/hybrid-orth engineered nothing"
     assert corr_hyb >= 0.45, f"F-OSC/hybrid-orth best engineered |corr|={corr_hyb:.3f} < 0.45 ({name_hyb})"
-    assert corr_hyb > corr_unb + 0.30, f"F-OSC/hybrid-orth ({corr_hyb:.3f}) did not beat unary/binary " f"({corr_unb:.3f}) by the expected margin"
+    assert corr_hyb > corr_unb + 0.30, f"F-OSC/hybrid-orth ({corr_hyb:.3f}) did not beat unary/binary ({corr_unb:.3f}) by the expected margin"
 
 
 def test_fosc_orth_smart_polynom_default_recovers():
@@ -758,7 +748,7 @@ def test_fosc_orth_smart_polynom_default_recovers():
     assert name is not None, "F-OSC/ORTH-smart_polynom engineered nothing"
     assert corr >= 0.70, f"F-OSC/ORTH-smart_polynom best engineered |corr|={corr:.3f} < 0.70 ({name})"
     sel_r2 = _ridge_r2(np.asarray(fs.transform(df)), y)
-    assert sel_r2 >= raw_r2 + 0.40, f"F-OSC/ORTH-smart_polynom downstream R^2={sel_r2:.3f} did not lift over " f"the raw baseline {raw_r2:.3f}"
+    assert sel_r2 >= raw_r2 + 0.40, f"F-OSC/ORTH-smart_polynom downstream R^2={sel_r2:.3f} did not lift over the raw baseline {raw_r2:.3f}"
 
 
 # ---------------------------------------------------------------------------
@@ -790,7 +780,7 @@ def test_noise_control_smart_polynom_engineers_no_spurious_feature():
     raw_r2 = _ridge_r2(df.values, y)
     sel_r2 = _ridge_r2(np.asarray(fs.transform(df)), y)
     assert sel_r2 <= raw_r2 + 0.10, (
-        f"noise control downstream R^2={sel_r2:.3f} beats the raw noise baseline " f"{raw_r2:.3f}: a spurious feature is leaking predictive signal"
+        f"noise control downstream R^2={sel_r2:.3f} beats the raw noise baseline {raw_r2:.3f}: a spurious feature is leaking predictive signal"
     )
 
 
@@ -824,7 +814,7 @@ def test_noise_control_optimiser_uplift_is_rejected_by_gate():
     # through, its uplift must be negligible (<= 1.10x) -- never a real signal.
     if res is not None:
         assert res.uplift <= 1.10, (
-            f"noise pair produced uplift {res.uplift:.2f}x (> 1.10x); the warm " f"start is manufacturing signal on a target independent of (a, b)"
+            f"noise pair produced uplift {res.uplift:.2f}x (> 1.10x); the warm start is manufacturing signal on a target independent of (a, b)"
         )
 
 

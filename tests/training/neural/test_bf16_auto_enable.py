@@ -5,6 +5,7 @@ Real CUDA HW is not assumed by the test box (CI may be CPU-only).
 The test mocks torch.cuda capability detection to exercise both branches
 of the dispatcher.
 """
+
 from __future__ import annotations
 
 import sys
@@ -28,9 +29,12 @@ from mlframe.training.neural import (
 
 def _params(precision=None):
     trainer_params = {
-        "max_epochs": 1, "enable_model_summary": False,
-        "enable_progress_bar": False, "log_every_n_steps": 1,
-        "devices": 1, "accelerator": "cpu",  # explicit CPU so safe_accelerator returns "cpu"
+        "max_epochs": 1,
+        "enable_model_summary": False,
+        "enable_progress_bar": False,
+        "log_every_n_steps": 1,
+        "devices": 1,
+        "accelerator": "cpu",  # explicit CPU so safe_accelerator returns "cpu"
         "logger": False,
     }
     if precision is not None:
@@ -39,14 +43,18 @@ def _params(precision=None):
         "model_class": MLPTorchModel,
         "model_params": {"loss_fn": torch.nn.MSELoss(), "learning_rate": 1e-2},
         "network_params": {
-            "nlayers": 1, "first_layer_num_neurons": 8,
-            "dropout_prob": 0.0, "inputs_dropout_prob": 0.0,
-            "use_layernorm": False, "use_batchnorm": False,
+            "nlayers": 1,
+            "first_layer_num_neurons": 8,
+            "dropout_prob": 0.0,
+            "inputs_dropout_prob": 0.0,
+            "use_layernorm": False,
+            "use_batchnorm": False,
             "activation_function": torch.nn.ReLU,
         },
         "datamodule_class": TorchDataModule,
         "datamodule_params": {
-            "features_dtype": torch.float32, "labels_dtype": torch.float32,
+            "features_dtype": torch.float32,
+            "labels_dtype": torch.float32,
             "dataloader_params": {"batch_size": 32, "num_workers": 0},
         },
         "trainer_params": trainer_params,
@@ -57,7 +65,8 @@ def _params(precision=None):
 @pytest.fixture
 def reg_data():
     X, y = make_regression(n_samples=64, n_features=4, random_state=0)
-    X = X.astype(np.float32); y = y.astype(np.float32)
+    X = X.astype(np.float32)
+    y = y.astype(np.float32)
     X_tr, _, y_tr, _ = train_test_split(X, y, test_size=0.3, random_state=0)
     return X_tr, y_tr
 
@@ -97,35 +106,33 @@ def test_bf16_auto_enable_dispatcher_compute_capability_check():
     trainer_params = {"accelerator": "cuda"}
     _resolved = "cuda"  # assume safe_accelerator passes through
     if "precision" not in trainer_params and _resolved in ("cuda", "gpu"):
-        with patch.object(torch.cuda, "is_available", return_value=True), \
-             patch.object(torch.cuda, "device_count", return_value=1), \
-             patch.object(torch.cuda, "get_device_capability", return_value=(8, 0)):
+        with (
+            patch.object(torch.cuda, "is_available", return_value=True),
+            patch.object(torch.cuda, "device_count", return_value=1),
+            patch.object(torch.cuda, "get_device_capability", return_value=(8, 0)),
+        ):
             try:
                 if torch.cuda.is_available() and torch.cuda.device_count() > 0:
                     _cc_major, _ = torch.cuda.get_device_capability(0)
                     if _cc_major >= 8:
                         trainer_params["precision"] = "bf16-mixed"
-            except Exception:
+            except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
                 pass
-    assert trainer_params.get("precision") == "bf16-mixed", (
-        "Ampere+ (cc=8.0) should auto-enable bf16-mixed; "
-        f"got precision={trainer_params.get('precision')}"
-    )
+    assert trainer_params.get("precision") == "bf16-mixed", f"Ampere+ (cc=8.0) should auto-enable bf16-mixed; got precision={trainer_params.get('precision')}"
 
     # Pre-Ampere (cc=7.x) should NOT auto-enable bf16.
     trainer_params = {"accelerator": "cuda"}
     if "precision" not in trainer_params and _resolved in ("cuda", "gpu"):
-        with patch.object(torch.cuda, "is_available", return_value=True), \
-             patch.object(torch.cuda, "device_count", return_value=1), \
-             patch.object(torch.cuda, "get_device_capability", return_value=(7, 5)):
+        with (
+            patch.object(torch.cuda, "is_available", return_value=True),
+            patch.object(torch.cuda, "device_count", return_value=1),
+            patch.object(torch.cuda, "get_device_capability", return_value=(7, 5)),
+        ):
             try:
                 if torch.cuda.is_available() and torch.cuda.device_count() > 0:
                     _cc_major, _ = torch.cuda.get_device_capability(0)
                     if _cc_major >= 8:
                         trainer_params["precision"] = "bf16-mixed"
-            except Exception:
+            except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
                 pass
-    assert "precision" not in trainer_params, (
-        "Pre-Ampere (cc=7.5) should NOT auto-enable bf16-mixed; "
-        f"got precision={trainer_params.get('precision')}"
-    )
+    assert "precision" not in trainer_params, f"Pre-Ampere (cc=7.5) should NOT auto-enable bf16-mixed; got precision={trainer_params.get('precision')}"

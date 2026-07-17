@@ -13,19 +13,13 @@ import numpy as np
 import pandas as pd
 import warnings
 
-from hypothesis import given, settings, strategies as st, assume, HealthCheck
-from hypothesis.extra.numpy import arrays
 
-from sklearn.datasets import make_classification, make_regression
 
 # Import the module under test
 from mlframe.feature_selection.filters import (
     MRMR,
-    entropy,
-    categorize_dataset,
-    discretize_array,
-    compute_mi_from_classes,
 )
+
 
 class TestMRMREdgeCases:
     """Test MRMR edge cases and error handling."""
@@ -38,11 +32,13 @@ class TestMRMREdgeCases:
         """Test MRMR with constant feature."""
         rng = np.random.default_rng(42)
         n = 200
-        X = pd.DataFrame({
-            'informative': rng.standard_normal(n),
-            'constant': np.ones(n),
-        })
-        y = (X['informative'] > 0).astype(int)
+        X = pd.DataFrame(
+            {
+                "informative": rng.standard_normal(n),
+                "constant": np.ones(n),
+            }
+        )
+        y = (X["informative"] > 0).astype(int)
 
         mrmr = MRMR(full_npermutations=3, baseline_npermutations=3, verbose=0, n_jobs=1)
 
@@ -202,11 +198,13 @@ class TestMRMREdgeCases:
         rng = np.random.default_rng(42)
         n = 500
         # Create noise features
-        X = pd.DataFrame({
-            'noise1': rng.standard_normal(n),
-            'noise2': rng.standard_normal(n),
-            'noise3': rng.standard_normal(n),
-        })
+        X = pd.DataFrame(
+            {
+                "noise1": rng.standard_normal(n),
+                "noise2": rng.standard_normal(n),
+                "noise3": rng.standard_normal(n),
+            }
+        )
         # Perfect feature: target is directly derived from it
         X["perfect"] = rng.standard_normal(n)
         y = (X["perfect"] > 0).astype(int)  # Binary classification from perfect feature

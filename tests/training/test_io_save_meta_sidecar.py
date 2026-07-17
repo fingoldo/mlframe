@@ -20,10 +20,10 @@ The sidecar is best-effort:
 - Lib version drift is WARN-only by default (booster libs are
   typically forward-compatible for minor versions).
 """
+
 from __future__ import annotations
 
 import logging
-import os
 import shutil
 import tempfile
 
@@ -45,8 +45,10 @@ def tmp_bundle_dir():
 
 def test_sidecar_written_on_save(tmp_bundle_dir):
     from mlframe.training.io import (
-        save_mlframe_model, _meta_sidecar_path,
+        save_mlframe_model,
+        _meta_sidecar_path,
     )
+
     bundle = tmp_bundle_dir / "test.dump"
     model = SimpleNamespace(name="hello", values=[1, 2, 3])
     assert save_mlframe_model(model, str(bundle), verbose=0) is True
@@ -60,6 +62,7 @@ def test_sidecar_written_on_save(tmp_bundle_dir):
 
 def test_sidecar_fields_present(tmp_bundle_dir):
     from mlframe.training.io import save_mlframe_model, load_save_meta_sidecar
+
     bundle = tmp_bundle_dir / "test.dump"
     save_mlframe_model(SimpleNamespace(x=1), str(bundle), verbose=0)
     meta = load_save_meta_sidecar(str(bundle))
@@ -68,15 +71,14 @@ def test_sidecar_fields_present(tmp_bundle_dir):
     assert "saved_at_utc" in meta
     assert "lib_versions" in meta
     # mlframe must always be recorded (the package being saved).
-    assert "mlframe" in meta["lib_versions"], (
-        "lib_versions must include mlframe.__version__"
-    )
+    assert "mlframe" in meta["lib_versions"], "lib_versions must include mlframe.__version__"
 
 
 def test_legacy_bundle_no_sidecar_loads_silently(tmp_bundle_dir, caplog):
     """Pre-2026-05-20 bundles have no sidecar. Load must succeed silently
     (back-compat is the contract)."""
     from mlframe.training.io import save_mlframe_model, load_mlframe_model, _meta_sidecar_path
+
     bundle = tmp_bundle_dir / "test.dump"
     save_mlframe_model(SimpleNamespace(payload=42), str(bundle), verbose=0)
     # Delete sidecar to simulate legacy bundle.
@@ -88,22 +90,19 @@ def test_legacy_bundle_no_sidecar_loads_silently(tmp_bundle_dir, caplog):
     assert loaded is not None
     assert loaded.payload == 42
     # No version-related WARN should fire when sidecar is absent.
-    version_warns = [
-        r for r in caplog.records
-        if "version" in r.message.lower() or "drift" in r.message.lower()
-    ]
-    assert version_warns == [], (
-        f"legacy bundles must load silently; got: "
-        f"{[r.message for r in version_warns]}"
-    )
+    version_warns = [r for r in caplog.records if "version" in r.message.lower() or "drift" in r.message.lower()]
+    assert version_warns == [], f"legacy bundles must load silently; got: {[r.message for r in version_warns]}"
 
 
 def test_lib_version_drift_warns(tmp_bundle_dir, caplog):
     """Manually fudge the sidecar to claim a different mlframe version,
     then load -- the drift must surface as a WARN."""
     from mlframe.training.io import (
-        save_mlframe_model, load_mlframe_model, _meta_sidecar_path,
+        save_mlframe_model,
+        load_mlframe_model,
+        _meta_sidecar_path,
     )
+
     bundle = tmp_bundle_dir / "test.dump"
     save_mlframe_model(SimpleNamespace(payload=7), str(bundle), verbose=0)
     sidecar = Path(_meta_sidecar_path(str(bundle)))
@@ -115,21 +114,18 @@ def test_lib_version_drift_warns(tmp_bundle_dir, caplog):
         loaded = load_mlframe_model(str(bundle))
     assert loaded is not None
     assert loaded.payload == 7
-    drift_warns = [
-        r for r in caplog.records
-        if "drift" in r.message.lower() and "mlframe" in r.message.lower()
-    ]
-    assert drift_warns, (
-        f"expected WARN naming mlframe version drift; got: "
-        f"{[r.message for r in caplog.records]}"
-    )
+    drift_warns = [r for r in caplog.records if "drift" in r.message.lower() and "mlframe" in r.message.lower()]
+    assert drift_warns, f"expected WARN naming mlframe version drift; got: {[r.message for r in caplog.records]}"
 
 
 def test_lib_version_drift_strict_raises(tmp_bundle_dir):
     """``strict_version=True`` must raise (not just WARN) on drift."""
     from mlframe.training.io import (
-        save_mlframe_model, load_mlframe_model, _meta_sidecar_path,
+        save_mlframe_model,
+        load_mlframe_model,
+        _meta_sidecar_path,
     )
+
     bundle = tmp_bundle_dir / "test.dump"
     save_mlframe_model(SimpleNamespace(payload=7), str(bundle), verbose=0)
     sidecar = Path(_meta_sidecar_path(str(bundle)))
@@ -144,8 +140,11 @@ def test_lib_version_drift_strict_raises(tmp_bundle_dir):
 def test_corrupt_sidecar_falls_back_to_warn(tmp_bundle_dir, caplog):
     """Corrupt sidecar JSON: WARN, then proceed (bundle may still load)."""
     from mlframe.training.io import (
-        save_mlframe_model, load_mlframe_model, _meta_sidecar_path,
+        save_mlframe_model,
+        load_mlframe_model,
+        _meta_sidecar_path,
     )
+
     bundle = tmp_bundle_dir / "test.dump"
     save_mlframe_model(SimpleNamespace(payload=99), str(bundle), verbose=0)
     sidecar = Path(_meta_sidecar_path(str(bundle)))
@@ -156,10 +155,7 @@ def test_corrupt_sidecar_falls_back_to_warn(tmp_bundle_dir, caplog):
     assert loaded is not None
     assert loaded.payload == 99
     # WARN must fire naming the read failure.
-    assert any(
-        "failed to read" in rec.message
-        for rec in caplog.records
-    ), f"expected WARN on corrupt sidecar; got: {[r.message for r in caplog.records]}"
+    assert any("failed to read" in rec.message for rec in caplog.records), f"expected WARN on corrupt sidecar; got: {[r.message for r in caplog.records]}"
 
 
 def test_collect_lib_versions_includes_required():
@@ -167,14 +163,13 @@ def test_collect_lib_versions_includes_required():
     one booster library that's actually installed (so the drift check
     has something to compare)."""
     from mlframe.training.io import _collect_lib_versions
+
     libs = _collect_lib_versions()
     assert "mlframe" in libs
     assert "numpy" in libs
     # At least one booster should be present; pin nothing specific.
     boosters = {"lightgbm", "xgboost", "catboost"}
-    assert boosters & set(libs), (
-        f"none of {boosters} found in lib_versions snapshot {libs}"
-    )
+    assert boosters & set(libs), f"none of {boosters} found in lib_versions snapshot {libs}"
 
 
 def test_collect_lib_versions_does_not_force_import_absent_lib(monkeypatch):
@@ -208,7 +203,7 @@ def test_collect_lib_versions_does_not_force_import_absent_lib(monkeypatch):
     # Splice the sentinel into the lib list under an import-name with no matching
     # distribution metadata. A correct (no-side-effect) implementation records
     # nothing for it and -- crucially -- never imports it.
-    patched = _io._LIB_VERSION_DISTS + ((sentinel, sentinel),)
+    patched = (*_io._LIB_VERSION_DISTS, (sentinel, sentinel))
     monkeypatch.setattr(_io, "_LIB_VERSION_DISTS", patched)
 
     libs = _io._collect_lib_versions()
@@ -241,10 +236,7 @@ def test_collect_lib_versions_does_not_load_uninstalled_heavy_dep(monkeypatch):
         pytest.skip("torch already imported in this process; cannot assert non-load")
 
     _io._collect_lib_versions()
-    assert heavy not in sys.modules, (
-        "pre-fix __import__('torch') would force-load torch; post-fix must read "
-        "metadata only and leave torch out of sys.modules"
-    )
+    assert heavy not in sys.modules, "pre-fix __import__('torch') would force-load torch; post-fix must read metadata only and leave torch out of sys.modules"
 
 
 def test_collect_lib_versions_memoised_avoids_metadata_reparse(monkeypatch):
@@ -276,8 +268,7 @@ def test_collect_lib_versions_memoised_avoids_metadata_reparse(monkeypatch):
     assert after_first > 0, "first call must consult importlib.metadata"
     second = _io._collect_lib_versions()
     assert calls["n"] == after_first, (
-        "second call must be served from the memo without re-parsing METADATA "
-        f"(saw {calls['n'] - after_first} extra importlib.metadata.version calls)"
+        f"second call must be served from the memo without re-parsing METADATA (saw {calls['n'] - after_first} extra importlib.metadata.version calls)"
     )
     assert first == second
     # Callers may mutate the returned dict; the memo must be insulated.
@@ -296,6 +287,4 @@ def test_collect_lib_versions_memo_respects_dist_list_swap(monkeypatch):
     # Swap to a one-entry list -> new tuple identity -> memo miss -> recompute.
     monkeypatch.setattr(_io, "_LIB_VERSION_DISTS", (("numpy", "numpy"),))
     swapped = _io._collect_lib_versions()
-    assert set(swapped) == {"numpy"}, (
-        f"memo must recompute for a swapped dist list; got {sorted(swapped)}"
-    )
+    assert set(swapped) == {"numpy"}, f"memo must recompute for a swapped dist list; got {sorted(swapped)}"

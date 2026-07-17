@@ -3,10 +3,11 @@ assert the resulting JSON has the expected fields, per-module decorator counts, 
 
 Closes the W10 task that asks for a structured JSON bench-report alongside the AP5 nightly workflow so the
 NUMBA_DISABLE_JIT=1 coverage XML is consumable by reviewers without manual XML parsing."""
+
 from __future__ import annotations
 
 import orjson
-import subprocess
+import subprocess  # nosec B404 -- test-only local trusted subprocess invocation (fixed argv, no shell, no untrusted input)
 import sys
 import textwrap
 from pathlib import Path
@@ -68,11 +69,7 @@ def tmp_src_root(tmp_path: Path) -> Path:
     src.mkdir(parents=True)
     target = src / "permutation.py"
     target.write_text(
-        "import numba\n"
-        "\n"
-        "@numba.njit\n"
-        "def kernel():\n"
-        "    return 1\n",
+        "import numba\n\n@numba.njit\ndef kernel():\n    return 1\n",
         encoding="utf-8",
     )
     return tmp_path / "src" / "mlframe"
@@ -86,7 +83,7 @@ def test_numba_coverage_report_emits_per_module_delta(tmp_path: Path, tmp_src_ro
     bl_xml.write_text(_FAKE_COBERTURA_BASELINE, encoding="utf-8")
 
     script = Path(__file__).resolve().parents[2] / "scripts" / "numba_coverage_report.py"
-    proc = subprocess.run(
+    proc = subprocess.run(  # nosec B603 -- fixed local argv (sys.executable/git + literal args), no shell, no untrusted input
         [
             sys.executable,
             str(script),
@@ -127,7 +124,7 @@ def test_numba_coverage_report_stdout_when_no_out_arg(tmp_path: Path, tmp_src_ro
     nd_xml.write_text(_FAKE_COBERTURA_NUMBA_DISABLED, encoding="utf-8")
 
     script = Path(__file__).resolve().parents[2] / "scripts" / "numba_coverage_report.py"
-    proc = subprocess.run(
+    proc = subprocess.run(  # nosec B603 -- fixed local argv (sys.executable/git + literal args), no shell, no untrusted input
         [
             sys.executable,
             str(script),

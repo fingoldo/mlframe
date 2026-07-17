@@ -4,6 +4,7 @@ sklearn constructs estimators freely (clone), so __init__ must NOT raise when
 TensorFlow is absent and must NOT set learned attrs (model_). The _HAS_TF check
 belongs in fit().
 """
+
 from __future__ import annotations
 
 import numpy as np

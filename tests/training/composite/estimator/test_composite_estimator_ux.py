@@ -9,6 +9,7 @@
    raise a clear error EARLY (not deep inside the inverse), and clone must
    preserve every init param.
 """
+
 from __future__ import annotations
 
 import inspect
@@ -40,6 +41,7 @@ def linres_kit():
 # ---------------------------------------------------------------------------
 # 1. _repr_html_
 # ---------------------------------------------------------------------------
+
 
 def test_repr_html_unfitted_shows_config_and_not_fitted():
     cte = CompositeTargetEstimator(
@@ -110,13 +112,11 @@ def test_repr_html_never_raises_on_broken_state():
 # 2. get_params completeness + round-trip
 # ---------------------------------------------------------------------------
 
+
 def test_get_params_returns_every_init_arg():
     """Every __init__ parameter (except self) must appear in get_params so
     sklearn GridSearchCV / clone can reconstruct the estimator faithfully."""
-    init_params = [
-        name for name in inspect.signature(CompositeTargetEstimator.__init__).parameters
-        if name != "self"
-    ]
+    init_params = [name for name in inspect.signature(CompositeTargetEstimator.__init__).parameters if name != "self"]
     cte = CompositeTargetEstimator()
     got = set(cte.get_params(deep=False).keys())
     missing = [p for p in init_params if p not in got]
@@ -169,6 +169,7 @@ def test_get_params_set_params_clone_round_trip_non_default():
 # ---------------------------------------------------------------------------
 # 3. clone robustness + early error on unknown transform
 # ---------------------------------------------------------------------------
+
 
 def test_unknown_transform_fit_raises_early_with_clear_message(linres_kit):
     """An unknown transform_name must fail at fit() up-front (transform lookup),

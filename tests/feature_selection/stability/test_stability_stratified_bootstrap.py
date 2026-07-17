@@ -4,10 +4,10 @@ Pre-fix the bootstrap subsample was ``rng.choice(n, replace=False)`` with no str
 giving a single-class fit the base selector degenerates on. The fix adds ``stratify=True`` (default) which preserves per-class proportions so every class survives every
 bootstrap. Per the project rule, a 1%-prevalence class needs n ~ 5000 for a reliable split, so the fixture uses n=5000.
 """
+
 from __future__ import annotations
 
 import numpy as np
-import pytest
 from sklearn.base import BaseEstimator
 
 from mlframe.feature_selection.filters.stability import StabilityMRMR
@@ -43,8 +43,11 @@ def test_stratify_default_keeps_both_classes_in_every_bootstrap():
     X, y = _rare_imbalance_data()
     _ClassCountRecordingSelector.seen_class_counts = []
     sel = StabilityMRMR(
-        _ClassCountRecordingSelector(), n_bootstraps=20,
-        sample_fraction=0.3, random_state=1, stratify=True,
+        _ClassCountRecordingSelector(),
+        n_bootstraps=20,
+        sample_fraction=0.3,
+        random_state=1,
+        stratify=True,
     )
     sel.fit(X, y)
     sink = _ClassCountRecordingSelector.seen_class_counts
@@ -58,8 +61,11 @@ def test_unstratified_can_drop_minority_class():
     _ClassCountRecordingSelector.seen_class_counts = []
     # Tiny per-bootstrap fraction on a 1%-prevalence target: an unstratified draw frequently misses all ~50 positives.
     sel = StabilityMRMR(
-        _ClassCountRecordingSelector(), n_bootstraps=20,
-        sample_fraction=0.005, random_state=1, stratify=False,
+        _ClassCountRecordingSelector(),
+        n_bootstraps=20,
+        sample_fraction=0.005,
+        random_state=1,
+        stratify=False,
     )
     sel.fit(X, y)
     sink = _ClassCountRecordingSelector.seen_class_counts
@@ -73,8 +79,11 @@ def test_stratify_falls_back_on_continuous_target():
     y = rng.standard_normal(400)
     _ClassCountRecordingSelector.seen_class_counts = []
     sel = StabilityMRMR(
-        _ClassCountRecordingSelector(), n_bootstraps=5,
-        sample_fraction=0.5, random_state=3, stratify=True,
+        _ClassCountRecordingSelector(),
+        n_bootstraps=5,
+        sample_fraction=0.5,
+        random_state=3,
+        stratify=True,
     )
     sel.fit(X, y)
     assert len(_ClassCountRecordingSelector.seen_class_counts) == 5

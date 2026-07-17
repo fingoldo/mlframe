@@ -6,9 +6,10 @@ pure-numeric frame for every target type. Text is exercised with the REAL defaul
 (``intfloat/multilingual-e5-small``) -- no mocking -- shared across tests via a module fixture (one model load).
 Skips only when ``transformers`` / the model can't be fetched (offline CI).
 """
+
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
 import numpy as np
 import pandas as pd
@@ -22,6 +23,7 @@ def hf_provider():
     pytest.importorskip("transformers")
     from mlframe.training.feature_handling.hf_provider import build_provider
     from mlframe.training.feature_handling.providers import EmbeddingProvider
+
     try:
         prov = build_provider(EmbeddingProvider(kind="huggingface", model=DEFAULT_TEXT_MODEL))
         prov.acquire()
@@ -36,13 +38,16 @@ def _is_all_numeric(df: pd.DataFrame) -> bool:
 
 # ---- embedding expansion (no model needed) -------------------------------------------------------------------------
 
+
 def test_embedding_column_expands_to_numeric_components():
     n, d = 30, 4
     rng = np.random.default_rng(0)
-    X = pd.DataFrame({
-        "num_0": rng.normal(size=n).astype(np.float32),
-        "emb_0": [rng.normal(size=d).astype(np.float32) for _ in range(n)],
-    })
+    X = pd.DataFrame(
+        {
+            "num_0": rng.normal(size=n).astype(np.float32),
+            "emb_0": [rng.normal(size=d).astype(np.float32) for _ in range(n)],
+        }
+    )
     out = NeuralEmbeddingTextEncoder(embedding_features=["emb_0"]).fit_transform(X)
     assert "emb_0" not in out.columns
     assert [f"emb_0__e{j}" for j in range(d)] == [c for c in out.columns if c.startswith("emb_0__e")]
@@ -72,6 +77,7 @@ def test_transform_on_unseen_frame_keeps_fixed_width():
 
 # ---- text via REAL HuggingFace model -------------------------------------------------------------------------------
 
+
 def _encoder_with(provider, **kw):
     enc = NeuralEmbeddingTextEncoder(**kw)
     enc._provider = provider  # share the single loaded model; _get_provider returns the cached instance
@@ -94,11 +100,13 @@ def test_text_column_hf_embeds_to_numeric(hf_provider):
 def test_no_object_columns_remain_mixed(hf_provider):
     n, d = 16, 2
     rng = np.random.default_rng(3)
-    X = pd.DataFrame({
-        "num_0": rng.normal(size=n).astype(np.float32),
-        "emb_0": [rng.normal(size=d).astype(np.float32) for _ in range(n)],
-        "text_0": ["alpha beta", "beta gamma"] * (n // 2),
-    })
+    X = pd.DataFrame(
+        {
+            "num_0": rng.normal(size=n).astype(np.float32),
+            "emb_0": [rng.normal(size=d).astype(np.float32) for _ in range(n)],
+            "text_0": ["alpha beta", "beta gamma"] * (n // 2),
+        }
+    )
     enc = _encoder_with(hf_provider, embedding_features=["emb_0"], text_features=["text_0"])
     out = enc.fit_transform(X)
     assert _is_all_numeric(out), f"object cols remain: {[c for c in out.columns if out[c].dtype.kind == 'O']}"
@@ -107,7 +115,7 @@ def test_no_object_columns_remain_mixed(hf_provider):
 def test_provider_excluded_from_pickle(hf_provider):
     enc = _encoder_with(hf_provider, text_features=["text_0"])
     enc.fit(pd.DataFrame({"text_0": ["a", "bb", "ccc"]}))
-    restored = pickle.loads(pickle.dumps(enc))  # must not try to pickle the live HF model
+    restored = pickle.loads(pickle.dumps(enc))  # must not try to pickle the live HF model  # nosec B301 -- round-trip of a locally-created, trusted object
     assert restored.__dict__.get("_provider") is None
     assert restored.text_embedding_dim_ == enc.text_embedding_dim_
 
@@ -122,10 +130,12 @@ def test_transform_reconstructs_dataframe_from_ndarray_using_fit_columns():
     """
     n, d = 20, 3
     rng = np.random.default_rng(2)
-    X = pd.DataFrame({
-        "num_0": rng.normal(size=n).astype(np.float32),
-        "emb_0": [rng.normal(size=d).astype(np.float32) for _ in range(n)],
-    })
+    X = pd.DataFrame(
+        {
+            "num_0": rng.normal(size=n).astype(np.float32),
+            "emb_0": [rng.normal(size=d).astype(np.float32) for _ in range(n)],
+        }
+    )
     enc = NeuralEmbeddingTextEncoder(embedding_features=["emb_0"])
     out_df = enc.fit_transform(X)
 

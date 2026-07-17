@@ -17,7 +17,6 @@ from unittest.mock import MagicMock
 import logging
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.models.ensembling import (
     _per_member_mae_std,
@@ -104,7 +103,7 @@ def test_compute_member_quality_gate_accepts_sample_weight():
     rng = np.random.default_rng(0)
     preds = [rng.normal(size=100) for _ in range(4)]
     sw = np.linspace(0.1, 1.0, 100)
-    kept, excluded, stats = compute_member_quality_gate(preds, sample_weight=sw)
+    kept, _excluded, stats = compute_member_quality_gate(preds, sample_weight=sw)
     # Weighted gate must still return something sensible.
     assert isinstance(kept, list)
     assert "per_member_mae" in stats
@@ -232,12 +231,8 @@ def test_rrf_k_parameter_changes_blend():
     p2 = rng.uniform(0, 1, size=(50, 2))
     p2 = p2 / p2.sum(axis=1, keepdims=True)
 
-    out_k5, _, _ = ensemble_probabilistic_predictions(
-        p1, p2, ensemble_method="rrf", rrf_k=5, verbose=False
-    )
-    out_k200, _, _ = ensemble_probabilistic_predictions(
-        p1, p2, ensemble_method="rrf", rrf_k=200, verbose=False
-    )
+    out_k5, _, _ = ensemble_probabilistic_predictions(p1, p2, ensemble_method="rrf", rrf_k=5, verbose=False)
+    out_k200, _, _ = ensemble_probabilistic_predictions(p1, p2, ensemble_method="rrf", rrf_k=200, verbose=False)
     # Different k must change the blend numerically.
     assert not np.allclose(out_k5, out_k200, atol=1e-6)
 
@@ -249,9 +244,7 @@ def test_prob_clip_applies_pre_blend_for_arithm():
     """PROB-CLIP: out-of-range members are clipped before the arithmetic blend."""
     bad = np.array([1.5, 1.5, 1.5])
     good = np.array([0.5, 0.5, 0.5])
-    out, _, _ = ensemble_probabilistic_predictions(
-        bad, good, ensemble_method="arithm", ensure_prob_limits=True, verbose=False
-    )
+    out, _, _ = ensemble_probabilistic_predictions(bad, good, ensemble_method="arithm", ensure_prob_limits=True, verbose=False)
     # Pre-clip blend would be (1.5 + 0.5) / 2 = 1.0 (already at limit). With pre-clip the bad
     # member becomes 1.0, so the blend is (1.0 + 0.5) / 2 = 0.75 -- clearly < 1.0 and != 1.0.
     assert np.all(out < 1.0)
@@ -338,8 +331,8 @@ def test_gate_skipped_when_require_oof_for_gate_and_coarse_disabled(caplog):
             uncertainty_quantile=0.0,
             verbose=True,
         )
-    assert any("coarse-gate disabled" in rec.message for rec in caplog.records), (
-        "Expected coarse-disabled skip warning; got: " + " | ".join(rec.message for rec in caplog.records)
+    assert any("coarse-gate disabled" in rec.message for rec in caplog.records), "Expected coarse-disabled skip warning; got: " + " | ".join(
+        rec.message for rec in caplog.records
     )
 
 
@@ -354,16 +347,20 @@ def test_k2_catastrophic_dropout_drops_obvious_outlier_member(caplog):
             val_preds=val_preds.astype(np.float64),
             test_preds=val_preds.astype(np.float64),
             train_preds=val_preds.astype(np.float64),
-            val_probs=None, test_probs=None, train_probs=None,
-            oof_preds=None, oof_probs=None,
-            model=MagicMock(), model_name="m",
+            val_probs=None,
+            test_probs=None,
+            train_probs=None,
+            oof_preds=None,
+            oof_probs=None,
+            model=MagicMock(),
+            model_name="m",
         )
 
     rng = np.random.default_rng(0)
     n = 500
     y_true = rng.standard_normal(n)
-    good = _make(y_true + 0.1 * rng.standard_normal(n))   # MAE ~ 0.08
-    bad = _make(-5.0 * y_true)                            # MAE ~ 5.0; ratio ~ 60x
+    good = _make(y_true + 0.1 * rng.standard_normal(n))  # MAE ~ 0.08
+    bad = _make(-5.0 * y_true)  # MAE ~ 5.0; ratio ~ 60x
     members = [good, bad]
     good.model_name = "good_ridge"
     bad.model_name = "broken_mlp"
@@ -371,8 +368,11 @@ def test_k2_catastrophic_dropout_drops_obvious_outlier_member(caplog):
 
     with caplog.at_level(logging.WARNING):
         res = score_ensemble(
-            members, ensemble_name="[good+bad]",
-            target=target, val_target=target, test_target=target,
+            members,
+            ensemble_name="[good+bad]",
+            target=target,
+            val_target=target,
+            test_target=target,
             ensembling_methods=["arithm"],
             require_oof_for_gate=True,
             build_votenrank_leaderboard=False,
@@ -400,20 +400,33 @@ def test_k2_catastrophic_dropout_sentinel_keys_start_with_underscore():
         val_preds=(y + 0.1 * rng.standard_normal(n)).astype(np.float64),
         test_preds=(y + 0.1 * rng.standard_normal(n)).astype(np.float64),
         train_preds=(y + 0.1 * rng.standard_normal(n)).astype(np.float64),
-        val_probs=None, test_probs=None, train_probs=None,
-        oof_preds=None, oof_probs=None, model=MagicMock(), model_name="g",
+        val_probs=None,
+        test_probs=None,
+        train_probs=None,
+        oof_preds=None,
+        oof_probs=None,
+        model=MagicMock(),
+        model_name="g",
     )
     bad = SimpleNamespace(
         val_preds=(-5 * y).astype(np.float64),
         test_preds=(-5 * y).astype(np.float64),
         train_preds=(-5 * y).astype(np.float64),
-        val_probs=None, test_probs=None, train_probs=None,
-        oof_preds=None, oof_probs=None, model=MagicMock(), model_name="b",
+        val_probs=None,
+        test_probs=None,
+        train_probs=None,
+        oof_preds=None,
+        oof_probs=None,
+        model=MagicMock(),
+        model_name="b",
     )
     target = pd.Series(y)
     res = score_ensemble(
-        [good, bad], ensemble_name="[g+b]", target=target,
-        test_target=target, val_target=target,
+        [good, bad],
+        ensemble_name="[g+b]",
+        target=target,
+        test_target=target,
+        val_target=target,
         ensembling_methods=["arithm"],
         require_oof_for_gate=True,
         build_votenrank_leaderboard=False,
@@ -424,8 +437,7 @@ def test_k2_catastrophic_dropout_sentinel_keys_start_with_underscore():
     # Every key in the sentinel-only result MUST start with ``_`` (metadata).
     for k in res:
         assert isinstance(k, str) and k.startswith("_"), (
-            f"K=2 catastrophic-dropout produced a NON-underscore key {k!r}; "
-            f"this pollutes the per-target model list downstream."
+            f"K=2 catastrophic-dropout produced a NON-underscore key {k!r}; this pollutes the per-target model list downstream."
         )
 
 
@@ -440,10 +452,15 @@ def test_k2_catastrophic_dropout_skipped_when_no_target_available(caplog):
             val_preds=val_preds.astype(np.float64),
             test_preds=val_preds.astype(np.float64),
             train_preds=val_preds.astype(np.float64),
-            val_probs=None, test_probs=None, train_probs=None,
-            oof_preds=None, oof_probs=None,
-            model=MagicMock(), model_name="m",
+            val_probs=None,
+            test_probs=None,
+            train_probs=None,
+            oof_preds=None,
+            oof_probs=None,
+            model=MagicMock(),
+            model_name="m",
         )
+
     rng = np.random.default_rng(1)
     n = 500
     y = rng.standard_normal(n)
@@ -452,7 +469,9 @@ def test_k2_catastrophic_dropout_skipped_when_no_target_available(caplog):
     target = pd.Series(y)
     # NOTE: val_target / test_target / train_target NOT supplied.
     res = score_ensemble(
-        [a, b], ensemble_name="[a+b]", target=target,
+        [a, b],
+        ensemble_name="[a+b]",
+        target=target,
         ensembling_methods=["arithm"],
         require_oof_for_gate=True,
         build_votenrank_leaderboard=False,
@@ -475,9 +494,13 @@ def test_kn_borderline_mae_blowout_stamped_into_metadata(caplog):
             val_preds=val_preds.astype(np.float64),
             test_preds=val_preds.astype(np.float64),
             train_preds=val_preds.astype(np.float64),
-            val_probs=None, test_probs=None, train_probs=None,
-            oof_preds=None, oof_probs=None,
-            model=MagicMock(), model_name="m",
+            val_probs=None,
+            test_probs=None,
+            train_probs=None,
+            oof_preds=None,
+            oof_probs=None,
+            model=MagicMock(),
+            model_name="m",
         )
 
     rng = np.random.default_rng(2)
@@ -491,8 +514,11 @@ def test_kn_borderline_mae_blowout_stamped_into_metadata(caplog):
     target = pd.Series(y_true)
 
     res = score_ensemble(
-        members, ensemble_name="[m0+m1+m2+m3]",
-        target=target, val_target=target, test_target=target,
+        members,
+        ensemble_name="[m0+m1+m2+m3]",
+        target=target,
+        val_target=target,
+        test_target=target,
         ensembling_methods=["arithm"],
         require_oof_for_gate=True,
         build_votenrank_leaderboard=False,
@@ -524,9 +550,13 @@ def test_kn_all_members_catastrophic_sentinel_when_only_one_survives(caplog):
             val_preds=val_preds.astype(np.float64),
             test_preds=val_preds.astype(np.float64),
             train_preds=val_preds.astype(np.float64),
-            val_probs=None, test_probs=None, train_probs=None,
-            oof_preds=None, oof_probs=None,
-            model=MagicMock(), model_name="m",
+            val_probs=None,
+            test_probs=None,
+            train_probs=None,
+            oof_preds=None,
+            oof_probs=None,
+            model=MagicMock(),
+            model_name="m",
         )
 
     rng = np.random.default_rng(3)
@@ -534,15 +564,18 @@ def test_kn_all_members_catastrophic_sentinel_when_only_one_survives(caplog):
     y_true = rng.standard_normal(n)
     # 1 ok + 3 catastrophic (ratio >> 20x). Survival expected: 1.
     members = [_make(y_true + 0.1 * rng.standard_normal(n))]
-    for k in range(3):
+    for _k in range(3):
         members.append(_make(-50.0 * y_true + rng.standard_normal(n)))
     for i, m in enumerate(members):
         m.model_name = f"m{i}"
     target = pd.Series(y_true)
 
     res = score_ensemble(
-        members, ensemble_name="[m0+m1+m2+m3]",
-        target=target, val_target=target, test_target=target,
+        members,
+        ensemble_name="[m0+m1+m2+m3]",
+        target=target,
+        val_target=target,
+        test_target=target,
         ensembling_methods=["arithm"],
         require_oof_for_gate=True,
         build_votenrank_leaderboard=False,
@@ -570,9 +603,13 @@ def test_kn_catastrophic_target_mae_drops_obvious_outlier_when_k_above_2(caplog)
             val_preds=val_preds.astype(np.float64),
             test_preds=val_preds.astype(np.float64),
             train_preds=val_preds.astype(np.float64),
-            val_probs=None, test_probs=None, train_probs=None,
-            oof_preds=None, oof_probs=None,
-            model=MagicMock(), model_name="m",
+            val_probs=None,
+            test_probs=None,
+            train_probs=None,
+            oof_preds=None,
+            oof_probs=None,
+            model=MagicMock(),
+            model_name="m",
         )
 
     rng = np.random.default_rng(0)
@@ -589,26 +626,26 @@ def test_kn_catastrophic_target_mae_drops_obvious_outlier_when_k_above_2(caplog)
 
     with caplog.at_level(logging.WARNING):
         res = score_ensemble(
-            members, ensemble_name="[good_0+good_1+good_2+broken]",
-            target=target, val_target=target, test_target=target,
+            members,
+            ensemble_name="[good_0+good_1+good_2+broken]",
+            target=target,
+            val_target=target,
+            test_target=target,
             ensembling_methods=["arithm"],
             require_oof_for_gate=True,
             build_votenrank_leaderboard=False,
             uncertainty_quantile=0.0,
             verbose=True,
         )
-    assert any("K>2 absolute-MAE catastrophic-drop" in rec.message for rec in caplog.records), (
-        "Expected E4.1 K>2 catastrophic-drop WARN; got: "
-        + " | ".join(rec.message for rec in caplog.records)
+    assert any("K>2 absolute-MAE catastrophic-drop" in rec.message for rec in caplog.records), "Expected E4.1 K>2 catastrophic-drop WARN; got: " + " | ".join(
+        rec.message for rec in caplog.records
     )
     drop_info = res.get("_kn_catastrophic_dropped")
     assert drop_info is not None, "_kn_catastrophic_dropped sentinel missing"
-    assert 3 in drop_info["dropped_idx"], (
-        f"Expected the broken member at idx 3 to be dropped; got dropped_idx={drop_info['dropped_idx']}"
-    )
+    assert 3 in drop_info["dropped_idx"], f"Expected the broken member at idx 3 to be dropped; got dropped_idx={drop_info['dropped_idx']}"
     # Sentinel key prefix contract: must start with ``_`` (caller filters those out).
     assert "_kn_catastrophic_dropped" in res
-    for k in [k for k in res.keys() if not k.startswith("_")]:
+    for _k in [k for k in res.keys() if not k.startswith("_")]:
         # The actual ensembling-methods results should still be in the dict (we only dropped 1/4).
         pass  # the gate purges members but the ensemble still runs on the 3 survivors
 
@@ -638,7 +675,7 @@ def test_coarse_gate_drops_catastrophic_outlier_member(caplog):
     truth = rng.normal(size=200).astype(np.float64)
     good = [_make(truth + rng.normal(scale=0.05, size=200)) for _ in range(3)]
     bad = _make(truth * -5.0 + rng.normal(scale=2.0, size=200))  # R^2 well below zero
-    members = good + [bad]
+    members = [*good, bad]
     target = pd.Series(truth)
 
     with caplog.at_level(logging.INFO):

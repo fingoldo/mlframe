@@ -7,16 +7,16 @@ trivial baseline (e.g. ``mean`` for regression, ``majority`` for
 binary classification). Default ON, gated on
 ``DummyBaselinesConfig.plot_strongest``.
 """
+
 from __future__ import annotations
 
-import logging
 
 import matplotlib
+
 matplotlib.use("Agg")
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.training.baselines.dummy import (
     compute_dummy_baselines,
@@ -26,8 +26,7 @@ from mlframe.training.baselines.dummy import (
 from mlframe.training.configs import DummyBaselinesConfig
 
 
-def _make_regression_data(n_train: int = 500, n_val: int = 200,
-                            n_test: int = 200, seed: int = 0):
+def _make_regression_data(n_train: int = 500, n_val: int = 200, n_test: int = 200, seed: int = 0):
     rng = np.random.default_rng(seed)
     train_y = rng.normal(loc=10, scale=2, size=n_train)
     val_y = rng.normal(loc=10, scale=2, size=n_val)
@@ -48,14 +47,16 @@ class TestStrongestPredsRetained:
         report = compute_dummy_baselines(
             target_type="regression",
             target_name="y",
-            train_X=train_X, val_X=val_X, test_X=test_X,
-            train_y=train_y, val_y=val_y, test_y=test_y,
+            train_X=train_X,
+            val_X=val_X,
+            test_X=test_X,
+            train_y=train_y,
+            val_y=val_y,
+            test_y=test_y,
             config=DummyBaselinesConfig(),
         )
         assert report.strongest is not None
-        assert "strongest_val_preds" in report.extras, (
-            "regression: strongest baseline val predictions should "
-            "be exposed via extras for the overlay plotter")
+        assert "strongest_val_preds" in report.extras, "regression: strongest baseline val predictions should be exposed via extras for the overlay plotter"
         assert "strongest_test_preds" in report.extras
         sv = report.extras["strongest_val_preds"]
         st = report.extras["strongest_test_preds"]
@@ -71,8 +72,12 @@ class TestStrongestPredsRetained:
         report = compute_dummy_baselines(
             target_type="regression",
             target_name="y",
-            train_X=train_X, val_X=val_X, test_X=test_X,
-            train_y=train_y, val_y=val_y, test_y=test_y,
+            train_X=train_X,
+            val_X=val_X,
+            test_X=test_X,
+            train_y=train_y,
+            val_y=val_y,
+            test_y=test_y,
             config=DummyBaselinesConfig(),
         )
         d = report.to_dict()
@@ -89,24 +94,31 @@ class TestOverlayPlotRegression:
         report = compute_dummy_baselines(
             target_type="regression",
             target_name="y",
-            train_X=train_X, val_X=val_X, test_X=test_X,
-            train_y=train_y, val_y=val_y, test_y=test_y,
+            train_X=train_X,
+            val_X=val_X,
+            test_X=test_X,
+            train_y=train_y,
+            val_y=val_y,
+            test_y=test_y,
             config=DummyBaselinesConfig(),
         )
         out = str(tmp_path / "baseline_floor.png")
         fig = plot_best_dummy_baseline_overlay(
-            report, val_y=val_y, test_y=test_y, save_path=out, show=False,
+            report,
+            val_y=val_y,
+            test_y=test_y,
+            save_path=out,
+            show=False,
         )
         assert fig is not None
         # Saved PNG exists + non-empty.
         import os
+
         assert os.path.exists(out)
         assert os.path.getsize(out) > 1000
         # Figure has 2 panels for regression (scatter + resid hist).
         axes = fig.axes
-        assert len(axes) == 2, (
-            f"regression overlay should have 2 axes (scatter + "
-            f"residual hist); got {len(axes)}")
+        assert len(axes) == 2, f"regression overlay should have 2 axes (scatter + residual hist); got {len(axes)}"
         # Y-axis labels are sane.
         scatter_ylabel = axes[0].get_ylabel().lower()
         assert "y_hat" in scatter_ylabel or "baseline" in scatter_ylabel
@@ -125,12 +137,18 @@ class TestOverlayPlotRegression:
             ts_period_used=None,
             plot_path=None,
             elapsed_s=0.0,
-            n_train=0, n_val=0, n_test=0,
-            n_train_finite=0, n_val_finite=0, n_test_finite=0,
+            n_train=0,
+            n_val=0,
+            n_test=0,
+            n_train_finite=0,
+            n_val_finite=0,
+            n_test_finite=0,
             extras={},
         )
         out = plot_best_dummy_baseline_overlay(
-            empty_report, val_y=None, test_y=None,
+            empty_report,
+            val_y=None,
+            test_y=None,
             save_path=str(tmp_path / "skip.png"),
             show=False,
         )
@@ -142,9 +160,7 @@ class TestConfigPlotStrongestDefaultOn:
 
     def test_plot_strongest_default_true(self) -> None:
         cfg = DummyBaselinesConfig()
-        assert cfg.plot_strongest is True, (
-            "regression: per user feedback this default should be ON; "
-            "manual opt-out via plot_strongest=False")
+        assert cfg.plot_strongest is True, "regression: per user feedback this default should be ON; manual opt-out via plot_strongest=False"
 
 
 class TestDummyGoesThroughReportModelPerf:
@@ -158,12 +174,14 @@ class TestDummyGoesThroughReportModelPerf:
     """
 
     def test_unit_report_model_perf_accepts_dummy_preds(
-        self, monkeypatch,
+        self,
+        monkeypatch,
     ) -> None:
         """``report_model_perf`` accepts ``model=None`` + ``preds=...``
         for regression (the path the suite uses to plug dummy preds
         in). The function returns the same `(preds, None)` shape."""
         from mlframe.training.evaluation import report_model_perf
+
         rng = np.random.default_rng(0)
         n = 500
         y_true = rng.normal(loc=10, scale=2, size=n)
@@ -172,12 +190,17 @@ class TestDummyGoesThroughReportModelPerf:
         # the test doesn't open matplotlib windows or print to log.
         # The contract: no crash + returns predictions back.
         preds_out, probs_out = report_model_perf(
-            targets=y_true, columns=["x1", "x2"],
-            model_name="DummyBaseline:mean", model=None,
-            preds=dummy_preds, df=None,
+            targets=y_true,
+            columns=["x1", "x2"],
+            model_name="DummyBaseline:mean",
+            model=None,
+            preds=dummy_preds,
+            df=None,
             report_title="VAL (DUMMY) ",
-            print_report=False, show_perf_chart=False,
-            show_fi=False, target_type="regression",
+            print_report=False,
+            show_perf_chart=False,
+            show_fi=False,
+            target_type="regression",
         )
         assert preds_out is not None
         assert probs_out is None  # regression -> no probs
@@ -189,21 +212,31 @@ class TestDummyGoesThroughReportModelPerf:
         the contract via a direct ``report_model_perf`` call mirroring
         the in-suite logic."""
         from mlframe.training.evaluation import report_model_perf
+
         rng = np.random.default_rng(0)
         n = 500
         y_true = rng.integers(0, 2, size=n)
         # "stratified" dummy: 2-D probabilities, balanced.
-        dummy_probs = np.column_stack([
-            np.full(n, 0.6), np.full(n, 0.4),
-        ])
+        dummy_probs = np.column_stack(
+            [
+                np.full(n, 0.6),
+                np.full(n, 0.4),
+            ]
+        )
         dummy_preds = np.argmax(dummy_probs, axis=1)
         preds_out, probs_out = report_model_perf(
-            targets=y_true, columns=["x1"],
-            model_name="DummyBaseline:stratified", model=None,
-            preds=dummy_preds, probs=dummy_probs, df=None,
+            targets=y_true,
+            columns=["x1"],
+            model_name="DummyBaseline:stratified",
+            model=None,
+            preds=dummy_preds,
+            probs=dummy_probs,
+            df=None,
             report_title="VAL (DUMMY) ",
-            print_report=False, show_perf_chart=False,
-            show_fi=False, target_type="binary_classification",
+            print_report=False,
+            show_perf_chart=False,
+            show_fi=False,
+            target_type="binary_classification",
         )
         assert preds_out is not None
         assert probs_out is not None
@@ -224,8 +257,12 @@ class TestOverlayHandlesMissingPreds:
             ts_period_used=None,
             plot_path=None,
             elapsed_s=0.0,
-            n_train=100, n_val=50, n_test=0,
-            n_train_finite=100, n_val_finite=50, n_test_finite=0,
+            n_train=100,
+            n_val=50,
+            n_test=0,
+            n_train_finite=100,
+            n_val_finite=50,
+            n_test_finite=0,
             extras={
                 "strongest_val_preds": np.full(50, 10.0),
                 # No test preds.
@@ -233,7 +270,9 @@ class TestOverlayHandlesMissingPreds:
         )
         val_y = np.random.default_rng(0).normal(loc=10, size=50)
         fig = plot_best_dummy_baseline_overlay(
-            report, val_y=val_y, test_y=None,
+            report,
+            val_y=val_y,
+            test_y=None,
             save_path=str(tmp_path / "val_only.png"),
             show=False,
         )
@@ -252,25 +291,34 @@ class TestOverlayPlotConfigFlag:
         train_X, val_X, test_X, train_y, val_y, test_y = _make_regression_data()
         prefix = str(tmp_path) + "/"
         report = compute_dummy_baselines(
-            target_type="regression", target_name="y",
-            train_X=train_X, val_X=val_X, test_X=test_X,
-            train_y=train_y, val_y=val_y, test_y=test_y,
+            target_type="regression",
+            target_name="y",
+            train_X=train_X,
+            val_X=val_X,
+            test_X=test_X,
+            train_y=train_y,
+            val_y=val_y,
+            test_y=test_y,
             config=DummyBaselinesConfig(overlay_plot=True),
             plot_file_prefix=prefix,
         )
         assert report.strongest is not None
-        assert report.plot_path is not None, (
-            "overlay_plot=True must render the dedicated overlay and stamp report.plot_path"
-        )
+        assert report.plot_path is not None, "overlay_plot=True must render the dedicated overlay and stamp report.plot_path"
         import os
+
         assert os.path.exists(report.plot_path), "overlay PNG should be written to disk"
 
     def test_overlay_plot_off_leaves_plot_path_none(self, tmp_path) -> None:
         train_X, val_X, test_X, train_y, val_y, test_y = _make_regression_data()
         report = compute_dummy_baselines(
-            target_type="regression", target_name="y",
-            train_X=train_X, val_X=val_X, test_X=test_X,
-            train_y=train_y, val_y=val_y, test_y=test_y,
+            target_type="regression",
+            target_name="y",
+            train_X=train_X,
+            val_X=val_X,
+            test_X=test_X,
+            train_y=train_y,
+            val_y=val_y,
+            test_y=test_y,
             config=DummyBaselinesConfig(overlay_plot=False),
             plot_file_prefix=str(tmp_path) + "/",
         )

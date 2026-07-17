@@ -11,9 +11,9 @@ Three layers:
 We do NOT assert a SAM WIN here (the Foret 2020 paper needed many
 seeds + many tasks); just no catastrophic regression.
 """
+
 from __future__ import annotations
 
-import numpy as np
 import pytest
 import torch
 import torch.nn as nn
@@ -51,9 +51,7 @@ def test_sam_first_step_perturbs_params_along_grad_direction():
     sam.first_step()
     perturbed = p.data
     # |grad| = 1, so perturbation = 0.5 * (1, 0, 0) / 1 = (0.5, 0, 0).
-    torch.testing.assert_close(
-        perturbed - initial, torch.tensor([0.5, 0.0, 0.0]), atol=1e-6, rtol=0.0
-    )
+    torch.testing.assert_close(perturbed - initial, torch.tensor([0.5, 0.0, 0.0]), atol=1e-6, rtol=0.0)
 
 
 def test_sam_second_step_restores_then_steps():
@@ -79,9 +77,7 @@ def test_sam_second_step_restores_then_steps():
     sam.second_step()
     # second_step restores p to (0, 0), then SGD steps p -= lr * grad
     # = (0, 0) - 1.0 * (0.5, 1.5) = (-0.5, -1.5).
-    torch.testing.assert_close(
-        p.data, torch.tensor([-0.5, -1.5]), atol=1e-6, rtol=0.0
-    )
+    torch.testing.assert_close(p.data, torch.tensor([-0.5, -1.5]), atol=1e-6, rtol=0.0)
     # Backup cache cleared after second_step.
     assert sam._param_backup == {}
 
@@ -146,9 +142,7 @@ def test_sam_step_with_closure_runs_two_passes():
     assert counter["calls"] == 1, "SAM.step should call closure once"
     # After step: original p (0, 0) restored, then SGD step using the
     # second grad (0.5, 1.5) -> p = -1.0 * (0.5, 1.5) = (-0.5, -1.5).
-    torch.testing.assert_close(
-        p.data, torch.tensor([-0.5, -1.5]), atol=1e-6, rtol=0.0
-    )
+    torch.testing.assert_close(p.data, torch.tensor([-0.5, -1.5]), atol=1e-6, rtol=0.0)
 
 
 def test_sam_adaptive_scales_perturbation_by_param_magnitude():
@@ -180,14 +174,24 @@ def test_mlptorchmodel_configure_optimizers_wraps_when_use_sam_true():
     from mlframe.training.neural.flat import generate_mlp
 
     net = generate_mlp(
-        num_features=4, num_classes=1, nlayers=1,
-        first_layer_num_neurons=8, dropout_prob=0.0,
-        inputs_dropout_prob=0.0, use_layernorm=False, use_batchnorm=False,
-        activation_function=nn.ReLU, verbose=0,
+        num_features=4,
+        num_classes=1,
+        nlayers=1,
+        first_layer_num_neurons=8,
+        dropout_prob=0.0,
+        inputs_dropout_prob=0.0,
+        use_layernorm=False,
+        use_batchnorm=False,
+        activation_function=nn.ReLU,
+        verbose=0,
     )
     module = MLPTorchModel(
-        loss_fn=nn.MSELoss(), metrics=[], network=net,
-        use_sam=True, sam_rho=0.1, sam_adaptive=True,
+        loss_fn=nn.MSELoss(),
+        metrics=[],
+        network=net,
+        use_sam=True,
+        sam_rho=0.1,
+        sam_adaptive=True,
     )
     out = module.configure_optimizers()
     opt = out["optimizer"] if isinstance(out, dict) else out
@@ -201,13 +205,22 @@ def test_mlptorchmodel_sam_off_does_not_wrap():
     from mlframe.training.neural.flat import generate_mlp
 
     net = generate_mlp(
-        num_features=4, num_classes=1, nlayers=1,
-        first_layer_num_neurons=8, dropout_prob=0.0,
-        inputs_dropout_prob=0.0, use_layernorm=False, use_batchnorm=False,
-        activation_function=nn.ReLU, verbose=0,
+        num_features=4,
+        num_classes=1,
+        nlayers=1,
+        first_layer_num_neurons=8,
+        dropout_prob=0.0,
+        inputs_dropout_prob=0.0,
+        use_layernorm=False,
+        use_batchnorm=False,
+        activation_function=nn.ReLU,
+        verbose=0,
     )
     module = MLPTorchModel(
-        loss_fn=nn.MSELoss(), metrics=[], network=net, use_sam=False,
+        loss_fn=nn.MSELoss(),
+        metrics=[],
+        network=net,
+        use_sam=False,
     )
     out = module.configure_optimizers()
     opt = out["optimizer"] if isinstance(out, dict) else out
@@ -222,14 +235,23 @@ def test_sam_composes_with_lookahead_on_mlp():
     from mlframe.training.neural.flat import generate_mlp
 
     net = generate_mlp(
-        num_features=4, num_classes=1, nlayers=1,
-        first_layer_num_neurons=8, dropout_prob=0.0,
-        inputs_dropout_prob=0.0, use_layernorm=False, use_batchnorm=False,
-        activation_function=nn.ReLU, verbose=0,
+        num_features=4,
+        num_classes=1,
+        nlayers=1,
+        first_layer_num_neurons=8,
+        dropout_prob=0.0,
+        inputs_dropout_prob=0.0,
+        use_layernorm=False,
+        use_batchnorm=False,
+        activation_function=nn.ReLU,
+        verbose=0,
     )
     module = MLPTorchModel(
-        loss_fn=nn.MSELoss(), metrics=[], network=net,
-        use_lookahead=True, use_sam=True,
+        loss_fn=nn.MSELoss(),
+        metrics=[],
+        network=net,
+        use_lookahead=True,
+        use_sam=True,
     )
     out = module.configure_optimizers()
     opt = out["optimizer"] if isinstance(out, dict) else out

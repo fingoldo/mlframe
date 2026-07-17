@@ -13,6 +13,7 @@ independent fixes in ``batch_mi_noise_gate_gpu.py``:
 
 Mirrors ``test_batch_pair_mi_resident_upload.py``'s monkeypatch-and-count template.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -64,9 +65,16 @@ def _make_frame(n, K, nbins, n_classes_y, seed):
 
 def _cpu_ref(disc_2d, factors_nbins, classes_y, freqs_y, npermutations, use_su):
     return batch_mi_with_noise_gate(
-        disc_2d=disc_2d, factors_nbins=factors_nbins, classes_y=classes_y, classes_y_safe=classes_y.copy(),
-        freqs_y=freqs_y, npermutations=npermutations, base_seed=np.uint64(0), min_nonzero_confidence=0.99,
-        use_su=use_su, dtype=np.int32,
+        disc_2d=disc_2d,
+        factors_nbins=factors_nbins,
+        classes_y=classes_y,
+        classes_y_safe=classes_y.copy(),
+        freqs_y=freqs_y,
+        npermutations=npermutations,
+        base_seed=np.uint64(0),
+        min_nonzero_confidence=0.99,
+        use_su=use_su,
+        dtype=np.int32,
     )
 
 
@@ -104,9 +112,16 @@ def test_su_branch_reuses_resident_y_matrix(monkeypatch):
     monkeypatch.setattr(bg._nb_cuda, "to_device", _counting_to_device)
 
     kwargs = dict(
-        disc_2d=disc_2d, factors_nbins=factors_nbins, classes_y=classes_y, classes_y_safe=classes_y_safe,
-        freqs_y=freqs_y, npermutations=nperm, base_seed=np.uint64(0), min_nonzero_confidence=0.99,
-        use_su=True, dtype=np.int32,
+        disc_2d=disc_2d,
+        factors_nbins=factors_nbins,
+        classes_y=classes_y,
+        classes_y_safe=classes_y_safe,
+        freqs_y=freqs_y,
+        npermutations=nperm,
+        base_seed=np.uint64(0),
+        min_nonzero_confidence=0.99,
+        use_su=True,
+        dtype=np.int32,
     )
     out1 = bg.batch_mi_with_noise_gate_cuda_resident(**kwargs)
     out2 = bg.batch_mi_with_noise_gate_cuda_resident(**kwargs)
@@ -131,6 +146,7 @@ def test_histgate_off_nb_freq_dedup_via_resident_operand(monkeypatch):
     classes_y_safe = classes_y.copy()
 
     import cupy as cp
+
     orig_asarray = cp.asarray
     upload_calls = {"off": 0, "nb": 0, "freq": 0}
 
@@ -148,8 +164,15 @@ def test_histgate_off_nb_freq_dedup_via_resident_operand(monkeypatch):
     monkeypatch.setattr(cp, "asarray", _counting_asarray)
 
     kwargs_common = dict(
-        factors_nbins=factors_nbins, classes_y=classes_y, classes_y_safe=classes_y_safe, freqs_y=freqs_y,
-        npermutations=nperm, base_seed=np.uint64(0), min_nonzero_confidence=0.99, use_su=False, dtype=np.int32,
+        factors_nbins=factors_nbins,
+        classes_y=classes_y,
+        classes_y_safe=classes_y_safe,
+        freqs_y=freqs_y,
+        npermutations=nperm,
+        base_seed=np.uint64(0),
+        min_nonzero_confidence=0.99,
+        use_su=False,
+        dtype=np.int32,
     )
     out1 = bg.batch_mi_with_noise_gate_cuda_resident(disc_2d=disc_2d_a, **kwargs_common)
     out2 = bg.batch_mi_with_noise_gate_cuda_resident(disc_2d=disc_2d_b, **kwargs_common)
@@ -182,6 +205,7 @@ def test_cupy_y_all_matrix_resident_reuse(monkeypatch):
         patch_target = (bg._nb_cuda, "to_device")
     else:
         import cupy as cp
+
         orig_upload = cp.asarray
         patch_target = (cp, "asarray")
 
@@ -195,9 +219,16 @@ def test_cupy_y_all_matrix_resident_reuse(monkeypatch):
     monkeypatch.setattr(*patch_target, _counting)
 
     kwargs = dict(
-        disc_2d=disc_2d, factors_nbins=factors_nbins, classes_y=classes_y, classes_y_safe=classes_y_safe,
-        freqs_y=freqs_y, npermutations=nperm, base_seed=np.uint64(0), min_nonzero_confidence=0.99,
-        use_su=False, dtype=np.int32,
+        disc_2d=disc_2d,
+        factors_nbins=factors_nbins,
+        classes_y=classes_y,
+        classes_y_safe=classes_y_safe,
+        freqs_y=freqs_y,
+        npermutations=nperm,
+        base_seed=np.uint64(0),
+        min_nonzero_confidence=0.99,
+        use_su=False,
+        dtype=np.int32,
     )
     out1 = bg.batch_mi_with_noise_gate_cupy(**kwargs)
     out2 = bg.batch_mi_with_noise_gate_cupy(**kwargs)
@@ -232,9 +263,16 @@ def test_cuda_resident_and_cupy_share_one_resident_y_upload(monkeypatch):
     monkeypatch.setattr(bg._nb_cuda, "to_device", _counting_to_device)
 
     kwargs = dict(
-        disc_2d=disc_2d, factors_nbins=factors_nbins, classes_y=classes_y, classes_y_safe=classes_y_safe,
-        freqs_y=freqs_y, npermutations=nperm, base_seed=np.uint64(0), min_nonzero_confidence=0.99,
-        use_su=False, dtype=np.int32,
+        disc_2d=disc_2d,
+        factors_nbins=factors_nbins,
+        classes_y=classes_y,
+        classes_y_safe=classes_y_safe,
+        freqs_y=freqs_y,
+        npermutations=nperm,
+        base_seed=np.uint64(0),
+        min_nonzero_confidence=0.99,
+        use_su=False,
+        dtype=np.int32,
     )
     out_cuda = bg.batch_mi_with_noise_gate_cuda_resident(**kwargs)
     out_cupy = bg.batch_mi_with_noise_gate_cupy(**kwargs)

@@ -12,6 +12,7 @@ Wave 92 (2026-05-21): the canonical home moved from
 identity check below still guards against shadowing because both
 modules expose the same underlying function object.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -29,10 +30,7 @@ def test_compute_quantile_baselines_resolves_to_canonical_module():
     assert fn.__module__ in (
         "mlframe.training.baselines._dummy_baseline_quantile",
         "mlframe.training.baselines._dummy_baseline_compute",
-    ), (
-        f"_compute_quantile_baselines must come from the compute / quantile "
-        f"split module, got {fn.__module__}"
-    )
+    ), f"_compute_quantile_baselines must come from the compute / quantile split module, got {fn.__module__}"
 
 
 def test_compute_quantile_baselines_defined_only_in_compute_module():
@@ -47,10 +45,9 @@ def test_compute_quantile_baselines_defined_only_in_compute_module():
 
     # Identity: dummy_baselines._compute_quantile_baselines IS the function
     # from the compute module - not a wrapper, not a shadow.
-    assert (
-        dummy_baselines._compute_quantile_baselines
-        is _dummy_baseline_compute._compute_quantile_baselines
-    ), "dummy_baselines._compute_quantile_baselines was shadowed by a local def"
+    assert dummy_baselines._compute_quantile_baselines is _dummy_baseline_compute._compute_quantile_baselines, (
+        "dummy_baselines._compute_quantile_baselines was shadowed by a local def"
+    )
 
 
 def test_compute_quantile_baselines_callable_via_dummy_baselines():
@@ -65,7 +62,7 @@ def test_compute_quantile_baselines_callable_via_dummy_baselines():
     test_y = rng.normal(size=50)
     alphas = (0.1, 0.5, 0.9)
 
-    val_preds, test_preds, extras = _compute_quantile_baselines(
+    val_preds, test_preds, _extras = _compute_quantile_baselines(
         target_name="y",
         train_y=train_y,
         val_y=val_y,

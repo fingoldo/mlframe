@@ -18,13 +18,13 @@ This sensor pins:
 2. Facade LOC budget: parent stays under 750 lines per the carve plan.
 3. Smoke: at least one call routed through the parent re-export per sibling.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import pytest
 
 
 def test_target_dist_stats_identity_preserved():
@@ -32,9 +32,13 @@ def test_target_dist_stats_identity_preserved():
     from mlframe.training.targets import _target_distribution_analyzer_stats as stats
 
     for name in (
-        "_excess_kurtosis", "_skewness",
-        "_lag1_autocorr", "_lag_autocorr", "_max_abs_lag_autocorr",
-        "_lag1_autocorr_grouped", "_check_within_group_ordering",
+        "_excess_kurtosis",
+        "_skewness",
+        "_lag1_autocorr",
+        "_lag_autocorr",
+        "_max_abs_lag_autocorr",
+        "_lag1_autocorr_grouped",
+        "_check_within_group_ordering",
     ):
         assert getattr(parent, name) is getattr(stats, name), name
 
@@ -72,10 +76,7 @@ def test_target_dist_features_identity_preserved():
 
 
 def test_target_dist_facade_loc_budget():
-    parent_path = (
-        Path(__file__).resolve().parents[3]
-        / "src" / "mlframe" / "training" / "targets" / "_target_distribution_analyzer.py"
-    )
+    parent_path = Path(__file__).resolve().parents[3] / "src" / "mlframe" / "training" / "targets" / "_target_distribution_analyzer.py"
     n_lines = len(parent_path.read_text(encoding="utf-8").splitlines())
     # Plan target: <750; current carve lands ~190.
     assert n_lines <= 750, f"_target_distribution_analyzer.py grew to {n_lines} lines"
@@ -103,7 +104,7 @@ def test_target_dist_smoke_modes_via_parent():
 
     # Constant array: no peaks possible => unimodal.
     y_flat = np.zeros(200, dtype=np.float64)
-    is_mm, n_peaks, sep = _detect_multi_modal(y_flat)
+    is_mm, n_peaks, _sep = _detect_multi_modal(y_flat)
     assert is_mm is False
     assert isinstance(n_peaks, int)
     y_int = np.array([0, 1, 2] * 100, dtype=np.int64)
@@ -130,10 +131,12 @@ def test_target_dist_smoke_features_via_parent():
     )
 
     rng = np.random.default_rng(4)
-    df = pd.DataFrame({
-        "a": rng.normal(size=200),
-        "b": rng.normal(size=200),
-    })
+    df = pd.DataFrame(
+        {
+            "a": rng.normal(size=200),
+            "b": rng.normal(size=200),
+        }
+    )
     rep = analyze_feature_distribution(df)
     assert isinstance(rep, FeatureDistributionReport)
     assert rep.n_samples == 200

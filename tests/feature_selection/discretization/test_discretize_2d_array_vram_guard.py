@@ -12,6 +12,7 @@ Pins the fix: ``discretize_2d_array`` must consult ``_fe_gpu_vram.fe_gpu_has_vra
 calling ``discretize_2d_array_cuda``, and fall back to the CPU prange path when the upload would not
 safely fit -- mirroring every other GPU-FE dispatch site's guard.
 """
+
 from __future__ import annotations
 
 import logging

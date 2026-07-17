@@ -11,8 +11,9 @@ The identity test drives a full optimization run (suggest -> submit -> repeat) w
 a fixed seed and asserts the suggested-candidate sequence is bit-identical to the
 sequence produced by the OLD (HEAD) implementation loaded via ``git show``.
 """
+
 import importlib.util
-import subprocess
+import subprocess  # nosec B404 -- test-only local trusted subprocess invocation (fixed argv, no shell, no untrusted input)
 import sys
 from pathlib import Path
 
@@ -57,9 +58,11 @@ def _old_sequence(n_space, n_steps, seed):
     """Load the HEAD version of optimization.py and run the same sequence on it."""
     repo_root = Path(__file__).resolve().parents[2]
     rel = "src/mlframe/models/optimization.py"
-    out = subprocess.run(
+    out = subprocess.run(  # nosec B603 B607 -- fixed local argv (sys.executable/git + literal args), not a partial/searched path from untrusted input, no shell
         ["git", "show", f"HEAD:{rel}"],
-        cwd=repo_root, capture_output=True, text=True,
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
     )
     if out.returncode != 0:
         pytest.skip(f"git show unavailable: {out.stderr.strip()}")

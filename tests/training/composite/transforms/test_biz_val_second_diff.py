@@ -9,13 +9,13 @@ biz_value assertion pins the measured win with margin (per CLAUDE.md): on a
 random-walk-of-random-walk (I(2)) synthetic the second-difference reconstruction
 RMSE crushes plain ``diff`` (measured ratio ~0.017; floor 0.10).
 """
+
 from __future__ import annotations
 
 import warnings
 
 import numpy as np
 import orjson
-import pytest
 
 warnings.filterwarnings("ignore")
 
@@ -115,10 +115,12 @@ def test_second_diff_params_serialize_empty():
 def test_second_diff_domain_rejects_non_finite():
     t = get_transform("second_diff")
     y = np.array([1.0, np.nan, 3.0, 4.0, 5.0])
-    base = np.column_stack([
-        np.array([1.0, 2.0, np.nan, 4.0, 5.0]),
-        np.array([1.0, 2.0, 3.0, np.inf, 5.0]),
-    ])
+    base = np.column_stack(
+        [
+            np.array([1.0, 2.0, np.nan, 4.0, 5.0]),
+            np.array([1.0, 2.0, 3.0, np.inf, 5.0]),
+        ]
+    )
     mask = t.domain_check(y, base)
     assert mask.tolist() == [True, False, False, False, True]
     # Predict-time (y is None) gates only the base side.
@@ -129,11 +131,13 @@ def test_second_diff_domain_ignores_nan_in_extra_column():
     """A NaN in an IGNORED (3rd) base column must not drop an otherwise-valid row."""
     t = get_transform("second_diff")
     y = np.array([1.0, 2.0, 3.0])
-    base = np.column_stack([
-        np.array([1.0, 2.0, 3.0]),
-        np.array([1.0, 2.0, 3.0]),
-        np.array([np.nan, np.nan, np.nan]),
-    ])
+    base = np.column_stack(
+        [
+            np.array([1.0, 2.0, 3.0]),
+            np.array([1.0, 2.0, 3.0]),
+            np.array([np.nan, np.nan, np.nan]),
+        ]
+    )
     assert t.domain_check(y, base).tolist() == [True, True, True]
 
 
@@ -197,8 +201,12 @@ def test_biz_val_second_diff_beats_diff_on_doubly_integrated():
     sd_rmses, diff_rmses = [], []
     for s in range(6):
         f, y = _gen_i2(4000, s)
-        b1 = np.empty_like(y); b1[0] = 0.0; b1[1:] = y[:-1]
-        b2 = np.empty_like(y); b2[:2] = 0.0; b2[2:] = y[:-2]
+        b1 = np.empty_like(y)
+        b1[0] = 0.0
+        b1[1:] = y[:-1]
+        b2 = np.empty_like(y)
+        b2[:2] = 0.0
+        b2[2:] = y[:-2]
         base = np.column_stack([b1, b2])
         ntr = 2000
         ftr, fte = f[2:ntr], f[ntr:]
@@ -219,7 +227,4 @@ def test_biz_val_second_diff_beats_diff_on_doubly_integrated():
         diff_rmses.append(_rmse(ydhat, yte))
     sd_rmse = float(np.median(sd_rmses))
     diff_rmse = float(np.median(diff_rmses))
-    assert sd_rmse <= diff_rmse * 0.10, (
-        f"second_diff RMSE {sd_rmse:.4f} should be <=0.10x diff RMSE {diff_rmse:.4f} "
-        f"(ratio {sd_rmse / diff_rmse:.4f})"
-    )
+    assert sd_rmse <= diff_rmse * 0.10, f"second_diff RMSE {sd_rmse:.4f} should be <=0.10x diff RMSE {diff_rmse:.4f} (ratio {sd_rmse / diff_rmse:.4f})"

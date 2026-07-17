@@ -4,6 +4,7 @@ Found by the edge-case critique agent (C1, 2026-06-22): a fully-filtered subsamp
 hand a 0-row column to the batch/scalar MI kernels, whose ``y_min = y[0]`` (or ``log(n)``) hit a numba
 native access violation. The cuda twins already guarded n==0; the njit ones did not.
 """
+
 from __future__ import annotations
 
 import numpy as np

@@ -8,6 +8,7 @@ set) is simultaneously optimal for both. ``adaptive_alpha_grid`` walk-forward-va
 that entity's own history and should therefore one-step-ahead-predict better than the best fixed alpha
 shared across the whole population.
 """
+
 from __future__ import annotations
 
 import numpy as np

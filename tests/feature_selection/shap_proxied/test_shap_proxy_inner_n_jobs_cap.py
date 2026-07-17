@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 
 
 def _make_planted(n=400, f=8, seed=0):
@@ -36,12 +35,9 @@ def test_parallel_honest_losses_accepts_cap_kwarg():
     Xs, ys = X.iloc[:140].reset_index(drop=True), y[:140]
     Xh, yh = X.iloc[140:].reset_index(drop=True), y[140:]
     tasks = [((0, 1, 2), 1), ((0, 1), 2)]
-    losses_default = _parallel_honest_losses(
-        tasks, LinearRegression(), Xs, ys, Xh, yh, False, "rmse", n_jobs=1)
-    losses_cap_off = _parallel_honest_losses(
-        tasks, LinearRegression(), Xs, ys, Xh, yh, False, "rmse", n_jobs=1, inner_n_jobs_cap=False)
-    losses_cap_on = _parallel_honest_losses(
-        tasks, LinearRegression(), Xs, ys, Xh, yh, False, "rmse", n_jobs=1, inner_n_jobs_cap=True)
+    losses_default = _parallel_honest_losses(tasks, LinearRegression(), Xs, ys, Xh, yh, False, "rmse", n_jobs=1)
+    losses_cap_off = _parallel_honest_losses(tasks, LinearRegression(), Xs, ys, Xh, yh, False, "rmse", n_jobs=1, inner_n_jobs_cap=False)
+    losses_cap_on = _parallel_honest_losses(tasks, LinearRegression(), Xs, ys, Xh, yh, False, "rmse", n_jobs=1, inner_n_jobs_cap=True)
     # The cap only affects how each booster's internal n_jobs gets set; LinearRegression doesn't
     # have an n_jobs param it cares about for tiny matrices, but the dispatcher must still complete
     # and return numerically equal floats across all three calling conventions.
@@ -55,12 +51,12 @@ def test_compute_shap_matrix_accepts_cap_kwarg():
 
     X, y = _make_planted(n=200, f=6, seed=1)
     model = make_default_estimator(classification=False, n_estimators=20, random_state=0)
-    phi_off, base_off, y_off = compute_shap_matrix(
-        model, X, y, classification=False, out_of_fold=True, n_splits=3, n_models=1,
-        rng=np.random.default_rng(0), n_jobs=1, inner_n_jobs_cap=False)
-    phi_on, base_on, y_on = compute_shap_matrix(
-        model, X, y, classification=False, out_of_fold=True, n_splits=3, n_models=1,
-        rng=np.random.default_rng(0), n_jobs=1, inner_n_jobs_cap=True)
+    phi_off, base_off, _y_off = compute_shap_matrix(
+        model, X, y, classification=False, out_of_fold=True, n_splits=3, n_models=1, rng=np.random.default_rng(0), n_jobs=1, inner_n_jobs_cap=False
+    )
+    phi_on, base_on, _y_on = compute_shap_matrix(
+        model, X, y, classification=False, out_of_fold=True, n_splits=3, n_models=1, rng=np.random.default_rng(0), n_jobs=1, inner_n_jobs_cap=True
+    )
     # n_jobs=1 -> outer = 1 -> inner = None for both; numerically identical.
     assert phi_off.shape == phi_on.shape
     assert np.allclose(phi_off, phi_on)
@@ -71,10 +67,8 @@ def test_dataset_diagnostics_accepts_cap_kwarg():
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_preflight import dataset_diagnostics
 
     X, y = _make_planted(n=200, f=8, seed=2)
-    d_off = dataset_diagnostics(X, y, classification=False, max_rows=150, n_estimators=20,
-                                random_state=0, inner_n_jobs_cap=False)
-    d_on = dataset_diagnostics(X, y, classification=False, max_rows=150, n_estimators=20,
-                               random_state=0, inner_n_jobs_cap=True)
+    d_off = dataset_diagnostics(X, y, classification=False, max_rows=150, n_estimators=20, random_state=0, inner_n_jobs_cap=False)
+    d_on = dataset_diagnostics(X, y, classification=False, max_rows=150, n_estimators=20, random_state=0, inner_n_jobs_cap=True)
     # The booster CV scores are byte-identical given fixed random_state irrespective of inner threads.
     assert d_off["full_model_fit"] == d_on["full_model_fit"]
     assert d_off["stump_fit"] == d_on["stump_fit"]
@@ -101,10 +95,20 @@ def test_shap_proxied_fs_fit_runs_both_modes_with_same_chosen_subset():
 
     X, y = _make_planted(n=400, f=10, seed=3)
     common = dict(
-        classification=False, metric="rmse", n_jobs=1, top_n=5, n_revalidation_models=1,
-        random_state=0, verbose=False, tqdm=False, trust_guard=False,
-        revalidation_ucb_enabled=False, refine_ucb_enabled=False,
-        prefilter_top=None, cluster_features=False, run_importance_ablation=False,
+        classification=False,
+        metric="rmse",
+        n_jobs=1,
+        top_n=5,
+        n_revalidation_models=1,
+        random_state=0,
+        verbose=False,
+        tqdm=False,
+        trust_guard=False,
+        revalidation_ucb_enabled=False,
+        refine_ucb_enabled=False,
+        prefilter_top=None,
+        cluster_features=False,
+        run_importance_ablation=False,
     )
     fs_off = ShapProxiedFS(inner_n_jobs_cap=False, **common).fit(X, y)
     fs_on = ShapProxiedFS(inner_n_jobs_cap=True, **common).fit(X, y)

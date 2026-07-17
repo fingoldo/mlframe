@@ -9,15 +9,14 @@ Covers:
      (per-call Generator, no njit-global RNG race).
   8. ``_build_resample_indices`` raises MemoryError above the RAM ceiling, not below.
 """
+
 from __future__ import annotations
 
-import os
 from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 import pytest
 
-from mlframe.calibration import policy
 from mlframe.calibration.policy import (
     _ece_score,
     _stratified_inner_folds,

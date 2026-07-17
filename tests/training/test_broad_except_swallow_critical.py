@@ -30,6 +30,7 @@ silently degraded production behaviour:
 Each sensor exercises the bug shape AND asserts the post-fix observable
 (WARN-log fires / no all-False mask / id-based fallback / no zero token).
 """
+
 from __future__ import annotations
 
 import logging
@@ -101,17 +102,11 @@ def test_pre_screen_apply_drops_failure_is_atomic_no_partial_drop(caplog, monkey
         _maybe_run_unsupervised_pre_screen(ctx, {})
 
     # Atomic rollback: NO frame may have lost the 'const' column despite the train mirror's drop succeeding first.
-    assert list(ctx.filtered_train_df.columns) == ["good", "const"], (
-        "train mirror was mutated despite a sibling-mirror failure -> non-atomic partial drop"
-    )
-    assert list(ctx.filtered_val_df.columns) == ["good", "const"], (
-        "val mirror was mutated despite the apply_drops failure"
-    )
+    assert list(ctx.filtered_train_df.columns) == ["good", "const"], "train mirror was mutated despite a sibling-mirror failure -> non-atomic partial drop"
+    assert list(ctx.filtered_val_df.columns) == ["good", "const"], "val mirror was mutated despite the apply_drops failure"
     # No columns recorded as dropped, and the skip-on-error path must log.
     assert ctx._pre_screen_dropped_cols == []
-    assert any("skipped due to error" in r.message for r in caplog.records), (
-        "the atomic-failure path must log that the pre-screen was skipped"
-    )
+    assert any("skipped due to error" in r.message for r in caplog.records), "the atomic-failure path must log that the pre-screen was skipped"
 
 
 # ---- Site #2/#3: apply.py content-token fallbacks --------------------------
@@ -125,7 +120,7 @@ class _UnhashableTarget:
     def shape(self):  # poisoned attr access used inside the hash path
         raise RuntimeError("synthetic hash failure")
 
-    def __iter__(self):  # noqa: D401
+    def __iter__(self):
         raise RuntimeError("not iterable either")
 
 
@@ -143,14 +138,10 @@ def test_target_content_token_fallback_uses_id_not_zero(caplog):
     assert token1 != 0, "fallback must not return literal 0 (caches collide)"
     assert token2 != 0
     assert token1 != token2, (
-        "two distinct target objects must get distinct tokens; pre-fix both "
-        "returned 0 and target-1's fitted encoder replayed for target-2."
+        "two distinct target objects must get distinct tokens; pre-fix both returned 0 and target-1's fitted encoder replayed for target-2."
     )
     # WARN log fires so operators see the fallback path was taken.
-    assert any(
-        "_target_content_token: hash failed" in rec.message
-        for rec in caplog.records
-    ), f"expected WARN log; got: {[r.message for r in caplog.records]}"
+    assert any("_target_content_token: hash failed" in rec.message for rec in caplog.records), f"expected WARN log; got: {[r.message for r in caplog.records]}"
 
 
 def test_text_column_content_token_fallback_uses_id_not_zero(caplog):
@@ -165,7 +156,7 @@ def test_text_column_content_token_fallback_uses_id_not_zero(caplog):
         path into the except branch (the function recognises us as a
         pandas DataFrame via isinstance, then explodes on __getitem__)."""
 
-        def __getitem__(self, key):  # noqa: D401
+        def __getitem__(self, key):
             raise RuntimeError(f"synthetic column access failure for {key!r}")
 
     bad1 = _ExplodingDf({"col_a": [1, 2, 3]})
@@ -176,14 +167,10 @@ def test_text_column_content_token_fallback_uses_id_not_zero(caplog):
 
     assert t1 != 0, "fallback must not return literal 0 (caches collide)"
     assert t2 != 0
-    assert t1 != t2, (
-        "two distinct DataFrames must get distinct tokens; pre-fix both "
-        "returned 0 and one suite's fitted text encoder replayed for another."
+    assert t1 != t2, "two distinct DataFrames must get distinct tokens; pre-fix both returned 0 and one suite's fitted text encoder replayed for another."
+    assert any("_text_column_content_token: hash failed" in rec.message for rec in caplog.records), (
+        f"expected WARN log; got: {[r.message for r in caplog.records]}"
     )
-    assert any(
-        "_text_column_content_token: hash failed" in rec.message
-        for rec in caplog.records
-    ), f"expected WARN log; got: {[r.message for r in caplog.records]}"
 
 
 # ---- Site #4: target-encoders _objectwise_isnull ---------------------------
@@ -209,11 +196,13 @@ def test_objectwise_isnull_falls_back_to_pandas_isna(monkeypatch):
 
     real_array = te.np.array
     armed = {"first": True}
+
     def _array(*args, **kwargs):
         if armed["first"]:
             armed["first"] = False
             raise RuntimeError("synthetic listcomp failure")
         return real_array(*args, **kwargs)
+
     monkeypatch.setattr(te.np, "array", _array)
 
     mask = te._objectwise_isnull(arr)
@@ -237,8 +226,10 @@ def test_objectwise_isnull_raises_when_both_paths_fail(monkeypatch):
 
     def _bad_array(*args, **kwargs):
         raise RuntimeError("synthetic listcomp failure")
+
     def _bad_isna(*args, **kwargs):
         raise RuntimeError("synthetic pandas.isna failure")
+
     monkeypatch.setattr(te.np, "array", _bad_array)
     monkeypatch.setattr(pd, "isna", _bad_isna)
 
@@ -259,17 +250,18 @@ def test_transforms_extension_dtype_clear_logs_on_failure(caplog, monkeypatch):
     df = pd.DataFrame({"x": pd.array([1, 2, None], dtype="Int64")})
 
     real_astype = pd.Series.astype
+
     def _flaky_astype(self, dtype, *a, **k):
         if dtype in (np.float32, np.float64):
             raise RuntimeError("synthetic extension-dtype cast failure")
         return real_astype(self, dtype, *a, **k)
+
     monkeypatch.setattr(pd.Series, "astype", _flaky_astype)
 
     with caplog.at_level(logging.WARNING, logger="mlframe.preprocessing.transforms"):
         out = tr.prepare_df_for_catboost(df)
     # The failed cast leaves the column an extension dtype (pd.NA still present).
     assert pd.api.types.is_extension_array_dtype(out["x"].dtype)
-    assert any(
-        "Could not convert extension-dtype column" in r.getMessage()
-        for r in caplog.records
-    ), f"expected WARN; got {[r.getMessage() for r in caplog.records]}"
+    assert any("Could not convert extension-dtype column" in r.getMessage() for r in caplog.records), (
+        f"expected WARN; got {[r.getMessage() for r in caplog.records]}"
+    )

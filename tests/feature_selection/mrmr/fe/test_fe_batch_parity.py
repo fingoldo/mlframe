@@ -7,6 +7,7 @@ the edge-binned plain plug-in MI (``_fe_edge_mi``), so this pins:
   2. (CUDA) CPU batcher == GPU batcher to ~1e-9 on continuous AND tied matrices.
   3. dispatcher honours the force env / STRICT / default-CPU rules and the chosen backend matches the path.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -19,8 +20,10 @@ from mlframe.feature_selection.filters._fe_batch_dispatch import choose_fe_batch
 
 def _continuous(seed=3, n=5000, k=40, nbins=10):
     rng = np.random.default_rng(seed)
-    a = rng.uniform(1, 5, n); b = rng.uniform(1, 5, n); c = rng.uniform(1, 5, n)
-    cols = [a ** 2 / b, np.log(c) * a, a * b, np.log(a) + np.log(b)]
+    a = rng.uniform(1, 5, n)
+    b = rng.uniform(1, 5, n)
+    c = rng.uniform(1, 5, n)
+    cols = [a**2 / b, np.log(c) * a, a * b, np.log(a) + np.log(b)]
     while len(cols) < k:
         cols.append(rng.uniform(0, 1, n))
     X = np.column_stack([np.nan_to_num(col.astype(np.float64)) for col in cols])
@@ -30,8 +33,12 @@ def _continuous(seed=3, n=5000, k=40, nbins=10):
 
 def _tied(seed=5, n=5000, k=24, nbins=10):
     rng = np.random.default_rng(seed)
-    cols = [rng.integers(0, 5, n).astype(np.float64), (rng.uniform(0, 1, n) > 0.5).astype(np.float64),
-            np.sign(rng.normal(0, 1, n)).astype(np.float64), rng.integers(0, 3, n).astype(np.float64)]
+    cols = [
+        rng.integers(0, 5, n).astype(np.float64),
+        (rng.uniform(0, 1, n) > 0.5).astype(np.float64),
+        np.sign(rng.normal(0, 1, n)).astype(np.float64),
+        rng.integers(0, 3, n).astype(np.float64),
+    ]
     while len(cols) < k:
         cols.append(rng.integers(0, rng.integers(2, 7), n).astype(np.float64))
     X = np.column_stack([c.astype(np.float64) for c in cols])
@@ -53,8 +60,9 @@ def test_collector_matches_per_family_separate():
     """The cross-family collector scores concatenated family matrices in ONE batch; per-column MI is
     independent, so each family's slice must be bit-identical to scoring that family alone."""
     from mlframe.feature_selection.filters._fe_gpu_batch import collect_and_score
+
     X, y, nb = _continuous(n=4000, k=40)
-    fams = [X[:, 0:10], X[:, 10:25], X[:, 25:40]]   # 3 "families"
+    fams = [X[:, 0:10], X[:, 10:25], X[:, 25:40]]  # 3 "families"
     collected = collect_and_score(fams, y, nb)
     for fm, mi_c in zip(fams, collected):
         mi_sep = fe_batch_mi(np.ascontiguousarray(fm), y, nb, backend="cpu")
@@ -85,6 +93,7 @@ def test_dispatcher_cpu_path_matches_primitive():
 def _need_cuda() -> bool:
     try:
         from pyutilz.core.pythonlib import is_cuda_available
+
         return is_cuda_available()
     except Exception:
         return False
@@ -102,8 +111,7 @@ def test_cpu_batcher_matches_gpu_batcher(fixture):
     gpu = gpu_fe_batch_mi(X, y, nb)
     cp.get_default_memory_pool().free_all_blocks()
     assert np.allclose(cpu, gpu, atol=1e-9, rtol=0), (
-        f"CPU vs GPU batcher diverged: max|d|={np.max(np.abs(cpu - gpu)):.3e} "
-        f"(the two FE paths must select identically)"
+        f"CPU vs GPU batcher diverged: max|d|={np.max(np.abs(cpu - gpu)):.3e} (the two FE paths must select identically)"
     )
 
 

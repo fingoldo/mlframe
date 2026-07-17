@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Selection-identity regression sensors for the MRMR FE / validation-path perf levers (E1, E2, E6, E7, E8).
 
 These pin the bit-identical SELECTION (``support_`` + ``get_feature_names_out()``) that the perf changes
@@ -7,6 +6,7 @@ E8 numeric coercion) so a future "just rewrite it" cannot silently change the re
 
 The reference ``support_`` / names were captured on the PRE-change code; any drift fails these tests.
 """
+
 from __future__ import annotations
 
 from itertools import combinations
@@ -22,17 +22,29 @@ def _make(n: int, p: int, inf: int, seed: int):
     from sklearn.datasets import make_classification
 
     X, y = make_classification(
-        n_samples=n, n_features=p, n_informative=inf, n_redundant=0,
-        n_classes=4, n_clusters_per_class=1, random_state=seed,
+        n_samples=n,
+        n_features=p,
+        n_informative=inf,
+        n_redundant=0,
+        n_classes=4,
+        n_clusters_per_class=1,
+        random_state=seed,
     )
     return pd.DataFrame(X, columns=[f"f_{i}" for i in range(p)]), y
 
 
 def _fit(n, p, inf, seed, fe_steps):
     kw = dict(
-        quantization_nbins=8, interactions_max_order=1, full_npermutations=3,
-        baseline_npermutations=2, random_seed=seed, use_gpu=False, n_jobs=1,
-        verbose=0, fe_max_steps=fe_steps, cv=2,
+        quantization_nbins=8,
+        interactions_max_order=1,
+        full_npermutations=3,
+        baseline_npermutations=2,
+        random_seed=seed,
+        use_gpu=False,
+        n_jobs=1,
+        verbose=0,
+        fe_max_steps=fe_steps,
+        cv=2,
     )
     X, y = _make(n, p, inf, seed)
     m = MRMR(**kw)
@@ -47,7 +59,11 @@ _REF_FE = {
     "params": dict(n=4000, p=30, inf=8, seed=0, fe_steps=1),
     "support": [14, 19, 23, 26, 29],
     "names": [
-        "f_14", "f_23", "f_29", "f_26", "f_19",
+        "f_14",
+        "f_23",
+        "f_29",
+        "f_26",
+        "f_19",
         "add(add(f_7,neg(f_26)),div(log(f_14),log(f_19)))",
         "gate_mask__f_23__f_15__t-1.28123",
         "gate_mask__f_14__f_15__t-1.68194",
@@ -62,11 +78,20 @@ _REF_NOFE = {
     "params": dict(n=4000, p=30, inf=8, seed=5, fe_steps=0),
     "support": [1, 5, 9, 12, 13, 15, 16, 20],
     "names": [
-        "f_13", "f_1", "f_5", "f_12", "f_15", "f_16", "f_20", "f_9",
+        "f_13",
+        "f_1",
+        "f_5",
+        "f_12",
+        "f_15",
+        "f_16",
+        "f_20",
+        "f_9",
         "gate_mask__f_9__f_12__t-0.726506",
         "gate_mask__f_5__f_15__t-0.337728",
-        "f_13__qsin4.3", "f_13__qcos4.3",
-        "f_13__relu_gt1.42721", "f_13__relu_lt1.42721",
+        "f_13__qsin4.3",
+        "f_13__qcos4.3",
+        "f_13__relu_gt1.42721",
+        "f_13__relu_lt1.42721",
     ],
 }
 

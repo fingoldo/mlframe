@@ -18,6 +18,7 @@ Fix at ``mrmr.py:1206``:
 - ``input_features`` provided AND fit-time was ndarray (synthesized
   ``feature_N``) -> caller's names take precedence.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -30,6 +31,7 @@ def _fit_df(n: int = 100):
     X = pd.DataFrame(rng.standard_normal((n, 4)), columns=["a", "b", "c", "d"])
     y = pd.Series(rng.integers(0, 2, n), name="y")
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     return MRMR(verbose=0).fit(X, y), X, y
 
 
@@ -46,8 +48,8 @@ def test_get_feature_names_out_none_input():
     for n in out:
         assert (
             n in fit_names
-            or "(" in n            # composite recipe form, e.g. min(log(c),sin(d)) / mul(...)
-            or "__" in n           # operator-suffixed, e.g. il_gcd__a__b / c__relu_lt-0.5
+            or "(" in n  # composite recipe form, e.g. min(log(c),sin(d)) / mul(...)
+            or "__" in n  # operator-suffixed, e.g. il_gcd__a__b / c__relu_lt-0.5
             or "/" in n
             or "_x_" in n
             or n.startswith(("_dcd_", "_eng_", "argmax_", "binagg_", "gate_", "il_"))
@@ -81,6 +83,7 @@ def test_get_feature_names_out_ndarray_fit_honours_user_names():
     ``feature_N`` placeholders so Pipeline can carry custom names.
     """
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     rng = np.random.default_rng(1)
     n = 100
     X = rng.standard_normal((n, 4))
@@ -88,8 +91,7 @@ def test_get_feature_names_out_ndarray_fit_honours_user_names():
     sel = MRMR(verbose=0).fit(X, pd.Series(y, name="y"))
     # Default: synthesized placeholders.
     out_none = list(sel.get_feature_names_out())
-    assert all(n.startswith("feature_") for n in out_none
-                if n in {f"feature_{i}" for i in range(4)})
+    assert all(n.startswith("feature_") for n in out_none if n in {f"feature_{i}" for i in range(4)})
     # With caller-supplied names: honoured (since fit-time names were synthesized).
     out_user = list(sel.get_feature_names_out(["a", "b", "c", "d"]))
     # The base selected feature must come from the user-supplied list,
@@ -100,6 +102,7 @@ def test_get_feature_names_out_ndarray_fit_honours_user_names():
 def test_get_feature_names_out_ndarray_fit_wrong_length_raises():
     """Even on the ndarray-fit path, length mismatch is still an error."""
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     rng = np.random.default_rng(2)
     n = 100
     X = rng.standard_normal((n, 4))

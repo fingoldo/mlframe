@@ -4,6 +4,7 @@ skipped during active trainer refactor -- API surface is in flux.
 
 Per CLAUDE.md: each test asserts a SYNTHETIC measurable WIN.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -28,26 +29,25 @@ def test_biz_val_trainer_get_function_param_names_returns_names():
         pass
 
     names = get_function_param_names(foo)
-    assert "a" in names and "b" in names, (
-        f"get_function_param_names must include 'a' and 'b'; got {names}"
-    )
+    assert "a" in names and "b" in names, f"get_function_param_names must include 'a' and 'b'; got {names}"
 
 
-@pytest.mark.parametrize("func,expected_in", [
-    (lambda x, y: None, ["x", "y"]),
-    (lambda a, b, c, d=1: None, ["a", "b", "c", "d"]),
-    (lambda *args: None, []),
-])
+@pytest.mark.parametrize(
+    "func,expected_in",
+    [
+        (lambda x, y: None, ["x", "y"]),
+        (lambda a, b, c, d=1: None, ["a", "b", "c", "d"]),
+        (lambda *args: None, []),
+    ],
+)
 def test_biz_val_trainer_get_function_param_names_parametrized(func, expected_in):
     """Parametrize over lambda signatures -- must extract names correctly
     for positional, default-bearing, and *args-only functions."""
     from mlframe.training.trainer import get_function_param_names
+
     names = get_function_param_names(func)
     for e in expected_in:
-        assert e in names, (
-            f"expected '{e}' in names from "
-            f"{func.__code__.co_varnames[:5]}; got {names}"
-        )
+        assert e in names, f"expected '{e}' in names from {func.__code__.co_varnames[:5]}; got {names}"
 
 
 def test_biz_val_trainer_get_function_param_names_noargs():

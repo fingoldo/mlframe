@@ -7,6 +7,7 @@ irrelevant noise columns mixed in, a tree model struggles to implicitly re-deriv
 the raw columns alone; adding the explicit OOF-predicted-value feature (already a denoised reconstruction)
 should measurably help -- mirroring the Home Credit 3rd place's ext_source submodel technique.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -50,11 +51,13 @@ def test_biz_val_auxiliary_feature_prediction_beats_raw_features_alone_mse():
     mse_augmented = mean_squared_error(y_test, augmented.predict(X_test_aug))
 
     improvement = 1.0 - mse_augmented / mse_baseline
-    assert improvement > 0.1, f"expected >10% MSE reduction from the auxiliary feature-prediction columns, got {improvement:.4f} (baseline={mse_baseline:.4f}, augmented={mse_augmented:.4f})"
+    assert improvement > 0.1, (
+        f"expected >10% MSE reduction from the auxiliary feature-prediction columns, got {improvement:.4f} (baseline={mse_baseline:.4f}, augmented={mse_augmented:.4f})"
+    )
 
 
 def test_auxiliary_feature_prediction_output_columns():
-    X, y = _make_noisy_proxy_dataset(n=80, seed=4)
+    X, _y = _make_noisy_proxy_dataset(n=80, seed=4)
     kf = KFold(n_splits=4, shuffle=True, random_state=0)
     result = compute_auxiliary_feature_prediction_features(X, ["ext_source", "f0"], splitter=kf, seed=0)
     assert set(result.columns) == {"auxfeat_ext_source_pred", "auxfeat_ext_source_resid", "auxfeat_f0_pred", "auxfeat_f0_resid"}
@@ -81,9 +84,7 @@ def test_biz_val_auxiliary_feature_prediction_uncertainty_distinguishes_reliable
     is_unstable = np.concatenate([np.zeros(n_half, dtype=bool), np.ones(n_half, dtype=bool)])
 
     kf = KFold(n_splits=5, shuffle=True, random_state=0)
-    result = compute_auxiliary_feature_prediction_features(
-        X, ["ext_source"], splitter=kf, seed=0, n_uncertainty_repeats=8
-    ).to_pandas()
+    result = compute_auxiliary_feature_prediction_features(X, ["ext_source"], splitter=kf, seed=0, n_uncertainty_repeats=8).to_pandas()
 
     assert "auxfeat_ext_source_uncertainty" in result.columns
     uncertainty = result["auxfeat_ext_source_uncertainty"].to_numpy()
@@ -99,7 +100,7 @@ def test_biz_val_auxiliary_feature_prediction_uncertainty_distinguishes_reliable
 def test_auxiliary_feature_prediction_default_unchanged_when_uncertainty_unused():
     """n_uncertainty_repeats defaults to 1 -- output must be bit-identical to the pre-extension code path,
     with no ``_uncertainty`` column emitted."""
-    X, y = _make_noisy_proxy_dataset(n=80, seed=4)
+    X, _y = _make_noisy_proxy_dataset(n=80, seed=4)
     kf = KFold(n_splits=4, shuffle=True, random_state=0)
     default_result = compute_auxiliary_feature_prediction_features(X, ["ext_source"], splitter=kf, seed=0)
     explicit_result = compute_auxiliary_feature_prediction_features(X, ["ext_source"], splitter=kf, seed=0, n_uncertainty_repeats=1)
@@ -108,10 +109,10 @@ def test_auxiliary_feature_prediction_default_unchanged_when_uncertainty_unused(
 
 
 def test_auxiliary_feature_prediction_rejects_unknown_target_feature():
-    X, y = _make_noisy_proxy_dataset(n=50, seed=5)
+    X, _y = _make_noisy_proxy_dataset(n=50, seed=5)
     kf = KFold(n_splits=3, shuffle=True, random_state=0)
     try:
         compute_auxiliary_feature_prediction_features(X, ["not_a_real_column"], splitter=kf, seed=0)
-        assert False, "expected ValueError"
+        raise AssertionError("expected ValueError")
     except ValueError:
         pass

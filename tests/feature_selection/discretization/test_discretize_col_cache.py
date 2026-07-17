@@ -21,6 +21,7 @@ from mlframe.feature_selection.filters.discretization import (
 
 
 def _frame(seed, n=400, target_vals=None):
+    """Build a synthetic feature+target frame for the discretize-cache tests."""
     rng = np.random.default_rng(seed)
     cols = {f"f{i}": rng.normal(size=n) for i in range(5)}
     cols["target"] = rng.normal(size=n) if target_vals is None else target_vals
@@ -29,6 +30,7 @@ def _frame(seed, n=400, target_vals=None):
 
 @pytest.fixture(autouse=True)
 def _clear_cache():
+    """Autouse fixture: clear the process-wide numeric-code cache before every test."""
     clear_numeric_code_cache()
     yield
     clear_numeric_code_cache()
@@ -63,6 +65,7 @@ def test_shared_feature_columns_reused_across_targets():
 
     # Confirm the cache is actually consulted (feature-column entries exist after the first categorize).
     from mlframe.feature_selection.filters.discretization import _discretization_dataset as _dd
+
     assert len(_dd._NUMERIC_CODE_CACHE) >= 5, "feature columns were not cached after first categorize"
 
     data_b, cols_b, _ = categorize_dataset(df=df_b, method="quantile", n_bins=8, nbins_strategy=None)
@@ -79,8 +82,40 @@ def test_cache_not_consulted_on_supervised_strategy():
     clear_numeric_code_cache()
     df = _frame(2)
     from mlframe.feature_selection.filters.discretization import _discretization_dataset as _dd
+
     try:
         categorize_dataset(df=df, method="quantile", n_bins=10, nbins_strategy="mdlp", y_for_strategy=df["target"].to_numpy())
     except Exception:
         pytest.skip("mdlp strategy unavailable in this build")
     assert len(_dd._NUMERIC_CODE_CACHE) == 0, "supervised path must not use the unsupervised per-column cache"
+
+
+def test_regression_xxh3_cache_key_matches_blake2b_fallback():
+    """2026-07-17: the per-column cache key switched from ``hashlib.blake2b`` (cryptographic, ~2.6x
+    slower -- measured on a 99401x500 wellbore-shaped frame) to ``xxhash.xxh3_128_digest`` over a
+    ONE-TIME bulk-transposed buffer (was ``n_cols`` separate ``np.ascontiguousarray(arr[:, j])`` strided
+    copies -- fixed alongside). Both are content-only fingerprints (no cryptographic-strength requirement
+    for a process-local cache key), so this pins that they discriminate columns IDENTICALLY: same content
+    -> same key (dedup), different content -> different key -- with either hash backend available."""
+    from mlframe.feature_selection.filters.discretization import _discretization_dataset as _dd
+    from mlframe.feature_selection.filters.discretization import discretize_2d_array as _disc2d
+
+    rng = np.random.default_rng(11)
+    n = 300
+    arr = rng.standard_normal((n, 6))
+    arr[:, 4] = arr[:, 1]  # force an exact duplicate column
+
+    for use_xxh3 in (True, False):
+        saved = _dd._xxh3_128
+        if not use_xxh3:
+            _dd._xxh3_128 = None
+        try:
+            _dd._NUMERIC_CODE_CACHE.clear()
+            _dd._NUMERIC_CODE_CACHE_BYTES = 0
+            out = _dd._discretize_2d_array_col_cached(arr, n_bins=5, method="quantile", min_ncats=2, dtype=np.int16, discretize_2d_array=_disc2d)
+            ref = _disc2d(arr=arr, n_bins=5, method="quantile", min_ncats=2, min_values=None, max_values=None, dtype=np.int16)
+            assert np.array_equal(out, ref), f"use_xxh3={use_xxh3}: codes diverged from the reference discretizer"
+            assert np.array_equal(out[:, 1], out[:, 4]), f"use_xxh3={use_xxh3}: duplicate columns got different codes"
+            assert len(_dd._NUMERIC_CODE_CACHE) == 5, f"use_xxh3={use_xxh3}: duplicate column did not collapse to one cache entry"
+        finally:
+            _dd._xxh3_128 = saved

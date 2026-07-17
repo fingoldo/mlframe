@@ -26,11 +26,11 @@ Verified clean (do not refactor):
     display/hashing, caller doesn't assume exact N.
   - target_temporal_audit.py:733 -- constant `[:-1]`, author-controlled.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
 
 
 MLFRAME_ROOT = Path(__file__).resolve().parent.parent.parent / "src" / "mlframe"
@@ -47,7 +47,7 @@ def test_votenrank_agreement_rate_clamps_k_to_subset_size() -> None:
     assert "_k_eff = min(_k_eff, len(subset))" in src
     assert "_denom = max(1, _k_eff)" in src
     # The pre-fix `len(...) / k` divisor must be gone.
-    assert "intersection(set(res_d[\"AM\"]))) / k" not in src
+    assert 'intersection(set(res_d["AM"]))) / k' not in src
 
 
 def test_negative_index_slice_wraps_on_short_array_documents_invariant() -> None:
@@ -56,9 +56,6 @@ def test_negative_index_slice_wraps_on_short_array_documents_invariant() -> None
     future code reviewer."""
     arr = [1, 2, 3]
     assert arr[-100:] == [1, 2, 3], (
-        "Python's negative-index slice returns the WHOLE array when |N| > len(arr); "
-        "callers that assume `arr[-N:]` returns exactly N items must guard."
+        "Python's negative-index slice returns the WHOLE array when |N| > len(arr); callers that assume `arr[-N:]` returns exactly N items must guard."
     )
-    assert arr[:-100] == [], (
-        "Conversely, `arr[:-N]` returns empty when |N| >= len(arr)."
-    )
+    assert arr[:-100] == [], "Conversely, `arr[:-N]` returns empty when |N| >= len(arr)."

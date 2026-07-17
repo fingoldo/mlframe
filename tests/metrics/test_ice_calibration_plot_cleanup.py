@@ -8,6 +8,7 @@ with ``calibration_plot_period`` set, this leaked one open Figure per period. Po
 always closed after logging, and ICE gained an optional ``plot_file`` param forwarded to
 ``fast_calibration_report`` so callers can also persist a disk copy each period.
 """
+
 from __future__ import annotations
 
 import matplotlib

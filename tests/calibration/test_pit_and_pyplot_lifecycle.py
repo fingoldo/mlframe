@@ -8,9 +8,11 @@ INV-53: the lifecycle helpers used plt.ion(), which is process-global and never 
 leaking interactive mode into the user's session. _show_plots_unless_agg now uses
 plt.show(block=False) and never flips plt.isinteractive().
 """
+
 from __future__ import annotations
 
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
@@ -27,6 +29,7 @@ def test_plot_pit_diagram_saves_and_closes(tmp_path):
     n_before = len(plt.get_fignums())
     plot_pit_diagram(predicted_probs=probs, true_labels=labels, plot_file=out)
     import os
+
     assert os.path.exists(out + ".png"), "PIT diagram should save to plot_file (.png appended)"
     assert len(plt.get_fignums()) == n_before, "PIT figure must be closed (INV-50 leak fix)"
 
@@ -34,6 +37,7 @@ def test_plot_pit_diagram_saves_and_closes(tmp_path):
 def test_build_pit_diagram_spec_is_a_histogram_with_ks_title():
     """INV-42: the orphan PIT now has a spec builder (single source, like the binary PIT panel)."""
     from mlframe.reporting.spec import FigureSpec, HistogramPanelSpec
+
     rng = np.random.default_rng(0)
     pit = rng.uniform(0.0, 1.0, size=400)
     spec = build_pit_diagram_spec(pit, bins=20)
@@ -75,13 +79,16 @@ def test_plot_pit_diagram_routes_through_spec_pipeline(tmp_path, monkeypatch):
 def test_plot_pit_diagram_multi_backend_dsl(tmp_path):
     """plot_outputs DSL renders both backends through the single spec pipeline."""
     import os
+
     rng = np.random.default_rng(2)
     probs = rng.uniform(0.0, 1.0, size=200)
     labels = (rng.uniform(size=200) < probs).astype(int)
     base = str(tmp_path / "pit")
     plot_pit_diagram(
-        predicted_probs=probs, true_labels=labels,
-        plot_file=base, plot_outputs="matplotlib[png] + plotly[html]",
+        predicted_probs=probs,
+        true_labels=labels,
+        plot_file=base,
+        plot_outputs="matplotlib[png] + plotly[html]",
     )
     assert os.path.exists(base + ".matplotlib.png")
     assert os.path.exists(base + ".plotly.html")
@@ -95,8 +102,6 @@ def test_show_plots_unless_agg_does_not_flip_interactive_mode():
         shown = _show_plots_unless_agg()
         # Agg backend -> not shown, and crucially interactive state unchanged.
         assert shown is False
-        assert plt.isinteractive() == was_interactive, (
-            "_show_plots_unless_agg must not leak plt.ion() into the process (INV-53)"
-        )
+        assert plt.isinteractive() == was_interactive, "_show_plots_unless_agg must not leak plt.ion() into the process (INV-53)"
     finally:
         plt.close(fig)

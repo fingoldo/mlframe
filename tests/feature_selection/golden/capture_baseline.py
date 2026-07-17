@@ -11,14 +11,12 @@ Run with::
 The fixed scenario list below mirrors the bench scenarios but uses smaller n
 (faster capture, still covers the algorithmic surface).
 """
+
 from __future__ import annotations
 
 import argparse
-import orjson
 import logging
 import sys
-from dataclasses import dataclass
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -39,6 +37,7 @@ GOLDEN_SCENARIOS = [
 
 
 def _build_data(spec: dict, seed: int) -> tuple[pd.DataFrame, np.ndarray]:
+    """Generate a classification or regression fixture from a scenario spec (n, p, informative, task)."""
     if spec["task"] == "clf":
         X, y = make_classification(
             n_samples=spec["n"],
@@ -62,6 +61,7 @@ def _build_data(spec: dict, seed: int) -> tuple[pd.DataFrame, np.ndarray]:
 
 
 def capture_one(spec: dict, tier: str, seed: int = 42) -> dict:
+    """Fit MRMR on one scenario and capture its golden snapshot at the given refactor tier."""
     from mlframe.feature_selection.filters import MRMR  # type: ignore
 
     X, y = _build_data(spec, seed)
@@ -76,7 +76,7 @@ def capture_one(spec: dict, tier: str, seed: int = 42) -> dict:
         fe_max_steps=spec.get("fe_max_steps", 0),
         cv=2,
     )
-    logger.info(f"capturing {spec['name']} (tier={tier})...")
+    logger.info("capturing %s (tier=%s)...", spec["name"], tier)
     mrmr.fit(X, y)
     if tier == "pre_refactor":
         return _capture.capture_pre_refactor(mrmr, spec["name"], seed)
@@ -84,6 +84,7 @@ def capture_one(spec: dict, tier: str, seed: int = 42) -> dict:
 
 
 def main() -> int:
+    """CLI entry point: capture golden snapshots for the requested tier/scenarios and write them to disk."""
     p = argparse.ArgumentParser()
     p.add_argument("--tier", choices=("pre_refactor", "intermediate"), required=True)
     p.add_argument("--scenarios", default="all", help="comma-separated names or 'all'")
@@ -102,7 +103,7 @@ def main() -> int:
     for spec in specs:
         snap = capture_one(spec, args.tier, seed=args.seed)
         path = _capture.save_snapshot(snap, target_dir)
-        logger.info(f"wrote {path}")
+        logger.info("wrote %s", path)
     return 0
 
 

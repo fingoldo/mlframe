@@ -3,7 +3,7 @@ with the entity's ENTIRE train history regardless of the test row's timestamp, s
 train time range saw FUTURE train values -- a look-ahead leak / train-serve skew (apply_temporal_rolling already
 did the strict ``t' < t`` merge correctly). The replay now merges train history by time via a per-entity pointer.
 """
-import numpy as np
+
 import pandas as pd
 
 from mlframe.feature_selection.filters._temporal_agg_fe import (
@@ -55,11 +55,13 @@ def test_replay_unchanged_when_test_strictly_after_train():
 
 
 def test_expanding_datetime_time_axis_no_lookahead():
-    Xtr = pd.DataFrame({
-        "entity": ["u"] * 3,
-        "tcol": pd.to_datetime(["2024-01-01", "2024-01-03", "2024-01-05"]),
-        "x0": [1.0, 2.0, 3.0],
-    })
+    Xtr = pd.DataFrame(
+        {
+            "entity": ["u"] * 3,
+            "tcol": pd.to_datetime(["2024-01-01", "2024-01-03", "2024-01-05"]),
+            "x0": [1.0, 2.0, 3.0],
+        }
+    )
     _enc, rec = generate_expanding_agg_features(Xtr, ["entity"], ["x0"], "tcol", stats=("count",))
     Xte = pd.DataFrame({"entity": ["u"], "tcol": pd.to_datetime(["2024-01-02"]), "x0": [9.0]})
     extra = next(iter(rec.values()))

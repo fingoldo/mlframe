@@ -10,6 +10,7 @@ This module pins: (a) the new mask-threaded + in-place path produces byte-identi
 pre-fix ``np.where``-based logic on a fixed-seed NaN-containing dataset, and (b) with a precomputed
 mask supplied, ``_handle_missing`` does not call ``np.isnan`` on the full-size array a second time.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -94,14 +95,11 @@ def test_no_full_array_isnan_rescan_when_mask_supplied(monkeypatch):
     mask = np.isnan(arr)
 
     legacy_calls = _count_full_array_isnan_calls(monkeypatch, lambda: _legacy_handle_missing(arr.copy(), "separate_bin"), arr)
-    new_calls = _count_full_array_isnan_calls(
-        monkeypatch, lambda: _handle_missing(arr.copy(), strategy="separate_bin", nan_mask=mask), arr
-    )
+    new_calls = _count_full_array_isnan_calls(monkeypatch, lambda: _handle_missing(arr.copy(), strategy="separate_bin", nan_mask=mask), arr)
 
     assert legacy_calls == 3, f"sanity: the legacy path should make 3 full-array isnan calls (early-exit + nanmedian + final np.where); got {legacy_calls}"
     assert new_calls == 1, (
-        f"expected exactly 1 full-array isnan call (nanmedian's own unavoidable internal scan) when a "
-        f"precomputed mask is supplied; got {new_calls}"
+        f"expected exactly 1 full-array isnan call (nanmedian's own unavoidable internal scan) when a precomputed mask is supplied; got {new_calls}"
     )
     assert new_calls < legacy_calls, f"mask reuse must reduce full-array isnan calls: new={new_calls} vs legacy={legacy_calls}"
 
@@ -124,9 +122,7 @@ def test_isnan_still_called_internally_when_no_mask_supplied(monkeypatch):
     finally:
         monkeypatch.setattr(np, "isnan", orig_isnan)
 
-    assert any(s == arr.shape for s in full_shape_calls), (
-        "expected at least one full-array isnan scan when no mask is supplied"
-    )
+    assert any(s == arr.shape for s in full_shape_calls), "expected at least one full-array isnan scan when no mask is supplied"
 
 
 def test_in_place_fill_mutates_writable_input():

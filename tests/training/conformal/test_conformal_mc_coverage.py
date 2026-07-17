@@ -10,6 +10,7 @@ An off-by-one in the rank (dropping the ``+1`` correction) drops coverage from
 ~0.90 to ~0.87 at ``n_cal=30`` -- below nominal -- so this test fails on that
 regression. Validated against the buggy variant during authoring.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -66,9 +67,7 @@ def test_weighted_conformal_restores_coverage_under_shift() -> None:
         covs_u.append(float(np.mean(np.abs(rt) <= qu)))
     mean_w, mean_u = float(np.mean(covs_w)), float(np.mean(covs_u))
     assert mean_w >= 0.89, f"weighted under-covered under shift: {mean_w:.4f}"
-    assert mean_u < mean_w - 0.03, (
-        f"unweighted should under-cover under shift (got {mean_u:.4f} vs weighted {mean_w:.4f})"
-    )
+    assert mean_u < mean_w - 0.03, f"unweighted should under-cover under shift (got {mean_u:.4f} vs weighted {mean_w:.4f})"
 
 
 def test_signed_cqr_quantile_mc_coverage() -> None:

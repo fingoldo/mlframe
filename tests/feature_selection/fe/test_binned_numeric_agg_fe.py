@@ -6,6 +6,7 @@ Contract:
 * leak-safe transform replay via stored quantile edges (deterministic, finite, unseen -> global fallback);
 * business value: recovers a cell-driven SPREAD signal (target = sigma(cell)) the cell mean cannot.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -48,10 +49,13 @@ def test_replay_is_leak_safe_and_deterministic():
     n = 6000
     df = pd.DataFrame({"g": rng.uniform(0, 1, n), "aux": rng.normal(0, 1, n)})
     y = rng.normal(0, 1, n)
-    _, recipes = fit_binned_numeric_agg(df, y, group_num_cols=["g"], agg_num_cols=["aux"],
-                                        stats=("mean", "std"), nbins_base=8)
-    df_te = pd.DataFrame({"g": np.r_[rng.uniform(0, 1, 300), np.full(10, 99.0)],  # 99 -> out-of-range
-                          "aux": rng.normal(0, 1, 310)})
+    _, recipes = fit_binned_numeric_agg(df, y, group_num_cols=["g"], agg_num_cols=["aux"], stats=("mean", "std"), nbins_base=8)
+    df_te = pd.DataFrame(
+        {
+            "g": np.r_[rng.uniform(0, 1, 300), np.full(10, 99.0)],  # 99 -> out-of-range
+            "aux": rng.normal(0, 1, 310),
+        }
+    )
     for r in recipes.values():
         o1 = apply_binned_numeric_agg(df_te, r)
         o2 = apply_binned_numeric_agg(df_te, r)
@@ -66,10 +70,10 @@ def test_std_column_recovers_cell_spread():
     sigma = 0.5 + 2.0 * np.abs(g - 0.5)
     aux = rng.normal(0, sigma, n)
     df = pd.DataFrame({"g": g, "aux": aux})
-    feat_df, _ = fit_binned_numeric_agg(df, sigma, group_num_cols=["g"], agg_num_cols=["aux"],
-                                        stats=("mean", "std"), nbins_base=10)
+    feat_df, _ = fit_binned_numeric_agg(df, sigma, group_num_cols=["g"], agg_num_cols=["aux"], stats=("mean", "std"), nbins_base=10)
     std_name = engineered_name_binned_agg("aux", "g", "std")
     from scipy.stats import pearsonr
+
     assert pearsonr(feat_df[std_name].to_numpy(), sigma)[0] > 0.9
     # The mean column carries ~no spread signal.
     mean_name = engineered_name_binned_agg("aux", "g", "mean")
@@ -92,12 +96,11 @@ def test_biz_value_recovers_spread_driven_target():
         tr, te = slice(0, cut), slice(cut, n)
 
         def _r2(stats):
-            feat_df, recipes = fit_binned_numeric_agg(df.iloc[tr], sigma[tr], group_num_cols=["g"],
-                                                      agg_num_cols=["aux"], stats=stats, nbins_base=10)
+            feat_df, recipes = fit_binned_numeric_agg(df.iloc[tr], sigma[tr], group_num_cols=["g"], agg_num_cols=["aux"], stats=stats, nbins_base=10)  # noqa: B023 -- closure invoked twice below, same iteration, never stored
             Xtr = feat_df.to_numpy()
-            Xte = np.column_stack([apply_binned_numeric_agg(df.iloc[te], recipes[c]) for c in feat_df.columns])
-            m = GradientBoostingRegressor(n_estimators=120, max_depth=3, random_state=0).fit(Xtr, sigma[tr])
-            return r2_score(sigma[te], m.predict(Xte))
+            Xte = np.column_stack([apply_binned_numeric_agg(df.iloc[te], recipes[c]) for c in feat_df.columns])  # noqa: B023 -- closure invoked twice below, same iteration, never stored
+            m = GradientBoostingRegressor(n_estimators=120, max_depth=3, random_state=0).fit(Xtr, sigma[tr])  # noqa: B023 -- closure invoked twice below, same iteration, never stored
+            return r2_score(sigma[te], m.predict(Xte))  # noqa: B023 -- closure invoked twice below, same iteration, never stored
 
         deltas.append(_r2(("mean", "std", "skew", "kurt")) - _r2(("mean",)))
     # std/skew/kurt of the feature per cell recover the spread the mean misses -> large lift.
@@ -116,12 +119,12 @@ def test_mrmr_integration_creates_binagg_columns_and_transform_replays():
     aux = rng.normal(0, sigma, n)
     y = (sigma + rng.normal(0, 0.1, n) > sigma.mean()).astype(int)
     df = pd.DataFrame({"g": g, "aux": aux, "noise": rng.normal(0, 1, n)})
-    tr, te = df.iloc[: n // 2].reset_index(drop=True), df.iloc[n // 2:].reset_index(drop=True)
+    tr, te = df.iloc[: n // 2].reset_index(drop=True), df.iloc[n // 2 :].reset_index(drop=True)
     ytr = y[: n // 2]
 
     m_on = MRMR(fe_binned_numeric_agg_enable=True, fe_binned_numeric_agg_max_pairs=8, verbose=0)
     m_on.fit(tr, ytr)
-    roster = list(m_on.get_feature_names_out()) if hasattr(m_on, "get_feature_names_out") else []
+    list(m_on.get_feature_names_out()) if hasattr(m_on, "get_feature_names_out") else []
     # Roster reflects only SELECTED features; the engineered-recipe registry proves the columns were created.
     recs = getattr(m_on, "_engineered_recipes_", []) or []
     if isinstance(recs, dict):
@@ -153,10 +156,15 @@ def test_redundancy_gate_drops_binagg_redundant_with_engineered_source_on_linear
     n = 1500
     x1 = rng.standard_normal(n)
     x2 = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "x1": x1, "x2": x2,
-        "noise_a": rng.standard_normal(n), "noise_b": rng.standard_normal(n), "noise_c": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "x1": x1,
+            "x2": x2,
+            "noise_a": rng.standard_normal(n),
+            "noise_b": rng.standard_normal(n),
+            "noise_c": rng.standard_normal(n),
+        }
+    )
     y = pd.Series(((x1 + 0.7 * x2) > 0).astype(int), name="y")
 
     on_appended = list(getattr(make_fast_mrmr().fit(X, y), "hybrid_orth_features_", []) or [])
@@ -164,9 +172,5 @@ def test_redundancy_gate_drops_binagg_redundant_with_engineered_source_on_linear
         f"redundancy gate (default ON) should drop binagg columns redundant with their source; got {on_appended}"
     )
 
-    off_appended = list(getattr(
-        make_fast_mrmr(fe_binned_numeric_agg_redundancy_gate=False).fit(X, y), "hybrid_orth_features_", []
-    ) or [])
-    assert any(str(c).startswith("binagg_") for c in off_appended), (
-        "with the redundancy gate OFF the Tier-1 MI floor admits the redundant binagg column(s)"
-    )
+    off_appended = list(getattr(make_fast_mrmr(fe_binned_numeric_agg_redundancy_gate=False).fit(X, y), "hybrid_orth_features_", []) or [])
+    assert any(str(c).startswith("binagg_") for c in off_appended), "with the redundancy gate OFF the Tier-1 MI floor admits the redundant binagg column(s)"

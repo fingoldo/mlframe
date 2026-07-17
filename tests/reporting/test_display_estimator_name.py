@@ -2,6 +2,7 @@
 chart titles. The composite y-scale wrap-pass logs/chart title, the ``inner=`` log, and the train_eval start log all
 route the estimator class name through this helper (prod TVT 2026-07: 'LGBMRegressorWithDatasetReuse' leaked back into
 those five sites)."""
+
 from __future__ import annotations
 
 from mlframe.training.reporting._reporting import display_estimator_name, _SHIM_CLASS_SUFFIXES

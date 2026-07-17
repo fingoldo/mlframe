@@ -11,6 +11,7 @@ These tests verify: (a) the parameter is fully backward-compatible (``seed_cache
 behavior), (b) selection is IDENTICAL whether or not caches are threaded (pure speedup, no behavior
 change), and (c) seeding measurably avoids recomputation (fewer underlying MI calls).
 """
+
 from __future__ import annotations
 
 import numpy as np

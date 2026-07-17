@@ -3,6 +3,7 @@
 The bug (fixed): the cupy kernel passed ``1.0 / softmax_temp`` with no zero guard, so ``softmax_temp == 0`` produced ``inf`` for the inverse temperature and NaN/inf
 outputs. The njit twins guard ``softmax_temp > 1e-12``; the fix mirrors that guard at the cupy call site.
 """
+
 from __future__ import annotations
 
 import numpy as np

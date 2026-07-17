@@ -7,12 +7,12 @@ two paths agree on which columns to drop.
 
 If the test fails on a shape, that's a real asymmetry to investigate.
 """
+
 from __future__ import annotations
 
 import numpy as np
 import pandas as pd
 import polars as pl
-import pytest
 
 from mlframe.training._nan_processing import remove_constant_columns
 
@@ -22,6 +22,7 @@ def _columns(df) -> set:
 
 
 # ---- Shapes that should agree across backends -----------------------------
+
 
 def test_constant_numeric_dropped_both_backends():
     pd_df = pd.DataFrame({"x": [1, 2, 3], "const": [7.0, 7.0, 7.0]})
@@ -40,8 +41,7 @@ def test_varying_numeric_kept_both_backends():
 def test_all_nan_numeric_dropped_both_backends():
     """All-NaN numeric column carries no info, must be dropped on both backends."""
     pd_df = pd.DataFrame({"x": [1, 2, 3], "all_nan": [np.nan, np.nan, np.nan]})
-    pl_df = pl.DataFrame({"x": [1, 2, 3], "all_nan": [None, None, None]},
-                          schema={"x": pl.Int64, "all_nan": pl.Float64})
+    pl_df = pl.DataFrame({"x": [1, 2, 3], "all_nan": [None, None, None]}, schema={"x": pl.Int64, "all_nan": pl.Float64})
     assert "all_nan" not in _columns(remove_constant_columns(pd_df, verbose=0))
     assert "all_nan" not in _columns(remove_constant_columns(pl_df, verbose=0))
 
@@ -64,6 +64,7 @@ def test_single_real_value_no_nulls_dropped_both_backends():
 
 # ---- Edge case: one-real-value + many-nulls. Document actual behaviour -----
 
+
 def test_single_real_value_many_nulls_string_parity():
     """A column with one real value 'A' and 4 NaN/null rows.
 
@@ -77,12 +78,11 @@ def test_single_real_value_many_nulls_string_parity():
     pl_df = pl.DataFrame({"x": [1, 2, 3, 4, 5], "s": ["A", None, None, None, None]})
     pd_out_cols = _columns(remove_constant_columns(pd_df, verbose=0))
     pl_out_cols = _columns(remove_constant_columns(pl_df, verbose=0))
-    assert pd_out_cols == pl_out_cols, (
-        f"single-real-many-null divergence:\n  pandas: {pd_out_cols}\n  polars: {pl_out_cols}"
-    )
+    assert pd_out_cols == pl_out_cols, f"single-real-many-null divergence:\n  pandas: {pd_out_cols}\n  polars: {pl_out_cols}"
 
 
 # ---- Fused nanmin/nanmax numeric constant-detection identity (2026-06-23 perf) --
+
 
 def _old_pandas_numeric_constants(df: pd.DataFrame) -> set:
     """Pre-optimization reference: separate Series.min/max + isna().all() passes."""
@@ -96,36 +96,39 @@ def test_fused_numeric_constant_detection_matches_old_reference():
     """The fused nanmin/nanmax path must drop EXACTLY the same numeric columns as
     the prior (min==max) + (isna().all()) union, across const / all-NaN /
     mixed-NaN / one-value-rest-NaN / inf / int / varying columns."""
-    df = pd.DataFrame({
-        "const_float": [2.0, 2.0, 2.0, 2.0, 2.0],
-        "const_int": [7, 7, 7, 7, 7],
-        "all_nan": [np.nan, np.nan, np.nan, np.nan, np.nan],
-        "one_val_rest_nan": [1.0, np.nan, np.nan, np.nan, 1.0],
-        "varying": [1.0, 2.0, 3.0, np.nan, 5.0],
-        "two_int": [1, 1, 1, 2, 1],
-        "inf_const": [np.inf, np.inf, np.inf, np.inf, np.inf],
-        "inf_mix": [np.inf, 1.0, 1.0, 1.0, 1.0],
-    })
+    df = pd.DataFrame(
+        {
+            "const_float": [2.0, 2.0, 2.0, 2.0, 2.0],
+            "const_int": [7, 7, 7, 7, 7],
+            "all_nan": [np.nan, np.nan, np.nan, np.nan, np.nan],
+            "one_val_rest_nan": [1.0, np.nan, np.nan, np.nan, 1.0],
+            "varying": [1.0, 2.0, 3.0, np.nan, 5.0],
+            "two_int": [1, 1, 1, 2, 1],
+            "inf_const": [np.inf, np.inf, np.inf, np.inf, np.inf],
+            "inf_mix": [np.inf, 1.0, 1.0, 1.0, 1.0],
+        }
+    )
     expected_dropped = _old_pandas_numeric_constants(df)
     kept = _columns(remove_constant_columns(df, verbose=0))
     actually_dropped = set(df.columns) - kept
     assert actually_dropped == expected_dropped, (
-        f"fused path diverged from reference:\n  fused dropped: {actually_dropped}\n"
-        f"  reference dropped: {expected_dropped}"
+        f"fused path diverged from reference:\n  fused dropped: {actually_dropped}\n  reference dropped: {expected_dropped}"
     )
 
 
 def test_single_real_value_many_nulls_categorical_parity():
-    pd_df = pd.DataFrame({
-        "x": [1, 2, 3, 4, 5],
-        "cat": pd.Categorical(["A", None, None, None, None]),
-    })
-    pl_df = pl.DataFrame({
-        "x": [1, 2, 3, 4, 5],
-        "cat": pl.Series(["A", None, None, None, None], dtype=pl.Categorical),
-    })
+    pd_df = pd.DataFrame(
+        {
+            "x": [1, 2, 3, 4, 5],
+            "cat": pd.Categorical(["A", None, None, None, None]),
+        }
+    )
+    pl_df = pl.DataFrame(
+        {
+            "x": [1, 2, 3, 4, 5],
+            "cat": pl.Series(["A", None, None, None, None], dtype=pl.Categorical),
+        }
+    )
     pd_out_cols = _columns(remove_constant_columns(pd_df, verbose=0))
     pl_out_cols = _columns(remove_constant_columns(pl_df, verbose=0))
-    assert pd_out_cols == pl_out_cols, (
-        f"Categorical single-real-many-null divergence:\n  pandas: {pd_out_cols}\n  polars: {pl_out_cols}"
-    )
+    assert pd_out_cols == pl_out_cols, f"Categorical single-real-many-null divergence:\n  pandas: {pd_out_cols}\n  polars: {pl_out_cols}"

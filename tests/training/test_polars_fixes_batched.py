@@ -5,13 +5,13 @@ The old code called ``train_df_polars.select(pl.col(col).drop_nulls().unique())`
 over ``cat_features``, paying 2*N sync collects for N cat columns. The fix batches these into
 one collect per frame via ``.lazy().select([...]).collect()`` with ``implode()``.
 """
+
 from __future__ import annotations
 
 from unittest.mock import patch
 
 import numpy as np
 import polars as pl
-import pytest
 
 from mlframe.training.core._phase_polars_fixes import apply_polars_categorical_fixes
 
@@ -69,9 +69,7 @@ def test_S44_apply_polars_categorical_fixes_batches_unique_collects():
     out_train = res.train_df_polars
     for c in cat_features:
         dt = out_train.schema[c]
-        assert hasattr(pl, "Enum") and isinstance(dt, pl.Enum), (
-            f"{c} should be cast to pl.Enum after alignment; got {dt}."
-        )
+        assert hasattr(pl, "Enum") and isinstance(dt, pl.Enum), f"{c} should be cast to pl.Enum after alignment; got {dt}."
 
     # Per-col select-on-DataFrame must be 0 for both train and val (batched path uses .lazy()).
     # The two original per-col selects per cat col would have produced >= 2*N selects each. We
@@ -116,14 +114,8 @@ def test_S44_output_semantically_equivalent_to_per_col_path():
 
     # Per col: the Enum domain MUST be the union of train.unique() + val.unique().
     for c in cat_features:
-        expected_union = set(train[c].drop_nulls().unique().to_list()) | set(
-            val[c].drop_nulls().unique().to_list()
-        )
+        expected_union = set(train[c].drop_nulls().unique().to_list()) | set(val[c].drop_nulls().unique().to_list())
         got_train_domain = set(out_train.schema[c].categories)
         got_val_domain = set(out_val.schema[c].categories)
-        assert got_train_domain == expected_union, (
-            f"train col {c}: expected Enum domain {expected_union}, got {got_train_domain}"
-        )
-        assert got_val_domain == expected_union, (
-            f"val col {c}: expected Enum domain {expected_union}, got {got_val_domain}"
-        )
+        assert got_train_domain == expected_union, f"train col {c}: expected Enum domain {expected_union}, got {got_train_domain}"
+        assert got_val_domain == expected_union, f"val col {c}: expected Enum domain {expected_union}, got {got_val_domain}"

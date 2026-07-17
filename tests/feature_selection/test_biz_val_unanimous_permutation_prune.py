@@ -8,6 +8,7 @@ such a feature. The unanimous criterion only prunes when permuting IMPROVED the 
 feature that helps in even one fold survives -- so it correctly retains this feature where the naive
 mean-threshold baseline would not.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -61,8 +62,12 @@ def test_biz_val_unanimous_prune_keeps_regime_reversing_feature_naive_mean_would
     naive_survivors = _naive_mean_importance_survivors(X, y, lambda: Ridge(alpha=1.0), cv_splits, n_repeats=10, random_state=0)
     unanimous_survivors = unanimous_permutation_prune(X, y, lambda: Ridge(alpha=1.0), cv_splits, n_repeats=10, max_iterations=1, random_state=0)
 
-    assert "regime_feature" not in naive_survivors, f"expected the naive mean-importance baseline to wrongly drop the regime-reversing feature (negative average importance), got {naive_survivors}"
-    assert "regime_feature" in unanimous_survivors, f"expected unanimous pruning to correctly RETAIN the regime-reversing feature (genuinely useful in at least one fold), got {unanimous_survivors}"
+    assert "regime_feature" not in naive_survivors, (
+        f"expected the naive mean-importance baseline to wrongly drop the regime-reversing feature (negative average importance), got {naive_survivors}"
+    )
+    assert "regime_feature" in unanimous_survivors, (
+        f"expected unanimous pruning to correctly RETAIN the regime-reversing feature (genuinely useful in at least one fold), got {unanimous_survivors}"
+    )
     assert "stable_feature" in unanimous_survivors and "stable_feature" in naive_survivors
 
 
@@ -100,7 +105,9 @@ def test_biz_val_unanimous_prune_kof_n_threshold_prunes_feature_one_spurious_fol
     )
 
     assert "noise_feature" in strict_survivors, f"expected strict unanimity to be blocked by the one spurious fold, got {strict_survivors}"
-    assert "noise_feature" not in kofn_survivors, f"expected the k-of-n threshold (0.6) to prune the noise feature despite the spurious fold, got {kofn_survivors}"
+    assert "noise_feature" not in kofn_survivors, (
+        f"expected the k-of-n threshold (0.6) to prune the noise feature despite the spurious fold, got {kofn_survivors}"
+    )
     assert "real_feature" in kofn_survivors and "real_feature" in strict_survivors
     assert len(kofn_survivors) < len(strict_survivors)
 

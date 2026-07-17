@@ -10,6 +10,7 @@ prior for every row -- a silently wrong target encoding.
 These tests FAIL on the pre-fix bare-``str`` coercion (every transform row hits
 the global prior) and PASS once integral int/float values collapse to one key.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -136,17 +137,13 @@ def test_datetime_token_agrees_across_backends() -> None:
     pd_out = _categorical_to_string_array(pd.Series(pd.to_datetime(stamps)))
     pl_out = _categorical_to_string_array(pl.Series(pd.to_datetime(stamps)).cast(pl.Datetime))
     np_out = _categorical_to_string_array(np.array(stamps, dtype="datetime64[ns]"))
-    list_out = _categorical_to_string_array(
-        [dt.datetime(2020, 1, 1, 13, 30, 0), dt.datetime(2020, 1, 2, 0, 0, 0)]
-    )
+    list_out = _categorical_to_string_array([dt.datetime(2020, 1, 1, 13, 30, 0), dt.datetime(2020, 1, 2, 0, 0, 0)])
     assert list(pd_out) == list(pl_out) == list(np_out) == list(list_out)
-    assert list(pd_out)[0].startswith("dt:")
+    assert next(iter(pd_out)).startswith("dt:")
 
     # Date-only: pandas object-date, polars Date, list-of-date all agree.
     pd_date = _categorical_to_string_array(pd.Series([dt.date(2020, 1, 1), dt.date(2020, 1, 2)]))
-    pl_date = _categorical_to_string_array(
-        pl.Series([dt.date(2020, 1, 1), dt.date(2020, 1, 2)]).cast(pl.Date)
-    )
+    pl_date = _categorical_to_string_array(pl.Series([dt.date(2020, 1, 1), dt.date(2020, 1, 2)]).cast(pl.Date))
     assert list(pd_date) == list(pl_date)
 
 
@@ -154,9 +151,7 @@ def test_datetime_null_maps_to_sentinel_across_backends() -> None:
     """NaT / null datetime cells map to the unified null sentinel on every backend."""
     pl = pytest.importorskip("polars")
     pd_out = _categorical_to_string_array(pd.Series(pd.to_datetime(["2020-01-01", None])))
-    pl_out = _categorical_to_string_array(
-        pl.Series(["2020-01-01", None]).str.to_datetime(strict=False)
-    )
+    pl_out = _categorical_to_string_array(pl.Series(["2020-01-01", None]).str.to_datetime(strict=False))
     assert pd_out[1] == _NULL_SENTINEL
     assert pl_out[1] == _NULL_SENTINEL
     assert pd_out[0] == pl_out[0]

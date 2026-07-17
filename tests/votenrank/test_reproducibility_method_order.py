@@ -2,14 +2,14 @@
 ORDER depend on PYTHONHASHSEED. The fix iterates the declared list order (and filters order-preservingly). This test runs the pipeline under several PYTHONHASHSEED values in
 subprocesses and asserts the produced order is identical.
 """
+
 from __future__ import annotations
 
 import os
-import subprocess
+import subprocess  # nosec B404 -- test-only local trusted subprocess invocation (fixed argv, no shell, no untrusted input)
 import sys
 from pathlib import Path
 
-import pytest
 
 _SRC = str(Path(__file__).resolve().parents[2] / "src")
 
@@ -34,9 +34,12 @@ def _run(hashseed: str) -> str:
     env = dict(os.environ)
     env["PYTHONHASHSEED"] = hashseed
     env["CUDA_VISIBLE_DEVICES"] = ""
-    out = subprocess.run(
+    out = subprocess.run(  # nosec B603 -- fixed local argv (sys.executable/git + literal args), no shell, no untrusted input
         [sys.executable, "-c", _SNIPPET.format(src=_SRC)],
-        env=env, capture_output=True, text=True, timeout=80,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=80,
     )
     assert out.returncode == 0, out.stderr
     # Take the last two non-empty lines (avoid warning noise on earlier lines).

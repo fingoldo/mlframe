@@ -158,18 +158,14 @@ def test_mrmr_then_shap_proxied_fs_reuses_artifacts_e2e():
     assert pc is not None, "report block 'precomputed_used' missing"
     assert pc.get("honoured") is True, f"precomputed not honoured: {pc}"
     assert pc.get("su_available") is True
-    assert rep.get("prefilter", {}).get("method") == "precomputed_su", (
-        f"prefilter method did not switch to SU: {rep.get('prefilter')}"
-    )
+    assert rep.get("prefilter", {}).get("method") == "precomputed_su", f"prefilter method did not switch to SU: {rep.get('prefilter')}"
 
     # No e2e regression. Cap at 1.5x baseline because the standalone wall is
     # dominated by setup overhead on small frames; the perf signal of the
     # precomputed path emerges at larger widths where the F-statistic prefilter
     # is the dominant cost. Headroom keeps the test robust to scheduling noise
     # on a Windows CI box.
-    assert t_reuse <= max(t_standalone * 1.5, t_standalone + 5.0), (
-        f"precomputed path regressed: standalone={t_standalone:.3f}s reuse={t_reuse:.3f}s"
-    )
+    assert t_reuse <= max(t_standalone * 1.5, t_standalone + 5.0), f"precomputed path regressed: standalone={t_standalone:.3f}s reuse={t_reuse:.3f}s"
 
 
 def test_shap_proxied_fs_precomputed_mismatch_warns_and_falls_back(caplog):

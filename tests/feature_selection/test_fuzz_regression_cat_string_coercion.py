@@ -10,6 +10,7 @@ site that previously float-coerced the raw strings and raised
 
 Also pins the ``nbins_strategy='quantile'`` alias acceptance (c0149).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -25,9 +26,7 @@ def _mixed_frame(n: int = 200, seed: int = 0) -> pd.DataFrame:
             "num_1": rng.standard_normal(n).astype("float32"),
             # Categorical with NA-like / empty / unseen string levels -- the exact
             # ``weird_cat_content`` + ``inject_test_drift`` content the fuzz emits.
-            "cat_0": pd.Categorical(
-                [["A", "B", "NA", "None", "", "ZZZ_UNSEEN"][i % 6] for i in range(n)]
-            ),
+            "cat_0": pd.Categorical([["A", "B", "NA", "None", "", "ZZZ_UNSEEN"][i % 6] for i in range(n)]),
         }
     )
 

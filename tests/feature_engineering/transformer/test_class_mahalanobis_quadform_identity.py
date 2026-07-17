@@ -18,6 +18,7 @@ Both checks FAIL on a hypothetical implementation that mis-orders the operands
 (verified during development against the pre-fix einsum which sits at ~2.4e-6
 rel err vs fp64 while the NEW path is ~3.2e-7).
 """
+
 from __future__ import annotations
 
 import numpy as np

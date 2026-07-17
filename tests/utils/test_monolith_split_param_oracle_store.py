@@ -4,6 +4,7 @@ Verifies parent re-export identity AND calls into the moved bodies (ParquetStore
 round-trip + aggregation, median, canonical JSON) so a missing import would fail
 at runtime, not pass an import-only check.
 """
+
 from __future__ import annotations
 
 import os
@@ -21,15 +22,20 @@ def test_store_reexport_identity():
 def test_parquet_store_roundtrip_and_aggregate():
     from mlframe.utils._param_oracle_store import _ParquetStore, _stable_json
 
-    pq = pytest_importorskip_pyarrow()
+    pytest_importorskip_pyarrow()
     d = tempfile.mkdtemp()
     store = _ParquetStore(os.path.join(d, "oracle.parquet"))
     assert store.read_rows() == []
 
     row = {
-        "schema_version": 1, "fn_name": "f", "host": "h", "fp_bucket_json": "{}",
+        "schema_version": 1,
+        "fn_name": "f",
+        "host": "h",
+        "fp_bucket_json": "{}",
         "param_combo_json": _stable_json({"a": 1}),
-        "objective_json": _stable_json({"t": 2.0}), "n_obs": 1, "ts": "2026",
+        "objective_json": _stable_json({"t": 2.0}),
+        "n_obs": 1,
+        "ts": "2026",
     }
     store.append([row])
     assert len(store.read_rows()) == 1

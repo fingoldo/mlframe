@@ -7,6 +7,7 @@ for pickle-state symmetry and stays empty.
 These tests pin the revert's contract: repeated predicts are correct, the cache
 never populates, and the pickle round-trip stays clean (F-73b).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -24,28 +25,37 @@ def fitted_regressor():
         PytorchLightningRegressor,
         TorchDataModule,
     )
+
     X, y = make_regression(n_samples=64, n_features=4, random_state=0)
-    X = X.astype(np.float32); y = y.astype(np.float32)
+    X = X.astype(np.float32)
+    y = y.astype(np.float32)
     X_tr, X_te, y_tr, _ = train_test_split(X, y, test_size=0.3, random_state=0)
     reg = PytorchLightningRegressor(
         model_class=MLPTorchModel,
-        model_params={"loss_fn": nn.MSELoss(), "learning_rate": 1e-2,
-                      "load_best_weights_on_train_end": False},
+        model_params={"loss_fn": nn.MSELoss(), "learning_rate": 1e-2, "load_best_weights_on_train_end": False},
         network_params={
-            "nlayers": 1, "first_layer_num_neurons": 8,
-            "dropout_prob": 0.0, "inputs_dropout_prob": 0.0,
-            "use_layernorm": False, "use_batchnorm": False,
+            "nlayers": 1,
+            "first_layer_num_neurons": 8,
+            "dropout_prob": 0.0,
+            "inputs_dropout_prob": 0.0,
+            "use_layernorm": False,
+            "use_batchnorm": False,
             "activation_function": nn.ReLU,
         },
         datamodule_class=TorchDataModule,
         datamodule_params={
-            "features_dtype": torch.float32, "labels_dtype": torch.float32,
+            "features_dtype": torch.float32,
+            "labels_dtype": torch.float32,
             "dataloader_params": {"batch_size": 16, "num_workers": 0},
         },
         trainer_params={
-            "max_epochs": 1, "enable_model_summary": False,
-            "enable_progress_bar": False, "log_every_n_steps": 1,
-            "devices": 1, "accelerator": "cpu", "logger": False,
+            "max_epochs": 1,
+            "enable_model_summary": False,
+            "enable_progress_bar": False,
+            "log_every_n_steps": 1,
+            "devices": 1,
+            "accelerator": "cpu",
+            "logger": False,
         },
         random_state=0,
     )
@@ -80,7 +90,7 @@ def test_f73b_predict_then_pickle_roundtrips_clean(fitted_regressor):
     the same values. __getstate__ drops the cache; the restored estimator starts
     with an empty cache.
     """
-    import pickle
+    import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
     reg, X_te = fitted_regressor
     pred_before = reg.predict(X_te)
@@ -89,7 +99,7 @@ def test_f73b_predict_then_pickle_roundtrips_clean(fitted_regressor):
     assert "_prediction_trainer_cache" not in state, "__getstate__ must drop the runtime trainer cache"
     assert state.get("trainer") is None
 
-    reg2 = pickle.loads(pickle.dumps(reg))
+    reg2 = pickle.loads(pickle.dumps(reg))  # nosec B301 -- round-trip of a locally-created, trusted object
     assert reg2._prediction_trainer_cache == {}, "restored estimator must start with an empty trainer cache"
     pred_after = reg2.predict(X_te)
     np.testing.assert_allclose(pred_before, pred_after, rtol=1e-4, atol=1e-5)

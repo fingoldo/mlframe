@@ -8,6 +8,7 @@ Verifies:
 - _PostHocMultiCalibratedModel pickling roundtrip
 - Metrics registry dispatches hamming/subset/jaccard for multilabel
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -89,6 +90,7 @@ def test_calibration_reduces_brier_loss():
     the Brier loss (expected calibration error). Functional signal that
     the calibration machinery actually improves predictions."""
     from sklearn.metrics import brier_score_loss
+
     rng = np.random.default_rng(42)
     N = 1000
     K = 3
@@ -110,10 +112,7 @@ def test_calibration_reduces_brier_loss():
     # Compute Brier loss for class 0 (binary subset) before/after
     brier_before = brier_score_loss((y == 0).astype(int), miscal[:, 0])
     brier_after = brier_score_loss((y == 0).astype(int), calibrated[:, 0])
-    assert brier_after <= brier_before + 1e-6, (
-        f"Brier loss increased after calibration: "
-        f"before={brier_before:.4f}, after={brier_after:.4f}"
-    )
+    assert brier_after <= brier_before + 1e-6, f"Brier loss increased after calibration: before={brier_before:.4f}, after={brier_after:.4f}"
 
 
 def test_multiclass_non_contiguous_labels_calibrate_correct_column():
@@ -137,18 +136,14 @@ def test_multiclass_non_contiguous_labels_calibrate_correct_column():
         probs[i] = base
     probs = probs / probs.sum(axis=1, keepdims=True)
 
-    cal = _PerClassIsotonicCalibrator.fit(
-        probs, y, TargetTypes.MULTICLASS_CLASSIFICATION, classes=np.array(order)
-    )
+    cal = _PerClassIsotonicCalibrator.fit(probs, y, TargetTypes.MULTICLASS_CLASSIFICATION, classes=np.array(order))
     # Pre-fix: ``y == 0/1/2`` matched nothing -> all calibrators skipped (None).
     n_fitted = sum(v is not None for v in cal.calibrators.values())
-    assert n_fitted == 3, (
-        f"expected 3 fitted per-class isotonics for non-contiguous labels, got {n_fitted}; "
-        "label-position bug turned calibration into a no-op"
-    )
+    assert n_fitted == 3, f"expected 3 fitted per-class isotonics for non-contiguous labels, got {n_fitted}; label-position bug turned calibration into a no-op"
 
     # And it must actually reduce Brier loss on the correct column (column 0 == class 10).
     from sklearn.metrics import brier_score_loss
+
     out = cal.predict_proba(probs)
     b0_before = brier_score_loss((y == 10).astype(int), probs[:, 0])
     b0_after = brier_score_loss((y == 10).astype(int), out[:, 0])
@@ -178,12 +173,13 @@ def test_multiclass_classes_none_falls_back_to_unique():
 
 class _PickleableFakeBase:
     """Top-level class (picklable) fake estimator for pickle tests."""
+
     classes_ = np.array([0, 1, 2])
 
     def predict_proba(self, X):
         # Deterministic uniform; not rng-dependent so pickle roundtrip is stable
         n = X.shape[0] if hasattr(X, "shape") else len(X)
-        return np.full((n, 3), 1/3)
+        return np.full((n, 3), 1 / 3)
 
 
 # ---------------------------------------------------------------------------
@@ -197,11 +193,14 @@ def test_wrapped_model_predict_proba_shape():
 
     class FakeBase:
         classes_ = np.array([0, 1, 2])
+
         def predict_proba(self, X):
             return np.random.default_rng(0).dirichlet(np.ones(3), size=X.shape[0])
 
     wrapped = _PostHocMultiCalibratedModel(
-        FakeBase(), cal, TargetTypes.MULTICLASS_CLASSIFICATION,
+        FakeBase(),
+        cal,
+        TargetTypes.MULTICLASS_CLASSIFICATION,
     )
     X = np.random.default_rng(0).standard_normal((50, 4))
     out = wrapped.predict_proba(X)
@@ -216,11 +215,14 @@ def test_wrapped_model_predict_uses_decision_rule():
 
     class FakeBase:
         classes_ = np.array([0, 1, 2])
+
         def predict_proba(self, X):
             return np.array([[0.1, 0.8, 0.1], [0.5, 0.3, 0.2]])
 
     wrapped = _PostHocMultiCalibratedModel(
-        FakeBase(), cal, TargetTypes.MULTICLASS_CLASSIFICATION,
+        FakeBase(),
+        cal,
+        TargetTypes.MULTICLASS_CLASSIFICATION,
         classes_=np.array([0, 1, 2]),
     )
     preds = wrapped.predict(np.zeros((2, 4)))
@@ -232,15 +234,18 @@ def test_wrapped_model_predict_uses_decision_rule():
 
 def test_wrapped_model_pickle_roundtrip():
     """joblib pickle preserves calibrator + target_type."""
-    import pickle
+    import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
+
     probs, y = _make_multiclass()
     cal = _PerClassIsotonicCalibrator.fit(probs, y, TargetTypes.MULTICLASS_CLASSIFICATION)
 
     wrapped = _PostHocMultiCalibratedModel(
-        _PickleableFakeBase(), cal, TargetTypes.MULTICLASS_CLASSIFICATION,
+        _PickleableFakeBase(),
+        cal,
+        TargetTypes.MULTICLASS_CLASSIFICATION,
     )
     blob = pickle.dumps(wrapped)
-    loaded = pickle.loads(blob)
+    loaded = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
     X = np.zeros((5, 4))
     out_original = wrapped.predict_proba(X)
     out_loaded = loaded.predict_proba(X)
@@ -254,6 +259,7 @@ def test_wrapped_model_pickle_roundtrip():
 
 def test_metrics_registry_builtin_multilabel():
     from mlframe.training.metrics_registry import list_registered, iter_extra_metrics
+
     names = list_registered(TargetTypes.MULTILABEL_CLASSIFICATION)
     assert "hamming_loss" in names
     assert "subset_accuracy" in names
@@ -264,9 +270,14 @@ def test_metrics_registry_builtin_multilabel():
     preds_NK = np.array([[1, 0, 1], [0, 1, 0], [1, 1, 0]], dtype=np.int8)
     probs_NK = preds_NK.astype(float)
 
-    results = dict(iter_extra_metrics(
-        TargetTypes.MULTILABEL_CLASSIFICATION, y_true, probs_NK, preds_NK,
-    ))
+    results = dict(
+        iter_extra_metrics(
+            TargetTypes.MULTILABEL_CLASSIFICATION,
+            y_true,
+            probs_NK,
+            preds_NK,
+        )
+    )
     assert "hamming_loss" in results
     assert "subset_accuracy" in results
     assert "jaccard_samples" in results
@@ -278,7 +289,10 @@ def test_metrics_registry_builtin_multilabel():
 def test_metrics_registry_user_registration():
     """Users can register custom metrics without touching evaluation.py."""
     from mlframe.training.metrics_registry import (
-        register_metric, unregister_metric, list_registered, iter_extra_metrics,
+        register_metric,
+        unregister_metric,
+        list_registered,
+        iter_extra_metrics,
     )
 
     def my_metric(y_true, probs_NK, preds_NK):
@@ -287,10 +301,14 @@ def test_metrics_registry_user_registration():
     register_metric(TargetTypes.MULTILABEL_CLASSIFICATION, "my_test_metric", my_metric)
     try:
         assert "my_test_metric" in list_registered(TargetTypes.MULTILABEL_CLASSIFICATION)
-        results = dict(iter_extra_metrics(
-            TargetTypes.MULTILABEL_CLASSIFICATION,
-            np.zeros((1, 2)), np.zeros((1, 2)), np.zeros((1, 2)),
-        ))
+        results = dict(
+            iter_extra_metrics(
+                TargetTypes.MULTILABEL_CLASSIFICATION,
+                np.zeros((1, 2)),
+                np.zeros((1, 2)),
+                np.zeros((1, 2)),
+            )
+        )
         assert results["my_test_metric"] == 42.0
     finally:
         unregister_metric(TargetTypes.MULTILABEL_CLASSIFICATION, "my_test_metric")
@@ -309,7 +327,9 @@ def test_metrics_registry_documented_failure_modes_are_skipped():
     unexpected exceptions) and to cover both branches.
     """
     from mlframe.training.metrics_registry import (
-        register_metric, unregister_metric, iter_extra_metrics,
+        register_metric,
+        unregister_metric,
+        iter_extra_metrics,
     )
 
     def value_error_metric(y_true, probs_NK, preds_NK):
@@ -321,10 +341,14 @@ def test_metrics_registry_documented_failure_modes_are_skipped():
     # Branch 1: documented recoverable -> silently skipped.
     register_metric(TargetTypes.MULTILABEL_CLASSIFICATION, "recoverable", value_error_metric)
     try:
-        results = dict(iter_extra_metrics(
-            TargetTypes.MULTILABEL_CLASSIFICATION,
-            np.zeros((1, 2)), np.zeros((1, 2)), np.zeros((1, 2)),
-        ))
+        results = dict(
+            iter_extra_metrics(
+                TargetTypes.MULTILABEL_CLASSIFICATION,
+                np.zeros((1, 2)),
+                np.zeros((1, 2)),
+                np.zeros((1, 2)),
+            )
+        )
         assert "recoverable" not in results  # skipped silently
     finally:
         unregister_metric(TargetTypes.MULTILABEL_CLASSIFICATION, "recoverable")
@@ -333,10 +357,14 @@ def test_metrics_registry_documented_failure_modes_are_skipped():
     register_metric(TargetTypes.MULTILABEL_CLASSIFICATION, "unexpected", runtime_error_metric)
     try:
         with pytest.raises(RuntimeError, match="oh no"):
-            list(iter_extra_metrics(
-                TargetTypes.MULTILABEL_CLASSIFICATION,
-                np.zeros((1, 2)), np.zeros((1, 2)), np.zeros((1, 2)),
-            ))
+            list(
+                iter_extra_metrics(
+                    TargetTypes.MULTILABEL_CLASSIFICATION,
+                    np.zeros((1, 2)),
+                    np.zeros((1, 2)),
+                    np.zeros((1, 2)),
+                )
+            )
     finally:
         unregister_metric(TargetTypes.MULTILABEL_CLASSIFICATION, "unexpected")
 

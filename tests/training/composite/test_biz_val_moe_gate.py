@@ -8,6 +8,7 @@ argmin selection, the tie / shrink / fallback rules, and the degenerate cases; t
 gate's HELD-OUT (disjoint-split) RMSE beats every single expert and always-composite on a synthetic where
 composite wins on some groups and lag on others, and is never worse than lag on any lag-defined group.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -22,10 +23,11 @@ def _rmse(a, b):
 
 # --------------------------------------------------------------------------- unit: per-group argmin
 
+
 def test_per_group_argmin_selection_correct():
     # Group A: composite exact, raw/lag off -> pick composite. Group B: lag exact -> pick lag.
     y = np.array([0.0, 0.0, 0.0, 10.0, 10.0, 10.0])
-    comp = np.array([0.0, 0.0, 0.0, 5.0, 5.0, 5.0])   # exact on A, off on B
+    comp = np.array([0.0, 0.0, 0.0, 5.0, 5.0, 5.0])  # exact on A, off on B
     raw = np.array([2.0, 2.0, 2.0, 12.0, 12.0, 12.0])  # off everywhere
     lag = np.array([3.0, 3.0, 3.0, 10.0, 10.0, 10.0])  # exact on B
     g = np.array(["A", "A", "A", "B", "B", "B"])
@@ -71,8 +73,7 @@ def test_global_fallback_for_unseen_group_is_lag():
     gate = MoESelectionGate().fit(y, {"composite": comp, "raw": raw, "lag": lag}, group_ids=g)
     assert gate.global_choice_ == "lag"
     # Unseen group Z -> global fallback (lag).
-    out = gate.predict({"composite": np.array([9.0]), "raw": np.array([8.0]), "lag": np.array([7.0])},
-                       group_ids=np.array(["Z"]))
+    out = gate.predict({"composite": np.array([9.0]), "raw": np.array([8.0]), "lag": np.array([7.0])}, group_ids=np.array(["Z"]))
     assert out[0] == 7.0
 
 
@@ -129,8 +130,7 @@ def test_nan_lag_rows_routed_by_priority_fallback():
     raw = np.array([2.0, 2.0, 2.0])
     lag = np.array([np.nan, 0.1, -0.1])  # NaN first row; near-exact elsewhere
     g = np.zeros(3)
-    gate = MoESelectionGate(prefer=("lag", "raw", "composite")).fit(
-        y, {"composite": comp, "raw": raw, "lag": lag}, group_ids=g)
+    gate = MoESelectionGate(prefer=("lag", "raw", "composite")).fit(y, {"composite": comp, "raw": raw, "lag": lag}, group_ids=g)
     assert gate.group_choice_[0.0] == "lag"
     out = gate.predict({"composite": comp, "raw": raw, "lag": lag}, group_ids=g)
     assert out[0] == 2.0  # raw, not NaN
@@ -172,8 +172,8 @@ def test_sample_weight_shifts_group_choice():
     # Regression sensor: weights must enter the per-group SSE. Unweighted, composite wins (SSE 1 vs lag 8);
     # putting a heavy weight on the one row where lag is exact and composite is off flips the group to lag.
     y = np.array([0.0, 0.0, 0.0])
-    comp = np.array([1.0, 0.0, 0.0])   # off by 1 on the heavy row, exact on the light rows
-    lag = np.array([0.0, 2.0, 2.0])    # exact on the heavy row, off by 2 on the light rows
+    comp = np.array([1.0, 0.0, 0.0])  # off by 1 on the heavy row, exact on the light rows
+    lag = np.array([0.0, 2.0, 2.0])  # exact on the heavy row, off by 2 on the light rows
     raw = np.array([5.0, 5.0, 5.0])
     g = np.zeros(3)
     w = np.array([100.0, 1.0, 1.0])
@@ -190,6 +190,7 @@ def test_empty_input_guarded():
 
 # --------------------------------------------------------------------------- biz_value
 
+
 def _make_split_synthetic(seed=7, n_per_group=400):
     """5 composite-favorable groups + 5 lag-favorable groups; return selection + disjoint holdout splits."""
     rng = np.random.default_rng(seed)
@@ -201,22 +202,29 @@ def _make_split_synthetic(seed=7, n_per_group=400):
         comp_i = yi + rng.normal(0, 0.10 if comp_good else 1.0, n_per_group)
         lag_i = yi + rng.normal(0, 1.0 if comp_good else 0.10, n_per_group)
         raw_i = yi + rng.normal(0, 0.5, n_per_group)
-        y.append(yi); comp.append(comp_i); raw.append(raw_i); lag.append(lag_i)
+        y.append(yi)
+        comp.append(comp_i)
+        raw.append(raw_i)
+        lag.append(lag_i)
         g.append(np.full(n_per_group, gid))
-    y = np.concatenate(y); comp = np.concatenate(comp); raw = np.concatenate(raw)
-    lag = np.concatenate(lag); g = np.concatenate(g)
+    y = np.concatenate(y)
+    comp = np.concatenate(comp)
+    raw = np.concatenate(raw)
+    lag = np.concatenate(lag)
+    g = np.concatenate(g)
     idx = rng.permutation(y.shape[0])
     half = idx.shape[0] // 2
     sel, hold = idx[:half], idx[half:]
+
     def pack(ix):
         return dict(y=y[ix], comp=comp[ix], raw=raw[ix], lag=lag[ix], g=g[ix])
+
     return pack(sel), pack(hold)
 
 
 def test_biz_val_moe_gate_beats_every_expert_and_composite_held_out():
     sel, hold = _make_split_synthetic()
-    gate = MoESelectionGate(shrink_rtol=0.0).fit(
-        sel["y"], {"composite": sel["comp"], "raw": sel["raw"], "lag": sel["lag"]}, group_ids=sel["g"])
+    gate = MoESelectionGate(shrink_rtol=0.0).fit(sel["y"], {"composite": sel["comp"], "raw": sel["raw"], "lag": sel["lag"]}, group_ids=sel["g"])
 
     routed = gate.predict({"composite": hold["comp"], "raw": hold["raw"], "lag": hold["lag"]}, group_ids=hold["g"])
     gate_rmse = _rmse(routed, hold["y"])
@@ -240,8 +248,7 @@ def test_biz_val_moe_gate_beats_every_expert_and_composite_held_out():
 
 def test_biz_val_moe_gate_selection_split_guarantee_is_exact():
     sel, _ = _make_split_synthetic(seed=11)
-    gate = MoESelectionGate(shrink_rtol=0.0).fit(
-        sel["y"], {"composite": sel["comp"], "raw": sel["raw"], "lag": sel["lag"]}, group_ids=sel["g"])
+    gate = MoESelectionGate(shrink_rtol=0.0).fit(sel["y"], {"composite": sel["comp"], "raw": sel["raw"], "lag": sel["lag"]}, group_ids=sel["g"])
     g = gate.guarantee_
     assert g["not_worse_than_lag"] and g["not_worse_than_best_single"]
     assert g["pooled_rmse_gate"] <= min(g["pooled_rmse_per_expert"].values()) * (1.0 + 1e-9)

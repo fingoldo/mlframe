@@ -10,7 +10,7 @@ importance-proxy or a fixed unanimity rule.
 """
 from __future__ import annotations
 
-from typing import Any, Callable, List, Optional
+from typing import Any, Callable, Optional
 
 import numpy as np
 import pandas as pd
@@ -27,12 +27,18 @@ def _cv_score(estimator, X: pd.DataFrame, y_arr: np.ndarray, folds, scoring: Cal
     across candidates. The caller now computes ``folds`` ONCE and passes it in; see ``greedy_backward_elimination``.
     """
     row_select = (lambda idx: X.iloc[idx]) if hasattr(X, "iloc") else (lambda idx: X[idx])
+    # A pandas Series' bracket indexing is LABEL-based, not positional, once its index is no
+    # longer the default 0..n-1 RangeIndex (e.g. y_arr still carries an upstream row-filter's
+    # index) -- the precomputed folds above are always plain 0..n-1 positional indices, so
+    # y_arr[train_idx] then raises KeyError / silently mis-selects rows on a non-default index.
+    # .iloc is positional regardless of the index, matching X's own row_select above.
+    y_select = (lambda idx: y_arr.iloc[idx]) if hasattr(y_arr, "iloc") else (lambda idx: y_arr[idx])
     scores = []
     for train_idx, test_idx in folds:
         model = clone(estimator)
-        model.fit(row_select(train_idx), y_arr[train_idx])
+        model.fit(row_select(train_idx), y_select(train_idx))
         preds = model.predict(row_select(test_idx))
-        scores.append(scoring(y_arr[test_idx], preds))
+        scores.append(scoring(y_select(test_idx), preds))
     return float(np.mean(scores))
 
 
@@ -63,7 +69,7 @@ def greedy_backward_elimination(
     tol: float = 0.0,
     n_repeats: int = 1,
     seed_base: int = 0,
-) -> List[str]:
+) -> list[Any]:
     """Repeatedly remove the single feature whose removal most improves mean CV ``scoring``, HIGHER is better.
 
     Parameters
@@ -97,8 +103,9 @@ def greedy_backward_elimination(
 
     Returns
     -------
-    list of str
-        Surviving column names, in original order.
+    list
+        Surviving column identifiers (names for a DataFrame input, integer positions for a bare
+        ndarray input), in original order.
     """
     # Coerce to a plain ndarray ONCE so bare ``y_arr[idx]`` is unambiguously positional: a pd.Series ``y`` with a
     # non-default (gapped) index -- e.g. after an upstream row filter that didn't reset_index() -- makes bare
@@ -126,15 +133,20 @@ def greedy_backward_elimination(
             """CV score for this column subset over the precomputed folds."""
             return _cv_score(estimator, frame, y_arr, folds, scoring)
 
-    remaining = list(X.columns)
-    current_score = score_fn(X[remaining])
+    # ``forward_select``/``cascade_select`` document ndarray input as "columns addressed by integer
+    # index"; mirror that here instead of unconditionally assuming ``X.columns`` exists.
+    has_columns = hasattr(X, "columns")
+    col_select = (lambda cols: X[cols]) if has_columns else (lambda cols: X[:, cols])
+
+    remaining = list(X.columns) if has_columns else list(range(X.shape[1]))
+    current_score = score_fn(col_select(remaining))
 
     while len(remaining) > min_features:
         best_candidate = None
         best_score = current_score
         for col in remaining:
             candidate_cols = [c for c in remaining if c != col]
-            score = score_fn(X[candidate_cols])
+            score = score_fn(col_select(candidate_cols))
             if score > best_score + tol:
                 best_score = score
                 best_candidate = col

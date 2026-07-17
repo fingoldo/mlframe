@@ -18,6 +18,7 @@ loads pytorch lightning to run mlp; CI shards that exclude ``slow`` skip
 it. The lighter ``tests/reporting/test_feature_drift_report.py`` unit tests run on every
 PR push.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -39,6 +40,7 @@ class _DriftingFeaturesAndTargetsExtractor:
 
     def __init__(self, target_column: str = "y", target_type=None):
         from mlframe.training.configs import TargetTypes
+
         self.target_column = target_column
         self.target_type = target_type if target_type is not None else TargetTypes.REGRESSION
         self.ts_field = None
@@ -156,6 +158,7 @@ def test_feature_drift_auto_action_e2e_regression():
 
     pt._train_one_target = _stash_ctx
     import mlframe.training.core.main as _main
+
     pt_alias = _main.pr
     _orig_pt_alias = pt_alias._train_one_target
     pt_alias._train_one_target = _stash_ctx
@@ -164,7 +167,9 @@ def test_feature_drift_auto_action_e2e_regression():
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             train_mlframe_models_suite(
-                df=df, target_name="drift_e2e", model_name="mt",
+                df=df,
+                target_name="drift_e2e",
+                model_name="mt",
                 features_and_targets_extractor=fte,
                 # Use linear-only model set: avoids the ~14s pytorch lightning
                 # import that mlp would trigger, but the wire-in still fires
@@ -180,7 +185,8 @@ def test_feature_drift_auto_action_e2e_regression():
                 # chronological tail split; rows stay in input order so
                 # the injected drift (last 20% of rows) lands in val/test.
                 split_config=TrainingSplitConfig(
-                    test_size=0.15, val_size=0.15,
+                    test_size=0.15,
+                    val_size=0.15,
                     # val_sequential_fraction=1.0 forces val to be a single
                     # contiguous slice from the train/test boundary instead
                     # of mixing in random rows from earlier. Required for
@@ -201,9 +207,7 @@ def test_feature_drift_auto_action_e2e_regression():
 
     metadata = ctx.metadata or {}
     fd_stamps = metadata.get("feature_distribution_drift", {})
-    assert fd_stamps, (
-        f"expected feature_distribution_drift in metadata; got keys={list(metadata.keys())}"
-    )
+    assert fd_stamps, f"expected feature_distribution_drift in metadata; got keys={list(metadata.keys())}"
 
     # The drift sensor should have flagged a non-trivial z on f0 for the
     # regression target.
@@ -213,9 +217,7 @@ def test_feature_drift_auto_action_e2e_regression():
     f0_entry = by_target["per_feature"].get("f0")
     assert f0_entry is not None, f"f0 missing from per_feature stamp: {by_target['per_feature']}"
     test_z = float(f0_entry["test_z"])
-    assert abs(test_z) > 3.0, (
-        f"expected |test_z| > 3.0 for f0 after 8-sigma injected drift; got test_z={test_z}"
-    )
+    assert abs(test_z) > 3.0, f"expected |test_z| > 3.0 for f0 after 8-sigma injected drift; got test_z={test_z}"
 
 
 @pytest.mark.slow
@@ -252,6 +254,7 @@ def test_feature_drift_auto_action_default_off_warn_only():
 
     pt._train_one_target = _stash_ctx
     import mlframe.training.core.main as _main
+
     pt_alias = _main.pr
     _orig_pt_alias = pt_alias._train_one_target
     pt_alias._train_one_target = _stash_ctx
@@ -260,13 +263,17 @@ def test_feature_drift_auto_action_default_off_warn_only():
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             train_mlframe_models_suite(
-                df=df, target_name="drift_e2e_default_off", model_name="mt",
+                df=df,
+                target_name="drift_e2e_default_off",
+                model_name="mt",
                 features_and_targets_extractor=fte,
                 mlframe_models=["mlp"],
                 use_mlframe_ensembles=False,
                 verbose=0,
                 split_config=TrainingSplitConfig(
-                    test_size=0.15, val_size=0.15, val_sequential_fraction=1.0,
+                    test_size=0.15,
+                    val_size=0.15,
+                    val_sequential_fraction=1.0,
                 ),
                 hyperparams_config=ModelHyperparamsConfig(),
                 # Default TrainingBehaviorConfig() has
@@ -287,8 +294,7 @@ def test_feature_drift_auto_action_default_off_warn_only():
 
     # Auto-apply MUST NOT have fired (flag is OFF).
     assert not metadata.get("feature_drift_auto_action"), (
-        f"feature_drift_auto_action must be empty when the auto-apply flag "
-        f"defaults to OFF; got {metadata.get('feature_drift_auto_action')}"
+        f"feature_drift_auto_action must be empty when the auto-apply flag defaults to OFF; got {metadata.get('feature_drift_auto_action')}"
     )
 
     # Skip-stamp MUST be present so dashboards can show what WOULD have been
@@ -335,6 +341,7 @@ def test_feature_drift_auto_action_e2e_with_mlp_opt_in():
 
     pt._train_one_target = _stash_ctx
     import mlframe.training.core.main as _main
+
     pt_alias = _main.pr
     _orig_pt_alias = pt_alias._train_one_target
     pt_alias._train_one_target = _stash_ctx
@@ -343,13 +350,17 @@ def test_feature_drift_auto_action_e2e_with_mlp_opt_in():
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             train_mlframe_models_suite(
-                df=df, target_name="drift_e2e_optin", model_name="mt",
+                df=df,
+                target_name="drift_e2e_optin",
+                model_name="mt",
                 features_and_targets_extractor=fte,
                 mlframe_models=["mlp"],
                 use_mlframe_ensembles=False,
                 verbose=0,
                 split_config=TrainingSplitConfig(
-                    test_size=0.15, val_size=0.15, val_sequential_fraction=1.0,
+                    test_size=0.15,
+                    val_size=0.15,
+                    val_sequential_fraction=1.0,
                 ),
                 hyperparams_config=ModelHyperparamsConfig(),
                 behavior_config=TrainingBehaviorConfig(
@@ -367,14 +378,13 @@ def test_feature_drift_auto_action_e2e_with_mlp_opt_in():
 
     auto_action = metadata.get("feature_drift_auto_action", {})
     assert auto_action, (
-        f"feature_drift_auto_action missing despite opt-in flag set + "
-        f"drifted regression target + mlp in model set. metadata keys: "
-        f"{list(metadata.keys())}"
+        f"feature_drift_auto_action missing despite opt-in flag set + drifted regression target + mlp in model set. metadata keys: {list(metadata.keys())}"
     )
     by_type = next(iter(auto_action.values()))
     by_target = next(iter(by_type.values()))
     assert by_target["sklearn_override"].get("activation") == "identity"
     import torch
+
     mlframe_override = by_target["mlframe_mlp_kwargs_override"]
     assert mlframe_override["network_params"]["activation_function"] is torch.nn.Identity
 
@@ -426,6 +436,7 @@ def test_feature_drift_auto_action_e2e_binary_classification_no_auto_apply():
 
     pt._train_one_target = _stash_ctx
     import mlframe.training.core.main as _main
+
     pt_alias = _main.pr
     _orig_pt_alias = pt_alias._train_one_target
     pt_alias._train_one_target = _stash_ctx
@@ -434,13 +445,16 @@ def test_feature_drift_auto_action_e2e_binary_classification_no_auto_apply():
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             train_mlframe_models_suite(
-                df=df, target_name="drift_e2e_clf", model_name="mt",
+                df=df,
+                target_name="drift_e2e_clf",
+                model_name="mt",
                 features_and_targets_extractor=fte,
                 mlframe_models=["mlp"],
                 use_mlframe_ensembles=False,
                 verbose=0,
                 split_config=TrainingSplitConfig(
-                    test_size=0.15, val_size=0.15,
+                    test_size=0.15,
+                    val_size=0.15,
                     # val_sequential_fraction=1.0 forces val to be a single
                     # contiguous slice from the train/test boundary instead
                     # of mixing in random rows from earlier. Required for
@@ -473,7 +487,4 @@ def test_feature_drift_auto_action_e2e_binary_classification_no_auto_apply():
     # TrainingBehaviorConfig, so feature_drift_auto_action MUST NOT have
     # been stamped regardless of what the sensor recommended.
     auto_action = metadata.get("feature_drift_auto_action", {})
-    assert not auto_action, (
-        f"feature_drift_auto_action must be empty on classification when "
-        f"the default-OFF flag is set; got {auto_action}"
-    )
+    assert not auto_action, f"feature_drift_auto_action must be empty on classification when the default-OFF flag is set; got {auto_action}"

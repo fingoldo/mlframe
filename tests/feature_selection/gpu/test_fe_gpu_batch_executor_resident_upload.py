@@ -4,6 +4,7 @@ batches scored against one fixed y within a single fit, via ``_fe_batch_dispatch
 ``_orth_mi_backends._mi_classif_batch_numba``), instead of a fresh ``cp.asarray`` every call. Also pins that
 ``y_min``/``n_classes`` (derived host-side post-fix, no device sync) stay correct.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -42,7 +43,7 @@ def _make_two_candidate_batches(n=4000, k=20, nbins=10, seed=1):
     rng = np.random.default_rng(seed)
     a = rng.uniform(1, 5, n)
     y = np.searchsorted(np.quantile(a, np.linspace(0, 1, nbins + 1))[1:-1], a).astype(np.int64)
-    X1 = np.column_stack([np.nan_to_num((a ** 2 / rng.uniform(1, 5, n)).astype(np.float64)) for _ in range(k)])
+    X1 = np.column_stack([np.nan_to_num((a**2 / rng.uniform(1, 5, n)).astype(np.float64)) for _ in range(k)])
     X2 = np.column_stack([rng.uniform(0, 1, n).astype(np.float64) for _ in range(k)])
     return X1, X2, y, nbins
 
@@ -107,7 +108,7 @@ def test_host_derived_y_min_n_classes_match_device_derivation():
     a = rng.uniform(1, 5, n)
     y = np.searchsorted(np.quantile(a, np.linspace(0, 1, nbins + 1))[1:-1], a).astype(np.int64)
     y_shifted = y + 3  # y_min != 0 -- exercises the y_min offset path host- and device-side alike
-    X = np.column_stack([np.nan_to_num((a ** 2 / rng.uniform(1, 5, n)).astype(np.float64)) for _ in range(8)])
+    X = np.column_stack([np.nan_to_num((a**2 / rng.uniform(1, 5, n)).astype(np.float64)) for _ in range(8)])
 
     out_shifted = gpu_fe_batch_mi(X, y_shifted, nbins)
     out_unshifted = gpu_fe_batch_mi(X, y, nbins)

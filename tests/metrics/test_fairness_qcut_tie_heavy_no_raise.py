@@ -4,6 +4,7 @@ Pre-fix ``pd.qcut(feature_vals, q=cont_nbins)`` on a zero-inflated / tie-heavy n
 non-unique quantile edges and raised the opaque ``ValueError: Bin edges must be unique``. The fix passes
 ``duplicates="drop"`` so such features collapse to fewer bins instead of crashing.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -20,7 +21,5 @@ def test_tie_heavy_numeric_feature_does_not_raise():
     df = pd.DataFrame({"income": vals})
 
     # Must not raise "Bin edges must be unique".
-    subgroups = create_fairness_subgroups(
-        df, features=["income"], cont_nbins=3, min_pop_cat_thresh=10
-    )
+    subgroups = create_fairness_subgroups(df, features=["income"], cont_nbins=3, min_pop_cat_thresh=10)
     assert isinstance(subgroups, dict)

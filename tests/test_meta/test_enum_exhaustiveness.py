@@ -16,7 +16,6 @@ A literal whose only mention is the field declaration itself flags.
 from __future__ import annotations
 
 import inspect
-import re
 from enum import Enum
 from pathlib import Path
 from typing import Literal, get_args, get_origin
@@ -87,8 +86,8 @@ def _enum_literal_fields() -> list[tuple[type[BaseModel], str, list]]:
         f"{configs_module.__package__}._training_runtime_configs",
         f"{configs_module.__package__}._composite_target_discovery_config",
         f"{configs_module.__package__}._reporting_configs",
-            f"{configs_module.__package__}._configs_base",
-            f"{configs_module.__package__}._feature_selection_config",
+        f"{configs_module.__package__}._configs_base",
+        f"{configs_module.__package__}._feature_selection_config",
     }
     for _, obj in inspect.getmembers(configs_module, inspect.isclass):
         if not (issubclass(obj, BaseModel) and obj is not BaseModel):
@@ -128,16 +127,12 @@ def test_every_enum_value_is_dispatched_on():
                 continue
             undispatched.append(f"{qualified} = {value!r}")
 
-    assert total_values >= 5, (
-        f"only {total_values} Literal/Enum string values found — extraction "
-        f"broken or no string-enum fields exist."
-    )
+    assert total_values >= 5, f"only {total_values} Literal/Enum string values found — extraction broken or no string-enum fields exist."
     if undispatched:
         pytest.fail(
             f"{len(undispatched)} Literal/Enum value(s) declared on a config "
             f"field but never appear as a quoted string in production code. "
-            f"Either dispatch on them (``if cfg.strategy == \"...\"``), OR "
+            f'Either dispatch on them (``if cfg.strategy == "..."``), OR '
             f"remove the unused variant from the Literal[...], OR whitelist "
-            f"in _KNOWN_UNDISPATCHED with reasoning:\n  "
-            + "\n  ".join(undispatched)
+            f"in _KNOWN_UNDISPATCHED with reasoning:\n  " + "\n  ".join(undispatched)
         )

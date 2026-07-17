@@ -4,6 +4,7 @@ Unit: the LGB / XGB callbacks fire on a synthetic monotone-worsening eval series
 Integration: a real lgb / xgb fit on an overfit-prone target stops with FEWER trees than the
 no-monotonic baseline, at the same-or-better holdout RMSE.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -24,7 +25,7 @@ def test_lgb_callback_fires_on_monotone_worsening():
 
     # improving then 3 strict rises -> EarlyStopException
     cb(_env(0, 0.5))
-    cb(_env(1, 0.3))   # best
+    cb(_env(1, 0.3))  # best
     cb(_env(2, 0.32))
     cb(_env(3, 0.34))
     with pytest.raises(lgb.callback.EarlyStopException):
@@ -35,8 +36,7 @@ def test_xgb_callback_fires_on_monotone_worsening():
     pytest.importorskip("xgboost")
     from mlframe.training.callbacks.monotonic_decline import _make_xgb_monotonic_callback
 
-    cb = _make_xgb_monotonic_callback(patience=3, monitor_dataset="validation_0",
-                                      monitor_metric="rmse", mode="min")
+    cb = _make_xgb_monotonic_callback(patience=3, monitor_dataset="validation_0", monitor_metric="rmse", mode="min")
     assert cb is not None
 
     def _log(value):
@@ -111,11 +111,14 @@ def test_lgb_shim_monotonic_stops_early():
 
     def _fit(mono):
         m = LGBMRegressorWithDatasetReuse(
-            n_estimators=400, learning_rate=0.1, num_leaves=63, min_child_samples=5,
-            verbose=-1, random_state=0,
+            n_estimators=400,
+            learning_rate=0.1,
+            num_leaves=63,
+            min_child_samples=5,
+            verbose=-1,
+            random_state=0,
         )
-        m.fit(Xtr, ytr, eval_set=[(Xv, yv)], eval_metric="l2",
-              monotonic_decline_patience=mono)
+        m.fit(Xtr, ytr, eval_set=[(Xv, yv)], eval_metric="l2", monotonic_decline_patience=mono)
         return m
 
     m_mono = _fit(3)
@@ -134,8 +137,12 @@ def test_xgb_shim_monotonic_stops_early():
 
     def _fit(mono):
         m = XGBRegressorWithDMatrixReuse(
-            n_estimators=400, learning_rate=0.1, max_depth=8, min_child_weight=1,
-            eval_metric="rmse", random_state=0,
+            n_estimators=400,
+            learning_rate=0.1,
+            max_depth=8,
+            min_child_weight=1,
+            eval_metric="rmse",
+            random_state=0,
         )
         m.fit(Xtr, ytr, eval_set=[(Xv, yv)], monotonic_decline_patience=mono)
         return m
@@ -157,8 +164,7 @@ def test_xgb_callback_stamps_best_iteration_on_stop():
     pytest.importorskip("xgboost")
     from mlframe.training.callbacks.monotonic_decline import _make_xgb_monotonic_callback
 
-    cb = _make_xgb_monotonic_callback(patience=3, monitor_dataset="validation_0",
-                                      monitor_metric="rmse", mode="min")
+    cb = _make_xgb_monotonic_callback(patience=3, monitor_dataset="validation_0", monitor_metric="rmse", mode="min")
 
     class _FakeBooster:
         def __init__(self):
@@ -173,7 +179,7 @@ def test_xgb_callback_stamps_best_iteration_on_stop():
         return {"validation_0": {"rmse": [value]}}
 
     cb.after_iteration(model, 0, _log(0.5))
-    cb.after_iteration(model, 1, _log(0.3))   # best @1
+    cb.after_iteration(model, 1, _log(0.3))  # best @1
     cb.after_iteration(model, 2, _log(0.32))
     cb.after_iteration(model, 3, _log(0.34))
     assert cb.after_iteration(model, 4, _log(0.36)) is True
@@ -185,13 +191,16 @@ def test_biz_xgb_monotonic_predict_uses_best_iteration_not_full_booster():
     full overfit booster. Regression sensor for D1 -- pre-fix the booster keeps the post-best tail and
     predict scores all rounds, inflating holdout error."""
     pytest.importorskip("xgboost")
-    import xgboost as xgb
     from mlframe.training.xgb_shim import XGBRegressorWithDMatrixReuse
 
     Xtr, ytr, Xv, yv = _overfit_data(seed=1)
     m = XGBRegressorWithDMatrixReuse(
-        n_estimators=400, learning_rate=0.1, max_depth=8, min_child_weight=1,
-        eval_metric="rmse", random_state=0,
+        n_estimators=400,
+        learning_rate=0.1,
+        max_depth=8,
+        min_child_weight=1,
+        eval_metric="rmse",
+        random_state=0,
     )
     m.fit(Xtr, ytr, eval_set=[(Xv, yv)], monotonic_decline_patience=3)
 
@@ -225,15 +234,13 @@ def test_resolve_mode_unknown_metric_returns_skip_sentinel():
 def test_lgb_callback_unknown_max_metric_does_not_stop_improving_curve():
     """An unknown higher-is-better metric must NOT be guessed as 'min' (which would stop a clearly
     IMPROVING max-metric curve). With the SKIP sentinel the detector disables itself: no stop."""
-    lgb = pytest.importorskip("lightgbm")
+    pytest.importorskip("lightgbm")
     from mlframe.training.callbacks.monotonic_decline import LGBMonotonicDeclineStop
 
-    cb = LGBMonotonicDeclineStop(patience=3, monitor_dataset="valid_0",
-                                 monitor_metric="my_custom_skill_score", mode=None)
+    cb = LGBMonotonicDeclineStop(patience=3, monitor_dataset="valid_0", monitor_metric="my_custom_skill_score", mode=None)
 
     def _env(it, value):
-        return type("E", (), {"iteration": it,
-                              "evaluation_result_list": [("valid_0", "my_custom_skill_score", value, True)]})()
+        return type("E", (), {"iteration": it, "evaluation_result_list": [("valid_0", "my_custom_skill_score", value, True)]})()
 
     # Strictly improving (higher-is-better) curve. Under the old 'min' guess every step looks like a
     # decline -> would stop at iter 3. With SKIP the detector never fires.
@@ -244,8 +251,7 @@ def test_lgb_callback_unknown_max_metric_does_not_stop_improving_curve():
 def test_cb_callback_unknown_max_metric_does_not_stop_improving_curve():
     from mlframe.training.callbacks.monotonic_decline import CBMonotonicDeclineStop
 
-    cb = CBMonotonicDeclineStop(patience=3, monitor_dataset="validation",
-                                monitor_metric="my_custom_skill_score", mode=None)
+    cb = CBMonotonicDeclineStop(patience=3, monitor_dataset="validation", monitor_metric="my_custom_skill_score", mode=None)
 
     def _info(value):
         return type("I", (), {"metrics": {"validation": {"my_custom_skill_score": [value]}}})()

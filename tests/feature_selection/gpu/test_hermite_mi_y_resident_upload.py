@@ -5,6 +5,7 @@ fix in ``_hermite_fe_mi.py`` engages, stays bit-identical to the pre-fix raw-upl
 SAME device object is handed back across calls -- which is what lets the downstream ``(id(y_gpu), y_min)``
 shift-cache in ``_plugin_mi_classif_batch_cuda_resident`` actually start hitting.
 """
+
 from __future__ import annotations
 
 import numpy as np

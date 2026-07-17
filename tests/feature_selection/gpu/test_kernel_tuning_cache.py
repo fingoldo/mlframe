@@ -11,6 +11,7 @@ Targets:
 
 All tests gate on CUDA via ``pytest.importorskip("cupy")`` + ``is_cuda_available()``.
 """
+
 from __future__ import annotations
 
 import os
@@ -28,6 +29,7 @@ def _reset_cc_major_memo():
     on a real run). Reset it around each test so a test that mocks a specific cc_major isn't shadowed by a
     real cc cached by an earlier test (which now happens once the GPU actually works)."""
     from mlframe.feature_selection._benchmarks.kernel_tuning_cache import dispatch
+
     saved = dispatch._CC_MAJOR_CACHE
     dispatch._CC_MAJOR_CACHE = None
     yield
@@ -37,6 +39,7 @@ def _reset_cc_major_memo():
 def _need_cuda():
     try:
         from pyutilz.core.pythonlib import is_cuda_available
+
         return is_cuda_available()
     except Exception:
         return False
@@ -49,17 +52,19 @@ pytestmark = [pytest.mark.gpu, pytest.mark.skipif(not _need_cuda(), reason="no C
 # A1: _measure_single_region unit test
 # --------------------------------------------------------------------------
 
+
 def test_measure_single_region_returns_well_formed_dict():
     """The new online-relearn helper must return a dict with all the
     expected axis_max keys, kernel_variant, block_size, and wall_ms."""
     from mlframe.feature_selection._benchmarks.kernel_tuning_cache import auto_tune as at
 
     region = at._measure_single_region(
-        n_samples=50_000, joint_size=25, n_iters=2,
+        n_samples=50_000,
+        joint_size=25,
+        n_iters=2,
     )
     assert region is not None
-    for key in ("n_samples_max", "joint_size_max", "nbins_x_max", "nbins_y_max",
-                "kernel_variant", "block_size", "wall_ms"):
+    for key in ("n_samples_max", "joint_size_max", "nbins_x_max", "nbins_y_max", "kernel_variant", "block_size", "wall_ms"):
         assert key in region, f"missing {key} in {region}"
     assert region["kernel_variant"] in ("shared", "global")
     assert region["block_size"] in (256, 512, 1024)
@@ -69,6 +74,7 @@ def test_measure_single_region_returns_well_formed_dict():
 # --------------------------------------------------------------------------
 # A2 + D2 + D3: streamed variant uses N>=2 streams + per-stream RNG independence
 # --------------------------------------------------------------------------
+
 
 def test_streamed_uses_multiple_streams_and_independent_rngs():
     """Verify the bug-fix paths in mi_direct_gpu_batched_streamed are
@@ -92,25 +98,27 @@ def test_streamed_uses_multiple_streams_and_independent_rngs():
         return g
 
     rng = np.random.default_rng(31)
-    data = np.column_stack([
-        rng.integers(0, 3, size=2000).astype(np.int32),
-        rng.integers(0, 3, size=2000).astype(np.int32),
-    ])
+    data = np.column_stack(
+        [
+            rng.integers(0, 3, size=2000).astype(np.int32),
+            rng.integers(0, 3, size=2000).astype(np.int32),
+        ]
+    )
     nbins = np.array([3, 3], dtype=np.int32)
 
-    with mock.patch.object(cp.cuda, "Stream", side_effect=_track_stream), \
-         mock.patch.object(cp.random, "default_rng", side_effect=_track_rng):
+    with mock.patch.object(cp.cuda, "Stream", side_effect=_track_stream), mock.patch.object(cp.random, "default_rng", side_effect=_track_rng):
         mi_direct_gpu_batched_streamed(
-            data, (0,), (1,), nbins, npermutations=64, batch_size=32,
+            data,
+            (0,),
+            (1,),
+            nbins,
+            npermutations=64,
+            batch_size=32,
         )
 
-    assert len(n_streams_created) >= 2, (
-        f"streamed variant should create >=2 streams; got {len(n_streams_created)}"
-    )
+    assert len(n_streams_created) >= 2, f"streamed variant should create >=2 streams; got {len(n_streams_created)}"
     assert len(n_generators_created) >= 2, (
-        f"streamed variant should create >=2 per-stream RNGs; "
-        f"got {len(n_generators_created)} (regression -- per-stream "
-        f"RNG protection may have been reverted)"
+        f"streamed variant should create >=2 per-stream RNGs; got {len(n_generators_created)} (regression -- per-stream RNG protection may have been reverted)"
     )
 
 
@@ -118,30 +126,36 @@ def test_streamed_uses_multiple_streams_and_independent_rngs():
 # A3 / A4: _FALLBACK_BY_CC routes correctly per cc_major + cache-miss path
 # --------------------------------------------------------------------------
 
-@pytest.mark.parametrize("cc_major,expected_block_size", [
-    (5, 512),  # Maxwell
-    (6, 512),  # Pascal
-    (7, 256),  # Volta/Turing
-    (8, 256),  # Ampere
-    (9, 1024),  # Hopper -> global
-])
+
+@pytest.mark.parametrize(
+    "cc_major,expected_block_size",
+    [
+        (5, 512),  # Maxwell
+        (6, 512),  # Pascal
+        (7, 256),  # Volta/Turing
+        (8, 256),  # Ampere
+        (9, 1024),  # Hopper -> global
+    ],
+)
 def test_hw_aware_fallback_routes_per_cc_major(cc_major, expected_block_size):
     """Fallback hits the cc-major table when the kernel_tuning_cache is empty."""
     from mlframe.feature_selection._benchmarks.kernel_tuning_cache import dispatch
 
     with mock.patch.object(
-        dispatch, "_get_cache", return_value=False,
+        dispatch,
+        "_get_cache",
+        return_value=False,
     ):
         with mock.patch(
             "pyutilz.system.gpu_dispatch.gpu_capability_summary",
             return_value={
-                "cc_major": cc_major, "cc_minor": 0, "name": "MockGPU",
+                "cc_major": cc_major,
+                "cc_minor": 0,
+                "name": "MockGPU",
             },
         ):
             r = dispatch.lookup_joint_hist(n_samples=100_000, joint_size=25)
-    assert r["block_size"] == expected_block_size, (
-        f"cc {cc_major} expected block_size={expected_block_size}, got {r}"
-    )
+    assert r["block_size"] == expected_block_size, f"cc {cc_major} expected block_size={expected_block_size}, got {r}"
 
 
 def test_hw_aware_fallback_large_joint_routes_to_global():
@@ -162,13 +176,15 @@ def test_hw_aware_fallback_large_joint_routes_to_global():
 # A5: ensure_joint_hist_tuning saves a schema-valid JSON
 # --------------------------------------------------------------------------
 
+
 def test_ensure_joint_hist_tuning_saves_expected_schema(tmp_path, monkeypatch):
     """After ``ensure_joint_hist_tuning(force=True)`` the on-disk cache
     JSON must contain a ``joint_hist_batched`` kernel entry with the
     expected axes + region keys."""
-    import orjson
+
     monkeypatch.setenv("PYUTILZ_KERNEL_CACHE_DIR", str(tmp_path))
     from pyutilz.performance.kernel_tuning.cache import hw_fingerprint
+
     hw_fingerprint.cache_clear()
     # The mlframe-side singleton in ``_kernel_tuning._CACHE_SINGLETON`` is
     # built lazily from the env var seen at the time of FIRST call. Earlier
@@ -177,6 +193,7 @@ def test_ensure_joint_hist_tuning_saves_expected_schema(tmp_path, monkeypatch):
     # never receives the persisted JSON. Reset the singleton so the next
     # ``_shared_cache()`` call picks up THIS test's env var.
     from mlframe.feature_selection.filters._kernel_tuning import _reset_for_tests
+
     _reset_for_tests()
 
     from mlframe.feature_selection._benchmarks.kernel_tuning_cache import auto_tune as at
@@ -195,6 +212,7 @@ def test_ensure_joint_hist_tuning_saves_expected_schema(tmp_path, monkeypatch):
     # KernelTuningCache instance (which reassembles the sharded files for this test's cache dir).
     from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
     from mlframe.feature_selection.filters._kernel_tuning import _reset_for_tests as _reset2
+
     _reset2()
     persisted = KernelTuningCache.load_or_create().get_regions("joint_hist_batched")
     assert persisted, "sweep did not persist joint_hist_batched regions to the cache"
@@ -207,9 +225,11 @@ def test_ensure_joint_hist_tuning_saves_expected_schema(tmp_path, monkeypatch):
 # A7: new RawKernel attributes wired by _ensure_kernels_inited
 # --------------------------------------------------------------------------
 
+
 def test_ensure_kernels_inited_populates_new_shared_kernels():
     """The init guard must populate the new shared-mem RawKernel attrs."""
     from mlframe.feature_selection.filters import gpu as g
+
     g._ensure_kernels_inited()
     # Pre-existing kernels.
     assert g.compute_joint_hist_cuda is not None
@@ -223,24 +243,28 @@ def test_ensure_kernels_inited_populates_new_shared_kernels():
 # A6: KernelTuningCache.update concurrent-process preserves kernels
 # --------------------------------------------------------------------------
 
+
 def _proc_update(cache_dir: str, kernel_name: str, payload: dict) -> None:
     """Worker for the concurrent test. Runs in a fresh process via
     ``multiprocessing.Process``."""
     import os
+
     os.environ["PYUTILZ_KERNEL_CACHE_DIR"] = cache_dir
     from pyutilz.performance.kernel_tuning.cache import (
-        KernelTuningCache, hw_fingerprint,
+        KernelTuningCache,
+        hw_fingerprint,
     )
+
     hw_fingerprint.cache_clear()
     cache = KernelTuningCache()
-    cache.update(kernel_name, axes=["n"],
-                 regions=[{"n_max": None, **payload}])
+    cache.update(kernel_name, axes=["n"], regions=[{"n_max": None, **payload}])
 
 
 def test_concurrent_update_preserves_kernels(tmp_path):
     """Two processes calling ``update`` on different kernel names must
     both land in the final on-disk cache (file-lock + merge-on-write)."""
     import multiprocessing
+
     procs = [
         multiprocessing.Process(target=_proc_update, args=(str(tmp_path), "k_a", {"v": "a"})),
         multiprocessing.Process(target=_proc_update, args=(str(tmp_path), "k_b", {"v": "b"})),
@@ -254,8 +278,10 @@ def test_concurrent_update_preserves_kernels(tmp_path):
     # Read directly via a fresh KTC instance.
     os.environ["PYUTILZ_KERNEL_CACHE_DIR"] = str(tmp_path)
     from pyutilz.performance.kernel_tuning.cache import (
-        KernelTuningCache, hw_fingerprint,
+        KernelTuningCache,
+        hw_fingerprint,
     )
+
     hw_fingerprint.cache_clear()
     cache = KernelTuningCache()
     # Both kernels must be present even though they came from different

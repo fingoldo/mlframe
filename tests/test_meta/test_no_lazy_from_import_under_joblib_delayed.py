@@ -27,6 +27,7 @@ in mind:
   against partial-init races. Only ``from X import name`` carries the
   binding gotcha. The test below only flags ImportFrom for that reason.
 """
+
 from __future__ import annotations
 
 import ast

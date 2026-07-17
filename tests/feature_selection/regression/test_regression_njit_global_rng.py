@@ -12,18 +12,19 @@ LCG Fisher-Yates (mirrors the existing ``parallel_mi_prange`` / ``parallel_mi_be
 LCG pattern). The same ``base_seed`` must produce identical output across calls;
 different ``base_seed`` must produce different output.
 """
+
 from __future__ import annotations
 
 import numpy as np
 
 from mlframe.feature_selection.filters.fleuret import (
     _fleuret_shuffle_col_lcg,
-    get_fleuret_criteria_confidence,
 )
 from mlframe.feature_selection.filters.permutation import parallel_mi
 
 
 def _tiny_classes_freqs():
+    """Build tiny x/y class labels and their empirical frequency arrays for parallel_mi inputs."""
     rng = np.random.default_rng(0)
     n = 500
     classes_x = rng.integers(0, 4, size=n).astype(np.int32)
@@ -34,18 +35,27 @@ def _tiny_classes_freqs():
 
 
 def test_parallel_mi_same_seed_reproducible():
+    """Same base_seed given to two parallel_mi calls must produce bit-identical (nfailed, nchecked)."""
     classes_x, freqs_x, classes_y, freqs_y = _tiny_classes_freqs()
     nperms = 50
     out_a = parallel_mi(
-        classes_x=classes_x, freqs_x=freqs_x,
-        classes_y=classes_y, freqs_y=freqs_y,
-        npermutations=nperms, original_mi=0.001, max_failed=nperms,
+        classes_x=classes_x,
+        freqs_x=freqs_x,
+        classes_y=classes_y,
+        freqs_y=freqs_y,
+        npermutations=nperms,
+        original_mi=0.001,
+        max_failed=nperms,
         base_seed=np.uint64(12345),
     )
     out_b = parallel_mi(
-        classes_x=classes_x, freqs_x=freqs_x,
-        classes_y=classes_y, freqs_y=freqs_y,
-        npermutations=nperms, original_mi=0.001, max_failed=nperms,
+        classes_x=classes_x,
+        freqs_x=freqs_x,
+        classes_y=classes_y,
+        freqs_y=freqs_y,
+        npermutations=nperms,
+        original_mi=0.001,
+        max_failed=nperms,
         base_seed=np.uint64(12345),
     )
     assert out_a == out_b, f"same base_seed must yield identical (nfailed, nchecked); got {out_a} vs {out_b}"
@@ -58,9 +68,13 @@ def test_parallel_mi_different_seed_different_stream():
     classes_x, freqs_x, classes_y, freqs_y = _tiny_classes_freqs()
     # Pick a moderate original_mi so roughly half of permuted MIs exceed it.
     from mlframe.feature_selection.filters.info_theory import compute_mi_from_classes
+
     base_mi = compute_mi_from_classes(
-        classes_x=classes_x, freqs_x=freqs_x,
-        classes_y=classes_y, freqs_y=freqs_y, dtype=np.int32,
+        classes_x=classes_x,
+        freqs_x=freqs_x,
+        classes_y=classes_y,
+        freqs_y=freqs_y,
+        dtype=np.int32,
     )
     nperms = 200
     max_failed = 5  # forces early exit at different iter counts per seed
@@ -68,10 +82,14 @@ def test_parallel_mi_different_seed_different_stream():
     streams = []
     for s in seeds:
         out = parallel_mi(
-            classes_x=classes_x, freqs_x=freqs_x,
-            classes_y=classes_y, freqs_y=freqs_y,
-            npermutations=nperms, original_mi=float(base_mi),
-            max_failed=max_failed, base_seed=s,
+            classes_x=classes_x,
+            freqs_x=freqs_x,
+            classes_y=classes_y,
+            freqs_y=freqs_y,
+            npermutations=nperms,
+            original_mi=float(base_mi),
+            max_failed=max_failed,
+            base_seed=s,
         )
         streams.append(out)
     distinct = len({(int(a), int(b)) for a, b in streams})
@@ -79,6 +97,7 @@ def test_parallel_mi_different_seed_different_stream():
 
 
 def test_fleuret_shuffle_col_lcg_reproducible():
+    """Same starting LCG state must produce the identical in-place permutation and final state."""
     col_a = np.arange(40, dtype=np.int32)
     col_b = col_a.copy()
     state = np.uint64(42)
@@ -89,6 +108,7 @@ def test_fleuret_shuffle_col_lcg_reproducible():
 
 
 def test_fleuret_shuffle_col_lcg_different_seed_diff_permutation():
+    """Distinct LCG seed states must produce at least 3 distinct permutations out of 4 tried."""
     col = np.arange(40, dtype=np.int32)
     states = [np.uint64(s) for s in (1, 17, 99, 100003)]
     perms = []
@@ -108,17 +128,25 @@ def test_parallel_mi_no_global_rng_drift():
     nperms = 80
     np.random.seed(101)
     out_a = parallel_mi(
-        classes_x=classes_x, freqs_x=freqs_x,
-        classes_y=classes_y, freqs_y=freqs_y,
-        npermutations=nperms, original_mi=0.0001, max_failed=nperms,
+        classes_x=classes_x,
+        freqs_x=freqs_x,
+        classes_y=classes_y,
+        freqs_y=freqs_y,
+        npermutations=nperms,
+        original_mi=0.0001,
+        max_failed=nperms,
         base_seed=np.uint64(55555),
     )
     np.random.seed(202)
     _ = np.random.random(10000)
     out_b = parallel_mi(
-        classes_x=classes_x, freqs_x=freqs_x,
-        classes_y=classes_y, freqs_y=freqs_y,
-        npermutations=nperms, original_mi=0.0001, max_failed=nperms,
+        classes_x=classes_x,
+        freqs_x=freqs_x,
+        classes_y=classes_y,
+        freqs_y=freqs_y,
+        npermutations=nperms,
+        original_mi=0.0001,
+        max_failed=nperms,
         base_seed=np.uint64(55555),
     )
     assert out_a == out_b, f"parallel_mi must be isolated from global RNG drift; got {out_a} vs {out_b}"

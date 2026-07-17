@@ -4,9 +4,10 @@ These enums are stamped into saved-model metadata / pipeline configs, so a pickl
 not round-trip to the SAME singleton member (identity, not just equality) or an accidental
 alias (two members sharing a value) would silently corrupt config replay.
 """
+
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 from enum import Enum
 
 import pytest
@@ -46,5 +47,5 @@ def test_enum_values_are_unique_no_aliases(enum_cls):
 @pytest.mark.parametrize("enum_cls", CONFIG_ENUMS, ids=lambda e: e.__name__)
 def test_enum_pickle_roundtrip_is_same_singleton(enum_cls):
     for member in enum_cls:
-        restored = pickle.loads(pickle.dumps(member))
+        restored = pickle.loads(pickle.dumps(member))  # nosec B301 -- round-trip of a locally-created, trusted object
         assert restored is member, f"{enum_cls.__name__}.{member.name} did not round-trip to the same singleton"

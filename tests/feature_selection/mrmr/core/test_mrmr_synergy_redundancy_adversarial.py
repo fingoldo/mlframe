@@ -4,11 +4,11 @@ protection, count-floor / min_features_fallback, global-RNG leak seal).
 Each test ASSERTS correct/sound behavior: it PASSES if the patch is sound and FAILS if it
 has a hole. Fast: n<=3000, fixed seeds, mostly unit-level calls into the patched helpers.
 """
+
 from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.feature_selection.filters._fe_synergy_screen import (
     detect_synergy_combos,
@@ -109,7 +109,7 @@ def test_synergy_many_distinct_codes_noise_not_admitted():
     # is trivially cleared -> a PURE-NOISE pair is admitted as "synergy". The module's
     # noise-resistance was validated only at nbins in {6,8} (<=64 cells); it does not
     # generalise to high-cardinality operands under the _MAX_CELLS=1<<20 ceiling.
-    assert jmi < 0.05, f"MM-corrected joint MI of high-card noise pair too high: {jmi} " f"(detect_synergy_combos admitted: {out})"
+    assert jmi < 0.05, f"MM-corrected joint MI of high-card noise pair too high: {jmi} (detect_synergy_combos admitted: {out})"
     assert out == [], f"high-card noise pair admitted as synergy: {out}"
 
 
@@ -171,11 +171,16 @@ def test_redundancy_drop_genuinely_redundant_raw_still_drops():
     eng_cont = {"div(sqr(a),abs(b))": ratio}
     raw_X = pd.DataFrame({"a": a, "b": b})
     kept, dropped = drop_redundant_raw_operands(
-        data=data, cols=cols, selected_cols_idx=[0, 1, 2],
-        raw_name_set={"a", "b"}, y_binned=_qcode(yt, nb), y_continuous=yt,
+        data=data,
+        cols=cols,
+        selected_cols_idx=[0, 1, 2],
+        raw_name_set={"a", "b"},
+        y_binned=_qcode(yt, nb),
+        y_continuous=yt,
         engineered_continuous=eng_cont,
         replayable_eng_names={"div(sqr(a),abs(b))"},
-        raw_X=raw_X, seed=0,
+        raw_X=raw_X,
+        seed=0,
     )
     # at least one of the fully-subsumed operands must drop (genuine redundancy)
     assert dropped, f"genuine ratio-subsumed raw was wrongly fully protected: kept={[cols[i] for i in kept]}"
@@ -195,12 +200,17 @@ def test_redundancy_drop_pseudo_remix_child_does_not_drop_raw():
     data = np.column_stack([_qcode(a, nb), _qcode(b, nb), gate.astype(np.int64)])
     eng_cont = {"gate_mask__a__b": gate}
     raw_X = pd.DataFrame({"a": a, "b": b})
-    kept, dropped = drop_redundant_raw_operands(
-        data=data, cols=cols, selected_cols_idx=[0, 1, 2],
-        raw_name_set={"a", "b"}, y_binned=_qcode(yt, nb), y_continuous=yt,
+    _kept, dropped = drop_redundant_raw_operands(
+        data=data,
+        cols=cols,
+        selected_cols_idx=[0, 1, 2],
+        raw_name_set={"a", "b"},
+        y_binned=_qcode(yt, nb),
+        y_continuous=yt,
         engineered_continuous=eng_cont,
         replayable_eng_names={"gate_mask__a__b"},
-        raw_X=raw_X, seed=0,
+        raw_X=raw_X,
+        seed=0,
     )
     assert "a" not in dropped, f"raw 'a' wrongly dropped given only a pseudo-remix gate consumer: {dropped}"
 
@@ -222,9 +232,17 @@ def test_min_features_fallback_on_pure_noise_forces_features():
     floor (does not balloon) and is deterministic."""
     X, y = _noise_frame(seed=10)
     from mlframe.feature_selection.filters import MRMR
-    m = MRMR(random_seed=42, verbose=0, n_jobs=1, full_npermutations=2,
-             baseline_npermutations=2, fe_max_steps=0, min_features_fallback=2,
-             skip_retraining_on_same_content=False)
+
+    m = MRMR(
+        random_seed=42,
+        verbose=0,
+        n_jobs=1,
+        full_npermutations=2,
+        baseline_npermutations=2,
+        fe_max_steps=0,
+        min_features_fallback=2,
+        skip_retraining_on_same_content=False,
+    )
     m.fit(X.copy(), y)
     support = list(getattr(m, "support_", []))
     nsel = int(np.sum(support)) if len(support) and isinstance(support[0], (bool, np.bool_)) else len(support)
@@ -238,9 +256,17 @@ def test_min_features_fallback_zero_can_select_nothing_on_noise():
     select zero raw features (no forced noise)."""
     X, y = _noise_frame(seed=11)
     from mlframe.feature_selection.filters import MRMR
-    m = MRMR(random_seed=42, verbose=0, n_jobs=1, full_npermutations=2,
-             baseline_npermutations=2, fe_max_steps=0, min_features_fallback=0,
-             skip_retraining_on_same_content=False)
+
+    m = MRMR(
+        random_seed=42,
+        verbose=0,
+        n_jobs=1,
+        full_npermutations=2,
+        baseline_npermutations=2,
+        fe_max_steps=0,
+        min_features_fallback=0,
+        skip_retraining_on_same_content=False,
+    )
     m.fit(X.copy(), y)
     support = list(getattr(m, "support_", []))
     nsel = int(np.sum(support)) if len(support) and isinstance(support[0], (bool, np.bool_)) else len(support)
@@ -256,6 +282,7 @@ def test_seeded_fit_does_not_perturb_global_numpy_rng():
     """A seeded fit must leave np.random global state byte-identical."""
     X, y = _noise_frame(n=800, seed=20)
     from mlframe.feature_selection.filters import MRMR
+
     np.random.seed(123456)
     before = np.random.get_state()
     m = MRMR(random_seed=42, verbose=0, n_jobs=1, full_npermutations=2, baseline_npermutations=2, fe_max_steps=0, skip_retraining_on_same_content=False)
@@ -270,11 +297,21 @@ def test_two_seeded_fits_identical_support():
     """Two fits with the same random_seed must produce identical support_."""
     X, y = _noise_frame(n=800, seed=21)
     from mlframe.feature_selection.filters import MRMR
-    kw = dict(random_seed=7, verbose=0, n_jobs=1, full_npermutations=2,
-              baseline_npermutations=2, fe_max_steps=0,
-              skip_retraining_on_same_content=False, min_features_fallback=2)
-    m1 = MRMR(**kw); m1.fit(X.copy(), y)
-    m2 = MRMR(**kw); m2.fit(X.copy(), y)
+
+    kw = dict(
+        random_seed=7,
+        verbose=0,
+        n_jobs=1,
+        full_npermutations=2,
+        baseline_npermutations=2,
+        fe_max_steps=0,
+        skip_retraining_on_same_content=False,
+        min_features_fallback=2,
+    )
+    m1 = MRMR(**kw)
+    m1.fit(X.copy(), y)
+    m2 = MRMR(**kw)
+    m2.fit(X.copy(), y)
     s1 = np.asarray(getattr(m1, "support_", []))
     s2 = np.asarray(getattr(m2, "support_", []))
     assert np.array_equal(s1, s2), f"same-seed fits differ: {s1} vs {s2}"

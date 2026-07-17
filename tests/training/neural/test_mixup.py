@@ -9,6 +9,7 @@ Three layers:
      (RealMLP-TD's +0.6% needs many tasks + seeds); just no regression
      past 0.05 R^2.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -23,13 +24,15 @@ from mlframe.training.neural._mixup import mixup_batch
 
 
 def test_mixup_rejects_zero_alpha():
-    x = torch.randn(8, 4); y = torch.randn(8)
+    x = torch.randn(8, 4)
+    y = torch.randn(8)
     with pytest.raises(ValueError, match="alpha must be > 0"):
         mixup_batch(x, y, alpha=0.0)
 
 
 def test_mixup_rejects_mismatched_batch_dims():
-    x = torch.randn(8, 4); y = torch.randn(7)
+    x = torch.randn(8, 4)
+    y = torch.randn(7)
     with pytest.raises(ValueError, match="batch dim"):
         mixup_batch(x, y, alpha=0.2)
 
@@ -40,7 +43,8 @@ def test_mixup_lam_in_clamped_range():
     by O(1e-6) past the bound; use 2e-3 here so the test absorbs
     that noise."""
     torch.manual_seed(0)
-    x = torch.randn(64, 4); y = torch.randn(64)
+    x = torch.randn(64, 4)
+    y = torch.randn(64)
     for _ in range(50):
         _, _, _, lam = mixup_batch(x, y, alpha=0.2)
         assert 0.0 < lam < 1.0
@@ -80,12 +84,16 @@ def test_mixup_sequence_batch_lengths_are_pairwise_max():
     """F-70: ``lengths_mixed[i] = max(lengths[i], lengths[perm[i]])``.
     Use arange labels so the permutation is recoverable."""
     from mlframe.training.neural._mixup import mixup_sequence_batch
+
     torch.manual_seed(0)
     seqs = torch.randn(8, 5, 4)
     lens = torch.tensor([3, 5, 2, 5, 4, 1, 5, 2], dtype=torch.long)
     y = torch.arange(8, dtype=torch.float32)
     _, lens_mixed, _, _y_a, y_b, _ = mixup_sequence_batch(
-        seqs, lens, y, alpha=0.2,
+        seqs,
+        lens,
+        y,
+        alpha=0.2,
     )
     perm = y_b.long()
     expected = torch.maximum(lens, lens[perm])
@@ -97,13 +105,18 @@ def test_mixup_sequence_batch_mixes_aux_with_same_idx_and_lam():
     as the sequences, so per-sample identity is preserved across
     modalities."""
     from mlframe.training.neural._mixup import mixup_sequence_batch
+
     torch.manual_seed(0)
     seqs = torch.randn(8, 5, 4)
     lens = torch.full((8,), 5, dtype=torch.long)
     aux = torch.randn(8, 3)
     y = torch.arange(8, dtype=torch.float32)
     seq_mixed, _, aux_mixed, _, y_b, lam = mixup_sequence_batch(
-        seqs, lens, y, alpha=0.2, aux_features=aux,
+        seqs,
+        lens,
+        y,
+        alpha=0.2,
+        aux_features=aux,
     )
     perm = y_b.long()
     # Reconstruct aux_mixed from the recovered idx + lam.
@@ -116,14 +129,20 @@ def test_mixup_sequence_batch_mixes_aux_with_same_idx_and_lam():
 
 def test_mixup_sequence_batch_rejects_zero_alpha():
     from mlframe.training.neural._mixup import mixup_sequence_batch
-    seqs = torch.randn(8, 5, 4); lens = torch.full((8,), 5); y = torch.randn(8)
+
+    seqs = torch.randn(8, 5, 4)
+    lens = torch.full((8,), 5)
+    y = torch.randn(8)
     with pytest.raises(ValueError, match="alpha must be > 0"):
         mixup_sequence_batch(seqs, lens, y, alpha=0.0)
 
 
 def test_mixup_sequence_batch_rejects_batch_dim_mismatch():
     from mlframe.training.neural._mixup import mixup_sequence_batch
-    seqs = torch.randn(8, 5, 4); lens = torch.full((7,), 5); y = torch.randn(8)
+
+    seqs = torch.randn(8, 5, 4)
+    lens = torch.full((7,), 5)
+    y = torch.randn(8)
     with pytest.raises(ValueError, match="batch dim"):
         mixup_sequence_batch(seqs, lens, y, alpha=0.2)
 
@@ -139,14 +158,24 @@ def test_mlptorchmodel_training_step_with_mixup_regression():
     from mlframe.training.neural.flat import generate_mlp
 
     net = generate_mlp(
-        num_features=4, num_classes=1, nlayers=1,
-        first_layer_num_neurons=8, dropout_prob=0.0,
-        inputs_dropout_prob=0.0, use_layernorm=False, use_batchnorm=False,
-        activation_function=nn.ReLU, verbose=0,
+        num_features=4,
+        num_classes=1,
+        nlayers=1,
+        first_layer_num_neurons=8,
+        dropout_prob=0.0,
+        inputs_dropout_prob=0.0,
+        use_layernorm=False,
+        use_batchnorm=False,
+        activation_function=nn.ReLU,
+        verbose=0,
     )
     module = MLPTorchModel(
-        loss_fn=nn.MSELoss(), metrics=[], network=net,
-        use_mixup=True, mixup_alpha=0.2, task_type="regression",
+        loss_fn=nn.MSELoss(),
+        metrics=[],
+        network=net,
+        use_mixup=True,
+        mixup_alpha=0.2,
+        task_type="regression",
     )
     module.train()
     x = torch.randn(16, 4)
@@ -164,14 +193,23 @@ def test_mlptorchmodel_training_step_with_mixup_classification():
     from mlframe.training.neural.flat import generate_mlp
 
     net = generate_mlp(
-        num_features=4, num_classes=3, nlayers=1,
-        first_layer_num_neurons=8, dropout_prob=0.0,
-        inputs_dropout_prob=0.0, use_layernorm=False, use_batchnorm=False,
-        activation_function=nn.ReLU, verbose=0,
+        num_features=4,
+        num_classes=3,
+        nlayers=1,
+        first_layer_num_neurons=8,
+        dropout_prob=0.0,
+        inputs_dropout_prob=0.0,
+        use_layernorm=False,
+        use_batchnorm=False,
+        activation_function=nn.ReLU,
+        verbose=0,
     )
     module = MLPTorchModel(
-        loss_fn=nn.CrossEntropyLoss(), metrics=[], network=net,
-        use_mixup=True, mixup_alpha=0.2,
+        loss_fn=nn.CrossEntropyLoss(),
+        metrics=[],
+        network=net,
+        use_mixup=True,
+        mixup_alpha=0.2,
     )
     module.train()
     x = torch.randn(16, 4)
@@ -190,18 +228,28 @@ def test_mlptorchmodel_training_step_mixup_disabled_returns_same_as_plain():
     from mlframe.training.neural.flat import generate_mlp
 
     net = generate_mlp(
-        num_features=4, num_classes=1, nlayers=1,
-        first_layer_num_neurons=8, dropout_prob=0.0,
-        inputs_dropout_prob=0.0, use_layernorm=False, use_batchnorm=False,
-        activation_function=nn.ReLU, verbose=0,
+        num_features=4,
+        num_classes=1,
+        nlayers=1,
+        first_layer_num_neurons=8,
+        dropout_prob=0.0,
+        inputs_dropout_prob=0.0,
+        use_layernorm=False,
+        use_batchnorm=False,
+        activation_function=nn.ReLU,
+        verbose=0,
     )
     module = MLPTorchModel(
-        loss_fn=nn.MSELoss(), metrics=[], network=net,
-        use_mixup=False, task_type="regression",
+        loss_fn=nn.MSELoss(),
+        metrics=[],
+        network=net,
+        use_mixup=False,
+        task_type="regression",
     )
     module.train()
     torch.manual_seed(0)
-    x = torch.randn(16, 4); y = torch.randn(16)
+    x = torch.randn(16, 4)
+    y = torch.randn(16)
     batch = {"features": x, "labels": y, "sample_weight": None}
     out_no_mix = module.training_step(batch, batch_idx=0)
     loss_no_mix = out_no_mix["loss"] if isinstance(out_no_mix, dict) else out_no_mix
@@ -228,11 +276,13 @@ def test_mlp_mixup_does_not_catastrophically_regress_regression():
     )
 
     X, y = make_regression(n_samples=400, n_features=4, noise=0.5, random_state=0)
-    X = X.astype(np.float32); y = y.astype(np.float32)
+    X = X.astype(np.float32)
+    y = y.astype(np.float32)
     X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=0.3, random_state=0)
 
     def fit_score(use_mixup: bool) -> float:
-        torch.manual_seed(0); np.random.seed(0)
+        torch.manual_seed(0)
+        np.random.seed(0)
         reg = PytorchLightningRegressor(
             model_class=MLPTorchModel,
             model_params={
@@ -242,20 +292,28 @@ def test_mlp_mixup_does_not_catastrophically_regress_regression():
                 "mixup_alpha": 0.2,
             },
             network_params={
-                "nlayers": 2, "first_layer_num_neurons": 32,
-                "dropout_prob": 0.0, "inputs_dropout_prob": 0.0,
-                "use_layernorm": False, "use_batchnorm": False,
+                "nlayers": 2,
+                "first_layer_num_neurons": 32,
+                "dropout_prob": 0.0,
+                "inputs_dropout_prob": 0.0,
+                "use_layernorm": False,
+                "use_batchnorm": False,
                 "activation_function": nn.ReLU,
             },
             datamodule_class=TorchDataModule,
             datamodule_params={
-                "features_dtype": torch.float32, "labels_dtype": torch.float32,
+                "features_dtype": torch.float32,
+                "labels_dtype": torch.float32,
                 "dataloader_params": {"batch_size": 64, "num_workers": 0},
             },
             trainer_params={
-                "max_epochs": 100, "enable_model_summary": False,
-                "enable_progress_bar": False, "log_every_n_steps": 5,
-                "devices": 1, "accelerator": "cpu", "logger": False,
+                "max_epochs": 100,
+                "enable_model_summary": False,
+                "enable_progress_bar": False,
+                "log_every_n_steps": 5,
+                "devices": 1,
+                "accelerator": "cpu",
+                "logger": False,
             },
             random_state=0,
         )
@@ -265,6 +323,4 @@ def test_mlp_mixup_does_not_catastrophically_regress_regression():
     r2_plain = fit_score(False)
     r2_mix = fit_score(True)
     assert r2_plain > 0.9, f"plain MLP only reached R^2={r2_plain:.4f}"
-    assert r2_mix > r2_plain - 0.10, (
-        f"Mixup-wrapped R^2={r2_mix:.4f} regressed >0.10 vs plain R^2={r2_plain:.4f}"
-    )
+    assert r2_mix > r2_plain - 0.10, f"Mixup-wrapped R^2={r2_mix:.4f} regressed >0.10 vs plain R^2={r2_plain:.4f}"

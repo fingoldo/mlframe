@@ -32,11 +32,11 @@ Heavy specs (ShapProxiedFS / BorutaShap / HybridSelector / GroupAware) are
 ``slow``-marked through ``spec_params`` and skipped under MLFRAME_FAST=1, which
 keeps a fast MRMR + RFECV representative on every contract.
 """
+
 from __future__ import annotations
 
 import warnings
 
-import numpy as np
 import pandas as pd
 import pytest
 from sklearn.base import clone
@@ -49,23 +49,21 @@ from tests.feature_selection._selector_factories import (
     spec_params,
 )
 
-
 # --- shared data (built once) ----------------------------------------------
 
 
 def _binary_frame(n=400, p=10, seed=0):
+    """Synthetic binary-classification frame shared across the protocol tests."""
     # Strong, well-separated signal so the selected SET is stable -- the polars
     # parity / set_output contracts compare selections across input flavours and
     # a noisy near-tie flip would be a power artefact, not a protocol violation.
-    X, y = make_classification(n_samples=n, n_features=p, n_informative=5,
-                               n_redundant=0, n_classes=2, random_state=seed,
-                               shuffle=False, class_sep=2.5)
+    X, y = make_classification(n_samples=n, n_features=p, n_informative=5, n_redundant=0, n_classes=2, random_state=seed, shuffle=False, class_sep=2.5)
     return pd.DataFrame(X, columns=[f"f{i}" for i in range(p)]), y
 
 
 def _regression_frame(n=400, p=10, seed=0):
-    X, y = make_regression(n_samples=n, n_features=p, n_informative=5,
-                           noise=0.1, random_state=seed, shuffle=False)
+    """Synthetic regression frame shared across the protocol tests."""
+    X, y = make_regression(n_samples=n, n_features=p, n_informative=5, noise=0.1, random_state=seed, shuffle=False)
     return pd.DataFrame(X, columns=[f"f{i}" for i in range(p)]), y
 
 
@@ -73,12 +71,11 @@ _BINARY_X, _BINARY_Y = _binary_frame()
 _REGRESSION_X, _REGRESSION_Y = _regression_frame()
 
 _SPECS = spec_params()
-_REGRESSION_SPECS = [
-    p for p in _SPECS if "regression" in SELECTOR_SPECS[p.id].tasks
-]
+_REGRESSION_SPECS = [p for p in _SPECS if "regression" in SELECTOR_SPECS[p.id].tasks]
 
 
 def _fit(selector, X, y):
+    """Fit ``selector`` on ``X``/``y`` with sklearn's convergence/deprecation warnings suppressed."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         return selector.fit(X, y)
@@ -90,6 +87,7 @@ _FIT_CACHE: dict[str, object] = {}
 
 
 def _fitted_binary(spec):
+    """Return ``spec``'s selector fitted once on the canonical binary frame, from cache if available."""
     if spec.name not in _FIT_CACHE:
         _FIT_CACHE[spec.name] = _fit(spec.make("binary"), _BINARY_X.copy(), _BINARY_Y)
     return _FIT_CACHE[spec.name]
@@ -111,17 +109,19 @@ def _raw_selected(sel) -> list[str]:
 
 @pytest.mark.parametrize("spec", _SPECS)
 class TestGetFeatureNamesOutInputFeatures:
+    """``get_feature_names_out(input_features=...)`` protocol surfaces not covered by the shared file."""
+
     def test_none_equals_explicit_columns(self, spec):
+        """``gfno(None)`` must equal ``gfno(list(fitted_columns))``."""
         sel = _fitted_binary(spec)
         if not spec.has_gfno:
             pytest.xfail(f"{spec.name}: no get_feature_names_out (declared sklearn-parity gap)")
         g_none = [str(x) for x in sel.get_feature_names_out(None)]
         g_cols = [str(x) for x in sel.get_feature_names_out(list(_BINARY_X.columns))]
-        assert g_none == g_cols, (
-            f"{spec.name}: gfno(None) != gfno(list(columns)) -- "
-            f"{g_none[:6]} vs {g_cols[:6]}")
+        assert g_none == g_cols, f"{spec.name}: gfno(None) != gfno(list(columns)) -- {g_none[:6]} vs {g_cols[:6]}"
 
     def test_wrong_length_input_features_raises(self, spec):
+        """A wrong-length ``input_features`` should raise (sklearn column-drift contract) or xfail the gap."""
         sel = _fitted_binary(spec)
         if not spec.has_gfno:
             pytest.xfail(f"{spec.name}: no get_feature_names_out (declared sklearn-parity gap)")
@@ -130,11 +130,10 @@ class TestGetFeatureNamesOutInputFeatures:
             sel.get_feature_names_out(bad)
         except (ValueError, IndexError, AssertionError):
             return  # implements the sklearn column-drift / length contract
-        pytest.xfail(
-            f"{spec.name}: get_feature_names_out ignores input_features length "
-            "(no sklearn column-drift detection -- parity gap)")
+        pytest.xfail(f"{spec.name}: get_feature_names_out ignores input_features length (no sklearn column-drift detection -- parity gap)")
 
     def test_ndarray_fit_propagates_user_names(self, spec):
+        """A caller-supplied ``input_features`` should override synthesized names after an ndarray fit."""
         # After fitting on a bare ndarray, feature_names_in_ are synthesized
         # placeholders; the sklearn protocol lets a caller re-inject real names
         # via input_features. MRMR honours this for the raw selected columns;
@@ -146,25 +145,22 @@ class TestGetFeatureNamesOutInputFeatures:
         try:
             sel = _fit(spec.make("binary"), _BINARY_X.values, _BINARY_Y)
         except (AttributeError, TypeError, KeyError):
-            pytest.xfail(f"{spec.name}: fit requires a DataFrame, rejects bare ndarray "
-                         "(no ndarray-fit name-injection path -- declared parity gap)")
+            pytest.xfail(f"{spec.name}: fit requires a DataFrame, rejects bare ndarray (no ndarray-fit name-injection path -- declared parity gap)")
         n_in = int(sel.n_features_in_)
         user = [f"u{i}" for i in range(n_in)]
         try:
             out = [str(x) for x in sel.get_feature_names_out(user)]
         except (ValueError, IndexError):
-            pytest.xfail(f"{spec.name}: get_feature_names_out(input_features) raised on "
-                         "ndarray-fit instead of honouring user names (parity gap)")
+            pytest.xfail(f"{spec.name}: get_feature_names_out(input_features) raised on ndarray-fit instead of honouring user names (parity gap)")
         # The RAW survivors (those mapping to original positions) must carry the
         # user-injected name when the selector honours input_features.
         synth = {f"feature_{i}" for i in range(n_in)} | {str(i) for i in range(n_in)}
         raw_out = [nm for nm in out if (nm in set(user)) or (nm in synth)]
         if not raw_out or all(nm in synth for nm in raw_out):
-            pytest.xfail(f"{spec.name}: ndarray-fit get_feature_names_out kept synthesized "
-                         "placeholders, ignored user names (declared parity gap)")
+            pytest.xfail(f"{spec.name}: ndarray-fit get_feature_names_out kept synthesized placeholders, ignored user names (declared parity gap)")
         assert any(nm in set(user) for nm in raw_out), (
-            f"{spec.name}: ndarray-fit gfno(user_names) did not propagate any "
-            f"user name into the selected raw columns -- got {out[:8]}")
+            f"{spec.name}: ndarray-fit gfno(user_names) did not propagate any user name into the selected raw columns -- got {out[:8]}"
+        )
 
 
 # ===========================================================================
@@ -174,7 +170,10 @@ class TestGetFeatureNamesOutInputFeatures:
 
 @pytest.mark.parametrize("spec", _SPECS)
 class TestSetOutputPandas:
+    """``set_output(transform="pandas")`` protocol surfaces not covered by the shared file."""
+
     def test_ndarray_in_pandas_out_columns_match_gfno(self, spec):
+        """ndarray-in with ``set_output(transform='pandas')`` must yield a DataFrame with gfno() columns."""
         sel = spec.make("binary")
         if not callable(getattr(sel, "set_output", None)):
             pytest.xfail(f"{spec.name}: no set_output (not a _SetOutputMixin transformer -- parity gap)")
@@ -183,23 +182,23 @@ class TestSetOutputPandas:
         out = sel.transform(_BINARY_X.values)
         assert isinstance(out, pd.DataFrame), (
             f"{spec.name}: set_output(transform='pandas') did not yield a DataFrame "
-            f"(got {type(out).__name__}) -- a transform-rebind regression would silence set_output")
+            f"(got {type(out).__name__}) -- a transform-rebind regression would silence set_output"
+        )
         assert out.shape[0] == _BINARY_X.shape[0]
         if spec.has_gfno:
             expected = [str(x) for x in sel.get_feature_names_out()]
             assert [str(c) for c in out.columns] == expected, (
-                f"{spec.name}: set_output columns != get_feature_names_out() -- "
-                f"{list(out.columns)[:6]} vs {expected[:6]}")
+                f"{spec.name}: set_output columns != get_feature_names_out() -- {list(out.columns)[:6]} vs {expected[:6]}"
+            )
 
     def test_default_dataframe_in_dataframe_out(self, spec):
+        """Without ``set_output``, a DataFrame input must still yield a DataFrame output."""
         # Without set_output, a DataFrame in yields a DataFrame out (the mlframe
         # selectors transform name-keyed); a regression to positional ndarray
         # output would drop the column schema downstream pipelines depend on.
         sel = _fitted_binary(spec)
         out = sel.transform(_BINARY_X)
-        assert isinstance(out, pd.DataFrame), (
-            f"{spec.name}: DataFrame-in default transform returned "
-            f"{type(out).__name__}, expected DataFrame")
+        assert isinstance(out, pd.DataFrame), f"{spec.name}: DataFrame-in default transform returned {type(out).__name__}, expected DataFrame"
 
 
 # ===========================================================================
@@ -209,11 +208,13 @@ class TestSetOutputPandas:
 
 @pytest.mark.parametrize("spec", _REGRESSION_SPECS)
 class TestRegressionTask:
+    """n_features_in_/support/transform-shape invariants on a regression fit."""
+
     def test_regression_fit_satisfies_invariants(self, spec):
+        """Fitting on a regression frame must satisfy the same n_features_in_/support/transform invariants as binary."""
         sel = _fit(spec.make("regression"), _REGRESSION_X.copy(), _REGRESSION_Y)
         n_in = int(getattr(sel, "n_features_in_", -1))
-        assert 1 <= n_in <= _REGRESSION_X.shape[1], (
-            f"{spec.name}: regression n_features_in_={n_in} out of range")
+        assert 1 <= n_in <= _REGRESSION_X.shape[1], f"{spec.name}: regression n_features_in_={n_in} out of range"
         mask = selected_mask(sel)
         assert mask.dtype == bool and mask.shape == (n_in,)
         assert int(mask.sum()) >= 1, f"{spec.name}: regression selected zero features"
@@ -221,8 +222,8 @@ class TestRegressionTask:
         assert Xt.shape[0] == _REGRESSION_X.shape[0]
         n_eng = len(getattr(sel, "_engineered_recipes_", []))
         assert Xt.shape[1] == int(mask.sum()) + n_eng, (
-            f"{spec.name}: regression transform width {Xt.shape[1]} != "
-            f"selected {int(mask.sum())} + engineered {n_eng}")
+            f"{spec.name}: regression transform width {Xt.shape[1]} != selected {int(mask.sum())} + engineered {n_eng}"
+        )
 
 
 # ===========================================================================
@@ -232,30 +233,32 @@ class TestRegressionTask:
 
 @pytest.mark.parametrize("spec", _SPECS)
 class TestPolarsPandasParity:
+    """polars-input selection must match the pandas-input selection for deterministic specs."""
+
     def test_polars_input_selects_same_names_as_pandas(self, spec):
+        """A polars fit's feature_names_in_/selection must match the equivalent pandas fit."""
         pl = pytest.importorskip("polars")
         if spec.determinism < 1.0:
-            pytest.xfail(f"{spec.name}: non-deterministic selection (bootstrapped CV / shadow "
-                         "ordering) -- polars/pandas parity is a Jaccard band, not set-equality")
+            pytest.xfail(
+                f"{spec.name}: non-deterministic selection (bootstrapped CV / shadow ordering) -- polars/pandas parity is a Jaccard band, not set-equality"
+            )
         pd_sel = _fit(spec.make("binary"), _BINARY_X.copy(), _BINARY_Y)
         try:
             pl_sel = _fit(spec.make("binary"), pl.from_pandas(_BINARY_X), _BINARY_Y)
         except TypeError as e:
-            pytest.xfail(f"{spec.name}: rejects polars input ({type(e).__name__}) -- "
-                         "no polars support declared")
+            pytest.xfail(f"{spec.name}: rejects polars input ({type(e).__name__}) -- no polars support declared")
         # A polars fit must capture the frame's REAL column names (from its schema), never synthesize ``f_{i}`` placeholders; the selected NAMES
         # must therefore match the pandas fit, not just the selected positions.
         assert list(pl_sel.feature_names_in_) == list(_BINARY_X.columns), (
             f"{spec.name}: polars fit recorded {list(pl_sel.feature_names_in_)[:5]} instead of the real column names "
-            f"{list(_BINARY_X.columns)[:5]} (placeholder-name capture bug)")
+            f"{list(_BINARY_X.columns)[:5]} (placeholder-name capture bug)"
+        )
         pd_names, pl_names = set(selected_names(pd_sel)), set(selected_names(pl_sel))
         # Tolerate a symmetric difference of <=1 raw column: a single boundary
         # column can flip on the polars Arrow-bridge dtype roundtrip even for a
         # "deterministic" selector, which is a parity artefact not a regression.
         sym = pd_names.symmetric_difference(pl_names)
-        assert len(sym) <= 1, (
-            f"{spec.name}: polars selection differs from pandas by {sorted(sym)} "
-            f"(pandas={sorted(pd_names)}, polars={sorted(pl_names)})")
+        assert len(sym) <= 1, f"{spec.name}: polars selection differs from pandas by {sorted(sym)} (pandas={sorted(pd_names)}, polars={sorted(pl_names)})"
 
 
 # ===========================================================================
@@ -270,6 +273,7 @@ def test_hybrid_selector_fits_polars_and_captures_real_names():
     selected raw set matching the pandas fit."""
     pl = pytest.importorskip("polars")
     from mlframe.feature_selection.hybrid_selector import HybridSelector
+
     pd_sel = _fit(HybridSelector(use_fe=False, use_tree_member=False, random_state=0), _BINARY_X.copy(), _BINARY_Y)
     pl_sel = _fit(HybridSelector(use_fe=False, use_tree_member=False, random_state=0), pl.from_pandas(_BINARY_X), _BINARY_Y)
     assert list(pl_sel.feature_names_in_) == list(_BINARY_X.columns)
@@ -288,9 +292,13 @@ def test_group_aware_rfecv_polars_records_real_names_not_placeholders():
     from mlframe.feature_selection import registry
 
     def _mk():
+        """Fresh unfitted GroupAware(RFECV) instance for the pandas/polars parity comparison."""
         return registry.get("RFECV").instantiate(
             estimator=LogisticRegression(max_iter=200, random_state=0),
-            cv=3, max_refits=3, random_state=0, leakage_corr_threshold=None,
+            cv=3,
+            max_refits=3,
+            random_state=0,
+            leakage_corr_threshold=None,
             n_features_selection_rule="argmax",
         )
 
@@ -316,50 +324,50 @@ def _is_sklearn_estimator(sel) -> bool:
 
 @pytest.mark.parametrize("spec", _SPECS)
 class TestCloneGetSetParams:
+    """sklearn clone()/get_params/set_params round-trip contract."""
+
     def test_clone_unfitted_roundtrips_params(self, spec):
+        """clone() on an unfitted selector must reproduce the same type and param key set."""
         sel = spec.make("binary")
         if not _is_sklearn_estimator(sel):
-            pytest.xfail(f"{spec.name}: not a sklearn BaseEstimator (no get_params/set_params -- "
-                         "clone() inapplicable, declared parity gap)")
+            pytest.xfail(f"{spec.name}: not a sklearn BaseEstimator (no get_params/set_params -- clone() inapplicable, declared parity gap)")
         cloned = clone(sel)
         assert type(cloned) is type(sel)
         # clone() reproduces the constructor params; get_params on the clone must
         # equal get_params on the original (sklearn estimator contract).
         orig = sel.get_params(deep=False)
         copy = cloned.get_params(deep=False)
-        assert set(orig) == set(copy), (
-            f"{spec.name}: clone changed the param key set "
-            f"{set(orig) ^ set(copy)}")
+        assert set(orig) == set(copy), f"{spec.name}: clone changed the param key set {set(orig) ^ set(copy)}"
 
     def test_get_set_params_roundtrip(self, spec):
+        """set_params(**get_params()) must return self and leave the param key set unchanged."""
         sel = spec.make("binary")
         if not _is_sklearn_estimator(sel):
-            pytest.xfail(f"{spec.name}: not a sklearn BaseEstimator (no get_params/set_params -- "
-                         "declared parity gap)")
+            pytest.xfail(f"{spec.name}: not a sklearn BaseEstimator (no get_params/set_params -- declared parity gap)")
         params = sel.get_params(deep=False)
         # Re-set every shallow param to its own value -- a faithful estimator
         # must accept its own get_params() back through set_params unchanged.
         returned = sel.set_params(**params)
         assert returned is sel
         after = sel.get_params(deep=False)
-        assert set(after) == set(params), (
-            f"{spec.name}: set_params round-trip altered the param key set")
+        assert set(after) == set(params), f"{spec.name}: set_params round-trip altered the param key set"
 
     def test_clone_deep_clones_wrapped_estimator(self, spec):
+        """A meta-estimator's clone() must deep-clone its wrapped ``.estimator``, not share the reference."""
         # GroupAware(RFECV) is a meta-estimator holding the wrapped selector in
         # ``self.estimator``; sklearn clone() must DEEP-clone that inner estimator
         # (a fresh object, not a shared reference) or two clones would share fit
         # state. Plain selectors have no wrapped estimator -> nothing to assert.
         sel = spec.make("binary")
-        if not _is_sklearn_estimator(sel) or not hasattr(sel, "estimator"):
-            pytest.skip(f"{spec.name}: not a sklearn wrapping meta-estimator (no .estimator)")
+        if not _is_sklearn_estimator(sel) or not hasattr(sel, "estimator") or sel.estimator is None:
+            # ``estimator=None`` (the functional-adapter selectors' default) is an unset override,
+            # not a wrapped fitted-selector instance -- there is nothing to deep-clone, so
+            # ``cloned.estimator is not sel.estimator`` (None is not None) is vacuously false and
+            # would fail the assertion below for a reason unrelated to clone provenance.
+            pytest.skip(f"{spec.name}: not a sklearn wrapping meta-estimator (no .estimator instance)")
         cloned = clone(sel)
-        assert cloned.estimator is not sel.estimator, (
-            f"{spec.name}: clone shares the wrapped inner estimator reference "
-            "(must be deep-cloned)")
-        assert "estimator" in cloned.get_params(deep=False), (
-            f"{spec.name}: wrapped estimator missing from get_params -- "
-            "clone provenance broken")
+        assert cloned.estimator is not sel.estimator, f"{spec.name}: clone shares the wrapped inner estimator reference (must be deep-cloned)"
+        assert "estimator" in cloned.get_params(deep=False), f"{spec.name}: wrapped estimator missing from get_params -- clone provenance broken"
 
 
 # ===========================================================================

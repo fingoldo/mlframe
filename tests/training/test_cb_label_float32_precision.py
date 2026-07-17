@@ -4,6 +4,7 @@ Large-magnitude regression targets (int counts/IDs > 2**24, high-precision float
 collapse adjacent values under an unconditional ``astype(np.float32)``, biasing the
 fit. The guard keeps float64 when float32 would be lossy (CatBoost accepts float64).
 """
+
 import numpy as np
 
 from mlframe.training.cb._cb_pool import _coerce_label_for_cb_pool

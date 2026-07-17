@@ -15,11 +15,12 @@ import numpy as np
 import pytest
 
 from mlframe.reporting.charts.training_curve import (
-    compose_training_curve_figure, normalize_history,
+    compose_training_curve_figure,
+    normalize_history,
 )
 from mlframe.reporting.output import parse_plot_output_dsl
 from mlframe.reporting.renderers import render_and_save
-from mlframe.reporting.spec import AnnotationPanelSpec, FigureSpec, LinePanelSpec
+from mlframe.reporting.spec import AnnotationPanelSpec, LinePanelSpec
 
 
 def _overfitting_history(n_iter=120, turn=70):
@@ -158,8 +159,7 @@ class TestRender:
         spec = compose_training_curve_figure(overfit_history, es_iteration=70)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            render_and_save(spec, parse_plot_output_dsl("matplotlib[png]"),
-                            str(tmp_path / "tc"))
+            render_and_save(spec, parse_plot_output_dsl("matplotlib[png]"), str(tmp_path / "tc"))
         assert os.path.exists(tmp_path / "tc.png")
         assert os.path.getsize(tmp_path / "tc.png") > 5000
 
@@ -167,8 +167,7 @@ class TestRender:
         spec = compose_training_curve_figure(overfit_history, es_iteration=70)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            render_and_save(spec, parse_plot_output_dsl("plotly[html]"),
-                            str(tmp_path / "tc"))
+            render_and_save(spec, parse_plot_output_dsl("plotly[html]"), str(tmp_path / "tc"))
         assert os.path.exists(tmp_path / "tc.html")
 
 

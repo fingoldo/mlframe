@@ -33,6 +33,7 @@ most installed pandas < 3.0, i.e. the common case, not a rare edge case).
 These tests FAIL on pre-fix code (the caller's columns gain engineered names
 and the second-fit support diverges from a fresh-copy fit) and PASS after.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -61,6 +62,7 @@ def _make_xy(n: int = 200, seed: int = 0):
 def _fit(X, y):
     """Fit a default-verbosity MRMR on (X, y), silencing its accuracy-suboptimal-param warnings."""
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         return MRMR(verbose=0).fit(X, y)
@@ -76,7 +78,7 @@ def test_fit_does_not_append_columns_to_caller_frame():
     shape_before = X.shape
     _fit(X, y)
     assert list(X.columns) == cols_before, (
-        "MRMR.fit appended columns to the caller's DataFrame " f"(before={cols_before}, after={list(X.columns)}); " "fit must not mutate its input."
+        f"MRMR.fit appended columns to the caller's DataFrame (before={cols_before}, after={list(X.columns)}); fit must not mutate its input."
     )
     assert X.shape == shape_before, f"MRMR.fit changed the caller frame shape {shape_before} -> {X.shape}."
     # No engineered / target columns leaked under any naming convention.
@@ -130,12 +132,12 @@ def test_second_fit_on_same_frame_is_independent_of_first():
         f"fresh-copy fit (reused={support_second.tolist()}, "
         f"fresh={support_fresh.tolist()}); the first fit leaked state into the frame."
     )
-    assert names_second == names_fresh, "Second fit selected different feature names than a fresh-copy fit " f"(reused={names_second}, fresh={names_fresh})."
+    assert names_second == names_fresh, f"Second fit selected different feature names than a fresh-copy fit (reused={names_second}, fresh={names_fresh})."
     # Sanity: the first fit was itself a clean fit on a pristine frame, so its
     # selection should also match the fresh reference (guards against the test
     # silently passing because BOTH reused fits are equally corrupted).
     assert np.array_equal(support_first, support_fresh), (
-        f"First fit support {support_first.tolist()} already differs from the " f"fresh-copy reference {support_fresh.tolist()}."
+        f"First fit support {support_first.tolist()} already differs from the fresh-copy reference {support_fresh.tolist()}."
     )
     assert names_first == names_fresh
 

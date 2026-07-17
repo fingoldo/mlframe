@@ -9,6 +9,7 @@ The prior ``x / (y + sign(y)*eps + eps)`` form perturbed every positive denomina
 ``2*eps``; the fix divides exactly wherever ``y != 0`` and substitutes ``eps`` only at exact
 zero. These pins assert the exactness + the finite-at-zero behaviour for both implementations.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -18,6 +19,7 @@ import pytest
 def _impls():
     from mlframe.feature_selection.filters.feature_engineering import _safe_div as fe_div
     from mlframe.feature_selection.filters.hermite_fe import _safe_div as h_div
+
     return [("feature_engineering", fe_div), ("hermite_fe", h_div)]
 
 
@@ -26,19 +28,20 @@ def test_safe_div_is_exact_on_nonzero_denominators(modname, div):
     rng = np.random.default_rng(0)
     x = rng.standard_normal(10_000)
     # span both signs and many magnitudes, incl. the heavy-tail near-zero denominators.
-    y = np.concatenate([
-        rng.uniform(1e-7, 1.0, 4000),     # small positive (the heavy-tail regime)
-        -rng.uniform(1e-7, 1.0, 4000),    # small negative
-        rng.standard_normal(2000) * 5.0,  # ordinary magnitudes (may include ~0, never exact 0)
-    ])
+    y = np.concatenate(
+        [
+            rng.uniform(1e-7, 1.0, 4000),  # small positive (the heavy-tail regime)
+            -rng.uniform(1e-7, 1.0, 4000),  # small negative
+            rng.standard_normal(2000) * 5.0,  # ordinary magnitudes (may include ~0, never exact 0)
+        ]
+    )
     y = y[y != 0.0]
     x = x[: y.size]
     got = np.asarray(div(x, y), dtype=np.float64)
     exact = x / y
     # EXACT (to f64 round-off), not merely close: the heavy-tail point must not be perturbed.
     assert np.allclose(got, exact, rtol=1e-12, atol=0.0), (
-        f"{modname}._safe_div perturbs nonzero denominators "
-        f"(max rel err {np.max(np.abs(got - exact) / np.abs(exact)):.2e})"
+        f"{modname}._safe_div perturbs nonzero denominators (max rel err {np.max(np.abs(got - exact) / np.abs(exact)):.2e})"
     )
 
 

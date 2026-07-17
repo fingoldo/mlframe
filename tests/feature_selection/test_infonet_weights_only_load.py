@@ -5,6 +5,7 @@ tampered checkpoint. This test pins the mechanism the fix relies on (a state_dic
 source loads via that path. We cannot import the vendored module directly (it uses broken absolute ``from model.* import`` paths), so we
 verify the behavioural contract + the source.
 """
+
 import re
 from pathlib import Path
 

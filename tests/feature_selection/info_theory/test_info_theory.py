@@ -10,22 +10,16 @@ Tests include:
 
 import pytest
 import numpy as np
-import pandas as pd
-import warnings
 
-from hypothesis import given, settings, strategies as st, assume, HealthCheck
-from hypothesis.extra.numpy import arrays
+from hypothesis import given, settings, strategies as st, HealthCheck
 
-from sklearn.datasets import make_classification, make_regression
 
 # Import the module under test
 from mlframe.feature_selection.filters import (
-    MRMR,
     entropy,
-    categorize_dataset,
-    discretize_array,
     compute_mi_from_classes,
 )
+
 
 class TestEntropyProperties:
     """Property-based tests for entropy function."""
@@ -45,16 +39,14 @@ class TestEntropyProperties:
             freqs = np.ones(n) / n
             result = entropy(freqs)
             expected = np.log(n)  # Natural log
-            assert np.isclose(result, expected, rtol=1e-5), \
-                f"Uniform entropy for n={n}: expected {expected}, got {result}"
+            assert np.isclose(result, expected, rtol=1e-5), f"Uniform entropy for n={n}: expected {expected}, got {result}"
 
     def test_entropy_near_deterministic_distribution(self):
         """Test entropy of near-deterministic distribution is close to 0."""
         # Use very small but non-zero values to avoid 0*log(0)=nan
-        freqs = np.array([0.9999, 0.0001/3, 0.0001/3, 0.0001/3])
+        freqs = np.array([0.9999, 0.0001 / 3, 0.0001 / 3, 0.0001 / 3])
         result = entropy(freqs)
-        assert result < 0.01, \
-            f"Near-deterministic entropy should be ~0, got {result}"
+        assert result < 0.01, f"Near-deterministic entropy should be ~0, got {result}"
 
 
 class TestMIProperties:
@@ -75,8 +67,7 @@ class TestMIProperties:
         # MI(X,X) = H(X) for identical variables
         expected_h = entropy(freqs_x[freqs_x > 0])
 
-        assert np.isclose(result, expected_h, rtol=0.1), \
-            f"MI(X,X) should equal H(X): expected {expected_h}, got {result}"
+        assert np.isclose(result, expected_h, rtol=0.1), f"MI(X,X) should equal H(X): expected {expected_h}, got {result}"
 
     def test_mi_independent_variables(self):
         """MI of independent variables should be close to 0."""
@@ -117,8 +108,7 @@ class TestMIProperties:
         mi_xy = compute_mi_from_classes(classes_x, freqs_x, classes_y, freqs_y)
         mi_yx = compute_mi_from_classes(classes_y, freqs_y, classes_x, freqs_x)
 
-        assert np.isclose(mi_xy, mi_yx, rtol=0.01), \
-            f"MI should be symmetric: MI(X,Y)={mi_xy}, MI(Y,X)={mi_yx}"
+        assert np.isclose(mi_xy, mi_yx, rtol=0.01), f"MI should be symmetric: MI(X,Y)={mi_xy}, MI(Y,X)={mi_yx}"
 
     def test_mi_bounded_by_entropy(self):
         """MI(X, Y) should be bounded by min(H(X), H(Y))."""
@@ -144,9 +134,8 @@ class TestMIProperties:
         h_y = entropy(freqs_y[freqs_y > 0])
 
         max_mi = min(h_x, h_y)
-        assert result <= max_mi + 0.01, \
-            f"MI should be <= min(H(X), H(Y)): got {result}, max={max_mi}"
+        assert result <= max_mi + 0.01, f"MI should be <= min(H(X), H(Y)): got {result}, max={max_mi}"
 
 
-if __name__ == '__main__':
-    pytest.main([__file__, '-v', '--tb=short', '-x'])
+if __name__ == "__main__":
+    pytest.main([__file__, "-v", "--tb=short", "-x"])

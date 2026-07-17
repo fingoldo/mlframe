@@ -5,6 +5,7 @@ selector must not destroy linearly-usable raw signal, so the default ``emit_both
 ALONGSIDE the engineered ratio; the opt-in ``drop`` prunes them (the minimal-set / tree-oriented
 behaviour). This pins both verdicts on the same fixture so a regression in either flips the win.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -41,9 +42,7 @@ def test_biz_val_mrmr_redundancy_policy_emit_both_keeps_raw_operands():
     out = list(fs.get_feature_names_out())
     eng = [nm for nm in out if nm not in {"a", "b", "e"}]
     assert _covers_ratio(eng), f"no a**2/b engineered ratio recovered: {out}"
-    assert "a" in out and "b" in out, (
-        f"emit_both must keep raw operands a,b alongside the engineered ratio: {out}"
-    )
+    assert "a" in out and "b" in out, f"emit_both must keep raw operands a,b alongside the engineered ratio: {out}"
 
 
 def test_biz_val_mrmr_redundancy_policy_drop_prunes_raw_operands():

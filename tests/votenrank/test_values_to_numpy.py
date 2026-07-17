@@ -2,6 +2,7 @@
 
 Behavioural check: the migrated paths produce the same numeric is_partial flag + the same prepared print arrays.
 """
+
 from __future__ import annotations
 
 import numpy as np

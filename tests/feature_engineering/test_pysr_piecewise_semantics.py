@@ -8,20 +8,22 @@ semantics saw a DIFFERENT function at predict time on negative / zero inputs. Cl
 The Piecewise replacements faithfully replicate the Julia branches: in-domain -> finite math;
 out-of-domain -> NaN (or the natural extension for safe_sqrt, which uses the absolute value).
 """
+
 from __future__ import annotations
 
 import math
 
-import pytest
 
 
 def _mappings():
     from mlframe.feature_engineering.pysr_operators import _make_extra_sympy_mappings
+
     return _make_extra_sympy_mappings()
 
 
 def test_safe_log_returns_nan_on_nonpositive():
     import sympy as sp
+
     m = _mappings()
     expr = m["safe_log"](sp.Symbol("x"))
     # x = -1 -> NaN
@@ -35,6 +37,7 @@ def test_safe_log_returns_nan_on_nonpositive():
 
 def test_xlogy_returns_nan_on_nonpositive_y():
     import sympy as sp
+
     m = _mappings()
     x, y = sp.symbols("x y")
     expr = m["xlogy"](x, y)
@@ -45,6 +48,7 @@ def test_xlogy_returns_nan_on_nonpositive_y():
 
 def test_harmonic_mean_returns_nan_on_nonpositive_sum():
     import sympy as sp
+
     m = _mappings()
     x, y = sp.symbols("x y")
     expr = m["harmonic_mean"](x, y)
@@ -59,6 +63,7 @@ def test_harmonic_mean_returns_nan_on_nonpositive_sum():
 
 def test_safe_sqrt_uses_abs_for_negative():
     import sympy as sp
+
     m = _mappings()
     x = sp.Symbol("x")
     expr = m["safe_sqrt"](x)

@@ -11,6 +11,7 @@ Sensor: perturb a single row's target and recompute. Leak-free, the row is exclu
 target. Pre-fix the flat aux ``y_hat`` of the row's neighbours moved with the row's perturbed y, so its own feature changed. The filename carries ``row_attention``
 so the ANN-backend collection skip in conftest applies.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -30,8 +31,15 @@ def test_pred_augmented_own_y_does_not_leak_into_own_feature():
     y = (X[:, 0] + 0.3 * X[:, 1] + 0.2 * rng.standard_normal(n)).astype(np.float32)
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     kw = dict(
-        seed=0, n_heads=1, head_dim=3, k=8, aggregate=("y_mean",),
-        aux_n_estimators=60, aux_max_depth=4, aux_n_splits=4, projection="random",
+        seed=0,
+        n_heads=1,
+        head_dim=3,
+        k=8,
+        aggregate=("y_mean",),
+        aux_n_estimators=60,
+        aux_max_depth=4,
+        aux_n_splits=4,
+        projection="random",
     )
 
     base = compute_pred_augmented_attention(X, y, None, splitter, **kw).to_numpy().ravel()

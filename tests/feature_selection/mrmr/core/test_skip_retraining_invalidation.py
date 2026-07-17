@@ -30,13 +30,13 @@ Matrix pinned here (tiny fixtures, single-process):
        replay; IDENTICAL clones -> cache hit (no full re-fit).
   (e)  RFECV versions of (a)-(c), incl. in-place wrapped-estimator mutation.
 """
+
 from __future__ import annotations
 
 import warnings
 
 import numpy as np
 import pandas as pd
-import pytest
 from sklearn.linear_model import LogisticRegression
 
 
@@ -51,11 +51,13 @@ def _mrmr_data(seed: int = 0, n: int = 800):
     x1 = rng.standard_normal(n)
     x2 = rng.standard_normal(n)
     y = ((x1 + x2) > 0).astype(np.int64)
-    X = pd.DataFrame({
-        "good1": x1,
-        "good2": x2,
-        "noise": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "good1": x1,
+            "good2": x2,
+            "noise": rng.standard_normal(n),
+        }
+    )
     return X, pd.Series(y)
 
 
@@ -101,12 +103,14 @@ class CountingLR(LogisticRegression):
 
 def _rfecv_data(seed: int = 7, n: int = 200):
     rng = np.random.default_rng(seed)
-    X = pd.DataFrame({
-        "x1": rng.standard_normal(n),
-        "x2": rng.standard_normal(n),
-        "x3": rng.standard_normal(n),
-        "noise": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "x1": rng.standard_normal(n),
+            "x2": rng.standard_normal(n),
+            "x3": rng.standard_normal(n),
+            "noise": rng.standard_normal(n),
+        }
+    )
     y = ((X["x1"] + X["x2"]) > 0).astype(np.int64).to_numpy()
     return X, y
 
@@ -154,8 +158,7 @@ def test_mrmr_refit_on_changed_param_same_data_reflects_new_param():
         m.fit(X, y)
         names_2 = list(m.get_feature_names_out())
     assert "good2" not in names_2, (
-        f"stale replay: selection still contains 'good2' after restricting "
-        f"factors_names_to_use to ['good1'] on identical data; got {names_2}"
+        f"stale replay: selection still contains 'good2' after restricting factors_names_to_use to ['good1'] on identical data; got {names_2}"
     )
 
 

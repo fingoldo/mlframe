@@ -7,6 +7,7 @@ realistic, literature-consistent magnitude of semi-supervised self-training gain
 win like some other techniques; pseudo-labeling gains are small and noisy per-trial, which is why this test
 averages over 10 seeds rather than asserting a single-trial threshold).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -41,7 +42,12 @@ def test_biz_val_pseudo_labeling_loop_beats_labeled_only_baseline_mean_auc():
 
         loop = PseudoLabelingLoop(
             estimator_factory=lambda: DecisionTreeClassifier(max_depth=4, random_state=0),
-            task="classification", n_rounds=2, n_splits=5, confidence_threshold=0.8, pseudo_label_weight=0.4, random_state=0,
+            task="classification",
+            n_rounds=2,
+            n_splits=5,
+            confidence_threshold=0.8,
+            pseudo_label_weight=0.4,
+            random_state=0,
         )
         loop.fit(X_labeled, y_labeled, X_unlabeled)
         aucs_pl.append(roc_auc_score(y_test, loop.predict(X_test)))
@@ -57,7 +63,11 @@ def test_pseudo_labeling_loop_confidence_filtering_rejects_low_confidence_rows()
     X_unlabeled, _ = _make_dataset(500, 2)
     loop = PseudoLabelingLoop(
         estimator_factory=lambda: DecisionTreeClassifier(max_depth=4, random_state=0),
-        task="classification", n_rounds=1, n_splits=5, confidence_threshold=0.9, random_state=0,
+        task="classification",
+        n_rounds=1,
+        n_splits=5,
+        confidence_threshold=0.9,
+        random_state=0,
     )
     loop.fit(X_labeled, y_labeled, X_unlabeled)
     accepted, _, _ = loop.pseudo_labels_history_[0]
@@ -93,15 +103,26 @@ def test_biz_val_pseudo_labeling_loop_annealed_threshold_beats_static_on_imbalan
 
         static = PseudoLabelingLoop(
             estimator_factory=lambda: DecisionTreeClassifier(max_depth=4, random_state=0),
-            task="classification", n_rounds=6, n_splits=5, confidence_threshold=0.5, pseudo_label_weight=0.6, random_state=0,
+            task="classification",
+            n_rounds=6,
+            n_splits=5,
+            confidence_threshold=0.5,
+            pseudo_label_weight=0.6,
+            random_state=0,
         )
         static.fit(X_labeled, y_labeled, X_unlabeled)
         aucs_static.append(roc_auc_score(y_test, static.predict(X_test)))
 
         anneal = PseudoLabelingLoop(
             estimator_factory=lambda: DecisionTreeClassifier(max_depth=4, random_state=0),
-            task="classification", n_rounds=6, n_splits=5, confidence_threshold=0.5, pseudo_label_weight=0.6, random_state=0,
-            threshold_anneal="linear", threshold_final=0.9,
+            task="classification",
+            n_rounds=6,
+            n_splits=5,
+            confidence_threshold=0.5,
+            pseudo_label_weight=0.6,
+            random_state=0,
+            threshold_anneal="linear",
+            threshold_final=0.9,
         )
         anneal.fit(X_labeled, y_labeled, X_unlabeled)
         aucs_anneal.append(roc_auc_score(y_test, anneal.predict(X_test)))
@@ -123,7 +144,11 @@ def test_pseudo_labeling_loop_class_thresholds_override_scalar_threshold():
 
     scalar = PseudoLabelingLoop(
         estimator_factory=lambda: DecisionTreeClassifier(max_depth=4, random_state=0),
-        task="classification", n_rounds=1, n_splits=5, confidence_threshold=0.3, random_state=0,
+        task="classification",
+        n_rounds=1,
+        n_splits=5,
+        confidence_threshold=0.3,
+        random_state=0,
     )
     scalar.fit(X_labeled, y_labeled, X_unlabeled)
     scalar_accept, scalar_mean, _ = scalar.pseudo_labels_history_[0]
@@ -131,7 +156,11 @@ def test_pseudo_labeling_loop_class_thresholds_override_scalar_threshold():
 
     per_class = PseudoLabelingLoop(
         estimator_factory=lambda: DecisionTreeClassifier(max_depth=4, random_state=0),
-        task="classification", n_rounds=1, n_splits=5, confidence_threshold=0.3, random_state=0,
+        task="classification",
+        n_rounds=1,
+        n_splits=5,
+        confidence_threshold=0.3,
+        random_state=0,
         class_thresholds={1: 0.95},
     )
     per_class.fit(X_labeled, y_labeled, X_unlabeled)
@@ -150,12 +179,22 @@ def test_pseudo_labeling_loop_default_static_threshold_bit_identical_without_new
     def _factory():
         return DecisionTreeClassifier(max_depth=4, random_state=0)
 
-    old_style = PseudoLabelingLoop(estimator_factory=_factory, task="classification", n_rounds=3, n_splits=5, confidence_threshold=0.6, pseudo_label_weight=0.4, random_state=0)
+    old_style = PseudoLabelingLoop(
+        estimator_factory=_factory, task="classification", n_rounds=3, n_splits=5, confidence_threshold=0.6, pseudo_label_weight=0.4, random_state=0
+    )
     old_style.fit(X_labeled, y_labeled, X_unlabeled)
 
     new_defaults = PseudoLabelingLoop(
-        estimator_factory=_factory, task="classification", n_rounds=3, n_splits=5, confidence_threshold=0.6, pseudo_label_weight=0.4, random_state=0,
-        threshold_anneal=None, threshold_final=None, class_thresholds=None,
+        estimator_factory=_factory,
+        task="classification",
+        n_rounds=3,
+        n_splits=5,
+        confidence_threshold=0.6,
+        pseudo_label_weight=0.4,
+        random_state=0,
+        threshold_anneal=None,
+        threshold_final=None,
+        class_thresholds=None,
     )
     new_defaults.fit(X_labeled, y_labeled, X_unlabeled)
 

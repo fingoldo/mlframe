@@ -67,11 +67,7 @@ def _mm_mi(x: np.ndarray, y: np.ndarray, kx: int, ky: int) -> float:
     for xi, yi in zip(x, y):
         joint[xi, yi] += 1
     fjoint = (joint.ravel().astype(np.float64)) / n
-    return float(
-        entropy_miller_madow(fx, n)
-        + entropy_miller_madow(fy, n)
-        - entropy_miller_madow(fjoint, n)
-    )
+    return float(entropy_miller_madow(fx, n) + entropy_miller_madow(fy, n) - entropy_miller_madow(fjoint, n))
 
 
 # -----------------------------------------------------------------------------
@@ -113,22 +109,15 @@ def test_mi_miller_madow_reduces_bias():
     # Miller-Madow at n=10 is lower than plug-in by >= 30%.
     reduction = 1.0 - mb10 / pb10
     assert mb10 < pb10, f"MM bias {mb10:.4f} should be < plug-in bias {pb10:.4f}"
-    assert reduction >= 0.30, (
-        f"MM should reduce plug-in bias by >= 30%, got "
-        f"reduction={reduction * 100:.1f}% (plug-in={pb10:.4f}, MM={mb10:.4f})"
-    )
+    assert reduction >= 0.30, f"MM should reduce plug-in bias by >= 30%, got reduction={reduction * 100:.1f}% (plug-in={pb10:.4f}, MM={mb10:.4f})"
 
     # Both converge to 0 as n grows.
     assert abs(pb1000) < 0.02, f"plug-in bias at n=1000 should be ~0, got {pb1000:.4f}"
     assert abs(mb1000) < 0.02, f"MM bias at n=1000 should be ~0, got {mb1000:.4f}"
 
     # Monotone decay in absolute bias for both estimators.
-    assert pb10 > pb100 > abs(pb1000), (
-        f"plug-in bias not monotone: n=10 {pb10:.4f}, n=100 {pb100:.4f}, n=1000 {pb1000:.4f}"
-    )
-    assert abs(mb10) > abs(mb100) > abs(mb1000), (
-        f"MM bias not monotone: n=10 {mb10:.4f}, n=100 {mb100:.4f}, n=1000 {mb1000:.4f}"
-    )
+    assert pb10 > pb100 > abs(pb1000), f"plug-in bias not monotone: n=10 {pb10:.4f}, n=100 {pb100:.4f}, n=1000 {pb1000:.4f}"
+    assert abs(mb10) > abs(mb100) > abs(mb1000), f"MM bias not monotone: n=10 {mb10:.4f}, n=100 {mb100:.4f}, n=1000 {mb1000:.4f}"
 
 
 # -----------------------------------------------------------------------------
@@ -158,9 +147,7 @@ def test_mi_float32_vs_float64_within_epsilon():
     mi_i64 = compute_mi_from_classes(x, fx, y, fy, dtype=np.int64)
 
     assert math.isfinite(mi_i32) and math.isfinite(mi_i64)
-    assert abs(mi_i32 - mi_i64) < 1e-6, (
-        f"MI int32 vs int64 mismatch: {mi_i32!r} vs {mi_i64!r} (diff {mi_i32 - mi_i64:.3e})"
-    )
+    assert abs(mi_i32 - mi_i64) < 1e-6, f"MI int32 vs int64 mismatch: {mi_i32!r} vs {mi_i64!r} (diff {mi_i32 - mi_i64:.3e})"
 
 
 # -----------------------------------------------------------------------------
@@ -187,10 +174,7 @@ def test_discretize_array_float32_vs_float64():
 
     assert bins64.shape == bins32.shape
     mismatches = int(np.count_nonzero(bins64 != bins32))
-    assert mismatches == 0, (
-        f"float32 vs float64 discretize_array disagree on {mismatches} samples "
-        f"(out of {len(x64)})"
-    )
+    assert mismatches == 0, f"float32 vs float64 discretize_array disagree on {mismatches} samples (out of {len(x64)})"
 
 
 # -----------------------------------------------------------------------------
@@ -224,23 +208,23 @@ def test_polars_input_matches_pandas_for_mi_direct():
 
     mi_pd, _ = mi_direct(
         factors_data=factors_from_pandas,
-        x=(0,), y=(1,),
+        x=(0,),
+        y=(1,),
         factors_nbins=nbins,
         npermutations=0,
         n_workers=1,
     )
     mi_pl, _ = mi_direct(
         factors_data=factors_from_polars,
-        x=(0,), y=(1,),
+        x=(0,),
+        y=(1,),
         factors_nbins=nbins,
         npermutations=0,
         n_workers=1,
     )
 
     assert math.isfinite(mi_pd) and math.isfinite(mi_pl)
-    assert abs(mi_pd - mi_pl) < 1e-9, (
-        f"polars vs pandas MI mismatch: {mi_pd!r} vs {mi_pl!r}"
-    )
+    assert abs(mi_pd - mi_pl) < 1e-9, f"polars vs pandas MI mismatch: {mi_pd!r} vs {mi_pl!r}"
 
 
 # -----------------------------------------------------------------------------
@@ -268,9 +252,7 @@ def test_compute_mi_from_classes_finite_at_extreme_imbalance():
     assert mi_val >= 0.0, f"MI must be non-negative, got {mi_val!r}"
     # Marginal entropy of y with p=(0.999, 0.001) is small but well-defined.
     h_y = float(entropy(fy))
-    assert math.isfinite(h_y) and 0.0 < h_y < 0.05, (
-        f"H(Y) should be small but positive, got {h_y!r}"
-    )
+    assert math.isfinite(h_y) and 0.0 < h_y < 0.05, f"H(Y) should be small but positive, got {h_y!r}"
 
 
 # -----------------------------------------------------------------------------
@@ -298,9 +280,7 @@ def test_entropy_invariant_under_label_permutation():
     h_b = float(entropy(_freqs(b)))
     h_c = float(entropy(_freqs(c)))
 
-    assert h_a == h_b == h_c, (
-        f"entropy not permutation-invariant: a={h_a!r}, b={h_b!r}, c={h_c!r}"
-    )
+    assert h_a == h_b == h_c, f"entropy not permutation-invariant: a={h_a!r}, b={h_b!r}, c={h_c!r}"
     # Sanity: this is ln(2).
     assert math.isclose(h_a, math.log(2.0), rel_tol=1e-12)
 
@@ -325,9 +305,7 @@ def test_log_zero_protection_in_entropy():
     assert math.isfinite(h), f"entropy must be finite with zero cells, got {h!r}"
     assert not math.isnan(h), "entropy returned NaN on zero-cell input"
     # Expected value: H = -2 * 0.5 * log(0.5) = log(2).
-    assert math.isclose(h, math.log(2.0), rel_tol=1e-12), (
-        f"entropy with one empty cell should equal log(2) over the surviving cells, got {h!r}"
-    )
+    assert math.isclose(h, math.log(2.0), rel_tol=1e-12), f"entropy with one empty cell should equal log(2) over the surviving cells, got {h!r}"
 
 
 # -----------------------------------------------------------------------------

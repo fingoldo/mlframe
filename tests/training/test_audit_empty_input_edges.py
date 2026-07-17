@@ -31,10 +31,10 @@ given an empty DataFrame / empty numpy array / empty post-filter result.
      np.mean/np.median return NaN + RuntimeWarning, weighted-median y[order[-1]]
      raises IndexError.
 """
+
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 
 # ---------------------------------------------------------------------------
@@ -162,16 +162,12 @@ def test_metrics_calibration_plot_guards_empty_freqs_predicted() -> None:
 def test_clip_to_quantiles_guards_empty_input() -> None:
     src = _read("estimators/custom.py")
     # The fix introduces an early-return on empty array before the np.quantile call.
-    assert "arr_arr.size == 0" in src, (
-        "estimators/custom.py: clip_to_quantiles must guard empty input before np.quantile."
-    )
+    assert "arr_arr.size == 0" in src, "estimators/custom.py: clip_to_quantiles must guard empty input before np.quantile."
 
 
 def test_conformal_locally_adaptive_guards_tiny_train() -> None:
     src = _read("feature_engineering/transformer/conformal_locally_adaptive.py")
-    assert "if n < 4:" in src, (
-        "conformal_locally_adaptive.py: _process must guard tiny-train (n<4) before half-split."
-    )
+    assert "if n < 4:" in src, "conformal_locally_adaptive.py: _process must guard tiny-train (n<4) before half-split."
 
 
 def test_target_encoders_compute_prior_guards_empty_y() -> None:
@@ -180,6 +176,4 @@ def test_target_encoders_compute_prior_guards_empty_y() -> None:
     helper_idx = src.find("def _compute_prior")
     assert helper_idx != -1
     snippet = src[helper_idx : helper_idx + 800]
-    assert "if len(y) == 0:" in snippet, (
-        "target_encoders.py: _compute_prior must guard empty y."
-    )
+    assert "if len(y) == 0:" in snippet, "target_encoders.py: _compute_prior must guard empty y."

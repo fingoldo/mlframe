@@ -52,7 +52,7 @@ def test_compute_returns_curve_and_aurc():
 
 def test_accuracy_rises_as_coverage_drops_when_well_ranked():
     y, score = _well_ranked_binary()
-    cov, acc, risk, aurc, full_risk, sig = compute_risk_coverage(y, score, task="binary")
+    cov, acc, _risk, aurc, full_risk, _sig = compute_risk_coverage(y, score, task="binary")
     # Accuracy on the most-confident 20% exceeds accuracy at full coverage.
     a20 = float(np.interp(0.2, cov, acc))
     assert a20 > acc[-1] + 0.05
@@ -62,7 +62,7 @@ def test_accuracy_rises_as_coverage_drops_when_well_ranked():
 
 def test_random_confidence_curve_is_flat():
     y, score = _random_confidence_binary()
-    cov, acc, risk, aurc, full_risk, sig = compute_risk_coverage(y, score, task="binary")
+    cov, acc, _risk, aurc, full_risk, _sig = compute_risk_coverage(y, score, task="binary")
     a20 = float(np.interp(0.2, cov, acc))
     # No selective gain: accuracy at 20% coverage ~= full accuracy (within noise).
     assert abs(a20 - acc[-1]) < 0.03
@@ -79,7 +79,7 @@ def test_multiclass_top_prob_confidence():
     logits[strong, y[strong]] += 3.0
     proba = np.exp(logits)
     proba /= proba.sum(axis=1, keepdims=True)
-    cov, acc, risk, aurc, full_risk, sig = compute_risk_coverage(y, proba, task="multiclass")
+    cov, acc, _risk, _aurc, _full_risk, sig = compute_risk_coverage(y, proba, task="multiclass")
     assert sig is True
     assert float(np.interp(0.3, cov, acc)) > acc[-1]
 
@@ -90,7 +90,7 @@ def test_regression_error_drops_as_coverage_drops():
     yt = rng.normal(0, 1, n)
     conf = rng.uniform(0, 1, n)
     yp = yt + rng.normal(0, 1, n) * (1.0 - conf)  # low conf -> noisy pred
-    cov, acc, risk, aurc, full_risk, sig = compute_risk_coverage(yt, yp, task="regression", confidence=conf)
+    cov, acc, risk, aurc, full_risk, _sig = compute_risk_coverage(yt, yp, task="regression", confidence=conf)
     assert np.all(np.isnan(acc))
     e20 = float(np.interp(0.2, cov, risk))
     assert e20 < risk[-1]
@@ -102,7 +102,7 @@ def test_constant_confidence_flat_no_signal():
     n = 1000
     y = rng.integers(0, 2, n)
     score = np.full(n, 0.7)
-    cov, acc, risk, aurc, full_risk, sig = compute_risk_coverage(y, score, task="binary")
+    _cov, _acc, risk, _aurc, full_risk, sig = compute_risk_coverage(y, score, task="binary")
     assert sig is False
     # Constant confidence: stable-sort keeps order, risk is a running mean of an unranked sequence; endpoint = full risk.
     assert risk[-1] == pytest.approx(full_risk)
@@ -113,7 +113,7 @@ def test_constant_confidence_flat_no_signal():
 def test_nan_rows_dropped():
     y = np.array([0, 1, 1, 0, 1])
     score = np.array([0.1, np.nan, 0.9, 0.2, 0.8])
-    cov, acc, risk, aurc, full_risk, sig = compute_risk_coverage(y, score, task="binary")
+    cov, _acc, _risk, _aurc, _full_risk, _sig = compute_risk_coverage(y, score, task="binary")
     # 4 finite rows remain; coverage grid has 4 steps.
     assert cov.size == 4
 
@@ -121,7 +121,7 @@ def test_nan_rows_dropped():
 def test_empty_after_drop():
     y = np.array([0, 1])
     score = np.array([np.nan, np.nan])
-    cov, acc, risk, aurc, full_risk, sig = compute_risk_coverage(y, score, task="binary")
+    _cov, _acc, risk, _aurc, _full_risk, sig = compute_risk_coverage(y, score, task="binary")
     assert sig is False
     assert np.isnan(risk[0])
 
@@ -129,7 +129,7 @@ def test_empty_after_drop():
 def test_tiny_n():
     y = np.array([0, 1, 1])
     score = np.array([0.2, 0.6, 0.9])
-    cov, acc, risk, aurc, full_risk, sig = compute_risk_coverage(y, score, task="binary")
+    cov, _acc, _risk, _aurc, _full_risk, _sig = compute_risk_coverage(y, score, task="binary")
     assert cov.size == 3
 
 

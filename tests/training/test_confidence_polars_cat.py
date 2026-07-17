@@ -26,6 +26,7 @@ Post-fix:
   detected by ``get_categorical_columns``), every cat column with
   NaN cells is fill_null-ed with the sentinel string ``_NULL_``.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -48,23 +49,27 @@ def _confidence_inputs(use_polars: bool, with_null: bool, use_categorical: bool)
     probs /= probs.sum(axis=1, keepdims=True)
 
     if use_polars:
-        df = pl.DataFrame({
-            "num_0": num_arr[:, 0],
-            "num_1": num_arr[:, 1],
-            "num_2": num_arr[:, 2],
-            "cat_0": cat_arr,
-        })
+        df = pl.DataFrame(
+            {
+                "num_0": num_arr[:, 0],
+                "num_1": num_arr[:, 1],
+                "num_2": num_arr[:, 2],
+                "cat_0": cat_arr,
+            }
+        )
         if with_null:
             df = df.with_columns(pl.when(pl.col("cat_0") == "").then(None).otherwise(pl.col("cat_0")).alias("cat_0"))
         if use_categorical:
             df = df.with_columns(pl.col("cat_0").cast(pl.Categorical))
     else:
-        df = pd.DataFrame({
-            "num_0": num_arr[:, 0],
-            "num_1": num_arr[:, 1],
-            "num_2": num_arr[:, 2],
-            "cat_0": cat_arr,
-        })
+        df = pd.DataFrame(
+            {
+                "num_0": num_arr[:, 0],
+                "num_1": num_arr[:, 1],
+                "num_2": num_arr[:, 2],
+                "cat_0": cat_arr,
+            }
+        )
         if with_null:
             df.loc[df["cat_0"] == "", "cat_0"] = np.nan
         if use_categorical:
@@ -72,12 +77,15 @@ def _confidence_inputs(use_polars: bool, with_null: bool, use_categorical: bool)
     return df, target, probs
 
 
-@pytest.mark.parametrize("with_null,use_categorical", [
-    (False, False),
-    (True, False),
-    (False, True),
-    (True, True),
-])
+@pytest.mark.parametrize(
+    "with_null,use_categorical",
+    [
+        (False, False),
+        (True, False),
+        (False, True),
+        (True, True),
+    ],
+)
 def test_run_confidence_analysis_polars_cat_paths(with_null: bool, use_categorical: bool) -> None:
     """Polars frames with String / Categorical / null cells must not
     crash the confidence analyzer."""

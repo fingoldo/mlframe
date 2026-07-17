@@ -1,4 +1,5 @@
 """Unit tests for ``MissingAwareComposite`` (NaN-in-base robustness)."""
+
 from __future__ import annotations
 
 import numpy as np

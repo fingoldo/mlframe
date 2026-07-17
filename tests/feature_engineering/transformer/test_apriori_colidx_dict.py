@@ -13,6 +13,7 @@ construction, so this test pins:
 
 bench: src/mlframe/feature_engineering/_benchmarks/bench_apriori_colidx_dict.py
 """
+
 from __future__ import annotations
 
 import numpy as np

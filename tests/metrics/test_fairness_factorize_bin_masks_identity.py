@@ -1,5 +1,6 @@
 """Regression: factorize-once bin masking in compute_fairness_metrics must give the same
 per-bin metric values as the pre-fix per-bin ``bins == bin_name`` rescan."""
+
 import numpy as np
 import pandas as pd
 import pytest

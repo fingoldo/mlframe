@@ -2,6 +2,7 @@
 Shared fixtures for feature_selection tests.
 Used by both test_wrappers.py and test_filters.py
 """
+
 import os
 import sys
 
@@ -17,6 +18,7 @@ _MRMR_MOD_NAME = "mlframe.feature_selection.filters.mrmr"
 def _cuda_available_for_tests() -> bool:
     try:
         from mlframe.feature_selection.filters._fe_gpu_strict import _cuda_usable
+
         return bool(_cuda_usable())
     except Exception:
         return False
@@ -74,7 +76,7 @@ def _clear_mrmr_fit_cache_between_tests():
         # random ordering.
         with getattr(_mrmr_mod, "_MRMR_IDENTITY_FP_LOCK", _NullCtx()):
             _mrmr_mod._MRMR_IDENTITY_FP_CACHE.clear()
-    except Exception:
+    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
         # If clearing fails (e.g. coverage-active subprocess that skips
         # heavy fixtures), don't block the test from running its own setup.
         pass
@@ -84,6 +86,7 @@ def _clear_mrmr_fit_cache_between_tests():
 class _NullCtx:
     def __enter__(self):
         return self
+
     def __exit__(self, *exc):
         return False
 
@@ -100,6 +103,7 @@ def make_fast_mrmr(*, fe: bool = False, dcd: bool = False, **overrides):
     eagerly pull the heavy numba+sklearn MRMR subgraph (the import-cost avoidance
     relied upon by the ``_clear_mrmr_fit_cache_between_tests`` fast-path above)."""
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     kwargs = dict(
         verbose=0,
         interactions_max_order=1,
@@ -152,7 +156,7 @@ def make_fast_mrmr(*, fe: bool = False, dcd: bool = False, **overrides):
 # Re-export the canonical fast-mode flag and helper from the root conftest. Subdir tests historically imported ``IS_FAST_MODE`` from this conftest; preserve that name
 # but make the import-time snapshot a thin re-export of the live root value. ``is_fast_mode()`` is the authoritative live check used inside the collection hook below;
 # the constant captures the value at import time for callers that only need a parametrize-decorator-time snapshot.
-from tests.conftest import IS_FAST_MODE, is_fast_mode  # noqa: F401, E402
+from tests.conftest import IS_FAST_MODE, is_fast_mode
 
 
 def _coverage_active() -> bool:
@@ -169,6 +173,7 @@ def _coverage_active() -> bool:
     """
     try:
         import coverage as _cov
+
         return _cov.Coverage.current() is not None
     except Exception:
         return False
@@ -227,10 +232,12 @@ def pytest_collection_modifyitems(config, items):
 # Common Classification Fixtures
 # ================================================================================================
 
+
 @pytest.fixture
 def simple_classification_data():
     """Generate simple classification data with known informative features. Delegates to the centralized ``make_informative_noise_classification`` builder in ``tests/training/synthetic.py`` so seed handling + feature naming match the project-wide convention."""
     from tests.training.synthetic import make_informative_noise_classification
+
     return make_informative_noise_classification(n_samples=200, n_informative=5, n_noise=15, seed=42)
 
 
@@ -243,14 +250,12 @@ def simple_regression_data():
     n_noise = 15
 
     X_informative = rng.standard_normal(size=(n_samples, n_informative))
-    y = 3 * X_informative[:, 0] + 2 * X_informative[:, 1] - X_informative[:, 2] + \
-        0.5 * X_informative[:, 3] + rng.standard_normal(n_samples) * 0.1
+    y = 3 * X_informative[:, 0] + 2 * X_informative[:, 1] - X_informative[:, 2] + 0.5 * X_informative[:, 3] + rng.standard_normal(n_samples) * 0.1
 
     X_noise = rng.standard_normal(size=(n_samples, n_noise))
     X = np.hstack([X_informative, X_noise])
 
-    feature_names = [f'informative_{i}' for i in range(n_informative)] + \
-                   [f'noise_{i}' for i in range(n_noise)]
+    feature_names = [f"informative_{i}" for i in range(n_informative)] + [f"noise_{i}" for i in range(n_noise)]
 
     X_df = pd.DataFrame(X, columns=feature_names)
 
@@ -274,8 +279,7 @@ def imbalanced_classification_data():
     X_noise = rng.standard_normal(size=(n_samples, n_noise))
     X = np.hstack([X_informative, X_noise])
 
-    feature_names = [f'informative_{i}' for i in range(n_informative)] + \
-                   [f'noise_{i}' for i in range(n_noise)]
+    feature_names = [f"informative_{i}" for i in range(n_informative)] + [f"noise_{i}" for i in range(n_noise)]
 
     X_df = pd.DataFrame(X, columns=feature_names)
 
@@ -285,16 +289,8 @@ def imbalanced_classification_data():
 @pytest.fixture
 def multiclass_data():
     """Generate multiclass classification data."""
-    X, y = make_classification(
-        n_samples=300,
-        n_features=20,
-        n_informative=5,
-        n_redundant=0,
-        n_classes=5,
-        n_clusters_per_class=1,
-        random_state=42
-    )
-    feature_names = [f'feature_{i}' for i in range(20)]
+    X, y = make_classification(n_samples=300, n_features=20, n_informative=5, n_redundant=0, n_classes=5, n_clusters_per_class=1, random_state=42)
+    feature_names = [f"feature_{i}" for i in range(20)]
     X_df = pd.DataFrame(X, columns=feature_names)
 
     return X_df, y, list(range(5))
@@ -314,8 +310,7 @@ def high_dimensional_data():
     X_noise = rng.standard_normal(size=(n_samples, n_noise))
     X = np.hstack([X_informative, X_noise])
 
-    feature_names = [f'informative_{i}' for i in range(n_informative)] + \
-                   [f'noise_{i}' for i in range(n_noise)]
+    feature_names = [f"informative_{i}" for i in range(n_informative)] + [f"noise_{i}" for i in range(n_noise)]
 
     X_df = pd.DataFrame(X, columns=feature_names)
 
@@ -331,21 +326,14 @@ def correlated_features_data():
     base1 = rng.standard_normal(n_samples)
     base2 = rng.standard_normal(n_samples)
 
-    X_informative = np.column_stack([
-        base1,
-        base1 + rng.standard_normal(n_samples) * 0.1,
-        base2,
-        base2 + rng.standard_normal(n_samples) * 0.1,
-        base1 + base2
-    ])
+    X_informative = np.column_stack([base1, base1 + rng.standard_normal(n_samples) * 0.1, base2, base2 + rng.standard_normal(n_samples) * 0.1, base1 + base2])
 
     y = (base1 + base2 > 0).astype(int)
 
     X_noise = rng.standard_normal(size=(n_samples, 15))
     X = np.hstack([X_informative, X_noise])
 
-    feature_names = [f'informative_{i}' for i in range(5)] + \
-                   [f'noise_{i}' for i in range(15)]
+    feature_names = [f"informative_{i}" for i in range(5)] + [f"noise_{i}" for i in range(15)]
 
     X_df = pd.DataFrame(X, columns=feature_names)
 
@@ -355,6 +343,7 @@ def correlated_features_data():
 # ================================================================================================
 # MRMR-Specific Fixtures
 # ================================================================================================
+
 
 @pytest.fixture
 def synergistic_features_data():
@@ -372,17 +361,19 @@ def synergistic_features_data():
     d = rng.random(n) * 2 * np.pi
     e = rng.random(n)  # Noise feature
 
-    y = a**2/b + np.log(c)*np.sin(d)
+    y = a**2 / b + np.log(c) * np.sin(d)
 
-    df = pd.DataFrame({
-        'a': a,
-        'b': b,
-        'c': c,
-        'd': d,
-        'e': e,
-    })
+    df = pd.DataFrame(
+        {
+            "a": a,
+            "b": b,
+            "c": c,
+            "d": d,
+            "e": e,
+        }
+    )
 
-    return df, y, ['a', 'b', 'c', 'd']
+    return df, y, ["a", "b", "c", "d"]
 
 
 @pytest.fixture
@@ -397,13 +388,15 @@ def multiplicative_synergy_data():
 
     y = a * b + rng.standard_normal(n) * 0.1
 
-    df = pd.DataFrame({
-        'a': a,
-        'b': b,
-        'c': c,
-    })
+    df = pd.DataFrame(
+        {
+            "a": a,
+            "b": b,
+            "c": c,
+        }
+    )
 
-    return df, y, ['a', 'b']
+    return df, y, ["a", "b"]
 
 
 @pytest.fixture
@@ -418,13 +411,15 @@ def additive_synergy_data():
 
     y = a + b + rng.standard_normal(n) * 0.1
 
-    df = pd.DataFrame({
-        'a': a,
-        'b': b,
-        'c': c,
-    })
+    df = pd.DataFrame(
+        {
+            "a": a,
+            "b": b,
+            "c": c,
+        }
+    )
 
-    return df, y, ['a', 'b']
+    return df, y, ["a", "b"]
 
 
 @pytest.fixture
@@ -440,14 +435,16 @@ def nonlinear_transform_data():
 
     y = np.sin(a) + np.log(b + 1) + c**2 + rng.standard_normal(n) * 0.1
 
-    df = pd.DataFrame({
-        'a': a,
-        'b': b,
-        'c': c,
-        'd': d,
-    })
+    df = pd.DataFrame(
+        {
+            "a": a,
+            "b": b,
+            "c": c,
+            "d": d,
+        }
+    )
 
-    return df, y, ['a', 'b', 'c']
+    return df, y, ["a", "b", "c"]
 
 
 @pytest.fixture
@@ -470,14 +467,16 @@ def feature_engineering_example_data():
     d = rng.random(n) * 2 * np.pi
     e = rng.random(n)  # Noise
 
-    y = a**2/b + np.log(c)*np.sin(d)
+    y = a**2 / b + np.log(c) * np.sin(d)
 
-    df = pd.DataFrame({
-        'a': a,
-        'b': b,
-        'c': c,
-        'd': d,
-        'e': e,
-    })
+    df = pd.DataFrame(
+        {
+            "a": a,
+            "b": b,
+            "c": c,
+            "d": d,
+            "e": e,
+        }
+    )
 
-    return df, y, ['a', 'b', 'c', 'd']
+    return df, y, ["a", "b", "c", "d"]

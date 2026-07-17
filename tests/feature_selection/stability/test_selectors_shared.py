@@ -17,9 +17,10 @@ Algorithm-specific tests live in:
 - test_wrappers*.py (RFECV)
 - test_mrmr_*.py (MRMR)
 """
+
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
 import numpy as np
 import pandas as pd
@@ -36,9 +37,13 @@ from sklearn.pipeline import Pipeline
 # ----------------------------------------------------------------------------
 def _make_rfecv():
     from mlframe.feature_selection.wrappers import RFECV
+
     return RFECV(
         estimator=LogisticRegression(max_iter=200, random_state=0),
-        cv=3, max_refits=2, verbose=0, random_state=0,
+        cv=3,
+        max_refits=2,
+        verbose=0,
+        random_state=0,
         leakage_corr_threshold=None,
     )
 
@@ -46,6 +51,7 @@ def _make_rfecv():
 def _make_mrmr():
     try:
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         # random_seed is the MRMR-specific RNG knob (vs RFECV's random_state).
         # Set it for determinism tests; MRMR uses permutation-based MI which
         # is non-deterministic without a fixed seed.
@@ -75,8 +81,13 @@ def small_clf_problem():
     """Per-test fresh X, y (function scope) - selectors must not mutate
     inputs, but defensive isolation guards against state leakage."""
     X, y = make_classification(
-        n_samples=300, n_features=20, n_informative=8,
-        n_redundant=0, random_state=0, shuffle=False, class_sep=2.0,
+        n_samples=300,
+        n_features=20,
+        n_informative=8,
+        n_redundant=0,
+        random_state=0,
+        shuffle=False,
+        class_sep=2.0,
     )
     return pd.DataFrame(X, columns=[f"f{i}" for i in range(20)]), y
 
@@ -92,7 +103,7 @@ class TestSharedAPIContract:
         assert result is selector, "fit() must return self (sklearn convention)"
 
     def test_transform_before_fit_raises_not_fitted(self, selector_factory, small_clf_problem):
-        X, y = small_clf_problem
+        X, _y = small_clf_problem
         selector = selector_factory()
         with pytest.raises(NotFittedError):
             selector.transform(X)
@@ -198,8 +209,7 @@ class TestSharedEdgeCaseRejection:
         Both selectors should raise ValueError rather than silently producing
         zero-information output."""
         rng = np.random.default_rng(0)
-        X = pd.DataFrame(rng.standard_normal((100, 5)),
-                         columns=[f"f{i}" for i in range(5)])
+        X = pd.DataFrame(rng.standard_normal((100, 5)), columns=[f"f{i}" for i in range(5)])
         y = np.zeros(100, dtype=int)
         selector = selector_factory()
         with pytest.raises(ValueError):
@@ -219,10 +229,7 @@ class TestSharedDeterminism:
         try:
             n1 = sorted(s1.get_feature_names_out())
             n2 = sorted(s2.get_feature_names_out())
-            assert n1 == n2, (
-                f"Re-fit on identical input should produce identical support_; "
-                f"got {n1} vs {n2}"
-            )
+            assert n1 == n2, f"Re-fit on identical input should produce identical support_; got {n1} vs {n2}"
         except (AttributeError, NotImplementedError):
             pytest.skip("get_feature_names_out unavailable for comparison")
 
@@ -252,9 +259,7 @@ class TestSharedBizValue:
 
         informative = {f"f{i}" for i in range(8)}
         recall = sum(1 for n in names if n in informative)
-        assert recall >= 1, (
-            f"selector should recover >=1 of 8 informative features; got 0 in {names}"
-        )
+        assert recall >= 1, f"selector should recover >=1 of 8 informative features; got 0 in {names}"
 
 
 # ----------------------------------------------------------------------------
@@ -271,7 +276,7 @@ class TestSharedPersistence:
         # Pickle round-trip
         try:
             blob = pickle.dumps(selector)
-            restored = pickle.loads(blob)
+            restored = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
         except Exception as exc:
             pytest.skip(f"selector not pickle-safe: {exc}")
         out_restored = restored.transform(X)
@@ -292,10 +297,12 @@ class TestSharedPipelineIntegration:
         Pipeline.fit + .predict + .score must all work."""
         X, y = small_clf_problem
         try:
-            pipe = Pipeline([
-                ("select", selector_factory()),
-                ("clf", LogisticRegression(max_iter=200, random_state=0)),
-            ])
+            pipe = Pipeline(
+                [
+                    ("select", selector_factory()),
+                    ("clf", LogisticRegression(max_iter=200, random_state=0)),
+                ]
+            )
             pipe.fit(X, y)
             preds = pipe.predict(X)
             assert preds.shape == y.shape
@@ -347,16 +354,16 @@ class TestSharedTrivialInputs:
         # in y=(a>0) (the engineered tail is recreated from recipes at transform,
         # never leaked into the caller's X); assert on the RAW selection instead.
         assert selector.n_features_in_ == 1
-        raw_selected = int(np.asarray(selector.get_support()).sum()) \
-            if callable(getattr(selector, "get_support", None)) else len(getattr(selector, "support_", [0]))
+        raw_selected = (
+            int(np.asarray(selector.get_support()).sum()) if callable(getattr(selector, "get_support", None)) else len(getattr(selector, "support_", [0]))
+        )
         assert raw_selected == 1, "the single informative raw column must be selected"
 
     def test_all_noise_features(self, selector_factory):
         """No feature carries any signal. Selector should run without
         crashing - the output set may be empty or near-empty."""
         rng = np.random.default_rng(0)
-        X = pd.DataFrame(rng.standard_normal((200, 5)),
-                         columns=list("abcde"))
+        X = pd.DataFrame(rng.standard_normal((200, 5)), columns=list("abcde"))
         y = rng.integers(0, 2, 200)
         selector = selector_factory()
         try:
@@ -371,10 +378,12 @@ class TestSharedTrivialInputs:
         gracefully (MI(const, y) = 0)."""
         rng = np.random.default_rng(0)
         n = 200
-        X = pd.DataFrame({
-            "informative": rng.standard_normal(n),
-            "const": np.full(n, 5.0),
-        })
+        X = pd.DataFrame(
+            {
+                "informative": rng.standard_normal(n),
+                "const": np.full(n, 5.0),
+            }
+        )
         y = (X["informative"] > 0).astype(int).values
         selector = selector_factory()
         selector.fit(X, y)
@@ -465,12 +474,11 @@ class TestSharedRefit:
                     return True
                 # No bare raw column survived (e.g. "f4" with no "renamed_" prefix).
                 import re
+
                 bare = re.findall(r"\bf\d+\b", name)
                 return not bare
-            assert all(_is_renamed_aware(n) for n in names_second), (
-                f"Fresh-instance refit on renamed X produced stale-looking "
-                f"names: {names_second}"
-            )
+
+            assert all(_is_renamed_aware(n) for n in names_second), f"Fresh-instance refit on renamed X produced stale-looking names: {names_second}"
 
 
 # ----------------------------------------------------------------------------
@@ -480,9 +488,15 @@ class TestSharedMulticlass:
     def test_3class_classification(self, selector_factory):
         """Both selectors should handle 3+ class targets."""
         X, y = make_classification(
-            n_samples=300, n_features=15, n_informative=5,
-            n_redundant=0, n_classes=3, n_clusters_per_class=1,
-            random_state=0, shuffle=False, class_sep=2.0,
+            n_samples=300,
+            n_features=15,
+            n_informative=5,
+            n_redundant=0,
+            n_classes=3,
+            n_clusters_per_class=1,
+            random_state=0,
+            shuffle=False,
+            class_sep=2.0,
         )
         Xdf = pd.DataFrame(X, columns=[f"f{i}" for i in range(15)])
         selector = selector_factory()
@@ -502,9 +516,13 @@ class TestSharedRegression:
         Note: RFECV with default LR estimator is classifier-only; passing
         a regressor estimator is the operator's responsibility."""
         from sklearn.datasets import make_regression
+
         X, y = make_regression(
-            n_samples=200, n_features=10, n_informative=4,
-            random_state=0, shuffle=False,
+            n_samples=200,
+            n_features=10,
+            n_informative=4,
+            random_state=0,
+            shuffle=False,
         )
         Xdf = pd.DataFrame(X, columns=[f"f{i}" for i in range(10)])
         selector = selector_factory()
@@ -568,10 +586,7 @@ class TestSharedDtypeVariety:
     def test_int_dtype_features(self, selector_factory):
         rng = np.random.default_rng(0)
         n = 200
-        X = pd.DataFrame({
-            f"f{i}": rng.integers(-100, 100, n).astype(np.int32)
-            for i in range(8)
-        })
+        X = pd.DataFrame({f"f{i}": rng.integers(-100, 100, n).astype(np.int32) for i in range(8)})
         y = (X["f0"] > 0).astype(int).values
         selector = selector_factory()
         selector.fit(X, y)
@@ -579,10 +594,7 @@ class TestSharedDtypeVariety:
 
     def test_float32_dtype_features(self, selector_factory):
         rng = np.random.default_rng(0)
-        X = pd.DataFrame({
-            f"f{i}": rng.standard_normal(200).astype(np.float32)
-            for i in range(8)
-        })
+        X = pd.DataFrame({f"f{i}": rng.standard_normal(200).astype(np.float32) for i in range(8)})
         y = (X["f0"] > 0).astype(int).values
         selector = selector_factory()
         selector.fit(X, y)
@@ -598,8 +610,7 @@ class TestSharedImbalance:
         crash."""
         rng = np.random.default_rng(0)
         n = 400
-        X = pd.DataFrame(rng.standard_normal((n, 8)),
-                         columns=[f"f{i}" for i in range(8)])
+        X = pd.DataFrame(rng.standard_normal((n, 8)), columns=[f"f{i}" for i in range(8)])
         y = (rng.random(n) < 0.3).astype(int)
         selector = selector_factory()
         selector.fit(X, y)

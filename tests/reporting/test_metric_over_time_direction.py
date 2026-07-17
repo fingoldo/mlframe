@@ -7,6 +7,7 @@ Pre-fix: diagnostics_dispatch computed `higher_is_better = metric not in ("mse",
 "brier")`, so metric="rmse" -> True -> title "(higher=better)". This test pins
 both the canonical lookup (known answers) and the rendered title direction.
 """
+
 import numpy as np
 
 from mlframe.training.metrics_registry import metric_name_higher_is_better
@@ -17,9 +18,7 @@ def test_loss_metrics_are_lower_is_better_in_canonical_table():
     # Each of these would be MISLABELED higher-is-better by the old
     # `metric not in ("mse","brier")` allowlist.
     for loss in ("rmse", "mae", "mape", "log_loss", "ice", "ece", "pinball"):
-        assert metric_name_higher_is_better(loss) is False, (
-            f"{loss} must be lower-is-better"
-        )
+        assert metric_name_higher_is_better(loss) is False, f"{loss} must be lower-is-better"
     # Quality metrics still higher-is-better.
     for q in ("roc_auc", "r2", "f1", "accuracy"):
         assert metric_name_higher_is_better(q) is True
@@ -79,9 +78,18 @@ def _captured_hib_from_dispatch(metric, task, monkeypatch):
     yt = rng.normal(size=n)
     yp = yt + rng.normal(scale=0.3, size=n)
     render_target_drift_diagnostics(
-        train_frame=None, test_frame=None, y_true=yt, y_pred=yp, timestamps=ts,
-        task=task, plot_outputs="png", base_path="_unused", metric=metric,
-        calibration_drift=False, target_acf=False, cusum_drift=False,
+        train_frame=None,
+        test_frame=None,
+        y_true=yt,
+        y_pred=yp,
+        timestamps=ts,
+        task=task,
+        plot_outputs="png",
+        base_path="_unused",
+        metric=metric,
+        calibration_drift=False,
+        target_acf=False,
+        cusum_drift=False,
     )
     return captured.get("higher_is_better")
 

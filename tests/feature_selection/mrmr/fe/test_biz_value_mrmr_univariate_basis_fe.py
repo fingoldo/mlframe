@@ -14,6 +14,7 @@ near-no-op when there is no univariate nonlinearity. The DEFAULT MRMR now
 recovers single-variable quadratic / cubic / Gaussian-bump / abs signals; the
 pair-only path (flag OFF) does not -- pinned as the falsifiable contrast.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -64,10 +65,10 @@ def _best_corr(fs, df, true):
 
 
 _UNIVARIATE_CASES = {
-    "a**2":       (lambda a: a ** 2,           0.85),
-    "a**3":       (lambda a: a ** 3,           0.80),
-    "exp(-a**2)": (lambda a: np.exp(-a ** 2),  0.70),
-    "abs(a)":     (lambda a: np.abs(a),        0.85),
+    "a**2": (lambda a: a**2, 0.85),
+    "a**3": (lambda a: a**3, 0.80),
+    "exp(-a**2)": (lambda a: np.exp(-(a**2)), 0.70),
+    "abs(a)": (lambda a: np.abs(a), 0.85),
 }
 
 
@@ -93,6 +94,7 @@ def _n_raw_sources(name):
     the prefix before ``__``) and functional/pair forms
     (``mul(prewarp(a),log(e))`` -> {a, e})."""
     import re
+
     srcs = set()
     for tok in re.split(r"[^A-Za-z0-9_]+", name):
         if not tok:
@@ -114,13 +116,11 @@ def test_univariate_recovery_is_a_clean_single_source_feature():
     # step-2 multi-step composite add(prewarp(e), a__T2) legitimately outscores it by ALSO capturing the +0.1*std*e term -- that composite is
     # a real improvement (composite discovery has its own tests), NOT the "unrelated-column 2-var pair hack" this test guards against. With no
     # noise to capture, the clean single-source univariate feature wins, which is exactly the univariate-basis quality this test asserts.
-    df, y, true = _make(lambda a: a ** 2, noise=0.0)
+    df, y, true = _make(lambda a: a**2, noise=0.0)
     MRMR.clear_fit_cache()
     fs = MRMR(verbose=0, random_seed=0).fit(df, y)
     corr, bn = _best_corr(fs, df, true)
-    assert corr >= 0.85 and bn is not None, (
-        f"default did not recover a**2 (corr={corr:.3f}, best={bn!r})"
-    )
+    assert corr >= 0.85 and bn is not None, f"default did not recover a**2 (corr={corr:.3f}, best={bn!r})"
     assert _n_raw_sources(bn) == 1, (
         f"a**2 was recovered by a MULTI-variable feature {bn!r} "
         f"({_n_raw_sources(bn)} raw sources) rather than a clean single-source "
@@ -151,6 +151,7 @@ def _basis_best_corr(x, y, basis, degrees=(2, 3, 4)):
     from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
         _evaluate_basis_column,
     )
+
     best = 0.0
     for d in degrees:
         try:
@@ -158,7 +159,7 @@ def _basis_best_corr(x, y, basis, degrees=(2, 3, 4)):
                 _evaluate_basis_column(np.asarray(x, float), basis, int(d), aux_for_fit=None),
                 dtype=float,
             )
-        except Exception:
+        except Exception:  # nosec B112 -- best-effort skip of one iteration on a non-fatal error; the test's own assertions are unaffected
             continue
         if np.all(np.isfinite(v)) and float(np.std(v)) > 1e-12:
             best = max(best, abs(float(np.corrcoef(v, y)[0, 1])))
@@ -174,6 +175,7 @@ class TestSignalAdaptiveBasisRouting:
         from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
             basis_route_by_signal,
         )
+
         rng = np.random.default_rng(0)
         n = 4000
         x = np.clip(rng.standard_t(3, n), -8, 8)  # heavy-tailed
@@ -181,8 +183,7 @@ class TestSignalAdaptiveBasisRouting:
         chosen = basis_route_by_signal(x, y, degrees=(2, 3, 4))
         recov = {b: _basis_best_corr(x, y, b) for b in _ROUTING_BASES}
         assert chosen == max(recov, key=recov.get), (
-            f"signal routing must return the max-|corr| basis; chose {chosen!r}, "
-            f"recov={ {b: round(v, 3) for b, v in recov.items()} }"
+            f"signal routing must return the max-|corr| basis; chose {chosen!r}, recov={ {b: round(v, 3) for b, v in recov.items()} }"
         )
         assert recov[chosen] >= 0.85, f"chosen basis under-recovers: {recov}"
 
@@ -195,17 +196,17 @@ class TestSignalAdaptiveBasisRouting:
             basis_route_by_signal,
         )
         from mlframe.feature_selection.filters.hermite_fe import basis_route_by_moments
+
         rng = np.random.default_rng(0)
         n = 4000
         x = np.clip(rng.standard_t(3, n), -8, 8)
-        y = (x ** 3) + 0.25 * np.std(x ** 3) * rng.standard_normal(n)
+        y = (x**3) + 0.25 * np.std(x**3) * rng.standard_normal(n)
         b_mom = basis_route_by_moments(x)
         b_sig = basis_route_by_signal(x, y, degrees=(2, 3, 4))
         c_mom = _basis_best_corr(x, y, b_mom)
         c_sig = _basis_best_corr(x, y, b_sig)
         assert b_sig != b_mom and c_sig >= c_mom + 0.20, (
-            f"signal routing should materially beat moment routing on a heavy-"
-            f"tailed cubic: moment={b_mom}({c_mom:.3f}) signal={b_sig}({c_sig:.3f})"
+            f"signal routing should materially beat moment routing on a heavy-tailed cubic: moment={b_mom}({c_mom:.3f}) signal={b_sig}({c_sig:.3f})"
         )
 
     def test_falls_back_to_moments_without_usable_y(self):
@@ -215,6 +216,7 @@ class TestSignalAdaptiveBasisRouting:
             basis_route_by_signal,
         )
         from mlframe.feature_selection.filters.hermite_fe import basis_route_by_moments
+
         rng = np.random.default_rng(1)
         x = rng.standard_normal(800)
         y_const = np.ones(800)
@@ -230,6 +232,7 @@ class TestIntAsCatBasisSkip:
         from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
             _is_int_as_cat_axis,
         )
+
         rng = np.random.default_rng(0)
         assert _is_int_as_cat_axis(np.tile(np.arange(10), 60).astype(float)) is True
         assert _is_int_as_cat_axis(rng.standard_normal(600)) is False  # continuous
@@ -241,23 +244,21 @@ class TestIntAsCatBasisSkip:
         from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
             generate_univariate_basis_features,
         )
+
         rng = np.random.default_rng(1)
         n = 2000
         region = rng.integers(0, 10, n).astype(np.int64)  # int-as-cat group key
         x = rng.standard_normal(n)  # continuous
         X = pd.DataFrame({"region": region, "x": x})
         out = generate_univariate_basis_features(X, degrees=(2, 3), basis="chebyshev")
-        assert not any(c.startswith("region__") for c in out.columns), (
-            f"basis expansion fired on the int-as-cat key 'region': {list(out.columns)}"
-        )
-        assert any(c.startswith("x__") for c in out.columns), (
-            f"basis expansion must still fire on the continuous 'x': {list(out.columns)}"
-        )
+        assert not any(c.startswith("region__") for c in out.columns), f"basis expansion fired on the int-as-cat key 'region': {list(out.columns)}"
+        assert any(c.startswith("x__") for c in out.columns), f"basis expansion must still fire on the continuous 'x': {list(out.columns)}"
 
     def test_adaptive_fourier_skips_int_as_cat_column(self):
         from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
             generate_extra_basis_features,
         )
+
         rng = np.random.default_rng(2)
         n = 2000
         region = rng.integers(0, 10, n).astype(np.int64)
@@ -266,9 +267,11 @@ class TestIntAsCatBasisSkip:
         y = (region % 2 == 0).astype(float) + 0.3 * x
         X = pd.DataFrame({"region": region, "x": x})
         out, _meta = generate_extra_basis_features(
-            X, cols=["region", "x"], extra_bases=("fourier",), y=y,
-            fourier_adaptive=True, fourier_chirp=True,
+            X,
+            cols=["region", "x"],
+            extra_bases=("fourier",),
+            y=y,
+            fourier_adaptive=True,
+            fourier_chirp=True,
         )
-        assert not any(str(c).startswith("region__") for c in out.columns), (
-            f"adaptive Fourier fired on the int-as-cat key 'region': {list(out.columns)}"
-        )
+        assert not any(str(c).startswith("region__") for c in out.columns), f"adaptive Fourier fired on the int-as-cat key 'region': {list(out.columns)}"

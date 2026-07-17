@@ -4,6 +4,7 @@ Ridge stack and NNLS stack must produce identical weights / intercept when sampl
 versus explicitly passed as None. Non-uniform weights must change the fit (and for NNLS, the row-
 scaling emulation must agree with sklearn's weighted Ridge on a non-negative problem).
 """
+
 from __future__ import annotations
 
 import warnings
@@ -25,6 +26,7 @@ def _toy_stack_dataset(n=200, k=3, seed=3):
 
 class _DummyModel:
     """Minimal placeholder so CompositeCrossTargetEnsemble accepts ``component_models``."""
+
     def predict(self, X):
         return np.zeros(len(X))
 
@@ -35,6 +37,7 @@ def _components(k):
 
 def test_from_linear_stack_sample_weight_none_matches_omitted():
     from mlframe.training.composite.ensemble import CompositeCrossTargetEnsemble
+
     X, y = _toy_stack_dataset()
     models, names = _components(X.shape[1])
     a = CompositeCrossTargetEnsemble.from_linear_stack(models, names, X, y, ridge_alpha=1.0)
@@ -45,6 +48,7 @@ def test_from_linear_stack_sample_weight_none_matches_omitted():
 
 def test_from_linear_stack_nonuniform_sample_weight_changes_weights():
     from mlframe.training.composite.ensemble import CompositeCrossTargetEnsemble
+
     X, y = _toy_stack_dataset()
     models, names = _components(X.shape[1])
     rng = np.random.default_rng(1)
@@ -57,6 +61,7 @@ def test_from_linear_stack_nonuniform_sample_weight_changes_weights():
 
 def test_from_linear_stack_validates_sample_weight():
     from mlframe.training.composite.ensemble import CompositeCrossTargetEnsemble
+
     X, y = _toy_stack_dataset()
     models, names = _components(X.shape[1])
     with pytest.raises(ValueError, match="sample_weight length"):
@@ -69,6 +74,7 @@ def test_from_linear_stack_validates_sample_weight():
 
 def test_from_nnls_stack_sample_weight_none_matches_omitted():
     from mlframe.training.composite.ensemble import CompositeCrossTargetEnsemble
+
     X, y = _toy_stack_dataset()
     models, names = _components(X.shape[1])
     a = CompositeCrossTargetEnsemble.from_nnls_stack(models, names, X, y)
@@ -83,6 +89,7 @@ def test_from_nnls_stack_row_scaling_matches_weighted_least_squares():
     Compare against scipy.optimize.lsq_linear with bounds=[0,inf) and the same weighted system."""
     from mlframe.training.composite.ensemble import CompositeCrossTargetEnsemble
     from scipy.optimize import nnls
+
     X, y = _toy_stack_dataset()
     models, names = _components(X.shape[1])
     rng = np.random.default_rng(2)
@@ -101,6 +108,7 @@ def test_from_nnls_stack_row_scaling_matches_weighted_least_squares():
 
 def test_from_nnls_stack_validates_sample_weight():
     from mlframe.training.composite.ensemble import CompositeCrossTargetEnsemble
+
     X, y = _toy_stack_dataset()
     models, names = _components(X.shape[1])
     with pytest.raises(ValueError, match="sample_weight length"):

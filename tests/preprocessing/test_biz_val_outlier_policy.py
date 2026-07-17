@@ -6,6 +6,7 @@ collapses that magnitude distinction and destroys most of the signal, while the 
 values untouched, add only an outlier-score flag) preserves it -- letting a LightGBM model split directly on
 the raw magnitude.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -111,9 +112,7 @@ def test_is_tree_based_model_unwrap_pipeline_detects_wrapped_tree_estimators():
     ]
 
     for model, expected, label in cases:
-        assert is_tree_based_model(model, unwrap_pipeline=True) is expected, (
-            f"{label}: expected is_tree_based_model(..., unwrap_pipeline=True)={expected}"
-        )
+        assert is_tree_based_model(model, unwrap_pipeline=True) is expected, f"{label}: expected is_tree_based_model(..., unwrap_pipeline=True)={expected}"
         # without the opt-in, wrapped estimators are never detected (only bare ones are, since the wrapper
         # itself carries no tree-family marker in its own MRO)
         is_bare = "inside" not in label
@@ -155,6 +154,5 @@ def test_apply_outlier_policy_unwrap_pipeline_routes_wrapped_tree_model_correctl
     auc_fixed = roc_auc_score(y_test, model_fixed.predict_proba(fixed_test)[:, 1])
 
     assert auc_fixed > auc_misrouted + 0.14, (
-        f"unwrap_pipeline=True should recover the tree-aware-policy win lost to misrouting: "
-        f"fixed={auc_fixed:.4f} misrouted={auc_misrouted:.4f}"
+        f"unwrap_pipeline=True should recover the tree-aware-policy win lost to misrouting: fixed={auc_fixed:.4f} misrouted={auc_misrouted:.4f}"
     )

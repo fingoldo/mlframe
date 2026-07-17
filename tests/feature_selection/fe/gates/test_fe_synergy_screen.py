@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Detection-vs-noise gate for the joint-synergy pair screen (2026-06-17).
 
 The MARGINAL FE pair screen cannot see a pure-synergy pair (XOR: both operands ~zero marginal MI),
@@ -8,6 +7,7 @@ the documented I4/I5 barrier. These tests pin that the bias-corrected JOINT MI:
 
 This is the gate the I4/I5 re-platform requires before the screen is wired into the rung-0 search.
 """
+
 from __future__ import annotations
 
 import numpy as np

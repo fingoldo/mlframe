@@ -31,8 +31,10 @@ def test_get_best_dummy_score_classifier_returns_finite_score():
     scorer = make_scorer(accuracy_score)
     score = get_best_dummy_score(
         LogisticRegression(),
-        X[:split], y[:split],
-        X[split:], y[split:],
+        X[:split],
+        y[:split],
+        X[split:],
+        y[split:],
         scorer,
     )
     assert np.isfinite(score)
@@ -46,8 +48,10 @@ def test_get_best_dummy_score_regressor_returns_finite_score():
     scorer = make_scorer(r2_score)
     score = get_best_dummy_score(
         Ridge(),
-        X[:split], y[:split],
-        X[split:], y[split:],
+        X[:split],
+        y[:split],
+        X[split:],
+        y[split:],
         scorer,
     )
     assert np.isfinite(score)
@@ -59,6 +63,9 @@ def test_get_best_dummy_score_raises_on_invalid_estimator():
     with pytest.raises(TypeError, match="classifier or regressor"):
         get_best_dummy_score(
             KMeans(n_clusters=2),
-            X, y, X, y,
+            X,
+            y,
+            X,
+            y,
             make_scorer(accuracy_score),
         )

@@ -11,6 +11,7 @@ Sensor: both builders must request the explicit fast solver. A future
 refactor that drops the kwarg regresses the user back to the 44-min
 auto-SVD path.
 """
+
 from __future__ import annotations
 
 
@@ -21,9 +22,7 @@ def test_linear_regressor_uses_sparse_cg_solver() -> None:
     cfg = LinearModelConfig(random_state=0)
     model = _build_linear_regressor(cfg)
     assert model.get_params()["solver"] == "sparse_cg", (
-        f"linear_regressor must pin solver='sparse_cg' to avoid the "
-        f"44+ min SVD-auto path on 4M x 323 prod data; got "
-        f"{model.get_params()['solver']!r}"
+        f"linear_regressor must pin solver='sparse_cg' to avoid the 44+ min SVD-auto path on 4M x 323 prod data; got {model.get_params()['solver']!r}"
     )
 
 

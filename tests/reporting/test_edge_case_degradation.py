@@ -15,12 +15,27 @@ import numpy as np
 import pytest
 
 from mlframe.reporting.charts import (
-    adversarial_validation, build_calibration_drift_spec, build_calibration_spec,
-    build_decision_curve_spec, calibration_drift, compose_binary_figure, compose_ltr_figure,
-    compose_model_comparison_figure, compose_multiclass_figure, compose_multilabel_figure,
-    compose_pdp_figure, compose_quantile_figure, compose_regression_figure,
-    compose_training_curve_figure, error_bias_per_feature, find_weak_slices, metric_over_time,
-    psi_heatmap, residual_vs_time, target_dist_overlay, weak_segment_heatmap,
+    adversarial_validation,
+    build_calibration_drift_spec,
+    build_calibration_spec,
+    build_decision_curve_spec,
+    calibration_drift,
+    compose_binary_figure,
+    compose_ltr_figure,
+    compose_model_comparison_figure,
+    compose_multiclass_figure,
+    compose_multilabel_figure,
+    compose_pdp_figure,
+    compose_quantile_figure,
+    compose_regression_figure,
+    compose_training_curve_figure,
+    error_bias_per_feature,
+    find_weak_slices,
+    metric_over_time,
+    psi_heatmap,
+    residual_vs_time,
+    target_dist_overlay,
+    weak_segment_heatmap,
 )
 from mlframe.reporting.charts.calibration_drift import CalibrationDriftResult
 from mlframe.reporting.charts.slice_finder import SliceFinderResult
@@ -29,6 +44,7 @@ from mlframe.reporting.renderers.base import get_renderer
 from mlframe.reporting.spec import FigureSpec
 
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
@@ -166,9 +182,11 @@ def _mc_case(name, K=3, n=300):
     elif name == "empty":
         return np.array([], dtype=int), np.zeros((0, K)), list(range(K))
     elif name == "n1":
-        y = np.array([0]); n = 1
+        y = np.array([0])
+        n = 1
     elif name == "n5":
-        y = rng.integers(0, K, 5); n = 5
+        y = rng.integers(0, K, 5)
+        n = 5
     else:
         y = rng.integers(0, K, n)
     if name == "const_proba":
@@ -178,10 +196,12 @@ def _mc_case(name, K=3, n=300):
     elif name == "huge_K":
         K = 50
         y = rng.integers(0, K, n)
-        P = rng.random((n, K)); P /= P.sum(1, keepdims=True)
+        P = rng.random((n, K))
+        P /= P.sum(1, keepdims=True)
         return y, P, list(range(K))
     else:
-        P = rng.random((n, K)); P /= np.maximum(P.sum(1, keepdims=True), 1e-12)
+        P = rng.random((n, K))
+        P /= np.maximum(P.sum(1, keepdims=True), 1e-12)
     return y, P, list(range(K))
 
 
@@ -302,10 +322,7 @@ def _quant_case(name):
 _QUANT_CASES = ["empty", "n1", "n5", "const_pred", "const_y", "all_nan", "mixed_nan"]
 
 
-_QUANT_TEMPLATE = (
-    "RELIABILITY COVERAGE PINBALL_BY_ALPHA INTERVAL_BAND WIDTH_DIST PIT_HIST "
-    "QUANTILE_RELIABILITY PINBALL_DECOMP QUANTILE_CROSSING FAN_CHART"
-)
+_QUANT_TEMPLATE = "RELIABILITY COVERAGE PINBALL_BY_ALPHA INTERVAL_BAND WIDTH_DIST PIT_HIST QUANTILE_RELIABILITY PINBALL_DECOMP QUANTILE_CROSSING FAN_CHART"
 
 
 @pytest.mark.parametrize("case", _QUANT_CASES)
@@ -412,7 +429,8 @@ def _calib_drift_case(name):
     elif name == "n5":
         n = 5
         ts = np.arange(n).astype("datetime64[D]")
-        y = rng.integers(0, 2, n); s = rng.random(n)
+        y = rng.integers(0, 2, n)
+        s = rng.random(n)
     return y, s, ts
 
 
@@ -506,10 +524,12 @@ def _pdp_case(name):
     if name == "n5":
         return model, rng.normal(size=(5, 2)), [0, 1]
     if name == "const_feature":
-        X = rng.normal(size=(100, 2)); X[:, 0] = 3.0
+        X = rng.normal(size=(100, 2))
+        X[:, 0] = 3.0
         return model, X, [0]
     if name == "nan_feature":
-        X = rng.normal(size=(100, 2)); X[:, 0] = np.nan
+        X = rng.normal(size=(100, 2))
+        X[:, 0] = np.nan
         return model, X, [0]
     return model, rng.normal(size=(200, 2)), [0, 1]
 
@@ -655,11 +675,13 @@ def _rvt_case(name):
         return rng.standard_normal(5), rng.standard_normal(5), np.arange(5).astype("datetime64[D]")
     n = 300
     ts = np.arange(n).astype("datetime64[D]")
-    y = rng.standard_normal(n); p = y.copy()
+    y = rng.standard_normal(n)
+    p = y.copy()
     if name == "all_nan":
         p = np.full(n, np.nan)
     elif name == "const":
-        y = np.full(n, 1.0); p = np.full(n, 1.0)
+        y = np.full(n, 1.0)
+        p = np.full(n, 1.0)
     return y, p, ts
 
 
@@ -685,7 +707,8 @@ def _mot_case(name):
         return rng.integers(0, 2, n), rng.random(n), np.arange(n).astype("datetime64[s]")
     n = 500
     ts = (np.arange(n) * 3600).astype("datetime64[s]")
-    y = rng.integers(0, 2, n); p = rng.random(n)
+    y = rng.integers(0, 2, n)
+    p = rng.random(n)
     if name == "single_class":
         y = np.ones(n, dtype=int)
     elif name == "const_score":
@@ -719,8 +742,7 @@ def _adv_case(name):
     if name == "empty":
         return pd.DataFrame(columns=cols), pd.DataFrame(columns=cols)
     if name == "n5":
-        return (pd.DataFrame(rng.normal(size=(5, 3)), columns=cols),
-                pd.DataFrame(rng.normal(size=(5, 3)), columns=cols))
+        return (pd.DataFrame(rng.normal(size=(5, 3)), columns=cols), pd.DataFrame(rng.normal(size=(5, 3)), columns=cols))
     if name == "identical":  # train and test indistinguishable -> AUC ~0.5
         base = pd.DataFrame(rng.normal(size=(200, 3)), columns=cols)
         return base.copy(), base.copy()
@@ -730,8 +752,7 @@ def _adv_case(name):
     if name == "all_nan":
         a = pd.DataFrame(np.full((200, 3), np.nan), columns=cols)
         return a, a.copy()
-    return (pd.DataFrame(rng.normal(size=(200, 3)), columns=cols),
-            pd.DataFrame(rng.normal(size=(200, 3)) + 2, columns=cols))
+    return (pd.DataFrame(rng.normal(size=(200, 3)), columns=cols), pd.DataFrame(rng.normal(size=(200, 3)) + 2, columns=cols))
 
 
 _ADV_CASES = ["empty", "n5", "identical", "const_features", "all_nan", "normal"]

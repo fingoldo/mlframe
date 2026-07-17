@@ -1,0 +1,15 @@
+# Test-scoped ruff config. Nested here so ruff's config discovery picks this file (not the
+# repo-root pyproject.toml's [tool.ruff]) for every file under tests/ -- see
+# py-ci-shared/configs/ruff-tests.toml for the full rationale and the base rule set this extends.
+#
+# The root pyproject.toml's [tool.ruff] keeps `exclude = ["tests", ...]` and stays scoped to
+# src/; run this config as its own gate via `ruff check tests/`.
+extend = "../../py-ci-shared/configs/ruff-tests.toml"
+target-version = "py39"
+
+[lint.mccabe]
+# Provisional: inherits mlframe's own measured src/ threshold (see root pyproject.toml's
+# [tool.ruff.lint.mccabe] comment) as a starting point -- test functions are rarely complex by
+# nature (mostly straight-line arrange/act/assert), so C90 should fire rarely here regardless of
+# the exact number. Re-measure and lower once this gate has run against the full tests/ tree.
+max-complexity = 40

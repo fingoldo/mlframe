@@ -3,13 +3,11 @@
 from __future__ import annotations
 
 import numpy as np
-import pandas as pd
 import pytest
 
 from mlframe.feature_selection.filters.cat_fe_state import CatFEConfig
 from mlframe.feature_selection.filters.cat_interactions import (
     _pair_search_kernel_weighted_njit,
-    _bootstrap_ii_cis,
     run_cat_interaction_step,
 )
 from mlframe.feature_selection.filters.info_theory import merge_vars
@@ -29,8 +27,11 @@ class TestWeightedKernelUnit:
         data = np.column_stack([x1, x2, y]).astype(np.int32)
         nbins = np.array([2, 2, 2], dtype=np.int64)
         cls_y, _, _ = merge_vars(
-            factors_data=data, vars_indices=np.array([2], dtype=np.int64),
-            var_is_nominal=None, factors_nbins=nbins, dtype=np.int32,
+            factors_data=data,
+            vars_indices=np.array([2], dtype=np.int64),
+            var_is_nominal=None,
+            factors_nbins=nbins,
+            dtype=np.int32,
         )
         return data, nbins, cls_y
 
@@ -40,6 +41,7 @@ class TestWeightedKernelUnit:
         from mlframe.feature_selection.filters.cat_interactions import (
             _pair_search_kernel_njit,
         )
+
         data, nbins, cls_y = self._make_xor()
         fq_y = np.array([0.5, 0.5], dtype=np.float64)
         pairs_a = np.array([0], dtype=np.int64)
@@ -48,19 +50,30 @@ class TestWeightedKernelUnit:
         weights = np.ones(len(data), dtype=np.float64)
 
         joint_uw, _, _ = _pair_search_kernel_njit(
-            data, pairs_a, pairs_b, marginal_mi, nbins, cls_y, fq_y, np.int32,
+            data,
+            pairs_a,
+            pairs_b,
+            marginal_mi,
+            nbins,
+            cls_y,
+            fq_y,
+            np.int32,
         )
         joint_w, _, _ = _pair_search_kernel_weighted_njit(
-            data, pairs_a, pairs_b, marginal_mi, nbins, cls_y, weights, np.int32,
+            data,
+            pairs_a,
+            pairs_b,
+            marginal_mi,
+            nbins,
+            cls_y,
+            weights,
+            np.int32,
         )
         # 1e-3 tolerance: the unweighted kernel uses the passed
         # ``freqs_y`` (normalised probabilities) while the weighted
         # kernel rebuilds marginals from row weights. Tiny float drift
         # ~5e-4 typical at n=1000.
-        assert abs(joint_uw[0] - joint_w[0]) < 1e-3, (
-            f"Uniform weights produced different MI: uw={joint_uw[0]:.6f} "
-            f"vs w={joint_w[0]:.6f}"
-        )
+        assert abs(joint_uw[0] - joint_w[0]) < 1e-3, f"Uniform weights produced different MI: uw={joint_uw[0]:.6f} vs w={joint_w[0]:.6f}"
 
     def test_zero_weights_for_signal_rows_kills_mi(self):
         """When weights for the signal-carrying rows are 0, the
@@ -75,7 +88,14 @@ class TestWeightedKernelUnit:
         weights[:10] = 1.0
 
         joint_w, _, _ = _pair_search_kernel_weighted_njit(
-            data, pairs_a, pairs_b, marginal_mi, nbins, cls_y, weights, np.int32,
+            data,
+            pairs_a,
+            pairs_b,
+            marginal_mi,
+            nbins,
+            cls_y,
+            weights,
+            np.int32,
         )
         # With only 10 rows of signal, MI is dominated by sample bias, but
         # the value should be FINITE (not NaN/Inf). True MI on 10 rows
@@ -92,6 +112,7 @@ class TestWeightedKernelUnit:
         from mlframe.feature_selection.filters.cat_interactions import (
             _pair_search_kernel_njit,
         )
+
         rng = np.random.default_rng(7)
         n_sig = 800
         n_noise = 800
@@ -105,8 +126,11 @@ class TestWeightedKernelUnit:
         data = np.column_stack([x1, x2, y]).astype(np.int32)
         nbins = np.array([2, 2, 2], dtype=np.int64)
         cls_y, _, _ = merge_vars(
-            factors_data=data, vars_indices=np.array([2], dtype=np.int64),
-            var_is_nominal=None, factors_nbins=nbins, dtype=np.int32,
+            factors_data=data,
+            vars_indices=np.array([2], dtype=np.int64),
+            var_is_nominal=None,
+            factors_nbins=nbins,
+            dtype=np.int32,
         )
         fq_y = np.bincount(cls_y, minlength=2).astype(np.float64) / n
         pairs_a = np.array([0], dtype=np.int64)
@@ -115,13 +139,27 @@ class TestWeightedKernelUnit:
 
         # Unweighted: averages noise and signal
         joint_uw, _, _ = _pair_search_kernel_njit(
-            data, pairs_a, pairs_b, marginal_mi, nbins, cls_y, fq_y, np.int32,
+            data,
+            pairs_a,
+            pairs_b,
+            marginal_mi,
+            nbins,
+            cls_y,
+            fq_y,
+            np.int32,
         )
         # Weighted: only signal rows get weight 1; noise gets 0
         weights = np.zeros(n, dtype=np.float64)
         weights[n_noise:] = 1.0
         joint_w, _, _ = _pair_search_kernel_weighted_njit(
-            data, pairs_a, pairs_b, marginal_mi, nbins, cls_y, weights, np.int32,
+            data,
+            pairs_a,
+            pairs_b,
+            marginal_mi,
+            nbins,
+            cls_y,
+            weights,
+            np.int32,
         )
         # Weighted should recover the full XOR signal (~ln 2 = 0.69);
         # unweighted is dominated by the noise half (~0.2 typically).
@@ -153,28 +191,34 @@ class TestBootstrapCIs:
         data = np.column_stack([x1, x2, noise, y]).astype(np.int32)
         nbins = np.array([2, 2, 4, 4, 4, 4, 2], dtype=np.int64)
         cls_y, fq_y, _ = merge_vars(
-            factors_data=data, vars_indices=np.array([6], dtype=np.int64),
-            var_is_nominal=None, factors_nbins=nbins, dtype=np.int32,
+            factors_data=data,
+            vars_indices=np.array([6], dtype=np.int64),
+            var_is_nominal=None,
+            factors_nbins=nbins,
+            dtype=np.int32,
         )
         cfg = CatFEConfig(
-            enable=True, top_k_pairs=4,
+            enable=True,
+            top_k_pairs=4,
             min_interaction_information=0.1,
-            full_npermutations=0, fwer_correction="none",
+            full_npermutations=0,
+            fwer_correction="none",
             bootstrap_ci_n_replicates=10,
         )
         _, _, _, state = run_cat_interaction_step(
-            data=data, cols=["x1", "x2", "n0", "n1", "n2", "n3", "y"],
+            data=data,
+            cols=["x1", "x2", "n0", "n1", "n2", "n3", "y"],
             nbins=nbins,
             target_indices=np.array([6], dtype=np.int64),
-            classes_y=cls_y, classes_y_safe=cls_y, freqs_y=fq_y,
+            classes_y=cls_y,
+            classes_y_safe=cls_y,
+            freqs_y=fq_y,
             categorical_vars=[0, 1, 2, 3, 4, 5],
-            cfg=cfg, dtype=np.int32,
+            cfg=cfg,
+            dtype=np.int32,
         )
         # XOR pair should survive and have a bootstrap CI
-        xor_recipes = [
-            r for r in state.recipes
-            if set(r.src_names) == {"x1", "x2"}
-        ]
+        xor_recipes = [r for r in state.recipes if set(r.src_names) == {"x1", "x2"}]
         assert xor_recipes, "XOR pair should survive on bootstrap CI test"
         diag = state.diagnostics[xor_recipes[0].name]
         ci = diag["bootstrap_ii_ci"]
@@ -206,21 +250,31 @@ class TestBootstrapCIs:
         data = np.column_stack([x1, x2, y]).astype(np.int32)
         nbins = np.array([2, 2, 2], dtype=np.int64)
         cls_y, fq_y, _ = merge_vars(
-            factors_data=data, vars_indices=np.array([2], dtype=np.int64),
-            var_is_nominal=None, factors_nbins=nbins, dtype=np.int32,
+            factors_data=data,
+            vars_indices=np.array([2], dtype=np.int64),
+            var_is_nominal=None,
+            factors_nbins=nbins,
+            dtype=np.int32,
         )
         cfg = CatFEConfig(
-            enable=True, top_k_pairs=1,
+            enable=True,
+            top_k_pairs=1,
             min_interaction_information=0.05,  # tight floor
-            full_npermutations=0, fwer_correction="none",
+            full_npermutations=0,
+            fwer_correction="none",
             bootstrap_ci_n_replicates=15,
         )
         _, _, _, state = run_cat_interaction_step(
-            data=data, cols=["x1", "x2", "y"], nbins=nbins,
+            data=data,
+            cols=["x1", "x2", "y"],
+            nbins=nbins,
             target_indices=np.array([2], dtype=np.int64),
-            classes_y=cls_y, classes_y_safe=cls_y, freqs_y=fq_y,
+            classes_y=cls_y,
+            classes_y_safe=cls_y,
+            freqs_y=fq_y,
             categorical_vars=[0, 1],
-            cfg=cfg, dtype=np.int32,
+            cfg=cfg,
+            dtype=np.int32,
         )
         # Whether this pair is dropped depends on the specific seed
         # variance, but we can verify: state.recipes is either empty
@@ -230,7 +284,4 @@ class TestBootstrapCIs:
             ci = state.diagnostics[r.name].get("bootstrap_ii_ci")
             if ci is not None:
                 lower, _, _ = ci
-                assert lower >= 0.05, (
-                    f"Surviving recipe must clear lower-CI floor; got "
-                    f"lower={lower:.4f}"
-                )
+                assert lower >= 0.05, f"Surviving recipe must clear lower-CI floor; got lower={lower:.4f}"

@@ -13,6 +13,7 @@ Reproduces the exact pre-fix collision: two calls with identical everything exce
 is set. When there is no named pre_pipeline (pure imp/scale/encode, target-independent), the key
 must stay IDENTICAL across targets to preserve the legitimate cross-target cache-sharing win.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -20,7 +21,7 @@ import pytest
 
 pytest.importorskip("sklearn")
 
-from mlframe.training.core._phase_train_one_target import _compute_pipeline_cache_key  # noqa: E402
+from mlframe.training.core._phase_train_one_target import _compute_pipeline_cache_key
 
 
 _BASE_KW = dict(
@@ -37,10 +38,16 @@ def test_different_targets_with_named_pre_pipeline_get_different_keys():
     target_a = np.array([0.0, 1.0, 2.0, 3.0, 4.0])
     target_b = np.array([9.0, 8.0, 7.0, 6.0, 5.0])
     k_a = _compute_pipeline_cache_key(
-        **_BASE_KW, pre_pipeline_name="mrmr", target_name="target_a", train_target=target_a,
+        **_BASE_KW,
+        pre_pipeline_name="mrmr",
+        target_name="target_a",
+        train_target=target_a,
     )
     k_b = _compute_pipeline_cache_key(
-        **_BASE_KW, pre_pipeline_name="mrmr", target_name="target_b", train_target=target_b,
+        **_BASE_KW,
+        pre_pipeline_name="mrmr",
+        target_name="target_b",
+        train_target=target_b,
     )
     assert k_a != k_b, f"cache key collided across distinct targets with a named pre_pipeline: {k_a} == {k_b}"
 

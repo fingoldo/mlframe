@@ -1,8 +1,8 @@
 """Sensor tests for the centralised sha256-sidecar pickle helpers."""
+
 from __future__ import annotations
 
-import os
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
 import pytest
 
@@ -114,6 +114,7 @@ def test_legacy_predict_shim_delegates(tmp_path, monkeypatch):
     """Back-compat shim ``inference.predict._verify_sidecar`` routes through the new module."""
     monkeypatch.delenv("MLFRAME_ALLOW_UNVERIFIED_PICKLE", raising=False)
     from mlframe.inference.predict import _verify_sidecar
+
     p = tmp_path / "shim.pkl"
     _make_pickle(str(p), {"a": 1})
     assert _verify_sidecar(str(p)) is False
@@ -124,6 +125,7 @@ def test_legacy_predict_shim_delegates(tmp_path, monkeypatch):
 def test_legacy_pipelines_shim_delegates(tmp_path, monkeypatch):
     monkeypatch.delenv("MLFRAME_ALLOW_UNVERIFIED_PICKLE", raising=False)
     from mlframe.estimators.pipelines import _verify_sidecar
+
     p = tmp_path / "shim2.pkl"
     _make_pickle(str(p), {"b": 2})
     assert _verify_sidecar(str(p)) is False

@@ -7,6 +7,7 @@ transform / parameter combo should win.
 
 Naming: ``test_biz_val_composite_discovery_<parameter>_<scenario>``.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -61,6 +62,7 @@ def _make_config(**overrides):
     the SHAPE of discovery output (which transform is picked, does
     the hybrid stage run), not the prod gain threshold itself."""
     from mlframe.training.configs import CompositeTargetDiscoveryConfig
+
     defaults = dict(
         enabled=True,
         base_candidates=["base"],
@@ -80,12 +82,12 @@ def _make_config(**overrides):
 
 def _run_discovery(df, config):
     from mlframe.training.composite import CompositeTargetDiscovery
+
     n = len(df)
     train_idx = np.arange(0, int(0.8 * n))
     val_idx = np.arange(int(0.8 * n), n)
     disc = CompositeTargetDiscovery(config)
-    disc.fit(df, target_col="y", feature_cols=["base", "other"],
-              train_idx=train_idx, val_idx=val_idx)
+    disc.fit(df, target_col="y", feature_cols=["base", "other"], train_idx=train_idx, val_idx=val_idx)
     return disc
 
 
@@ -128,18 +130,12 @@ def test_biz_val_composite_discovery_returns_valid_spec_schema_on_linear_target(
     disc = _run_discovery(df, _make_config())
     specs = disc.export_specs()
     if not specs:
-        pytest.skip("discovery rejected all candidates -- gain semantics; "
-                     "covered by other tests")
+        pytest.skip("discovery rejected all candidates -- gain semantics; covered by other tests")
     spec = specs[0]
-    expected_keys = {"name", "target_col", "transform_name",
-                       "base_column", "fitted_params", "mi_gain"}
+    expected_keys = {"name", "target_col", "transform_name", "base_column", "fitted_params", "mi_gain"}
     missing = expected_keys - set(spec.keys())
-    assert not missing, (
-        f"spec missing expected keys {missing}; got {sorted(spec.keys())}"
-    )
-    assert spec["transform_name"] in (
-        "linear_residual", "diff", "ratio", "logratio"
-    ), f"unexpected transform: {spec['transform_name']}"
+    assert not missing, f"spec missing expected keys {missing}; got {sorted(spec.keys())}"
+    assert spec["transform_name"] in ("linear_residual", "diff", "ratio", "logratio"), f"unexpected transform: {spec['transform_name']}"
 
 
 # ---------------------------------------------------------------------------
@@ -160,18 +156,10 @@ def test_biz_val_composite_discovery_hybrid_screening_runs_tiny_model():
     # the mi-only discovery's must be empty / None.
     hybrid_scores = disc_hybrid.tiny_rerank_scores_
     mi_only_scores = disc_mi.tiny_rerank_scores_
-    has_hybrid = (
-        hybrid_scores is not None and len(hybrid_scores) > 0
-    )
-    has_mi_only = (
-        mi_only_scores is not None and len(mi_only_scores) > 0
-    )
-    assert has_hybrid, (
-        f"hybrid screening must produce tiny_rerank_scores_; got {hybrid_scores}"
-    )
-    assert not has_mi_only, (
-        f"mi-only screening must NOT run tiny rerank; got {mi_only_scores}"
-    )
+    has_hybrid = hybrid_scores is not None and len(hybrid_scores) > 0
+    has_mi_only = mi_only_scores is not None and len(mi_only_scores) > 0
+    assert has_hybrid, f"hybrid screening must produce tiny_rerank_scores_; got {hybrid_scores}"
+    assert not has_mi_only, f"mi-only screening must NOT run tiny rerank; got {mi_only_scores}"
 
 
 # ---------------------------------------------------------------------------
@@ -209,11 +197,13 @@ def test_biz_val_composite_discovery_fallback_raw_on_pure_noise():
     no-gain targets."""
     rng = np.random.default_rng(42)
     n = 800
-    df = pd.DataFrame({
-        "base": rng.normal(size=n),
-        "other": rng.normal(size=n),
-        "y": rng.normal(size=n),  # truly independent of base / other
-    })
+    df = pd.DataFrame(
+        {
+            "base": rng.normal(size=n),
+            "other": rng.normal(size=n),
+            "y": rng.normal(size=n),  # truly independent of base / other
+        }
+    )
     config = _make_config(
         fail_on_no_gain="fallback_raw",
         require_beats_raw_baseline=True,
@@ -260,8 +250,13 @@ def _multibase_holdout_rmse(scenario, thr, seed, n=3000):
     base_tr = {k: v[tr] for k, v in base_cols.items()}
     base_ho = {k: v[ho] for k, v in base_cols.items()}
     kept, _ = forward_stepwise_multi_base(
-        y[tr], base_tr, seed_bases=["b_strong"], max_k=4,
-        min_marginal_rmse_gain=thr, time_aware=False, random_state=seed,
+        y[tr],
+        base_tr,
+        seed_bases=["b_strong"],
+        max_k=4,
+        min_marginal_rmse_gain=thr,
+        time_aware=False,
+        random_state=seed,
     )
     bm_tr = np.column_stack([base_tr[c] for c in kept])
     params = _linear_residual_multi_fit(y[tr], bm_tr)

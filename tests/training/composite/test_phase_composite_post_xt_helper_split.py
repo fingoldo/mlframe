@@ -22,12 +22,14 @@ import pytest
 @pytest.fixture(scope="module")
 def parent_module():
     from mlframe.training.core import _phase_composite_post
+
     return _phase_composite_post
 
 
 @pytest.fixture(scope="module")
 def xt_sibling():
     from mlframe.training.core import _phase_composite_post_xt_ensemble
+
     return _phase_composite_post_xt_ensemble
 
 
@@ -44,6 +46,7 @@ def test_facade_loc_budget(parent_module):
 def test_lag_predict_still_exported(parent_module):
     """Sanity: prior Wave 11 carve still resolves through parent re-export."""
     from mlframe.training.core import _phase_composite_post_lag_predict
+
     assert parent_module._LagPredictDeployableModel is _phase_composite_post_lag_predict._LagPredictDeployableModel
 
 

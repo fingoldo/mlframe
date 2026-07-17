@@ -19,6 +19,7 @@ Coverage map:
 - Pretty-printer (``format_baseline_diagnostics_report``).
 - Polars input acceptance.
 """
+
 from __future__ import annotations
 
 import math
@@ -32,7 +33,7 @@ import pytest
 # tests that actually fit models need the library available.
 pytest.importorskip("lightgbm")
 
-from mlframe.training.baselines.diagnostics import (  # noqa: E402
+from mlframe.training.baselines.diagnostics import (
     AblationEntry,
     BaselineDiagnostics,
     BaselineDiagnosticsReport,
@@ -40,12 +41,13 @@ from mlframe.training.baselines.diagnostics import (  # noqa: E402
     _delta_pct,
     format_baseline_diagnostics_report,
 )
-from mlframe.training.configs import BaselineDiagnosticsConfig  # noqa: E402
+from mlframe.training.configs import BaselineDiagnosticsConfig
 
 
 # ----------------------------------------------------------------------
 # Synthetic data
 # ----------------------------------------------------------------------
+
 
 def _make_dominant_regression(n: int = 600, seed: int = 0):
     """Build a regression dataset where ``base`` carries ~95% of the
@@ -92,6 +94,7 @@ def _make_no_dominant_regression(n: int = 600, seed: int = 0):
 # Config
 # ----------------------------------------------------------------------
 
+
 class TestBaselineDiagnosticsConfig:
     def test_defaults(self) -> None:
         cfg = BaselineDiagnosticsConfig()
@@ -101,7 +104,8 @@ class TestBaselineDiagnosticsConfig:
         assert "regression" in cfg.apply_to_target_types
         assert "binary_classification" in cfg.apply_to_target_types
         assert cfg.init_score_apply_to_target_types == (
-            "regression", "binary_classification",
+            "regression",
+            "binary_classification",
         )
 
     def test_dict_construction_via_baseconfig(self) -> None:
@@ -119,6 +123,7 @@ class TestBaselineDiagnosticsConfig:
 # ----------------------------------------------------------------------
 # Pure helpers
 # ----------------------------------------------------------------------
+
 
 class TestDeltaPct:
     def test_lower_is_better_drop_hurts(self) -> None:
@@ -149,6 +154,7 @@ class TestDeltaPct:
 # ----------------------------------------------------------------------
 # fit_and_report - skip paths
 # ----------------------------------------------------------------------
+
 
 class TestSkipPaths:
     def test_disabled_config_returns_skipped_report(self) -> None:
@@ -207,6 +213,7 @@ class TestSkipPaths:
 # fit_and_report - happy path: regression with dominant feature
 # ----------------------------------------------------------------------
 
+
 class TestRegressionHappyPath:
     @pytest.fixture(scope="class")
     def report(self) -> BaselineDiagnosticsReport:
@@ -229,7 +236,8 @@ class TestRegressionHappyPath:
         assert report.skip_reason == ""
 
     def test_headline_metric_is_rmse_finite(
-        self, report: BaselineDiagnosticsReport,
+        self,
+        report: BaselineDiagnosticsReport,
     ) -> None:
         assert report.headline_metric_name == "RMSE"
         assert report.headline_metric_higher_is_better is False
@@ -237,43 +245,41 @@ class TestRegressionHappyPath:
         assert report.headline_metric_value > 0  # RMSE non-negative
 
     def test_ablation_ranks_base_first(
-        self, report: BaselineDiagnosticsReport,
+        self,
+        report: BaselineDiagnosticsReport,
     ) -> None:
         # The dominant feature MUST come out on top of the ablation
         # ranking. If it doesn't, the diagnostic is broken.
         assert report.ablation, "ablation should not be empty"
         top = report.ablation[0]
-        assert top.feature == "base", (
-            f"expected 'base' top of ablation, got {top.feature}; "
-            f"full: {[(e.feature, e.delta_pct) for e in report.ablation]}"
-        )
-        assert top.delta_pct > 5.0, (
-            "dropping the dominant base feature should hurt RMSE by >5%"
-        )
+        assert top.feature == "base", f"expected 'base' top of ablation, got {top.feature}; full: {[(e.feature, e.delta_pct) for e in report.ablation]}"
+        assert top.delta_pct > 5.0, "dropping the dominant base feature should hurt RMSE by >5%"
 
     def test_ablation_ranks_descending_by_dominance(
-        self, report: BaselineDiagnosticsReport,
+        self,
+        report: BaselineDiagnosticsReport,
     ) -> None:
         deltas = [e.delta_pct for e in report.ablation]
         # Should be sorted descending by Δ% (post-sort in implementation).
         assert deltas == sorted(deltas, reverse=True)
 
     def test_init_score_baseline_present(
-        self, report: BaselineDiagnosticsReport,
+        self,
+        report: BaselineDiagnosticsReport,
     ) -> None:
         # Regression -> init_score baseline runs by default.
         assert report.init_score_baseline is not None
         assert report.init_score_baseline.feature_used == "base"
 
     def test_recommendation_high_potential(
-        self, report: BaselineDiagnosticsReport,
+        self,
+        report: BaselineDiagnosticsReport,
     ) -> None:
         # Synthetic structure has a clear dominant feature; init_score
         # baseline catches most of it but not all (residual structural
         # signal in x1/x2). Should land somewhere actionable.
         assert report.composite_recommendation in ("high_potential", "unlikely_to_help"), (
-            f"got {report.composite_recommendation}: "
-            f"{report.composite_recommendation_reason}"
+            f"got {report.composite_recommendation}: {report.composite_recommendation_reason}"
         )
 
 
@@ -281,11 +287,14 @@ class TestRegressionHappyPath:
 # Binary classification happy path
 # ----------------------------------------------------------------------
 
+
 class TestBinaryHappyPath:
     def test_runs_and_uses_auc(self) -> None:
         df, feats, y = _make_dominant_binary(n=600)
         cfg = BaselineDiagnosticsConfig(
-            quick_model_n_estimators=80, sample_n=None, ablation_top_k=3,
+            quick_model_n_estimators=80,
+            sample_n=None,
+            ablation_top_k=3,
         )
         rep = BaselineDiagnostics(cfg).fit_and_report(
             train_df=df.drop(columns=["y"]),
@@ -310,7 +319,9 @@ class TestBinaryHappyPath:
         match raw AUC closely (recommendation: unlikely_to_help)."""
         df, feats, y = _make_dominant_binary(n=1500)
         cfg = BaselineDiagnosticsConfig(
-            quick_model_n_estimators=80, sample_n=None, ablation_top_k=3,
+            quick_model_n_estimators=80,
+            sample_n=None,
+            ablation_top_k=3,
         )
         rep = BaselineDiagnostics(cfg).fit_and_report(
             train_df=df.drop(columns=["y"]),
@@ -335,11 +346,14 @@ class TestBinaryHappyPath:
 # Recommendation: no dominant feature -> unlikely_to_help
 # ----------------------------------------------------------------------
 
+
 class TestNoDominantFeature:
     def test_recommendation_unlikely_to_help(self) -> None:
         df, feats, y = _make_no_dominant_regression(n=600)
         cfg = BaselineDiagnosticsConfig(
-            quick_model_n_estimators=60, sample_n=None, ablation_top_k=4,
+            quick_model_n_estimators=60,
+            sample_n=None,
+            ablation_top_k=4,
         )
         rep = BaselineDiagnostics(cfg).fit_and_report(
             train_df=df.drop(columns=["y"]),
@@ -351,22 +365,22 @@ class TestNoDominantFeature:
         assert rep.skipped is False
         # No dominant feature ⇒ recommendation should land on
         # unlikely_to_help or marginal (NOT high_potential).
-        assert rep.composite_recommendation in ("unlikely_to_help", "marginal"), (
-            f"got {rep.composite_recommendation}: "
-            f"{rep.composite_recommendation_reason}"
-        )
+        assert rep.composite_recommendation in ("unlikely_to_help", "marginal"), f"got {rep.composite_recommendation}: {rep.composite_recommendation_reason}"
 
 
 # ----------------------------------------------------------------------
 # Polars input
 # ----------------------------------------------------------------------
 
+
 class TestPolarsInput:
     def test_polars_dataframe_accepted(self) -> None:
         df, feats, y = _make_dominant_regression(n=300)
         pl_df = pl.from_pandas(df.drop(columns=["y"]))
         cfg = BaselineDiagnosticsConfig(
-            quick_model_n_estimators=60, sample_n=None, ablation_top_k=2,
+            quick_model_n_estimators=60,
+            sample_n=None,
+            ablation_top_k=2,
         )
         rep = BaselineDiagnostics(cfg).fit_and_report(
             train_df=pl_df,
@@ -382,6 +396,7 @@ class TestPolarsInput:
 # ----------------------------------------------------------------------
 # Serialization + pretty-printer
 # ----------------------------------------------------------------------
+
 
 class TestSerialization:
     def test_to_dict_round_trip(self) -> None:
@@ -469,6 +484,7 @@ class TestFormatter:
 # Recommendation classifier - direct unit tests
 # ----------------------------------------------------------------------
 
+
 class TestRecommendationClassifier:
     def _bd(self, **overrides) -> BaselineDiagnostics:
         return BaselineDiagnostics(BaselineDiagnosticsConfig(**overrides))
@@ -497,7 +513,7 @@ class TestRecommendationClassifier:
             AblationEntry("a", 1.01, 1.0, 1),
             AblationEntry("b", 1.005, 0.5, 2),
         ]
-        rec, reason = bd._build_recommendation(ablation, init_score_baseline=None)
+        rec, _reason = bd._build_recommendation(ablation, init_score_baseline=None)
         assert rec == "unlikely_to_help"
 
     def test_marginal_band(self) -> None:
@@ -536,8 +552,12 @@ def test_fit_and_report_survives_string_categorical_features():
 
     bd = BaselineDiagnostics(BaselineDiagnosticsConfig(enabled=True))
     rep = bd.fit_and_report(
-        train_df=df, train_target=y, target_name="target_reg", target_type="regression",
-        feature_cols=list(df.columns), cat_features=cat_cols,
+        train_df=df,
+        train_target=y,
+        target_name="target_reg",
+        target_type="regression",
+        feature_cols=list(df.columns),
+        cat_features=cat_cols,
     )
     d = rep.to_dict()
     # Not skipped, and the ablation actually ran (proves the quick LightGBM fit succeeded on the string cats).

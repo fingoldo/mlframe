@@ -10,13 +10,13 @@ whose state is missing assorted ctor params (simulating an OLD pickle predating 
 params) must re-fit cleanly AND keep the documented legacy override value
 (``mrmr_identity_cache_ycorr_threshold`` -> 0.0, NOT the live ctor default 0.5).
 """
+
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.feature_selection.filters import MRMR
 
@@ -29,8 +29,7 @@ def _data(n: int = 150, m: int = 4, seed: int = 0):
 
 
 def _fast(**kw):
-    base = dict(full_npermutations=5, baseline_npermutations=3, n_jobs=1, verbose=0,
-                fe_fast_search=False, interactions_max_order=1)
+    base = dict(full_npermutations=5, baseline_npermutations=3, n_jobs=1, verbose=0, fe_fast_search=False, interactions_max_order=1)
     base.update(kw)
     return MRMR(**base)
 
@@ -43,7 +42,7 @@ def test_pickle_round_trip_preserves_support_and_transform():
     names = list(m.get_feature_names_out())
     out = m.transform(X)
 
-    m2 = pickle.loads(pickle.dumps(m))
+    m2 = pickle.loads(pickle.dumps(m))  # nosec B301 -- round-trip of a locally-created, trusted object
     np.testing.assert_array_equal(np.sort(np.asarray(m2.support_)), sup)
     assert list(m2.get_feature_names_out()) == names
     out2 = m2.transform(X)
@@ -56,7 +55,7 @@ def test_pickle_then_refit_then_transform():
     X, y = _data(seed=2)
     MRMR._FIT_CACHE.clear()
     m = _fast(random_seed=7).fit(X, y)
-    m2 = pickle.loads(pickle.dumps(m))
+    m2 = pickle.loads(pickle.dumps(m))  # nosec B301 -- round-trip of a locally-created, trusted object
 
     X2, y2 = _data(seed=3)
     MRMR._FIT_CACHE.clear()
@@ -76,8 +75,7 @@ def test_pickle_state_missing_params_refits_and_keeps_legacy_override():
     m = _fast(random_seed=3).fit(X, y)
 
     state = m.__getstate__()
-    for k in ("fe_wavelet_enable", "dtype", "mrmr_identity_cache_ycorr_threshold",
-              "nbins_strategy", "bur_lambda", "fe_kfold_te_enable"):
+    for k in ("fe_wavelet_enable", "dtype", "mrmr_identity_cache_ycorr_threshold", "nbins_strategy", "bur_lambda", "fe_kfold_te_enable"):
         state.pop(k, None)
 
     restored = MRMR.__new__(MRMR)
@@ -96,7 +94,7 @@ def test_pickle_state_missing_params_refits_and_keeps_legacy_override():
 def test_unfitted_estimator_pickles_and_fits():
     """An UNFITTED MRMR survives pickle and is usable afterwards."""
     m = _fast(random_seed=9)
-    m2 = pickle.loads(pickle.dumps(m))
+    m2 = pickle.loads(pickle.dumps(m))  # nosec B301 -- round-trip of a locally-created, trusted object
     assert not hasattr(m2, "support_")
     X, y = _data(seed=5)
     MRMR._FIT_CACHE.clear()

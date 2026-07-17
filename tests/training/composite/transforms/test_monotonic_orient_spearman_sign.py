@@ -6,6 +6,7 @@ The fit's monotone orientation is decided by the SIGN of the Spearman correlatio
 continuous, tied, and negative-slope data so a future "just use scipy again" or a broken
 rank computation that flips the sign (and thus the fitted spline) is caught.
 """
+
 from __future__ import annotations
 
 import numpy as np

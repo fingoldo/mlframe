@@ -6,6 +6,7 @@ all four basis families (Fourier / RBF / Sigmoid / Pade).
 
 Does NOT duplicate the public-API smoke + biz_value tests already in test_bases.py.
 """
+
 from __future__ import annotations
 
 # Pre-import astropy so its logger init runs before coverage/pytest patches warnings.showwarning - the package init chain
@@ -13,7 +14,7 @@ from __future__ import annotations
 # astropy.logger.LoggingError. Importing here first sidesteps that ordering.
 try:
     import astropy  # noqa: F401
-except Exception:
+except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
     pass
 
 import math
@@ -32,6 +33,7 @@ from mlframe.feature_selection.filters.bases import (
 try:
     from tests.conftest import fast_subset
 except ImportError:  # pragma: no cover
+
     def fast_subset(values, **_):
         return list(values)
 
@@ -46,6 +48,7 @@ _DEGREES_FAST = fast_subset([1, 2, 3, 5, 9], representative=3)
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _eval(basis: dict, z: np.ndarray, c: np.ndarray, params: dict) -> np.ndarray:
     """Family-agnostic eval: prefer direct ``eval_njit`` over the factory closure used by RBF / Sigmoid."""
     if "eval_njit" in basis:
@@ -57,6 +60,7 @@ def _eval(basis: dict, z: np.ndarray, c: np.ndarray, params: dict) -> np.ndarray
 # ---------------------------------------------------------------------------
 # Degenerate inputs (constant arrays, single elements, empty coefs)
 # ---------------------------------------------------------------------------
+
 
 class TestDegenerateInputs:
     def test_fourier_fit_constant_array_maps_degenerate_to_zero(self):
@@ -151,6 +155,7 @@ class TestDegenerateInputs:
 # Numerical-stability branches in the sigmoid kernel
 # ---------------------------------------------------------------------------
 
+
 class TestSigmoidStability:
     def test_extreme_positive_arg_branch(self):
         # arg >> 0 -> arg >= 0 branch: sigmoid -> 1.0. Use extreme slope * (z - tau).
@@ -195,6 +200,7 @@ class TestSigmoidStability:
 # Pade denominator clamp + Horner branches
 # ---------------------------------------------------------------------------
 
+
 class TestPadeClamp:
     def test_clamp_triggers_at_pole(self):
         # Denominator = 1 + b_1 * z with b_1 = -1 hits zero at z = 1.0 - sample exactly at that pole.
@@ -236,13 +242,14 @@ class TestPadeClamp:
         out = _pade_eval_njit(z, c)
         assert np.all(np.isfinite(out))
         # Mostly close to the numerator polynomial value.
-        expected = 1.0 + 0.1 * z + 0.01 * z ** 2 + 0.001 * z ** 3
+        expected = 1.0 + 0.1 * z + 0.01 * z**2 + 0.001 * z**3
         np.testing.assert_allclose(out, expected, atol=1e-9)
 
 
 # ---------------------------------------------------------------------------
 # coef_size_func across all degrees 1..9 + saturation for RBF / Sigmoid
 # ---------------------------------------------------------------------------
+
 
 class TestCoefSize:
     def test_fourier_2k(self):
@@ -281,6 +288,7 @@ class TestCoefSize:
 # ---------------------------------------------------------------------------
 # canonical_seeds_func: every degree 1..9 must produce arrays sized to coef_size_func(d)
 # ---------------------------------------------------------------------------
+
 
 class TestCanonicalSeedsShape:
     @pytest.mark.parametrize("family", _FAMILIES_FAST)
@@ -335,6 +343,7 @@ class TestCanonicalSeedsShape:
 # RBF kernel boundary conditions
 # ---------------------------------------------------------------------------
 
+
 class TestRBFKernel:
     def test_single_centre(self):
         # K = 1: kernel reduces to one Gaussian bump.
@@ -371,6 +380,7 @@ class TestRBFKernel:
 # Sigmoid kernel: c shorter than thresholds + branch coverage
 # ---------------------------------------------------------------------------
 
+
 class TestSigmoidKernel:
     def test_c_shorter_than_thresholds(self):
         # min(K, nc) loop short-circuit when nc < K.
@@ -386,6 +396,7 @@ class TestSigmoidKernel:
 # Fourier kernel: explicit K and 2K coefficient layout
 # ---------------------------------------------------------------------------
 
+
 class TestFourierKernel:
     def test_pure_cos_seed_matches_numpy(self):
         # Second canonical seed is pure cos(2 * pi * k=1 * z).
@@ -397,19 +408,16 @@ class TestFourierKernel:
     def test_multi_harmonic_superposition(self):
         # K=3, weights pick sin(2*pi*1*z) + cos(2*pi*2*z) + sin(2*pi*3*z) summed.
         z = np.linspace(0.0, 1.0, 200, dtype=np.float64)
-        c = np.array([1.0, 0.0,   0.0, 1.0,   1.0, 0.0], dtype=np.float64)
+        c = np.array([1.0, 0.0, 0.0, 1.0, 1.0, 0.0], dtype=np.float64)
         out = _fourier_eval_njit(z, c)
-        expected = (
-            np.sin(2 * math.pi * 1 * z)
-            + np.cos(2 * math.pi * 2 * z)
-            + np.sin(2 * math.pi * 3 * z)
-        )
+        expected = np.sin(2 * math.pi * 1 * z) + np.cos(2 * math.pi * 2 * z) + np.sin(2 * math.pi * 3 * z)
         np.testing.assert_allclose(out, expected, atol=1e-12)
 
 
 # ---------------------------------------------------------------------------
 # Roundtrip: apply(x, params) == fit(x)[0] for the same x
 # ---------------------------------------------------------------------------
+
 
 class TestApplyMatchesFit:
     @pytest.mark.fast
@@ -427,6 +435,7 @@ class TestApplyMatchesFit:
 # ---------------------------------------------------------------------------
 # Composition: fit -> apply -> eval round-trip on a shared 100-row fixture
 # ---------------------------------------------------------------------------
+
 
 class TestComposition:
     @pytest.fixture
@@ -472,7 +481,7 @@ class TestComposition:
 
     def test_pade_compose(self, x100):
         b = EXTRA_BASES["pade"]
-        z, params = b["fit"](x100)
+        z, _params = b["fit"](x100)
         seeds = b["canonical_seeds_func"](degree=2)
         for c in seeds:
             out = b["eval_njit"](z, c)
@@ -484,6 +493,7 @@ class TestComposition:
 # ---------------------------------------------------------------------------
 # Registry-level introspection (every entry exposes its declared API)
 # ---------------------------------------------------------------------------
+
 
 class TestRegistryContract:
     @pytest.mark.parametrize("family", _FAMILIES_FAST)

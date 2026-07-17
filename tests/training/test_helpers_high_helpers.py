@@ -5,10 +5,10 @@ One test per finding (or shared per related fix). Each test is constructed so
 that the pre-fix code path fails the assertion or raises an exception; verified
 by running against the file pre-fix during development.
 """
+
 from __future__ import annotations
 
 import logging
-import warnings
 
 import numpy as np
 import pandas as pd
@@ -20,6 +20,7 @@ import pytest
 # H-HUS-03: rng.choice raises when n_test_shuf > len(remaining)
 # ---------------------------------------------------------------------------
 
+
 def test_hhus03_shuffled_choice_handles_oversize_request_directly(caplog):
     """Stress the inner ``_perform_split`` helper directly to exercise the
     clamp path. We patch the splitter's internal sizes to manufacture a
@@ -27,7 +28,6 @@ def test_hhus03_shuffled_choice_handles_oversize_request_directly(caplog):
     logic would otherwise suppress, then verify the function returns
     cleanly with a WARN instead of raising the legacy ValueError.
     """
-    from mlframe.training import splitting as _sp
 
     rng = np.random.default_rng(0)
     n = 10
@@ -55,6 +55,7 @@ def test_hhus03_shuffled_choice_handles_oversize_request_directly(caplog):
 # H-HUS-04: argsort on timestamps must be stable for reproducibility
 # ---------------------------------------------------------------------------
 
+
 def test_hhus04_argsort_stable_on_tied_timestamps():
     """When many timestamps tie, ties must keep insertion order. Verify the
     splitter is bit-for-bit identical across two seeded runs with tied
@@ -72,12 +73,24 @@ def test_hhus04_argsort_stable_on_tied_timestamps():
     df = pd.DataFrame({"x": np.arange(n)})
 
     out1 = make_train_test_split(
-        df=df, test_size=0.2, val_size=0.2, wholeday_splitting=False,
-        timestamps=timestamps, random_seed=7, shuffle_val=False, shuffle_test=False,
+        df=df,
+        test_size=0.2,
+        val_size=0.2,
+        wholeday_splitting=False,
+        timestamps=timestamps,
+        random_seed=7,
+        shuffle_val=False,
+        shuffle_test=False,
     )
     out2 = make_train_test_split(
-        df=df, test_size=0.2, val_size=0.2, wholeday_splitting=False,
-        timestamps=timestamps, random_seed=7, shuffle_val=False, shuffle_test=False,
+        df=df,
+        test_size=0.2,
+        val_size=0.2,
+        wholeday_splitting=False,
+        timestamps=timestamps,
+        random_seed=7,
+        shuffle_val=False,
+        shuffle_test=False,
     )
     np.testing.assert_array_equal(out1[0], out2[0])
     np.testing.assert_array_equal(out1[1], out2[1])
@@ -87,6 +100,7 @@ def test_hhus04_argsort_stable_on_tied_timestamps():
 # ---------------------------------------------------------------------------
 # H-HUS-05: promote-to-test WARN bucket labels
 # ---------------------------------------------------------------------------
+
 
 def test_hhus05_promote_warn_splits_buckets(caplog):
     """When some groups span val+test (not train+test), the WARN message must
@@ -111,8 +125,13 @@ def test_hhus05_promote_warn_splits_buckets(caplog):
     df = pd.DataFrame({"x": np.arange(n)})
     with caplog.at_level(logging.WARNING):
         make_train_test_split(
-            df=df, test_size=0.1, val_size=0.1, wholeday_splitting=False,
-            timestamps=timestamps, groups=groups, random_seed=7,
+            df=df,
+            test_size=0.1,
+            val_size=0.1,
+            wholeday_splitting=False,
+            timestamps=timestamps,
+            groups=groups,
+            random_seed=7,
         )
     text = "\n".join(rec.message for rec in caplog.records)
     # The fix introduces explicit val->test and train->test buckets.
@@ -123,6 +142,7 @@ def test_hhus05_promote_warn_splits_buckets(caplog):
 # H-HUS-06: pandas constant-column detect for all-NaN columns
 # ---------------------------------------------------------------------------
 
+
 def test_hhus06_all_nan_pandas_column_flagged_constant():
     """``df[c].min() == df[c].max()`` returns False for all-NaN columns; the
     fix uses ``nunique(dropna=False) <= 1`` so the column shows up as constant
@@ -130,12 +150,17 @@ def test_hhus06_all_nan_pandas_column_flagged_constant():
     """
     from mlframe.training._nan_processing import _process_special_values
 
-    df = pd.DataFrame({
-        "all_nan": [np.nan, np.nan, np.nan, np.nan],
-        "ok": [1.0, 2.0, 3.0, 4.0],
-    })
+    df = pd.DataFrame(
+        {
+            "all_nan": [np.nan, np.nan, np.nan, np.nan],
+            "ok": [1.0, 2.0, 3.0, 4.0],
+        }
+    )
     out = _process_special_values(
-        df=df, kind="constant numeric columns", drop_columns=True, verbose=0,
+        df=df,
+        kind="constant numeric columns",
+        drop_columns=True,
+        verbose=0,
     )
     assert "all_nan" not in out.columns
     assert "ok" in out.columns
@@ -144,6 +169,7 @@ def test_hhus06_all_nan_pandas_column_flagged_constant():
 # ---------------------------------------------------------------------------
 # H-HUS-07: bool idx length validation
 # ---------------------------------------------------------------------------
+
 
 def test_hhus07_subset_dataframe_validates_bool_mask_length():
     from mlframe.training._data_helpers import _subset_dataframe
@@ -158,6 +184,7 @@ def test_hhus07_subset_dataframe_validates_bool_mask_length():
 # H-HUS-08: _gpu_probe must import without numba installed
 # ---------------------------------------------------------------------------
 
+
 def test_hhus08_gpu_probe_imports_without_numba(monkeypatch):
     """Simulate a missing numba.cuda by stubbing the import; the module must
     still import and degrade to ``CUDA_IS_AVAILABLE=False``.
@@ -169,11 +196,12 @@ def test_hhus08_gpu_probe_imports_without_numba(monkeypatch):
     test-pollution rule in CLAUDE.md.
     """
     import os
-    import subprocess
+    import subprocess  # nosec B404 -- test-only local trusted subprocess invocation (fixed argv, no shell, no untrusted input)
     import sys
     import textwrap
 
     import mlframe as _mlframe_pkg
+
     _src_root = os.path.dirname(os.path.dirname(_mlframe_pkg.__file__))
     _env = {**os.environ, "PYTHONPATH": _src_root + os.pathsep + os.environ.get("PYTHONPATH", "")}
     _probe = textwrap.dedent("""
@@ -184,21 +212,22 @@ def test_hhus08_gpu_probe_imports_without_numba(monkeypatch):
         sys.stdout.write("HAS_FLAG=" + str(hasattr(mod, "CUDA_IS_AVAILABLE")) + "\\n")
         sys.stdout.write("CUDA=" + repr(getattr(mod, "CUDA_IS_AVAILABLE", "MISSING")))
     """)
-    _res = subprocess.run(
+    _res = subprocess.run(  # nosec B603 -- fixed local argv (sys.executable/git + literal args), no shell, no untrusted input
         [sys.executable, "-c", _probe],
-        capture_output=True, text=True, timeout=180, env=_env,
+        capture_output=True,
+        text=True,
+        timeout=180,
+        env=_env,
     )
     assert _res.returncode == 0, f"probe subprocess failed: {_res.stderr}"
     assert "HAS_FLAG=True" in _res.stdout, f"_gpu_probe lacks CUDA_IS_AVAILABLE flag: {_res.stdout!r}"
-    assert "CUDA=False" in _res.stdout, (
-        f"with numba.cuda stubbed to None the probe must report "
-        f"CUDA_IS_AVAILABLE=False; probe printed {_res.stdout!r}"
-    )
+    assert "CUDA=False" in _res.stdout, f"with numba.cuda stubbed to None the probe must report CUDA_IS_AVAILABLE=False; probe printed {_res.stdout!r}"
 
 
 # ---------------------------------------------------------------------------
 # H-HUS-11: lgb_shim length-mismatch on cached Dataset reuse
 # ---------------------------------------------------------------------------
+
 
 def test_hhus11_lgb_shim_length_mismatch_raises():
     """Force a cached-Dataset path with mismatched y length to assert the
@@ -210,7 +239,9 @@ def test_hhus11_lgb_shim_length_mismatch_raises():
 
     # Use the LGBMClassifierWithDatasetReuse class if exposed.
     LGBMClassifier = getattr(
-        lgb_shim, "LGBMClassifierWithDatasetReuse", None,
+        lgb_shim,
+        "LGBMClassifierWithDatasetReuse",
+        None,
     )
     if LGBMClassifier is None:  # pragma: no cover
         pytest.skip("LGBMClassifierWithDatasetReuse not available in this build")
@@ -234,6 +265,7 @@ def test_hhus11_lgb_shim_length_mismatch_raises():
 # H-HUS-12: bare list-pair eval_set normalisation
 # ---------------------------------------------------------------------------
 
+
 def test_hhus12_lgb_shim_handles_bare_list_pair_eval_set():
     """A user passing ``eval_set=[X_val, y_val]`` (list, not tuple-list) must
     be normalised to ``[(X_val, y_val)]``. Pre-fix: pair_seq[0] returns the
@@ -243,7 +275,9 @@ def test_hhus12_lgb_shim_handles_bare_list_pair_eval_set():
     from mlframe.training import lgb_shim
 
     LGBMClassifier = getattr(
-        lgb_shim, "LGBMClassifierWithDatasetReuse", None,
+        lgb_shim,
+        "LGBMClassifierWithDatasetReuse",
+        None,
     )
     if LGBMClassifier is None:
         pytest.skip("LGBMClassifierWithDatasetReuse not available")
@@ -265,12 +299,15 @@ def test_hhus12_lgb_shim_handles_bare_list_pair_eval_set():
 # H-HUS-13: xgb_shim 2-D y rejection
 # ---------------------------------------------------------------------------
 
+
 def test_hhus13_xgb_shim_rejects_2d_y_in_finalize():
     pytest.importorskip("xgboost")
     from mlframe.training import xgb_shim
 
     XGBClassifier = getattr(
-        xgb_shim, "XGBClassifierWithDMatrixReuse", None,
+        xgb_shim,
+        "XGBClassifierWithDMatrixReuse",
+        None,
     )
     if XGBClassifier is None:
         pytest.skip("XGBClassifierWithDMatrixReuse not available")
@@ -284,6 +321,7 @@ def test_hhus13_xgb_shim_rejects_2d_y_in_finalize():
 # ---------------------------------------------------------------------------
 # H-HUS-14: span_days fractional resolution
 # ---------------------------------------------------------------------------
+
 
 def test_hhus14_intraday_span_yields_nonuniform_weights():
     """Intraday-only data: .days returns 0 -> uniform weights pre-fix. The
@@ -302,6 +340,7 @@ def test_hhus14_intraday_span_yields_nonuniform_weights():
 # H-HUS-15: showcase_features_and_targets uses a seeded local RNG
 # ---------------------------------------------------------------------------
 
+
 def test_hhus15_showcase_seeded_subsample_reproducible(monkeypatch):
     """Two consecutive runs with the same seed must produce identical
     subsample-indices regardless of global numpy RNG state in-between.
@@ -312,6 +351,7 @@ def test_hhus15_showcase_seeded_subsample_reproducible(monkeypatch):
     seeded reconstruction (deterministic per seed, byte-equal).
     """
     import mlframe.training.extractors as _ext
+
     # 2026-05-25 monolith split: ``showcase_features_and_targets`` (and its
     # matplotlib import) moved to ``_extractors_showcase``; the parent module
     # re-exports the function but does not import ``plt`` itself. Reach into
@@ -358,9 +398,7 @@ def test_hhus15_showcase_seeded_subsample_reproducible(monkeypatch):
     # same seed; reconstructing it produces byte-identical samples,
     # proving the function uses LOCAL not global RNG.
     assert len(captured_seeds) >= 2, "default_rng never invoked from showcase_features_and_targets"
-    assert all(s == captured_seeds[0] for s in captured_seeds), (
-        f"showcase_features_and_targets used different seeds across calls: {captured_seeds}"
-    )
+    assert all(s == captured_seeds[0] for s in captured_seeds), f"showcase_features_and_targets used different seeds across calls: {captured_seeds}"
     # Reconstruct what the subsample WOULD have been -- identical between runs.
     a = real_default_rng(123).choice(200_000, size=100, replace=False)
     b = real_default_rng(123).choice(200_000, size=100, replace=False)
@@ -371,6 +409,7 @@ def test_hhus15_showcase_seeded_subsample_reproducible(monkeypatch):
 # H-HUS-16: preprocessing diagnostic must report inf via builtin max(vals)
 # ---------------------------------------------------------------------------
 
+
 def test_hhus16_preprocessing_polars_logs_inf_count(caplog):
     """Pre-fix: row is a tuple, tuples lack .max(); ``hasattr(vals, 'max')`` is
     False -> the diagnostic silently skips. Post-fix: builtin max(vals) is
@@ -378,21 +417,22 @@ def test_hhus16_preprocessing_polars_logs_inf_count(caplog):
     """
     from mlframe.training.preprocessing import _process_special_values
 
-    df = pl.DataFrame({
-        "a": [1.0, 2.0, float("inf"), 4.0],
-        "b": [None, 1.0, 2.0, 3.0],
-    })
+    df = pl.DataFrame(
+        {
+            "a": [1.0, 2.0, float("inf"), 4.0],
+            "b": [None, 1.0, 2.0, 3.0],
+        }
+    )
     with caplog.at_level(logging.INFO):
         _process_special_values(df=df, verbose=1)
     msgs = "\n".join(rec.message for rec in caplog.records)
-    assert "inf=" in msgs or "null=" in msgs or "NaN=" in msgs, (
-        f"diagnostic message missing; got: {msgs!r}"
-    )
+    assert "inf=" in msgs or "null=" in msgs or "NaN=" in msgs, f"diagnostic message missing; got: {msgs!r}"
 
 
 # ---------------------------------------------------------------------------
 # H-HUS-17: cs.float() (not cs.numeric()) for inf->NaN replace on integers
 # ---------------------------------------------------------------------------
+
 
 def test_hhus17_preprocessing_polars_handles_integer_columns():
     """A polars frame mixing int and float must not raise when inf->NaN is
@@ -401,10 +441,12 @@ def test_hhus17_preprocessing_polars_handles_integer_columns():
     """
     from mlframe.training.preprocessing import _process_special_values
 
-    df = pl.DataFrame({
-        "int_col": pl.Series("int_col", [1, 2, 3, 4], dtype=pl.Int64),
-        "float_col": pl.Series("float_col", [1.0, 2.0, float("inf"), 4.0]),
-    })
+    df = pl.DataFrame(
+        {
+            "int_col": pl.Series("int_col", [1, 2, 3, 4], dtype=pl.Int64),
+            "float_col": pl.Series("float_col", [1.0, 2.0, float("inf"), 4.0]),
+        }
+    )
     out = _process_special_values(df=df, verbose=0)
     # int_col stays integer-typed and untouched.
     assert out.schema["int_col"] == pl.Int64
@@ -416,6 +458,7 @@ def test_hhus17_preprocessing_polars_handles_integer_columns():
 # ---------------------------------------------------------------------------
 # H-HUS-18: PULearningWrapper.fit accepts ``is_unbiased`` positionally
 # ---------------------------------------------------------------------------
+
 
 def test_hhus18_pulearning_accepts_positional_is_unbiased():
     """sklearn.clone() works on the wrapper, and fit(X, y, is_unbiased) - the
@@ -431,6 +474,7 @@ def test_hhus18_pulearning_accepts_positional_is_unbiased():
     # The clone itself shouldn't raise. The signature change permits
     # positional is_unbiased - introspect the signature to confirm.
     import inspect
+
     sig = inspect.signature(cloned.fit)
     params = list(sig.parameters.values())
     # is_unbiased should NOT be keyword-only post-fix.
@@ -441,6 +485,7 @@ def test_hhus18_pulearning_accepts_positional_is_unbiased():
 # ---------------------------------------------------------------------------
 # H-HUS-19: isotonic crossing-fix functional API equivalence (+ speedup)
 # ---------------------------------------------------------------------------
+
 
 def test_hhus19_isotonic_matches_iterative_fit_per_row():
     """Functional ``isotonic_regression`` must produce values within tiny
@@ -471,6 +516,7 @@ def test_hhus19_isotonic_matches_iterative_fit_per_row():
 # ---------------------------------------------------------------------------
 # H-HUS-20: Parallel used as context manager in quantile wrapper
 # ---------------------------------------------------------------------------
+
 
 def test_hhus20_quantile_wrapper_uses_parallel_as_context_manager(monkeypatch):
     """Behavioural: when quantile_wrapper builds a Parallel, it must enter/exit
@@ -508,16 +554,16 @@ def test_hhus20_quantile_wrapper_uses_parallel_as_context_manager(monkeypatch):
     X = rng.standard_normal((30, 3))
     y = X[:, 0] + 0.1 * rng.standard_normal(30)
     from sklearn.linear_model import QuantileRegressor
+
     base = QuantileRegressor(alpha=0.0, solver="highs")
     wrapper = QW(base_estimator=base, alphas=(0.1, 0.5, 0.9), n_jobs=2)
     try:
         wrapper.fit(X, y)
-    except Exception:
+    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
         # Real fit failures (env/lib) are tolerated here -- the assertion
         # below only cares about Parallel context-manager hygiene.
         pass
     # Every enter must have a matching exit.
     assert len(enters) == len(exits), (
-        f"Parallel enter/exit not balanced (enters={len(enters)}, exits={len(exits)}); "
-        "wrapper is not using `with Parallel(...)` form."
+        f"Parallel enter/exit not balanced (enters={len(enters)}, exits={len(exits)}); wrapper is not using `with Parallel(...)` form."
     )

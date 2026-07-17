@@ -8,6 +8,7 @@ metric, so non-0/1 binary labels (e.g. {1, 2}) silently produced NaN / wrong
 per-group AUC. The fix maps targets to the positive-class indicator
 (``targets == classes[1]``) before the fairness/calibration consumers.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -39,11 +40,19 @@ def _run(target_labels):
 
     metrics: dict = {}
     report_probabilistic_model_perf(
-        targets=y, columns=["f0"], model_name="m", model=None,
-        classes=classes, probs=probs, preds=None,
-        subgroups=subgroups, subset_index=np.arange(n),
-        print_report=False, show_perf_chart=False,
-        fairness_calibration_charts=False, calibration_by_feature_charts=False,
+        targets=y,
+        columns=["f0"],
+        model_name="m",
+        model=None,
+        classes=classes,
+        probs=probs,
+        preds=None,
+        subgroups=subgroups,
+        subset_index=np.arange(n),
+        print_report=False,
+        show_perf_chart=False,
+        fairness_calibration_charts=False,
+        calibration_by_feature_charts=False,
         calibration_heatmap_2d_charts=False,
         metrics=metrics,
         custom_ice_metric=lambda y_true, y_score, **kw: 0.0,
@@ -59,8 +68,6 @@ def test_fairness_roc_auc_uses_positive_class_indicator(labels):
     got, expected = _run(labels)
     assert np.isfinite(got), f"fairness ROC AUC is non-finite for labels={labels}"
     # pre-fix: labels {1,2} / strings fed raw into fast_roc_auc -> NaN / wrong.
-    assert got == pytest.approx(expected, abs=1e-9), (
-        f"fairness ROC AUC {got} != sklearn per-group mean {expected} for labels={labels}"
-    )
+    assert got == pytest.approx(expected, abs=1e-9), f"fairness ROC AUC {got} != sklearn per-group mean {expected} for labels={labels}"
     # sanity: the synthetic must be discriminating (not a trivial 1.0 pass).
     assert 0.6 < expected < 0.85

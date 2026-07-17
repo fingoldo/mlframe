@@ -5,6 +5,7 @@ silent regression in any field (missing key, empty list, wrong type) breaks
 the production GA without surfacing a clean error. These tests pin every
 documented contract.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -19,6 +20,7 @@ from mlframe.feature_engineering.pysr_operators import (
 try:
     from tests.conftest import fast_subset
 except ImportError:  # pragma: no cover
+
     def fast_subset(values, **_):
         return list(values)
 

@@ -38,8 +38,11 @@ MLFRAME_DIR = Path(mlframe.__file__).resolve().parent
 # Field names defined on Pydantic's BaseModel itself or on our ``BaseConfig``
 # helper that don't represent user-facing config (validators, model_config).
 _PYDANTIC_INTERNAL = {
-    "model_config", "model_fields", "model_computed_fields",
-    "model_extra", "model_fields_set",
+    "model_config",
+    "model_fields",
+    "model_computed_fields",
+    "model_extra",
+    "model_fields_set",
 }
 
 # Hard whitelist — fields known to be consumed by indirect routes a static
@@ -223,7 +226,7 @@ def test_known_consumed_fields_actually_grep():
     corpus = _consumer_corpus()
     canaries = ("target", "verbose", "random_state")
     missing = [c for c in canaries if not _is_referenced(c, corpus)]
-    assert not missing, f"_is_referenced canary check failed for {missing}: heuristic is " f"broken (or the corpus is empty / mis-resolved)."
+    assert not missing, f"_is_referenced canary check failed for {missing}: heuristic is broken (or the corpus is empty / mis-resolved)."
 
 
 def test_every_config_field_has_a_consumer():

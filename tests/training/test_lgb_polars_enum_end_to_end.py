@@ -1,4 +1,5 @@
 from mlframe.training import OutputConfig
+
 """End-to-end LGB tests with realistic prod-like Polars input.
 
 Why this file exists: production LGB crashes on 2026-04-22 with
@@ -37,15 +38,17 @@ def _make_prod_like_polars_frame(n: int = 2000, seed: int = 0) -> pl.DataFrame:
     budget_categories = ["HOURLY", "FIXED", "MILESTONE"]
     tier_categories = ["BEGINNER", "INTERMEDIATE", "EXPERT"]
     workload_categories = ["LESS_THAN_30", "MORE_THAN_30", "FULL_TIME"]
-    return pl.DataFrame({
-        "num_feat_1": rng.standard_normal(n).astype(np.float32),
-        "num_feat_2": rng.standard_normal(n).astype(np.float32),
-        "num_feat_3": rng.standard_normal(n).astype(np.float32),
-        "budget_type": pl.Series([budget_categories[i % 3] for i in range(n)]).cast(pl.Enum(budget_categories)),
-        "contractor_tier": pl.Series([tier_categories[i % 3] for i in range(n)]).cast(pl.Enum(tier_categories)),
-        "workload": pl.Series([workload_categories[i % 3] for i in range(n)]).cast(pl.Enum(workload_categories)),
-        "target": rng.integers(0, 2, n),
-    })
+    return pl.DataFrame(
+        {
+            "num_feat_1": rng.standard_normal(n).astype(np.float32),
+            "num_feat_2": rng.standard_normal(n).astype(np.float32),
+            "num_feat_3": rng.standard_normal(n).astype(np.float32),
+            "budget_type": pl.Series([budget_categories[i % 3] for i in range(n)]).cast(pl.Enum(budget_categories)),
+            "contractor_tier": pl.Series([tier_categories[i % 3] for i in range(n)]).cast(pl.Enum(tier_categories)),
+            "workload": pl.Series([workload_categories[i % 3] for i in range(n)]).cast(pl.Enum(workload_categories)),
+            "target": rng.integers(0, 2, n),
+        }
+    )
 
 
 def test_lgb_directly_handles_polars_enum_via_pandas_bridge():
@@ -62,9 +65,7 @@ def test_lgb_directly_handles_polars_enum_via_pandas_bridge():
     cat_cols = ["budget_type", "contractor_tier", "workload"]
     # Sanity: bridge must keep cat columns as pd.Categorical
     for c in cat_cols:
-        assert pd_df[c].dtype.name == "category", (
-            f"Bridge dropped pd.Categorical for {c}; got {pd_df[c].dtype}"
-        )
+        assert pd_df[c].dtype.name == "category", f"Bridge dropped pd.Categorical for {c}; got {pd_df[c].dtype}"
 
     model = lgb.LGBMClassifier(n_estimators=5, verbose=-1)
     model.fit(pd_df, y, categorical_feature=cat_cols)
@@ -91,13 +92,11 @@ def test_lgb_after_passthrough_wrapper_handles_numpy_inner_fn():
         return sub_df[["num_feat_1", "num_feat_2", "num_feat_3"]].to_numpy()
 
     out = _passthrough_cols_fit_transform(
-        numpy_returning_selector, pd_df,
+        numpy_returning_selector,
+        pd_df,
         passthrough_cols=["budget_type", "contractor_tier", "workload"],
     )
-    assert isinstance(out, pd.DataFrame), (
-        f"_passthrough_cols_fit_transform must rebuild pd.DataFrame "
-        f"to keep LGB fastpath alive; got {type(out).__name__}"
-    )
+    assert isinstance(out, pd.DataFrame), f"_passthrough_cols_fit_transform must rebuild pd.DataFrame to keep LGB fastpath alive; got {type(out).__name__}"
     for c in ["budget_type", "contractor_tier", "workload"]:
         assert c in out.columns
 
@@ -116,9 +115,7 @@ def test_suite_polars_with_enum_cats_end_to_end(model_name, tmp_path):
     Parametrized across all three tree models so XGB / CB regressions on the same
     path also get caught locally.
     """
-    pytest.importorskip(
-        {"lgb": "lightgbm", "xgb": "xgboost", "cb": "catboost"}[model_name]
-    )
+    pytest.importorskip({"lgb": "lightgbm", "xgb": "xgboost", "cb": "catboost"}[model_name])
 
     from mlframe.training.core import train_mlframe_models_suite
     from .shared import SimpleFeaturesAndTargetsExtractor
@@ -133,7 +130,7 @@ def test_suite_polars_with_enum_cats_end_to_end(model_name, tmp_path):
     if model_name == "lgb":
         config_override["lgb_kwargs"] = {"device_type": "cpu", "verbose": -1}
 
-    models, metadata = train_mlframe_models_suite(
+    models, _metadata = train_mlframe_models_suite(
         df=pl_df,
         target_name=f"{model_name}_polars_enum_test",
         model_name=f"{model_name}_polars_enum_test",

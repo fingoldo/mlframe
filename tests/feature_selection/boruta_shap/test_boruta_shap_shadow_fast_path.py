@@ -10,6 +10,7 @@ per-column dtype, identical column order -- so the RNG stream (and every downstr
 unchanged. This test asserts that against the ``.apply`` reference for the float (fast path),
 int32 (fast path), and mixed/categorical (fallback path) regimes, all seeded identically.
 """
+
 from __future__ import annotations
 
 import numpy as np

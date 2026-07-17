@@ -8,6 +8,7 @@ learner (local/nonlinear decision boundary the correlated learners all miss the 
 recommender both correctly surfaces the KNN learner as its top-ranked shortlist pick and correctly excludes a
 near-duplicate model with zero ablation payoff.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -88,7 +89,9 @@ def test_biz_val_recommend_diversity_additions_excludes_non_improving_flagged_ca
 
     shortlist = recommend_diversity_additions(oof_preds, individual_scores, y_true, _mae, correlation_threshold=0.85, higher_score_is_better=True)
     shortlisted_names = {entry["model"] for entry in shortlist}
-    assert "noise" not in shortlisted_names, f"expected the non-improving flagged 'noise' candidate excluded from the recommender shortlist, got {shortlisted_names}"
+    assert "noise" not in shortlisted_names, (
+        f"expected the non-improving flagged 'noise' candidate excluded from the recommender shortlist, got {shortlisted_names}"
+    )
 
 
 def test_recommend_diversity_additions_top_k_caps_shortlist():

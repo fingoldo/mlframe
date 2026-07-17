@@ -1,4 +1,5 @@
 """Append-only JSONL results log for fuzz combo outcomes."""
+
 from __future__ import annotations
 
 import os
@@ -6,7 +7,7 @@ from pathlib import Path
 
 import orjson
 
-from .combo import FuzzCombo  # noqa: F401  (annotation strings under PEP 563)
+from .combo import FuzzCombo
 
 
 # parents[1] keeps the log at tests/training/_fuzz_results.jsonl (next to the
@@ -62,7 +63,7 @@ def read_fail_summary() -> dict:
         for line in f:
             try:
                 row = orjson.loads(line)
-            except Exception:
+            except Exception:  # nosec B112 -- best-effort skip of one iteration on a non-fatal error; the test's own assertions are unaffected
                 continue
             totals[row.get("outcome", "?")] = totals.get(row.get("outcome", "?"), 0) + 1
             if row.get("outcome") == "fail":

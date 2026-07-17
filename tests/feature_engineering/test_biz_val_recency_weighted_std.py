@@ -39,9 +39,7 @@ def _make_recent_volatility_regime_change_data(n_entities: int, n_hist: int, n_r
 
 def test_biz_val_recency_weighted_std_separates_recent_volatility_regime_change_from_plain_std():
     n_entities, n_hist, n_recent_burst = 4000, 30, 4
-    values, group_ids, order, label = _make_recent_volatility_regime_change_data(
-        n_entities, n_hist, n_recent_burst, sigma_calm=1.0, sigma_burst=8.0, seed=0
-    )
+    values, group_ids, order, label = _make_recent_volatility_regime_change_data(n_entities, n_hist, n_recent_burst, sigma_calm=1.0, sigma_burst=8.0, seed=0)
 
     plain_std = per_group_recency_weighted_agg(values, group_ids, agg="std", order=order, scheme="poly", param=0.0, broadcast=False)
     weighted_std = per_group_recency_weighted_agg(values, group_ids, agg="std", order=order, scheme="poly", param=10.0, broadcast=False)
@@ -50,14 +48,14 @@ def test_biz_val_recency_weighted_std_separates_recent_volatility_regime_change_
     auc_weighted = roc_auc_score(label, weighted_std)
 
     assert auc_weighted >= 0.90, f"expected recency-weighted std to separate recent-regime-change entities, got auc={auc_weighted:.4f}"
-    assert auc_weighted > auc_plain + 0.3, f"expected recency-weighted std to beat plain std by a wide margin, got weighted={auc_weighted:.4f} plain={auc_plain:.4f}"
+    assert auc_weighted > auc_plain + 0.3, (
+        f"expected recency-weighted std to beat plain std by a wide margin, got weighted={auc_weighted:.4f} plain={auc_plain:.4f}"
+    )
 
 
 def test_per_group_recency_weighted_agg_var_is_squared_std():
     n_entities, n_hist, n_recent_burst = 500, 20, 3
-    values, group_ids, order, _ = _make_recent_volatility_regime_change_data(
-        n_entities, n_hist, n_recent_burst, sigma_calm=1.0, sigma_burst=5.0, seed=1
-    )
+    values, group_ids, order, _ = _make_recent_volatility_regime_change_data(n_entities, n_hist, n_recent_burst, sigma_calm=1.0, sigma_burst=5.0, seed=1)
 
     weighted_std = per_group_recency_weighted_agg(values, group_ids, agg="std", order=order, scheme="exp", param=0.8, broadcast=False)
     weighted_var = per_group_recency_weighted_agg(values, group_ids, agg="var", order=order, scheme="exp", param=0.8, broadcast=False)

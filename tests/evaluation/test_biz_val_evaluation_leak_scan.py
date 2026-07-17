@@ -4,6 +4,7 @@ The win: on a mix of one genuinely split-leaking column and several clean, split
 scanner ranks the leaking column first with a correlation far above threshold, while every clean column
 scores near zero and stays unflagged — a concrete detection test, not just a shape/smoke check.
 """
+
 from __future__ import annotations
 
 import numpy as np

@@ -1,14 +1,15 @@
 """Public-API consistency / validation regression tests for mlframe.estimators.
 
-  * API9  -- ArithmAvgClassifier clips X into [0,1] like GeomAvgClassifier, so
-    out-of-[0,1] inputs yield valid probabilities.
-  * API29 -- Arithm/Geom fit raises when nprobs > n_features (short/empty slice).
-  * API11 -- IdentityClassifier.predict_proba multiclass returns clipped,
-    row-normalised, classes_-aligned probabilities.
-  * API30 -- MyDecorrelator.transform returns the same type as its input.
-  * API28 -- EarlyStoppingWrapper._split shuffles/stratifies so a sorted-by-class
-    dataset does not produce a single-class validation fold.
+* API9  -- ArithmAvgClassifier clips X into [0,1] like GeomAvgClassifier, so
+  out-of-[0,1] inputs yield valid probabilities.
+* API29 -- Arithm/Geom fit raises when nprobs > n_features (short/empty slice).
+* API11 -- IdentityClassifier.predict_proba multiclass returns clipped,
+  row-normalised, classes_-aligned probabilities.
+* API30 -- MyDecorrelator.transform returns the same type as its input.
+* API28 -- EarlyStoppingWrapper._split shuffles/stratifies so a sorted-by-class
+  dataset does not produce a single-class validation fold.
 """
+
 import warnings
 
 warnings.filterwarnings("ignore")
@@ -67,9 +68,7 @@ def test_identity_classifier_multiclass_probs_normalised_and_aligned():
     clf = IdentityClassifier(feature_indices=[0, 1, 2])
     # 3 classes; feature block carries raw (unnormalised, partly out-of-range) per-class scores.
     y = np.array([0, 1, 2, 0])
-    X_fit = pd.DataFrame(
-        {"a": [0.1, 0.2, 0.3, 0.4], "b": [0.5, 0.6, 0.7, 0.8], "c": [0.9, 1.0, 0.2, 0.3]}
-    )
+    X_fit = pd.DataFrame({"a": [0.1, 0.2, 0.3, 0.4], "b": [0.5, 0.6, 0.7, 0.8], "c": [0.9, 1.0, 0.2, 0.3]})
     clf.fit(X_fit, y)
     assert list(clf.classes_) == [0, 1, 2]
     X = pd.DataFrame({"a": [2.0, -1.0], "b": [0.5, 0.5], "c": [0.5, 0.5]})
@@ -120,7 +119,10 @@ def test_early_stopping_split_not_single_class_on_sorted_data():
     y = np.array([0] * 50 + [1] * 50)
     X = np.arange(100, dtype=float).reshape(-1, 1)
     wrapper = EarlyStoppingWrapper(
-        base_model=SGDClassifier(max_iter=1), max_iter=2, validation_fraction=0.2, random_state=42,
+        base_model=SGDClassifier(max_iter=1),
+        max_iter=2,
+        validation_fraction=0.2,
+        random_state=42,
     )
     wrapper._is_regressor = False
     _, _, _, y_val = wrapper._split(X, y)

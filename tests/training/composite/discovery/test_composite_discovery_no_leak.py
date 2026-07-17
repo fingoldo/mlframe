@@ -13,6 +13,7 @@ This sensor pins the safe behaviour directly on the production helper that
 performs the per-target discovery dataframe build, so it FAILS on the
 ``copy(deep=False)+setitem`` pattern and PASSES on the ``.assign`` pattern.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -29,10 +30,12 @@ def test_composite_discovery_disc_df_build_does_not_leak_target_into_caller_pd()
     feature columns - neither target_A nor target_B should leak in.
     """
     n = 200
-    filtered_train_df = pd.DataFrame({
-        "x0": np.arange(n, dtype=np.float64),
-        "x1": np.arange(n, dtype=np.float64) * 0.5,
-    })
+    filtered_train_df = pd.DataFrame(
+        {
+            "x0": np.arange(n, dtype=np.float64),
+            "x1": np.arange(n, dtype=np.float64) * 0.5,
+        }
+    )
     cols_before = list(filtered_train_df.columns)
 
     y_a = np.linspace(0.0, 1.0, n).astype(np.float64)
@@ -54,8 +57,7 @@ def test_composite_discovery_disc_df_build_does_not_leak_target_into_caller_pd()
         f"Columns now: {list(filtered_train_df.columns)}"
     )
     assert list(filtered_train_df.columns) == cols_before, (
-        f"S04: filtered_train_df.columns mutated: before={cols_before} "
-        f"after={list(filtered_train_df.columns)}"
+        f"S04: filtered_train_df.columns mutated: before={cols_before} after={list(filtered_train_df.columns)}"
     )
 
 
@@ -75,10 +77,12 @@ def test_composite_discovery_disc_df_build_does_not_leak_mutation_to_caller():
     value mutation and is caught here.
     """
     n = 200
-    filtered_train_df = pd.DataFrame({
-        "x0": np.full(n, 123.456, dtype=np.float64),
-        "x1": np.full(n, 7.89, dtype=np.float64),
-    })
+    filtered_train_df = pd.DataFrame(
+        {
+            "x0": np.full(n, 123.456, dtype=np.float64),
+            "x1": np.full(n, 7.89, dtype=np.float64),
+        }
+    )
     y = np.arange(n, dtype=np.float64)
     _disc = _build_disc_df_for_target(filtered_train_df, "target_A", y)
     caller_x0_before = filtered_train_df["x0"].to_numpy().copy()
@@ -89,10 +93,12 @@ def test_composite_discovery_disc_df_build_does_not_leak_mutation_to_caller():
     _disc.loc[:, "x0"] = -1.0
     _disc.loc[:, "x1"] = -2.0
     np.testing.assert_array_equal(
-        filtered_train_df["x0"].to_numpy(), caller_x0_before,
+        filtered_train_df["x0"].to_numpy(),
+        caller_x0_before,
         err_msg="S04: write to _disc['x0'] leaked into caller's filtered_train_df",
     )
     np.testing.assert_array_equal(
-        filtered_train_df["x1"].to_numpy(), caller_x1_before,
+        filtered_train_df["x1"].to_numpy(),
+        caller_x1_before,
         err_msg="S04: write to _disc['x1'] leaked into caller's filtered_train_df",
     )

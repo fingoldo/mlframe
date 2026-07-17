@@ -2,10 +2,11 @@
 ``os.environ`` (CUDA_HOME/CUDA_PATH). The CUDA autoconfig + broken-cupy guard are deferred to the
 first GPU-dispatch use, so a CPU-only user pays neither the cupy import nor the environment rewrite.
 """
+
 from __future__ import annotations
 
 import os
-import subprocess
+import subprocess  # nosec B404 -- test-only local trusted subprocess invocation (fixed argv, no shell, no untrusted input)
 import sys
 from pathlib import Path
 
@@ -27,7 +28,7 @@ def test_plain_import_does_not_probe_gpu():
     env = {k: v for k, v in os.environ.items() if k not in ("CUDA_HOME", "CUDA_PATH")}
     env["PYTHONPATH"] = _SRC + os.pathsep + env.get("PYTHONPATH", "")
     env["CUDA_VISIBLE_DEVICES"] = ""
-    proc = subprocess.run(
+    proc = subprocess.run(  # nosec B603 -- fixed local argv (sys.executable/git + literal args), no shell, no untrusted input
         [sys.executable, "-c", _PROBE],
         capture_output=True,
         text=True,

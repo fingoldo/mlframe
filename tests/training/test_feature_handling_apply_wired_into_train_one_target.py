@@ -9,6 +9,7 @@ The tests target the small helper ``_maybe_run_feature_handling_apply`` directly
 ``_train_one_target`` (which pulls in ~50 ctx attributes, OD filtering, strategies, model loops) would be a fixture nightmare for a wire-
 in check. The helper is the wire seam, so testing it surfaces the same regression.
 """
+
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -30,10 +31,12 @@ def _make_synth_frames(n: int = 64):
         "amazing value highly recommended",
         "poor build quality returned it",
     ]
-    df = pl.DataFrame({
-        "review": [text_choices[i % len(text_choices)] for i in range(n)],
-        "x_num": rng.randn(n).astype(np.float32),
-    })
+    df = pl.DataFrame(
+        {
+            "review": [text_choices[i % len(text_choices)] for i in range(n)],
+            "x_num": rng.randn(n).astype(np.float32),
+        }
+    )
     return df
 
 

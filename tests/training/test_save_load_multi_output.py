@@ -17,9 +17,9 @@ Each test pattern:
 5. Assert np.allclose(original, loaded) — pickle is a pure-data transform,
    must be numerically identical.
 """
+
 from __future__ import annotations
 
-import tempfile
 from pathlib import Path
 
 import joblib
@@ -47,7 +47,7 @@ def _make_multilabel(N=300, K=3, seed=0):
     y2 = (logit2 + rng.normal(0, 0.4, N) > 0.6).astype(np.int8)
     y = np.column_stack([y0, y1, y2])
     # Avoid all-zero rows
-    zeros = (y.sum(axis=1) == 0)
+    zeros = y.sum(axis=1) == 0
     for i in np.where(zeros)[0]:
         y[i, rng.integers(0, K)] = 1
     return X, y
@@ -140,10 +140,7 @@ def test_multioutputclassifier_near_constant_label_roundtrip(tmp_path: Path):
 
     np.testing.assert_allclose(original, loaded_probs, atol=1e-12)
     # Column 2 should have very low probabilities (rare positive)
-    assert loaded_probs[:, 2].mean() < 0.2, (
-        f"Column 2 mean prob {loaded_probs[:, 2].mean():.3f} too high for "
-        "99% zeros training target."
-    )
+    assert loaded_probs[:, 2].mean() < 0.2, f"Column 2 mean prob {loaded_probs[:, 2].mean():.3f} too high for 99% zeros training target."
 
 
 # ---------------------------------------------------------------------------
@@ -160,8 +157,11 @@ def test_chain_ensemble_save_load_roundtrip(tmp_path: Path):
 
     base = LogisticRegression(max_iter=100, random_state=0)
     chain = _ChainEnsemble(
-        clone(base), n_labels=3, n_chains=3,
-        seeds=[0, 1, 2], cv=3,
+        clone(base),
+        n_labels=3,
+        n_chains=3,
+        seeds=[0, 1, 2],
+        cv=3,
     )
     chain.fit(X_tr, y_tr)
     original = chain.predict_proba(X_te)
@@ -177,10 +177,7 @@ def test_chain_ensemble_save_load_roundtrip(tmp_path: Path):
     np.testing.assert_allclose(original, loaded_probs, atol=1e-12)
     # Order survived
     loaded_orders = [np.asarray(c.order_).tolist() for c in loaded.chains_]
-    assert original_orders == loaded_orders, (
-        f"Chain orderings drifted across pickle: "
-        f"original={original_orders}, loaded={loaded_orders}"
-    )
+    assert original_orders == loaded_orders, f"Chain orderings drifted across pickle: original={original_orders}, loaded={loaded_orders}"
 
 
 def test_chain_ensemble_by_frequency_order_roundtrip(tmp_path: Path):
@@ -192,8 +189,12 @@ def test_chain_ensemble_by_frequency_order_roundtrip(tmp_path: Path):
 
     base = LogisticRegression(max_iter=100, random_state=0)
     chain = _ChainEnsemble(
-        clone(base), n_labels=3, n_chains=2, seeds=[0, 1],
-        order_strategy="by_frequency", cv=3,
+        clone(base),
+        n_labels=3,
+        n_chains=2,
+        seeds=[0, 1],
+        order_strategy="by_frequency",
+        cv=3,
     )
     chain.fit(X_tr, y_tr)
 
@@ -233,10 +234,14 @@ def test_per_class_calibrated_model_save_load_roundtrip(tmp_path: Path):
     probs_tr = _canonical_predict_proba_shape(base.predict_proba(X_tr))
 
     calibrator = _PerClassIsotonicCalibrator.fit(
-        probs_tr, y_tr, TargetTypes.MULTILABEL_CLASSIFICATION,
+        probs_tr,
+        y_tr,
+        TargetTypes.MULTILABEL_CLASSIFICATION,
     )
     wrapped = _PostHocMultiCalibratedModel(
-        base, calibrator, TargetTypes.MULTILABEL_CLASSIFICATION,
+        base,
+        calibrator,
+        TargetTypes.MULTILABEL_CLASSIFICATION,
     )
     original = wrapped.predict_proba(X_te)
 

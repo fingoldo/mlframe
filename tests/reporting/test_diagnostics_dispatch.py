@@ -52,9 +52,14 @@ class TestSplitErrorDiagnostics:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             out = render_split_error_diagnostics(
-                df=df, y_true=y, y_pred=yp, task="regression",
-                plot_outputs="matplotlib[png]", base_path=str(tmp_path / "reg"),
-                metrics_dict=m, feature_names=["f0", "f1", "f2"],
+                df=df,
+                y_true=y,
+                y_pred=yp,
+                task="regression",
+                plot_outputs="matplotlib[png]",
+                base_path=str(tmp_path / "reg"),
+                metrics_dict=m,
+                feature_names=["f0", "f1", "f2"],
                 subgroups={"hi": df["f0"].to_numpy() > 0.5, "lo": df["f0"].to_numpy() <= 0.5},
             )
         assert os.path.exists(tmp_path / "reg_weak_segments.png")
@@ -70,9 +75,15 @@ class TestSplitErrorDiagnostics:
         Measured 100%; floor 0.85 absorbs noise."""
         df, y, yp, bad, _ts = reg_data
         out = render_split_error_diagnostics(
-            df=df, y_true=y, y_pred=yp, task="regression",
-            plot_outputs="matplotlib[png]", base_path=str(tmp_path / "reg"),
-            metrics_dict={}, feature_names=["f0", "f1", "f2"], worst_k=30,
+            df=df,
+            y_true=y,
+            y_pred=yp,
+            task="regression",
+            plot_outputs="matplotlib[png]",
+            base_path=str(tmp_path / "reg"),
+            metrics_dict={},
+            feature_names=["f0", "f1", "f2"],
+            worst_k=30,
         )
         frac = bad[out["worst_k_indices"]].mean()
         assert frac >= 0.85, f"worst-K should land in the injected region; got {frac:.3f}"
@@ -81,8 +92,13 @@ class TestSplitErrorDiagnostics:
         _df, y, yp, _bad, _ts = reg_data
         m: dict = {}
         out = render_split_error_diagnostics(
-            df=None, y_true=y, y_pred=yp, task="regression",
-            plot_outputs="matplotlib[png]", base_path=str(tmp_path / "x"), metrics_dict=m,
+            df=None,
+            y_true=y,
+            y_pred=yp,
+            task="regression",
+            plot_outputs="matplotlib[png]",
+            base_path=str(tmp_path / "x"),
+            metrics_dict=m,
         )
         assert out["worst_k_table"] is None
         assert not list(tmp_path.glob("x*"))
@@ -90,8 +106,13 @@ class TestSplitErrorDiagnostics:
     def test_noop_when_no_plot_outputs(self, reg_data, tmp_path):
         df, y, yp, _bad, _ts = reg_data
         out = render_split_error_diagnostics(
-            df=df, y_true=y, y_pred=yp, task="regression",
-            plot_outputs="", base_path=str(tmp_path / "x"), metrics_dict={},
+            df=df,
+            y_true=y,
+            y_pred=yp,
+            task="regression",
+            plot_outputs="",
+            base_path=str(tmp_path / "x"),
+            metrics_dict={},
         )
         assert out["worst_k_table"] is None
         assert not list(tmp_path.glob("x*"))
@@ -109,9 +130,15 @@ class TestSplitErrorDiagnostics:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             out = render_split_error_diagnostics(
-                df=df, y_true=y, y_pred=yp, task="regression",
-                plot_outputs="matplotlib[png]", base_path=str(tmp_path / "big"),
-                metrics_dict={}, feature_names=["f0", "f1"], worst_k=5,
+                df=df,
+                y_true=y,
+                y_pred=yp,
+                task="regression",
+                plot_outputs="matplotlib[png]",
+                base_path=str(tmp_path / "big"),
+                metrics_dict={},
+                feature_names=["f0", "f1"],
+                worst_k=5,
             )
         assert (n - 1) in set(out["worst_k_indices"].tolist())
         assert (out["worst_k_indices"] < n).all()
@@ -129,10 +156,16 @@ class TestTargetDriftDiagnostics:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             render_target_drift_diagnostics(
-                train_frame=df.iloc[:2500], test_frame=df.iloc[2500:],
-                y_true=y, y_pred=yp, timestamps=ts, task="regression",
-                plot_outputs="matplotlib[png]", base_path=str(tmp_path / "drift"),
-                metrics_dict=m, feature_names=["f0", "f1", "f2"],
+                train_frame=df.iloc[:2500],
+                test_frame=df.iloc[2500:],
+                y_true=y,
+                y_pred=yp,
+                timestamps=ts,
+                task="regression",
+                plot_outputs="matplotlib[png]",
+                base_path=str(tmp_path / "drift"),
+                metrics_dict=m,
+                feature_names=["f0", "f1", "f2"],
             )
         assert os.path.exists(tmp_path / "drift_psi.png")
         assert os.path.exists(tmp_path / "drift_residual_vs_time.png")
@@ -146,10 +179,16 @@ class TestTargetDriftDiagnostics:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             render_target_drift_diagnostics(
-                train_frame=df.iloc[:2500], test_frame=df.iloc[2500:],
-                y_true=y, y_pred=yp, timestamps=None, task="regression",
-                plot_outputs="matplotlib[png]", base_path=str(tmp_path / "drift"),
-                metrics_dict=m, feature_names=["f0", "f1", "f2"],
+                train_frame=df.iloc[:2500],
+                test_frame=df.iloc[2500:],
+                y_true=y,
+                y_pred=yp,
+                timestamps=None,
+                task="regression",
+                plot_outputs="matplotlib[png]",
+                base_path=str(tmp_path / "drift"),
+                metrics_dict=m,
+                feature_names=["f0", "f1", "f2"],
             )
         # Temporal panels gated out; adversarial still fires (frames present).
         assert not (tmp_path / "drift_psi.png").exists()
@@ -186,8 +225,10 @@ class TestTargetDistOverlay:
             ok = render_target_dist_overlay(
                 y_true_by_split={"train": y[:2500], "test": y[2500:]},
                 pred_by_split={"train": yp[:2500], "test": yp[2500:]},
-                task="regression", plot_outputs="matplotlib[png]",
-                base_path=str(tmp_path / "dist"), metrics_dict=m,
+                task="regression",
+                plot_outputs="matplotlib[png]",
+                base_path=str(tmp_path / "dist"),
+                metrics_dict=m,
             )
         assert ok
         assert os.path.exists(tmp_path / "dist_target_dist.png")
@@ -195,8 +236,11 @@ class TestTargetDistOverlay:
 
     def test_noop_empty_inputs(self, tmp_path):
         ok = render_target_dist_overlay(
-            y_true_by_split={}, task="regression",
-            plot_outputs="matplotlib[png]", base_path=str(tmp_path / "x"), metrics_dict={},
+            y_true_by_split={},
+            task="regression",
+            plot_outputs="matplotlib[png]",
+            base_path=str(tmp_path / "x"),
+            metrics_dict={},
         )
         assert ok is False
         assert not list(tmp_path.glob("x*"))
@@ -211,9 +255,9 @@ class TestNoCircularImport:
     subprocess so module-cache order from earlier tests cannot mask the cycle."""
 
     def test_child_first_import_in_subprocess(self):
-        import subprocess, sys
-        for first in ("mlframe.reporting._diagnostics_dispatch_extra",
-                      "mlframe.reporting.diagnostics_dispatch"):
+        import subprocess, sys  # nosec B404 -- test-only local trusted subprocess invocation (fixed argv, no shell, no untrusted input)
+
+        for first in ("mlframe.reporting._diagnostics_dispatch_extra", "mlframe.reporting.diagnostics_dispatch"):
             code = (
                 f"import {first} as m;"
                 "import mlframe.reporting._diagnostics_dispatch_extra as e;"
@@ -222,6 +266,6 @@ class TestNoCircularImport:
                 "assert hasattr(d, '_entry_score');"
                 "print('OK')"
             )
-            r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+            r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)  # nosec B603 -- fixed local argv (sys.executable/git + literal args), no shell, no untrusted input
             assert r.returncode == 0, f"first={first} stderr=\n{r.stderr}"
             assert "OK" in r.stdout

@@ -46,7 +46,7 @@ from pyutilz.dev.meta_test_utils import capture_signature
 _SNAPSHOT_PATH = Path(__file__).resolve().parent / "_api_snapshot.json"
 
 
-def pytest_addoption(parser):  # noqa: D401  (pytest hook)
+def pytest_addoption(parser):
     """Register ``--refresh-api-snapshot`` so the user can capture a
     fresh snapshot after an intentional API change."""
     # Late-binding: pytest's addoption is registered via a conftest
@@ -61,6 +61,7 @@ def _refresh_requested() -> bool:
     """Probe sys.argv for the refresh flag (avoids the full conftest
     plugin dance — this single test doesn't justify it)."""
     import sys
+
     return "--refresh-api-snapshot" in sys.argv
 
 
@@ -99,10 +100,17 @@ def _capture_class(obj: type) -> dict:
     _SKIP_NAMES = {"ReprEnum"}
     _CANONICAL_ENUMS = {"StrEnum", "IntEnum", "Enum", "IntFlag", "Flag"}
     _PUBLIC_SKLEARN_MIXINS = {
-        "BaseEstimator", "ClassifierMixin", "RegressorMixin",
-        "TransformerMixin", "MetaEstimatorMixin", "ClusterMixin",
-        "BiclusterMixin", "OutlierMixin", "DensityMixin",
-        "MultiOutputMixin", "OneToOneFeatureMixin",
+        "BaseEstimator",
+        "ClassifierMixin",
+        "RegressorMixin",
+        "TransformerMixin",
+        "MetaEstimatorMixin",
+        "ClusterMixin",
+        "BiclusterMixin",
+        "OutlierMixin",
+        "DensityMixin",
+        "MultiOutputMixin",
+        "OneToOneFeatureMixin",
     }
     _canon = []
     _seen_canon = set()
@@ -168,10 +176,7 @@ def test_public_api_matches_snapshot():
         _SNAPSHOT_PATH.write_bytes(
             orjson.dumps(current, option=orjson.OPT_INDENT_2 | orjson.OPT_SORT_KEYS),
         )
-        pytest.skip(
-            f"snapshot refreshed at {_SNAPSHOT_PATH.name} "
-            f"({len(current)} symbols)"
-        )
+        pytest.skip(f"snapshot refreshed at {_SNAPSHOT_PATH.name} ({len(current)} symbols)")
 
     expected = orjson.loads(_SNAPSHOT_PATH.read_bytes())
 
@@ -187,13 +192,12 @@ def test_public_api_matches_snapshot():
         if expected[name] != current[name]:
             old = expected[name]
             new = current[name]
-            diffs.append(
-                f"CHANGED: {name}\n      was: {old}\n      now: {new}"
-            )
+            diffs.append(f"CHANGED: {name}\n      was: {old}\n      now: {new}")
     # Additions — informational, not a failure.
     additions = [n for n in current if n not in expected]
     if additions:
         import sys
+
         sys.stderr.write(
             f"\n[test_public_api_matches_snapshot] {len(additions)} new "
             f"public symbol(s): {', '.join(additions[:20])}"

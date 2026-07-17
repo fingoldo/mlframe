@@ -2,6 +2,7 @@
 2026-05-27 move to ``pyutilz.stats.normality``. Full calibration suite
 lives in pyutilz/tests/stats/test_normality.py.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -24,7 +25,7 @@ def test_shim_reexports_underscored_aliases() -> None:
 
     rng = np.random.default_rng(1)
     x = rng.standard_normal(500)
-    K2, p, _, _ = _dagostino_k2(x)
+    K2, _p, _, _ = _dagostino_k2(x)
     assert isinstance(K2, float)
-    A2, p_ad = _anderson_darling_normal(x)
+    A2, _p_ad = _anderson_darling_normal(x)
     assert isinstance(A2, float)

@@ -5,6 +5,7 @@ independent per-row prediction noise violates it, enforcing the constraint remov
 constraint-violating component and produces a strictly lower RMSE against the true target than the raw
 (unconstrained) predictions -- exactly the effect the Optiver writeup exploited.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -23,9 +24,7 @@ def test_biz_val_group_zero_sum_constraint_reduces_rmse_and_enforces_identity():
 
     # true target satisfies the weighted zero-sum identity exactly within each group by construction.
     raw_signal = rng.normal(0, 1, n)
-    group_weighted_mean_signal = (
-        np.bincount(group_ids, weights=raw_signal * weights) / np.bincount(group_ids, weights=weights)
-    )[group_ids]
+    group_weighted_mean_signal = (np.bincount(group_ids, weights=raw_signal * weights) / np.bincount(group_ids, weights=weights))[group_ids]
     true_y = raw_signal - group_weighted_mean_signal  # exactly zero-sum per group now
 
     preds = true_y + rng.normal(0, 0.5, n)  # independent noise breaks the identity

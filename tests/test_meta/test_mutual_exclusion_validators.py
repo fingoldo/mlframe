@@ -28,7 +28,6 @@ from __future__ import annotations
 
 import inspect
 import re
-from typing import Any, Callable
 
 import pytest
 from pydantic import BaseModel, ValidationError
@@ -109,7 +108,7 @@ def _find_mutex_pairs(cls: type[BaseModel]) -> list[tuple[str, str]]:
     on internal validator-body wording.
     """
     text_chunks = [_doc_lines_normalised(cls.__doc__)]
-    for name, info in cls.model_fields.items():
+    for info in cls.model_fields.values():
         desc = getattr(info, "description", None)
         if desc:
             text_chunks.append(_doc_lines_normalised(desc))
@@ -128,7 +127,7 @@ def _synth_value(annotation):
     """Produce a non-default sentinel value matching ``annotation``."""
     # Walk Optional[X] / Union[X, None]
     args = getattr(annotation, "__args__", ()) or ()
-    candidates = (annotation,) + args if args else (annotation,)
+    candidates = (annotation, *args) if args else (annotation,)
     for cand in candidates:
         if cand in (int, float):
             return 0.5
@@ -162,15 +161,11 @@ def test_mutually_exclusive_pairs_are_enforced_by_a_validator():
                 cls(**kwargs)
             except (ValidationError, ValueError):
                 continue  # Properly rejected.
-            except Exception:
+            except Exception:  # nosec B112 -- best-effort skip of one iteration on a non-fatal error; the test's own assertions are unaffected
                 # Some other error — likely synth-value type mismatch.
                 # Inconclusive but skip.
                 continue
-            failures.append(
-                f"{cls.__name__}: docstring claims '{a}' and '{b}' are "
-                f"mutually exclusive, but cls({a}=..., {b}=...) succeeded "
-                f"without raising"
-            )
+            failures.append(f"{cls.__name__}: docstring claims '{a}' and '{b}' are mutually exclusive, but cls({a}=..., {b}=...) succeeded without raising")
 
     if audited_pairs == 0:
         # FYI for future contributors: this meta-test scans every
@@ -189,7 +184,4 @@ def test_mutually_exclusive_pairs_are_enforced_by_a_validator():
             "delete the file if the contract pattern is not used."
         )
     if failures:
-        pytest.fail(
-            f"{len(failures)} mutex-claim(s) without enforcing validator:\n  "
-            + "\n  ".join(failures)
-        )
+        pytest.fail(f"{len(failures)} mutex-claim(s) without enforcing validator:\n  " + "\n  ".join(failures))

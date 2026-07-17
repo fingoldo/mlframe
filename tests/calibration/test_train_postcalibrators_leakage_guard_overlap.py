@@ -5,6 +5,7 @@ order). It missed the SAME rows reshuffled (different order), a subset/superset 
 reshuffled/relabelled. Fixed by adding a sorted-multiset (reorder) check, a row-index overlap check,
 and a probability-value overlap check (via the new ``_values_overlap_fraction`` helper).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -103,7 +104,7 @@ def test_train_postcalibrators_raises_on_probs_overlap_with_reshuffled_target():
     from sklearn.isotonic import IsotonicRegression
 
     n = 300
-    probs, target = _synth(n=n)
+    probs, _target = _synth(n=n)
     rng = np.random.default_rng(2)
     # calib_target is an INDEPENDENT relabelling (not derived from test's target at all), so a
     # target-only guard sees no relationship whatsoever; only the probs betray the reuse. Give

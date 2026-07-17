@@ -14,6 +14,7 @@ regresses to wrong numbers. The benches in
 ``src/mlframe/feature_engineering/_benchmarks/`` additionally A/B against the
 real ``git show HEAD`` baseline.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -24,6 +25,7 @@ from mlframe.feature_engineering.spatial import knn_label_dispersion_features
 
 
 # ----------------------------- CPX2: anchor EWMA -----------------------------
+
 
 def _ewm_reference(label, is_anchor, half_life):
     """Naive O(A^2) reference: recompute decayed sums over all anchors per row."""
@@ -97,6 +99,7 @@ def test_cpx2_anchor_ewm_grouped_identity():
 
 
 # -------------------- CPX6: kNN label dispersion vectorize -------------------
+
 
 def _dispersion_reference(q, ref, labels, k, task, n_bins=8):
     """Per-row loop reference mirroring the prior bincount/unique semantics."""

@@ -39,6 +39,7 @@ Set ``multioutput_strategy=None`` to opt OUT and restore the historical clear
 ``NotImplementedError`` so a caller who wants the hard failure on 2D y gets an
 actionable message rather than a cryptic sklearn crash.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -168,7 +169,7 @@ def test_biz_val_mrmr_recovers_signal_all_target_types(kind):
     >=2 recovered on >=4/5 seeds (~10% under measured)."""
     recs = [_mrmr_recovery(kind, s)[0] for s in range(5)]
     n_full = sum(r >= N_SIGNAL for r in recs)
-    assert n_full >= 4, f"MRMR on {kind}: expected >=2/2 signal recovered on >=4/5 seeds; " f"per-seed recovered={recs}"
+    assert n_full >= 4, f"MRMR on {kind}: expected >=2/2 signal recovered on >=4/5 seeds; per-seed recovered={recs}"
 
 
 @pytest.mark.parametrize("kind", _SINGLE_TARGET)
@@ -236,9 +237,16 @@ def test_mrmr_ltr_groups_accepted_but_not_consumed_contract():
     assert sel.groups_ignored_ is True
 
     strict = MRMR(
-        verbose=0, interactions_max_order=1, fe_max_steps=0, dcd_enable=False,
-        cluster_aggregate_enable=False, build_friend_graph=False, cat_fe_config=None,
-        quantization_nbins=10, random_seed=0, strict_groups=True,
+        verbose=0,
+        interactions_max_order=1,
+        fe_max_steps=0,
+        dcd_enable=False,
+        cluster_aggregate_enable=False,
+        build_friend_graph=False,
+        cat_fe_config=None,
+        quantization_nbins=10,
+        random_seed=0,
+        strict_groups=True,
     )
     with pytest.raises(NotImplementedError):
         strict.fit(df, y, groups=qid)
@@ -314,7 +322,7 @@ def test_biz_val_mrmr_multioutput_refit_does_not_replay_stale_support():
     df2, y2 = _multioutput_target_from_cols(1, sig_a=2, sig_b=3)
     sel.fit(df2, y2)
     sup2 = _selected(sel)
-    assert {2, 3}.issubset(sup2), f"second fit (signal in cols 2,3) must recover {{2,3}}, not stale-replay the first " f"fit's {{0,1}}; got {sorted(sup2)}"
+    assert {2, 3}.issubset(sup2), f"second fit (signal in cols 2,3) must recover {{2,3}}, not stale-replay the first fit's {{0,1}}; got {sorted(sup2)}"
 
 
 # ===========================================================================
@@ -327,8 +335,12 @@ def _make_rfecv(estimator):
     from mlframe.feature_selection.wrappers import RFECV
 
     return RFECV(
-        estimator=estimator, cv=3, max_refits=4, random_state=0,
-        leakage_corr_threshold=None, n_features_selection_rule="argmax",
+        estimator=estimator,
+        cv=3,
+        max_refits=4,
+        random_state=0,
+        leakage_corr_threshold=None,
+        n_features_selection_rule="argmax",
     )
 
 
@@ -354,7 +366,7 @@ def test_biz_val_rfecv_ordinal_as_regression_recovers_signal():
     linearly, so RFE prunes all 6 noise columns."""
     from sklearn.linear_model import Ridge
 
-    rng, df, xs = _design(0)
+    _rng, df, xs = _design(0)
     score = xs[:, 0] + xs[:, 1]
     y = pd.Series(np.digitize(score, np.quantile(score, [0.2, 0.4, 0.6, 0.8])).astype(float))
     sel = _make_rfecv(Ridge())
@@ -426,8 +438,12 @@ def test_biz_val_rfecv_multioutput_intersect_is_subset_of_union():
     from sklearn.linear_model import Ridge
 
     df, y = make_target(0, "multioutput")
-    u = _make_rfecv(Ridge()); u.multioutput_strategy = "union"; u.fit(df, y)
-    i = _make_rfecv(Ridge()); i.multioutput_strategy = "intersect"; i.fit(df, y)
+    u = _make_rfecv(Ridge())
+    u.multioutput_strategy = "union"
+    u.fit(df, y)
+    i = _make_rfecv(Ridge())
+    i.multioutput_strategy = "intersect"
+    i.fit(df, y)
     sup_u = set(np.where(np.asarray(u.support_))[0].tolist())
     sup_i = set(np.where(np.asarray(i.support_))[0].tolist())
     assert sup_i.issubset(sup_u), f"intersect {sorted(sup_i)} must subset union {sorted(sup_u)}"

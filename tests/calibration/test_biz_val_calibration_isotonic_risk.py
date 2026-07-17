@@ -8,6 +8,7 @@ generative process produces a smooth fit (low segment_ratio, NOT flagged) that g
 in-sample-vs-holdout ECE gap). The flag concretely predicts the real generalization gap, not just a
 heuristic count.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -84,9 +85,7 @@ def test_biz_val_flagged_isotonic_fit_generalizes_worse_than_unflagged():
 
     # The flagged (small/noisy) fit should show a materially larger in-sample-to-holdout ECE degradation
     # than the unflagged (large/smooth) fit -- the flag is predicting a REAL generalization gap.
-    assert small_gap > large_gap + 0.02, (
-        f"flagged fit should generalize measurably worse: small_gap={small_gap:.4f} large_gap={large_gap:.4f}"
-    )
+    assert small_gap > large_gap + 0.02, f"flagged fit should generalize measurably worse: small_gap={small_gap:.4f} large_gap={large_gap:.4f}"
 
 
 def test_biz_val_isotonic_overfit_risk_remediate_beats_plain_isotonic_on_sparse_segment():
@@ -114,6 +113,5 @@ def test_biz_val_isotonic_overfit_risk_remediate_beats_plain_isotonic_on_sparse_
 
     # The remediated blend must beat plain isotonic by a real margin, not just tie within noise.
     assert ece_remediated < ece_plain - 0.01, (
-        f"remediated ECE should beat plain isotonic by a real margin: "
-        f"ece_plain={ece_plain:.4f} ece_remediated={ece_remediated:.4f}"
+        f"remediated ECE should beat plain isotonic by a real margin: ece_plain={ece_plain:.4f} ece_remediated={ece_remediated:.4f}"
     )

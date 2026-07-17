@@ -9,6 +9,7 @@ Coverage:
 - Constant-y bins replace zero IQR with the global IQR to keep the inverse well-defined.
 - Biz_value: on a heteroscedastic DGP where Var(y|base) scales with base, ``quantile_residual`` produces a residual T with near-iid variance (max-min across bins < 2x) while ``linear_residual`` leaves a residual whose variance scales linearly with base (max-min > 5x).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -45,8 +46,7 @@ class TestFit:
         assert np.isneginf(params["bin_edges"][0])
         assert np.isposinf(params["bin_edges"][-1])
         # All bins should have >= min_bin_n rows for this dense input.
-        assert all(s >= _QUANTILE_RESIDUAL_DEFAULT_MIN_BIN_N
-                   for s in params["bin_sizes"])
+        assert all(s >= _QUANTILE_RESIDUAL_DEFAULT_MIN_BIN_N for s in params["bin_sizes"])
 
     def test_small_bin_falls_back_to_global(self) -> None:
         """A bin with fewer than min_bin_n rows must use the GLOBAL median(y) / IQR(y), not its own under-determined estimate. Quantile bins partition by COUNT so to force a small bin we use a very high n_bins with limited n_total."""
@@ -159,10 +159,7 @@ class TestBizValueQuantileResidualOnHeteroscedasticDGP:
         edges[0] = -np.inf
         edges[-1] = np.inf
         bin_idx = np.clip(np.searchsorted(edges[1:-1], base, side="right"), 0, n_bins - 1)
-        variances = np.array([
-            float(np.var(T[bin_idx == b])) if (bin_idx == b).sum() >= 10 else np.nan
-            for b in range(n_bins)
-        ])
+        variances = np.array([float(np.var(T[bin_idx == b])) if (bin_idx == b).sum() >= 10 else np.nan for b in range(n_bins)])
         finite = variances[np.isfinite(variances)]
         if finite.size < 2:
             return float("nan")
@@ -175,6 +172,7 @@ class TestBizValueQuantileResidualOnHeteroscedasticDGP:
         T_qr = _quantile_residual_forward(y, base, qr_params)
         # Linear residual (single-base OLS).
         from mlframe.training.composite import _linear_residual_fit, _linear_residual_forward
+
         lr_params = _linear_residual_fit(y, base)
         T_lr = _linear_residual_forward(y, base, lr_params)
         # Compare per-bin variance ratios on the same binning.

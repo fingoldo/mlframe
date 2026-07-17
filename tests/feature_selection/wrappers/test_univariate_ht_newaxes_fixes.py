@@ -11,6 +11,7 @@ Covers:
 
 These are focused unit tests of the smallest callables; no training run.
 """
+
 from __future__ import annotations
 
 import math
@@ -58,7 +59,7 @@ def test_classify_binary_unchanged():
 def test_classify_float_integer_in_disguise_high_cardinality_is_continuous():
     # Float dtype but all-integer values, high cardinality relative to n -> continuous.
     n = 800
-    y = (np.arange(n, dtype=np.float64) % 200)  # 200 distinct, 25% ratio
+    y = np.arange(n, dtype=np.float64) % 200  # 200 distinct, 25% ratio
     assert np.unique(y).size == 200
     assert uht._classify_target(y) == "continuous"
 

@@ -5,6 +5,7 @@
 unfused chain (same f64 ops/order) on a grid of shapes -- so the per-feature MI ranking, and thus the FE
 selection, is unchanged. Auto-skips on CUDA-unavailable hosts.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -16,6 +17,7 @@ cp = pytest.importorskip("cupy")
 def _need_cuda():
     try:
         from pyutilz.core.pythonlib import is_cuda_available
+
         return is_cuda_available()
     except Exception:
         return False
@@ -24,13 +26,16 @@ def _need_cuda():
 pytestmark = [pytest.mark.gpu, pytest.mark.skipif(not _need_cuda(), reason="no CUDA")]
 
 
-@pytest.mark.parametrize("n,k,nbins,nclasses,seed", [
-    (1000, 1, 20, 2, 0),     # k==1 (last VRAM chunk) -- the cupy single-col percentile guard path
-    (2000, 7, 20, 3, 1),
-    (5000, 33, 16, 5, 2),
-    (10000, 64, 24, 8, 3),
-    (3000, 12, 10, 12, 4),   # many classes, few bins
-])
+@pytest.mark.parametrize(
+    "n,k,nbins,nclasses,seed",
+    [
+        (1000, 1, 20, 2, 0),  # k==1 (last VRAM chunk) -- the cupy single-col percentile guard path
+        (2000, 7, 20, 3, 1),
+        (5000, 33, 16, 5, 2),
+        (10000, 64, 24, 8, 3),
+        (3000, 12, 10, 12, 4),  # many classes, few bins
+    ],
+)
 def test_fused_mi_term_bit_identical(monkeypatch, n, k, nbins, nclasses, seed):
     # import via the parent (hermite_fe) so the module-init cycle resolves in the canonical order
     from mlframe.feature_selection.filters.hermite_fe import _plugin_mi_classif_batch_cuda_resident
@@ -64,5 +69,6 @@ def test_fused_mi_default_on():
     import os
     from mlframe.feature_selection.filters.hermite_fe import _plugin_mi_classif_batch_cuda_resident  # noqa: F401 -- force canonical init
     from mlframe.feature_selection.filters._hermite_fe_mi import _fe_gpu_fuse_mi_enabled
+
     os.environ.pop("MLFRAME_FE_GPU_FUSE_MI", None)
     assert _fe_gpu_fuse_mi_enabled() is True

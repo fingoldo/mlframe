@@ -18,6 +18,7 @@ import pytest
 # splitting
 # ---------------------------------------------------------------------------
 
+
 def _make_df(n=200):
     return pd.DataFrame({"a": np.arange(n), "b": np.arange(n) * 2})
 
@@ -61,6 +62,7 @@ def test_make_train_test_split_does_not_pollute_global_rng():
 # datasets
 # ---------------------------------------------------------------------------
 
+
 def test_get_sapp_dataset_reproducible():
     from mlframe.data.datasets import get_sapp_dataset
 
@@ -73,7 +75,7 @@ def test_get_sapp_dataset_reproducible():
 def test_get_sapp_dataset_no_inf_in_target():
     from mlframe.data.datasets import get_sapp_dataset
 
-    X, y = get_sapp_dataset(N=500, random_state=7, binarize=False)
+    _X, y = get_sapp_dataset(N=500, random_state=7, binarize=False)
     assert np.all(np.isfinite(np.asarray(y))), "Target contains non-finite values (log guard failed)"
 
 
@@ -89,6 +91,7 @@ def test_get_sapp_dataset_no_global_pollution():
 # ---------------------------------------------------------------------------
 # synthetic
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.parametrize(
     "feature_noise,timeseries,max_cardinality",
@@ -117,21 +120,24 @@ def test_generate_modelling_data_reproducible(feature_noise, timeseries, max_car
         timeseries=timeseries,
         max_cardinality=max_cardinality,
     )
-    X1, y1, f1 = generate_modelling_data(**kw)
-    X2, y2, f2 = generate_modelling_data(**kw)
+    X1, y1, _f1 = generate_modelling_data(**kw)
+    X2, y2, _f2 = generate_modelling_data(**kw)
     # Shapes match (content depends on stochastic scipy rvs without rng thread;
     # the key RNG fixes are in check_random_state-controlled paths).
     assert X1.shape == X2.shape
     assert len(y1) == len(y2)
     # feature_noise/timeseries/max_cardinality are drawn from the same check_random_state-seeded
     # generator as the rest of the pipeline, so they must reproduce identically under a fixed seed too.
-    assert np.array_equal(X1, X2, equal_nan=True), f"non-reproducible under feature_noise={feature_noise}, timeseries={timeseries}, max_cardinality={max_cardinality}"
+    assert np.array_equal(X1, X2, equal_nan=True), (
+        f"non-reproducible under feature_noise={feature_noise}, timeseries={timeseries}, max_cardinality={max_cardinality}"
+    )
     assert np.array_equal(y1, y2)
 
 
 # ---------------------------------------------------------------------------
 # PureRandomClassifier
 # ---------------------------------------------------------------------------
+
 
 def test_pure_random_classifier_reproducible_and_labels():
     from mlframe.estimators.custom import PureRandomClassifier
@@ -155,6 +161,7 @@ def test_pure_random_classifier_reproducible_and_labels():
 # ---------------------------------------------------------------------------
 # matplotlib regression guard
 # ---------------------------------------------------------------------------
+
 
 def test_plt_grid_visible_kwarg_accepted():
     import matplotlib

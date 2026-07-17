@@ -6,6 +6,7 @@ misleading proxy for true test performance -- but validating on the adversariall
 fold (which should end up dominated by regime-B rows) gives a validation score that closely tracks the true
 test score.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -67,7 +68,7 @@ def test_biz_val_adversarial_fold_gives_a_validation_score_closer_to_true_test_s
 
 
 def test_build_test_like_validation_fold_partitions_without_overlap():
-    X_train, y_train, regime, X_test, y_test = _make_shifted_scenario(seed=2)
+    X_train, y_train, _regime, X_test, _y_test = _make_shifted_scenario(seed=2)
     val_idx, remainder_idx = build_test_like_validation_fold(X_train, X_test, val_fraction=0.25, seed=2)
     assert len(set(val_idx.tolist()) & set(remainder_idx.tolist())) == 0
     assert len(val_idx) + len(remainder_idx) == len(y_train)

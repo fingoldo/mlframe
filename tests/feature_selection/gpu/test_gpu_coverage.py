@@ -12,6 +12,7 @@ nbins_y=2 regime; larger nbins_y is only used to drive the joint-histogram
 kernel through its ``nbins_x * nbins_y`` branch without asserting on the MI
 value returned by the legacy mi kernel.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -25,6 +26,7 @@ cp = pytest.importorskip("cupy")
 def _gpu_available() -> bool:
     try:
         import cupy as _cp
+
         return _cp.cuda.runtime.getDeviceCount() >= 1
     except Exception:  # pragma: no cover - no driver / no GPU
         return False
@@ -35,15 +37,15 @@ if not _GPU_AVAILABLE:  # pragma: no cover - guarded at collection time
     pytest.skip("No CUDA device available", allow_module_level=True)
 
 
-from mlframe.feature_selection.filters import gpu as gpu_mod  # noqa: E402
-from mlframe.feature_selection.filters.gpu import (  # noqa: E402
+from mlframe.feature_selection.filters import gpu as gpu_mod
+from mlframe.feature_selection.filters.gpu import (
     _GPU_POOL,
     init_kernels,
     mi_direct_gpu,
     mi_direct_gpu_batched,
     mi_direct_gpu_batched_pairs,
 )
-from mlframe.feature_selection.filters.permutation import mi_direct  # noqa: E402
+from mlframe.feature_selection.filters.permutation import mi_direct
 
 
 # ---------------------------------------------------------------------------
@@ -107,11 +109,19 @@ def test_mi_direct_gpu_matches_cpu_npermutations_zero(input_dtype):
     factors, factors_nbins = _make_factors(n=400, seed=1, dtype=input_dtype)
 
     cpu_mi, cpu_conf = mi_direct(
-        factors, (0,), (1,), factors_nbins,
-        npermutations=0, parallelism="none",
+        factors,
+        (0,),
+        (1,),
+        factors_nbins,
+        npermutations=0,
+        parallelism="none",
     )
     gpu_mi, gpu_conf = mi_direct_gpu(
-        factors, (0,), (1,), factors_nbins, npermutations=0,
+        factors,
+        (0,),
+        (1,),
+        factors_nbins,
+        npermutations=0,
     )
 
     assert abs(cpu_mi - gpu_mi) < 1e-6
@@ -129,11 +139,19 @@ def test_mi_direct_gpu_matches_cpu_with_permutations_small_signal():
     factors, factors_nbins = _make_factors(n=500, nbins_x=5, nbins_y=2, seed=7)
 
     cpu_mi, _ = mi_direct(
-        factors, (0,), (1,), factors_nbins,
-        npermutations=0, parallelism="none",
+        factors,
+        (0,),
+        (1,),
+        factors_nbins,
+        npermutations=0,
+        parallelism="none",
     )
     gpu_mi, gpu_conf = mi_direct_gpu(
-        factors, (0,), (1,), factors_nbins, npermutations=20,
+        factors,
+        (0,),
+        (1,),
+        factors_nbins,
+        npermutations=20,
     )
 
     # Same closed-form MI; both should round to identical bits because
@@ -157,7 +175,7 @@ def test_mi_direct_gpu_return_null_mean_contract_and_backcompat():
 
     res = mi_direct_gpu(factors, (0,), (1,), factors_nbins, npermutations=8, return_null_mean=True)
     assert len(res) == 4
-    mi, conf, null_mean, p_value = res
+    mi, _conf, null_mean, p_value = res
     assert mi == legacy[0]  # observed MI is identical; only extra outputs are added
     assert np.isfinite(null_mean) and null_mean >= 0.0
     assert 0.0 <= p_value <= 1.0
@@ -175,7 +193,11 @@ def test_mi_direct_gpu_confidence_in_unit_interval_under_shuffle():
     factors, factors_nbins = _make_factors(n=400, nbins_x=4, nbins_y=2, seed=3)
 
     original_mi, confidence = mi_direct_gpu(
-        factors, (0,), (1,), factors_nbins, npermutations=30,
+        factors,
+        (0,),
+        (1,),
+        factors_nbins,
+        npermutations=30,
     )
     assert 0.0 <= confidence <= 1.0
     # original_mi may be zeroed out by the max_failed early-exit, so we only
@@ -218,16 +240,25 @@ def test_mi_direct_gpu_accepts_caller_supplied_classes_y_safe():
     from mlframe.feature_selection.filters.info_theory import merge_vars
 
     classes_y, freqs_y, _ = merge_vars(
-        factors_data=factors, vars_indices=(1,),
-        var_is_nominal=None, factors_nbins=factors_nbins, dtype=np.int32,
+        factors_data=factors,
+        vars_indices=(1,),
+        var_is_nominal=None,
+        factors_nbins=factors_nbins,
+        dtype=np.int32,
     )
     classes_y_gpu = cp.asarray(classes_y.astype(np.int32))
     freqs_y_gpu = cp.asarray(freqs_y.astype(np.float64))
 
     mi, conf = mi_direct_gpu(
-        factors, (0,), (1,), factors_nbins, npermutations=10,
-        classes_y=classes_y, freqs_y=freqs_y,
-        classes_y_safe=classes_y_gpu, freqs_y_safe=freqs_y_gpu,
+        factors,
+        (0,),
+        (1,),
+        factors_nbins,
+        npermutations=10,
+        classes_y=classes_y,
+        freqs_y=freqs_y,
+        classes_y_safe=classes_y_gpu,
+        freqs_y_safe=freqs_y_gpu,
     )
     assert np.isfinite(mi) and mi >= 0.0
     assert 0.0 <= conf <= 1.0
@@ -240,11 +271,18 @@ def test_mi_direct_gpu_handles_large_nbins_x():
     of the run (no exception, finite outputs) is asserted -- the legacy
     ``compute_mi_from_classes_cuda`` kernel is hard-wired to nbins_y=2."""
     factors, factors_nbins = _make_factors(
-        n=300, nbins_x=16, nbins_y=2, seed=17,
+        n=300,
+        nbins_x=16,
+        nbins_y=2,
+        seed=17,
     )
 
     mi, conf = mi_direct_gpu(
-        factors, (0,), (1,), factors_nbins, npermutations=15,
+        factors,
+        (0,),
+        (1,),
+        factors_nbins,
+        npermutations=15,
     )
     assert np.isfinite(mi) and mi >= 0.0
     assert 0.0 <= conf <= 1.0
@@ -263,7 +301,11 @@ def test_mi_direct_gpu_handles_zero_signal_short_circuit():
     factors_nbins = np.array([1, 2], dtype=np.int64)
 
     mi, conf = mi_direct_gpu(
-        factors, (0,), (1,), factors_nbins, npermutations=20,
+        factors,
+        (0,),
+        (1,),
+        factors_nbins,
+        npermutations=20,
     )
     # x is a constant column -> MI is identically zero.
     assert mi == 0.0
@@ -282,8 +324,12 @@ def test_mi_direct_gpu_batched_returns_valid_tuple():
     factors, factors_nbins = _make_factors(n=400, nbins_x=5, nbins_y=2, seed=21)
 
     mi, conf = mi_direct_gpu_batched(
-        factors, (0,), (1,), factors_nbins,
-        npermutations=40, batch_size=8,
+        factors,
+        (0,),
+        (1,),
+        factors_nbins,
+        npermutations=40,
+        batch_size=8,
     )
     assert np.isfinite(mi) and mi >= 0.0
     assert 0.0 <= conf <= 1.0
@@ -296,12 +342,20 @@ def test_mi_direct_gpu_batched_zero_perms_returns_original_mi():
     factors, factors_nbins = _make_factors(n=300, nbins_x=5, nbins_y=2, seed=22)
 
     cpu_mi, _ = mi_direct(
-        factors, (0,), (1,), factors_nbins,
-        npermutations=0, parallelism="none",
+        factors,
+        (0,),
+        (1,),
+        factors_nbins,
+        npermutations=0,
+        parallelism="none",
     )
     gpu_mi, gpu_conf = mi_direct_gpu_batched(
-        factors, (0,), (1,), factors_nbins,
-        npermutations=0, batch_size=8,
+        factors,
+        (0,),
+        (1,),
+        factors_nbins,
+        npermutations=0,
+        batch_size=8,
     )
     assert abs(cpu_mi - gpu_mi) < 1e-6
     assert gpu_conf == 0.0
@@ -315,13 +369,21 @@ def test_mi_direct_gpu_batched_accepts_cached_classes_y():
     from mlframe.feature_selection.filters.info_theory import merge_vars
 
     classes_y, freqs_y, _ = merge_vars(
-        factors_data=factors, vars_indices=(1,),
-        var_is_nominal=None, factors_nbins=factors_nbins, dtype=np.int32,
+        factors_data=factors,
+        vars_indices=(1,),
+        var_is_nominal=None,
+        factors_nbins=factors_nbins,
+        dtype=np.int32,
     )
     mi, conf = mi_direct_gpu_batched(
-        factors, (0,), (1,), factors_nbins,
-        npermutations=20, batch_size=8,
-        classes_y=classes_y, freqs_y=freqs_y,
+        factors,
+        (0,),
+        (1,),
+        factors_nbins,
+        npermutations=20,
+        batch_size=8,
+        classes_y=classes_y,
+        freqs_y=freqs_y,
     )
     assert np.isfinite(mi) and mi >= 0.0
     assert 0.0 <= conf <= 1.0
@@ -350,9 +412,11 @@ def test_mi_direct_gpu_batched_pairs_returns_aligned_float64_vector():
 
     out = mi_direct_gpu_batched_pairs(
         factors_data=factors_data,
-        pairs_a=pairs_a, pairs_b=pairs_b,
+        pairs_a=pairs_a,
+        pairs_b=pairs_b,
         factors_nbins=factors_nbins,
-        classes_y=classes_y, freqs_y=freqs_y,
+        classes_y=classes_y,
+        freqs_y=freqs_y,
     )
     assert out.dtype == np.float64
     assert out.shape == (3,)
@@ -373,7 +437,8 @@ def test_mi_direct_gpu_batched_pairs_empty_returns_empty_array():
         pairs_a=np.array([], dtype=np.int32),
         pairs_b=np.array([], dtype=np.int32),
         factors_nbins=factors_nbins,
-        classes_y=classes_y, freqs_y=freqs_y,
+        classes_y=classes_y,
+        freqs_y=freqs_y,
     )
     assert out.dtype == np.float64
     assert out.shape == (0,)
@@ -402,9 +467,11 @@ def test_mi_direct_gpu_batched_pairs_memory_guard_raises_on_overlarge_request():
     with pytest.raises(MemoryError):
         mi_direct_gpu_batched_pairs(
             factors_data=factors_data,
-            pairs_a=pairs_a, pairs_b=pairs_b,
+            pairs_a=pairs_a,
+            pairs_b=pairs_b,
             factors_nbins=factors_nbins,
-            classes_y=classes_y, freqs_y=freqs_y,
+            classes_y=classes_y,
+            freqs_y=freqs_y,
         )
 
 

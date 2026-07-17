@@ -15,6 +15,7 @@ contract with a DETERMINISTIC fingerprint-collision construction (NOT a layout-d
 which mempool arena rounding masks): two distinct operands engineered to share ``(size, first, last)`` but
 differ in their interior max must each get a card >= their own ``max+1``.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -46,12 +47,15 @@ def test_cached_card_never_stale_undersize_on_fingerprint_collision(monkeypatch)
     # ``(id, size, first, last)`` key aliased (and exactly what a recycled id produces). The content-fingerprint
     # key must still return the correct, large-enough card for the mutated content.
     n = 256
-    buf = np.zeros(n, dtype=np.int64); buf[0] = 3; buf[-1] = 3; buf[1] = 19    # true card 20
+    buf = np.zeros(n, dtype=np.int64)
+    buf[0] = 3
+    buf[-1] = 3
+    buf[1] = 19  # true card 20
     ca = mgc._cached_card(buf, _FakeDev(buf))
     assert ca == 20, ca
 
-    buf[1] = 99                                                                # mutate in place: true card 100,
-    assert buf[0] == 3 and buf[-1] == 3 and buf.size == n                      # SAME (id, size, first, last)
+    buf[1] = 99  # mutate in place: true card 100,
+    assert buf[0] == 3 and buf[-1] == 3 and buf.size == n  # SAME (id, size, first, last)
     cb = mgc._cached_card(buf, _FakeDev(buf))
 
     # The decisive assertion: the card must reflect the CURRENT content's max (100), NOT alias the stale 20 that
@@ -66,7 +70,7 @@ def test_cached_card_hits_on_identical_content(monkeypatch):
     values via a fresh host object + a device whose .max() would be WRONG if recomputed returns the cached card,
     proving the second call did not recompute (content-keyed hit), and the value is correct."""
     monkeypatch.setattr(mgc, "_CARD_MAX_CACHE", {}, raising=False)
-    h = np.array([0, 7, 3, 7, 0], dtype=np.int64)        # true card 8
+    h = np.array([0, 7, 3, 7, 0], dtype=np.int64)  # true card 8
     first = mgc._cached_card(h, _FakeDev(h))
     assert first == 8
     # Fresh equal-content host (new id) + a device that would report a DIFFERENT max if recomputed: a cache HIT

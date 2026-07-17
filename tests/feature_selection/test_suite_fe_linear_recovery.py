@@ -31,11 +31,12 @@ process-state artifact, NOT the magnitude-stripping bug under test.
 
 Measured values (seeds 0/1, 2026-06-12) baked into every threshold below as comments.
 """
+
 from __future__ import annotations
 
 import json
 import os
-import subprocess
+import subprocess  # nosec B404 -- test-only local trusted subprocess invocation (fixed argv, no shell, no untrusted input)
 import sys
 
 import pytest
@@ -46,8 +47,7 @@ _TEST_DIR = os.path.dirname(os.path.abspath(__file__))
 _REPO_ROOT = os.path.dirname(os.path.dirname(_TEST_DIR))
 
 
-def _run_fit(*, gen: str, dist: str, model: str, use_mrmr: bool, seed: int = 0,
-             timeout: int = 600) -> dict:
+def _run_fit(*, gen: str, dist: str, model: str, use_mrmr: bool, seed: int = 0, timeout: int = 600) -> dict:
     """Run ONE suite fit in a fresh subprocess; return ``{"R2","span","n","structure"}``.
 
     Retries once on a Windows OOM / paging-file transient (the repo's concurrent-load
@@ -73,9 +73,12 @@ def _run_fit(*, gen: str, dist: str, model: str, use_mrmr: bool, seed: int = 0,
     last_err = ""
     out = ""
     for attempt in range(2):
-        proc = subprocess.run(
+        proc = subprocess.run(  # nosec B603 -- fixed local argv (sys.executable/git + literal args), no shell, no untrusted input
             [sys.executable, worker, payload],
-            capture_output=True, text=True, timeout=timeout, env=env,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            env=env,
         )
         out = proc.stdout or ""
         marker = "===RESULT_JSON==="
@@ -87,6 +90,7 @@ def _run_fit(*, gen: str, dist: str, model: str, use_mrmr: bool, seed: int = 0,
         last_err = (proc.stderr or "")[-3000:]
         if any(t in last_err.lower() for t in ("paging file", "memoryerror", "cannot allocate", "oom")) and attempt == 0:
             import time as _t
+
             _t.sleep(90)
             continue
         break
@@ -110,20 +114,15 @@ _LINEAR_RECOVERY = [
     # this generator adds 5% noise + _pos() guards + a hidden f term, so the recoverable
     # ceiling is ~0.71, not ~1.0. Floors still ~100x above the magnitude-stripping
     # signature (R2 0.002 / span 0.001). SLOW (n=100k, ~30s/fit).
-    pytest.param("ratio_heavytail", "uniform", 0.60, 0.30, True,
-                 id="linear-ratio_heavytail-uniform"),
+    pytest.param("ratio_heavytail", "uniform", 0.60, 0.30, True, id="linear-ratio_heavytail-uniform"),
     # bilinear uniform n=40000: measured R2 0.979/0.983, span 0.970/0.982.
-    pytest.param("bilinear", "uniform", 0.90, 0.80, False,
-                 id="linear-bilinear-uniform"),
+    pytest.param("bilinear", "uniform", 0.90, 0.80, False, id="linear-bilinear-uniform"),
     # poly normal n=40000: measured R2 0.950/0.995, span 1.003/1.014.
-    pytest.param("poly", "normal", 0.85, 0.80, False,
-                 id="linear-poly-normal"),
+    pytest.param("poly", "normal", 0.85, 0.80, False, id="linear-poly-normal"),
     # trig_product uniform n=40000: measured R2 0.972, span 0.676/0.761.
-    pytest.param("trig_product", "uniform", 0.85, 0.50, False,
-                 id="linear-trig_product-uniform"),
+    pytest.param("trig_product", "uniform", 0.85, 0.50, False, id="linear-trig_product-uniform"),
     # cluster_linear normal n=20000: measured R2 0.998, span 0.999/1.006.
-    pytest.param("cluster_linear", "normal", 0.95, 0.85, False,
-                 id="linear-cluster_linear-normal"),
+    pytest.param("cluster_linear", "normal", 0.95, 0.85, False, id="linear-cluster_linear-normal"),
 ]
 
 
@@ -154,10 +153,13 @@ def test_linear_magnitude_recovery(gen, dist, r2_floor, span_floor, slow, reques
 # poly: raw-only linear R2 measured -0.003 (genuinely helpless on a**3-3a+0.5b**2);
 # FE-on R2 0.950/0.995 -> gap ~0.95. Margin set far BELOW the gap.
 # ---------------------------------------------------------------------------
-@pytest.mark.parametrize("gen,dist,min_uplift", [
-    # poly normal: raw R2 ~ -0.003, FE R2 ~0.95 -> gap ~0.95; require >= 0.50.
-    pytest.param("poly", "normal", 0.50, id="uplift-poly-normal"),
-])
+@pytest.mark.parametrize(
+    "gen,dist,min_uplift",
+    [
+        # poly normal: raw R2 ~ -0.003, FE R2 ~0.95 -> gap ~0.95; require >= 0.50.
+        pytest.param("poly", "normal", 0.50, id="uplift-poly-normal"),
+    ],
+)
 def test_fe_delivers_usable_signal_uplift(gen, dist, min_uplift):
     """FE must turn an un-linear-fittable target into a linearly-fittable one: linear+MRMR
     test-R2 must exceed raw-only linear test-R2 by a calibrated margin. Pre-fix the
@@ -178,9 +180,12 @@ def test_fe_delivers_usable_signal_uplift(gen, dist, min_uplift):
 # numbers -- ridge with a tiny penalty fits the same continuous magnitude). SLOW.
 # ---------------------------------------------------------------------------
 @pytest.mark.slow
-@pytest.mark.parametrize("gen,dist,r2_floor,span_floor", [
-    pytest.param("ratio_heavytail", "uniform", 0.60, 0.30, id="ridge-ratio_heavytail-uniform"),
-])
+@pytest.mark.parametrize(
+    "gen,dist,r2_floor,span_floor",
+    [
+        pytest.param("ratio_heavytail", "uniform", 0.60, 0.30, id="ridge-ratio_heavytail-uniform"),
+    ],
+)
 def test_ridge_magnitude_recovery(gen, dist, r2_floor, span_floor):
     """The fix is not linear-only: ``model="ridge"`` reaches the same magnitude-recovery
     floors on the heavy-tail target."""

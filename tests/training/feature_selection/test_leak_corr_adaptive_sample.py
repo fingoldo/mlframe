@@ -9,13 +9,13 @@ falls back to stride-subsampled rows when the would-be allocation exceeds a
 fraction of available RAM, keeping the leak-corr estimate within ~1e-3 of
 full-frame precision.
 """
+
 from __future__ import annotations
 
 from types import SimpleNamespace
 from unittest.mock import patch
 
 import numpy as np
-import pytest
 
 
 def test_no_sample_when_ram_is_plentiful():
@@ -27,10 +27,12 @@ def test_no_sample_when_ram_is_plentiful():
     arrs = [np.arange(100, dtype=np.float32) for _ in range(5)]
     y = np.arange(100, dtype=np.float32)
     # Mock virtual_memory to report 100 GB available (vastly more than needed).
-    fake_vm = SimpleNamespace(available=int(100 * 1024 ** 3))
+    fake_vm = SimpleNamespace(available=(100 * 1024**3))
     with patch("psutil.virtual_memory", return_value=fake_vm):
         out_arrs, out_y = _maybe_sample_for_leak_corr(
-            ["c"] * 5, arrs, y,
+            ["c"] * 5,
+            arrs,
+            y,
         )
     # Same objects returned (no allocation churn).
     assert out_arrs is arrs
@@ -51,10 +53,12 @@ def test_sample_when_alloc_exceeds_available_headroom():
     arrs = [np.zeros(n_rows, dtype=np.float32) for _ in range(n_cols)]
     y = np.zeros(n_rows, dtype=np.float32)
     # Available 10 MB -> 30% headroom = 3 MB. Matrix needs 20 MB -> sample.
-    fake_vm = SimpleNamespace(available=int(10 * 1024 ** 2))
+    fake_vm = SimpleNamespace(available=(10 * 1024**2))
     with patch("psutil.virtual_memory", return_value=fake_vm):
         out_arrs, out_y = _maybe_sample_for_leak_corr(
-            ["c"] * n_cols, arrs, y,
+            ["c"] * n_cols,
+            arrs,
+            y,
         )
     # Sampler must reduce rows.
     assert out_arrs[0].shape[0] < n_rows
@@ -75,7 +79,9 @@ def test_psutil_unavailable_falls_back_to_legacy_path():
     y = np.zeros(1000, dtype=np.float32)
     with patch("psutil.virtual_memory", side_effect=RuntimeError("psutil down")):
         out_arrs, out_y = _maybe_sample_for_leak_corr(
-            ["c"] * 5, arrs, y,
+            ["c"] * 5,
+            arrs,
+            y,
         )
     # No-op path: same objects, no exception.
     assert out_arrs is arrs
@@ -102,14 +108,11 @@ def test_sample_emits_info_log(caplog):
     n_cols = 5
     arrs = [np.zeros(n_rows, dtype=np.float32) for _ in range(n_cols)]
     y = np.zeros(n_rows, dtype=np.float32)
-    fake_vm = SimpleNamespace(available=int(10 * 1024 ** 2))
+    fake_vm = SimpleNamespace(available=(10 * 1024**2))
     with patch("psutil.virtual_memory", return_value=fake_vm):
         with caplog.at_level(logging.INFO, logger="mlframe.training.composite.discovery._filter"):
             _maybe_sample_for_leak_corr(["c"] * n_cols, arrs, y)
-    sample_lines = [
-        r for r in caplog.records
-        if "leak-corr matrix sampled" in r.getMessage()
-    ]
+    sample_lines = [r for r in caplog.records if "leak-corr matrix sampled" in r.getMessage()]
     assert sample_lines, "operator must see a single INFO line when sampling fires"
     msg = sample_lines[0].getMessage()
     # Numbers reported so the operator can sanity-check the decision.

@@ -11,6 +11,7 @@ and have nothing to do with the GPU state that actually failed.
 This test forces the SAME failure mode (patch ``Parallel`` to raise) and asserts the function completes
 via the serial fallback instead of propagating the exception.
 """
+
 from __future__ import annotations
 
 import numpy as np

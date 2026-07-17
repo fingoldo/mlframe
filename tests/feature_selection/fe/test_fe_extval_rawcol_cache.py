@@ -20,6 +20,7 @@ re-extraction. These tests assert:
      byte-for-byte, and distinct var keys never alias to the same buffer (no key
      collision across distinct columns).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -58,10 +59,7 @@ def test_extval_rawcol_cache_fit_is_deterministic_and_selects():
     cols_a = _fit_cols()
     cols_b = _fit_cols()
     assert cols_a, "fit selected zero columns -- test frame failed to drive selection"
-    assert cols_a == cols_b, (
-        "memoised external-validation extraction must be deterministic across runs; "
-        f"got\n  run A: {cols_a}\n  run B: {cols_b}"
-    )
+    assert cols_a == cols_b, f"memoised external-validation extraction must be deterministic across runs; got\n  run A: {cols_a}\n  run B: {cols_b}"
 
 
 @pytest.mark.parametrize("n,p", [(300, 8), (600, 20)])
@@ -104,9 +102,7 @@ def test_extval_rawcol_memo_contract_pandas(n, p):
             assert np.array_equal(got, ref), f"cached extract != fresh .iloc for {v}"
 
     # Exactly ONE extraction per distinct var despite 5 repetitions.
-    assert n_extractions["count"] == p, (
-        f"expected {p} extractions (one per var), got {n_extractions['count']}"
-    )
+    assert n_extractions["count"] == p, f"expected {p} extractions (one per var), got {n_extractions['count']}"
 
     # No key collision: distinct vars map to distinct columns (the cache key is the
     # var id, never the array contents).

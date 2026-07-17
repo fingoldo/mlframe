@@ -55,7 +55,7 @@ def test_evaluator_loss_from_parent_matches_reference(medium_problem):
     for new_j in (0, 4, 11, 17):
         loss, child_key, child_margin = ev.loss_from_parent(parent, parent_margin, new_j)
         # key invariant: sorted, includes new_j exactly once
-        assert child_key == tuple(sorted(parent + (new_j,)))
+        assert child_key == tuple(sorted((*parent, new_j)))
         ref_margin = base + phi[:, list(child_key)].sum(axis=1)
         np.testing.assert_allclose(child_margin, ref_margin)
         ref_loss = _ref_loss(phi, base, y, list(child_key), "rmse")
@@ -79,8 +79,7 @@ def test_evaluator_loss_from_parent_insertion_positions(medium_problem):
 def test_beam_search_topn_bit_identical_to_reference(medium_problem):
     """Incremental path must agree with the reduce-from-scratch reference on every cached subset."""
     phi, base, y = medium_problem
-    top = H.beam_search(phi, base, y, classification=False, metric="rmse",
-                        beam_width=12, max_card=8, top_n=20)
+    top = H.beam_search(phi, base, y, classification=False, metric="rmse", beam_width=12, max_card=8, top_n=20)
     for loss, key in top:
         ref = _ref_loss(phi, base, y, list(key), "rmse")
         assert np.isclose(loss, ref), f"key={key}: cached {loss} vs ref {ref}"
@@ -88,8 +87,7 @@ def test_beam_search_topn_bit_identical_to_reference(medium_problem):
 
 def test_greedy_forward_topn_bit_identical_to_reference(medium_problem):
     phi, base, y = medium_problem
-    top = H.greedy_forward(phi, base, y, classification=False, metric="rmse",
-                           max_card=10, top_n=10)
+    top = H.greedy_forward(phi, base, y, classification=False, metric="rmse", max_card=10, top_n=10)
     for loss, key in top:
         ref = _ref_loss(phi, base, y, list(key), "rmse")
         assert np.isclose(loss, ref), f"key={key}: cached {loss} vs ref {ref}"
@@ -108,11 +106,9 @@ def test_beam_search_incremental_speedup_smoke():
     base = np.full(n, 0.1)
     y = base + phi[:, :k].sum(axis=1) + 0.05 * rng.normal(size=n)
     # warmup numba
-    H.beam_search(phi, base, y, classification=False, metric="rmse",
-                  beam_width=4, max_card=4, top_n=5)
+    H.beam_search(phi, base, y, classification=False, metric="rmse", beam_width=4, max_card=4, top_n=5)
     t0 = time.perf_counter()
-    top = H.beam_search(phi, base, y, classification=False, metric="rmse",
-                        beam_width=50, max_card=12, top_n=20)
+    top = H.beam_search(phi, base, y, classification=False, metric="rmse", beam_width=50, max_card=12, top_n=20)
     dt = time.perf_counter() - t0
     assert dt < 2.0, f"beam_search incremental path took {dt:.3f}s (budget 2.0s)"
     assert top[0][0] < 0.1  # truth-recovering regime; coarse sanity, not a perf gate
@@ -165,8 +161,7 @@ def test_evaluator_loss_from_parent_swap_matches_reference(medium_problem):
 def test_multistart_local_topn_matches_reference(medium_problem):
     """Every cached subset reported by multistart_local must agree with the reduce-from-scratch ref."""
     phi, base, y = medium_problem
-    top = H.multistart_local(phi, base, y, classification=False, metric="rmse",
-                             rng=np.random.default_rng(42), n_starts=6, max_card=8, top_n=15)
+    top = H.multistart_local(phi, base, y, classification=False, metric="rmse", rng=np.random.default_rng(42), n_starts=6, max_card=8, top_n=15)
     for loss, key in top:
         ref = _ref_loss(phi, base, y, list(key), "rmse")
         assert np.isclose(loss, ref), f"key={key}: cached {loss} vs ref {ref}"
@@ -175,8 +170,7 @@ def test_multistart_local_topn_matches_reference(medium_problem):
 def test_simulated_annealing_topn_matches_reference(medium_problem):
     """Every cached subset reported by simulated_annealing must agree with the reduce-from-scratch ref."""
     phi, base, y = medium_problem
-    top = H.simulated_annealing(phi, base, y, classification=False, metric="rmse",
-                                rng=np.random.default_rng(0), n_iter=400, top_n=15)
+    top = H.simulated_annealing(phi, base, y, classification=False, metric="rmse", rng=np.random.default_rng(0), n_iter=400, top_n=15)
     for loss, key in top:
         ref = _ref_loss(phi, base, y, list(key), "rmse")
         assert np.isclose(loss, ref), f"key={key}: cached {loss} vs ref {ref}"
@@ -195,8 +189,7 @@ def test_multistart_local_speedup_smoke():
     base = np.full(n, 0.1)
     y = base + phi[:, :k].sum(axis=1) + 0.05 * rng.normal(size=n)
     t0 = time.perf_counter()
-    top = H.multistart_local(phi, base, y, classification=False, metric="rmse",
-                             rng=np.random.default_rng(1), n_starts=8, max_card=10, top_n=10)
+    top = H.multistart_local(phi, base, y, classification=False, metric="rmse", rng=np.random.default_rng(1), n_starts=8, max_card=10, top_n=10)
     dt = time.perf_counter() - t0
     assert dt < 4.0, f"multistart_local incremental path took {dt:.3f}s (budget 4.0s)"
     assert top[0][0] < 0.2  # coarse truth-recovering sanity
@@ -210,8 +203,7 @@ def test_simulated_annealing_speedup_smoke():
     base = np.full(n, 0.1)
     y = base + phi[:, :k].sum(axis=1) + 0.05 * rng.normal(size=n)
     t0 = time.perf_counter()
-    top = H.simulated_annealing(phi, base, y, classification=False, metric="rmse",
-                                rng=np.random.default_rng(2), n_iter=2000, top_n=10)
+    top = H.simulated_annealing(phi, base, y, classification=False, metric="rmse", rng=np.random.default_rng(2), n_iter=2000, top_n=10)
     dt = time.perf_counter() - t0
     assert dt < 4.0, f"simulated_annealing incremental path took {dt:.3f}s (budget 4.0s)"
     assert top[0][0] < 0.5  # coarse sanity; SA wider tolerance vs greedy/beam

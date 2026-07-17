@@ -5,6 +5,7 @@ preprocessors (``_preprocess_zscore`` / ``_preprocess_minmax_neg1_1`` / ``_prepr
 counterparts, and the Fourier axis (``_fit_fourier_for_col``). The central contract: clean / naturally-heavy-tailed
 columns take the byte-identical LEGACY path; only spike-CONTAMINATED columns take the robust path.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -108,7 +109,7 @@ def test_robust_lo_hi_anchored_to_clean_core_not_outliers():
 def test_zscore_clean_takes_legacy_path():
     rng = np.random.default_rng(1)
     x = rng.standard_normal(3000)
-    z, params = _preprocess_zscore(x)
+    _z, params = _preprocess_zscore(x)
     assert "clip" not in params
     assert params["mean"] == pytest.approx(float(np.mean(x)))
     assert params["std"] == pytest.approx(float(np.std(x) + 1e-12))
@@ -183,7 +184,7 @@ def test_fourier_clean_legacy_outlier_robust():
     assert lo_c == float(np.min(clean)) and sp_c == pytest.approx(float(np.max(clean) - np.min(clean)))
 
     x = _spike(rng, frac=0.05, scale=1000.0)
-    lo_o, sp_o = _fit_fourier_for_col(x)
+    _lo_o, sp_o = _fit_fourier_for_col(x)
     # Robust span tracks the clean core (~6 sigma), not the ~2000 raw min-max span.
     assert sp_o < 20.0, f"Fourier span did not switch to the robust core estimate: {sp_o}"
 
@@ -202,7 +203,7 @@ def test_env_override_forces_legacy(monkeypatch):
     monkeypatch.setenv("MLFRAME_ROBUST_AXIS", "0")
     assert _robust_axis_enabled() is False
     x = _spike(np.random.default_rng(0), frac=0.05, scale=1000.0)
-    z, params = _preprocess_zscore(x)  # detector would trip, but the env var forces legacy.
+    _z, params = _preprocess_zscore(x)  # detector would trip, but the env var forces legacy.
     assert "clip" not in params
     assert params["std"] == pytest.approx(float(np.std(x) + 1e-12))
 

@@ -8,6 +8,7 @@ Post-fix ``data_signature`` folds a cheap O(1) first-and-last row fingerprint in
 (``_row_order_fingerprint``). Shuffled rows => different fingerprint => different signature => no
 stale cache hit.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -22,11 +23,13 @@ from mlframe.training.composite.cache import (
 
 def _make_frame(seed: int = 0, n: int = 200) -> pd.DataFrame:
     rng = np.random.default_rng(seed)
-    return pd.DataFrame({
-        "a": rng.normal(size=n),
-        "b": rng.normal(size=n),
-        "y": rng.integers(0, 2, size=n),
-    })
+    return pd.DataFrame(
+        {
+            "a": rng.normal(size=n),
+            "b": rng.normal(size=n),
+            "y": rng.integers(0, 2, size=n),
+        }
+    )
 
 
 def test_row_order_fingerprint_changes_on_shuffle_pandas():
@@ -58,11 +61,13 @@ def test_data_signature_changes_on_row_swap_outside_sample_pandas():
     """
     rng = np.random.default_rng(0)
     n = 1000
-    df = pd.DataFrame({
-        "a": rng.normal(size=n),
-        "b": rng.normal(size=n),
-        "y": rng.integers(0, 2, size=n),
-    })
+    df = pd.DataFrame(
+        {
+            "a": rng.normal(size=n),
+            "b": rng.normal(size=n),
+            "y": rng.integers(0, 2, size=n),
+        }
+    )
     # Reproduce the sample_idx the function will draw, then pick swap rows in the head region but
     # outside the sample so pre-fix sees identical sampled values + identical stats.
     rng_probe = np.random.default_rng(0)
@@ -80,7 +85,8 @@ def test_data_signature_changes_on_row_swap_outside_sample_pandas():
     assert swap_a is not None and swap_b is not None, "test harness: must find two unsampled head rows"
     df_swapped = df.copy()
     df_swapped.iloc[swap_a], df_swapped.iloc[swap_b] = (
-        df.iloc[swap_b].copy(), df.iloc[swap_a].copy(),
+        df.iloc[swap_b].copy(),
+        df.iloc[swap_a].copy(),
     )
     s_orig = data_signature(df, "y", ["a", "b"], sample_n=5, random_state=0)
     s_swap = data_signature(df_swapped, "y", ["a", "b"], sample_n=5, random_state=0)

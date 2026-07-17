@@ -15,6 +15,7 @@ columns, single-class & constant targets, tiny n, float-id high cardinality, exa
 duplicates & perfect collinearity, informative missingness, very wide p>n, mixed
 dtypes, and the all-noise empty-after-filtering fallback.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -187,9 +188,7 @@ class TestCardinality:
             sel = MRMR(verbose=0, fe_max_steps=0).fit(X, y)
         names = list(sel.get_feature_names_out())
         assert _no_garbage_names(names)
-        assert any("a" == n0 or n0.startswith("a") for n0 in names), (
-            f"genuine signal 'a' lost behind float-id column: {names}"
-        )
+        assert any("a" == n0 or n0.startswith("a") for n0 in names), f"genuine signal 'a' lost behind float-id column: {names}"
 
 
 # ---------------------------------------------------------------------------
@@ -207,9 +206,7 @@ class TestDuplicatesCollinearity:
             sel = MRMR(verbose=0, fe_max_steps=0).fit(X, y)
         names = list(sel.get_feature_names_out())
         assert sel.degenerate_columns_.get("a_dup") == "duplicate_of:a"
-        assert not ("a" in names and "a_dup" in names), (
-            f"both exact-duplicate columns selected: {names}"
-        )
+        assert not ("a" in names and "a_dup" in names), f"both exact-duplicate columns selected: {names}"
 
     def test_perfect_collinear_column_diagnosed(self):
         """y = 2*a + 3 is a perfect linear dependence -> ``collinear_with:a``."""
@@ -256,9 +253,7 @@ class TestMiscDegenerate:
             sel = MRMR(verbose=0, fe_max_steps=0).fit(X, y)
         names = list(sel.get_feature_names_out())
         assert _no_garbage_names(names)
-        assert all(n0 in X.columns for n0 in names), (
-            f"fallback returned a non-raw / garbage name: {names}"
-        )
+        assert all(n0 in X.columns for n0 in names), f"fallback returned a non-raw / garbage name: {names}"
         assert getattr(sel, "fallback_used_", False) is True
 
     def test_wide_p_greater_than_n_does_not_crash(self):
@@ -281,22 +276,22 @@ class TestMiscDegenerate:
         rng = np.random.default_rng(0)
         n = 400
         f = rng.normal(size=n)
-        X = pd.DataFrame({
-            "f": f,
-            "i": rng.integers(0, 5, n),
-            "bl": rng.integers(0, 2, n).astype(bool),
-            "s": rng.choice(["x", "y", "z"], n),
-            "c": pd.Categorical(rng.choice(["p", "q"], n)),
-        })
+        X = pd.DataFrame(
+            {
+                "f": f,
+                "i": rng.integers(0, 5, n),
+                "bl": rng.integers(0, 2, n).astype(bool),
+                "s": rng.choice(["x", "y", "z"], n),
+                "c": pd.Categorical(rng.choice(["p", "q"], n)),
+            }
+        )
         y = pd.Series((f > 0).astype(int))
         with _q():
             warnings.simplefilter("ignore")
             sel = MRMR(verbose=0, fe_max_steps=0).fit(X, y)
         names = list(sel.get_feature_names_out())
         assert _no_garbage_names(names)
-        assert any("f" == n0 or n0.startswith("f") for n0 in names), (
-            f"float signal lost in mixed-dtype frame: {names}"
-        )
+        assert any("f" == n0 or n0.startswith("f") for n0 in names), f"float signal lost in mixed-dtype frame: {names}"
 
 
 # ---------------------------------------------------------------------------
@@ -309,13 +304,15 @@ class TestDeterminism:
         rng = np.random.default_rng(11)
         n = 400
         a = rng.normal(size=n)
-        X = pd.DataFrame({
-            "a": a,
-            "a_dup": a.copy(),
-            "const": np.zeros(n),
-            "allnan": np.full(n, np.nan),
-            "b": rng.normal(size=n),
-        })
+        X = pd.DataFrame(
+            {
+                "a": a,
+                "a_dup": a.copy(),
+                "const": np.zeros(n),
+                "allnan": np.full(n, np.nan),
+                "b": rng.normal(size=n),
+            }
+        )
         y = pd.Series((a > 0).astype(int))
         with _q():
             warnings.simplefilter("ignore")

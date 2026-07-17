@@ -9,6 +9,7 @@ correctly (a list of (N, 2) arrays) AND now canonicalizes them to an (N, K) per-
 ensemble path, so ``ensemble_probabilities`` is populated with one column of P(label=1) per label.
 The per-model ``results["probabilities"][model]`` stays the raw list for consumers that need it.
 """
+
 from __future__ import annotations
 
 import os
@@ -33,8 +34,9 @@ from tests.training.shared import SimpleFeaturesAndTargetsExtractor
 
 def _save_threads_zero(model, file, zstd_kwargs=None, verbose=0, lean=False, durable=False):
     """Single-threaded zstd write that bypasses the multi-threaded ``flush of closed file`` quirk."""
-    import dill
+    import dill  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
     import zstandard as zstd
+
     with open(file, "wb") as f:
         compressor = zstd.ZstdCompressor(level=4, write_checksum=True, write_content_size=True, threads=0)
         with compressor.stream_writer(f) as zf:
@@ -71,7 +73,9 @@ def _make_multilabel_df(n: int = 900, seed: int = 808) -> pd.DataFrame:
 
 def _train_suite(df, target_type, tmp_path, model_name):
     fte = SimpleFeaturesAndTargetsExtractor(
-        target_column="target", regression=False, target_type=target_type,
+        target_column="target",
+        regression=False,
+        target_type=target_type,
     )
     tmp = str(tmp_path)
     with patch("mlframe.training.train_eval.save_mlframe_model", side_effect=_save_threads_zero):
@@ -96,9 +100,12 @@ def _train_suite(df, target_type, tmp_path, model_name):
 
 def _predict(df, models, metadata, fte):
     return predict_from_models(
-        df=df, models=models, metadata=metadata,
+        df=df,
+        models=models,
+        metadata=metadata,
         features_and_targets_extractor=fte,
-        return_probabilities=True, verbose=0,
+        return_probabilities=True,
+        verbose=0,
     )
 
 
@@ -111,6 +118,7 @@ def test_multiclass_ensemble_probability_shape_and_simplex():
     """Multiclass ensemble_probabilities is (n, 3) with each row a valid probability simplex."""
     pytest.importorskip("lightgbm")
     import tempfile
+
     with tempfile.TemporaryDirectory() as td:
         df = _make_multiclass_df()
         fte, models, metadata = _train_suite(df, TargetTypes.MULTICLASS_CLASSIFICATION, td, "mc_shape")
@@ -135,7 +143,8 @@ def test_multiclass_predict_twice_and_after_load_parity(tmp_path):
     np.testing.assert_allclose(
         np.asarray(res_a["ensemble_probabilities"]),
         np.asarray(res_b["ensemble_probabilities"]),
-        rtol=1e-7, err_msg="multiclass predict is non-deterministic on identical input",
+        rtol=1e-7,
+        err_msg="multiclass predict is non-deterministic on identical input",
     )
 
     models_path = os.path.join(str(tmp_path), "models", "target", "mc_parity")
@@ -146,7 +155,8 @@ def test_multiclass_predict_twice_and_after_load_parity(tmp_path):
     np.testing.assert_allclose(
         np.asarray(res_a["ensemble_probabilities"]),
         np.asarray(res_disk["ensemble_probabilities"]),
-        rtol=1e-4, atol=1e-4,
+        rtol=1e-4,
+        atol=1e-4,
         err_msg="multiclass disk-load predict drifted from in-memory beyond float precision",
     )
 
@@ -170,6 +180,7 @@ def test_multilabel_per_label_probability_shapes():
     """Per-model multilabel probabilities are a list of 3 per-label (n, 2) arrays summing to 1 per row."""
     pytest.importorskip("lightgbm")
     import tempfile
+
     with tempfile.TemporaryDirectory() as td:
         df = _make_multilabel_df()
         fte, models, metadata = _train_suite(df, TargetTypes.MULTILABEL_CLASSIFICATION, td, "ml_shape")
@@ -189,7 +200,10 @@ def test_multilabel_per_label_probability_shapes():
     assert ep.shape == (len(df), 3), f"expected (n, 3) per-label ensemble matrix; got {ep.shape}"
     for li, arr in enumerate(per_label):
         np.testing.assert_allclose(
-            ep[:, li], np.asarray(arr)[:, 1], rtol=1e-6, atol=1e-6,
+            ep[:, li],
+            np.asarray(arr)[:, 1],
+            rtol=1e-6,
+            atol=1e-6,
             err_msg=f"ensemble column {li} should equal the single model's P(label={li}=1)",
         )
 
@@ -207,7 +221,9 @@ def test_multilabel_predict_twice_and_after_load_parity(tmp_path):
     pl_b = _multilabel_per_model_probs(res_b)
     for li, (a, b) in enumerate(zip(pl_a, pl_b)):
         np.testing.assert_allclose(
-            np.asarray(a), np.asarray(b), rtol=1e-7,
+            np.asarray(a),
+            np.asarray(b),
+            rtol=1e-7,
             err_msg=f"multilabel label {li} predict is non-deterministic on identical input",
         )
     ep_a = res_a.get("ensemble_probabilities")
@@ -215,7 +231,9 @@ def test_multilabel_predict_twice_and_after_load_parity(tmp_path):
     ep_a = np.asarray(ep_a)
     assert ep_a.shape == (len(df), 3), f"expected (n, 3) per-label ensemble matrix; got {ep_a.shape}"
     np.testing.assert_allclose(
-        ep_a, np.asarray(res_b["ensemble_probabilities"]), rtol=1e-7,
+        ep_a,
+        np.asarray(res_b["ensemble_probabilities"]),
+        rtol=1e-7,
         err_msg="multilabel ensemble_probabilities is non-deterministic on identical input",
     )
 
@@ -228,10 +246,16 @@ def test_multilabel_predict_twice_and_after_load_parity(tmp_path):
     assert len(pl_disk) == len(pl_a)
     for li, (a, d) in enumerate(zip(pl_a, pl_disk)):
         np.testing.assert_allclose(
-            np.asarray(a), np.asarray(d), rtol=1e-4, atol=1e-4,
+            np.asarray(a),
+            np.asarray(d),
+            rtol=1e-4,
+            atol=1e-4,
             err_msg=f"multilabel label {li} disk-load predict drifted beyond float precision",
         )
     np.testing.assert_allclose(
-        ep_a, np.asarray(res_disk["ensemble_probabilities"]), rtol=1e-4, atol=1e-4,
+        ep_a,
+        np.asarray(res_disk["ensemble_probabilities"]),
+        rtol=1e-4,
+        atol=1e-4,
         err_msg="multilabel ensemble_probabilities drifted across disk round-trip beyond float precision",
     )

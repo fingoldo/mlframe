@@ -25,9 +25,9 @@ Coverage map
 - Tiny train_idx (<50 rows) gracefully returns no specs.
 - ``random_state`` reproducibility.
 """
+
 from __future__ import annotations
 
-import re
 
 import numpy as np
 import pandas as pd
@@ -42,12 +42,10 @@ pytestmark = pytest.mark.sklearn_matrix
 # integration tests, not for discovery itself. Discovery uses only
 # sklearn.feature_selection.mutual_info_regression.
 
-from mlframe.training.composite import (  # noqa: E402
-    CompositeSpec,
+from mlframe.training.composite import (
     CompositeTargetDiscovery,
-    UnknownTransformError,
 )
-from mlframe.training.configs import CompositeTargetDiscoveryConfig  # noqa: E402
+from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
 
 # ----------------------------------------------------------------------
@@ -142,13 +140,14 @@ class TestAutoBase:
     def test_dominant_feature_surfaces_at_top(self) -> None:
         df = _tvt_strong()
         cfg = CompositeTargetDiscoveryConfig(
-            enabled=True, mi_sample_n=800, top_k_after_mi=5,
-            eps_mi_gain=0.05, auto_base_top_k=3,
+            enabled=True,
+            mi_sample_n=800,
+            top_k_after_mi=5,
+            eps_mi_gain=0.05,
+            auto_base_top_k=3,
         )
         disc = CompositeTargetDiscovery(cfg)
-        disc.fit(df, target_col="TVT",
-                 feature_cols=["TVT_prev", "x1", "x2", "x3"],
-                 train_idx=np.arange(1200))
+        disc.fit(df, target_col="TVT", feature_cols=["TVT_prev", "x1", "x2", "x3"], train_idx=np.arange(1200))
         # At least one discovered spec, and the top-1 by mi_gain uses
         # TVT_prev as base.
         assert len(disc.specs_) >= 1
@@ -170,38 +169,34 @@ class TestAutoBase:
         # transforms for a strong base column", which still holds.
         df = _tvt_strong()
         cfg = CompositeTargetDiscoveryConfig(
-            enabled=True, screening="mi",
-            mi_sample_n=800, top_k_after_mi=8,
-            eps_mi_gain=0.0, auto_base_top_k=2,
+            enabled=True,
+            screening="mi",
+            mi_sample_n=800,
+            top_k_after_mi=8,
+            eps_mi_gain=0.0,
+            auto_base_top_k=2,
         )
         disc = CompositeTargetDiscovery(cfg)
-        disc.fit(df, target_col="TVT",
-                 feature_cols=["TVT_prev", "x1", "x2", "x3"],
-                 train_idx=np.arange(1200))
+        disc.fit(df, target_col="TVT", feature_cols=["TVT_prev", "x1", "x2", "x3"], train_idx=np.arange(1200))
         transforms_kept = {s.transform_name for s in disc.specs_ if s.base_column == "TVT_prev"}
         # linear_residual is the canonical baseline transform; it
         # MUST always clear eps when base is TVT_prev (strong linear signal).
-        assert "linear_residual" in transforms_kept, (
-            f"linear_residual missing from kept transforms: {transforms_kept}"
-        )
+        assert "linear_residual" in transforms_kept, f"linear_residual missing from kept transforms: {transforms_kept}"
         # And the discovery surfaces at least 4 distinct transforms
         # (originally the goal was "4 different mappings of y to T",
         # which the broader registry now satisfies more thoroughly).
-        assert len(transforms_kept) >= 4, (
-            f"discovery returned only {len(transforms_kept)} transforms on "
-            f"strong TVT_prev signal: {transforms_kept}"
-        )
+        assert len(transforms_kept) >= 4, f"discovery returned only {len(transforms_kept)} transforms on strong TVT_prev signal: {transforms_kept}"
 
     def test_explicit_base_passes_through_filters(self) -> None:
         df = _tvt_strong()
         cfg = CompositeTargetDiscoveryConfig(
-            enabled=True, mi_sample_n=800, top_k_after_mi=5,
+            enabled=True,
+            mi_sample_n=800,
+            top_k_after_mi=5,
             base_candidates=["TVT_prev"],
         )
         disc = CompositeTargetDiscovery(cfg)
-        disc.fit(df, target_col="TVT",
-                 feature_cols=["TVT_prev", "x1", "x2", "x3"],
-                 train_idx=np.arange(1200))
+        disc.fit(df, target_col="TVT", feature_cols=["TVT_prev", "x1", "x2", "x3"], train_idx=np.arange(1200))
         # Only TVT_prev was offered, so all kept specs use it.
         for s in disc.specs_:
             assert s.base_column == "TVT_prev"
@@ -232,21 +227,28 @@ class TestLeakageGuards:
         # alpha ~ midpoint (~1.025) regardless of train_idx.
         y = np.empty(n)
         y[: n // 2] = 0.95 * base[: n // 2] + rng.normal(scale=0.3, size=n // 2)
-        y[n // 2:] = 1.10 * base[n // 2:] + rng.normal(scale=0.3, size=n // 2)
+        y[n // 2 :] = 1.10 * base[n // 2 :] + rng.normal(scale=0.3, size=n // 2)
         df = pd.DataFrame({"TVT_prev": base, "x1": rng.normal(size=n), "TVT": y})
 
         cfg = CompositeTargetDiscoveryConfig(
-            enabled=True, mi_sample_n=600, top_k_after_mi=4,
-            eps_mi_gain=-0.5, base_candidates=["TVT_prev"],
+            enabled=True,
+            mi_sample_n=600,
+            top_k_after_mi=4,
+            eps_mi_gain=-0.5,
+            base_candidates=["TVT_prev"],
             transforms=["linear_residual"],
         )
 
         disc_first = CompositeTargetDiscovery(cfg).fit(
-            df, target_col="TVT", feature_cols=["TVT_prev", "x1"],
+            df,
+            target_col="TVT",
+            feature_cols=["TVT_prev", "x1"],
             train_idx=np.arange(0, n // 2),  # only first half
         )
         disc_second = CompositeTargetDiscovery(cfg).fit(
-            df, target_col="TVT", feature_cols=["TVT_prev", "x1"],
+            df,
+            target_col="TVT",
+            feature_cols=["TVT_prev", "x1"],
             train_idx=np.arange(n // 2, n),  # only second half
         )
 
@@ -259,12 +261,10 @@ class TestLeakageGuards:
         # alphas should reflect the slice-specific generative coefficients,
         # not converge to the full-df midpoint.
         assert abs(alpha_first - 0.95) < 0.05, (
-            f"alpha_first={alpha_first:.3f} should be ~0.95; if it's ~1.025, "
-            "the fit is using full-df data instead of train_idx -> LEAKAGE."
+            f"alpha_first={alpha_first:.3f} should be ~0.95; if it's ~1.025, the fit is using full-df data instead of train_idx -> LEAKAGE."
         )
         assert abs(alpha_second - 1.10) < 0.05, (
-            f"alpha_second={alpha_second:.3f} should be ~1.10; if it's ~1.025, "
-            "the fit is using full-df data instead of train_idx -> LEAKAGE."
+            f"alpha_second={alpha_second:.3f} should be ~1.10; if it's ~1.025, the fit is using full-df data instead of train_idx -> LEAKAGE."
         )
         # And they MUST differ.
         assert abs(alpha_first - alpha_second) > 0.05
@@ -279,17 +279,20 @@ class TestLeakageGuards:
         test_idx = np.arange(int(0.8 * n), n)
 
         cfg = CompositeTargetDiscoveryConfig(
-            enabled=True, mi_sample_n=800, top_k_after_mi=4,
-            eps_mi_gain=0.05, auto_base_top_k=2,
+            enabled=True,
+            mi_sample_n=800,
+            top_k_after_mi=4,
+            eps_mi_gain=0.05,
+            auto_base_top_k=2,
         )
         disc = CompositeTargetDiscovery(cfg).fit(
-            df, target_col="TVT",
+            df,
+            target_col="TVT",
             feature_cols=["TVT_prev", "x1", "x2", "x3"],
-            train_idx=train_idx, test_idx=test_idx,
+            train_idx=train_idx,
+            test_idx=test_idx,
         )
-        specs_before = [
-            (s.name, s.fitted_params, s.mi_gain) for s in disc.specs_
-        ]
+        specs_before = [(s.name, s.fitted_params, s.mi_gain) for s in disc.specs_]
 
         # Now corrupt the test slice. A clean fit must not have
         # produced specs that depend on these rows in any way.
@@ -298,13 +301,13 @@ class TestLeakageGuards:
         df_corrupted.loc[test_idx, "TVT"] = -1e6
 
         disc2 = CompositeTargetDiscovery(cfg).fit(
-            df_corrupted, target_col="TVT",
+            df_corrupted,
+            target_col="TVT",
             feature_cols=["TVT_prev", "x1", "x2", "x3"],
-            train_idx=train_idx, test_idx=test_idx,
+            train_idx=train_idx,
+            test_idx=test_idx,
         )
-        specs_after = [
-            (s.name, s.fitted_params, s.mi_gain) for s in disc2.specs_
-        ]
+        specs_after = [(s.name, s.fitted_params, s.mi_gain) for s in disc2.specs_]
         # numpy-aware comparison: fitted_params may hold ndarrays (spline
         # knots), where a plain ``==`` raises an array-truthiness ValueError.
         assert _value_equal(specs_before, specs_after)
@@ -316,8 +319,10 @@ class TestLeakageGuards:
         df = _tvt_strong(n=1500)
         train_idx = np.arange(1000)
         cfg = CompositeTargetDiscoveryConfig(
-            enabled=True, mi_sample_n=600,
-            base_candidates=["TVT_prev"], transforms=["linear_residual"],
+            enabled=True,
+            mi_sample_n=600,
+            base_candidates=["TVT_prev"],
+            transforms=["linear_residual"],
             eps_mi_gain=-1.0,
             # This test pins iter_transform's full-frame param application against the spec's
             # fitted params; the SA27 honest holdout would fit those params on a row subset (a
@@ -326,7 +331,9 @@ class TestLeakageGuards:
             honest_holdout_frac=0.0,
         )
         disc = CompositeTargetDiscovery(cfg).fit(
-            df, target_col="TVT", feature_cols=["TVT_prev", "x1", "x2", "x3"],
+            df,
+            target_col="TVT",
+            feature_cols=["TVT_prev", "x1", "x2", "x3"],
             train_idx=train_idx,
         )
         spec = disc.specs_[0]
@@ -334,6 +341,7 @@ class TestLeakageGuards:
         # Apply spec.fitted_params manually to compute T for the full
         # frame and compare to iter_transform output.
         from mlframe.training.composite import get_transform
+
         transform = get_transform(spec.transform_name)
         y = df["TVT"].to_numpy()
         base = df[spec.base_column].to_numpy()
@@ -348,8 +356,7 @@ class TestLeakageGuards:
                 # halving on the 4M-row x 500-col discovery matrix). The "expected"
                 # values above stay in float64, so we tolerate the float32 rounding
                 # floor (~1e-6) rather than re-running the test in float64.
-                np.testing.assert_allclose(t, expected, rtol=1e-5, atol=1e-6,
-                                           equal_nan=True)
+                np.testing.assert_allclose(t, expected, rtol=1e-5, atol=1e-6, equal_nan=True)
 
 
 # ----------------------------------------------------------------------
@@ -362,14 +369,14 @@ class TestForbiddenFilters:
         df = _tvt_strong()
         df["target_enc_grp"] = df["TVT"] * 0.99 + 1.0  # mock target-encoded col
         cfg = CompositeTargetDiscoveryConfig(
-            enabled=True, mi_sample_n=600, top_k_after_mi=4,
+            enabled=True,
+            mi_sample_n=600,
+            top_k_after_mi=4,
             base_candidates=["target_enc_grp", "TVT_prev"],
             transforms=["diff"],
         )
         disc = CompositeTargetDiscovery(cfg)
-        disc.fit(df, target_col="TVT",
-                 feature_cols=["TVT_prev", "x1", "x2", "x3", "target_enc_grp"],
-                 train_idx=np.arange(1200))
+        disc.fit(df, target_col="TVT", feature_cols=["TVT_prev", "x1", "x2", "x3", "target_enc_grp"], train_idx=np.arange(1200))
         # target_enc_grp must NOT appear as a base in any kept spec.
         for s in disc.specs_:
             assert s.base_column != "target_enc_grp"
@@ -379,14 +386,14 @@ class TestForbiddenFilters:
         # Column with corr(col, y) ≈ 1.0 -- look like derived from y.
         df["leaked"] = df["TVT"] + np.random.default_rng(0).normal(scale=1e-9, size=len(df))
         cfg = CompositeTargetDiscoveryConfig(
-            enabled=True, mi_sample_n=600,
-            base_candidates=["leaked", "TVT_prev"], transforms=["diff"],
+            enabled=True,
+            mi_sample_n=600,
+            base_candidates=["leaked", "TVT_prev"],
+            transforms=["diff"],
             forbidden_base_corr_threshold=0.999,
         )
         disc = CompositeTargetDiscovery(cfg)
-        disc.fit(df, target_col="TVT",
-                 feature_cols=["TVT_prev", "x1", "leaked"],
-                 train_idx=np.arange(1200))
+        disc.fit(df, target_col="TVT", feature_cols=["TVT_prev", "x1", "leaked"], train_idx=np.arange(1200))
         for s in disc.specs_:
             assert s.base_column != "leaked"
 
@@ -394,13 +401,13 @@ class TestForbiddenFilters:
         df = _tvt_strong()
         df["const_col"] = 7.0  # zero variance
         cfg = CompositeTargetDiscoveryConfig(
-            enabled=True, mi_sample_n=600,
-            base_candidates=["const_col", "TVT_prev"], transforms=["diff"],
+            enabled=True,
+            mi_sample_n=600,
+            base_candidates=["const_col", "TVT_prev"],
+            transforms=["diff"],
         )
         disc = CompositeTargetDiscovery(cfg)
-        disc.fit(df, target_col="TVT",
-                 feature_cols=["TVT_prev", "x1", "const_col"],
-                 train_idx=np.arange(1200))
+        disc.fit(df, target_col="TVT", feature_cols=["TVT_prev", "x1", "const_col"], train_idx=np.arange(1200))
         for s in disc.specs_:
             assert s.base_column != "const_col"
 
@@ -408,13 +415,13 @@ class TestForbiddenFilters:
         df = _tvt_strong()
         df["category"] = "abc"
         cfg = CompositeTargetDiscoveryConfig(
-            enabled=True, mi_sample_n=600,
-            base_candidates=["category", "TVT_prev"], transforms=["diff"],
+            enabled=True,
+            mi_sample_n=600,
+            base_candidates=["category", "TVT_prev"],
+            transforms=["diff"],
         )
         disc = CompositeTargetDiscovery(cfg)
-        disc.fit(df, target_col="TVT",
-                 feature_cols=["TVT_prev", "x1", "category"],
-                 train_idx=np.arange(1200))
+        disc.fit(df, target_col="TVT", feature_cols=["TVT_prev", "x1", "category"], train_idx=np.arange(1200))
         for s in disc.specs_:
             assert s.base_column != "category"
 
@@ -447,15 +454,15 @@ class TestForbiddenFilters:
         assert abs(c) >= 0.99, f"fixture too weak: corr={c:.6f}"
 
         cfg = CompositeTargetDiscoveryConfig(
-            enabled=True, mi_sample_n=800, top_k_after_mi=4,
+            enabled=True,
+            mi_sample_n=800,
+            top_k_after_mi=4,
             eps_mi_gain=-1.0,  # accept any gain so we can inspect ranking
             base_candidates=["TVT_prev", "x1", "x2"],
             transforms=["diff", "linear_residual"],
         )
         disc = CompositeTargetDiscovery(cfg)
-        disc.fit(df, target_col="TVT",
-                 feature_cols=["TVT_prev", "x1", "x2"],
-                 train_idx=np.arange(1500))
+        disc.fit(df, target_col="TVT", feature_cols=["TVT_prev", "x1", "x2"], train_idx=np.arange(1500))
         # TVT_prev MUST survive the filters under the new default.
         bases = {s.base_column for s in disc.specs_}
         assert "TVT_prev" in bases, (
@@ -464,10 +471,7 @@ class TestForbiddenFilters:
             "This is the production-reported regression."
         )
         # And the corr drop list should NOT mention TVT_prev.
-        corr_drops = [
-            d for d in disc.filter_drops()
-            if d.get("reason") == "forbidden_base_corr_threshold"
-        ]
+        corr_drops = [d for d in disc.filter_drops() if d.get("reason") == "forbidden_base_corr_threshold"]
         assert all(d["name"] != "TVT_prev" for d in corr_drops)
 
     def test_filter_drops_records_corr_threshold_reason(self) -> None:
@@ -475,21 +479,18 @@ class TestForbiddenFilters:
         ``filter_drops()`` audit list records it with reason +
         offending corr value."""
         df = _tvt_strong()
-        df["leaked"] = df["TVT"] + np.random.default_rng(0).normal(
-            scale=1e-9, size=len(df))
+        df["leaked"] = df["TVT"] + np.random.default_rng(0).normal(scale=1e-9, size=len(df))
         cfg = CompositeTargetDiscoveryConfig(
-            enabled=True, mi_sample_n=600,
-            base_candidates=["leaked", "TVT_prev"], transforms=["diff"],
+            enabled=True,
+            mi_sample_n=600,
+            base_candidates=["leaked", "TVT_prev"],
+            transforms=["diff"],
             forbidden_base_corr_threshold=0.99,  # explicit aggressive
         )
         disc = CompositeTargetDiscovery(cfg)
-        disc.fit(df, target_col="TVT",
-                 feature_cols=["TVT_prev", "x1", "leaked"],
-                 train_idx=np.arange(1200))
+        disc.fit(df, target_col="TVT", feature_cols=["TVT_prev", "x1", "leaked"], train_idx=np.arange(1200))
         drops = disc.filter_drops()
-        leaked_drops = [d for d in drops
-                        if d["name"] == "leaked"
-                        and d["reason"] == "forbidden_base_corr_threshold"]
+        leaked_drops = [d for d in drops if d["name"] == "leaked" and d["reason"] == "forbidden_base_corr_threshold"]
         assert len(leaked_drops) == 1
         assert leaked_drops[0]["corr"] >= 0.99
         assert leaked_drops[0]["threshold"] == 0.99
@@ -505,14 +506,14 @@ class TestDomainValidity:
         df = _tvt_strong()
         df["TVT"] = df["TVT"] - 100  # shift y to be mostly negative
         cfg = CompositeTargetDiscoveryConfig(
-            enabled=True, mi_sample_n=600,
-            base_candidates=["TVT_prev"], transforms=["diff", "logratio"],
+            enabled=True,
+            mi_sample_n=600,
+            base_candidates=["TVT_prev"],
+            transforms=["diff", "logratio"],
             min_valid_domain_frac=0.7,
         )
         disc = CompositeTargetDiscovery(cfg)
-        disc.fit(df, target_col="TVT",
-                 feature_cols=["TVT_prev", "x1", "x2"],
-                 train_idx=np.arange(1200))
+        disc.fit(df, target_col="TVT", feature_cols=["TVT_prev", "x1", "x2"], train_idx=np.arange(1200))
         kept_transforms = {s.transform_name for s in disc.specs_}
         # diff is general-domain, logratio requires y > 0 -> should be dropped.
         assert "logratio" not in kept_transforms
@@ -533,29 +534,29 @@ class TestFailOnNoGain:
 
     def test_fallback_raw_no_specs_no_raise(self, no_signal_df) -> None:
         cfg = CompositeTargetDiscoveryConfig(
-            enabled=True, mi_sample_n=600,
-            base_candidates=["f0", "f1"], transforms=["diff"],
+            enabled=True,
+            mi_sample_n=600,
+            base_candidates=["f0", "f1"],
+            transforms=["diff"],
             eps_mi_gain=10.0,  # impossibly high threshold
             fail_on_no_gain="fallback_raw",
         )
         disc = CompositeTargetDiscovery(cfg)
-        disc.fit(no_signal_df, target_col="y",
-                 feature_cols=["f0", "f1", "f2", "f3"],
-                 train_idx=np.arange(1200))
+        disc.fit(no_signal_df, target_col="y", feature_cols=["f0", "f1", "f2", "f3"], train_idx=np.arange(1200))
         assert disc.specs_ == []
 
     def test_raise_mode_propagates(self, no_signal_df) -> None:
         cfg = CompositeTargetDiscoveryConfig(
-            enabled=True, mi_sample_n=600,
-            base_candidates=["f0"], transforms=["diff"],
+            enabled=True,
+            mi_sample_n=600,
+            base_candidates=["f0"],
+            transforms=["diff"],
             eps_mi_gain=10.0,
             fail_on_no_gain="raise",
         )
         disc = CompositeTargetDiscovery(cfg)
         with pytest.raises(RuntimeError, match="no candidate cleared"):
-            disc.fit(no_signal_df, target_col="y",
-                     feature_cols=["f0", "f1", "f2", "f3"],
-                     train_idx=np.arange(1200))
+            disc.fit(no_signal_df, target_col="y", feature_cols=["f0", "f1", "f2", "f3"], train_idx=np.arange(1200))
 
 
 # ----------------------------------------------------------------------
@@ -567,28 +568,27 @@ class TestIterTransform:
     def test_iter_transform_yields_per_spec(self) -> None:
         df = _tvt_strong()
         cfg = CompositeTargetDiscoveryConfig(
-            enabled=True, mi_sample_n=600, top_k_after_mi=2,
-            base_candidates=["TVT_prev"], transforms=["diff", "linear_residual"],
+            enabled=True,
+            mi_sample_n=600,
+            top_k_after_mi=2,
+            base_candidates=["TVT_prev"],
+            transforms=["diff", "linear_residual"],
             eps_mi_gain=-1.0,
         )
         disc = CompositeTargetDiscovery(cfg)
-        disc.fit(df, target_col="TVT",
-                 feature_cols=["TVT_prev", "x1", "x2"],
-                 train_idx=np.arange(1200))
+        disc.fit(df, target_col="TVT", feature_cols=["TVT_prev", "x1", "x2"], train_idx=np.arange(1200))
         outputs = dict(disc.iter_transform(df))
         # One T-array per discovered spec.
         assert set(outputs) == {s.name for s in disc.specs_}
         # Each T has length matching df.
-        for name, t in outputs.items():
+        for t in outputs.values():
             assert len(t) == len(df)
             assert t.dtype == np.float64
 
     def test_iter_transform_empty_when_no_specs(self) -> None:
         cfg = CompositeTargetDiscoveryConfig(enabled=False)
         disc = CompositeTargetDiscovery(cfg)
-        disc.fit(_tvt_strong(), target_col="TVT",
-                 feature_cols=["TVT_prev", "x1", "x2"],
-                 train_idx=np.arange(1200))
+        disc.fit(_tvt_strong(), target_col="TVT", feature_cols=["TVT_prev", "x1", "x2"], train_idx=np.arange(1200))
         assert list(disc.iter_transform(_tvt_strong())) == []
 
 
@@ -601,30 +601,37 @@ class TestSerialization:
     def test_export_specs_shape(self) -> None:
         df = _tvt_strong()
         cfg = CompositeTargetDiscoveryConfig(
-            enabled=True, mi_sample_n=600,
-            base_candidates=["TVT_prev"], transforms=["diff"],
+            enabled=True,
+            mi_sample_n=600,
+            base_candidates=["TVT_prev"],
+            transforms=["diff"],
             eps_mi_gain=-1.0,
         )
         disc = CompositeTargetDiscovery(cfg).fit(
-            df, target_col="TVT", feature_cols=["TVT_prev", "x1"],
+            df,
+            target_col="TVT",
+            feature_cols=["TVT_prev", "x1"],
             train_idx=np.arange(1200),
         )
         exported = disc.export_specs()
         assert isinstance(exported, list)
         for entry in exported:
-            assert {"name", "target_col", "transform_name", "base_column",
-                    "fitted_params", "mi_gain", "valid_domain_frac"}.issubset(entry)
+            assert {"name", "target_col", "transform_name", "base_column", "fitted_params", "mi_gain", "valid_domain_frac"}.issubset(entry)
             assert isinstance(entry["fitted_params"], dict)
 
     def test_report_includes_rejected(self) -> None:
         df = _tvt_strong()
         cfg = CompositeTargetDiscoveryConfig(
-            enabled=True, mi_sample_n=600,
-            base_candidates=["TVT_prev"], transforms=["diff", "ratio"],
+            enabled=True,
+            mi_sample_n=600,
+            base_candidates=["TVT_prev"],
+            transforms=["diff", "ratio"],
             eps_mi_gain=10.0,  # all rejected
         )
         disc = CompositeTargetDiscovery(cfg).fit(
-            df, target_col="TVT", feature_cols=["TVT_prev", "x1"],
+            df,
+            target_col="TVT",
+            feature_cols=["TVT_prev", "x1"],
             train_idx=np.arange(1200),
         )
         report = disc.report()
@@ -643,12 +650,16 @@ class TestPolarsAndEdgeCases:
     def test_polars_dataframe_accepted(self) -> None:
         df = pl.from_pandas(_tvt_strong())
         cfg = CompositeTargetDiscoveryConfig(
-            enabled=True, mi_sample_n=600,
-            base_candidates=["TVT_prev"], transforms=["diff"],
+            enabled=True,
+            mi_sample_n=600,
+            base_candidates=["TVT_prev"],
+            transforms=["diff"],
             eps_mi_gain=-1.0,
         )
         disc = CompositeTargetDiscovery(cfg).fit(
-            df, target_col="TVT", feature_cols=["TVT_prev", "x1", "x2"],
+            df,
+            target_col="TVT",
+            feature_cols=["TVT_prev", "x1", "x2"],
             train_idx=np.arange(1200),
         )
         assert len(disc.specs_) >= 1
@@ -657,7 +668,9 @@ class TestPolarsAndEdgeCases:
         df = _tvt_strong()
         cfg = CompositeTargetDiscoveryConfig(enabled=False)
         disc = CompositeTargetDiscovery(cfg).fit(
-            df, target_col="TVT", feature_cols=["TVT_prev", "x1"],
+            df,
+            target_col="TVT",
+            feature_cols=["TVT_prev", "x1"],
             train_idx=np.arange(1200),
         )
         assert disc.specs_ == []
@@ -667,7 +680,9 @@ class TestPolarsAndEdgeCases:
         df = _tvt_strong()
         cfg = CompositeTargetDiscoveryConfig(enabled=True)
         disc = CompositeTargetDiscovery(cfg).fit(
-            df, target_col="TVT", feature_cols=["TVT_prev", "x1"],
+            df,
+            target_col="TVT",
+            feature_cols=["TVT_prev", "x1"],
             train_idx=np.arange(20),  # below 50-row floor
         )
         assert disc.specs_ == []
@@ -675,16 +690,23 @@ class TestPolarsAndEdgeCases:
     def test_random_state_reproducibility(self) -> None:
         df = _tvt_strong()
         cfg = CompositeTargetDiscoveryConfig(
-            enabled=True, mi_sample_n=400,
-            base_candidates=["TVT_prev"], transforms=["diff"],
-            eps_mi_gain=-1.0, random_state=123,
+            enabled=True,
+            mi_sample_n=400,
+            base_candidates=["TVT_prev"],
+            transforms=["diff"],
+            eps_mi_gain=-1.0,
+            random_state=123,
         )
         disc_a = CompositeTargetDiscovery(cfg).fit(
-            df, target_col="TVT", feature_cols=["TVT_prev", "x1", "x2"],
+            df,
+            target_col="TVT",
+            feature_cols=["TVT_prev", "x1", "x2"],
             train_idx=np.arange(1200),
         )
         disc_b = CompositeTargetDiscovery(cfg).fit(
-            df, target_col="TVT", feature_cols=["TVT_prev", "x1", "x2"],
+            df,
+            target_col="TVT",
+            feature_cols=["TVT_prev", "x1", "x2"],
             train_idx=np.arange(1200),
         )
         # Same seed -> same MI gains.
@@ -697,10 +719,12 @@ class TestPolarsAndEdgeCases:
         to top_m_after_tiny=3 by tiny-model CV-RMSE."""
         df = _tvt_strong()
         cfg = CompositeTargetDiscoveryConfig(
-            enabled=True, mi_sample_n=600,
+            enabled=True,
+            mi_sample_n=600,
             base_candidates=["TVT_prev"],
             transforms=["diff", "ratio", "logratio", "linear_residual"],
-            top_k_after_mi=8, eps_mi_gain=-1.0,
+            top_k_after_mi=8,
+            eps_mi_gain=-1.0,
             screening="hybrid",
             tiny_model_n_estimators=20,
             tiny_model_sample_n=400,
@@ -714,7 +738,9 @@ class TestPolarsAndEdgeCases:
             auto_chain_discovery_enabled=False,
         )
         disc = CompositeTargetDiscovery(cfg).fit(
-            df, target_col="TVT", feature_cols=["TVT_prev", "x1", "x2", "x3"],
+            df,
+            target_col="TVT",
+            feature_cols=["TVT_prev", "x1", "x2", "x3"],
             train_idx=np.arange(1200),
         )
         # Phase B trims to top_m_after_tiny=2.
@@ -723,10 +749,12 @@ class TestPolarsAndEdgeCases:
     def test_screening_mi_only_skips_tiny_rerank(self) -> None:
         df = _tvt_strong()
         cfg_mi = CompositeTargetDiscoveryConfig(
-            enabled=True, mi_sample_n=600,
+            enabled=True,
+            mi_sample_n=600,
             base_candidates=["TVT_prev"],
             transforms=["diff", "linear_residual"],
-            top_k_after_mi=8, eps_mi_gain=-1.0,
+            top_k_after_mi=8,
+            eps_mi_gain=-1.0,
             screening="mi",
             top_m_after_tiny=2,  # ignored when screening='mi'
             # Assert the FULL set of mi-only survivors; the SA27 holdout shrinks the screening
@@ -735,7 +763,9 @@ class TestPolarsAndEdgeCases:
             honest_holdout_frac=0.0,
         )
         disc = CompositeTargetDiscovery(cfg_mi).fit(
-            df, target_col="TVT", feature_cols=["TVT_prev", "x1"],
+            df,
+            target_col="TVT",
+            feature_cols=["TVT_prev", "x1"],
             train_idx=np.arange(1200),
         )
         # MI-only mode keeps all top_k_after_mi survivors, NOT trimmed
@@ -747,10 +777,12 @@ class TestPolarsAndEdgeCases:
         family configured)."""
         df = _tvt_strong()
         cfg = CompositeTargetDiscoveryConfig(
-            enabled=True, mi_sample_n=600,
+            enabled=True,
+            mi_sample_n=600,
             base_candidates=["TVT_prev"],
             transforms=["linear_residual"],
-            top_k_after_mi=2, eps_mi_gain=-1.0,
+            top_k_after_mi=2,
+            eps_mi_gain=-1.0,
             screening="hybrid",
             tiny_model_n_estimators=20,
             tiny_model_sample_n=400,
@@ -760,7 +792,9 @@ class TestPolarsAndEdgeCases:
             tiny_consensus="union",
         )
         disc = CompositeTargetDiscovery(cfg).fit(
-            df, target_col="TVT", feature_cols=["TVT_prev", "x1"],
+            df,
+            target_col="TVT",
+            feature_cols=["TVT_prev", "x1"],
             train_idx=np.arange(1200),
         )
         assert len(disc.specs_) >= 1
@@ -768,13 +802,16 @@ class TestPolarsAndEdgeCases:
     def test_unknown_transform_in_config_skipped(self) -> None:
         df = _tvt_strong()
         cfg = CompositeTargetDiscoveryConfig(
-            enabled=True, mi_sample_n=600,
+            enabled=True,
+            mi_sample_n=600,
             base_candidates=["TVT_prev"],
             transforms=["diff", "made_up_transform"],
             eps_mi_gain=-1.0,
         )
         disc = CompositeTargetDiscovery(cfg).fit(
-            df, target_col="TVT", feature_cols=["TVT_prev", "x1"],
+            df,
+            target_col="TVT",
+            feature_cols=["TVT_prev", "x1"],
             train_idx=np.arange(1200),
         )
         # Real transforms still discovered; bogus one silently skipped

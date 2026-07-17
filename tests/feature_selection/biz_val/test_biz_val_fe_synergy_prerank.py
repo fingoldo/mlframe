@@ -11,6 +11,7 @@ test_fe_interaction_prerank). Multi-seed, fixed train/test split.
 
 Measured (seed 0): pre-rank ON recovers 4/4 operands; OFF recovers 1/4.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -25,13 +26,13 @@ from sklearn.metrics import roc_auc_score
 from mlframe.feature_selection.filters.mrmr._mrmr_class import MRMR
 
 N = 8000
-P = 300            # > fe_synergy_screen_max_features default 250
+P = 300  # > fe_synergy_screen_max_features default 250
 LEAK = 0.05
-OPERANDS = (5, 60, 180, 240)   # two pairs: (5,180) and (60,240)
-
+OPERANDS = (5, 60, 180, 240)  # two pairs: (5,180) and (60,240)
 
 
 pytestmark = pytest.mark.timeout(60)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop)
+
 
 def _make_wide_interaction(seed):
     rng = np.random.default_rng(seed)

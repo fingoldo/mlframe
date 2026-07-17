@@ -7,9 +7,10 @@ boundary; the wrapper factorizes the tabular cats to int codes BEFORE the scaler
 tabular block so the cat path no-ops cleanly. Also covers a fit->pickle->predict bit-identical round-trip, unseen-category-at-predict, the knob-off
 fallback, and a biz_value check that learnable embeddings beat an ordinal cat-code on a non-monotone category->target signal.
 """
+
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
 import numpy as np
 import pandas as pd
@@ -55,11 +56,13 @@ def _cfg(input_mode=InputMode.HYBRID, num_classes=2, rnn_type=RNNType.GRU):
 def _make_data(n=_N, seed=0):
     rng = np.random.default_rng(seed)
     cats = rng.choice(_COLORS, size=n)
-    feats = pd.DataFrame({
-        "num_a": rng.normal(size=n).astype(np.float32),
-        "color": cats,                                    # string categorical (object dtype)
-        "num_b": rng.normal(size=n).astype(np.float32),
-    })
+    feats = pd.DataFrame(
+        {
+            "num_a": rng.normal(size=n).astype(np.float32),
+            "color": cats,  # string categorical (object dtype)
+            "num_b": rng.normal(size=n).astype(np.float32),
+        }
+    )
     seqs = [rng.normal(size=(int(rng.integers(3, 8)), 2)).astype(np.float32) for _ in range(n)]
     return feats, seqs, cats, rng
 
@@ -82,7 +85,7 @@ def test_regression_hybrid_native_cat_embeddings():
 
 
 def test_binary_hybrid_native_cat_embeddings():
-    feats, seqs, cats, rng = _make_data(seed=1)
+    feats, seqs, cats, _rng = _make_data(seed=1)
     y = np.isin(cats, ["red", "blue"]).astype(np.int64)
     clf = RecurrentClassifierWrapper(config=_cfg(num_classes=2), random_state=42)
     clf.fit(features=feats, labels=y, sequences=seqs, cat_features=["color"])
@@ -96,7 +99,7 @@ def test_binary_hybrid_native_cat_embeddings():
 
 
 def test_multiclass_hybrid_native_cat_embeddings():
-    feats, seqs, cats, rng = _make_data(seed=2)
+    feats, seqs, cats, _rng = _make_data(seed=2)
     mapping = {"red": 0, "green": 1, "blue": 2, "yellow": 0}
     y = np.array([mapping[c] for c in cats], dtype=np.int64)
     clf = RecurrentClassifierWrapper(config=_cfg(num_classes=3), random_state=42)
@@ -110,7 +113,7 @@ def test_multiclass_hybrid_native_cat_embeddings():
 def test_sequence_only_no_tabular_cats_trains_identically():
     # SEQUENCE_ONLY has NO tabular block; the cat factorizer must no-op (cardinalities None) and the model builds no aux embedding. Training +
     # prediction proceed exactly as without the feature.
-    feats, seqs, cats, rng = _make_data(seed=3)
+    _feats, seqs, _cats, _rng = _make_data(seed=3)
     y = np.array([float(s[:, 0].mean()) for s in seqs], dtype=np.float32)
     reg = RecurrentRegressorWrapper(config=_cfg(input_mode=InputMode.SEQUENCE_ONLY), random_state=42)
     reg.fit(features=None, labels=y, sequences=seqs)  # no features, no cat_features
@@ -124,7 +127,7 @@ def test_sequence_only_no_tabular_cats_trains_identically():
 
 def test_sequence_only_ignores_cat_features_passed_by_caller():
     # Even if the orchestrator threads cat_features for a SEQUENCE_ONLY member (features=None), the wrapper must no-op cleanly -- no aux block.
-    feats, seqs, cats, rng = _make_data(seed=4)
+    _feats, seqs, _cats, _rng = _make_data(seed=4)
     y = np.array([float(s[:, 0].mean()) for s in seqs], dtype=np.float32)
     reg = RecurrentRegressorWrapper(config=_cfg(input_mode=InputMode.SEQUENCE_ONLY), random_state=42)
     reg.fit(features=None, labels=y, sequences=seqs, cat_features=["color"])
@@ -134,12 +137,12 @@ def test_sequence_only_ignores_cat_features_passed_by_caller():
 
 
 def test_fit_pickle_predict_round_trip_bit_identical():
-    feats, seqs, cats, rng = _make_data(seed=7)
+    feats, seqs, cats, _rng = _make_data(seed=7)
     y = (feats["num_a"].to_numpy() + np.isin(cats, ["red"]).astype(np.float32) * 3.0).astype(np.float32)
     reg = RecurrentRegressorWrapper(config=_cfg(), random_state=42)
     reg.fit(features=feats, labels=y, sequences=seqs, cat_features=["color"])
     p1 = np.asarray(reg.predict(features=feats, sequences=seqs))
-    restored = pickle.loads(pickle.dumps(reg))
+    restored = pickle.loads(pickle.dumps(reg))  # nosec B301 -- round-trip of a locally-created, trusted object
     p2 = np.asarray(restored.predict(features=feats, sequences=seqs))
     assert np.allclose(p1, p2, atol=1e-5)
     assert isinstance(restored._cat_code_maps_, dict)
@@ -148,7 +151,7 @@ def test_fit_pickle_predict_round_trip_bit_identical():
 
 
 def test_unseen_category_at_predict_maps_to_reserved_code():
-    feats, seqs, cats, rng = _make_data(seed=11)
+    feats, seqs, cats, _rng = _make_data(seed=11)
     y = feats["num_a"].to_numpy().astype(np.float32)
     reg = RecurrentRegressorWrapper(config=_cfg(), random_state=42)
     reg.fit(features=feats, labels=y, sequences=seqs, cat_features=["color"])
@@ -164,10 +167,12 @@ def test_knob_off_disables_factorization():
     # encoding; we pass an all-numeric frame so the fit completes.
     rng = np.random.default_rng(5)
     n = _N
-    feats = pd.DataFrame({
-        "cat_code": rng.integers(0, 3, size=n).astype(np.float32),
-        "num_0": rng.normal(size=n).astype(np.float32),
-    })
+    feats = pd.DataFrame(
+        {
+            "cat_code": rng.integers(0, 3, size=n).astype(np.float32),
+            "num_0": rng.normal(size=n).astype(np.float32),
+        }
+    )
     seqs = [rng.normal(size=(int(rng.integers(3, 8)), 2)).astype(np.float32) for _ in range(n)]
     y = feats["num_0"].to_numpy().astype(np.float32)
     reg = RecurrentRegressorWrapper(config=_cfg(), random_state=42, use_learnable_cat_embeddings=False)
@@ -194,16 +199,20 @@ def test_biz_value_learnable_embeddings_beat_ordinal_on_nonmonotone_signal():
     y = np.array([lut[c] for c in cats], dtype=np.float32)
     seqs = [rng.normal(size=(5, 2)).astype(np.float32) for _ in range(n)]
 
-    feats_emb = pd.DataFrame({
-        "num_a": rng.normal(scale=0.01, size=n).astype(np.float32),
-        "color": cats,
-    })
+    feats_emb = pd.DataFrame(
+        {
+            "num_a": rng.normal(scale=0.01, size=n).astype(np.float32),
+            "color": cats,
+        }
+    )
     # Ordinal baseline: the SAME factorize codes, fed as a plain numeric column (no cat_features -> no embedding).
     codes, _uniques = pd.factorize(pd.Series(cats), sort=False)
-    feats_ord = pd.DataFrame({
-        "num_a": feats_emb["num_a"].to_numpy(),
-        "color_code": codes.astype(np.float32),
-    })
+    feats_ord = pd.DataFrame(
+        {
+            "num_a": feats_emb["num_a"].to_numpy(),
+            "color_code": codes.astype(np.float32),
+        }
+    )
 
     cfg_emb = _cfg()
     cfg_emb.max_epochs = 40

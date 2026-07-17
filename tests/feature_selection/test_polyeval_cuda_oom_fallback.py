@@ -6,6 +6,7 @@ propagated to ``generate_univariate_basis_features``, which caught it and SKIPPE
 feature. These tests pin the fallback: a failing CUDA polyeval returns the CPU result, and the resident builder bails
 early (routing to the host/CPU path) when free VRAM is insufficient.
 """
+
 from __future__ import annotations
 
 import numpy as np

@@ -14,7 +14,6 @@ import logging
 
 import numpy as np
 import pandas as pd
-import pytest
 from sklearn.impute import SimpleImputer
 
 from mlframe.training.configs import PreprocessingConfig
@@ -40,10 +39,7 @@ class TestLinearStrategyImputerWarning:
 
         warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
         imputer_warnings = [r for r in warnings if "requires_imputation=True" in r.getMessage()]
-        assert len(imputer_warnings) == 1, (
-            f"expected exactly one imputer-skip WARN, got {len(imputer_warnings)}: "
-            f"{[r.getMessage() for r in warnings]!r}"
-        )
+        assert len(imputer_warnings) == 1, f"expected exactly one imputer-skip WARN, got {len(imputer_warnings)}: {[r.getMessage() for r in warnings]!r}"
 
         # Verify the WARN says what a maintainer needs to fix it
         msg = imputer_warnings[0].getMessage()
@@ -66,14 +62,8 @@ class TestLinearStrategyImputerWarning:
                 scaler=None,  # accept the scaler-WARN; we test the imputer path
             )
 
-        imputer_warnings = [
-            r for r in caplog.records
-            if r.levelno == logging.WARNING and "requires_imputation=True" in r.getMessage()
-        ]
-        assert imputer_warnings == [], (
-            f"unexpected imputer WARN when imputer was supplied: "
-            f"{[r.getMessage() for r in imputer_warnings]!r}"
-        )
+        imputer_warnings = [r for r in caplog.records if r.levelno == logging.WARNING and "requires_imputation=True" in r.getMessage()]
+        assert imputer_warnings == [], f"unexpected imputer WARN when imputer was supplied: {[r.getMessage() for r in imputer_warnings]!r}"
 
         # The imp step must actually be in the pipeline
         assert pipeline is not None, "build_pipeline should return a non-None pipeline when steps are added"
@@ -95,8 +85,7 @@ class TestLinearStrategyImputerWarning:
         X = pd.DataFrame({"a": [1.0, np.nan, 3.0, 4.0], "b": [10.0, 20.0, np.nan, 40.0]})
         X_out = pipeline.fit_transform(X)
         assert not np.isnan(np.asarray(X_out)).any(), (
-            "SimpleImputer in the strategy pipeline must produce a NaN-free transform; "
-            "if this fails the 2026-05-14 LinearRegression.fit NaN crash is back."
+            "SimpleImputer in the strategy pipeline must produce a NaN-free transform; if this fails the 2026-05-14 LinearRegression.fit NaN crash is back."
         )
 
 
@@ -105,7 +94,7 @@ class TestGetPipelineComponentsDefaults:
 
     def test_none_inputs_resolve_to_real_components(self):
         cfg = PreprocessingConfig()  # all fields default
-        category_encoder, imputer, scaler = _get_pipeline_components(cfg, cat_features=[])
+        _category_encoder, imputer, scaler = _get_pipeline_components(cfg, cat_features=[])
         assert imputer is not None, "imputer must default to a real SimpleImputer when PreprocessingConfig.imputer is None"
         assert scaler is not None, "scaler must default to a real StandardScaler when PreprocessingConfig.scaler is None"
         # category_encoder is allowed to stay None when cat_features is empty - it would only fire for cat_features
@@ -156,9 +145,7 @@ class TestNumericOnlyTransformerAllNanColumn:
         # With the keep_empty_features fix the default imputer preserves both numeric columns.
         wrapper = _NumericOnlyTransformer(SimpleImputer(keep_empty_features=True), cat_features=["cat_0"])
         out = wrapper.fit_transform(X, np.array([0.0, 1.0, 2.0, 3.0]))
-        assert list(out.columns) == ["num_0", "num_all_nan", "cat_0"], (
-            f"original column layout must be preserved, got {list(out.columns)!r}"
-        )
+        assert list(out.columns) == ["num_0", "num_all_nan", "cat_0"], f"original column layout must be preserved, got {list(out.columns)!r}"
         assert out.shape == (4, 3)
         # The all-NaN column is imputed to a constant (0.0) rather than dropped.
         assert not np.isnan(out["num_all_nan"].to_numpy()).any()

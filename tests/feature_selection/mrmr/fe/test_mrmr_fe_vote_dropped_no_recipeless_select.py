@@ -46,7 +46,7 @@ def _user_case2_df_and_y(n: int, seed: int = 0):
     e = rng.rand(n)  # pure noise, IS a column of X
     f = rng.rand(n)  # hidden noise var, NOT a column of X
     df = pd.DataFrame({"a": a, "b": b, "c": c, "d": d, "e": e})
-    y = 0.2 * a ** 2 / b + f / 5 + np.log(c * 2) * np.sin(d / 3)
+    y = 0.2 * a**2 / b + f / 5 + np.log(c * 2) * np.sin(d / 3)
     return df, pd.Series(y, name="y")
 
 
@@ -80,27 +80,18 @@ def test_mrmr_fe_vote_dropped_feature_not_select_then_dropped(n):
         logger.setLevel(prev_level)
 
     # (1) The "selected without replayable recipe" warning must NOT fire.
-    recipeless_warnings = [
-        msg for msg in handler.messages if "without replayable recipe" in msg
-    ]
-    assert not recipeless_warnings, (
-        "A selected engineered feature was dropped for lack of a replayable recipe "
-        f"(BUG2 select-then-drop): {recipeless_warnings}"
-    )
+    recipeless_warnings = [msg for msg in handler.messages if "without replayable recipe" in msg]
+    assert not recipeless_warnings, f"A selected engineered feature was dropped for lack of a replayable recipe (BUG2 select-then-drop): {recipeless_warnings}"
 
     # (2) Every advertised output feature must actually be produced by transform().
     missing_from_transform = [nm for nm in names_out if nm not in out_cols]
     assert not missing_from_transform, (
-        "get_feature_names_out advertises feature(s) that transform() does not "
-        f"produce: {missing_from_transform} (out_cols={out_cols})"
+        f"get_feature_names_out advertises feature(s) that transform() does not produce: {missing_from_transform} (out_cols={out_cols})"
     )
 
     # (3) Every discovered engineered feature must survive transform() (no silent drop).
     discovered_missing = [nm for nm in discovered if nm not in out_cols]
-    assert not discovered_missing, (
-        "Discovered engineered feature(s) silently dropped from transform output: "
-        f"{discovered_missing} (out_cols={out_cols})"
-    )
+    assert not discovered_missing, f"Discovered engineered feature(s) silently dropped from transform output: {discovered_missing} (out_cols={out_cols})"
 
     # Sanity: the fit produced SOME usable features (guards against an all-empty
     # regression masking the contract assertions above).

@@ -14,7 +14,7 @@ code frozen at fit (``encoding='raw'``) or to the per-cell smoothed mean-of-y
 
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 import warnings
 
 import numpy as np
@@ -41,7 +41,11 @@ def pair_setup():
 def test_cat_pair_raw_replay_codes(pair_setup):
     mapping, _ = pair_setup
     rec = build_cat_pair_cross_recipe(
-        name="cross(i,j)", cat_i="i", cat_j="j", mapping=mapping, encoding="raw",
+        name="cross(i,j)",
+        cat_i="i",
+        cat_j="j",
+        mapping=mapping,
+        encoding="raw",
     )
     X = pd.DataFrame({"i": ["a", "a", "b"], "j": ["x", "y", "x"]})
     out = apply_recipe(rec, X)
@@ -51,7 +55,11 @@ def test_cat_pair_raw_replay_codes(pair_setup):
 def test_cat_pair_raw_unseen_tuple_maps_to_sentinel(pair_setup):
     mapping, _ = pair_setup
     rec = build_cat_pair_cross_recipe(
-        name="cross(i,j)", cat_i="i", cat_j="j", mapping=mapping, encoding="raw",
+        name="cross(i,j)",
+        cat_i="i",
+        cat_j="j",
+        mapping=mapping,
+        encoding="raw",
     )
     # ("b","y") was never a fit cell -> sentinel = len(mapping) = 3.
     X = pd.DataFrame({"i": ["b", "a"], "j": ["y", "x"]})
@@ -64,13 +72,18 @@ def test_cat_pair_target_replay_and_unseen_global_mean(pair_setup):
     mapping, te_lookup = pair_setup
     gmean = 0.42
     rec = build_cat_pair_cross_recipe(
-        name="cross(i,j)", cat_i="i", cat_j="j", mapping=mapping,
-        encoding="target", te_lookup=te_lookup, global_mean=gmean,
+        name="cross(i,j)",
+        cat_i="i",
+        cat_j="j",
+        mapping=mapping,
+        encoding="target",
+        te_lookup=te_lookup,
+        global_mean=gmean,
     )
     X = pd.DataFrame({"i": ["a", "b", "z"], "j": ["y", "x", "z"]})
     out = apply_recipe(rec, X)
-    assert out[0] == pytest.approx(0.90)   # ("a","y") -> code 1 -> 0.90
-    assert out[1] == pytest.approx(0.50)   # ("b","x") -> code 2 -> 0.50
+    assert out[0] == pytest.approx(0.90)  # ("a","y") -> code 1 -> 0.90
+    assert out[1] == pytest.approx(0.50)  # ("b","x") -> code 2 -> 0.50
     assert out[2] == pytest.approx(gmean)  # unseen -> global mean
     assert np.isfinite(out).all()
 
@@ -78,8 +91,13 @@ def test_cat_pair_target_replay_and_unseen_global_mean(pair_setup):
 def test_cat_pair_target_replay_ignores_y_in_scope(pair_setup):
     mapping, te_lookup = pair_setup
     rec = build_cat_pair_cross_recipe(
-        name="cross(i,j)", cat_i="i", cat_j="j", mapping=mapping,
-        encoding="target", te_lookup=te_lookup, global_mean=0.42,
+        name="cross(i,j)",
+        cat_i="i",
+        cat_j="j",
+        mapping=mapping,
+        encoding="target",
+        te_lookup=te_lookup,
+        global_mean=0.42,
     )
     X = pd.DataFrame({"i": ["a", "b"], "j": ["x", "x"]})
     a = apply_recipe(rec, X)
@@ -91,13 +109,20 @@ def test_cat_pair_target_replay_ignores_y_in_scope(pair_setup):
 def test_cat_triple_raw_replay_and_sentinel():
     mapping = {("a", "x", "p"): 0, ("b", "y", "q"): 1}
     rec = build_cat_triple_cross_recipe(
-        name="cross3", cat_a="A", cat_b="B", cat_c="C", mapping=mapping, encoding="raw",
+        name="cross3",
+        cat_a="A",
+        cat_b="B",
+        cat_c="C",
+        mapping=mapping,
+        encoding="raw",
     )
-    X = pd.DataFrame({
-        "A": ["a", "b", "a"],
-        "B": ["x", "y", "x"],
-        "C": ["p", "q", "ZZZ"],  # last row unseen triple
-    })
+    X = pd.DataFrame(
+        {
+            "A": ["a", "b", "a"],
+            "B": ["x", "y", "x"],
+            "C": ["p", "q", "ZZZ"],  # last row unseen triple
+        }
+    )
     out = apply_recipe(rec, X)
     np.testing.assert_array_equal(out[:2], [0.0, 1.0])
     assert out[2] == float(len(mapping))  # sentinel
@@ -106,10 +131,15 @@ def test_cat_triple_raw_replay_and_sentinel():
 def test_cat_cross_pickle_roundtrip_and_frozen_extra(pair_setup):
     mapping, te_lookup = pair_setup
     rec = build_cat_pair_cross_recipe(
-        name="cross(i,j)", cat_i="i", cat_j="j", mapping=mapping,
-        encoding="target", te_lookup=te_lookup, global_mean=0.42,
+        name="cross(i,j)",
+        cat_i="i",
+        cat_j="j",
+        mapping=mapping,
+        encoding="target",
+        te_lookup=te_lookup,
+        global_mean=0.42,
     )
-    rec2 = pickle.loads(pickle.dumps(rec))
+    rec2 = pickle.loads(pickle.dumps(rec))  # nosec B301 -- round-trip of a locally-created, trusted object
     assert rec2 == rec
     X = pd.DataFrame({"i": ["a", "b"], "j": ["x", "x"]})
     np.testing.assert_array_equal(apply_recipe(rec, X), apply_recipe(rec2, X))
@@ -120,7 +150,11 @@ def test_cat_cross_pickle_roundtrip_and_frozen_extra(pair_setup):
 def test_cat_pair_column_order_invariant(pair_setup):
     mapping, _ = pair_setup
     rec = build_cat_pair_cross_recipe(
-        name="cross(i,j)", cat_i="i", cat_j="j", mapping=mapping, encoding="raw",
+        name="cross(i,j)",
+        cat_i="i",
+        cat_j="j",
+        mapping=mapping,
+        encoding="raw",
     )
     X = pd.DataFrame({"i": ["a", "b"], "j": ["x", "x"], "extra": [1, 2]})
     Xrev = X[["extra", "j", "i"]]

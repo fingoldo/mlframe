@@ -12,8 +12,12 @@ import numpy as np
 from scipy.stats import spearmanr
 
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_calibrate import (
-    ProxyCorrector, fit_proxy_corrector, rerank_candidates, subset_redundancy,
-    subset_redundancy_many)
+    ProxyCorrector,
+    fit_proxy_corrector,
+    rerank_candidates,
+    subset_redundancy,
+    subset_redundancy_many,
+)
 
 
 def test_subset_redundancy_basic():
@@ -23,9 +27,9 @@ def test_subset_redundancy_basic():
     dup = np.hstack([base + 0.01 * rng.normal(size=(500, 1)) for _ in range(3)])
     indep = rng.normal(size=(500, 3))
     phi = np.hstack([dup, indep])
-    assert subset_redundancy(phi, [0, 1, 2]) > 0.9   # duplicates
-    assert subset_redundancy(phi, [3, 4, 5]) < 0.3   # independent
-    assert subset_redundancy(phi, [0]) == 0.0        # singleton
+    assert subset_redundancy(phi, [0, 1, 2]) > 0.9  # duplicates
+    assert subset_redundancy(phi, [3, 4, 5]) < 0.3  # independent
+    assert subset_redundancy(phi, [0]) == 0.0  # singleton
 
 
 def test_subset_redundancy_many_matches_single():

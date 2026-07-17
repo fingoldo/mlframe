@@ -19,10 +19,10 @@ compatible for the ``bins="scott"`` / string-rule cases the module
 uses). Module stays importable; ``cont_entropy`` produces a finite
 number either way.
 """
+
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 
 def test_numerical_module_imports_even_when_astropy_broken() -> None:
@@ -38,11 +38,12 @@ def test_numerical_module_imports_even_when_astropy_broken() -> None:
     interpreter pristine while still exercising the from-scratch import path.
     """
     import os
-    import subprocess
+    import subprocess  # nosec B404 -- test-only local trusted subprocess invocation (fixed argv, no shell, no untrusted input)
     import sys
     import textwrap
 
     import mlframe as _mlframe_pkg
+
     _src_root = os.path.dirname(os.path.dirname(_mlframe_pkg.__file__))
     _env = {**os.environ, "PYTHONPATH": _src_root + os.pathsep + os.environ.get("PYTHONPATH", "")}
     _probe = textwrap.dedent("""
@@ -51,9 +52,12 @@ def test_numerical_module_imports_even_when_astropy_broken() -> None:
         ok = hasattr(mod, "cont_entropy") and hasattr(mod, "histogram")
         sys.stdout.write("NUMERICAL_IMPORT_OK=" + str(ok))
     """)
-    _res = subprocess.run(
+    _res = subprocess.run(  # nosec B603 -- fixed local argv (sys.executable/git + literal args), no shell, no untrusted input
         [sys.executable, "-c", _probe],
-        capture_output=True, text=True, timeout=180, env=_env,
+        capture_output=True,
+        text=True,
+        timeout=180,
+        env=_env,
     )
     assert _res.returncode == 0, f"probe subprocess failed: {_res.stderr}"
     assert "NUMERICAL_IMPORT_OK=True" in _res.stdout, (
@@ -67,6 +71,7 @@ def test_histogram_shim_matches_np_histogram_signature() -> None:
     """The shim must accept the same call shapes (a, bins, **kwargs)
     that astropy.stats.histogram accepts in this module's usage."""
     from mlframe.feature_engineering.numerical import histogram
+
     rng = np.random.default_rng(0)
     arr = rng.standard_normal(500)
     hist, edges = histogram(arr, bins="scott")
@@ -83,6 +88,7 @@ def test_cont_entropy_finite_on_normal_distribution() -> None:
     """End-to-end: cont_entropy still works (the original astropy
     consumer call site)."""
     from mlframe.feature_engineering.numerical import cont_entropy
+
     rng = np.random.default_rng(0)
     arr = rng.standard_normal(1000)
     h = cont_entropy(arr)
@@ -98,6 +104,7 @@ def test_simulated_astropy_broken_uses_numpy_fallback(monkeypatch) -> None:
     private astropy reference to None, then verify histogram() still
     returns sensible output. Locks the "astropy unavailable" branch."""
     import mlframe.feature_engineering.numerical as mod
+
     monkeypatch.setattr(mod, "_astropy_histogram", None)
     rng = np.random.default_rng(0)
     arr = rng.standard_normal(500)

@@ -24,13 +24,16 @@ import pytest
 from hypothesis import HealthCheck, given, settings, strategies as st
 
 from mlframe.reporting.charts.ltr import (
-    ALLOWED_LTR_PANEL_TOKENS, compose_ltr_figure,
+    ALLOWED_LTR_PANEL_TOKENS,
+    compose_ltr_figure,
 )
 from mlframe.reporting.charts.multiclass import (
-    ALLOWED_MULTICLASS_PANEL_TOKENS, compose_multiclass_figure,
+    ALLOWED_MULTICLASS_PANEL_TOKENS,
+    compose_multiclass_figure,
 )
 from mlframe.reporting.charts.multilabel import (
-    ALLOWED_MULTILABEL_PANEL_TOKENS, compose_multilabel_figure,
+    ALLOWED_MULTILABEL_PANEL_TOKENS,
+    compose_multilabel_figure,
 )
 from mlframe.reporting.spec import FigureSpec
 
@@ -45,7 +48,9 @@ def _token_subset_strategy(allowed: frozenset) -> st.SearchStrategy:
     sorted_tokens = sorted(allowed)
     return st.lists(
         st.sampled_from(sorted_tokens),
-        min_size=1, max_size=len(sorted_tokens), unique=True,
+        min_size=1,
+        max_size=len(sorted_tokens),
+        unique=True,
     ).map(lambda lst: " ".join(lst))
 
 
@@ -110,14 +115,15 @@ class TestMulticlassFuzz:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             spec = compose_multiclass_figure(
-                y, proba, classes, panels_template=template,
+                y,
+                proba,
+                classes,
+                panels_template=template,
             )
         assert isinstance(spec, FigureSpec)
         # Token count == panel count (after grid pack, padded with None).
         n_tokens = len(template.split())
-        n_panels_set = sum(
-            1 for row in spec.panels for cell in row if cell is not None
-        )
+        n_panels_set = sum(1 for row in spec.panels for cell in row if cell is not None)
         assert n_panels_set == n_tokens
 
 
@@ -134,13 +140,14 @@ class TestMultilabelFuzz:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             spec = compose_multilabel_figure(
-                y, proba, labels, panels_template=template,
+                y,
+                proba,
+                labels,
+                panels_template=template,
             )
         assert isinstance(spec, FigureSpec)
         n_tokens = len(template.split())
-        n_panels_set = sum(
-            1 for row in spec.panels for cell in row if cell is not None
-        )
+        n_panels_set = sum(1 for row in spec.panels for cell in row if cell is not None)
         assert n_panels_set == n_tokens
 
 
@@ -157,13 +164,14 @@ class TestLTRFuzz:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             spec = compose_ltr_figure(
-                y, score, gid, panels_template=template,
+                y,
+                score,
+                gid,
+                panels_template=template,
             )
         assert isinstance(spec, FigureSpec)
         n_tokens = len(template.split())
-        n_panels_set = sum(
-            1 for row in spec.panels for cell in row if cell is not None
-        )
+        n_panels_set = sum(1 for row in spec.panels for cell in row if cell is not None)
         assert n_panels_set == n_tokens
 
 

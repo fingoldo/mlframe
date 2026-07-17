@@ -23,7 +23,4 @@ def test_module_import_does_not_install_process_wide_sklearn_warning_filter():
         )
 
     fw = [w for w in caught if issubclass(w.category, FutureWarning)]
-    assert len(fw) >= 1, (
-        "module import must NOT install a process-wide ignore filter for sklearn FutureWarning; "
-        f"caught: {caught!r}"
-    )
+    assert len(fw) >= 1, f"module import must NOT install a process-wide ignore filter for sklearn FutureWarning; caught: {caught!r}"

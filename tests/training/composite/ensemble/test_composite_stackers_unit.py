@@ -4,9 +4,10 @@ Covers: shapes, off-path bit-identity (no _meta_model -> legacy linear blend byt
 sees only the OOF matrix the caller passes), ridge non-negative constraint, component-dropout graceful degradation,
 sample_weight validation, the uniform-mean fallback on degenerate inputs, and pickle round-trip.
 """
+
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 import warnings
 
 import numpy as np
@@ -42,8 +43,10 @@ def _models(k):
 @pytest.mark.parametrize("stacker", ["ridge", "lasso", "elasticnet", "gbm"])
 def test_meta_stack_predict_shape(stacker):
     from mlframe.training.composite.ensemble import (
-        CompositeCrossTargetEnsemble as E, build_meta_stack_ensemble,
+        CompositeCrossTargetEnsemble as E,
+        build_meta_stack_ensemble,
     )
+
     X, y = _toy()
     models, names = _models(X.shape[1])
     ens = build_meta_stack_ensemble(E, models, names, X, y, stacker=stacker)
@@ -56,8 +59,10 @@ def test_meta_stack_predict_shape(stacker):
 
 def test_nnls_via_dispatcher_equals_direct():
     from mlframe.training.composite.ensemble import (
-        CompositeCrossTargetEnsemble as E, build_meta_stack_ensemble,
+        CompositeCrossTargetEnsemble as E,
+        build_meta_stack_ensemble,
     )
+
     X, y = _toy()
     models, names = _models(X.shape[1])
     a = build_meta_stack_ensemble(E, models, names, X, y, stacker="nnls")
@@ -74,6 +79,7 @@ def test_default_path_bit_identical_when_no_meta_model():
     """An ensemble with no _meta_model attached must predict byte-for-byte the legacy linear blend (the meta-stack branch
     is a pure no-op when _meta_model is absent)."""
     from mlframe.training.composite.ensemble import CompositeCrossTargetEnsemble as E
+
     X, y = _toy()
     models, names = _models(X.shape[1])
     nn = E.from_nnls_stack(models, names, X, y)
@@ -92,9 +98,11 @@ def test_meta_fit_uses_only_passed_oof_matrix():
     prove this by fitting on a DELIBERATELY swapped OOF matrix: the meta-model's coefficients must reflect the swapped
     columns, not the models' natural column order."""
     from mlframe.training.composite.ensemble import (
-        CompositeCrossTargetEnsemble as E, build_meta_stack_ensemble,
+        CompositeCrossTargetEnsemble as E,
+        build_meta_stack_ensemble,
     )
-    X, y = _toy(k=3)
+
+    _X, y = _toy(k=3)
     models, names = _models(3)
     # OOF matrix where only column 0 carries the signal; columns 1,2 are pure noise.
     rng = np.random.default_rng(7)
@@ -110,6 +118,7 @@ def test_meta_fit_uses_only_passed_oof_matrix():
 
 def test_ridge_non_negative_constraint():
     from mlframe.training.composite.ensemble import fit_ridge_meta_stacker
+
     rng = np.random.default_rng(3)
     n = 400
     a = rng.normal(size=n)
@@ -127,7 +136,8 @@ def test_ridge_non_negative_constraint():
 
 def test_component_dropout_graceful_degradation():
     from mlframe.training.composite.ensemble import (
-        CompositeCrossTargetEnsemble as E, build_meta_stack_ensemble,
+        CompositeCrossTargetEnsemble as E,
+        build_meta_stack_ensemble,
     )
 
     class _Boom:
@@ -149,6 +159,7 @@ def test_component_dropout_graceful_degradation():
 
 def test_sample_weight_validation():
     from mlframe.training.composite.ensemble import fit_ridge_meta_stacker
+
     X, y = _toy()
     with pytest.raises(ValueError, match="sample_weight length"):
         fit_ridge_meta_stacker(X, y, X.shape[1], sample_weight=np.ones(len(y) - 1))
@@ -160,8 +171,10 @@ def test_sample_weight_validation():
 
 def test_bad_stacker_name_raises():
     from mlframe.training.composite.ensemble import (
-        CompositeCrossTargetEnsemble as E, build_meta_stack_ensemble,
+        CompositeCrossTargetEnsemble as E,
+        build_meta_stack_ensemble,
     )
+
     X, y = _toy()
     models, names = _models(X.shape[1])
     with pytest.raises(ValueError, match="unknown stacker"):
@@ -170,8 +183,10 @@ def test_bad_stacker_name_raises():
 
 def test_degenerate_too_few_rows_falls_back_to_mean():
     from mlframe.training.composite.ensemble import (
-        CompositeCrossTargetEnsemble as E, build_meta_stack_ensemble,
+        CompositeCrossTargetEnsemble as E,
+        build_meta_stack_ensemble,
     )
+
     X, y = _toy(n=5, k=3)
     models, names = _models(3)
     ens = build_meta_stack_ensemble(E, models, names, X, y, stacker="gbm")
@@ -182,6 +197,7 @@ def test_degenerate_too_few_rows_falls_back_to_mean():
 
 def test_matrix_shape_mismatch_raises():
     from mlframe.training.composite.ensemble import fit_gbm_meta_stacker
+
     X, y = _toy(k=3)
     with pytest.raises(ValueError, match="expected"):
         fit_gbm_meta_stacker(X, y, 4)  # claim 4 components but matrix has 3 cols
@@ -193,13 +209,15 @@ def test_matrix_shape_mismatch_raises():
 @pytest.mark.parametrize("stacker", ["ridge", "lasso", "elasticnet", "gbm"])
 def test_meta_stack_pickle_roundtrip(stacker):
     from mlframe.training.composite.ensemble import (
-        CompositeCrossTargetEnsemble as E, build_meta_stack_ensemble,
+        CompositeCrossTargetEnsemble as E,
+        build_meta_stack_ensemble,
     )
+
     X, y = _toy()
     models, names = _models(X.shape[1])
     ens = build_meta_stack_ensemble(E, models, names, X, y, stacker=stacker)
     before = ens.predict(X)
-    restored = pickle.loads(pickle.dumps(ens))
+    restored = pickle.loads(pickle.dumps(ens))  # nosec B301 -- round-trip of a locally-created, trusted object
     after = restored.predict(X)
     np.testing.assert_allclose(after, before, rtol=1e-10)
     assert getattr(restored, "_meta_model", None) is not None

@@ -13,10 +13,11 @@ Covers two integration-layer bugs found in the 2026-06-22 FS suite-integration a
      consumes those keys), so they were forwarded verbatim to ``RFECV(**kwargs)`` and crashed
      at construction. The validator must now reject them at config time.
 """
+
 from __future__ import annotations
 
 import os
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
 os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
 
@@ -40,7 +41,7 @@ def test_non_pickling_cache_view_delegates_and_prunes_on_pickle():
     assert view["fp456"] == 7  # a write to the backing dict by a sibling stamp is visible
 
     # Pickle round-trip collapses to an empty plain dict -- no suite-runtime cache persisted.
-    restored = pickle.loads(pickle.dumps(view))
+    restored = pickle.loads(pickle.dumps(view))  # nosec B301 -- round-trip of a locally-created, trusted object
     assert type(restored) is dict
     assert restored == {}
 
@@ -64,7 +65,7 @@ def test_fitted_mrmr_does_not_pickle_identity_cache_override():
     blob = pickle.dumps(mrmr)
     # The unique sentinel fingerprint from the shared cache must not appear in the bytes.
     assert b"prior_target_fp" not in blob
-    restored = pickle.loads(blob)
+    restored = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
     assert restored._mlframe_identity_cache_override_ == {}
 
 

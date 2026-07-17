@@ -7,6 +7,7 @@ strictly-future rows, matching a true forward holdout. The win we pin: the shuff
 
 Floor set well below the measured gap so seed noise does not trip it.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -30,8 +31,13 @@ def _oof_rmse(model, X, y, *, has_time, seed):
     from mlframe.training.trainer import _compute_oof_preds
 
     preds, _ = _compute_oof_preds(
-        model=model, train_df=X, train_target=y.to_numpy(),
-        is_classifier_model=False, n_splits=5, random_seed=seed, has_time=has_time,
+        model=model,
+        train_df=X,
+        train_target=y.to_numpy(),
+        is_classifier_model=False,
+        n_splits=5,
+        random_seed=seed,
+        has_time=has_time,
     )
     assert preds is not None
     # TimeSeriesSplit leaves the first fold unpredicted (NaN); score only on the rows that received an OOF prediction.

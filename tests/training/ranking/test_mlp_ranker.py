@@ -26,11 +26,16 @@ pytest.importorskip("torch")
 import torch
 
 from mlframe.training import (
-    LearningToRankConfig, TargetTypes, train_mlframe_models_suite,
+    LearningToRankConfig,
+    TargetTypes,
+    train_mlframe_models_suite,
 )
 from mlframe.training.extractors import FeaturesAndTargetsExtractor
 from mlframe.training.neural.ranker import (
-    GroupBatchSampler, MLPRanker, listnet_top1_loss, ranknet_pairwise_loss,
+    GroupBatchSampler,
+    MLPRanker,
+    listnet_top1_loss,
+    ranknet_pairwise_loss,
 )
 from mlframe.training.ranking import fit_ranker, predict_ranker_scores
 from mlframe.training.ranking.ranker_suite import _filter_models_for_ranking
@@ -157,8 +162,12 @@ class TestMLPRankerFitPredict:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             model.fit(
-                d["X_train"], d["y_train"], d["g_train"],
-                X_val=d["X_val"], y_val=d["y_val"], group_ids_val=d["g_val"],
+                d["X_train"],
+                d["y_train"],
+                d["g_train"],
+                X_val=d["X_val"],
+                y_val=d["y_val"],
+                group_ids_val=d["g_val"],
             )
         scores = model.predict(d["X_test"])
         assert scores.shape == (len(d["X_test"]),)
@@ -195,8 +204,12 @@ class TestMLPRankerStrategyDispatch:
             warnings.simplefilter("ignore")
             fitted = fit_ranker(
                 NeuralNetStrategy(),
-                d["X_train"], d["y_train"], d["g_train"],
-                X_val=d["X_val"], y_val=d["y_val"], group_ids_val=d["g_val"],
+                d["X_train"],
+                d["y_train"],
+                d["g_train"],
+                X_val=d["X_val"],
+                y_val=d["y_val"],
+                group_ids_val=d["g_val"],
                 ranking_config=LearningToRankConfig(),
                 model_kwargs={"n_estimators": 10, "learning_rate": 0.01, "verbose": 0},
                 early_stopping_rounds=5,
@@ -249,16 +262,18 @@ class TestMLPRankerInSuite:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             models, _ = train_mlframe_models_suite(
-                df=df, target_name="relevance", model_name="mlp_ltr",
+                df=df,
+                target_name="relevance",
+                model_name="mlp_ltr",
                 features_and_targets_extractor=_RankFTE(),
                 target_type=TargetTypes.LEARNING_TO_RANK,
                 mlframe_models=["mlp"],
-                use_mlframe_ensembles=False, verbose=0,
+                use_mlframe_ensembles=False,
+                verbose=0,
             )
         assert "mlp" in models
         assert models["mlp"]["test_metrics"]["ndcg@10"] >= 0.55, (
-            f"MLP ranker NDCG@10={models['mlp']['test_metrics']['ndcg@10']:.4f} "
-            "below 0.55 baseline -- learning broken?"
+            f"MLP ranker NDCG@10={models['mlp']['test_metrics']['ndcg@10']:.4f} below 0.55 baseline -- learning broken?"
         )
 
     def test_4_model_ensemble_includes_mlp(self):
@@ -277,12 +292,15 @@ class TestMLPRankerInSuite:
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            models, meta = train_mlframe_models_suite(
-                df=df, target_name="relevance", model_name="mlp_ltr_ens",
+            models, _meta = train_mlframe_models_suite(
+                df=df,
+                target_name="relevance",
+                model_name="mlp_ltr_ens",
                 features_and_targets_extractor=_RankFTE(),
                 target_type=TargetTypes.LEARNING_TO_RANK,
                 mlframe_models=["cb", "xgb", "lgb", "mlp"],
-                use_mlframe_ensembles=True, verbose=0,
+                use_mlframe_ensembles=True,
+                verbose=0,
             )
         # All 4 models trained
         for f in ("cb", "xgb", "lgb", "mlp"):

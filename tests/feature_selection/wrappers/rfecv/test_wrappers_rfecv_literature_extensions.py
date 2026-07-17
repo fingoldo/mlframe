@@ -6,6 +6,7 @@ Covers:
   - L6 : multi-output y rejected with helpful error.
   - L1 / L2 : ``importance_getter='boruta_shap' / 'powershap'`` raise informative ImportError when libs missing.
 """
+
 from __future__ import annotations
 
 import logging
@@ -16,12 +17,11 @@ import pytest
 
 from sklearn.datasets import make_regression, make_classification
 from sklearn.linear_model import LogisticRegression, Ridge
-from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+from sklearn.ensemble import RandomForestClassifier
 
 from mlframe.feature_selection.wrappers import RFECV
 from mlframe.feature_selection.wrappers._helpers import (
     knockoff_importance,
-    make_gaussian_knockoffs,
     get_feature_importances,
 )
 
@@ -36,7 +36,7 @@ class TestStabilityCurve:
         rfecv.fit(X, y)
         curve = rfecv.stability_vs_n_curve_()
         assert isinstance(curve, dict)
-        for n, s in curve.items():
+        for s in curve.values():
             assert 0.0 <= s <= 1.0
         elbow = rfecv.n_stability_elbow_()
         assert elbow >= 0
@@ -67,7 +67,9 @@ class TestKnockoffWStatistic:
         Xdf = pd.DataFrame(X, columns=[f"f{i}" for i in range(8)])
         W = knockoff_importance(
             model_factory=lambda: RandomForestClassifier(n_estimators=20, random_state=0),
-            X=Xdf, y=y, random_state=0,
+            X=Xdf,
+            y=y,
+            random_state=0,
             w_statistic="gain",
         )
         assert isinstance(W, dict)
@@ -78,7 +80,9 @@ class TestKnockoffWStatistic:
         Xdf = pd.DataFrame(X, columns=[f"f{i}" for i in range(8)])
         W = knockoff_importance(
             model_factory=lambda: LogisticRegression(max_iter=300),
-            X=Xdf, y=y, random_state=0,
+            X=Xdf,
+            y=y,
+            random_state=0,
             w_statistic="coef",
         )
         assert len(W) == 8
@@ -92,7 +96,9 @@ class TestKnockoffWStatistic:
         Xdf = pd.DataFrame(X, columns=[f"f{i}" for i in range(6)])
         W = knockoff_importance(
             model_factory=lambda: RandomForestClassifier(n_estimators=20, random_state=0),
-            X=Xdf, y=y, random_state=0,
+            X=Xdf,
+            y=y,
+            random_state=0,
             w_statistic="auto",
         )
         assert len(W) == 6
@@ -166,8 +172,10 @@ class TestBorutaShapPowerSHAPRouting:
     def test_boruta_shap_without_lib_raises_import(self):
         try:
             import BorutaShap  # noqa: F401
+
             try:
                 from arfs.feature_selection import GrootCV  # noqa: F401
+
                 pytest.skip("BorutaShap or arfs is installed; opt-out of the missing-import test")
             except ImportError:
                 pytest.skip("BorutaShap is installed; opt-out of the missing-import test")
@@ -178,7 +186,8 @@ class TestBorutaShapPowerSHAPRouting:
             get_feature_importances(
                 model=RandomForestClassifier(n_estimators=5, random_state=0).fit(X, y),
                 current_features=list(range(4)),
-                data=X, target=y,
+                data=X,
+                target=y,
                 importance_getter="boruta_shap",
             )
 
@@ -186,12 +195,17 @@ class TestBorutaShapPowerSHAPRouting:
         # L7: user-supplied callable prescreen filters the candidate set before MBH loop.
         X, y = make_classification(n_samples=200, n_features=10, n_informative=5, random_state=0)
         Xdf = pd.DataFrame(X, columns=[f"f{i}" for i in range(10)])
+
         # Prescreen keeps first 4 features only.
         def my_prescreen(X, y):
             return [f"f{i}" for i in range(4)]
+
         rfecv = RFECV(
-            estimator=LogisticRegression(max_iter=300), cv=3, max_refits=3,
-            random_state=0, prescreen=my_prescreen,
+            estimator=LogisticRegression(max_iter=300),
+            cv=3,
+            max_refits=3,
+            random_state=0,
+            prescreen=my_prescreen,
         )
         rfecv.fit(Xdf, y)
         # Selected features MUST be a subset of {f0..f3}.
@@ -201,8 +215,12 @@ class TestBorutaShapPowerSHAPRouting:
     def test_prescreen_unknown_string_warns_and_noops(self, caplog):
         X, y = make_classification(n_samples=100, n_features=6, n_informative=3, random_state=0)
         rfecv = RFECV(
-            estimator=LogisticRegression(max_iter=300), cv=3, max_refits=2,
-            random_state=0, prescreen="not_a_real_prescreen", verbose=1,
+            estimator=LogisticRegression(max_iter=300),
+            cv=3,
+            max_refits=2,
+            random_state=0,
+            prescreen="not_a_real_prescreen",
+            verbose=1,
         )
         with caplog.at_level(logging.WARNING, logger="mlframe.feature_selection.wrappers.rfecv"):
             rfecv.fit(X, y)
@@ -215,8 +233,12 @@ class TestBorutaShapPowerSHAPRouting:
         X, y = make_classification(n_samples=300, n_features=30, n_informative=8, random_state=0)
         Xdf = pd.DataFrame(X, columns=[f"f{i}" for i in range(30)])
         sel = RFECV(
-            estimator=LogisticRegression(max_iter=300), cv=3, max_refits=3,
-            random_state=0, prescreen="mrmr", prescreen_top_k=10,
+            estimator=LogisticRegression(max_iter=300),
+            cv=3,
+            max_refits=3,
+            random_state=0,
+            prescreen="mrmr",
+            prescreen_top_k=10,
         )
         sel.fit(Xdf, y)
         # Selected features must come from the prescreen's top-K subset.
@@ -226,11 +248,17 @@ class TestBorutaShapPowerSHAPRouting:
     def test_prescreen_callable_failure_falls_back(self, caplog):
         X, y = make_classification(n_samples=100, n_features=6, n_informative=3, random_state=0)
         Xdf = pd.DataFrame(X, columns=[f"f{i}" for i in range(6)])
+
         def bad_prescreen(X, y):
             raise RuntimeError("boom")
+
         rfecv = RFECV(
-            estimator=LogisticRegression(max_iter=300), cv=3, max_refits=2,
-            random_state=0, prescreen=bad_prescreen, verbose=1,
+            estimator=LogisticRegression(max_iter=300),
+            cv=3,
+            max_refits=2,
+            random_state=0,
+            prescreen=bad_prescreen,
+            verbose=1,
         )
         with caplog.at_level(logging.WARNING, logger="mlframe.feature_selection.wrappers.rfecv"):
             rfecv.fit(Xdf, y)
@@ -243,6 +271,7 @@ class TestBorutaShapPowerSHAPRouting:
         # If shap is not installed, both raise ImportError with the same module.
         try:
             import shap  # noqa: F401
+
             pytest.skip("shap is installed; this test verifies the missing-import path")
         except ImportError:
             pass
@@ -251,13 +280,15 @@ class TestBorutaShapPowerSHAPRouting:
             get_feature_importances(
                 model=RandomForestClassifier(n_estimators=5, random_state=0).fit(X, y),
                 current_features=list(range(4)),
-                data=X, target=y,
+                data=X,
+                target=y,
                 importance_getter="shap_oof",
             )
 
     def test_powershap_without_lib_raises_import(self):
         try:
             import powershap  # noqa: F401
+
             pytest.skip("powershap is installed; opt-out of the missing-import test")
         except ImportError:
             pass
@@ -266,6 +297,7 @@ class TestBorutaShapPowerSHAPRouting:
             get_feature_importances(
                 model=RandomForestClassifier(n_estimators=5, random_state=0).fit(X, y),
                 current_features=list(range(4)),
-                data=X, target=y,
+                data=X,
+                target=y,
                 importance_getter="powershap",
             )

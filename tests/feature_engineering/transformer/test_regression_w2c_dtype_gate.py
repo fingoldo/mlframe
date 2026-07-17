@@ -3,6 +3,7 @@
 Each test asserts behaviour (shape, dtype, value identity) is preserved by the perf-driven changes; a refactor regression that drops dtype= passthrough or
 reverts the ndarray-buffer optimization will trip these tests.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -14,6 +15,7 @@ pytestmark = [pytest.mark.fast]
 
 
 # ---------- #13: _coerce_features_to_float32 cache key invalidates on column mutation ----------
+
 
 def test_w2c_13_coerce_cache_key_invalidates_on_column_mutation():
     """The cache key must include a cols-signature component so an in-place column add/remove on the same frame id is not served a stale cached ndarray."""
@@ -53,6 +55,7 @@ def test_w2c_13_coerce_cache_key_hits_on_repeated_call_same_cols():
 
 # ---------- #19: bruteforce _kfold_target_encode shape / dtype / value identity ----------
 
+
 def test_w2c_19_kfold_encode_returns_dataframe_with_correct_shape_dtype_index():
     """Pre-allocated ndarray + wrap-once path must yield the same DataFrame shape, columns, index, and dtype as the prior DataFrame.iloc[]= pattern."""
     try:
@@ -79,9 +82,7 @@ def test_w2c_19_kfold_encode_returns_dataframe_with_correct_shape_dtype_index():
         out = _kfold_target_encode(df, cols=["cat_a", "cat_b"], target=target, n_splits=5, random_state=0)
     except AttributeError as exc:
         if "__sklearn_tags__" in str(exc):
-            pytest.skip(
-                f"category_encoders / sklearn version mismatch on this runner: {exc}."
-            )
+            pytest.skip(f"category_encoders / sklearn version mismatch on this runner: {exc}.")
         raise
     assert isinstance(out, pd.DataFrame)
     assert out.shape == (n, 2)
@@ -119,14 +120,13 @@ def test_w2c_19_kfold_encode_deterministic_under_random_state():
         out2 = _kfold_target_encode(df, cols=["cat"], target=target, n_splits=5, random_state=123)
     except AttributeError as exc:
         if "__sklearn_tags__" in str(exc):
-            pytest.skip(
-                f"category_encoders / sklearn version mismatch on this runner: {exc}."
-            )
+            pytest.skip(f"category_encoders / sklearn version mismatch on this runner: {exc}.")
         raise
     np.testing.assert_allclose(out1.values, out2.values)
 
 
 # ---------- #23: stacked_attention dtype passthrough ----------
+
 
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
 def test_w2c_23_stacked_attention_dtype_passthrough(dtype):
@@ -142,12 +142,20 @@ def test_w2c_23_stacked_attention_dtype_passthrough(dtype):
     splitter = KFold(n_splits=3, shuffle=True, random_state=0)
 
     out = compute_stacked_row_attention(
-        X_train=X, y_train=y, X_query=None, splitter=splitter,
-        seed=0, n_layers=2, n_heads=2, head_dim=3, k=4,
+        X_train=X,
+        y_train=y,
+        X_query=None,
+        splitter=splitter,
+        seed=0,
+        n_layers=2,
+        n_heads=2,
+        head_dim=3,
+        k=4,
         dtype=dtype,
     )
     # Output is polars DataFrame; each column should be the requested dtype family.
     import polars as pl
+
     assert isinstance(out, pl.DataFrame)
     arr = out.to_numpy()
     # polars stores float32/float64 as Float32/Float64 -> to_numpy preserves
@@ -155,6 +163,7 @@ def test_w2c_23_stacked_attention_dtype_passthrough(dtype):
 
 
 # ---------- #25: boosted_attention dtype passthrough ----------
+
 
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
 def test_w2c_25_boosted_attention_dtype_passthrough(dtype):
@@ -170,11 +179,19 @@ def test_w2c_25_boosted_attention_dtype_passthrough(dtype):
     splitter = KFold(n_splits=3, shuffle=True, random_state=0)
 
     out = compute_boosted_attention(
-        X_train=X, y_train=y, X_query=None, splitter=splitter,
-        seed=0, n_boost_layers=2, n_heads=2, head_dim=3, k=4,
+        X_train=X,
+        y_train=y,
+        X_query=None,
+        splitter=splitter,
+        seed=0,
+        n_boost_layers=2,
+        n_heads=2,
+        head_dim=3,
+        k=4,
         dtype=dtype,
     )
     import polars as pl
+
     assert isinstance(out, pl.DataFrame)
     arr = out.to_numpy()
     assert arr.dtype == dtype, f"expected dtype {dtype}, got {arr.dtype}"

@@ -14,14 +14,12 @@ to confirm the column does not leak when the PySR call raises.
 This sensor MUST FAIL on the pre-fix code (column leaks) and PASS post-fix
 (column is restored).
 """
+
 from __future__ import annotations
 
-import sys
-import types
 
 import numpy as np
 import pandas as pd
-import pytest
 
 
 def _install_stub_run_pysr_feature_engineering(monkeypatch, raise_with):
@@ -40,6 +38,7 @@ def _install_stub_run_pysr_feature_engineering(monkeypatch, raise_with):
 
 class _MinimalConfig:
     """Minimal duck-typed config object for ``_apply_pysr_fe``."""
+
     random_seed = 42
     pysr_sample_size = None
     pysr_top_k = None
@@ -59,21 +58,28 @@ def test_pysr_temp_target_column_restored_when_pysr_raises(monkeypatch):
     from mlframe.training.pipeline._pipeline_extensions import _apply_pysr_fe
 
     _install_stub_run_pysr_feature_engineering(
-        monkeypatch, raise_with=RuntimeError("simulated PySR failure"),
+        monkeypatch,
+        raise_with=RuntimeError("simulated PySR failure"),
     )
 
-    train_df = pd.DataFrame({
-        "x0": np.arange(100, dtype=np.float32),
-        "x1": np.arange(100, dtype=np.float32),
-    })
-    val_df = pd.DataFrame({
-        "x0": np.arange(50, dtype=np.float32),
-        "x1": np.arange(50, dtype=np.float32),
-    })
-    test_df = pd.DataFrame({
-        "x0": np.arange(50, dtype=np.float32),
-        "x1": np.arange(50, dtype=np.float32),
-    })
+    train_df = pd.DataFrame(
+        {
+            "x0": np.arange(100, dtype=np.float32),
+            "x1": np.arange(100, dtype=np.float32),
+        }
+    )
+    val_df = pd.DataFrame(
+        {
+            "x0": np.arange(50, dtype=np.float32),
+            "x1": np.arange(50, dtype=np.float32),
+        }
+    )
+    test_df = pd.DataFrame(
+        {
+            "x0": np.arange(50, dtype=np.float32),
+            "x1": np.arange(50, dtype=np.float32),
+        }
+    )
     y_train = np.arange(100, dtype=np.float32)
     cols_before = list(train_df.columns)
 
@@ -94,10 +100,7 @@ def test_pysr_temp_target_column_restored_when_pysr_raises(monkeypatch):
         "PySR raised; the temp target column must always be restored. "
         f"Columns after: {list(train_df.columns)}"
     )
-    assert list(train_df.columns) == cols_before, (
-        f"S03: train_df.columns changed after PySR failure: before="
-        f"{cols_before} after={list(train_df.columns)}"
-    )
+    assert list(train_df.columns) == cols_before, f"S03: train_df.columns changed after PySR failure: before={cols_before} after={list(train_df.columns)}"
 
 
 def test_pysr_temp_target_column_restored_when_random_seed_cast_raises(monkeypatch):
@@ -114,28 +117,36 @@ def test_pysr_temp_target_column_restored_when_random_seed_cast_raises(monkeypat
 
     # Stub PySR so we never reach it; the test exercises the pre-PySR path.
     _install_stub_run_pysr_feature_engineering(
-        monkeypatch, raise_with=RuntimeError("should not reach PySR"),
+        monkeypatch,
+        raise_with=RuntimeError("should not reach PySR"),
     )
 
     class _BadSeedConfig:
         """``random_seed`` is a string that survives ``getattr`` but blows up
         inside ``int(...)`` -- exact pre-fix leak window."""
+
         random_seed = "not_an_int"
         pysr_sample_size = None
         pysr_top_k = None
         pysr_operator_preset = "standard"
         pysr_params_override = None
 
-    train_df = pd.DataFrame({
-        "x0": np.arange(100, dtype=np.float32),
-        "x1": np.arange(100, dtype=np.float32),
-    })
-    val_df = pd.DataFrame({
-        "x0": np.arange(50, dtype=np.float32),
-    })
-    test_df = pd.DataFrame({
-        "x0": np.arange(50, dtype=np.float32),
-    })
+    train_df = pd.DataFrame(
+        {
+            "x0": np.arange(100, dtype=np.float32),
+            "x1": np.arange(100, dtype=np.float32),
+        }
+    )
+    val_df = pd.DataFrame(
+        {
+            "x0": np.arange(50, dtype=np.float32),
+        }
+    )
+    test_df = pd.DataFrame(
+        {
+            "x0": np.arange(50, dtype=np.float32),
+        }
+    )
     y_train = np.arange(100, dtype=np.float32)
     cols_before = list(train_df.columns)
 
@@ -157,7 +168,7 @@ def test_pysr_temp_target_column_restored_when_random_seed_cast_raises(monkeypat
         # ``except Exception``, function returns []. Pre-fix path would
         # have raised here instead AND left the column leaked.
         assert result == []
-    except Exception:
+    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
         # Pre-fix path also acceptable as a possible behaviour shape; the
         # invariant under test is the no-leak guarantee below.
         pass
@@ -168,7 +179,4 @@ def test_pysr_temp_target_column_restored_when_random_seed_cast_raises(monkeypat
         "and the try block. Injection must happen INSIDE try/finally. "
         f"Columns after: {list(train_df.columns)}"
     )
-    assert list(train_df.columns) == cols_before, (
-        f"S03 (random-seed-cast): train_df.columns changed: before="
-        f"{cols_before} after={list(train_df.columns)}"
-    )
+    assert list(train_df.columns) == cols_before, f"S03 (random-seed-cast): train_df.columns changed: before={cols_before} after={list(train_df.columns)}"

@@ -34,8 +34,7 @@ def test_worker_initializer_disables_cuda():
         os.environ["CUDA_VISIBLE_DEVICES"] = "0"
         _joblib_safe.disable_cuda_in_worker()
         assert os.environ["CUDA_VISIBLE_DEVICES"] == "", (
-            "initializer must set CUDA_VISIBLE_DEVICES='' so the loky worker "
-            "sees no CUDA device and creates no cupy context"
+            "initializer must set CUDA_VISIBLE_DEVICES='' so the loky worker sees no CUDA device and creates no cupy context"
         )
     finally:
         if prev is None:
@@ -116,9 +115,6 @@ def test_pairmi_parallel_uses_cpu_only_loky_backend(monkeypatch):
         "inner_max_num_threads are actually honoured in joblib 1.5.x"
     )
     assert backend.backend_kwargs.get("initializer") is _joblib_safe.disable_cuda_in_worker, (
-        "loky workers must be started with the CUDA-disabling initializer so they "
-        "create NO per-worker cupy CUDA context (small-card VRAM fill guard)"
+        "loky workers must be started with the CUDA-disabling initializer so they create NO per-worker cupy CUDA context (small-card VRAM fill guard)"
     )
-    assert backend.inner_max_num_threads == 1, (
-        "workers must cap inner thread pools to 1 to avoid CPU oversubscription"
-    )
+    assert backend.inner_max_num_threads == 1, "workers must cap inner thread pools to 1 to avoid CPU oversubscription"

@@ -5,6 +5,7 @@ njit sweep instead of 3 separate numpy passes (isfinite/min/max). The Brier valu
 bit-identical to the prior ``np.mean((y-p)**2)`` kernel on valid input, and nan on any
 non-finite / out-of-range probability (unchanged contract).
 """
+
 from __future__ import annotations
 
 import numpy as np

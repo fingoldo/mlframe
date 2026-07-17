@@ -9,6 +9,7 @@ Headline guarantees:
   silently mis-cover) at n_cal in {0, 1, 2}: they return a +inf radius (valid
   but uninformative) below the finite-sample rank threshold.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -50,7 +51,8 @@ def _fit(seed: int, n: int = 600):
     X = pd.DataFrame({"b": b, "feat": f})
     est = CompositeTargetEstimator(
         base_estimator=LinearRegression(),
-        transform_name="linear_residual", base_column="b",
+        transform_name="linear_residual",
+        base_column="b",
     ).fit(X, y)
     return est
 
@@ -103,7 +105,7 @@ def _split3(X, y, groups, seed: int):
     rng = np.random.default_rng(seed)
     idx = rng.permutation(len(y))
     n3 = len(y) // 3
-    tr, ca, te = idx[:n3], idx[n3:2 * n3], idx[2 * n3:]
+    tr, ca, te = idx[:n3], idx[n3 : 2 * n3], idx[2 * n3 :]
     return tr, ca, te
 
 
@@ -121,7 +123,8 @@ class TestMondrianBizValue:
             tr, ca, te = _split3(X, y, groups, seed)
             est = CompositeTargetEstimator(
                 base_estimator=LinearRegression(),
-                transform_name="linear_residual", base_column="b",
+                transform_name="linear_residual",
+                base_column="b",
             ).fit(X.iloc[tr], y[tr])
             est.calibrate_conformal(X.iloc[ca], y[ca], alpha)
             est.calibrate_conformal_mondrian(X.iloc[ca], y[ca], groups[ca], alpha)
@@ -131,7 +134,9 @@ class TestMondrianBizValue:
             lo_m, hi_m = est.predict_interval(X.iloc[te_min], alpha)
             cov_marg = float(np.mean((yt >= lo_m) & (yt <= hi_m)))
             lo_o, hi_o = est.predict_interval_mondrian(
-                X.iloc[te_min], groups[te_min], alpha,
+                X.iloc[te_min],
+                groups[te_min],
+                alpha,
             )
             cov_mond = float(np.mean((yt >= lo_o) & (yt <= hi_o)))
             marg_errs.append(abs(cov_marg - target))
@@ -141,17 +146,15 @@ class TestMondrianBizValue:
 
         mean_marg = float(np.mean(marg_errs))
         mean_mond = float(np.mean(mond_errs))
-        assert mean_mond < mean_marg, (
-            f"mondrian not closer to target on minority: mond_err={mean_mond:.3f} "
-            f"marg_err={mean_marg:.3f}"
-        )
+        assert mean_mond < mean_marg, f"mondrian not closer to target on minority: mond_err={mean_mond:.3f} marg_err={mean_marg:.3f}"
 
     def test_mondrian_unseen_group_falls_back_with_warning(self) -> None:
         X, y, groups = _make_grouped(0)
         tr, ca, te = _split3(X, y, groups, 0)
         est = CompositeTargetEstimator(
             base_estimator=LinearRegression(),
-            transform_name="linear_residual", base_column="b",
+            transform_name="linear_residual",
+            base_column="b",
         ).fit(X.iloc[tr], y[tr])
         est.calibrate_conformal_mondrian(X.iloc[ca], y[ca], groups[ca], 0.1)
         # A label never seen at calibration must fall back + warn.
@@ -175,7 +178,8 @@ class TestMondrianBizValue:
         groups[:2] = "tiny"  # 2 rows -> per-group rank exceeds n_g at alpha=0.1.
         est = CompositeTargetEstimator(
             base_estimator=LinearRegression(),
-            transform_name="linear_residual", base_column="b",
+            transform_name="linear_residual",
+            base_column="b",
         ).fit(X, y)
         est.calibrate_conformal_mondrian(X, y, groups, 0.1)
         table = est._mondrian_q_[round(0.1, 6)]
@@ -186,7 +190,9 @@ class TestMondrianBizValue:
         est = _fit(0)
         with pytest.raises(RuntimeError, match="no Mondrian radius"):
             est.predict_interval_mondrian(
-                pd.DataFrame({"b": [0.0], "feat": [0.0]}), np.array(["a"]), 0.1,
+                pd.DataFrame({"b": [0.0], "feat": [0.0]}),
+                np.array(["a"]),
+                0.1,
             )
 
     def test_mondrian_single_test_row(self) -> None:
@@ -194,7 +200,8 @@ class TestMondrianBizValue:
         tr, ca, te = _split3(X, y, groups, 0)
         est = CompositeTargetEstimator(
             base_estimator=LinearRegression(),
-            transform_name="linear_residual", base_column="b",
+            transform_name="linear_residual",
+            base_column="b",
         ).fit(X.iloc[tr], y[tr])
         est.calibrate_conformal_mondrian(X.iloc[ca], y[ca], groups[ca], 0.1)
         i = te[:1]
@@ -204,14 +211,19 @@ class TestMondrianBizValue:
 
     def test_mondrian_calibrate_before_fit_raises(self) -> None:
         from sklearn.exceptions import NotFittedError
+
         est = CompositeTargetEstimator(
             base_estimator=LinearRegression(),
-            transform_name="linear_residual", base_column="b",
+            transform_name="linear_residual",
+            base_column="b",
         )
         X = pd.DataFrame({"b": [1.0, 2.0], "feat": [3.0, 4.0]})
         with pytest.raises(NotFittedError):
             est.calibrate_conformal_mondrian(
-                X, np.array([1.0, 2.0]), np.array(["a", "b"]), 0.1,
+                X,
+                np.array([1.0, 2.0]),
+                np.array(["a", "b"]),
+                0.1,
             )
 
 
@@ -256,14 +268,13 @@ class TestMondrianRadiusGatherVectorization:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             lo, hi = est.predict_interval_mondrian(X, g, 0.1)
-        point = np.asarray(est.predict(X), dtype=np.float64).reshape(-1)
+        np.asarray(est.predict(X), dtype=np.float64).reshape(-1)
         expected_radii = self._loop_reference(g, per_group, global_r)
         # Recover the radius the function applied (band is symmetric pre-clip; the
         # train envelope here is unbounded for this synthetic, so no clipping).
         applied = (hi - lo) / 2.0
         assert np.array_equal(applied, expected_radii), (
-            "vectorized radius gather diverged from the row-by-row loop; "
-            "NaN/unseen labels must fall back to the global radius"
+            "vectorized radius gather diverged from the row-by-row loop; NaN/unseen labels must fall back to the global radius"
         )
 
     def test_nan_label_falls_back_to_global_not_last_unique(self) -> None:
@@ -278,6 +289,4 @@ class TestMondrianRadiusGatherVectorization:
             lo, hi = est.predict_interval_mondrian(X, g, 0.1)
         applied = (hi - lo) / 2.0
         assert applied[0] == pytest.approx(per_group["a"])
-        assert applied[1] == pytest.approx(per_group[None]), (
-            "NaN label must use the global radius, not the last unique group's"
-        )
+        assert applied[1] == pytest.approx(per_group[None]), "NaN label must use the global radius, not the last unique group's"

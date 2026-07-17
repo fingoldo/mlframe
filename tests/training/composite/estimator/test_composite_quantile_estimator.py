@@ -6,6 +6,7 @@ deterministic stub inner so the suite is fast and does not depend on LightGBM
 being installed for the pure-contract checks (a separate LightGBM-gated test
 covers the real pinball path).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -32,7 +33,7 @@ class _StubQuantileInner(BaseEstimator, RegressorMixin):
         self.alpha = alpha
         self.scale = scale
 
-    def fit(self, X, y, sample_weight=None):  # noqa: ARG002
+    def fit(self, X, y, sample_weight=None):
         self._mean_ = float(np.mean(np.asarray(y, dtype=np.float64)))
         self.n_features_in_ = X.shape[1] if hasattr(X, "shape") else len(X.columns)
         return self
@@ -70,6 +71,7 @@ def _fit_stub(quantiles=(0.1, 0.5, 0.9), transform_name="linear_residual", **kw)
 # Shape + non-crossing contract
 # ----------------------------------------------------------------------
 
+
 def test_predict_quantile_shape():
     est, X, _ = _fit_stub(quantiles=(0.1, 0.25, 0.5, 0.75, 0.9))
     Q = est.predict_quantile(X)
@@ -85,6 +87,7 @@ def test_non_crossing_rows_monotone():
 def test_non_crossing_restores_order_when_heads_cross():
     """A stub whose offset DECREASES in alpha produces crossing heads; the
     per-row sort must restore ascending order."""
+
     class _Inverted(_StubQuantileInner):
         def predict(self, X):
             n = X.shape[0] if hasattr(X, "shape") else len(X)
@@ -94,8 +97,10 @@ def test_non_crossing_restores_order_when_heads_cross():
 
     X, y = _make_xy()
     est = CompositeQuantileEstimator(
-        base_estimator=_Inverted(), transform_name="linear_residual",
-        base_column="base", quantiles=(0.1, 0.5, 0.9),
+        base_estimator=_Inverted(),
+        transform_name="linear_residual",
+        base_column="base",
+        quantiles=(0.1, 0.5, 0.9),
         enforce_non_crossing=False,
     )
     est.fit(X, y)
@@ -104,8 +109,10 @@ def test_non_crossing_restores_order_when_heads_cross():
     assert np.any(np.diff(Q_raw, axis=1) < 0)
 
     est_on = CompositeQuantileEstimator(
-        base_estimator=_Inverted(), transform_name="linear_residual",
-        base_column="base", quantiles=(0.1, 0.5, 0.9),
+        base_estimator=_Inverted(),
+        transform_name="linear_residual",
+        base_column="base",
+        quantiles=(0.1, 0.5, 0.9),
         enforce_non_crossing=True,
     )
     est_on.fit(X, y)
@@ -116,6 +123,7 @@ def test_non_crossing_restores_order_when_heads_cross():
 # ----------------------------------------------------------------------
 # Subset-quantile predict + fitted-quantile guard
 # ----------------------------------------------------------------------
+
 
 def test_predict_subset_of_fitted_quantiles():
     est, X, _ = _fit_stub(quantiles=(0.1, 0.25, 0.5, 0.75, 0.9))
@@ -140,6 +148,7 @@ def test_predict_median_point():
 # NaN-safety
 # ----------------------------------------------------------------------
 
+
 def test_nan_safe_out_of_domain_base_routes_to_fallback():
     """A predict-time row with a non-finite base must NOT yield NaN under the
     default median fallback; every output is finite."""
@@ -154,6 +163,7 @@ def test_nan_safe_out_of_domain_base_routes_to_fallback():
 # ----------------------------------------------------------------------
 # Inner-alpha wiring
 # ----------------------------------------------------------------------
+
 
 def test_set_inner_quantile_alpha_sklearn_quantile_regressor():
     from sklearn.linear_model import QuantileRegressor
@@ -187,6 +197,7 @@ def test_each_head_has_distinct_alpha():
 # Config / lifecycle error paths
 # ----------------------------------------------------------------------
 
+
 def test_predict_before_fit_raises():
     est = CompositeQuantileEstimator(base_estimator=_StubQuantileInner())
     with pytest.raises(NotFittedError):
@@ -203,12 +214,14 @@ def test_bad_quantiles_raise():
     X, y = _make_xy()
     with pytest.raises(ValueError, match="strictly in"):
         CompositeQuantileEstimator(
-            base_estimator=_StubQuantileInner(), base_column="base",
+            base_estimator=_StubQuantileInner(),
+            base_column="base",
             quantiles=(0.0, 0.5),
         ).fit(X, y)
     with pytest.raises(ValueError, match="unique"):
         CompositeQuantileEstimator(
-            base_estimator=_StubQuantileInner(), base_column="base",
+            base_estimator=_StubQuantileInner(),
+            base_column="base",
             quantiles=(0.5, 0.5),
         ).fit(X, y)
 
@@ -217,7 +230,8 @@ def test_unknown_transform_raises_at_fit():
     X, y = _make_xy()
     with pytest.raises(UnknownTransformError):
         CompositeQuantileEstimator(
-            base_estimator=_StubQuantileInner(), base_column="base",
+            base_estimator=_StubQuantileInner(),
+            base_column="base",
             transform_name="not_a_transform",
         ).fit(X, y)
 
@@ -225,7 +239,8 @@ def test_unknown_transform_raises_at_fit():
 def test_default_quantiles_five_level_grid():
     X, y = _make_xy()
     est = CompositeQuantileEstimator(
-        base_estimator=_StubQuantileInner(), base_column="base",
+        base_estimator=_StubQuantileInner(),
+        base_column="base",
     )
     est.fit(X, y)
     np.testing.assert_allclose(est.quantiles_, [0.1, 0.25, 0.5, 0.75, 0.9])
@@ -234,7 +249,8 @@ def test_default_quantiles_five_level_grid():
 def test_sklearn_clone_roundtrip():
     """The estimator must clone cleanly (params-only) before fit."""
     est = CompositeQuantileEstimator(
-        base_estimator=_StubQuantileInner(), base_column="base",
+        base_estimator=_StubQuantileInner(),
+        base_column="base",
         quantiles=(0.2, 0.8),
     )
     cloned = clone(est)

@@ -4,6 +4,7 @@
 no-win (profiling/bench_stacked_discovery_default_flip.py). The config validator
 warns when either is enabled so callers know the flag does not help on benchmarks.
 """
+
 from __future__ import annotations
 
 import warnings

@@ -3,6 +3,7 @@ loss: the caller wanted newest-data validation, got random-style instead. Pre-fi
 this was an INFO log -> easy to miss in production runs. New behavior: WARNING
 level with explicit reason and remediation hint.
 """
+
 from __future__ import annotations
 
 import logging
@@ -31,12 +32,8 @@ def test_backward_without_timestamps_warns(caplog):
         )
 
     msgs = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
-    assert any("val_placement='backward' requested but downgraded" in m for m in msgs), (
-        f"Expected WARNING about backward downgrade. Got: {msgs}"
-    )
-    assert any("Temporal honesty lost" in m for m in msgs), (
-        f"Expected explicit consequence in warning. Got: {msgs}"
-    )
+    assert any("val_placement='backward' requested but downgraded" in m for m in msgs), f"Expected WARNING about backward downgrade. Got: {msgs}"
+    assert any("Temporal honesty lost" in m for m in msgs), f"Expected explicit consequence in warning. Got: {msgs}"
 
 
 @pytest.mark.fast
@@ -57,11 +54,10 @@ def test_backward_with_timestamps_no_warn(caplog):
         )
 
     msgs = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
-    assert not any("downgraded" in m for m in msgs), (
-        f"backward with timestamps should NOT warn about downgrade. Got: {msgs}"
-    )
+    assert not any("downgraded" in m for m in msgs), f"backward with timestamps should NOT warn about downgrade. Got: {msgs}"
 
 
 if __name__ == "__main__":
     import sys
+
     sys.exit(pytest.main([__file__, "--no-cov", "-x", "-s", "--tb=short"]))

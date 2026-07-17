@@ -9,6 +9,7 @@ order=5 via ``itertools.combinations``, but no test verified that:
 4. The ZeroDivisionError fix in ``_run_fe_step`` (when
    ``ind_elems_mi_sum == 0``) holds across orders.
 """
+
 from __future__ import annotations
 
 import time
@@ -82,10 +83,7 @@ def test_3way_screening_finds_signal_triplet(seed):
     topk = set(int(i) for i in sel.support_[:5])
     signal = {0, 1, 2}
     overlap = topk & signal
-    assert len(overlap) >= 2, (
-        f"3-way screening should surface >=2 of {signal} in top-5 "
-        f"of {topk}, found overlap={overlap}; seed={seed}"
-    )
+    assert len(overlap) >= 2, f"3-way screening should surface >=2 of {signal} in top-5 of {topk}, found overlap={overlap}; seed={seed}"
 
 
 def test_3way_signal_recovery_better_than_2way():
@@ -113,15 +111,10 @@ def test_3way_signal_recovery_better_than_2way():
 
     overlap_2 = top5_overlap(2)
     overlap_3 = top5_overlap(3)
-    assert overlap_3 >= 2, (
-        f"order=3 should put >=2 of {{0,1,2}} in top-5; got overlap={overlap_3}"
-    )
+    assert overlap_3 >= 2, f"order=3 should put >=2 of {{0,1,2}} in top-5; got overlap={overlap_3}"
     # order=2 having overlap 0 or 1 is the expected baseline; a 3-way
     # target is invisible to pair-only screening.
-    assert overlap_3 >= overlap_2, (
-        f"order=3 ({overlap_3}) should match-or-exceed order=2 "
-        f"({overlap_2}) overlap with signal triplet"
-    )
+    assert overlap_3 >= overlap_2, f"order=3 ({overlap_3}) should match-or-exceed order=2 ({overlap_2}) overlap with signal triplet"
 
 
 def test_4way_screening_does_not_crash():
@@ -153,8 +146,7 @@ def test_3way_no_zero_division_on_pure_xor():
     X_df, y_ser = _to_df(X, y)
 
     # The FE step is gated by ``fe_max_steps``; we exercise it.
-    sel = MRMR(interactions_max_order=3, verbose=0, fe_max_steps=1,
-                random_seed=42)
+    sel = MRMR(interactions_max_order=3, verbose=0, fe_max_steps=1, random_seed=42)
     sel.fit(X_df, y_ser)  # Must not raise.
     assert sel.support_ is not None
 
@@ -179,7 +171,4 @@ def test_n_way_runtime_scales_polynomially(order):
     # 30s quiet-box cap (real measurement <5s); xdist-relaxed under full-suite ``-n`` contention. This still trips a
     # true O(p^order) exponential blow-up (which would be minutes), just not transient scheduler starvation.
     budget = perf_time_budget(30.0)
-    assert dt < budget, (
-        f"interactions_max_order={order} took {dt:.1f}s > {budget:.0f}s on "
-        f"n=1500, p=8 -- runtime regression"
-    )
+    assert dt < budget, f"interactions_max_order={order} took {dt:.1f}s > {budget:.0f}s on n=1500, p=8 -- runtime regression"

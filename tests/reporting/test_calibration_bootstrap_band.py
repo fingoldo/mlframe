@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import cProfile
 import io
-import os
 import pstats
 import time
 
@@ -19,7 +18,9 @@ import pytest
 
 from mlframe.metrics.calibration._calibration_plot import fast_calibration_binning
 from mlframe.reporting.charts.calibration import (
-    bootstrap_reliability_band, build_calibration_spec, smoothed_reliability_curve,
+    bootstrap_reliability_band,
+    build_calibration_spec,
+    smoothed_reliability_curve,
 )
 from mlframe.reporting.spec import ScatterPanelSpec
 
@@ -71,7 +72,7 @@ class TestBootstrapBandUnit:
         spec = build_calibration_spec(fp, ftr, hits, raw_probs=score, raw_labels=y, reliability_band=False)
         scatter = spec.panels[0][0]
         assert scatter.overlay_line is not None  # curve stays
-        assert scatter.overlay_band is None       # band gone
+        assert scatter.overlay_band is None  # band gone
 
     def test_degenerate_single_class_omits_band(self):
         assert bootstrap_reliability_band(np.linspace(0.0, 1.0, 200), np.zeros(200)) is None
@@ -139,6 +140,7 @@ def test_cprofile_band_bounded():
     # Wall-clock cost is unreliable under -n xdist contention (a worker can be starved for seconds), so skip the timing
     # ceiling there and keep it only on a quiet single-process run; the band still ran to completion above either way.
     from tests.conftest import running_under_xdist
+
     if running_under_xdist():
         pytest.skip("wall-clock band-timing assert unreliable under xdist contention")
     # The cost is the B=150 inherent isotonic refits at the 50k row cap (~18ms each) -- irreducible, not a slow path.
@@ -163,7 +165,7 @@ def test_band_distinct_score_fast_path_matches_estimator():
 
     res = bootstrap_reliability_band(s, t, random_state=3)
     assert res is not None
-    grid, lower, upper, sig = res
+    _grid, lower, upper, sig = res
     assert np.all(np.isfinite(lower)) and np.all(np.isfinite(upper))
     assert np.all(upper >= lower)  # band is a proper interval
     assert 0.0 <= sig <= 1.0

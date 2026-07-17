@@ -5,6 +5,7 @@ one round), instead of a fresh ``cp.asarray`` every call. ``classes_x``/``freqs_
 candidate and must stay a fresh per-call upload (never cached). Proves the ``resident_operand`` adoption
 fix in ``_gpu_batched.py`` engages and stays bit-identical to the pre-fix raw-upload path.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -71,20 +72,35 @@ def _count_asarray_calls_matching(monkeypatch, target_values):
 def test_target_uploaded_once_across_candidate_calls(monkeypatch, fn):
     factors, factors_nbins = _build_two_candidate_inputs(seed=2)
     classes_y, freqs_y, _ = merge_vars(
-        factors_data=factors, vars_indices=(2,),
-        var_is_nominal=None, factors_nbins=factors_nbins, dtype=np.int32,
+        factors_data=factors,
+        vars_indices=(2,),
+        var_is_nominal=None,
+        factors_nbins=factors_nbins,
+        dtype=np.int32,
     )
     classes_y_i32 = np.ascontiguousarray(classes_y.astype(np.int32))
 
     y_calls = _count_asarray_calls_matching(monkeypatch, classes_y_i32)
 
     mi0, _ = fn(
-        factors, (0,), (2,), factors_nbins, npermutations=16, batch_size=8,
-        classes_y=classes_y.copy(), freqs_y=freqs_y.copy(),
+        factors,
+        (0,),
+        (2,),
+        factors_nbins,
+        npermutations=16,
+        batch_size=8,
+        classes_y=classes_y.copy(),
+        freqs_y=freqs_y.copy(),
     )
     mi1, _ = fn(
-        factors, (1,), (2,), factors_nbins, npermutations=16, batch_size=8,
-        classes_y=classes_y.copy(), freqs_y=freqs_y.copy(),
+        factors,
+        (1,),
+        (2,),
+        factors_nbins,
+        npermutations=16,
+        batch_size=8,
+        classes_y=classes_y.copy(),
+        freqs_y=freqs_y.copy(),
     )
 
     assert y_calls["n"] == 1, f"classes_y-content cp.asarray called {y_calls['n']}x across 2 candidate calls (expected 1, resident)"
@@ -102,12 +118,18 @@ def test_candidate_x_still_uploaded_fresh_every_call(monkeypatch, fn):
     hit, since content differs every call, or grow the cache unboundedly across a wide candidate pool)."""
     factors, factors_nbins = _build_two_candidate_inputs(seed=5)
     classes_y, freqs_y, _ = merge_vars(
-        factors_data=factors, vars_indices=(2,),
-        var_is_nominal=None, factors_nbins=factors_nbins, dtype=np.int32,
+        factors_data=factors,
+        vars_indices=(2,),
+        var_is_nominal=None,
+        factors_nbins=factors_nbins,
+        dtype=np.int32,
     )
     classes_x0, _freqs_x0, _ = merge_vars(
-        factors_data=factors, vars_indices=(0,),
-        var_is_nominal=None, factors_nbins=factors_nbins, dtype=np.int32,
+        factors_data=factors,
+        vars_indices=(0,),
+        var_is_nominal=None,
+        factors_nbins=factors_nbins,
+        dtype=np.int32,
     )
     x_calls = _count_asarray_calls_matching(monkeypatch, np.ascontiguousarray(classes_x0.astype(np.int32)))
 
@@ -143,8 +165,11 @@ def test_resident_upload_bit_identical_to_disabled_cache(monkeypatch, fn):
     factors = np.column_stack([x0, x1, y_raw]).astype(np.int32)
     factors_nbins = np.array([5, 5, 5], dtype=np.int64)
     classes_y, freqs_y, _ = merge_vars(
-        factors_data=factors, vars_indices=(2,),
-        var_is_nominal=None, factors_nbins=factors_nbins, dtype=np.int32,
+        factors_data=factors,
+        vars_indices=(2,),
+        var_is_nominal=None,
+        factors_nbins=factors_nbins,
+        dtype=np.int32,
     )
 
     _orig_default_rng = cp.random.default_rng
@@ -156,15 +181,29 @@ def test_resident_upload_bit_identical_to_disabled_cache(monkeypatch, fn):
 
     clear_fe_resident_operands()
     mi_cached, _conf_cached = fn(
-        factors, (0,), (2,), factors_nbins, npermutations=32, batch_size=8, min_nonzero_confidence=0.5,
-        classes_y=classes_y.copy(), freqs_y=freqs_y.copy(),
+        factors,
+        (0,),
+        (2,),
+        factors_nbins,
+        npermutations=32,
+        batch_size=8,
+        min_nonzero_confidence=0.5,
+        classes_y=classes_y.copy(),
+        freqs_y=freqs_y.copy(),
     )
 
     monkeypatch.setenv("MLFRAME_FE_RESIDENT_OPERANDS", "0")
     clear_fe_resident_operands()
     mi_fresh, _conf_fresh = fn(
-        factors, (0,), (2,), factors_nbins, npermutations=32, batch_size=8, min_nonzero_confidence=0.5,
-        classes_y=classes_y.copy(), freqs_y=freqs_y.copy(),
+        factors,
+        (0,),
+        (2,),
+        factors_nbins,
+        npermutations=32,
+        batch_size=8,
+        min_nonzero_confidence=0.5,
+        classes_y=classes_y.copy(),
+        freqs_y=freqs_y.copy(),
     )
 
     assert mi_cached == mi_fresh

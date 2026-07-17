@@ -6,6 +6,7 @@ relationship the model shouldn't weight equally with recent, still-relevant rows
 recent cutoff should improve held-out accuracy on a held-out period that is entirely in the new regime,
 versus training with uniform weights.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -39,7 +40,9 @@ def test_biz_val_recency_step_weight_improves_held_out_accuracy_after_regime_shi
     rmse_unweighted = float(mean_squared_error(yte, m_unweighted.predict(Xte)) ** 0.5)
     rmse_weighted = float(mean_squared_error(yte, m_weighted.predict(Xte)) ** 0.5)
 
-    assert rmse_weighted < rmse_unweighted * 0.95, f"expected recency step-weighting to improve post-regime-shift RMSE by >=5%, got weighted={rmse_weighted:.4f} unweighted={rmse_unweighted:.4f}"
+    assert rmse_weighted < rmse_unweighted * 0.95, (
+        f"expected recency step-weighting to improve post-regime-shift RMSE by >=5%, got weighted={rmse_weighted:.4f} unweighted={rmse_unweighted:.4f}"
+    )
 
 
 def test_recency_step_weight_assigns_correct_levels():
@@ -89,8 +92,7 @@ def test_biz_val_recency_step_weight_smooth_beats_hard_cutoff_on_gradual_drift()
     rmse_smooth = float(mean_squared_error(yte, m_smooth.predict(Xte)) ** 0.5)
 
     assert rmse_smooth < rmse_hard * 0.95, (
-        f"expected smooth-ramp recency weighting to beat a single hard cutoff by >=5% RMSE on gradual drift, "
-        f"got smooth={rmse_smooth:.4f} hard={rmse_hard:.4f}"
+        f"expected smooth-ramp recency weighting to beat a single hard cutoff by >=5% RMSE on gradual drift, got smooth={rmse_smooth:.4f} hard={rmse_hard:.4f}"
     )
 
 

@@ -4,6 +4,7 @@ The bug (fixed): six functions imputed non-finite window values via ``float(np.n
 evaluates to NaN (NaN is truthy in Python), so the impute fill was NaN, the FFT input was all-NaN, and the entire window's spectral output came out NaN. The fix uses an
 explicit guard that falls back to 0.0 when the window has no finite values.
 """
+
 from __future__ import annotations
 
 import numpy as np

@@ -7,9 +7,10 @@ This bites at transform time when a val/test row exceeds the fit-time max.
 The sibling ``quantize_search`` routes such values to the top bin; ``digitize``
 must agree.
 """
+
 import numpy as np
 
-from mlframe.feature_selection.filters.discretization import digitize, discretize_array, quantize_search
+from mlframe.feature_selection.filters.discretization import digitize, discretize_array
 
 
 def test_digitize_value_above_last_edge_clamps_to_top_bin():

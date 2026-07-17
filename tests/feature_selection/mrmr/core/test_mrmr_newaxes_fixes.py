@@ -26,6 +26,7 @@ Covers the findings whose file is exactly
          ``fe_hybrid_orth_enable=True`` (which the user never set on the
          default-on univariate path); it names the actual triggering flag(s).
 """
+
 from __future__ import annotations
 
 import warnings
@@ -86,7 +87,10 @@ class TestAdditionalRfecvSelectionRuleValidated:
         never drift (a value MRMR accepts but RFECV rejects would defeat the
         early-validation intent)."""
         assert MRMR._VALID_RFECV_SELECTION_RULES == (
-            "auto", "argmax", "one_se_min", "one_se_max",
+            "auto",
+            "argmax",
+            "one_se_min",
+            "one_se_max",
         )
 
 
@@ -115,9 +119,7 @@ class TestRescuePoolExcludesEngineeredColumns:
         selected_names = {"a"}
 
         # ---- exact rescue-pool construction from the fixed _fit_impl ----
-        _excluded_from_rescue = set(
-            getattr(m, "_cluster_aggregate_removals_", None) or []
-        )
+        _excluded_from_rescue = set(getattr(m, "_cluster_aggregate_removals_", None) or [])
         _cm = getattr(m, "cluster_members_", None)
         if isinstance(_cm, dict):
             for _anchor, _members in _cm.items():
@@ -126,17 +128,13 @@ class TestRescuePoolExcludesEngineeredColumns:
                     _excluded_from_rescue.update(_members)
         _excluded_from_rescue.update(getattr(m, "hybrid_orth_features_", None) or [])
         _excluded_from_rescue.update(getattr(m, "mi_greedy_features_", None) or [])
-        temp_columns = [
-            c for c in x_cols
-            if c not in selected_names and c not in _excluded_from_rescue
-        ]
+        temp_columns = [c for c in x_cols if c not in selected_names and c not in _excluded_from_rescue]
         # ----------------------------------------------------------------
 
         # No engineered column may survive into the rescue candidate pool.
         for eng in ("a__T2", "hybrid_x", "mi_greedy_z"):
             assert eng not in temp_columns, (
-                f"engineered column {eng!r} leaked into the rescue pool; RFECV "
-                f"could select it then crash on feature_names_in_.index({eng!r})"
+                f"engineered column {eng!r} leaked into the rescue pool; RFECV could select it then crash on feature_names_in_.index({eng!r})"
             )
         # Genuinely-discarded RAW columns are still reconsidered.
         assert set(temp_columns) == {"b", "c"}
@@ -195,8 +193,7 @@ class TestExtraBasisGatedOnHybridEnable:
         )
         m.fit(X, y)
         assert calls["n"] == 0, (
-            "config extra-basis FE ran with fe_hybrid_orth_enable=False; the bspline extra-basis "
-            "must stay gated on the master hybrid switch"
+            "config extra-basis FE ran with fe_hybrid_orth_enable=False; the bspline extra-basis must stay gated on the master hybrid switch"
         )
 
     def test_extra_basis_runs_when_hybrid_enabled(self, monkeypatch):
@@ -220,10 +217,7 @@ class TestExtraBasisGatedOnHybridEnable:
             fe_hybrid_orth_extra_bases=("bspline",),
         )
         m.fit(X, y)
-        assert calls["n"] >= 1, (
-            "extra-basis FE did not run despite fe_hybrid_orth_enable=True and "
-            "a non-empty fe_hybrid_orth_extra_bases tuple"
-        )
+        assert calls["n"] >= 1, "extra-basis FE did not run despite fe_hybrid_orth_enable=True and a non-empty fe_hybrid_orth_extra_bases tuple"
 
 
 # --------------------------------------------------------------------- [16]
@@ -243,17 +237,12 @@ class TestPolarsFeRunsViaBridge:
         y = pl.Series("target", (signal > 0).astype(np.int64))
 
         m = _make_cheap_mrmr(
-            fe_hybrid_orth_enable=False,   # user did NOT enable the hybrid switch
+            fe_hybrid_orth_enable=False,  # user did NOT enable the hybrid switch
             fe_univariate_basis_enable=True,  # default-on trigger -> the bridge fires, FE runs
         )
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             m.fit(X, y)
 
-        fe_skip_msgs = [
-            str(w.message) for w in caught
-            if "not a pandas" in str(w.message) and "FE" in str(w.message)
-        ]
-        assert not fe_skip_msgs, (
-            f"polars input with FE enabled must NOT skip FE (the bridge runs it), but a skip warning fired: {fe_skip_msgs!r}"
-        )
+        fe_skip_msgs = [str(w.message) for w in caught if "not a pandas" in str(w.message) and "FE" in str(w.message)]
+        assert not fe_skip_msgs, f"polars input with FE enabled must NOT skip FE (the bridge runs it), but a skip warning fired: {fe_skip_msgs!r}"

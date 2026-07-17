@@ -8,6 +8,7 @@ recover the severity-dependent offset either (severity isn't directly observable
 probability in as an extra feature for the routed regressor lets it partially recover that hidden signal --
 mirroring the Elo Merchant 5th place's routing + stacked-gate-feature + per-branch-weighting technique.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -41,14 +42,21 @@ def test_biz_val_gated_regression_mixture_beats_single_global_regressor_mse():
     mse_baseline = mean_squared_error(y_test, baseline.predict(X_test))
 
     mixture = GatedRegressionMixture(
-        gate_classifier=LogisticRegression(max_iter=500), low_regressor=LinearRegression(), high_regressor=LinearRegression(),
-        threshold=0.5, use_gate_feature=True, n_splits=5, random_state=0,
+        gate_classifier=LogisticRegression(max_iter=500),
+        low_regressor=LinearRegression(),
+        high_regressor=LinearRegression(),
+        threshold=0.5,
+        use_gate_feature=True,
+        n_splits=5,
+        random_state=0,
     )
     mixture.fit(X_train, y_train, is_outlier[train_idx])
     mse_mixture = mean_squared_error(y_test, mixture.predict(X_test))
 
     improvement = 1.0 - mse_mixture / mse_baseline
-    assert improvement > 0.15, f"expected >15% MSE reduction vs. a single global regressor, got {improvement:.4f} (baseline={mse_baseline:.4f}, mixture={mse_mixture:.4f})"
+    assert improvement > 0.15, (
+        f"expected >15% MSE reduction vs. a single global regressor, got {improvement:.4f} (baseline={mse_baseline:.4f}, mixture={mse_mixture:.4f})"
+    )
 
 
 def test_gated_regression_mixture_gate_feature_ablation_improves_high_branch():
@@ -62,15 +70,25 @@ def test_gated_regression_mixture_gate_feature_ablation_improves_high_branch():
     y_train, y_test = y[train_idx], y[test_idx]
 
     mixture_with_feature = GatedRegressionMixture(
-        gate_classifier=LogisticRegression(max_iter=500), low_regressor=LinearRegression(), high_regressor=LinearRegression(),
-        threshold=0.5, use_gate_feature=True, n_splits=5, random_state=0,
+        gate_classifier=LogisticRegression(max_iter=500),
+        low_regressor=LinearRegression(),
+        high_regressor=LinearRegression(),
+        threshold=0.5,
+        use_gate_feature=True,
+        n_splits=5,
+        random_state=0,
     )
     mixture_with_feature.fit(X_train, y_train, is_outlier[train_idx])
     mse_with = mean_squared_error(y_test, mixture_with_feature.predict(X_test))
 
     mixture_without_feature = GatedRegressionMixture(
-        gate_classifier=LogisticRegression(max_iter=500), low_regressor=LinearRegression(), high_regressor=LinearRegression(),
-        threshold=0.5, use_gate_feature=False, n_splits=5, random_state=0,
+        gate_classifier=LogisticRegression(max_iter=500),
+        low_regressor=LinearRegression(),
+        high_regressor=LinearRegression(),
+        threshold=0.5,
+        use_gate_feature=False,
+        n_splits=5,
+        random_state=0,
     )
     mixture_without_feature.fit(X_train, y_train, is_outlier[train_idx])
     mse_without = mean_squared_error(y_test, mixture_without_feature.predict(X_test))
@@ -104,9 +122,15 @@ def test_biz_val_gated_regression_mixture_soft_routing_reduces_boundary_error():
     y_train, y_test = y[train_idx], y[test_idx]
 
     mixture = GatedRegressionMixture(
-        gate_classifier=LogisticRegression(max_iter=500), low_regressor=LinearRegression(), high_regressor=LinearRegression(),
-        threshold=0.5, use_gate_feature=False, n_splits=5, random_state=0,
-        soft_routing=False, soft_routing_bandwidth=0.15,
+        gate_classifier=LogisticRegression(max_iter=500),
+        low_regressor=LinearRegression(),
+        high_regressor=LinearRegression(),
+        threshold=0.5,
+        use_gate_feature=False,
+        n_splits=5,
+        random_state=0,
+        soft_routing=False,
+        soft_routing_bandwidth=0.15,
     )
     mixture.fit(X_train, y_train, is_high[train_idx])
 
@@ -123,8 +147,7 @@ def test_biz_val_gated_regression_mixture_soft_routing_reduces_boundary_error():
 
     improvement = 1.0 - mse_soft_band / mse_hard_band
     assert improvement > 0.05, (
-        f"expected >5% boundary-band MSE reduction from soft routing, got {improvement:.4f} "
-        f"(hard={mse_hard_band:.4f}, soft={mse_soft_band:.4f})"
+        f"expected >5% boundary-band MSE reduction from soft routing, got {improvement:.4f} (hard={mse_hard_band:.4f}, soft={mse_soft_band:.4f})"
     )
 
     # Rows OUTSIDE the band must be untouched by soft routing (single-branch hard route either way).
@@ -137,15 +160,26 @@ def test_gated_regression_mixture_soft_routing_default_off_is_bit_identical():
     X, y, is_high = _make_boundary_transition_dataset(500, seed=5)
 
     m_explicit_off = GatedRegressionMixture(
-        gate_classifier=LogisticRegression(max_iter=500), low_regressor=LinearRegression(), high_regressor=LinearRegression(),
-        threshold=0.5, use_gate_feature=False, n_splits=3, random_state=0, soft_routing=False,
+        gate_classifier=LogisticRegression(max_iter=500),
+        low_regressor=LinearRegression(),
+        high_regressor=LinearRegression(),
+        threshold=0.5,
+        use_gate_feature=False,
+        n_splits=3,
+        random_state=0,
+        soft_routing=False,
     )
     m_explicit_off.fit(X, y, is_high)
     pred_explicit_off = m_explicit_off.predict(X)
 
     m_default = GatedRegressionMixture(
-        gate_classifier=LogisticRegression(max_iter=500), low_regressor=LinearRegression(), high_regressor=LinearRegression(),
-        threshold=0.5, use_gate_feature=False, n_splits=3, random_state=0,
+        gate_classifier=LogisticRegression(max_iter=500),
+        low_regressor=LinearRegression(),
+        high_regressor=LinearRegression(),
+        threshold=0.5,
+        use_gate_feature=False,
+        n_splits=3,
+        random_state=0,
     )
     m_default.fit(X, y, is_high)
     pred_default = m_default.predict(X)
@@ -161,13 +195,21 @@ def test_gated_regression_mixture_branch_sample_weight_changes_fit():
 
     X, y, is_outlier = _make_outlier_severity_dataset(500, seed=2)
     m1 = GatedRegressionMixture(
-        gate_classifier=LogisticRegression(max_iter=500), low_regressor=Ridge(alpha=5.0), high_regressor=Ridge(alpha=5.0),
-        branch_sample_weight={"low": 1.0, "high": 1.0}, n_splits=3, random_state=0,
+        gate_classifier=LogisticRegression(max_iter=500),
+        low_regressor=Ridge(alpha=5.0),
+        high_regressor=Ridge(alpha=5.0),
+        branch_sample_weight={"low": 1.0, "high": 1.0},
+        n_splits=3,
+        random_state=0,
     )
     m1.fit(X, y, is_outlier)
     m2 = GatedRegressionMixture(
-        gate_classifier=LogisticRegression(max_iter=500), low_regressor=Ridge(alpha=5.0), high_regressor=Ridge(alpha=5.0),
-        branch_sample_weight={"low": 0.1, "high": 1.0}, n_splits=3, random_state=0,
+        gate_classifier=LogisticRegression(max_iter=500),
+        low_regressor=Ridge(alpha=5.0),
+        high_regressor=Ridge(alpha=5.0),
+        branch_sample_weight={"low": 0.1, "high": 1.0},
+        n_splits=3,
+        random_state=0,
     )
     m2.fit(X, y, is_outlier)
     if "low" in m1.branch_models_ and "low" in m2.branch_models_:

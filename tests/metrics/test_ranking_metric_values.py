@@ -7,6 +7,7 @@ non-contiguous / shuffled group ids, tied-score determinism, and the batched sum
 Expected numbers are computed by hand (and cross-checked against sklearn where the linear/exponential
 gains coincide, i.e. binary relevance).
 """
+
 from __future__ import annotations
 
 import math
@@ -128,9 +129,7 @@ def test_all_metrics_nan_when_no_relevant_items():
 def test_group_ids_none_equals_single_explicit_group():
     y = np.array([1.0, 0.0, 1.0, 0.0])
     s = np.array([0.4, 0.3, 0.2, 0.1])
-    assert ndcg_at_k(y, s, None, k=5) == pytest.approx(
-        ndcg_at_k(y, s, np.zeros(4), k=5), abs=1e-12
-    )
+    assert ndcg_at_k(y, s, None, k=5) == pytest.approx(ndcg_at_k(y, s, np.zeros(4), k=5), abs=1e-12)
 
 
 def test_noncontiguous_and_shuffled_group_ids_group_by_value():

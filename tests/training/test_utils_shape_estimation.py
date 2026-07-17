@@ -5,20 +5,20 @@ Targets:
 - create_split_dataframes
 - drop_columns_from_dataframe
 """
+
 from __future__ import annotations
 
-import math
 
 import numpy as np
 import pandas as pd
 import polars as pl
-import pytest
 
 from mlframe.training.utils import estimate_df_size_mb, drop_columns_from_dataframe
 from mlframe.training.preprocessing import create_split_dataframes
 
 
 # ----- estimate_df_size_mb -----
+
 
 def test_estimate_pandas_nonneg():
     df = pd.DataFrame({"a": np.arange(1000), "b": np.random.default_rng(0).standard_normal(1000)})
@@ -45,6 +45,7 @@ def test_estimate_empty_pandas():
 
 # ----- create_split_dataframes -----
 
+
 def test_create_split_pandas():
     df = pd.DataFrame({"x": np.arange(100), "y": np.arange(100, 200)})
     tr_idx = np.arange(0, 60)
@@ -58,9 +59,7 @@ def test_create_split_pandas():
 
 def test_create_split_polars():
     df = pl.DataFrame({"x": list(range(50))})
-    tr, va, te = create_split_dataframes(
-        df, np.arange(0, 30), np.arange(30, 40), np.arange(40, 50)
-    )
+    tr, va, te = create_split_dataframes(df, np.arange(0, 30), np.arange(30, 40), np.arange(40, 50))
     assert tr.height == 30 and va.height == 10 and te.height == 10
 
 
@@ -74,12 +73,13 @@ def test_create_split_empty_val_test_pandas():
 
 def test_create_split_empty_val_test_polars():
     df = pl.DataFrame({"x": list(range(10))})
-    tr, va, te = create_split_dataframes(df, np.arange(10), np.array([], dtype=int), np.array([], dtype=int))
+    tr, va, _te = create_split_dataframes(df, np.arange(10), np.array([], dtype=int), np.array([], dtype=int))
     assert tr.height == 10
     assert isinstance(va, pl.DataFrame) and va.is_empty()
 
 
 # ----- drop_columns_from_dataframe -----
+
 
 def test_drop_cols_pandas_both_args():
     df = pd.DataFrame({"a": [1], "b": [2], "c": [3], "d": [4]})
@@ -110,7 +110,5 @@ def test_drop_cols_both_none_returns_df_unchanged():
 
 def test_drop_cols_duplicate_names_deduped():
     df = pd.DataFrame({"a": [1], "b": [2]})
-    out = drop_columns_from_dataframe(
-        df, additional_columns_to_drop=["a", "a"], config_drop_columns=["a"], verbose=0
-    )
+    out = drop_columns_from_dataframe(df, additional_columns_to_drop=["a", "a"], config_drop_columns=["a"], verbose=0)
     assert list(out.columns) == ["b"]

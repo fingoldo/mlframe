@@ -6,6 +6,7 @@ independent folds) at the same window/gap/test configuration -- the writeup's st
 Win 2: ``cv_stability_check`` correctly separates a smooth, cross-seed-consistent hyperparameter curve from a
 jagged, seed-inconsistent one -- i.e. it should actually catch noise-chasing before a real deployment does.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -29,7 +30,7 @@ def test_biz_val_overlapping_walk_forward_cv_lowers_estimate_variance():
 
     assert overlapping.get_n_splits(X=np.zeros(n_samples)) > non_overlapping.get_n_splits(X=np.zeros(n_samples))
 
-    rng = np.random.default_rng(0)
+    np.random.default_rng(0)
     overlap_estimates = []
     non_overlap_estimates = []
     for trial in range(60):
@@ -42,8 +43,7 @@ def test_biz_val_overlapping_walk_forward_cv_lowers_estimate_variance():
     non_overlap_std = float(np.std(non_overlap_estimates, ddof=1))
 
     assert overlap_std < non_overlap_std, (
-        f"overlapping-window CV should give a lower-variance mean-metric estimate: "
-        f"overlap_std={overlap_std:.4f} non_overlap_std={non_overlap_std:.4f}"
+        f"overlapping-window CV should give a lower-variance mean-metric estimate: overlap_std={overlap_std:.4f} non_overlap_std={non_overlap_std:.4f}"
     )
 
 
@@ -103,7 +103,12 @@ def test_biz_val_overlapping_walk_forward_cv_adaptive_gap_avoids_leakage_inflate
     window_length, step, test_length, small_gap = 200, 40, 10, 1
     fixed_splitter = OverlappingWalkForwardCV(window_length=window_length, step=step, gap=small_gap, test_length=test_length)
     adaptive_splitter = OverlappingWalkForwardCV(
-        window_length=window_length, step=step, gap=small_gap, test_length=test_length, adaptive_gap=True, autocorr_threshold=0.2,
+        window_length=window_length,
+        step=step,
+        gap=small_gap,
+        test_length=test_length,
+        adaptive_gap=True,
+        autocorr_threshold=0.2,
     )
 
     fixed_gap_score = _persistence_mae_cv(fixed_splitter, y)

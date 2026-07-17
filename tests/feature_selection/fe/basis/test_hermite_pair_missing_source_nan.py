@@ -5,6 +5,7 @@ absent from the transform frame. `_extract_column` then raised (pandas KeyError 
 crashing the whole transform (fuzz c0006). The mrmr validate-transform contract NaN-degrades chained-capable kinds
 for exactly this case; `_apply_hermite_pair` now mirrors it.
 """
+
 from __future__ import annotations
 
 import numpy as np

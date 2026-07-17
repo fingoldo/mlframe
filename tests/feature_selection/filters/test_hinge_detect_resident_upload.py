@@ -4,6 +4,7 @@ FIT-CONSTANT target ``y`` via a raw ``cp.asarray`` on every candidate column cal
 repeated calls on the SAME target share ONE device buffer.
 
 Skips when cupy is unavailable (CI without a GPU)."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -15,9 +16,15 @@ from mlframe.feature_selection.filters._hinge_detect_gpu_resident import detect_
 from mlframe.feature_selection.filters._fe_resident_operands import clear_fe_resident_operands
 
 _KW = dict(
-    max_breakpoints=1, min_heldout_r2_uplift=0.01, precheck_qs=(0.25, 0.5, 0.75),
-    precheck_min_sse_drop=0.0, cand_q_lo=0.1, cand_q_hi=0.9, n_candidates=16,
-    min_rows=100, min_seg_rows=20,
+    max_breakpoints=1,
+    min_heldout_r2_uplift=0.01,
+    precheck_qs=(0.25, 0.5, 0.75),
+    precheck_min_sse_drop=0.0,
+    cand_q_lo=0.1,
+    cand_q_hi=0.9,
+    n_candidates=16,
+    min_rows=100,
+    min_seg_rows=20,
 )
 
 

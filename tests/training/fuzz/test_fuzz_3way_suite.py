@@ -105,13 +105,10 @@ def _fuzz3way_cleanup():
         import matplotlib.pyplot as plt
 
         plt.close("all")
-    except Exception:
+    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
         pass
     try:
         from mlframe.training import (
-            FeatureSelectionConfig,
-            OutlierDetectionConfig,
-            OutputConfig,
             trainer as _tr,
         )
 
@@ -119,7 +116,7 @@ def _fuzz3way_cleanup():
             cache = getattr(_tr, attr, None)
             if hasattr(cache, "clear"):
                 cache.clear()
-    except Exception:
+    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
         pass
     import gc
 
@@ -248,7 +245,4 @@ def test_3way_enumerator_covers_all_triples():
     # Allow up to 0.1% uncovered (some triples can be unreachable due to
     # canonical-key dedup / model-count interactions).
     tolerance = max(1, int(len(required) * 0.001))
-    assert len(missing) <= tolerance, (
-        f"3-way coverage regressed: {len(missing)} triples uncovered "
-        f"(tolerance {tolerance}). First 5: {list(missing)[:5]}"
-    )
+    assert len(missing) <= tolerance, f"3-way coverage regressed: {len(missing)} triples uncovered (tolerance {tolerance}). First 5: {list(missing)[:5]}"

@@ -9,6 +9,7 @@ category is close in behavior to the dominant train category (a realistic real-w
 variant of a common category) -- this test confirms mode-replacement beats naive global-mean fallback on such
 a synthetic.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -46,7 +47,9 @@ def test_biz_val_unseen_category_imputer_beats_global_mean_fallback():
     pred_mode = np.array([enc.get(c, global_mean) for c in test_mapped["cat"]])
     rmse_mode = float(np.sqrt(np.mean((pred_mode - test_y) ** 2)))
 
-    assert rmse_mode < rmse_sentinel * 0.75, f"expected mode-replacement to beat global-mean-fallback by >=25% RMSE, got mode={rmse_mode:.4f} sentinel={rmse_sentinel:.4f}"
+    assert rmse_mode < rmse_sentinel * 0.75, (
+        f"expected mode-replacement to beat global-mean-fallback by >=25% RMSE, got mode={rmse_mode:.4f} sentinel={rmse_sentinel:.4f}"
+    )
 
 
 def _make_non_dominant_category_data(n_train: int, n_test: int, seed: int):
@@ -80,7 +83,9 @@ def test_biz_val_unseen_category_imputer_nearest_beats_mode_for_non_dominant_uns
     pred_nearest = np.array([enc[c] for c in test_nearest["cat"]])
     rmse_nearest = float(np.sqrt(np.mean((pred_nearest - test_y) ** 2)))
 
-    assert rmse_nearest < rmse_mode * 0.6, f"expected nearest-replacement to beat mode-replacement by >=40% RMSE, got nearest={rmse_nearest:.4f} mode={rmse_mode:.4f}"
+    assert rmse_nearest < rmse_mode * 0.6, (
+        f"expected nearest-replacement to beat mode-replacement by >=40% RMSE, got nearest={rmse_nearest:.4f} mode={rmse_mode:.4f}"
+    )
 
 
 def test_unseen_category_imputer_maps_rare_and_unseen_to_train_mode():
@@ -143,4 +148,6 @@ def test_biz_val_unseen_category_imputer_fallback_stats_flags_drifted_column():
 
     assert stable_rate < 0.02, f"expected the stable column's fallback rate near 0, got {stable_rate:.4f}"
     assert drifted_rate > 0.35, f"expected the drifted column's fallback rate to clearly exceed an alert threshold, got {drifted_rate:.4f}"
-    assert drifted_rate > stable_rate * 15, f"expected drift to be starkly distinguishable from the stable baseline, got drifted={drifted_rate:.4f} stable={stable_rate:.4f}"
+    assert drifted_rate > stable_rate * 15, (
+        f"expected drift to be starkly distinguishable from the stable baseline, got drifted={drifted_rate:.4f} stable={stable_rate:.4f}"
+    )

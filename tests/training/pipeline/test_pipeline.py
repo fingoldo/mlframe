@@ -25,13 +25,13 @@ from mlframe.training.configs import PreprocessingBackendConfig
 from unittest.mock import patch
 
 # Deterministic RNG (single seed per module).
-_W53_RNG = __import__('numpy').random.default_rng(0)
-
+_W53_RNG = __import__("numpy").random.default_rng(0)
 
 
 # =============================================================================
 # Parametrized Tests for Categorical Feature Detection
 # =============================================================================
+
 
 class TestCategoricalFeatureDetection:
     """Parametrized tests ensuring cat_features is detected across all DataFrame/config combinations.
@@ -44,31 +44,37 @@ class TestCategoricalFeatureDetection:
     def categorical_data_pandas(self):
         """Create pandas DataFrame with categorical column."""
         np.random.seed(42)
-        return pd.DataFrame({
-            'feature_0': np.random.randn(500),
-            'feature_1': np.random.randn(500),
-            'cat_feature': _W53_RNG.choice(['A', 'B', 'C'], 500),
-        })
+        return pd.DataFrame(
+            {
+                "feature_0": np.random.randn(500),
+                "feature_1": np.random.randn(500),
+                "cat_feature": _W53_RNG.choice(["A", "B", "C"], 500),
+            }
+        )
 
     @pytest.fixture
     def categorical_data_polars_categorical(self):
         """Create Polars DataFrame with pl.Categorical column."""
         np.random.seed(42)
-        return pl.DataFrame({
-            'feature_0': np.random.randn(500),
-            'feature_1': np.random.randn(500),
-            'cat_feature': _W53_RNG.choice(['A', 'B', 'C'], 500),
-        }).with_columns(pl.col('cat_feature').cast(pl.Categorical))
+        return pl.DataFrame(
+            {
+                "feature_0": np.random.randn(500),
+                "feature_1": np.random.randn(500),
+                "cat_feature": _W53_RNG.choice(["A", "B", "C"], 500),
+            }
+        ).with_columns(pl.col("cat_feature").cast(pl.Categorical))
 
     @pytest.fixture
     def categorical_data_polars_string(self):
         """Create Polars DataFrame with pl.String column."""
         np.random.seed(42)
-        return pl.DataFrame({
-            'feature_0': np.random.randn(500),
-            'feature_1': np.random.randn(500),
-            'cat_feature': _W53_RNG.choice(['A', 'B', 'C'], 500),
-        })
+        return pl.DataFrame(
+            {
+                "feature_0": np.random.randn(500),
+                "feature_1": np.random.randn(500),
+                "cat_feature": _W53_RNG.choice(["A", "B", "C"], 500),
+            }
+        )
 
     @pytest.mark.parametrize("prefer_polarsds", [False, True])
     def test_polars_categorical_detection(self, categorical_data_polars_categorical, prefer_polarsds):
@@ -84,7 +90,7 @@ class TestCategoricalFeatureDetection:
 
         config = PreprocessingBackendConfig(prefer_polarsds=prefer_polarsds)
 
-        train_transformed, val_transformed, test_transformed, pipeline, cat_features = fit_and_transform_pipeline(
+        _train_transformed, _val_transformed, _test_transformed, _pipeline, cat_features = fit_and_transform_pipeline(
             train_df=train_df,
             val_df=val_df,
             test_df=None,
@@ -93,10 +99,7 @@ class TestCategoricalFeatureDetection:
             verbose=0,
         )
 
-        assert 'cat_feature' in cat_features, (
-            f"Polars Categorical column not detected with prefer_polarsds={prefer_polarsds}. "
-            f"Got cat_features={cat_features}"
-        )
+        assert "cat_feature" in cat_features, f"Polars Categorical column not detected with prefer_polarsds={prefer_polarsds}. Got cat_features={cat_features}"
 
     @pytest.mark.parametrize("prefer_polarsds", [False, True])
     def test_polars_string_detection(self, categorical_data_polars_string, prefer_polarsds):
@@ -108,7 +111,7 @@ class TestCategoricalFeatureDetection:
 
         config = PreprocessingBackendConfig(prefer_polarsds=prefer_polarsds)
 
-        train_transformed, val_transformed, test_transformed, pipeline, cat_features = fit_and_transform_pipeline(
+        _train_transformed, _val_transformed, _test_transformed, _pipeline, cat_features = fit_and_transform_pipeline(
             train_df=train_df,
             val_df=val_df,
             test_df=None,
@@ -117,10 +120,7 @@ class TestCategoricalFeatureDetection:
             verbose=0,
         )
 
-        assert 'cat_feature' in cat_features, (
-            f"Polars String column not detected with prefer_polarsds={prefer_polarsds}. "
-            f"Got cat_features={cat_features}"
-        )
+        assert "cat_feature" in cat_features, f"Polars String column not detected with prefer_polarsds={prefer_polarsds}. Got cat_features={cat_features}"
 
     def test_pandas_categorical_detection(self, categorical_data_pandas):
         """Test that pandas object columns are detected as categorical."""
@@ -133,7 +133,7 @@ class TestCategoricalFeatureDetection:
         # When encoding is "ordinal" or "onehot", cat_features gets cleared since columns become numeric
         config = PreprocessingBackendConfig(prefer_polarsds=False, categorical_encoding="none")
 
-        train_transformed, val_transformed, test_transformed, pipeline, cat_features = fit_and_transform_pipeline(
+        _train_transformed, _val_transformed, _test_transformed, _pipeline, cat_features = fit_and_transform_pipeline(
             train_df=train_df,
             val_df=val_df,
             test_df=None,
@@ -142,9 +142,7 @@ class TestCategoricalFeatureDetection:
             verbose=0,
         )
 
-        assert 'cat_feature' in cat_features, (
-            f"Pandas object column not detected. Got cat_features={cat_features}"
-        )
+        assert "cat_feature" in cat_features, f"Pandas object column not detected. Got cat_features={cat_features}"
 
     def test_polars_with_mocked_polarsds_unavailable(self, categorical_data_polars_categorical):
         """Test that cat_features is still detected when polars-ds import fails.
@@ -160,8 +158,8 @@ class TestCategoricalFeatureDetection:
         config = PreprocessingBackendConfig(prefer_polarsds=True)
 
         # Mock polars-ds as unavailable
-        with patch.dict('sys.modules', {'polars_ds': None, 'polars_ds.pipeline': None}):
-            train_transformed, val_transformed, test_transformed, pipeline, cat_features = fit_and_transform_pipeline(
+        with patch.dict("sys.modules", {"polars_ds": None, "polars_ds.pipeline": None}):
+            _train_transformed, _val_transformed, _test_transformed, _pipeline, cat_features = fit_and_transform_pipeline(
                 train_df=train_df,
                 val_df=val_df,
                 test_df=None,
@@ -171,9 +169,8 @@ class TestCategoricalFeatureDetection:
             )
 
         # Even with polars-ds unavailable, cat_features must be detected
-        assert 'cat_feature' in cat_features, (
-            f"Categorical features not detected when polars-ds is unavailable. "
-            f"Got cat_features={cat_features}. This is a critical bug for CatBoost."
+        assert "cat_feature" in cat_features, (
+            f"Categorical features not detected when polars-ds is unavailable. Got cat_features={cat_features}. This is a critical bug for CatBoost."
         )
 
 
@@ -182,18 +179,18 @@ class TestFitAndTransformPipeline:
 
     def test_fit_transform_basic_pandas(self, sample_regression_data):
         """Test basic pipeline fit and transform with pandas."""
-        df, feature_names, y = sample_regression_data
+        df, feature_names, _y = sample_regression_data
 
         # Split data
         train_size = int(0.7 * len(df))
         train_df = df[feature_names].iloc[:train_size]
-        val_df = df[feature_names].iloc[train_size:train_size + 100]
-        test_df = df[feature_names].iloc[train_size + 100:]
+        val_df = df[feature_names].iloc[train_size : train_size + 100]
+        test_df = df[feature_names].iloc[train_size + 100 :]
 
         config = PreprocessingBackendConfig(prefer_polarsds=False)
 
         # Fit and transform
-        train_transformed, val_transformed, test_transformed, pipeline, cat_features = fit_and_transform_pipeline(
+        train_transformed, val_transformed, test_transformed, _pipeline, _cat_features = fit_and_transform_pipeline(
             train_df=train_df,
             val_df=val_df,
             test_df=test_df,
@@ -212,18 +209,18 @@ class TestFitAndTransformPipeline:
 
     def test_fit_transform_basic_polars(self, sample_polars_data):
         """Test basic pipeline fit and transform with Polars."""
-        pl_df, feature_names, y = sample_polars_data
+        pl_df, feature_names, _y = sample_polars_data
 
         # Split data
         train_size = int(0.7 * len(pl_df))
         train_df = pl_df[feature_names][:train_size]
-        val_df = pl_df[feature_names][train_size:train_size + 100]
-        test_df = pl_df[feature_names][train_size + 100:]
+        val_df = pl_df[feature_names][train_size : train_size + 100]
+        test_df = pl_df[feature_names][train_size + 100 :]
 
         config = PreprocessingBackendConfig(prefer_polarsds=False)
 
         # Fit and transform
-        train_transformed, val_transformed, test_transformed, pipeline, cat_features = fit_and_transform_pipeline(
+        train_transformed, val_transformed, test_transformed, _pipeline, _cat_features = fit_and_transform_pipeline(
             train_df=train_df,
             val_df=val_df,
             test_df=test_df,
@@ -241,11 +238,13 @@ class TestFitAndTransformPipeline:
         """Test pipeline with categorical features."""
         # Create data with categorical columns
         np.random.seed(42)
-        df = pd.DataFrame({
-            'feature_0': np.random.randn(500),
-            'feature_1': np.random.randn(500),
-            'cat_feature': _W53_RNG.choice(['A', 'B', 'C'], 500),
-        })
+        df = pd.DataFrame(
+            {
+                "feature_0": np.random.randn(500),
+                "feature_1": np.random.randn(500),
+                "cat_feature": _W53_RNG.choice(["A", "B", "C"], 500),
+            }
+        )
 
         train_size = int(0.7 * len(df))
         train_df = df.iloc[:train_size]
@@ -254,7 +253,7 @@ class TestFitAndTransformPipeline:
         config = PreprocessingBackendConfig(prefer_polarsds=False, categorical_encoding="none")
 
         # Fit and transform
-        train_transformed, val_transformed, test_transformed, pipeline, cat_features = fit_and_transform_pipeline(
+        _train_transformed, _val_transformed, _test_transformed, _pipeline, cat_features = fit_and_transform_pipeline(
             train_df=train_df,
             val_df=val_df,
             test_df=None,
@@ -264,7 +263,7 @@ class TestFitAndTransformPipeline:
         )
 
         # Verify cat_features list (preserved when categorical_encoding=None for CatBoost)
-        assert 'cat_feature' in cat_features
+        assert "cat_feature" in cat_features
         assert len(cat_features) == 1
 
     def test_fit_pipeline_with_polars_categorical_no_pipeline(self):
@@ -278,13 +277,13 @@ class TestFitAndTransformPipeline:
         np.random.seed(42)
 
         # Create Polars DataFrame with Categorical column
-        pl_df = pl.DataFrame({
-            'feature_0': np.random.randn(500),
-            'feature_1': np.random.randn(500),
-            'cat_feature': _W53_RNG.choice(['A', 'B', 'C'], 500),
-        }).with_columns(
-            pl.col('cat_feature').cast(pl.Categorical)
-        )
+        pl_df = pl.DataFrame(
+            {
+                "feature_0": np.random.randn(500),
+                "feature_1": np.random.randn(500),
+                "cat_feature": _W53_RNG.choice(["A", "B", "C"], 500),
+            }
+        ).with_columns(pl.col("cat_feature").cast(pl.Categorical))
 
         train_size = int(0.7 * len(pl_df))
         train_df = pl_df[:train_size]
@@ -293,7 +292,7 @@ class TestFitAndTransformPipeline:
         config = PreprocessingBackendConfig(prefer_polarsds=False)
 
         # Fit and transform
-        train_transformed, val_transformed, test_transformed, pipeline, cat_features = fit_and_transform_pipeline(
+        _train_transformed, _val_transformed, _test_transformed, _pipeline, cat_features = fit_and_transform_pipeline(
             train_df=train_df,
             val_df=val_df,
             test_df=None,
@@ -303,9 +302,8 @@ class TestFitAndTransformPipeline:
         )
 
         # CRITICAL: cat_features must be detected from Polars Categorical columns
-        assert 'cat_feature' in cat_features, (
-            f"Expected 'cat_feature' in cat_features, got {cat_features}. "
-            "Polars Categorical columns must be detected when prefer_polarsds=False."
+        assert "cat_feature" in cat_features, (
+            f"Expected 'cat_feature' in cat_features, got {cat_features}. Polars Categorical columns must be detected when prefer_polarsds=False."
         )
         assert len(cat_features) == 1
 
@@ -318,14 +316,16 @@ class TestFitAndTransformPipeline:
         np.random.seed(42)
 
         # Create Polars DataFrame with String column (not explicitly cast to Categorical)
-        pl_df = pl.DataFrame({
-            'feature_0': np.random.randn(500),
-            'feature_1': np.random.randn(500),
-            'string_feature': _W53_RNG.choice(['X', 'Y', 'Z'], 500),
-        })
+        pl_df = pl.DataFrame(
+            {
+                "feature_0": np.random.randn(500),
+                "feature_1": np.random.randn(500),
+                "string_feature": _W53_RNG.choice(["X", "Y", "Z"], 500),
+            }
+        )
 
         # Verify it's String/Utf8 dtype (not Categorical)
-        assert pl_df['string_feature'].dtype in (pl.Utf8, pl.String)
+        assert pl_df["string_feature"].dtype in (pl.Utf8, pl.String)
 
         train_size = int(0.7 * len(pl_df))
         train_df = pl_df[:train_size]
@@ -334,7 +334,7 @@ class TestFitAndTransformPipeline:
         config = PreprocessingBackendConfig(prefer_polarsds=False)
 
         # Fit and transform
-        train_transformed, val_transformed, test_transformed, pipeline, cat_features = fit_and_transform_pipeline(
+        _train_transformed, _val_transformed, _test_transformed, _pipeline, cat_features = fit_and_transform_pipeline(
             train_df=train_df,
             val_df=val_df,
             test_df=None,
@@ -344,21 +344,21 @@ class TestFitAndTransformPipeline:
         )
 
         # String columns should also be detected as categorical
-        assert 'string_feature' in cat_features, (
+        assert "string_feature" in cat_features, (
             f"Expected 'string_feature' in cat_features, got {cat_features}. "
             "Polars String/Utf8 columns must be detected as categorical when prefer_polarsds=False."
         )
 
     def test_fit_pipeline_with_no_validation_set(self, sample_regression_data):
         """Test pipeline with no validation set."""
-        df, feature_names, y = sample_regression_data
+        df, feature_names, _y = sample_regression_data
 
         train_df = df[feature_names].iloc[:700]
 
         config = PreprocessingBackendConfig(prefer_polarsds=False)
 
         # Fit and transform
-        train_transformed, val_transformed, test_transformed, pipeline, cat_features = fit_and_transform_pipeline(
+        train_transformed, val_transformed, test_transformed, _pipeline, _cat_features = fit_and_transform_pipeline(
             train_df=train_df,
             val_df=None,
             test_df=None,
@@ -374,14 +374,14 @@ class TestFitAndTransformPipeline:
 
     def test_fit_pipeline_with_float32_conversion(self, sample_regression_data):
         """Test pipeline with float32 conversion."""
-        df, feature_names, y = sample_regression_data
+        df, feature_names, _y = sample_regression_data
 
         train_df = df[feature_names].iloc[:700]
 
         config = PreprocessingBackendConfig(prefer_polarsds=False)
 
         # Fit and transform with float32 conversion
-        train_transformed, val_transformed, test_transformed, pipeline, cat_features = fit_and_transform_pipeline(
+        train_transformed, _val_transformed, _test_transformed, _pipeline, _cat_features = fit_and_transform_pipeline(
             train_df=train_df,
             val_df=None,
             test_df=None,
@@ -403,32 +403,36 @@ class TestPrepareDfForCatboost:
     def test_prepare_df_for_catboost_with_object_columns(self):
         """Test preparing DataFrame with object columns for CatBoost."""
         # Create DataFrame with object/categorical columns
-        df = pd.DataFrame({
-            'feature_0': np.random.randn(100),
-            'feature_1': np.random.randn(100),
-            'cat_feature': _W53_RNG.choice(['A', 'B', 'C'], 100),
-        })
+        df = pd.DataFrame(
+            {
+                "feature_0": np.random.randn(100),
+                "feature_1": np.random.randn(100),
+                "cat_feature": _W53_RNG.choice(["A", "B", "C"], 100),
+            }
+        )
 
-        cat_features = ['cat_feature']
+        cat_features = ["cat_feature"]
 
         # Prepare for CatBoost
         prepare_df_for_catboost(df=df, cat_features=cat_features)
 
         # Verify cat_feature is now categorical
-        assert isinstance(df['cat_feature'].dtype, pd.CategoricalDtype)
+        assert isinstance(df["cat_feature"].dtype, pd.CategoricalDtype)
 
     def test_prepare_df_for_catboost_no_cat_features(self):
         """Test preparing DataFrame with no categorical features."""
-        df = pd.DataFrame({
-            'feature_0': np.random.randn(100),
-            'feature_1': np.random.randn(100),
-        })
+        df = pd.DataFrame(
+            {
+                "feature_0": np.random.randn(100),
+                "feature_1": np.random.randn(100),
+            }
+        )
 
         # Should not fail with empty cat_features
         prepare_df_for_catboost(df=df, cat_features=[])
 
         # Verify dtypes unchanged
-        assert df['feature_0'].dtype == np.float64
+        assert df["feature_0"].dtype == np.float64
 
 
 class TestPipelineEdgeCases:
@@ -437,14 +441,14 @@ class TestPipelineEdgeCases:
     def test_pipeline_with_empty_dataframe(self):
         """Test pipeline with empty DataFrame."""
         # Create empty DataFrame
-        df = pd.DataFrame(columns=['feature_0', 'feature_1'])
+        df = pd.DataFrame(columns=["feature_0", "feature_1"])
 
         config = PreprocessingBackendConfig(prefer_polarsds=False)
 
         # This might raise an error or handle gracefully
         # depending on implementation
         try:
-            train_transformed, val_transformed, test_transformed, pipeline, cat_features = fit_and_transform_pipeline(
+            train_transformed, _val_transformed, _test_transformed, _pipeline, _cat_features = fit_and_transform_pipeline(
                 train_df=df,
                 val_df=None,
                 test_df=None,
@@ -460,15 +464,17 @@ class TestPipelineEdgeCases:
 
     def test_pipeline_with_single_row(self):
         """Test pipeline with single row DataFrame."""
-        df = pd.DataFrame({
-            'feature_0': [1.0],
-            'feature_1': [2.0],
-        })
+        df = pd.DataFrame(
+            {
+                "feature_0": [1.0],
+                "feature_1": [2.0],
+            }
+        )
 
         config = PreprocessingBackendConfig(prefer_polarsds=False)
 
         # Fit and transform
-        train_transformed, val_transformed, test_transformed, pipeline, cat_features = fit_and_transform_pipeline(
+        train_transformed, _val_transformed, _test_transformed, _pipeline, _cat_features = fit_and_transform_pipeline(
             train_df=df,
             val_df=None,
             test_df=None,
@@ -486,18 +492,18 @@ class TestPipelineConfigurations:
 
     def test_pipeline_with_different_scaler(self, sample_regression_data):
         """Test pipeline with different scaler configurations."""
-        df, feature_names, y = sample_regression_data
+        df, feature_names, _y = sample_regression_data
 
         train_df = df[feature_names].iloc[:700]
 
         # Test with different scalers (polars-ds supports: standard, min_max, abs_max)
-        for scaler_name in ['standard', 'min_max', 'abs_max']:
+        for scaler_name in ["standard", "min_max", "abs_max"]:
             config = PreprocessingBackendConfig(
                 prefer_polarsds=False,
                 scaler_name=scaler_name,
             )
 
-            train_transformed, val_transformed, test_transformed, pipeline, cat_features = fit_and_transform_pipeline(
+            train_transformed, _val_transformed, _test_transformed, _pipeline, _cat_features = fit_and_transform_pipeline(
                 train_df=train_df,
                 val_df=None,
                 test_df=None,
@@ -511,7 +517,7 @@ class TestPipelineConfigurations:
 
     def test_pipeline_with_different_imputer_strategy(self, sample_regression_data):
         """Test pipeline with different imputer strategies."""
-        df, feature_names, y = sample_regression_data
+        df, feature_names, _y = sample_regression_data
 
         # Add some NaNs
         df_with_nan = df.copy()
@@ -520,13 +526,13 @@ class TestPipelineConfigurations:
         train_df = df_with_nan[feature_names].iloc[:700]
 
         # Test with different imputer strategies
-        for strategy in ['mean', 'median', 'most_frequent']:
+        for strategy in ["mean", "median", "most_frequent"]:
             config = PreprocessingBackendConfig(
                 prefer_polarsds=False,
                 imputer_strategy=strategy,
             )
 
-            train_transformed, val_transformed, test_transformed, pipeline, cat_features = fit_and_transform_pipeline(
+            train_transformed, _val_transformed, _test_transformed, _pipeline, _cat_features = fit_and_transform_pipeline(
                 train_df=train_df,
                 val_df=None,
                 test_df=None,
@@ -559,14 +565,16 @@ class TestCreatePolardsPipeline:
     def test_returns_none_when_polarsds_not_available(self):
         """Test that function returns None when polars-ds is not installed."""
         # Create simple Polars DataFrame
-        pl_df = pl.DataFrame({
-            "feature_0": [1.0, 2.0, 3.0],
-            "feature_1": [4.0, 5.0, 6.0],
-        })
+        pl_df = pl.DataFrame(
+            {
+                "feature_0": [1.0, 2.0, 3.0],
+                "feature_1": [4.0, 5.0, 6.0],
+            }
+        )
         config = PreprocessingBackendConfig()
 
-        with patch.dict('sys.modules', {'polars_ds': None, 'polars_ds.pipeline': None}):
-            result = create_polarsds_pipeline(pl_df, config, verbose=0)
+        with patch.dict("sys.modules", {"polars_ds": None, "polars_ds.pipeline": None}):
+            create_polarsds_pipeline(pl_df, config, verbose=0)
             # Function returns None if polars-ds can't be imported
             # This is expected behavior
 
@@ -591,7 +599,7 @@ class TestCreatePolardsPipeline:
         """Test pipeline creation with different scaling methods."""
         pl_df, feature_names, _ = sample_polars_data
 
-        for scaler_name in ['standard', 'min_max', 'abs_max', 'robust']:
+        for scaler_name in ["standard", "min_max", "abs_max", "robust"]:
             config = PreprocessingBackendConfig(
                 prefer_polarsds=True,
                 scaler_name=scaler_name,
@@ -642,7 +650,7 @@ class TestCreatePolardsPipeline:
 
     def test_pipeline_with_onehot_encoding(self, sample_categorical_data):
         """Test pipeline with one-hot categorical encoding."""
-        df, feature_names, cat_features, _ = sample_categorical_data
+        df, feature_names, _cat_features, _ = sample_categorical_data
 
         # Convert to Polars
         pl_df = pl.from_pandas(df)
@@ -662,9 +670,7 @@ class TestCreatePolardsPipeline:
         # Behavioral: one-hot expands the categorical columns, so the output is wider than the input.
         transformed = pipeline.transform(pl_df.select(feature_names))
         assert len(transformed) == len(pl_df)
-        assert len(transformed.columns) >= len(feature_names), (
-            "one-hot encoding did not widen the frame (no expansion of categorical columns)"
-        )
+        assert len(transformed.columns) >= len(feature_names), "one-hot encoding did not widen the frame (no expansion of categorical columns)"
 
     def test_pipeline_transformation(self, sample_polars_data):
         """Test that created pipeline can transform data."""
@@ -725,10 +731,12 @@ class TestCreatePolardsPipeline:
     def test_pipeline_converts_int_to_float32(self, sample_polars_data):
         """Test that pipeline converts integers to float32."""
         # Create DataFrame with integer columns
-        pl_df = pl.DataFrame({
-            "int_col": [1, 2, 3, 4, 5],
-            "float_col": [1.0, 2.0, 3.0, 4.0, 5.0],
-        })
+        pl_df = pl.DataFrame(
+            {
+                "int_col": [1, 2, 3, 4, 5],
+                "float_col": [1.0, 2.0, 3.0, 4.0, 5.0],
+            }
+        )
 
         config = PreprocessingBackendConfig(
             prefer_polarsds=True,

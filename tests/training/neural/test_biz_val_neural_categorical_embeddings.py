@@ -14,6 +14,7 @@ and the embedding's edge under unseen/rare levels flips sign across seeds (a hig
 ROBUSTLY (it discards the categorical's multi-dim structure by construction), so it is the defensible quantitative-win sensor. Do not re-add a
 one-hot biz_value assertion without a measured, multi-seed regime where the embedding wins reliably.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -38,11 +39,23 @@ def _common():
         model_params={"loss_fn": torch.nn.MSELoss(), "learning_rate": 5e-3},
         network_params={"nlayers": 2, "first_layer_num_neurons": 32, "dropout_prob": 0.0, "activation_function": torch.nn.ReLU},
         datamodule_class=TorchDataModule,
-        datamodule_params={"read_fcn": None, "data_placement_device": None, "features_dtype": torch.float32,
-                            "labels_dtype": torch.float32, "dataloader_params": {"batch_size": 64, "num_workers": 0}},
-        trainer_params={"max_epochs": EPOCHS, "enable_model_summary": False, "default_root_dir": None,
-                        "log_every_n_steps": 1, "devices": 1, "logger": False, "accelerator": "cpu",
-                        "enable_progress_bar": False},
+        datamodule_params={
+            "read_fcn": None,
+            "data_placement_device": None,
+            "features_dtype": torch.float32,
+            "labels_dtype": torch.float32,
+            "dataloader_params": {"batch_size": 64, "num_workers": 0},
+        },
+        trainer_params={
+            "max_epochs": EPOCHS,
+            "enable_model_summary": False,
+            "default_root_dir": None,
+            "log_every_n_steps": 1,
+            "devices": 1,
+            "logger": False,
+            "accelerator": "cpu",
+            "enable_progress_bar": False,
+        },
         random_state=0,
     )
 

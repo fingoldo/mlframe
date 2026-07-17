@@ -11,15 +11,15 @@ Covers:
   - F12 : use_fi_ranking is a no-op when downstream rule is rank-based.
   - F14 : NaN-score FI runs dropped from voting pool by default.
 """
+
 from __future__ import annotations
 
 import logging
 
 import numpy as np
 import pandas as pd
-import pytest
 
-from sklearn.datasets import make_classification, make_regression
+from sklearn.datasets import make_classification
 from sklearn.linear_model import LogisticRegression, Ridge
 from sklearn.ensemble import RandomForestClassifier
 
@@ -72,21 +72,24 @@ class TestFiDecay:
         }
         ordered = ["r0_oldest", "r1_middle", "r2_latest"]
         # No decay
-        out_no = get_actual_features_ranking(
-            fi, VotesAggregation.Borda, fi_missing_policy="worst",
+        get_actual_features_ranking(
+            fi,
+            VotesAggregation.Borda,
+            fi_missing_policy="worst",
             run_weights={k: 1.0 for k in ordered},
         )
         # With heavy decay rate=0.5
         decay = 0.5
         weights = {k: (1.0 - decay) ** (len(ordered) - 1 - i) for i, k in enumerate(ordered)}
         out_decay = get_actual_features_ranking(
-            fi, VotesAggregation.Borda, fi_missing_policy="worst",
+            fi,
+            VotesAggregation.Borda,
+            fi_missing_policy="worst",
             run_weights=weights,
         )
         # Under heavy decay, the latest run (B-favouring) dominates -> B must rank
         # at least as high as A in the decayed output.
-        assert out_decay.index("B") <= out_decay.index("A"), \
-            f"Decay should push B up; got {out_decay}"
+        assert out_decay.index("B") <= out_decay.index("A"), f"Decay should push B up; got {out_decay}"
 
 
 # ----------------------------------------------------------------------- F12
@@ -96,8 +99,11 @@ class TestFiRankingSkipForRankBased:
     def test_borda_skips_pre_ranking(self):
         fi = {"r0": {"a": 1.0, "b": 0.5, "c": 0.1}}
         out_borda = select_appropriate_feature_importances(
-            feature_importances=fi, nfeatures=2, n_original_features=3,
-            use_fi_ranking=True, use_all_fi_runs=True,
+            feature_importances=fi,
+            nfeatures=2,
+            n_original_features=3,
+            use_fi_ranking=True,
+            use_all_fi_runs=True,
             votes_aggregation_method=VotesAggregation.Borda,
         )
         # The single run still has float values, not pct-ranks.
@@ -107,8 +113,11 @@ class TestFiRankingSkipForRankBased:
     def test_am_still_pre_ranks(self):
         fi = {"r0": {"a": 1.0, "b": 0.5, "c": 0.1}}
         out_am = select_appropriate_feature_importances(
-            feature_importances=fi, nfeatures=2, n_original_features=3,
-            use_fi_ranking=True, use_all_fi_runs=True,
+            feature_importances=fi,
+            nfeatures=2,
+            n_original_features=3,
+            use_fi_ranking=True,
+            use_all_fi_runs=True,
             votes_aggregation_method=VotesAggregation.AM,
         )
         # AM should have been pre-ranked -> pct values in [0, 1].
@@ -122,6 +131,7 @@ class TestFiRankingSkipForRankBased:
 class TestCoefScaleSource:
     def test_default_uses_train_data(self):
         from mlframe.feature_selection.wrappers._helpers import get_feature_importances
+
         rng = np.random.default_rng(0)
         n, p = 200, 5
         X_train = rng.normal(scale=np.array([[1.0, 10.0, 0.1, 1.0, 1.0]]), size=(n, p))
@@ -134,25 +144,33 @@ class TestCoefScaleSource:
         # explicitly: 'auto' now resolves to permutation importance on small data (accuracy-first
         # default), which bypasses the coef-rescale branch this test validates.
         fi_train = get_feature_importances(
-            model=model, current_features=list(range(p)),
-            data=X_test, train_data=X_train, target=y_test,
-            importance_getter="coef_", coef_scale_source="train",
+            model=model,
+            current_features=list(range(p)),
+            data=X_test,
+            train_data=X_train,
+            target=y_test,
+            importance_getter="coef_",
+            coef_scale_source="train",
         )
         # Now ask for 'test' rescale.
         fi_test = get_feature_importances(
-            model=model, current_features=list(range(p)),
-            data=X_test, train_data=X_train, target=y_test,
-            importance_getter="coef_", coef_scale_source="test",
+            model=model,
+            current_features=list(range(p)),
+            data=X_test,
+            train_data=X_train,
+            target=y_test,
+            importance_getter="coef_",
+            coef_scale_source="test",
         )
         # Results should differ because train/test stds are different.
-        assert any(abs(fi_train[i] - fi_test[i]) > 1e-9 for i in range(p)), \
-            "coef_scale_source='train' should produce a different rescale than 'test'"
+        assert any(abs(fi_train[i] - fi_test[i]) > 1e-9 for i in range(p)), "coef_scale_source='train' should produce a different rescale than 'test'"
 
 
 class TestMulticlassCoefAggregation:
     def test_max_vs_sum_differs_on_class_specific_feature(self):
         from mlframe.feature_selection.wrappers._helpers import get_feature_importances
         from sklearn.multiclass import OneVsRestClassifier
+
         # 3-class problem with class-specific features
         rng = np.random.default_rng(0)
         n, p = 300, 4
@@ -164,22 +182,32 @@ class TestMulticlassCoefAggregation:
         # OneVsRestClassifier doesn't expose coef_ directly in some sklearn versions;
         # stack manually for the test.
         coefs = np.array([est.coef_.ravel() for est in model.estimators_])
+
         # Wrap into an object that get_feature_importances can read.
         class _Wrap:
             coef_ = coefs
+
         model = _Wrap()
         # Force importance_getter='coef_' explicitly: 'auto' now resolves to permutation importance
         # on small data (accuracy-first default), which bypasses the multiclass coef-aggregation
         # branch this test validates. (The _Wrap object only exposes coef_, not feature_importances_.)
         fi_max = get_feature_importances(
-            model=model, current_features=list(range(p)),
-            data=X, train_data=X, target=y,
-            importance_getter="coef_", multiclass_coef_aggregation="max",
+            model=model,
+            current_features=list(range(p)),
+            data=X,
+            train_data=X,
+            target=y,
+            importance_getter="coef_",
+            multiclass_coef_aggregation="max",
         )
         fi_sum = get_feature_importances(
-            model=model, current_features=list(range(p)),
-            data=X, train_data=X, target=y,
-            importance_getter="coef_", multiclass_coef_aggregation="sum",
+            model=model,
+            current_features=list(range(p)),
+            data=X,
+            train_data=X,
+            target=y,
+            importance_getter="coef_",
+            multiclass_coef_aggregation="sum",
         )
         # The two aggregations MUST produce different orderings or different magnitudes for at least one feature.
         assert any(abs(fi_max[i] - fi_sum[i]) > 1e-9 for i in range(p))
@@ -193,7 +221,9 @@ class TestMultiEstimatorAmGmFallback:
         X, y = make_classification(n_samples=200, n_features=8, n_informative=4, random_state=0)
         rfecv = RFECV(
             estimators=[LogisticRegression(max_iter=300), RandomForestClassifier(n_estimators=10)],
-            cv=3, max_refits=3, random_state=0,
+            cv=3,
+            max_refits=3,
+            random_state=0,
             votes_aggregation_method=VotesAggregation.AM,
             verbose=1,
         )
@@ -205,7 +235,9 @@ class TestMultiEstimatorAmGmFallback:
         X, y = make_classification(n_samples=200, n_features=8, n_informative=4, random_state=0)
         rfecv = RFECV(
             estimators=[LogisticRegression(max_iter=300), RandomForestClassifier(n_estimators=10)],
-            cv=3, max_refits=3, random_state=0,
+            cv=3,
+            max_refits=3,
+            random_state=0,
             votes_aggregation_method=VotesAggregation.AM,
             allow_unsafe_aggregation=True,
         )
@@ -222,6 +254,7 @@ class TestCpiKnobs:
         # Validate that passing max_depth=None to the helper actually grows
         # an unconstrained tree (min_samples_leaf-bounded).
         from sklearn.linear_model import LinearRegression
+
         rng = np.random.default_rng(0)
         n, p = 200, 6
         X = rng.normal(size=(n, p))
@@ -230,8 +263,13 @@ class TestCpiKnobs:
         y = X[:, 0] + X[:, 2] + rng.normal(scale=0.1, size=n)
         model = LinearRegression().fit(X, y)
         imps = _conditional_permutation_importance(
-            model, pd.DataFrame(X), y,
-            n_repeats=3, max_depth=None, min_samples_leaf=10, random_state=0,
+            model,
+            pd.DataFrame(X),
+            y,
+            n_repeats=3,
+            max_depth=None,
+            min_samples_leaf=10,
+            random_state=0,
         )
         assert imps.shape == (p,)
         # Smoke: no NaNs.
@@ -246,15 +284,20 @@ class TestNanScoreFiDropped:
         # Construct a scenario where one estimator returns NaN score on a fold.
         # We use a callable scorer that returns NaN for fold-0 only.
         from sklearn.metrics import make_scorer
+
         nan_counter = {"i": 0}
+
         def scorer_func(y_true, y_pred):
             nan_counter["i"] += 1
             return np.nan if nan_counter["i"] == 1 else 0.5
+
         scorer = make_scorer(scorer_func, greater_is_better=True)
         X, y = make_classification(n_samples=200, n_features=6, n_informative=3, random_state=0)
         rfecv = RFECV(
             estimator=LogisticRegression(max_iter=300),
-            cv=3, max_refits=2, random_state=0,
+            cv=3,
+            max_refits=2,
+            random_state=0,
             scoring=scorer,
         )
         rfecv.fit(X, y)

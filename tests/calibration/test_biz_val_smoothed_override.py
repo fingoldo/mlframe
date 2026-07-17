@@ -6,6 +6,7 @@ gets the common "rule is right" case perfectly but is catastrophically wrong whe
 wrong (the model's own prediction is discarded entirely). A convex blend (a=0.9) captures nearly all the
 benefit on the common case while bounding the damage when the rule is wrong -- net lower overall error.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -39,8 +40,12 @@ def test_biz_val_smoothed_override_beats_hard_override_when_rule_occasionally_wr
     mae_smoothed = float(np.mean(np.abs(y_true - smoothed_overridden)))
     mae_model_alone = float(np.mean(np.abs(y_true - model_pred)))
 
-    assert mae_smoothed < mae_hard, f"expected the smoothed (a=0.9) override to beat the hard (a=1.0) override when the rule is occasionally wrong, got smoothed={mae_smoothed:.4f} hard={mae_hard:.4f}"
-    assert mae_smoothed < mae_model_alone, f"expected the smoothed override to still beat the model alone (capturing most of the rule's benefit), got smoothed={mae_smoothed:.4f} model_alone={mae_model_alone:.4f}"
+    assert mae_smoothed < mae_hard, (
+        f"expected the smoothed (a=0.9) override to beat the hard (a=1.0) override when the rule is occasionally wrong, got smoothed={mae_smoothed:.4f} hard={mae_hard:.4f}"
+    )
+    assert mae_smoothed < mae_model_alone, (
+        f"expected the smoothed override to still beat the model alone (capturing most of the rule's benefit), got smoothed={mae_smoothed:.4f} model_alone={mae_model_alone:.4f}"
+    )
 
 
 def test_apply_smoothed_override_exact_blend_and_mask_respected():

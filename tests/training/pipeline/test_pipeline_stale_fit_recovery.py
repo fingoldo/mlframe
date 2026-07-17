@@ -11,6 +11,7 @@ state by re-fitting; the dimension-mismatch ValueError is the same failure mode
 and was previously uncaught -> the run crashed (surfaced by fuzz ``c0143`` once
 the upstream test-transform skip was fixed).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -24,13 +25,10 @@ def test_is_stale_fit_state_value_error_classifies_messages():
 
     # Width / count mismatch variants.
     assert _is_stale_fit_state_value_error(ValueError("Unexpected input dimension 8, expected 4"))
-    assert _is_stale_fit_state_value_error(
-        ValueError("X has 8 features, but SelectKBest is expecting 4 features as input")
-    )
+    assert _is_stale_fit_state_value_error(ValueError("X has 8 features, but SelectKBest is expecting 4 features as input"))
     # Feature-name mismatch variant.
     assert _is_stale_fit_state_value_error(
-        ValueError("The feature names should match those that were passed during fit. "
-                   "Feature names seen at fit time, yet now missing: ['a0', 'a1']")
+        ValueError("The feature names should match those that were passed during fit. Feature names seen at fit time, yet now missing: ['a0', 'a1']")
     )
     # Unrelated ValueErrors must NOT be swallowed as stale-fit-state.
     assert not _is_stale_fit_state_value_error(ValueError("could not convert string to float: 'abc'"))

@@ -20,13 +20,13 @@ local-MI floor (class-closure sibling) gained the same ``reject_sink`` plumbing.
 PURE ADDITIVE: no gate-logic change, selection byte-identical. Default-ON.
 NEVER xfail.
 """
+
 from __future__ import annotations
 
 import warnings
 
 import numpy as np
 import pandas as pd
-import pytest
 
 warnings.filterwarnings("ignore")
 
@@ -35,7 +35,6 @@ from mlframe.feature_selection.filters._mrmr_fe_provenance import (
     get_unlabeled_recipe_kinds,
 )
 from mlframe.feature_selection.filters._mi_greedy_fe import (
-    _greedy_score_and_select,
     greedy_mi_fe_construct,
 )
 from mlframe.feature_selection.filters._orthogonal_cluster_basis_fe import (
@@ -74,18 +73,20 @@ def test_w2_accessor_returns_only_factorize_on_clean_fit():
     the deliberate ``factorize``) returns exactly ``{"factorize": N}``."""
     s = _ProvStub()
     s._produced_recipes_ = [
-        _Recipe("raw_a", ""),                       # raw -> not engineered
-        _Recipe("hybrid_x", "orth_univariate"),     # labeled hybrid_orth
-        _Recipe("fac_b", "factorize"),              # deliberate engineered_unknown
+        _Recipe("raw_a", ""),  # raw -> not engineered
+        _Recipe("hybrid_x", "orth_univariate"),  # labeled hybrid_orth
+        _Recipe("fac_b", "factorize"),  # deliberate engineered_unknown
         _Recipe("fac_c", "factorize"),
     ]
     s._engineered_recipes_ = list(s._produced_recipes_)
-    s.fe_provenance_ = _make_prov([
-        ["raw_a", "raw", "{}", 0.1, 0],
-        ["hybrid_x", "hybrid_orth", "{}", 0.2, 1],
-        ["fac_b", "engineered_unknown", "{}", 0.15, 2],
-        ["fac_c", "engineered_unknown", "{}", 0.12, 3],
-    ])
+    s.fe_provenance_ = _make_prov(
+        [
+            ["raw_a", "raw", "{}", 0.1, 0],
+            ["hybrid_x", "hybrid_orth", "{}", 0.2, 1],
+            ["fac_b", "engineered_unknown", "{}", 0.15, 2],
+            ["fac_c", "engineered_unknown", "{}", 0.12, 3],
+        ]
+    )
     res = get_unlabeled_recipe_kinds(s)
     assert res == {"factorize": 2}, res
     # The guardrail signal (anything OUTSIDE the deliberate set) is empty.
@@ -101,10 +102,12 @@ def test_w2_accessor_flags_an_unregistered_kind():
         _Recipe("newfam_z", "brand_new_unregistered_family"),  # NOT in _RECIPE_KIND_TO_ORIGIN
     ]
     s._engineered_recipes_ = list(s._produced_recipes_)
-    s.fe_provenance_ = _make_prov([
-        ["fac_b", "engineered_unknown", "{}", 0.15, 1],
-        ["newfam_z", "engineered_unknown", "{}", 0.11, 2],
-    ])
+    s.fe_provenance_ = _make_prov(
+        [
+            ["fac_b", "engineered_unknown", "{}", 0.15, 1],
+            ["newfam_z", "engineered_unknown", "{}", 0.11, 2],
+        ]
+    )
     res = get_unlabeled_recipe_kinds(s)
     assert res.get("brand_new_unregistered_family") == 1, res
     guardrail = set(res) - DELIBERATELY_UNLABELED_KINDS
@@ -117,9 +120,11 @@ def test_w2_accessor_excludes_screened_out_nonsurvivors():
     s = _ProvStub()
     s._produced_recipes_ = [_Recipe("dropped_z", "brand_new_unregistered_family")]
     s._engineered_recipes_ = []
-    s.fe_provenance_ = _make_prov([
-        ["dropped_z", "engineered_unknown", "{}", float("nan"), -1],
-    ])
+    s.fe_provenance_ = _make_prov(
+        [
+            ["dropped_z", "engineered_unknown", "{}", float("nan"), -1],
+        ]
+    )
     assert get_unlabeled_recipe_kinds(s) == {}
 
 
@@ -161,8 +166,12 @@ def test_w6_mi_greedy_floor_records_abs_floor_kill():
     and the kill set is exactly the candidates below the absolute floor."""
     raw, y = _lone_signal_pool()
     sink = _Sink()
-    X_aug, scores = greedy_mi_fe_construct(
-        raw, y, top_k=3, min_uplift=1.05, reject_sink=sink,
+    X_aug, _scores = greedy_mi_fe_construct(
+        raw,
+        y,
+        top_k=3,
+        min_uplift=1.05,
+        reject_sink=sink,
     )
     # The floor must have killed >=1 candidate that cleared the uplift gate.
     assert sink.records, "abs-MAD floor recorded no kills on the lone-signal pool"
@@ -187,12 +196,22 @@ def test_w6_cluster_basis_floor_records_abs_floor_kill():
     y = (X["c0"].to_numpy() > 0).astype(np.int64)
     members = {f"c{i}": [f"c{i}", f"c{(i + 1) % 20}"] for i in range(20)}
     sink = _Sink()
-    eng, meta = generate_cluster_basis_features(
-        X, y, members, degrees=(2, 3), top_k=3, min_uplift=1.0,
+    eng, _meta = generate_cluster_basis_features(
+        X,
+        y,
+        members,
+        degrees=(2, 3),
+        top_k=3,
+        min_uplift=1.0,
         reject_sink=sink,
     )
-    eng_ns, meta_ns = generate_cluster_basis_features(
-        X, y, members, degrees=(2, 3), top_k=3, min_uplift=1.0,
+    eng_ns, _meta_ns = generate_cluster_basis_features(
+        X,
+        y,
+        members,
+        degrees=(2, 3),
+        top_k=3,
+        min_uplift=1.0,
     )
     # Byte-identical survivor set.
     assert list(eng.columns) == list(eng_ns.columns)
@@ -210,11 +229,13 @@ def test_w6_unified_local_mi_gate_records_floor_kill():
     raw = pd.DataFrame({f"r{i}": rng.normal(size=n) for i in range(5)})
     y = (raw["r0"].to_numpy() > 0).astype(np.int64)
     # Engineered candidates: one informative (= r0 sign proxy) + several noise.
-    enc = pd.DataFrame({
-        "good": raw["r0"].to_numpy() + 0.1 * rng.normal(size=n),
-        **{f"noise{i}": rng.normal(size=n) for i in range(6)},
-    })
-    floor = raw_mi_noise_floor(raw, y)
+    enc = pd.DataFrame(
+        {
+            "good": raw["r0"].to_numpy() + 0.1 * rng.normal(size=n),
+            **{f"noise{i}": rng.normal(size=n) for i in range(6)},
+        }
+    )
+    raw_mi_noise_floor(raw, y)
     sink = _Sink()
     keep = local_mi_gate(enc, y, raw_X=raw, reject_sink=sink)
     keep_ns = local_mi_gate(enc, y, raw_X=raw)
@@ -228,5 +249,5 @@ def test_w6_unified_local_mi_gate_records_floor_kill():
 def test_w6_greedy_score_select_no_sink_is_noop():
     """Default (no sink) path is unchanged: returns winners with no error."""
     raw, y = _lone_signal_pool()
-    X_aug, scores = greedy_mi_fe_construct(raw, y, top_k=3)
+    _X_aug, scores = greedy_mi_fe_construct(raw, y, top_k=3)
     assert isinstance(scores, pd.DataFrame)

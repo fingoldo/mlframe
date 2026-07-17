@@ -67,12 +67,8 @@ def test_every_linear_regression_type_fits_and_predicts(model_type, regression_d
     model = create_linear_model(model_type, cfg, use_regression=True)
     model.fit(X, y)
     preds = model.predict(X)
-    assert preds.shape == (X.shape[0],), (
-        f"{model_type}: predictions shape {preds.shape} != {(X.shape[0],)}"
-    )
-    assert np.isfinite(preds).all(), (
-        f"{model_type}: predictions contain non-finite values"
-    )
+    assert preds.shape == (X.shape[0],), f"{model_type}: predictions shape {preds.shape} != {(X.shape[0],)}"
+    assert np.isfinite(preds).all(), f"{model_type}: predictions contain non-finite values"
 
 
 # Classification: only the types that have a classifier-side builder.
@@ -92,17 +88,11 @@ def test_every_linear_classification_type_fits_and_predicts(model_type, binary_d
     model = create_linear_model(model_type, cfg, use_regression=False)
     model.fit(X, y)
     preds = model.predict(X)
-    assert preds.shape == (X.shape[0],), (
-        f"{model_type}: predictions shape {preds.shape} != {(X.shape[0],)}"
-    )
-    assert set(np.unique(preds)) <= {0, 1}, (
-        f"{model_type}: classification predictions not in {{0, 1}}"
-    )
+    assert preds.shape == (X.shape[0],), f"{model_type}: predictions shape {preds.shape} != {(X.shape[0],)}"
+    assert set(np.unique(preds)) <= {0, 1}, f"{model_type}: classification predictions not in {{0, 1}}"
 
 
 def test_valid_linear_model_types_set_is_non_empty():
     """Sanity: the validator allow-list isn't accidentally empty."""
     assert VALID_LINEAR_MODEL_TYPES, "VALID_LINEAR_MODEL_TYPES is empty"
-    assert "ridge" in VALID_LINEAR_MODEL_TYPES, (
-        "VALID_LINEAR_MODEL_TYPES dropped 'ridge' — that's the canonical default"
-    )
+    assert "ridge" in VALID_LINEAR_MODEL_TYPES, "VALID_LINEAR_MODEL_TYPES dropped 'ridge' — that's the canonical default"

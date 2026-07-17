@@ -5,6 +5,7 @@ re-scores the built hinge feature, so estimating the uplift on a large strided s
 equivalent while the full-n FWL/projection SSEs stop dominating. Assert the cap subsamples and still finds
 a genuine breakpoint (a clear piecewise-linear signal), and that the env opt-out restores full-n.
 """
+
 from __future__ import annotations
 
 import importlib
@@ -14,9 +15,17 @@ import pytest
 
 MOD = "mlframe.feature_selection.filters._hinge_detect_gpu_resident"
 
-_KW = dict(max_breakpoints=1, min_heldout_r2_uplift=0.01, precheck_qs=(0.25, 0.5, 0.75),
-           precheck_min_sse_drop=0.0, cand_q_lo=0.1, cand_q_hi=0.9, n_candidates=16,
-           min_rows=100, min_seg_rows=20)
+_KW = dict(
+    max_breakpoints=1,
+    min_heldout_r2_uplift=0.01,
+    precheck_qs=(0.25, 0.5, 0.75),
+    precheck_min_sse_drop=0.0,
+    cand_q_lo=0.1,
+    cand_q_hi=0.9,
+    n_candidates=16,
+    min_rows=100,
+    min_seg_rows=20,
+)
 
 
 def _hinge_data(n, seed=0):

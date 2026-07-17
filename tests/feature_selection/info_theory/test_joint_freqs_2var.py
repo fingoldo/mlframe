@@ -7,6 +7,7 @@ a bit-identical ``entropy``), while skipping the per-sample ``final_classes`` bu
 that ``merge_vars`` does and the SU path discards. These tests pin the bit-identity contract
 so a future edit to either kernel cannot silently drift the DCD redundancy score.
 """
+
 import numpy as np
 import pytest
 

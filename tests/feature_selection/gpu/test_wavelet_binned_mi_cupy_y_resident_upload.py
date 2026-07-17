@@ -9,6 +9,7 @@ sub-branches, since the fix touches all four upload sites.
 Only reachable when the STRICT/``MLFRAME_CMI_GPU`` gate is on (``_binnedmi_gpu_enabled``), so this test
 calls ``_binned_mi_cupy`` directly rather than through the gated ``_binned_mi`` wrapper.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -35,7 +36,8 @@ def _prefix_binned_mi_cupy(feat, y, nbins, y_codes, discrete=False):
 
     from mlframe.feature_selection.filters._fe_batched_mi import binned_mi_from_codes_gpu
     from mlframe.feature_selection.filters._gpu_resident_select import (
-        _radix_select_interior_edges, fe_gpu_radix_edges_enabled,
+        _radix_select_interior_edges,
+        fe_gpu_radix_edges_enabled,
     )
 
     df = cp.asarray(np.asarray(feat, dtype=np.float64).ravel())
@@ -54,7 +56,7 @@ def _prefix_binned_mi_cupy(feat, y, nbins, y_codes, discrete=False):
                 e = _radix_select_interior_edges(v.reshape(-1, 1), nbins)
                 if e is not None:
                     return e.ravel()
-        except Exception:
+        except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
             pass
         return cp.quantile(v, cp.linspace(0.0, 1.0, nbins + 1)[1:-1])
 

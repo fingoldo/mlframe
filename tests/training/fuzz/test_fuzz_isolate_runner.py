@@ -7,13 +7,12 @@ logging. The full end-to-end isolation behaviour (c0004 clean-in-isolation,
 the wall-kill on a heavy combo) is verified manually via
 ``run_fuzz_10k.py --isolate-combos`` -- see the module docstring there.
 """
+
 from __future__ import annotations
 
-import os
-import subprocess
+import subprocess  # nosec B404 -- test-only local trusted subprocess invocation (fixed argv, no shell, no untrusted input)
 import sys
 import time
-from pathlib import Path
 
 import orjson
 import pytest
@@ -31,9 +30,9 @@ def test_classify_native_crash_posix_signal():
 
 
 def test_classify_native_crash_clean_pytest_exits():
-    assert R._classify_native_crash(0) is False   # all passed
-    assert R._classify_native_crash(1) is False   # tests failed
-    assert R._classify_native_crash(5) is False   # no tests collected
+    assert R._classify_native_crash(0) is False  # all passed
+    assert R._classify_native_crash(1) is False  # tests failed
+    assert R._classify_native_crash(5) is False  # no tests collected
 
 
 def test_kill_process_tree_terminates_child_and_grandchild():
@@ -41,13 +40,8 @@ def test_kill_process_tree_terminates_child_and_grandchild():
     per-seed timeout failed precisely because it left descendants alive."""
     psutil = pytest.importorskip("psutil")
     # Parent python sleeps after spawning a grandchild python that also sleeps.
-    code = (
-        "import subprocess,sys,time;"
-        "g=subprocess.Popen([sys.executable,'-c','import time;time.sleep(120)']);"
-        "print(g.pid,flush=True);"
-        "time.sleep(120)"
-    )
-    p = subprocess.Popen([sys.executable, "-c", code], stdout=subprocess.PIPE, text=True)
+    code = "import subprocess,sys,time;g=subprocess.Popen([sys.executable,'-c','import time;time.sleep(120)']);print(g.pid,flush=True);time.sleep(120)"
+    p = subprocess.Popen([sys.executable, "-c", code], stdout=subprocess.PIPE, text=True)  # nosec B603 -- fixed local argv (sys.executable/git + literal args), no shell, no untrusted input
     grandchild_pid = int(p.stdout.readline().strip())
     parent = psutil.Process(p.pid)
     assert parent.is_running()
@@ -68,7 +62,7 @@ def test_reap_bounded_returns_false_for_undead_process_within_timeout():
     NOT block ``_reap_bounded`` past its timeout -- it returns False promptly so
     the driver can orphan + continue rather than wedge waiting for an OS-undead
     access-violation'd process to reap."""
-    p = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
+    p = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])  # nosec B603 -- fixed local argv (sys.executable/git + literal args), no shell, no untrusted input
     try:
         t0 = time.time()
         alive_reaped = R._reap_bounded(p, 1.0)
@@ -81,7 +75,7 @@ def test_reap_bounded_returns_false_for_undead_process_within_timeout():
 
 
 def test_reap_bounded_returns_true_for_exited_process():
-    p = subprocess.Popen([sys.executable, "-c", "pass"])
+    p = subprocess.Popen([sys.executable, "-c", "pass"])  # nosec B603 -- fixed local argv (sys.executable/git + literal args), no shell, no untrusted input
     assert R._reap_bounded(p, 10) is True
 
 
@@ -113,7 +107,7 @@ def test_run_one_combo_does_not_wedge_on_child_holding_pipe_open_after_kill(monk
     monkeypatch.setattr(R.subprocess, "Popen", fake_popen)
 
     t0 = time.time()
-    rc, tail, timed_out = R._run_one_combo(seed=0, short_id="cFAKE", per_combo_timeout_s=2)
+    _rc, tail, timed_out = R._run_one_combo(seed=0, short_id="cFAKE", per_combo_timeout_s=2)
     elapsed = time.time() - t0
 
     # The whole call must return shortly after the 2s wall-timeout + bounded
@@ -128,12 +122,12 @@ def test_log_driver_row_writes_schema(tmp_path, monkeypatch):
     """Driver-logged timeout/native_crash rows reuse the JSONL schema and carry
     the combo fields + master_seed + error_class + isolated marker."""
     from tests.training._fuzz_combo import enumerate_combos
+
     combo = enumerate_combos(target=5, master_seed=4)[0]
 
     log = tmp_path / "_fuzz_results.jsonl"
     monkeypatch.setattr(R, "RESULTS_LOG", log)
-    R._log_driver_row(combo, seed=4, outcome="timeout", dur=12.3,
-                      error_class="WallTimeout", error_summary="killed", tail="line1\nline2")
+    R._log_driver_row(combo, seed=4, outcome="timeout", dur=12.3, error_class="WallTimeout", error_summary="killed", tail="line1\nline2")
 
     rows = [orjson.loads(l) for l in log.read_text(encoding="utf-8").splitlines()]
     assert len(rows) == 1

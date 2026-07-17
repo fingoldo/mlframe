@@ -7,6 +7,7 @@ fitted attributes) used to simply never be set on a multi-output-fitted estimato
 downstream code reading them (e.g. a report generator that unconditionally does
 ``mrmr.degenerate_columns_``) raised ``AttributeError``, but only for 2D-y fits.
 """
+
 from __future__ import annotations
 
 import numpy as np

@@ -4,6 +4,7 @@ Exercises the four explicit raise branches in src/mlframe/training/core/main.py
 that previously had no test (E-P1.3). All four cases short-circuit before any
 expensive setup, so the tests are sub-second.
 """
+
 from __future__ import annotations
 
 import pandas as pd

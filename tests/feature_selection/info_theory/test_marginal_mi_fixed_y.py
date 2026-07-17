@@ -55,7 +55,7 @@ def test_renumber_two_dense_partition_identical_to_generic():
         inv, nc = M._renumber_two_dense_njit(a, b)
         assert nc >= 0
         ref, mref = M._factorize_dense_njit(np.ascontiguousarray(a, np.int64))
-        ref2, m2 = M._combine_factorize_njit(ref, b, mref)
+        ref2, _m2 = M._combine_factorize_njit(ref, b, mref)
         c_fast, k_fast = _canon(inv)
         c_ref, k_ref = _canon(ref2)
         assert k_fast == k_ref == nc and np.array_equal(c_fast, c_ref)
@@ -77,6 +77,6 @@ def test_precompute_marginal_y_terms_matches_inline_entropy():
     from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _entropy_from_classes
 
     y = _quantile_bin(np.random.default_rng(3).normal(size=2000), 10)
-    y_i, h_y, k_y = precompute_marginal_y_terms(y)
+    _y_i, h_y, k_y = precompute_marginal_y_terms(y)
     h_ref, k_ref = _entropy_from_classes(np.ascontiguousarray(y, dtype=np.int64))
     assert h_y == h_ref and k_y == k_ref

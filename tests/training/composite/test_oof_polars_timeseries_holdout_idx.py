@@ -52,8 +52,8 @@ def test_polars_timeseries_oof_keeps_components_and_matches_pandas():
             kfold=3,
         )
 
-    oof_pl, y_pl, survived_pl = _run(X_pl)
-    oof_pd, y_pd, survived_pd = _run(X_pd)
+    oof_pl, _y_pl, survived_pl = _run(X_pl)
+    oof_pd, _y_pd, _survived_pd = _run(X_pd)
 
     # The component must survive (pre-fix: dropped -> empty survivor list / (0,0) result).
     assert survived_pl == ["lin"], survived_pl

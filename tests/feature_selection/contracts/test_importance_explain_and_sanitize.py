@@ -12,6 +12,7 @@ real fi_name carries ``@iter=`` and ``[NF]``); these tests therefore pin only
 the stripping of true path-traversal + Windows-reserved characters, the length
 cap, and the empty/whitespace fallback -- never assert the kept chars are gone.
 """
+
 from __future__ import annotations
 
 import glob
@@ -23,12 +24,12 @@ import matplotlib
 # on CI / Windows with no display.
 matplotlib.use("Agg")
 
-import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
-import pandas as pd  # noqa: E402
-import pytest  # noqa: E402
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import pytest
 
-from mlframe.feature_selection.importance import _sanitize_for_filename  # noqa: E402
+from mlframe.feature_selection.importance import _sanitize_for_filename
 
 pytestmark = pytest.mark.uses_matplotlib
 
@@ -174,8 +175,7 @@ def test_explain_top_feature_importances_writes_one_sanitized_png(monkeypatch, t
         # traversal sequences must not have escaped the directory.
         png_real = os.path.realpath(png)
         reports_real = os.path.realpath(str(reports_dir))
-        assert png_real.startswith(reports_real + os.sep), \
-            f"sanitized output must stay inside reports/: {png_real} not under {reports_real}"
+        assert png_real.startswith(reports_real + os.sep), f"sanitized output must stay inside reports/: {png_real} not under {reports_real}"
 
         # The leaf filename must not carry any path-separator or Windows-reserved char.
         leaf = os.path.basename(png)

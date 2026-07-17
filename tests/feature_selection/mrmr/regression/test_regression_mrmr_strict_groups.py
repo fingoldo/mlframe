@@ -10,6 +10,7 @@ default True -> matching ``sample_weight``, which is ALWAYS consumed rather
 than silently dropped; ``strict_groups=False`` remains available as an
 explicit opt-out for the legacy warn-only group-naive fallback.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -47,7 +48,7 @@ def test_mrmr_strict_groups_false_warns_on_groups():
         warnings.simplefilter("always")
         try:
             sel.fit(X, y, groups=groups)
-        except Exception:
+        except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
             pass
     user_warnings = [w for w in caught if issubclass(w.category, UserWarning) and "groups" in str(w.message).lower()]
     assert user_warnings, "strict_groups=False must still emit the warn-only fallback"

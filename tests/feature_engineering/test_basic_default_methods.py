@@ -11,11 +11,11 @@ subsequent invocation; we pin both invariants:
 3. Two back-to-back calls with ``methods=None`` see the same keys; mutation of the
    first call's internal dict does not propagate.
 """
+
 from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.feature_engineering.basic import _DEFAULT_DATE_METHODS, create_date_features
 
@@ -28,7 +28,14 @@ def test_default_methods_singleton_keys_pinned():
     # Extended (2026-05-26) to the Kaggle-style default set; sensor still pins the exact key set so
     # an accidental future regression to fewer / different defaults is caught.
     assert set(_DEFAULT_DATE_METHODS.keys()) == {
-        "year", "quarter", "month", "week_of_year", "day", "day_of_year", "weekday", "is_weekend",
+        "year",
+        "quarter",
+        "month",
+        "week_of_year",
+        "day",
+        "day_of_year",
+        "weekday",
+        "is_weekend",
     }
 
 

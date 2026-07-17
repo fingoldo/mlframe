@@ -21,6 +21,7 @@ Fix at engineered_recipes.py:404: add the same guard as factorize -
 when ``unknown_strategy == 'raise'`` and any ``cell_idx < 0``, raise
 ``ValueError`` with the unseen-row count.
 """
+
 from __future__ import annotations
 
 from dataclasses import replace
@@ -34,9 +35,12 @@ import pytest
 def te_recipe():
     """target_encoding recipe with -1 sentinels at unseen slots."""
     from mlframe.feature_selection.filters.engineered_recipes import EngineeredRecipe
+
     return EngineeredRecipe(
-        name="te_test", kind="target_encoding",
-        src_names=("a", "b"), factorize_nbins=(2, 2),
+        name="te_test",
+        kind="target_encoding",
+        src_names=("a", "b"),
+        factorize_nbins=(2, 2),
         unknown_strategy="raise",
         extra={
             # 4-cell factorize lookup; (0,0) and (1,1) seen, (0,1) and (1,0) unseen.
@@ -50,6 +54,7 @@ def te_recipe():
 def test_raise_on_unseen_combo(te_recipe):
     """Unseen cell (0,1) with raise strategy must raise ValueError."""
     from mlframe.feature_selection.filters.engineered_recipes import _apply_target_encoding
+
     X = pd.DataFrame({"a": [0], "b": [1]})
     with pytest.raises(ValueError, match="combinations not seen"):
         _apply_target_encoding(te_recipe, X)
@@ -58,6 +63,7 @@ def test_raise_on_unseen_combo(te_recipe):
 def test_clip_strategy_substitutes_global_mean(te_recipe):
     """Negative control: clip strategy returns global_mean for unseen."""
     from mlframe.feature_selection.filters.engineered_recipes import _apply_target_encoding
+
     X = pd.DataFrame({"a": [0], "b": [1]})
     out = _apply_target_encoding(replace(te_recipe, unknown_strategy="clip"), X)
     assert out.shape == (1,)
@@ -67,6 +73,7 @@ def test_clip_strategy_substitutes_global_mean(te_recipe):
 def test_sentinel_strategy_substitutes_global_mean(te_recipe):
     """Negative control: sentinel strategy returns global_mean for unseen."""
     from mlframe.feature_selection.filters.engineered_recipes import _apply_target_encoding
+
     X = pd.DataFrame({"a": [0], "b": [1]})
     out = _apply_target_encoding(replace(te_recipe, unknown_strategy="sentinel"), X)
     assert out.shape == (1,)
@@ -76,6 +83,7 @@ def test_sentinel_strategy_substitutes_global_mean(te_recipe):
 def test_raise_only_seen_combos_succeeds(te_recipe):
     """A row of only-seen combinations must NOT raise under raise strategy."""
     from mlframe.feature_selection.filters.engineered_recipes import _apply_target_encoding
+
     X = pd.DataFrame({"a": [0, 1], "b": [0, 1]})  # (0,0) and (1,1) - both seen
     out = _apply_target_encoding(te_recipe, X)
     assert out.shape == (2,)
@@ -88,6 +96,7 @@ def test_raise_message_includes_unseen_count_and_column_names(te_recipe):
     actionable diagnostics.
     """
     from mlframe.feature_selection.filters.engineered_recipes import _apply_target_encoding
+
     # 3 unseen rows
     X = pd.DataFrame({"a": [0, 1, 0], "b": [1, 0, 1]})
     with pytest.raises(ValueError) as exc_info:

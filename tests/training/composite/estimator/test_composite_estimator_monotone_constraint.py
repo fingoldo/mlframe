@@ -16,6 +16,7 @@ Coverage:
 - A length mismatch (no dropped columns) raises ValueError.
 - An inner that does not expose ``monotone_constraints`` raises TypeError.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -72,34 +73,34 @@ class TestMonotoneConstraintEnforced:
 
         # Unconstrained: the inner follows the dip -> a real downward step.
         est_free = CompositeTargetEstimator(
-            base_estimator=_inner(), transform_name="diff", base_column="base",
+            base_estimator=_inner(),
+            transform_name="diff",
+            base_column="base",
         ).fit(X, y)
         t_free = est_free.estimator_.predict(grid[["base", "f"]])
         viol_free = _max_monotone_violation(t_free)
 
         # Constrained +1 on f (0 on base): the inner T-surface is non-decreasing in f.
         est_mono = CompositeTargetEstimator(
-            base_estimator=_inner(), transform_name="diff", base_column="base",
+            base_estimator=_inner(),
+            transform_name="diff",
+            base_column="base",
             monotone_constraints=[0, 1],
         ).fit(X, y)
         t_mono = est_mono.estimator_.predict(grid[["base", "f"]])
         viol_mono = _max_monotone_violation(t_mono)
 
-        assert viol_free > 0.5, (
-            f"the unconstrained inner should violate monotonicity in T on this "
-            f"synthetic; max downward step was only {viol_free:.4f}"
-        )
-        assert viol_mono <= 1e-9, (
-            f"the +1-constrained inner must be non-decreasing in T; max downward "
-            f"step was {viol_mono:.6f}"
-        )
+        assert viol_free > 0.5, f"the unconstrained inner should violate monotonicity in T on this synthetic; max downward step was only {viol_free:.4f}"
+        assert viol_mono <= 1e-9, f"the +1-constrained inner must be non-decreasing in T; max downward step was {viol_mono:.6f}"
 
     def test_constraint_carries_through_to_y_on_additive_core(self) -> None:
         # diff is additive (y = T + base); at fixed base, y is monotone in f iff T is.
         X, y, _ = _make_nonmonotone_in_T()
         grid = pd.DataFrame({"base": np.full(200, 10.0), "f": np.linspace(0.0, 1.0, 200)})
         est = CompositeTargetEstimator(
-            base_estimator=_inner(), transform_name="diff", base_column="base",
+            base_estimator=_inner(),
+            transform_name="diff",
+            base_column="base",
             monotone_constraints=[0, 1],
         ).fit(X, y)
         y_hat = est.predict(grid)
@@ -120,16 +121,22 @@ class TestConstraintLengthValidation:
         X = pd.DataFrame({"base": base, "f": f, "grp": g.astype(str)})
         # X has 3 columns; the inner trains on 2 (grp dropped). post-drop = 2.
         ok = CompositeTargetEstimator(
-            base_estimator=_inner(), transform_name="linear_residual_grouped",
-            base_column="base", group_column="grp", monotone_constraints=[0, 1],
+            base_estimator=_inner(),
+            transform_name="linear_residual_grouped",
+            base_column="base",
+            group_column="grp",
+            monotone_constraints=[0, 1],
         )
         ok.fit(X, y)  # length 2 == post-drop count -> succeeds.
         assert ok.estimator_.get_params()["monotone_constraints"] == [0, 1]
 
         # Length 3 (= FULL column count, includes the dropped group_column) raises.
         bad = CompositeTargetEstimator(
-            base_estimator=_inner(), transform_name="linear_residual_grouped",
-            base_column="base", group_column="grp", monotone_constraints=[0, 0, 1],
+            base_estimator=_inner(),
+            transform_name="linear_residual_grouped",
+            base_column="base",
+            group_column="grp",
+            monotone_constraints=[0, 0, 1],
         )
         with pytest.raises(ValueError, match="post-drop feature count"):
             bad.fit(X, y)
@@ -137,7 +144,9 @@ class TestConstraintLengthValidation:
     def test_plain_length_mismatch_raises(self) -> None:
         X, y, _ = _make_nonmonotone_in_T(n=500)
         est = CompositeTargetEstimator(
-            base_estimator=_inner(), transform_name="diff", base_column="base",
+            base_estimator=_inner(),
+            transform_name="diff",
+            base_column="base",
             monotone_constraints=[1],  # X has 2 columns; vector is length 1.
         )
         with pytest.raises(ValueError, match="length 1 but the inner estimator trains on 2"):
@@ -146,7 +155,9 @@ class TestConstraintLengthValidation:
     def test_bad_constraint_values_raise(self) -> None:
         X, y, _ = _make_nonmonotone_in_T(n=500)
         est = CompositeTargetEstimator(
-            base_estimator=_inner(), transform_name="diff", base_column="base",
+            base_estimator=_inner(),
+            transform_name="diff",
+            base_column="base",
             monotone_constraints=[0, 2],  # 2 is not a valid constraint code.
         )
         with pytest.raises(ValueError, match="must each be"):
@@ -157,7 +168,9 @@ class TestConstraintLengthValidation:
 
         X, y, _ = _make_nonmonotone_in_T(n=500)
         est = CompositeTargetEstimator(
-            base_estimator=LinearRegression(), transform_name="diff", base_column="base",
+            base_estimator=LinearRegression(),
+            transform_name="diff",
+            base_column="base",
             monotone_constraints=[0, 1],
         )
         with pytest.raises(TypeError, match="does not accept"):
@@ -168,7 +181,9 @@ def test_default_none_unchanged() -> None:
     # No constraint configured -> the inner is fit with its own default params.
     X, y, _ = _make_nonmonotone_in_T(n=500)
     est = CompositeTargetEstimator(
-        base_estimator=_inner(), transform_name="diff", base_column="base",
+        base_estimator=_inner(),
+        transform_name="diff",
+        base_column="base",
     ).fit(X, y)
     # LightGBM does not list monotone_constraints in its default get_params (it
     # is a booster **kwargs extra), so when the wrapper never forwards one the

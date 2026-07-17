@@ -5,6 +5,7 @@ NO discriminative power can still occasionally emit spuriously high raw scores b
 footing with genuinely-informative outputs and hurting top-K accuracy. Shrinking low-OOF-confidence outputs
 toward a neutral value before ranking should measurably improve top-1 accuracy.
 """
+
 from __future__ import annotations
 
 import numpy as np

@@ -26,14 +26,14 @@ Contracts pinned (real AUC numbers, Bayes-feasible fixtures, never xfail):
 
 Consolidated verbatim from test_biz_value_mrmr_layer93.py (per audit finding test_code_quality-16).
 """
+
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 import warnings
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
@@ -68,12 +68,14 @@ def _build_composite_signal(seed: int, n: int = 8000):
     # x is noisy around its cell mean; raw x alone is weak.
     x = cell_mean + rng.normal(0.0, 3.0, n)
     y = (cell_mean + 0.1 * rng.normal(0.0, 1.0, n) > 0.0).astype(int)
-    X = pd.DataFrame({
-        "region": region,
-        "month": month,
-        "x": x,
-        "noise_0": rng.normal(0.0, 1.0, n),
-    })
+    X = pd.DataFrame(
+        {
+            "region": region,
+            "month": month,
+            "x": x,
+            "noise_0": rng.normal(0.0, 1.0, n),
+        }
+    )
     return X, y
 
 
@@ -89,12 +91,14 @@ def _build_single_group_signal(seed: int, n: int = 6000):
     region_mean = rng.uniform(-3.0, 3.0, n_region)
     x = region_mean[region] + rng.normal(0.0, 2.5, n)
     y = (region_mean[region] + 0.1 * rng.normal(0.0, 1.0, n) > 0.0).astype(int)
-    X = pd.DataFrame({
-        "region": region,
-        "month": month,
-        "x": x,
-        "noise_0": rng.normal(0.0, 1.0, n),
-    })
+    X = pd.DataFrame(
+        {
+            "region": region,
+            "month": month,
+            "x": x,
+            "noise_0": rng.normal(0.0, 1.0, n),
+        }
+    )
     return X, y
 
 
@@ -103,8 +107,8 @@ def _build_high_card_composite(seed: int, n: int = 4000):
     columns. The cross is ~n distinct cells -> must be refused.
     """
     rng = np.random.default_rng(int(seed))
-    id_a = rng.integers(0, n, n)        # ~unique
-    id_b = rng.integers(0, n, n)        # ~unique
+    id_a = rng.integers(0, n, n)  # ~unique
+    id_b = rng.integers(0, n, n)  # ~unique
     x = rng.normal(0.0, 1.0, n)
     y = (x + rng.normal(0.0, 0.5, n) > 0.0).astype(int)
     X = pd.DataFrame({"id_a": id_a, "id_b": id_b, "x": x})
@@ -117,7 +121,10 @@ def _build_high_card_composite(seed: int, n: int = 4000):
 
 
 class TestCompositeSignalRecovered:
+    """The composite (region, month) group mean recovers a signal neither single group carries."""
+
     def test_composite_mean_recovers_interaction_signal(self):
+        """The composite mean's CMI/uplift clear the recovery floor on at least 4 of 5 seeds."""
         from mlframe.feature_selection.filters._composite_group_agg_fe import (
             generate_composite_group_agg_features,
             engineered_name_composite_agg,
@@ -125,24 +132,29 @@ class TestCompositeSignalRecovered:
         from mlframe.feature_selection.filters._grouped_agg_fe import (
             score_grouped_agg_by_cmi_uplift,
         )
+
         wins = 0
         for s in SEEDS:
             X, y = _build_composite_signal(s)
             enc, raw = generate_composite_group_agg_features(
-                X, [("region", "month")], ["x"], stats=("mean", "std", "count"),
+                X,
+                [("region", "month")],
+                ["x"],
+                stats=("mean", "std", "count"),
             )
             e2s = {k: raw[k]["num_col"] for k in enc.columns}
             sc = score_grouped_agg_by_cmi_uplift(
-                X, enc, y, ["x"], eng_to_source=e2s,
+                X,
+                enc,
+                y,
+                ["x"],
+                eng_to_source=e2s,
             )
             mean_name = engineered_name_composite_agg("x", ("region", "month"), "mean")
             row = sc[sc["engineered_col"] == mean_name].iloc[0]
             if row["cmi"] > 0.1 and row["uplift"] > 0.05:
                 wins += 1
-        assert wins >= 4, (
-            f"composite-group mean recovered the interaction signal on only "
-            f"{wins}/{len(SEEDS)} seeds; expected >= 4."
-        )
+        assert wins >= 4, f"composite-group mean recovered the interaction signal on only {wins}/{len(SEEDS)} seeds; expected >= 4."
 
 
 # ---------------------------------------------------------------------------
@@ -151,7 +163,10 @@ class TestCompositeSignalRecovered:
 
 
 class TestSingleGroupCannotCaptureComposite:
+    """Neither single-group mean (region-alone or month-alone) captures the interaction the composite mean does."""
+
     def test_single_group_low_mi_composite_high_mi(self):
+        """The composite mean's CMI clearly beats the best single-group mean's CMI on at least 4 of 5 seeds."""
         from mlframe.feature_selection.filters._composite_group_agg_fe import (
             generate_composite_group_agg_features,
             engineered_name_composite_agg,
@@ -161,46 +176,52 @@ class TestSingleGroupCannotCaptureComposite:
             score_grouped_agg_by_cmi_uplift,
             engineered_name_grouped_agg,
         )
+
         wins = 0
         for s in SEEDS:
             X, y = _build_composite_signal(s)
             # Single-group means (region alone, month alone).
             enc_sg, raw_sg = generate_grouped_agg_features(
-                X, ["region", "month"], ["x"], stats=("mean",),
+                X,
+                ["region", "month"],
+                ["x"],
+                stats=("mean",),
             )
             e2s_sg = {k: raw_sg[k]["num_col"] for k in enc_sg.columns}
             sc_sg = score_grouped_agg_by_cmi_uplift(
-                X, enc_sg, y, ["x"], eng_to_source=e2s_sg,
+                X,
+                enc_sg,
+                y,
+                ["x"],
+                eng_to_source=e2s_sg,
             )
             region_mean = engineered_name_grouped_agg("x", "region", "mean")
             month_mean = engineered_name_grouped_agg("x", "month", "mean")
-            cmi_region = float(
-                sc_sg[sc_sg["engineered_col"] == region_mean]["cmi"].iloc[0]
-            )
-            cmi_month = float(
-                sc_sg[sc_sg["engineered_col"] == month_mean]["cmi"].iloc[0]
-            )
+            cmi_region = float(sc_sg[sc_sg["engineered_col"] == region_mean]["cmi"].iloc[0])
+            cmi_month = float(sc_sg[sc_sg["engineered_col"] == month_mean]["cmi"].iloc[0])
             single_best = max(cmi_region, cmi_month)
 
             # Composite (region, month) mean.
             enc_c, raw_c = generate_composite_group_agg_features(
-                X, [("region", "month")], ["x"], stats=("mean",),
+                X,
+                [("region", "month")],
+                ["x"],
+                stats=("mean",),
             )
             e2s_c = {k: raw_c[k]["num_col"] for k in enc_c.columns}
             sc_c = score_grouped_agg_by_cmi_uplift(
-                X, enc_c, y, ["x"], eng_to_source=e2s_c,
+                X,
+                enc_c,
+                y,
+                ["x"],
+                eng_to_source=e2s_c,
             )
             comp_name = engineered_name_composite_agg("x", ("region", "month"), "mean")
-            cmi_comp = float(
-                sc_c[sc_c["engineered_col"] == comp_name]["cmi"].iloc[0]
-            )
+            cmi_comp = float(sc_c[sc_c["engineered_col"] == comp_name]["cmi"].iloc[0])
             # Composite clearly beats the best single-group mean.
             if cmi_comp > 0.1 and cmi_comp > single_best + 0.05:
                 wins += 1
-        assert wins >= 4, (
-            f"composite mean beat the best single-group mean on only "
-            f"{wins}/{len(SEEDS)} seeds; expected >= 4."
-        )
+        assert wins >= 4, f"composite mean beat the best single-group mean on only {wins}/{len(SEEDS)} seeds; expected >= 4."
 
 
 # ---------------------------------------------------------------------------
@@ -209,26 +230,29 @@ class TestSingleGroupCannotCaptureComposite:
 
 
 class TestCardinalityRefusal:
+    """A composite key whose cardinality exceeds max_card_frac*n is refused with no columns emitted."""
+
     def test_high_card_composite_refused(self):
+        """The exploded (id_a, id_b) key emits zero columns, is excluded from auto-detected key sets, and the cardinality guard is correct at the boundary."""
         from mlframe.feature_selection.filters._composite_group_agg_fe import (
             generate_composite_group_agg_features,
             auto_detect_key_sets,
             composite_cardinality_ok,
         )
-        X, y = _build_high_card_composite(7)
+
+        X, _y = _build_high_card_composite(7)
         # The explicit (id_a, id_b) key explodes -> no columns emitted.
-        enc, raw = generate_composite_group_agg_features(
-            X, [("id_a", "id_b")], ["x"], stats=("mean", "count"),
+        enc, _raw = generate_composite_group_agg_features(
+            X,
+            [("id_a", "id_b")],
+            ["x"],
+            stats=("mean", "count"),
             max_card_frac=0.5,
         )
-        assert enc.shape[1] == 0, (
-            f"high-cardinality composite was NOT refused: emitted {list(enc.columns)}"
-        )
+        assert enc.shape[1] == 0, f"high-cardinality composite was NOT refused: emitted {list(enc.columns)}"
         # Auto-detect must also refuse it.
         sets = auto_detect_key_sets(X, max_arity=2, max_card_frac=0.5)
-        assert ("id_a", "id_b") not in sets, (
-            f"auto-detect surfaced the exploded key: {sets}"
-        )
+        assert ("id_a", "id_b") not in sets, f"auto-detect surfaced the exploded key: {sets}"
         # Guard helper behaves at the boundary.
         assert composite_cardinality_ok(10, 100, 0.5) is True
         assert composite_cardinality_ok(60, 100, 0.5) is False
@@ -240,18 +264,26 @@ class TestCardinalityRefusal:
 
 
 class TestAucLift:
+    """Composite-aggregate-augmented LogReg measurably lifts holdout AUC over raw-feature LogReg."""
+
     def test_logreg_auc_lift_at_least_0p05(self):
+        """The mean AUC lift over raw features clears +0.05 across the 5 seeds."""
         from mlframe.feature_selection.filters._composite_group_agg_fe import (
             hybrid_composite_group_agg_fe,
         )
         from mlframe.feature_selection.filters.engineered_recipes import (
             apply_recipe,
         )
+
         lifts = []
         for s in SEEDS:
             X, y = _build_composite_signal(s, n=9000)
             Xtr, Xte, ytr, yte = train_test_split(
-                X, y, test_size=0.3, random_state=s, stratify=y,
+                X,
+                y,
+                test_size=0.3,
+                random_state=s,
+                stratify=y,
             )
             raw_cols = ["x", "noise_0", "region", "month"]
             base = LogisticRegression(max_iter=2000)
@@ -259,8 +291,12 @@ class TestAucLift:
             auc_raw = roc_auc_score(yte, base.predict_proba(Xte[raw_cols])[:, 1])
 
             X_aug_tr, appended, recipes, _ = hybrid_composite_group_agg_fe(
-                Xtr, ytr, group_col_sets=[("region", "month")],
-                num_cols=["x"], stats=("mean", "std", "count"), top_k=10,
+                Xtr,
+                ytr,
+                group_col_sets=[("region", "month")],
+                num_cols=["x"],
+                stats=("mean", "std", "count"),
+                top_k=10,
             )
             assert appended, f"seed={s}: no composite-agg survivors for AUC test."
             aug_cols = raw_cols + appended
@@ -269,15 +305,10 @@ class TestAucLift:
                 Xte_aug[r.name] = apply_recipe(r, Xte)
             aug = LogisticRegression(max_iter=2000)
             aug.fit(X_aug_tr[aug_cols], ytr)
-            auc_aug = roc_auc_score(
-                yte, aug.predict_proba(Xte_aug[aug_cols])[:, 1]
-            )
+            auc_aug = roc_auc_score(yte, aug.predict_proba(Xte_aug[aug_cols])[:, 1])
             lifts.append(auc_aug - auc_raw)
         mean_lift = float(np.mean(lifts))
-        assert mean_lift >= 0.05, (
-            f"composite-agg AUC lift {mean_lift:.4f} < 0.05 (per-seed "
-            f"{[round(x, 4) for x in lifts]})."
-        )
+        assert mean_lift >= 0.05, f"composite-agg AUC lift {mean_lift:.4f} < 0.05 (per-seed {[round(x, 4) for x in lifts]})."
 
 
 # ---------------------------------------------------------------------------
@@ -286,7 +317,10 @@ class TestAucLift:
 
 
 class TestCmiGateDropsRedundant:
+    """A composite mean that merely re-expresses a single-group mean already in the support is gated out by CMI."""
+
     def test_redundant_composite_gated_when_single_group_in_support(self):
+        """Once the region mean is conditioned on, the composite (region, month) mean's residual CMI drops below the gate on at least 4 of 5 seeds."""
         from mlframe.feature_selection.filters._composite_group_agg_fe import (
             generate_composite_group_agg_features,
             engineered_name_composite_agg,
@@ -296,40 +330,45 @@ class TestCmiGateDropsRedundant:
             score_grouped_agg_by_cmi_uplift,
             engineered_name_grouped_agg,
         )
+
         gated = 0
         for s in SEEDS:
             X, y = _build_single_group_signal(s)
             # The single-group region mean is the true (and only) signal; put it
             # in the conditioning support, then ask whether the composite
             # (region, month) mean adds NEW info on top of it.
-            enc_sg, raw_sg = generate_grouped_agg_features(
-                X, ["region"], ["x"], stats=("mean",),
+            enc_sg, _raw_sg = generate_grouped_agg_features(
+                X,
+                ["region"],
+                ["x"],
+                stats=("mean",),
             )
             region_mean_name = engineered_name_grouped_agg("x", "region", "mean")
             X_with_sg = X.copy()
             X_with_sg[region_mean_name] = enc_sg[region_mean_name].to_numpy()
 
             enc_c, raw_c = generate_composite_group_agg_features(
-                X, [("region", "month")], ["x"], stats=("mean",),
+                X,
+                [("region", "month")],
+                ["x"],
+                stats=("mean",),
             )
             e2s_c = {k: raw_c[k]["num_col"] for k in enc_c.columns}
             # Condition on x AND the single-group region mean.
             sc_c = score_grouped_agg_by_cmi_uplift(
-                X_with_sg, enc_c, y, ["x", region_mean_name],
+                X_with_sg,
+                enc_c,
+                y,
+                ["x", region_mean_name],
                 eng_to_source=e2s_c,
             )
             comp_name = engineered_name_composite_agg("x", ("region", "month"), "mean")
-            cmi_comp = float(
-                sc_c[sc_c["engineered_col"] == comp_name]["cmi"].iloc[0]
-            )
+            cmi_comp = float(sc_c[sc_c["engineered_col"] == comp_name]["cmi"].iloc[0])
             # Once the region mean is in the support, the composite mean adds
             # ~nothing (the month split is pure noise here).
             if cmi_comp < 0.05:
                 gated += 1
-        assert gated >= 4, (
-            f"redundant composite mean was NOT gated on "
-            f"{len(SEEDS) - gated}/{len(SEEDS)} seeds; expected gating on >= 4."
-        )
+        assert gated >= 4, f"redundant composite mean was NOT gated on {len(SEEDS) - gated}/{len(SEEDS)} seeds; expected gating on >= 4."
 
 
 # ---------------------------------------------------------------------------
@@ -338,16 +377,24 @@ class TestCmiGateDropsRedundant:
 
 
 class TestNoLeakage:
+    """The composite-aggregate recipe never captures a y reference and replays identically regardless of y."""
+
     def test_replay_independent_of_y(self):
+        """Repeated replay on the same X is identical, the recipe carries no y, and a shuffled-y refit reproduces the same named columns."""
         from mlframe.feature_selection.filters._composite_group_agg_fe import (
             hybrid_composite_group_agg_fe,
         )
         from mlframe.feature_selection.filters.engineered_recipes import (
             apply_recipe,
         )
+
         X, y = _build_composite_signal(7)
-        _, appended, recipes, _ = hybrid_composite_group_agg_fe(
-            X, y, group_col_sets=[("region", "month")], num_cols=["x"], top_k=10,
+        _, _appended, recipes, _ = hybrid_composite_group_agg_fe(
+            X,
+            y,
+            group_col_sets=[("region", "month")],
+            num_cols=["x"],
+            top_k=10,
         )
         assert recipes, "no recipes produced for leakage test."
         rng = np.random.default_rng(0)
@@ -356,20 +403,22 @@ class TestNoLeakage:
             col_a = apply_recipe(r, X)
             col_b = apply_recipe(r, X)
             np.testing.assert_array_equal(col_a, col_b)
-            assert "y" not in dict(r.extra), (
-                f"recipe {r.name!r} captured a y reference -- leakage risk."
-            )
+            assert "y" not in dict(r.extra), f"recipe {r.name!r} captured a y reference -- leakage risk."
         # Refit on shuffled y -> recipe lookups (functions of X only) replay to
         # the SAME columns for the SAME engineered names.
         _, _, recipes_shuf, _ = hybrid_composite_group_agg_fe(
-            X, y_shuffled, group_col_sets=[("region", "month")],
-            num_cols=["x"], top_k=10,
+            X,
+            y_shuffled,
+            group_col_sets=[("region", "month")],
+            num_cols=["x"],
+            top_k=10,
         )
         by_name = {r.name: r for r in recipes}
         for r2 in recipes_shuf:
             if r2.name in by_name:
                 np.testing.assert_array_equal(
-                    apply_recipe(r2, X), apply_recipe(by_name[r2.name], X),
+                    apply_recipe(r2, X),
+                    apply_recipe(by_name[r2.name], X),
                 )
 
 
@@ -379,21 +428,23 @@ class TestNoLeakage:
 
 
 class TestDefaultDisabledByteIdentical:
+    """fe_composite_group_agg_enable defaults to False; enabling it produces composite_group_agg_features_."""
+
     def test_mrmr_default_off_does_not_add_composite_agg(self):
+        """With fe_composite_group_agg_enable defaulting to False, MRMR.fit adds no composite_group_agg_features_."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _build_composite_signal(42, n=2500)
         m = MRMR(max_runtime_mins=0.5)
-        assert bool(getattr(m, "fe_composite_group_agg_enable", False)) is False, (
-            "fe_composite_group_agg_enable must default to False."
-        )
+        assert bool(getattr(m, "fe_composite_group_agg_enable", False)) is False, "fe_composite_group_agg_enable must default to False."
         m.fit(X, pd.Series(y, name="y"))
         cga = list(getattr(m, "composite_group_agg_features_", []) or [])
-        assert cga == [], (
-            f"composite_group_agg added columns with the feature disabled: {cga}"
-        )
+        assert cga == [], f"composite_group_agg added columns with the feature disabled: {cga}"
 
     def test_mrmr_enabled_adds_composite_agg(self):
+        """Enabling fe_composite_group_agg_enable produces at least one engineered column on the composite-signal fixture."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _build_composite_signal(42, n=4000)
         m = MRMR(
             max_runtime_mins=1.0,
@@ -405,10 +456,7 @@ class TestDefaultDisabledByteIdentical:
         )
         m.fit(X, pd.Series(y, name="y"))
         cga = list(getattr(m, "composite_group_agg_features_", []) or [])
-        assert len(cga) >= 1, (
-            "composite_group_agg enabled but produced no engineered columns on "
-            "the composite-signal fixture."
-        )
+        assert len(cga) >= 1, "composite_group_agg enabled but produced no engineered columns on the composite-signal fixture."
 
 
 # ---------------------------------------------------------------------------
@@ -417,27 +465,37 @@ class TestDefaultDisabledByteIdentical:
 
 
 class TestPickleClone:
+    """clone() preserves the composite-agg ctor params; pickle round-trips the composite-agg recipe."""
+
     def test_recipe_pickle_round_trip(self):
+        """A composite-agg recipe survives pickle round-trip with identical replay values."""
         from mlframe.feature_selection.filters._composite_group_agg_fe import (
             hybrid_composite_group_agg_fe,
         )
         from mlframe.feature_selection.filters.engineered_recipes import (
             apply_recipe,
         )
+
         X, y = _build_composite_signal(1)
-        _, appended, recipes, _ = hybrid_composite_group_agg_fe(
-            X, y, group_col_sets=[("region", "month")], num_cols=["x"], top_k=10,
+        _, _appended, recipes, _ = hybrid_composite_group_agg_fe(
+            X,
+            y,
+            group_col_sets=[("region", "month")],
+            num_cols=["x"],
+            top_k=10,
         )
         assert recipes, "no recipes for pickle test."
         for r in recipes:
             blob = pickle.dumps(r)
-            r2 = pickle.loads(blob)
+            r2 = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
             assert r2 == r, f"recipe {r.name!r} != its pickle round-trip."
             np.testing.assert_array_equal(apply_recipe(r, X), apply_recipe(r2, X))
 
     def test_mrmr_clone_preserves_params(self):
+        """clone() copies every fe_composite_group_agg_* ctor param without carrying over fitted state."""
         from sklearn.base import clone
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         m = MRMR(
             fe_composite_group_agg_enable=True,
             fe_composite_group_agg_key_sets=(("region", "month"),),
@@ -460,11 +518,13 @@ class TestMeanStdReuseBitIdentical:
     adversarial magnitudes, so a future 'just recompute it' cannot silently drift the encoding."""
 
     def test_mean_std_broadcast_matches_explicit_groupby_agg(self):
+        """The mean/std broadcast columns match an independent groupby.agg reference bit-for-bit across 5 magnitude trials."""
         from mlframe.feature_selection.filters._composite_group_agg_fe import (
             build_composite_keys,
             engineered_name_composite_agg,
             generate_composite_group_agg_features,
         )
+
         rng = np.random.default_rng(11)
         for trial in range(5):
             n = int(rng.integers(2000, 8000))
@@ -478,17 +538,19 @@ class TestMeanStdReuseBitIdentical:
             )
             gset = ("a", "b")
             enc, _ = generate_composite_group_agg_features(
-                X, [gset], num_cols=["v"], stats=("mean", "std", "count"),
+                X,
+                [gset],
+                num_cols=["v"],
+                stats=("mean", "std", "count"),
             )
             keys = build_composite_keys(X, gset)
             grouped = pd.DataFrame({"_g": keys, "_v": X["v"].to_numpy(dtype=float)}).groupby(
-                "_g", observed=True, sort=False,
+                "_g",
+                observed=True,
+                sort=False,
             )["_v"]
             ref_mean = {str(k): float(v) for k, v in grouped.agg("mean").items()}
-            ref_std = {
-                str(k): (float(v) if np.isfinite(v) else 0.0)
-                for k, v in grouped.agg("std").items()
-            }
+            ref_std = {str(k): (float(v) if np.isfinite(v) else 0.0) for k, v in grouped.agg("std").items()}
             keys_str = np.array([str(k) for k in keys], dtype=object)
             exp_mean = np.array([ref_mean[k] for k in keys_str], dtype=np.float64)
             exp_std = np.array([ref_std[k] for k in keys_str], dtype=np.float64)

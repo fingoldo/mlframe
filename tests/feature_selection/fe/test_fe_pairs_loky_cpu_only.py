@@ -32,8 +32,7 @@ def test_worker_initializer_disables_cuda():
         os.environ["CUDA_VISIBLE_DEVICES"] = "0"
         disable_cuda_in_worker()
         assert os.environ["CUDA_VISIBLE_DEVICES"] == "", (
-            "initializer must set CUDA_VISIBLE_DEVICES='' so the loky worker "
-            "sees no CUDA device and creates no cupy context"
+            "initializer must set CUDA_VISIBLE_DEVICES='' so the loky worker sees no CUDA device and creates no cupy context"
         )
     finally:
         if prev is None:
@@ -67,9 +66,7 @@ def test_pair_search_parallel_uses_cpu_only_loky_backend(monkeypatch):
 
     n, n_cols = 40, 8
     rng = np.random.default_rng(0)
-    X = pd.DataFrame(
-        {f"c{i}": rng.standard_normal(n) for i in range(n_cols)}
-    )
+    X = pd.DataFrame({f"c{i}": rng.standard_normal(n) for i in range(n_cols)})
     cols = list(X.columns)
     classes_y = (rng.random(n) > 0.5).astype(np.int64)
 
@@ -123,6 +120,5 @@ def test_pair_search_parallel_uses_cpu_only_loky_backend(monkeypatch):
         "across FE families) so they create NO per-worker cupy CUDA context"
     )
     assert backend.inner_max_num_threads == 1, (
-        "workers must cap inner thread pools to 1 (sampler-side, not kernel-side "
-        "parallelism) to avoid CPU oversubscription"
+        "workers must cap inner thread pools to 1 (sampler-side, not kernel-side parallelism) to avoid CPU oversubscription"
     )

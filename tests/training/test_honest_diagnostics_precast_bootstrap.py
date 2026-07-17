@@ -16,6 +16,7 @@ re-running the metric per leave-out point. That is a floating-point sum-reductio
 per-point LOO values), which propagates to <=~1e-13 on the CI bounds -- so the CI is asserted FP-close (rtol 1e-9),
 not bit-exact, while the POINT estimate (untouched by the jackknife) stays exactly equal.
 """
+
 from __future__ import annotations
 
 import numpy as np

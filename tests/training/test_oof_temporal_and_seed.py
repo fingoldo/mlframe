@@ -5,6 +5,7 @@ into the fold that predicts a past row, producing optimistic, selection-biased O
 must use ``TimeSeriesSplit`` (every fold predicts only rows strictly after its training rows). The seed must flow from
 the suite master seed, not a hardcoded 42.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -26,6 +27,7 @@ def test_oof_iid_uses_shuffled_seeded_kfold(monkeypatch):
 
     captured = {}
     import sklearn.model_selection as skms
+
     real_cvp = skms.cross_val_predict
 
     def _spy_cvp(estimator, X, y, *, cv=None, **kw):
@@ -39,8 +41,13 @@ def test_oof_iid_uses_shuffled_seeded_kfold(monkeypatch):
     model.fit(X, y)
 
     trainer_mod._compute_oof_preds(
-        model=model, train_df=X, train_target=y.to_numpy(),
-        is_classifier_model=True, n_splits=4, random_seed=7, has_time=False,
+        model=model,
+        train_df=X,
+        train_target=y.to_numpy(),
+        is_classifier_model=True,
+        n_splits=4,
+        random_seed=7,
+        has_time=False,
     )
     assert isinstance(captured["cv"], KFold), f"expected KFold for i.i.d., got {type(captured['cv'])}"
     assert captured["cv"].shuffle is True
@@ -65,9 +72,14 @@ def test_oof_temporal_does_not_use_cross_val_predict_and_warms_up_with_nan(monke
     model = LogisticRegression(max_iter=200)
     model.fit(X, y)
 
-    preds, probs = trainer_mod._compute_oof_preds(
-        model=model, train_df=X, train_target=y.to_numpy(),
-        is_classifier_model=True, n_splits=4, random_seed=7, has_time=True,
+    _preds, probs = trainer_mod._compute_oof_preds(
+        model=model,
+        train_df=X,
+        train_target=y.to_numpy(),
+        is_classifier_model=True,
+        n_splits=4,
+        random_seed=7,
+        has_time=True,
     )
     assert called["cvp"] is False
     assert probs is not None and probs.shape[0] == len(y)
@@ -100,12 +112,22 @@ def test_oof_shuffled_kfold_seed_is_threaded():
     model.fit(X, y)
 
     _, probs_a = _compute_oof_preds(
-        model=model, train_df=X, train_target=y.to_numpy(),
-        is_classifier_model=True, n_splits=5, random_seed=11, has_time=False,
+        model=model,
+        train_df=X,
+        train_target=y.to_numpy(),
+        is_classifier_model=True,
+        n_splits=5,
+        random_seed=11,
+        has_time=False,
     )
     _, probs_b = _compute_oof_preds(
-        model=model, train_df=X, train_target=y.to_numpy(),
-        is_classifier_model=True, n_splits=5, random_seed=999, has_time=False,
+        model=model,
+        train_df=X,
+        train_target=y.to_numpy(),
+        is_classifier_model=True,
+        n_splits=5,
+        random_seed=999,
+        has_time=False,
     )
     assert probs_a is not None and probs_b is not None
     assert not np.array_equal(probs_a, probs_b), "OOF probs identical across seeds -> seed not threaded into the folds"

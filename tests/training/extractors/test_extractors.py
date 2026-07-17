@@ -12,8 +12,7 @@ import pytest
 import numpy as np
 import pandas as pd
 import polars as pl
-from datetime import datetime, timedelta
-from typing import Dict, Any, Union
+from datetime import datetime
 
 from mlframe.training.extractors import (
     FeaturesAndTargetsExtractor,
@@ -35,26 +34,18 @@ class TestGetDataframeInfo:
 
     def test_pandas_dataframe(self):
         """Test info extraction from pandas DataFrame."""
-        df = pd.DataFrame({
-            'int_col': [1, 2, 3],
-            'float_col': [1.0, 2.0, 3.0],
-            'str_col': ['a', 'b', 'c']
-        })
+        df = pd.DataFrame({"int_col": [1, 2, 3], "float_col": [1.0, 2.0, 3.0], "str_col": ["a", "b", "c"]})
 
         info = get_dataframe_info(df)
 
         assert isinstance(info, str), "Info should be a string"
         assert len(info) > 0, "Info should not be empty"
         # Should contain column count or entry information
-        assert '3' in info or 'entries' in info.lower() or 'columns' in info.lower(), "Should contain DataFrame info"
+        assert "3" in info or "entries" in info.lower() or "columns" in info.lower(), "Should contain DataFrame info"
 
     def test_polars_dataframe(self):
         """Test info extraction from Polars DataFrame."""
-        df = pl.DataFrame({
-            'int_col': [1, 2, 3],
-            'float_col': [1.0, 2.0, 3.0],
-            'str_col': ['a', 'b', 'c']
-        })
+        df = pl.DataFrame({"int_col": [1, 2, 3], "float_col": [1.0, 2.0, 3.0], "str_col": ["a", "b", "c"]})
 
         info = get_dataframe_info(df)
 
@@ -75,40 +66,36 @@ class TestIntizeTargets:
 
     def test_pandas_series(self):
         """Test conversion of pandas Series."""
-        targets = {'target1': pd.Series([0.0, 1.0, 0.0, 1.0])}
+        targets = {"target1": pd.Series([0.0, 1.0, 0.0, 1.0])}
 
         intize_targets(targets)
 
-        assert isinstance(targets['target1'], np.ndarray), "Should convert to numpy array"
-        assert targets['target1'].dtype == np.int8, "Should be int8"
-        np.testing.assert_array_equal(targets['target1'], [0, 1, 0, 1])
+        assert isinstance(targets["target1"], np.ndarray), "Should convert to numpy array"
+        assert targets["target1"].dtype == np.int8, "Should be int8"
+        np.testing.assert_array_equal(targets["target1"], [0, 1, 0, 1])
 
     def test_polars_series(self):
         """Test conversion of Polars Series."""
-        targets = {'target1': pl.Series([0, 1, 0, 1])}
+        targets = {"target1": pl.Series([0, 1, 0, 1])}
 
         intize_targets(targets)
 
-        assert isinstance(targets['target1'], np.ndarray), "Should convert to numpy array"
-        assert targets['target1'].dtype == np.int8, "Should be int8"
-        np.testing.assert_array_equal(targets['target1'], [0, 1, 0, 1])
+        assert isinstance(targets["target1"], np.ndarray), "Should convert to numpy array"
+        assert targets["target1"].dtype == np.int8, "Should be int8"
+        np.testing.assert_array_equal(targets["target1"], [0, 1, 0, 1])
 
     def test_numpy_array(self):
         """Test conversion of numpy array."""
-        targets = {'target1': np.array([0.0, 1.0, 0.0, 1.0])}
+        targets = {"target1": np.array([0.0, 1.0, 0.0, 1.0])}
 
         intize_targets(targets)
 
-        assert isinstance(targets['target1'], np.ndarray), "Should remain numpy array"
-        assert targets['target1'].dtype == np.int8, "Should be int8"
+        assert isinstance(targets["target1"], np.ndarray), "Should remain numpy array"
+        assert targets["target1"].dtype == np.int8, "Should be int8"
 
     def test_multiple_targets(self):
         """Test conversion of multiple targets."""
-        targets = {
-            'target1': pd.Series([0, 1, 0]),
-            'target2': np.array([1, 0, 1]),
-            'target3': pl.Series([0, 0, 1])
-        }
+        targets = {"target1": pd.Series([0, 1, 0]), "target2": np.array([1, 0, 1]), "target3": pl.Series([0, 0, 1])}
 
         intize_targets(targets)
 
@@ -118,7 +105,7 @@ class TestIntizeTargets:
 
     def test_unsupported_type_raises_error(self):
         """Test that unsupported types raise TypeError."""
-        targets = {'target1': [0, 1, 0]}  # List is not supported
+        targets = {"target1": [0, 1, 0]}  # List is not supported
 
         with pytest.raises(TypeError, match="Unsupported target type"):
             intize_targets(targets)
@@ -129,7 +116,7 @@ class TestGetSampleWeightsByRecency:
 
     def test_basic_recency_weights(self):
         """Test that more recent samples get higher weights."""
-        dates = pd.date_range('2023-01-01', periods=100, freq='D')
+        dates = pd.date_range("2023-01-01", periods=100, freq="D")
         date_series = pd.Series(dates)
 
         weights = get_sample_weights_by_recency(date_series)
@@ -145,7 +132,7 @@ class TestGetSampleWeightsByRecency:
 
     def test_custom_min_weight(self):
         """Test custom minimum weight parameter."""
-        dates = pd.date_range('2023-01-01', periods=100, freq='D')
+        dates = pd.date_range("2023-01-01", periods=100, freq="D")
         date_series = pd.Series(dates)
 
         weights_default = get_sample_weights_by_recency(date_series, min_weight=1.0)
@@ -156,7 +143,7 @@ class TestGetSampleWeightsByRecency:
 
     def test_custom_weight_drop(self):
         """Test custom weight drop per year parameter."""
-        dates = pd.date_range('2020-01-01', periods=365 * 3, freq='D')  # 3 years
+        dates = pd.date_range("2020-01-01", periods=365 * 3, freq="D")  # 3 years
         date_series = pd.Series(dates)
 
         weights_low_drop = get_sample_weights_by_recency(date_series, weight_drop_per_year=0.05)
@@ -169,7 +156,7 @@ class TestGetSampleWeightsByRecency:
 
     def test_single_date(self):
         """Test with single date (edge case)."""
-        date_series = pd.Series([pd.Timestamp('2023-01-01')])
+        date_series = pd.Series([pd.Timestamp("2023-01-01")])
 
         # Should not crash with single date
         weights = get_sample_weights_by_recency(date_series)
@@ -187,18 +174,16 @@ class TestGetSampleWeightsByRecency:
 
     def test_no_inf_on_most_recent_sample(self):
         """The max-date sample must get a FINITE weight, not +inf."""
-        dates = pd.date_range('2023-01-01', periods=100, freq='D')
+        dates = pd.date_range("2023-01-01", periods=100, freq="D")
         weights = get_sample_weights_by_recency(pd.Series(dates))
         # The most recent sample (last index) was the bug site.
-        assert np.isfinite(weights).all(), (
-            f"all weights must be finite, got {weights[~np.isfinite(weights)]}"
-        )
+        assert np.isfinite(weights).all(), f"all weights must be finite, got {weights[~np.isfinite(weights)]}"
         assert weights[-1] == np.max(weights), "most-recent must be the highest"
 
     def test_no_nan_on_identical_timestamps(self):
         """All-identical timestamps -> zero span -> pre-fix returned NaN.
         Now: returns uniform min_weight."""
-        same = pd.Series([pd.Timestamp('2023-06-15')] * 50)
+        same = pd.Series([pd.Timestamp("2023-06-15")] * 50)
         weights = get_sample_weights_by_recency(same, min_weight=1.5)
         assert np.all(np.isfinite(weights))
         np.testing.assert_allclose(weights, 1.5)
@@ -206,21 +191,18 @@ class TestGetSampleWeightsByRecency:
     def test_weights_are_monotone_non_decreasing(self):
         """Weights must be non-decreasing along sorted-ascending dates.
         Catches sign-flip regressions in the log formula."""
-        dates = pd.date_range('2020-01-01', periods=500, freq='D')
+        dates = pd.date_range("2020-01-01", periods=500, freq="D")
         weights = get_sample_weights_by_recency(pd.Series(dates))
         # Within numerical tolerance of log quantisation, weights should
         # never decrease as we move toward the most recent sample.
         diffs = np.diff(weights)
-        assert np.all(diffs >= -1e-9), (
-            "weights must be monotone non-decreasing by date; "
-            f"found {(diffs < 0).sum()} decreasing transitions"
-        )
+        assert np.all(diffs >= -1e-9), f"weights must be monotone non-decreasing by date; found {(diffs < 0).sum()} decreasing transitions"
 
     def test_weights_length_matches_input(self):
         """Defensive: length invariant must hold for every span/size combo."""
         for n in (1, 2, 100, 1000):
             for span_days in (0, 1, 365, 3650):
-                dates = pd.date_range('2020-01-01', periods=n, freq=f'{span_days // max(n-1, 1) + 1}D') if n > 1 else pd.Series([pd.Timestamp('2020-01-01')])
+                dates = pd.date_range("2020-01-01", periods=n, freq=f"{span_days // max(n - 1, 1) + 1}D") if n > 1 else pd.Series([pd.Timestamp("2020-01-01")])
                 s = pd.Series(dates)
                 w = get_sample_weights_by_recency(s)
                 assert len(w) == len(s), f"length mismatch for n={n}"
@@ -248,22 +230,17 @@ class TestFeaturesAndTargetsExtractorBase:
 
     def test_init_with_params(self):
         """Test initialization with parameters."""
-        extractor = FeaturesAndTargetsExtractor(
-            ts_field='timestamp',
-            group_field='group_id',
-            columns_to_drop={'col1', 'col2'},
-            verbose=1
-        )
+        extractor = FeaturesAndTargetsExtractor(ts_field="timestamp", group_field="group_id", columns_to_drop={"col1", "col2"}, verbose=1)
 
-        assert extractor.ts_field == 'timestamp'
-        assert extractor.group_field == 'group_id'
-        assert extractor.columns_to_drop == {'col1', 'col2'}
+        assert extractor.ts_field == "timestamp"
+        assert extractor.group_field == "group_id"
+        assert extractor.columns_to_drop == {"col1", "col2"}
         assert extractor.verbose == 1
 
     def test_add_features_default_passthrough(self):
         """Test that default add_features just returns the input."""
         extractor = FeaturesAndTargetsExtractor()
-        df = pd.DataFrame({'a': [1, 2, 3]})
+        df = pd.DataFrame({"a": [1, 2, 3]})
 
         result = extractor.add_features(df)
 
@@ -272,7 +249,7 @@ class TestFeaturesAndTargetsExtractorBase:
     def test_build_targets_default_empty(self):
         """Test that default build_targets returns empty dict."""
         extractor = FeaturesAndTargetsExtractor()
-        df = pd.DataFrame({'a': [1, 2, 3]})
+        df = pd.DataFrame({"a": [1, 2, 3]})
 
         result = extractor.build_targets(df)
 
@@ -281,7 +258,7 @@ class TestFeaturesAndTargetsExtractorBase:
     def test_prepare_artifacts_default_empty(self):
         """Test that default prepare_artifacts returns empty dict."""
         extractor = FeaturesAndTargetsExtractor()
-        df = pd.DataFrame({'a': [1, 2, 3]})
+        df = pd.DataFrame({"a": [1, 2, 3]})
 
         result = extractor.prepare_artifacts(df)
 
@@ -290,7 +267,7 @@ class TestFeaturesAndTargetsExtractorBase:
     def test_get_sample_weights_default_empty(self):
         """Test that default get_sample_weights returns empty dict."""
         extractor = FeaturesAndTargetsExtractor()
-        df = pd.DataFrame({'a': [1, 2, 3]})
+        df = pd.DataFrame({"a": [1, 2, 3]})
 
         result = extractor.get_sample_weights(df)
 
@@ -299,7 +276,7 @@ class TestFeaturesAndTargetsExtractorBase:
     def test_transform_basic(self):
         """Test basic transform without any features/targets."""
         extractor = FeaturesAndTargetsExtractor()
-        df = pd.DataFrame({'feature1': [1, 2, 3], 'feature2': [4, 5, 6]})
+        df = pd.DataFrame({"feature1": [1, 2, 3], "feature2": [4, 5, 6]})
 
         result = extractor.transform(df)
 
@@ -318,11 +295,8 @@ class TestFeaturesAndTargetsExtractorBase:
 
     def test_transform_with_ts_field(self):
         """Test transform with timestamp field."""
-        extractor = FeaturesAndTargetsExtractor(ts_field='timestamp')
-        df = pd.DataFrame({
-            'feature1': [1, 2, 3],
-            'timestamp': pd.date_range('2023-01-01', periods=3)
-        })
+        extractor = FeaturesAndTargetsExtractor(ts_field="timestamp")
+        df = pd.DataFrame({"feature1": [1, 2, 3], "timestamp": pd.date_range("2023-01-01", periods=3)})
 
         result = extractor.transform(df)
         _, _, _, _, timestamps, _, _, _ = result
@@ -332,11 +306,8 @@ class TestFeaturesAndTargetsExtractorBase:
 
     def test_transform_with_group_field(self):
         """Test transform with group field."""
-        extractor = FeaturesAndTargetsExtractor(group_field='group_id')
-        df = pd.DataFrame({
-            'feature1': [1, 2, 3, 4],
-            'group_id': ['A', 'A', 'B', 'B']
-        })
+        extractor = FeaturesAndTargetsExtractor(group_field="group_id")
+        df = pd.DataFrame({"feature1": [1, 2, 3, 4], "group_id": ["A", "A", "B", "B"]})
 
         result = extractor.transform(df)
         _, _, group_ids_raw, group_ids, _, _, _, _ = result
@@ -350,19 +321,21 @@ class TestFeaturesAndTargetsExtractorBase:
         grouping (captured in group_ids), NOT a predictive signal -- a high-cardinality / string identifier (well_id,
         user_id) would leak into selection, crash numeric FE (e.g. DCD PCA on a hex string), and bloat the codes matrix.
         """
-        extractor = FeaturesAndTargetsExtractor(group_field='well_id')
-        df = pd.DataFrame({
-            'x': [1.0, 2.0, 3.0, 4.0],
-            'well_id': ['000d7d20', '000d7d20', 'abc123', 'abc123'],  # hex-string group ids
-        })
+        extractor = FeaturesAndTargetsExtractor(group_field="well_id")
+        df = pd.DataFrame(
+            {
+                "x": [1.0, 2.0, 3.0, 4.0],
+                "well_id": ["000d7d20", "000d7d20", "abc123", "abc123"],  # hex-string group ids
+            }
+        )
         result = extractor.transform(df)
         columns_to_drop = result[6]
-        assert 'well_id' in columns_to_drop, "group_field must be excluded from features"
+        assert "well_id" in columns_to_drop, "group_field must be excluded from features"
 
     def test_group_field_none_drops_nothing_extra(self):
         """No group_field -> nothing added to columns_to_drop on its account (no spurious drop)."""
         extractor = FeaturesAndTargetsExtractor(group_field=None)
-        df = pd.DataFrame({'x': [1.0, 2.0], 'y': [3.0, 4.0]})
+        df = pd.DataFrame({"x": [1.0, 2.0], "y": [3.0, 4.0]})
         result = extractor.transform(df)
         assert result[6] == set()
 
@@ -372,37 +345,43 @@ class TestFeaturesAndTargetsExtractorSubclass:
 
     def test_custom_add_features(self):
         """Test custom add_features implementation."""
+
         class CustomExtractor(FeaturesAndTargetsExtractor):
+            """Extractor override that appends a derived column, exercising the add_features hook point."""
+
             def add_features(self, df):
+                """Double feature1 into a new column to prove the override runs instead of the passthrough default."""
                 df = df.copy()
-                df['new_feature'] = df['feature1'] * 2
+                df["new_feature"] = df["feature1"] * 2
                 return df
 
         extractor = CustomExtractor()
-        df = pd.DataFrame({'feature1': [1, 2, 3]})
+        df = pd.DataFrame({"feature1": [1, 2, 3]})
 
         result = extractor.transform(df)
         df_out = result[0]
 
-        assert 'new_feature' in df_out.columns
-        np.testing.assert_array_equal(df_out['new_feature'].values, [2, 4, 6])
+        assert "new_feature" in df_out.columns
+        np.testing.assert_array_equal(df_out["new_feature"].values, [2, 4, 6])
 
     def test_custom_build_targets(self):
         """Test custom build_targets implementation."""
+
         class CustomExtractor(FeaturesAndTargetsExtractor):
+            """Extractor override that builds a REGRESSION target, exercising the build_targets hook point."""
+
             def build_targets(self, df):
-                return {
-                    TargetTypes.REGRESSION: {'my_target': df['target'].values}
-                }
+                """Return a single REGRESSION target sourced from the 'target' column."""
+                return {TargetTypes.REGRESSION: {"my_target": df["target"].values}}
 
         extractor = CustomExtractor()
-        df = pd.DataFrame({'feature1': [1, 2, 3], 'target': [10, 20, 30]})
+        df = pd.DataFrame({"feature1": [1, 2, 3], "target": [10, 20, 30]})
 
         result = extractor.transform(df)
         target_by_type = result[1]
 
         assert TargetTypes.REGRESSION in target_by_type
-        assert 'my_target' in target_by_type[TargetTypes.REGRESSION]
+        assert "my_target" in target_by_type[TargetTypes.REGRESSION]
 
 
 # =============================================================================
@@ -415,47 +394,33 @@ class TestSimpleFeaturesAndTargetsExtractorRegression:
 
     def test_single_regression_target(self):
         """Test extraction of single regression target."""
-        extractor = SimpleFeaturesAndTargetsExtractor(
-            regression_targets=['target']
-        )
-        df = pd.DataFrame({
-            'feature1': [1.0, 2.0, 3.0],
-            'feature2': [4.0, 5.0, 6.0],
-            'target': [10.0, 20.0, 30.0]
-        })
+        extractor = SimpleFeaturesAndTargetsExtractor(regression_targets=["target"])
+        df = pd.DataFrame({"feature1": [1.0, 2.0, 3.0], "feature2": [4.0, 5.0, 6.0], "target": [10.0, 20.0, 30.0]})
 
         result = extractor.transform(df)
         _, target_by_type, _, _, _, _, cols_to_drop, _ = result
 
         assert TargetTypes.REGRESSION in target_by_type
-        assert 'target' in target_by_type[TargetTypes.REGRESSION]
-        assert 'target' in cols_to_drop
+        assert "target" in target_by_type[TargetTypes.REGRESSION]
+        assert "target" in cols_to_drop
 
     def test_multiple_regression_targets(self):
         """Test extraction of multiple regression targets."""
-        extractor = SimpleFeaturesAndTargetsExtractor(
-            regression_targets=['target1', 'target2']
-        )
-        df = pd.DataFrame({
-            'feature1': [1.0, 2.0, 3.0],
-            'target1': [10.0, 20.0, 30.0],
-            'target2': [100.0, 200.0, 300.0]
-        })
+        extractor = SimpleFeaturesAndTargetsExtractor(regression_targets=["target1", "target2"])
+        df = pd.DataFrame({"feature1": [1.0, 2.0, 3.0], "target1": [10.0, 20.0, 30.0], "target2": [100.0, 200.0, 300.0]})
 
         result = extractor.transform(df)
         _, target_by_type, _, _, _, _, cols_to_drop, _ = result
 
         assert TargetTypes.REGRESSION in target_by_type
-        assert 'target1' in target_by_type[TargetTypes.REGRESSION]
-        assert 'target2' in target_by_type[TargetTypes.REGRESSION]
-        assert {'target1', 'target2'} <= cols_to_drop
+        assert "target1" in target_by_type[TargetTypes.REGRESSION]
+        assert "target2" in target_by_type[TargetTypes.REGRESSION]
+        assert {"target1", "target2"} <= cols_to_drop
 
     def test_missing_regression_target_raises_error(self):
         """Test that missing regression target column raises KeyError."""
-        extractor = SimpleFeaturesAndTargetsExtractor(
-            regression_targets=['nonexistent_target']
-        )
-        df = pd.DataFrame({'feature1': [1.0, 2.0, 3.0]})
+        extractor = SimpleFeaturesAndTargetsExtractor(regression_targets=["nonexistent_target"])
+        df = pd.DataFrame({"feature1": [1.0, 2.0, 3.0]})
 
         with pytest.raises(KeyError, match="Regression target column 'nonexistent_target' not found"):
             extractor.transform(df)
@@ -466,68 +431,49 @@ class TestSimpleFeaturesAndTargetsExtractorClassification:
 
     def test_single_classification_target(self):
         """Test extraction of single classification target."""
-        extractor = SimpleFeaturesAndTargetsExtractor(
-            classification_targets=['target']
-        )
-        df = pd.DataFrame({
-            'feature1': [1.0, 2.0, 3.0],
-            'target': [0, 1, 0]
-        })
+        extractor = SimpleFeaturesAndTargetsExtractor(classification_targets=["target"])
+        df = pd.DataFrame({"feature1": [1.0, 2.0, 3.0], "target": [0, 1, 0]})
 
         result = extractor.transform(df)
         _, target_by_type, _, _, _, _, cols_to_drop, _ = result
 
         assert TargetTypes.BINARY_CLASSIFICATION in target_by_type
         targets = target_by_type[TargetTypes.BINARY_CLASSIFICATION]
-        assert 'target' in targets
-        assert targets['target'].dtype == np.int8
-        assert 'target' in cols_to_drop
+        assert "target" in targets
+        assert targets["target"].dtype == np.int8
+        assert "target" in cols_to_drop
 
     def test_classification_with_threshold(self):
         """Test classification target with threshold."""
-        extractor = SimpleFeaturesAndTargetsExtractor(
-            classification_targets=['score'],
-            classification_thresholds={'score': 0.5}
-        )
-        df = pd.DataFrame({
-            'feature1': [1.0, 2.0, 3.0, 4.0],
-            'score': [0.2, 0.4, 0.6, 0.8]
-        })
+        extractor = SimpleFeaturesAndTargetsExtractor(classification_targets=["score"], classification_thresholds={"score": 0.5})
+        df = pd.DataFrame({"feature1": [1.0, 2.0, 3.0, 4.0], "score": [0.2, 0.4, 0.6, 0.8]})
 
         result = extractor.transform(df)
         _, target_by_type, _, _, _, _, _, _ = result
 
         targets = target_by_type[TargetTypes.BINARY_CLASSIFICATION]
         # Target name should include threshold
-        assert 'score_above_0.5' in targets
+        assert "score_above_0.5" in targets
         expected = np.array([0, 0, 1, 1], dtype=np.int8)
-        np.testing.assert_array_equal(targets['score_above_0.5'], expected)
+        np.testing.assert_array_equal(targets["score_above_0.5"], expected)
 
     def test_classification_with_exact_values(self):
         """Test classification target with exact value matching."""
-        extractor = SimpleFeaturesAndTargetsExtractor(
-            classification_targets=['status'],
-            classification_exact_values={'status': 'active'}
-        )
-        df = pd.DataFrame({
-            'feature1': [1.0, 2.0, 3.0],
-            'status': ['active', 'inactive', 'active']
-        })
+        extractor = SimpleFeaturesAndTargetsExtractor(classification_targets=["status"], classification_exact_values={"status": "active"})
+        df = pd.DataFrame({"feature1": [1.0, 2.0, 3.0], "status": ["active", "inactive", "active"]})
 
         result = extractor.transform(df)
         _, target_by_type, _, _, _, _, _, _ = result
 
         targets = target_by_type[TargetTypes.BINARY_CLASSIFICATION]
-        assert 'status_eq_active' in targets
+        assert "status_eq_active" in targets
         expected = np.array([1, 0, 1], dtype=np.int8)
-        np.testing.assert_array_equal(targets['status_eq_active'], expected)
+        np.testing.assert_array_equal(targets["status_eq_active"], expected)
 
     def test_missing_classification_target_raises_error(self):
         """Test that missing classification target column raises KeyError."""
-        extractor = SimpleFeaturesAndTargetsExtractor(
-            classification_targets=['nonexistent']
-        )
-        df = pd.DataFrame({'feature1': [1.0, 2.0, 3.0]})
+        extractor = SimpleFeaturesAndTargetsExtractor(classification_targets=["nonexistent"])
+        df = pd.DataFrame({"feature1": [1.0, 2.0, 3.0]})
 
         with pytest.raises(KeyError, match="Classification target column 'nonexistent' not found"):
             extractor.transform(df)
@@ -539,24 +485,18 @@ class TestSimpleFeaturesAndTargetsExtractorMixed:
     def test_both_regression_and_classification(self):
         """Test extraction of both regression and classification targets."""
         extractor = SimpleFeaturesAndTargetsExtractor(
-            regression_targets=['reg_target'],
-            classification_targets=['cls_target'],
-            classification_thresholds={'cls_target': 50}
+            regression_targets=["reg_target"], classification_targets=["cls_target"], classification_thresholds={"cls_target": 50}
         )
-        df = pd.DataFrame({
-            'feature1': [1.0, 2.0, 3.0],
-            'reg_target': [10.0, 20.0, 30.0],
-            'cls_target': [40, 60, 80]
-        })
+        df = pd.DataFrame({"feature1": [1.0, 2.0, 3.0], "reg_target": [10.0, 20.0, 30.0], "cls_target": [40, 60, 80]})
 
         result = extractor.transform(df)
         _, target_by_type, _, _, _, _, cols_to_drop, _ = result
 
         assert TargetTypes.REGRESSION in target_by_type
         assert TargetTypes.BINARY_CLASSIFICATION in target_by_type
-        assert 'reg_target' in target_by_type[TargetTypes.REGRESSION]
-        assert 'cls_target_above_50' in target_by_type[TargetTypes.BINARY_CLASSIFICATION]
-        assert {'reg_target', 'cls_target'} <= cols_to_drop
+        assert "reg_target" in target_by_type[TargetTypes.REGRESSION]
+        assert "cls_target_above_50" in target_by_type[TargetTypes.BINARY_CLASSIFICATION]
+        assert {"reg_target", "cls_target"} <= cols_to_drop
 
 
 class TestSimpleFeaturesAndTargetsExtractorSampleWeights:
@@ -564,52 +504,39 @@ class TestSimpleFeaturesAndTargetsExtractorSampleWeights:
 
     def test_recency_sample_weights(self):
         """Test recency-based sample weights with ts_field."""
-        extractor = SimpleFeaturesAndTargetsExtractor(
-            ts_field='timestamp',
-            regression_targets=['target']
+        extractor = SimpleFeaturesAndTargetsExtractor(ts_field="timestamp", regression_targets=["target"])
+        df = pd.DataFrame(
+            {"feature1": [1.0, 2.0, 3.0, 4.0, 5.0], "target": [10.0, 20.0, 30.0, 40.0, 50.0], "timestamp": pd.date_range("2023-01-01", periods=5, freq="D")}
         )
-        df = pd.DataFrame({
-            'feature1': [1.0, 2.0, 3.0, 4.0, 5.0],
-            'target': [10.0, 20.0, 30.0, 40.0, 50.0],
-            'timestamp': pd.date_range('2023-01-01', periods=5, freq='D')
-        })
 
         result = extractor.transform(df)
         _, _, _, _, _, _, _, sample_weights = result
 
-        assert 'recency' in sample_weights
-        weights = sample_weights['recency']
+        assert "recency" in sample_weights
+        weights = sample_weights["recency"]
         assert len(weights) == 5
 
     def test_no_recency_weights_without_ts_field(self):
         """Without ts_field, recency is not emitted; the uniform baseline is
         (since 2026-04-23 ``use_uniform_weighting`` defaults to True so every
         run has a baseline to attribute metric differences against)."""
-        extractor = SimpleFeaturesAndTargetsExtractor(
-            regression_targets=['target']
-        )
-        df = pd.DataFrame({
-            'feature1': [1.0, 2.0, 3.0],
-            'target': [10.0, 20.0, 30.0]
-        })
+        extractor = SimpleFeaturesAndTargetsExtractor(regression_targets=["target"])
+        df = pd.DataFrame({"feature1": [1.0, 2.0, 3.0], "target": [10.0, 20.0, 30.0]})
 
         result = extractor.transform(df)
         _, _, _, _, _, _, _, sample_weights = result
 
-        assert set(sample_weights.keys()) == {'uniform'}
-        assert sample_weights['uniform'] is None  # uniform is a sentinel, not an array
+        assert set(sample_weights.keys()) == {"uniform"}
+        assert sample_weights["uniform"] is None  # uniform is a sentinel, not an array
 
     def test_sample_weights_fully_disabled(self):
         """Explicit opt-out still yields an empty dict — the old default."""
         extractor = SimpleFeaturesAndTargetsExtractor(
-            regression_targets=['target'],
+            regression_targets=["target"],
             use_uniform_weighting=False,
             use_recency_weighting=False,
         )
-        df = pd.DataFrame({
-            'feature1': [1.0, 2.0, 3.0],
-            'target': [10.0, 20.0, 30.0]
-        })
+        df = pd.DataFrame({"feature1": [1.0, 2.0, 3.0], "target": [10.0, 20.0, 30.0]})
 
         result = extractor.transform(df)
         _, _, _, _, _, _, _, sample_weights = result
@@ -622,35 +549,25 @@ class TestSimpleFeaturesAndTargetsExtractorPolars:
 
     def test_polars_regression_target(self):
         """Test regression target extraction from Polars DataFrame."""
-        extractor = SimpleFeaturesAndTargetsExtractor(
-            regression_targets=['target']
-        )
-        df = pl.DataFrame({
-            'feature1': [1.0, 2.0, 3.0],
-            'target': [10.0, 20.0, 30.0]
-        })
+        extractor = SimpleFeaturesAndTargetsExtractor(regression_targets=["target"])
+        df = pl.DataFrame({"feature1": [1.0, 2.0, 3.0], "target": [10.0, 20.0, 30.0]})
 
         result = extractor.transform(df)
         _, target_by_type, _, _, _, _, _, _ = result
 
         assert TargetTypes.REGRESSION in target_by_type
-        assert 'target' in target_by_type[TargetTypes.REGRESSION]
+        assert "target" in target_by_type[TargetTypes.REGRESSION]
 
     def test_polars_classification_target(self):
         """Test classification target extraction from Polars DataFrame."""
-        extractor = SimpleFeaturesAndTargetsExtractor(
-            classification_targets=['target']
-        )
-        df = pl.DataFrame({
-            'feature1': [1.0, 2.0, 3.0],
-            'target': [0, 1, 0]
-        })
+        extractor = SimpleFeaturesAndTargetsExtractor(classification_targets=["target"])
+        df = pl.DataFrame({"feature1": [1.0, 2.0, 3.0], "target": [0, 1, 0]})
 
         result = extractor.transform(df)
         _, target_by_type, _, _, _, _, _, _ = result
 
         targets = target_by_type[TargetTypes.BINARY_CLASSIFICATION]
-        assert targets['target'].dtype == np.int8
+        assert targets["target"].dtype == np.int8
 
     def test_polars_with_ts_field(self):
         """Test Polars DataFrame with timestamp field conversion.
@@ -659,15 +576,10 @@ class TestSimpleFeaturesAndTargetsExtractorPolars:
         returns pl.Date (no time component), which breaks downstream .dt
         accessor calls in get_sample_weights_by_recency.
         """
-        extractor = SimpleFeaturesAndTargetsExtractor(
-            ts_field='timestamp',
-            regression_targets=['target']
+        extractor = SimpleFeaturesAndTargetsExtractor(ts_field="timestamp", regression_targets=["target"])
+        df = pl.DataFrame(
+            {"feature1": [1.0, 2.0, 3.0], "target": [10.0, 20.0, 30.0], "timestamp": pl.datetime_range(datetime(2023, 1, 1), datetime(2023, 1, 3), eager=True)}
         )
-        df = pl.DataFrame({
-            'feature1': [1.0, 2.0, 3.0],
-            'target': [10.0, 20.0, 30.0],
-            'timestamp': pl.datetime_range(datetime(2023, 1, 1), datetime(2023, 1, 3), eager=True)
-        })
 
         result = extractor.transform(df)
         _, _, _, _, timestamps, _, _, _ = result
@@ -681,21 +593,19 @@ class TestSimpleFeaturesAndTargetsExtractorEdgeCases:
 
     def test_empty_dataframe(self):
         """Test handling of empty DataFrame."""
-        extractor = SimpleFeaturesAndTargetsExtractor(
-            regression_targets=['target']
-        )
-        df = pd.DataFrame({'feature1': [], 'target': []})
+        extractor = SimpleFeaturesAndTargetsExtractor(regression_targets=["target"])
+        df = pd.DataFrame({"feature1": [], "target": []})
 
         result = extractor.transform(df)
         _, target_by_type, _, _, _, _, _, _ = result
 
         assert TargetTypes.REGRESSION in target_by_type
-        assert len(target_by_type[TargetTypes.REGRESSION]['target']) == 0
+        assert len(target_by_type[TargetTypes.REGRESSION]["target"]) == 0
 
     def test_no_targets_specified(self):
         """Test when no targets are specified."""
         extractor = SimpleFeaturesAndTargetsExtractor()
-        df = pd.DataFrame({'feature1': [1.0, 2.0, 3.0]})
+        df = pd.DataFrame({"feature1": [1.0, 2.0, 3.0]})
 
         result = extractor.transform(df)
         _, target_by_type, _, _, _, _, _, _ = result
@@ -706,55 +616,39 @@ class TestSimpleFeaturesAndTargetsExtractorEdgeCases:
 
     def test_classification_without_threshold_or_exact(self):
         """Test classification target without threshold or exact value (direct use)."""
-        extractor = SimpleFeaturesAndTargetsExtractor(
-            classification_targets=['binary_col']
-        )
-        df = pd.DataFrame({
-            'feature1': [1.0, 2.0, 3.0],
-            'binary_col': [0, 1, 1]
-        })
+        extractor = SimpleFeaturesAndTargetsExtractor(classification_targets=["binary_col"])
+        df = pd.DataFrame({"feature1": [1.0, 2.0, 3.0], "binary_col": [0, 1, 1]})
 
         result = extractor.transform(df)
         _, target_by_type, _, _, _, _, _, _ = result
 
         targets = target_by_type[TargetTypes.BINARY_CLASSIFICATION]
         # Should use column name directly
-        assert 'binary_col' in targets
-        np.testing.assert_array_equal(targets['binary_col'], [0, 1, 1])
+        assert "binary_col" in targets
+        np.testing.assert_array_equal(targets["binary_col"], [0, 1, 1])
 
     def test_single_row_dataframe(self):
         """Test with single row DataFrame."""
-        extractor = SimpleFeaturesAndTargetsExtractor(
-            regression_targets=['target']
-        )
-        df = pd.DataFrame({'feature1': [1.0], 'target': [10.0]})
+        extractor = SimpleFeaturesAndTargetsExtractor(regression_targets=["target"])
+        df = pd.DataFrame({"feature1": [1.0], "target": [10.0]})
 
         result = extractor.transform(df)
         _, target_by_type, _, _, _, _, _, _ = result
 
-        assert len(target_by_type[TargetTypes.REGRESSION]['target']) == 1
+        assert len(target_by_type[TargetTypes.REGRESSION]["target"]) == 1
 
     def test_columns_to_drop_accumulates(self):
         """Test that columns_to_drop accumulates target columns."""
-        initial_cols = {'col_to_remove'}
-        extractor = SimpleFeaturesAndTargetsExtractor(
-            columns_to_drop=initial_cols,
-            regression_targets=['target1'],
-            classification_targets=['target2']
-        )
-        df = pd.DataFrame({
-            'feature1': [1.0, 2.0],
-            'col_to_remove': [1, 2],
-            'target1': [10.0, 20.0],
-            'target2': [0, 1]
-        })
+        initial_cols = {"col_to_remove"}
+        extractor = SimpleFeaturesAndTargetsExtractor(columns_to_drop=initial_cols, regression_targets=["target1"], classification_targets=["target2"])
+        df = pd.DataFrame({"feature1": [1.0, 2.0], "col_to_remove": [1, 2], "target1": [10.0, 20.0], "target2": [0, 1]})
 
         result = extractor.transform(df)
         _, _, _, _, _, _, cols_to_drop, _ = result
 
-        assert 'col_to_remove' in cols_to_drop
-        assert 'target1' in cols_to_drop
-        assert 'target2' in cols_to_drop
+        assert "col_to_remove" in cols_to_drop
+        assert "target1" in cols_to_drop
+        assert "target2" in cols_to_drop
 
 
 # =============================================================================
@@ -766,8 +660,9 @@ class TestSimpleFeaturesAndTargetsExtractorEdgeCases:
 
 
 def _build_frame(kind):
-    data = {'int_col': [1, 2, 3], 'float_col': [1.0, 2.0, 3.0]}
-    return pd.DataFrame(data) if kind == 'pandas' else pl.DataFrame(data)
+    """Build a tiny two-column int/float frame as either pandas or polars, per kind."""
+    data = {"int_col": [1, 2, 3], "float_col": [1.0, 2.0, 3.0]}
+    return pd.DataFrame(data) if kind == "pandas" else pl.DataFrame(data)
 
 
 @pytest.mark.fast
@@ -783,16 +678,16 @@ def test_get_dataframe_info_parametrized(frame_kind):
 @pytest.mark.parametrize("series_kind", ["pandas", "polars", "numpy"])
 def test_intize_targets_parametrized(series_kind):
     """intize_targets coerces every supported series flavour to int8 numpy."""
-    if series_kind == 'pandas':
+    if series_kind == "pandas":
         s = pd.Series([0.0, 1.0, 0.0])
-    elif series_kind == 'polars':
+    elif series_kind == "polars":
         s = pl.Series([0, 1, 0])
     else:
         s = np.array([0.0, 1.0, 0.0])
-    targets = {'t': s}
+    targets = {"t": s}
     intize_targets(targets)
-    assert isinstance(targets['t'], np.ndarray)
-    assert targets['t'].dtype == np.int8
+    assert isinstance(targets["t"], np.ndarray)
+    assert targets["t"].dtype == np.int8
 
 
 class TestSimpleFeaturesAndTargetsExtractorLearningToRank:
@@ -802,38 +697,42 @@ class TestSimpleFeaturesAndTargetsExtractorLearningToRank:
         """learning_to_rank_targets builds a LEARNING_TO_RANK target, drops the label column, and emits
         per-query group_ids from group_field."""
         extractor = SimpleFeaturesAndTargetsExtractor(
-            learning_to_rank_targets=['relevance'], group_field='qid',
+            learning_to_rank_targets=["relevance"],
+            group_field="qid",
         )
-        df = pd.DataFrame({
-            'feature1': [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
-            'relevance': [0, 2, 1, 3, 0, 4],
-            'qid': ['q1', 'q1', 'q1', 'q2', 'q2', 'q2'],
-        })
+        df = pd.DataFrame(
+            {
+                "feature1": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+                "relevance": [0, 2, 1, 3, 0, 4],
+                "qid": ["q1", "q1", "q1", "q2", "q2", "q2"],
+            }
+        )
 
         result = extractor.transform(df)
         _, target_by_type, group_ids_raw, group_ids, _, _, cols_to_drop, _ = result
 
         assert TargetTypes.LEARNING_TO_RANK in target_by_type
-        assert 'relevance' in target_by_type[TargetTypes.LEARNING_TO_RANK]
-        assert 'relevance' in cols_to_drop
+        assert "relevance" in target_by_type[TargetTypes.LEARNING_TO_RANK]
+        assert "relevance" in cols_to_drop
         # group_field drives query grouping (emitted as group_ids).
         assert group_ids_raw is not None and group_ids is not None
         assert len(np.unique(group_ids)) == 2  # q1, q2
 
     def test_ltr_target_missing_column_raises(self):
         """A declared LtR target column absent from the frame raises KeyError (mirrors regression/classification)."""
-        extractor = SimpleFeaturesAndTargetsExtractor(learning_to_rank_targets=['relevance'], group_field='qid')
-        df = pd.DataFrame({'feature1': [1.0, 2.0], 'qid': ['a', 'b']})
+        extractor = SimpleFeaturesAndTargetsExtractor(learning_to_rank_targets=["relevance"], group_field="qid")
+        df = pd.DataFrame({"feature1": [1.0, 2.0], "qid": ["a", "b"]})
         with pytest.raises(KeyError):
             extractor.transform(df)
 
     def test_ltr_without_group_field_warns(self):
         """learning_to_rank_targets without group_field warns (ranking has no query grouping) but still builds."""
-        extractor = SimpleFeaturesAndTargetsExtractor(learning_to_rank_targets=['relevance'], verbose=1)
-        df = pd.DataFrame({'feature1': [1.0, 2.0, 3.0], 'relevance': [0, 1, 2]})
+        extractor = SimpleFeaturesAndTargetsExtractor(learning_to_rank_targets=["relevance"], verbose=1)
+        df = pd.DataFrame({"feature1": [1.0, 2.0, 3.0], "relevance": [0, 1, 2]})
         import warnings as _w
+
         with _w.catch_warnings(record=True):  # warning is logged, not raised; just ensure no crash
             result = extractor.transform(df)
-        _, target_by_type, _, group_ids, _, _, cols_to_drop, _ = result
+        _, target_by_type, _, group_ids, _, _, _cols_to_drop, _ = result
         assert TargetTypes.LEARNING_TO_RANK in target_by_type
         assert group_ids is None  # no group_field -> no query grouping

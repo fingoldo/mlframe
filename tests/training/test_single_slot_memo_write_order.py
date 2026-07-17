@@ -7,6 +7,7 @@ for a DIFFERENT, prior input) and return it -- a wrong-data cache collision. Pub
 cache MISS (recompute), never a wrong hit. We pin the ordering deterministically via a dict that records assignment order; pre-fix code
 (key-before-value) fails these.
 """
+
 from __future__ import annotations
 
 import numpy as np

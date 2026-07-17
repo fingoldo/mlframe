@@ -1,10 +1,10 @@
 """E12: _drop_columns warns when a grouped predict would copy a large pandas
 frame under Copy-on-Write OFF (no silent RAM doubling on 100+GB frames)."""
+
 from __future__ import annotations
 
 import logging
 
-import numpy as np
 import pandas as pd
 import pytest
 
@@ -31,7 +31,7 @@ def test_large_frame_cow_off_warns(monkeypatch, caplog) -> None:
 
     class _Big:
         def sum(self):
-            return 3 * 1024 ** 3  # 3 GB
+            return 3 * 1024**3  # 3 GB
 
     monkeypatch.setattr(type(X), "memory_usage", lambda self, **k: _Big())
     monkeypatch.setattr(pd, "get_option", lambda opt: False if opt == "mode.copy_on_write" else None)
@@ -45,7 +45,7 @@ def test_large_frame_cow_on_does_not_warn(monkeypatch, caplog) -> None:
 
     class _Big:
         def sum(self):
-            return 3 * 1024 ** 3
+            return 3 * 1024**3
 
     monkeypatch.setattr(type(X), "memory_usage", lambda self, **k: _Big())
     monkeypatch.setattr(pd, "get_option", lambda opt: True if opt == "mode.copy_on_write" else None)

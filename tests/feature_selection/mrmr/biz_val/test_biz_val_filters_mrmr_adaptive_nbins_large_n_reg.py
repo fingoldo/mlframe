@@ -6,6 +6,7 @@ committed 180-cell campaign at ``feature_selection/_benchmarks/fs_quality/_resul
 LOGIC: it must FIRE (switch to nbins_strategy=None + quantization_nbins=20) exactly on detected-regression AND n>=threshold while the
 user left the quantization params at defaults, and must NOT fire on classification, on small-n, or when the user pinned a value.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -34,8 +35,9 @@ def _clf_xy(n: int, p: int = 8, seed: int = 0):
 def _fast_mrmr(**kw):
     from mlframe.feature_selection.filters.mrmr import MRMR
 
-    base = dict(fe_max_steps=0, interactions_max_order=1, full_npermutations=0, baseline_npermutations=0,
-                random_seed=0, use_gpu=False, n_jobs=1, verbose=0, cv=2)
+    base = dict(
+        fe_max_steps=0, interactions_max_order=1, full_npermutations=0, baseline_npermutations=0, random_seed=0, use_gpu=False, n_jobs=1, verbose=0, cv=2
+    )
     base.update(kw)
     return MRMR(**base)
 

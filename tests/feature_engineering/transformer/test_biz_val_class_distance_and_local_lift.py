@@ -15,6 +15,7 @@ local_lift (regression): smooth local-mean target. local_lift computes per-row r
 kNN-aggregated y_train; this is a non-linear feature that Ridge cannot derive from raw inputs but recovers
 substantial R^2 once exposed.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -66,6 +67,7 @@ def _smooth_local_target(n: int = 1500, seed: int = 0) -> tuple[np.ndarray, np.n
 
 def _cv_auc(model_ctor, X: np.ndarray, y: np.ndarray, n_splits: int = 5, seed: int = 42) -> float:
     from sklearn.metrics import roc_auc_score
+
     splitter = KFold(n_splits=n_splits, shuffle=True, random_state=seed)
     aucs = []
     for tr, va in splitter.split(X):
@@ -91,11 +93,13 @@ def _cv_r2(model_ctor, X: np.ndarray, y: np.ndarray, n_splits: int = 5, seed: in
 
 def _logreg():
     from sklearn.linear_model import LogisticRegression
+
     return LogisticRegression(max_iter=500, solver="lbfgs", C=1.0)
 
 
 def _ridge():
     from sklearn.linear_model import Ridge
+
     return Ridge(alpha=1.0)
 
 
@@ -115,17 +119,20 @@ def test_biz_val_class_distance_lifts_linear_auc_on_rare_positive_mixture():
     # Out-of-fold cdist: per-fold refit (X_query=None) so val rows don't leak into the training-side bank.
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     cdist_df = compute_class_distance_features(
-        X_train=X, y_train=y, X_query=None, splitter=splitter, seed=0, task="binary", standardize=True,
+        X_train=X,
+        y_train=y,
+        X_query=None,
+        splitter=splitter,
+        seed=0,
+        task="binary",
+        standardize=True,
     )
     cdist_arr = cdist_df.to_numpy().astype(np.float32)
     X_aug = np.concatenate([X, cdist_arr], axis=1)
     auc_aug = _cv_auc(_logreg, X_aug, y, n_splits=5, seed=42)
 
     delta = auc_aug - auc_raw
-    assert delta >= 0.05, (
-        f"cdist must lift linear CV AUC by >=0.05 on rare-positive mixture; "
-        f"raw={auc_raw:.4f}, cdist-aug={auc_aug:.4f}, delta={delta:.4f}"
-    )
+    assert delta >= 0.05, f"cdist must lift linear CV AUC by >=0.05 on rare-positive mixture; raw={auc_raw:.4f}, cdist-aug={auc_aug:.4f}, delta={delta:.4f}"
 
 
 def test_biz_val_local_lift_lifts_ridge_r2_on_smooth_target():
@@ -143,14 +150,18 @@ def test_biz_val_local_lift_lifts_ridge_r2_on_smooth_target():
 
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     ll_df = compute_local_lift_features(
-        X_train=X, y_train=y, X_query=None, splitter=splitter, seed=0, task="regression", k=32, standardize=True,
+        X_train=X,
+        y_train=y,
+        X_query=None,
+        splitter=splitter,
+        seed=0,
+        task="regression",
+        k=32,
+        standardize=True,
     )
     ll_arr = ll_df.to_numpy().astype(np.float32)
     X_aug = np.concatenate([X, ll_arr], axis=1)
     r2_aug = _cv_r2(_ridge, X_aug, y, n_splits=5, seed=42)
 
     delta = r2_aug - r2_raw
-    assert delta >= 0.10, (
-        f"local_lift must lift Ridge CV R^2 by >=0.10 on smooth sin*cos target; "
-        f"raw={r2_raw:.4f}, ll-aug={r2_aug:.4f}, delta={delta:.4f}"
-    )
+    assert delta >= 0.10, f"local_lift must lift Ridge CV R^2 by >=0.10 on smooth sin*cos target; raw={r2_raw:.4f}, ll-aug={r2_aug:.4f}, delta={delta:.4f}"

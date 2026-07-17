@@ -7,6 +7,7 @@ from the screen-sample probe matches the decision a full-train probe would have 
 inherently unstable cases exactly on the threshold (not tested here, since even two full-train
 runs a seed apart disagree there; see the _ktc-adjacent measurement note in _eval.py).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -22,9 +23,15 @@ from mlframe.training.configs import CompositeTargetDiscoveryConfig
 def _cfg(**kw) -> CompositeTargetDiscoveryConfig:
     """Minimal fast discovery config for the residual-std-probe tests, with ``**kw`` applied."""
     base = dict(
-        enabled=True, random_state=0, screening="mi", honest_holdout_frac=None,
-        auto_base_null_perms=0, multi_base_enabled=False, honest_rmse_gate_enabled=False,
-        interaction_base_discovery_enabled=False, auto_chain_discovery_enabled=False,
+        enabled=True,
+        random_state=0,
+        screening="mi",
+        honest_holdout_frac=None,
+        auto_base_null_perms=0,
+        multi_base_enabled=False,
+        honest_rmse_gate_enabled=False,
+        interaction_base_discovery_enabled=False,
+        auto_chain_discovery_enabled=False,
     )
     base.update(kw)
     return CompositeTargetDiscoveryConfig(**base)
@@ -41,7 +48,10 @@ def test_residual_below_noise_floor_still_rejected_from_screen_sample():
     y = base + rng.normal(0, 1e-6, n)
     df = pd.DataFrame({"lag": base, "y": y})
     disc = CompositeTargetDiscovery(_cfg(base_candidates=["lag"], transforms=["additive_residual"], mi_sample_n=5000)).fit(
-        df, "y", ["lag"], np.arange(n),
+        df,
+        "y",
+        ["lag"],
+        np.arange(n),
     )
     assert not disc.specs_, "the near-zero-residual additive_residual spec must be rejected by the noise-floor probe"
 
@@ -58,7 +68,10 @@ def test_healthy_residual_ratio_survives_screen_sample_probe():
     y = base + 5.0 * x1  # residual (y - base) is entirely explained by x1: mi_gain(T, x1) is large.
     df = pd.DataFrame({"lag": base, "x1": x1, "y": y})
     disc = CompositeTargetDiscovery(_cfg(base_candidates=["lag"], transforms=["additive_residual"], mi_sample_n=5000)).fit(
-        df, "y", ["lag", "x1"], np.arange(n),
+        df,
+        "y",
+        ["lag", "x1"],
+        np.arange(n),
     )
     assert disc.specs_, "a healthy residual must not be rejected by the noise-floor probe"
 

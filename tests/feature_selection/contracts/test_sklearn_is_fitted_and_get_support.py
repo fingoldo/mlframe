@@ -22,6 +22,7 @@ Fix at mrmr.py:1294 (class body):
 - ``get_support(indices=False)`` returns a boolean mask of length
   ``n_features_in_`` (or indices when ``indices=True``).
 """
+
 from __future__ import annotations
 
 import warnings
@@ -33,13 +34,16 @@ import pytest
 
 def _fit_full():
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     rng = np.random.default_rng(0)
     n = 200
-    X = pd.DataFrame({
-        "a": rng.standard_normal(n),
-        "b": rng.standard_normal(n),
-        "c": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "a": rng.standard_normal(n),
+            "b": rng.standard_normal(n),
+            "c": rng.standard_normal(n),
+        }
+    )
     y = pd.Series((X["a"] > 0).astype(np.int64))
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -54,6 +58,7 @@ def test_check_is_fitted_rejects_partial_fit():
     from mlframe.feature_selection.filters.mrmr import MRMR
     from sklearn.utils.validation import check_is_fitted
     from sklearn.exceptions import NotFittedError
+
     m = MRMR()
     m.feature_names_in_ = np.asarray(["a", "b", "c"], dtype=object)
     m.n_features_in_ = 3
@@ -64,6 +69,7 @@ def test_check_is_fitted_rejects_partial_fit():
 def test_check_is_fitted_accepts_full_fit():
     """A fully-fit instance must PASS check_is_fitted."""
     from sklearn.utils.validation import check_is_fitted
+
     sel = _fit_full()
     check_is_fitted(sel)  # Must not raise.
 
@@ -98,6 +104,7 @@ def test_get_support_on_unfitted_raises():
     """``get_support`` on an unfitted estimator must raise NotFittedError."""
     from mlframe.feature_selection.filters.mrmr import MRMR
     from sklearn.exceptions import NotFittedError
+
     m = MRMR()
     with pytest.raises(NotFittedError):
         m.get_support()

@@ -23,6 +23,7 @@ The tests are PARAMETRIZED across (a) estimator type (regressor vs
 classifier-binary vs classifier-multiclass) and (b) serialization
 path so a single source of truth covers every flavour.
 """
+
 from __future__ import annotations
 
 import sys
@@ -50,9 +51,12 @@ def _base_params(loss_fn, labels_dtype):
         "model_class": MLPTorchModel,
         "model_params": {"loss_fn": loss_fn, "learning_rate": 1e-2},
         "network_params": {
-            "nlayers": 1, "first_layer_num_neurons": 16,
-            "dropout_prob": 0.0, "inputs_dropout_prob": 0.0,
-            "use_layernorm": False, "use_batchnorm": False,
+            "nlayers": 1,
+            "first_layer_num_neurons": 16,
+            "dropout_prob": 0.0,
+            "inputs_dropout_prob": 0.0,
+            "use_layernorm": False,
+            "use_batchnorm": False,
             "activation_function": torch.nn.ReLU,
         },
         "datamodule_class": TorchDataModule,
@@ -62,9 +66,13 @@ def _base_params(loss_fn, labels_dtype):
             "dataloader_params": {"batch_size": 32, "num_workers": 0},
         },
         "trainer_params": {
-            "max_epochs": 2, "enable_model_summary": False,
-            "enable_progress_bar": False, "log_every_n_steps": 1,
-            "devices": 1, "accelerator": "cpu", "logger": False,
+            "max_epochs": 2,
+            "enable_model_summary": False,
+            "enable_progress_bar": False,
+            "log_every_n_steps": 1,
+            "devices": 1,
+            "accelerator": "cpu",
+            "logger": False,
         },
         "random_state": 0,
     }
@@ -98,13 +106,10 @@ def _make_data(kind: str):
         X, y = make_regression(n_samples=160, n_features=5, noise=0.1, random_state=0)
         y = y.astype(np.float32)
     elif kind == "binary":
-        X, y = make_classification(n_samples=160, n_features=5, n_informative=4,
-                                   n_redundant=0, n_classes=2, random_state=0)
+        X, y = make_classification(n_samples=160, n_features=5, n_informative=4, n_redundant=0, n_classes=2, random_state=0)
         y = y.astype(np.int64)
     elif kind == "multiclass":
-        X, y = make_classification(n_samples=180, n_features=6, n_informative=5,
-                                   n_redundant=0, n_classes=3, n_clusters_per_class=1,
-                                   random_state=0)
+        X, y = make_classification(n_samples=180, n_features=6, n_informative=5, n_redundant=0, n_classes=3, n_clusters_per_class=1, random_state=0)
         y = y.astype(np.int64)
     else:
         raise ValueError(kind)
@@ -116,14 +121,15 @@ def _make_data(kind: str):
 def test_stdlib_pickle_preserves_predictions(estimator_factory, data_factory, prediction_method):
     """stdlib pickle roundtrip must produce bit-identical predictions
     across regressor / binary classifier / multiclass classifier."""
-    import pickle
+    import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
+
     X_tr, X_te, y_tr = data_factory()
     est = estimator_factory()
     est.fit(X_tr, y_tr)
     pred_before = getattr(est, prediction_method)(X_te)
 
     buf = pickle.dumps(est)
-    est2 = pickle.loads(buf)
+    est2 = pickle.loads(buf)  # nosec B301 -- round-trip of a locally-created, trusted object
     pred_after = getattr(est2, prediction_method)(X_te)
 
     np.testing.assert_array_equal(pred_before, pred_after)
@@ -131,7 +137,10 @@ def test_stdlib_pickle_preserves_predictions(estimator_factory, data_factory, pr
 
 @pytest.mark.parametrize("estimator_factory, data_factory, prediction_method", _CASES)
 def test_mlframe_save_load_preserves_predictions(
-    estimator_factory, data_factory, prediction_method, tmp_path,
+    estimator_factory,
+    data_factory,
+    prediction_method,
+    tmp_path,
 ):
     """Production save/load path via ``save_mlframe_model`` /
     ``load_mlframe_model`` (handles torch.compile bloat strip + Lightning
@@ -153,7 +162,8 @@ def test_mlframe_save_load_preserves_predictions(
 def test_classifier_pickle_preserves_label_encoder_and_classes():
     """Non-dense labels: classes_ + _label_encoder must survive pickle
     (sklearn convention: ``predict()`` returns ORIGINAL labels)."""
-    import pickle
+    import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
+
     rng = np.random.default_rng(0)
     X = rng.normal(size=(160, 5)).astype(np.float32)
     y_dense = (X[:, 0] > 0).astype(np.int64)
@@ -164,7 +174,7 @@ def test_classifier_pickle_preserves_label_encoder_and_classes():
     clf.fit(X_tr, y_tr)
     assert set(clf.classes_.tolist()) == {10, 20}
 
-    clf2 = pickle.loads(pickle.dumps(clf))
+    clf2 = pickle.loads(pickle.dumps(clf))  # nosec B301 -- round-trip of a locally-created, trusted object
     assert hasattr(clf2, "_label_encoder")
     assert clf2._label_encoder is not None
     assert set(clf2.classes_.tolist()) == {10, 20}
@@ -185,12 +195,13 @@ def test_direct_dill_dumps_roundtrips_via_getstate_strip():
     non-picklable cache into the serialised state surfaces visibly.
     """
     pytest.importorskip("dill")
-    import dill
+    import dill  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
+
     X_tr, X_te, y_tr = _make_data("regression")
     reg = PytorchLightningRegressor(**_base_params(torch.nn.MSELoss(), torch.float32))
     reg.fit(X_tr, y_tr)
     pred_before = reg.predict(X_te)
 
-    reg2 = dill.loads(dill.dumps(reg))
+    reg2 = dill.loads(dill.dumps(reg))  # nosec B301 -- round-trip of a locally-created, trusted object
     pred_after = reg2.predict(X_te)
     np.testing.assert_array_equal(pred_before, pred_after)

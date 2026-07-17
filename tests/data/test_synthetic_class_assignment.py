@@ -42,9 +42,9 @@ def test_assign_classes_fallthrough_row_gets_last_class_not_garbage():
     n_classes = 3
     predictors = np.array(
         [
-            [0.2, 0.3, 0.5],   # normal: total reaches 1.0
-            [0.0, 0.0, 0.0],   # degenerate all-zero row -> never exceeds draw -> fallthrough
-            [0.3, 0.3, 0.3],   # float32-style under-1.0 sum, draw above it -> fallthrough
+            [0.2, 0.3, 0.5],  # normal: total reaches 1.0
+            [0.0, 0.0, 0.0],  # degenerate all-zero row -> never exceeds draw -> fallthrough
+            [0.3, 0.3, 0.3],  # float32-style under-1.0 sum, draw above it -> fallthrough
         ],
         dtype=np.float32,
     )
@@ -78,7 +78,7 @@ def test_generate_modelling_data_labels_in_range_smoke(feature_noise, timeseries
     n_classes = 3
     fast_dists = {"norm", "uniform", "expon", "laplace", "logistic"}
     for seed in range(20):
-        X, y, fnames = generate_modelling_data(
+        X, y, _fnames = generate_modelling_data(
             n_samples=400,
             n_classes=n_classes,
             n_informative=n_classes,
@@ -98,7 +98,9 @@ def test_generate_modelling_data_labels_in_range_smoke(feature_noise, timeseries
             max_cardinality=max_cardinality,
         )
         assert y.min() >= 0 and y.max() <= n_classes - 1, f"seed {seed}: label out of range {y.min()}..{y.max()}"
-        assert np.isfinite(X).all(), f"seed {seed}: non-finite feature value under feature_noise={feature_noise}, timeseries={timeseries}, max_cardinality={max_cardinality}"
+        assert np.isfinite(X).all(), (
+            f"seed {seed}: non-finite feature value under feature_noise={feature_noise}, timeseries={timeseries}, max_cardinality={max_cardinality}"
+        )
 
 
 def _generate(feature_noise=0.0, timeseries=False, max_cardinality=None, seed=0):

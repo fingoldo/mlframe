@@ -1,5 +1,6 @@
 """Tests for ``mlframe.feature_engineering.wavelet_dwt`` -- numba DWT
 correctness vs pywt, batched-vs-single agreement, denoise contract."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -27,6 +28,7 @@ class TestWavedecMatchesPywt:
     @pytest.mark.parametrize("sig_key", ["len32", "len64", "len100", "len256"])
     def test_wavedec_matches_pywt(self, signal_set, wavelet, sig_key):
         from mlframe.feature_engineering.wavelet_dwt import wavedec
+
         sig = signal_set[sig_key]
         max_level = min(4, pywt.dwt_max_level(len(sig), wavelet))
         ref = pywt.wavedec(sig, wavelet, level=max_level, mode="symmetric")
@@ -41,8 +43,10 @@ class TestWavedecBatched:
     def test_batched_matches_single_loop(self, signal_set):
         pytest.importorskip("numba")
         from mlframe.feature_engineering.wavelet_dwt import (
-            wavedec, wavedec_batched,
+            wavedec,
+            wavedec_batched,
         )
+
         # Build (N=64, T=100) batch
         rng = np.random.default_rng(7)
         sigs = rng.normal(0, 1, (64, 100))
@@ -62,7 +66,9 @@ class TestWavedecBatched:
             # Loop format: [approx, det_max, ..., det_1] (pywt order).
             # Batched: approx + concatenated details level-1-first.
             np.testing.assert_allclose(
-                approx[i], loop_coeffs[i][0], atol=1e-10,
+                approx[i],
+                loop_coeffs[i][0],
+                atol=1e-10,
                 err_msg=f"approx mismatch at signal {i}",
             )
             offset = 0
@@ -71,8 +77,10 @@ class TestWavedecBatched:
                 batched_lvl = details_flat[i, offset : offset + lvl_len]
                 loop_lvl = loop_coeffs[i][-(level + 1)]  # level-1 is last
                 np.testing.assert_allclose(
-                    batched_lvl, loop_lvl, atol=1e-10,
-                    err_msg=f"detail L{level+1} mismatch at signal {i}",
+                    batched_lvl,
+                    loop_lvl,
+                    atol=1e-10,
+                    err_msg=f"detail L{level + 1} mismatch at signal {i}",
                 )
                 offset += lvl_len
 
@@ -81,6 +89,7 @@ class TestWaverecRoundTrip:
     @pytest.mark.parametrize("wavelet", ["haar", "db4", "sym4"])
     def test_wavedec_then_waverec_recovers_signal(self, wavelet):
         from mlframe.feature_engineering.wavelet_dwt import wavedec, waverec
+
         rng = np.random.default_rng(11)
         sig = rng.normal(0, 1, 128)
         coeffs = wavedec(sig, wavelet, 3)
@@ -93,6 +102,7 @@ class TestWaverecRoundTrip:
     @pytest.mark.parametrize("wavelet", ["db4", "sym4"])
     def test_waverec_matches_pywt(self, wavelet):
         from mlframe.feature_engineering.wavelet_dwt import wavedec, waverec
+
         rng = np.random.default_rng(13)
         sig = rng.normal(0, 1, 128)
         coeffs = wavedec(sig, wavelet, 3)
@@ -105,6 +115,7 @@ class TestWaverecRoundTrip:
 class TestWaveletDenoise:
     def test_denoise_reduces_noise_variance(self):
         from mlframe.feature_engineering.wavelet_dwt import wavelet_denoise
+
         rng = np.random.default_rng(17)
         n = 1024
         t = np.arange(n) / 50.0
@@ -116,16 +127,14 @@ class TestWaveletDenoise:
         # noisy input.
         mse_noisy = float(np.mean((noisy - clean) ** 2))
         mse_denoised = float(np.mean((denoised[:n] - clean) ** 2))
-        assert mse_denoised < mse_noisy * 0.6, (
-            f"denoise did not reduce noise enough: noisy MSE={mse_noisy:.4f}, "
-            f"denoised MSE={mse_denoised:.4f}"
-        )
+        assert mse_denoised < mse_noisy * 0.6, f"denoise did not reduce noise enough: noisy MSE={mse_noisy:.4f}, denoised MSE={mse_denoised:.4f}"
 
     def test_denoise_hard_vs_soft(self):
         """Hard threshold preserves above-threshold coefficients verbatim;
         soft shrinks them by the threshold. On a noisy signal both
         should reduce variance, but they produce different outputs."""
         from mlframe.feature_engineering.wavelet_dwt import wavelet_denoise
+
         rng = np.random.default_rng(19)
         sig = rng.normal(0, 1, 512)
         soft = wavelet_denoise(sig, wavelet="db4", level=2, threshold=0.5, mode="soft")
@@ -136,8 +145,10 @@ class TestWaveletDenoise:
 class TestFilterCache:
     def test_filters_cached_on_repeat_call(self):
         from mlframe.feature_engineering.wavelet_dwt import (
-            get_wavelet_filters, _FILTER_CACHE,
+            get_wavelet_filters,
+            _FILTER_CACHE,
         )
+
         _FILTER_CACHE.clear()
         _ = get_wavelet_filters("db4")
         assert "db4" in _FILTER_CACHE

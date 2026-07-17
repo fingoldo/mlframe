@@ -29,23 +29,37 @@ launch-overhead-bound, confirmed on the resident-input measurement, not asserted
 Each thread does two full sequential passes over its own (pair, form)'s 30_000 rows, and since different
 threads read DIFFERENT operand-matrix rows, the reads are inherently uncoalesced -- more batch volume
 cannot amortize this the way it amortizes a fixed launch cost. This matches this card's already-documented
-0.26-0.66x underperformance on OTHER resident FE kernels (``_permutation_null_pair_resident.py``). The
-dispatcher's un-forced default is therefore CPU -- see :func:`dispatch_batch_pair_usability_corr`'s
-docstring. The CUDA backend is kept (REJECTED != DELETED): fully implemented, tested, bit-identical, and
-reachable via ``force_backend="cuda"``
-for a stronger production GPU or a future ``kernel_tuning_cache`` sweep that might find a real per-host
-crossover this dev card does not have.
+0.26-0.66x underperformance on OTHER resident FE kernels (``_permutation_null_pair_resident.py``).
 
-Two backends:
+WARP-COALESCED KERNEL (2026-07-17, RESOLVED): the diagnosis above -- memory-bandwidth-bound on
+uncoalesced reads, thread-per-item forces every lane in a warp to read a DIFFERENT operand-matrix row --
+pointed at a fixable KERNEL-DESIGN problem, not a fundamental GPU loss. ``batch_pair_usability_corr_cuda_warp``
+reassigns the work: one WARP (32 threads) per (pair, form) instead of one thread, with the 32 lanes
+strided across the SAME row (lane L reads elements ``L, L+32, L+64, ...``) -- every lane in a warp reads
+the SAME row at ADJACENT columns on every step, the textbook coalesced pattern -- combined via
+``cuda.shfl_down_sync`` warp-shuffle reduction (register-only, no shared memory). Re-measured end-to-end
+on the SAME dev host (GTX 1050 Ti) at the SAME production shape: 3.96-4.52x FASTER than CPU at every
+tested scale (18k to 765k total (pair, form) reductions, the real ~85k-pair production volume included),
+vs the thread-per-item kernel's 0.98-1.00x at the same scales (re-confirmed, not just historical) in the
+same run. Bit-identical to the CPU reference to the same ~1e-9 FP-reorder tolerance the thread-per-item
+kernel is held to (strided-partial-then-reduced summation order, not compensated-summation or fastmath
+differences). The dispatcher's un-forced default is now ``cuda_warp`` when CUDA is available -- see
+:func:`dispatch_batch_pair_usability_corr`'s docstring for the exact numbers.
+
+Three backends:
 
 * ``batch_pair_usability_corr_njit_parallel`` -- CPU reference (``@njit(parallel=True)``, ``prange`` over
   (pair, form) flattened index). Numerical baseline; also the fallback when CUDA is unavailable.
 * ``batch_pair_usability_corr_cuda`` -- ``numba.cuda`` JIT kernel. One THREAD per (pair, form) -- mirrors
   ``_batch_mi_noise_gate_kernels._cuda_mi_from_counts_kernel_factory``'s "one thread per independent
   reduction" shape (not a shared-memory block-per-reduction design: each reduction here is a flat
-  two-pass moment computation, not a histogram, so there is no shared-memory accumulator to stage).
+  two-pass moment computation, not a histogram, so there is no shared-memory accumulator to stage). Kept
+  (REJECTED != DELETED) as the honest thread-per-item baseline and via ``force_backend="cuda"``.
+* ``batch_pair_usability_corr_cuda_warp`` -- ``numba.cuda`` JIT kernel. One WARP per (pair, form),
+  coalesced strided reads + shuffle reduction (see above). The measured-fastest backend and the un-forced
+  default when CUDA is available.
 
-Both backends reproduce ``_abs_pearson_njit``'s EXACT algorithm (two-pass mean-then-center, branchless
+All three backends reproduce ``_abs_pearson_njit``'s EXACT algorithm (two-pass mean-then-center, branchless
 isfinite masking, the ``_cv2=1e-16`` coefficient-of-variation degenerate floor) for EVERY one of the 9
 candidate forms (``x0, x1, x0**2, x1**2, x0/x1, x1/x0, x0**2/x1, x1**2/x0, x0*x1``), computed ON-DEVICE
 from two shared raw-operand columns per pair -- the host never materializes a 9-times-wider form matrix.
@@ -264,6 +278,152 @@ def _cuda_kernel_factory():
     return _kernel
 
 
+_CUDA_KERNEL_WARP: Any = None
+_WARP_SIZE = 32
+
+
+def _cuda_kernel_warp_factory():
+    """Build (once) the WARP-coalesced CUDA kernel variant (2026-07-17): one WARP (32 threads) per
+    (pair, form) instead of one THREAD. The rejected thread-per-item design has each thread do a full
+    serial n_rows-length loop over its OWN (pair, form)'s operand rows; since ``pair_a``/``pair_b`` are
+    essentially arbitrary indices, adjacent threads in a warp read completely DIFFERENT operand-matrix
+    rows at every step -- the module docstring's own root-cause diagnosis (memory-bandwidth-bound,
+    inherently uncoalesced, confirmed via a resident-input decomposed remeasurement, NOT the shared-
+    memory-histogram-staging idea that section separately (and correctly) ruled out as inapplicable here).
+
+    This variant assigns the 32 lanes of ONE warp to a STRIDED partition of the SAME (pair, form)'s
+    n_rows elements (lane L reads indices L, L+32, L+64, ...) -- at any given step every lane reads the
+    SAME row, adjacent columns, the textbook coalesced-access pattern -- then combines each lane's partial
+    (count, sum) / (sum-of-squares, sum-of-cross-products) via ``cuda.shfl_down_sync`` warp reduction
+    (register-only, no shared memory needed). Same two-pass mean-then-center algorithm, same fastmath-free
+    accumulation as ``_abs_pearson_form_reduction`` -- only the summation ORDER differs (strided-partial-
+    then-warp-reduced instead of serial), the same class of ~1e-13-ULP FP-reorder divergence this module's
+    own docstring already documents between its two EXISTING backends. Lazy so importing this module on a
+    CPU-only host never triggers a CUDA driver lookup."""
+    if not _CUDA_AVAIL or _nb_cuda is None:
+        return None
+
+    @_nb_cuda.jit
+    def _kernel_warp(y, operand_matrix, pair_a, pair_b, form_ids, eps, cv2, out):
+        """One WARP per (pair, form): lanes stride-partition the row range for coalesced reads, then
+        warp-shuffle-reduce the two-pass moment sums."""
+        n_rows = y.shape[0]
+        n_forms = form_ids.shape[0]
+        n_pairs = pair_a.shape[0]
+        global_tid = _nb_cuda.blockIdx.x * _nb_cuda.blockDim.x + _nb_cuda.threadIdx.x
+        warp_id = global_tid // _WARP_SIZE
+        lane = global_tid % _WARP_SIZE
+        if warp_id >= n_pairs * n_forms:
+            return
+        p = warp_id // n_forms
+        f = warp_id - p * n_forms
+        a_idx = pair_a[p]
+        b_idx = pair_b[p]
+        form_id = form_ids[f]
+
+        # Pass 1: strided partial (count, sum_y, sum_v) per lane, coalesced across the warp.
+        cnt = 0
+        sa = 0.0
+        sv = 0.0
+        i = lane
+        while i < n_rows:
+            yi = np.float64(y[i])
+            x0 = np.float64(operand_matrix[a_idx, i])
+            x1 = np.float64(operand_matrix[b_idx, i])
+            v = _eval_form(form_id, x0, x1, eps)
+            finite = math.isfinite(yi) and math.isfinite(v)
+            if finite:
+                cnt += 1
+                sa += yi
+                sv += v
+            i += _WARP_SIZE
+        offset = 16
+        while offset > 0:
+            cnt += _nb_cuda.shfl_down_sync(0xFFFFFFFF, cnt, offset)
+            sa += _nb_cuda.shfl_down_sync(0xFFFFFFFF, sa, offset)
+            sv += _nb_cuda.shfl_down_sync(0xFFFFFFFF, sv, offset)
+            offset //= 2
+        cnt = _nb_cuda.shfl_sync(0xFFFFFFFF, cnt, 0)
+        sa = _nb_cuda.shfl_sync(0xFFFFFFFF, sa, 0)
+        sv = _nb_cuda.shfl_sync(0xFFFFFFFF, sv, 0)
+        if cnt < 2:
+            if lane == 0:
+                out[p, f] = 0.0
+            return
+        inv = 1.0 / cnt
+        ma = sa * inv
+        mv = sv * inv
+
+        # Pass 2: strided partial (saa, svv, sav) per lane, same coalesced pattern.
+        saa = 0.0
+        svv = 0.0
+        sav = 0.0
+        i = lane
+        while i < n_rows:
+            yi = np.float64(y[i])
+            x0 = np.float64(operand_matrix[a_idx, i])
+            x1 = np.float64(operand_matrix[b_idx, i])
+            v = _eval_form(form_id, x0, x1, eps)
+            finite = math.isfinite(yi) and math.isfinite(v)
+            if finite:
+                da = yi - ma
+                dv = v - mv
+                saa += da * da
+                svv += dv * dv
+                sav += da * dv
+            i += _WARP_SIZE
+        offset = 16
+        while offset > 0:
+            saa += _nb_cuda.shfl_down_sync(0xFFFFFFFF, saa, offset)
+            svv += _nb_cuda.shfl_down_sync(0xFFFFFFFF, svv, offset)
+            sav += _nb_cuda.shfl_down_sync(0xFFFFFFFF, sav, offset)
+            offset //= 2
+        if lane == 0:
+            if saa <= cnt * cv2 * ma * ma or svv <= cnt * cv2 * mv * mv:
+                out[p, f] = 0.0
+                return
+            den = (saa * svv) ** 0.5
+            if den <= 0.0:
+                out[p, f] = 0.0
+                return
+            c = sav / den
+            if not math.isfinite(c):
+                out[p, f] = 0.0
+                return
+            out[p, f] = -c if c < 0.0 else c
+
+    return _kernel_warp
+
+
+def batch_pair_usability_corr_cuda_warp(y: np.ndarray, operand_matrix: np.ndarray, pair_a: np.ndarray, pair_b: np.ndarray, form_ids: np.ndarray) -> np.ndarray:
+    """WARP-coalesced CUDA backend (see :func:`_cuda_kernel_warp_factory`): one WARP per (pair, form).
+    Same contract as :func:`batch_pair_usability_corr_cuda` (raises if CUDA unavailable; callers should go
+    through :func:`dispatch_batch_pair_usability_corr` with ``force_backend="cuda_warp"``)."""
+    global _CUDA_KERNEL_WARP
+    if _CUDA_KERNEL_WARP is None:
+        _CUDA_KERNEL_WARP = _cuda_kernel_warp_factory()
+    if _CUDA_KERNEL_WARP is None:
+        raise RuntimeError("CUDA is not available for batch_pair_usability_corr_cuda_warp")
+
+    from ._fe_resident_operands import resident_operand
+    y_d = resident_operand(y, "batch_pair_usability_corr_y", dtype=None)
+    operand_d = resident_operand(operand_matrix, "batch_pair_usability_corr_operand", dtype=None)
+    pair_a_d = _nb_cuda.to_device(np.ascontiguousarray(pair_a, dtype=np.int64))
+    pair_b_d = _nb_cuda.to_device(np.ascontiguousarray(pair_b, dtype=np.int64))
+    form_ids_d = _nb_cuda.to_device(np.ascontiguousarray(form_ids, dtype=np.int64))
+
+    n_pairs = pair_a.shape[0]
+    n_forms = form_ids.shape[0]
+    out_d = _nb_cuda.device_array((n_pairs, n_forms), dtype=np.float64)
+
+    total_warps = n_pairs * n_forms
+    threads_per_block = 128  # 4 warps/block
+    warps_per_block = threads_per_block // _WARP_SIZE
+    blocks = (total_warps + warps_per_block - 1) // warps_per_block
+    _CUDA_KERNEL_WARP[blocks, threads_per_block](y_d, operand_d, pair_a_d, pair_b_d, form_ids_d, _EPS_DENOM_FLOOR, _CV2_DEGENERATE_FLOOR, out_d)
+    return np.asarray(out_d.copy_to_host())
+
+
 def batch_pair_usability_corr_cuda(y: np.ndarray, operand_matrix: np.ndarray, pair_a: np.ndarray, pair_b: np.ndarray, form_ids: np.ndarray) -> np.ndarray:
     """CUDA backend: one thread per (pair, form), device-resident inputs uploaded once. Raises if CUDA is
     unavailable -- callers should go through :func:`dispatch_batch_pair_usability_corr` for the
@@ -339,29 +499,31 @@ def dispatch_batch_pair_usability_corr(
     n_forms = int(form_ids.shape[0])
 
     use_cuda = _CUDA_AVAIL
+    use_cuda_warp = False
     if force_backend == "cpu":
         use_cuda = False
     elif force_backend == "cuda":
         use_cuda = True
+    elif force_backend == "cuda_warp":
+        use_cuda = True
+        use_cuda_warp = True
     elif force_backend is not None:
-        raise ValueError(f"force_backend={force_backend!r}; expected 'cpu' or 'cuda' or None")
+        raise ValueError(f"force_backend={force_backend!r}; expected 'cpu', 'cuda', 'cuda_warp' or None")
     else:
-        # Un-forced default: CPU. 2026-07-11 measured A/B on this dev host (GTX 1050 Ti) at the real
-        # production shape (30_000-row subsample per reduction, matching _ABS_PEARSON_MAX_ROWS) found the
-        # CUDA backend NEVER wins -- 0.05x-0.65x across n_pairs in {16..150_000} (~144 to 1.35M total
-        # reductions), the ratio converging to ~0.53-0.57x at and beyond the real ~85k-pair production
-        # scale, not improving with more batch volume the way a launch-overhead-bound kernel normally
-        # would. Consistent with this weak card's already-documented 0.26-0.66x underperformance on OTHER
-        # resident FE kernels (see ``_permutation_null_pair_resident.py``) -- this reduction is memory-
-        # bandwidth-bound (two full sequential passes per thread, one thread per (pair, form), inherently
-        # poor coalescing since each thread reads a DIFFERENT operand row) rather than launch-overhead-
-        # bound, so batching more pairs cannot amortize the way it does for e.g. batch_pair_mi_gpu's
-        # histogram kernel. NOT auto-engaging CUDA here is therefore the measured-correct default on this
-        # host -- unlike the per-call n*p heuristic elsewhere in this package, there is no known (n_pairs,
-        # n_forms) region where CUDA wins to threshold on. Kept available via force_backend="cuda" (fully
-        # tested, bit-identical) for a stronger production GPU or a future kernel_tuning_cache sweep that
-        # finds a real per-host crossover -- see bench_batch_pair_usability_corr_gpu.py for the numbers.
-        use_cuda = False
+        # Un-forced default (REVISED 2026-07-17, see the module docstring's "WARP-COALESCED KERNEL" section
+        # for the full re-measurement): the thread-per-item ``cuda`` backend genuinely lost to CPU (2026-07-11
+        # A/B, ~0.53-0.6x at production scale) because it was memory-bandwidth-bound on UNCOALESCED reads,
+        # not launch-overhead-bound -- so batching more pairs never amortized it the way a launch-bound
+        # kernel would. That diagnosis pointed at a FIXABLE kernel-design problem (thread-per-item is the
+        # wrong data-parallel shape for this reduction), not a fundamental "GPU loses here" verdict. The
+        # ``cuda_warp`` variant (one WARP per (pair, form), coalesced strided reads across the warp + shuffle
+        # reduction) measured 3.96-4.52x FASTER than CPU at every tested scale from 18k to 765k total
+        # reductions (the real ~85k-pair production volume included) -- now the un-forced default when CUDA
+        # is available. ``cuda`` (thread-per-item) is kept, fully tested, reachable via
+        # ``force_backend="cuda"`` -- REJECTED != DELETED, and it remains the honest baseline the warp
+        # variant is validated against. See ``bench_batch_pair_usability_corr_gpu.py`` for the CPU-vs-cuda
+        # numbers and this module's docstring for the cuda-vs-cuda_warp numbers.
+        use_cuda_warp = use_cuda
 
     if use_cuda:
         try:
@@ -377,6 +539,9 @@ def dispatch_batch_pair_usability_corr(
 
     if use_cuda:
         try:
+            if use_cuda_warp:
+                result = batch_pair_usability_corr_cuda_warp(y, operand_matrix, pair_a, pair_b, form_ids)
+                return result, "cuda_warp"
             result = batch_pair_usability_corr_cuda(y, operand_matrix, pair_a, pair_b, form_ids)
             return result, "cuda"
         except Exception as exc:

@@ -14,6 +14,7 @@ Pins the contract established by the 2026-06-01 FE fix:
   crashing (and njit-compiles where the pipeline expects it, i.e. it does not
   raise when invoked).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -88,9 +89,7 @@ def test_preset_aliases_and_unknown():
     with pytest.raises(ValueError):
         _resolve_preset("bogus")
     # The factory functions must propagate the alias / raise too.
-    assert set(create_unary_transformations("rich")) == set(
-        create_unary_transformations("maximal")
-    )
+    assert set(create_unary_transformations("rich")) == set(create_unary_transformations("maximal"))
     with pytest.raises(ValueError):
         create_binary_transformations("nonsense")
 

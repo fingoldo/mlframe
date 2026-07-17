@@ -11,6 +11,7 @@ which features get picked (the failure mode CLAUDE.md's "gate a big win on its s
 Measured: Jaccard 1.00 and held-out accuracy delta 0.0000 every scenario/seed; floor set to Jaccard>=0.9 + |delta|<=0.02 with
 margin. Replicated across 3 seeds.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -30,8 +31,13 @@ def _fit_select(X_tr, y_tr, step, seed):
     sel = RFECV(
         estimator=LogisticRegression(max_iter=300, random_state=seed),
         top_predictors_search_method=OptimumSearch.ExhaustiveDichotomic,
-        dichotomic_step=step, dichotomic_epsilon=0.0, cv=3,
-        max_noimproving_iters=10, random_state=seed, verbose=0, leave_progressbars=False,
+        dichotomic_step=step,
+        dichotomic_epsilon=0.0,
+        cv=3,
+        max_noimproving_iters=10,
+        random_state=seed,
+        verbose=0,
+        leave_progressbars=False,
     )
     sel.fit(X_tr, y_tr)
     return list(np.asarray(X_tr.columns)[sel.support_])
@@ -50,8 +56,12 @@ def test_biz_val_dichotomic_step_auto_is_selection_equivalent(seed):
     changes the selected set (the speed-lever-altering-accuracy regression) fails the win.
     """
     X, y = make_classification(
-        n_samples=1200, n_features=120, n_informative=12, n_redundant=10,
-        n_clusters_per_class=2, random_state=seed,
+        n_samples=1200,
+        n_features=120,
+        n_informative=12,
+        n_redundant=10,
+        n_clusters_per_class=2,
+        random_state=seed,
     )
     X = pd.DataFrame(X, columns=[f"f{i}" for i in range(X.shape[1])])
     X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=0.3, random_state=seed)

@@ -13,6 +13,7 @@ Tests:
     ``target_by_type[TargetTypes.MULTI_TARGET_REGRESSION]`` instead of
     expanding to K independent 1-D targets.
 """
+
 from __future__ import annotations
 
 import sys
@@ -152,9 +153,7 @@ def test_auto_route_multi_target_regression():
 
     # Metadata records the routing.
     assert "multi_target_regression_routing" in metadata
-    assert "multi_target" in metadata["multi_target_regression_routing"][
-        str(TargetTypes.MULTI_TARGET_REGRESSION)
-    ]
+    assert "multi_target" in metadata["multi_target_regression_routing"][str(TargetTypes.MULTI_TARGET_REGRESSION)]
 
 
 def test_per_target_strategy_still_expands():
@@ -194,5 +193,6 @@ def test_invalid_multilabel_strategy_raises():
     from mlframe.training._composite_target_discovery_config import (
         CompositeTargetDiscoveryConfig,
     )
+
     with pytest.raises(ValueError, match=r"multilabel_strategy must be one of"):
         CompositeTargetDiscoveryConfig(multilabel_strategy="invalid_strategy")

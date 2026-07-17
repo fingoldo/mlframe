@@ -6,6 +6,7 @@ whether free_b/total_b are supplied or the function probes internally, (2) suppl
 triggers cupy import (verified via the no-cupy-permissive path itself, and via the signature contract), (3) a
 partial pair (only one of the two given) safely falls back to probing rather than mixing a stale value.
 """
+
 from mlframe.feature_selection.filters._fe_gpu_vram import _cushion_bytes, fe_gpu_has_vram_cushion
 
 

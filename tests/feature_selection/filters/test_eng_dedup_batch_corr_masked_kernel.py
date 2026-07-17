@@ -10,6 +10,7 @@ This pins the batched kernel against a brute-force one-vs-many ``np.corrcoef`` r
 pins the full dedup ALGORITHM (old per-pair loop vs. new masked-buffer integration) via a standalone
 reproduction of both, matching the real ``_fit_impl_core.py`` block line for line.
 """
+
 from __future__ import annotations
 
 import numpy as np

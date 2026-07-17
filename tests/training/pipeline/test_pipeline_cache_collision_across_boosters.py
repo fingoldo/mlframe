@@ -25,10 +25,9 @@
    downstream. Guard now computes ratio only where price > 0; zero-
    price bars contribute 0.
 """
+
 from __future__ import annotations
 
-import logging
-import warnings
 
 import numpy as np
 import pandas as pd
@@ -42,19 +41,18 @@ import pytest
 
 
 class TestCacheKeyIncludesFeatureTier:
-
     def test_cb_and_lgb_produce_different_cache_keys(self):
         """CB and LGB both have ``strategy.cache_key='tree'`` but
         different feature_tier(). After the fix the effective cache
         key used in core.py must differ so their cached DFs don't
         collide."""
         from mlframe.training.strategies import CatBoostStrategy, TreeModelStrategy
+
         cb = CatBoostStrategy()
         lgb = TreeModelStrategy()
         assert cb.cache_key == lgb.cache_key == "tree"  # base key shared
         assert cb.feature_tier() != lgb.feature_tier(), (
-            "CB must have (True,True) tier; LGB/base Tree has (False,False). "
-            "If this assertion fails, the entire cache-partition fix is moot."
+            "CB must have (True,True) tier; LGB/base Tree has (False,False). If this assertion fails, the entire cache-partition fix is moot."
         )
         # Simulating the core.py composition:
         cb_key = f"{cb.cache_key}_tier{cb.feature_tier()}"
@@ -68,6 +66,7 @@ class TestCacheKeyIncludesFeatureTier:
         same-tier subclass still collide (intended collision =
         cache reuse)."""
         from mlframe.training.strategies import CatBoostStrategy, XGBoostStrategy
+
         cb = CatBoostStrategy()
         xgb = XGBoostStrategy()
         # XGB currently has supports_text=False, embedding=False -> different tier from CB.
@@ -77,10 +76,7 @@ class TestCacheKeyIncludesFeatureTier:
         if cb_tier == xgb_tier:
             cb_key = f"{cb.cache_key}_tier{cb_tier}"
             xgb_key = f"{xgb.cache_key}_tier{xgb_tier}"
-            assert cb_key == xgb_key, (
-                "Same-tier strategies should share cache; regression "
-                "of the 'partition by tier' fix has over-partitioned."
-            )
+            assert cb_key == xgb_key, "Same-tier strategies should share cache; regression of the 'partition by tier' fix has over-partitioned."
 
 
 # =============================================================================
@@ -89,12 +85,12 @@ class TestCacheKeyIncludesFeatureTier:
 
 
 class TestPrepareDfForXgboostContract:
-
     def test_polars_input_raises_typeerror(self):
         """Pre-fix: ``df[var].dtype`` on polars raised obscure
         AttributeError deep inside the function. Now: explicit
         TypeError at the entry naming the class."""
         from mlframe.preprocessing.transforms import prepare_df_for_xgboost
+
         df = pl.DataFrame({"a": [1, 2], "b": ["x", "y"]})
         with pytest.raises(TypeError, match="pandas DataFrame"):
             prepare_df_for_xgboost(df)
@@ -105,6 +101,7 @@ class TestPrepareDfForXgboostContract:
         the returned frame has 'b' as Categorical but the input df keeps
         its original object dtype (mutate-restore / assign contract)."""
         from mlframe.preprocessing.transforms import prepare_df_for_xgboost
+
         df = pd.DataFrame({"a": [1, 2, 3], "b": ["x", "y", "x"]})
         cat_features = ["b"]
         out = prepare_df_for_xgboost(df, cat_features=cat_features)
@@ -116,6 +113,7 @@ class TestPrepareDfForXgboostContract:
     def test_inplace_true_mutates_caller_df(self):
         """inplace=True restores legacy in-place dtype casting on the caller's df."""
         from mlframe.preprocessing.transforms import prepare_df_for_xgboost
+
         df = pd.DataFrame({"a": [1, 2, 3], "b": ["x", "y", "x"]})
         out = prepare_df_for_xgboost(df, cat_features=["b"], inplace=True)
         assert out is df
@@ -125,6 +123,7 @@ class TestPrepareDfForXgboostContract:
         """Pre-fix: ``var not in None`` raised TypeError. Now: coerced
         to empty list."""
         from mlframe.preprocessing.transforms import prepare_df_for_xgboost
+
         df = pd.DataFrame({"a": [1, 2, 3]})
         out = prepare_df_for_xgboost(df, cat_features=None)
         assert out is df
@@ -134,10 +133,13 @@ class TestPrepareDfForXgboostContract:
         non-mutating default the caller's list is NOT touched (the append lands
         on the local copy); pass inplace=True for the legacy in-place append."""
         from mlframe.preprocessing.transforms import prepare_df_for_xgboost
-        df = pd.DataFrame({
-            "a": [1.0, 2.0, 3.0],
-            "b": pd.Categorical(["x", "y", "x"]),
-        })
+
+        df = pd.DataFrame(
+            {
+                "a": [1.0, 2.0, 3.0],
+                "b": pd.Categorical(["x", "y", "x"]),
+            }
+        )
         # Default non-mutating: caller's list untouched.
         cat_features: list = []
         prepare_df_for_xgboost(df, cat_features=cat_features)
@@ -175,6 +177,7 @@ class TestBruteforceTargetEncoderWarnStaticCheck:
         still wired up."""
         import pathlib
         from mlframe.feature_engineering import bruteforce as _bruteforce
+
         src_path = pathlib.Path(_bruteforce.__file__)
         src = src_path.read_text(encoding="utf-8")
         # Both emissions must be present.
@@ -182,8 +185,7 @@ class TestBruteforceTargetEncoderWarnStaticCheck:
         assert "logger.warning(" in src, "logger.warning call missing from bruteforce.py"
         # The specific leakage phrase must be present.
         assert "TARGET-ENCODING LEAK" in src or "target-encoding leak" in src.lower(), (
-            "Target-encoding leak WARN text removed from bruteforce.py — "
-            "the round-10 defensive observability fix regressed"
+            "Target-encoding leak WARN text removed from bruteforce.py — the round-10 defensive observability fix regressed"
         )
         # And the CatBoostEncoder.fit_transform call (the leak itself)
         # must still be there — if someone replaces it with OOF encoding,
@@ -197,9 +199,9 @@ class TestBruteforceTargetEncoderWarnStaticCheck:
 
 
 class TestMpsComputeAreaProfitsZeroPriceGuard:
-
     def _call(self, positions, prices):
         from mlframe.feature_engineering.mps import compute_area_profits
+
         return compute_area_profits(
             positions=np.asarray(positions, dtype=np.int8),
             prices=np.asarray(prices, dtype=np.float64),
@@ -212,9 +214,7 @@ class TestMpsComputeAreaProfitsZeroPriceGuard:
         positions = np.array([1, 1, 1], dtype=np.int8)  # length n-1
         prices = np.array([0.0, 10.0, 11.0, 12.0], dtype=np.float64)
         out = self._call(positions, prices)
-        assert np.all(np.isfinite(out)), (
-            f"all outputs must be finite, got {out}"
-        )
+        assert np.all(np.isfinite(out)), f"all outputs must be finite, got {out}"
         # The zero-price index should be zero-ratio by guard.
         assert out[0] == 0.0
 

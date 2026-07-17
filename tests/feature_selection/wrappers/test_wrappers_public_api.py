@@ -11,6 +11,7 @@ actually re-exported. Grep across the in-repo codebase did not find external
 callers of the ``_rfecv``-path re-exports, but downstream consumers outside the
 repo may depend on them.
 """
+
 from __future__ import annotations
 
 import inspect
@@ -48,6 +49,7 @@ class TestPublicAPI:
 
     def test_all_names_importable(self):
         import mlframe.feature_selection.wrappers as pkg
+
         for name in PUBLIC_NAMES:
             assert hasattr(pkg, name), f"public API missing {name!r}"
 
@@ -55,9 +57,8 @@ class TestPublicAPI:
         """``__all__`` must match the documented set so ``from pkg import *`` callers
         get exactly the expected names."""
         import mlframe.feature_selection.wrappers as pkg
-        assert set(pkg.__all__) == set(PUBLIC_NAMES), (
-            f"__all__ drift: pkg.__all__={set(pkg.__all__)}, expected={set(PUBLIC_NAMES)}"
-        )
+
+        assert set(pkg.__all__) == set(PUBLIC_NAMES), f"__all__ drift: pkg.__all__={set(pkg.__all__)}, expected={set(PUBLIC_NAMES)}"
 
     @pytest.mark.parametrize("name", PUBLIC_NAMES)
     def test_each_name_is_importable_via_from(self, name):
@@ -74,15 +75,20 @@ class TestPublicAPITypes:
 
     def test_optimum_search_is_enum(self):
         from mlframe.feature_selection.wrappers import OptimumSearch
+
         assert issubclass(OptimumSearch, Enum)
         expected = {
-            "ScipyLocal", "ScipyGlobal", "ModelBasedHeuristic",
-            "ExhaustiveRandom", "ExhaustiveDichotomic",
+            "ScipyLocal",
+            "ScipyGlobal",
+            "ModelBasedHeuristic",
+            "ExhaustiveRandom",
+            "ExhaustiveDichotomic",
         }
         assert {m.name for m in OptimumSearch} == expected
 
     def test_votes_aggregation_is_enum(self):
         from mlframe.feature_selection.wrappers import VotesAggregation
+
         assert issubclass(VotesAggregation, Enum)
         expected = {"Minimax", "OG", "Borda", "Plurality", "Dowdall", "Copeland", "AM", "GM"}
         assert {m.name for m in VotesAggregation} == expected
@@ -90,6 +96,7 @@ class TestPublicAPITypes:
     def test_rfecv_is_class_with_sklearn_contract(self):
         from mlframe.feature_selection.wrappers import RFECV
         from sklearn.base import BaseEstimator, TransformerMixin
+
         assert inspect.isclass(RFECV)
         assert issubclass(RFECV, BaseEstimator)
         assert issubclass(RFECV, TransformerMixin)
@@ -113,6 +120,7 @@ class TestPublicAPITypes:
     )
     def test_helper_is_callable(self, name):
         import mlframe.feature_selection.wrappers as pkg
+
         obj = getattr(pkg, name)
         assert callable(obj), f"{name} must be callable, got {type(obj).__name__}"
 
@@ -141,7 +149,4 @@ class TestRfecvSubmoduleReExports:
     def test_rfecv_reexport_present(self, name):
         mod = __import__("mlframe.feature_selection.wrappers.rfecv", fromlist=[name])
         obj = getattr(mod, name, None)
-        assert obj is not None, (
-            f"{name} must remain importable from mlframe.feature_selection.wrappers.rfecv "
-            f"(declared as # noqa: F401 re-export)"
-        )
+        assert obj is not None, f"{name} must remain importable from mlframe.feature_selection.wrappers.rfecv (declared as # noqa: F401 re-export)"

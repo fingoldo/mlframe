@@ -5,6 +5,7 @@ The NaN-padded correlation-matrix scatter was changed from an O(K^2) Python doub
 scatter EXACTLY (it is a pure index reshuffle -- bit-identical by construction), including the
 NaN-padded skipped-member rows when ``return_full_shape=True``.
 """
+
 from __future__ import annotations
 
 import numpy as np

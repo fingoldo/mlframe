@@ -11,6 +11,7 @@ is no observed-vs-null estimator mismatch. This test pins that DOC contract:
 If a future PR wires CS into the observed relevance, guard (1) forces the null to be wired in the same change (otherwise
 observed CS vs plug-in null is the exact N-F1/N-F6 mismatch this test exists to catch).
 """
+
 import numpy as np
 
 
@@ -45,9 +46,11 @@ def test_mrmr_warns_when_chao_shen_requested(caplog):
     rng = np.random.default_rng(1)
     n = 400
     import pandas as pd
+
     X = pd.DataFrame({f"f{i}": rng.integers(0, 4, n) for i in range(4)})
     y = (X["f0"] % 2).to_numpy()
     with caplog.at_level(logging.WARNING):
         MRMR(mi_correction="chao_shen", max_runtime_mins=0.2).fit(X, y)
-    assert any("chao_shen" in r.message and "plug-in" in r.message for r in caplog.records), \
+    assert any("chao_shen" in r.message and "plug-in" in r.message for r in caplog.records), (
         "MRMR did not warn that mi_correction='chao_shen' falls back to plug-in"
+    )

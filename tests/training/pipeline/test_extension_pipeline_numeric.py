@@ -21,13 +21,13 @@ pipeline; non-numeric columns are logged at WARNING and dropped from
 all three splits. The sklearn-bridge contract is now explicit:
 "numeric only — encode strings upstream".
 """
+
 from __future__ import annotations
 
 import logging
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.training.configs import PreprocessingExtensionsConfig
 from mlframe.training.pipeline import apply_preprocessing_extensions
@@ -35,13 +35,15 @@ from mlframe.training.pipeline import apply_preprocessing_extensions
 
 def _make_mixed_frame(n: int = 200, seed: int = 0) -> pd.DataFrame:
     rng = np.random.default_rng(seed)
-    return pd.DataFrame({
-        "x0": rng.standard_normal(n).astype(np.float32),
-        "x1": rng.standard_normal(n).astype(np.float32),
-        "x2": rng.standard_normal(n).astype(np.float32),
-        # Unencoded string categorical (the harness's cat_mid shape).
-        "cat_mid": np.array([f"M{i % 7:02d}" for i in range(n)], dtype=object),
-    })
+    return pd.DataFrame(
+        {
+            "x0": rng.standard_normal(n).astype(np.float32),
+            "x1": rng.standard_normal(n).astype(np.float32),
+            "x2": rng.standard_normal(n).astype(np.float32),
+            # Unencoded string categorical (the harness's cat_mid shape).
+            "cat_mid": np.array([f"M{i % 7:02d}" for i in range(n)], dtype=object),
+        }
+    )
 
 
 def test_polynomial_with_string_column_drops_string_no_crash(caplog) -> None:
@@ -54,7 +56,11 @@ def test_polynomial_with_string_column_drops_string_no_crash(caplog) -> None:
     cfg = PreprocessingExtensionsConfig(polynomial_degree=2)
     with caplog.at_level(logging.WARNING, logger="mlframe.training.pipeline"):
         out = apply_preprocessing_extensions(
-            df_train, df_val, df_test, cfg, verbose=0,
+            df_train,
+            df_val,
+            df_test,
+            cfg,
+            verbose=0,
         )
     # Function returns (train, val, test, tfidf_pipes_or_None)
     assert out is not None
@@ -66,15 +72,13 @@ def test_polynomial_with_string_column_drops_string_no_crash(caplog) -> None:
         if _df is None:
             continue
         assert "cat_mid" not in _df.columns, (
-            f"cat_mid leaked into {_label} output -- the numeric-only "
-            "filter at apply_preprocessing_extensions entry did not fire."
+            f"cat_mid leaked into {_label} output -- the numeric-only filter at apply_preprocessing_extensions entry did not fire."
         )
     # The drop must be visible in the log (single WARN line with
     # the dropped column names).
-    assert any(
-        "dropped" in rec.message and "cat_mid" in rec.message
-        for rec in caplog.records
-    ), f"expected dropped-non-numeric WARN; got: {[r.message for r in caplog.records]}"
+    assert any("dropped" in rec.message and "cat_mid" in rec.message for rec in caplog.records), (
+        f"expected dropped-non-numeric WARN; got: {[r.message for r in caplog.records]}"
+    )
 
 
 def test_scaler_with_object_column_no_truth_value_error() -> None:
@@ -92,10 +96,12 @@ def test_all_numeric_frame_unchanged_by_filter() -> None:
     """Baseline: a frame with no non-numeric columns must round-trip
     unchanged through the filter. Avoids the filter regressing valid
     pure-numeric callers."""
-    df_train = pd.DataFrame({
-        "x0": np.random.default_rng(4).standard_normal(100),
-        "x1": np.random.default_rng(5).standard_normal(100),
-    })
+    df_train = pd.DataFrame(
+        {
+            "x0": np.random.default_rng(4).standard_normal(100),
+            "x1": np.random.default_rng(5).standard_normal(100),
+        }
+    )
     cfg = PreprocessingExtensionsConfig(polynomial_degree=2)
     out = apply_preprocessing_extensions(df_train.copy(), None, None, cfg, verbose=0)
     assert out is not None

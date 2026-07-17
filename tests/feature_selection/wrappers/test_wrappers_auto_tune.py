@@ -4,6 +4,7 @@ Verifies the DataFingerprint extractor + the rule-based suggester
 + the wiring into RFECV.fit. The rule body itself is a stop-gap until
 the synthetic-bench-trained classifier lands.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -11,11 +12,13 @@ import pandas as pd
 import pytest
 
 from sklearn.datasets import make_classification, make_regression
-from sklearn.linear_model import LogisticRegression, Ridge
+from sklearn.linear_model import Ridge
 
-from mlframe.feature_selection.wrappers import RFECV, SearchConfig, FIConfig
+from mlframe.feature_selection.wrappers import RFECV
 from mlframe.feature_selection.wrappers._auto_tune import (
-    DataFingerprint, suggest_configs, explain_suggestion,
+    DataFingerprint,
+    suggest_configs,
+    explain_suggestion,
 )
 
 
@@ -31,8 +34,7 @@ class TestDataFingerprint:
         assert fp.n_features == 5
 
     def test_multiclass_detected(self):
-        X, y = make_classification(n_samples=200, n_features=6, n_informative=4,
-                                   n_classes=4, n_clusters_per_class=1, random_state=0)
+        X, y = make_classification(n_samples=200, n_features=6, n_informative=4, n_classes=4, n_clusters_per_class=1, random_state=0)
         fp = DataFingerprint.from_xy(X, y)
         assert fp.target_type == "multiclass"
 
@@ -54,10 +56,12 @@ class TestDataFingerprint:
 
     def test_int_id_flagged_as_high_card(self):
         rng = np.random.default_rng(0)
-        Xdf = pd.DataFrame({
-            "real": rng.normal(size=200),
-            "hash_id": rng.integers(0, 1_000_000, size=200, dtype=np.int64),
-        })
+        Xdf = pd.DataFrame(
+            {
+                "real": rng.normal(size=200),
+                "hash_id": rng.integers(0, 1_000_000, size=200, dtype=np.int64),
+            }
+        )
         y = (Xdf["real"] > 0).astype(int).values
         fp = DataFingerprint.from_xy(Xdf, y)
         assert fp.frac_high_card == pytest.approx(0.5)
@@ -125,7 +129,11 @@ class TestRFECVAutoTune:
         # for flat curves but must NOT override the explicit value.
         X, y = make_regression(n_samples=200, n_features=10, random_state=0, noise=100)
         sel = RFECV(
-            estimator=Ridge(), auto_tune=True, cv=3, max_refits=4, random_state=0,
+            estimator=Ridge(),
+            auto_tune=True,
+            cv=3,
+            max_refits=4,
+            random_state=0,
             convergence_tol=1e-6,  # user explicit, very tight tol
         )
         sel.fit(X, y)

@@ -2,6 +2,7 @@
 
 Disk-backed cache for CompositeTargetDiscovery results. R&D workflows that re-run discovery with the same data + config should hit the cache; differing data / config / random_state should miss.
 """
+
 from __future__ import annotations
 
 import os
@@ -20,11 +21,13 @@ from mlframe.training.composite import (
 class TestDataSignature:
     def test_same_df_same_signature(self) -> None:
         rng = np.random.default_rng(0)
-        df = pd.DataFrame({
-            "a": rng.normal(size=2000),
-            "b": rng.normal(size=2000),
-            "y": rng.normal(size=2000),
-        })
+        df = pd.DataFrame(
+            {
+                "a": rng.normal(size=2000),
+                "b": rng.normal(size=2000),
+                "y": rng.normal(size=2000),
+            }
+        )
         s1 = data_signature(df, "y", ["a", "b"], sample_n=500, random_state=0)
         s2 = data_signature(df, "y", ["a", "b"], sample_n=500, random_state=0)
         assert s1 == s2
@@ -38,12 +41,14 @@ class TestDataSignature:
 
     def test_different_features_different_signature(self) -> None:
         rng = np.random.default_rng(2)
-        df = pd.DataFrame({
-            "a": rng.normal(size=1000),
-            "b": rng.normal(size=1000),
-            "c": rng.normal(size=1000),
-            "y": rng.normal(size=1000),
-        })
+        df = pd.DataFrame(
+            {
+                "a": rng.normal(size=1000),
+                "b": rng.normal(size=1000),
+                "c": rng.normal(size=1000),
+                "y": rng.normal(size=1000),
+            }
+        )
         s_ab = data_signature(df, "y", ["a", "b"], random_state=0)
         s_ac = data_signature(df, "y", ["a", "c"], random_state=0)
         assert s_ab != s_ac
@@ -61,7 +66,7 @@ class TestDataSignature:
         df = pd.DataFrame({"a": [], "y": []})
         s = data_signature(df, "y", ["a"])
         assert isinstance(s, str)
-        assert len(s) == 32   # blake2b 16-byte hex
+        assert len(s) == 32  # blake2b 16-byte hex
 
 
 class TestCacheKey:
@@ -76,7 +81,7 @@ class TestCacheKey:
         k3 = make_discovery_cache_key("abc", "different", "config_sig", 42)
         k4 = make_discovery_cache_key("abc", "target", "different_config", 42)
         k5 = make_discovery_cache_key("abc", "target", "config_sig", 43)
-        assert len({k1, k2, k3, k4, k5}) == 5    # all distinct
+        assert len({k1, k2, k3, k4, k5}) == 5  # all distinct
 
 
 class TestDiscoveryCache:
@@ -142,10 +147,10 @@ class TestDiscoveryCache:
         tmp = str(tmp_path)
         cache = DiscoveryCache(tmp)
         # Build an unpicklable object to force the inner write to raise.
-        unpicklable = lambda x: x  # noqa: E731 -- closures pickle differently across Python versions
+        unpicklable = lambda x: x
         try:
             cache.set("abc", unpicklable)
-        except Exception:
+        except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
             pass
         # No file should exist at the target path.
         assert "abc" not in cache

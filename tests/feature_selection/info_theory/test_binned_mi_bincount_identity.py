@@ -10,6 +10,7 @@ random bench under-samples: single-unique feature, single-unique y, n=1, the exa
 (searchsorted branch) vs ``>nbins`` (quantile branch), ternary Haar-leg features, and discrete vs
 continuous y -- plus a random battery.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -72,9 +73,7 @@ def test_binned_mi_bincount_bit_identical_random_battery():
     max_abs = 0.0
     for _ in range(300):
         n = int(rng.integers(60, 2500))
-        feat = (rng.choice([-1.0, 0.0, 1.0], size=n, p=[0.3, 0.4, 0.3]) if rng.random() < 0.5
-                else rng.normal(size=n))
-        y = (rng.integers(0, int(rng.integers(2, 8)), size=n) if rng.random() < 0.6
-             else rng.normal(size=n))
+        feat = rng.choice([-1.0, 0.0, 1.0], size=n, p=[0.3, 0.4, 0.3]) if rng.random() < 0.5 else rng.normal(size=n)
+        y = rng.integers(0, int(rng.integers(2, 8)), size=n) if rng.random() < 0.6 else rng.normal(size=n)
         max_abs = max(max_abs, abs(_binned_mi(feat, y) - _binned_mi_legacy(feat, y)))
     assert max_abs == 0.0, f"bincount _binned_mi not bit-identical over random battery: max abs diff {max_abs:.3e}"

@@ -8,6 +8,7 @@ These pin the bit-identity (to fp reduction order ~1e-9) that the optimisation m
 pre-fix code: ``_joint_entropy_two`` did not exist and ``cmi_from_binned_fixed_yz`` had no ``yz_i`` param
 (the yz_i calls raise ``TypeError``).
 """
+
 import numpy as np
 import pytest
 
@@ -37,7 +38,7 @@ def test_joint_entropy_two_fallback_on_over_cap_span():
     n = 20_000
     rng = np.random.default_rng(7)
     a = rng.integers(0, 5000, n).astype(np.int64)
-    b = rng.integers(0, 5000, n).astype(np.int64)   # span ~ 25M > _FAC_ARRAY_CAP (16M) -> fallback
+    b = rng.integers(0, 5000, n).astype(np.int64)  # span ~ 25M > _FAC_ARRAY_CAP (16M) -> fallback
     H_ref, k_ref = _ref_joint_entropy(a, b)
     H, k = m._joint_entropy_two(a, b)
     assert k == k_ref
@@ -57,9 +58,9 @@ def test_cmi_fixed_yz_reuse_path_bit_identical(n):
     z = rng.integers(0, 30, n).astype(np.int64)
     yi, zi, h_yz, h_z, k_yz, k_z, nf = m.precompute_cmi_yz_terms(y, z)
     yz_dense, _ = m._renumber_joint(yi, zi)
-    cmi_3col = m.cmi_from_binned_fixed_yz(x, yi, zi, h_yz, h_z, k_yz, k_z, nf)             # y/z-hoisted, 3-col xyz
+    cmi_3col = m.cmi_from_binned_fixed_yz(x, yi, zi, h_yz, h_z, k_yz, k_z, nf)  # y/z-hoisted, 3-col xyz
     cmi_reuse = m.cmi_from_binned_fixed_yz(x, yi, zi, h_yz, h_z, k_yz, k_z, nf, yz_i=yz_dense)  # fused 2-col xyz
-    cmi_ref = m._cmi_from_binned(x, y, z)                                                  # full reference
+    cmi_ref = m._cmi_from_binned(x, y, z)  # full reference
     assert cmi_reuse == pytest.approx(cmi_3col, abs=1e-9)
     assert cmi_reuse == pytest.approx(cmi_ref, abs=1e-9)
 
@@ -124,8 +125,13 @@ def test_greedy_construct_no_redundant_cmi_from_binned_calls():
 
     m._cmi_from_binned = _counting
     try:
-        X_aug, scores = m.greedy_cmi_fe_construct(
-            X, y, nbins=10, seed_cols_count=4, top_k=5, min_cmi_gain=0.0,
+        _X_aug, scores = m.greedy_cmi_fe_construct(
+            X,
+            y,
+            nbins=10,
+            seed_cols_count=4,
+            top_k=5,
+            min_cmi_gain=0.0,
         )
     finally:
         m._cmi_from_binned = orig

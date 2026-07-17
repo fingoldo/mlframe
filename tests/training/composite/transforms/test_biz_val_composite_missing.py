@@ -4,6 +4,7 @@ On a target with 20% MNAR-missing base (missingness correlated with y), the
 missing-aware composite must beat BOTH naive-impute-zero AND drop-missing on
 OOS RMSE -- the indicator + learned offset recover the informative missingness.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -16,7 +17,9 @@ from mlframe.training.composite.missing import MissingAwareComposite
 
 def _make_composite() -> CompositeTargetEstimator:
     return CompositeTargetEstimator(
-        base_estimator=LinearRegression(), transform_name="diff", base_column="base",
+        base_estimator=LinearRegression(),
+        transform_name="diff",
+        base_column="base",
     )
 
 
@@ -47,7 +50,7 @@ def _mnar_dataset(n: int, seed: int):
 
 def test_biz_val_missing_aware_beats_impute_zero_and_drop():
     X_tr, y_tr, miss_tr = _mnar_dataset(1200, seed=11)
-    X_te, y_te, miss_te = _mnar_dataset(1200, seed=99)
+    X_te, y_te, _miss_te = _mnar_dataset(1200, seed=99)
 
     # Missing-aware: learns impute + offset for missing rows.
     aware = MissingAwareComposite(composite=_make_composite()).fit(X_tr, y_tr)
@@ -67,9 +70,5 @@ def test_biz_val_missing_aware_beats_impute_zero_and_drop():
 
     # Missing-aware must beat both, comfortably (measured ~3-5x better RMSE;
     # floor at a clear 20% improvement to absorb seed noise).
-    assert rmse_aware < 0.8 * rmse_zero, (
-        f"missing-aware {rmse_aware:.3f} not < 0.8*impute-zero {rmse_zero:.3f}"
-    )
-    assert rmse_aware < 0.8 * rmse_drop, (
-        f"missing-aware {rmse_aware:.3f} not < 0.8*drop-missing {rmse_drop:.3f}"
-    )
+    assert rmse_aware < 0.8 * rmse_zero, f"missing-aware {rmse_aware:.3f} not < 0.8*impute-zero {rmse_zero:.3f}"
+    assert rmse_aware < 0.8 * rmse_drop, f"missing-aware {rmse_aware:.3f} not < 0.8*drop-missing {rmse_drop:.3f}"

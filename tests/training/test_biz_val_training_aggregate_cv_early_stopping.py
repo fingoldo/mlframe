@@ -6,6 +6,7 @@ the CURVES across folds before taking the argmax recovers a round substantially 
 than averaging the already-noisy per-fold argmaxes — the standard "average each fold's best_iteration"
 approach.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -82,7 +83,7 @@ def test_biz_val_aggregate_curve_selection_beats_naive_per_fold_average():
         curves = _make_noisy_fold_curves(n_folds=25, n_rounds=n_rounds, true_best_round=true_best_round, seed=trial)
         result = select_best_iteration_by_aggregate_cv(curves, maximize=True)
         aggregate_errors.append(abs(result["best_round"] - true_best_round))
-        naive_avg_round = int(round(float(result["per_fold_best_rounds"].mean())))
+        naive_avg_round = round(float(result["per_fold_best_rounds"].mean()))
         naive_errors.append(abs(naive_avg_round - true_best_round))
         per_fold_stds.append(float(result["per_fold_best_rounds"].std()))
 
@@ -99,8 +100,7 @@ def test_biz_val_aggregate_curve_selection_beats_naive_per_fold_average():
     # its own spurious peak. Floor set well below the measured ~7.3x gap (2.52 vs 18.45) to absorb seed
     # variance while still catching a regression toward parity.
     assert mean_aggregate_error < mean_naive_error / 2.0, (
-        f"mean aggregate error ({mean_aggregate_error:.2f}) should be far lower than mean naive error "
-        f"({mean_naive_error:.2f}) across {n_trials} trials"
+        f"mean aggregate error ({mean_aggregate_error:.2f}) should be far lower than mean naive error ({mean_naive_error:.2f}) across {n_trials} trials"
     )
     assert win_rate >= 0.9, f"aggregate selection should win nearly every trial in this regime, got win_rate={win_rate:.2f}"
 
@@ -139,9 +139,7 @@ def test_biz_val_aggregate_curve_selection_trimmed_mean_beats_plain_mean_with_ou
     n_rounds = 120
     n_folds = 9
 
-    curves, anomaly_round = _make_curves_with_one_anomalous_fold(
-        n_folds=n_folds, n_rounds=n_rounds, true_best_round=true_best_round, seed=1, anomaly_amp=5.0
-    )
+    curves, anomaly_round = _make_curves_with_one_anomalous_fold(n_folds=n_folds, n_rounds=n_rounds, true_best_round=true_best_round, seed=1, anomaly_amp=5.0)
 
     mean_result = select_best_iteration_by_aggregate_cv(curves, maximize=True, aggregation="mean")
     trimmed_result = select_best_iteration_by_aggregate_cv(curves, maximize=True, aggregation="trimmed_mean", trim_proportion=0.15)
@@ -149,8 +147,7 @@ def test_biz_val_aggregate_curve_selection_trimmed_mean_beats_plain_mean_with_ou
 
     # sanity: the outlier really does hijack the plain-mean curve's argmax away from the true optimum.
     assert mean_result["best_round"] == anomaly_round, (
-        f"sanity: plain mean should be hijacked by the single-fold spike at round {anomaly_round}, "
-        f"got best_round={mean_result['best_round']}"
+        f"sanity: plain mean should be hijacked by the single-fold spike at round {anomaly_round}, got best_round={mean_result['best_round']}"
     )
 
     trimmed_error = abs(trimmed_result["best_round"] - true_best_round)

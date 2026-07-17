@@ -19,6 +19,7 @@ biz_value:
   * a DGP SHIFT (the base->y relationship inverts on the appended rows)
     triggers a full re-discovery instead of silently reusing stale specs.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -27,15 +28,15 @@ import pytest
 
 pytestmark = pytest.mark.sklearn_matrix
 
-from mlframe.training.composite import (  # noqa: E402
+from mlframe.training.composite import (
     CompositeTargetDiscovery,
     data_signature,
 )
-from mlframe.training.composite.discovery._incremental import (  # noqa: E402
+from mlframe.training.composite.discovery._incremental import (
     IncrementalDecision,
     incremental_discovery_check,
 )
-from mlframe.training.configs import CompositeTargetDiscoveryConfig  # noqa: E402
+from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
 
 _FEATURES = ["TVT_prev", "x1", "x2", "x3"]
@@ -73,16 +74,19 @@ def _shifted_dgp(n: int, seed: int) -> pd.DataFrame:
 
 def _fit_prior(df: pd.DataFrame, cfg: CompositeTargetDiscoveryConfig):
     disc = CompositeTargetDiscovery(cfg)
-    disc.fit(df, target_col="TVT", feature_cols=_FEATURES,
-             train_idx=np.arange(len(df)))
+    disc.fit(df, target_col="TVT", feature_cols=_FEATURES, train_idx=np.arange(len(df)))
     sig = data_signature(df, "TVT", _FEATURES)
     return disc, sig
 
 
 def _cfg() -> CompositeTargetDiscoveryConfig:
     return CompositeTargetDiscoveryConfig(
-        enabled=True, mi_sample_n=800, top_k_after_mi=5,
-        eps_mi_gain=0.05, auto_base_top_k=3, screening="mi",
+        enabled=True,
+        mi_sample_n=800,
+        top_k_after_mi=5,
+        eps_mi_gain=0.05,
+        auto_base_top_k=3,
+        screening="mi",
     )
 
 
@@ -99,7 +103,12 @@ class TestIncrementalUnit:
         assert disc.specs_, "prior fit must find at least one spec"
         # Same frame -> same signature -> reuse with zero re-scores.
         dec = incremental_discovery_check(
-            disc.specs_, sig, df, "TVT", _FEATURES, cfg,
+            disc.specs_,
+            sig,
+            df,
+            "TVT",
+            _FEATURES,
+            cfg,
         )
         assert isinstance(dec, IncrementalDecision)
         assert dec.reuse is True
@@ -122,7 +131,12 @@ class TestIncrementalUnit:
         disc, sig = _fit_prior(df, cfg)
         empty = df.iloc[0:0]
         dec = incremental_discovery_check(
-            disc.specs_, sig, empty, "TVT", _FEATURES, cfg,
+            disc.specs_,
+            sig,
+            empty,
+            "TVT",
+            _FEATURES,
+            cfg,
         )
         assert dec.reuse is False
         assert dec.specs is None
@@ -135,7 +149,12 @@ class TestIncrementalUnit:
         new_sig = data_signature(appended, "TVT", _FEATURES)
         assert new_sig != sig, "appended frame must have a different signature"
         dec = incremental_discovery_check(
-            disc.specs_, sig, appended, "TVT", _FEATURES, cfg,
+            disc.specs_,
+            sig,
+            appended,
+            "TVT",
+            _FEATURES,
+            cfg,
         )
         # Every prior spec got a re-scored gain entry; counts are consistent.
         assert set(dec.per_spec_gain) == {s.name for s in disc.specs_}
@@ -175,7 +194,12 @@ class TestIncrementalBizValue:
         assert new_sig != sig, "appended frame must change the signature"
 
         dec = incremental_discovery_check(
-            disc.specs_, sig, appended, "TVT", _FEATURES, cfg,
+            disc.specs_,
+            sig,
+            appended,
+            "TVT",
+            _FEATURES,
+            cfg,
         )
         # Reuse verdict: prior specs returned unchanged (spec equality).
         assert dec.reuse is True, dec.reason
@@ -205,11 +229,14 @@ class TestIncrementalBizValue:
         # SHIFTED frame (the new regime) to detect the drift.
         shifted = _shifted_dgp(2000, seed=11)
         dec = incremental_discovery_check(
-            disc.specs_, sig, shifted, "TVT", _FEATURES, cfg,
+            disc.specs_,
+            sig,
+            shifted,
+            "TVT",
+            _FEATURES,
+            cfg,
         )
-        assert dec.reuse is False, (
-            f"DGP shift must trigger re-discovery; got reuse with {dec.reason}"
-        )
+        assert dec.reuse is False, f"DGP shift must trigger re-discovery; got reuse with {dec.reason}"
         assert dec.specs is None
         # The re-scored gains decayed: fewer than half the specs survive.
         assert dec.n_surviving < dec.n_specs

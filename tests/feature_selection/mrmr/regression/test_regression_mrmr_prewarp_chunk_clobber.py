@@ -29,6 +29,7 @@ This test forces the multi-chunk joblib path (n_jobs>1, several prewarp-bearing
 prospective pairs spread over >1 chunk) and asserts ``transform()`` replays every
 engineered prewarp column without raising.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -77,11 +78,11 @@ def test_prewarp_transform_replays_under_multichunk_joblib():
 
     fs = MRMR(
         verbose=0,
-        n_jobs=4,                      # >1 -> joblib path eligible
+        n_jobs=4,  # >1 -> joblib path eligible
         random_seed=0,
         fe_smart_polynom_iters=0,
         fe_hybrid_orth_enable=False,
-        fe_pair_prewarp_enable=True,   # the spec-bearing path under test
+        fe_pair_prewarp_enable=True,  # the spec-bearing path under test
         **_LEAN,
     )
     fs.fit(df, y)
@@ -92,18 +93,14 @@ def test_prewarp_transform_replays_under_multichunk_joblib():
     # pipeline ever stops recovering any prewarp feature the test is vacuous, so
     # pin that we actually exercise the replay path.
     assert prewarp_cols, (
-        "no engineered 'prewarp' column was recovered; the multi-product scenario "
-        "no longer exercises the prewarp spec-merge path (test would be vacuous)"
+        "no engineered 'prewarp' column was recovered; the multi-product scenario no longer exercises the prewarp spec-merge path (test would be vacuous)"
     )
 
     # The crux: replay on held-out rows must NOT raise the missing-coef KeyError.
     try:
         Xt = np.asarray(fs.transform(df_test))
     except KeyError as exc:  # pragma: no cover - this is exactly the regression
-        pytest.fail(
-            f"transform() raised KeyError replaying a prewarp recipe -- a prewarp "
-            f"operand spec was clobbered/dropped before recipe build: {exc}"
-        )
+        pytest.fail(f"transform() raised KeyError replaying a prewarp recipe -- a prewarp operand spec was clobbered/dropped before recipe build: {exc}")
 
     # And the replayed prewarp columns must be finite, non-degenerate values.
     names = list(fs.get_feature_names_out())

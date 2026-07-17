@@ -15,6 +15,7 @@ binary path is gone -- no opt-in flag, no back-compat shim. Existing
 checkpoints from the prior architecture cannot be loaded (state_dict
 shape mismatch).
 """
+
 from __future__ import annotations
 
 import sys
@@ -44,9 +45,12 @@ def _params(loss_fn=None, random_state=0):
             "learning_rate": 1e-2,
         },
         "network_params": {
-            "nlayers": 1, "first_layer_num_neurons": 16,
-            "dropout_prob": 0.0, "inputs_dropout_prob": 0.0,
-            "use_layernorm": False, "use_batchnorm": False,
+            "nlayers": 1,
+            "first_layer_num_neurons": 16,
+            "dropout_prob": 0.0,
+            "inputs_dropout_prob": 0.0,
+            "use_layernorm": False,
+            "use_batchnorm": False,
             "activation_function": torch.nn.ReLU,
         },
         "datamodule_class": TorchDataModule,
@@ -56,9 +60,13 @@ def _params(loss_fn=None, random_state=0):
             "dataloader_params": {"batch_size": 32, "num_workers": 0},
         },
         "trainer_params": {
-            "max_epochs": 2, "enable_model_summary": False,
-            "enable_progress_bar": False, "log_every_n_steps": 1,
-            "devices": 1, "accelerator": "cpu", "logger": False,
+            "max_epochs": 2,
+            "enable_model_summary": False,
+            "enable_progress_bar": False,
+            "log_every_n_steps": 1,
+            "devices": 1,
+            "accelerator": "cpu",
+            "logger": False,
         },
         "random_state": random_state,
     }
@@ -77,11 +85,18 @@ def _last_linear_out_features(network) -> int:
 @pytest.fixture
 def binary_data():
     X, y = make_classification(
-        n_samples=160, n_features=5, n_informative=4, n_redundant=0,
-        n_classes=2, random_state=0,
+        n_samples=160,
+        n_features=5,
+        n_informative=4,
+        n_redundant=0,
+        n_classes=2,
+        random_state=0,
     )
     X_tr, X_te, y_tr, y_te = train_test_split(
-        X.astype(np.float32), y.astype(np.int64), test_size=0.3, random_state=0,
+        X.astype(np.float32),
+        y.astype(np.int64),
+        test_size=0.3,
+        random_state=0,
     )
     return {"X_train": X_tr, "y_train": y_tr, "X_test": X_te, "y_test": y_te}
 
@@ -89,11 +104,19 @@ def binary_data():
 @pytest.fixture
 def multiclass_data():
     X, y = make_classification(
-        n_samples=180, n_features=6, n_informative=5, n_redundant=0,
-        n_classes=3, n_clusters_per_class=1, random_state=0,
+        n_samples=180,
+        n_features=6,
+        n_informative=5,
+        n_redundant=0,
+        n_classes=3,
+        n_clusters_per_class=1,
+        random_state=0,
     )
     X_tr, X_te, y_tr, y_te = train_test_split(
-        X.astype(np.float32), y.astype(np.int64), test_size=0.3, random_state=0,
+        X.astype(np.float32),
+        y.astype(np.int64),
+        test_size=0.3,
+        random_state=0,
     )
     return {"X_train": X_tr, "y_train": y_tr, "X_test": X_te, "y_test": y_te}
 

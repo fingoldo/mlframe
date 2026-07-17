@@ -14,6 +14,7 @@ These tests pin the bit-identity contract:
 If a future change perturbs the closed-form metric so it no longer bit-matches ``estimator.score()``,
 the A/B assertion fails -- which is the signal that the selected set could drift.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -36,7 +37,13 @@ def _legacy_scorer(_est, _X, _y):
 
 def _perm(model, X, y, scoring, seed=42, n_repeats=5):
     return permutation_importance(
-        model, X, y, scoring=scoring, n_repeats=n_repeats, random_state=seed, n_jobs=1,
+        model,
+        X,
+        y,
+        scoring=scoring,
+        n_repeats=n_repeats,
+        random_state=seed,
+        n_jobs=1,
     ).importances_mean
 
 
@@ -63,8 +70,7 @@ def test_fast_perm_scorer_bit_identical_to_estimator_score(name, make, regressio
 
     # HARD bit-identity gate: the selected set can only stay identical if the importances do.
     assert np.array_equal(pi_legacy, pi_fast), (
-        f"{name}: fast permutation-FI scorer diverged from estimator.score() "
-        f"(max|diff|={np.max(np.abs(pi_legacy - pi_fast)):.3e})"
+        f"{name}: fast permutation-FI scorer diverged from estimator.score() (max|diff|={np.max(np.abs(pi_legacy - pi_fast)):.3e})"
     )
 
 
@@ -99,6 +105,7 @@ def test_fast_scorer_falls_back_on_constant_target_regressor():
 # ---------------------------------------------------------------------------
 # P2 (2026-06-08): per-call copy elision via writeable-flag detection.
 # ---------------------------------------------------------------------------
+
 
 def test_p2_copy_elision_does_not_corrupt_inplace_shuffle():
     """After the writeable-flag self-check latches ``need_copy=False`` for a non-flag-flipping estimator,
@@ -136,6 +143,7 @@ def test_p2_keeps_copy_for_writeable_flag_flipping_estimator():
 # are skipped bit-identically.
 # ---------------------------------------------------------------------------
 
+
 def test_p3_assume_finite_path_is_bit_identical():
     """``get_feature_importances('permutation')`` runs under ``assume_finite=True`` when the fold is all
     finite. The resulting importances must equal a default-context permutation_importance with the SAME
@@ -148,8 +156,7 @@ def test_p3_assume_finite_path_is_bit_identical():
     model = LogisticRegression(max_iter=400).fit(X, y)
 
     ref = _perm(model, X, y, _make_fast_default_scorer(model), seed=11)  # default context
-    fi = get_feature_importances(model, list(range(20)), "permutation", data=X, target=y,
-                                 n_repeats=5, random_state=11)
+    fi = get_feature_importances(model, list(range(20)), "permutation", data=X, target=y, n_repeats=5, random_state=11)
     got = np.array([fi[i] for i in range(20)])
     assert np.array_equal(ref, got)
 
@@ -168,6 +175,7 @@ def test_y_invariant_hoist_bit_identical_across_repeated_and_new_y():
     base = scorer(model, X, y1)  # baseline latches fast + populates cache for y1
     # Repeated calls with the same y1: bit-identical, cache hit.
     from sklearn.metrics import r2_score
+
     pred = model.predict(X)
     assert scorer(model, X, y1) == r2_score(y1, pred)
     assert scorer(model, X, y1) == base or True  # base==r2 already covered; cache must not drift

@@ -3,6 +3,7 @@
 Ships alongside E3.1 (2026-05-22). The helper is the single-source dispatch
 that the 14+ ad-hoc sites in the codebase should migrate to over time.
 """
+
 from __future__ import annotations
 
 import numpy as np

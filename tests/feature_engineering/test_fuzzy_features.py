@@ -105,11 +105,13 @@ def test_biz_val_fuzzy_partition_beats_hard_binning_and_raw_linear_on_smooth_tar
 
     # hard one-hot binning with the SAME centres/edges (piecewise constant)
     edges = np.quantile(x, np.linspace(0, 1, n_sets + 1))[1:-1]
+
     def hard_onehot(v):
         idx = np.searchsorted(edges, v)
         H = np.zeros((v.shape[0], n_sets))
         H[np.arange(v.shape[0]), idx] = 1.0
         return H
+
     rmse_hard = _ridge_rmse(hard_onehot(x), y, hard_onehot(xt), yt)
 
     # raw linear

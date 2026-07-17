@@ -7,6 +7,7 @@ vectorized fit side + _grouped_agg_fe._broadcast_lookup). These tests assert the
 vectorized output is BIT-IDENTICAL to an independent per-row reference across
 seen / unseen / NaN categories and both cat-pair encodings.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -73,12 +74,15 @@ def _ref_cat_pair(cats_i, cats_j, mapping, encoding, te_lookup, global_mean, sen
 
 def test_cat_pair_cross_raw_vectorized_bit_identical():
     mapping = {("a", "x"): 0, ("a", "y"): 1, ("b", "x"): 2}
-    X = pd.DataFrame({
-        "ci": ["a", "a", "b", "b", "a", "c"],   # (b,y) and (c,*) unseen
-        "cj": ["x", "y", "x", "y", "x", "z"],
-    })
+    X = pd.DataFrame(
+        {
+            "ci": ["a", "a", "b", "b", "a", "c"],  # (b,y) and (c,*) unseen
+            "cj": ["x", "y", "x", "y", "x", "z"],
+        }
+    )
     got = apply_cat_pair_cross(X, "ci", "cj", mapping, encoding="raw")
-    ci = np.asarray(_column_to_str(X["ci"])); cj = np.asarray(_column_to_str(X["cj"]))
+    ci = np.asarray(_column_to_str(X["ci"]))
+    cj = np.asarray(_column_to_str(X["cj"]))
     exp = _ref_cat_pair(ci, cj, mapping, "raw", None, 0.0, len(mapping))
     np.testing.assert_array_equal(got, exp)
 
@@ -87,12 +91,15 @@ def test_cat_pair_cross_target_vectorized_bit_identical():
     mapping = {("a", "x"): 0, ("a", "y"): 1, ("b", "x"): 2}
     te_lookup = {0: 0.8, 1: 0.2}  # code 2 absent -> global_mean
     gm = 0.5
-    X = pd.DataFrame({
-        "ci": ["a", "a", "b", "b", "a"],          # (b,x)->code2 (absent from te), (b,y) unseen pair
-        "cj": ["x", "y", "x", "y", "x"],
-    })
+    X = pd.DataFrame(
+        {
+            "ci": ["a", "a", "b", "b", "a"],  # (b,x)->code2 (absent from te), (b,y) unseen pair
+            "cj": ["x", "y", "x", "y", "x"],
+        }
+    )
     got = apply_cat_pair_cross(X, "ci", "cj", mapping, encoding="target", te_lookup=te_lookup, global_mean=gm)
-    ci = np.asarray(_column_to_str(X["ci"])); cj = np.asarray(_column_to_str(X["cj"]))
+    ci = np.asarray(_column_to_str(X["ci"]))
+    cj = np.asarray(_column_to_str(X["cj"]))
     exp = _ref_cat_pair(ci, cj, mapping, "target", te_lookup, gm, len(mapping))
     np.testing.assert_array_equal(got, exp)
 
@@ -107,6 +114,7 @@ def test_cat_pair_cross_empty():
 def _ref_column_to_str(arr):
     """Pre-fix per-row reference: canonicalise every row independently."""
     from mlframe.feature_selection.filters._internals import canonical_group_token
+
     out = np.empty(len(arr), dtype=object)
     for i, v in enumerate(arr):
         if v is None or (isinstance(v, float) and v != v):
@@ -166,6 +174,7 @@ def test_column_to_str_bit_identical_across_dtypes_and_nan():
         arr = col.to_numpy()
         if arr.dtype.kind in ("i", "u", "b"):
             from mlframe.feature_selection.filters._internals import canonical_group_token
+
             ref = np.array([canonical_group_token(v) for v in arr], dtype=object)
         else:
             ref = _ref_column_to_str(arr)

@@ -10,6 +10,7 @@ on-demand survivor rebuild) when RAM is tight. The two paths must produce
 identical survivors -- the test below forces the fallback by setting the
 budget ratio to 0.0 and asserts byte-identical output vs the fast path.
 """
+
 from __future__ import annotations
 
 from collections import defaultdict
@@ -37,22 +38,24 @@ def synthetic_pair_inputs():
 
     rng = np.random.default_rng(7)
     n = 200
-    df = pd.DataFrame({
-        "a": rng.uniform(0.5, 5.0, n).astype(np.float32),
-        "b": rng.uniform(-2.0, 2.0, n).astype(np.float32),
-        "c": rng.uniform(0.1, 1.0, n).astype(np.float32),
-    })
-    data = np.column_stack([
-        discretize_array(df[c].to_numpy(), n_bins=4, method="quantile", dtype=np.int32)
-        for c in ("a", "b", "c")
-    ])
+    df = pd.DataFrame(
+        {
+            "a": rng.uniform(0.5, 5.0, n).astype(np.float32),
+            "b": rng.uniform(-2.0, 2.0, n).astype(np.float32),
+            "c": rng.uniform(0.1, 1.0, n).astype(np.float32),
+        }
+    )
+    data = np.column_stack([discretize_array(df[c].to_numpy(), n_bins=4, method="quantile", dtype=np.int32) for c in ("a", "b", "c")])
     target_col = (df["a"].to_numpy() > df["a"].mean()).astype(np.int32)
     data = np.column_stack([data, target_col])
     nbins = np.array([4, 4, 4, 2], dtype=np.int64)
     target_indices = np.array([3], dtype=np.int64)
     classes_y, freqs_y, _ = merge_vars(
-        factors_data=data, vars_indices=target_indices,
-        var_is_nominal=None, factors_nbins=nbins, dtype=np.int32,
+        factors_data=data,
+        vars_indices=target_indices,
+        var_is_nominal=None,
+        factors_nbins=nbins,
+        dtype=np.int32,
     )
     return {
         "df": df,
@@ -104,8 +107,8 @@ class TestDispatcher:
 
     def test_can_hoist_returns_false_when_buffer_overshoots(self):
         # 100 TiB request never fits; result must be False regardless of host RAM.
-        big = 100 * (2 ** 40)
-        can, bb, av = _can_hoist_shared_buffer(big)
+        big = 100 * (2**40)
+        can, bb, _av = _can_hoist_shared_buffer(big)
         assert can is False
         assert bb == big
 
@@ -120,7 +123,7 @@ class TestDispatcher:
         monkeypatch.setattr(fe_mod, "_FE_BUFFER_RAM_BUDGET_RATIO", 0.0)
         res = _run_check(synthetic_pair_inputs, unary_preset="minimal", binary_preset="minimal")
         assert (0, 1) in res
-        this_pair_features, transformed_vals, new_cols, _new_nbins, _msgs = res[(0, 1)]
+        this_pair_features, transformed_vals, _new_cols, _new_nbins, _msgs = res[(0, 1)]
         assert len(this_pair_features) >= 1, "Fallback path produced empty survivor set"
         assert transformed_vals is not None, "fe_max_steps>1 must materialise transformed_vals"
         assert transformed_vals.shape == (len(synthetic_pair_inputs["df"]), len(this_pair_features))
@@ -147,7 +150,7 @@ class TestHoistHeadroomAcceptance:
         budget = fe_mod._fe_effective_buffer_budget_bytes(int(5.7 * 2**30), n_workers=2)
         assert buf > budget, "fixture must exceed the relative budget to exercise the headroom path"
         # ... but the headroom acceptance path HOISTS it.
-        can, bb, av = fe_mod._can_hoist_shared_buffer(buf, n_workers=2)
+        can, bb, _av = fe_mod._can_hoist_shared_buffer(buf, n_workers=2)
         assert can is True
         assert bb == buf
 
@@ -162,7 +165,7 @@ class TestHoistHeadroomAcceptance:
 
     def test_headroom_path_disabled_by_zero_ratio(self, monkeypatch):
         """A zeroed budget (fallback-forcing knob) must decline even a tiny buffer."""
-        self._force_avail(monkeypatch, int(8 * 2**30))
+        self._force_avail(monkeypatch, (8 * 2**30))
         monkeypatch.setattr(fe_mod, "_FE_BUFFER_RAM_BUDGET_RATIO", 0.0)
         can, _bb, _av = fe_mod._can_hoist_shared_buffer(1024, n_workers=1)
         assert can is False
@@ -226,9 +229,7 @@ class TestSubsampleMode:
         assert len(this_pair_features) >= 1, "subsample path produced empty survivor set"
         assert transformed_vals is not None, "fe_max_steps>1 must materialise transformed_vals"
         # The critical contract: subsample is for MI sweep ONLY; output rows match FULL X.
-        assert transformed_vals.shape[0] == full_n, (
-            f"subsample mode must return full-n columns; got shape={transformed_vals.shape}"
-        )
+        assert transformed_vals.shape[0] == full_n, f"subsample mode must return full-n columns; got shape={transformed_vals.shape}"
         # And the recompute must produce finite values (NaN -> 0 sanitisation runs).
         assert np.all(np.isfinite(transformed_vals))
 
@@ -249,7 +250,7 @@ class TestFastVsFallbackEquivalence:
     """Same inputs through both paths -> same survivor set and same column data."""
 
     def _normalise_features(self, res_pair):
-        this_pair_features, transformed_vals, new_cols, _nbins, _msgs = res_pair
+        _this_pair_features, transformed_vals, new_cols, _nbins, _msgs = res_pair
         # Use new_cols as the deterministic key; columns rebuilt from the same
         # (a_key, b_key, bin_func_name) metadata must match bit-for-bit up to
         # the float32 rounding of the binary ufunc (which is deterministic).
@@ -277,7 +278,8 @@ class TestFastVsFallbackEquivalence:
             slow_lookup = {nm: slow_vals[:, idx] for idx, nm in enumerate(slow_names)}
             for nm in fast_lookup:
                 np.testing.assert_array_equal(
-                    fast_lookup[nm], slow_lookup[nm],
+                    fast_lookup[nm],
+                    slow_lookup[nm],
                     err_msg=f"{k}/{nm}: fast vs fallback column differs",
                 )
 
@@ -309,7 +311,7 @@ class TestAbsoluteBufferCeiling:
         """Pre-fix: the relative budget scales linearly with ``available`` with no cap, so a huge-RAM
         host computes a huge budget. Post-fix: the budget is clamped at the absolute ceiling."""
         ceiling = fe_mod._fe_buffer_absolute_max_bytes()
-        huge_available = 1024 * (2 ** 30)  # 1 TiB
+        huge_available = 1024 * (2**30)  # 1 TiB
         budget_huge = fe_mod._fe_effective_buffer_budget_bytes(huge_available, n_workers=1)
         assert budget_huge <= ceiling, f"budget {budget_huge} must not exceed the absolute ceiling {ceiling}"
         # Without the ceiling, 0.3*(1TiB-3GiB)/3.0 would be ~104 GiB -- far above any sane single-buffer cap.
@@ -320,30 +322,29 @@ class TestAbsoluteBufferCeiling:
         """A buffer above the absolute ceiling must be declined even when available RAM is enormous and
         both the relative-budget AND absolute-headroom paths would otherwise accept it."""
         ceiling = fe_mod._fe_buffer_absolute_max_bytes()
-        self._force_avail(monkeypatch, 1024 * (2 ** 30))  # 1 TiB free
-        buf = ceiling + (1 * 2 ** 30)  # 1 GiB over the ceiling
-        can, bb, av = fe_mod._can_hoist_shared_buffer(buf, n_workers=1)
+        self._force_avail(monkeypatch, 1024 * (2**30))  # 1 TiB free
+        buf = ceiling + (1 * 2**30)  # 1 GiB over the ceiling
+        can, bb, _av = fe_mod._can_hoist_shared_buffer(buf, n_workers=1)
         assert can is False, "buffer above the absolute ceiling must be declined regardless of available RAM"
         assert bb == buf
 
     def test_buffer_at_or_below_ceiling_unaffected(self, monkeypatch):
         """A small buffer under abundant RAM is unaffected by the new ceiling (still hoists)."""
-        self._force_avail(monkeypatch, 64 * (2 ** 30))  # 64 GiB free
-        can, _bb, _av = fe_mod._can_hoist_shared_buffer(1 * (2 ** 20), n_workers=1)  # 1 MiB request
+        self._force_avail(monkeypatch, 64 * (2**30))  # 64 GiB free
+        can, _bb, _av = fe_mod._can_hoist_shared_buffer(1 * (2**20), n_workers=1)  # 1 MiB request
         assert can is True
 
     def test_ceiling_env_override(self, monkeypatch):
         monkeypatch.setenv("MLFRAME_FE_BUFFER_MAX_GB", "2.0")
-        assert fe_mod._fe_buffer_absolute_max_bytes() == int(2.0 * 2 ** 30)
+        assert fe_mod._fe_buffer_absolute_max_bytes() == int(2.0 * 2**30)
         monkeypatch.setenv("MLFRAME_FE_BUFFER_MAX_GB", "garbage")
-        assert fe_mod._fe_buffer_absolute_max_bytes() == int(fe_mod._FE_BUFFER_ABSOLUTE_MAX_GB * 2 ** 30)
+        assert fe_mod._fe_buffer_absolute_max_bytes() == int(fe_mod._FE_BUFFER_ABSOLUTE_MAX_GB * 2**30)
 
     def test_decision_logging_fires_at_debug_level(self, monkeypatch, caplog):
         """_can_hoist_shared_buffer must log its buffer/available/decision at DEBUG level."""
         import logging
-        self._force_avail(monkeypatch, 8 * (2 ** 30))
+
+        self._force_avail(monkeypatch, 8 * (2**30))
         with caplog.at_level(logging.DEBUG, logger=fe_mod.logger.name):
             fe_mod._can_hoist_shared_buffer(1024, n_workers=1)
-        assert any("_can_hoist_shared_buffer" in rec.message for rec in caplog.records), (
-            "expected a DEBUG log line documenting the hoist/recompute decision"
-        )
+        assert any("_can_hoist_shared_buffer" in rec.message for rec in caplog.records), "expected a DEBUG log line documenting the hoist/recompute decision"

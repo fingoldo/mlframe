@@ -35,7 +35,7 @@ def test_bin_predictions_nan_aware():
     y_pred = np.array([0.1, 0.2, np.nan, 0.4, 0.5, 0.6, 0.7, 0.8], dtype=np.float64)
     y_true = np.array([0, 0, 1, 0, 1, 1, 1, 1], dtype=np.float64)
     indices = np.argsort(np.nan_to_num(y_pred, nan=1e9))
-    pp, pt, data = bin_predictions(y_true, y_pred, indices, nbins=2)
+    pp, pt, _data = bin_predictions(y_true, y_pred, indices, nbins=2)
     # nanmean must skip the NaN and never produce a NaN pocket when other values exist in-bin
     assert np.all(np.isfinite(pp))
     assert np.all(np.isfinite(pt))

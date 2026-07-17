@@ -10,7 +10,7 @@ Tests include:
 
 import numpy as np
 import pytest
-from hypothesis import given, settings, assume
+from hypothesis import given, settings
 from hypothesis import strategies as st
 from hypothesis.extra.numpy import arrays
 from sklearn.metrics import (
@@ -26,7 +26,6 @@ from sklearn.metrics import (
 from mlframe.metrics.core import (
     fast_roc_auc,
     fast_aucs,
-    fast_numba_aucs,
     brier_score_loss,
     fast_brier_score_loss,
     fast_log_loss,
@@ -41,19 +40,20 @@ from mlframe.metrics.core import (
     render_title_metric_token,
     DEFAULT_TITLE_METRICS_TOKENS,
     TITLE_METRIC_TOKENS,
-    fast_precision,
-    fast_classification_report,
     probability_separation_score,
     cb_logits_to_probs_binary,
     cb_logits_to_probs_multiclass,
     maximum_absolute_percentage_error,
     integral_calibration_error_from_metrics,
 )
+import functools
+import operator
 
 
 # =============================================================================
 # Test Strategies
 # =============================================================================
+
 
 @st.composite
 def binary_classification_data(draw, min_size=10, max_size=1000):
@@ -61,11 +61,13 @@ def binary_classification_data(draw, min_size=10, max_size=1000):
     size = draw(st.integers(min_value=min_size, max_value=max_size))
 
     # Ensure at least one of each class
-    y_true = draw(arrays(
-        dtype=np.int64,
-        shape=size,
-        elements=st.integers(0, 1),
-    ))
+    y_true = draw(
+        arrays(
+            dtype=np.int64,
+            shape=size,
+            elements=st.integers(0, 1),
+        )
+    )
 
     # Ensure we have both classes
     if y_true.sum() == 0:
@@ -73,11 +75,13 @@ def binary_classification_data(draw, min_size=10, max_size=1000):
     elif y_true.sum() == len(y_true):
         y_true[0] = 0
 
-    y_score = draw(arrays(
-        dtype=np.float64,
-        shape=size,
-        elements=st.floats(min_value=0.0, max_value=1.0, allow_nan=False, allow_infinity=False),
-    ))
+    y_score = draw(
+        arrays(
+            dtype=np.float64,
+            shape=size,
+            elements=st.floats(min_value=0.0, max_value=1.0, allow_nan=False, allow_infinity=False),
+        )
+    )
 
     return y_true, y_score
 
@@ -87,17 +91,21 @@ def binary_predictions(draw, min_size=10, max_size=1000):
     """Generate binary predictions (hard labels)."""
     size = draw(st.integers(min_value=min_size, max_value=max_size))
 
-    y_true = draw(arrays(
-        dtype=np.int64,
-        shape=size,
-        elements=st.integers(0, 1),
-    ))
+    y_true = draw(
+        arrays(
+            dtype=np.int64,
+            shape=size,
+            elements=st.integers(0, 1),
+        )
+    )
 
-    y_pred = draw(arrays(
-        dtype=np.int64,
-        shape=size,
-        elements=st.integers(0, 1),
-    ))
+    y_pred = draw(
+        arrays(
+            dtype=np.int64,
+            shape=size,
+            elements=st.integers(0, 1),
+        )
+    )
 
     return y_true, y_pred
 
@@ -105,6 +113,7 @@ def binary_predictions(draw, min_size=10, max_size=1000):
 # =============================================================================
 # ROC AUC Tests
 # =============================================================================
+
 
 @pytest.mark.fast
 class TestROCAUC:
@@ -175,6 +184,7 @@ class TestROCAUC:
 # PR AUC Tests
 # =============================================================================
 
+
 @pytest.mark.fast
 class TestPRAUC:
     """Tests for PR AUC (Average Precision) computation."""
@@ -216,6 +226,7 @@ class TestPRAUC:
 # Combined AUC Tests
 # =============================================================================
 
+
 class TestFastAucs:
     """Tests for fast_aucs which computes both ROC and PR AUC."""
 
@@ -228,7 +239,7 @@ class TestFastAucs:
         if len(np.unique(y_true)) < 2:
             return
 
-        roc_auc, pr_auc = fast_aucs(y_true, y_score)
+        roc_auc, _pr_auc = fast_aucs(y_true, y_score)
         roc_auc_single = fast_roc_auc(y_true, y_score)
 
         np.testing.assert_allclose(roc_auc, roc_auc_single, rtol=1e-10)
@@ -248,6 +259,7 @@ class TestFastAucs:
 # =============================================================================
 # Brier Score Tests
 # =============================================================================
+
 
 class TestBrierScore:
     """Tests for Brier score loss computation."""
@@ -293,6 +305,7 @@ class TestBrierScore:
 # =============================================================================
 # Log Loss Tests
 # =============================================================================
+
 
 class TestLogLoss:
     """Tests for fast_log_loss implementation."""
@@ -365,6 +378,7 @@ class TestLogLossPerformance:
     def test_faster_than_sklearn(self, large_data):
         """Assert fast_log_loss is faster than sklearn."""
         import time
+
         y_true, y_score = large_data
 
         # Warm up numba. fast_log_loss dispatches seq vs par by N; the
@@ -389,7 +403,7 @@ class TestLogLossPerformance:
         sklearn_time, sklearn_result = _best_time(sklearn_log_loss)
 
         print(f"\nCustom log_loss: {custom_time:.4f}s, sklearn: {sklearn_time:.4f}s")
-        print(f"Speedup: {sklearn_time/custom_time:.1f}x")
+        print(f"Speedup: {sklearn_time / custom_time:.1f}x")
 
         # Verify correctness
         np.testing.assert_allclose(custom_result, sklearn_result, rtol=1e-6)
@@ -397,6 +411,7 @@ class TestLogLossPerformance:
         # Floor relaxes under -n contention via the conftest helper; best-of-N already removes
         # single-shot noise so the floor proves the fast path is genuinely not slower.
         from tests.conftest import perf_speedup_floor
+
         speedup = sklearn_time / custom_time
         floor = perf_speedup_floor(1.0)
         assert speedup >= floor, f"fast_log_loss speedup {speedup:.2f}x below floor {floor:.2f}x"
@@ -405,6 +420,7 @@ class TestLogLossPerformance:
 # =============================================================================
 # Precision/Recall/F1 Tests
 # =============================================================================
+
 
 class TestPrecisionRecallF1:
     """Tests for precision, recall, and F1 computation."""
@@ -459,7 +475,7 @@ class TestPrecisionRecallF1:
         y_true = np.array([1, 1, 0, 0])
         y_pred = np.array([0, 0, 0, 0])
 
-        p, r, f1 = compute_pr_recall_f1_metrics(y_true, y_pred)
+        p, _r, _f1 = compute_pr_recall_f1_metrics(y_true, y_pred)
 
         assert p == 0.0  # TP=0, FP=0
 
@@ -467,6 +483,7 @@ class TestPrecisionRecallF1:
 # =============================================================================
 # Calibration Tests
 # =============================================================================
+
 
 class TestCalibration:
     """Tests for calibration binning and metrics."""
@@ -488,7 +505,7 @@ class TestCalibration:
         y_pred = np.random.random(n)
         y_true = (np.random.random(n) < y_pred).astype(np.int64)
 
-        freqs_pred, freqs_true, hits = fast_calibration_binning(y_true, y_pred, nbins=10)
+        freqs_pred, freqs_true, _hits = fast_calibration_binning(y_true, y_pred, nbins=10)
         mae = np.mean(np.abs(freqs_pred - freqs_true))
 
         # With perfect calibration, MAE should be small
@@ -513,20 +530,17 @@ class TestCalibration:
 
         # Test log weighting
         mae_log, _, _ = calibration_metrics_from_freqs(
-            freqs_pred, freqs_true, hits, nbins=10,
-            use_weights=True, use_log_weighting=True, use_sqrt_weighting=False, use_power_weighting=False
+            freqs_pred, freqs_true, hits, nbins=10, use_weights=True, use_log_weighting=True, use_sqrt_weighting=False, use_power_weighting=False
         )
 
         # Test sqrt weighting
         mae_sqrt, _, _ = calibration_metrics_from_freqs(
-            freqs_pred, freqs_true, hits, nbins=10,
-            use_weights=True, use_log_weighting=False, use_sqrt_weighting=True, use_power_weighting=False
+            freqs_pred, freqs_true, hits, nbins=10, use_weights=True, use_log_weighting=False, use_sqrt_weighting=True, use_power_weighting=False
         )
 
         # Test power weighting
         mae_power, _, _ = calibration_metrics_from_freqs(
-            freqs_pred, freqs_true, hits, nbins=10,
-            use_weights=True, use_log_weighting=False, use_sqrt_weighting=False, use_power_weighting=True
+            freqs_pred, freqs_true, hits, nbins=10, use_weights=True, use_log_weighting=False, use_sqrt_weighting=False, use_power_weighting=True
         )
 
         # All should be valid
@@ -556,11 +570,12 @@ class TestCalibration:
             for p_pos in (0.05, 0.3, 0.5, 0.7):
                 y_true, y_pred = self._synthetic_binary_data(seed=seed, p_pos=p_pos)
                 _ece, rel, res, unc, br_binned = compute_ece_and_brier_decomposition(
-                    y_true=y_true, y_pred=y_pred, nbins=10,
+                    y_true=y_true,
+                    y_pred=y_pred,
+                    nbins=10,
                 )
                 assert abs(br_binned - (rel - res + unc)) < 1e-12, (
-                    f"identity broke: seed={seed} p_pos={p_pos} "
-                    f"br_binned={br_binned:.12f} REL-RES+UNC={rel-res+unc:.12f}"
+                    f"identity broke: seed={seed} p_pos={p_pos} br_binned={br_binned:.12f} REL-RES+UNC={rel - res + unc:.12f}"
                 )
 
     def test_brier_decomp_perfect_calibration_zero_reliability(self):
@@ -571,7 +586,9 @@ class TestCalibration:
         # Sample y_true from Bernoulli(p_pred) - perfectly calibrated by construction.
         y_true = (rng.random(n) < y_pred).astype(np.float64)
         _ece, rel, _res, _unc, _ = compute_ece_and_brier_decomposition(
-            y_true=y_true, y_pred=y_pred, nbins=20,
+            y_true=y_true,
+            y_pred=y_pred,
+            nbins=20,
         )
         assert rel < 0.0005, f"REL should be tiny under perfect calibration, got {rel:.6f}"
 
@@ -584,7 +601,9 @@ class TestCalibration:
         # All predictions the same -> single non-empty bin, p_mean exactly equals base rate.
         y_pred = np.full(n, fill_value=float(np.mean(y_true)))
         _ece, rel, res, unc, br_binned = compute_ece_and_brier_decomposition(
-            y_true=y_true, y_pred=y_pred, nbins=10,
+            y_true=y_true,
+            y_pred=y_pred,
+            nbins=10,
         )
         assert rel < 1e-12
         assert res < 1e-12
@@ -604,7 +623,9 @@ class TestCalibration:
         )
         y_true = np.array([0, 0, 0, 1, 1, 1, 1, 1], dtype=np.float64)
         ece, _rel, _res, _unc, _ = compute_ece_and_brier_decomposition(
-            y_true=y_true, y_pred=y_pred, nbins=4,
+            y_true=y_true,
+            y_pred=y_pred,
+            nbins=4,
         )
         # Fixed [0,1] grid, N=8, y=[0,0,0,1,1,1,1,1]. floor(p*4): 0.0,0.05->bin0; 0.4->bin1; 0.5,0.7->bin2; 0.8,1,1->bin3.
         # bin 0 (n=2): pred_mean=0.025, acc=0 -> diff=0.025,   w=2/8
@@ -629,7 +650,9 @@ class TestCalibration:
         y_true = np.zeros(100, dtype=np.float64)
         y_pred = np.linspace(0.0, 1.0, 100)
         ece, rel, res, unc, br_binned = compute_ece_and_brier_decomposition(
-            y_true=y_true, y_pred=y_pred, nbins=10,
+            y_true=y_true,
+            y_pred=y_pred,
+            nbins=10,
         )
         assert abs(br_binned - (rel - res + unc)) < 1e-12
         # base_rate=0 -> UNC=0; resolution sums squared deviations of acc from 0,
@@ -643,8 +666,11 @@ class TestCalibration:
         """The 17-tuple must include the four new fields between calibration_coverage and roc_auc."""
         y_true, y_pred = self._synthetic_binary_data()
         out = fast_calibration_report(
-            y_true=y_true, y_pred=y_pred, nbins=10,
-            show_plots=False, plot_file="",
+            y_true=y_true,
+            y_pred=y_pred,
+            nbins=10,
+            show_plots=False,
+            plot_file="",
         )
         assert len(out) == 17
         # Positions: brier_loss(0), cal_mae(1), cal_std(2), cal_coverage(3),
@@ -657,7 +683,9 @@ class TestCalibration:
         # So the default headline matches the debiased kernels, NOT the plug-in compute_ece_and_brier_decomposition.
         ece_db = compute_ece_debiased(y_true=y_true, y_pred=y_pred, nbins=10)
         rel_db, res_db, unc_db, _ = compute_brier_decomposition_debiased(
-            y_true=y_true, y_pred=y_pred, nbins=10,
+            y_true=y_true,
+            y_pred=y_pred,
+            nbins=10,
         )
         assert abs(ece - ece_db) < 1e-12
         assert abs(rel - rel_db) < 1e-12
@@ -666,12 +694,18 @@ class TestCalibration:
 
         # The legacy plug-in path is still reachable via the opt-in flags, and must equal the plug-in kernel exactly.
         out_legacy = fast_calibration_report(
-            y_true=y_true, y_pred=y_pred, nbins=10,
-            show_plots=False, plot_file="",
-            ece_debiased=False, brier_debiased=False,
+            y_true=y_true,
+            y_pred=y_pred,
+            nbins=10,
+            show_plots=False,
+            plot_file="",
+            ece_debiased=False,
+            brier_debiased=False,
         )
         ece_k, rel_k, res_k, unc_k, _ = compute_ece_and_brier_decomposition(
-            y_true=y_true, y_pred=y_pred, nbins=10,
+            y_true=y_true,
+            y_pred=y_pred,
+            nbins=10,
         )
         assert abs(out_legacy[4] - ece_k) < 1e-12
         assert abs(out_legacy[5] - rel_k) < 1e-12
@@ -684,6 +718,7 @@ class TestCalibration:
     def test_fast_calibration_report_namedtuple_positional_and_named_agree(self):
         """CalibrationReport is a NamedTuple: positional unpacking / indexing and named-field access return the SAME values."""
         from mlframe.metrics import CalibrationReport, fast_calibration_report as fcr_pkg
+
         y_true, y_pred = self._synthetic_binary_data()
         out = fast_calibration_report(y_true=y_true, y_pred=y_pred, nbins=10, show_plots=False, plot_file="")
 
@@ -693,8 +728,9 @@ class TestCalibration:
         assert len(out) == 17
 
         # Positional unpacking still works exactly as the historical flat 17-tuple.
-        (brier_loss, cal_mae, cal_std, cal_cov, ece, brier_rel, brier_res, brier_unc,
-         roc_auc, pr_auc, ice, ll, precision, recall, f1, metrics_string, fig) = out
+        (brier_loss, cal_mae, cal_std, cal_cov, ece, brier_rel, brier_res, brier_unc, roc_auc, pr_auc, ice, ll, precision, recall, f1, metrics_string, fig) = (
+            out
+        )
 
         # Named access must equal both the unpacked names AND positional indexing, field for field.
         expected = [
@@ -721,10 +757,23 @@ class TestCalibration:
             assert named is indexed or named == indexed
 
         assert out._fields == (
-            "brier_loss", "calibration_mae", "calibration_std", "calibration_coverage",
-            "ece", "brier_reliability", "brier_resolution", "brier_uncertainty",
-            "roc_auc", "pr_auc", "ice", "ll", "precision", "recall", "f1",
-            "metrics_string", "fig",
+            "brier_loss",
+            "calibration_mae",
+            "calibration_std",
+            "calibration_coverage",
+            "ece",
+            "brier_reliability",
+            "brier_resolution",
+            "brier_uncertainty",
+            "roc_auc",
+            "pr_auc",
+            "ice",
+            "ll",
+            "precision",
+            "recall",
+            "f1",
+            "metrics_string",
+            "fig",
         )
         # The package-level export resolves to the same function object as the module-level one.
         assert fcr_pkg is fast_calibration_report
@@ -733,6 +782,7 @@ class TestCalibration:
         """README documents ``from mlframe.metrics import fast_calibration_report``; it must be a first-class export."""
         import mlframe.metrics as m
         from mlframe.metrics import fast_calibration_report, CalibrationReport
+
         assert "fast_calibration_report" in m.__all__
         assert "CalibrationReport" in m.__all__
         assert callable(fast_calibration_report)
@@ -746,41 +796,94 @@ class TestCalibration:
         """TITLE_METRIC_TOKENS frozenset is the canonical allowed set.
         2026-05-28: KS / MCC / BSS added per audit batch (Gini intentionally
         excluded from title tokens - algebraically redundant with ROC_AUC)."""
-        assert TITLE_METRIC_TOKENS == frozenset({
-            "ICE", "BR", "BR_DECOMP", "ECE", "CMAEW",
-            "COV", "LL", "ROC_AUC", "PR_AUC", "DENS",
-            "KS", "MCC", "BSS",
-        })
+        assert TITLE_METRIC_TOKENS == frozenset(
+            {
+                "ICE",
+                "BR",
+                "BR_DECOMP",
+                "ECE",
+                "CMAEW",
+                "COV",
+                "LL",
+                "ROC_AUC",
+                "PR_AUC",
+                "DENS",
+                "KS",
+                "MCC",
+                "BSS",
+            }
+        )
 
     def test_default_token_sequence(self):
         """Default mirrors the calibration report layout - ICE first, BR with decomp, then ECE.
         2026-05-28: KS, MCC, BSS appended per audit batch (single-number
         summaries beyond the calibration / AUC family)."""
         assert DEFAULT_TITLE_METRICS_TOKENS == (
-            "ICE", "BR_DECOMP", "ECE", "CMAEW", "LL",
-            "ROC_AUC", "PR_AUC", "KS", "MCC", "BSS",
+            "ICE",
+            "BR_DECOMP",
+            "ECE",
+            "CMAEW",
+            "LL",
+            "ROC_AUC",
+            "PR_AUC",
+            "KS",
+            "MCC",
+            "BSS",
         )
 
     def test_render_token_ice(self):
         out = render_title_metric_token(
-            "ICE", ndigits=3, ice=0.123, brier_loss=0.0, ece=0.0,
-            brier_reliability=0.0, brier_resolution=0.0, brier_uncertainty=0.0,
-            calibration_mae=0.0, calibration_std=0.0, use_weights=True,
-            calibration_coverage=0.0, nbins=10, ll=None, max_hits=0, min_hits=0,
-            roc_auc=0.0, mean_group_roc_auc=None, pr_auc=0.0, mean_group_pr_auc=None,
-            precision=0.0, recall=0.0, f1=0.0,
+            "ICE",
+            ndigits=3,
+            ice=0.123,
+            brier_loss=0.0,
+            ece=0.0,
+            brier_reliability=0.0,
+            brier_resolution=0.0,
+            brier_uncertainty=0.0,
+            calibration_mae=0.0,
+            calibration_std=0.0,
+            use_weights=True,
+            calibration_coverage=0.0,
+            nbins=10,
+            ll=None,
+            max_hits=0,
+            min_hits=0,
+            roc_auc=0.0,
+            mean_group_roc_auc=None,
+            pr_auc=0.0,
+            mean_group_pr_auc=None,
+            precision=0.0,
+            recall=0.0,
+            f1=0.0,
         )
         assert out == "ICE=0.123"
 
     def test_render_token_br_decomp_format(self):
         out = render_title_metric_token(
-            "BR_DECOMP", ndigits=2, ice=0.0,
-            brier_loss=0.1234, ece=0.0,
-            brier_reliability=0.05, brier_resolution=0.10, brier_uncertainty=0.21,
-            calibration_mae=0.0, calibration_std=0.0, use_weights=True,
-            calibration_coverage=0.0, nbins=10, ll=None, max_hits=0, min_hits=0,
-            roc_auc=0.0, mean_group_roc_auc=None, pr_auc=0.0, mean_group_pr_auc=None,
-            precision=0.0, recall=0.0, f1=0.0,
+            "BR_DECOMP",
+            ndigits=2,
+            ice=0.0,
+            brier_loss=0.1234,
+            ece=0.0,
+            brier_reliability=0.05,
+            brier_resolution=0.10,
+            brier_uncertainty=0.21,
+            calibration_mae=0.0,
+            calibration_std=0.0,
+            use_weights=True,
+            calibration_coverage=0.0,
+            nbins=10,
+            ll=None,
+            max_hits=0,
+            min_hits=0,
+            roc_auc=0.0,
+            mean_group_roc_auc=None,
+            pr_auc=0.0,
+            mean_group_pr_auc=None,
+            precision=0.0,
+            recall=0.0,
+            f1=0.0,
         )
         # 0.1234 -> 12.3%, 0.05 -> 5.0%, 0.10 -> 10.0%, 0.21 -> 21.0%.
         # New compact form: BR=X%(RL<rel>%+U<unc>%-RS<res>%)
@@ -790,12 +893,29 @@ class TestCalibration:
 
     def test_render_token_ll_skipped_when_none(self):
         out = render_title_metric_token(
-            "LL", ndigits=3, ice=0.0, brier_loss=0.0, ece=0.0,
-            brier_reliability=0.0, brier_resolution=0.0, brier_uncertainty=0.0,
-            calibration_mae=0.0, calibration_std=0.0, use_weights=True,
-            calibration_coverage=0.0, nbins=10, ll=None, max_hits=0, min_hits=0,
-            roc_auc=0.0, mean_group_roc_auc=None, pr_auc=0.0, mean_group_pr_auc=None,
-            precision=0.0, recall=0.0, f1=0.0,
+            "LL",
+            ndigits=3,
+            ice=0.0,
+            brier_loss=0.0,
+            ece=0.0,
+            brier_reliability=0.0,
+            brier_resolution=0.0,
+            brier_uncertainty=0.0,
+            calibration_mae=0.0,
+            calibration_std=0.0,
+            use_weights=True,
+            calibration_coverage=0.0,
+            nbins=10,
+            ll=None,
+            max_hits=0,
+            min_hits=0,
+            roc_auc=0.0,
+            mean_group_roc_auc=None,
+            pr_auc=0.0,
+            mean_group_pr_auc=None,
+            precision=0.0,
+            recall=0.0,
+            f1=0.0,
         )
         assert out == ""
 
@@ -804,12 +924,29 @@ class TestCalibration:
         # practice (ReportingConfig validates), but if one slips past, render
         # returns "" so the title just skips it without crashing.
         out = render_title_metric_token(
-            "FOO", ndigits=3, ice=0.0, brier_loss=0.0, ece=0.0,
-            brier_reliability=0.0, brier_resolution=0.0, brier_uncertainty=0.0,
-            calibration_mae=0.0, calibration_std=0.0, use_weights=True,
-            calibration_coverage=0.0, nbins=10, ll=None, max_hits=0, min_hits=0,
-            roc_auc=0.0, mean_group_roc_auc=None, pr_auc=0.0, mean_group_pr_auc=None,
-            precision=0.0, recall=0.0, f1=0.0,
+            "FOO",
+            ndigits=3,
+            ice=0.0,
+            brier_loss=0.0,
+            ece=0.0,
+            brier_reliability=0.0,
+            brier_resolution=0.0,
+            brier_uncertainty=0.0,
+            calibration_mae=0.0,
+            calibration_std=0.0,
+            use_weights=True,
+            calibration_coverage=0.0,
+            nbins=10,
+            ll=None,
+            max_hits=0,
+            min_hits=0,
+            roc_auc=0.0,
+            mean_group_roc_auc=None,
+            pr_auc=0.0,
+            mean_group_pr_auc=None,
+            precision=0.0,
+            recall=0.0,
+            f1=0.0,
         )
         assert out == ""
 
@@ -817,8 +954,11 @@ class TestCalibration:
         """Smoke: title string after a real fast_calibration_report call has the default tokens in order."""
         y_true, y_pred = self._synthetic_binary_data()
         out = fast_calibration_report(
-            y_true=y_true, y_pred=y_pred, nbins=10,
-            show_plots=False, plot_file="",
+            y_true=y_true,
+            y_pred=y_pred,
+            nbins=10,
+            show_plots=False,
+            plot_file="",
         )
         title = out[15]
         # The metric labels appear in the same order as DEFAULT_TITLE_METRICS_TOKENS.
@@ -836,8 +976,11 @@ class TestCalibration:
         """When passing fewer tokens, the title contains only those, in the chosen order."""
         y_true, y_pred = self._synthetic_binary_data()
         out = fast_calibration_report(
-            y_true=y_true, y_pred=y_pred, nbins=10,
-            show_plots=False, plot_file="",
+            y_true=y_true,
+            y_pred=y_pred,
+            nbins=10,
+            show_plots=False,
+            plot_file="",
             title_metrics_tokens=("CMAEW", "ICE"),
         )
         title = out[15]
@@ -852,8 +995,11 @@ class TestCalibration:
         """Passing an empty token tuple yields an empty title metrics string."""
         y_true, y_pred = self._synthetic_binary_data()
         out = fast_calibration_report(
-            y_true=y_true, y_pred=y_pred, nbins=10,
-            show_plots=False, plot_file="",
+            y_true=y_true,
+            y_pred=y_pred,
+            nbins=10,
+            show_plots=False,
+            plot_file="",
             title_metrics_tokens=(),
         )
         assert out[15] == ""
@@ -862,6 +1008,7 @@ class TestCalibration:
 # =============================================================================
 # Edge Case Tests
 # =============================================================================
+
 
 class TestEdgeCases:
     """Tests for edge cases and boundary conditions."""
@@ -898,6 +1045,7 @@ class TestEdgeCases:
 
         # Verify this matches sklearn's behavior (sklearn also returns NaN with warning)
         import warnings
+
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             sklearn_roc_pos = roc_auc_score(y_true_all_pos, y_score)
@@ -979,9 +1127,7 @@ class TestCbLogitsToProbs:
         np.testing.assert_allclose(probs[0, 0], 1.0, atol=1e-10)
         np.testing.assert_allclose(probs[0, 1], 0.0, atol=1e-10)
 
-    @given(
-        logits=arrays(np.float64, st.just(20), elements=st.floats(-10, 10))
-    )
+    @given(logits=arrays(np.float64, st.just(20), elements=st.floats(-10, 10)))
     @settings(max_examples=50, deadline=None)
     def test_rows_sum_to_one_and_in_unit_interval(self, logits):
         """For any logits, each row sums to 1.0 and all values in [0, 1]."""
@@ -1002,9 +1148,7 @@ class TestCbLogitsToPropsMulticlass:
     @settings(max_examples=30, deadline=None)
     def test_rows_sum_to_one_and_in_unit_interval(self, data, n_classes, n_samples):
         """For any (n_classes, n_samples) logits, rows sum to 1.0, values in [0, 1]."""
-        logits = data.draw(
-            arrays(np.float64, (n_classes, n_samples), elements=st.floats(-10, 10))
-        )
+        logits = data.draw(arrays(np.float64, (n_classes, n_samples), elements=st.floats(-10, 10)))
         probs = cb_logits_to_probs_multiclass(logits)
         np.testing.assert_allclose(probs.sum(axis=1), 1.0, atol=1e-10)
         assert np.all(probs >= 0.0)
@@ -1055,6 +1199,7 @@ class TestFastRocAucEdgeCases:
 # =============================================================================
 # Performance Benchmarks
 # =============================================================================
+
 
 class TestPerformance:
     """Performance benchmarks comparing with sklearn."""
@@ -1108,23 +1253,24 @@ class TestPerformance:
         # Time custom
         start = time.perf_counter()
         for _ in range(10):
-            _, custom_pr = fast_aucs(y_true, y_score)
+            _, _custom_pr = fast_aucs(y_true, y_score)
         custom_time = time.perf_counter() - start
 
         # Time sklearn
         start = time.perf_counter()
         for _ in range(10):
-            sklearn_pr = average_precision_score(y_true, y_score)
+            average_precision_score(y_true, y_score)
         sklearn_time = time.perf_counter() - start
 
         print(f"\nCustom PR AUC time: {custom_time:.3f}s")
         print(f"Sklearn PR AUC time: {sklearn_time:.3f}s")
-        print(f"Speedup: {sklearn_time/custom_time:.2f}x")
+        print(f"Speedup: {sklearn_time / custom_time:.2f}x")
 
 
 # =============================================================================
 # Regression Tests
 # =============================================================================
+
 
 class TestRegression:
     """Regression tests with known input/output pairs."""
@@ -1144,7 +1290,7 @@ class TestRegression:
         y_true = np.array([1.0, 0.0, 1.0, 0.0])
         y_prob = np.array([0.9, 0.1, 0.8, 0.3])
 
-        expected = ((1-0.9)**2 + (0-0.1)**2 + (1-0.8)**2 + (0-0.3)**2) / 4
+        expected = ((1 - 0.9) ** 2 + (0 - 0.1) ** 2 + (1 - 0.8) ** 2 + (0 - 0.3) ** 2) / 4
         result = brier_score_loss(y_true, y_prob)
 
         np.testing.assert_allclose(result, expected, rtol=1e-10)
@@ -1153,6 +1299,7 @@ class TestRegression:
 # =============================================================================
 # ICE — roc_auc_penalty linear ramp
 # =============================================================================
+
 
 class TestICEPenaltyRamp:
     """Tests for the sub-threshold ramp in integral_calibration_error_from_metrics.
@@ -1245,8 +1392,12 @@ class TestICEPenaltyRamp:
         # Defaults: roc_auc_penalty=0.0 → pure behaviour unchanged for callers
         # that never opted into the penalty mechanism.
         val = integral_calibration_error_from_metrics(
-            calibration_mae=0.01, calibration_std=0.01, calibration_coverage=1.0,
-            brier_loss=0.25, roc_auc=0.50, pr_auc=0.5,
+            calibration_mae=0.01,
+            calibration_std=0.01,
+            calibration_coverage=1.0,
+            brier_loss=0.25,
+            roc_auc=0.50,
+            pr_auc=0.5,
         )
         # With penalty knob=0, ICE = 0.25*0.8 + 0.01*3 + 0.01*2 - |0|*1.5 - 0.5*0.1 = 0.2 + 0.03 + 0.02 - 0 - 0.05 = 0.2
         np.testing.assert_allclose(val, 0.2, rtol=1e-10)
@@ -1265,9 +1416,14 @@ class TestICENaNGuards:
 
     def test_nan_roc_auc_does_not_propagate(self):
         val = integral_calibration_error_from_metrics(
-            calibration_mae=0.01, calibration_std=0.01, calibration_coverage=1.0,
-            brier_loss=0.25, roc_auc=float("nan"), pr_auc=0.5,
-            roc_auc_penalty=3.0, min_roc_auc=0.6,
+            calibration_mae=0.01,
+            calibration_std=0.01,
+            calibration_coverage=1.0,
+            brier_loss=0.25,
+            roc_auc=float("nan"),
+            pr_auc=0.5,
+            roc_auc_penalty=3.0,
+            min_roc_auc=0.6,
         )
         assert np.isfinite(val), "NaN roc_auc must not poison ICE"
         # With roc_term skipped: base_loss = 0.25*0.8 + 0.01*3 + 0.01*2 = 0.25
@@ -1276,22 +1432,34 @@ class TestICENaNGuards:
 
     def test_nan_pr_auc_does_not_propagate(self):
         val = integral_calibration_error_from_metrics(
-            calibration_mae=0.01, calibration_std=0.01, calibration_coverage=1.0,
-            brier_loss=0.25, roc_auc=0.7, pr_auc=float("nan"),
+            calibration_mae=0.01,
+            calibration_std=0.01,
+            calibration_coverage=1.0,
+            brier_loss=0.25,
+            roc_auc=0.7,
+            pr_auc=float("nan"),
         )
         assert np.isfinite(val)
 
     def test_both_nan_returns_finite(self):
         val = integral_calibration_error_from_metrics(
-            calibration_mae=0.01, calibration_std=0.01, calibration_coverage=1.0,
-            brier_loss=0.25, roc_auc=float("nan"), pr_auc=float("nan"),
+            calibration_mae=0.01,
+            calibration_std=0.01,
+            calibration_coverage=1.0,
+            brier_loss=0.25,
+            roc_auc=float("nan"),
+            pr_auc=float("nan"),
         )
         assert np.isfinite(val)
 
     def test_nan_brier_loss_does_not_propagate(self):
         val = integral_calibration_error_from_metrics(
-            calibration_mae=0.01, calibration_std=0.01, calibration_coverage=1.0,
-            brier_loss=float("nan"), roc_auc=0.7, pr_auc=0.5,
+            calibration_mae=0.01,
+            calibration_std=0.01,
+            calibration_coverage=1.0,
+            brier_loss=float("nan"),
+            roc_auc=0.7,
+            pr_auc=0.5,
         )
         assert np.isfinite(val), "NaN brier_loss must not poison ICE"
         # brier_term skipped: base_loss = 0.01*3 + 0.01*2 = 0.05; minus roc_term (0.2*1.5=0.3) minus pr_term (0.5*0.1=0.05)
@@ -1299,22 +1467,34 @@ class TestICENaNGuards:
 
     def test_nan_calibration_mae_does_not_propagate(self):
         val = integral_calibration_error_from_metrics(
-            calibration_mae=float("nan"), calibration_std=0.01, calibration_coverage=1.0,
-            brier_loss=0.25, roc_auc=0.7, pr_auc=0.5,
+            calibration_mae=float("nan"),
+            calibration_std=0.01,
+            calibration_coverage=1.0,
+            brier_loss=0.25,
+            roc_auc=0.7,
+            pr_auc=0.5,
         )
         assert np.isfinite(val), "NaN calibration_mae must not poison ICE"
 
     def test_nan_calibration_std_does_not_propagate(self):
         val = integral_calibration_error_from_metrics(
-            calibration_mae=0.01, calibration_std=float("nan"), calibration_coverage=1.0,
-            brier_loss=0.25, roc_auc=0.7, pr_auc=0.5,
+            calibration_mae=0.01,
+            calibration_std=float("nan"),
+            calibration_coverage=1.0,
+            brier_loss=0.25,
+            roc_auc=0.7,
+            pr_auc=0.5,
         )
         assert np.isfinite(val), "NaN calibration_std must not poison ICE"
 
     def test_all_five_inputs_nan_returns_finite(self):
         val = integral_calibration_error_from_metrics(
-            calibration_mae=float("nan"), calibration_std=float("nan"), calibration_coverage=1.0,
-            brier_loss=float("nan"), roc_auc=float("nan"), pr_auc=float("nan"),
+            calibration_mae=float("nan"),
+            calibration_std=float("nan"),
+            calibration_coverage=1.0,
+            brier_loss=float("nan"),
+            roc_auc=float("nan"),
+            pr_auc=float("nan"),
         )
         assert val == 0.0, "with every guarded input NaN, ICE must reduce to the pure penalty term (0 here)"
 
@@ -1335,6 +1515,7 @@ class TestPerGroupAUCEdgeCases:
 
     def _build(self, group_ids, y_true, y_score):
         from mlframe.metrics.core import fast_aucs_per_group_optimized
+
         return fast_aucs_per_group_optimized(
             y_true=np.asarray(y_true, dtype=np.int8),
             y_score=np.asarray(y_score, dtype=np.float64),
@@ -1359,18 +1540,16 @@ class TestPerGroupAUCEdgeCases:
         NaN from single-sample groups in the mean (was depressing mean
         toward 0 when treated as legitimate 0.0 data)."""
         from mlframe.metrics.core import compute_mean_aucs_per_group
+
         _, _, per_group = self._build(
             group_ids=[0, 0, 0, 0, 1, 2],  # group 0 valid; 1,2 single-sample
             y_true=[0, 1, 0, 1, 1, 0],
             y_score=[0.1, 0.9, 0.2, 0.8, 0.5, 0.5],
         )
-        mean_roc, mean_pr = compute_mean_aucs_per_group(per_group)
+        mean_roc, _mean_pr = compute_mean_aucs_per_group(per_group)
         # Group 0 should produce a high ROC (~1.0). Pre-fix, groups 1,2
         # contributed 0.0 and dragged the mean down.
-        assert mean_roc > 0.5, (
-            f"mean ROC should reflect only the valid group ({mean_roc}); "
-            "if this is <0.5, single-sample groups are polluting the mean"
-        )
+        assert mean_roc > 0.5, f"mean ROC should reflect only the valid group ({mean_roc}); if this is <0.5, single-sample groups are polluting the mean"
 
     def test_single_class_group_returns_nan(self):
         """Existing behavior: group with all-same-class y_true returns
@@ -1392,6 +1571,7 @@ class TestPerGroupAUCEdgeCases:
         (single-class or single-sample), log a single WARNING naming the
         count and the likely causes."""
         import logging
+
         # 4 groups: 3 single-sample (NaN), 1 valid. 3/4 = 75% NaN.
         gids = [0, 0, 0, 1, 2, 3]
         y_true = [0, 1, 0, 1, 0, 1]
@@ -1399,9 +1579,7 @@ class TestPerGroupAUCEdgeCases:
         with caplog.at_level(logging.WARNING, logger="mlframe.metrics.core"):
             self._build(gids, y_true, y_score)
         msgs = [r.message for r in caplog.records if r.levelname == "WARNING"]
-        assert any("groups returned NaN" in m for m in msgs), (
-            f"Expected a WARNING about majority-NaN groups; got: {msgs}"
-        )
+        assert any("groups returned NaN" in m for m in msgs), f"Expected a WARNING about majority-NaN groups; got: {msgs}"
         # The message must name the count and the likely causes.
         joined = " ".join(msgs)
         assert "single-class" in joined or "single-sample" in joined
@@ -1411,16 +1589,15 @@ class TestPerGroupAUCEdgeCases:
         warning should fire — the per-group mean is still trustworthy
         and noisy logs would drown the signal."""
         import logging
+
         # 10 groups, 9 valid (2-sample each), 1 single-sample -> 10% NaN.
-        gids = sum([[i, i] for i in range(9)], []) + [9]  # groups 0..8 have 2 samples; group 9 has 1
+        gids = [*functools.reduce(operator.iadd, [[i, i] for i in range(9)], []), 9]  # groups 0..8 have 2 samples; group 9 has 1
         y_true = ([0, 1] * 9) + [1]
         y_score = list(np.linspace(0.1, 0.9, 19))
         with caplog.at_level(logging.WARNING, logger="mlframe.metrics.core"):
             self._build(gids, y_true, y_score)
         warn_msgs = [r.message for r in caplog.records if r.levelname == "WARNING"]
-        assert not any("groups returned NaN" in m for m in warn_msgs), (
-            f"Did not expect a warning for only 10% NaN groups; got: {warn_msgs}"
-        )
+        assert not any("groups returned NaN" in m for m in warn_msgs), f"Did not expect a warning for only 10% NaN groups; got: {warn_msgs}"
 
 
 class TestFastAucsOverallParity:
@@ -1442,8 +1619,7 @@ class TestFastAucsOverallParity:
             # Imbalanced (1:4 positive:negative), separated scores.
             ([0] * 16 + [1] * 4, list(np.linspace(0.05, 0.45, 16)) + list(np.linspace(0.6, 0.95, 4))),
             # Random but reproducible.
-            (list((np.random.default_rng(0).random(200) > 0.7).astype(np.int8)),
-             list(np.random.default_rng(1).random(200))),
+            (list((np.random.default_rng(0).random(200) > 0.7).astype(np.int8)), list(np.random.default_rng(1).random(200))),
             # Perfect separation - both AUCs == 1.
             ([0, 0, 0, 1, 1, 1], [0.1, 0.2, 0.3, 0.7, 0.8, 0.9]),
             # Random scoring - both AUCs near 0.5; lock the equivalence anyway.
@@ -1452,6 +1628,7 @@ class TestFastAucsOverallParity:
     )
     def test_fast_aucs_matches_per_group_overall(self, y_true, y_score):
         from mlframe.metrics.core import fast_aucs, fast_aucs_per_group_optimized
+
         y_true_arr = np.asarray(y_true, dtype=np.int8)
         y_score_arr = np.asarray(y_score, dtype=np.float64)
         roc_direct, pr_direct = fast_aucs(y_true_arr, y_score_arr)
@@ -1477,6 +1654,7 @@ class TestFastAucsOverallParity:
             calibration_metrics_from_freqs,
             integral_calibration_error_from_metrics,
         )
+
         rng = np.random.default_rng(42)
         y_true = (rng.random(500) > 0.6).astype(np.int8)
         y_score = (y_true * 0.5 + rng.random(500) * 0.5).astype(np.float64)
@@ -1486,12 +1664,20 @@ class TestFastAucsOverallParity:
         brier = fast_brier_score_loss(y_true=y_true, y_prob=y_score)
         freqs_p, freqs_t, hits = fast_calibration_binning(y_true=y_true, y_pred=y_score, nbins=10)
         cal_mae, cal_std, cal_cov = calibration_metrics_from_freqs(
-            freqs_predicted=freqs_p, freqs_true=freqs_t, hits=hits, nbins=10, use_weights=True,
+            freqs_predicted=freqs_p,
+            freqs_true=freqs_t,
+            hits=hits,
+            nbins=10,
+            use_weights=True,
         )
         roc_auc, pr_auc = fast_aucs(y_true=y_true, y_score=y_score)
         expected = integral_calibration_error_from_metrics(
-            calibration_mae=cal_mae, calibration_std=cal_std, calibration_coverage=cal_cov,
-            brier_loss=brier, roc_auc=roc_auc, pr_auc=pr_auc,
+            calibration_mae=cal_mae,
+            calibration_std=cal_std,
+            calibration_coverage=cal_cov,
+            brier_loss=brier,
+            roc_auc=roc_auc,
+            pr_auc=pr_auc,
         )
         np.testing.assert_allclose(actual, expected, rtol=1e-12, atol=1e-12)
 
@@ -1499,6 +1685,7 @@ class TestFastAucsOverallParity:
         """The empty-input early-return is the only branch that does NOT go through
         ``fast_aucs``; lock its contract."""
         from mlframe.metrics.core import fast_ice_only
+
         empty_y = np.array([], dtype=np.int8)
         empty_p = np.array([], dtype=np.float64)
         assert fast_ice_only(y_true=empty_y, y_pred=empty_p) == 1.0
@@ -1506,6 +1693,7 @@ class TestFastAucsOverallParity:
 
 try:
     import cupy as _cupy_test_marker  # noqa: F401
+
     _cupy_available = True
 except ImportError:
     _cupy_available = False
@@ -1600,6 +1788,7 @@ class TestGpuMetrics:
     def test_pr_auc_returns_nan_on_single_class(self):
         from mlframe.metrics.core import gpu_multiple_pr_auc_scores
         import cupy as cp
+
         rng = np.random.default_rng(77)
         N = 1_000
         y = np.zeros(N, dtype=np.int8)  # all-negative
@@ -1718,6 +1907,7 @@ class TestGpuMetricsImportFailure:
 
     def test_rmse_raises_clear_message_without_cupy(self):
         from mlframe.metrics.core import gpu_multiple_rmse_scores
+
         with pytest.raises(ImportError, match="cupy"):
             gpu_multiple_rmse_scores(np.zeros(10), np.zeros((10, 2)))
 
@@ -1725,6 +1915,7 @@ class TestGpuMetricsImportFailure:
         """Dispatcher should NOT raise when cupy is missing -- it just
         runs on CPU."""
         from mlframe.metrics.core import compute_batch_rmse
+
         rng = np.random.default_rng(0)
         y = rng.standard_normal(200)
         p = rng.standard_normal((200, 3))
@@ -1750,12 +1941,14 @@ class TestFastRegressionMetrics:
     def test_mae_1d_unweighted(self, rng):
         from sklearn.metrics import mean_absolute_error as sk
         from mlframe.metrics.core import fast_mean_absolute_error
+
         y, p = self._data(rng, 5_000)
         assert abs(fast_mean_absolute_error(y, p) - sk(y, p)) < 1e-12
 
     def test_mae_1d_weighted(self, rng):
         from sklearn.metrics import mean_absolute_error as sk
         from mlframe.metrics.core import fast_mean_absolute_error
+
         y, p = self._data(rng, 5_000)
         w = rng.random(5_000) + 0.1
         assert abs(fast_mean_absolute_error(y, p, sample_weight=w) - sk(y, p, sample_weight=w)) < 1e-12
@@ -1763,12 +1956,14 @@ class TestFastRegressionMetrics:
     def test_mae_2d_uniform_average(self, rng):
         from sklearn.metrics import mean_absolute_error as sk
         from mlframe.metrics.core import fast_mean_absolute_error
+
         y, p = self._data(rng, (5_000, 4))
         assert abs(fast_mean_absolute_error(y, p) - sk(y, p)) < 1e-12
 
     def test_mae_2d_raw_values(self, rng):
         from sklearn.metrics import mean_absolute_error as sk
         from mlframe.metrics.core import fast_mean_absolute_error
+
         y, p = self._data(rng, (5_000, 4))
         ref = sk(y, p, multioutput="raw_values")
         out = fast_mean_absolute_error(y, p, multioutput="raw_values")
@@ -1777,6 +1972,7 @@ class TestFastRegressionMetrics:
     def test_mae_2d_weighted_array_multioutput(self, rng):
         from sklearn.metrics import mean_absolute_error as sk
         from mlframe.metrics.core import fast_mean_absolute_error
+
         y, p = self._data(rng, (5_000, 3))
         w = rng.random(5_000) + 0.1
         out_w = np.array([2.0, 1.0, 0.5])
@@ -1787,12 +1983,14 @@ class TestFastRegressionMetrics:
     def test_mse_1d_weighted(self, rng):
         from sklearn.metrics import mean_squared_error as sk
         from mlframe.metrics.core import fast_mean_squared_error
+
         y, p = self._data(rng, 5_000)
         w = rng.random(5_000) + 0.1
         assert abs(fast_mean_squared_error(y, p, sample_weight=w) - sk(y, p, sample_weight=w)) < 1e-12
 
     def test_rmse_2d_raw_values(self, rng):
         from mlframe.metrics.core import fast_root_mean_squared_error, fast_mean_squared_error
+
         y, p = self._data(rng, (5_000, 3))
         # sklearn rmse = per-output RMSE, then aggregated. raw_values returns sqrt(mse_per_col).
         ref = np.sqrt(fast_mean_squared_error(y, p, multioutput="raw_values"))
@@ -1805,19 +2003,21 @@ class TestFastRegressionMetrics:
         except ImportError:
             pytest.skip("sklearn root_mean_squared_error not available")
         from mlframe.metrics.core import fast_root_mean_squared_error
+
         y, p = self._data(rng, (5_000, 3))
         w = rng.random(5_000) + 0.1
-        assert abs(fast_root_mean_squared_error(y, p, sample_weight=w)
-                   - sk(y, p, sample_weight=w)) < 1e-12
+        assert abs(fast_root_mean_squared_error(y, p, sample_weight=w) - sk(y, p, sample_weight=w)) < 1e-12
 
     def test_max_residual_1d_matches_sklearn(self, rng):
         from sklearn.metrics import max_error as sk
         from mlframe.metrics.core import fast_max_error
+
         y, p = self._data(rng, 5_000)
         assert abs(fast_max_error(y, p) - sk(y, p)) < 1e-12
 
     def test_max_residual_2d_per_output(self, rng):
         from mlframe.metrics.core import fast_max_error
+
         y, p = self._data(rng, (5_000, 3))
         out = fast_max_error(y, p)  # default raw_values
         # Verify against direct numpy
@@ -1827,6 +2027,7 @@ class TestFastRegressionMetrics:
     def test_r2_1d_weighted(self, rng):
         from sklearn.metrics import r2_score as sk
         from mlframe.metrics.core import fast_r2_score
+
         y, p = self._data(rng, 5_000)
         w = rng.random(5_000) + 0.1
         assert abs(fast_r2_score(y, p, sample_weight=w) - sk(y, p, sample_weight=w)) < 1e-12
@@ -1834,6 +2035,7 @@ class TestFastRegressionMetrics:
     def test_r2_2d_raw_values(self, rng):
         from sklearn.metrics import r2_score as sk
         from mlframe.metrics.core import fast_r2_score
+
         y, p = self._data(rng, (5_000, 4))
         ref = sk(y, p, multioutput="raw_values")
         out = fast_r2_score(y, p, multioutput="raw_values")
@@ -1842,6 +2044,7 @@ class TestFastRegressionMetrics:
     def test_r2_2d_variance_weighted(self, rng):
         from sklearn.metrics import r2_score as sk
         from mlframe.metrics.core import fast_r2_score
+
         y, p = self._data(rng, (5_000, 4))
         ref = sk(y, p, multioutput="variance_weighted")
         out = fast_r2_score(y, p, multioutput="variance_weighted")
@@ -1850,6 +2053,7 @@ class TestFastRegressionMetrics:
     def test_r2_2d_variance_weighted_with_sample_weight(self, rng):
         from sklearn.metrics import r2_score as sk
         from mlframe.metrics.core import fast_r2_score
+
         y, p = self._data(rng, (5_000, 3))
         w = rng.random(5_000) + 0.1
         ref = sk(y, p, sample_weight=w, multioutput="variance_weighted")
@@ -1858,6 +2062,7 @@ class TestFastRegressionMetrics:
 
     def test_unknown_multioutput_raises(self, rng):
         from mlframe.metrics.core import fast_mean_absolute_error
+
         y, p = self._data(rng, (5_000, 3))
         with pytest.raises(ValueError, match="multioutput"):
             fast_mean_absolute_error(y, p, multioutput="not-a-thing")

@@ -21,6 +21,7 @@ contains the original per-model exception text. Surviving-model cases
 still return normally (partial success is the intended best-effort
 contract for multi-model suites).
 """
+
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -58,10 +59,13 @@ def _build_models_dict(*, n_models: int = 1, fail: bool = True):
         if fail:
             inner = _AlwaysFailingModel(f"synthetic predict failure #{i}")
         else:
+
             class _Ok:
                 feature_names_in_ = np.array(["x0", "x1"], dtype=object)
+
                 def predict(self, X):
                     return np.zeros(len(X), dtype=np.float64)
+
             inner = _Ok()
         obj_list.append(SimpleNamespace(model=inner, pre_pipeline=None))
     return {"regression": {"y": obj_list}}
@@ -69,24 +73,30 @@ def _build_models_dict(*, n_models: int = 1, fail: bool = True):
 
 def _build_df():
     rng = np.random.default_rng(0)
-    return pd.DataFrame({
-        "x0": rng.standard_normal(50).astype(np.float64),
-        "x1": rng.standard_normal(50).astype(np.float64),
-    })
+    return pd.DataFrame(
+        {
+            "x0": rng.standard_normal(50).astype(np.float64),
+            "x1": rng.standard_normal(50).astype(np.float64),
+        }
+    )
 
 
 def test_all_models_failing_raises_with_aggregated_message() -> None:
     """All supplied models error -> predict_from_models raises
     RuntimeError whose message includes the per-model exception text."""
     from mlframe.training.core.predict import predict_from_models
+
     df = _build_df()
     models = _build_models_dict(n_models=1, fail=True)
     metadata = {"columns": ["x0", "x1"], "raw_input_columns": ["x0", "x1"]}
     with pytest.raises(RuntimeError) as excinfo:
         predict_from_models(
-            df=df, models=models, metadata=metadata,
+            df=df,
+            models=models,
+            metadata=metadata,
             features_and_targets_extractor=None,
-            return_probabilities=False, verbose=0,
+            return_probabilities=False,
+            verbose=0,
         )
     msg = str(excinfo.value)
     # Aggregated header naming the supplied count.
@@ -99,14 +109,18 @@ def test_all_models_failing_raises_with_aggregated_message() -> None:
 def test_multi_model_all_failing_raises_with_truncated_message() -> None:
     """6 failing models -> message names first 5 + ``(+1 more)``."""
     from mlframe.training.core.predict import predict_from_models
+
     df = _build_df()
     models = _build_models_dict(n_models=6, fail=True)
     metadata = {"columns": ["x0", "x1"], "raw_input_columns": ["x0", "x1"]}
     with pytest.raises(RuntimeError) as excinfo:
         predict_from_models(
-            df=df, models=models, metadata=metadata,
+            df=df,
+            models=models,
+            metadata=metadata,
             features_and_targets_extractor=None,
-            return_probabilities=False, verbose=0,
+            return_probabilities=False,
+            verbose=0,
         )
     msg = str(excinfo.value)
     assert "all 6 supplied model(s) failed at predict" in msg
@@ -120,6 +134,7 @@ def test_partial_success_does_not_raise() -> None:
     (back-compat: this is the documented best-effort behaviour for
     multi-model suites)."""
     from mlframe.training.core.predict import predict_from_models
+
     df = _build_df()
     # 1 failing + 1 working
     failing = SimpleNamespace(
@@ -129,6 +144,7 @@ def test_partial_success_does_not_raise() -> None:
 
     class _Ok:
         feature_names_in_ = np.array(["x0", "x1"], dtype=object)
+
         def predict(self, X):
             return np.full(len(X), 1.5, dtype=np.float64)
 
@@ -136,18 +152,18 @@ def test_partial_success_does_not_raise() -> None:
     models = {"regression": {"y": [failing, working]}}
     metadata = {"columns": ["x0", "x1"], "raw_input_columns": ["x0", "x1"]}
     result = predict_from_models(
-        df=df, models=models, metadata=metadata,
+        df=df,
+        models=models,
+        metadata=metadata,
         features_and_targets_extractor=None,
-        return_probabilities=False, verbose=0,
+        return_probabilities=False,
+        verbose=0,
     )
     # Must have exactly the working model's prediction.
     assert isinstance(result, dict)
     assert len(result["predictions"]) >= 1
     # At least one prediction array should match the working model's output.
-    assert any(
-        isinstance(_v, np.ndarray) and np.allclose(_v, 1.5)
-        for _v in result["predictions"].values()
-    )
+    assert any(isinstance(_v, np.ndarray) and np.allclose(_v, 1.5) for _v in result["predictions"].values())
 
 
 def test_zero_models_supplied_does_not_raise() -> None:
@@ -155,12 +171,16 @@ def test_zero_models_supplied_does_not_raise() -> None:
     legitimate "no models" path used by integration tests). The fix is
     scoped to "models were supplied AND all failed at predict"."""
     from mlframe.training.core.predict import predict_from_models
+
     df = _build_df()
     metadata = {"columns": ["x0", "x1"], "raw_input_columns": ["x0", "x1"]}
     result = predict_from_models(
-        df=df, models={}, metadata=metadata,
+        df=df,
+        models={},
+        metadata=metadata,
         features_and_targets_extractor=None,
-        return_probabilities=False, verbose=0,
+        return_probabilities=False,
+        verbose=0,
     )
     assert isinstance(result, dict)
     assert result["predictions"] == {}

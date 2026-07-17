@@ -26,13 +26,15 @@ These tests pin:
       (cache size grows then plateaus at n_features after a full pass).
   (4) The VI branch also uses the same cache (same redundancy fix).
 """
+
 from __future__ import annotations
 
 import numpy as np
 import pytest
 
 from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
-    DCDState, pair_su,
+    DCDState,
+    pair_su,
 )
 from mlframe.feature_selection.filters.info_theory import symmetric_uncertainty
 
@@ -62,18 +64,17 @@ def test_pair_su_bit_equivalent_to_symmetric_uncertainty(synth_factors):
 
     for a in range(n_feats):
         for b in range(a + 1, n_feats):
-            ref = float(symmetric_uncertainty(
-                fd,
-                np.array([a], dtype=np.int64),
-                np.array([b], dtype=np.int64),
-                fn,
-                dtype=np.int32,
-            ))
-            got = pair_su(state, a, b)
-            assert abs(ref - got) < 1e-9, (
-                f"pair_su({a},{b})={got:.12f} diverges from "
-                f"symmetric_uncertainty={ref:.12f} (delta={got-ref:.2e})"
+            ref = float(
+                symmetric_uncertainty(
+                    fd,
+                    np.array([a], dtype=np.int64),
+                    np.array([b], dtype=np.int64),
+                    fn,
+                    dtype=np.int32,
+                )
             )
+            got = pair_su(state, a, b)
+            assert abs(ref - got) < 1e-9, f"pair_su({a},{b})={got:.12f} diverges from symmetric_uncertainty={ref:.12f} (delta={got - ref:.2e})"
 
 
 def test_pair_su_diagonal_returns_one(synth_factors):
@@ -115,7 +116,7 @@ def test_pair_su_vi_branch_runs_with_buffer_reuse(synth_factors):
     int64 scratch for the mi(fd, [a], [b], ...) call). This test pins
     that the VI branch runs end-to-end and returns a finite score in
     [0, 1] (the documented Meila-2007-normalised VI similarity range)."""
-    fd, fn, n_feats = synth_factors
+    fd, fn, _n_feats = synth_factors
     state = DCDState(distance="vi", factors_data=fd, factors_nbins=fn)
     score = pair_su(state, 0, 1)
     assert np.isfinite(score)

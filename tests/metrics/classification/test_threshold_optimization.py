@@ -47,7 +47,7 @@ def test_all_negative_wins_when_scores_uninformative_for_accuracy():
     rng = np.random.default_rng(1)
     y = (rng.random(1000) < 0.05).astype(int)
     s = rng.random(1000)
-    thr, sc = optimal_threshold(y, s, metric="accuracy")
+    _thr, sc = optimal_threshold(y, s, metric="accuracy")
     assert sc >= 0.9  # all-negative accuracy ~0.95
 
 
@@ -67,7 +67,7 @@ def test_ties_in_score_handled():
     # identical scores cannot be split by a threshold; predictions must be consistent
     y = np.array([1, 0, 1, 0])
     s = np.array([0.5, 0.5, 0.5, 0.5])
-    thr, sc = optimal_threshold(y, s, metric="f1")
+    thr, _sc = optimal_threshold(y, s, metric="f1")
     pred = _apply(s, thr)
     assert len(np.unique(pred)) == 1  # all-same, since all scores equal
 
@@ -93,7 +93,7 @@ def test_biz_val_optimal_threshold_beats_naive_half_on_shifted_scores():
     y = (rng.random(n) < 0.3).astype(int)
     # Both classes sit well below 0.5, so the naive 0.5 cut predicts all-negative (F1=0); a tuned threshold recovers F1.
     s = rng.normal(-3.0, 1.0, size=n) + y * 2.0
-    thr, best_f1 = optimal_threshold(y, s, metric="f1")
+    _thr, best_f1 = optimal_threshold(y, s, metric="f1")
     f1_half = _f1(y, _apply(s, 0.5))
     assert best_f1 >= f1_half + 0.3, f"tuned F1 {best_f1:.3f} should beat naive-0.5 F1 {f1_half:.3f} by >=0.3"
 

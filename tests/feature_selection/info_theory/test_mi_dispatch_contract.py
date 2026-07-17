@@ -11,6 +11,7 @@ plug_in 0.489, mixed_ksg 0.479, ksg_lnc 0.479, fastmi 0.325, median 0.486, genie
 (min over seeds: fastmi 0.324, the rest >=0.467). The proposal's +0.05 floor therefore carries large margin for the binned /
 k-NN / panel estimators; fastmi (copula FFT-KDE) is the smallest and gets the same +0.05 floor (still ~0.27 of headroom).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -112,6 +113,5 @@ def test_estimator_kwargs_forwarded_to_routed_fn():
     assert np.isfinite(mi_k3), f"k=3 MI must be finite, got {mi_k3!r}"
     assert np.isfinite(mi_k15), f"k=15 MI must be finite, got {mi_k15!r}"
     assert mi_k3 != mi_k15, (
-        f"estimator_kwargs not forwarded: mixed_ksg k=3 ({mi_k3}) and k=15 ({mi_k15}) returned the same value, "
-        "so k never reached the routed fn"
+        f"estimator_kwargs not forwarded: mixed_ksg k=3 ({mi_k3}) and k=15 ({mi_k15}) returned the same value, so k never reached the routed fn"
     )

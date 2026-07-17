@@ -14,9 +14,10 @@ overlay, an attribute-less pickle's injected value for a shared key equals the c
 the key is on ``_SETSTATE_LEGACY_OVERRIDES`` (which keeps its legacy literal). So the live
 post-setstate attributes ARE the effective legacy defaults -- the exact thing we need to assert.
 """
+
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
 import numpy as np
 import pandas as pd
@@ -43,10 +44,7 @@ def test_shared_ctor_defaults_have_no_drift():
             continue
         if getattr(m, k) != getattr(fresh, k):
             drift[k] = (getattr(m, k), getattr(fresh, k))
-    assert not drift, (
-        "setstate legacy defaults drifted from the ctor (add to _SETSTATE_LEGACY_OVERRIDES "
-        f"only if the divergence is intentional): {drift}"
-    )
+    assert not drift, f"setstate legacy defaults drifted from the ctor (add to _SETSTATE_LEGACY_OVERRIDES only if the divergence is intentional): {drift}"
 
 
 def test_override_allowlist_is_actually_divergent():
@@ -76,9 +74,7 @@ def test_legacy_empty_pickle_matches_ctor_for_shared_keys():
     for k in ctor:
         if k in overrides or not hasattr(m, k):
             continue
-        assert getattr(m, k) == getattr(fresh, k), (
-            f"legacy-refit {k!r}={getattr(m, k)!r} != fresh {getattr(fresh, k)!r}"
-        )
+        assert getattr(m, k) == getattr(fresh, k), f"legacy-refit {k!r}={getattr(m, k)!r} != fresh {getattr(fresh, k)!r}"
 
 
 def test_named_drift_key_cluster_aggregate_mode():
@@ -96,9 +92,7 @@ def test_full_pickle_round_trip_preserves_params():
     est = MRMR(max_runtime_mins=0.05)
     est.fit(X, y)
     blob = pickle.dumps(est)
-    back = pickle.loads(blob)
+    back = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
     for k in MRMR._ctor_defaults():
         if hasattr(est, k):
-            assert getattr(back, k) == getattr(est, k) or (
-                isinstance(getattr(est, k), float) and np.isnan(getattr(est, k))
-            ), f"pickle round-trip changed {k!r}"
+            assert getattr(back, k) == getattr(est, k) or (isinstance(getattr(est, k), float) and np.isnan(getattr(est, k))), f"pickle round-trip changed {k!r}"

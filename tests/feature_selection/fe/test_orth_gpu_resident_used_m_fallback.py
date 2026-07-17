@@ -7,6 +7,7 @@ per-column resident construction), so each distinct raw column uploads ONCE per 
 caller (univariate-decide / pair-cross / triplet / ...) asks for it.
 
 Skips when cupy is unavailable (CI without a GPU)."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -48,6 +49,7 @@ def test_used_m_fallback_dedups_raw_column_upload_across_calls(monkeypatch):
     # matrix upcasts it to float64 for the device eval -- so the array actually uploaded is this float32
     # round-trip, not a direct float64 cast of the raw pandas column.
     from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
+
     a64 = np.ascontiguousarray(X["a"].to_numpy(), dtype=_crit_np_dtype()).astype(np.float64)
 
     upload_calls = {"n": 0}

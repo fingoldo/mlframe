@@ -2,6 +2,7 @@
 verified by grep): _score_plug_in re-derived np.unique(y) every call for a low-cardinality float y. Light fix:
 cache keyed on id(y_arr) via _get_unique_y, mirroring _mah._get_y_binning. Equivalence-only test since the path
 is unreached in production -- no biz_value/perf investment warranted for a dead path."""
+
 import numpy as np
 
 from mlframe.feature_selection.filters._mi_dispatch import _get_unique_y, score_pair_mi

@@ -6,6 +6,7 @@ values for whichever regime is far from the population center, while filling wit
 median recovers values much closer to the true (masked) ones -- measurably improving downstream prediction
 RMSE built on the imputed feature.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -90,9 +91,7 @@ def test_biz_val_regime_conditioned_fill_hierarchical_composite_beats_single_col
     df_missing.loc[nan_mask, "x"] = np.nan
 
     single_filled = regime_conditioned_median_fill(df_missing, regime_col="a", feature_cols=["x"])
-    composite_filled = regime_conditioned_median_fill(
-        df_missing, regime_col="a", feature_cols=["x"], extra_regime_cols=["b"], min_group_size=25
-    )
+    composite_filled = regime_conditioned_median_fill(df_missing, regime_col="a", feature_cols=["x"], extra_regime_cols=["b"], min_group_size=25)
 
     single_error = float(np.mean(np.abs(single_filled.loc[nan_mask, "x"] - true_x[nan_mask])))
     composite_error = float(np.mean(np.abs(composite_filled.loc[nan_mask, "x"] - true_x[nan_mask])))

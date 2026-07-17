@@ -10,11 +10,13 @@
   feature importances via ``logger.info`` whether or not a plot is
   rendered.
 """
+
 from __future__ import annotations
 
 import logging
 
 import matplotlib
+
 matplotlib.use("Agg")  # keep CI headless; tests must NOT call plt.show
 
 import numpy as np
@@ -36,12 +38,15 @@ class TestTopNTextLog:
         """The formatter emits `feature_name=value` pairs in descending
         order."""
         import pandas as pd
+
         sorted_df = pd.DataFrame(
             {"fi": [0.5, 0.3, 0.1, 0.05]},
             index=["alpha", "beta", "gamma", "delta"],
         )
         text = _format_top_fi_for_log(
-            sorted_df=sorted_df, top_n=3, kind="MODEL",
+            sorted_df=sorted_df,
+            top_n=3,
+            kind="MODEL",
         )
         # Names + values for top-3.
         assert "alpha=" in text and "0.5" in text
@@ -59,19 +64,18 @@ class TestTopNTextLog:
         ``logger.info``."""
         fi = np.array([0.4, 0.3, 0.2, 0.05, 0.05])
         columns = ["f0", "f1", "f2", "f3", "f4"]
-        with caplog.at_level(logging.INFO,
-                              logger="mlframe.feature_selection.importance"):
+        with caplog.at_level(logging.INFO, logger="mlframe.feature_selection.importance"):
             plot_feature_importance(
-                feature_importances=fi, columns=columns,
+                feature_importances=fi,
+                columns=columns,
                 kind="UNIT_TEST_KIND",
-                show_plots=False, plot_file="",
-                log_top_n=3, log_fi=True,
+                show_plots=False,
+                plot_file="",
+                log_top_n=3,
+                log_fi=True,
             )
         # Find the FI top-N log line.
-        fi_lines = [
-            r.message for r in caplog.records
-            if "[FI top-" in r.message
-        ]
+        fi_lines = [r.message for r in caplog.records if "[FI top-" in r.message]
         assert fi_lines, "expected a '[FI top-N]' log line"
         line = fi_lines[0]
         assert "UNIT_TEST_KIND" in line
@@ -83,48 +87,48 @@ class TestTopNTextLog:
         ``log_top_n > 0``."""
         fi = np.array([0.4, 0.3, 0.2])
         columns = ["a", "b", "c"]
-        with caplog.at_level(logging.INFO,
-                              logger="mlframe.feature_selection.importance"):
+        with caplog.at_level(logging.INFO, logger="mlframe.feature_selection.importance"):
             plot_feature_importance(
-                feature_importances=fi, columns=columns,
-                kind="SILENT", show_plots=False, plot_file="",
-                log_top_n=10, log_fi=False,
+                feature_importances=fi,
+                columns=columns,
+                kind="SILENT",
+                show_plots=False,
+                plot_file="",
+                log_top_n=10,
+                log_fi=False,
             )
-        assert not any(
-            "[FI top-" in r.message for r in caplog.records
-        )
+        assert not any("[FI top-" in r.message for r in caplog.records)
 
     def test_logger_silent_when_log_top_n_zero(self, caplog) -> None:
         """``log_top_n=0`` suppresses the log line."""
         fi = np.array([0.4, 0.3, 0.2])
         columns = ["a", "b", "c"]
-        with caplog.at_level(logging.INFO,
-                              logger="mlframe.feature_selection.importance"):
+        with caplog.at_level(logging.INFO, logger="mlframe.feature_selection.importance"):
             plot_feature_importance(
-                feature_importances=fi, columns=columns,
-                kind="ZERO_TOP", show_plots=False, plot_file="",
-                log_top_n=0, log_fi=True,
+                feature_importances=fi,
+                columns=columns,
+                kind="ZERO_TOP",
+                show_plots=False,
+                plot_file="",
+                log_top_n=0,
+                log_fi=True,
             )
-        assert not any(
-            "[FI top-" in r.message for r in caplog.records
-        )
+        assert not any("[FI top-" in r.message for r in caplog.records)
 
     def test_default_log_fi_is_on(self, caplog) -> None:
         """Per user's request: text logging default-ON."""
         fi = np.array([0.5, 0.3, 0.2])
         columns = ["x", "y", "z"]
-        with caplog.at_level(logging.INFO,
-                              logger="mlframe.feature_selection.importance"):
+        with caplog.at_level(logging.INFO, logger="mlframe.feature_selection.importance"):
             # No log_fi / log_top_n -- use defaults.
             plot_feature_importance(
-                feature_importances=fi, columns=columns,
+                feature_importances=fi,
+                columns=columns,
                 kind="DEFAULT_ON",
-                show_plots=False, plot_file="",
+                show_plots=False,
+                plot_file="",
             )
-        assert any(
-            "[FI top-" in r.message and "DEFAULT_ON" in r.message
-            for r in caplog.records
-        ), "default log_fi should emit the FI log line"
+        assert any("[FI top-" in r.message and "DEFAULT_ON" in r.message for r in caplog.records), "default log_fi should emit the FI log line"
 
 
 # ----------------------------------------------------------------------
@@ -154,8 +158,8 @@ class TestInlineDisplayDoesNotLeakFigures:
 
     def test_jupyter_inline_does_not_leak_figs_into_registry(self) -> None:
         import builtins
-        import sys
         import matplotlib.pyplot as plt
+
         # Patch __IPYTHON__ in builtins (the detection condition).
         had_ipy = hasattr(builtins, "__IPYTHON__")
         prior = getattr(builtins, "__IPYTHON__", None)
@@ -182,8 +186,11 @@ class TestInlineDisplayDoesNotLeakFigures:
             fi = np.array([0.5, 0.3, 0.2, 0.1])
             columns = ["a", "b", "c", "d"]
             plot_feature_importance(
-                feature_importances=fi, columns=columns,
-                kind="DOUBLE_RENDER", show_plots=True, plot_file="",
+                feature_importances=fi,
+                columns=columns,
+                kind="DOUBLE_RENDER",
+                show_plots=True,
+                plot_file="",
             )
 
             # Post-render: every figure created during the call must
@@ -211,6 +218,7 @@ class TestInlineDisplayPath:
         when no kernel is present.
         """
         import sys
+
         # Ensure no __IPYTHON__ is leaking.
         builtins_dict = sys.modules["builtins"].__dict__
         had_ipython = "__IPYTHON__" in builtins_dict
@@ -224,8 +232,11 @@ class TestInlineDisplayPath:
             fi = np.array([0.5, 0.3, 0.2])
             columns = ["x", "y", "z"]
             df = plot_feature_importance(
-                feature_importances=fi, columns=columns,
-                kind="HEADLESS", show_plots=True, plot_file="",
+                feature_importances=fi,
+                columns=columns,
+                kind="HEADLESS",
+                show_plots=True,
+                plot_file="",
             )
             assert df is not None
             assert "fi" in df.columns
@@ -252,6 +263,7 @@ class TestRendererDoesNotMutateBackend:
         # Skipping on missing-path was masking a real wiring bug; assert the file exists.
         from pathlib import Path
         import mlframe.reporting.renderers.matplotlib as _renderer_mod
+
         src = Path(_renderer_mod.__file__)
         assert src.exists(), f"renderer source unexpectedly missing at {src}"
         text = src.read_text(encoding="utf-8")
@@ -260,12 +272,7 @@ class TestRendererDoesNotMutateBackend:
         # outside a string / comment context. Crude but effective: count
         # uncommented occurrences.
         lines = text.splitlines()
-        offending = [
-            (i + 1, line)
-            for i, line in enumerate(lines)
-            if "matplotlib.use(" in line
-            and not line.lstrip().startswith("#")
-        ]
+        offending = [(i + 1, line) for i, line in enumerate(lines) if "matplotlib.use(" in line and not line.lstrip().startswith("#")]
         assert not offending, (
             "regression: ``matplotlib.use(...)`` re-introduced in "
             f"renderer at lines {[i for i, _ in offending]}; this "

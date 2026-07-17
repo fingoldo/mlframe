@@ -5,10 +5,11 @@
 - lazy torch imports in training.helpers
 - verbose-gated show_processed_data in training.extractors
 """
+
 from __future__ import annotations
 
 import os
-import subprocess
+import subprocess  # nosec B404 -- test-only local trusted subprocess invocation (fixed argv, no shell, no untrusted input)
 import sys
 import textwrap
 import time
@@ -16,6 +17,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import matplotlib
+
 matplotlib.use("Agg")  # force headless for every test in this module
 import numpy as np
 import pytest
@@ -32,6 +34,7 @@ def _subprocess_env_with_pythonpath() -> dict:
     subprocess can import the project when it is not installed system-wide
     (the dev layout)."""
     import mlframe as _mf
+
     src_root = str(Path(_mf.__file__).resolve().parent.parent)
     env = {**os.environ}
     existing = env.get("PYTHONPATH", "")
@@ -86,8 +89,7 @@ def test_agg_path_concurrent_threads(tmp_path, calib_inputs):
     files = [tmp_path / f"c{i}.png" for i in range(4)]
 
     def _one(p):
-        show_calibration_plot(fp, ft, h, show_plots=False, plot_file=str(p),
-                              plot_title=f"t={p.name}")
+        show_calibration_plot(fp, ft, h, show_plots=False, plot_file=str(p), plot_title=f"t={p.name}")
         return p
 
     with ThreadPoolExecutor(max_workers=4) as ex:
@@ -148,14 +150,14 @@ def test_numba_cache_hit_across_subprocess(tmp_path):
     cache_dir = tmp_path / "nbcache"
     env = {**_subprocess_env_with_pythonpath(), "NUMBA_CACHE_DIR": str(cache_dir)}
 
-    r1 = subprocess.run([PYEXE, str(script)], capture_output=True, text=True, env=env, timeout=120)
+    r1 = subprocess.run([PYEXE, str(script)], capture_output=True, text=True, env=env, timeout=120)  # nosec B603 -- fixed local argv (sys.executable/git + literal args), no shell, no untrusted input
     assert r1.returncode == 0, r1.stderr
 
     # Assert cache artifacts exist on disk (the actual contract of cache=True).
     artifacts = list(cache_dir.rglob("*.nbi")) + list(cache_dir.rglob("*.nbc"))
     assert artifacts, f"cache=True produced no .nbi/.nbc artifacts under {cache_dir}"
 
-    r2 = subprocess.run([PYEXE, str(script)], capture_output=True, text=True, env=env, timeout=120)
+    r2 = subprocess.run([PYEXE, str(script)], capture_output=True, text=True, env=env, timeout=120)  # nosec B603 -- fixed local argv (sys.executable/git + literal args), no shell, no untrusted input
     assert r2.returncode == 0, r2.stderr
 
 
@@ -186,7 +188,9 @@ def test_numba_nogil_releases_gil():
     # Take the best-of-3 for both solo and parallel to suppress one-shot
     # CPU-contention spikes from other test workers.
     def _time_solo():
-        t0 = time.perf_counter(); _heavy(N); return time.perf_counter() - t0
+        t0 = time.perf_counter()
+        _heavy(N)
+        return time.perf_counter() - t0
 
     def _time_par():
         t0 = time.perf_counter()
@@ -202,7 +206,7 @@ def test_numba_nogil_releases_gil():
     # ThreadPoolExecutor startup overhead dominates the ratio. Skip
     # rather than fail-flake.
     if solo < 0.005:
-        pytest.skip(f"solo={solo*1000:.1f}ms too small for stable ratio check")
+        pytest.skip(f"solo={solo * 1000:.1f}ms too small for stable ratio check")
 
     # Perfect scaling = 1.0x solo; GIL-bound = 2.0x solo. CI / shared-runner
     # contention plus pytest-xdist sibling-worker noise (the parent test
@@ -213,23 +217,18 @@ def test_numba_nogil_releases_gil():
     # uncontended local case; under CI / parallel-pytest contention, fall
     # back to a "not GIL-bound" floor (< 2.5x = at least SOME concurrency).
     import os as _os
-    _contended = bool(
-        _os.environ.get("CI")
-        or _os.environ.get("GITHUB_ACTIONS")
-        or _os.environ.get("PYTEST_XDIST_WORKER")
-    )
+
+    _contended = bool(_os.environ.get("CI") or _os.environ.get("GITHUB_ACTIONS") or _os.environ.get("PYTEST_XDIST_WORKER"))
     _ratio_ceiling = 2.5 if _contended else 1.7
     ratio = par / solo
-    assert ratio < _ratio_ceiling, (
-        f"GIL appears held: par={par:.3f}s solo={solo:.3f}s ratio={ratio:.2f}"
-        f" >= ceiling {_ratio_ceiling}x (contended={_contended})"
-    )
+    assert ratio < _ratio_ceiling, f"GIL appears held: par={par:.3f}s solo={solo:.3f}s ratio={ratio:.2f} >= ceiling {_ratio_ceiling}x (contended={_contended})"
 
 
 def test_numba_njit_params_consistency():
     """Both modules must expose the SAME dict (cache=True, nogil=True, fastmath=False)."""
     from mlframe.metrics.core import NUMBA_NJIT_PARAMS as A
     from mlframe.feature_engineering.numerical import NUMBA_NJIT_PARAMS as B
+
     assert A == B == {"fastmath": False, "cache": True, "nogil": True}
 
 
@@ -238,12 +237,15 @@ def test_numba_njit_params_consistency():
 # =====================================================================
 def test_torch_not_imported_on_module_import():
     """`import mlframe.training.helpers` must NOT transitively import torch."""
-    r = subprocess.run(
-        [PYEXE, "-c",
-         "import sys; import mlframe.training.helpers; "
-         "print('torch' in sys.modules, 'torch.nn' in sys.modules, "
-         "'mlframe.lightninglib' in sys.modules)"],
-        capture_output=True, text=True, timeout=60,
+    r = subprocess.run(  # nosec B603 -- fixed local argv (sys.executable/git + literal args), no shell, no untrusted input
+        [
+            PYEXE,
+            "-c",
+            "import sys; import mlframe.training.helpers; print('torch' in sys.modules, 'torch.nn' in sys.modules, 'mlframe.lightninglib' in sys.modules)",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=60,
         env=_subprocess_env_with_pythonpath(),
     )
     assert r.returncode == 0, r.stderr
@@ -252,8 +254,11 @@ def test_torch_not_imported_on_module_import():
 
 def test_torch_stays_out_for_catboost_only_path():
     """get_training_configs for CatBoost-only must NOT trigger torch import."""
-    r = subprocess.run(
-        [PYEXE, "-c", textwrap.dedent("""
+    r = subprocess.run(  # nosec B603 -- fixed local argv (sys.executable/git + literal args), no shell, no untrusted input
+        [
+            PYEXE,
+            "-c",
+            textwrap.dedent("""
             import sys
             from mlframe.training.helpers import get_training_configs
             try:
@@ -264,15 +269,16 @@ def test_torch_stays_out_for_catboost_only_path():
             except Exception:
                 pass
             print('torch' in sys.modules)
-        """)],
-        capture_output=True, text=True, timeout=60,
+        """),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=60,
         env=_subprocess_env_with_pythonpath(),
     )
     assert r.returncode == 0, r.stderr
     # CatBoost-only path should keep torch out; if assertion fires, a top-level import leaked back in.
-    assert r.stdout.strip().endswith("False"), (
-        f"torch leaked into CB-only path: {r.stdout!r}  stderr={r.stderr!r}"
-    )
+    assert r.stdout.strip().endswith("False"), f"torch leaked into CB-only path: {r.stdout!r}  stderr={r.stderr!r}"
 
 
 # =====================================================================
@@ -281,6 +287,7 @@ def test_torch_stays_out_for_catboost_only_path():
 def _make_extractor_and_df(verbose):
     from mlframe.training.extractors import FeaturesAndTargetsExtractor
     import pandas as pd
+
     df = pd.DataFrame({"a": np.arange(10), "b": np.arange(10) * 2.0, "y": np.arange(10) % 2})
     ex = FeaturesAndTargetsExtractor(verbose=verbose)
     return ex, df
@@ -293,6 +300,7 @@ def test_verbose_bool_true_no_showcase_but_logs(caplog, capsys):
     SOME signal (log_ram_usage / 'build_targets...' logger calls), even without show_processed_data.
     """
     import logging
+
     ex, df = _make_extractor_and_df(verbose=True)
     with caplog.at_level(logging.INFO, logger="mlframe.training.extractors"):
         ex.transform(df)
@@ -301,20 +309,17 @@ def test_verbose_bool_true_no_showcase_but_logs(caplog, capsys):
     assert "Processed data:" not in captured.out
     # show_raw_data now routes through the module logger (not bare print),
     # so the banner appears in caplog records, not in captured stdout.
-    assert any("Raw data:" in r.message for r in caplog.records), (
-        "show_raw_data must emit a 'Raw data:' log record"
-    )
+    assert any("Raw data:" in r.message for r in caplog.records), "show_raw_data must emit a 'Raw data:' log record"
 
 
 def test_verbose_2_logs_showcase(caplog):
     """verbose=2 triggers show_processed_data, which now emits the 'Processed data:' banner via the module logger (not a bare print)."""
     import logging
+
     ex, df = _make_extractor_and_df(verbose=2)
     with caplog.at_level(logging.INFO, logger="mlframe.training.extractors"):
         ex.transform(df)
-    assert any("Processed data:" in r.message for r in caplog.records), (
-        "verbose=2 must trigger show_processed_data and log the 'Processed data:' banner"
-    )
+    assert any("Processed data:" in r.message for r in caplog.records), "verbose=2 must trigger show_processed_data and log the 'Processed data:' banner"
 
 
 def test_verbose_0_no_showcase(capsys):

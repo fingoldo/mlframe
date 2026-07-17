@@ -5,6 +5,7 @@ fall back to the last available value from the previous ForecastId rather than s
 sibling groups (ordered by some sequence key) share a slowly drifting level, an entirely-missing group's true
 value is much closer to its immediate neighbor than to the dataset-wide mean.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -39,7 +40,9 @@ def test_biz_val_sibling_fallback_beats_global_mean_for_cold_start_groups():
     mae_sibling = float(np.mean(np.abs(filled[mask_cold] - true_level[mask_cold])))
     mae_global = float(np.mean(np.abs(global_mean_fallback[mask_cold] - true_level[mask_cold])))
 
-    assert mae_sibling < mae_global * 0.5, f"expected sibling-fallback to beat global-mean fallback by >=50% MAE, got sibling={mae_sibling:.4f} global={mae_global:.4f}"
+    assert mae_sibling < mae_global * 0.5, (
+        f"expected sibling-fallback to beat global-mean fallback by >=50% MAE, got sibling={mae_sibling:.4f} global={mae_global:.4f}"
+    )
 
 
 def test_sibling_group_cold_start_fill_leaves_non_missing_groups_untouched():

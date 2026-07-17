@@ -22,6 +22,7 @@ Fix at supervised_binning.py:68: drop ``~np.isfinite(x)`` rows from
 both x and y at the function entry point (single source of truth).
 Empty-after-filter input returns the trivial ``[-inf, +inf]`` edges.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -34,6 +35,7 @@ def test_njit_and_python_backends_agree_on_nan_input(seed):
     even when that input contains NaN.
     """
     from mlframe.feature_selection.filters.supervised_binning import mdlp_bin_edges
+
     rng = np.random.default_rng(int(seed))
     n = 200
     x = rng.standard_normal(n).astype(np.float64)
@@ -51,6 +53,7 @@ def test_no_nan_in_returned_edges(backend):
     NaN-density.
     """
     from mlframe.feature_selection.filters.supervised_binning import mdlp_bin_edges
+
     rng = np.random.default_rng(0)
     n = 200
     x = rng.standard_normal(n).astype(np.float64)
@@ -66,6 +69,7 @@ def test_edges_remain_sorted(backend):
     ``np.searchsorted`` invariant downstream relies on this.
     """
     from mlframe.feature_selection.filters.supervised_binning import mdlp_bin_edges
+
     rng = np.random.default_rng(1)
     n = 300
     x = rng.standard_normal(n).astype(np.float64)
@@ -80,6 +84,7 @@ def test_all_nan_input_returns_trivial_edges():
     splits) instead of crashing or returning NaN-bearing edges.
     """
     from mlframe.feature_selection.filters.supervised_binning import mdlp_bin_edges
+
     x = np.full(50, np.nan)
     y = np.zeros(50, dtype=np.int64)
     edges = mdlp_bin_edges(x, y)

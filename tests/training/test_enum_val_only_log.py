@@ -7,6 +7,7 @@ values so operators can see the implicit widening at a glance.
 
 Behaviour is unchanged; only observability improves.
 """
+
 from __future__ import annotations
 
 import logging
@@ -17,18 +18,24 @@ import pytest
 
 def _make_frames():
     """Train: cats A/B. Val: cats A/C/D. Val-only set: {C, D}."""
-    train = pl.DataFrame({
-        "cat_col": ["A", "B", "A", "B", "A"],
-        "num_col": [1.0, 2.0, 3.0, 4.0, 5.0],
-    })
-    val = pl.DataFrame({
-        "cat_col": ["A", "C", "D"],
-        "num_col": [6.0, 7.0, 8.0],
-    })
-    test = pl.DataFrame({
-        "cat_col": ["A", "E"],
-        "num_col": [9.0, 10.0],
-    })
+    train = pl.DataFrame(
+        {
+            "cat_col": ["A", "B", "A", "B", "A"],
+            "num_col": [1.0, 2.0, 3.0, 4.0, 5.0],
+        }
+    )
+    val = pl.DataFrame(
+        {
+            "cat_col": ["A", "C", "D"],
+            "num_col": [6.0, 7.0, 8.0],
+        }
+    )
+    test = pl.DataFrame(
+        {
+            "cat_col": ["A", "E"],
+            "num_col": [9.0, 10.0],
+        }
+    )
     return train, val, test
 
 
@@ -90,10 +97,7 @@ def test_enum_domain_logs_val_only_categories(caplog) -> None:
 
     msgs = [r.getMessage() for r in caplog.records]
     val_only_msgs = [m for m in msgs if "[enum-domain] Enum domain widened" in m]
-    assert val_only_msgs, (
-        "Expected INFO log mentioning val-only categories; logs were:\n"
-        + "\n".join(msgs)
-    )
+    assert val_only_msgs, "Expected INFO log mentioning val-only categories; logs were:\n" + "\n".join(msgs)
     msg = val_only_msgs[0]
     # Two val-only values (C, D) should be reported under cat_col.
     assert "cat_col:2" in msg, f"Expected cat_col:2 in log; got: {msg}"

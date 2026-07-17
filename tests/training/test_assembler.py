@@ -21,10 +21,9 @@ from __future__ import annotations
 import logging
 import numpy as np
 import pytest
-from scipy.sparse import csr_matrix, issparse
+from scipy.sparse import csr_matrix
 
 from mlframe.training.feature_handling import (
-    AssembledMatrix,
     DENSE_ONLY_MODELS,
     HandlerOutput,
     SPARSE_AWARE_MODELS,
@@ -39,6 +38,7 @@ from mlframe.training.feature_handling import (
 try:
     from tests.conftest import fast_subset
 except ImportError:  # pragma: no cover
+
     def fast_subset(values, **_):
         return list(values)
 
@@ -106,6 +106,7 @@ class TestHgbCap:
         # this test (the contract is "input above cap -> output equals cap, WARN names both
         # numbers", not "output equals literal 500").
         from mlframe.training.feature_handling.routing import HGB_TFIDF_MAX_FEATURES_CAP
+
         caplog.set_level(logging.WARNING)
         requested = HGB_TFIDF_MAX_FEATURES_CAP * 10  # well above the cap
         out = hgb_max_features_cap("hgb", requested)
@@ -146,8 +147,11 @@ class TestSingleHandler:
     def test_one_dense_block_xgb(self):
         d = np.zeros((5, 8), dtype=np.float32)
         b = HandlerOutput(
-            column="txt", method="frozen_text_embedding", data=d,
-            n_features=8, output_kind="dense",
+            column="txt",
+            method="frozen_text_embedding",
+            data=d,
+            n_features=8,
+            output_kind="dense",
         )
         asm = assemble_for_model([b], model_kind="xgb")
         assert asm.sparse_block is None
@@ -224,8 +228,7 @@ class TestMultiHandler:
         sp = csr_matrix(np.eye(5, dtype=np.float32))
         d = np.zeros((5, 4), dtype=np.float32)
         b1 = HandlerOutput(column="txt", method="tfidf", data=sp, n_features=5, output_kind="sparse")
-        b2 = HandlerOutput(column="txt", method="frozen_text_embedding", data=d,
-                          n_features=4, output_kind="dense")
+        b2 = HandlerOutput(column="txt", method="frozen_text_embedding", data=d, n_features=4, output_kind="dense")
         asm = assemble_for_model([b1, b2], model_kind="xgb")
         assert asm.is_two_track is True
         assert asm.sparse_block.shape == (5, 5)
@@ -240,8 +243,7 @@ class TestMultiHandler:
         sp = csr_matrix(np.eye(10, dtype=np.float32))  # 10 cols < threshold -> densify
         d = np.zeros((10, 4), dtype=np.float32)
         b1 = HandlerOutput(column="txt", method="tfidf", data=sp, n_features=10, output_kind="sparse")
-        b2 = HandlerOutput(column="txt", method="frozen_text_embedding", data=d,
-                          n_features=4, output_kind="dense")
+        b2 = HandlerOutput(column="txt", method="frozen_text_embedding", data=d, n_features=4, output_kind="dense")
         asm = assemble_for_model([b1, b2], model_kind="hgb")
         assert asm.sparse_block is None
         assert asm.dense_block.shape == (10, 14)
@@ -252,17 +254,13 @@ class TestNumericBlock:
         sp = csr_matrix(np.eye(5, dtype=np.float32))
         b = HandlerOutput(column="txt", method="tfidf", data=sp, n_features=5, output_kind="sparse")
         num = np.zeros((5, 3), dtype=np.float32)
-        asm = assemble_for_model([b], model_kind="xgb",
-                                  numeric_block=num,
-                                  numeric_feature_names=["age", "score", "n"])
+        asm = assemble_for_model([b], model_kind="xgb", numeric_block=num, numeric_feature_names=["age", "score", "n"])
         assert asm.dense_block.shape == (5, 3)
         assert asm.feature_names[-3:] == ["age", "score", "n"]
 
     def test_numeric_block_only_no_handlers(self):
         num = np.zeros((10, 2), dtype=np.float32)
-        asm = assemble_for_model([], model_kind="hgb",
-                                  numeric_block=num,
-                                  numeric_feature_names=["x", "y"])
+        asm = assemble_for_model([], model_kind="hgb", numeric_block=num, numeric_feature_names=["x", "y"])
         assert asm.dense_block.shape == (10, 2)
         assert asm.feature_names == ["x", "y"]
 
@@ -281,8 +279,7 @@ class TestSvdPinnedSolver:
 
         rng = np.random.RandomState(0)
         big_sp = csr_matrix(rng.rand(100, 1024).astype(np.float32))
-        b = HandlerOutput(column="big", method="tfidf", data=big_sp,
-                         n_features=1024, output_kind="sparse")
+        b = HandlerOutput(column="big", method="tfidf", data=big_sp, n_features=1024, output_kind="sparse")
 
         with mock.patch("mlframe.training.feature_handling.assembler.TruncatedSVD") as mock_svd_cls:
             instance = mock.MagicMock()

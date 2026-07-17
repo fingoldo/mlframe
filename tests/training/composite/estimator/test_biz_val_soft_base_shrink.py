@@ -24,6 +24,7 @@ temporaries) cut it to ~1.7 ms/call (~11x) and dropped the whole soft-shrink ove
 cost is unavoidable copies + the inner predict; no further actionable speedup. Soft-shrink runs only when
 enabled AND a base-additive transform AND a fit-range was captured, so every other transform pays nothing.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -40,7 +41,9 @@ def _warm_numba_kernel():
     """Compile the njit soft-clip kernel once so per-test wall time excludes the one-off JIT compile."""
     ss.shrink_base(
         np.array([-5.0, 0.0, 5.0, 50.0]),
-        np.array([0.0]), np.array([10.0]), np.array([4.0]),
+        np.array([0.0]),
+        np.array([10.0]),
+        np.array([4.0]),
     )
     yield
 
@@ -69,7 +72,9 @@ def _fit_linear_residual(seed=0, n=800, slope=3.0, base_lo=0.0, base_hi=10.0, no
     data = {"base": base, "f": rng.normal(0.0, 1.0, n)}
     X = pd.DataFrame({c: data[c] for c in cols})
     est = CompositeTargetEstimator(
-        base_estimator=LinearRegression(), transform_name="linear_residual", base_column="base",
+        base_estimator=LinearRegression(),
+        transform_name="linear_residual",
+        base_column="base",
     )
     est.fit(X, y)
     return est, X, y
@@ -78,6 +83,7 @@ def _fit_linear_residual(seed=0, n=800, slope=3.0, base_lo=0.0, base_hi=10.0, no
 # --------------------------------------------------------------------------------------------------
 # Unit: in-range byte-identity (the core contract)
 # --------------------------------------------------------------------------------------------------
+
 
 def test_in_range_predict_is_byte_identical_to_disabled():
     est, _X, _y = _fit_linear_residual()
@@ -108,14 +114,14 @@ def test_disabled_flag_restores_raw_inverse_exactly():
     a = est.fitted_params_["alpha"]
     b = est.fitted_params_["beta"]
     t_hat = est.estimator_.predict(Xoor)
-    assert np.allclose(p, np.clip(t_hat + a * Xoor["base"].to_numpy() + b,
-                                  est.fitted_params_["y_clip_low"], est.fitted_params_["y_clip_high"]))
+    assert np.allclose(p, np.clip(t_hat + a * Xoor["base"].to_numpy() + b, est.fitted_params_["y_clip_low"], est.fitted_params_["y_clip_high"]))
     assert est.soft_shrink_info_["n_shrunk"] == 0
 
 
 # --------------------------------------------------------------------------------------------------
 # Unit: the soft-clip is smooth, monotone, saturating, and NOT a hard clamp
 # --------------------------------------------------------------------------------------------------
+
 
 def test_shrink_base_monotone_continuous_saturating_not_clamped():
     lo, hi, iqr = np.array([0.0]), np.array([10.0]), np.array([4.0])
@@ -174,6 +180,7 @@ def test_njit_kernel_matches_numpy_oracle(K):
 # Unit: smart fallback routing for deeply-OOD rows
 # --------------------------------------------------------------------------------------------------
 
+
 def test_deep_ood_routes_to_causal_lag_when_present():
     # _SubsetLinear inner ignores the extra 'y_prev' column present only in the predict frame.
     rng = np.random.default_rng(12)
@@ -182,7 +189,9 @@ def test_deep_ood_routes_to_causal_lag_when_present():
     y = 3.0 * base + rng.normal(0, 0.3, n)
     X = pd.DataFrame({"base": base, "f": rng.normal(0, 1, n)})
     est = CompositeTargetEstimator(
-        base_estimator=_SubsetLinear(), transform_name="linear_residual", base_column="base",
+        base_estimator=_SubsetLinear(),
+        transform_name="linear_residual",
+        base_column="base",
     )
     est.fit(X, y)
     est.target_name_ = "y"  # lets detect_causal_lag_column find the 'y_prev' failsafe column
@@ -212,8 +221,10 @@ def test_deep_ood_routes_to_nan_when_no_lag_and_nan_fallback():
     y = 3.0 * base + rng.normal(0, 0.3, n)
     X = pd.DataFrame({"base": base, "f": rng.normal(0, 1, n)})
     est = CompositeTargetEstimator(
-        base_estimator=LinearRegression(), transform_name="linear_residual",
-        base_column="base", fallback_predict="nan",
+        base_estimator=LinearRegression(),
+        transform_name="linear_residual",
+        base_column="base",
+        fallback_predict="nan",
     )
     est.fit(X, y)
     est.soft_base_shrink_severity_iqr = 3.0
@@ -226,6 +237,7 @@ def test_deep_ood_routes_to_nan_when_no_lag_and_nan_fallback():
 # --------------------------------------------------------------------------------------------------
 # Unit: the per-row flag is exact across in-range / moderate-OOR / deep-OOR
 # --------------------------------------------------------------------------------------------------
+
 
 def test_per_row_flag_is_exact():
     est, _X, _y = _fit_linear_residual()
@@ -266,6 +278,7 @@ def test_all_rows_deep_ood():
 # Unit: transform coverage (diff, multi-base) + non-additive / from_fitted_inner no-ops
 # --------------------------------------------------------------------------------------------------
 
+
 def test_diff_transform_captures_range_and_shrinks():
     rng = np.random.default_rng(4)
     n = 700
@@ -273,7 +286,9 @@ def test_diff_transform_captures_range_and_shrinks():
     y = base + rng.normal(0, 0.5, n)
     X = pd.DataFrame({"base": base, "f": rng.normal(0, 1, n)})
     est = CompositeTargetEstimator(
-        base_estimator=LinearRegression(), transform_name="diff", base_column="base",
+        base_estimator=LinearRegression(),
+        transform_name="diff",
+        base_column="base",
     )
     est.fit(X, y)
     assert ss.BASE_FIT_RANGE_KEY in est.fitted_params_
@@ -292,7 +307,8 @@ def test_multibase_shrink_per_column():
     y = 1.0 + 2.0 * b1 - 1.0 * b2 + rng.normal(0, 0.3, n)
     X = pd.DataFrame({"b1": b1, "b2": b2, "f": rng.normal(0, 1, n)})
     est = CompositeTargetEstimator(
-        base_estimator=LinearRegression(), transform_name="linear_residual_multi",
+        base_estimator=LinearRegression(),
+        transform_name="linear_residual_multi",
         base_columns=["b1", "b2"],
     )
     est.fit(X, y)
@@ -311,16 +327,20 @@ def test_non_additive_transform_captures_no_range():
     y = base * rng.uniform(0.5, 2.0, n)
     X = pd.DataFrame({"base": base, "f": rng.normal(0, 1, n)})
     est = CompositeTargetEstimator(
-        base_estimator=LinearRegression(), transform_name="ratio", base_column="base",
+        base_estimator=LinearRegression(),
+        transform_name="ratio",
+        base_column="base",
     )
     est.fit(X, y)
     assert ss.BASE_FIT_RANGE_KEY not in est.fitted_params_, "non-additive transforms stay byte-identical"
 
 
 def test_from_fitted_inner_has_no_range_and_is_noop():
-    est, X, y = _fit_linear_residual()
+    est, _X, y = _fit_linear_residual()
     wrapped = CompositeTargetEstimator.from_fitted_inner(
-        est.estimator_, transform_name="linear_residual", base_column="base",
+        est.estimator_,
+        transform_name="linear_residual",
+        base_column="base",
         transform_fitted_params={"alpha": est.fitted_params_["alpha"], "beta": est.fitted_params_["beta"]},
         y_train=y,
     )
@@ -330,8 +350,7 @@ def test_from_fitted_inner_has_no_range_and_is_noop():
     a = wrapped.fitted_params_["alpha"]
     b = wrapped.fitted_params_["beta"]
     t_hat = wrapped.estimator_.predict(Xo)
-    raw = np.clip(t_hat + a * Xo["base"].to_numpy() + b,
-                  wrapped.fitted_params_["y_clip_low"], wrapped.fitted_params_["y_clip_high"])
+    raw = np.clip(t_hat + a * Xo["base"].to_numpy() + b, wrapped.fitted_params_["y_clip_low"], wrapped.fitted_params_["y_clip_high"])
     assert np.allclose(p, raw), "no captured range -> raw inverse preserved"
     assert wrapped.soft_shrink_info_["n_shrunk"] == 0
 
@@ -339,6 +358,7 @@ def test_from_fitted_inner_has_no_range_and_is_noop():
 # --------------------------------------------------------------------------------------------------
 # biz_value: soft-shrink + smart fallback beats raw inverse AND plain median on unseen-group tails
 # --------------------------------------------------------------------------------------------------
+
 
 def _grouped_unseen_scenario():
     """Seen groups: base in [0,10], y = 3*base (learned by OLS). Unseen groups: base OOD in [40,60] while
@@ -350,15 +370,17 @@ def _grouped_unseen_scenario():
     ys = 3.0 * bs + rng.normal(0, 0.5, ns)
     Xtr = pd.DataFrame({"base": bs, "f": rng.normal(0, 1, ns)})  # inner trains WITHOUT the lag (no leakage)
     est = CompositeTargetEstimator(
-        base_estimator=_SubsetLinear(), transform_name="linear_residual", base_column="base",
+        base_estimator=_SubsetLinear(),
+        transform_name="linear_residual",
+        base_column="base",
     )
     est.fit(Xtr, ys)
     est.target_name_ = "y"
 
     nu = 300
     ub = rng.uniform(40, 60, nu)
-    uy = 30.0 + rng.normal(0, 1.0, nu)       # saturated true level
-    uyp = uy + rng.normal(0, 1.0, nu)        # good causal lag of the saturated level
+    uy = 30.0 + rng.normal(0, 1.0, nu)  # saturated true level
+    uyp = uy + rng.normal(0, 1.0, nu)  # good causal lag of the saturated level
     Xun = pd.DataFrame({"base": ub, "f": rng.normal(0, 1, nu), "y_prev": uyp})
     return est, Xun, uy, bs, ys
 
@@ -395,8 +417,7 @@ def test_biz_val_soft_base_shrink_seen_group_rmse_unchanged():
     est, _Xun, _uy, bs, ys = _grouped_unseen_scenario()
     rng = np.random.default_rng(99)
     idx = rng.choice(len(bs), 300, replace=False)
-    Xseen = pd.DataFrame({"base": bs[idx], "f": rng.normal(0, 1, 300),
-                          "y_prev": ys[idx] + rng.normal(0, 0.5, 300)})
+    Xseen = pd.DataFrame({"base": bs[idx], "f": rng.normal(0, 1, 300), "y_prev": ys[idx] + rng.normal(0, 0.5, 300)})
     est.soft_base_shrink = True
     p_on = est.predict(Xseen)
     est.soft_base_shrink = False
@@ -409,6 +430,7 @@ def test_biz_val_soft_base_shrink_seen_group_rmse_unchanged():
 # cProfile harness (run directly: python -m ... test_biz_val_soft_base_shrink); documented in the docstring.
 # --------------------------------------------------------------------------------------------------
 
+
 def _profile_predict(n: int = 200_000, oor_frac: float = 0.3):  # pragma: no cover - manual profiling entry
     import cProfile
     import pstats
@@ -418,7 +440,9 @@ def _profile_predict(n: int = 200_000, oor_frac: float = 0.3):  # pragma: no cov
     y = 3.0 * base + rng.normal(0, 0.5, n)
     X = pd.DataFrame({"base": base, "f": rng.normal(0, 1, n)})
     est = CompositeTargetEstimator(
-        base_estimator=LinearRegression(), transform_name="linear_residual", base_column="base",
+        base_estimator=LinearRegression(),
+        transform_name="linear_residual",
+        base_column="base",
     )
     est.fit(X, y)
     n_out = int(n * oor_frac)

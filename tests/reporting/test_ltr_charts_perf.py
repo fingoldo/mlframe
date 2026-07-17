@@ -232,7 +232,7 @@ class TestKernelEdgeCases:
         """``_ndcg_dist_panel`` must equal the pre-optimization computation:
         per-query NDCG@10 over groups with >=2 docs, NaN dropped."""
         yt, ys, gid = _mixed_dataset(5, ties=True, float_grades=False)
-        st, ss, gs, ref_ndcg, _ = _ref_per_query(yt, ys, gid)
+        _st, _ss, gs, ref_ndcg, _ = _ref_per_query(yt, ys, gid)
         sizes = np.diff(gs)
         ref = np.sort(ref_ndcg[(sizes >= 2) & ~np.isnan(ref_ndcg)])
         panel = _ndcg_dist_panel(yt, ys, gid)
@@ -265,8 +265,7 @@ def _qsize_dataset(sizes_per_group, seed=0, small_score_better=False):
         y_true.extend(rels.tolist())
         y_score.extend(scores.tolist())
         group_ids.extend([q] * sz)
-    return (np.asarray(y_true), np.asarray(y_score, dtype=np.float64),
-            np.asarray(group_ids))
+    return (np.asarray(y_true), np.asarray(y_score, dtype=np.float64), np.asarray(group_ids))
 
 
 class TestNDCGByQSizePanel:
@@ -288,6 +287,7 @@ class TestNDCGByQSizePanel:
         # Expected log2-floor bins present (only bins with >=1 valid group emitted).
         st, ss, gs = _iter_group_slices(yt, ys, gid)
         from mlframe.metrics.ranking import _per_query_ndcg_kernel as _k
+
         ndcg10 = _k(st, ss, gs, 10)
         valid = ~np.isnan(ndcg10)
         expected_bins = np.unique(np.floor(np.log2(np.diff(gs)[valid])).astype(int))
@@ -299,6 +299,7 @@ class TestNDCGByQSizePanel:
         panel = _ndcg_by_qsize_panel(yt, ys, gid)
         st, ss, gs = _iter_group_slices(yt, ys, gid)
         from mlframe.metrics.ranking import _per_query_ndcg_kernel as _k
+
         n_valid = int(np.sum(~np.isnan(_k(st, ss, gs, 10))))
         # Each category label carries "(n=<count>, CI[lo,hi])"; the count is the token right after "n=" up to the
         # comma, and the per-bin counts sum to n_valid queries.
@@ -317,9 +318,7 @@ class TestNDCGByQSizePanel:
         panel = _ndcg_by_qsize_panel(yt, ys, gid)
         vals = np.asarray(panel.values)
         # First bin = smallest sizes, last bin = largest sizes.
-        assert vals[0] > vals[-1] + 0.05, (
-            f"small-group NDCG {vals[0]:.3f} should exceed large-group {vals[-1]:.3f}"
-        )
+        assert vals[0] > vals[-1] + 0.05, f"small-group NDCG {vals[0]:.3f} should exceed large-group {vals[-1]:.3f}"
 
     def test_empty_input_returns_placeholder_bar(self):
         empty = np.array([])

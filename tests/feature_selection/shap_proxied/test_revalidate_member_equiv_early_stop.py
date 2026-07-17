@@ -39,9 +39,19 @@ def test_singletons_parity_with_iter77(planted_strong):
     Xs, ys, Xh, yh = _split(X, y)
     candidates = [(0.0, (0, 1, 2)), (0.1, (0, 1)), (0.2, (0, 1, 2, 5)), (0.3, (4, 5, 6))]
     best, _, baseline = revalidate_top_n(
-        candidates, LinearRegression(), Xs, ys, Xh, yh,
-        classification=False, metric="rmse", n_models=3, lambda_stab=0.0,
-        rng=np.random.default_rng(0), n_jobs=1, adaptive_n_models=True,
+        candidates,
+        LinearRegression(),
+        Xs,
+        ys,
+        Xh,
+        yh,
+        classification=False,
+        metric="rmse",
+        n_models=3,
+        lambda_stab=0.0,
+        rng=np.random.default_rng(0),
+        n_jobs=1,
+        adaptive_n_models=True,
         unit_to_members=None,  # singletons: idx == member columns
     )
     assert set(best) == {0, 1, 2}
@@ -74,18 +84,36 @@ def test_member_equiv_fires_when_units_differ_but_members_match(planted_strong):
     # All three top candidates expand to the same member set: any picked winner is member-equiv.
     candidates = [(0.0, (0,)), (0.0, (1,)), (0.0, (2,)), (0.5, (3,))]
     best, _, baseline = revalidate_top_n(
-        candidates, LinearRegression(), Xs, ys, Xh, yh,
-        classification=False, metric="rmse", n_models=3, lambda_stab=0.0,
-        rng=np.random.default_rng(0), n_jobs=1, adaptive_n_models=True,
+        candidates,
+        LinearRegression(),
+        Xs,
+        ys,
+        Xh,
+        yh,
+        classification=False,
+        metric="rmse",
+        n_models=3,
+        lambda_stab=0.0,
+        rng=np.random.default_rng(0),
+        n_jobs=1,
+        adaptive_n_models=True,
         unit_to_members=unit_to_members,
     )
     ucb_info = baseline["ucb"]
     # Whatever unit was picked, its member set is {0, 1, 2}.
-    assert set(best) in ({0,}, {1,}, {2,})
-    # Early-stop fired at round 2 (no extra rounds beyond the floor).
-    assert ucb_info["n_models_run"] == 2, (
-        f"expected early-stop at round 2, got {ucb_info['n_models_run']}; ucb={ucb_info}"
+    assert set(best) in (
+        {
+            0,
+        },
+        {
+            1,
+        },
+        {
+            2,
+        },
     )
+    # Early-stop fired at round 2 (no extra rounds beyond the floor).
+    assert ucb_info["n_models_run"] == 2, f"expected early-stop at round 2, got {ucb_info['n_models_run']}; ucb={ucb_info}"
 
 
 def test_member_equiv_lever_is_strict_extension_of_iter77(planted_strong):
@@ -101,9 +129,19 @@ def test_member_equiv_lever_is_strict_extension_of_iter77(planted_strong):
     Xs, ys, Xh, yh = _split(X, y)
     candidates = [(0.0, (0, 1, 2)), (0.1, (0, 1)), (0.2, (0, 1, 2, 5)), (0.3, (4, 5, 6))]
     _, _, baseline = revalidate_top_n(
-        candidates, LinearRegression(), Xs, ys, Xh, yh,
-        classification=False, metric="rmse", n_models=3, lambda_stab=0.0,
-        rng=np.random.default_rng(0), n_jobs=1, adaptive_n_models=True,
+        candidates,
+        LinearRegression(),
+        Xs,
+        ys,
+        Xh,
+        yh,
+        classification=False,
+        metric="rmse",
+        n_models=3,
+        lambda_stab=0.0,
+        rng=np.random.default_rng(0),
+        n_jobs=1,
+        adaptive_n_models=True,
     )
     ucb_info = baseline["ucb"]
     assert ucb_info["n_models_run"] == 2
@@ -119,9 +157,19 @@ def test_member_equiv_diagnostic_present_when_legacy_path(planted_strong):
     Xs, ys, Xh, yh = _split(X, y)
     candidates = [(0.0, (0, 1, 2)), (0.1, (0, 1)), (0.2, (4, 5, 6))]
     _, _, baseline = revalidate_top_n(
-        candidates, LinearRegression(), Xs, ys, Xh, yh,
-        classification=False, metric="rmse", n_models=3, lambda_stab=0.0,
-        rng=np.random.default_rng(0), n_jobs=1, adaptive_n_models=False,
+        candidates,
+        LinearRegression(),
+        Xs,
+        ys,
+        Xh,
+        yh,
+        classification=False,
+        metric="rmse",
+        n_models=3,
+        lambda_stab=0.0,
+        rng=np.random.default_rng(0),
+        n_jobs=1,
+        adaptive_n_models=False,
     )
     assert "n_reval_models_run_via_member_equiv" in baseline["ucb"]
     assert baseline["ucb"]["n_reval_models_run_via_member_equiv"] is False

@@ -12,10 +12,9 @@ import pytest
 
 def test_pandas_view_cache_slot_is_ordered_dict():
     from mlframe.training.core._training_context import TrainingContext
+
     ctx = TrainingContext()
-    assert isinstance(ctx._pandas_view_cache, OrderedDict), (
-        "ctx._pandas_view_cache must be OrderedDict to support move_to_end-based LRU eviction"
-    )
+    assert isinstance(ctx._pandas_view_cache, OrderedDict), "ctx._pandas_view_cache must be OrderedDict to support move_to_end-based LRU eviction"
 
 
 def test_pandas_view_cache_bytes_helper_handles_empty_and_missing_attr():
@@ -35,6 +34,7 @@ def test_pandas_view_cache_bytes_helper_sums_pandas_frames():
     pd = pytest.importorskip("pandas")
     import numpy as np
     from mlframe.training.core._phase_train_one_target_polars_fastpath import _pandas_view_cache_bytes
+
     od = OrderedDict()
     od[1] = pd.DataFrame({"x": np.arange(1000, dtype=np.int64)})
     od[2] = pd.DataFrame({"y": np.arange(2000, dtype=np.int64)})

@@ -13,8 +13,6 @@ import pandas as pd
 import pytest
 
 from mlframe.reporting.charts.slice_finder import (
-    DEFAULT_NBINS,
-    SliceFinderResult,
     _bin_matrix,
     find_weak_slices,
 )
@@ -32,7 +30,7 @@ def _flat(fig: FigureSpec):
 
 def test_bin_matrix_constant_column_collapses_to_one_bin():
     mat = np.column_stack([np.arange(100.0), np.full(100, 5.0)])
-    codes, edges = _bin_matrix(mat, nbins=4)
+    codes, _edges = _bin_matrix(mat, nbins=4)
     assert set(np.unique(codes[:, 1])) == {0}  # constant col -> single bin
     assert codes[:, 0].max() == 3  # 4 quartile bins on the linear feature
 
@@ -100,8 +98,7 @@ def test_three_way_cap_is_logged(caplog):
     cols = {f"f{i}": rng.random(n) for i in range(10)}
     X = pd.DataFrame(cols)
     bad = (X["f0"] > 0.5) & (X["f1"] > 0.5)
-    res = find_weak_slices(X, np.zeros(n), np.where(bad, 5.0, 1.0),
-                           max_arity=3, three_way_top_features=4)
+    res = find_weak_slices(X, np.zeros(n), np.where(bad, 5.0, 1.0), max_arity=3, three_way_top_features=4)
     assert any("3-way restricted to top" in c for c in res.capped)
 
 
@@ -126,7 +123,7 @@ def test_biz_val_injected_bad_2feature_region_ranks_first():
     X = pd.DataFrame({"f_a": f_a, "f_b": f_b, "f_c": f_c})
     res = find_weak_slices(X, np.zeros(n), err, task="regression", nbins=4, max_arity=2)
 
-    features, bounds, mean_err, support = res.worst_slice
+    features, bounds, mean_err, _support = res.worst_slice
     assert set(features) == {"f_a", "f_b"}, features
     ratio = mean_err / res.global_error
     assert ratio >= 3.0, ratio

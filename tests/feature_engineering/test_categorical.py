@@ -10,7 +10,7 @@ Includes:
 import pytest
 import numpy as np
 import pandas as pd
-from hypothesis import given, strategies as st, settings, assume
+from hypothesis import given, strategies as st, settings
 
 from mlframe.feature_engineering.categorical import (
     compute_countaggs,
@@ -22,11 +22,12 @@ from mlframe.feature_engineering.categorical import (
 # TEST FIXTURES
 # =============================================================================
 
+
 @pytest.fixture
 def simple_categorical():
     """Simple categorical series with known distribution."""
     # 'a': 3, 'b': 2, 'c': 1
-    return pd.Series(['a', 'b', 'a', 'c', 'a', 'b'])
+    return pd.Series(["a", "b", "a", "c", "a", "b"])
 
 
 @pytest.fixture
@@ -39,24 +40,25 @@ def numeric_categorical():
 @pytest.fixture
 def many_unique():
     """Series with many unique values."""
-    return pd.Series(list('abcdefghij'))
+    return pd.Series(list("abcdefghij"))
 
 
 @pytest.fixture
 def single_value():
     """Series with single repeated value."""
-    return pd.Series(['a'] * 100)
+    return pd.Series(["a"] * 100)
 
 
 @pytest.fixture
 def two_values():
     """Series with exactly two unique values."""
-    return pd.Series(['a', 'b', 'a', 'b', 'a'])
+    return pd.Series(["a", "b", "a", "b", "a"])
 
 
 # =============================================================================
 # REGRESSION TESTS: COUNT VALUES
 # =============================================================================
+
 
 class TestCountValuesRegression:
     """Regression tests verifying count calculations match expected values."""
@@ -64,10 +66,8 @@ class TestCountValuesRegression:
     def test_normalized_counts_sum_to_one(self, simple_categorical):
         """Test that normalized counts sum to 1.0."""
         arr = simple_categorical
-        result = compute_countaggs(arr, counts_normalize=True, counts_compute_numaggs=False,
-                                   counts_top_n=3, counts_return_top_values=False)
-        names = get_countaggs_names(counts_normalize=True, counts_compute_numaggs=False,
-                                    counts_top_n=3, counts_return_top_values=False)
+        result = compute_countaggs(arr, counts_normalize=True, counts_compute_numaggs=False, counts_top_n=3, counts_return_top_values=False)
+        get_countaggs_names(counts_normalize=True, counts_compute_numaggs=False, counts_top_n=3, counts_return_top_values=False)
 
         # Top 3 + bottom 3 counts
         top_counts = result[:3]
@@ -77,8 +77,7 @@ class TestCountValuesRegression:
     def test_absolute_counts_sum_to_length(self, simple_categorical):
         """Test that absolute counts sum to array length."""
         arr = simple_categorical
-        result = compute_countaggs(arr, counts_normalize=False, counts_compute_numaggs=False,
-                                   counts_top_n=3, counts_return_top_values=False)
+        result = compute_countaggs(arr, counts_normalize=False, counts_compute_numaggs=False, counts_top_n=3, counts_return_top_values=False)
 
         # Top 3 counts (all 3 unique values)
         top_counts = result[:3]
@@ -87,8 +86,7 @@ class TestCountValuesRegression:
     def test_top_count_is_maximum(self, simple_categorical):
         """Test that top_1_vcnt is the maximum count."""
         arr = simple_categorical
-        result = compute_countaggs(arr, counts_normalize=True, counts_compute_numaggs=False,
-                                   counts_top_n=1, counts_return_top_values=False)
+        result = compute_countaggs(arr, counts_normalize=True, counts_compute_numaggs=False, counts_top_n=1, counts_return_top_values=False)
 
         # First value should be top count (a: 3/6 = 0.5)
         top_count = result[0]
@@ -98,8 +96,7 @@ class TestCountValuesRegression:
     def test_bottom_count_is_minimum(self, simple_categorical):
         """Test that btm_1_vcnt is the minimum count."""
         arr = simple_categorical
-        result = compute_countaggs(arr, counts_normalize=True, counts_compute_numaggs=False,
-                                   counts_top_n=1, counts_return_top_values=False)
+        result = compute_countaggs(arr, counts_normalize=True, counts_compute_numaggs=False, counts_top_n=1, counts_return_top_values=False)
 
         # Second value should be bottom count (c: 1/6)
         bottom_count = result[1]
@@ -109,8 +106,7 @@ class TestCountValuesRegression:
     def test_top_value_is_most_frequent(self, numeric_categorical):
         """Test that top_1_vval is the most frequent value."""
         arr = numeric_categorical
-        result = compute_countaggs(arr, counts_normalize=True, counts_compute_numaggs=False,
-                                   counts_top_n=1, counts_return_top_counts=False)
+        result = compute_countaggs(arr, counts_normalize=True, counts_compute_numaggs=False, counts_top_n=1, counts_return_top_counts=False)
 
         # First value should be the most frequent (1 appears 3 times)
         top_value = result[0]
@@ -119,8 +115,7 @@ class TestCountValuesRegression:
     def test_counts_order_descending(self, simple_categorical):
         """Test that top counts are in descending order."""
         arr = simple_categorical
-        result = compute_countaggs(arr, counts_normalize=True, counts_compute_numaggs=False,
-                                   counts_top_n=3, counts_return_top_values=False)
+        result = compute_countaggs(arr, counts_normalize=True, counts_compute_numaggs=False, counts_top_n=3, counts_return_top_values=False)
 
         top_counts = result[:3]
         # Should be sorted descending
@@ -130,13 +125,11 @@ class TestCountValuesRegression:
         """Test mean of normalized counts matches expected value."""
         arr = simple_categorical
         # With 3 unique values, mean of normalized counts = 1/3
-        result = compute_countaggs(arr, counts_normalize=True, counts_compute_numaggs=True,
-                                   counts_top_n=0)
-        names = get_countaggs_names(counts_normalize=True, counts_compute_numaggs=True,
-                                    counts_top_n=0)
+        result = compute_countaggs(arr, counts_normalize=True, counts_compute_numaggs=True, counts_top_n=0)
+        names = get_countaggs_names(counts_normalize=True, counts_compute_numaggs=True, counts_top_n=0)
 
         # Find arithmetic mean
-        arimean_idx = names.index('arimean_cntnrm')
+        arimean_idx = names.index("arimean_cntnrm")
         computed_mean = result[arimean_idx]
         expected_mean = 1.0 / 3.0  # 3 unique values, each normalized count averages to 1/3
         assert np.isclose(computed_mean, expected_mean, rtol=1e-6)
@@ -145,6 +138,7 @@ class TestCountValuesRegression:
 # =============================================================================
 # PARAMETER COVERAGE TESTS
 # =============================================================================
+
 
 class TestParameterCoverage:
     """Test all parameter combinations produce consistent output."""
@@ -200,17 +194,8 @@ class TestParameterCoverage:
     def test_all_options_disabled(self, simple_categorical):
         """Test with all options disabled returns minimal output."""
         arr = simple_categorical
-        result = compute_countaggs(
-            arr,
-            counts_compute_numaggs=False,
-            counts_top_n=0,
-            counts_compute_values_numaggs=False
-        )
-        names = get_countaggs_names(
-            counts_compute_numaggs=False,
-            counts_top_n=0,
-            counts_compute_values_numaggs=False
-        )
+        result = compute_countaggs(arr, counts_compute_numaggs=False, counts_top_n=0, counts_compute_values_numaggs=False)
+        names = get_countaggs_names(counts_compute_numaggs=False, counts_top_n=0, counts_compute_values_numaggs=False)
         assert len(result) == len(names)
         assert len(result) == 0  # Should be empty
 
@@ -219,22 +204,12 @@ class TestParameterCoverage:
         arr = simple_categorical
 
         # With exotic means
-        result1 = compute_countaggs(
-            arr,
-            numerical_kwargs={'return_exotic_means': True, 'return_unsorted_stats': False}
-        )
-        names1 = get_countaggs_names(
-            numerical_kwargs={'return_exotic_means': True, 'return_unsorted_stats': False}
-        )
+        result1 = compute_countaggs(arr, numerical_kwargs={"return_exotic_means": True, "return_unsorted_stats": False})
+        names1 = get_countaggs_names(numerical_kwargs={"return_exotic_means": True, "return_unsorted_stats": False})
 
         # Without exotic means
-        result2 = compute_countaggs(
-            arr,
-            numerical_kwargs={'return_exotic_means': False, 'return_unsorted_stats': False}
-        )
-        names2 = get_countaggs_names(
-            numerical_kwargs={'return_exotic_means': False, 'return_unsorted_stats': False}
-        )
+        result2 = compute_countaggs(arr, numerical_kwargs={"return_exotic_means": False, "return_unsorted_stats": False})
+        names2 = get_countaggs_names(numerical_kwargs={"return_exotic_means": False, "return_unsorted_stats": False})
 
         # Different lengths due to exotic means inclusion
         assert len(result1) == len(names1)
@@ -245,6 +220,7 @@ class TestParameterCoverage:
 # =============================================================================
 # EDGE CASE TESTS
 # =============================================================================
+
 
 class TestEdgeCases:
     """Test edge cases and boundary conditions."""
@@ -258,18 +234,16 @@ class TestEdgeCases:
 
         # With only 1 unique value, positions 2 and 3 should be NaN
         # Find top_2_vcnt and top_3_vcnt positions
-        top_2_idx = names.index('top_2_vcnt')
-        top_3_idx = names.index('top_3_vcnt')
+        top_2_idx = names.index("top_2_vcnt")
+        top_3_idx = names.index("top_3_vcnt")
         assert np.isnan(result[top_2_idx])
         assert np.isnan(result[top_3_idx])
 
     def test_padding_when_top_n_exceeds_unique(self, two_values):
         """Test behavior when top_n exceeds number of unique values."""
         arr = two_values  # Only 2 unique values
-        result = compute_countaggs(arr, counts_compute_numaggs=False,
-                                   counts_top_n=3, counts_return_top_values=False)
-        names = get_countaggs_names(counts_compute_numaggs=False,
-                                    counts_top_n=3, counts_return_top_values=False)
+        result = compute_countaggs(arr, counts_compute_numaggs=False, counts_top_n=3, counts_return_top_values=False)
+        names = get_countaggs_names(counts_compute_numaggs=False, counts_top_n=3, counts_return_top_values=False)
 
         # Should have 3 top + 3 bottom = 6 values
         assert len(result) == 6
@@ -288,7 +262,7 @@ class TestEdgeCases:
 
         # All counts should be equal (1/10 each)
         # Find top_1_vcnt
-        idx = names.index('top_1_vcnt') if 'top_1_vcnt' in names else None
+        idx = names.index("top_1_vcnt") if "top_1_vcnt" in names else None
         if idx is not None:
             assert np.isclose(result[idx], 0.1, rtol=1e-6)
 
@@ -305,7 +279,7 @@ class TestEdgeCases:
 
     def test_series_with_nans(self):
         """Test series containing NaN values."""
-        arr = pd.Series(['a', 'b', np.nan, 'a', np.nan, 'b'])
+        arr = pd.Series(["a", "b", np.nan, "a", np.nan, "b"])
         result = compute_countaggs(arr)
         names = get_countaggs_names()
         assert len(result) == len(names)
@@ -318,8 +292,8 @@ class TestEdgeCases:
         names = get_countaggs_names(counts_top_n=0)
 
         # Should have no top/bottom features
-        assert 'top_1_vcnt' not in names
-        assert 'btm_1_vcnt' not in names
+        assert "top_1_vcnt" not in names
+        assert "btm_1_vcnt" not in names
         assert len(result) == len(names)
 
     def test_top_n_exceeds_unique_count(self, two_values):
@@ -338,12 +312,13 @@ class TestEdgeCases:
 # TYPE HANDLING TESTS
 # =============================================================================
 
+
 class TestTypeHandling:
     """Test handling of different data types."""
 
     def test_string_values(self):
         """Test with string values."""
-        arr = pd.Series(['apple', 'banana', 'apple', 'cherry'])
+        arr = pd.Series(["apple", "banana", "apple", "cherry"])
         result = compute_countaggs(arr)
         names = get_countaggs_names()
         assert len(result) == len(names)
@@ -376,11 +351,11 @@ class TestTypeHandling:
         names = get_countaggs_names(counts_compute_values_numaggs=True)
 
         # Should have directional numaggs features
-        assert 'arimean_vvls' in names
-        assert 'ratio_vvls' in names
+        assert "arimean_vvls" in names
+        assert "ratio_vvls" in names
 
         # Find the arimean_vvls value - should be finite
-        idx = names.index('arimean_vvls')
+        idx = names.index("arimean_vvls")
         assert np.isfinite(result[idx])
 
     def test_values_numaggs_with_non_numeric(self, simple_categorical):
@@ -390,8 +365,8 @@ class TestTypeHandling:
         names = get_countaggs_names(counts_compute_values_numaggs=True)
 
         # Should have directional numaggs features but with NaN values
-        assert 'arimean_vvls' in names
-        idx = names.index('arimean_vvls')
+        assert "arimean_vvls" in names
+        idx = names.index("arimean_vvls")
         assert np.isnan(result[idx])
 
     def test_boolean_values(self):
@@ -406,6 +381,7 @@ class TestTypeHandling:
 # FEATURE NAME CONSISTENCY TESTS
 # =============================================================================
 
+
 class TestFeatureNameConsistency:
     """Test that feature names are consistent with output."""
 
@@ -416,12 +392,12 @@ class TestFeatureNameConsistency:
         # Test multiple parameter combinations
         param_combos = [
             {},
-            {'counts_normalize': False},
-            {'counts_top_n': 5},
-            {'counts_compute_numaggs': False},
-            {'counts_return_top_counts': False},
-            {'counts_return_top_values': False},
-            {'counts_compute_values_numaggs': True},
+            {"counts_normalize": False},
+            {"counts_top_n": 5},
+            {"counts_compute_numaggs": False},
+            {"counts_return_top_counts": False},
+            {"counts_return_top_values": False},
+            {"counts_compute_values_numaggs": True},
         ]
 
         for params in param_combos:
@@ -431,16 +407,16 @@ class TestFeatureNameConsistency:
 
     def test_name_suffix_reflects_normalize(self):
         """Test that feature name suffix reflects normalization setting."""
-        arr = pd.Series(['a', 'b', 'a'])
+        pd.Series(["a", "b", "a"])
 
         # Normalized
         names_norm = get_countaggs_names(counts_normalize=True, counts_compute_numaggs=True)
-        assert any('_cntnrm' in name for name in names_norm)
-        assert not any('_cnt' in name and '_cntnrm' not in name for name in names_norm)
+        assert any("_cntnrm" in name for name in names_norm)
+        assert not any("_cnt" in name and "_cntnrm" not in name for name in names_norm)
 
         # Not normalized
         names_abs = get_countaggs_names(counts_normalize=False, counts_compute_numaggs=True)
-        assert any('_cnt' in name and '_cntnrm' not in name for name in names_abs)
+        assert any("_cnt" in name and "_cntnrm" not in name for name in names_abs)
 
     def test_top_n_feature_names(self):
         """Test that top_n features have correct naming pattern."""
@@ -448,10 +424,18 @@ class TestFeatureNameConsistency:
 
         # Should have top_1, top_2, top_3 and btm_3, btm_2, btm_1
         expected_patterns = [
-            'top_1_vcnt', 'top_2_vcnt', 'top_3_vcnt',
-            'btm_3_vcnt', 'btm_2_vcnt', 'btm_1_vcnt',
-            'top_1_vval', 'top_2_vval', 'top_3_vval',
-            'btm_3_vval', 'btm_2_vval', 'btm_1_vval',
+            "top_1_vcnt",
+            "top_2_vcnt",
+            "top_3_vcnt",
+            "btm_3_vcnt",
+            "btm_2_vcnt",
+            "btm_1_vcnt",
+            "top_1_vval",
+            "top_2_vval",
+            "top_3_vval",
+            "btm_3_vval",
+            "btm_2_vval",
+            "btm_1_vval",
         ]
 
         for pattern in expected_patterns:
@@ -462,19 +446,19 @@ class TestFeatureNameConsistency:
         names = get_countaggs_names(counts_compute_values_numaggs=True)
 
         # Should have _vvls suffix for directional features
-        assert 'arimean_vvls' in names
-        assert 'ratio_vvls' in names
+        assert "arimean_vvls" in names
+        assert "ratio_vvls" in names
 
 
 # =============================================================================
 # HYPOTHESIS PROPERTY-BASED TESTS
 # =============================================================================
 
+
 class TestHypothesisProperties:
     """Property-based tests using Hypothesis."""
 
-    @given(st.lists(st.text(alphabet='abcdefghij', min_size=1, max_size=5),
-                    min_size=1, max_size=100))
+    @given(st.lists(st.text(alphabet="abcdefghij", min_size=1, max_size=5), min_size=1, max_size=100))
     @settings(max_examples=50, deadline=None)
     def test_output_length_matches_names(self, values):
         """Test that output length always matches names length."""
@@ -495,7 +479,7 @@ class TestHypothesisProperties:
     @settings(deadline=None)
     def test_top_n_produces_correct_length(self, top_n):
         """Test different top_n values produce correct output length."""
-        arr = pd.Series(['a', 'b', 'c', 'a', 'b', 'a', 'd', 'e', 'f'])
+        arr = pd.Series(["a", "b", "c", "a", "b", "a", "d", "e", "f"])
         result = compute_countaggs(arr, counts_top_n=top_n)
         names = get_countaggs_names(counts_top_n=top_n)
         assert len(result) == len(names)
@@ -504,7 +488,7 @@ class TestHypothesisProperties:
     @settings(deadline=None)
     def test_normalize_produces_correct_length(self, normalize):
         """Test both normalize modes produce correct length."""
-        arr = pd.Series(['a', 'b', 'a', 'c', 'a'])
+        arr = pd.Series(["a", "b", "a", "c", "a"])
         result = compute_countaggs(arr, counts_normalize=normalize)
         names = get_countaggs_names(counts_normalize=normalize)
         assert len(result) == len(names)
@@ -513,23 +497,16 @@ class TestHypothesisProperties:
     @settings(deadline=None)
     def test_return_options_produce_correct_length(self, return_counts, return_values):
         """Test different return options produce correct length."""
-        arr = pd.Series(['x', 'y', 'x', 'z'])
-        result = compute_countaggs(
-            arr,
-            counts_return_top_counts=return_counts,
-            counts_return_top_values=return_values
-        )
-        names = get_countaggs_names(
-            counts_return_top_counts=return_counts,
-            counts_return_top_values=return_values
-        )
+        arr = pd.Series(["x", "y", "x", "z"])
+        result = compute_countaggs(arr, counts_return_top_counts=return_counts, counts_return_top_values=return_values)
+        names = get_countaggs_names(counts_return_top_counts=return_counts, counts_return_top_values=return_values)
         assert len(result) == len(names)
 
     @given(st.booleans())
     @settings(deadline=None)
     def test_compute_numaggs_toggle(self, compute_numaggs):
         """Test toggling numaggs computation."""
-        arr = pd.Series(['a', 'b', 'a', 'c'])
+        arr = pd.Series(["a", "b", "a", "c"])
         result = compute_countaggs(arr, counts_compute_numaggs=compute_numaggs)
         names = get_countaggs_names(counts_compute_numaggs=compute_numaggs)
         assert len(result) == len(names)
@@ -539,29 +516,27 @@ class TestHypothesisProperties:
 # FUNCTIONAL CORRECTNESS TESTS
 # =============================================================================
 
+
 class TestFunctionalCorrectness:
     """Test functional correctness with known inputs."""
 
     def test_known_distribution_counts(self):
         """Test with known distribution produces expected counts."""
         # Create distribution: a=5, b=3, c=2
-        arr = pd.Series(['a'] * 5 + ['b'] * 3 + ['c'] * 2)
-        result = compute_countaggs(arr, counts_normalize=True, counts_compute_numaggs=False,
-                                   counts_top_n=3, counts_return_top_values=False)
+        arr = pd.Series(["a"] * 5 + ["b"] * 3 + ["c"] * 2)
+        result = compute_countaggs(arr, counts_normalize=True, counts_compute_numaggs=False, counts_top_n=3, counts_return_top_values=False)
 
         # Expected normalized counts: [0.5, 0.3, 0.2]
         expected_top = [0.5, 0.3, 0.2]
 
         for i, expected in enumerate(expected_top):
-            assert np.isclose(result[i], expected, rtol=1e-6), \
-                f"Position {i}: {result[i]} vs {expected}"
+            assert np.isclose(result[i], expected, rtol=1e-6), f"Position {i}: {result[i]} vs {expected}"
 
     def test_known_distribution_values(self):
         """Test with known distribution produces expected top values."""
         # Create distribution: 10=5, 20=3, 30=2
         arr = pd.Series([10] * 5 + [20] * 3 + [30] * 2)
-        result = compute_countaggs(arr, counts_normalize=True, counts_compute_numaggs=False,
-                                   counts_top_n=3, counts_return_top_counts=False)
+        result = compute_countaggs(arr, counts_normalize=True, counts_compute_numaggs=False, counts_top_n=3, counts_return_top_counts=False)
 
         # Top values should be [10, 20, 30]
         top_values = result[:3]
@@ -571,9 +546,8 @@ class TestFunctionalCorrectness:
 
     def test_uniform_distribution(self):
         """Test with uniform distribution (all same count)."""
-        arr = pd.Series(['a', 'b', 'c', 'd', 'e'])  # All unique
-        result = compute_countaggs(arr, counts_normalize=True, counts_compute_numaggs=False,
-                                   counts_top_n=3, counts_return_top_values=False)
+        arr = pd.Series(["a", "b", "c", "d", "e"])  # All unique
+        result = compute_countaggs(arr, counts_normalize=True, counts_compute_numaggs=False, counts_top_n=3, counts_return_top_values=False)
 
         # All counts should be 0.2
         for i in range(3):
@@ -581,9 +555,8 @@ class TestFunctionalCorrectness:
 
     def test_single_dominant_value(self):
         """Test with one dominant value."""
-        arr = pd.Series(['a'] * 99 + ['b'])
-        result = compute_countaggs(arr, counts_normalize=True, counts_compute_numaggs=False,
-                                   counts_top_n=1, counts_return_top_values=False)
+        arr = pd.Series(["a"] * 99 + ["b"])
+        result = compute_countaggs(arr, counts_normalize=True, counts_compute_numaggs=False, counts_top_n=1, counts_return_top_values=False)
 
         # Top count should be 0.99
         assert np.isclose(result[0], 0.99, rtol=1e-6)
@@ -592,15 +565,13 @@ class TestFunctionalCorrectness:
 
     def test_absolute_vs_normalized_consistency(self):
         """Test that absolute and normalized counts are consistent."""
-        arr = pd.Series(['a'] * 6 + ['b'] * 4)  # Total = 10
+        arr = pd.Series(["a"] * 6 + ["b"] * 4)  # Total = 10
 
         # Absolute counts
-        result_abs = compute_countaggs(arr, counts_normalize=False, counts_compute_numaggs=False,
-                                       counts_top_n=2, counts_return_top_values=False)
+        result_abs = compute_countaggs(arr, counts_normalize=False, counts_compute_numaggs=False, counts_top_n=2, counts_return_top_values=False)
 
         # Normalized counts
-        result_norm = compute_countaggs(arr, counts_normalize=True, counts_compute_numaggs=False,
-                                        counts_top_n=2, counts_return_top_values=False)
+        result_norm = compute_countaggs(arr, counts_normalize=True, counts_compute_numaggs=False, counts_top_n=2, counts_return_top_values=False)
 
         # Absolute: [6, 4] and Normalized: [0.6, 0.4]
         assert result_abs[0] == 6
@@ -611,15 +582,13 @@ class TestFunctionalCorrectness:
     def test_min_max_of_counts(self):
         """Test min/max of counts are correct."""
         # Distribution: a=5, b=3, c=2, d=1
-        arr = pd.Series(['a'] * 5 + ['b'] * 3 + ['c'] * 2 + ['d'] * 1)
-        result = compute_countaggs(arr, counts_normalize=False, counts_compute_numaggs=True,
-                                   counts_top_n=0)
-        names = get_countaggs_names(counts_normalize=False, counts_compute_numaggs=True,
-                                    counts_top_n=0)
+        arr = pd.Series(["a"] * 5 + ["b"] * 3 + ["c"] * 2 + ["d"] * 1)
+        result = compute_countaggs(arr, counts_normalize=False, counts_compute_numaggs=True, counts_top_n=0)
+        names = get_countaggs_names(counts_normalize=False, counts_compute_numaggs=True, counts_top_n=0)
 
         # Find min and max
-        min_idx = names.index('min_cnt')
-        max_idx = names.index('max_cnt')
+        min_idx = names.index("min_cnt")
+        max_idx = names.index("max_cnt")
 
         assert result[min_idx] == 1  # 'd' count
         assert result[max_idx] == 5  # 'a' count

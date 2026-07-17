@@ -11,10 +11,11 @@ selection.filters``) so they keep working through the move etapes via the
 ``__init__.py`` re-exports. Tests added here for functions that DON'T appear
 in ``__init__.py`` use ``pytest.importorskip`` patterns where appropriate.
 """
+
 from __future__ import annotations
 
 import math
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
 import numpy as np
 import pandas as pd
@@ -82,7 +83,7 @@ class TestMiDirect:
         return a, b, factors, nbins
 
     def test_mi_direct_dependent_returns_positive(self, factor_data):
-        a, b, factors, nbins = factor_data
+        _a, _b, factors, nbins = factor_data
         original_mi, conf = mi_direct(
             factors_data=factors,
             x=(0,),
@@ -116,7 +117,7 @@ class TestMiDirect:
     def test_mi_direct_npermutations_zero_returns_confidence_zero(self, factor_data):
         """Calls with ``npermutations=0`` must not crash. After B22 the caller
         path also returns confidence=0 cleanly."""
-        a, b, factors, nbins = factor_data
+        _a, _b, factors, nbins = factor_data
         original_mi, conf = mi_direct(
             factors_data=factors,
             x=(0,),
@@ -349,7 +350,7 @@ class TestMrmrPickle:
     def test_unfitted_pickle_round_trip(self):
         m = MRMR(quantization_nbins=8, n_jobs=1, verbose=0)
         blob = pickle.dumps(m)
-        m2 = pickle.loads(blob)
+        m2 = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
         assert m2.quantization_nbins == 8
 
     def test_fitted_pickle_round_trip_smoke(self):
@@ -368,7 +369,7 @@ class TestMrmrPickle:
         m.fit(X, y)
         support_before = m.support_.copy()
         blob = pickle.dumps(m)
-        m2 = pickle.loads(blob)
+        m2 = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
         np.testing.assert_array_equal(m2.support_, support_before)
 
 

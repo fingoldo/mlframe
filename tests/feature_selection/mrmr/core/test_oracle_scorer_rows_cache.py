@@ -2,6 +2,7 @@
 parquet history on EVERY call. Adds a (store_path, mtime)-keyed cache (_cached_read_rows) so repeated
 recommend_scorer calls between oracle writes reuse the parsed rows instead of re-reading the file.
 """
+
 from __future__ import annotations
 
 import os
@@ -10,7 +11,6 @@ from unittest import mock
 
 import numpy as np
 import pandas as pd
-import pytest
 
 
 def _make_selector(store_dir):
@@ -24,7 +24,7 @@ def test_cached_read_rows_hits_cache_between_writes():
     from mlframe.feature_selection.filters._oracle_scorer_select import _cached_read_rows, _ROWS_CACHE
 
     with tempfile.TemporaryDirectory() as d:
-        selector, store_path = _make_selector(d)
+        selector, _store_path = _make_selector(d)
         _ROWS_CACHE.clear()
 
         real_read_rows = selector.oracle.store.read_rows
@@ -49,7 +49,7 @@ def test_cached_read_rows_invalidates_on_write():
     from mlframe.feature_selection.filters._oracle_scorer_select import _cached_read_rows, _ROWS_CACHE
 
     with tempfile.TemporaryDirectory() as d:
-        selector, store_path = _make_selector(d)
+        selector, _store_path = _make_selector(d)
         _ROWS_CACHE.clear()
 
         rows_before = _cached_read_rows(selector.oracle.store)
@@ -57,13 +57,20 @@ def test_cached_read_rows_invalidates_on_write():
 
         # Write one observation row via the real store API (append), which creates/updates the file
         # and therefore its mtime -- this must be visible on the NEXT _cached_read_rows call.
-        selector.oracle.store.append([
-            {
-                "schema_version": 1, "fn_name": "orth_scorer_select", "host": "test-host",
-                "fp_bucket_json": "{}", "param_combo_json": '{"scorer": "hsic"}',
-                "objective_json": '{"quality": 1.0}', "n_obs": 1, "ts": "2026-01-01T00:00:00+00:00",
-            }
-        ])
+        selector.oracle.store.append(
+            [
+                {
+                    "schema_version": 1,
+                    "fn_name": "orth_scorer_select",
+                    "host": "test-host",
+                    "fp_bucket_json": "{}",
+                    "param_combo_json": '{"scorer": "hsic"}',
+                    "objective_json": '{"quality": 1.0}',
+                    "n_obs": 1,
+                    "ts": "2026-01-01T00:00:00+00:00",
+                }
+            ]
+        )
 
         rows_after = _cached_read_rows(selector.oracle.store)
         assert len(rows_after) == 1, "cache must observe the new row after a write changed the store's mtime"
@@ -76,7 +83,7 @@ def test_recommend_scorer_unaffected_by_caching():
     from mlframe.feature_selection.filters._oracle_scorer_select import _ROWS_CACHE
 
     with tempfile.TemporaryDirectory() as d:
-        selector, store_path = _make_selector(d)
+        selector, _store_path = _make_selector(d)
         _ROWS_CACHE.clear()
 
         rng = np.random.default_rng(0)

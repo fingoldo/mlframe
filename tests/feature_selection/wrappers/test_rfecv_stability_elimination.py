@@ -4,6 +4,7 @@ Covers the aggregator (aggregate_stability) happy/edge paths, the get_next_featu
 wiring, and the RFECV constructor validation. biz_value win lives in
 test_biz_val_wrappers_rfecv_stability.py.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -52,12 +53,19 @@ def test_get_next_features_subset_stability_path():
     }
     scores_mean = {0: 0.5, 4: 0.7}  # so remaining includes some N; pick exhaustive
     out = get_next_features_subset(
-        nsteps=1, original_features=[0, 1, 2, 3], feature_importances=fi,
-        evaluated_scores_mean=scores_mean, evaluated_scores_std={},
-        use_all_fi_runs=True, use_last_fi_run_only=False, use_one_freshest_fi_run=False,
-        use_fi_ranking=True, top_predictors_search_method=OptimumSearch.ExhaustiveDichotomic,
+        nsteps=1,
+        original_features=[0, 1, 2, 3],
+        feature_importances=fi,
+        evaluated_scores_mean=scores_mean,
+        evaluated_scores_std={},
+        use_all_fi_runs=True,
+        use_last_fi_run_only=False,
+        use_one_freshest_fi_run=False,
+        use_fi_ranking=True,
+        top_predictors_search_method=OptimumSearch.ExhaustiveDichotomic,
         votes_aggregation_method=VotesAggregation.Borda,
-        rng=np.random.default_rng(0), elimination_rule="stability",
+        rng=np.random.default_rng(0),
+        elimination_rule="stability",
     )
     assert isinstance(out, list)
     # feature 0 (always top) must survive; feature 2 (one-fold spike) should be
@@ -67,6 +75,7 @@ def test_get_next_features_subset_stability_path():
 
 def test_rfecv_constructor_validates_elimination_rule():
     from sklearn.ensemble import RandomForestClassifier
+
     with pytest.raises(ValueError, match="elimination_rule"):
         RFECV(estimator=RandomForestClassifier(), elimination_rule="bogus")
     # valid values accepted.
@@ -76,5 +85,6 @@ def test_rfecv_constructor_validates_elimination_rule():
 
 def test_rfecv_default_elimination_rule_is_importance():
     from sklearn.ensemble import RandomForestClassifier
+
     r = RFECV(estimator=RandomForestClassifier())
     assert getattr(r, "elimination_rule", "importance") == "importance"

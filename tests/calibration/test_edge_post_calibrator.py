@@ -5,6 +5,7 @@ uniform interface: fit-time metadata, 1D<->2D reshaping, output clipping, the
 transform->predict method fallback, empty / NaN inputs, the ``Top``-prefix 2D routing,
 and the venn-abers lazy-import-absent dispatch.
 """
+
 from __future__ import annotations
 
 import numpy as np

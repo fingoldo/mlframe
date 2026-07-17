@@ -8,6 +8,7 @@ and predict-time sympy mapping completeness.
 Behavioural assertions only -- no inspect.getsource() probes (per
 feedback_behavioral_tests memory rule).
 """
+
 from __future__ import annotations
 
 import os
@@ -22,6 +23,7 @@ import pytest
 
 def test_valid_presets_exposes_three_names():
     from mlframe.feature_engineering.pysr_operators import VALID_PRESETS
+
     assert set(VALID_PRESETS) == {"minimal", "standard", "physics"}
 
 
@@ -30,6 +32,7 @@ def test_get_preset_kwargs_returns_expected_keys(preset):
     """Every preset must populate the five PySR-splattable kwargs."""
     pytest.importorskip("sympy")
     from mlframe.feature_engineering.pysr_operators import get_preset_kwargs
+
     kw = get_preset_kwargs(preset)
     assert set(kw) == {
         "binary_operators",
@@ -52,6 +55,7 @@ def test_minimal_preset_uses_safe_log_not_raw_log():
     """
     pytest.importorskip("sympy")
     from mlframe.feature_engineering.pysr_operators import get_preset_kwargs
+
     kw = get_preset_kwargs("minimal")
     unary_text = " ".join(kw["unary_operators"])
     assert "safe_log" in unary_text
@@ -65,6 +69,7 @@ def test_standard_preset_includes_tabular_fe_operators():
     """
     pytest.importorskip("sympy")
     from mlframe.feature_engineering.pysr_operators import get_preset_kwargs
+
     kw = get_preset_kwargs("standard")
     binary_set = set(kw["binary_operators"])
     assert {"-", "/", "max", "min"}.issubset(binary_set)
@@ -76,6 +81,7 @@ def test_standard_preset_includes_tabular_fe_operators():
 def test_physics_preset_includes_trig_and_power():
     pytest.importorskip("sympy")
     from mlframe.feature_engineering.pysr_operators import get_preset_kwargs
+
     kw = get_preset_kwargs("physics")
     unary_text = " ".join(kw["unary_operators"])
     for op_name in ("sin", "cos", "tan", "exp", "square", "cube"):
@@ -85,6 +91,7 @@ def test_physics_preset_includes_trig_and_power():
 
 def test_unknown_preset_raises():
     from mlframe.feature_engineering.pysr_operators import get_preset_kwargs
+
     with pytest.raises(ValueError, match="Unknown pysr_operator_preset"):
         get_preset_kwargs("turbo-mega-extreme")
 
@@ -95,11 +102,10 @@ def test_complexity_dict_values_are_positive_ints(preset):
     floats with cryptic Julia errors. Catch typos in the preset definitions.
     """
     from mlframe.feature_engineering.pysr_operators import _complexity_for_preset
+
     comp = _complexity_for_preset(preset)
     for op_name, weight in comp.items():
-        assert isinstance(weight, int) and weight >= 1, (
-            f"{preset}: complexity[{op_name!r}]={weight!r} must be int >= 1"
-        )
+        assert isinstance(weight, int) and weight >= 1, f"{preset}: complexity[{op_name!r}]={weight!r} must be int >= 1"
 
 
 @pytest.mark.parametrize("preset", ["minimal", "standard", "physics"])
@@ -108,14 +114,12 @@ def test_nested_constraints_block_self_nesting(preset):
     GA would otherwise waste budget on these trivially-prunable structures.
     """
     from mlframe.feature_engineering.pysr_operators import _nested_constraints_for_preset
+
     nc = _nested_constraints_for_preset(preset)
     # Every operator listed in nested_constraints must forbid itself nested.
     for op_name, inner_constraints in nc.items():
         if op_name in inner_constraints:
-            assert inner_constraints[op_name] == 0, (
-                f"{preset}: {op_name!r} self-nesting should be 0 (blocked), "
-                f"got {inner_constraints[op_name]!r}"
-            )
+            assert inner_constraints[op_name] == 0, f"{preset}: {op_name!r} self-nesting should be 0 (blocked), got {inner_constraints[op_name]!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -125,6 +129,7 @@ def test_nested_constraints_block_self_nesting(preset):
 
 def test_config_accepts_each_valid_preset():
     from mlframe.training.configs import PreprocessingExtensionsConfig
+
     for preset in ("minimal", "standard", "physics"):
         cfg = PreprocessingExtensionsConfig(pysr_enabled=True, pysr_operator_preset=preset)
         assert cfg.pysr_operator_preset == preset
@@ -132,6 +137,7 @@ def test_config_accepts_each_valid_preset():
 
 def test_config_rejects_unknown_preset():
     from mlframe.training.configs import PreprocessingExtensionsConfig
+
     with pytest.raises(ValueError, match="pysr_operator_preset must be one of"):
         PreprocessingExtensionsConfig(pysr_enabled=True, pysr_operator_preset="bogus")
 
@@ -142,6 +148,7 @@ def test_config_preset_default_is_none():
     default doesn't require config-schema migration.
     """
     from mlframe.training.configs import PreprocessingExtensionsConfig
+
     cfg = PreprocessingExtensionsConfig(pysr_enabled=True)
     assert cfg.pysr_operator_preset is None
 
@@ -161,15 +168,14 @@ def test_maybe_set_pysr_thread_env_sets_both_vars(monkeypatch):
     monkeypatch.delenv("JULIA_NUM_THREADS", raising=False)
 
     from mlframe.training.pipeline import _maybe_set_pysr_thread_env
+
     _maybe_set_pysr_thread_env()
 
     assert os.environ.get("PYTHON_JULIACALL_THREADS") == "auto", (
         "PYTHON_JULIACALL_THREADS must be the literal 'auto' so PySR's juliacall sets the "
         "actual thread count itself; numeric values block PySR's own auto-setup"
     )
-    assert os.environ.get("JULIA_NUM_THREADS") is not None, (
-        "JULIA_NUM_THREADS not set -- legacy Julia start path will run single-threaded"
-    )
+    assert os.environ.get("JULIA_NUM_THREADS") is not None, "JULIA_NUM_THREADS not set -- legacy Julia start path will run single-threaded"
     # JULIA_NUM_THREADS is numeric. At least 2 threads on any machine with >= 4 cores.
     if (os.cpu_count() or 0) >= 4:
         assert int(os.environ["JULIA_NUM_THREADS"]) >= 2
@@ -183,6 +189,7 @@ def test_maybe_set_pysr_thread_env_respects_pre_set_values(monkeypatch):
     monkeypatch.setenv("PYTHON_JULIACALL_THREADS", "4")
     monkeypatch.setenv("JULIA_NUM_THREADS", "4")
     from mlframe.training.pipeline import _maybe_set_pysr_thread_env
+
     _maybe_set_pysr_thread_env()
     assert os.environ["PYTHON_JULIACALL_THREADS"] == "4"
     assert os.environ["JULIA_NUM_THREADS"] == "4"
@@ -203,12 +210,10 @@ def test_extra_sympy_mappings_cover_every_custom_unary():
         OPERATOR_JULIA_SIGNATURES,
         _make_extra_sympy_mappings,
     )
+
     mappings = _make_extra_sympy_mappings()
     for op_name in OPERATOR_JULIA_SIGNATURES:
-        assert op_name in mappings, (
-            f"{op_name!r} declared in OPERATOR_JULIA_SIGNATURES but has no sympy mapping; "
-            f"predict-time equation replay will fail."
-        )
+        assert op_name in mappings, f"{op_name!r} declared in OPERATOR_JULIA_SIGNATURES but has no sympy mapping; predict-time equation replay will fail."
 
 
 def test_safe_log_sympy_mapping_handles_zero_without_inf():
@@ -227,21 +232,16 @@ def test_safe_log_sympy_mapping_handles_zero_without_inf():
     import math
     import sympy as sp
     from mlframe.feature_engineering.pysr_operators import _make_extra_sympy_mappings
+
     mappings = _make_extra_sympy_mappings()
     safe_log = mappings["safe_log"]
     x = sp.Symbol("x")
     # sympy's ``sp.nan`` -> Python float NaN under float().
     val_at_zero = float(safe_log(x).subs(x, 0))
-    assert math.isnan(val_at_zero), (
-        f"safe_log(0) must be NaN to match Julia training-time semantics; got {val_at_zero!r}"
-    )
+    assert math.isnan(val_at_zero), f"safe_log(0) must be NaN to match Julia training-time semantics; got {val_at_zero!r}"
     # Negative input -> NaN too (same Julia branch).
     val_at_negative = float(safe_log(x).subs(x, -1))
-    assert math.isnan(val_at_negative), (
-        f"safe_log(-1) must be NaN; got {val_at_negative!r}"
-    )
+    assert math.isnan(val_at_negative), f"safe_log(-1) must be NaN; got {val_at_negative!r}"
     # Positive input -> log(x) finite. log(E) == 1.
     val_at_positive = float(safe_log(x).subs(x, sp.E))
-    assert val_at_positive == pytest.approx(1.0, abs=1e-9), (
-        f"safe_log(E) must be 1.0; got {val_at_positive!r}"
-    )
+    assert val_at_positive == pytest.approx(1.0, abs=1e-9), f"safe_log(E) must be 1.0; got {val_at_positive!r}"

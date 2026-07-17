@@ -15,6 +15,7 @@ Two sets of experiments:
 
 Time budget: ~10-15 minutes on a 16-core CPU box.
 """
+
 from __future__ import annotations
 
 import time
@@ -158,13 +159,15 @@ def _aggressive_gc_between_tests():
     forcing two full GC cycles between tests reclaims most of it.
     """
     import gc
+
     gc.collect()
     yield
     gc.collect()
     try:
         from mlframe.feature_engineering.transformer._utils import free_gpu_memory_pool
+
         free_gpu_memory_pool()
-    except Exception:
+    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
         pass
     gc.collect()
 
@@ -175,6 +178,7 @@ def _aggressive_gc_between_tests():
 def _load_california() -> Tuple[np.ndarray, np.ndarray, str]:
     """California Housing: ~20640 rows, 8 numeric features, regression target (median house value)."""
     from sklearn.datasets import fetch_california_housing
+
     d = fetch_california_housing()
     return d.data.astype(np.float32), d.target.astype(np.float32), "regression"
 
@@ -185,12 +189,14 @@ def _load_adult() -> Tuple[np.ndarray, np.ndarray, str]:
     Cached after first download (sklearn fetch_openml caches under ~/.cache/scikit_learn/).
     """
     from sklearn.datasets import fetch_openml
+
     bunch = fetch_openml(name="adult", version=2, as_frame=True, parser="auto")
     df = bunch.frame.dropna()
     target_col = bunch.target_names[0] if isinstance(bunch.target_names, list) else "class"
     y_raw = df[target_col]
     X_df = df.drop(columns=[target_col])
     import pandas as pd
+
     X_encoded = pd.get_dummies(X_df, drop_first=True, dtype=np.float32)
     if X_encoded.shape[1] > 50:
         col_nonzero = (X_encoded != 0).sum(axis=0).sort_values(ascending=False)
@@ -204,6 +210,7 @@ def _load_adult() -> Tuple[np.ndarray, np.ndarray, str]:
 def _load_phoneme() -> Tuple[np.ndarray, np.ndarray, str]:
     """OpenML phoneme: 5404 rows, 5 numeric features, binary classification (nasal vs oral phoneme). Known cluster structure - good kNN-encoding target."""
     from sklearn.datasets import fetch_openml
+
     bunch = fetch_openml(name="phoneme", version=1, as_frame=True, parser="auto")
     X = bunch.data.to_numpy(dtype=np.float32)
     target = bunch.target.astype(str)
@@ -216,6 +223,7 @@ def _load_electricity() -> Tuple[np.ndarray, np.ndarray, str]:
     """OpenML electricity: 45312 rows, 8 features (date, day, period, prices, transfer), binary (price UP vs DOWN). Strong temporal autocorrelation - similar
     rows in feature space tend to share label, ideal kNN-aggregation case."""
     from sklearn.datasets import fetch_openml
+
     bunch = fetch_openml(name="electricity", version=1, as_frame=True, parser="auto")
     df = bunch.frame.dropna()
     # Drop non-numeric "day" column if present, otherwise factorize it.
@@ -233,6 +241,7 @@ def _load_electricity() -> Tuple[np.ndarray, np.ndarray, str]:
 def _load_kin8nm() -> Tuple[np.ndarray, np.ndarray, str]:
     """OpenML kin8nm: 8192 rows, 8 features, regression target (robot arm distance). Highly smooth manifold structure - good kNN-aggregation target for regression."""
     from sklearn.datasets import fetch_openml
+
     bunch = fetch_openml(name="kin8nm", version=1, as_frame=True, parser="auto")
     X = bunch.data.to_numpy(dtype=np.float32)
     y = bunch.target.to_numpy(dtype=np.float32)
@@ -242,6 +251,7 @@ def _load_kin8nm() -> Tuple[np.ndarray, np.ndarray, str]:
 def _load_elevators() -> Tuple[np.ndarray, np.ndarray, str]:
     """OpenML elevators: ~16k rows, 18 features, regression on aircraft elevator control. Established regression benchmark with smooth signal."""
     from sklearn.datasets import fetch_openml
+
     bunch = fetch_openml(name="elevators", version=1, as_frame=True, parser="auto")
     X = bunch.data.to_numpy(dtype=np.float32)
     y = bunch.target.to_numpy(dtype=np.float32)
@@ -251,6 +261,7 @@ def _load_elevators() -> Tuple[np.ndarray, np.ndarray, str]:
 def _load_pol() -> Tuple[np.ndarray, np.ndarray, str]:
     """OpenML pol: 15000 rows, 48 features, regression on telecommunications data. Often listed as kNN-friendly in benchmark studies."""
     from sklearn.datasets import fetch_openml
+
     bunch = fetch_openml(name="pol", version=1, as_frame=True, parser="auto")
     X = bunch.data.to_numpy(dtype=np.float32)
     y = bunch.target.to_numpy(dtype=np.float32)
@@ -260,6 +271,7 @@ def _load_pol() -> Tuple[np.ndarray, np.ndarray, str]:
 def _load_cpu_act() -> Tuple[np.ndarray, np.ndarray, str]:
     """OpenML cpu_act: 8192 rows, 21 features, regression on CPU activity. Smooth physical-system target."""
     from sklearn.datasets import fetch_openml
+
     bunch = fetch_openml(name="cpu_act", version=1, as_frame=True, parser="auto")
     X = bunch.data.to_numpy(dtype=np.float32)
     y = bunch.target.to_numpy(dtype=np.float32)
@@ -269,6 +281,7 @@ def _load_cpu_act() -> Tuple[np.ndarray, np.ndarray, str]:
 def _load_bank32nh() -> Tuple[np.ndarray, np.ndarray, str]:
     """OpenML bank32nh: ~8200 rows, 32 features, regression. Financial 'simulated bank queuing' dataset."""
     from sklearn.datasets import fetch_openml
+
     bunch = fetch_openml(name="bank32nh", version=1, as_frame=True, parser="auto")
     X = bunch.data.to_numpy(dtype=np.float32)
     y = bunch.target.to_numpy(dtype=np.float32)
@@ -278,6 +291,7 @@ def _load_bank32nh() -> Tuple[np.ndarray, np.ndarray, str]:
 def _load_puma32H() -> Tuple[np.ndarray, np.ndarray, str]:
     """OpenML puma32H: 8192 rows, 32 features, regression on robot arm dynamics. Smooth manifold like kin8nm but wider."""
     from sklearn.datasets import fetch_openml
+
     bunch = fetch_openml(name="puma32H", version=1, as_frame=True, parser="auto")
     X = bunch.data.to_numpy(dtype=np.float32)
     y = bunch.target.to_numpy(dtype=np.float32)
@@ -287,6 +301,7 @@ def _load_puma32H() -> Tuple[np.ndarray, np.ndarray, str]:
 def _load_delta_ailerons() -> Tuple[np.ndarray, np.ndarray, str]:
     """OpenML delta_ailerons: 7129 rows, 5 features, regression on aircraft control surface dynamics. Very smooth target."""
     from sklearn.datasets import fetch_openml
+
     bunch = fetch_openml(name="delta_ailerons", version=1, as_frame=True, parser="auto")
     X = bunch.data.to_numpy(dtype=np.float32)
     y = bunch.target.to_numpy(dtype=np.float32)
@@ -296,6 +311,7 @@ def _load_delta_ailerons() -> Tuple[np.ndarray, np.ndarray, str]:
 def _load_bank8FM() -> Tuple[np.ndarray, np.ndarray, str]:
     """OpenML bank8FM: ~8192 rows, 8 features, regression (banking simulation, smooth target)."""
     from sklearn.datasets import fetch_openml
+
     bunch = fetch_openml(name="bank8FM", version=1, as_frame=True, parser="auto")
     X = bunch.data.to_numpy(dtype=np.float32)
     y = bunch.target.to_numpy(dtype=np.float32)
@@ -305,6 +321,7 @@ def _load_bank8FM() -> Tuple[np.ndarray, np.ndarray, str]:
 def _load_house_8L() -> Tuple[np.ndarray, np.ndarray, str]:
     """OpenML house_8L: ~22k rows, 8 features, regression on housing prices (smooth target, low correlation with raw features)."""
     from sklearn.datasets import fetch_openml
+
     bunch = fetch_openml(name="house_8L", version=1, as_frame=True, parser="auto")
     X = bunch.data.to_numpy(dtype=np.float32)
     y = bunch.target.to_numpy(dtype=np.float32)
@@ -314,6 +331,7 @@ def _load_house_8L() -> Tuple[np.ndarray, np.ndarray, str]:
 def _load_pumadyn_8nh() -> Tuple[np.ndarray, np.ndarray, str]:
     """OpenML pumadyn-8nh: pumadyn 8-input nonlinear high-noise variant. Similar physics to kin8nm but harder."""
     from sklearn.datasets import fetch_openml
+
     bunch = fetch_openml(name="pumadyn-8nh", version=1, as_frame=True, parser="auto")
     X = bunch.data.to_numpy(dtype=np.float32)
     y = bunch.target.to_numpy(dtype=np.float32)
@@ -323,6 +341,7 @@ def _load_pumadyn_8nh() -> Tuple[np.ndarray, np.ndarray, str]:
 def _load_house_16H() -> Tuple[np.ndarray, np.ndarray, str]:
     """OpenML house_16H: 22784 rows, 16 features, regression on housing prices."""
     from sklearn.datasets import fetch_openml
+
     bunch = fetch_openml(name="house_16H", version=1, as_frame=True, parser="auto")
     X = bunch.data.to_numpy(dtype=np.float32)
     y = bunch.target.to_numpy(dtype=np.float32)
@@ -332,6 +351,7 @@ def _load_house_16H() -> Tuple[np.ndarray, np.ndarray, str]:
 def _load_wind() -> Tuple[np.ndarray, np.ndarray, str]:
     """OpenML wind: 6574 rows, 14 features, regression on wind speed."""
     from sklearn.datasets import fetch_openml
+
     bunch = fetch_openml(name="wind", version=2, as_frame=True, parser="auto")
     df = bunch.frame
     target_col = bunch.target.name if hasattr(bunch.target, "name") else df.columns[-1]
@@ -343,6 +363,7 @@ def _load_wind() -> Tuple[np.ndarray, np.ndarray, str]:
 def _load_mv() -> Tuple[np.ndarray, np.ndarray, str]:
     """OpenML mv: 40768 rows, 10 features, synthetic regression with very smooth nonlinear target (Friedman-style)."""
     from sklearn.datasets import fetch_openml
+
     bunch = fetch_openml(name="mv", version=1, as_frame=True, parser="auto")
     df = bunch.frame
     # Drop categorical columns if any.
@@ -356,6 +377,7 @@ def _load_mv() -> Tuple[np.ndarray, np.ndarray, str]:
 def _load_spambase() -> Tuple[np.ndarray, np.ndarray, str]:
     """UCI spambase: 4601 rows, 57 features, binary spam classification."""
     from sklearn.datasets import fetch_openml
+
     bunch = fetch_openml(name="spambase", version=1, as_frame=True, parser="auto")
     X = bunch.data.to_numpy(dtype=np.float32)
     y = bunch.target.astype(int).astype(np.float32).to_numpy()
@@ -365,9 +387,11 @@ def _load_spambase() -> Tuple[np.ndarray, np.ndarray, str]:
 def _load_bank_marketing() -> Tuple[np.ndarray, np.ndarray, str]:
     """OpenML bank-marketing: ~45k rows, ~16 features, binary classification on subscription. Mostly categorical."""
     from sklearn.datasets import fetch_openml
+
     bunch = fetch_openml(name="bank-marketing", version=1, as_frame=True, parser="auto")
     df = bunch.frame.dropna()
     import pandas as pd
+
     target_col = bunch.target_names[0] if isinstance(bunch.target_names, list) else df.columns[-1]
     y_raw = df[target_col]
     X_df = df.drop(columns=[target_col])
@@ -384,6 +408,7 @@ def _load_bank_marketing() -> Tuple[np.ndarray, np.ndarray, str]:
 def _load_qsar_biodeg() -> Tuple[np.ndarray, np.ndarray, str]:
     """OpenML qsar-biodeg: 1055 rows, 41 chemistry features, binary classification on biodegradability. Smooth chemical features."""
     from sklearn.datasets import fetch_openml
+
     bunch = fetch_openml(name="qsar-biodeg", version=1, as_frame=True, parser="auto")
     X = bunch.data.to_numpy(dtype=np.float32)
     target = bunch.target.astype(str).to_numpy()
@@ -394,9 +419,11 @@ def _load_qsar_biodeg() -> Tuple[np.ndarray, np.ndarray, str]:
 def _load_credit_g() -> Tuple[np.ndarray, np.ndarray, str]:
     """OpenML credit-g (German Credit): 1000 rows, 20 features (mixed), binary classification on credit risk. Boostings typically AUC 0.75-0.80."""
     from sklearn.datasets import fetch_openml
+
     bunch = fetch_openml(name="credit-g", version=1, as_frame=True, parser="auto")
     df = bunch.frame.dropna()
     import pandas as pd
+
     target_col = bunch.target_names[0] if isinstance(bunch.target_names, list) else "class"
     y_raw = df[target_col]
     X_df = df.drop(columns=[target_col])
@@ -409,12 +436,14 @@ def _load_credit_g() -> Tuple[np.ndarray, np.ndarray, str]:
 def _load_steel_plates() -> Tuple[np.ndarray, np.ndarray, str]:
     """OpenML steel_plates_fault: 1941 rows, 27 features, binary classification on steel defect. Industrial signal, raw AUC ~0.85-0.90."""
     from sklearn.datasets import fetch_openml
+
     bunch = fetch_openml(name="steel-plates-fault", version=3, as_frame=True, parser="auto")
     df = bunch.frame
     target_col = bunch.target_names[0] if isinstance(bunch.target_names, list) else df.columns[-1]
     y_raw = df[target_col]
     X_df = df.drop(columns=[target_col])
     import pandas as pd
+
     X_encoded = pd.get_dummies(X_df, drop_first=True, dtype=np.float32) if any(X_df.dtypes == "object") else X_df
     X = X_encoded.to_numpy(dtype=np.float32) if not isinstance(X_encoded, np.ndarray) else X_encoded
     target_values = y_raw.astype(str).to_numpy()
@@ -425,9 +454,11 @@ def _load_steel_plates() -> Tuple[np.ndarray, np.ndarray, str]:
 def _load_churn() -> Tuple[np.ndarray, np.ndarray, str]:
     """OpenML churn: 5000 rows, 20 features, binary churn prediction. Telecom data, raw AUC typically 0.85-0.92."""
     from sklearn.datasets import fetch_openml
+
     bunch = fetch_openml(name="churn", version=1, as_frame=True, parser="auto")
     df = bunch.frame.dropna()
     import pandas as pd
+
     target_col = bunch.target_names[0] if isinstance(bunch.target_names, list) else df.columns[-1]
     y_raw = df[target_col]
     X_df = df.drop(columns=[target_col])
@@ -441,6 +472,7 @@ def _load_churn() -> Tuple[np.ndarray, np.ndarray, str]:
 def _load_mammography() -> Tuple[np.ndarray, np.ndarray, str]:
     """OpenML mammography: 11183 rows, 6 features, binary classification (imbalanced - ~2% positive). Very different from diabetes; tests if mechanisms generalise to imbalance."""
     from sklearn.datasets import fetch_openml
+
     bunch = fetch_openml(name="mammography", version=1, as_frame=True, parser="auto")
     X = bunch.data.to_numpy(dtype=np.float32)
     target = bunch.target.astype(str)
@@ -453,6 +485,7 @@ def _load_mammography() -> Tuple[np.ndarray, np.ndarray, str]:
 def _load_breast_cancer_wdbc() -> Tuple[np.ndarray, np.ndarray, str]:
     """sklearn breast_cancer: 569 rows, 30 features, binary classification. Small but smooth signal."""
     from sklearn.datasets import load_breast_cancer
+
     bunch = load_breast_cancer()
     X = bunch.data.astype(np.float32)
     y = bunch.target.astype(np.float32)
@@ -466,6 +499,7 @@ def _load_friedman1() -> Tuple[np.ndarray, np.ndarray, str]:
     sin(X0*X1) interaction; RFF / kernel features should win here.
     """
     from sklearn.datasets import make_friedman1
+
     X, y = make_friedman1(n_samples=4000, n_features=10, noise=1.0, random_state=42)
     return X.astype(np.float32), y.astype(np.float32), "regression"
 
@@ -473,6 +507,7 @@ def _load_friedman1() -> Tuple[np.ndarray, np.ndarray, str]:
 def _load_friedman2() -> Tuple[np.ndarray, np.ndarray, str]:
     """Friedman2 synthetic: ``y = sqrt(X0^2 + (X1*X2 - 1/(X1*X3))^2) + noise``. 4 features, smooth highly-nonlinear target."""
     from sklearn.datasets import make_friedman2
+
     X, y = make_friedman2(n_samples=4000, noise=1.0, random_state=42)
     return X.astype(np.float32), y.astype(np.float32), "regression"
 
@@ -480,6 +515,7 @@ def _load_friedman2() -> Tuple[np.ndarray, np.ndarray, str]:
 def _load_friedman3() -> Tuple[np.ndarray, np.ndarray, str]:
     """Friedman3 synthetic: ``y = atan((X1*X2 - 1/(X1*X3))/X0) + noise``. 4 features, smooth target."""
     from sklearn.datasets import make_friedman3
+
     X, y = make_friedman3(n_samples=4000, noise=0.1, random_state=42)
     return X.astype(np.float32), y.astype(np.float32), "regression"
 
@@ -487,6 +523,7 @@ def _load_friedman3() -> Tuple[np.ndarray, np.ndarray, str]:
 def _load_wine_quality_red() -> Tuple[np.ndarray, np.ndarray, str]:
     """OpenML wine_quality_red: 1599 rows, 11 features, regression on wine quality score 0-10. Boostings typically R²~0.45 — far from ceiling."""
     from sklearn.datasets import fetch_openml
+
     bunch = fetch_openml(name="wine-quality-red", version=1, as_frame=True, parser="auto")
     df = bunch.frame
     target_col = "class" if "class" in df.columns else df.columns[-1]
@@ -498,6 +535,7 @@ def _load_wine_quality_red() -> Tuple[np.ndarray, np.ndarray, str]:
 def _load_concrete() -> Tuple[np.ndarray, np.ndarray, str]:
     """Concrete Compressive Strength: 1030 rows, 8 features, regression on concrete strength. Boostings typically R²~0.85."""
     from sklearn.datasets import fetch_openml
+
     bunch = fetch_openml(data_id=4353, as_frame=True, parser="auto")
     df = bunch.frame
     target_col = df.columns[-1]
@@ -509,6 +547,7 @@ def _load_concrete() -> Tuple[np.ndarray, np.ndarray, str]:
 def _load_energy_efficiency() -> Tuple[np.ndarray, np.ndarray, str]:
     """Energy Efficiency: 768 rows, 8 features, regression on heating load. Building physics."""
     from sklearn.datasets import fetch_openml
+
     bunch = fetch_openml(name="energy_efficiency", version=1, as_frame=True, parser="auto")
     df = bunch.frame.dropna()
     target_col = "Y1" if "Y1" in df.columns else df.columns[-2]
@@ -522,6 +561,7 @@ def _load_energy_efficiency() -> Tuple[np.ndarray, np.ndarray, str]:
 def _load_compactiv() -> Tuple[np.ndarray, np.ndarray, str]:
     """OpenML compactiv: 8192 rows, 21 features, regression. CPU activity dataset, similar to cpu_act but smoother."""
     from sklearn.datasets import fetch_openml
+
     bunch = fetch_openml(name="compactiv", version=1, as_frame=True, parser="auto")
     X = bunch.data.to_numpy(dtype=np.float32)
     y = bunch.target.to_numpy(dtype=np.float32)
@@ -531,6 +571,7 @@ def _load_compactiv() -> Tuple[np.ndarray, np.ndarray, str]:
 def _load_kin32fh() -> Tuple[np.ndarray, np.ndarray, str]:
     """OpenML kin32fh: kin family 32-feature far high-noise variant. Similar physics to kin8nm but more features and harder."""
     from sklearn.datasets import fetch_openml
+
     bunch = fetch_openml(name="kin32fh", version=1, as_frame=True, parser="auto")
     X = bunch.data.to_numpy(dtype=np.float32)
     y = bunch.target.to_numpy(dtype=np.float32)
@@ -540,6 +581,7 @@ def _load_kin32fh() -> Tuple[np.ndarray, np.ndarray, str]:
 def _load_bodyfat() -> Tuple[np.ndarray, np.ndarray, str]:
     """OpenML bodyfat: 252 rows, 14 features, regression on body fat percentage. Small but smooth physiological signal."""
     from sklearn.datasets import fetch_openml
+
     bunch = fetch_openml(name="bodyfat", version=1, as_frame=True, parser="auto")
     X = bunch.data.to_numpy(dtype=np.float32)
     y = bunch.target.to_numpy(dtype=np.float32)
@@ -549,6 +591,7 @@ def _load_bodyfat() -> Tuple[np.ndarray, np.ndarray, str]:
 def _load_abalone() -> Tuple[np.ndarray, np.ndarray, str]:
     """OpenML abalone: ~4177 rows, 8 features, regression on shellfish age."""
     from sklearn.datasets import fetch_openml
+
     bunch = fetch_openml(name="abalone", version=1, as_frame=True, parser="auto")
     df = bunch.frame
     # Drop 'sex' column (categorical M/F/I); regression on rings.
@@ -565,6 +608,7 @@ def _load_abalone() -> Tuple[np.ndarray, np.ndarray, str]:
 def _load_diabetes_classification() -> Tuple[np.ndarray, np.ndarray, str]:
     """OpenML diabetes (Pima Indians): 768 rows, 8 features, binary classification. Small but very well known kNN-friendly classification benchmark."""
     from sklearn.datasets import fetch_openml
+
     bunch = fetch_openml(name="diabetes", version=1, as_frame=True, parser="auto")
     X = bunch.data.to_numpy(dtype=np.float32)
     y = (bunch.target.astype(str) == "tested_positive").astype(np.float32).to_numpy()
@@ -582,7 +626,7 @@ def _make_hard_subspace_synth(n: int = 2000, d: int = 200, d_signal: int = 5, se
     info = rng.standard_normal((d, d_signal)).astype(np.float32)
     info /= np.linalg.norm(info, axis=0, keepdims=True)
     X_proj = X @ info
-    y = (np.sum(X_proj ** 2, axis=1) > np.median(np.sum(X_proj ** 2, axis=1))).astype(np.float32)
+    y = (np.sum(X_proj**2, axis=1) > np.median(np.sum(X_proj**2, axis=1))).astype(np.float32)
     return X, y, "binary"
 
 
@@ -591,6 +635,7 @@ def _make_hard_subspace_synth(n: int = 2000, d: int = 200, d_signal: int = 5, se
 
 def _lgb(task: str):
     import lightgbm as lgb
+
     if task == "regression":
         return lgb.LGBMRegressor(n_estimators=300, learning_rate=0.05, num_leaves=31, min_child_samples=20, random_state=42, verbose=-1, n_jobs=-1)
     return lgb.LGBMClassifier(n_estimators=300, learning_rate=0.05, num_leaves=31, min_child_samples=20, random_state=42, verbose=-1, n_jobs=-1)
@@ -598,6 +643,7 @@ def _lgb(task: str):
 
 def _xgb(task: str):
     import xgboost as xgb
+
     common = dict(n_estimators=300, learning_rate=0.05, max_depth=6, random_state=42, n_jobs=-1, verbosity=0, tree_method="hist")
     if task == "regression":
         return xgb.XGBRegressor(**common)
@@ -606,6 +652,7 @@ def _xgb(task: str):
 
 def _cb(task: str):
     import catboost as cb
+
     # Lower iterations and use bytes_per_feature_pool reduction to keep memory bounded; the matrix runs ~12 CatBoost fits per dataset and the default 300 + per
     # fit allocation hits Windows page-file limits at n=4000+. 200 iters at depth=6 is plenty for the synthetic complexity here; on real data the lift signal
     # comes from learning rate + early stopping not raw iteration count.
@@ -636,14 +683,30 @@ def _features_rowattn(X_tr, X_te, y_tr, task):
     # head_dim auto-shrinks to d_input when input is narrower than 8 (e.g. phoneme has d=5).
     head_dim = min(8, max(2, X_tr.shape[1] - 1))
     rattn_tr = compute_row_attention(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, n_heads=4, head_dim=head_dim, k=32, aggregate=("y_mean", "y_std"),
-        gpu_stage4=False, dedupe_threshold=None,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        n_heads=4,
+        head_dim=head_dim,
+        k=32,
+        aggregate=("y_mean", "y_std"),
+        gpu_stage4=False,
+        dedupe_threshold=None,
     ).to_numpy()
     rattn_te = compute_row_attention(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, n_heads=4, head_dim=head_dim, k=32, aggregate=("y_mean", "y_std"),
-        gpu_stage4=False, dedupe_threshold=None,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        n_heads=4,
+        head_dim=head_dim,
+        k=32,
+        aggregate=("y_mean", "y_std"),
+        gpu_stage4=False,
+        dedupe_threshold=None,
     ).to_numpy()
     return np.concatenate([X_tr, rattn_tr], axis=1), np.concatenate([X_te, rattn_te], axis=1)
 
@@ -651,10 +714,10 @@ def _features_rowattn(X_tr, X_te, y_tr, task):
 def _features_rff_rowattn(X_tr, X_te, y_tr, task):
     tr1, te1 = _features_rff(X_tr, X_te, y_tr, task)
     tr2, te2 = _features_rowattn(X_tr, X_te, y_tr, task)
-    rff_only_tr = tr1[:, X_tr.shape[1]:]
-    rff_only_te = te1[:, X_te.shape[1]:]
-    rattn_only_tr = tr2[:, X_tr.shape[1]:]
-    rattn_only_te = te2[:, X_te.shape[1]:]
+    rff_only_tr = tr1[:, X_tr.shape[1] :]
+    rff_only_te = te1[:, X_te.shape[1] :]
+    rattn_only_tr = tr2[:, X_tr.shape[1] :]
+    rattn_only_te = te2[:, X_te.shape[1] :]
     return (
         np.concatenate([X_tr, rff_only_tr, rattn_only_tr], axis=1),
         np.concatenate([X_te, rff_only_te, rattn_only_te], axis=1),
@@ -666,16 +729,34 @@ def _features_residual(X_tr, X_te, y_tr, task):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     head_dim = min(8, max(2, X_tr.shape[1] - 1))
     res_te = compute_residual_attention(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, task=task, aux_n_estimators=100, aux_max_depth=5,
-        n_heads=4, head_dim=head_dim, k=32,
-        aggregate=("y_mean", "y_std"), projection="pls",
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        task=task,
+        aux_n_estimators=100,
+        aux_max_depth=5,
+        n_heads=4,
+        head_dim=head_dim,
+        k=32,
+        aggregate=("y_mean", "y_std"),
+        projection="pls",
     ).to_numpy()
     res_tr = compute_residual_attention(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, task=task, aux_n_estimators=100, aux_max_depth=5,
-        n_heads=4, head_dim=head_dim, k=32,
-        aggregate=("y_mean", "y_std"), projection="pls",
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        task=task,
+        aux_n_estimators=100,
+        aux_max_depth=5,
+        n_heads=4,
+        head_dim=head_dim,
+        k=32,
+        aggregate=("y_mean", "y_std"),
+        projection="pls",
     ).to_numpy()
     return np.concatenate([X_tr, res_tr], axis=1), np.concatenate([X_te, res_te], axis=1)
 
@@ -685,10 +766,10 @@ def _features_stacked_plus_residual(X_tr, X_te, y_tr, task):
     stk_tr, stk_te = _features_stacked(X_tr, X_te, y_tr, task, n_layers=2, projection="pls")
     res_tr, res_te = _features_residual(X_tr, X_te, y_tr, task)
     # Drop the duplicated raw X (both _features_stacked and _features_residual prepend X).
-    stk_only_tr = stk_tr[:, X_tr.shape[1]:]
-    stk_only_te = stk_te[:, X_te.shape[1]:]
-    res_only_tr = res_tr[:, X_tr.shape[1]:]
-    res_only_te = res_te[:, X_te.shape[1]:]
+    stk_only_tr = stk_tr[:, X_tr.shape[1] :]
+    stk_only_te = stk_te[:, X_te.shape[1] :]
+    res_only_tr = res_tr[:, X_tr.shape[1] :]
+    res_only_te = res_te[:, X_te.shape[1] :]
     return (
         np.concatenate([X_tr, stk_only_tr, res_only_tr], axis=1),
         np.concatenate([X_te, stk_only_te, res_only_te], axis=1),
@@ -701,12 +782,24 @@ def _features_local_linear(X_tr, X_te, y_tr, task):
     # k must exceed d+1; use 32 unless d is very high.
     k = max(32, X_tr.shape[1] + 5)
     out_te = compute_local_linear_attention(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, k=k, return_r2=True, standardize=True,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        k=k,
+        return_r2=True,
+        standardize=True,
     ).to_numpy()
     out_tr = compute_local_linear_attention(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, k=k, return_r2=True, standardize=True,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        k=k,
+        return_r2=True,
+        standardize=True,
     ).to_numpy()
     return np.concatenate([X_tr, out_tr], axis=1), np.concatenate([X_te, out_te], axis=1)
 
@@ -715,10 +808,10 @@ def _features_local_linear_plus_rff(X_tr, X_te, y_tr, task):
     """Iter 7 combo: local linear + RFF (different mechanisms, may be complementary)."""
     rff_tr, rff_te = _features_rff(X_tr, X_te, y_tr, task)
     loc_tr, loc_te = _features_local_linear(X_tr, X_te, y_tr, task)
-    rff_only_tr = rff_tr[:, X_tr.shape[1]:]
-    rff_only_te = rff_te[:, X_te.shape[1]:]
-    loc_only_tr = loc_tr[:, X_tr.shape[1]:]
-    loc_only_te = loc_te[:, X_te.shape[1]:]
+    rff_only_tr = rff_tr[:, X_tr.shape[1] :]
+    rff_only_te = rff_te[:, X_te.shape[1] :]
+    loc_only_tr = loc_tr[:, X_tr.shape[1] :]
+    loc_only_te = loc_te[:, X_te.shape[1] :]
     return (
         np.concatenate([X_tr, rff_only_tr, loc_only_tr], axis=1),
         np.concatenate([X_te, rff_only_te, loc_only_te], axis=1),
@@ -731,14 +824,30 @@ def _features_boosted_rich(X_tr, X_te, y_tr, task):
     head_dim = min(8, max(2, X_tr.shape[1] - 1))
     # Custom: do 4 layers x 6 heads with rich aggregates, lr=0.5 so residuals shrink slower → each layer contributes more.
     out_te = compute_boosted_attention(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, n_boost_layers=4, n_heads=6, head_dim=head_dim, k=32,
-        projection="pls", learning_rate=0.5,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        n_boost_layers=4,
+        n_heads=6,
+        head_dim=head_dim,
+        k=32,
+        projection="pls",
+        learning_rate=0.5,
     ).to_numpy()
     out_tr = compute_boosted_attention(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, n_boost_layers=4, n_heads=6, head_dim=head_dim, k=32,
-        projection="pls", learning_rate=0.5,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        n_boost_layers=4,
+        n_heads=6,
+        head_dim=head_dim,
+        k=32,
+        projection="pls",
+        learning_rate=0.5,
     ).to_numpy()
     return np.concatenate([X_tr, out_tr], axis=1), np.concatenate([X_te, out_te], axis=1)
 
@@ -748,12 +857,12 @@ def _features_mega_combo(X_tr, X_te, y_tr, task):
     rff_tr, rff_te = _features_rff(X_tr, X_te, y_tr, task)
     boost_tr, boost_te = _features_boosted(X_tr, X_te, y_tr, task, n_boost_layers=3)
     stack_tr, stack_te = _features_stacked_pls(X_tr, X_te, y_tr, task)
-    rff_only_tr = rff_tr[:, X_tr.shape[1]:]
-    rff_only_te = rff_te[:, X_te.shape[1]:]
-    boost_only_tr = boost_tr[:, X_tr.shape[1]:]
-    boost_only_te = boost_te[:, X_te.shape[1]:]
-    stack_only_tr = stack_tr[:, X_tr.shape[1]:]
-    stack_only_te = stack_te[:, X_te.shape[1]:]
+    rff_only_tr = rff_tr[:, X_tr.shape[1] :]
+    rff_only_te = rff_te[:, X_te.shape[1] :]
+    boost_only_tr = boost_tr[:, X_tr.shape[1] :]
+    boost_only_te = boost_te[:, X_te.shape[1] :]
+    stack_only_tr = stack_tr[:, X_tr.shape[1] :]
+    stack_only_te = stack_te[:, X_te.shape[1] :]
     return (
         np.concatenate([X_tr, rff_only_tr, boost_only_tr, stack_only_tr], axis=1),
         np.concatenate([X_te, rff_only_te, boost_only_te, stack_only_te], axis=1),
@@ -763,6 +872,7 @@ def _features_mega_combo(X_tr, X_te, y_tr, task):
 def _features_pcrff(X_tr, X_te, y_tr, task):
     """Iter 5: per-column RFF (each column gets its own random projection + cos/sin lift)."""
     from mlframe.feature_engineering.transformer import compute_per_column_rff
+
     pcrff_tr = compute_per_column_rff(X_tr, seed=42, d_embed_per_column=4, sigma_scale=1.0, standardize=True).to_numpy()
     pcrff_te = compute_per_column_rff(X_te, seed=42, d_embed_per_column=4, sigma_scale=1.0, standardize=True).to_numpy()
     return np.concatenate([X_tr, pcrff_tr], axis=1), np.concatenate([X_te, pcrff_te], axis=1)
@@ -773,14 +883,30 @@ def _features_boosted(X_tr, X_te, y_tr, task, n_boost_layers=3):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     head_dim = min(8, max(2, X_tr.shape[1] - 1))
     out_te = compute_boosted_attention(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, n_boost_layers=n_boost_layers, n_heads=4, head_dim=head_dim, k=32,
-        projection="pls", learning_rate=1.0,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        n_boost_layers=n_boost_layers,
+        n_heads=4,
+        head_dim=head_dim,
+        k=32,
+        projection="pls",
+        learning_rate=1.0,
     ).to_numpy()
     out_tr = compute_boosted_attention(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, n_boost_layers=n_boost_layers, n_heads=4, head_dim=head_dim, k=32,
-        projection="pls", learning_rate=1.0,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        n_boost_layers=n_boost_layers,
+        n_heads=4,
+        head_dim=head_dim,
+        k=32,
+        projection="pls",
+        learning_rate=1.0,
     ).to_numpy()
     return np.concatenate([X_tr, out_tr], axis=1), np.concatenate([X_te, out_te], axis=1)
 
@@ -794,15 +920,31 @@ def _features_stacked(X_tr, X_te, y_tr, task, n_layers=2, projection="random"):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     head_dim = min(8, max(2, X_tr.shape[1] - 1))
     stacked = compute_stacked_row_attention(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, n_layers=n_layers, n_heads=4, head_dim=head_dim, k=32,
-        projection=projection, return_all_layers=True,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        n_layers=n_layers,
+        n_heads=4,
+        head_dim=head_dim,
+        k=32,
+        projection=projection,
+        return_all_layers=True,
     ).to_numpy()
     # Also compute Mode A for train (X_query=None) using the same setup.
     stacked_tr = compute_stacked_row_attention(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, n_layers=n_layers, n_heads=4, head_dim=head_dim, k=32,
-        projection=projection, return_all_layers=True,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        n_layers=n_layers,
+        n_heads=4,
+        head_dim=head_dim,
+        k=32,
+        projection=projection,
+        return_all_layers=True,
     ).to_numpy()
     return np.concatenate([X_tr, stacked_tr], axis=1), np.concatenate([X_te, stacked], axis=1)
 
@@ -814,12 +956,24 @@ def _features_stacked_pls(X_tr, X_te, y_tr, task):
 def _features_boosting_leaf(X_tr, X_te, y_tr, task):
     """Iter 1: GBDT+LR-style boosting-leaf encoding as auxiliary features."""
     leaf_tr = compute_boosting_leaf_features(
-        X_train=X_tr, y_train=y_tr, X_query=None,
-        seed=42, task=task, n_estimators=50, max_depth=4, encoding="ordinal",
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        seed=42,
+        task=task,
+        n_estimators=50,
+        max_depth=4,
+        encoding="ordinal",
     ).to_numpy()
     leaf_te = compute_boosting_leaf_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te,
-        seed=42, task=task, n_estimators=50, max_depth=4, encoding="ordinal",
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        seed=42,
+        task=task,
+        n_estimators=50,
+        max_depth=4,
+        encoding="ordinal",
     ).to_numpy()
     return np.concatenate([X_tr, leaf_tr], axis=1), np.concatenate([X_te, leaf_te], axis=1)
 
@@ -829,16 +983,34 @@ def _features_rowattn_v2(X_tr, X_te, y_tr, task):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     head_dim = min(8, max(2, X_tr.shape[1] - 1))
     rattn_tr = compute_row_attention(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, n_heads=4, head_dim=head_dim, k=32, k_scales=(8, 128),
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        n_heads=4,
+        head_dim=head_dim,
+        k=32,
+        k_scales=(8, 128),
         aggregate=("y_mean", "y_std", "y_iqr", "y_skew", "x_centroid_dist"),
-        projection="pls", gpu_stage4=False, dedupe_threshold=None,
+        projection="pls",
+        gpu_stage4=False,
+        dedupe_threshold=None,
     ).to_numpy()
     rattn_te = compute_row_attention(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, n_heads=4, head_dim=head_dim, k=32, k_scales=(8, 128),
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        n_heads=4,
+        head_dim=head_dim,
+        k=32,
+        k_scales=(8, 128),
         aggregate=("y_mean", "y_std", "y_iqr", "y_skew", "x_centroid_dist"),
-        projection="pls", gpu_stage4=False, dedupe_threshold=None,
+        projection="pls",
+        gpu_stage4=False,
+        dedupe_threshold=None,
     ).to_numpy()
     return np.concatenate([X_tr, rattn_tr], axis=1), np.concatenate([X_te, rattn_te], axis=1)
 
@@ -846,10 +1018,10 @@ def _features_rowattn_v2(X_tr, X_te, y_tr, task):
 def _features_rff_rowattn_v2(X_tr, X_te, y_tr, task):
     tr1, te1 = _features_rff(X_tr, X_te, y_tr, task)
     tr2, te2 = _features_rowattn_v2(X_tr, X_te, y_tr, task)
-    rff_only_tr = tr1[:, X_tr.shape[1]:]
-    rff_only_te = te1[:, X_te.shape[1]:]
-    rattn_only_tr = tr2[:, X_tr.shape[1]:]
-    rattn_only_te = te2[:, X_te.shape[1]:]
+    rff_only_tr = tr1[:, X_tr.shape[1] :]
+    rff_only_te = te1[:, X_te.shape[1] :]
+    rattn_only_tr = tr2[:, X_tr.shape[1] :]
+    rattn_only_te = te2[:, X_te.shape[1] :]
     return (
         np.concatenate([X_tr, rff_only_tr, rattn_only_tr], axis=1),
         np.concatenate([X_te, rff_only_te, rattn_only_te], axis=1),
@@ -877,14 +1049,20 @@ FEATURE_BUILDERS_ITER1: Dict[str, Callable] = {
     "+leaf": _features_boosting_leaf,
     "+rff": _features_rff,
     "+rff+leaf": lambda X_tr, X_te, y_tr, task: (
-        np.concatenate([
-            _features_rff(X_tr, X_te, y_tr, task)[0],
-            _features_boosting_leaf(X_tr, X_te, y_tr, task)[0][:, X_tr.shape[1]:],
-        ], axis=1),
-        np.concatenate([
-            _features_rff(X_tr, X_te, y_tr, task)[1],
-            _features_boosting_leaf(X_tr, X_te, y_tr, task)[1][:, X_te.shape[1]:],
-        ], axis=1),
+        np.concatenate(
+            [
+                _features_rff(X_tr, X_te, y_tr, task)[0],
+                _features_boosting_leaf(X_tr, X_te, y_tr, task)[0][:, X_tr.shape[1] :],
+            ],
+            axis=1,
+        ),
+        np.concatenate(
+            [
+                _features_rff(X_tr, X_te, y_tr, task)[1],
+                _features_boosting_leaf(X_tr, X_te, y_tr, task)[1][:, X_te.shape[1] :],
+            ],
+            axis=1,
+        ),
     ),
 }
 
@@ -895,14 +1073,20 @@ FEATURE_BUILDERS_ITER2: Dict[str, Callable] = {
     "+stacked2_pls": _features_stacked_pls,
     "+rff": _features_rff,
     "+rff+stacked2_pls": lambda X_tr, X_te, y_tr, task: (
-        np.concatenate([
-            _features_rff(X_tr, X_te, y_tr, task)[0],
-            _features_stacked_pls(X_tr, X_te, y_tr, task)[0][:, X_tr.shape[1]:],
-        ], axis=1),
-        np.concatenate([
-            _features_rff(X_tr, X_te, y_tr, task)[1],
-            _features_stacked_pls(X_tr, X_te, y_tr, task)[1][:, X_te.shape[1]:],
-        ], axis=1),
+        np.concatenate(
+            [
+                _features_rff(X_tr, X_te, y_tr, task)[0],
+                _features_stacked_pls(X_tr, X_te, y_tr, task)[0][:, X_tr.shape[1] :],
+            ],
+            axis=1,
+        ),
+        np.concatenate(
+            [
+                _features_rff(X_tr, X_te, y_tr, task)[1],
+                _features_stacked_pls(X_tr, X_te, y_tr, task)[1][:, X_te.shape[1] :],
+            ],
+            axis=1,
+        ),
     ),
 }
 
@@ -923,14 +1107,20 @@ FEATURE_BUILDERS_ITER4: Dict[str, Callable] = {
     "+boosted5": _features_boosted_5,
     "+rff": _features_rff,
     "+rff+boosted3": lambda X_tr, X_te, y_tr, task: (
-        np.concatenate([
-            _features_rff(X_tr, X_te, y_tr, task)[0],
-            _features_boosted(X_tr, X_te, y_tr, task)[0][:, X_tr.shape[1]:],
-        ], axis=1),
-        np.concatenate([
-            _features_rff(X_tr, X_te, y_tr, task)[1],
-            _features_boosted(X_tr, X_te, y_tr, task)[1][:, X_te.shape[1]:],
-        ], axis=1),
+        np.concatenate(
+            [
+                _features_rff(X_tr, X_te, y_tr, task)[0],
+                _features_boosted(X_tr, X_te, y_tr, task)[0][:, X_tr.shape[1] :],
+            ],
+            axis=1,
+        ),
+        np.concatenate(
+            [
+                _features_rff(X_tr, X_te, y_tr, task)[1],
+                _features_boosted(X_tr, X_te, y_tr, task)[1][:, X_te.shape[1] :],
+            ],
+            axis=1,
+        ),
     ),
 }
 
@@ -964,6 +1154,7 @@ def _train_eval(model, X_tr, y_tr, X_te, y_te, task) -> Dict[str, float]:
     Binary: AUC, Brier, PR_AUC, LogLoss, Accuracy. (LogLoss clips probs to [1e-15, 1-1e-15] internally.)
     """
     import gc
+
     model.fit(X_tr, y_tr)
     if task == "regression":
         pred = model.predict(X_te)
@@ -993,7 +1184,7 @@ def _train_eval_legacy_scalar(model, X_tr, y_tr, X_te, y_te, task) -> float:
     return metrics["R2"] if task == "regression" else metrics["AUC"]
 
 
-def _run_matrix(X: np.ndarray, y: np.ndarray, task: str, dataset_name: str, builders: Dict[str, Callable] = None) -> List[Dict]:
+def _run_matrix(X: np.ndarray, y: np.ndarray, task: str, dataset_name: str, builders: Optional[Dict[str, Callable]] = None) -> List[Dict]:
     """Train every (boosting, feature_config) combination on a 70/30 split. Returns records with FULL metric panel (R²/RMSE/MAE or AUC/Brier/PR/LogLoss/Acc).
 
     For back-compat the record's ``score`` field is the legacy scalar (R² or AUC); the full ``metrics`` dict is also attached for multi-metric printing.
@@ -1019,12 +1210,20 @@ def _run_matrix(X: np.ndarray, y: np.ndarray, task: str, dataset_name: str, buil
             train_time = time.perf_counter() - t1
             # Legacy scalar score field for back-compat with older _print_matrix consumers.
             primary = "R2" if task == "regression" else "AUC"
-            records.append({
-                "dataset": dataset_name, "task": task, "boosting": boost_name, "features": feat_name,
-                "metric": primary, "score": metrics.get(primary, float("nan")),
-                "metrics": metrics,
-                "n_features": Xf_tr.shape[1], "fe_time_s": fe_time, "train_time_s": train_time,
-            })
+            records.append(
+                {
+                    "dataset": dataset_name,
+                    "task": task,
+                    "boosting": boost_name,
+                    "features": feat_name,
+                    "metric": primary,
+                    "score": metrics.get(primary, float("nan")),
+                    "metrics": metrics,
+                    "n_features": Xf_tr.shape[1],
+                    "fe_time_s": fe_time,
+                    "train_time_s": train_time,
+                }
+            )
     return records
 
 
@@ -1650,12 +1849,24 @@ def _features_target_quantile(X_tr, X_te, y_tr, task):
     # For binary, force n_quantiles=2; for regression use 10.
     n_quantiles = 2 if task == "binary" else 10
     tq_te = compute_target_quantile_attention(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, n_quantiles=n_quantiles, similarity="cosine", standardize=True,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        n_quantiles=n_quantiles,
+        similarity="cosine",
+        standardize=True,
     ).to_numpy()
     tq_tr = compute_target_quantile_attention(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, n_quantiles=n_quantiles, similarity="cosine", standardize=True,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        n_quantiles=n_quantiles,
+        similarity="cosine",
+        standardize=True,
     ).to_numpy()
     return np.concatenate([X_tr, tq_tr], axis=1), np.concatenate([X_te, tq_te], axis=1)
 
@@ -1665,12 +1876,24 @@ def _features_tq_rbf(X_tr, X_te, y_tr, task):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     n_quantiles = 2 if task == "binary" else 10
     tq_te = compute_target_quantile_attention(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, n_quantiles=n_quantiles, similarity="rbf", standardize=True,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        n_quantiles=n_quantiles,
+        similarity="rbf",
+        standardize=True,
     ).to_numpy()
     tq_tr = compute_target_quantile_attention(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, n_quantiles=n_quantiles, similarity="rbf", standardize=True,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        n_quantiles=n_quantiles,
+        similarity="rbf",
+        standardize=True,
     ).to_numpy()
     return np.concatenate([X_tr, tq_tr], axis=1), np.concatenate([X_te, tq_te], axis=1)
 
@@ -1680,16 +1903,32 @@ def _features_shap(X_tr, X_te, y_tr, task):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     head_dim = min(8, max(2, X_tr.shape[1] - 1))
     sh_te = compute_row_attention(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, n_heads=4, head_dim=head_dim, k=32,
-        aggregate=("y_mean", "y_std"), projection="shap",
-        gpu_stage4=False, dedupe_threshold=None,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        n_heads=4,
+        head_dim=head_dim,
+        k=32,
+        aggregate=("y_mean", "y_std"),
+        projection="shap",
+        gpu_stage4=False,
+        dedupe_threshold=None,
     ).to_numpy()
     sh_tr = compute_row_attention(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, n_heads=4, head_dim=head_dim, k=32,
-        aggregate=("y_mean", "y_std"), projection="shap",
-        gpu_stage4=False, dedupe_threshold=None,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        n_heads=4,
+        head_dim=head_dim,
+        k=32,
+        aggregate=("y_mean", "y_std"),
+        projection="shap",
+        gpu_stage4=False,
+        dedupe_threshold=None,
     ).to_numpy()
     return np.concatenate([X_tr, sh_tr], axis=1), np.concatenate([X_te, sh_te], axis=1)
 
@@ -1710,14 +1949,30 @@ def _features_multi_temp(X_tr, X_te, y_tr, task):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     head_dim = min(8, max(2, X_tr.shape[1] - 1))
     mt_te = compute_multi_temperature_attention(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, temperatures=(0.3, 1.0, 3.0), n_heads=4, head_dim=head_dim, k=32,
-        aggregate=("y_mean", "y_std"), projection="importance",
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        temperatures=(0.3, 1.0, 3.0),
+        n_heads=4,
+        head_dim=head_dim,
+        k=32,
+        aggregate=("y_mean", "y_std"),
+        projection="importance",
     ).to_numpy()
     mt_tr = compute_multi_temperature_attention(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, temperatures=(0.3, 1.0, 3.0), n_heads=4, head_dim=head_dim, k=32,
-        aggregate=("y_mean", "y_std"), projection="importance",
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        temperatures=(0.3, 1.0, 3.0),
+        n_heads=4,
+        head_dim=head_dim,
+        k=32,
+        aggregate=("y_mean", "y_std"),
+        projection="importance",
     ).to_numpy()
     return np.concatenate([X_tr, mt_tr], axis=1), np.concatenate([X_te, mt_te], axis=1)
 
@@ -1738,15 +1993,33 @@ def _features_predaug(X_tr, X_te, y_tr, task):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     head_dim = min(8, max(2, X_tr.shape[1] - 1))
     pa_te = compute_pred_augmented_attention(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, task=task, aux_n_estimators=100, aux_max_depth=5,
-        n_heads=4, head_dim=head_dim, k=32, aggregate=("y_mean", "y_std"),
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        task=task,
+        aux_n_estimators=100,
+        aux_max_depth=5,
+        n_heads=4,
+        head_dim=head_dim,
+        k=32,
+        aggregate=("y_mean", "y_std"),
         projection="pls",
     ).to_numpy()
     pa_tr = compute_pred_augmented_attention(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, task=task, aux_n_estimators=100, aux_max_depth=5,
-        n_heads=4, head_dim=head_dim, k=32, aggregate=("y_mean", "y_std"),
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        task=task,
+        aux_n_estimators=100,
+        aux_max_depth=5,
+        n_heads=4,
+        head_dim=head_dim,
+        k=32,
+        aggregate=("y_mean", "y_std"),
         projection="pls",
     ).to_numpy()
     return np.concatenate([X_tr, pa_tr], axis=1), np.concatenate([X_te, pa_te], axis=1)
@@ -1768,14 +2041,32 @@ def _features_adaptive(X_tr, X_te, y_tr, task):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     head_dim = min(8, max(2, X_tr.shape[1] - 1))
     abd_te = compute_adaptive_bandwidth_attention(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, n_heads=4, head_dim=head_dim, k=32, temp_scale=1.0,
-        projection="pls", standardize=True, aggregate=("y_mean", "y_std"),
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        n_heads=4,
+        head_dim=head_dim,
+        k=32,
+        temp_scale=1.0,
+        projection="pls",
+        standardize=True,
+        aggregate=("y_mean", "y_std"),
     ).to_numpy()
     abd_tr = compute_adaptive_bandwidth_attention(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, n_heads=4, head_dim=head_dim, k=32, temp_scale=1.0,
-        projection="pls", standardize=True, aggregate=("y_mean", "y_std"),
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        n_heads=4,
+        head_dim=head_dim,
+        k=32,
+        temp_scale=1.0,
+        projection="pls",
+        standardize=True,
+        aggregate=("y_mean", "y_std"),
     ).to_numpy()
     return np.concatenate([X_tr, abd_tr], axis=1), np.concatenate([X_te, abd_te], axis=1)
 
@@ -1798,16 +2089,32 @@ def _features_importance(X_tr, X_te, y_tr, task):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     head_dim = min(8, max(2, X_tr.shape[1] - 1))
     imp_te = compute_row_attention(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, n_heads=4, head_dim=head_dim, k=32,
-        aggregate=("y_mean", "y_std"), projection="importance",
-        gpu_stage4=False, dedupe_threshold=None,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        n_heads=4,
+        head_dim=head_dim,
+        k=32,
+        aggregate=("y_mean", "y_std"),
+        projection="importance",
+        gpu_stage4=False,
+        dedupe_threshold=None,
     ).to_numpy()
     imp_tr = compute_row_attention(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, n_heads=4, head_dim=head_dim, k=32,
-        aggregate=("y_mean", "y_std"), projection="importance",
-        gpu_stage4=False, dedupe_threshold=None,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        n_heads=4,
+        head_dim=head_dim,
+        k=32,
+        aggregate=("y_mean", "y_std"),
+        projection="importance",
+        gpu_stage4=False,
+        dedupe_threshold=None,
     ).to_numpy()
     return np.concatenate([X_tr, imp_tr], axis=1), np.concatenate([X_te, imp_te], axis=1)
 
@@ -1816,10 +2123,10 @@ def _features_importance_plus_tq(X_tr, X_te, y_tr, task):
     """Iter 10 combo: importance-weighted row-attention + target-quantile (the two calibration-friendly mechanisms)."""
     imp_tr, imp_te = _features_importance(X_tr, X_te, y_tr, task)
     tq_tr, tq_te = _features_tq_rbf(X_tr, X_te, y_tr, task)
-    imp_only_tr = imp_tr[:, X_tr.shape[1]:]
-    imp_only_te = imp_te[:, X_te.shape[1]:]
-    tq_only_tr = tq_tr[:, X_tr.shape[1]:]
-    tq_only_te = tq_te[:, X_te.shape[1]:]
+    imp_only_tr = imp_tr[:, X_tr.shape[1] :]
+    imp_only_te = imp_te[:, X_te.shape[1] :]
+    tq_only_tr = tq_tr[:, X_tr.shape[1] :]
+    tq_only_te = tq_te[:, X_te.shape[1] :]
     return (
         np.concatenate([X_tr, imp_only_tr, tq_only_tr], axis=1),
         np.concatenate([X_te, imp_only_te, tq_only_te], axis=1),
@@ -1830,10 +2137,10 @@ def _features_tq_plus_rff(X_tr, X_te, y_tr, task):
     """Iter 9 combo: target-quantile + RFF."""
     rff_tr, rff_te = _features_rff(X_tr, X_te, y_tr, task)
     tq_tr, tq_te = _features_target_quantile(X_tr, X_te, y_tr, task)
-    rff_only_tr = rff_tr[:, X_tr.shape[1]:]
-    rff_only_te = rff_te[:, X_te.shape[1]:]
-    tq_only_tr = tq_tr[:, X_tr.shape[1]:]
-    tq_only_te = tq_te[:, X_te.shape[1]:]
+    rff_only_tr = rff_tr[:, X_tr.shape[1] :]
+    rff_only_te = rff_te[:, X_te.shape[1] :]
+    tq_only_tr = tq_tr[:, X_tr.shape[1] :]
+    tq_only_te = tq_te[:, X_te.shape[1] :]
     return (
         np.concatenate([X_tr, rff_only_tr, tq_only_tr], axis=1),
         np.concatenate([X_te, rff_only_te, tq_only_te], axis=1),
@@ -2199,14 +2506,26 @@ def _features_anchor(X_tr, X_te, y_tr, task):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     n_anchors = min(32, max(4, X_tr.shape[0] // 50))
     a_te = compute_anchor_attention(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, n_anchors=n_anchors, softmax_temp=1.0,
-        aggregate=("y_mean", "y_std"), standardize=True,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        n_anchors=n_anchors,
+        softmax_temp=1.0,
+        aggregate=("y_mean", "y_std"),
+        standardize=True,
     ).to_numpy()
     a_tr = compute_anchor_attention(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, n_anchors=n_anchors, softmax_temp=1.0,
-        aggregate=("y_mean", "y_std"), standardize=True,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        n_anchors=n_anchors,
+        softmax_temp=1.0,
+        aggregate=("y_mean", "y_std"),
+        standardize=True,
     ).to_numpy()
     return np.concatenate([X_tr, a_tr], axis=1), np.concatenate([X_te, a_te], axis=1)
 
@@ -2280,12 +2599,28 @@ def _features_rfprox(X_tr, X_te, y_tr, task):
     """Iter 17: RF-proximity attention. Aux LGB leaves used as similarity metric for kNN."""
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     rp_te = compute_rf_proximity_attention(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, task=task, n_aux_trees=200, aux_max_depth=4, k=32, softmax_temp=1.0,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        task=task,
+        n_aux_trees=200,
+        aux_max_depth=4,
+        k=32,
+        softmax_temp=1.0,
     ).to_numpy()
     rp_tr = compute_rf_proximity_attention(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, task=task, n_aux_trees=200, aux_max_depth=4, k=32, softmax_temp=1.0,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        task=task,
+        n_aux_trees=200,
+        aux_max_depth=4,
+        k=32,
+        softmax_temp=1.0,
     ).to_numpy()
     return np.concatenate([X_tr, rp_tr], axis=1), np.concatenate([X_te, rp_te], axis=1)
 
@@ -2357,12 +2692,24 @@ def _features_spectral(X_tr, X_te, y_tr, task):
     """Iter 18: spectral attention. Laplacian eigenvectors of kNN graph as global manifold features."""
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     sp_te = compute_spectral_attention(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, n_eigvecs=8, k_graph=10, standardize=True,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        n_eigvecs=8,
+        k_graph=10,
+        standardize=True,
     ).to_numpy()
     sp_tr = compute_spectral_attention(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, n_eigvecs=8, k_graph=10, standardize=True,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        n_eigvecs=8,
+        k_graph=10,
+        standardize=True,
     ).to_numpy()
     return np.concatenate([X_tr, sp_tr], axis=1), np.concatenate([X_te, sp_te], axis=1)
 
@@ -2435,12 +2782,26 @@ def _features_cc_anchor(X_tr, X_te, y_tr, task):
         return X_tr, X_te
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     ca_te = compute_class_conditional_anchor_attention(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, task="binary", n_anchors_per_class=16, softmax_temp=1.0, standardize=True,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        task="binary",
+        n_anchors_per_class=16,
+        softmax_temp=1.0,
+        standardize=True,
     ).to_numpy()
     ca_tr = compute_class_conditional_anchor_attention(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, task="binary", n_anchors_per_class=16, softmax_temp=1.0, standardize=True,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        task="binary",
+        n_anchors_per_class=16,
+        softmax_temp=1.0,
+        standardize=True,
     ).to_numpy()
     return np.concatenate([X_tr, ca_tr], axis=1), np.concatenate([X_te, ca_te], axis=1)
 
@@ -2516,12 +2877,26 @@ def _features_qnn(X_tr, X_te, y_tr, task):
     """Iter 20: quantile-regression neighbours. Per-row weighted-quantile estimation from kNN."""
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     q_te = compute_quantile_neighbours(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, k=32, quantile_grid=(0.1, 0.25, 0.5, 0.75, 0.9), softmax_temp=1.0, standardize=True,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        k=32,
+        quantile_grid=(0.1, 0.25, 0.5, 0.75, 0.9),
+        softmax_temp=1.0,
+        standardize=True,
     ).to_numpy()
     q_tr = compute_quantile_neighbours(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, k=32, quantile_grid=(0.1, 0.25, 0.5, 0.75, 0.9), softmax_temp=1.0, standardize=True,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        k=32,
+        quantile_grid=(0.1, 0.25, 0.5, 0.75, 0.9),
+        softmax_temp=1.0,
+        standardize=True,
     ).to_numpy()
     return np.concatenate([X_tr, q_tr], axis=1), np.concatenate([X_te, q_te], axis=1)
 
@@ -2594,12 +2969,24 @@ def _features_pc_spectral(X_tr, X_te, y_tr, task):
         return X_tr, X_te
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     pc_te = compute_per_class_spectral_attention(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, n_eigvecs_per_class=4, k_graph=10, standardize=True,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        n_eigvecs_per_class=4,
+        k_graph=10,
+        standardize=True,
     ).to_numpy()
     pc_tr = compute_per_class_spectral_attention(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, n_eigvecs_per_class=4, k_graph=10, standardize=True,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        n_eigvecs_per_class=4,
+        k_graph=10,
+        standardize=True,
     ).to_numpy()
     return np.concatenate([X_tr, pc_tr], axis=1), np.concatenate([X_te, pc_te], axis=1)
 
@@ -2661,12 +3048,26 @@ def _features_sqnn(X_tr, X_te, y_tr, task):
     """Iter 22: stacked qnn. Layer 2 sees (X || qnn_l1) for second-pass kNN-weighted quantile aggregation."""
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     sq_te = compute_stacked_quantile_neighbours(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, k=32, quantile_grid=(0.1, 0.25, 0.5, 0.75, 0.9), softmax_temp=1.0, standardize=True,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        k=32,
+        quantile_grid=(0.1, 0.25, 0.5, 0.75, 0.9),
+        softmax_temp=1.0,
+        standardize=True,
     ).to_numpy()
     sq_tr = compute_stacked_quantile_neighbours(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, k=32, quantile_grid=(0.1, 0.25, 0.5, 0.75, 0.9), softmax_temp=1.0, standardize=True,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        k=32,
+        quantile_grid=(0.1, 0.25, 0.5, 0.75, 0.9),
+        softmax_temp=1.0,
+        standardize=True,
     ).to_numpy()
     return np.concatenate([X_tr, sq_tr], axis=1), np.concatenate([X_te, sq_te], axis=1)
 
@@ -2748,8 +3149,22 @@ def _features_mega_v2(X_tr, X_te, y_tr, task):
     else:
         ca_tr, ca_te = X_tr, X_te  # cc_anchor regression mode not implemented yet
     only = lambda full, n: full[:, n:]
-    parts_tr = [X_tr, only(rff_tr, X_tr.shape[1]), only(rp_tr, X_tr.shape[1]), only(mt_tr, X_tr.shape[1]), only(sp_tr, X_tr.shape[1]), only(q_tr, X_tr.shape[1])]
-    parts_te = [X_te, only(rff_te, X_te.shape[1]), only(rp_te, X_te.shape[1]), only(mt_te, X_te.shape[1]), only(sp_te, X_te.shape[1]), only(q_te, X_te.shape[1])]
+    parts_tr = [
+        X_tr,
+        only(rff_tr, X_tr.shape[1]),
+        only(rp_tr, X_tr.shape[1]),
+        only(mt_tr, X_tr.shape[1]),
+        only(sp_tr, X_tr.shape[1]),
+        only(q_tr, X_tr.shape[1]),
+    ]
+    parts_te = [
+        X_te,
+        only(rff_te, X_te.shape[1]),
+        only(rp_te, X_te.shape[1]),
+        only(mt_te, X_te.shape[1]),
+        only(sp_te, X_te.shape[1]),
+        only(q_te, X_te.shape[1]),
+    ]
     if task == "binary":
         parts_tr.append(only(ca_tr, X_tr.shape[1]))
         parts_te.append(only(ca_te, X_te.shape[1]))
@@ -2814,12 +3229,24 @@ def _features_loclift(X_tr, X_te, y_tr, task):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     ll_te = compute_local_lift_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, task=task_str, k=32, standardize=True,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        k=32,
+        standardize=True,
     ).to_numpy()
     ll_tr = compute_local_lift_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, task=task_str, k=32, standardize=True,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        k=32,
+        standardize=True,
     ).to_numpy()
     return np.concatenate([X_tr, ll_tr], axis=1), np.concatenate([X_te, ll_te], axis=1)
 
@@ -2854,12 +3281,20 @@ def _features_mahcc(X_tr, X_te, y_tr, task):
         return X_tr, X_te
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     mh_te = compute_class_mahalanobis_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, standardize=True,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        standardize=True,
     ).to_numpy()
     mh_tr = compute_class_mahalanobis_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, standardize=True,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        standardize=True,
     ).to_numpy()
     return np.concatenate([X_tr, mh_tr], axis=1), np.concatenate([X_te, mh_te], axis=1)
 
@@ -2946,12 +3381,24 @@ def _features_focal(X_tr, X_te, y_tr, task):
         return X_tr, X_te
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     f_te = compute_focal_lgb_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, gamma=2.0, n_estimators=200, max_depth=5,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        gamma=2.0,
+        n_estimators=200,
+        max_depth=5,
     ).to_numpy()
     f_tr = compute_focal_lgb_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, gamma=2.0, n_estimators=200, max_depth=5,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        gamma=2.0,
+        n_estimators=200,
+        max_depth=5,
     ).to_numpy()
     return np.concatenate([X_tr, f_tr], axis=1), np.concatenate([X_te, f_te], axis=1)
 
@@ -3031,12 +3478,22 @@ def _features_cdist(X_tr, X_te, y_tr, task):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     cd_te = compute_class_distance_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, task=task_str, standardize=True,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        standardize=True,
     ).to_numpy()
     cd_tr = compute_class_distance_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, task=task_str, standardize=True,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        standardize=True,
     ).to_numpy()
     return np.concatenate([X_tr, cd_tr], axis=1), np.concatenate([X_te, cd_te], axis=1)
 
@@ -3119,12 +3576,22 @@ def _features_denrat(X_tr, X_te, y_tr, task):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     dr_te = compute_density_ratio_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, task=task_str, standardize=True,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        standardize=True,
     ).to_numpy()
     dr_tr = compute_density_ratio_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, task=task_str, standardize=True,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        standardize=True,
     ).to_numpy()
     return np.concatenate([X_tr, dr_tr], axis=1), np.concatenate([X_te, dr_te], axis=1)
 
@@ -3203,12 +3670,24 @@ def _features_ksshift(X_tr, X_te, y_tr, task):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     ks_te = compute_ks_shift_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, task=task_str, k=32, standardize=True,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        k=32,
+        standardize=True,
     ).to_numpy()
     ks_tr = compute_ks_shift_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, task=task_str, k=32, standardize=True,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        k=32,
+        standardize=True,
     ).to_numpy()
     return np.concatenate([X_tr, ks_tr], axis=1), np.concatenate([X_te, ks_te], axis=1)
 
@@ -3289,12 +3768,26 @@ def _features_loccls(X_tr, X_te, y_tr, task):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     lc_te = compute_local_classifier_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, task=task_str, k=32, ridge=0.1, standardize=True,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        k=32,
+        ridge=0.1,
+        standardize=True,
     ).to_numpy()
     lc_tr = compute_local_classifier_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, task=task_str, k=32, ridge=0.1, standardize=True,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        k=32,
+        ridge=0.1,
+        standardize=True,
     ).to_numpy()
     return np.concatenate([X_tr, lc_tr], axis=1), np.concatenate([X_te, lc_te], axis=1)
 
@@ -3378,12 +3871,22 @@ def _features_msrate(X_tr, X_te, y_tr, task):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     ms_te = compute_multiscale_rate_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, task=task_str, standardize=True,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        standardize=True,
     ).to_numpy()
     ms_tr = compute_multiscale_rate_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, task=task_str, standardize=True,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        standardize=True,
     ).to_numpy()
     return np.concatenate([X_tr, ms_tr], axis=1), np.concatenate([X_te, ms_te], axis=1)
 
@@ -3463,12 +3966,24 @@ def _features_multiaux(X_tr, X_te, y_tr, task):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     ma_te = compute_multi_aux_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, task=task_str, n_estimators=200, max_depth=4,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        n_estimators=200,
+        max_depth=4,
     ).to_numpy()
     ma_tr = compute_multi_aux_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, task=task_str, n_estimators=200, max_depth=4,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        n_estimators=200,
+        max_depth=4,
     ).to_numpy()
     return np.concatenate([X_tr, ma_tr], axis=1), np.concatenate([X_te, ma_te], axis=1)
 
@@ -3544,12 +4059,26 @@ def _features_smote(X_tr, X_te, y_tr, task):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     sm_te = compute_smote_distance_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, task=task_str, oversample=5.0, k_smote=5, standardize=True,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        oversample=5.0,
+        k_smote=5,
+        standardize=True,
     ).to_numpy()
     sm_tr = compute_smote_distance_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, task=task_str, oversample=5.0, k_smote=5, standardize=True,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        oversample=5.0,
+        k_smote=5,
+        standardize=True,
     ).to_numpy()
     return np.concatenate([X_tr, sm_tr], axis=1), np.concatenate([X_te, sm_te], axis=1)
 
@@ -3625,12 +4154,28 @@ def _features_blsmote(X_tr, X_te, y_tr, task):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     bl_te = compute_borderline_smote_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, task=task_str, oversample=10.0, k_smote=5, k_borderline=10, standardize=True,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        oversample=10.0,
+        k_smote=5,
+        k_borderline=10,
+        standardize=True,
     ).to_numpy()
     bl_tr = compute_borderline_smote_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, task=task_str, oversample=10.0, k_smote=5, k_borderline=10, standardize=True,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        oversample=10.0,
+        k_smote=5,
+        k_borderline=10,
+        standardize=True,
     ).to_numpy()
     return np.concatenate([X_tr, bl_tr], axis=1), np.concatenate([X_te, bl_te], axis=1)
 
@@ -3675,8 +4220,14 @@ def _features_mega_v10(X_tr, X_te, y_tr, task):
     bl_tr, bl_te = _features_blsmote(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
     return (
-        np.concatenate([X_tr, only(m_tr, X_tr.shape[1]), only(cd_tr, X_tr.shape[1]), only(dr_tr, X_tr.shape[1]), only(sm_tr, X_tr.shape[1]), only(bl_tr, X_tr.shape[1])], axis=1),
-        np.concatenate([X_te, only(m_te, X_te.shape[1]), only(cd_te, X_te.shape[1]), only(dr_te, X_te.shape[1]), only(sm_te, X_te.shape[1]), only(bl_te, X_te.shape[1])], axis=1),
+        np.concatenate(
+            [X_tr, only(m_tr, X_tr.shape[1]), only(cd_tr, X_tr.shape[1]), only(dr_tr, X_tr.shape[1]), only(sm_tr, X_tr.shape[1]), only(bl_tr, X_tr.shape[1])],
+            axis=1,
+        ),
+        np.concatenate(
+            [X_te, only(m_te, X_te.shape[1]), only(cd_te, X_te.shape[1]), only(dr_te, X_te.shape[1]), only(sm_te, X_te.shape[1]), only(bl_te, X_te.shape[1])],
+            axis=1,
+        ),
     )
 
 
@@ -3716,12 +4267,28 @@ def _features_mixup(X_tr, X_te, y_tr, task):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     mu_te = compute_mixup_boundary_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, task=task_str, n_synthetic_multiplier=5.0, alpha_low=0.6, alpha_high=0.9, standardize=True,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        n_synthetic_multiplier=5.0,
+        alpha_low=0.6,
+        alpha_high=0.9,
+        standardize=True,
     ).to_numpy()
     mu_tr = compute_mixup_boundary_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, task=task_str, n_synthetic_multiplier=5.0, alpha_low=0.6, alpha_high=0.9, standardize=True,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        n_synthetic_multiplier=5.0,
+        alpha_low=0.6,
+        alpha_high=0.9,
+        standardize=True,
     ).to_numpy()
     return np.concatenate([X_tr, mu_tr], axis=1), np.concatenate([X_te, mu_te], axis=1)
 
@@ -3782,12 +4349,26 @@ def _features_cutmix(X_tr, X_te, y_tr, task):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     cm_te = compute_cutmix_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, task=task_str, n_synthetic_multiplier=5.0, cut_fraction=0.3, standardize=True,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        n_synthetic_multiplier=5.0,
+        cut_fraction=0.3,
+        standardize=True,
     ).to_numpy()
     cm_tr = compute_cutmix_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, task=task_str, n_synthetic_multiplier=5.0, cut_fraction=0.3, standardize=True,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        n_synthetic_multiplier=5.0,
+        cut_fraction=0.3,
+        standardize=True,
     ).to_numpy()
     return np.concatenate([X_tr, cm_tr], axis=1), np.concatenate([X_te, cm_te], axis=1)
 
@@ -3850,12 +4431,22 @@ def _features_lda(X_tr, X_te, y_tr, task):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     ld_te = compute_lda_projection_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, task=task_str, standardize=True,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        standardize=True,
     ).to_numpy()
     ld_tr = compute_lda_projection_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, task=task_str, standardize=True,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        standardize=True,
     ).to_numpy()
     return np.concatenate([X_tr, ld_tr], axis=1), np.concatenate([X_te, ld_te], axis=1)
 
@@ -3917,12 +4508,24 @@ def _features_nca(X_tr, X_te, y_tr, task):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     nc_te = compute_nca_projection_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, task=task_str, n_components=4, max_iter=50,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        n_components=4,
+        max_iter=50,
     ).to_numpy()
     nc_tr = compute_nca_projection_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, task=task_str, n_components=4, max_iter=50,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        n_components=4,
+        max_iter=50,
     ).to_numpy()
     return np.concatenate([X_tr, nc_tr], axis=1), np.concatenate([X_te, nc_te], axis=1)
 
@@ -3984,16 +4587,32 @@ def _features_ncaattn(X_tr, X_te, y_tr, task):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     head_dim = min(8, max(2, X_tr.shape[1] - 1))
     na_te = compute_row_attention(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, n_heads=4, head_dim=head_dim, k=32,
-        aggregate=("y_mean", "y_std"), projection="nca",
-        gpu_stage4=False, dedupe_threshold=None,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        n_heads=4,
+        head_dim=head_dim,
+        k=32,
+        aggregate=("y_mean", "y_std"),
+        projection="nca",
+        gpu_stage4=False,
+        dedupe_threshold=None,
     ).to_numpy()
     na_tr = compute_row_attention(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, n_heads=4, head_dim=head_dim, k=32,
-        aggregate=("y_mean", "y_std"), projection="nca",
-        gpu_stage4=False, dedupe_threshold=None,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        n_heads=4,
+        head_dim=head_dim,
+        k=32,
+        aggregate=("y_mean", "y_std"),
+        projection="nca",
+        gpu_stage4=False,
+        dedupe_threshold=None,
     ).to_numpy()
     return np.concatenate([X_tr, na_tr], axis=1), np.concatenate([X_te, na_te], axis=1)
 
@@ -4053,12 +4672,24 @@ def _features_ae(X_tr, X_te, y_tr, task):
     """Iter 40 (BEYOND-FROZEN, UNSUPERVISED): MLP autoencoder bottleneck. y is NOT used."""
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     ae_te = compute_autoencoder_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, hidden_size=8, bottleneck_dim=4, max_iter=200,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        hidden_size=8,
+        bottleneck_dim=4,
+        max_iter=200,
     ).to_numpy()
     ae_tr = compute_autoencoder_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, hidden_size=8, bottleneck_dim=4, max_iter=200,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        hidden_size=8,
+        bottleneck_dim=4,
+        max_iter=200,
     ).to_numpy()
     return np.concatenate([X_tr, ae_tr], axis=1), np.concatenate([X_te, ae_te], axis=1)
 
@@ -4130,12 +4761,26 @@ def _features_bgmm(X_tr, X_te, y_tr, task):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     bg_te = compute_bgmm_virtual_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, task=task_str, n_synthetic_multiplier=5.0, n_components=5, standardize=True,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        n_synthetic_multiplier=5.0,
+        n_components=5,
+        standardize=True,
     ).to_numpy()
     bg_tr = compute_bgmm_virtual_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, task=task_str, n_synthetic_multiplier=5.0, n_components=5, standardize=True,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        n_synthetic_multiplier=5.0,
+        n_components=5,
+        standardize=True,
     ).to_numpy()
     return np.concatenate([X_tr, bg_tr], axis=1), np.concatenate([X_te, bg_te], axis=1)
 
@@ -4210,12 +4855,24 @@ def _features_diff(X_tr, X_te, y_tr, task):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     df_te = compute_diffusion_noise_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, task=task_str, n_virtuals_per_pos=10, standardize=True,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        n_virtuals_per_pos=10,
+        standardize=True,
     ).to_numpy()
     df_tr = compute_diffusion_noise_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, task=task_str, n_virtuals_per_pos=10, standardize=True,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        n_virtuals_per_pos=10,
+        standardize=True,
     ).to_numpy()
     return np.concatenate([X_tr, df_tr], axis=1), np.concatenate([X_te, df_te], axis=1)
 
@@ -4288,12 +4945,26 @@ def _features_psmote(X_tr, X_te, y_tr, task):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     ps_te = compute_pseudo_smote_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, task=task_str, oversample=10.0, k_smote=5, confidence_threshold=0.7,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        oversample=10.0,
+        k_smote=5,
+        confidence_threshold=0.7,
     ).to_numpy()
     ps_tr = compute_pseudo_smote_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, task=task_str, oversample=10.0, k_smote=5, confidence_threshold=0.7,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        oversample=10.0,
+        k_smote=5,
+        confidence_threshold=0.7,
     ).to_numpy()
     return np.concatenate([X_tr, ps_tr], axis=1), np.concatenate([X_te, ps_te], axis=1)
 
@@ -4366,12 +5037,26 @@ def _features_csmote(X_tr, X_te, y_tr, task):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     cs_te = compute_cluster_smote_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, task=task_str, n_clusters=3, oversample=10.0, k_smote=5,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        n_clusters=3,
+        oversample=10.0,
+        k_smote=5,
     ).to_numpy()
     cs_tr = compute_cluster_smote_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, task=task_str, n_clusters=3, oversample=10.0, k_smote=5,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        n_clusters=3,
+        oversample=10.0,
+        k_smote=5,
     ).to_numpy()
     return np.concatenate([X_tr, cs_tr], axis=1), np.concatenate([X_te, cs_te], axis=1)
 
@@ -4444,12 +5129,24 @@ def _features_bgmms(X_tr, X_te, y_tr, task):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     bgs_te = compute_bgmm_multiscale_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, task=task_str, component_counts=(3, 5, 8), n_synthetic_multiplier=5.0,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        component_counts=(3, 5, 8),
+        n_synthetic_multiplier=5.0,
     ).to_numpy()
     bgs_tr = compute_bgmm_multiscale_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, task=task_str, component_counts=(3, 5, 8), n_synthetic_multiplier=5.0,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        component_counts=(3, 5, 8),
+        n_synthetic_multiplier=5.0,
     ).to_numpy()
     return np.concatenate([X_tr, bgs_tr], axis=1), np.concatenate([X_te, bgs_te], axis=1)
 
@@ -4510,12 +5207,22 @@ def _features_bdr(X_tr, X_te, y_tr, task):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     bdr_te = compute_bgmm_density_ratio_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, task=task_str, component_counts=(3, 5, 8),
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        component_counts=(3, 5, 8),
     ).to_numpy()
     bdr_tr = compute_bgmm_density_ratio_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, task=task_str, component_counts=(3, 5, 8),
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        component_counts=(3, 5, 8),
     ).to_numpy()
     return np.concatenate([X_tr, bdr_tr], axis=1), np.concatenate([X_te, bdr_te], axis=1)
 
@@ -4577,12 +5284,24 @@ def _features_mss(X_tr, X_te, y_tr, task):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     mss_te = compute_multiscale_smote_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, task=task_str, smote_k_scales=(3, 8, 15), oversample=5.0,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        smote_k_scales=(3, 8, 15),
+        oversample=5.0,
     ).to_numpy()
     mss_tr = compute_multiscale_smote_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, task=task_str, smote_k_scales=(3, 8, 15), oversample=5.0,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        smote_k_scales=(3, 8, 15),
+        oversample=5.0,
     ).to_numpy()
     return np.concatenate([X_tr, mss_tr], axis=1), np.concatenate([X_te, mss_te], axis=1)
 
@@ -4644,12 +5363,26 @@ def _features_bcs(X_tr, X_te, y_tr, task):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     bcs_te = compute_bgm_clustered_smote_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, task=task_str, n_components=5, oversample=10.0, k_smote=5,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        n_components=5,
+        oversample=10.0,
+        k_smote=5,
     ).to_numpy()
     bcs_tr = compute_bgm_clustered_smote_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, task=task_str, n_components=5, oversample=10.0, k_smote=5,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        n_components=5,
+        oversample=10.0,
+        k_smote=5,
     ).to_numpy()
     return np.concatenate([X_tr, bcs_tr], axis=1), np.concatenate([X_te, bcs_te], axis=1)
 
@@ -4711,12 +5444,26 @@ def _features_actv(X_tr, X_te, y_tr, task):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     av_te = compute_active_virtual_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, task=task_str, oversample=20.0, k_smote=5, margin_threshold=0.15,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        oversample=20.0,
+        k_smote=5,
+        margin_threshold=0.15,
     ).to_numpy()
     av_tr = compute_active_virtual_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, task=task_str, oversample=20.0, k_smote=5, margin_threshold=0.15,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        oversample=20.0,
+        k_smote=5,
+        margin_threshold=0.15,
     ).to_numpy()
     return np.concatenate([X_tr, av_tr], axis=1), np.concatenate([X_te, av_te], axis=1)
 
@@ -4778,12 +5525,24 @@ def _features_dwsmote(X_tr, X_te, y_tr, task):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     dws_te = compute_density_weighted_smote_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, task=task_str, oversample=10.0, k_smote=5,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        oversample=10.0,
+        k_smote=5,
     ).to_numpy()
     dws_tr = compute_density_weighted_smote_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, task=task_str, oversample=10.0, k_smote=5,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        oversample=10.0,
+        k_smote=5,
     ).to_numpy()
     return np.concatenate([X_tr, dws_tr], axis=1), np.concatenate([X_te, dws_te], axis=1)
 
@@ -4853,12 +5612,26 @@ def _features_adasyn(X_tr, X_te, y_tr, task):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     ad_te = compute_adasyn_smote_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, task=task_str, oversample=10.0, k_smote=5, k_global=10,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        oversample=10.0,
+        k_smote=5,
+        k_global=10,
     ).to_numpy()
     ad_tr = compute_adasyn_smote_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, task=task_str, oversample=10.0, k_smote=5, k_global=10,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        oversample=10.0,
+        k_smote=5,
+        k_global=10,
     ).to_numpy()
     return np.concatenate([X_tr, ad_tr], axis=1), np.concatenate([X_te, ad_te], axis=1)
 
@@ -4929,12 +5702,24 @@ def _features_ppsmote(X_tr, X_te, y_tr, task):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     pp_te = compute_pure_pos_smote_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, task=task_str, oversample=10.0, k_smote=5,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        oversample=10.0,
+        k_smote=5,
     ).to_numpy()
     pp_tr = compute_pure_pos_smote_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, task=task_str, oversample=10.0, k_smote=5,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        oversample=10.0,
+        k_smote=5,
     ).to_numpy()
     return np.concatenate([X_tr, pp_tr], axis=1), np.concatenate([X_te, pp_te], axis=1)
 
@@ -5004,12 +5789,26 @@ def _features_indattn(X_tr, X_te, y_tr, task):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     ia_te = compute_inducing_attention_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, task=task_str, n_anchors=16, temp_a=1.0, temp_b=1.0,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        n_anchors=16,
+        temp_a=1.0,
+        temp_b=1.0,
     ).to_numpy()
     ia_tr = compute_inducing_attention_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, task=task_str, n_anchors=16, temp_a=1.0, temp_b=1.0,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        n_anchors=16,
+        temp_a=1.0,
+        temp_b=1.0,
     ).to_numpy()
     return np.concatenate([X_tr, ia_tr], axis=1), np.concatenate([X_te, ia_te], axis=1)
 
@@ -5077,12 +5876,22 @@ def _features_perfattn(X_tr, X_te, y_tr, task):
     """Iter 54: Performer linear attention — RFF kernel approximation of softmax."""
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     pa_te = compute_performer_attention_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, n_features=128, standardize=True,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        n_features=128,
+        standardize=True,
     ).to_numpy()
     pa_tr = compute_performer_attention_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, n_features=128, standardize=True,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        n_features=128,
+        standardize=True,
     ).to_numpy()
     return np.concatenate([X_tr, pa_tr], axis=1), np.concatenate([X_te, pa_te], axis=1)
 
@@ -5152,14 +5961,28 @@ def _features_bdc(X_tr, X_te, y_tr, task):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     bdc_te = compute_bgmm_dual_class_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, task=task_str, n_components_pos=5, n_components_neg=5,
-        oversample_pos=5.0, oversample_neg=0.5,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        n_components_pos=5,
+        n_components_neg=5,
+        oversample_pos=5.0,
+        oversample_neg=0.5,
     ).to_numpy()
     bdc_tr = compute_bgmm_dual_class_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, task=task_str, n_components_pos=5, n_components_neg=5,
-        oversample_pos=5.0, oversample_neg=0.5,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        n_components_pos=5,
+        n_components_neg=5,
+        oversample_pos=5.0,
+        oversample_neg=0.5,
     ).to_numpy()
     return np.concatenate([X_tr, bdc_tr], axis=1), np.concatenate([X_te, bdc_te], axis=1)
 
@@ -5230,12 +6053,26 @@ def _features_bqb(X_tr, X_te, y_tr, task):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     bqb_te = compute_bgmm_quantile_bands_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, task=task_str, n_bands=5, n_components=3, oversample=2.0,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        n_bands=5,
+        n_components=3,
+        oversample=2.0,
     ).to_numpy()
     bqb_tr = compute_bgmm_quantile_bands_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, task=task_str, n_bands=5, n_components=3, oversample=2.0,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        n_bands=5,
+        n_components=3,
+        oversample=2.0,
     ).to_numpy()
     return np.concatenate([X_tr, bqb_tr], axis=1), np.concatenate([X_te, bqb_te], axis=1)
 
@@ -5306,12 +6143,24 @@ def _features_qbattn(X_tr, X_te, y_tr, task):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     qb_te = compute_quantile_band_attention_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, task=task_str, n_bands=5, temp=1.0,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        n_bands=5,
+        temp=1.0,
     ).to_numpy()
     qb_tr = compute_quantile_band_attention_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, task=task_str, n_bands=5, temp=1.0,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        n_bands=5,
+        temp=1.0,
     ).to_numpy()
     return np.concatenate([X_tr, qb_tr], axis=1), np.concatenate([X_te, qb_te], axis=1)
 
@@ -5382,12 +6231,24 @@ def _features_mtqbattn(X_tr, X_te, y_tr, task):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     mt_te = compute_multi_temp_band_attention_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, task=task_str, n_bands=5, temps=(0.3, 1.0, 3.0),
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        n_bands=5,
+        temps=(0.3, 1.0, 3.0),
     ).to_numpy()
     mt_tr = compute_multi_temp_band_attention_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, task=task_str, n_bands=5, temps=(0.3, 1.0, 3.0),
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        n_bands=5,
+        temps=(0.3, 1.0, 3.0),
     ).to_numpy()
     return np.concatenate([X_tr, mt_tr], axis=1), np.concatenate([X_te, mt_te], axis=1)
 
@@ -5458,12 +6319,26 @@ def _features_bcanc(X_tr, X_te, y_tr, task):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     bc_te = compute_band_conditional_anchor_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, task=task_str, n_bands=5, anchors_per_band=4, temp=1.0,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        n_bands=5,
+        anchors_per_band=4,
+        temp=1.0,
     ).to_numpy()
     bc_tr = compute_band_conditional_anchor_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, task=task_str, n_bands=5, anchors_per_band=4, temp=1.0,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        n_bands=5,
+        anchors_per_band=4,
+        temp=1.0,
     ).to_numpy()
     return np.concatenate([X_tr, bc_tr], axis=1), np.concatenate([X_te, bc_te], axis=1)
 
@@ -5534,12 +6409,24 @@ def _features_rbattn(X_tr, X_te, y_tr, task):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     rb_te = compute_residual_band_attention_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, task=task_str, n_bands=5, temp=1.0,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        n_bands=5,
+        temp=1.0,
     ).to_numpy()
     rb_tr = compute_residual_band_attention_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, task=task_str, n_bands=5, temp=1.0,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        n_bands=5,
+        temp=1.0,
     ).to_numpy()
     return np.concatenate([X_tr, rb_tr], axis=1), np.concatenate([X_te, rb_te], axis=1)
 
@@ -5610,12 +6497,24 @@ def _features_mtrbattn(X_tr, X_te, y_tr, task):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     mtr_te = compute_multi_temp_residual_band_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, task=task_str, n_bands=5, temps=(0.3, 1.0, 3.0),
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        n_bands=5,
+        temps=(0.3, 1.0, 3.0),
     ).to_numpy()
     mtr_tr = compute_multi_temp_residual_band_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, task=task_str, n_bands=5, temps=(0.3, 1.0, 3.0),
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        n_bands=5,
+        temps=(0.3, 1.0, 3.0),
     ).to_numpy()
     return np.concatenate([X_tr, mtr_tr], axis=1), np.concatenate([X_te, mtr_te], axis=1)
 
@@ -5686,12 +6585,24 @@ def _features_srbattn(X_tr, X_te, y_tr, task):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     sr_te = compute_signed_residual_band_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, task=task_str, n_bands=5, temp=1.0,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        n_bands=5,
+        temp=1.0,
     ).to_numpy()
     sr_tr = compute_signed_residual_band_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, task=task_str, n_bands=5, temp=1.0,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        n_bands=5,
+        temp=1.0,
     ).to_numpy()
     return np.concatenate([X_tr, sr_tr], axis=1), np.concatenate([X_te, sr_te], axis=1)
 
@@ -5762,12 +6673,24 @@ def _features_bidrbattn(X_tr, X_te, y_tr, task):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     bd_te = compute_bidir_residual_band_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, task=task_str, n_bands=5, temp=1.0,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        n_bands=5,
+        temp=1.0,
     ).to_numpy()
     bd_tr = compute_bidir_residual_band_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, task=task_str, n_bands=5, temp=1.0,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        n_bands=5,
+        temp=1.0,
     ).to_numpy()
     return np.concatenate([X_tr, bd_tr], axis=1), np.concatenate([X_te, bd_te], axis=1)
 
@@ -5838,12 +6761,24 @@ def _features_predbattn(X_tr, X_te, y_tr, task):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     pb_te = compute_prediction_band_attention_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, task=task_str, n_bands=5, temp=1.0,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        n_bands=5,
+        temp=1.0,
     ).to_numpy()
     pb_tr = compute_prediction_band_attention_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, task=task_str, n_bands=5, temp=1.0,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        n_bands=5,
+        temp=1.0,
     ).to_numpy()
     return np.concatenate([X_tr, pb_tr], axis=1), np.concatenate([X_te, pb_te], axis=1)
 
@@ -5914,12 +6849,24 @@ def _features_hrattn(X_tr, X_te, y_tr, task):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     hr_te = compute_hard_row_attention_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, task=task_str, n_hard=16, temp=1.0,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        n_hard=16,
+        temp=1.0,
     ).to_numpy()
     hr_tr = compute_hard_row_attention_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, task=task_str, n_hard=16, temp=1.0,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        n_hard=16,
+        temp=1.0,
     ).to_numpy()
     return np.concatenate([X_tr, hr_tr], axis=1), np.concatenate([X_te, hr_te], axis=1)
 
@@ -5990,12 +6937,24 @@ def _features_cbhrattn(X_tr, X_te, y_tr, task):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     cb_te = compute_class_balanced_hard_row_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, task=task_str, n_hard_per_side=8, temp=1.0,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        n_hard_per_side=8,
+        temp=1.0,
     ).to_numpy()
     cb_tr = compute_class_balanced_hard_row_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, task=task_str, n_hard_per_side=8, temp=1.0,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        n_hard_per_side=8,
+        temp=1.0,
     ).to_numpy()
     return np.concatenate([X_tr, cb_tr], axis=1), np.concatenate([X_te, cb_te], axis=1)
 
@@ -6066,12 +7025,24 @@ def _features_mtcbhrattn(X_tr, X_te, y_tr, task):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     mt_te = compute_multi_temp_cbhr_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, task=task_str, n_hard_per_side=8, temps=(0.3, 1.0, 3.0),
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        n_hard_per_side=8,
+        temps=(0.3, 1.0, 3.0),
     ).to_numpy()
     mt_tr = compute_multi_temp_cbhr_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, task=task_str, n_hard_per_side=8, temps=(0.3, 1.0, 3.0),
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        n_hard_per_side=8,
+        temps=(0.3, 1.0, 3.0),
     ).to_numpy()
     return np.concatenate([X_tr, mt_tr], axis=1), np.concatenate([X_te, mt_te], axis=1)
 
@@ -6140,12 +7111,24 @@ def _features_mbhrattn(X_tr, X_te, y_tr, task):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     mb_te = compute_multi_baseline_hard_row_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, task=task_str, n_hard_per_side=8, temp=1.0,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        n_hard_per_side=8,
+        temp=1.0,
     ).to_numpy()
     mb_tr = compute_multi_baseline_hard_row_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, task=task_str, n_hard_per_side=8, temp=1.0,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        n_hard_per_side=8,
+        temp=1.0,
     ).to_numpy()
     return np.concatenate([X_tr, mb_tr], axis=1), np.concatenate([X_te, mb_te], axis=1)
 
@@ -6214,12 +7197,20 @@ def _features_blagreement(X_tr, X_te, y_tr, task):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     bl_te = compute_baseline_disagreement_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
     ).to_numpy()
     bl_tr = compute_baseline_disagreement_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
     ).to_numpy()
     return np.concatenate([X_tr, bl_tr], axis=1), np.concatenate([X_te, bl_te], axis=1)
 
@@ -6288,12 +7279,24 @@ def _features_dbattn(X_tr, X_te, y_tr, task):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     db_te = compute_disagreement_band_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, task=task_str, n_bands=5, temp=1.0,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        n_bands=5,
+        temp=1.0,
     ).to_numpy()
     db_tr = compute_disagreement_band_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, task=task_str, n_bands=5, temp=1.0,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        n_bands=5,
+        temp=1.0,
     ).to_numpy()
     return np.concatenate([X_tr, db_tr], axis=1), np.concatenate([X_te, db_te], axis=1)
 
@@ -6362,12 +7365,22 @@ def _features_nnoof(X_tr, X_te, y_tr, task):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     nn_te = compute_nn_oof_target_mean_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, task=task_str, k_values=(50, 200, 500),
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        k_values=(50, 200, 500),
     ).to_numpy()
     nn_tr = compute_nn_oof_target_mean_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, task=task_str, k_values=(50, 200, 500),
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        k_values=(50, 200, 500),
     ).to_numpy()
     return np.concatenate([X_tr, nn_tr], axis=1), np.concatenate([X_te, nn_te], axis=1)
 
@@ -6436,12 +7449,22 @@ def _features_ldgrad(X_tr, X_te, y_tr, task):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     ld_te = compute_local_density_gradient_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, task=task_str, k_neighbors=32,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        k_neighbors=32,
     ).to_numpy()
     ld_tr = compute_local_density_gradient_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, task=task_str, k_neighbors=32,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        k_neighbors=32,
     ).to_numpy()
     return np.concatenate([X_tr, ld_tr], axis=1), np.concatenate([X_te, ld_te], axis=1)
 
@@ -6510,12 +7533,22 @@ def _features_surprise(X_tr, X_te, y_tr, task):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     sp_te = compute_baseline_surprise_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, task=task_str, k_neighbors=32,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        k_neighbors=32,
     ).to_numpy()
     sp_tr = compute_baseline_surprise_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, task=task_str, k_neighbors=32,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        k_neighbors=32,
     ).to_numpy()
     return np.concatenate([X_tr, sp_tr], axis=1), np.concatenate([X_te, sp_te], axis=1)
 
@@ -6584,12 +7617,22 @@ def _features_lid(X_tr, X_te, y_tr, task):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     lid_te = compute_local_intrinsic_dim_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, task=task_str, k_neighbors=30,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        k_neighbors=30,
     ).to_numpy()
     lid_tr = compute_local_intrinsic_dim_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, task=task_str, k_neighbors=30,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        k_neighbors=30,
     ).to_numpy()
     return np.concatenate([X_tr, lid_tr], axis=1), np.concatenate([X_te, lid_te], axis=1)
 
@@ -6658,12 +7701,24 @@ def _features_robust(X_tr, X_te, y_tr, task):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     rb_te = compute_robustness_budget_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, task=task_str, n_perturbations=16, sigma_scale=0.05,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        n_perturbations=16,
+        sigma_scale=0.05,
     ).to_numpy()
     rb_tr = compute_robustness_budget_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, task=task_str, n_perturbations=16, sigma_scale=0.05,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        n_perturbations=16,
+        sigma_scale=0.05,
     ).to_numpy()
     return np.concatenate([X_tr, rb_tr], axis=1), np.concatenate([X_te, rb_te], axis=1)
 
@@ -6731,10 +7786,20 @@ def _features_pwkl(X_tr, X_te, y_tr, task):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     pw_te = compute_pairwise_kl_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=42, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
     ).to_numpy()
     pw_tr = compute_pairwise_kl_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=42, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
     ).to_numpy()
     return np.concatenate([X_tr, pw_tr], axis=1), np.concatenate([X_te, pw_te], axis=1)
 
@@ -6802,10 +7867,22 @@ def _features_curv(X_tr, X_te, y_tr, task):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     cv_te = compute_local_curvature_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=42, task=task_str, k_neighbors=40,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        k_neighbors=40,
     ).to_numpy()
     cv_tr = compute_local_curvature_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=42, task=task_str, k_neighbors=40,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        k_neighbors=40,
     ).to_numpy()
     return np.concatenate([X_tr, cv_tr], axis=1), np.concatenate([X_te, cv_te], axis=1)
 
@@ -6873,10 +7950,22 @@ def _features_cfact(X_tr, X_te, y_tr, task):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     cf_te = compute_counterfactual_substitution_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=42, task=task_str, top_k=3,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        top_k=3,
     ).to_numpy()
     cf_tr = compute_counterfactual_substitution_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=42, task=task_str, top_k=3,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        top_k=3,
     ).to_numpy()
     return np.concatenate([X_tr, cf_tr], axis=1), np.concatenate([X_te, cf_te], axis=1)
 
@@ -6944,10 +8033,20 @@ def _features_advflip(X_tr, X_te, y_tr, task):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     af_te = compute_adversarial_flip_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=42, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
     ).to_numpy()
     af_tr = compute_adversarial_flip_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=42, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
     ).to_numpy()
     return np.concatenate([X_tr, af_tr], axis=1), np.concatenate([X_te, af_te], axis=1)
 
@@ -7015,10 +8114,20 @@ def _features_graddir(X_tr, X_te, y_tr, task):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     gd_te = compute_gradient_direction_agreement_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=42, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
     ).to_numpy()
     gd_tr = compute_gradient_direction_agreement_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=42, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
     ).to_numpy()
     return np.concatenate([X_tr, gd_tr], axis=1), np.concatenate([X_te, gd_te], axis=1)
 
@@ -7086,10 +8195,22 @@ def _features_fishres(X_tr, X_te, y_tr, task):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     fr_te = compute_fisher_weighted_residual_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=42, task=task_str, n_bands=5,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        n_bands=5,
     ).to_numpy()
     fr_tr = compute_fisher_weighted_residual_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=42, task=task_str, n_bands=5,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        n_bands=5,
     ).to_numpy()
     return np.concatenate([X_tr, fr_tr], axis=1), np.concatenate([X_te, fr_te], axis=1)
 
@@ -7157,10 +8278,22 @@ def _features_pinfo(X_tr, X_te, y_tr, task):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     pi_te = compute_predictive_info_delta_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=42, task=task_str, n_bins=10,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        n_bins=10,
     ).to_numpy()
     pi_tr = compute_predictive_info_delta_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=42, task=task_str, n_bins=10,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        n_bins=10,
     ).to_numpy()
     return np.concatenate([X_tr, pi_tr], axis=1), np.concatenate([X_te, pi_te], axis=1)
 
@@ -7228,10 +8361,22 @@ def _features_drd(X_tr, X_te, y_tr, task):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     dr_te = compute_decision_region_depth_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=42, task=task_str, n_probes=8,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        n_probes=8,
     ).to_numpy()
     dr_tr = compute_decision_region_depth_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=42, task=task_str, n_probes=8,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        n_probes=8,
     ).to_numpy()
     return np.concatenate([X_tr, dr_tr], axis=1), np.concatenate([X_te, dr_te], axis=1)
 
@@ -7299,10 +8444,20 @@ def _features_ibcode(X_tr, X_te, y_tr, task):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     ib_te = compute_ib_baseline_codes_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=42, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
     ).to_numpy()
     ib_tr = compute_ib_baseline_codes_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=42, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
     ).to_numpy()
     return np.concatenate([X_tr, ib_tr], axis=1), np.concatenate([X_te, ib_te], axis=1)
 
@@ -7370,10 +8525,20 @@ def _features_geo(X_tr, X_te, y_tr, task):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     g_te = compute_geodesic_kgraph_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=42, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
     ).to_numpy()
     g_tr = compute_geodesic_kgraph_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=42, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
     ).to_numpy()
     return np.concatenate([X_tr, g_tr], axis=1), np.concatenate([X_te, g_te], axis=1)
 
@@ -7441,10 +8606,22 @@ def _features_pers(X_tr, X_te, y_tr, task):
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     p_te = compute_persistence_diagram_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=42, task=task_str, k_neighbors=30,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        k_neighbors=30,
     ).to_numpy()
     p_tr = compute_persistence_diagram_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=42, task=task_str, k_neighbors=30,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        task=task_str,
+        k_neighbors=30,
     ).to_numpy()
     return np.concatenate([X_tr, p_tr], axis=1), np.concatenate([X_te, p_te], axis=1)
 
@@ -7520,36 +8697,55 @@ def _features_varbase_plus_rff(X_tr, X_te, y_tr, task):
     rff_tr, rff_te = _features_rff(X_tr, X_te, y_tr, task)
     v_tr, v_te = _features_varbase(X_tr, X_te, y_tr, task)
     only = lambda f, n: f[:, n:]
-    return (np.concatenate([X_tr, only(rff_tr, X_tr.shape[1]), only(v_tr, X_tr.shape[1])], axis=1),
-            np.concatenate([X_te, only(rff_te, X_te.shape[1]), only(v_te, X_te.shape[1])], axis=1))
+    return (
+        np.concatenate([X_tr, only(rff_tr, X_tr.shape[1]), only(v_tr, X_tr.shape[1])], axis=1),
+        np.concatenate([X_te, only(rff_te, X_te.shape[1]), only(v_te, X_te.shape[1])], axis=1),
+    )
 
 
 def _features_varbase_plus_cdist(X_tr, X_te, y_tr, task):
     cd_tr, cd_te = _features_cdist(X_tr, X_te, y_tr, task)
     v_tr, v_te = _features_varbase(X_tr, X_te, y_tr, task)
     only = lambda f, n: f[:, n:]
-    return (np.concatenate([X_tr, only(cd_tr, X_tr.shape[1]), only(v_tr, X_tr.shape[1])], axis=1),
-            np.concatenate([X_te, only(cd_te, X_te.shape[1]), only(v_te, X_te.shape[1])], axis=1))
+    return (
+        np.concatenate([X_tr, only(cd_tr, X_tr.shape[1]), only(v_tr, X_tr.shape[1])], axis=1),
+        np.concatenate([X_te, only(cd_te, X_te.shape[1]), only(v_te, X_te.shape[1])], axis=1),
+    )
 
 
 FEATURE_BUILDERS_ITER87: Dict[str, Callable] = {
-    "raw": _features_raw, "+varbase": _features_varbase,
-    "+varbase+rff": _features_varbase_plus_rff, "+varbase+cdist": _features_varbase_plus_cdist,
+    "raw": _features_raw,
+    "+varbase": _features_varbase,
+    "+varbase+rff": _features_varbase_plus_rff,
+    "+varbase+cdist": _features_varbase_plus_cdist,
 }
 
 
 def _run_iter87_test(loader, name):
-    try: X, y, task = loader()
-    except Exception as exc: print(f"\n[skip] {name}: {exc}"); return
+    try:
+        X, y, task = loader()
+    except Exception as exc:
+        print(f"\n[skip] {name}: {exc}")
+        return
     X, y = _cap_rows(X, y)
     print(f"\n[iter87-varbase] {name}: X.shape={X.shape}, task={task}")
     _print_matrix_multi_metric(_run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER87))
 
 
-def test_iter87_kin8nm(): _run_iter87_test(_load_kin8nm, "kin8nm_iter87")
-def test_iter87_abalone(): _run_iter87_test(_load_abalone, "abalone_iter87")
-def test_iter87_mammography(): _run_iter87_test(_load_mammography, "mammography_iter87")
-def test_iter87_diabetes(): _run_iter87_test(_load_diabetes_classification, "diabetes_iter87")
+def test_iter87_kin8nm():
+    _run_iter87_test(_load_kin8nm, "kin8nm_iter87")
+
+
+def test_iter87_abalone():
+    _run_iter87_test(_load_abalone, "abalone_iter87")
+
+
+def test_iter87_mammography():
+    _run_iter87_test(_load_mammography, "mammography_iter87")
+
+
+def test_iter87_diabetes():
+    _run_iter87_test(_load_diabetes_classification, "diabetes_iter87")
 
 
 # ========== iter 88: Sign-of-residual baseline (C5) ==========
@@ -7567,36 +8763,55 @@ def _features_signres_plus_rff(X_tr, X_te, y_tr, task):
     rff_tr, rff_te = _features_rff(X_tr, X_te, y_tr, task)
     s_tr, s_te = _features_signres(X_tr, X_te, y_tr, task)
     only = lambda f, n: f[:, n:]
-    return (np.concatenate([X_tr, only(rff_tr, X_tr.shape[1]), only(s_tr, X_tr.shape[1])], axis=1),
-            np.concatenate([X_te, only(rff_te, X_te.shape[1]), only(s_te, X_te.shape[1])], axis=1))
+    return (
+        np.concatenate([X_tr, only(rff_tr, X_tr.shape[1]), only(s_tr, X_tr.shape[1])], axis=1),
+        np.concatenate([X_te, only(rff_te, X_te.shape[1]), only(s_te, X_te.shape[1])], axis=1),
+    )
 
 
 def _features_signres_plus_cdist(X_tr, X_te, y_tr, task):
     cd_tr, cd_te = _features_cdist(X_tr, X_te, y_tr, task)
     s_tr, s_te = _features_signres(X_tr, X_te, y_tr, task)
     only = lambda f, n: f[:, n:]
-    return (np.concatenate([X_tr, only(cd_tr, X_tr.shape[1]), only(s_tr, X_tr.shape[1])], axis=1),
-            np.concatenate([X_te, only(cd_te, X_te.shape[1]), only(s_te, X_te.shape[1])], axis=1))
+    return (
+        np.concatenate([X_tr, only(cd_tr, X_tr.shape[1]), only(s_tr, X_tr.shape[1])], axis=1),
+        np.concatenate([X_te, only(cd_te, X_te.shape[1]), only(s_te, X_te.shape[1])], axis=1),
+    )
 
 
 FEATURE_BUILDERS_ITER88: Dict[str, Callable] = {
-    "raw": _features_raw, "+signres": _features_signres,
-    "+signres+rff": _features_signres_plus_rff, "+signres+cdist": _features_signres_plus_cdist,
+    "raw": _features_raw,
+    "+signres": _features_signres,
+    "+signres+rff": _features_signres_plus_rff,
+    "+signres+cdist": _features_signres_plus_cdist,
 }
 
 
 def _run_iter88_test(loader, name):
-    try: X, y, task = loader()
-    except Exception as exc: print(f"\n[skip] {name}: {exc}"); return
+    try:
+        X, y, task = loader()
+    except Exception as exc:
+        print(f"\n[skip] {name}: {exc}")
+        return
     X, y = _cap_rows(X, y)
     print(f"\n[iter88-signres] {name}: X.shape={X.shape}, task={task}")
     _print_matrix_multi_metric(_run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER88))
 
 
-def test_iter88_kin8nm(): _run_iter88_test(_load_kin8nm, "kin8nm_iter88")
-def test_iter88_abalone(): _run_iter88_test(_load_abalone, "abalone_iter88")
-def test_iter88_mammography(): _run_iter88_test(_load_mammography, "mammography_iter88")
-def test_iter88_diabetes(): _run_iter88_test(_load_diabetes_classification, "diabetes_iter88")
+def test_iter88_kin8nm():
+    _run_iter88_test(_load_kin8nm, "kin8nm_iter88")
+
+
+def test_iter88_abalone():
+    _run_iter88_test(_load_abalone, "abalone_iter88")
+
+
+def test_iter88_mammography():
+    _run_iter88_test(_load_mammography, "mammography_iter88")
+
+
+def test_iter88_diabetes():
+    _run_iter88_test(_load_diabetes_classification, "diabetes_iter88")
 
 
 # ========== iter 89: Quantile-spread fan (C1) ==========
@@ -7614,36 +8829,55 @@ def _features_qfan_plus_rff(X_tr, X_te, y_tr, task):
     rff_tr, rff_te = _features_rff(X_tr, X_te, y_tr, task)
     q_tr, q_te = _features_qfan(X_tr, X_te, y_tr, task)
     only = lambda f, n: f[:, n:]
-    return (np.concatenate([X_tr, only(rff_tr, X_tr.shape[1]), only(q_tr, X_tr.shape[1])], axis=1),
-            np.concatenate([X_te, only(rff_te, X_te.shape[1]), only(q_te, X_te.shape[1])], axis=1))
+    return (
+        np.concatenate([X_tr, only(rff_tr, X_tr.shape[1]), only(q_tr, X_tr.shape[1])], axis=1),
+        np.concatenate([X_te, only(rff_te, X_te.shape[1]), only(q_te, X_te.shape[1])], axis=1),
+    )
 
 
 def _features_qfan_plus_cdist(X_tr, X_te, y_tr, task):
     cd_tr, cd_te = _features_cdist(X_tr, X_te, y_tr, task)
     q_tr, q_te = _features_qfan(X_tr, X_te, y_tr, task)
     only = lambda f, n: f[:, n:]
-    return (np.concatenate([X_tr, only(cd_tr, X_tr.shape[1]), only(q_tr, X_tr.shape[1])], axis=1),
-            np.concatenate([X_te, only(cd_te, X_te.shape[1]), only(q_te, X_te.shape[1])], axis=1))
+    return (
+        np.concatenate([X_tr, only(cd_tr, X_tr.shape[1]), only(q_tr, X_tr.shape[1])], axis=1),
+        np.concatenate([X_te, only(cd_te, X_te.shape[1]), only(q_te, X_te.shape[1])], axis=1),
+    )
 
 
 FEATURE_BUILDERS_ITER89: Dict[str, Callable] = {
-    "raw": _features_raw, "+qfan": _features_qfan,
-    "+qfan+rff": _features_qfan_plus_rff, "+qfan+cdist": _features_qfan_plus_cdist,
+    "raw": _features_raw,
+    "+qfan": _features_qfan,
+    "+qfan+rff": _features_qfan_plus_rff,
+    "+qfan+cdist": _features_qfan_plus_cdist,
 }
 
 
 def _run_iter89_test(loader, name):
-    try: X, y, task = loader()
-    except Exception as exc: print(f"\n[skip] {name}: {exc}"); return
+    try:
+        X, y, task = loader()
+    except Exception as exc:
+        print(f"\n[skip] {name}: {exc}")
+        return
     X, y = _cap_rows(X, y)
     print(f"\n[iter89-qfan] {name}: X.shape={X.shape}, task={task}")
     _print_matrix_multi_metric(_run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER89))
 
 
-def test_iter89_kin8nm(): _run_iter89_test(_load_kin8nm, "kin8nm_iter89")
-def test_iter89_abalone(): _run_iter89_test(_load_abalone, "abalone_iter89")
-def test_iter89_mammography(): _run_iter89_test(_load_mammography, "mammography_iter89")
-def test_iter89_diabetes(): _run_iter89_test(_load_diabetes_classification, "diabetes_iter89")
+def test_iter89_kin8nm():
+    _run_iter89_test(_load_kin8nm, "kin8nm_iter89")
+
+
+def test_iter89_abalone():
+    _run_iter89_test(_load_abalone, "abalone_iter89")
+
+
+def test_iter89_mammography():
+    _run_iter89_test(_load_mammography, "mammography_iter89")
+
+
+def test_iter89_diabetes():
+    _run_iter89_test(_load_diabetes_classification, "diabetes_iter89")
 
 
 # ========== iter 90: Trust score via OOF correctness density (B2) ==========
@@ -7661,36 +8895,55 @@ def _features_trust_plus_rff(X_tr, X_te, y_tr, task):
     rff_tr, rff_te = _features_rff(X_tr, X_te, y_tr, task)
     t_tr, t_te = _features_trust(X_tr, X_te, y_tr, task)
     only = lambda f, n: f[:, n:]
-    return (np.concatenate([X_tr, only(rff_tr, X_tr.shape[1]), only(t_tr, X_tr.shape[1])], axis=1),
-            np.concatenate([X_te, only(rff_te, X_te.shape[1]), only(t_te, X_te.shape[1])], axis=1))
+    return (
+        np.concatenate([X_tr, only(rff_tr, X_tr.shape[1]), only(t_tr, X_tr.shape[1])], axis=1),
+        np.concatenate([X_te, only(rff_te, X_te.shape[1]), only(t_te, X_te.shape[1])], axis=1),
+    )
 
 
 def _features_trust_plus_cdist(X_tr, X_te, y_tr, task):
     cd_tr, cd_te = _features_cdist(X_tr, X_te, y_tr, task)
     t_tr, t_te = _features_trust(X_tr, X_te, y_tr, task)
     only = lambda f, n: f[:, n:]
-    return (np.concatenate([X_tr, only(cd_tr, X_tr.shape[1]), only(t_tr, X_tr.shape[1])], axis=1),
-            np.concatenate([X_te, only(cd_te, X_te.shape[1]), only(t_te, X_te.shape[1])], axis=1))
+    return (
+        np.concatenate([X_tr, only(cd_tr, X_tr.shape[1]), only(t_tr, X_tr.shape[1])], axis=1),
+        np.concatenate([X_te, only(cd_te, X_te.shape[1]), only(t_te, X_te.shape[1])], axis=1),
+    )
 
 
 FEATURE_BUILDERS_ITER90: Dict[str, Callable] = {
-    "raw": _features_raw, "+trust": _features_trust,
-    "+trust+rff": _features_trust_plus_rff, "+trust+cdist": _features_trust_plus_cdist,
+    "raw": _features_raw,
+    "+trust": _features_trust,
+    "+trust+rff": _features_trust_plus_rff,
+    "+trust+cdist": _features_trust_plus_cdist,
 }
 
 
 def _run_iter90_test(loader, name):
-    try: X, y, task = loader()
-    except Exception as exc: print(f"\n[skip] {name}: {exc}"); return
+    try:
+        X, y, task = loader()
+    except Exception as exc:
+        print(f"\n[skip] {name}: {exc}")
+        return
     X, y = _cap_rows(X, y)
     print(f"\n[iter90-trust] {name}: X.shape={X.shape}, task={task}")
     _print_matrix_multi_metric(_run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER90))
 
 
-def test_iter90_kin8nm(): _run_iter90_test(_load_kin8nm, "kin8nm_iter90")
-def test_iter90_abalone(): _run_iter90_test(_load_abalone, "abalone_iter90")
-def test_iter90_mammography(): _run_iter90_test(_load_mammography, "mammography_iter90")
-def test_iter90_diabetes(): _run_iter90_test(_load_diabetes_classification, "diabetes_iter90")
+def test_iter90_kin8nm():
+    _run_iter90_test(_load_kin8nm, "kin8nm_iter90")
+
+
+def test_iter90_abalone():
+    _run_iter90_test(_load_abalone, "abalone_iter90")
+
+
+def test_iter90_mammography():
+    _run_iter90_test(_load_mammography, "mammography_iter90")
+
+
+def test_iter90_diabetes():
+    _run_iter90_test(_load_diabetes_classification, "diabetes_iter90")
 
 
 # ========== iter 91-101: 11 mechanisms from 3-agent synthesis batch 2+3 ==========
@@ -7698,131 +8951,276 @@ def test_iter90_diabetes(): _run_iter90_test(_load_diabetes_classification, "dia
 
 def _make_builders(compute_fn, prefix: str):
     """Factory: produces 4 builder funcs (alone/+rff/+cdist) + FEATURE_BUILDERS dict."""
+
     def _alone(X_tr, X_te, y_tr, task):
         splitter = KFold(n_splits=5, shuffle=True, random_state=42)
         task_str = "binary" if task == "binary" else "regression"
         te = compute_fn(X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=42, task=task_str).to_numpy()
         tr = compute_fn(X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=42, task=task_str).to_numpy()
         return np.concatenate([X_tr, tr], axis=1), np.concatenate([X_te, te], axis=1)
+
     def _plus_rff(X_tr, X_te, y_tr, task):
         rff_tr, rff_te = _features_rff(X_tr, X_te, y_tr, task)
         m_tr, m_te = _alone(X_tr, X_te, y_tr, task)
         only = lambda f, n: f[:, n:]
-        return (np.concatenate([X_tr, only(rff_tr, X_tr.shape[1]), only(m_tr, X_tr.shape[1])], axis=1),
-                np.concatenate([X_te, only(rff_te, X_te.shape[1]), only(m_te, X_te.shape[1])], axis=1))
+        return (
+            np.concatenate([X_tr, only(rff_tr, X_tr.shape[1]), only(m_tr, X_tr.shape[1])], axis=1),
+            np.concatenate([X_te, only(rff_te, X_te.shape[1]), only(m_te, X_te.shape[1])], axis=1),
+        )
+
     def _plus_cdist(X_tr, X_te, y_tr, task):
         cd_tr, cd_te = _features_cdist(X_tr, X_te, y_tr, task)
         m_tr, m_te = _alone(X_tr, X_te, y_tr, task)
         only = lambda f, n: f[:, n:]
-        return (np.concatenate([X_tr, only(cd_tr, X_tr.shape[1]), only(m_tr, X_tr.shape[1])], axis=1),
-                np.concatenate([X_te, only(cd_te, X_te.shape[1]), only(m_te, X_te.shape[1])], axis=1))
-    builders = {"raw": _features_raw, f"+{prefix}": _alone,
-                f"+{prefix}+rff": _plus_rff, f"+{prefix}+cdist": _plus_cdist}
+        return (
+            np.concatenate([X_tr, only(cd_tr, X_tr.shape[1]), only(m_tr, X_tr.shape[1])], axis=1),
+            np.concatenate([X_te, only(cd_te, X_te.shape[1]), only(m_te, X_te.shape[1])], axis=1),
+        )
+
+    builders = {"raw": _features_raw, f"+{prefix}": _alone, f"+{prefix}+rff": _plus_rff, f"+{prefix}+cdist": _plus_cdist}
     return builders
 
 
 def _make_runner(iter_n: int, prefix: str, builders: Dict[str, Callable]):
     def _run(loader, name):
-        try: X, y, task = loader()
-        except Exception as exc: print(f"\n[skip] {name}: {exc}"); return
+        try:
+            X, y, task = loader()
+        except Exception as exc:
+            print(f"\n[skip] {name}: {exc}")
+            return
         X, y = _cap_rows(X, y)
         print(f"\n[iter{iter_n}-{prefix}] {name}: X.shape={X.shape}, task={task}")
         _print_matrix_multi_metric(_run_matrix(X, y, task, name, builders=builders))
+
     return _run
 
 
 _BUILDERS_91 = _make_builders(compute_conformal_coverage_failure_features, "ccf")
 _RUN_91 = _make_runner(91, "ccf", _BUILDERS_91)
-def test_iter91_kin8nm(): _RUN_91(_load_kin8nm, "kin8nm_iter91")
-def test_iter91_abalone(): _RUN_91(_load_abalone, "abalone_iter91")
-def test_iter91_mammography(): _RUN_91(_load_mammography, "mammography_iter91")
-def test_iter91_diabetes(): _RUN_91(_load_diabetes_classification, "diabetes_iter91")
+
+
+def test_iter91_kin8nm():
+    _RUN_91(_load_kin8nm, "kin8nm_iter91")
+
+
+def test_iter91_abalone():
+    _RUN_91(_load_abalone, "abalone_iter91")
+
+
+def test_iter91_mammography():
+    _RUN_91(_load_mammography, "mammography_iter91")
+
+
+def test_iter91_diabetes():
+    _RUN_91(_load_diabetes_classification, "diabetes_iter91")
 
 
 _BUILDERS_92 = _make_builders(compute_tree_path_boolean_features, "tpath")
 _RUN_92 = _make_runner(92, "tpath", _BUILDERS_92)
-def test_iter92_kin8nm(): _RUN_92(_load_kin8nm, "kin8nm_iter92")
-def test_iter92_abalone(): _RUN_92(_load_abalone, "abalone_iter92")
-def test_iter92_mammography(): _RUN_92(_load_mammography, "mammography_iter92")
-def test_iter92_diabetes(): _RUN_92(_load_diabetes_classification, "diabetes_iter92")
+
+
+def test_iter92_kin8nm():
+    _RUN_92(_load_kin8nm, "kin8nm_iter92")
+
+
+def test_iter92_abalone():
+    _RUN_92(_load_abalone, "abalone_iter92")
+
+
+def test_iter92_mammography():
+    _RUN_92(_load_mammography, "mammography_iter92")
+
+
+def test_iter92_diabetes():
+    _RUN_92(_load_diabetes_classification, "diabetes_iter92")
 
 
 _BUILDERS_93 = _make_builders(compute_conformal_locally_adaptive_features, "cla")
 _RUN_93 = _make_runner(93, "cla", _BUILDERS_93)
-def test_iter93_kin8nm(): _RUN_93(_load_kin8nm, "kin8nm_iter93")
-def test_iter93_abalone(): _RUN_93(_load_abalone, "abalone_iter93")
-def test_iter93_mammography(): _RUN_93(_load_mammography, "mammography_iter93")
-def test_iter93_diabetes(): _RUN_93(_load_diabetes_classification, "diabetes_iter93")
+
+
+def test_iter93_kin8nm():
+    _RUN_93(_load_kin8nm, "kin8nm_iter93")
+
+
+def test_iter93_abalone():
+    _RUN_93(_load_abalone, "abalone_iter93")
+
+
+def test_iter93_mammography():
+    _RUN_93(_load_mammography, "mammography_iter93")
+
+
+def test_iter93_diabetes():
+    _RUN_93(_load_diabetes_classification, "diabetes_iter93")
 
 
 _BUILDERS_94 = _make_builders(compute_distributional_moments_features, "distmom")
 _RUN_94 = _make_runner(94, "distmom", _BUILDERS_94)
-def test_iter94_kin8nm(): _RUN_94(_load_kin8nm, "kin8nm_iter94")
-def test_iter94_abalone(): _RUN_94(_load_abalone, "abalone_iter94")
-def test_iter94_mammography(): _RUN_94(_load_mammography, "mammography_iter94")
-def test_iter94_diabetes(): _RUN_94(_load_diabetes_classification, "diabetes_iter94")
+
+
+def test_iter94_kin8nm():
+    _RUN_94(_load_kin8nm, "kin8nm_iter94")
+
+
+def test_iter94_abalone():
+    _RUN_94(_load_abalone, "abalone_iter94")
+
+
+def test_iter94_mammography():
+    _RUN_94(_load_mammography, "mammography_iter94")
+
+
+def test_iter94_diabetes():
+    _RUN_94(_load_diabetes_classification, "diabetes_iter94")
 
 
 _BUILDERS_95 = _make_builders(compute_cross_feature_reconstruction_features, "xfeat")
 _RUN_95 = _make_runner(95, "xfeat", _BUILDERS_95)
-def test_iter95_kin8nm(): _RUN_95(_load_kin8nm, "kin8nm_iter95")
-def test_iter95_abalone(): _RUN_95(_load_abalone, "abalone_iter95")
-def test_iter95_mammography(): _RUN_95(_load_mammography, "mammography_iter95")
-def test_iter95_diabetes(): _RUN_95(_load_diabetes_classification, "diabetes_iter95")
+
+
+def test_iter95_kin8nm():
+    _RUN_95(_load_kin8nm, "kin8nm_iter95")
+
+
+def test_iter95_abalone():
+    _RUN_95(_load_abalone, "abalone_iter95")
+
+
+def test_iter95_mammography():
+    _RUN_95(_load_mammography, "mammography_iter95")
+
+
+def test_iter95_diabetes():
+    _RUN_95(_load_diabetes_classification, "diabetes_iter95")
 
 
 _BUILDERS_96 = _make_builders(compute_multi_threshold_ordinal_features, "multthr")
 _RUN_96 = _make_runner(96, "multthr", _BUILDERS_96)
-def test_iter96_kin8nm(): _RUN_96(_load_kin8nm, "kin8nm_iter96")
-def test_iter96_abalone(): _RUN_96(_load_abalone, "abalone_iter96")
-def test_iter96_mammography(): _RUN_96(_load_mammography, "mammography_iter96")
-def test_iter96_diabetes(): _RUN_96(_load_diabetes_classification, "diabetes_iter96")
+
+
+def test_iter96_kin8nm():
+    _RUN_96(_load_kin8nm, "kin8nm_iter96")
+
+
+def test_iter96_abalone():
+    _RUN_96(_load_abalone, "abalone_iter96")
+
+
+def test_iter96_mammography():
+    _RUN_96(_load_mammography, "mammography_iter96")
+
+
+def test_iter96_diabetes():
+    _RUN_96(_load_diabetes_classification, "diabetes_iter96")
 
 
 _BUILDERS_97 = _make_builders(compute_mdl_binning_pairwise_features, "mdlbin")
 _RUN_97 = _make_runner(97, "mdlbin", _BUILDERS_97)
-def test_iter97_kin8nm(): _RUN_97(_load_kin8nm, "kin8nm_iter97")
-def test_iter97_abalone(): _RUN_97(_load_abalone, "abalone_iter97")
-def test_iter97_mammography(): _RUN_97(_load_mammography, "mammography_iter97")
-def test_iter97_diabetes(): _RUN_97(_load_diabetes_classification, "diabetes_iter97")
+
+
+def test_iter97_kin8nm():
+    _RUN_97(_load_kin8nm, "kin8nm_iter97")
+
+
+def test_iter97_abalone():
+    _RUN_97(_load_abalone, "abalone_iter97")
+
+
+def test_iter97_mammography():
+    _RUN_97(_load_mammography, "mammography_iter97")
+
+
+def test_iter97_diabetes():
+    _RUN_97(_load_diabetes_classification, "diabetes_iter97")
 
 
 _BUILDERS_98 = _make_builders(compute_apriori_itemsets_features, "apri")
 _RUN_98 = _make_runner(98, "apri", _BUILDERS_98)
-def test_iter98_kin8nm(): _RUN_98(_load_kin8nm, "kin8nm_iter98")
-def test_iter98_abalone(): _RUN_98(_load_abalone, "abalone_iter98")
-def test_iter98_mammography(): _RUN_98(_load_mammography, "mammography_iter98")
-def test_iter98_diabetes(): _RUN_98(_load_diabetes_classification, "diabetes_iter98")
+
+
+def test_iter98_kin8nm():
+    _RUN_98(_load_kin8nm, "kin8nm_iter98")
+
+
+def test_iter98_abalone():
+    _RUN_98(_load_abalone, "abalone_iter98")
+
+
+def test_iter98_mammography():
+    _RUN_98(_load_mammography, "mammography_iter98")
+
+
+def test_iter98_diabetes():
+    _RUN_98(_load_diabetes_classification, "diabetes_iter98")
 
 
 _BUILDERS_99 = _make_builders(compute_target_kmeans_codebook_features, "tkmc")
 _RUN_99 = _make_runner(99, "tkmc", _BUILDERS_99)
-def test_iter99_kin8nm(): _RUN_99(_load_kin8nm, "kin8nm_iter99")
-def test_iter99_abalone(): _RUN_99(_load_abalone, "abalone_iter99")
-def test_iter99_mammography(): _RUN_99(_load_mammography, "mammography_iter99")
-def test_iter99_diabetes(): _RUN_99(_load_diabetes_classification, "diabetes_iter99")
+
+
+def test_iter99_kin8nm():
+    _RUN_99(_load_kin8nm, "kin8nm_iter99")
+
+
+def test_iter99_abalone():
+    _RUN_99(_load_abalone, "abalone_iter99")
+
+
+def test_iter99_mammography():
+    _RUN_99(_load_mammography, "mammography_iter99")
+
+
+def test_iter99_diabetes():
+    _RUN_99(_load_diabetes_classification, "diabetes_iter99")
 
 
 _BUILDERS_100 = _make_builders(compute_fca_closed_concepts_features, "fca")
 _RUN_100 = _make_runner(100, "fca", _BUILDERS_100)
-def test_iter100_kin8nm(): _RUN_100(_load_kin8nm, "kin8nm_iter100")
-def test_iter100_abalone(): _RUN_100(_load_abalone, "abalone_iter100")
-def test_iter100_mammography(): _RUN_100(_load_mammography, "mammography_iter100")
-def test_iter100_diabetes(): _RUN_100(_load_diabetes_classification, "diabetes_iter100")
+
+
+def test_iter100_kin8nm():
+    _RUN_100(_load_kin8nm, "kin8nm_iter100")
+
+
+def test_iter100_abalone():
+    _RUN_100(_load_abalone, "abalone_iter100")
+
+
+def test_iter100_mammography():
+    _RUN_100(_load_mammography, "mammography_iter100")
+
+
+def test_iter100_diabetes():
+    _RUN_100(_load_diabetes_classification, "diabetes_iter100")
 
 
 _BUILDERS_101 = _make_builders(compute_jackknife_endpoint_stability_features, "jkep")
 _RUN_101 = _make_runner(101, "jkep", _BUILDERS_101)
-def test_iter101_kin8nm(): _RUN_101(_load_kin8nm, "kin8nm_iter101")
-def test_iter101_abalone(): _RUN_101(_load_abalone, "abalone_iter101")
-def test_iter101_mammography(): _RUN_101(_load_mammography, "mammography_iter101")
-def test_iter101_diabetes(): _RUN_101(_load_diabetes_classification, "diabetes_iter101")
+
+
+def test_iter101_kin8nm():
+    _RUN_101(_load_kin8nm, "kin8nm_iter101")
+
+
+def test_iter101_abalone():
+    _RUN_101(_load_abalone, "abalone_iter101")
+
+
+def test_iter101_mammography():
+    _RUN_101(_load_mammography, "mammography_iter101")
+
+
+def test_iter101_diabetes():
+    _RUN_101(_load_diabetes_classification, "diabetes_iter101")
 
 
 # ---------- structural-signal hard test ----------
 
 
-def _make_knn_target_synthetic(n: int = 4000, d: int = 12, k_neighbors: int = 10, seed: int = 0, task: str = "regression") -> Tuple[np.ndarray, np.ndarray, str]:
+def _make_knn_target_synthetic(
+    n: int = 4000, d: int = 12, k_neighbors: int = 10, seed: int = 0, task: str = "regression"
+) -> Tuple[np.ndarray, np.ndarray, str]:
     """Synthetic where the target literally IS a kNN-smoothed latent function of X.
 
     Construction:
@@ -7836,6 +9234,7 @@ def _make_knn_target_synthetic(n: int = 4000, d: int = 12, k_neighbors: int = 10
     nonlinearity in cols 0-3; row-attention's softmax-weighted kNN-aggregation captures it in one go.
     """
     from sklearn.neighbors import NearestNeighbors
+
     rng = np.random.default_rng(seed)
     X = rng.standard_normal((n, d)).astype(np.float32)
     latent = (np.sin(X[:, 0] * X[:, 1]) + 0.5 * np.cos(X[:, 2] + X[:, 3])).astype(np.float32)

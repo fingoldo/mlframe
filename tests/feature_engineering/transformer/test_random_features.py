@@ -7,6 +7,7 @@ Coverage:
 
 Marked @pytest.mark.fast for the fast subset - none of these need anything beyond numpy + polars + numba (and the warm-jit fixture).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -141,11 +142,14 @@ def test_rff_no_standardize_path():
 def test_rff_outputs_unit_kernel_features():
     # The RFF approximation: |phi(x_i) . phi(x_j)|^2 estimates the RBF kernel between x_i and x_j with variance dropping in 1/n_features.
     # Sanity check: for two close points, output rows should have higher dot product than for two distant points.
-    X = np.array([
-        [0.0, 0.0],
-        [0.01, 0.01],   # close to row 0
-        [5.0, 5.0],     # far
-    ], dtype=np.float32)
+    X = np.array(
+        [
+            [0.0, 0.0],
+            [0.01, 0.01],  # close to row 0
+            [5.0, 5.0],  # far
+        ],
+        dtype=np.float32,
+    )
     df = compute_rff_features(X, seed=0, n_features=2048, sigma=1.0, standardize=False, use_gpu=False)
     arr = df.to_numpy()
     close_dot = float(arr[0] @ arr[1])

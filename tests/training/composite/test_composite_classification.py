@@ -6,6 +6,7 @@ target whose signal is a dominant LINEAR driver + a nonlinear (XOR) residual the
 linear base cannot see, the composite beats the base alone and matches a plain
 GBDT that must re-derive everything.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -23,10 +24,10 @@ lgb = pytest.importorskip("lightgbm")
 
 def _xor_residual_data(seed=1, n=8000):
     rng = np.random.default_rng(seed)
-    s = rng.normal(0.0, 1.0, n)            # dominant linear driver
+    s = rng.normal(0.0, 1.0, n)  # dominant linear driver
     a = rng.normal(0.0, 1.0, n)
     b = rng.normal(0.0, 1.0, n)
-    xor = np.sign(a * b)                    # nonlinear residual; linear base blind
+    xor = np.sign(a * b)  # nonlinear residual; linear base blind
     logit = 2.5 * s + 1.8 * xor
     p = _sigmoid(logit)
     y = (rng.uniform(size=n) < p).astype(int)
@@ -46,12 +47,8 @@ class TestM7BizValue:
             base_estimator=lgb.LGBMClassifier(n_estimators=200, verbose=-1),
         ).fit(X.iloc[tr], y[tr])
         auc_comp = roc_auc_score(y[te], est.predict_proba(X.iloc[te])[:, 1])
-        assert auc_comp >= auc_base + 0.03, (
-            f"composite {auc_comp:.4f} should clearly beat base {auc_base:.4f}"
-        )
-        assert auc_comp >= auc_plain - 0.01, (
-            f"composite {auc_comp:.4f} should match plain GBDT {auc_plain:.4f}"
-        )
+        assert auc_comp >= auc_base + 0.03, f"composite {auc_comp:.4f} should clearly beat base {auc_base:.4f}"
+        assert auc_comp >= auc_plain - 0.01, f"composite {auc_comp:.4f} should match plain GBDT {auc_plain:.4f}"
 
 
 class TestM7Contract:

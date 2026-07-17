@@ -7,6 +7,7 @@ under-estimates models whose bulk lives in Cython / numpy buffers it cannot intr
 reports ~0.4 MB while its pickle is ~155 MB). This test pins that property so nobody "improves" the precheck by
 treating asizeof's estimate as a real byte count (which would silently break the eager/lean gate decision).
 """
+
 import numpy as np
 import pytest
 from types import SimpleNamespace
@@ -14,7 +15,7 @@ from types import SimpleNamespace
 
 def test_asizeof_underestimates_buffer_backed_model_vs_pickle():
     pa = pytest.importorskip("pympler.asizeof")
-    import pickle
+    import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
     from sklearn.ensemble import RandomForestClassifier
 
     rng = np.random.default_rng(0)
@@ -29,9 +30,7 @@ def test_asizeof_underestimates_buffer_backed_model_vs_pickle():
     # The whole point: asizeof cannot see the Cython tree buffers, so its estimate is a small fraction of the
     # true serialized size. If this ever flips (asizeof learns to walk the buffers), the precheck threshold
     # semantics must be re-derived -- this test failing is the signal to do that, not to "fix" the test.
-    assert est < serialized * 0.5, (
-        f"asizeof est {est} vs serialized {serialized}: precheck must not be treated as a real byte count"
-    )
+    assert est < serialized * 0.5, f"asizeof est {est} vs serialized {serialized}: precheck must not be treated as a real byte count"
 
 
 def test_asizeof_shallow_ndarray_bundle_is_accurate_and_cheap():

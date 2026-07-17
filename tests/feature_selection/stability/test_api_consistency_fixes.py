@@ -21,8 +21,7 @@ def test_api1_sibling_selectors_share_random_state_default():
     hybrid_default = inspect.signature(HybridSelector.__init__).parameters["random_state"].default
     efs_default = inspect.signature(estimate_features_relevancy).parameters["random_state"].default
     assert hybrid_default == efs_default, (
-        f"sibling selectors disagree on random_state default: "
-        f"HybridSelector={hybrid_default!r} vs estimate_features_relevancy={efs_default!r}"
+        f"sibling selectors disagree on random_state default: HybridSelector={hybrid_default!r} vs estimate_features_relevancy={efs_default!r}"
     )
 
 
@@ -58,16 +57,19 @@ def test_api14_classification_none_warns_on_ambiguous_float_target():
         # The warning fires before any heavy fitting; we only assert the warning, swallow downstream errors.
         try:
             sel.fit(X, y)
-        except Exception:
+        except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
             pass
 
 
 # --------------------------------------------------------------------------- API33
-@pytest.mark.parametrize("fn_name", [
-    "grok_compute_mutual_information",
-    "chatgpt_compute_mutual_information",
-    "deepseek_compute_mutual_information",
-])
+@pytest.mark.parametrize(
+    "fn_name",
+    [
+        "grok_compute_mutual_information",
+        "chatgpt_compute_mutual_information",
+        "deepseek_compute_mutual_information",
+    ],
+)
 def test_api33_all_mi_entrypoints_reject_out_of_range_bin_codes(fn_name):
     import mlframe.feature_selection.mi as mi
 
@@ -79,11 +81,14 @@ def test_api33_all_mi_entrypoints_reject_out_of_range_bin_codes(fn_name):
         fn(data=bad, target_indices=[0], n_bins=15)
 
 
-@pytest.mark.parametrize("fn_name", [
-    "grok_compute_mutual_information",
-    "chatgpt_compute_mutual_information",
-    "deepseek_compute_mutual_information",
-])
+@pytest.mark.parametrize(
+    "fn_name",
+    [
+        "grok_compute_mutual_information",
+        "chatgpt_compute_mutual_information",
+        "deepseek_compute_mutual_information",
+    ],
+)
 def test_api33_valid_input_still_works(fn_name):
     import mlframe.feature_selection.mi as mi
 
@@ -101,12 +106,14 @@ def test_api34_run_efs_does_not_mutate_caller_exclude_columns_list():
     from mlframe.feature_selection.general import run_efs
 
     rng = np.random.default_rng(0)
-    df = pl.DataFrame({
-        "t": rng.normal(size=40),
-        "f1": rng.normal(size=40),
-        "f2": rng.normal(size=40),
-        "id": np.arange(40, dtype=float),
-    })
+    df = pl.DataFrame(
+        {
+            "t": rng.normal(size=40),
+            "f1": rng.normal(size=40),
+            "f2": rng.normal(size=40),
+            "id": np.arange(40, dtype=float),
+        }
+    )
     # ``id`` is pre-excluded as a list; the fix must accept the list and not mutate it in place.
     exclude_columns = ["id"]
     exclude_snapshot = list(exclude_columns)

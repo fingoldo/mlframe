@@ -55,6 +55,7 @@ def test_mrmr_same_shape_skip_distinguishes_y_content():
     n = 200
     X = rng.standard_normal((n, 5))
     import pandas as pd
+
     X_df = pd.DataFrame(X, columns=[f"f{i}" for i in range(5)])
     y1 = (X_df["f0"] > 0).astype(int).to_numpy()
     y2 = (X_df["f4"] > 0).astype(int).to_numpy()  # different feature drives target
@@ -100,14 +101,16 @@ def test_rfecv_polars_to_pandas_arrow_bridge():
     """When pyarrow extension-array support is available, ``RFECV.fit`` keeps pl.Enum columns as
     pandas extension dtype (Categorical-like) instead of collapsing to object."""
     pl = pytest.importorskip("polars")
-    pa = pytest.importorskip("pyarrow")
+    pytest.importorskip("pyarrow")
 
     # Build a small frame with an Enum column.
     enum_dt = pl.Enum(["a", "b", "c"])
-    df = pl.DataFrame({
-        "x": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0] * 4,
-        "cat": pl.Series(["a", "b", "c", "a", "b", "c"] * 4, dtype=enum_dt),
-    })
+    df = pl.DataFrame(
+        {
+            "x": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0] * 4,
+            "cat": pl.Series(["a", "b", "c", "a", "b", "c"] * 4, dtype=enum_dt),
+        }
+    )
     # Direct test: invoke the Arrow-bridge path the fix uses.
     try:
         pdf = df.to_pandas(use_pyarrow_extension_array=True, split_blocks=True, self_destruct=True)
@@ -163,7 +166,11 @@ def test_composite_forward_stepwise_time_aware():
         "b": np.zeros(n),
     }
     kept, diag = forward_stepwise_multi_base(
-        y, candidates, max_k=2, cv_folds=3, time_aware=True,
+        y,
+        candidates,
+        max_k=2,
+        cv_folds=3,
+        time_aware=True,
     )
     # Smoke: TimeSeriesSplit path produces a sensible result without raising.
     assert isinstance(kept, list)
@@ -185,17 +192,19 @@ def test_rfecv_timestamps_kwarg_triggers_time_series_split():
 
     rng = np.random.default_rng(0)
     n = 60
-    X = pd.DataFrame({
-        "a": rng.standard_normal(n),
-        "b": rng.standard_normal(n),
-        "c": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "a": rng.standard_normal(n),
+            "b": rng.standard_normal(n),
+            "c": rng.standard_normal(n),
+        }
+    )
     y = X["a"] * 0.5 + rng.standard_normal(n) * 0.1
     ts = np.arange(n, dtype=np.int64)
     rfecv = RFECV(estimator=Ridge(), cv=3, max_runtime_mins=1.0)
     try:
         rfecv.fit(X, y, timestamps=ts)
-    except Exception:
+    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
         # RFECV may early-stop / use other fallbacks; we only assert the splitter is the TSS variant
         # when it's resolvable. Inspect cv_ if set.
         pass

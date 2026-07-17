@@ -12,6 +12,7 @@ This test pins the kernel's WRITE EXTENT directly (no reliance on mempool layout
 which CUDA arena-rounding masks): run the kernel into a sentinel-filled ``(ne+2, K)`` buffer and assert it
 writes exactly through row ``ne`` (the ``cmax`` row) and NEVER row ``ne+1``. A buffer of ``(ne, K)`` would thus
 overflow; ``(ne+1, K)`` is the minimum safe size."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -23,6 +24,7 @@ cp = pytest.importorskip("cupy")
 def _need_cuda() -> bool:
     try:
         from pyutilz.core.pythonlib import is_cuda_available
+
         return is_cuda_available()
     except Exception:
         try:
@@ -37,14 +39,13 @@ def test_dedup_edges_writes_exactly_ne_plus_one_rows():
     from mlframe.feature_selection.filters._fe_batched_mi import _get_dedup_edges_kernel
 
     nbins = 10
-    ne = nbins - 1   # interior-edge count
+    ne = nbins - 1  # interior-edge count
     K = 8
     SENT = -123456.0
 
     # All-distinct, strictly increasing interior edges per column (1..ne), cmin below, cmax above the last
     # edge -> the loop writes all ne edges (w: 0->ne) and the cmax append fires at w == ne (the overflow row).
-    edges = cp.ascontiguousarray(
-        cp.tile(cp.arange(1, ne + 1, dtype=cp.float64)[:, None], (1, K)))   # (ne, K)
+    edges = cp.ascontiguousarray(cp.tile(cp.arange(1, ne + 1, dtype=cp.float64)[:, None], (1, K)))  # (ne, K)
     cmin = cp.zeros(K, dtype=cp.float64)
     cmax = cp.full(K, float(ne + 1), dtype=cp.float64)
 
@@ -53,8 +54,7 @@ def test_dedup_edges_writes_exactly_ne_plus_one_rows():
     ne_out = cp.empty(K, dtype=cp.int32)
 
     threads = 256
-    _get_dedup_edges_kernel()(((K + threads - 1) // threads,), (threads,),
-                              (edges, cmin, cmax, np.int32(ne), np.int32(K), out, ne_out))
+    _get_dedup_edges_kernel()(((K + threads - 1) // threads,), (threads,), (edges, cmin, cmax, np.int32(ne), np.int32(K), out, ne_out))
     cp.cuda.Stream.null.synchronize()
 
     out_h = cp.asnumpy(out)

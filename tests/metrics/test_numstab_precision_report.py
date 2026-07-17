@@ -6,6 +6,7 @@ verbatim. (The companion ``fast_classification_report`` divides the same way but
 result is sanitised by a downstream ``np.nan_to_num`` before return, so only the
 precision entry point was observably corrupted.)
 """
+
 from __future__ import annotations
 
 import warnings

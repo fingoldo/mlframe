@@ -4,6 +4,7 @@ Bench (this host): numpy vs cupy argsort+transfer -- 0.42x @10k, 1.95x @50k, 3.9
 descending argsort every metric kernel uses dispatches to cupy at N >= ~50k. fast_aucs uses tie-order-invariant
 fractional ranks, so the GPU (radix) vs CPU (quicksort) path is byte-identical even on tied data.
 """
+
 from __future__ import annotations
 
 import numpy as np

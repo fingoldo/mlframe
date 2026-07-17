@@ -28,11 +28,11 @@ Fix: publish unconditionally; raise on actual invariant breaks (KeyError
 / IndexError from a missing preallocated slot); keep numerical-failure
 best-effort behaviour via ``logger.warning``.
 """
+
 from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 
 
 def test_mrmr_with_bur_runs_and_publishes():
@@ -40,6 +40,7 @@ def test_mrmr_with_bur_runs_and_publishes():
     silent BUR errors and produce a non-empty support.
     """
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     rng = np.random.default_rng(0)
     n = 200
     X = pd.DataFrame(rng.standard_normal((n, 5)), columns=list("abcde"))
@@ -51,6 +52,7 @@ def test_mrmr_with_bur_runs_and_publishes():
 def test_bur_disabled_still_works_unchanged():
     """Negative control: bur_lambda=0 (default) behaviour unchanged."""
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     rng = np.random.default_rng(1)
     n = 200
     X = pd.DataFrame(rng.standard_normal((n, 5)), columns=list("abcde"))
@@ -66,15 +68,18 @@ def test_bur_with_collinear_features_publishes_bonus():
     rank order.
     """
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     rng = np.random.default_rng(2)
     n = 500
     latent = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "lat0": latent,
-        "lat1": latent + 0.05 * rng.standard_normal(n),
-        "lat2": latent + 0.05 * rng.standard_normal(n),
-        "ind": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "lat0": latent,
+            "lat1": latent + 0.05 * rng.standard_normal(n),
+            "lat2": latent + 0.05 * rng.standard_normal(n),
+            "ind": rng.standard_normal(n),
+        }
+    )
     y = pd.Series((latent + rng.standard_normal(n) * 0.3 > 0).astype(np.int64), name="y")
     sel_bur = MRMR(verbose=0, bur_lambda=1.0).fit(X, y)
     # MRMR must complete (the iter-26 fix removed the silent error swallow,

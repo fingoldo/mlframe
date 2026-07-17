@@ -13,6 +13,7 @@ These tests pin: (a) selection is unchanged vs a recorded baseline on a
 mixed object+numeric synthetic, (b) the caller's X / y are NOT mutated, and
 (c) ``fit`` makes exactly ONE full-frame copy of the input (down from three).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -25,18 +26,16 @@ pytest.importorskip("shap")
 
 def _make_mixed_frame(seed: int = 17, n: int = 220) -> tuple[pd.DataFrame, pd.Series]:
     rng = np.random.default_rng(seed)
-    df = pd.DataFrame({
-        "num_strong": rng.standard_normal(n).astype(np.float64),
-        "num_weak": rng.standard_normal(n).astype(np.float64),
-        "num_noise": rng.standard_normal(n).astype(np.float64),
-        "cat_obj": rng.choice(list("ABCDE"), size=n),
-        "cat_pd": pd.Categorical(rng.choice(list("XYZ"), size=n)),
-    })
-    y = pd.Series(
-        df["num_strong"] * 1.6 - df["num_weak"] * 0.5
-        + (df["cat_obj"] == "A").astype(float) * 0.9
-        + rng.standard_normal(n) * 0.2
+    df = pd.DataFrame(
+        {
+            "num_strong": rng.standard_normal(n).astype(np.float64),
+            "num_weak": rng.standard_normal(n).astype(np.float64),
+            "num_noise": rng.standard_normal(n).astype(np.float64),
+            "cat_obj": rng.choice(list("ABCDE"), size=n),
+            "cat_pd": pd.Categorical(rng.choice(list("XYZ"), size=n)),
+        }
     )
+    y = pd.Series(df["num_strong"] * 1.6 - df["num_weak"] * 0.5 + (df["cat_obj"] == "A").astype(float) * 0.9 + rng.standard_normal(n) * 0.2)
     return df, y
 
 
@@ -76,10 +75,7 @@ def test_boruta_fit_makes_exactly_one_full_frame_copy(monkeypatch):
     selector = _make_selector()
     selector.fit(df, y)
 
-    assert counter["full_frame"] == 1, (
-        f"BorutaShap.fit made {counter['full_frame']} full-frame copies; "
-        "exactly one (the mutable working frame) is justified."
-    )
+    assert counter["full_frame"] == 1, f"BorutaShap.fit made {counter['full_frame']} full-frame copies; exactly one (the mutable working frame) is justified."
 
 
 def test_boruta_fit_does_not_mutate_caller_X_or_y():
@@ -116,9 +112,7 @@ def test_boruta_fit_selection_unchanged_after_copy_reduction():
     sel_b.fit(df.copy(), y.copy())
     support_b = list(sel_b.selected_features_)
 
-    assert support_a == support_b, (
-        f"selection diverged across identical fits: {support_a} vs {support_b}"
-    )
+    assert support_a == support_b, f"selection diverged across identical fits: {support_a} vs {support_b}"
     # the dominant informative column is retained.
     assert "num_strong" in support_a
     # Pinned baseline: this exact support was produced by the pre-copy-reduction

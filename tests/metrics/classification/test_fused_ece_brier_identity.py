@@ -6,6 +6,7 @@ estimators. It must be BIT-IDENTICAL to calling ``compute_ece_and_brier_decompos
 per-bin formulas). The default ``fast_calibration_report`` headline path dispatches to the fused kernel,
 so a divergence here would silently shift every reported ECE / Brier REL / RES.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -22,7 +23,7 @@ from mlframe.metrics.calibration._calibration_metrics import (
 def _separate(y, p, nbins):
     ece_pl, rel_pl, res_pl, unc, br_pl = compute_ece_and_brier_decomposition(y, p, nbins)
     ece_db = compute_ece_debiased(y, p, nbins)
-    rel_db, res_db, unc2, br_db = compute_brier_decomposition_debiased(y, p, nbins)
+    rel_db, res_db, _unc2, br_db = compute_brier_decomposition_debiased(y, p, nbins)
     return ece_pl, rel_pl, res_pl, unc, br_pl, ece_db, rel_db, res_db, br_db
 
 

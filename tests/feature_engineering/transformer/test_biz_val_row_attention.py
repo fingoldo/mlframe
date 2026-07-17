@@ -14,6 +14,7 @@ Pass thresholds (per plan):
 
 If either fails, row-attention is not delivering on its multi-head random-subspace promise and the block should not ship in its current form.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -44,7 +45,7 @@ def _make_subspace_synthetic(n: int = 2000, d: int = 200, d_signal: int = 5, see
     informative_dirs = rng.standard_normal((d, d_signal)).astype(np.float32)
     informative_dirs /= np.linalg.norm(informative_dirs, axis=0, keepdims=True)
     X_proj = X @ informative_dirs  # (n, d_signal)
-    signal = np.sum(X_proj ** 2, axis=1)
+    signal = np.sum(X_proj**2, axis=1)
     y = (signal > np.median(signal)).astype(np.float32)
     return X, y
 
@@ -59,6 +60,7 @@ def _knn_target_encode(X_train: np.ndarray, y_train: np.ndarray, X_query: np.nda
 
 def _lgbm_classifier():
     import lightgbm as lgb
+
     return lgb.LGBMClassifier(n_estimators=200, learning_rate=0.05, num_leaves=31, min_child_samples=20, random_state=42, verbose=-1)
 
 
@@ -89,13 +91,31 @@ def test_row_attention_beats_raw_AND_knn_te_on_subspace_signal():
 
     # Mode A on train to produce OOF features at training rows.
     train_attn_oof = compute_row_attention(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=42, n_heads=4, head_dim=8, k=32, aggregate=("y_mean", "y_std"), gpu_stage4=False, dedupe_threshold=None,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=42,
+        n_heads=4,
+        head_dim=8,
+        k=32,
+        aggregate=("y_mean", "y_std"),
+        gpu_stage4=False,
+        dedupe_threshold=None,
     ).to_numpy()
     # Mode B for test: bank from full train, query = test.
     test_attn = compute_row_attention(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=42, n_heads=4, head_dim=8, k=32, aggregate=("y_mean", "y_std"), gpu_stage4=False, dedupe_threshold=None,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=42,
+        n_heads=4,
+        head_dim=8,
+        k=32,
+        aggregate=("y_mean", "y_std"),
+        gpu_stage4=False,
+        dedupe_threshold=None,
     ).to_numpy()
 
     # kNN-TE baseline. For train, build OOF via the same KFold to match leakage discipline.
@@ -111,9 +131,6 @@ def test_row_attention_beats_raw_AND_knn_te_on_subspace_signal():
 
     lift_vs_raw = auc_attn - auc_raw
     lift_vs_knn = auc_attn - auc_knn_te
-    msg = (
-        f"AUC: raw={auc_raw:.4f}, +kNN-TE={auc_knn_te:.4f}, +row-attn={auc_attn:.4f}; "
-        f"lift_vs_raw={lift_vs_raw:.4f}, lift_vs_kNN-TE={lift_vs_knn:.4f}"
-    )
+    msg = f"AUC: raw={auc_raw:.4f}, +kNN-TE={auc_knn_te:.4f}, +row-attn={auc_attn:.4f}; lift_vs_raw={lift_vs_raw:.4f}, lift_vs_kNN-TE={lift_vs_knn:.4f}"
     assert lift_vs_raw >= 0.03, f"row-attention must beat LightGBM(raw) by >= 0.03 AUC absolute; {msg}"
     assert lift_vs_knn >= 0.01, f"row-attention must beat LightGBM(raw + plain kNN-TE) by >= 0.01 AUC absolute; {msg}"

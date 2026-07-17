@@ -6,6 +6,7 @@ reset another's value), making the detector's sample size non-deterministic acro
 carried in a thread-local, so each fit's shrink is isolated to its own thread and the env var is only the
 cross-process default.
 """
+
 from __future__ import annotations
 
 import os

@@ -15,6 +15,7 @@ Scenarios:
   leak detector here is: when ``y_train`` is a noisy version of ``X[:, 0]`` that the model could memorise from its own row, the OOF feature for row r should
   NOT achieve a held-out R^2 that's better than what you'd get by random-shuffling the OOF features.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -57,7 +58,16 @@ def test_oof_features_differ_from_mode_b_self_attention():
 
     # Mode A: OOF.
     oof_features = compute_row_attention(
-        X, y, None, splitter, seed=0, n_heads=1, head_dim=4, k=8, gpu_stage4=False, dedupe_threshold=None,
+        X,
+        y,
+        None,
+        splitter,
+        seed=0,
+        n_heads=1,
+        head_dim=4,
+        k=8,
+        gpu_stage4=False,
+        dedupe_threshold=None,
     ).to_numpy()
 
     # Mode B reference: build bank from full X, then attend X back. Each row r has itself in the bank with cosine similarity 1.0 dominating its softmax.
@@ -85,7 +95,7 @@ def test_oof_distribution_matches_mode_b_holdout():
     random noise. The point is to flag a gross distribution gap, not police every fluctuation.
     """
     X, y = _make_classification(n=600, d=6, seed=0)
-    X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=0.3, random_state=42)
+    X_tr, X_te, y_tr, _y_te = train_test_split(X, y, test_size=0.3, random_state=42)
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
 
     oof = compute_row_attention(X_tr, y_tr, None, splitter, seed=0, n_heads=1, head_dim=4, k=16, gpu_stage4=False, dedupe_threshold=None).to_numpy()
@@ -109,8 +119,17 @@ def test_oof_constant_y_yields_constant_output():
     y_constant = np.full(200, 0.7, dtype=np.float32)
     splitter = KFold(n_splits=4, shuffle=True, random_state=0)
     out = compute_row_attention(
-        X, y_constant, None, splitter, seed=0, n_heads=1, head_dim=4, k=8, aggregate=("y_mean",),
-        gpu_stage4=False, dedupe_threshold=None,
+        X,
+        y_constant,
+        None,
+        splitter,
+        seed=0,
+        n_heads=1,
+        head_dim=4,
+        k=8,
+        aggregate=("y_mean",),
+        gpu_stage4=False,
+        dedupe_threshold=None,
     )
     arr = out.to_numpy().ravel()
     np.testing.assert_allclose(arr, 0.7, atol=1e-5)
@@ -130,8 +149,17 @@ def test_oof_does_not_perfectly_memorise_own_y():
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
 
     out = compute_row_attention(
-        X, y, None, splitter, seed=0, n_heads=1, head_dim=4, k=8, aggregate=("y_mean",),
-        gpu_stage4=False, dedupe_threshold=None,
+        X,
+        y,
+        None,
+        splitter,
+        seed=0,
+        n_heads=1,
+        head_dim=4,
+        k=8,
+        aggregate=("y_mean",),
+        gpu_stage4=False,
+        dedupe_threshold=None,
     )
     y_mean = out["attn_h0_y_mean"].to_numpy()
     corr = float(np.corrcoef(y_mean, y)[0, 1])

@@ -23,6 +23,7 @@ These tests are correctness sensors: if a future refactor either flips the
 nan_to_num call back to copy=False, or drops the docstring contracts, the
 view-vs-copy class is at risk of resurfacing.
 """
+
 from __future__ import annotations
 
 import importlib
@@ -44,13 +45,11 @@ def test_mps_nan_to_num_does_not_write_back_into_view() -> None:
     src = _read("feature_engineering/mps.py")
     # No copy=False on the np.nan_to_num call for OPTIMAL_PROFIT.
     assert "np.nan_to_num(profits[:-1], copy=False" not in src, (
-        "feature_engineering/mps.py: np.nan_to_num(profits[:-1], copy=False, ...) "
-        "writes scrubbed values back into the source 'profits' slice; drop copy=False."
+        "feature_engineering/mps.py: np.nan_to_num(profits[:-1], copy=False, ...) writes scrubbed values back into the source 'profits' slice; drop copy=False."
     )
     # The fixed form must be present.
     assert "np.nan_to_num(profits[:-1], nan=0.0, posinf=0.0, neginf=0.0)" in src, (
-        "feature_engineering/mps.py: expected np.nan_to_num(profits[:-1], nan=0.0, ...) "
-        "(without copy=False) so a fresh array is returned."
+        "feature_engineering/mps.py: expected np.nan_to_num(profits[:-1], nan=0.0, ...) (without copy=False) so a fresh array is returned."
     )
 
 
@@ -59,8 +58,7 @@ def test_extract_column_array_documents_read_only_contract() -> None:
     src = _read("training/composite/discovery/screening.py")
     # The docstring must warn about read-only contract.
     assert "read-only" in src.lower(), (
-        "training/composite_screening.py: _extract_column_array returns a zero-copy view "
-        "when dtype matches; docstring must warn callers."
+        "training/composite_screening.py: _extract_column_array returns a zero-copy view when dtype matches; docstring must warn callers."
     )
 
 
@@ -73,8 +71,7 @@ def test_coerce_y_to_float64_documents_read_only_contract() -> None:
     # Read 40 lines after the def signature.
     snippet = src[helper_idx : helper_idx + 1500]
     assert "read-only" in snippet.lower(), (
-        "training/feature_handling/target_encoders.py: _coerce_y_to_float64 returns a "
-        "zero-copy view when y is already float64; docstring must warn callers."
+        "training/feature_handling/target_encoders.py: _coerce_y_to_float64 returns a zero-copy view when y is already float64; docstring must warn callers."
     )
 
 
@@ -91,7 +88,8 @@ def test_nan_to_num_without_copy_false_returns_fresh_array() -> None:
     scrubbed = np.nan_to_num(profits[:-1], nan=0.0, posinf=0.0, neginf=0.0)
     # The source must be unchanged.
     np.testing.assert_array_equal(
-        profits, profits_snapshot,
+        profits,
+        profits_snapshot,
         err_msg="np.nan_to_num (without copy=False) must not mutate the source slice.",
     )
     # The result must have the NaN scrubbed.
@@ -112,6 +110,4 @@ def test_extract_column_array_caller_must_copy_before_mutation() -> None:
     arr_copy = arr.copy()
     arr_copy[0] = 999.0
     # The source frame must be unchanged.
-    assert df["x"].to_list() == [1.0, 2.0, 3.0, 4.0], (
-        "Defensive .copy() at the call site keeps the source DataFrame intact."
-    )
+    assert df["x"].to_list() == [1.0, 2.0, 3.0, 4.0], "Defensive .copy() at the call site keeps the source DataFrame intact."

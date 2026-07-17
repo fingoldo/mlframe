@@ -16,6 +16,7 @@ Each assertion has a wide margin (10-30%) so test passes even with
 mild measurement noise; a real regression should drop the metric
 much further.
 """
+
 from __future__ import annotations
 
 import os
@@ -63,7 +64,7 @@ def _bump_pair(n=2000, seed=42):
     rng = np.random.default_rng(seed)
     x_a = rng.normal(loc=1.0, scale=1.5, size=n)
     x_b = rng.normal(size=n)
-    y = (np.exp(-(x_a - 1.0) ** 2) > 0.5).astype(np.int64)
+    y = (np.exp(-((x_a - 1.0) ** 2)) > 0.5).astype(np.int64)
     return x_a, x_b, y
 
 
@@ -80,7 +81,7 @@ def _multimode_target(n=2000, seed=42):
     rng = np.random.default_rng(seed)
     x_a = rng.normal(size=n)
     x_b = rng.normal(size=n)
-    score = 0.5 * x_a ** 2 - 0.3 * x_b ** 2 + 0.4 * x_a * x_b + 0.2 * x_a
+    score = 0.5 * x_a**2 - 0.3 * x_b**2 + 0.4 * x_a * x_b + 0.2 * x_a
     y = (score > np.median(score)).astype(np.int64)
     return x_a, x_b, y
 
@@ -125,24 +126,20 @@ def test_biz_cma_es_at_least_2x_faster_than_optuna():
             "headline measurements)."
         )
     from mlframe.feature_selection.filters.hermite_fe import optimise_hermite_pair
+
     x_a, x_b, y = _xor_pair(n=2000, seed=42)
 
     # Warmup numba JIT
-    _ = optimise_hermite_pair(x_a, x_b, y, n_trials=5, max_degree=2,
-                                 optimizer="cma")
+    _ = optimise_hermite_pair(x_a, x_b, y, n_trials=5, max_degree=2, optimizer="cma")
 
     t0 = time.perf_counter()
-    optimise_hermite_pair(x_a, x_b, y, n_trials=40, max_degree=4,
-                           basis="hermite", optimizer="optuna",
-                           use_trivial_baseline=False,
-                           baseline_uplift_threshold=0.0)
+    optimise_hermite_pair(
+        x_a, x_b, y, n_trials=40, max_degree=4, basis="hermite", optimizer="optuna", use_trivial_baseline=False, baseline_uplift_threshold=0.0
+    )
     t_optuna = time.perf_counter() - t0
 
     t0 = time.perf_counter()
-    optimise_hermite_pair(x_a, x_b, y, n_trials=40, max_degree=4,
-                           basis="hermite", optimizer="cma",
-                           use_trivial_baseline=False,
-                           baseline_uplift_threshold=0.0)
+    optimise_hermite_pair(x_a, x_b, y, n_trials=40, max_degree=4, basis="hermite", optimizer="cma", use_trivial_baseline=False, baseline_uplift_threshold=0.0)
     t_cma = time.perf_counter() - t0
 
     speedup = t_optuna / t_cma
@@ -152,10 +149,7 @@ def test_biz_cma_es_at_least_2x_faster_than_optuna():
         # biz_value charter floor stays live standalone (CI / dev), the canonical place wall-clock is measurable.
         assert t_optuna > 0 and t_cma > 0
         return
-    assert speedup >= 2.0, (
-        f"CMA-ES must be >=2.0x faster than Optuna TPE (standalone ~5-30x); "
-        f"got {speedup:.1f}x ({t_optuna:.2f}s vs {t_cma:.2f}s)"
-    )
+    assert speedup >= 2.0, f"CMA-ES must be >=2.0x faster than Optuna TPE (standalone ~5-30x); got {speedup:.1f}x ({t_optuna:.2f}s vs {t_cma:.2f}s)"
 
 
 def test_biz_cma_es_finds_xor_optimum():
@@ -163,18 +157,15 @@ def test_biz_cma_es_finds_xor_optimum():
     (degree=2, bf=mul, MI ~= 0.62). If a future change breaks the
     canonical-seed pre-evaluation OR the CMA loop, MI drops sharply."""
     from mlframe.feature_selection.filters.hermite_fe import optimise_hermite_pair
+
     x_a, x_b, y = _xor_pair(n=2000, seed=42)
 
-    res = optimise_hermite_pair(x_a, x_b, y, n_trials=40, max_degree=4,
-                                  basis="hermite", optimizer="cma",
-                                  use_trivial_baseline=False,
-                                  baseline_uplift_threshold=0.0,
-                                  warm_start=True)
+    res = optimise_hermite_pair(
+        x_a, x_b, y, n_trials=40, max_degree=4, basis="hermite", optimizer="cma", use_trivial_baseline=False, baseline_uplift_threshold=0.0, warm_start=True
+    )
     assert res is not None
     assert res.degree_a == 2, f"expected degree=2 for XOR, got {res.degree_a}"
-    assert res.bin_func_name == "mul", (
-        f"expected bf=mul for XOR, got {res.bin_func_name}"
-    )
+    assert res.bin_func_name == "mul", f"expected bf=mul for XOR, got {res.bin_func_name}"
     assert res.mi >= 0.55, f"XOR MI should be >=0.55, got {res.mi:.4f}"
 
 
@@ -187,34 +178,35 @@ def test_biz_plugin_mi_50x_faster_than_ksg_with_same_optimum():
     Floor: 1.5x at full-pipeline level. Both must find degree=2,
     bf=mul on XOR."""
     from mlframe.feature_selection.filters.hermite_fe import optimise_hermite_pair
+
     x_a, x_b, y = _xor_pair(n=2000, seed=42)
 
     # Warmup
-    _ = optimise_hermite_pair(x_a, x_b, y, n_trials=5, max_degree=2,
-                                 mi_estimator="plugin", optimizer="cma")
+    _ = optimise_hermite_pair(x_a, x_b, y, n_trials=5, max_degree=2, mi_estimator="plugin", optimizer="cma")
 
     t0 = time.perf_counter()
-    res_ksg = optimise_hermite_pair(x_a, x_b, y, n_trials=40,
-                                       max_degree=4, basis="hermite",
-                                       mi_estimator="ksg", optimizer="cma",
-                                       use_trivial_baseline=False,
-                                       baseline_uplift_threshold=0.0)
+    res_ksg = optimise_hermite_pair(
+        x_a, x_b, y, n_trials=40, max_degree=4, basis="hermite", mi_estimator="ksg", optimizer="cma", use_trivial_baseline=False, baseline_uplift_threshold=0.0
+    )
     t_ksg = time.perf_counter() - t0
 
     t0 = time.perf_counter()
-    res_plugin = optimise_hermite_pair(x_a, x_b, y, n_trials=40,
-                                          max_degree=4, basis="hermite",
-                                          mi_estimator="plugin",
-                                          optimizer="cma",
-                                          use_trivial_baseline=False,
-                                          baseline_uplift_threshold=0.0)
+    res_plugin = optimise_hermite_pair(
+        x_a,
+        x_b,
+        y,
+        n_trials=40,
+        max_degree=4,
+        basis="hermite",
+        mi_estimator="plugin",
+        optimizer="cma",
+        use_trivial_baseline=False,
+        baseline_uplift_threshold=0.0,
+    )
     t_plugin = time.perf_counter() - t0
 
     speedup = t_ksg / t_plugin
-    assert speedup >= 1.5, (
-        f"plug-in must be >=1.5x faster than KSG; got {speedup:.2f}x "
-        f"({t_ksg:.2f}s vs {t_plugin:.2f}s)"
-    )
+    assert speedup >= 1.5, f"plug-in must be >=1.5x faster than KSG; got {speedup:.2f}x ({t_ksg:.2f}s vs {t_plugin:.2f}s)"
     # Both must find a non-trivial XOR-equivalent optimum (high MI,
     # degree=2). Bin-func may differ between estimators because the
     # full 6-bf zoo (add/sub/mul/div/atan2/logabs) has multiple equally
@@ -224,10 +216,7 @@ def test_biz_plugin_mi_50x_faster_than_ksg_with_same_optimum():
     # MI quality must be comparable (within 30% of each other -- both
     # are valid estimators with different bias structure).
     mi_ratio = res_plugin.mi / max(res_ksg.mi, 1e-9)
-    assert 0.7 <= mi_ratio <= 1.5, (
-        f"plug-in and KSG MIs should be comparable on XOR; "
-        f"ksg={res_ksg.mi:.4f}, plugin={res_plugin.mi:.4f} (ratio {mi_ratio:.2f}x)"
-    )
+    assert 0.7 <= mi_ratio <= 1.5, f"plug-in and KSG MIs should be comparable on XOR; ksg={res_ksg.mi:.4f}, plugin={res_plugin.mi:.4f} (ratio {mi_ratio:.2f}x)"
 
 
 @pytest.mark.skipif(
@@ -271,8 +260,7 @@ def test_biz_njit_poly_eval_3x_faster_than_numpy_at_n2k():
     _CI = bool(os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS"))
     _floor = 2.0 if _CI else 3.0
     assert speedup >= _floor, (
-        f"njit hermeval must be >={_floor}x faster than numpy at n=2k; "
-        f"got {speedup:.2f}x ({t_numpy*1e6/N:.1f}us vs {t_njit*1e6/N:.1f}us)"
+        f"njit hermeval must be >={_floor}x faster than numpy at n=2k; got {speedup:.2f}x ({t_numpy * 1e6 / N:.1f}us vs {t_njit * 1e6 / N:.1f}us)"
     )
 
 
@@ -287,16 +275,29 @@ def test_biz_fourier_wins_on_periodic_target():
     vs polynomial best ~0.18 (3.7x). Floor: 1.5x.
     """
     from mlframe.feature_selection.filters.hermite_fe import optimise_hermite_pair
+
     x_a, x_b, y = _periodic_pair(n=2000, seed=42)
 
     res_poly = optimise_hermite_pair(
-        x_a, x_b, y, n_trials=30, max_degree=3, basis="chebyshev",
-        optimizer="cma", use_trivial_baseline=False,
+        x_a,
+        x_b,
+        y,
+        n_trials=30,
+        max_degree=3,
+        basis="chebyshev",
+        optimizer="cma",
+        use_trivial_baseline=False,
         baseline_uplift_threshold=0.0,
     )
     res_fourier = optimise_hermite_pair(
-        x_a, x_b, y, n_trials=30, max_degree=3, basis="fourier",
-        optimizer="cma", use_trivial_baseline=False,
+        x_a,
+        x_b,
+        y,
+        n_trials=30,
+        max_degree=3,
+        basis="fourier",
+        optimizer="cma",
+        use_trivial_baseline=False,
         baseline_uplift_threshold=0.0,
     )
     assert res_fourier is not None and res_poly is not None
@@ -312,8 +313,7 @@ def test_biz_fourier_wins_on_periodic_target():
     # -- still drops the ratio well below 0.5x). Both bases must produce a
     # genuine fit (MI well above the ~0.02 noise floor), pinned below.
     assert res_fourier.mi > 0.4 and res_poly.mi > 0.4, (
-        f"both bases should genuinely fit the periodic target; got "
-        f"Fourier mi={res_fourier.mi:.4f}, polynomial mi={res_poly.mi:.4f}"
+        f"both bases should genuinely fit the periodic target; got Fourier mi={res_fourier.mi:.4f}, polynomial mi={res_poly.mi:.4f}"
     )
     _floor = 0.95
     assert ratio >= _floor, (
@@ -328,16 +328,29 @@ def test_biz_sigmoid_wins_on_threshold_target():
     sharp-step target. Measured: sigmoid 0.48 vs hermite 0.38
     (1.27x). Floor: 1.10x."""
     from mlframe.feature_selection.filters.hermite_fe import optimise_hermite_pair
+
     x_a, x_b, y = _threshold_pair(n=2000, seed=42)
 
     res_poly = optimise_hermite_pair(
-        x_a, x_b, y, n_trials=30, max_degree=3, basis="hermite",
-        optimizer="cma", use_trivial_baseline=False,
+        x_a,
+        x_b,
+        y,
+        n_trials=30,
+        max_degree=3,
+        basis="hermite",
+        optimizer="cma",
+        use_trivial_baseline=False,
         baseline_uplift_threshold=0.0,
     )
     res_sig = optimise_hermite_pair(
-        x_a, x_b, y, n_trials=30, max_degree=3, basis="sigmoid",
-        optimizer="cma", use_trivial_baseline=False,
+        x_a,
+        x_b,
+        y,
+        n_trials=30,
+        max_degree=3,
+        basis="sigmoid",
+        optimizer="cma",
+        use_trivial_baseline=False,
         baseline_uplift_threshold=0.0,
     )
     assert res_sig is not None and res_poly is not None
@@ -362,16 +375,29 @@ def test_biz_pade_wins_on_bump_target():
     target. Measured: pade 0.61 vs trivial 0.34. Floor: 1.10x over
     the best polynomial."""
     from mlframe.feature_selection.filters.hermite_fe import optimise_hermite_pair
+
     x_a, x_b, y = _bump_pair(n=2000, seed=42)
 
     res_poly = optimise_hermite_pair(
-        x_a, x_b, y, n_trials=30, max_degree=3, basis="hermite",
-        optimizer="cma", use_trivial_baseline=False,
+        x_a,
+        x_b,
+        y,
+        n_trials=30,
+        max_degree=3,
+        basis="hermite",
+        optimizer="cma",
+        use_trivial_baseline=False,
         baseline_uplift_threshold=0.0,
     )
     res_pade = optimise_hermite_pair(
-        x_a, x_b, y, n_trials=30, max_degree=3, basis="pade",
-        optimizer="cma", use_trivial_baseline=False,
+        x_a,
+        x_b,
+        y,
+        n_trials=30,
+        max_degree=3,
+        basis="pade",
+        optimizer="cma",
+        use_trivial_baseline=False,
         baseline_uplift_threshold=0.0,
     )
     assert res_pade is not None and res_poly is not None
@@ -386,8 +412,7 @@ def test_biz_pade_wins_on_bump_target():
     # floor 0.80x (a real Pade-basis regression still drops the ratio << 0.5x).
     # Both bases must produce a genuine fit (MI well above the noise floor).
     assert res_pade.mi > 0.4 and res_poly.mi > 0.4, (
-        f"both bases should genuinely fit the bump target; got "
-        f"pade mi={res_pade.mi:.4f}, hermite mi={res_poly.mi:.4f}"
+        f"both bases should genuinely fit the bump target; got pade mi={res_pade.mi:.4f}, hermite mi={res_poly.mi:.4f}"
     )
     _floor = 0.80
     assert ratio >= _floor, (
@@ -416,20 +441,25 @@ def test_biz_multimode_beats_single_mode_on_multimode_target():
     n = len(y)
     rng = np.random.default_rng(0)
     idx = rng.permutation(n)
-    tr, va = idx[: int(0.7 * n)], idx[int(0.7 * n):]
+    tr, va = idx[: int(0.7 * n)], idx[int(0.7 * n) :]
 
     # Fewer CMA-ES trials under --fast: the multimode separation is strong, the AUC delta holds with 30 trials, and the
     # 60-trial 4-mode search is what starves a worker into a timeout under full-suite ``-n`` contention.
     n_trials = 30 if is_fast_mode() else 60
     results = optimise_pair_multimode(
-        x_a, x_b, y, top_m=4, n_trials=n_trials, max_degree=4,
-        basis="hermite", baseline_uplift_threshold=0.0,
+        x_a,
+        x_b,
+        y,
+        top_m=4,
+        n_trials=n_trials,
+        max_degree=4,
+        basis="hermite",
+        baseline_uplift_threshold=0.0,
     )
     assert len(results) >= 2
 
     def _auc(X):
-        m = HistGradientBoostingClassifier(random_state=42, max_iter=200,
-                                              early_stopping=False)
+        m = HistGradientBoostingClassifier(random_state=42, max_iter=200, early_stopping=False)
         m.fit(X[tr], y[tr])
         return roc_auc_score(y[va], m.predict_proba(X[va])[:, 1])
 
@@ -438,10 +468,7 @@ def test_biz_multimode_beats_single_mode_on_multimode_target():
     auc_single = _auc(X_single)
     auc_multi = _auc(X_multi)
     delta = auc_multi - auc_single
-    assert delta >= 0.02, (
-        f"Multi-mode AUC must beat single-mode by >=0.02; "
-        f"single={auc_single:.4f}, multi={auc_multi:.4f}, delta={delta:.4f}"
-    )
+    assert delta >= 0.02, f"Multi-mode AUC must beat single-mode by >=0.02; single={auc_single:.4f}, multi={auc_multi:.4f}, delta={delta:.4f}"
 
 
 def test_biz_auto_unary_log_uplift_on_log_separable():
@@ -454,16 +481,28 @@ def test_biz_auto_unary_log_uplift_on_log_separable():
     x_a, x_b, y = _log_separable_pair(n=2000, seed=42)
 
     res_pre = optimise_hermite_pair(
-        x_a, x_b, y, n_trials=30, max_degree=3, basis="chebyshev",
-        optimizer="cma", baseline_uplift_threshold=0.0,
+        x_a,
+        x_b,
+        y,
+        n_trials=30,
+        max_degree=3,
+        basis="chebyshev",
+        optimizer="cma",
+        baseline_uplift_threshold=0.0,
         use_trivial_baseline=False,
     )
 
     name_a, x_a_t, _ = best_unary_transform(x_a, y, discrete_target=True)
     name_b, x_b_t, _ = best_unary_transform(x_b, y, discrete_target=True)
     res_post = optimise_hermite_pair(
-        x_a_t, x_b_t, y, n_trials=30, max_degree=3, basis="chebyshev",
-        optimizer="cma", baseline_uplift_threshold=0.0,
+        x_a_t,
+        x_b_t,
+        y,
+        n_trials=30,
+        max_degree=3,
+        basis="chebyshev",
+        optimizer="cma",
+        baseline_uplift_threshold=0.0,
         use_trivial_baseline=False,
     )
     ratio = res_post.mi / max(res_pre.mi, 1e-9)
@@ -479,21 +518,20 @@ def test_biz_triplet_beats_pair_on_3way_xor():
     >=10x MI on 3-way XOR target. Measured: triplet abc_mul 0.66 vs
     pair best 0.006 (110x). Floor: 10x."""
     from mlframe.feature_selection.filters.fe_baselines import (
-        best_trivial_pair, score_triplet_baselines,
+        best_trivial_pair,
+        score_triplet_baselines,
     )
+
     x_a, x_b, x_c, y = _triplet_xor(n=2000, seed=42)
 
     pair_best = best_trivial_pair(x_a, x_b, y, discrete_target=True)
     pair_mi = pair_best[2] if pair_best else 0.0
-    triplet_scores = score_triplet_baselines(x_a, x_b, x_c, y,
-                                                discrete_target=True)
+    triplet_scores = score_triplet_baselines(x_a, x_b, x_c, y, discrete_target=True)
     triplet_top = next(iter(triplet_scores.items()))
     triplet_mi = triplet_top[1]
     ratio = triplet_mi / max(pair_mi, 1e-9)
     assert ratio >= 10.0, (
-        f"Triplet must beat pair by >=10x on 3-way XOR; "
-        f"got triplet={triplet_mi:.4f} (best={triplet_top[0]}), "
-        f"pair={pair_mi:.4f} (ratio {ratio:.1f}x)"
+        f"Triplet must beat pair by >=10x on 3-way XOR; got triplet={triplet_mi:.4f} (best={triplet_top[0]}), pair={pair_mi:.4f} (ratio {ratio:.1f}x)"
     )
 
 
@@ -507,20 +545,26 @@ def test_biz_honest_baselines_reject_redundant_polynomial_xor():
     doesn't beat the trivial ``mul`` on XOR. Without this gate, the
     method emits a polynomial that adds nothing over the trivial."""
     from mlframe.feature_selection.filters.hermite_fe import optimise_hermite_pair
+
     x_a, x_b, y = _xor_pair(n=2000, seed=42)
 
     # With trivial-baseline gate enabled and a tight uplift threshold,
     # the polynomial result must be REJECTED.
     res = optimise_hermite_pair(
-        x_a, x_b, y, n_trials=30, max_degree=4, basis="hermite",
-        optimizer="cma", use_trivial_baseline=True,
+        x_a,
+        x_b,
+        y,
+        n_trials=30,
+        max_degree=4,
+        basis="hermite",
+        optimizer="cma",
+        use_trivial_baseline=True,
         baseline_uplift_threshold=1.05,
     )
     # On XOR, the trivial ``mul`` baseline beats Hermite polynomial.
     # The 1.05x gate rejects the polynomial.
     assert res is None, (
-        "Honest non-poly baseline must reject Hermite polynomial on "
-        f"XOR target where trivial mul wins; got result mi={res.mi if res else 'N/A'}"
+        f"Honest non-poly baseline must reject Hermite polynomial on XOR target where trivial mul wins; got result mi={res.mi if res else 'N/A'}"
     )
 
 
@@ -528,6 +572,7 @@ def test_biz_basis_routing_dispatches_correctly():
     """``basis_route_by_moments`` must dispatch each canonical
     distribution to its expected basis."""
     from mlframe.feature_selection.filters.hermite_fe import basis_route_by_moments
+
     rng = np.random.default_rng(0)
 
     # Standard normal -> hermite
@@ -544,6 +589,7 @@ def test_biz_symmetry_detector_separates_sym_from_asym():
     """``detect_pair_symmetry`` must score symmetric targets >=0.7
     AND asymmetric targets <=0.5 (clear separation)."""
     from mlframe.feature_selection.filters.hermite_fe import detect_pair_symmetry
+
     rng = np.random.default_rng(0)
     x_a = rng.normal(size=2000)
     x_b = rng.normal(size=2000)
@@ -556,9 +602,7 @@ def test_biz_symmetry_detector_separates_sym_from_asym():
     # Asymmetric: y depends on x_a only
     y_asym_single = (x_a > 0).astype(np.int64)
     s_asym = detect_pair_symmetry(x_a, x_b, y_asym_single)
-    assert s_asym <= 0.5, (
-        f"Single-feature asymmetric target should score <=0.5; got {s_asym:.3f}"
-    )
+    assert s_asym <= 0.5, f"Single-feature asymmetric target should score <=0.5; got {s_asym:.3f}"
 
 
 def test_biz_nested_cv_validator_catches_leakage():
@@ -574,8 +618,14 @@ def test_biz_nested_cv_validator_catches_leakage():
 
     x_a, x_b, y = _xor_pair(n=2000, seed=42)
     result = validate_pair_fe_cv(
-        x_a, x_b, y, n_splits=5, basis="hermite", n_trials=20,
-        max_degree=3, use_trivial_baseline=True,
+        x_a,
+        x_b,
+        y,
+        n_splits=5,
+        basis="hermite",
+        n_trials=20,
+        max_degree=3,
+        use_trivial_baseline=True,
     )
     # Polynomial OOS MI should not exceed trivial OOS MI by a clear
     # margin. The canonical XOR has trivial mul == best feature
@@ -597,6 +647,7 @@ def test_biz_bin_function_discovery_picks_atan2_on_angular():
     Measured 2026-05-10: hermite-with-atan2 wins on threshold +
     angular targets."""
     from mlframe.feature_selection.filters.hermite_fe import optimise_hermite_pair
+
     rng = np.random.default_rng(42)
     n = 2000
     x_a = rng.normal(size=n)
@@ -605,15 +656,20 @@ def test_biz_bin_function_discovery_picks_atan2_on_angular():
     y = (np.arctan2(x_a, x_b) > 0.5).astype(np.int64)
 
     res = optimise_hermite_pair(
-        x_a, x_b, y, n_trials=40, max_degree=3, basis="hermite",
-        optimizer="cma", use_trivial_baseline=False,
+        x_a,
+        x_b,
+        y,
+        n_trials=40,
+        max_degree=3,
+        basis="hermite",
+        optimizer="cma",
+        use_trivial_baseline=False,
         baseline_uplift_threshold=0.0,
     )
     assert res is not None
     # The optimizer should pick atan2 (or arctan-like proxy) over add/sub/mul. We allow any of the angular-aware bin-funcs.
     assert res.bin_func_name in ("atan2", "div"), (
-        f"Bin-function discovery should pick angular function "
-        f"on atan2 target; got bf={res.bin_func_name}, mi={res.mi:.4f}"
+        f"Bin-function discovery should pick angular function on atan2 target; got bf={res.bin_func_name}, mi={res.mi:.4f}"
     )
     # Quantitative win floor: an angular-aware bin-func on the arctan2 threshold target must capture meaningful signal, not just "pick the right family but emit garbage". A silent regression where atan2/div is chosen but the polynomial coefficients are mis-fit collapses MI to <=0.10; the structural check above passes but the feature is useless. Measured locally with the canonical CMA-ES + warm-start path: MI ~= 0.25-0.35 on this synthetic; 0.15 floor leaves wide margin for shared-runner noise while still tripping a real regression.
     assert res.mi >= 0.15, (

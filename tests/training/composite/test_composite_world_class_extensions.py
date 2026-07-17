@@ -1,5 +1,6 @@
 """Beyond-audit world-class extensions: M7 multiclass + calibration, M8 CQR
 (adaptive-width conformal)."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -12,7 +13,8 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score
 
 from mlframe.training.composite import (
-    CompositeClassificationEstimator, CompositeTargetEstimator,
+    CompositeClassificationEstimator,
+    CompositeTargetEstimator,
 )
 
 lgb = pytest.importorskip("lightgbm")
@@ -95,7 +97,8 @@ class TestM8CQR:
         X, y, spread = _hetero_data()
         est = CompositeTargetEstimator(
             base_estimator=_HeteroQuantileInner(),
-            transform_name="additive_residual", base_column="x0",
+            transform_name="additive_residual",
+            base_column="x0",
         ).fit(X.iloc[:2000], y[:2000])
         est.calibrate_conformal(X.iloc[2000:3000], y[2000:3000], 0.1)
         lo0, hi0 = est.predict_interval(X.iloc[3000:], 0.1)
@@ -111,7 +114,8 @@ class TestM8CQR:
         X, y, _ = _hetero_data(seed=2)
         est = CompositeTargetEstimator(
             base_estimator=_HeteroQuantileInner(),
-            transform_name="additive_residual", base_column="x0",
+            transform_name="additive_residual",
+            base_column="x0",
         ).fit(X.iloc[:2000], y[:2000])
         est.calibrate_conformal_cqr(X.iloc[2000:3000], y[2000:3000], 0.1)
         lo, hi = est.predict_interval_cqr(X.iloc[3000:], 0.1)
@@ -122,7 +126,8 @@ class TestM8CQR:
         X, y, _ = _hetero_data(n=500)
         est = CompositeTargetEstimator(
             base_estimator=_HeteroQuantileInner(),
-            transform_name="additive_residual", base_column="x0",
+            transform_name="additive_residual",
+            base_column="x0",
         ).fit(X, y)
         with pytest.raises(RuntimeError, match="no CQR radius"):
             est.predict_interval_cqr(X, 0.1)

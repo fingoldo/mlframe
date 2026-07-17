@@ -2,7 +2,6 @@
 (copeland/condorcet/minimax) materialised it once, a subsequent build_ranks() on changed table
 data reused the STALE majority graph and produced rankings for the old data."""
 
-import numpy as np
 import pandas as pd
 
 from mlframe.votenrank import Leaderboard

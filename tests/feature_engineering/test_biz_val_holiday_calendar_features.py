@@ -5,6 +5,7 @@ Sales"/"Year end sales adjustment"; av_top3_xtreme_mlhack_datafest2017.md -- Spa
 a days-since-last-holiday metric. A generic day-of-week feature carries essentially no information about
 WHICH specific calendar date a demand spike lands on; the holiday/eve flags should.
 """
+
 from __future__ import annotations
 
 import pandas as pd

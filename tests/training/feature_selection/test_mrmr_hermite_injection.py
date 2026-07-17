@@ -7,6 +7,7 @@ Tests:
 2. Back-compat: ``fe_smart_polynom_iters = 0`` does NOT add the attribute and does NOT crash.
 3. Biz_val: on a synthetic where the pair-FE injection should fire, the resulting ``_hermite_features_`` list is non-empty AND the new column appears in ``self._engineered_features_``.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -30,14 +31,17 @@ class TestHermiteInjectionWiring:
 
         rng = np.random.default_rng(0)
         n = 200
-        df = pd.DataFrame({
-            "a": rng.normal(size=n),
-            "b": rng.normal(size=n),
-            "c": rng.normal(size=n),
-        })
+        df = pd.DataFrame(
+            {
+                "a": rng.normal(size=n),
+                "b": rng.normal(size=n),
+                "c": rng.normal(size=n),
+            }
+        )
         y = (rng.normal(size=n) > 0).astype(int)
         m = MRMR(
-            n_workers=1, verbose=0,
+            n_workers=1,
+            verbose=0,
             fe_max_steps=1,
             fe_npermutations=10,
             fe_ntop_features=3,
@@ -46,8 +50,7 @@ class TestHermiteInjectionWiring:
         m.fit(df, y)
         # Back-compat: attribute should not exist (or be empty if pre-initialised).
         assert not getattr(m, "_hermite_features_", None), (
-            f"expected no Hermite features for fe_smart_polynom_iters=0; "
-            f"got {getattr(m, '_hermite_features_', None)}"
+            f"expected no Hermite features for fe_smart_polynom_iters=0; got {getattr(m, '_hermite_features_', None)}"
         )
 
     def test_with_smart_polynom_does_not_crash(self) -> None:
@@ -61,7 +64,8 @@ class TestHermiteInjectionWiring:
         df = pd.DataFrame({"a": x_a, "b": x_b, "c": rng.normal(size=n)})
         y = (x_a * x_b > 0).astype(int)
         m = MRMR(
-            n_workers=1, verbose=0,
+            n_workers=1,
+            verbose=0,
             fe_max_steps=1,
             fe_npermutations=10,
             fe_ntop_features=3,
@@ -85,13 +89,18 @@ class TestHermiteInjectionWiring:
         n = 500
         x_a = rng.normal(size=n)
         x_b = rng.normal(size=n)
-        df = pd.DataFrame({
-            "a": x_a, "b": x_b,
-            "c": rng.normal(size=n), "d": rng.normal(size=n),
-        })
+        df = pd.DataFrame(
+            {
+                "a": x_a,
+                "b": x_b,
+                "c": rng.normal(size=n),
+                "d": rng.normal(size=n),
+            }
+        )
         y = (x_a * x_b > 0).astype(int)
         m = MRMR(
-            n_workers=1, verbose=0,
+            n_workers=1,
+            verbose=0,
             fe_max_steps=1,
             fe_npermutations=20,
             fe_ntop_features=4,
@@ -164,15 +173,20 @@ class TestHermiteIntegrationEndToEnd:
         n = 800
         x_a = rng.normal(0, 1, n)
         x_b = rng.normal(0, 1, n)
-        df = pd.DataFrame({
-            "a": x_a, "b": x_b,
-            "c": rng.normal(size=n), "d": rng.normal(size=n),
-        })
+        df = pd.DataFrame(
+            {
+                "a": x_a,
+                "b": x_b,
+                "c": rng.normal(size=n),
+                "d": rng.normal(size=n),
+            }
+        )
         # Mixed signal: linear + interaction. Individual MIs non-zero so screening keeps features.
         y = ((x_a + 0.5 * x_b + 1.5 * x_a * x_b) > 0).astype(int)
 
         m = MRMR(
-            n_workers=1, verbose=0,
+            n_workers=1,
+            verbose=0,
             fe_max_steps=1,
             fe_npermutations=20,
             fe_ntop_features=6,
@@ -194,6 +208,4 @@ class TestHermiteIntegrationEndToEnd:
         # invariant must hold.
         injected = getattr(m, "_hermite_features_", []) or []
         for entry in injected:
-            assert entry["name"] in m._engineered_features_, (
-                f"Hermite-injected name {entry['name']!r} missing from _engineered_features_"
-            )
+            assert entry["name"] in m._engineered_features_, f"Hermite-injected name {entry['name']!r} missing from _engineered_features_"

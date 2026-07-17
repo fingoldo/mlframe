@@ -12,12 +12,12 @@ flagged in U18 of the tests-expand audit:
 - biz_value: constant-string column on a polars frame is preserved (variance rule
   is numeric-only by contract)
 """
+
 from __future__ import annotations
 
 import numpy as np
 import pandas as pd
 import polars as pl
-import pytest
 
 from mlframe.feature_selection.pre_screen import apply_drops, compute_unsupervised_drops
 
@@ -73,20 +73,24 @@ def test_compute_drops_string_column_not_dropped_for_variance():
 def test_compute_drops_categorical_dtype_does_not_crash():
     """np.issubdtype on a CategoricalDtype raises TypeError pre-fix; pre_screen uses
     pd.api.types.is_numeric_dtype which handles extension dtypes. Verify behavior."""
-    df = pd.DataFrame({
-        "cat": pd.Categorical(["a", "b", "a", "c"] * 25),
-        "num": np.arange(100, dtype=float),
-    })
+    df = pd.DataFrame(
+        {
+            "cat": pd.Categorical(["a", "b", "a", "c"] * 25),
+            "num": np.arange(100, dtype=float),
+        }
+    )
     # Must not raise
     drops = compute_unsupervised_drops(df)
     assert "cat" not in drops, "non-degenerate Categorical must not be dropped"
 
 
 def test_compute_drops_string_dtype_does_not_crash():
-    df = pd.DataFrame({
-        "s": pd.array(["a", "b", "a", "c"] * 25, dtype="string"),
-        "num": np.arange(100, dtype=float),
-    })
+    df = pd.DataFrame(
+        {
+            "s": pd.array(["a", "b", "a", "c"] * 25, dtype="string"),
+            "num": np.arange(100, dtype=float),
+        }
+    )
     drops = compute_unsupervised_drops(df)
     assert "s" not in drops, "non-degenerate StringDtype must not be dropped"
 
@@ -118,10 +122,12 @@ def test_compute_drops_custom_variance_threshold():
 
 def test_compute_drops_protected_columns_overrides_all_rules():
     """Protected columns must NEVER be dropped, even with extreme null fraction."""
-    df = pd.DataFrame({
-        "ts_id": pd.array([None] * 100, dtype="float64"),  # 100% null → would normally drop
-        "x": np.arange(100, dtype=float),
-    })
+    df = pd.DataFrame(
+        {
+            "ts_id": pd.array([None] * 100, dtype="float64"),  # 100% null → would normally drop
+            "x": np.arange(100, dtype=float),
+        }
+    )
     drops = compute_unsupervised_drops(df, protected_columns={"ts_id"})
     assert "ts_id" not in drops, f"protected column must survive 100% nulls; got {drops!r}"
 
@@ -146,8 +152,7 @@ def test_compute_drops_sparse_column_with_nan_fill_value_kept():
     # Module logic: null_count = (n_unfilled if fill_is_nan else 0) + stored_nan_count
     # = 195 + 0 = 195; 195 > 0.99*200=198? No: 195 < 198. So column kept.
     drops = compute_unsupervised_drops(df, null_fraction_threshold=0.99)
-    assert "tfidf_term" not in drops, \
-        f"sparse TF-IDF-like col with non-null sp_values must be preserved; got {drops!r}"
+    assert "tfidf_term" not in drops, f"sparse TF-IDF-like col with non-null sp_values must be preserved; got {drops!r}"
 
 
 # ----------------------------------------------------------------------------
@@ -172,11 +177,13 @@ def test_apply_drops_empty_drop_list_returns_input():
 
 
 def test_apply_drops_polars_preserves_schema_for_remaining_cols():
-    df = pl.DataFrame({
-        "x": [1, 2, 3],
-        "y": ["a", "b", "c"],
-        "z": [1.1, 2.2, 3.3],
-    })
+    df = pl.DataFrame(
+        {
+            "x": [1, 2, 3],
+            "y": ["a", "b", "c"],
+            "z": [1.1, 2.2, 3.3],
+        }
+    )
     out = apply_drops(df, ["y"])
     assert out.columns == ["x", "z"], f"polars drop must remove y; got cols {out.columns}"
     assert out["x"].dtype == df["x"].dtype, "remaining column dtypes must be preserved"
@@ -184,11 +191,13 @@ def test_apply_drops_polars_preserves_schema_for_remaining_cols():
 
 
 def test_apply_drops_pandas_preserves_remaining_dtypes():
-    df = pd.DataFrame({
-        "x": pd.array([1, 2, 3], dtype="Int64"),
-        "y": pd.array(["a", "b", "c"], dtype="string"),
-        "z": [1.1, 2.2, 3.3],
-    })
+    df = pd.DataFrame(
+        {
+            "x": pd.array([1, 2, 3], dtype="Int64"),
+            "y": pd.array(["a", "b", "c"], dtype="string"),
+            "z": [1.1, 2.2, 3.3],
+        }
+    )
     out = apply_drops(df, ["y"])
     assert list(out.columns) == ["x", "z"]
     assert out["x"].dtype == df["x"].dtype, "Int64 dtype must survive"
@@ -204,32 +213,34 @@ def test_biz_value_compute_then_apply_returns_clean_frame_pandas():
     only the useful columns. Locks in the production-call pattern."""
     n = 300
     rng = np.random.default_rng(11)
-    df = pd.DataFrame({
-        "signal_1": rng.normal(size=n),
-        "signal_2": rng.normal(size=n),
-        "noise_const": np.full(n, 0.5),
-        "noise_null": [np.nan] * (n - 1) + [1.0],
-        "target": rng.integers(0, 2, size=n),
-    })
+    df = pd.DataFrame(
+        {
+            "signal_1": rng.normal(size=n),
+            "signal_2": rng.normal(size=n),
+            "noise_const": np.full(n, 0.5),
+            "noise_null": [np.nan] * (n - 1) + [1.0],
+            "target": rng.integers(0, 2, size=n),
+        }
+    )
     drops = compute_unsupervised_drops(df, protected_columns={"target"})
     cleaned = apply_drops(df, drops)
-    assert set(cleaned.columns) == {"signal_1", "signal_2", "target"}, \
-        f"after pre-screen frame must contain only useful cols; got {list(cleaned.columns)}"
+    assert set(cleaned.columns) == {"signal_1", "signal_2", "target"}, f"after pre-screen frame must contain only useful cols; got {list(cleaned.columns)}"
     assert len(cleaned) == n, "row count must be preserved"
 
 
 def test_biz_value_compute_then_apply_returns_clean_frame_polars():
     n = 300
     rng = np.random.default_rng(11)
-    df = pl.DataFrame({
-        "signal_1": rng.normal(size=n),
-        "signal_2": rng.normal(size=n),
-        "noise_const": np.full(n, 0.5),
-        "noise_null": pl.Series([None] * (n - 1) + [1.0], dtype=pl.Float64),
-        "target": rng.integers(0, 2, size=n),
-    })
+    df = pl.DataFrame(
+        {
+            "signal_1": rng.normal(size=n),
+            "signal_2": rng.normal(size=n),
+            "noise_const": np.full(n, 0.5),
+            "noise_null": pl.Series([None] * (n - 1) + [1.0], dtype=pl.Float64),
+            "target": rng.integers(0, 2, size=n),
+        }
+    )
     drops = compute_unsupervised_drops(df, protected_columns={"target"})
     cleaned = apply_drops(df, drops)
-    assert set(cleaned.columns) == {"signal_1", "signal_2", "target"}, \
-        f"after pre-screen polars frame must contain only useful cols; got {cleaned.columns}"
+    assert set(cleaned.columns) == {"signal_1", "signal_2", "target"}, f"after pre-screen polars frame must contain only useful cols; got {cleaned.columns}"
     assert cleaned.height == n

@@ -46,9 +46,7 @@ def test_best_model_val_score_matches_recorded_best_score():
     realized = accuracy_score(yv, m.best_model_.predict(Xv))
     # Pre-fix best_model_ pointed at the degraded final model: realized (0.833)
     # was well below the recorded best_score_ (1.0). Post-fix they agree.
-    assert realized >= m.best_score_ - 1e-9, (
-        f"best_model_ val score {realized} should match best_score_ {m.best_score_}"
-    )
+    assert realized >= m.best_score_ - 1e-9, f"best_model_ val score {realized} should match best_score_ {m.best_score_}"
     # And the live fitted model (``estimator_``, the clone fit kept overshooting after the best iter)
     # genuinely degraded -- proves the snapshot mattered. ``base_model`` stays unfitted by contract,
     # so the degradation comparison uses the live ``estimator_``, not ``base_model``.

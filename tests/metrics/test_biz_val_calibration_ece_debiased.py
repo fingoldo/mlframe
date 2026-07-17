@@ -8,6 +8,7 @@ reverts to the plug-in estimator or breaks the noise correction trips the suite.
 Bench: ``mlframe/metrics/_benchmarks/bench_ece_debiased.py`` -- debiased wins ~80% of (scenario,seed)
 cells across nbins 10/15/20.
 """
+
 from __future__ import annotations
 
 import numpy as np

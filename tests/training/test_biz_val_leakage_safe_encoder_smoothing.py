@@ -11,6 +11,7 @@ These tests exercise the REAL ``LeakageSafeEncoder`` (fit on a train split,
 ``transform`` a disjoint test split -- leak-free) and quantitatively assert
 the win, so a silent revert of the default fails the suite.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -20,9 +21,9 @@ import pytest
 
 warnings.filterwarnings("ignore")
 
-from sklearn.metrics import log_loss  # noqa: E402
+from sklearn.metrics import log_loss
 
-from mlframe.training.feature_handling.target_encoders import (  # noqa: E402
+from mlframe.training.feature_handling.target_encoders import (
     LeakageSafeEncoder,
 )
 
@@ -49,9 +50,7 @@ def _make_highcard_rare(seed):
 
 
 def _heldout_log_loss(cats, y, tr, te, smoothing, seed):
-    enc = LeakageSafeEncoder(
-        method="target_mean", smoothing=smoothing, cv=5, random_state=seed
-    )
+    enc = LeakageSafeEncoder(method="target_mean", smoothing=smoothing, cv=5, random_state=seed)
     enc.fit(cats[tr], y[tr])
     p = np.clip(enc.transform(cats[te]), 1e-6, 1 - 1e-6)
     return log_loss(y[te], p, labels=[0.0, 1.0])
@@ -91,15 +90,11 @@ def test_biz_val_smoothing_3_lower_posterior_mse_than_10():
         k = len(cats) // 2
         tr, te = idx[:k], idx[k:]
         for sm, bucket in ((3.0, mse3), (10.0, mse10)):
-            enc = LeakageSafeEncoder(
-                method="target_mean", smoothing=sm, cv=5, random_state=seed
-            )
+            enc = LeakageSafeEncoder(method="target_mean", smoothing=sm, cv=5, random_state=seed)
             enc.fit(cats[tr], y[tr])
             pred = enc.transform(cats[te])
             bucket.append(float(np.mean((pred - post[te]) ** 2)))
-    assert np.mean(mse3) < np.mean(mse10), (
-        f"mse3={np.mean(mse3):.5f} not < mse10={np.mean(mse10):.5f}"
-    )
+    assert np.mean(mse3) < np.mean(mse10), f"mse3={np.mean(mse3):.5f} not < mse10={np.mean(mse10):.5f}"
 
 
 if __name__ == "__main__":

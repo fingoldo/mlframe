@@ -17,6 +17,7 @@ happy-path inputs:
 
 Behavioural assertions only (values / raises / invariants) -- never bare ``is not None``.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -90,7 +91,7 @@ def test_mi_kernels_agree_cross_implementation():
     n = 3000
     # y depends on a but not b -> a moderate, non-trivial MI value to compare across kernels.
     a = rng.integers(0, 6, n)
-    y = ((a + rng.integers(0, 2, n)) % 6)
+    y = (a + rng.integers(0, 2, n)) % 6
     b = rng.integers(0, 6, n)
     data = np.column_stack([y, a, b]).astype(np.int8)
 
@@ -169,7 +170,7 @@ def test_drops_null_fraction_boundary(backend):
     """Drop rule is null_count > 0.99 * n (strict). At n=1000 the cutoff is 990: 991 nulls drops,
     985 nulls (with real variance in the non-null values) is kept."""
     n = 1000
-    over = [float(i % 9 + 1) for i in range(9)] + [None] * (n - 9)      # 991 nulls -> drop
+    over = [float(i % 9 + 1) for i in range(9)] + [None] * (n - 9)  # 991 nulls -> drop
     under = [float(i % 15 + 1) for i in range(15)] + [None] * (n - 15)  # 985 nulls -> keep
     drops = compute_unsupervised_drops(_mk(backend, {"over": over, "under": under}))
     assert drops == ["over"]
@@ -181,7 +182,7 @@ def test_drops_variance_threshold_custom(backend):
     rng = np.random.default_rng(1)
     n = 1000
     lowvar = (rng.standard_normal(n) * 0.1).tolist()  # var ~ 0.01
-    hivar = (rng.standard_normal(n) * 5).tolist()     # var ~ 25
+    hivar = (rng.standard_normal(n) * 5).tolist()  # var ~ 25
     drops = compute_unsupervised_drops(_mk(backend, {"lowvar": lowvar, "hivar": hivar}), variance_threshold=1.0)
     assert drops == ["lowvar"]
 
@@ -230,12 +231,14 @@ def _relevancy_bins(seed: int = 0, n: int = 600) -> pl.DataFrame:
     'noise' (independent). Codes stay in [0,14] for the kernels' default n_bins=15."""
     rng = np.random.default_rng(seed)
     t = rng.integers(0, 5, n).astype(np.int64)
-    return pl.DataFrame({
-        "target": t,
-        "copy": t.copy(),
-        "const": np.zeros(n, dtype=np.int64),
-        "noise": rng.integers(0, 5, n).astype(np.int64),
-    })
+    return pl.DataFrame(
+        {
+            "target": t,
+            "copy": t.copy(),
+            "const": np.zeros(n, dtype=np.int64),
+            "noise": rng.integers(0, 5, n).astype(np.int64),
+        }
+    )
 
 
 def test_relevancy_zero_permutations_raises():
@@ -243,8 +246,11 @@ def test_relevancy_zero_permutations_raises():
     bins = _relevancy_bins()
     with pytest.raises(ValueError, match="min_randomized_permutations must be >= 1"):
         estimate_features_relevancy(
-            bins=bins, target_columns=["target"], benchmark_mi_algorithms=False,
-            min_randomized_permutations=0, verbose=0,
+            bins=bins,
+            target_columns=["target"],
+            benchmark_mi_algorithms=False,
+            min_randomized_permutations=0,
+            verbose=0,
         )
 
 
@@ -253,11 +259,15 @@ def test_relevancy_single_target_keeps_signal_drops_dead():
     and the MI matrix has one row per target across all columns."""
     bins = _relevancy_bins()
     result = estimate_features_relevancy(
-        bins=bins, target_columns=["target"], benchmark_mi_algorithms=False,
-        min_randomized_permutations=20, min_permuted_mi_evaluations=50, verbose=0,
+        bins=bins,
+        target_columns=["target"],
+        benchmark_mi_algorithms=False,
+        min_randomized_permutations=20,
+        min_permuted_mi_evaluations=50,
+        verbose=0,
     )
     assert len(result) == 4
-    drop, orig_mi, all_perm, ranking = result
+    drop, orig_mi, _all_perm, _ranking = result
     assert orig_mi.shape == (1, bins.shape[1])
     assert "copy" in bins.columns and "copy" not in drop, "perfect-signal feature must survive"
     assert "const" in drop, "dead constant column must be dropped"
@@ -270,8 +280,12 @@ def test_relevancy_does_not_mutate_input_bins():
     bins = _relevancy_bins(seed=5)
     before = bins.clone()
     estimate_features_relevancy(
-        bins=bins, target_columns=["target"], benchmark_mi_algorithms=False,
-        min_randomized_permutations=15, min_permuted_mi_evaluations=45, verbose=0,
+        bins=bins,
+        target_columns=["target"],
+        benchmark_mi_algorithms=False,
+        min_randomized_permutations=15,
+        min_permuted_mi_evaluations=45,
+        verbose=0,
     )
     assert bins.equals(before), "estimate_features_relevancy must not scramble the caller's frame"
 
@@ -280,10 +294,14 @@ def test_relevancy_quantile_baseline_path():
     """The permuted_max_mi_quantile branch (nanquantile baseline instead of nanmax) still runs and
     still drops the dead constant column."""
     bins = _relevancy_bins(seed=9)
-    drop, orig_mi, _all_perm, _rank = estimate_features_relevancy(
-        bins=bins, target_columns=["target"], benchmark_mi_algorithms=False,
-        min_randomized_permutations=20, min_permuted_mi_evaluations=50,
-        permuted_max_mi_quantile=0.95, verbose=0,
+    drop, _orig_mi, _all_perm, _rank = estimate_features_relevancy(
+        bins=bins,
+        target_columns=["target"],
+        benchmark_mi_algorithms=False,
+        min_randomized_permutations=20,
+        min_permuted_mi_evaluations=50,
+        permuted_max_mi_quantile=0.95,
+        verbose=0,
     )
     assert isinstance(drop, list)
     assert "const" in drop

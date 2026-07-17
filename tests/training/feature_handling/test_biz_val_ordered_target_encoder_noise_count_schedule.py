@@ -10,6 +10,7 @@ constant noise on a synthetic mixing very-low-count and very-high-count categori
 overfitting gap on the low-count categories (like constant noise does) WITHOUT hurting the high-count
 categories' predictive fit as much as constant noise does.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -44,12 +45,14 @@ def _make_mixed_cardinality_data(n_low: int, low_categories: int, n_high: int, h
 
 
 def test_biz_val_ordered_target_encode_noise_count_halflife_beats_constant_noise_on_mixed_cardinality():
+    """Count-decayed noise cuts high-count-category test RMSE by >=10% vs constant noise, staying near the no-noise baseline."""
     cats, order, y, is_low = _make_mixed_cardinality_data(n_low=800, low_categories=700, n_high=4000, high_categories=40, seed=7)
     train_idx = np.arange(0, int(0.75 * len(y)))
     test_idx = np.arange(int(0.75 * len(y)), len(y))
     test_is_low = is_low[test_idx]
 
     def _fit_and_high_count_test_rmse(noise_std: float, noise_count_halflife) -> float:
+        """Encode with the given noise schedule, fit an LGBM regressor, and return test RMSE on high-count rows only."""
         enc = ordered_target_encode(
             cats, y, order=order, smoothing=1.0, noise_std=noise_std, noise_count_halflife=noise_count_halflife, random_state=3
         ).reshape(-1, 1)
@@ -72,12 +75,12 @@ def test_biz_val_ordered_target_encode_noise_count_halflife_beats_constant_noise
     # the schedule should also stay close to the no-noise baseline on the high-count categories (it decayed
     # noise away for them), not just "less bad than constant" -- within 15% relative of the un-noised fit.
     assert rmse_scheduled < rmse_no_noise * 1.15, (
-        f"expected scheduled noise to stay near the no-noise baseline on high-count categories, "
-        f"got scheduled={rmse_scheduled:.4f} no_noise={rmse_no_noise:.4f}"
+        f"expected scheduled noise to stay near the no-noise baseline on high-count categories, got scheduled={rmse_scheduled:.4f} no_noise={rmse_no_noise:.4f}"
     )
 
 
 def test_ordered_target_encode_noise_count_halflife_none_is_bit_identical_to_omitting_param():
+    """noise_count_halflife=None is bit-identical to leaving the kwarg out entirely."""
     rng = np.random.default_rng(0)
     n, n_categories = 300, 60
     cats = rng.integers(0, n_categories, n)
@@ -90,6 +93,7 @@ def test_ordered_target_encode_noise_count_halflife_none_is_bit_identical_to_omi
 
 
 def test_ordered_target_encode_noise_count_halflife_decays_toward_zero_noise_for_high_count_rows():
+    """Effective noise decays to ~0 at high running counts (seed-independent tail) while staying nonzero early."""
     # A single category seen many times in a row with a constant NONZERO target: the unnoised expanding mean
     # converges to that constant quickly, so any residual spread in the noised encoding at high running counts
     # is entirely due to the multiplicative noise term -- which should shrink toward zero as the schedule decays.

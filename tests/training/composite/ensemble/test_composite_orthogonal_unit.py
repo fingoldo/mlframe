@@ -2,6 +2,7 @@
 
 Cover: cross-fitting leakage-free, FWL identity == plain OLS on no-confounder data,
 predict shape, and sklearn clone."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -29,9 +30,7 @@ def _make_frame(n=400, seed=0):
 
 def test_predict_shape():
     X, y = _make_frame()
-    est = OrthogonalizedCompositeEstimator(
-        base_column="base", inner_estimator=LinearRegression(), n_folds=4, random_state=0
-    )
+    est = OrthogonalizedCompositeEstimator(base_column="base", inner_estimator=LinearRegression(), n_folds=4, random_state=0)
     est.fit(X, y)
     pred = est.predict(X)
     assert pred.shape == (len(y),)
@@ -95,9 +94,7 @@ def test_fwl_identity_equals_plain_ols_on_no_confounder():
     joint = LinearRegression().fit(X[["base", "f0", "f1"]].to_numpy(), y)
     ols_base = float(joint.coef_[0])
 
-    assert abs(est.base_coef_ - ols_base) < 0.05, (
-        f"FWL base_coef_={est.base_coef_:.4f} should match OLS {ols_base:.4f} on no-confounder data"
-    )
+    assert abs(est.base_coef_ - ols_base) < 0.05, f"FWL base_coef_={est.base_coef_:.4f} should match OLS {ols_base:.4f} on no-confounder data"
     # And both near the true causal coefficient 2.0.
     assert abs(est.base_coef_ - 2.0) < 0.1
 

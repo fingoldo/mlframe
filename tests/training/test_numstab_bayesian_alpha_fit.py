@@ -6,6 +6,7 @@ ill-conditioned (cond ~1e16) WITHOUT being exactly singular, so ``inv`` did not 
 ~1e13 diagonal entries, exploding the posterior variances and yielding a meaningless
 alpha_mean. The lstsq pseudo-inverse keeps the inverse bounded.
 """
+
 from __future__ import annotations
 
 import numpy as np

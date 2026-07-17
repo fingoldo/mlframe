@@ -8,6 +8,7 @@ the combined evidence actually supports). A geometric mean of probabilities with
 approximates the log-odds-summing combiner far better, giving materially lower log-loss than the best
 achievable arithmetic-mean blend.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -46,7 +47,9 @@ def test_biz_val_geometric_blend_beats_arithmetic_blend_on_independent_evidence(
     arith_result = constrained_weight_blend(preds, y, _log_loss, n_restarts=5, random_state=0)
 
     improvement = (arith_result["loss"] - geo_result["loss"]) / arith_result["loss"]
-    assert improvement > 0.025, f"expected geometric blend to beat the best arithmetic blend by >2.5% log-loss, got geo={geo_result['loss']:.4f} arith={arith_result['loss']:.4f} (improvement={improvement:.4f})"
+    assert improvement > 0.025, (
+        f"expected geometric blend to beat the best arithmetic blend by >2.5% log-loss, got geo={geo_result['loss']:.4f} arith={arith_result['loss']:.4f} (improvement={improvement:.4f})"
+    )
 
 
 def test_geometric_weight_blend_single_model_pool():
@@ -113,7 +116,9 @@ def test_biz_val_geometric_weight_blend_hybrid_alpha_recovers_from_near_zero_gli
     assert hybrid["loss"] <= pure_geo["loss"] + 1e-9, f"hybrid fit_alpha loss ({hybrid['loss']:.4f}) should be <= pure geometric loss ({pure_geo['loss']:.4f})"
 
     improvement = (pure_geo["loss"] - hybrid["loss"]) / pure_geo["loss"]
-    assert improvement > 0.03, f"expected hybrid blend to beat pure geometric blend by >3% log-loss on the glitch-prone dataset, got improvement={improvement:.4f} (pure_geo={pure_geo['loss']:.4f}, hybrid={hybrid['loss']:.4f})"
+    assert improvement > 0.03, (
+        f"expected hybrid blend to beat pure geometric blend by >3% log-loss on the glitch-prone dataset, got improvement={improvement:.4f} (pure_geo={pure_geo['loss']:.4f}, hybrid={hybrid['loss']:.4f})"
+    )
     assert hybrid["alpha"] < 1.0, f"expected fit_alpha to move away from pure-geometric (alpha=1), got {hybrid['alpha']}"
 
 

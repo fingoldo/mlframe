@@ -45,9 +45,10 @@ NEVER xfail. NEVER mask bugs via runtime workarounds.
 
 Consolidated verbatim from test_biz_value_mrmr_layer60.py (per audit finding test_code_quality-16).
 """
+
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 import warnings
 
 import numpy as np
@@ -64,7 +65,9 @@ SEEDS = (1, 7, 13)
 
 
 def _make_mrmr(**overrides):
+    """Build an MRMR isolating the CMI-greedy FE constructor from the default-on univariate-basis FE."""
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     kwargs = dict(
         verbose=0,
         interactions_max_order=1,
@@ -95,15 +98,19 @@ def _make_mrmr(**overrides):
 
 
 def _build_linear(seed: int, n: int = 1200):
+    """Plain linear-additive signal used for the default-disabled byte-identical contract."""
     rng = np.random.default_rng(seed)
     x1 = rng.standard_normal(n)
     x2 = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "x1": x1, "x2": x2,
-        "noise_a": rng.standard_normal(n),
-        "noise_b": rng.standard_normal(n),
-        "noise_c": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "x1": x1,
+            "x2": x2,
+            "noise_a": rng.standard_normal(n),
+            "noise_b": rng.standard_normal(n),
+            "noise_c": rng.standard_normal(n),
+        }
+    )
     y = ((x1 + 0.7 * x2) > 0).astype(int)
     return X, pd.Series(y, name="y")
 
@@ -115,12 +122,14 @@ def _build_square_signal(seed: int, n: int = 2000):
     """
     rng = np.random.default_rng(seed)
     x = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "x": x,
-        "noise_a": rng.standard_normal(n),
-        "noise_b": rng.standard_normal(n),
-        "noise_c": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "x": x,
+            "noise_a": rng.standard_normal(n),
+            "noise_b": rng.standard_normal(n),
+            "noise_c": rng.standard_normal(n),
+        }
+    )
     y = ((x * x - 1.0) + 0.05 * rng.standard_normal(n) > 0).astype(int)
     return X, pd.Series(y, name="y")
 
@@ -134,12 +143,15 @@ def _build_complementary_signals(seed: int, n: int = 2500):
     rng = np.random.default_rng(seed)
     x1 = rng.standard_normal(n) * 1.2
     x2 = rng.standard_normal(n) * 1.5
-    X = pd.DataFrame({
-        "x1": x1, "x2": x2,
-        "noise_a": rng.standard_normal(n),
-        "noise_b": rng.standard_normal(n),
-        "noise_c": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "x1": x1,
+            "x2": x2,
+            "noise_a": rng.standard_normal(n),
+            "noise_b": rng.standard_normal(n),
+            "noise_c": rng.standard_normal(n),
+        }
+    )
     sig1 = (x1 * x1) > 1.0
     sig2 = np.log1p(np.abs(x2)) > float(np.median(np.log1p(np.abs(x2))))
     y = (sig1 ^ sig2).astype(int)
@@ -147,7 +159,9 @@ def _build_complementary_signals(seed: int, n: int = 2500):
 
 
 # Helper: extract the source col of a unary engineered name "fn(col)".
+# Helper: extract the source col of a unary engineered name "fn(col)".
 def _unary_source(name: str) -> str:
+    """Extract the source column name from a unary engineered-column identifier like fn(col)."""
     if name.endswith(")") and "(" in name:
         return name.split("(", 1)[1][:-1]
     return name
@@ -159,28 +173,28 @@ def _unary_source(name: str) -> str:
 
 
 class TestDefaultDisabledByteIdentical:
+    """fe_mi_greedy_cmi_enable defaults to False and behaves byte-identically to explicit False."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_default_off_no_cmi_columns(self, seed):
+        """With the default off, mi_greedy_features_ stays empty."""
         X, y = _build_linear(seed)
         m = _make_mrmr()
         m.fit(X, y)
         assert m.fe_mi_greedy_cmi_enable is False
         assert m.mi_greedy_features_ == [], (
-            f"seed={seed}: default fe_mi_greedy_cmi_enable=False should "
-            f"produce empty mi_greedy_features_, got {m.mi_greedy_features_}"
+            f"seed={seed}: default fe_mi_greedy_cmi_enable=False should produce empty mi_greedy_features_, got {m.mi_greedy_features_}"
         )
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_default_off_support_identical_to_explicit_off(self, seed):
+        """Leaving the flag at its default agrees exactly with passing it explicitly as False."""
         X, y = _build_linear(seed)
         m_default = _make_mrmr()
         m_explicit = _make_mrmr(fe_mi_greedy_cmi_enable=False)
         m_default.fit(X, y)
         m_explicit.fit(X, y)
-        assert list(m_default.support_) == list(m_explicit.support_), (
-            f"seed={seed}: explicit False vs default disagreed on support_"
-        )
+        assert list(m_default.support_) == list(m_explicit.support_), f"seed={seed}: explicit False vs default disagreed on support_"
         assert m_default.mi_greedy_features_ == m_explicit.mi_greedy_features_
 
 
@@ -190,6 +204,7 @@ class TestDefaultDisabledByteIdentical:
 
 
 class TestNoDuplicateSignal:
+    """CMI-greedy must collapse the redundant |x|-family transforms to at most one per source."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_at_most_one_x2_family_member(self, seed):
@@ -213,12 +228,7 @@ class TestNoDuplicateSignal:
         appended = list(m.mi_greedy_features_)
         family = {"square", "abs", "sqrt_abs", "log_abs"}
         # Count unary picks on source col 'x' from the |x|-family.
-        x_family_picks = [
-            c for c in appended
-            if "(" in c and c.endswith(")")
-            and _unary_source(c) == "x"
-            and c.split("(", 1)[0] in family
-        ]
+        x_family_picks = [c for c in appended if "(" in c and c.endswith(")") and _unary_source(c) == "x" and c.split("(", 1)[0] in family]
         assert len(x_family_picks) <= 1, (
             f"seed={seed}: CMI-greedy picked MULTIPLE |x|-family transforms "
             f"on the same source 'x' (duplicate signal): {x_family_picks}. "
@@ -226,8 +236,7 @@ class TestNoDuplicateSignal:
         )
         # And it should have picked at least one (the signal IS there).
         assert len(x_family_picks) >= 1, (
-            f"seed={seed}: CMI-greedy picked ZERO |x|-family transforms on "
-            f"'x' -- the signal was missed entirely. Appended: {appended}"
+            f"seed={seed}: CMI-greedy picked ZERO |x|-family transforms on 'x' -- the signal was missed entirely. Appended: {appended}"
         )
 
 
@@ -237,6 +246,7 @@ class TestNoDuplicateSignal:
 
 
 class TestComplementarySignalsRecovered:
+    """The CMI-greedy constructor must discover a transform for every complementary signal source."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_covers_both_source_cols(self, seed):
@@ -271,7 +281,8 @@ class TestComplementarySignalsRecovered:
         )
 
         _X_aug, _scores, recipes = greedy_cmi_fe_construct_with_recipes(
-            X, yv,
+            X,
+            yv,
             cols=list(X.columns),
             seed_cols_count=4,
             top_k=6,
@@ -280,11 +291,7 @@ class TestComplementarySignalsRecovered:
             min_cmi_gain=0.003,
         )
         # Union of source cols across every appended winner's recipe.
-        constructor_sources = {
-            s
-            for r in recipes
-            for s in (getattr(r, "src_names", ()) or ())
-        }
+        constructor_sources = {s for r in recipes for s in (getattr(r, "src_names", ()) or ())}
         assert "x1" in constructor_sources and "x2" in constructor_sources, (
             f"seed={seed}: CMI-greedy constructor missed at least one of the "
             f"two complementary sources. constructor sources covered = "
@@ -298,6 +305,7 @@ class TestComplementarySignalsRecovered:
 
 
 class TestAucParityVsMarginalMIGreedy:
+    """CMI-greedy and marginal-MI-greedy must reach comparable downstream LogReg AUC on a single-signal target."""
 
     @pytest.mark.parametrize("seed", (1, 13))
     def test_logreg_auc_within_tolerance(self, seed):
@@ -323,9 +331,7 @@ class TestAucParityVsMarginalMIGreedy:
         Xte_mi = mrmr_mi.transform(Xte)
         auc_mi = roc_auc_score(
             yte.to_numpy(),
-            LogisticRegression(max_iter=500)
-            .fit(np.asarray(Xtr_mi), ytr.to_numpy())
-            .predict_proba(np.asarray(Xte_mi))[:, 1],
+            LogisticRegression(max_iter=500).fit(np.asarray(Xtr_mi), ytr.to_numpy()).predict_proba(np.asarray(Xte_mi))[:, 1],
         )
 
         mrmr_cmi = _make_mrmr(
@@ -341,9 +347,7 @@ class TestAucParityVsMarginalMIGreedy:
         Xte_cmi = mrmr_cmi.transform(Xte)
         auc_cmi = roc_auc_score(
             yte.to_numpy(),
-            LogisticRegression(max_iter=500)
-            .fit(np.asarray(Xtr_cmi), ytr.to_numpy())
-            .predict_proba(np.asarray(Xte_cmi))[:, 1],
+            LogisticRegression(max_iter=500).fit(np.asarray(Xtr_cmi), ytr.to_numpy()).predict_proba(np.asarray(Xte_cmi))[:, 1],
         )
 
         assert abs(auc_mi - auc_cmi) <= 0.07, (
@@ -360,6 +364,7 @@ class TestAucParityVsMarginalMIGreedy:
 
 
 class TestFewerColsInSupport:
+    """On duplicate-signal data, CMI-greedy must append no more engineered columns than marginal-MI-greedy."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_cmi_appends_no_more_than_marginal(self, seed):
@@ -404,8 +409,10 @@ class TestFewerColsInSupport:
 
 
 class TestPickleAndClone:
+    """CMI-greedy ctor params and appended recipes must survive clone/pickle round-trips."""
 
     def test_clone_preserves_constructor_params(self):
+        """sklearn clone() copies every fe_mi_greedy_cmi_* ctor param."""
         m = _make_mrmr(
             fe_mi_greedy_cmi_enable=True,
             fe_mi_greedy_cmi_top_k=7,
@@ -419,11 +426,10 @@ class TestPickleAndClone:
             "fe_mi_greedy_cmi_seed_cols_count",
             "fe_mi_greedy_cmi_min_gain",
         ):
-            assert getattr(m_clone, attr) == getattr(m, attr), (
-                f"clone failed to preserve {attr}"
-            )
+            assert getattr(m_clone, attr) == getattr(m, attr), f"clone failed to preserve {attr}"
 
     def test_pickle_roundtrip_preserves_recipes(self):
+        """A pickle round-trip reproduces identical transform output and the same mi_greedy_features_ list."""
         X, y = _build_square_signal(7)
         m = _make_mrmr(
             fe_mi_greedy_cmi_enable=True,
@@ -437,13 +443,12 @@ class TestPickleAndClone:
         out_pre = m.transform(X)
 
         blob = pickle.dumps(m)
-        m_rt = pickle.loads(blob)
+        m_rt = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
         out_post = m_rt.transform(X)
         np.testing.assert_allclose(
             np.asarray(out_pre, dtype=np.float64),
             np.asarray(out_post, dtype=np.float64),
-            rtol=1e-12, atol=1e-12,
+            rtol=1e-12,
+            atol=1e-12,
         )
-        assert (
-            list(m_rt.mi_greedy_features_) == list(m.mi_greedy_features_)
-        )
+        assert list(m_rt.mi_greedy_features_) == list(m.mi_greedy_features_)

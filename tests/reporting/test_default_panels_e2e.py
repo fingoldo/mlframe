@@ -58,7 +58,9 @@ class TestDefaultTemplatesDispatch:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             tag = render_multi_target_panels(
-                targets=y, probs=proba, classes=classes,
+                targets=y,
+                probs=proba,
+                classes=classes,
                 plot_outputs="matplotlib[png]",
                 multiclass_panels=cfg.multiclass_panels,
                 base_path=str(tmp_path / "mc"),
@@ -74,7 +76,9 @@ class TestDefaultTemplatesDispatch:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             tag = render_multi_target_panels(
-                targets=y, preds=preds, quantile_alphas=alphas,
+                targets=y,
+                preds=preds,
+                quantile_alphas=alphas,
                 plot_outputs="matplotlib[png]",
                 quantile_panels=cfg.quantile_panels,
                 base_path=str(tmp_path / "qr"),
@@ -98,7 +102,9 @@ class TestDefaultTemplatesDispatch:
             warnings.simplefilter("ignore")
             spec = compose_quantile_figure(y, preds, alphas, panels_template=cfg.quantile_panels)
             tag = render_multi_target_panels(
-                targets=y, preds=preds, quantile_alphas=alphas,
+                targets=y,
+                preds=preds,
+                quantile_alphas=alphas,
                 plot_outputs="matplotlib[png]",
                 quantile_panels=cfg.quantile_panels,
                 base_path=str(tmp_path / "qrfull"),
@@ -125,7 +131,8 @@ class TestDefaultTemplatesDispatch:
             warnings.simplefilter("ignore")
             spec = compose_binary_figure(y, score, panels_template=cfg.binary_panels)
             tag = render_multi_target_panels(
-                targets=y, probs=proba,
+                targets=y,
+                probs=proba,
                 plot_outputs="matplotlib[png]",
                 binary_panels=cfg.binary_panels,
                 base_path=str(tmp_path / "bin"),
@@ -173,7 +180,9 @@ class TestDefaultLtrTemplate:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             spec = compose_ltr_figure(
-                np.asarray(y), np.asarray(score, dtype=np.float64), np.asarray(gid),
+                np.asarray(y),
+                np.asarray(score, dtype=np.float64),
+                np.asarray(gid),
                 panels_template=cfg.ltr_panels,
             )
         assert isinstance(spec, FigureSpec)

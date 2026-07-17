@@ -32,10 +32,10 @@ def test_subset_uncertainty_ranks_stable_below_unstable():
     n, f = 100, 5
     phi_var = np.zeros((n, f))
     phi_var[:, 2] = 1.0  # feature 2 is unstable
-    assert subset_uncertainty(phi_var, [0, 1]) == 0.0          # stable subset
-    assert subset_uncertainty(phi_var, [0, 2]) > 0.0           # includes unstable feature
+    assert subset_uncertainty(phi_var, [0, 1]) == 0.0  # stable subset
+    assert subset_uncertainty(phi_var, [0, 2]) > 0.0  # includes unstable feature
     assert subset_uncertainty(phi_var, [2]) > subset_uncertainty(phi_var, [0])
-    assert subset_uncertainty(None, [0, 1]) == 0.0             # no variance computed
+    assert subset_uncertainty(None, [0, 1]) == 0.0  # no variance computed
 
 
 def test_config_jitter_returns_nonneg_variance():
@@ -43,9 +43,9 @@ def test_config_jitter_returns_nonneg_variance():
 
     X, y = _data(0)
     model = make_default_estimator(classification=True)
-    phi, base, y_phi, phi_var = compute_shap_matrix(
-        model, X, y, classification=True, out_of_fold=False, n_models=4, config_jitter=True,
-        return_variance=True, rng=np.random.default_rng(0))
+    phi, _base, _y_phi, phi_var = compute_shap_matrix(
+        model, X, y, classification=True, out_of_fold=False, n_models=4, config_jitter=True, return_variance=True, rng=np.random.default_rng(0)
+    )
     assert phi.shape == (len(X), 8)
     assert phi_var.shape == (len(X), 8)
     assert np.all(phi_var >= 0.0)
@@ -67,10 +67,8 @@ def test_oof_shap_parallel_folds_match_serial():
     y = (1.0 * Xnp[:, 0] + 0.8 * Xnp[:, 1] - 0.6 * Xnp[:, 2] + 0.3 * rng.normal(size=n) > 0).astype(int)
     model = make_default_estimator(classification=True, random_state=0)
 
-    serial = compute_shap_matrix(model, X, y, classification=True, out_of_fold=True, n_splits=4,
-                                 rng=np.random.default_rng(0), n_jobs=1)
-    parallel = compute_shap_matrix(model, X, y, classification=True, out_of_fold=True, n_splits=4,
-                                   rng=np.random.default_rng(0), n_jobs=-1)
+    serial = compute_shap_matrix(model, X, y, classification=True, out_of_fold=True, n_splits=4, rng=np.random.default_rng(0), n_jobs=1)
+    parallel = compute_shap_matrix(model, X, y, classification=True, out_of_fold=True, n_splits=4, rng=np.random.default_rng(0), n_jobs=-1)
     phi_s, base_s, _ = serial
     phi_p, base_p, _ = parallel
     assert np.array_equal(phi_s, phi_p), f"phi differs by up to {np.abs(phi_s - phi_p).max()}"
@@ -98,18 +96,16 @@ def test_compute_shap_matrix_n_estimators_cap_is_clamp():
     captured: list[int] = []
     real_fit_one = _shap_proxy_explain._fit_one
 
-    def _spy_fit_one(model_template, X, y, classification, seed, jitter_depth=None,
-                     inner_n_jobs=None, n_estimators_cap=None):
-        est = real_fit_one(model_template, X, y, classification, seed, jitter_depth=jitter_depth,
-                           inner_n_jobs=inner_n_jobs, n_estimators_cap=n_estimators_cap)
+    def _spy_fit_one(model_template, X, y, classification, seed, jitter_depth=None, inner_n_jobs=None, n_estimators_cap=None):
+        est = real_fit_one(model_template, X, y, classification, seed, jitter_depth=jitter_depth, inner_n_jobs=inner_n_jobs, n_estimators_cap=n_estimators_cap)
         captured.append(int(est.get_params()["n_estimators"]))
         return est
 
     # cap=100 with template n_estimators=300 -> every fitted booster carries 100 trees.
     with patch.object(_shap_proxy_explain, "_fit_one", _spy_fit_one):
-        phi, base, _ = compute_shap_matrix(template, X, y, classification=True, out_of_fold=True,
-                                            n_splits=3, rng=np.random.default_rng(0), n_jobs=1,
-                                            n_estimators_cap=100)
+        phi, _base, _ = compute_shap_matrix(
+            template, X, y, classification=True, out_of_fold=True, n_splits=3, rng=np.random.default_rng(0), n_jobs=1, n_estimators_cap=100
+        )
     assert phi.shape == (n, f)
     assert len(captured) == 3
     assert all(c == 100 for c in captured), f"cap=100 did not clamp; got {captured}"
@@ -117,15 +113,13 @@ def test_compute_shap_matrix_n_estimators_cap_is_clamp():
     # cap=500 with template n_estimators=300 -> clamp via min(): template wins (300), cap can't INCREASE.
     captured.clear()
     with patch.object(_shap_proxy_explain, "_fit_one", _spy_fit_one):
-        compute_shap_matrix(template, X, y, classification=True, out_of_fold=True, n_splits=2,
-                            rng=np.random.default_rng(0), n_jobs=1, n_estimators_cap=500)
+        compute_shap_matrix(template, X, y, classification=True, out_of_fold=True, n_splits=2, rng=np.random.default_rng(0), n_jobs=1, n_estimators_cap=500)
     assert all(c == 300 for c in captured), f"cap=500 should leave 300-tree template untouched; got {captured}"
 
     # cap=None -> legacy uncapped path (the booster carries the template's n_estimators).
     captured.clear()
     with patch.object(_shap_proxy_explain, "_fit_one", _spy_fit_one):
-        compute_shap_matrix(template, X, y, classification=True, out_of_fold=True, n_splits=2,
-                            rng=np.random.default_rng(0), n_jobs=1, n_estimators_cap=None)
+        compute_shap_matrix(template, X, y, classification=True, out_of_fold=True, n_splits=2, rng=np.random.default_rng(0), n_jobs=1, n_estimators_cap=None)
     assert all(c == 300 for c in captured), f"cap=None should leave 300-tree template untouched; got {captured}"
 
 
@@ -163,16 +157,35 @@ def test_facade_oof_shap_n_estimators_passes_to_compute_shap_matrix():
         return real_compute(*args, **kwargs)
 
     with patch.object(explain_module, "compute_shap_matrix", _spy):
-        ShapProxiedFS(classification=True, metric="brier", optimizer="bruteforce", max_features=4,
-                      top_n=5, n_splits=3, trust_guard=False, random_state=0, verbose=False,
-                      n_jobs=1).fit(X, y)
+        ShapProxiedFS(
+            classification=True,
+            metric="brier",
+            optimizer="bruteforce",
+            max_features=4,
+            top_n=5,
+            n_splits=3,
+            trust_guard=False,
+            random_state=0,
+            verbose=False,
+            n_jobs=1,
+        ).fit(X, y)
     assert captured == [100], f"facade default should pass cap=100 to compute_shap_matrix; got {captured}"
 
     captured.clear()
     with patch.object(explain_module, "compute_shap_matrix", _spy):
-        ShapProxiedFS(classification=True, metric="brier", optimizer="bruteforce", max_features=4,
-                      top_n=5, n_splits=3, trust_guard=False, oof_shap_n_estimators=None,
-                      random_state=0, verbose=False, n_jobs=1).fit(X, y)
+        ShapProxiedFS(
+            classification=True,
+            metric="brier",
+            optimizer="bruteforce",
+            max_features=4,
+            top_n=5,
+            n_splits=3,
+            trust_guard=False,
+            oof_shap_n_estimators=None,
+            random_state=0,
+            verbose=False,
+            n_jobs=1,
+        ).fit(X, y)
     assert captured == [None], f"oof_shap_n_estimators=None must pass through; got {captured}"
 
 
@@ -187,8 +200,9 @@ def test_biz_val_config_jitter_stabilizes_importance_ranking():
     def importance(seed, n_models, jitter):
         X, y = _data(seed)
         model = make_default_estimator(classification=True, random_state=seed)
-        phi, *_ = compute_shap_matrix(model, X, y, classification=True, out_of_fold=False,
-                                      n_models=n_models, config_jitter=jitter, rng=np.random.default_rng(seed))
+        phi, *_ = compute_shap_matrix(
+            model, X, y, classification=True, out_of_fold=False, n_models=n_models, config_jitter=jitter, rng=np.random.default_rng(seed)
+        )
         return np.abs(phi).mean(axis=0)
 
     seeds = [0, 1, 2]
@@ -213,9 +227,21 @@ def test_facade_uncertainty_penalty_runs_and_reports():
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
     X, y = _data(0, n=1200)
-    sel = ShapProxiedFS(classification=True, metric="brier", optimizer="bruteforce", max_features=5,
-                        top_n=10, n_splits=3, n_models=2, config_jitter=True, uncertainty_penalty=0.5,
-                        n_revalidation_models=1, trust_guard=False, random_state=0, verbose=False)
+    sel = ShapProxiedFS(
+        classification=True,
+        metric="brier",
+        optimizer="bruteforce",
+        max_features=5,
+        top_n=10,
+        n_splits=3,
+        n_models=2,
+        config_jitter=True,
+        uncertainty_penalty=0.5,
+        n_revalidation_models=1,
+        trust_guard=False,
+        random_state=0,
+        verbose=False,
+    )
     sel.fit(X, y)
     assert sel.shap_proxy_report_.get("uncertainty", {}).get("applied") is True
     assert len(sel.selected_features_) >= 1

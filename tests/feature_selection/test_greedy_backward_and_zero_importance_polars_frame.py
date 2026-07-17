@@ -9,6 +9,7 @@ undetected while ``use_greedy_backward_elimination_fs``/``use_zero_importance_pr
 Fixed via a frame-library-agnostic ``_row_select`` helper (``hasattr(X, "iloc")`` dispatch, same pattern
 ``functional_adapters.py`` already used for column slicing).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -34,7 +35,12 @@ def test_greedy_backward_elimination_accepts_polars_frame():
     X, y = _make_polars_regression_frame()
     cv = KFold(n_splits=3, shuffle=True, random_state=0)
     survivors = greedy_backward_elimination(
-        RandomForestRegressor(n_estimators=20, random_state=0), X, y, scoring=r2_score, cv=cv, min_features=1,
+        RandomForestRegressor(n_estimators=20, random_state=0),
+        X,
+        y,
+        scoring=r2_score,
+        cv=cv,
+        min_features=1,
     )
     assert isinstance(survivors, list)
     assert set(survivors).issubset(set(X.columns))
@@ -45,7 +51,11 @@ def test_iterative_zero_importance_pruning_accepts_polars_frame():
     X, y = _make_polars_regression_frame()
     cv = KFold(n_splits=3, shuffle=True, random_state=0)
     survivors = iterative_zero_importance_pruning(
-        RandomForestRegressor(n_estimators=20, random_state=0), X, y, scoring=r2_score, cv=cv,
+        RandomForestRegressor(n_estimators=20, random_state=0),
+        X,
+        y,
+        scoring=r2_score,
+        cv=cv,
     )
     assert isinstance(survivors, list)
     assert set(survivors).issubset(set(X.columns))

@@ -78,6 +78,4 @@ def test_dispatch_module_shares_filters_singleton():
     if via_filters is None:
         pytest.skip("KernelTuningCache unavailable on this host")
     via_dispatch = _disp._get_cache()
-    assert via_filters is via_dispatch, (
-        "dispatch._get_cache must return the same instance as the shared singleton"
-    )
+    assert via_filters is via_dispatch, "dispatch._get_cache must return the same instance as the shared singleton"

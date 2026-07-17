@@ -3,6 +3,7 @@
 The kernel itself is unit-tested in ``test_group_mi_kernel.py``; here we pin the END-TO-END wiring through the joblib
 worker path (thread-local publish/republish) and the constructor / strict-block / no-harm contracts.
 """
+
 from __future__ import annotations
 
 import warnings

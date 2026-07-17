@@ -231,7 +231,7 @@ class TestGateAChirpRecovery:
         Zte2 = np.asarray(sel_off.transform(Xte), dtype=np.float64)
         r2_off = r2_score(yte, Ridge(alpha=1.0).fit(Ztr2, ytr).predict(Zte2))
 
-        assert r2_on >= 0.85, f"GATE A: chirp-ON support must recover the fast chirp at OOS " f"R^2 >= 0.85; got {r2_on:.4f}"
+        assert r2_on >= 0.85, f"GATE A: chirp-ON support must recover the fast chirp at OOS R^2 >= 0.85; got {r2_on:.4f}"
         assert r2_on - r2_off >= 0.3, (
             f"GATE A: chirp-ON ({r2_on:.4f}) must materially beat chirp-OFF "
             f"({r2_off:.4f}); the linear-argument path alone cannot represent a "
@@ -245,9 +245,9 @@ class TestGateAChirpRecovery:
         _X, _y, sel = _fast_chirp_full_fit(seed)
         adaptive = list(getattr(sel, "_adaptive_fourier_features_", []) or [])
         chirp_legs = [a for a in adaptive if ("qsin" in a or "qcos" in a)]
-        assert chirp_legs, f"no chirp (__qsin/__qcos) feature detected on a fast chirp; " f"adaptive set={adaptive}"
+        assert chirp_legs, f"no chirp (__qsin/__qcos) feature detected on a fast chirp; adaptive set={adaptive}"
         eng = set(getattr(sel, "_engineered_features_", []) or [])
-        assert any(c in eng for c in chirp_legs), f"chirp leg(s) {chirp_legs} not protected into the support " f"engineered set {sorted(eng)}"
+        assert any(c in eng for c in chirp_legs), f"chirp leg(s) {chirp_legs} not protected into the support engineered set {sorted(eng)}"
 
 
 # ---------------------------------------------------------------------------
@@ -310,7 +310,7 @@ class TestGateDChirpSelfGating:
         assert not chirp_eng, f"n={n}: chirp fired below the n-gate: {chirp_eng}"
         s_on = sorted(getattr(on, "selected_features_names_", []) or [])
         s_off = sorted(getattr(off, "selected_features_names_", []) or [])
-        assert s_on == s_off, f"GATE D: support differs chirp-on vs off below n-gate: " f"{s_on} vs {s_off}"
+        assert s_on == s_off, f"GATE D: support differs chirp-on vs off below n-gate: {s_on} vs {s_off}"
 
 
 # ---------------------------------------------------------------------------
@@ -333,7 +333,7 @@ class TestChirpReplayByteMatch:
         out1 = sel.transform(X)
         assert isinstance(out1, pd.DataFrame), "expected a named DataFrame output"
         present = [c for c in chirp_legs if c in out1.columns]
-        assert present, f"no chirp feature {chirp_legs} present in transform output " f"columns {list(out1.columns)}"
+        assert present, f"no chirp feature {chirp_legs} present in transform output columns {list(out1.columns)}"
 
         # Replay is a pure function of X: a SHUFFLED y must not change it.
         rng = np.random.default_rng(seed + 2000)

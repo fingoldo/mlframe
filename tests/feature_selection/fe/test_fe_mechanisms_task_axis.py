@@ -40,6 +40,7 @@ Calibrated 2026-06-10 (measured medians, floors 60-85% below per CLAUDE.md):
 | cat-num-resid  | 0.885              | 0.517              |
 | rankgauss      | 0.225              | 0.073              |
 """
+
 from __future__ import annotations
 
 import warnings
@@ -103,12 +104,14 @@ def _fx_cat_effect(seed: int, n: int = N):
     num1 = rng.normal(size=n)
     num2 = rng.normal(size=n)
     logit = eff[cat] + 1.2 * num1 - 0.8 * num2
-    X = pd.DataFrame({
-        "cat_region": cat.astype(np.int64),
-        "num1": num1,
-        "num2": num2,
-        "noise": rng.normal(size=n),
-    })
+    X = pd.DataFrame(
+        {
+            "cat_region": cat.astype(np.int64),
+            "num1": num1,
+            "num2": num2,
+            "noise": rng.normal(size=n),
+        }
+    )
     return X, logit
 
 
@@ -123,11 +126,13 @@ def _fx_cat_num_resid(seed: int, n: int = N):
     resid = num1 - cat_mean[cat]
     num2 = rng.normal(size=n)
     logit = 3.0 * resid + 0.5 * num2
-    X = pd.DataFrame({
-        "cat_region": cat.astype(np.int64),
-        "num1": num1,
-        "num2": num2,
-    })
+    X = pd.DataFrame(
+        {
+            "cat_region": cat.astype(np.int64),
+            "num1": num1,
+            "num2": num2,
+        }
+    )
     return X, logit
 
 
@@ -140,11 +145,13 @@ def _fx_heavytail(seed: int, n: int = N):
     base = rng.standard_t(df=2, size=n)
     z2 = rng.normal(size=n)
     logit = 1.3 * np.tanh(base) + 0.9 * z2
-    X = pd.DataFrame({
-        "x1": base,
-        "z2": z2,
-        "noise": rng.normal(size=n),
-    })
+    X = pd.DataFrame(
+        {
+            "x1": base,
+            "z2": z2,
+            "noise": rng.normal(size=n),
+        }
+    )
     return X, logit
 
 
@@ -152,7 +159,11 @@ def _fx_heavytail(seed: int, n: int = N):
 _MECHS = [
     pytest.param(
         dict(fe_kfold_te_enable=True, fe_kfold_te_cols=("cat_region",)),
-        _fx_cat_effect, "kfold_te_features_", "__te", 0.10, 0.10,
+        _fx_cat_effect,
+        "kfold_te_features_",
+        "__te",
+        0.10,
+        0.10,
         id="kfold-te",
     ),
     pytest.param(
@@ -165,7 +176,11 @@ _MECHS = [
         # grpp90p10(...), grpiqr(...)); match the shared ``grp`` family prefix so the
         # surviving column (e.g. grpratio(num1|cat_region)) satisfies the roster->output
         # contract regardless of which grouped statistic wins the slot.
-        _fx_cat_effect, "grouped_agg_features_", "grp", 0.05, 0.05,
+        _fx_cat_effect,
+        "grouped_agg_features_",
+        "grp",
+        0.05,
+        0.05,
         id="grouped-agg",
     ),
     pytest.param(
@@ -174,12 +189,20 @@ _MECHS = [
             fe_cat_num_interaction_cat_cols=("cat_region",),
             fe_cat_num_interaction_num_cols=("num1",),
         ),
-        _fx_cat_num_resid, "cat_num_interaction_features_", "resid_by", 0.10, 0.10,
+        _fx_cat_num_resid,
+        "cat_num_interaction_features_",
+        "resid_by",
+        0.10,
+        0.10,
         id="cat-num-resid",
     ),
     pytest.param(
         dict(fe_rankgauss_enable=True, fe_rankgauss_cols=("x1",)),
-        _fx_heavytail, "rankgauss_features_", "rankgauss", 0.04, 0.03,
+        _fx_heavytail,
+        "rankgauss_features_",
+        "rankgauss",
+        0.04,
+        0.03,
         id="rankgauss",
     ),
 ]
@@ -209,7 +232,10 @@ def _downstream_lift(Xfe, Xno, y, task: str, seed: int) -> float:
     y_arr = np.asarray(y)
     strat = y_arr if task == "multiclass" else None
     tr, te = train_test_split(
-        np.arange(len(y_arr)), test_size=0.3, random_state=seed, stratify=strat,
+        np.arange(len(y_arr)),
+        test_size=0.3,
+        random_state=seed,
+        stratify=strat,
     )
     if task == "regression":
         est = lambda: make_pipeline(StandardScaler(), Ridge(alpha=1.0))
@@ -223,10 +249,15 @@ def _downstream_lift(Xfe, Xno, y, task: str, seed: int) -> float:
 
 
 @pytest.mark.parametrize("task", _TASKS)
-@pytest.mark.parametrize("mech_kwargs,fx,roster_attr,recipe_sub,reg_floor,mc_floor",
-                         fast_subset(_MECHS, 2))
+@pytest.mark.parametrize("mech_kwargs,fx,roster_attr,recipe_sub,reg_floor,mc_floor", fast_subset(_MECHS, 2))
 def test_fe_mech_fits_transforms_and_lifts(
-    task, mech_kwargs, fx, roster_attr, recipe_sub, reg_floor, mc_floor,
+    task,
+    mech_kwargs,
+    fx,
+    roster_attr,
+    recipe_sub,
+    reg_floor,
+    mc_floor,
 ):
     """Each non-orth target-aware FE mechanism, on a regression AND a multiclass
     target: fit completes, transform replays on a holdout, engineered columns
@@ -261,9 +292,7 @@ def test_fe_mech_fits_transforms_and_lifts(
         Xt_ho = m_fe.transform(X_ho)
         assert Xt_ho.shape[0] == X_ho.shape[0]
         assert Xt_ho.shape[1] == len(names_fe)
-        assert np.isfinite(np.asarray(Xt_ho, dtype=np.float64)).all(), (
-            f"{task} seed={seed}: holdout transform produced non-finite values."
-        )
+        assert np.isfinite(np.asarray(Xt_ho, dtype=np.float64)).all(), f"{task} seed={seed}: holdout transform produced non-finite values."
 
         # (2) did THIS mechanism engineer a surviving column? roster non-empty
         # AND a recipe-named column reached the selected output. The roster is set
@@ -272,10 +301,7 @@ def test_fe_mech_fits_transforms_and_lifts(
         roster = list(getattr(m_fe, roster_attr, []) or [])
         recipe_in_out = any(recipe_sub in nm for nm in names_fe)
         if roster:
-            assert recipe_in_out, (
-                f"{task} seed={seed}: {roster_attr}={roster} populated but no "
-                f"'{recipe_sub}' column in get_feature_names_out ({names_fe})."
-            )
+            assert recipe_in_out, f"{task} seed={seed}: {roster_attr}={roster} populated but no '{recipe_sub}' column in get_feature_names_out ({names_fe})."
             engineered_seeds += 1
             # (3) downstream lift over the no-FE baseline on the SAME split.
             lift = _downstream_lift(m_fe.transform(X), m_no.transform(X), y, task, seed)

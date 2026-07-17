@@ -15,7 +15,6 @@ the marker is True.
 from __future__ import annotations
 
 import sys
-from unittest.mock import MagicMock
 
 import numpy as np
 import pandas as pd
@@ -83,9 +82,7 @@ def test_passthrough_skips_sample_weight_when_marker_unset():
         sample_weight=sample_weight,
     )
 
-    assert "sample_weight" not in captured["kwargs"], (
-        "Unmarked selector must NOT receive sample_weight (keeps FS cache valid across weight schemas)"
-    )
+    assert "sample_weight" not in captured["kwargs"], "Unmarked selector must NOT receive sample_weight (keeps FS cache valid across weight schemas)"
 
 
 @pytest.mark.fast
@@ -132,12 +129,10 @@ def test_pre_pipeline_cache_key_folds_sample_weight_only_when_marker_set():
     plain = _PlainPipeline()
 
     # Weight-aware pipeline: different weights -> different keys.
-    assert _pre_pipeline_cache_key(df, None, marked, target, "y", sample_weight=w1) != \
-        _pre_pipeline_cache_key(df, None, marked, target, "y", sample_weight=w2)
+    assert _pre_pipeline_cache_key(df, None, marked, target, "y", sample_weight=w1) != _pre_pipeline_cache_key(df, None, marked, target, "y", sample_weight=w2)
 
     # Weight-agnostic pipeline: different weights -> SAME key (cache reuse preserved).
-    assert _pre_pipeline_cache_key(df, None, plain, target, "y", sample_weight=w1) == \
-        _pre_pipeline_cache_key(df, None, plain, target, "y", sample_weight=w2)
+    assert _pre_pipeline_cache_key(df, None, plain, target, "y", sample_weight=w1) == _pre_pipeline_cache_key(df, None, plain, target, "y", sample_weight=w2)
 
 
 if __name__ == "__main__":

@@ -10,6 +10,7 @@ Same for ``precomputed.dummy_baselines``.
 
 Post-fix: ``copy.deepcopy`` at the assignment site decouples the caller's bundle.
 """
+
 from __future__ import annotations
 
 
@@ -22,6 +23,7 @@ def _read_main_or_split() -> str:
     carve generation owns it."""
     import pathlib
     import mlframe as _mlframe
+
     _core = pathlib.Path(_mlframe.__file__).resolve().parent / "training" / "core"
     primary = (_core / "main.py").read_text(encoding="utf-8")
     for _sibname in ("_main_train_suite.py", "_main_train_suite_phases.py"):
@@ -44,7 +46,10 @@ def test_precomputed_composite_specs_decoupled_from_metadata_slot():
     precomputed = SimpleNamespace(composite_target_specs=bundle, dummy_baselines={})
     metadata: dict = {}
     fired = maybe_apply_composite_target_specs_precomputed(
-        _precomp_fp_ok=True, precomputed=precomputed, metadata=metadata, verbose=0,
+        _precomp_fp_ok=True,
+        precomputed=precomputed,
+        metadata=metadata,
+        verbose=0,
     )
     assert fired is True
     assert metadata["composite_target_specs"] == bundle
@@ -67,6 +72,7 @@ def test_precomputed_dummy_baselines_decoupled_from_metadata_slot():
 
     class _Cfg:
         enabled = True
+
         def model_copy(self, update):
             new = _Cfg()
             new.enabled = update["enabled"]
@@ -75,8 +81,12 @@ def test_precomputed_dummy_baselines_decoupled_from_metadata_slot():
     ctx = SimpleNamespace()
     metadata: dict = {}
     cfg_out = maybe_apply_dummy_baselines_precomputed(
-        _precomp_fp_ok=True, precomputed=precomputed, metadata=metadata,
-        dummy_baselines_config=_Cfg(), ctx=ctx, verbose=0,
+        _precomp_fp_ok=True,
+        precomputed=precomputed,
+        metadata=metadata,
+        dummy_baselines_config=_Cfg(),
+        ctx=ctx,
+        verbose=0,
     )
     # Per-target compute is short-circuited.
     assert cfg_out.enabled is False
@@ -99,6 +109,7 @@ def test_setup_helpers_slug_maps_dict_copy():
     """
     import pathlib
     import mlframe as _mlframe
+
     _core = pathlib.Path(_mlframe.__file__).resolve().parent / "training" / "core"
     src = (_core / "_setup_helpers.py").read_text(encoding="utf-8")
     sib = _core / "_setup_helpers_metadata.py"
@@ -113,11 +124,7 @@ def test_discovery_cache_payload_consumed_via_defensive_copy():
     load boundary. Prevents future LRU-sidecar regression (wave 11 #5)."""
     import pathlib
     import mlframe as _mlframe
-    src = (
-        pathlib.Path(_mlframe.__file__).resolve().parent
-        / "training" / "core" / "_phase_composite_discovery.py"
-    ).read_text(encoding="utf-8")
-    assert "list(\n                    _cached_payload.get(\"specs_export\") or []" in src or \
-           "list(_cached_payload.get(\"specs_export\") or [])" in src
-    assert "dict(\n                    _cached_payload.get(\"filter_drops\") or {}" in src or \
-           "dict(_cached_payload.get(\"filter_drops\") or {})" in src
+
+    src = (pathlib.Path(_mlframe.__file__).resolve().parent / "training" / "core" / "_phase_composite_discovery.py").read_text(encoding="utf-8")
+    assert 'list(\n                    _cached_payload.get("specs_export") or []' in src or 'list(_cached_payload.get("specs_export") or [])' in src
+    assert 'dict(\n                    _cached_payload.get("filter_drops") or {}' in src or 'dict(_cached_payload.get("filter_drops") or {})' in src

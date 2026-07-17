@@ -6,12 +6,11 @@ handles pathological inputs that don't crash but could produce
 nonsensical output. They lock the current contract so future refactors
 don't silently degrade quality on these patterns.
 """
+
 from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
-from sklearn.datasets import make_classification
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 
@@ -35,16 +34,16 @@ class TestC15_ManyCollinearCopies:
         y = (base > 0).astype(int)
         rfecv = RFECV(
             estimator=LogisticRegression(max_iter=200, random_state=0),
-            cv=3, max_refits=2, verbose=0,
+            cv=3,
+            max_refits=2,
+            verbose=0,
             leakage_corr_threshold=None,
         )
         rfecv.fit(X, y)
         # Post-dedup: only 1 of {dup0..dup99} survives. Plus noise.
         names_in = list(rfecv.feature_names_in_)
         dup_kept = sum(1 for n in names_in if n.startswith("dup"))
-        assert dup_kept == 1, (
-            f"B6 dedup should leave exactly 1 of 100 duplicates; got {dup_kept}"
-        )
+        assert dup_kept == 1, f"B6 dedup should leave exactly 1 of 100 duplicates; got {dup_kept}"
         assert "noise" in names_in
 
 
@@ -70,7 +69,9 @@ class TestC16_BlockDiagonal:
 
         rfecv = RFECV(
             estimator=LogisticRegression(max_iter=400, random_state=0),
-            cv=3, max_refits=6, verbose=0,
+            cv=3,
+            max_refits=6,
+            verbose=0,
             leakage_corr_threshold=None,
         )
         rfecv.fit(X, y)
@@ -78,10 +79,7 @@ class TestC16_BlockDiagonal:
         # Block 0 (informative): at least one b0_* feature selected
         b0_in = sum(1 for n in names if n.startswith("b0_"))
         b1_in = sum(1 for n in names if n.startswith("b1_"))
-        assert b0_in >= 1 and b1_in >= 1, (
-            f"Both informative blocks should have >=1 representative; "
-            f"got b0={b0_in}, b1={b1_in}, names={names}"
-        )
+        assert b0_in >= 1 and b1_in >= 1, f"Both informative blocks should have >=1 representative; got b0={b0_in}, b1={b1_in}, names={names}"
 
 
 # ----------------------------------------------------------------------------
@@ -104,7 +102,9 @@ class TestC17_NestedRedundancy:
 
         rfecv = RFECV(
             estimator=LogisticRegression(max_iter=400, random_state=0),
-            cv=3, max_refits=6, verbose=0,
+            cv=3,
+            max_refits=6,
+            verbose=0,
             leakage_corr_threshold=None,
         )
         rfecv.fit(X, y)
@@ -126,12 +126,14 @@ class TestC17_NestedRedundancy:
 class TestD19_NoSignal:
     def test_uniform_y_selection_is_small(self):
         rng = np.random.default_rng(0)
-        X = pd.DataFrame(rng.standard_normal((300, 20)),
-                         columns=[f"f{i}" for i in range(20)])
+        X = pd.DataFrame(rng.standard_normal((300, 20)), columns=[f"f{i}" for i in range(20)])
         y = rng.integers(0, 2, 300)
         rfecv = RFECV(
             estimator=LogisticRegression(max_iter=200, random_state=0),
-            cv=3, max_refits=4, verbose=0, random_state=0,
+            cv=3,
+            max_refits=4,
+            verbose=0,
+            random_state=0,
             leakage_corr_threshold=None,
         )
         rfecv.fit(X, y)
@@ -139,8 +141,7 @@ class TestD19_NoSignal:
         # n_features_ shouldn't blow up to ~p (which would indicate the
         # selector is fooled into thinking ALL features carry signal).
         assert rfecv.n_features_ <= 20, (
-            f"On no-signal data, selector picked {rfecv.n_features_} of 20 "
-            f"features - upper bound only, but if blown past is suspicious."
+            f"On no-signal data, selector picked {rfecv.n_features_} of 20 features - upper bound only, but if blown past is suspicious."
         )
 
 
@@ -151,15 +152,17 @@ class TestD19_NoSignal:
 class TestD20_ShuffledTruePredictor:
     def test_shuffled_y_no_obvious_overfit(self):
         rng = np.random.default_rng(0)
-        X = pd.DataFrame(rng.standard_normal((300, 10)),
-                         columns=list("abcdefghij"))
+        X = pd.DataFrame(rng.standard_normal((300, 10)), columns=list("abcdefghij"))
         # True signal in 'a', then shuffle y to destroy the link
         y_pre = (X["a"] > 0).astype(int).values
         y = y_pre.copy()
         rng.shuffle(y)
         rfecv = RFECV(
             estimator=LogisticRegression(max_iter=200, random_state=0),
-            cv=3, max_refits=4, verbose=0, random_state=0,
+            cv=3,
+            max_refits=4,
+            verbose=0,
+            random_state=0,
             leakage_corr_threshold=None,
         )
         rfecv.fit(X, y)
@@ -177,34 +180,36 @@ class TestD21_XORLabels:
     def test_tree_estimator_finds_xor_features(self):
         rng = np.random.default_rng(0)
         n = 600
-        X = pd.DataFrame(rng.standard_normal((n, 8)),
-                         columns=[f"f{i}" for i in range(8)])
+        X = pd.DataFrame(rng.standard_normal((n, 8)), columns=[f"f{i}" for i in range(8)])
         # XOR of f0 and f1
         y = ((X["f0"] > 0) ^ (X["f1"] > 0)).astype(int).values
         rfecv = RFECV(
             estimator=RandomForestClassifier(n_estimators=30, random_state=0, n_jobs=1),
-            cv=3, max_refits=6, verbose=0, random_state=0,
+            cv=3,
+            max_refits=6,
+            verbose=0,
+            random_state=0,
             leakage_corr_threshold=None,
         )
         rfecv.fit(X, y)
         names = set(rfecv.get_feature_names_out())
         # RandomForest CAN detect interactions; both f0 and f1 should be
         # in the selection.
-        assert "f0" in names and "f1" in names, (
-            f"RF should find XOR features f0 and f1; got {names}"
-        )
+        assert "f0" in names and "f1" in names, f"RF should find XOR features f0 and f1; got {names}"
 
     def test_linear_estimator_misses_xor(self):
         """LR with linear effects has zero marginal correlation with XOR
         labels. Documenting the limitation."""
         rng = np.random.default_rng(0)
         n = 400
-        X = pd.DataFrame(rng.standard_normal((n, 8)),
-                         columns=[f"f{i}" for i in range(8)])
+        X = pd.DataFrame(rng.standard_normal((n, 8)), columns=[f"f{i}" for i in range(8)])
         y = ((X["f0"] > 0) ^ (X["f1"] > 0)).astype(int).values
         rfecv = RFECV(
             estimator=LogisticRegression(max_iter=200, random_state=0),
-            cv=3, max_refits=4, verbose=0, random_state=0,
+            cv=3,
+            max_refits=4,
+            verbose=0,
+            random_state=0,
             leakage_corr_threshold=None,
         )
         rfecv.fit(X, y)
@@ -219,12 +224,15 @@ class TestD21_XORLabels:
 class TestB14_NullableIntLeakageDetection:
     def test_int8_leak_column_warns(self, caplog):
         import logging
+
         rng = np.random.default_rng(0)
         n = 200
-        X = pd.DataFrame({
-            "real_a": rng.standard_normal(n),
-            "real_b": rng.standard_normal(n),
-        })
+        X = pd.DataFrame(
+            {
+                "real_a": rng.standard_normal(n),
+                "real_b": rng.standard_normal(n),
+            }
+        )
         y = (X["real_a"] > 0).astype(int).values
         # Add a leak column with pandas nullable Int8 dtype - PR-7 used
         # select_dtypes(include="number") which MISSES this dtype; PR-9
@@ -234,20 +242,19 @@ class TestB14_NullableIntLeakageDetection:
         with caplog.at_level(logging.WARNING):
             rfecv = RFECV(
                 estimator=LogisticRegression(max_iter=200, random_state=0),
-                cv=3, max_refits=2, verbose=0,
+                cv=3,
+                max_refits=2,
+                verbose=0,
                 leakage_corr_threshold=0.9,
                 leakage_action="warn",
             )
             try:
                 rfecv.fit(X, y)
-            except Exception:
+            except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
                 # CB/LR may error on Int8; the leakage WARNING should still
                 # have fired BEFORE the fit failure.
                 pass
 
         # The leakage warning must have fired.
         leak_warnings = [r for r in caplog.records if "Pearson" in r.getMessage()]
-        assert leak_warnings, (
-            "B14: leakage check should detect Int8 leak column via "
-            "is_numeric_dtype; was missing select_dtypes-only path."
-        )
+        assert leak_warnings, "B14: leakage check should detect Int8 leak column via is_numeric_dtype; was missing select_dtypes-only path."

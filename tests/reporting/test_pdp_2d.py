@@ -2,13 +2,13 @@ import numpy as np
 import pytest
 
 pytest.importorskip("matplotlib")
-import matplotlib  # noqa: E402
+import matplotlib
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402
+import matplotlib.pyplot as plt
 
-from mlframe.reporting.charts.pdp_2d import compose_pdp_2d_figure, interaction_residual  # noqa: E402
-from mlframe.reporting.charts.pdp_ice import compute_pdp_2d  # noqa: E402
+from mlframe.reporting.charts.pdp_2d import compose_pdp_2d_figure, interaction_residual
+from mlframe.reporting.charts.pdp_ice import compute_pdp_2d
 
 
 class _ProductModel:
@@ -105,9 +105,7 @@ def test_compose_constant_feature_annotates():
 
 def test_custom_axis_names_used():
     X = _grid_data()
-    fig = compose_pdp_2d_figure(
-        _ProductModel(), X, "f0", "f1", feat_x_name="alpha", feat_y_name="beta", grid=8, sample_rows=200
-    )
+    fig = compose_pdp_2d_figure(_ProductModel(), X, "f0", "f1", feat_x_name="alpha", feat_y_name="beta", grid=8, sample_rows=200)
     ax = fig.axes[0]
     assert ax.get_xlabel() == "alpha" and ax.get_ylabel() == "beta"
     plt.close(fig)

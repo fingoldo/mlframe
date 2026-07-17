@@ -16,6 +16,7 @@ Adds four families of tests beyond the existing functional suite:
 4. ``TestParallelDeterminism`` - locks the n_jobs=1 vs n_jobs>1 bit-identity guarantee at the same ``random_state``. This is
    the scenario where the B023 closure-capture bug WOULD manifest if the default-arg fix were reverted.
 """
+
 from __future__ import annotations
 
 import ast
@@ -34,7 +35,7 @@ from mlframe.feature_selection.wrappers import (
     select_features_fdr,
 )
 
-from tests.feature_selection.conftest import IS_FAST_MODE, fast_subset
+from tests.feature_selection.conftest import fast_subset
 
 
 # Common minimal RFECV factory: fast, deterministic, log-quiet.
@@ -74,6 +75,7 @@ class TestEvalFoldClosureCapture:
         defined inside the outer-loop matters for the default-arg B023 contract."""
         import pathlib
         import mlframe.feature_selection.wrappers.rfecv as mod_rfecv
+
         _dir = pathlib.Path(mod_rfecv.__file__).resolve().parent
         for _p in sorted(_dir.glob("*.py")):
             with open(_p, encoding="utf-8") as f:
@@ -177,9 +179,7 @@ class TestRFECVProperties:
             warnings.simplefilter("ignore")
             rfecv.fit(X, y)
         indices = self._support_indices(rfecv)
-        assert rfecv.n_features_ == len(indices), (
-            f"n_features_ ({rfecv.n_features_}) must equal selected-index count ({len(indices)})"
-        )
+        assert rfecv.n_features_ == len(indices), f"n_features_ ({rfecv.n_features_}) must equal selected-index count ({len(indices)})"
 
     @pytest.mark.slow
     @settings(max_examples=10, deadline=None, suppress_health_check=[HealthCheck.too_slow])
@@ -194,9 +194,7 @@ class TestRFECVProperties:
             X_out = rfecv.transform(X)
         out_cols = set(X_out.columns) if isinstance(X_out, pd.DataFrame) else None
         if out_cols is not None:
-            assert out_cols.issubset(set(X.columns)), (
-                f"transform() introduced unknown columns: {out_cols - set(X.columns)}"
-            )
+            assert out_cols.issubset(set(X.columns)), f"transform() introduced unknown columns: {out_cols - set(X.columns)}"
 
     @pytest.mark.slow
     @settings(max_examples=8, deadline=None, suppress_health_check=[HealthCheck.too_slow])
@@ -235,8 +233,16 @@ class TestParallelDeterminism:
             r_seq.fit(X, y)
             r_par = _make_rfecv(random_state=42, n_jobs=n_jobs)
             r_par.fit(X, y)
-        s_seq = set(np.flatnonzero(np.asarray(r_seq.support_, dtype=bool)).tolist()) if np.asarray(r_seq.support_).dtype == bool else set(int(i) for i in r_seq.support_)
-        s_par = set(np.flatnonzero(np.asarray(r_par.support_, dtype=bool)).tolist()) if np.asarray(r_par.support_).dtype == bool else set(int(i) for i in r_par.support_)
+        s_seq = (
+            set(np.flatnonzero(np.asarray(r_seq.support_, dtype=bool)).tolist())
+            if np.asarray(r_seq.support_).dtype == bool
+            else set(int(i) for i in r_seq.support_)
+        )
+        s_par = (
+            set(np.flatnonzero(np.asarray(r_par.support_, dtype=bool)).tolist())
+            if np.asarray(r_par.support_).dtype == bool
+            else set(int(i) for i in r_par.support_)
+        )
         assert s_seq == s_par, f"parallel divergence at n_jobs={n_jobs}: seq={s_seq}, par={s_par}"
 
 
@@ -255,6 +261,7 @@ class TestCoverageGaps:
         ('SFFS swap pass: N/M paired swaps accepted') must appear; the final selection has the same cardinality the swap
         loop preserves (size is invariant under paired in/out)."""
         import logging
+
         X, y = _make_data(n_samples=120, n_features=10, n_informative=3, seed=4)
         rfecv = _make_rfecv(swap_top_k=2, verbose=1)
         with warnings.catch_warnings():
@@ -270,6 +277,7 @@ class TestCoverageGaps:
     def test_plot_file_writes_matplotlib_artifact(self, tmp_path):
         """``select_optimal_nfeatures_(plot_file=...)`` exercises the matplotlib render branch at ``_rfecv.py:1902-1928``."""
         import matplotlib
+
         matplotlib.use("Agg")  # headless backend so plt.show() / pause are no-ops
         X, y = _make_data(n_samples=100, n_features=6, n_informative=2, seed=5)
         rfecv = _make_rfecv()
@@ -335,6 +343,7 @@ class TestKnockoffEdgeCases:
         won't help. Construct collinearity: 5 columns where the last 4 are near-exact copies of the first plus tiny
         noise -> Sigma near-singular by construction."""
         import logging
+
         rng = np.random.default_rng(0)
         n, p = 200, 5
         base = rng.standard_normal((n, 1))
@@ -346,9 +355,7 @@ class TestKnockoffEdgeCases:
 
         assert X_tilde.shape == X.shape, "knockoff matrix must preserve input shape even on near-singular input"
         msgs = [r.message for r in caplog.records if r.levelname == "WARNING"]
-        assert any("near-singular" in m and "lambda_min" in m for m in msgs), (
-            f"expected near-singular warning; got messages: {msgs}"
-        )
+        assert any("near-singular" in m and "lambda_min" in m for m in msgs), f"expected near-singular warning; got messages: {msgs}"
 
 
 class TestSelectFeaturesFdrEdgeCases:

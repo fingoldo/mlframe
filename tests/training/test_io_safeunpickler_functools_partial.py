@@ -1,5 +1,6 @@
 """A model carrying a functools.partial (parametrized metric / neural weights_init_fcn)
 must survive a safe save/load round-trip; a partial wrapping a dangerous func stays blocked."""
+
 from __future__ import annotations
 
 import functools

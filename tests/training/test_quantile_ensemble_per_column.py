@@ -22,7 +22,7 @@ class _MultiQuantileMember:
         self.preds = preds.astype(np.float64)
         self.quantiles = tuple(float(q) for q in quantiles)
 
-    def predict_quantile(self, X, alpha):  # noqa: D401, ARG002 -- X unused, test double
+    def predict_quantile(self, X, alpha):
         alpha = float(alpha)
         if alpha not in self.quantiles:
             raise KeyError(f"alpha {alpha} not in member quantiles {self.quantiles}")

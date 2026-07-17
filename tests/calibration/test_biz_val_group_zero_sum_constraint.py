@@ -7,6 +7,7 @@ zero-sum constraint, re-centering each group's predictions to satisfy the KNOWN 
 entirely -- this test confirms it materially reduces RMSE versus the raw (uncorrected) predictions, and that
 the corrected predictions satisfy the constraint exactly.
 """
+
 from __future__ import annotations
 
 import numpy as np

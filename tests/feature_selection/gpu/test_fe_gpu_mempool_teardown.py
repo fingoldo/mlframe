@@ -13,6 +13,7 @@ high-water mark on the FIRST fit, so a growth-rate or wall-ratio assertion does 
 ``free_all_blocks`` spy cannot tell this teardown apart from the batch executor's own cleanup. So this targets
 the dedicated helper directly: it issues a pool free under the GPU flags, frees real retained blocks, and is
 inert (no pool touch) when neither GPU flag is set. Removing the teardown call or mis-gating it fails this."""
+
 from __future__ import annotations
 
 import pytest
@@ -43,6 +44,7 @@ def test_helper_issues_free_under_cmi_gpu(monkeypatch):
 def _need_cuda() -> bool:
     try:
         from pyutilz.core.pythonlib import is_cuda_available
+
         return is_cuda_available()
     except Exception:
         return False

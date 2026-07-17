@@ -5,6 +5,7 @@ every document is empty (all-NaN / all-"" column, common on a tiny inner-CV
 fold). The encoder must degrade gracefully to a faithful, fixed-width matrix so
 the downstream concat layer keeps a stable schema instead of aborting the fit.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -15,11 +16,13 @@ from mlframe.training.feature_handling.text_encoder import TextColumnEncoder
 
 
 def _frame(values):
+    """Build a single-column polars frame named 't' from the given text values, skipping if polars is absent."""
     pl = pytest.importorskip("polars")
     return pl.DataFrame({"t": values})
 
 
 def test_tfidf_all_empty_column_does_not_crash():
+    """An all-empty/None text column degrades to a 0-width fitted vocab instead of raising, and stays stable on transform."""
     df = _frame(["", "", None, ""])
     enc = TextColumnEncoder("t", TfidfParams(max_features=10))
     out = enc.fit_transform(df)  # pre-fix: ValueError empty vocabulary
@@ -34,6 +37,7 @@ def test_tfidf_all_empty_column_does_not_crash():
 
 
 def test_tfidf_all_empty_then_transform_idempotent():
+    """Re-transforming the same all-None frame through a fitted 0-width TF-IDF encoder yields the identical output."""
     df = _frame([None, None])
     enc = TextColumnEncoder("t", TfidfParams(max_features=5))
     out = enc.fit_transform(df)
@@ -41,6 +45,7 @@ def test_tfidf_all_empty_then_transform_idempotent():
 
 
 def test_hashing_all_empty_keeps_fixed_width():
+    """Hashing encoder keeps its fixed n_features width on an all-empty column, unlike TF-IDF's 0-width degrade."""
     # Hashing never builds a vocab; width must stay == n_features regardless.
     df = _frame(["", None, ""])
     enc = TextColumnEncoder("t", HashingParams(n_features=16))

@@ -7,6 +7,7 @@ a severe SNR loss. This test reproduces that exact shape and shows ``context_col
 row's companion feature values alongside the melted value) recovers most of the lost signal, measured as
 R^2 of the aggregated long_gbm_mean meta-feature against the held-out-style target.
 """
+
 from __future__ import annotations
 
 import numpy as np

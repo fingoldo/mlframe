@@ -60,10 +60,16 @@ def test_simple_mode_keeps_linear_raw_full_mode_drops_subsumed():
     eng_cont = {"sub(s0,sin(s1))": child_lin}
 
     common = dict(
-        data=data, cols=cols, selected_cols_idx=[0, 1, 2], raw_name_set=raw_set,
-        y_binned=_bin10(y_lin), y_continuous=y_lin, engineered_continuous=eng_cont,
+        data=data,
+        cols=cols,
+        selected_cols_idx=[0, 1, 2],
+        raw_name_set=raw_set,
+        y_binned=_bin10(y_lin),
+        y_continuous=y_lin,
+        engineered_continuous=eng_cont,
         replayable_eng_names={"sub(s0,sin(s1))"},
-        raw_X=None, seed=1,
+        raw_X=None,
+        seed=1,
     )
     _, dropped_full = drop_redundant_raw_operands(linear_usability_keep=False, **common)
     _, dropped_simple = drop_redundant_raw_operands(linear_usability_keep=True, **common)

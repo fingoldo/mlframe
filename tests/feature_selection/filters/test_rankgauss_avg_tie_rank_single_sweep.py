@@ -6,6 +6,7 @@ collapses to a single sweep + a cheap tie probe, falling back to the exact two-s
 The output is bit-identical on both continuous and tied inputs; this test pins (a) the single-sweep fast path on
 continuous data, (b) the two-sweep exact path on tied data, and (c) bit-identity against the reference on both.
 """
+
 from __future__ import annotations
 
 import numpy as np

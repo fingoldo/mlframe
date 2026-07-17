@@ -19,10 +19,11 @@ Covered transforms span the structurally-distinct inverse families:
 * ``linear_residual_grouped`` -- per-group coefficient table (a dict-valued
   fitted param, the easiest one to lose to a careless ``__getstate__``).
 """
+
 from __future__ import annotations
 
 import copy
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
 import numpy as np
 import pandas as pd
@@ -129,11 +130,12 @@ def test_predict_bit_identical_after_pickle(transform: str) -> None:
     pred_before = est.predict(X)
 
     blob = pickle.dumps(est)
-    est2 = pickle.loads(blob)
+    est2 = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
     pred_after = est2.predict(X)
 
     np.testing.assert_array_equal(
-        pred_before, pred_after,
+        pred_before,
+        pred_after,
         err_msg=f"predict not bit-identical after pickle for {transform}",
     )
     # Also confirm a second predict on the restored estimator is itself stable
@@ -150,15 +152,10 @@ def test_fitted_params_survive_pickle(transform: str) -> None:
     est, _ = _fit(transform)
     before = copy.deepcopy(est.fitted_params_)
 
-    est2 = pickle.loads(pickle.dumps(est))
+    est2 = pickle.loads(pickle.dumps(est))  # nosec B301 -- round-trip of a locally-created, trusted object
 
-    assert hasattr(est2, "fitted_params_"), (
-        f"fitted_params_ missing after unpickle for {transform}"
-    )
-    assert _params_equal(before, est2.fitted_params_), (
-        f"fitted_params_ changed across pickle for {transform}: "
-        f"{before} != {est2.fitted_params_}"
-    )
+    assert hasattr(est2, "fitted_params_"), f"fitted_params_ missing after unpickle for {transform}"
+    assert _params_equal(before, est2.fitted_params_), f"fitted_params_ changed across pickle for {transform}: {before} != {est2.fitted_params_}"
 
 
 def test_grouped_coefficient_table_preserved() -> None:
@@ -169,11 +166,9 @@ def test_grouped_coefficient_table_preserved() -> None:
     est, X = _fit("linear_residual_grouped")
     fp = est.fitted_params_
     # The grouped fit must carry a non-scalar (table-shaped) param.
-    has_table = any(
-        isinstance(v, (dict, list, tuple, np.ndarray)) for v in fp.values()
-    )
+    has_table = any(isinstance(v, (dict, list, tuple, np.ndarray)) for v in fp.values())
     assert has_table, f"grouped fitted_params_ has no table-shaped entry: {fp}"
 
-    est2 = pickle.loads(pickle.dumps(est))
+    est2 = pickle.loads(pickle.dumps(est))  # nosec B301 -- round-trip of a locally-created, trusted object
     assert _params_equal(fp, est2.fitted_params_)
     np.testing.assert_array_equal(est.predict(X), est2.predict(X))

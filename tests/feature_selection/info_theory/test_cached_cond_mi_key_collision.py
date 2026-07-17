@@ -18,6 +18,7 @@ MI cache layer.
 
 Fix: use a separator (``|``) that ``arr2str`` cannot emit.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -26,12 +27,14 @@ import numpy as np
 def _legacy_key(X, Z):
     """Reproduces the pre-fix key construction."""
     from mlframe.feature_selection.filters._numba_utils import arr2str
+
     return arr2str(X) + "_" + arr2str(Z)
 
 
 def _post_fix_key(X, Z):
     """The iter-14 fix replaces ``_`` with ``|``."""
     from mlframe.feature_selection.filters._numba_utils import arr2str
+
     return arr2str(X) + "|" + arr2str(Z)
 
 
@@ -57,10 +60,7 @@ def test_post_fix_keys_are_distinct():
         (np.array([1, 2, 3]), np.array([4])),
     ]
     keys = [_post_fix_key(X, Z) for X, Z in pairs]
-    assert len(set(keys)) == 3, (
-        f"post-fix keys still collide: {keys}. Separator '|' must be "
-        f"absent from arr2str output."
-    )
+    assert len(set(keys)) == 3, f"post-fix keys still collide: {keys}. Separator '|' must be absent from arr2str output."
 
 
 def test_post_fix_key_for_empty_z():
@@ -79,15 +79,17 @@ def test_e2e_no_wrong_answer_cache_hit():
     without inspecting source.
     """
     from mlframe.feature_selection.filters._numba_utils import arr2str
+
     # Simulate evaluation.py's cache pattern with the post-fix separator.
     cache = {}
-    X1 = np.array([1, 2]); Z1 = np.array([3, 4])
-    X2 = np.array([1]); Z2 = np.array([2, 3, 4])
+    X1 = np.array([1, 2])
+    Z1 = np.array([3, 4])
+    X2 = np.array([1])
+    Z2 = np.array([2, 3, 4])
     cache[arr2str(X1) + "|" + arr2str(Z1)] = 0.5
     key2 = arr2str(X2) + "|" + arr2str(Z2)
     # Pre-fix bug: this lookup would HIT (wrong-answer reuse).
     # Post-fix: it must MISS so a fresh CMI computation runs.
     assert key2 not in cache, (
-        f"X=[1] Z=[2,3,4] must NOT hit a cache populated by X=[1,2] Z=[3,4]; "
-        f"these are different conditional MI queries with different values."
+        f"X=[1] Z=[2,3,4] must NOT hit a cache populated by X=[1,2] Z=[3,4]; these are different conditional MI queries with different values."
     )

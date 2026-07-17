@@ -6,6 +6,7 @@ even when the SAME raw-column candidate pool + seed recurred across a fit's 2-3 
 identical output, since the underlying data for those columns never changes). ``maxt_floor_cache`` is
 an optional dict the caller threads across rounds; a cache hit skips the recomputation entirely.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -63,7 +64,7 @@ def test_cache_miss_on_different_pool_recomputes_and_adds_entry():
     compute_fdr_gain_floor(fd, fn, x, y, maxt_floor_cache=cache, **_common_kwargs())
     assert len(cache) == 1
 
-    x_wider = x + [len(x)]  # a different (wider) pool -- must NOT hit the same cache entry
+    x_wider = [*x, len(x)]  # a different (wider) pool -- must NOT hit the same cache entry
     fd2, fn2, _, _ = _make_wide_pool(seed=3, p=len(x_wider))
     compute_fdr_gain_floor(fd2, fn2, x_wider, y, maxt_floor_cache=cache, **_common_kwargs())
     assert len(cache) == 2, "a genuinely different candidate pool must produce a distinct cache entry"
@@ -84,6 +85,7 @@ def test_cache_avoids_recomputation_call_count():
     call_count = {"n": 0}
 
     import mlframe.feature_selection.filters._permutation_null as permnull_mod
+
     original = permnull_mod.pooled_permutation_null_gain_floor
 
     def _counting(*args, **kwargs):

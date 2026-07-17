@@ -15,6 +15,7 @@ This sensor pins:
      ``fallback_class`` (default 0) AND emits a logged warning, so the
      misclassification is visible instead of silent.
 """
+
 from __future__ import annotations
 
 import logging
@@ -41,10 +42,7 @@ def _read_predict_core_combined_source() -> str:
     2026-05-22 monolith split; the wave-91 fix sites + the underlying
     ``argmax_classes_safe`` imports moved with them. Sensor must read the
     parent + every sibling so the test survives the split."""
-    core_dir = (
-        Path(__file__).resolve().parent.parent.parent
-        / "src" / "mlframe" / "training" / "core"
-    )
+    core_dir = Path(__file__).resolve().parent.parent.parent / "src" / "mlframe" / "training" / "core"
     parts = []
     for nm in _PREDICT_SIBLINGS:
         p = core_dir / nm
@@ -58,12 +56,10 @@ def test_no_bare_argmax_on_combined_or_avg_probs() -> None:
     # The 4 audit-flagged sites (per-target + suite-wide in both predict
     # entries) must NOT use np.argmax(_combined, ...) or np.argmax(avg_probs, ...).
     assert "np.argmax(_combined" not in src, (
-        "bare np.argmax(_combined) found in predict core sources -- one of "
-        "the 4 wave-91 audit sites regressed; use argmax_classes_safe instead."
+        "bare np.argmax(_combined) found in predict core sources -- one of the 4 wave-91 audit sites regressed; use argmax_classes_safe instead."
     )
     assert "np.argmax(avg_probs" not in src, (
-        "bare np.argmax(avg_probs) found in predict core sources -- one of "
-        "the 4 wave-91 audit sites regressed; use argmax_classes_safe instead."
+        "bare np.argmax(avg_probs) found in predict core sources -- one of the 4 wave-91 audit sites regressed; use argmax_classes_safe instead."
     )
 
 
@@ -76,15 +72,9 @@ def test_argmax_classes_safe_imports_present() -> None:
     # ``from ....utils.nan_safe`` variants the post-split siblings may use
     # depending on their own depth. Counting the symbol-name occurrences in
     # ``from`` statements is robust to either form.
-    n_imports = sum(
-        1 for ln in src.splitlines()
-        if ln.lstrip().startswith("from") and "nan_safe" in ln and "argmax_classes_safe" in ln
-    )
+    n_imports = sum(1 for ln in src.splitlines() if ln.lstrip().startswith("from") and "nan_safe" in ln and "argmax_classes_safe" in ln)
     # Wave-21 added 2 per-model sites; wave-91 adds 4 ensemble sites = 6 total.
-    assert n_imports >= 6, (
-        f"expected >= 6 argmax_classes_safe imports (2 per-model + 4 "
-        f"ensemble); found {n_imports}"
-    )
+    assert n_imports >= 6, f"expected >= 6 argmax_classes_safe imports (2 per-model + 4 ensemble); found {n_imports}"
 
 
 def test_argmax_classes_safe_all_nan_row_falls_back_to_zero(caplog) -> None:
@@ -93,11 +83,13 @@ def test_argmax_classes_safe_all_nan_row_falls_back_to_zero(caplog) -> None:
     warning -- that's the contract the wave-91 swap relies on."""
     from mlframe.utils.nan_safe import argmax_classes_safe
 
-    probs = np.array([
-        [0.1, 0.7, 0.2],
-        [np.nan, np.nan, np.nan],
-        [0.6, 0.3, 0.1],
-    ])
+    probs = np.array(
+        [
+            [0.1, 0.7, 0.2],
+            [np.nan, np.nan, np.nan],
+            [0.6, 0.3, 0.1],
+        ]
+    )
     with caplog.at_level(logging.WARNING, logger="mlframe.utils.nan_safe"):
         preds = argmax_classes_safe(probs, context="wave91_sensor")
     assert preds.shape == (3,)
@@ -105,6 +97,4 @@ def test_argmax_classes_safe_all_nan_row_falls_back_to_zero(caplog) -> None:
     assert int(preds[1]) == 0  # all-NaN -> fallback_class=0
     assert int(preds[2]) == 0  # argmax of [0.6, 0.3, 0.1]
     # The NaN row must be visible in the log so silent misclassification is impossible.
-    assert any("wave91_sensor" in rec.message for rec in caplog.records), (
-        "argmax_classes_safe must log a warning when falling back on NaN rows"
-    )
+    assert any("wave91_sensor" in rec.message for rec in caplog.records), "argmax_classes_safe must log a warning when falling back on NaN rows"

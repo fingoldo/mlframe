@@ -15,6 +15,7 @@ skipped), (3) a `_par` kernel skipped at warmup still works correctly via ordina
 on first real call (the flag only changes WHEN compilation happens, never WHETHER), (4) default
 behavior (env var unset) is unchanged from before this fix.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -38,6 +39,7 @@ def _run_warmup_and_track_par_calls(monkeypatch, skip: bool):
         def _spy(*args, **kwargs):
             called.add(name)
             return retval
+
         return _spy
 
     monkeypatch.setattr(core, "_fast_mae_par", _make_spy("_fast_mae_par", 0.0))
@@ -53,6 +55,7 @@ def _run_warmup_and_track_par_calls(monkeypatch, skip: bool):
         def _spy(*args, **kwargs):
             seq_called.add(name)
             return real_fn(*args, **kwargs)
+
         return _spy
 
     _orig_mae_seq = core._fast_mae_seq
@@ -99,6 +102,7 @@ def test_wellbore_threshold_gate_matches_mlframe_constant():
     rather than a hardcoded duplicate -- pin that the constant is importable and sane, so a future
     mlframe change to the threshold can't silently desync wellbore_train.py's assumption."""
     from mlframe.metrics._numba_params import _PARALLEL_REDUCTION_THRESHOLD
+
     assert isinstance(_PARALLEL_REDUCTION_THRESHOLD, int)
     assert _PARALLEL_REDUCTION_THRESHOLD > 0
 

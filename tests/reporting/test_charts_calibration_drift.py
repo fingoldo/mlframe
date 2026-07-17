@@ -7,6 +7,7 @@ Covers:
   (trend strongly positive); a STABLE synthetic -> flat ECE (trend near zero).
 - cProfile: 1M-row windowed binning stays O(n) and bounded (well under a 1s budget).
 """
+
 from __future__ import annotations
 
 import cProfile
@@ -134,8 +135,11 @@ def test_numeric_timestamps_not_x_is_time():
 
 def test_empty_input_safe():
     res = calibration_drift(
-        np.array([], dtype=np.int8), np.array([], dtype=np.float64), np.array([], dtype=np.int64),
-        n_windows=5, n_bins=10,
+        np.array([], dtype=np.int8),
+        np.array([], dtype=np.float64),
+        np.array([], dtype=np.int64),
+        n_windows=5,
+        n_bins=10,
     )
     assert res.n_windows == 0
     assert res.window_ece.size == 0
@@ -211,8 +215,8 @@ def test_biz_val_calibration_drift_degrading_synthetic_ece_rises_after_cut():
     cut = n // 2
     score = rng.uniform(size=n)
     yt = np.empty(n, dtype=np.int8)
-    yt[:cut] = (rng.uniform(size=cut) < score[:cut]).astype(np.int8)       # calibrated
-    yt[cut:] = (rng.uniform(size=n - cut) < 0.85).astype(np.int8)          # label decoupled from score
+    yt[:cut] = (rng.uniform(size=cut) < score[:cut]).astype(np.int8)  # calibrated
+    yt[cut:] = (rng.uniform(size=n - cut) < 0.85).astype(np.int8)  # label decoupled from score
     ts = np.arange(n)
     res = calibration_drift(yt, score, ts, n_windows=10, n_bins=10)
 

@@ -6,6 +6,7 @@ selection="inner_cv" -- a flexible calibrator can drive its self-eval score towa
 memorising the data it saw, without generalising at all. Fixed by porting the same inner-CV held-out
 evaluation approach: each candidate is fit on a fold's complement and scored on the held-out fold.
 """
+
 from __future__ import annotations
 
 from unittest.mock import patch
@@ -50,13 +51,25 @@ def test_compare_postcalibrators_inner_cv_is_not_optimistic_like_self_eval():
 
     with patch("mlframe.calibration.post.get_postcalibrators", return_value=fake_calibrators):
         metrics_self, _, failed_self = compare_postcalibrators(
-            model_name="m", columns=["y"], calib_probs=probs, calib_target=target,
-            oos_probs=None, oos_target=None, calib_type="calib", include_patterns=["test"],
+            model_name="m",
+            columns=["y"],
+            calib_probs=probs,
+            calib_target=target,
+            oos_probs=None,
+            oos_target=None,
+            calib_type="calib",
+            include_patterns=["test"],
             selection="self_eval",
         )
         metrics_cv, _, failed_cv = compare_postcalibrators(
-            model_name="m", columns=["y"], calib_probs=probs, calib_target=target,
-            oos_probs=None, oos_target=None, calib_type="calib", include_patterns=["test"],
+            model_name="m",
+            columns=["y"],
+            calib_probs=probs,
+            calib_target=target,
+            oos_probs=None,
+            oos_target=None,
+            calib_type="calib",
+            include_patterns=["test"],
             selection="inner_cv",
         )
 

@@ -7,6 +7,7 @@ relevant observation -- both produce the same max. Recency-weighting each value 
 before taking max makes only recent spikes survive, so a label driven purely by RECENT spikes should be far
 more separable via recency-weighted max than via a plain per-entity max.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -41,7 +42,9 @@ def test_biz_val_recency_weighted_max_separates_recent_from_old_spikes_better_th
     auc_weighted = roc_auc_score(label, weighted_max)
 
     assert auc_weighted >= 0.95, f"expected recency-weighted max to cleanly separate recent-spike entities, got auc={auc_weighted:.4f}"
-    assert auc_weighted > auc_plain + 0.3, f"expected recency-weighted max to beat plain max by a wide margin, got weighted={auc_weighted:.4f} plain={auc_plain:.4f}"
+    assert auc_weighted > auc_plain + 0.3, (
+        f"expected recency-weighted max to beat plain max by a wide margin, got weighted={auc_weighted:.4f} plain={auc_plain:.4f}"
+    )
 
 
 def test_per_group_recency_weighted_agg_mean_matches_dedicated_mean_function():

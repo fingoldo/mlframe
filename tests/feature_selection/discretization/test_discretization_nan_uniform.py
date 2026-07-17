@@ -13,6 +13,7 @@ Covers four bugs in the uniform binning kernels:
 The bit-identity test pins the all-finite uniform codes against a captured reference so the NaN
 routing cannot regress the common case.
 """
+
 from __future__ import annotations
 
 import warnings

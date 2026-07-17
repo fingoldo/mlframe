@@ -5,6 +5,7 @@ version compatibility; the CPU-friendly tests verify the gating logic
 + fallback semantics. The real benchmark lives in
 `D:/Temp/bench_mlp_fit_speedup.py` for ad-hoc validation.
 """
+
 from __future__ import annotations
 
 import sys
@@ -20,17 +21,25 @@ from sklearn.model_selection import train_test_split
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from mlframe.training.neural import (
-    MLPTorchModel, PytorchLightningRegressor, TorchDataModule,
+    MLPTorchModel,
+    PytorchLightningRegressor,
+    TorchDataModule,
 )
 from mlframe.training.neural.flat import generate_mlp
 
 
 def _make_module() -> MLPTorchModel:
     network = generate_mlp(
-        num_features=4, num_classes=1, nlayers=1,
-        first_layer_num_neurons=8, dropout_prob=0.0,
-        inputs_dropout_prob=0.0, use_layernorm=False, use_batchnorm=False,
-        activation_function=nn.ReLU, verbose=0,
+        num_features=4,
+        num_classes=1,
+        nlayers=1,
+        first_layer_num_neurons=8,
+        dropout_prob=0.0,
+        inputs_dropout_prob=0.0,
+        use_layernorm=False,
+        use_batchnorm=False,
+        activation_function=nn.ReLU,
+        verbose=0,
     )
     return MLPTorchModel(loss_fn=nn.MSELoss(), metrics=[], network=network)
 
@@ -106,9 +115,7 @@ def test_predict_step_routes_through_compile_then_cuda_graph_then_eager(monkeypa
     assert "graph" in calls, "predict_step must consult cuda-graph path"
     assert "eager" in calls, "predict_step must fall through to eager forward"
     # Order: compile precedes graph precedes eager.
-    assert calls.index("compile") < calls.index("graph") < calls.index("eager"), (
-        f"predict_step path order must be compile -> graph -> eager; got {calls}"
-    )
+    assert calls.index("compile") < calls.index("graph") < calls.index("eager"), f"predict_step path order must be compile -> graph -> eager; got {calls}"
 
 
 def test_recurrent_network_skips_compile_path(monkeypatch):
@@ -129,7 +136,8 @@ def test_recurrent_network_skips_compile_path(monkeypatch):
 @pytest.fixture
 def reg_data():
     X, y = make_regression(n_samples=64, n_features=4, random_state=0)
-    X = X.astype(np.float32); y = y.astype(np.float32)
+    X = X.astype(np.float32)
+    y = y.astype(np.float32)
     X_tr, X_te, y_tr, _ = train_test_split(X, y, test_size=0.3, random_state=0)
     return X_tr, X_te, y_tr
 
@@ -144,20 +152,28 @@ def test_predict_end_to_end_default_path_intact(reg_data, monkeypatch):
         model_class=MLPTorchModel,
         model_params={"loss_fn": nn.MSELoss(), "learning_rate": 1e-2},
         network_params={
-            "nlayers": 1, "first_layer_num_neurons": 8,
-            "dropout_prob": 0.0, "inputs_dropout_prob": 0.0,
-            "use_layernorm": False, "use_batchnorm": False,
+            "nlayers": 1,
+            "first_layer_num_neurons": 8,
+            "dropout_prob": 0.0,
+            "inputs_dropout_prob": 0.0,
+            "use_layernorm": False,
+            "use_batchnorm": False,
             "activation_function": nn.ReLU,
         },
         datamodule_class=TorchDataModule,
         datamodule_params={
-            "features_dtype": torch.float32, "labels_dtype": torch.float32,
+            "features_dtype": torch.float32,
+            "labels_dtype": torch.float32,
             "dataloader_params": {"batch_size": 16, "num_workers": 0},
         },
         trainer_params={
-            "max_epochs": 1, "enable_model_summary": False,
-            "enable_progress_bar": False, "log_every_n_steps": 1,
-            "devices": 1, "accelerator": "cpu", "logger": False,
+            "max_epochs": 1,
+            "enable_model_summary": False,
+            "enable_progress_bar": False,
+            "log_every_n_steps": 1,
+            "devices": 1,
+            "accelerator": "cpu",
+            "logger": False,
         },
         random_state=0,
     )

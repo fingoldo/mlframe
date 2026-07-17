@@ -37,13 +37,14 @@ jobs:
           FUZZ_SEED: ${{ github.run_number }}
 ```
 """
+
 from __future__ import annotations
 
 import argparse
 import datetime as dt
 import orjson
 import os
-import subprocess
+import subprocess  # nosec B404 -- test-only local trusted subprocess invocation (fixed argv, no shell, no untrusted input)
 import sys
 from pathlib import Path
 
@@ -60,22 +61,17 @@ def _run_one_seed(seed: int, extra_pytest_args: list[str]) -> tuple[int, int, in
     env["FUZZ_SEED"] = str(seed)
     # Use pytest's JUnit XML for structured results; pure stdout is fragile.
     junit_path = _HERE / f"_junit_seed_{seed}.xml"
-    cmd = [
-        sys.executable, "-m", "pytest",
-        str(_HERE / "test_fuzz_suite.py"),
-        "--no-cov", "-p", "no:randomly",
-        f"--junitxml={junit_path}",
-        "--tb=line",
-    ] + extra_pytest_args
+    cmd = [sys.executable, "-m", "pytest", str(_HERE / "test_fuzz_suite.py"), "--no-cov", "-p", "no:randomly", f"--junitxml={junit_path}", "--tb=line", *extra_pytest_args]
     print(f"\n=== Running seed {seed} ===")
     print("  " + " ".join(cmd))
-    r = subprocess.run(cmd, env=env, cwd=str(_REPO))
+    subprocess.run(cmd, env=env, cwd=str(_REPO))  # nosec B603 -- fixed local argv (sys.executable/git + literal args), no shell, no untrusted input
     passed = failed = xfailed = 0
     if junit_path.exists():
         # Minimal parse — count testcase elements with/without failure child.
-        import xml.etree.ElementTree as ET
+        import xml.etree.ElementTree as ET  # nosec B405 -- parses this run's own locally-generated pytest JUnit report, never untrusted/network XML
+
         try:
-            tree = ET.parse(junit_path)
+            tree = ET.parse(junit_path)  # nosec B314 -- parses this run's own locally-generated pytest JUnit report, never untrusted/network XML
             for tc in tree.iter("testcase"):
                 if tc.find("failure") is not None or tc.find("error") is not None:
                     failed += 1

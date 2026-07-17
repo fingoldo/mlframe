@@ -9,23 +9,15 @@ Tests include:
 """
 
 import pytest
-import numpy as np
-import pandas as pd
 import warnings
 
-from hypothesis import given, settings, strategies as st, assume, HealthCheck
-from hypothesis.extra.numpy import arrays
 
-from sklearn.datasets import make_classification, make_regression
 
 # Import the module under test
 from mlframe.feature_selection.filters import (
     MRMR,
-    entropy,
-    categorize_dataset,
-    discretize_array,
-    compute_mi_from_classes,
 )
+
 
 class TestMRMRIntegration:
     """Integration tests for MRMR with downstream tasks."""
@@ -37,15 +29,12 @@ class TestMRMRIntegration:
 
         X, y, _ = simple_classification_data
 
-        pipeline = Pipeline([
-            ('feature_selection', MRMR(
-                full_npermutations=3,
-                baseline_npermutations=3,
-                verbose=0,
-                n_jobs=1
-            )),
-            ('classifier', RandomForestClassifier(n_estimators=10, random_state=42))
-        ])
+        pipeline = Pipeline(
+            [
+                ("feature_selection", MRMR(full_npermutations=3, baseline_npermutations=3, verbose=0, n_jobs=1)),
+                ("classifier", RandomForestClassifier(n_estimators=10, random_state=42)),
+            ]
+        )
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -61,12 +50,7 @@ class TestMRMRIntegration:
 
         X, y, _ = simple_classification_data
 
-        mrmr = MRMR(
-            full_npermutations=5,
-            baseline_npermutations=5,
-            verbose=0,
-            n_jobs=1
-        )
+        mrmr = MRMR(full_npermutations=5, baseline_npermutations=5, verbose=0, n_jobs=1)
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -76,7 +60,7 @@ class TestMRMRIntegration:
 
         # Train model on selected features
         clf = RandomForestClassifier(n_estimators=20, random_state=42)
-        scores = cross_val_score(clf, X_selected, y, cv=3, scoring='accuracy')
+        scores = cross_val_score(clf, X_selected, y, cv=3, scoring="accuracy")
 
         # Should achieve reasonable accuracy
         assert scores.mean() > 0.5, f"Mean accuracy too low: {scores.mean()}"
@@ -95,5 +79,5 @@ class TestMRMRIntegration:
 # reason. WARN on patience-triggered exit.
 
 
-if __name__ == '__main__':
-    pytest.main([__file__, '-v', '--tb=short', '-x'])
+if __name__ == "__main__":
+    pytest.main([__file__, "-v", "--tb=short", "-x"])

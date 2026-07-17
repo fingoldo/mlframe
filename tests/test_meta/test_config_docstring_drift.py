@@ -70,8 +70,7 @@ def _parse_docstring_params(docstring: str | None) -> list[str]:
             in_params = False
             continue
         # Recognised section headers that end Parameters.
-        if stripped in {"Returns", "Raises", "Examples", "Notes",
-                        "See Also", "Attributes", "Yields", "Warnings"}:
+        if stripped in {"Returns", "Raises", "Examples", "Notes", "See Also", "Attributes", "Yields", "Warnings"}:
             in_params = False
             continue
         m = _PARAM_LINE_RE.match(line)
@@ -125,8 +124,7 @@ def test_every_docstring_parameter_is_a_real_field():
             f"{len(stale)} docstring parameter(s) reference fields that "
             f"don't exist on the class — stale documentation after a "
             f"rename / removal. Fix the docstring or add to "
-            f"_DOCSTRING_PSEUDO_PARAMS with reasoning:\n  "
-            + "\n  ".join(stale)
+            f"_DOCSTRING_PSEUDO_PARAMS with reasoning:\n  " + "\n  ".join(stale)
         )
 
 
@@ -144,11 +142,7 @@ def test_documented_field_count_consistency():
         actual = set(cls.model_fields.keys())
         documented_pct = len(set(params) & actual) / max(len(actual), 1)
         if documented_pct < 0.5 and len(actual) >= 4:
-            incomplete.append(
-                f"{cls.__name__}: {len(set(params) & actual)}/{len(actual)} "
-                f"fields documented ({documented_pct:.0%})"
-            )
+            incomplete.append(f"{cls.__name__}: {len(set(params) & actual)}/{len(actual)} fields documented ({documented_pct:.0%})")
     assert not incomplete, (
-        f"{len(incomplete)} config(s) have a Parameters section but document <50% of their "
-        f"fields -- complete the docstring:\n  " + "\n  ".join(incomplete)
+        f"{len(incomplete)} config(s) have a Parameters section but document <50% of their fields -- complete the docstring:\n  " + "\n  ".join(incomplete)
     )

@@ -29,14 +29,14 @@ Contracts pinned (real numbers, Bayes-feasible fixtures, never xfail):
 
 Consolidated verbatim from test_biz_value_mrmr_layer89.py (per audit finding test_code_quality-16).
 """
+
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 import warnings
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
@@ -61,12 +61,14 @@ def _build_cat_xor(seed: int, n: int = 6000):
     cat_b = rng.integers(0, 2, n)
     flip = rng.random(n) < 0.03  # small label noise
     y = (cat_a ^ cat_b) ^ flip.astype(int)
-    X = pd.DataFrame({
-        "cat_a": cat_a.astype(str),
-        "cat_b": cat_b.astype(str),
-        "decoy_0": rng.integers(0, 2, n).astype(str),
-        "decoy_1": rng.integers(0, 3, n).astype(str),
-    })
+    X = pd.DataFrame(
+        {
+            "cat_a": cat_a.astype(str),
+            "cat_b": cat_b.astype(str),
+            "decoy_0": rng.integers(0, 2, n).astype(str),
+            "decoy_1": rng.integers(0, 3, n).astype(str),
+        }
+    )
     return X, y.astype(int)
 
 
@@ -80,10 +82,12 @@ def _build_redundant(seed: int, n: int = 6000):
     y = (cat_a >= 2).astype(int)
     flip = rng.random(n) < 0.03
     y = y ^ flip.astype(int)
-    X = pd.DataFrame({
-        "cat_a": cat_a.astype(str),
-        "cat_b": cat_b.astype(str),
-    })
+    X = pd.DataFrame(
+        {
+            "cat_a": cat_a.astype(str),
+            "cat_b": cat_b.astype(str),
+        }
+    )
     return X, y.astype(int)
 
 
@@ -93,10 +97,12 @@ def _build_independent(seed: int, n: int = 6000):
     cat_a = rng.integers(0, 3, n)
     cat_b = rng.integers(0, 3, n)
     y = rng.integers(0, 2, n)
-    X = pd.DataFrame({
-        "cat_a": cat_a.astype(str),
-        "cat_b": cat_b.astype(str),
-    })
+    X = pd.DataFrame(
+        {
+            "cat_a": cat_a.astype(str),
+            "cat_b": cat_b.astype(str),
+        }
+    )
     return X, y.astype(int)
 
 
@@ -113,10 +119,12 @@ def _build_highcard_xor(seed: int, n: int = 3000):
     y = ((cat_a + cat_b) % 2).astype(int)
     flip = rng.random(n) < 0.03
     y = y ^ flip.astype(int)
-    X = pd.DataFrame({
-        "cat_a": cat_a.astype(str),
-        "cat_b": cat_b.astype(str),
-    })
+    X = pd.DataFrame(
+        {
+            "cat_a": cat_a.astype(str),
+            "cat_b": cat_b.astype(str),
+        }
+    )
     return X, y.astype(int)
 
 
@@ -126,11 +134,15 @@ def _build_highcard_xor(seed: int, n: int = 3000):
 
 
 class TestXorSynergyRecovered:
+    """The interaction-information filter recovers the cat-XOR synergy pair in the top-3 across most seeds."""
+
     def test_xor_pair_in_top3(self):
+        """cat_a/cat_b's II is strongly positive and the pair ranks in the top-3 on at least 4 of 5 seeds."""
         from mlframe.feature_selection.filters._cat_pair_fe import (
             score_cat_pairs_by_interaction_information,
             engineered_name_cat_pair_cross,
         )
+
         wins = 0
         for s in SEEDS:
             X, y = _build_cat_xor(s)
@@ -155,20 +167,24 @@ class TestXorSynergyRecovered:
 
 
 class TestNonSynergisticExcluded:
+    """Independent categorical pairs (II ~ 0) never get materialised as cross features."""
+
     def test_independent_cats_emit_nothing(self):
+        """Two independent cats emit zero engineered columns and zero recipes on every seed."""
         from mlframe.feature_selection.filters._cat_pair_fe import (
             hybrid_cat_pair_fe,
         )
+
         for s in SEEDS:
             X, y = _build_independent(s)
             _, appended, recipes, scores = hybrid_cat_pair_fe(
-                X, y, cat_cols=["cat_a", "cat_b"],
-                min_interaction_info=0.001, top_k=5,
+                X,
+                y,
+                cat_cols=["cat_a", "cat_b"],
+                min_interaction_info=0.001,
+                top_k=5,
             )
-            assert appended == [], (
-                f"seed={s}: independent cats produced engineered columns "
-                f"{appended} (II={scores['ii'].tolist()}); expected none."
-            )
+            assert appended == [], f"seed={s}: independent cats produced engineered columns {appended} (II={scores['ii'].tolist()}); expected none."
             assert recipes == []
 
 
@@ -178,27 +194,28 @@ class TestNonSynergisticExcluded:
 
 
 class TestRedundantExcluded:
+    """A categorical pair where one column is a copy of the other (II < 0, pure redundancy) is never materialised."""
+
     def test_copy_cat_not_materialised(self):
+        """cat_b == copy(cat_a) yields negative II and zero materialised cross columns on every seed."""
         from mlframe.feature_selection.filters._cat_pair_fe import (
             hybrid_cat_pair_fe,
             score_cat_pairs_by_interaction_information,
         )
+
         for s in SEEDS:
             X, y = _build_redundant(s)
             sc = score_cat_pairs_by_interaction_information(X, y, ["cat_a", "cat_b"])
             # The cross of a column with its own copy is pure redundancy.
-            assert float(sc["ii"].iloc[0]) < 0.0, (
-                f"seed={s}: II for cat_b == copy(cat_a) should be < 0 "
-                f"(redundancy); got {sc['ii'].iloc[0]}."
+            assert float(sc["ii"].iloc[0]) < 0.0, f"seed={s}: II for cat_b == copy(cat_a) should be < 0 (redundancy); got {sc['ii'].iloc[0]}."
+            _, appended, _recipes, _ = hybrid_cat_pair_fe(
+                X,
+                y,
+                cat_cols=["cat_a", "cat_b"],
+                min_interaction_info=0.001,
+                top_k=5,
             )
-            _, appended, recipes, _ = hybrid_cat_pair_fe(
-                X, y, cat_cols=["cat_a", "cat_b"],
-                min_interaction_info=0.001, top_k=5,
-            )
-            assert appended == [], (
-                f"seed={s}: redundant copy-cat pair was materialised "
-                f"({appended}); expected none."
-            )
+            assert appended == [], f"seed={s}: redundant copy-cat pair was materialised ({appended}); expected none."
 
 
 # ---------------------------------------------------------------------------
@@ -207,27 +224,38 @@ class TestRedundantExcluded:
 
 
 class TestAucLift:
+    """Synergy-cross-augmented LogReg measurably lifts holdout AUC on the cat-XOR target a raw model can't learn."""
+
     def test_logreg_auc_lift_at_least_0p20(self):
+        """Cross-augmented LogReg's mean AUC lift over one-hot-raw LogReg clears +0.20 across the 5 seeds."""
         from mlframe.feature_selection.filters._cat_pair_fe import (
             hybrid_cat_pair_fe,
         )
         from mlframe.feature_selection.filters.engineered_recipes import (
             apply_recipe,
         )
+
         lifts = []
         for s in SEEDS:
             X, y = _build_cat_xor(s)
             Xtr, Xte, ytr, yte = train_test_split(
-                X, y, test_size=0.3, random_state=s, stratify=y,
+                X,
+                y,
+                test_size=0.3,
+                random_state=s,
+                stratify=y,
             )
+
             # Raw model: one-hot the parent cats (a LogReg CANNOT learn XOR from
             # the marginals -- the linear decision boundary in (a, b) one-hots
             # is the additive contribution of each, which is uninformative).
             def _onehot(df):
+                """One-hot encode the four raw categorical columns as float."""
                 return pd.get_dummies(
                     df[["cat_a", "cat_b", "decoy_0", "decoy_1"]].astype(str),
                     drop_first=False,
                 ).astype(float)
+
             Xtr_oh = _onehot(Xtr)
             Xte_oh = _onehot(Xte).reindex(columns=Xtr_oh.columns, fill_value=0.0)
             base = LogisticRegression(max_iter=2000)
@@ -235,8 +263,12 @@ class TestAucLift:
             auc_raw = roc_auc_score(yte, base.predict_proba(Xte_oh)[:, 1])
 
             _, appended, recipes, _ = hybrid_cat_pair_fe(
-                Xtr, ytr, cat_cols=["cat_a", "cat_b", "decoy_0", "decoy_1"],
-                min_interaction_info=0.001, top_k=5, random_state=s,
+                Xtr,
+                ytr,
+                cat_cols=["cat_a", "cat_b", "decoy_0", "decoy_1"],
+                min_interaction_info=0.001,
+                top_k=5,
+                random_state=s,
             )
             assert appended, f"seed={s}: no cat-pair survivors."
             # Augmented model: one-hot the cross cell code (a single column that
@@ -269,29 +301,33 @@ class TestAucLift:
 
 
 class TestCardinalityControl:
+    """A high-cardinality synergy cross whose cell count exceeds the pre-screen threshold routes through target encoding."""
+
     def test_highcard_cross_routed_through_te(self):
+        """The high-card cross recipe uses target encoding, not raw cell codes, and its output stays a bounded [0,1] float column."""
         from mlframe.feature_selection.filters._cat_pair_fe import (
             hybrid_cat_pair_fe,
         )
         from mlframe.feature_selection.filters.engineered_recipes import (
             apply_recipe,
         )
+
         X, y = _build_highcard_xor(7, n=4000)
         _, appended, recipes, _ = hybrid_cat_pair_fe(
-            X, y, cat_cols=["cat_a", "cat_b"],
-            min_interaction_info=-1.0, top_k=5, random_state=7,
+            X,
+            y,
+            cat_cols=["cat_a", "cat_b"],
+            min_interaction_info=-1.0,
+            top_k=5,
+            random_state=7,
         )
         assert appended, "high-card synergy cross produced no survivor."
         for r in recipes:
             n_cells = len(r.extra["mapping"])
             # cross cell count (~40*40 effective) must exceed the 0.5*n screen.
-            assert n_cells > 0.5 * len(X), (
-                f"recipe {r.name!r} has only {n_cells} cells; the high-card "
-                f"fixture should exceed the pre-screen threshold."
-            )
+            assert n_cells > 0.5 * len(X), f"recipe {r.name!r} has only {n_cells} cells; the high-card fixture should exceed the pre-screen threshold."
             assert str(r.extra.get("encoding")) == "target", (
-                f"recipe {r.name!r} encoding is {r.extra.get('encoding')!r}; "
-                f"high-card cross must route through target encoding, not raw."
+                f"recipe {r.name!r} encoding is {r.extra.get('encoding')!r}; high-card cross must route through target encoding, not raw."
             )
             col = apply_recipe(r, X)
             # Support does not explode: TE collapses the cross to a SINGLE dense
@@ -308,26 +344,32 @@ class TestCardinalityControl:
 
 
 class TestNoYLeak:
+    """The materialised cross-cell recipe never captures a y reference and replays as a pure function of X."""
+
     def test_replay_independent_of_y(self):
+        """Repeated apply_recipe calls on the same X return identical output and the recipe's extra dict carries no y."""
         from mlframe.feature_selection.filters._cat_pair_fe import (
             hybrid_cat_pair_fe,
         )
         from mlframe.feature_selection.filters.engineered_recipes import (
             apply_recipe,
         )
+
         X, y = _build_cat_xor(7)
-        _, appended, recipes, _ = hybrid_cat_pair_fe(
-            X, y, cat_cols=["cat_a", "cat_b"],
-            min_interaction_info=0.001, top_k=5, random_state=7,
+        _, _appended, recipes, _ = hybrid_cat_pair_fe(
+            X,
+            y,
+            cat_cols=["cat_a", "cat_b"],
+            min_interaction_info=0.001,
+            top_k=5,
+            random_state=7,
         )
         assert recipes, "no recipes produced for leakage test."
         for r in recipes:
             c1 = apply_recipe(r, X)
             c2 = apply_recipe(r, X)
             np.testing.assert_array_equal(c1, c2)
-            assert "y" not in dict(r.extra), (
-                f"recipe {r.name!r} captured a y reference -- leakage risk."
-            )
+            assert "y" not in dict(r.extra), f"recipe {r.name!r} captured a y reference -- leakage risk."
 
     def test_transform_same_under_shuffled_y(self):
         """The materialised RAW cross cell code is a pure function of X; fitting
@@ -337,22 +379,28 @@ class TestNoYLeak:
             generate_cat_pair_crosses,
         )
         from mlframe.feature_selection.filters.engineered_recipes import (
-            build_cat_pair_cross_recipe, apply_recipe,
+            build_cat_pair_cross_recipe,
+            apply_recipe,
         )
-        X, y = _build_cat_xor(42)
+
+        X, _y = _build_cat_xor(42)
         # generate_cat_pair_crosses never sees y; the cross codes are a pure
         # function of X regardless of any y the caller holds.
-        enc_a, raw_a = generate_cat_pair_crosses(X, ["cat_a", "cat_b"])
-        enc_b, raw_b = generate_cat_pair_crosses(X, ["cat_a", "cat_b"])
+        _enc_a, raw_a = generate_cat_pair_crosses(X, ["cat_a", "cat_b"])
+        _enc_b, raw_b = generate_cat_pair_crosses(X, ["cat_a", "cat_b"])
         for name in raw_a:
             ra = build_cat_pair_cross_recipe(
-                name=name, cat_i=raw_a[name]["cat_i"],
-                cat_j=raw_a[name]["cat_j"], mapping=raw_a[name]["mapping"],
+                name=name,
+                cat_i=raw_a[name]["cat_i"],
+                cat_j=raw_a[name]["cat_j"],
+                mapping=raw_a[name]["mapping"],
                 encoding="raw",
             )
             rb = build_cat_pair_cross_recipe(
-                name=name, cat_i=raw_b[name]["cat_i"],
-                cat_j=raw_b[name]["cat_j"], mapping=raw_b[name]["mapping"],
+                name=name,
+                cat_i=raw_b[name]["cat_i"],
+                cat_j=raw_b[name]["cat_j"],
+                mapping=raw_b[name]["mapping"],
                 encoding="raw",
             )
             assert ra == rb
@@ -365,24 +413,25 @@ class TestNoYLeak:
 
 
 class TestDefaultDisabledByteIdentical:
+    """fe_cat_pair_enable defaults to False; enabling it does produce a cat_pair_cross recipe on the cat-XOR fixture."""
+
     def test_mrmr_default_off_does_not_add_cat_pair(self):
+        """With fe_cat_pair_enable defaulting to False, MRMR.fit adds no cat_pair_features_."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _build_cat_xor(42, n=2000)
         # MRMR consumes integer-coded cats; pass the int form.
         Xi = X.copy()
         for c in ["cat_a", "cat_b", "decoy_0", "decoy_1"]:
             Xi[c] = Xi[c].astype(int)
         m = MRMR(max_runtime_mins=0.5)
-        assert bool(getattr(m, "fe_cat_pair_enable", False)) is False, (
-            "fe_cat_pair_enable must default to False."
-        )
+        assert bool(getattr(m, "fe_cat_pair_enable", False)) is False, "fe_cat_pair_enable must default to False."
         m.fit(Xi, pd.Series(y, name="y"))
         cp_feats = list(getattr(m, "cat_pair_features_", []) or [])
-        assert cp_feats == [], (
-            f"cat_pair added columns with the feature disabled: {cp_feats}"
-        )
+        assert cp_feats == [], f"cat_pair added columns with the feature disabled: {cp_feats}"
 
     def test_mrmr_enabled_adds_cat_pair(self):
+        """Enabling fe_cat_pair_enable produces a cat_pair_cross recipe in _produced_recipes_, even if a sibling FE family wins final selection."""
         # Contract: enabling the cat-pair family PRODUCES its synergy-cross
         # recipe. The interaction-information cross ``cross_cat_a_cat_b`` IS
         # materialised, but on the cat-XOR fixture the default-on general-FE
@@ -399,6 +448,7 @@ class TestDefaultDisabledByteIdentical:
         # ``_produced_recipes_`` audit ledger (every recipe produced this fit,
         # before the greedy screen drops the weaker candidates).
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _build_cat_xor(42, n=3000)
         Xi = X.copy()
         for c in ["cat_a", "cat_b", "decoy_0", "decoy_1"]:
@@ -414,9 +464,7 @@ class TestDefaultDisabledByteIdentical:
         )
         m.fit(Xi, pd.Series(y, name="y"))
         produced = list(getattr(m, "_produced_recipes_", []) or [])
-        cross_recipes = [
-            r for r in produced if getattr(r, "kind", "") == "cat_pair_cross"
-        ]
+        cross_recipes = [r for r in produced if getattr(r, "kind", "") == "cat_pair_cross"]
         assert len(cross_recipes) >= 1, (
             "cat_pair enabled but produced no cat_pair_cross recipe on the "
             f"cat-XOR fixture; produced kinds: "
@@ -430,13 +478,17 @@ class TestDefaultDisabledByteIdentical:
 
 
 class TestPickleClone:
+    """clone() preserves the cat-pair ctor params; pickle round-trips both raw and target-encoded cross recipes."""
+
     def test_recipe_pickle_round_trip(self):
+        """Both raw and target-encoded cross recipes survive pickle round-trip with identical replay values."""
         from mlframe.feature_selection.filters._cat_pair_fe import (
             hybrid_cat_pair_fe,
         )
         from mlframe.feature_selection.filters.engineered_recipes import (
             apply_recipe,
         )
+
         # Cover both raw and target-encoded recipe payloads.
         X_raw, y_raw = _build_cat_xor(1)
         X_hc, y_hc = _build_highcard_xor(1)
@@ -445,22 +497,28 @@ class TestPickleClone:
             (X_hc, y_hc, ["cat_a", "cat_b"], -1.0),
         ]
         for X, y, cols, thr in cases:
-            _, appended, recipes, _ = hybrid_cat_pair_fe(
-                X, y, cat_cols=cols, min_interaction_info=thr, top_k=5,
+            _, _appended, recipes, _ = hybrid_cat_pair_fe(
+                X,
+                y,
+                cat_cols=cols,
+                min_interaction_info=thr,
+                top_k=5,
                 random_state=1,
             )
             assert recipes, "no recipes for pickle test."
             for r in recipes:
                 blob = pickle.dumps(r)
-                r2 = pickle.loads(blob)
+                r2 = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
                 assert r2 == r, f"recipe {r.name!r} != its pickle round-trip."
                 col1 = apply_recipe(r, X)
                 col2 = apply_recipe(r2, X)
                 np.testing.assert_array_equal(col1, col2)
 
     def test_mrmr_clone_preserves_params(self):
+        """clone() copies every fe_cat_pair_* ctor param without carrying over fitted state."""
         from sklearn.base import clone
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         m = MRMR(
             fe_cat_pair_enable=True,
             fe_cat_pair_cat_cols=("cat_a", "cat_b"),

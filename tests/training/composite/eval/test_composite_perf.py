@@ -20,6 +20,7 @@ Coverage map
   rmse values).
 - Config validators reject bad ``mi_estimator`` values.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -108,10 +109,8 @@ class TestMiToTarget:
 
     def test_bin_and_knn_both_positive(self, fixture) -> None:
         X, y = fixture
-        mi_bin = _mi_to_target(X, y, n_neighbors=3, random_state=0,
-                               estimator="bin", nbins=16)
-        mi_knn = _mi_to_target(X, y, n_neighbors=3, random_state=0,
-                               estimator="knn")
+        mi_bin = _mi_to_target(X, y, n_neighbors=3, random_state=0, estimator="bin", nbins=16)
+        mi_knn = _mi_to_target(X, y, n_neighbors=3, random_state=0, estimator="knn")
         assert mi_bin > 0
         assert mi_knn > 0
 
@@ -119,23 +118,19 @@ class TestMiToTarget:
         # Sanity timing: bin should beat knn on the same data. We only
         # assert the speedup direction, not a specific factor (CI-safe).
         import time
+
         X, y = fixture
         t0 = time.perf_counter()
         for _ in range(3):
-            _mi_to_target(X, y, n_neighbors=3, random_state=0,
-                          estimator="bin", nbins=16)
+            _mi_to_target(X, y, n_neighbors=3, random_state=0, estimator="bin", nbins=16)
         t_bin = (time.perf_counter() - t0) / 3
         t0 = time.perf_counter()
         for _ in range(3):
-            _mi_to_target(X, y, n_neighbors=3, random_state=0,
-                          estimator="knn")
+            _mi_to_target(X, y, n_neighbors=3, random_state=0, estimator="knn")
         t_knn = (time.perf_counter() - t0) / 3
         # Bin is at least 3x faster on n=2000, k=3 (we observed ~38x
         # in micro-benchmarks; CI is conservative).
-        assert t_bin < t_knn / 3, (
-            f"bin should be at least 3x faster than knn; "
-            f"bin={t_bin*1000:.1f}ms knn={t_knn*1000:.1f}ms"
-        )
+        assert t_bin < t_knn / 3, f"bin should be at least 3x faster than knn; bin={t_bin * 1000:.1f}ms knn={t_knn * 1000:.1f}ms"
 
 
 # ----------------------------------------------------------------------
@@ -178,26 +173,30 @@ class TestDeterministicScreeningModels:
 
     def test_lightgbm_deterministic_kwargs(self) -> None:
         from mlframe.training.composite import _build_tiny_model
+
         m = _build_tiny_model(
-            "lightgbm", n_estimators=10, num_leaves=8,
-            learning_rate=0.1, random_state=0, deterministic=True,
+            "lightgbm",
+            n_estimators=10,
+            num_leaves=8,
+            learning_rate=0.1,
+            random_state=0,
+            deterministic=True,
         )
         params = m.get_params()
-        assert params.get("deterministic") is True, (
-            "LightGBM deterministic flag must be set"
-        )
-        assert params.get("force_row_wise") is True, (
-            "LightGBM force_row_wise must be set for deterministic histograms"
-        )
-        assert params.get("force_col_wise") is False, (
-            "LightGBM force_col_wise must be off when force_row_wise is on"
-        )
+        assert params.get("deterministic") is True, "LightGBM deterministic flag must be set"
+        assert params.get("force_row_wise") is True, "LightGBM force_row_wise must be set for deterministic histograms"
+        assert params.get("force_col_wise") is False, "LightGBM force_col_wise must be off when force_row_wise is on"
 
     def test_lightgbm_non_deterministic_default(self) -> None:
         from mlframe.training.composite import _build_tiny_model
+
         m = _build_tiny_model(
-            "lightgbm", n_estimators=10, num_leaves=8,
-            learning_rate=0.1, random_state=0, deterministic=False,
+            "lightgbm",
+            n_estimators=10,
+            num_leaves=8,
+            learning_rate=0.1,
+            random_state=0,
+            deterministic=False,
         )
         params = m.get_params()
         # Default mode: deterministic flag NOT set, force_col_wise on
@@ -208,9 +207,14 @@ class TestDeterministicScreeningModels:
     def test_xgboost_deterministic_uses_hist(self) -> None:
         pytest.importorskip("xgboost")
         from mlframe.training.composite import _build_tiny_model
+
         m = _build_tiny_model(
-            "xgboost", n_estimators=10, num_leaves=8,
-            learning_rate=0.1, random_state=0, deterministic=True,
+            "xgboost",
+            n_estimators=10,
+            num_leaves=8,
+            learning_rate=0.1,
+            random_state=0,
+            deterministic=True,
         )
         params = m.get_params()
         assert params.get("tree_method") == "hist"
@@ -218,9 +222,14 @@ class TestDeterministicScreeningModels:
     def test_catboost_deterministic_uses_plain(self) -> None:
         pytest.importorskip("catboost")
         from mlframe.training.composite import _build_tiny_model
+
         m = _build_tiny_model(
-            "catboost", n_estimators=10, num_leaves=8,
-            learning_rate=0.1, random_state=0, deterministic=True,
+            "catboost",
+            n_estimators=10,
+            num_leaves=8,
+            learning_rate=0.1,
+            random_state=0,
+            deterministic=True,
         )
         # catboost stores params on the constructed object via _init_params.
         params = m.get_params()
@@ -228,13 +237,22 @@ class TestDeterministicScreeningModels:
 
     def test_linear_unaffected(self) -> None:
         from mlframe.training.composite import _build_tiny_model
+
         m_det = _build_tiny_model(
-            "linear", n_estimators=10, num_leaves=8,
-            learning_rate=0.1, random_state=0, deterministic=True,
+            "linear",
+            n_estimators=10,
+            num_leaves=8,
+            learning_rate=0.1,
+            random_state=0,
+            deterministic=True,
         )
         m_nondet = _build_tiny_model(
-            "linear", n_estimators=10, num_leaves=8,
-            learning_rate=0.1, random_state=0, deterministic=False,
+            "linear",
+            n_estimators=10,
+            num_leaves=8,
+            learning_rate=0.1,
+            random_state=0,
+            deterministic=False,
         )
         # Ridge is deterministic by construction; both branches build
         # functionally equivalent models. Dict equality is NaN-unsafe
@@ -244,17 +262,13 @@ class TestDeterministicScreeningModels:
         _params_det = m_det.get_params()
         _params_nondet = m_nondet.get_params()
         assert set(_params_det) == set(_params_nondet), (
-            f"param-key drift: det-only={set(_params_det) - set(_params_nondet)}, "
-            f"nondet-only={set(_params_nondet) - set(_params_det)}"
+            f"param-key drift: det-only={set(_params_det) - set(_params_nondet)}, nondet-only={set(_params_nondet) - set(_params_det)}"
         )
         for _k in _params_det:
             _v_det = _params_det[_k]
             _v_nondet = _params_nondet[_k]
             try:
-                _both_nan = (
-                    isinstance(_v_det, float) and isinstance(_v_nondet, float)
-                    and _v_det != _v_det and _v_nondet != _v_nondet
-                )
+                _both_nan = isinstance(_v_det, float) and isinstance(_v_nondet, float) and _v_det != _v_det and _v_nondet != _v_nondet
             except Exception:
                 _both_nan = False
             if _both_nan:
@@ -262,9 +276,7 @@ class TestDeterministicScreeningModels:
             # Use repr() for non-trivially-comparable objects like sklearn
             # estimators -- ``Ridge(random_state=0) == Ridge(random_state=0)``
             # returns False because BaseEstimator doesn't implement __eq__.
-            assert repr(_v_det) == repr(_v_nondet), (
-                f"param {_k!r} drift: det={_v_det!r} vs nondet={_v_nondet!r}"
-            )
+            assert repr(_v_det) == repr(_v_nondet), f"param {_k!r} drift: det={_v_det!r} vs nondet={_v_nondet!r}"
 
     def test_discovery_with_determinism_flag_runs(self) -> None:
         """End-to-end smoke: discovery with ``deterministic_screening_models=True``
@@ -273,27 +285,38 @@ class TestDeterministicScreeningModels:
         run-to-run float drift; on the same single run the result is
         the same)."""
         from mlframe.training.composite import CompositeTargetDiscovery
+
         df = _tvt_data()
         common = dict(
-            enabled=True, base_candidates=["TVT_prev"],
+            enabled=True,
+            base_candidates=["TVT_prev"],
             transforms=["linear_residual"],
-            mi_sample_n=600, top_k_after_mi=2, eps_mi_gain=-1.0,
+            mi_sample_n=600,
+            top_k_after_mi=2,
+            eps_mi_gain=-1.0,
             screening="hybrid",
-            tiny_model_n_estimators=20, tiny_model_sample_n=400,
+            tiny_model_n_estimators=20,
+            tiny_model_sample_n=400,
             top_m_after_tiny=1,
         )
         cfg_off = CompositeTargetDiscoveryConfig(
-            **common, deterministic_screening_models=False,
+            **common,
+            deterministic_screening_models=False,
         )
         cfg_on = CompositeTargetDiscoveryConfig(
-            **common, deterministic_screening_models=True,
+            **common,
+            deterministic_screening_models=True,
         )
         d_off = CompositeTargetDiscovery(cfg_off).fit(
-            df, target_col="TVT", feature_cols=["TVT_prev", "x0", "x1"],
+            df,
+            target_col="TVT",
+            feature_cols=["TVT_prev", "x0", "x1"],
             train_idx=np.arange(1200),
         )
         d_on = CompositeTargetDiscovery(cfg_on).fit(
-            df, target_col="TVT", feature_cols=["TVT_prev", "x0", "x1"],
+            df,
+            target_col="TVT",
+            feature_cols=["TVT_prev", "x0", "x1"],
             train_idx=np.arange(1200),
         )
         # Both produced specs and picked the same top base.
@@ -305,13 +328,18 @@ class TestDiscoveryBinEstimator:
     def test_bin_estimator_finds_dominant_base(self) -> None:
         df = _tvt_data()
         cfg = CompositeTargetDiscoveryConfig(
-            enabled=True, base_candidates=["TVT_prev"],
+            enabled=True,
+            base_candidates=["TVT_prev"],
             transforms=["diff", "linear_residual"],
-            mi_sample_n=600, top_k_after_mi=2, eps_mi_gain=-1.0,
-            mi_estimator="bin", mi_nbins=16,
+            mi_sample_n=600,
+            top_k_after_mi=2,
+            eps_mi_gain=-1.0,
+            mi_estimator="bin",
+            mi_nbins=16,
         )
         disc = CompositeTargetDiscovery(cfg).fit(
-            df, target_col="TVT",
+            df,
+            target_col="TVT",
             feature_cols=["TVT_prev", "x0", "x1", "x2", "x3"],
             train_idx=np.arange(1200),
         )
@@ -321,16 +349,21 @@ class TestDiscoveryBinEstimator:
     def test_parallel_cv_folds_run_without_crash(self) -> None:
         df = _tvt_data()
         cfg = CompositeTargetDiscoveryConfig(
-            enabled=True, base_candidates=["TVT_prev"],
+            enabled=True,
+            base_candidates=["TVT_prev"],
             transforms=["linear_residual"],
-            mi_sample_n=600, top_k_after_mi=2, eps_mi_gain=-1.0,
+            mi_sample_n=600,
+            top_k_after_mi=2,
+            eps_mi_gain=-1.0,
             screening="hybrid",
-            tiny_model_n_estimators=20, tiny_model_sample_n=400,
+            tiny_model_n_estimators=20,
+            tiny_model_sample_n=400,
             top_m_after_tiny=1,
             tiny_model_n_jobs=2,  # parallel folds via joblib
         )
         disc = CompositeTargetDiscovery(cfg).fit(
-            df, target_col="TVT",
+            df,
+            target_col="TVT",
             feature_cols=["TVT_prev", "x0", "x1"],
             train_idx=np.arange(1200),
         )
@@ -339,9 +372,12 @@ class TestDiscoveryBinEstimator:
     def test_bin_and_knn_pick_same_top_base(self) -> None:
         df = _tvt_data()
         common = dict(
-            enabled=True, base_candidates="auto",
+            enabled=True,
+            base_candidates="auto",
             transforms=["linear_residual"],
-            mi_sample_n=600, top_k_after_mi=2, eps_mi_gain=-1.0,
+            mi_sample_n=600,
+            top_k_after_mi=2,
+            eps_mi_gain=-1.0,
             auto_base_top_k=1,
         )
         df_with_target = df.copy()
@@ -349,12 +385,16 @@ class TestDiscoveryBinEstimator:
         cfg_knn = CompositeTargetDiscoveryConfig(**common, mi_estimator="knn")
         cfg_bin = CompositeTargetDiscoveryConfig(**common, mi_estimator="bin")
         disc_knn = CompositeTargetDiscovery(cfg_knn).fit(
-            df_with_target, target_col="TVT",
-            feature_cols=feature_cols, train_idx=np.arange(1200),
+            df_with_target,
+            target_col="TVT",
+            feature_cols=feature_cols,
+            train_idx=np.arange(1200),
         )
         disc_bin = CompositeTargetDiscovery(cfg_bin).fit(
-            df_with_target, target_col="TVT",
-            feature_cols=feature_cols, train_idx=np.arange(1200),
+            df_with_target,
+            target_col="TVT",
+            feature_cols=feature_cols,
+            train_idx=np.arange(1200),
         )
         # Both should converge on TVT_prev as the dominant base.
         assert disc_knn.specs_

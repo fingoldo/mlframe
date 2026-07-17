@@ -44,7 +44,7 @@ Consolidated verbatim from test_biz_value_mrmr_layer62.py (per audit finding tes
 
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 import warnings
 from functools import cache
 
@@ -178,16 +178,16 @@ class TestStableSignalRetained:
         # The He_2(x1) row must be present and its uplift_lcb must be
         # materially positive AND ABOVE every noise column's uplift_lcb.
         target_row = scores[scores["engineered_col"] == "x1__He2"]
-        assert not target_row.empty, f"seed={seed}: x1__He2 missing from score table; got " f"{list(scores['engineered_col'])}"
+        assert not target_row.empty, f"seed={seed}: x1__He2 missing from score table; got {list(scores['engineered_col'])}"
         x1_he2_lcb = float(target_row["uplift_lcb"].iloc[0])
         noise_rows = scores[scores["engineered_col"].str.startswith("noise_")]
         noise_max_lcb = float(noise_rows["uplift_lcb"].max()) if not noise_rows.empty else 0.0
         assert x1_he2_lcb > noise_max_lcb, (
-            f"seed={seed}: x1__He2 uplift_lcb={x1_he2_lcb:.3f} not above " f"max noise uplift_lcb={noise_max_lcb:.3f}; stable-signal " f"contract violated."
+            f"seed={seed}: x1__He2 uplift_lcb={x1_he2_lcb:.3f} not above max noise uplift_lcb={noise_max_lcb:.3f}; stable-signal contract violated."
         )
         # Engineered MI LCB stays positive on a real signal.
         x1_he2_eng_lcb = float(target_row["engineered_mi_lcb"].iloc[0])
-        assert x1_he2_eng_lcb > 0.0, f"seed={seed}: x1__He2 engineered_mi_lcb={x1_he2_eng_lcb:.4f} " f"is non-positive on a clean He_2 signal."
+        assert x1_he2_eng_lcb > 0.0, f"seed={seed}: x1__He2 engineered_mi_lcb={x1_he2_eng_lcb:.4f} is non-positive on a clean He_2 signal."
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_signal_selected_into_winners(self, seed):
@@ -205,7 +205,7 @@ class TestStableSignalRetained:
             seed=seed,
         )
         appended = [c for c in X_aug.columns if c not in X.columns]
-        assert "x1__He2" in appended, f"seed={seed}: x1__He2 missing from bootstrap-selected winners; " f"got {appended}"
+        assert "x1__He2" in appended, f"seed={seed}: x1__He2 missing from bootstrap-selected winners; got {appended}"
 
 
 # ---------------------------------------------------------------------------
@@ -240,7 +240,7 @@ class TestNoiseSuppressed:
         # At least one noise basis column must have strictly positive
         # uplift std (genuine bootstrap variance, not numeric zero).
         assert (noise_rows["uplift_std"] > 1e-6).any(), (
-            f"seed={seed}: all noise basis columns have zero uplift_std; " f"bootstrap did not produce a non-degenerate CI."
+            f"seed={seed}: all noise basis columns have zero uplift_std; bootstrap did not produce a non-degenerate CI."
         )
         # By construction LCB = mean - 1.96 * std, so wherever std > 0 the
         # LCB is strictly below the mean.
@@ -271,9 +271,7 @@ class TestNoiseSuppressed:
         # First row in sorted-by-uplift_lcb order must be x1__He2 OR a
         # transform of x1 (degree 3 also captures the symmetry).
         first = scores.iloc[0]["engineered_col"]
-        assert first.startswith("x1__"), (
-            f"seed={seed}: top bootstrap LCB winner {first!r} is not an " f"x1 basis column; noise leaked to the top of the ranking."
-        )
+        assert first.startswith("x1__"), f"seed={seed}: top bootstrap LCB winner {first!r} is not an x1 basis column; noise leaked to the top of the ranking."
 
 
 # ---------------------------------------------------------------------------
@@ -334,15 +332,13 @@ class TestBootstrapVsPointEstimateDiffer:
         # gets dropped on most seeds; signal-promotion is the cleanest
         # win and must fire on at least one seed.
         assert divergent_seeds >= 5, (
-            f"bootstrap and point-estimate top-5 were IDENTICAL on " f"{8 - divergent_seeds} of 8 borderline seeds; selection-" f"stability claim violated."
+            f"bootstrap and point-estimate top-5 were IDENTICAL on {8 - divergent_seeds} of 8 borderline seeds; selection-stability claim violated."
         )
         assert boot_drops_noise >= 5, (
-            f"bootstrap top-5 dropped a noise column the point-estimate "
-            f"top-5 kept on only {boot_drops_noise} of 8 seeds; noise-"
-            f"suppression claim violated."
+            f"bootstrap top-5 dropped a noise column the point-estimate top-5 kept on only {boot_drops_noise} of 8 seeds; noise-suppression claim violated."
         )
         assert boot_promotes_signal >= 1, (
-            f"bootstrap top-5 never promoted x1__He2 over point-estimate " f"top-5; signal-stability claim violated. " f"divergent_seeds={divergent_seeds}"
+            f"bootstrap top-5 never promoted x1__He2 over point-estimate top-5; signal-stability claim violated. divergent_seeds={divergent_seeds}"
         )
 
 
@@ -360,7 +356,7 @@ class TestDefaultDisabledByteIdentical:
         X, y = _build_linear(seed)
         m = _make_mrmr().fit(X, y)
         added = list(getattr(m, "hybrid_orth_features_", []) or [])
-        assert added == [], f"seed={seed}: default fe_hybrid_orth_bootstrap_enable=False " f"should NOT append any engineered columns; got {added}"
+        assert added == [], f"seed={seed}: default fe_hybrid_orth_bootstrap_enable=False should NOT append any engineered columns; got {added}"
 
     def test_default_ctor_values(self):
         """Default constructor values for the bootstrap FE params match the documented defaults."""
@@ -383,10 +379,10 @@ class TestEnableAppendsEngineered:
         """Enabling the flag appends the He_2(x1) winner to hybrid_orth_features_."""
         _X, _y, m = _bootstrap_enabled_fit(seed)
         added = list(getattr(m, "hybrid_orth_features_", []) or [])
-        assert added, f"seed={seed}: bootstrap flag ON should append at least one " f"engineered column to hybrid_orth_features_; got {added}"
+        assert added, f"seed={seed}: bootstrap flag ON should append at least one engineered column to hybrid_orth_features_; got {added}"
         # The He_2(x1) signal must enter the support.
         assert any(c == "x1__He2" or c.startswith("x1__") for c in added), (
-            f"seed={seed}: bootstrap winners should include an x1 basis " f"column for a clean He_2 signal; got {added}"
+            f"seed={seed}: bootstrap winners should include an x1 basis column for a clean He_2 signal; got {added}"
         )
 
 
@@ -417,7 +413,7 @@ class TestCategoricalDoesNotSwallowBootstrap:
             m.fit(X, y)
         boot_warns = [r for r in caplog.records if "bootstrap-stable FE raised" in r.getMessage()]
         assert not boot_warns, (
-            f"seed={seed}: categorical column must not trigger the bootstrap warn-and-continue band-aid; " f"got {[r.getMessage() for r in boot_warns]}"
+            f"seed={seed}: categorical column must not trigger the bootstrap warn-and-continue band-aid; got {[r.getMessage() for r in boot_warns]}"
         )
         added = list(getattr(m, "hybrid_orth_features_", []) or [])
         assert added, (
@@ -448,7 +444,7 @@ class TestPickleAndClone:
             ("fe_hybrid_orth_bootstrap_n_boot", 25),
             ("fe_hybrid_orth_bootstrap_sample_fraction", 0.6),
         ]:
-            assert getattr(m2, name) == expected, f"clone() dropped {name}: expected {expected}, got " f"{getattr(m2, name)}"
+            assert getattr(m2, name) == expected, f"clone() dropped {name}: expected {expected}, got {getattr(m2, name)}"
 
     def test_pickle_roundtrip_preserves_bootstrap_recipes(self):
         """pickle round-trip preserves feature_names_in_, appended columns, and recipes."""
@@ -458,7 +454,7 @@ class TestPickleAndClone:
         assert list(m2.feature_names_in_) == list(m.feature_names_in_), "pickle changed feature_names_in_"
         added_before = list(getattr(m, "hybrid_orth_features_", []) or [])
         added_after = list(getattr(m2, "hybrid_orth_features_", []) or [])
-        assert added_before == added_after, f"pickle changed hybrid_orth_features_: before={added_before}, " f"after={added_after}"
+        assert added_before == added_after, f"pickle changed hybrid_orth_features_: before={added_before}, after={added_after}"
         # All bootstrap-stage recipes are ``orth_univariate`` -- the
         # engineered VALUES are bit-equal to Layer 21, only the selection
         # rule differs.
@@ -473,14 +469,14 @@ class TestPickleAndClone:
             else {r.name: r for r in (getattr(m2, "_engineered_recipes_", []) or []) if getattr(r, "kind", None) == "orth_univariate"}
         )
         assert set(recipes_before.keys()) == set(recipes_after.keys()), (
-            f"pickle dropped or added orth_univariate recipe names: " f"before={set(recipes_before.keys())}, " f"after={set(recipes_after.keys())}"
+            f"pickle dropped or added orth_univariate recipe names: before={set(recipes_before.keys())}, after={set(recipes_after.keys())}"
         )
         for name, r_before in recipes_before.items():
             r_after = recipes_after[name]
-            assert r_before.src_names == r_after.src_names, f"pickle changed src_names for {name!r}: " f"before={r_before.src_names}, after={r_after.src_names}"
+            assert r_before.src_names == r_after.src_names, f"pickle changed src_names for {name!r}: before={r_before.src_names}, after={r_after.src_names}"
             for key in ("basis", "degree"):
                 assert r_before.extra.get(key) == r_after.extra.get(key), (
-                    f"pickle changed '{key}' for recipe {name!r}: " f"before={r_before.extra}, after={r_after.extra}"
+                    f"pickle changed '{key}' for recipe {name!r}: before={r_before.extra}, after={r_after.extra}"
                 )
 
 
@@ -508,14 +504,14 @@ class TestRecipeReplay:
             seed=seed,
         )
         if not recipes:
-            pytest.fail(f"seed={seed}: bootstrap-stable hybrid emitted no recipes; " f"replay contract requires at least one recipe.")
+            pytest.fail(f"seed={seed}: bootstrap-stable hybrid emitted no recipes; replay contract requires at least one recipe.")
         from mlframe.feature_selection.filters.engineered_recipes import (
             apply_recipe,
         )
 
         appended = [c for c in X_aug.columns if c not in X.columns]
         for r in recipes:
-            assert r.name in appended, f"seed={seed}: recipe {r.name!r} not in appended columns " f"{appended}"
+            assert r.name in appended, f"seed={seed}: recipe {r.name!r} not in appended columns {appended}"
             assert r.kind == "orth_univariate", (
                 f"seed={seed}: bootstrap-stage recipe {r.name!r} kind="
                 f"{r.kind!r}, expected 'orth_univariate' (engineered values "
@@ -524,10 +520,7 @@ class TestRecipeReplay:
             replayed = apply_recipe(r, X)
             fit_time = X_aug[r.name].to_numpy()
             assert np.allclose(replayed, fit_time, rtol=1e-9, atol=1e-12), (
-                f"seed={seed}: recipe {r.name!r} replay drift: "
-                f"max|replayed - fit| = "
-                f"{float(np.max(np.abs(replayed - fit_time)))}; "
-                f"extra={dict(r.extra)}"
+                f"seed={seed}: recipe {r.name!r} replay drift: max|replayed - fit| = {float(np.max(np.abs(replayed - fit_time)))}; extra={dict(r.extra)}"
             )
 
 
@@ -553,9 +546,7 @@ class TestSortedGatherGate:
         mixed[:, 2] = rng.integers(0, 12, size=2000)  # one discrete column
         assert _all_columns_distinct(cont) is True
         assert _all_columns_distinct(disc) is False
-        assert _all_columns_distinct(mixed) is False, (
-            "one discrete column must disqualify the whole matrix (the gather " "shares a single idx across all columns)"
-        )
+        assert _all_columns_distinct(mixed) is False, "one discrete column must disqualify the whole matrix (the gather shares a single idx across all columns)"
 
     def test_sorted_gather_bit_identical_on_continuous(self):
         """The optimisation's safety invariant: on all-distinct columns the MI
@@ -575,7 +566,7 @@ class TestSortedGatherGate:
         mi_unsorted = np.asarray(_mi_classif_batch(X[idx, :], y[idx], nbins=10), float)
         mi_sorted = np.asarray(_mi_classif_batch(X[np.sort(idx), :], y[np.sort(idx)], nbins=10), float)
         assert np.array_equal(mi_unsorted, mi_sorted), (
-            f"sorted-gather MI must be bit-identical on continuous columns; " f"max|diff|={float(np.max(np.abs(mi_unsorted - mi_sorted)))}"
+            f"sorted-gather MI must be bit-identical on continuous columns; max|diff|={float(np.max(np.abs(mi_unsorted - mi_sorted)))}"
         )
 
     def test_sorted_gather_diverges_on_discrete(self):
@@ -597,5 +588,5 @@ class TestSortedGatherGate:
         mi_unsorted = np.asarray(_mi_classif_batch(X[idx, :], y[idx], nbins=10), float)
         mi_sorted = np.asarray(_mi_classif_batch(X[np.sort(idx), :], y[np.sort(idx)], nbins=10), float)
         assert not np.array_equal(mi_unsorted, mi_sorted), (
-            "sort SHOULD perturb MI on tied/discrete columns; if this passes, " "the binning became tie-deterministic and the gate may be relaxed"
+            "sort SHOULD perturb MI on tied/discrete columns; if this passes, the binning became tie-deterministic and the gate may be relaxed"
         )

@@ -9,10 +9,10 @@ Both flags default to ``True`` in ``PreprocessingExtensionsConfig`` AND
 default-ON rather than merely reachable via opt-in. See
 ``training/core/DEFAULTS_CHANGELOG.md``.
 """
+
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 
 def _reg_frame(seed=7, n=300):
@@ -64,7 +64,7 @@ def _run_suite(preprocessing_extensions, tmp_path):
     if preprocessing_extensions is not _UNSET:
         kwargs["preprocessing_extensions"] = preprocessing_extensions
 
-    models, metadata = train_mlframe_models_suite(**kwargs)
+    models, _metadata = train_mlframe_models_suite(**kwargs)
 
     trained = [e for per_target in models.values() for entries in per_target.values() for e in entries]
     trained = [e[0] if isinstance(e, tuple) and e else e for e in trained]

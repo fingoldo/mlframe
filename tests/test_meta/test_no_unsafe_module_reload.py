@@ -49,20 +49,24 @@ TESTS_DIR = Path(__file__).resolve().parent.parent
 # Files known to use the primitives ONLY against non-mlframe stub modules
 # (e.g. ``polars_ds`` mock injection) where rebinding does not split
 # mlframe class identity. Listed by repo-relative posix path.
-_KNOWN_STUB_ONLY_FILES: frozenset[str] = frozenset({
-    "training/pipeline/test_pipeline_json_roundtrip_cache.py",
-})
+_KNOWN_STUB_ONLY_FILES: frozenset[str] = frozenset(
+    {
+        "training/pipeline/test_pipeline_json_roundtrip_cache.py",
+    }
+)
 
 # mlframe modules that own module-level mutable singletons (caches / registries / locks).
 # Reloading these splits the singleton even with a ``__dict__`` snapshot+restore, because
 # importers captured the OLD singleton object by reference. Used to escalate the failure message.
-_SINGLETON_OWNING_MODULES: frozenset[str] = frozenset({
-    "mlframe.feature_selection.filters.mrmr",
-    "mlframe.training.phases",
-    "mlframe.training.composite.cache",
-    "mlframe.training.suite_artefact_cache",
-    "mlframe.system.kernel_tuning_cache",
-})
+_SINGLETON_OWNING_MODULES: frozenset[str] = frozenset(
+    {
+        "mlframe.feature_selection.filters.mrmr",
+        "mlframe.training.phases",
+        "mlframe.training.composite.cache",
+        "mlframe.training.suite_artefact_cache",
+        "mlframe.system.kernel_tuning_cache",
+    }
+)
 
 _RELOAD_PRIMITIVES = ("importlib.reload", "del sys.modules", "sys.modules.pop")
 
@@ -71,18 +75,26 @@ def _is_reload_call(node: ast.AST) -> str | None:
     """Return the primitive name if ``node`` is a reload primitive call/delete, else None."""
     if isinstance(node, ast.Call):
         func = node.func
-        if (isinstance(func, ast.Attribute) and func.attr == "reload"
-                and isinstance(func.value, ast.Name) and func.value.id == "importlib"):
+        if isinstance(func, ast.Attribute) and func.attr == "reload" and isinstance(func.value, ast.Name) and func.value.id == "importlib":
             return "importlib.reload"
-        if (isinstance(func, ast.Attribute) and func.attr == "pop"
-                and isinstance(func.value, ast.Attribute) and func.value.attr == "modules"
-                and isinstance(func.value.value, ast.Name) and func.value.value.id == "sys"):
+        if (
+            isinstance(func, ast.Attribute)
+            and func.attr == "pop"
+            and isinstance(func.value, ast.Attribute)
+            and func.value.attr == "modules"
+            and isinstance(func.value.value, ast.Name)
+            and func.value.value.id == "sys"
+        ):
             return "sys.modules.pop"
     if isinstance(node, ast.Delete):
         for tgt in node.targets:
-            if (isinstance(tgt, ast.Subscript) and isinstance(tgt.value, ast.Attribute)
-                    and tgt.value.attr == "modules"
-                    and isinstance(tgt.value.value, ast.Name) and tgt.value.value.id == "sys"):
+            if (
+                isinstance(tgt, ast.Subscript)
+                and isinstance(tgt.value, ast.Attribute)
+                and tgt.value.attr == "modules"
+                and isinstance(tgt.value.value, ast.Name)
+                and tgt.value.value.id == "sys"
+            ):
                 return "del sys.modules"
     return None
 
@@ -102,17 +114,25 @@ def _node_has_restore(node: ast.AST) -> bool:
         # sys.modules[...] = ...  (restore from a saved reference)
         if isinstance(sub, ast.Assign):
             for tgt in sub.targets:
-                if (isinstance(tgt, ast.Subscript) and isinstance(tgt.value, ast.Attribute)
-                        and tgt.value.attr == "modules"
-                        and isinstance(tgt.value.value, ast.Name) and tgt.value.value.id == "sys"):
+                if (
+                    isinstance(tgt, ast.Subscript)
+                    and isinstance(tgt.value, ast.Attribute)
+                    and tgt.value.attr == "modules"
+                    and isinstance(tgt.value.value, ast.Name)
+                    and tgt.value.value.id == "sys"
+                ):
                     return True
         if isinstance(sub, ast.Call):
             f = sub.func
             if isinstance(f, ast.Attribute):
                 # sys.modules.update(...)
-                if (f.attr == "update" and isinstance(f.value, ast.Attribute)
-                        and f.value.attr == "modules"
-                        and isinstance(f.value.value, ast.Name) and f.value.value.id == "sys"):
+                if (
+                    f.attr == "update"
+                    and isinstance(f.value, ast.Attribute)
+                    and f.value.attr == "modules"
+                    and isinstance(f.value.value, ast.Name)
+                    and f.value.value.id == "sys"
+                ):
                     return True
                 # <mod>.__dict__.update(...) / .clear()  -- module __dict__ swap
                 if f.attr in ("update", "clear") and isinstance(f.value, ast.Attribute) and f.value.attr == "__dict__":
@@ -121,7 +141,7 @@ def _node_has_restore(node: ast.AST) -> bool:
                 if f.attr == "addfinalizer":
                     return True
                 # subprocess.run(...)
-                if (f.attr == "run" and isinstance(f.value, ast.Name) and f.value.id == "subprocess"):
+                if f.attr == "run" and isinstance(f.value, ast.Name) and f.value.id == "subprocess":
                     return True
     return False
 
@@ -219,10 +239,7 @@ def _collect_unsafe_sites() -> list[tuple[str, int, str, bool]]:
 def test_no_unpaired_module_reload_in_tests():
     sites = _collect_unsafe_sites()
     if sites:
-        formatted = "\n  ".join(
-            f"{p}:{l} ({prim})" + ("  [!! reloads a singleton-owning mlframe module]" if sing else "")
-            for p, l, prim, sing in sites[:30]
-        )
+        formatted = "\n  ".join(f"{p}:{l} ({prim})" + ("  [!! reloads a singleton-owning mlframe module]" if sing else "") for p, l, prim, sing in sites[:30])
         more = f"\n  ... and {len(sites) - 30} more" if len(sites) > 30 else ""
         pytest.fail(
             f"{len(sites)} test reload site(s) lack a snapshot+restore mechanism reachable from the "
@@ -230,8 +247,7 @@ def test_no_unpaired_module_reload_in_tests():
             f"without snapshot/restore' this is a cross-test pollution risk. Restore in the same "
             f"function (finally / addfinalizer), a requested fixture, an autouse fixture, or isolate "
             f"the reload in a subprocess. Reloads of singleton-owning modules need subprocess "
-            f"isolation (a __dict__ swap does not rebuild the captured singleton).\n  "
-            + formatted + more
+            f"isolation (a __dict__ swap does not rebuild the captured singleton).\n  " + formatted + more
         )
 
 
@@ -239,6 +255,5 @@ def test_known_stub_only_files_actually_exist():
     """Guard against the allowlist going stale (file renames / removals)."""
     for rel in _KNOWN_STUB_ONLY_FILES:
         assert (TESTS_DIR / rel).exists(), (
-            f"_KNOWN_STUB_ONLY_FILES entry {rel!r} no longer exists; prune the "
-            f"allowlist in tests/test_meta/test_no_unsafe_module_reload.py"
+            f"_KNOWN_STUB_ONLY_FILES entry {rel!r} no longer exists; prune the allowlist in tests/test_meta/test_no_unsafe_module_reload.py"
         )

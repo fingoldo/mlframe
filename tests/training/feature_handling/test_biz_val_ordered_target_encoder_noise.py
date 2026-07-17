@@ -8,6 +8,7 @@ raw target value) -- a spurious train-set correlation that doesn't generalize. I
 noise into the encoding should shrink this train/test generalization gap on a synthetic where the category
 has NO real relationship to the target (pure overfitting signal, isolated from any genuine category effect).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -18,6 +19,7 @@ from mlframe.training.feature_handling.ordered_target_encoder import ordered_tar
 
 
 def _make_noninformative_high_cardinality_data(n: int, n_categories: int, seed: int):
+    """Build a high-cardinality categorical column with target-independent y, isolating pure overfitting signal."""
     rng = np.random.default_rng(seed)
     cats = rng.integers(0, n_categories, n)
     order = np.arange(n)
@@ -26,10 +28,12 @@ def _make_noninformative_high_cardinality_data(n: int, n_categories: int, seed: 
 
 
 def test_biz_val_ordered_target_encode_noise_shrinks_overfitting_gap():
+    """noise_std=0.8 shrinks the train/test RMSE gap by >=15% vs noise_std=0.0 on a non-informative high-card column."""
     cats, order, y = _make_noninformative_high_cardinality_data(n=1500, n_categories=750, seed=5)
     train_idx, test_idx = np.arange(0, 1100), np.arange(1100, 1500)
 
     def _fit_and_gap(noise_std: float) -> float:
+        """Encode with the given noise_std, fit an LGBM regressor, and return the test-minus-train RMSE gap."""
         enc = ordered_target_encode(cats, y, order=order, smoothing=0.01, noise_std=noise_std, random_state=1).reshape(-1, 1)
         model = LGBMRegressor(n_estimators=100, num_leaves=63, min_child_samples=1, random_state=0, verbose=-1)
         model.fit(enc[train_idx], y[train_idx])
@@ -40,10 +44,13 @@ def test_biz_val_ordered_target_encode_noise_shrinks_overfitting_gap():
     gap_no_noise = _fit_and_gap(noise_std=0.0)
     gap_with_noise = _fit_and_gap(noise_std=0.8)
 
-    assert gap_with_noise < gap_no_noise * 0.85, f"expected noise injection to shrink the train/test overfitting gap by >=15%, got with_noise={gap_with_noise:.4f} no_noise={gap_no_noise:.4f}"
+    assert gap_with_noise < gap_no_noise * 0.85, (
+        f"expected noise injection to shrink the train/test overfitting gap by >=15%, got with_noise={gap_with_noise:.4f} no_noise={gap_no_noise:.4f}"
+    )
 
 
 def test_ordered_target_encode_noise_std_zero_is_deterministic_and_matches_baseline():
+    """noise_std=0.0 is bit-identical to omitting the noise_std/random_state kwargs entirely."""
     cats, order, y = _make_noninformative_high_cardinality_data(n=200, n_categories=50, seed=0)
     baseline = ordered_target_encode(cats, y, order=order, smoothing=1.0)
     zero_noise = ordered_target_encode(cats, y, order=order, smoothing=1.0, noise_std=0.0, random_state=0)
@@ -51,6 +58,7 @@ def test_ordered_target_encode_noise_std_zero_is_deterministic_and_matches_basel
 
 
 def test_ordered_target_encode_noise_is_reproducible_with_fixed_seed():
+    """Two calls with the same random_state produce bit-identical noisy encodings."""
     cats, order, y = _make_noninformative_high_cardinality_data(n=200, n_categories=50, seed=0)
     enc_a = ordered_target_encode(cats, y, order=order, smoothing=1.0, noise_std=0.3, random_state=42)
     enc_b = ordered_target_encode(cats, y, order=order, smoothing=1.0, noise_std=0.3, random_state=42)

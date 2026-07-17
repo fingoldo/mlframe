@@ -9,6 +9,7 @@ The win is the round-trip reconstruction error ``inverse(forward(y))`` per regio
 4-regime synthetic. A regression that ignores ``region_adaptive_k`` (hardcodes a single region count) flattens the gap
 and FAILS the test.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -20,8 +21,8 @@ def _make_4_regime(n=2000, seed=0):
     """y = base + per-region offset; the offset is piecewise-constant across 4 base quantile bands."""
     rng = np.random.default_rng(seed)
     base = rng.uniform(0.0, 4.0, n)
-    region = np.clip(base.astype(int), 0, 3)            # 4 bands: [0,1),[1,2),[2,3),[3,4)
-    offset = np.array([0.0, 5.0, -5.0, 10.0])[region]   # strongly regime-dependent shift
+    region = np.clip(base.astype(int), 0, 3)  # 4 bands: [0,1),[1,2),[2,3),[3,4)
+    offset = np.array([0.0, 5.0, -5.0, 10.0])[region]  # strongly regime-dependent shift
     y = base + offset + 0.05 * rng.normal(size=n)
     return y, base
 

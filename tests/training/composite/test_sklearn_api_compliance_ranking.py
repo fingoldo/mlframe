@@ -7,6 +7,7 @@
   reachable (and raises a clear error when group is omitted), while behavior
   with an explicit group is unchanged.
 """
+
 from __future__ import annotations
 
 import numpy as np

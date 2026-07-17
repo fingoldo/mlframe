@@ -7,6 +7,7 @@ discard carry genuine complementary signal, exactly the pattern the home-credit 
 ("when we were running Bayesian to optimize the parameters, we save the predictions and use that as part
 of the oof").
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -30,9 +31,14 @@ def _make_composite_hpo_data(n: int, seed: int):
 def test_collect_oof_pool_off_by_default_leaves_field_none():
     X, y = _make_composite_hpo_data(200, seed=0)
     result = optimize_composite(
-        X, y, base_column="base", transform_candidates=("diff",),
+        X,
+        y,
+        base_column="base",
+        transform_candidates=("diff",),
         inner_factory=lambda: DecisionTreeRegressor(max_depth=3, random_state=0),
-        n_trials=3, cv=3, prefer_optuna=False,
+        n_trials=3,
+        cv=3,
+        prefer_optuna=False,
     )
     assert result.trial_oof_pool is None
 
@@ -41,9 +47,15 @@ def test_collect_oof_pool_returns_one_array_per_trial():
     X, y = _make_composite_hpo_data(200, seed=1)
     n_trials = 5
     result = optimize_composite(
-        X, y, base_column="base", transform_candidates=("diff", "ratio"),
+        X,
+        y,
+        base_column="base",
+        transform_candidates=("diff", "ratio"),
         inner_factory=lambda: DecisionTreeRegressor(max_depth=3, random_state=0),
-        n_trials=n_trials, cv=3, prefer_optuna=False, collect_oof_pool=True,
+        n_trials=n_trials,
+        cv=3,
+        prefer_optuna=False,
+        collect_oof_pool=True,
     )
     assert result.trial_oof_pool is not None
     assert len(result.trial_oof_pool) == n_trials
@@ -54,9 +66,15 @@ def test_collect_oof_pool_returns_one_array_per_trial():
 def test_collect_oof_pool_matches_trials_log_length_and_order():
     X, y = _make_composite_hpo_data(150, seed=2)
     result = optimize_composite(
-        X, y, base_column="base", transform_candidates=("diff",),
+        X,
+        y,
+        base_column="base",
+        transform_candidates=("diff",),
         inner_factory=lambda: DecisionTreeRegressor(max_depth=2, random_state=0),
-        n_trials=4, cv=3, prefer_optuna=False, collect_oof_pool=True,
+        n_trials=4,
+        cv=3,
+        prefer_optuna=False,
+        collect_oof_pool=True,
     )
     assert len(result.trial_oof_pool) == len(result.trials)
 
@@ -67,11 +85,17 @@ def test_biz_val_hpo_oof_stacking_pool_beats_single_best_trial_on_holdout():
 
     inner_spaces = {"max_depth": HPOSpace(kind="int", low=2, high=8)}
     result = optimize_composite(
-        X_train, y_train,
-        base_column="base", transform_candidates=("diff", "ratio", "linear_residual"),
+        X_train,
+        y_train,
+        base_column="base",
+        transform_candidates=("diff", "ratio", "linear_residual"),
         inner_factory=lambda: DecisionTreeRegressor(random_state=0),
         inner_spaces=inner_spaces,
-        n_trials=15, cv=4, prefer_optuna=False, collect_oof_pool=True, random_state=7,
+        n_trials=15,
+        cv=4,
+        prefer_optuna=False,
+        collect_oof_pool=True,
+        random_state=7,
     )
     assert result.trial_oof_pool is not None
 
@@ -91,7 +115,7 @@ def test_biz_val_hpo_oof_stacking_pool_beats_single_best_trial_on_holdout():
     top_trials = sorted(result.trials, key=lambda t: t[2])[:top_k]  # ascending RMSE, best first
 
     pool_preds = []
-    for (transform_name, inner_params, _score) in top_trials:
+    for transform_name, inner_params, _score in top_trials:
         est = _build_estimator(lambda: DecisionTreeRegressor(random_state=0), "base", transform_name, inner_params)
         est.fit(X_train, y_train)
         pool_preds.append(est.predict(X_holdout))
@@ -99,8 +123,7 @@ def test_biz_val_hpo_oof_stacking_pool_beats_single_best_trial_on_holdout():
     pool_rmse = float(np.sqrt(np.mean((pool_mean_pred - y_holdout) ** 2)))
 
     assert pool_rmse < best_rmse, (
-        f"HPO-trial-pool ensemble RMSE ({pool_rmse:.4f}) should beat the single best-trial RMSE "
-        f"({best_rmse:.4f}) on fresh holdout data"
+        f"HPO-trial-pool ensemble RMSE ({pool_rmse:.4f}) should beat the single best-trial RMSE ({best_rmse:.4f}) on fresh holdout data"
     )
 
 
@@ -123,11 +146,17 @@ def test_biz_val_select_oof_pool_ensemble_beats_single_best_and_naive_average():
     # in the pool -- the exact condition that made naive full-pool averaging lose in the tracked story.
     inner_spaces = {"max_depth": HPOSpace(kind="int", low=1, high=15)}
     result = optimize_composite(
-        X_train, y_train,
-        base_column="base", transform_candidates=("diff", "ratio", "linear_residual"),
+        X_train,
+        y_train,
+        base_column="base",
+        transform_candidates=("diff", "ratio", "linear_residual"),
         inner_factory=lambda: DecisionTreeRegressor(random_state=0),
         inner_spaces=inner_spaces,
-        n_trials=25, cv=4, prefer_optuna=False, collect_oof_pool=True, random_state=11,
+        n_trials=25,
+        cv=4,
+        prefer_optuna=False,
+        collect_oof_pool=True,
+        random_state=11,
     )
     assert result.trial_oof_pool is not None
 
@@ -145,13 +174,9 @@ def test_biz_val_select_oof_pool_ensemble_beats_single_best_and_naive_average():
     selection = result.select_ensemble_from_pool(y_train)
     selected_rmse = _rmse(y_train, selection.combined_oof)
 
-    assert selected_rmse < naive_rmse, (
-        f"select_ensemble_from_pool RMSE ({selected_rmse:.4f}) should beat naive full-pool averaging "
-        f"({naive_rmse:.4f})"
-    )
+    assert selected_rmse < naive_rmse, f"select_ensemble_from_pool RMSE ({selected_rmse:.4f}) should beat naive full-pool averaging ({naive_rmse:.4f})"
     assert selected_rmse <= best_rmse * 1.0001, (
-        f"select_ensemble_from_pool RMSE ({selected_rmse:.4f}) should be at least as good as single-best "
-        f"({best_rmse:.4f})"
+        f"select_ensemble_from_pool RMSE ({selected_rmse:.4f}) should be at least as good as single-best ({best_rmse:.4f})"
     )
 
     # Equivalence check: calling the module function directly (bypassing the convenience method) gives an

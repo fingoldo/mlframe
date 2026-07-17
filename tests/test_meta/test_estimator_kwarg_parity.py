@@ -135,10 +135,7 @@ def _is_routed(field_name: str, corpus: str) -> bool:
 def test_every_estimator_kwarg_routes_to_a_constructor():
     corpus = _consumer_corpus()
     fields = _flavor_kwargs_fields()
-    assert fields, (
-        "no <flavor>_kwargs fields found — class enumeration broken or naming "
-        "convention changed (test should be updated)."
-    )
+    assert fields, "no <flavor>_kwargs fields found — class enumeration broken or naming convention changed (test should be updated)."
 
     unrouted: list[tuple[str, str]] = []
     for cls, field_name in fields:

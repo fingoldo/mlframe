@@ -24,6 +24,7 @@ This test pins:
       (rng state preserved via reset between the two builds).
   (2) frame builds successfully at n=50k with a text column.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -31,10 +32,30 @@ import pytest
 
 
 _TEXT_VOCAB = [
-    "python", "rust", "golang", "java", "swift", "kotlin",
-    "backend", "frontend", "devops", "mlops", "dataeng", "platform",
-    "cloud", "edge", "realtime", "batch", "stream", "vector",
-    "search", "nlp", "vision", "audio", "robotics", "quantum",
+    "python",
+    "rust",
+    "golang",
+    "java",
+    "swift",
+    "kotlin",
+    "backend",
+    "frontend",
+    "devops",
+    "mlops",
+    "dataeng",
+    "platform",
+    "cloud",
+    "edge",
+    "realtime",
+    "batch",
+    "stream",
+    "vector",
+    "search",
+    "nlp",
+    "vision",
+    "audio",
+    "robotics",
+    "quantum",
 ]
 
 
@@ -82,6 +103,7 @@ def test_build_frame_for_combo_with_text_col_does_not_oom_at_50k():
         pytest.skip("no combo with text_col_count>0 + cb + auto_detect_cats in 150-combo pool")
 
     import dataclasses
+
     small = dataclasses.replace(text_combo, n_rows=50_000)
     df, _, _ = build_frame_for_combo(small)
     text_cols = [c for c in df.columns if c.startswith("text_")]

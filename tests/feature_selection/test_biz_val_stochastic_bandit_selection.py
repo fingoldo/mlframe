@@ -7,6 +7,7 @@ comparison against a plain (non-adaptive) random-subset search at the same epoch
 correct, honest validation is a MULTI-SEED AVERAGE (does the adaptive weighting help on average, not does it
 win every single run).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -65,7 +66,9 @@ def test_biz_val_bandit_selection_beats_plain_random_search_on_average():
     mean_bandit = float(np.mean(bandit_scores))
     mean_random = float(np.mean(random_scores))
 
-    assert mean_bandit > mean_random, f"expected adaptive-weighted search to beat plain random search on average across {n_seeds} seeds, got bandit={mean_bandit:.4f} random={mean_random:.4f}"
+    assert mean_bandit > mean_random, (
+        f"expected adaptive-weighted search to beat plain random search on average across {n_seeds} seeds, got bandit={mean_bandit:.4f} random={mean_random:.4f}"
+    )
     assert mean_bandit >= 0.96, f"expected the bandit selector to recover a strong held-out R2, got {mean_bandit:.4f}"
 
 

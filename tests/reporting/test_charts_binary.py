@@ -24,7 +24,10 @@ from mlframe.reporting.charts.binary import (
     _threshold_sweep,
 )
 from mlframe.reporting.spec import (
-    AnnotationPanelSpec, FigureSpec, HistogramPanelSpec, LinePanelSpec,
+    AnnotationPanelSpec,
+    FigureSpec,
+    HistogramPanelSpec,
+    LinePanelSpec,
 )
 
 
@@ -47,9 +50,7 @@ def _separable(n=4000, sep=2.5, seed=0):
 
 
 def test_allowed_tokens_and_default_template():
-    assert ALLOWED_BINARY_PANEL_TOKENS == frozenset(
-        {"ROC", "PR", "SCORE_DIST", "KS", "THRESHOLD", "GAIN", "PIT"}
-    )
+    assert ALLOWED_BINARY_PANEL_TOKENS == frozenset({"ROC", "PR", "SCORE_DIST", "KS", "THRESHOLD", "GAIN", "PIT"})
     assert DEFAULT_BINARY_PANELS.split() == ["ROC", "PR", "SCORE_DIST", "KS", "THRESHOLD", "GAIN"]
 
 
@@ -169,7 +170,7 @@ def test_single_class_degenerates_to_annotation():
 def test_finite_binary_drops_non_finite_and_out_of_range_labels():
     y = np.array([0, 1, 2, 1, 0])
     s = np.array([0.1, np.nan, 0.5, 0.8, 0.3])
-    yt, ys = _finite_binary(y, s)
+    yt, _ys = _finite_binary(y, s)
     # row 1 dropped (nan score), row 2 dropped (label 2 not in {0,1})
     assert len(yt) == 3
     assert set(np.unique(yt).tolist()) <= {0, 1}
@@ -483,7 +484,7 @@ def test_decile_table_figure_tiny_n_bins_to_fewer_rows():
     y = np.array([0, 1, 1, 0, 1], dtype=np.int8)
     s = np.array([0.1, 0.9, 0.8, 0.2, 0.7])
     fig = binary_decile_table_figure(y, s, n_deciles=10)
-    headers, body = _decile_table_cells(fig)
+    _headers, body = _decile_table_cells(fig)
     assert len(body) == 5 + 1  # 5 bins + TOTAL
     assert "5 bins" in fig.axes[0].get_title()
 
@@ -528,8 +529,7 @@ def test_biz_val_decile_gain_matches_gain_curve_at_decile_fractions():
     gain_curve = sort.cum_tp.astype(np.float64) / sort.n_pos
     fracs = (np.arange(1, 11) * sort.n / 10).round().astype(np.int64)
     curve_at_deciles = gain_curve[fracs - 1]
-    assert np.allclose(t["gain"], curve_at_deciles, atol=1e-12), \
-        f"table gain {t['gain']} diverges from GAIN curve {curve_at_deciles}"
+    assert np.allclose(t["gain"], curve_at_deciles, atol=1e-12), f"table gain {t['gain']} diverges from GAIN curve {curve_at_deciles}"
 
 
 def test_biz_val_decile_ks_peaks_in_top_three_deciles_for_strong_model():
@@ -583,7 +583,7 @@ def test_roc_panel_carries_operating_point_marker():
     y, s = _separable()
     (panel,) = _flat(compose_binary_figure(y, s, panels_template="ROC", threshold=0.5))
     assert panel.point_markers is not None and len(panel.point_markers) == 1
-    mx, my, label, color, sym = panel.point_markers[0]
+    _mx, _my, label, _color, sym = panel.point_markers[0]
     assert label.startswith("thr=0.50:") and "TPR=" in label and "FPR=" in label
     assert sym == "*"
 
@@ -650,7 +650,7 @@ def test_operating_point_uses_searchsorted_not_full_pass():
     sort = _ScoreSort(yt, ys)
     for thr in (0.9, 0.5, 0.2, 0.1):
         op = _operating_point(sort, thr)
-        exp_fpr, exp_tpr, exp_rec, exp_prec = _confusion_rates(yt, ys, thr)
+        exp_fpr, exp_tpr, _exp_rec, exp_prec = _confusion_rates(yt, ys, thr)
         assert op[0] == pytest.approx(exp_fpr, abs=1e-12)
         assert op[1] == pytest.approx(exp_tpr, abs=1e-12)
         assert op[3] == pytest.approx(exp_prec, abs=1e-12)
@@ -665,8 +665,7 @@ def test_biz_val_operating_point_moves_monotonically_with_threshold():
     sort = _ScoreSort(yt, ys)
     thresholds = [0.2, 0.4, 0.6, 0.8]
     recalls = [_operating_point(sort, t)[1] for t in thresholds]
-    assert all(recalls[i] >= recalls[i + 1] - 1e-12 for i in range(len(recalls) - 1)), \
-        f"recall not monotone non-increasing with threshold: {recalls}"
+    assert all(recalls[i] >= recalls[i + 1] - 1e-12 for i in range(len(recalls) - 1)), f"recall not monotone non-increasing with threshold: {recalls}"
     # And a strictly higher threshold gives strictly lower recall somewhere along the sweep (not a flat line).
     assert recalls[0] > recalls[-1], f"recall did not drop from thr=0.2 ({recalls[0]}) to thr=0.8 ({recalls[-1]})"
 
@@ -675,6 +674,7 @@ def test_operating_point_marker_renders_on_matplotlib():
     """End-to-end: the ROC+PR markers must render without error through the matplotlib backend."""
     from mlframe.reporting.renderers.base import get_renderer
     import matplotlib
+
     matplotlib.use("Agg")
     y, s = _separable()
     fig_spec = compose_binary_figure(y, s, panels_template="ROC PR", threshold=0.5, ap_ci=False)
@@ -682,6 +682,7 @@ def test_operating_point_marker_renders_on_matplotlib():
     fig = rend.render(fig_spec)
     assert fig is not None
     import matplotlib.pyplot as plt
+
     plt.close(fig)
 
 

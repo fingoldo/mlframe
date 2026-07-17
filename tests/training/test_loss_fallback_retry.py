@@ -15,17 +15,17 @@ and refits with the RMSE-family default. RMSE is less robust to
 outliers but the training surface always has a usable gradient -- a
 non-trivial fit beats a constant-prediction collapse.
 """
+
 from __future__ import annotations
 
 import logging
-from typing import Any
 
-import pytest
 
 
 # ---------------------------------------------------------------------------
 # Stand-in booster: minimal CB / LGB / XGB interface needed by the helper.
 # ---------------------------------------------------------------------------
+
 
 class _StubBooster:
     """Records set_params + fit calls; emits configurable best_iter."""
@@ -56,7 +56,7 @@ class _StubBooster:
         # downstream callers (not exercised here) wouldn't break.
         self.__class__.__name__ = booster_type_name
 
-    def get_params(self, deep: bool = True) -> dict:  # noqa: ARG002
+    def get_params(self, deep: bool = True) -> dict:
         return dict(self._params)
 
     def set_params(self, **kwargs) -> "_StubBooster":
@@ -71,11 +71,7 @@ class _StubBooster:
 
     # ``get_model_best_iter`` calls these in order on CB / LGB / XGB.
     def get_best_iteration(self) -> int:
-        return (
-            self._best_iter_first
-            if self._fit_count <= 1
-            else self._best_iter_after_refit
-        )
+        return self._best_iter_first if self._fit_count <= 1 else self._best_iter_after_refit
 
     @property
     def best_iteration(self) -> int:
@@ -86,9 +82,11 @@ class _StubBooster:
 # Tests
 # ---------------------------------------------------------------------------
 
+
 class TestRefitOnDegenerateBestIter:
     def _call_helper(self, stub, *, model_type_name: str, best_iter: int):
         from mlframe.training._training_loop import _maybe_refit_on_degenerate_best_iter
+
         return _maybe_refit_on_degenerate_best_iter(
             model_obj=stub,
             model_type_name=model_type_name,
@@ -200,9 +198,7 @@ class TestRefitOnDegenerateBestIter:
         stub._params["iterations"] = 2
         new_best = self._call_helper(stub, model_type_name="CatBoostRegressor", best_iter=1)
         assert new_best is None
-        assert not stub.fit_history, (
-            "must not refit when user explicitly chose a tiny iteration budget"
-        )
+        assert not stub.fit_history, "must not refit when user explicitly chose a tiny iteration budget"
 
     def test_large_budget_with_iter1_refits(self):
         """User set ``iterations=1000`` and got best_iter=2: adaptive
@@ -222,9 +218,11 @@ class TestRefitOnDegenerateBestIter:
         """When set_params or fit raises (e.g. backend rejects RMSE on
         this build), the helper returns None and the original
         degenerate best_iter survives so the chart shows the truth."""
+
         class _RaisingStub(_StubBooster):
             def set_params(self, **kwargs):
                 raise ValueError("simulated backend rejection")
+
         stub = _RaisingStub(
             loss_param_key="loss_function",
             initial_loss="Huber:delta=1.345",

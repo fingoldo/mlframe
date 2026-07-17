@@ -19,15 +19,14 @@ unchanged.
 from __future__ import annotations
 
 import numpy as np
-import pandas as pd
 import pytest
 
 torch = pytest.importorskip("torch")
 L = pytest.importorskip("lightning.pytorch")
 
-from mlframe.training.neural.base import PytorchLightningClassifier  # noqa: E402
-from mlframe.training.neural.data import TorchDataModule  # noqa: E402
-from mlframe.training.neural.flat import MLPTorchModel  # noqa: E402
+from mlframe.training.neural.base import PytorchLightningClassifier
+from mlframe.training.neural.data import TorchDataModule
+from mlframe.training.neural.flat import MLPTorchModel
 
 
 def _build_classifier(n_features: int, max_epochs: int = 2) -> PytorchLightningClassifier:
@@ -58,9 +57,14 @@ def _build_classifier(n_features: int, max_epochs: int = 2) -> PytorchLightningC
         num_sanity_val_steps=0,
     )
     network_params = dict(
-        nlayers=2, first_layer_num_neurons=16, min_layer_neurons=4,
-        dropout_prob=0.0, inputs_dropout_prob=0.0,
-        use_layernorm=False, use_batchnorm=False, verbose=0,
+        nlayers=2,
+        first_layer_num_neurons=16,
+        min_layer_neurons=4,
+        dropout_prob=0.0,
+        inputs_dropout_prob=0.0,
+        use_layernorm=False,
+        use_batchnorm=False,
+        verbose=0,
     )
     return PytorchLightningClassifier(
         model_class=MLPTorchModel,
@@ -134,8 +138,6 @@ def test_estimator_params_not_mutated_by_multilabel_fit():
     clf.fit(X_ml, y_ml)
     # The original constructor params are untouched.
     assert clf.model_params["loss_fn"] is pre_loss_fn, "model_params['loss_fn'] mutated"
-    assert clf.datamodule_params["labels_dtype"] is pre_labels_dtype, (
-        "datamodule_params['labels_dtype'] mutated"
-    )
+    assert clf.datamodule_params["labels_dtype"] is pre_labels_dtype, "datamodule_params['labels_dtype'] mutated"
     assert pre_loss_fn is F.cross_entropy
     assert pre_labels_dtype is torch.int64

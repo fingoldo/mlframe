@@ -44,9 +44,10 @@ Contracts pinned
 
 Consolidated verbatim from test_biz_value_mrmr_layer57.py (per audit finding test_code_quality-16).
 """
+
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 import warnings
 
 import numpy as np
@@ -63,11 +64,13 @@ SEEDS = (1, 7, 13, 42, 101)
 
 
 def _import_adaptive_fe():
+    """Lazily import the Layer-57 adaptive-degree FE triad."""
     from mlframe.feature_selection.filters._orthogonal_adaptive_degree_fe import (
         generate_adaptive_degree_basis_features,
         hybrid_orth_mi_adaptive_degree_fe,
         hybrid_orth_mi_adaptive_degree_fe_with_recipes,
     )
+
     return (
         generate_adaptive_degree_basis_features,
         hybrid_orth_mi_adaptive_degree_fe,
@@ -76,9 +79,11 @@ def _import_adaptive_fe():
 
 
 def _import_univariate_fe():
+    """Lazily import the Layer-21 fixed-degree univariate FE function."""
     from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
         generate_univariate_basis_features,
     )
+
     return generate_univariate_basis_features
 
 
@@ -112,10 +117,13 @@ def _build_mixed_degree_signal(seed: int, n: int = 3000):
     s1 = _hermite_he(x1, 2)
     s2 = _hermite_he(x2, 4)
     s3 = _hermite_he(x3, 6)
+
     # Normalise each contribution so the target is balanced.
     def _z(v):
+        """Standard-deviation-normalize a component so all signal terms carry similar weight."""
         sd = float(np.std(v))
         return v / sd if sd > 1e-12 else v
+
     sig = _z(s1) + _z(s2) + _z(s3) + 0.2 * rng.standard_normal(n)
     y = (sig > np.median(sig)).astype(int)
     return X, pd.Series(y, name="y")
@@ -124,9 +132,7 @@ def _build_mixed_degree_signal(seed: int, n: int = 3000):
 def _build_noise_only(seed: int, n: int = 2000, p: int = 6):
     """Pure-noise frame: p Gaussian columns, y is independent Bernoulli."""
     rng = np.random.default_rng(seed)
-    X = pd.DataFrame({
-        f"x{i}": rng.standard_normal(n) for i in range(p)
-    })
+    X = pd.DataFrame({f"x{i}": rng.standard_normal(n) for i in range(p)})
     y = (rng.standard_normal(n) > 0).astype(int)
     return X, pd.Series(y, name="y")
 
@@ -146,9 +152,12 @@ def _build_mixed_signal_with_noise(seed: int, n: int = 3000):
     s1 = _hermite_he(x1, 2)
     s2 = _hermite_he(x2, 4)
     s3 = _hermite_he(x3, 6)
+
     def _z(v):
+        """Standard-deviation-normalize a component so all signal terms carry similar weight."""
         sd = float(np.std(v))
         return v / sd if sd > 1e-12 else v
+
     sig = _z(s1) + _z(s2) + _z(s3) + 0.2 * rng.standard_normal(n)
     y = (sig > np.median(sig)).astype(int)
     return X, pd.Series(y, name="y")
@@ -160,13 +169,15 @@ def _build_linear(seed: int, n: int = 1500):
     rng = np.random.default_rng(seed)
     x1 = rng.standard_normal(n)
     x2 = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "x1": x1,
-        "x2": x2,
-        "noise_a": rng.standard_normal(n),
-        "noise_b": rng.standard_normal(n),
-        "noise_c": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "x1": x1,
+            "x2": x2,
+            "noise_a": rng.standard_normal(n),
+            "noise_b": rng.standard_normal(n),
+            "noise_c": rng.standard_normal(n),
+        }
+    )
     y = ((x1 + 0.7 * x2) > 0).astype(int)
     return X, pd.Series(y, name="y")
 
@@ -177,13 +188,16 @@ def _build_linear(seed: int, n: int = 1500):
 
 
 class TestPerColumnDegreeSelection:
+    """The per-column argmax over degree_range must recover each source's true Hermite degree."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_picks_correct_degree_per_column(self, seed):
+        """Adaptive degree selection recovers He_2/He_4/He_6 for x1/x2/x3 respectively."""
         gen_adaptive, _, _ = _import_adaptive_fe()
         X, y = _build_mixed_degree_signal(seed)
-        eng, meta = gen_adaptive(
-            X, y.values,
+        _eng, meta = gen_adaptive(
+            X,
+            y.values,
             cols=["x1", "x2", "x3"],
             degree_range=(2, 3, 4, 5, 6),
             basis="hermite",
@@ -194,34 +208,21 @@ class TestPerColumnDegreeSelection:
         per_source_degree = {info["src"]: info["degree"] for info in meta.values()}
         # The strongest 2 should always be present; the weakest may occasionally
         # tie with a sibling at small n. Pin a strict 3/3 hit at n=3000.
-        assert "x1" in per_source_degree, (
-            f"seed={seed}: x1 should survive uplift gate; meta={meta}"
-        )
-        assert "x2" in per_source_degree, (
-            f"seed={seed}: x2 should survive uplift gate; meta={meta}"
-        )
-        assert "x3" in per_source_degree, (
-            f"seed={seed}: x3 should survive uplift gate; meta={meta}"
-        )
-        assert per_source_degree["x1"] == 2, (
-            f"seed={seed}: x1 best degree should be 2 (He_2 quadratic); "
-            f"got {per_source_degree['x1']}; meta={meta}"
-        )
-        assert per_source_degree["x2"] == 4, (
-            f"seed={seed}: x2 best degree should be 4 (He_4 quartic); "
-            f"got {per_source_degree['x2']}; meta={meta}"
-        )
-        assert per_source_degree["x3"] == 6, (
-            f"seed={seed}: x3 best degree should be 6 (He_6 sextic); "
-            f"got {per_source_degree['x3']}; meta={meta}"
-        )
+        assert "x1" in per_source_degree, f"seed={seed}: x1 should survive uplift gate; meta={meta}"
+        assert "x2" in per_source_degree, f"seed={seed}: x2 should survive uplift gate; meta={meta}"
+        assert "x3" in per_source_degree, f"seed={seed}: x3 should survive uplift gate; meta={meta}"
+        assert per_source_degree["x1"] == 2, f"seed={seed}: x1 best degree should be 2 (He_2 quadratic); got {per_source_degree['x1']}; meta={meta}"
+        assert per_source_degree["x2"] == 4, f"seed={seed}: x2 best degree should be 4 (He_4 quartic); got {per_source_degree['x2']}; meta={meta}"
+        assert per_source_degree["x3"] == 6, f"seed={seed}: x3 best degree should be 6 (He_6 sextic); got {per_source_degree['x3']}; meta={meta}"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_emits_one_column_per_surviving_source(self, seed):
+        """At most one engineered column survives per source column."""
         gen_adaptive, _, _ = _import_adaptive_fe()
         X, y = _build_mixed_degree_signal(seed)
         eng, meta = gen_adaptive(
-            X, y.values,
+            X,
+            y.values,
             cols=["x1", "x2", "x3"],
             degree_range=(2, 3, 4, 5, 6),
             basis="hermite",
@@ -229,13 +230,8 @@ class TestPerColumnDegreeSelection:
         )
         # one row per surviving source -- no per-source duplicates
         srcs = [info["src"] for info in meta.values()]
-        assert len(srcs) == len(set(srcs)), (
-            f"seed={seed}: adaptive must emit at most one column per source; "
-            f"got duplicates in {srcs}"
-        )
-        assert eng.shape[1] == len(meta), (
-            f"seed={seed}: engineered frame shape mismatches meta length"
-        )
+        assert len(srcs) == len(set(srcs)), f"seed={seed}: adaptive must emit at most one column per source; got duplicates in {srcs}"
+        assert eng.shape[1] == len(meta), f"seed={seed}: engineered frame shape mismatches meta length"
 
 
 # ---------------------------------------------------------------------------
@@ -244,6 +240,7 @@ class TestPerColumnDegreeSelection:
 
 
 class TestSkipNoUplift:
+    """Pure-noise columns must be dropped or, if surviving by chance, sit at the noise floor."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_noise_only_emits_at_most_noise_floor_columns(self, seed):
@@ -260,7 +257,8 @@ class TestSkipNoUplift:
         gen_adaptive, _, _ = _import_adaptive_fe()
         X, y = _build_noise_only(seed)
         eng, meta = gen_adaptive(
-            X, y.values,
+            X,
+            y.values,
             cols=list(X.columns),
             degree_range=(2, 3, 4, 5, 6),
             basis="hermite",
@@ -268,39 +266,36 @@ class TestSkipNoUplift:
         )
         # Per-source uniqueness: at most one column per source survives.
         srcs = [info["src"] for info in meta.values()]
-        assert len(srcs) == len(set(srcs)), (
-            f"seed={seed}: per-source argmax must emit at most one column "
-            f"per source; got duplicates in {srcs}"
-        )
+        assert len(srcs) == len(set(srcs)), f"seed={seed}: per-source argmax must emit at most one column per source; got duplicates in {srcs}"
         # Bound the count: never more than the input source count.
         n_sources = X.shape[1]
         assert eng.shape[1] <= n_sources, (
-            f"seed={seed}: adaptive on noise should emit <= n_sources={n_sources} "
-            f"columns; got {eng.shape[1]}: {list(eng.columns)}"
+            f"seed={seed}: adaptive on noise should emit <= n_sources={n_sources} columns; got {eng.shape[1]}: {list(eng.columns)}"
         )
         # Engineered MI must remain at the noise floor (well below any
         # real-signal MI which is typically >= 0.05 nats at n=2000).
         for name, info in meta.items():
             assert info["engineered_mi"] < 0.05, (
-                f"seed={seed}: noise survivor {name!r} has engineered_mi "
-                f"{info['engineered_mi']:.4f} -- should sit at noise floor "
-                f"(< 0.05 nats)"
+                f"seed={seed}: noise survivor {name!r} has engineered_mi {info['engineered_mi']:.4f} -- should sit at noise floor (< 0.05 nats)"
             )
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_skip_outperforms_fixed_sweep_on_noise(self, seed):
+        """On pure noise, adaptive emits strictly fewer candidate columns than the fixed degree sweep."""
         gen_adaptive, _, _ = _import_adaptive_fe()
         gen_fixed = _import_univariate_fe()
         X, y = _build_noise_only(seed, p=6)
         eng_ad, _ = gen_adaptive(
-            X, y.values,
+            X,
+            y.values,
             cols=list(X.columns),
             degree_range=(2, 3, 4, 5, 6),
             basis="hermite",
             min_uplift=1.05,
         )
         eng_fixed = gen_fixed(
-            X, cols=list(X.columns),
+            X,
+            cols=list(X.columns),
             degrees=(2, 3, 4, 5, 6),
             basis="hermite",
             dedup_collinear_sources=False,  # keep all columns fairly
@@ -310,8 +305,7 @@ class TestSkipNoUplift:
         # uplift gate drops most sources; survivors are capped at one per
         # source by the per-col argmax).
         assert eng_ad.shape[1] < eng_fixed.shape[1], (
-            f"seed={seed}: on pure noise adaptive should emit < fixed sweep; "
-            f"adaptive={eng_ad.shape[1]}, fixed={eng_fixed.shape[1]}"
+            f"seed={seed}: on pure noise adaptive should emit < fixed sweep; adaptive={eng_ad.shape[1]}, fixed={eng_fixed.shape[1]}"
         )
 
 
@@ -321,9 +315,11 @@ class TestSkipNoUplift:
 
 
 class TestLogRegLift:
+    """Adaptive-degree FE augmentation must lift downstream LogReg holdout AUC on a mixed-degree target."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_augmented_logreg_beats_raw(self, seed):
+        """Augmented LogReg beats raw LogReg by at least 0.05 holdout AUC on the mixed-degree-plus-noise fixture."""
         _, hybrid, _ = _import_adaptive_fe()
         X, y = _build_mixed_signal_with_noise(seed, n=4000)
         n_train = 2800
@@ -332,14 +328,14 @@ class TestLogRegLift:
         # Baseline: raw LogReg on all 20 columns. Linear LogReg cannot
         # solve the He_4 / He_6 components -- AUC well below 1.0.
         m_raw = LogisticRegression(max_iter=500).fit(
-            Xtr.to_numpy(), ytr.to_numpy(),
+            Xtr.to_numpy(),
+            ytr.to_numpy(),
         )
-        auc_raw = roc_auc_score(
-            yte.to_numpy(), m_raw.predict_proba(Xte.to_numpy())[:, 1]
-        )
+        auc_raw = roc_auc_score(yte.to_numpy(), m_raw.predict_proba(Xte.to_numpy())[:, 1])
         # Augmented: adaptive-degree FE on the full frame, then refit LogReg.
         X_aug, _ = hybrid(
-            X, y.values,
+            X,
+            y.values,
             cols=list(X.columns),
             degree_range=(2, 3, 4, 5, 6),
             basis="hermite",
@@ -348,15 +344,11 @@ class TestLogRegLift:
         Xtr_aug = X_aug.iloc[:n_train]
         Xte_aug = X_aug.iloc[n_train:]
         m_aug = LogisticRegression(max_iter=500).fit(
-            Xtr_aug.to_numpy(), ytr.to_numpy(),
+            Xtr_aug.to_numpy(),
+            ytr.to_numpy(),
         )
-        auc_aug = roc_auc_score(
-            yte.to_numpy(), m_aug.predict_proba(Xte_aug.to_numpy())[:, 1]
-        )
-        assert auc_aug >= auc_raw + 0.05, (
-            f"seed={seed}: adaptive-degree FE should lift LogReg AUC by "
-            f">= 0.05. raw={auc_raw:.3f}, aug={auc_aug:.3f}"
-        )
+        auc_aug = roc_auc_score(yte.to_numpy(), m_aug.predict_proba(Xte_aug.to_numpy())[:, 1])
+        assert auc_aug >= auc_raw + 0.05, f"seed={seed}: adaptive-degree FE should lift LogReg AUC by >= 0.05. raw={auc_raw:.3f}, aug={auc_aug:.3f}"
 
 
 # ---------------------------------------------------------------------------
@@ -365,20 +357,24 @@ class TestLogRegLift:
 
 
 class TestComparedToFixedDegrees:
+    """Adaptive selection must emit strictly fewer candidate columns than the fixed-degree sweep."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_adaptive_emits_fewer_columns(self, seed):
+        """Adaptive emits at most one column per source, strictly fewer than the fixed 3*5 sweep."""
         gen_adaptive, _, _ = _import_adaptive_fe()
         gen_fixed = _import_univariate_fe()
         X, _ = _build_mixed_degree_signal(seed)
         _, y = _build_mixed_degree_signal(seed)
         eng_fixed = gen_fixed(
-            X, cols=["x1", "x2", "x3"],
+            X,
+            cols=["x1", "x2", "x3"],
             degrees=(2, 3, 4, 5, 6),
             basis="hermite",
         )
         eng_ad, _ = gen_adaptive(
-            X, y.values,
+            X,
+            y.values,
             cols=["x1", "x2", "x3"],
             degree_range=(2, 3, 4, 5, 6),
             basis="hermite",
@@ -386,17 +382,10 @@ class TestComparedToFixedDegrees:
         )
         # Fixed sweep: 3 cols * 5 degrees = 15. Adaptive: at most 3 cols
         # (one per source).
-        assert eng_fixed.shape[1] == 15, (
-            f"seed={seed}: fixed sweep should emit 15 cols (3 * 5); got "
-            f"{eng_fixed.shape[1]}"
-        )
-        assert eng_ad.shape[1] <= 3, (
-            f"seed={seed}: adaptive should emit at most 3 cols (one per "
-            f"source); got {eng_ad.shape[1]}: {list(eng_ad.columns)}"
-        )
+        assert eng_fixed.shape[1] == 15, f"seed={seed}: fixed sweep should emit 15 cols (3 * 5); got {eng_fixed.shape[1]}"
+        assert eng_ad.shape[1] <= 3, f"seed={seed}: adaptive should emit at most 3 cols (one per source); got {eng_ad.shape[1]}: {list(eng_ad.columns)}"
         assert eng_ad.shape[1] < eng_fixed.shape[1], (
-            f"seed={seed}: adaptive must emit strictly fewer columns than "
-            f"the fixed sweep; ad={eng_ad.shape[1]}, fixed={eng_fixed.shape[1]}"
+            f"seed={seed}: adaptive must emit strictly fewer columns than the fixed sweep; ad={eng_ad.shape[1]}, fixed={eng_fixed.shape[1]}"
         )
 
 
@@ -406,21 +395,22 @@ class TestComparedToFixedDegrees:
 
 
 class TestDefaultDisabledByteIdentical:
+    """fe_hybrid_orth_adaptive_degree_enable defaults to False; enabling it must fire and append columns."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_default_off_no_adaptive_columns(self, seed):
+        """With the flag left at its False default, no adaptive-degree columns are appended."""
         X, y = _build_linear(seed)
         m = _make_mrmr().fit(X, y)
         # No adaptive-degree-engineered columns surfaced.
         adaptive_added = list(getattr(m, "hybrid_orth_features_", []) or [])
         assert adaptive_added == [], (
-            f"seed={seed}: default fe_hybrid_orth_adaptive_degree_enable=False "
-            f"should NOT append any engineered columns; got "
-            f"{adaptive_added}"
+            f"seed={seed}: default fe_hybrid_orth_adaptive_degree_enable=False should NOT append any engineered columns; got {adaptive_added}"
         )
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_enable_adaptive_appends_engineered(self, seed):
+        """Enabling the adaptive-degree flag appends at least one engineered column on the mixed-degree fixture."""
         # Use the mixed-degree signal (n=2000) so the adaptive stage has
         # enough rows to clear the per-col uplift gate cleanly.
         X, y = _build_mixed_degree_signal(seed, n=2000)
@@ -431,10 +421,7 @@ class TestDefaultDisabledByteIdentical:
             fe_hybrid_orth_basis="hermite",
         ).fit(X, y)
         added = list(getattr(m, "hybrid_orth_features_", []) or [])
-        assert added, (
-            f"seed={seed}: adaptive flag ON should append at least one "
-            f"engineered column to hybrid_orth_features_; got {added}"
-        )
+        assert added, f"seed={seed}: adaptive flag ON should append at least one engineered column to hybrid_orth_features_; got {added}"
 
 
 # ---------------------------------------------------------------------------
@@ -443,8 +430,10 @@ class TestDefaultDisabledByteIdentical:
 
 
 class TestPickleAndClone:
+    """Adaptive-degree ctor params and chosen-degree recipes must survive clone/pickle round-trips."""
 
     def test_clone_preserves_adaptive_params(self):
+        """sklearn clone() copies every fe_hybrid_orth_adaptive_degree_* ctor param."""
         m = _make_mrmr(
             fe_hybrid_orth_adaptive_degree_enable=True,
             fe_hybrid_orth_adaptive_degree_range=(2, 4, 6),
@@ -456,12 +445,10 @@ class TestPickleAndClone:
             ("fe_hybrid_orth_adaptive_degree_range", (2, 4, 6)),
             ("fe_hybrid_orth_adaptive_degree_min_uplift", 1.2),
         ]:
-            assert getattr(m2, name) == expected, (
-                f"clone() dropped {name}: expected {expected}, got "
-                f"{getattr(m2, name)}"
-            )
+            assert getattr(m2, name) == expected, f"clone() dropped {name}: expected {expected}, got {getattr(m2, name)}"
 
     def test_pickle_roundtrip_preserves_chosen_degrees(self):
+        """A pickle round-trip preserves feature names and each recipe's chosen degree/basis."""
         X, y = _build_mixed_degree_signal(seed=42, n=2000)
         m = _make_mrmr(
             fe_hybrid_orth_adaptive_degree_enable=True,
@@ -470,37 +457,22 @@ class TestPickleAndClone:
             fe_hybrid_orth_basis="hermite",
         ).fit(X, y)
         blob = pickle.dumps(m)
-        m2 = pickle.loads(blob)
-        assert list(m2.feature_names_in_) == list(m.feature_names_in_), (
-            "pickle changed feature_names_in_"
-        )
+        m2 = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
+        assert list(m2.feature_names_in_) == list(m.feature_names_in_), "pickle changed feature_names_in_"
         added_before = list(getattr(m, "hybrid_orth_features_", []) or [])
         added_after = list(getattr(m2, "hybrid_orth_features_", []) or [])
-        assert added_before == added_after, (
-            f"pickle changed hybrid_orth_features_: before={added_before}, "
-            f"after={added_after}"
-        )
+        assert added_before == added_after, f"pickle changed hybrid_orth_features_: before={added_before}, after={added_after}"
         # Recipes survive: each engineered col name encodes the chosen
         # degree, so a pickle round-trip preserving names also preserves
         # the per-column chosen degree.
-        recipes_before = {
-            r.name: r for r in getattr(m, "_engineered_recipes_", []) or []
-            if r.kind == "orth_univariate"
-        }
-        recipes_after = {
-            r.name: r for r in getattr(m2, "_engineered_recipes_", []) or []
-            if r.kind == "orth_univariate"
-        }
+        recipes_before = {r.name: r for r in getattr(m, "_engineered_recipes_", []) or [] if r.kind == "orth_univariate"}
+        recipes_after = {r.name: r for r in getattr(m2, "_engineered_recipes_", []) or [] if r.kind == "orth_univariate"}
         assert set(recipes_before.keys()) == set(recipes_after.keys()), (
-            f"pickle dropped or added recipe names: before="
-            f"{set(recipes_before.keys())}, after={set(recipes_after.keys())}"
+            f"pickle dropped or added recipe names: before={set(recipes_before.keys())}, after={set(recipes_after.keys())}"
         )
         for name, r_before in recipes_before.items():
             r_after = recipes_after[name]
             assert r_before.extra.get("degree") == r_after.extra.get("degree"), (
-                f"pickle changed chosen degree for {name!r}: "
-                f"before={r_before.extra}, after={r_after.extra}"
+                f"pickle changed chosen degree for {name!r}: before={r_before.extra}, after={r_after.extra}"
             )
-            assert r_before.extra.get("basis") == r_after.extra.get("basis"), (
-                f"pickle changed chosen basis for {name!r}"
-            )
+            assert r_before.extra.get("basis") == r_after.extra.get("basis"), f"pickle changed chosen basis for {name!r}"

@@ -4,12 +4,10 @@ Each test pins a behaviour change applied in commits cba1630..HEAD on
 helpers.py / utils.py / io.py / _cb_pool.py / _ram_helpers.py / lgb_shim.py /
 _classif_helpers.py / mlp_runtime_defaults.py / splitting.py.
 """
+
 from __future__ import annotations
 
 import inspect
-import os
-import sys
-import tempfile
 import threading
 from types import SimpleNamespace
 
@@ -22,12 +20,10 @@ from mlframe.training import (
     _ram_helpers,
     helpers as helpers_mod,
     io as io_mod,
-    lgb_shim as lgb_shim_mod,
     mlp_runtime_defaults,
     splitting as splitting_mod,
     utils as utils_mod,
 )
-from mlframe.training.cb import _cb_pool
 
 
 # ---------------------------------------------------------------------------
@@ -72,9 +68,7 @@ def test_chain_ensemble_introspectable_defaults() -> None:
     for name, p in sig.parameters.items():
         if name == "self":
             continue
-        assert p.default is not inspect.Parameter.empty, (
-            f"{name} should have a default for sklearn introspection compliance"
-        )
+        assert p.default is not inspect.Parameter.empty, f"{name} should have a default for sklearn introspection compliance"
 
 
 # ---------------------------------------------------------------------------
@@ -94,6 +88,7 @@ def test_chain_ensemble_fit_raises_when_base_estimator_none() -> None:
 def test_chain_ensemble_fit_raises_when_n_labels_none() -> None:
     """fit() must also fail loud when only n_labels is missing."""
     from sklearn.linear_model import LogisticRegression
+
     est = _classif_helpers._ChainEnsemble(base_estimator=LogisticRegression(), n_labels=None)
     X = np.zeros((4, 2))
     Y = np.zeros((4, 3), dtype=int)
@@ -143,12 +138,14 @@ def test_drop_columns_from_dataframe_pandas_path() -> None:
 def test_get_trainset_features_stats_vectorised_min_max() -> None:
     """The new agg-once path must produce per-column min/max identical to the
     pre-Wave-3 per-column loop. Regression check on a small mixed-type frame."""
-    df = pd.DataFrame({
-        "x": [1.0, 2.0, 3.0],
-        "y": [-10.0, 0.0, 10.0],
-        "z": [5, 5, 5],
-        "cat": pd.Categorical(["a", "b", "a"]),
-    })
+    df = pd.DataFrame(
+        {
+            "x": [1.0, 2.0, 3.0],
+            "y": [-10.0, 0.0, 10.0],
+            "z": [5, 5, 5],
+            "cat": pd.Categorical(["a", "b", "a"]),
+        }
+    )
     stats = helpers_mod.get_trainset_features_stats(df)
     assert "min" in stats and "max" in stats
     assert stats["min"]["x"] == 1.0
@@ -238,13 +235,7 @@ def test_lgb_shim_eval_set_normalises_bare_xy_list() -> None:
         # Mirror the heuristic from the source.
         first_ncols = getattr(first, "shape", (None, None))
         second_shape = getattr(second, "shape", None)
-        return bool(
-            second_shape is not None
-            and len(second_shape) >= 2
-            and first_ncols
-            and len(first_ncols) >= 2
-            and second_shape[1] == first_ncols[1]
-        )
+        return bool(second_shape is not None and len(second_shape) >= 2 and first_ncols and len(first_ncols) >= 2 and second_shape[1] == first_ncols[1])
 
     # (X, y_1d): NOT a legit matrix list -> would be wrapped.
     assert _classify(X, y_1d) is False

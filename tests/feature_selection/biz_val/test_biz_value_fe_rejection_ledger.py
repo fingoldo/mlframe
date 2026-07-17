@@ -28,9 +28,10 @@ CONTRACTS PINNED
 
 NEVER xfail. Pure additive metadata; default-ON (transparency, not opt-in).
 """
+
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 import warnings
 
 import numpy as np
@@ -57,6 +58,7 @@ class _Stub:
 # C1: unit -- the recorder fingers the correct gate + margin per gate type.
 # ---------------------------------------------------------------------------
 
+
 def test_recorder_fingers_each_gate_with_correct_margin():
     s = _Stub()
     # One synthetic rejected candidate per real (non-synthetic) gate type, each with a
@@ -72,8 +74,15 @@ def test_recorder_fingers_each_gate_with_correct_margin():
     ]
     for i, (gate, obs, thr, _) in enumerate(cases):
         record_fe_rejection(
-            s, gate=gate, candidate=f"cand_{i}", operands=(i, i + 1),
-            operator="mul", observed=obs, threshold=thr, reason="unit", step=0,
+            s,
+            gate=gate,
+            candidate=f"cand_{i}",
+            operands=(i, i + 1),
+            operator="mul",
+            observed=obs,
+            threshold=thr,
+            reason="unit",
+            step=0,
         )
     led = compute_fe_rejection_ledger(s)
     assert len(led) == len(cases)
@@ -104,6 +113,7 @@ def test_recorder_default_margin_is_observed_minus_threshold():
 # C2: the REAL gate diagnostics round-trip into correct ledger records.
 # ---------------------------------------------------------------------------
 
+
 def test_real_cmi_gate_diagnostics_map_to_ledger():
     """Run the production CMI redundancy gate on a pool with one genuine driver and a
     near-duplicate redundant remap; assert the recorder records the dropped name under
@@ -113,9 +123,9 @@ def test_real_cmi_gate_diagnostics_map_to_ledger():
     rng = np.random.default_rng(0)
     n = 3000
     y = (rng.random(n) > 0.5).astype(np.int64)
-    driver = y + 0.05 * rng.standard_normal(n)          # genuine, high CMI with y
+    driver = y + 0.05 * rng.standard_normal(n)  # genuine, high CMI with y
     redundant = driver + 1e-6 * rng.standard_normal(n)  # ~monotone remap of driver -> redundant
-    noise = rng.standard_normal(n)                        # independent noise
+    noise = rng.standard_normal(n)  # independent noise
     candidates = {
         "driver": (driver.astype(np.float64), 0.4),
         "redundant": (redundant.astype(np.float64), 0.4),
@@ -134,8 +144,13 @@ def test_real_cmi_gate_diagnostics_map_to_ledger():
         else:
             obs, thr = d.get("cmi_excess"), d.get("rel_bar")
         record_fe_rejection(
-            s, gate="cmi_redundancy", candidate=dn, observed=obs, threshold=thr,
-            reason=reason, step=0,
+            s,
+            gate="cmi_redundancy",
+            candidate=dn,
+            observed=obs,
+            threshold=thr,
+            reason=reason,
+            step=0,
         )
     led = compute_fe_rejection_ledger(s)
     assert (led["gate"] == "cmi_redundancy").all()
@@ -162,31 +177,57 @@ def test_real_stability_vote_diagnostics_map_to_ledger():
     # Two noise-operand recipes that have no genuine held-out uplift -> should fail quorum.
     recipes = {
         "mul(b,c)": build_unary_binary_recipe(
-            name="mul(b,c)", src_a_name="b", src_b_name="c",
-            unary_a_name="identity", unary_b_name="identity", binary_name="mul",
-            unary_preset="minimal", binary_preset="minimal",
-            quantization_nbins=None, quantization_method=None, quantization_dtype=np.int32,
+            name="mul(b,c)",
+            src_a_name="b",
+            src_b_name="c",
+            unary_a_name="identity",
+            unary_b_name="identity",
+            binary_name="mul",
+            unary_preset="minimal",
+            binary_preset="minimal",
+            quantization_nbins=None,
+            quantization_method=None,
+            quantization_dtype=np.int32,
         ),
         "add(b,c)": build_unary_binary_recipe(
-            name="add(b,c)", src_a_name="b", src_b_name="c",
-            unary_a_name="identity", unary_b_name="identity", binary_name="add",
-            unary_preset="minimal", binary_preset="minimal",
-            quantization_nbins=None, quantization_method=None, quantization_dtype=np.int32,
+            name="add(b,c)",
+            src_a_name="b",
+            src_b_name="c",
+            unary_a_name="identity",
+            unary_b_name="identity",
+            binary_name="add",
+            unary_preset="minimal",
+            binary_preset="minimal",
+            quantization_nbins=None,
+            quantization_method=None,
+            quantization_dtype=np.int32,
         ),
     }
     diag: dict = {}
     failed = confirm_recipes_cross_fold(
-        recipes=recipes, X=X, y_codes=y, feature_names_in=["a", "b", "c"],
-        nbins=8, k=5, quorum=0.6, rng=np.random.default_rng(0), diagnostics_out=diag,
+        recipes=recipes,
+        X=X,
+        y_codes=y,
+        feature_names_in=["a", "b", "c"],
+        nbins=8,
+        k=5,
+        quorum=0.6,
+        rng=np.random.default_rng(0),
+        diagnostics_out=diag,
     )
     assert failed, "expected the noise-operand recipes to fail the stability quorum"
     s = _Stub()
     for fn in failed:
         vd = diag.get(fn, {})
         record_fe_rejection(
-            s, gate="stability_vote", candidate=fn, operands=vd.get("src_names"),
-            observed=vd.get("passes", float("nan")), threshold=vd.get("need_eff", float("nan")),
-            reason="below_quorum", step=0,
+            s,
+            gate="stability_vote",
+            candidate=fn,
+            operands=vd.get("src_names"),
+            observed=vd.get("passes", float("nan")),
+            threshold=vd.get("need_eff", float("nan")),
+            reason="below_quorum",
+            step=0,
         )
     led = compute_fe_rejection_ledger(s)
     assert (led["gate"] == "stability_vote").all()
@@ -200,11 +241,15 @@ def test_real_stability_vote_diagnostics_map_to_ledger():
 # C3: DECISIVE biz_value -- end-to-end on the canonical poly x raw fixture.
 # ---------------------------------------------------------------------------
 
+
 def _canonical_fixture(seed: int, n: int):
     rng = np.random.default_rng(seed)
-    a = rng.random(n); b = rng.random(n); c = rng.random(n)
-    d = rng.random(n); e = rng.random(n)
-    y = a ** 2 / b + np.log(c) * np.sin(d)
+    a = rng.random(n)
+    b = rng.random(n)
+    c = rng.random(n)
+    d = rng.random(n)
+    e = rng.random(n)
+    y = a**2 / b + np.log(c) * np.sin(d)
     df = pd.DataFrame({"a": a, "b": b, "c": c, "d": d, "e": e})
     return df, pd.Series(y, name="y")
 
@@ -229,18 +274,17 @@ def test_ledger_fingers_floors_on_canonical_fixture():
     gates = set(led["gate"].unique())
     # The marginal pair-MI prevalence floor MUST be among the killers (the cross-mix /
     # decoy pairs whose joint MI does not beat their marginal sum by the prevalence bar).
-    assert "marginal_pair_mi_prescreen" in gates, (
-        f"prevalence floor did not finger any dropped candidate; gates seen={sorted(gates)}"
-    )
+    assert "marginal_pair_mi_prescreen" in gates, f"prevalence floor did not finger any dropped candidate; gates seen={sorted(gates)}"
     # At least one SECOND distinct floor must also fire, so the ledger covers more than a
     # single gate (the session hand-diagnosed multiple floors on this fixture).
     second_floors = {
-        "engineered_mi_prevalence", "marginal_uplift_floor", "cmi_redundancy",
-        "order2_maxt_floor", "stability_vote",
+        "engineered_mi_prevalence",
+        "marginal_uplift_floor",
+        "cmi_redundancy",
+        "order2_maxt_floor",
+        "stability_vote",
     }
-    assert gates & second_floors, (
-        f"only the pre-screen fired; expected a second floor too. gates seen={sorted(gates)}"
-    )
+    assert gates & second_floors, f"only the pre-screen fired; expected a second floor too. gates seen={sorted(gates)}"
 
     # Every rejection records a NEGATIVE margin (observed missed the threshold) where finite,
     # and carries the operands so the user can identify the dropped candidate.
@@ -261,6 +305,7 @@ def test_ledger_fingers_floors_on_canonical_fixture():
 # C5: default-ON + pickle + clone + empty-report behaviour.
 # ---------------------------------------------------------------------------
 
+
 def test_default_on_and_pickle_roundtrip():
     from sklearn.base import clone
     from mlframe.feature_selection.filters.mrmr import MRMR
@@ -268,18 +313,20 @@ def test_default_on_and_pickle_roundtrip():
     rng = np.random.default_rng(0)
     n = 600
     x_sig = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "x_signal": x_sig,
-        "noise_0": rng.standard_normal(n),
-        "noise_1": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "x_signal": x_sig,
+            "noise_0": rng.standard_normal(n),
+            "noise_1": rng.standard_normal(n),
+        }
+    )
     y = pd.Series((x_sig + 0.3 * rng.standard_normal(n) > 0).astype(int))
     fs = MRMR(verbose=0, random_seed=0, fe_max_steps=0)
     fs.fit(X, y)
     # Default-ON: the attribute is populated (a DataFrame) after every fit, no opt-in.
     assert isinstance(fs.fe_rejection_ledger_, pd.DataFrame)
     # Pickle round-trip preserves the ledger content.
-    fs2 = pickle.loads(pickle.dumps(fs))
+    fs2 = pickle.loads(pickle.dumps(fs))  # nosec B301 -- round-trip of a locally-created, trusted object
     pd.testing.assert_frame_equal(fs.fe_rejection_ledger_, fs2.fe_rejection_ledger_)
     # clone() drops fitted state (sklearn convention); the cloned estimator has no ledger yet.
     cl = clone(fs)
@@ -302,6 +349,7 @@ def test_empty_report_message():
 # C4: cProfile -- the ledger only RECORDS, so its wall-cost is ~0.
 # ---------------------------------------------------------------------------
 
+
 def test_recorder_wall_cost_is_negligible():
     """The recorder is a pure ``list.append`` of a small dict -- it must add ~0 wall. Profile a
     large batch of record calls and assert (a) ``record_fe_rejection`` is the ONLY mlframe frame
@@ -319,8 +367,15 @@ def test_recorder_wall_cost_is_negligible():
     pr.enable()
     for i in range(N):
         record_fe_rejection(
-            s, gate="cmi_redundancy", candidate=f"c{i}", operands=(i, i + 1),
-            operator="mul", observed=0.1, threshold=0.2, reason="prof", step=0,
+            s,
+            gate="cmi_redundancy",
+            candidate=f"c{i}",
+            operands=(i, i + 1),
+            operator="mul",
+            observed=0.1,
+            threshold=0.2,
+            reason="prof",
+            step=0,
         )
     pr.disable()
     wall = time.perf_counter() - t0
@@ -343,7 +398,12 @@ def test_memory_cap_records_marker_and_stops():
     # Push past the cap; only CAP+1 records should land (CAP real + 1 marker).
     for i in range(FE_REJECTION_LEDGER_CAP + 25):
         record_fe_rejection(
-            s, gate="cmi_redundancy", candidate=f"c{i}", observed=0.1, threshold=0.2, step=0,
+            s,
+            gate="cmi_redundancy",
+            candidate=f"c{i}",
+            observed=0.1,
+            threshold=0.2,
+            step=0,
         )
     records = s._fe_rejection_records_
     assert len(records) == FE_REJECTION_LEDGER_CAP + 1, len(records)

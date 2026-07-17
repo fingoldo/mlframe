@@ -15,6 +15,7 @@ Fix: use `with np_load_result as npz:` and materialise arrays via np.array(...)
 before exiting so the caller gets owned buffers (mmap views would go invalid
 on close).
 """
+
 from __future__ import annotations
 
 import importlib
@@ -23,7 +24,6 @@ import tempfile
 from pathlib import Path
 
 import numpy as np
-import pytest
 
 
 MLFRAME_ROOT = Path(importlib.import_module("mlframe").__file__).parent
@@ -38,9 +38,7 @@ def test_deserialize_uses_with_block_on_npzfile() -> None:
     src = _read("training/feature_handling/cache.py")
     # The fix replaces unrestricted `npz = np.load(...)` with a with-block
     # for the NpzFile branch.
-    assert "with loaded as npz:" in src, (
-        "training/feature_handling/cache.py: NpzFile must be closed via a with-block."
-    )
+    assert "with loaded as npz:" in src, "training/feature_handling/cache.py: NpzFile must be closed via a with-block."
 
 
 def test_deserialize_materialises_arrays_before_close() -> None:

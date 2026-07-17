@@ -24,8 +24,7 @@ def rng():
     return np.random.default_rng(20260521)
 
 
-def _make_data(rng, n_rows=300, n_features=8, n_queries=30, nan_frac=0.0,
-               scale_range: tuple[float, float] | None = None):
+def _make_data(rng, n_rows=300, n_features=8, n_queries=30, nan_frac=0.0, scale_range: tuple[float, float] | None = None):
     X = rng.standard_normal((n_rows, n_features)).astype(np.float32)
     if scale_range is not None:
         # Per-column magnitude spread; mimics raw tabular features
@@ -46,6 +45,7 @@ def _make_data(rng, n_rows=300, n_features=8, n_queries=30, nan_frac=0.0,
 
 def test_fit_with_nan_input_does_not_crash(rng):
     from mlframe.training.neural.ranker import MLPRanker
+
     X, y, g = _make_data(rng, nan_frac=0.1)
     model = MLPRanker(n_estimators=2, early_stopping_patience=None, verbose=0, seed=1)
     model.fit(X, y, g)
@@ -55,6 +55,7 @@ def test_fit_with_nan_input_does_not_crash(rng):
 
 def test_imputer_uses_train_means_not_inf(rng):
     from mlframe.training.neural.ranker import MLPRanker
+
     X, y, g = _make_data(rng, nan_frac=0.05)
     model = MLPRanker(n_estimators=1, early_stopping_patience=None, verbose=0, seed=2)
     model.fit(X, y, g)
@@ -64,6 +65,7 @@ def test_imputer_uses_train_means_not_inf(rng):
 
 def test_inf_input_also_imputed(rng):
     from mlframe.training.neural.ranker import MLPRanker
+
     X, y, g = _make_data(rng)
     X[5, 0] = np.inf
     X[6, 1] = -np.inf
@@ -75,6 +77,7 @@ def test_inf_input_also_imputed(rng):
 
 def test_all_nan_column_falls_back_to_zero(rng):
     from mlframe.training.neural.ranker import MLPRanker
+
     X, y, g = _make_data(rng)
     X[:, 0] = np.nan  # entire column NaN
     model = MLPRanker(n_estimators=1, early_stopping_patience=None, verbose=0, seed=4)
@@ -87,19 +90,18 @@ def test_all_nan_column_falls_back_to_zero(rng):
 
 def test_imputer_does_not_mutate_caller_buffer(rng):
     from mlframe.training.neural.ranker import MLPRanker
+
     X, y, g = _make_data(rng, nan_frac=0.1)
     nan_count_before = int(np.isnan(X).sum())
     model = MLPRanker(n_estimators=1, early_stopping_patience=None, verbose=0, seed=5)
     model.fit(X, y, g)
     nan_count_after = int(np.isnan(X).sum())
-    assert nan_count_before == nan_count_after, (
-        "MLPRanker.fit must not mutate the caller's X buffer "
-        f"(before={nan_count_before}, after={nan_count_after})"
-    )
+    assert nan_count_before == nan_count_after, f"MLPRanker.fit must not mutate the caller's X buffer (before={nan_count_before}, after={nan_count_after})"
 
 
 def test_scaler_normalises_disparate_magnitude_features(rng):
     from mlframe.training.neural.ranker import MLPRanker
+
     # Feature 0 in [0, 1], feature 1 in [1e4, 1e6] — without scaling AdamW
     # bounces gradients and val_loss never moves off random-init.
     X, y, g = _make_data(rng, scale_range=(0.5, 1e5))
@@ -113,14 +115,13 @@ def test_scaler_normalises_disparate_magnitude_features(rng):
 
 def test_constant_column_does_not_break_scaler(rng):
     from mlframe.training.neural.ranker import MLPRanker
+
     X, y, g = _make_data(rng)
     X[:, 2] = 7.0  # constant col
     model = MLPRanker(n_estimators=1, early_stopping_patience=None, verbose=0, seed=7)
     model.fit(X, y, g)
     pred = model.predict(X)
-    assert np.all(np.isfinite(pred)), (
-        "Constant columns must not yield inf/nan when std=0 is substituted to 1.0"
-    )
+    assert np.all(np.isfinite(pred)), "Constant columns must not yield inf/nan when std=0 is substituted to 1.0"
 
 
 def test_val_loss_not_nan_with_dirty_input(rng):
@@ -128,6 +129,7 @@ def test_val_loss_not_nan_with_dirty_input(rng):
     and a Lightning silent-halt after epoch 0. With auto-imputation, val_loss
     must be a finite float."""
     from mlframe.training.neural.ranker import MLPRanker, MLPRankerLightningModule
+
     X_tr, y_tr, g_tr = _make_data(rng, n_rows=200, n_queries=20, nan_frac=0.08)
     X_va, y_va, g_va = _make_data(rng, n_rows=100, n_queries=10, nan_frac=0.08)
     losses = []

@@ -4,6 +4,7 @@ instead of running in parallel. Covers the process-pool analogue of the document
 joblib-threading-over-GPU-work contention bug (CLAUDE.md), gated via
 ``mlframe.system._gpu_guard.callable_looks_gpu_bound``.
 """
+
 from __future__ import annotations
 
 import logging

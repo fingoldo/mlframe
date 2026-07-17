@@ -3,6 +3,7 @@
 This is the ICE scorer called on every CV-fold / model eval. Profiles the binary (K=1) and
 multiclass (K=3/5) fastpath to find plain-Python orchestration overhead around the batched kernel.
 """
+
 import cProfile
 import pstats
 import io

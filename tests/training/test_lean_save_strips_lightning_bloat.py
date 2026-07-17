@@ -13,6 +13,7 @@ the strip). We assert via dump SIZE (not load): the loader's _SafeUnpickler
 allowlist intentionally blocks arbitrary test classes, and size already
 proves the strip (bloat dropped, small weights kept).
 """
+
 from __future__ import annotations
 
 import os
@@ -23,8 +24,8 @@ import numpy as np
 from mlframe.training.io import save_mlframe_model
 
 _RNG = np.random.default_rng(0)
-_BLOAT_N = 5_000_000          # ~40 MB float64, incompressible
-_WEIGHTS_N = 200_000          # ~0.8 MB float32
+_BLOAT_N = 5_000_000  # ~40 MB float64, incompressible
+_WEIGHTS_N = 200_000  # ~0.8 MB float32
 
 
 class _FakeTrainer:
@@ -43,15 +44,16 @@ class _FakeDataModule:
 
 class _Weights:
     """Stand-in for the fitted network -- small, MUST survive the strip."""
+
     def __init__(self):
         self.w = _RNG.standard_normal(_WEIGHTS_N).astype(np.float32)
 
 
 class _Wrapper:
     def __init__(self):
-        self.estimator_ = _Weights()                     # must survive
-        self.some_lightning_trainer = _FakeTrainer()     # non-canonical name
-        self.prediction_datamodule = _FakeDataModule()   # canonical name
+        self.estimator_ = _Weights()  # must survive
+        self.some_lightning_trainer = _FakeTrainer()  # non-canonical name
+        self.prediction_datamodule = _FakeDataModule()  # canonical name
 
 
 def _dump_size(obj) -> int:
@@ -64,16 +66,12 @@ def _dump_size(obj) -> int:
 def test_lean_save_strips_heavy_lightning_objects_by_type() -> None:
     w = _Wrapper()
     bloat_bytes = w.some_lightning_trainer.big.nbytes  # ~40 MB
-    weights_bytes = w.estimator_.w.nbytes              # ~0.8 MB
+    weights_bytes = w.estimator_.w.nbytes  # ~0.8 MB
     size = _dump_size(w)
     # Stripped: dump must be far below even ONE bloat array (two are held).
-    assert size < bloat_bytes // 4, (
-        f"dump {size} retains bloat (one trainer array = {bloat_bytes})"
-    )
+    assert size < bloat_bytes // 4, f"dump {size} retains bloat (one trainer array = {bloat_bytes})"
     # But the small fitted weights MUST survive (dump not ~empty).
-    assert size > weights_bytes // 2, (
-        f"dump {size} too small -- weights stripped too (weights={weights_bytes})"
-    )
+    assert size > weights_bytes // 2, f"dump {size} too small -- weights stripped too (weights={weights_bytes})"
     # Caller's in-memory object is restored after save (strip is temporary).
     assert w.some_lightning_trainer is not None
     assert w.prediction_datamodule is not None
@@ -89,8 +87,8 @@ def test_plain_heavy_object_is_not_stripped() -> None:
 
     class _Holder:
         def __init__(self):
-            self.keep = _Plain()              # plain -> survives (heavy dump)
-            self.trainer = _FakeTrainer()     # canonical name -> stripped
+            self.keep = _Plain()  # plain -> survives (heavy dump)
+            self.trainer = _FakeTrainer()  # canonical name -> stripped
 
     h = _Holder()
     bloat_bytes = h.keep.payload.nbytes

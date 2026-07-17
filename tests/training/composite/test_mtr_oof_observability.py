@@ -25,12 +25,12 @@ These tests pin:
   4. biz_value: the salvaged (one-component-excluded) honest weighting beats equal-mean on a synthetic where the
      honest NNLS surface is the right answer -- i.e. the exclusion does not throw away the win.
 """
+
 from __future__ import annotations
 
 import logging
 
 import numpy as np
-import pytest
 
 from mlframe.training.core._phase_composite_post_xt_ensemble._phase_composite_post_xt_mtr_oof import (
     compute_mtr_oof_nnls_weights,
@@ -140,6 +140,7 @@ def _make_linear_problem(n=120, k=2, p=4, seed=1):
 # These FAIL on the pre-fix all-or-nothing ``None`` logic.
 # ---------------------------------------------------------------------------
 
+
 def test_fold_refit_failure_excludes_component_not_whole_weighting(caplog):
     """One component whose fold-refit raises is EXCLUDED (zero weight-row); the
     surviving components keep the honest NNLS weighting. Pre-fix returned ``None``."""
@@ -159,12 +160,8 @@ def test_fold_refit_failure_excludes_component_not_whole_weighting(caplog):
     assert w[:2, :].sum() > 0
     assert (w >= 0).all()
     warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
-    assert any("excluding component 2" in r.getMessage() for r in warnings), (
-        "the excluded component must be named at WARNING"
-    )
-    assert all("forfeiting the benched" not in r.getMessage() for r in warnings), (
-        "with survivors remaining the win is SALVAGED, not forfeited"
-    )
+    assert any("excluding component 2" in r.getMessage() for r in warnings), "the excluded component must be named at WARNING"
+    assert all("forfeiting the benched" not in r.getMessage() for r in warnings), "with survivors remaining the win is SALVAGED, not forfeited"
 
 
 def test_nonfinite_oof_excludes_component_not_whole_weighting(caplog):
@@ -183,9 +180,7 @@ def test_nonfinite_oof_excludes_component_not_whole_weighting(caplog):
     assert w.shape == (3, 2)
     np.testing.assert_array_equal(w[2, :], np.zeros(2))
     warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
-    assert any("non-finite" in r.getMessage() for r in warnings), (
-        "the non-finite OOF exclusion must surface at WARNING"
-    )
+    assert any("non-finite" in r.getMessage() for r in warnings), "the non-finite OOF exclusion must surface at WARNING"
     assert any("excluding component 2" in r.getMessage() for r in warnings)
 
 
@@ -203,15 +198,14 @@ def test_too_few_survivors_returns_none_and_warns(caplog):
 
     assert w is None
     warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
-    assert any("only 1 usable component" in r.getMessage() for r in warnings), (
-        "the <2-survivor forfeiture must be logged"
-    )
+    assert any("only 1 usable component" in r.getMessage() for r in warnings), "the <2-survivor forfeiture must be logged"
     assert any("forfeiting" in r.getMessage() for r in warnings)
 
 
 # ---------------------------------------------------------------------------
 # The "not applicable" + all-clean success exits MUST stay quiet.
 # ---------------------------------------------------------------------------
+
 
 def test_too_few_components_is_silent(caplog):
     """One component -> not an ensemble -> ``None`` with NO warning: equal-mean
@@ -221,9 +215,7 @@ def test_too_few_components_is_silent(caplog):
     with caplog.at_level(logging.WARNING, logger=_MTR_LOGGER):
         w = compute_mtr_oof_nnls_weights([only], X, y, kfold=3, random_state=0)
     assert w is None
-    assert not [r for r in caplog.records if r.levelno >= logging.WARNING], (
-        "the too-few-components path must stay quiet"
-    )
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING], "the too-few-components path must stay quiet"
 
 
 def test_too_few_rows_is_silent(caplog):
@@ -257,9 +249,7 @@ def test_success_path_is_silent_and_returns_weights(caplog):
     assert w.shape == (3, k)
     assert (w >= 0).all(), "NNLS weights must be non-negative"
     # No component excluded -> every row may carry weight (none forced to 0).
-    assert not [r for r in caplog.records if r.levelno >= logging.WARNING], (
-        "the all-clean success path must not emit any exclusion/forfeiture WARNING"
-    )
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING], "the all-clean success path must not emit any exclusion/forfeiture WARNING"
 
 
 def test_all_clean_is_bit_identical_to_unfiltered_nnls():
@@ -301,6 +291,7 @@ def test_all_clean_is_bit_identical_to_unfiltered_nnls():
 # biz_value: the salvaged (one-excluded) honest weighting beats equal-mean.
 # ---------------------------------------------------------------------------
 
+
 def test_biz_val_excluded_component_salvage_beats_equal_mean():
     """A synthetic where the honest NNLS surface clearly beats equal-mean, with one
     component forced to fail. The salvaged weighting (bad component excluded, rest
@@ -323,8 +314,8 @@ def test_biz_val_excluded_component_salvage_beats_equal_mean():
     Xtr, ytr = X[:i], y[:i]
     Xte, yte = X[i:], y[i:]
 
-    good_a = _LinearMTRComponent(cols=[0, 1])   # strong: right features
-    good_b = _LinearMTRComponent(cols=[4, 5])   # weak: noise features
+    good_a = _LinearMTRComponent(cols=[0, 1])  # strong: right features
+    good_b = _LinearMTRComponent(cols=[4, 5])  # weak: noise features
     bad = _RaisingComponent(np.array([0.0, 0.0]))
     comps = [good_a, good_b, bad]
 
@@ -339,14 +330,12 @@ def test_biz_val_excluded_component_salvage_beats_equal_mean():
             fitted.append(None)  # excluded; placeholder so indices align
             continue
         from sklearn.base import clone
+
         cl = clone(comp)
         cl.fit(Xtr, ytr)
         fitted.append(cl)
     # Stack only the non-excluded preds; excluded row uses zeros (weight is 0 anyway).
-    stack = np.stack([
-        (np.zeros((len(Xte), k)) if fitted[ci] is None else fitted[ci].predict(Xte))
-        for ci in range(3)
-    ], axis=0)
+    stack = np.stack([(np.zeros((len(Xte), k)) if fitted[ci] is None else fitted[ci].predict(Xte)) for ci in range(3)], axis=0)
 
     pred_nnls = np.einsum("cnk,ck->nk", stack, w)
     rmse_nnls = float(np.sqrt(np.mean((pred_nnls - yte) ** 2)))
@@ -359,6 +348,5 @@ def test_biz_val_excluded_component_salvage_beats_equal_mean():
 
     improvement = (rmse_eq - rmse_nnls) / rmse_eq
     assert improvement >= 0.08, (
-        f"salvaged honest-OOF NNLS should beat equal-mean by >=8%; got "
-        f"{improvement:.1%} (nnls={rmse_nnls:.4f}, equal_mean={rmse_eq:.4f})"
+        f"salvaged honest-OOF NNLS should beat equal-mean by >=8%; got {improvement:.1%} (nnls={rmse_nnls:.4f}, equal_mean={rmse_eq:.4f})"
     )

@@ -4,6 +4,7 @@ The loop -> njit rewrite is a perf change (32-48x, see _benchmarks/bench_ksshift
 in float32, so the result is not bit-identical (searchsorted/W1 summation order differs), but it must match to a
 tight float32 tolerance — far below anything that could re-order the FE features the transformer produces.
 """
+
 from __future__ import annotations
 
 import numpy as np

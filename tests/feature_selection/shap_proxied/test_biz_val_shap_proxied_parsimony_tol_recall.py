@@ -43,9 +43,7 @@ def _make_mixed_strength_fixture(seed=0, n=3000, p=3000, n_strong=6, n_weak=6, s
 
 
 def _fit_selected(X, y, parsimony_tol, seed=0):
-    s = ShapProxiedFS(
-        classification=True, random_state=seed, verbose=False,
-        prescreen_ladder_mode="off", parsimony_tol=parsimony_tol, n_jobs=1)
+    s = ShapProxiedFS(classification=True, random_state=seed, verbose=False, prescreen_ladder_mode="off", parsimony_tol=parsimony_tol, n_jobs=1)
     s.fit(X, y)
     return set(s.selected_features_)
 
@@ -57,7 +55,7 @@ def test_biz_val_looser_parsimony_tol_never_selects_fewer_features():
     toward 0 (looser tolerance for a loss-increase => refine keeps more members). This is the
     mechanical guarantee ``parsimony_tol`` is documented to provide, independent of which specific
     features end up recovered on any one fixture/seed."""
-    X, y, strong, weak = _make_mixed_strength_fixture()
+    X, y, _strong, weak = _make_mixed_strength_fixture()
 
     sel_default = _fit_selected(X, y, parsimony_tol=0.02)
     sel_loose = _fit_selected(X, y, parsimony_tol=0.005)
@@ -68,8 +66,7 @@ def test_biz_val_looser_parsimony_tol_never_selects_fewer_features():
         f"parsimony_tol=0.02 ({len(sel_default)}) -- looser tolerance must never REDUCE recall"
     )
     assert len(sel_off) >= len(sel_loose), (
-        f"parsimony_tol=0.0 selected fewer features ({len(sel_off)}) than parsimony_tol=0.005 "
-        f"({len(sel_loose)}) -- looser tolerance must never REDUCE recall"
+        f"parsimony_tol=0.0 selected fewer features ({len(sel_off)}) than parsimony_tol=0.005 ({len(sel_loose)}) -- looser tolerance must never REDUCE recall"
     )
     # The default's selection must be a SUBSET-compatible starting point: every stage up to search
     # already carries the strong features, so the default should never drop MORE strong signal
@@ -91,7 +88,7 @@ def test_biz_val_default_parsimony_tol_favours_precision_on_marginal_signal():
     it stays close to the small, high-confidence strong-only core. This is the flip side of the above
     monotonicity test and guards against a future change accidentally making the default "greedy"
     (selecting everything that clears search) instead of parsimonious."""
-    X, y, strong, weak = _make_mixed_strength_fixture()
+    X, y, strong, _weak = _make_mixed_strength_fixture()
     sel_default = _fit_selected(X, y, parsimony_tol=0.02)
     strong_names = {f"f{i}" for i in strong}
     # The default should stay close to the strong-only core: at most 2 extra features beyond the

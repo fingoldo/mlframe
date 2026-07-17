@@ -4,6 +4,7 @@ Covers: aggregator weight derivation, recipe build/replay round-trip + train/tes
 sign-alignment, the supervised gate, and the MRMR-level augment/replace/disabled/clone/no-mutation
 contracts.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -29,7 +30,9 @@ def _reflection_frame(n=3000, k=4, noise=0.7, seed=0, extra_indep=True):
 
 
 _MRMR_KW = dict(
-    verbose=0, random_seed=42, use_simple_mode=False,
+    verbose=0,
+    random_seed=42,
+    use_simple_mode=False,
     cluster_aggregate_corr_threshold=0.5,
     # Wave 9.1 (mrmr.py:1294) suppresses the post-hoc cluster_aggregate FE step
     # when ``dcd_enable=True`` (the new default) AND ``dcd_postoc_compose`` is
@@ -50,7 +53,7 @@ def test_derive_weights_shapes_and_normalization():
     rng = np.random.default_rng(1)
     z = rng.normal(size=2000)
     M = np.column_stack([z + 0.5 * rng.normal(size=2000) for _ in range(4)])
-    Z, mean, std, signs = _standardize_align(M, 0)
+    Z, _mean, _std, _signs = _standardize_align(M, 0)
     assert _derive_weights(Z, "median") is None
     w_mean = _derive_weights(Z, "mean_z")
     assert np.allclose(w_mean, 0.25)
@@ -65,9 +68,8 @@ def test_sign_alignment_flips_anticorrelated_member():
     rng = np.random.default_rng(2)
     z = rng.normal(size=2000)
     # member 2 is an ANTI-correlated reflection (-z): must be sign-flipped to +1 alignment.
-    M = np.column_stack([z + 0.3 * rng.normal(size=2000), z + 0.3 * rng.normal(size=2000),
-                         -z + 0.3 * rng.normal(size=2000)])
-    Z, mean, std, signs = _standardize_align(M, 0)
+    M = np.column_stack([z + 0.3 * rng.normal(size=2000), z + 0.3 * rng.normal(size=2000), -z + 0.3 * rng.normal(size=2000)])
+    Z, _mean, _std, signs = _standardize_align(M, 0)
     assert signs[2] == -1.0
     # After alignment all columns positively correlate with the reference.
     for j in range(3):
@@ -85,17 +87,20 @@ def test_sign_alignment_matches_corrcoef_reference_incl_constant_column():
 
     rng = np.random.default_rng(7)
     z = rng.normal(size=2500)
-    M = np.column_stack([
-        z + 0.3 * rng.normal(size=2500),   # ref (col 0)
-        z + 0.3 * rng.normal(size=2500),   # positively correlated -> +1
-        -z + 0.3 * rng.normal(size=2500),  # anti-correlated -> -1
-        np.full(2500, 4.2),                # constant -> NaN corr -> +1
-    ])
+    M = np.column_stack(
+        [
+            z + 0.3 * rng.normal(size=2500),  # ref (col 0)
+            z + 0.3 * rng.normal(size=2500),  # positively correlated -> +1
+            -z + 0.3 * rng.normal(size=2500),  # anti-correlated -> -1
+            np.full(2500, 4.2),  # constant -> NaN corr -> +1
+        ]
+    )
     ref_col = 0
     _Z, _mean, _std, signs = _standardize_align(M, ref_col)
 
     # Reference: the original per-column corrcoef-sign rule.
-    mean = M.mean(axis=0); std = M.std(axis=0)
+    mean = M.mean(axis=0)
+    std = M.std(axis=0)
     Zc = (M - mean) / np.where(std > 0.0, std, 1.0)
     expected = np.ones(M.shape[1])
     for j in range(M.shape[1]):
@@ -125,8 +130,9 @@ def test_recipe_roundtrip_and_parity(method):
     Z, mean, std, signs = _standardize_align(M, 0)
     weights = _derive_weights(Z, method)
     q = {"nbins": 8, "method": "quantile", "dtype": np.dtype(np.int32).str}
-    r = build_cluster_aggregate_recipe(name=f"agg_{method}", src_names=tuple(names), method=method,
-                                       member_mean=mean, member_std=std, signs=signs, weights=weights, quantization=q)
+    r = build_cluster_aggregate_recipe(
+        name=f"agg_{method}", src_names=tuple(names), method=method, member_mean=mean, member_std=std, signs=signs, weights=weights, quantization=q
+    )
     c1 = apply_recipe(r, X)
     c2 = apply_recipe(r, X)
     assert np.array_equal(c1, c2)  # deterministic
@@ -140,16 +146,20 @@ def test_recipe_roundtrip_and_parity(method):
 
 
 def test_recipe_extra_pickle_eq_roundtrip():
-    import pickle
+    import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
     from mlframe.feature_selection.filters.engineered_recipes import build_cluster_aggregate_recipe
 
     r = build_cluster_aggregate_recipe(
-        name="agg", src_names=("a", "b", "c"), method="pca_pc1",
-        member_mean=np.array([0.1, 0.2, 0.3]), member_std=np.array([1.0, 1.1, 0.9]),
-        signs=np.array([1.0, -1.0, 1.0]), weights=np.array([0.5, 0.3, 0.4]),
+        name="agg",
+        src_names=("a", "b", "c"),
+        method="pca_pc1",
+        member_mean=np.array([0.1, 0.2, 0.3]),
+        member_std=np.array([1.0, 1.1, 0.9]),
+        signs=np.array([1.0, -1.0, 1.0]),
+        weights=np.array([0.5, 0.3, 0.4]),
         quantization={"nbins": 8, "method": "quantile", "dtype": "<i4"},
     )
-    r2 = pickle.loads(pickle.dumps(r))
+    r2 = pickle.loads(pickle.dumps(r))  # nosec B301 -- round-trip of a locally-created, trusted object
     assert r == r2  # __eq__ walks ndarray extra via _extra_equal
 
 
@@ -168,18 +178,31 @@ def test_gate_rejects_when_no_mi_gain():
     n = 3000
     X = pd.DataFrame({f"x{i}": rng.normal(size=n) for i in range(4)})  # 4 INDEPENDENT noise features
     y = rng.integers(0, 2, size=n)
-    cols = list(X.columns) + ["y"]
+    cols = [*list(X.columns), "y"]
     NB = 8
     binned = [discretize_array(arr=X[c].to_numpy(), n_bins=NB, method="quantile", dtype=np.int32) for c in X.columns]
     binned.append(y.astype(np.int32))
     data = np.column_stack(binned).astype(np.int32)
     nbins = np.array([NB] * 4 + [2], dtype=np.int64)
     recipes = {}
-    *_, n_added, removed, added_idx, _summary = run_cluster_aggregate_step(
-        data=data, cols=cols, nbins=nbins, X=X, target_indices=(4,), feature_names_in_=list(X.columns),
-        categorical_idx=(), cached_MIs={}, engineered_recipes=recipes, quantization_nbins=NB,
-        quantization_method="quantile", quantization_dtype=np.int32, methods=("mean_z", "pca_pc1"),
-        mi_prevalence=1.0, corr_threshold=0.3, min_cluster_size=3, verbose=0,
+    *_, n_added, _removed, _added_idx, _summary = run_cluster_aggregate_step(
+        data=data,
+        cols=cols,
+        nbins=nbins,
+        X=X,
+        target_indices=(4,),
+        feature_names_in_=list(X.columns),
+        categorical_idx=(),
+        cached_MIs={},
+        engineered_recipes=recipes,
+        quantization_nbins=NB,
+        quantization_method="quantile",
+        quantization_dtype=np.int32,
+        methods=("mean_z", "pca_pc1"),
+        mi_prevalence=1.0,
+        corr_threshold=0.3,
+        min_cluster_size=3,
+        verbose=0,
     )
     assert n_added == 0 and not recipes  # independent noise -> no denoising gain -> rejected
 
@@ -202,33 +225,46 @@ def test_fit_binned_column_matches_binned_apply_recipe_replay():
     NB = 8
     for seed in (0, 3, 11):
         X, y, _z = _reflection_frame(n=2500, k=5, noise=0.8, seed=seed)
-        cols = list(X.columns) + ["y"]
+        cols = [*list(X.columns), "y"]
         binned = [discretize_array(arr=X[c].to_numpy(), n_bins=NB, method="quantile", dtype=np.int32) for c in X.columns]
         binned.append(np.asarray(y).astype(np.int32))
         data = np.column_stack(binned).astype(np.int32)
         nbins = np.array([NB] * len(X.columns) + [2], dtype=np.int64)
         recipes: dict = {}
         out = run_cluster_aggregate_step(
-            data=data, cols=cols, nbins=nbins, X=X, target_indices=(len(cols) - 1,),
-            feature_names_in_=list(X.columns), categorical_idx=(), cached_MIs={},
-            engineered_recipes=recipes, quantization_nbins=NB, quantization_method="quantile",
+            data=data,
+            cols=cols,
+            nbins=nbins,
+            X=X,
+            target_indices=(len(cols) - 1,),
+            feature_names_in_=list(X.columns),
+            categorical_idx=(),
+            cached_MIs={},
+            engineered_recipes=recipes,
+            quantization_nbins=NB,
+            quantization_method="quantile",
             quantization_dtype=np.int32,
-            methods=("mean_z", "mean_inv_var", "pca_pc1", "pca_pc2", "factor_score",
-                     "median", "median_z", "signed_max_abs", "signed_l2_sum"),
-            mi_prevalence=1.0, corr_threshold=0.4, min_cluster_size=3, verbose=0,
+            methods=("mean_z", "mean_inv_var", "pca_pc1", "pca_pc2", "factor_score", "median", "median_z", "signed_max_abs", "signed_l2_sum"),
+            mi_prevalence=1.0,
+            corr_threshold=0.4,
+            min_cluster_size=3,
+            verbose=0,
         )
         data_out, n_added = out[0], out[4]
         assert n_added >= 1, f"seed={seed}: expected at least one accepted aggregate"
-        added = data_out[:, data_out.shape[1] - n_added:]
+        added = data_out[:, data_out.shape[1] - n_added :]
         for j, recipe in enumerate(list(recipes.values())[-n_added:]):
             replay_continuous = np.asarray(apply_recipe(recipe, X), dtype=np.float64)
             # Replay is continuous now; bin it with the recipe's FROZEN fit-time edges.
             edges = np.asarray(recipe.quantization["edges"], dtype=np.float64)
             replay_binned = np.searchsorted(
-                edges[1:-1] if edges.size >= 2 else edges, replay_continuous, side="right",
+                edges[1:-1] if edges.size >= 2 else edges,
+                replay_continuous,
+                side="right",
             ).astype(added.dtype)
             np.testing.assert_array_equal(
-                added[:, j], replay_binned,
+                added[:, j],
+                replay_binned,
                 err_msg=f"seed={seed} recipe={recipe.name}: fast-path code != binned apply_recipe replay",
             )
 
@@ -243,8 +279,7 @@ def test_mrmr_augment_selects_aggregate_and_transforms():
 
     X, y, _z = _reflection_frame(seed=5)
     Xtr, Xte, ytr = X.iloc[:2000], X.iloc[2000:], y.iloc[:2000]
-    s = MRMR(cluster_aggregate_enable=True, cluster_aggregate_mode="augment",
-             cluster_aggregate_methods=("mean_z", "pca_pc1"), **_MRMR_KW).fit(Xtr, ytr)
+    s = MRMR(cluster_aggregate_enable=True, cluster_aggregate_mode="augment", cluster_aggregate_methods=("mean_z", "pca_pc1"), **_MRMR_KW).fit(Xtr, ytr)
     names = list(s.get_feature_names_out())
     assert any("clusteragg" in c for c in names), f"augment should select an aggregate; got {names}"
     out = s.transform(Xte)
@@ -256,8 +291,7 @@ def test_mrmr_replace_substitutes_members():
 
     X, y, _z = _reflection_frame(seed=6)
     Xtr, Xte, ytr = X.iloc[:2000], X.iloc[2000:], y.iloc[:2000]
-    s = MRMR(cluster_aggregate_enable=True, cluster_aggregate_mode="replace",
-             cluster_aggregate_methods=("mean_z", "pca_pc1"), **_MRMR_KW).fit(Xtr, ytr)
+    s = MRMR(cluster_aggregate_enable=True, cluster_aggregate_mode="replace", cluster_aggregate_methods=("mean_z", "pca_pc1"), **_MRMR_KW).fit(Xtr, ytr)
     names = list(s.get_feature_names_out())
     assert any("clusteragg" in c for c in names)
     # All reflection members are replaced by the aggregate.
@@ -275,16 +309,15 @@ def test_replace_members_not_resurrected_by_raw_retention():
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     X, y, _z = _reflection_frame(seed=6)
-    s = MRMR(cluster_aggregate_enable=True, cluster_aggregate_mode="replace",
-             cluster_aggregate_methods=("mean_z", "pca_pc1"), **_MRMR_KW).fit(
-                 X.iloc[:2000], y.iloc[:2000])
+    s = MRMR(cluster_aggregate_enable=True, cluster_aggregate_mode="replace", cluster_aggregate_methods=("mean_z", "pca_pc1"), **_MRMR_KW).fit(
+        X.iloc[:2000], y.iloc[:2000]
+    )
     removed = set(getattr(s, "_cluster_aggregate_removals_", None) or [])
     assert removed, "replace mode should have flagged cluster members for removal"
     out = set(s.get_feature_names_out())
     leaked = removed & out
     assert not leaked, (
-        f"raw-retention resurrected cluster-aggregate-replaced members: {sorted(leaked)}; "
-        f"_cluster_aggregate_removals_={sorted(removed)}; out={sorted(out)}"
+        f"raw-retention resurrected cluster-aggregate-replaced members: {sorted(leaked)}; _cluster_aggregate_removals_={sorted(removed)}; out={sorted(out)}"
     )
 
 
@@ -316,8 +349,7 @@ def test_fit_does_not_mutate_caller_X():
     X, y, _z = _reflection_frame(seed=8)
     Xtr = X.iloc[:2000].copy()
     cols_before = list(Xtr.columns)
-    MRMR(cluster_aggregate_enable=True, cluster_aggregate_mode="augment",
-         cluster_aggregate_methods=("mean_z",), **_MRMR_KW).fit(Xtr, y.iloc[:2000])
+    MRMR(cluster_aggregate_enable=True, cluster_aggregate_mode="augment", cluster_aggregate_methods=("mean_z",), **_MRMR_KW).fit(Xtr, y.iloc[:2000])
     assert list(Xtr.columns) == cols_before, "fit must not add engineered columns to the caller's frame"
 
 
@@ -328,13 +360,19 @@ def test_each_method_builds_aggregate_recovering_latent(method):
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     X, y, z = _reflection_frame(n=3000, k=4, noise=0.6, seed=20, extra_indep=True)
-    s = MRMR(verbose=0, random_seed=42, use_simple_mode=False, cluster_aggregate_mode="replace",
-             cluster_aggregate_corr_threshold=0.5, cluster_aggregate_methods=(method,),
-             dcd_enable=False).fit(X.iloc[:2000], y.iloc[:2000])
+    s = MRMR(
+        verbose=0,
+        random_seed=42,
+        use_simple_mode=False,
+        cluster_aggregate_mode="replace",
+        cluster_aggregate_corr_threshold=0.5,
+        cluster_aggregate_methods=(method,),
+        dcd_enable=False,
+    ).fit(X.iloc[:2000], y.iloc[:2000])
     aggs = [r for r in s._engineered_recipes_ if r.kind == "cluster_aggregate"]
     assert aggs and aggs[0].extra["method"] == method, f"method {method} should build an aggregate"
     out = s.transform(X)
-    agg_col = [c for c in out.columns if "clusteragg" in c][0]
+    agg_col = next(c for c in out.columns if "clusteragg" in c)
     rc_agg = abs(np.corrcoef(out[agg_col].to_numpy(), z)[0, 1])
     rc_best = max(abs(np.corrcoef(X[f"refl{i}"].to_numpy(), z)[0, 1]) for i in range(4))
     assert rc_agg > rc_best, f"[{method}] aggregate must recover z better than best member: {rc_agg:.3f} vs {rc_best:.3f}"
@@ -356,8 +394,15 @@ def test_cluster_aggregate_feeds_further_fe_step(monkeypatch):
     monkeypatch.setattr(MRMR, "_run_fe_step", _spy)
 
     X, y, _z = _reflection_frame(n=3000, k=4, noise=0.6, seed=21, extra_indep=True)
-    MRMR(verbose=0, random_seed=42, use_simple_mode=False, cluster_aggregate_corr_threshold=0.5,
-         cluster_aggregate_methods=("mean_z",), fe_max_steps=2, dcd_enable=False).fit(X.iloc[:2000], y.iloc[:2000])
+    MRMR(
+        verbose=0,
+        random_seed=42,
+        use_simple_mode=False,
+        cluster_aggregate_corr_threshold=0.5,
+        cluster_aggregate_methods=("mean_z",),
+        fe_max_steps=2,
+        dcd_enable=False,
+    ).fit(X.iloc[:2000], y.iloc[:2000])
 
     assert len(calls) >= 2, f"expected >=2 FE steps (fe_max_steps=2); got {len(calls)}"
     step2 = calls[1]

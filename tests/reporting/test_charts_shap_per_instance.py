@@ -21,14 +21,14 @@ import pytest
 import matplotlib
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402
+import matplotlib.pyplot as plt
 
 shap = pytest.importorskip("shap")
 pd = pytest.importorskip("pandas")
-from sklearn.ensemble import RandomForestClassifier  # noqa: E402
-from sklearn.linear_model import LogisticRegression  # noqa: E402
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.linear_model import LogisticRegression
 
-from mlframe.reporting.charts import shap_per_instance as spi  # noqa: E402
+from mlframe.reporting.charts import shap_per_instance as spi
 
 
 @pytest.fixture(autouse=True)
@@ -65,7 +65,7 @@ def test_worst_k_selected_by_error_severity():
     expected = np.argsort(severity)[::-1][:4]
     assert set(res.worst_idx.tolist()) == set(expected.tolist())
     assert np.all(np.diff(res.severities) <= 1e-12)  # worst first, non-increasing
-    for f in res.figure, :
+    for f in (res.figure,):
         plt.close(f)
 
 

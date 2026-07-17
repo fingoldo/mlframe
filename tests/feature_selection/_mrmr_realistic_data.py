@@ -31,6 +31,7 @@ Every generator returns ``(df, y, meta)`` where ``meta`` carries the structural
 ground truth the invariants assert against (which raws are subsumed, which raws
 are private, the confounder/noise names, the task).
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -46,14 +47,14 @@ import pandas as pd
 # ---------------------------------------------------------------------------
 def _draw(rng: np.random.Generator, kind: str, n: int) -> np.ndarray:
     if kind == "uniform":
-        return rng.uniform(0.2, 1.2, n)          # strictly positive -> log/div safe
+        return rng.uniform(0.2, 1.2, n)  # strictly positive -> log/div safe
     if kind == "uniform_signed":
         return rng.uniform(-2.5, 2.5, n)
     if kind == "normal":
         return rng.normal(0.0, 1.0, n)
     if kind == "lognormal":
         return rng.lognormal(0.0, 0.6, n)
-    if kind == "heavytail":                      # Student-t df=3 -> heavy tails
+    if kind == "heavytail":  # Student-t df=3 -> heavy tails
         return rng.standard_t(3, n)
     raise ValueError(f"unknown distribution {kind!r}")
 
@@ -67,13 +68,13 @@ def _positive(x: np.ndarray) -> np.ndarray:
 
 @dataclass
 class CaseMeta:
-    task: str                      # "regression" | "classification"
-    feature_names: list            # columns of X, in order
-    confounder_name: str           # hidden var in y, NOT a column
-    noise_feature: str             # pure-noise column in X, NOT in y
-    subsumed_raws: list            # raws FULLY captured by an engineered term -> must be droppable
-    private_raws: list             # raws with a genuine PRIVATE additive term -> must be kept
-    recoverable: bool              # True if FE can recover genuine engineered structure (I5)
+    task: str  # "regression" | "classification"
+    feature_names: list  # columns of X, in order
+    confounder_name: str  # hidden var in y, NOT a column
+    noise_feature: str  # pure-noise column in X, NOT in y
+    subsumed_raws: list  # raws FULLY captured by an engineered term -> must be droppable
+    private_raws: list  # raws with a genuine PRIVATE additive term -> must be kept
+    recoverable: bool  # True if FE can recover genuine engineered structure (I5)
     distribution: str
     target_family: str
     extra: dict = field(default_factory=dict)
@@ -97,9 +98,9 @@ def _family_ratio_plus_trig(cols: dict, conf: np.ndarray):
     k = cols["k"]
     g = cols["g"]
     ap, bp, cp, kp = _positive(a), _positive(b) + 0.3, _positive(c), _positive(k) + 0.3
-    sig = 0.6 * (ap ** 2) / bp + 0.5 * _positive(g) / kp + np.log(cp) * np.sin(d)
+    sig = 0.6 * (ap**2) / bp + 0.5 * _positive(g) / kp + np.log(cp) * np.sin(d)
     sig = sig + conf
-    return sig, ["a", "b", "c", "d", "g", "k"], []   # all subsumed, none private
+    return sig, ["a", "b", "c", "d", "g", "k"], []  # all subsumed, none private
 
 
 def _family_subsumed_plus_private(cols: dict, conf: np.ndarray):
@@ -111,7 +112,7 @@ def _family_subsumed_plus_private(cols: dict, conf: np.ndarray):
     """
     a, b, c, d = cols["a"], cols["b"], cols["c"], cols["d"]
     ap, bp, cp = _positive(a), _positive(b) + 0.3, _positive(c)
-    sig = 0.6 * (ap ** 2) / bp + 3.0 * a + np.log(cp) * np.sin(d)
+    sig = 0.6 * (ap**2) / bp + 3.0 * a + np.log(cp) * np.sin(d)
     sig = sig + conf
     return sig, ["b", "c", "d"], ["a"]
 
@@ -180,7 +181,7 @@ def make_realistic_case(
 
     # assemble X: the operands + a pure-noise feature e.
     data = {name: cols[name] for name in operands}
-    data["e"] = _draw(rng, distribution, n)             # pure noise, IN X
+    data["e"] = _draw(rng, distribution, n)  # pure noise, IN X
     df = pd.DataFrame(data)
 
     if task == "classification":

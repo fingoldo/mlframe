@@ -6,6 +6,7 @@ alignment, no-op gates, and predict-time replay (no fit-time state -- inherently
 construction) -- plus one biz_value test proving the wired module recovers a step-function signal a
 naive stale/no-join baseline can't.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -39,7 +40,7 @@ def _left_right(n_entities=20, right_rows_per_entity=10, n_left=100, seed=0):
 def test_apply_nearest_past_join_composite_fe_noop_when_on_unset():
     left, right = _left_right()
     cfg = PreprocessingExtensionsConfig()
-    train, val, test = apply_nearest_past_join_composite_fe(left.iloc[:70], left.iloc[70:], None, cfg, right, verbose=0)
+    train, _val, _test = apply_nearest_past_join_composite_fe(left.iloc[:70], left.iloc[70:], None, cfg, right, verbose=0)
     assert list(train.columns) == list(left.columns)
 
 
@@ -55,8 +56,13 @@ def test_apply_nearest_past_join_composite_fe_schema_aligned_across_splits():
     cfg = PreprocessingExtensionsConfig(nearest_past_join_on="t", nearest_past_join_by=["entity"], nearest_past_join_value_cols=["known_value"])
     metadata: dict = {}
     train, val, test = apply_nearest_past_join_composite_fe(
-        left.iloc[:70].reset_index(drop=True), left.iloc[70:85].reset_index(drop=True), left.iloc[85:].reset_index(drop=True),
-        cfg, right, metadata=metadata, verbose=0,
+        left.iloc[:70].reset_index(drop=True),
+        left.iloc[70:85].reset_index(drop=True),
+        left.iloc[85:].reset_index(drop=True),
+        cfg,
+        right,
+        metadata=metadata,
+        verbose=0,
     )
     assert set(train.columns) == set(val.columns) == set(test.columns)
     assert "known_value" in train.columns

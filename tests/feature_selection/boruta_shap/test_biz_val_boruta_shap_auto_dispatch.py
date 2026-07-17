@@ -10,6 +10,7 @@ The measurable wins auto must deliver:
 Thresholds set below measured values (margin for seed noise). A regression that breaks the router
 (always-gini, or always-permutation) trips one of these.
 """
+
 from __future__ import annotations
 
 import time
@@ -25,8 +26,7 @@ from sklearn.model_selection import train_test_split
 
 
 def _make(n, p, inf, seed):
-    X, y = make_classification(n_samples=n, n_features=p, n_informative=inf, n_redundant=0,
-                               shuffle=False, random_state=seed)
+    X, y = make_classification(n_samples=n, n_features=p, n_informative=inf, n_redundant=0, shuffle=False, random_state=seed)
     return pd.DataFrame(X, columns=[f"f{i}" for i in range(p)]), pd.Series(y)
 
 
@@ -41,9 +41,15 @@ def _holdout_auc(X, y, selected, seed):
 def _fit(measure, X, y, seed, n_trials=12):
     from mlframe.feature_selection.boruta_shap import BorutaShap
 
-    kw = dict(model=RandomForestClassifier(n_estimators=80, n_jobs=-1, random_state=seed),
-              importance_measure=measure, classification=True, n_trials=n_trials, percentile=95,
-              verbose=False, random_state=seed)
+    kw = dict(
+        model=RandomForestClassifier(n_estimators=80, n_jobs=-1, random_state=seed),
+        importance_measure=measure,
+        classification=True,
+        n_trials=n_trials,
+        percentile=95,
+        verbose=False,
+        random_state=seed,
+    )
     if measure in ("permutation", "auto"):
         kw["permutation_n_repeats"] = 3
         if measure == "permutation":

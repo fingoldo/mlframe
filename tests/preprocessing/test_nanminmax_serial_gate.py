@@ -4,6 +4,7 @@ Small frames (n*d below the measured ~20k crossover) route to a serial njit swee
 overhead. The serial kernel must be bit-identical to the parallel one (including the all-NaN-column -> NaN collapse), and the outlier score must be
 unchanged whether the small-frame gate fires or not.
 """
+
 import numpy as np
 import pytest
 

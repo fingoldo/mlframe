@@ -10,6 +10,7 @@ Measured: on a bilinear `a*b` target at n=8000 the fixed 1.05 admits noise pairs
 model at ~0.195 test MAE, while "auto" drops them and reaches ~0.052; on the additive-only / heavy-
 tail targets "auto" does not degrade vs 1.05.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -30,7 +31,7 @@ def _fit_linear_mae(prevalence, df, y, seed=0, *, synergy=None):
 
     n = len(df)
     idx = np.random.default_rng(seed).permutation(n)
-    tr, te = idx[: int(0.8 * n)], idx[int(0.9 * n):]
+    tr, te = idx[: int(0.8 * n)], idx[int(0.9 * n) :]
     Xtr, Xte = df.iloc[tr].reset_index(drop=True), df.iloc[te].reset_index(drop=True)
     ytr, yte = np.asarray(y)[tr], np.asarray(y)[te]
     kw = dict(verbose=0, random_seed=seed, fe_min_pair_mi_prevalence=prevalence)
@@ -86,9 +87,7 @@ def test_auto_prevalence_does_not_harm_additive():
     mae_fixed = _fit_linear_mae(1.05, df, y)
     mae_auto = _fit_linear_mae("auto", df, y)
     # allow a tiny tolerance for nondeterministic FE ordering; "auto" must not be materially worse.
-    assert mae_auto <= mae_fixed * 1.02 + 1e-3, (
-        f"auto prevalence ({mae_auto:.4f}) degraded the additive target vs fixed 1.05 ({mae_fixed:.4f})"
-    )
+    assert mae_auto <= mae_fixed * 1.02 + 1e-3, f"auto prevalence ({mae_auto:.4f}) degraded the additive target vs fixed 1.05 ({mae_fixed:.4f})"
 
 
 @pytest.mark.slow
@@ -105,6 +104,4 @@ def test_auto_synergy_prevalence_runs_and_no_harm_additive():
     mae_fixed = _fit_linear_mae(1.05, df, y, synergy=1.5)
     mae_auto = _fit_linear_mae(1.05, df, y, synergy="auto")
     assert np.isfinite(mae_auto)
-    assert mae_auto <= mae_fixed * 1.02 + 1e-3, (
-        f"auto synergy ({mae_auto:.4f}) degraded the additive target vs fixed 1.5 ({mae_fixed:.4f})"
-    )
+    assert mae_auto <= mae_fixed * 1.02 + 1e-3, f"auto synergy ({mae_auto:.4f}) degraded the additive target vs fixed 1.5 ({mae_fixed:.4f})"

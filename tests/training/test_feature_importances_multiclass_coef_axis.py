@@ -6,6 +6,7 @@ silently discarding every class but the last -- so a feature that drove an
 early class looked unimportant. Binary models (``coef_`` shape ``(1, n)``)
 keep their single signed row.
 """
+
 from __future__ import annotations
 
 import numpy as np

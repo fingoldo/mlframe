@@ -1,4 +1,5 @@
 """Unit + biz_value tests for champion/challenger governance comparison."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -105,9 +106,7 @@ def test_custom_callable_metric():
     X, y = _reg_data()
     champ = _NoisyTruth(y, 1.0, seed=2)
     chall = _NoisyTruth(y, 0.2, seed=3)
-    res = compare_models(
-        champ, chall, X, y, metric=lambda yt, yp: np.abs(yt - yp), n_boot=500
-    )
+    res = compare_models(champ, chall, X, y, metric=lambda yt, yp: np.abs(yt - yp), n_boot=500)
     assert res["challenger_wins"] is True
 
 

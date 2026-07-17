@@ -2,6 +2,7 @@
 (audit integration-defaults-3), plus the safety/usefulness guard. This is the
 real-path check before defaulting the cluster-medoid reduction ON in the suite.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -36,7 +37,8 @@ def test_groupaware_wraps_real_mlframe_rfecv():
     X, y = _wide_corr()
     g = GroupAwareMRMR(
         RFECV(estimator=LogisticRegression(max_iter=500), cv=3, verbose=0),
-        corr_threshold=0.9, corr_method="pearson",
+        corr_threshold=0.9,
+        corr_method="pearson",
     ).fit(X, y)
     # Faithful selector API: support_, transform, get_feature_names_out all work.
     assert hasattr(g, "support_") and len(g.support_) >= 1
@@ -65,16 +67,14 @@ def test_guard_bypasses_on_uncorrelated_data():
     # a couple of features carry signal; none are mutually correlated
     y = pd.Series((X["f0"] + X["f1"] + 0.3 * rng.standard_normal(n) > 0).astype(int))
     est = SkRFECV(LogisticRegression(max_iter=500), cv=3, min_features_to_select=1)
-    g = GroupAwareMRMR(est, corr_threshold=0.9, corr_method="pearson",
-                       min_reduction=0.05).fit(X, y)
+    g = GroupAwareMRMR(est, corr_threshold=0.9, corr_method="pearson", min_reduction=0.05).fit(X, y)
     assert g.reduced_ is False, "uncorrelated data must bypass the medoid path"
     # bare inner selection on full X (reference)
     from sklearn.base import clone
+
     ref = clone(est).fit(X, y)
     ref_idx = np.where(ref.support_)[0]
-    assert list(g.support_) == list(ref_idx), (
-        "bypass path must reproduce the bare inner selector's support"
-    )
+    assert list(g.support_) == list(ref_idx), "bypass path must reproduce the bare inner selector's support"
 
 
 def test_registry_rfecv_is_cluster_reduced_by_default():
@@ -85,8 +85,7 @@ def test_registry_rfecv_is_cluster_reduced_by_default():
     from mlframe.feature_selection import registry
     from mlframe.feature_selection.filters.group_aware import GroupAwareMRMR
 
-    sel = registry.get("RFECV").instantiate(
-        estimator=LogisticRegression(max_iter=300), cv=3, verbose=0)
+    sel = registry.get("RFECV").instantiate(estimator=LogisticRegression(max_iter=300), cv=3, verbose=0)
     assert isinstance(sel, GroupAwareMRMR), "RFECV must be cluster-reduced by default"
     X, y = _wide_corr(n=700)
     sel.fit(X, y)
@@ -103,8 +102,7 @@ def test_registry_rfecv_cluster_reduce_false_returns_bare():
     from mlframe.feature_selection import registry
     from mlframe.feature_selection.wrappers import RFECV
 
-    sel = registry.get("RFECV").instantiate(
-        estimator=LogisticRegression(max_iter=300), cv=3, cluster_reduce=False)
+    sel = registry.get("RFECV").instantiate(estimator=LogisticRegression(max_iter=300), cv=3, cluster_reduce=False)
     assert isinstance(sel, RFECV) and not hasattr(sel, "min_reduction")
 
 
@@ -117,7 +115,8 @@ def test_groupaware_wraps_borutashap_via_accepted_names():
     X, y = _wide_corr(n=600)
     g = GroupAwareMRMR(
         BorutaShap(importance_measure="gini", n_trials=12, verbose=False, random_state=0),
-        corr_threshold=0.9, corr_method="pearson",
+        corr_threshold=0.9,
+        corr_method="pearson",
     ).fit(X, y)
     assert len(g.support_) >= 1
     names = list(g.get_feature_names_out())
@@ -129,11 +128,9 @@ def test_registry_borutashap_is_cluster_reduced_by_default():
     from mlframe.feature_selection.boruta_shap import BorutaShap
     from mlframe.feature_selection.filters.group_aware import GroupAwareMRMR
 
-    sel = registry.get("BorutaShap").instantiate(
-        importance_measure="gini", n_trials=10, verbose=False, random_state=0)
+    sel = registry.get("BorutaShap").instantiate(importance_measure="gini", n_trials=10, verbose=False, random_state=0)
     assert isinstance(sel, GroupAwareMRMR)
-    bare = registry.get("BorutaShap").instantiate(
-        importance_measure="gini", n_trials=10, cluster_reduce=False)
+    bare = registry.get("BorutaShap").instantiate(importance_measure="gini", n_trials=10, cluster_reduce=False)
     assert isinstance(bare, BorutaShap)
 
 
@@ -147,9 +144,9 @@ def test_groupaware_borutashap_accepted_matches_expanded_selection():
     X, y = _wide_corr(n=600)
     g = GroupAwareMRMR(
         BorutaShap(importance_measure="gini", n_trials=12, verbose=False, random_state=0),
-        corr_threshold=0.9, corr_method="pearson",
+        corr_threshold=0.9,
+        corr_method="pearson",
     ).fit(X, y)
     assert set(g.accepted) == set(g.get_feature_names_out()), (
-        "GroupAwareMRMR.accepted (BorutaShap report contract) must equal the "
-        "expanded selection, not the inner medoid-only accepted set"
+        "GroupAwareMRMR.accepted (BorutaShap report contract) must equal the expanded selection, not the inner medoid-only accepted set"
     )

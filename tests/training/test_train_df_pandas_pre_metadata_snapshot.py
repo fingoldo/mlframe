@@ -40,11 +40,13 @@ def test_metadata_dict_snapshot_immune_to_numpy_inplace_mutation():
     """Numpy-array in-place mutation must NOT propagate to the metadata-dict snapshot."""
     n = 50
     rng = np.random.default_rng(0)
-    train_df = pd.DataFrame({
-        "skills_text": [f"token_{i % 20}" for i in range(n)],
-        "score": rng.standard_normal(n).astype(np.float64),
-        "category": pd.Categorical([f"cat_{i % 5}" for i in range(n)]),
-    })
+    train_df = pd.DataFrame(
+        {
+            "skills_text": [f"token_{i % 20}" for i in range(n)],
+            "score": rng.standard_normal(n).astype(np.float64),
+            "category": pd.Categorical([f"cat_{i % 5}" for i in range(n)]),
+        }
+    )
 
     meta = _build_meta_dict(train_df)
 

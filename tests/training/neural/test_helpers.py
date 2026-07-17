@@ -44,8 +44,7 @@ class TestCustomCollateFn:
 
     def test_with_list_batch(self):
         """Test with list batch."""
-        batch = [[torch.tensor([1, 2]), torch.tensor([0])],
-                 [torch.tensor([3, 4]), torch.tensor([1])]]
+        batch = [[torch.tensor([1, 2]), torch.tensor([0])], [torch.tensor([3, 4]), torch.tensor([1])]]
         result = custom_collate_fn(batch)
         assert result == batch
 
@@ -57,8 +56,7 @@ class TestCustomCollateFn:
 
     def test_with_dict_batch(self):
         """Test with dict batch."""
-        batch = [{"features": torch.randn(5), "labels": torch.tensor(1)},
-                 {"features": torch.randn(5), "labels": torch.tensor(0)}]
+        batch = [{"features": torch.randn(5), "labels": torch.tensor(1)}, {"features": torch.randn(5), "labels": torch.tensor(0)}]
         result = custom_collate_fn(batch)
         assert result == batch
 
@@ -153,17 +151,17 @@ class TestToTensorAny:
     def test_device_placement_cpu(self):
         """Test device placement to CPU."""
         arr = np.array([1.0, 2.0, 3.0])
-        tensor = to_tensor_any(arr, dtype=torch.float32, device='cpu')
+        tensor = to_tensor_any(arr, dtype=torch.float32, device="cpu")
 
-        assert tensor.device.type == 'cpu'
+        assert tensor.device.type == "cpu"
 
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
     def test_device_placement_cuda(self):
         """Test device placement to CUDA."""
         arr = np.array([1.0, 2.0, 3.0])
-        tensor = to_tensor_any(arr, dtype=torch.float32, device='cuda')
+        tensor = to_tensor_any(arr, dtype=torch.float32, device="cuda")
 
-        assert tensor.device.type == 'cuda'
+        assert tensor.device.type == "cuda"
 
     # --- Edge Cases ---
 
@@ -246,7 +244,7 @@ class TestToNumpySafe:
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
     def test_cuda_tensor_to_cpu(self):
         """Test CUDA tensor conversion (should move to CPU)."""
-        tensor = torch.tensor([1.0, 2.0, 3.0], device='cuda')
+        tensor = torch.tensor([1.0, 2.0, 3.0], device="cuda")
         # to_numpy_safe should automatically move to CPU
         arr = to_numpy_safe(tensor, cpu=True)
 
@@ -271,7 +269,7 @@ class TestToNumpySafe:
 
     def test_bfloat16_conversion(self):
         """Test bfloat16 tensor conversion to float32."""
-        if not hasattr(torch, 'bfloat16'):
+        if not hasattr(torch, "bfloat16"):
             pytest.skip("bfloat16 not available")
 
         tensor = torch.tensor([1.0, 2.0, 3.0], dtype=torch.bfloat16)
@@ -430,10 +428,7 @@ class TestGetValidNumGroups:
         result = get_valid_num_groups(num_channels=16, preferred_num_groups=-1)
         assert result == 1
 
-    @given(
-        num_channels=st.integers(min_value=1, max_value=1024),
-        preferred_num_groups=st.integers(min_value=1, max_value=128)
-    )
+    @given(num_channels=st.integers(min_value=1, max_value=1024), preferred_num_groups=st.integers(min_value=1, max_value=128))
     @settings(max_examples=100, deadline=None)
     def test_property_always_valid_divisor(self, num_channels, preferred_num_groups):
         """Property test: result should always divide num_channels evenly."""

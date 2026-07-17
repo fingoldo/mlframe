@@ -4,6 +4,7 @@ The headline guarantee: a calibrated conformal band achieves marginal coverage
 >= 1 - alpha on exchangeable held-out rows, for any inner model, with no
 distributional assumption.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -43,12 +44,13 @@ def _fit_calibrate(seed, alpha=0.1, n=3000):
     nf = n // 3
     est = CompositeTargetEstimator(
         base_estimator=LinearRegression(),
-        transform_name="linear_residual", base_column="b",
+        transform_name="linear_residual",
+        base_column="b",
     )
     est.fit(X.iloc[:nf], y[:nf])
-    est.calibrate_conformal(X.iloc[nf:2 * nf], y[nf:2 * nf], alpha=alpha)
-    lo, hi = est.predict_interval(X.iloc[2 * nf:], alpha)
-    cov = float(np.mean((y[2 * nf:] >= lo) & (y[2 * nf:] <= hi)))
+    est.calibrate_conformal(X.iloc[nf : 2 * nf], y[nf : 2 * nf], alpha=alpha)
+    lo, hi = est.predict_interval(X.iloc[2 * nf :], alpha)
+    cov = float(np.mean((y[2 * nf :] >= lo) & (y[2 * nf :] <= hi)))
     return cov, float(np.mean(hi - lo))
 
 
@@ -73,16 +75,19 @@ class TestConformalErrors:
         y = X["b"].to_numpy() + rng.normal(size=200)
         est = CompositeTargetEstimator(
             base_estimator=LinearRegression(),
-            transform_name="linear_residual", base_column="b",
+            transform_name="linear_residual",
+            base_column="b",
         ).fit(X, y)
         with pytest.raises(RuntimeError, match="no conformal radius calibrated"):
             est.predict_interval(X, 0.1)
 
     def test_calibrate_before_fit_raises(self) -> None:
         from sklearn.exceptions import NotFittedError
+
         est = CompositeTargetEstimator(
             base_estimator=LinearRegression(),
-            transform_name="linear_residual", base_column="b",
+            transform_name="linear_residual",
+            base_column="b",
         )
         X = pd.DataFrame({"b": [1.0, 2.0], "feat": [3.0, 4.0]})
         with pytest.raises(NotFittedError):

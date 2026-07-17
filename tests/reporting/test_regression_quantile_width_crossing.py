@@ -5,6 +5,7 @@ crossing (non-monotone columns) this went negative -> nonsense widths, and ``wid
 before NaN handling. Post-fix width is the column-wise span (max - min across alpha columns) and stats use
 ``np.nanmean`` / ``np.nanmax``.
 """
+
 import re
 
 import numpy as np

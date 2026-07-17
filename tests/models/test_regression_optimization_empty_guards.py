@@ -6,8 +6,8 @@ Bug 3b: ``suggest_candidate`` indexed ``self.known_evaluations[0]`` without guar
 Bug 4 : the ``for best_idx in np.argsort(...)`` greedy scan was wrapped in a dead ``for _ in range(100)`` with no
         state change between iterations; removing the wrapper leaves selection identical.
 """
+
 import numpy as np
-import pytest
 
 from mlframe.models.optimization import (
     MBHOptimizer,

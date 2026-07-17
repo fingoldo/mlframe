@@ -13,6 +13,7 @@ This pins:
 2. The softmax built on ``_squared_dists`` matches the softmax built on the broadcast distances to a
    tight absolute tolerance -- the selection-equivalence guarantee for the emitted features.
 """
+
 from __future__ import annotations
 
 import numpy as np

@@ -54,7 +54,7 @@ def test_biz_val_tuned_cutpoints_beat_naive_rounding_on_qwk():
     pred = 0.6 * y + 0.8 + rng.normal(0, 0.5, size=n)
     naive = np.clip(np.round(pred), 0, n_classes - 1).astype(int)
     qwk_naive = quadratic_weighted_kappa(y, naive, n_classes=n_classes)
-    thr, qwk_tuned = optimal_ordinal_cutpoints(y, pred, n_classes=n_classes, metric="qwk")
+    _thr, qwk_tuned = optimal_ordinal_cutpoints(y, pred, n_classes=n_classes, metric="qwk")
     assert qwk_tuned >= qwk_naive + 0.02, f"tuned QWK {qwk_tuned:.3f} should beat naive-round {qwk_naive:.3f}"
 
 

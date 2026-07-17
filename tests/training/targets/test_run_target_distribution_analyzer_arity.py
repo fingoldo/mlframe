@@ -11,6 +11,7 @@ raised ``ValueError: too many values to unpack (expected 4)`` in
 ``train_mlframe_models_suite`` -- a broad regression surfaced across many
 non-MRMR fuzz combos (c0004 / c0031 / c0035 / c0047 / c0088 / c0099 / ...).
 """
+
 from __future__ import annotations
 
 
@@ -35,14 +36,11 @@ def test_early_return_is_four_tuple_with_frames_passed_through():
         test_df="TEST",
     )
     assert isinstance(out, tuple) and len(out) == 4, (
-        f"_run_target_distribution_analyzer must return a 4-tuple "
-        f"(hyperparams_config, train_df, val_df, test_df); got {out!r}"
+        f"_run_target_distribution_analyzer must return a 4-tuple (hyperparams_config, train_df, val_df, test_df); got {out!r}"
     )
     hp, tr, va, te = out
     assert hp is sentinel, "hyperparams_config must pass through unchanged"
-    assert (tr, va, te) == ("TRAIN", "VAL", "TEST"), (
-        "train/val/test frames must pass through unchanged when the analyzer is off"
-    )
+    assert (tr, va, te) == ("TRAIN", "VAL", "TEST"), "train/val/test frames must pass through unchanged when the analyzer is off"
 
 
 def test_empty_target_by_type_also_four_tuple():

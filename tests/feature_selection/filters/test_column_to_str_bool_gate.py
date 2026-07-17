@@ -1,5 +1,6 @@
 """_column_to_str routes a 0/1-containing numeric-object column to the per-unique fast path (bit-identical);
 only a genuine bool+equal-numeric coexistence falls back to the exact per-row loop."""
+
 import numpy as np
 import pandas as pd
 

@@ -20,14 +20,14 @@ from datetime import datetime, timedelta
 def sample_dates_df_pandas():
     """Pandas DataFrame with date columns for date feature extraction tests."""
     dates = [datetime(2023, 1, 1) + timedelta(days=i) for i in range(30)]
-    return pd.DataFrame({'date': dates, 'value': range(len(dates))})
+    return pd.DataFrame({"date": dates, "value": range(len(dates))})
 
 
 @pytest.fixture
 def sample_dates_df_polars():
     """Polars DataFrame with date columns for date feature extraction tests."""
     dates = [datetime(2023, 1, 1) + timedelta(days=i) for i in range(30)]
-    return pl.DataFrame({'date': dates, 'value': list(range(len(dates)))})
+    return pl.DataFrame({"date": dates, "value": list(range(len(dates)))})
 
 
 @pytest.fixture(scope="session")
@@ -38,12 +38,14 @@ def sample_ohlcv_polars():
     rng = np.random.default_rng(42)
     n = 100
     close = 100 + np.cumsum(rng.standard_normal(n) * 0.5)
-    return pl.DataFrame({
-        'ticker': ['A'] * n,
-        'open': close + rng.standard_normal(n) * 0.1,
-        'high': close + np.abs(rng.standard_normal(n) * 0.5),
-        'low': close - np.abs(rng.standard_normal(n) * 0.5),
-        'close': close,
-        'volume': np.abs(rng.standard_normal(n) * 1000 + 5000),
-        'qty': np.abs(rng.standard_normal(n) * 100 + 500),
-    })
+    return pl.DataFrame(
+        {
+            "ticker": ["A"] * n,
+            "open": close + rng.standard_normal(n) * 0.1,
+            "high": close + np.abs(rng.standard_normal(n) * 0.5),
+            "low": close - np.abs(rng.standard_normal(n) * 0.5),
+            "close": close,
+            "volume": np.abs(rng.standard_normal(n) * 1000 + 5000),
+            "qty": np.abs(rng.standard_normal(n) * 100 + 500),
+        }
+    )

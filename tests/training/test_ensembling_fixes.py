@@ -13,6 +13,7 @@ cover:
   #8  Uniformity-mix detector inspects ``oof_probs`` too (was: only val/test/train).
   #9  Multiclass diversity correlation is per-class averaged (was: flattened interleaved Pearson).
 """
+
 from __future__ import annotations
 
 import types
@@ -22,7 +23,6 @@ import pytest
 
 from mlframe.models.ensembling.base import compute_high_correlation_pairs
 from mlframe.models.ensembling.quality_gate import compute_member_quality_gate
-from mlframe.models import ensembling as _ens_mod
 from mlframe.models.ensembling import compare_ensembles, score_ensemble
 
 
@@ -201,19 +201,20 @@ def test_w9e_f3_compare_ensembles_no_deepcopy_of_inner_arrays():
 def test_w9e_f4_chooser_importable_at_module_load():
     # Import path 1: leaf module.
     from mlframe.training.core._ensemble_chooser import (
-        _ENSEMBLE_RANK_METRIC_CANDIDATES,
         _choose_ensemble_flavour,
-        _read_ensemble_metric,
     )
+
     # Import path 2: back-compat re-export from the parent module.
     from mlframe.training.core._phase_train_one_target import (
         _choose_ensemble_flavour as _via_parent,
     )
+
     # Same identity -- the re-export is a direct alias, not a wrapping function.
     assert _via_parent is _choose_ensemble_flavour
     # The ensembling sibling must NOT lazy-import inside its function body any more; confirm
     # the chooser is bound at the module level of ``_phase_train_one_target_ensembling``.
     from mlframe.training.core import _phase_train_one_target_ensembling as _ens_sib
+
     assert hasattr(_ens_sib, "_choose_ensemble_flavour")
     assert _ens_sib._choose_ensemble_flavour is _choose_ensemble_flavour
 
@@ -223,6 +224,7 @@ def test_w9e_f5_rrf_k_only_stamped_when_rrf_used():
     from mlframe.training.core._phase_train_one_target_ensembling import (
         _finalize_per_target_ensembling,
     )
+
     # Fake "two-member" scenario; we intercept score_ensemble to short-circuit it -- the metadata
     # logic itself is what we're testing, independent of the actual ensemble math.
     # Simpler: bypass and exercise the metadata branch by calling with method list excluding rrf.
@@ -237,6 +239,7 @@ def test_w9e_f5_rrf_k_only_stamped_when_rrf_used():
         ensembles: dict = {}
         sample_weights = None
         group_ids = None
+
     ctx = _Ctx()
     ctx.ensembles = {}
     models_slot: dict = {}
@@ -277,9 +280,7 @@ def test_w9e_f5_rrf_k_only_stamped_when_rrf_used():
             verbose=False,
         )
         # rrf NOT iterated -> rrf_k must NOT be stamped.
-        assert "reg" not in metadata.get("ensembles_chosen_params", {}), (
-            f"rrf_k unexpectedly stamped when rrf not in iteration: {metadata!r}"
-        )
+        assert "reg" not in metadata.get("ensembles_chosen_params", {}), f"rrf_k unexpectedly stamped when rrf not in iteration: {metadata!r}"
     finally:
         _sib.score_ensemble = _orig
 
@@ -321,6 +322,7 @@ def test_w9e_f6_weighted_median_branch_does_not_lie_about_weights():
     anchor is per-member, not per-row).
     """
     from mlframe.models.ensembling.predict import ensemble_probabilistic_predictions
+
     rng = np.random.default_rng(0)
     n = 50
     p1 = rng.random(n)
@@ -328,10 +330,19 @@ def test_w9e_f6_weighted_median_branch_does_not_lie_about_weights():
     p3 = rng.random(n)
     sw = rng.random(n) + 0.1
     out_unweighted, _, _ = ensemble_probabilistic_predictions(
-        p1, p2, p3, ensemble_method="arithm", verbose=False,
+        p1,
+        p2,
+        p3,
+        ensemble_method="arithm",
+        verbose=False,
     )
     out_weighted, _, _ = ensemble_probabilistic_predictions(
-        p1, p2, p3, ensemble_method="arithm", sample_weight=sw, verbose=False,
+        p1,
+        p2,
+        p3,
+        ensemble_method="arithm",
+        sample_weight=sw,
+        verbose=False,
     )
     # The anchor median is the same; downstream arithm output is identical (sample_weight does
     # not affect the cross-member arithmetic mean in this path).
@@ -359,19 +370,23 @@ def test_w9e_f7_group_aware_median_collapses_per_group():
     # WITH grouping, the dense group collapses to ONE effective row -> m2's distance is
     # roughly equal to m1/m3's variation.
     _, _, stats_no_g = compute_member_quality_gate(
-        [m1, m2, m3], max_mae_relative=2.5, sample_weight=sw, group_ids=None,
+        [m1, m2, m3],
+        max_mae_relative=2.5,
+        sample_weight=sw,
+        group_ids=None,
     )
     _, _, stats_with_g = compute_member_quality_gate(
-        [m1, m2, m3], max_mae_relative=2.5, sample_weight=sw, group_ids=group_ids,
+        [m1, m2, m3],
+        max_mae_relative=2.5,
+        sample_weight=sw,
+        group_ids=group_ids,
     )
     # The per-member MAE of m2 (index 1) should DROP markedly when group-collapsed,
     # because the 10 outlier rows now count as ONE effective sample.
     mae_no_g = stats_no_g.get("per_member_mae")
     mae_with_g = stats_with_g.get("per_member_mae")
     assert mae_no_g is not None and mae_with_g is not None
-    assert mae_with_g[1] < mae_no_g[1], (
-        f"group collapse should reduce m2 MAE; got no_g={mae_no_g[1]}, with_g={mae_with_g[1]}"
-    )
+    assert mae_with_g[1] < mae_no_g[1], f"group collapse should reduce m2 MAE; got no_g={mae_no_g[1]}, with_g={mae_with_g[1]}"
 
 
 # Finding #8 -- uniformity check inspects oof_probs
@@ -385,19 +400,29 @@ def test_w9e_f8_uniformity_mix_detector_inspects_oof_probs():
     k = 2
     rng = np.random.default_rng(0)
     m_oof_only = types.SimpleNamespace(
-        val_probs=None, test_probs=None, train_probs=None,
+        val_probs=None,
+        test_probs=None,
+        train_probs=None,
         oof_probs=rng.random((n, k)),
-        val_preds=None, test_preds=None, train_preds=None, oof_preds=None,
-        model_name=None, model=None,
+        val_preds=None,
+        test_preds=None,
+        train_preds=None,
+        oof_preds=None,
+        model_name=None,
+        model=None,
     )
     # Member B: regressor (no probs anywhere).
     m_reg = types.SimpleNamespace(
-        val_probs=None, test_probs=None, train_probs=None, oof_probs=None,
+        val_probs=None,
+        test_probs=None,
+        train_probs=None,
+        oof_probs=None,
         val_preds=rng.normal(size=n),
         test_preds=rng.normal(size=n),
         train_preds=rng.normal(size=n),
         oof_preds=None,
-        model_name=None, model=None,
+        model_name=None,
+        model=None,
     )
     # Pre-fix: m_oof_only is classified as regressor (matching m_reg); no ValueError.
     # Post-fix: m_oof_only is classifier; mixed-types ValueError fires.
@@ -438,22 +463,23 @@ def test_w9e_f9_multiclass_diversity_per_class_correlation():
     c = c / c.sum(axis=1, keepdims=True)
     members = [
         types.SimpleNamespace(
-            val_probs=p, test_probs=None, train_probs=None,
-            val_preds=None, test_preds=None, train_preds=None,
-            model_name=None, model=None,
+            val_probs=p,
+            test_probs=None,
+            train_probs=None,
+            val_preds=None,
+            test_preds=None,
+            train_preds=None,
+            model_name=None,
+            model=None,
         )
         for p in (a, b, c)
     ]
     tags = ["m_a", "m_b", "m_c"]
-    pairs, split = compute_high_correlation_pairs(members, tags, threshold=0.95)
+    pairs, _split = compute_high_correlation_pairs(members, tags, threshold=0.95)
     # m_a vs m_b must be detected (per-class corr ~1.0 each, averaged ~1.0).
     found = {(p["m1"], p["m2"]) for p in pairs} | {(p["m2"], p["m1"]) for p in pairs}
-    assert ("m_a", "m_b") in found or ("m_b", "m_a") in found, (
-        f"per-class avg should detect highly-correlated multiclass pair; got pairs={pairs}"
-    )
+    assert ("m_a", "m_b") in found or ("m_b", "m_a") in found, f"per-class avg should detect highly-correlated multiclass pair; got pairs={pairs}"
     # m_a vs m_c should NOT be flagged (independent random).
     if pairs:
         for p in pairs:
-            assert not ({p["m1"], p["m2"]} == {"m_a", "m_c"}), (
-                f"independent multiclass pair must not be flagged at threshold=0.95: {p}"
-            )
+            assert not ({p["m1"], p["m2"]} == {"m_a", "m_c"}), f"independent multiclass pair must not be flagged at threshold=0.95: {p}"

@@ -5,6 +5,7 @@ crossover (only a GEMV<->Horner small-n check). This pins that the two CPU backe
 below anything that could flip a downstream selection, for every basis -- so a future kernel change cannot
 silently introduce a selection-altering divergence between the size-gated backends.
 """
+
 import numpy as np
 import pytest
 

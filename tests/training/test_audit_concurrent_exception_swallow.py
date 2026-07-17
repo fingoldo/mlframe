@@ -22,6 +22,7 @@ future.
      logs at warning level if it's non-None -- catches the contract violation
      even when the caller forgets the wait.
 """
+
 from __future__ import annotations
 
 import importlib
@@ -29,7 +30,6 @@ import logging
 import time
 from pathlib import Path
 
-import pytest
 
 
 MLFRAME_ROOT = Path(importlib.import_module("mlframe").__file__).parent
@@ -55,17 +55,13 @@ def test_kick_cpu_count_logs_at_debug_on_failure() -> None:
         helper_idx = src.find("def _kick_cpu_count")
     assert helper_idx != -1, "def _kick_cpu_count not found in metrics/core.py or metrics/_core_numba_warmup.py"
     snippet = src[helper_idx : helper_idx + 800]
-    assert "logger.debug" in snippet, (
-        "_kick_cpu_count must surface failures at DEBUG, not silently pass."
-    )
+    assert "logger.debug" in snippet, "_kick_cpu_count must surface failures at DEBUG, not silently pass."
 
 
 def test_prewarm_registers_done_callback() -> None:
     src = _read("training/feature_handling/registry.py")
     # The fix attaches add_done_callback after submit.
-    assert "add_done_callback(_log_unhandled)" in src, (
-        "registry.py prewarm: must attach a done-callback so an unawaited failure logs."
-    )
+    assert "add_done_callback(_log_unhandled)" in src, "registry.py prewarm: must attach a done-callback so an unawaited failure logs."
     assert "_log_unhandled" in src, "registry.py prewarm: _log_unhandled helper must exist."
 
 
@@ -77,7 +73,6 @@ def test_prewarm_registers_done_callback() -> None:
 def test_prewarm_done_callback_logs_warning_when_worker_raises(caplog) -> None:
     """If the prewarm worker raises and the caller never calls wait_prewarm(),
     the registered done-callback must surface a WARNING via the module logger."""
-    from unittest.mock import patch
     from mlframe.training.feature_handling import registry as reg
 
     # Build a tiny synthetic provider with a signature unique to this test.

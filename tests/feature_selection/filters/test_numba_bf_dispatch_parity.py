@@ -5,6 +5,7 @@ Found live (2026-07-15 budget-matched A/B): BF_LOGABS used sign(ab)*log1p(|ab|) 
 reference sign(ab+eps)*(log(|a|+eps)+log(|b|+eps)), and BF_DIV used a/(|b|+1e-9) instead of the
 sign-preserving exact-divide _safe_div -- both made the kernel return None on the cubic-inner case
 (mi=0.4813 for every other optimizer, planted-winner probe included)."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -38,10 +39,22 @@ def test_numba_kernel_recovers_cubic_inner_winner():
     b = r.standard_normal(20000)
     y = ((a**3 - 2 * a) * b > 0).astype(np.int64)
     res = optimise_hermite_pair(
-        x_a=a, x_b=b, y=y, seed=42, optimizer="numba_kernel",
-        n_trials=100, min_degree=3, max_degree=6, coef_range=(-2.0, 2.0), l2_penalty=0.05,
-        sweep_degrees=True, basis="chebyshev", mi_estimator="plugin", discrete_target=True,
-        warm_start=True, multi_fidelity=False,
+        x_a=a,
+        x_b=b,
+        y=y,
+        seed=42,
+        optimizer="numba_kernel",
+        n_trials=100,
+        min_degree=3,
+        max_degree=6,
+        coef_range=(-2.0, 2.0),
+        l2_penalty=0.05,
+        sweep_degrees=True,
+        basis="chebyshev",
+        mi_estimator="plugin",
+        discrete_target=True,
+        warm_start=True,
+        multi_fidelity=False,
     )
     assert res is not None, "kernel must clear the baseline-uplift gate on the cubic-inner case"
     assert res.mi >= 0.45, f"expected ~0.4813 parity with the reference optimizers, got {res.mi:.4f}"
@@ -59,9 +72,21 @@ def test_cupy_kernel_recovers_cubic_inner_winner():
     b = r.standard_normal(20000)
     y = ((a**3 - 2 * a) * b > 0).astype(np.int64)
     res = optimise_hermite_pair(
-        x_a=a, x_b=b, y=y, seed=42, optimizer="cupy_kernel",
-        n_trials=100, min_degree=3, max_degree=6, coef_range=(-2.0, 2.0), l2_penalty=0.05,
-        sweep_degrees=True, basis="chebyshev", mi_estimator="plugin", discrete_target=True,
-        warm_start=True, multi_fidelity=False,
+        x_a=a,
+        x_b=b,
+        y=y,
+        seed=42,
+        optimizer="cupy_kernel",
+        n_trials=100,
+        min_degree=3,
+        max_degree=6,
+        coef_range=(-2.0, 2.0),
+        l2_penalty=0.05,
+        sweep_degrees=True,
+        basis="chebyshev",
+        mi_estimator="plugin",
+        discrete_target=True,
+        warm_start=True,
+        multi_fidelity=False,
     )
     assert res is not None and res.mi >= 0.45, f"expected ~0.4813, got {None if res is None else res.mi}"

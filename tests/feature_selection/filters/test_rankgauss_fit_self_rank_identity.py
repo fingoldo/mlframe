@@ -5,6 +5,7 @@ bit-identical (~2.6x on the full 6-col 1M generate). The replay path keeps ``sea
 values). This pins (a) ``_self_avg_tie_rank`` bit-identity vs the two-sweep reference on continuous AND tied data, and
 (b) that the fit path uses NO ``searchsorted`` over the data column.
 """
+
 from __future__ import annotations
 
 import numpy as np

@@ -7,6 +7,7 @@ Asserts the device-born OOF binned-aggregate matrix reproduces the host ``fit_bi
 * the resulting per-column MI ranking / survivor selection is identical.
 
 Skips when cupy is unavailable (CI without a GPU)."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -39,8 +40,12 @@ def _make_frame(seed: int = 7, n: int = 8000):
 def _col_specs_from_recipes(feat_df, recipes):
     return [
         {
-            "name": c, "group_col": recipes[c]["group_col"], "agg_col": recipes[c]["agg_col"],
-            "stat": recipes[c]["stat"], "edges": recipes[c]["edges"], "global": recipes[c]["global"],
+            "name": c,
+            "group_col": recipes[c]["group_col"],
+            "agg_col": recipes[c]["agg_col"],
+            "stat": recipes[c]["stat"],
+            "edges": recipes[c]["edges"],
+            "global": recipes[c]["global"],
         }
         for c in feat_df.columns
     ]
@@ -60,8 +65,14 @@ def test_device_oof_matrix_matches_host_columns():
     X, y, _ = _make_frame()
     n_folds, rs = 5, 0
     feat_df, recipes = fit_binned_numeric_agg(
-        X, y, group_num_cols=["g", "g2"], agg_num_cols=["aux"],
-        stats=SUPPORTED_STATS, nbins_base=10, n_folds=n_folds, random_state=rs,
+        X,
+        y,
+        group_num_cols=["g", "g2"],
+        agg_num_cols=["aux"],
+        stats=SUPPORTED_STATS,
+        nbins_base=10,
+        n_folds=n_folds,
+        random_state=rs,
     )
     assert feat_df.shape[1] > 0
     col_specs = _col_specs_from_recipes(feat_df, recipes)
@@ -82,8 +93,14 @@ def test_structural_fold_gather_fallback_bit_exact():
     X, y, _ = _make_frame(seed=11)
     n_folds, rs = 5, 0
     feat_df, recipes = fit_binned_numeric_agg(
-        X, y, group_num_cols=["g", "g2"], agg_num_cols=["aux"],
-        stats=SUPPORTED_STATS, nbins_base=10, n_folds=n_folds, random_state=rs,
+        X,
+        y,
+        group_num_cols=["g", "g2"],
+        agg_num_cols=["aux"],
+        stats=SUPPORTED_STATS,
+        nbins_base=10,
+        n_folds=n_folds,
+        random_state=rs,
     )
     col_specs = _col_specs_from_recipes(feat_df, recipes)
     fold_ids = binagg_fold_ids(len(X), n_folds, rs)
@@ -95,7 +112,8 @@ def test_structural_fold_gather_fallback_bit_exact():
         host_at_global = host[:, j] == g
         dev_at_global = mat[:, j] == g
         np.testing.assert_array_equal(
-            host_at_global, dev_at_global,
+            host_at_global,
+            dev_at_global,
             err_msg=f"column {spec['name']}: device fallback-mask differs from host (structural)",
         )
 
@@ -103,6 +121,7 @@ def test_structural_fold_gather_fallback_bit_exact():
 def test_resident_gate_selection_identical_to_host():
     """The device-born resident gate must return the SAME survivor set as the host local_mi_gate."""
     import os
+
     os.environ["MLFRAME_FE_GPU_STRICT"] = "1"
     os.environ["MLFRAME_FE_GPU_STRICT_RESIDENT"] = "1"
     os.environ["MLFRAME_CMI_GPU"] = "1"
@@ -112,13 +131,24 @@ def test_resident_gate_selection_identical_to_host():
     X, y, _ = _make_frame(seed=13, n=6000)
     n_folds, rs = 5, 0
     feat_df, recipes = fit_binned_numeric_agg(
-        X, y, group_num_cols=["g", "g2"], agg_num_cols=["aux"],
-        stats=SUPPORTED_STATS, nbins_base=10, n_folds=n_folds, random_state=rs,
+        X,
+        y,
+        group_num_cols=["g", "g2"],
+        agg_num_cols=["aux"],
+        stats=SUPPORTED_STATS,
+        nbins_base=10,
+        n_folds=n_folds,
+        random_state=rs,
     )
     # Continuous y -> _coerce_y_classes quantile-bins it; pass the same y to both gates.
     host_keep = set(local_mi_gate(feat_df, y, raw_X=X))
     dev_keep = local_mi_gate_binagg_resident(
-        feat_df, y, raw_X=X, recipes=recipes, n_folds=n_folds, random_state=rs,
+        feat_df,
+        y,
+        raw_X=X,
+        recipes=recipes,
+        n_folds=n_folds,
+        random_state=rs,
     )
     assert dev_keep is not None, "resident gate returned None (GPU path unavailable under STRICT)"
     assert set(dev_keep) == host_keep, f"device survivors {set(dev_keep)} != host {host_keep}"

@@ -77,9 +77,7 @@ def test_fast_rmse_mixed_dtypes_bit_equivalent():
     ]:
         a = fast_rmse(y_t, y_p)
         b = float(rmse_loss(y_t, y_p))
-        assert abs(a - b) < atol, (
-            f"dtypes ({y_t.dtype}, {y_p.dtype}): fast_rmse={a} vs rmse_loss={b}"
-        )
+        assert abs(a - b) < atol, f"dtypes ({y_t.dtype}, {y_p.dtype}): fast_rmse={a} vs rmse_loss={b}"
 
 
 def test_fast_rmse_handles_non_contiguous_input():
@@ -120,8 +118,8 @@ def test_log_uniform_bounds():
     lu = LogUniform(a=-2, b=2, base=10)
     samples = lu.rvs(size=500, random_state=42)
     assert samples.shape == (500,)
-    assert np.all(samples >= 10 ** -2 - 1e-9)
-    assert np.all(samples <= 10 ** 2 + 1e-9)
+    assert np.all(samples >= 10**-2 - 1e-9)
+    assert np.all(samples <= 10**2 + 1e-9)
 
 
 def test_log_uniform_scalar():
@@ -142,9 +140,7 @@ def test_proba_score_proxy_selects_column():
     from sklearn.metrics import roc_auc_score
 
     y_true = np.array([0, 1, 0, 1, 1, 0])
-    y_probs = np.array(
-        [[0.9, 0.1], [0.2, 0.8], [0.7, 0.3], [0.4, 0.6], [0.3, 0.7], [0.6, 0.4]]
-    )
+    y_probs = np.array([[0.9, 0.1], [0.2, 0.8], [0.7, 0.3], [0.4, 0.6], [0.3, 0.7], [0.6, 0.4]])
     # class 1 column == proba of positive class
     expected = roc_auc_score(y_true, y_probs[:, 1])
     assert ProbaScoreProxy(y_true, y_probs, class_idx=1, proxied_func=roc_auc_score) == expected

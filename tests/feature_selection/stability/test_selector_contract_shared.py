@@ -14,9 +14,10 @@ Heavy real-selector specs (BorutaShap / ShapProxiedFS / HybridSelector /
 GroupAware) are ``slow``-marked and fitted ONCE per spec via a module-level
 cache so the ~10-12 s shadow/model fits are not paid per test.
 """
+
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 import random
 import warnings
 
@@ -42,9 +43,8 @@ def _binary_frame(n=400, p=10, seed=0):
     # of the selection, not robustness to a noisy near-tie (a flip on noisy data
     # is a power artefact, not an invariance violation).
     from sklearn.datasets import make_classification
-    X, y = make_classification(n_samples=n, n_features=p, n_informative=5,
-                               n_redundant=0, n_classes=2, random_state=seed,
-                               shuffle=False, class_sep=2.5)
+
+    X, y = make_classification(n_samples=n, n_features=p, n_informative=5, n_redundant=0, n_classes=2, random_state=seed, shuffle=False, class_sep=2.5)
     return pd.DataFrame(X, columns=[f"f{i}" for i in range(p)]), y
 
 
@@ -133,7 +133,8 @@ class TestUniversalContract:
         assert list(X.columns) == cols_before, (
             f"{spec.name}: fit mutated the caller's DataFrame columns "
             f"(added {[c for c in X.columns if c not in cols_before]}, "
-            f"dropped {[c for c in cols_before if c not in list(X.columns)]})")
+            f"dropped {[c for c in cols_before if c not in list(X.columns)]})"
+        )
 
     def test_get_feature_names_out_capability(self, spec):
         sel = fitted_binary(spec)
@@ -175,6 +176,7 @@ def test_every_registered_selector_has_contract_spec():
     """A 5th registry entry without a SelectorSpec here fails CI -- registration
     implies contract coverage (kills the two-files-can-drift gap)."""
     from mlframe.feature_selection import registry
+
     missing = set(registry.available()) - set(SELECTOR_SPECS)
     assert not missing, (
         f"registry selectors without a contract spec in _selector_factories.SELECTOR_SPECS: "
@@ -196,12 +198,11 @@ class TestPicklePersistence:
                 pickle.dumps(sel)
             return
         blob = pickle.dumps(sel)  # NO try/except: a pickle regression must FAIL
-        restored = pickle.loads(blob)
+        restored = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
         before = np.asarray(sel.transform(_BINARY_X))
         after = np.asarray(restored.transform(_BINARY_X))
         assert before.shape == after.shape
-        np.testing.assert_allclose(np.asarray(before, dtype=float),
-                                   np.asarray(after, dtype=float), rtol=0, atol=0)
+        np.testing.assert_allclose(np.asarray(before, dtype=float), np.asarray(after, dtype=float), rtol=0, atol=0)
 
 
 # ===========================================================================
@@ -216,8 +217,7 @@ class TestTransformWidthValidation:
         if not spec.accepts_ndarray:
             pytest.xfail(f"{spec.name}: DataFrame-only (declared)")
         if not spec.validates_transform_width:
-            pytest.xfail(f"{spec.name}: no transform-time width validation "
-                         "(silent positional indexing -- prod guard backlog)")
+            pytest.xfail(f"{spec.name}: no transform-time width validation (silent positional indexing -- prod guard backlog)")
         nfin = int(sel.n_features_in_)
         bad = np.random.default_rng(0).standard_normal((20, nfin + 2))
         with pytest.raises((ValueError, KeyError, IndexError)):
@@ -241,15 +241,13 @@ class TestTransformWidthValidation:
 class TestColumnOrderInvariance:
     def test_reversed_columns_select_same_names(self, spec):
         if not spec.column_order_invariant:
-            pytest.xfail(f"{spec.name}: selection depends on input column order "
-                         "(positional tie-break / shadow ordering -- reproducibility gap)")
+            pytest.xfail(f"{spec.name}: selection depends on input column order (positional tie-break / shadow ordering -- reproducibility gap)")
         rev = list(_BINARY_X.columns)[::-1]
         s1 = _fit(spec.make("binary"), _BINARY_X, _BINARY_Y)
         s2 = _fit(spec.make("binary"), _BINARY_X[rev], _BINARY_Y)
         names1, names2 = set(selected_names(s1)), set(selected_names(s2))
         if spec.determinism >= 1.0:
-            assert names1 == names2, (
-                f"{spec.name}: column reorder changed selection {names1} vs {names2}")
+            assert names1 == names2, f"{spec.name}: column reorder changed selection {names1} vs {names2}"
         else:
             inter = len(names1 & names2)
             union = len(names1 | names2) or 1
@@ -283,8 +281,8 @@ class TestIndexAlignment:
         # If the selector silently aligned y by pandas index instead of positionally,
         # the labels would be scrambled and signal recovery collapses to ~noise.
         assert names & informative, (
-            f"{spec.name}: non-default-index fit recovered no informative feature "
-            f"(selected {sorted(names)}) -- possible silent index misalignment")
+            f"{spec.name}: non-default-index fit recovered no informative feature (selected {sorted(names)}) -- possible silent index misalignment"
+        )
 
 
 # ===========================================================================
@@ -324,8 +322,7 @@ class TestDuplicateColumnNames:
         Xdup = pd.concat([_BINARY_X, _BINARY_X[["f0"]]], axis=1)  # two cols named f0
         sel = spec.make("binary")
         if not spec.rejects_duplicate_names:
-            pytest.xfail(f"{spec.name}: no duplicate-column-name guard at fit entry "
-                         "(silent positional pick -- prod guard backlog)")
+            pytest.xfail(f"{spec.name}: no duplicate-column-name guard at fit entry (silent positional pick -- prod guard backlog)")
         with pytest.raises((ValueError, KeyError, AssertionError)):
             _fit(sel, Xdup, _BINARY_Y)
 

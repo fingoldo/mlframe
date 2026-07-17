@@ -241,15 +241,12 @@ def test_no_dead_public_helpers():
                 continue
             dead.append(entry)
 
-    assert total > 30, (
-        f"only {total} public symbols audited — class/function discovery broken?"
-    )
+    assert total > 30, f"only {total} public symbols audited — class/function discovery broken?"
     if dead:
         pytest.fail(
             f"{len(dead)} public helper(s) with no non-test consumer "
             f"(neither another production module nor an __init__ re-export). "
             f"Either delete the helper, OR re-export it via __init__.py if "
             f"it's part of the public API, OR whitelist via "
-            f"_PUBLIC_API_WHITELIST with reasoning:\n  " + "\n  ".join(dead[:50])
-            + (f"\n  ... and {len(dead) - 50} more" if len(dead) > 50 else "")
+            f"_PUBLIC_API_WHITELIST with reasoning:\n  " + "\n  ".join(dead[:50]) + (f"\n  ... and {len(dead) - 50} more" if len(dead) > 50 else "")
         )

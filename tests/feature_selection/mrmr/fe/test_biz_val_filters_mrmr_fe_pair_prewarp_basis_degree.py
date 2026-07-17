@@ -12,6 +12,7 @@ consumed in ``_mrmr_fe_step/_step_core.py`` (``_prewarp_basis`` / ``_prewarp_max
      represent the cubic operand ``a**3-2a``; a degree>=3 warp can. The degree>=4 fit strictly beats degree=2 -- the
      DELTA is the knob's measurable win (degree 2 |corr| ~0.68, degree 4 ~1.0).
 """
+
 from __future__ import annotations
 
 import warnings
@@ -40,10 +41,17 @@ def _make_poly(seed: int = 202, n: int = N):
 
 
 def _prewarp_mrmr(basis="chebyshev", max_degree=4):
-    return MRMR(verbose=0, n_jobs=1, random_seed=0,
-                fe_smart_polynom_iters=0, fe_hybrid_orth_enable=False,
-                fe_pair_prewarp_enable=True, fe_pair_prewarp_basis=basis,
-                fe_pair_prewarp_max_degree=max_degree, **_LEAN)
+    return MRMR(
+        verbose=0,
+        n_jobs=1,
+        random_seed=0,
+        fe_smart_polynom_iters=0,
+        fe_hybrid_orth_enable=False,
+        fe_pair_prewarp_enable=True,
+        fe_pair_prewarp_basis=basis,
+        fe_pair_prewarp_max_degree=max_degree,
+        **_LEAN,
+    )
 
 
 def _best_engineered_corr(fs, df, true):
@@ -86,6 +94,4 @@ def test_prewarp_max_degree_is_a_lever_high_degree_beats_low():
     corr_lo = _best_engineered_corr(fs_lo, df, true)
     # degree 4 recovers the cubic operand; degree 2 cannot -> strict DELTA.
     assert corr_hi >= 0.85, f"degree-4 prewarp should recover F-POLY: |corr|={corr_hi:.3f}"
-    assert corr_hi >= corr_lo + 0.15, (
-        f"max_degree is not a lever: deg4 |corr|={corr_hi:.3f} vs deg2 |corr|={corr_lo:.3f}"
-    )
+    assert corr_hi >= corr_lo + 0.15, f"max_degree is not a lever: deg4 |corr|={corr_hi:.3f} vs deg2 |corr|={corr_lo:.3f}"

@@ -18,7 +18,7 @@ from mlframe.training.core._setup_helpers import tune_decision_threshold
 
 def _gen(rng, n, pos_rate, sep, hetero):
     norm = pytest.importorskip("scipy.stats").norm
-    npos = max(1, int(round(n * pos_rate)))
+    npos = max(1, round(n * pos_rate))
     nneg = n - npos
     s = np.concatenate([rng.normal(0.0, 1.0, nneg), rng.normal(sep, hetero, npos)])
     y = np.concatenate([np.zeros(nneg, dtype=np.int8), np.ones(npos, dtype=np.int8)])

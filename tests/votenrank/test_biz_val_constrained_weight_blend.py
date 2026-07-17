@@ -4,6 +4,7 @@ The win: on a pool of 20 OOF prediction arrays where 5 are genuinely good (low-n
 (high-noise), the simplex-constrained weight optimizer should converge to weights that overwhelmingly favor
 the good models and beat a naive equal-weight average over the full noisy pool.
 """
+
 from __future__ import annotations
 
 import numpy as np

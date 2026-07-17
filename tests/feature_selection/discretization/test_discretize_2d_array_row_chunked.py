@@ -12,6 +12,7 @@ correctness stories:
   Per the project's documented FE/MRMR exception, the bar here is closeness/selection-equivalence, not
   bit-identity -- validated via a high match-fraction + small max-code-drift assertion, not ``==``.
 """
+
 from __future__ import annotations
 
 import logging
@@ -30,6 +31,7 @@ pytestmark = pytest.mark.skipif(
 def _cuda_available() -> bool:
     try:
         from pyutilz.core.pythonlib import is_cuda_available
+
         return bool(is_cuda_available())
     except Exception:
         return False

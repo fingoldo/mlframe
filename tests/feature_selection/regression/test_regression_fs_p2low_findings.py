@@ -6,12 +6,10 @@ re-surfaces immediately.
 
 from __future__ import annotations
 
-import copy
 
 import numpy as np
 import pandas as pd
 import pytest
-from sklearn.model_selection import KFold
 
 from mlframe.training.pipeline._pipeline_cache import (
     _pipeline_signature_for_cache,
@@ -26,6 +24,7 @@ class _MarkerStep:
     """Stub sklearn-like step with the setattr marker."""
 
     def get_params(self, deep: bool = False):
+        """Return a fixed trivial params dict, enough to satisfy sklearn-step introspection."""
         return {"k": 1}
 
 
@@ -42,10 +41,7 @@ def test_w5_fs_f7_pipeline_signature_folds_sample_weight_marker():
     """Cache must distinguish weight-aware vs weight-blind pipelines."""
     sig_blind = _pipeline_signature_for_cache(_MarkerPipeline(marked=False))
     sig_aware = _pipeline_signature_for_cache(_MarkerPipeline(marked=True))
-    assert sig_blind != sig_aware, (
-        "_mlframe_use_sample_weights_in_fs_ marker must affect the signature; "
-        f"got identical signatures: {sig_blind!r}"
-    )
+    assert sig_blind != sig_aware, f"_mlframe_use_sample_weights_in_fs_ marker must affect the signature; got identical signatures: {sig_blind!r}"
     assert "sw=True" in sig_aware
     assert "sw=False" in sig_blind
 
@@ -65,8 +61,7 @@ def test_w5_fs_f8_content_array_signature_1024_strided_sampling():
     sig_a = _content_array_signature(pd.DataFrame(a))
     sig_b = _content_array_signature(pd.DataFrame(b))
     assert sig_a != sig_b, (
-        "1024-strided sampling must catch a single-cell mid-frame difference; "
-        "pre-fix 10-sample stride missed cells between boundary positions."
+        "1024-strided sampling must catch a single-cell mid-frame difference; pre-fix 10-sample stride missed cells between boundary positions."
     )
 
 
@@ -80,10 +75,7 @@ def test_w5_fs_f10_y_fingerprint_is_bit_exact_not_6_decimal_rounded():
     y_b[0] = y_a[0] + 5e-8
     fp_a = _mrmr_compute_y_fingerprint_sample(y_a)
     fp_b = _mrmr_compute_y_fingerprint_sample(y_b)
-    assert fp_a != fp_b, (
-        "bit-exact y fingerprint must distinguish 1e-7-scale differences; "
-        "pre-fix rounded to 6 decimals and silently merged distinct targets."
-    )
+    assert fp_a != fp_b, "bit-exact y fingerprint must distinguish 1e-7-scale differences; pre-fix rounded to 6 decimals and silently merged distinct targets."
 
 
 def test_w5_fs_f11_groupkfold_n_groups_floor_enforced():
@@ -115,6 +107,7 @@ def test_w5_fs_f16_deepcopy_splitter_in_early_stopping_path():
             self._mutable_state = [1, 2, 3]
 
         def split(self, X, y=None, groups=None):
+            """Yield no folds; only invoked to prove the splitter object itself survives the deepcopy."""
             return iter([])
 
     cv_orig = _CustomCV()
@@ -122,7 +115,7 @@ def test_w5_fs_f16_deepcopy_splitter_in_early_stopping_path():
     rng = np.random.default_rng(0)
     X = pd.DataFrame(rng.normal(size=(20, 3)))
     y = pd.Series(rng.normal(size=20))
-    cv_out, val_cv, _ = _resolve_cv_and_val_cv(
+    _cv_out, val_cv, _ = _resolve_cv_and_val_cv(
         cv=cv_orig,
         cv_shuffle=False,
         random_state=0,
@@ -138,8 +131,6 @@ def test_w5_fs_f16_deepcopy_splitter_in_early_stopping_path():
     )
     # val_cv must be a distinct object with a distinct _mutable_state
     assert val_cv is not cv_orig
-    assert id(val_cv._mutable_state) != cv_id, (
-        "copy.deepcopy must isolate val_cv from the caller's cv; copy.copy shared the inner list"
-    )
+    assert id(val_cv._mutable_state) != cv_id, "copy.deepcopy must isolate val_cv from the caller's cv; copy.copy shared the inner list"
     # cv_orig must be untouched after the val_cv mutation
     assert cv_orig.n_splits == 7

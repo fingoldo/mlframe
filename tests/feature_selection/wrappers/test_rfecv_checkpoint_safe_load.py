@@ -7,6 +7,7 @@ mismatch) is refused (start fresh) while a legit one round-trips.
 We invoke the two methods as unbound functions against a minimal stub carrying only the attributes they read (checkpoint_path,
 _CHECKPOINT_VERSION), avoiding the heavy RFECV constructor while exercising the exact save/load code path.
 """
+
 from mlframe.feature_selection.wrappers.rfecv import RFECV
 
 
@@ -49,7 +50,7 @@ def test_tampered_checkpoint_refused(tmp_path, monkeypatch):
 
 def test_missing_sidecar_refused(tmp_path, monkeypatch):
     monkeypatch.delenv("MLFRAME_ALLOW_UNVERIFIED_PICKLE", raising=False)
-    import pickle
+    import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
     ckpt = str(tmp_path / "rfecv.ckpt")
     with open(ckpt, "wb") as fh:

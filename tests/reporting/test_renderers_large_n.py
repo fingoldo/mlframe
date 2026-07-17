@@ -45,16 +45,14 @@ class TestHistogramPrebin:
         assert len(bar[0].y) <= 40
 
     def test_plotly_small_histogram_stays_native(self, rng):
-        spec = FigureSpec(panels=((HistogramPanelSpec(values=rng.standard_normal(500), bins=30),),),
-                          figsize=(6, 4))
+        spec = FigureSpec(panels=((HistogramPanelSpec(values=rng.standard_normal(500), bins=30),),), figsize=(6, 4))
         fig = get_renderer("plotly").render(spec)
         assert any(t.type == "histogram" for t in fig.data)
 
     def test_plotly_prebin_html_size_small(self, rng, tmp_path):
         """The whole point: the pre-binned HTML is tiny vs the 37 MB raw embed at 2M."""
         n = plotly_mod._HIST_PREBIN_THRESHOLD + 50_000
-        spec = FigureSpec(panels=((HistogramPanelSpec(values=rng.standard_normal(n), bins=50),),),
-                          figsize=(6, 4))
+        spec = FigureSpec(panels=((HistogramPanelSpec(values=rng.standard_normal(n), bins=50),),), figsize=(6, 4))
         r = get_renderer("plotly")
         out = str(tmp_path / "h.html")
         r.save(r.render(spec), out, "html")
@@ -63,8 +61,7 @@ class TestHistogramPrebin:
     def test_matplotlib_prebins_above_threshold(self, rng):
         """The mpl pre-bin path produces <= bins bar containers, not a full-n ax.hist."""
         n = mpl_mod._HIST_PREBIN_THRESHOLD + 5_000
-        spec = FigureSpec(panels=((HistogramPanelSpec(values=rng.standard_normal(n), bins=35,
-                                                      overlay_normal=(0.0, 1.0)),),), figsize=(6, 4))
+        spec = FigureSpec(panels=((HistogramPanelSpec(values=rng.standard_normal(n), bins=35, overlay_normal=(0.0, 1.0)),),), figsize=(6, 4))
         fig = get_renderer("matplotlib").render(spec)
         ax = fig.axes[0]
         # ax.bar -> one BarContainer of <= bins patches; ax.hist would emit a single Polygon/patches set of n-free
@@ -76,8 +73,7 @@ class TestHistogramPrebin:
         """PERF-18: the Normal overlay x-grid spans the bin-edge range, not two extra full-n passes."""
         n = plotly_mod._HIST_PREBIN_THRESHOLD + 1_000
         vals = rng.standard_normal(n)
-        spec = FigureSpec(panels=((HistogramPanelSpec(values=vals, bins=30, overlay_normal=(0.0, 1.0)),),),
-                          figsize=(6, 4))
+        spec = FigureSpec(panels=((HistogramPanelSpec(values=vals, bins=30, overlay_normal=(0.0, 1.0)),),), figsize=(6, 4))
         fig = get_renderer("plotly").render(spec)
         overlay = [t for t in fig.data if t.type == "scatter" and t.mode == "lines"]
         assert len(overlay) == 1
@@ -95,8 +91,7 @@ class TestScatterLargeN:
     def test_plotly_switches_to_scattergl_above_webgl_threshold(self, rng):
         n = plotly_mod._SCATTER_WEBGL_THRESHOLD + 2_000
         x = rng.standard_normal(n)
-        spec = FigureSpec(panels=((ScatterPanelSpec(x=x, y=x + rng.standard_normal(n) * 0.1),),),
-                          figsize=(6, 4))
+        spec = FigureSpec(panels=((ScatterPanelSpec(x=x, y=x + rng.standard_normal(n) * 0.1),),), figsize=(6, 4))
         fig = get_renderer("plotly").render(spec)
         assert any(t.type == "scattergl" for t in fig.data), "large scatter must use WebGL Scattergl"
 
@@ -122,10 +117,9 @@ class TestScatterLargeN:
         x = rng.standard_normal(n)
         sizes = rng.uniform(1, 50, n)
         colors = rng.uniform(0, 1, n)
-        spec = FigureSpec(panels=((ScatterPanelSpec(x=x, y=x, point_size=sizes, point_color=colors,
-                                                    colorbar_label="c"),),), figsize=(6, 4))
+        spec = FigureSpec(panels=((ScatterPanelSpec(x=x, y=x, point_size=sizes, point_color=colors, colorbar_label="c"),),), figsize=(6, 4))
         fig = get_renderer("plotly").render(spec)
-        pts = [t for t in fig.data if t.mode and "markers" in t.mode][0]
+        pts = next(t for t in fig.data if t.mode and "markers" in t.mode)
         npt = len(pts.x)
         assert len(pts.marker.size) == npt
         assert len(pts.marker.color) == npt
@@ -134,8 +128,7 @@ class TestScatterLargeN:
         """50k-capped scatter HTML stays well under 5 MB even with a 2M-point input (target: <5 MB)."""
         n = 2_000_000
         x = rng.standard_normal(n)
-        spec = FigureSpec(panels=((ScatterPanelSpec(x=x, y=x + rng.standard_normal(n) * 0.1),),),
-                          figsize=(6, 4))
+        spec = FigureSpec(panels=((ScatterPanelSpec(x=x, y=x + rng.standard_normal(n) * 0.1),),), figsize=(6, 4))
         r = get_renderer("plotly")
         out = str(tmp_path / "s.html")
         r.save(r.render(spec), out, "html")
@@ -144,11 +137,9 @@ class TestScatterLargeN:
     def test_marker_size_vectorized_matches_reference(self, rng):
         """PERF-16: vectorized sqrt marker-size must equal the per-point reference exactly."""
         sizes = rng.uniform(0, 100, 2_000)
-        spec = FigureSpec(panels=((ScatterPanelSpec(x=rng.standard_normal(2_000),
-                                                    y=rng.standard_normal(2_000),
-                                                    point_size=sizes),),), figsize=(6, 4))
+        spec = FigureSpec(panels=((ScatterPanelSpec(x=rng.standard_normal(2_000), y=rng.standard_normal(2_000), point_size=sizes),),), figsize=(6, 4))
         fig = get_renderer("plotly").render(spec)
-        pts = [t for t in fig.data if t.mode and "markers" in t.mode][0]
+        pts = next(t for t in fig.data if t.mode and "markers" in t.mode)
         got = np.asarray(pts.marker.size, dtype=float)
         ref = np.sqrt(np.maximum(sizes, 0.0)) * 1.33
         np.testing.assert_allclose(got, ref, rtol=0, atol=0)
@@ -207,8 +198,8 @@ class TestStaticLegend:
     def _labeled_spec(self):
         x = np.arange(10)
         from mlframe.reporting.spec import LinePanelSpec
-        return FigureSpec(panels=((LinePanelSpec(x=x, y=(x.astype(float), x.astype(float) * 2),
-                                                 series_labels=("a", "b")),),), figsize=(6, 4))
+
+        return FigureSpec(panels=((LinePanelSpec(x=x, y=(x.astype(float), x.astype(float) * 2), series_labels=("a", "b")),),), figsize=(6, 4))
 
     def test_render_static_legend_flag_enables_legend(self):
         fig = get_renderer("plotly").render(self._labeled_spec(), static_legend=True)
@@ -230,6 +221,7 @@ class TestStaticLegend:
         monkeypatch.setattr(plotly_mod.PlotlyRenderer, "render", _spy)
         out = parse_plot_output_dsl("plotly[html,svg]")
         import tempfile
+
         with tempfile.TemporaryDirectory() as d:
             render_and_save(self._labeled_spec(), out, os.path.join(d, "p"))
         assert captured.get("static_legend") is True
@@ -245,6 +237,7 @@ class TestStaticLegend:
         monkeypatch.setattr(plotly_mod.PlotlyRenderer, "render", _spy)
         out = parse_plot_output_dsl("plotly[html]")
         import tempfile
+
         with tempfile.TemporaryDirectory() as d:
             render_and_save(self._labeled_spec(), out, os.path.join(d, "p"))
         assert captured.get("static_legend") is False
@@ -258,6 +251,7 @@ class TestStaticLegend:
 class TestRenderFailureStats:
     def test_exception_increments_counter(self, monkeypatch):
         from mlframe.reporting.renderers import save as save_mod
+
         save_mod.reset_render_failure_stats()
 
         # Make matplotlib render explode; plotly still succeeds. Multi-backend DSL forces the thread path.
@@ -267,9 +261,11 @@ class TestRenderFailureStats:
         monkeypatch.setattr(mpl_mod.MatplotlibRenderer, "render", _boom)
         out = parse_plot_output_dsl("plotly[html] + matplotlib[png]")
         from mlframe.reporting.spec import LinePanelSpec
+
         x = np.arange(5)
         spec = FigureSpec(panels=((LinePanelSpec(x=x, y=x.astype(float)),),), figsize=(4, 3))
         import tempfile
+
         with tempfile.TemporaryDirectory() as d:
             render_and_save(spec, out, os.path.join(d, "p"))
         stats = save_mod.get_render_failure_stats()
@@ -280,5 +276,6 @@ class TestRenderFailureStats:
 
     def test_stats_reset(self):
         from mlframe.reporting.renderers import save as save_mod
+
         save_mod.reset_render_failure_stats()
         assert save_mod.get_render_failure_stats() == {"total": 0, "timeouts": 0, "exceptions": 0}

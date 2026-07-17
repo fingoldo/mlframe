@@ -8,6 +8,7 @@ Covers:
   and in reference mode the file size stays ~scaffold (no chart-byte duplication).
 - cProfile: assembly is O(entries) and cheap (200 charts well under 1s).
 """
+
 from __future__ import annotations
 
 import cProfile
@@ -17,7 +18,6 @@ import pstats
 import struct
 import zlib
 
-import pytest
 
 from mlframe.reporting.report_html import (
     DEFAULT_INLINE_PNG_MAX_BYTES,
@@ -73,7 +73,8 @@ def test_bad_entry_skipped_with_note_not_raised(tmp_path):
     png = _write_png(str(tmp_path / "a.png"))
     out = build_combined_report(
         [42, ChartEntry("Sec", "good", png_path=png)],
-        title="t", out_path=str(tmp_path / "r.html"),
+        title="t",
+        out_path=str(tmp_path / "r.html"),
     )
     text = open(out, encoding="utf-8").read()
     assert "skipped malformed entry" in text
@@ -85,7 +86,9 @@ def test_small_png_inlined_as_base64(tmp_path):
     png = _write_png(str(tmp_path / "small.png"))
     assert os.path.getsize(png) <= DEFAULT_INLINE_PNG_MAX_BYTES
     out = build_combined_report(
-        [ChartEntry("S", "c", png_path=png)], title="t", out_path=str(tmp_path / "r.html"),
+        [ChartEntry("S", "c", png_path=png)],
+        title="t",
+        out_path=str(tmp_path / "r.html"),
     )
     text = open(out, encoding="utf-8").read()
     assert "data:image/png;base64," in text
@@ -96,7 +99,9 @@ def test_large_png_referenced_by_relative_path(tmp_path):
     os.makedirs(str(tmp_path / "sub"), exist_ok=True)
     png = _write_png(str(tmp_path / "sub" / "big.png"), pad_bytes=2000)
     out = build_combined_report(
-        [ChartEntry("S", "c", png_path=png)], title="t", out_path=str(tmp_path / "r.html"),
+        [ChartEntry("S", "c", png_path=png)],
+        title="t",
+        out_path=str(tmp_path / "r.html"),
         inline_png_max_bytes=10,  # force reference mode
     )
     text = open(out, encoding="utf-8").read()
@@ -107,7 +112,8 @@ def test_large_png_referenced_by_relative_path(tmp_path):
 def test_missing_png_emits_note(tmp_path):
     out = build_combined_report(
         [ChartEntry("S", "ghost", png_path=str(tmp_path / "nope.png"))],
-        title="t", out_path=str(tmp_path / "r.html"),
+        title="t",
+        out_path=str(tmp_path / "r.html"),
     )
     text = open(out, encoding="utf-8").read()
     assert "missing image" in text
@@ -115,7 +121,9 @@ def test_missing_png_emits_note(tmp_path):
 
 def test_entry_with_no_artifact_emits_note(tmp_path):
     out = build_combined_report(
-        [ChartEntry("S", "empty")], title="t", out_path=str(tmp_path / "r.html"),
+        [ChartEntry("S", "empty")],
+        title="t",
+        out_path=str(tmp_path / "r.html"),
     )
     text = open(out, encoding="utf-8").read()
     assert "no png_path or plotly_html_fragment" in text
@@ -125,7 +133,8 @@ def test_plotly_fragment_embedded_verbatim(tmp_path):
     frag = '<div id="plotly-xyz"><script>/* fake plotly */</script></div>'
     out = build_combined_report(
         [ChartEntry("Interactive", "roc", plotly_html_fragment=frag)],
-        title="t", out_path=str(tmp_path / "r.html"),
+        title="t",
+        out_path=str(tmp_path / "r.html"),
     )
     text = open(out, encoding="utf-8").read()
     assert frag in text  # not re-rendered or sanitised
@@ -159,7 +168,8 @@ def test_label_is_html_escaped(tmp_path):
     png = _write_png(str(tmp_path / "a.png"))
     out = build_combined_report(
         [ChartEntry("S", "<script>alert(1)</script>", png_path=png)],
-        title="t", out_path=str(tmp_path / "r.html"),
+        title="t",
+        out_path=str(tmp_path / "r.html"),
     )
     text = open(out, encoding="utf-8").read()
     assert "<script>alert(1)</script>" not in text
@@ -219,12 +229,14 @@ def test_biz_val_report_html_reference_mode_no_byte_duplication(tmp_path):
     png_bytes = os.path.getsize(big)
     entries = [ChartEntry("S", f"chart {i}", png_path=big) for i in range(4)]
     out = build_combined_report(
-        entries, title="t", out_path=str(tmp_path / "r.html"), inline_png_max_bytes=0,
+        entries,
+        title="t",
+        out_path=str(tmp_path / "r.html"),
+        inline_png_max_bytes=0,
     )
     html_bytes = os.path.getsize(out)
     assert html_bytes < png_bytes, (
-        f"reference-mode HTML ({html_bytes}B) should stay below one referenced PNG ({png_bytes}B); "
-        "the chart bytes must not be duplicated into the page"
+        f"reference-mode HTML ({html_bytes}B) should stay below one referenced PNG ({png_bytes}B); the chart bytes must not be duplicated into the page"
     )
 
 
@@ -266,7 +278,8 @@ def test_topbar_shows_title_and_subtitle(tmp_path):
     png = _write_png(str(tmp_path / "a.png"))
     out = build_combined_report(
         [ChartEntry("S", "c", png_path=png)],
-        title="My Model Report", subtitle="LightGBM / holdout - 2026-06-11",
+        title="My Model Report",
+        subtitle="LightGBM / holdout - 2026-06-11",
         out_path=str(tmp_path / "r.html"),
     )
     text = open(out, encoding="utf-8").read()
@@ -279,7 +292,8 @@ def test_section_descriptions_render_under_header(tmp_path):
     png = _write_png(str(tmp_path / "a.png"))
     out = build_combined_report(
         [ChartEntry("Calibration", "c", png_path=png)],
-        title="t", out_path=str(tmp_path / "r.html"),
+        title="t",
+        out_path=str(tmp_path / "r.html"),
         section_descriptions={"Calibration": "Reliability + Brier decomposition."},
     )
     text = open(out, encoding="utf-8").read()

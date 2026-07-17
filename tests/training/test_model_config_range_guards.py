@@ -7,6 +7,7 @@ or surfaced as a confusing error deep inside fit. The guards reject them at
 construction with a clear ValidationError, matching the established
 ModelHyperparamsConfig contract.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -21,6 +22,7 @@ from mlframe.training.configs import (
 
 
 # ---- TreeModelConfig -------------------------------------------------------
+
 
 def test_tree_iterations_zero_raises():
     with pytest.raises(ValidationError):
@@ -54,6 +56,7 @@ def test_tree_valid_config_unchanged():
 
 # ---- LinearModelConfig -----------------------------------------------------
 
+
 def test_linear_alpha_negative_raises():
     with pytest.raises(ValidationError):
         LinearModelConfig(alpha=-1.0)
@@ -75,6 +78,7 @@ def test_linear_alpha_zero_is_ols_and_valid():
 
 # ---- NGBConfig -------------------------------------------------------------
 
+
 def test_ngb_n_estimators_zero_raises():
     with pytest.raises(ValidationError):
         NGBConfig(n_estimators=0)
@@ -91,6 +95,7 @@ def test_ngb_minibatch_frac_zero_raises():
 
 
 # ---- MultilabelDispatchConfig ----------------------------------------------
+
 
 def test_multilabel_n_chains_zero_raises():
     with pytest.raises(ValidationError):

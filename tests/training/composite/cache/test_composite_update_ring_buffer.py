@@ -17,6 +17,7 @@ These tests pin BOTH halves of the contract:
   ``update`` calls (same object identity, never rebuilt) and the windowed
   contents the drift check sees stay correct.
 """
+
 from __future__ import annotations
 
 from collections import deque

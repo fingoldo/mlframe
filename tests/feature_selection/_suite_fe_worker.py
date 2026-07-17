@@ -13,6 +13,7 @@ process.
 Invoked as: ``python _suite_fe_worker.py '<json payload>'`` with payload
 ``{"gen","dist","model","use_mrmr","seed"}``.
 """
+
 from __future__ import annotations
 
 import json
@@ -24,7 +25,10 @@ import numpy as np
 
 def main(payload: dict) -> None:
     from tests.feature_selection._suite_fe_helpers import (
-        GENERATORS, run_suite, best_test_metric, prediction_span_fraction,
+        GENERATORS,
+        run_suite,
+        best_test_metric,
+        prediction_span_fraction,
     )
 
     gen = payload["gen"]
@@ -41,13 +45,17 @@ def main(payload: dict) -> None:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         entries, _meta = run_suite(
-            case.df, case.target, model=model, use_mrmr=use_mrmr, random_seed=seed,
+            case.df,
+            case.target,
+            model=model,
+            use_mrmr=use_mrmr,
+            random_seed=seed,
         )
 
     result = dict(
         R2=best_test_metric(entries, "R2"),
         span=prediction_span_fraction(entries),
-        n=int(len(case.df)),
+        n=len(case.df),
         structure=case.structure,
     )
     print("===RESULT_JSON===")

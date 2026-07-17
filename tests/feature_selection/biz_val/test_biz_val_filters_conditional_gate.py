@@ -19,10 +19,11 @@ Contracts pinned (measured, never xfail):
 * INTERACTION: with modular + lattice + argmax + gate ALL ON, no nested-engineered recipe + no NaN replay column.
 * pickle / clone round-trip recipes + ctor params.
 """
+
 from __future__ import annotations
 
 import logging
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
 import numpy as np
 import pandas as pd
@@ -95,9 +96,7 @@ class TestPrototypeDirect:
         for gen in (_smooth_control, _ordinary_mul_control):
             for s in (1, 7, 13):
                 X, y = gen(s)
-                assert detect_conditional_gate(X, y, seed=s) == [], (
-                    f"hardened gate fired on {gen.__name__} control (seed={s}) -- the hardening regressed."
-                )
+                assert detect_conditional_gate(X, y, seed=s) == [], f"hardened gate fired on {gen.__name__} control (seed={s}) -- the hardening regressed."
 
     def test_gate_silent_on_multidriver_additive_target(self):
         """Regression sensor: a purely ADDITIVE target ``y = x0+x1+x2`` (no regime structure) must NOT fire the gate on ANY target
@@ -105,6 +104,7 @@ class TestPrototypeDirect:
         ratio / diff / min / max only) was cleared on the binned-regression / 4-driver cases (1 spurious feature emitted). The
         broadened best-existing-op baseline -- now also scoring ``a+b`` / ``a+c`` / ``b+c`` / ``a+b+c`` -- captures the additive
         signal so the gate cannot manufacture lift over it. Pins 0 emission on binary + 10-bin-regression + 4-driver additive."""
+
         def _additive(seed, ndrivers, ttype, n=2000):
             rng = np.random.default_rng(seed)
             X = pd.DataFrame({f"x{i}": rng.normal(0, 1, n) for i in range(6)})
@@ -120,15 +120,13 @@ class TestPrototypeDirect:
                 for s in (0, 1, 2):
                     X, y = _additive(s, ndrivers, ttype)
                     hits = detect_conditional_gate(X, y, list(X.columns), seed=s)
-                    assert hits == [], (
-                        f"gate fired on {ndrivers}-driver additive {ttype} target (seed={s}): {hits} -- additive-floor regressed."
-                    )
+                    assert hits == [], f"gate fired on {ndrivers}-driver additive {ttype} target (seed={s}): {hits} -- additive-floor regressed."
 
 
 class TestRecipeReplay:
     def test_argmax_recipe_replay_bit_identical(self):
         X, y = _argmax_target(1)
-        appended, recipes = hybrid_row_argmax_fe_with_recipes(X, y, seed=1)
+        _appended, recipes = hybrid_row_argmax_fe_with_recipes(X, y, seed=1)
         assert recipes, "no row-argmax recipes emitted."
         for r in recipes:
             direct = apply_row_argmax(X, r.src_names)
@@ -136,7 +134,7 @@ class TestRecipeReplay:
 
     def test_gate_recipe_replay_bit_identical_with_frozen_tau(self):
         X, y = _gate_target(1)
-        appended, recipes = hybrid_conditional_gate_fe_with_recipes(X, y, seed=1)
+        _appended, recipes = hybrid_conditional_gate_fe_with_recipes(X, y, seed=1)
         assert recipes, "no conditional-gate recipes emitted."
         for r in recipes:
             assert "tau" in r.extra, "gate recipe must freeze tau."
@@ -160,7 +158,7 @@ class TestRecipeReplay:
         _, am_recipes = hybrid_row_argmax_fe_with_recipes(Xa, ya, seed=1)
         assert gate_recipes and am_recipes
         for r, frame in [(gate_recipes[0], X), (am_recipes[0], Xa)]:
-            r2 = pickle.loads(pickle.dumps(r))
+            r2 = pickle.loads(pickle.dumps(r))  # nosec B301 -- round-trip of a locally-created, trusted object
             assert r2 == r, f"recipe {r.name!r} != its pickle round-trip."
             np.testing.assert_array_equal(apply_recipe(r, frame), apply_recipe(r2, frame))
 
@@ -168,6 +166,7 @@ class TestRecipeReplay:
 class TestMRMRIntegration:
     def test_argmax_opt_out_is_no_op(self):
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _argmax_target(42, n=2000)
         m = MRMR(fe_row_argmax_enable=False, max_runtime_mins=0.5)
         m.fit(X, pd.Series(y, name="y"))
@@ -179,14 +178,20 @@ class TestMRMRIntegration:
         """OFF is a true no-op: the selected raw set with fe_row_argmax_enable=False is identical to disabling the operator
         entirely (proves OFF does not perturb selection vs the pre-operator baseline)."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         rng = np.random.default_rng(3)
         n = 2000
         X = pd.DataFrame({f"c{i}": rng.normal(0, 1, n) for i in range(6)})
         y = (X["c0"].to_numpy() + 0.5 * X["c1"].to_numpy() > 0).astype(int)
         sel = []
         for _ in range(2):
-            m = MRMR(fe_row_argmax_enable=False, fe_conditional_gate_enable=False,
-                     fe_pairwise_modular_enable=False, fe_integer_lattice_enable=False, max_runtime_mins=0.5)
+            m = MRMR(
+                fe_row_argmax_enable=False,
+                fe_conditional_gate_enable=False,
+                fe_pairwise_modular_enable=False,
+                fe_integer_lattice_enable=False,
+                max_runtime_mins=0.5,
+            )
             m.fit(X, pd.Series(y, name="y"))
             sel.append(tuple(m.transform(X.iloc[:200]).columns))
         assert sel[0] == sel[1], f"OFF selection not deterministic: {sel[0]} vs {sel[1]}"
@@ -194,6 +199,7 @@ class TestMRMRIntegration:
 
     def test_gate_opt_out_is_no_op(self):
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _gate_target(42, n=2000)
         m = MRMR(fe_conditional_gate_enable=False, max_runtime_mins=0.5)
         m.fit(X, pd.Series(y, name="y"))
@@ -203,19 +209,19 @@ class TestMRMRIntegration:
 
     def test_argmax_default_on_selects_feature(self):
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _argmax_target(7, n=4000)
         m = MRMR(max_runtime_mins=2)
         assert bool(getattr(m, "fe_row_argmax_enable", False)) is True
         m.fit(X, pd.Series(y, name="y"))
         out = m.transform(X.iloc[:500])
-        assert [c for c in out.columns if str(c).startswith("argmax_")], (
-            f"default-ON MRMR did not select a row-argmax feature; selected={list(out.columns)}"
-        )
+        assert [c for c in out.columns if str(c).startswith("argmax_")], f"default-ON MRMR did not select a row-argmax feature; selected={list(out.columns)}"
 
     def test_gate_default_is_on(self):
         """conditional-gate now defaults ON: the relevance-pruned candidate set makes the sweep O(k^2) flat-in-p (the prior
         O(p^3) cost that forced it OFF is gone). Opt out with fe_conditional_gate_enable=False; see the ctor docstring."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         m = MRMR()
         assert bool(getattr(m, "fe_conditional_gate_enable", False)) is True
         assert int(getattr(m, "fe_conditional_gate_k_gate", 0)) == 8
@@ -223,6 +229,7 @@ class TestMRMRIntegration:
 
     def test_gate_default_on_selects_feature_and_replays(self):
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _gate_target(13, n=4000)
         m = MRMR(max_runtime_mins=2)
         m.fit(X, pd.Series(y, name="y"))
@@ -238,10 +245,13 @@ class TestMRMRIntegration:
         engineered column (pmod_/il_/argmax_/gate_) would build a recipe whose engineered source is unresolved at replay --
         transform() would emit a NaN column and silently drop the feature. Regression for that interaction bug."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _gate_target(1, n=4000)
         m = MRMR(
-            fe_row_argmax_enable=True, fe_conditional_gate_enable=True,
-            fe_pairwise_modular_enable=True, fe_integer_lattice_enable=True,
+            fe_row_argmax_enable=True,
+            fe_conditional_gate_enable=True,
+            fe_pairwise_modular_enable=True,
+            fe_integer_lattice_enable=True,
             max_runtime_mins=2,
         )
         m.fit(X, pd.Series(y, name="y"))
@@ -284,6 +294,7 @@ class TestMRMRIntegration:
         broadened best-existing-op baseline (which includes ``a+b`` / ``a+c`` / ``b+c`` / ``a+b+c``) captures the additive signal a
         piecewise ``c>tau ? a : b`` used to partially reconstruct, so the gate no longer fires on a purely additive target."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         rng = np.random.default_rng(42)
         n = 600
         X = pd.DataFrame(rng.normal(size=(n, 8)), columns=[f"x{i}" for i in range(8)])
@@ -297,10 +308,16 @@ class TestMRMRIntegration:
 
     def test_clone_preserves_params(self):
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         m = MRMR(
-            fe_row_argmax_enable=True, fe_row_argmax_top_k=3, fe_row_argmax_max_cols=25,
-            fe_conditional_gate_enable=True, fe_conditional_gate_top_k=2, fe_conditional_gate_max_cols=15,
-            fe_conditional_gate_k_gate=6, fe_conditional_gate_k_operand=7,
+            fe_row_argmax_enable=True,
+            fe_row_argmax_top_k=3,
+            fe_row_argmax_max_cols=25,
+            fe_conditional_gate_enable=True,
+            fe_conditional_gate_top_k=2,
+            fe_conditional_gate_max_cols=15,
+            fe_conditional_gate_k_gate=6,
+            fe_conditional_gate_k_operand=7,
         )
         c = clone(m)
         assert bool(c.fe_row_argmax_enable) is True
@@ -340,6 +357,7 @@ class TestRelevancePruning:
         """The true gate column c is marginally y-independent (raw MI ~ 0, would rank LAST), yet must enter the gate pool via the
         conditional-divergence rank. Pins the dual-signal prune: raw-MI ranking alone would drop c and miss the regime switch."""
         from mlframe.feature_selection.filters._conditional_gate_fe import _rank_and_prune
+
         X, y = self._gate_with_noise(7)
         gate_pool, operand_pool = _rank_and_prune(X, list(X.columns), np.asarray(y).astype(np.int64), 12, 8, 10)
         assert "c" in gate_pool, f"gate column c dropped from the k_gate pool: {gate_pool}"
@@ -350,6 +368,7 @@ class TestRelevancePruning:
         count must NOT grow the candidate set proportionally (the unpruned C(p,2)*p sweep would explode). Cap = k_gate * mask +
         k_gate * select = k_gate*(k_operand-1) + k_gate*(k_operand-1)*(k_operand-1), well below the unpruned count at p=63."""
         from mlframe.feature_selection.filters._conditional_gate_fe import cheap_conditional_gate_scan
+
         k_gate, k_operand = 8, 10
         cap = k_gate * (k_operand + k_operand * (k_operand - 1))  # per gate col: mask (<=k_operand) + select (<=k_operand*(k_operand-1))
         counts = []
@@ -370,12 +389,19 @@ class TestBizValue:
         catalog has no column equal to the 3-way argmax code (measured +0.55 MI lift, pinned in
         ``test_biz_val_conditional_gate_fe`` / the prototype-direct tests). Floor +0.30 MI lift below the measured +0.55."""
         from mlframe.feature_selection.filters._pairwise_modular_fe import _mi
+
         lifts = []
         for seed in (1, 7, 42):
             from mlframe.feature_selection.filters.mrmr import MRMR
+
             X, y = _argmax_target(seed, n=3000)
-            m = MRMR(fe_row_argmax_enable=True, fe_conditional_gate_enable=False,
-                     fe_pairwise_modular_enable=False, fe_integer_lattice_enable=False, max_runtime_mins=1)
+            m = MRMR(
+                fe_row_argmax_enable=True,
+                fe_conditional_gate_enable=False,
+                fe_pairwise_modular_enable=False,
+                fe_integer_lattice_enable=False,
+                max_runtime_mins=1,
+            )
             m.fit(X, pd.Series(y, name="y"))
             F = m.transform(X)
             sel = [c for c in F.columns if str(c).startswith("argmax_")]
@@ -393,6 +419,7 @@ class TestBizValue:
         on, off = [], []
         for seed in (1, 7, 42):
             from mlframe.feature_selection.filters.mrmr import MRMR
+
             X, y = _gate_target(seed, n=3000)
             Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.3, random_state=seed, stratify=y)
             for flag, store in ((True, on), (False, off)):
@@ -405,12 +432,19 @@ class TestBizValue:
                 # non-gate FE family OFF): OFF then measures raw a,b,c + linear (~0.83, cannot do the
                 # discontinuity), ON adds only the gate (gate_select__a__b__c__t<thr>, ~0.998) -> lift ~0.17.
                 _bare = dict(
-                    fe_max_steps=0, fe_fast_search=False, fe_row_argmax_enable=False,
-                    fe_pairwise_modular_enable=False, fe_integer_lattice_enable=False,
-                    fe_auto_escalation_enable=False, fe_hinge_enable=False,
-                    fe_conditional_dispersion_enable=False, fe_wavelet_enable=False,
-                    fe_univariate_basis_enable=False, fe_univariate_fourier_enable=False,
-                    fe_binned_numeric_agg_enable=False, max_runtime_mins=1,
+                    fe_max_steps=0,
+                    fe_fast_search=False,
+                    fe_row_argmax_enable=False,
+                    fe_pairwise_modular_enable=False,
+                    fe_integer_lattice_enable=False,
+                    fe_auto_escalation_enable=False,
+                    fe_hinge_enable=False,
+                    fe_conditional_dispersion_enable=False,
+                    fe_wavelet_enable=False,
+                    fe_univariate_basis_enable=False,
+                    fe_univariate_fourier_enable=False,
+                    fe_binned_numeric_agg_enable=False,
+                    max_runtime_mins=1,
                 )
                 m = MRMR(fe_conditional_gate_enable=flag, **_bare)
                 m.fit(Xtr, pd.Series(ytr, name="y"))
@@ -446,10 +480,20 @@ class TestArgmaxAndGateTargetTypeRobustness:
     def _mrmr(self, **flags):
         from mlframe.feature_selection.filters.mrmr import MRMR
 
-        return MRMR(verbose=0, interactions_max_order=1, fe_max_steps=0, dcd_enable=False,
-                    cluster_aggregate_enable=False, build_friend_graph=False, cat_fe_config=None,
-                    quantization_nbins=10, random_seed=0,
-                    fe_pairwise_modular_enable=False, fe_integer_lattice_enable=False, **flags)
+        return MRMR(
+            verbose=0,
+            interactions_max_order=1,
+            fe_max_steps=0,
+            dcd_enable=False,
+            cluster_aggregate_enable=False,
+            build_friend_graph=False,
+            cat_fe_config=None,
+            quantization_nbins=10,
+            random_seed=0,
+            fe_pairwise_modular_enable=False,
+            fe_integer_lattice_enable=False,
+            **flags,
+        )
 
     @pytest.mark.parametrize("kind", ["quantile", "count"])
     def test_row_argmax_specific_on_smooth_continuous_target_no_crash_or_hang(self, kind):
@@ -533,4 +577,5 @@ class TestArgmaxAndGateTargetTypeRobustness:
 
 if __name__ == "__main__":
     import sys
+
     sys.exit(pytest.main([__file__, "-v", "-s", "--no-cov"]))

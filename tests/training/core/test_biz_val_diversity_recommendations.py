@@ -61,9 +61,7 @@ def test_biz_val_diversity_recommendations_surfaces_diverse_weaker_member():
         diversity_recommendation_min_improvement=0.0,
         diversity_recommendation_top_k=None,
     )
-    shortlist = compute_diversity_recommendations(
-        ens_models=members, target_type=TargetTypes.REGRESSION, behavior_config=behavior_config, verbose=False
-    )
+    shortlist = compute_diversity_recommendations(ens_models=members, target_type=TargetTypes.REGRESSION, behavior_config=behavior_config, verbose=False)
     assert shortlist is not None, "diversity recommendation did not fire on a well-formed OOF pool"
     assert len(shortlist) >= 1, "no diverse-but-weaker member was recommended despite a genuine diversity gap"
 
@@ -100,7 +98,4 @@ def test_none_for_multiclass():
     """Multiclass oof_probs (n, C>=3) has no single-column diversity proxy -- documented skip, not a crash."""
     members = _regression_pool()
     behavior_config = SimpleNamespace(recommend_diversity_additions_in_leaderboard=True)
-    assert (
-        compute_diversity_recommendations(ens_models=members, target_type=TargetTypes.MULTICLASS_CLASSIFICATION, behavior_config=behavior_config)
-        is None
-    )
+    assert compute_diversity_recommendations(ens_models=members, target_type=TargetTypes.MULTICLASS_CLASSIFICATION, behavior_config=behavior_config) is None

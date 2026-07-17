@@ -24,25 +24,27 @@ from sklearn.pipeline import Pipeline
 # Baseline: default sklearn Pipeline returns numpy — the behavior we must avoid
 # ---------------------------------------------------------------------------
 
+
 def test_baseline_sklearn_pipeline_default_returns_numpy():
     """Document baseline sklearn behavior — default Pipeline returns numpy,
     destroying pd.Categorical. Regression guard in case sklearn changes default."""
-    df = pd.DataFrame({
-        "a": [1.0, 2.0, 3.0, 4.0],
-        "b": [5.0, 6.0, 7.0, 8.0],
-        "cat": pd.Categorical(["x", "y", "x", "y"]),
-    })
+    df = pd.DataFrame(
+        {
+            "a": [1.0, 2.0, 3.0, 4.0],
+            "b": [5.0, 6.0, 7.0, 8.0],
+            "cat": pd.Categorical(["x", "y", "x", "y"]),
+        }
+    )
     numeric_df = df[["a", "b"]]
     pipe = Pipeline([("scaler", StandardScaler())])
     out = pipe.fit_transform(numeric_df)
-    assert isinstance(out, np.ndarray), (
-        "sklearn default changed — update mlframe pipelines to rely on set_output explicitly"
-    )
+    assert isinstance(out, np.ndarray), "sklearn default changed — update mlframe pipelines to rely on set_output explicitly"
 
 
 # ---------------------------------------------------------------------------
 # ModelPipelineStrategy.build_pipeline — linear-model path must set_output pandas
 # ---------------------------------------------------------------------------
+
 
 def test_linear_strategy_pipeline_preserves_pandas_across_scaler():
     """LinearModelStrategy stacks imputer + scaler + (optional) encoder.
@@ -56,10 +58,12 @@ def test_linear_strategy_pipeline_preserves_pandas_across_scaler():
 
     n = 50
     rng = np.random.default_rng(0)
-    df = pd.DataFrame({
-        "num1": rng.standard_normal(n).astype(np.float32),
-        "num2": rng.standard_normal(n).astype(np.float32),
-    })
+    df = pd.DataFrame(
+        {
+            "num1": rng.standard_normal(n).astype(np.float32),
+            "num2": rng.standard_normal(n).astype(np.float32),
+        }
+    )
     y = rng.integers(0, 2, size=n)
 
     strategy = LinearModelStrategy()
@@ -85,6 +89,7 @@ def test_linear_strategy_pipeline_preserves_pandas_across_scaler():
 # _passthrough_cols_fit_transform — must re-wrap numpy output as pd.DataFrame
 # ---------------------------------------------------------------------------
 
+
 def test_passthrough_cols_rewraps_numpy_so_passthrough_cols_survive():
     """If an inner transformer returns numpy, _passthrough_cols_fit_transform
     currently drops passthrough_cols silently (out has no .columns, append skipped).
@@ -95,27 +100,25 @@ def test_passthrough_cols_rewraps_numpy_so_passthrough_cols_survive():
 
     rng = np.random.default_rng(0)
     n = 50
-    df = pd.DataFrame({
-        "keep1": rng.standard_normal(n).astype(np.float32),
-        "keep2": rng.standard_normal(n).astype(np.float32),
-        "text_passthrough": [f"t{i}" for i in range(n)],
-    })
+    df = pd.DataFrame(
+        {
+            "keep1": rng.standard_normal(n).astype(np.float32),
+            "keep2": rng.standard_normal(n).astype(np.float32),
+            "text_passthrough": [f"t{i}" for i in range(n)],
+        }
+    )
 
     def numpy_returning_transform(sub_df):
         return sub_df.to_numpy()
 
-    out = _passthrough_cols_fit_transform(
-        numpy_returning_transform, df, passthrough_cols=["text_passthrough"]
-    )
+    out = _passthrough_cols_fit_transform(numpy_returning_transform, df, passthrough_cols=["text_passthrough"])
 
     assert isinstance(out, pd.DataFrame), (
         f"_passthrough_cols_fit_transform returned {type(out).__name__} "
         f"when inner fn returned numpy; expected pd.DataFrame reconstruction "
         f"so passthrough_cols don't silently disappear"
     )
-    assert "text_passthrough" in out.columns, (
-        "passthrough_cols must be preserved through the numpy-output path"
-    )
+    assert "text_passthrough" in out.columns, "passthrough_cols must be preserved through the numpy-output path"
 
 
 def test_passthrough_cols_pandas_output_keeps_dtypes():
@@ -124,29 +127,28 @@ def test_passthrough_cols_pandas_output_keeps_dtypes():
     from mlframe.training.trainer import _passthrough_cols_fit_transform
 
     n = 50
-    df = pd.DataFrame({
-        "keep1": np.ones(n, dtype=np.float32),
-        "cat_selected": pd.Categorical(["HOURLY", "FIXED"] * (n // 2)),
-        "text_passthrough": [f"t{i}" for i in range(n)],
-    })
+    df = pd.DataFrame(
+        {
+            "keep1": np.ones(n, dtype=np.float32),
+            "cat_selected": pd.Categorical(["HOURLY", "FIXED"] * (n // 2)),
+            "text_passthrough": [f"t{i}" for i in range(n)],
+        }
+    )
 
     def pandas_returning_transform(sub_df):
         return sub_df[["keep1", "cat_selected"]]
 
-    out = _passthrough_cols_fit_transform(
-        pandas_returning_transform, df, passthrough_cols=["text_passthrough"]
-    )
+    out = _passthrough_cols_fit_transform(pandas_returning_transform, df, passthrough_cols=["text_passthrough"])
 
     assert isinstance(out, pd.DataFrame)
-    assert out["cat_selected"].dtype.name == "category", (
-        "pd.Categorical dtype must survive the passthrough wrapper"
-    )
+    assert out["cat_selected"].dtype.name == "category", "pd.Categorical dtype must survive the passthrough wrapper"
     assert "text_passthrough" in out.columns
 
 
 # ---------------------------------------------------------------------------
 # End-to-end: Polars Enum → pandas bridge → Pipeline → LGB fit succeeds
 # ---------------------------------------------------------------------------
+
 
 def test_get_pandas_view_signature_and_self_destruct_default():
     """Behavioural contract: get_pandas_view_of_polars_df exposes ``self_destruct: bool = False``
@@ -161,14 +163,10 @@ def test_get_pandas_view_signature_and_self_destruct_default():
     from mlframe.training.utils import get_pandas_view_of_polars_df
 
     sig = inspect.signature(get_pandas_view_of_polars_df)
-    assert "self_destruct" in sig.parameters, (
-        "get_pandas_view_of_polars_df must expose self_destruct param so callers can opt in to the "
-        "43x fast path."
-    )
+    assert "self_destruct" in sig.parameters, "get_pandas_view_of_polars_df must expose self_destruct param so callers can opt in to the 43x fast path."
     sd_param = sig.parameters["self_destruct"]
     assert sd_param.default is False, (
-        f"self_destruct must default to False (pyarrow EXPERIMENTAL flag caused native crash 2026-04-22); "
-        f"got default={sd_param.default!r}"
+        f"self_destruct must default to False (pyarrow EXPERIMENTAL flag caused native crash 2026-04-22); got default={sd_param.default!r}"
     )
 
     df = pl.DataFrame({"num": np.arange(50, dtype=np.float32), "cat": ["a", "b"] * 25})
@@ -182,9 +180,9 @@ def test_get_pandas_view_signature_and_self_destruct_default():
 @pytest.mark.parametrize(
     "self_destruct_arg, expected_self_destruct",
     [
-        (None, False),      # default → False (safe; pyarrow EXPERIMENTAL flag)
-        (True, True),       # explicit opt-in (caller takes responsibility)
-        (False, False),     # explicit safe
+        (None, False),  # default → False (safe; pyarrow EXPERIMENTAL flag)
+        (True, True),  # explicit opt-in (caller takes responsibility)
+        (False, False),  # explicit safe
     ],
     ids=["default_false", "explicit_true", "explicit_false"],
 )
@@ -198,10 +196,12 @@ def test_get_pandas_view_self_destruct_param_behavior(self_destruct_arg, expecte
     """
     from mlframe.training.utils import get_pandas_view_of_polars_df
 
-    df = pl.DataFrame({
-        "num": np.arange(100, dtype=np.float32),
-        "cat": pl.Series(["A", "B"] * 50).cast(pl.Categorical),
-    })
+    df = pl.DataFrame(
+        {
+            "num": np.arange(100, dtype=np.float32),
+            "cat": pl.Series(["A", "B"] * 50).cast(pl.Categorical),
+        }
+    )
 
     if self_destruct_arg is None:
         out = get_pandas_view_of_polars_df(df)
@@ -253,18 +253,18 @@ def test_polars_enum_pandas_pipeline_lgb_fit_end_to_end():
     rng = np.random.default_rng(0)
     n = 500
     categories = ["HOURLY", "FIXED", "MILESTONE"]
-    pl_df = pl.DataFrame({
-        "num1": rng.standard_normal(n).astype(np.float32),
-        "num2": rng.standard_normal(n).astype(np.float32),
-        "budget_type": pl.Series([categories[i % 3] for i in range(n)]).cast(pl.Enum(categories)),
-    })
+    pl_df = pl.DataFrame(
+        {
+            "num1": rng.standard_normal(n).astype(np.float32),
+            "num2": rng.standard_normal(n).astype(np.float32),
+            "budget_type": pl.Series([categories[i % 3] for i in range(n)]).cast(pl.Enum(categories)),
+        }
+    )
     y = rng.integers(0, 2, size=n)
 
     # Bridge keeps pd.Categorical
     pd_df = get_pandas_view_of_polars_df(pl_df)
-    assert pd_df["budget_type"].dtype.name == "category", (
-        "Polars→pandas bridge must preserve pl.Enum as pd.Categorical"
-    )
+    assert pd_df["budget_type"].dtype.name == "category", "Polars→pandas bridge must preserve pl.Enum as pd.Categorical"
 
     # LGB accepts pandas DataFrame with pd.Categorical when categorical_feature is passed
     model = lgb.LGBMClassifier(n_estimators=5, verbose=-1)

@@ -30,17 +30,21 @@ from mlframe.training import configs as configs_module
 
 # Phrases that imply a normalising validator + the target case form.
 _LOWER_PROMISES = (
-    "case-insensitive", "case insensitive",
-    "normalized to lowercase", "normalized to lower",
+    "case-insensitive",
+    "case insensitive",
+    "normalized to lowercase",
+    "normalized to lower",
     "normalised to lowercase",
 )
 _UPPER_PROMISES = (
-    "normalized to uppercase", "normalized to upper",
+    "normalized to uppercase",
+    "normalized to upper",
     "normalised to uppercase",
 )
 
 
 def _config_classes() -> list[type[BaseModel]]:
+    """Every pydantic BaseModel subclass defined in the configs module's own submodules."""
     out = []
     for _, obj in inspect.getmembers(configs_module, inspect.isclass):
         if not (issubclass(obj, BaseModel) and obj is not BaseModel):
@@ -117,6 +121,7 @@ def _required_kwargs(cls: type[BaseModel]) -> dict:
 
 
 def test_normalisation_promises_actually_normalise():
+    """Every field whose docstring promises normalization actually normalizes a non-canonical input."""
     failures: list[str] = []
     audited = 0
     classes = _config_classes()
@@ -141,27 +146,18 @@ def test_normalisation_promises_actually_normalise():
             base_kwargs[field_name] = sentinel_in
             try:
                 instance = cls(**base_kwargs)
-            except Exception:
+            except Exception:  # nosec B112 -- best-effort skip of one iteration on a non-fatal error; the test's own assertions are unaffected
                 # Synth values couldn't satisfy other validators; can't audit this field.
                 continue
             actual = getattr(instance, field_name, None)
             if not isinstance(actual, str):
                 continue
             if wants_lower and actual != sentinel_in.lower():
-                failures.append(
-                    f"{cls.__name__}.{field_name}: docstring promises lowercase normalisation; "
-                    f"input {sentinel_in!r} kept as {actual!r}"
-                )
+                failures.append(f"{cls.__name__}.{field_name}: docstring promises lowercase normalisation; input {sentinel_in!r} kept as {actual!r}")
             elif wants_upper and actual != sentinel_in.upper():
-                failures.append(
-                    f"{cls.__name__}.{field_name}: docstring promises uppercase normalisation; "
-                    f"input {sentinel_in!r} kept as {actual!r}"
-                )
+                failures.append(f"{cls.__name__}.{field_name}: docstring promises uppercase normalisation; input {sentinel_in!r} kept as {actual!r}")
 
     if audited == 0:
         pytest.skip("no normalisation promises found in config docstrings with str-typed fields")
     if failures:
-        pytest.fail(
-            f"{len(failures)} normalisation promise(s) not actually enforced:\n  "
-            + "\n  ".join(failures)
-        )
+        pytest.fail(f"{len(failures)} normalisation promise(s) not actually enforced:\n  " + "\n  ".join(failures))

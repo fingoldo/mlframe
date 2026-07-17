@@ -3,6 +3,7 @@
 Pre-fix: an out-of-range or NaN alpha was passed straight into the recurrence,
 silently diverging / poisoning every output with no error.
 """
+
 from __future__ import annotations
 
 import numpy as np

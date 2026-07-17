@@ -8,6 +8,7 @@ pipeline hard-coded to one fixed ``country`` structurally cannot see those spike
 weakness, it's a missing column. The new ``countries=[...]`` blend mode's combined ``{prefix}_any_is_holiday``
 flag is built to catch a spike driven by EITHER region's calendar.
 """
+
 from __future__ import annotations
 
 import pandas as pd

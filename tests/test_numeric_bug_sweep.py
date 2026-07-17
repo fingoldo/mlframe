@@ -53,7 +53,7 @@ class TestEwma:
         x = np.random.default_rng(42).normal(size=n).astype(np.float64)
         out = ewma(x, alpha=0.1)
         rss_after = proc.memory_info().rss
-        delta_mb = (rss_after - rss_before) / (1024 ** 2)
+        delta_mb = (rss_after - rss_before) / (1024**2)
         assert out.shape == (n,)
         # Old O(n^2) implementation would allocate 10_000_000_000 float64s (~75 GB).
         # Generous 50 MB headroom covers numba transient buffers / Python overhead.
@@ -126,7 +126,7 @@ class TestArrays:
         x = np.array([3.0, 1.0, 4.0, 1.0, 5.0, 9.0, 2.0, 6.0])
         x_copy = x.copy()
         x.setflags(write=False)
-        ind, val = topk_by_partition(x, k=3)
+        _ind, val = topk_by_partition(x, k=3)
         assert not x.flags.writeable or np.array_equal(x, x_copy)
         # top-3 values are the 3 smallest of -x = largest of x → {9, 6, 5}
         assert set(val.tolist()) == {9.0, 6.0, 5.0}
@@ -253,12 +253,8 @@ class TestStats:
 
         # With sd_sigma=None, get_sd_for_dist_percentage is called — bug was passing
         # dist_kwargs as a literal kwarg. Different df should give different results.
-        res_small_df = get_tukey_fences_multiplier_for_quantile(
-            quantile=0.25, sd_sigma=None, nonoutlying_dist_percentage=0.95, dist=t_dist, df=df
-        )
-        res_large_df = get_tukey_fences_multiplier_for_quantile(
-            quantile=0.25, sd_sigma=None, nonoutlying_dist_percentage=0.95, dist=t_dist, df=df + 100
-        )
+        res_small_df = get_tukey_fences_multiplier_for_quantile(quantile=0.25, sd_sigma=None, nonoutlying_dist_percentage=0.95, dist=t_dist, df=df)
+        res_large_df = get_tukey_fences_multiplier_for_quantile(quantile=0.25, sd_sigma=None, nonoutlying_dist_percentage=0.95, dist=t_dist, df=df + 100)
         assert np.isfinite(res_small_df)
         assert np.isfinite(res_large_df)
         # Heavy tails at small df → different multiplier from near-normal large df.

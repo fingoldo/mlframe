@@ -17,6 +17,7 @@ through a separate path that treats the raw difference as
 already-seconds; datetime ts keeps its Timedelta-aware path
 unchanged.
 """
+
 from __future__ import annotations
 
 import numpy as np

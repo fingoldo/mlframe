@@ -13,9 +13,6 @@ import pytest
 pytestmark = pytest.mark.slow
 import numpy as np
 import pandas as pd
-import tempfile
-import os
-from pathlib import Path
 
 from sklearn.linear_model import Ridge, LogisticRegression
 
@@ -98,9 +95,9 @@ class TestFullPipelineRegression:
         X = np.random.randn(n_samples, n_features)
         y = 2 * X[:, 0] + 3 * X[:, 1] - X[:, 2] + np.random.randn(n_samples) * 0.5
 
-        columns = [f'feature_{i}' for i in range(n_features)]
+        columns = [f"feature_{i}" for i in range(n_features)]
         df = pd.DataFrame(X, columns=columns)
-        df['target'] = y
+        df["target"] = y
 
         train_idx = np.arange(400)
         val_idx = np.arange(400, 450)
@@ -111,12 +108,12 @@ class TestFullPipelineRegression:
     def test_end_to_end_regression_pipeline(self, regression_data):
         """Test complete regression training pipeline."""
         df, columns, train_idx, val_idx, test_idx = regression_data
-        target = df['target']
+        target = df["target"]
         feature_df = df[columns]
 
         model = Ridge(alpha=1.0)
 
-        result, train_df, val_df, test_df = call_train_and_evaluate(
+        result, _train_df, _val_df, _test_df = call_train_and_evaluate(
             model=model,
             df=feature_df,
             target=target,
@@ -139,7 +136,7 @@ class TestFullPipelineRegression:
         assert len(result.test_preds) == len(test_idx)
 
         # Verify metrics
-        assert 'MAE' in result.metrics.get('test', {}) or len(result.metrics.get('test', {})) > 0
+        assert "MAE" in result.metrics.get("test", {}) or len(result.metrics.get("test", {})) > 0
 
         # Verify predictions are reasonable (not NaN, not constant)
         assert not np.any(np.isnan(result.test_preds))
@@ -147,8 +144,8 @@ class TestFullPipelineRegression:
 
     def test_predictions_in_valid_range(self, regression_data):
         """Test that regression predictions are in valid range."""
-        df, columns, train_idx, val_idx, test_idx = regression_data
-        target = df['target']
+        df, columns, train_idx, _val_idx, test_idx = regression_data
+        target = df["target"]
         feature_df = df[columns]
 
         model = Ridge(alpha=1.0)
@@ -187,9 +184,9 @@ class TestFullPipelineClassification:
         probs = 1 / (1 + np.exp(-logits))
         y = (probs > 0.5).astype(int)
 
-        columns = [f'feature_{i}' for i in range(n_features)]
+        columns = [f"feature_{i}" for i in range(n_features)]
         df = pd.DataFrame(X, columns=columns)
-        df['target'] = y
+        df["target"] = y
 
         train_idx = np.arange(400)
         val_idx = np.arange(400, 450)
@@ -200,7 +197,7 @@ class TestFullPipelineClassification:
     def test_end_to_end_classification_pipeline(self, classification_data):
         """Test complete classification training pipeline."""
         df, columns, train_idx, val_idx, test_idx = classification_data
-        target = df['target']
+        target = df["target"]
         feature_df = df[columns]
 
         model = LogisticRegression(max_iter=1000)
@@ -230,16 +227,12 @@ class TestFullPipelineClassification:
 
         # Verify probabilities
         assert result.test_probs.shape[1] == 2
-        np.testing.assert_array_almost_equal(
-            result.test_probs.sum(axis=1),
-            np.ones(len(test_idx)),
-            decimal=5
-        )
+        np.testing.assert_array_almost_equal(result.test_probs.sum(axis=1), np.ones(len(test_idx)), decimal=5)
 
     def test_probabilities_sum_to_one(self, classification_data):
         """Test that class probabilities sum to 1."""
-        df, columns, train_idx, val_idx, test_idx = classification_data
-        target = df['target']
+        df, columns, train_idx, _val_idx, test_idx = classification_data
+        target = df["target"]
         feature_df = df[columns]
 
         model = LogisticRegression(max_iter=1000)
@@ -260,8 +253,8 @@ class TestFullPipelineClassification:
 
     def test_probabilities_in_valid_range(self, classification_data):
         """Test that probabilities are in [0, 1]."""
-        df, columns, train_idx, val_idx, test_idx = classification_data
-        target = df['target']
+        df, columns, train_idx, _val_idx, test_idx = classification_data
+        target = df["target"]
         feature_df = df[columns]
 
         model = LogisticRegression(max_iter=1000)
@@ -321,9 +314,9 @@ class TestSaveLoadRoundtrip:
 
         # Complex object with model and metadata
         model_data = {
-            'model': Ridge(alpha=1.0).fit(np.random.randn(50, 3), np.random.randn(50)),
-            'metadata': {'version': '1.0', 'features': ['a', 'b', 'c']},
-            'array': np.array([1, 2, 3]),
+            "model": Ridge(alpha=1.0).fit(np.random.randn(50, 3), np.random.randn(50)),
+            "metadata": {"version": "1.0", "features": ["a", "b", "c"]},
+            "array": np.array([1, 2, 3]),
         }
 
         model_path = str(tmp_path / "complex_model.dump")
@@ -332,9 +325,9 @@ class TestSaveLoadRoundtrip:
         loaded = load_mlframe_model(model_path)
 
         assert loaded is not None
-        assert 'model' in loaded
-        assert 'metadata' in loaded
-        assert loaded['metadata']['version'] == '1.0'
+        assert "model" in loaded
+        assert "metadata" in loaded
+        assert loaded["metadata"]["version"] == "1.0"
 
 
 # =============================================================================
@@ -355,8 +348,8 @@ class TestAutoMLIntegration:
         X = np.random.randn(n_samples, n_features)
         y = (X[:, 0] + X[:, 1] > 0).astype(int)
 
-        df = pd.DataFrame(X, columns=[f'f{i}' for i in range(n_features)])
-        df['target'] = y
+        df = pd.DataFrame(X, columns=[f"f{i}" for i in range(n_features)])
+        df["target"] = y
 
         train_df = df.iloc[:150].copy()
         test_df = df.iloc[150:].copy()
@@ -365,7 +358,7 @@ class TestAutoMLIntegration:
 
     def test_autogluon_training(self, automl_data, tmp_path):
         """Test AutoGluon model training."""
-        ag = pytest.importorskip("autogluon.tabular")
+        pytest.importorskip("autogluon.tabular")
 
         from mlframe.training.automl import train_autogluon_model
 
@@ -374,19 +367,19 @@ class TestAutoMLIntegration:
         result = train_autogluon_model(
             train_df=train_df,
             test_df=test_df,
-            target_name='target',
-            init_params={'path': str(tmp_path / 'ag_model')},
-            fit_params={'time_limit': 30, 'presets': 'medium_quality'},  # Fast training
+            target_name="target",
+            init_params={"path": str(tmp_path / "ag_model")},
+            fit_params={"time_limit": 30, "presets": "medium_quality"},  # Fast training
         )
 
         if result is not None:
-            assert hasattr(result, 'model')
-            assert hasattr(result, 'feature_importances')
-            assert hasattr(result, 'test_roc_auc')
+            assert hasattr(result, "model")
+            assert hasattr(result, "feature_importances")
+            assert hasattr(result, "test_roc_auc")
 
     def test_lama_training(self, automl_data, tmp_path):
         """Test LightAutoML model training."""
-        lama = pytest.importorskip("lightautoml")
+        pytest.importorskip("lightautoml")
         from lightautoml.tasks import Task
 
         from mlframe.training.automl import train_lama_model
@@ -396,6 +389,7 @@ class TestAutoMLIntegration:
         # LightAutoML <= 0.3.8 references the removed np.find_common_type symbol; the bug surfaces as ``AttributeError`` deep inside lama at fit time.
         # Gate on numpy version up front so the failure mode is loud (xfail) instead of silent (skip), and any future numpy-compat lama release re-enables it.
         import numpy as _np_ver
+
         _numpy_breaks_lama = tuple(int(x) for x in _np_ver.__version__.split(".")[:2]) >= (2, 0)
         if _numpy_breaks_lama:
             pytest.xfail(
@@ -406,12 +400,12 @@ class TestAutoMLIntegration:
         result = train_lama_model(
             train_df=train_df,
             test_df=test_df,
-            target_name='target',
-            init_params={'task': Task('binary'), 'timeout': 30},  # Required task + fast training
+            target_name="target",
+            init_params={"task": Task("binary"), "timeout": 30},  # Required task + fast training
         )
 
         if result is not None:
-            assert hasattr(result, 'model')
+            assert hasattr(result, "model")
 
     def test_automl_suite(self, automl_data, tmp_path):
         """Test training multiple AutoML models."""
@@ -424,15 +418,15 @@ class TestAutoMLIntegration:
         config = AutoMLConfig(
             enable_autogluon=True,
             enable_lama=True,
-            autogluon_init_params={'path': str(tmp_path / 'ag_suite')},
-            autogluon_fit_params={'time_limit': 30, 'presets': 'medium_quality'},
-            lama_init_params={'timeout': 30},
+            autogluon_init_params={"path": str(tmp_path / "ag_suite")},
+            autogluon_fit_params={"time_limit": 30, "presets": "medium_quality"},
+            lama_init_params={"timeout": 30},
         )
 
         results = train_automl_models_suite(
             train_df=train_df,
             test_df=test_df,
-            target_name='target',
+            target_name="target",
             config=config,
         )
 
@@ -454,7 +448,7 @@ class TestIntegrationEdgeCases:
         X = np.random.randn(20, 3)
         y = 2 * X[:, 0] + np.random.randn(20) * 0.5
 
-        df = pd.DataFrame(X, columns=['f0', 'f1', 'f2'])
+        df = pd.DataFrame(X, columns=["f0", "f1", "f2"])
         target = pd.Series(y)
 
         model = Ridge(alpha=1.0)
@@ -487,7 +481,7 @@ class TestIntegrationEdgeCases:
         X = np.random.randn(n_samples, n_features)
         y = np.sum(X[:, :5], axis=1) + np.random.randn(n_samples) * 0.5
 
-        df = pd.DataFrame(X, columns=[f'f{i}' for i in range(n_features)])
+        df = pd.DataFrame(X, columns=[f"f{i}" for i in range(n_features)])
         target = pd.Series(y)
 
         # Use RidgeCV for automatic alpha selection
@@ -516,7 +510,7 @@ class TestIntegrationEdgeCases:
         X = np.random.randn(100, 5)
         y = 2 * X[:, 0] + np.random.randn(100) * 0.5
 
-        df = pd.DataFrame(X, columns=[f'f{i}' for i in range(5)])
+        df = pd.DataFrame(X, columns=[f"f{i}" for i in range(5)])
         target = pd.Series(y)
 
         # Create sample weights (recent samples have higher weight)
@@ -559,7 +553,7 @@ class TestIntegrationEdgeCases:
         y = 2 * X[:, 0] + np.random.randn(100) * 0.5
 
         # Build polars frame, then convert to pandas at the test boundary.
-        df_pl = pl.DataFrame({f'f{i}': X[:, i] for i in range(5)})
+        df_pl = pl.DataFrame({f"f{i}": X[:, i] for i in range(5)})
         df = df_pl.to_pandas()
         target = pd.Series(y)
 
@@ -592,7 +586,7 @@ class TestValidationChecks:
         X = np.random.randn(100, 5)
         y = 2 * X[:, 0] + np.random.randn(100) * 0.5
 
-        df = pd.DataFrame(X, columns=[f'f{i}' for i in range(5)])
+        df = pd.DataFrame(X, columns=[f"f{i}" for i in range(5)])
         target = pd.Series(y)
 
         model = Ridge(alpha=1.0)
@@ -616,7 +610,7 @@ class TestValidationChecks:
         X = np.random.randn(100, 5)
         y = 2 * X[:, 0] + np.random.randn(100) * 0.5
 
-        df = pd.DataFrame(X, columns=[f'f{i}' for i in range(5)])
+        df = pd.DataFrame(X, columns=[f"f{i}" for i in range(5)])
         target = pd.Series(y)
 
         model = Ridge(alpha=1.0)
@@ -641,7 +635,7 @@ class TestValidationChecks:
         X = np.random.randn(100, 5)
         y = 2 * X[:, 0] + np.random.randn(100) * 0.5
 
-        df = pd.DataFrame(X, columns=[f'f{i}' for i in range(5)])
+        df = pd.DataFrame(X, columns=[f"f{i}" for i in range(5)])
         target = pd.Series(y)
 
         model = Ridge(alpha=1.0)

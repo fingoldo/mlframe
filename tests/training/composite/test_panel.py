@@ -1,4 +1,5 @@
 """Unit + biz_value tests for CompositePanelEstimator (panel / within-entity composite)."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -87,7 +88,7 @@ def test_predict_shape_and_entity_id_arg():
 def test_single_obs_entity_does_not_crash():
     """A panel where some entities have a single observation fits and predicts finitely."""
     rng = np.random.default_rng(4)
-    ents = list(range(20)) + [100, 101, 102]  # 3 singletons
+    ents = [*range(20), 100, 101, 102]  # 3 singletons
     rows = []
     for e in ents:
         k = 1 if e >= 100 else 10
@@ -151,7 +152,5 @@ def test_biz_val_panel_beats_pooled_on_fixed_effect_panel():
     pool_pred = pooled.predict(test[["entity", "x"]].astype(float))
     rmse_pool = float(np.sqrt(np.mean((pool_pred - test["y"].to_numpy()) ** 2)))
 
-    assert rmse_panel < rmse_pool * 0.90, (
-        f"panel RMSE {rmse_panel:.4f} should beat pooled {rmse_pool:.4f} by >=10%"
-    )
+    assert rmse_panel < rmse_pool * 0.90, f"panel RMSE {rmse_panel:.4f} should beat pooled {rmse_pool:.4f} by >=10%"
     assert np.all(np.isfinite(p_pred))

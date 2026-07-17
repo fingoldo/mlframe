@@ -6,6 +6,7 @@ recovers -- existed on a CUDA host and silently vanished on a CPU host. The fix 
 backend (CUDA where present, else the CPU njit-prange kernel) and runs the sweep there, so the decision is
 hardware-INDEPENDENT (affordable-or-not), not device-gated.
 """
+
 from __future__ import annotations
 
 import types
@@ -26,6 +27,7 @@ def _stub(mode, *, max_seconds=None, max_mins=None):
 @pytest.fixture
 def no_gpu(monkeypatch):
     import mlframe.feature_selection.filters.batch_pair_mi_gpu as bg
+
     monkeypatch.setattr(bg, "_CUDA_AVAIL", False, raising=False)
     return bg
 
@@ -47,13 +49,14 @@ def test_auto_declines_on_cost_not_on_gpu_absence(no_gpu):
     # A tiny budget makes the large CPU sweep unaffordable -> decline, but the REASON must be cost/budget,
     # NOT "no CUDA GPU available" (the old device-gate wording).
     use, reason = ex.decide_exhaustive_sweep(
-        _stub("auto", max_seconds=0.001), n_samples=1_000_000, n_raw=2000, verbose=0,
+        _stub("auto", max_seconds=0.001),
+        n_samples=1_000_000,
+        n_raw=2000,
+        verbose=0,
     )
     assert use is False
     assert "budget" in reason.lower()
-    assert "no cuda gpu available" not in reason.lower(), (
-        "decline must be cost-based, not device-gated (the P0-1 regression)"
-    )
+    assert "no cuda gpu available" not in reason.lower(), "decline must be cost-based, not device-gated (the P0-1 regression)"
 
 
 def test_never_mode_still_declines(no_gpu):

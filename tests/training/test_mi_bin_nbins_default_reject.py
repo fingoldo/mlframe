@@ -41,7 +41,8 @@ def _multimodal_fine_pairs(rng: np.random.Generator, n: int):
     for kb in kbands:
         x = rng.uniform(0, 1, size=n)
         y = np.floor(x * kb) + 0.05 * rng.normal(size=n)
-        pairs.append((x, y)); true.append(np.log(kb))
+        pairs.append((x, y))
+        true.append(np.log(kb))
     return pairs, np.array(true)
 
 
@@ -79,6 +80,7 @@ def test_nbins16_never_loses_on_gaussian_ladder_at_prod_n(nbins):
     for rho in rhos:
         x = rng.normal(size=20_000)
         y = rho * x + np.sqrt(1 - rho * rho) * rng.normal(size=20_000)
-        pairs.append((x, y)); true.append(-0.5 * np.log(1 - rho * rho))
+        pairs.append((x, y))
+        true.append(-0.5 * np.log(1 - rho * rho))
     est = np.array([_mi_pair_bin(x, y, nbins=nbins) for (x, y) in pairs])
     assert _concordance(np.array(true), est) == 1.0

@@ -2,18 +2,19 @@
 
 Pre-fix the class was defined INSIDE _configure_neural_params in trainer.py. As a local class it carried a hidden closure reference to the enclosing function's namespace; dill could not serialise the ABC-metaclass ``_abc._abc_data`` slot through that closure -- production saves failed with ``cannot pickle '_abc._abc_data' object``. Moving to module level fixes that.
 """
+
 from __future__ import annotations
 
 import io
 
 import numpy as np
-import pytest
 
 
 class TestTTRWithEvalSetScalingPickle:
     def test_module_level_class_importable(self) -> None:
         """The class lives at module level, not inside a function."""
         from mlframe.training.targets._ttr_eval_set_scaling import _TTRWithEvalSetScaling
+
         # Module-level class: __qualname__ is just the class name, NOT
         # "_configure_neural_params.<locals>._TTRWithEvalSetScaling" (the
         # pre-fix qualname that broke pickle).
@@ -21,7 +22,7 @@ class TestTTRWithEvalSetScalingPickle:
 
     def test_unfit_instance_pickles_via_dill(self) -> None:
         """A constructed but UNFIT instance must dill-roundtrip without raising. Pre-fix this raised ``cannot pickle '_abc._abc_data' object``."""
-        import dill
+        import dill  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
         from sklearn.linear_model import Ridge
         from sklearn.preprocessing import StandardScaler
 
@@ -31,12 +32,12 @@ class TestTTRWithEvalSetScalingPickle:
         buf = io.BytesIO()
         dill.dump(m, buf)
         buf.seek(0)
-        m2 = dill.load(buf)
+        m2 = dill.load(buf)  # nosec B301 -- round-trip of a locally-created, trusted object
         assert isinstance(m2, _TTRWithEvalSetScaling)
 
     def test_fit_then_pickle_roundtrips_and_predicts(self) -> None:
         """End-to-end: fit on small dataset, dill-roundtrip, predict matches the original."""
-        import dill
+        import dill  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
         from sklearn.linear_model import Ridge
         from sklearn.preprocessing import StandardScaler
 
@@ -52,13 +53,12 @@ class TestTTRWithEvalSetScalingPickle:
         buf = io.BytesIO()
         dill.dump(m, buf)
         buf.seek(0)
-        m2 = dill.load(buf)
+        m2 = dill.load(buf)  # nosec B301 -- round-trip of a locally-created, trusted object
         preds_after = m2.predict(X[:10])
         np.testing.assert_allclose(preds_after, preds_before, rtol=1e-9, atol=1e-9)
 
     def test_eval_set_y_val_gets_scaled(self) -> None:
         """The class's main purpose: scale eval_set's y_val through the transformer so inner estimators see y_val on the same scale as y_train."""
-        from sklearn.linear_model import Ridge
         from sklearn.preprocessing import StandardScaler
 
         from mlframe.training.targets._ttr_eval_set_scaling import _TTRWithEvalSetScaling

@@ -9,6 +9,7 @@ Both silently mis-binned high-magnitude data, poisoning every downstream MI / SU
 Fix: ``_safe_code_dtype`` widens the requested int dtype to fit ``n_bins-1`` at every public
 entry, and ``discretize_uniform`` clips in the float domain before the cast.
 """
+
 import numpy as np
 import pytest
 
@@ -55,9 +56,7 @@ def test_discretize_2d_quantile_batch_nbins_over_int8_no_wrap():
 def test_default_nbins_path_unchanged_int8():
     # The common n_bins=10 path must stay int8 and bit-identical to the numpy reference.
     arr = np.linspace(0.0, 1000.0, 1000)
-    ref = np.searchsorted(
-        np.nanpercentile(arr, np.linspace(0, 100, 11))[1:-1], arr, side="right"
-    ).astype(np.int8)
+    ref = np.searchsorted(np.nanpercentile(arr, np.linspace(0, 100, 11))[1:-1], arr, side="right").astype(np.int8)
     out = discretize_array(arr, n_bins=10, method="quantile")
     assert out.dtype == np.int8
     assert np.array_equal(out, ref)

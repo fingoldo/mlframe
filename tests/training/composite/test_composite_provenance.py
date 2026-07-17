@@ -13,11 +13,12 @@ Coverage map
   ensemble section appears only when ensemble metadata supplied;
   no specs -> minimal "0 discovered" report.
 """
+
 from __future__ import annotations
 
 import orjson
 from datetime import datetime
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 import pytest
 
@@ -42,7 +43,7 @@ def _make_spec(
     transform_name: str = "linear_residual",
     base_column: str = "TVT_prev",
     target_col: str = "TVT",
-    fitted_params: Dict[str, Any] = None,
+    fitted_params: Optional[Dict[str, Any]] = None,
     mi_gain: float = 0.42,
 ) -> CompositeSpec:
     fitted_params = fitted_params or {"alpha": 0.95, "beta": 0.5}
@@ -104,8 +105,10 @@ class TestFromSpec:
 
     def test_optional_ensemble_fields(self) -> None:
         prov = CompositeProvenance.from_spec(
-            _make_spec(), random_state=42,
-            ensemble_weight=0.3, ensemble_strategy="oof_weighted",
+            _make_spec(),
+            random_state=42,
+            ensemble_weight=0.3,
+            ensemble_strategy="oof_weighted",
         )
         assert prov.ensemble_weight == pytest.approx(0.3)
         assert prov.ensemble_strategy == "oof_weighted"
@@ -131,7 +134,8 @@ class TestSerialisation:
         prov = CompositeProvenance.from_spec(
             _make_spec(mi_gain=0.42),
             random_state=42,
-            ensemble_weight=0.27, ensemble_strategy="oof_weighted",
+            ensemble_weight=0.27,
+            ensemble_strategy="oof_weighted",
         )
         para = prov.to_audit_trail()
         # Load-bearing facts must be present in the paragraph.
@@ -152,15 +156,20 @@ class TestSerialisation:
 class TestFormulas:
     def test_diff(self) -> None:
         fwd, inv, desc = _format_transform_formulas(
-            "diff", base_column="x", target_col="y", fitted_params={},
+            "diff",
+            base_column="x",
+            target_col="y",
+            fitted_params={},
         )
         assert "y - x" in fwd
         assert "T_hat + x" in inv
         assert desc
 
     def test_linear_residual_includes_alpha_beta(self) -> None:
-        fwd, inv, desc = _format_transform_formulas(
-            "linear_residual", base_column="x", target_col="y",
+        fwd, inv, _desc = _format_transform_formulas(
+            "linear_residual",
+            base_column="x",
+            target_col="y",
             fitted_params={"alpha": 0.95, "beta": -1.5},
         )
         assert "0.95" in fwd
@@ -168,8 +177,10 @@ class TestFormulas:
         assert "0.95" in inv
 
     def test_logratio_includes_clip_params(self) -> None:
-        fwd, inv, desc = _format_transform_formulas(
-            "logratio", base_column="x", target_col="y",
+        fwd, inv, _desc = _format_transform_formulas(
+            "logratio",
+            base_column="x",
+            target_col="y",
             fitted_params={"median_t": 0.1, "mad_eff": 0.05},
         )
         assert "log(y)" in fwd
@@ -181,8 +192,11 @@ class TestFormulas:
         assert "0.05" in inv
 
     def test_unknown_transform_falls_back_gracefully(self) -> None:
-        fwd, inv, desc = _format_transform_formulas(
-            "made_up", base_column="x", target_col="y", fitted_params={},
+        fwd, inv, _desc = _format_transform_formulas(
+            "made_up",
+            base_column="x",
+            target_col="y",
+            fitted_params={},
         )
         assert "made_up" in fwd
         assert "made_up" in inv
@@ -210,11 +224,15 @@ class TestReportToMarkdown:
 
     def test_renders_failures(self) -> None:
         md = report_to_markdown(
-            target_col="TVT", specs=[],
-            failures=[{
-                "base_column": "x1", "transform_name": "logratio",
-                "reason": "valid_domain_frac=0.42 < 0.7",
-            }],
+            target_col="TVT",
+            specs=[],
+            failures=[
+                {
+                    "base_column": "x1",
+                    "transform_name": "logratio",
+                    "reason": "valid_domain_frac=0.42 < 0.7",
+                }
+            ],
         )
         assert "## Rejected candidates" in md
         assert "x1" in md
@@ -248,7 +266,8 @@ class TestMetricsMatrixAndDecisionTrail:
     def test_metrics_matrix_renders_for_kept_spec(self) -> None:
         spec = _make_spec(mi_gain=0.33)
         md = report_to_markdown(
-            target_col="TVT", specs=[spec],
+            target_col="TVT",
+            specs=[spec],
             spec_metrics={spec.name: {"raw_delta": -0.05, "tiny_cv_rmse": 0.42}},
         )
         assert "## Metrics matrix" in md
@@ -256,7 +275,7 @@ class TestMetricsMatrixAndDecisionTrail:
         assert "raw_delta" in md and "tiny_cv_rmse" in md
         assert "+0.3300" in md  # mi_gain
         assert "-0.0500" in md  # raw_delta
-        assert "0.4200" in md   # tiny_cv_rmse
+        assert "0.4200" in md  # tiny_cv_rmse
         assert "kept" in md and "gate-passed" in md
 
     def test_metrics_matrix_dashes_missing_metrics(self) -> None:
@@ -268,17 +287,16 @@ class TestMetricsMatrixAndDecisionTrail:
 
     def test_decision_trail_classifies_gate(self) -> None:
         md = report_to_markdown(
-            target_col="TVT", specs=[],
+            target_col="TVT",
+            specs=[],
             failures=[
-                {"base_column": "x1", "transform_name": "ratio",
-                 "reason": "valid_domain_frac=0.42 < 0.7"},
-                {"base_column": "x2", "transform_name": "diff",
-                 "reason": "mi_gain=0.0010 <= eps=0.0050", "mi_gain": 0.001},
+                {"base_column": "x1", "transform_name": "ratio", "reason": "valid_domain_frac=0.42 < 0.7"},
+                {"base_column": "x2", "transform_name": "diff", "reason": "mi_gain=0.0010 <= eps=0.0050", "mi_gain": 0.001},
             ],
         )
         assert "## Decision trail" in md
-        assert "domain" in md     # gate for valid_domain_frac reason
-        assert "mi-gain" in md    # gate for the mi_gain reason
+        assert "domain" in md  # gate for valid_domain_frac reason
+        assert "mi-gain" in md  # gate for the mi_gain reason
         # Rejected rows also appear in the metrics matrix with their reason.
         assert "rejected" in md
         assert "valid_domain_frac=0.42" in md
@@ -289,6 +307,7 @@ class TestMetricsMatrixAndDecisionTrail:
 
     def test_classify_gate_routing(self) -> None:
         from mlframe.training.composite.provenance import _classify_gate
+
         assert _classify_gate("") == "kept"
         assert _classify_gate("mi_gain=0.01 <= eps=0.05") == "mi-gain"
         assert _classify_gate("valid_domain_frac=0.4 < 0.7") == "domain"
@@ -298,12 +317,19 @@ class TestMetricsMatrixAndDecisionTrail:
 
     def test_matrix_uses_failure_inline_metrics(self) -> None:
         md = report_to_markdown(
-            target_col="TVT", specs=[],
-            failures=[{
-                "name": "TVT__ratio__x1", "base_column": "x1",
-                "transform_name": "ratio", "reason": "raw_baseline not beaten",
-                "mi_gain": 0.20, "raw_delta": 0.03, "tiny_cv_rmse": 0.55,
-            }],
+            target_col="TVT",
+            specs=[],
+            failures=[
+                {
+                    "name": "TVT__ratio__x1",
+                    "base_column": "x1",
+                    "transform_name": "ratio",
+                    "reason": "raw_baseline not beaten",
+                    "mi_gain": 0.20,
+                    "raw_delta": 0.03,
+                    "tiny_cv_rmse": 0.55,
+                }
+            ],
         )
         assert "+0.2000" in md and "+0.0300" in md and "0.5500" in md
         assert "raw-baseline" in md  # gate classification for the reason

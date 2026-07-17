@@ -36,6 +36,7 @@ def test_get_treats_delete_between_check_and_open_as_miss(tmp_path):
 def test_get_treats_corrupt_pickle_as_miss(tmp_path):
     """A truncated / corrupt file must not raise; return default."""
     import os
+
     cache = DiscoveryCache(str(tmp_path))
     path = cache._path("zzz999")
     with open(path, "wb") as f:

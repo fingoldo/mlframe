@@ -18,6 +18,7 @@ Also pins the fix for an incidental bug found while implementing the above:
 region matcher saw one dim literally named ``"dims"`` (never present as a region constraint key) and
 treated EVERY region as unconstrained, always returning the first region regardless of the actual (p, n).
 """
+
 from __future__ import annotations
 
 import logging
@@ -128,7 +129,8 @@ def test_lookup_pairwise_corr_backend_honors_region_size_caps(_fresh_dispatch_ca
     if cache is None:
         pytest.skip("KernelTuningCache unavailable on this host")
     cache.update(
-        "fe_pairwise_complete_corr", axes=["p", "n"],
+        "fe_pairwise_complete_corr",
+        axes=["p", "n"],
         regions=[
             {"p_max": 100, "n_max": 100_000, "backend_choice": "cupy"},
             {"backend_choice": "numpy"},  # catch-all

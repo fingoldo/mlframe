@@ -6,6 +6,7 @@ dataset row count, n_bins = a fixed hyperparameter). A module-level ``_BIN_BOUND
 and shares the device array across calls.
 
 Skips when cupy is unavailable (CI without a GPU)."""
+
 from __future__ import annotations
 
 import numpy as np

@@ -3,11 +3,10 @@
 restore them. Pre-fix the leading comment promised restore but no restore call
 site existed -- two back-to-back suites silently inherited the first's flag.
 """
+
 from __future__ import annotations
 
-import os
 
-import pytest
 
 
 def _build_minimal_ctx_kwargs():
@@ -43,7 +42,6 @@ def test_residual_audit_flag_snapshot_captured():
     from mlframe.training.core._phase_config_setup import setup_configuration
     from mlframe.training.evaluation import (
         _set_residual_audit_enabled,
-        _get_residual_audit_enabled,
     )
 
     # Seed a known prior value distinct from the default.
@@ -64,6 +62,7 @@ def test_residual_audit_flag_restored_by_finalize():
         _set_residual_audit_enabled,
         _get_residual_audit_enabled,
     )
+
     # Pre-fix simulation: residual_audit set to False BEFORE the suite.
     _set_residual_audit_enabled(False)
     try:
@@ -77,8 +76,7 @@ def test_residual_audit_flag_restored_by_finalize():
             _set_residual_audit_enabled(_restored)
         # Verify
         assert _get_residual_audit_enabled() is False, (
-            "After restore, flag must equal the pre-setup snapshot (False), got True. "
-            "_phase_finalize restore block is broken."
+            "After restore, flag must equal the pre-setup snapshot (False), got True. _phase_finalize restore block is broken."
         )
     finally:
         _set_residual_audit_enabled(None)
@@ -90,6 +88,7 @@ def test_inline_display_mode_get_set_roundtrip():
         get_inline_display_mode,
         set_inline_display_mode,
     )
+
     # Save current
     _prior = get_inline_display_mode()
     try:
@@ -107,17 +106,12 @@ def test_finalize_source_contains_restore_block():
     this source-check catches a future refactor that removes the restore call.
     """
     import pathlib
+
     # Derive the src path from the installed package so the source-check
     # works regardless of clone location; the previous hardcoded D:/ path
     # raised FileNotFoundError on every other machine.
     import mlframe as _mlframe
-    src = (
-        pathlib.Path(_mlframe.__file__).resolve().parent
-        / "training" / "core" / "_phase_finalize.py"
-    ).read_text(encoding="utf-8")
-    assert "_process_flag_prior_residual_audit" in src, (
-        "_phase_finalize must restore the residual_audit flag from ctx.artifacts."
-    )
-    assert "_process_flag_prior_inline_display" in src, (
-        "_phase_finalize must restore the inline_display flag from ctx.artifacts."
-    )
+
+    src = (pathlib.Path(_mlframe.__file__).resolve().parent / "training" / "core" / "_phase_finalize.py").read_text(encoding="utf-8")
+    assert "_process_flag_prior_residual_audit" in src, "_phase_finalize must restore the residual_audit flag from ctx.artifacts."
+    assert "_process_flag_prior_inline_display" in src, "_phase_finalize must restore the inline_display flag from ctx.artifacts."

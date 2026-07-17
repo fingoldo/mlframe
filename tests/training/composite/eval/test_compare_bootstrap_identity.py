@@ -7,6 +7,7 @@ temporaries (~16 GB at n_boot=1000, n=1e6). numpy fills rng.integers
 row-major, so drawing the resamples in contiguous blocks consumes the RNG
 stream in the exact same order -> identical resamples -> identical CI.
 """
+
 from __future__ import annotations
 
 import tracemalloc
@@ -64,7 +65,7 @@ def test_peak_temp_bounded_by_block_not_nboot():
     monolithic_temp = n_boot * n * 8 * 2  # idx int64 + float64 gather
     block_bound = block * n * 8 * 2
     # Allow generous headroom (quantiles/intermediate) but must be << monolithic.
-    assert new_peak < 4 * block_bound, f"peak {new_peak} exceeds 4x block bound {4*block_bound}"
+    assert new_peak < 4 * block_bound, f"peak {new_peak} exceeds 4x block bound {4 * block_bound}"
     assert new_peak < monolithic_temp / 4, f"peak {new_peak} not << monolithic {monolithic_temp}"
 
 

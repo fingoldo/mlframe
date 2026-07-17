@@ -2,16 +2,17 @@
 
 Each test would FAIL on pre-fix code and PASS on post-fix. Per project memory feedback_test_every_bug_fix.md.
 """
+
 from __future__ import annotations
 
 import numpy as np
-import pandas as pd
 import pytest
 
 
 # ---------------------------------------------------------------------------
 # Bug 1: polygamma late-binding (feature_engineering.py:621-623)
 # ---------------------------------------------------------------------------
+
 
 def test_regression_polygamma_late_binding():
     """Pre-fix: ``for order in range(3): unary[...] = lambda x: sp.polygamma(order, x)`` made all three lambdas resolve order=2.
@@ -52,6 +53,7 @@ def test_regression_polygamma_late_binding():
 # Bug 2: pl not in scope in mrmr.py:_run_fe_step (mrmr.py:1315)
 # ---------------------------------------------------------------------------
 
+
 def test_regression_mrmr_polars_pl_in_scope():
     """Pre-fix: ``pl.Series(...)`` used in _run_fe_step without local ``import polars as pl``. Polars input -> NameError.
     Post-fix: added ``import polars as pl`` at the top of the polars-input branch.
@@ -85,6 +87,7 @@ def test_regression_mrmr_polars_pl_in_scope():
 # ---------------------------------------------------------------------------
 # Bug 3: MAX_JOBLIB_NBYTES missing import in screen.py
 # ---------------------------------------------------------------------------
+
 
 def test_regression_screen_max_joblib_nbytes_imported():
     """Pre-fix: ``parallel_kwargs = dict(max_nbytes=MAX_JOBLIB_NBYTES)`` at screen.py:190 raised NameError.
@@ -121,6 +124,7 @@ def test_regression_screen_max_joblib_nbytes_imported():
 # Bug 4: hermite Optuna closure late-binding (hermite_fe.py:1421-1459)
 # ---------------------------------------------------------------------------
 
+
 def test_regression_hermite_optuna_closure_late_binding():
     """Pre-fix: closures inside ``for degree in degree_grid:`` referenced ca_size/cb_size/eval_pair_fn/eval_kwargs/stop_state from enclosing scope.
     Synchronous study.optimize() consumed them within-iteration so the bug never manifested, but B023 flagged the late-binding risk.
@@ -137,9 +141,12 @@ def test_regression_hermite_optuna_closure_late_binding():
     y = ((x_a * x_b) > 0).astype(np.int32)  # XOR-like target
 
     result = optimise_hermite_pair(
-        x_a=x_a, x_b=x_b, y=y,
+        x_a=x_a,
+        x_b=x_b,
+        y=y,
         basis="hermite",
-        min_degree=2, max_degree=3,
+        min_degree=2,
+        max_degree=3,
         n_trials=15,
         optimizer="optuna",
         seed=42,
@@ -152,6 +159,7 @@ def test_regression_hermite_optuna_closure_late_binding():
 # ---------------------------------------------------------------------------
 # Bug 5: cat_interactions _maybe_rerank_with_mm IndexError on short selected_idx
 # ---------------------------------------------------------------------------
+
 
 def test_regression_cat_interactions_short_pair_mm():
     """Pre-fix: ``for k in selected_idx: if per_pair_mm[bool(True)]: pass`` evaluated ``per_pair_mm[1]`` each iteration, raising
@@ -178,7 +186,8 @@ def test_regression_cat_interactions_short_pair_mm():
     # Pre-fix: IndexError on per_pair_mm[1] when len(per_pair_mm) == 1.
     out_ii, out_idx = _maybe_rerank_with_mm(
         factors_data=factors_data,
-        pairs_a=pairs_a, pairs_b=pairs_b,
+        pairs_a=pairs_a,
+        pairs_b=pairs_b,
         selected_idx=selected_idx,
         ii_arr=ii_arr,
         nbins=nbins,

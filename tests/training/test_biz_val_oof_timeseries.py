@@ -101,7 +101,7 @@ def test_early_stopping_disabled_estimator_survives_timeseries_path():
     lgb = pytest.importorskip("lightgbm")
     X, y = _time_ordered_frame(n=300)
     est = lgb.LGBMRegressor(n_estimators=20, num_leaves=7, verbose=-1, early_stopping_rounds=None)
-    oof_preds, oof_probs = _compute_oof_preds_timeseries(estimator=est, train_df=X, train_target=y, method="predict", n_splits=3)
+    oof_preds, _oof_probs = _compute_oof_preds_timeseries(estimator=est, train_df=X, train_target=y, method="predict", n_splits=3)
     assert oof_preds is not None
     assert np.isfinite(oof_preds).sum() > 0
 
@@ -118,9 +118,7 @@ def test_biz_val_oof_random_seed_is_deterministic_and_varies_folds():
 
     def _run(seed):
         est = DecisionTreeRegressor(max_depth=4, random_state=0)
-        preds, _ = _compute_oof_preds(
-            model=est, train_df=X, train_target=y, is_classifier_model=False, n_splits=5, random_seed=seed
-        )
+        preds, _ = _compute_oof_preds(model=est, train_df=X, train_target=y, is_classifier_model=False, n_splits=5, random_seed=seed)
         return preds
 
     a1 = _run(seed=0)
@@ -154,9 +152,7 @@ def test_biz_val_oof_group_kfold_keeps_groups_intact():
     X = pd.DataFrame({"x0": x0})
 
     est = DecisionTreeRegressor(max_depth=4, random_state=0)
-    preds, probs = _compute_oof_preds(
-        model=est, train_df=X, train_target=y, is_classifier_model=False, n_splits=5, random_seed=0, group_ids=group_ids
-    )
+    preds, probs = _compute_oof_preds(model=est, train_df=X, train_target=y, is_classifier_model=False, n_splits=5, random_seed=0, group_ids=group_ids)
 
     assert probs is None
     assert preds is not None

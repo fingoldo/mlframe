@@ -25,11 +25,11 @@ contract that the sidecar helper is wired in at each call site.
 Failure mode: future refactor removes the wire-up, this sensor names
 the boundary that lost its version check.
 """
+
 from __future__ import annotations
 
 import pathlib
 
-import pytest
 
 
 def _read_src(rel_path: str) -> str:
@@ -37,6 +37,7 @@ def _read_src(rel_path: str) -> str:
     subpackage (``X.py`` -> ``X/__init__.py`` + submodules) is read as the
     package __init__ plus every submodule so source-pattern sensors match."""
     import mlframe as _mlframe
+
     _pkg = pathlib.Path(_mlframe.__file__).resolve().parent
     _path = _pkg / rel_path
     if not _path.exists() and _path.suffix == ".py":
@@ -61,10 +62,7 @@ def test_ranker_suite_per_flavor_dump_writes_sidecar():
         "_write_save_meta_sidecar helper; booster artefacts will be saved "
         "without library-version envelope."
     )
-    assert "_wsms(artefact_path, durable=False)" in src, (
-        "Wave 19 P0 #3 regression: the sidecar call site is gone from the "
-        "ranker_suite per-flavor dump loop."
-    )
+    assert "_wsms(artefact_path, durable=False)" in src, "Wave 19 P0 #3 regression: the sidecar call site is gone from the ranker_suite per-flavor dump loop."
 
 
 def test_calibrator_post_dump_writes_sidecar():
@@ -72,14 +70,9 @@ def test_calibrator_post_dump_writes_sidecar():
     the sidecar write."""
     src = _read_src("calibration/post.py")
     assert "_write_save_meta_sidecar as _wsms" in src, (
-        "Wave 19 P1 regression: calibration/post no longer imports the "
-        "_write_save_meta_sidecar helper; per-calibrator dumps have no "
-        "version envelope."
+        "Wave 19 P1 regression: calibration/post no longer imports the _write_save_meta_sidecar helper; per-calibrator dumps have no version envelope."
     )
-    assert "_wsms(calib_fpath, durable=False)" in src, (
-        "Wave 19 P1 regression: sidecar call site missing in calibrator "
-        "post-hoc save loop."
-    )
+    assert "_wsms(calib_fpath, durable=False)" in src, "Wave 19 P1 regression: sidecar call site missing in calibrator post-hoc save loop."
 
 
 def test_inference_read_trained_models_validates_sidecar():
@@ -91,10 +84,7 @@ def test_inference_read_trained_models_validates_sidecar():
         "no longer imports validate_load_meta_sidecar; library-version "
         "drift will not surface to operators."
     )
-    assert "_vlms(model_file, strict=False)" in src, (
-        "Wave 19 P1 regression: sidecar validation call site missing in "
-        "the inference read_trained_models loop."
-    )
+    assert "_vlms(model_file, strict=False)" in src, "Wave 19 P1 regression: sidecar validation call site missing in the inference read_trained_models loop."
 
 
 def test_sidecar_helpers_remain_importable_from_io():
@@ -107,6 +97,7 @@ def test_sidecar_helpers_remain_importable_from_io():
         _meta_sidecar_path,
         _collect_lib_versions,
     )
+
     # These are private-but-shared (single-underscore prefix) helpers; we
     # rely on the contract that the public + adjacent callers use them.
     assert callable(_write_save_meta_sidecar)

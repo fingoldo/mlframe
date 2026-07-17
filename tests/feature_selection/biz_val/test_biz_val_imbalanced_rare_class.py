@@ -40,6 +40,7 @@ Key findings pinned below:
 All fits TINY (n<=4000), fixed seeds, ASCII prints, single representative under
 fast mode. Floors sit 5-15% below the measured value.
 """
+
 from __future__ import annotations
 
 import os
@@ -52,9 +53,9 @@ import numpy as np
 import pytest
 
 sys.path.insert(0, os.path.dirname(__file__))
-from tests.feature_selection._biz_val_synth import make_imbalanced, as_df  # noqa: E402
-from tests.feature_selection._selector_factories import _make_mrmr, _make_rfecv, selected_names  # noqa: E402
-from tests.feature_selection.conftest import fast_subset  # noqa: E402
+from tests.feature_selection._biz_val_synth import make_imbalanced, as_df
+from tests.feature_selection._selector_factories import _make_mrmr, _make_rfecv, selected_names
+from tests.feature_selection.conftest import fast_subset
 
 
 _SIG = re.compile(r"x(\d+)")
@@ -110,8 +111,7 @@ def _majority_recovery(mk, rate, n, seeds, p_signal=3, p_noise=8, fit_kw_fn=None
     """Run a selector across ``seeds``; return (sorted recov list, sorted nsel list)."""
     recs, nsels = [], []
     for seed in seeds:
-        X, y, sig = make_imbalanced(n=n, imbalance=rate, p_signal=p_signal,
-                                    p_noise=p_noise, seed=seed)
+        X, y, sig = make_imbalanced(n=n, imbalance=rate, p_signal=p_signal, p_noise=p_noise, seed=seed)
         df, ys = as_df(X, y)
         sel = mk("binary")
         fit_kw = fit_kw_fn(y) if fit_kw_fn else {}
@@ -130,6 +130,7 @@ def _median(vals):
 # ---------------------------------------------------------------------------
 # MRMR: recovers signal at moderate-to-severe imbalance (majority of seeds).
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.parametrize("rate", fast_subset([0.10, 0.03], n=1))
 def test_biz_val_mrmr_recovers_signal_under_moderate_imbalance(rate):
@@ -173,18 +174,21 @@ def test_biz_val_mrmr_sample_weight_upweighting_helps_rare_class_recovery():
     seeds = (0, 1, 2)
     recs_plain, _ = _majority_recovery(_make_mrmr, 0.03, 3000, seeds)
     recs_w, nsel_w = _majority_recovery(
-        _make_mrmr, 0.03, 3000, seeds,
+        _make_mrmr,
+        0.03,
+        3000,
+        seeds,
         fit_kw_fn=lambda y: {"sample_weight": _rare_class_weights(y)},
     )
     print(f"MRMR 3pct sample_weight: plain={recs_plain} weighted={recs_w} nsel_w={nsel_w}")
-    assert sum(recs_w) >= sum(recs_plain), (
-        f"up-weighting did not help: plain sum={sum(recs_plain)} weighted sum={sum(recs_w)}")
+    assert sum(recs_w) >= sum(recs_plain), f"up-weighting did not help: plain sum={sum(recs_plain)} weighted sum={sum(recs_w)}"
     assert min(recs_w) >= 3, f"up-weighted MRMR should recover all 3 every seed: {recs_w}"
 
 
 # ---------------------------------------------------------------------------
 # RFECV: recovers signal but does NOT prune noise under imbalance (GAP).
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.parametrize("rate", fast_subset([0.10, 0.03, 0.01], n=1))
 def test_biz_val_rfecv_recovers_signal_under_imbalance(rate):
@@ -201,9 +205,9 @@ def test_biz_val_rfecv_recovers_signal_under_imbalance(rate):
 
 @pytest.mark.xfail(
     reason="FS GAP: RFECV does not prune noise columns under severe imbalance -- "
-           "at a 1% positive rate it selects 6-11 of 11 columns (8 are pure noise); "
-           "the rare-class CV score barely separates signal from noise so the "
-           "backward elimination cannot shrink the set. Measured nsel=[6,6,11].",
+    "at a 1% positive rate it selects 6-11 of 11 columns (8 are pure noise); "
+    "the rare-class CV score barely separates signal from noise so the "
+    "backward elimination cannot shrink the set. Measured nsel=[6,6,11].",
     strict=False,
 )
 def test_biz_val_rfecv_prunes_noise_at_severe_imbalance():
@@ -212,8 +216,7 @@ def test_biz_val_rfecv_prunes_noise_at_severe_imbalance():
     carries most of the noise. Pinned as an explicit GAP, not weakened."""
     recs, nsels = _majority_recovery(_make_rfecv, 0.01, 4000, (0, 1, 2))
     print(f"RFECV prune@1pct recov={recs} nsel={nsels}")
-    assert _median(nsels) <= 5, (
-        f"RFECV did not prune noise under 1% imbalance: median nsel={_median(nsels)}")
+    assert _median(nsels) <= 5, f"RFECV did not prune noise under 1% imbalance: median nsel={_median(nsels)}"
 
 
 @pytest.mark.slow
@@ -229,8 +232,7 @@ def test_biz_val_rfecv_class_weight_does_not_break_recovery():
 
     def mk(task):
         est = LogisticRegression(max_iter=200, random_state=0, class_weight="balanced")
-        return RFECV(estimator=est, cv=3, max_refits=3, random_state=0,
-                     leakage_corr_threshold=None, n_features_selection_rule="argmax")
+        return RFECV(estimator=est, cv=3, max_refits=3, random_state=0, leakage_corr_threshold=None, n_features_selection_rule="argmax")
 
     recs, nsels = _majority_recovery(mk, 0.01, 4000, (0, 1, 2))
     print(f"RFECV(class_weight=balanced) 1pct recov={recs} nsel={nsels}")
@@ -242,6 +244,7 @@ def test_biz_val_rfecv_class_weight_does_not_break_recovery():
 # rare-class seed. Pinned as a known GAP so a future regression that makes this
 # the MAJORITY behavior is caught.
 # ---------------------------------------------------------------------------
+
 
 def test_biz_val_mrmr_degenerate_empty_on_unlucky_rare_seed():
     """MRMR must recover signal even on the previously-pathological rare-class seed.

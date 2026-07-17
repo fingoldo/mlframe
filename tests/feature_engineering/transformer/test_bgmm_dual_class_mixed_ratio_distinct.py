@@ -4,6 +4,7 @@ The bug (fixed): ``mixed_ratio`` was computed with the SAME expression as ``log_
 "same as log_gap_virtneg". The 4 advertised ``bdc_mixed_ratio_k*`` features were exact duplicates of the 4 ``bdc_loggap_virtneg_k*`` features, carrying zero extra
 signal. The fix computes the intended distinct mixed-side quantity (real-neg vs virtual-neg distance, isolating the synthetic-augmentation effect on the neg manifold).
 """
+
 from __future__ import annotations
 
 import numpy as np

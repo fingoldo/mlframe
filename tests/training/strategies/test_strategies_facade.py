@@ -16,6 +16,7 @@ import pytest
 @pytest.fixture(scope="module")
 def parent_module():
     from mlframe.training import strategies
+
     return strategies
 
 
@@ -27,6 +28,7 @@ def siblings():
         hgb,
         neural,
     )
+
     return {
         "pipeline_cache": pipeline_cache,
         "tree_cb": tree_cb,

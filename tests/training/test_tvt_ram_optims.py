@@ -6,6 +6,7 @@ clamp (3), auto-drop analyzer candidates (4), auto-drop near-duplicate pairs (5)
 Each test asserts the observable behaviour: dtype/shape preservation, drop set
 correctness, train-only invariant.
 """
+
 from __future__ import annotations
 
 import os
@@ -13,7 +14,6 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import numpy as np
-import pandas as pd
 import pytest
 
 
@@ -57,14 +57,15 @@ def test_1_leak_corr_filter_drops_strong_y_correlate_after_in_place_fix():
 # ---------------------------------------------------------------------------
 def test_3_pipeline_cache_default_fraction_is_0p15():
     from mlframe.training.strategies.pipeline_cache import _DEFAULT_PIPELINE_CACHE_RAM_FRACTION
+
     assert _DEFAULT_PIPELINE_CACHE_RAM_FRACTION == 0.15, (
-        "default RAM fraction must be 0.15 (was 0.4) to keep room for big-frame "
-        "transient peaks during pipeline-fit + composite-discovery on 100+ GB processes."
+        "default RAM fraction must be 0.15 (was 0.4) to keep room for big-frame transient peaks during pipeline-fit + composite-discovery on 100+ GB processes."
     )
 
 
 def test_3_pipeline_cache_default_in_behavior_config_is_0p15():
     from mlframe.training._model_configs import TrainingBehaviorConfig
+
     cfg = TrainingBehaviorConfig()
     assert cfg.pipeline_cache_ram_budget_fraction == 0.15
 
@@ -75,20 +76,20 @@ def test_3_pipeline_cache_budget_clamped_to_available_minus_16gb_floor():
     collapsing to zero on a fully-saturated host."""
     from mlframe.training.strategies import pipeline_cache as mod
 
-    fake_vm = SimpleNamespace(total=int(137 * 1024 ** 3), available=int(20 * 1024 ** 3))
-    with patch.dict(os.environ, {"MLFRAME_PIPELINE_CACHE_BYTES_LIMIT": ""}, clear=False), \
-         patch.object(mod, "_DEFAULT_PIPELINE_CACHE_RAM_FRACTION", 0.4), \
-         patch("psutil.virtual_memory", return_value=fake_vm):
+    fake_vm = SimpleNamespace(total=(137 * 1024**3), available=(20 * 1024**3))
+    with (
+        patch.dict(os.environ, {"MLFRAME_PIPELINE_CACHE_BYTES_LIMIT": ""}, clear=False),
+        patch.object(mod, "_DEFAULT_PIPELINE_CACHE_RAM_FRACTION", 0.4),
+        patch("psutil.virtual_memory", return_value=fake_vm),
+    ):
         if "MLFRAME_PIPELINE_CACHE_BYTES_LIMIT" in os.environ:
             del os.environ["MLFRAME_PIPELINE_CACHE_BYTES_LIMIT"]
         if "MLFRAME_PIPELINE_CACHE_RAM_FRACTION" in os.environ:
             del os.environ["MLFRAME_PIPELINE_CACHE_RAM_FRACTION"]
         budget = mod._resolve_pipeline_cache_budget(fraction=0.4)
     # total * 0.4 = 54.8 GB, but available - 16 = 4 GB; clamp gives 4 GB.
-    floor = 16 * 1024 ** 3
-    assert budget == max(2 * 1024 ** 3, 20 * 1024 ** 3 - floor), (
-        f"budget {budget / 1024**3:.2f} GB should equal min(total*fraction, available - 16 GB)"
-    )
+    floor = 16 * 1024**3
+    assert budget == max(2 * 1024**3, 20 * 1024**3 - floor), f"budget {budget / 1024**3:.2f} GB should equal min(total*fraction, available - 16 GB)"
 
 
 # ---------------------------------------------------------------------------
@@ -101,13 +102,15 @@ def test_4_5_auto_drop_helper_strips_drop_candidates_and_near_duplicates():
         _maybe_auto_drop_after_feature_analyzer,
     )
 
-    train_df = pl.DataFrame({
-        "good_a": [1.0, 2.0, 3.0, 4.0, 5.0],
-        "good_b": [5.0, 4.0, 3.0, 2.0, 1.0],
-        "nan_heavy": [None, None, None, 1.0, 2.0],  # candidate
-        "low_var": [0.0, 0.0, 0.0, 0.0, 0.0],       # candidate
-        "dup_of_a": [1.0, 2.0, 3.0, 4.0, 5.0],      # exact duplicate of good_a
-    })
+    train_df = pl.DataFrame(
+        {
+            "good_a": [1.0, 2.0, 3.0, 4.0, 5.0],
+            "good_b": [5.0, 4.0, 3.0, 2.0, 1.0],
+            "nan_heavy": [None, None, None, 1.0, 2.0],  # candidate
+            "low_var": [0.0, 0.0, 0.0, 0.0, 0.0],  # candidate
+            "dup_of_a": [1.0, 2.0, 3.0, 4.0, 5.0],  # exact duplicate of good_a
+        }
+    )
     val_df = train_df.head(3)
     test_df = train_df.head(2)
     fd_report = SimpleNamespace(
@@ -125,7 +128,9 @@ def test_4_5_auto_drop_helper_strips_drop_candidates_and_near_duplicates():
     metadata: dict = {}
     train_out, val_out, test_out, dropped = _maybe_auto_drop_after_feature_analyzer(
         fd_report=fd_report,
-        train_df=train_df, val_df=val_df, test_df=test_df,
+        train_df=train_df,
+        val_df=val_df,
+        test_df=test_df,
         behavior_config=behavior_config,
         metadata=metadata,
         verbose=False,
@@ -134,7 +139,7 @@ def test_4_5_auto_drop_helper_strips_drop_candidates_and_near_duplicates():
     # The helper picks the alphabetically-larger of the pair => dup_of_a.
     assert set(dropped) == {"nan_heavy", "low_var", "dup_of_a"}, dropped
     # All three splits lose the same columns.
-    for df, n_expected in ((train_out, 2), (val_out, 2), (test_out, 2)):
+    for df, _n_expected in ((train_out, 2), (val_out, 2), (test_out, 2)):
         assert set(df.columns) == {"good_a", "good_b"}, df.columns
     # Metadata records the drop list.
     assert metadata["feature_distribution_report"]["auto_dropped_columns"] == sorted(dropped)
@@ -145,6 +150,7 @@ def test_4_5_auto_drop_disabled_when_flags_off():
     from mlframe.training.core._main_train_suite_target_distribution import (
         _maybe_auto_drop_after_feature_analyzer,
     )
+
     train_df = pl.DataFrame({"a": [1.0, 2.0], "b": [3.0, 4.0]})
     fd_report = SimpleNamespace(
         drop_candidates=["a"],
@@ -156,7 +162,9 @@ def test_4_5_auto_drop_disabled_when_flags_off():
     )
     train_out, _, _, dropped = _maybe_auto_drop_after_feature_analyzer(
         fd_report=fd_report,
-        train_df=train_df, val_df=None, test_df=None,
+        train_df=train_df,
+        val_df=None,
+        test_df=None,
         behavior_config=behavior_config,
         metadata={},
         verbose=False,
@@ -167,6 +175,7 @@ def test_4_5_auto_drop_disabled_when_flags_off():
 
 def test_4_5_default_behavior_config_enables_both_drops():
     from mlframe.training._model_configs import TrainingBehaviorConfig
+
     cfg = TrainingBehaviorConfig()
     assert cfg.auto_drop_distribution_analyzer_candidates is True
     assert cfg.auto_drop_near_duplicate_threshold == 0.999
@@ -181,6 +190,7 @@ def test_4_5_train_only_derivation_val_test_stats_never_consulted():
     from mlframe.training.core._main_train_suite_target_distribution import (
         _maybe_auto_drop_after_feature_analyzer,
     )
+
     # Train: every column is healthy.
     train_df = pl.DataFrame({"feat": [1.0, 2.0, 3.0]})
     # Val + test: same column is now all-NaN. This is a DRIFT scenario, not
@@ -198,7 +208,9 @@ def test_4_5_train_only_derivation_val_test_stats_never_consulted():
     )
     _, _, _, dropped = _maybe_auto_drop_after_feature_analyzer(
         fd_report=fd_report,
-        train_df=train_df, val_df=val_df, test_df=test_df,
+        train_df=train_df,
+        val_df=val_df,
+        test_df=test_df,
         behavior_config=behavior_config,
         metadata={},
         verbose=False,

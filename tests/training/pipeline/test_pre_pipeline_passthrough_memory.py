@@ -12,6 +12,7 @@ Two perf/memory bugs (both catastrophic on a 100GB frame):
 
 Both fixes are behaviour-preserving: the same columns are re-attached.
 """
+
 from __future__ import annotations
 
 import numpy as np

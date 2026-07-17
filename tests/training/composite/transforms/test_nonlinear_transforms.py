@@ -17,6 +17,7 @@
 Per CLAUDE.md these are real bugs: the tests are written to fail on the
 pre-fix code and pass on the corrected code, never to mask via guards.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -42,6 +43,7 @@ def test_t7_js_factor_is_scale_invariant_in_base_unit():
     from mlframe.training.composite.transforms.nonlinear import (
         _james_stein_shrinkage_factor as js,
     )
+
     rng = np.random.default_rng(1)
     K = 8
     alphas = rng.normal(0.0, 1.0, K)
@@ -53,21 +55,16 @@ def test_t7_js_factor_is_scale_invariant_in_base_unit():
     cs = []
     for s in (1.0, 10.0, 0.1, 100.0):
         a_s = alphas / s
-        bv_s = base_vars * (s ** 2)
+        bv_s = base_vars * (s**2)
         ga_s = global_alpha / s
         cs.append(js(a_s, ga_s, sizes, sigma2, base_vars=bv_s))
     # All scales must yield the SAME shrinkage factor (scale-invariance).
-    assert max(cs) - min(cs) < 1e-9, (
-        f"JS factor must be scale-invariant when base_vars supplied; got {cs}"
-    )
+    assert max(cs) - min(cs) < 1e-9, f"JS factor must be scale-invariant when base_vars supplied; got {cs}"
 
     # And it must DIFFER from the unit-dependent legacy proxy on a rescaled
     # unit -- proving the fix is the base_vars term, not a no-op.
     c_legacy_s10 = js(alphas / 10.0, global_alpha / 10.0, sizes, sigma2)
-    assert abs(c_legacy_s10 - cs[0]) > 0.1, (
-        "legacy (no base_vars) proxy must visibly diverge under rescale; "
-        f"legacy@s=10={c_legacy_s10}, invariant={cs[0]}"
-    )
+    assert abs(c_legacy_s10 - cs[0]) > 0.1, f"legacy (no base_vars) proxy must visibly diverge under rescale; legacy@s=10={c_legacy_s10}, invariant={cs[0]}"
 
 
 def test_t7_grouped_fit_shrinkage_scale_invariant_end_to_end():
@@ -78,6 +75,7 @@ def test_t7_grouped_fit_shrinkage_scale_invariant_end_to_end():
     from mlframe.training.composite.transforms.linear import (
         _linear_residual_grouped_fit,
     )
+
     rng = np.random.default_rng(7)
     n_groups = 10
     per_group_n = 60
@@ -97,12 +95,11 @@ def test_t7_grouped_fit_shrinkage_scale_invariant_end_to_end():
 
     c1 = _linear_residual_grouped_fit(y, base, groups=grp)["shrinkage_factor"]
     c_scaled = _linear_residual_grouped_fit(
-        y, base * 1000.0, groups=grp,
+        y,
+        base * 1000.0,
+        groups=grp,
     )["shrinkage_factor"]
-    assert abs(c1 - c_scaled) < 1e-6, (
-        f"grouped shrinkage_factor must be base-unit invariant; "
-        f"unit1={c1}, unit1000={c_scaled}"
-    )
+    assert abs(c1 - c_scaled) < 1e-6, f"grouped shrinkage_factor must be base-unit invariant; unit1={c1}, unit1000={c_scaled}"
 
 
 def test_t7_js_factor_degenerate_base_var_floor():
@@ -111,6 +108,7 @@ def test_t7_js_factor_degenerate_base_var_floor():
     from mlframe.training.composite.transforms.nonlinear import (
         _james_stein_shrinkage_factor as js,
     )
+
     alphas = np.array([0.5, 1.5, -0.5, 2.0, 0.0, 1.0], dtype=np.float64)
     sizes = np.full(alphas.size, 40.0)
     base_vars = np.array([1.0, 1.0, 0.0, 1.0, 1.0, 1.0])  # one degenerate group
@@ -134,19 +132,15 @@ def test_t10_continuous_midn_base_keeps_full_knots():
     from mlframe.training.composite.transforms.nonlinear import (
         _monotonic_residual_fit,
     )
+
     rng = np.random.default_rng(0)
     n = 600
     base = rng.normal(size=n)  # 600 distinct continuous values
     y = 2.0 * np.tanh(base) + 0.1 * rng.normal(size=n)
     params = _monotonic_residual_fit(y, base)
     # Pre-fix this was exactly 3 (600 // 200). Post-fix it tracks the default.
-    assert params["n_knots_effective"] >= DEFAULT_KNOTS - 1, (
-        f"continuous mid-n base must keep ~{DEFAULT_KNOTS} knots; got "
-        f"{params['n_knots_effective']}"
-    )
-    assert params["n_knots_effective"] > 3, (
-        "must not collapse to the pre-fix 3-knot under-fit"
-    )
+    assert params["n_knots_effective"] >= DEFAULT_KNOTS - 1, f"continuous mid-n base must keep ~{DEFAULT_KNOTS} knots; got {params['n_knots_effective']}"
+    assert params["n_knots_effective"] > 3, "must not collapse to the pre-fix 3-knot under-fit"
 
 
 def test_t10_biz_val_more_knots_better_var_explained_on_curvy_target():
@@ -156,18 +150,18 @@ def test_t10_biz_val_more_knots_better_var_explained_on_curvy_target():
     from mlframe.training.composite.transforms.nonlinear import (
         _monotonic_residual_fit,
     )
+
     rng = np.random.default_rng(3)
     n = 600
     base = np.sort(rng.normal(size=n))
     # Strong curvature so resolution (knot count) matters.
     y = 3.0 * np.tanh(2.5 * base) + 0.05 * rng.normal(size=n)
 
-    full = _monotonic_residual_fit(y, base)              # fixed: ~12 knots
+    full = _monotonic_residual_fit(y, base)  # fixed: ~12 knots
     starved = _monotonic_residual_fit(y, base, n_knots=3)  # explicit 3-knot
     assert full["n_knots_effective"] > starved["n_knots_effective"]
     assert full["var_explained"] >= starved["var_explained"] + 0.05, (
-        f"more knots must explain more variance on a curvy target; "
-        f"full={full['var_explained']:.3f}, 3-knot={starved['var_explained']:.3f}"
+        f"more knots must explain more variance on a curvy target; full={full['var_explained']:.3f}, 3-knot={starved['var_explained']:.3f}"
     )
 
 
@@ -177,15 +171,13 @@ def test_t10_discrete_base_caps_at_cardinality():
     from mlframe.training.composite.transforms.nonlinear import (
         _monotonic_residual_fit,
     )
+
     rng = np.random.default_rng(5)
     n = 600
     base = rng.integers(0, 8, size=n).astype(float)  # 8 distinct values
     y = 0.5 * base + 0.1 * rng.normal(size=n)
     params = _monotonic_residual_fit(y, base)
-    assert params["n_knots_effective"] <= 8, (
-        f"discrete-8 base must not exceed 8 effective knots; got "
-        f"{params['n_knots_effective']}"
-    )
+    assert params["n_knots_effective"] <= 8, f"discrete-8 base must not exceed 8 effective knots; got {params['n_knots_effective']}"
 
 
 # ---------------------------------------------------------------------------
@@ -195,6 +187,7 @@ def test_t10_discrete_base_caps_at_cardinality():
 
 def _pandas_ref(arr: np.ndarray, k: int) -> np.ndarray:
     import pandas as pd
+
     out = pd.Series(arr).rolling(window=k, center=True, min_periods=1).median().to_numpy()
     bad = ~np.isfinite(out)
     if bad.any():
@@ -213,14 +206,12 @@ def test_t11_rolling_median_matches_pandas_reference(n, k):
     fast path is the thing under test here)."""
     pytest.importorskip("bottleneck")
     from mlframe.training.composite.transforms.nonlinear import _rolling_median
+
     rng = np.random.default_rng(n * 100 + k)
     arr = rng.normal(size=n).astype(np.float64)
     got = _rolling_median(arr.copy(), k)
     ref = _pandas_ref(arr, k)
-    assert np.allclose(got, ref, equal_nan=True), (
-        f"_rolling_median(n={n}, k={k}) diverges from pandas reference\n"
-        f"got={got}\nref={ref}"
-    )
+    assert np.allclose(got, ref, equal_nan=True), f"_rolling_median(n={n}, k={k}) diverges from pandas reference\ngot={got}\nref={ref}"
 
 
 def test_t11_even_k_tail_not_constant_filled():
@@ -229,16 +220,15 @@ def test_t11_even_k_tail_not_constant_filled():
     pandas reference never has. Assert the tail varies and matches pandas."""
     pytest.importorskip("bottleneck")
     from mlframe.training.composite.transforms.nonlinear import _rolling_median
+
     arr = np.arange(1.0, 21.0)  # monotone, so the true centred median varies everywhere
     k = 6
     got = _rolling_median(arr.copy(), k)
     ref = _pandas_ref(arr, k)
     assert np.allclose(got, ref), f"got={got}\nref={ref}"
     # The last few positions must NOT all be equal (the pre-fix constant fill).
-    tail = got[-(k // 2):]
-    assert len(np.unique(np.round(tail, 9))) > 1, (
-        f"tail must vary (not constant-filled); tail={tail}"
-    )
+    tail = got[-(k // 2) :]
+    assert len(np.unique(np.round(tail, 9))) > 1, f"tail must vary (not constant-filled); tail={tail}"
 
 
 def test_t11_window_wider_than_array_no_raise():
@@ -247,6 +237,7 @@ def test_t11_window_wider_than_array_no_raise():
     ``window > n`` and the result silently dropped to the non-finite fallback."""
     pytest.importorskip("bottleneck")
     from mlframe.training.composite.transforms.nonlinear import _rolling_median
+
     arr = np.array([3.0, 1.0, 4.0, 1.0, 5.0])
     got = _rolling_median(arr.copy(), k=50)  # k >> n
     ref = _pandas_ref(arr, 50)
@@ -259,6 +250,7 @@ def test_t11_nan_input_matches_pandas_skip_semantics():
     min_periods=1 semantics), not poison the window. The fast path can't
     NaN-skip, so it routes to the pandas reference -- result is identical."""
     from mlframe.training.composite.transforms.nonlinear import _rolling_median
+
     rng = np.random.default_rng(11)
     n = 50
     arr = rng.normal(size=n).astype(np.float64)
@@ -266,7 +258,4 @@ def test_t11_nan_input_matches_pandas_skip_semantics():
     for k in (3, 4, 5, 7):
         got = _rolling_median(arr.copy(), k)
         ref = _pandas_ref(arr, k)
-        assert np.allclose(got, ref, equal_nan=True), (
-            f"NaN-input k={k} must match pandas skip semantics\n"
-            f"got={got}\nref={ref}"
-        )
+        assert np.allclose(got, ref, equal_nan=True), f"NaN-input k={k} must match pandas skip semantics\ngot={got}\nref={ref}"

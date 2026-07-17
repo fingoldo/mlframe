@@ -9,11 +9,11 @@
   calibration so the internal split is BLOCKED in time, holding coverage under
   temporal drift where the random split under-covers.
 """
+
 from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from sklearn.linear_model import LinearRegression
 
@@ -36,12 +36,14 @@ def _coverage_normalized(seed, alpha=0.1, n=750):
     X, y = _het_data(seed, n)
     nf = n // 3
     est = CompositeTargetEstimator(
-        base_estimator=LinearRegression(), transform_name="linear_residual", base_column="b",
+        base_estimator=LinearRegression(),
+        transform_name="linear_residual",
+        base_column="b",
     )
     est.fit(X.iloc[:nf], y[:nf])
-    est.calibrate_conformal(X.iloc[nf:2 * nf], y[nf:2 * nf], alpha=alpha, score="normalized")
-    lo, hi = est.predict_interval(X.iloc[2 * nf:], alpha)
-    yt = y[2 * nf:]
+    est.calibrate_conformal(X.iloc[nf : 2 * nf], y[nf : 2 * nf], alpha=alpha, score="normalized")
+    lo, hi = est.predict_interval(X.iloc[2 * nf :], alpha)
+    yt = y[2 * nf :]
     return float(np.mean((yt >= lo) & (yt <= hi)))
 
 
@@ -95,17 +97,23 @@ def test_sa29_time_ordered_calibration_holds_coverage_with_temporal_heteroscedas
     X = pd.DataFrame({"b": b, "feat": rng.normal(size=n)})
 
     nf = n // 3
-    cal_t = t[nf:2 * nf]
-    yt = y[2 * nf:]
+    cal_t = t[nf : 2 * nf]
+    yt = y[2 * nf :]
 
     def _cov(time_ordering):
         e = CompositeTargetEstimator(
-            base_estimator=LinearRegression(), transform_name="linear_residual", base_column="b",
+            base_estimator=LinearRegression(),
+            transform_name="linear_residual",
+            base_column="b",
         ).fit(X.iloc[:nf], y[:nf])
         e.calibrate_conformal(
-            X.iloc[nf:2 * nf], y[nf:2 * nf], alpha=0.1, score="normalized", time_ordering=time_ordering,
+            X.iloc[nf : 2 * nf],
+            y[nf : 2 * nf],
+            alpha=0.1,
+            score="normalized",
+            time_ordering=time_ordering,
         )
-        lo, hi = e.predict_interval(X.iloc[2 * nf:], 0.1)
+        lo, hi = e.predict_interval(X.iloc[2 * nf :], 0.1)
         return float(np.mean((yt >= lo) & (yt <= hi)))
 
     cov_blocked = _cov(cal_t)
@@ -116,7 +124,6 @@ def test_sa29_time_ordered_calibration_holds_coverage_with_temporal_heteroscedas
     # drift neither reaches the nominal 0.90 (the test law is more dispersed than any
     # calibration block can see), but the time-ordering plumbing is the difference.
     assert cov_blocked > cov_random + 0.03, (
-        f"blocked time-split must beat the random split under temporal drift: "
-        f"blocked={cov_blocked:.3f} vs random={cov_random:.3f}"
+        f"blocked time-split must beat the random split under temporal drift: blocked={cov_blocked:.3f} vs random={cov_random:.3f}"
     )
     assert cov_blocked >= 0.80, f"blocked calibration coverage too low: {cov_blocked:.3f}"

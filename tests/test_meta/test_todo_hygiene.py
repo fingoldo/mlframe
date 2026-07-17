@@ -56,7 +56,7 @@ def test_every_todo_marker_has_attribution():
     unless explicitly grandfathered.
     """
     bare: list[str] = []
-    for path, lineno, kw, line in _scan_markers():
+    for path, lineno, _kw, line in _scan_markers():
         rel = path.relative_to(MLFRAME_DIR).as_posix()
         ident = f"{rel}:{lineno}"
         if ident in _GRANDFATHERED:
@@ -69,9 +69,7 @@ def test_every_todo_marker_has_attribution():
             f"{len(bare)} {'/'.join(_MARKERS)} comment(s) without attribution. "
             f"Add an assignee in parens (``TODO(name): ...``) or an ISO date "
             f"(``TODO 2026-04-28: ...``). To grandfather, list "
-            f"\"<path>:<lineno>\" in _GRANDFATHERED:\n  "
-            + "\n  ".join(bare[:30])
-            + (f"\n  ... and {len(bare) - 30} more" if len(bare) > 30 else "")
+            f'"<path>:<lineno>" in _GRANDFATHERED:\n  ' + "\n  ".join(bare[:30]) + (f"\n  ... and {len(bare) - 30} more" if len(bare) > 30 else "")
         )
 
 
@@ -101,7 +99,4 @@ def test_todo_marker_count_within_budget():
         + ", ".join(f"{p} ({n})" for p, n in top)
     )
     sys.stderr.write(f"\n[test_todo_marker_count_within_budget] {summary}\n")
-    assert total <= _MARKER_BUDGET, (
-        f"TODO-marker volume {total} exceeds budget {_MARKER_BUDGET}; drain markers or "
-        f"raise the budget deliberately. {summary}"
-    )
+    assert total <= _MARKER_BUDGET, f"TODO-marker volume {total} exceeds budget {_MARKER_BUDGET}; drain markers or raise the budget deliberately. {summary}"

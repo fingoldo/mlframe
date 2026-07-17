@@ -6,6 +6,7 @@ L2 budget) and several pure-noise components with zero true relationship to ``y`
 should drive the redundant/noise components' coefficients to exactly zero, keeping only the genuinely
 informative ones -- a sparse, self-selecting ensemble in one fit, unlike Ridge's dense shrinkage.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -57,4 +58,6 @@ def test_biz_val_lasso_meta_stacker_holdout_rmse_not_worse_than_ridge():
     rmse_lasso = float(np.sqrt(np.mean((lasso.predict(X_test) - y_test) ** 2)))
     rmse_ridge = float(np.sqrt(np.mean((ridge.predict(X_test) - y_test) ** 2)))
 
-    assert rmse_lasso <= rmse_ridge * 1.10, f"expected Lasso holdout RMSE to be within 10% of Ridge despite sparsity, got lasso={rmse_lasso:.4f} ridge={rmse_ridge:.4f}"
+    assert rmse_lasso <= rmse_ridge * 1.10, (
+        f"expected Lasso holdout RMSE to be within 10% of Ridge despite sparsity, got lasso={rmse_lasso:.4f} ridge={rmse_ridge:.4f}"
+    )

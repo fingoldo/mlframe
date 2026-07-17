@@ -9,17 +9,21 @@ import pytest
 
 @pytest.fixture(scope="module")
 def parent_module():
+    """Import and return the extractors facade module under test."""
     from mlframe.training import extractors
+
     return extractors
 
 
 @pytest.fixture(scope="module")
 def siblings():
+    """Import and return the split-out sibling submodules the facade re-exports from."""
     from mlframe.training.extractors import (
         _extractors_dtype_helpers,
         _extractors_showcase,
         _extractors_simple,
     )
+
     return {
         "dtype": _extractors_dtype_helpers,
         "showcase": _extractors_showcase,
@@ -28,6 +32,7 @@ def siblings():
 
 
 def test_dtype_helpers_identity(parent_module, siblings):
+    """Facade dtype-helper names must be the SAME objects as the sibling's, not copies."""
     dh = siblings["dtype"]
     assert parent_module.get_dataframe_info is dh.get_dataframe_info
     assert parent_module.intize_targets is dh.intize_targets
@@ -35,26 +40,32 @@ def test_dtype_helpers_identity(parent_module, siblings):
 
 
 def test_showcase_identity(parent_module, siblings):
+    """Facade showcase_features_and_targets must alias the sibling's implementation."""
     assert parent_module.showcase_features_and_targets is siblings["showcase"].showcase_features_and_targets
 
 
 def test_simple_extractor_identity(parent_module, siblings):
+    """Facade SimpleFeaturesAndTargetsExtractor must alias the sibling's class, not a re-defined copy."""
     assert parent_module.SimpleFeaturesAndTargetsExtractor is siblings["simple"].SimpleFeaturesAndTargetsExtractor
 
 
 def test_subclass_isinstance_preserved(parent_module):
+    """The split extractor subclass still isinstance-checks against the facade's base class."""
     e = parent_module.SimpleFeaturesAndTargetsExtractor(regression_targets=["y"])
     assert isinstance(e, parent_module.FeaturesAndTargetsExtractor)
 
 
 def test_facade_loc_budget(parent_module):
+    """The facade module must stay a thin re-export layer, capped at 600 LOC."""
     path = Path(parent_module.__file__)
     n_lines = len(path.read_text(encoding="utf-8").splitlines())
     assert n_lines <= 600, f"extractors.py facade is {n_lines} LOC, expected <= 600"
 
 
 def test_smoke_intize_targets_round_trip(parent_module):
+    """intize_targets promotes to int16 (not int8) when values exceed int8's range, via the facade entrypoint."""
     import numpy as np
+
     targets = {"y": np.array([0, 1, 2, 200], dtype=np.int64)}
     parent_module.intize_targets(targets)
     # Range 0..200 -> requires int16 (since int8 max is 127); test the no-wrap promotion.
@@ -63,8 +74,10 @@ def test_smoke_intize_targets_round_trip(parent_module):
 
 
 def test_smoke_recency_weights_finite(parent_module):
+    """get_sample_weights_by_recency, called via the facade, returns finite weights for a plain date range."""
     import numpy as np
     import pandas as pd
+
     dates = pd.Series(pd.date_range("2020-01-01", periods=10, freq="D"))
     w = parent_module.get_sample_weights_by_recency(dates)
     assert np.isfinite(w).all()

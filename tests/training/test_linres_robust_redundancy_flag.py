@@ -2,10 +2,10 @@
 MAD-trim pass finds no outliers (so the second-pass OLS is identical to plain ``linear_residual``).
 TVT-2026-05-21 prod log: TVT-linres-Y and TVT-linresR-Y produced IDENTICAL RMSE=21.5433 because
 clean-residual targets trip this exact case and the discovery loop re-evaluated the duplicate."""
+
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from mlframe.training.composite.transforms import _linear_residual_robust_fit
 
@@ -33,8 +33,7 @@ class TestLinresRobustRedundancyFlag:
         y[outlier_idx] += rng.standard_cauchy(size=len(outlier_idx)) * 50.0
         result = _linear_residual_robust_fit(y, base)
         assert result.get("is_redundant_with_linres", False) is False, (
-            "With genuine outliers the second-pass OLS differs from plain linres; "
-            "should NOT be flagged redundant."
+            "With genuine outliers the second-pass OLS differs from plain linres; should NOT be flagged redundant."
         )
 
     def test_degenerate_constant_residual_marks_redundant(self) -> None:

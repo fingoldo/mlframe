@@ -11,6 +11,7 @@ those cached predictions for each base via ``_per_bin_from_fold_preds``. This
 test pins the memoised per-bin array EXACTLY equal to the per-base-refit array,
 for several distinct bin_vars (bases) sharing the same raw-y fit.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -27,14 +28,10 @@ def _raw_dataset(n: int = 900, n_bases: int = 4, seed: int = 0):
     play the role of distinct base columns in the rerank per-bin loop."""
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(n, 5))
-    y = (0.7 * X[:, 0] - 1.1 * X[:, 1] + 0.4 * X[:, 2]
-         + rng.normal(0.0, 0.5, n))
+    y = 0.7 * X[:, 0] - 1.1 * X[:, 1] + 0.4 * X[:, 2] + rng.normal(0.0, 0.5, n)
     # Distinct bin_vars: correlated-but-not-identical to features so each base
     # quantile-bins the SAME fold predictions differently.
-    bin_vars = [
-        X[:, i % X.shape[1]] + 0.3 * rng.normal(size=n)
-        for i in range(n_bases)
-    ]
+    bin_vars = [X[:, i % X.shape[1]] + 0.3 * rng.normal(size=n) for i in range(n_bases)]
     return y, X, bin_vars
 
 
@@ -58,8 +55,10 @@ def test_memoized_per_bin_equals_per_base_recompute(n_bins, time_aware):
 
     # New path: fit ONCE, capture per-fold predictions, re-bin per base.
     rmse_once, fold_preds = _tiny_cv_rmse_raw_y(
-        y_train=y, x_train_matrix=X,
-        return_fold_preds=True, time_aware=time_aware,
+        y_train=y,
+        x_train_matrix=X,
+        return_fold_preds=True,
+        time_aware=time_aware,
         **_COMMON_KW,
     )
     assert np.isfinite(rmse_once)
@@ -68,8 +67,11 @@ def test_memoized_per_bin_equals_per_base_recompute(n_bins, time_aware):
     for bv in bin_vars:
         # Legacy path: per-base refit with bin_var set.
         rmse_ref, per_bin_ref = _tiny_cv_rmse_raw_y(
-            y_train=y, x_train_matrix=X,
-            return_per_bin=True, n_bins=n_bins, bin_var=bv,
+            y_train=y,
+            x_train_matrix=X,
+            return_per_bin=True,
+            n_bins=n_bins,
+            bin_var=bv,
             time_aware=time_aware,
             **_COMMON_KW,
         )
@@ -93,22 +95,29 @@ def test_memo_handles_nonfinite_y_masking():
     y[~finite] = np.nan
 
     rmse_once, fold_preds = _tiny_cv_rmse_raw_y(
-        y_train=y, x_train_matrix=X,
-        return_fold_preds=True, **_COMMON_KW,
+        y_train=y,
+        x_train_matrix=X,
+        return_fold_preds=True,
+        **_COMMON_KW,
     )
     assert np.isfinite(rmse_once)
 
     y_finite_mask = np.isfinite(y)
     for bv in bin_vars:
         _, per_bin_ref = _tiny_cv_rmse_raw_y(
-            y_train=y, x_train_matrix=X,
-            return_per_bin=True, n_bins=8, bin_var=bv,
+            y_train=y,
+            x_train_matrix=X,
+            return_per_bin=True,
+            n_bins=8,
+            bin_var=bv,
             **_COMMON_KW,
         )
         # The rerank masks bin_var by isfinite(y_screen) before handing it to
         # the memo helper (val_idx lives in that masked space).
         per_bin_memo = _per_bin_from_fold_preds(
-            fold_preds, bv[y_finite_mask], n_bins=8,
+            fold_preds,
+            bv[y_finite_mask],
+            n_bins=8,
         )
         np.testing.assert_array_equal(per_bin_memo, per_bin_ref)
 
@@ -122,8 +131,11 @@ def test_return_fold_preds_does_not_change_legacy_returns():
     assert np.isscalar(scalar) or isinstance(scalar, float)
 
     rmse, per_bin = _tiny_cv_rmse_raw_y(
-        y_train=y, x_train_matrix=X,
-        return_per_bin=True, n_bins=8, bin_var=bin_vars[0],
+        y_train=y,
+        x_train_matrix=X,
+        return_per_bin=True,
+        n_bins=8,
+        bin_var=bin_vars[0],
         **_COMMON_KW,
     )
     assert np.isfinite(rmse)

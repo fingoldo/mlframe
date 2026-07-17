@@ -21,9 +21,10 @@ Pin this guarantee with two tests:
 2. Pickle round-trip on a fitted-params dict reproduces forward output
    (dill / sklearn.clone compatibility).
 """
+
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
 import numpy as np
 import pytest
@@ -39,10 +40,7 @@ def test_unary_y_transform_reproducible_via_params_only(transform_name):
     from mlframe.training.composite.transforms import get_transform
 
     transform = get_transform(transform_name)
-    assert transform.requires_base is False, (
-        f"Pack J unary transforms must have requires_base=False; "
-        f"{transform_name!r} reports {transform.requires_base!r}"
-    )
+    assert transform.requires_base is False, f"Pack J unary transforms must have requires_base=False; {transform_name!r} reports {transform.requires_base!r}"
 
     rng = np.random.default_rng(0)
     n = 500
@@ -88,7 +86,7 @@ def test_unary_y_params_pickle_round_trip(transform_name):
     params = transform.fit(y[valid], base[valid])
 
     blob = pickle.dumps(params)
-    params2 = pickle.loads(blob)
+    params2 = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
 
     T_orig = transform.forward(y[valid], base[valid], params)
     T_replay = transform.forward(y[valid], base[valid], params2)
@@ -101,7 +99,8 @@ def test_composite_spec_carries_pack_j_replay_state():
     reproduce the same forward output."""
     from mlframe.training.composite.spec import CompositeSpec
     from mlframe.training.composite.transforms import (
-        get_transform, compose_target_name,
+        get_transform,
+        compose_target_name,
     )
 
     transform = get_transform("cbrt_y")
@@ -120,8 +119,11 @@ def test_composite_spec_carries_pack_j_replay_state():
         transform_name="cbrt_y",
         base_column="x_placeholder",
         fitted_params=dict(params),
-        mi_gain=0.1, mi_y=0.05, mi_t=0.15,
-        valid_domain_frac=1.0, n_train_rows=n,
+        mi_gain=0.1,
+        mi_y=0.05,
+        mi_t=0.15,
+        valid_domain_frac=1.0,
+        n_train_rows=n,
     )
 
     # Recreate by reading the spec.

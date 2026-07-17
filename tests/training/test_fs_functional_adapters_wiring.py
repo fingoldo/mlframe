@@ -3,6 +3,7 @@ GreedyBackwardElimination / ZeroImportancePruning / CascadeSelect), wrapped by s
 ``mlframe.feature_selection.functional_adapters`` and reachable from the suite via
 ``FeatureSelectionConfig.use_<sel>_fs`` + a ``_build_pre_pipelines`` branch (mirrors ACE/ShapProxiedFS).
 """
+
 from __future__ import annotations
 
 import os
@@ -27,18 +28,21 @@ def _build(**over):
 def _make_classification_frame(n=200, seed=0):
     rng = np.random.default_rng(seed)
     signal = rng.standard_normal(n)
-    df = pd.DataFrame({
-        "s0": signal,
-        "s1": signal * 0.9 + 0.1 * rng.standard_normal(n),
-        "noise0": rng.standard_normal(n),
-        "noise1": rng.standard_normal(n),
-        "noise2": rng.standard_normal(n),
-    })
+    df = pd.DataFrame(
+        {
+            "s0": signal,
+            "s1": signal * 0.9 + 0.1 * rng.standard_normal(n),
+            "noise0": rng.standard_normal(n),
+            "noise1": rng.standard_normal(n),
+            "noise2": rng.standard_normal(n),
+        }
+    )
     y = pd.Series((signal > 0).astype(int))
     return df, y
 
 
 # --------------------------------------------------------------------------- reachability
+
 
 @pytest.mark.parametrize(
     "flag,names_key,kwargs_field",
@@ -71,6 +75,7 @@ def test_selector_kind_classifies_all_four():
 
 # --------------------------------------------------------------------------- master-flag gate + kwargs validation
 
+
 @pytest.mark.parametrize(
     "flag,kwargs_field",
     [
@@ -102,6 +107,7 @@ def test_kwargs_rejects_unknown_key(flag, kwargs_field):
 
 
 # --------------------------------------------------------------------------- biz_value: genuinely runs the selector
+
 
 def test_biz_forward_select_shrinks_noisy_frame():
     df, y = _make_classification_frame()
@@ -217,6 +223,7 @@ def test_biz_cascade_select_accepts_polars_frame():
 
 
 # --------------------------------------------------------------------------- regression: default is ON (2026-07-12)
+
 
 def test_default_config_enables_all_four_new_flags():
     """``FeatureSelectionConfig`` defaults all four selectors ON (2026-07-12 default-flip); kwargs stay

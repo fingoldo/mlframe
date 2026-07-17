@@ -15,9 +15,10 @@ Covers the behaviour the shared registry-contract suite cannot pin:
 Round-trip / serialisation / domain / purity for every entry is exercised by the parametrised
 ``test_composite_transforms_registry_contract.py`` suite (the new names are registered there via TRANSFORMS_REGISTRY).
 """
+
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
 import numpy as np
 import pytest
@@ -64,12 +65,14 @@ class TestRollingQuantileRatioTrailing:
         legacy_params = {"k": 7, "eps": 1e-6}  # no "mode" key
         centered_params = {"k": 7, "eps": 1e-6, "mode": "centered"}
         np.testing.assert_array_equal(
-            t.forward(y, base, legacy_params), t.forward(y, base, centered_params),
+            t.forward(y, base, legacy_params),
+            t.forward(y, base, centered_params),
         )
 
     def test_trailing_median_matches_pandas_reference(self) -> None:
         """_rolling_median_trailing matches pandas' rolling(window=k, min_periods=1).median() across window sizes."""
         import pandas as pd
+
         rng = np.random.default_rng(1)
         arr = rng.normal(size=101)
         for k in (1, 2, 3, 7, 8, 150):
@@ -186,7 +189,7 @@ class TestGroupedRecurrent:
 
     def test_regression_frac_diff_grouped_uncontaminated_at_group_start(self) -> None:
         """Per-group anchor padding: the first rows of each group must not see the OTHER group's level through the weight tail."""
-        y, base, groups, _resid, n_per = _panel(1)
+        y, _base, groups, _resid, n_per = _panel(1)
         tg = get_transform("frac_diff_grouped")
         tu = get_transform("frac_diff")
         pg = tg.fit(y, None, d=0.5, lags=20, groups=groups)
@@ -243,7 +246,8 @@ class TestGroupedRecurrent:
             p = t.fit(y, b, groups=groups)
             p2 = pickle.loads(pickle.dumps(p))  # nosec B301 -- round-tripping this test's own fitted params dict, not untrusted data
             np.testing.assert_array_equal(
-                t.forward(y, b, p, groups=groups), t.forward(y, b, p2, groups=groups),
+                t.forward(y, b, p, groups=groups),
+                t.forward(y, b, p2, groups=groups),
             )
 
 
@@ -272,6 +276,7 @@ class TestBoxCoxY:
     def test_round_trip_and_inverse_matches_scipy(self) -> None:
         """box_cox_y round-trips exactly and its inverse matches scipy's inv_boxcox for the fitted lambda."""
         from scipy.special import inv_boxcox
+
         rng = np.random.default_rng(1)
         y = np.exp(rng.normal(size=500)) + 0.1
         t = get_transform("box_cox_y")
@@ -459,6 +464,7 @@ class TestNadarayaWatson:
         t = get_transform("nadaraya_watson_residual")
         p = t.fit(y, base)
         from mlframe.training.composite.transforms._nadaraya_watson import _nw_g
+
         g_far = _nw_g(np.array([1e6]), p)
         assert np.isfinite(g_far[0]) and abs(g_far[0] - 2.0) < 0.2
 
@@ -565,23 +571,27 @@ class TestGaussianCopula:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("name,short", [
-    ("rolling_quantile_ratio_centered", "rqrC"),
-    ("ewma_residual_grouped", "ewmaG"),
-    ("rolling_quantile_ratio_grouped", "rqrG"),
-    ("frac_diff_grouped", "fdiffG"),
-    ("quantile_residual_grouped", "qresG"),
-    ("monotonic_residual_grouped", "monresG"),
-    ("box_cox_y", "bcY"),
-    ("seasonal_residual", "seas"),
-    ("volatility_normalized_residual", "volnr"),
-    ("asinh_residual_multi", "asinhrM"),
-    ("linear_residual_multi_robust", "linresMR"),
-    ("nadaraya_watson_residual", "nwres"),
-    ("gaussian_copula_residual", "gcopula"),
-])
+@pytest.mark.parametrize(
+    "name,short",
+    [
+        ("rolling_quantile_ratio_centered", "rqrC"),
+        ("ewma_residual_grouped", "ewmaG"),
+        ("rolling_quantile_ratio_grouped", "rqrG"),
+        ("frac_diff_grouped", "fdiffG"),
+        ("quantile_residual_grouped", "qresG"),
+        ("monotonic_residual_grouped", "monresG"),
+        ("box_cox_y", "bcY"),
+        ("seasonal_residual", "seas"),
+        ("volatility_normalized_residual", "volnr"),
+        ("asinh_residual_multi", "asinhrM"),
+        ("linear_residual_multi_robust", "linresMR"),
+        ("nadaraya_watson_residual", "nwres"),
+        ("gaussian_copula_residual", "gcopula"),
+    ],
+)
 def test_t_batch_short_names_registered(name: str, short: str) -> None:
     """Every T1-T10 batch transform is registered and maps to its expected short composite-name abbreviation."""
     from mlframe.training.composite.transforms import TRANSFORM_NAME_SHORT
+
     assert name in TRANSFORMS_REGISTRY
     assert TRANSFORM_NAME_SHORT[name] == short

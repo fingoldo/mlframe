@@ -2,6 +2,7 @@
 
 The wrapper carries a rolling buffer of last-N (y, base) observations across ``update()`` calls. When the buffer fills + drift z-score crosses threshold, the wrapper's ``fitted_params_["alpha"]`` / ``["beta"]`` get updated in-place. Default OFF (sklearn.clone() semantics: stateful estimator clones lose buffer; must be explicit opt-in).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -14,7 +15,6 @@ from sklearn.base import clone
 
 from mlframe.training.composite import (
     CompositeTargetEstimator,
-    _linear_residual_fit,
 )
 
 
@@ -97,10 +97,12 @@ class TestBuffer:
         rng = np.random.default_rng(2)
         # Append 250 rows -> should cap at 100.
         wrap.update(
-            y_recent=rng.normal(size=150), base_recent=rng.normal(size=150),
+            y_recent=rng.normal(size=150),
+            base_recent=rng.normal(size=150),
         )
         wrap.update(
-            y_recent=rng.normal(size=100), base_recent=rng.normal(size=100),
+            y_recent=rng.normal(size=100),
+            base_recent=rng.normal(size=100),
         )
         state = wrap.get_buffer_state()
         assert state["buffer_n"] == 100  # FIFO eviction worked
@@ -156,7 +158,8 @@ class TestDriftTrigger:
         wrap = _fit_basic_wrapper(online=True)
         rng = np.random.default_rng(5)
         info = wrap.update(
-            y_recent=rng.normal(size=10), base_recent=rng.normal(size=10),
+            y_recent=rng.normal(size=10),
+            base_recent=rng.normal(size=10),
         )
         assert "buffer_n_total" in info
         assert info["buffer_n_total"] == 10

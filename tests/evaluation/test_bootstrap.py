@@ -7,6 +7,7 @@ Covers:
   - DeLong test returns small p when AUCs differ materially; large p when identical.
   - DeLong returns NaN p on degenerate input rather than crashing.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -35,7 +36,8 @@ def test_bootstrap_metric_recovers_known_auc_point_and_ci():
     y, score = _make_binary_auc_data(n=4000, separation=1.6, seed=42)
     true_auc = roc_auc_score(y, score)
     res = bootstrap_metric(
-        y, score,
+        y,
+        score,
         metric_fn=lambda yt, yp: roc_auc_score(yt, yp),
         n_bootstrap=300,
         alpha=0.05,
@@ -43,13 +45,9 @@ def test_bootstrap_metric_recovers_known_auc_point_and_ci():
         random_state=123,
     )
     assert "point" in res and "lo" in res and "hi" in res and "samples" in res
-    assert abs(res["point"] - true_auc) < 1e-9, (
-        f"point estimate should equal full-sample metric ({true_auc:.6f}); got {res['point']:.6f}"
-    )
+    assert abs(res["point"] - true_auc) < 1e-9, f"point estimate should equal full-sample metric ({true_auc:.6f}); got {res['point']:.6f}"
     assert res["lo"] < res["point"] < res["hi"], "CI must bracket the point estimate"
-    assert res["lo"] <= true_auc <= res["hi"], (
-        f"95% CI [{res['lo']:.4f}, {res['hi']:.4f}] must contain true AUC {true_auc:.4f}"
-    )
+    assert res["lo"] <= true_auc <= res["hi"], f"95% CI [{res['lo']:.4f}, {res['hi']:.4f}] must contain true AUC {true_auc:.4f}"
     assert len(res["samples"]) == 300
 
 
@@ -118,9 +116,11 @@ def test_delong_rejects_multiclass():
 def _bm_metric_set():
     auc = lambda yy, pp: float(roc_auc_score(yy, pp))
     brier = lambda yy, pp: float(np.mean((yy - pp) ** 2))
+
     def ll(yy, pp):
         pc = np.clip(pp, 1e-15, 1 - 1e-15)
         return float(-np.mean(yy * np.log(pc) + (1 - yy) * np.log(1 - pc)))
+
     return {"roc_auc": auc, "brier": brier, "log_loss": ll}
 
 
@@ -182,11 +182,16 @@ def test_bootstrap_metrics_isolates_a_failing_metric():
     metrics still return valid CIs (one bad metric must not sink the batch)."""
     y, score = _make_binary_auc_data(n=1500, seed=5)
     p = 1.0 / (1.0 + np.exp(-score))
+
     def boom(yy, pp):
         raise RuntimeError("always fails")
+
     res = bootstrap_metrics(
-        y, p, {"good": lambda yy, pp: float(np.mean((yy - pp) ** 2)), "bad": boom},
-        n_bootstrap=200, random_state=7,
+        y,
+        p,
+        {"good": lambda yy, pp: float(np.mean((yy - pp) ** 2)), "bad": boom},
+        n_bootstrap=200,
+        random_state=7,
     )
     assert "error" in res["bad"] and "point" not in res["bad"]
     assert "error" not in res["good"] and np.isfinite(res["good"]["point"])
@@ -214,7 +219,9 @@ def test_jackknife_mean_metric_matches_gather_and_is_On():
     rmse): re-gathering n-1 rows + recomputing the metric per leave-out point is replaced by LOO_i=(sum-row_i)/(n-1)."""
     import numpy as np
     from mlframe.evaluation.bootstrap import (
-        _jackknife_metric, _jackknife_mean_metric, bootstrap_metric,
+        _jackknife_metric,
+        _jackknife_mean_metric,
+        bootstrap_metric,
     )
     from mlframe.metrics.core import fast_log_loss, fast_brier_score_loss
 
@@ -241,7 +248,11 @@ def test_jackknife_mean_metric_matches_gather_and_is_On():
     _ll = lambda a, b: float(fast_log_loss(a, b))
     gen = bootstrap_metric(y, p, _ll, n_bootstrap=300, random_state=5)
     fast = bootstrap_metric(
-        y, p, _ll, n_bootstrap=300, random_state=5,
+        y,
+        p,
+        _ll,
+        n_bootstrap=300,
+        random_state=5,
         jackknife_per_row=(lambda yy, pp: np.where(yy == 1, -np.log(np.clip(pp, eps, 1 - eps)), -np.log(1 - np.clip(pp, eps, 1 - eps))), True, None),
     )
     assert gen["point"] == fast["point"]
@@ -249,7 +260,8 @@ def test_jackknife_mean_metric_matches_gather_and_is_On():
     assert np.isclose(gen["hi"], fast["hi"], rtol=1e-9, atol=0.0)
 
     # Degenerate guard: non-finite per-row -> None (caller falls back to the exact gather path).
-    bad = ll_per_row.copy(); bad[0] = np.nan
+    bad = ll_per_row.copy()
+    bad[0] = np.nan
     assert _jackknife_mean_metric(y, bad, requires_both_classes=True) is None
 
 
@@ -275,17 +287,24 @@ def test_jackknife_auc_matches_gather_bit_identical():
     n = 30000
     y = rng.integers(0, 2, n).astype(np.float64)
     s = rng.uniform(0, 1, n)
-    gen = bootstrap_metrics(y, s, {}, metric_fns_idx={"roc_auc": make_bootstrap_auc_resampler(y, s)},
-                            n_bootstrap=300, stratify=y, random_state=7)
-    fast = bootstrap_metrics(y, s, {}, metric_fns_idx={"roc_auc": make_bootstrap_auc_resampler(y, s)},
-                             n_bootstrap=300, stratify=y, random_state=7,
-                             jackknife_fns={"roc_auc": lambda yy, ss: _jackknife_auc(yy, ss)})
+    gen = bootstrap_metrics(y, s, {}, metric_fns_idx={"roc_auc": make_bootstrap_auc_resampler(y, s)}, n_bootstrap=300, stratify=y, random_state=7)
+    fast = bootstrap_metrics(
+        y,
+        s,
+        {},
+        metric_fns_idx={"roc_auc": make_bootstrap_auc_resampler(y, s)},
+        n_bootstrap=300,
+        stratify=y,
+        random_state=7,
+        jackknife_fns={"roc_auc": lambda yy, ss: _jackknife_auc(yy, ss)},
+    )
     assert gen["roc_auc"]["point"] == fast["roc_auc"]["point"]
     assert gen["roc_auc"]["lo"] == fast["roc_auc"]["lo"]
     assert gen["roc_auc"]["hi"] == fast["roc_auc"]["hi"]
 
     # Degenerate: <2 of a class -> None (caller falls back to gather).
-    y_deg = np.zeros(100); y_deg[0] = 1.0
+    y_deg = np.zeros(100)
+    y_deg[0] = 1.0
     assert _jackknife_auc(y_deg, rng.uniform(0, 1, 100)) is None
 
 
@@ -299,7 +318,7 @@ def test_bootstrap_metric_per_row_resample_fastpath_matches_generic():
     from mlframe.evaluation.bootstrap import bootstrap_metric
     from mlframe.metrics.scoring import fast_rmse
 
-    rng = np.random.default_rng(0)
+    np.random.default_rng(0)
     _rmse_pr = lambda yy, pp: (np.asarray(yy, float) - np.asarray(pp, float)) ** 2
     for seed in range(8):
         r = np.random.default_rng(seed)
@@ -307,8 +326,7 @@ def test_bootstrap_metric_per_row_resample_fastpath_matches_generic():
         y = r.standard_normal(n)
         p = y + r.standard_normal(n) * 0.5
         gen = bootstrap_metric(y, p, fast_rmse, n_bootstrap=400, random_state=seed)
-        fast = bootstrap_metric(y, p, fast_rmse, n_bootstrap=400, random_state=seed,
-                                jackknife_per_row=(_rmse_pr, False, np.sqrt))
+        fast = bootstrap_metric(y, p, fast_rmse, n_bootstrap=400, random_state=seed, jackknife_per_row=(_rmse_pr, False, np.sqrt))
         assert gen["point"] == fast["point"]
         assert np.isclose(gen["lo"], fast["lo"], rtol=1e-9, atol=0.0)
         assert np.isclose(gen["hi"], fast["hi"], rtol=1e-9, atol=0.0)

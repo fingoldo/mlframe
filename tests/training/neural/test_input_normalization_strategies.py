@@ -21,13 +21,13 @@ the test R^2:
 A losing materially to either B or C confirms the bug. The test is
 small (1k samples, 6 epochs) so it runs in ~15 s.
 """
+
 from __future__ import annotations
 
 import sys
 from pathlib import Path
 
 import numpy as np
-import pytest
 import torch
 from sklearn.metrics import r2_score
 from sklearn.model_selection import train_test_split
@@ -164,9 +164,7 @@ def test_layernorm_on_input_loses_to_batchnorm_or_standardscaler():
     # ``use_batchnorm=True`` or StandardScaler upstream (documented in
     # the generate_mlp docstring after this fix).
     assert r2_D >= r2_A - 0.05, (
-        f"post-fix default R^2={r2_D:+.4f} regresses against pre-fix "
-        f"forced-LN R^2={r2_A:+.4f}; the default flip should be at "
-        "least neutral on this data shape."
+        f"post-fix default R^2={r2_D:+.4f} regresses against pre-fix forced-LN R^2={r2_A:+.4f}; the default flip should be at least neutral on this data shape."
     )
 
     # Both BN and StandardScaler must independently reach respectable
@@ -261,10 +259,7 @@ def test_layernorm_is_ok_on_homogeneous_scale_features():
     #     when measured n=1200 LN-on lost 0.18 to LN-off on this
     #     data, well within 0.25 and an order of magnitude below
     #     the heterogeneous-data gap.
-    assert r2_on > 0.8 and r2_off > 0.8, (
-        f"on homogeneous-scale features both LN configs should reach "
-        f"R^2>0.8; got LN-on={r2_on:+.4f}, LN-off={r2_off:+.4f}"
-    )
+    assert r2_on > 0.8 and r2_off > 0.8, f"on homogeneous-scale features both LN configs should reach R^2>0.8; got LN-on={r2_on:+.4f}, LN-off={r2_off:+.4f}"
     gap = abs(r2_on - r2_off)
     assert gap < 0.25, (
         f"on homogeneous-scale features LN-on and LN-off should differ "

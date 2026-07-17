@@ -8,6 +8,7 @@ reward. Estimating the variance from the TRAIN-fold residuals (a scale the held-
 points did not see) restores the signal: the better-predicting transform now scores
 a clearly higher WAIC.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -41,10 +42,7 @@ def test_overfit_candidate_penalized_with_train_scale_but_hidden_when_self_norma
     s_gen = waic_from_oof_residuals(gen_oof, target_scale=1.0, fold_scale_residuals=gen_train)
     s_of = waic_from_oof_residuals(of_oof, target_scale=1.0, fold_scale_residuals=of_train)
     assert s_gen.valid and s_of.valid
-    assert s_gen.waic > s_of.waic, (
-        f"train-scale WAIC must penalise the overfit candidate: "
-        f"gen waic={s_gen.waic:.3f} vs overfit waic={s_of.waic:.3f}"
-    )
+    assert s_gen.waic > s_of.waic, f"train-scale WAIC must penalise the overfit candidate: gen waic={s_gen.waic:.3f} vs overfit waic={s_of.waic:.3f}"
 
     # Pre-fix path (self-normalized to held-out residuals): the overfit candidate's
     # sigma^2 inflates with its own large OOF error, so r_oof^2/sigma^2 ~ 1 and the
@@ -56,8 +54,7 @@ def test_overfit_candidate_penalized_with_train_scale_but_hidden_when_self_norma
     selfnorm_sep = p_gen.waic - p_of.waic
     trainscale_sep = s_gen.waic - s_of.waic
     assert trainscale_sep > 10.0 * selfnorm_sep, (
-        f"train-scale must penalise the overfit far harder than self-norm: "
-        f"trainscale gap={trainscale_sep:.2f} vs selfnorm gap={selfnorm_sep:.2f}"
+        f"train-scale must penalise the overfit far harder than self-norm: trainscale gap={trainscale_sep:.2f} vs selfnorm gap={selfnorm_sep:.2f}"
     )
 
 

@@ -1,4 +1,5 @@
 """Sensor: target_temporal_audit carve preserves identity + facade under budget."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -31,7 +32,9 @@ def test_w12b_target_temporal_audit_smoke_runs():
     y = (np.arange(300) > 150).astype(int)
     df = pd.DataFrame({"ts": ts, "y": y})
     result = parent.audit_target_over_time(
-        df, "ts", "y",
+        df,
+        "ts",
+        "y",
         target_type="binary_classification",
         granularity="month",
         method="zscore",

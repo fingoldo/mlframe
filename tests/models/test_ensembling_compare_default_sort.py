@@ -44,9 +44,7 @@ def test_compare_ensembles_defaults_to_oof_sort_not_val_or_test():
     res = compare_ensembles(ensembles, show_plot=False)
     assert isinstance(res, pd.DataFrame)
     # OOF-sort: A (0.10) -> B (0.20) -> C (0.30).
-    assert list(res.index) == ["A", "B", "C"], (
-        f"compare_ensembles default sort should be OOF-based (A,B,C); got {list(res.index)}"
-    )
+    assert list(res.index) == ["A", "B", "C"], f"compare_ensembles default sort should be OOF-based (A,B,C); got {list(res.index)}"
 
 
 def test_compare_ensembles_warns_when_caller_overrides_to_test(caplog):

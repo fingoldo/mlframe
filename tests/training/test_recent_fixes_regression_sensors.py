@@ -15,6 +15,7 @@ The fixes covered:
   - multilabel detection shape[1] >= 2, not >= 1 (dfca063)
   - CatBoost allow_writing_files=False default (e68bbde)
 """
+
 from __future__ import annotations
 
 import os
@@ -39,10 +40,12 @@ def test_process_infinities_skips_int_columns():
     raising; ints unchanged, infs in float replaced by fill_value."""
     from mlframe.training._nan_processing import process_infinities
 
-    df = pl.DataFrame({
-        "int_col": pl.Series([1, 2, 3, 4], dtype=pl.Int32),
-        "float_col": pl.Series([1.0, float("inf"), float("-inf"), 4.0], dtype=pl.Float64),
-    })
+    df = pl.DataFrame(
+        {
+            "int_col": pl.Series([1, 2, 3, 4], dtype=pl.Int32),
+            "float_col": pl.Series([1.0, float("inf"), float("-inf"), 4.0], dtype=pl.Float64),
+        }
+    )
     out = process_infinities(df, fill_value=0.0, verbose=0)
     assert out["int_col"].to_list() == [1, 2, 3, 4], "int column must pass through untouched"
     assert out["float_col"].to_list() == [1.0, 0.0, 0.0, 4.0], "+/-inf must replace with fill_value"
@@ -62,11 +65,13 @@ def test_preprocess_dataframe_stringdtype_to_object():
     from mlframe.training.preprocessing import preprocess_dataframe
     from mlframe.training.configs import PreprocessingConfig
 
-    df = pd.DataFrame({
-        "f0": np.array([1.0, 2.0, 3.0], dtype="float32"),
-        "cat_a": pd.array(["A", "B", "C"], dtype="string"),
-        "cat_b": pd.array(["X", "Y", "X"], dtype="string"),
-    })
+    df = pd.DataFrame(
+        {
+            "f0": np.array([1.0, 2.0, 3.0], dtype="float32"),
+            "cat_a": pd.array(["A", "B", "C"], dtype="string"),
+            "cat_b": pd.array(["X", "Y", "X"], dtype="string"),
+        }
+    )
     assert isinstance(df["cat_a"].dtype, pd.StringDtype), "fixture must create StringDtype"
     out = preprocess_dataframe(df, PreprocessingConfig(), verbose=0)
     assert out["cat_a"].dtype == object, "cat_a must be coerced to object"
@@ -89,10 +94,12 @@ def test_create_fairness_subgroups_handles_pyarrow_large_string():
     from mlframe.metrics.core import create_fairness_subgroups
 
     str_arr = pyarrow.array(["A", "B", "C"] * 100, type=pyarrow.large_string())
-    df = pd.DataFrame({
-        "num": np.random.default_rng(0).normal(size=300),
-        "cat": pd.Series(pd.arrays.ArrowExtensionArray(str_arr), name="cat"),
-    })
+    df = pd.DataFrame(
+        {
+            "num": np.random.default_rng(0).normal(size=300),
+            "cat": pd.Series(pd.arrays.ArrowExtensionArray(str_arr), name="cat"),
+        }
+    )
     assert str(df["cat"].dtype).startswith("large_string"), "fixture must produce large_string"
 
     # Pre-fix this raised ArrowNotImplementedError from pd.qcut(large_string, ...).
@@ -140,10 +147,10 @@ def test_prewarm_numba_cache_does_not_recurse():
 @pytest.mark.parametrize(
     "y_shape, expected_multilabel",
     [
-        ((100,),    False),   # 1-D vector -> single-label
-        ((100, 1),  False),   # 1-column 2-D       -> single-label (the bug case)
-        ((100, 2),  True),    # 2-column 2-D       -> multilabel
-        ((100, 5),  True),    # K-column 2-D       -> multilabel
+        ((100,), False),  # 1-D vector -> single-label
+        ((100, 1), False),  # 1-column 2-D       -> single-label (the bug case)
+        ((100, 2), True),  # 2-column 2-D       -> multilabel
+        ((100, 5), True),  # K-column 2-D       -> multilabel
     ],
 )
 def test_classifier_multilabel_detection_shape_only(y_shape, expected_multilabel):
@@ -179,8 +186,7 @@ def test_catboost_default_does_not_create_catboost_info():
     ``catboost_info/`` under the CWD."""
     cb_general = _get_cb_general_params()
     assert cb_general.get("allow_writing_files") is False, (
-        "CB_GENERAL_PARAMS must default allow_writing_files=False to avoid "
-        "xdist worker collision on catboost_info/catboost_training.json"
+        "CB_GENERAL_PARAMS must default allow_writing_files=False to avoid xdist worker collision on catboost_info/catboost_training.json"
     )
 
 
@@ -207,10 +213,9 @@ def test_catboost_real_fit_writes_no_files_with_default():
             verbose=0,
         )
         clf.fit(X, y)
-        assert not os.path.isdir("catboost_info"), (
-            "catboost_info/ must not be created when allow_writing_files=False"
-        )
+        assert not os.path.isdir("catboost_info"), "catboost_info/ must not be created when allow_writing_files=False"
     finally:
         os.chdir(prev_cwd)
         import shutil
+
         shutil.rmtree(test_cwd, ignore_errors=True)

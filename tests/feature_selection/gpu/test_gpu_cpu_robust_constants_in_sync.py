@@ -8,6 +8,7 @@ thresholds without mirroring them on the GPU side (or vice-versa), the GPU heavy
 diverges from the CPU one -> selection drift on the default-on GPU routing / basis-MI path. Flagged by the
 code-quality + effectiveness critique agents (2026-06-22).
 """
+
 from __future__ import annotations
 
 
@@ -15,12 +16,6 @@ def test_gpu_robust_axis_constants_match_cpu():
     from mlframe.feature_selection.filters import _gpu_resident_fe as gpu
     from mlframe.feature_selection.filters.hermite_fe import _hermite_robust as cpu
 
-    assert gpu._GPU_ROBUST_AXIS_OUTER_K == cpu._ROBUST_AXIS_OUTER_K, (
-        f"OUTER_K drift: GPU {gpu._GPU_ROBUST_AXIS_OUTER_K} != CPU {cpu._ROBUST_AXIS_OUTER_K}"
-    )
-    assert gpu._GPU_ROBUST_AXIS_GAP == cpu._ROBUST_AXIS_GAP, (
-        f"GAP drift: GPU {gpu._GPU_ROBUST_AXIS_GAP} != CPU {cpu._ROBUST_AXIS_GAP}"
-    )
-    assert gpu._GPU_ROBUST_AXIS_MAX_FRAC == cpu._ROBUST_AXIS_MAX_FRAC, (
-        f"MAX_FRAC drift: GPU {gpu._GPU_ROBUST_AXIS_MAX_FRAC} != CPU {cpu._ROBUST_AXIS_MAX_FRAC}"
-    )
+    assert gpu._GPU_ROBUST_AXIS_OUTER_K == cpu._ROBUST_AXIS_OUTER_K, f"OUTER_K drift: GPU {gpu._GPU_ROBUST_AXIS_OUTER_K} != CPU {cpu._ROBUST_AXIS_OUTER_K}"
+    assert gpu._GPU_ROBUST_AXIS_GAP == cpu._ROBUST_AXIS_GAP, f"GAP drift: GPU {gpu._GPU_ROBUST_AXIS_GAP} != CPU {cpu._ROBUST_AXIS_GAP}"
+    assert gpu._GPU_ROBUST_AXIS_MAX_FRAC == cpu._ROBUST_AXIS_MAX_FRAC, f"MAX_FRAC drift: GPU {gpu._GPU_ROBUST_AXIS_MAX_FRAC} != CPU {cpu._ROBUST_AXIS_MAX_FRAC}"

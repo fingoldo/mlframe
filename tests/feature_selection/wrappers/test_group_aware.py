@@ -4,6 +4,7 @@ Covers ``cluster_features_by_correlation``, ``_cluster_medoids`` and the
 ``GroupAwareMRMR`` wrapper. Includes a fast biz-value check that the medoid
 of N noisy copies of a latent variable is one of the least-noisy members.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -89,12 +90,14 @@ class TestClusterMedoids:
         z = rng.standard_normal(n)
         # Monotone but very nonlinear transforms: Spearman rank-corr stays near 1,
         # Pearson linear corr collapses.
-        X = pd.DataFrame({
-            "z": z,
-            "z_cube": z ** 3,
-            "z_exp": np.exp(z),
-            "sign_sqrt": np.sign(z) * np.sqrt(np.abs(z)),
-        })
+        X = pd.DataFrame(
+            {
+                "z": z,
+                "z_cube": z**3,
+                "z_exp": np.exp(z),
+                "sign_sqrt": np.sign(z) * np.sqrt(np.abs(z)),
+            }
+        )
         cluster_id = np.zeros(X.shape[1], dtype=int)
 
         # Use the absolute-corr score vectors as a proxy for "ordering".
@@ -174,11 +177,13 @@ class TestEdgeCases:
         """A column of all NaN has undefined correlation - it ends in its own cluster."""
         rng = np.random.default_rng(7)
         n = 80
-        X = pd.DataFrame({
-            "good_a": rng.standard_normal(n),
-            "good_b": rng.standard_normal(n),
-            "nan_col": np.full(n, np.nan),
-        })
+        X = pd.DataFrame(
+            {
+                "good_a": rng.standard_normal(n),
+                "good_b": rng.standard_normal(n),
+                "nan_col": np.full(n, np.nan),
+            }
+        )
 
         cluster_id = cluster_features_by_correlation(X, threshold=0.9)
         medoids = _cluster_medoids(X, cluster_id)
@@ -219,24 +224,17 @@ def test_biz_medoid_picks_central_column():
     n = 600
     z = rng.standard_normal(n)
     noise_levels = [0.05, 0.10, 0.30, 0.50, 0.80]
-    cols = {
-        f"copy_{i}": z + sigma * rng.standard_normal(n)
-        for i, sigma in enumerate(noise_levels)
-    }
+    cols = {f"copy_{i}": z + sigma * rng.standard_normal(n) for i, sigma in enumerate(noise_levels)}
     X = pd.DataFrame(cols)
 
     # All five copies should land in the same cluster at threshold=0.6.
     cluster_id = cluster_features_by_correlation(X, threshold=0.6, method="spearman")
-    assert (cluster_id == cluster_id[0]).all(), (
-        "All 5 noisy copies of the same latent must single-link cluster together; "
-        f"got cluster_id={cluster_id.tolist()}"
-    )
+    assert (cluster_id == cluster_id[0]).all(), f"All 5 noisy copies of the same latent must single-link cluster together; got cluster_id={cluster_id.tolist()}"
 
     medoids = _cluster_medoids(X, cluster_id, method="spearman")
     assert len(medoids) == 1
     assert medoids[0] in (0, 1), (
-        f"Medoid should be one of the two least-noisy copies (idx 0 or 1); "
-        f"got idx={medoids[0]} (noise sigma={noise_levels[medoids[0]]})"
+        f"Medoid should be one of the two least-noisy copies (idx 0 or 1); got idx={medoids[0]} (noise sigma={noise_levels[medoids[0]]})"
     )
 
 
@@ -270,13 +268,15 @@ def test_group_aware_mrmr_expands_to_cluster_members():
     n = 200
     z1 = rng.standard_normal(n)
     z2 = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "a1": z1 + 0.05 * rng.standard_normal(n),
-        "a2": z1 + 0.05 * rng.standard_normal(n),
-        "b1": z2 + 0.05 * rng.standard_normal(n),
-        "b2": z2 + 0.05 * rng.standard_normal(n),
-        "indep": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "a1": z1 + 0.05 * rng.standard_normal(n),
+            "a2": z1 + 0.05 * rng.standard_normal(n),
+            "b1": z2 + 0.05 * rng.standard_normal(n),
+            "b2": z2 + 0.05 * rng.standard_normal(n),
+            "indep": rng.standard_normal(n),
+        }
+    )
     y = rng.standard_normal(n)
 
     wrapper = GroupAwareMRMR(estimator=_FakeInner(k=1), corr_threshold=0.9, expand=True)
@@ -355,7 +355,7 @@ class TestRedundancyMatrixComputedOnce:
 
         calls = {"n": 0}
         _orig = _ga._redundancy_matrix
-        monkeypatch.setattr(_ga, "_redundancy_matrix", lambda *a, **k: (calls.__setitem__("n", calls["n"] + 1) or _orig(*a, **k)))
+        monkeypatch.setattr(_ga, "_redundancy_matrix", lambda *a, **k: calls.__setitem__("n", calls["n"] + 1) or _orig(*a, **k))
 
         rng = np.random.default_rng(0)
         n = 200
@@ -370,6 +370,7 @@ class TestRedundancyMatrixComputedOnce:
 
     def test_precomputed_corr_is_byte_identical(self):
         from mlframe.feature_selection.filters.group_aware import _redundancy_matrix
+
         rng = np.random.default_rng(2)
         X = pd.DataFrame(rng.standard_normal((150, 5)), columns=list("abcde"))
         corr = _redundancy_matrix(X, "spearman")
@@ -390,6 +391,7 @@ def test_su_redundancy_lowcard_codes_searchsorted_equals_dict_map():
     # The vectorised np.searchsorted dense-coding of low-cardinality columns must equal the prior
     # dict-lookup list comprehension bit-for-bit, including the non-finite -> len(uniq) sentinel.
     import numpy as np
+
     rng = np.random.default_rng(4)
     for _ in range(50):
         n = int(rng.integers(500, 3000))
@@ -446,11 +448,13 @@ def test_numeric_codes_frame_skips_unhashable_embedding_column():
     """
     rng = np.random.default_rng(4)
     n = 60
-    df = pd.DataFrame({
-        "num_0": rng.standard_normal(n),
-        "cat_0": np.array(["a", "b"] * (n // 2)),
-        "emb_0": [rng.standard_normal(4) for _ in range(n)],
-    })
+    df = pd.DataFrame(
+        {
+            "num_0": rng.standard_normal(n),
+            "cat_0": np.array(["a", "b"] * (n // 2)),
+            "emb_0": [rng.standard_normal(4) for _ in range(n)],
+        }
+    )
 
     out = _numeric_codes_frame(df)
     assert list(out.columns) == ["num_0", "cat_0", "emb_0"]

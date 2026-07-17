@@ -59,11 +59,19 @@ def test_rrf_flavour_competes_with_arithmetic_on_heterogeneous_scales():
 
     # Arithmetic mean of the two probability matrices.
     arith_blend, _, _ = ensemble_probabilistic_predictions(
-        probs_a, probs_b, ensemble_method="arithm", ensure_prob_limits=True, verbose=False,
+        probs_a,
+        probs_b,
+        ensemble_method="arithm",
+        ensure_prob_limits=True,
+        verbose=False,
     )
     # RRF blend via the new dispatch branch.
     rrf_blend, _, _ = ensemble_probabilistic_predictions(
-        probs_a, probs_b, ensemble_method="rrf", ensure_prob_limits=True, verbose=False,
+        probs_a,
+        probs_b,
+        ensemble_method="rrf",
+        ensure_prob_limits=True,
+        verbose=False,
     )
 
     auc_arith = roc_auc_score(y, arith_blend[:, 1])
@@ -106,10 +114,18 @@ def test_rrf_beats_arithmetic_with_distinct_strong_and_weak_members():
     probs_b = np.column_stack([1 - prob_b, prob_b])
 
     arith_blend, _, _ = ensemble_probabilistic_predictions(
-        probs_a, probs_b, ensemble_method="arithm", ensure_prob_limits=True, verbose=False,
+        probs_a,
+        probs_b,
+        ensemble_method="arithm",
+        ensure_prob_limits=True,
+        verbose=False,
     )
     rrf_blend, _, _ = ensemble_probabilistic_predictions(
-        probs_a, probs_b, ensemble_method="rrf", ensure_prob_limits=True, verbose=False,
+        probs_a,
+        probs_b,
+        ensemble_method="rrf",
+        ensure_prob_limits=True,
+        verbose=False,
     )
     auc_arith = roc_auc_score(y, arith_blend[:, 1])
     auc_rrf = roc_auc_score(y, rrf_blend[:, 1])
@@ -121,10 +137,7 @@ def test_rrf_beats_arithmetic_with_distinct_strong_and_weak_members():
     assert auc_b > 0.7
     # Business win: RRF >= arithmetic on heterogeneous scales (it gets the equal-weight
     # blend that the arithmetic mean can't achieve when scales diverge by 100x).
-    assert auc_rrf >= auc_arith - 1e-6, (
-        f"RRF should match-or-beat arithmetic on heterogeneous scales: "
-        f"arith={auc_arith:.4f}, rrf={auc_rrf:.4f}"
-    )
+    assert auc_rrf >= auc_arith - 1e-6, f"RRF should match-or-beat arithmetic on heterogeneous scales: arith={auc_arith:.4f}, rrf={auc_rrf:.4f}"
 
 
 def test_rrf_flavour_aggregates_two_classifiers_directly():
@@ -236,8 +249,5 @@ def test_rrf_skipped_for_regression_target_type(caplog):
     assert "rrf" not in res, f"rrf should NOT appear for regression, got keys {list(res.keys())!r}"
     assert "arithm" in res
     # WARN line about skipping rrf was emitted.
-    skip_messages = [
-        rec for rec in caplog.records
-        if "skipping rrf candidate" in rec.getMessage()
-    ]
+    skip_messages = [rec for rec in caplog.records if "skipping rrf candidate" in rec.getMessage()]
     assert skip_messages, f"expected an INFO log about skipping rrf, got messages: {[r.getMessage() for r in caplog.records]!r}"

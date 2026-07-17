@@ -11,6 +11,7 @@ Coverage:
 * Bytes-budget eviction: writing entries that collectively exceed ``bytes_limit`` evicts oldest entries until under budget.
 * Sentinel: a cached ``None`` value is distinguishable from a cache miss.
 """
+
 from __future__ import annotations
 
 import os
@@ -213,9 +214,7 @@ def test_cache_evicts_oldest_when_bytes_budget_exceeded(tmp_path):
 
 def test_cache_evicts_oldest_when_entry_cap_exceeded(tmp_path):
     cache = SuiteArtefactCache(cache_dir=str(tmp_path), bytes_limit=10_000_000, max_entries=3)
-    keys = [
-        SuiteKeyBuilder.build(df_fp=f"fp{i}", config_canonical={"i": i}) for i in range(5)
-    ]
+    keys = [SuiteKeyBuilder.build(df_fp=f"fp{i}", config_canonical={"i": i}) for i in range(5)]
     for k in keys:
         cache.put(k, f"value_{k}")
     assert len(cache) <= 3

@@ -56,12 +56,8 @@ def test_early_stopping_weights_are_honored_not_just_length_matched():
     w = np.where(y == 1, 50.0, 0.01)
 
     base = dict(iterations=40, depth=2, verbose=False, random_seed=0)
-    weighted = ClassifierWithEarlyStopping(
-        base_estimator=CatBoostClassifier(**base), test_size=0.2, random_state=0
-    ).fit(X, y, sample_weight=w)
-    uniform = ClassifierWithEarlyStopping(
-        base_estimator=CatBoostClassifier(**base), test_size=0.2, random_state=0
-    ).fit(X, y)
+    weighted = ClassifierWithEarlyStopping(base_estimator=CatBoostClassifier(**base), test_size=0.2, random_state=0).fit(X, y, sample_weight=w)
+    uniform = ClassifierWithEarlyStopping(base_estimator=CatBoostClassifier(**base), test_size=0.2, random_state=0).fit(X, y)
 
     p_w = weighted.predict_proba(X)[:, 1].mean()
     p_u = uniform.predict_proba(X)[:, 1].mean()

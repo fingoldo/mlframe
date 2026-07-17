@@ -5,6 +5,7 @@ recover the true breakpoints exactly, and using per-detected-regime baselines in
 should recover close to the true noise floor RMSE instead of being badly blurred by averaging across regimes.
 Also verifies the effect-size filter suppresses a spurious tiny-magnitude break.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -68,7 +69,7 @@ def test_detect_regime_changepoints_unknown_backend_raises():
     y = np.arange(100, dtype=np.float64)
     try:
         detect_regime_changepoints(y, min_segment_length=10, backend="bogus")
-        assert False, "expected ValueError"
+        raise AssertionError("expected ValueError")
     except ValueError:
         pass
 

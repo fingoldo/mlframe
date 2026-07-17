@@ -2,6 +2,7 @@
 
 Pre-fix: a single-class y produced a degenerate PR/ROC + misleading baseline silently.
 """
+
 from __future__ import annotations
 
 import matplotlib

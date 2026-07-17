@@ -9,6 +9,7 @@ with a transformed ndarray test split, and ``get_categorical_columns(ndarray, ..
 A bare ndarray has no column names/dtypes to inspect, so the fix returns an empty list rather than
 crashing -- matching the function's job (categorical COLUMN NAMES; an ndarray has none).
 """
+
 from __future__ import annotations
 
 import numpy as np

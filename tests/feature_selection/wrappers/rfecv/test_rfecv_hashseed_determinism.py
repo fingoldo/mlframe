@@ -22,14 +22,14 @@ canonical order and skips names in the selected set:
   ``_sel = set(X.columns[selected_vars].tolist())``
   ``temp_columns = [c for c in X.columns if c not in _sel]``
 """
+
 from __future__ import annotations
 
 import os
-import subprocess
+import subprocess  # nosec B404 -- test-only local trusted subprocess invocation (fixed argv, no shell, no untrusted input)
 import sys
 
 import pandas as pd
-import pytest
 
 
 def _column_order_via_post_fix_pattern(cols, selected):
@@ -50,9 +50,7 @@ def test_post_fix_pattern_is_deterministic_across_hash_seeds():
     ``set`` iteration order. Run the same operation in subprocesses with
     different PYTHONHASHSEED values; outputs must be identical.
     """
-    cols = [f"feat_{w}" for w in
-             ("alpha", "bravo", "charlie", "delta", "echo",
-              "foxtrot", "golf", "hotel", "india", "juliet")]
+    cols = [f"feat_{w}" for w in ("alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf", "hotel", "india", "juliet")]
     selected = [0, 1]
     script = (
         "import sys, pandas as pd\n"
@@ -67,15 +65,15 @@ def test_post_fix_pattern_is_deterministic_across_hash_seeds():
     for seed in (0, 1, 2, 3, 4):
         env = dict(os.environ)
         env["PYTHONHASHSEED"] = str(seed)
-        r = subprocess.run(
+        r = subprocess.run(  # nosec B603 -- fixed local argv (sys.executable/git + literal args), no shell, no untrusted input
             [sys.executable, "-c", script],
-            env=env, capture_output=True, text=True, timeout=30,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
         outs.append(r.stdout.strip())
-    assert len(set(outs)) == 1, (
-        f"post-fix column order varied across PYTHONHASHSEED: "
-        f"got {len(set(outs))} distinct orderings: {outs}"
-    )
+    assert len(set(outs)) == 1, f"post-fix column order varied across PYTHONHASHSEED: got {len(set(outs))} distinct orderings: {outs}"
 
 
 def test_baseline_pre_fix_pattern_is_nondeterministic():
@@ -83,9 +81,7 @@ def test_baseline_pre_fix_pattern_is_nondeterministic():
     is necessary. If this ever stops being true (CPython removes
     randomized hashing), the fix can be revisited.
     """
-    cols = [f"feat_{w}" for w in
-             ("alpha", "bravo", "charlie", "delta", "echo",
-              "foxtrot", "golf", "hotel", "india", "juliet")]
+    cols = [f"feat_{w}" for w in ("alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf", "hotel", "india", "juliet")]
     selected = [0, 1]
     script = (
         "import sys, pandas as pd\n"
@@ -99,9 +95,12 @@ def test_baseline_pre_fix_pattern_is_nondeterministic():
     for seed in (0, 1, 2, 3, 4):
         env = dict(os.environ)
         env["PYTHONHASHSEED"] = str(seed)
-        r = subprocess.run(
+        r = subprocess.run(  # nosec B603 -- fixed local argv (sys.executable/git + literal args), no shell, no untrusted input
             [sys.executable, "-c", script],
-            env=env, capture_output=True, text=True, timeout=30,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
         outs.append(r.stdout.strip())
     # Pre-fix: at least 2 distinct orderings expected.

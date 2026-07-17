@@ -9,6 +9,7 @@ their shared base (``_RecurrentWrapperBase``) stay in the parent.
 
 Original re-exports the moved class so existing imports keep working.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -16,6 +17,7 @@ from pathlib import Path
 
 def test_recurrent_torch_model_importable_from_facade() -> None:
     from mlframe.training.neural.recurrent import RecurrentTorchModel
+
     assert RecurrentTorchModel is not None
     # The class is a LightningModule subclass; check via base-class name string
     # so the test works whether the codebase uses `lightning` or `pytorch_lightning`
@@ -33,6 +35,7 @@ def test_wrappers_still_importable() -> None:
         extract_sequences,
         extract_sequences_chunked,
     )
+
     assert _RecurrentWrapperBase is not None
     assert RecurrentClassifierWrapper is not None
     assert RecurrentRegressorWrapper is not None
@@ -50,4 +53,5 @@ def test_facade_below_1k_line_threshold() -> None:
 def test_sibling_owns_the_moved_class() -> None:
     """Identity: facade and sibling expose the SAME class object."""
     from mlframe.training.neural import recurrent, _recurrent_torch_model
+
     assert recurrent.RecurrentTorchModel is _recurrent_torch_model.RecurrentTorchModel

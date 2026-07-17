@@ -7,6 +7,7 @@ prediction forward as a lag feature -- the recursive approach's error visibly GR
 (error accumulation), while the direct approach's error stays flat near the noise floor across the whole
 horizon.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -71,8 +72,7 @@ def test_biz_val_direct_horizon_bucket_forecaster_beats_recursive_forecasting():
     direct_rmse = _rmse(true_future, direct_preds)
 
     assert direct_rmse < recursive_rmse * 0.3, (
-        f"direct per-bucket forecasting should avoid recursive error accumulation: "
-        f"direct={direct_rmse:.4f} recursive={recursive_rmse:.4f}"
+        f"direct per-bucket forecasting should avoid recursive error accumulation: direct={direct_rmse:.4f} recursive={recursive_rmse:.4f}"
     )
 
     # the accumulation signature itself: recursive error in the LAST bucket should be much worse than in
@@ -133,7 +133,7 @@ def test_biz_val_direct_horizon_bucket_forecaster_edge_blend_reduces_boundary_di
     # Kept small/noisy on purpose so the two independently-fit bucket models pick up different sampling
     # noise near their own edges, producing a visible discontinuity beyond the true 0.3/day trend.
     rows, targets = [], []
-    for origin in range(0, n_days_hist - horizon):
+    for _origin in range(0, n_days_hist - horizon):
         for h in range(1, horizon + 1):
             rows.append({"day_offset": h, "grp": 0})
             targets.append(5.0 + 0.3 * h + rng.normal(0, 1.5))
@@ -159,12 +159,9 @@ def test_biz_val_direct_horizon_bucket_forecaster_edge_blend_reduces_boundary_di
     smooth_excess_jump = abs((smooth_preds[7] - smooth_preds[6]) - true_step)
     assert hard_excess_jump > 0.01, f"fixture should produce a visible hard-boundary excess jump, got {hard_excess_jump:.4f}"
     assert smooth_excess_jump < hard_excess_jump * 0.5, (
-        f"edge blending should meaningfully shrink the boundary discontinuity: "
-        f"hard_excess={hard_excess_jump:.4f} smooth_excess={smooth_excess_jump:.4f}"
+        f"edge blending should meaningfully shrink the boundary discontinuity: hard_excess={hard_excess_jump:.4f} smooth_excess={smooth_excess_jump:.4f}"
     )
 
     hard_rmse = _rmse(true_future, hard_preds)
     smooth_rmse = _rmse(true_future, smooth_preds)
-    assert smooth_rmse < hard_rmse * 1.15, (
-        f"edge blending should not meaningfully regress overall accuracy: hard={hard_rmse:.4f} smooth={smooth_rmse:.4f}"
-    )
+    assert smooth_rmse < hard_rmse * 1.15, f"edge blending should not meaningfully regress overall accuracy: hard={hard_rmse:.4f} smooth={smooth_rmse:.4f}"

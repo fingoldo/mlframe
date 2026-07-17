@@ -4,6 +4,7 @@
 - Accuracy Ratio (binary, banking convention for Gini)
 - CRPS from quantiles (regression probabilistic forecasting)
 """
+
 from __future__ import annotations
 
 import warnings
@@ -12,8 +13,12 @@ import numpy as np
 import pytest
 
 from mlframe.metrics.core import (
-    fast_poisson_deviance, fast_gamma_deviance, fast_tweedie_deviance,
-    hosmer_lemeshow_test, accuracy_ratio, fast_roc_auc,
+    fast_poisson_deviance,
+    fast_gamma_deviance,
+    fast_tweedie_deviance,
+    hosmer_lemeshow_test,
+    accuracy_ratio,
+    fast_roc_auc,
 )
 from mlframe.metrics.quantile import crps_from_quantiles, pinball_loss
 
@@ -23,26 +28,31 @@ from mlframe.metrics.quantile import crps_from_quantiles, pinball_loss
 
 def test_poisson_deviance_matches_sklearn():
     from sklearn.metrics import mean_poisson_deviance
+
     rng = np.random.default_rng(0)
     y = rng.poisson(3.0, 500).astype(np.float64)
     p = np.maximum(0.1, y + rng.normal(0, 0.5, 500))
     assert fast_poisson_deviance(y, p) == pytest.approx(
-        mean_poisson_deviance(y, p), abs=1e-12,
+        mean_poisson_deviance(y, p),
+        abs=1e-12,
     )
 
 
 def test_gamma_deviance_matches_sklearn():
     from sklearn.metrics import mean_gamma_deviance
+
     rng = np.random.default_rng(1)
     y = rng.gamma(2.0, 1.0, 500)
     p = np.maximum(1e-3, y + rng.normal(0, 0.1, 500))
     assert fast_gamma_deviance(y, p) == pytest.approx(
-        mean_gamma_deviance(y, p), abs=1e-12,
+        mean_gamma_deviance(y, p),
+        abs=1e-12,
     )
 
 
 def test_tweedie_general_matches_sklearn():
     from sklearn.metrics import mean_tweedie_deviance
+
     rng = np.random.default_rng(2)
     y = rng.gamma(2.0, 1.0, 500)
     p = np.maximum(1e-3, y + rng.normal(0, 0.1, 500))
@@ -154,7 +164,7 @@ def test_hl_well_calibrated_high_p_value():
     N = 2000
     p = rng.uniform(0.05, 0.95, N)
     y = (rng.uniform(size=N) < p).astype(np.int64)
-    chi2, p_value, dof = hosmer_lemeshow_test(y, p, n_groups=10)
+    _chi2, p_value, dof = hosmer_lemeshow_test(y, p, n_groups=10)
     assert dof == 8
     # Under the null (well-calibrated), p > 0.05 should hold typically.
     # We use a softer threshold (p > 0.01) to keep the test non-flaky.
@@ -169,7 +179,7 @@ def test_hl_miscalibrated_low_p_value():
     y = np.concatenate([np.zeros(500), np.ones(500)]).astype(np.int64)
     # Score the way that DOESN'T match y - constant 0.5 everywhere.
     s = np.full(N, 0.5)
-    chi2, p_value, dof = hosmer_lemeshow_test(y, s, n_groups=10)
+    chi2, p_value, _dof = hosmer_lemeshow_test(y, s, n_groups=10)
     # All deciles have E = 0.5 * group_size; all O are either 0 or
     # group_size (the deterministic split). chi2 will be large.
     assert chi2 > 100.0
@@ -180,7 +190,7 @@ def test_hl_handles_tiny_input():
     """N < n_groups -> NaN with dof=0."""
     y = np.array([0, 1, 0])
     s = np.array([0.1, 0.5, 0.9])
-    chi2, p, dof = hosmer_lemeshow_test(y, s, n_groups=10)
+    chi2, _p, dof = hosmer_lemeshow_test(y, s, n_groups=10)
     assert np.isnan(chi2)
     assert dof == 0
 
@@ -201,7 +211,7 @@ def test_hl_n_groups_parameter():
 def test_accuracy_ratio_matches_gini_from_auc():
     """AR (computed via CAP trapezoid integral) must equal 2*AUC - 1
     to fp tolerance regardless of how the AUC was computed."""
-    rng = np.random.default_rng(8)
+    np.random.default_rng(8)
     for seed in range(5):
         rng2 = np.random.default_rng(seed)
         N = 1000

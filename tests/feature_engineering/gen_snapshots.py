@@ -14,6 +14,7 @@ Usage:
     cd <mlframe repo root>
     PYTHONPATH=src python tests/feature_engineering/gen_snapshots.py
 """
+
 from __future__ import annotations
 
 import sys
@@ -28,10 +29,15 @@ if str(ROOT / "tests" / "feature_engineering") not in sys.path:
 
 
 def main() -> None:
+    """Recompute and print the DIGESTS literal for every snapshot scenario in test_coverage_fill.py."""
     # Reuse the test module's own helpers + scenarios so we never drift away
     # from what the test actually compares against.
     from test_coverage_fill import (  # type: ignore[import-not-found]
-        DIGESTS, SNAPSHOTS, _scenario_kwargs, _snap_df, _snapshot_digest,
+        DIGESTS,
+        SNAPSHOTS,
+        _scenario_kwargs,
+        _snap_df,
+        _snapshot_digest,
     )
     from mlframe.feature_engineering.timeseries import create_aggregated_features
 
@@ -42,13 +48,17 @@ def main() -> None:
         feats: list = []
         names: list = []
         create_aggregated_features(
-            window_df=df, row_features=feats, create_features_names=True,
-            features_names=names, dataset_name="ds", **_scenario_kwargs(scenario),
+            window_df=df,
+            row_features=feats,
+            create_features_names=True,
+            features_names=names,
+            dataset_name="ds",
+            **_scenario_kwargs(scenario),
         )
         digest = _snapshot_digest(feats, names)[:16]
         prev = DIGESTS.get(scenario, "<missing>")
         flag = " # CHANGED" if digest != prev else ""
-        print(f"    {repr(scenario):<{max_name}}: {repr(digest)},{flag}")
+        print(f"    {scenario!r:<{max_name}}: {digest!r},{flag}")
     print("}")
 
 

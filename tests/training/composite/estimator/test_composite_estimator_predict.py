@@ -5,6 +5,7 @@
 - E3: predict_quantile crashed for every requires_base=False (unary)
   transform because it extracted a base column unconditionally.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -36,9 +37,7 @@ class _ConstInner(BaseEstimator, RegressorMixin):
         n = X.shape[0]
         if np.isscalar(alpha):
             return np.full(n, self._mean_t, dtype=np.float64)
-        return np.column_stack([
-            np.full(n, self._mean_t + float(a) - 0.5) for a in alpha
-        ])
+        return np.column_stack([np.full(n, self._mean_t + float(a) - 0.5) for a in alpha])
 
 
 def _make_multibase_frame(n=200, seed=0):

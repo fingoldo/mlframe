@@ -5,6 +5,7 @@ Pre-fix the fallback built the audit frame from RAW int64 timestamps. pandas rea
 as nanoseconds-since-epoch, so epoch-SECONDS input collapsed every row into the first nanosecond
 after epoch -> a one-bin audit with no change-point coverage.
 """
+
 from __future__ import annotations
 
 import sys

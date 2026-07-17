@@ -12,6 +12,7 @@ and asserts the post-fix contract:
 * D3 -- the fit ``finally`` restores the MI thread-locals to the values held at fit ENTRY (snapshot), not to
   hardcoded literals, so an inner fit cannot clobber an outer fit's toggles.
 """
+
 import warnings
 
 import numpy as np

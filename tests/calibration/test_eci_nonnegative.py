@@ -5,6 +5,7 @@ MM bias correction could push observed entropy above log(bins) on a genuinely
 calibrated (near-uniform) PIT, driving eci negative pre-fix. A truly miscalibrated
 input must still yield eci > 0.
 """
+
 from __future__ import annotations
 
 import numpy as np

@@ -6,6 +6,7 @@ systematically under-states confidence when multiple independent members agree) 
 against ground truth on a known conditionally-independent generative model where the true combined posterior
 has a closed form.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -34,7 +35,7 @@ def _make_conditionally_independent_data(n: int, k: int, seed: int):
 
 
 def test_odds_ratio_combine_matches_closed_form_true_posterior():
-    y, member_probs, true_combined_prob = _make_conditionally_independent_data(2000, 5, seed=0)
+    _y, member_probs, true_combined_prob = _make_conditionally_independent_data(2000, 5, seed=0)
     combined = odds_ratio_combine(member_probs)
     assert np.allclose(combined, true_combined_prob, atol=1e-9)
 
@@ -78,8 +79,7 @@ def test_biz_val_odds_ratio_combine_beats_naive_mean_on_conditionally_independen
     # independent members agreeing" signal and is measurably worse. Floor set with margin below the measured gap.
     assert ll_combined == pytest.approx(ll_true, abs=1e-6)
     assert ll_naive > ll_combined + 0.05, (
-        f"naive mean log-loss ({ll_naive:.4f}) should be clearly worse than "
-        f"odds-ratio-combined log-loss ({ll_combined:.4f}) under conditional independence"
+        f"naive mean log-loss ({ll_naive:.4f}) should be clearly worse than odds-ratio-combined log-loss ({ll_combined:.4f}) under conditional independence"
     )
 
 
@@ -133,7 +133,7 @@ def test_odds_ratio_combine_check_independence_warns_but_keeps_sum_by_default_mo
 
 
 def test_odds_ratio_combine_check_independence_no_warning_on_independent_members():
-    y, member_probs, _ = _make_conditionally_independent_data(2000, 5, seed=15)
+    _y, member_probs, _ = _make_conditionally_independent_data(2000, 5, seed=15)
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         result = odds_ratio_combine(member_probs, check_independence=True, on_correlation_violation="fallback")

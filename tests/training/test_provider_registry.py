@@ -23,7 +23,6 @@ GPU. The HF provider has its own integration test in
 from __future__ import annotations
 
 import threading
-import time
 from typing import List
 
 import numpy as np
@@ -31,7 +30,6 @@ import pytest
 
 from mlframe.training.feature_handling import (
     CacheConfig,
-    EmbeddingProvider,
     acquire_provider,
     prewarm,
     provider_status,

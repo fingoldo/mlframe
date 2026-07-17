@@ -8,6 +8,7 @@ Moved to the sibling file: ``_run_composite_target_wrapping`` (the
 
 Original re-exports the symbol so existing imports continue to work.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -15,6 +16,7 @@ from pathlib import Path
 
 def test_wrapping_symbol_still_importable_from_facade() -> None:
     from mlframe.training.core._phase_composite_post import _run_composite_target_wrapping
+
     assert callable(_run_composite_target_wrapping)
 
 
@@ -24,6 +26,7 @@ def test_other_phase_post_symbols_still_importable() -> None:
         _run_suite_end_dummy_baselines_summary,
         run_composite_post_processing,
     )
+
     for fn in (
         recover_composite_y_scale_metrics,
         _run_suite_end_dummy_baselines_summary,
@@ -42,4 +45,5 @@ def test_facade_below_1k_line_threshold() -> None:
 def test_sibling_owns_the_moved_symbol() -> None:
     """Identity: facade and sibling expose the SAME function object."""
     from mlframe.training.core import _phase_composite_post, _phase_composite_wrapping
+
     assert _phase_composite_post._run_composite_target_wrapping is _phase_composite_wrapping._run_composite_target_wrapping

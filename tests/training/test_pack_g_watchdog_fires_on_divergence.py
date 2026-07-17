@@ -22,6 +22,7 @@ normal operation - the test in ``test_pack_g_watchdog_diagnostic.py``
 only verifies log FORMAT once watchdog fires, not that the fire
 condition reproduces the production scenario.
 """
+
 from __future__ import annotations
 
 import logging
@@ -138,10 +139,13 @@ def _setup_wrapper_models(*, broken_inner_factor: float | None = None):
     val_df = df.iloc[val_idx].reset_index(drop=True)
 
     return {
-        "models": models, "target_by_type": target_by_type,
+        "models": models,
+        "target_by_type": target_by_type,
         "composite_specs": composite_specs,
-        "train_idx": train_idx, "val_idx": val_idx,
-        "train_df": train_df, "val_df": val_df,
+        "train_idx": train_idx,
+        "val_idx": val_idx,
+        "train_df": train_df,
+        "val_df": val_df,
         "wrapper": wrapper,
     }
 
@@ -150,9 +154,7 @@ class TestUniversalWatchdogFiresOnDivergence:
     """When wrapper.predict diverges from transform.inverse(inner.predict),
     the universal Pack G watchdog must emit a WARNING."""
 
-    def test_watchdog_warns_when_predict_path_corrupted(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_watchdog_warns_when_predict_path_corrupted(self, caplog: pytest.LogCaptureFixture) -> None:
         from mlframe.training.core._phase_composite_post import (
             _run_composite_target_wrapping,
         )
@@ -183,10 +185,7 @@ class TestUniversalWatchdogFiresOnDivergence:
                 skip_predict=False,
             )
 
-        watchdog_records = [
-            r for r in caplog.records
-            if "watchdog" in r.message.lower()
-        ]
+        watchdog_records = [r for r in caplog.records if "watchdog" in r.message.lower()]
         assert watchdog_records, (
             f"Pack G universal watchdog must fire when wrapper.predict diverges "
             f"from transform.inverse(inner.predict). Log records: "
@@ -198,9 +197,7 @@ class TestUniversalWatchdogQuietOnHappyPath:
     """When wrapper.predict is the canonical inverse-of-inner path, the
     universal watchdog must NOT fire (no false positives)."""
 
-    def test_watchdog_quiet_on_consistent_wrapper(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_watchdog_quiet_on_consistent_wrapper(self, caplog: pytest.LogCaptureFixture) -> None:
         from mlframe.training.core._phase_composite_post import (
             _run_composite_target_wrapping,
         )
@@ -225,11 +222,5 @@ class TestUniversalWatchdogQuietOnHappyPath:
                 skip_predict=False,
             )
 
-        universal_warnings = [
-            r for r in caplog.records
-            if "watchdog.universal" in r.message
-        ]
-        assert not universal_warnings, (
-            f"Universal watchdog must stay quiet on the canonical path; "
-            f"got: {[r.message[:200] for r in universal_warnings]}"
-        )
+        universal_warnings = [r for r in caplog.records if "watchdog.universal" in r.message]
+        assert not universal_warnings, f"Universal watchdog must stay quiet on the canonical path; got: {[r.message[:200] for r in universal_warnings]}"

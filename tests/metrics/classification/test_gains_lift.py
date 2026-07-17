@@ -35,7 +35,7 @@ def test_perfect_model_gains_reaches_one_at_prevalence():
 def test_lift_first_point_above_one_for_good_model():
     y = np.array([1, 1, 0, 0, 1, 0, 0, 0])
     s = np.array([0.9, 0.85, 0.2, 0.1, 0.8, 0.3, 0.05, 0.02])
-    frac, lift = lift_curve(y, s)
+    _frac, lift = lift_curve(y, s)
     assert lift[0] > 1.0
     assert np.isclose(lift[-1], 1.0)  # full population -> lift 1
 

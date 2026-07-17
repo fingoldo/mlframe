@@ -6,6 +6,7 @@ iter142: on the RTX 500 Ada the cheap degree-5 Horner kernel is transfer-bound; 
 every swept n (incl. 1e6). Pre-fix the sweep left cuda_threshold=500_000, so the dispatcher kept routing
 large-n calls to cuda (~6.6-8.5x slower than njit_par). Post-fix it emits swept_max*100.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -25,7 +26,7 @@ def test_polyeval_sweep_disables_cuda_when_it_never_wins(monkeypatch):
     # 2ms cuda sleep below, making njit_par spuriously the LOSER at large n (flaky). Return a cached tiny array
     # so njit_par is reliably microseconds at every swept n -> the "cuda never wins" world the test asserts.
     _tiny = np.zeros(1)
-    fast = lambda x, c: _tiny  # noqa: E731
+    fast = lambda x, c: _tiny
     monkeypatch.setattr(mod, "_NJIT_FUNCS", {b: fast for b in ("hermite", "legendre", "chebyshev", "laguerre")}, raising=False)
     monkeypatch.setattr(mod, "_NJIT_PAR_FUNCS", {b: fast for b in ("hermite", "legendre", "chebyshev", "laguerre")}, raising=False)
 

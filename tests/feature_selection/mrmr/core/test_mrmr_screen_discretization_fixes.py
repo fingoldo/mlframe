@@ -3,17 +3,16 @@
 Each test targets one fix from the batch. Tests are designed to FAIL on pre-fix code
 and PASS once the corresponding fix lands.
 """
+
 from __future__ import annotations
 
 import logging
-import warnings
 
 import numpy as np
 import pandas as pd
 import pytest
 
 from mlframe.feature_selection.filters import MRMR
-from mlframe.feature_selection.filters import screen as screen_mod
 
 
 def _toy_dataset(n_rows: int = 200, n_cols: int = 6, seed: int = 0):
@@ -165,7 +164,7 @@ def test_fix5_int64_downcast_silent_under_verbose0(capsys):
     m = MRMR(verbose=0, n_jobs=1, full_npermutations=2, baseline_npermutations=2, skip_retraining_on_same_content=False, fe_max_steps=0)
     try:
         m.fit(X.copy(), y)
-    except Exception:
+    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
         # We only care about stdout, not the (possibly noisy) fit completing.
         pass
     captured = capsys.readouterr()
@@ -179,7 +178,7 @@ def test_fix5_int64_downcast_logged_under_verbose1(caplog):
     with caplog.at_level(logging.INFO, logger="mlframe.feature_selection.filters.mrmr"):
         try:
             m.fit(X.copy(), y)
-        except Exception:
+        except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
             pass
     # Allow either substring match.
     msgs = " ".join(r.getMessage() for r in caplog.records)
@@ -240,6 +239,7 @@ def test_fix7_random_state_aliases_random_seed():
 def test_fix8_lazy_chunks_helper_present():
     """The lazy combinations chunker must remain at module scope."""
     from mlframe.feature_selection.filters import mrmr as mrmr_mod
+
     assert hasattr(mrmr_mod, "_lazy_chunks"), "_lazy_chunks helper missing"
     # Functional sanity: chunking [0..10] by 3 yields 4 chunks.
     chunks = list(mrmr_mod._lazy_chunks(range(10), 3))

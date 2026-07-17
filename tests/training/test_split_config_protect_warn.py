@@ -8,6 +8,7 @@
      ``pl.Categorical`` (no enum_domains supplied), so operators see the silent
      global-string-cache-widening path on the first run.
 """
+
 from __future__ import annotations
 
 import logging
@@ -42,9 +43,7 @@ def test_d1_low_13_bare_categorical_fallback_emits_warn(caplog):
         out = _cast_utf8_cats_to_categorical(df, ["cat_col"], enum_domains=None)
     assert out.schema["cat_col"] == pl.Categorical
     msgs = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
-    assert any("pl.Categorical" in m and "cat_col" in m for m in msgs), (
-        f"Expected fallback WARN mentioning pl.Categorical + col name; got: {msgs}"
-    )
+    assert any("pl.Categorical" in m and "cat_col" in m for m in msgs), f"Expected fallback WARN mentioning pl.Categorical + col name; got: {msgs}"
 
 
 def test_d1_low_13_enum_domain_path_does_not_warn(caplog):
@@ -57,6 +56,4 @@ def test_d1_low_13_enum_domain_path_does_not_warn(caplog):
         out = _cast_utf8_cats_to_categorical(df, ["cat_col"], enum_domains={"cat_col": ["a", "b", "c"]})
     assert isinstance(out.schema["cat_col"], pl.Enum)
     msgs = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
-    assert not any("pl.Categorical" in m for m in msgs), (
-        f"Did not expect fallback WARN when enum_domain present; got: {msgs}"
-    )
+    assert not any("pl.Categorical" in m for m in msgs), f"Did not expect fallback WARN when enum_domain present; got: {msgs}"

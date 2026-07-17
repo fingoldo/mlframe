@@ -4,6 +4,7 @@ Pre-fix per-class AP was computed on the stratified subsample but the no-skill p
 (``bin_full / n_valid``), so AP-vs-baseline compared inconsistent populations. Post-fix prevalence is computed on
 the finite subsample (``bin_yf.sum() / bin_yf.size``), matching the AP's population.
 """
+
 import numpy as np
 
 from mlframe.reporting.charts.multiclass import _pr_curves_panel
@@ -37,9 +38,7 @@ def test_pr_baseline_prevalence_uses_subsample_population():
     assert abs(expected_prevalence - full_n_prevalence) > 0.1
 
     # Baselines are dotted ":" constant series, one per drawn class in draw_idx order [0, 1]; take class 1.
-    baseline_series = [
-        np.asarray(s) for s, st in zip(panel.y, panel.line_styles) if st == ":"
-    ]
+    baseline_series = [np.asarray(s) for s, st in zip(panel.y, panel.line_styles) if st == ":"]
     assert len(baseline_series) == 2, len(baseline_series)
     baseline_val = float(baseline_series[1][0])
     assert np.isclose(baseline_val, expected_prevalence), (baseline_val, expected_prevalence)

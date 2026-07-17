@@ -6,6 +6,7 @@ stale. Two entities can land on the same ``x_lag_2`` VALUE while one observed it
 six months ago; the lag-rank-only pivot has no column that can distinguish them, so a GBDT trained on it
 can only see the row-position rank, not the elapsed time. The gap column supplies exactly that signal.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -56,8 +57,7 @@ def test_biz_val_time_gaps_beat_lag_rank_only_pivot():
     rmse_rank_only = _rmse(rank_only)
 
     assert rmse_with_gaps < rmse_rank_only * 0.85, (
-        f"expected gap-augmented pivot to beat lag-rank-only pivot by >=15% RMSE, "
-        f"got with_gaps={rmse_with_gaps:.4f} rank_only={rmse_rank_only:.4f}"
+        f"expected gap-augmented pivot to beat lag-rank-only pivot by >=15% RMSE, got with_gaps={rmse_with_gaps:.4f} rank_only={rmse_rank_only:.4f}"
     )
 
 

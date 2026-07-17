@@ -20,6 +20,7 @@ Covers the four implemented FUTURE items:
 These pin BEHAVIOUR (warnings firing, kwargs forwarded, cap enforced) rather
 than source strings, and fail on the pre-fix code.
 """
+
 from __future__ import annotations
 
 import logging
@@ -118,11 +119,15 @@ def _make_frame(n: int, seed: int = 3):
     x_a = rng.normal(10.0, 3.0, n)
     x_b = rng.normal(0.0, 2.0, n)
     y = 1.5 * x_a + 2.0 * x_b + rng.normal(0.0, 1.0, n)
-    return pd.DataFrame({
-        "x_a": x_a, "x_b": x_b,
-        "n0": rng.standard_normal(n), "n1": rng.standard_normal(n),
-        "y": y,
-    })
+    return pd.DataFrame(
+        {
+            "x_a": x_a,
+            "x_b": x_b,
+            "n0": rng.standard_normal(n),
+            "n1": rng.standard_normal(n),
+            "y": y,
+        }
+    )
 
 
 class TestA17TimeAwareForwarded:
@@ -136,13 +141,17 @@ class TestA17TimeAwareForwarded:
         _tiny_discovery(monkeypatch, rec)
 
         cfg = CompositeTargetDiscoveryConfig(
-            enabled=True, mi_sample_n=500,
+            enabled=True,
+            mi_sample_n=500,
             composite_skip_when_raw_dominates_ratio=0.0,
         )
         CompositeTargetDiscovery(config=cfg).fit_stacked(
-            df=df, target_col="y", feature_cols=["x_a", "x_b", "n0", "n1"],
+            df=df,
+            target_col="y",
+            feature_cols=["x_a", "x_b", "n0", "n1"],
             train_idx=np.arange(int(0.8 * n)),
-            n_oof_folds=3, time_aware=True,
+            n_oof_folds=3,
+            time_aware=True,
         )
         assert rec.calls, "OOF helper was never called -- pass-1 found no specs to stack"
         assert all(c.get("time_aware") is True for c in rec.calls)
@@ -157,11 +166,14 @@ class TestA17TimeAwareForwarded:
         _tiny_discovery(monkeypatch, rec)
 
         cfg = CompositeTargetDiscoveryConfig(
-            enabled=True, mi_sample_n=500,
+            enabled=True,
+            mi_sample_n=500,
             composite_skip_when_raw_dominates_ratio=0.0,
         )
         CompositeTargetDiscovery(config=cfg).fit_stacked(
-            df=df, target_col="y", feature_cols=["x_a", "x_b", "n0", "n1"],
+            df=df,
+            target_col="y",
+            feature_cols=["x_a", "x_b", "n0", "n1"],
             train_idx=np.arange(int(0.8 * n)),
             n_oof_folds=3,  # time_aware defaults False
         )
@@ -178,13 +190,17 @@ class TestA17TimeAwareForwarded:
         _tiny_discovery(monkeypatch, rec)
 
         cfg = CompositeTargetDiscoveryConfig(
-            enabled=True, mi_sample_n=500,
+            enabled=True,
+            mi_sample_n=500,
             composite_skip_when_raw_dominates_ratio=0.0,
         )
         CompositeTargetDiscovery(config=cfg).fit_stacked_on_residual(
-            df=df, target_col="y", feature_cols=["x_a", "x_b", "n0", "n1"],
+            df=df,
+            target_col="y",
+            feature_cols=["x_a", "x_b", "n0", "n1"],
             train_idx=np.arange(int(0.8 * n)),
-            n_oof_folds=3, time_aware=True,
+            n_oof_folds=3,
+            time_aware=True,
         )
         assert rec.calls
         assert all(c.get("time_aware") is True for c in rec.calls)
@@ -202,24 +218,25 @@ class TestA18AggregateCap:
         _tiny_discovery(monkeypatch, rec)
 
         cfg = CompositeTargetDiscoveryConfig(
-            enabled=True, mi_sample_n=700,
+            enabled=True,
+            mi_sample_n=700,
             composite_skip_when_raw_dominates_ratio=0.0,
         )
         disc = CompositeTargetDiscovery(config=cfg)
         disc.fit_stacked_on_residual(
-            df=df, target_col="y", feature_cols=["x_a", "x_b", "n0", "n1"],
+            df=df,
+            target_col="y",
+            feature_cols=["x_a", "x_b", "n0", "n1"],
             train_idx=np.arange(int(0.8 * n)),
-            n_oof_folds=3, max_pass1_specs_to_aggregate=1,
+            n_oof_folds=3,
+            max_pass1_specs_to_aggregate=1,
         )
         # Each aggregated pass-1 spec triggers exactly one OOF call. With the cap
         # at 1, regardless of how many pass-1 specs were found, only 1 OOF call
         # contributes to the aggregate.
         n_pass1 = len(disc.specs_)
         assert rec.calls, "no OOF calls -- pass-1 found nothing to aggregate"
-        assert len(rec.calls) == 1, (
-            f"cap=1 must limit aggregation to 1 OOF call, got {len(rec.calls)} "
-            f"(pass1 had >= {n_pass1} specs)"
-        )
+        assert len(rec.calls) == 1, f"cap=1 must limit aggregation to 1 OOF call, got {len(rec.calls)} (pass1 had >= {n_pass1} specs)"
 
     def test_uncapped_aggregates_more_than_one(self, monkeypatch) -> None:
         """cap<=0 restores the historical aggregate-all behaviour."""
@@ -232,20 +249,22 @@ class TestA18AggregateCap:
         _tiny_discovery(monkeypatch, rec)
 
         cfg = CompositeTargetDiscoveryConfig(
-            enabled=True, mi_sample_n=700,
+            enabled=True,
+            mi_sample_n=700,
             composite_skip_when_raw_dominates_ratio=0.0,
         )
         CompositeTargetDiscovery(config=cfg).fit_stacked_on_residual(
-            df=df, target_col="y", feature_cols=["x_a", "x_b", "n0", "n1"],
+            df=df,
+            target_col="y",
+            feature_cols=["x_a", "x_b", "n0", "n1"],
             train_idx=np.arange(int(0.8 * n)),
-            n_oof_folds=3, max_pass1_specs_to_aggregate=0,  # disable cap
+            n_oof_folds=3,
+            max_pass1_specs_to_aggregate=0,  # disable cap
         )
         # On this two-signal frame pass-1 finds several specs; uncapped, more
         # than one feeds the aggregate (proving the old behaviour is reachable
         # AND that the cap above genuinely constrained it).
-        assert len(rec.calls) >= 2, (
-            f"uncapped aggregate must use >=2 OOF calls, got {len(rec.calls)}"
-        )
+        assert len(rec.calls) >= 2, f"uncapped aggregate must use >=2 OOF calls, got {len(rec.calls)}"
 
     def test_config_field_present_and_wired(self) -> None:
         from mlframe.training.configs import CompositeTargetDiscoveryConfig
@@ -268,27 +287,21 @@ class TestA7ResidualSpecWarning:
         _tiny_discovery(monkeypatch, rec)
 
         cfg = CompositeTargetDiscoveryConfig(
-            enabled=True, mi_sample_n=900,
+            enabled=True,
+            mi_sample_n=900,
             composite_skip_when_raw_dominates_ratio=0.0,
         )
         with caplog.at_level(logging.WARNING):
             disc = CompositeTargetDiscovery(config=cfg).fit_stacked_on_residual(
-                df=df, target_col="y",
+                df=df,
+                target_col="y",
                 feature_cols=["x_a", "x_b", "n0", "n1"],
                 train_idx=np.arange(int(0.8 * n)),
                 n_oof_folds=3,
             )
-        residual_specs = [
-            s for s in disc.specs_
-            if getattr(s, "discovered_on_residual", False)
-        ]
+        residual_specs = [s for s in disc.specs_ if getattr(s, "discovered_on_residual", False)]
         if residual_specs:
             # When pass-2 produced residual specs, the A7 hazard warning fired.
-            assert any(
-                "residual-aware training path" in r.message for r in caplog.records
-            ), "A7 warning must fire when residual specs are merged into specs_"
+            assert any("residual-aware training path" in r.message for r in caplog.records), "A7 warning must fire when residual specs are merged into specs_"
         else:
-            pytest.skip(
-                "pass-2 found no new residual specs on this seed; A7 warning "
-                "path not exercised (covered by unit-level merge logic)."
-            )
+            pytest.skip("pass-2 found no new residual specs on this seed; A7 warning path not exercised (covered by unit-level merge logic).")

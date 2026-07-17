@@ -59,8 +59,7 @@ _SIGNAL_PAIR = ("a", "b")
 _NA_FRACTION = 0.01  # ~1% pd.NA injected per signal column
 
 
-def _build_nullable_synergy(dtype: str, n: int = 2500, seed: int = 42,
-                            na_frac: float = _NA_FRACTION):
+def _build_nullable_synergy(dtype: str, n: int = 2500, seed: int = 42, na_frac: float = _NA_FRACTION):
     """Canonical ``a**2/b + (c-term)`` synergy fixture cast to a pandas nullable
     dtype with ~``na_frac`` ``pd.NA`` injected into each of ``a, b, c, d``.
 
@@ -79,14 +78,14 @@ def _build_nullable_synergy(dtype: str, n: int = 2500, seed: int = 42,
         c = rng.integers(1, 40, n).astype(np.float64)
         d = rng.integers(0, 12, n).astype(np.float64)
         e = rng.integers(0, 40, n).astype(np.float64)
-        y = a ** 2 / b + c * np.sin(d)
+        y = a**2 / b + c * np.sin(d)
     else:
         a = rng.random(n) + 0.1
         b = rng.random(n) + 0.1
         c = rng.random(n) + 0.1
         d = rng.random(n) * 2 * np.pi
         e = rng.random(n)
-        y = a ** 2 / b + np.log(c) * np.sin(d)
+        y = a**2 / b + np.log(c) * np.sin(d)
     y_bin = (y > np.median(y)).astype(np.int64)
 
     df_f64 = pd.DataFrame({"a": a, "b": b, "c": c, "d": d, "e": e})
@@ -135,6 +134,7 @@ def _recovered_signal(names, signal=_SIGNAL_PAIR) -> set:
             # Standalone-token match: ``a`` matches ``a`` and ``mul(a,b)`` but not
             # ``alpha`` / ``data``.
             import re as _re
+
             if _re.search(r"(?<![A-Za-z0-9_])" + _re.escape(s) + r"(?![A-Za-z0-9_])", str(nm)):
                 got.add(s)
     return got
@@ -160,8 +160,7 @@ def test_mrmr_fit_completes_on_nullable_frame(dtype):
     # The source frame really was nullable (guards against an accidental dense cast
     # in the fixture that would make this test vacuous).
     assert str(df_null["a"].dtype) == dtype
-    assert bool(df_null[["a", "b", "c", "d"]].isna().any().any()), \
-        "fixture must actually inject pd.NA"
+    assert bool(df_null[["a", "b", "c", "d"]].isna().any().any()), "fixture must actually inject pd.NA"
 
 
 @pytest.mark.slow
@@ -192,8 +191,7 @@ def test_mrmr_recovers_ab_signal_on_nullable_frame_majority_seeds(dtype):
     else:
         # Majority of seeds recover the FULL (a, b) pair. Measured 3/3; floor 2/3.
         assert full_pair_hits >= 2, (
-            f"{dtype}: (a,b) pair recovered on only {full_pair_hits}/{len(seeds)} "
-            f"seeds on the nullable frame; expected >= 2 (measured 3/3)."
+            f"{dtype}: (a,b) pair recovered on only {full_pair_hits}/{len(seeds)} seeds on the nullable frame; expected >= 2 (measured 3/3)."
         )
 
 
@@ -222,8 +220,7 @@ def test_transform_nullable_matches_float64_baseline_selection(dtype):
     base_names = list(m_base.get_feature_names_out())
     null_names = list(m_null.get_feature_names_out())
     assert null_names == base_names, (
-        f"{dtype}: nullable-frame selection {null_names} diverged from the "
-        f"float64 baseline {base_names}; nullable path altered scoring."
+        f"{dtype}: nullable-frame selection {null_names} diverged from the float64 baseline {base_names}; nullable path altered scoring."
     )
 
     # Transform a (small) nullable test slice. Output must keep the selected base
@@ -253,8 +250,7 @@ def test_transform_nullable_matches_float64_baseline_selection(dtype):
         if na_positions.size:
             checked_a_missing_col = True
     assert checked_a_missing_col, (
-        "at least one selected column should have carried pd.NA in the test slice; "
-        "fixture / selection did not exercise the missingness path"
+        "at least one selected column should have carried pd.NA in the test slice; fixture / selection did not exercise the missingness path"
     )
 
     # Engineered-recipe columns (orthogonal-basis hinge / spline etc. can appear
@@ -262,10 +258,7 @@ def test_transform_nullable_matches_float64_baseline_selection(dtype):
     engineered = [r.name for r in m_null._engineered_recipes_]
     for nm in engineered:
         if nm in out.columns:
-            assert out[nm].dtype.kind == "f", (
-                f"{dtype}: engineered replay column {nm!r} should be dense float, "
-                f"got dtype {out[nm].dtype}."
-            )
+            assert out[nm].dtype.kind == "f", f"{dtype}: engineered replay column {nm!r} should be dense float, got dtype {out[nm].dtype}."
 
 
 # ---------------------------------------------------------------------------
@@ -302,11 +295,15 @@ def test_unary_binary_recipe_replays_on_nullable_frame(dtype):
 
     recipe = build_unary_binary_recipe(
         name="mul(identity(a),identity(b))",
-        src_a_name="a", src_b_name="b",
-        unary_a_name="identity", unary_b_name="identity",
+        src_a_name="a",
+        src_b_name="b",
+        unary_a_name="identity",
+        unary_b_name="identity",
         binary_name="mul",
-        unary_preset="minimal", binary_preset="minimal",
-        quantization_nbins=None, quantization_method=None,
+        unary_preset="minimal",
+        binary_preset="minimal",
+        quantization_nbins=None,
+        quantization_method=None,
         quantization_dtype=np.float32,
     )
 
@@ -324,14 +321,15 @@ def test_unary_binary_recipe_replays_on_nullable_frame(dtype):
     both_present = ~(np.isnan(a_float) | np.isnan(b_float))
     # On rows where both sources are present, the product is exact.
     np.testing.assert_allclose(
-        col[both_present], (a_float * b_float)[both_present], rtol=1e-5,
+        col[both_present],
+        (a_float * b_float)[both_present],
+        rtol=1e-5,
     )
     # Documented contract: missing-source rows are scrubbed to 0.0 (fit-time and
     # transform-time agree), so they are finite -- not NaN, not pd.NA.
     missing = np.array(sorted(set(na_rows_a) | set(na_rows_b)))
     assert np.all(col[missing] == 0.0), (
-        f"{dtype}: missing-source rows must scrub to 0.0 to match fit-time "
-        f"check_prospective_fe_pairs (got {col[missing].tolist()})."
+        f"{dtype}: missing-source rows must scrub to 0.0 to match fit-time check_prospective_fe_pairs (got {col[missing].tolist()})."
     )
     assert np.isfinite(col).all(), "replay output must be finite after NaN scrubbing"
 
@@ -355,8 +353,7 @@ def test_fit_produced_recipes_replay_on_nullable_transform_frame(dtype):
     for r in m._engineered_recipes_:
         if r.name in out.columns:
             assert out[r.name].dtype.kind == "f", (
-                f"{dtype}: replayed recipe {r.name!r} (kind={r.kind}) produced a "
-                f"non-float column ({out[r.name].dtype}) on a nullable frame."
+                f"{dtype}: replayed recipe {r.name!r} (kind={r.kind}) produced a non-float column ({out[r.name].dtype}) on a nullable frame."
             )
 
 
@@ -390,10 +387,7 @@ def test_mrmr_fe_on_completes_and_recovers_signal_on_nullable_frame(dtype):
         m.fit(df_null, y)  # PROD BUG: raises TypeError here today
 
     rec = _recovered_signal(list(m.get_feature_names_out()))
-    assert rec == set(_SIGNAL_PAIR), (
-        f"{dtype}: FE-on fit must recover the (a,b) pair on a nullable frame; "
-        f"got {sorted(rec)}."
-    )
+    assert rec == set(_SIGNAL_PAIR), f"{dtype}: FE-on fit must recover the (a,b) pair on a nullable frame; got {sorted(rec)}."
 
 
 def test_fe_pair_materialise_densifies_int64_nullable_operand_no_typeerror():
@@ -406,7 +400,7 @@ def test_fe_pair_materialise_densifies_int64_nullable_operand_no_typeerror():
     n = 2000
     a = rng.integers(1, 40, n).astype(np.float64)
     b = rng.integers(1, 40, n).astype(np.float64)
-    y_bin = ((a ** 2 / b) > np.median(a ** 2 / b)).astype(np.int64)
+    y_bin = ((a**2 / b) > np.median(a**2 / b)).astype(np.int64)
 
     df = pd.DataFrame({"a": a, "b": b})
     df["a"] = df["a"].astype("Int64")
@@ -430,6 +424,4 @@ def test_fe_pair_materialise_densifies_int64_nullable_operand_no_typeerror():
         m.fit(df, pd.Series(y_bin, name="y"))  # pre-fix: TypeError in check_prospective_fe_pairs
 
     rec = _recovered_signal(list(m.get_feature_names_out()))
-    assert rec == set(_SIGNAL_PAIR), (
-        f"Int64-nullable FE-on fit must recover the (a,b) pair; got {sorted(rec)}."
-    )
+    assert rec == set(_SIGNAL_PAIR), f"Int64-nullable FE-on fit must recover the (a,b) pair; got {sorted(rec)}."

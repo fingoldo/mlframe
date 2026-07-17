@@ -26,17 +26,19 @@ EMBEDDING_FEATURES = ["emb_feat"]
 
 def _make_data(n: int, rng: np.random.Generator) -> pl.DataFrame:
     """Build a Polars DataFrame with numeric, categorical, text, and embedding columns."""
-    return pl.DataFrame({
-        "num_feat": rng.standard_normal(n),
-        "cat_feat": rng.choice(["a", "b", "c", "d"], size=n),
-        "text_feat": rng.choice(
-            ["the quick brown fox", "lazy dog sleeps", "hello world program", "data science rocks"],
-            size=n,
-        ),
-        "emb_feat": [rng.standard_normal(3).tolist() for _ in range(n)],
-        "target_cls": rng.integers(0, 2, size=n),
-        "target_reg": rng.standard_normal(n),
-    })
+    return pl.DataFrame(
+        {
+            "num_feat": rng.standard_normal(n),
+            "cat_feat": rng.choice(["a", "b", "c", "d"], size=n),
+            "text_feat": rng.choice(
+                ["the quick brown fox", "lazy dog sleeps", "hello world program", "data science rocks"],
+                size=n,
+            ),
+            "emb_feat": [rng.standard_normal(3).tolist() for _ in range(n)],
+            "target_cls": rng.integers(0, 2, size=n),
+            "target_reg": rng.standard_normal(n),
+        }
+    )
 
 
 @pytest.fixture()
@@ -245,15 +247,18 @@ class TestPolarsPoolCreation:
 # HGB (HistGradientBoosting) — numeric-only Polars support
 # ---------------------------------------------------------------------------
 
+
 def _make_numeric_data(n: int, rng: np.random.Generator) -> pl.DataFrame:
     """Build a Polars DataFrame with numeric-only features (HGB can't handle string cols)."""
-    return pl.DataFrame({
-        "num_a": rng.standard_normal(n),
-        "num_b": rng.standard_normal(n),
-        "num_c": rng.standard_normal(n),
-        "target_cls": rng.integers(0, 2, size=n),
-        "target_reg": rng.standard_normal(n),
-    })
+    return pl.DataFrame(
+        {
+            "num_a": rng.standard_normal(n),
+            "num_b": rng.standard_normal(n),
+            "num_c": rng.standard_normal(n),
+            "target_cls": rng.integers(0, 2, size=n),
+            "target_reg": rng.standard_normal(n),
+        }
+    )
 
 
 HGB_FEATURE_COLS = ["num_a", "num_b", "num_c"]
@@ -312,6 +317,7 @@ class TestXGBoostStrategyPreparePolars:
         # per-Series Enums (not the global-cache-backed pl.Categorical)
         # to avoid leakage across consecutive fits in polars 1.x.
         from mlframe.training.strategies import XGBoostStrategy
+
         strategy = XGBoostStrategy()
         df = pl.DataFrame({"cat": ["a", "b", "c", "a"], "num": [1.0, 2.0, 3.0, 4.0]})
         result = strategy.prepare_polars_dataframe(df, ["cat"])
@@ -321,6 +327,7 @@ class TestXGBoostStrategyPreparePolars:
     def test_high_cardinality_stays_categorical(self):
         """Unlike HGB, XGBoost has no 255 cardinality limit; still emits Enum."""
         from mlframe.training.strategies import XGBoostStrategy
+
         strategy = XGBoostStrategy()
         cats = [f"cat_{i}" for i in range(500)]
         df = pl.DataFrame({"cat": cats})
@@ -332,6 +339,7 @@ class TestXGBoostStrategyPreparePolars:
         # so the column no longer carries codes from the polars 1.x
         # global string cache.
         from mlframe.training.strategies import XGBoostStrategy
+
         strategy = XGBoostStrategy()
         df = pl.DataFrame({"cat": ["a", "b", "c"]}).with_columns(pl.col("cat").cast(pl.Categorical))
         result = strategy.prepare_polars_dataframe(df, ["cat"])
@@ -343,6 +351,7 @@ class TestXGBoostStrategyPreparePolars:
 
     def test_category_map_produces_consistent_enum(self):
         from mlframe.training.strategies import XGBoostStrategy
+
         strategy = XGBoostStrategy()
         train = pl.DataFrame({"cat": ["a", "b", "c"]})
         val = pl.DataFrame({"cat": ["a", "b"]})
@@ -358,6 +367,7 @@ class TestXGBoostStrategyPreparePolars:
     def test_build_enum_map_excludes_test(self):
         # Test data must NOT widen the Enum (would leak label-time info).
         from mlframe.training.strategies import XGBoostStrategy
+
         strategy = XGBoostStrategy()
         train = pl.DataFrame({"cat": ["a", "b"]})
         val = pl.DataFrame({"cat": ["a"]})
@@ -369,6 +379,7 @@ class TestXGBoostStrategyPreparePolars:
 
     def test_numeric_passthrough(self):
         from mlframe.training.strategies import XGBoostStrategy
+
         strategy = XGBoostStrategy()
         df = pl.DataFrame({"num": [1.0, 2.0, 3.0]})
         result = strategy.prepare_polars_dataframe(df, [])
@@ -381,14 +392,17 @@ class TestXGBoostPolarsClassification:
     def test_train_with_categorical(self):
         from xgboost import XGBClassifier
         from mlframe.training.strategies import XGBoostStrategy
+
         rng = np.random.default_rng(RANDOM_SEED)
 
         n = 200
-        df = pl.DataFrame({
-            "num_a": rng.standard_normal(n),
-            "cat_a": rng.choice(["x", "y", "z"], size=n),
-            "target": rng.integers(0, 2, size=n),
-        })
+        df = pl.DataFrame(
+            {
+                "num_a": rng.standard_normal(n),
+                "cat_a": rng.choice(["x", "y", "z"], size=n),
+                "target": rng.integers(0, 2, size=n),
+            }
+        )
 
         strategy = XGBoostStrategy()
         df = strategy.prepare_polars_dataframe(df, ["cat_a"])
@@ -418,6 +432,7 @@ class TestHGBStrategyPreparePolars:
         # to avoid polars 1.x global-string-cache code drift; the rest of
         # the cardinality-split logic is unchanged.
         from mlframe.training.strategies import HGBStrategy
+
         strategy = HGBStrategy()
         df = pl.DataFrame({"cat": ["a", "b", "c", "a", "b"], "num": [1.0, 2.0, 3.0, 4.0, 5.0]})
         result = strategy.prepare_polars_dataframe(df, ["cat"])
@@ -425,6 +440,7 @@ class TestHGBStrategyPreparePolars:
 
     def test_string_to_ordinal_high_cardinality(self):
         from mlframe.training.strategies import HGBStrategy
+
         strategy = HGBStrategy()
         # 300 unique values > 255 limit
         cats = [f"cat_{i}" for i in range(300)]
@@ -434,6 +450,7 @@ class TestHGBStrategyPreparePolars:
 
     def test_already_categorical_low_cardinality_recast_to_enum(self):
         from mlframe.training.strategies import HGBStrategy
+
         strategy = HGBStrategy()
         df = pl.DataFrame({"cat": ["a", "b", "c"]}).with_columns(pl.col("cat").cast(pl.Categorical))
         result = strategy.prepare_polars_dataframe(df, ["cat"])
@@ -441,6 +458,7 @@ class TestHGBStrategyPreparePolars:
 
     def test_already_categorical_high_cardinality_ordinal(self):
         from mlframe.training.strategies import HGBStrategy
+
         strategy = HGBStrategy()
         cats = [f"cat_{i}" for i in range(300)]
         df = pl.DataFrame({"cat": cats}).with_columns(pl.col("cat").cast(pl.Categorical))
@@ -449,6 +467,7 @@ class TestHGBStrategyPreparePolars:
 
     def test_no_cat_features_passthrough(self):
         from mlframe.training.strategies import HGBStrategy
+
         strategy = HGBStrategy()
         df = pl.DataFrame({"num": [1.0, 2.0, 3.0]})
         result = strategy.prepare_polars_dataframe(df, [])
@@ -456,6 +475,7 @@ class TestHGBStrategyPreparePolars:
 
     def test_missing_cat_column_ignored(self):
         from mlframe.training.strategies import HGBStrategy
+
         strategy = HGBStrategy()
         df = pl.DataFrame({"num": [1.0, 2.0, 3.0]})
         result = strategy.prepare_polars_dataframe(df, ["nonexistent"])
@@ -463,6 +483,7 @@ class TestHGBStrategyPreparePolars:
 
     def test_boundary_255_categories(self):
         from mlframe.training.strategies import HGBStrategy
+
         strategy = HGBStrategy()
         cats = [f"c{i}" for i in range(255)]
         df = pl.DataFrame({"cat": cats})
@@ -471,6 +492,7 @@ class TestHGBStrategyPreparePolars:
 
     def test_boundary_256_categories(self):
         from mlframe.training.strategies import HGBStrategy
+
         strategy = HGBStrategy()
         cats = [f"c{i}" for i in range(256)]
         df = pl.DataFrame({"cat": cats})

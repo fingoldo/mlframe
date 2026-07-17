@@ -6,8 +6,9 @@ tests/conftest.py and apply to all test modules automatically.
 """
 
 import hashlib
+import importlib
 import os
-import subprocess
+import subprocess  # nosec B404 -- test-only local trusted subprocess invocation (fixed argv, no shell, no untrusted input)
 import sys
 import tempfile
 
@@ -15,7 +16,8 @@ import orjson
 
 # Set matplotlib backend to 'Agg' BEFORE any matplotlib import to prevent plt.show() from blocking
 import matplotlib
-matplotlib.use('Agg')
+
+matplotlib.use("Agg")
 
 
 def _neural_prewarm_is_safe() -> bool:
@@ -44,7 +46,7 @@ def _neural_prewarm_is_safe() -> bool:
     except (OSError, ValueError, KeyError):
         pass
     try:
-        proc = subprocess.run(
+        proc = subprocess.run(  # nosec B603 -- fixed local argv (sys.executable/git + literal args), no shell, no untrusted input
             [sys.executable, "-c", "import mlframe.training.neural"],
             capture_output=True,
             timeout=120,
@@ -71,15 +73,15 @@ def _neural_prewarm_is_safe() -> bool:
 # because some of these are optional extras.
 if _neural_prewarm_is_safe():
     try:
-        import mlframe.training.neural  # noqa: F401
+        import mlframe.training.neural
     except (ImportError, OSError):
         pass
 try:
     # networkx is pulled in transitively by some sklearn / pyutilz paths;
     # touching it here lets the cold-cache wallclock land outside the
     # per-test timeout window.
-    import networkx
-    import networkx.algorithms  # noqa: F401
+    importlib.import_module("networkx")
+    importlib.import_module("networkx.algorithms")
 except (ImportError, OSError):
     pass
 
@@ -105,6 +107,7 @@ def _session_monkeypatch(request):
     even if a worker yields mid-test under pytest-xdist (memory feedback rule about xdist safety).
     """
     from _pytest.monkeypatch import MonkeyPatch
+
     mp = MonkeyPatch()
     yield mp
     mp.undo()
@@ -126,6 +129,7 @@ def _force_cpu_training_defaults(_session_monkeypatch):
     defaults to sibling workers if a worker died mid-test).
     """
     from mlframe.training.configs import TrainingBehaviorConfig
+
     _field = TrainingBehaviorConfig.model_fields["prefer_gpu_configs"]
     _session_monkeypatch.setattr(_field, "default", False)
     TrainingBehaviorConfig.model_rebuild(force=True)
@@ -156,6 +160,7 @@ def _prewarm_numba_once():
     the env unset so the full prewarm fires there.
     """
     import os
+
     if os.environ.get("MLFRAME_SKIP_NUMBA_PREWARM", "").strip() in ("1", "true", "True", "yes"):
         yield
         return
@@ -165,8 +170,9 @@ def _prewarm_numba_once():
         return
     try:
         from mlframe.metrics.core import prewarm_numba_cache
+
         prewarm_numba_cache()
-    except Exception:
+    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
         pass
     yield
 
@@ -248,7 +254,9 @@ def sample_classification_data():
     need it use ``df, feature_names, _, y = sample_classification_data``.
     """
     df, feature_names, cat_features, y = make_simple_classification_data(
-        n_samples=1000, n_features=10, seed=42,
+        n_samples=1000,
+        n_features=10,
+        seed=42,
     )
     _SESSION_FIXTURE_SHAPES["sample_classification_data"] = _df_shape_signature(df)
     _SESSION_FIXTURE_REFS["sample_classification_data"] = df
@@ -309,6 +317,7 @@ def temp_models_dir(tmp_path):
 # Categorical Data Fixtures
 # ================================================================================================
 
+
 @pytest.fixture(scope="session")
 def sample_categorical_data():
     """High-cardinality categorical-feature regression-style dataset; session-scoped. DO NOT MUTATE.
@@ -351,6 +360,7 @@ def sample_categorical_classification_data():
 # Special Dataset Fixtures
 # ================================================================================================
 
+
 @pytest.fixture(scope="session")
 def sample_large_regression_data():
     """Larger regression dataset for SGD convergence; session-scoped. DO NOT MUTATE."""
@@ -374,6 +384,7 @@ def sample_outlier_data():
 # ================================================================================================
 # GPU Availability Fixtures
 # ================================================================================================
+
 
 @pytest.fixture
 def check_lgb_gpu_available():
@@ -403,6 +414,7 @@ def check_gpu_available():
     """Check if CUDA GPU is available for testing."""
     try:
         from numba.cuda import is_available as is_cuda_available
+
         return is_cuda_available()
     except Exception:
         return False
@@ -420,6 +432,7 @@ def check_catboost_gpu_available():
     """
     try:
         from catboost.utils import get_gpu_device_count
+
         return get_gpu_device_count() > 0
     except Exception:
         return False
@@ -434,6 +447,7 @@ def common_init_params():
     not as the deleted ``init_common_params=`` legacy kwarg.
     """
     from mlframe.training.configs import ReportingConfig
+
     return ReportingConfig(show_perf_chart=False, show_fi=False)
 
 
@@ -546,7 +560,9 @@ def trained_suite_multi_target(sample_regression_data, common_init_params, fast_
 
     df, _feature_names, _y = sample_regression_data
     extractor = SimpleFeaturesAndTargetsExtractor(
-        target_column="target", regression=True, extra_targets="same_type_2",
+        target_column="target",
+        regression=True,
+        extra_targets="same_type_2",
     )
     suite = train_mlframe_models_suite(
         df=df,

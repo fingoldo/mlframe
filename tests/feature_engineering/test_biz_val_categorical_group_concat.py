@@ -7,6 +7,7 @@ individual frequency distribution is uninformative about which specific pair mat
 columns into a composite categorical BEFORE frequency-encoding recovers that signal, using mlframe's existing
 ``frequency_encode_fit`` (reused as-is; the concatenator is the only new piece).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -56,8 +57,12 @@ def test_biz_val_concat_categorical_group_recovers_joint_rarity_signal_marginal_
     freq_composite, _ = frequency_encode_fit(df_composite, ["ab_combo"])
     auc_composite = cross_val_score(LogisticRegression(max_iter=500), freq_composite.to_numpy(), y, cv=5, scoring="roc_auc").mean()
 
-    assert auc_composite > 0.98, f"expected the composite-categorical frequency encoding to near-perfectly recover joint-pair rarity, got AUC={auc_composite:.4f}"
-    assert auc_composite > auc_marginal + 0.1, f"expected the composite encoding to materially beat marginal frequency encodings (which only see each column's OWN popularity, not this specific pair's), got composite={auc_composite:.4f} marginal={auc_marginal:.4f}"
+    assert auc_composite > 0.98, (
+        f"expected the composite-categorical frequency encoding to near-perfectly recover joint-pair rarity, got AUC={auc_composite:.4f}"
+    )
+    assert auc_composite > auc_marginal + 0.1, (
+        f"expected the composite encoding to materially beat marginal frequency encodings (which only see each column's OWN popularity, not this specific pair's), got composite={auc_composite:.4f} marginal={auc_marginal:.4f}"
+    )
 
 
 def _make_joint_rarity_dataset_with_noise(n: int, seed: int):
@@ -81,7 +86,7 @@ def test_biz_val_discover_categorical_groups_recovers_joint_rarity_pair_and_reje
     assert frozenset({"cat_a", "cat_b"}) in group_sets, f"expected auto-discovery to group the jointly-informative pair together, got groups={groups}"
     assert frozenset({"cat_noise"}) in group_sets, f"expected the independent noise column to end up as its own singleton group, got groups={groups}"
 
-    out_auto, discovered_groups = auto_concat_categorical_groups(df, columns, y, min_mi_gain=0.001, random_state=0)
+    out_auto, _discovered_groups = auto_concat_categorical_groups(df, columns, y, min_mi_gain=0.001, random_state=0)
     auto_col = "concat_group__cat_a_cat_b"
     assert auto_col in out_auto.columns, f"expected the discovered pair's composite column to be materialized, got columns={list(out_auto.columns)}"
 
@@ -101,8 +106,12 @@ def test_biz_val_discover_categorical_groups_recovers_joint_rarity_pair_and_reje
     auc_marginal = cross_val_score(LogisticRegression(max_iter=500), marginal_features, y, cv=5, scoring="roc_auc").mean()
 
     assert auc_auto > 0.98, f"expected auto-discovered grouping to near-perfectly recover joint-pair rarity, got AUC={auc_auto:.4f}"
-    assert auc_auto > auc_wrong + 0.1, f"expected the auto-discovered grouping to materially beat a wrong hand-picked grouping, got auto={auc_auto:.4f} wrong={auc_wrong:.4f}"
-    assert auc_auto > auc_marginal + 0.1, f"expected the auto-discovered grouping to materially beat no grouping at all, got auto={auc_auto:.4f} marginal={auc_marginal:.4f}"
+    assert auc_auto > auc_wrong + 0.1, (
+        f"expected the auto-discovered grouping to materially beat a wrong hand-picked grouping, got auto={auc_auto:.4f} wrong={auc_wrong:.4f}"
+    )
+    assert auc_auto > auc_marginal + 0.1, (
+        f"expected the auto-discovered grouping to materially beat no grouping at all, got auto={auc_auto:.4f} marginal={auc_marginal:.4f}"
+    )
 
 
 def test_discover_categorical_groups_max_group_size_caps_group_growth():

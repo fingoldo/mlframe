@@ -19,6 +19,7 @@ so the asymmetry stays visible in the report rather than hiding.
 ~10-12 s each, so their specs set ``slow=True`` and ``needs_shap=True``; the
 collection hook in conftest.py skips slow specs under ``MLFRAME_FAST=1``.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -107,6 +108,7 @@ class SelectorSpec:
       column_order_invariant -- fitting on column-reversed X selects the same name set
       validates_transform_width -- transform raises on a wrong-width ndarray
     """
+
     name: str
     make: Callable[[str], Any]
     tasks: tuple[str, ...] = ("binary",)
@@ -135,15 +137,22 @@ class SelectorSpec:
 def _make_mrmr(task: str = "binary"):
     """Fast, unfitted MRMR selector for the contract battery."""
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     return MRMR(
-        min_relevance_gain=0.0, cv=3, run_additional_rfecv_minutes=False,
-        full_npermutations=3, random_seed=0, min_features_fallback=1, verbose=False,
+        min_relevance_gain=0.0,
+        cv=3,
+        run_additional_rfecv_minutes=False,
+        full_npermutations=3,
+        random_seed=0,
+        min_features_fallback=1,
+        verbose=False,
     )
 
 
 def _make_rfecv(task: str = "binary"):
     """Fast, unfitted RFECV selector (task-aware base estimator) for the contract battery."""
     from mlframe.feature_selection.wrappers import RFECV
+
     est = Ridge() if task == "regression" else LogisticRegression(max_iter=200, random_state=0)
     return RFECV(estimator=est, cv=3, max_refits=3, random_state=0, leakage_corr_threshold=None, n_features_selection_rule="argmax")
 
@@ -152,12 +161,23 @@ def _make_shap_proxied(task: str = "binary"):
     """Fast, unfitted ShapProxiedFS selector (task-aware forest) for the contract battery."""
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
     from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+
     cls = task != "regression"
     model = RandomForestClassifier(n_estimators=10, random_state=0) if cls else RandomForestRegressor(n_estimators=10, random_state=0)
     return ShapProxiedFS(
-        model=model, classification=cls, n_splits=3, n_models=1, max_features=None,
-        top_n=10, holdout_size=0.25, revalidate=False, trust_guard=False,
-        prefilter_top=None, cluster_features=False, random_state=0, n_jobs=1,
+        model=model,
+        classification=cls,
+        n_splits=3,
+        n_models=1,
+        max_features=None,
+        top_n=10,
+        holdout_size=0.25,
+        revalidate=False,
+        trust_guard=False,
+        prefilter_top=None,
+        cluster_features=False,
+        random_state=0,
+        n_jobs=1,
     )
 
 
@@ -165,6 +185,7 @@ def _make_boruta_shap(task: str = "binary"):
     """Fast, unfitted BorutaShap selector (task-aware forest, few trials) for the contract battery."""
     from mlframe.feature_selection.boruta_shap import BorutaShap
     from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+
     cls = task != "regression"
     model = RandomForestClassifier(n_estimators=20, random_state=0) if cls else RandomForestRegressor(n_estimators=20, random_state=0)
     return BorutaShap(model=model, classification=cls, n_trials=10, random_state=0, train_or_test="train", verbose=False)
@@ -176,6 +197,7 @@ def _make_hybrid(task: str = "binary"):
     # members allow; the MRMR + ShapProxied members still run (that is the point
     # of exercising the real composition through the contract).
     from mlframe.feature_selection.hybrid_selector import HybridSelector
+
     return HybridSelector(use_fe=False, use_tree_member=False, random_state=0)
 
 
@@ -184,14 +206,19 @@ def _make_ace(task: str = "binary"):
     # Small forest + few replicates keep the contract fit fast; ACE auto-derives task from y dtype.
     from mlframe.feature_selection.ace import ACESelector
     from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
-    est = (RandomForestRegressor(n_estimators=10, random_state=0, n_jobs=1) if task == "regression"
-           else RandomForestClassifier(n_estimators=10, random_state=0, n_jobs=1))
+
+    est = (
+        RandomForestRegressor(n_estimators=10, random_state=0, n_jobs=1)
+        if task == "regression"
+        else RandomForestClassifier(n_estimators=10, random_state=0, n_jobs=1)
+    )
     return ACESelector(estimator=est, n_replicates=5, n_masking_rounds=1, random_state=0)
 
 
 def _make_forward_select(task: str = "binary"):
     """Fast, unfitted ForwardSelectSelector for the contract battery."""
     from mlframe.feature_selection.functional_adapters import ForwardSelectSelector
+
     return ForwardSelectSelector(cv=3, random_state=0)
 
 
@@ -201,6 +228,7 @@ def _make_greedy_backward_elimination(task: str = "binary"):
     # directly), unlike ForwardSelectSelector/CascadeSelectSelector's sklearn-style int cv=.
     from sklearn.model_selection import KFold
     from mlframe.feature_selection.functional_adapters import GreedyBackwardEliminationSelector
+
     return GreedyBackwardEliminationSelector(cv=KFold(n_splits=3, shuffle=True, random_state=0), n_repeats=1, random_state=0)
 
 
@@ -209,12 +237,14 @@ def _make_zero_importance_pruning(task: str = "binary"):
     # iterative_zero_importance_pruning's own cv= param takes a real splitter, same as above.
     from sklearn.model_selection import KFold
     from mlframe.feature_selection.functional_adapters import ZeroImportancePruningSelector
+
     return ZeroImportancePruningSelector(cv=KFold(n_splits=3, shuffle=True, random_state=0), max_rounds=3, random_state=0)
 
 
 def _make_cascade_select(task: str = "binary"):
     """Fast, unfitted CascadeSelectSelector (few Boruta iterations) for the contract battery."""
     from mlframe.feature_selection.functional_adapters import CascadeSelectSelector
+
     return CascadeSelectSelector(n_boruta_iterations=5, cv=3, random_state=0)
 
 
@@ -224,9 +254,13 @@ def _make_group_aware_rfecv(task: str = "binary"):
     # (cluster_reduce=True). Built through the registry so the contract exercises
     # the exact default-ON code path users get, not a hand-rolled GroupAwareMRMR.
     from mlframe.feature_selection import registry
+
     return registry.get("RFECV").instantiate(
         estimator=LogisticRegression(max_iter=200, random_state=0),
-        cv=3, max_refits=3, random_state=0, leakage_corr_threshold=None,
+        cv=3,
+        max_refits=3,
+        random_state=0,
+        leakage_corr_threshold=None,
         n_features_selection_rule="argmax",
     )
 
@@ -235,8 +269,12 @@ def _make_group_aware_rfecv(task: str = "binary"):
 
 SELECTOR_SPECS: dict[str, SelectorSpec] = {
     "MRMR": SelectorSpec(
-        name="MRMR", make=_make_mrmr, tasks=("binary", "regression"),
-        nan_in_X_policy="tolerates", determinism=1.0, rejects_duplicate_names=True,
+        name="MRMR",
+        make=_make_mrmr,
+        tasks=("binary", "regression"),
+        nan_in_X_policy="tolerates",
+        determinism=1.0,
+        rejects_duplicate_names=True,
         # Verified not a permutation-noise artifact -- reproduces identically at
         # full_npermutations=3, 10, 30, 100. MRMR's greedy sequential confirm loop can admit a
         # genuinely-relevant-but-partially-redundant extra candidate (e.g. f3, mrmr_gains_~0.057,
@@ -249,70 +287,116 @@ SELECTOR_SPECS: dict[str, SelectorSpec] = {
         column_order_invariant=False,
     ),
     "RFECV": SelectorSpec(
-        name="RFECV", make=_make_rfecv, tasks=("binary", "regression"),
-        nan_in_X_policy="unknown", determinism=1.0, rejects_duplicate_names=True,
+        name="RFECV",
+        make=_make_rfecv,
+        tasks=("binary", "regression"),
+        nan_in_X_policy="unknown",
+        determinism=1.0,
+        rejects_duplicate_names=True,
     ),
     "ShapProxiedFS": SelectorSpec(
-        name="ShapProxiedFS", make=_make_shap_proxied, tasks=("binary", "regression"),
-        supports_sample_weight=False, determinism=0.6,
-        column_order_invariant=False,       # bootstrapped CV + SHAP-coalition ordering
-        validates_transform_width=False,    # no transform-time width guard (backlog)
-        nan_in_X_policy="unknown", slow=True, needs_shap=True,
+        name="ShapProxiedFS",
+        make=_make_shap_proxied,
+        tasks=("binary", "regression"),
+        supports_sample_weight=False,
+        determinism=0.6,
+        column_order_invariant=False,  # bootstrapped CV + SHAP-coalition ordering
+        validates_transform_width=False,  # no transform-time width guard (backlog)
+        nan_in_X_policy="unknown",
+        slow=True,
+        needs_shap=True,
     ),
     "BorutaShap": SelectorSpec(
-        name="BorutaShap", make=_make_boruta_shap, tasks=("binary", "regression"),
-        has_gfno=False, has_get_support=False, supports_sample_weight=False,
-        rejects_single_class_y=False, nan_in_X_policy="unknown",
-        determinism=1.0, column_order_invariant=False,  # shadow-feature ordering
-        slow=True, needs_shap=True,
+        name="BorutaShap",
+        make=_make_boruta_shap,
+        tasks=("binary", "regression"),
+        has_gfno=False,
+        has_get_support=False,
+        supports_sample_weight=False,
+        rejects_single_class_y=False,
+        nan_in_X_policy="unknown",
+        determinism=1.0,
+        column_order_invariant=False,  # shadow-feature ordering
+        slow=True,
+        needs_shap=True,
     ),
     "HybridSelector": SelectorSpec(
-        name="HybridSelector", make=_make_hybrid, tasks=("binary",),
-        supports_sample_weight=False, rejects_single_class_y=False,
-        nan_in_X_policy="unknown", determinism=1.0,
-        column_order_invariant=False,       # composed members' ordering
-        validates_transform_width=False,    # no transform-time width guard (backlog)
-        slow=True, needs_shap=True,
+        name="HybridSelector",
+        make=_make_hybrid,
+        tasks=("binary",),
+        supports_sample_weight=False,
+        rejects_single_class_y=False,
+        nan_in_X_policy="unknown",
+        determinism=1.0,
+        column_order_invariant=False,  # composed members' ordering
+        validates_transform_width=False,  # no transform-time width guard (backlog)
+        slow=True,
+        needs_shap=True,
     ),
     "ACE": SelectorSpec(
-        name="ACE", make=_make_ace, tasks=("binary", "regression"),
-        supports_sample_weight=False, rejects_single_class_y=False,
-        nan_in_X_policy="unknown", determinism=1.0,
-        column_order_invariant=False,       # RF split-subset ordering is column-order sensitive
-        validates_transform_width=False,    # transform narrows positionally; no width guard
+        name="ACE",
+        make=_make_ace,
+        tasks=("binary", "regression"),
+        supports_sample_weight=False,
+        rejects_single_class_y=False,
+        nan_in_X_policy="unknown",
+        determinism=1.0,
+        column_order_invariant=False,  # RF split-subset ordering is column-order sensitive
+        validates_transform_width=False,  # transform narrows positionally; no width guard
         slow=True,
     ),
     "ForwardSelect": SelectorSpec(
-        name="ForwardSelect", make=_make_forward_select, tasks=("binary",),
-        supports_sample_weight=False, nan_in_X_policy="unknown", determinism=1.0,
-        column_order_invariant=False,       # greedy stepwise gain comparison is tie-break/order sensitive
-        validates_transform_width=False,    # base adapter transform() has no width guard
+        name="ForwardSelect",
+        make=_make_forward_select,
+        tasks=("binary",),
+        supports_sample_weight=False,
+        nan_in_X_policy="unknown",
+        determinism=1.0,
+        column_order_invariant=False,  # greedy stepwise gain comparison is tie-break/order sensitive
+        validates_transform_width=False,  # base adapter transform() has no width guard
     ),
     "GreedyBackwardElimination": SelectorSpec(
-        name="GreedyBackwardElimination", make=_make_greedy_backward_elimination, tasks=("binary",),
-        supports_sample_weight=False, nan_in_X_policy="unknown", determinism=1.0,
-        column_order_invariant=False,       # greedy stepwise elimination order is tie-break/order sensitive
-        validates_transform_width=False,    # base adapter transform() has no width guard
+        name="GreedyBackwardElimination",
+        make=_make_greedy_backward_elimination,
+        tasks=("binary",),
+        supports_sample_weight=False,
+        nan_in_X_policy="unknown",
+        determinism=1.0,
+        column_order_invariant=False,  # greedy stepwise elimination order is tie-break/order sensitive
+        validates_transform_width=False,  # base adapter transform() has no width guard
     ),
     "ZeroImportancePruning": SelectorSpec(
-        name="ZeroImportancePruning", make=_make_zero_importance_pruning, tasks=("binary",),
-        supports_sample_weight=False, nan_in_X_policy="unknown", determinism=1.0,
-        column_order_invariant=False,       # tree-importance ties are column-order sensitive
-        validates_transform_width=False,    # base adapter transform() has no width guard
+        name="ZeroImportancePruning",
+        make=_make_zero_importance_pruning,
+        tasks=("binary",),
+        supports_sample_weight=False,
+        nan_in_X_policy="unknown",
+        determinism=1.0,
+        column_order_invariant=False,  # tree-importance ties are column-order sensitive
+        validates_transform_width=False,  # base adapter transform() has no width guard
     ),
     "CascadeSelect": SelectorSpec(
-        name="CascadeSelect", make=_make_cascade_select, tasks=("binary",),
-        supports_sample_weight=False, nan_in_X_policy="unknown", determinism=1.0,
-        column_order_invariant=False,       # composes Boruta + forward-select + RFECV, all order-sensitive
-        validates_transform_width=False,    # base adapter transform() has no width guard
-        slow=True,                          # 3-stage cascade (Boruta screen -> forward select -> RFECV)
+        name="CascadeSelect",
+        make=_make_cascade_select,
+        tasks=("binary",),
+        supports_sample_weight=False,
+        nan_in_X_policy="unknown",
+        determinism=1.0,
+        column_order_invariant=False,  # composes Boruta + forward-select + RFECV, all order-sensitive
+        validates_transform_width=False,  # base adapter transform() has no width guard
+        slow=True,  # 3-stage cascade (Boruta screen -> forward select -> RFECV)
     ),
     "GroupAware(RFECV)": SelectorSpec(
-        name="GroupAware(RFECV)", make=_make_group_aware_rfecv, tasks=("binary",),
-        supports_sample_weight=True,        # forwards sample_weight to the inner RFECV
-        column_order_invariant=False,       # corr-cluster medoid pick is order-sensitive
-        validates_transform_width=False,    # wrapper does not re-validate ndarray width
-        nan_in_X_policy="unknown", determinism=1.0, slow=True, rejects_duplicate_names=True,
+        name="GroupAware(RFECV)",
+        make=_make_group_aware_rfecv,
+        tasks=("binary",),
+        supports_sample_weight=True,  # forwards sample_weight to the inner RFECV
+        column_order_invariant=False,  # corr-cluster medoid pick is order-sensitive
+        validates_transform_width=False,  # wrapper does not re-validate ndarray width
+        nan_in_X_policy="unknown",
+        determinism=1.0,
+        slow=True,
+        rejects_duplicate_names=True,
     ),
 }
 

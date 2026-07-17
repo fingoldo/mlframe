@@ -12,7 +12,6 @@ test runs in a few seconds even with three rankers.
 
 from __future__ import annotations
 
-import os
 import warnings
 
 import numpy as np
@@ -57,7 +56,7 @@ class TestLTRPanelWiring:
         combo MUST drop a panel file at the expected path."""
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            models, _ = train_mlframe_ranker_suite(
+            _models, _ = train_mlframe_ranker_suite(
                 df=mini_search_data,
                 target_name="relevance",
                 model_name="wt",

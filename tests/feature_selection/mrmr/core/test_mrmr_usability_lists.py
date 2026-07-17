@@ -7,6 +7,7 @@ the fit ALSO produces ``support_linear_`` (a replayable list with a genuine ``(c
 form); a linear model on the replayed ``transform_usability(X, 'linear')`` space reaches ~the
 ``f/5`` floor. The pure-MI ``support_`` is byte-identical whether the pass is on or off.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -39,7 +40,7 @@ def test_mrmr_usability_lists_linear_floor_and_byte_identical_support():
     df, y = _case2(n=n, seed=0)
     rng = np.random.default_rng(0)
     idx = rng.permutation(n)
-    tr, te = idx[: int(0.8 * n)], idx[int(0.9 * n):]
+    tr, te = idx[: int(0.8 * n)], idx[int(0.9 * n) :]
     Xtr = df.iloc[tr].reset_index(drop=True)
     Xte = df.iloc[te].reset_index(drop=True)
     ytr, yte = y[tr], y[te]
@@ -51,8 +52,7 @@ def test_mrmr_usability_lists_linear_floor_and_byte_identical_support():
     )
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        fs_on = MRMR(verbose=0, random_seed=0, usability_aware_lists=True, **light).fit(
-            X=Xtr, y=pd.Series(ytr, name="y"))
+        fs_on = MRMR(verbose=0, random_seed=0, usability_aware_lists=True, **light).fit(X=Xtr, y=pd.Series(ytr, name="y"))
         fs_off = MRMR(verbose=0, random_seed=0).fit(X=Xtr, y=pd.Series(ytr, name="y"))
 
     # (1) the pass OFF (default) leaves the linear/universal lists unset and aliases the tree list.
@@ -66,9 +66,7 @@ def test_mrmr_usability_lists_linear_floor_and_byte_identical_support():
     # (3) the linear list is populated and contains a genuine (c,d) interaction form.
     lin = fs_on.support_linear_
     assert lin, "support_linear_ was not populated with usability_aware_lists=True"
-    assert any(("c" in cand.src and "d" in cand.src) for cand in lin), (
-        f"support_linear_ has no (c,d) interaction form: {[c.name for c in lin]}"
-    )
+    assert any(("c" in cand.src and "d" in cand.src) for cand in lin), f"support_linear_ has no (c,d) interaction form: {[c.name for c in lin]}"
 
     # (4) a linear model on the REPLAYED usability feature space reaches ~the f/5 floor (<= 0.075),
     #     well below the ~0.096 a pure-MI list (raw c,d, no interaction) gives.

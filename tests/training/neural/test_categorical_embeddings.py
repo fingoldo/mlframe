@@ -3,9 +3,10 @@
 Covers forward-pass shapes (cats embed, numerics pass through, ``out_features`` correct), unseen / overflow code clamping to the reserved row
 without IndexError, and a pickle round-trip preserving the learned embedding weights.
 """
+
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
 import numpy as np
 import pytest
@@ -22,10 +23,12 @@ def test_forward_shape_with_numerics():
     emb.set_num_numeric(5)
     assert emb.out_features == 6 * 2 + 5
     n = 10
-    cat_codes = np.column_stack([
-        np.random.randint(0, 4, size=n),
-        np.random.randint(0, 3, size=n),
-    ]).astype(np.float32)
+    cat_codes = np.column_stack(
+        [
+            np.random.randint(0, 4, size=n),
+            np.random.randint(0, 3, size=n),
+        ]
+    ).astype(np.float32)
     numerics = np.random.randn(n, 5).astype(np.float32)
     x = torch.tensor(np.column_stack([cat_codes, numerics]), dtype=torch.float32)
     out = emb(x)
@@ -84,7 +87,7 @@ def test_pickle_round_trip_preserves_weights():
     x = torch.tensor(np.column_stack([cat, num]), dtype=torch.float32)
     emb.eval()
     out1 = emb(x)
-    emb2 = pickle.loads(pickle.dumps(emb))
+    emb2 = pickle.loads(pickle.dumps(emb))  # nosec B301 -- round-trip of a locally-created, trusted object
     emb2.eval()
     out2 = emb2(x)
     assert torch.allclose(out1, out2, atol=0.0)

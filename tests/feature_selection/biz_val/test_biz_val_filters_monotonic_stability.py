@@ -6,6 +6,7 @@ noise, so its apparent sign under any one subsample is a coin flip) should be fl
 is the resampling-robustness check the source writeup used to discard features that "looked informative" on
 one pass but broke down across different entity baskets.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -36,9 +37,7 @@ def _make_data(seed: int):
 def test_biz_val_monotonic_stability_filter_separates_stable_from_jumpy_feature():
     df, y = _make_data(seed=0)
 
-    result = monotonic_deviation_stability_filter(
-        df, y, group_col="group", feature_cols=["good_feature", "jumpy_feature"], n_subsamples=40, random_state=0
-    )
+    result = monotonic_deviation_stability_filter(df, y, group_col="group", feature_cols=["good_feature", "jumpy_feature"], n_subsamples=40, random_state=0)
 
     by_name = {row["feature"]: row for _, row in result.iterrows()}
     assert by_name["good_feature"]["stable"], by_name["good_feature"]

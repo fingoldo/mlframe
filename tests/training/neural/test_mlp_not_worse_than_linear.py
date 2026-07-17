@@ -24,6 +24,7 @@ Test B -- ``test_mlp_not_predicting_near_mean``:
 
 Marked ``slow`` because the real Lightning + torch init costs ~5-15s.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -34,20 +35,15 @@ pytestmark = pytest.mark.slow
 
 
 def _make_dominant_feature_dataset(
-    n_total: int = 1500, n_features: int = 5, seed: int = 0,
+    n_total: int = 1500,
+    n_features: int = 5,
+    seed: int = 0,
 ) -> tuple:
     """y = 0.95 * f1 + small contributions + noise; f1 dominates by 10x."""
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(n_total, n_features)).astype(np.float32)
     X[:, 0] = X[:, 0] * 650 + 11_500
-    y = (
-        0.95 * X[:, 0]
-        + 0.30 * X[:, 1]
-        + 0.20 * X[:, 2]
-        + 0.10 * X[:, 3]
-        + 575.0
-        + rng.normal(scale=10.0, size=n_total)
-    ).astype(np.float32)
+    y = (0.95 * X[:, 0] + 0.30 * X[:, 1] + 0.20 * X[:, 2] + 0.10 * X[:, 3] + 575.0 + rng.normal(scale=10.0, size=n_total)).astype(np.float32)
     n_train = int(0.7 * n_total)
     return X[:n_train], y[:n_train], X[n_train:], y[n_train:]
 
@@ -144,7 +140,10 @@ def test_mlp_predict_path_matches_direct_forward_pass() -> None:
     # Suite predict path -- must match the reference exactly.
     got = np.asarray(reg.predict(X_test)).reshape(-1)
     np.testing.assert_allclose(
-        got, ref, atol=1e-5, rtol=1e-5,
+        got,
+        ref,
+        atol=1e-5,
+        rtol=1e-5,
         err_msg=(
             f"MLP predict path diverged from a direct ``network(x)`` "
             f"forward call. ref[0]={ref[0]:.6f}, got[0]={got[0]:.6f}. "
@@ -201,8 +200,10 @@ def _build_production_mlp_wrapper(n_features: int):
         "features_dtype": torch.float32,
         "labels_dtype": torch.float32,
         "dataloader_params": {
-            "batch_size": 32, "num_workers": 0,
-            "shuffle": False, "drop_last": False,
+            "batch_size": 32,
+            "num_workers": 0,
+            "shuffle": False,
+            "drop_last": False,
         },
     }
     trainer_params = {
@@ -230,6 +231,7 @@ def _build_production_mlp_wrapper(n_features: int):
     class _TTRWithEvalSetScaling(TransformedTargetRegressor):
         def fit(self, X, y, **fit_params):
             from sklearn.base import clone as _clone
+
             y_arr = np.asarray(y, dtype=np.float64)
             y_2d = y_arr.reshape(-1, 1) if y_arr.ndim == 1 else y_arr
             self.transformer_ = _clone(self.transformer) if self.transformer is not None else None
@@ -325,15 +327,15 @@ def _build_suite_default_mlp_wrapper(n_features: int, max_epochs: int):
         "consec_layers_neurons_ratio": 2.0,
         "activation_function": torch.nn.LeakyReLU,
         "weights_init_fcn": partial(nn.init.kaiming_normal_, nonlinearity="leaky_relu", a=0.01),
-        "dropout_prob": 0.0,                # CRITICAL: must be 0 on tabular
-        "inputs_dropout_prob": 0.0,         # CRITICAL: must be 0 on tabular
-        "use_batchnorm": False,             # CRITICAL: small-batch BN flakey on tabular
+        "dropout_prob": 0.0,  # CRITICAL: must be 0 on tabular
+        "inputs_dropout_prob": 0.0,  # CRITICAL: must be 0 on tabular
+        "use_batchnorm": False,  # CRITICAL: small-batch BN flakey on tabular
     }
     model_params = {
         "loss_fn": F.mse_loss,
-        "learning_rate": 3e-3,              # CRITICAL: not the AdamW-era 1e-3
+        "learning_rate": 3e-3,  # CRITICAL: not the AdamW-era 1e-3
         "l1_alpha": 0.0,
-        "optimizer": torch.optim.Adam,      # CRITICAL: not AdamW (weight_decay fights dominant feature)
+        "optimizer": torch.optim.Adam,  # CRITICAL: not AdamW (weight_decay fights dominant feature)
         "optimizer_kwargs": {},
         "lr_scheduler": None,
         "lr_scheduler_kwargs": {},
@@ -344,8 +346,10 @@ def _build_suite_default_mlp_wrapper(n_features: int, max_epochs: int):
         "features_dtype": torch.float32,
         "labels_dtype": torch.float32,
         "dataloader_params": {
-            "batch_size": 256, "num_workers": 0,
-            "shuffle": False, "drop_last": False,
+            "batch_size": 256,
+            "num_workers": 0,
+            "shuffle": False,
+            "drop_last": False,
         },
     }
     trainer_params = {
@@ -370,6 +374,7 @@ def _build_suite_default_mlp_wrapper(n_features: int, max_epochs: int):
     class _TTRWithEvalSetScaling(TransformedTargetRegressor):
         def fit(self, X, y, **fit_params):
             from sklearn.base import clone as _clone
+
             y_arr = np.asarray(y, dtype=np.float64)
             y_2d = y_arr.reshape(-1, 1) if y_arr.ndim == 1 else y_arr
             self.transformer_ = _clone(self.transformer) if self.transformer is not None else None
@@ -411,7 +416,8 @@ def test_suite_default_mlp_beats_mean_under_short_budget() -> None:
     X_tr, y_tr, X_te, y_te = _make_dominant_feature_dataset(seed=0)
 
     mlp = _build_suite_default_mlp_wrapper(
-        n_features=X_tr.shape[1], max_epochs=20,
+        n_features=X_tr.shape[1],
+        max_epochs=20,
     )
     mlp.fit(X_tr, y_tr)
     rmse_mlp = _rmse(y_te, mlp.predict(X_te))

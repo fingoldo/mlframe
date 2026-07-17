@@ -1,6 +1,6 @@
 """Regression tests for SER1 (MLPRanker pickle) + MEM1/MEM4 (custom estimator copies)."""
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
 import numpy as np
 import pandas as pd
@@ -25,7 +25,7 @@ def test_mlpranker_getstate_nulls_live_trainer():
     est.n_features_in_ = 3
 
     blob = pickle.dumps(est)
-    restored = pickle.loads(blob)
+    restored = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
 
     assert restored.trainer_ is None
     # Module params survive on CPU and stay usable.

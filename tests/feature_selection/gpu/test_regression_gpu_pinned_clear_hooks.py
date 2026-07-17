@@ -4,9 +4,9 @@ The clear hooks let page-locked host buffers be freed at fit completion instead 
 living for the whole process. These verify the CPU-side bookkeeping; the actual
 cupy DMA path is GPU-only (DOC-verified by reading on a no-GPU host).
 """
+
 from __future__ import annotations
 
-from collections import OrderedDict
 
 from mlframe.feature_engineering.transformer import _kernels_cupy
 from mlframe.feature_selection.filters import _gpu_resident_select

@@ -1,12 +1,11 @@
 """Regression tests for the statistical-wrapper audit fixes (knockoffs / univariate-HT / noise-floor / auto-tune)."""
+
 from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.feature_selection.wrappers._univariate_ht import (
-    calculate_relevance_table,
     _mann_whitney_u_z,
     _mann_whitney_u_z_v2,
     _kruskal_wallis_h,

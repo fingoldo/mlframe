@@ -18,9 +18,10 @@ The 10 edge cases covered:
 9. ``test_mrmr_clone_preserves_constructor_params`` -- sklearn.clone contract.
 10. ``test_mrmr_fit_cache_hit_replays_state`` -- ``_FIT_CACHE`` replay path.
 """
+
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 import time
 import warnings
 
@@ -122,10 +123,12 @@ def test_mrmr_all_constant_column_dropped():
     """Constant col has H=0 / nbins==1 -- MRMR never selects it."""
     rng = np.random.default_rng(RANDOM_SEED)
     signal = rng.standard_normal(N_ROWS)
-    X = pd.DataFrame({
-        "constant": np.full(N_ROWS, 3.14),
-        "signal": signal,
-    })
+    X = pd.DataFrame(
+        {
+            "constant": np.full(N_ROWS, 3.14),
+            "signal": signal,
+        }
+    )
     y = (signal > 0).astype(int)
     mrmr = _fast_mrmr(min_features_fallback=1)
     with warnings.catch_warnings():
@@ -206,11 +209,13 @@ def test_mrmr_perfectly_correlated_pair_keeps_one():
     """
     rng = np.random.default_rng(RANDOM_SEED)
     x0 = rng.standard_normal(N_ROWS)
-    X = pd.DataFrame({
-        "x0": x0,
-        "x0_copy": x0.copy(),  # perfectly redundant
-        "noise": rng.standard_normal(N_ROWS),
-    })
+    X = pd.DataFrame(
+        {
+            "x0": x0,
+            "x0_copy": x0.copy(),  # perfectly redundant
+            "noise": rng.standard_normal(N_ROWS),
+        }
+    )
     y = (x0 > 0).astype(int)
     mrmr = _fast_mrmr(min_features_fallback=1, use_simple_mode=False)
     with warnings.catch_warnings():
@@ -219,7 +224,7 @@ def test_mrmr_perfectly_correlated_pair_keeps_one():
     names = _support_names(mrmr)
     n_dup = sum(1 for n in names if n in ("x0", "x0_copy"))
     # !TODO! verify keeping both copies when use_simple_mode=False is intended
-    assert n_dup <= 1, f"redundant pair kept both copies even with use_simple_mode=False: " f"{names} (expected at most one of x0/x0_copy)"
+    assert n_dup <= 1, f"redundant pair kept both copies even with use_simple_mode=False: {names} (expected at most one of x0/x0_copy)"
 
 
 # ---------------------------------------------------------------------------
@@ -233,11 +238,13 @@ def test_mrmr_pickle_roundtrip_preserves_transform():
     """
     rng = np.random.default_rng(RANDOM_SEED)
     signal = rng.standard_normal(N_ROWS)
-    X = pd.DataFrame({
-        "signal": signal,
-        "noise1": rng.standard_normal(N_ROWS),
-        "noise2": rng.standard_normal(N_ROWS),
-    })
+    X = pd.DataFrame(
+        {
+            "signal": signal,
+            "noise1": rng.standard_normal(N_ROWS),
+            "noise2": rng.standard_normal(N_ROWS),
+        }
+    )
     y = (signal > 0).astype(int)
     mrmr = _fast_mrmr(min_features_fallback=1)
     with warnings.catch_warnings():
@@ -292,11 +299,13 @@ def test_mrmr_fit_cache_hit_replays_state():
     """
     rng = np.random.default_rng(RANDOM_SEED)
     signal = rng.standard_normal(N_ROWS)
-    X = pd.DataFrame({
-        "signal": signal,
-        "noise1": rng.standard_normal(N_ROWS),
-        "noise2": rng.standard_normal(N_ROWS),
-    })
+    X = pd.DataFrame(
+        {
+            "signal": signal,
+            "noise1": rng.standard_normal(N_ROWS),
+            "noise2": rng.standard_normal(N_ROWS),
+        }
+    )
     y = (signal > 0).astype(int)
 
     MRMR._FIT_CACHE.clear()
@@ -325,5 +334,5 @@ def test_mrmr_fit_cache_hit_replays_state():
     np.testing.assert_array_equal(first_support, second_support)
     # Cache hit must be at least as fast as the cold fit; allow 2x slack for
     # noisy CI. The point is to detect a full re-fit (which would be 5-50x).
-    assert second_dt <= max(first_dt * 2.0, 0.5), f"_FIT_CACHE hit did not short-circuit: cold={first_dt:.3f}s, " f"warm={second_dt:.3f}s"
+    assert second_dt <= max(first_dt * 2.0, 0.5), f"_FIT_CACHE hit did not short-circuit: cold={first_dt:.3f}s, warm={second_dt:.3f}s"
     MRMR._FIT_CACHE.clear()

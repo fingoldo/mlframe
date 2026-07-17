@@ -8,6 +8,7 @@ Returns a 4-tuple of sklearn Pipelines:
 Each pipeline wires optbinning's ``BinningProcess`` for IV-based feature scoring;
 the _withcats_ variants include a ``CatBoostEncoder`` pre-step for categorical inputs.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -18,9 +19,9 @@ import pytest
 pytest.importorskip("optbinning")
 pytest.importorskip("category_encoders")
 
-from sklearn.pipeline import Pipeline  # noqa: E402
+from sklearn.pipeline import Pipeline
 
-from mlframe.feature_selection.optbinning import get_binningprocess_featureselectors  # noqa: E402
+from mlframe.feature_selection.optbinning import get_binningprocess_featureselectors
 
 
 def _make_synthetic_binary_df(n: int = 300, n_features: int = 5, seed: int = 0) -> tuple[pd.DataFrame, pd.Series]:
@@ -29,10 +30,12 @@ def _make_synthetic_binary_df(n: int = 300, n_features: int = 5, seed: int = 0) 
     rng = np.random.default_rng(seed)
     x_signal = rng.normal(size=n)
     y = (x_signal > 0).astype(int)
-    df = pd.DataFrame({
-        "signal_step": x_signal,
-        **{f"noise_{i}": rng.normal(size=n) for i in range(n_features - 1)},
-    })
+    df = pd.DataFrame(
+        {
+            "signal_step": x_signal,
+            **{f"noise_{i}": rng.normal(size=n) for i in range(n_features - 1)},
+        }
+    )
     return df, pd.Series(y, name="y")
 
 
@@ -63,33 +66,31 @@ def test_withcats_pipelines_have_encoder_step():
     df, _ = _make_synthetic_binary_df()
     bp_withcats_fs, bp_withcats_nofs, bp_nocats_fs, bp_nocats_nofs = get_binningprocess_featureselectors(df, n_jobs=1)
     # _withcats variants must start with the CatBoostEncoder step named "enc"
-    assert "enc" in dict(bp_withcats_fs.steps), \
-        f"withcats_fs pipeline must include the 'enc' step; got {[n for n, _ in bp_withcats_fs.steps]}"
+    assert "enc" in dict(bp_withcats_fs.steps), f"withcats_fs pipeline must include the 'enc' step; got {[n for n, _ in bp_withcats_fs.steps]}"
     assert "enc" in dict(bp_withcats_nofs.steps)
     # _nocats variants must NOT include the encoder step
-    assert "enc" not in dict(bp_nocats_fs.steps), \
-        f"nocats_fs pipeline must NOT include 'enc'; got {[n for n, _ in bp_nocats_fs.steps]}"
+    assert "enc" not in dict(bp_nocats_fs.steps), f"nocats_fs pipeline must NOT include 'enc'; got {[n for n, _ in bp_nocats_fs.steps]}"
     assert "enc" not in dict(bp_nocats_nofs.steps)
 
 
 def test_all_pipelines_have_binningprocess_step():
     df, _ = _make_synthetic_binary_df()
     for pipe in get_binningprocess_featureselectors(df, n_jobs=1):
-        assert "BP" in dict(pipe.steps), \
-            f"every pipeline must include the 'BP' (BinningProcess) step; got {[n for n, _ in pipe.steps]}"
+        assert "BP" in dict(pipe.steps), f"every pipeline must include the 'BP' (BinningProcess) step; got {[n for n, _ in pipe.steps]}"
 
 
 def test_fs_pipelines_have_selection_criteria():
     """The _fs variants apply IV selection_criteria; the _nofs variants do not."""
     df, _ = _make_synthetic_binary_df()
-    bp_withcats_fs, bp_withcats_nofs, bp_nocats_fs, bp_nocats_nofs = get_binningprocess_featureselectors(df, n_jobs=1)
+    bp_withcats_fs, bp_withcats_nofs, _bp_nocats_fs, _bp_nocats_nofs = get_binningprocess_featureselectors(df, n_jobs=1)
     bp_fs = dict(bp_withcats_fs.steps)["BP"]
     bp_nofs = dict(bp_withcats_nofs.steps)["BP"]
     assert bp_fs.selection_criteria, "fs variant must have selection_criteria set"
     assert "iv" in bp_fs.selection_criteria, "fs variant must use IV selection criterion"
     # nofs may have None or empty dict — must NOT have an IV gate
-    assert not getattr(bp_nofs, "selection_criteria", None) or "iv" not in (bp_nofs.selection_criteria or {}), \
+    assert not getattr(bp_nofs, "selection_criteria", None) or "iv" not in (bp_nofs.selection_criteria or {}), (
         f"nofs variant must not gate on IV; got {bp_nofs.selection_criteria!r}"
+    )
 
 
 def test_iv_kwargs_propagate():
@@ -111,10 +112,8 @@ def test_nocats_pipelines_exclude_categorical_columns():
     bp_nocats_fs, bp_nocats_nofs = out[2], out[3]
     for pipe in (bp_nocats_fs, bp_nocats_nofs):
         bp = dict(pipe.steps)["BP"]
-        assert "cat_feat" not in bp.variable_names, \
-            f"nocats variant must exclude category cols; got variable_names={bp.variable_names}"
-        assert "num_feat" in bp.variable_names, \
-            f"numeric col must remain; got variable_names={bp.variable_names}"
+        assert "cat_feat" not in bp.variable_names, f"nocats variant must exclude category cols; got variable_names={bp.variable_names}"
+        assert "num_feat" in bp.variable_names, f"numeric col must remain; got variable_names={bp.variable_names}"
 
 
 def test_withcats_pipelines_include_all_columns():
@@ -124,8 +123,7 @@ def test_withcats_pipelines_include_all_columns():
     bp_withcats_fs, bp_withcats_nofs, _, _ = get_binningprocess_featureselectors(df, n_jobs=1)
     for pipe in (bp_withcats_fs, bp_withcats_nofs):
         bp = dict(pipe.steps)["BP"]
-        assert "cat_feat" in bp.variable_names and "num_feat" in bp.variable_names, \
-            f"withcats BP must see all columns; got {bp.variable_names}"
+        assert "cat_feat" in bp.variable_names and "num_feat" in bp.variable_names, f"withcats BP must see all columns; got {bp.variable_names}"
 
 
 # ----------------------------------------------------------------------------
@@ -186,11 +184,9 @@ def test_biz_value_signal_column_has_higher_iv_than_noise():
             f"this optbinning / numpy / sklearn combo; skipping the "
             f"IV-vs-noise assertion. iv_map={iv_map}"
         )
-    assert signal_iv > max_noise_iv, \
-        f"signal_step IV ({signal_iv:.3f}) must exceed every noise IV (max={max_noise_iv:.3f}); iv_map={iv_map}"
+    assert signal_iv > max_noise_iv, f"signal_step IV ({signal_iv:.3f}) must exceed every noise IV (max={max_noise_iv:.3f}); iv_map={iv_map}"
     # Tighter contract: signal must be at least 2x the noise max — keeps a regression-detection margin
-    assert signal_iv > max_noise_iv * 2.0, \
-        f"signal_step IV ({signal_iv:.3f}) should be >=2x max noise IV ({max_noise_iv:.3f}); iv_map={iv_map}"
+    assert signal_iv > max_noise_iv * 2.0, f"signal_step IV ({signal_iv:.3f}) should be >=2x max noise IV ({max_noise_iv:.3f}); iv_map={iv_map}"
 
 
 def test_empty_feature_df_does_not_crash_construction():

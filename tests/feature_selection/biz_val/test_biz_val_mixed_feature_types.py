@@ -26,6 +26,7 @@ the final agent report; per-cell behaviour is pinned by the tests here.
 
 Thresholds: floors are pinned 5-15% below a MEASURED value (dev run, seed sweep).
 """
+
 from __future__ import annotations
 
 import warnings
@@ -43,8 +44,8 @@ from tests.feature_selection.conftest import is_fast_mode, fast_subset
 
 pytestmark = pytest.mark.timeout(60)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop)
 
-def _make_mixed_frame(n: int, seed: int, *, high_card: bool = True,
-                      as_category: bool = True):
+
+def _make_mixed_frame(n: int, seed: int, *, high_card: bool = True, as_category: bool = True):
     """Mixed frame with known signal/noise roles.
 
     Returns ``(df, y, roles)`` where ``roles`` maps each column name to one of
@@ -67,8 +68,7 @@ def _make_mixed_frame(n: int, seed: int, *, high_card: bool = True,
         cols["cat_noise"] = pd.Categorical(ids) if as_category else ids
     cols["num_noise"] = num_noise
     df = pd.DataFrame(cols)
-    roles = {"num_sig": "num_sig", "cat_sig": "cat_sig",
-             "num_noise": "num_noise"}
+    roles = {"num_sig": "num_sig", "cat_sig": "cat_sig", "num_noise": "num_noise"}
     if high_card:
         roles["cat_noise"] = "cat_noise"
     return df, y, roles
@@ -85,8 +85,7 @@ def _make_text_signal(n: int, seed: int):
     has_kw = rng.random(n) < 0.5
     sig_texts, noise_texts = [], []
     for i in range(n):
-        toks = ["win" if has_kw[i] else "lose",
-                f"w{rng.integers(0, 1000)}", f"z{rng.integers(0, 1000)}"]
+        toks = ["win" if has_kw[i] else "lose", f"w{rng.integers(0, 1000)}", f"z{rng.integers(0, 1000)}"]
         rng.shuffle(toks)
         sig_texts.append(" ".join(toks))
         noise_texts.append(" ".join(f"q{rng.integers(0, 1000)}" for _ in range(3)))
@@ -96,9 +95,8 @@ def _make_text_signal(n: int, seed: int):
 
 def _fast_mrmr(**overrides):
     from mlframe.feature_selection.filters.mrmr import MRMR
-    kw = dict(min_relevance_gain=0.0, cv=3, run_additional_rfecv_minutes=False,
-              full_npermutations=7, random_seed=0, min_features_fallback=1,
-              verbose=False)
+
+    kw = dict(min_relevance_gain=0.0, cv=3, run_additional_rfecv_minutes=False, full_npermutations=7, random_seed=0, min_features_fallback=1, verbose=False)
     kw.update(overrides)
     return MRMR(**kw)
 
@@ -113,7 +111,7 @@ def test_biz_val_mrmr_selects_lowcard_cat_signal_drops_num_noise():
     seeds = fast_subset([0, 1, 2, 3, 4], n=2)
     hits_cat = hits_num = drops_noise = 0
     for s in seeds:
-        df, y, roles = _make_mixed_frame(500, s, high_card=False)
+        df, y, _roles = _make_mixed_frame(500, s, high_card=False)
         m = _fast_mrmr(random_seed=s)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -144,8 +142,7 @@ def test_biz_val_mrmr_lowcard_cat_beats_random_relevance():
         rng = np.random.default_rng(100 + s)
         df, y, _ = _make_mixed_frame(500, s, high_card=False)
         # add a 3-level random cat noise (same cardinality as cat_sig, no signal)
-        df = df.assign(cat_rand=pd.Categorical(
-            np.array(["p", "q", "r"])[rng.integers(0, 3, len(df))]))
+        df = df.assign(cat_rand=pd.Categorical(np.array(["p", "q", "r"])[rng.integers(0, 3, len(df))]))
         m = _fast_mrmr(random_seed=s)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -154,8 +151,7 @@ def test_biz_val_mrmr_lowcard_cat_beats_random_relevance():
         joined = " ".join(sel)
         if ("cat_sig" in sel or "cat_sig" in joined) and "cat_rand" not in sel:
             good += 1
-    assert good >= (len(seeds) + 1) // 2, (
-        f"cat_sig out-ranked equal-card noise on only {good}/{len(seeds)} seeds")
+    assert good >= (len(seeds) + 1) // 2, f"cat_sig out-ranked equal-card noise on only {good}/{len(seeds)} seeds"
 
 
 def test_biz_val_mrmr_drops_highcard_cat_noise_gracefully():
@@ -164,7 +160,7 @@ def test_biz_val_mrmr_drops_highcard_cat_noise_gracefully():
     relevance screen, while the low-card cat signal is kept. (Was a GAP: the cat-FE
     cardinality ceiling raised a hard ValueError; now ``on_high_cardinality='skip'`` is
     the default.)"""
-    df, y, roles = _make_mixed_frame(500, 0, high_card=True)
+    df, y, _roles = _make_mixed_frame(500, 0, high_card=True)
     m = _fast_mrmr(random_seed=0)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -179,9 +175,9 @@ def test_biz_val_mrmr_highcard_cat_raises_when_opted_in():
     ``CatFEConfig(on_high_cardinality='raise')`` for callers who want a strict
     "this column shouldn't be categorical" signal."""
     from mlframe.feature_selection.filters.cat_fe_state import CatFEConfig
+
     df, y, _ = _make_mixed_frame(500, 0, high_card=True)
-    m = _fast_mrmr(random_seed=0,
-                   cat_fe_config=CatFEConfig(on_high_cardinality="raise"))
+    m = _fast_mrmr(random_seed=0, cat_fe_config=CatFEConfig(on_high_cardinality="raise"))
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         with pytest.raises(ValueError, match="(?i)nbins|ceiling|cardinal"):
@@ -198,13 +194,12 @@ def test_biz_val_mrmr_recovers_preencoded_text_token_signal():
     seeds = fast_subset([0, 1, 2], n=2)
     good = 0
     for s in seeds:
-        sig_t, noise_t, y, has_kw = _make_text_signal(500, s)
+        sig_t, noise_t, y, _has_kw = _make_text_signal(500, s)
         has_win = np.array(["win" in t.split() for t in sig_t]).astype(int)
         # noise-text indicator: presence of an arbitrary token that carries no signal
         has_q = np.array(["q0" in t.split() for t in noise_t]).astype(int)
         rng = np.random.default_rng(s)
-        df = pd.DataFrame({"txt_win": has_win, "txt_noise_ind": has_q,
-                           "num_noise": rng.normal(size=len(y))})
+        df = pd.DataFrame({"txt_win": has_win, "txt_noise_ind": has_q, "num_noise": rng.normal(size=len(y))})
         m = _fast_mrmr(random_seed=s)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -213,8 +208,7 @@ def test_biz_val_mrmr_recovers_preencoded_text_token_signal():
         joined = " ".join(sel)
         if ("txt_win" in sel or "txt_win" in joined) and "txt_noise_ind" not in sel:
             good += 1
-    assert good >= (len(seeds) + 1) // 2, (
-        f"pre-encoded text keyword selected (noise dropped) on {good}/{len(seeds)}")
+    assert good >= (len(seeds) + 1) // 2, f"pre-encoded text keyword selected (noise dropped) on {good}/{len(seeds)}"
 
 
 # ---------------------------------------------------------------------------
@@ -227,21 +221,23 @@ def test_biz_val_suite_fs_keeps_cat_signal_drops_highcard_noise():
     ``cat_sig`` in the selected set, and drops ``cat_noise``. Measured: cat_sig in
     selected_features, cat_noise absent, AUC 1.0 on seed 0."""
     from tests.feature_selection._suite_fe_helpers import run_suite, best_test_metric
-    df, y, roles = _make_mixed_frame(600, 0, high_card=True)
+
+    df, y, _roles = _make_mixed_frame(600, 0, high_card=True)
     df = df.assign(y=y)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         ent, meta = run_suite(
-            df, "y", model="linear", use_mrmr=True, classification=True,
-            mrmr_kwargs=dict(min_relevance_gain=0.0, cv=3,
-                             run_additional_rfecv_minutes=False,
-                             full_npermutations=5, min_features_fallback=1))
+            df,
+            "y",
+            model="linear",
+            use_mrmr=True,
+            classification=True,
+            mrmr_kwargs=dict(min_relevance_gain=0.0, cv=3, run_additional_rfecv_minutes=False, full_npermutations=5, min_features_fallback=1),
+        )
     sel = meta.get("selected_features") or []
     joined = " ".join(map(str, sel))
-    assert any("cat_sig" in str(c) for c in sel) or "cat_sig" in joined, (
-        f"cat_sig not in suite-selected features: {sel}")
-    assert not any(str(c) == "cat_noise" for c in sel), (
-        f"high-card cat_noise should be dropped by suite FS: {sel}")
+    assert any("cat_sig" in str(c) for c in sel) or "cat_sig" in joined, f"cat_sig not in suite-selected features: {sel}"
+    assert not any(str(c) == "cat_noise" for c in sel), f"high-card cat_noise should be dropped by suite FS: {sel}"
     auc = best_test_metric(ent, "roc_auc")
     assert auc >= 0.85, f"suite AUC on mixed frame too low: {auc}"
 
@@ -253,6 +249,7 @@ def test_biz_val_suite_fs_mixed_beats_numeric_only_lift():
     categorical column DROPPED. Measured delta >= 0.10 (full+cat 1.0 vs num-only ~0.74
     when num_sig weight is halved). Floor = +0.05."""
     from tests.feature_selection._suite_fe_helpers import run_suite, best_test_metric
+
     # weaken the numeric path so the categorical contributes distinguishable lift.
     rng = np.random.default_rng(0)
     n = 600
@@ -262,18 +259,13 @@ def test_biz_val_suite_fs_mixed_beats_numeric_only_lift():
     num_noise = rng.normal(size=n)
     score = 0.5 * num_sig + (lev - 1) * 1.8 + 0.3 * rng.normal(size=n)
     y = (score > 0).astype(np.int64)
-    df_full = pd.DataFrame({"num_sig": num_sig, "cat_sig": cat_sig,
-                            "num_noise": num_noise, "y": y})
+    df_full = pd.DataFrame({"num_sig": num_sig, "cat_sig": cat_sig, "num_noise": num_noise, "y": y})
     df_num = df_full.drop(columns=["cat_sig"])
-    fs_kw = dict(min_relevance_gain=0.0, cv=3, run_additional_rfecv_minutes=False,
-                 full_npermutations=5, min_features_fallback=1)
+    fs_kw = dict(min_relevance_gain=0.0, cv=3, run_additional_rfecv_minutes=False, full_npermutations=5, min_features_fallback=1)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        ent_full, _ = run_suite(df_full, "y", model="linear", use_mrmr=True,
-                                classification=True, mrmr_kwargs=fs_kw)
-        ent_num, _ = run_suite(df_num, "y", model="linear", use_mrmr=True,
-                               classification=True, mrmr_kwargs=fs_kw)
+        ent_full, _ = run_suite(df_full, "y", model="linear", use_mrmr=True, classification=True, mrmr_kwargs=fs_kw)
+        ent_num, _ = run_suite(df_num, "y", model="linear", use_mrmr=True, classification=True, mrmr_kwargs=fs_kw)
     auc_full = best_test_metric(ent_full, "roc_auc")
     auc_num = best_test_metric(ent_num, "roc_auc")
-    assert auc_full - auc_num >= 0.05, (
-        f"categorical signal lift too small: full={auc_full} num_only={auc_num}")
+    assert auc_full - auc_num >= 0.05, f"categorical signal lift too small: full={auc_full} num_only={auc_num}"

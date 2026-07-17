@@ -12,6 +12,7 @@ removes the redundant upload / rebuilds the SAME matrix on device; the estimator
 * SF3      ``raw_mi_noise_floor``           -- raw noise-floor baseline (class B).
 * SF4a     ``_rank_and_prune``              -- raw relevance column_stack (class B).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -24,6 +25,7 @@ cp = pytest.importorskip("cupy")
 def _need_cuda() -> bool:
     try:
         from pyutilz.core.pythonlib import is_cuda_available
+
         return is_cuda_available()
     except Exception:
         return False

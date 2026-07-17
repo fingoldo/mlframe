@@ -11,10 +11,11 @@ Pre-fix issues:
   the unrestricted stdlib unpickler -- no module/class allowlist, unlike ``training/io.py``'s
   ``_SafeUnpickler`` used for training-side bundles.
 """
+
 from __future__ import annotations
 
 import hashlib
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 from pathlib import Path
 
 import numpy as np
@@ -122,7 +123,7 @@ def test_safe_joblib_load_blocks_eval_gadget(tmp_path: Path):
     """P2-1: safe_joblib_load must block a builtins.eval reduce-gadget the same way _SafeUnpickler does
     for dill bundles. Plain joblib.load (pre-fix predict.py behaviour) would execute it.
     """
-    import dill
+    import dill  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
     from mlframe.training.io import safe_joblib_load
 
     p = tmp_path / "evil.pkl"

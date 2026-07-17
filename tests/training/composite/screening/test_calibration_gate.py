@@ -5,6 +5,7 @@ well-calibrated spec gets ~0 penalty, no-harm pass-through on empty residuals,
 the default-disabled flag, and the biz_value ranking flip (calibrated spec A
 outranks lucky-but-miscalibrated overfit spec B even when raw RMSE favours B).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -37,7 +38,7 @@ def test_penalty_detects_bias():
     infold = rng.normal(0.0, 1.0, size=4000)
     unbiased = rng.normal(0.0, 1.0, size=4000)
     biased = unbiased + 1.5  # systematic offset -> mean residual ~1.5
-    p_unb, b_unb, _ = calibration_penalty(unbiased, infold)
+    p_unb, _b_unb, _ = calibration_penalty(unbiased, infold)
     p_bias, b_bias, _ = calibration_penalty(biased, infold)
     assert b_bias > 1.0, f"shifted residuals should show large bias, got {b_bias}"
     assert p_bias > p_unb + 1.0
@@ -112,9 +113,7 @@ def test_biz_val_calibration_ranks_calibrated_above_overfit():
 def test_smoke_import_dotted_module():
     import importlib
 
-    mod = importlib.import_module(
-        "mlframe.training.composite.discovery._calibration_gate"
-    )
+    mod = importlib.import_module("mlframe.training.composite.discovery._calibration_gate")
     assert hasattr(mod, "calibration_adjusted_score")
     assert hasattr(mod, "calibration_penalty")
     assert hasattr(mod, "CalibrationScore")

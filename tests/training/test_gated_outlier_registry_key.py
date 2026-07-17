@@ -67,7 +67,7 @@ def _trained_entries(models):
 def test_e2e_gated_outlier_key_trains_and_predicts(tmp_path):
     from mlframe.training.composite.gated_outlier import GatedOutlierEstimator
 
-    models, metadata = _run_suite(tmp_path, ["gated_outlier"])
+    models, _metadata = _run_suite(tmp_path, ["gated_outlier"])
 
     trained = _trained_entries(models)
     gated_entries = [e for e in trained if isinstance(getattr(e, "model", None), GatedOutlierEstimator)]
@@ -100,7 +100,7 @@ def test_existing_keys_unperturbed_by_new_registry_entry(tmp_path):
     from catboost import CatBoostRegressor
     from lightgbm import LGBMRegressor
 
-    models, metadata = _run_suite(tmp_path, ["cb", "lgb"])
+    models, _metadata = _run_suite(tmp_path, ["cb", "lgb"])
 
     trained = _trained_entries(models)
     fitted_models = [getattr(e, "model", None) for e in trained]
@@ -119,11 +119,10 @@ def test_e2e_default_allowlist_auto_includes_gated_outlier_on_point_mass_data(tm
     requiring the caller to name it explicitly."""
     from mlframe.training.composite.gated_outlier import GatedOutlierEstimator
 
-    models, metadata = _run_suite(tmp_path, None)
+    models, _metadata = _run_suite(tmp_path, None)
 
     trained = _trained_entries(models)
     fitted_models = [getattr(e, "model", None) for e in trained]
     assert any(isinstance(m, GatedOutlierEstimator) for m in fitted_models), (
-        f"gated_outlier not auto-included for point-mass data under the default allowlist; "
-        f"models={[type(m).__name__ for m in fitted_models]}"
+        f"gated_outlier not auto-included for point-mass data under the default allowlist; models={[type(m).__name__ for m in fitted_models]}"
     )

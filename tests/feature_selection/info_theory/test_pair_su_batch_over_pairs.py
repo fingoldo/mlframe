@@ -12,13 +12,16 @@ Two invariants that FAIL on pre-fix code:
      H(X_a, X_b); pre-fix it ignored that attribute and always recomputed, so a
      sentinel-injected joint cache would NOT change the result.
 """
+
 from __future__ import annotations
 
 import numpy as np
 import pytest
 
 from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
-    DCDState, pair_su, pair_su_batch,
+    DCDState,
+    pair_su,
+    pair_su_batch,
 )
 from mlframe.feature_selection.filters.info_theory import joint_entropy_2var
 from mlframe.feature_selection.filters._dcd_pair_su_batch import (
@@ -37,14 +40,12 @@ def synth():
 
 def test_batch_joint_entropy_bit_identical_to_per_pair(synth):
     """prange-over-pairs kernel == per-pair joint_entropy_2var, max-abs-diff 0.0."""
-    fd, fn, p = synth
+    fd, fn, _p = synth
     a_arr = np.array([0, 0, 1, 2, 3, 7, 10, 4], dtype=np.int64)
     b_arr = np.array([1, 5, 6, 9, 8, 11, 15, 12], dtype=np.int64)
     batch = _batch_joint_entropy_pairs(fd, a_arr, b_arr, fn)
     ref = np.array(
-        [joint_entropy_2var(fd, int(a_arr[i]), int(b_arr[i]),
-                            int(fn[a_arr[i]]), int(fn[b_arr[i]]))
-         for i in range(a_arr.shape[0])],
+        [joint_entropy_2var(fd, int(a_arr[i]), int(b_arr[i]), int(fn[a_arr[i]]), int(fn[b_arr[i]])) for i in range(a_arr.shape[0])],
         dtype=np.float64,
     )
     assert np.max(np.abs(batch - ref)) == 0.0
@@ -66,9 +67,7 @@ def test_pair_su_reads_joint_batch_cache(synth):
     key = (a, b)
     st2._joint_entropy_batch_cache = {key: 0.123456789}
     sentinel_su = pair_su(st2, a, b)
-    assert sentinel_su != pytest.approx(true_su), (
-        "pair_su did not read the injected joint batch cache"
-    )
+    assert sentinel_su != pytest.approx(true_su), "pair_su did not read the injected joint batch cache"
     # Explicit closed-form check: SU = 2*(h_a + h_b - h_ab_sentinel)/(h_a+h_b).
     h_a = st2.column_entropy_cache[a]
     h_b = st2.column_entropy_cache[b]

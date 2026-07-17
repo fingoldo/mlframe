@@ -28,6 +28,7 @@ the comparative stability claim uses 3-seed majority). Heavy selectors carry ``@
 fast representative kept via ``MLFRAME_FAST=1`` (the conftest fast-mode collection hook skips slow tests).
 CPU-only: no GPU path is exercised.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -58,13 +59,12 @@ _NULL_P = 15
 _NULL_SEEDS = [0] if is_fast_mode() else [0, 1]
 
 
-
 pytestmark = pytest.mark.timeout(60)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop)
+
 
 def _null_data(seed: int):
     rng = np.random.default_rng(seed)
-    X = pd.DataFrame(rng.standard_normal((_NULL_N, _NULL_P)),
-                     columns=[f"x{i}" for i in range(_NULL_P)])
+    X = pd.DataFrame(rng.standard_normal((_NULL_N, _NULL_P)), columns=[f"x{i}" for i in range(_NULL_P)])
     y = pd.Series(rng.integers(0, 2, _NULL_N).astype(np.int64), name="y")
     return X, y
 
@@ -94,13 +94,13 @@ def _fit_count_noise(spec, seed: int) -> int:
 # wrappers/_benchmarks/bench_auto_rule_noise_fp.py) and NOT shipped; the real fix needs an outer-loop search change.
 _NULL_CEILINGS = {
     # name        -> (per-seed ceiling, xfail_reason or None)
-    "RFECV": (3, "PROD BUG: RFECV(argmax rule, no plateau) selects ALL 15/15 pure-noise features "
-                 "(measured [15,15,15]) -- gaps_selection_masking-01 FP-control gap"),
-    "ShapProxiedFS": (4, "PROD BUG: ShapProxiedFS selects ~half (measured [8,4,9] of 15) pure-noise "
-                         "features -- gaps_selection_masking-01 FP-control gap"),
+    "RFECV": (
+        3,
+        "PROD BUG: RFECV(argmax rule, no plateau) selects ALL 15/15 pure-noise features (measured [15,15,15]) -- gaps_selection_masking-01 FP-control gap",
+    ),
+    "ShapProxiedFS": (4, "PROD BUG: ShapProxiedFS selects ~half (measured [8,4,9] of 15) pure-noise features -- gaps_selection_masking-01 FP-control gap"),
     "BorutaShap": (7, None),  # measured max 6 of 15; ceiling 7 keeps headroom, still catches "admits all 15"
-    "HybridSelector": (4, "PROD BUG: HybridSelector selects ~half (measured [9,7,8] of 15) pure-noise "
-                          "features -- gaps_selection_masking-01 FP-control gap"),
+    "HybridSelector": (4, "PROD BUG: HybridSelector selects ~half (measured [9,7,8] of 15) pure-noise features -- gaps_selection_masking-01 FP-control gap"),
 }
 
 
@@ -121,8 +121,7 @@ def test_biz_val_null_fdr_selector_families(name):
     counts = [_fit_count_noise(SELECTOR_SPECS[name], s) for s in _NULL_SEEDS]
     median = int(np.median(counts))
     over = [c for c in counts if c > ceiling]
-    msg = (f"{name}: pure-null selected-noise counts {counts} (seeds {_NULL_SEEDS}); "
-           f"ceiling per-seed <= {ceiling}, median <= {ceiling}")
+    msg = f"{name}: pure-null selected-noise counts {counts} (seeds {_NULL_SEEDS}); ceiling per-seed <= {ceiling}, median <= {ceiling}"
     if xfail_reason is not None and (over or median > ceiling):
         pytest.xfail(xfail_reason + f" | measured counts={counts}")
     assert not over, msg
@@ -131,6 +130,7 @@ def test_biz_val_null_fdr_selector_families(name):
 
 def _hetero_null_count(seed: int, n: int = 600) -> tuple[int, set]:
     from mlframe.feature_selection.hetero_vote import heterogeneous_relevance_vote
+
     rng = np.random.default_rng(seed)
     X = pd.DataFrame(rng.standard_normal((n, _NULL_P)), columns=[f"x{i}" for i in range(_NULL_P)])
     y = pd.Series(rng.integers(0, 2, n).astype(np.int64), name="y")
@@ -175,11 +175,11 @@ _MRMR_NULL_SEEDS = [0] if is_fast_mode() else [0, 1]
 
 def _mrmr_null_count(seed: int, full_npermutations: int):
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     X, y = _null_data(seed)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        sel = MRMR(verbose=0, min_features_fallback=0, full_npermutations=full_npermutations,
-                   random_seed=seed, cv=3).fit(X, y)
+        sel = MRMR(verbose=0, min_features_fallback=0, full_npermutations=full_npermutations, random_seed=seed, cv=3).fit(X, y)
     return len(sel.support_), bool(getattr(sel, "fallback_used_", False))
 
 
@@ -235,11 +235,11 @@ def nogueira_stability(masks, p: int) -> float:
     B = M.shape[0]
     if B < 2:
         return 1.0
-    pf = M.mean(axis=0)                         # per-feature selection frequency
-    kbar = M.sum(axis=1).mean()                 # mean support size
+    pf = M.mean(axis=0)  # per-feature selection frequency
+    kbar = M.sum(axis=1).mean()  # mean support size
     per_feature_var = (B / (B - 1.0)) * pf * (1.0 - pf)
     denom = (kbar / p) * (1.0 - kbar / p)
-    if denom <= 0:                              # degenerate: every resample selected all or none
+    if denom <= 0:  # degenerate: every resample selected all or none
         return 1.0
     return float(1.0 - per_feature_var.mean() / denom)
 
@@ -255,15 +255,14 @@ def test_nogueira_stability_helper_endpoints():
     for b in range(8):
         m = np.array([True] * 3 + [False] * 7)
         if b % 2 == 0:
-            m[3], m[2] = True, False            # swap one member -> membership flips, |support| stays 3
+            m[3], m[2] = True, False  # swap one member -> membership flips, |support| stays 3
         flip.append(m)
     s_flip = nogueira_stability(flip, p)
     assert s_flip < 1.0
     assert s_flip <= 1.0 + 1e-12
 
 
-def _bootstrap_masks_mrmr_and_mi(Xnp, ynp, B: int, seed0: int, mi_k: int | None,
-                                  mi_match_per_boot: bool = False):
+def _bootstrap_masks_mrmr_and_mi(Xnp, ynp, B: int, seed0: int, mi_k: int | None, mi_match_per_boot: bool = False):
     """Fit MRMR (default DCD) and ``SelectKBest(mutual_info_classif)`` on B common bootstrap resamples.
 
     Returns ``(mrmr_masks, mi_masks, supports)`` where ``supports`` is the per-bootstrap MRMR support size.
@@ -290,8 +289,7 @@ def _bootstrap_masks_mrmr_and_mi(Xnp, ynp, B: int, seed0: int, mi_k: int | None,
             # masks, so engineered features are irrelevant to it; disabling FE keeps the
             # measurement correct AND drops the per-fit confirm_recipes_cross_fold cost
             # that otherwise makes the B-resample bootstrap intractable in a plain run.
-            m = MRMR(verbose=0, min_features_fallback=1, full_npermutations=3,
-                     random_seed=0, cv=3, fe_max_steps=0).fit(Xb, yb)
+            m = MRMR(verbose=0, min_features_fallback=1, full_npermutations=3, random_seed=0, cv=3, fe_max_steps=0).fit(Xb, yb)
         names = set(selected_names(m))
         mask = np.array([c in names for c in cols], dtype=bool)
         mrmr_masks.append(mask)
@@ -327,16 +325,18 @@ def test_biz_val_bootstrap_stability_mrmr_absolute_floor():
 
 
 @pytest.mark.slow
-@pytest.mark.xfail(reason="REFUTED VALUE PROOF: bizvalue_value_proofs-04 proposed MRMR is MORE bootstrap-stable "
-                          "(>= +0.10 Nogueira) than SelectKBest(mutual_info_classif) on the redundant cluster, "
-                          "under a cardinality-FAIR comparison (MI matched to MRMR's per-bootstrap support). "
-                          "Measured over RAW selection masks (fe_max_steps=0): MRMR does NOT reach the +0.10 "
-                          "margin -- its permutation-confirmation gate yields variable-cardinality support that "
-                          "the fixed-kbar Nogueira index penalises, and DCD's canonical-representative benefit "
-                          "does not overcome it on this fixture. Not a prod bug -- a refuted value hypothesis. "
-                          "(The no-redundancy CONTROL leg's within-epsilon frontier DOES hold -- see the sibling "
-                          "test -- so the failure is specific to clearing the strong +0.10 redundant-cluster bar.)",
-                   strict=False)
+@pytest.mark.xfail(
+    reason="REFUTED VALUE PROOF: bizvalue_value_proofs-04 proposed MRMR is MORE bootstrap-stable "
+    "(>= +0.10 Nogueira) than SelectKBest(mutual_info_classif) on the redundant cluster, "
+    "under a cardinality-FAIR comparison (MI matched to MRMR's per-bootstrap support). "
+    "Measured over RAW selection masks (fe_max_steps=0): MRMR does NOT reach the +0.10 "
+    "margin -- its permutation-confirmation gate yields variable-cardinality support that "
+    "the fixed-kbar Nogueira index penalises, and DCD's canonical-representative benefit "
+    "does not overcome it on this fixture. Not a prod bug -- a refuted value hypothesis. "
+    "(The no-redundancy CONTROL leg's within-epsilon frontier DOES hold -- see the sibling "
+    "test -- so the failure is specific to clearing the strong +0.10 redundant-cluster bar.)",
+    strict=False,
+)
 def test_biz_val_bootstrap_stability_mrmr_beats_mi_redundant_cluster():
     """Proposal's headline claim (bizvalue_value_proofs-04): on the 4-copy redundant cluster, MRMR's
     DCD-canonicalised selection should be MORE bootstrap-stable than MI top-K -- ``stab_mrmr >= stab_mi + 0.10``
@@ -348,8 +348,7 @@ def test_biz_val_bootstrap_stability_mrmr_beats_mi_redundant_cluster():
     deltas = []
     for seed in seeds:
         Xnp, ynp, _ = make_correlated_redundant(n=1200, n_corr=4, p_noise=15, seed=42 + seed)
-        mrmr_masks, mi_masks, _ = _bootstrap_masks_mrmr_and_mi(
-            Xnp, ynp, B=_STAB_B, seed0=seed, mi_k=None, mi_match_per_boot=True)
+        mrmr_masks, mi_masks, _ = _bootstrap_masks_mrmr_and_mi(Xnp, ynp, B=_STAB_B, seed0=seed, mi_k=None, mi_match_per_boot=True)
         p = Xnp.shape[1]
         sm = nogueira_stability(mrmr_masks, p)
         si = nogueira_stability(mi_masks, p)
@@ -357,8 +356,7 @@ def test_biz_val_bootstrap_stability_mrmr_beats_mi_redundant_cluster():
         if sm >= si + 0.10:
             wins += 1
     assert wins >= (len(seeds) + 1) // 2, (
-        f"MRMR not more bootstrap-stable than fair-budget MI on a majority of seeds: "
-        f"deltas={deltas} (need stab_mrmr >= stab_mi + 0.10 on majority of {seeds})"
+        f"MRMR not more bootstrap-stable than fair-budget MI on a majority of seeds: deltas={deltas} (need stab_mrmr >= stab_mi + 0.10 on majority of {seeds})"
     )
 
 
@@ -371,12 +369,8 @@ def test_biz_val_bootstrap_stability_control_within_epsilon_of_mi():
     an artefact of FE-induced support-cardinality variance inflating the Nogueira denominator, not a real
     stability deficit -- measuring the actual raw selection confirms the proposed within-epsilon tie."""
     Xnp, ynp, _ = make_signal_plus_noise(n=1200, p_signal=3, p_noise=12, seed=42)
-    mrmr_masks, mi_masks, supports = _bootstrap_masks_mrmr_and_mi(
-        Xnp, ynp, B=_STAB_B, seed0=0, mi_k=None, mi_match_per_boot=True)
+    mrmr_masks, mi_masks, supports = _bootstrap_masks_mrmr_and_mi(Xnp, ynp, B=_STAB_B, seed0=0, mi_k=None, mi_match_per_boot=True)
     p = Xnp.shape[1]
     sm = nogueira_stability(mrmr_masks, p)
     si = nogueira_stability(mi_masks, p)
-    assert sm >= si - 0.05, (
-        f"control: MRMR not within epsilon of MI stability: stab_mrmr={sm:.4f} stab_mi={si:.4f} "
-        f"(delta {sm - si:+.4f}, supports={supports})"
-    )
+    assert sm >= si - 0.05, f"control: MRMR not within epsilon of MI stability: stab_mrmr={sm:.4f} stab_mi={si:.4f} (delta {sm - si:+.4f}, supports={supports})"

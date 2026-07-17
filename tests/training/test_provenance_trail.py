@@ -8,10 +8,10 @@ only the expected split (train / train_only / oof / etc.).
 This sensor exercises the helper directly (unit) and verifies the analyzer wire-in
 on a synthetic call (integration) without needing a full suite run.
 """
+
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 
 def test_record_provenance_basic():
@@ -84,8 +84,8 @@ def test_analyzer_records_provenance_via_target_distribution():
         # At least one stamped knob -- check format.
         flat = rep.knob_overrides_provenance
         assert isinstance(flat, dict)
-        for slot, knobs in flat.items():
-            for knob_name, stamp in knobs.items():
+        for knobs in flat.values():
+            for stamp in knobs.values():
                 assert stamp.get("source") == "analyzer"
                 assert "reason" in stamp
                 assert "value" in stamp

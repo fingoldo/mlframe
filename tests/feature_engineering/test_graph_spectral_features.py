@@ -100,7 +100,7 @@ def _matched_graph_of_class(cls, n, m, rng):
     else:
         within = [(i, j) for (i, j) in all_pairs if (i < half) == (j < half)]
         between = [(i, j) for (i, j) in all_pairs if (i < half) != (j < half)]
-        n_within = min(int(round(0.9 * m)), len(within))
+        n_within = min(round(0.9 * m), len(within))
         n_between = min(m - n_within, len(between))
         wi = rng.choice(len(within), size=n_within, replace=False)
         bi = rng.choice(len(between), size=n_between, replace=False)

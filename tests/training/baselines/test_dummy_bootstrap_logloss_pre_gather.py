@@ -51,9 +51,7 @@ def test_pre_gather_1d_matches_post_gather_oracle():
     out_new = _vectorized_bootstrap_logloss_samples(y, p, 300, seed=42)
     out_old = _legacy_post_gather(y, p, 300, seed=42)
     assert out_new is not None and out_old is not None
-    assert np.array_equal(out_new, out_old), (
-        "pre-gather output must be bit-identical to the post-gather oracle"
-    )
+    assert np.array_equal(out_new, out_old), "pre-gather output must be bit-identical to the post-gather oracle"
 
 
 def test_pre_gather_2d_multilabel_matches_post_gather_oracle():
@@ -103,8 +101,7 @@ def test_multiclass_path_matches_sklearn_log_loss():
         idx = rng_ref.integers(0, n, size=n)
         ref[r] = log_loss(y[idx], p[idx], labels=np.arange(K))
     assert np.abs(samples_new - ref).max() < 1e-12, (
-        f"multiclass bootstrap log-loss must match sklearn at fp64 epsilon "
-        f"(max abs diff={np.abs(samples_new - ref).max():.2e})"
+        f"multiclass bootstrap log-loss must match sklearn at fp64 epsilon (max abs diff={np.abs(samples_new - ref).max():.2e})"
     )
 
 
@@ -112,8 +109,7 @@ def test_multiclass_path_rejects_out_of_range_labels():
     """y label outside [0, K-1] -> None (caller falls back). Prevents a silent
     fancy-index out-of-range that would read garbage memory."""
     n, K = 20, 3
-    y = np.array([0, 1, 2, 0, 1, 2, 0, 1, 2, 0,
-                  1, 2, 0, 1, 2, 0, 1, 2, 0, K + 1], dtype=np.int64)  # last is invalid
+    y = np.array([0, 1, 2, 0, 1, 2, 0, 1, 2, 0, 1, 2, 0, 1, 2, 0, 1, 2, 0, K + 1], dtype=np.int64)  # last is invalid
     p = np.full((n, K), 1.0 / K)
     assert _vectorized_bootstrap_logloss_samples(y, p, 50, seed=0) is None
 

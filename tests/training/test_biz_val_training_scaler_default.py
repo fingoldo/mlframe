@@ -47,9 +47,7 @@ def _holdout_auc(scaler_name: str, seed: int) -> float:
     def _frame(rows):
         return pl.DataFrame({c: [float(X[i, j]) for i in rows] for j, c in enumerate(cols)})
 
-    cfg = PreprocessingBackendConfig(
-        imputer_strategy="median", scaler_name=scaler_name, categorical_encoding=None, prefer_polarsds=True
-    )
+    cfg = PreprocessingBackendConfig(imputer_strategy="median", scaler_name=scaler_name, categorical_encoding=None, prefer_polarsds=True)
     tr, ho = _frame(range(cut)), _frame(range(cut, n))
     pipe = create_polarsds_pipeline(tr, cfg, verbose=0)
     Xtr = np.nan_to_num(pipe.transform(tr).to_numpy())

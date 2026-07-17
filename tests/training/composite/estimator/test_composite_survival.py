@@ -1,4 +1,5 @@
 """Unit + biz_value tests for CompositeSurvivalEstimator (AFT residual-over-base)."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -44,7 +45,9 @@ def _inner():
 def test_cindex_finite_and_above_half():
     X, t, e, _ = _make_aft(seed=1)
     est = CompositeSurvivalEstimator(
-        base_estimator=_inner(), base_column="base_logtime", censoring="observed_only",
+        base_estimator=_inner(),
+        base_column="base_logtime",
+        censoring="observed_only",
     )
     est.fit(X, t, event=e)
     pred = est.predict(X)
@@ -56,7 +59,9 @@ def test_cindex_finite_and_above_half():
 def test_censoring_handled_no_crash_and_caveat():
     X, t, e, _ = _make_aft(seed=2)
     est = CompositeSurvivalEstimator(
-        base_estimator=_inner(), base_column="base_logtime", censoring="observed_only",
+        base_estimator=_inner(),
+        base_column="base_logtime",
+        censoring="observed_only",
     )
     est.fit(X, t, event=e)
     assert est.n_censored_ > 0
@@ -67,7 +72,9 @@ def test_censoring_handled_no_crash_and_caveat():
 def test_predicted_times_non_negative():
     X, t, e, _ = _make_aft(seed=3)
     est = CompositeSurvivalEstimator(
-        base_estimator=_inner(), base_column="base_logtime", censoring="observed_only",
+        base_estimator=_inner(),
+        base_column="base_logtime",
+        censoring="observed_only",
     )
     est.fit(X, t, event=e)
     pred = est.predict(X)
@@ -79,7 +86,9 @@ def test_event_all_ones_reduces_to_plain_aft():
     X, t, e, _ = _make_aft(seed=4)
     e_all = np.ones_like(e)
     est = CompositeSurvivalEstimator(
-        base_estimator=_inner(), base_column="base_logtime", censoring="observed_only",
+        base_estimator=_inner(),
+        base_column="base_logtime",
+        censoring="observed_only",
     )
     est.fit(X, t, event=e_all)
     assert est.n_censored_ == 0
@@ -116,7 +125,9 @@ def test_biz_value_composite_beats_base_only_on_cindex():
     Xte, tte, ete, _ = _make_aft(n=2000, seed=11)
 
     est = CompositeSurvivalEstimator(
-        base_estimator=_inner(), base_column="base_logtime", censoring="observed_only",
+        base_estimator=_inner(),
+        base_column="base_logtime",
+        censoring="observed_only",
     )
     est.fit(Xtr, ttr, event=etr)
     comp_pred = est.predict(Xte)
@@ -135,7 +146,7 @@ class _StubGBSA:
     the aware-path centring logic can be tested WITHOUT scikit-survival installed.
     """
 
-    def fit(self, X, y):  # noqa: ARG002
+    def fit(self, X, y):
         return self
 
     def predict(self, X):
@@ -153,7 +164,9 @@ def test_aware_predict_is_batch_independent(monkeypatch):
     """
     X, t, e, _ = _make_aft(n=400, seed=7)
     est = CompositeSurvivalEstimator(
-        base_estimator=_inner(), base_column="base_logtime", censoring="observed_only",
+        base_estimator=_inner(),
+        base_column="base_logtime",
+        censoring="observed_only",
     )
     # Bypass the real fit: inject a stub GBSA + frozen train-risk centre and flip
     # the resolved mode to 'aware' so predict() routes through the aware branch.

@@ -24,13 +24,13 @@ Pinned here:
    global-mask path (so a future "always per-pair" cannot silently drop the
    escape hatch), and the per-pair default differs from it under heavy NaN.
 """
+
 from __future__ import annotations
 
 import logging
 from types import SimpleNamespace
 
 import numpy as np
-import pytest
 
 from mlframe.training.composite.discovery._auto_base import _auto_base
 from mlframe.training.composite.discovery.screening import (
@@ -92,9 +92,7 @@ def test_per_col_kernel_one_mostly_nan_column_does_not_zero_the_sweep():
     # Per-pair: the 5 dense columns recover real MI; the poisoned col stays 0.
     per_pair = _mi_per_feature_y_fixed_per_col(X, y, nbins=16)
     assert per_pair[0] == 0.0, "poisoned column should only zero itself"
-    assert float(per_pair[1:].sum()) > 0.2, (
-        f"per-pair must recover dense-column MI, got {per_pair}"
-    )
+    assert float(per_pair[1:].sum()) > 0.2, f"per-pair must recover dense-column MI, got {per_pair}"
 
 
 def test_per_col_kernel_degenerate_inputs():
@@ -102,7 +100,9 @@ def test_per_col_kernel_degenerate_inputs():
     rng = np.random.default_rng(1)
     y = rng.normal(size=200)
     assert _mi_per_feature_y_fixed_per_col(
-        np.empty((200, 0)), y, nbins=16,
+        np.empty((200, 0)),
+        y,
+        nbins=16,
     ).shape == (0,)
     t = y.copy()
     t[10:] = np.nan  # <50 finite target
@@ -177,11 +177,8 @@ def test_auto_base_recovers_informative_base_under_mnar():
     cfg = _base_config(auto_base_top_k=1)
     obj = _make_self(cfg, X, feature_names)
     train_idx = np.arange(n)
-    top = _auto_base(obj, df=None, usable_features=feature_names,
-                     y_train=y, train_idx=train_idx)
-    assert top[:1] == ["good"], (
-        f"strongly-informative fully-observed base must rank first, got {top}"
-    )
+    top = _auto_base(obj, df=None, usable_features=feature_names, y_train=y, train_idx=train_idx)
+    assert top[:1] == ["good"], f"strongly-informative fully-observed base must rank first, got {top}"
 
 
 def test_auto_base_one_mostly_nan_column_does_not_break_ranking():
@@ -202,8 +199,7 @@ def test_auto_base_one_mostly_nan_column_does_not_break_ranking():
     X = np.column_stack([poison, weak, strong])
     cfg = _base_config(auto_base_top_k=1)
     obj = _make_self(cfg, X, feature_names)
-    top = _auto_base(obj, df=None, usable_features=feature_names,
-                     y_train=y, train_idx=np.arange(n))
+    top = _auto_base(obj, df=None, usable_features=feature_names, y_train=y, train_idx=np.arange(n))
     # ``poison`` is dropped by the <10%-finite per-column filter; ``strong``
     # must win on per-pair MI rather than the ranking collapsing to list order.
     assert top[:1] == ["strong"], f"expected strong base first, got {top}"
@@ -228,18 +224,17 @@ def test_auto_base_opt_out_reproduces_global_mask_and_differs_under_nan():
     # Per-pair (default): ``good`` and ``midnan`` both carry real MI on their
     # own rows; ``good`` (stronger + fully observed) leads.
     obj_pp = _make_self(_base_config(auto_base_top_k=2), X, feature_names)
-    top_pp = _auto_base(obj_pp, df=None, usable_features=list(feature_names),
-                        y_train=y, train_idx=np.arange(n))
+    top_pp = _auto_base(obj_pp, df=None, usable_features=list(feature_names), y_train=y, train_idx=np.arange(n))
 
     # Global-mask opt-out: the intersection keeps only the ~50% rows where
     # ``midnan`` is observed (MNAR), so the MI estimates are computed on a
     # different, smaller row set.
     obj_gl = _make_self(
         _base_config(auto_base_top_k=2, auto_base_mi_per_pair_mask=False),
-        X, feature_names,
+        X,
+        feature_names,
     )
-    top_gl = _auto_base(obj_gl, df=None, usable_features=list(feature_names),
-                        y_train=y, train_idx=np.arange(n))
+    top_gl = _auto_base(obj_gl, df=None, usable_features=list(feature_names), y_train=y, train_idx=np.arange(n))
 
     # Both must be non-empty and contain ``good``; the per-pair default must
     # rank the strong fully-observed base first.
@@ -249,10 +244,10 @@ def test_auto_base_opt_out_reproduces_global_mask_and_differs_under_nan():
     # so its full ranking must be reproducible/stable across runs.
     obj_gl2 = _make_self(
         _base_config(auto_base_top_k=2, auto_base_mi_per_pair_mask=False),
-        X, feature_names,
+        X,
+        feature_names,
     )
-    top_gl2 = _auto_base(obj_gl2, df=None, usable_features=list(feature_names),
-                         y_train=y, train_idx=np.arange(n))
+    top_gl2 = _auto_base(obj_gl2, df=None, usable_features=list(feature_names), y_train=y, train_idx=np.arange(n))
     assert top_gl == top_gl2, "global-mask opt-out must be deterministic"
 
 
@@ -268,16 +263,12 @@ def test_auto_base_per_pair_logs_mnar_divergence(caplog):
     a = (y * 1.0 + rng.normal(size=n) * 0.5).astype(np.float64)
     b = (y * 0.8 + rng.normal(size=n) * 0.5).astype(np.float64)
     half = n // 2
-    a[:half] = np.nan          # observed on the 2nd half
-    b[half:] = np.nan          # observed on the 1st half
+    a[:half] = np.nan  # observed on the 2nd half
+    b[half:] = np.nan  # observed on the 1st half
     feature_names = ["good", "a", "b"]
     X = np.column_stack([good, a, b])
     cfg = _base_config(auto_base_top_k=2)
     obj = _make_self(cfg, X, feature_names)
-    with caplog.at_level(logging.INFO,
-                         logger="mlframe.training.composite.discovery._auto_base"):
-        _auto_base(obj, df=None, usable_features=feature_names,
-                   y_train=y, train_idx=np.arange(n))
-    assert any("PER-PAIR MI" in r.getMessage() for r in caplog.records), (
-        "expected an MNAR per-pair divergence log line"
-    )
+    with caplog.at_level(logging.INFO, logger="mlframe.training.composite.discovery._auto_base"):
+        _auto_base(obj, df=None, usable_features=feature_names, y_train=y, train_idx=np.arange(n))
+    assert any("PER-PAIR MI" in r.getMessage() for r in caplog.records), "expected an MNAR per-pair divergence log line"

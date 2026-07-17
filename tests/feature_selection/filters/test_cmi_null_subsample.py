@@ -6,12 +6,12 @@ consistent while the ~25-perm within-stratum null on a full-1M raw stops dominat
 cap is applied, is opt-out-able, and yields a decision consistent with the full-n estimate (the perm-null is
 an explicitly random null -> selection-equivalence, not byte-identity).
 """
+
 from __future__ import annotations
 
 import importlib
 
 import numpy as np
-import pytest
 
 MOD = "mlframe.feature_selection.filters._fe_raw_redundancy_helpers"
 
@@ -28,11 +28,12 @@ def test_excess_and_floor_subsample_keeps_drop_decision():
     n = 1_000_000
     y = _codes(rng, n, 4)
     z = _codes(rng, n, 4)
-    redundant = _codes(rng, n, 4)                       # independent of y -> excess ~ 0, below floor
-    relevant = y.copy()                                 # perfectly informative -> excess >> floor
+    redundant = _codes(rng, n, 4)  # independent of y -> excess ~ 0, below floor
+    relevant = y.copy()  # perfectly informative -> excess >> floor
     _orig_dict = dict(m.__dict__)
-    for max_rows in ("250000", "0"):                    # capped, then full-n
+    for max_rows in ("250000", "0"):  # capped, then full-n
         import os
+
         os.environ["MLFRAME_CMI_NULL_MAX_ROWS"] = max_rows
         mm = importlib.reload(m)
         try:
@@ -56,6 +57,7 @@ def test_excess_and_floor_cap_actually_subsamples(monkeypatch):
     try:
         seen = {}
         import mlframe.feature_selection.filters._fe_cmi_redundancy_gate as G
+
         orig = G._conditional_perm_null
 
         def spy(cand_bin, y_bin, z_support, **k):

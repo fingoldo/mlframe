@@ -38,17 +38,26 @@ def _build_chained_recipes():
     # Two leaf recipes over raw columns, mirroring the production shape
     # add(neg(A), abs(B)) and mul(reciproc(C), abs(D)).
     recipe_a = EngineeredRecipe(
-        name="add(neg(A),abs(B))", kind="unary_binary",
-        src_names=("A", "B"), unary_names=("neg", "abs"), binary_name="add",
+        name="add(neg(A),abs(B))",
+        kind="unary_binary",
+        src_names=("A", "B"),
+        unary_names=("neg", "abs"),
+        binary_name="add",
     )
     recipe_b = EngineeredRecipe(
-        name="mul(reciproc(C),abs(D))", kind="unary_binary",
-        src_names=("C", "D"), unary_names=("reciproc", "abs"), binary_name="mul",
+        name="mul(reciproc(C),abs(D))",
+        kind="unary_binary",
+        src_names=("C", "D"),
+        unary_names=("reciproc", "abs"),
+        binary_name="mul",
     )
     # The CHAINED recipe: its two operands are the two recipes above, by NAME -- not raw columns.
     recipe_c = EngineeredRecipe(
-        name="add(add(neg(A),abs(B)),mul(reciproc(C),abs(D)))", kind="unary_binary",
-        src_names=(recipe_a.name, recipe_b.name), unary_names=("identity", "identity"), binary_name="add",
+        name="add(add(neg(A),abs(B)),mul(reciproc(C),abs(D)))",
+        kind="unary_binary",
+        src_names=(recipe_a.name, recipe_b.name),
+        unary_names=("identity", "identity"),
+        binary_name="add",
     )
     return recipe_a, recipe_b, recipe_c
 

@@ -11,6 +11,7 @@ measured value per CLAUDE.md. Seeds are fixed everywhere; the default 3-member p
 few seconds, so heavier multi-call legs carry @pytest.mark.slow with a fast representative kept
 via MLFRAME_FAST=1 (the conftest fast-mode collection hook skips slow-marked tests).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -38,8 +39,10 @@ from tests.conftest import fast_n_estimators
 _SIGNAL_WEIGHTS = np.array([1.5, -1.2, 1.0, 0.9])
 
 
+pytestmark = pytest.mark.timeout(
+    120
+)  # untimed biz_val real-fit tier: surface a hang fast (the multi-shadow-trial RF/Ridge/kNN panel legitimately needs >60s; global --timeout=600 is a coarse backstop)
 
-pytestmark = pytest.mark.timeout(120)  # untimed biz_val real-fit tier: surface a hang fast (the multi-shadow-trial RF/Ridge/kNN panel legitimately needs >60s; global --timeout=600 is a coarse backstop)
 
 def _reg_data(seed: int = 0, n: int = 1500, p_sig: int = 4, p_noise: int = 20):
     """Continuous target ``y = z @ [1.5,-1.2,1.0,0.9] + 0.3*noise``."""
@@ -135,9 +138,7 @@ def test_hetero_vote_regression_keeps_signal_drops_noise():
     Floor pins all-4-signal recovery and noise admission <= 1 (5-15% headroom over the
     measured 0 noise)."""
     X, y, signal, noise = _reg_data(seed=0)
-    accepted, info = heterogeneous_relevance_vote(
-        X, y, classification=False, n_shadow_trials=3, vote_threshold=0.5, random_state=0
-    )
+    accepted, info = heterogeneous_relevance_vote(X, y, classification=False, n_shadow_trials=3, vote_threshold=0.5, random_state=0)
     acc = set(accepted)
     for s in signal:
         assert s in acc, f"regression panel dropped signal {s} (vote_fraction={info['vote_fraction'][s]})"
@@ -155,8 +156,14 @@ def test_hetero_vote_regression_skill_weights_are_r2_derived():
     signals still survive."""
     X, y, signal, _ = _reg_data(seed=0)
     accepted, info = heterogeneous_relevance_vote(
-        X, y, classification=False, n_shadow_trials=3, weight_by_cv_skill=True,
-        cv_skill_folds=3, cv_skill_floor=0.05, random_state=0,
+        X,
+        y,
+        classification=False,
+        n_shadow_trials=3,
+        weight_by_cv_skill=True,
+        cv_skill_folds=3,
+        cv_skill_floor=0.05,
+        random_state=0,
     )
     for s in signal:
         assert s in set(accepted), f"R2-skill-weighted regression vote dropped signal {s}"
@@ -175,9 +182,7 @@ def test_hetero_vote_ndarray_input_uses_xN_names():
     """A bare ndarray X yields synthetic ``x{i}`` names in both accepted and info['vote_fraction']."""
     X, y, sig_idx = _clf_data_ndarray(seed=0)
     p = X.shape[1]
-    accepted, info = heterogeneous_relevance_vote(
-        X, y, classification=True, n_shadow_trials=3, vote_threshold=0.5, random_state=0
-    )
+    accepted, info = heterogeneous_relevance_vote(X, y, classification=True, n_shadow_trials=3, vote_threshold=0.5, random_state=0)
     expected_names = {f"x{i}" for i in range(p)}
     assert set(info["vote_fraction"]) == expected_names
     assert set(accepted) <= expected_names
@@ -198,9 +203,7 @@ def test_hetero_vote_custom_two_model_panel():
         "rf": RandomForestClassifier(n_estimators=fast_n_estimators(120), random_state=0),
         "lr": make_pipeline(StandardScaler(), LogisticRegression(max_iter=2000)),
     }
-    accepted, info = heterogeneous_relevance_vote(
-        X, y, classification=True, models=panel, n_shadow_trials=3, vote_threshold=0.5, random_state=0
-    )
+    accepted, info = heterogeneous_relevance_vote(X, y, classification=True, models=panel, n_shadow_trials=3, vote_threshold=0.5, random_state=0)
     assert info["n_models"] == 2
     assert set(info["model_weights"]) == {"rf", "lr"}
     # The 2-member panel still recovers the strong marginal signals.
@@ -220,16 +223,9 @@ def test_hetero_vote_percentile_monotonicity():
     Same data + seed: percentile=50 accepts a superset of percentile=100. Measured (seed=0):
     pct100 accepts the 4 signals; pct50 accepts those 4 plus ~11 extra columns -- a strict superset."""
     X, y, _, _ = _clf_data(seed=0)
-    acc100, _ = heterogeneous_relevance_vote(
-        X, y, classification=True, n_shadow_trials=3, percentile=100, vote_threshold=0.5, random_state=0
-    )
-    acc50, _ = heterogeneous_relevance_vote(
-        X, y, classification=True, n_shadow_trials=3, percentile=50, vote_threshold=0.5, random_state=0
-    )
-    assert set(acc100) <= set(acc50), (
-        f"percentile=50 is not a superset of percentile=100: "
-        f"only-in-100={sorted(set(acc100) - set(acc50))}"
-    )
+    acc100, _ = heterogeneous_relevance_vote(X, y, classification=True, n_shadow_trials=3, percentile=100, vote_threshold=0.5, random_state=0)
+    acc50, _ = heterogeneous_relevance_vote(X, y, classification=True, n_shadow_trials=3, percentile=50, vote_threshold=0.5, random_state=0)
+    assert set(acc100) <= set(acc50), f"percentile=50 is not a superset of percentile=100: only-in-100={sorted(set(acc100) - set(acc50))}"
     # The lower bar genuinely admits MORE (measured ~11 extra noise columns); pin a non-trivial gap.
     assert len(acc50) > len(acc100)
 
@@ -257,14 +253,26 @@ def test_hetero_vote_vote_threshold_ge_boundary_is_inclusive():
     exactly 2/3 via the stub panel: accepted at vote_threshold=2/3, rejected at 2/3 + 1e-9."""
     X, y, panel = _stub_panel_three_cols()
     acc_at, info_at = heterogeneous_relevance_vote(
-        X, y, classification=True, models=panel, n_shadow_trials=1, percentile=100,
-        vote_threshold=2.0 / 3.0, random_state=0,
+        X,
+        y,
+        classification=True,
+        models=panel,
+        n_shadow_trials=1,
+        percentile=100,
+        vote_threshold=2.0 / 3.0,
+        random_state=0,
     )
     assert info_at["vote_fraction"]["x0"] == pytest.approx(2.0 / 3.0)
     assert "x0" in acc_at, "x0 (vote_frac=2/3) must be accepted at vote_threshold=2/3 (>= is inclusive)"
     acc_above, _ = heterogeneous_relevance_vote(
-        X, y, classification=True, models=panel, n_shadow_trials=1, percentile=100,
-        vote_threshold=2.0 / 3.0 + 1e-9, random_state=0,
+        X,
+        y,
+        classification=True,
+        models=panel,
+        n_shadow_trials=1,
+        percentile=100,
+        vote_threshold=2.0 / 3.0 + 1e-9,
+        random_state=0,
     )
     assert "x0" not in acc_above, "x0 (vote_frac=2/3) must be rejected just above the 2/3 threshold"
 
@@ -300,22 +308,33 @@ def test_hetero_vote_per_model_hit_frac_boundary_is_inclusive():
     panel = {"alt": _AltTrialFI()}
     # random_state=2 is the verified config where the parity fingerprint realizes a 1-of-2 hit-rate.
     _, info_half = heterogeneous_relevance_vote(
-        X, y, classification=True, models=panel, n_shadow_trials=2, percentile=100,
-        per_model_hit_frac=0.5, vote_threshold=0.5, random_state=2,
+        X,
+        y,
+        classification=True,
+        models=panel,
+        n_shadow_trials=2,
+        percentile=100,
+        per_model_hit_frac=0.5,
+        vote_threshold=0.5,
+        random_state=2,
     )
     # Single-member panel -> vote_frac == member pass (0 or 1). At hit-rate 0.5 with the inclusive
     # >= boundary the member passes, so vote_frac is 1.0.
     assert info_half["vote_fraction"]["x0"] == 1.0, (
-        f"a 1-of-2 hit-rate must PASS per_model_hit_frac=0.5 (>= is inclusive); "
-        f"got {info_half['vote_fraction']['x0']}"
+        f"a 1-of-2 hit-rate must PASS per_model_hit_frac=0.5 (>= is inclusive); got {info_half['vote_fraction']['x0']}"
     )
     _, info_strict = heterogeneous_relevance_vote(
-        X, y, classification=True, models=panel, n_shadow_trials=2, percentile=100,
-        per_model_hit_frac=0.6, vote_threshold=0.5, random_state=2,
+        X,
+        y,
+        classification=True,
+        models=panel,
+        n_shadow_trials=2,
+        percentile=100,
+        per_model_hit_frac=0.6,
+        vote_threshold=0.5,
+        random_state=2,
     )
-    assert info_strict["vote_fraction"]["x0"] == 0.0, (
-        "a 1-of-2 hit-rate must FAIL per_model_hit_frac=0.6 (0.5 < 0.6)"
-    )
+    assert info_strict["vote_fraction"]["x0"] == 0.0, "a 1-of-2 hit-rate must FAIL per_model_hit_frac=0.6 (0.5 < 0.6)"
 
 
 # ===========================================================================
@@ -356,28 +375,35 @@ def test_biz_val_hetero_vote_skill_weighting_rescues_blind_vetoed_signal():
     X, y, signal, panel = _two_signal_with_blind_panel(seed=0)
 
     acc_eq, info_eq = heterogeneous_relevance_vote(
-        X, y, classification=True, models=panel, n_shadow_trials=3, vote_threshold=0.7,
-        weight_by_cv_skill=False, random_state=0,
+        X,
+        y,
+        classification=True,
+        models=panel,
+        n_shadow_trials=3,
+        vote_threshold=0.7,
+        weight_by_cv_skill=False,
+        random_state=0,
     )
     for s in signal:
-        assert info_eq["vote_fraction"][s] == pytest.approx(2.0 / 3.0), (
-            f"equal-weight vote_frac for {s} should be 2/3, got {info_eq['vote_fraction'][s]}"
-        )
+        assert info_eq["vote_fraction"][s] == pytest.approx(2.0 / 3.0), f"equal-weight vote_frac for {s} should be 2/3, got {info_eq['vote_fraction'][s]}"
         assert s not in set(acc_eq), f"under equal weighting {s} must be REJECTED (2/3 < 0.7)"
 
     acc_sk, info_sk = heterogeneous_relevance_vote(
-        X, y, classification=True, models=panel, n_shadow_trials=3, vote_threshold=0.7,
-        weight_by_cv_skill=True, cv_skill_folds=3, cv_skill_floor=0.05, random_state=0,
+        X,
+        y,
+        classification=True,
+        models=panel,
+        n_shadow_trials=3,
+        vote_threshold=0.7,
+        weight_by_cv_skill=True,
+        cv_skill_folds=3,
+        cv_skill_floor=0.05,
+        random_state=0,
     )
     for s in signal:
-        assert info_sk["vote_fraction"][s] >= 0.85, (
-            f"skill-weighted vote_frac for {s} should clear 0.85 (measured ~0.935), "
-            f"got {info_sk['vote_fraction'][s]}"
-        )
+        assert info_sk["vote_fraction"][s] >= 0.85, f"skill-weighted vote_frac for {s} should clear 0.85 (measured ~0.935), got {info_sk['vote_fraction'][s]}"
         assert s in set(acc_sk), f"under skill weighting {s} must be ACCEPTED (~0.935 >= 0.7)"
-    assert info_sk["model_weights"]["blind"] == pytest.approx(0.05), (
-        "the near-chance blind member must be pinned at cv_skill_floor=0.05"
-    )
+    assert info_sk["model_weights"]["blind"] == pytest.approx(0.05), "the near-chance blind member must be pinned at cv_skill_floor=0.05"
 
 
 def test_biz_val_hetero_vote_skill_weighting_rescues_blind_vetoed_signal_fast():
@@ -385,18 +411,31 @@ def test_biz_val_hetero_vote_skill_weighting_rescues_blind_vetoed_signal_fast():
     still exercises the equal-vs-skill decision flip on at least one signal column."""
     X, y, signal, panel = _two_signal_with_blind_panel(seed=0, n=700)
     acc_eq, info_eq = heterogeneous_relevance_vote(
-        X, y, classification=True, models=panel, n_shadow_trials=2, vote_threshold=0.7,
-        weight_by_cv_skill=False, random_state=0,
+        X,
+        y,
+        classification=True,
+        models=panel,
+        n_shadow_trials=2,
+        vote_threshold=0.7,
+        weight_by_cv_skill=False,
+        random_state=0,
     )
     acc_sk, info_sk = heterogeneous_relevance_vote(
-        X, y, classification=True, models=panel, n_shadow_trials=2, vote_threshold=0.7,
-        weight_by_cv_skill=True, cv_skill_folds=3, cv_skill_floor=0.05, random_state=0,
+        X,
+        y,
+        classification=True,
+        models=panel,
+        n_shadow_trials=2,
+        vote_threshold=0.7,
+        weight_by_cv_skill=True,
+        cv_skill_folds=3,
+        cv_skill_floor=0.05,
+        random_state=0,
     )
     # At least one signal flips REJECT->ACCEPT; the blind member sits at the floor.
     flipped = [s for s in signal if s not in set(acc_eq) and s in set(acc_sk)]
     assert flipped, (
-        f"skill weighting must flip >=1 signal from rejected to accepted; "
-        f"eq={sorted(set(acc_eq) & set(signal))} sk={sorted(set(acc_sk) & set(signal))}"
+        f"skill weighting must flip >=1 signal from rejected to accepted; eq={sorted(set(acc_eq) & set(signal))} sk={sorted(set(acc_sk) & set(signal))}"
     )
     assert info_sk["model_weights"]["blind"] == pytest.approx(0.05)
     assert set(info_eq["model_weights"].values()) == {1.0}
@@ -426,8 +465,7 @@ def test_importance_permutation_fallback_ranks_signal_first():
     assert imp.shape == (X.shape[1],)
     assert np.all(np.isfinite(imp))
     assert imp[0] > imp[1:].max(), (
-        f"permutation-fallback importance of the true signal x0 ({imp[0]:.4f}) must strictly "
-        f"exceed all others (max {imp[1:].max():.4f})"
+        f"permutation-fallback importance of the true signal x0 ({imp[0]:.4f}) must strictly exceed all others (max {imp[1:].max():.4f})"
     )
 
 
@@ -484,11 +522,7 @@ def test_hetero_vote_different_seed_changes_vote_fraction():
     (a low shadow bar -> many borderline noise columns) the seed change reliably moves several
     fractions; measured: seed 0 vs seed 42 differ on multiple columns at percentile=100 too."""
     X, y, _, _ = _clf_data(seed=0)
-    _, i0 = heterogeneous_relevance_vote(
-        X, y, classification=True, n_shadow_trials=3, percentile=50, vote_threshold=0.5, random_state=0
-    )
-    _, i42 = heterogeneous_relevance_vote(
-        X, y, classification=True, n_shadow_trials=3, percentile=50, vote_threshold=0.5, random_state=42
-    )
+    _, i0 = heterogeneous_relevance_vote(X, y, classification=True, n_shadow_trials=3, percentile=50, vote_threshold=0.5, random_state=0)
+    _, i42 = heterogeneous_relevance_vote(X, y, classification=True, n_shadow_trials=3, percentile=50, vote_threshold=0.5, random_state=42)
     diffs = [k for k in i0["vote_fraction"] if i0["vote_fraction"][k] != i42["vote_fraction"][k]]
     assert diffs, "different random_state must change vote_fraction on >=1 column (random_state ignored?)"

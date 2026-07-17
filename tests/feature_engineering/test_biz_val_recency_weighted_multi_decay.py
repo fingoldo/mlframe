@@ -48,9 +48,7 @@ def test_biz_val_multi_decay_combined_features_beat_either_single_decay():
     n_entities, n_hist = 6000, 200
     values, group_ids, order, label = _make_dual_signal_data(n_entities, n_hist, seed=0)
 
-    feats = per_group_recency_weighted_agg(
-        values, group_ids, agg="mean", order=order, scheme="poly", params=[FAST_PARAM, SLOW_PARAM], broadcast=False
-    )
+    feats = per_group_recency_weighted_agg(values, group_ids, agg="mean", order=order, scheme="poly", params=[FAST_PARAM, SLOW_PARAM], broadcast=False)
     fast_feat, slow_feat = feats[:, 0], feats[:, 1]
 
     idx = np.arange(n_entities)

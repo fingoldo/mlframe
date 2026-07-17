@@ -14,7 +14,7 @@ Each test pins exactly one contract that lives at the seam between modules so a 
 
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 import time
 import warnings
 
@@ -26,7 +26,6 @@ from sklearn.linear_model import LogisticRegression
 
 from mlframe.feature_selection.filters import MRMR, CatFEConfig
 from mlframe.feature_selection.filters.engineered_recipes import (
-    EngineeredRecipe,
     apply_recipe,
     build_unary_binary_recipe,
 )
@@ -116,14 +115,12 @@ def test_mrmr_rfecv_pipeline_no_feature_names_drift(small_classification_df):
     # handed it (no renaming, no positional drift). Subset semantics catch the renaming/drift bug while tolerating the documented dedup step.
     rfecv_names = list(rfecv.feature_names_in_)
     assert set(rfecv_names).issubset(set(mrmr_names)), (
-        f"RFECV.feature_names_in_ ({rfecv_names}) contains names "
-        f"MRMR.get_feature_names_out() did not emit ({mrmr_names}); "
-        f"name drift occurred in the chain."
+        f"RFECV.feature_names_in_ ({rfecv_names}) contains names MRMR.get_feature_names_out() did not emit ({mrmr_names}); name drift occurred in the chain."
     )
     # Order alignment: the names RFECV kept appear in the same relative order as in MRMR's output.
     kept_order = [n for n in mrmr_names if n in set(rfecv_names)]
     assert kept_order == rfecv_names, (
-        f"Order drift: MRMR emitted {mrmr_names}, RFECV recorded {rfecv_names}; " f"expected RFECV order to match MRMR's (filtered) order {kept_order}."
+        f"Order drift: MRMR emitted {mrmr_names}, RFECV recorded {rfecv_names}; expected RFECV order to match MRMR's (filtered) order {kept_order}."
     )
 
 
@@ -211,7 +208,7 @@ def test_mrmr_fit_cache_shared_across_instances(small_classification_df):
     # Second fit is materially faster. Use a generous 2x threshold (the actual speedup is ~10-100x on a cache hit since cat-FE + screening + permutation are
     # all skipped) with an absolute floor: if first fit was already <50ms there's no meaningful work left to skip and the ratio is dominated by replay overhead.
     if t_first > 0.05:
-        assert t_second * 2 <= t_first, f"Cache hit did not deliver >=2x speedup: " f"first={t_first*1000:.1f}ms second={t_second*1000:.1f}ms"
+        assert t_second * 2 <= t_first, f"Cache hit did not deliver >=2x speedup: first={t_first * 1000:.1f}ms second={t_second * 1000:.1f}ms"
 
     MRMR._FIT_CACHE.clear()
 
@@ -368,10 +365,12 @@ def test_engineered_recipe_serializes_via_pickle():
     )
 
     rng = np.random.default_rng(3)
-    X = pd.DataFrame({
-        "a": rng.normal(size=64).astype(np.float32),
-        "b": rng.normal(size=64).astype(np.float32),
-    })
+    X = pd.DataFrame(
+        {
+            "a": rng.normal(size=64).astype(np.float32),
+            "b": rng.normal(size=64).astype(np.float32),
+        }
+    )
     pre = apply_recipe(recipe, X)
 
     restored = pickle.loads(pickle.dumps(recipe))  # nosec B301 -- round-trip of a locally-created, trusted object
@@ -419,4 +418,4 @@ def test_get_feature_names_out_consistent_with_support_(small_classification_df)
     # transform() column order must match get_feature_names_out().
     out = mrmr.transform(X)
     if isinstance(out, pd.DataFrame):
-        assert list(out.columns) == list(actual), f"transform column order {list(out.columns)} != " f"get_feature_names_out() {list(actual)}"
+        assert list(out.columns) == list(actual), f"transform column order {list(out.columns)} != get_feature_names_out() {list(actual)}"

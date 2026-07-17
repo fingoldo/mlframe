@@ -10,6 +10,7 @@ regression would break.
 The companion ``test_predict_fs_recovery_behavioral.py`` pins the recovery branch itself (when transform genuinely
 fails); here the assertion is the opposite: on a clean round trip that branch must stay silent.
 """
+
 from __future__ import annotations
 
 import logging
@@ -30,8 +31,9 @@ def _save_threads_zero(model, file, zstd_kwargs=None, verbose=0, lean=False, dur
     # The local Windows zstandard build raises ``ValueError: flush of closed file`` inside io.save_mlframe_model's
     # atomic_write_bytes (flush after the stream_writer context closed the file). io.py is in the locked-scope of
     # the parallel refactor, so the test writes the .dump directly (threads=0, no atomic rename) -- acceptable here.
-    import dill
+    import dill  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
     import zstandard as zstd
+
     try:
         with open(file, "wb") as f:
             with zstd.ZstdCompressor(level=4, write_checksum=True, threads=0).stream_writer(f) as zf:
@@ -39,6 +41,7 @@ def _save_threads_zero(model, file, zstd_kwargs=None, verbose=0, lean=False, dur
         return True
     except Exception:
         import traceback
+
         traceback.print_exc()
         return False
 
@@ -70,14 +73,23 @@ def _fs_config(fe_on: bool):
 
 def _train_to_disk(df, tmp, fe_on):
     from unittest.mock import patch
+
     # _phase_finalize imports save_mlframe_model at module level (patch its bound ref); _setup_helpers_metadata
     # imports it lazily inside a function (patch the source io module so the lazy resolution picks up the stub).
-    with patch("mlframe.training.core._phase_finalize.save_mlframe_model", side_effect=_save_threads_zero), \
-         patch("mlframe.training.io.save_mlframe_model", side_effect=_save_threads_zero):
+    with (
+        patch("mlframe.training.core._phase_finalize.save_mlframe_model", side_effect=_save_threads_zero),
+        patch("mlframe.training.io.save_mlframe_model", side_effect=_save_threads_zero),
+    ):
         models, metadata = train_mlframe_models_suite(
-            df=df, target_name="rt", model_name="fsmodel", features_and_targets_extractor=_fte(),
-            mlframe_models=["lgb"], hyperparams_config={"iterations": 15}, use_ordinary_models=True,
-            use_mlframe_ensembles=False, verbose=0,
+            df=df,
+            target_name="rt",
+            model_name="fsmodel",
+            features_and_targets_extractor=_fte(),
+            mlframe_models=["lgb"],
+            hyperparams_config={"iterations": 15},
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            verbose=0,
             output_config=OutputConfig(data_dir=str(tmp), models_dir="models", save_charts=False),
             feature_selection_config=_fs_config(fe_on),
         )
@@ -94,8 +106,7 @@ def _assert_roundtrip_parity(df, tmp, fe_on, caplog):
     models_mem, meta_mem = _train_to_disk(df, tmp, fe_on)
     assert models_mem, "training returned empty models"
 
-    res_mem = predict_from_models(df=df, models=models_mem, metadata=meta_mem,
-                                  features_and_targets_extractor=_fte(), return_probabilities=True, verbose=0)
+    res_mem = predict_from_models(df=df, models=models_mem, metadata=meta_mem, features_and_targets_extractor=_fte(), return_probabilities=True, verbose=0)
     fs_keys = _fs_branch_keys(res_mem["probabilities"])
     assert fs_keys, f"no FS-branch (_Pipeline) key; got {list(res_mem['probabilities'])}"
 
@@ -104,8 +115,9 @@ def _assert_roundtrip_parity(df, tmp, fe_on, caplog):
     assert models_disk, f"load_mlframe_suite returned empty from {models_path}: {os.listdir(models_path)}"
 
     with caplog.at_level(logging.WARNING):
-        res_disk = predict_from_models(df=df, models=models_disk, metadata=meta_disk,
-                                       features_and_targets_extractor=_fte(), return_probabilities=True, verbose=0)
+        res_disk = predict_from_models(
+            df=df, models=models_disk, metadata=meta_disk, features_and_targets_extractor=_fte(), return_probabilities=True, verbose=0
+        )
 
     disk_keys = _fs_branch_keys(res_disk["probabilities"])
     assert disk_keys, f"FS-branch key vanished after reload; got {list(res_disk['probabilities'])}"
@@ -114,12 +126,17 @@ def _assert_roundtrip_parity(df, tmp, fe_on, caplog):
         np.testing.assert_allclose(
             np.asarray(res_mem["probabilities"][k], dtype=float),
             np.asarray(res_disk["probabilities"][k], dtype=float),
-            rtol=1e-6, atol=1e-9,
-            err_msg=f"predict diverged across save/load for FS-branch model {k} (fit-state lost)")
+            rtol=1e-6,
+            atol=1e-9,
+            err_msg=f"predict diverged across save/load for FS-branch model {k} (fit-state lost)",
+        )
 
-    recovery = [r.getMessage() for r in caplog.records
-                if "pre_pipeline" in r.getMessage().lower()
-                and ("skip" in r.getMessage().lower() or "fall" in r.getMessage().lower() or "recover" in r.getMessage().lower())]
+    recovery = [
+        r.getMessage()
+        for r in caplog.records
+        if "pre_pipeline" in r.getMessage().lower()
+        and ("skip" in r.getMessage().lower() or "fall" in r.getMessage().lower() or "recover" in r.getMessage().lower())
+    ]
     assert not recovery, f"reloaded selector triggered the predict-time recovery fallback (fit-state not preserved): {recovery}"
 
 

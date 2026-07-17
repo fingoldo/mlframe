@@ -7,6 +7,7 @@ Covers the two integration shapes:
    func / inverse_func pair (base transform) and via transformer= (unary),
    plus the get_feature_names_out passthrough and clone / pickle round-trips.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -27,6 +28,7 @@ from mlframe.training.composite.sklearn_compat import (
 
 # ---- smoke import ----------------------------------------------------
 
+
 def test_module_smoke_import():
     import importlib
 
@@ -37,6 +39,7 @@ def test_module_smoke_import():
 
 
 # ---- fixtures --------------------------------------------------------
+
 
 def _synth(n: int = 400, seed: int = 0):
     rng = np.random.default_rng(seed)
@@ -49,6 +52,7 @@ def _synth(n: int = 400, seed: int = 0):
 
 
 # ---- path 1: make_composite_regressor --------------------------------
+
 
 def test_make_composite_regressor_returns_estimator():
     reg = make_composite_regressor(LinearRegression(), "diff", "base")
@@ -75,9 +79,7 @@ def test_make_composite_regressor_unary_no_base_ok():
 
 
 def test_make_composite_regressor_passes_through_kwargs():
-    reg = make_composite_regressor(
-        LinearRegression(), "diff", "base", fallback_predict="nan", drop_invalid_rows=False
-    )
+    reg = make_composite_regressor(LinearRegression(), "diff", "base", fallback_predict="nan", drop_invalid_rows=False)
     assert reg.fallback_predict == "nan"
     assert reg.drop_invalid_rows is False
 
@@ -113,6 +115,7 @@ def test_make_composite_regressor_clone_roundtrips():
 
 
 # ---- path 2: CompositeTargetTransformer ------------------------------
+
 
 def test_transformer_forward_inverse_roundtrip_base():
     X, y = _synth()
@@ -187,12 +190,12 @@ def test_transformer_clone_roundtrips():
 
 
 def test_transformer_pickle_roundtrips():
-    import pickle
+    import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
     X, y = _synth()
     tr = CompositeTargetTransformer("diff", "base")
     tr.fit(y, X)
-    tr2 = pickle.loads(pickle.dumps(tr))
+    tr2 = pickle.loads(pickle.dumps(tr))  # nosec B301 -- round-trip of a locally-created, trusted object
     assert np.allclose(tr2.transform(y), tr.transform(y))
 
 
@@ -249,6 +252,7 @@ def test_transformer_replay_row_count_mismatch_raises():
 
 # ---- biz_value: composite target measurably beats raw on a base-dominated DGP ----
 
+
 def test_biz_val_composite_transformer_beats_identity_on_base_dominated_target():
     """On a target that is ~base + small residual, modelling the diff residual
     (composite target) yields a much lower holdout RMSE than learning y directly
@@ -277,7 +281,4 @@ def test_biz_val_composite_transformer_beats_identity_on_base_dominated_target()
     base_model = LinearRegression().fit(Xftr, ytr)
     rmse_id = float(np.sqrt(np.mean((base_model.predict(Xfte) - yte) ** 2)))
 
-    assert rmse_comp < rmse_id / 2.0, (
-        f"composite diff RMSE {rmse_comp:.4f} should be < half the identity "
-        f"RMSE {rmse_id:.4f} on a base-dominated target"
-    )
+    assert rmse_comp < rmse_id / 2.0, f"composite diff RMSE {rmse_comp:.4f} should be < half the identity RMSE {rmse_id:.4f} on a base-dominated target"

@@ -16,6 +16,7 @@ Two legs:
       when engineered features are produced. Engineered survivors are counted toward the ceiling, never
       allowed to push the total past it.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -63,8 +64,13 @@ def test_pgn_total_respects_ceiling_with_engineered_features():
     ys = pd.Series(y, name="y")
 
     m = MRMR(
-        min_relevance_gain=0.0, cv=3, run_additional_rfecv_minutes=False,
-        full_npermutations=3, random_seed=0, min_features_fallback=1, verbose=False,
+        min_relevance_gain=0.0,
+        cv=3,
+        run_additional_rfecv_minutes=False,
+        full_npermutations=3,
+        random_seed=0,
+        min_features_fallback=1,
+        verbose=False,
     )
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")

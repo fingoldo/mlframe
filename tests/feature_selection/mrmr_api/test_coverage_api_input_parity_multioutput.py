@@ -10,6 +10,7 @@ Two gaps addressed:
    per-column sub-fit aggregation (sets ``multioutput_strategy_`` + ``multioutput_supports_``),
    while 'joint'/None treat a 2D y as a single joint target (legacy single-target path).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -33,8 +34,7 @@ def _xy(seed: int = 5, n: int = 160):
 
 
 def _fast(**kw):
-    base = dict(full_npermutations=5, baseline_npermutations=3, n_jobs=1, verbose=0,
-                fe_fast_search=False, interactions_max_order=1, random_seed=9)
+    base = dict(full_npermutations=5, baseline_npermutations=3, n_jobs=1, verbose=0, fe_fast_search=False, interactions_max_order=1, random_seed=9)
     base.update(kw)
     return MRMR(**base)
 

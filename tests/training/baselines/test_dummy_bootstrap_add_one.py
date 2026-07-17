@@ -5,6 +5,7 @@ strongest predictor wins every resample -- an impossible certainty (the observed
 itself one draw under the resampling distribution). The add-one form ``(#wins + 1)/(n + 1)``
 keeps a clean sweep strictly below 1.0. This test pins that it can never report 1.0 / 0.0.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -19,8 +20,16 @@ def _run(p_strongest, p_runner, y, n_resamples=200, seed=42):
     table = pd.DataFrame({"val_RMSE": [rmse_s, rmse_r]}, index=["strongest", "runner_up"])
     val_preds = {"strongest": p_strongest, "runner_up": p_runner}
     return _paired_bootstrap_vs_runner_up(
-        "regression", "strongest", "val_RMSE", table,
-        val_preds, val_preds, y, y, n_resamples=n_resamples, seed=seed,
+        "regression",
+        "strongest",
+        "val_RMSE",
+        table,
+        val_preds,
+        val_preds,
+        y,
+        y,
+        n_resamples=n_resamples,
+        seed=seed,
     )
 
 

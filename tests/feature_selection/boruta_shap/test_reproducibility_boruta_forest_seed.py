@@ -1,10 +1,10 @@
 """Regression test for CON5: BorutaShap's default surrogate forest was created with no ``random_state``, so two runs with the same configured ``random_state`` produced
 DIFFERENT forests (the docstring claimed determinism from a fixed seed). The fix passes ``self.random_state`` into RandomForestClassifier/Regressor.
 """
+
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 
 def _make(random_state, classification):

@@ -11,7 +11,7 @@ import torch
 import numpy as np
 import pandas as pd
 import polars as pl
-from hypothesis import given, strategies as st, settings, assume
+from hypothesis import given, strategies as st, settings
 
 import sys
 from pathlib import Path
@@ -96,12 +96,7 @@ class TestTorchDatasetInitialization:
     def test_custom_dtypes(self, sample_numpy_data):
         """Test initialization with custom dtypes."""
         features, labels = sample_numpy_data
-        dataset = TorchDataset(
-            features,
-            labels,
-            features_dtype=torch.float64,
-            labels_dtype=torch.int64
-        )
+        dataset = TorchDataset(features, labels, features_dtype=torch.float64, labels_dtype=torch.int64)
 
         assert dataset.features_dtype == torch.float64
         assert dataset.labels_dtype == torch.int64
@@ -126,12 +121,12 @@ class TestTorchDatasetInitialization:
     def test_cuda_device_initialization(self, sample_numpy_data):
         """Test initialization with CUDA device."""
         features, labels = sample_numpy_data
-        dataset = TorchDataset(features, labels, device='cuda')
+        dataset = TorchDataset(features, labels, device="cuda")
 
-        assert dataset.device == 'cuda'
+        assert dataset.device == "cuda"
         # Features should be preloaded to GPU
-        assert dataset.features.device.type == 'cuda'
-        assert dataset.labels.device.type == 'cuda'
+        assert dataset.features.device.type == "cuda"
+        assert dataset.labels.device.type == "cuda"
 
     def test_cpu_device_initialization(self, sample_numpy_data):
         """Test initialization with CPU device.
@@ -371,10 +366,10 @@ class TestTorchDatasetExtract:
         """Test that extracted data is on correct device."""
         features = np.random.randn(20, 5)
         labels = np.random.randint(0, 2, 20)
-        dataset = TorchDataset(features, labels, device='cpu')
+        dataset = TorchDataset(features, labels, device="cpu")
 
         extracted = dataset._extract(dataset.features, slice(0, 5))
-        assert extracted.device.type == 'cpu'
+        assert extracted.device.type == "cpu"
 
     def test_extract_empty_slice(self):
         """Test extraction with empty slice."""
@@ -422,15 +417,15 @@ class TestTorchDatasetGetItem:
         dataset = TorchDataset(features, labels, batch_size=0)
 
         # First index
-        x0, y0 = dataset[0]
+        x0, _y0 = dataset[0]
         assert x0.shape == (10,)
 
         # Middle index
-        x50, y50 = dataset[50]
+        x50, _y50 = dataset[50]
         assert x50.shape == (10,)
 
         # Last index
-        x99, y99 = dataset[99]
+        x99, _y99 = dataset[99]
         assert x99.shape == (10,)
 
     # --- Batch Mode Tests ---
@@ -463,15 +458,15 @@ class TestTorchDatasetGetItem:
         dataset = TorchDataset(features, labels, batch_size=10)
 
         # Batch 0: samples 0-9
-        x0, y0 = dataset[0]
+        x0, _y0 = dataset[0]
         assert x0.shape == (10, 5)
 
         # Batch 2: samples 20-29
-        x2, y2 = dataset[2]
+        x2, _y2 = dataset[2]
         assert x2.shape == (10, 5)
 
         # Batch 4 (last): samples 40-49
-        x4, y4 = dataset[4]
+        x4, _y4 = dataset[4]
         assert x4.shape == (10, 5)
 
     def test_getitem_batch_mode_no_labels(self):
@@ -491,7 +486,7 @@ class TestTorchDatasetGetItem:
         labels = np.random.randint(0, 2, 10)
         dataset = TorchDataset(features, labels, batch_size=0)
 
-        x, y = dataset[0]
+        _x, _y = dataset[0]
         # Should squeeze only if x.ndim==2 and x.shape[0]==1
         # In this case, x extracted will be shape (1, 5) after slicing
         # So it should be squeezed to (5,)
@@ -502,7 +497,7 @@ class TestTorchDatasetGetItem:
         labels = np.random.randint(0, 2, 50)
         dataset = TorchDataset(features, labels, batch_size=10)
 
-        x, y = dataset[0]
+        x, _y = dataset[0]
         assert x.ndim == 2  # Should not be squeezed
         assert x.shape == (10, 5)
 
@@ -513,7 +508,7 @@ class TestTorchDatasetGetItem:
         features, labels = sample_numpy_data
         dataset = TorchDataset(features, labels, batch_size=32)
 
-        x, y = dataset[0]
+        x, _y = dataset[0]
         assert x.shape[0] == 32
 
     def test_getitem_single_element_batch(self):
@@ -522,7 +517,7 @@ class TestTorchDatasetGetItem:
         labels = np.random.randint(0, 2, 10)
         dataset = TorchDataset(features, labels, batch_size=100)  # Larger than dataset
 
-        x, y = dataset[0]
+        x, _y = dataset[0]
         assert x.shape == (10, 5)  # All samples in one batch
 
     def test_getitem_different_data_types(self):
@@ -531,14 +526,14 @@ class TestTorchDatasetGetItem:
         df = pd.DataFrame(np.random.randn(20, 5))
         labels = pd.Series(np.random.randint(0, 2, 20))
         dataset = TorchDataset(df, labels, batch_size=5)
-        x, y = dataset[0]
+        x, _y = dataset[0]
         assert x.shape == (5, 5)
 
         # Polars
         pldf = pl.DataFrame(np.random.randn(20, 5))
         labels_np = np.random.randint(0, 2, 20)
         dataset = TorchDataset(pldf, labels_np, batch_size=5)
-        x, y = dataset[0]
+        x, _y = dataset[0]
         assert x.shape == (5, 5)
 
     # --- Integration Tests ---
@@ -551,7 +546,7 @@ class TestTorchDatasetGetItem:
 
         total_samples = 0
         for i in range(len(dataset)):
-            x, y = dataset[i]
+            x, _y = dataset[i]
             total_samples += x.shape[0]
 
         assert total_samples == 50
@@ -563,7 +558,7 @@ class TestTorchDatasetGetItem:
         dataset = TorchDataset(features, labels, batch_size=0)
 
         for i in range(len(dataset)):
-            x, y = dataset[i]
+            x, _y = dataset[i]
             assert x.shape == (5,)
 
     def test_dataloader_integration(self):
@@ -595,9 +590,7 @@ class TestTorchDatasetProperties:
     """Property-based tests for TorchDataset."""
 
     @given(
-        n_samples=st.integers(min_value=10, max_value=200),
-        n_features=st.integers(min_value=1, max_value=20),
-        batch_size=st.integers(min_value=1, max_value=50)
+        n_samples=st.integers(min_value=10, max_value=200), n_features=st.integers(min_value=1, max_value=20), batch_size=st.integers(min_value=1, max_value=50)
     )
     @settings(max_examples=50, deadline=None)
     def test_property_batch_coverage(self, n_samples, n_features, batch_size):
@@ -608,15 +601,12 @@ class TestTorchDatasetProperties:
 
         total_samples = 0
         for i in range(len(dataset)):
-            x, y = dataset[i]
+            x, _y = dataset[i]
             total_samples += x.shape[0]
 
         assert total_samples == n_samples
 
-    @given(
-        n_samples=st.integers(min_value=1, max_value=100),
-        n_features=st.integers(min_value=1, max_value=10)
-    )
+    @given(n_samples=st.integers(min_value=1, max_value=100), n_features=st.integers(min_value=1, max_value=10))
     @settings(max_examples=30, deadline=None)
     def test_property_sample_mode_shapes(self, n_samples, n_features):
         """Property: Sample mode should return correct shapes."""
@@ -626,13 +616,10 @@ class TestTorchDatasetProperties:
 
         assert len(dataset) == n_samples
 
-        x, y = dataset[0]
+        x, _y = dataset[0]
         assert x.shape == (n_features,)
 
-    @given(
-        n_samples=st.integers(min_value=10, max_value=100),
-        batch_size=st.integers(min_value=1, max_value=50)
-    )
+    @given(n_samples=st.integers(min_value=10, max_value=100), batch_size=st.integers(min_value=1, max_value=50))
     @settings(max_examples=30, deadline=None)
     def test_property_batch_count(self, n_samples, batch_size):
         """Property: Batch count should be ceil(n_samples / batch_size)."""
@@ -675,12 +662,12 @@ class TestTorchDatasetMutationTests:
 
         # Sample mode (batch_size=0) - should access single samples
         dataset_sample = TorchDataset(features, labels, batch_size=0)
-        x, y = dataset_sample[0]
+        x, _y = dataset_sample[0]
         assert x.shape == (5,), f"Sample mode should squeeze, got {x.shape}"
 
         # Batch mode (batch_size>0) - should not squeeze
         dataset_batch = TorchDataset(features, labels, batch_size=5)
-        x, y = dataset_batch[0]
+        x, _y = dataset_batch[0]
         assert x.shape == (5, 5), f"Batch mode should not squeeze, got {x.shape}"
 
     def test_squeeze_only_when_first_dim_is_one(self):
@@ -695,7 +682,7 @@ class TestTorchDatasetMutationTests:
         dataset = TorchDataset(features, labels, batch_size=0)
 
         # Single sample access - x will be squeezed from (1, 5) -> (5,)
-        x, y = dataset[0]
+        x, _y = dataset[0]
         # The squeeze targets (1, N) -> (N,) for sample mode
         assert x.ndim == 1, f"Expected 1D after squeeze, got {x.ndim}D"
 
@@ -710,7 +697,7 @@ class TestTorchDatasetMutationTests:
         dataset = TorchDataset(features, labels, batch_size=10)
 
         for i in range(len(dataset)):
-            x, y = dataset[i]
+            x, _y = dataset[i]
             assert x.ndim == 2, f"Batch {i}: expected 2D, got {x.ndim}D"
 
 
@@ -763,12 +750,7 @@ class TestTorchDatasetPhase3:
         features = np.random.randn(10, 5).astype(np.float64)
         labels = np.random.randint(0, 2, 10).astype(np.int32)
 
-        dataset = TorchDataset(
-            features, labels,
-            features_dtype=torch.float32,
-            labels_dtype=torch.int64,
-            batch_size=0
-        )
+        dataset = TorchDataset(features, labels, features_dtype=torch.float32, labels_dtype=torch.int64, batch_size=0)
 
         x, y = dataset[0]
         assert x.dtype == torch.float32
@@ -786,7 +768,7 @@ class TestTorchDatasetPhase3:
         dataset = TorchDataset(features, labels, batch_size=10)
 
         assert len(dataset) == 1
-        x, y = dataset[0]
+        x, _y = dataset[0]
         assert x.shape[0] == 3
 
 

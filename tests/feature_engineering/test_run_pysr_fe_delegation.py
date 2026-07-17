@@ -8,6 +8,7 @@ duplicated PySR fit logic with no reuse and emitted a generic
 ``DeprecationWarning`` without action; callers that picked the legacy entry
 silently lost preset / OOF / random_state functionality.
 """
+
 from __future__ import annotations
 
 import sys
@@ -40,11 +41,13 @@ def test_single_target_delegates_to_bruteforce(monkeypatch):
     fake_bruteforce.run_pysr_feature_engineering = fake_run_pysr_feature_engineering
     monkeypatch.setitem(sys.modules, "mlframe.feature_engineering.bruteforce", fake_bruteforce)
 
-    df = pl.DataFrame({
-        "x0": np.arange(10, dtype=np.float64),
-        "x1": np.arange(10, dtype=np.float64) * 2.0,
-        "target_y": np.arange(10, dtype=np.float64),
-    })
+    df = pl.DataFrame(
+        {
+            "x0": np.arange(10, dtype=np.float64),
+            "x1": np.arange(10, dtype=np.float64) * 2.0,
+            "target_y": np.arange(10, dtype=np.float64),
+        }
+    )
 
     from mlframe.feature_engineering.basic import run_pysr_fe
 
@@ -80,11 +83,13 @@ def test_multi_target_keeps_legacy_path(monkeypatch):
     fake_pysr_mod.PySRRegressor = _FakeReg
     monkeypatch.setitem(sys.modules, "pysr", fake_pysr_mod)
 
-    df = pl.DataFrame({
-        "x0": np.arange(5, dtype=np.float64),
-        "target_a": np.arange(5, dtype=np.float64),
-        "target_b": np.arange(5, dtype=np.float64) * 2.0,
-    })
+    df = pl.DataFrame(
+        {
+            "x0": np.arange(5, dtype=np.float64),
+            "target_a": np.arange(5, dtype=np.float64),
+            "target_b": np.arange(5, dtype=np.float64) * 2.0,
+        }
+    )
 
     from mlframe.feature_engineering.basic import run_pysr_fe
 

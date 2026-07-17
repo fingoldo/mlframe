@@ -27,7 +27,7 @@ HARNESS_DIR = Path(__file__).resolve().parent
 if str(HARNESS_DIR) not in sys.path:
     sys.path.insert(0, str(HARNESS_DIR))
 
-from profile_training_core import profile  # type: ignore[import-not-found]  # noqa: E402
+from profile_training_core import profile  # type: ignore[import-not-found]
 
 
 def main() -> int:

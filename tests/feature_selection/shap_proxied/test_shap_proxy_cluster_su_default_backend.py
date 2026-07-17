@@ -17,8 +17,6 @@ Locks:
 
 from __future__ import annotations
 
-import numpy as np
-import pandas as pd
 import pytest
 
 
@@ -120,13 +118,17 @@ def test_precomputed_bins_path_skips_on_the_fly_binning():
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
     X, y, _ = _make_regime(seed=4)
-    artifacts = MRMR(
-        retain_artifacts=True,
-        dcd_enable=False,
-        build_friend_graph=False,
-        cluster_aggregate_enable=False,
-        verbose=0,
-    ).fit(X, y).export_artifacts()
+    artifacts = (
+        MRMR(
+            retain_artifacts=True,
+            dcd_enable=False,
+            build_friend_graph=False,
+            cluster_aggregate_enable=False,
+            verbose=0,
+        )
+        .fit(X, y)
+        .export_artifacts()
+    )
     sps = ShapProxiedFS(precomputed=artifacts, **_common_kwargs()).fit(X, y)
     rep = sps.shap_proxy_report_
     assert rep["clustering"]["backend"] == "su"
@@ -182,7 +184,5 @@ def test_biz_value_recall_conservation_auto_vs_pearson():
     recall_p = _recall(sel_p, roles)
 
     assert recall_su >= recall_p - 1e-9, (
-        f"iter75 recall regression: SU auto={recall_su:.3f} < Pearson={recall_p:.3f}\n"
-        f"  selected_su={sorted(sel_su)}\n"
-        f"  selected_p={sorted(sel_p)}"
+        f"iter75 recall regression: SU auto={recall_su:.3f} < Pearson={recall_p:.3f}\n  selected_su={sorted(sel_su)}\n  selected_p={sorted(sel_p)}"
     )

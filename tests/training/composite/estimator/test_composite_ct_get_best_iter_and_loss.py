@@ -21,6 +21,7 @@ Covers:
   can legitimately be 0 on tiny-residual targets; was silently dropped
   by ``if best_iter:``).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -36,6 +37,7 @@ class TestGetModelBestIterUnwrapsCTE:
 
         class _FakeCTE:
             estimator_ = _InnerWithBestIter()
+
         assert get_model_best_iter(_FakeCTE()) == 137
 
     def test_unwraps_transformed_target_regressor_regressor_attr(self) -> None:
@@ -54,6 +56,7 @@ class TestGetModelBestIterUnwrapsCTE:
             # mimic sklearn TransformedTargetRegressor surface
             regressor_ = _InnerWithBestEpoch()
             # NOTE: no estimator_, no best_iteration_, no best_epoch on self
+
         assert get_model_best_iter(_TTRLike()) == 42
 
     def test_returns_int_not_None_for_iter_zero(self) -> None:
@@ -63,6 +66,7 @@ class TestGetModelBestIterUnwrapsCTE:
 
         class _ZeroIter:
             best_iteration_ = 0
+
         assert get_model_best_iter(_ZeroIter()) == 0
 
     def test_falls_back_to_tree_count_(self) -> None:
@@ -72,6 +76,7 @@ class TestGetModelBestIterUnwrapsCTE:
 
         class _NoESCatBoost:
             tree_count_ = 250
+
         assert get_model_best_iter(_NoESCatBoost()) == 250
 
     def test_prefers_best_iteration_underscore_first(self) -> None:
@@ -80,6 +85,7 @@ class TestGetModelBestIterUnwrapsCTE:
         class _BothAttrs:
             best_iteration = 999
             best_iteration_ = 42
+
         assert get_model_best_iter(_BothAttrs()) == 42
 
     def test_returns_None_when_nothing_exposed(self) -> None:
@@ -87,17 +93,20 @@ class TestGetModelBestIterUnwrapsCTE:
 
         class _NoIter:
             pass
+
         assert get_model_best_iter(_NoIter()) is None
 
 
 class TestUpdateModelNameShowsIterZero:
     def test_iter_zero_appears_in_name(self) -> None:
         from mlframe.training._data_helpers import _update_model_name_after_training
+
         name = _update_model_name_after_training("M", 100, "", best_iter=0)
         assert "@iter=0" in name
 
     def test_iter_None_suppresses_label(self) -> None:
         from mlframe.training._data_helpers import _update_model_name_after_training
+
         name = _update_model_name_after_training("M", 100, "", best_iter=None)
         assert "@iter=" not in name
 
@@ -107,6 +116,7 @@ class TestXgbHuberSlopeMadCalibrated:
         from mlframe.training.loss_recommendation import (
             recommend_boosting_regression_loss,
         )
+
         rng = np.random.default_rng(42)
         # Heavy-tail T-scale residual: mean ~0, std~13, kurt>>3.
         base = rng.normal(0, 13, 5000)
@@ -119,15 +129,14 @@ class TestXgbHuberSlopeMadCalibrated:
         slope = rec["xgb_extra_params"]["huber_slope"]
         # MAD ~ 0.67*std ~ 8.7; 1.345 * MAD ~ 11.7. Must be MUCH greater
         # than the default 1.0 (which is the bug we're fixing).
-        assert slope > 2.0, (
-            f"huber_slope {slope} too close to default 1.0; MAD calibration didn't fire"
-        )
+        assert slope > 2.0, f"huber_slope {slope} too close to default 1.0; MAD calibration didn't fire"
         assert "mad" in rec
 
     def test_no_huber_extra_params_for_gaussian(self) -> None:
         from mlframe.training.loss_recommendation import (
             recommend_boosting_regression_loss,
         )
+
         rng = np.random.default_rng(42)
         target = rng.normal(0, 1, 5000)
         rec = recommend_boosting_regression_loss(target)
@@ -140,6 +149,7 @@ class TestCbHuberEvalMatchesLoss:
         from mlframe.training.loss_recommendation import (
             recommend_boosting_regression_loss,
         )
+
         rng = np.random.default_rng(42)
         base = rng.normal(0, 13, 5000)
         outliers = rng.normal(0, 60, 200)
@@ -160,16 +170,14 @@ class TestCbHuberEvalMatchesLoss:
     def test_eval_metric_for_cb_huber_returns_huber(self) -> None:
         """The matcher returns the SAME Huber-with-delta string for the
         eval_metric, not 'MAE' (the pre-fix value)."""
-        from mlframe.training.core._phase_train_one_target import (
-            _apply_loss_recommendation_in_place,
-        )
         from pathlib import Path
-        src = Path(__import__("mlframe.training.core._phase_train_one_target",
-                               fromlist=["_apply_loss_recommendation_in_place"]
-                               ).__file__).read_text(encoding="utf-8")
+
+        src = Path(__import__("mlframe.training.core._phase_train_one_target", fromlist=["_apply_loss_recommendation_in_place"]).__file__).read_text(
+            encoding="utf-8"
+        )
         # The Huber branch in CB must now return the value unchanged
         # (Huber:delta=X is a valid CB eval_metric), not MAE.
-        assert "return (\"eval_metric\", _value)" in src
+        assert 'return ("eval_metric", _value)' in src
         assert "stops ES at iter=1" in src
 
 
@@ -178,9 +186,10 @@ class TestApplyLossRecommendationWiresExtras:
         """Sensor: the apply path must propagate ``xgb_extra_params`` /
         ``cb_extra_params`` into the model's set_params() call."""
         from pathlib import Path
-        src = Path(__import__("mlframe.training.core._phase_train_one_target",
-                               fromlist=["_apply_loss_recommendation_in_place"]
-                               ).__file__).read_text(encoding="utf-8")
+
+        src = Path(__import__("mlframe.training.core._phase_train_one_target", fromlist=["_apply_loss_recommendation_in_place"]).__file__).read_text(
+            encoding="utf-8"
+        )
         assert 'rec.get(f"{_backend}_extra_params")' in src
         assert "_set_kwargs.update(_extra_params)" in src
 
@@ -198,7 +207,7 @@ class TestCompositeTargetEstimatorTClip:
             def __init__(self, blowup_value: float):
                 self.blowup_value = blowup_value
 
-            def fit(self, X, y, **kw):  # noqa: ARG002
+            def fit(self, X, y, **kw):
                 return self
 
             def predict(self, X) -> np.ndarray:
@@ -208,6 +217,7 @@ class TestCompositeTargetEstimatorTClip:
         rng = np.random.default_rng(42)
         n = 500
         import pandas as pd
+
         y = rng.normal(0, y_scale, n)
         base = rng.normal(0, y_scale * 5, n)
         X = pd.DataFrame({"f0": rng.normal(0, 1, n), "f1": rng.normal(0, 1, n)})
@@ -233,7 +243,7 @@ class TestCompositeTargetEstimatorTClip:
         assert params["t_clip_low"] < params["t_clip_high"]
 
     def test_blowup_inner_predictions_get_clipped(self) -> None:
-        wrapper, X, base, y_scale = self._make_fitted_estimator()
+        wrapper, X, _base, y_scale = self._make_fitted_estimator()
         y_hat = wrapper.predict(X)
         # Without T-clip: y_hat = T_blow + base where T_blow = 30 * y_scale.
         # With T-clip: T capped at ~10*MAD < y_scale*10 < 30*y_scale.
@@ -241,9 +251,7 @@ class TestCompositeTargetEstimatorTClip:
         # y-clip on top further bounds y_hat to [y_min - span*0.9, y_max + span*9].
         # Effective bound: |y_hat| < |y_max| + 9 * span < y_scale * (10 + 9*10).
         # Most importantly: y_hat must NOT contain the 30x outlier directly.
-        assert np.all(np.abs(y_hat) < y_scale * 100), (
-            f"y_hat range [{y_hat.min():.1f}, {y_hat.max():.1f}] suggests T-clip didn't fire"
-        )
+        assert np.all(np.abs(y_hat) < y_scale * 100), f"y_hat range [{y_hat.min():.1f}, {y_hat.max():.1f}] suggests T-clip didn't fire"
 
     def test_legacy_params_without_t_clip_dont_crash(self) -> None:
         """Backwards-compat: existing pickled wrappers don't have

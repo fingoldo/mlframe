@@ -4,6 +4,7 @@ Each validator catches a "kwargs validated as well-formed, master toggle is Fals
 kwargs silently ignored" bug class -- recurring 5+ times across the codebase per
 the wave-13 audit agent.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -18,6 +19,7 @@ from mlframe.training.configs import (
 
 
 # ---- FeatureSelectionConfig ------------------------------------------------
+
 
 def test_fsc_mrmr_kwargs_without_master_flag_raises():
     """REGRESSION: pre-fix mrmr_kwargs set but use_mrmr_fs=False -> kwargs silently ignored.
@@ -71,6 +73,7 @@ def test_fsc_default_kwargs_none_passes():
 
 # ---- FeatureTypesConfig ----------------------------------------------------
 
+
 def test_ftc_text_features_with_master_off_raises():
     """REGRESSION: explicit text_features=[...] + use_text_features=False silently
     dropped the list and routed columns through cat path -- CatBoost burned minutes
@@ -99,6 +102,7 @@ def test_ftc_no_text_features_master_off_passes():
 
 # ---- OutputConfig ---------------------------------------------------------
 
+
 def test_oc_bare_defaults_pass():
     """BC: legacy callers using OutputConfig() with default save_charts=True +
     empty data_dir must keep working (silent no-save by design)."""
@@ -122,6 +126,7 @@ def test_oc_explicit_save_charts_false_passes():
 
 
 # ---- MultilabelDispatchConfig ---------------------------------------------
+
 
 def test_mlc_invalid_strategy_raises():
     """Typo in strategy was silently accepted pre-fix; now caught."""

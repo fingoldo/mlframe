@@ -7,6 +7,7 @@ bed and gini on a clean large-n bed, (c) a full auto fit pins the resolution + d
 the routed driver, (d) the default stays 'gini' (auto is opt-in), (e) auto forces the held-out split
 only on the permutation branch and only when the user left train_or_test='train'.
 """
+
 from __future__ import annotations
 
 import inspect
@@ -18,14 +19,12 @@ from sklearn.ensemble import RandomForestClassifier
 
 
 def _clean(n=1500, p=10, inf=6, seed=0):
-    X, y = make_classification(n_samples=n, n_features=p, n_informative=inf, n_redundant=0,
-                               shuffle=False, random_state=seed)
+    X, y = make_classification(n_samples=n, n_features=p, n_informative=inf, n_redundant=0, shuffle=False, random_state=seed)
     return pd.DataFrame(X, columns=[f"f{i}" for i in range(p)]), pd.Series(y)
 
 
 def _noisy(n=250, p=50, inf=4, seed=0):
-    X, y = make_classification(n_samples=n, n_features=p, n_informative=inf, n_redundant=0,
-                               shuffle=False, random_state=seed)
+    X, y = make_classification(n_samples=n, n_features=p, n_informative=inf, n_redundant=0, shuffle=False, random_state=seed)
     return pd.DataFrame(X, columns=[f"f{i}" for i in range(p)]), pd.Series(y)
 
 
@@ -66,9 +65,16 @@ def test_auto_fit_pins_resolution_and_diagnostics_noisy():
     from mlframe.feature_selection.boruta_shap import BorutaShap
 
     X, y = _noisy()
-    b = BorutaShap(model=RandomForestClassifier(n_estimators=60, n_jobs=-1, random_state=0),
-                   importance_measure="auto", permutation_n_repeats=2, classification=True,
-                   n_trials=6, percentile=95, verbose=False, random_state=0)
+    b = BorutaShap(
+        model=RandomForestClassifier(n_estimators=60, n_jobs=-1, random_state=0),
+        importance_measure="auto",
+        permutation_n_repeats=2,
+        classification=True,
+        n_trials=6,
+        percentile=95,
+        verbose=False,
+        random_state=0,
+    )
     b.fit(X, y)
     assert b._resolved_importance_measure_ == "permutation"
     assert b.auto_dispatch_diagnostics_["resolved_measure"] == "permutation"
@@ -80,9 +86,15 @@ def test_auto_fit_pins_gini_on_clean_and_keeps_train_split():
     from mlframe.feature_selection.boruta_shap import BorutaShap
 
     X, y = _clean()
-    b = BorutaShap(model=RandomForestClassifier(n_estimators=60, n_jobs=-1, random_state=0),
-                   importance_measure="auto", classification=True, n_trials=6, percentile=95,
-                   verbose=False, random_state=0)
+    b = BorutaShap(
+        model=RandomForestClassifier(n_estimators=60, n_jobs=-1, random_state=0),
+        importance_measure="auto",
+        classification=True,
+        n_trials=6,
+        percentile=95,
+        verbose=False,
+        random_state=0,
+    )
     b.fit(X, y)
     assert b._resolved_importance_measure_ == "gini"
     # gini route must NOT force the held-out split (no permutation cost path).
@@ -94,9 +106,17 @@ def test_auto_only_forces_test_split_when_user_left_default():
 
     X, y = _noisy()
     # User explicitly chose train_or_test='test' already -> auto-permutation respects it (no change needed).
-    b = BorutaShap(model=RandomForestClassifier(n_estimators=40, n_jobs=-1, random_state=0),
-                   importance_measure="auto", permutation_n_repeats=2, classification=True,
-                   n_trials=4, percentile=95, train_or_test="test", verbose=False, random_state=0)
+    b = BorutaShap(
+        model=RandomForestClassifier(n_estimators=40, n_jobs=-1, random_state=0),
+        importance_measure="auto",
+        permutation_n_repeats=2,
+        classification=True,
+        n_trials=4,
+        percentile=95,
+        train_or_test="test",
+        verbose=False,
+        random_state=0,
+    )
     b.fit(X, y)
     assert b._resolved_importance_measure_ == "permutation" and b.train_or_test == "test"
 

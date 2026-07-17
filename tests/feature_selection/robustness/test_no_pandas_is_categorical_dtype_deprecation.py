@@ -51,6 +51,4 @@ def test_boruta_shap_encode_categoricals_no_is_categorical_deprecation():
     from mlframe.feature_selection.boruta_shap import BorutaShap
 
     X = _cat_frame()
-    _assert_no_is_categorical_deprecation(
-        lambda: BorutaShap._ordinal_encode_object_cols_inplace(X.copy())
-    )
+    _assert_no_is_categorical_deprecation(lambda: BorutaShap._ordinal_encode_object_cols_inplace(X.copy()))

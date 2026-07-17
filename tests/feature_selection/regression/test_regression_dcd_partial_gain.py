@@ -15,6 +15,7 @@ stopped early and dropped real signal (sensor-mesh: 6 features -> 2, -4% AUC).
 These are the unit-level companions to the end-to-end pins in
 ``test_biz_value_mrmr_layer49.py::TestLayer49_ScenarioA_SensorMesh`` (S3/S4).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -34,6 +35,7 @@ class _StubDCDState:
 
 
 def _setup():
+    """Build 3 single-feature candidates where the highest-gain one (col 1) is the one DCD later prunes."""
     # candidates: single-feature tuples, position == column index.
     #   idx 0 -> col 0 (a low-gain unpruned candidate)
     #   idx 1 -> col 1 (the HIGH-gain candidate that gets DCD-pruned)
@@ -50,13 +52,14 @@ def test_find_best_partial_gain_legacy_returns_highest_when_no_dcd():
     candidates, partial_gains = _setup()
     best_gain, best_key = find_best_partial_gain(
         partial_gains=partial_gains,
-        failed_candidates=set(), added_candidates=set(),
-        candidates=candidates, selected_vars=[],
+        failed_candidates=set(),
+        added_candidates=set(),
+        candidates=candidates,
+        selected_vars=[],
         dcd_state=None,
     )
     assert best_key == 1 and abs(best_gain - 0.133) < 1e-12, (
-        f"legacy find_best_partial_gain must return the global max "
-        f"(key=1, 0.133); got key={best_key}, gain={best_gain}"
+        f"legacy find_best_partial_gain must return the global max (key=1, 0.133); got key={best_key}, gain={best_gain}"
     )
 
 
@@ -69,14 +72,14 @@ def test_find_best_partial_gain_skips_dcd_pruned_candidate():
     dcd_state = _StubDCDState(pruned_cols=[1], n_cols=3)
     best_gain, best_key = find_best_partial_gain(
         partial_gains=partial_gains,
-        failed_candidates=set(), added_candidates=set(),
-        candidates=candidates, selected_vars=[],
+        failed_candidates=set(),
+        added_candidates=set(),
+        candidates=candidates,
+        selected_vars=[],
         dcd_state=dcd_state,
     )
     assert best_key == 2 and abs(best_gain - 0.072) < 1e-12, (
-        f"DCD-pruned candidate (key=1, stale 0.133) must be skipped; expected "
-        f"the next-best unpruned (key=2, 0.072), got key={best_key}, "
-        f"gain={best_gain}"
+        f"DCD-pruned candidate (key=1, stale 0.133) must be skipped; expected the next-best unpruned (key=2, 0.072), got key={best_key}, gain={best_gain}"
     )
 
 
@@ -88,11 +91,10 @@ def test_find_best_partial_gain_all_pruned_returns_sentinel():
     dcd_state = _StubDCDState(pruned_cols=[0, 1, 2], n_cols=3)
     best_gain, best_key = find_best_partial_gain(
         partial_gains=partial_gains,
-        failed_candidates=set(), added_candidates=set(),
-        candidates=candidates, selected_vars=[],
+        failed_candidates=set(),
+        added_candidates=set(),
+        candidates=candidates,
+        selected_vars=[],
         dcd_state=dcd_state,
     )
-    assert best_key is None and best_gain < 0, (
-        f"all-pruned must yield no redirect target (None, negative sentinel); "
-        f"got key={best_key}, gain={best_gain}"
-    )
+    assert best_key is None and best_gain < 0, f"all-pruned must yield no redirect target (None, negative sentinel); got key={best_key}, gain={best_gain}"

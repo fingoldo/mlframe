@@ -19,8 +19,7 @@ def _data(seed=0, n=2000):
     rng = np.random.default_rng(seed)
     inf = rng.normal(size=(n, 4))
     noise = rng.normal(size=(n, 8))
-    X = pd.DataFrame(np.column_stack([inf, noise]),
-                     columns=[f"inf{i}" for i in range(4)] + [f"noise{i}" for i in range(8)])
+    X = pd.DataFrame(np.column_stack([inf, noise]), columns=[f"inf{i}" for i in range(4)] + [f"noise{i}" for i in range(8)])
     y = (0.9 * inf[:, 0] + 0.8 * inf[:, 1] - 0.7 * inf[:, 2] + 0.5 * inf[:, 3] + 0.3 * rng.normal(size=n) > 0).astype(int)
     return X, y
 
@@ -32,7 +31,7 @@ def test_proposal_generator_emits_candidate_subsets():
     X, y = _data()
     props = proposal_generator(X, y, classification=True, optimizer="beam", top_n=10, max_features=5)
     assert 1 <= len(props) <= 10
-    for loss, feats in props:
+    for _loss, feats in props:
         assert isinstance(feats, tuple) and len(feats) >= 1
         assert all(f in X.columns for f in feats)
     # The best proposal should be informative-heavy (mostly inf* features).
@@ -46,8 +45,18 @@ def test_per_fold_stability_recovers_informative_with_high_frequency():
 
     X, y = _data(seed=1)
     rep = per_fold_stability_select(
-        X, y, classification=True, n_folds=4, vote_threshold=0.5, metric="brier",
-        optimizer="bruteforce", max_features=5, top_n=10, n_revalidation_models=1, random_state=0)
+        X,
+        y,
+        classification=True,
+        n_folds=4,
+        vote_threshold=0.5,
+        metric="brier",
+        optimizer="bruteforce",
+        max_features=5,
+        top_n=10,
+        n_revalidation_models=1,
+        random_state=0,
+    )
 
     freq = rep["frequency"]
     # Informative features must have clearly higher mean selection frequency than noise.

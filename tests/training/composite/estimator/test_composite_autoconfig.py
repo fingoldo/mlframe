@@ -7,6 +7,7 @@ transforms, (c) add a tail-compressing skew y-transform, and (d) scale
 CONSERVATIVE defaults (no time column, no TS transforms, full-train MI screen,
 no skew transform).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -24,16 +25,14 @@ def _temporal_right_skewed_frame(n: int = 60_000, seed: int = 0) -> pd.DataFrame
     """Frame with a monotone integer timestamp, a strong autoregressive lag
     base, a couple of plain features, and a heavily right-skewed target."""
     rng = np.random.default_rng(seed)
-    t = np.arange(n, dtype=np.float64)            # strictly monotone time index
-    lag = np.cumsum(rng.normal(size=n)) * 0.3     # slow-moving AR base
+    t = np.arange(n, dtype=np.float64)  # strictly monotone time index
+    lag = np.cumsum(rng.normal(size=n)) * 0.3  # slow-moving AR base
     x1 = rng.normal(size=n)
     x2 = rng.normal(size=n)
     # Right-skewed positive target: exponentiate a signal so the tail blows up.
     signal = 0.5 * lag + 0.4 * x1 + 0.1 * x2 + rng.normal(size=n) * 0.2
-    y = np.exp(signal)                            # lognormal -> strong right skew
-    return pd.DataFrame(
-        {"ts": t, "lag": lag, "x1": x1, "x2": x2, "y": y}
-    )
+    y = np.exp(signal)  # lognormal -> strong right skew
+    return pd.DataFrame({"ts": t, "lag": lag, "x1": x1, "x2": x2, "y": y})
 
 
 def _plain_small_frame(n: int = 800, seed: int = 1) -> pd.DataFrame:
@@ -42,7 +41,7 @@ def _plain_small_frame(n: int = 800, seed: int = 1) -> pd.DataFrame:
     x1 = rng.normal(size=n)
     x2 = rng.normal(size=n)
     x3 = rng.normal(size=n)
-    y = 0.5 * x1 + 0.3 * x2 + rng.normal(size=n) * 0.5   # symmetric, light-tail
+    y = 0.5 * x1 + 0.3 * x2 + rng.normal(size=n) * 0.5  # symmetric, light-tail
     return pd.DataFrame({"x1": x1, "x2": x2, "x3": x3, "y": y})
 
 
@@ -52,7 +51,9 @@ def _plain_small_frame(n: int = 800, seed: int = 1) -> pd.DataFrame:
 def test_biz_val_autoconfig_temporal_right_skewed_triggers_all():
     df = _temporal_right_skewed_frame()
     cfg, rationale = suggest_discovery_config(
-        df, "y", ["ts", "lag", "x1", "x2"],
+        df,
+        "y",
+        ["ts", "lag", "x1", "x2"],
     )
 
     # (a) time column detected + (b) TS transforms enabled.
@@ -77,7 +78,7 @@ def test_biz_val_autoconfig_temporal_right_skewed_triggers_all():
     assert cfg.enabled is True
     # rationale must explain each steered choice.
     for key in ("time_column", "transforms", "mi_sample_n", "mi_sample_strategy"):
-        assert key in rationale and rationale[key]
+        assert rationale.get(key)
 
 
 # ----------------------------------------------------------------------
@@ -140,7 +141,7 @@ def test_autoconfig_structural_hint_near_affine_base():
 # ----------------------------------------------------------------------
 def test_autoconfig_empty_frame_conservative():
     df = pd.DataFrame({"x1": [], "y": []})
-    cfg, rationale = suggest_discovery_config(df, "y", ["x1"])
+    cfg, _rationale = suggest_discovery_config(df, "y", ["x1"])
     assert cfg.enabled is True
     assert cfg.time_column is None
     assert cfg.time_series_transforms_enabled is False
@@ -159,7 +160,9 @@ def test_autoconfig_absent_target_conservative():
 def test_autoconfig_overrides_take_precedence():
     df = _temporal_right_skewed_frame()
     cfg, _ = suggest_discovery_config(
-        df, "y", ["ts", "lag", "x1", "x2"],
+        df,
+        "y",
+        ["ts", "lag", "x1", "x2"],
         time_series_transforms_enabled=False,
         mi_sample_n=12345,
     )

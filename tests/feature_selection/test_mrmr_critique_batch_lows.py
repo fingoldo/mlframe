@@ -4,6 +4,7 @@
   through float (2.9999) coded as 2 instead of 3. Now rounds to nearest.
 - EN-3: mi_greedy_transform recipe raised a cryptic np.asarray error on a non-numeric source; now a clear one.
 """
+
 import numpy as np
 import pytest
 

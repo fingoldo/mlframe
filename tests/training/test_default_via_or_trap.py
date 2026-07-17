@@ -31,6 +31,7 @@ fixture; cross-field validation of the ``x is None`` vs ``not x`` distinction
 qualifies because the only difference is in the (caller, sentinel-value)
 pair, not the arithmetic the function performs.
 """
+
 from __future__ import annotations
 
 import pathlib
@@ -60,9 +61,12 @@ def _read(rel: str) -> str:
     if rel == "feature_selection/filters/mrmr/_mrmr_class.py":
         _dir = _SRC_ROOT / "feature_selection" / "filters"
         for nm in (
-            "mrmr/__init__.py", "_mrmr_fingerprints.py",
-            "_mrmr_fit_impl/_fit_impl_core.py", "_mrmr_fit_impl/_helpers.py",
-            "_mrmr_fe_step/_step_core.py", "_mrmr_fe_step/_helpers.py",
+            "mrmr/__init__.py",
+            "_mrmr_fingerprints.py",
+            "_mrmr_fit_impl/_fit_impl_core.py",
+            "_mrmr_fit_impl/_helpers.py",
+            "_mrmr_fe_step/_step_core.py",
+            "_mrmr_fe_step/_helpers.py",
             "_mrmr_validate_transform.py",
         ):
             _sib = _dir / nm
@@ -80,15 +84,13 @@ def test_tiny_rerank_n_jobs_zero_sentinel_reaches_branch():
     ``composite_discovery.py`` was split below 1k LOC.
     """
     src = _read("training/composite/discovery/_tiny_rerank.py")
-    assert "int(getattr(self.config, \"tiny_rerank_n_jobs\", 1) or 1)" not in src, (
+    assert 'int(getattr(self.config, "tiny_rerank_n_jobs", 1) or 1)' not in src, (
         "Pre-fix `or 1` pattern reappeared: tiny_rerank_n_jobs=0 sentinel is "
         "silently rewritten to 1 BEFORE the `if cfg == 0:` auto-pick branch "
         "runs (wave 14 regression). Use `int(1 if raw is None else raw)`."
     )
     assert "_rerank_n_jobs_cfg = int(1 if _rerank_raw is None else _rerank_raw)" in src, (
-        "Post-fix idiom missing in _composite_discovery_tiny_rerank.py. "
-        "Expected explicit None-check so `tiny_rerank_n_jobs=0` reaches the "
-        "auto-pick branch."
+        "Post-fix idiom missing in _composite_discovery_tiny_rerank.py. Expected explicit None-check so `tiny_rerank_n_jobs=0` reaches the auto-pick branch."
     )
 
 
@@ -147,8 +149,7 @@ def test_recurrent_rerun_empty_rebuild_not_silently_swapped():
     )
     assert "if rebuilt is None:" in src
     assert "all members gated out" in src, (
-        "The empty-rebuild branch must WARN-log with a distinguishable message "
-        "so operators can tell `{}` from `prior_ensemble`."
+        "The empty-rebuild branch must WARN-log with a distinguishable message so operators can tell `{}` from `prior_ensemble`."
     )
 
 
@@ -179,10 +180,7 @@ def test_mrmr_fit_cache_disable_zero_behavior_unit():
             while len(MRMR._FIT_CACHE) > _cap:
                 MRMR._FIT_CACHE.popitem(last=False)
 
-        assert len(MRMR._FIT_CACHE) == 0, (
-            "fit_cache_max=0 must empty the cache; pre-fix the `or 4` trap "
-            "kept it at 4 entries."
-        )
+        assert len(MRMR._FIT_CACHE) == 0, "fit_cache_max=0 must empty the cache; pre-fix the `or 4` trap kept it at 4 entries."
     finally:
         MRMR._FIT_CACHE.clear()
         MRMR._FIT_CACHE.update(_saved)

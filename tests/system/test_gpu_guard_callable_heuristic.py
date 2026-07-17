@@ -1,6 +1,7 @@
 """Unit tests for ``mlframe.system._gpu_guard.callable_looks_gpu_bound``, the static heuristic used to gate
 joblib fan-outs (ensembling custom metrics, bootstrap metric_fns) away from parallelising GPU-bound user callables.
 """
+
 from __future__ import annotations
 
 import numpy as np

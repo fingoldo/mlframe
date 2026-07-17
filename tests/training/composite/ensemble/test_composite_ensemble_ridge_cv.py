@@ -9,6 +9,7 @@ chosen alpha is stored in ``notes["ridge_alpha"]`` and matches one of the
 grid points. Explicit ``ridge_alpha=<float>`` still works for callers
 that have tuned alpha externally.
 """
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock
@@ -53,9 +54,7 @@ def test_ridge_alpha_chosen_via_cv_not_always_one() -> None:
         chosen.append(a)
     # At least two distinct alphas must appear across noise levels --
     # confirms CV actually selects, not just hard-coded 1.0.
-    assert len(set(chosen)) >= 2, (
-        f"CV must pick different alphas for different noise; saw {chosen}"
-    )
+    assert len(set(chosen)) >= 2, f"CV must pick different alphas for different noise; saw {chosen}"
 
 
 def test_explicit_ridge_alpha_bypasses_cv() -> None:
@@ -68,8 +67,11 @@ def test_explicit_ridge_alpha_bypasses_cv() -> None:
     models = [MagicMock() for _ in range(3)]
     names = [f"c{i}" for i in range(3)]
     ens = CompositeCrossTargetEnsemble.from_linear_stack(
-        component_models=models, component_names=names,
-        component_predictions=preds, y_train=y, ridge_alpha=2.5,
+        component_models=models,
+        component_names=names,
+        component_predictions=preds,
+        y_train=y,
+        ridge_alpha=2.5,
     )
     assert ens.notes["ridge_alpha"] == 2.5
     assert ens.notes["ridge_alpha_was_cv_selected"] is False

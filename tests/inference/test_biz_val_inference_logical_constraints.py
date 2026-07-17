@@ -5,6 +5,7 @@ model predictions sometimes violate, swapping the violating pair (a) drives the 
 exactly 0 and (b) improves (never worsens) log-loss against ground truth, since the swap only fires on rows
 where the raw prediction contradicts KNOWN structure.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -194,7 +195,7 @@ def test_biz_val_discover_then_apply_end_to_end_reduces_violations_on_held_out_p
     rules = discover_logical_constraints(y_train, min_child_support=5)
     assert rules, "expected at least one discovered rule on data with a true implication"
 
-    y_test, preds_test = _make_implication_data(2000, seed=11, noise=0.3)
+    _y_test, preds_test = _make_implication_data(2000, seed=11, noise=0.3)
     violated_before = (preds_test[:, 0] > preds_test[:, 1]).mean()
     fixed = apply_logical_constraints(preds_test, rules=rules)
     violated_after = (fixed[:, 0] > fixed[:, 1]).mean()

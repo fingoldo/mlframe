@@ -112,7 +112,9 @@ def test_structural_scores_tag_each_kind() -> None:
     noise = rng.standard_normal(n)
     X = np.column_stack([affine, group, timecol, noise])
     scores, kinds = structural_affinity_scores(
-        X, y, ["affine", "group", "timecol", "noise"],
+        X,
+        y,
+        ["affine", "group", "timecol", "noise"],
     )
     assert kinds.get("affine") == "linear_residual"
     assert kinds.get("group") == "grouped"
@@ -178,9 +180,7 @@ def test_biz_val_auto_base_surfaces_dominant_affine_without_hint() -> None:
     disc = _make_discovery(auto_base_top_k=1)
     usable = ["base", "noise1", "noise2"]
     top = disc._auto_base(df, usable, y, train_idx)
-    assert top and top[0] == "base", (
-        f"dominant affine base should be auto top-1 (no hint): {top}"
-    )
+    assert top and top[0] == "base", f"dominant affine base should be auto top-1 (no hint): {top}"
 
 
 def _synthetic_equal_mi_affine_vs_nonaffine(n: int = 8000, seed: int = 7):
@@ -223,25 +223,21 @@ def test_biz_val_structural_boost_breaks_mi_tie_toward_affine_base() -> None:
     usable = ["comp", "base", "anchor"]
 
     top_off = _make_discovery(
-        auto_base_top_k=2, auto_base_structural_boost=False,
+        auto_base_top_k=2,
+        auto_base_structural_boost=False,
         auto_base_demote_time_index=False,
         auto_base_demote_spatial_coords=False,
     )._auto_base(df, usable, y, train_idx)
     top_on = _make_discovery(
-        auto_base_top_k=2, auto_base_structural_boost=True,
+        auto_base_top_k=2,
+        auto_base_structural_boost=True,
         auto_base_demote_time_index=False,
         auto_base_demote_spatial_coords=False,
     )._auto_base(df, usable, y, train_idx)
 
-    assert "base" not in top_off, (
-        f"MI-only ranking should pick the non-affine twin on the tie: {top_off}"
-    )
-    assert "base" in top_on, (
-        f"structural boost should surface the affine base on the tie: {top_on}"
-    )
-    assert "comp" in top_off and "comp" not in top_on, (
-        f"the boost should swap comp out for base: OFF={top_off} ON={top_on}"
-    )
+    assert "base" not in top_off, f"MI-only ranking should pick the non-affine twin on the tie: {top_off}"
+    assert "base" in top_on, f"structural boost should surface the affine base on the tie: {top_on}"
+    assert "comp" in top_off and "comp" not in top_on, f"the boost should swap comp out for base: OFF={top_off} ON={top_on}"
 
 
 def test_biz_val_boost_is_noop_on_structureless_ranking() -> None:
@@ -253,21 +249,24 @@ def test_biz_val_boost_is_noop_on_structureless_ranking() -> None:
     X = rng.standard_normal((n, 5))
     # y depends on several continuous columns (none low-card / monotone /
     # near-affine-dominant), so no detector fires.
-    y = (0.5 * X[:, 0] + 0.4 * X[:, 1] + 0.3 * X[:, 2]
-         + rng.standard_normal(n) * 1.0)
+    y = 0.5 * X[:, 0] + 0.4 * X[:, 1] + 0.3 * X[:, 2] + rng.standard_normal(n) * 1.0
     df = pd.DataFrame(X, columns=[f"f{i}" for i in range(5)])
     usable = list(df.columns)
     train_idx = np.arange(n)
 
     top_off = _make_discovery(auto_base_structural_boost=False)._auto_base(
-        df, usable, y.astype(np.float64), train_idx,
+        df,
+        usable,
+        y.astype(np.float64),
+        train_idx,
     )
     top_on = _make_discovery(auto_base_structural_boost=True)._auto_base(
-        df, usable, y.astype(np.float64), train_idx,
+        df,
+        usable,
+        y.astype(np.float64),
+        train_idx,
     )
-    assert top_off == top_on, (
-        f"boost must be a no-op on structureless data: {top_off} != {top_on}"
-    )
+    assert top_off == top_on, f"boost must be a no-op on structureless data: {top_off} != {top_on}"
 
 
 if __name__ == "__main__":

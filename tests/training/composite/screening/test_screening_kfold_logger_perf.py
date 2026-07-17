@@ -12,6 +12,7 @@ Bit-identity is required for (1): cached splits MUST equal a fresh
 ``KFold(...).split(x)``, and the y-scale RMSE MUST be unchanged across repeated
 specs sharing the same (n, cv_folds, seed).
 """
+
 from __future__ import annotations
 
 import logging
@@ -72,9 +73,17 @@ def _run_spec(y, base, X, seed, family="linear"):
     fp = tr.fit(y, base)
     fp = fp if isinstance(fp, dict) else {}
     return _tiny_cv_rmse_y_scale(
-        y, base, tr, fp, X,
-        family=family, n_estimators=10, num_leaves=7,
-        learning_rate=0.1, cv_folds=3, random_state=seed,
+        y,
+        base,
+        tr,
+        fp,
+        X,
+        family=family,
+        n_estimators=10,
+        num_leaves=7,
+        learning_rate=0.1,
+        cv_folds=3,
+        random_state=seed,
     )
 
 
@@ -88,14 +97,16 @@ def test_y_scale_rmse_bit_identical_across_repeated_specs():
 
     # First spec (cold cache).
     S._KFOLD_SPLIT_CACHE.clear()
-    X1 = rng.normal(size=(n, 4)); X1[:, 0] = base
+    X1 = rng.normal(size=(n, 4))
+    X1[:, 0] = base
     r_cold = _run_spec(y, base, X1, seed=42)
 
     # Many further specs with DIFFERENT feature matrices but same (n, folds, seed):
     # all must reuse the same splits and stay bit-identical given the same X.
     rmses = []
     for _ in range(5):
-        Xk = rng.normal(size=(n, 4)); Xk[:, 0] = base
+        Xk = rng.normal(size=(n, 4))
+        Xk[:, 0] = base
         rmses.append(_run_spec(y, base, Xk, seed=42))
 
     # Re-run the very first spec again (warm cache) -> must equal the cold result.
@@ -108,9 +119,8 @@ def test_y_scale_rmse_bit_identical_across_repeated_specs():
 # Lead 2: lightgbm-logger gate
 # --------------------------------------------------------------------------- #
 @pytest.mark.parametrize(
-    "family,expected", [(None, True), ("lgb", True), ("lightgbm", True),
-                        ("LightGBM", True), ("linear", False), ("ridge", False),
-                        ("cb", False), ("xgb", False)],
+    "family,expected",
+    [(None, True), ("lgb", True), ("lightgbm", True), ("LightGBM", True), ("linear", False), ("ridge", False), ("cb", False), ("xgb", False)],
 )
 def test_family_uses_lgb_gate(family, expected):
     assert _family_uses_lgb(family) is expected
@@ -207,10 +217,7 @@ def test_perf_silence_linear_cheaper_than_lgb_bump():
             pass
     t_linear = time.perf_counter() - t0
 
-    assert t_linear < 0.7 * t_lgb, (
-        f"linear-silence not cheaper: linear={t_linear*1e3:.2f}ms "
-        f"lgb={t_lgb*1e3:.2f}ms"
-    )
+    assert t_linear < 0.7 * t_lgb, f"linear-silence not cheaper: linear={t_linear * 1e3:.2f}ms lgb={t_lgb * 1e3:.2f}ms"
 
 
 def test_perf_cached_splits_faster_than_fresh():
@@ -232,9 +239,7 @@ def test_perf_cached_splits_faster_than_fresh():
         list(KFold(n_splits=cv_folds, shuffle=True, random_state=seed).split(x))
     t_fresh = time.perf_counter() - t0
 
-    assert t_cache < 0.3 * t_fresh, (
-        f"cache not faster: cache={t_cache*1e3:.2f}ms fresh={t_fresh*1e3:.2f}ms"
-    )
+    assert t_cache < 0.3 * t_fresh, f"cache not faster: cache={t_cache * 1e3:.2f}ms fresh={t_fresh * 1e3:.2f}ms"
 
 
 def test_silence_uses_precompiled_message_regexes_with_identical_semantics():
@@ -260,13 +265,13 @@ def test_silence_uses_precompiled_message_regexes_with_identical_semantics():
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         with _silence_tiny_model_output("lgb"):
-            warnings.warn("X has feature names, but X was fitted without", UserWarning)
-            warnings.warn("Skipping features without any observed values: [0]", UserWarning)
-            warnings.warn("conv", ConvergenceWarning)
-            warnings.warn("rt", RuntimeWarning)
+            warnings.warn("X has feature names, but X was fitted without", UserWarning, stacklevel=2)
+            warnings.warn("Skipping features without any observed values: [0]", UserWarning, stacklevel=2)
+            warnings.warn("conv", ConvergenceWarning, stacklevel=2)
+            warnings.warn("rt", RuntimeWarning, stacklevel=2)
         raised = False
         try:
-            warnings.warn("unrelated user warning", UserWarning)
+            warnings.warn("unrelated user warning", UserWarning, stacklevel=2)
         except UserWarning:
             raised = True
         assert raised, "outer error filter must be restored after the silence context exits"

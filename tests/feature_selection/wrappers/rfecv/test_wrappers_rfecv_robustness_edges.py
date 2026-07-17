@@ -2,6 +2,7 @@
 
 Covers E5, E6, E7, E8, E9, E10, E11, E12, E13, E14, E15, C4, C8, C9, C12.
 """
+
 from __future__ import annotations
 
 import logging
@@ -11,7 +12,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from sklearn.datasets import make_classification, make_regression
+from sklearn.datasets import make_regression
 from sklearn.linear_model import LogisticRegression, Ridge
 
 from mlframe.feature_selection.wrappers import RFECV
@@ -25,20 +26,25 @@ class TestHighCardinalityIntDetector:
     def test_hicard_int_column_warns(self, caplog):
         rng = np.random.default_rng(0)
         n = 200
-        X = pd.DataFrame({
-            "real": rng.normal(size=n),
-            "hash_id": rng.integers(0, 1_000_000, size=n).astype(np.int64),
-        })
+        X = pd.DataFrame(
+            {
+                "real": rng.normal(size=n),
+                "hash_id": rng.integers(0, 1_000_000, size=n).astype(np.int64),
+            }
+        )
         y = (X["real"] > 0).astype(int).values
         rfecv = RFECV(
             estimator=LogisticRegression(max_iter=200),
-            cv=3, max_refits=2, verbose=1, random_state=0,
+            cv=3,
+            max_refits=2,
+            verbose=1,
+            random_state=0,
         )
         with caplog.at_level(logging.WARNING, logger="mlframe.feature_selection.wrappers.rfecv"):
             rfecv.fit(X, y)
-        assert any("cardinality" in rec.getMessage() and "ID" in rec.getMessage()
-                   for rec in caplog.records), \
+        assert any("cardinality" in rec.getMessage() and "ID" in rec.getMessage() for rec in caplog.records), (
             f"Expected high-card warning; got: {[r.getMessage() for r in caplog.records[-5:]]}"
+        )
 
 
 # ----------------------------------------------------------------------- E6
@@ -48,14 +54,19 @@ class TestNearConstantFilter:
     def test_near_constant_float_dropped(self):
         rng = np.random.default_rng(0)
         n = 200
-        X = pd.DataFrame({
-            "real": rng.normal(size=n),
-            "near_const": 1.0 + rng.normal(scale=1e-16, size=n),  # var ~ 1e-32 < 1e-12
-        })
+        X = pd.DataFrame(
+            {
+                "real": rng.normal(size=n),
+                "near_const": 1.0 + rng.normal(scale=1e-16, size=n),  # var ~ 1e-32 < 1e-12
+            }
+        )
         y = (X["real"] > 0).astype(int).values
         rfecv = RFECV(
             estimator=LogisticRegression(max_iter=200),
-            cv=3, max_refits=2, verbose=0, random_state=0,
+            cv=3,
+            max_refits=2,
+            verbose=0,
+            random_state=0,
         )
         rfecv.fit(X, y)
         assert "near_const" not in rfecv.feature_names_in_
@@ -110,6 +121,7 @@ class TestNaTInDatetimeIndex:
         # Direct call into _resolve_cv_and_val_cv: NaT in DatetimeIndex must
         # warn and disable the temporal auto-detect.
         from mlframe.feature_selection.wrappers.rfecv._cv_setup import _resolve_cv_and_val_cv
+
         rng = np.random.default_rng(0)
         n = 60
         dates = pd.to_datetime(["2024-01-01"] * n) + pd.to_timedelta(range(n), unit="D")
@@ -119,12 +131,21 @@ class TestNaTInDatetimeIndex:
         y = (X.iloc[:, 0] > 0).astype(int).values
         with caplog.at_level(logging.WARNING, logger="mlframe.feature_selection.wrappers.rfecv"):
             cv, _, _ = _resolve_cv_and_val_cv(
-                cv=3, X=X, y=y, groups=None, estimator=LogisticRegression(),
-                cv_shuffle=False, random_state=0, fit_params={},
-                early_stopping_val_nsplits=None, early_stopping_rounds=None,
-                _polars_time_series_hint=False, verbose=1,
+                cv=3,
+                X=X,
+                y=y,
+                groups=None,
+                estimator=LogisticRegression(),
+                cv_shuffle=False,
+                random_state=0,
+                fit_params={},
+                early_stopping_val_nsplits=None,
+                early_stopping_rounds=None,
+                _polars_time_series_hint=False,
+                verbose=1,
             )
         from sklearn.model_selection import TimeSeriesSplit
+
         assert not isinstance(cv, TimeSeriesSplit)
         assert any("NaT" in rec.getMessage() for rec in caplog.records)
 
@@ -136,8 +157,10 @@ class TestOMPNumThreadsNotSet:
     """E14 reverted post-bench: _pin_threads_to_one must NOT clobber the global
     OMP_NUM_THREADS env var (leak across tests breaks LightGBM split-finder).
     """
+
     def test_pin_threads_does_not_set_omp(self, monkeypatch):
         from mlframe.feature_selection.wrappers._helpers import _pin_threads_to_one
+
         monkeypatch.delenv("OMP_NUM_THREADS", raising=False)
         _pin_threads_to_one(LogisticRegression())
         assert os.environ.get("OMP_NUM_THREADS") is None
@@ -152,7 +175,9 @@ class TestMustExcludeTypoRaises:
         y = (X["a"] > 0).astype(int).values
         rfecv = RFECV(
             estimator=LogisticRegression(max_iter=200),
-            cv=3, max_refits=2, must_exclude=["typo_name"],
+            cv=3,
+            max_refits=2,
+            must_exclude=["typo_name"],
         )
         with pytest.raises(ValueError, match="must_exclude"):
             rfecv.fit(X, y)
@@ -162,7 +187,9 @@ class TestMustExcludeTypoRaises:
         y = (X["a"] > 0).astype(int).values
         rfecv = RFECV(
             estimator=LogisticRegression(max_iter=200),
-            cv=3, max_refits=2, must_exclude=["typo_name"],
+            cv=3,
+            max_refits=2,
+            must_exclude=["typo_name"],
             must_exclude_strict=False,
         )
         rfecv.fit(X, y)

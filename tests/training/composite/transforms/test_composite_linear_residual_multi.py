@@ -16,13 +16,13 @@ Coverage:
   STRICTLY lower MI(T, base_1) + MI(T, base_2) than the single-base
   ``linear_residual`` on the dominant base alone.
 """
+
 from __future__ import annotations
 
 import numpy as np
 import pytest
 
 from mlframe.training.composite import (
-    _MULTI_BASE_COND_NUMBER_MAX,
     _linear_residual_multi_fit,
     _linear_residual_multi_forward,
     _linear_residual_multi_inverse,
@@ -113,8 +113,7 @@ class TestFitContract:
         b2 = rng.normal(loc=0.0, scale=1.0, size=n)
         true_alphas = (0.85, -0.42)
         true_beta = 3.14
-        y = (true_alphas[0] * b1 + true_alphas[1] * b2
-             + true_beta + rng.normal(scale=0.05, size=n))
+        y = true_alphas[0] * b1 + true_alphas[1] * b2 + true_beta + rng.normal(scale=0.05, size=n)
         base = np.column_stack([b1, b2])
         p = _linear_residual_multi_fit(y, base)
         assert abs(p["alphas"][0] - true_alphas[0]) < 0.01
@@ -157,8 +156,7 @@ class TestFitContract:
         base = np.column_stack([b1, b2])
         p = _linear_residual_multi_fit(y, base)
         assert p["collinear_fallback"] is True, (
-            f"expected fallback for cond={p['condition_number']:.2e}; "
-            "tightly collinear bases must NOT produce extreme alphas"
+            f"expected fallback for cond={p['condition_number']:.2e}; tightly collinear bases must NOT produce extreme alphas"
         )
         assert p["alphas"] == [0.0, 0.0]
         # Round-trip still works (T = y - mean(y), inverse adds it back).
@@ -177,10 +175,7 @@ class TestFitContract:
         y = 0.5 * b1 + 0.3 * b2 + rng.normal(scale=0.1, size=n)
         base = np.column_stack([b1, b2])
         p = _linear_residual_multi_fit(y, base)
-        assert p["collinear_fallback"] is False, (
-            f"unexpected fallback for orthogonal bases; "
-            f"cond={p['condition_number']:.2f}"
-        )
+        assert p["collinear_fallback"] is False, f"unexpected fallback for orthogonal bases; cond={p['condition_number']:.2f}"
 
 
 class TestDomain:
@@ -248,7 +243,9 @@ class TestBizValueMultiBaseBeatsSingle:
     """
 
     def _make_two_base_dgp(
-        self, n: int = 5000, seed: int = 0,
+        self,
+        n: int = 5000,
+        seed: int = 0,
     ) -> tuple:
         """y = 0.95 * b1 + 0.5 * b2 + epsilon
         b1 (dominant lag-like) and b2 (orthogonal trend) are independent.
@@ -273,9 +270,7 @@ class TestBizValueMultiBaseBeatsSingle:
         var_single = float(np.var(T_single))
         var_multi = float(np.var(T_multi))
         assert var_multi < var_single * 0.5, (
-            f"expected multi-base residual variance to be <50% of "
-            f"single-base; got var_single={var_single:.4f}, "
-            f"var_multi={var_multi:.4f}"
+            f"expected multi-base residual variance to be <50% of single-base; got var_single={var_single:.4f}, var_multi={var_multi:.4f}"
         )
         # And reasonably close to the true epsilon variance (~0.09).
         assert var_multi < 0.5
@@ -292,14 +287,8 @@ class TestBizValueMultiBaseBeatsSingle:
         # (the structural variance multi-base would have removed).
         corr_single = abs(float(np.corrcoef(T_single, b2)[0, 1]))
         corr_multi = abs(float(np.corrcoef(T_multi, b2)[0, 1]))
-        assert corr_single > 0.5, (
-            f"sanity check: single-base residual must still carry b2 signal; "
-            f"got |corr|={corr_single:.3f}"
-        )
-        assert corr_multi < 0.1, (
-            f"multi-base residual must be near-orthogonal to b2; "
-            f"got |corr|={corr_multi:.3f}"
-        )
+        assert corr_single > 0.5, f"sanity check: single-base residual must still carry b2 signal; got |corr|={corr_single:.3f}"
+        assert corr_multi < 0.1, f"multi-base residual must be near-orthogonal to b2; got |corr|={corr_multi:.3f}"
 
     def test_round_trip_preserves_y_on_dgp(self) -> None:
         """Inverse must exactly recover y up to float precision."""
@@ -332,13 +321,18 @@ class TestCompositeTargetEstimatorMultiBase:
         b2 = rng.normal(loc=0.0, scale=3.0, size=n)
         x_other = rng.normal(size=n)  # unrelated
         y = 0.95 * b1 + 0.5 * b2 + 0.2 * x_other + rng.normal(scale=0.3, size=n)
-        df = pd.DataFrame({
-            "b1": b1, "b2": b2, "x_other": x_other,
-        })
+        df = pd.DataFrame(
+            {
+                "b1": b1,
+                "b2": b2,
+                "x_other": x_other,
+            }
+        )
         return df, y
 
     def test_fit_predict_round_trip(self) -> None:
         from mlframe.training.composite import CompositeTargetEstimator
+
         df, y = self._make_dataset(n=600)
         # Hold out 100 rows for predict.
         train_X = df.iloc[:500]
@@ -346,7 +340,10 @@ class TestCompositeTargetEstimatorMultiBase:
         test_X = df.iloc[500:]
         test_y = y[500:]
         inner = lgb.LGBMRegressor(
-            n_estimators=50, num_leaves=15, verbose=-1, random_state=0,
+            n_estimators=50,
+            num_leaves=15,
+            verbose=-1,
+            random_state=0,
         )
         wrap = CompositeTargetEstimator(
             base_estimator=inner,
@@ -364,19 +361,20 @@ class TestCompositeTargetEstimatorMultiBase:
         # on data with std ~ 3-5).
         rmse = float(np.sqrt(np.mean((preds - test_y) ** 2)))
         train_std = float(np.std(train_y))
-        assert rmse < train_std * 0.5, (
-            f"multi-base wrapper RMSE {rmse:.3f} should be << train-y "
-            f"std {train_std:.3f}"
-        )
+        assert rmse < train_std * 0.5, f"multi-base wrapper RMSE {rmse:.3f} should be << train-y std {train_std:.3f}"
 
     def test_backcompat_base_column_singleton_path(self) -> None:
         """Passing legacy ``base_column='b1'`` (single string) with
         ``linear_residual_multi`` works: wrapper resolves it to a
         one-element tuple internally."""
         from mlframe.training.composite import CompositeTargetEstimator
+
         df, y = self._make_dataset(n=400)
         inner = lgb.LGBMRegressor(
-            n_estimators=30, num_leaves=7, verbose=-1, random_state=0,
+            n_estimators=30,
+            num_leaves=7,
+            verbose=-1,
+            random_state=0,
         )
         wrap = CompositeTargetEstimator(
             base_estimator=inner,
@@ -390,6 +388,7 @@ class TestCompositeTargetEstimatorMultiBase:
 
     def test_fit_requires_base_column_or_base_columns(self) -> None:
         from mlframe.training.composite import CompositeTargetEstimator
+
         df, y = self._make_dataset(n=200)
         inner = lgb.LGBMRegressor(n_estimators=10, num_leaves=5, verbose=-1)
         # Neither base_column nor base_columns set.
@@ -405,13 +404,17 @@ class TestCompositeTargetEstimatorMultiBase:
         RMSE than single-base on the same DGP where b2 carries
         independent structural signal."""
         from mlframe.training.composite import CompositeTargetEstimator
+
         df, y = self._make_dataset(n=1200)
         train_X, test_X = df.iloc[:1000], df.iloc[1000:]
         train_y, test_y = y[:1000], y[1000:]
 
         def _rmse(base_columns):
             inner = lgb.LGBMRegressor(
-                n_estimators=80, num_leaves=15, verbose=-1, random_state=0,
+                n_estimators=80,
+                num_leaves=15,
+                verbose=-1,
+                random_state=0,
             )
             wrap = CompositeTargetEstimator(
                 base_estimator=inner,
@@ -425,7 +428,5 @@ class TestCompositeTargetEstimatorMultiBase:
         rmse_single = _rmse(("b1",))
         rmse_multi = _rmse(("b1", "b2"))
         assert rmse_multi < rmse_single, (
-            f"multi-base must beat single-base on a DGP where b2 "
-            f"carries orthogonal signal; got single={rmse_single:.4f}, "
-            f"multi={rmse_multi:.4f}"
+            f"multi-base must beat single-base on a DGP where b2 carries orthogonal signal; got single={rmse_single:.4f}, multi={rmse_multi:.4f}"
         )

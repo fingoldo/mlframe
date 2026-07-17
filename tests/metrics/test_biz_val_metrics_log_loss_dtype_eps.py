@@ -11,6 +11,7 @@ hence REJECT, keep the dtype-dependent legacy default. See bench: ``mlframe/metr
 
 These tests pin BOTH sides so a future "just always use float64 eps" flip trips immediately.
 """
+
 import numpy as np
 from sklearn.metrics import log_loss as sklearn_log_loss
 

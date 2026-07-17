@@ -7,11 +7,18 @@ import numpy as np
 import pytest
 
 from mlframe.reporting.charts.multiclass import (
-    ALLOWED_MULTICLASS_PANEL_TOKENS, _class_color, _confused_pairs_panel,
-    _confusion_panel, _stratified_subsample, compose_multiclass_figure,
+    ALLOWED_MULTICLASS_PANEL_TOKENS,
+    _class_color,
+    _confused_pairs_panel,
+    _confusion_panel,
+    _stratified_subsample,
+    compose_multiclass_figure,
 )
 from mlframe.reporting.spec import (
-    AnnotationPanelSpec, BarPanelSpec, HeatmapPanelSpec, LinePanelSpec, ViolinPanelSpec,
+    AnnotationPanelSpec,
+    BarPanelSpec,
+    HeatmapPanelSpec,
+    ViolinPanelSpec,
 )
 
 
@@ -52,7 +59,7 @@ class TestConfusedPairs:
         # 5 classes -> up to 20 off-diagonal pairs; top_n=3 must keep exactly 3.
         K = 5
         y_pred = np.arange(K * 40) % K
-        y_true = (y_pred + 1) % K                 # every prediction off by one
+        y_true = (y_pred + 1) % K  # every prediction off by one
         proba = np.eye(K)[y_pred]
         panel = _confused_pairs_panel(y_true, proba, list(range(K)), y_pred=y_pred, top_n=3)
         assert isinstance(panel, BarPanelSpec)
@@ -100,7 +107,7 @@ class TestConfusionOptions:
         assert isinstance(panel, HeatmapPanelSpec)
         row_sums = panel.matrix.sum(axis=1)
         assert np.allclose(row_sums[row_sums > 0], 1.0)
-        assert panel.cell_text is not None              # K=3 <= cap -> text shown
+        assert panel.cell_text is not None  # K=3 <= cap -> text shown
 
     def test_normalize_false_gives_raw_counts(self):
         K = 3
@@ -115,7 +122,7 @@ class TestConfusionOptions:
         y = np.arange(K * 5) % K
         proba = np.eye(K)[y]
         panel = _confusion_panel(y, proba, list(range(K)), y_pred=y.copy())
-        assert panel.cell_text is None                  # K=20 > 15 -> suppressed
+        assert panel.cell_text is None  # K=20 > 15 -> suppressed
 
 
 # ----------------------------------------------------------------------------
@@ -176,10 +183,14 @@ class TestProbDistEmptyClass:
         y_true = np.zeros(30, dtype=int)
         proba = np.full((30, K), 1.0 / K)
         import warnings
+
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             panel = compose_multiclass_figure(
-                y_true, proba, ["x", "y", "z"], panels_template="PROB_DIST",
+                y_true,
+                proba,
+                ["x", "y", "z"],
+                panels_template="PROB_DIST",
             ).panels[0][0]
         assert isinstance(panel, AnnotationPanelSpec)
 
@@ -187,11 +198,14 @@ class TestProbDistEmptyClass:
         # 3 classes but only class 0 present -> 1 violin group, no fake [0.0] groups.
         K = 3
         n = 90
-        y_true = np.zeros(n, dtype=int)            # all class 0 (positional)
+        np.zeros(n, dtype=int)  # all class 0 (positional)
         proba = np.full((n, K), 1.0 / K)
         proba[:, 0] = 0.8
         panel = compose_multiclass_figure(
-            np.array([0] * n), proba, [0, 1, 2], panels_template="PROB_DIST",
+            np.array([0] * n),
+            proba,
+            [0, 1, 2],
+            panels_template="PROB_DIST",
         ).panels[0][0]
         assert isinstance(panel, ViolinPanelSpec)
         assert len(panel.groups) == 1
@@ -211,11 +225,11 @@ class TestStratifiedSubsample:
     def test_caps_and_keeps_both_classes(self):
         y = np.concatenate([np.zeros(9000, dtype=int), np.ones(1000, dtype=int)])
         idx = _stratified_subsample(y, cap=2000, seed=1)
-        assert len(idx) <= 2000 + 2                  # rounding slack
+        assert len(idx) <= 2000 + 2  # rounding slack
         sub = y[idx]
         # Both classes preserved roughly proportionally.
         assert (sub == 0).sum() > 0 and (sub == 1).sum() > 0
-        assert (sub == 1).sum() >= 100               # ~10% of 2000 = 200, floor safe
+        assert (sub == 1).sum() >= 100  # ~10% of 2000 = 200, floor safe
 
 
 # ----------------------------------------------------------------------------
@@ -231,11 +245,15 @@ class TestRemapFallback:
         y_true = np.array(labels, dtype=object)
         proba = np.full((len(labels), 3), 1.0 / 3)
         import warnings
+
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             # CONFUSION reflects the remapped positions; a correct remap keeps all 6 rows in-range.
             panel = compose_multiclass_figure(
-                y_true, proba, classes, panels_template="CONFUSION",
+                y_true,
+                proba,
+                classes,
+                panels_template="CONFUSION",
             ).panels[0][0]
         # 6 rows distributed over the 3 mapped positions (none excluded).
         assert int(panel.matrix.sum()) == 0 or panel.matrix.shape == (3, 3)

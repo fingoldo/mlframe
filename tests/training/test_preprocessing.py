@@ -1,4 +1,4 @@
-from mlframe.training import OutputConfig
+
 """
 Tests for preprocessing functions.
 """
@@ -47,7 +47,7 @@ class TestDataLoading:
     def test_column_selection(self, sample_polars_data):
         """Test column selection (at load time)."""
         pl_df, feature_names, _ = sample_polars_data
-        selected_cols = feature_names[:5] + ["target"]
+        selected_cols = [*feature_names[:5], "target"]
         config = PreprocessingConfig(columns=selected_cols)
 
         # Save to parquet and load with column selection
@@ -205,7 +205,13 @@ class TestTrainTestSplit:
             shuffle_val=False,
         )
 
-        train_idx, val_idx, test_idx, _, _, _ = make_train_test_split(df, **config.model_dump(exclude={"use_groups", "calib_size", "conformal_size", "bucket_stratify", "composite_cardinality_cap", "time_column", "cv_strategy", "cv_purge"}), timestamps=None)
+        train_idx, val_idx, test_idx, _, _, _ = make_train_test_split(
+            df,
+            **config.model_dump(
+                exclude={"use_groups", "calib_size", "conformal_size", "bucket_stratify", "composite_cardinality_cap", "time_column", "cv_strategy", "cv_purge"}
+            ),
+            timestamps=None,
+        )
 
         # Check sizes are approximately correct
         total = len(train_idx) + len(val_idx) + len(test_idx)
@@ -229,8 +235,14 @@ class TestTrainTestSplit:
         )
 
         # Convert DatetimeIndex to Series (make_train_test_split expects pd.Series)
-        timestamps = pd.Series(dates, name='timestamp')
-        train_idx, val_idx, test_idx, _, _, _ = make_train_test_split(df, **config.model_dump(exclude={"use_groups", "calib_size", "conformal_size", "bucket_stratify", "composite_cardinality_cap", "time_column", "cv_strategy", "cv_purge"}), timestamps=timestamps)
+        timestamps = pd.Series(dates, name="timestamp")
+        train_idx, val_idx, test_idx, _, _, _ = make_train_test_split(
+            df,
+            **config.model_dump(
+                exclude={"use_groups", "calib_size", "conformal_size", "bucket_stratify", "composite_cardinality_cap", "time_column", "cv_strategy", "cv_purge"}
+            ),
+            timestamps=timestamps,
+        )
 
         # With sequential splitting, test and val should come after train
         # Indices are sorted, so we just check that sets don't overlap
@@ -250,10 +262,22 @@ class TestTrainTestSplit:
             random_seed=42,
         )
 
-        train_idx1, val_idx1, test_idx1, _, _, _ = make_train_test_split(df, **config.model_dump(exclude={"use_groups", "calib_size", "conformal_size", "bucket_stratify", "composite_cardinality_cap", "time_column", "cv_strategy", "cv_purge"}), timestamps=None)
+        train_idx1, val_idx1, test_idx1, _, _, _ = make_train_test_split(
+            df,
+            **config.model_dump(
+                exclude={"use_groups", "calib_size", "conformal_size", "bucket_stratify", "composite_cardinality_cap", "time_column", "cv_strategy", "cv_purge"}
+            ),
+            timestamps=None,
+        )
 
         # Run again with same seed
-        train_idx2, val_idx2, test_idx2, _, _, _ = make_train_test_split(df, **config.model_dump(exclude={"use_groups", "calib_size", "conformal_size", "bucket_stratify", "composite_cardinality_cap", "time_column", "cv_strategy", "cv_purge"}), timestamps=None)
+        train_idx2, val_idx2, test_idx2, _, _, _ = make_train_test_split(
+            df,
+            **config.model_dump(
+                exclude={"use_groups", "calib_size", "conformal_size", "bucket_stratify", "composite_cardinality_cap", "time_column", "cv_strategy", "cv_purge"}
+            ),
+            timestamps=None,
+        )
 
         # Should be reproducible
         assert np.array_equal(train_idx1, train_idx2)
@@ -272,7 +296,13 @@ class TestTrainTestSplit:
             val_sequential_fraction=0.5,  # 50% sequential, 50% shuffled
         )
 
-        train_idx, val_idx, test_idx, _, _, _ = make_train_test_split(df, **config.model_dump(exclude={"use_groups", "calib_size", "conformal_size", "bucket_stratify", "composite_cardinality_cap", "time_column", "cv_strategy", "cv_purge"}), timestamps=None)
+        _train_idx, val_idx, test_idx, _, _, _ = make_train_test_split(
+            df,
+            **config.model_dump(
+                exclude={"use_groups", "calib_size", "conformal_size", "bucket_stratify", "composite_cardinality_cap", "time_column", "cv_strategy", "cv_purge"}
+            ),
+            timestamps=None,
+        )
 
         assert len(val_idx) > 0
         assert len(test_idx) > 0
@@ -333,7 +363,6 @@ class TestSaveSplitArtifacts:
             group_ids_raw=None,
             artifacts=None,
             data_dir=data_dir,
-
             models_dir=models_dir,
             target_name="target",
             model_name="test_model",
@@ -364,7 +393,6 @@ class TestSaveSplitArtifacts:
             group_ids_raw=group_ids,
             artifacts=None,
             data_dir=data_dir,
-
             models_dir=models_dir,
             target_name="target",
             model_name="test_model",
@@ -394,7 +422,6 @@ class TestSaveSplitArtifacts:
             group_ids_raw=None,
             artifacts=artifacts,
             data_dir=data_dir,
-
             models_dir=models_dir,
             target_name="target",
             model_name="test_model",
@@ -423,7 +450,6 @@ class TestSaveSplitArtifacts:
             group_ids_raw=None,
             artifacts=None,
             data_dir=data_dir,
-
             models_dir=models_dir,
             target_name="target",
             model_name="test_model",
@@ -476,7 +502,6 @@ class TestSaveSplitArtifacts:
             group_ids_raw=None,
             artifacts=None,
             data_dir=data_dir,
-
             models_dir=models_dir,
             target_name="target",
             model_name="test_model",
@@ -500,7 +525,6 @@ class TestSaveSplitArtifacts:
             group_ids_raw=None,
             artifacts=None,
             data_dir=data_dir,
-
             models_dir=models_dir,
             target_name="target",
             model_name="test_model",
@@ -527,7 +551,6 @@ class TestSaveSplitArtifacts:
             group_ids_raw=None,
             artifacts=None,
             data_dir=data_dir,
-
             models_dir=models_dir,
             target_name="My Target Name",  # Needs slugification
             model_name="Model With Spaces",  # Needs slugification
@@ -555,7 +578,6 @@ class TestSaveSplitArtifacts:
             group_ids_raw=None,
             artifacts=None,
             data_dir=data_dir,
-
             models_dir=models_dir,
             target_name="target",
             model_name="test_model",
@@ -582,7 +604,6 @@ class TestSaveSplitArtifacts:
             group_ids_raw=None,
             artifacts=None,
             data_dir=data_dir,
-
             models_dir=models_dir,
             target_name="target",
             model_name="test_model",

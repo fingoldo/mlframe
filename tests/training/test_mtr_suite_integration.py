@@ -6,6 +6,7 @@ Covers:
   * D4: report_regression_model_perf gates (N, K) preds to the
     metrics-only path (no chart / audit / fairness)
 """
+
 from __future__ import annotations
 
 import logging
@@ -13,13 +14,14 @@ import sys
 from pathlib import Path
 
 import numpy as np
-import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from mlframe.training import TargetTypes
 from mlframe.training.metrics_registry import (
-    iter_extra_metrics, list_registered, metric_name_higher_is_better,
+    iter_extra_metrics,
+    list_registered,
+    metric_name_higher_is_better,
 )
 
 
@@ -30,9 +32,13 @@ def test_mtr_metrics_registered():
     """All 7 expected MTR metrics land in the registry at import time."""
     names = set(list_registered(TargetTypes.MULTI_TARGET_REGRESSION))
     expected = {
-        "rmse_macro", "rmse_micro", "rmse_max",
-        "mae_macro", "mae_max",
-        "r2_macro", "r2_min",
+        "rmse_macro",
+        "rmse_micro",
+        "rmse_max",
+        "mae_macro",
+        "mae_max",
+        "r2_macro",
+        "r2_min",
     }
     missing = expected - names
     assert not missing, f"missing MTR metrics: {sorted(missing)}"
@@ -54,18 +60,21 @@ def test_mtr_metric_computation_on_synthetic():
     y_true = rng.normal(size=(100, 3))
     preds = y_true + 0.1 * rng.normal(size=(100, 3))  # near-perfect preds
 
-    results = dict(iter_extra_metrics(
-        TargetTypes.MULTI_TARGET_REGRESSION, y_true, None, preds,
-    ))
+    results = dict(
+        iter_extra_metrics(
+            TargetTypes.MULTI_TARGET_REGRESSION,
+            y_true,
+            None,
+            preds,
+        )
+    )
     assert "rmse_macro" in results
     assert "r2_macro" in results
     # All values finite.
     for name, value in results.items():
         assert np.isfinite(value), f"{name} = {value} is not finite"
     # On near-perfect preds, R2 macro should be near 1.0.
-    assert results["r2_macro"] > 0.9, (
-        f"r2_macro={results['r2_macro']:+.4f} should be ~1.0 on near-perfect preds"
-    )
+    assert results["r2_macro"] > 0.9, f"r2_macro={results['r2_macro']:+.4f} should be ~1.0 on near-perfect preds"
     # rmse_max >= rmse_macro >= 0 (max over K >= mean over K).
     assert results["rmse_max"] >= results["rmse_macro"] >= 0
 
@@ -76,9 +85,14 @@ def test_mtr_metric_handles_1d_input_via_coercion():
     rng = np.random.default_rng(0)
     y_true = rng.normal(size=100)
     preds = y_true + 0.1 * rng.normal(size=100)
-    results = dict(iter_extra_metrics(
-        TargetTypes.MULTI_TARGET_REGRESSION, y_true, None, preds,
-    ))
+    results = dict(
+        iter_extra_metrics(
+            TargetTypes.MULTI_TARGET_REGRESSION,
+            y_true,
+            None,
+            preds,
+        )
+    )
     # rmse_max == rmse_macro when K=1.
     assert abs(results["rmse_max"] - results["rmse_macro"]) < 1e-9
 

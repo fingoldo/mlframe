@@ -18,6 +18,7 @@ CONTRACTS PINNED
 * cProfile: K bootstrap replays cost ~K cheap MI sweeps, NOT K MRMR refits; the
   total report time is far below K * single-fit-time and shows no _fit_impl re-entry.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -31,6 +32,7 @@ warnings.filterwarnings("ignore")
 
 def _mrmr(**overrides):
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     defaults = dict(
         verbose=0,
         random_seed=0,
@@ -58,12 +60,16 @@ def _tiny_canonical(n: int = 1000, seed: int = 7):
     g0 = rng.standard_normal(n)
     g1 = rng.standard_normal(n)
     g2 = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "g0": g0, "g1": g1, "g2": g2,
-        "noise_0": rng.standard_normal(n),
-        "noise_1": rng.standard_normal(n),
-        "noise_2": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "g0": g0,
+            "g1": g1,
+            "g2": g2,
+            "noise_0": rng.standard_normal(n),
+            "noise_1": rng.standard_normal(n),
+            "noise_2": rng.standard_normal(n),
+        }
+    )
     score = 1.6 * g0 + 1.6 * g1 + 1.6 * g2 + 0.15 * rng.standard_normal(n)
     y = pd.Series((score > np.median(score)).astype(int))
     return X, y
@@ -78,9 +84,12 @@ def _fit():
     # independently default-ON and would otherwise inject engineered g0/noise children into the bootstrap replay pool, splitting a
     # genuine feature's selection share below the 0.7 floor.
     sel = _mrmr(
-        fe_max_pair_features=0, fe_max_steps=0,
-        fe_modular_enable=False, fe_pairwise_modular_enable=False,
-        fe_integer_lattice_enable=False, fe_row_argmax_enable=False,
+        fe_max_pair_features=0,
+        fe_max_steps=0,
+        fe_modular_enable=False,
+        fe_pairwise_modular_enable=False,
+        fe_integer_lattice_enable=False,
+        fe_row_argmax_enable=False,
         fe_conditional_gate_enable=False,
     ).fit(X, y)
     return sel
@@ -119,9 +128,7 @@ def test_biz_value_tiny_n_clean_separation():
     # accessor exists to surface; noise NOT in the point selection sits firmly < 0.3.
     gen_min = min(freq.get(c, 0.0) for c in ("g0", "g1", "g2"))
     for c in ("noise_0", "noise_1", "noise_2"):
-        assert freq.get(c, 0.0) < gen_min, (
-            f"noise {c} freq {freq.get(c)} not below genuine min {gen_min} ({freq})"
-        )
+        assert freq.get(c, 0.0) < gen_min, f"noise {c} freq {freq.get(c)} not below genuine min {gen_min} ({freq})"
         if c not in sel_set:
             assert freq.get(c, 0.0) < 0.3, f"unselected noise {c} freq {freq.get(c)} not < 0.3 ({freq})"
     # The human-readable form is one screen and names the contract.
@@ -166,17 +173,15 @@ def test_cprofile_cost_is_replay_not_refit():
 
     # K replays must be far cheaper than K refits. Even one single fit dwarfs the
     # whole K-replay report.
-    assert report_time < single_fit, (
-        f"report {report_time:.3f}s not < single fit {single_fit:.3f}s -- "
-        f"replay degenerated toward refit cost"
-    )
+    assert report_time < single_fit, f"report {report_time:.3f}s not < single fit {single_fit:.3f}s -- replay degenerated toward refit cost"
     print(
-        f"\n[W3 cost] single_fit={single_fit*1000:.1f}ms  "
-        f"K={K}_replays_report={report_time*1000:.1f}ms  "
-        f"speedup_vs_K_refits~={K*single_fit/max(report_time,1e-9):.0f}x"
+        f"\n[W3 cost] single_fit={single_fit * 1000:.1f}ms  "
+        f"K={K}_replays_report={report_time * 1000:.1f}ms  "
+        f"speedup_vs_K_refits~={K * single_fit / max(report_time, 1e-9):.0f}x"
     )
 
 
 if __name__ == "__main__":
     import sys
+
     sys.exit(pytest.main([__file__, "-s", "-x", "-v", "--no-cov"]))

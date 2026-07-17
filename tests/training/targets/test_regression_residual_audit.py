@@ -16,6 +16,7 @@ the audit reaches the expected hypothesis + suggested loss.
 Plus structural tests: format report, plot doesn't crash, sample_size
 honored, NaN-filtering, edge cases.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -75,16 +76,11 @@ def test_mild_leptokurtosis_not_called_gaussian():
     )
     audit = audit_residuals(y_true, y_pred)
     # Sanity: the fixture indeed produces moderate leptokurtosis.
-    assert audit.excess_kurt > 1.0, (
-        f"fixture too weak: kurt={audit.excess_kurt:+.2f}; "
-        "needs > 1 to test the bug"
-    )
+    assert audit.excess_kurt > 1.0, f"fixture too weak: kurt={audit.excess_kurt:+.2f}; needs > 1 to test the bug"
     # The contract: anything with excess_kurt > 1.5 must NOT be called
     # plain Gaussian.
     assert audit.hypothesis != "Gaussian (well-behaved)", (
-        f"regression: residuals with excess_kurt={audit.excess_kurt:+.2f} "
-        f"called Gaussian; this was the production profanation user "
-        f"reported on 2026-05-11."
+        f"regression: residuals with excess_kurt={audit.excess_kurt:+.2f} called Gaussian; this was the production profanation user reported on 2026-05-11."
     )
     # Verdict label should indicate non-Gaussian (one of the documented
     # heavy-tails / peaky verdicts).
@@ -120,8 +116,7 @@ def test_student_t_heavy_tails():
     # contaminated bucket depending on the realised tail mass; both
     # recommend MAE/Huber, which is the right user-facing answer.
     assert audit.hypothesis in {"Laplace / Student-t", "Contaminated / outliers"}
-    assert ("MAE" in audit.suggested_loss
-            or "Huber" in audit.suggested_loss)
+    assert "MAE" in audit.suggested_loss or "Huber" in audit.suggested_loss
 
 
 def test_contaminated_outliers():
@@ -268,11 +263,12 @@ def test_sample_before_finite_filter_on_large_input():
             sz = int(np.asarray(arr).size)
             if sz > captured["max_size_seen"]:
                 captured["max_size_seen"] = sz
-        except Exception:
+        except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
             pass
         return _orig_isfinite(arr, *a, **kw)
 
     import unittest.mock as _mock
+
     with _mock.patch(
         "mlframe.training.targets.regression_residual_audit.np.isfinite",
         side_effect=_spy_isfinite,
@@ -287,9 +283,7 @@ def test_sample_before_finite_filter_on_large_input():
     # tiny slack for any incidental probe; tighten to exactly
     # ``sample_size`` if no probes exist).
     assert captured["max_size_seen"] <= sample_size, (
-        f"np.isfinite ran on an array of size {captured['max_size_seen']} > "
-        f"sample_size={sample_size}; this re-introduces the pre-fix full-N "
-        f"finite-mask pass."
+        f"np.isfinite ran on an array of size {captured['max_size_seen']} > sample_size={sample_size}; this re-introduces the pre-fix full-N finite-mask pass."
     )
 
 
@@ -345,6 +339,7 @@ def test_format_report_includes_all_diagnostic_sections():
 
 def test_to_dict_round_trips_to_json():
     import orjson
+
     rng = np.random.default_rng(0)
     n = 1_000
     y_pred = rng.uniform(-3, 3, size=n)
@@ -364,15 +359,16 @@ def test_to_dict_round_trips_to_json():
 
 def test_plot_residual_diagnostics_writes_to_axes():
     import matplotlib
+
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+
     rng = np.random.default_rng(0)
     n = 2_000
     y_pred = rng.uniform(0, 50, size=n)
     y_true = y_pred * np.exp(rng.normal(0, 0.5, size=n))  # LogNormal pattern
     fig, axes = plt.subplots(1, 2, figsize=(10, 4))
-    audit = plot_residual_diagnostics(y_true, y_pred,
-                                      ax_hist=axes[0], ax_resid_vs_pred=axes[1])
+    audit = plot_residual_diagnostics(y_true, y_pred, ax_hist=axes[0], ax_resid_vs_pred=axes[1])
     plt.close(fig)
     assert isinstance(audit, ResidualAudit)
     assert audit.hetero_significant is True
@@ -381,8 +377,10 @@ def test_plot_residual_diagnostics_writes_to_axes():
 def test_plot_passes_when_one_axis_is_none():
     """Caller can request only one panel by passing None to the other."""
     import matplotlib
+
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+
     rng = np.random.default_rng(0)
     y_pred = rng.uniform(-3, 3, size=500)
     y_true = y_pred + rng.normal(0, 1.0, size=500)
@@ -395,12 +393,16 @@ def test_plot_passes_when_one_axis_is_none():
 def test_plot_handles_too_few_obs_gracefully():
     """Fewer than 5 obs → return None, no crash."""
     import matplotlib
+
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+
     fig, ax = plt.subplots()
     result = plot_residual_diagnostics(
-        np.array([1.0, 2.0]), np.array([1.0, 2.0]),
-        ax_hist=ax, ax_resid_vs_pred=None,
+        np.array([1.0, 2.0]),
+        np.array([1.0, 2.0]),
+        ax_hist=ax,
+        ax_resid_vs_pred=None,
     )
     plt.close(fig)
     assert result is None
@@ -429,7 +431,7 @@ def test_spearman_corr_single_sort_byte_identical_to_double_argsort():
         ry = np.argsort(np.argsort(y)).astype(np.float64)
         rx -= rx.mean()
         ry -= ry.mean()
-        denom = math.sqrt(float((rx ** 2).sum())) * math.sqrt(float((ry ** 2).sum()))
+        denom = math.sqrt(float((rx**2).sum())) * math.sqrt(float((ry**2).sum()))
         if denom == 0.0:
             return 0.0
         return float((rx * ry).sum() / denom)

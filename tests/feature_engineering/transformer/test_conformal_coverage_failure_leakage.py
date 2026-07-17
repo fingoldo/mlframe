@@ -10,6 +10,7 @@ Sensor: with the in-sample h1 labels, ``frac_covered`` for query rows is inflate
 Post-fix the bank holds only honest out-of-sample h2 residuals, so the mean coverage matches the nominal ``1 - alpha`` far better. We pin that the realised mean
 coverage is not pathologically inflated above the nominal level the way the in-sample-contaminated bank produced.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -33,7 +34,15 @@ def test_conformal_coverage_bank_is_held_out_only():
     alpha = 0.2
 
     df = compute_conformal_coverage_failure_features(
-        X, y, None, splitter, seed=0, task="regression", k_neighbors=15, alpha=alpha, standardize=True,
+        X,
+        y,
+        None,
+        splitter,
+        seed=0,
+        task="regression",
+        k_neighbors=15,
+        alpha=alpha,
+        standardize=True,
     )
     frac = df["ccf_frac_covered"].to_numpy()
     mean_cov = float(np.nanmean(frac))

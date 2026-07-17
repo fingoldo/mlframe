@@ -47,6 +47,7 @@ def _read_pyproject_version() -> str | None:
 
 
 def test_version_consistent_across_sources():
+    """mlframe.__version__, mlframe.version.__version__, and pyproject.toml's version all agree."""
     sources: dict[str, str] = {}
     if hasattr(mlframe, "__version__"):
         sources["mlframe.__version__"] = mlframe.__version__
@@ -60,7 +61,4 @@ def test_version_consistent_across_sources():
     distinct = set(sources.values())
     if len(distinct) > 1:
         details = "\n  ".join(f"{k} = {v!r}" for k, v in sources.items())
-        pytest.fail(
-            f"mlframe version disagrees across {len(distinct)} source(s):\n  "
-            + details
-        )
+        pytest.fail(f"mlframe version disagrees across {len(distinct)} source(s):\n  " + details)

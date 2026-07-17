@@ -4,11 +4,11 @@ Runs WITHOUT a real free GPU: ``cp.cuda.runtime.memGetInfo`` is monkeypatched so
 is fully controlled, and the cupy-absent path is simulated by making ``import cupy`` raise. So these
 tests are deterministic on any host (GPU present or not, contended or idle).
 """
+
 from __future__ import annotations
 
 import builtins
 import importlib
-import sys
 
 import pytest
 
@@ -247,8 +247,7 @@ def test_pool_cap_plus_cushion_never_exceeds_total_on_small_card(monkeypatch, vr
     cushion_b = vram._cushion_bytes(total_b)
     pool_cap_bytes = effective_frac * total_b
     assert pool_cap_bytes + cushion_b <= total_b + 1, (  # +1 tolerates float rounding
-        f"pool_cap({pool_cap_bytes}) + cushion({cushion_b}) exceeds total({total_b}) -- "
-        f"the two mechanisms are not jointly bounded"
+        f"pool_cap({pool_cap_bytes}) + cushion({cushion_b}) exceeds total({total_b}) -- the two mechanisms are not jointly bounded"
     )
 
 
@@ -289,7 +288,7 @@ def test_regression_guard_declines_gpu_at_low_free(monkeypatch, vram):
     if hasattr(_cmi_cuda, "reset_cmi_gpu_circuit_breaker"):
         try:
             _cmi_cuda.reset_cmi_gpu_circuit_breaker()
-        except Exception:
+        except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
             pass
     monkeypatch.setattr(_cmi_cuda, "cupy_available", lambda: True)
     _patch_meminfo(monkeypatch, free_b=322 * MB, total_b=4 * GB)  # near-full shared card

@@ -26,6 +26,7 @@ fit proving the hook fires with the real ``(cols, selected_vars)`` shapes withou
 final selection is BYTE-IDENTICAL to a baseline run with pruning forced to a no-op (the safety proof
 that matters regardless of whether any given fit happens to trigger a drop).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -121,14 +122,13 @@ def test_prune_bounds_peak_store_size_across_simulated_rounds():
         # rounds' survivors (simulate a round that admits few new features but never revisits old ones).
         survivors_this_round = [cols.index(nm) for nm in new_names[:1]]
         prior_engineered_survivors = [cols.index(k) for k in list(store.keys()) if k not in new_names][:1]
-        selected_vars = [0, 1] + survivors_this_round + prior_engineered_survivors
+        selected_vars = [0, 1, *survivors_this_round, *prior_engineered_survivors]
         _h._prune_engineered_continuous_store(inst, cols, selected_vars)
         peak_with_pruning = max(peak_with_pruning, len(store))
 
     assert total_ever_created == 20, "fixture sanity: 5 rounds x 4 candidates"
     assert peak_with_pruning < total_ever_created, (
-        f"pruning must bound the store below the cumulative candidate count: "
-        f"peak={peak_with_pruning} vs total_ever_created={total_ever_created}"
+        f"pruning must bound the store below the cumulative candidate count: peak={peak_with_pruning} vs total_ever_created={total_ever_created}"
     )
     # With pruning each round keeps at most ~2 entries alive (1 new + 1 carried survivor).
     assert peak_with_pruning <= 3, f"expected pruning to keep the store small across rounds; peak={peak_with_pruning}"
@@ -145,8 +145,12 @@ def _canonical_composite_fixture(seed: int = 0, n: int = 3000):
     composite) in round 1, giving the confirm-rescreen a non-empty ``_engineered_continuous_`` to
     prune against."""
     rng = np.random.default_rng(seed)
-    a = rng.random(n); b = rng.random(n); c = rng.random(n)
-    d = rng.random(n); e = rng.random(n); f = rng.random(n)
+    a = rng.random(n)
+    b = rng.random(n)
+    c = rng.random(n)
+    d = rng.random(n)
+    e = rng.random(n)
+    f = rng.random(n)
     y = a**2 / b + f / 5.0 + np.log(c) * np.sin(d)
     df = pd.DataFrame({"a": a, "b": b, "c": c, "d": d, "e": e})
     return df, pd.Series(y, name="y")
@@ -190,9 +194,7 @@ def test_selection_unchanged_vs_no_pruning_baseline():
         m_baseline = MRMR(verbose=0, fe_max_steps=1, n_workers=1, fit_cache_max=0, random_seed=42)
         m_baseline.fit(df, y)
 
-    assert list(m_pruned.get_feature_names_out()) == list(m_baseline.get_feature_names_out()), (
-        "pruning must not change the final selection"
-    )
+    assert list(m_pruned.get_feature_names_out()) == list(m_baseline.get_feature_names_out()), "pruning must not change the final selection"
     assert list(m_pruned.support_) == list(m_baseline.support_)
 
 

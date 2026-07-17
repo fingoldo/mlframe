@@ -4,6 +4,7 @@ Ground truth: a perfectly-calibrated model produces a UNIFORM PIT distribution, 
 
 Measured at n=500 (bench bench_eci_miller_madow.py): MM closer to true 0 in 12/14 cells across bins=10/20 x 7 seeds; mean |ECI| 0.0132 (plugin) -> 0.0039 (MM). Floors below are set ~15-25% below the measured aggregate to absorb seed noise.
 """
+
 from __future__ import annotations
 
 import numpy as np

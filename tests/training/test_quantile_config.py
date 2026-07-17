@@ -5,7 +5,9 @@ from __future__ import annotations
 import pytest
 
 from mlframe.training.configs import (
-    QuantileRegressionConfig, ReportingConfig, TargetTypes,
+    QuantileRegressionConfig,
+    ReportingConfig,
+    TargetTypes,
 )
 
 
@@ -78,7 +80,8 @@ class TestConfig:
     def test_point_estimate_alpha_snaps_to_nearest(self):
         # User asks for 0.45; closest alpha in defaults is 0.5.
         cfg = QuantileRegressionConfig(
-            alphas=(0.1, 0.5, 0.9), point_estimate_alpha=0.45,
+            alphas=(0.1, 0.5, 0.9),
+            point_estimate_alpha=0.45,
         )
         assert cfg.point_estimate_alpha == 0.5
 

@@ -54,9 +54,7 @@ def _base_dominated_data(n: int = 1500, seed: int = 0):
 def test_oof_feature_is_leakage_free():
     """OOF column must differ from an in-sample fitted-predict column (proof it is out-of-fold)."""
     df, y = _base_dominated_data(n=600)
-    gen = CompositeFeatureGenerator(
-        spec=_make_spec(), base_estimator=LinearRegression(), n_splits=4, random_state=1
-    )
+    gen = CompositeFeatureGenerator(spec=_make_spec(), base_estimator=LinearRegression(), n_splits=4, random_state=1)
     out = gen.fit_transform(df, y)
     col = gen.column_name_
     assert col in out.columns
@@ -97,9 +95,7 @@ def test_wrapper_factory_path_and_custom_name():
     from mlframe.training.composite.estimator import CompositeTargetEstimator
 
     df, y = _base_dominated_data(n=400)
-    factory = lambda: CompositeTargetEstimator(
-        base_estimator=LinearRegression(), transform_name="linear_residual", base_column="base"
-    )
+    factory = lambda: CompositeTargetEstimator(base_estimator=LinearRegression(), transform_name="linear_residual", base_column="base")
     gen = CompositeFeatureGenerator(wrapper_factory=factory, column_name="comp_feat")
     out = gen.fit_transform(df, y)
     assert "comp_feat" in out.columns
@@ -114,9 +110,7 @@ def test_fit_requires_y():
 
 def test_transform_without_final_fit_raises():
     df, y = _base_dominated_data(n=300)
-    gen = CompositeFeatureGenerator(
-        spec=_make_spec(), base_estimator=LinearRegression(), fit_final_on_all=False
-    )
+    gen = CompositeFeatureGenerator(spec=_make_spec(), base_estimator=LinearRegression(), fit_final_on_all=False)
     gen.fit(df, y)
     from sklearn.exceptions import NotFittedError
 
@@ -150,14 +144,12 @@ def test_biz_val_composite_feature_beats_raw_on_base_dominated_target():
     train_idx = np.arange(1000)
     test_idx = np.arange(1000, 1500)
 
-    gen = CompositeFeatureGenerator(
-        spec=_make_spec(), base_estimator=LinearRegression(), n_splits=5, random_state=7
-    )
+    gen = CompositeFeatureGenerator(spec=_make_spec(), base_estimator=LinearRegression(), n_splits=5, random_state=7)
     aug_train = gen.fit_transform(df.iloc[train_idx].reset_index(drop=True), y[train_idx])
     aug_test = gen.transform(df.iloc[test_idx].reset_index(drop=True))
 
     raw_cols = ["f1", "f2"]  # raw features WITHOUT the base (composite carries base signal)
-    aug_cols = raw_cols + [gen.column_name_]
+    aug_cols = [*raw_cols, gen.column_name_]
 
     m_raw = Ridge().fit(df.iloc[train_idx][raw_cols], y[train_idx])
     r2_raw = r2_score(y[test_idx], m_raw.predict(df.iloc[test_idx][raw_cols]))
@@ -165,6 +157,4 @@ def test_biz_val_composite_feature_beats_raw_on_base_dominated_target():
     m_aug = Ridge().fit(aug_train[aug_cols], y[train_idx])
     r2_aug = r2_score(y[test_idx], m_aug.predict(aug_test[aug_cols]))
 
-    assert r2_aug >= r2_raw + 0.05, (
-        f"composite OOF feature should lift holdout R2 by >=0.05: raw={r2_raw:.3f} aug={r2_aug:.3f}"
-    )
+    assert r2_aug >= r2_raw + 0.05, f"composite OOF feature should lift holdout R2 by >=0.05: raw={r2_raw:.3f} aug={r2_aug:.3f}"

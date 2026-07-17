@@ -9,6 +9,7 @@ replicate's holdout landed inside other replicates' screening pools -- no row se
 * the shared-holdout marker is cleared after the sweep (standalone fits carve normally again);
 * stability selection still returns the stable spec set.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -31,9 +32,15 @@ def _frame(n: int = 1200, seed: int = 0):
 def _cfg() -> CompositeTargetDiscoveryConfig:
     """screening="mi" discovery config used by the shared-holdout stability sweep test."""
     return CompositeTargetDiscoveryConfig(
-        enabled=True, random_state=0, screening="mi", base_candidates=["base"],
-        transforms=["linear_residual"], honest_holdout_frac=0.2, auto_base_null_perms=0,
-        multi_base_enabled=False, interaction_base_discovery_enabled=False,
+        enabled=True,
+        random_state=0,
+        screening="mi",
+        base_candidates=["base"],
+        transforms=["linear_residual"],
+        honest_holdout_frac=0.2,
+        auto_base_null_perms=0,
+        multi_base_enabled=False,
+        interaction_base_discovery_enabled=False,
         auto_chain_discovery_enabled=False,
     )
 

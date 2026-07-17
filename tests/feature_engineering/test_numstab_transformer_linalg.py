@@ -4,6 +4,7 @@ Pre-fix these inverted / solved a covariance or local Hessian that, when near-si
 (collinear features) but not EXACTLY singular, slipped past the ``LinAlgError`` guard and
 produced exploded / non-finite outputs. The pinv / lstsq swaps keep the output finite.
 """
+
 from __future__ import annotations
 
 import numpy as np

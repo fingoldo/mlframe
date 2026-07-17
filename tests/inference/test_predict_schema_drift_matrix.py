@@ -46,11 +46,13 @@ from mlframe.training.utils import compute_model_input_fingerprint
 
 def _train_frame(n_rows: int = 200) -> pd.DataFrame:
     """Three columns: A (int), B (int), C (categorical-by-content, low card)."""
-    return pd.DataFrame({
-        "A": list(range(n_rows)),
-        "B": [i * 2 for i in range(n_rows)],
-        "C": [["x", "y", "z"][i % 3] for i in range(n_rows)],
-    })
+    return pd.DataFrame(
+        {
+            "A": list(range(n_rows)),
+            "B": [i * 2 for i in range(n_rows)],
+            "C": [["x", "y", "z"][i % 3] for i in range(n_rows)],
+        }
+    )
 
 
 def _train_metadata(df: pd.DataFrame) -> dict:
@@ -107,9 +109,7 @@ def test_extra_unknown_column_dropped_silently_and_logged(caplog):
         out = _validate_input_columns_against_metadata(drifted, meta, verbose=True)
     assert "D" not in out.columns, "Unknown extra column must be dropped before downstream models see it."
     info_msgs = [r.message for r in caplog.records if r.levelname == "INFO"]
-    assert any("D" in m and "Dropping" in m for m in info_msgs), (
-        f"Verbose mode must INFO-log the dropped extra column; got: {info_msgs}"
-    )
+    assert any("D" in m and "Dropping" in m for m in info_msgs), f"Verbose mode must INFO-log the dropped extra column; got: {info_msgs}"
 
 
 # ---------------------------------------------------------------------------
@@ -173,9 +173,7 @@ def test_dtype_family_drift_on_b_raises_naming_column_and_dtypes():
     msg = str(excinfo.value)
     assert "B" in msg, f"Hard-fail message must name the drifted column 'B'; got: {msg}"
     # The helper formats trained/serving dtypes verbatim; one of them is the integer family token.
-    assert "int" in msg.lower() or "string" in msg.lower() or "object" in msg.lower(), (
-        f"Hard-fail message must surface the dtype mismatch; got: {msg}"
-    )
+    assert "int" in msg.lower() or "string" in msg.lower() or "object" in msg.lower(), f"Hard-fail message must surface the dtype mismatch; got: {msg}"
 
 
 # ---------------------------------------------------------------------------
@@ -198,11 +196,13 @@ def test_polars_enum_domain_drift_soft_warns_and_accepts(caplog):
     it. When that discipline is violated, this is the contract: a WARNING is emitted, the
     frame is accepted, and the model is on the hook for unseen-category handling.
     """
-    train_pl = pl.DataFrame({
-        "A": list(range(200)),
-        "B": [i * 2 for i in range(200)],
-        "C": pl.Series("C", [["x", "y", "z"][i % 3] for i in range(200)], dtype=pl.Enum(["x", "y", "z"])),
-    })
+    train_pl = pl.DataFrame(
+        {
+            "A": list(range(200)),
+            "B": [i * 2 for i in range(200)],
+            "C": pl.Series("C", [["x", "y", "z"][i % 3] for i in range(200)], dtype=pl.Enum(["x", "y", "z"])),
+        }
+    )
     schema_hash, input_schema = compute_model_input_fingerprint(
         train_pl,
         cat_features=["C"],
@@ -221,15 +221,17 @@ def test_polars_enum_domain_drift_soft_warns_and_accepts(caplog):
             },
         },
     }
-    drifted_pl = pl.DataFrame({
-        "A": list(range(200)),
-        "B": [i * 2 for i in range(200)],
-        "C": pl.Series(
-            "C",
-            [["x", "y", "z", "w"][i % 4] for i in range(200)],
-            dtype=pl.Enum(["x", "y", "z", "w"]),
-        ),
-    })
+    drifted_pl = pl.DataFrame(
+        {
+            "A": list(range(200)),
+            "B": [i * 2 for i in range(200)],
+            "C": pl.Series(
+                "C",
+                [["x", "y", "z", "w"][i % 4] for i in range(200)],
+                dtype=pl.Enum(["x", "y", "z", "w"]),
+            ),
+        }
+    )
     with caplog.at_level(logging.WARNING, logger="mlframe.training.core._misc_helpers"):
         out = _validate_input_columns_against_metadata(drifted_pl, meta)
     # Frame is accepted (graceful coercion-to-NaN is the contracted downstream behaviour).

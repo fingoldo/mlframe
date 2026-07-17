@@ -17,6 +17,7 @@ Two invariants are pinned:
    reference re-implementation that recomputes the single-column merge fresh
    per pair (the pre-fix form) -- memoization must never change numerics.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -39,39 +40,63 @@ def _make_data(n=3000, n_cols=5, n_y=3, seed=11):
 
 
 def _reference_confidence(
-    factors_data, pairs_a, pairs_b, selected_idx, ii_arr, nbins,
-    classes_y, freqs_y, cfg, dtype,
+    factors_data,
+    pairs_a,
+    pairs_b,
+    selected_idx,
+    ii_arr,
+    nbins,
+    classes_y,
+    freqs_y,
+    cfg,
+    dtype,
 ):
     """Pre-fix replica: single-column merge_vars re-derived fresh per pair (no cache)."""
     from mlframe.feature_selection.filters._cat_confirm_permutation import (
-        _CAT_CONFIRM_BASE_SEED,
         _count_nfailed_joint_indep_serial,
-        _perm_kernel_backend_choice,
     )
 
     n_perms = cfg.full_npermutations
-    n_samples = factors_data.shape[0]
+    factors_data.shape[0]
     confidence_dict = {}
     for j, k in enumerate(selected_idx):
         i = int(pairs_a[k])
         jj = int(pairs_b[k])
         ii_obs = float(ii_arr[k])
         cls_pair, fq_pair, _ = merge_vars(
-            factors_data=factors_data, vars_indices=np.array([i, jj], dtype=np.int64),
-            var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
+            factors_data=factors_data,
+            vars_indices=np.array([i, jj], dtype=np.int64),
+            var_is_nominal=None,
+            factors_nbins=nbins,
+            dtype=dtype,
         )
         cls_x1, fq_x1, _ = merge_vars(
-            factors_data=factors_data, vars_indices=np.array([i], dtype=np.int64),
-            var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
+            factors_data=factors_data,
+            vars_indices=np.array([i], dtype=np.int64),
+            var_is_nominal=None,
+            factors_nbins=nbins,
+            dtype=dtype,
         )
         cls_x2, fq_x2, _ = merge_vars(
-            factors_data=factors_data, vars_indices=np.array([jj], dtype=np.int64),
-            var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
+            factors_data=factors_data,
+            vars_indices=np.array([jj], dtype=np.int64),
+            var_is_nominal=None,
+            factors_nbins=nbins,
+            dtype=dtype,
         )
         n_failed = _count_nfailed_joint_indep_serial(
-            cls_pair, fq_pair, cls_x1, fq_x1, cls_x2, fq_x2,
-            classes_y, freqs_y, ii_obs, n_perms,
-            base_seed=int(j) * 1000003 + 7, dtype=dtype,
+            cls_pair,
+            fq_pair,
+            cls_x1,
+            fq_x1,
+            cls_x2,
+            fq_x2,
+            classes_y,
+            freqs_y,
+            ii_obs,
+            n_perms,
+            base_seed=int(j) * 1000003 + 7,
+            dtype=dtype,
         )
         p = (n_failed + 1) / (n_perms + 1)
         confidence_dict[(i, jj)] = 1.0 - p
@@ -90,8 +115,11 @@ def test_single_merge_cache_reduces_merge_vars_call_count(monkeypatch):
     dtype = np.int32
     factors_data, nbins = _make_data()
     classes_y, freqs_y, _ = merge_vars(
-        factors_data=factors_data, vars_indices=np.array([0], dtype=np.int64),
-        var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
+        factors_data=factors_data,
+        vars_indices=np.array([0], dtype=np.int64),
+        var_is_nominal=None,
+        factors_nbins=nbins,
+        dtype=dtype,
     )
     pairs, pairs_a, pairs_b = _star_pairs(n_cols=5)
     selected_idx = np.arange(len(pairs))
@@ -109,10 +137,18 @@ def test_single_merge_cache_reduces_merge_vars_call_count(monkeypatch):
 
     cfg = CatFEConfig(full_npermutations=30, permutation_null="joint_independence", fwer_correction="none")
     _confirm_pairs_via_permutation(
-        factors_data=factors_data, pairs_a=pairs_a, pairs_b=pairs_b,
-        selected_idx=selected_idx, ii_arr=ii_arr, nbins=nbins,
-        classes_y=classes_y, freqs_y=freqs_y, cfg=cfg,
-        n_search_pairs=len(pairs), dtype=dtype, verbose=0,
+        factors_data=factors_data,
+        pairs_a=pairs_a,
+        pairs_b=pairs_b,
+        selected_idx=selected_idx,
+        ii_arr=ii_arr,
+        nbins=nbins,
+        classes_y=classes_y,
+        freqs_y=freqs_y,
+        cfg=cfg,
+        n_search_pairs=len(pairs),
+        dtype=dtype,
+        verbose=0,
     )
 
     single_col_calls = [c for c in calls if len(c) == 1]
@@ -132,8 +168,11 @@ def test_single_merge_cache_bit_identical_to_uncached_reference(n_perms):
     dtype = np.int32
     factors_data, nbins = _make_data()
     classes_y, freqs_y, _ = merge_vars(
-        factors_data=factors_data, vars_indices=np.array([0], dtype=np.int64),
-        var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
+        factors_data=factors_data,
+        vars_indices=np.array([0], dtype=np.int64),
+        var_is_nominal=None,
+        factors_nbins=nbins,
+        dtype=dtype,
     )
     pairs, pairs_a, pairs_b = _star_pairs(n_cols=5)
     selected_idx = np.arange(len(pairs))
@@ -141,19 +180,33 @@ def test_single_merge_cache_bit_identical_to_uncached_reference(n_perms):
 
     cfg = CatFEConfig(full_npermutations=n_perms, permutation_null="joint_independence", fwer_correction="none")
 
-    kept, conf = _confirm_pairs_via_permutation(
-        factors_data=factors_data, pairs_a=pairs_a, pairs_b=pairs_b,
-        selected_idx=selected_idx, ii_arr=ii_arr, nbins=nbins,
-        classes_y=classes_y, freqs_y=freqs_y, cfg=cfg,
-        n_search_pairs=len(pairs), dtype=dtype, verbose=0,
+    _kept, conf = _confirm_pairs_via_permutation(
+        factors_data=factors_data,
+        pairs_a=pairs_a,
+        pairs_b=pairs_b,
+        selected_idx=selected_idx,
+        ii_arr=ii_arr,
+        nbins=nbins,
+        classes_y=classes_y,
+        freqs_y=freqs_y,
+        cfg=cfg,
+        n_search_pairs=len(pairs),
+        dtype=dtype,
+        verbose=0,
     )
     ref = _reference_confidence(
-        factors_data, pairs_a, pairs_b, selected_idx, ii_arr, nbins,
-        classes_y, freqs_y, cfg, dtype,
+        factors_data,
+        pairs_a,
+        pairs_b,
+        selected_idx,
+        ii_arr,
+        nbins,
+        classes_y,
+        freqs_y,
+        cfg,
+        dtype,
     )
 
     assert set(conf) == set(ref)
     for key in ref:
-        assert conf[key] == ref[key], (
-            f"single-merge cache changed confidence for {key}: {conf[key]!r} != reference {ref[key]!r}"
-        )
+        assert conf[key] == ref[key], f"single-merge cache changed confidence for {key}: {conf[key]!r} != reference {ref[key]!r}"

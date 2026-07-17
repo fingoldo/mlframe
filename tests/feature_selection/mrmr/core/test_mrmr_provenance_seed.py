@@ -14,11 +14,11 @@ reproducibility audit trails) could not reconstruct the seed used.
 Fix: read ``self.random_seed`` (the public-API canonical name); both
 APIs end up with it populated because of the ctor promotion.
 """
+
 from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 
 
 def _frame(n=80, seed=0):
@@ -33,18 +33,18 @@ def test_provenance_seed_records_when_user_passes_random_seed():
     provenance trail. Pre-fix this returned ``None`` silently.
     """
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     X, y = _frame()
     sel = MRMR(random_seed=42, verbose=0).fit(X, y)
     assert sel.provenance_["seed"] == 42, (
-        f"random_seed=42 must produce provenance seed=42; got "
-        f"{sel.provenance_['seed']!r} - reproducibility audit trail "
-        f"silently lost."
+        f"random_seed=42 must produce provenance seed=42; got {sel.provenance_['seed']!r} - reproducibility audit trail silently lost."
     )
 
 
 def test_provenance_seed_records_when_user_passes_random_state():
     """sklearn-compat alias ``random_state=`` must also flow through."""
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     X, y = _frame()
     sel = MRMR(random_state=42, verbose=0).fit(X, y)
     assert sel.provenance_["seed"] == 42
@@ -53,6 +53,7 @@ def test_provenance_seed_records_when_user_passes_random_state():
 def test_provenance_seed_none_when_unset():
     """No seed passed -> provenance records None (not 0, not int(None))."""
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     X, y = _frame()
     sel = MRMR(verbose=0).fit(X, y)
     assert sel.provenance_["seed"] is None

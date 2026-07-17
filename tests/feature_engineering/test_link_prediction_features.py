@@ -38,8 +38,16 @@ def test_adamic_adar_and_resource_allocation_known():
 def test_rare_common_neighbor_weighted_higher_by_adamic_adar():
     # pair A shares a LOW-degree hub, pair B shares a HIGH-degree hub -> A's Adamic/Adar > B's
     edges = np.array(
-        [[0, 10], [1, 10],  # 10 is a degree-2 hub shared by (0,1)
-         [2, 11], [3, 11], [4, 11], [5, 11], [6, 11], [7, 11]],  # 11 is a degree-6 hub shared by (2,3)
+        [
+            [0, 10],
+            [1, 10],  # 10 is a degree-2 hub shared by (0,1)
+            [2, 11],
+            [3, 11],
+            [4, 11],
+            [5, 11],
+            [6, 11],
+            [7, 11],
+        ],  # 11 is a degree-6 hub shared by (2,3)
     )
     f = link_prediction_features(12, edges, np.array([[0, 1], [2, 3]]))
     assert f["common_neighbors"][0] == f["common_neighbors"][1] == 1.0

@@ -4,6 +4,7 @@ The win (5th_m5-forecasting-accuracy.md): sales/demand often RAMPS UP in the day
 ramps back down after, not just spiking on the exact event day. A sparse binary "is-event-day" indicator
 misses this pre/post-event ramp entirely, while the distance-decayed proximity feature captures it directly.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -105,4 +106,6 @@ def test_biz_val_event_proximity_decay_asymmetric_beats_symmetric_on_asymmetric_
     # measured r2_asymmetric~=0.746, r2_symmetric~=-2.22 on this synthetic (seed=1); thresholds set well
     # below the measured margin.
     assert r2_asymmetric > 0.65, f"expected the asymmetric decay to capture most of the asymmetric ramp signal, got R^2={r2_asymmetric:.4f}"
-    assert r2_asymmetric > r2_symmetric + 0.5, f"expected asymmetric decay to materially beat symmetric decay on an asymmetric ramp, got asymmetric={r2_asymmetric:.4f} symmetric={r2_symmetric:.4f}"
+    assert r2_asymmetric > r2_symmetric + 0.5, (
+        f"expected asymmetric decay to materially beat symmetric decay on an asymmetric ramp, got asymmetric={r2_asymmetric:.4f} symmetric={r2_symmetric:.4f}"
+    )

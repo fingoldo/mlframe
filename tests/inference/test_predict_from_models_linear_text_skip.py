@@ -18,11 +18,11 @@ FIRST (preferring pre_pipeline.feature_names_in_ when available so we
 see the raw input the pre_pipeline expects), then run
 pre_pipeline.transform on the cleaned frame.
 """
+
 from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.training.core import train_mlframe_models_suite
 from mlframe.training.core.predict import predict_from_models
@@ -40,11 +40,13 @@ def _build_frame_with_text(n: int = 3_000, seed: int = 0):
     rng = np.random.default_rng(seed)
     _vocab = np.array("alpha beta gamma delta epsilon zeta".split(), dtype=object)
     _idx = rng.integers(0, len(_vocab), (n, 4))
-    df = pd.DataFrame({
-        "x0": rng.normal(size=n).astype("float32"),
-        "x1": rng.normal(size=n).astype("float32"),
-        "text_col": np.array([" ".join(_vocab[r]) for r in _idx], dtype=object),
-    })
+    df = pd.DataFrame(
+        {
+            "x0": rng.normal(size=n).astype("float32"),
+            "x1": rng.normal(size=n).astype("float32"),
+            "text_col": np.array([" ".join(_vocab[r]) for r in _idx], dtype=object),
+        }
+    )
     df["y"] = (1.5 * df["x0"] - 1.0 * df["x1"] + rng.normal(0, 0.3, n)).astype("float32")
     return df
 

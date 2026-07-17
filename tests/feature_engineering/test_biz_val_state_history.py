@@ -7,6 +7,7 @@ entities habitually linger longer in a particular configuration each time they r
 one cycle back for the SAME state should predict the current visit's eventual duration, a signal invisible
 to a model that only sees the current state.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -90,7 +91,7 @@ def _make_flickery_two_state_sequence(n_entities: int, seed: int):
         seq: list[int] = []
         cur = 0
         n_runs = rng.integers(6, 10)
-        for r in range(n_runs):
+        for _r in range(n_runs):
             run_len = int(rng.integers(8, 15))
             run = [cur] * run_len
             if run_len >= 4:

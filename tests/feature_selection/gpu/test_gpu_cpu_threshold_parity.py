@@ -16,6 +16,7 @@ Two tests:
   CPU and GPU paths either both reject or both accept across the
   ``min_nonzero_confidence`` range that matters in production.
 """
+
 from __future__ import annotations
 
 import inspect
@@ -33,16 +34,14 @@ def test_signature_exposes_min_nonzero_confidence():
         mi_direct_gpu_batched,
         mi_direct_gpu_batched_streamed,
     )
+
     sig_batched = inspect.signature(mi_direct_gpu_batched)
     assert "min_nonzero_confidence" in sig_batched.parameters, (
-        "mi_direct_gpu_batched must accept min_nonzero_confidence -- "
-        "without it the function silently hardcodes 0.05 and diverges "
-        "from the CPU path."
+        "mi_direct_gpu_batched must accept min_nonzero_confidence -- without it the function silently hardcodes 0.05 and diverges from the CPU path."
     )
     sig_streamed = inspect.signature(mi_direct_gpu_batched_streamed)
     assert "min_nonzero_confidence" in sig_streamed.parameters, (
-        "mi_direct_gpu_batched_streamed must accept min_nonzero_confidence "
-        "(same bug applied to the streamed variant)."
+        "mi_direct_gpu_batched_streamed must accept min_nonzero_confidence (same bug applied to the streamed variant)."
     )
 
 
@@ -54,6 +53,7 @@ cp = pytest.importorskip("cupy")
 def _gpu_available() -> bool:
     try:
         import cupy as _cp
+
         return _cp.cuda.runtime.getDeviceCount() >= 1
     except Exception:
         return False
@@ -83,19 +83,22 @@ def test_cpu_gpu_threshold_parity(min_nonzero_confidence):
     npermutations = 100
 
     cpu_mi, _ = mi_direct(
-        factors, x=(0,), y=(1,),
-        factors_nbins=nbins, npermutations=npermutations,
+        factors,
+        x=(0,),
+        y=(1,),
+        factors_nbins=nbins,
+        npermutations=npermutations,
         min_nonzero_confidence=min_nonzero_confidence,
         prefer_gpu=False,
     )
     gpu_mi, _ = mi_direct_gpu_batched(
-        factors, x=(0,), y=(1,),
-        factors_nbins=nbins, npermutations=npermutations,
+        factors,
+        x=(0,),
+        y=(1,),
+        factors_nbins=nbins,
+        npermutations=npermutations,
         min_nonzero_confidence=min_nonzero_confidence,
     )
-    cpu_rejected = (cpu_mi == 0.0)
-    gpu_rejected = (gpu_mi == 0.0)
-    assert cpu_rejected == gpu_rejected, (
-        f"CPU/GPU divergence at min_nonzero_confidence={min_nonzero_confidence}: "
-        f"cpu_mi={cpu_mi}, gpu_mi={gpu_mi}"
-    )
+    cpu_rejected = cpu_mi == 0.0
+    gpu_rejected = gpu_mi == 0.0
+    assert cpu_rejected == gpu_rejected, f"CPU/GPU divergence at min_nonzero_confidence={min_nonzero_confidence}: cpu_mi={cpu_mi}, gpu_mi={gpu_mi}"

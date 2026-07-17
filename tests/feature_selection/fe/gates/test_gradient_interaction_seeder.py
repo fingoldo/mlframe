@@ -8,6 +8,7 @@ cProfile   -- surrogate fit + finite-diff hotspot; the routed-default single-fit
 
 All fixtures are n<=2000 (idea #21 is the heaviest -- kept lean). Single-process; no xdist.
 """
+
 import cProfile
 import io
 import pstats
@@ -19,7 +20,7 @@ import pytest
 
 sk = pytest.importorskip("sklearn")
 
-from mlframe.feature_selection.filters._gradient_interaction_seeder import (  # noqa: E402
+from mlframe.feature_selection.filters._gradient_interaction_seeder import (
     _finite_diff_mixed_partial_energy,
     _fit_rff_ridge,
     _rff_analytic_mixed_partial_energy,
@@ -59,6 +60,7 @@ def _rank(energies, focus):
 
 
 # ============================ UNIT ============================
+
 
 def test_mixed_partial_high_on_product_saddle():
     """Analytic mixed partial concentrates on the (5,31) product saddle (rank 0)."""
@@ -127,7 +129,7 @@ def test_batched_kernel_matches_loop_kernel():
 def test_oof_gate_blocks_noise():
     """Pure noise: the OOF self-gate fires (surrogate does not learn) -> 0 proposals."""
     X, y = _make("noise")
-    proposed, energies, diag = rank_gradient_interaction_pairs(X, y, list(range(P)), seed=0)
+    proposed, _energies, diag = rank_gradient_interaction_pairs(X, y, list(range(P)), seed=0)
     # either it didn't learn, or it learned by fluke but the null rail rejects everything
     assert len(proposed) == 0
     if diag.get("learned"):
@@ -138,9 +140,9 @@ def test_permutation_null_rejects_additive():
     """Additive (no interaction): surrogate learns the linear signal, but the additive-residual
     baseline + permutation null reject all chance saddles -> 0 proposals."""
     X, y = _make("additive")
-    proposed, energies, diag = rank_gradient_interaction_pairs(X, y, list(range(P)), seed=0)
-    assert diag["learned"] is True   # it DOES learn the additive signal
-    assert len(proposed) == 0        # but proposes nothing (no interaction)
+    proposed, _energies, diag = rank_gradient_interaction_pairs(X, y, list(range(P)), seed=0)
+    assert diag["learned"] is True  # it DOES learn the additive signal
+    assert len(proposed) == 0  # but proposes nothing (no interaction)
 
 
 def test_additive_nonlinear_also_clean():
@@ -154,11 +156,12 @@ def test_additive_nonlinear_also_clean():
 def test_dispatcher_routes_by_size():
     """The size dispatcher routes ON only in the [min_p, max_p] regime."""
     assert _route_gradient_seeder(2000, 60)[0] is True
-    assert _route_gradient_seeder(2000, 5)[0] is False     # trivial pool
-    assert _route_gradient_seeder(2000, 300)[0] is False   # cost wall
+    assert _route_gradient_seeder(2000, 5)[0] is False  # trivial pool
+    assert _route_gradient_seeder(2000, 300)[0] is False  # cost wall
 
 
 # ============================ WIN / complementarity ============================
+
 
 def test_win_proposes_saddle_pair():
     """WIN fixture y=sin(x5)*x31+noise: the saddle pair (5,31) is proposed and ranks #1."""
@@ -170,6 +173,7 @@ def test_win_proposes_saddle_pair():
 
 
 # ============================ end-to-end integration ============================
+
 
 def test_end_to_end_regression_proposes_saddle():
     """End-to-end in the live MRMR FE pipeline (REGRESSION target -> multi-bin ordinal): the
@@ -193,9 +197,8 @@ def test_end_to_end_regression_proposes_saddle():
 
     G.rank_gradient_interaction_pairs = traced
     try:
-        m = MRMR(max_runtime_mins=3, verbose=1, random_seed=0,
-                 fe_gradient_interaction_enable=True, fe_synergy_screen_max_features=80)
-        m.fit(Xdf, pd.Series(y, name="target"))   # continuous -> regression -> multi-bin target
+        m = MRMR(max_runtime_mins=3, verbose=1, random_seed=0, fe_gradient_interaction_enable=True, fe_synergy_screen_max_features=80)
+        m.fit(Xdf, pd.Series(y, name="target"))  # continuous -> regression -> multi-bin target
     finally:
         G.rank_gradient_interaction_pairs = orig
 
@@ -231,6 +234,7 @@ def test_end_to_end_default_off_is_noop():
 
 # ============================ biz_value ============================
 
+
 def test_biz_value_proposing_saddle_improves_accuracy():
     """Proposing the (5,31) product feature improves downstream Ridge OOS R2 vs raw-only,
     on the sin(x5)*x31 fixture. This is the value of surfacing the smooth saddle pair."""
@@ -239,7 +243,7 @@ def test_biz_value_proposing_saddle_improves_accuracy():
     from sklearn.metrics import r2_score
 
     X, y = _make("sin_prod")
-    proposed, _, diag = rank_gradient_interaction_pairs(X, y, list(range(P)), seed=0)
+    proposed, _, _diag = rank_gradient_interaction_pairs(X, y, list(range(P)), seed=0)
     assert FOCUS in proposed
 
     Xs = _standardize(X.astype(np.float64))
@@ -255,6 +259,7 @@ def test_biz_value_proposing_saddle_improves_accuracy():
 
 
 # ============================ cProfile ============================
+
 
 def test_cprofile_core_cost_hotspot(capsys):
     """Profile the routed-default core (surrogate fit + analytic energy, NO null) on the
@@ -279,8 +284,7 @@ def test_cprofile_core_cost_hotspot(capsys):
     s = io.StringIO()
     pstats.Stats(pr, stream=s).sort_stats("cumulative").print_stats(8)
     with capsys.disabled():
-        print(f"\n[gradient-seeder core] surrogate+analytic-energy cost = {dt_ms:.1f} ms "
-              f"({len(pairs)} pairs, n={N}, p={P})")
+        print(f"\n[gradient-seeder core] surrogate+analytic-energy cost = {dt_ms:.1f} ms ({len(pairs)} pairs, n={N}, p={P})")
         print(s.getvalue().split("\n\n", 1)[-1][:900])
     # core must be cheap (this is what the dispatcher routes); not the heavy full null
     assert dt_ms < 3000

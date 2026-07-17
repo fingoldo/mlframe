@@ -33,6 +33,7 @@ default ``balance_proxy=True`` plus the option to fall back to simpler
 strategies (`unbiased_only`, `importance_weighted`) make the wrapper
 useful in the realistic regime — this test pins each.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -56,6 +57,7 @@ from tests.conftest import is_fast_mode
 @pytest.fixture(autouse=True)
 def _stable_global_rng():
     import random
+
     np.random.seed(0)
     random.seed(0)
 
@@ -164,12 +166,8 @@ def test_synthetic_data_shape_resembles_user_graph(synthetic_pu):
     train_pos_rate = synthetic_pu["y_train_observed"].mean()
     test_pos_rate = synthetic_pu["y_test_true"].mean()
 
-    assert train_pos_rate > 0.90, (
-        f"train should be heavily positive-skewed; got {train_pos_rate:.3f}"
-    )
-    assert 0.30 < test_pos_rate < 0.50, (
-        f"test should approximate true prior 0.40; got {test_pos_rate:.3f}"
-    )
+    assert train_pos_rate > 0.90, f"train should be heavily positive-skewed; got {train_pos_rate:.3f}"
+    assert 0.30 < test_pos_rate < 0.50, f"test should approximate true prior 0.40; got {test_pos_rate:.3f}"
 
 
 def test_unbiased_subset_has_enough_positives(synthetic_pu):
@@ -177,9 +175,7 @@ def test_unbiased_subset_has_enough_positives(synthetic_pu):
     positives in train. Default fixture sizing should give ~1k+."""
     ub = synthetic_pu["is_unbiased_train"]
     n_ub_pos = int((ub & (synthetic_pu["y_train_true"] == 1)).sum())
-    assert n_ub_pos >= 100, (
-        f"need >=100 unbiased positives for c-estimation; got {n_ub_pos}"
-    )
+    assert n_ub_pos >= 100, f"need >=100 unbiased positives for c-estimation; got {n_ub_pos}"
 
 
 # ----- Naive baseline (the failure mode we're trying to fix) -------------------
@@ -200,24 +196,23 @@ def _naive_test_metrics(synthetic_pu, base_factory):
 def test_naive_classifier_is_miscalibrated(synthetic_pu):
     """The naive classifier overestimates P(y=1) on TEST because train
     is biased toward positives. This is the failure mode."""
-    m = _naive_test_metrics(synthetic_pu, lambda: HistGradientBoostingClassifier(
-        max_iter=200, random_state=0))
+    m = _naive_test_metrics(synthetic_pu, lambda: HistGradientBoostingClassifier(max_iter=200, random_state=0))
     true_prior = synthetic_pu["true_prior"]
     # Naive mean prediction must be markedly above the true 0.40 prior.
-    assert m["mean_pred"] - true_prior > 0.20, (
-        f"naive should be miscalibrated; mean_pred={m['mean_pred']:.3f} "
-        f"vs true_prior={true_prior:.3f}"
-    )
+    assert m["mean_pred"] - true_prior > 0.20, f"naive should be miscalibrated; mean_pred={m['mean_pred']:.3f} vs true_prior={true_prior:.3f}"
 
 
 # ----- Per-strategy tests ------------------------------------------------------
 
 
-@pytest.mark.parametrize("strategy", [
-    "unbiased_only",
-    "prior_shift_correction",
-    "elkan_noto",
-])
+@pytest.mark.parametrize(
+    "strategy",
+    [
+        "unbiased_only",
+        "prior_shift_correction",
+        "elkan_noto",
+    ],
+)
 def test_strategy_recovers_calibration_on_test(strategy, synthetic_pu):
     """Each strategy should produce mean predicted prob much closer to
     the true 0.40 prior than the naive baseline (which sits ~0.88).
@@ -265,16 +260,18 @@ def test_strategy_recovers_calibration_on_test(strategy, synthetic_pu):
     }[strategy]
 
     assert distance < tolerance, (
-        f"strategy={strategy}: PU mean_pred={pu_mean:.3f} too far from "
-        f"true prior {true_prior:.3f} (Δ={distance:.3f}, tolerance={tolerance})"
+        f"strategy={strategy}: PU mean_pred={pu_mean:.3f} too far from true prior {true_prior:.3f} (Δ={distance:.3f}, tolerance={tolerance})"
     )
 
 
-@pytest.mark.parametrize("strategy", [
-    "unbiased_only",
-    "prior_shift_correction",
-    "elkan_noto",
-])
+@pytest.mark.parametrize(
+    "strategy",
+    [
+        "unbiased_only",
+        "prior_shift_correction",
+        "elkan_noto",
+    ],
+)
 def test_strategy_lowers_brier_vs_naive(strategy, synthetic_pu):
     """Headline win: every strategy must reduce TEST Brier loss vs naive
     by a meaningful margin. This is what calibration recovery buys.
@@ -284,15 +281,11 @@ def test_strategy_lowers_brier_vs_naive(strategy, synthetic_pu):
     the prod-scale fixture, not the 12k-row fast-mode shrink).
     """
     if strategy == "elkan_noto" and is_fast_mode():
-        pytest.skip(
-            "elkan_noto's proxy classifier needs the full unbiased subset "
-            "(>=1k pos/neg) to estimate c reliably; fast mode skipped."
-        )
+        pytest.skip("elkan_noto's proxy classifier needs the full unbiased subset (>=1k pos/neg) to estimate c reliably; fast mode skipped.")
     # Fewer boosting iterations under --fast keep the per-fit cost low so a full-suite ``-n`` contended worker doesn't hit
     # the timeout; the Brier drop is comfortably above the floor at 100 iters (measured drop ~0.21 vs the 0.05 floor).
     max_iter = 100 if is_fast_mode() else 200
-    naive = _naive_test_metrics(synthetic_pu, lambda: HistGradientBoostingClassifier(
-        max_iter=max_iter, random_state=0))
+    naive = _naive_test_metrics(synthetic_pu, lambda: HistGradientBoostingClassifier(max_iter=max_iter, random_state=0))
 
     pu = PULearningWrapper(
         base_estimator=HistGradientBoostingClassifier(max_iter=max_iter, random_state=0),
@@ -317,17 +310,17 @@ def test_strategy_lowers_brier_vs_naive(strategy, synthetic_pu):
     }[strategy]
 
     drop = naive["brier"] - pu_brier
-    assert drop > min_brier_drop, (
-        f"strategy={strategy}: Brier drop {drop:.4f} < min {min_brier_drop} "
-        f"(naive={naive['brier']:.4f}, pu={pu_brier:.4f})"
-    )
+    assert drop > min_brier_drop, f"strategy={strategy}: Brier drop {drop:.4f} < min {min_brier_drop} (naive={naive['brier']:.4f}, pu={pu_brier:.4f})"
 
 
-@pytest.mark.parametrize("strategy", [
-    "unbiased_only",
-    "prior_shift_correction",
-    "elkan_noto",
-])
+@pytest.mark.parametrize(
+    "strategy",
+    [
+        "unbiased_only",
+        "prior_shift_correction",
+        "elkan_noto",
+    ],
+)
 def test_strategy_preserves_or_improves_auc(strategy, synthetic_pu):
     """Discrimination shouldn't catastrophically drop. We allow a 5pp
     AUC slack relative to naive — strategies trade some AUC for
@@ -338,15 +331,11 @@ def test_strategy_preserves_or_improves_auc(strategy, synthetic_pu):
     drop AUC > 5pp even when the strategy is implemented correctly.
     """
     if strategy == "elkan_noto" and is_fast_mode():
-        pytest.skip(
-            "elkan_noto needs the full unbiased subset to keep AUC; "
-            "fast-mode shrink violates the 5pp slack legitimately."
-        )
+        pytest.skip("elkan_noto needs the full unbiased subset to keep AUC; fast-mode shrink violates the 5pp slack legitimately.")
     # Fewer boosting iterations under --fast so two HGB fits don't push a full-suite ``-n`` contended worker past the timeout; the AUC slack
     # is comparison-relative (PU vs naive at the SAME max_iter) so reducing both arms keeps the 5pp contract honest.
     max_iter = 100 if is_fast_mode() else 200
-    naive = _naive_test_metrics(synthetic_pu, lambda: HistGradientBoostingClassifier(
-        max_iter=max_iter, random_state=0))
+    naive = _naive_test_metrics(synthetic_pu, lambda: HistGradientBoostingClassifier(max_iter=max_iter, random_state=0))
 
     pu = PULearningWrapper(
         base_estimator=HistGradientBoostingClassifier(max_iter=max_iter, random_state=0),
@@ -362,10 +351,7 @@ def test_strategy_preserves_or_improves_auc(strategy, synthetic_pu):
     pu_probs = pu.predict_proba(synthetic_pu["X_test"])[:, 1]
     pu_auc = float(roc_auc_score(synthetic_pu["y_test_true"], pu_probs))
 
-    assert pu_auc >= naive["auc"] - 0.05, (
-        f"strategy={strategy}: AUC dropped too much (pu={pu_auc:.4f}, "
-        f"naive={naive['auc']:.4f}). Allowed slack 5pp."
-    )
+    assert pu_auc >= naive["auc"] - 0.05, f"strategy={strategy}: AUC dropped too much (pu={pu_auc:.4f}, naive={naive['auc']:.4f}). Allowed slack 5pp."
 
 
 # ----- auto strategy resolution ------------------------------------------------
@@ -511,6 +497,7 @@ def test_estimate_c_methods():
 
 def test_unfitted_raises():
     from sklearn.exceptions import NotFittedError
+
     pu = PULearningWrapper(base_estimator=LogisticRegression())
     # NotFittedError is the canonical sklearn signal; RuntimeError is the
     # legacy shape kept for narrative compatibility.

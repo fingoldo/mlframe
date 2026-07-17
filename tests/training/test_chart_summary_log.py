@@ -4,6 +4,7 @@ A default suite run saves nothing and renders nothing with no trace, so the oper
 tell "skipped by design" from "lost to a bug". log_chart_summary reads the metadata["charts"]
 accounting and always logs the count + destination (or the data_dir hint, or the failure count).
 """
+
 from __future__ import annotations
 
 import logging
@@ -22,15 +23,15 @@ def test_zero_charts_no_destination_emits_hint(caplog):
 def test_saved_charts_reports_count_and_destination(caplog):
     metadata = {"charts": {"saved": ["val_panels", "test_panels", "target_dist"], "failed": []}}
     with caplog.at_level(logging.INFO):
-        msg = log_chart_summary(metadata, save_charts=True, data_dir="/tmp/run")
+        msg = log_chart_summary(metadata, save_charts=True, data_dir="/tmp/run")  # nosec B108 -- placeholder path string only, never touches the real filesystem
     assert "3 chart(s) saved" in msg
-    assert "/tmp/run/charts" in msg
+    assert "/tmp/run/charts" in msg  # nosec B108 -- placeholder path string only, never touches the real filesystem
 
 
 def test_failed_renders_surfaced(caplog):
     metadata = {"charts": {"saved": ["val_panels"], "failed": ["test_panels"]}}
     with caplog.at_level(logging.INFO):
-        msg = log_chart_summary(metadata, save_charts=True, data_dir="/tmp/run")
+        msg = log_chart_summary(metadata, save_charts=True, data_dir="/tmp/run")  # nosec B108 -- placeholder path string only, never touches the real filesystem
     assert "1 chart(s) saved" in msg
     assert "1 render(s) failed" in msg
 
@@ -38,7 +39,7 @@ def test_failed_renders_surfaced(caplog):
 def test_missing_charts_key_is_safe(caplog):
     # No metadata["charts"] at all (e.g. a run that never reached the chart path).
     with caplog.at_level(logging.INFO):
-        msg = log_chart_summary({"other": 1}, save_charts=True, data_dir="/tmp/run")
+        msg = log_chart_summary({"other": 1}, save_charts=True, data_dir="/tmp/run")  # nosec B108 -- placeholder path string only, never touches the real filesystem
     assert "0 chart(s) saved" in msg or "0 charts saved" in msg
 
 

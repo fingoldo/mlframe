@@ -12,6 +12,7 @@ real sensor is (2) -- pre-fix code did ``X.copy()`` so X was never touched, whil
 a broken restore in the optimized path would leave X mutated. Both are pinned so a
 future "just mutate without restore" or a numerics-changing rewrite is caught.
 """
+
 from __future__ import annotations
 
 import numpy as np

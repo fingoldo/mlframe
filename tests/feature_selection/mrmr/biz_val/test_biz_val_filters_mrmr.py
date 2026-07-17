@@ -7,6 +7,7 @@ these parameters will fail the matching assertion.
 
 Naming: ``test_biz_val_mrmr_<parameter>_<scenario>``.
 """
+
 from __future__ import annotations
 
 import time
@@ -35,6 +36,7 @@ def test_biz_val_mrmr_interactions_max_order_3way_xor_recovery():
     the target is invisible to pair screening because every individual
     and every pair MI is ~0."""
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     rng = np.random.default_rng(42)
     n, p = 2000, 10
     X = rng.normal(size=(n, p))
@@ -48,12 +50,8 @@ def test_biz_val_mrmr_interactions_max_order_3way_xor_recovery():
 
     overlap_2 = _top5_overlap(2)
     overlap_3 = _top5_overlap(3)
-    assert overlap_3 >= 2, (
-        f"order=3 must put >=2 of signal triplet in top-5; got {overlap_3}"
-    )
-    assert overlap_3 >= overlap_2, (
-        f"order=3 ({overlap_3}) must >= order=2 ({overlap_2}) on 3-way XOR"
-    )
+    assert overlap_3 >= 2, f"order=3 must put >=2 of signal triplet in top-5; got {overlap_3}"
+    assert overlap_3 >= overlap_2, f"order=3 ({overlap_3}) must >= order=2 ({overlap_2}) on 3-way XOR"
 
 
 # ---------------------------------------------------------------------------
@@ -67,35 +65,28 @@ def test_biz_val_mrmr_quantization_nbins_finer_grid_better_mi_on_smooth():
     loses signal in the bulk; with 20 bins it captures finer
     structure. Floor: 20-bin MI / 5-bin MI >= 1.10x."""
     from mlframe.feature_selection.filters.info_theory import (
-        compute_mi_from_classes, merge_vars,
+        compute_mi_from_classes,
+        merge_vars,
     )
     from mlframe.feature_selection.filters.discretization import discretize_array
 
     rng = np.random.default_rng(42)
     n = 2000
     x = rng.normal(size=n)
-    y = (x ** 2 + 0.3 * rng.normal(size=n) > 1.0).astype(np.int64)
+    y = (x**2 + 0.3 * rng.normal(size=n) > 1.0).astype(np.int64)
 
     def _binned_mi(nbins):
-        x_bin = discretize_array(arr=x, n_bins=nbins, method="quantile",
-                                   dtype=np.int32)
+        x_bin = discretize_array(arr=x, n_bins=nbins, method="quantile", dtype=np.int32)
         # Run pyutilz-style MI via merge_vars + compute_mi_from_classes.
         factors_data = np.column_stack([x_bin, y]).astype(np.int32)
         factors_nbins = np.array([nbins, len(np.unique(y))], dtype=np.int64)
-        cx, fx, _ = merge_vars(factors_data, (0,), None, factors_nbins,
-                                 dtype=np.int32)
-        cy, fy, _ = merge_vars(factors_data, (1,), None, factors_nbins,
-                                 dtype=np.int32)
-        return float(compute_mi_from_classes(classes_x=cx, freqs_x=fx,
-                                              classes_y=cy, freqs_y=fy,
-                                              dtype=np.int32))
+        cx, fx, _ = merge_vars(factors_data, (0,), None, factors_nbins, dtype=np.int32)
+        cy, fy, _ = merge_vars(factors_data, (1,), None, factors_nbins, dtype=np.int32)
+        return float(compute_mi_from_classes(classes_x=cx, freqs_x=fx, classes_y=cy, freqs_y=fy, dtype=np.int32))
 
     mi_5 = _binned_mi(5)
     mi_20 = _binned_mi(20)
-    assert mi_20 / max(mi_5, 1e-9) >= 1.10, (
-        f"20-bin MI must beat 5-bin by >=1.10x on smooth target; "
-        f"got {mi_20:.4f} vs {mi_5:.4f} (ratio {mi_20/mi_5:.2f}x)"
-    )
+    assert mi_20 / max(mi_5, 1e-9) >= 1.10, f"20-bin MI must beat 5-bin by >=1.10x on smooth target; got {mi_20:.4f} vs {mi_5:.4f} (ratio {mi_20 / mi_5:.2f}x)"
 
 
 # ---------------------------------------------------------------------------
@@ -109,6 +100,7 @@ def test_biz_val_mrmr_min_relevance_gain_stops_at_noise():
     LOOSE one (1e-6) on a target with 3 strong + 7 noise features.
     Floor: tight selects strictly fewer features."""
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     rng = np.random.default_rng(42)
     n, p_signal, p_noise = 2000, 3, 7
     X_signal = rng.normal(size=(n, p_signal))
@@ -133,18 +125,13 @@ def test_biz_val_mrmr_min_relevance_gain_stops_at_noise():
     # would inflate the tight count past the loose one.
     n_tight = len(sel_tight.get_feature_names_out())
     n_loose = len(sel_loose.get_feature_names_out())
-    assert n_tight <= n_loose, (
-        f"tight min_relevance_gain ({n_tight} selected) must "
-        f"select <= loose ({n_loose} selected)"
-    )
+    assert n_tight <= n_loose, f"tight min_relevance_gain ({n_tight} selected) must select <= loose ({n_loose} selected)"
     # Tight must still RECOVER >=1 signal feature (raw or engineered combo
     # that references a signal column 0/1/2).
     from tests.feature_selection._biz_val_synth import signal_recovery_count
+
     overlap = signal_recovery_count(sel_tight, [0, 1, 2])
-    assert overlap >= 1, (
-        f"tight gate must keep >=1 signal feature; found "
-        f"names={list(sel_tight.get_feature_names_out())}"
-    )
+    assert overlap >= 1, f"tight gate must keep >=1 signal feature; found names={list(sel_tight.get_feature_names_out())}"
 
 
 # ---------------------------------------------------------------------------
@@ -159,6 +146,7 @@ def test_biz_val_mrmr_n_workers_threading_no_crash_no_regression():
     on a deterministic seed. Catches regressions in the parallel
     code path (NameError dead code, pickle-bugs, mem-mapping)."""
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     rng = np.random.default_rng(42)
     n, p = 1500, 10
     X = rng.normal(size=(n, p))
@@ -177,11 +165,9 @@ def test_biz_val_mrmr_n_workers_threading_no_crash_no_regression():
     # fe_fast_search=False + explicit fe_max_steps=1) -- a separate framework bug tracked for follow-up,
     # NOT introduced by the fast toggle. Pin the exhaustive path so this sensor keeps guarding what it was
     # written to guard; the fast-path determinism is covered once that order-2 threading bug is fixed.
-    sel_1 = MRMR(interactions_max_order=2, verbose=0, random_seed=42,
-                  n_workers=1, fe_fast_search=False)
+    sel_1 = MRMR(interactions_max_order=2, verbose=0, random_seed=42, n_workers=1, fe_fast_search=False)
     sel_1.fit(df.copy(), ys)
-    sel_4 = MRMR(interactions_max_order=2, verbose=0, random_seed=42,
-                  n_workers=4, fe_fast_search=False)
+    sel_4 = MRMR(interactions_max_order=2, verbose=0, random_seed=42, n_workers=4, fe_fast_search=False)
     sel_4.fit(df.copy(), ys)
     # Threading parallelism CAN change candidate-evaluation order when
     # multiple workers tie on score; the SET of selected features must
@@ -189,14 +175,11 @@ def test_biz_val_mrmr_n_workers_threading_no_crash_no_regression():
     # match. Catches regressions in the parallel code path while
     # tolerating expected non-determinism in tied-rank ordering.
     assert set(int(i) for i in sel_1.support_) == set(int(i) for i in sel_4.support_), (
-        f"n_workers=4 support set must equal n_workers=1; "
-        f"got 1={sorted(sel_1.support_.tolist())}, 4={sorted(sel_4.support_.tolist())}"
+        f"n_workers=4 support set must equal n_workers=1; got 1={sorted(sel_1.support_.tolist())}, 4={sorted(sel_4.support_.tolist())}"
     )
     # Top-3 must be identical (the strongest signal features have
     # large enough gain margin that thread ordering doesn't shuffle them).
-    assert set(int(i) for i in sel_1.support_[:3]) == set(int(i) for i in sel_4.support_[:3]), (
-        f"top-3 supports differ across n_workers values"
-    )
+    assert set(int(i) for i in sel_1.support_[:3]) == set(int(i) for i in sel_4.support_[:3]), f"top-3 supports differ across n_workers values"
 
 
 # ---------------------------------------------------------------------------
@@ -211,6 +194,7 @@ def test_biz_val_mrmr_fe_smart_polynom_finds_polynomial_target_pair():
     invisible to single-feature screening on Gaussian inputs.
     Asserts: the engineered feature appears in top-5 of support_."""
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     rng = np.random.default_rng(42)
     n, p = 2000, 8
     X = rng.normal(size=(n, p))
@@ -218,7 +202,8 @@ def test_biz_val_mrmr_fe_smart_polynom_finds_polynomial_target_pair():
     df, ys = _to_df(X, y)
 
     sel = MRMR(
-        verbose=0, random_seed=42,
+        verbose=0,
+        random_seed=42,
         fe_max_steps=1,
         fe_max_polynoms=1,
         fe_smart_polynom_iters=1,
@@ -234,11 +219,9 @@ def test_biz_val_mrmr_fe_smart_polynom_finds_polynomial_target_pair():
     # get_feature_names_out(). A broken FE branch would surface neither the
     # raw pair nor any engineered combo of it.
     from tests.feature_selection._biz_val_synth import signal_recovery_count
+
     overlap = signal_recovery_count(sel, [0, 1], top_k=5)
-    assert overlap >= 1, (
-        f"FE-enabled MRMR must surface signal pair member (raw or "
-        f"engineered) in top-5; got names={list(sel.get_feature_names_out())}"
-    )
+    assert overlap >= 1, f"FE-enabled MRMR must surface signal pair member (raw or engineered) in top-5; got names={list(sel.get_feature_names_out())}"
 
 
 # ---------------------------------------------------------------------------
@@ -253,9 +236,13 @@ def test_biz_val_mrmr_quantization_method_recovers_signal_on_linear(method):
     where one bin method silently produces all-same-class bins."""
     from mlframe.feature_selection.filters.mrmr import MRMR
     from tests.feature_selection._biz_val_synth import (
-        make_signal_plus_noise, as_df, signal_recovery_count,
-        downstream_auc, baseline_signal_auc,
+        make_signal_plus_noise,
+        as_df,
+        signal_recovery_count,
+        downstream_auc,
+        baseline_signal_auc,
     )
+
     X, y, signal = make_signal_plus_noise(n=1500, p_signal=3, p_noise=8, seed=42)
     df, ys = as_df(X, y)
     sel = MRMR(verbose=0, random_seed=42, quantization_method=method)
@@ -300,8 +287,10 @@ def test_biz_val_mrmr_use_simple_mode_faster_on_redundant_data():
     feature count would no longer be < simple's."""
     from mlframe.feature_selection.filters.mrmr import MRMR
     from tests.feature_selection._biz_val_synth import (
-        make_correlated_redundant, as_df,
+        make_correlated_redundant,
+        as_df,
     )
+
     X, y, _ = make_correlated_redundant(n=1500, n_corr=6, p_noise=4, seed=42)
     df, ys = as_df(X, y)
 
@@ -323,15 +312,9 @@ def test_biz_val_mrmr_use_simple_mode_faster_on_redundant_data():
     k_full = len(sel_full.support_)
     # The de-duplication win: full mode must yield a strictly smaller
     # raw-support on this heavily-correlated cluster.
-    assert k_full < k_simple, (
-        f"full mode must de-duplicate to fewer features than simple on "
-        f"correlated data; got full={k_full}, simple={k_simple}"
-    )
+    assert k_full < k_simple, f"full mode must de-duplicate to fewer features than simple on correlated data; got full={k_full}, simple={k_simple}"
     # And it must not pay for that with wall-time: full <= 1.5x simple.
-    assert t_full <= t_simple * 1.5, (
-        f"full mode must be no slower than 1.5x simple on redundant data; "
-        f"got full={t_full:.2f}s, simple={t_simple:.2f}s"
-    )
+    assert t_full <= t_simple * 1.5, f"full mode must be no slower than 1.5x simple on redundant data; got full={t_full:.2f}s, simple={t_simple:.2f}s"
 
 
 # ---------------------------------------------------------------------------
@@ -346,8 +329,11 @@ def test_biz_val_mrmr_full_npermutations_low_value_faster_same_topk():
     ignored."""
     from mlframe.feature_selection.filters.mrmr import MRMR
     from tests.feature_selection._biz_val_synth import (
-        make_signal_plus_noise, as_df, signal_recovery_count,
+        make_signal_plus_noise,
+        as_df,
+        signal_recovery_count,
     )
+
     X, y, signal = make_signal_plus_noise(n=1500, p_signal=3, p_noise=10, seed=42)
     df, ys = as_df(X, y)
     # Warmup. Fit on private copies: full-mode FE appends engineered cols
@@ -370,8 +356,7 @@ def test_biz_val_mrmr_full_npermutations_low_value_faster_same_topk():
     overlap_low = signal_recovery_count(sel_low, signal, top_k=3)
     overlap_high = signal_recovery_count(sel_high, signal, top_k=3)
     assert overlap_low >= 2 and overlap_high >= 2, (
-        f"signal recovery must be robust to permutation budget; "
-        f"got low overlap={overlap_low}, high overlap={overlap_high}"
+        f"signal recovery must be robust to permutation budget; got low overlap={overlap_low}, high overlap={overlap_high}"
     )
     # Lower perms must be at-or-below high perms in wall. On small synthetic
     # frames the per-permutation cost is a tiny slice of total wall (cat-FE,
@@ -383,11 +368,9 @@ def test_biz_val_mrmr_full_npermutations_low_value_faster_same_topk():
     # full_npermutations=1 path pays its own cold numba JIT the default-perm warmup above did not compile, so the
     # FIRST timed fit can dwarf the second). Skip the ratio there; the signal-recovery assert above always runs.
     from tests.conftest import running_under_xdist
+
     if t_high >= 0.2 and not running_under_xdist():
-        assert t_low <= t_high * 2.0, (
-            f"full_npermutations=1 must be no slower than 2x of =10; "
-            f"got low={t_low:.2f}s, high={t_high:.2f}s"
-        )
+        assert t_low <= t_high * 2.0, f"full_npermutations=1 must be no slower than 2x of =10; got low={t_low:.2f}s, high={t_high:.2f}s"
 
 
 # ---------------------------------------------------------------------------
@@ -402,8 +385,11 @@ def test_biz_val_mrmr_extra_x_shuffling_changes_selection_distribution():
     bounds; broken either way would fail to find signal."""
     from mlframe.feature_selection.filters.mrmr import MRMR
     from tests.feature_selection._biz_val_synth import (
-        make_signal_plus_noise, as_df, signal_recovery_count,
+        make_signal_plus_noise,
+        as_df,
+        signal_recovery_count,
     )
+
     X, y, signal = make_signal_plus_noise(n=1500, p_signal=3, p_noise=8, seed=42)
     df, ys = as_df(X, y)
 
@@ -444,16 +430,23 @@ def test_biz_val_mrmr_fe_polynomial_basis_chebyshev_default_runs():
     useful would fail both the marker check and the AUC floor."""
     from mlframe.feature_selection.filters.mrmr import MRMR
     from tests.feature_selection._biz_val_synth import (
-        make_polynomial_target, as_df, signal_recovery_count,
-        downstream_auc, baseline_signal_auc,
+        make_polynomial_target,
+        as_df,
+        signal_recovery_count,
+        downstream_auc,
+        baseline_signal_auc,
     )
+
     X, y, signal = make_polynomial_target(n=1500, degree=2, seed=42)
     df, ys = as_df(X, y)
 
     sel = MRMR(
-        verbose=0, random_seed=42,
-        fe_max_steps=1, fe_max_polynoms=1,
-        fe_smart_polynom_iters=1, fe_smart_polynom_optimization_steps=10,
+        verbose=0,
+        random_seed=42,
+        fe_max_steps=1,
+        fe_max_polynoms=1,
+        fe_smart_polynom_iters=1,
+        fe_smart_polynom_optimization_steps=10,
         fe_max_polynom_degree=3,
     )
     # The new attribute is picked up via getattr; doesn't need to be
@@ -463,27 +456,16 @@ def test_biz_val_mrmr_fe_polynomial_basis_chebyshev_default_runs():
     names = list(sel.get_feature_names_out())
     # (a) The chebyshev basis actually engineered a polynomial feature
     # (real marker ``_polynom_chebyshev_`` emitted by the basis dispatch).
-    assert any("chebyshev" in n for n in names), (
-        f"chebyshev basis FE must emit a _polynom_chebyshev_ feature; "
-        f"got names={names}"
-    )
+    assert any("chebyshev" in n for n in names), f"chebyshev basis FE must emit a _polynom_chebyshev_ feature; got names={names}"
     # (b) Both signal columns are referenced by the selected set, and the
     # engineered feature lifts the selected-set AUC far above the
     # near-chance raw-signal baseline. Measured: auc_sel~0.973,
     # auc_base~0.482 (delta ~0.49); floors leave wide margin.
-    assert signal_recovery_count(sel, signal, top_k=5) >= 2, (
-        f"chebyshev FE must reference both signal cols; got names={names}"
-    )
+    assert signal_recovery_count(sel, signal, top_k=5) >= 2, f"chebyshev FE must reference both signal cols; got names={names}"
     auc_sel = downstream_auc(sel, df, ys)
     auc_base = baseline_signal_auc(df, ys, signal)
-    assert auc_sel >= 0.85, (
-        f"chebyshev-FE selected set must reach >=0.85 AUC on the saddle "
-        f"target; got {auc_sel:.4f} (names={names})"
-    )
-    assert auc_sel >= auc_base + 0.15, (
-        f"chebyshev FE must lift AUC >=0.15 over the raw-signal baseline; "
-        f"got auc_sel={auc_sel:.4f}, auc_base={auc_base:.4f}"
-    )
+    assert auc_sel >= 0.85, f"chebyshev-FE selected set must reach >=0.85 AUC on the saddle target; got {auc_sel:.4f} (names={names})"
+    assert auc_sel >= auc_base + 0.15, f"chebyshev FE must lift AUC >=0.15 over the raw-signal baseline; got auc_sel={auc_sel:.4f}, auc_base={auc_base:.4f}"
 
 
 # ---------------------------------------------------------------------------
@@ -491,11 +473,14 @@ def test_biz_val_mrmr_fe_polynomial_basis_chebyshev_default_runs():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("max_steps,expected_min_support", [
-    (0, 1),  # no FE -> at minimum 1 feature must be selected
-    (1, 1),  # 1 FE iteration -> >=1
-    (2, 1),  # 2 FE iterations -> >=1, may engineer more
-])
+@pytest.mark.parametrize(
+    "max_steps,expected_min_support",
+    [
+        (0, 1),  # no FE -> at minimum 1 feature must be selected
+        (1, 1),  # 1 FE iteration -> >=1
+        (2, 1),  # 2 FE iterations -> >=1, may engineer more
+    ],
+)
 def test_biz_val_mrmr_fe_max_steps_parametrized_completes(max_steps, expected_min_support):
     """``fe_max_steps`` must complete without raising on a polynomial-
     target across the 0/1/2 range. Parametrization multiplies the
@@ -503,12 +488,15 @@ def test_biz_val_mrmr_fe_max_steps_parametrized_completes(max_steps, expected_mi
     dimension."""
     from mlframe.feature_selection.filters.mrmr import MRMR
     from tests.feature_selection._biz_val_synth import (
-        make_polynomial_target, as_df,
+        make_polynomial_target,
+        as_df,
     )
+
     X, y, _ = make_polynomial_target(n=1000, degree=2, seed=42)
     df, ys = as_df(X, y)
     sel = MRMR(
-        verbose=0, random_seed=42,
+        verbose=0,
+        random_seed=42,
         fe_max_steps=max_steps,
         fe_max_polynoms=1,
         fe_smart_polynom_iters=1 if max_steps > 0 else 0,
@@ -527,8 +515,10 @@ def test_biz_val_mrmr_max_consec_unconfirmed_higher_keeps_more(max_consec):
     completes and produces a valid support_."""
     from mlframe.feature_selection.filters.mrmr import MRMR
     from tests.feature_selection._biz_val_synth import (
-        make_signal_plus_noise, as_df,
+        make_signal_plus_noise,
+        as_df,
     )
+
     X, y, _ = make_signal_plus_noise(n=800, p_signal=3, p_noise=10, seed=42)
     df, ys = as_df(X, y)
     sel = MRMR(verbose=0, random_seed=42, max_consec_unconfirmed=max_consec)
@@ -543,8 +533,11 @@ def test_biz_val_mrmr_baseline_npermutations_robust_topk(baseline_n):
     hold across {1, 2, 5} baseline permutations."""
     from mlframe.feature_selection.filters.mrmr import MRMR
     from tests.feature_selection._biz_val_synth import (
-        make_signal_plus_noise, as_df, signal_recovery_count,
+        make_signal_plus_noise,
+        as_df,
+        signal_recovery_count,
     )
+
     X, y, signal = make_signal_plus_noise(n=1000, p_signal=3, p_noise=8, seed=42)
     df, ys = as_df(X, y)
     sel = MRMR(verbose=0, random_seed=42, baseline_npermutations=baseline_n)
@@ -563,12 +556,13 @@ def test_biz_val_mrmr_redundancy_algo_smoke(redundancy_algo):
     parametrize keeps the structure ready for new algorithms."""
     from mlframe.feature_selection.filters.mrmr import MRMR
     from tests.feature_selection._biz_val_synth import (
-        make_correlated_redundant, as_df,
+        make_correlated_redundant,
+        as_df,
     )
+
     X, y, _ = make_correlated_redundant(n=800, n_corr=3, p_noise=5, seed=42)
     df, ys = as_df(X, y)
-    sel = MRMR(verbose=0, random_seed=42,
-                mrmr_redundancy_algo=redundancy_algo)
+    sel = MRMR(verbose=0, random_seed=42, mrmr_redundancy_algo=redundancy_algo)
     sel.fit(df, ys)
     # Re-baselined for full-mode default: full mode can de-duplicate the
     # correlated cluster into a single ENGINEERED feature with empty raw
@@ -598,16 +592,16 @@ def test_biz_val_mrmr_only_unknown_interactions_actual_semantic():
     3-way XOR target."""
     from mlframe.feature_selection.filters.mrmr import MRMR
     from tests.feature_selection._biz_val_synth import (
-        make_3way_xor, as_df,
+        make_3way_xor,
+        as_df,
     )
+
     X, y, signal = make_3way_xor(n=1000, p=8, seed=42)
     df, ys = as_df(X, y)
 
     # Both modes must complete on 3-way XOR with order=3.
-    sel_full = MRMR(verbose=0, random_seed=42, interactions_max_order=3,
-                     only_unknown_interactions=False)
-    sel_skip = MRMR(verbose=0, random_seed=42, interactions_max_order=3,
-                     only_unknown_interactions=True)
+    sel_full = MRMR(verbose=0, random_seed=42, interactions_max_order=3, only_unknown_interactions=False)
+    sel_skip = MRMR(verbose=0, random_seed=42, interactions_max_order=3, only_unknown_interactions=True)
     sel_full.fit(df, ys)
     sel_skip.fit(df, ys)
     # Structural invariants.
@@ -620,14 +614,8 @@ def test_biz_val_mrmr_only_unknown_interactions_actual_semantic():
     sup_full = set(int(i) for i in sel_full.support_[:7])
     sup_skip = set(int(i) for i in sel_skip.support_[:7])
     sig = set(signal)
-    assert len(sup_full & sig) >= 1, (
-        f"only_unknown=False must surface >=1 signal in top-7; "
-        f"got {sup_full}, signal={sig}"
-    )
-    assert len(sup_skip & sig) >= 1, (
-        f"only_unknown=True must surface >=1 signal in top-7; "
-        f"got {sup_skip}, signal={sig}"
-    )
+    assert len(sup_full & sig) >= 1, f"only_unknown=False must surface >=1 signal in top-7; got {sup_full}, signal={sig}"
+    assert len(sup_skip & sig) >= 1, f"only_unknown=True must surface >=1 signal in top-7; got {sup_skip}, signal={sig}"
 
 
 def test_biz_val_mrmr_only_unknown_interactions_completes_smoke():
@@ -638,14 +626,14 @@ def test_biz_val_mrmr_only_unknown_interactions_completes_smoke():
     confirmed at the time of the call)."""
     from mlframe.feature_selection.filters.mrmr import MRMR
     from tests.feature_selection._biz_val_synth import (
-        make_3way_xor, as_df,
+        make_3way_xor,
+        as_df,
     )
+
     X, y, _ = make_3way_xor(n=1000, p=8, seed=42)
     df, ys = as_df(X, y)
-    sel_full = MRMR(verbose=0, random_seed=42, interactions_max_order=3,
-                     only_unknown_interactions=False)
-    sel_skip = MRMR(verbose=0, random_seed=42, interactions_max_order=3,
-                     only_unknown_interactions=True)
+    sel_full = MRMR(verbose=0, random_seed=42, interactions_max_order=3, only_unknown_interactions=False)
+    sel_skip = MRMR(verbose=0, random_seed=42, interactions_max_order=3, only_unknown_interactions=True)
     sel_full.fit(df, ys)
     sel_skip.fit(df, ys)
     assert 1 <= len(sel_full.support_) <= df.shape[1]
@@ -659,11 +647,14 @@ def test_biz_val_mrmr_robust_signal_recovery_across_seeds(seed):
     the 3-feature signal on a clean linear target."""
     from mlframe.feature_selection.filters.mrmr import MRMR
     from tests.feature_selection._biz_val_synth import (
-        make_signal_plus_noise, as_df, signal_recovery_count,
-        downstream_auc, baseline_signal_auc,
+        make_signal_plus_noise,
+        as_df,
+        signal_recovery_count,
+        downstream_auc,
+        baseline_signal_auc,
     )
-    X, y, signal = make_signal_plus_noise(n=1000, p_signal=3, p_noise=8,
-                                              seed=seed)
+
+    X, y, signal = make_signal_plus_noise(n=1000, p_signal=3, p_noise=8, seed=seed)
     df, ys = as_df(X, y)
     sel = MRMR(verbose=0, random_seed=seed)
     sel.fit(df, ys)
@@ -678,22 +669,23 @@ def test_biz_val_mrmr_robust_signal_recovery_across_seeds(seed):
     assert signal_recovery_count(sel, signal, top_k=5) >= 2
     auc_sel = downstream_auc(sel, df, ys)
     auc_base = baseline_signal_auc(df, ys, signal)
-    assert auc_sel >= auc_base - 0.02, (
-        f"selected-set AUC must be within 0.02 of all-signal baseline; "
-        f"got auc_sel={auc_sel:.4f}, auc_base={auc_base:.4f}"
-    )
+    assert auc_sel >= auc_base - 0.02, f"selected-set AUC must be within 0.02 of all-signal baseline; got auc_sel={auc_sel:.4f}, auc_base={auc_base:.4f}"
 
 
-@pytest.mark.parametrize("n_samples,p_features", [
-    (500, 8),
-    (1000, 12),
-    (1500, 15),
-])
+@pytest.mark.parametrize(
+    "n_samples,p_features",
+    [
+        (500, 8),
+        (1000, 12),
+        (1500, 15),
+    ],
+)
 def test_biz_val_mrmr_scales_across_dataset_sizes(n_samples, p_features):
     """MRMR must complete + produce valid support across small/medium
     dataset sizes. Parametrize over 3 (n, p) combinations."""
     from mlframe.feature_selection.filters.mrmr import MRMR
     from tests.feature_selection._biz_val_synth import as_df
+
     rng = np.random.default_rng(42)
     X = rng.normal(size=(n_samples, p_features))
     y = (X[:, 0] + X[:, 1] > 0).astype(np.int64)
@@ -706,29 +698,32 @@ def test_biz_val_mrmr_scales_across_dataset_sizes(n_samples, p_features):
     # "produced a valid selection". Count the total selected set via
     # get_feature_names_out() instead (raw survivors + engineered).
     n_selected = len(sel.get_feature_names_out())
-    assert 1 <= n_selected <= 2 * p_features, (
-        f"must produce 1..2p selected features; got {n_selected} "
-        f"(support_={sel.support_.tolist()})"
-    )
+    assert 1 <= n_selected <= 2 * p_features, f"must produce 1..2p selected features; got {n_selected} (support_={sel.support_.tolist()})"
 
 
-@pytest.mark.parametrize("interactions_min,interactions_max", [
-    (1, 1),
-    (1, 2),
-    (2, 2),
-    (2, 3),
-])
+@pytest.mark.parametrize(
+    "interactions_min,interactions_max",
+    [
+        (1, 1),
+        (1, 2),
+        (2, 2),
+        (2, 3),
+    ],
+)
 def test_biz_val_mrmr_interactions_min_max_order_range(interactions_min, interactions_max):
     """``interactions_min_order`` + ``interactions_max_order`` range
     parametrization. All valid combinations must complete."""
     from mlframe.feature_selection.filters.mrmr import MRMR
     from tests.feature_selection._biz_val_synth import (
-        make_signal_plus_noise, as_df,
+        make_signal_plus_noise,
+        as_df,
     )
+
     X, y, _ = make_signal_plus_noise(n=600, p_signal=3, p_noise=5, seed=42)
     df, ys = as_df(X, y)
     sel = MRMR(
-        verbose=0, random_seed=42,
+        verbose=0,
+        random_seed=42,
         interactions_min_order=interactions_min,
         interactions_max_order=interactions_max,
     )
@@ -742,28 +737,29 @@ def test_biz_val_mrmr_interactions_min_max_order_range(interactions_min, interac
     assert len(sel.support_) <= df.shape[1]
 
 
-@pytest.mark.parametrize("factors_names_subset", [
-    ["x0", "x1", "x2"],
-    ["x0", "x3", "x5"],
-])
+@pytest.mark.parametrize(
+    "factors_names_subset",
+    [
+        ["x0", "x1", "x2"],
+        ["x0", "x3", "x5"],
+    ],
+)
 def test_biz_val_mrmr_factors_names_to_use_restricts_search(factors_names_subset):
     """``factors_names_to_use`` must restrict the search space:
     support_ must be a subset of the named columns."""
     from mlframe.feature_selection.filters.mrmr import MRMR
     from tests.feature_selection._biz_val_synth import (
-        make_signal_plus_noise, as_df,
+        make_signal_plus_noise,
+        as_df,
     )
+
     X, y, _ = make_signal_plus_noise(n=800, p_signal=3, p_noise=5, seed=42)
     df, ys = as_df(X, y)
-    sel = MRMR(verbose=0, random_seed=42,
-                factors_names_to_use=factors_names_subset)
+    sel = MRMR(verbose=0, random_seed=42, factors_names_to_use=factors_names_subset)
     sel.fit(df, ys)
     selected_names = set(df.columns[i] for i in sel.support_)
     # All selected features must be in the requested subset.
-    assert selected_names.issubset(set(factors_names_subset)), (
-        f"factors_names_to_use must restrict selection to {factors_names_subset}; "
-        f"got {selected_names}"
-    )
+    assert selected_names.issubset(set(factors_names_subset)), f"factors_names_to_use must restrict selection to {factors_names_subset}; got {selected_names}"
 
 
 def test_biz_val_mrmr_factors_names_to_use_restricts_empty_screen_rescue():
@@ -775,19 +771,17 @@ def test_biz_val_mrmr_factors_names_to_use_restricts_empty_screen_rescue():
     resurrected ``x0`` (the strongest signal) for ``factors_names_to_use=['x3']``."""
     from mlframe.feature_selection.filters.mrmr import MRMR
     from tests.feature_selection._biz_val_synth import (
-        make_signal_plus_noise, as_df,
+        make_signal_plus_noise,
+        as_df,
     )
+
     X, y, _ = make_signal_plus_noise(n=800, p_signal=3, p_noise=5, seed=42)
     df, ys = as_df(X, y)
     subset = ["x3"]  # pure-noise column; forces the empty-screen rescue
-    sel = MRMR(verbose=0, random_seed=42, min_features_fallback=2,
-                factors_names_to_use=subset)
+    sel = MRMR(verbose=0, random_seed=42, min_features_fallback=2, factors_names_to_use=subset)
     sel.fit(df, ys)
     selected_names = set(df.columns[i] for i in sel.support_)
-    assert selected_names.issubset(set(subset)), (
-        f"empty-screen rescue leaked a forbidden feature; "
-        f"factors_names_to_use={subset}, got {selected_names}"
-    )
+    assert selected_names.issubset(set(subset)), f"empty-screen rescue leaked a forbidden feature; factors_names_to_use={subset}, got {selected_names}"
 
 
 @pytest.mark.parametrize("preset", ["minimal", "medium", "maximal"])
@@ -797,14 +791,18 @@ def test_biz_val_mrmr_fe_unary_preset_parametrize(preset):
     regressions in any of the preset registries."""
     from mlframe.feature_selection.filters.mrmr import MRMR
     from tests.feature_selection._biz_val_synth import (
-        make_polynomial_target, as_df,
+        make_polynomial_target,
+        as_df,
     )
+
     X, y, _ = make_polynomial_target(n=800, degree=2, seed=42)
     df, ys = as_df(X, y)
     try:
         sel = MRMR(
-            verbose=0, random_seed=42,
-            fe_max_steps=1, fe_max_polynoms=1,
+            verbose=0,
+            random_seed=42,
+            fe_max_steps=1,
+            fe_max_polynoms=1,
             fe_unary_preset=preset,
         )
         sel.fit(df, ys)
@@ -829,15 +827,21 @@ def test_biz_val_mrmr_fe_binary_preset_parametrize(preset):
     fitted selector (one cheap logreg CV, no extra MRMR fit)."""
     from mlframe.feature_selection.filters.mrmr import MRMR
     from tests.feature_selection._biz_val_synth import (
-        make_polynomial_target, as_df, signal_recovery_count,
-        downstream_auc, baseline_signal_auc,
+        make_polynomial_target,
+        as_df,
+        signal_recovery_count,
+        downstream_auc,
+        baseline_signal_auc,
     )
+
     X, y, signal = make_polynomial_target(n=800, degree=2, seed=42)
     df, ys = as_df(X, y)
     try:
         sel = MRMR(
-            verbose=0, random_seed=42,
-            fe_max_steps=1, fe_max_polynoms=1,
+            verbose=0,
+            random_seed=42,
+            fe_max_steps=1,
+            fe_max_polynoms=1,
             fe_binary_preset=preset,
         )
         sel.fit(df, ys)
@@ -846,18 +850,13 @@ def test_biz_val_mrmr_fe_binary_preset_parametrize(preset):
     # The preset's FE must reference a signal column and beat the
     # near-chance raw-signal baseline by a wide margin.
     assert signal_recovery_count(sel, signal, top_k=5) >= 1, (
-        f"binary preset={preset!r} FE must reference a signal col; "
-        f"got names={list(sel.get_feature_names_out())}"
+        f"binary preset={preset!r} FE must reference a signal col; got names={list(sel.get_feature_names_out())}"
     )
     auc_sel = downstream_auc(sel, df, ys)
     auc_base = baseline_signal_auc(df, ys, signal)
-    assert auc_sel >= 0.75, (
-        f"binary preset={preset!r} selected set must reach >=0.75 AUC on "
-        f"the saddle target; got {auc_sel:.4f}"
-    )
+    assert auc_sel >= 0.75, f"binary preset={preset!r} selected set must reach >=0.75 AUC on the saddle target; got {auc_sel:.4f}"
     assert auc_sel >= auc_base + 0.15, (
-        f"binary preset={preset!r} FE must lift AUC >=0.15 over the raw "
-        f"baseline; got auc_sel={auc_sel:.4f}, auc_base={auc_base:.4f}"
+        f"binary preset={preset!r} FE must lift AUC >=0.15 over the raw baseline; got auc_sel={auc_sel:.4f}, auc_base={auc_base:.4f}"
     )
 
 
@@ -868,13 +867,17 @@ def test_biz_val_mrmr_fe_max_pair_features_completes(max_pair_features):
     emitted per pair during the FE step."""
     from mlframe.feature_selection.filters.mrmr import MRMR
     from tests.feature_selection._biz_val_synth import (
-        make_polynomial_target, as_df,
+        make_polynomial_target,
+        as_df,
     )
+
     X, y, _ = make_polynomial_target(n=800, degree=2, seed=42)
     df, ys = as_df(X, y)
     sel = MRMR(
-        verbose=0, random_seed=42,
-        fe_max_steps=1, fe_max_polynoms=1,
+        verbose=0,
+        random_seed=42,
+        fe_max_steps=1,
+        fe_max_polynoms=1,
         fe_max_pair_features=max_pair_features,
     )
     sel.fit(df, ys)
@@ -887,17 +890,17 @@ def test_biz_val_mrmr_factors_to_use_int_indices_restricts_search():
     test."""
     from mlframe.feature_selection.filters.mrmr import MRMR
     from tests.feature_selection._biz_val_synth import (
-        make_signal_plus_noise, as_df,
+        make_signal_plus_noise,
+        as_df,
     )
+
     X, y, _ = make_signal_plus_noise(n=800, p_signal=3, p_noise=5, seed=42)
     df, ys = as_df(X, y)
     sel = MRMR(verbose=0, random_seed=42, factors_to_use=[0, 1, 2])
     sel.fit(df, ys)
     selected = set(int(i) for i in sel.support_)
     allowed = {0, 1, 2}
-    assert selected.issubset(allowed), (
-        f"factors_to_use=[0,1,2] must restrict selection to those; got {selected}"
-    )
+    assert selected.issubset(allowed), f"factors_to_use=[0,1,2] must restrict selection to those; got {selected}"
 
 
 @pytest.mark.parametrize("cv_value", [2, 3, 5])
@@ -905,8 +908,10 @@ def test_biz_val_mrmr_cv_int_parametrize_completes(cv_value):
     """``cv`` integer parametrize {2, 3, 5} -- MRMR-internal CV folds."""
     from mlframe.feature_selection.filters.mrmr import MRMR
     from tests.feature_selection._biz_val_synth import (
-        make_signal_plus_noise, as_df,
+        make_signal_plus_noise,
+        as_df,
     )
+
     X, y, _ = make_signal_plus_noise(n=600, p_signal=3, p_noise=5, seed=42)
     df, ys = as_df(X, y)
     sel = MRMR(verbose=0, random_seed=42, cv=cv_value)
@@ -919,8 +924,10 @@ def test_biz_val_mrmr_cv_shuffle_parametrize_completes(cv_shuffle_flag):
     """``cv_shuffle`` toggle -- both must complete cleanly."""
     from mlframe.feature_selection.filters.mrmr import MRMR
     from tests.feature_selection._biz_val_synth import (
-        make_signal_plus_noise, as_df,
+        make_signal_plus_noise,
+        as_df,
     )
+
     X, y, _ = make_signal_plus_noise(n=600, p_signal=3, p_noise=5, seed=42)
     df, ys = as_df(X, y)
     sel = MRMR(verbose=0, random_seed=42, cv_shuffle=cv_shuffle_flag)
@@ -934,12 +941,13 @@ def test_biz_val_mrmr_max_veteranes_interactions_order_parametrize(max_veteranes
     interaction order in redundancy-veteran evaluation."""
     from mlframe.feature_selection.filters.mrmr import MRMR
     from tests.feature_selection._biz_val_synth import (
-        make_correlated_redundant, as_df,
+        make_correlated_redundant,
+        as_df,
     )
+
     X, y, _ = make_correlated_redundant(n=600, n_corr=3, p_noise=4, seed=42)
     df, ys = as_df(X, y)
-    sel = MRMR(verbose=0, random_seed=42,
-                max_veteranes_interactions_order=max_veteranes_order)
+    sel = MRMR(verbose=0, random_seed=42, max_veteranes_interactions_order=max_veteranes_order)
     sel.fit(df, ys)
     # Re-baselined for full-mode default: full-mode dedup can leave the raw
     # `support_` empty when the survivor is an engineered feature; count
@@ -953,13 +961,17 @@ def test_biz_val_mrmr_fe_min_pair_mi_prevalence_parametrize(fe_min_pair_prev):
     must exceed the sum of individual MIs to be considered for FE."""
     from mlframe.feature_selection.filters.mrmr import MRMR
     from tests.feature_selection._biz_val_synth import (
-        make_polynomial_target, as_df,
+        make_polynomial_target,
+        as_df,
     )
+
     X, y, _ = make_polynomial_target(n=800, degree=2, seed=42)
     df, ys = as_df(X, y)
     sel = MRMR(
-        verbose=0, random_seed=42,
-        fe_max_steps=1, fe_max_polynoms=1,
+        verbose=0,
+        random_seed=42,
+        fe_max_steps=1,
+        fe_max_polynoms=1,
         fe_min_pair_mi_prevalence=fe_min_pair_prev,
     )
     sel.fit(df, ys)
@@ -971,13 +983,17 @@ def test_biz_val_mrmr_fe_min_pair_mi_parametrize(min_pair_mi):
     """``fe_min_pair_mi`` (absolute MI floor for pair consideration)."""
     from mlframe.feature_selection.filters.mrmr import MRMR
     from tests.feature_selection._biz_val_synth import (
-        make_polynomial_target, as_df,
+        make_polynomial_target,
+        as_df,
     )
+
     X, y, _ = make_polynomial_target(n=800, degree=2, seed=42)
     df, ys = as_df(X, y)
     sel = MRMR(
-        verbose=0, random_seed=42,
-        fe_max_steps=1, fe_max_polynoms=1,
+        verbose=0,
+        random_seed=42,
+        fe_max_steps=1,
+        fe_max_polynoms=1,
         fe_min_pair_mi=min_pair_mi,
     )
     sel.fit(df, ys)
@@ -998,14 +1014,19 @@ def test_biz_val_mrmr_fe_max_polynom_degree_parametrize(degree):
     # workaround was guarding is no longer reproducible.
     from mlframe.feature_selection.filters.mrmr import MRMR
     from tests.feature_selection._biz_val_synth import (
-        make_polynomial_target, as_df,
+        make_polynomial_target,
+        as_df,
     )
+
     X, y, _ = make_polynomial_target(n=800, degree=2, seed=42)
     df, ys = as_df(X, y)
     sel = MRMR(
-        verbose=0, random_seed=42,
-        fe_max_steps=1, fe_max_polynoms=1,
-        fe_smart_polynom_iters=1, fe_smart_polynom_optimization_steps=10,
+        verbose=0,
+        random_seed=42,
+        fe_max_steps=1,
+        fe_max_polynoms=1,
+        fe_smart_polynom_iters=1,
+        fe_smart_polynom_optimization_steps=10,
         fe_max_polynom_degree=degree,
     )
     sel.fit(df, ys)
@@ -1022,14 +1043,19 @@ def test_biz_val_mrmr_fe_max_polynom_coeff_parametrize(coef_range_max):
     # cache-dependent test.
     from mlframe.feature_selection.filters.mrmr import MRMR
     from tests.feature_selection._biz_val_synth import (
-        make_polynomial_target, as_df,
+        make_polynomial_target,
+        as_df,
     )
+
     X, y, _ = make_polynomial_target(n=800, degree=2, seed=42)
     df, ys = as_df(X, y)
     sel = MRMR(
-        verbose=0, random_seed=42,
-        fe_max_steps=1, fe_max_polynoms=1,
-        fe_smart_polynom_iters=1, fe_smart_polynom_optimization_steps=10,
+        verbose=0,
+        random_seed=42,
+        fe_max_steps=1,
+        fe_max_polynoms=1,
+        fe_smart_polynom_iters=1,
+        fe_smart_polynom_optimization_steps=10,
         fe_min_polynom_coeff=-coef_range_max,
         fe_max_polynom_coeff=coef_range_max,
     )
@@ -1043,13 +1069,17 @@ def test_biz_val_mrmr_fe_max_polynoms_parametrize(n_polynoms):
     polynomial features."""
     from mlframe.feature_selection.filters.mrmr import MRMR
     from tests.feature_selection._biz_val_synth import (
-        make_polynomial_target, as_df,
+        make_polynomial_target,
+        as_df,
     )
+
     X, y, _ = make_polynomial_target(n=800, degree=2, seed=42)
     df, ys = as_df(X, y)
     sel = MRMR(
-        verbose=0, random_seed=42,
-        fe_max_steps=1, fe_max_polynoms=n_polynoms,
+        verbose=0,
+        random_seed=42,
+        fe_max_steps=1,
+        fe_max_polynoms=n_polynoms,
     )
     sel.fit(df, ys)
     assert len(sel.support_) >= 1
@@ -1061,8 +1091,10 @@ def test_biz_val_mrmr_quantization_nbins_range_parametrize(nbins):
     Each value must produce a valid selection."""
     from mlframe.feature_selection.filters.mrmr import MRMR
     from tests.feature_selection._biz_val_synth import (
-        make_signal_plus_noise, as_df,
+        make_signal_plus_noise,
+        as_df,
     )
+
     X, y, _ = make_signal_plus_noise(n=600, p_signal=3, p_noise=5, seed=42)
     df, ys = as_df(X, y)
     sel = MRMR(verbose=0, random_seed=42, quantization_nbins=nbins)
@@ -1089,8 +1121,10 @@ def test_biz_val_mrmr_dtype_parametrize(dtype):
     code paths."""
     from mlframe.feature_selection.filters.mrmr import MRMR
     from tests.feature_selection._biz_val_synth import (
-        make_signal_plus_noise, as_df,
+        make_signal_plus_noise,
+        as_df,
     )
+
     X, y, _ = make_signal_plus_noise(n=600, p_signal=3, p_noise=5, seed=42)
     df, ys = as_df(X, y)
     sel = MRMR(verbose=0, random_seed=42, dtype=dtype)
@@ -1106,7 +1140,8 @@ def test_biz_val_mrmr_property_no_crash_on_random_configs():
     from hypothesis import HealthCheck, given, settings, strategies as st
     from mlframe.feature_selection.filters.mrmr import MRMR
     from tests.feature_selection._biz_val_synth import (
-        make_signal_plus_noise, as_df,
+        make_signal_plus_noise,
+        as_df,
     )
 
     # Re-baselined for full-mode default: a full-mode MRMR.fit (Fleuret
@@ -1122,11 +1157,13 @@ def test_biz_val_mrmr_property_no_crash_on_random_configs():
         p_noise=st.integers(min_value=2, max_value=8),
         seed=st.integers(min_value=0, max_value=100),
     )
-    @settings(max_examples=6, deadline=None,
-              suppress_health_check=[HealthCheck.too_slow])
+    @settings(max_examples=6, deadline=None, suppress_health_check=[HealthCheck.too_slow])
     def _property(n, p_signal, p_noise, seed):
         X, y, _ = make_signal_plus_noise(
-            n=n, p_signal=p_signal, p_noise=p_noise, seed=seed,
+            n=n,
+            p_signal=p_signal,
+            p_noise=p_noise,
+            seed=seed,
         )
         df, ys = as_df(X, y)
         sel = MRMR(verbose=0, random_seed=seed)
@@ -1151,6 +1188,7 @@ def test_biz_val_mrmr_regression_target_completes(target_type):
     surface signal features. Catches regressions in the regression
     code path."""
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     rng = np.random.default_rng(42)
     n, p_signal, p_noise = 600, 3, 5
     X_sig = rng.normal(size=(n, p_signal))
@@ -1164,10 +1202,7 @@ def test_biz_val_mrmr_regression_target_completes(target_type):
     # Regression: still expect signal features (0, 1, 2) in top-5
     top5 = set(int(i) for i in sel.support_[:5])
     overlap = top5 & {0, 1, 2}
-    assert len(overlap) >= 2, (
-        f"regression MRMR must surface >=2 signal features in top-5; "
-        f"got top5={top5}, overlap={overlap}"
-    )
+    assert len(overlap) >= 2, f"regression MRMR must surface >=2 signal features in top-5; got top5={top5}, overlap={overlap}"
 
 
 @pytest.mark.parametrize("min_occupancy", [None, 5, 10])
@@ -1176,8 +1211,10 @@ def test_biz_val_mrmr_min_occupancy_parametrize(min_occupancy):
     in the discretized joint histogram (rare-bin filter)."""
     from mlframe.feature_selection.filters.mrmr import MRMR
     from tests.feature_selection._biz_val_synth import (
-        make_signal_plus_noise, as_df,
+        make_signal_plus_noise,
+        as_df,
     )
+
     X, y, _ = make_signal_plus_noise(n=600, p_signal=3, p_noise=5, seed=42)
     df, ys = as_df(X, y)
     sel = MRMR(verbose=0, random_seed=42, min_occupancy=min_occupancy)
@@ -1191,8 +1228,10 @@ def test_biz_val_mrmr_min_nonzero_confidence_high_picks_fewer():
     pick STRICTLY <= the looser-threshold support_."""
     from mlframe.feature_selection.filters.mrmr import MRMR
     from tests.feature_selection._biz_val_synth import (
-        make_signal_plus_noise, as_df,
+        make_signal_plus_noise,
+        as_df,
     )
+
     X, y, _ = make_signal_plus_noise(n=1000, p_signal=2, p_noise=15, seed=42)
     df, ys = as_df(X, y)
     sel_loose = MRMR(verbose=0, random_seed=42, min_nonzero_confidence=0.90)
@@ -1208,10 +1247,7 @@ def test_biz_val_mrmr_min_nonzero_confidence_high_picks_fewer():
     # features) holds under that dedup-aware measure.
     n_strict = len(sel_strict.get_feature_names_out())
     n_loose = len(sel_loose.get_feature_names_out())
-    assert n_strict <= n_loose, (
-        f"min_nonzero_confidence=0.999 ({n_strict} selected) must "
-        f"<= 0.90 ({n_loose} selected)"
-    )
+    assert n_strict <= n_loose, f"min_nonzero_confidence=0.999 ({n_strict} selected) must <= 0.90 ({n_loose} selected)"
 
 
 # ---------------------------------------------------------------------------
@@ -1239,9 +1275,7 @@ def test_biz_val_mrmr_min_relevance_gain_relative_mode_scales_with_target_entrop
     y_high = rng.integers(0, 10, size=n).astype(np.int64)
     df_high, ys_high = _to_df(X_high, y_high)
 
-    pattern = re.compile(
-        r"effective floor=([0-9eE.+\-]+)"
-    )
+    pattern = re.compile(r"effective floor=([0-9eE.+\-]+)")
 
     def _resolved_floor(df, ys):
         sel = MRMR(verbose=2, random_seed=42, min_relevance_gain_frac=0.01)
@@ -1261,9 +1295,7 @@ def test_biz_val_mrmr_min_relevance_gain_relative_mode_scales_with_target_entrop
         f"High-entropy target should give a larger absolute floor than low-entropy at the same frac; got floor_low={floor_low:.4g}, floor_high={floor_high:.4g}"
     )
     # Sanity: the ratio of resolved floors should roughly track the ratio of entropies (log(10) / 0.056 ~= 41). Allow a wide band -- the binner's bin-occupancy can drift the empirical H(y) -- but the ratio must be >= 5x to confirm scaling.
-    assert floor_high / max(floor_low, 1e-12) >= 5.0, (
-        f"Resolved-floor ratio must reflect entropy ratio; got {floor_high / max(floor_low, 1e-12):.2f}x"
-    )
+    assert floor_high / max(floor_low, 1e-12) >= 5.0, f"Resolved-floor ratio must reflect entropy ratio; got {floor_high / max(floor_low, 1e-12):.2f}x"
 
 
 def test_biz_val_mrmr_min_relevance_gain_relative_mode_wins_on_low_entropy_target():
@@ -1322,13 +1354,9 @@ def test_biz_val_mrmr_min_relevance_gain_relative_mode_wins_on_low_entropy_targe
     auc_abs, k_abs = _fit_and_score("absolute")
     auc_rel, k_rel = _fit_and_score("relative_to_entropy")
     # Both modes must produce at least one feature on this target so the AUC comparison is meaningful.
-    assert k_abs >= 1 and k_rel >= 1, (
-        f"Both modes should confirm at least one feature on a 80/20 target; got k_abs={k_abs}, k_rel={k_rel}"
-    )
+    assert k_abs >= 1 and k_rel >= 1, f"Both modes should confirm at least one feature on a 80/20 target; got k_abs={k_abs}, k_rel={k_rel}"
     # Relative mode picks <= features than absolute mode on this low-entropy target (the absolute floor over-permits noise into support_).
-    assert k_rel <= k_abs, (
-        f"relative mode should select <= features than absolute; got k_rel={k_rel}, k_abs={k_abs}"
-    )
+    assert k_rel <= k_abs, f"relative mode should select <= features than absolute; got k_rel={k_rel}, k_abs={k_abs}"
     # Relative-mode AUC must not regress materially; typically it is at-or-above absolute-mode because LR is hurt by noise features the absolute floor admitted.
     assert auc_rel >= auc_abs - 0.01, (
         f"relative-mode AUC must not be more than 0.01 below absolute-mode AUC; got auc_rel={auc_rel:.4f}, auc_abs={auc_abs:.4f} (k_rel={k_rel}, k_abs={k_abs})"
@@ -1387,7 +1415,9 @@ def test_biz_val_mrmr_sample_weight_flips_top_feature_under_recency_vs_uniform()
         # ``fe_conditional_gate_enable=False`` added, uniform top-1 = B (matching the raw binned MI B=0.34 >> A=0.02) and recency top-1 = A. These FE families
         # are measured-better defaults elsewhere but orthogonal to the weight -> raw-feature mechanism this sensor isolates.
         sel = MRMR(
-            verbose=0, random_seed=11, max_runtime_mins=1.0,
+            verbose=0,
+            random_seed=11,
+            max_runtime_mins=1.0,
             fe_max_steps=0,
             fe_conditional_gate_enable=False,
             fe_binned_numeric_agg_enable=False,
@@ -1404,10 +1434,7 @@ def test_biz_val_mrmr_sample_weight_flips_top_feature_under_recency_vs_uniform()
     top1_recency = _top1_with_weights(recency_w)
     # The biz-value claim: recency weighting selects a different top-1, AND that top-1 is A (recent driver),
     # i.e. the encoder-style "stable across schemas" assumption is violated when the operator opts in.
-    assert top1_recency == "A", (
-        f"recency-weighted MRMR should surface feature A (recent-regime driver) as top-1; got {top1_recency!r}"
-    )
+    assert top1_recency == "A", f"recency-weighted MRMR should surface feature A (recent-regime driver) as top-1; got {top1_recency!r}"
     assert top1_uniform != top1_recency, (
-        f"uniform-weight top-1 must differ from recency-weighted top-1 to demonstrate the biz-value win; "
-        f"got uniform={top1_uniform!r}, recency={top1_recency!r}"
+        f"uniform-weight top-1 must differ from recency-weighted top-1 to demonstrate the biz-value win; got uniform={top1_uniform!r}, recency={top1_recency!r}"
     )

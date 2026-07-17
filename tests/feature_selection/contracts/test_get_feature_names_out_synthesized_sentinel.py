@@ -23,6 +23,7 @@ Fix:
    count parity required) when the sentinel is missing for back-compat
    with unpickled pre-fix estimators.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -36,6 +37,7 @@ def _fit_df_with_feature_pattern_names():
     surface.
     """
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     rng = np.random.default_rng(0)
     n = 200
     X = pd.DataFrame(
@@ -74,6 +76,7 @@ def test_matching_input_features_succeeds_with_feature_pattern():
 def test_ndarray_fit_marked_synthesized():
     """ndarray fit sets the sentinel to True so the override path fires."""
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     rng = np.random.default_rng(1)
     n = 200
     X = rng.standard_normal((n, 3))
@@ -87,6 +90,7 @@ def test_ndarray_fit_user_can_override_names():
     ``input_features``.
     """
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     rng = np.random.default_rng(2)
     n = 200
     X = rng.standard_normal((n, 3))

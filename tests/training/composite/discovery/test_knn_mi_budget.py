@@ -1,4 +1,5 @@
 """Unit: knn-MI budget guard (auto-downgrade knn -> bin when the estimated sweep cost blows the budget, G8)."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -22,10 +23,18 @@ def _frame(n: int = 1500, seed: int = 0):
 def _cfg(**kw) -> CompositeTargetDiscoveryConfig:
     """Minimal screening="mi" / mi_estimator="knn" discovery config for the budget-guard tests."""
     base = dict(
-        enabled=True, random_state=0, screening="mi", mi_estimator="knn",
-        base_candidates=["base"], transforms=["linear_residual"], honest_holdout_frac=None,
-        honest_rmse_gate_enabled=False, auto_base_null_perms=0, multi_base_enabled=False,
-        interaction_base_discovery_enabled=False, auto_chain_discovery_enabled=False,
+        enabled=True,
+        random_state=0,
+        screening="mi",
+        mi_estimator="knn",
+        base_candidates=["base"],
+        transforms=["linear_residual"],
+        honest_holdout_frac=None,
+        honest_rmse_gate_enabled=False,
+        auto_base_null_perms=0,
+        multi_base_enabled=False,
+        interaction_base_discovery_enabled=False,
+        auto_chain_discovery_enabled=False,
     )
     base.update(kw)
     return CompositeTargetDiscoveryConfig(**base)

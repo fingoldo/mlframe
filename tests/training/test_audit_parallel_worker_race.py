@@ -30,6 +30,7 @@
    Fix: add ``require='sharedmem'`` so joblib RAISES when it can't
    satisfy threading.
 """
+
 from __future__ import annotations
 
 import pathlib
@@ -77,8 +78,7 @@ def _read(rel: str) -> str:
 def test_feature_engineering_times_spent_lock_added():
     src = _read("feature_selection/filters/feature_engineering.py")
     assert "_TIMES_SPENT_LOCK = threading.Lock()" in src, (
-        "Wave 27 P1 regression: _TIMES_SPENT_LOCK module-level lock removed; "
-        "times_spent[k] += ... races silently between threading workers."
+        "Wave 27 P1 regression: _TIMES_SPENT_LOCK module-level lock removed; times_spent[k] += ... races silently between threading workers."
     )
     assert "with _TIMES_SPENT_LOCK:" in src
     # The shared-dict increment MUST be guarded by the lock. Assert STRUCTURALLY
@@ -89,6 +89,7 @@ def test_feature_engineering_times_spent_lock_added():
     # locked merge per pair (fewer lock acquisitions, still race-safe). This fails
     # iff the lock no longer guards the increment (the actual regression to catch).
     import re
+
     locked_increment = re.search(
         r"with _TIMES_SPENT_LOCK:(?:\n[ \t]+[^\n]*)*?\n[ \t]+times_spent\[[^\]]+\]\s*\+=",
         src,

@@ -53,6 +53,7 @@ def _make_conditionally_dependent(n: int = 8000, n_features: int = 80, seed: int
 
 
 def test_naive_bayes_log_odds_ensembler_fit_predict_shapes():
+    """predict_proba/predict and the averaging-baseline helper both return valid shapes and probability sums."""
     X, y = _make_conditionally_independent(n=500, seed=0)
     ens = NaiveBayesLogOddsEnsembler(calibrate=False)
     ens.fit(X, y)
@@ -115,6 +116,7 @@ def test_biz_val_naive_bayes_log_odds_ensembler_honest_negative_dependent_featur
 
 
 def test_naive_bayes_log_odds_ensembler_feature_blocks():
+    """feature_blocks groups columns into one sub-model per block instead of one per column."""
     X, y = _make_conditionally_independent(n=1000, n_features=6, n_informative=2, seed=0)
     ens = NaiveBayesLogOddsEnsembler(calibrate=False, feature_blocks=[(0, 1), (2, 3), (4, 5)])
     ens.fit(X, y)
@@ -124,6 +126,7 @@ def test_naive_bayes_log_odds_ensembler_feature_blocks():
 
 
 def test_naive_bayes_log_odds_ensembler_rejects_multiclass():
+    """Fitting on a 3-class target raises ValueError since the log-odds combination is binary-only."""
     X = np.random.default_rng(0).normal(size=(30, 3))
     y = np.array([0, 1, 2] * 10)
     ens = NaiveBayesLogOddsEnsembler(calibrate=False)

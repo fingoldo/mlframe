@@ -5,6 +5,7 @@ Anchors: (1) with a SINGLE group + no Miller-Madow, group-blocked MI EQUALS the 
 (pure between-group level) has within-group MI ~0 (leakage demoted); (3) a within-group relationship whose SIGN FLIPS
 across groups still has HIGH per-group MI in every group, so it survives (the case a global-demean approach drops).
 """
+
 from __future__ import annotations
 
 import math
@@ -50,7 +51,7 @@ def test_between_group_level_has_zero_within_group_mi():
     n_groups, per, nb = 30, 200, 8
     g = np.repeat(np.arange(n_groups), per)
     level = rng.uniform(0, 100, n_groups)[g]
-    x = level                                   # pure between-group level
+    x = level  # pure between-group level
     y = level + rng.normal(scale=1.0, size=g.size)
     cx, cy = _codes(x, nb), _codes(y, nb)
     sort_idx, offsets = prepare_group_segments(g)

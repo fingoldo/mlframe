@@ -25,10 +25,10 @@ table:
   PURE additive inverse (MLP-friendly).
 * C4: ``y_quantile_clip`` -- limit-damage unary transform.
 """
+
 from __future__ import annotations
 
 import logging
-import os
 
 import numpy as np
 import pytest
@@ -41,6 +41,7 @@ class TestMLPBatchSizeProbeCache:
 
     def test_probe_cached_after_first_call(self) -> None:
         from mlframe.training import mlp_runtime_defaults as mrd
+
         # Reset the cache so the test runs from a known state.
         mrd._PROBE_MEM_CACHE = None
         first = mrd._probe_available_memory_bytes(cuda_available=False)
@@ -48,12 +49,12 @@ class TestMLPBatchSizeProbeCache:
         # value even if real free memory has fluctuated.
         cached = mrd._probe_available_memory_bytes(cuda_available=False)
         assert first is None or first == cached, (
-            f"probe cache broken: first={first}, cached={cached}; should "
-            "be identical to avoid 64x batch-size variance across MLPs"
+            f"probe cache broken: first={first}, cached={cached}; should be identical to avoid 64x batch-size variance across MLPs"
         )
 
     def test_probe_reprobe_via_env(self, monkeypatch) -> None:
         from mlframe.training import mlp_runtime_defaults as mrd
+
         mrd._PROBE_MEM_CACHE = 12345
         # Without the env var, cached value is returned.
         assert mrd._probe_available_memory_bytes(cuda_available=False) == 12345
@@ -61,16 +62,14 @@ class TestMLPBatchSizeProbeCache:
         # fresh probe is performed.
         monkeypatch.setenv("MLFRAME_FORCE_REPROBE", "1")
         fresh = mrd._probe_available_memory_bytes(cuda_available=False)
-        assert fresh != 12345, (
-            "MLFRAME_FORCE_REPROBE should bypass the cache; "
-            f"got the cached value {fresh}"
-        )
+        assert fresh != 12345, f"MLFRAME_FORCE_REPROBE should bypass the cache; got the cached value {fresh}"
 
     def test_train_batch_min_raised(self) -> None:
         """The min train batch was 32 (catastrophically small for
         tabular workloads). Raise to 4096 so even a worst-case memory
         probe never produces sub-1024 batches that bottleneck training."""
         from mlframe.training.mlp_runtime_defaults import _TRAIN_BATCH_MIN
+
         assert _TRAIN_BATCH_MIN >= 4096
 
 
@@ -80,9 +79,13 @@ class TestRidgeTinyScreenerNaNHandling:
 
     def test_linear_family_handles_nan_inputs(self) -> None:
         from mlframe.training.composite.discovery._screening_tiny import _build_tiny_model
+
         model = _build_tiny_model(
-            "linear", n_estimators=10, num_leaves=15,
-            learning_rate=0.1, random_state=0,
+            "linear",
+            n_estimators=10,
+            num_leaves=15,
+            learning_rate=0.1,
+            random_state=0,
         )
         # Construct a small dataset with NaN cells across rows AND cols.
         rng = np.random.default_rng(0)
@@ -110,6 +113,7 @@ class TestCompositeResidualStdDegeneracyFilter:
         accidentally drops it gets caught at test time."""
         from pathlib import Path
         import mlframe.training.composite.discovery._fit as mod
+
         src = Path(mod.__file__).read_text(encoding="utf-8")
         # The residual-std degeneracy check moved to the _composite_discovery_eval.py
         # sibling during the discovery-fit split; concat so the source guard matches.
@@ -117,14 +121,9 @@ class TestCompositeResidualStdDegeneracyFilter:
         if _sib.exists():
             src += "\n" + _sib.read_text(encoding="utf-8")
         assert "_residual_ratio < 0.001" in src, (
-            "residual-std degeneracy check missing from "
-            "_composite_discovery_fit.py -- the 0.001 threshold "
-            "below which composites get rejected at fit time"
+            "residual-std degeneracy check missing from _composite_discovery_fit.py -- the 0.001 threshold below which composites get rejected at fit time"
         )
-        assert "below noise floor" in src, (
-            "rejection reason string missing -- audit trail for "
-            "the degeneracy filter"
-        )
+        assert "below noise floor" in src, "rejection reason string missing -- audit trail for the degeneracy filter"
 
     def test_compute_residual_ratio_logic(self) -> None:
         """The check is: T_std / y_std < 0.001 -> reject. Verify the
@@ -132,6 +131,7 @@ class TestCompositeResidualStdDegeneracyFilter:
         (production TVT-logr-TVT_prev had T_std=0.001, y_std=644,
         ratio=1.5e-6 << 0.001)."""
         from mlframe.training.composite.transforms import get_transform
+
         rng = np.random.default_rng(0)
         n = 2000
         base = rng.uniform(100, 200, n).astype(np.float64)
@@ -141,9 +141,7 @@ class TestCompositeResidualStdDegeneracyFilter:
         params = transform.fit(y, base)
         t = transform.forward(y, base, params)
         ratio = float(np.std(t)) / max(float(np.std(y)), 1e-12)
-        assert ratio < 0.001, (
-            f"expected ratio < 0.001 for this synthetic regime; got {ratio:.2e}"
-        )
+        assert ratio < 0.001, f"expected ratio < 0.001 for this synthetic regime; got {ratio:.2e}"
 
 
 class TestCollapseSensorGroupOODBranch:
@@ -152,9 +150,9 @@ class TestCollapseSensorGroupOODBranch:
     should tag the branch as ``group-ood-shift`` instead of
     ``linear-extrapolation``."""
 
-    def test_ridge_with_extrapolation_signature_tagged_group_ood(
-            self, caplog, monkeypatch) -> None:
+    def test_ridge_with_extrapolation_signature_tagged_group_ood(self, caplog, monkeypatch) -> None:
         from mlframe.training.reporting import _reporting
+
         # Bypass the envelope-clip so the wildly-out-of-range preds reach the
         # sensor unclipped; otherwise pred_std collapses to ~0 and the
         # std-collapse branch trips before group-ood-shift can.
@@ -163,32 +161,39 @@ class TestCollapseSensorGroupOODBranch:
         targets = 11500 + np.random.default_rng(0).normal(0, 100, 1000)
         preds = -50000 + np.random.default_rng(1).normal(0, 200, 1000)
         _reporting.report_regression_model_perf(
-            targets=targets, columns=[], model_name="Ridge",
-            model=None, preds=preds,
-            print_report=False, show_perf_chart=False, verbose=False,
+            targets=targets,
+            columns=[],
+            model_name="Ridge",
+            model=None,
+            preds=preds,
+            print_report=False,
+            show_perf_chart=False,
+            verbose=False,
         )
-        assert any(
-            "regression-collapse-sensor:group-ood-shift" in rec.message
-            for rec in caplog.records
-        ), [r.message for r in caplog.records if "sensor" in r.message]
+        assert any("regression-collapse-sensor:group-ood-shift" in rec.message for rec in caplog.records), [
+            r.message for r in caplog.records if "sensor" in r.message
+        ]
 
-    def test_mlp_with_extrapolation_signature_still_tagged_linear_extrap(
-            self, caplog, monkeypatch) -> None:
+    def test_mlp_with_extrapolation_signature_still_tagged_linear_extrap(self, caplog, monkeypatch) -> None:
         from mlframe.training.reporting import _reporting
+
         monkeypatch.setenv("MLFRAME_DISABLE_PREDICTION_ENVELOPE_CLIP", "1")
         caplog.set_level(logging.WARNING, logger="mlframe.training.reporting._reporting")
         targets = 11500 + np.random.default_rng(0).normal(0, 100, 1000)
         preds = -50000 + np.random.default_rng(1).normal(0, 200, 1000)
         _reporting.report_regression_model_perf(
-            targets=targets, columns=[],
+            targets=targets,
+            columns=[],
             model_name="PytorchLightningRegressor",
-            model=None, preds=preds,
-            print_report=False, show_perf_chart=False, verbose=False,
+            model=None,
+            preds=preds,
+            print_report=False,
+            show_perf_chart=False,
+            verbose=False,
         )
-        assert any(
-            "regression-collapse-sensor:linear-extrapolation" in rec.message
-            for rec in caplog.records
-        ), [r.message for r in caplog.records if "sensor" in r.message]
+        assert any("regression-collapse-sensor:linear-extrapolation" in rec.message for rec in caplog.records), [
+            r.message for r in caplog.records if "sensor" in r.message
+        ]
 
 
 class TestMedianResidualTransform:
@@ -199,19 +204,23 @@ class TestMedianResidualTransform:
 
     def test_registered_with_short_alias(self) -> None:
         from mlframe.training.composite.transforms import (
-            TRANSFORM_NAME_SHORT, get_transform,
+            TRANSFORM_NAME_SHORT,
+            get_transform,
         )
+
         t = get_transform("median_residual")
         assert t.name == "median_residual"
         assert TRANSFORM_NAME_SHORT["median_residual"] == "medres"
 
     def test_in_default_transforms_list(self) -> None:
         from mlframe.training.configs import CompositeTargetDiscoveryConfig
+
         cfg = CompositeTargetDiscoveryConfig()
         assert "median_residual" in cfg.transforms
 
     def test_forward_inverse_roundtrip(self) -> None:
         from mlframe.training.composite.transforms import get_transform
+
         rng = np.random.default_rng(0)
         n = 1000
         base = rng.uniform(-1, 1, n)
@@ -229,6 +238,7 @@ class TestMedianResidualTransform:
         if MLP outputs T_hat=0 (degenerate), y_hat = g(base) (bin-median
         lookup), bounded by train-y range."""
         from mlframe.training.composite.transforms import get_transform
+
         rng = np.random.default_rng(0)
         n = 1000
         base = rng.uniform(-1, 1, n)
@@ -247,8 +257,10 @@ class TestMedianResidualTransform:
 class TestYQuantileClipTransform:
     def test_registered_with_short_alias(self) -> None:
         from mlframe.training.composite.transforms import (
-            TRANSFORM_NAME_SHORT, get_transform,
+            TRANSFORM_NAME_SHORT,
+            get_transform,
         )
+
         t = get_transform("y_quantile_clip")
         assert t.name == "y_quantile_clip"
         assert TRANSFORM_NAME_SHORT["y_quantile_clip"] == "yqclip"
@@ -257,11 +269,13 @@ class TestYQuantileClipTransform:
 
     def test_in_default_transforms_list(self) -> None:
         from mlframe.training.configs import CompositeTargetDiscoveryConfig
+
         cfg = CompositeTargetDiscoveryConfig()
         assert "y_quantile_clip" in cfg.transforms
 
     def test_clips_to_train_quantiles(self) -> None:
         from mlframe.training.composite.transforms import get_transform
+
         rng = np.random.default_rng(0)
         y_train = rng.normal(0, 1, 10000)
         transform = get_transform("y_quantile_clip")
@@ -281,6 +295,7 @@ class TestYQuantileClipTransform:
         range on inverse, so downstream MLP can't extrapolate past
         train-y bounds."""
         from mlframe.training.composite.transforms import get_transform
+
         rng = np.random.default_rng(0)
         y_train = rng.normal(0, 1, 10000)
         transform = get_transform("y_quantile_clip")
@@ -297,5 +312,6 @@ class TestForceInjectConfigKnob:
 
     def test_force_inject_default_disabled(self) -> None:
         from mlframe.training.configs import CompositeTargetDiscoveryConfig
+
         cfg = CompositeTargetDiscoveryConfig()
         assert cfg.force_inject_diff_on_top_ablation_pct == 0.0

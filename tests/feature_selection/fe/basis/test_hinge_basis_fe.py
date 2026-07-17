@@ -32,9 +32,10 @@ on data without a slope change:
 * a cheap 3-cut SSE pre-check skips the full scan on no-kink columns so
   default-on does not bloat wide / large-p fits.
 """
+
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 import warnings
 
 import numpy as np
@@ -48,6 +49,7 @@ N = 4000
 
 def _heldout_r2(feat_cols, y):
     from sklearn.linear_model import Ridge
+
     A = np.column_stack([np.ones(len(y))] + [np.asarray(c, float) for c in feat_cols])
     idx = np.arange(len(y))
     va = (idx % 3) == 0
@@ -71,14 +73,13 @@ def test_detect_recovers_planted_breakpoint():
     from mlframe.feature_selection.filters._hinge_basis_fe import (
         _detect_hinge_breakpoints,
     )
+
     rng = np.random.default_rng(0)
     x = rng.uniform(0, 1, N)
     y = 2 * x + 5 * np.maximum(x - 0.7, 0.0) + 0.1 * rng.standard_normal(N)
     taus = _detect_hinge_breakpoints(x, y, max_breakpoints=2)
     assert taus, "expected at least one breakpoint on the slope-change fixture"
-    assert min(abs(t - 0.7) for t in taus) < 0.06, (
-        f"detected tau(s) {taus} not near the true 0.7"
-    )
+    assert min(abs(t - 0.7) for t in taus) < 0.06, f"detected tau(s) {taus} not near the true 0.7"
 
 
 def test_noise_admits_no_hinge():
@@ -87,6 +88,7 @@ def test_noise_admits_no_hinge():
     from mlframe.feature_selection.filters._hinge_basis_fe import (
         _detect_hinge_breakpoints,
     )
+
     admitted = 0
     for seed in range(20):
         rng = np.random.default_rng(1000 + seed)
@@ -102,8 +104,10 @@ def test_recipe_replay_is_leak_safe_and_bit_exact():
     bit-exactly from X alone (no y), survives pickle, and routes through the
     apply_recipe dispatcher."""
     from mlframe.feature_selection.filters.engineered_recipes import (
-        apply_recipe, build_hinge_basis_recipe,
+        apply_recipe,
+        build_hinge_basis_recipe,
     )
+
     rng = np.random.default_rng(3)
     x = rng.uniform(-2, 3, N)
     X = pd.DataFrame({"a": x})
@@ -113,7 +117,7 @@ def test_recipe_replay_is_leak_safe_and_bit_exact():
         ("ind", (x > 0.5).astype(np.float64)),
     ):
         r = build_hinge_basis_recipe(name=f"a__{side}", src_name="a", tau=0.5, side=side)
-        r2 = pickle.loads(pickle.dumps(r))  # pickle / clone roundtrip
+        r2 = pickle.loads(pickle.dumps(r))  # pickle / clone roundtrip  # nosec B301 -- round-trip of a locally-created, trusted object
         out = apply_recipe(r2, X)
         assert np.array_equal(out, ref), f"replay mismatch for side={side}"
 
@@ -122,8 +126,10 @@ def test_recipe_replay_independent_of_y():
     """Replay reads only X: a recipe built with one y replays identically on a
     frame with a totally different target (proves no y leak)."""
     from mlframe.feature_selection.filters.engineered_recipes import (
-        apply_recipe, build_hinge_basis_recipe,
+        apply_recipe,
+        build_hinge_basis_recipe,
     )
+
     rng = np.random.default_rng(9)
     x = rng.uniform(0, 1, N)
     X = pd.DataFrame({"a": x})
@@ -141,12 +147,16 @@ def test_detect_hinge_fwl_rank1_taus_bit_identical_to_lstsq_per_cut():
     from mlframe.feature_selection.filters._hinge_basis_fe import _detect_hinge_breakpoints
 
     def legacy(x, y, *, max_breakpoints=2, min_heldout_r2_uplift=0.02):
-        x = np.asarray(x, float).ravel(); y = np.asarray(y, float).ravel(); n = x.size
+        x = np.asarray(x, float).ravel()
+        y = np.asarray(y, float).ravel()
+        n = x.size
         if n < hinge_mod._HINGE_MIN_ROWS:
             return []
         f = np.isfinite(x) & np.isfinite(y)
         if not f.all():
-            x = x[f]; y = y[f]; n = x.size
+            x = x[f]
+            y = y[f]
+            n = x.size
         if n < hinge_mod._HINGE_MIN_ROWS:
             return []
         if np.std(x) < 1e-12 or np.std(y) < 1e-12:
@@ -155,9 +165,11 @@ def test_detect_hinge_fwl_rank1_taus_bit_identical_to_lstsq_per_cut():
             return []
         qs = np.linspace(hinge_mod._HINGE_CAND_Q_LO, hinge_mod._HINGE_CAND_Q_HI, hinge_mod._HINGE_N_CANDIDATES)
         cand = np.unique(np.quantile(x, qs))
-        found = []; extra = []
+        found = []
+        extra = []
         for _ in range(max(1, int(max_breakpoints))):
-            bt = None; bs = float("inf")
+            bt = None
+            bs = float("inf")
             for c in cand:
                 nr = int(np.count_nonzero(x > c))
                 if nr < hinge_mod._HINGE_MIN_SEG_ROWS or (n - nr) < hinge_mod._HINGE_MIN_SEG_ROWS:
@@ -168,17 +180,19 @@ def test_detect_hinge_fwl_rank1_taus_bit_identical_to_lstsq_per_cut():
                 A = np.column_stack([np.ones_like(x), x, relu, *extra])
                 try:
                     coef, *_ = np.linalg.lstsq(A, y, rcond=None)
-                except Exception:
+                except Exception:  # nosec B112 -- best-effort skip of one iteration on a non-fatal error; the test's own assertions are unaffected
                     continue
                 resid = y - A @ coef
                 sse = float(resid @ resid)
                 if sse < bs:
-                    bs = sse; bt = float(c)
+                    bs = sse
+                    bt = float(c)
             if bt is None:
                 break
             if hinge_mod._heldout_hinge_r2_uplift(x, y, bt) < min_heldout_r2_uplift:
                 break
-            found.append(bt); extra.append(np.maximum(x - bt, 0.0))
+            found.append(bt)
+            extra.append(np.maximum(x - bt, 0.0))
         return found
 
     for seed in range(40):
@@ -207,6 +221,7 @@ def test_bad_side_raises():
     from mlframe.feature_selection.filters._hinge_basis_fe import (
         build_hinge_basis_recipe,
     )
+
     with pytest.raises(ValueError):
         build_hinge_basis_recipe(name="x", src_name="a", tau=0.0, side="nope")
 
@@ -228,8 +243,10 @@ def test_biz_value_slope_change_beats_raw_cheby_spline():
         _evaluate_basis_column,
     )
     from mlframe.feature_selection.filters.engineered_recipes import (
-        _fit_spline_knots, _bspline_basis_values,
+        _fit_spline_knots,
+        _bspline_basis_values,
     )
+
     rng = np.random.default_rng(0)
     x = rng.uniform(0, 1, N)
     y = 2 * x + 5 * np.maximum(x - 0.7, 0.0) + 0.1 * rng.standard_normal(N)
@@ -239,9 +256,7 @@ def test_biz_value_slope_change_beats_raw_cheby_spline():
     assert hinge_legs
 
     r2_raw = _heldout_r2([x], y)
-    r2_cheby = _heldout_r2(
-        [_evaluate_basis_column(x, "chebyshev", d) for d in range(1, 5)], y
-    )
+    r2_cheby = _heldout_r2([_evaluate_basis_column(x, "chebyshev", d) for d in range(1, 5)], y)
     knots, lo, hi = _fit_spline_knots(x, 5, degree=3)
     z = np.clip((x - lo) / max(hi - lo, 1e-12), 0.0, 1.0)
     n_basis = len(knots) - 3 - 1
@@ -262,17 +277,15 @@ def test_biz_value_smooth_complementarity_loses_to_poly2():
     from mlframe.feature_selection.filters._hinge_basis_fe import (
         _detect_hinge_breakpoints,
     )
+
     rng = np.random.default_rng(0)
     xs = rng.uniform(-1, 1, N)
-    ys = xs ** 2 + 0.05 * rng.standard_normal(N)
+    ys = xs**2 + 0.05 * rng.standard_normal(N)
     taus = _detect_hinge_breakpoints(xs, ys, max_breakpoints=2)
     hinge_legs = [np.maximum(xs - t, 0.0) for t in taus]
-    r2_poly2 = _heldout_r2([xs, xs ** 2], ys)
+    r2_poly2 = _heldout_r2([xs, xs**2], ys)
     r2_hinge = _heldout_r2([xs, *hinge_legs], ys)
-    assert r2_hinge <= r2_poly2 + 1e-6, (
-        f"hinge {r2_hinge:.4f} should NOT beat degree-2 poly {r2_poly2:.4f} "
-        f"on a smooth target"
-    )
+    assert r2_hinge <= r2_poly2 + 1e-6, f"hinge {r2_hinge:.4f} should NOT beat degree-2 poly {r2_poly2:.4f} on a smooth target"
 
 
 # ---------------------------------------------------------------------------
@@ -287,6 +300,7 @@ def test_cost_precheck_skips_no_kink_columns():
     from mlframe.feature_selection.filters._hinge_basis_fe import (
         _hinge_slope_change_plausible,
     )
+
     rng = np.random.default_rng(11)
     x_lin = rng.uniform(0, 1, N)
     y_lin = 2 * x_lin + 0.1 * rng.standard_normal(N)
@@ -301,8 +315,10 @@ def test_cost_precheck_passes_genuine_kink():
     scan + held-out tau-validation run and recover the breakpoint (the cost gate
     never vetoes a column the full gate would admit)."""
     from mlframe.feature_selection.filters._hinge_basis_fe import (
-        _hinge_slope_change_plausible, _detect_hinge_breakpoints,
+        _hinge_slope_change_plausible,
+        _detect_hinge_breakpoints,
     )
+
     rng = np.random.default_rng(0)
     x = rng.uniform(0, 1, N)
     y = 2 * x + 5 * np.maximum(x - 0.7, 0.0) + 0.1 * rng.standard_normal(N)
@@ -320,11 +336,13 @@ def test_batched_detector_matches_percolumn_detector():
     import cupy as cp
 
     from mlframe.feature_selection.filters._hinge_detect_gpu_resident import (
-        detect_hinge_breakpoints_gpu, hinge_gpu_enabled,
+        detect_hinge_breakpoints_gpu,
+        hinge_gpu_enabled,
     )
     from mlframe.feature_selection.filters._hinge_detect_gpu_resident_batch import (
         detect_hinge_breakpoints_gpu_batch,
     )
+
     if not hinge_gpu_enabled():
         pytest.skip("GPU-strict-resident hinge path not engaged on this host")
 
@@ -345,9 +363,17 @@ def test_batched_detector_matches_percolumn_detector():
             x = rng.standard_normal(n) * 1e-8
         cols.append(x)
 
-    kw = dict(max_breakpoints=2, min_heldout_r2_uplift=0.01, precheck_qs=(0.25, 0.5, 0.75),
-              precheck_min_sse_drop=0.02, cand_q_lo=0.1, cand_q_hi=0.9, n_candidates=24,
-              min_rows=500, min_seg_rows=100)
+    kw = dict(
+        max_breakpoints=2,
+        min_heldout_r2_uplift=0.01,
+        precheck_qs=(0.25, 0.5, 0.75),
+        precheck_min_sse_drop=0.02,
+        cand_q_lo=0.1,
+        cand_q_hi=0.9,
+        n_candidates=24,
+        min_rows=500,
+        min_seg_rows=100,
+    )
     batch_out = detect_hinge_breakpoints_gpu_batch(cols, y, **kw)
     assert batch_out is not None
     cp.cuda.Stream.null.synchronize()
@@ -367,10 +393,7 @@ def test_batched_detector_matches_percolumn_detector():
 def _hinge_recipes(m):
     """Hinge recipes the FE stage PRODUCED this fit (the produced-recipe ledger
     records every recipe before the MI screen / dedup drop a subset)."""
-    return [
-        r for r in (getattr(m, "_produced_recipes_", None) or [])
-        if getattr(r, "kind", None) == "hinge_basis"
-    ]
+    return [r for r in (getattr(m, "_produced_recipes_", None) or []) if getattr(r, "kind", None) == "hinge_basis"]
 
 
 def _hinge_survivors(m):
@@ -387,6 +410,7 @@ def test_default_is_on():
     """fe_hinge_enable now defaults ON (the best variant is the default; the
     win is no longer hidden behind an opt-in flag)."""
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     assert MRMR().fe_hinge_enable is True
 
 
@@ -398,6 +422,7 @@ def test_default_path_retains_hinge_on_slope_change():
     when a power user flips a flag."""
     from mlframe.feature_selection.filters.mrmr import MRMR
     from mlframe.feature_selection.filters.engineered_recipes import apply_recipe
+
     rng = np.random.default_rng(2)
     x = rng.uniform(0, 1, N)
     b = rng.standard_normal(N)
@@ -410,9 +435,7 @@ def test_default_path_retains_hinge_on_slope_change():
     assert produced, "default path should PRODUCE a hinge on the slope-change fixture"
     assert survivors, "default path should RETAIN the hinge in support_ (protection)"
     out_names = set(map(str, m.get_feature_names_out()))
-    assert any(r.name in out_names for r in survivors), (
-        "a surviving hinge leg must appear in get_feature_names_out"
-    )
+    assert any(r.name in out_names for r in survivors), "a surviving hinge leg must appear in get_feature_names_out"
     # The surviving legs replay bit-exactly through the dispatcher.
     for r in survivors:
         replayed = apply_recipe(r, X)
@@ -432,6 +455,7 @@ def test_default_path_biz_value_win_through_transform():
     -- the hinge win is delivered through the ordinary transform output on the
     default path (not only in an isolated micro-benchmark)."""
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     rng = np.random.default_rng(2)
     x = rng.uniform(0, 1, N)
     b = rng.standard_normal(N)
@@ -456,6 +480,7 @@ def test_default_path_self_limits_no_spurious_hinge(kind):
     child, so the self-limiting protection gate does not re-add it). Default-on
     therefore adds no spurious columns on neutral data."""
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     rng = np.random.default_rng(40 + len(kind))
     b = rng.standard_normal(N)
     if kind == "noise":
@@ -466,10 +491,8 @@ def test_default_path_self_limits_no_spurious_hinge(kind):
         y = 3 * x + 0.5 * b + 0.1 * rng.standard_normal(N)
     else:  # smooth
         x = rng.uniform(-1, 1, N)
-        y = x ** 2 + 0.5 * b + 0.05 * rng.standard_normal(N)
+        y = x**2 + 0.5 * b + 0.05 * rng.standard_normal(N)
     X = pd.DataFrame({"a": x, "b": b})
     m = MRMR(max_runtime_mins=2, verbose=0, random_seed=0)
     m.fit(X, y)
-    assert not _hinge_survivors(m), (
-        f"{kind}: no hinge leg should survive into support_ on neutral data"
-    )
+    assert not _hinge_survivors(m), f"{kind}: no hinge leg should survive into support_ on neutral data"

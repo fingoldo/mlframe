@@ -5,9 +5,9 @@ via ``lookup_fe_mi_split_backend`` with the constants preserved as the measureme
 ``MLFRAME_FE_MI_SPLIT`` env override. Both launch legs are selection-equivalent (bit-identical MI), so the
 choice can never move a selection decision; this pins that invariant + the fallback / override contract.
 """
+
 from __future__ import annotations
 
-import os
 
 import numpy as np
 import pytest
@@ -34,13 +34,13 @@ def test_fallback_preserves_hardcoded_crossover():
     # The fallback IS the old magic constants verbatim: split iff K<48 and n>=262144.
     assert _fallback_fe_mi_split(300_000, 10) == "split"
     assert _fallback_fe_mi_split(262_144, 47) == "split"
-    assert _fallback_fe_mi_split(200_000, 10) == "single"   # n too small
-    assert _fallback_fe_mi_split(300_000, 60) == "single"   # K too wide
+    assert _fallback_fe_mi_split(200_000, 10) == "single"  # n too small
+    assert _fallback_fe_mi_split(300_000, 60) == "single"  # K too wide
 
 
 def test_env_override_forces_leg(monkeypatch):
     monkeypatch.setenv("MLFRAME_FE_MI_SPLIT", "split")
-    assert lookup_fe_mi_split_backend(100, 100) == "split"   # would be single by fallback
+    assert lookup_fe_mi_split_backend(100, 100) == "split"  # would be single by fallback
     monkeypatch.setenv("MLFRAME_FE_MI_SPLIT", "single")
     assert lookup_fe_mi_split_backend(1_000_000, 8) == "single"  # would be split by fallback
 

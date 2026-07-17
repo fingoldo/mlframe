@@ -12,6 +12,7 @@ This is a soft drift signal -- the audit-cycle section can carry a small number 
 genuinely have no associated test (CHANGELOG cosmetic, version bumps, README updates). The threshold
 ``_MAX_UNCITED_FIX_FRACTION`` allows up to 15% of fix-tagged entries to be doc-only before the test fails.
 """
+
 from __future__ import annotations
 
 import re

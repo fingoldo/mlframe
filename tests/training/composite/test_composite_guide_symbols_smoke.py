@@ -2,6 +2,7 @@
 import. Guards the guide against documenting a symbol that does not exist (or
 got renamed). Pure import + attribute existence checks -- no fitting.
 """
+
 from __future__ import annotations
 
 import importlib
@@ -56,21 +57,29 @@ PUBLIC_SYMBOLS = [
 # (estimator class, method) pairs for the uncertainty menu -- methods rebound
 # onto the estimator classes at import time.
 BOUND_METHODS = [
-    ("mlframe.training.composite", "CompositeTargetEstimator",
-     ["init_aci", "predict_interval_online", "update_conformal", "get_aci_state",
-      "calibrate_conformal", "calibrate_conformal_cqr",
-      "calibrate_conformal_mondrian", "calibrate_conformal_weighted"]),
-    ("mlframe.training.composite", "CompositeClassificationEstimator",
-     ["calibrate_conformal_set", "predict_set",
-      "calibrate_venn_abers", "predict_proba_interval", "predict_proba_venn_abers"]),
-    ("mlframe.training.composite", "CompositeGLMEstimator",
-     ["calibrate_conformal_glm", "predict_interval_glm"]),
-    ("mlframe.training.composite", "CompositeMultiOutputEstimator",
-     ["calibrate_conformal", "predict_interval"]),
-    ("mlframe.training.composite", "CompositeDistributionEstimator",
-     ["predict_quantile", "predict_cdf", "sample", "crps"]),
-    ("mlframe.training.composite", "TailCompositeEstimator",
-     ["predict_tail_quantile", "tail_residual_offset"]),
+    (
+        "mlframe.training.composite",
+        "CompositeTargetEstimator",
+        [
+            "init_aci",
+            "predict_interval_online",
+            "update_conformal",
+            "get_aci_state",
+            "calibrate_conformal",
+            "calibrate_conformal_cqr",
+            "calibrate_conformal_mondrian",
+            "calibrate_conformal_weighted",
+        ],
+    ),
+    (
+        "mlframe.training.composite",
+        "CompositeClassificationEstimator",
+        ["calibrate_conformal_set", "predict_set", "calibrate_venn_abers", "predict_proba_interval", "predict_proba_venn_abers"],
+    ),
+    ("mlframe.training.composite", "CompositeGLMEstimator", ["calibrate_conformal_glm", "predict_interval_glm"]),
+    ("mlframe.training.composite", "CompositeMultiOutputEstimator", ["calibrate_conformal", "predict_interval"]),
+    ("mlframe.training.composite", "CompositeDistributionEstimator", ["predict_quantile", "predict_cdf", "sample", "crps"]),
+    ("mlframe.training.composite", "TailCompositeEstimator", ["predict_tail_quantile", "tail_residual_offset"]),
 ]
 
 

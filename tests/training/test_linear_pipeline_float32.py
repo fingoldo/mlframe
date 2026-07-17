@@ -6,6 +6,7 @@ linear path sat at ~15 GB float64, RAM 111->128 GB). build_pipeline appends
 a trailing float32 cast on the requires_scaling path so the persisted /
 PipelineCache output stays float32 regardless of sklearn version.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -18,6 +19,7 @@ from mlframe.training.strategies import ModelPipelineStrategy
 
 class _ScalingStrategy(ModelPipelineStrategy):
     """Minimal concrete strategy on the requires_scaling (linear) path."""
+
     requires_scaling = True
     requires_imputation = True
     requires_encoding = False
@@ -42,8 +44,11 @@ def _frame(dtype) -> pd.DataFrame:
 def test_linear_pipeline_emits_float32_from_float32_input() -> None:
     st = _ScalingStrategy()
     pipe = st.build_pipeline(
-        category_encoder=None, imputer=SimpleImputer(),
-        scaler=StandardScaler(), base_pipeline=None, cat_features=[],
+        category_encoder=None,
+        imputer=SimpleImputer(),
+        scaler=StandardScaler(),
+        base_pipeline=None,
+        cat_features=[],
     )
     assert "to_float32" in [n for n, _ in pipe.steps], "float32 cast step missing"
     out = np.asarray(pipe.fit_transform(_frame(np.float32)))
@@ -54,8 +59,11 @@ def test_linear_pipeline_downcasts_float64_input_too() -> None:
     # Even if upstream handed float64, the cached output must be float32.
     st = _ScalingStrategy()
     pipe = st.build_pipeline(
-        category_encoder=None, imputer=SimpleImputer(),
-        scaler=StandardScaler(), base_pipeline=None, cat_features=[],
+        category_encoder=None,
+        imputer=SimpleImputer(),
+        scaler=StandardScaler(),
+        base_pipeline=None,
+        cat_features=[],
     )
     out = np.asarray(pipe.fit_transform(_frame(np.float64)))
     assert out.dtype == np.float32, f"expected float32, got {out.dtype}"
@@ -63,6 +71,7 @@ def test_linear_pipeline_downcasts_float64_input_too() -> None:
 
 def test_cast_helper_is_idempotent_and_preserves_values() -> None:
     from mlframe.training.strategies.base import _cast_numeric_to_float32
+
     x = np.array([[1.5, 2.25], [3.125, 4.0]], dtype=np.float64)
     out = _cast_numeric_to_float32(x)
     assert out.dtype == np.float32

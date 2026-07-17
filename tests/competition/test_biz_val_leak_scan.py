@@ -53,7 +53,7 @@ def _make_leaky_dataset(n_pairs: int = 40, n_cols: int = 20, seed: int = 0):
 
     all_rows = leak_rows + filler_rows
     n_leak_rows = len(leak_rows)
-    original_order = np.arange(len(all_rows))
+    np.arange(len(all_rows))
     perm = rng.permutation(len(all_rows))
 
     shuffled_rows = [all_rows[i] for i in perm]
@@ -83,6 +83,7 @@ def _make_control_dataset(n_rows: int = 120, n_cols: int = 20, seed: int = 1):
 
 
 def test_sort_by_density_leak_scan_basic_shapes():
+    """Output dict has the expected keys and array shapes, with NaN overlap score for the lowest-density row."""
     df = pd.DataFrame({"a": [1.0, np.nan, 2.0], "b": [np.nan, 3.0, 4.0]})
     out = sort_by_density_leak_scan(df)
     assert set(out.keys()) == {"row_order", "col_order", "row_density", "col_density", "overlap_scores", "candidate_pairs"}
@@ -94,6 +95,7 @@ def test_sort_by_density_leak_scan_basic_shapes():
 
 
 def test_sort_by_density_leak_scan_prepends_target_column():
+    """Passing target= adds one extra column to col_order beyond the frame's own columns."""
     df = pd.DataFrame({"a": [1.0, np.nan], "b": [np.nan, 2.0]})
     target = np.array([5.0, 6.0])
     out = sort_by_density_leak_scan(df, target=target)
@@ -102,6 +104,7 @@ def test_sort_by_density_leak_scan_prepends_target_column():
 
 
 def test_biz_val_leak_scan_recovers_injected_shift_pairs_high_recall_precision():
+    """Leak scan recovers >=90% of injected row-shift pairs with >=80% precision on a shuffled/interleaved frame."""
     df, leak_pair_keys, n_leak_rows = _make_leaky_dataset(n_pairs=40, n_cols=20, seed=0)
 
     out = sort_by_density_leak_scan(df, overlap_threshold=0.8, min_shared_values=3)
@@ -121,6 +124,7 @@ def test_biz_val_leak_scan_recovers_injected_shift_pairs_high_recall_precision()
 
 
 def test_biz_val_leak_scan_control_dataset_has_few_false_positives():
+    """On an unstructured control frame with no injected shift pairs, false-positive candidate-pair rate stays <=5%."""
     control = _make_control_dataset(n_rows=120, n_cols=20, seed=1)
     out = sort_by_density_leak_scan(control, overlap_threshold=0.8, min_shared_values=3)
 
@@ -133,6 +137,7 @@ def test_biz_val_leak_scan_control_dataset_has_few_false_positives():
 
 
 def test_find_shifted_column_groups_detects_lagged_pair():
+    """A column that is an exact 1-step lag of another is grouped with it, and unrelated noise is excluded."""
     rng = np.random.default_rng(3)
     n = 200
     base = rng.normal(size=n)
@@ -150,6 +155,7 @@ def test_find_shifted_column_groups_detects_lagged_pair():
 
 
 def test_find_shifted_column_groups_empty_on_unrelated_columns():
+    """No groups are formed when all columns are mutually independent random noise."""
     rng = np.random.default_rng(4)
     n = 100
     df = pd.DataFrame({f"c{i}": rng.normal(size=n) for i in range(6)})

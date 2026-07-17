@@ -42,7 +42,7 @@ def _make_data():
 def test_single_working_buffer_reused_across_repeats():
     """With copy-once-before-loop, every score() on the ndarray path receives the SAME buffer
     object; the pre-fix per-repeat ``X_arr.copy()`` produced a distinct id each call."""
-    X, y, n, p = _make_data()
+    X, y, _n, p = _make_data()
     model = _AllColModel().fit(X, y)
     imp = _conditional_permutation_importance(model, X, y, n_repeats=3, random_state=0)
 
@@ -59,7 +59,7 @@ def test_single_working_buffer_reused_across_repeats():
 
 def test_importances_signal_feature_dominates_and_finite():
     """Semantics preserved by the mutate-restore: the dominant signal feature scores highest."""
-    X, y, n, p = _make_data()
+    X, y, _n, _p = _make_data()
     model = _AllColModel().fit(X, y)
     imp = _conditional_permutation_importance(model, X, y, n_repeats=4, random_state=7)
     assert np.all(np.isfinite(imp))
@@ -69,7 +69,7 @@ def test_importances_signal_feature_dominates_and_finite():
 def test_buffer_restored_clean_between_features():
     """After the run the algorithm must not have leaked permutations: a second identical run
     yields the same importances (buffer was restored, not progressively corrupted)."""
-    X, y, n, p = _make_data()
+    X, y, _n, _p = _make_data()
     m1 = _AllColModel().fit(X, y)
     m2 = _AllColModel().fit(X, y)
     imp1 = _conditional_permutation_importance(m1, X, y, n_repeats=3, random_state=11)

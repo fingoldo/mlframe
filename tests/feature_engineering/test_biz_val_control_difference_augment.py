@@ -4,6 +4,7 @@ The win: with a tiny real treated-sample training set (overfitting-prone, especi
 high dimensions), augmenting with control-difference synthetic rows (which carry a realistic batch-noise
 draw and the correct treatment label) should improve held-out AUC over training on the small real set alone.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -63,9 +64,7 @@ def test_biz_val_control_difference_augment_multi_control_pairs_reduces_noise_va
     control_df = pd.DataFrame(rng.normal(0, 3.0, (500, n_features)), columns=cols)
 
     single = control_difference_augment(treated_df, control_df, feature_cols=cols, n_augmented_per_treated=1, random_state=1)
-    multi = control_difference_augment(
-        treated_df, control_df, feature_cols=cols, n_augmented_per_treated=1, random_state=1, n_control_pairs=20
-    )
+    multi = control_difference_augment(treated_df, control_df, feature_cols=cols, n_augmented_per_treated=1, random_state=1, n_control_pairs=20)
 
     # the augmentation noise is `augmented - treated`; averaging over more control pairs should pull it closer
     # to its true zero mean, i.e. shrink its per-row variance relative to the single-pair baseline.
@@ -73,8 +72,7 @@ def test_biz_val_control_difference_augment_multi_control_pairs_reduces_noise_va
     noise_multi = (multi[cols].to_numpy() - treated_df[cols].to_numpy()).var()
 
     assert noise_multi < noise_single * 0.15, (
-        f"n_control_pairs=20 should shrink augmentation-noise variance well below the single-pair baseline: "
-        f"single={noise_single:.4f} multi={noise_multi:.4f}"
+        f"n_control_pairs=20 should shrink augmentation-noise variance well below the single-pair baseline: single={noise_single:.4f} multi={noise_multi:.4f}"
     )
 
 
@@ -86,9 +84,7 @@ def test_control_difference_augment_multi_control_pairs_default_is_bit_identical
     control_df = pd.DataFrame(rng.normal(0, 1.0, (50, n_features)), columns=cols)
 
     baseline = control_difference_augment(treated_df, control_df, feature_cols=cols, n_augmented_per_treated=3, random_state=5)
-    explicit_default = control_difference_augment(
-        treated_df, control_df, feature_cols=cols, n_augmented_per_treated=3, random_state=5, n_control_pairs=1
-    )
+    explicit_default = control_difference_augment(treated_df, control_df, feature_cols=cols, n_augmented_per_treated=3, random_state=5, n_control_pairs=1)
     pd.testing.assert_frame_equal(baseline, explicit_default)
 
 

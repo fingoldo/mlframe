@@ -10,13 +10,11 @@ Locks:
   min_weight).
 - Gate respects the >= 2 survivor floor so the stacker still has work.
 """
+
 from __future__ import annotations
 
-import logging
-from unittest.mock import MagicMock
 
 import numpy as np
-import pytest
 
 from mlframe.training.composite.ensemble.stacking import stacking_aware_gate
 
@@ -38,7 +36,7 @@ def _build_payload(noise_on_garbage: float, n: int = 500, seed: int = 0):
 class TestStackingAwareGateContract:
     def test_drops_garbage_predictor(self) -> None:
         preds, y = _build_payload(noise_on_garbage=1.0)
-        survivors, weights = stacking_aware_gate(preds, y, min_weight=0.05)
+        survivors, _weights = stacking_aware_gate(preds, y, min_weight=0.05)
         assert "p_garbage" not in survivors
         assert "p_base" in survivors
         assert "p_aux" in survivors
@@ -58,6 +56,7 @@ class TestEnsembleBuildWiring:
         CompositeTargetDiscoveryConfig with a False default so existing
         runs are unaffected."""
         from mlframe.training.configs import CompositeTargetDiscoveryConfig
+
         cfg = CompositeTargetDiscoveryConfig()
         assert hasattr(cfg, "stacking_aware_gate_enabled")
         assert cfg.stacking_aware_gate_enabled is False
@@ -66,6 +65,7 @@ class TestEnsembleBuildWiring:
 
     def test_composite_feature_stacking_flag_exists(self) -> None:
         from mlframe.training.configs import CompositeTargetDiscoveryConfig
+
         cfg = CompositeTargetDiscoveryConfig()
         assert hasattr(cfg, "composite_feature_stacking_enabled")
         assert cfg.composite_feature_stacking_enabled is False
@@ -77,6 +77,7 @@ class TestEnsembleBuildWiring:
         # Behavioural import: actually call the gate via the public surface
         # the phase module reaches for.
         from mlframe.training.composite.ensemble.stacking import stacking_aware_gate as g
+
         preds, y = _build_payload(noise_on_garbage=0.5)
         survivors, weights = g(preds, y, min_weight=0.05)
         assert isinstance(survivors, list)
@@ -100,7 +101,9 @@ class TestGateFiresOnLowImprovement:
             "p2": base + rng.normal(scale=2.0, size=n),
         }
         survivors_strict, weights_strict = stacking_aware_gate(
-            preds, y, min_weight=0.40,
+            preds,
+            y,
+            min_weight=0.40,
         )
         # p2's NNLS weight should be < 0.4 -> dropped at this threshold.
         assert "p1" in survivors_strict
@@ -114,6 +117,4 @@ class TestGateFiresOnLowImprovement:
                 # the survivors' RAW weights via the per-name weights dict).
                 continue
             # Non-survivors must have raw weight strictly below min_weight.
-            assert w_val < 0.40, (
-                f"non-survivor {n_w} has weight {w_val} >= min_weight 0.4"
-            )
+            assert w_val < 0.40, f"non-survivor {n_w} has weight {w_val} >= min_weight 0.4"

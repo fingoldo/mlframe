@@ -5,6 +5,7 @@ When every loaded model is CB / XGB sklearn-API (polars-native) the predict entr
 ``predict_from_models`` always converted polars -> pandas before pipeline.transform, which paid the conversion
 even when the saved models could consume polars directly.
 """
+
 from __future__ import annotations
 
 from unittest.mock import patch
@@ -27,12 +28,14 @@ from mlframe.training.extractors import SimpleFeaturesAndTargetsExtractor
 
 def _build_polars_frame(n: int = 3_000, seed: int = 0) -> pl.DataFrame:
     rng = np.random.default_rng(seed)
-    return pl.DataFrame({
-        "x0": rng.normal(size=n).astype("float32"),
-        "x1": rng.normal(size=n).astype("float32"),
-        "x2": rng.normal(size=n).astype("float32"),
-        "y": (1.5 * rng.normal(size=n) + rng.normal(0, 0.3, n)).astype("float32"),
-    })
+    return pl.DataFrame(
+        {
+            "x0": rng.normal(size=n).astype("float32"),
+            "x1": rng.normal(size=n).astype("float32"),
+            "x2": rng.normal(size=n).astype("float32"),
+            "y": (1.5 * rng.normal(size=n) + rng.normal(0, 0.3, n)).astype("float32"),
+        }
+    )
 
 
 def _run_suite(df: pl.DataFrame, models_list: list[str]):
@@ -64,6 +67,7 @@ def test_predict_from_models_polars_fastpath_cb_keeps_polars():
 
     fte = SimpleFeaturesAndTargetsExtractor(regression_targets=["y"])
     import mlframe.training.core.predict as predict_mod
+
     call_counter = {"n": 0}
     orig_helper = predict_mod.get_pandas_view_of_polars_df
 
@@ -82,8 +86,7 @@ def test_predict_from_models_polars_fastpath_cb_keeps_polars():
         )
     assert results["models_used"], "no models produced predictions"
     assert call_counter["n"] == 0, (
-        f"polars fastpath broken: get_pandas_view_of_polars_df was invoked {call_counter['n']} time(s) "
-        "even though every loaded model is CB-native."
+        f"polars fastpath broken: get_pandas_view_of_polars_df was invoked {call_counter['n']} time(s) even though every loaded model is CB-native."
     )
 
 
@@ -111,6 +114,7 @@ def test_predict_from_models_polars_fastpath_xgb_keeps_polars():
 
     fte = SimpleFeaturesAndTargetsExtractor(regression_targets=["y"])
     import mlframe.training.core.predict as predict_mod
+
     call_counter = {"n": 0}
     orig_helper = predict_mod.get_pandas_view_of_polars_df
 
@@ -128,9 +132,7 @@ def test_predict_from_models_polars_fastpath_xgb_keeps_polars():
             verbose=0,
         )
     assert results["models_used"]
-    assert call_counter["n"] == 0, (
-        f"polars fastpath broken for XGB: get_pandas_view_of_polars_df invoked {call_counter['n']} time(s)."
-    )
+    assert call_counter["n"] == 0, f"polars fastpath broken for XGB: get_pandas_view_of_polars_df invoked {call_counter['n']} time(s)."
 
 
 def test_predict_from_models_non_native_falls_back_to_pandas():

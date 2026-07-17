@@ -2,6 +2,7 @@
 
 BorutaShap.__init__ must NOT mutate the global np.random stream.
 """
+
 import numpy as np
 
 from mlframe.feature_selection.boruta_shap import BorutaShap
@@ -22,9 +23,7 @@ def test_borutashap_ctor_does_not_reseed_global_numpy_rng():
     BorutaShap(random_state=42)
 
     got = np.random.rand()
-    assert got == expected, (
-        "BorutaShap ctor mutated global np.random state; private rng required (A-P0-004)."
-    )
+    assert got == expected, "BorutaShap ctor mutated global np.random state; private rng required (A-P0-004)."
 
 
 def test_borutashap_has_private_rng():

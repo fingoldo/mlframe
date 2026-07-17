@@ -86,9 +86,7 @@ def test_train_raw_equals_wrapped_val_wrapped_better_than_raw() -> None:
     assert not np.allclose(y_pred_val_wrapped, y_pred_val_raw), "expected at least one val row to be clipped"
     # Wrapped val RMSE must be strictly smaller because the clip pulls wild predictions back into the envelope and most
     # extreme y_val are themselves close to the envelope (500 -> 100, -200 -> 10).
-    assert val_rmse_wrapped < val_rmse_raw, (
-        f"expected val_rmse_wrapped({val_rmse_wrapped:.4f}) < val_rmse_raw({val_rmse_raw:.4f}); clip not contributing"
-    )
+    assert val_rmse_wrapped < val_rmse_raw, f"expected val_rmse_wrapped({val_rmse_wrapped:.4f}) < val_rmse_raw({val_rmse_raw:.4f}); clip not contributing"
 
 
 def test_predict_pre_clip_exposed_on_wrapper() -> None:

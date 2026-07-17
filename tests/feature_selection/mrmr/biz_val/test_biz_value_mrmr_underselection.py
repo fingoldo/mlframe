@@ -21,13 +21,14 @@ POSITIVE sensor). They were never xfail while the bugs were open -- they surface
 and stayed red on purpose until fixed; kept as plain (non-xfail) regression sensors now that they pass,
 so a future regression in any of Fix A1/A2/B fails loudly again.
 """
+
 import importlib.util
 import os
 
 import numpy as np
 import pytest
 
-_L101_PATH = os.path.join(os.path.dirname(__file__), "test_biz_value_mrmr_regression_union", "test_layer101.py")
+_L101_PATH = os.path.join(os.path.dirname(__file__), "test_biz_value_mrmr_regression_union", "test_full_suite_regression.py")
 _spec = importlib.util.spec_from_file_location("_l101_underselect_helpers", _L101_PATH)
 _l101 = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_l101)
@@ -39,6 +40,7 @@ COLLAPSE_SEEDS = [0, 7, 13, 42]
 
 
 def _support_names(m):
+    """Check support names."""
     _ni = getattr(m, "feature_names_in_", None)
     ni = list(_ni) if _ni is not None else []
     return [ni[i] if i < len(ni) else f"idx{i}" for i in np.asarray(m.support_).ravel()]
@@ -57,9 +59,16 @@ def test_core_screen_selects_signal_with_fe_off(seed):
     X, y = _build_mega(seed)
     Xn = X[[c for c in X.columns if c not in ("cat_a", "cat_b", "ts")]]
     m = MRMR(
-        verbose=0, interactions_max_order=1, fe_max_steps=0, dcd_enable=False,
-        cluster_aggregate_enable=False, build_friend_graph=False, quantization_nbins=10,
-        random_seed=seed, fe_univariate_basis_enable=False, fe_univariate_fourier_enable=False,
+        verbose=0,
+        interactions_max_order=1,
+        fe_max_steps=0,
+        dcd_enable=False,
+        cluster_aggregate_enable=False,
+        build_friend_graph=False,
+        quantization_nbins=10,
+        random_seed=seed,
+        fe_univariate_basis_enable=False,
+        fe_univariate_fourier_enable=False,
         fe_hybrid_orth_enable=False,
     ).fit(Xn, y)
     names = _support_names(m)
@@ -179,7 +188,7 @@ def test_empty_screen_rescue_conditions_on_engineered_survivors(seed):
     c = rng.uniform(1, 5, n)
     d = rng.uniform(0, 2 * np.pi, n)
     e = rng.normal(0, 1, n)
-    y = a ** 2 / b + 3.0 * np.log(c) * np.sin(d) + 0.3 * e
+    y = a**2 / b + 3.0 * np.log(c) * np.sin(d) + 0.3 * e
     df = pd.DataFrame({"a": a, "b": b, "c": c, "d": d, "e": e})
     fs = MRMR(verbose=0, random_seed=seed).fit(df, pd.Series(y, name="y"))
     selected = list(fs.get_feature_names_out())

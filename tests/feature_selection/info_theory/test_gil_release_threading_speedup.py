@@ -19,6 +19,7 @@ change -- same outputs before/after), (2) numba's internal RNG state is genuinel
 concurrent nogil execution (the specific risk nogil=True introduces for any kernel using np.random), and
 (3) a coarse performance regression sensor so a future accidental removal of nogil=True is caught (loose
 bound -- this is a correctness/architecture pin, not a tight perf gate)."""
+
 from __future__ import annotations
 
 import threading
@@ -29,7 +30,8 @@ import pytest
 from joblib import Parallel, delayed
 
 from mlframe.feature_selection.filters.info_theory._class_mi_kernels import (
-    compute_mi_from_classes, compute_mi_mm_from_classes,
+    compute_mi_from_classes,
+    compute_mi_mm_from_classes,
 )
 from mlframe.feature_selection.filters.permutation import parallel_mi, shuffle_arr, shuffle_arr_lcg
 
@@ -174,8 +176,8 @@ def test_threading_backend_delivers_real_speedup_not_regression():
 
     speedup = t_serial / t_parallel
     assert speedup > 1.2, (
-        f"threading backend speedup regressed to {speedup:.2f}x (serial={t_serial*1000:.1f}ms, "
-        f"threaded={t_parallel*1000:.1f}ms) -- check nogil=True is still set on compute_mi_from_classes"
+        f"threading backend speedup regressed to {speedup:.2f}x (serial={t_serial * 1000:.1f}ms, "
+        f"threaded={t_parallel * 1000:.1f}ms) -- check nogil=True is still set on compute_mi_from_classes"
     )
 
 

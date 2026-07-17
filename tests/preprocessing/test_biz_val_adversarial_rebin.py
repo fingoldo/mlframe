@@ -5,6 +5,7 @@ substantially lower adversarial-validation AUC after those specific values are m
 while the well-behaved majority of categories (and the signal they carry) is left untouched -- the source
 writeup's own reported effect (adversarial AUC dropped from ~0.98 to under 0.7 after this kind of rebinning).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -36,9 +37,7 @@ def _make_skewed_column(seed: int):
 def test_biz_val_adversarial_rebin_reduces_adversarial_auc():
     train_series, test_series = _make_skewed_column(seed=0)
 
-    auc_before, _fpr, _tpr, _imp, _names = adversarial_auc(
-        pd.DataFrame({"cat_col": train_series}), pd.DataFrame({"cat_col": test_series}), seed=0
-    )
+    auc_before, _fpr, _tpr, _imp, _names = adversarial_auc(pd.DataFrame({"cat_col": train_series}), pd.DataFrame({"cat_col": test_series}), seed=0)
 
     result = adversarial_rebin_categorical(train_series, test_series, skew_log_ratio_threshold=1.5)
     assert len(result["merged_categories"]) > 0
@@ -56,8 +55,7 @@ def test_biz_val_adversarial_rebin_reduces_adversarial_auc():
     )
 
     assert auc_after < auc_before - 0.1, (
-        f"rebinning the most skewed categories should substantially reduce adversarial AUC: "
-        f"before={auc_before:.4f} after={auc_after:.4f}"
+        f"rebinning the most skewed categories should substantially reduce adversarial AUC: before={auc_before:.4f} after={auc_after:.4f}"
     )
 
 
@@ -80,9 +78,7 @@ def test_adversarial_rebin_categorical_mode_default_is_bit_identical():
     args identical to the pre-extension signature) must reproduce the exact original single-pass output."""
     train_series, test_series = _make_skewed_column(seed=0)
     result_default = adversarial_rebin_categorical(train_series, test_series, skew_log_ratio_threshold=1.5)
-    result_explicit = adversarial_rebin_categorical(
-        train_series, test_series, skew_log_ratio_threshold=1.5, mode="categorical"
-    )
+    result_explicit = adversarial_rebin_categorical(train_series, test_series, skew_log_ratio_threshold=1.5, mode="categorical")
     pd.testing.assert_series_equal(result_default["train_rebinned"], result_explicit["train_rebinned"])
     pd.testing.assert_series_equal(result_default["test_rebinned"], result_explicit["test_rebinned"])
     assert result_default["merged_categories"] == result_explicit["merged_categories"]
@@ -115,16 +111,12 @@ def _make_drifting_numeric_column(seed: int):
 def test_biz_val_adversarial_rebin_continuous_mode_reduces_adversarial_auc_on_drifting_numeric():
     train_series, test_series = _make_drifting_numeric_column(seed=0)
 
-    auc_before, _fpr, _tpr, _imp, _names = adversarial_auc(
-        pd.DataFrame({"num_col": train_series}), pd.DataFrame({"num_col": test_series}), seed=0
-    )
+    auc_before, _fpr, _tpr, _imp, _names = adversarial_auc(pd.DataFrame({"num_col": train_series}), pd.DataFrame({"num_col": test_series}), seed=0)
 
     # the categorical-only path cannot help: raw floats are near-unique so merging by raw value either
     # touches nothing (large min_count aside) or requires enumerating the whole column -- it has no notion
     # of "adjacent numeric range", which is exactly what the new continuous mode adds.
-    result = adversarial_rebin_categorical(
-        train_series, test_series, skew_log_ratio_threshold=1.0, mode="continuous", n_quantile_bins=20
-    )
+    result = adversarial_rebin_categorical(train_series, test_series, skew_log_ratio_threshold=1.0, mode="continuous", n_quantile_bins=20)
     assert len(result["merged_categories"]) > 0
     assert "bin_edges" in result
 

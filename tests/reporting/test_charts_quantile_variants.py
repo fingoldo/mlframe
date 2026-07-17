@@ -7,7 +7,9 @@ import numpy as np
 import pytest
 
 from mlframe.reporting.charts.quantile import (
-    ALLOWED_QUANTILE_PANEL_TOKENS, _symmetric_interval_pairs, _wilson_ci,
+    ALLOWED_QUANTILE_PANEL_TOKENS,
+    _symmetric_interval_pairs,
+    _wilson_ci,
     compose_quantile_figure,
 )
 from mlframe.reporting.spec import AnnotationPanelSpec, LinePanelSpec
@@ -17,6 +19,7 @@ from mlframe.reporting.spec import AnnotationPanelSpec, LinePanelSpec
 def calibrated_5alpha():
     """Well-calibrated: y ~ N(0,1) and preds are the exact theoretical normal quantiles."""
     from scipy.stats import norm
+
     rng = np.random.default_rng(0)
     n = 8000
     y = rng.standard_normal(n)
@@ -29,11 +32,12 @@ def calibrated_5alpha():
 def overconfident_5alpha():
     """Overconfident: intervals are HALF the correct width -> empirical coverage below nominal."""
     from scipy.stats import norm
+
     rng = np.random.default_rng(0)
     n = 8000
     y = rng.standard_normal(n)
     alphas = (0.05, 0.25, 0.5, 0.75, 0.95)
-    preds = np.tile(norm.ppf(alphas) * 0.5, (n, 1))   # shrink intervals toward the median
+    preds = np.tile(norm.ppf(alphas) * 0.5, (n, 1))  # shrink intervals toward the median
     return y, preds, alphas
 
 
@@ -52,8 +56,8 @@ class TestCoveragePanel:
         panel = spec.panels[0][0]
         assert isinstance(panel, LinePanelSpec)
         assert panel.series_labels[0] == "perfect"
-        np.testing.assert_allclose(panel.y[0], panel.x)        # identity diagonal
-        assert panel.band is not None                          # Wilson CI band
+        np.testing.assert_allclose(panel.y[0], panel.x)  # identity diagonal
+        assert panel.band is not None  # Wilson CI band
         assert panel.band_label and "Wilson" in panel.band_label
 
     def test_symmetric_pairs_two_for_5alpha(self):
@@ -108,11 +112,11 @@ class TestIntervalBand:
         y, p, alphas = calibrated_5alpha
         panel = compose_quantile_figure(y, p, alphas, panels_template="INTERVAL_BAND").panels[0][0]
         assert isinstance(panel, LinePanelSpec)
-        assert len(panel.y) == 2                              # median + y_true
-        assert panel.line_styles[1] == "markers"             # y_true not a connected line
+        assert len(panel.y) == 2  # median + y_true
+        assert panel.line_styles[1] == "markers"  # y_true not a connected line
         assert panel.band is not None and len(panel.band) == 2
         lo, hi = panel.band
-        assert np.all(hi >= lo)                               # band is lo..hi
+        assert np.all(hi >= lo)  # band is lo..hi
 
 
 # ----------------------------------------------------------------------------
@@ -125,7 +129,10 @@ class TestPITAnnotation:
         y, p, alphas = calibrated_5alpha
         # Keep only 2 alphas -> PIT must annotate, not draw a [0.0] histogram.
         panel = compose_quantile_figure(
-            y, p[:, [0, 4]], (alphas[0], alphas[4]), panels_template="PIT_HIST",
+            y,
+            p[:, [0, 4]],
+            (alphas[0], alphas[4]),
+            panels_template="PIT_HIST",
         ).panels[0][0]
         assert isinstance(panel, AnnotationPanelSpec)
 
@@ -139,6 +146,7 @@ class TestPinballAndTitles:
     def test_pinball_lookup_by_index_not_float_key(self):
         # alphas whose float repr is fragile (1/3) must still resolve every loss.
         from scipy.stats import norm
+
         rng = np.random.default_rng(0)
         n = 1000
         y = rng.standard_normal(n)

@@ -100,7 +100,10 @@ def test_figure_degenerate_returns_annotation():
     rng = np.random.default_rng(3)
     n = 1000
     spec = compose_calibration_heatmap_2d_figure(
-        (rng.random(n) < 0.5).astype(float), rng.random(n), np.ones(n), rng.normal(size=n),
+        (rng.random(n) < 0.5).astype(float),
+        rng.random(n),
+        np.ones(n),
+        rng.normal(size=n),
     )
     assert isinstance(spec.panels[0][0], AnnotationPanelSpec)
 

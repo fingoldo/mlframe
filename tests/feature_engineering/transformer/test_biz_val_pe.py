@@ -14,6 +14,7 @@ Pass thresholds (per plan):
   periodic signal up to d_model resolution; the single-frequency baseline gets the exact answer at frequency 1/25, so we don't expect PE to dramatically beat
   it on this particular target - the 0.05 floor confirms PE is at least competitive, not worse.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -49,6 +50,7 @@ def _make_pe_synthetic(n_groups: int = 500, group_len: int = 50, seed: int = 0) 
 
 def _lgbm():
     import lightgbm as lgb
+
     return lgb.LGBMRegressor(n_estimators=200, learning_rate=0.05, num_leaves=31, min_child_samples=20, random_state=42, verbose=-1)
 
 
@@ -98,12 +100,14 @@ def test_pe_competitive_with_handcrafted_single_sinusoid():
     positions = positions_within_group(df, group_col="group", sort_col="t")
     positions_arr = positions.to_numpy()
 
-    X_handcraft = np.column_stack([
-        df["group"].to_numpy().astype(np.float32),
-        df["x_noise"].to_numpy().astype(np.float32),
-        np.sin(2.0 * np.pi * positions_arr / 25.0).astype(np.float32),
-        np.cos(2.0 * np.pi * positions_arr / 25.0).astype(np.float32),
-    ])
+    X_handcraft = np.column_stack(
+        [
+            df["group"].to_numpy().astype(np.float32),
+            df["x_noise"].to_numpy().astype(np.float32),
+            np.sin(2.0 * np.pi * positions_arr / 25.0).astype(np.float32),
+            np.cos(2.0 * np.pi * positions_arr / 25.0).astype(np.float32),
+        ]
+    )
     pe_features = compute_positional_encoding(positions, d_model=16).to_numpy()
     X_raw = df.select(["group", "x_noise"]).to_numpy().astype(np.float32)
     X_with_pe = np.concatenate([X_raw, pe_features], axis=1)

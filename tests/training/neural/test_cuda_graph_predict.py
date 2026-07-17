@@ -5,6 +5,7 @@ Most assertions are CPU-friendly (env-gate / cache structure / fallback
 behaviour); the actual CUDA-graph capture is only exercised when a CUDA
 device is present.
 """
+
 from __future__ import annotations
 
 import sys
@@ -20,7 +21,9 @@ from sklearn.model_selection import train_test_split
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from mlframe.training.neural import (
-    MLPTorchModel, PytorchLightningRegressor, TorchDataModule,
+    MLPTorchModel,
+    PytorchLightningRegressor,
+    TorchDataModule,
 )
 from mlframe.training.neural.flat import _BoundedTanhOutput, generate_mlp
 
@@ -83,9 +86,14 @@ def test_bounded_tanh_works_inside_generate_mlp():
     constructs a network ending with _BoundedTanhOutput, and forward
     produces output in roughly [center - scale, center + scale]."""
     net = generate_mlp(
-        num_features=4, num_classes=1, nlayers=1,
-        first_layer_num_neurons=8, dropout_prob=0.0,
-        inputs_dropout_prob=0.0, use_layernorm=False, use_batchnorm=False,
+        num_features=4,
+        num_classes=1,
+        nlayers=1,
+        first_layer_num_neurons=8,
+        dropout_prob=0.0,
+        inputs_dropout_prob=0.0,
+        use_layernorm=False,
+        use_batchnorm=False,
         activation_function=nn.ReLU,
         output_activation="tanh_train_range",
         output_activation_scale=3.0,
@@ -106,10 +114,16 @@ def test_bounded_tanh_works_inside_generate_mlp():
 
 def _make_module() -> MLPTorchModel:
     network = generate_mlp(
-        num_features=4, num_classes=1, nlayers=1,
-        first_layer_num_neurons=8, dropout_prob=0.0,
-        inputs_dropout_prob=0.0, use_layernorm=False, use_batchnorm=False,
-        activation_function=nn.ReLU, verbose=0,
+        num_features=4,
+        num_classes=1,
+        nlayers=1,
+        first_layer_num_neurons=8,
+        dropout_prob=0.0,
+        inputs_dropout_prob=0.0,
+        use_layernorm=False,
+        use_batchnorm=False,
+        activation_function=nn.ReLU,
+        verbose=0,
     )
     return MLPTorchModel(loss_fn=nn.MSELoss(), metrics=[], network=network)
 
@@ -180,10 +194,16 @@ def test_predict_step_routes_through_cuda_graph_helper(monkeypatch):
     MLFRAME_CUDA_GRAPH_PREDICT=1. Patch the helper to a sentinel call counter
     and assert predict_step touched it."""
     network = generate_mlp(
-        num_features=4, num_classes=1, nlayers=1,
-        first_layer_num_neurons=8, dropout_prob=0.0,
-        inputs_dropout_prob=0.0, use_layernorm=False, use_batchnorm=False,
-        activation_function=nn.ReLU, verbose=0,
+        num_features=4,
+        num_classes=1,
+        nlayers=1,
+        first_layer_num_neurons=8,
+        dropout_prob=0.0,
+        inputs_dropout_prob=0.0,
+        use_layernorm=False,
+        use_batchnorm=False,
+        activation_function=nn.ReLU,
+        verbose=0,
     )
     module = MLPTorchModel(loss_fn=nn.MSELoss(), metrics=[], network=network)
     seen: list[str] = []
@@ -201,10 +221,7 @@ def test_predict_step_routes_through_cuda_graph_helper(monkeypatch):
     monkeypatch.setattr(MLPTorchModel, "_maybe_cuda_graph_forward", fake_graph)
     module.eval()
     module.predict_step(torch.randn(2, 4), batch_idx=0)
-    assert seen == ["graph"], (
-        "predict_step must call _maybe_cuda_graph_forward (F-38 fast path); "
-        f"observed calls: {seen}"
-    )
+    assert seen == ["graph"], f"predict_step must call _maybe_cuda_graph_forward (F-38 fast path); observed calls: {seen}"
 
 
 # --- End-to-end sanity: predict still returns valid output on CPU -----------
@@ -213,7 +230,8 @@ def test_predict_step_routes_through_cuda_graph_helper(monkeypatch):
 @pytest.fixture
 def reg_data():
     X, y = make_regression(n_samples=64, n_features=4, random_state=0)
-    X = X.astype(np.float32); y = y.astype(np.float32)
+    X = X.astype(np.float32)
+    y = y.astype(np.float32)
     X_tr, X_te, y_tr, _ = train_test_split(X, y, test_size=0.3, random_state=0)
     return X_tr, X_te, y_tr
 
@@ -231,20 +249,28 @@ def test_predict_works_end_to_end(reg_data, monkeypatch):
         model_class=MLPTorchModel,
         model_params={"loss_fn": nn.MSELoss(), "learning_rate": 1e-2},
         network_params={
-            "nlayers": 1, "first_layer_num_neurons": 8,
-            "dropout_prob": 0.0, "inputs_dropout_prob": 0.0,
-            "use_layernorm": False, "use_batchnorm": False,
+            "nlayers": 1,
+            "first_layer_num_neurons": 8,
+            "dropout_prob": 0.0,
+            "inputs_dropout_prob": 0.0,
+            "use_layernorm": False,
+            "use_batchnorm": False,
             "activation_function": nn.ReLU,
         },
         datamodule_class=TorchDataModule,
         datamodule_params={
-            "features_dtype": torch.float32, "labels_dtype": torch.float32,
+            "features_dtype": torch.float32,
+            "labels_dtype": torch.float32,
             "dataloader_params": {"batch_size": 16, "num_workers": 0},
         },
         trainer_params={
-            "max_epochs": 1, "enable_model_summary": False,
-            "enable_progress_bar": False, "log_every_n_steps": 1,
-            "devices": 1, "accelerator": "cpu", "logger": False,
+            "max_epochs": 1,
+            "enable_model_summary": False,
+            "enable_progress_bar": False,
+            "log_every_n_steps": 1,
+            "devices": 1,
+            "accelerator": "cpu",
+            "logger": False,
         },
         random_state=0,
     )
@@ -309,6 +335,9 @@ def test_cuda_graph_forward_multiple_shapes_each_correct(monkeypatch):
         ref = module.network(x).detach()
         out = module._maybe_cuda_graph_forward(x).detach()
         torch.testing.assert_close(
-            out, ref, atol=1e-5, rtol=1e-5,
+            out,
+            ref,
+            atol=1e-5,
+            rtol=1e-5,
             msg=f"F-59: shape={shape} first-call output diverged from eager",
         )

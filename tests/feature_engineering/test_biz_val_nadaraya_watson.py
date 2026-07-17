@@ -13,6 +13,7 @@ from mlframe.feature_engineering.nadaraya_watson import (
 
 # ---------------------------------------------------------------- unit
 
+
 def test_constant_signal_is_recovered():
     x = np.linspace(0, 10, 50)
     y = np.full(50, 3.5)
@@ -53,6 +54,7 @@ def test_invalid_kernel_raises():
 
 
 # ---------------------------------------------------------------- biz_value
+
 
 def test_biz_val_nw_denoises_smooth_curve_better_than_raw():
     """NW smoothing recovers a known smooth curve from noisy samples with much lower RMSE than the raw noisy signal.

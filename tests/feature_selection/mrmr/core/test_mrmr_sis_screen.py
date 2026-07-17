@@ -8,6 +8,7 @@ Covers, per MRMR_100K_SCALING_DESIGN.md section 5:
     budget and survivor set is << p and contains the planted signal;
   * a cProfile run confirming the hotspot.
 """
+
 from __future__ import annotations
 
 import os
@@ -65,7 +66,7 @@ def _make_frame(n, p, n_main, n_pairs, L, seed, out=None):
     noise_cols = np.setdiff1d(np.arange(p), np.concatenate([main_idx, operand_idx]))
     cw = 2000
     for c0 in range(0, noise_cols.size, cw):
-        cols = noise_cols[c0:c0 + cw]
+        cols = noise_cols[c0 : c0 + cw]
         X[:, cols] = rng.standard_normal((n, cols.size)).astype(np.float32)
     if out is not None:
         out.flush()
@@ -124,8 +125,8 @@ def test_fuse_keeps_both_signal_classes():
     p = 1000
     mi = np.zeros(p)
     prop = np.zeros(p)
-    mi[10] = 5.0          # pure main effect (high MI, zero propensity)
-    prop[20] = 5.0        # pure interaction operand (zero MI, high propensity)
+    mi[10] = 5.0  # pure main effect (high MI, zero propensity)
+    prop[20] = 5.0  # pure interaction operand (zero MI, high propensity)
     fused = fuse_scores(mi, prop)
     top2 = set(np.argsort(-fused)[:2].tolist())
     assert {10, 20} <= top2, "fusion must keep both a main effect and an interaction operand"
@@ -140,7 +141,7 @@ def test_bizvalue_recall_beats_random_baseline():
     X, y, main_idx, op_idx = _make_frame(n, p, n_main, n_pairs, L, seed=11)
 
     m = 600
-    survivors, sc = sis_screen(X, y, target_survivors=m, return_scores=True)
+    survivors, _sc = sis_screen(X, y, target_survivors=m, return_scores=True)
 
     planted = np.concatenate([main_idx, op_idx])
     rec_all = _recall(survivors, planted)
@@ -148,10 +149,7 @@ def test_bizvalue_recall_beats_random_baseline():
     rec_op = _recall(survivors, op_idx)
     random_baseline = m / p
 
-    print(
-        f"[bizvalue] m={m}/{p} baseline={random_baseline:.3f} "
-        f"recall_all={rec_all:.3f} recall_main={rec_main:.3f} recall_op={rec_op:.3f}"
-    )
+    print(f"[bizvalue] m={m}/{p} baseline={random_baseline:.3f} recall_all={rec_all:.3f} recall_main={rec_main:.3f} recall_op={rec_op:.3f}")
     # main effects must be essentially all recovered
     assert rec_main >= 0.9, f"main-effect recall {rec_main} too low"
     # interaction operands must beat the random baseline by a clear margin (the whole point of fusing 2nd-moment)
@@ -195,7 +193,7 @@ def test_regression_target_marginal_mi_channel_alive():
     X = rng.standard_normal((n, p)).astype(np.float32)
     main = [3, 17, 42, 88]
     y = (X[:, main] @ rng.standard_normal(len(main)) + 0.1 * rng.standard_normal(n)).astype(np.float64)  # continuous
-    surv, sc = sis_screen(X, y, target_survivors=50, return_scores=True)
+    _surv, sc = sis_screen(X, y, target_survivors=50, return_scores=True)
     assert sc["mi"].max() > 0.0, "regression-y marginal MI channel is dead (P0-1 regression)"
     top_mi = set(np.argsort(sc["mi"])[::-1][:50].tolist())
     assert len(set(main) & top_mi) >= 3, f"MI channel recovered too few main effects for regression y: {set(main) & top_mi}"
@@ -218,7 +216,7 @@ def test_non_numeric_column_does_not_crash_screen():
     df["cat"] = df["cat"].astype(object)
 
     m = MRMR()
-    sub = m._apply_sis_screen(df, pd.Series(y))   # must not raise (was: ValueError could not convert str to float)
+    sub = m._apply_sis_screen(df, pd.Series(y))  # must not raise (was: ValueError could not convert str to float)
     assert sub.shape[1] >= 1 and sub.shape[0] == n
     assert hasattr(m, "sis_survivors_") and m.sis_n_input_features_ == p + 1
 

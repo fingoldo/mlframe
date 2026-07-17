@@ -15,9 +15,17 @@ def test_bench_shap_proxy_scaling_imports_and_aggregates():
     from mlframe.feature_selection._benchmarks import bench_shap_proxy_scaling as mod
 
     # Module surface that the bench script + downstream callers depend on.
-    for name in ("make_wide", "_build_selector", "bench_width_single",
-                 "bench_width_multi_seed", "_agg", "print_multi_seed_table",
-                 "print_stage_breakdown", "main", "_STAGE_ORDER"):
+    for name in (
+        "make_wide",
+        "_build_selector",
+        "bench_width_single",
+        "bench_width_multi_seed",
+        "_agg",
+        "print_multi_seed_table",
+        "print_stage_breakdown",
+        "main",
+        "_STAGE_ORDER",
+    ):
         assert hasattr(mod, name), name
 
     # _agg contract on 1, 2, N samples.

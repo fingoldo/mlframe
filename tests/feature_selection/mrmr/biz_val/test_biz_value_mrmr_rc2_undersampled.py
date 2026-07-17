@@ -33,6 +33,7 @@ CONTRACTS PINNED (all falsifiable -- revert the fix and they fail)
       candidate is CONFIRMED via the marginal fallback (and the strict legacy
       path -- threshold 0 -- rejects the same candidate).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -88,8 +89,11 @@ def test_rc2_diabetes_strict_path_also_recovers_after_discrete_fe_gating():
     corrected behaviour: the strict path recovers >=6 features at a healthy downstream R2."""
     X, y = load_diabetes(return_X_y=True, as_frame=True)
     sel = MRMR(
-        verbose=0, random_seed=42, fe_max_steps=0,
-        use_simple_mode=False, fe_confirm_undersample_rows_per_cell=0.0,
+        verbose=0,
+        random_seed=42,
+        fe_max_steps=0,
+        use_simple_mode=False,
+        fe_confirm_undersample_rows_per_cell=0.0,
     )
     sel.fit(X, y)
     feats = _raw_selected(sel, X.columns)
@@ -158,10 +162,12 @@ def test_rc2_fallback_does_not_resurrect_genuine_duplicate():
     rng = np.random.RandomState(7)
     n = 250
     latent = rng.randn(n)
-    df = pd.DataFrame({
-        "anchor": latent + 0.05 * rng.randn(n),
-        "collinear": latent + 0.05 * rng.randn(n),  # ~0.997 collinear with anchor (genuine duplicate)
-    })
+    df = pd.DataFrame(
+        {
+            "anchor": latent + 0.05 * rng.randn(n),
+            "collinear": latent + 0.05 * rng.randn(n),  # ~0.997 collinear with anchor (genuine duplicate)
+        }
+    )
     yv = pd.Series(latent + 0.3 * rng.randn(n), name="t")
 
     sel_on = MRMR(verbose=0, random_seed=1, fe_max_steps=0, use_simple_mode=False)
@@ -169,16 +175,17 @@ def test_rc2_fallback_does_not_resurrect_genuine_duplicate():
     feats_on = [f for f in sel_on.get_feature_names_out() if f in ("anchor", "collinear")]
 
     sel_off = MRMR(
-        verbose=0, random_seed=1, fe_max_steps=0,
-        use_simple_mode=False, fe_confirm_undersample_rows_per_cell=0.0,
+        verbose=0,
+        random_seed=1,
+        fe_max_steps=0,
+        use_simple_mode=False,
+        fe_confirm_undersample_rows_per_cell=0.0,
     )
     sel_off.fit(df, yv)
     feats_off = [f for f in sel_off.get_feature_names_out() if f in ("anchor", "collinear")]
 
     # Exactly one of the genuine-duplicate pair is kept (redundancy de-dup works).
-    assert len(feats_on) == 1, (
-        f"genuine ~0.997 duplicate not de-duplicated; both kept: {feats_on}"
-    )
+    assert len(feats_on) == 1, f"genuine ~0.997 duplicate not de-duplicated; both kept: {feats_on}"
     # The fallback is principled: it does NOT resurrect the redundant duplicate
     # (the gain gate, not the permutation gate, dropped it), so on == off here.
     assert len(feats_on) == len(feats_off), (

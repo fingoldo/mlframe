@@ -6,6 +6,7 @@ if it ever gets relocated into a post-BaseEstimator mixin again, MRMR.__setstate
 BaseEstimator's plain __dict__-update and the custom legacy-pickle default injection stops running. hasattr
 and a fresh-instance pickle round-trip both hide that; these tests pin the real contract.
 """
+
 from sklearn.base import BaseEstimator
 
 from mlframe.feature_selection.filters.mrmr import MRMR
@@ -22,8 +23,7 @@ def test_setstate_defined_on_mrmr_not_shadowed_by_baseestimator():
     assert "__setstate__" in BaseEstimator.__dict__, "precondition: BaseEstimator defines __setstate__"
     owner = _defining_class(MRMR, "__setstate__")
     assert owner is MRMR, (
-        f"MRMR.__setstate__ resolves in {owner.__name__}, not MRMR -- a post-BaseEstimator mixin is shadowing "
-        f"the custom legacy-pickle __setstate__"
+        f"MRMR.__setstate__ resolves in {owner.__name__}, not MRMR -- a post-BaseEstimator mixin is shadowing the custom legacy-pickle __setstate__"
     )
 
 

@@ -18,6 +18,7 @@ The fix subsets input_for_model to the model's own feature_names_in_
 calling predict, dropping framework-incompatible columns symmetrically
 with the training-side per-strategy column selection.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -41,12 +42,14 @@ def _build_frame_with_text(n: int = 3_000, seed: int = 0):
     rng = np.random.default_rng(seed)
     _vocab = np.array("alpha beta gamma delta epsilon zeta".split(), dtype=object)
     _idx = rng.integers(0, len(_vocab), (n, 4))
-    df = pd.DataFrame({
-        "x0": rng.normal(size=n).astype("float32"),
-        "x1": rng.normal(size=n).astype("float32"),
-        "cat_low": np.array(["A", "B", "C"], dtype=object)[rng.integers(0, 3, n)],
-        "text_col": np.array([" ".join(_vocab[r]) for r in _idx], dtype=object),
-    })
+    df = pd.DataFrame(
+        {
+            "x0": rng.normal(size=n).astype("float32"),
+            "x1": rng.normal(size=n).astype("float32"),
+            "cat_low": np.array(["A", "B", "C"], dtype=object)[rng.integers(0, 3, n)],
+            "text_col": np.array([" ".join(_vocab[r]) for r in _idx], dtype=object),
+        }
+    )
     df["y"] = (1.5 * df["x0"] - 1.0 * df["x1"] + rng.normal(0, 0.3, n)).astype("float32")
     return df
 
@@ -88,13 +91,8 @@ def test_predict_from_models_xgb_with_text_col():
         return_probabilities=False,
         verbose=0,
     )
-    assert results["models_used"], (
-        "predict_from_models returned no successful models — XGB likely "
-        "crashed on text_col (the iter#52 bug)"
-    )
-    assert results["ensemble_predictions"] is not None, (
-        "ensemble_predictions missing; expected XGB single-model fallback"
-    )
+    assert results["models_used"], "predict_from_models returned no successful models — XGB likely crashed on text_col (the iter#52 bug)"
+    assert results["ensemble_predictions"] is not None, "ensemble_predictions missing; expected XGB single-model fallback"
 
 
 def test_predict_from_models_lgb_with_text_col():
@@ -115,7 +113,4 @@ def test_predict_from_models_lgb_with_text_col():
         return_probabilities=False,
         verbose=0,
     )
-    assert results["models_used"], (
-        "predict_from_models returned no successful models — LGB likely "
-        "crashed on text_col"
-    )
+    assert results["models_used"], "predict_from_models returned no successful models — LGB likely crashed on text_col"

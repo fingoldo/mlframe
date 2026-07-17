@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Biz-value speed+quality test for the MRMR ``fe_fast_search`` master toggle (2026-06-14).
 
 Asserts, on the two canonical interaction synthetics:
@@ -14,6 +13,7 @@ Asserts, on the two canonical interaction synthetics:
 Tractable n (20_000) so the test is CI-runnable; the production target is n=100_000 (< 60s each,
 from ~130s / ~100s warm). Marked ``slow`` -- it fits MRMR four times.
 """
+
 from __future__ import annotations
 
 import time
@@ -78,7 +78,7 @@ def test_fast_search_recovers_signal_and_is_faster(case):
     t0 = time.time()
     m_ref = MRMR(verbose=0, random_seed=0, fe_fast_search=False).fit(df.copy(), y.copy())
     t_ref = time.time() - t0
-    names_ref = list(m_ref.get_feature_names_out())
+    list(m_ref.get_feature_names_out())
     mae_ref = _ridge_holdout_mae(m_ref, df, y)
 
     # Fast path (default ON).
@@ -99,27 +99,18 @@ def test_fast_search_recovers_signal_and_is_faster(case):
     # gate_mask / rint column survives and no cross-group (a&c / a&d / b&c / b&d) binary node. CASE2's
     # warped (c,d) carrier IS a gate composite, so cleanliness is pinned on CASE1 only.
     if case == 1:
-        assert not any("gate_mask" in str(nm) for nm in names_fast), (
-            f"CASE1 fast path kept a spurious gate_mask column: {names_fast}"
-        )
-        assert not any("rint" in str(nm) for nm in names_fast), (
-            f"CASE1 fast path kept a spurious rint composite: {names_fast}"
-        )
-        _cross = [nm for nm in names_fast if (_covers([nm], "a", "c") or _covers([nm], "a", "d")
-                                              or _covers([nm], "b", "c") or _covers([nm], "b", "d"))]
+        assert not any("gate_mask" in str(nm) for nm in names_fast), f"CASE1 fast path kept a spurious gate_mask column: {names_fast}"
+        assert not any("rint" in str(nm) for nm in names_fast), f"CASE1 fast path kept a spurious rint composite: {names_fast}"
+        _cross = [nm for nm in names_fast if (_covers([nm], "a", "c") or _covers([nm], "a", "d") or _covers([nm], "b", "c") or _covers([nm], "b", "d"))]
         assert not _cross, f"CASE1 fast path kept a cross-group cross-signal artefact: {_cross}"
 
     # QUALITY 2: holdout MAE within 10% of the exhaustive selection (the user's tolerance).
-    assert mae_fast <= mae_ref * 1.10 + 1e-9, (
-        f"CASE{case} fast-path MAE {mae_fast:.5f} regressed >10% vs reference {mae_ref:.5f}"
-    )
+    assert mae_fast <= mae_ref * 1.10 + 1e-9, f"CASE{case} fast-path MAE {mae_fast:.5f} regressed >10% vs reference {mae_ref:.5f}"
 
     # SPEED: fast path is materially faster than exhaustive (>=20% wall reduction). The production
     # target is < 60s at n=100k; at this tractable n we only assert the relative win to avoid
     # hardware-coupling the absolute threshold.
-    assert t_fast < t_ref * 0.80, (
-        f"CASE{case} fast path not materially faster: fast={t_fast:.1f}s ref={t_ref:.1f}s"
-    )
+    assert t_fast < t_ref * 0.80, f"CASE{case} fast path not materially faster: fast={t_fast:.1f}s ref={t_ref:.1f}s"
 
 
 @pytest.mark.slow
@@ -128,9 +119,7 @@ def test_fast_search_toggle_restores_knobs():
     stability) -- the fast profile is applied per-fit and restored in ``finally``."""
     df, y = _make_case(1, n=4000)
     m = MRMR(verbose=0, random_seed=0, fe_fast_search=True)
-    before = (m.fe_max_steps, m.fe_pair_prewarp_enable, m.fe_stability_vote_enable,
-              m.fe_escalation_underdelivery_enable, m.fe_check_pairs_subsample_n)
+    before = (m.fe_max_steps, m.fe_pair_prewarp_enable, m.fe_stability_vote_enable, m.fe_escalation_underdelivery_enable, m.fe_check_pairs_subsample_n)
     m.fit(df, y)
-    after = (m.fe_max_steps, m.fe_pair_prewarp_enable, m.fe_stability_vote_enable,
-             m.fe_escalation_underdelivery_enable, m.fe_check_pairs_subsample_n)
+    after = (m.fe_max_steps, m.fe_pair_prewarp_enable, m.fe_stability_vote_enable, m.fe_escalation_underdelivery_enable, m.fe_check_pairs_subsample_n)
     assert before == after, f"fast-search profile leaked into constructor knobs: {before} -> {after}"

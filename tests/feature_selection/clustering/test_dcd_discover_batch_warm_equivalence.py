@@ -12,6 +12,7 @@ added) and in the cached SU VALUES to the per-pair loop. It fails pre-optimizati
 in the sense that the warm-call symbol was not wired (the value-source is the same
 float either way, so we assert equivalence of the two code paths).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -36,9 +37,13 @@ def _state(n_cols, seed=0):
     fd = np.ascontiguousarray(np.stack(cols, axis=1))
     fn = np.array([4] * n_cols, dtype=np.int64)
     st = make_dcd_state(
-        X_raw=None, factors_data=fd, factors_nbins=fn,
-        cols=[f"c{i}" for i in range(n_cols)], nbins=fn,
-        target_indices=None, distance="su",
+        X_raw=None,
+        factors_data=fd,
+        factors_nbins=fn,
+        cols=[f"c{i}" for i in range(n_cols)],
+        nbins=fn,
+        target_indices=None,
+        distance="su",
     )
     return st, fd, fn
 
@@ -56,8 +61,12 @@ def _run(disable_batch):
         dcd.pair_su_batch = lambda *a, **k: np.zeros(0)  # no-op warm
     try:
         added = dcd.discover_cluster_members(
-            st, just_selected=0, candidate_pool=list(range(1, n_cols)),
-            entropy_cache=None, factors_data=fd, factors_nbins=fn,
+            st,
+            just_selected=0,
+            candidate_pool=list(range(1, n_cols)),
+            entropy_cache=None,
+            factors_data=fd,
+            factors_nbins=fn,
         )
     finally:
         dcd.pair_su_batch = orig
@@ -87,9 +96,7 @@ def test_discover_batch_warm_selection_and_values_bit_identical():
     # (asserted above).
     assert set(vals_warm) == set(vals_plain)
     for k in vals_warm:
-        assert abs(vals_warm[k] - vals_plain[k]) <= 1e-12, (
-            k, vals_warm[k], vals_plain[k]
-        )
+        assert abs(vals_warm[k] - vals_plain[k]) <= 1e-12, (k, vals_warm[k], vals_plain[k])
 
 
 def test_discover_batch_warm_calls_batch_once():
@@ -110,8 +117,12 @@ def test_discover_batch_warm_calls_batch_once():
     dcd.pair_su_batch = _spy
     try:
         dcd.discover_cluster_members(
-            st, just_selected=0, candidate_pool=list(range(1, n_cols)),
-            entropy_cache=None, factors_data=fd, factors_nbins=fn,
+            st,
+            just_selected=0,
+            candidate_pool=list(range(1, n_cols)),
+            entropy_cache=None,
+            factors_data=fd,
+            factors_nbins=fn,
         )
     finally:
         dcd.pair_su_batch = orig

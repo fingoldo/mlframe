@@ -6,6 +6,7 @@ Both ``LinearModelStrategy`` and ``NeuralModelStrategy`` declare ``requires_scal
 
 The PARAMETRISED biz_value test below runs each supported regression family (cb / xgb / lgb / linear / mlp) on a synthetic regression dataset with mean=11500, std=644 -- the same magnitude as the TVT target that broke MLP. Locks: every model's RMSE < 50% of target std (i.e., the model actually learned, not just predicting mean).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -22,6 +23,7 @@ import pytest
 def test_strategy_declares_requires_scaling(strategy_cls_name: str) -> None:
     """Both linear and MLP strategies must declare ``requires_scaling=True`` -- otherwise the suite skips StandardScaler injection and these families silently train on un-scaled features (catastrophic for SGD / OLS conditioning)."""
     import mlframe.training.strategies as _strat
+
     cls = getattr(_strat, strategy_cls_name)
     assert cls.requires_scaling is True
     assert cls.requires_imputation is True
@@ -50,9 +52,7 @@ def test_built_pipeline_contains_standard_scaler(strategy_cls_name: str) -> None
     # Some strategies return None (when nothing needs to be built); the contract is that linear / NN with requires_scaling=True must materialise a pipeline carrying StandardScaler.
     assert pipeline is not None, f"{strategy_cls_name}.build_pipeline returned None despite requires_scaling=True"
     step_types = [type(step[1]).__name__ for step in pipeline.steps]
-    assert "StandardScaler" in step_types, (
-        f"{strategy_cls_name} pipeline must include StandardScaler; got steps={step_types}"
-    )
+    assert "StandardScaler" in step_types, f"{strategy_cls_name} pipeline must include StandardScaler; got steps={step_types}"
 
 
 # ---------------------------------------------------------------------------
@@ -102,6 +102,7 @@ def _linear_factory():
     from sklearn.pipeline import Pipeline
     from sklearn.preprocessing import StandardScaler
     from sklearn.linear_model import LinearRegression
+
     # Mirror the suite's pipeline-time auto-scaling for the linear strategy.
     return Pipeline([("scaler", StandardScaler()), ("lr", LinearRegression())])
 
@@ -112,9 +113,20 @@ def _mlp_factory():
     from sklearn.preprocessing import StandardScaler
     from sklearn.neural_network import MLPRegressor
     from sklearn.compose import TransformedTargetRegressor
-    inner = Pipeline([("scaler", StandardScaler()), ("mlp", MLPRegressor(
-        hidden_layer_sizes=(32, 16), max_iter=200, random_state=0,
-    ))])
+
+    inner = Pipeline(
+        [
+            ("scaler", StandardScaler()),
+            (
+                "mlp",
+                MLPRegressor(
+                    hidden_layer_sizes=(32, 16),
+                    max_iter=200,
+                    random_state=0,
+                ),
+            ),
+        ]
+    )
     return TransformedTargetRegressor(regressor=inner, transformer=StandardScaler())
 
 
@@ -125,8 +137,7 @@ _try_register_family("linear", _linear_factory)
 _try_register_family("mlp", _mlp_factory)
 
 
-@pytest.mark.parametrize("family_name, factory", _FAMILY_FACTORIES,
-                         ids=[f for f, _ in _FAMILY_FACTORIES])
+@pytest.mark.parametrize("family_name, factory", _FAMILY_FACTORIES, ids=[f for f, _ in _FAMILY_FACTORIES])
 def test_model_family_learns_on_large_magnitude_target(family_name: str, factory) -> None:
     """Every supported regression family must actually LEARN on a target with mean ~11500, std ~644 -- i.e. produce RMSE < 50% of target_std on a held-out slice. The 2026-05-11 TVT log exposed MLP catastrophically failing this contract (RMSE = target_std = 644, meaning predicting ~mean). The F1 fix (TransformedTargetRegressor wrap for MLP regression in trainer.py) closes this gap.
 

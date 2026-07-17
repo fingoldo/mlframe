@@ -5,6 +5,7 @@ order-invariant and stable-sort keeps within-group order), and a feature that is
 constant within every query must still score ~0 (the whole point of query-aware
 relevance).
 """
+
 from __future__ import annotations
 
 import numpy as np

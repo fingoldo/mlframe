@@ -97,6 +97,7 @@ def test_score_margin_inline_sigmoid_parity():
     rng = np.random.default_rng(42)
     margin = rng.standard_normal(500) * 3.0
     y = (rng.uniform(size=500) > 0.5).astype(np.float64)
+
     # Independent reference (numpy, no numba): exact same arithmetic in the same order
     def ref(code):
         if code == 0:

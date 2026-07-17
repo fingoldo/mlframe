@@ -26,6 +26,7 @@ T25   adversarial forward->inverse round-trip parity sweep over the registered
 
 All tests are fast (< 5s each): n <= 1500 synthetics, tiny inners, no GPU.
 """
+
 from __future__ import annotations
 
 import importlib
@@ -87,7 +88,8 @@ class TestA34StackedPass2Training:
         df = _two_signal_frame()
         n = len(df)
         disc = CompositeTargetDiscovery(config=self._config()).fit_stacked(
-            df=df, target_col="y",
+            df=df,
+            target_col="y",
             feature_cols=["x_a", "x_b", "n0"],
             train_idx=np.arange(int(0.8 * n)),
             n_oof_folds=2,
@@ -112,15 +114,22 @@ class TestA34StackedPass2Training:
         def _spec(name: str, base_column: str) -> CompositeSpec:
             """Minimal CompositeSpec fixture naming one base column."""
             return CompositeSpec(
-                name=name, target_col="y", transform_name="linear_residual",
-                base_column=base_column, fitted_params={}, mi_gain=0.1,
-                mi_y=0.2, mi_t=0.3, valid_domain_frac=1.0, n_train_rows=100,
+                name=name,
+                target_col="y",
+                transform_name="linear_residual",
+                base_column=base_column,
+                fitted_params={},
+                mi_gain=0.1,
+                mi_y=0.2,
+                mi_t=0.3,
+                valid_domain_frac=1.0,
+                n_train_rows=100,
             )
 
         bad = _spec("y-linres-oofa", f"{_OOF_FEATURE_PREFIX}linres-x_a")
         good = _spec("y-linres-xb", "x_b")
         flagged = _warn_unrebuildable_oof_specs([bad, good], existing_names=set())
-        assert bad.name in flagged, "spec whose base is an ephemeral _oof_ column must be flagged " "unrebuildable"
+        assert bad.name in flagged, "spec whose base is an ephemeral _oof_ column must be flagged unrebuildable"
         assert good.name not in flagged, "spec on a real feature column must NOT be flagged"
 
     def test_residual_stacked_warns_on_residual_fitted_specs(self, caplog) -> None:
@@ -136,7 +145,8 @@ class TestA34StackedPass2Training:
             disc = CompositeTargetDiscovery(
                 config=self._config(),
             ).fit_stacked_on_residual(
-                df=df, target_col="y",
+                df=df,
+                target_col="y",
                 feature_cols=["x_a", "x_b", "n0"],
                 train_idx=np.arange(int(0.8 * n)),
                 n_oof_folds=2,
@@ -148,7 +158,7 @@ class TestA34StackedPass2Training:
         new_residual = [s for s in disc.specs_ if getattr(s, "discovered_on_residual", False)]
         if new_residual:
             assert any("discovered on the RESIDUAL target" in rec.message for rec in caplog.records), (
-                "residual-fitted pass-2 specs were merged without the A7 " "residual-vs-raw warning"
+                "residual-fitted pass-2 specs were merged without the A7 residual-vs-raw warning"
             )
 
 
@@ -346,7 +356,7 @@ class TestE21ComplianceUncoveredRows:
         X_pred = pd.DataFrame({"base": base_pred, "feat": feat})
         preds = est.predict(X_pred)
         assert preds.shape == (n,)
-        assert np.all(np.isfinite(preds)), "out-of-domain base rows produced non-finite predictions instead of " "routing to the fallback value"
+        assert np.all(np.isfinite(preds)), "out-of-domain base rows produced non-finite predictions instead of routing to the fallback value"
 
 
 # ===========================================================================
@@ -413,7 +423,7 @@ class TestN28OofHygieneGaps:
         )
         assert _SwRecordingRaw.saw_sample_weight, "per-row sample_weight was not threaded to the inner fit"
         overlap = _SwRecordingRaw.fit_gids & _SwRecordingRaw.pred_gids
-        assert not overlap, f"group(s) {sorted(overlap)[:5]} span fit + holdout " f"(group-blind split leak under combined group_ids+sample_weight)"
+        assert not overlap, f"group(s) {sorted(overlap)[:5]} span fit + holdout (group-blind split leak under combined group_ids+sample_weight)"
 
     def test_non_monotone_time_kfold_downgrade_warns(self, caplog) -> None:
         """kfold>1 with a NON-monotone time_ordering cannot be forward-walked
@@ -446,7 +456,7 @@ class TestN28OofHygieneGaps:
                 time_ordering=time_ordering,
             )
         assert any("NON-monotone" in rec.message and "Downgrading" in rec.message for rec in caplog.records), (
-            "non-monotone-time kfold downgrade did not emit the expected warning; " f"got: {[r.message for r in caplog.records]}"
+            f"non-monotone-time kfold downgrade did not emit the expected warning; got: {[r.message for r in caplog.records]}"
         )
 
     def test_conformal_calibrate_predict_interval_coverage(self) -> None:
@@ -500,8 +510,11 @@ _T25_MULTI_BASE = {
 
 # Transforms requiring strictly-positive y / base for their domain.
 _T25_POSITIVE_DOMAIN = {
-    "ratio", "logratio", "reciprocal_residual",
-    "geometric_mean_residual", "rolling_quantile_ratio",
+    "ratio",
+    "logratio",
+    "reciprocal_residual",
+    "geometric_mean_residual",
+    "rolling_quantile_ratio",
     # box_cox_y: unlike log_y (fits an offset so any y-range is in-domain),
     # box_cox_y's classical Box-Cox likelihood strictly requires y > 0 --
     # scipy.special.boxcox returns NaN on non-positive input by design
@@ -585,7 +598,7 @@ class TestT25RoundTripParitySweep:
         # All invertible transforms recover y to ~machine precision on in-domain
         # data; a generous 1e-6 absorbs the rank / spline / quantile transforms'
         # interpolation rounding without masking a real forward/inverse defect.
-        assert rel_err < 1e-6, f"transform {name!r}: round-trip rel-error {rel_err:.3e} exceeds tol " f"(forward/inverse parity broken)"
+        assert rel_err < 1e-6, f"transform {name!r}: round-trip rel-error {rel_err:.3e} exceeds tol (forward/inverse parity broken)"
 
 
 class TestT25DomainClassificationCoverage:

@@ -24,6 +24,7 @@ and reliable:
 
 Keep n modest in fast mode; the generators expose ``safe_n`` so callers can scale.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -84,7 +85,7 @@ def make_ratio_heavytail(seed: int, distribution: str = "uniform", n: int | None
     rng = np.random.default_rng(seed)
     a, b, c, d, f = (draw(rng, distribution, n) for _ in range(5))
     a, b, c, d = _pos(a), _pos(b), _pos(c), d
-    sig = 0.2 * a ** 2 / b + f / 5.0 + np.log(c * 2.0) * np.sin(d / 3.0)
+    sig = 0.2 * a**2 / b + f / 5.0 + np.log(c * 2.0) * np.sin(d / 3.0)
     df = _frame({"a": a, "b": b, "c": c, "d": d}, sig, rng, distribution)
     return SuiteCase(df, "y", "0.2*a**2/b (heavy-tail ratio)", n, distribution, 0.999)
 
@@ -106,7 +107,7 @@ def make_poly(seed: int, distribution: str = "normal", n: int | None = None) -> 
     n = n or 40_000
     rng = np.random.default_rng(seed)
     a, b = draw(rng, distribution, n), draw(rng, distribution, n)
-    sig = a ** 3 - 3.0 * a + 0.5 * b ** 2
+    sig = a**3 - 3.0 * a + 0.5 * b**2
     df = _frame({"a": a, "b": b}, sig, rng, distribution)
     return SuiteCase(df, "y", "a**3-3a + 0.5*b**2 (polynomial)", n, distribution, 0.9)
 
@@ -147,17 +148,28 @@ GENERATORS = {
 # ---------------------------------------------------------------------------
 # suite runner
 # ---------------------------------------------------------------------------
-def run_suite(df: pd.DataFrame, target: str = "y", *, model: str = "linear",
-              use_mrmr: bool = True, mrmr_kwargs: dict | None = None,
-              classification: bool = False, random_seed: int = 0,
-              behavior_kwargs: dict | None = None):
+def run_suite(
+    df: pd.DataFrame,
+    target: str = "y",
+    *,
+    model: str = "linear",
+    use_mrmr: bool = True,
+    mrmr_kwargs: dict | None = None,
+    classification: bool = False,
+    random_seed: int = 0,
+    behavior_kwargs: dict | None = None,
+):
     """Run ``train_mlframe_models_suite`` with ``model`` + optional MRMR FS. Returns
     ``(entries, metadata)`` where ``entries`` is the list of fitted model entries for
     the (single) target. All the noisy optional stages are off for speed."""
     from mlframe.training.core import train_mlframe_models_suite
     from mlframe.training.configs import (
-        BaselineDiagnosticsConfig, CompositeTargetDiscoveryConfig,
-        DummyBaselinesConfig, OutputConfig, ReportingConfig, TrainingBehaviorConfig,
+        BaselineDiagnosticsConfig,
+        CompositeTargetDiscoveryConfig,
+        DummyBaselinesConfig,
+        OutputConfig,
+        ReportingConfig,
+        TrainingBehaviorConfig,
     )
     from mlframe.training._feature_selection_config import FeatureSelectionConfig
     from mlframe.training.extractors import SimpleFeaturesAndTargetsExtractor
@@ -173,9 +185,15 @@ def run_suite(df: pd.DataFrame, target: str = "y", *, model: str = "linear",
     )
     behavior = TrainingBehaviorConfig(**(behavior_kwargs or {}))
     models, metadata = train_mlframe_models_suite(
-        df=df, target_name=target, model_name="suite_fe", features_and_targets_extractor=fte,
-        mlframe_models=[model], verbose=0, use_mlframe_ensembles=False,
-        feature_selection_config=fs_cfg, behavior_config=behavior,
+        df=df,
+        target_name=target,
+        model_name="suite_fe",
+        features_and_targets_extractor=fte,
+        mlframe_models=[model],
+        verbose=0,
+        use_mlframe_ensembles=False,
+        feature_selection_config=fs_cfg,
+        behavior_config=behavior,
         output_config=OutputConfig(data_dir="", models_dir="", save_charts=False),
         composite_target_discovery_config=CompositeTargetDiscoveryConfig(enabled=False),
         baseline_diagnostics_config=BaselineDiagnosticsConfig(enabled=False),

@@ -6,6 +6,7 @@ retains raw support AND engineered recipes in lockstep so the retained count is 
 The invariant this pins (must hold for ANY uaed_auto_size fit, with or without engineered features):
   len(get_feature_names_out()) == n_features_ == transform(X).shape[1] == len(mrmr_gains_)
 """
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -37,8 +38,7 @@ def test_uaed_support_transform_gains_consistent(with_fe):
     n_feat = int(m.n_features_)
     width = m.transform(X).shape[1]
     assert n_out == n_feat == width, (
-        f"UAED support/output desync (with_fe={with_fe}): get_feature_names_out={n_out}, "
-        f"n_features_={n_feat}, transform_width={width}"
+        f"UAED support/output desync (with_fe={with_fe}): get_feature_names_out={n_out}, n_features_={n_feat}, transform_width={width}"
     )
     if getattr(m, "mrmr_gains_", None) is not None:
         assert len(np.asarray(m.mrmr_gains_)) == n_feat, "mrmr_gains_ length != n_features_ after UAED trim"

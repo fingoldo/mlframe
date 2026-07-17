@@ -2,6 +2,7 @@
 
 Note: @njit interiors are invisible to coverage.py; only the def + dispatch lines + Python wrappers count.
 """
+
 from __future__ import annotations
 
 import numpy as np

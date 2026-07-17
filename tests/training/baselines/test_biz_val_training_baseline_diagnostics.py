@@ -7,6 +7,7 @@ overruns, and produce ablation rankings that match ground truth.
 
 Naming: ``test_biz_val_baseline_diagnostics_<parameter>_<scenario>``.
 """
+
 from __future__ import annotations
 
 import time
@@ -28,15 +29,20 @@ def _dominant_one_target(n=2000, seed=42):
     x_noise1 = rng.normal(size=n)
     x_noise2 = rng.normal(size=n)
     y = 5.0 * x_dominant + 0.5 * x_other + 0.3 * rng.normal(size=n)
-    return pd.DataFrame({
-        "x_dominant": x_dominant, "x_other": x_other,
-        "x_noise1": x_noise1, "x_noise2": x_noise2,
-        "y": y,
-    })
+    return pd.DataFrame(
+        {
+            "x_dominant": x_dominant,
+            "x_other": x_other,
+            "x_noise1": x_noise1,
+            "x_noise2": x_noise2,
+            "y": y,
+        }
+    )
 
 
 def _make_config(**overrides):
     from mlframe.training.configs import BaselineDiagnosticsConfig
+
     defaults = dict(
         enabled=True,
         ablation_top_k=4,
@@ -65,9 +71,11 @@ def test_biz_val_baseline_diagnostics_ablation_finds_dominant_feature():
     feature_cols = ["x_dominant", "x_other", "x_noise1", "x_noise2"]
     diag = BaselineDiagnostics(_make_config(ablation_top_k=4))
     report = diag.fit_and_report(
-        train_df=df, train_target=df["y"],
+        train_df=df,
+        train_target=df["y"],
         feature_cols=feature_cols,
-        target_type="regression", target_name="y",
+        target_type="regression",
+        target_name="y",
     )
     # report.ablation is a list of AblationEntry(feature, ..., rank)
     assert hasattr(report, "ablation")
@@ -76,9 +84,7 @@ def test_biz_val_baseline_diagnostics_ablation_finds_dominant_feature():
     # Find the rank=1 entry
     rank_1 = [e for e in abl if getattr(e, "rank", None) == 1]
     assert len(rank_1) == 1, f"ablation must have exactly one rank-1 entry; got {abl}"
-    assert rank_1[0].feature == "x_dominant", (
-        f"rank-1 feature must be x_dominant; got {rank_1[0].feature}"
-    )
+    assert rank_1[0].feature == "x_dominant", f"rank-1 feature must be x_dominant; got {rank_1[0].feature}"
 
 
 def test_biz_val_baseline_diagnostics_dominant_features_finds_signal():
@@ -90,9 +96,11 @@ def test_biz_val_baseline_diagnostics_dominant_features_finds_signal():
     df = _dominant_one_target(n=2000, seed=42)
     diag = BaselineDiagnostics(_make_config(ablation_top_k=4))
     report = diag.fit_and_report(
-        train_df=df, train_target=df["y"],
+        train_df=df,
+        train_target=df["y"],
         feature_cols=["x_dominant", "x_other", "x_noise1", "x_noise2"],
-        target_type="regression", target_name="y",
+        target_type="regression",
+        target_name="y",
     )
     assert hasattr(report, "dominant_features")
     dom = report.dominant_features
@@ -100,9 +108,7 @@ def test_biz_val_baseline_diagnostics_dominant_features_finds_signal():
     # First entry must be x_dominant
     first = dom[0]
     name = first.get("feature") if isinstance(first, dict) else getattr(first, "feature", None)
-    assert name == "x_dominant", (
-        f"top dominant feature must be x_dominant; got {name}"
-    )
+    assert name == "x_dominant", f"top dominant feature must be x_dominant; got {name}"
 
 
 # ---------------------------------------------------------------------------
@@ -115,14 +121,20 @@ def _run_dom_and_wall(n_estimators, df, feature_cols, cat_features, target_type,
     from mlframe.training.baselines.diagnostics import BaselineDiagnostics
 
     cfg = _make_config(
-        quick_model_n_estimators=n_estimators, sample_n=4000,
-        ablation_top_k=5, random_state=seed,
+        quick_model_n_estimators=n_estimators,
+        sample_n=4000,
+        ablation_top_k=5,
+        random_state=seed,
     )
     diag = BaselineDiagnostics(cfg)
     t0 = time.perf_counter()
     report = diag.fit_and_report(
-        train_df=df, train_target=df["y"], feature_cols=feature_cols,
-        cat_features=cat_features, target_type=target_type, target_name="y",
+        train_df=df,
+        train_target=df["y"],
+        feature_cols=feature_cols,
+        cat_features=cat_features,
+        target_type=target_type,
+        target_name="y",
     )
     wall = time.perf_counter() - t0
     dom = report.dominant_features[0]["feature"] if report.dominant_features else None
@@ -141,8 +153,7 @@ def test_biz_val_baseline_diagnostics_n_estimators_100_preserves_dominant_verdic
     from mlframe.training.configs import BaselineDiagnosticsConfig
 
     assert BaselineDiagnosticsConfig().quick_model_n_estimators == 100, (
-        "ablation provisioning flip: quick_model_n_estimators default must be 100 "
-        "(bench-verified verdict-stable + ~1.8x faster vs 200)"
+        "ablation provisioning flip: quick_model_n_estimators default must be 100 (bench-verified verdict-stable + ~1.8x faster vs 200)"
     )
 
     n = 4000
@@ -156,10 +167,7 @@ def test_biz_val_baseline_diagnostics_n_estimators_100_preserves_dominant_verdic
         dom_200, _ = _run_dom_and_wall(200, df, feature_cols, [], "regression", seed)
         dom_100, _ = _run_dom_and_wall(100, df, feature_cols, [], "regression", seed)
         assert dom_200 == "x0", f"ground-truth dominant must be x0 at n_estimators=200 (seed={seed}); got {dom_200}"
-        assert dom_100 == dom_200, (
-            f"n_estimators=100 must keep the same dominant feature as 200 "
-            f"(seed={seed}): 100->{dom_100} vs 200->{dom_200}"
-        )
+        assert dom_100 == dom_200, f"n_estimators=100 must keep the same dominant feature as 200 (seed={seed}): 100->{dom_100} vs 200->{dom_200}"
 
 
 def test_biz_val_baseline_diagnostics_n_estimators_100_is_faster():
@@ -183,10 +191,7 @@ def test_biz_val_baseline_diagnostics_n_estimators_100_is_faster():
     _, wall_200 = _run_dom_and_wall(200, df, feature_cols, [], "regression", 0)
     _, wall_100 = _run_dom_and_wall(100, df, feature_cols, [], "regression", 0)
     speedup = wall_200 / wall_100 if wall_100 > 0 else 0.0
-    assert speedup >= 1.15, (
-        f"n_estimators=100 must be >=1.15x faster than 200; got {speedup:.2f}x "
-        f"(200={wall_200:.3f}s, 100={wall_100:.3f}s)"
-    )
+    assert speedup >= 1.15, f"n_estimators=100 must be >=1.15x faster than 200; got {speedup:.2f}x (200={wall_200:.3f}s, 100={wall_100:.3f}s)"
 
 
 # ---------------------------------------------------------------------------
@@ -205,24 +210,26 @@ def test_biz_val_baseline_diagnostics_sample_n_caps_runtime():
 
     rng = np.random.default_rng(42)
     n = 50_000
-    df = pd.DataFrame({
-        "x_dom": rng.normal(size=n),
-        "x_other": rng.normal(size=n),
-        "y": rng.normal(size=n),
-    })
+    df = pd.DataFrame(
+        {
+            "x_dom": rng.normal(size=n),
+            "x_other": rng.normal(size=n),
+            "y": rng.normal(size=n),
+        }
+    )
     df["y"] = 3.0 * df["x_dom"] + 0.3 * rng.normal(size=n)
 
     diag = BaselineDiagnostics(_make_config(sample_n=500))
     t0 = time.perf_counter()
     report = diag.fit_and_report(
-        train_df=df, train_target=df["y"],
+        train_df=df,
+        train_target=df["y"],
         feature_cols=["x_dom", "x_other"],
-        target_type="regression", target_name="y",
+        target_type="regression",
+        target_name="y",
     )
     dt = time.perf_counter() - t0
-    assert dt < 30.0, (
-        f"sample_n=500 must keep n=50k runtime under 30s; got {dt:.1f}s"
-    )
+    assert dt < 30.0, f"sample_n=500 must keep n=50k runtime under 30s; got {dt:.1f}s"
     # Behavioural: a sample_n=500 fit must produce a real diagnostics record (not just any object), and the
     # ablation summary must surface the dominant feature so the runtime-vs-quality tradeoff is verifiable.
     assert report is not None, "fit_and_report returned None on sample_n=500 path"
@@ -246,21 +253,24 @@ def test_biz_val_baseline_diagnostics_disabled_returns_quickly():
 
     rng = np.random.default_rng(42)
     n = 100_000
-    df = pd.DataFrame({
-        "x1": rng.normal(size=n), "x2": rng.normal(size=n),
-        "y": rng.normal(size=n),
-    })
+    df = pd.DataFrame(
+        {
+            "x1": rng.normal(size=n),
+            "x2": rng.normal(size=n),
+            "y": rng.normal(size=n),
+        }
+    )
     diag = BaselineDiagnostics(_make_config(enabled=False))
     t0 = time.perf_counter()
     diag.fit_and_report(
-        train_df=df, train_target=df["y"],
+        train_df=df,
+        train_target=df["y"],
         feature_cols=["x1", "x2"],
-        target_type="regression", target_name="y",
+        target_type="regression",
+        target_name="y",
     )
     dt = time.perf_counter() - t0
-    assert dt < 1.0, (
-        f"enabled=False must short-circuit; got {dt:.2f}s"
-    )
+    assert dt < 1.0, f"enabled=False must short-circuit; got {dt:.2f}s"
 
 
 # ---------------------------------------------------------------------------
@@ -278,15 +288,15 @@ def test_biz_val_baseline_diagnostics_report_has_init_score_field():
     df = _dominant_one_target(n=2000, seed=42)
     diag = BaselineDiagnostics(_make_config())
     report = diag.fit_and_report(
-        train_df=df, train_target=df["y"],
+        train_df=df,
+        train_target=df["y"],
         feature_cols=["x_dominant", "x_other", "x_noise1", "x_noise2"],
-        target_type="regression", target_name="y",
+        target_type="regression",
+        target_name="y",
     )
     # Public attrs related to init-score / dominance.
-    expected_any = ("init_score", "dominant_features", "high_potential",
-                      "ablation", "feature_importance", "marginal")
+    expected_any = ("init_score", "dominant_features", "high_potential", "ablation", "feature_importance", "marginal")
     public_attrs = [a for a in dir(report) if not a.startswith("_")]
     assert any(any(e in a.lower() for e in expected_any) for a in public_attrs), (
-        f"BaselineDiagnostics report must expose at least one of "
-        f"{expected_any}; got attrs={public_attrs[:15]}"
+        f"BaselineDiagnostics report must expose at least one of {expected_any}; got attrs={public_attrs[:15]}"
     )

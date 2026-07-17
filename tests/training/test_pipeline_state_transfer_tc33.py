@@ -5,6 +5,7 @@ swallowed at debug level: it leaves ``pre_pipeline`` with no fitted state, so th
 caller's predict-time ``transform`` raises NotFittedError. The failure must be
 surfaced at WARNING so the operator knows the state transfer was incomplete.
 """
+
 import logging
 
 import numpy as np
@@ -46,9 +47,7 @@ def test_state_transfer_failure_warns_not_silent(caplog):
     _pre_pipeline_cache_clear()
     train_df, val_df, pre_pipeline, target = _build_inputs()
 
-    key = _pre_pipeline_cache_key(
-        train_df, val_df, pre_pipeline, train_target=target, target_name="t"
-    )
+    key = _pre_pipeline_cache_key(train_df, val_df, pre_pipeline, train_target=target, target_name="t")
     # 3-tuple cache entry whose fitted object cannot be iterated for state transfer.
     with _PRE_PIPELINE_CACHE_LOCK:
         _PRE_PIPELINE_CACHE[key] = (train_df, val_df, _SlotsOnlyFitted())
@@ -72,6 +71,4 @@ def test_state_transfer_failure_warns_not_silent(caplog):
         _pre_pipeline_cache_clear()
 
     warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
-    assert any("state transfer FAILED" in r.getMessage() for r in warnings), (
-        "incomplete cache state transfer must surface at WARNING, not be hidden at debug"
-    )
+    assert any("state transfer FAILED" in r.getMessage() for r in warnings), "incomplete cache state transfer must surface at WARNING, not be hidden at debug"

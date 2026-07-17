@@ -9,6 +9,7 @@ array, the ``freqs[freqs > 0]`` mask, and entropy's ``log(freqs) * freqs`` tempo
 two-call form allocates-then-discards. These tests pin the bit-identity contract so a future edit
 to either kernel cannot silently drift the DCD redundancy score.
 """
+
 import numpy as np
 import pytest
 

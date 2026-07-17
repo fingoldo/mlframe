@@ -8,6 +8,7 @@ accidentally fed all-zero weights (sample_weight pipeline bug, masked
 boolean → integer overflow, etc.) saw a flat val curve with no clue
 why. F-10 adds a one-shot warning so the operator gets a signal.
 """
+
 from __future__ import annotations
 
 import logging
@@ -26,10 +27,16 @@ from mlframe.training.neural import MLPTorchModel, generate_mlp
 def _make_module() -> MLPTorchModel:
     torch.manual_seed(0)
     network = generate_mlp(
-        num_features=4, num_classes=1, nlayers=1,
-        first_layer_num_neurons=8, dropout_prob=0.0,
-        inputs_dropout_prob=0.0, use_layernorm=False,
-        use_batchnorm=False, activation_function=nn.ReLU, verbose=0,
+        num_features=4,
+        num_classes=1,
+        nlayers=1,
+        first_layer_num_neurons=8,
+        dropout_prob=0.0,
+        inputs_dropout_prob=0.0,
+        use_layernorm=False,
+        use_batchnorm=False,
+        activation_function=nn.ReLU,
+        verbose=0,
     )
     return MLPTorchModel(loss_fn=nn.MSELoss(), metrics=[], network=network)
 
@@ -50,9 +57,7 @@ def test_zero_weight_batch_emits_warning(caplog):
 
     # Warning fired once and mentions zero weight.
     warning_msgs = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
-    assert any("All-zero sample_weight" in m for m in warning_msgs), (
-        f"expected an 'All-zero sample_weight' warning; got {warning_msgs}"
-    )
+    assert any("All-zero sample_weight" in m for m in warning_msgs), f"expected an 'All-zero sample_weight' warning; got {warning_msgs}"
 
 
 def test_warning_fires_only_once(caplog):
@@ -67,14 +72,8 @@ def test_warning_fires_only_once(caplog):
         module._compute_weighted_loss(preds, labels, zero_w)
         module._compute_weighted_loss(preds, labels, zero_w)
 
-    warning_records = [
-        r for r in caplog.records
-        if r.levelno == logging.WARNING and "All-zero sample_weight" in r.getMessage()
-    ]
-    assert len(warning_records) == 1, (
-        f"expected exactly 1 'All-zero sample_weight' warning across 3 "
-        f"calls; got {len(warning_records)}"
-    )
+    warning_records = [r for r in caplog.records if r.levelno == logging.WARNING and "All-zero sample_weight" in r.getMessage()]
+    assert len(warning_records) == 1, f"expected exactly 1 'All-zero sample_weight' warning across 3 calls; got {len(warning_records)}"
 
 
 def test_nonzero_weight_does_not_warn(caplog):
@@ -90,13 +89,8 @@ def test_nonzero_weight_does_not_warn(caplog):
         loss = module._compute_weighted_loss(preds, labels, w)
 
     assert loss.item() > 0  # nonzero loss expected (preds != labels)
-    warnings_about_zero = [
-        r for r in caplog.records
-        if r.levelno == logging.WARNING and "All-zero sample_weight" in r.getMessage()
-    ]
-    assert warnings_about_zero == [], (
-        f"unexpected zero-weight warning on healthy weights: {warnings_about_zero}"
-    )
+    warnings_about_zero = [r for r in caplog.records if r.levelno == logging.WARNING and "All-zero sample_weight" in r.getMessage()]
+    assert warnings_about_zero == [], f"unexpected zero-weight warning on healthy weights: {warnings_about_zero}"
 
 
 def test_warning_resets_for_fresh_module(caplog):
@@ -113,9 +107,6 @@ def test_warning_resets_for_fresh_module(caplog):
         module_a._compute_weighted_loss(preds, labels, zero_w)
         module_b._compute_weighted_loss(preds, labels, zero_w)
 
-    warning_records = [
-        r for r in caplog.records
-        if r.levelno == logging.WARNING and "All-zero sample_weight" in r.getMessage()
-    ]
+    warning_records = [r for r in caplog.records if r.levelno == logging.WARNING and "All-zero sample_weight" in r.getMessage()]
     # Both modules warn once each.
     assert len(warning_records) == 2

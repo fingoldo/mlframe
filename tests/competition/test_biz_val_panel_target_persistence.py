@@ -11,6 +11,7 @@ features should carry strong signal about the current row's target -- demonstrat
 why the trick was informative on Kaggle, even though it must never be shipped as a
 production feature.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -50,6 +51,7 @@ def _make_control_panel(rng: np.random.Generator, n_groups: int, group_size: int
 
 
 def test_biz_val_check_target_persistence_distinguishes_persistent_from_control():
+    """check_target_persistence flags a rarely-flipping panel as persistent and a random-target panel as not, by a wide margin."""
     rng = np.random.default_rng(0)
     n_groups, group_size = 300, 10
 
@@ -64,16 +66,12 @@ def test_biz_val_check_target_persistence_distinguishes_persistent_from_control(
 
     # persistent panel: very low flip rate, very high lag-1 autocorrelation.
     assert result_persistent.flip_rate < 0.1, f"persistent-panel flip rate should be low, got {result_persistent.flip_rate:.4f}"
-    assert result_persistent.lag1_autocorrelation > 0.7, (
-        f"persistent-panel lag-1 autocorr should be high, got {result_persistent.lag1_autocorrelation:.4f}"
-    )
+    assert result_persistent.lag1_autocorrelation > 0.7, f"persistent-panel lag-1 autocorr should be high, got {result_persistent.lag1_autocorrelation:.4f}"
     assert result_persistent.is_persistent is True
 
     # control panel: flip rate near 0.5 (random binary), near-zero autocorrelation.
     assert result_control.flip_rate > 0.35, f"control-panel flip rate should be near-random, got {result_control.flip_rate:.4f}"
-    assert abs(result_control.lag1_autocorrelation) < 0.15, (
-        f"control-panel lag-1 autocorr should be near zero, got {result_control.lag1_autocorrelation:.4f}"
-    )
+    assert abs(result_control.lag1_autocorrelation) < 0.15, f"control-panel lag-1 autocorr should be near zero, got {result_control.lag1_autocorrelation:.4f}"
     assert result_control.is_persistent is False
 
     # the diagnostic must separate the two scenarios by a wide, real margin -- not just cross an
@@ -83,6 +81,7 @@ def test_biz_val_check_target_persistence_distinguishes_persistent_from_control(
 
 
 def test_biz_val_lag_lead_target_within_group_carry_strong_signal_when_persistent():
+    """lag/lead(target) beat the majority-class baseline on a persistent panel but carry no signal on a control panel."""
     rng = np.random.default_rng(1)
     n_groups, group_size = 300, 10
     g_p, o_p, y_p = _make_persistent_panel(rng, n_groups, group_size, flip_prob=0.02)
@@ -104,8 +103,7 @@ def test_biz_val_lag_lead_target_within_group_carry_strong_signal_when_persisten
     base_rate = float(np.mean(y_p))
     majority_baseline_acc = max(base_rate, 1 - base_rate)
     assert lag_agreement > majority_baseline_acc + 0.05, (
-        f"lag-based accuracy ({lag_agreement:.4f}) should beat the majority-class baseline "
-        f"({majority_baseline_acc:.4f}) by a real margin"
+        f"lag-based accuracy ({lag_agreement:.4f}) should beat the majority-class baseline ({majority_baseline_acc:.4f}) by a real margin"
     )
 
     # control: on a non-persistent panel, lag(target) carries no such signal.
@@ -117,6 +115,7 @@ def test_biz_val_lag_lead_target_within_group_carry_strong_signal_when_persisten
 
 
 def test_check_target_persistence_no_pairs_returns_nan_and_not_persistent():
+    """With every group of size 1 (no within-group pairs), flip_rate/lag1_autocorrelation are NaN and is_persistent is False."""
     group_ids = np.array([1, 2, 3])  # every group has size 1: no within-group pairs
     order = np.array([0, 0, 0])
     y = np.array([1.0, 0.0, 1.0])
@@ -128,6 +127,7 @@ def test_check_target_persistence_no_pairs_returns_nan_and_not_persistent():
 
 
 def test_lag_lead_target_within_group_shapes_and_edges():
+    """lag/lead correctly follow the per-group order-sorted sequence, with NaN at the group's first/last position."""
     group_ids = np.array([1, 1, 1, 2, 2])
     order = np.array([2, 0, 1, 5, 4])
     y = np.array([10.0, 20.0, 30.0, 40.0, 50.0])
@@ -149,6 +149,7 @@ def test_lag_lead_target_within_group_shapes_and_edges():
 
 
 def test_lag_target_within_group_periods_zero_raises():
+    """periods=0 raises ValueError since a zero-step lag is not a meaningful shift."""
     group_ids = np.array([1, 1])
     order = np.array([0, 1])
     y = np.array([1.0, 2.0])

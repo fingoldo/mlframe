@@ -8,6 +8,7 @@ it, and (b) bit-for-bit-modulo-ULP equivalence against an independent
 reimplementation of the prior per-window numpy loop, across both bin
 strategies and continuous / tied / discrete / NaN-bearing windows.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -69,9 +70,7 @@ def test_kernel_symbol_present_and_routed():
 
 @pytest.mark.parametrize("bin_strategy", ["quantile", "uniform"])
 @pytest.mark.parametrize("n_bins", [4, 8, 16])
-@pytest.mark.parametrize(
-    "kind", ["continuous", "tied_lowcard", "discrete_int", "with_nan"]
-)
+@pytest.mark.parametrize("kind", ["continuous", "tied_lowcard", "discrete_int", "with_nan"])
 def test_matches_numpy_reference(bin_strategy, n_bins, kind):
     rng = np.random.default_rng(7)
     n = 8000
@@ -85,9 +84,7 @@ def test_matches_numpy_reference(bin_strategy, n_bins, kind):
         v = np.where(rng.random(n) < 0.1, np.nan, rng.standard_normal(n))
     v = v.astype(np.float64)
     g = (np.arange(n) // 2000).astype(np.int64)
-    got = ws.rolling_shannon_entropy_binned(
-        v, g, window_K=20, n_bins=n_bins, bin_strategy=bin_strategy
-    )
+    got = ws.rolling_shannon_entropy_binned(v, g, window_K=20, n_bins=n_bins, bin_strategy=bin_strategy)
     exp = _ref(v, g, window_K=20, n_bins=n_bins, bin_strategy=bin_strategy)
     # NaN positions identical.
     np.testing.assert_array_equal(np.isnan(got), np.isnan(exp))

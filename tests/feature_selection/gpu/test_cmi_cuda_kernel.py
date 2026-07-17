@@ -6,6 +6,7 @@ no GPU / cupy is present; the CPU-fallback path of the dispatcher is exercised u
 
 RAM-light by mandate: n <= 3000, p <= 64, single process.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -27,17 +28,14 @@ def _make_case(seed, n, p, nbx, nby, nbz):
     nbins = [nbx] * p
     yc = rng.randint(0, nby, n)
     zc = rng.randint(0, nbz, n)
-    fd = np.column_stack(cols + [yc, zc]).astype(np.int32)
-    fb = np.array(nbins + [nby, nbz], dtype=np.int64)
+    fd = np.column_stack([*cols, yc, zc]).astype(np.int32)
+    fb = np.array([*nbins, nby, nbz], dtype=np.int64)
     return fd, fb, p  # y_index = p, z_index = p+1
 
 
 def _cpu_ref(fd, fb, p):
     yi, zi = p, p + 1
-    return np.array([
-        conditional_mi(fd, np.array([c]), np.array([yi]), np.array([zi]), None, fb)
-        for c in range(p)
-    ])
+    return np.array([conditional_mi(fd, np.array([c]), np.array([yi]), np.array([zi]), None, fb) for c in range(p)])
 
 
 @_gpu_only
@@ -60,7 +58,7 @@ def test_cuda_cmi_skewed_and_constant_columns():
     cols.append(np.zeros(n, dtype=int))  # constant column
     yc = rng.randint(0, 3, n)
     zc = rng.randint(0, 4, n)
-    fd = np.column_stack(cols + [yc, zc]).astype(np.int32)
+    fd = np.column_stack([*cols, yc, zc]).astype(np.int32)
     fb = np.array([4] * p + [3, 4], dtype=np.int64)
     gpu = conditional_mi_batched_dispatch(fd, np.arange(p), p, p + 1, fb, force="cuda")
     cpu = _cpu_ref(fd, fb, p)
@@ -87,10 +85,10 @@ def test_dispatch_default_returns_finite_nonneg():
 
 def test_kernel_module_pickle_safe():
     """No live CUDA context / RawKernel leaks via module import; a consumer dict pickles."""
-    import pickle
+    import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
     payload = {"cand": np.arange(5), "result": np.zeros(5)}
-    assert pickle.loads(pickle.dumps(payload))["cand"].tolist() == list(range(5))
+    assert pickle.loads(pickle.dumps(payload))["cand"].tolist() == list(range(5))  # nosec B301 -- round-trip of a locally-created, trusted object
 
 
 @_gpu_only

@@ -51,6 +51,7 @@ real-prod-bug rule, the two structurally-failing contracts (warp survivor not
 linear-preferred; gain-ratio blind to partial leak) are written to the CORRECT
 behaviour and marked xfail(strict=False) rather than weakened.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -76,11 +77,10 @@ AR_COEF = 0.7  # lead1 (look-ahead) ties lag1 at corr ~= AR_COEF by AR(1) symmet
 # ---------------------------------------------------------------------------
 
 
-
 pytestmark = pytest.mark.timeout(60)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop)
 
-def _make_warp_frame(n: int = 3000, seed: int = 0, n_noise: int = 5,
-                     reverse: bool = False):
+
+def _make_warp_frame(n: int = 3000, seed: int = 0, n_noise: int = 5, reverse: bool = False):
     """f ~ N(0,1); g = exp(4 f) (strictly monotone, rank-identical to f, so binned
     MI / SU(f, y) == SU(g, y) up to discretization jitter). y = (f + 0.3 N(0,1) > 0).
     ``reverse`` reverses the column order so g precedes f (probes order-dependence
@@ -98,8 +98,7 @@ def _make_warp_frame(n: int = 3000, seed: int = 0, n_noise: int = 5,
     return df, pd.Series(y, name="y")
 
 
-def _make_ar1_leak_frame(n: int = 2000, seed: int = 0, n_noise: int = 5,
-                         ar: float = AR_COEF):
+def _make_ar1_leak_frame(n: int = 2000, seed: int = 0, n_noise: int = 5, ar: float = AR_COEF):
     """AR(1) s_t = ar s_{t-1} + e_t with y_t = s_t. Legit features lag1..lag3
     (past values). Leak lead1 = s_{t+1} (one-step look-ahead): by AR symmetry
     corr(lead1, y) == corr(lag1, y) ~= ar, above lag2/lag3 and below 0.95."""
@@ -108,11 +107,11 @@ def _make_ar1_leak_frame(n: int = 2000, seed: int = 0, n_noise: int = 5,
     s = np.zeros(n + 2)
     for t in range(1, n + 2):
         s[t] = ar * s[t - 1] + e[t]
-    y = s[1:n + 1].copy()
+    y = s[1 : n + 1].copy()
     lag1 = s[0:n]
-    lag2 = np.concatenate([[0.0], s[0:n - 1]])
-    lag3 = np.concatenate([[0.0, 0.0], s[0:n - 2]])
-    lead1 = s[2:n + 2].copy()
+    lag2 = np.concatenate([[0.0], s[0 : n - 1]])
+    lag3 = np.concatenate([[0.0, 0.0], s[0 : n - 2]])
+    lead1 = s[2 : n + 2].copy()
     cols = {"lag1": lag1, "lag2": lag2, "lag3": lag3, "lead1": lead1}
     for i in range(n_noise):
         cols[f"noise{i}"] = rng.standard_normal(n)
@@ -129,6 +128,7 @@ def _fit_mrmr(df, y, seed: int):
     + fe_max_steps=0 keep wall-time bounded without touching the redundancy /
     relevance path under test."""
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     sel = MRMR(verbose=0, interactions_max_order=1, fe_max_steps=0, random_seed=seed)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -136,12 +136,18 @@ def _fit_mrmr(df, y, seed: int):
     return sel
 
 
-def _fit_rfecv(df, y, *, estimator, leakage_corr_threshold, rule="argmax",
-               leakage_action="exclude"):
+def _fit_rfecv(df, y, *, estimator, leakage_corr_threshold, rule="argmax", leakage_action="exclude"):
     from mlframe.feature_selection.wrappers import RFECV
-    sel = RFECV(estimator=estimator, cv=3, max_refits=4, random_state=0,
-                leakage_corr_threshold=leakage_corr_threshold,
-                leakage_action=leakage_action, n_features_selection_rule=rule)
+
+    sel = RFECV(
+        estimator=estimator,
+        cv=3,
+        max_refits=4,
+        random_state=0,
+        leakage_corr_threshold=leakage_corr_threshold,
+        leakage_action=leakage_action,
+        n_features_selection_rule=rule,
+    )
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         sel.fit(df.copy(), y)
@@ -189,9 +195,7 @@ class TestMRMRMonotoneWarpSurvivor:
             f"seed={seed}, support={_names(sel)}"
         )
         assert survivors != {"f", "g"}, (
-            f"BOTH f and g survived; DCD must collapse a rank-identical "
-            f"monotone-warped duplicate to ONE leg, not keep both. "
-            f"seed={seed}, support={_names(sel)}"
+            f"BOTH f and g survived; DCD must collapse a rank-identical monotone-warped duplicate to ONE leg, not keep both. seed={seed}, support={_names(sel)}"
         )
 
     def test_exactly_one_of_warp_pair_survives_fast(self):
@@ -199,10 +203,7 @@ class TestMRMRMonotoneWarpSurvivor:
         df, y = _make_warp_frame(seed=seed)
         sel = _fit_mrmr(df, y, seed)
         survivors = _warp_survivors(_names(sel))
-        assert survivors and survivors != {"f", "g"}, (
-            f"fast rep: exactly one of {{f, g}} must survive. "
-            f"seed={seed}, support={_names(sel)}"
-        )
+        assert survivors and survivors != {"f", "g"}, f"fast rep: exactly one of {{f, g}} must survive. seed={seed}, support={_names(sel)}"
 
     @pytest.mark.slow
     def test_warp_survivor_deterministic_for_fixed_order(self):
@@ -240,10 +241,7 @@ class TestMRMRMonotoneWarpSurvivor:
             sel = _fit_mrmr(df, y, seed)
             keep.append(_warp_survivors(_names(sel)))
         for reverse, survivors in zip((False, True), keep):
-            assert survivors == {"f"}, (
-                f"survivor should be the linear-usable raw f, got {survivors} "
-                f"(reverse={reverse}, seed={seed})"
-            )
+            assert survivors == {"f"}, f"survivor should be the linear-usable raw f, got {survivors} (reverse={reverse}, seed={seed})"
 
 
 # ---------------------------------------------------------------------------
@@ -262,13 +260,9 @@ class TestRFECVMonotoneWarpLinearPrefersRaw:
     def test_rfecv_keeps_f_drops_g(self, seed):
         df, y = _make_warp_frame(seed=seed)
         est = make_pipeline(StandardScaler(), LogisticRegression(max_iter=200, random_state=0))
-        sel = _fit_rfecv(df, y, estimator=est, leakage_corr_threshold=None,
-                         rule="one_se_min")
+        sel = _fit_rfecv(df, y, estimator=est, leakage_corr_threshold=None, rule="one_se_min")
         names = _names(sel)
-        assert "f" in names, (
-            f"raw f (the linear-usable leg) must be in RFECV support; "
-            f"seed={seed}, support={names}"
-        )
+        assert "f" in names, f"raw f (the linear-usable leg) must be in RFECV support; seed={seed}, support={names}"
         assert "g" not in names, (
             f"exp-warp g must be dropped -- its standardized logistic coef is "
             f"far weaker than f's, so a linear-estimator RFECV must not prefer "
@@ -279,12 +273,9 @@ class TestRFECVMonotoneWarpLinearPrefersRaw:
         seed = fast_subset(WARP_SEEDS, n=1)[0]
         df, y = _make_warp_frame(seed=seed)
         est = make_pipeline(StandardScaler(), LogisticRegression(max_iter=200, random_state=0))
-        sel = _fit_rfecv(df, y, estimator=est, leakage_corr_threshold=None,
-                         rule="one_se_min")
+        sel = _fit_rfecv(df, y, estimator=est, leakage_corr_threshold=None, rule="one_se_min")
         names = _names(sel)
-        assert "f" in names and "g" not in names, (
-            f"fast rep: f kept, g dropped. seed={seed}, support={names}"
-        )
+        assert "f" in names and "g" not in names, f"fast rep: f kept, g dropped. seed={seed}, support={names}"
 
 
 # ---------------------------------------------------------------------------
@@ -306,9 +297,7 @@ class TestMRMRPartialTimeSeriesLeak:
         sel = _fit_mrmr(df, y, seed)
         names = _names(sel)
         assert "lead1" in names, (
-            f"the look-ahead leak lead1 (corr ~= {AR_COEF} with y) should be "
-            f"surfaced to support by the relevance ranker; seed={seed}, "
-            f"support={names}"
+            f"the look-ahead leak lead1 (corr ~= {AR_COEF} with y) should be surfaced to support by the relevance ranker; seed={seed}, support={names}"
         )
 
     def test_partial_leak_surfaces_to_support_fast(self):
@@ -316,16 +305,16 @@ class TestMRMRPartialTimeSeriesLeak:
         df, y = _make_ar1_leak_frame(seed=seed)
         sel = _fit_mrmr(df, y, seed)
         names = _names(sel)
-        assert "lead1" in names, (
-            f"fast rep: lead1 should surface to support. seed={seed}, "
-            f"support={names}"
-        )
+        assert "lead1" in names, f"fast rep: lead1 should surface to support. seed={seed}, support={names}"
 
     @pytest.mark.slow
-    @pytest.mark.xfail(reason="PROD BUG: the layer-17 gain-ratio leak audit (top-leak gain / top-legit gain >= 2x) "
-                              "fires only on a DIRECT corr~1 leak. A PARTIAL look-ahead leak (lead1 ties lag1 in "
-                              "marginal MI by AR(1) symmetry) yields a ratio ~0.7-1.5, so the audit is structurally "
-                              "blind to it; a leak-aware audit must not rely on gain dominance alone.", strict=False)
+    @pytest.mark.xfail(
+        reason="PROD BUG: the layer-17 gain-ratio leak audit (top-leak gain / top-legit gain >= 2x) "
+        "fires only on a DIRECT corr~1 leak. A PARTIAL look-ahead leak (lead1 ties lag1 in "
+        "marginal MI by AR(1) symmetry) yields a ratio ~0.7-1.5, so the audit is structurally "
+        "blind to it; a leak-aware audit must not rely on gain dominance alone.",
+        strict=False,
+    )
     @pytest.mark.parametrize("seed", LEAK_SEEDS)
     def test_gain_ratio_flags_partial_leak(self, seed):
         """Extends the layer-17 direct-leak gain-ratio detector to a partial leak.
@@ -337,8 +326,7 @@ class TestMRMRPartialTimeSeriesLeak:
         names = _names(sel)
         gains = np.asarray(getattr(sel, "mrmr_gains_", []), dtype=np.float64)
         assert gains.size == len(names) and "lead1" in names, (
-            f"need aligned mrmr_gains_ and lead1 in support to compute the "
-            f"audit ratio; seed={seed}, support={names}, gains={gains}"
+            f"need aligned mrmr_gains_ and lead1 in support to compute the audit ratio; seed={seed}, support={names}, gains={gains}"
         )
         lead_idx = [i for i, n in enumerate(names) if n == "lead1"]
         lag_idx = [i for i, n in enumerate(names) if n in ("lag1", "lag2", "lag3")]
@@ -367,13 +355,10 @@ class TestRFECVPartialLeakThreshold:
     def test_tight_threshold_excludes_partial_leak(self, seed):
         df, y = _make_ar1_leak_frame(seed=seed)
         est = RandomForestRegressor(n_estimators=40, random_state=0)
-        sel = _fit_rfecv(df, y, estimator=est, leakage_corr_threshold=0.6,
-                         leakage_action="exclude")
+        sel = _fit_rfecv(df, y, estimator=est, leakage_corr_threshold=0.6, leakage_action="exclude")
         names = _names(sel)
         assert "lead1" not in names, (
-            f"leakage_corr_threshold=0.6 + action='exclude' must drop the "
-            f"look-ahead leak lead1 (corr ~= {AR_COEF}); seed={seed}, "
-            f"support={names}"
+            f"leakage_corr_threshold=0.6 + action='exclude' must drop the look-ahead leak lead1 (corr ~= {AR_COEF}); seed={seed}, support={names}"
         )
 
     @pytest.mark.slow
@@ -383,8 +368,7 @@ class TestRFECVPartialLeakThreshold:
         corr (~0.7) is below it, so lead1 is NOT caught -- the blind spot."""
         df, y = _make_ar1_leak_frame(seed=seed)
         est = RandomForestRegressor(n_estimators=40, random_state=0)
-        sel = _fit_rfecv(df, y, estimator=est, leakage_corr_threshold=0.95,
-                         leakage_action="exclude")
+        sel = _fit_rfecv(df, y, estimator=est, leakage_corr_threshold=0.95, leakage_action="exclude")
         names = _names(sel)
         assert "lead1" in names, (
             f"default leakage_corr_threshold=0.95 does NOT catch a corr~{AR_COEF} "
@@ -396,10 +380,8 @@ class TestRFECVPartialLeakThreshold:
         seed = fast_subset(LEAK_SEEDS, n=1)[0]
         df, y = _make_ar1_leak_frame(seed=seed)
         est = RandomForestRegressor(n_estimators=40, random_state=0)
-        tight = _fit_rfecv(df, y, estimator=est, leakage_corr_threshold=0.6,
-                           leakage_action="exclude")
-        loose = _fit_rfecv(df, y, estimator=est, leakage_corr_threshold=0.95,
-                           leakage_action="exclude")
+        tight = _fit_rfecv(df, y, estimator=est, leakage_corr_threshold=0.6, leakage_action="exclude")
+        loose = _fit_rfecv(df, y, estimator=est, leakage_corr_threshold=0.95, leakage_action="exclude")
         assert "lead1" not in _names(tight), f"fast: 0.6 must exclude lead1; support={_names(tight)}"
         assert "lead1" in _names(loose), f"fast: 0.95 must keep lead1; support={_names(loose)}"
 
@@ -424,8 +406,10 @@ class TestWarpLinearTiebreakDirect:
 
     def _setup(self, flag, seed=0, n=3000):
         from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
-            make_dcd_state, discover_cluster_members,
+            make_dcd_state,
+            discover_cluster_members,
         )
+
         rng = np.random.default_rng(seed)
         f = rng.standard_normal(n)
         g = np.exp(4.0 * f)  # strictly-monotone, rank-identical to f, binned SU(f,g)=1
@@ -433,42 +417,38 @@ class TestWarpLinearTiebreakDirect:
         nbins = np.array([fac[:, 0].max() + 1, fac[:, 1].max() + 1], dtype=np.int64)
         Xraw = pd.DataFrame({"g": g, "f": f})
         state = make_dcd_state(
-            X_raw=Xraw, factors_data=fac, cols=["g", "f"], nbins=nbins,
-            factors_nbins=nbins, target_indices=np.array([], dtype=np.int64),
-            warp_tiebreak_prefer_linear=flag, tau_cluster=0.7,
+            X_raw=Xraw,
+            factors_data=fac,
+            cols=["g", "f"],
+            nbins=nbins,
+            factors_nbins=nbins,
+            target_indices=np.array([], dtype=np.int64),
+            warp_tiebreak_prefer_linear=flag,
+            tau_cluster=0.7,
         )
         sv = [0]  # g (idx 0) is the already-selected anchor
-        discover_cluster_members(state, 0, [1], factors_data=fac,
-                                 factors_nbins=nbins, selected_vars=sv)
+        discover_cluster_members(state, 0, [1], factors_data=fac, factors_nbins=nbins, selected_vars=sv)
         return state, sv
 
     def test_warp_tiebreak_on_keeps_linear_f(self):
         state, sv = self._setup(flag=True)
-        assert sv == [1], (
-            f"warp_tiebreak_prefer_linear ON must DISPLACE the exp-warp anchor g "
-            f"with the linear-usable twin f; selected_vars={sv}"
-        )
-        assert bool(state.pool_pruned_mask[0]) and not bool(state.pool_pruned_mask[1]), (
-            f"g must be pruned and f kept; mask={state.pool_pruned_mask.tolist()}"
-        )
+        assert sv == [1], f"warp_tiebreak_prefer_linear ON must DISPLACE the exp-warp anchor g with the linear-usable twin f; selected_vars={sv}"
+        assert bool(state.pool_pruned_mask[0]) and not bool(state.pool_pruned_mask[1]), f"g must be pruned and f kept; mask={state.pool_pruned_mask.tolist()}"
 
     def test_warp_tiebreak_off_keeps_order_decided_g(self):
         state, sv = self._setup(flag=False)
-        assert sv == [0], (
-            f"flag OFF must preserve the order-decided anchor g (legacy column-order "
-            f"tie-break); selected_vars={sv}"
-        )
-        assert not bool(state.pool_pruned_mask[0]) and bool(state.pool_pruned_mask[1]), (
-            f"legacy: g kept, f pruned; mask={state.pool_pruned_mask.tolist()}"
-        )
+        assert sv == [0], f"flag OFF must preserve the order-decided anchor g (legacy column-order tie-break); selected_vars={sv}"
+        assert not bool(state.pool_pruned_mask[0]) and bool(state.pool_pruned_mask[1]), f"legacy: g kept, f pruned; mask={state.pool_pruned_mask.tolist()}"
 
     def test_non_twin_does_not_fire(self):
         """A merely-correlated (NOT monotone-twin) candidate below the rank-corr band
         must NOT trigger the displacement even when SU clusters it -- guards against
         over-firing on ordinary collinearity."""
         from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
-            make_dcd_state, discover_cluster_members,
+            make_dcd_state,
+            discover_cluster_members,
         )
+
         rng = np.random.default_rng(1)
         n = 3000
         a = rng.standard_normal(n)
@@ -479,18 +459,19 @@ class TestWarpLinearTiebreakDirect:
         nbins = np.array([fac[:, 0].max() + 1, fac[:, 1].max() + 1], dtype=np.int64)
         Xraw = pd.DataFrame({"a": a, "c": c})
         state = make_dcd_state(
-            X_raw=Xraw, factors_data=fac, cols=["a", "c"], nbins=nbins,
-            factors_nbins=nbins, target_indices=np.array([], dtype=np.int64),
-            warp_tiebreak_prefer_linear=True, tau_cluster=0.0,  # tau=0 forces clustering
+            X_raw=Xraw,
+            factors_data=fac,
+            cols=["a", "c"],
+            nbins=nbins,
+            factors_nbins=nbins,
+            target_indices=np.array([], dtype=np.int64),
+            warp_tiebreak_prefer_linear=True,
+            tau_cluster=0.0,  # tau=0 forces clustering
         )
         sv = [0]
-        discover_cluster_members(state, 0, [1], factors_data=fac,
-                                 factors_nbins=nbins, selected_vars=sv)
+        discover_cluster_members(state, 0, [1], factors_data=fac, factors_nbins=nbins, selected_vars=sv)
         # a (idx 0) stays the anchor -- c is not a monotone twin, so no displacement.
-        assert sv == [0], (
-            f"a non-twin (rank-corr below band) must NOT displace the anchor; "
-            f"selected_vars={sv}"
-        )
+        assert sv == [0], f"a non-twin (rank-corr below band) must NOT displace the anchor; selected_vars={sv}"
 
 
 class TestNeverEmptyRawSupport:
@@ -508,6 +489,7 @@ class TestNeverEmptyRawSupport:
     def test_selection_never_empty_and_support_in_bounds(self, nbins):
         from mlframe.feature_selection.filters.mrmr import MRMR
         from tests.feature_selection._biz_val_synth import make_signal_plus_noise, as_df
+
         X, y, _ = make_signal_plus_noise(n=600, p_signal=3, p_noise=5, seed=42)
         df, ys = as_df(X, y)
         with warnings.catch_warnings():
@@ -516,6 +498,4 @@ class TestNeverEmptyRawSupport:
         names = list(sel.get_feature_names_out())
         assert len(names) >= 1, f"the never-empty guarantee: some feature must be confirmed; nbins={nbins}, names={names}"
         # support_ holds RAW indices; it may be empty in the engineered-only case, but never out of bounds.
-        assert 0 <= len(sel.support_) <= df.shape[1], (
-            f"support_ (raw indices) must be within bounds; nbins={nbins}, support_={sel.support_}, names={names}"
-        )
+        assert 0 <= len(sel.support_) <= df.shape[1], f"support_ (raw indices) must be within bounds; nbins={nbins}, support_={sel.support_}, names={names}"

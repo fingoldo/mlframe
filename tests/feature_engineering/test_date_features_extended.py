@@ -4,6 +4,7 @@ Covers ``create_date_features`` extended defaults and the new ``add_cyclical_dat
 helper. See ``docs/date_features_kaggle_research.md`` for the rationale behind the chosen
 default set and the sin/cos pair contract.
 """
+
 from __future__ import annotations
 
 import logging
@@ -46,11 +47,8 @@ def _make_year_pl(n: int = 24) -> pl.DataFrame:
 def test_default_methods_emits_year_week_quarter_isweekend_dayofyear():
     """Extended Kaggle-style defaults must include the new fields on top of the legacy trio."""
     out = create_date_features(_make_year_pd(), cols=["d"], delete_original_cols=False)
-    for suffix in ("year", "quarter", "month", "week_of_year", "day",
-                   "day_of_year", "weekday", "is_weekend"):
-        assert f"d_{suffix}" in out.columns, (
-            f"default extraction missing d_{suffix}; got {list(out.columns)}"
-        )
+    for suffix in ("year", "quarter", "month", "week_of_year", "day", "day_of_year", "weekday", "is_weekend"):
+        assert f"d_{suffix}" in out.columns, f"default extraction missing d_{suffix}; got {list(out.columns)}"
 
 
 def test_year_is_int32_not_int8_overflow_safe():
@@ -63,14 +61,15 @@ def test_year_is_int32_not_int8_overflow_safe():
 
 def test_is_weekend_is_bool_and_correct_on_sat_sun():
     """Saturday + Sunday must be True, Mon..Fri False (Mon=0..Sun=6 convention)."""
-    dates = pd.to_datetime([
-        "2024-01-01",  # Monday
-        "2024-01-05",  # Friday
-        "2024-01-06",  # Saturday
-        "2024-01-07",  # Sunday
-    ])
-    out = create_date_features(pd.DataFrame({"d": dates}), cols=["d"],
-                               delete_original_cols=False)
+    dates = pd.to_datetime(
+        [
+            "2024-01-01",  # Monday
+            "2024-01-05",  # Friday
+            "2024-01-06",  # Saturday
+            "2024-01-07",  # Sunday
+        ]
+    )
+    out = create_date_features(pd.DataFrame({"d": dates}), cols=["d"], delete_original_cols=False)
     assert out["d_is_weekend"].dtype == bool
     assert list(out["d_is_weekend"].astype(bool)) == [False, False, True, True]
 
@@ -140,14 +139,22 @@ def test_cyclical_month_jan_dec_adjacent():
 
     Integer encoding has dist(Jan, Dec)=11 vs dist(Jun, Jul)=1; sin/cos preserves wrap-around.
     """
-    df = pd.DataFrame({"d": pd.to_datetime([
-        "2024-01-15",  # month=1
-        "2024-06-15",  # month=6
-        "2024-07-15",  # month=7
-        "2024-12-15",  # month=12
-    ])})
+    df = pd.DataFrame(
+        {
+            "d": pd.to_datetime(
+                [
+                    "2024-01-15",  # month=1
+                    "2024-06-15",  # month=6
+                    "2024-07-15",  # month=7
+                    "2024-12-15",  # month=12
+                ]
+            )
+        }
+    )
     out = add_cyclical_date_features(
-        df, cols=["d"], periods=(("month", 12.0),),
+        df,
+        cols=["d"],
+        periods=(("month", 12.0),),
     )
     sin = out["d_month_sin"].to_numpy().astype(np.float64)
     cos = out["d_month_cos"].to_numpy().astype(np.float64)
@@ -161,7 +168,9 @@ def test_cyclical_month_jan_dec_adjacent():
 def test_cyclical_unknown_period_name_raises():
     with pytest.raises(ValueError, match="Unknown cyclical period"):
         add_cyclical_date_features(
-            _make_year_pd(5), cols=["d"], periods=(("not_a_period", 1.0),),
+            _make_year_pd(5),
+            cols=["d"],
+            periods=(("not_a_period", 1.0),),
         )
 
 
@@ -175,7 +184,8 @@ def test_cyclical_is_weekend_polars_raises():
 def test_create_date_features_add_cyclical_kwarg_emits_pairs():
     """``add_cyclical=True`` in ``create_date_features`` must add sin/cos columns alongside the scalars."""
     out = create_date_features(
-        _make_year_pd(12), cols=["d"],
+        _make_year_pd(12),
+        cols=["d"],
         delete_original_cols=False,
         add_cyclical=True,
         cyclical_periods=(("month", 12.0),),
@@ -198,8 +208,7 @@ def test_mixed_tz_warns_with_concrete_tzlist(caplog):
     df = pd.DataFrame({"a": utc, "b": ny, "c": naive})
     with caplog.at_level(logging.WARNING, logger="mlframe.feature_engineering.basic"):
         create_date_features(df, cols=["a", "b", "c"], delete_original_cols=False)
-    warns = [r.message for r in caplog.records if r.levelname == "WARNING"
-             and "timezones" in r.message.lower()]
+    warns = [r.message for r in caplog.records if r.levelname == "WARNING" and "timezones" in r.message.lower()]
     assert warns, f"Expected tz-mix WARN; got {[r.message for r in caplog.records]}"
     combined = " ".join(warns)
     assert "UTC" in combined
@@ -214,8 +223,7 @@ def test_single_tz_does_not_warn(caplog):
     df = pd.DataFrame({"a": utc1, "b": utc2})
     with caplog.at_level(logging.WARNING, logger="mlframe.feature_engineering.basic"):
         create_date_features(df, cols=["a", "b"], delete_original_cols=False)
-    warns = [r for r in caplog.records if r.levelname == "WARNING"
-             and "timezones" in r.message.lower()]
+    warns = [r for r in caplog.records if r.levelname == "WARNING" and "timezones" in r.message.lower()]
     assert not warns, [r.message for r in warns]
 
 
@@ -240,7 +248,8 @@ def test_create_date_features_polars_branch_matches_pandas():
         pl_vals = pl_out[col].to_numpy()
         # bool / int comparison: cast both to int for the diff so numpy 0/1 vs True/False match.
         np.testing.assert_array_equal(
-            pd_vals.astype(np.int64), pl_vals.astype(np.int64),
+            pd_vals.astype(np.int64),
+            pl_vals.astype(np.int64),
             err_msg=f"backend mismatch for {col}: pandas={pd_vals[:5]} polars={pl_vals[:5]}",
         )
 
@@ -277,6 +286,5 @@ def test_kaggle_research_doc_exists():
         content = fh.read()
     assert len(content) > 1500, "research doc looks suspiciously short"
     # Must mention each canonical reference family (loose substring checks; not asserting exact URLs).
-    for needle in ("fastai", "scikit-learn", "feature-engine", "cyclical", "sin", "cos",
-                   "timezone", "year", "quarter", "week_of_year"):
+    for needle in ("fastai", "scikit-learn", "feature-engine", "cyclical", "sin", "cos", "timezone", "year", "quarter", "week_of_year"):
         assert needle.lower() in content.lower(), f"research doc missing reference to '{needle}'"

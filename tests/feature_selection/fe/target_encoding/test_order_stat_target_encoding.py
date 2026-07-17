@@ -7,6 +7,7 @@ Validated contract:
 * transform replay on held-out rows reproduces the stored full-data per-category stat, unseen -> global;
 * a category below the stat's stability floor falls back to the GLOBAL stat value (rare-cell shrinkage discipline).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -86,11 +87,11 @@ def test_transform_replay_reproduces_stored_stat():
     cat = rng.integers(0, 6, n).astype(str)
     y = rng.exponential(2.0, n)
     df = pd.DataFrame({"c": cat})
-    Xa, appended, recipes = kfold_target_encode_with_recipes(df, y, cat_cols=["c"], stats=("median", "q90", "iqr"))
+    _Xa, appended, recipes = kfold_target_encode_with_recipes(df, y, cat_cols=["c"], stats=("median", "q90", "iqr"))
     assert appended == [engineered_name_te_stat("c", s) for s in ("median", "q90", "iqr")]
     # Replay each recipe on held-out rows: one row per known category + one unseen category.
     known = sorted(set(cat))
-    X_test = pd.DataFrame({"c": known + ["ZZZ_unseen"]})
+    X_test = pd.DataFrame({"c": [*known, "ZZZ_unseen"]})
     for rec in recipes:  # recipe-dispatch replay path must be finite on known + unseen categories
         assert np.all(np.isfinite(apply_recipe(rec, X_test)))
     # Stored full-data lookups reproduce exactly at transform time; unseen -> global.
@@ -107,8 +108,8 @@ def test_transform_replay_reproduces_stored_stat():
 def test_rare_cell_falls_back_to_global_below_floor():
     """A category with fewer rows than the q10 floor (20) must emit the GLOBAL q10, not its own noisy estimate."""
     rng = np.random.default_rng(5)
-    big = rng.normal(0.0, 1.0, 400)          # category BIG, well above every floor
-    rare = np.array([100.0, 101.0, 102.0])   # category RARE, n=3 < all floors, wildly off-distribution
+    big = rng.normal(0.0, 1.0, 400)  # category BIG, well above every floor
+    rare = np.array([100.0, 101.0, 102.0])  # category RARE, n=3 < all floors, wildly off-distribution
     y = np.concatenate([big, rare])
     df = pd.DataFrame({"c": ["BIG"] * 400 + ["RARE"] * 3})
     _, rec = kfold_target_encode_fit(df, y, ["c"], stats=("q10", "median", "min"), n_folds=5)

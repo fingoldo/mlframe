@@ -16,6 +16,7 @@ Test design:
       (b) ``merge_vars`` + ``compute_mi_from_classes`` per pair: the legacy loop.
   * Assert MIs equal to fp tolerance.
 """
+
 from __future__ import annotations
 
 import itertools
@@ -60,10 +61,10 @@ def _build_factor_data(n_samples: int, nbins_per_col: list[int], seed: int):
 @pytest.mark.parametrize(
     "n_samples,nbins_per_col,n_classes_y,seed",
     [
-        (500, [4, 4, 4, 4], 2, 1),         # uniform small
-        (500, [3, 5, 7, 4], 3, 2),         # heterogeneous bins, 3-class y
+        (500, [4, 4, 4, 4], 2, 1),  # uniform small
+        (500, [3, 5, 7, 4], 3, 2),  # heterogeneous bins, 3-class y
         (2000, [5, 5, 5, 5, 5, 5], 4, 3),  # 6 features -> 15 pairs, 4-class y
-        (1000, [2, 3, 4, 5], 2, 4),        # binary-cardinality cats included
+        (1000, [2, 3, 4, 5], 2, 4),  # binary-cardinality cats included
     ],
 )
 def test_batch_pair_mi_prange_matches_legacy(n_samples, nbins_per_col, n_classes_y, seed):
@@ -100,7 +101,10 @@ def test_batch_pair_mi_prange_matches_legacy(n_samples, nbins_per_col, n_classes
     )
 
     np.testing.assert_allclose(
-        mi_batch, mi_legacy, atol=1e-9, rtol=1e-9,
+        mi_batch,
+        mi_legacy,
+        atol=1e-9,
+        rtol=1e-9,
         err_msg=(
             f"batch_pair_mi_prange MIs diverged from legacy merge_vars+compute_mi path: "
             f"shapes=(n={n_samples}, nbins={nbins_per_col}, n_classes_y={n_classes_y}). "

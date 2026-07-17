@@ -5,6 +5,7 @@ The win (~7x on the per-combo aggregate at n=100k) comes purely from ``_bin_matr
 returns the view without copying ``n`` int64 per candidate pair. These tests pin BOTH the layout property (a future
 revert to C-order trips it) AND output bit-identity (the change is layout-only, never numeric).
 """
+
 import numpy as np
 import pytest
 
@@ -14,7 +15,7 @@ from mlframe.reporting.charts.slice_finder import _aggregate_combo, _bin_matrix,
 def test_bin_matrix_codes_are_fortran_order_with_contiguous_columns():
     rng = np.random.default_rng(0)
     mat = rng.standard_normal((2000, 12))
-    codes, edges = _bin_matrix(mat, 4)
+    codes, _edges = _bin_matrix(mat, 4)
     assert codes.dtype == np.int64
     assert codes.flags["F_CONTIGUOUS"], "codes must be Fortran-order so column gathers are zero-copy (iter71 win)"
     for j in range(codes.shape[1]):
@@ -25,8 +26,8 @@ def test_aggregate_combo_bit_identical_across_codes_layout():
     rng = np.random.default_rng(1)
     mat = rng.standard_normal((5000, 10))
     err = np.ascontiguousarray(rng.standard_normal(5000))
-    codes_f, _ = _bin_matrix(mat, 4)                 # prod: F-order
-    codes_c = np.ascontiguousarray(codes_f)          # legacy C-order layout
+    codes_f, _ = _bin_matrix(mat, 4)  # prod: F-order
+    codes_c = np.ascontiguousarray(codes_f)  # legacy C-order layout
     nbins = [4, 4]
     for combo in [(0, 1), (2, 5), (7, 9)]:
         sf, cf, _ = _aggregate_combo(codes_f, err, combo, nbins)

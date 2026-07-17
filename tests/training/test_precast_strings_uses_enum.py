@@ -5,6 +5,7 @@ _phase_auto_detect_feature_types must cast Utf8/String cat columns to pl.Enum
 Memory rule: ``reference_polars_global_string_cache`` - pl.Categorical participates
 in a process-wide string cache that grows monotonically and cannot be reset.
 """
+
 from __future__ import annotations
 
 import polars as pl
@@ -62,7 +63,5 @@ def test_phase_auto_detect_precast_strings_uses_enum_not_categorical():
     )
     train_out = out[0]
     dt = train_out.schema["x_str"]
-    assert isinstance(dt, pl.Enum) or str(dt).startswith("Enum"), (
-        f"Expected pl.Enum cast for raw Utf8 cat column in CB-fastpath; got {dt!r}"
-    )
+    assert isinstance(dt, pl.Enum) or str(dt).startswith("Enum"), f"Expected pl.Enum cast for raw Utf8 cat column in CB-fastpath; got {dt!r}"
     assert dt != pl.Categorical, "_precast_strings still uses pl.Categorical (cache pollution regression)"

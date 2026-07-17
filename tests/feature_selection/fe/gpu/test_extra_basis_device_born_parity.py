@@ -18,6 +18,7 @@ tolerance change): ``_bspline_col_gpu`` was missing the unconditional float64 up
 near a repeated boundary knot (epsilon below float32's ~1.19e-7 resolution at 1.0), so the clip silently no-opped
 and the last B-spline basis function's degenerate-knot recursion collapsed to 0 instead of ~1.0 (maxerr was
 exactly 1.0 pre-fix, an obvious formula bug, not a precision one)."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -30,6 +31,7 @@ cp = pytest.importorskip("cupy")
 def _need_cuda() -> bool:
     try:
         from pyutilz.core.pythonlib import is_cuda_available
+
         return is_cuda_available()
     except Exception:
         try:
@@ -56,12 +58,15 @@ def test_device_born_extra_basis_matches_host_all_bases():
     d = rng.uniform(0, 2 * np.pi, n)
     X = pd.DataFrame({"a": a, "b": b, "d": d})
     # periodic (d) + chirp (a**2) + local threshold (b) -> excites fourier + chirp + wavelet + spline.
-    y = (np.sin(d) + np.sin(2.0 * ((a - a.mean()) / a.std()) ** 2)
-         + (b > 2.5).astype(float) + 0.05 * rng.standard_normal(n))
+    y = np.sin(d) + np.sin(2.0 * ((a - a.mean()) / a.std()) ** 2) + (b > 2.5).astype(float) + 0.05 * rng.standard_normal(n)
 
     eng, meta = generate_extra_basis_features(
-        X, cols=["a", "b", "d"], extra_bases=("spline", "fourier", "wavelet"),
-        y=y, fourier_adaptive=True, fourier_chirp=True,
+        X,
+        cols=["a", "b", "d"],
+        extra_bases=("spline", "fourier", "wavelet"),
+        y=y,
+        fourier_adaptive=True,
+        fourier_chirp=True,
     )
     assert eng.shape[1] > 0, "no extra-basis columns emitted"
     bases = {m["basis"] + ("/q" if m.get("arg") == "quadratic" else "") for m in meta.values()}

@@ -504,14 +504,24 @@ class TestTripletQuadrupletBasisProductScrub:
         recipe = SimpleNamespace(
             src_names=("a", "b", "c", "d"),
             extra={
-                "basis_i": "hermite", "basis_j": "hermite", "basis_k": "hermite", "basis_l": "hermite",
-                "deg_a": 1, "deg_b": 1, "deg_c": 1, "deg_d": 1,
+                "basis_i": "hermite",
+                "basis_j": "hermite",
+                "basis_k": "hermite",
+                "basis_l": "hermite",
+                "deg_a": 1,
+                "deg_b": 1,
+                "deg_c": 1,
+                "deg_d": 1,
             },
         )
-        X = pd.DataFrame({
-            "a": np.linspace(-1, 1, n), "b": np.linspace(-1, 1, n),
-            "c": np.linspace(-1, 1, n), "d": np.linspace(-1, 1, n),
-        })
+        X = pd.DataFrame(
+            {
+                "a": np.linspace(-1, 1, n),
+                "b": np.linspace(-1, 1, n),
+                "c": np.linspace(-1, 1, n),
+                "d": np.linspace(-1, 1, n),
+            }
+        )
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
             out = _apply_orth_quadruplet_cross(recipe, X)

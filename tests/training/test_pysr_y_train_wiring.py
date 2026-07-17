@@ -33,7 +33,6 @@ from unittest.mock import patch, MagicMock
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.training.pipeline import apply_preprocessing_extensions
 from mlframe.training.configs import PreprocessingExtensionsConfig
@@ -52,6 +51,7 @@ def _make_frames(n=200, p=4, seed=42):
 # 1. Without y_train, the function must warn loudly (silent-skip detector)
 # ---------------------------------------------------------------------------
 
+
 def test_pysr_enabled_without_y_train_warns_loudly(caplog):
     """If pysr_enabled=True but y_train=None, the user MUST see a warning.
     Silent-skip used to mask the wiring bug we hit on 2026-05-15."""
@@ -62,14 +62,16 @@ def test_pysr_enabled_without_y_train_warns_loudly(caplog):
     )
 
     with caplog.at_level(logging.WARNING):
-        out_train, out_val, out_test, pipeline = apply_preprocessing_extensions(
-            train_df=X_train, val_df=X_val, test_df=X_test,
-            config=config, verbose=1,
-            y_train=None,   # <-- explicitly None
+        out_train, _out_val, _out_test, _pipeline = apply_preprocessing_extensions(
+            train_df=X_train,
+            val_df=X_val,
+            test_df=X_test,
+            config=config,
+            verbose=1,
+            y_train=None,  # <-- explicitly None
         )
 
-    warned = any("y_train" in r.message and "pysr_enabled" in r.message
-                 for r in caplog.records)
+    warned = any("y_train" in r.message and "pysr_enabled" in r.message for r in caplog.records)
     assert warned, (
         "Silent-skip regression: apply_preprocessing_extensions must warn "
         "when pysr_enabled=True but y_train is not provided. caplog: "
@@ -82,6 +84,7 @@ def test_pysr_enabled_without_y_train_warns_loudly(caplog):
 # ---------------------------------------------------------------------------
 # 2. With y_train, the PySR code path is reached
 # ---------------------------------------------------------------------------
+
 
 def test_pysr_enabled_with_y_train_calls_pysr():
     """When y_train is passed, run_pysr_feature_engineering must be invoked.
@@ -109,35 +112,36 @@ def test_pysr_enabled_with_y_train_calls_pysr():
     def fake_run_pysr(df, target_col, sample_size, encode_categoricals, verbose, pysr_params_override, **kwargs):
         # Accept arbitrary kwargs (notably ``random_state``) so the stub
         # tolerates additions to ``_apply_pysr_fe``'s call signature.
-        call_log.append({
-            "n_rows": len(df),
-            "target_col": target_col,
-            "has_target_col_in_df": target_col in df.columns,
-            "random_state": kwargs.get("random_state"),
-        })
+        call_log.append(
+            {
+                "n_rows": len(df),
+                "target_col": target_col,
+                "has_target_col_in_df": target_col in df.columns,
+                "random_state": kwargs.get("random_state"),
+            }
+        )
+
         # Wire predict() to match the split it's called on.
         def _pred(_df, index=0):
             return np.zeros(len(_df))
+
         fake_model.predict.side_effect = _pred
         return fake_model
 
-    with patch("mlframe.feature_engineering.bruteforce.run_pysr_feature_engineering",
-               side_effect=fake_run_pysr):
-        out_train, out_val, out_test, pipeline = apply_preprocessing_extensions(
-            train_df=X_train, val_df=X_val, test_df=X_test,
-            config=config, verbose=0,
+    with patch("mlframe.feature_engineering.bruteforce.run_pysr_feature_engineering", side_effect=fake_run_pysr):
+        out_train, _out_val, _out_test, _pipeline = apply_preprocessing_extensions(
+            train_df=X_train,
+            val_df=X_val,
+            test_df=X_test,
+            config=config,
+            verbose=0,
             y_train=np.asarray(y),
         )
 
     # 1. The stub was called -> PySR code path reached
-    assert len(call_log) == 1, (
-        "run_pysr_feature_engineering was not invoked despite pysr_enabled=True "
-        "AND y_train provided. The wiring is broken."
-    )
+    assert len(call_log) == 1, "run_pysr_feature_engineering was not invoked despite pysr_enabled=True AND y_train provided. The wiring is broken."
     # 2. The target was injected as a column
-    assert call_log[0]["has_target_col_in_df"], (
-        "PySR fit got a frame without the target column injected"
-    )
+    assert call_log[0]["has_target_col_in_df"], "PySR fit got a frame without the target column injected"
     # 3. Temp target column removed after fit
     assert "_pysr_y_" not in out_train.columns
 
@@ -146,13 +150,17 @@ def test_pysr_enabled_with_y_train_calls_pysr():
 # 3. pysr_enabled=False is a clean no-op (no warning, no new cols)
 # ---------------------------------------------------------------------------
 
+
 def test_pysr_disabled_is_silent(caplog):
     X_train, X_val, X_test, _ = _make_frames()
     config = PreprocessingExtensionsConfig(pysr_enabled=False)
     with caplog.at_level(logging.WARNING):
         out_train, *_ = apply_preprocessing_extensions(
-            train_df=X_train, val_df=X_val, test_df=X_test,
-            config=config, verbose=1,
+            train_df=X_train,
+            val_df=X_val,
+            test_df=X_test,
+            config=config,
+            verbose=1,
         )
     assert list(out_train.columns) == list(X_train.columns)
     # No PySR-related warnings expected

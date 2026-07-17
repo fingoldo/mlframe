@@ -14,6 +14,7 @@
    _benchmarks/bench_dataloader_workers.py). Suppress that specific
    message via warnings.filterwarnings on module import.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -41,15 +42,11 @@ def test_lightning_num_workers_bottleneck_warning_suppressed():
         # Emit the canonical Lightning message
         warnings.warn(
             "The 'val_dataloader' does not have many workers which may be a bottleneck.",
-            UserWarning,
+            UserWarning, stacklevel=2,
         )
 
-    bottleneck_warns = [
-        w for w in captured if "does not have many workers" in str(w.message)
-    ]
-    assert not bottleneck_warns, (
-        f"DataLoader bottleneck warning must be suppressed. Got: {bottleneck_warns}"
-    )
+    bottleneck_warns = [w for w in captured if "does not have many workers" in str(w.message)]
+    assert not bottleneck_warns, f"DataLoader bottleneck warning must be suppressed. Got: {bottleneck_warns}"
 
 
 @pytest.mark.fast
@@ -91,7 +88,9 @@ def test_early_stopping_constructed_silently(monkeypatch):
             "dataloader_params": {"batch_size": 16, "num_workers": 0},
         },
         trainer_params={
-            "max_epochs": 1, "logger": False, "accelerator": "cpu",
+            "max_epochs": 1,
+            "logger": False,
+            "accelerator": "cpu",
             "devices": 1,
         },
         early_stopping_rounds=2,
@@ -104,11 +103,11 @@ def test_early_stopping_constructed_silently(monkeypatch):
     assert es_instantiations, "EarlyStopping was expected to be constructed during fit with eval_set"
     for kw in es_instantiations:
         assert kw.get("verbose") is False, (
-            f"EarlyStopping(verbose=...) must be False to avoid duplicate "
-            f"'Metric X improved' logs. Got verbose={kw.get('verbose')!r}."
+            f"EarlyStopping(verbose=...) must be False to avoid duplicate 'Metric X improved' logs. Got verbose={kw.get('verbose')!r}."
         )
 
 
 if __name__ == "__main__":
     import sys
+
     sys.exit(pytest.main([__file__, "--no-cov", "-x", "-s", "--tb=short"]))

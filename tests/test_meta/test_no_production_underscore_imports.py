@@ -11,7 +11,6 @@ This sensor walks the AST of every file under ``src/mlframe`` (production code) 
 from __future__ import annotations
 
 import ast
-import os
 from pathlib import Path
 
 import pytest
@@ -55,7 +54,7 @@ def test_no_production_underscore_imports_into_training_core_internals():
         for mod in _iter_imports(tree):
             if not mod.startswith(INTERNAL_PREFIX):
                 continue
-            suffix = mod[len(INTERNAL_PREFIX):]
+            suffix = mod[len(INTERNAL_PREFIX) :]
             head = suffix.split(".", 1)[0]
             if head.startswith("_"):
                 offenders.append((py_path.relative_to(REPO_ROOT).as_posix(), mod))

@@ -13,6 +13,7 @@ Findings, verified empirically (2026-06-22):
 
 cupy required.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -26,6 +27,7 @@ from mlframe.feature_selection.filters.discretization import (
 pytest.importorskip("cupy")
 try:
     from pyutilz.core.pythonlib import is_cuda_available
+
     if not is_cuda_available():
         pytest.skip("CUDA not available", allow_module_level=True)
 except ImportError:

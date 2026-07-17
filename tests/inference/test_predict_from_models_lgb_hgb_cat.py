@@ -24,6 +24,7 @@ on a Polars frame containing cat_low must produce predictions for
 BOTH models. Pre-fix this returns an empty models_used list (both
 crashed and were caught by the outer try/except).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -41,21 +42,24 @@ from mlframe.training.configs import (
 )
 from mlframe.training.extractors import SimpleFeaturesAndTargetsExtractor
 from tests.conftest import is_fast_mode
+from typing import Optional
 
 
-def _build_polars_frame_with_cat(n: int = None, seed: int = 0):
+def _build_polars_frame_with_cat(n: Optional[int] = None, seed: int = 0):
     # n=600 still exercises the iter#80 LGB-vs-HGB dtype-dispatch sensor path
     # with cat_low present at meaningful cardinality (5 categories); the
     # original n=3000 was suite-overkill for a code-path regression probe.
     if n is None:
         n = 600 if is_fast_mode() else 1200
     rng = np.random.default_rng(seed)
-    df = pl.DataFrame({
-        "x0": rng.normal(size=n).astype("float32"),
-        "x1": rng.normal(size=n).astype("float32"),
-        "cat_low": np.array(["A", "B", "C", "D", "E"], dtype=object)[rng.integers(0, 5, n)],
-        "y": (rng.uniform(0, 1, n) < 0.5).astype("int32"),
-    })
+    df = pl.DataFrame(
+        {
+            "x0": rng.normal(size=n).astype("float32"),
+            "x1": rng.normal(size=n).astype("float32"),
+            "cat_low": np.array(["A", "B", "C", "D", "E"], dtype=object)[rng.integers(0, 5, n)],
+            "y": (rng.uniform(0, 1, n) < 0.5).astype("int32"),
+        }
+    )
     return df
 
 
@@ -107,16 +111,13 @@ def test_iter80_lgb_hgb_polars_cat_both_predict_succeed():
         verbose=0,
     )
     assert len(results["models_used"]) >= 2, (
-        f"Expected both LGB and HGB to predict; got {results['models_used']}. "
-        f"Pre-fix one or both crashed silently (the iter#80 bug)."
+        f"Expected both LGB and HGB to predict; got {results['models_used']}. Pre-fix one or both crashed silently (the iter#80 bug)."
     )
     # ``model_name`` format is ``<target_type>_<target_name>[_<pre_pipeline_cls>]``.
     # LGB has no pre_pipeline -> bare base name; HGB has Pipeline pre_pipeline
     # -> ``..._Pipeline`` suffix. Both must yield predictions plus a non-None
     # ensemble (the strong cross-model signal).
-    assert results["ensemble_predictions"] is not None, (
-        f"ensemble_predictions missing despite models_used={results['models_used']}"
-    )
+    assert results["ensemble_predictions"] is not None, f"ensemble_predictions missing despite models_used={results['models_used']}"
     bare = [k for k in results["probabilities"] if k != "ensemble" and not k.endswith("_Pipeline")]
     suffixed = [k for k in results["probabilities"] if k.endswith("_Pipeline")]
     assert bare and suffixed, (

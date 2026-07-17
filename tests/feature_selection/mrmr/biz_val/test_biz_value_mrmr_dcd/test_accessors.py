@@ -2,9 +2,10 @@
 
 Consolidated verbatim from test_biz_value_mrmr_layer41.py + test_biz_value_mrmr_layer42.py (per audit finding test_code_quality-16).
 """
+
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 import warnings
 
 import numpy as np
@@ -42,29 +43,20 @@ def _strong_cluster_frame(n: int = 1500, n_members: int = 5, seed: int = 0):
 
 
 class TestClusterMembersAccessor:
-
     def test_C1_cluster_members_populated_when_dcd_finds_cluster(self):
         """C1: a DCD fit with at least one detected cluster exposes
         ``cluster_members_`` keyed by valid column names; the member
         lists are non-empty and themselves valid column names.
         """
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _strong_cluster_frame()
-        m = MRMR(dcd_enable=True, dcd_tau_cluster=0.5, verbose=0,
-                  random_seed=0).fit(X, y)
+        m = MRMR(dcd_enable=True, dcd_tau_cluster=0.5, verbose=0, random_seed=0).fit(X, y)
         cm = m.cluster_members_
-        assert cm is not None, (
-            "cluster_members_ must be a dict (not None) when DCD ran and "
-            "detected at least one cluster."
-        )
-        assert isinstance(cm, dict), (
-            f"cluster_members_ should be a dict; got {type(cm).__name__}"
-        )
+        assert cm is not None, "cluster_members_ must be a dict (not None) when DCD ran and detected at least one cluster."
+        assert isinstance(cm, dict), f"cluster_members_ should be a dict; got {type(cm).__name__}"
         # At least one cluster found on this collinear fixture.
-        assert len(cm) >= 1, (
-            f"DCD should detect at least one cluster on the strong-cluster "
-            f"fixture; got cluster_members_={cm}"
-        )
+        assert len(cm) >= 1, f"DCD should detect at least one cluster on the strong-cluster fixture; got cluster_members_={cm}"
         # Layer 41: anchor keys may be raw feature names OR engineered
         # post-swap aggregate names like ``_dcd_pc1_*``. Members must
         # always resolve against the fitted column universe (raw cols +
@@ -78,8 +70,7 @@ class TestClusterMembersAccessor:
             # aggregate. Track the latter for member resolution below.
             if anchor_name not in fitted_cols:
                 assert anchor_name.startswith("_dcd_pc1_") or anchor_name.startswith("col_"), (
-                    f"Unknown anchor name {anchor_name!r}: not in raw "
-                    f"columns and not a known engineered prefix."
+                    f"Unknown anchor name {anchor_name!r}: not in raw columns and not a known engineered prefix."
                 )
                 engineered_anchors.add(anchor_name)
             for member_name in members:
@@ -107,16 +98,11 @@ class TestClusterMembersAccessor:
         "DCD ran but found 0 clusters", which is meaningfully different).
         """
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _strong_cluster_frame()
         m = MRMR(dcd_enable=False, verbose=0, random_seed=0).fit(X, y)
-        assert hasattr(m, "cluster_members_"), (
-            "Even DCD-disabled fits must set cluster_members_ to None "
-            "(attribute-completeness, mirrors dcd_ contract)."
-        )
-        assert m.cluster_members_ is None, (
-            f"cluster_members_ must be None when DCD is disabled; got "
-            f"{m.cluster_members_!r}"
-        )
+        assert hasattr(m, "cluster_members_"), "Even DCD-disabled fits must set cluster_members_ to None (attribute-completeness, mirrors dcd_ contract)."
+        assert m.cluster_members_ is None, f"cluster_members_ must be None when DCD is disabled; got {m.cluster_members_!r}"
 
     def test_C3_name_map_matches_integer_map_one_to_one(self):
         """C3: ``cluster_members_`` is a faithful rename of the integer
@@ -126,28 +112,21 @@ class TestClusterMembersAccessor:
         if post-swap state stays partly stale).
         """
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _strong_cluster_frame()
-        m = MRMR(dcd_enable=True, dcd_tau_cluster=0.5, verbose=0,
-                  random_seed=0).fit(X, y)
+        m = MRMR(dcd_enable=True, dcd_tau_cluster=0.5, verbose=0, random_seed=0).fit(X, y)
         int_anchors = m.dcd_["cluster_anchors"]
         name_anchors = m.dcd_["cluster_anchors_names"]
         # cluster_members_ is the same content as cluster_anchors_names.
-        assert m.cluster_members_ == name_anchors, (
-            "cluster_members_ must equal dcd_['cluster_anchors_names'] "
-            "exactly (both are derived from the same source)."
-        )
+        assert m.cluster_members_ == name_anchors, "cluster_members_ must equal dcd_['cluster_anchors_names'] exactly (both are derived from the same source)."
         # Cardinalities must match.
         assert len(int_anchors) == len(name_anchors), (
-            f"int-map len ({len(int_anchors)}) != name-map len "
-            f"({len(name_anchors)}); the two views of DCD's cluster state "
-            f"have drifted."
+            f"int-map len ({len(int_anchors)}) != name-map len ({len(name_anchors)}); the two views of DCD's cluster state have drifted."
         )
         # Length of each member list must match.
         int_sizes = sorted(len(v) for v in int_anchors.values())
         name_sizes = sorted(len(v) for v in name_anchors.values())
-        assert int_sizes == name_sizes, (
-            f"member-list sizes diverged: int {int_sizes}, names {name_sizes}"
-        )
+        assert int_sizes == name_sizes, f"member-list sizes diverged: int {int_sizes}, names {name_sizes}"
 
     def test_C4_cluster_diagnostics_consistent_with_tau(self):
         """C4: every reported cluster has ``min_pair_su >= tau_cluster``
@@ -158,27 +137,17 @@ class TestClusterMembersAccessor:
         when n_pairs_evaluated >= 1) must be at least ``tau_cluster``.
         """
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _strong_cluster_frame()
         tau = 0.5
-        m = MRMR(dcd_enable=True, dcd_tau_cluster=tau, verbose=0,
-                  random_seed=0).fit(X, y)
+        m = MRMR(dcd_enable=True, dcd_tau_cluster=tau, verbose=0, random_seed=0).fit(X, y)
         diag = m.dcd_.get("cluster_diagnostics", {})
         eff_tau = float(m.dcd_.get("tau_cluster", tau))
-        assert diag, (
-            "cluster_diagnostics must be populated on this fixture; got "
-            f"empty/missing diag={diag!r}"
-        )
+        assert diag, f"cluster_diagnostics must be populated on this fixture; got empty/missing diag={diag!r}"
         for anchor_name, info in diag.items():
-            assert info["size"] >= 2, (
-                f"cluster {anchor_name!r} reports size {info['size']} < 2; "
-                f"a one-element 'cluster' should not be reported."
-            )
-            assert info["n_pairs_evaluated"] >= 1, (
-                f"cluster {anchor_name!r} has no SU pairs evaluated"
-            )
-            assert info["min_pair_su"] is not None, (
-                f"cluster {anchor_name!r} has no min_pair_su"
-            )
+            assert info["size"] >= 2, f"cluster {anchor_name!r} reports size {info['size']} < 2; a one-element 'cluster' should not be reported."
+            assert info["n_pairs_evaluated"] >= 1, f"cluster {anchor_name!r} has no SU pairs evaluated"
+            assert info["min_pair_su"] is not None, f"cluster {anchor_name!r} has no min_pair_su"
             # Membership rule: SU(member, anchor) > tau. So min SU >= tau,
             # with a small float tolerance.
             assert info["min_pair_su"] >= eff_tau - 1e-6, (
@@ -197,17 +166,15 @@ class TestClusterMembersAccessor:
         alone without needing the original MRMR ctor args.
         """
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _strong_cluster_frame()
-        m = MRMR(dcd_enable=True, dcd_tau_cluster=0.55, verbose=0,
-                  random_seed=0).fit(X, y)
+        m = MRMR(dcd_enable=True, dcd_tau_cluster=0.55, verbose=0, random_seed=0).fit(X, y)
         eff = m.dcd_.get("tau_cluster")
         # User-supplied non-default value bypasses the cache lookup, so
         # the surfaced tau matches the ctor argument exactly.
         assert eff is not None
         assert abs(float(eff) - 0.55) < 1e-9, (
-            f"tau_cluster surfaced ({eff}) does not match user-supplied "
-            f"non-default value (0.55); cache override fired when it "
-            f"shouldn't have."
+            f"tau_cluster surfaced ({eff}) does not match user-supplied non-default value (0.55); cache override fired when it shouldn't have."
         )
 
 
@@ -237,7 +204,6 @@ def _layer12_drift_frame(seed: int = 0):
 
 
 class TestNoRegressionLayer12Stability:
-
     def test_C5_stable_outranks_flaky_with_layer41_additions(self):
         """C5: on the simplified drift fixture, the strong ``stable_x`` signal must
         outrank the weak ``flaky`` signal in the single-fit MRMR selection -- the
@@ -255,6 +221,7 @@ class TestNoRegressionLayer12Stability:
         CARRIES stable's signal and that flaky never displaces it.
         """
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _layer12_drift_frame(seed=0)
         m = MRMR(dcd_enable=True, verbose=0, random_seed=0).fit(X, y)
         sup = list(m.get_feature_names_out())
@@ -263,9 +230,7 @@ class TestNoRegressionLayer12Stability:
             return "stable_x" in str(name)
 
         # The stable signal must be present, as the raw OR a stable-derived child.
-        assert any(_carries_stable(c) for c in sup), (
-            f"stable signal must survive single-fit MRMR (raw or engineered); got support={sup}"
-        )
+        assert any(_carries_stable(c) for c in sup), f"stable signal must survive single-fit MRMR (raw or engineered); got support={sup}"
 
         # flaky must never DISPLACE stable. The displacement contract is on the GREEDY SELECTION RANK
         # (``support_rank`` in the provenance frame: 0 = first MRMR pick), NOT on the positional order of
@@ -282,14 +247,10 @@ class TestNoRegressionLayer12Stability:
         flaky_only_picks = [i for i, c in enumerate(picked) if ("flaky" in c and not _carries_stable(c))]
         if flaky_only_picks:
             first_stable = min((i for i, c in enumerate(picked) if _carries_stable(c)), default=len(picked))
-            assert first_stable < min(flaky_only_picks), (
-                f"stable signal must be greedily selected before a flaky-only feature; got pick order={picked}"
-            )
+            assert first_stable < min(flaky_only_picks), f"stable signal must be greedily selected before a flaky-only feature; got pick order={picked}"
         else:
             # No flaky-only pick at all -> the strongest contract (stable's signal dominates) holds outright.
-            assert any(_carries_stable(c) for c in picked), (
-                f"the greedy MRMR picks must carry stable's signal; got pick order={picked}"
-            )
+            assert any(_carries_stable(c) for c in picked), f"the greedy MRMR picks must carry stable's signal; got pick order={picked}"
 
     def test_C5b_pickle_round_trip_preserves_cluster_members(self):
         """C5 bis: ``cluster_members_`` survives pickle/unpickle so the
@@ -297,14 +258,13 @@ class TestNoRegressionLayer12Stability:
         joblib persistence used by production training pipelines).
         """
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _strong_cluster_frame()
-        m = MRMR(dcd_enable=True, dcd_tau_cluster=0.5, verbose=0,
-                  random_seed=0).fit(X, y)
+        m = MRMR(dcd_enable=True, dcd_tau_cluster=0.5, verbose=0, random_seed=0).fit(X, y)
         # Round-trip.
-        m_re = pickle.loads(pickle.dumps(m))
+        m_re = pickle.loads(pickle.dumps(m))  # nosec B301 -- round-trip of a locally-created, trusted object
         assert m_re.cluster_members_ == m.cluster_members_, (
-            "cluster_members_ did not survive pickle round-trip; the "
-            "attribute is not a real first-class fitted citizen."
+            "cluster_members_ did not survive pickle round-trip; the attribute is not a real first-class fitted citizen."
         )
         assert m_re.dcd_["cluster_anchors_names"] == m.dcd_["cluster_anchors_names"]
         assert m_re.dcd_["cluster_diagnostics"] == m.dcd_["cluster_diagnostics"]
@@ -317,7 +277,6 @@ class TestNoRegressionLayer12Stability:
 
 
 class TestNoRegressionLayer27Adversarial:
-
     def test_C6_layer41_additions_do_not_perturb_layer27_no_noise_cross(self):
         """C6: the Layer 27 adversarial contract is that hybrid-orth-pair
         does not select a noise-noise cross. Layer 41 only adds summary
@@ -325,19 +284,22 @@ class TestNoRegressionLayer27Adversarial:
         n than the production Layer 27 test to keep this fast.
         """
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         rng = np.random.default_rng(42)
         n = 1000
         x_real = rng.standard_normal(n)
         noises = {f"noise_{k}": rng.standard_normal(n) for k in range(4)}
         X = pd.DataFrame({"x_real": x_real, **noises})
-        y = pd.Series((x_real ** 2 - 1.0 + 0.2 * rng.standard_normal(n) > 0).astype(int))
+        y = pd.Series((x_real**2 - 1.0 + 0.2 * rng.standard_normal(n) > 0).astype(int))
         m = MRMR(
-            verbose=0, random_seed=0,
+            verbose=0,
+            random_seed=0,
             fe_hybrid_orth_pair_enable=True,
             fe_hybrid_orth_enable=True,
             fe_hybrid_orth_degrees=(2,),
             fe_hybrid_orth_pair_max_degree=2,
-            interactions_max_order=1, fe_max_steps=0,
+            interactions_max_order=1,
+            fe_max_steps=0,
         ).fit(X, y)
         sup = list(m.get_feature_names_out())
         # No noise-noise cross of the form noise_i__N__M__noise_j or
@@ -348,10 +310,7 @@ class TestNoRegressionLayer27Adversarial:
             # Be permissive about exact naming -- the prohibition is "no
             # cross-term combining TWO noise columns".
             noise_hits = sum(1 for k in range(4) if f"noise_{k}" in name)
-            assert noise_hits < 2, (
-                f"Layer 27 regression: noise-noise cross {name!r} appeared "
-                f"in support after Layer 41 additions."
-            )
+            assert noise_hits < 2, f"Layer 27 regression: noise-noise cross {name!r} appeared in support after Layer 41 additions."
 
 
 # ---------------------------------------------------------------------------
@@ -360,7 +319,6 @@ class TestNoRegressionLayer27Adversarial:
 
 
 class TestNoRegressionLayer35KitchenSink:
-
     def test_C7_layer35_fit_completes_with_layer41_additions(self):
         """C7: minimal Layer 35 spot-check. The kitchen-sink config from
         Layer 35 enables multiple FE mechanisms simultaneously; Layer 41
@@ -370,20 +328,25 @@ class TestNoRegressionLayer35KitchenSink:
         that.
         """
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         rng = np.random.default_rng(0)
         n = 800
         x1 = rng.standard_normal(n)
         x2 = rng.standard_normal(n)
-        X = pd.DataFrame({
-            "x1": x1,
-            "x2": x2,
-            "noise_0": rng.standard_normal(n),
-            "noise_1": rng.standard_normal(n),
-        })
-        y = pd.Series((x1 ** 2 + x2 - 0.5 + 0.1 * rng.standard_normal(n) > 0).astype(int))
+        X = pd.DataFrame(
+            {
+                "x1": x1,
+                "x2": x2,
+                "noise_0": rng.standard_normal(n),
+                "noise_1": rng.standard_normal(n),
+            }
+        )
+        y = pd.Series((x1**2 + x2 - 0.5 + 0.1 * rng.standard_normal(n) > 0).astype(int))
         m = MRMR(
-            verbose=0, random_seed=0,
-            interactions_max_order=1, fe_max_steps=0,
+            verbose=0,
+            random_seed=0,
+            interactions_max_order=1,
+            fe_max_steps=0,
             dcd_enable=True,
             fe_hybrid_orth_enable=True,
             fe_hybrid_orth_degrees=(2,),
@@ -399,10 +362,7 @@ class TestNoRegressionLayer35KitchenSink:
         if isinstance(cm, dict) and cm:
             diag = m.dcd_.get("cluster_diagnostics", {})
             for anchor_name in cm:
-                assert anchor_name in diag, (
-                    f"Anchor {anchor_name!r} appears in cluster_members_ "
-                    f"but not in cluster_diagnostics; the two views drifted."
-                )
+                assert anchor_name in diag, f"Anchor {anchor_name!r} appears in cluster_members_ but not in cluster_diagnostics; the two views drifted."
 
 
 # ---------------------------------------------------------------------------
@@ -411,7 +371,6 @@ class TestNoRegressionLayer35KitchenSink:
 
 
 class TestClusterDiagnosticsMonotonicity:
-
     def test_higher_tau_yields_higher_min_pair_su_when_clusters_form(self):
         """A natural consequence of the membership rule: raising
         ``tau_cluster`` admits only tighter clusters, so ``min_pair_su``
@@ -423,14 +382,13 @@ class TestClusterDiagnosticsMonotonicity:
         without intent, this would fire.
         """
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _strong_cluster_frame(n=2000, n_members=5, seed=0)
         mins = {}
         for tau in (0.4, 0.6, 0.75):
-            m = MRMR(dcd_enable=True, dcd_tau_cluster=tau, verbose=0,
-                      random_seed=0).fit(X, y)
+            m = MRMR(dcd_enable=True, dcd_tau_cluster=tau, verbose=0, random_seed=0).fit(X, y)
             diag = m.dcd_.get("cluster_diagnostics", {})
-            cluster_mins = [info["min_pair_su"] for info in diag.values()
-                             if info["min_pair_su"] is not None]
+            cluster_mins = [info["min_pair_su"] for info in diag.values() if info["min_pair_su"] is not None]
             if cluster_mins:
                 mins[tau] = min(cluster_mins)
         # Only assert when we have observations at 2+ taus.
@@ -439,10 +397,7 @@ class TestClusterDiagnosticsMonotonicity:
             for i in range(1, len(observed_taus)):
                 t_lo, t_hi = observed_taus[i - 1], observed_taus[i]
                 # Allow tiny slack for FP noise.
-                assert mins[t_hi] >= mins[t_lo] - 1e-6, (
-                    f"min_pair_su not monotone in tau: tau={t_lo}->"
-                    f"min={mins[t_lo]:.4f}, tau={t_hi}->min={mins[t_hi]:.4f}"
-                )
+                assert mins[t_hi] >= mins[t_lo] - 1e-6, f"min_pair_su not monotone in tau: tau={t_lo}->min={mins[t_lo]:.4f}, tau={t_hi}->min={mins[t_hi]:.4f}"
 
 
 # ---------------------------------------------------------------------------
@@ -460,13 +415,15 @@ def _three_dups_plus_strong_frame(n: int = 1500, seed: int = 0):
     rng = np.random.default_rng(int(seed))
     latent = rng.standard_normal(n)
     other = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "strong": other,
-        "dup_a": latent + 0.01 * rng.standard_normal(n),
-        "dup_b": latent + 0.01 * rng.standard_normal(n),
-        "dup_c": latent + 0.01 * rng.standard_normal(n),
-        "noise_0": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "strong": other,
+            "dup_a": latent + 0.01 * rng.standard_normal(n),
+            "dup_b": latent + 0.01 * rng.standard_normal(n),
+            "dup_c": latent + 0.01 * rng.standard_normal(n),
+            "noise_0": rng.standard_normal(n),
+        }
+    )
     y = pd.Series((2 * other + latent + 0.3 * rng.standard_normal(n) > 0).astype(int))
     return X, y
 
@@ -482,11 +439,13 @@ def _weak_pair_frame(n: int = 1500, seed: int = 0):
     latent = rng.standard_normal(n)
     a = latent
     b = latent + 1.0 * rng.standard_normal(n)
-    X = pd.DataFrame({
-        "a": a,
-        "b": b,
-        "noise_0": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "a": a,
+            "b": b,
+            "noise_0": rng.standard_normal(n),
+        }
+    )
     y = pd.Series((latent + 0.3 * rng.standard_normal(n) > 0).astype(int))
     return X, y
 
@@ -497,7 +456,6 @@ def _weak_pair_frame(n: int = 1500, seed: int = 0):
 
 
 class TestDefaultThresholdPinned:
-
     def test_default_threshold_pinned_at_4(self):
         """Layer 42 escape clause: the default stayed at 4 because
         lowering it net-shrinks ``support_`` on real data when the
@@ -508,6 +466,7 @@ class TestDefaultThresholdPinned:
         is the regression guard for that contract.
         """
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         m = MRMR()
         assert int(m.dcd_cluster_size_threshold) == 4, (
             f"Layer 42 keeps dcd_cluster_size_threshold default at 4 "
@@ -523,10 +482,14 @@ class TestDefaultThresholdPinned:
         Lowering the threshold is the only lever that flips this.
         """
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _three_dups_plus_strong_frame()
         m = MRMR(
-            dcd_enable=True, dcd_tau_cluster=0.5,
-            full_npermutations=50, verbose=0, random_seed=0,
+            dcd_enable=True,
+            dcd_tau_cluster=0.5,
+            full_npermutations=50,
+            verbose=0,
+            random_seed=0,
         ).fit(X, y)
         assert m.dcd_["n_swaps"] == 0, (
             f"Default threshold=4 must keep n_swaps=0 on the 3-dups "
@@ -534,10 +497,7 @@ class TestDefaultThresholdPinned:
             f"someone lowered the default without updating the test."
         )
         # Pruning still fires (the 2 duplicate members are marked).
-        assert m.dcd_["n_pruned"] >= 2, (
-            f"Default DCD must still prune the duplicates; "
-            f"n_pruned={m.dcd_['n_pruned']}"
-        )
+        assert m.dcd_["n_pruned"] >= 2, f"Default DCD must still prune the duplicates; n_pruned={m.dcd_['n_pruned']}"
 
 
 # ---------------------------------------------------------------------------
@@ -546,7 +506,6 @@ class TestDefaultThresholdPinned:
 
 
 class TestOptInThresholdTwoTriggersSwap:
-
     def test_opt_in_threshold_2_triggers_swap_on_3_dups(self):
         """With ``dcd_cluster_size_threshold=2``, the 3-dup fixture
         forms a cluster of size 2 members (anchor + 2 dups) and the
@@ -556,12 +515,15 @@ class TestOptInThresholdTwoTriggersSwap:
         1/51 = 0.0196 which is fine.
         """
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _three_dups_plus_strong_frame()
         m = MRMR(
-            dcd_enable=True, dcd_tau_cluster=0.5,
+            dcd_enable=True,
+            dcd_tau_cluster=0.5,
             dcd_cluster_size_threshold=2,
             full_npermutations=50,
-            verbose=0, random_seed=0,
+            verbose=0,
+            random_seed=0,
         ).fit(X, y)
         assert m.dcd_["n_swaps"] >= 1, (
             f"Opt-in dcd_cluster_size_threshold=2 must fire >=1 swap on "
@@ -570,10 +532,7 @@ class TestOptInThresholdTwoTriggersSwap:
         )
         # The swap log must record the PC1 aggregate as ``_dcd_pc1_*``.
         log = m.dcd_["swap_log"]
-        assert any(entry["aggregate_name"].startswith("_dcd_pc1_") for entry in log), (
-            f"Swap log must contain a ``_dcd_pc1_*`` aggregate name; got "
-            f"{log}"
-        )
+        assert any(entry["aggregate_name"].startswith("_dcd_pc1_") for entry in log), f"Swap log must contain a ``_dcd_pc1_*`` aggregate name; got {log}"
 
     def test_opt_in_threshold_2_no_swap_on_weak_correlation(self):
         """Threshold=2 must not invent spurious swaps. Two
@@ -582,12 +541,15 @@ class TestOptInThresholdTwoTriggersSwap:
         no PC1 swap should fire regardless of threshold.
         """
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _weak_pair_frame()
         m = MRMR(
-            dcd_enable=True, dcd_tau_cluster=0.5,
+            dcd_enable=True,
+            dcd_tau_cluster=0.5,
             dcd_cluster_size_threshold=2,
             full_npermutations=50,
-            verbose=0, random_seed=0,
+            verbose=0,
+            random_seed=0,
         ).fit(X, y)
         assert m.dcd_["n_swaps"] == 0, (
             f"Weak correlation (Spearman ~0.7) must NOT trigger a swap "
@@ -601,19 +563,24 @@ class TestOptInThresholdTwoTriggersSwap:
         the default IS 4). Documents the byte-identical opt-out path.
         """
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _three_dups_plus_strong_frame()
         m_default = MRMR(
-            dcd_enable=True, dcd_tau_cluster=0.5,
-            full_npermutations=50, verbose=0, random_seed=0,
+            dcd_enable=True,
+            dcd_tau_cluster=0.5,
+            full_npermutations=50,
+            verbose=0,
+            random_seed=0,
         ).fit(X, y)
         m_pin = MRMR(
-            dcd_enable=True, dcd_tau_cluster=0.5,
+            dcd_enable=True,
+            dcd_tau_cluster=0.5,
             dcd_cluster_size_threshold=4,
-            full_npermutations=50, verbose=0, random_seed=0,
+            full_npermutations=50,
+            verbose=0,
+            random_seed=0,
         ).fit(X, y)
-        assert list(m_default.get_feature_names_out()) == list(
-            m_pin.get_feature_names_out()
-        ), "Pinning =4 must match the current default exactly."
+        assert list(m_default.get_feature_names_out()) == list(m_pin.get_feature_names_out()), "Pinning =4 must match the current default exactly."
         assert m_default.dcd_["n_swaps"] == m_pin.dcd_["n_swaps"]
         assert m_default.dcd_["n_pruned"] == m_pin.dcd_["n_pruned"]
 
@@ -624,7 +591,6 @@ class TestOptInThresholdTwoTriggersSwap:
 
 
 class TestValidationLowerBound:
-
     def test_validate_accepts_threshold_1(self):
         """The Layer 42 validate loosening admits ``=1`` without
         ValueError. Users who want to swap on a strict 2-feature
@@ -633,29 +599,32 @@ class TestValidationLowerBound:
         ``evaluate_swap_candidate`` floor too.
         """
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _three_dups_plus_strong_frame(n=300)
         # No assertion that swap fires here - just that the validate
         # step accepts the value.
         m = MRMR(
-            dcd_enable=True, dcd_tau_cluster=0.5,
+            dcd_enable=True,
+            dcd_tau_cluster=0.5,
             dcd_cluster_size_threshold=1,
             dcd_min_cluster_size=1,
             full_npermutations=20,
-            verbose=0, random_seed=0,
+            verbose=0,
+            random_seed=0,
         ).fit(X, y)
-        assert hasattr(m, "support_"), (
-            "fit() must complete with threshold=1 + min_cluster_size=1"
-        )
+        assert hasattr(m, "support_"), "fit() must complete with threshold=1 + min_cluster_size=1"
 
     def test_validate_rejects_threshold_0(self):
         """The floor still refuses nonsense (=0)."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _three_dups_plus_strong_frame(n=300)
         with pytest.raises(ValueError, match="dcd_cluster_size_threshold"):
             MRMR(
                 dcd_enable=True,
                 dcd_cluster_size_threshold=0,
-                verbose=0, random_seed=0,
+                verbose=0,
+                random_seed=0,
             ).fit(X, y)
 
 
@@ -665,7 +634,6 @@ class TestValidationLowerBound:
 
 
 class TestSwapGainThresholdProbe:
-
     def test_swap_gain_threshold_0p02_not_a_win(self):
         """Investigation: does loosening ``swap_gain_threshold`` from
         0.05 to 0.02 let through more wins on perfect dups? On the
@@ -675,18 +643,25 @@ class TestSwapGainThresholdProbe:
         binding constraint. So 0.05 stays the conservative default.
         """
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _three_dups_plus_strong_frame()
         m_005 = MRMR(
-            dcd_enable=True, dcd_tau_cluster=0.5,
+            dcd_enable=True,
+            dcd_tau_cluster=0.5,
             dcd_cluster_size_threshold=2,
             dcd_swap_gain_threshold=0.05,
-            full_npermutations=50, verbose=0, random_seed=0,
+            full_npermutations=50,
+            verbose=0,
+            random_seed=0,
         ).fit(X, y)
         m_002 = MRMR(
-            dcd_enable=True, dcd_tau_cluster=0.5,
+            dcd_enable=True,
+            dcd_tau_cluster=0.5,
             dcd_cluster_size_threshold=2,
             dcd_swap_gain_threshold=0.02,
-            full_npermutations=50, verbose=0, random_seed=0,
+            full_npermutations=50,
+            verbose=0,
+            random_seed=0,
         ).fit(X, y)
         # Both fire the swap on perfect dups - the looser threshold is
         # not the bottleneck.
@@ -704,7 +679,6 @@ class TestSwapGainThresholdProbe:
 
 
 class TestNoRegressionLayer41:
-
     def test_cluster_members_accessor_reports_correctly(self):
         """The Layer 41 ``cluster_members_`` accessor must still report
         the right cluster on the 3-dup fixture after the Layer 42
@@ -726,31 +700,23 @@ class TestNoRegressionLayer41:
         union {anchor} u members would not equal {dup_a, dup_b, dup_c}.
         """
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _three_dups_plus_strong_frame()
         m = MRMR(
-            dcd_enable=True, dcd_tau_cluster=0.5,
-            verbose=0, random_seed=0,
+            dcd_enable=True,
+            dcd_tau_cluster=0.5,
+            verbose=0,
+            random_seed=0,
         ).fit(X, y)
         cm = m.cluster_members_
-        assert isinstance(cm, dict) and len(cm) >= 1, (
-            f"cluster_members_ must be a non-empty dict; got {cm!r}"
-        )
+        assert isinstance(cm, dict) and len(cm) >= 1, f"cluster_members_ must be a non-empty dict; got {cm!r}"
         dups = {"dup_a", "dup_b", "dup_c"}
         # Find the cluster whose anchor is a dup AND whose members are dups:
         # the full dup cluster is {anchor} u members == {dup_a, dup_b, dup_c}.
-        dup_clusters = [
-            (k, set(v)) for k, v in cm.items()
-            if k in dups and ({k} | set(v)) == dups
-        ]
-        assert len(dup_clusters) == 1, (
-            f"Expected exactly one dup-anchored cluster covering all three "
-            f"duplicates {dups}; got clusters {cm!r}"
-        )
+        dup_clusters = [(k, set(v)) for k, v in cm.items() if k in dups and ({k} | set(v)) == dups]
+        assert len(dup_clusters) == 1, f"Expected exactly one dup-anchored cluster covering all three duplicates {dups}; got clusters {cm!r}"
         anchor, members = dup_clusters[0]
-        assert members == (dups - {anchor}), (
-            f"dup cluster anchored on {anchor!r} must list the other two "
-            f"dups as members; got {members}"
-        )
+        assert members == (dups - {anchor}), f"dup cluster anchored on {anchor!r} must list the other two dups as members; got {members}"
         # And cluster_anchors_names mirrors it.
         assert m.dcd_["cluster_anchors_names"] == cm
 
@@ -759,13 +725,14 @@ class TestNoRegressionLayer41:
         who fit with ``dcd_enable=False`` see no behavioural change.
         """
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _three_dups_plus_strong_frame(n=500)
         m = MRMR(
-            dcd_enable=False, verbose=0, random_seed=0,
+            dcd_enable=False,
+            verbose=0,
+            random_seed=0,
         ).fit(X, y)
-        assert m.cluster_members_ is None, (
-            "DCD-disabled fits must keep cluster_members_=None."
-        )
+        assert m.cluster_members_ is None, "DCD-disabled fits must keep cluster_members_=None."
         assert m.dcd_ is None or m.dcd_.get("n_swaps", 0) == 0
 
 
@@ -775,24 +742,26 @@ class TestNoRegressionLayer41:
 
 
 class TestOptInEndToEnd:
-
     def test_opt_in_fit_completes_and_records_swap(self):
         """End-to-end probe: the opt-in path completes fit, records
         the swap in ``dcd_['swap_log']``, and the aggregate name in
         the swap log is well-formed.
         """
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _three_dups_plus_strong_frame()
         m = MRMR(
-            dcd_enable=True, dcd_tau_cluster=0.5,
+            dcd_enable=True,
+            dcd_tau_cluster=0.5,
             dcd_cluster_size_threshold=2,
             full_npermutations=50,
-            verbose=0, random_seed=0,
+            verbose=0,
+            random_seed=0,
         ).fit(X, y)
         log = m.dcd_["swap_log"]
         assert isinstance(log, list) and len(log) >= 1
         entry = log[0]
-        assert "aggregate_name" in entry and entry["aggregate_name"]
+        assert entry.get("aggregate_name")
         assert "anchor" in entry
         assert "n_members" in entry and entry["n_members"] >= 2
         assert "rep_relevance" in entry and entry["rep_relevance"] > 0

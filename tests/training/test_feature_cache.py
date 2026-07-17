@@ -18,8 +18,6 @@ Coverage areas (round-3 audit findings):
 from __future__ import annotations
 
 import os
-import time
-from unittest import mock
 
 import numpy as np
 import polars as pl
@@ -37,6 +35,7 @@ from mlframe.training.feature_handling import (
     fingerprint_df,
     reset_session,
 )
+from typing import Optional
 
 
 # =====================================================================
@@ -46,19 +45,24 @@ from mlframe.training.feature_handling import (
 
 @pytest.fixture
 def small_df():
-    return pl.DataFrame({
-        "txt": ["hello world", "foo bar", "baz qux", "another row", "fifth"],
-        "num": [1.0, 2.0, 3.0, 4.0, 5.0],
-    })
+    return pl.DataFrame(
+        {
+            "txt": ["hello world", "foo bar", "baz qux", "another row", "fifth"],
+            "num": [1.0, 2.0, 3.0, 4.0, 5.0],
+        }
+    )
 
 
 @pytest.fixture
 def small_pandas_df():
     import pandas as pd
-    return pd.DataFrame({
-        "txt": ["hello world", "foo bar", "baz qux", "another row", "fifth"],
-        "num": [1.0, 2.0, 3.0, 4.0, 5.0],
-    })
+
+    return pd.DataFrame(
+        {
+            "txt": ["hello world", "foo bar", "baz qux", "another row", "fifth"],
+            "num": [1.0, 2.0, 3.0, 4.0, 5.0],
+        }
+    )
 
 
 @pytest.fixture
@@ -72,7 +76,7 @@ def cache_on(tmp_path):
     return FeatureCache(cfg, content_fingerprint=None)
 
 
-def _build_in_mem_key(df, column: str, params: dict = None) -> InMemoryKey:
+def _build_in_mem_key(df, column: str, params: Optional[dict] = None) -> InMemoryKey:
     sess = current_session()
     return InMemoryKey(
         session_id=sess.session_id,
@@ -134,7 +138,8 @@ class TestFingerprint:
     def test_disk_key_filename_no_path_traversal(self):
         """Round-3 S2: column names hashed, not embedded literally."""
         fp = ContentFingerprint(
-            n_rows=100, n_cols=2,
+            n_rows=100,
+            n_cols=2,
             column_dtypes_hash="abc123",
             sampled_rows_hash="ffffffff" * 4,
         )
@@ -329,7 +334,9 @@ class TestDiskPersistence:
 
         original = np.random.RandomState(0).randn(50, 8).astype(np.float32)
         v = cache.get_or_compute(
-            in_mem_key, lambda: original.copy(), disk_key=disk_key,
+            in_mem_key,
+            lambda: original.copy(),
+            disk_key=disk_key,
         )
         np.testing.assert_array_equal(v, original)
 
@@ -337,7 +344,8 @@ class TestDiskPersistence:
         # from disk, in-memory miss.
         cache2 = FeatureCache(cfg)
         v2 = cache2.get_or_compute(
-            in_mem_key, lambda: pytest.fail("should have hit disk"),
+            in_mem_key,
+            lambda: pytest.fail("should have hit disk"),
             disk_key=disk_key,
         )
         np.testing.assert_array_equal(v2, original)
@@ -353,8 +361,10 @@ class TestDiskPersistence:
         in_mem_key = _build_in_mem_key(small_df, "txt")
         fp = fingerprint_df(small_df)
         disk_key = DiskKey(
-            content=fp, column="txt",
-            params_canonical_hash="0" * 32, provider_signature="x",
+            content=fp,
+            column="txt",
+            params_canonical_hash="0" * 32,
+            provider_signature="x",
         )
         sparse_data = csr_matrix(np.array([[0, 1, 0], [2, 0, 3], [0, 0, 0]]))
         cache.get_or_compute(in_mem_key, lambda: sparse_data, disk_key=disk_key)
@@ -370,7 +380,10 @@ class TestDiskPersistence:
         in_mem_key = _build_in_mem_key(small_df, "txt")
         fp = fingerprint_df(small_df)
         disk_key = DiskKey(
-            content=fp, column="txt", params_canonical_hash="0" * 32, provider_signature="x",
+            content=fp,
+            column="txt",
+            params_canonical_hash="0" * 32,
+            provider_signature="x",
         )
         cache.get_or_compute(in_mem_key, lambda: np.zeros(10), disk_key=disk_key)
         # Disk dir should NOT have any cache files because persistence="off".
@@ -387,7 +400,10 @@ class TestDiskPersistence:
         in_mem_key = _build_in_mem_key(small_df, "txt")
         fp = fingerprint_df(small_df)
         disk_key = DiskKey(
-            content=fp, column="txt", params_canonical_hash="0" * 32, provider_signature="x",
+            content=fp,
+            column="txt",
+            params_canonical_hash="0" * 32,
+            provider_signature="x",
         )
         cache.get_or_compute(in_mem_key, lambda: np.zeros(5), disk_key=disk_key)
         mode = oct(os.stat(tmp_path / "cache_protected").st_mode)[-3:]

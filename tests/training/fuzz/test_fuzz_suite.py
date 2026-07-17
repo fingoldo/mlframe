@@ -8,8 +8,10 @@ applied automatically per combo via ``pytest.mark.xfail`` in the test
 function — new bugs discovered by fuzzing should be added there once
 they're traced to a specific combo predicate.
 """
+
 from __future__ import annotations
 
+import importlib
 import os
 import time
 import traceback
@@ -82,21 +84,23 @@ def _fuzz_combo_cleanup():
     # 1. Matplotlib figures (mlframe emits per-model feature_importance plots).
     try:
         import matplotlib.pyplot as plt
+
         plt.close("all")
-    except Exception:
+    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
         pass
     # 2. mlframe's in-process caches (CB val Pool cache, tier-DF cache).
     try:
         from mlframe.training import trainer as _tr
+
         for attr in ("_CB_POOL_CACHE", "_CB_VAL_POOL_CACHE"):
             cache = getattr(_tr, attr, None)
             if hasattr(cache, "clear"):
                 cache.clear()
-    except Exception:
+    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
         pass
     # 3. CatBoost internal state — force full GPU/CPU resource release.
     try:
-        import catboost
+        importlib.import_module("catboost")
         # catboost.utils doesn't expose a global cleanup; deleting module-level
         # state is unsafe. Best-effort: trigger a GC pass twice so CB's
         # C++-side memory pools see zero Python refs before the next combo
@@ -106,6 +110,7 @@ def _fuzz_combo_cleanup():
     # 4. Double GC — first pass collects Python objects, second pass lets
     # finalizers (including native lib close-outs) run before we return.
     import gc
+
     gc.collect()
     gc.collect()
     # 5. clean_ram: on Linux returns memory to OS via malloc_trim(0);
@@ -115,8 +120,9 @@ def _fuzz_combo_cleanup():
     # of 150 on Win32 multi-classification × ensembles paths.
     try:
         from pyutilz.system import clean_ram
+
         clean_ram()
-    except Exception:
+    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
         pass
 
 
@@ -150,12 +156,15 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
     Default (env unset): full combo runs unchanged.
     """
     import os as _os
+
     if _os.environ.get("MLFRAME_FUZZ_PERF_MODE", "").lower() in ("1", "yes", "true", "on"):
         from tests.training._fuzz_combo import apply_perf_mode
+
         combo = apply_perf_mode(combo)
     _forced_n_rows = _os.environ.get("MLFRAME_FUZZ_FORCE_N_ROWS", "")
     if _forced_n_rows.isdigit() and int(_forced_n_rows) > 0:
         import dataclasses as _dataclasses
+
         combo = _dataclasses.replace(combo, n_rows=int(_forced_n_rows))
     _skip_if_deps_missing(combo.models)
 
@@ -175,14 +184,13 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
     # suite runs; re-assert identity after. Applies when input stays
     # in-memory (parquet-path combos have no Python-level caller frame
     # to preserve — the parquet file is the source of truth).
-    frame_schema_before = None
     frame_shape_before = None
     frame_cols_before = None
     if combo.input_storage == "memory":
         if hasattr(df, "schema"):
-            frame_schema_before = dict(df.schema)
+            dict(df.schema)
         elif hasattr(df, "dtypes"):
-            frame_schema_before = {c: str(df[c].dtype) for c in df.columns}
+            {c: str(df[c].dtype) for c in df.columns}
         frame_shape_before = getattr(df, "shape", None)
         frame_cols_before = tuple(df.columns) if hasattr(df, "columns") else None
 
@@ -198,6 +206,7 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
     # authoritative signal for which target_type the FTE should see -- a
     # downgraded MTR combo is REGRESSION at the data level.
     from mlframe.training.configs import TargetTypes as _TT
+
     _effective_target_type = combo.target_type
     if combo.target_type == "multi_target_regression" and target_col != "target":
         _effective_target_type = "regression"
@@ -251,6 +260,7 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
     _viz_on = bool(combo.enable_viz_rendering_cfg) and combo.n_rows <= 1000
     if _viz_on:
         import matplotlib
+
         matplotlib.use("Agg", force=True)
 
     from mlframe.training.core import train_mlframe_models_suite
@@ -264,21 +274,17 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
     # composite_classification) to the sampled model subset when the combo
     # asks for one and it's compatible with the resolved target_type.
     _extra_registry_model = combo._canonical_extra_registry_model()
-    _ltr_models = list(combo.models) + (
-        [_extra_registry_model] if _extra_registry_model is not None else []
-    )
+    _ltr_models = list(combo.models) + ([_extra_registry_model] if _extra_registry_model is not None else [])
     _ltr_ranking_config = None
     if _is_ltr:
         _supported = {"cb", "xgb", "lgb", "mlp"}  # 2026-05-07: MLP via RankNet/ListNet
         _filtered = [m for m in combo.models if m.lower() in _supported]
         if not _filtered:
             # No supported model in this combo -- skip; not a real bug.
-            pytest.skip(
-                f"LTR combo {combo.short_id()}: requested models "
-                f"{combo.models} have no native ranker (need cb/xgb/lgb/mlp)"
-            )
+            pytest.skip(f"LTR combo {combo.short_id()}: requested models {combo.models} have no native ranker (need cb/xgb/lgb/mlp)")
         _ltr_models = _filtered
         from mlframe.training.configs import LearningToRankConfig
+
         # iter162: nested LTR knobs -- cb_loss_fn, lgb_objective, rrf_k.
         # iter170: mlp_loss_fn + eval_at (defensive).
         _ltr_eval_at = (1, 5, 10) if combo.ltr_eval_at_cfg == "default" else (1, 3, 5, 10, 20)
@@ -303,6 +309,7 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
     _quantile_cfg = None
     if combo.enable_quantile_regression_cfg and combo.target_type == "regression" and not _is_ltr:
         from mlframe.training.configs import QuantileRegressionConfig
+
         _coverage_pairs = ((0.1, 0.9),) if combo.quantile_coverage_pairs_cfg == "default" else ((0.05, 0.95),)
         _quantile_cfg = QuantileRegressionConfig(
             alphas=(0.1, 0.5, 0.9) if combo.quantile_coverage_pairs_cfg == "default" else (0.05, 0.5, 0.95),
@@ -315,13 +322,12 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
     _linear_cfg = None
     if "linear" in combo.models:
         from mlframe.training.configs import LinearModelConfig
+
         # 2026-05-28 LinearModelConfig.l1_ratio (ElasticNet mix). Only honoured by
         # the saga solver; lbfgs/liblinear raise on l1_ratio != 0. Mirror the
         # canonical_key gating in FuzzCombo so the LinearModelConfig instance
         # the suite consumes never hits sklearn's solver-mismatch ValueError.
-        _l1_ratio = (
-            combo.linear_l1_ratio_cfg if combo.linear_solver_cfg == "saga" else 0.0
-        )
+        _l1_ratio = combo.linear_l1_ratio_cfg if combo.linear_solver_cfg == "saga" else 0.0
         # liblinear genuinely cannot do multiclass in current sklearn (it
         # raises "The 'liblinear' solver does not support multiclass
         # classification (n_classes >= 3)" -- an actionable sklearn
@@ -332,12 +338,14 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
         _solver = combo.linear_solver_cfg
         if _solver == "liblinear" and combo.target_type == "multiclass_classification":
             _solver = "lbfgs"
-        _linear_cfg = LinearModelConfig(**_safe_cfg_kwargs(
-            LinearModelConfig,
-            alpha=combo.linear_alpha_cfg,
-            solver=_solver,
-            l1_ratio=_l1_ratio,
-        ))
+        _linear_cfg = LinearModelConfig(
+            **_safe_cfg_kwargs(
+                LinearModelConfig,
+                alpha=combo.linear_alpha_cfg,
+                solver=_solver,
+                l1_ratio=_l1_ratio,
+            )
+        )
     # P0-3 feature_handling_config: instantiate with nested sub-config
     # overrides per the iter162 deep-kwargs audit. Each sub-config field
     # falls back to library defaults when not on the axis OR when import
@@ -353,60 +361,75 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
                 TextDetectionConfig,
                 ReproConfig,
             )
-            _cache = CacheConfig(**_safe_cfg_kwargs(
-                CacheConfig,
-                eviction_strategy=combo.fhc_cache_eviction_strategy_cfg,
-                allow_pickle=combo.fhc_cache_allow_pickle_cfg,
-                # iter170 deep cache axes (defensive).
-                prefetch_enabled=combo.fhc_cache_prefetch_enabled_cfg,
-                prefetch_vram_safety_factor=combo.fhc_cache_prefetch_vram_safety_factor_cfg,
-                # iter180 DEPTH-4 -- persistence mode gates disk-tier sub-fields.
-                persistence=combo.fhc_cache_persistence_cfg,
-            ))
-            _memory = MemoryConfig(**_safe_cfg_kwargs(
-                MemoryConfig,
-                auto_derive=AutoDeriveConfig(cache_ram_fraction=combo.fhc_cache_ram_fraction_cfg),
-                # iter170 memory axis (defensive).
-                pressure_watermark_pct=combo.fhc_memory_pressure_watermark_pct_cfg,
-            ))
-            _textdet = TextDetectionConfig(**_safe_cfg_kwargs(
-                TextDetectionConfig,
-                definite_text_mean_chars=combo.fhc_text_definite_text_mean_chars_cfg,
-                min_alphabet_entropy=combo.fhc_text_min_alphabet_entropy_cfg,
-                # iter170 text-detection axes (defensive).
-                text_min_mean_tokens=combo.fhc_text_min_mean_tokens_cfg,
-                text_min_unique_ratio=combo.fhc_text_min_unique_ratio_cfg,
-                respect_explicit_categorical_dtype=combo.fhc_text_respect_explicit_cat_dtype_cfg,
-                # 2026-05-28 text_min_cardinality axis -- cat-vs-text promotion floor.
-                text_min_cardinality=combo.fhc_text_min_cardinality_cfg,
-            ))
-            _repro = ReproConfig(**_safe_cfg_kwargs(
-                ReproConfig,
-                deterministic_torch=combo.fhc_repro_deterministic_torch_cfg,
-                # iter170 repro axes (defensive).
-                langdetect_seed=combo.fhc_repro_langdetect_seed_cfg,
-                pinned_svd_solver_params=combo.fhc_repro_pinned_svd_solver_params_cfg,
-                forbid_nonatomic_fs=combo.fhc_repro_forbid_nonatomic_fs_cfg,
-                deterministic_eviction=combo.fhc_repro_deterministic_eviction_cfg,
-            ))
+
+            _cache = CacheConfig(
+                **_safe_cfg_kwargs(
+                    CacheConfig,
+                    eviction_strategy=combo.fhc_cache_eviction_strategy_cfg,
+                    allow_pickle=combo.fhc_cache_allow_pickle_cfg,
+                    # iter170 deep cache axes (defensive).
+                    prefetch_enabled=combo.fhc_cache_prefetch_enabled_cfg,
+                    prefetch_vram_safety_factor=combo.fhc_cache_prefetch_vram_safety_factor_cfg,
+                    # iter180 DEPTH-4 -- persistence mode gates disk-tier sub-fields.
+                    persistence=combo.fhc_cache_persistence_cfg,
+                )
+            )
+            _memory = MemoryConfig(
+                **_safe_cfg_kwargs(
+                    MemoryConfig,
+                    auto_derive=AutoDeriveConfig(cache_ram_fraction=combo.fhc_cache_ram_fraction_cfg),
+                    # iter170 memory axis (defensive).
+                    pressure_watermark_pct=combo.fhc_memory_pressure_watermark_pct_cfg,
+                )
+            )
+            _textdet = TextDetectionConfig(
+                **_safe_cfg_kwargs(
+                    TextDetectionConfig,
+                    definite_text_mean_chars=combo.fhc_text_definite_text_mean_chars_cfg,
+                    min_alphabet_entropy=combo.fhc_text_min_alphabet_entropy_cfg,
+                    # iter170 text-detection axes (defensive).
+                    text_min_mean_tokens=combo.fhc_text_min_mean_tokens_cfg,
+                    text_min_unique_ratio=combo.fhc_text_min_unique_ratio_cfg,
+                    respect_explicit_categorical_dtype=combo.fhc_text_respect_explicit_cat_dtype_cfg,
+                    # 2026-05-28 text_min_cardinality axis -- cat-vs-text promotion floor.
+                    text_min_cardinality=combo.fhc_text_min_cardinality_cfg,
+                )
+            )
+            _repro = ReproConfig(
+                **_safe_cfg_kwargs(
+                    ReproConfig,
+                    deterministic_torch=combo.fhc_repro_deterministic_torch_cfg,
+                    # iter170 repro axes (defensive).
+                    langdetect_seed=combo.fhc_repro_langdetect_seed_cfg,
+                    pinned_svd_solver_params=combo.fhc_repro_pinned_svd_solver_params_cfg,
+                    forbid_nonatomic_fs=combo.fhc_repro_forbid_nonatomic_fs_cfg,
+                    deterministic_eviction=combo.fhc_repro_deterministic_eviction_cfg,
+                )
+            )
             # iter170: PricingConfig + LoggingConfig (defensive -- may not exist).
             _pricing = None
             _logging = None
             try:
                 from mlframe.training.feature_handling.config import PricingConfig
-                _pricing = PricingConfig(**_safe_cfg_kwargs(
-                    PricingConfig,
-                    cap_usd=combo.fhc_pricing_cap_usd_cfg,
-                    warn_above_usd=combo.fhc_pricing_warn_above_usd_cfg,
-                ))
+
+                _pricing = PricingConfig(
+                    **_safe_cfg_kwargs(
+                        PricingConfig,
+                        cap_usd=combo.fhc_pricing_cap_usd_cfg,
+                        warn_above_usd=combo.fhc_pricing_warn_above_usd_cfg,
+                    )
+                )
             except (ImportError, AttributeError):
                 pass
             try:
                 from mlframe.training.feature_handling.config import LoggingConfig
-                _logging = LoggingConfig(**_safe_cfg_kwargs(
-                    LoggingConfig,
-                    verbose=combo.fhc_logging_verbose_cfg,
-                ))
+
+                _logging = LoggingConfig(
+                    **_safe_cfg_kwargs(
+                        LoggingConfig,
+                        verbose=combo.fhc_logging_verbose_cfg,
+                    )
+                )
             except (ImportError, AttributeError):
                 pass
             _fhc_kw = dict(
@@ -431,6 +454,7 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
     if combo.enable_precomputed_cfg:
         try:
             from mlframe.training.helpers import precompute_all
+
             _precomputed = precompute_all(df_input if not isinstance(df_input, str) else df, target_by_type=None)
         except Exception:
             _precomputed = None  # tolerate parquet-path / FTE-shape edge cases
@@ -456,9 +480,7 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
         if _is_ltr:
             _suite_kwargs["target_type"] = _combo_tt
             # Wave 21: assume_comparable_scales axis on LTR ensembling.
-            _ltr_ranking_config = _ltr_ranking_config.model_copy(
-                update={"assume_comparable_scales": combo.ltr_assume_comparable_scales_cfg}
-            )
+            _ltr_ranking_config = _ltr_ranking_config.model_copy(update={"assume_comparable_scales": combo.ltr_assume_comparable_scales_cfg})
             _suite_kwargs["ranking_config"] = _ltr_ranking_config
         # 2026-05-21 iter151 P0 suite-level kwargs.
         if _quantile_cfg is not None:
@@ -479,7 +501,8 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
         trained, _meta = train_mlframe_models_suite(
             **_suite_kwargs,
             hyperparams_config=_config_for_models(
-                combo.models, combo.n_rows,
+                combo.models,
+                combo.n_rows,
                 iterations=combo.iterations,
                 early_stopping_rounds=combo.early_stopping_rounds_cfg,
                 mlp_predict_batch_size=combo.mlp_predict_batch_size_cfg,
@@ -534,11 +557,7 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
                 # rfecv_models: pass exactly the canonical estimator (None when
                 # the combo would mis-use it) — wrap in a single-element list
                 # because the field expects List[str].
-                rfecv_models=(
-                    [combo._canonical_rfecv_estimator()]
-                    if _rfecv_on
-                    else None
-                ),
+                rfecv_models=([combo._canonical_rfecv_estimator()] if _rfecv_on else None),
                 custom_pre_pipelines=custom_pre or {},
                 # 2026-05-21 iter151 P1-7/P1-8/P2-16/P2-17/P2-18a/P2-18b:
                 # FS-related fill-ins from the audit. Each canonicalised in
@@ -592,29 +611,35 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
             # model_card, decision_curve, pdp_ice, shap_panels, model_comparison, risk_coverage) actually executes and is fuzz-exercised. The
             # matplotlib Agg backend is forced below so a headless box renders without a display; _fuzz_combo_cleanup plt.close("all")s per combo.
             output_config=OutputConfig(
-                data_dir=str(tmp_path), models_dir="models", save_charts=_viz_on,
+                data_dir=str(tmp_path),
+                models_dir="models",
+                save_charts=_viz_on,
                 # 2026-07-13 -- Batch C: run_diagnostics defaults (None) to all 6
                 # registered diagnostics per DEFAULTS_CHANGELOG.md. "subset"/"empty"
                 # exercise the explicit-override paths; None keeps the default.
                 **_safe_cfg_kwargs(
                     OutputConfig,
                     run_diagnostics=(
-                        ["cv_informativeness", "group_leakage"] if combo.run_diagnostics_cfg == "subset"
-                        else [] if combo.run_diagnostics_cfg == "empty"
+                        ["cv_informativeness", "group_leakage"]
+                        if combo.run_diagnostics_cfg == "subset"
+                        else []
+                        if combo.run_diagnostics_cfg == "empty"
                         else None
                     ),
-                ) if combo.run_diagnostics_cfg is not None else {},
+                )
+                if combo.run_diagnostics_cfg is not None
+                else {},
             ),
             reporting_config=ReportingConfig(
-                show_perf_chart=_viz_on, show_fi=_viz_on,
+                show_perf_chart=_viz_on,
+                show_fi=_viz_on,
                 # iter162: nested ReportingConfig fields. matplotlib_rcparams
                 # parsed from JSON-string axis value (so the axis dict stays
                 # hashable for canonical_key).
                 prob_histogram_yscale=combo.reporting_prob_histogram_yscale_cfg,
                 title_metrics_template=combo.reporting_title_metrics_template_cfg,
                 matplotlib_rcparams=(
-                    None if combo.reporting_matplotlib_rcparams_cfg is None
-                    else __import__("json").loads(combo.reporting_matplotlib_rcparams_cfg)
+                    None if combo.reporting_matplotlib_rcparams_cfg is None else __import__("json").loads(combo.reporting_matplotlib_rcparams_cfg)
                 ),
                 multiclass_panels=combo.reporting_multiclass_panels_cfg,
                 # 2026-05-28 W5: ReportingConfig.mase_seasonality (int, default
@@ -628,10 +653,8 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
                     ReportingConfig,
                     figsize=((15, 5) if combo.reporting_figsize_cfg == "default" else (10, 4)),
                     plot_dpi=combo.reporting_plot_dpi_cfg,
-                    quantile_panels=(None if combo.reporting_quantile_panels_cfg == "default"
-                                     else "RELIABILITY PINBALL_BY_ALPHA"),
-                    ltr_panels=(None if combo.reporting_ltr_panels_cfg == "default"
-                                else "NDCG_K LIFT"),
+                    quantile_panels=(None if combo.reporting_quantile_panels_cfg == "default" else "RELIABILITY PINBALL_BY_ALPHA"),
+                    ltr_panels=(None if combo.reporting_ltr_panels_cfg == "default" else "NDCG_K LIFT"),
                     plotly_template=combo.reporting_plotly_template_cfg,
                     matplotlib_style=combo.reporting_matplotlib_style_cfg,
                 ),
@@ -648,11 +671,7 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
             # (T=8, F=2) emitted only on canonical-recurrent combos so
             # the suite exercises the sequence-pipeline. Hyperparams
             # tuned for fuzz speed (small hidden_size, 2 epochs).
-            recurrent_models=(
-                [combo._canonical_recurrent_model()]
-                if combo._canonical_recurrent_model() is not None
-                else None
-            ),
+            recurrent_models=([combo._canonical_recurrent_model()] if combo._canonical_recurrent_model() is not None else None),
             sequences=_recurrent_sequences_for_combo(combo, df=df_input),
             recurrent_config=_recurrent_config_for_combo(combo),
             # 2026-04-28 batch 4 followup - confidence-analysis axis exercises
@@ -665,15 +684,10 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
                 # iter162: nested model_kwargs (n_estimators / max_depth).
                 # "default" = empty dict (library defaults); "small_trees" pins
                 # tiny trees so the conf-analysis branch runs faster in fuzz.
-                model_kwargs=(
-                    {} if combo.confidence_model_kwargs_cfg == "default"
-                    else {"n_estimators": 20, "max_depth": 4}
-                ),
+                model_kwargs=({} if combo.confidence_model_kwargs_cfg == "default" else {"n_estimators": 20, "max_depth": 4}),
             ),
             # Wave 21: dummy-baselines + baseline-diagnostics enabled toggles.
-            dummy_baselines_config=__import__(
-                "mlframe.training.configs", fromlist=["DummyBaselinesConfig"]
-            ).DummyBaselinesConfig(
+            dummy_baselines_config=__import__("mlframe.training.configs", fromlist=["DummyBaselinesConfig"]).DummyBaselinesConfig(
                 enabled=combo.dummy_baselines_enabled_cfg,
                 # iter170 deep dummy-baseline axes (defensive).
                 **_safe_cfg_kwargs(
@@ -682,9 +696,7 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
                     paired_bootstrap_n_resamples=combo.dummy_paired_bootstrap_n_resamples_cfg,
                 ),
             ),
-            baseline_diagnostics_config=__import__(
-                "mlframe.training.configs", fromlist=["BaselineDiagnosticsConfig"]
-            ).BaselineDiagnosticsConfig(
+            baseline_diagnostics_config=__import__("mlframe.training.configs", fromlist=["BaselineDiagnosticsConfig"]).BaselineDiagnosticsConfig(
                 enabled=combo.baseline_diagnostics_enabled_cfg,
                 # iter170 deep baseline-diagnostic axes (defensive).
                 **_safe_cfg_kwargs(
@@ -712,11 +724,7 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
         # empty-trained outcome is a bug — the suite should have
         # either raised or produced ≥1 model.
         if not trained:
-            if (
-                combo.continue_on_model_failure
-                and _meta is not None
-                and _meta.get("failed_models")
-            ):
+            if combo.continue_on_model_failure and _meta is not None and _meta.get("failed_models"):
                 pass  # graceful skip of a configurably-failing combo
             else:
                 raise AssertionError(
@@ -728,15 +736,9 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
         # --- Post-train invariants (free on every combo) ---
         # #16 no caller-frame mutation (skip for parquet-path).
         if combo.input_storage == "memory" and frame_cols_before is not None:
-            assert tuple(df.columns) == frame_cols_before, (
-                f"caller-frame columns mutated: before={frame_cols_before} "
-                f"after={tuple(df.columns)}"
-            )
+            assert tuple(df.columns) == frame_cols_before, f"caller-frame columns mutated: before={frame_cols_before} after={tuple(df.columns)}"
             shape_after = getattr(df, "shape", None)
-            assert shape_after == frame_shape_before, (
-                f"caller-frame shape mutated: before={frame_shape_before} "
-                f"after={shape_after}"
-            )
+            assert shape_after == frame_shape_before, f"caller-frame shape mutated: before={frame_shape_before} after={shape_after}"
         # #20 metadata schema: load-bearing keys present.
         # ``model_schemas`` is only populated when at least one model
         # successfully trained — combos that legitimately degrade to
@@ -745,15 +747,9 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
         # unconditionally; model_schemas only when trained non-empty.
         if _meta is not None:
             for k in ("columns", "cat_features", "outlier_detection"):
-                assert k in _meta, (
-                    f"metadata missing load-bearing key {k!r}; "
-                    f"keys={list(_meta)[:20]}"
-                )
+                assert k in _meta, f"metadata missing load-bearing key {k!r}; keys={list(_meta)[:20]}"
             if trained:
-                assert "model_schemas" in _meta, (
-                    "metadata missing 'model_schemas' despite non-empty "
-                    f"trained dict; keys={list(_meta)[:20]}"
-                )
+                assert "model_schemas" in _meta, f"metadata missing 'model_schemas' despite non-empty trained dict; keys={list(_meta)[:20]}"
 
         # --- Fix C property invariants (cheap, per-combo) ---
         # Catches silent degeneracy that a "no exception" assertion misses:
@@ -768,7 +764,8 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
         err_class = type(exc).__name__
         err_summary = traceback.format_exception_only(type(exc), exc)[-1].strip()
         log_combo_outcome(
-            combo, outcome,
+            combo,
+            outcome,
             duration_s=time.perf_counter() - t0,
             error_class=err_class,
             error_summary=err_summary,
@@ -776,7 +773,9 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
         raise
 
     log_combo_outcome(
-        combo, outcome, duration_s=time.perf_counter() - t0,
+        combo,
+        outcome,
+        duration_s=time.perf_counter() - t0,
     )
 
 
@@ -801,6 +800,7 @@ def test_enumerator_produces_unique_combos():
 def test_enumerator_hits_all_models():
     """Every supported model must appear at least once across the 150 combos."""
     from tests.training._fuzz_combo import MODELS
+
     seen = {m for c in COMBOS for m in c.models}
     missing = set(MODELS) - seen
     assert not missing, f"Models never exercised by fuzz: {missing}"

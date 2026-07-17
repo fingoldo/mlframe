@@ -4,6 +4,7 @@ Pre-fix a broad ``except Exception`` swallowed ANY error from ``_batch_per_class
 back to the slow per-class loop at DEBUG, hiding genuine numeric/logic bugs. Post-fix only (ValueError, TypeError)
 fall back; any other exception type propagates.
 """
+
 import numpy as np
 import pytest
 

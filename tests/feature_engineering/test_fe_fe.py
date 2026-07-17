@@ -20,9 +20,7 @@ def test_bruteforce_leakage_free_default_is_true():
     from mlframe.feature_engineering.bruteforce import run_pysr_feature_engineering
 
     sig = inspect.signature(run_pysr_feature_engineering)
-    assert sig.parameters["leakage_free"].default is True, (
-        "bruteforce.run_pysr_feature_engineering.leakage_free default must be True post-fix"
-    )
+    assert sig.parameters["leakage_free"].default is True, "bruteforce.run_pysr_feature_engineering.leakage_free default must be True post-fix"
 
 
 # -------------------------------------------------------------------------
@@ -55,7 +53,7 @@ def test_leakage_safe_encoder_external_splitter():
     from mlframe.training.feature_handling.target_encoders import LeakageSafeEncoder
 
     n = 60
-    cats = (["a"] * 30 + ["b"] * 30)
+    cats = ["a"] * 30 + ["b"] * 30
     y = np.linspace(0.0, 1.0, n)
     tss = TimeSeriesSplit(n_splits=4)
     enc = LeakageSafeEncoder(method="target_mean", cv_splitter=tss)
@@ -123,9 +121,7 @@ def test_woe_unseen_uses_prior_logodds_not_zero():
     seen_encoded = enc.transform(["a"])[0]
     unseen_encoded = enc.transform(["__never_seen__"])[0]
     # Unseen must reflect the imbalanced prior; far from 0.0.
-    assert abs(unseen_encoded) > 1.0, (
-        f"Expected |unseen WoE| > 1 for 5%-positive prior; got {unseen_encoded}"
-    )
+    assert abs(unseen_encoded) > 1.0, f"Expected |unseen WoE| > 1 for 5%-positive prior; got {unseen_encoded}"
     # Distinguishable from seen-but-balanced cell.
     assert seen_encoded != unseen_encoded
 

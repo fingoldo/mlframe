@@ -4,10 +4,10 @@ Each pathology in the analyzer's contract is exercised against a synthetic
 distribution where the pathology is unambiguously present (positive case)
 plus a clean distribution where it must NOT trigger (negative case).
 """
+
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from mlframe.training.targets._target_distribution_analyzer import (
     TargetDistributionReport,
@@ -64,7 +64,7 @@ class TestHelperDetectors:
         # have |z|=0.949 < 1 (stationary). rho(1)=0, rho(2)=0.9.
         y = np.zeros(n, dtype=np.float64)
         for i in range(2, n):
-            y[i] = 0.9 * y[i-2] + rng.standard_normal() * 0.5
+            y[i] = 0.9 * y[i - 2] + rng.standard_normal() * 0.5
         ar, lag = _max_abs_lag_autocorr(y)
         assert abs(ar) > 0.5, f"expected strong autocorr at lag-2, got {ar} at lag {lag}"
         assert lag == 2, f"expected lag-2 to dominate, got lag={lag}"
@@ -92,10 +92,12 @@ class TestHelperDetectors:
 
     def test_multi_modal_bimodal_returns_true(self):
         rng = np.random.default_rng(7)
-        y = np.concatenate([
-            rng.normal(loc=-5, scale=0.5, size=2500),
-            rng.normal(loc=+5, scale=0.5, size=2500),
-        ])
+        y = np.concatenate(
+            [
+                rng.normal(loc=-5, scale=0.5, size=2500),
+                rng.normal(loc=+5, scale=0.5, size=2500),
+            ]
+        )
         is_mm, n_peaks, sep = _detect_multi_modal(y)
         assert is_mm is True, f"clean bimodal not flagged: n_peaks={n_peaks}, sep={sep}"
         assert n_peaks >= 2
@@ -165,29 +167,30 @@ class TestRegressionAnalyzer:
         # 1 huge group of 10_000 rows with strong AR(1) phi=0.95
         big_y = np.zeros(10_000, dtype=np.float64)
         for i in range(1, 10_000):
-            big_y[i] = 0.95 * big_y[i-1] + rng.standard_normal() * 0.5
+            big_y[i] = 0.95 * big_y[i - 1] + rng.standard_normal() * 0.5
         # 99 small groups of 100 rows each, all iid (no AR)
         small_groups = [rng.standard_normal(100) for _ in range(99)]
-        y = np.concatenate([big_y] + small_groups)
-        group_ids = np.concatenate([
-            np.zeros(10_000, dtype=np.int32),
-            np.repeat(np.arange(1, 100, dtype=np.int32), 100),
-        ])
+        y = np.concatenate([big_y, *small_groups])
+        group_ids = np.concatenate(
+            [
+                np.zeros(10_000, dtype=np.int32),
+                np.repeat(np.arange(1, 100, dtype=np.int32), 100),
+            ]
+        )
         rep = analyze_target_distribution(y, group_ids=group_ids, has_time_axis=False)
         # Fisher-z aggregates per-group correlations as INDIVIDUAL samples.
         # 1 group with AR=~0.95 + 99 with AR=~0 -> Fisher-z mean is dominated by
         # the 99 iid groups, so the aggregate AR should be near 0, NOT near 0.95.
         ar = rep.diagnostics.get("lag1_autocorr_per_group")
         assert ar is not None
-        assert abs(ar) < 0.3, (
-            f"Fisher-z aggregate should NOT inherit the single huge group's AR; got {ar:.3f}"
-        )
+        assert abs(ar) < 0.3, f"Fisher-z aggregate should NOT inherit the single huge group's AR; got {ar:.3f}"
 
     def test_per_group_ar_warns_on_disordered_group_rows(self, caplog):
         """When rows of the same group are scattered (not contiguous), the
         per-group AR detector silently false-negatives. The ordering check
         WARN-logs so the operator sees the assumption violation."""
         import logging
+
         rng = np.random.default_rng(801)
         # 50 groups, 100 rows each, true AR(1) phi=0.95 WITHIN each group.
         n_groups, rpg = 50, 100
@@ -199,19 +202,20 @@ class TestRegressionAnalyzer:
                 if i == 0:
                     y[idx] = rng.standard_normal()
                 else:
-                    y[idx] = 0.95 * y[idx-1] + rng.standard_normal() * 0.5
+                    y[idx] = 0.95 * y[idx - 1] + rng.standard_normal() * 0.5
         # Shuffle ALL rows so within-group sequence is destroyed.
         perm = rng.permutation(len(y))
         y_shuffled = y[perm]
         group_ids_shuffled = group_ids[perm]
         with caplog.at_level(logging.WARNING):
-            rep = analyze_target_distribution(
-                y_shuffled, group_ids=group_ids_shuffled, has_time_axis=False,
+            analyze_target_distribution(
+                y_shuffled,
+                group_ids=group_ids_shuffled,
+                has_time_axis=False,
             )
         msgs = " | ".join(r.getMessage() for r in caplog.records)
         assert "rows do not appear sorted by group" in msgs, (
-            "ordering-check WARN missing on shuffled data; per-group AR detector "
-            "would silently false-negative without surfacing the assumption violation."
+            "ordering-check WARN missing on shuffled data; per-group AR detector would silently false-negative without surfacing the assumption violation."
         )
 
     def test_strong_AR_per_group_when_time_axis_false_but_groups_supplied(self):
@@ -253,10 +257,12 @@ class TestRegressionAnalyzer:
 
     def test_multi_modal_flag(self):
         rng = np.random.default_rng(104)
-        y = np.concatenate([
-            rng.normal(-5, 0.5, 2500),
-            rng.normal(+5, 0.5, 2500),
-        ])
+        y = np.concatenate(
+            [
+                rng.normal(-5, 0.5, 2500),
+                rng.normal(+5, 0.5, 2500),
+            ]
+        )
         rep = analyze_target_distribution(y, has_time_axis=False)
         assert any("multi_modal" in p for p in rep.pathologies), rep.pathologies
 
@@ -288,9 +294,7 @@ class TestRegressionAnalyzer:
         # E5.2: clustered targets also recommend use_layernorm=False (per-row LayerNorm
         # destroys the between-row absolute-scale signal that the group label encodes).
         np_overrides = rep.knob_overrides.get("mlp_kwargs", {}).get("network_params", {})
-        assert np_overrides.get("use_layernorm") is False, (
-            f"E5.2: clustered target must also disable MLP LayerNorm; got {np_overrides}"
-        )
+        assert np_overrides.get("use_layernorm") is False, f"E5.2: clustered target must also disable MLP LayerNorm; got {np_overrides}"
 
     def test_clustered_target_skipped_without_group_ids(self):
         rng = np.random.default_rng(107)
@@ -326,11 +330,13 @@ class TestClassificationAnalyzer:
 
     def test_rare_class_flag(self):
         # Three classes, third one with only 50 samples (below the default 100 threshold).
-        y = np.concatenate([
-            np.zeros(2000, dtype=np.int32),
-            np.ones(1950, dtype=np.int32),
-            np.full(50, 2, dtype=np.int32),
-        ])
+        y = np.concatenate(
+            [
+                np.zeros(2000, dtype=np.int32),
+                np.ones(1950, dtype=np.int32),
+                np.full(50, 2, dtype=np.int32),
+            ]
+        )
         rep = analyze_target_distribution(y)
         assert any("rare_classes" in p for p in rep.pathologies), rep.pathologies
 
@@ -409,7 +415,7 @@ def test_lag_autocorr_matches_corrcoef_reference():
     that the strong-AR detector relies on."""
     from mlframe.training.targets._target_distribution_analyzer_stats import _lag_autocorr
 
-    rng = np.random.default_rng(5)
+    np.random.default_rng(5)
     for s in range(50):
         r = np.random.default_rng(s)
         y = np.cumsum(r.standard_normal(int(r.integers(50, 8000)))).astype(np.float64)

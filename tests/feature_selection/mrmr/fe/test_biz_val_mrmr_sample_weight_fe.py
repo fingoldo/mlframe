@@ -37,6 +37,7 @@ mechanism on the stamped attribute -- never "groups forwarded".
 Quantitative floors are calibrated from a measured development run (see each test's docstring) and
 set below the measured value to absorb seed noise without losing regression detection.
 """
+
 from __future__ import annotations
 
 import re
@@ -270,7 +271,7 @@ def test_biz_val_mrmr_int_weight_matches_row_duplication_engineered_values(ctor_
 
     common_eng = sorted(set(_engineered_names(sel_a)) & set(_engineered_names(sel_b)))
     if not common_eng:
-        pytest.skip("no engineered column name common to both fits " f"(dup={_engineered_names(sel_a)} sw={_engineered_names(sel_b)})")
+        pytest.skip(f"no engineered column name common to both fits (dup={_engineered_names(sel_a)} sw={_engineered_names(sel_b)})")
 
     probe = df.iloc[:30].copy()
     out_a = sel_a.transform(probe)
@@ -286,7 +287,7 @@ def test_biz_val_mrmr_int_weight_matches_row_duplication_engineered_values(ctor_
         vb = np.asarray(out_b[cols_b[name]], dtype=float)
         checked += 1
         assert np.allclose(va, vb, rtol=1e-6, atol=1e-8), (
-            f"engineered column {name!r} replay diverges between duplication and sample_weight: " f"maxdiff={np.max(np.abs(va - vb)):.6g}"
+            f"engineered column {name!r} replay diverges between duplication and sample_weight: maxdiff={np.max(np.abs(va - vb)):.6g}"
         )
     if checked == 0:
         pytest.skip("common engineered names not present as transform output columns")
@@ -322,7 +323,7 @@ def test_biz_val_mrmr_groups_warns_and_stamps_ignored_per_mechanism(ctor_kw, nee
         sel = MRMR(strict_groups=False, **kw).fit(df, ys, groups=groups)
 
     assert getattr(sel, "groups_ignored_", None) is True, (
-        "default-path groups must stamp groups_ignored_=True; " f"got {getattr(sel, 'groups_ignored_', 'MISSING')!r}"
+        f"default-path groups must stamp groups_ignored_=True; got {getattr(sel, 'groups_ignored_', 'MISSING')!r}"
     )
     # Liveness: the fit must produce a non-empty selection that recovers the signal. We assert on the SIGNAL
     # (raw or engineered), NOT ">=1 raw column": with FE enabled the path can legitimately return an

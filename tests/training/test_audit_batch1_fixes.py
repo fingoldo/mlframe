@@ -12,6 +12,7 @@
     LENGTH (``finite.size``); a mostly-NaN y must not get a tight envelope
     estimated from a handful of points.
 """
+
 from __future__ import annotations
 
 import glob
@@ -27,13 +28,9 @@ def test_xgb_config_uses_random_state_not_random_seed():
 
     cfg = get_training_configs(random_seed=42)
     xgb = cfg.XGB_GENERAL_PARAMS
-    assert xgb.get("random_state") == 42, (
-        f"XGB params must carry the seed under 'random_state'; got {xgb.get('random_state')!r}"
-    )
+    assert xgb.get("random_state") == 42, f"XGB params must carry the seed under 'random_state'; got {xgb.get('random_state')!r}"
     # ``random_seed`` is the key XGBoost ignores; it must NOT be the seed carrier.
-    assert "random_seed" not in xgb, (
-        "'random_seed' is silently ignored by XGBoost -- it must not be the seed carrier"
-    )
+    assert "random_seed" not in xgb, "'random_seed' is silently ignored by XGBoost -- it must not be the seed carrier"
     # The key we now emit is actually honored by XGBoost's sklearn API.
     xgboost = pytest.importorskip("xgboost")
     m = xgboost.XGBClassifier(random_state=xgb["random_state"])
@@ -52,10 +49,16 @@ def test_save_split_artifacts_positional_on_non_rangeindex(tmp_path):
     train_idx = np.array([0, 1, 2])  # positional rows 0,1,2
 
     save_split_artifacts(
-        train_idx=train_idx, val_idx=None, test_idx=None,
-        timestamps=ts, group_ids_raw=gid, artifacts=None,
-        data_dir=str(tmp_path), models_dir="models",
-        target_name="t", model_name="m",
+        train_idx=train_idx,
+        val_idx=None,
+        test_idx=None,
+        timestamps=ts,
+        group_ids_raw=gid,
+        artifacts=None,
+        data_dir=str(tmp_path),
+        models_dir="models",
+        target_name="t",
+        model_name="m",
     )
 
     ts_files = glob.glob(os.path.join(str(tmp_path), "**", "train_timestamps.parquet"), recursive=True)
@@ -63,8 +66,8 @@ def test_save_split_artifacts_positional_on_non_rangeindex(tmp_path):
     saved = pd.read_parquet(ts_files[0])
     saved_vals = pd.to_datetime(saved.iloc[:, 0]).to_numpy()
 
-    expected = pd.to_datetime(ts.iloc[train_idx].to_numpy()).to_numpy()       # positional (correct)
-    label_based = pd.to_datetime(ts.loc[train_idx].to_numpy()).to_numpy()      # what the bug produced
+    expected = pd.to_datetime(ts.iloc[train_idx].to_numpy()).to_numpy()  # positional (correct)
+    label_based = pd.to_datetime(ts.loc[train_idx].to_numpy()).to_numpy()  # what the bug produced
     np.testing.assert_array_equal(saved_vals, expected)
     # Discriminating guard: positional and label-based selections genuinely differ here,
     # so this test would FAIL on the pre-fix label-based path.
@@ -76,20 +79,20 @@ def test_composite_from_fitted_inner_envelope_gates_on_finite_count():
 
     from mlframe.training.composite.estimator._estimator import CompositeTargetEstimator
 
-    inner = LinearRegression().fit(
-        np.arange(20, dtype=float).reshape(-1, 1), np.arange(20, dtype=float)
-    )
+    inner = LinearRegression().fit(np.arange(20, dtype=float).reshape(-1, 1), np.arange(20, dtype=float))
     # 100 rows, only 3 finite -> finite.sum()=3 < 10 -> must NOT build a tight
     # envelope (pre-fix finite.size=100 >= 10 fired and used std of 3 points).
     y = np.full(100, np.nan)
     y[:3] = [10.0, 11.0, 12.0]
 
     est = CompositeTargetEstimator.from_fitted_inner(
-        fitted_inner=inner, transform_name="cbrt_y", base_column="y",
-        transform_fitted_params={}, y_train=y,
+        fitted_inner=inner,
+        transform_name="cbrt_y",
+        base_column="y",
+        transform_fitted_params={},
+        y_train=y,
     )
     fp = est.fitted_params_
     assert fp["t_clip_low"] == float("-inf") and fp["t_clip_high"] == float("inf"), (
-        f"mostly-NaN y (3 finite < 10) must leave the T-clip envelope open; "
-        f"got [{fp['t_clip_low']}, {fp['t_clip_high']}]"
+        f"mostly-NaN y (3 finite < 10) must leave the T-clip envelope open; got [{fp['t_clip_low']}, {fp['t_clip_high']}]"
     )

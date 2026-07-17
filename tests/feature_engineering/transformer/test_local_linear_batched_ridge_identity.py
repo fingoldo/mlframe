@@ -16,6 +16,7 @@ float32; the divergence is pure reduction order, well under any value/selection 
 A future revert to a different regression (wrong centering, missing ridge term, transposed
 einsum, mis-scattered intercept/r2) breaks the tolerance and fails here.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -43,7 +44,7 @@ def _fake_build(pool, **kwargs):
 def _fake_query(index: _ExactKNN, anchor: np.ndarray, k: int):
     a = np.asarray(anchor, dtype=np.float64)
     an = a / np.maximum(np.linalg.norm(a, axis=1, keepdims=True), 1e-12)
-    sims = an @ index.unit.T              # (n_anchor, n_pool), cosine similarity
+    sims = an @ index.unit.T  # (n_anchor, n_pool), cosine similarity
     ids = np.argsort(-sims, axis=1, kind="stable")[:, :k].astype(np.int64)
     dists = np.take_along_axis(1.0 - sims, ids, axis=1).astype(np.float32)
     return ids, dists
@@ -72,11 +73,14 @@ def _old_reference(X_neighbour_pool, y_neighbour_pool, topk_ids, d, return_r2, r
     return out
 
 
-@pytest.mark.parametrize("seed,n_train,d,k,return_r2", [
-    (0, 400, 8, 32, True),
-    (1, 500, 6, 24, True),
-    (2, 300, 4, 16, False),
-])
+@pytest.mark.parametrize(
+    "seed,n_train,d,k,return_r2",
+    [
+        (0, 400, 8, 32, True),
+        (1, 500, 6, 24, True),
+        (2, 300, 4, 16, False),
+    ],
+)
 def test_local_linear_batched_matches_per_row_ridge(monkeypatch, seed, n_train, d, k, return_r2):
     monkeypatch.setattr(ll_mod, "build_hnsw_index", _fake_build)
     monkeypatch.setattr(ll_mod, "query_topk", _fake_query)
@@ -89,14 +93,22 @@ def test_local_linear_batched_matches_per_row_ridge(monkeypatch, seed, n_train, 
     dtype = np.float32
     ridge_alpha = 1e-3
     df = compute_local_linear_attention(
-        X_train, y_train, X_query, splitter=None,
-        seed=seed, k=k, ridge_alpha=ridge_alpha, standardize=True,
-        return_r2=return_r2, dtype=dtype,
+        X_train,
+        y_train,
+        X_query,
+        splitter=None,
+        seed=seed,
+        k=k,
+        ridge_alpha=ridge_alpha,
+        standardize=True,
+        return_r2=return_r2,
+        dtype=dtype,
     )
     new = df.to_numpy()
 
     # Reproduce the standardisation + neighbour blocks the module used, then run the OLD reference.
     from sklearn.preprocessing import RobustScaler
+
     scaler = RobustScaler().fit(X_train)
     Xt_s = scaler.transform(X_train).astype(dtype, copy=False)
     Xq_s = scaler.transform(X_query).astype(dtype, copy=False)

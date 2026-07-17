@@ -8,6 +8,7 @@
 - E17: the T-clip hit counts must surface in runtime_stats_ / the callback
   payload (predict AND predict_quantile) instead of being logged-then-discarded.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -37,9 +38,7 @@ class _ConstQuantileInner(BaseEstimator, RegressorMixin):
         n = X.shape[0]
         if np.isscalar(alpha):
             return np.full(n, self._mean_t, dtype=np.float64)
-        return np.column_stack(
-            [np.full(n, self._mean_t + float(a) - 0.5) for a in alpha]
-        )
+        return np.column_stack([np.full(n, self._mean_t + float(a) - 0.5) for a in alpha])
 
 
 class _BlowupQuantileInner(BaseEstimator, RegressorMixin):

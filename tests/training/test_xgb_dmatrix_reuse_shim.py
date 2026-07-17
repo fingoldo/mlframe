@@ -50,6 +50,7 @@ try:
         XGBRegressorWithDMatrixReuse,
         xgb_dmatrix_reuse_capable,
     )
+
     SHIM_AVAILABLE = True
 except ImportError:
     SHIM_AVAILABLE = False
@@ -64,18 +65,21 @@ pytestmark = pytest.mark.skipif(
 # Fixtures
 # =====================================================================
 
+
 @pytest.fixture
 def small_classification_data():
     """Tiny but real classification dataset — converges in a few trees."""
     rng = np.random.default_rng(0)
     n = 500
-    X = pd.DataFrame({
-        "f0": rng.standard_normal(n).astype(np.float32),
-        "f1": rng.standard_normal(n).astype(np.float32),
-        "f2": rng.standard_normal(n).astype(np.float32),
-        "f3": rng.standard_normal(n).astype(np.float32),
-        "f4": rng.standard_normal(n).astype(np.float32),
-    })
+    X = pd.DataFrame(
+        {
+            "f0": rng.standard_normal(n).astype(np.float32),
+            "f1": rng.standard_normal(n).astype(np.float32),
+            "f2": rng.standard_normal(n).astype(np.float32),
+            "f3": rng.standard_normal(n).astype(np.float32),
+            "f4": rng.standard_normal(n).astype(np.float32),
+        }
+    )
     # Make target depend on features so the model learns something.
     y = ((X["f0"] + X["f1"] - X["f2"]) > 0).astype(np.int32).to_numpy()
     return X, y
@@ -85,9 +89,7 @@ def small_classification_data():
 def small_regression_data():
     rng = np.random.default_rng(0)
     n = 500
-    X = pd.DataFrame({
-        f"f{i}": rng.standard_normal(n).astype(np.float32) for i in range(5)
-    })
+    X = pd.DataFrame({f"f{i}": rng.standard_normal(n).astype(np.float32) for i in range(5)})
     y = (X["f0"] * 2 - X["f2"] + rng.standard_normal(n) * 0.1).to_numpy(np.float32)
     return X, y
 
@@ -96,6 +98,7 @@ def small_regression_data():
 # 1. API parity with XGBClassifier (drop-in replacement)
 # =====================================================================
 
+
 class TestXGBClassifierShimAPIParity:
     """Shim must look like XGBClassifier to all callers — sklearn clone,
     feature importance, predict, predict_proba, etc."""
@@ -103,13 +106,14 @@ class TestXGBClassifierShimAPIParity:
     def test_subclass_of_XGBClassifier(self):
         m = XGBClassifierWithDMatrixReuse(n_estimators=3)
         assert isinstance(m, XGBClassifier), (
-            "shim must subclass XGBClassifier so isinstance checks "
-            "downstream (sklearn pipelines, mlframe strategy) keep passing"
+            "shim must subclass XGBClassifier so isinstance checks downstream (sklearn pipelines, mlframe strategy) keep passing"
         )
 
     def test_get_params_includes_xgb_params(self):
         m = XGBClassifierWithDMatrixReuse(
-            n_estimators=7, max_depth=4, learning_rate=0.1,
+            n_estimators=7,
+            max_depth=4,
+            learning_rate=0.1,
         )
         params = m.get_params()
         assert params["n_estimators"] == 7
@@ -124,6 +128,7 @@ class TestXGBClassifierShimAPIParity:
 
     def test_sklearn_clone_round_trip(self):
         from sklearn.base import clone
+
         m = XGBClassifierWithDMatrixReuse(n_estimators=7, max_depth=4)
         c = clone(m)
         assert isinstance(c, XGBClassifierWithDMatrixReuse)
@@ -135,7 +140,9 @@ class TestXGBClassifierShimAPIParity:
     def test_fit_predict_predict_proba_run(self, small_classification_data):
         X, y = small_classification_data
         m = XGBClassifierWithDMatrixReuse(
-            n_estimators=5, max_depth=3, learning_rate=0.3,
+            n_estimators=5,
+            max_depth=3,
+            learning_rate=0.3,
         )
         m.fit(X, y)
         preds = m.predict(X)
@@ -171,6 +178,7 @@ class TestXGBClassifierShimAPIParity:
 # 2. Predict parity vs vanilla XGBClassifier
 # =====================================================================
 
+
 class TestXGBClassifierShimPredictParity:
     """The shim must produce IDENTICAL predictions to a vanilla
     XGBClassifier under the same hyperparameters and seed — within
@@ -181,8 +189,11 @@ class TestXGBClassifierShimPredictParity:
     def test_proba_matches_vanilla_xgbclassifier(self, small_classification_data, seed):
         X, y = small_classification_data
         params = dict(
-            n_estimators=10, max_depth=3, learning_rate=0.3,
-            random_state=seed, tree_method="hist",
+            n_estimators=10,
+            max_depth=3,
+            learning_rate=0.3,
+            random_state=seed,
+            tree_method="hist",
         )
         ref = XGBClassifier(**params)
         ref.fit(X, y)
@@ -193,17 +204,17 @@ class TestXGBClassifierShimPredictParity:
         shim_proba = shim.predict_proba(X)
 
         np.testing.assert_allclose(
-            shim_proba, ref_proba, atol=1e-5,
-            err_msg=(
-                "shim predictions diverged from vanilla XGBClassifier — "
-                "the DMatrix-reuse fit path is not numerically equivalent"
-            ),
+            shim_proba,
+            ref_proba,
+            atol=1e-5,
+            err_msg=("shim predictions diverged from vanilla XGBClassifier — the DMatrix-reuse fit path is not numerically equivalent"),
         )
 
 
 # =====================================================================
 # 3. DMatrix cache — reuse / miss / reset semantics
 # =====================================================================
+
 
 class TestXGBDMatrixReuse:
     """The cache must hit on identical X and miss on different X.
@@ -228,9 +239,7 @@ class TestXGBDMatrixReuse:
         # identity preserved.
         m.fit(X, y)
         second_dmatrix_id = id(m._cached_train_dmatrix)
-        assert first_dmatrix_id == second_dmatrix_id, (
-            "DMatrix was rebuilt on second fit with same X — cache miss"
-        )
+        assert first_dmatrix_id == second_dmatrix_id, "DMatrix was rebuilt on second fit with same X — cache miss"
 
     def test_second_fit_different_data_misses_cache(self, small_classification_data):
         X, y = small_classification_data
@@ -243,22 +252,18 @@ class TestXGBDMatrixReuse:
         y2 = y[:100]
         m.fit(X2, y2)
         second_dmatrix_id = id(m._cached_train_dmatrix)
-        assert first_dmatrix_id != second_dmatrix_id, (
-            "DMatrix was reused for a different-shape X — cache key bug"
-        )
+        assert first_dmatrix_id != second_dmatrix_id, "DMatrix was reused for a different-shape X — cache key bug"
 
     def test_clone_resets_cache(self, small_classification_data):
         from sklearn.base import clone
+
         X, y = small_classification_data
         m = XGBClassifierWithDMatrixReuse(n_estimators=3)
         m.fit(X, y)
         assert m._cached_train_dmatrix is not None
 
         c = clone(m)
-        assert c._cached_train_dmatrix is None, (
-            "cloned shim still carries the original's DMatrix cache — "
-            "sklearn.clone() must produce a fresh instance"
-        )
+        assert c._cached_train_dmatrix is None, "cloned shim still carries the original's DMatrix cache — sklearn.clone() must produce a fresh instance"
 
     def test_eval_set_dmatrix_also_cached(self, small_classification_data):
         X, y = small_classification_data
@@ -275,6 +280,7 @@ class TestXGBDMatrixReuse:
 # 4. In-place set_label / set_weight on cached DMatrix
 # =====================================================================
 
+
 class TestXGBShimSetLabelSetWeight:
     """Public extras: ``.set_label(y)`` / ``.set_weight(w)`` mutate the
     cached DMatrix in place, no rebuild. Tested by checking the
@@ -290,11 +296,10 @@ class TestXGBShimSetLabelSetWeight:
         m.set_weight(new_weight)
         dmatrix_id_after = id(m._cached_train_dmatrix)
 
-        assert dmatrix_id_before == dmatrix_id_after, (
-            "set_weight rebuilt the DMatrix — must be in-place"
-        )
+        assert dmatrix_id_before == dmatrix_id_after, "set_weight rebuilt the DMatrix — must be in-place"
         np.testing.assert_array_equal(
-            m._cached_train_dmatrix.get_weight(), new_weight,
+            m._cached_train_dmatrix.get_weight(),
+            new_weight,
         )
 
     def test_set_label_mutates_in_place(self, small_classification_data):
@@ -309,7 +314,8 @@ class TestXGBShimSetLabelSetWeight:
 
         assert dmatrix_id_before == dmatrix_id_after
         np.testing.assert_array_equal(
-            m._cached_train_dmatrix.get_label(), new_label,
+            m._cached_train_dmatrix.get_label(),
+            new_label,
         )
 
     def test_set_weight_before_fit_raises(self):
@@ -318,7 +324,8 @@ class TestXGBShimSetLabelSetWeight:
             m.set_weight(np.ones(10))
 
     def test_second_fit_with_different_weight_does_not_rebuild(
-        self, small_classification_data,
+        self,
+        small_classification_data,
     ):
         """Most valuable use case: second fit with same X but new
         sample_weight reuses the cached DMatrix and just swaps weight
@@ -337,15 +344,14 @@ class TestXGBShimSetLabelSetWeight:
         second_dmatrix_id = id(m._cached_train_dmatrix)
 
         assert first_dmatrix_id == second_dmatrix_id, (
-            "Second fit with new sample_weight rebuilt the DMatrix — "
-            "the in-place set_weight path is not firing. This was the "
-            "prod-log saving target."
+            "Second fit with new sample_weight rebuilt the DMatrix — the in-place set_weight path is not firing. This was the prod-log saving target."
         )
 
 
 # =====================================================================
 # 5. xgb_dmatrix_reuse_capable() — capability gate
 # =====================================================================
+
 
 class TestXGBReuseCapability:
     def test_capability_check_returns_bool(self):
@@ -363,6 +369,7 @@ class TestXGBReuseCapability:
 # 6. XGBRegressor variant — same contract
 # =====================================================================
 
+
 class TestXGBRegressorShim:
     def test_subclass_of_XGBRegressor(self):
         m = XGBRegressorWithDMatrixReuse(n_estimators=3)
@@ -371,8 +378,11 @@ class TestXGBRegressorShim:
     def test_predict_parity_with_vanilla(self, small_regression_data):
         X, y = small_regression_data
         params = dict(
-            n_estimators=10, max_depth=3, learning_rate=0.3,
-            random_state=0, tree_method="hist",
+            n_estimators=10,
+            max_depth=3,
+            learning_rate=0.3,
+            random_state=0,
+            tree_method="hist",
         )
         ref = XGBRegressor(**params)
         ref.fit(X, y)
@@ -383,7 +393,9 @@ class TestXGBRegressorShim:
         shim_pred = shim.predict(X)
 
         np.testing.assert_allclose(
-            shim_pred, ref_pred, atol=1e-5,
+            shim_pred,
+            ref_pred,
+            atol=1e-5,
             err_msg="regressor shim diverged from vanilla XGBRegressor",
         )
 
@@ -400,6 +412,7 @@ class TestXGBRegressorShim:
 # 7. Edge cases
 # =====================================================================
 
+
 class TestXGBShimEdgeCases:
     def test_eval_set_changing_X_misses_val_cache(self, small_classification_data):
         X, y = small_classification_data
@@ -413,9 +426,7 @@ class TestXGBShimEdgeCases:
         first_val_id = id(m._cached_val_dmatrix)
         m.fit(X, y, eval_set=[(X_val_b, y_val_b)])
         second_val_id = id(m._cached_val_dmatrix)
-        assert first_val_id != second_val_id, (
-            "val DMatrix was reused for a different X_val — cache key bug"
-        )
+        assert first_val_id != second_val_id, "val DMatrix was reused for a different X_val — cache key bug"
 
     def test_sample_weight_round_trip_on_first_fit(self, small_classification_data):
         X, y = small_classification_data
@@ -424,7 +435,8 @@ class TestXGBShimEdgeCases:
         m.fit(X, y, sample_weight=sw)
         # Cached DMatrix carries the weight set on construction.
         np.testing.assert_array_equal(
-            m._cached_train_dmatrix.get_weight(), sw,
+            m._cached_train_dmatrix.get_weight(),
+            sw,
         )
 
     def test_no_warnings_on_repeat_fit(self, small_classification_data):
@@ -437,17 +449,14 @@ class TestXGBShimEdgeCases:
             m.fit(X, y, sample_weight=np.ones(len(y)))
         # Filter to user/runtime warnings (XGBoost may emit deprecation
         # noise from the underlying C++ during reuse — that's not ours).
-        ours = [w for w in caught if issubclass(w.category, (UserWarning, RuntimeWarning))
-                and "shim" in str(w.message).lower()]
-        assert not ours, (
-            f"shim emitted spurious warnings on repeat fit: "
-            f"{[str(w.message) for w in ours]}"
-        )
+        ours = [w for w in caught if issubclass(w.category, (UserWarning, RuntimeWarning)) and "shim" in str(w.message).lower()]
+        assert not ours, f"shim emitted spurious warnings on repeat fit: {[str(w.message) for w in ours]}"
 
 
 # =====================================================================
 # 8. End-to-end integration through train_mlframe_models_suite
 # =====================================================================
+
 
 class TestXGBShimIntegrationWithMlframeSuite:
     """Suite-level tests that the shim is wired into ``_configure_xgboost_params``
@@ -482,7 +491,8 @@ class TestXGBShimIntegrationWithMlframeSuite:
         point and a future revert (after upstream PR lands) is one
         flag-flip away.
         """
-        from mlframe.training import OutputConfig, PreprocessingConfig, trainer as tr_mod
+        from mlframe.training import trainer as tr_mod
+
         monkeypatch.setattr(tr_mod, "USE_XGB_DMATRIX_REUSE_SHIM", False)
 
         clf = tr_mod._xgb_classifier_cls()
@@ -513,18 +523,17 @@ class TestXGBShimIntegrationWithMlframeSuite:
 
         rng = np.random.default_rng(0)
         n = 400
-        ts_pd = pd.Series([
-            pd.Timestamp("2022-01-01") + pd.Timedelta(days=int(i // 8))
-            for i in range(n)
-        ])
+        ts_pd = pd.Series([pd.Timestamp("2022-01-01") + pd.Timedelta(days=int(i // 8)) for i in range(n)])
         recency = np.linspace(0.1, 1.0, n).astype(np.float32)
-        pl_df = pl.DataFrame({
-            "f0": rng.standard_normal(n).astype(np.float32),
-            "f1": rng.standard_normal(n).astype(np.float32),
-            "f2": rng.standard_normal(n).astype(np.float32),
-            "ts": pl.Series(ts_pd.values).cast(pl.Datetime("us")),
-            "target": rng.integers(0, 2, n),
-        })
+        pl_df = pl.DataFrame(
+            {
+                "f0": rng.standard_normal(n).astype(np.float32),
+                "f1": rng.standard_normal(n).astype(np.float32),
+                "f2": rng.standard_normal(n).astype(np.float32),
+                "ts": pl.Series(ts_pd.values).cast(pl.Datetime("us")),
+                "target": rng.integers(0, 2, n),
+            }
+        )
         fte = TimestampedFeaturesExtractor(
             target_column="target",
             regression=False,
@@ -574,11 +583,7 @@ class TestXGBShimIntegrationWithMlframeSuite:
         #     process-wide module cache.
         # Both prove the cache wiring works across the weight-schema loop;
         # match either form.
-        reuse_msgs = [
-            m for m in records
-            if "reused cached train DMatrix" in m
-            or "reused instance cached train DMatrix" in m
-        ]
+        reuse_msgs = [m for m in records if "reused cached train DMatrix" in m or "reused instance cached train DMatrix" in m]
         # With 2 weight schemas (uniform + recency), we expect:
         #   - 1 build on the first fit (uniform);
         #   - 1 reuse on the second (recency, same train_df_polars id).
@@ -599,6 +604,7 @@ class TestXGBShimIntegrationWithMlframeSuite:
 # 9. Source-level checks: shim cache hand-off across sklearn.clone()
 #    in core.py's strategy/weight-schema loop
 # =====================================================================
+
 
 class TestXGBShimCacheHandoffInCoreLoop:
     """The shim's per-instance cache (``_cached_train_dmatrix`` etc.)
@@ -631,8 +637,7 @@ class TestXGBShimCacheHandoffInCoreLoop:
             "_cached_val_key",
         ):
             assert _attr in _DATASET_REUSE_CACHE_ATTRS, (
-                f"{_attr!r} missing from the canonical cache attribute tuple; the shim toggle's "
-                f"single switching point is broken."
+                f"{_attr!r} missing from the canonical cache attribute tuple; the shim toggle's single switching point is broken."
             )
 
         class _Bag:
@@ -642,8 +647,8 @@ class TestXGBShimCacheHandoffInCoreLoop:
         cloned = _Bag()
         sentinel_dmatrix = object()
         sentinel_key = ("h0", "h1")
-        setattr(template, "_cached_train_dmatrix", sentinel_dmatrix)
-        setattr(template, "_cached_train_key", sentinel_key)
+        template._cached_train_dmatrix = sentinel_dmatrix
+        template._cached_train_key = sentinel_key
 
         _forward_dataset_reuse_cache(template, cloned)
         assert getattr(cloned, "_cached_train_dmatrix") is sentinel_dmatrix
@@ -663,14 +668,14 @@ class TestXGBShimCacheHandoffInCoreLoop:
         template = _Bag()
         cloned = _Bag()
         # Pre-fit template has nothing; post-fit clone has a populated cache.
-        setattr(template, "_cached_train_dmatrix", None)
-        setattr(cloned, "_cached_train_dmatrix", "post_fit_dmatrix")
+        template._cached_train_dmatrix = None
+        cloned._cached_train_dmatrix = "post_fit_dmatrix"
         _forward_dataset_reuse_cache(cloned, template)
         assert getattr(template, "_cached_train_dmatrix") == "post_fit_dmatrix"
 
         # skip_none variant: clone-side None must not blank template's pre-existing cache.
-        setattr(template, "_cached_train_dmatrix", "kept_value")
-        setattr(cloned, "_cached_train_dmatrix", None)
+        template._cached_train_dmatrix = "kept_value"
+        cloned._cached_train_dmatrix = None
         _forward_dataset_reuse_cache(cloned, template, skip_none=True)
         assert getattr(template, "_cached_train_dmatrix") == "kept_value"
 
@@ -703,12 +708,15 @@ class TestXGBShimCacheHandoffInCoreLoop:
 
         # Inspect the function signature and build a minimal-but-valid kwargs map.
         import inspect as _inspect
+
         sig = _inspect.signature(tr_mod._configure_xgboost_params)
         configs = tr_mod.get_training_configs(has_time=False)
         # Build kwargs by name with safe defaults for any param we can't infer.
         base = {
-            "configs": configs, "cpu_configs": configs,
-            "use_regression": False, "prefer_cpu_for_xgboost": True,
+            "configs": configs,
+            "cpu_configs": configs,
+            "use_regression": False,
+            "prefer_cpu_for_xgboost": True,
             "prefer_calibrated_classifiers": False,
             "metamodel_func": lambda m: m,
         }
@@ -741,6 +749,7 @@ class TestXGBShimCacheHandoffInCoreLoop:
 #     cached DMatrix (ctypes pointers) blocked model save
 # =====================================================================
 
+
 class TestXGBShimPickleAndCacheLifecycle:
     """The 2026-04-24 prod log captured:
 
@@ -762,7 +771,9 @@ class TestXGBShimPickleAndCacheLifecycle:
     """
 
     def test_joblib_dump_load_round_trip(
-        self, small_classification_data, tmp_path,
+        self,
+        small_classification_data,
+        tmp_path,
     ):
         """Full joblib round-trip — the exact call path mlframe.training.io
         uses (``joblib.dump`` / ``joblib.load``). Before the 2026-04-24
@@ -772,12 +783,12 @@ class TestXGBShimPickleAndCacheLifecycle:
 
         X, y = small_classification_data
         m = XGBClassifierWithDMatrixReuse(
-            n_estimators=3, max_depth=3, tree_method="hist",
+            n_estimators=3,
+            max_depth=3,
+            tree_method="hist",
         )
         m.fit(X, y)
-        assert m._cached_train_dmatrix is not None, (
-            "precondition: fit must populate the cache"
-        )
+        assert m._cached_train_dmatrix is not None, "precondition: fit must populate the cache"
 
         fpath = tmp_path / "shim.dump"
         # This is the operation that used to fail in prod.
@@ -786,7 +797,9 @@ class TestXGBShimPickleAndCacheLifecycle:
         loaded = joblib.load(fpath)
         # Loaded model produces the same predictions as the live one.
         np.testing.assert_allclose(
-            loaded.predict_proba(X), m.predict_proba(X), atol=1e-6,
+            loaded.predict_proba(X),
+            m.predict_proba(X),
+            atol=1e-6,
             err_msg="reloaded shim diverged from live shim",
         )
         # Cache is NOT inherited across save/load — it's transient state.
@@ -813,9 +826,7 @@ class TestXGBShimPickleAndCacheLifecycle:
             "_cached_val_key",
         ):
             assert state.get(_attr) is None, (
-                f"__getstate__ must null {_attr!r} before pickling — "
-                f"the QuantileDMatrix holds ctypes pointers that can't "
-                f"be serialised."
+                f"__getstate__ must null {_attr!r} before pickling — the QuantileDMatrix holds ctypes pointers that can't be serialised."
             )
         # But the LIVE instance's cache is untouched — getstate must
         # not have mutated ``self.__dict__`` as a side effect.
@@ -829,10 +840,7 @@ class TestXGBShimPickleAndCacheLifecycle:
         m = XGBClassifierWithDMatrixReuse(n_estimators=3)
 
         # Simulate an ancient state dict that lacked the cache attrs.
-        legacy_state = {
-            k: v for k, v in m.__getstate__().items()
-            if not k.startswith("_cached_")
-        }
+        legacy_state = {k: v for k, v in m.__getstate__().items() if not k.startswith("_cached_")}
         assert not any(k.startswith("_cached_") for k in legacy_state)
 
         # Fresh instance, load legacy state.
@@ -845,10 +853,7 @@ class TestXGBShimPickleAndCacheLifecycle:
             "_cached_train_key",
             "_cached_val_key",
         ):
-            assert hasattr(m2, _attr), (
-                f"__setstate__ must re-init {_attr!r} for backward "
-                f"compatibility with pre-fix saves"
-            )
+            assert hasattr(m2, _attr), f"__setstate__ must re-init {_attr!r} for backward compatibility with pre-fix saves"
             assert getattr(m2, _attr) is None
 
     def test_clear_cache_releases_dmatrix(self, small_classification_data):
@@ -875,9 +880,7 @@ class TestXGBShimPickleAndCacheLifecycle:
         m.fit(X, y)
         m.clear_cache()
         m.fit(X, y)
-        assert m._cached_train_dmatrix is not None, (
-            "cache should rebuild on the fit after clear_cache"
-        )
+        assert m._cached_train_dmatrix is not None, "cache should rebuild on the fit after clear_cache"
 
     def test_regressor_shim_also_pickles(self, small_regression_data, tmp_path):
         """Regressor variant has the same pickle contract as the
@@ -886,20 +889,25 @@ class TestXGBShimPickleAndCacheLifecycle:
 
         X, y = small_regression_data
         m = XGBRegressorWithDMatrixReuse(
-            n_estimators=3, max_depth=3, tree_method="hist",
+            n_estimators=3,
+            max_depth=3,
+            tree_method="hist",
         )
         m.fit(X, y)
         fpath = tmp_path / "regressor_shim.dump"
         joblib.dump(m, fpath)
         loaded = joblib.load(fpath)
         np.testing.assert_allclose(
-            loaded.predict(X), m.predict(X), atol=1e-6,
+            loaded.predict(X),
+            m.predict(X),
+            atol=1e-6,
         )
 
 
 # =====================================================================
 # 11. Auto-clear_cache at end of strategy iter in core.py suite loop
 # =====================================================================
+
 
 class TestCoreAutoClearsShimCacheAtStrategyEnd:
     """The shim holds ~8 GB of QuantileDMatrix memory on prod-size
@@ -927,9 +935,7 @@ class TestCoreAutoClearsShimCacheAtStrategyEnd:
         assert m._cached_train_dmatrix is not None, "shim cache must be populated after fit"
 
         _maybe_clear_shim_cache(m)
-        assert m._cached_train_dmatrix is None, (
-            "auto-clear helper failed to wipe shim cache; RAM leak path reintroduced."
-        )
+        assert m._cached_train_dmatrix is None, "auto-clear helper failed to wipe shim cache; RAM leak path reintroduced."
 
     def test_duck_typing_skips_non_shim_estimators(self):
         """Safety: the helper uses duck-typing via ``callable(clear_cache)``,
@@ -937,13 +943,14 @@ class TestCoreAutoClearsShimCacheAtStrategyEnd:
         silently skipped. Verify by calling the same pattern on a
         vanilla XGBClassifier (which has no ``clear_cache``) — must be
         a no-op without raising."""
+
         # Inline helper mirroring core.py's _maybe_clear_shim_cache.
         def _probe(est):
             fn = getattr(est, "clear_cache", None)
             if callable(fn):
                 try:
                     fn()
-                except Exception:
+                except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
                     pass
 
         # Vanilla XGBClassifier — no shim → no clear_cache → silent no-op.
@@ -957,6 +964,7 @@ class TestCoreAutoClearsShimCacheAtStrategyEnd:
         class _Boom:
             def clear_cache(self):
                 raise RuntimeError("boom")
+
         _probe(_Boom())  # must not raise (try/except swallows)
 
     def test_shim_clear_cache_preserves_booster(self, small_classification_data):
@@ -989,7 +997,7 @@ class TestCoreAutoClearsShimCacheAtStrategyEnd:
         from types import SimpleNamespace
         from mlframe.models import ensembling as ens_mod
 
-        X, y = small_classification_data
+        X, _y = small_classification_data
 
         class _PoisonModel:
             def predict_proba(self, _X):
@@ -1003,8 +1011,11 @@ class TestCoreAutoClearsShimCacheAtStrategyEnd:
         probs_val = np.full((len(X), 2), 0.5)
         probs_test = np.full((len(X), 2), 0.5)
         member = SimpleNamespace(
-            model=_PoisonModel(), val_probs=probs_val, test_probs=probs_test,
-            target_type="binary", model_name="poison",
+            model=_PoisonModel(),
+            val_probs=probs_val,
+            test_probs=probs_test,
+            target_type="binary",
+            model_name="poison",
         )
         # Locate the hot-path callable; tolerate either name (single-method or process).
         hot = getattr(ens_mod, "_process_single_ensemble_method", None)
@@ -1016,13 +1027,14 @@ class TestCoreAutoClearsShimCacheAtStrategyEnd:
         try:
             # Best-effort invocation: pass member-list-shaped arg if signature allows.
             import inspect as _inspect
+
             sig = _inspect.signature(hot)
             if "members" in sig.parameters or "level_models_and_predictions" in sig.parameters:
                 key = "members" if "members" in sig.parameters else "level_models_and_predictions"
                 hot(**{key: [member]})
         except AssertionError:
             raise  # poison fired -> finding regressed
-        except Exception:
+        except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
             # Any other shape mismatch -- the predict_proba poison didn't fire, which is the
             # surface we care about.
             pass

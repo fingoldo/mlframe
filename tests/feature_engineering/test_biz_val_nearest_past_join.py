@@ -5,6 +5,7 @@ join) gives a materially better predictive feature than having no time-varying s
 baseline) -- and the join must respect the no-future-leakage backward-match contract (only past rows are
 eligible), which is verified directly.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -135,9 +136,7 @@ def test_nearest_past_join_fallback_chain_omitted_matches_single_key_bit_identic
     history_df, query_df = _make_sparse_key_dataset(rng)
 
     baseline = nearest_past_join(query_df, history_df, on="t", by=["entity", "tod", "wd"], right_value_cols=["val"])
-    explicit_default = nearest_past_join(
-        query_df, history_df, on="t", by=["entity", "tod", "wd"], right_value_cols=["val"], fallback_by_chain=None
-    )
+    explicit_default = nearest_past_join(query_df, history_df, on="t", by=["entity", "tod", "wd"], right_value_cols=["val"], fallback_by_chain=None)
     pd.testing.assert_frame_equal(baseline, explicit_default)
 
 
@@ -145,9 +144,7 @@ def test_nearest_past_join_fallback_chain_min_group_size_treats_thin_groups_as_s
     left = pd.DataFrame({"g": [1, 2], "t": [10, 10]})
     right = pd.DataFrame({"g": [1, 1, 2], "t": [1, 2, 1], "val": [10.0, 20.0, 5.0]})
 
-    result = nearest_past_join(
-        left, right, on="t", by=["g"], right_value_cols=["val"], fallback_by_chain=[[]], min_group_size=2, tier_col="tier"
-    )
+    result = nearest_past_join(left, right, on="t", by=["g"], right_value_cols=["val"], fallback_by_chain=[[]], min_group_size=2, tier_col="tier")
     # g=2's group has only 1 historical row -- too sparse under min_group_size=2, falls to the global tier
     assert result.loc[result["g"] == 2, "tier"].iloc[0] == 1
     assert result.loc[result["g"] == 2, "val"].iloc[0] == 20.0

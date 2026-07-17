@@ -14,6 +14,7 @@ This sensor pins:
   4. The config field landed on ``TrainingBehaviorConfig`` with default True.
   5. ``post_calibrate_model`` stamps ``calibrated_<split>_probs`` on the model object.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -178,10 +179,10 @@ def _build_synthetic_binary_artifacts(n_train: int = 400, n_test: int = 200, n_v
     # prob with its own row's label via model.oof_target (never a positional target_series slice),
     # so the calibrator learns the correct prob->label mapping under shuffled / group-aware splits.
     oof_probs = clf.predict_proba(X[train_idx])
-    setattr(clf, "oof_probs", oof_probs)
-    setattr(clf, "oof_target", y[train_idx])
+    clf.oof_probs = oof_probs
+    clf.oof_target = y[train_idx]
 
-    target_series = pd.Series(y[: n_train], index=range(n_train))
+    pd.Series(y[:n_train], index=range(n_train))
     target_series_full = pd.Series(y, index=range(n))
     return clf, val_probs, test_probs, val_preds, test_preds, val_idx, test_idx, target_series_full
 
@@ -221,7 +222,7 @@ def test_post_calibrate_model_stamps_calibrated_probs_on_model():
         nbins=10,
     )
 
-    returned_model = result[0]
+    result[0]
     # Stamp must land on the original model object (which is what gets carried into the ensemble member surface
     # via the SimpleNamespace ``.model`` reference).
     assert hasattr(clf, "calibrated_val_probs"), "post_calibrate_model did not stamp calibrated_val_probs on model"

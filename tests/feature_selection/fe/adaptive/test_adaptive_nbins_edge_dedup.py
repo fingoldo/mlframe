@@ -19,14 +19,16 @@ Effect downstream:
 brings ``_edges_from_quantiles`` in line so the FD / Sturges /
 OptimalJoint paths inherit it (they all funnel through this helper).
 """
+
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 
 from mlframe.feature_selection.filters._adaptive_nbins import (
-    _edges_from_quantiles, edges_freedman_diaconis, edges_qs,
+    _edges_from_quantiles,
+    edges_freedman_diaconis,
+    edges_qs,
     per_feature_edges,
 )
 
@@ -35,10 +37,7 @@ def test_edges_from_quantiles_dedups_constant_column():
     """Pre-fix: returned 9 duplicate 1.0 edges. Post-fix: empty."""
     x_const = np.ones(500)
     edges = _edges_from_quantiles(x_const, n_bins=10)
-    assert edges.size == 0, (
-        f"constant column must produce 0 inner edges (K_x=1); got "
-        f"{edges.size} edges with values {edges[:5]}..."
-    )
+    assert edges.size == 0, f"constant column must produce 0 inner edges (K_x=1); got {edges.size} edges with values {edges[:5]}..."
 
 
 def test_edges_from_quantiles_dedups_sparse_column():
@@ -48,10 +47,7 @@ def test_edges_from_quantiles_dedups_sparse_column():
     edges = _edges_from_quantiles(x_sparse, n_bins=10)
     # Pre-fix: emitted 10 duplicate zero edges. Post-fix: at most
     # 1 unique inner edge (zero or one quantile boundary), so size <= 1.
-    assert edges.size <= 1, (
-        f"sparse 1% column must collapse duplicate-zero edges; got "
-        f"{edges.size} edges with values {edges[:5]}..."
-    )
+    assert edges.size <= 1, f"sparse 1% column must collapse duplicate-zero edges; got {edges.size} edges with values {edges[:5]}..."
     assert len(np.unique(edges)) == edges.size
 
 
@@ -69,8 +65,7 @@ def test_edges_from_quantiles_normal_continuous_unaffected():
 
 def test_freedman_diaconis_constant_returns_one_bin():
     """Through the FD wrapper (calls ``_edges_from_quantiles`` internally)."""
-    K = int(np.searchsorted(edges_freedman_diaconis(np.ones(500)),
-                              np.ones(500), side="right").max()) + 1
+    K = int(np.searchsorted(edges_freedman_diaconis(np.ones(500)), np.ones(500), side="right").max()) + 1
     assert K == 1
 
 

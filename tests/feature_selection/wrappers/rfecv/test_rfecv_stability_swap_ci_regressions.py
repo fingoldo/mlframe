@@ -4,6 +4,7 @@ F1: stability_selection must not count zero-importance (noise) features into the
 F2: the SFFS post-swap best-N refresh must ignore NaN means (max-by-get with NaN masks a real winner).
 F3: n_features_bootstrap_ci_ must return a well-ordered (low, mid, high) triple.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -38,6 +39,7 @@ def test_f1_stability_selection_does_not_count_zero_fi_noise():
     stub = _Stub()
 
     import pandas as pd
+
     X = pd.DataFrame(np.random.RandomState(0).randn(60, n_features), columns=feature_names)
     y = (X["f0"] + X["f1"] + X["f2"] > 0).astype(int).to_numpy()
 
@@ -49,7 +51,7 @@ def test_f1_stability_selection_does_not_count_zero_fi_noise():
         def fit(self, X, y):
             return self
 
-    import sklearn.base
+
     orig_clone = ss.clone
     orig_getfi = ss.get_feature_importances
     ss.clone = lambda est: _FakeEst()
@@ -90,9 +92,6 @@ def test_f2_swap_refresh_ignores_nan_means():
     """The post-swap best-N refresh must not be fooled by a NaN-scored N. max(d, key=d.get) with a NaN
     entry returns an arbitrary key; the fix selects the argmax over finite means only."""
     pytest.importorskip("sklearn")
-    from sklearn.linear_model import Ridge
-    from mlframe.feature_selection.wrappers.rfecv._finalize import _finalize_fit_results
-    import pandas as pd
 
     # Build a minimal stub whose evaluated_scores_mean has a NaN that pre-fix max-by-get would surface.
     evaluated_scores_mean = {3: float("nan"), 5: 0.80, 8: 0.70}

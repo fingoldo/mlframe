@@ -8,6 +8,7 @@ reference across even/odd K, every center, and continuous / tied / discrete wind
 segments fall back to numpy, and (d) ``center='median'``/``'mean'`` do NOT route through the kernel (their
 center is itself a reduction whose FP order would differ and could flip a near-zero sign -- gated out).
 """
+
 from __future__ import annotations
 
 import numpy as np

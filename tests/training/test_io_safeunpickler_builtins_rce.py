@@ -8,13 +8,14 @@ reconstructor that refuses introspection-escalation attribute names (``__globals
 ``__subclasses__`` / ...). Its operand always already passed the module/class allowlist, so the classic
 ``getattr(os, "system")`` gadget is unreachable.
 """
+
 from __future__ import annotations
 
 import io
 import os
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
-import dill
+import dill  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 import pytest
 
 from mlframe.training.io import _SafeUnpickler
@@ -47,6 +48,7 @@ def test_code_exec_builtin_blocked(obj, name):
 
 class _EvilGetattrGlobals:
     """getattr escalation: fetch ``__globals__`` off a function to reach its module dict, then any callable."""
+
     def __reduce__(self):
         return (getattr, (str.upper, "__globals__"))
 
@@ -60,6 +62,7 @@ def test_getattr_escalation_attr_blocked():
 
 class _BenignGetattr:
     """getattr fetching an ordinary attribute off an allowlisted operand is permitted (CatBoost-style)."""
+
     def __reduce__(self):
         return (getattr, ("ABC", "lower"))
 
@@ -73,6 +76,7 @@ def test_getattr_benign_attribute_allowed():
 
 class _EvilSetattrDunder:
     """setattr type-confusion: rewrite ``__class__`` on a reconstructed object."""
+
     def __reduce__(self):
         return (setattr, (_BenignGetattr(), "__class__", int))
 

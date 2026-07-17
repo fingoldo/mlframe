@@ -3,6 +3,7 @@
 These tests exercise the cheapest reliable entry-points: disabled-feature paths, empty-input handling, input-validation guards. They are NOT a substitute for the end-to-end ``train_mlframe_models_suite`` integration tests but pin down the early-return contracts that
 silent refactors would otherwise break (the contracts most likely to regress under further function-level decomposition).
 """
+
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -25,6 +26,7 @@ from mlframe.training.core.predict import predict_from_models
 # ---------------------------------------------------------------------------
 # apply_polars_categorical_fixes
 # ---------------------------------------------------------------------------
+
 
 def test_apply_polars_categorical_fixes_no_polars_inputs_returns_pandas_branch_unchanged():
     """When train_df_polars is None the function bypasses the entire Polars-categorical fix block and returns the pandas frames unchanged."""
@@ -76,6 +78,7 @@ def test_apply_polars_categorical_fixes_no_cat_features_is_noop():
 # run_temporal_audit_batch
 # ---------------------------------------------------------------------------
 
+
 def test_run_temporal_audit_batch_no_timestamp_returns_empty():
     """With explicit opt-out (column='') AND no FTE ts_field, the audit silently produces an empty dict."""
     behavior_config = SimpleNamespace(target_temporal_audit_column="")
@@ -108,6 +111,7 @@ def test_run_temporal_audit_batch_no_behavior_config_returns_empty():
 # ---------------------------------------------------------------------------
 # run_dummy_baselines
 # ---------------------------------------------------------------------------
+
 
 def _dummy_baselines_minimal_kwargs(cfg, metadata):
     """Build the 25-kwarg call dict for ``run_dummy_baselines`` with all-None inputs; only ``cfg`` and ``metadata`` carry signal."""
@@ -160,6 +164,7 @@ def test_run_dummy_baselines_wrong_target_type_returns_metadata_unchanged():
 # ---------------------------------------------------------------------------
 # run_composite_target_discovery
 # ---------------------------------------------------------------------------
+
 
 def test_run_composite_target_discovery_disabled_returns_inputs_unchanged():
     """``composite_target_discovery_config.enabled=False`` returns the (target_by_type, metadata) tuple without touching it."""
@@ -219,6 +224,7 @@ def test_run_composite_target_discovery_no_regression_target_returns_inputs_unch
 # run_composite_post_processing
 # ---------------------------------------------------------------------------
 
+
 def test_run_composite_post_processing_no_specs_returns_inputs_unchanged():
     """With empty ``metadata["composite_target_specs"]`` and disabled discovery all 3 internal blocks (wrap / cross-ensemble / suite-end summary)
     skip and the function returns ``(models, metadata)`` as its signature promises. Regression guard: prior version fell off the end and
@@ -259,6 +265,7 @@ def test_run_composite_post_processing_no_specs_returns_inputs_unchanged():
 # setup_configuration
 # ---------------------------------------------------------------------------
 
+
 def test_setup_configuration_with_all_none_configs_builds_training_context():
     """``setup_configuration`` materializes default Pydantic configs from None and returns a populated ``TrainingContext``."""
     ctx = setup_configuration(
@@ -295,6 +302,7 @@ def test_setup_configuration_with_all_none_configs_builds_training_context():
 # ---------------------------------------------------------------------------
 # predict_from_models
 # ---------------------------------------------------------------------------
+
 
 def test_predict_from_models_invalid_df_raises_type_error():
     """Input-validation guard: ``df`` that is neither pandas nor polars raises TypeError before any model work."""

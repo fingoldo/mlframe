@@ -11,9 +11,9 @@ Three layers:
      win here (would need n=many seeds / many tasks); just that
      enabling the wrap doesn't regress correctness or convergence.
 """
+
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, List, Optional
 
 import numpy as np
 import pytest
@@ -215,7 +215,8 @@ def test_lookahead_param_groups_forward_to_base():
 
 def test_wrap_with_lookahead_idempotent_when_off():
     base = torch.optim.AdamW(
-        [torch.zeros(1, requires_grad=True)], lr=1e-3,
+        [torch.zeros(1, requires_grad=True)],
+        lr=1e-3,
     )
     wrapped = wrap_with_lookahead(base, use_lookahead=False)
     assert wrapped is base
@@ -223,7 +224,8 @@ def test_wrap_with_lookahead_idempotent_when_off():
 
 def test_wrap_with_lookahead_returns_lookahead_when_on():
     base = torch.optim.AdamW(
-        [torch.zeros(1, requires_grad=True)], lr=1e-3,
+        [torch.zeros(1, requires_grad=True)],
+        lr=1e-3,
     )
     wrapped = wrap_with_lookahead(base, use_lookahead=True, k=7, alpha=0.3)
     assert isinstance(wrapped, Lookahead)
@@ -251,9 +253,7 @@ def test_commit_slow_to_fast_makes_param_equal_slow():
 
     lh.commit_slow_to_fast()
     # After commit: p MUST equal slow (which was 0, the initial anchor).
-    assert torch.allclose(p.data, torch.zeros(4)), (
-        f"F-B: commit_slow_to_fast must overwrite p with slow; got p={p.data}"
-    )
+    assert torch.allclose(p.data, torch.zeros(4)), f"F-B: commit_slow_to_fast must overwrite p with slow; got p={p.data}"
 
 
 def test_commit_slow_to_fast_is_idempotent_when_already_synced():
@@ -283,11 +283,14 @@ def test_mlp_on_train_end_commits_slow_to_fast_when_use_lookahead():
         PytorchLightningRegressor,
         TorchDataModule,
     )
-    X, y = make_regression(n_samples=128, n_features=4, noise=0.5, random_state=0)
-    X = X.astype(np.float32); y = y.astype(np.float32)
-    X_tr, X_te, y_tr, _ = train_test_split(X, y, test_size=0.3, random_state=0)
 
-    torch.manual_seed(0); np.random.seed(0)
+    X, y = make_regression(n_samples=128, n_features=4, noise=0.5, random_state=0)
+    X = X.astype(np.float32)
+    y = y.astype(np.float32)
+    X_tr, _X_te, y_tr, _ = train_test_split(X, y, test_size=0.3, random_state=0)
+
+    torch.manual_seed(0)
+    np.random.seed(0)
     reg = PytorchLightningRegressor(
         model_class=MLPTorchModel,
         model_params={
@@ -301,20 +304,28 @@ def test_mlp_on_train_end_commits_slow_to_fast_when_use_lookahead():
             "load_best_weights_on_train_end": False,
         },
         network_params={
-            "nlayers": 1, "first_layer_num_neurons": 8,
-            "dropout_prob": 0.0, "inputs_dropout_prob": 0.0,
-            "use_layernorm": False, "use_batchnorm": False,
+            "nlayers": 1,
+            "first_layer_num_neurons": 8,
+            "dropout_prob": 0.0,
+            "inputs_dropout_prob": 0.0,
+            "use_layernorm": False,
+            "use_batchnorm": False,
             "activation_function": nn.ReLU,
         },
         datamodule_class=TorchDataModule,
         datamodule_params={
-            "features_dtype": torch.float32, "labels_dtype": torch.float32,
+            "features_dtype": torch.float32,
+            "labels_dtype": torch.float32,
             "dataloader_params": {"batch_size": 16, "num_workers": 0},
         },
         trainer_params={
-            "max_epochs": 5, "enable_model_summary": False,
-            "enable_progress_bar": False, "log_every_n_steps": 5,
-            "devices": 1, "accelerator": "cpu", "logger": False,
+            "max_epochs": 5,
+            "enable_model_summary": False,
+            "enable_progress_bar": False,
+            "log_every_n_steps": 5,
+            "devices": 1,
+            "accelerator": "cpu",
+            "logger": False,
         },
         random_state=0,
     )
@@ -358,31 +369,40 @@ def test_mlp_configure_optimizers_wraps_when_use_lookahead_true():
     from mlframe.training.neural.flat import generate_mlp
 
     net = generate_mlp(
-        num_features=4, num_classes=1, nlayers=1,
-        first_layer_num_neurons=8, dropout_prob=0.0,
-        inputs_dropout_prob=0.0, use_layernorm=False, use_batchnorm=False,
-        activation_function=nn.ReLU, verbose=0,
+        num_features=4,
+        num_classes=1,
+        nlayers=1,
+        first_layer_num_neurons=8,
+        dropout_prob=0.0,
+        inputs_dropout_prob=0.0,
+        use_layernorm=False,
+        use_batchnorm=False,
+        activation_function=nn.ReLU,
+        verbose=0,
     )
     module_lh = MLPTorchModel(
-        loss_fn=nn.MSELoss(), metrics=[], network=net,
-        use_lookahead=True, lookahead_k=3, lookahead_alpha=0.4,
+        loss_fn=nn.MSELoss(),
+        metrics=[],
+        network=net,
+        use_lookahead=True,
+        lookahead_k=3,
+        lookahead_alpha=0.4,
     )
     out = module_lh.configure_optimizers()
     opt = out["optimizer"] if isinstance(out, dict) else out
-    assert isinstance(opt, Lookahead), (
-        f"expected Lookahead wrap when use_lookahead=True; got {type(opt).__name__}"
-    )
+    assert isinstance(opt, Lookahead), f"expected Lookahead wrap when use_lookahead=True; got {type(opt).__name__}"
     assert opt.k == 3
     assert opt.alpha == 0.4
 
     module_plain = MLPTorchModel(
-        loss_fn=nn.MSELoss(), metrics=[], network=net, use_lookahead=False,
+        loss_fn=nn.MSELoss(),
+        metrics=[],
+        network=net,
+        use_lookahead=False,
     )
     out_plain = module_plain.configure_optimizers()
     opt_plain = out_plain["optimizer"] if isinstance(out_plain, dict) else out_plain
-    assert not isinstance(opt_plain, Lookahead), (
-        "use_lookahead=False must return the raw base optimizer"
-    )
+    assert not isinstance(opt_plain, Lookahead), "use_lookahead=False must return the raw base optimizer"
 
 
 # --- biz_value ---------------------------------------------------------------
@@ -408,11 +428,13 @@ def test_mlp_lookahead_converges_on_linear_regression():
     )
 
     X, y = make_regression(n_samples=400, n_features=4, noise=0.5, random_state=0)
-    X = X.astype(np.float32); y = y.astype(np.float32)
+    X = X.astype(np.float32)
+    y = y.astype(np.float32)
     X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=0.3, random_state=0)
 
     def fit_score(use_lookahead: bool) -> float:
-        torch.manual_seed(0); np.random.seed(0)
+        torch.manual_seed(0)
+        np.random.seed(0)
         reg = PytorchLightningRegressor(
             model_class=MLPTorchModel,
             model_params={
@@ -423,20 +445,28 @@ def test_mlp_lookahead_converges_on_linear_regression():
                 "lookahead_alpha": 0.5,
             },
             network_params={
-                "nlayers": 2, "first_layer_num_neurons": 32,
-                "dropout_prob": 0.0, "inputs_dropout_prob": 0.0,
-                "use_layernorm": False, "use_batchnorm": False,
+                "nlayers": 2,
+                "first_layer_num_neurons": 32,
+                "dropout_prob": 0.0,
+                "inputs_dropout_prob": 0.0,
+                "use_layernorm": False,
+                "use_batchnorm": False,
                 "activation_function": nn.ReLU,
             },
             datamodule_class=TorchDataModule,
             datamodule_params={
-                "features_dtype": torch.float32, "labels_dtype": torch.float32,
+                "features_dtype": torch.float32,
+                "labels_dtype": torch.float32,
                 "dataloader_params": {"batch_size": 64, "num_workers": 0},
             },
             trainer_params={
-                "max_epochs": 100, "enable_model_summary": False,
-                "enable_progress_bar": False, "log_every_n_steps": 5,
-                "devices": 1, "accelerator": "cpu", "logger": False,
+                "max_epochs": 100,
+                "enable_model_summary": False,
+                "enable_progress_bar": False,
+                "log_every_n_steps": 5,
+                "devices": 1,
+                "accelerator": "cpu",
+                "logger": False,
             },
             random_state=0,
         )
@@ -452,6 +482,5 @@ def test_mlp_lookahead_converges_on_linear_regression():
     # should match plain within 0.03 R^2 (standalone bench: -0.003 to
     # +0.011, mean +0.004 across 4 seeds).
     assert r2_lh > r2_plain - 0.03, (
-        f"Lookahead-wrapped R^2={r2_lh:.4f} regressed >0.03 vs plain R^2={r2_plain:.4f} "
-        f"at 100 epochs (this is well past the early-anchor-damping window)."
+        f"Lookahead-wrapped R^2={r2_lh:.4f} regressed >0.03 vs plain R^2={r2_plain:.4f} at 100 epochs (this is well past the early-anchor-damping window)."
     )

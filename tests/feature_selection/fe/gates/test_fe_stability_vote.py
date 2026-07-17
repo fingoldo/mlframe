@@ -27,9 +27,10 @@ BIZ_VALUE contracts (the decisive ones):
 DEFAULT-PATH contract (default-on, 2026-06-09): the reduction must manifest with
 a plain (gate-relaxed) ``MRMR()`` and the signal must survive with default gates.
 """
+
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 import warnings
 
 import numpy as np
@@ -98,8 +99,11 @@ def test_per_fold_gate_fires_on_signal_rejects_noise():
     src_b = (rng.random(n) > 0.5).astype(np.int64)
     eng_signal = y.copy()
     assert _recipe_clears_fold(
-        eng_codes=eng_signal, src_a_codes=src_a, src_b_codes=src_b,
-        y_codes=y, prevalence=1.0,
+        eng_codes=eng_signal,
+        src_a_codes=src_a,
+        src_b_codes=src_b,
+        y_codes=y,
+        prevalence=1.0,
     )
     # NOISE: an engineered column whose y-information is no better than its
     # source operands' -- the realistic fold-specific-quirk case. One source
@@ -107,8 +111,11 @@ def test_per_fold_gate_fires_on_signal_rejects_noise():
     # does not clear -> rejected.
     eng_noise = src_a.copy()  # engineered == one operand -> zero uplift
     assert not _recipe_clears_fold(
-        eng_codes=eng_noise, src_a_codes=src_a, src_b_codes=src_b,
-        y_codes=y, prevalence=1.0,
+        eng_codes=eng_noise,
+        src_a_codes=src_a,
+        src_b_codes=src_b,
+        y_codes=y,
+        prevalence=1.0,
     )
     # And a pure-noise engineered column with pure-noise source legs whose
     # engineered MI is below the source sum is rejected.
@@ -145,8 +152,8 @@ def test_alt_acceptance_prewarp_recipe_not_voted_against_marginal_sum():
     # scores <= 0 (the negative control below).
     a = (rng.integers(0, 4, n)).astype(np.int64)
     b = (rng.integers(0, 4, n)).astype(np.int64)
-    y = (a * 4 + b).astype(np.int64)            # full joint: a and b each fully recoverable
-    eng = ((a + b) >= 4).astype(np.int64)       # coarse binary summary: real but partial
+    y = (a * 4 + b).astype(np.int64)  # full joint: a and b each fully recoverable
+    eng = ((a + b) >= 4).astype(np.int64)  # coarse binary summary: real but partial
     eng_mi = _marginal_mi(eng, y)
     sum_marg = _marginal_mi(a, y) + _marginal_mi(b, y)
     assert eng_mi > 0.0, "sanity: the engineered summary must carry genuine y info"
@@ -156,8 +163,12 @@ def test_alt_acceptance_prewarp_recipe_not_voted_against_marginal_sum():
     )
     # Elementary gate (alt_acceptance default False) REJECTS the genuine summary.
     assert not _recipe_clears_fold(
-        eng_codes=eng, src_a_codes=a, src_b_codes=b, y_codes=y,
-        prevalence=1.0, alt_acceptance=False,
+        eng_codes=eng,
+        src_a_codes=a,
+        src_b_codes=b,
+        y_codes=y,
+        prevalence=1.0,
+        alt_acceptance=False,
     )
     # Alternative-acceptance gate KEEPS it on genuine positive held-out MI -- the
     # whole point of the fix. (Held-out noise-safety is enforced UPSTREAM: such a
@@ -167,8 +178,12 @@ def test_alt_acceptance_prewarp_recipe_not_voted_against_marginal_sum():
     # vote is a CONFIRMATION layer, and the alternative leg confirms on genuine
     # held-out signal rather than the structurally-inapplicable marginal-sum bar.)
     assert _recipe_clears_fold(
-        eng_codes=eng, src_a_codes=a, src_b_codes=b, y_codes=y,
-        prevalence=1.0, alt_acceptance=True,
+        eng_codes=eng,
+        src_a_codes=a,
+        src_b_codes=b,
+        y_codes=y,
+        prevalence=1.0,
+        alt_acceptance=True,
     )
 
 
@@ -186,32 +201,55 @@ def test_voter_noop_below_two_recipes_or_disabled():
 
     one = {"e0": _Recipe("e0", "unary_binary", ("a", "b"))}
     # < 2 unary_binary recipes -> no-op
-    assert confirm_recipes_cross_fold(
-        recipes=one, X=X, y_codes=y, feature_names_in=["a", "b", "c"],
-        nbins=4, k=5, quorum=0.6,
-    ) == set()
+    assert (
+        confirm_recipes_cross_fold(
+            recipes=one,
+            X=X,
+            y_codes=y,
+            feature_names_in=["a", "b", "c"],
+            nbins=4,
+            k=5,
+            quorum=0.6,
+        )
+        == set()
+    )
     two = dict(one)
     two["e1"] = _Recipe("e1", "unary_binary", ("a", "c"))
     # k < 2 -> no-op
-    assert confirm_recipes_cross_fold(
-        recipes=two, X=X, y_codes=y, feature_names_in=["a", "b", "c"],
-        nbins=4, k=1, quorum=0.6,
-    ) == set()
+    assert (
+        confirm_recipes_cross_fold(
+            recipes=two,
+            X=X,
+            y_codes=y,
+            feature_names_in=["a", "b", "c"],
+            nbins=4,
+            k=1,
+            quorum=0.6,
+        )
+        == set()
+    )
     # quorum <= 0 -> no-op
-    assert confirm_recipes_cross_fold(
-        recipes=two, X=X, y_codes=y, feature_names_in=["a", "b", "c"],
-        nbins=4, k=5, quorum=0.0,
-    ) == set()
+    assert (
+        confirm_recipes_cross_fold(
+            recipes=two,
+            X=X,
+            y_codes=y,
+            feature_names_in=["a", "b", "c"],
+            nbins=4,
+            k=5,
+            quorum=0.0,
+        )
+        == set()
+    )
 
 
 def test_ctor_knobs_exposed_and_pickle_safe():
-    m = MRMR(fe_stability_vote_enable=True, fe_stability_vote_k=7,
-             fe_stability_vote_quorum=0.7)
+    m = MRMR(fe_stability_vote_enable=True, fe_stability_vote_k=7, fe_stability_vote_quorum=0.7)
     p = m.get_params()
     assert p["fe_stability_vote_enable"] is True
     assert p["fe_stability_vote_k"] == 7
     assert p["fe_stability_vote_quorum"] == 0.7
-    m2 = pickle.loads(pickle.dumps(m))
+    m2 = pickle.loads(pickle.dumps(m))  # nosec B301 -- round-trip of a locally-created, trusted object
     assert m2.get_params()["fe_stability_vote_k"] == 7
 
 
@@ -242,10 +280,7 @@ def test_bizvalue_noise_survivor_reduction():
     assert tot_off >= 3, f"fixture did not produce noise survivors WITHOUT the vote (got {tot_off})"
     # The vote must strictly reduce them, toward 0.
     assert tot_on < tot_off, f"vote did not reduce noise survivors ({tot_off} -> {tot_on})"
-    assert tot_on <= max(1, tot_off // 4), (
-        f"vote reduced noise survivors only modestly ({tot_off} -> {tot_on}); "
-        "expected a strong drop toward 0"
-    )
+    assert tot_on <= max(1, tot_off // 4), f"vote reduced noise survivors only modestly ({tot_off} -> {tot_on}); expected a strong drop toward 0"
 
 
 def _make_ratio(n=3000, seed=1):
@@ -254,7 +289,7 @@ def _make_ratio(n=3000, seed=1):
     b = rng.uniform(0.5, 3.0, n)
     noise = pd.DataFrame(rng.standard_normal((n, 6)), columns=[f"z{i}" for i in range(6)])
     X = pd.concat([pd.DataFrame({"a": a, "b": b}), noise], axis=1)
-    sig = (a ** 2) / b
+    sig = (a**2) / b
     y = pd.Series((sig > np.median(sig)).astype(int), name="y")
     return X, y
 
@@ -275,8 +310,7 @@ def test_bizvalue_signal_preserved(maker):
     """Genuine recipes clear the quorum -> the default-on transform output is
     UNCHANGED vs the no-vote support (no signal loss)."""
     X, y = maker()
-    base = dict(verbose=0, random_seed=42, n_jobs=1, fe_smart_polynom_iters=0,
-                fe_synergy_screen_max_features=8)
+    base = dict(verbose=0, random_seed=42, n_jobs=1, fe_smart_polynom_iters=0, fe_synergy_screen_max_features=8)
     m_off = MRMR(fe_stability_vote_enable=False, **base).fit(X.copy(), y.copy())
     m_on = MRMR(fe_stability_vote_enable=True, **base).fit(X.copy(), y.copy())
     # at least one genuine engineered recipe was found
@@ -298,8 +332,7 @@ def test_cprofile_replay_cost_negligible():
     import io
 
     X, y = _make_ratio()
-    base = dict(verbose=0, random_seed=42, n_jobs=1, fe_smart_polynom_iters=0,
-                fe_synergy_screen_max_features=8)
+    base = dict(verbose=0, random_seed=42, n_jobs=1, fe_smart_polynom_iters=0, fe_synergy_screen_max_features=8)
 
     pr = cProfile.Profile()
     pr.enable()
@@ -317,6 +350,5 @@ def test_cprofile_replay_cost_negligible():
             break
     # The vote must be a small fraction of total fit time (no refit).
     assert vote_cum <= 0.25 * total, (
-        f"stability vote took {vote_cum:.3f}s of {total:.3f}s total fit "
-        f"({100*vote_cum/max(total,1e-9):.1f}%); expected negligible (replay only)"
+        f"stability vote took {vote_cum:.3f}s of {total:.3f}s total fit ({100 * vote_cum / max(total, 1e-9):.1f}%); expected negligible (replay only)"
     )

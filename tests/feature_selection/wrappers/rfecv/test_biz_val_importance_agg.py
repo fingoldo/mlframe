@@ -8,6 +8,7 @@ Two quantitative wins are pinned:
      dispatched, but NOT under the legacy abs-mean vote. Pinned: under dispatched the consistent feature
      outranks the flipper; the legacy abs-mean would rank the flipper >= the consistent feature.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -35,7 +36,7 @@ def test_biz_tree_variance_downweight_beats_raw_mean():
 
 def test_biz_linear_sign_harmony_beats_abs_mean_vote():
     # consistent true feature: coef +0.8 every fold. flipper decoy: |coef|=1.0 but sign 3+/3-.
-    signed = {
+    {
         "true": {f"r{k}": 0.8 for k in range(6)},
     }
     # build per-run dicts in the run-keyed shape the aggregator expects.
@@ -44,8 +45,7 @@ def test_biz_linear_sign_harmony_beats_abs_mean_vote():
 
     disp = aggregate_linear(sg)
     assert disp["true"] > disp["flip"], (
-        f"sign-harmony must demote the sign-flipper below the weaker consistent feature: "
-        f"true={disp['true']:.3f} flip={disp['flip']:.3f}"
+        f"sign-harmony must demote the sign-flipper below the weaker consistent feature: true={disp['true']:.3f} flip={disp['flip']:.3f}"
     )
     # The flipper's signed mean is ~0 -> score ~0; the consistent feature keeps ~0.8.
     assert disp["true"] >= 0.7
@@ -57,7 +57,10 @@ def test_biz_linear_sign_harmony_beats_abs_mean_vote():
 
     # Dispatcher (linear) flips that verdict to the correct one.
     disp_ranks = aggregate_importances_dispatched(
-        abs_fi, family="linear", votes_aggregation_method=VotesAggregation.AM, signed_importances=sg,
+        abs_fi,
+        family="linear",
+        votes_aggregation_method=VotesAggregation.AM,
+        signed_importances=sg,
     )
     assert disp_ranks[0] == "true", "dispatched correctly prefers the sign-consistent feature"
 

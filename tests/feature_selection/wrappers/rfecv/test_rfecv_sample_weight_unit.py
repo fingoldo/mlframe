@@ -3,6 +3,7 @@
 When sample_weight is omitted or explicitly None, the new branch must not engage: no per-fold slicing,
 no estimator-side or scorer-side weight injection. Support_ and cv_results must be identical.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -27,6 +28,7 @@ def _build_rfecv(**overrides):
     """Lightweight RFECV configured for fast unit-test runs (CatBoost-free)."""
     from mlframe.feature_selection.wrappers import RFECV
     from sklearn.linear_model import LogisticRegression
+
     est = LogisticRegression(max_iter=200, random_state=0)
     defaults = dict(estimator=est, cv=3, verbose=0, random_state=42, max_runtime_mins=0.25)
     defaults.update(overrides)
@@ -38,9 +40,7 @@ def test_rfecv_fit_sample_weight_none_matches_omitted():
     df, y = _toy_dataset()
     sel_a = _build_rfecv().fit(df, y)
     sel_b = _build_rfecv().fit(df, y, sample_weight=None)
-    assert list(sel_a.support_) == list(sel_b.support_), (
-        f"support_ differs: omitted={list(sel_a.support_)} vs None={list(sel_b.support_)}"
-    )
+    assert list(sel_a.support_) == list(sel_b.support_), f"support_ differs: omitted={list(sel_a.support_)} vs None={list(sel_b.support_)}"
 
 
 def test_rfecv_fit_sample_weight_validates_shape_and_values():

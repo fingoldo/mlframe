@@ -7,6 +7,7 @@ value + alpha-range validation, CRPS tail-integration branches (hand-computed), 
 clamping / quantile-crossing warning. Expected numbers are computed independently (by hand and via
 sklearn's ``mean_pinball_loss``), never by asserting the function equals itself.
 """
+
 from __future__ import annotations
 
 import logging
@@ -34,9 +35,9 @@ from mlframe.metrics.quantile import (
     [
         # L = mean(max(alpha*e, (alpha-1)*e)), e = y - q.
         # y=[1,2,3], q=1.5 -> e=[-0.5,0.5,1.5].
-        (0.5, (0.5 + 0.5 + 1.5) / 2 / 3),   # 0.5*mean(|e|) = 0.5*(2.5/3)
-        (0.0, (0.5 + 0.0 + 0.0) / 3),        # mean(relu(q-y)) = relu([0.5,-0.5,-1.5]) -> [0.5,0,0]
-        (1.0, (0.0 + 0.5 + 1.5) / 3),        # mean(relu(y-q)) = relu([-0.5,0.5,1.5]) -> [0,0.5,1.5]
+        (0.5, (0.5 + 0.5 + 1.5) / 2 / 3),  # 0.5*mean(|e|) = 0.5*(2.5/3)
+        (0.0, (0.5 + 0.0 + 0.0) / 3),  # mean(relu(q-y)) = relu([0.5,-0.5,-1.5]) -> [0.5,0,0]
+        (1.0, (0.0 + 0.5 + 1.5) / 3),  # mean(relu(y-q)) = relu([-0.5,0.5,1.5]) -> [0,0.5,1.5]
     ],
 )
 def test_pinball_loss_value_incl_extreme_alpha(alpha, expected):
@@ -139,9 +140,7 @@ def test_crps_from_quantiles_tail_integration_known_value():
 def test_crps_from_quantiles_empty_is_nan_and_nonincreasing_alphas_raise():
     assert np.isnan(crps_from_quantiles(np.array([]), np.empty((0, 2)), alphas=[0.25, 0.75]))
     with pytest.raises(ValueError, match="strictly increasing"):
-        crps_from_quantiles(
-            np.array([1.0, 2.0]), np.array([[0.0, 1.0], [0.0, 1.0]]), alphas=[0.75, 0.25]
-        )
+        crps_from_quantiles(np.array([1.0, 2.0]), np.array([[0.0, 1.0], [0.0, 1.0]]), alphas=[0.75, 0.25])
 
 
 # ----------------------------------------------------------------------------

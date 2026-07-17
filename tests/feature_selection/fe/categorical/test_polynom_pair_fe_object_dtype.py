@@ -5,11 +5,11 @@ operand extracts as an object slice; the Hermite/polynomial basis (``np.isfinite
 ``TypeError: ufunc 'isfinite' not supported`` on that object slice. The numeric-pair guard correctly keeps only
 numeric pairs, but the extracted slice was still object-typed. The fix coerces the extracted operands to float64.
 """
+
 from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 
 
 def test_smart_polynom_pair_fe_survives_object_dtype_frame():

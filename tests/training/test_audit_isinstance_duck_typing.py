@@ -27,6 +27,7 @@ P2 #5 core/main.py -- ``isinstance(df, (pd, pl, str))`` rejected
    message. Common caller idiom from yaml/Click configs. Coerce
    PathLike -> str at the boundary.
 """
+
 from __future__ import annotations
 
 import pathlib
@@ -93,7 +94,15 @@ def _read(rel: str) -> str:
         # mrmr subpackage split: MRMR class body in mrmr/_mrmr_class.py; the rest of the surface lives in
         # _mrmr_{fingerprints,fit_impl,fe_step,validate_transform}.py + the mrmr/__init__.py facade.
         _dir = _ROOT / "feature_selection" / "filters"
-        for nm in ("mrmr/__init__.py", "_mrmr_fingerprints.py", "_mrmr_fit_impl/_fit_impl_core.py", "_mrmr_fit_impl/_helpers.py", "_mrmr_fe_step/_step_core.py", "_mrmr_fe_step/_helpers.py", "_mrmr_validate_transform.py"):
+        for nm in (
+            "mrmr/__init__.py",
+            "_mrmr_fingerprints.py",
+            "_mrmr_fit_impl/_fit_impl_core.py",
+            "_mrmr_fit_impl/_helpers.py",
+            "_mrmr_fe_step/_step_core.py",
+            "_mrmr_fe_step/_helpers.py",
+            "_mrmr_validate_transform.py",
+        ):
             sibling = _dir / nm
             if sibling.exists():
                 primary = primary + "\n" + sibling.read_text(encoding="utf-8")
@@ -127,10 +136,7 @@ def test_mrmr_fit_handles_polars_input_without_inplace_mutation():
     legacy pandas-coercion path OR the native-polars handling marker."""
     src = _read("feature_selection/filters/mrmr/_mrmr_class.py")
 
-    legacy_pandas_coerce = (
-        "isinstance(X, _pl_for_isinstance.DataFrame)" in src
-        and "X = X.to_pandas()" in src
-    )
+    legacy_pandas_coerce = "isinstance(X, _pl_for_isinstance.DataFrame)" in src and "X = X.to_pandas()" in src
     native_polars = "isinstance(X, pl.DataFrame)" in src
 
     assert legacy_pandas_coerce or native_polars, (
@@ -165,8 +171,7 @@ def test_pipeline_filter_to_numeric_handles_polars():
     src = _read("training/pipeline.py")
     # Pre-fix shape (silent passthrough) MUST be gone:
     assert "if _df is None or not isinstance(_df, pd.DataFrame):\n            return _df, []" not in src, (
-        "Wave 29 P2 regression: _filter_to_numeric silently passes polars "
-        "DataFrames through; downstream select_dtypes raises AttributeError."
+        "Wave 29 P2 regression: _filter_to_numeric silently passes polars DataFrames through; downstream select_dtypes raises AttributeError."
     )
     # Post-fix markers. The polars-coerce branch now lives in sibling
     # ``_pipeline_extensions.py`` and the bare ``_df = _df.to_pandas()``
@@ -175,13 +180,9 @@ def test_pipeline_filter_to_numeric_handles_polars():
     # independently so the sensor matches the current shape.
     assert "import polars as _pl_local" in src
     assert "isinstance(_df, _pl_local.DataFrame)" in src, (
-        "Wave 29 P2 regression: polars-DataFrame branch in "
-        "_filter_to_numeric is gone; silent passthrough resurfaced."
+        "Wave 29 P2 regression: polars-DataFrame branch in _filter_to_numeric is gone; silent passthrough resurfaced."
     )
-    assert "_df = _df.to_pandas()" in src, (
-        "Wave 29 P2 regression: bare ``_df.to_pandas()`` fallback gone "
-        "from the polars coerce path."
-    )
+    assert "_df = _df.to_pandas()" in src, "Wave 29 P2 regression: bare ``_df.to_pandas()`` fallback gone from the polars coerce path."
 
 
 # ---- #5 main.py PathLike coercion --------------------------------------

@@ -1,7 +1,8 @@
 """Additional coverage for engineered_recipes.py -- exercise each recipe-kind dispatch + helpers."""
+
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
 import numpy as np
 import pandas as pd
@@ -11,6 +12,7 @@ from mlframe.feature_selection.filters.engineered_recipes import (
     EngineeredRecipe,
     apply_recipe,
 )
+
 
 # Per-helper presence flags so a single missing name doesn't skip the entire file.
 def _try_import(name):
@@ -43,6 +45,7 @@ def _basic_df():
 # EngineeredRecipe dataclass
 # ----------------------------------------------------------------------------
 
+
 @pytest.mark.fast
 def test_engineered_recipe_equality():
     """Two recipes with same fields are equal."""
@@ -54,7 +57,7 @@ def test_engineered_recipe_equality():
 def test_engineered_recipe_pickle_round_trip():
     r = EngineeredRecipe(name="mul(a,b)", kind="unary_binary", src_names=("a", "b"), extra={"binary_name": "mul"})
     blob = pickle.dumps(r)
-    r2 = pickle.loads(blob)
+    r2 = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
     assert r == r2
 
 
@@ -68,15 +71,14 @@ def test_engineered_recipe_hash_consistent():
 # build_unary_binary_recipe + apply_recipe(kind="unary_binary")
 # ----------------------------------------------------------------------------
 
+
 def _build_recipe_via_actual_api(binary: str, unary_a: str, unary_b: str, *, unary_preset: str = "minimal"):
     """Build a unary_binary recipe via the canonical production builder. Pre-fix this helper
     fell through to silent dataclass construction on TypeError, masking signature drift; that
     drift then triggered downstream apply_recipe skip-masks. Now we use the production builder
     directly with its actual keyword names (src_a_name / src_b_name etc) and accept a preset
     override so callers can test transforms that only live in maximal."""
-    assert build_unary_binary_recipe is not None, (
-        "build_unary_binary_recipe missing from engineered_recipes module; refactor regression."
-    )
+    assert build_unary_binary_recipe is not None, "build_unary_binary_recipe missing from engineered_recipes module; refactor regression."
     return build_unary_binary_recipe(
         name=f"{binary}({unary_a}(a),{unary_b}(b))",
         src_a_name="a",
@@ -132,6 +134,7 @@ def test_build_unary_binary_recipe_with_log_unary():
 # apply_recipe(kind="factorize")
 # ----------------------------------------------------------------------------
 
+
 def test_apply_factorize_seen_pair_codes():
     """Pair factorize: lookup_table maps (a, b)-pre-prune code -> post-prune class.
 
@@ -178,6 +181,7 @@ def test_apply_factorize_clip_out_of_range():
 # ----------------------------------------------------------------------------
 # Helper coverage (if exported)
 # ----------------------------------------------------------------------------
+
 
 def test_coerce_to_int_with_nan_handling():
     if _coerce_to_int_with_nan_handling is None:
@@ -263,6 +267,7 @@ def test_apply_target_encoding_k_gt_2_raises():
 # ----------------------------------------------------------------------------
 # Smoke: every recipe kind survives apply
 # ----------------------------------------------------------------------------
+
 
 def test_apply_recipe_unknown_kind_raises():
     r = EngineeredRecipe(name="bogus", kind="nonexistent_kind_xyz", src_names=("a",), extra={})

@@ -6,6 +6,7 @@ Covers:
 - A4-04: ``_canonical_dtype_pairs`` schema-hoist + id-memo are bit-identical to the cold compute.
 - A4-05: the model-input fingerprint cache pin-invariant guard catches a column mismatch.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -29,17 +30,20 @@ from mlframe.training.pipeline._pipeline_cache import (
 
 # --- A4-04 ---------------------------------------------------------------------------
 
+
 def test_a4_04_dtype_pairs_memo_bit_identical_to_compute() -> None:
     """The id-memoised wrapper returns exactly what the cold compute returns."""
-    df = pl.DataFrame({
-        "a": np.arange(5, dtype=np.int32),
-        "b": np.arange(5, dtype=np.float32),
-        "c": pl.Series(["x", "y", "x", "y", "x"], dtype=pl.Categorical),
-    })
+    df = pl.DataFrame(
+        {
+            "a": np.arange(5, dtype=np.int32),
+            "b": np.arange(5, dtype=np.float32),
+            "c": pl.Series(["x", "y", "x", "y", "x"], dtype=pl.Categorical),
+        }
+    )
     _pt._DTYPE_PAIRS_MEMO.clear()
     expected = _canonical_dtype_pairs_compute(df)
-    first = _canonical_dtype_pairs(df)        # cold (populates memo)
-    second = _canonical_dtype_pairs(df)       # warm (memo hit)
+    first = _canonical_dtype_pairs(df)  # cold (populates memo)
+    second = _canonical_dtype_pairs(df)  # warm (memo hit)
     assert first == expected
     assert second == expected
 
@@ -54,14 +58,15 @@ def test_a4_04_dtype_pairs_distinct_schemas_distinct_results() -> None:
 
 # --- A4-03 ---------------------------------------------------------------------------
 
+
 def test_a4_03_target_hash_memo_bit_identical_to_cold() -> None:
     """The warm (memo) hash equals the cold recompute byte-for-byte."""
     y = pl.Series("y", np.random.default_rng(11).integers(0, 2, 5000).astype(np.int8))
     _pc._PIPELINE_TARGET_HASH_CACHE.clear()
-    cold = _full_target_content_hash(y)        # populates memo
-    _again = _full_target_content_hash(y)      # memo hit
+    cold = _full_target_content_hash(y)  # populates memo
+    _again = _full_target_content_hash(y)  # memo hit
     _pc._PIPELINE_TARGET_HASH_CACHE.clear()
-    cold2 = _full_target_content_hash(y)       # recompute from scratch
+    cold2 = _full_target_content_hash(y)  # recompute from scratch
     assert cold == _again == cold2
     assert cold != ""
 
@@ -75,6 +80,7 @@ def test_a4_03_distinct_targets_distinct_hashes() -> None:
 
 
 # --- A4-02 ---------------------------------------------------------------------------
+
 
 def test_a4_02_cache_get_accepts_precomputed_key() -> None:
     """``_pre_pipeline_cache_get(key=...)`` returns the same entry as the key-less call,
@@ -116,6 +122,7 @@ def test_a4_02_precomputed_key_matches_internal_key() -> None:
 
 # --- A4-05 ---------------------------------------------------------------------------
 
+
 def test_a4_05_fingerprint_pin_invariant_guard_detects_column_mismatch() -> None:
     """Replicate the guard logic: a cache entry whose stored schema column names differ from
     the live frame's columns (id-recycle hazard) must be treated as a miss, not served."""
@@ -123,9 +130,7 @@ def test_a4_05_fingerprint_pin_invariant_guard_detects_column_mismatch() -> None
 
     live = pd.DataFrame({"alpha": [1.0, 2.0], "beta": [3.0, 4.0]})
     # Cached schema from a DIFFERENT (same-ncols) frame -- the recycled-id scenario.
-    stale_hash, stale_schema = compute_model_input_fingerprint(
-        pd.DataFrame({"gamma": [9.0, 9.0], "delta": [9.0, 9.0]})
-    )
+    stale_hash, stale_schema = compute_model_input_fingerprint(pd.DataFrame({"gamma": [9.0, 9.0], "delta": [9.0, 9.0]}))
     live_cols = sorted(str(c) for c in live.columns)
     cached_cols = sorted(rec.get("name") for rec in stale_schema)
     assert cached_cols != live_cols  # guard would force a recompute

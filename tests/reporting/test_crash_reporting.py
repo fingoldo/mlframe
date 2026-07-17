@@ -9,6 +9,7 @@ Uses real platform branches (no monkeypatching of sys.platform) and
 restores the prior ErrorMode mask in a finalizer to keep the suite
 process clean for sibling tests.
 """
+
 from __future__ import annotations
 
 import faulthandler
@@ -66,8 +67,6 @@ def test_enable_sets_wer_suppress_flag_on_windows(reset_enabled):
         # Re-set immediately because reading via SetErrorMode(0) clears it.
         ctypes.windll.kernel32.SetErrorMode(current)
         SEM_NOGPFAULTERRORBOX = 0x0002
-        assert current & SEM_NOGPFAULTERRORBOX, (
-            f"WER-suppress flag missing from ErrorMode mask: 0x{current:04x}"
-        )
+        assert current & SEM_NOGPFAULTERRORBOX, f"WER-suppress flag missing from ErrorMode mask: 0x{current:04x}"
     finally:
         ctypes.windll.kernel32.SetErrorMode(prev)

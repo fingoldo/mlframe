@@ -3,6 +3,7 @@
 The usability |corr| distinguisher feeds WIDE-margin gates (min_corr 0.6; tail-concentration gap ~0.99 vs ~0.06),
 so ~1e-13 FP agreement is selection-safe. Pins the njit kernel against a numpy reference incl NaN + degenerate.
 """
+
 import numpy as np
 
 from mlframe.feature_selection.filters._fe_usability_signal import (
@@ -19,8 +20,10 @@ def _numpy_ref(y, v):
     m = np.isfinite(y) & np.isfinite(v)
     if int(m.sum()) < 2:
         return 0.0
-    yy = y[m]; vv = v[m]
-    ys = float(yy.std()); vs = float(vv.std())
+    yy = y[m]
+    vv = v[m]
+    ys = float(yy.std())
+    vs = float(vv.std())
     if ys <= 0.0 or vs <= 0.0:
         return 0.0
     c = float(np.mean((yy - yy.mean()) * (vv - vv.mean())) / (ys * vs))
@@ -151,6 +154,7 @@ def test_single_operand_usability_corr_matches_max_of_operand_and_square():
     got = _single_operand_usability_corr(y, x)
 
     from mlframe.feature_selection.filters._fe_usability_signal import _subsample_for_corr, _crit_np_dtype
+
     _yc = np.asarray(y, dtype=_crit_np_dtype()).ravel()
     _xc = np.asarray(x, dtype=_crit_np_dtype()).ravel()
     _yc, _xc = _subsample_for_corr(_yc, _xc)
@@ -179,7 +183,11 @@ def test_usability_form_corrs_precomputed_single_corr_is_bit_identical_to_intern
     # Also check the return_best_pair_form=True branch (the one pair_is_tail_concentrated_rankaware uses).
     internal_cp2, internal_cs2, internal_form = usability_form_corrs(y, x0, x1, return_best_pair_form=True)
     cached_cp2, cached_cs2, cached_form = usability_form_corrs(
-        y, x0, x1, return_best_pair_form=True, precomputed_single_corr=(sc0, sc1),
+        y,
+        x0,
+        x1,
+        return_best_pair_form=True,
+        precomputed_single_corr=(sc0, sc1),
     )
     assert cached_cs2 == internal_cs2
     assert cached_cp2 == internal_cp2
@@ -194,7 +202,7 @@ def test_pair_is_tail_concentrated_rankaware_precomputed_single_corr_matches_int
     n = 5000
     y = rng.standard_normal(n)
     x0 = rng.standard_normal(n) * 2.0 + 1.0
-    x1 = (x0 ** 2) / (rng.standard_normal(n) * 0.3 + 3.0)  # a ratio form correlated with x0 -- exercises the pair path
+    x1 = (x0**2) / (rng.standard_normal(n) * 0.3 + 3.0)  # a ratio form correlated with x0 -- exercises the pair path
 
     kwargs = dict(min_corr=0.3, pairness_margin=1.0, max_rank_frac=0.9)
     internal_result = pair_is_tail_concentrated_rankaware(y, x0, x1, **kwargs)

@@ -23,6 +23,7 @@ Four falsifiable checks:
 ``test_shap_proxy_cluster_su_gpu.py`` / ``test_shap_proxy_gpu.py``; it is NOT exercised here (CPU-only
 mission) and needs no CPU test -- documented-skip.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -71,11 +72,11 @@ def test_su_seeded_top_k_caps_kept_pairs_to_strongest():
     X, y = _two_interaction_pairs(n=6000, p_noise=30, seed=0, strong=3.0, weak=2.0)
 
     kept_default, info_d = su_synergy_screen(
-        X, y, n_bins=8, top_k=8, max_screen_cols=120,
-        snr_z=3.0, snr_null_quantile=0.99, n_permutations=3, rng=np.random.default_rng(0))
-    kept_k1, info_1 = su_synergy_screen(
-        X, y, n_bins=8, top_k=1, max_screen_cols=120,
-        snr_z=3.0, snr_null_quantile=0.99, n_permutations=3, rng=np.random.default_rng(0))
+        X, y, n_bins=8, top_k=8, max_screen_cols=120, snr_z=3.0, snr_null_quantile=0.99, n_permutations=3, rng=np.random.default_rng(0)
+    )
+    kept_k1, _info_1 = su_synergy_screen(
+        X, y, n_bins=8, top_k=1, max_screen_cols=120, snr_z=3.0, snr_null_quantile=0.99, n_permutations=3, rng=np.random.default_rng(0)
+    )
 
     # su_synergy_screen returns (synergy, joint_su, col_a, col_b), best-synergy first.
     default_pairs = [{a, b} for _syn, _jsu, a, b in kept_default]
@@ -90,8 +91,7 @@ def test_su_seeded_top_k_caps_kept_pairs_to_strongest():
     assert len(k1_pairs) == 1, f"top_k=1 kept {len(k1_pairs)} pairs, expected 1: {k1_pairs}"
     assert k1_pairs[0] == {"s_a", "s_b"}, f"top_k=1 kept the wrong (non-strongest) pair: {k1_pairs}"
     # The strongest pair's synergy dominates (sanity that "strong" really is strongest).
-    assert kept_default[0][0] >= kept_default[1][0], (
-        f"screen not synergy-sorted: {info_d}")
+    assert kept_default[0][0] >= kept_default[1][0], f"screen not synergy-sorted: {info_d}"
 
 
 # --------------------------------------------------------------------------------------------------
@@ -101,20 +101,34 @@ pytest.importorskip("shap")
 pytest.importorskip("xgboost")
 
 
-def _shap_sel(n_features, *, su_seeded=True, top_k=8, snr_z=3.0,
-              min_selected_ratio=0.0, active_learning=False, active_learning_budget=None):
+def _shap_sel(n_features, *, su_seeded=True, top_k=8, snr_z=3.0, min_selected_ratio=0.0, active_learning=False, active_learning_budget=None):
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
     return ShapProxiedFS(
-        classification=True, n_splits=3, top_n=20, min_features=8,
-        prefilter_top=min(60, n_features), prefilter_n_estimators=60,
-        oof_shap_n_estimators=60, revalidation_n_estimators=60, n_revalidation_models=2,
-        trust_guard=True, trust_guard_n_estimators=20, cluster_features="auto",
-        within_cluster_refine=True, parsimony_tol=0.005,
-        su_seeded_interactions=su_seeded, su_seeded_top_k=top_k, su_seeded_snr_z=snr_z,
+        classification=True,
+        n_splits=3,
+        top_n=20,
+        min_features=8,
+        prefilter_top=min(60, n_features),
+        prefilter_n_estimators=60,
+        oof_shap_n_estimators=60,
+        revalidation_n_estimators=60,
+        n_revalidation_models=2,
+        trust_guard=True,
+        trust_guard_n_estimators=20,
+        cluster_features="auto",
+        within_cluster_refine=True,
+        parsimony_tol=0.005,
+        su_seeded_interactions=su_seeded,
+        su_seeded_top_k=top_k,
+        su_seeded_snr_z=snr_z,
         min_selected_ratio=min_selected_ratio,
-        active_learning=active_learning, active_learning_budget=active_learning_budget,
-        random_state=0, verbose=False, n_jobs=1)
+        active_learning=active_learning,
+        active_learning_budget=active_learning_budget,
+        random_state=0,
+        verbose=False,
+        n_jobs=1,
+    )
 
 
 @pytest.mark.slow
@@ -149,14 +163,11 @@ def test_su_seeded_top_k_binds_seeded_pair_count_at_facade():
     # The cap BINDS at the selector level: default seeds both pairs, top_k=1 seeds only the strongest.
     assert rep_d.get("n_kept_pairs", 0) >= 2, f"default top_k should seed >=2 pairs: {rep_d}"
     assert rep_1.get("n_kept_pairs", 99) == 1, f"top_k=1 should seed exactly 1 pair: {rep_1}"
-    assert rep_1["n_kept_pairs"] < rep_d["n_kept_pairs"], (
-        f"top_k=1 did not reduce seeded pairs vs default: 1={rep_1} d={rep_d}")
+    assert rep_1["n_kept_pairs"] < rep_d["n_kept_pairs"], f"top_k=1 did not reduce seeded pairs vs default: 1={rep_1} d={rep_d}"
     # The single seeded pair is the STRONGER one, and its operands are recovered.
     kept_1 = rep_1.get("kept_pairs", [])
-    assert kept_1 and {kept_1[0][1], kept_1[0][2]} == {"s_a", "s_b"}, (
-        f"top_k=1 seeded the wrong pair: {kept_1}")
-    assert {"s_a", "s_b"} <= set(map(str, sel_k1.selected_features_)), (
-        f"strong pair not recovered under top_k=1: {sorted(map(str, sel_k1.selected_features_))}")
+    assert kept_1 and {kept_1[0][1], kept_1[0][2]} == {"s_a", "s_b"}, f"top_k=1 seeded the wrong pair: {kept_1}"
+    assert {"s_a", "s_b"} <= set(map(str, sel_k1.selected_features_)), f"strong pair not recovered under top_k=1: {sorted(map(str, sel_k1.selected_features_))}"
 
 
 @pytest.mark.slow
@@ -184,12 +195,11 @@ def test_su_seeded_snr_z_absurdly_high_is_byte_identical_no_op():
     assert rep.get("applied") is True
     assert rep.get("n_screened_cols", 0) > 0, f"screen did not run: {rep}"
     # ... but the absurd gate admitted NO pair.
-    assert rep.get("n_kept_pairs", 99) == 0, (
-        f"expected SNR-gate no-op at snr_z=500 but kept {rep.get('kept_pairs')}: {rep}")
+    assert rep.get("n_kept_pairs", 99) == 0, f"expected SNR-gate no-op at snr_z=500 but kept {rep.get('kept_pairs')}: {rep}"
     # No pair seeded => byte-identical selection to the additive default.
     assert sel_hi.selected_features_ == sel_off.selected_features_, (
-        f"high-snr_z no-op changed the additive default:\n off={sel_off.selected_features_}\n "
-        f"on ={sel_hi.selected_features_}")
+        f"high-snr_z no-op changed the additive default:\n off={sel_off.selected_features_}\n on ={sel_hi.selected_features_}"
+    )
 
 
 # --------------------------------------------------------------------------------------------------
@@ -199,9 +209,7 @@ def _noise_heavy(n=3000, n_inf=4, n_noise=12, seed=1):
     rng = np.random.default_rng(seed)
     inf = rng.normal(size=(n, n_inf))
     noise = rng.normal(size=(n, n_noise))
-    X = pd.DataFrame(
-        np.column_stack([inf, noise]),
-        columns=[f"inf{i}" for i in range(n_inf)] + [f"noise{i}" for i in range(n_noise)])
+    X = pd.DataFrame(np.column_stack([inf, noise]), columns=[f"inf{i}" for i in range(n_inf)] + [f"noise{i}" for i in range(n_noise)])
     coefs = np.array([1.0, 0.9, -0.8, 0.7])[:n_inf]
     logit = inf @ coefs
     y = (logit + 0.3 * rng.normal(size=n) > 0).astype(int)
@@ -220,11 +228,25 @@ def _ratio_sel(ratio):
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
     return ShapProxiedFS(
-        classification=True, n_splits=3, top_n=30, min_features=1, max_features=None,
-        prefilter_top=_C_PREFILTER_TOP, prefilter_n_estimators=60, oof_shap_n_estimators=60,
-        cluster_features=False, within_cluster_refine=False, revalidate=False,
-        run_importance_ablation=False, trust_guard=False, optimizer="bruteforce",
-        min_selected_ratio=ratio, random_state=0, verbose=False, n_jobs=1)
+        classification=True,
+        n_splits=3,
+        top_n=30,
+        min_features=1,
+        max_features=None,
+        prefilter_top=_C_PREFILTER_TOP,
+        prefilter_n_estimators=60,
+        oof_shap_n_estimators=60,
+        cluster_features=False,
+        within_cluster_refine=False,
+        revalidate=False,
+        run_importance_ablation=False,
+        trust_guard=False,
+        optimizer="bruteforce",
+        min_selected_ratio=ratio,
+        random_state=0,
+        verbose=False,
+        n_jobs=1,
+    )
 
 
 @pytest.mark.slow
@@ -253,11 +275,12 @@ def test_min_selected_ratio_floors_selection_in_proxy_column_space():
     floor = math.ceil(ratio * n_proxy)  # ratio*phi-width, rounded up (cardinality is integer)
     assert len(sel.selected_features_) >= floor, (
         f"min_selected_ratio={ratio} not enforced in proxy space: kept {len(sel.selected_features_)} "
-        f"< floor {floor} (n_proxy={n_proxy}); selected={sorted(map(str, sel.selected_features_))}")
+        f"< floor {floor} (n_proxy={n_proxy}); selected={sorted(map(str, sel.selected_features_))}"
+    )
     # The floor actually CHANGED the outcome: it kept strictly more than the unconstrained pick.
     assert len(sel.selected_features_) > len(sel0.selected_features_), (
-        f"ratio floor did not enlarge the subset: ratio={len(sel.selected_features_)} "
-        f"vs default={len(sel0.selected_features_)}")
+        f"ratio floor did not enlarge the subset: ratio={len(sel.selected_features_)} vs default={len(sel0.selected_features_)}"
+    )
     # Never empty (the code falls back to the unfiltered candidates if the ratio empties the pool).
     assert len(sel.selected_features_) >= 1
 
@@ -269,9 +292,7 @@ def _al_dataset(n=900, n_inf=6, n_noise=14, seed=2):
     rng = np.random.default_rng(seed)
     inf = rng.normal(size=(n, n_inf))
     noise = rng.normal(size=(n, n_noise))
-    X = pd.DataFrame(
-        np.column_stack([inf, noise]),
-        columns=[f"inf{i}" for i in range(n_inf)] + [f"noise{i}" for i in range(n_noise)])
+    X = pd.DataFrame(np.column_stack([inf, noise]), columns=[f"inf{i}" for i in range(n_inf)] + [f"noise{i}" for i in range(n_noise)])
     coefs = np.array([1.0, -0.9, 0.8, 0.7, -0.6, 0.5])[:n_inf]
     logit = inf @ coefs
     y = (logit + 0.3 * rng.normal(size=n) > 0).astype(int)
@@ -282,12 +303,26 @@ def _al_sel(n_features, budget):
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
     return ShapProxiedFS(
-        classification=True, n_splits=3, top_n=20, min_features=1,
-        prefilter_top=n_features, prefilter_n_estimators=25, oof_shap_n_estimators=25,
-        revalidation_n_estimators=25, n_revalidation_models=2, trust_guard=True,
-        trust_guard_n_estimators=15, within_cluster_refine=True, parsimony_tol=0.02,
-        active_learning=True, active_learning_budget=budget, use_bias_corrector=True,
-        random_state=0, verbose=False, n_jobs=1)
+        classification=True,
+        n_splits=3,
+        top_n=20,
+        min_features=1,
+        prefilter_top=n_features,
+        prefilter_n_estimators=25,
+        oof_shap_n_estimators=25,
+        revalidation_n_estimators=25,
+        n_revalidation_models=2,
+        trust_guard=True,
+        trust_guard_n_estimators=15,
+        within_cluster_refine=True,
+        parsimony_tol=0.02,
+        active_learning=True,
+        active_learning_budget=budget,
+        use_bias_corrector=True,
+        random_state=0,
+        verbose=False,
+        n_jobs=1,
+    )
 
 
 @pytest.mark.slow
@@ -312,8 +347,7 @@ def test_active_learning_budget_caps_refinement_model_count():
     assert al_small["n_evaluated"] <= 3, f"budget=3 not enforced: {al_small}"
     assert al_large["n_evaluated"] <= 12, f"budget=12 not enforced: {al_large}"
     # The small budget caps refinement work strictly below the large budget.
-    assert al_small["n_evaluated"] < al_large["n_evaluated"], (
-        f"small budget did not reduce evaluations: small={al_small} large={al_large}")
+    assert al_small["n_evaluated"] < al_large["n_evaluated"], f"small budget did not reduce evaluations: small={al_small} large={al_large}"
 
 
 # --------------------------------------------------------------------------------------------------
@@ -329,11 +363,11 @@ def test_su_seeded_snr_z_screen_level_gate_monotonic_fast():
     X, y = _two_interaction_pairs(n=4000, p_noise=20, seed=0, strong=3.0, weak=2.0)
 
     kept_lo, _ = su_synergy_screen(
-        X, y, n_bins=8, top_k=8, max_screen_cols=120,
-        snr_z=3.0, snr_null_quantile=0.99, n_permutations=3, rng=np.random.default_rng(0))
+        X, y, n_bins=8, top_k=8, max_screen_cols=120, snr_z=3.0, snr_null_quantile=0.99, n_permutations=3, rng=np.random.default_rng(0)
+    )
     kept_hi, info_hi = su_synergy_screen(
-        X, y, n_bins=8, top_k=8, max_screen_cols=120,
-        snr_z=500.0, snr_null_quantile=0.99, n_permutations=3, rng=np.random.default_rng(0))
+        X, y, n_bins=8, top_k=8, max_screen_cols=120, snr_z=500.0, snr_null_quantile=0.99, n_permutations=3, rng=np.random.default_rng(0)
+    )
 
     lo_pairs = {frozenset((a, b)) for _syn, _jsu, a, b in kept_lo}
     hi_pairs = {frozenset((a, b)) for _syn, _jsu, a, b in kept_hi}

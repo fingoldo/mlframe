@@ -1,7 +1,8 @@
 """Regression: PySR equation column names must be content-hashed so distinct seeds emit distinct columns, and the equation -> column-name mapping must round-trip via ``out_pysr_equations`` for predict-time replay.
 
-Pre-fix the column name was ``pysr_eq{idx}`` where ``idx`` is the row position in ``model.equations_``. Two seeds discovering different equations both landed on ``pysr_eq0`` / ``pysr_eq1`` / ..., so ensembling or cross-run model loading silently overlayed different equations onto the same column slot.
+Pre-fix the column name was ``pysr_eq{idx}`` where ``idx`` is the row position in ``model.equations_``. Two seeds discovering different equations both landed on ``pysr_eq0`` / ``pysr_eq1`` / ..., so ensembling or cross-run model loading silently overlaid different equations onto the same column slot.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -9,7 +10,6 @@ from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.training.configs import PreprocessingExtensionsConfig
 from mlframe.training.pipeline import apply_preprocessing_extensions
@@ -17,22 +17,26 @@ from mlframe.training.pipeline import apply_preprocessing_extensions
 
 def _make_frames(n: int = 200, seed: int = 0):
     rng = np.random.default_rng(seed)
-    X = pd.DataFrame({
-        "x1": rng.standard_normal(n).astype(np.float32),
-        "x2": rng.standard_normal(n).astype(np.float32),
-    })
+    X = pd.DataFrame(
+        {
+            "x1": rng.standard_normal(n).astype(np.float32),
+            "x2": rng.standard_normal(n).astype(np.float32),
+        }
+    )
     y = (X["x1"] * X["x2"]).astype(np.float32).values
     return X.copy(), X.iloc[: n // 4].copy(), X.iloc[n // 4 : n // 2].copy(), y
 
 
 def _build_fake_model(equation_strings):
     fake_model = MagicMock()
-    eq_df = pd.DataFrame({
-        "equation": list(equation_strings),
-        "score": np.linspace(1.0, 0.1, len(equation_strings), dtype=np.float64),
-        "complexity": [3] * len(equation_strings),
-        "loss": [0.1] * len(equation_strings),
-    })
+    eq_df = pd.DataFrame(
+        {
+            "equation": list(equation_strings),
+            "score": np.linspace(1.0, 0.1, len(equation_strings), dtype=np.float64),
+            "complexity": [3] * len(equation_strings),
+            "loss": [0.1] * len(equation_strings),
+        }
+    )
     eq_df.index = list(range(len(equation_strings)))
     fake_model.equations_ = eq_df
     fake_model.predict = MagicMock(side_effect=lambda df, index=0: np.zeros(len(df), dtype=np.float32))
@@ -79,9 +83,7 @@ def test_pysr_seeds_with_different_equations_produce_distinct_column_names():
     assert pysr_cols_b, "seed=43 produced no pysr columns"
 
     # Distinct equations across seeds -> NO overlap in column names. Pre-fix both would land on ``pysr_eq0`` / ``pysr_eq1``.
-    assert set(pysr_cols_a).isdisjoint(pysr_cols_b), (
-        f"PySR column-name collision across seeds: {set(pysr_cols_a) & set(pysr_cols_b)}"
-    )
+    assert set(pysr_cols_a).isdisjoint(pysr_cols_b), f"PySR column-name collision across seeds: {set(pysr_cols_a) & set(pysr_cols_b)}"
 
     # Equation map populated for both runs and keys match emitted column names.
     assert set(eq_map_a.keys()) == set(pysr_cols_a)
@@ -90,8 +92,8 @@ def test_pysr_seeds_with_different_equations_produce_distinct_column_names():
 
 def test_pysr_same_equation_different_seeds_emits_different_columns():
     """Even when the SAME equation is rediscovered under a different seed, the column name carries the seed suffix so two seeds in an ensemble keep separately addressable features."""
-    train_a, eq_map_a = _run(seed=42, equations=["x1 * x2"])
-    train_b, eq_map_b = _run(seed=43, equations=["x1 * x2"])
+    train_a, _eq_map_a = _run(seed=42, equations=["x1 * x2"])
+    train_b, _eq_map_b = _run(seed=43, equations=["x1 * x2"])
 
     cols_a = [c for c in train_a.columns if c.startswith("pysr__")]
     cols_b = [c for c in train_b.columns if c.startswith("pysr__")]

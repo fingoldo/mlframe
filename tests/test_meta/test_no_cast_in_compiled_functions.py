@@ -19,6 +19,7 @@ only -- mentions in docstrings/comments are ignored. Fix for any real finding: d
 ``cast(...)`` wrapper inside the compiled function body (it changes nothing at runtime); keep
 it in eager/wrapper code around the compiled call if mypy still needs the hint there.
 """
+
 from __future__ import annotations
 
 import ast

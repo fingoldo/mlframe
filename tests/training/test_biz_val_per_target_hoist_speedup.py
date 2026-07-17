@@ -15,6 +15,7 @@ test_per_target_feature_side_cache_reuse.py). The actual scaling speedup is capt
 NOISE_PCT_FLOOR is set generously to keep this test stable on a shared CI host where 5-10%
 run-to-run variance is normal.
 """
+
 from __future__ import annotations
 
 import gc
@@ -55,8 +56,7 @@ def _make_panel(n_rows: int, n_features: int, n_targets: int, seed: int = 2026) 
     df = pd.DataFrame(X, columns=[f"f{i}" for i in range(n_features)])
     for t in range(n_targets):
         a, b, c = t % n_features, (t + 7) % n_features, (t + 13) % n_features
-        df[f"y{t}"] = (X[:, a] - 0.6 * X[:, b] + 0.4 * X[:, c]
-                      + 0.1 * rng.standard_normal(n_rows)).astype(np.float32)
+        df[f"y{t}"] = (X[:, a] - 0.6 * X[:, b] + 0.4 * X[:, c] + 0.1 * rng.standard_normal(n_rows)).astype(np.float32)
     return df
 
 
@@ -89,10 +89,13 @@ def _time_suite(df: pd.DataFrame, n_targets: int, *, force_clear: bool) -> float
             warnings.simplefilter("ignore")
             t0 = time.perf_counter()
             train_mlframe_models_suite(
-                df=df, target_name="multi", model_name="biz_val",
+                df=df,
+                target_name="multi",
+                model_name="biz_val",
                 features_and_targets_extractor=fte,
                 mlframe_models=["xgb"],
-                use_mlframe_ensembles=False, verbose=0,
+                use_mlframe_ensembles=False,
+                verbose=0,
                 baseline_diagnostics_config=BaselineDiagnosticsConfig(enabled=False),
                 dummy_baselines_config=DummyBaselinesConfig(enabled=False),
             )
@@ -122,11 +125,7 @@ def test_per_target_hoist_does_not_regress_wall_time():
     t_post = min(_time_suite(df, n_targets, force_clear=False) for _ in range(2))
 
     overhead_pct = 100.0 * (t_post - t_pre) / t_pre
-    print(
-        f"[biz_val per-target hoist] pre={t_pre:.2f}s post={t_post:.2f}s "
-        f"overhead={overhead_pct:+.1f}% (floor: <={NOISE_PCT_FLOOR}%)"
-    )
+    print(f"[biz_val per-target hoist] pre={t_pre:.2f}s post={t_post:.2f}s overhead={overhead_pct:+.1f}% (floor: <={NOISE_PCT_FLOOR}%)")
     assert overhead_pct <= NOISE_PCT_FLOOR, (
-        f"per-target hoist regressed wall-time by {overhead_pct:.1f}% "
-        f"(pre={t_pre:.2f}s, post={t_post:.2f}s); floor is {NOISE_PCT_FLOOR}%"
+        f"per-target hoist regressed wall-time by {overhead_pct:.1f}% (pre={t_pre:.2f}s, post={t_post:.2f}s); floor is {NOISE_PCT_FLOOR}%"
     )

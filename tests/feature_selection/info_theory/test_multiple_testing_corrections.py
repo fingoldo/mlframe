@@ -9,6 +9,7 @@ Each test pins the CORRECTED contract and fails on the pre-fix code:
 * SA8      _kendall_tau_z uses the tie-corrected variance (matches scipy on tied data).
 * SA9      the continuous-numeric Kendall p-value is computed at full n (no 2000-row subsample).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -31,7 +32,7 @@ class TestKnockoffNullSignSymmetry:
             y = rng.standard_normal(150)  # y independent of all X -> global null
 
             def factory():
-                return RandomForestRegressor(n_estimators=40, random_state=seed)
+                return RandomForestRegressor(n_estimators=40, random_state=seed)  # noqa: B023 -- factory invoked immediately below, same iteration, never stored
 
             W = knockoff_importance(factory, X, y, random_state=seed, w_statistic="gain")
             all_W.extend(W.values())
@@ -62,7 +63,7 @@ class TestKnockoffNullSignSymmetry:
             y = rng.standard_normal(150)
 
             def factory():
-                return RandomForestRegressor(n_estimators=40, random_state=seed)
+                return RandomForestRegressor(n_estimators=40, random_state=seed)  # noqa: B023 -- factory invoked immediately below, same iteration, never stored
 
             W = knockoff_importance(factory, X, y, random_state=seed, w_statistic="gain")
             total_selected += len(select_features_fdr(W, q=q))
@@ -88,7 +89,7 @@ class TestKendallTieCorrectedVariance:
         _, z = _kendall_tau_z(x, y)
         p_ours = _normal_two_sided_p(z)
 
-        tau_sp, p_sp = kendalltau(x, y, variant="b")
+        _tau_sp, p_sp = kendalltau(x, y, variant="b")
         # scipy uses the same tie-corrected normal approx; ours must agree closely.
         assert p_ours == pytest.approx(p_sp, abs=5e-3, rel=0.05), f"ours={p_ours} scipy={p_sp}"
 
@@ -190,7 +191,7 @@ class TestStabilityMRMRPFER:
         assert hasattr(sel, "avg_selected_per_bootstrap_")
         q = sel.avg_selected_per_bootstrap_
         pi = sel.support_threshold
-        expected = (q ** 2) / ((2.0 * pi - 1.0) * p)
+        expected = (q**2) / ((2.0 * pi - 1.0) * p)
         assert sel.pfer_bound_ == pytest.approx(expected, rel=1e-9)
 
     def test_pfer_bound_nan_when_fraction_not_half(self):
@@ -232,7 +233,7 @@ class TestRFECVStabilityPFER:
         assert hasattr(sel, "stability_pfer_bound_"), "RFECV stability path must expose the MB PFER bound"
         top_k = max(1, p // 4)
         pi = 0.6
-        expected = (top_k ** 2) / ((2.0 * pi - 1.0) * p)
+        expected = (top_k**2) / ((2.0 * pi - 1.0) * p)
         assert sel.stability_pfer_bound_ == pytest.approx(expected, rel=1e-9)
         assert sel.cv_results_["pfer_bound"][0] == pytest.approx(expected, rel=1e-9)
 
@@ -259,7 +260,6 @@ class TestBorutaNullHitCalibration:
         rng = _np.random.default_rng(0)
         hits = rng.binomial(n_trials, null_p, size=n_features).astype(float)
 
-        accepted_box = {}
 
         def _binom(array, n, p, alternative):
             from scipy.stats import binomtest

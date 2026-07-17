@@ -14,6 +14,7 @@ Measured (bench_modular_period_detection, 5 seeds): per-family MI lift 0.59..0.6
 control FP 0.0, modulus accuracy 1.0. Floors set ~15-20% below measured to absorb seed noise.
 Each test < 5s (n=2000, coarse modulus grid).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -67,9 +68,15 @@ def _single_hidden_period(seed, n=2000, m=11):
 class TestModularMILift:
     """The materialised residue must carry a large MI lift over the raw-combiner baseline."""
 
-    @pytest.mark.parametrize("gen,true_m", [
-        (_pair_add_mod, 7), (_pair_mul_mod, 5), (_nway_parity, 2), (_single_hidden_period, 11),
-    ])
+    @pytest.mark.parametrize(
+        "gen,true_m",
+        [
+            (_pair_add_mod, 7),
+            (_pair_mul_mod, 5),
+            (_nway_parity, 2),
+            (_single_hidden_period, 11),
+        ],
+    )
     def test_modular_residue_beats_smooth_baseline(self, gen, true_m):
         lifts, mods_ok = [], []
         for s in SEEDS:
@@ -86,8 +93,7 @@ class TestModularMILift:
             f"poly/Fourier leg can't."
         )
         assert float(np.mean(mods_ok)) >= 0.8, (
-            f"detected modulus matched the true period (or a multiple) in only "
-            f"{float(np.mean(mods_ok)):.0%} of seeds for m={true_m}."
+            f"detected modulus matched the true period (or a multiple) in only {float(np.mean(mods_ok)):.0%} of seeds for m={true_m}."
         )
 
 
@@ -136,11 +142,10 @@ class TestCheapGate:
         tp_hits = cheap_modular_scan(X_tp, y_tp, seed=7)
         ctrl_hits = cheap_modular_scan(X_ctrl, y_ctrl, seed=7)
         assert any(h.responded for h in tp_hits), "no cheap-scan hit responded on a true modular target."
-        assert not any(h.responded for h in ctrl_hits), (
-            "a cheap-scan hit responded on the ordinary multiplicative-interaction control."
-        )
+        assert not any(h.responded for h in ctrl_hits), "a cheap-scan hit responded on the ordinary multiplicative-interaction control."
 
 
 if __name__ == "__main__":
     import sys
+
     sys.exit(pytest.main([__file__, "-v", "-s", "--no-cov"]))

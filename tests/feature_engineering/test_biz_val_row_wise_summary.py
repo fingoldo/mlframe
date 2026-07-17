@@ -6,6 +6,7 @@ individual per-column splits -- a genuinely harder learning problem than being h
 directly. Adding row-wise summary-statistic columns (mean/std/quantiles) should recover the true signal far
 better, mirroring the Ubiquant Market Prediction 2nd place's per-row cross-sectional "macro" features.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -38,7 +39,9 @@ def test_biz_val_row_wise_summary_stats_beats_raw_columns_alone_mse():
     mse_augmented = mean_squared_error(y[test_idx], augmented.predict(X_augmented.iloc[test_idx]))
 
     improvement = 1.0 - mse_augmented / mse_baseline
-    assert improvement > 0.7, f"expected >70% MSE reduction from row-wise summary features, got {improvement:.4f} (baseline={mse_baseline:.4f}, augmented={mse_augmented:.4f})"
+    assert improvement > 0.7, (
+        f"expected >70% MSE reduction from row-wise summary features, got {improvement:.4f} (baseline={mse_baseline:.4f}, augmented={mse_augmented:.4f})"
+    )
 
 
 def test_row_wise_summary_stats_output_shape_and_columns():
@@ -90,9 +93,7 @@ def test_biz_val_row_wise_summary_stats_grouped_beats_flat_when_scales_differ_ms
     flat_model = GradientBoostingRegressor(random_state=0, n_estimators=100, max_depth=3).fit(X_flat.iloc[train_idx], y[train_idx])
     mse_flat = mean_squared_error(y[test_idx], flat_model.predict(X_flat.iloc[test_idx]))
 
-    grouped_summary = row_wise_summary_stats(
-        X, stats=("mean", "std", "q10", "q50", "q90"), groups={"signal": cols_signal, "bigscale": cols_bigscale}
-    )
+    grouped_summary = row_wise_summary_stats(X, stats=("mean", "std", "q10", "q50", "q90"), groups={"signal": cols_signal, "bigscale": cols_bigscale})
     X_grouped = pd.concat([X, grouped_summary], axis=1)
     grouped_model = GradientBoostingRegressor(random_state=0, n_estimators=100, max_depth=3).fit(X_grouped.iloc[train_idx], y[train_idx])
     mse_grouped = mean_squared_error(y[test_idx], grouped_model.predict(X_grouped.iloc[test_idx]))
@@ -117,6 +118,10 @@ def test_row_wise_summary_stats_grouped_matches_manual_per_group_calls():
 
     pd.testing.assert_frame_equal(grouped, manual)
     assert set(grouped.columns) == {
-        "row_summary_signal_mean", "row_summary_signal_std", "row_summary_signal_q10",
-        "row_summary_bigscale_mean", "row_summary_bigscale_std", "row_summary_bigscale_q10",
+        "row_summary_signal_mean",
+        "row_summary_signal_std",
+        "row_summary_signal_q10",
+        "row_summary_bigscale_mean",
+        "row_summary_bigscale_std",
+        "row_summary_bigscale_q10",
     }

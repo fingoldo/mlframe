@@ -29,6 +29,7 @@ help, the user's WEAK F2, for the SAME fundamental reason #1/#8/#19 failed:
 These tests use ONLY the shipped ``info_theory`` MI helpers + ``discretization`` (no #5 production
 code exists -- by design). Small fixtures (n<=8000) keep them fast on a RAM-contended box.
 """
+
 from __future__ import annotations
 
 from itertools import combinations
@@ -51,8 +52,12 @@ def _binary_bank(a, b):
     """Elementary 'minimal' binary preset (the default)."""
     with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
         return [
-            np.multiply(a, b), np.add(a, b), np.subtract(a, b),
-            _safe_div(a, b), np.maximum(a, b), np.minimum(a, b),
+            np.multiply(a, b),
+            np.add(a, b),
+            np.subtract(a, b),
+            _safe_div(a, b),
+            np.maximum(a, b),
+            np.minimum(a, b),
         ]
 
 
@@ -73,10 +78,10 @@ def _discretize_frame(X, y):
 def _engineered_disc(X, pairs):
     """Discretise the engineered bank ONCE per pair (functions of X -> permutation-invariant)."""
     out = []
-    for (ia, ib) in pairs:
-        a = X[:, ia].astype(np.float64); b = X[:, ib].astype(np.float64)
-        cols = [np.nan_to_num(np.asarray(v, dtype=np.float64), nan=0.0, posinf=0.0, neginf=0.0)
-                for v in _binary_bank(a, b)]
+    for ia, ib in pairs:
+        a = X[:, ia].astype(np.float64)
+        b = X[:, ib].astype(np.float64)
+        cols = [np.nan_to_num(np.asarray(v, dtype=np.float64), nan=0.0, posinf=0.0, neginf=0.0) for v in _binary_bank(a, b)]
         mat = np.column_stack(cols).astype(np.float32)
         out.append(discretize_2d_quantile_batch(mat, n_bins=_N_BINS, dtype=np.int16))
     return out
@@ -88,8 +93,7 @@ def _mi_1d(codes, n_bins, y_codes, freqs_y):
     data[:, 0] = codes
     data[:, 1] = 0
     nbins = np.array([int(n_bins), 1], dtype=np.int64)
-    return float(batch_pair_mi_prange(data, np.array([0], dtype=np.int64), np.array([1], dtype=np.int64),
-                                      nbins, y_codes, freqs_y)[0])
+    return float(batch_pair_mi_prange(data, np.array([0], dtype=np.int64), np.array([1], dtype=np.int64), nbins, y_codes, freqs_y)[0])
 
 
 def _null_ratio_q(X, data, nbins, yc, freqs_y, pairs, *, seed):
@@ -118,8 +122,7 @@ def _null_ratio_q(X, data, nbins, yc, freqs_y, pairs, *, seed):
 
 
 def _real_ratio(X, data, nbins, yc, freqs_y, ia, ib):
-    pm = float(batch_pair_mi_prange(data, np.array([ia], dtype=np.int64), np.array([ib], dtype=np.int64),
-                                    np.ascontiguousarray(nbins), yc, freqs_y)[0])
+    pm = float(batch_pair_mi_prange(data, np.array([ia], dtype=np.int64), np.array([ib], dtype=np.int64), np.ascontiguousarray(nbins), yc, freqs_y)[0])
     if pm <= 1e-12:
         return 0.0
     eng = _engineered_disc(X, [(ia, ib)])[0]
@@ -157,8 +160,7 @@ def test_pure_noise_ratios_below_null_ceiling():
     # the noise-FP gate working: pure noise is NOT broadly admitted (contrast: the weak-F2
     # cross-mix below is admitted 100%).
     assert mean_rate < 0.25, (
-        f"#5 null ceiling admitted a mean {mean_rate:.1%} of pure-noise pairs across seeds "
-        f"-- the noise-FP gate must reject the majority of noise"
+        f"#5 null ceiling admitted a mean {mean_rate:.1%} of pure-noise pairs across seeds -- the noise-FP gate must reject the majority of noise"
     )
 
 
@@ -170,10 +172,13 @@ def test_pure_noise_ratios_below_null_ceiling():
 def test_weak_f2_crossmix_ratio_clears_null_ceiling():
     seed, n = 0, 8000  # n<=8000 (RAM-contended box)
     rng = np.random.default_rng(seed)
-    a = rng.random(n) + 0.1; b = rng.random(n) + 0.1
-    c = rng.random(n) + 0.1; d = rng.random(n) * 2 * np.pi
-    e = rng.random(n); f = rng.random(n)
-    y = 0.2 * a ** 2 / b + f / 5.0 + np.log(c * 2.0) * np.sin(d / 3.0)
+    a = rng.random(n) + 0.1
+    b = rng.random(n) + 0.1
+    c = rng.random(n) + 0.1
+    d = rng.random(n) * 2 * np.pi
+    e = rng.random(n)
+    f = rng.random(n)
+    y = 0.2 * a**2 / b + f / 5.0 + np.log(c * 2.0) * np.sin(d / 3.0)
     names = ["a", "b", "c", "d", "e"]
     X = np.column_stack([a, b, c, d, e])
     data, nbins, yc, fy = _discretize_frame(X, y)
@@ -189,19 +194,16 @@ def test_weak_f2_crossmix_ratio_clears_null_ceiling():
 
     # The genuine pairs clear the null ceiling (the bar would admit them) ...
     assert r_genuine_ab > nq and r_genuine_cd > nq, (
-        f"weak-F2 genuine ratios (ab={r_genuine_ab:.3f}, cd={r_genuine_cd:.3f}) should clear "
-        f"the null ceiling {nq:.3f}"
+        f"weak-F2 genuine ratios (ab={r_genuine_ab:.3f}, cd={r_genuine_cd:.3f}) should clear the null ceiling {nq:.3f}"
     )
     # ... but SO DO ALL the cross-mix pairs -> #5 ADMITS the cross-mix on this seed,
     # the IRON-RULE failure mode identical to #1. This is the wall: the null bar
     # (calibrated to the noise floor) cannot reject a cross-mix that carries a real
     # dominant monotone predictor. THIS assertion is the bench-reject characterization.
     assert all(r > nq for r in cross_ratios.values()), (
-        f"EXPECTED bench-reject wall: every cross-mix ratio must clear the null ceiling "
-        f"{nq:.3f} (so #5 admits noise like #1) -- got {cross_ratios}"
+        f"EXPECTED bench-reject wall: every cross-mix ratio must clear the null ceiling {nq:.3f} (so #5 admits noise like #1) -- got {cross_ratios}"
     )
     # And at least one cross-mix ratio is >= a genuine ratio -- no ordering separates them.
     assert max(cross_ratios.values()) >= min(r_genuine_ab, r_genuine_cd) * 0.9, (
-        f"cross-mix ratios {cross_ratios} should be comparable to genuine "
-        f"(ab={r_genuine_ab:.3f}, cd={r_genuine_cd:.3f}); the null bar cannot separate them"
+        f"cross-mix ratios {cross_ratios} should be comparable to genuine (ab={r_genuine_ab:.3f}, cd={r_genuine_cd:.3f}); the null bar cannot separate them"
     )

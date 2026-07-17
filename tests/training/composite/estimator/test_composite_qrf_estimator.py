@@ -6,6 +6,7 @@ the returned quantiles are monotone (non-crossing) per row, per-quantile coverag
 near-nominal on held-out data, the CDF is a valid monotone step function, and the
 CRPS is finite. Pure sklearn backend -- no optional inner lib required.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -35,7 +36,10 @@ def _fit_split(seed: int = 0, n: int = 3000):
     Xtr, ytr = X.iloc[:ntr], y[:ntr]
     Xte, yte = X.iloc[ntr:], y[ntr:]
     est = CompositeQRFEstimator(
-        base_column="base", n_estimators=120, min_samples_leaf=8, random_state=0,
+        base_column="base",
+        n_estimators=120,
+        min_samples_leaf=8,
+        random_state=0,
     ).fit(Xtr, ytr)
     return est, Xte, yte
 

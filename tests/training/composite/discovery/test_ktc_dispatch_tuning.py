@@ -5,6 +5,7 @@ state, a second ``ensure_*`` call with ``force=False`` is a no-op, and ``choose_
 with ``run_auto_tune=True`` consults the persisted cache for a swept cell instead of the
 hardcoded size gate.
 """
+
 from __future__ import annotations
 
 import pytest

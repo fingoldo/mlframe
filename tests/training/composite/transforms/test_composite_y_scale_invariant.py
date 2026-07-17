@@ -13,6 +13,7 @@ This test ships as the watchdog: it builds a CompositeTargetEstimator wrapping a
 
 If the production-style real bug is in a different layer (entry-mutation, double-prediction, stale weights), this test will still pass -- it documents the invariant that MUST hold at the wrapper boundary.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -79,8 +80,7 @@ class TestCompositeYscaleInvariant:
         t_mae = _t_scale_mae(inner, X, y_T)
         y_mae = _y_scale_mae(wrapper, X, y)
         assert y_mae == pytest.approx(t_mae, abs=1e-6), (
-            f"Composite wrapper broke the additive-invariance: "
-            f"T-scale MAE={t_mae:.6f} but y-scale MAE={y_mae:.6f} (delta={y_mae - t_mae:.6f})"
+            f"Composite wrapper broke the additive-invariance: T-scale MAE={t_mae:.6f} but y-scale MAE={y_mae:.6f} (delta={y_mae - t_mae:.6f})"
         )
 
     def test_ttr_wrapped_inner(self) -> None:
@@ -94,7 +94,8 @@ class TestCompositeYscaleInvariant:
         y_T = transform.forward(y, base, params)
 
         ttr = TransformedTargetRegressor(
-            regressor=LinearRegression(), transformer=StandardScaler(),
+            regressor=LinearRegression(),
+            transformer=StandardScaler(),
         )
         ttr.fit(X, y_T)
 
@@ -109,8 +110,7 @@ class TestCompositeYscaleInvariant:
         t_mae = _t_scale_mae(ttr, X, y_T)
         y_mae = _y_scale_mae(wrapper, X, y)
         assert y_mae == pytest.approx(t_mae, abs=1e-6), (
-            f"TTR+composite broke additive-invariance (production symptom): "
-            f"T-scale MAE={t_mae:.6f} but y-scale MAE={y_mae:.6f} (delta={y_mae - t_mae:.6f})"
+            f"TTR+composite broke additive-invariance (production symptom): T-scale MAE={t_mae:.6f} but y-scale MAE={y_mae:.6f} (delta={y_mae - t_mae:.6f})"
         )
 
     def test_invariant_holds_with_y_clip_active(self) -> None:

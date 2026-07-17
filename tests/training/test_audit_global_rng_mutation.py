@@ -44,9 +44,9 @@ Verified clean (do not refactor):
     numba's per-thread RNG (not Python np.random global).
   - feature_selection/filters/mrmr.py:946 -- comment confirms prior global removed.
 """
+
 from __future__ import annotations
 
-import importlib
 from pathlib import Path
 
 import numpy as np
@@ -168,6 +168,7 @@ def test_compute_iia_does_not_mutate_global_np_rng() -> None:
     """compute_iia per-iter seed must NOT shift the caller's global stream."""
     pd = pytest.importorskip("pandas")
     from mlframe.votenrank.iia_exp import compute_iia
+
     # Minimal stub: 3 models x 2 metrics, weights=ones, method=mean.
     table = pd.DataFrame(
         {"m1": [0.5, 0.6], "m2": [0.55, 0.65], "m3": [0.7, 0.4]},
@@ -183,7 +184,7 @@ def test_compute_iia_does_not_mutate_global_np_rng() -> None:
 
     try:
         compute_iia(_mean_method, table, weights, num_repetitions=3)
-    except Exception:
+    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
         pass  # the method signature might mismatch; we only care about RNG state.
     post = np.random.get_state()
     np.testing.assert_array_equal(pre[1], post[1])

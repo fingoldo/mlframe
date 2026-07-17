@@ -11,6 +11,7 @@ The dispatcher (:func:`dispatch_batch_pair_mi`) is also covered: with no
 regardless of which backend it picked, and with ``force_backend`` it must
 honour the override.
 """
+
 from __future__ import annotations
 
 import itertools
@@ -61,12 +62,18 @@ PARAM_MATRIX = [
 @pytest.mark.parametrize("n_samples,nbins_per_col,n_classes_y,seed", PARAM_MATRIX)
 def test_batch_pair_mi_cuda_matches_cpu(n_samples, nbins_per_col, n_classes_y, seed):
     data, nbins, y, freqs_y, pa, pb = _build_pair_inputs(
-        n_samples, nbins_per_col, n_classes_y, seed,
+        n_samples,
+        nbins_per_col,
+        n_classes_y,
+        seed,
     )
     mi_cpu = batch_pair_mi_njit_prange(data, pa, pb, nbins, y, freqs_y)
     mi_cuda = batch_pair_mi_cuda(data, pa, pb, nbins, y, freqs_y)
     np.testing.assert_allclose(
-        mi_cuda, mi_cpu, atol=1e-9, rtol=1e-9,
+        mi_cuda,
+        mi_cpu,
+        atol=1e-9,
+        rtol=1e-9,
         err_msg=(
             f"batch_pair_mi_cuda diverged from CPU njit baseline: "
             f"shapes=(n={n_samples}, nbins={nbins_per_col}, ny={n_classes_y}). "
@@ -79,12 +86,18 @@ def test_batch_pair_mi_cuda_matches_cpu(n_samples, nbins_per_col, n_classes_y, s
 @pytest.mark.parametrize("n_samples,nbins_per_col,n_classes_y,seed", PARAM_MATRIX)
 def test_batch_pair_mi_cupy_matches_cpu(n_samples, nbins_per_col, n_classes_y, seed):
     data, nbins, y, freqs_y, pa, pb = _build_pair_inputs(
-        n_samples, nbins_per_col, n_classes_y, seed,
+        n_samples,
+        nbins_per_col,
+        n_classes_y,
+        seed,
     )
     mi_cpu = batch_pair_mi_njit_prange(data, pa, pb, nbins, y, freqs_y)
     mi_cupy = batch_pair_mi_cupy(data, pa, pb, nbins, y, freqs_y)
     np.testing.assert_allclose(
-        mi_cupy, mi_cpu, atol=1e-9, rtol=1e-9,
+        mi_cupy,
+        mi_cpu,
+        atol=1e-9,
+        rtol=1e-9,
         err_msg=(
             f"batch_pair_mi_cupy diverged from CPU njit baseline: "
             f"shapes=(n={n_samples}, nbins={nbins_per_col}, ny={n_classes_y}). "
@@ -104,8 +117,14 @@ def test_dispatch_falls_back_to_cpu_below_thresholds():
 
 def test_dispatch_force_backend_njit():
     data, nbins, y, freqs_y, pa, pb = _build_pair_inputs(500, [4, 4, 4, 4], 2, 1)
-    mi, backend = dispatch_batch_pair_mi(
-        data, pa, pb, nbins, y, freqs_y, force_backend="njit",
+    _mi, backend = dispatch_batch_pair_mi(
+        data,
+        pa,
+        pb,
+        nbins,
+        y,
+        freqs_y,
+        force_backend="njit",
     )
     assert backend == "njit"
 
@@ -115,7 +134,13 @@ def test_dispatch_force_backend_cuda_matches_cpu():
     data, nbins, y, freqs_y, pa, pb = _build_pair_inputs(2000, [5, 5, 5, 5, 5, 5], 4, 3)
     mi_cpu = batch_pair_mi_njit_prange(data, pa, pb, nbins, y, freqs_y)
     mi_force, backend = dispatch_batch_pair_mi(
-        data, pa, pb, nbins, y, freqs_y, force_backend="cuda",
+        data,
+        pa,
+        pb,
+        nbins,
+        y,
+        freqs_y,
+        force_backend="cuda",
     )
     assert backend == "cuda"
     np.testing.assert_allclose(mi_force, mi_cpu, atol=1e-9, rtol=1e-9)
@@ -126,7 +151,13 @@ def test_dispatch_force_backend_cupy_matches_cpu():
     data, nbins, y, freqs_y, pa, pb = _build_pair_inputs(2000, [5, 5, 5, 5, 5, 5], 4, 3)
     mi_cpu = batch_pair_mi_njit_prange(data, pa, pb, nbins, y, freqs_y)
     mi_force, backend = dispatch_batch_pair_mi(
-        data, pa, pb, nbins, y, freqs_y, force_backend="cupy",
+        data,
+        pa,
+        pb,
+        nbins,
+        y,
+        freqs_y,
+        force_backend="cupy",
     )
     assert backend == "cupy"
     np.testing.assert_allclose(mi_force, mi_cpu, atol=1e-9, rtol=1e-9)
@@ -140,8 +171,14 @@ def test_dispatch_force_unavailable_falls_back_to_cpu(monkeypatch):
     monkeypatch.setattr(mod, "_CUDA_AVAIL", False)
     monkeypatch.setattr(mod, "_CUPY_AVAIL", False)
     data, nbins, y, freqs_y, pa, pb = _build_pair_inputs(500, [4, 4, 4, 4], 2, 1)
-    mi, backend = mod.dispatch_batch_pair_mi(
-        data, pa, pb, nbins, y, freqs_y, force_backend="cuda",
+    _mi, backend = mod.dispatch_batch_pair_mi(
+        data,
+        pa,
+        pb,
+        nbins,
+        y,
+        freqs_y,
+        force_backend="cuda",
     )
     assert backend == "njit"
 

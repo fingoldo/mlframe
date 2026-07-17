@@ -39,6 +39,7 @@ fast-mode kept alive via a representative; the timing half additionally short-ci
 under ``running_under_xdist()`` because wall-clock ratios are unreliable on a contended
 box (per ``perf_*`` budget helpers' rationale).
 """
+
 from __future__ import annotations
 
 import contextlib
@@ -79,8 +80,14 @@ _INIT_DESIGN = 8
 
 def _make_data(seed: int = 0):
     X, y = make_classification(
-        n_samples=_N_SAMPLES, n_features=_N_FEATURES, n_informative=_N_INFORMATIVE,
-        n_redundant=5, n_repeated=0, n_classes=2, shuffle=False, random_state=seed,
+        n_samples=_N_SAMPLES,
+        n_features=_N_FEATURES,
+        n_informative=_N_INFORMATIVE,
+        n_redundant=5,
+        n_repeated=0,
+        n_classes=2,
+        shuffle=False,
+        random_state=seed,
     )
     return X, y
 
@@ -96,15 +103,19 @@ def _quiet(fn):
 def _make_ours(max_refits: int = _MAX_REFITS):
     return MlframeRFECV(
         estimator=LogisticRegression(max_iter=200, random_state=0),
-        cv=_CV, max_refits=max_refits, random_state=0,
-        leakage_corr_threshold=None, n_features_selection_rule="argmax",
-        init_design_size=_INIT_DESIGN, verbose=0, leave_progressbars=False,
+        cv=_CV,
+        max_refits=max_refits,
+        random_state=0,
+        leakage_corr_threshold=None,
+        n_features_selection_rule="argmax",
+        init_design_size=_INIT_DESIGN,
+        verbose=0,
+        leave_progressbars=False,
     )
 
 
 def _make_sklearn():
-    return SkRFECV(estimator=LogisticRegression(max_iter=200, random_state=0),
-                   step=1, cv=_CV)
+    return SkRFECV(estimator=LogisticRegression(max_iter=200, random_state=0), step=1, cv=_CV)
 
 
 def _bool_mask(selector, n_features: int) -> np.ndarray:
@@ -185,10 +196,7 @@ def test_rfecv_explores_far_fewer_subset_sizes_than_sklearn():
     # far under p=40 -> a regression to the full grid trips it.
     ceiling = _MAX_REFITS + _INIT_DESIGN
     assert our_distinct >= 1, "our RFECV must record at least one explored subset size"
-    assert our_distinct <= ceiling, (
-        f"MBH explored {our_distinct} distinct subset sizes; expected <= {ceiling} "
-        f"(<< sklearn's {sk_distinct})"
-    )
+    assert our_distinct <= ceiling, f"MBH explored {our_distinct} distinct subset sizes; expected <= {ceiling} (<< sklearn's {sk_distinct})"
     # The headline win: ours evaluates at most a third of sklearn's distinct-N grid.
     assert our_distinct <= 0.5 * sk_distinct, (
         f"MBH refit-count advantage not realised: ours evaluated {our_distinct} "
@@ -271,20 +279,16 @@ def test_rfecv_runtime_at_score_parity():
     for _ in range(3):
         ours = _make_ours()
         t0 = time.perf_counter()
-        _quiet(lambda: ours.fit(X, y))
+        _quiet(lambda: ours.fit(X, y))  # noqa: B023 -- _quiet invokes the lambda synchronously here, same iteration, never stored
         our_walls.append(time.perf_counter() - t0)
         our_mask = _bool_mask(ours, n)
     our_wall_min = min(our_walls)
     our_score = _subset_auc(X, y, our_mask)
 
     # Both halves of the intended win. Either failing is the documented gap.
-    assert our_score >= sk_score - 0.02, (
-        f"score parity not met: ours={our_score:.4f} sklearn={sk_score:.4f} "
-        f"(floor sklearn-0.02={sk_score - 0.02:.4f})"
-    )
+    assert our_score >= sk_score - 0.02, f"score parity not met: ours={our_score:.4f} sklearn={sk_score:.4f} (floor sklearn-0.02={sk_score - 0.02:.4f})"
     assert our_wall_min <= 0.7 * sk_wall_min, (
-        f"runtime win not met: our_min={our_wall_min:.3f}s sklearn_min={sk_wall_min:.3f}s "
-        f"ratio={our_wall_min / sk_wall_min:.3f} (want <= 0.7)"
+        f"runtime win not met: our_min={our_wall_min:.3f}s sklearn_min={sk_wall_min:.3f}s ratio={our_wall_min / sk_wall_min:.3f} (want <= 0.7)"
     )
 
 

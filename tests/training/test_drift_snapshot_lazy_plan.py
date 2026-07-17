@@ -7,14 +7,13 @@ collect for cardinalities and one lazy collect per frame (train/val/test) for th
 Tests assert: (1) byte-identical output dict / log content vs a vendored pre-fix reference; (2) collect-count
 is bounded (1 for cardinalities + 3 for drift-sets = 4, not >=100); (3) measurable wall-time win.
 """
+
 from __future__ import annotations
 
-import logging
 import time
 
 import numpy as np
 import polars as pl
-import pytest
 
 from mlframe.training.core._phase_helpers import _log_cardinality_and_drift_snapshot
 
@@ -73,25 +72,15 @@ def _new_drift_snapshot(train_df, val_df, test_df, cols):
     cols_present = [c for c in cols if c in train_df.columns]
     if not cols_present:
         return {"pairs": [], "drift_rows": []}
-    _card_row = train_df.lazy().select(
-        [pl.col(c).n_unique().alias(c) for c in cols_present]
-    ).collect()
+    _card_row = train_df.lazy().select([pl.col(c).n_unique().alias(c) for c in cols_present]).collect()
     pairs = [(c, int(_card_row[c][0])) for c in cols_present]
     pairs.sort(key=lambda x: -x[1])
-    drift_cols = [c for c, card in pairs
-                  if card <= _DRIFT_SKIP_CARD
-                  and c in val_df.columns and c in test_df.columns]
+    drift_cols = [c for c, card in pairs if card <= _DRIFT_SKIP_CARD and c in val_df.columns and c in test_df.columns]
     drift_rows = []
     if drift_cols:
-        _tr = train_df.lazy().select(
-            [pl.col(c).drop_nulls().unique().implode().alias(c) for c in drift_cols]
-        ).collect()
-        _v = val_df.lazy().select(
-            [pl.col(c).drop_nulls().unique().implode().alias(c) for c in drift_cols]
-        ).collect()
-        _te = test_df.lazy().select(
-            [pl.col(c).drop_nulls().unique().implode().alias(c) for c in drift_cols]
-        ).collect()
+        _tr = train_df.lazy().select([pl.col(c).drop_nulls().unique().implode().alias(c) for c in drift_cols]).collect()
+        _v = val_df.lazy().select([pl.col(c).drop_nulls().unique().implode().alias(c) for c in drift_cols]).collect()
+        _te = test_df.lazy().select([pl.col(c).drop_nulls().unique().implode().alias(c) for c in drift_cols]).collect()
         _card_by_col = dict(pairs)
         for c in drift_cols:
             tr_set = set(_tr[c][0].to_list())
@@ -110,8 +99,9 @@ def test_drift_snapshot_output_identical_pre_vs_post():
     assert legacy["pairs"] == new["pairs"], "cardinality pairs diverged between legacy and lazy-plan paths"
     # Drift rows ordering is the same because both sort 'pairs' identically; compare set to be order-insensitive
     # against any future re-ordering, but the values per (col -> counts) must match exactly.
-    assert {row[0]: row[1:] for row in legacy["drift_rows"]} == {row[0]: row[1:] for row in new["drift_rows"]}, \
+    assert {row[0]: row[1:] for row in legacy["drift_rows"]} == {row[0]: row[1:] for row in new["drift_rows"]}, (
         "drift counts diverged between legacy and lazy-plan paths"
+    )
 
 
 def test_drift_snapshot_single_collect():
@@ -140,8 +130,12 @@ def test_drift_snapshot_single_collect():
     pl.DataFrame.select = _counting_df_select
     try:
         _log_cardinality_and_drift_snapshot(
-            train_df=train, val_df=val, test_df=test,
-            cat_features=cat_features, text_features=[], embedding_features=[],
+            train_df=train,
+            val_df=val,
+            test_df=test,
+            cat_features=cat_features,
+            text_features=[],
+            embedding_features=[],
         )
     finally:
         pl.LazyFrame.collect = orig_collect
@@ -149,10 +143,7 @@ def test_drift_snapshot_single_collect():
 
     # Lazy path produces a small bounded constant of collects (4 nominal). Allow some slack for internal polars
     # LazyFrame.collect bookkeeping (e.g. schema access). Must be >= 1 (proves the lazy path is being used).
-    assert 1 <= counts["collect"] <= 8, (
-        f"post-fix expected 1..8 LazyFrame.collect calls, got {counts['collect']} "
-        f"(regression toward per-col eager path?)"
-    )
+    assert 1 <= counts["collect"] <= 8, f"post-fix expected 1..8 LazyFrame.collect calls, got {counts['collect']} (regression toward per-col eager path?)"
     # Eager DataFrame.select was the per-col vehicle in the pre-fix (3 selects + 2 joins per col). On 30 cols
     # the pre-fix would hit ~90 select calls; the post-fix MUST stay well under 30 (linear with col count is a
     # smoking-gun regression). Bound: 2*n_cols leaves room for any non-loop bookkeeping calls.
@@ -187,6 +178,5 @@ def test_biz_val_drift_snapshot_lazy_speedup():
 
     ratio = new_s / max(legacy_s, 1e-9)
     assert ratio <= 0.5, (
-        f"drift-snapshot lazy plan regressed: new={new_s*1000:.1f}ms legacy={legacy_s*1000:.1f}ms "
-        f"ratio={ratio:.2f} (target<=0.5; bench-of-record ~0.28)"
+        f"drift-snapshot lazy plan regressed: new={new_s * 1000:.1f}ms legacy={legacy_s * 1000:.1f}ms ratio={ratio:.2f} (target<=0.5; bench-of-record ~0.28)"
     )

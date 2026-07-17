@@ -19,6 +19,7 @@ broken -- fails them):
          does not fire -> the fitted coefficients are BYTE-IDENTICAL with the gate on or off.
   NO-FALSE-POSITIVE: a pure-noise operand admits no usable warp (no spurious signal recovery).
 """
+
 from __future__ import annotations
 
 import os
@@ -36,7 +37,7 @@ from mlframe.feature_selection.filters.hermite_fe import (
 )
 
 _N = 2000
-_TRUE_WARP = lambda z: 0.7 * z + 0.25 * z ** 3  # monotone increasing on [-2.5, 2.5]
+_TRUE_WARP = lambda z: 0.7 * z + 0.25 * z**3  # monotone increasing on [-2.5, 2.5]
 
 
 def _inject_outliers(rng, x, frac=0.015, scale_iqr=12.0):
@@ -100,7 +101,7 @@ def test_robust_beats_plain_oos_on_outlier_column():
     # margin: positive mean AND never a meaningful regression.
     assert deltas.mean() > 0.002, f"robust did not beat plain on average: mean dR2={deltas.mean():.4f}"
     assert deltas.min() > -0.005, f"robust regressed on a seed: worst dR2={deltas.min():.4f}"
-    assert (deltas > 0).mean() >= 0.9, f"robust won on only {(deltas>0).mean():.0%} of seeds"
+    assert (deltas > 0).mean() >= 0.9, f"robust won on only {(deltas > 0).mean():.0%} of seeds"
 
 
 # ---------------------------------------------------------------------------

@@ -4,6 +4,7 @@ Cover: member count after fit, predict shape, predict_std non-negativity +
 exact-zero on identical members, sklearn clone, and determinism under a fixed
 seed.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -37,7 +38,9 @@ def _make_composite_proto():
 def test_fits_n_members():
     X, y = _make_composite_data()
     bag = BaggedCompositeEstimator(
-        base_estimator=_make_composite_proto(), n_estimators=7, random_state=1,
+        base_estimator=_make_composite_proto(),
+        n_estimators=7,
+        random_state=1,
     ).fit(X, y)
     assert len(bag.estimators_) == 7
     # Prototype stays unfitted (cloned per member).
@@ -47,7 +50,9 @@ def test_fits_n_members():
 def test_predict_shape_and_std_nonneg():
     X, y = _make_composite_data()
     bag = BaggedCompositeEstimator(
-        base_estimator=_make_composite_proto(), n_estimators=5, random_state=2,
+        base_estimator=_make_composite_proto(),
+        n_estimators=5,
+        random_state=2,
     ).fit(X, y)
     pred = bag.predict(X)
     std = bag.predict_std(X)
@@ -79,7 +84,9 @@ def test_std_zero_for_identical_members():
 def test_predict_interval_epistemic_brackets_mean():
     X, y = _make_composite_data()
     bag = BaggedCompositeEstimator(
-        base_estimator=_make_composite_proto(), n_estimators=6, random_state=4,
+        base_estimator=_make_composite_proto(),
+        n_estimators=6,
+        random_state=4,
     ).fit(X, y)
     mean = bag.predict(X)
     lo, hi = bag.predict_interval_epistemic(X, z=1.96)
@@ -91,7 +98,10 @@ def test_predict_interval_epistemic_brackets_mean():
 def test_clone_roundtrip():
     proto = _make_composite_proto()
     bag = BaggedCompositeEstimator(
-        base_estimator=proto, n_estimators=5, random_state=9, max_samples=0.8,
+        base_estimator=proto,
+        n_estimators=5,
+        random_state=9,
+        max_samples=0.8,
     )
     cloned = clone(bag)
     assert cloned.n_estimators == 5
@@ -116,13 +126,15 @@ def test_aggregation_param_defaults_and_validation():
 
 
 def test_pickle_replay_legacy_model_aggregates_by_mean():
-    import pickle
+    import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
     X, y = _make_composite_data()
     bag = BaggedCompositeEstimator(
-        base_estimator=_make_composite_proto(), n_estimators=6, random_state=3,
+        base_estimator=_make_composite_proto(),
+        n_estimators=6,
+        random_state=3,
     ).fit(X, y)
-    replayed = pickle.loads(pickle.dumps(bag))
+    replayed = pickle.loads(pickle.dumps(bag))  # nosec B301 -- round-trip of a locally-created, trusted object
     # Simulate a pre-flip pickle: the aggregation attrs did not exist; predict must fall back to the legacy plain mean.
     del replayed.aggregation, replayed.trim_fraction
     members = replayed._member_predictions(X)
@@ -132,24 +144,42 @@ def test_pickle_replay_legacy_model_aggregates_by_mean():
 def test_aggregation_variants_match_their_definitions():
     X, y = _make_composite_data()
     bag = BaggedCompositeEstimator(
-        base_estimator=_make_composite_proto(), n_estimators=12, random_state=1, aggregation="median",
+        base_estimator=_make_composite_proto(),
+        n_estimators=12,
+        random_state=1,
+        aggregation="median",
     ).fit(X, y)
     members = bag._member_predictions(X)
     assert np.array_equal(bag.predict(X), np.median(members, axis=0))
     bag_mean = BaggedCompositeEstimator(
-        base_estimator=_make_composite_proto(), n_estimators=12, random_state=1, aggregation="mean",
+        base_estimator=_make_composite_proto(),
+        n_estimators=12,
+        random_state=1,
+        aggregation="mean",
     ).fit(X, y)
     assert np.array_equal(bag_mean.predict(X), bag_mean._member_predictions(X).mean(axis=0))
 
 
 def test_deterministic_with_fixed_seed():
     X, y = _make_composite_data()
-    p1 = BaggedCompositeEstimator(
-        base_estimator=_make_composite_proto(), n_estimators=6, random_state=42,
-    ).fit(X, y).predict(X)
-    p2 = BaggedCompositeEstimator(
-        base_estimator=_make_composite_proto(), n_estimators=6, random_state=42,
-    ).fit(X, y).predict(X)
+    p1 = (
+        BaggedCompositeEstimator(
+            base_estimator=_make_composite_proto(),
+            n_estimators=6,
+            random_state=42,
+        )
+        .fit(X, y)
+        .predict(X)
+    )
+    p2 = (
+        BaggedCompositeEstimator(
+            base_estimator=_make_composite_proto(),
+            n_estimators=6,
+            random_state=42,
+        )
+        .fit(X, y)
+        .predict(X)
+    )
     assert np.array_equal(p1, p2)
 
 
@@ -159,11 +189,13 @@ def test_fit_validation_errors():
         BaggedCompositeEstimator(base_estimator=None).fit(X, y)
     with pytest.raises(ValueError):
         BaggedCompositeEstimator(
-            base_estimator=_make_composite_proto(), n_estimators=0,
+            base_estimator=_make_composite_proto(),
+            n_estimators=0,
         ).fit(X, y)
     with pytest.raises(ValueError):
         BaggedCompositeEstimator(
-            base_estimator=_make_composite_proto(), max_samples=1.5,
+            base_estimator=_make_composite_proto(),
+            max_samples=1.5,
         ).fit(X, y)
 
 

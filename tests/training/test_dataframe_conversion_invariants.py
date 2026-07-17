@@ -37,7 +37,6 @@ import warnings
 from collections import defaultdict
 
 import numpy as np
-import pandas as pd
 import polars as pl
 import pytest
 
@@ -99,8 +98,7 @@ class TestPipelineCacheKeyInvariants:
 
         assert not colliding_triples, (
             "pipeline_cache key collision between a polars-native and a "
-            f"pandas-consuming strategy — this is the 2026-04-23 bug class:\n"
-            + "\n".join(f"  {a!r} ↔ {b!r} share key {k!r}" for a, b, k in colliding_triples)
+            f"pandas-consuming strategy — this is the 2026-04-23 bug class:\n" + "\n".join(f"  {a!r} ↔ {b!r} share key {k!r}" for a, b, k in colliding_triples)
         )
 
     def test_known_tree_strategy_trio_produces_distinct_keys(self):
@@ -229,11 +227,7 @@ class TestNoDuplicateConversion:
         # Other (val/test) polars frames may legitimately convert up to
         # twice (CB sticky-flag short-circuit + LGB lazy-conv path) — see
         # the comment block above. Anything ≥ 3 is a regression.
-        excessive = {
-            k: v
-            for k, v in per_input_id.items()
-            if v > 2 and k != (max(per_input_size, key=per_input_size.get) if per_input_size else None)
-        }
+        excessive = {k: v for k, v in per_input_id.items() if v > 2 and k != (max(per_input_size, key=per_input_size.get) if per_input_size else None)}
         assert not excessive, (
             f"non-train polars DF converted >2×: {excessive!r}. "
             f"The val/test budget is 2 (CB short-circuit + LGB lazy-conv); "
@@ -386,15 +380,9 @@ class TestEnsembleMethodsEdgeCases:
             w
             for w in caught
             if issubclass(w.category, (RuntimeWarning,))
-            and any(
-                m in str(w.message).lower()
-                for m in ("divide by zero", "invalid value", "overflow", "underflow")
-            )
+            and any(m in str(w.message).lower() for m in ("divide by zero", "invalid value", "overflow", "underflow"))
         ]
-        assert not numeric_warns, (
-            f"{method} on {case_name}: emitted numeric RuntimeWarnings: "
-            f"{[str(w.message) for w in numeric_warns]}"
-        )
+        assert not numeric_warns, f"{method} on {case_name}: emitted numeric RuntimeWarnings: {[str(w.message) for w in numeric_warns]}"
 
         # (2) All finite.
         assert np.isfinite(predictions).all(), f"{method} on {case_name}: non-finite output {predictions!r}"
@@ -403,9 +391,7 @@ class TestEnsembleMethodsEdgeCases:
         # ``ensure_prob_limits=True`` by default, but asserting here means
         # future changes to that default can't quietly produce
         # out-of-range ensemble probabilities.
-        assert (predictions >= 0.0).all() and (predictions <= 1.0).all(), (
-            f"{method} on {case_name}: out-of-range output {predictions!r}"
-        )
+        assert (predictions >= 0.0).all() and (predictions <= 1.0).all(), f"{method} on {case_name}: out-of-range output {predictions!r}"
 
 
 # =====================================================================
@@ -478,10 +464,7 @@ class TestTrainerPolarsContract:
             # to enforce for them.
             and name not in {"mlp", "lstm", "gru", "rnn", "transformer", "ngb"}
         ]
-        assert non_native, (
-            "Expected at least one non-polars-native strategy in the "
-            "registry (lgb/linear/...); registry may have been restructured."
-        )
+        assert non_native, "Expected at least one non-polars-native strategy in the registry (lgb/linear/...); registry may have been restructured."
 
         pl_df = pl.DataFrame({"x": [1.0, 2.0, 3.0], "y": [0.1, 0.2, 0.3]})
         y = np.array([0, 1, 0])
@@ -513,20 +496,10 @@ class TestTrainerPolarsContract:
                 # Good — contract held. Message must mention pipeline_cache
                 # so the next engineer can trace upstream.
                 if "pipeline_cache" not in str(exc).lower():
-                    failures.append(
-                        f"{strategy_name} ({model_type_name}): raised but "
-                        f"message doesn't point at pipeline_cache: {exc!r}"
-                    )
+                    failures.append(f"{strategy_name} ({model_type_name}): raised but message doesn't point at pipeline_cache: {exc!r}")
             except Exception as exc:
-                failures.append(
-                    f"{strategy_name} ({model_type_name}): raised wrong "
-                    f"exception type {type(exc).__name__}: {exc!r}"
-                )
+                failures.append(f"{strategy_name} ({model_type_name}): raised wrong exception type {type(exc).__name__}: {exc!r}")
             else:
-                failures.append(
-                    f"{strategy_name} ({model_type_name}): did NOT raise on "
-                    f"pl.DataFrame — trainer contract broken, silent "
-                    f"self-heal regression."
-                )
+                failures.append(f"{strategy_name} ({model_type_name}): did NOT raise on pl.DataFrame — trainer contract broken, silent self-heal regression.")
 
         assert not failures, "Trainer polars-contract violations:\n  " + "\n  ".join(failures)

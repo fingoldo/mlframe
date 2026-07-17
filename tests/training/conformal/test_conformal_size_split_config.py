@@ -4,6 +4,7 @@
 recalibrated shipped predictor (distinct from `calib_size`, which fits the recalibration map).
 These tests pin the field's bounds and the extended sum-of-fractions validator.
 """
+
 from __future__ import annotations
 
 import pytest

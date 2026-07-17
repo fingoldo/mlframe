@@ -64,7 +64,7 @@ def test_biz_val_escalation_recovers_inner_frequency_pair_and_replays():
     # ``_engineered_recipes_`` is a LIST of EngineeredRecipe (selected ones only).
     recipes = {r.name: r for r in (getattr(sel, "_engineered_recipes_", None) or [])}
     esc_names = [nm for nm in recipes if nm.startswith("esc_")]
-    assert esc_names, f"escalation must admit a richer-basis pair feature; recipes={list(recipes)}; " f"info={getattr(sel, 'fe_escalation_info_', None)}"
+    assert esc_names, f"escalation must admit a richer-basis pair feature; recipes={list(recipes)}; info={getattr(sel, 'fe_escalation_info_', None)}"
     # The detected z-space frequency must map back to ~3.7 rad on the raw x0 axis:
     # inner_freq = 2*pi*f_z / span.
     import orjson
@@ -330,7 +330,7 @@ def test_target_rebin_guard_fires_on_heavy_tailed_continuous_target(caplog):
     with caplog.at_level(logging.INFO, logger="mlframe.feature_selection.filters.mrmr"):
         sel.fit(df, pd.Series(y, name="y"))
     assert any("target-rebin guard" in r.message for r in caplog.records), (
-        "the target-rebin guard must fire on a heavy-tailed continuous target under " "the adaptive nbins_strategy default"
+        "the target-rebin guard must fire on a heavy-tailed continuous target under the adaptive nbins_strategy default"
     )
 
 

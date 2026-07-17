@@ -5,11 +5,11 @@ previously-isolated evaluation functions through the public suite entry point vi
 ``mlframe.training.core._diagnostics_registry``. This is the wiring test, not a re-test of the underlying
 evaluation functions' math.
 """
+
 from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.training.configs import OutputConfig, TargetTypes
 from mlframe.training.core import train_mlframe_models_suite
@@ -42,7 +42,9 @@ def test_run_diagnostics_reaches_evaluation_functions_through_suite(tmp_path):
         use_ordinary_models=True,
         use_mlframe_ensembles=False,
         output_config=OutputConfig(
-            data_dir=str(tmp_path), models_dir="models", save_charts=False,
+            data_dir=str(tmp_path),
+            models_dir="models",
+            save_charts=False,
             run_diagnostics=["cv_informativeness", "compare_cv_schemes"],
         ),
         verbose=0,
@@ -61,7 +63,7 @@ def test_unknown_diagnostic_name_reports_error_without_crashing(tmp_path):
     skip_if_dependency_missing("hgb")
     df = _make_frame(300)
     fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
-    models, metadata = train_mlframe_models_suite(
+    _models, metadata = train_mlframe_models_suite(
         df=df,
         target_name="target",
         model_name="diag_unknown",
@@ -71,7 +73,9 @@ def test_unknown_diagnostic_name_reports_error_without_crashing(tmp_path):
         use_ordinary_models=True,
         use_mlframe_ensembles=False,
         output_config=OutputConfig(
-            data_dir=str(tmp_path), models_dir="models", save_charts=False,
+            data_dir=str(tmp_path),
+            models_dir="models",
+            save_charts=False,
             run_diagnostics=["not_a_real_diagnostic"],
         ),
         verbose=0,

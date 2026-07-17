@@ -29,11 +29,13 @@ def _make_nan_frame(n_rows: int = 600, seed: int = 191) -> pl.DataFrame:
     nan_mask_1 = rng.random(size=n_rows) < 0.10
     x0[nan_mask_0] = np.nan
     x1[nan_mask_1] = np.nan
-    return pl.DataFrame({
-        "x0": x0,
-        "x1": x1,
-        "y": rng.normal(size=n_rows).astype(np.float32),
-    })
+    return pl.DataFrame(
+        {
+            "x0": x0,
+            "x1": x1,
+            "y": rng.normal(size=n_rows).astype(np.float32),
+        }
+    )
 
 
 def test_bare_lof_with_nan_input_does_not_crash_suite():
@@ -45,9 +47,14 @@ def test_bare_lof_with_nan_input_does_not_crash_suite():
     from mlframe.training.core import train_mlframe_models_suite
     from mlframe.training.extractors import SimpleFeaturesAndTargetsExtractor
     from mlframe.training.configs import (
-        BaselineDiagnosticsConfig, CompositeTargetDiscoveryConfig,
-        DummyBaselinesConfig, FeatureSelectionConfig, OutlierDetectionConfig,
-        OutputConfig, PreprocessingBackendConfig, ReportingConfig,
+        BaselineDiagnosticsConfig,
+        CompositeTargetDiscoveryConfig,
+        DummyBaselinesConfig,
+        FeatureSelectionConfig,
+        OutlierDetectionConfig,
+        OutputConfig,
+        PreprocessingBackendConfig,
+        ReportingConfig,
     )
 
     df = _make_nan_frame()

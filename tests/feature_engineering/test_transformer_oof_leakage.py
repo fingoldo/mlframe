@@ -1,9 +1,10 @@
 """Wave-5 transformer OOF / leakage tests + biz_value.
 
-  A2-06  compute_rff_features Mode-A OOF / Mode-B train-only fit; biz_value: in-sample-fit optimism > OOF.
-  A2-07  local_lift binary pr_auc is true trapezoidal (rank-correlates with sklearn average_precision_score).
-  A2-14  class_distance Mode-B self-label leak removed when exclude_self_ids mask is passed.
+A2-06  compute_rff_features Mode-A OOF / Mode-B train-only fit; biz_value: in-sample-fit optimism > OOF.
+A2-07  local_lift binary pr_auc is true trapezoidal (rank-correlates with sklearn average_precision_score).
+A2-14  class_distance Mode-B self-label leak removed when exclude_self_ids mask is passed.
 """
+
 from __future__ import annotations
 
 import numpy as np

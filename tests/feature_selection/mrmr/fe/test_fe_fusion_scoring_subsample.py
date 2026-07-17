@@ -8,6 +8,7 @@ pins assert (1) the stride formula (incl the =0 full-n opt-out) and (2) the crit
 under a cap well below n the fusion still fires and every admitted compound's ``values`` are full-n (the
 scoring subsample never leaks into the output the caller materialises).
 """
+
 from __future__ import annotations
 
 import os
@@ -19,9 +20,13 @@ import pytest
 
 def _canonical_fixture(seed, n):
     rng = np.random.default_rng(seed)
-    a = rng.random(n); b = rng.random(n); c = rng.random(n)
-    d = rng.random(n); e = rng.random(n); f = rng.random(n)
-    y = a ** 2 / b + f / 5.0 + np.log(c) * np.sin(d)
+    a = rng.random(n)
+    b = rng.random(n)
+    c = rng.random(n)
+    d = rng.random(n)
+    e = rng.random(n)
+    f = rng.random(n)
+    y = a**2 / b + f / 5.0 + np.log(c) * np.sin(d)
     return pd.DataFrame({"a": a, "b": b, "c": c, "d": d, "e": e}), pd.Series(y, name="y")
 
 
@@ -34,8 +39,8 @@ def _fusion_stride(n, max_rows):
     "n, max_rows, expect_stride",
     [
         (1_000_000, 250_000, 4),
-        (1_000_000, 0, 1),      # opt-out -> full-n
-        (80_000, 250_000, 1),   # below the cap -> untouched
+        (1_000_000, 0, 1),  # opt-out -> full-n
+        (80_000, 250_000, 1),  # below the cap -> untouched
         (500_000, 250_000, 2),
     ],
 )

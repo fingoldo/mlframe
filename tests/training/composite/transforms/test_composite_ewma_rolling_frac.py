@@ -5,17 +5,26 @@
 
 Each ships with round-trip exactness, edge-case handling (boundary windows, non-finite values, pre-train anchor padding), and a biz_value test on a synthetic regime where the transform is uniquely well-suited.
 """
+
 from __future__ import annotations
 
 import numpy as np
 import pytest
 
 from mlframe.training.composite import (
-    _ewma_compute, _ewma_residual_fit, _ewma_residual_forward,
-    _ewma_residual_inverse, _ewma_residual_domain,
-    _rolling_median, _rolling_quantile_ratio_fit, _rolling_quantile_ratio_forward,
+    _ewma_compute,
+    _ewma_residual_fit,
+    _ewma_residual_forward,
+    _ewma_residual_inverse,
+    _ewma_residual_domain,
+    _rolling_median,
+    _rolling_quantile_ratio_fit,
+    _rolling_quantile_ratio_forward,
     _rolling_quantile_ratio_inverse,
-    _frac_diff_weights, _frac_diff_fit, _frac_diff_forward, _frac_diff_inverse,
+    _frac_diff_weights,
+    _frac_diff_fit,
+    _frac_diff_forward,
+    _frac_diff_inverse,
     get_transform,
 )
 
@@ -89,8 +98,7 @@ class TestEWMA:
         T_diff = y - base
         # On smooth drift, EWMA smooths through lag noise; diff doubles the noise (Var(y - y_prev) ~= 2 * sigma^2).
         assert np.var(T_ewma) < np.var(T_diff), (
-            f"EWMA residual variance should be < diff residual on smooth drift; "
-            f"got ewma={np.var(T_ewma):.4f}, diff={np.var(T_diff):.4f}"
+            f"EWMA residual variance should be < diff residual on smooth drift; got ewma={np.var(T_ewma):.4f}, diff={np.var(T_diff):.4f}"
         )
 
 

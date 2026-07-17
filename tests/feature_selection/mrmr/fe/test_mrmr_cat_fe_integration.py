@@ -27,7 +27,6 @@ from mlframe.feature_selection.filters import (
     MRMR,
     CatFEConfig,
 )
-from mlframe.feature_selection.filters.engineered_recipes import EngineeredRecipe
 
 
 @pytest.fixture
@@ -80,8 +79,10 @@ class TestDefaultEnabled:
         # cat_interactions.py). The II ranking alone is sufficient
         # to surface XOR pairs on this canonical target.
         mrmr = MRMR(
-            full_npermutations=2, baseline_npermutations=2,
-            verbose=0, n_jobs=1,
+            full_npermutations=2,
+            baseline_npermutations=2,
+            verbose=0,
+            n_jobs=1,
             cat_fe_config=CatFEConfig(
                 enable=True,
                 min_interaction_information=0.1,
@@ -94,9 +95,7 @@ class TestDefaultEnabled:
         # Cat-FE ran and surfaced the XOR synergy by default.
         assert mrmr._cat_fe_state_ is not None
         recipe_srcs = {r.src_names for r in mrmr._cat_fe_state_.recipes}
-        assert ("x1", "x2") in recipe_srcs or ("x2", "x1") in recipe_srcs, (
-            f"Default cat-FE should recover XOR synergy; got {recipe_srcs}"
-        )
+        assert ("x1", "x2") in recipe_srcs or ("x2", "x1") in recipe_srcs, f"Default cat-FE should recover XOR synergy; got {recipe_srcs}"
 
     def test_explicit_disable_restores_legacy(self, xor_train_test):
         """To get legacy CAT-FE behaviour explicitly: cat_fe_config=CatFEConfig(enable=False).
@@ -109,8 +108,10 @@ class TestDefaultEnabled:
         """
         df_tr, y_tr, _, _ = xor_train_test
         mrmr = MRMR(
-            full_npermutations=2, baseline_npermutations=2,
-            verbose=0, n_jobs=1,
+            full_npermutations=2,
+            baseline_npermutations=2,
+            verbose=0,
+            n_jobs=1,
             cat_fe_config=CatFEConfig(enable=False),
         )
         with warnings.catch_warnings():
@@ -132,8 +133,10 @@ class TestCatFEEnabled:
     def test_xor_pair_recipe_persists_after_fit(self, xor_train_test):
         df_tr, y_tr, _, _ = xor_train_test
         mrmr = MRMR(
-            full_npermutations=2, baseline_npermutations=2,
-            verbose=0, n_jobs=1,
+            full_npermutations=2,
+            baseline_npermutations=2,
+            verbose=0,
+            n_jobs=1,
             cat_fe_config=CatFEConfig(
                 enable=True,
                 top_k_pairs=4,
@@ -148,13 +151,11 @@ class TestCatFEEnabled:
 
         # Cat-FE state populated
         assert mrmr._cat_fe_state_ is not None
-        assert len(mrmr._cat_fe_state_.recipes) > 0, \
-            "cat-FE should surface at least one synergy pair on XOR data"
+        assert len(mrmr._cat_fe_state_.recipes) > 0, "cat-FE should surface at least one synergy pair on XOR data"
 
         # The (x1, x2) pair MUST be among the recipes
         recipe_srcs = {r.src_names for r in mrmr._cat_fe_state_.recipes}
-        assert ("x1", "x2") in recipe_srcs or ("x2", "x1") in recipe_srcs, \
-            f"Expected XOR synergy pair in cat-FE recipes; got {recipe_srcs}"
+        assert ("x1", "x2") in recipe_srcs or ("x2", "x1") in recipe_srcs, f"Expected XOR synergy pair in cat-FE recipes; got {recipe_srcs}"
 
         # All cat-FE recipes are kind="factorize"
         for r in mrmr._cat_fe_state_.recipes:
@@ -165,12 +166,16 @@ class TestCatFEEnabled:
     def test_transform_on_test_data_includes_engineered_col(self, xor_train_test):
         df_tr, y_tr, df_te, _ = xor_train_test
         mrmr = MRMR(
-            full_npermutations=2, baseline_npermutations=2,
-            verbose=0, n_jobs=1,
+            full_npermutations=2,
+            baseline_npermutations=2,
+            verbose=0,
+            n_jobs=1,
             cat_fe_config=CatFEConfig(
-                enable=True, top_k_pairs=4,
+                enable=True,
+                top_k_pairs=4,
                 min_interaction_information=0.1,
-                full_npermutations=0, fwer_correction="none",
+                full_npermutations=0,
+                fwer_correction="none",
             ),
         )
         with warnings.catch_warnings():
@@ -189,8 +194,7 @@ class TestCatFEEnabled:
         if engineered_recipe_names:
             # Some engineered name lives in support; must be in transform output
             for name in engineered_recipe_names:
-                assert name in out.columns, \
-                    f"Engineered recipe '{name}' missing from transform output"
+                assert name in out.columns, f"Engineered recipe '{name}' missing from transform output"
 
     def test_transform_engineered_col_values_match_replay(self, xor_train_test):
         """The engineered column values on test data must match what a
@@ -198,12 +202,16 @@ class TestCatFEEnabled:
         actually being applied (not just passed through)."""
         df_tr, y_tr, df_te, _ = xor_train_test
         mrmr = MRMR(
-            full_npermutations=2, baseline_npermutations=2,
-            verbose=0, n_jobs=1,
+            full_npermutations=2,
+            baseline_npermutations=2,
+            verbose=0,
+            n_jobs=1,
             cat_fe_config=CatFEConfig(
-                enable=True, top_k_pairs=4,
+                enable=True,
+                top_k_pairs=4,
                 min_interaction_information=0.1,
-                full_npermutations=0, fwer_correction="none",
+                full_npermutations=0,
+                fwer_correction="none",
             ),
         )
         with warnings.catch_warnings():
@@ -248,7 +256,8 @@ class TestCatFEPickleBC:
         """An MRMR pickle from before cat-FE existed should resurface
         with ``cat_fe_config=None`` and ``_cat_fe_state_=None``
         injected by ``__setstate__``."""
-        import pickle
+        import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
+
         rng = np.random.default_rng(0)
         df = pd.DataFrame({"a": rng.integers(0, 3, 100), "b": rng.integers(0, 3, 100)})
         df["a"] = df["a"].astype("category")
@@ -256,8 +265,10 @@ class TestCatFEPickleBC:
         y = pd.Series(rng.integers(0, 2, 100), name="target")
 
         mrmr = MRMR(
-            full_npermutations=2, baseline_npermutations=2,
-            verbose=0, n_jobs=1,
+            full_npermutations=2,
+            baseline_npermutations=2,
+            verbose=0,
+            n_jobs=1,
         )
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -268,7 +279,7 @@ class TestCatFEPickleBC:
             if attr in mrmr.__dict__:
                 del mrmr.__dict__[attr]
 
-        restored = pickle.loads(pickle.dumps(mrmr))
+        restored = pickle.loads(pickle.dumps(mrmr))  # nosec B301 -- round-trip of a locally-created, trusted object
         assert restored.cat_fe_config is None
         assert restored._cat_fe_state_ is None
         # Transform still works (no recipes, no replay)

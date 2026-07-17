@@ -13,9 +13,9 @@ is invoked when the pre-fill path is active vs never when it is disabled.
 
 RAM-light by mandate: n ~ 8000, p ~ 300, single process.
 """
+
 from __future__ import annotations
 
-import os
 import warnings
 from timeit import default_timer as timer
 
@@ -54,8 +54,8 @@ def _fit_mrmr(X, y):
     mrmr = MRMR(
         full_npermutations=3,
         baseline_npermutations=3,
-        fe_max_steps=0,          # keep FE off: this test is about the redundancy CMI path only
-        use_simple_mode=False,   # MUST be off so the conditional-MI redundancy branch runs
+        fe_max_steps=0,  # keep FE off: this test is about the redundancy CMI path only
+        use_simple_mode=False,  # MUST be off so the conditional-MI redundancy branch runs
         max_runtime_mins=None,
         verbose=0,
         # The GPU cache pre-fill is wired into the parallel worker entry
@@ -108,7 +108,8 @@ def test_prefill_helper_disabled_by_env(monkeypatch):
     cache = {}
     workload = [(0, np.array([0]), 0), (1, np.array([1]), 0)]
     written = _eval_mod._prefill_cond_MIs_gpu(
-        workload=workload, y=np.array([7]),
+        workload=workload,
+        y=np.array([7]),
         factors_data=np.zeros((10, 8), dtype=np.int32),
         factors_nbins=np.full(8, 3, dtype=np.int64),
         selected_vars=[2],
@@ -147,6 +148,7 @@ def test_prefill_key_format_matches_evaluate_gain():
     """The pre-fill key MUST be EXACTLY ``arr2str([cand]) + '|' + arr2str([z])`` (the format
     ``evaluate_gain`` reads). A mismatch silently disables the cache."""
     from mlframe.feature_selection.filters._numba_utils import arr2str
+
     # Replicate the key the njit loop computes for X=(5,), Z=[3].
     expected = arr2str(np.asarray([5], dtype=np.int64)) + "|" + arr2str(np.asarray([3], dtype=np.int32))
     assert expected == "5|3"
@@ -183,8 +185,10 @@ def test_prefill_dispatches_only_cache_missing_pairs(monkeypatch):
     # z=3 fully cached -> must be SKIPPED (no dispatch); z=4 partially cached -> only cand 2 missing.
     cache = {_key(0, 3): 0.5, _key(1, 3): 0.6, _key(2, 3): 0.7, _key(0, 4): 0.8, _key(1, 4): 0.9}
     written = _eval_mod._prefill_cond_MIs_gpu(
-        workload=workload, y=np.array([7]),
-        factors_data=factors_data, factors_nbins=factors_nbins,
+        workload=workload,
+        y=np.array([7]),
+        factors_data=factors_data,
+        factors_nbins=factors_nbins,
         selected_vars=[3, 4, 5],
         cached_cond_MIs=cache,
         use_simple_mode=False,

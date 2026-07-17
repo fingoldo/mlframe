@@ -22,6 +22,7 @@ The test asserts:
 2. The logged value matches ``sklearn.metrics.root_mean_squared_error``
    recomputed independently from the validation predictions and labels.
 """
+
 from __future__ import annotations
 
 import sys
@@ -46,7 +47,11 @@ from mlframe.training.neural import (
 @pytest.fixture
 def regression_split():
     X, y = make_regression(
-        n_samples=240, n_features=8, n_informative=6, noise=5.0, random_state=19,
+        n_samples=240,
+        n_features=8,
+        n_informative=6,
+        noise=5.0,
+        random_state=19,
     )
     X = X.astype(np.float32)
     y = y.astype(np.float32)
@@ -120,7 +125,9 @@ def _read_metrics_csv(root_dir: Path) -> dict[str, list[float]]:
 
 
 def test_regression_metric_logged_as_rmse_not_mse(
-    regression_split, tiny_regressor_params, tmp_path,
+    regression_split,
+    tiny_regressor_params,
+    tmp_path,
 ):
     """The Lightning CSV logger must log ``val_RMSE``, not ``val_MSE``,
     because the underlying metric function is sklearn's
@@ -132,7 +139,8 @@ def test_regression_metric_logged_as_rmse_not_mse(
 
     reg = PytorchLightningRegressor(**params)
     reg.fit(
-        regression_split["X_train"], regression_split["y_train"],
+        regression_split["X_train"],
+        regression_split["y_train"],
         eval_set=(regression_split["X_val"], regression_split["y_val"]),
     )
 
@@ -142,20 +150,17 @@ def test_regression_metric_logged_as_rmse_not_mse(
         "F-02 fix renames the metric label from 'MSE' (mislabelled) to 'RMSE' "
         "(what the metric function actually computes)."
     )
-    assert "val_MSE" not in metrics, (
-        f"'val_MSE' should no longer appear post-fix; got columns "
-        f"{sorted(metrics.keys())}. The pre-fix mislabel was the bug."
-    )
+    assert "val_MSE" not in metrics, f"'val_MSE' should no longer appear post-fix; got columns {sorted(metrics.keys())}. The pre-fix mislabel was the bug."
 
     val_rmse_values = metrics["val_RMSE"]
     assert val_rmse_values, "val_RMSE column is empty"
-    assert all(v >= 0 for v in val_rmse_values), (
-        f"val_RMSE must be non-negative (RMSE = sqrt(MSE) >= 0); got {val_rmse_values}"
-    )
+    assert all(v >= 0 for v in val_rmse_values), f"val_RMSE must be non-negative (RMSE = sqrt(MSE) >= 0); got {val_rmse_values}"
 
 
 def test_logged_rmse_matches_sklearn_root_mean_squared_error(
-    regression_split, tiny_regressor_params, tmp_path,
+    regression_split,
+    tiny_regressor_params,
+    tmp_path,
 ):
     """The logged ``val_RMSE`` value at the FINAL epoch must equal
     sklearn's ``root_mean_squared_error(y_val, predict(X_val))`` to within
@@ -171,7 +176,8 @@ def test_logged_rmse_matches_sklearn_root_mean_squared_error(
 
     reg = PytorchLightningRegressor(**params)
     reg.fit(
-        regression_split["X_train"], regression_split["y_train"],
+        regression_split["X_train"],
+        regression_split["y_train"],
         eval_set=(regression_split["X_val"], regression_split["y_val"]),
     )
 
@@ -187,7 +193,9 @@ def test_logged_rmse_matches_sklearn_root_mean_squared_error(
     # dropout=0 doesn't differ but BN buffers may). 1e-3 relative is
     # comfortably below the "off-by-sqrt" scale the F-02 bug created.
     np.testing.assert_allclose(
-        final_logged_rmse, independent_rmse, rtol=1e-2,
+        final_logged_rmse,
+        independent_rmse,
+        rtol=1e-2,
         err_msg=(
             f"logged val_RMSE={final_logged_rmse} diverges from "
             f"sklearn root_mean_squared_error={independent_rmse}; if these "
@@ -198,7 +206,9 @@ def test_logged_rmse_matches_sklearn_root_mean_squared_error(
 
 
 def test_no_validation_path_uses_train_loss_monitor(
-    regression_split, tiny_regressor_params, tmp_path,
+    regression_split,
+    tiny_regressor_params,
+    tmp_path,
 ):
     """When ``eval_set`` is not provided, the monitor falls back to
     ``train_loss`` (not affected by the rename) and the run still

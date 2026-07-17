@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import io
 import os
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 import time
 
 import numpy as np
@@ -98,7 +98,7 @@ def test_relative_floor_protects_moderate_mi_winner():
     pms = [0.34, 0.153, 0.06, 0.06, 0.06, 0.06, 0.06, 0.06, 0.06, 0.06]
     pool = _mk_pool(pms)
     # keep_frac tiny (top-1) but the 0.153 pair (0.45*max) must be saved by the floor.
-    kept, info = apply_rung_schedule(pool, n_rows=5000, keep_frac=0.1, rel_floor=0.40, min_pairs=6)
+    kept, _info = apply_rung_schedule(pool, n_rows=5000, keep_frac=0.1, rel_floor=0.40, min_pairs=6)
     kept_pms = sorted((k[1] for k in kept), reverse=True)
     assert 0.153 in kept_pms, f"relative floor dropped the moderate-MI genuine winner: {kept_pms}"
     # and the (noise) 0.06 pairs (0.18*max) are cut.
@@ -188,7 +188,7 @@ def test_ctor_knobs_exposed_and_pickle_safe():
     assert p["fe_rung_keep_frac"] == 0.3
     assert p["fe_rung_rel_floor"] == 0.35
     assert p["fe_rung_min_pairs"] == 8
-    m2 = pickle.loads(pickle.dumps(m))
+    m2 = pickle.loads(pickle.dumps(m))  # nosec B301 -- round-trip of a locally-created, trusted object
     assert m2.get_params()["fe_rung_keep_frac"] == 0.3
 
 
@@ -386,7 +386,7 @@ def test_bizvalue_equal_wall_deeper_needle():
     # count is recorded for the report but not used as a floor -- a higher flat count is a
     # cross-mix-retention artefact, not a recovery advantage.
     assert rung_eng >= 2, (
-        f"rung deeper-search recovered too few engineered features ({rung_eng}); " f"expected >= 2 (the (c,d) needle + at least one more). flat_eng={flat_eng}"
+        f"rung deeper-search recovered too few engineered features ({rung_eng}); expected >= 2 (the (c,d) needle + at least one more). flat_eng={flat_eng}"
     )
 
 
@@ -416,6 +416,6 @@ def test_cprofile_rung_screen_negligible():
             rung_cum = stat[3]  # cumulative
             break
     assert rung_cum <= 0.05 * total, (
-        f"rung-0 screen took {rung_cum:.4f}s of {total:.2f}s ({100*rung_cum/max(total,1e-9):.2f}%); "
+        f"rung-0 screen took {rung_cum:.4f}s of {total:.2f}s ({100 * rung_cum / max(total, 1e-9):.2f}%); "
         "expected negligible (reuses the gate's pair_mi, no MI compute)"
     )

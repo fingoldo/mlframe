@@ -9,7 +9,10 @@ from __future__ import annotations
 import numpy as np
 
 from mlframe.reporting.colors import (
-    DIVERGING_CMAP, HEATMAP_CMAP, HEATMAP_GENERIC, LINE_PALETTE,
+    DIVERGING_CMAP,
+    HEATMAP_CMAP,
+    HEATMAP_GENERIC,
+    LINE_PALETTE,
     resolve_heatmap_cmap,
 )
 from mlframe.reporting.renderers.plotly import _mpl_to_plotly_cmap
@@ -17,12 +20,28 @@ from mlframe.reporting.spec import HeatmapPanelSpec
 
 
 _TAB10 = (
-    "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
-    "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf",
+    "#1f77b4",
+    "#ff7f0e",
+    "#2ca02c",
+    "#d62728",
+    "#9467bd",
+    "#8c564b",
+    "#e377c2",
+    "#7f7f7f",
+    "#bcbd22",
+    "#17becf",
 )
 _TAB20_EXT = (
-    "#aec7e8", "#ffbb78", "#98df8a", "#ff9896", "#c5b0d5",
-    "#c49c94", "#f7b6d2", "#c7c7c7", "#dbdb8d", "#9edae5",
+    "#aec7e8",
+    "#ffbb78",
+    "#98df8a",
+    "#ff9896",
+    "#c5b0d5",
+    "#c49c94",
+    "#f7b6d2",
+    "#c7c7c7",
+    "#dbdb8d",
+    "#9edae5",
 )
 
 
@@ -52,9 +71,7 @@ class TestCBDefaults:
 class TestRendererCBDefault:
     def _spec(self):
         m = np.array([[0.1, 0.4, 0.9], [0.3, 0.7, 0.2], [0.5, 0.6, 0.8]])
-        return HeatmapPanelSpec(matrix=m, row_labels=("r0", "r1", "r2"),
-                                col_labels=("c0", "c1", "c2"), title="t",
-                                cell_text=m, colorbar_label="v")
+        return HeatmapPanelSpec(matrix=m, row_labels=("r0", "r1", "r2"), col_labels=("c0", "c1", "c2"), title="t", cell_text=m, colorbar_label="v")
 
     def test_matplotlib_uses_cb_safe_cmap_by_default(self):
         import matplotlib

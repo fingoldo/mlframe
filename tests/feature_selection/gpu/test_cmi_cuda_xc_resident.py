@@ -7,6 +7,7 @@ guard against a recycled id, the disabled-A/B toggle, and bit-identical dispatch
 for the NEW one-time whole-matrix OOB guard (``_assert_codes_in_range_2d_per_column``) that replaces
 the old per-round Xc-subset check.
 """
+
 from __future__ import annotations
 
 import gc
@@ -48,10 +49,7 @@ def _matrix(n=4000, p=60, nb=12, seed=0):
 
 
 def _cpu_ref(fd, fnb, p, y_index, z_index):
-    return np.array([
-        conditional_mi(fd, np.array([c]), np.array([y_index]), np.array([z_index]), None, fnb)
-        for c in range(p)
-    ])
+    return np.array([conditional_mi(fd, np.array([c]), np.array([y_index]), np.array([z_index]), None, fnb) for c in range(p)])
 
 
 @_gpu_only
@@ -64,6 +62,7 @@ def test_cache_reuses_one_device_copy_per_fit():
 
     upload_calls = {"n": 0}
     import cupy as cp
+
     orig_asarray = cp.asarray
 
     def _counting_asarray(arr, *a, **kw):
@@ -92,6 +91,7 @@ def test_dispatch_bit_identical_resident_on_vs_off():
     fd, cand, y_index, z_index, fnb = _matrix(seed=3)
 
     import os
+
     os.environ["MLFRAME_CMI_XC_RESIDENT"] = "0"
     cm.clear_cmi_xc_resident_cache()
     try:

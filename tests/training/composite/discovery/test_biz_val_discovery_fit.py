@@ -17,13 +17,13 @@ Covers three audit findings landed against ``_fit.py``:
   flips those rows to ``kept=False`` and records the post-gate drop reason; the
   set of ``kept=True`` report rows must equal the final ``specs_`` set.
 """
+
 from __future__ import annotations
 
 import warnings
 
 import numpy as np
 import pandas as pd
-import pytest
 
 warnings.filterwarnings("ignore")
 
@@ -73,8 +73,8 @@ def test_biz_val_stratified_quantile_guarantees_heavy_tail_coverage() -> None:
     from mlframe.training.composite.discovery.screening import _sample_indices
 
     n_total = 60_000
-    sample_n = 600          # small relative to strata so random starvation shows.
-    n_strata = 30           # the heavy-tail boost value (mi_n_strata_heavy_tail).
+    sample_n = 600  # small relative to strata so random starvation shows.
+    n_strata = 30  # the heavy-tail boost value (mi_n_strata_heavy_tail).
     expected = sample_n // n_strata
 
     rand_min_counts: list[int] = []
@@ -85,11 +85,18 @@ def test_biz_val_stratified_quantile_guarantees_heavy_tail_coverage() -> None:
         rng = np.random.default_rng(seed)
         y = np.exp(rng.normal(loc=0.0, scale=2.5, size=n_total))
         idx_random = _sample_indices(
-            n_total, sample_n, random_state=seed, strategy="random",
+            n_total,
+            sample_n,
+            random_state=seed,
+            strategy="random",
         )
         idx_strat = _sample_indices(
-            n_total, sample_n, random_state=seed,
-            strategy="stratified_quantile", y=y, n_strata=n_strata,
+            n_total,
+            sample_n,
+            random_state=seed,
+            strategy="stratified_quantile",
+            y=y,
+            n_strata=n_strata,
         )
         cr = _per_stratum_counts(idx_random, y, n_strata)
         cs = _per_stratum_counts(idx_strat, y, n_strata)
@@ -104,24 +111,18 @@ def test_biz_val_stratified_quantile_guarantees_heavy_tail_coverage() -> None:
     mean_strat_min = float(np.mean(strat_min_counts))
 
     # 1) Variance reduction: stratified is near-deterministic per stratum.
-    assert mean_strat_var <= 0.5, (
-        f"stratified per-stratum variance {mean_strat_var:.3f} is not ~0; "
-        f"the strata are not driving the draw"
-    )
+    assert mean_strat_var <= 0.5, f"stratified per-stratum variance {mean_strat_var:.3f} is not ~0; the strata are not driving the draw"
     assert mean_rand_var >= 5.0 * max(mean_strat_var, 1.0), (
-        f"random per-stratum variance {mean_rand_var:.2f} should dwarf the "
-        f"stratified variance {mean_strat_var:.3f}"
+        f"random per-stratum variance {mean_rand_var:.2f} should dwarf the stratified variance {mean_strat_var:.3f}"
     )
 
     # 2) Guaranteed minimum coverage: stratified gives every bin ~``expected``,
     #    random starves the leanest bin.
     assert mean_strat_min >= 0.9 * expected, (
-        f"stratified worst-stratum count {mean_strat_min:.1f} fell below the "
-        f"guaranteed {expected}; the per-stratum quota is broken"
+        f"stratified worst-stratum count {mean_strat_min:.1f} fell below the guaranteed {expected}; the per-stratum quota is broken"
     )
     assert mean_strat_min >= 1.4 * mean_rand_min, (
-        f"stratified worst-stratum coverage {mean_strat_min:.1f} is not >= 1.4x "
-        f"the random worst {mean_rand_min:.1f}; M1 tail-coverage win is gone"
+        f"stratified worst-stratum coverage {mean_strat_min:.1f} is not >= 1.4x the random worst {mean_rand_min:.1f}; M1 tail-coverage win is gone"
     )
 
 
@@ -142,7 +143,7 @@ def _make_config(**overrides):
         mi_sample_n=2000,
         tiny_model_sample_n=2000,
         eps_mi_gain=-10.0,
-        screening="mi",          # skip Phase B for deterministic, fast fits.
+        screening="mi",  # skip Phase B for deterministic, fast fits.
         random_state=42,
         require_beats_raw_baseline=False,
         multi_base_enabled=False,
@@ -172,8 +173,11 @@ def _run(df: pd.DataFrame, config):
     val_idx = np.arange(int(0.8 * n), n)
     disc = CompositeTargetDiscovery(config)
     disc.fit(
-        df, target_col="y", feature_cols=["base", "other"],
-        train_idx=train_idx, val_idx=val_idx,
+        df,
+        target_col="y",
+        feature_cols=["base", "other"],
+        train_idx=train_idx,
+        val_idx=val_idx,
     )
     return disc
 
@@ -256,22 +260,15 @@ def test_d8_report_kept_flags_match_final_specs_after_topk_trim() -> None:
     kept_rows = [r for r in report if r.get("kept")]
     kept_names = {r["name"] for r in kept_rows}
 
-    assert kept_names == final_names, (
-        f"report kept-set {sorted(kept_names)} != final specs "
-        f"{sorted(final_names)} -- D8 reconciliation did not run"
-    )
+    assert kept_names == final_names, f"report kept-set {sorted(kept_names)} != final specs {sorted(final_names)} -- D8 reconciliation did not run"
     # And there must be MORE evaluated (non-reject) candidates than survivors,
     # otherwise the top-K trim never dropped anything and the test is vacuous.
     evaluated = [r for r in report if not r.get("rejected")]
-    assert len(evaluated) > len(final_names), (
-        "top_k_after_mi=1 did not trim any spec; test is not exercising D8"
-    )
+    assert len(evaluated) > len(final_names), "top_k_after_mi=1 did not trim any spec; test is not exercising D8"
     # Dropped-but-evaluated rows carry a post-gate drop reason.
     for r in evaluated:
         if not r.get("kept"):
-            assert r.get("reason"), (
-                f"dropped spec {r['name']} has no recorded drop reason"
-            )
+            assert r.get("reason"), f"dropped spec {r['name']} has no recorded drop reason"
 
 
 def test_d8_report_kept_flags_reconciled_under_alpha_drift_reject() -> None:
@@ -294,6 +291,4 @@ def test_d8_report_kept_flags_reconciled_under_alpha_drift_reject() -> None:
     # No linear_residual spec on the drifting base should survive AND claim kept.
     for r in report:
         if r.get("transform_name") == "linear_residual" and r["name"] not in final_names:
-            assert not r.get("kept"), (
-                f"dropped drifting spec {r['name']} still claims kept=True"
-            )
+            assert not r.get("kept"), f"dropped drifting spec {r['name']} still claims kept=True"

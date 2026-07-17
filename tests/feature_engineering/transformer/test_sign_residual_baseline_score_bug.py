@@ -5,6 +5,7 @@ Pre-fix, ``_process`` returned ``np.column_stack([mu_query, p_pos, bias_signal, 
 column was an exact copy of the 1st, wasting a feature slot instead of encoding the bias-adjusted prediction the
 module's docstring describes.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -22,9 +23,7 @@ def test_baseline_score_differs_from_mu_when_bias_detected():
     skew = np.where(X[:, 0] > 0, 3.0, 0.0)
     y = (base + skew + rng.normal(scale=0.1, size=n)).astype(np.float32)
 
-    feats = compute_sign_residual_baseline_features(
-        X_train=X[:300], y_train=y[:300], X_query=X[300:], seed=42, task="regression", standardize=True
-    )
+    feats = compute_sign_residual_baseline_features(X_train=X[:300], y_train=y[:300], X_query=X[300:], seed=42, task="regression", standardize=True)
     mu = feats["signres_mu"].to_numpy()
     baseline_score = feats["signres_baseline_score"].to_numpy()
 

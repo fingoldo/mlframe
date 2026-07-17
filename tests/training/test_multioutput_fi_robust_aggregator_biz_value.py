@@ -29,6 +29,7 @@ The biz_value here is the report quality: an operator looking at the FI
 chart for a 4-label model where every label depends strongly on the same
 feature would expect that feature on top. Pre-fix they got noise.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -81,17 +82,13 @@ def test_biz_value_robust_aggregator_ranks_sign_flipped_planted_feature_first():
     assert fi.shape == (len(cols),)
 
     rank_f3 = _rank_of(fi, 3)
-    assert rank_f3 <= 2, (
-        f"Planted f3 (sign-flipped across labels) should rank top-2 with "
-        f"median-|coef| aggregator; got rank {rank_f3}. FI values: {fi}"
-    )
+    assert rank_f3 <= 2, f"Planted f3 (sign-flipped across labels) should rank top-2 with median-|coef| aggregator; got rank {rank_f3}. FI values: {fi}"
     # Magnitude check: f3 should be MUCH bigger than median noise feature.
     noise_indices = [i for i in range(len(cols)) if i != 3]
     noise_median = float(np.median(np.abs(fi[noise_indices])))
     f3_mag = float(np.abs(fi[3]))
     assert f3_mag > 3.0 * noise_median, (
-        f"Planted f3 magnitude {f3_mag:.4f} should exceed 3x the noise "
-        f"median |fi| {noise_median:.4f}; got ratio {f3_mag/max(noise_median, 1e-12):.2f}"
+        f"Planted f3 magnitude {f3_mag:.4f} should exceed 3x the noise median |fi| {noise_median:.4f}; got ratio {f3_mag / max(noise_median, 1e-12):.2f}"
     )
 
 
@@ -103,7 +100,7 @@ def test_mean_signed_aggregator_would_have_failed_on_same_data():
     such that mean-of-signed-coef stops cancelling, this test should
     fail loudly so the iter577 rationale is re-examined.
     """
-    X, y, cols = _build_planted_data(seed=20260530)
+    X, y, _cols = _build_planted_data(seed=20260530)
 
     model = MultiOutputRegressor(Ridge()).fit(X, y)
     # Manually compute legacy mean-of-signed-coef aggregator.
@@ -150,9 +147,8 @@ def test_unsigned_path_still_uses_mean():
     cols = [f"f{i}" for i in range(n_feats)]
 
     from sklearn.multioutput import MultiOutputClassifier
-    model = MultiOutputClassifier(
-        catboost.CatBoostClassifier(iterations=10, verbose=False)
-    ).fit(X, y)
+
+    model = MultiOutputClassifier(catboost.CatBoostClassifier(iterations=10, verbose=False)).fit(X, y)
     fi = get_model_feature_importances(model, cols, X=X, y=y)
 
     assert fi is not None

@@ -5,9 +5,9 @@ GB on long sessions, surfacing only as a one-time WARN at construction. New defa
 1000 entries / 2000 MB protect operators by default; passing ``None`` is still
 honored for explicit opt-out.
 """
+
 from __future__ import annotations
 
-import tempfile
 
 import pytest
 
@@ -52,4 +52,5 @@ def test_partial_override(tmp_path):
 
 if __name__ == "__main__":
     import sys
+
     sys.exit(pytest.main([__file__, "--no-cov", "-x", "-s", "--tb=short"]))

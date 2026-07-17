@@ -5,6 +5,7 @@ show a POSITIVE aggregate mean CV delta -- aggregate-only acceptance would wrong
 majority criterion correctly rejects it (since it only improves a minority of folds), while still accepting
 a genuine improvement that helps most folds.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -32,7 +33,7 @@ def test_biz_val_per_fold_majority_accepts_genuine_majority_improvement():
 
 
 def test_seed_averaged_fold_scores_reduces_noise_vs_single_seed():
-    rng = np.random.default_rng(0)
+    np.random.default_rng(0)
     true_fold_scores = np.array([0.80, 0.81, 0.79, 0.82, 0.80])
 
     def noisy_score_fn(seed):

@@ -34,34 +34,34 @@ def test_auto_detect_uses_metadata_dict_when_supplied():
 
     n = 800
     rng = np.random.default_rng(7)
-    pre_df = pd.DataFrame({
-        "skills_text": [f"token_{i % 600}" for i in range(n)],
-        "tiny_cat": [f"c_{i % 4}" for i in range(n)],
-        "numeric_a": rng.standard_normal(n),
-    })
+    pre_df = pd.DataFrame(
+        {
+            "skills_text": [f"token_{i % 600}" for i in range(n)],
+            "tiny_cat": [f"c_{i % 4}" for i in range(n)],
+            "numeric_a": rng.standard_normal(n),
+        }
+    )
     pre_meta = {
         "columns": list(pre_df.columns),
         "dtypes": {c: str(pre_df[c].dtype) for c in pre_df.columns},
         "n_unique": {
-            c: int(pre_df[c].nunique(dropna=True))
-            for c in pre_df.columns
-            if pre_df[c].dtype.kind in "OUSb" or isinstance(pre_df[c].dtype, pd.CategoricalDtype)
+            c: int(pre_df[c].nunique(dropna=True)) for c in pre_df.columns if pre_df[c].dtype.kind in "OUSb" or isinstance(pre_df[c].dtype, pd.CategoricalDtype)
         },
         "non_null": {
-            c: int(pre_df[c].notna().sum())
-            for c in pre_df.columns
-            if pre_df[c].dtype.kind in "OUSb" or isinstance(pre_df[c].dtype, pd.CategoricalDtype)
+            c: int(pre_df[c].notna().sum()) for c in pre_df.columns if pre_df[c].dtype.kind in "OUSb" or isinstance(pre_df[c].dtype, pd.CategoricalDtype)
         },
         "embedding_object_cols": [],
         "shape": tuple(pre_df.shape),
     }
     # Post-encoding stale view: skills_text and tiny_cat are now int codes; if the consumer reads
     # this frame it would treat them all as numeric and skip the promotion.
-    post_df = pd.DataFrame({
-        "skills_text": rng.integers(0, 600, size=n, dtype=np.int32),
-        "tiny_cat": rng.integers(0, 4, size=n, dtype=np.int32),
-        "numeric_a": rng.standard_normal(n),
-    })
+    post_df = pd.DataFrame(
+        {
+            "skills_text": rng.integers(0, 600, size=n, dtype=np.int32),
+            "tiny_cat": rng.integers(0, 4, size=n, dtype=np.int32),
+            "numeric_a": rng.standard_normal(n),
+        }
+    )
 
     cfg = FeatureTypesConfig(
         auto_detect_feature_types=True,
@@ -70,14 +70,14 @@ def test_auto_detect_uses_metadata_dict_when_supplied():
     )
 
     text_features, embedding_features, drop = _auto_detect_feature_types(
-        post_df, cfg, cat_features=[], verbose=False, pandas_meta=pre_meta,
+        post_df,
+        cfg,
+        cat_features=[],
+        verbose=False,
+        pandas_meta=pre_meta,
     )
-    assert "skills_text" in text_features, (
-        f"Metadata-dict path failed to promote high-card text column; got text={text_features}"
-    )
-    assert "tiny_cat" not in text_features, (
-        f"Low-card column should NOT be promoted; got text={text_features}"
-    )
+    assert "skills_text" in text_features, f"Metadata-dict path failed to promote high-card text column; got text={text_features}"
+    assert "tiny_cat" not in text_features, f"Low-card column should NOT be promoted; got text={text_features}"
     assert embedding_features == []
     assert drop == []
 
@@ -92,10 +92,12 @@ def test_auto_detect_mutation_immune_to_train_df_mutation():
     from mlframe.training.configs import FeatureTypesConfig
 
     n = 500
-    train_df = pd.DataFrame({
-        "skills_text": [f"u_{i % 400}" for i in range(n)],
-        "numeric_a": np.arange(n, dtype=np.float64),
-    })
+    train_df = pd.DataFrame(
+        {
+            "skills_text": [f"u_{i % 400}" for i in range(n)],
+            "numeric_a": np.arange(n, dtype=np.float64),
+        }
+    )
     pre_meta = {
         "columns": list(train_df.columns),
         "dtypes": {c: str(train_df[c].dtype) for c in train_df.columns},
@@ -105,12 +107,17 @@ def test_auto_detect_mutation_immune_to_train_df_mutation():
         "shape": tuple(train_df.shape),
     }
     cfg = FeatureTypesConfig(
-        auto_detect_feature_types=True, use_text_features=True,
+        auto_detect_feature_types=True,
+        use_text_features=True,
         cat_text_cardinality_threshold=50,
     )
 
     text_pre, _, _ = _auto_detect_feature_types(
-        train_df, cfg, cat_features=[], verbose=False, pandas_meta=pre_meta,
+        train_df,
+        cfg,
+        cat_features=[],
+        verbose=False,
+        pandas_meta=pre_meta,
     )
 
     # Numpy-array in-place poke (escapes block-manager refcount) + wholesale column dtype swap.
@@ -124,11 +131,13 @@ def test_auto_detect_mutation_immune_to_train_df_mutation():
     train_df["skills_text"] = train_df["skills_text"].astype("category").cat.codes
 
     text_post, _, _ = _auto_detect_feature_types(
-        train_df, cfg, cat_features=[], verbose=False, pandas_meta=pre_meta,
+        train_df,
+        cfg,
+        cat_features=[],
+        verbose=False,
+        pandas_meta=pre_meta,
     )
-    assert text_pre == text_post == ["skills_text"], (
-        f"Metadata-dict consumer must be immune to source mutation; pre={text_pre} post={text_post}"
-    )
+    assert text_pre == text_post == ["skills_text"], f"Metadata-dict consumer must be immune to source mutation; pre={text_pre} post={text_post}"
 
 
 def test_metadata_dict_embedding_object_cols_routed_to_embedding():
@@ -140,10 +149,12 @@ def test_metadata_dict_embedding_object_cols_routed_to_embedding():
     from mlframe.training.configs import FeatureTypesConfig
 
     n = 200
-    train_df = pd.DataFrame({
-        "emb_col": [np.zeros(8, dtype=np.float32) for _ in range(n)],
-        "skills_text": [f"u_{i % 150}" for i in range(n)],
-    })
+    train_df = pd.DataFrame(
+        {
+            "emb_col": [np.zeros(8, dtype=np.float32) for _ in range(n)],
+            "skills_text": [f"u_{i % 150}" for i in range(n)],
+        }
+    )
     pre_meta = {
         "columns": ["emb_col", "skills_text"],
         "dtypes": {"emb_col": "object", "skills_text": "object"},
@@ -153,7 +164,8 @@ def test_metadata_dict_embedding_object_cols_routed_to_embedding():
         "shape": (n, 2),
     }
     cfg = FeatureTypesConfig(
-        auto_detect_feature_types=True, use_text_features=True,
+        auto_detect_feature_types=True,
+        use_text_features=True,
         cat_text_cardinality_threshold=50,
     )
 
@@ -161,8 +173,12 @@ def test_metadata_dict_embedding_object_cols_routed_to_embedding():
     # it would mis-classify; the metadata dict says "embedding" so the consumer must trust it.
     train_df["emb_col"] = [None] * n
 
-    text, embedding, drop = _auto_detect_feature_types(
-        train_df, cfg, cat_features=[], verbose=False, pandas_meta=pre_meta,
+    text, embedding, _drop = _auto_detect_feature_types(
+        train_df,
+        cfg,
+        cat_features=[],
+        verbose=False,
+        pandas_meta=pre_meta,
     )
     assert "emb_col" in embedding, f"emb_col should be in embedding_features; got {embedding}"
     assert "emb_col" not in text
@@ -180,22 +196,14 @@ def test_legacy_shallow_copy_removed_from_phase_helpers_return_tuple():
     from mlframe.training.core._training_context import TrainingContext
 
     sig = inspect.signature(_phase_auto_detect_feature_types)
-    assert "train_df_pandas_pre_meta" in sig.parameters, (
-        "Phase signature must accept train_df_pandas_pre_meta after the rewire."
-    )
-    assert "train_df_pandas_pre" not in sig.parameters, (
-        "Legacy train_df_pandas_pre kwarg must be gone after the rewire; got params: "
-        f"{list(sig.parameters)}"
-    )
+    assert "train_df_pandas_pre_meta" in sig.parameters, "Phase signature must accept train_df_pandas_pre_meta after the rewire."
+    assert "train_df_pandas_pre" not in sig.parameters, f"Legacy train_df_pandas_pre kwarg must be gone after the rewire; got params: {list(sig.parameters)}"
 
     # TrainingContext slot rename: meta dict in, frame slot out.
     ctx_slots = set(getattr(TrainingContext, "__dataclass_fields__", {}).keys())
-    assert "train_df_pandas_pre_meta" in ctx_slots, (
-        f"TrainingContext must expose train_df_pandas_pre_meta slot; got: {sorted(ctx_slots)}"
-    )
+    assert "train_df_pandas_pre_meta" in ctx_slots, f"TrainingContext must expose train_df_pandas_pre_meta slot; got: {sorted(ctx_slots)}"
     assert "train_df_pandas_pre" not in ctx_slots, (
-        "Legacy train_df_pandas_pre slot must be dropped from TrainingContext; "
-        f"still present in: {sorted(ctx_slots)}"
+        f"Legacy train_df_pandas_pre slot must be dropped from TrainingContext; still present in: {sorted(ctx_slots)}"
     )
 
 
@@ -209,16 +217,23 @@ def test_auto_detect_falls_back_to_frame_when_meta_absent():
     from mlframe.training.configs import FeatureTypesConfig
 
     n = 600
-    df = pd.DataFrame({
-        "skills_text": [f"u_{i % 400}" for i in range(n)],
-        "numeric_a": np.arange(n, dtype=np.float64),
-    })
+    df = pd.DataFrame(
+        {
+            "skills_text": [f"u_{i % 400}" for i in range(n)],
+            "numeric_a": np.arange(n, dtype=np.float64),
+        }
+    )
     cfg = FeatureTypesConfig(
-        auto_detect_feature_types=True, use_text_features=True,
+        auto_detect_feature_types=True,
+        use_text_features=True,
         cat_text_cardinality_threshold=50,
     )
     text, embedding, drop = _auto_detect_feature_types(
-        df, cfg, cat_features=[], verbose=False, pandas_meta=None,
+        df,
+        cfg,
+        cat_features=[],
+        verbose=False,
+        pandas_meta=None,
     )
     assert "skills_text" in text
     assert embedding == []

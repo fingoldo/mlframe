@@ -13,9 +13,10 @@ column at predict time. This test pins the replay contract:
    structure populates ``mrmr._engineered_recipes_`` with a hermite_pair
    recipe that survives selection.
 """
+
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
 import numpy as np
 import pandas as pd
@@ -55,8 +56,11 @@ def _build_hermite_result_for_xor():
         coef_b=np.array([0.0, 1.0], dtype=np.float64),
         bin_func_name="mul",
         bin_func=np.multiply,
-        mi=1.0, baseline_mi=0.5, uplift=2.0,
-        degree_a=1, degree_b=1,
+        mi=1.0,
+        baseline_mi=0.5,
+        uplift=2.0,
+        degree_a=1,
+        degree_b=1,
         basis="hermite",
         preprocess_a={"mean": mean_a, "std": std_a},
         preprocess_b={"mean": mean_b, "std": std_b},
@@ -87,9 +91,7 @@ class TestHermitePairRecipeBuilder:
             src_names=("x_a", "x_b"),
             hermite_result=result,
         )
-        for key in ("coef_a", "coef_b", "basis", "bin_func_name",
-                    "preprocess_a", "preprocess_b",
-                    "degree_a", "degree_b"):
+        for key in ("coef_a", "coef_b", "basis", "bin_func_name", "preprocess_a", "preprocess_b", "degree_a", "degree_b"):
             assert key in recipe.extra, f"recipe.extra missing '{key}'"
         # Coefficient arrays must be DEEP-COPIED so later mutation of the
         # original HermiteResult doesn't leak into the persisted recipe.
@@ -143,7 +145,7 @@ class TestHermitePairRecipePersistence:
             hermite_result=result,
         )
         blob = pickle.dumps(recipe)
-        recipe2 = pickle.loads(blob)
+        recipe2 = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
         assert recipe == recipe2
 
         df = pd.DataFrame({"x_a": x_a, "x_b": x_b})
@@ -187,10 +189,13 @@ class TestHermitePairRecipeBizValueViaMRMR:
         # and never evaluates the (x_a, x_b) pair.
         z = 1.0 * x_a + 1.0 * x_b + 2.0 * x_a * x_b + rng.normal(0, 0.3, n)
         y = (z > np.median(z)).astype(np.int64)
-        X = pd.DataFrame({
-            "x_a": x_a, "x_b": x_b,
-            "noise1": rng.normal(size=n).astype(np.float64),
-        })
+        X = pd.DataFrame(
+            {
+                "x_a": x_a,
+                "x_b": x_b,
+                "noise1": rng.normal(size=n).astype(np.float64),
+            }
+        )
 
         mrmr = MRMR(
             fe_smart_polynom_iters=2,
@@ -201,11 +206,11 @@ class TestHermitePairRecipeBizValueViaMRMR:
             fe_binary_preset="minimal",
             fe_max_steps=1,
             fe_npermutations=1,
-            fe_max_pair_features=5,        # admit several pairs, not just 1
-            fe_min_pair_mi=-1.0,             # admit ALL pairs to MI compute
-            fe_min_pair_mi_prevalence=0.0,   # admit ALL to prospective_pairs
+            fe_max_pair_features=5,  # admit several pairs, not just 1
+            fe_min_pair_mi=-1.0,  # admit ALL pairs to MI compute
+            fe_min_pair_mi_prevalence=0.0,  # admit ALL to prospective_pairs
             fe_min_engineered_mi_prevalence=0.0,
-            fe_min_nonzero_confidence=0.0,   # FE-side conf gate (separate knob from min_nonzero_confidence)
+            fe_min_nonzero_confidence=0.0,  # FE-side conf gate (separate knob from min_nonzero_confidence)
             min_nonzero_confidence=0.0,
             quantization_nbins=4,
             quantization_method="quantile",
@@ -223,28 +228,20 @@ class TestHermitePairRecipeBizValueViaMRMR:
         # is a separate concern (controlled by selection budget /
         # individual vs interaction MI; this test does not pin that).
         hermite_features = getattr(mrmr, "_hermite_features_", None) or []
-        assert hermite_features, (
-            "polynom-FE block did not inject any engineered column "
-            "(empty _hermite_features_). The optimiser-to-injection "
-            "path is broken."
-        )
+        assert hermite_features, "polynom-FE block did not inject any engineered column (empty _hermite_features_). The optimiser-to-injection path is broken."
 
         # Build a recipe directly from the recorded HermiteResult-equivalent
         # state. We re-run the optimiser-free recipe constructor on the same
         # (x_a, x_b) source pair to verify the recipe ROUND-TRIP works on the
         # data that triggered injection.
         recipes = mrmr._engineered_recipes_ or []
-        hermite_pair_recipes = [
-            r for r in recipes if r.kind == "hermite_pair"
-        ]
+        hermite_pair_recipes = [r for r in recipes if r.kind == "hermite_pair"]
         if hermite_pair_recipes:
             # Selection promoted the engineered column - replay must work.
             recipe = hermite_pair_recipes[0]
             out = apply_recipe(recipe, X)
             assert out.shape == (n,)
-            assert np.isfinite(out).all(), (
-                "hermite_pair replay produced non-finite values on training X"
-            )
+            assert np.isfinite(out).all(), "hermite_pair replay produced non-finite values on training X"
         # If selection didn't promote, the recipe is still verifiably
         # built in mrmr.py's polynom-FE block (T1#3 wiring covered by
         # test_optimiser_finds_xor_and_recipe_persists in

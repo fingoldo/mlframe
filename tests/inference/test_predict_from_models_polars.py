@@ -12,6 +12,7 @@ pipeline.transform, so a polars-ds pipeline sees a Polars frame and a
 sklearn pipeline sees a pandas frame -- matching the format each was
 fitted on.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -34,12 +35,14 @@ from mlframe.training.extractors import SimpleFeaturesAndTargetsExtractor
 def _build_polars_frame(n: int = 3_000, seed: int = 0):
     """Minimal numeric + low-card int Polars frame for fast suite training."""
     rng = np.random.default_rng(seed)
-    df = pl.DataFrame({
-        "x0": rng.normal(size=n).astype("float32"),
-        "x1": rng.normal(size=n).astype("float32"),
-        "c_low": rng.integers(0, 5, n).astype("int32"),
-        "y": (1.5 * rng.normal(size=n) + rng.normal(0, 0.3, n)).astype("float32"),
-    })
+    df = pl.DataFrame(
+        {
+            "x0": rng.normal(size=n).astype("float32"),
+            "x1": rng.normal(size=n).astype("float32"),
+            "c_low": rng.integers(0, 5, n).astype("int32"),
+            "y": (1.5 * rng.normal(size=n) + rng.normal(0, 0.3, n)).astype("float32"),
+        }
+    )
     return df
 
 
@@ -95,12 +98,14 @@ def test_predict_from_models_pandas_input_sklearn_pipeline():
     pytest.importorskip("lightgbm")
     rng = np.random.default_rng(0)
     n = 3_000
-    df = pd.DataFrame({
-        "x0": rng.normal(size=n).astype("float32"),
-        "x1": rng.normal(size=n).astype("float32"),
-        "c_low": rng.integers(0, 5, n).astype("int32"),
-        "y": (1.5 * rng.normal(size=n) + rng.normal(0, 0.3, n)).astype("float32"),
-    })
+    df = pd.DataFrame(
+        {
+            "x0": rng.normal(size=n).astype("float32"),
+            "x1": rng.normal(size=n).astype("float32"),
+            "c_low": rng.integers(0, 5, n).astype("int32"),
+            "y": (1.5 * rng.normal(size=n) + rng.normal(0, 0.3, n)).astype("float32"),
+        }
+    )
     fte = SimpleFeaturesAndTargetsExtractor(regression_targets=["y"])
 
     models, metadata = _run_suite(df, ["lgb"])

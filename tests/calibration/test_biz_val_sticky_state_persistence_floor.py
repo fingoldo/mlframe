@@ -6,6 +6,7 @@ aspects of our final submission.'" A per-step classifier can transiently flicker
 noisy row even when the true state is stable and unchanged on either side; flooring the active (previous
 step's) class's probability should smooth those isolated flickers away, recovering the true persistent state.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -59,7 +60,9 @@ def test_biz_val_persistence_floor_smooths_isolated_flicker():
     acc_raw = accuracy_score(true_state, _simulate_sequential(probs, floor=0.0))
     acc_floored = accuracy_score(true_state, _simulate_sequential(probs, floor=0.45))
 
-    assert acc_floored > acc_raw + 0.05, f"expected the persistence floor to improve accuracy on isolated flicker by >=0.05, got floored={acc_floored:.4f} raw={acc_raw:.4f}"
+    assert acc_floored > acc_raw + 0.05, (
+        f"expected the persistence floor to improve accuracy on isolated flicker by >=0.05, got floored={acc_floored:.4f} raw={acc_raw:.4f}"
+    )
 
 
 def test_apply_sticky_state_persistence_floor_preserves_row_sums():

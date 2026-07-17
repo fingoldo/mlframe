@@ -5,6 +5,7 @@ training. The per-target diagnostics entrypoint takes no ``verbose`` flag and al
 into metadata, so the diagnostic does not depend on verbose. This pins that contract so a future refactor cannot make
 the drift computation/metadata conditional on verbose.
 """
+
 from __future__ import annotations
 
 import inspect

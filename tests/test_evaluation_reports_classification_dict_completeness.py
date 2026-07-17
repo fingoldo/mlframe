@@ -12,6 +12,7 @@ so this test exercises the fix at the level that IS testable: the fast_classific
 output values, and that sklearn agrees with the macro/weighted/balanced_accuracy numbers now being
 threaded into the dicts (pinning the values themselves, not the private assembly code).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -27,8 +28,8 @@ def test_fast_classification_report_macro_and_weighted_avgs_match_sklearn():
     y_true = rng.integers(0, k, n)
     y_pred = rng.integers(0, k, n)
 
-    (_hits, _misses, accuracy, balanced_accuracy, supports, precisions, recalls, f1s, macro_avgs, weighted_avgs) = (
-        fast_classification_report(y_true, y_pred, nclasses=k)
+    (_hits, _misses, _accuracy, balanced_accuracy, _supports, _precisions, _recalls, _f1s, macro_avgs, weighted_avgs) = fast_classification_report(
+        y_true, y_pred, nclasses=k
     )
 
     # These are exactly the values the fixed evaluate_estimators/_report_dict call sites now write

@@ -42,11 +42,11 @@ or only do attribute writes / pre-captured timing / profiler.disable().
 NO `return`-in-finally or `raise`-in-finally silent-discard patterns
 found across the codebase -- that subclass is absent.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
 
 
 MLFRAME_ROOT = Path(__file__).resolve().parent.parent.parent / "src" / "mlframe"
@@ -144,5 +144,5 @@ def test_finally_with_raising_cleanup_does_not_mask_original_exception() -> None
     except ValueError as ve:
         seen.append(("propagated", str(ve)))
     # The release error was logged; the original ValueError propagated.
-    assert ("release_failed", ) == (seen[0][0],)
+    assert ("release_failed",) == (seen[0][0],)
     assert seen[1] == ("propagated", "real bug")

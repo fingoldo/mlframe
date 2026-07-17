@@ -10,7 +10,10 @@ import pytest
 
 from mlframe.reporting.renderers import get_renderer
 from mlframe.reporting.spec import (
-    FigureSpec, HeatmapPanelSpec, LinePanelSpec, ScatterPanelSpec,
+    FigureSpec,
+    HeatmapPanelSpec,
+    LinePanelSpec,
+    ScatterPanelSpec,
 )
 
 
@@ -31,14 +34,12 @@ def _rangeslider_visibles(fig):
 @pytest.fixture
 def roc_panel():
     x = np.linspace(0, 1, 12)
-    return LinePanelSpec(x=(x, x), y=(np.sqrt(x), x), series_labels=("model", "chance"),
-                         title="ROC", xlabel="FPR", ylabel="TPR")
+    return LinePanelSpec(x=(x, x), y=(np.sqrt(x), x), series_labels=("model", "chance"), title="ROC", xlabel="FPR", ylabel="TPR")
 
 
 @pytest.fixture
 def temporal_panel():
-    return LinePanelSpec(x=np.arange(20.0), y=np.random.default_rng(0).random(20),
-                         title="metric over time", xlabel="time", ylabel="AUC", x_is_time=True)
+    return LinePanelSpec(x=np.arange(20.0), y=np.random.default_rng(0).random(20), title="metric over time", xlabel="time", ylabel="AUC", x_is_time=True)
 
 
 @pytest.fixture
@@ -116,6 +117,7 @@ def test_modebar_drops_lasso_and_logo(renderer, roc_panel):
     fig = _fig(renderer, roc_panel)
     assert "lasso2d" in (fig.layout.modebar.remove or ())
     from mlframe.reporting.renderers._plotly_interactivity import html_config
+
     cfg = html_config()
     assert cfg["displaylogo"] is False
     assert "lasso2d" in cfg["modeBarButtonsToRemove"]

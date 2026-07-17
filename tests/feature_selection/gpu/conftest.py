@@ -10,6 +10,7 @@ CUDA-device probe ``_CUDA_USABLE_CACHE``; an opt-out test that runs under ``MLFR
 and happens to trigger the probe would freeze it to False for later parity tests. Resetting it at each boundary keeps the
 probe honest regardless of test order (mirrors the ``_CC_MAJOR_CACHE`` reset precedent in
 ``test_gpu_cpu_mi_selection_equivalence``)."""
+
 from __future__ import annotations
 
 import pytest
@@ -21,12 +22,14 @@ def _reset_fe_gpu_strict_device_probe():
     ``MLFRAME_DISABLE_GPU`` / ``CUDA_VISIBLE_DEVICES`` cannot leak a stale False into a later parity test."""
     try:
         import mlframe.feature_selection.filters._fe_gpu_strict as _strict
+
         _strict._CUDA_USABLE_CACHE = None
-    except Exception:
+    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
         pass
     yield
     try:
         import mlframe.feature_selection.filters._fe_gpu_strict as _strict
+
         _strict._CUDA_USABLE_CACHE = None
-    except Exception:
+    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
         pass

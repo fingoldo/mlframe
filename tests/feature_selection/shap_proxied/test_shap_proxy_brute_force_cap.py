@@ -72,9 +72,7 @@ def test_resolve_optimizer_bruteforce_at_n_equal_cap():
     pytest.importorskip("xgboost")
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
-    fs = ShapProxiedFS(
-        brute_force_max_features=28, min_features=1, max_features=12, optimizer="auto",
-        use_gpu=False)
+    fs = ShapProxiedFS(brute_force_max_features=28, min_features=1, max_features=12, optimizer="auto", use_gpu=False)
     # n=28 -> sum C(28,k) k=1..12 = 76.7M subsets, under the 80M gate, must dispatch brute force.
     assert fs._resolve_optimizer(28) == "bruteforce"
 
@@ -93,8 +91,7 @@ def test_resolve_optimizer_falls_through_when_n_sub_exceeds_gate():
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
     # n=29 / max_card=12 -> ~123M subsets, exceeds the 80M default gate -> beam.
-    fs = ShapProxiedFS(
-        brute_force_max_features=29, min_features=1, max_features=12, optimizer="auto")
+    fs = ShapProxiedFS(brute_force_max_features=29, min_features=1, max_features=12, optimizer="auto")
     expected = sum(math.comb(29, r) for r in range(1, 13))
     assert expected > 80_000_000
     assert fs._resolve_optimizer(29) == "beam"

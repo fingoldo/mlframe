@@ -22,8 +22,12 @@ def test_api15_pick_best_calibrator_reports_secondary_ece_when_probs_y_given():
     sec_p = np.clip(0.5 + 0.3 * (sec_y - 0.5) + rng.normal(0, 0.1, 200), 0.01, 0.99)
 
     res = pick_best_calibrator(
-        probs=sec_p, y=sec_y, oof_probs=oof_p, oof_y=oof_y,
-        selection="same_oof", n_bootstrap=50,
+        probs=sec_p,
+        y=sec_y,
+        oof_probs=oof_p,
+        oof_y=oof_y,
+        selection="same_oof",
+        n_bootstrap=50,
     )
     assert "secondary_ece" in res
     assert res["secondary_ece"] is not None
@@ -40,8 +44,12 @@ def test_api15_secondary_ece_none_when_probs_y_omitted():
     oof_p = np.clip(0.5 + 0.3 * (oof_y - 0.5) + rng.normal(0, 0.1, n), 0.01, 0.99)
 
     res = pick_best_calibrator(
-        probs=None, y=None, oof_probs=oof_p, oof_y=oof_y,
-        selection="same_oof", n_bootstrap=50,
+        probs=None,
+        y=None,
+        oof_probs=oof_p,
+        oof_y=oof_y,
+        selection="same_oof",
+        n_bootstrap=50,
     )
     assert res["secondary_ece"] is None
 

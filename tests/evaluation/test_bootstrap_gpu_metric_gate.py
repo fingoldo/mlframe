@@ -3,6 +3,7 @@ metric_fns_idx callable looks GPU-bound, regardless of MLFRAME_BOOTSTRAP_BACKEND
 across threads or processes makes every worker independently contend for the single physical GPU device instead
 of parallelising -- the same failure mode the joblib-threading-over-GPU-work CLAUDE.md entry documents.
 """
+
 from __future__ import annotations
 
 import warnings

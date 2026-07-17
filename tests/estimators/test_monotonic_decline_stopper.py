@@ -4,6 +4,7 @@ Covers the exact streak contract: climb -> peak -> N consecutive strict declines
 bounce-up resets; plateau resets; new global best resets; min vs max mode; disabled;
 NaN/inf no-op; latched stop.
 """
+
 from __future__ import annotations
 
 import pytest

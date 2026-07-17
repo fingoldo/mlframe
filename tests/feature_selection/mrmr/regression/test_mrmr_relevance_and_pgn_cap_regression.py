@@ -12,6 +12,7 @@
    ceiling ``max(20, p//3)``. When p >= n, the total raw support is capped at
    that ceiling by descending relevance.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -22,40 +23,50 @@ import pandas as pd
 
 _RAW_ONLY = dict(
     fe_max_steps=0,
-    fe_univariate_basis_enable=False, fe_univariate_fourier_enable=False,
-    fe_hinge_enable=False, fe_conditional_dispersion_enable=False,
-    fe_wavelet_enable=False, fe_hybrid_orth_pair_enable=False,
-    fe_auto_escalation_enable=False, fe_pair_prewarp_enable=False,
-    fe_rung_schedule_enable=False, fe_stability_vote_enable=False,
-    cluster_aggregate_enable=False, dcd_enable=False,
+    fe_univariate_basis_enable=False,
+    fe_univariate_fourier_enable=False,
+    fe_hinge_enable=False,
+    fe_conditional_dispersion_enable=False,
+    fe_wavelet_enable=False,
+    fe_hybrid_orth_pair_enable=False,
+    fe_auto_escalation_enable=False,
+    fe_pair_prewarp_enable=False,
+    fe_rung_schedule_enable=False,
+    fe_stability_vote_enable=False,
+    cluster_aggregate_enable=False,
+    dcd_enable=False,
     fe_discrete_structural_operators_enable=False,
-    fe_hybrid_orth_triplet_enable=False, fe_hybrid_orth_quadruplet_enable=False,
+    fe_hybrid_orth_triplet_enable=False,
+    fe_hybrid_orth_quadruplet_enable=False,
 )
 
 
 def test_below_null_squared_decoy_not_readded_by_linear_usability():
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     rng = np.random.default_rng(7)
     n = 800
     x_real = rng.normal(size=n)
     y = pd.Series((x_real + 0.2 * rng.normal(size=n) > 0).astype(int), name="y")
-    df = pd.DataFrame({
-        "x_real": x_real,
-        "decoy": x_real ** 2,  # within-null: MI(x^2; sign(x)) ~ 0
-        "noise0": rng.normal(size=n),
-        "noise1": rng.normal(size=n),
-    })
+    df = pd.DataFrame(
+        {
+            "x_real": x_real,
+            "decoy": x_real**2,  # within-null: MI(x^2; sign(x)) ~ 0
+            "noise0": rng.normal(size=n),
+            "noise1": rng.normal(size=n),
+        }
+    )
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         fs = MRMR(verbose=0, random_seed=42, **_RAW_ONLY).fit(df, y)
     sel = list(fs.get_feature_names_out())
     assert "x_real" in sel, f"genuine signal dropped: {sel}"
-    assert "decoy" not in sel, (
-        f"below-null squared decoy resurrected by linear-usability re-add (relevance gate missing): {sel}")
+    assert "decoy" not in sel, f"below-null squared decoy resurrected by linear-usability re-add (relevance gate missing): {sel}"
 
 
 def test_p_ge_n_total_support_capped_at_fp_ceiling():
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     rng = np.random.default_rng(0)
     n, p, p_signal = 60, 300, 4
     X_sig = rng.standard_normal((n, p_signal))

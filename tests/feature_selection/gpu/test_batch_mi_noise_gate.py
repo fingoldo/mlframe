@@ -9,6 +9,7 @@ Covered: varied n / K / nbins / npermutations in {0, 3, 10} /
 min_nonzero_confidence in {0.99, 0.0}, plus tie-heavy and pure-noise (rejection-
 triggering) columns that must be zeroed identically.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -91,8 +92,13 @@ def test_batch_bit_identical_to_mi_direct(n, K, nbins, npermutations, min_nonzer
     factors_nbins = np.full(K, nbins, dtype=np.int64)
 
     ref = _per_column_reference(
-        disc_2d, factors_nbins, classes_y, classes_y_safe, freqs_y,
-        npermutations, min_nonzero_confidence,
+        disc_2d,
+        factors_nbins,
+        classes_y,
+        classes_y_safe,
+        freqs_y,
+        npermutations,
+        min_nonzero_confidence,
     )
     got = batch_mi_with_noise_gate(
         disc_2d=disc_2d,
@@ -110,7 +116,7 @@ def test_batch_bit_identical_to_mi_direct(n, K, nbins, npermutations, min_nonzer
     assert got.shape == ref.shape
     # EXACT float equality -- bit-identity is the contract.
     assert np.array_equal(got, ref), (
-        f"mismatch n={n} K={K} nbins={nbins} nperm={npermutations} " f"mnc={min_nonzero_confidence}\n ref={ref}\n got={got}\n diff={got - ref}"
+        f"mismatch n={n} K={K} nbins={nbins} nperm={npermutations} mnc={min_nonzero_confidence}\n ref={ref}\n got={got}\n diff={got - ref}"
     )
 
 
@@ -131,9 +137,16 @@ def test_pure_noise_zeroed_identically():
     factors_nbins = np.array([6], dtype=np.int64)
     ref = _per_column_reference(disc_2d, factors_nbins, classes_y, classes_y.copy(), freqs_y, npermutations=10, min_nonzero_confidence=0.99)
     got = batch_mi_with_noise_gate(
-        disc_2d=disc_2d, factors_nbins=factors_nbins, classes_y=classes_y,
-        classes_y_safe=classes_y.copy(), freqs_y=freqs_y, npermutations=10,
-        base_seed=np.uint64(0), min_nonzero_confidence=0.99, use_su=False, dtype=np.int32,
+        disc_2d=disc_2d,
+        factors_nbins=factors_nbins,
+        classes_y=classes_y,
+        classes_y_safe=classes_y.copy(),
+        freqs_y=freqs_y,
+        npermutations=10,
+        base_seed=np.uint64(0),
+        min_nonzero_confidence=0.99,
+        use_su=False,
+        dtype=np.int32,
     )
     assert np.array_equal(got, ref)
 
@@ -141,17 +154,26 @@ def test_pure_noise_zeroed_identically():
 def test_su_mode_bit_identical(monkeypatch):
     """When SU normalization is active, batched use_su=True matches per-column mi_direct."""
     import mlframe.feature_selection.filters.info_theory as it
+
     monkeypatch.setattr(it, "use_su_normalization", lambda: True)
     import mlframe.feature_selection.filters.permutation as perm
+
     monkeypatch.setattr(perm, "use_su_normalization", lambda: True)
 
     disc_2d, classes_y, freqs_y = _make_frame(400, 10, 5, seed=7)
     factors_nbins = np.full(10, 5, dtype=np.int64)
     ref = _per_column_reference(disc_2d, factors_nbins, classes_y, classes_y.copy(), freqs_y, npermutations=10, min_nonzero_confidence=0.99)
     got = batch_mi_with_noise_gate(
-        disc_2d=disc_2d, factors_nbins=factors_nbins, classes_y=classes_y,
-        classes_y_safe=classes_y.copy(), freqs_y=freqs_y, npermutations=10,
-        base_seed=np.uint64(0), min_nonzero_confidence=0.99, use_su=True, dtype=np.int32,
+        disc_2d=disc_2d,
+        factors_nbins=factors_nbins,
+        classes_y=classes_y,
+        classes_y_safe=classes_y.copy(),
+        freqs_y=freqs_y,
+        npermutations=10,
+        base_seed=np.uint64(0),
+        min_nonzero_confidence=0.99,
+        use_su=True,
+        dtype=np.int32,
     )
     assert np.array_equal(got, ref)
 
@@ -175,10 +197,16 @@ def test_v2_bit_identical_to_v1(n, K, nbins, npermutations, min_nonzero_confiden
     disc_2d, classes_y, freqs_y = _make_frame(n, K, nbins, seed=1234 + n + K + nbins)
     factors_nbins = np.full(K, nbins, dtype=np.int64)
     kw = dict(
-        disc_2d=disc_2d, factors_nbins=factors_nbins, classes_y=classes_y,
-        classes_y_safe=classes_y.copy(), freqs_y=freqs_y, npermutations=npermutations,
-        base_seed=np.uint64(0), min_nonzero_confidence=float(min_nonzero_confidence),
-        use_su=False, dtype=np.int32,
+        disc_2d=disc_2d,
+        factors_nbins=factors_nbins,
+        classes_y=classes_y,
+        classes_y_safe=classes_y.copy(),
+        freqs_y=freqs_y,
+        npermutations=npermutations,
+        base_seed=np.uint64(0),
+        min_nonzero_confidence=float(min_nonzero_confidence),
+        use_su=False,
+        dtype=np.int32,
     )
     v1 = batch_mi_with_noise_gate(**kw)
     v2 = batch_mi_with_noise_gate_v2(**kw)
@@ -190,9 +218,16 @@ def test_v2_su_mode_bit_identical():
     disc_2d, classes_y, freqs_y = _make_frame(400, 10, 5, seed=7)
     factors_nbins = np.full(10, 5, dtype=np.int64)
     kw = dict(
-        disc_2d=disc_2d, factors_nbins=factors_nbins, classes_y=classes_y,
-        classes_y_safe=classes_y.copy(), freqs_y=freqs_y, npermutations=10,
-        base_seed=np.uint64(0), min_nonzero_confidence=0.99, use_su=True, dtype=np.int32,
+        disc_2d=disc_2d,
+        factors_nbins=factors_nbins,
+        classes_y=classes_y,
+        classes_y_safe=classes_y.copy(),
+        freqs_y=freqs_y,
+        npermutations=10,
+        base_seed=np.uint64(0),
+        min_nonzero_confidence=0.99,
+        use_su=True,
+        dtype=np.int32,
     )
     assert np.array_equal(batch_mi_with_noise_gate(**kw), batch_mi_with_noise_gate_v2(**kw))
 
@@ -204,14 +239,24 @@ def test_v2_pure_noise_zeroed_identically():
     y = rng.integers(0, 4, size=n).astype(np.int32)
     disc_2d = rng.integers(0, 6, size=n).astype(np.int32).reshape(-1, 1)
     classes_y, freqs_y, _ = merge_vars(
-        factors_data=y.reshape(-1, 1), vars_indices=np.array([0], dtype=np.int64),
-        var_is_nominal=None, factors_nbins=np.array([int(y.max()) + 1], dtype=np.int64), dtype=np.int32,
+        factors_data=y.reshape(-1, 1),
+        vars_indices=np.array([0], dtype=np.int64),
+        var_is_nominal=None,
+        factors_nbins=np.array([int(y.max()) + 1], dtype=np.int64),
+        dtype=np.int32,
     )
     factors_nbins = np.array([6], dtype=np.int64)
     kw = dict(
-        disc_2d=disc_2d, factors_nbins=factors_nbins, classes_y=classes_y,
-        classes_y_safe=classes_y.copy(), freqs_y=freqs_y, npermutations=10,
-        base_seed=np.uint64(0), min_nonzero_confidence=0.99, use_su=False, dtype=np.int32,
+        disc_2d=disc_2d,
+        factors_nbins=factors_nbins,
+        classes_y=classes_y,
+        classes_y_safe=classes_y.copy(),
+        freqs_y=freqs_y,
+        npermutations=10,
+        base_seed=np.uint64(0),
+        min_nonzero_confidence=0.99,
+        use_su=False,
+        dtype=np.int32,
     )
     assert np.array_equal(batch_mi_with_noise_gate(**kw), batch_mi_with_noise_gate_v2(**kw))
 

@@ -45,7 +45,7 @@ def _coverage_gap_cleanup():
         import matplotlib.pyplot as plt
 
         plt.close("all")
-    except Exception:
+    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
         pass
     try:
         from mlframe.training import trainer as _tr
@@ -54,7 +54,7 @@ def _coverage_gap_cleanup():
             cache = getattr(_tr, attr, None)
             if hasattr(cache, "clear"):
                 cache.clear()
-    except Exception:
+    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
         pass
     gc.collect()
     gc.collect()
@@ -242,7 +242,7 @@ class _WeightedExtractor(SimpleFeaturesAndTargetsExtractor):
         self._schema_name = schema_name
 
     def transform(self, df):
-        n = len(df)
+        len(df)
         if isinstance(df, pd.DataFrame):
             target_values = df[self.target_column].values
         else:
@@ -323,9 +323,7 @@ def test_sample_weight_length_mismatch_documented(tmp_path):
         raised = e
         # Either form is acceptable; the only thing this test guards against
         # is a silent success on a wrong-length weight buffer.
-        assert "weight" in str(e).lower() or "length" in str(e).lower() or "shape" in str(e).lower(), (
-            f"raise was opaque: {raised}"
-        )
+        assert "weight" in str(e).lower() or "length" in str(e).lower() or "shape" in str(e).lower(), f"raise was opaque: {raised}"
     else:
         # Silent degradation is tolerable iff the suite trained SOMETHING
         # on uniform and didn't crash. Assert at least uniform variant exists.
@@ -392,9 +390,7 @@ def test_remove_constant_columns_false_keeps_them(tmp_path):
     # At minimum one of the degenerate columns must survive under the
     # opt-out. (CB itself may internally discard them at fit time, but
     # the mlframe-level metadata should still record them as input.)
-    assert "num_const" in trained_cols or "num_null" in trained_cols, (
-        f"remove_constant_columns=False dropped degenerate columns anyway: {trained_cols}"
-    )
+    assert "num_const" in trained_cols or "num_null" in trained_cols, f"remove_constant_columns=False dropped degenerate columns anyway: {trained_cols}"
 
 
 # ===========================================================================
@@ -434,8 +430,7 @@ def test_two_runs_same_seed_produce_identical_schema(tmp_path):
         assert keys, "no common model keys between the two runs"
         for k in keys:
             assert schemas_a[k].get("schema_hash") == schemas_b[k].get("schema_hash"), (
-                f"schema_hash differs for {k}: {schemas_a[k].get('schema_hash')!r} "
-                f"vs {schemas_b[k].get('schema_hash')!r}"
+                f"schema_hash differs for {k}: {schemas_a[k].get('schema_hash')!r} vs {schemas_b[k].get('schema_hash')!r}"
             )
 
 
@@ -489,14 +484,12 @@ def test_polars_and_pandas_paths_produce_close_metrics(tmp_path):
     # The return is nested by TargetType; we don't care about depth,
     # just that both sides trained the same number of top-level targets.
     assert bool(tr_pd) and bool(tr_pl), "one of the paths trained nothing"
-    assert set(tr_pd.keys()) == set(tr_pl.keys()), (
-        f"different target types trained: pd={set(tr_pd.keys())} pl={set(tr_pl.keys())}"
-    )
+    assert set(tr_pd.keys()) == set(tr_pl.keys()), f"different target types trained: pd={set(tr_pd.keys())} pl={set(tr_pl.keys())}"
 
     # Compare feature counts — they must match: polars fastpath must
     # not drop a feature the pandas path keeps (or vice versa).
-    cols_pd = set((_meta_pd.get("columns") or []))
-    cols_pl = set((_meta_pl.get("columns") or []))
+    cols_pd = set(_meta_pd.get("columns") or [])
+    cols_pl = set(_meta_pl.get("columns") or [])
     assert cols_pd == cols_pl, f"column sets diverge between paths: pd={cols_pd} pl={cols_pl}"
 
 
@@ -529,15 +522,9 @@ def test_caller_polars_frame_schema_is_preserved(tmp_path):
     shape_after = df.shape
     cols_after = tuple(df.columns)
 
-    assert schema_before == schema_after, (
-        f"caller's polars schema mutated: before={schema_before} after={schema_after}"
-    )
-    assert shape_before == shape_after, (
-        f"caller's polars shape mutated: before={shape_before} after={shape_after}"
-    )
-    assert cols_before == cols_after, (
-        f"caller's polars column order mutated: before={cols_before} after={cols_after}"
-    )
+    assert schema_before == schema_after, f"caller's polars schema mutated: before={schema_before} after={schema_after}"
+    assert shape_before == shape_after, f"caller's polars shape mutated: before={shape_before} after={shape_after}"
+    assert cols_before == cols_after, f"caller's polars column order mutated: before={cols_before} after={cols_after}"
 
 
 def test_caller_pandas_frame_target_column_not_dropped(tmp_path):
@@ -559,12 +546,8 @@ def test_caller_pandas_frame_target_column_not_dropped(tmp_path):
 
     cols_after = tuple(df.columns)
     shape_after = df.shape
-    assert cols_before == cols_after, (
-        f"caller's pandas columns mutated: before={cols_before} after={cols_after}"
-    )
-    assert shape_before == shape_after, (
-        f"caller's pandas shape mutated: before={shape_before} after={shape_after}"
-    )
+    assert cols_before == cols_after, f"caller's pandas columns mutated: before={cols_before} after={cols_after}"
+    assert shape_before == shape_after, f"caller's pandas shape mutated: before={shape_before} after={shape_after}"
     # Target must still be present — some past versions dropped it inplace.
     assert "target" in df.columns, "target column was dropped from caller's df"
 
@@ -605,7 +588,7 @@ def test_outlier_detector_filters_training_rows(tmp_path):
     from mlframe.training.core import train_mlframe_models_suite
 
     fte = SimpleFeaturesAndTargetsExtractor(regression=False)
-    trained, meta = train_mlframe_models_suite(
+    _trained, meta = train_mlframe_models_suite(
         df=df,
         target_name="tgt",
         model_name="mdl",
@@ -662,7 +645,7 @@ def test_rfecv_pipeline_runs_for_each_model_family(tmp_path, caplog):
     from mlframe.training.core import train_mlframe_models_suite
 
     fte = SimpleFeaturesAndTargetsExtractor(regression=False)
-    trained, meta = train_mlframe_models_suite(
+    _trained, _meta = train_mlframe_models_suite(
         df=df,
         target_name="tgt",
         model_name="mdl",
@@ -678,8 +661,7 @@ def test_rfecv_pipeline_runs_for_each_model_family(tmp_path, caplog):
     )
     log_text = caplog.text
     assert any(s in log_text.lower() for s in ("rfecv", "feature selection", "selected features")), (
-        "RFECV path did not emit any identifying log line; the kwarg may have "
-        f"become a silent no-op. Captured log tail:\n{log_text[-500:]}"
+        f"RFECV path did not emit any identifying log line; the kwarg may have become a silent no-op. Captured log tail:\n{log_text[-500:]}"
     )
 
 
@@ -712,7 +694,7 @@ def test_ensembles_enabled_produces_ensemble_log(tmp_path, caplog):
     from mlframe.training.core import train_mlframe_models_suite
 
     fte = SimpleFeaturesAndTargetsExtractor(regression=False)
-    trained, _ = train_mlframe_models_suite(
+    _trained, _ = train_mlframe_models_suite(
         df=df,
         target_name="tgt",
         model_name="mdl",
@@ -730,9 +712,7 @@ def test_ensembles_enabled_produces_ensemble_log(tmp_path, caplog):
         output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
     )
     log_text = caplog.text
-    assert any(s in log_text.lower() for s in ("ensemble", "score_ensemble")), (
-        "Captured log tail:\n" + log_text[-800:]
-    )
+    assert any(s in log_text.lower() for s in ("ensemble", "score_ensemble")), "Captured log tail:\n" + log_text[-800:]
 
 
 # ===========================================================================
@@ -834,7 +814,7 @@ def test_high_cardinality_cat_column_trains_successfully(tmp_path):
     from mlframe.training.core import train_mlframe_models_suite
 
     fte = SimpleFeaturesAndTargetsExtractor(regression=False)
-    trained, meta = train_mlframe_models_suite(
+    trained, _meta = train_mlframe_models_suite(
         df=df,
         target_name="tgt",
         model_name="mdl",
@@ -941,7 +921,7 @@ def test_multi_target_regression_trains_all_targets(tmp_path):
     from mlframe.training.core import train_mlframe_models_suite
 
     fte = _MultiTargetExtractor(target_columns=("target_a", "target_b"))
-    trained, meta = train_mlframe_models_suite(
+    trained, _meta = train_mlframe_models_suite(
         df=df,
         target_name="tgt",
         model_name="mdl",
@@ -955,14 +935,14 @@ def test_multi_target_regression_trains_all_targets(tmp_path):
         output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
     )
     from mlframe.training.configs import TargetTypes
+
     assert TargetTypes.REGRESSION in trained
     inner = trained[TargetTypes.REGRESSION]
     assert isinstance(inner, dict), f"trained[REGRESSION] is not a dict: {type(inner).__name__}"
     target_names_trained = set(inner.keys())
     expected = {"target_a", "target_b"}
     assert expected.issubset(target_names_trained), (
-        f"Not all regression targets trained: expected superset of {expected}, "
-        f"got {target_names_trained}. Full trained structure keys: {list(trained)}"
+        f"Not all regression targets trained: expected superset of {expected}, got {target_names_trained}. Full trained structure keys: {list(trained)}"
     )
     # Note: schema_hash can collide across targets when they share the
     # same feature frame (model_file_name at core.py:3134 doesn't
@@ -1051,9 +1031,7 @@ def test_predict_models_suite_loads_and_predicts(tmp_path):
     for model_key, arr in {**preds_dict, **probs_dict}.items():
         if arr is None:
             continue
-        assert len(arr) == len(serving_df), (
-            f"prediction length mismatch for {model_key}: {len(arr)} vs serving={len(serving_df)}"
-        )
+        assert len(arr) == len(serving_df), f"prediction length mismatch for {model_key}: {len(arr)} vs serving={len(serving_df)}"
 
 
 # #18 Tier-DF cache hit (prepare_polars_dataframe called once per unique tier)
@@ -1182,10 +1160,7 @@ def test_permissive_configs_warn_on_unknown_fields(caplog):
     assert cfg is not None
 
     log_text = caplog.text.lower()
-    assert "unknown field" in log_text, (
-        "PreprocessingBackendConfig did not warn on unknown field — "
-        "silent-absorption bug returned. Log: " + log_text[-300:]
-    )
+    assert "unknown field" in log_text, "PreprocessingBackendConfig did not warn on unknown field — silent-absorption bug returned. Log: " + log_text[-300:]
 
 
 # #20 Metadata schema contents — load-bearing fields must be populated
@@ -1257,7 +1232,7 @@ def test_continue_on_model_failure_skips_crashed_model(tmp_path, monkeypatch):
     from mlframe.training.core import train_mlframe_models_suite
 
     fte = SimpleFeaturesAndTargetsExtractor(regression=False)
-    trained, meta = train_mlframe_models_suite(
+    _trained, meta = train_mlframe_models_suite(
         df=df,
         target_name="tgt",
         model_name="mdl",
@@ -1315,13 +1290,9 @@ def test_verbose_zero_suppresses_suite_info_logs(tmp_path, capsys, caplog):
         output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
     )
     assert trained
-    mlframe_info_records = [
-        r for r in caplog.records if r.name.startswith("mlframe") and r.levelno == logging.INFO
-    ]
-    assert not mlframe_info_records, (
-        f"verbose=0 leaked {len(mlframe_info_records)} INFO-level log "
-        f"records from mlframe.*; first few:\n"
-        + "\n".join(r.getMessage()[:120] for r in mlframe_info_records[:5])
+    mlframe_info_records = [r for r in caplog.records if r.name.startswith("mlframe") and r.levelno == logging.INFO]
+    assert not mlframe_info_records, f"verbose=0 leaked {len(mlframe_info_records)} INFO-level log records from mlframe.*; first few:\n" + "\n".join(
+        r.getMessage()[:120] for r in mlframe_info_records[:5]
     )
 
 
@@ -1375,9 +1346,7 @@ def test_invalid_df_inputs_raise_clear_error(tmp_path, df_input, error_kw):
     except Exception as e:
         raised = e
     msg = str(raised).lower() if raised is not None else ""
-    assert raised is not None and any(kw in msg for kw in error_kw), (
-        f"raise was opaque for df={type(df_input).__name__}: {raised!r}"
-    )
+    assert raised is not None and any(kw in msg for kw in error_kw), f"raise was opaque for df={type(df_input).__name__}: {raised!r}"
 
 
 def test_missing_target_column_raises(tmp_path):
@@ -1452,9 +1421,7 @@ def test_empty_mlframe_models_handled_gracefully(tmp_path):
         raised = e
     if raised is not None:
         msg = str(raised).lower()
-        assert any(kw in msg for kw in ("model", "empty", "none")), (
-            f"empty-models raise was opaque: {raised!r}"
-        )
+        assert any(kw in msg for kw in ("model", "empty", "none")), f"empty-models raise was opaque: {raised!r}"
         return
     # Or, a non-crashing result: trained dict must be empty.
     assert not trained, f"empty mlframe_models silently returned non-empty trained dict: {trained}"
@@ -1505,14 +1472,10 @@ def test_unknown_mlframe_model_name_raises_or_warns(tmp_path):
     if raised is not None:
         # Loud raise — preferred.
         msg = str(raised).lower()
-        assert any(kw in msg for kw in ("unknown", "model", "not", "valid")), (
-            f"unknown-model raise was opaque: {raised!r}"
-        )
+        assert any(kw in msg for kw in ("unknown", "model", "not", "valid")), f"unknown-model raise was opaque: {raised!r}"
         return
     # Or, silent skip with WARN. Trained dict empty + warning fired.
-    assert (
-        "unknown" in log_text or "skip" in log_text or "this_is_not_a_real_model" in log_text
-    ) or not trained, (
+    assert ("unknown" in log_text or "skip" in log_text or "this_is_not_a_real_model" in log_text) or not trained, (
         "unknown model name was silently accepted with no warning and no skip — operator would never know"
     )
 
@@ -1547,9 +1510,7 @@ def test_predictions_in_valid_range_for_classification(tmp_path):
         # Either single-column (positive-class prob) or two-column.
         # Both must be in [0, 1].
         assert np.isfinite(arr_np).all(), f"non-finite probs from {name}: any NaN/Inf"
-        assert (arr_np >= 0.0).all() and (arr_np <= 1.0001).all(), (
-            f"out-of-range probs from {name}: min={arr_np.min()}, max={arr_np.max()}"
-        )
+        assert (arr_np >= 0.0).all() and (arr_np <= 1.0001).all(), f"out-of-range probs from {name}: min={arr_np.min()}, max={arr_np.max()}"
 
 
 def test_predictions_finite_for_regression(tmp_path):
@@ -1608,9 +1569,7 @@ def test_schema_hash_is_column_order_invariant(tmp_path):
     hash_a = next(iter(schemas_a.values())).get("schema_hash")
     hash_b = next(iter(schemas_b.values())).get("schema_hash")
     assert hash_a == hash_b, (
-        f"column-order invariance broken: "
-        f"original-order hash={hash_a!r}, reordered hash={hash_b!r}. "
-        f"compute_model_input_fingerprint dropped its sorted() call?"
+        f"column-order invariance broken: original-order hash={hash_a!r}, reordered hash={hash_b!r}. compute_model_input_fingerprint dropped its sorted() call?"
     )
 
 
@@ -1630,7 +1589,7 @@ def test_save_load_predict_in_subprocess(tmp_path):
     expected serving rows.
     """
     pytest.importorskip("catboost")
-    import subprocess
+    import subprocess  # nosec B404 -- test-only local trusted subprocess invocation (fixed argv, no shell, no untrusted input)
     import sys
 
     df = _make_baseline_pandas(n=300, seed=0, with_cat=False, regression=False)
@@ -1671,7 +1630,7 @@ def test_save_load_predict_in_subprocess(tmp_path):
     # the absolute src/ path to PYTHONPATH so ``import mlframe`` resolves.
     _src_abs = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "src"))
     _env = {**os.environ, "PYTHONPATH": _src_abs + os.pathsep + os.environ.get("PYTHONPATH", "")}
-    result = subprocess.run(
+    result = subprocess.run(  # nosec B603 -- fixed local argv (sys.executable/git + literal args), no shell, no untrusted input
         [sys.executable, "-c", script],
         capture_output=True,
         text=True,
@@ -1679,12 +1638,9 @@ def test_save_load_predict_in_subprocess(tmp_path):
         env=_env,
     )
     assert result.returncode == 0, (
-        f"subprocess load+predict failed (rc={result.returncode}):\n"
-        f"--stdout--\n{result.stdout[-2000:]}\n--stderr--\n{result.stderr[-2000:]}"
+        f"subprocess load+predict failed (rc={result.returncode}):\n--stdout--\n{result.stdout[-2000:]}\n--stderr--\n{result.stderr[-2000:]}"
     )
-    assert "PREDS_LEN=40" in result.stdout, (
-        f"subprocess returned wrong prediction count: stdout={result.stdout!r}"
-    )
+    assert "PREDS_LEN=40" in result.stdout, f"subprocess returned wrong prediction count: stdout={result.stdout!r}"
 
 
 # #28 Duplicates in mlframe_models — must dedupe or raise, not silently
@@ -1706,10 +1662,9 @@ def test_duplicate_mlframe_models_handled(tmp_path):
     fte = SimpleFeaturesAndTargetsExtractor(regression=False)
 
     raised = None
-    trained = None
     meta = None
     try:
-        trained, meta = train_mlframe_models_suite(
+        _trained, meta = train_mlframe_models_suite(
             df=df,
             target_name="tgt",
             model_name="mdl",
@@ -1727,18 +1682,13 @@ def test_duplicate_mlframe_models_handled(tmp_path):
 
     if raised is not None:
         msg = str(raised).lower()
-        assert any(kw in msg for kw in ("duplicate", "unique", "twice", "model")), (
-            f"duplicate-models raise was opaque: {raised!r}"
-        )
+        assert any(kw in msg for kw in ("duplicate", "unique", "twice", "model")), f"duplicate-models raise was opaque: {raised!r}"
         return
     # Silent dedupe path: ensure model_schemas has at most ONE 'cb' entry.
     schemas = (meta or {}).get("model_schemas") or {}
-    cb_entries = [
-        v for v in schemas.values() if v.get("mlframe_model") == "cb" and v.get("weight_name") == "uniform"
-    ]
+    cb_entries = [v for v in schemas.values() if v.get("mlframe_model") == "cb" and v.get("weight_name") == "uniform"]
     assert len(cb_entries) <= 1, (
-        f"duplicate ['cb','cb'] silently produced {len(cb_entries)} 'cb' entries "
-        f"in model_schemas — overwrite hazard. Entries: {cb_entries}"
+        f"duplicate ['cb','cb'] silently produced {len(cb_entries)} 'cb' entries in model_schemas — overwrite hazard. Entries: {cb_entries}"
     )
 
 
@@ -1855,7 +1805,7 @@ def test_fairness_features_recorded_in_metadata(tmp_path):
         fairness_features=["cat_0"],
         fairness_min_pop_cat_thresh=10,
     )
-    trained, meta = train_mlframe_models_suite(
+    _trained, meta = train_mlframe_models_suite(
         df=df,
         target_name="tgt",
         model_name="mdl",
@@ -1870,8 +1820,7 @@ def test_fairness_features_recorded_in_metadata(tmp_path):
         output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
     )
     assert any("fairness" in k.lower() for k in (meta or {}).keys()), (
-        "fairness_features=['cat_0'] but no fairness-related key in metadata; "
-        "the kwarg may have been silently ignored. Meta keys: " + str(list(meta))
+        "fairness_features=['cat_0'] but no fairness-related key in metadata; the kwarg may have been silently ignored. Meta keys: " + str(list(meta))
     )
 
 
@@ -2095,10 +2044,7 @@ def test_cb_gpu_and_cpu_predictions_match_within_tolerance(tmp_path):
     # Mean absolute difference tolerance. CB CPU/GPU drift is normally
     # < 1% on smooth data; we permit 5% to absorb the synthetic noise.
     diff = float(np.mean(np.abs(np.asarray(probs_cpu) - np.asarray(probs_gpu))))
-    assert diff < 0.05, (
-        f"CB CPU vs GPU prediction drift {diff:.4f} exceeds tolerance — "
-        "either real numerical regression OR backend drift > expected."
-    )
+    assert diff < 0.05, f"CB CPU vs GPU prediction drift {diff:.4f} exceeds tolerance — either real numerical regression OR backend drift > expected."
 
 
 # #37 Memory ceiling during polars→pandas conversion
@@ -2110,7 +2056,7 @@ def test_polars_to_pandas_does_not_double_peak_memory(tmp_path):
     pyarrow's default ``to_pandas()`` (which copies & consolidates
     blocks, ~35 min on 9M-row prod).
 
-    Tolerance is generous (3×) to accomodate CB's own memory + matplotlib
+    Tolerance is generous (3×) to accommodate CB's own memory + matplotlib
     figure cache + other unrelated allocations. The narrow check is
     "we didn't go to 10× input RAM", which is the real failure shape.
     """
@@ -2244,9 +2190,7 @@ def test_continue_on_failure_with_ensembles(tmp_path, monkeypatch, caplog):
     # Ensemble code path either ran on XGB-only or skipped (1 model
     # is below ensemble threshold of 2). Either is acceptable; what's
     # NOT acceptable is the entire suite aborting on the CB crash.
-    assert trained or "xgb" in str(meta).lower(), (
-        "continue_on_failure+ensembles aborted entire suite when CB crashed"
-    )
+    assert trained or "xgb" in str(meta).lower(), "continue_on_failure+ensembles aborted entire suite when CB crashed"
 
 
 # #40 Uninformative-feature invariance (weak)
@@ -2271,7 +2215,7 @@ def test_uninformative_zero_column_does_not_break_training(tmp_path):
     from mlframe.training.core import train_mlframe_models_suite
 
     fte = SimpleFeaturesAndTargetsExtractor(regression=False)
-    trained, meta = train_mlframe_models_suite(
+    trained, _meta = train_mlframe_models_suite(
         df=df,
         target_name="tgt",
         model_name="mdl",

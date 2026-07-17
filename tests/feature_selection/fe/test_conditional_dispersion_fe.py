@@ -34,9 +34,10 @@ CPROFILE
 * the fit hotspot is exercised and stays within a generous wall budget on the
   n<=4000 fixture (regression guard against an accidental O(n^2)).
 """
+
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 import time
 import warnings
 
@@ -63,6 +64,7 @@ def _mi_one(col, y, nbins: int = 10) -> float:
     from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
         _mi_classif_batch,
     )
+
     arr = np.asarray(col, dtype=np.float64).reshape(-1, 1)
     return float(_mi_classif_batch(arr, np.asarray(y).astype(np.int64), nbins=nbins)[0])
 
@@ -85,9 +87,12 @@ def _hetero_fixture(seed: int = 0, n: int = 4000):
 # ===========================================================================
 class TestConditionalDispersionUnit:
     def test_zscore_matches_closed_form(self):
-        X, y, _sd = _hetero_fixture()
+        X, _y, _sd = _hetero_fixture()
         enc, raw = generate_conditional_dispersion_features(
-            X, ["xi", "xj"], n_bins=10, kinds=("absz", "z2"),
+            X,
+            ["xi", "xj"],
+            n_bins=10,
+            kinds=("absz", "z2"),
         )
         absz_name = engineered_name_conditional_dispersion("xi", "xj", "absz")
         assert absz_name in enc.columns
@@ -99,18 +104,25 @@ class TestConditionalDispersionUnit:
         # the dispersion module's own helper.
         from mlframe.feature_selection.filters._extra_fe_families import _digitize_with_edges
         from mlframe.feature_selection.filters._extra_fe_families_dispersion import _zscore_from_bins
+
         codes = _digitize_with_edges(X["xj"].to_numpy(), rec["edges"])
         z = _zscore_from_bins(
-            X["xi"].to_numpy(dtype=float), codes, rec["bin_mean"], rec["bin_std"],
+            X["xi"].to_numpy(dtype=float),
+            codes,
+            rec["bin_mean"],
+            rec["bin_std"],
         )
         np.testing.assert_allclose(enc[absz_name].to_numpy(), np.abs(z), rtol=0, atol=0)
         z2_name = engineered_name_conditional_dispersion("xi", "xj", "z2")
         np.testing.assert_allclose(enc[z2_name].to_numpy(), z * z, rtol=0, atol=0)
 
     def test_replay_is_leak_safe_and_exact(self):
-        X, y, _sd = _hetero_fixture()
+        X, _y, _sd = _hetero_fixture()
         enc, raw = generate_conditional_dispersion_features(
-            X, ["xi", "xj"], n_bins=10, kinds=("absz",),
+            X,
+            ["xi", "xj"],
+            n_bins=10,
+            kinds=("absz",),
         )
         name = engineered_name_conditional_dispersion("xi", "xj", "absz")
         recipe = build_conditional_dispersion_recipe(name=name, **raw[name])
@@ -129,12 +141,16 @@ class TestConditionalDispersionUnit:
         # frame yields a degenerate MAD floor that gates everything out).
         rng = np.random.default_rng(99)
         X = X.assign(g1=rng.standard_normal(len(X)), g2=rng.standard_normal(len(X)))
-        _, appended, recipes, _ = hybrid_conditional_dispersion_fe(
-            X, y, num_cols=["xi", "xj", "g1", "g2"], n_bins=10, top_k=5,
+        _, _appended, recipes, _ = hybrid_conditional_dispersion_fe(
+            X,
+            y,
+            num_cols=["xi", "xj", "g1", "g2"],
+            n_bins=10,
+            top_k=5,
         )
         assert recipes, "expected at least one dispersion recipe on hetero fixture"
         r = recipes[0]
-        r2 = pickle.loads(pickle.dumps(r))
+        r2 = pickle.loads(pickle.dumps(r))  # nosec B301 -- round-trip of a locally-created, trusted object
         a = np.asarray(apply_recipe(r, X), dtype=float)
         b = np.asarray(apply_recipe(r2, X), dtype=float)
         np.testing.assert_allclose(a, b, rtol=0, atol=0)
@@ -160,7 +176,10 @@ class TestConditionalDispersionBizValue:
     def test_hetero_mi_beats_mean_residual_and_raw(self, seed):
         X, y, _sd = _hetero_fixture(seed=seed)
         enc_d, _ = generate_conditional_dispersion_features(
-            X, ["xi", "xj"], n_bins=10, kinds=("absz",),
+            X,
+            ["xi", "xj"],
+            n_bins=10,
+            kinds=("absz",),
         )
         enc_b, _ = generate_conditional_residual_features(X, ["xi", "xj"], n_bins=10)
         absz = engineered_name_conditional_dispersion("xi", "xj", "absz")
@@ -171,15 +190,9 @@ class TestConditionalDispersionBizValue:
         mi_raw = _mi_one(X["xi"].to_numpy(), y)
         # The dispersion |z| carries strictly MORE MI about the heteroscedastic
         # target than the Family-B mean-residual sibling AND the raw column.
-        assert mi_absz > mi_resid + 0.01, (
-            f"[seed={seed}] |z| MI {mi_absz:.4f} !> mean-resid {mi_resid:.4f}"
-        )
-        assert mi_absz > mi_absresid, (
-            f"[seed={seed}] |z| MI {mi_absz:.4f} !> |mean-resid| {mi_absresid:.4f}"
-        )
-        assert mi_absz > mi_raw, (
-            f"[seed={seed}] |z| MI {mi_absz:.4f} !> raw xi {mi_raw:.4f}"
-        )
+        assert mi_absz > mi_resid + 0.01, f"[seed={seed}] |z| MI {mi_absz:.4f} !> mean-resid {mi_resid:.4f}"
+        assert mi_absz > mi_absresid, f"[seed={seed}] |z| MI {mi_absz:.4f} !> |mean-resid| {mi_absresid:.4f}"
+        assert mi_absz > mi_raw, f"[seed={seed}] |z| MI {mi_absz:.4f} !> raw xi {mi_raw:.4f}"
 
     def test_hetero_downstream_auc_lift(self):
         from sklearn.linear_model import LogisticRegression
@@ -188,23 +201,25 @@ class TestConditionalDispersionBizValue:
 
         X, y, _sd = _hetero_fixture(seed=0, n=4000)
         enc_d, _ = generate_conditional_dispersion_features(
-            X, ["xi", "xj"], n_bins=10, kinds=("absz", "z2"),
+            X,
+            ["xi", "xj"],
+            n_bins=10,
+            kinds=("absz", "z2"),
         )
         absz = engineered_name_conditional_dispersion("xi", "xj", "absz")
         raw = X["xi"].to_numpy().reshape(-1, 1)
         disp = enc_d[absz].to_numpy().reshape(-1, 1)
         Xtr_r, Xte_r, Xtr_d, Xte_d, ytr, yte = train_test_split(
-            raw, disp, y, test_size=0.3, random_state=0, stratify=y,
+            raw,
+            disp,
+            y,
+            test_size=0.3,
+            random_state=0,
+            stratify=y,
         )
-        auc_raw = roc_auc_score(
-            yte, LogisticRegression(max_iter=200).fit(Xtr_r, ytr).predict_proba(Xte_r)[:, 1]
-        )
-        auc_disp = roc_auc_score(
-            yte, LogisticRegression(max_iter=200).fit(Xtr_d, ytr).predict_proba(Xte_d)[:, 1]
-        )
-        assert auc_disp >= auc_raw + 0.03, (
-            f"dispersion AUC {auc_disp:.3f} not >= raw {auc_raw:.3f}+0.03"
-        )
+        auc_raw = roc_auc_score(yte, LogisticRegression(max_iter=200).fit(Xtr_r, ytr).predict_proba(Xte_r)[:, 1])
+        auc_disp = roc_auc_score(yte, LogisticRegression(max_iter=200).fit(Xtr_d, ytr).predict_proba(Xte_d)[:, 1])
+        assert auc_disp >= auc_raw + 0.03, f"dispersion AUC {auc_disp:.3f} not >= raw {auc_raw:.3f}+0.03"
 
     def test_hetero_hybrid_admits_genuine_dispersion(self):
         X, y, _sd = _hetero_fixture(seed=0)
@@ -212,7 +227,11 @@ class TestConditionalDispersionBizValue:
         rng = np.random.default_rng(99)
         X = X.assign(g1=rng.standard_normal(len(X)), g2=rng.standard_normal(len(X)))
         _, appended, _, _ = hybrid_conditional_dispersion_fe(
-            X, y, num_cols=["xi", "xj", "g1", "g2"], n_bins=10, top_k=10,
+            X,
+            y,
+            num_cols=["xi", "xj", "g1", "g2"],
+            n_bins=10,
+            top_k=10,
         )
         genuine = [a for a in appended if a.endswith("by__xj")]
         assert genuine, f"genuine xi-by-xj dispersion not admitted: {appended}"
@@ -227,24 +246,36 @@ class TestConditionalDispersionBizValue:
         xi = mu + rng.standard_normal(n) * 1.5  # constant spread
         resid = xi - mu
         y = (np.abs(resid) > 1.5).astype(int)
-        X = pd.DataFrame({
-            "xi": xi, "xj": xj,
-            "n1": rng.standard_normal(n), "n2": rng.standard_normal(n),
-            "n3": rng.random(n), "n4": rng.standard_normal(n),
-        })
+        X = pd.DataFrame(
+            {
+                "xi": xi,
+                "xj": xj,
+                "n1": rng.standard_normal(n),
+                "n2": rng.standard_normal(n),
+                "n3": rng.random(n),
+                "n4": rng.standard_normal(n),
+            }
+        )
         _, appended, _, _ = hybrid_conditional_dispersion_fe(
-            X, y, num_cols=["xi", "xj", "n1", "n2", "n3", "n4"], n_bins=10, top_k=10,
+            X,
+            y,
+            num_cols=["xi", "xj", "n1", "n2", "n3", "n4"],
+            n_bins=10,
+            top_k=10,
         )
         genuine = [a for a in appended if a.endswith("by__xj")]
-        assert genuine == [], (
-            f"homoscedastic dispersion NOT self-limited (gate admitted {genuine})"
-        )
+        assert genuine == [], f"homoscedastic dispersion NOT self-limited (gate admitted {genuine})"
         # And the dedup-self-limit invariant holds: |z| is rank-identical to |resid|.
         enc_d, _ = generate_conditional_dispersion_features(
-            X[["xi", "xj"]], ["xi", "xj"], n_bins=10, kinds=("absz",),
+            X[["xi", "xj"]],
+            ["xi", "xj"],
+            n_bins=10,
+            kinds=("absz",),
         )
         enc_b, _ = generate_conditional_residual_features(
-            X[["xi", "xj"]], ["xi", "xj"], n_bins=10,
+            X[["xi", "xj"]],
+            ["xi", "xj"],
+            n_bins=10,
         )
         rho = spearmanr(
             enc_d["xi__absz_by__xj"].to_numpy(),
@@ -255,13 +286,21 @@ class TestConditionalDispersionBizValue:
     def test_pure_noise_admits_nothing(self):
         rng = np.random.default_rng(7)
         n = 4000
-        X = pd.DataFrame({
-            "xi": rng.standard_normal(n), "xj": rng.random(n),
-            "g1": rng.standard_normal(n), "g2": rng.standard_normal(n),
-        })
+        X = pd.DataFrame(
+            {
+                "xi": rng.standard_normal(n),
+                "xj": rng.random(n),
+                "g1": rng.standard_normal(n),
+                "g2": rng.standard_normal(n),
+            }
+        )
         y = rng.integers(0, 2, n)
         _, appended, _, _ = hybrid_conditional_dispersion_fe(
-            X, y, num_cols=["xi", "xj", "g1", "g2"], n_bins=10, top_k=10,
+            X,
+            y,
+            num_cols=["xi", "xj", "g1", "g2"],
+            n_bins=10,
+            top_k=10,
         )
         assert appended == [], f"pure noise admitted dispersion columns: {appended}"
 
@@ -275,10 +314,13 @@ class TestConditionalDispersionDoesNotPerturbCanonical:
 
         rng = np.random.default_rng(42)
         n = 4000
-        a = rng.uniform(1, 5, n); b = rng.uniform(1, 5, n)
-        c = rng.uniform(1, 5, n); d = rng.uniform(0, 2 * np.pi, n)
-        e = rng.normal(0, 1, n); f = rng.normal(0, 1, n)
-        y = a ** 2 / b + f / 5.0 + 3.0 * np.log(c) * np.sin(d)
+        a = rng.uniform(1, 5, n)
+        b = rng.uniform(1, 5, n)
+        c = rng.uniform(1, 5, n)
+        d = rng.uniform(0, 2 * np.pi, n)
+        e = rng.normal(0, 1, n)
+        f = rng.normal(0, 1, n)
+        y = a**2 / b + f / 5.0 + 3.0 * np.log(c) * np.sin(d)
         df = pd.DataFrame({"a": a, "b": b, "c": c, "d": d, "e": e})
 
         RAW = {"a", "b", "c", "d", "e"}
@@ -288,15 +330,10 @@ class TestConditionalDispersionDoesNotPerturbCanonical:
         fs_off.fit(df.copy(), pd.Series(y, name="y"))
 
         # The dispersion stage admits NO column on the (homoscedastic-in-x) fixture.
-        assert list(getattr(fs_on, "conditional_dispersion_features_", []) or []) == [], (
-            "dispersion crowded the canonical fixture (should self-limit to 0)"
-        )
+        assert list(getattr(fs_on, "conditional_dispersion_features_", []) or []) == [], "dispersion crowded the canonical fixture (should self-limit to 0)"
         eng_on = sorted(n for n in fs_on.get_feature_names_out() if n not in RAW)
         eng_off = sorted(n for n in fs_off.get_feature_names_out() if n not in RAW)
-        assert eng_on == eng_off, (
-            f"dispersion DEFAULT-ON perturbed the engineered set:\n"
-            f"  ON ={eng_on}\n  OFF={eng_off}"
-        )
+        assert eng_on == eng_off, f"dispersion DEFAULT-ON perturbed the engineered set:\n  ON ={eng_on}\n  OFF={eng_off}"
 
 
 # ===========================================================================
@@ -305,6 +342,7 @@ class TestConditionalDispersionDoesNotPerturbCanonical:
 class TestConditionalDispersionMRMRIntegration:
     def test_default_on(self):
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         assert MRMR(verbose=0).fe_conditional_dispersion_enable is True
 
     def test_end_to_end_selects_dispersion_on_hetero_regression(self):
@@ -312,7 +350,9 @@ class TestConditionalDispersionMRMRIntegration:
 
         rng = np.random.default_rng(0)
         n = 4000
-        xj = rng.random(n); binB = xj > 0.5; sd = np.where(binB, 5.0, 1.0)
+        xj = rng.random(n)
+        binB = xj > 0.5
+        sd = np.where(binB, 5.0, 1.0)
         xi = rng.standard_normal(n) * sd
         g1 = rng.standard_normal(n)
         y = np.abs(xi) / sd + 0.5 * g1 + rng.standard_normal(n) * 0.1
@@ -321,9 +361,7 @@ class TestConditionalDispersionMRMRIntegration:
         fs.fit(X, pd.Series(y, name="y"))
         out = list(fs.get_feature_names_out())
         # A dispersion column (directly or as a pair-FE operand) reaches support.
-        assert any("absz_by" in c or "z2_by" in c for c in out), (
-            f"no dispersion column selected on heteroscedastic regression: {out}"
-        )
+        assert any("absz_by" in c or "z2_by" in c for c in out), f"no dispersion column selected on heteroscedastic regression: {out}"
         # transform replays leak-safe (no y), finite, right shape.
         Xt = np.asarray(fs.transform(X.head(200)))
         assert Xt.shape == (200, len(out))
@@ -332,11 +370,12 @@ class TestConditionalDispersionMRMRIntegration:
     def test_clone_and_pickle_preserve_param(self):
         from sklearn.base import clone
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         m = MRMR(verbose=0, fe_conditional_dispersion_top_k=7)
         m2 = clone(m)
         assert m2.fe_conditional_dispersion_top_k == 7
         assert m2.fe_conditional_dispersion_enable is True
-        m3 = pickle.loads(pickle.dumps(m))
+        m3 = pickle.loads(pickle.dumps(m))  # nosec B301 -- round-trip of a locally-created, trusted object
         assert m3.fe_conditional_dispersion_enable is True
 
 
@@ -351,7 +390,7 @@ def test_cprofile_hotspot_within_budget():
     import io
     import pstats
 
-    X, y, _sd = _hetero_fixture(seed=0, n=4000)
+    X, _y, _sd = _hetero_fixture(seed=0, n=4000)
     rng = np.random.default_rng(5)
     for k in range(4):
         X[f"g{k}"] = rng.standard_normal(len(X))
@@ -359,7 +398,10 @@ def test_cprofile_hotspot_within_budget():
     def _run():
         for _ in range(5):
             generate_conditional_dispersion_features(
-                X, list(X.columns), n_bins=10, kinds=("absz", "z2"),
+                X,
+                list(X.columns),
+                n_bins=10,
+                kinds=("absz", "z2"),
             )
 
     pr = cProfile.Profile()

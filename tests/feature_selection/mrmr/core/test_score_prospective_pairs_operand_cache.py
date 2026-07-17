@@ -17,6 +17,7 @@ wrap it exactly as the fix does) rather than invoking ``score_prospective_pairs`
 many fixture-heavy kwargs to construct standalone -- the broader FE/usability test suite (running the
 real MRMR pipeline through this code path) already covers integration; this test isolates and pins the
 caching CONTRACT: identical values, fewer underlying calls."""
+
 from __future__ import annotations
 
 import numpy as np

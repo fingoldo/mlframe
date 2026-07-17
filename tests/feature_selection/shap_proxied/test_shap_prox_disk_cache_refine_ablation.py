@@ -20,6 +20,7 @@ Coverage:
 These tests deliberately stay small (n_rows ~500, n_features ~12) so CI walls stay short; the C3
 bench is responsible for the absolute speedup numbers.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -51,7 +52,8 @@ def test_refine_ablation_default_no_cache_dir_identical():
     new kwarg must NOT perturb the legacy in-memory-only contract."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_explain import make_default_estimator
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate import (
-        importance_topk_ablation, within_cluster_refine,
+        importance_topk_ablation,
+        within_cluster_refine,
     )
 
     X, y = _make_clf_data(n=300, f=8)
@@ -64,12 +66,28 @@ def test_refine_ablation_default_no_cache_dir_identical():
     member_groups = [[0, 1, 2], [3, 4, 5]]
 
     refined_a = within_cluster_refine(
-        member_cols, tpl, X_search, y_search, X_hold, y_hold,
-        classification=True, n_jobs=1, member_groups=member_groups, refine_n_estimators=20,
+        member_cols,
+        tpl,
+        X_search,
+        y_search,
+        X_hold,
+        y_hold,
+        classification=True,
+        n_jobs=1,
+        member_groups=member_groups,
+        refine_n_estimators=20,
     )
     refined_b = within_cluster_refine(
-        member_cols, tpl, X_search, y_search, X_hold, y_hold,
-        classification=True, n_jobs=1, member_groups=member_groups, refine_n_estimators=20,
+        member_cols,
+        tpl,
+        X_search,
+        y_search,
+        X_hold,
+        y_hold,
+        classification=True,
+        n_jobs=1,
+        member_groups=member_groups,
+        refine_n_estimators=20,
     )
     assert tuple(refined_a) == tuple(refined_b)
 
@@ -79,11 +97,23 @@ def test_refine_ablation_default_no_cache_dir_identical():
     proxy_best_idx = (0, 1, 2)
 
     rep_a = importance_topk_ablation(
-        phi, proxy_best_idx, tpl, X_search, y_search, X_hold, y_hold,
+        phi,
+        proxy_best_idx,
+        tpl,
+        X_search,
+        y_search,
+        X_hold,
+        y_hold,
         classification=True,
     )
     rep_b = importance_topk_ablation(
-        phi, proxy_best_idx, tpl, X_search, y_search, X_hold, y_hold,
+        phi,
+        proxy_best_idx,
+        tpl,
+        X_search,
+        y_search,
+        X_hold,
+        y_hold,
         classification=True,
     )
     assert rep_a["proxy_honest_loss"] == rep_b["proxy_honest_loss"]
@@ -112,8 +142,16 @@ def test_within_cluster_refine_cache_hit_identical_subset_and_populates_dir(tmp_
     cache_dir = tmp_path / "refine_cache"
 
     refined_cold = within_cluster_refine(
-        member_cols, tpl, X_search, y_search, X_hold, y_hold,
-        classification=True, n_jobs=1, member_groups=member_groups, refine_n_estimators=20,
+        member_cols,
+        tpl,
+        X_search,
+        y_search,
+        X_hold,
+        y_hold,
+        classification=True,
+        n_jobs=1,
+        member_groups=member_groups,
+        refine_n_estimators=20,
         disk_cache_dir=cache_dir,
     )
     # First call (miss) MUST have populated the cache_dir with honest_loss_ entries (iter81). The
@@ -125,13 +163,19 @@ def test_within_cluster_refine_cache_hit_identical_subset_and_populates_dir(tmp_
     assert all(f.name.startswith(valid_prefixes) for f in files), (
         f"all refine entries should be in the honest_loss_ / perm_imp_fit_ namespaces, got {[f.name for f in files]}"
     )
-    assert any(f.name.startswith("honest_loss_") for f in files), (
-        f"refine should have written at least one honest_loss_ entry, got {[f.name for f in files]}"
-    )
+    assert any(f.name.startswith("honest_loss_") for f in files), f"refine should have written at least one honest_loss_ entry, got {[f.name for f in files]}"
 
     refined_warm = within_cluster_refine(
-        member_cols, tpl, X_search, y_search, X_hold, y_hold,
-        classification=True, n_jobs=1, member_groups=member_groups, refine_n_estimators=20,
+        member_cols,
+        tpl,
+        X_search,
+        y_search,
+        X_hold,
+        y_hold,
+        classification=True,
+        n_jobs=1,
+        member_groups=member_groups,
+        refine_n_estimators=20,
         disk_cache_dir=cache_dir,
     )
     # Refined subset bit-identical (cache hits returned same per-trial floats).
@@ -158,18 +202,30 @@ def test_importance_topk_ablation_cache_hit_identical_losses(tmp_path: Path):
     cache_dir = tmp_path / "ablation_cache"
 
     rep_a = importance_topk_ablation(
-        phi, proxy_best_idx, tpl, X_search, y_search, X_hold, y_hold,
-        classification=True, disk_cache_dir=cache_dir,
+        phi,
+        proxy_best_idx,
+        tpl,
+        X_search,
+        y_search,
+        X_hold,
+        y_hold,
+        classification=True,
+        disk_cache_dir=cache_dir,
     )
     files = list(cache_dir.iterdir())
     assert len(files) >= 1, "ablation cache_dir should have honest_loss_ entries after cold call"
-    assert all(f.name.startswith("honest_loss_") for f in files), (
-        f"all ablation entries should be in the honest_loss_ namespace, got {[f.name for f in files]}"
-    )
+    assert all(f.name.startswith("honest_loss_") for f in files), f"all ablation entries should be in the honest_loss_ namespace, got {[f.name for f in files]}"
 
     rep_b = importance_topk_ablation(
-        phi, proxy_best_idx, tpl, X_search, y_search, X_hold, y_hold,
-        classification=True, disk_cache_dir=cache_dir,
+        phi,
+        proxy_best_idx,
+        tpl,
+        X_search,
+        y_search,
+        X_hold,
+        y_hold,
+        classification=True,
+        disk_cache_dir=cache_dir,
     )
     # Bit-identical losses (cache hit served the same float).
     assert rep_a["proxy_honest_loss"] == rep_b["proxy_honest_loss"]
@@ -192,12 +248,22 @@ def test_shapproxiedfs_two_fit_cache_dir_refine_path_identical_subset(tmp_path: 
 
     def _fit():
         sel = ShapProxiedFS(
-            classification=True, metric="brier", optimizer="bruteforce",
-            max_features=4, top_n=6, n_splits=3, n_revalidation_models=1,
-            trust_guard=True, n_anchors=6, revalidate=True,
-            cluster_features=True, run_importance_ablation=True,
+            classification=True,
+            metric="brier",
+            optimizer="bruteforce",
+            max_features=4,
+            top_n=6,
+            n_splits=3,
+            n_revalidation_models=1,
+            trust_guard=True,
+            n_anchors=6,
+            revalidate=True,
+            cluster_features=True,
+            run_importance_ablation=True,
             within_cluster_refine=True,
-            random_state=0, verbose=False, n_jobs=1,
+            random_state=0,
+            verbose=False,
+            n_jobs=1,
             cache_dir=str(cache_dir),
         )
         sel.fit(X, y)
@@ -209,6 +275,4 @@ def test_shapproxiedfs_two_fit_cache_dir_refine_path_identical_subset(tmp_path: 
     assert tuple(sel_a.selected_features_) == tuple(sel_b.selected_features_)
     # Cache should have honest_loss_ entries written by refine + ablation paths.
     all_files = [f.name for f in Path(cache_dir).iterdir()]
-    assert any(n.startswith("honest_loss_") for n in all_files), (
-        f"refine/ablation should have written honest_loss_ entries; got {all_files}"
-    )
+    assert any(n.startswith("honest_loss_") for n in all_files), f"refine/ablation should have written honest_loss_ entries; got {all_files}"

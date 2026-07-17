@@ -8,6 +8,7 @@ margin (top-2 |corr| gap >= GAP); a flip on a genuine <GAP tie is reported, not 
 exact case the opt-in default (MLFRAME_FE_GPU_ROUTING off) guards. A clean run here is the selection-
 equivalence evidence required before flipping the default to opt-out.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -19,8 +20,8 @@ cupy = pytest.importorskip("cupy") if _cuda_present() else None
 if not _cuda_present():
     pytest.skip("cupy not available", allow_module_level=True)
 
-from mlframe.feature_selection.filters._gpu_resident_fe import _gpu_route_bases_batched  # noqa: E402
-from mlframe.feature_selection.filters._orthogonal_univariate_fe import (  # noqa: E402
+from mlframe.feature_selection.filters._gpu_resident_fe import _gpu_route_bases_batched
+from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
     _POLY_BASES,
     basis_route_by_signal,
     _evaluate_basis_column,
@@ -39,7 +40,7 @@ def _host_basis_corrs(x, y):
         for d in _DEGREES:
             try:
                 v = np.asarray(_evaluate_basis_column(np.asarray(x, dtype=np.float64), basis, int(d)), dtype=np.float64)
-            except Exception:
+            except Exception:  # nosec B112 -- best-effort skip of one iteration on a non-fatal error; the test's own assertions are unaffected
                 continue
             if v.size != yv.size or not np.all(np.isfinite(v)) or float(np.std(v)) < 1e-12:
                 continue
@@ -73,7 +74,7 @@ def test_gpu_routing_matches_host(seed):
     X = [np.ascontiguousarray(cols[c], dtype=np.float64) for c in names]
     # A continuous target with mixed polynomial structure so routing has real signal.
     base = cols["gaussian"]
-    y = (base ** 2) - 0.5 * cols["uniform"] + 0.3 * np.log1p(np.abs(cols["gamma"])) + rng.normal(0, 0.1, n)
+    y = (base**2) - 0.5 * cols["uniform"] + 0.3 * np.log1p(np.abs(cols["gamma"])) + rng.normal(0, 0.1, n)
 
     host_choice = [basis_route_by_signal(x, y, degrees=_DEGREES) for x in X]
 

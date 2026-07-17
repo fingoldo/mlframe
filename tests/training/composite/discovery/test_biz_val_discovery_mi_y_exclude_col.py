@@ -42,7 +42,7 @@ def _make_prebinned(n: int = 8_000, f: int = 12, nbins: int = 12, seed: int = 0,
         x[m, c] = np.nan
     # Signal from the first few columns (robust to small f, incl. f=1).
     coefs = np.array([0.6, 0.3, -0.2, 0.15], dtype=np.float64)[:f]
-    y = (x[:, :coefs.size].astype(np.float64) @ coefs)
+    y = x[:, : coefs.size].astype(np.float64) @ coefs
     y = np.where(np.isfinite(y), y, 0.0) + rng.standard_normal(n) * 0.5
     return _prebin_feature_columns(x, nbins=nbins), y, nbins
 
@@ -57,10 +57,17 @@ def _make_prebinned(n: int = 8_000, f: int = 12, nbins: int = 12, seed: int = 0,
 def test_mi_to_target_prebinned_exclude_col_bit_identical(aggregation: str, drop: int) -> None:
     prebinned, y, nbins = _make_prebinned()
     ref = _mi_to_target_prebinned(
-        np.delete(prebinned, drop, axis=1), y, nbins=nbins, aggregation=aggregation,
+        np.delete(prebinned, drop, axis=1),
+        y,
+        nbins=nbins,
+        aggregation=aggregation,
     )
     got = _mi_to_target_prebinned(
-        prebinned, y, nbins=nbins, aggregation=aggregation, exclude_col=drop,
+        prebinned,
+        y,
+        nbins=nbins,
+        aggregation=aggregation,
+        exclude_col=drop,
     )
     assert got == ref, f"exclude_col={drop} agg={aggregation}: {got!r} != delete {ref!r}"
 
@@ -134,16 +141,14 @@ def test_exclude_col_peak_alloc_strictly_lower_than_delete() -> None:
     def _old():
         return [
             _aggregate_mi_per_feature(
-                _mi_per_feature_prebinned(np.delete(prebinned, k, axis=1), y, nbins=nbins), "mean",
+                _mi_per_feature_prebinned(np.delete(prebinned, k, axis=1), y, nbins=nbins),
+                "mean",
             )
             for k in idxs
         ]
 
     def _new():
-        return [
-            _mi_to_target_prebinned(prebinned, y, nbins=nbins, aggregation="mean", exclude_col=k)
-            for k in idxs
-        ]
+        return [_mi_to_target_prebinned(prebinned, y, nbins=nbins, aggregation="mean", exclude_col=k) for k in idxs]
 
     # bit-identity over the whole sweep (belt-and-suspenders vs the parametrized cases above).
     assert _old() == _new()
@@ -151,8 +156,7 @@ def test_exclude_col_peak_alloc_strictly_lower_than_delete() -> None:
     old_peak = min(_peak_bytes(_old) for _ in range(3))
     new_peak = min(_peak_bytes(_new) for _ in range(3))
     assert new_peak * 1.5 <= old_peak, (
-        f"exclude_col peak {new_peak/1e6:.2f} MB not >=1.5x below np.delete peak "
-        f"{old_peak/1e6:.2f} MB -- the per-base matrix copy may have crept back."
+        f"exclude_col peak {new_peak / 1e6:.2f} MB not >=1.5x below np.delete peak {old_peak / 1e6:.2f} MB -- the per-base matrix copy may have crept back."
     )
 
 
@@ -171,7 +175,10 @@ def test_discovery_fit_still_produces_specs_end_to_end() -> None:
     feats["lag_base"] = base
     df = pd.DataFrame({"y": y, **feats})
     cfg = CompositeTargetDiscoveryConfig(
-        enabled=True, screening="mi", mi_estimator="bin", base_candidates="auto",
+        enabled=True,
+        screening="mi",
+        mi_estimator="bin",
+        base_candidates="auto",
         transforms=("diff", "linear_residual"),
     )
     disc = CompositeTargetDiscovery(config=cfg)
@@ -228,13 +235,9 @@ def test_mi_per_feature_matrix_level_sentinel_gate_routes_correctly() -> None:
     try:
         seen_lengths.clear()
         _mi_per_feature_prebinned(pb_clean, y, nbins=nbins)
-        assert seen_lengths and all(l == n for l in seen_lengths), (
-            "sentinel-free matrix must send full-length columns to the MI kernel (fast path)"
-        )
+        assert seen_lengths and all(l == n for l in seen_lengths), "sentinel-free matrix must send full-length columns to the MI kernel (fast path)"
         seen_lengths.clear()
         _mi_per_feature_prebinned(pb_sent, y, nbins=nbins)
-        assert any(l < n for l in seen_lengths), (
-            "sentinel matrix must send the masked (shorter) subset for non-finite columns (slow path)"
-        )
+        assert any(l < n for l in seen_lengths), "sentinel matrix must send the masked (shorter) subset for non-finite columns (slow path)"
     finally:
         S._mi_from_binned_pair = real_kernel

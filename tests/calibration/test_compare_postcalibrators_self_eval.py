@@ -8,13 +8,13 @@ calib_test_metrics local was `None` on every real call: computed nowhere, then s
 self-evaluation on the calib set itself when no OOS set is supplied, and train_postcalibrators logs
 + returns those metrics alongside the fitted calibrators.
 """
+
 from __future__ import annotations
 
 import logging
 from unittest.mock import patch
 
 import numpy as np
-import pytest
 
 
 def _synth(seed: int = 0, n: int = 300):
@@ -34,8 +34,14 @@ def test_compare_postcalibrators_self_evaluates_when_no_oos_set():
 
     with patch("mlframe.calibration.post.get_postcalibrators", return_value=fake_calibrators):
         metrics_df, calibrators, failed = compare_postcalibrators(
-            model_name="m", columns=["y"], calib_probs=probs, calib_target=target,
-            oos_probs=None, oos_target=None, calib_type="calib", include_patterns=["sklearn"],
+            model_name="m",
+            columns=["y"],
+            calib_probs=probs,
+            calib_target=target,
+            oos_probs=None,
+            oos_target=None,
+            calib_type="calib",
+            include_patterns=["sklearn"],
             selection="self_eval",
         )
 
@@ -62,6 +68,7 @@ def test_train_postcalibrators_returns_and_logs_metrics(caplog, tmp_path):
     # subdir it does not create itself (expects the caller's model-directory setup to have done so).
     from pyutilz.strings import slugify
     from mlframe.training import TargetTypes
+
     (tmp_path / slugify("t") / slugify("fs") / slugify(str(TargetTypes.BINARY_CLASSIFICATION)) / slugify("m")).mkdir(parents=True)
 
     with patch("mlframe.calibration.post.get_postcalibrators", return_value=fake_calibrators):
@@ -84,6 +91,4 @@ def test_train_postcalibrators_returns_and_logs_metrics(caplog, tmp_path):
     )
     assert result["metrics"] is not None, "calib_test_metrics must no longer be unconditionally None"
     assert result["calibrators"], "fitted calibrators must still be present"
-    assert any("calib-set comparison metrics" in rec.message for rec in caplog.records), (
-        "the calib-set comparison metrics must be logged, not only returned"
-    )
+    assert any("calib-set comparison metrics" in rec.message for rec in caplog.records), "the calib-set comparison metrics must be logged, not only returned"

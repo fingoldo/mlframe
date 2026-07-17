@@ -11,6 +11,7 @@ PI helper with model=None because the per-member voting logic does not
 expose a sklearn-style estimator surface. The fix: short-circuit with
 a DEBUG note (not WARN) when model is None, so the log stays clean.
 """
+
 from __future__ import annotations
 
 import logging
@@ -30,13 +31,8 @@ def test_permutation_fi_silent_skip_when_model_is_none(caplog) -> None:
         out = _permutation_feature_importances(None, X, y)
     assert out is None
     # No WARNING-level records emitted on the None-model short-circuit.
-    warning_msgs = [
-        r.getMessage() for r in caplog.records
-        if r.levelno >= logging.WARNING
-    ]
-    assert not warning_msgs, (
-        f"expected no WARNING records for None-model case, got: {warning_msgs}"
-    )
+    warning_msgs = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
+    assert not warning_msgs, f"expected no WARNING records for None-model case, got: {warning_msgs}"
 
 
 def test_permutation_fi_still_warns_on_genuine_failure(caplog) -> None:

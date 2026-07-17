@@ -8,6 +8,7 @@ name + a full-precision float in metadata must survive verbatim. Pre-fix-proof: 
 (calibrator, class order, threshold value, target_type enum, unicode key) were dropped or coerced on the
 round-trip, the corresponding assert below fails.
 """
+
 from __future__ import annotations
 
 import os
@@ -85,12 +86,8 @@ def test_multiclass_perclass_calibrator_roundtrip_bit_identical(_xy, tmp_path):
     y3 = (X[:, 0] > 0).astype(int) + (X[:, 1] > 0).astype(int)  # labels 0,1,2
     base = RandomForestClassifier(n_estimators=10, random_state=0).fit(X, y3)
     raw = base.predict_proba(X)
-    cal = _PerClassIsotonicCalibrator.fit(
-        raw, y3, TargetTypes.MULTICLASS_CLASSIFICATION, classes=base.classes_
-    )
-    wrapped = _PostHocMultiCalibratedModel(
-        base, cal, TargetTypes.MULTICLASS_CLASSIFICATION, classes_=base.classes_
-    )
+    cal = _PerClassIsotonicCalibrator.fit(raw, y3, TargetTypes.MULTICLASS_CLASSIFICATION, classes=base.classes_)
+    wrapped = _PostHocMultiCalibratedModel(base, cal, TargetTypes.MULTICLASS_CLASSIFICATION, classes_=base.classes_)
     pre_proba = wrapped.predict_proba(X)
     pre_pred = wrapped.predict(X)
 

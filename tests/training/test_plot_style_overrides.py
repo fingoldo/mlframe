@@ -11,10 +11,12 @@ config, the helper applies them PROCESS-WIDE (not reverted on suite exit).
 Failures (typo in style name, etc.) are logged at WARNING level rather than
 aborting the suite.
 """
+
 from __future__ import annotations
 
 import logging
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import pytest
@@ -111,10 +113,7 @@ class TestMatplotlibBranch:
         caplog.set_level(logging.WARNING, logger="mlframe.training.core.utils")
         # Should NOT raise -- the typo surfaces as a WARNING.
         _apply_plot_style_overrides(matplotlib_style="this_style_does_not_exist__")
-        warns = [
-            r for r in caplog.records
-            if "plt.style.use" in r.getMessage()
-        ]
+        warns = [r for r in caplog.records if "plt.style.use" in r.getMessage()]
         assert warns, "unknown style should emit a WARNING via the logger"
 
 
@@ -136,17 +135,15 @@ class TestPlotlyBranch:
             pio.templates.default = _before
 
     def test_unknown_plotly_template_logs_warning_does_not_raise(
-        self, caplog,
+        self,
+        caplog,
     ) -> None:
         pio = pytest.importorskip("plotly.io")
         _before = pio.templates.default
         try:
             caplog.set_level(logging.WARNING, logger="mlframe.training.core.utils")
             _apply_plot_style_overrides(plotly_template="this_template_does_not_exist__")
-            warns = [
-                r for r in caplog.records
-                if "templates.default" in r.getMessage()
-            ]
+            warns = [r for r in caplog.records if "templates.default" in r.getMessage()]
             assert warns, "unknown plotly template should emit a WARNING"
         finally:
             pio.templates.default = _before

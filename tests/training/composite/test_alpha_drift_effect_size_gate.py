@@ -1,6 +1,7 @@
 """alpha-drift gate must require a practically-meaningful effect size, not z alone. At large n the z-test SE shrinks
 (~1/sqrt(n)) so a negligible slope shift trips z >> 3 and cascade-drops good specs (prod TVT: 23/62). The gate now
 drops only when z > threshold AND |a1-a2|*std(base)/std(y) >= alpha_drift_min_effect_size."""
+
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -22,13 +23,19 @@ def _run_gate(delta: float, *, min_effect: float, n: int = 200_000):
     y += rng.normal(0.0, 0.01, size=n)  # tiny noise so the OLS SE is small -> z is large at this n
     spec = SimpleNamespace(transform_name="linear_residual", base_column="b", name="lr-b")
     cfg = CompositeTargetDiscoveryConfig(
-        detect_linear_residual_alpha_drift=True, alpha_drift_z_threshold=3.0,
-        reject_on_alpha_drift=True, alpha_drift_min_effect_size=min_effect,
+        detect_linear_residual_alpha_drift=True,
+        alpha_drift_z_threshold=3.0,
+        reject_on_alpha_drift=True,
+        alpha_drift_min_effect_size=min_effect,
     )
     fake = SimpleNamespace(config=cfg, _auto_base_pool={"b": base})
     df = pd.DataFrame({"b": base, "y": y})
     kept = apply_alpha_drift_gate(
-        fake, [spec], df=df, train_idx=np.arange(n), y_full=y,
+        fake,
+        [spec],
+        df=df,
+        train_idx=np.arange(n),
+        y_full=y,
         extract_column_array=lambda d, c: d[c].to_numpy(),
     )
     return [s.name for s in kept], fake._alpha_drift_flags

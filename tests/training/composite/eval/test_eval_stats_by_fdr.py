@@ -5,6 +5,7 @@ structure), so the family control must use BY, not BH. BY applies a harmonic
 ``c(m)`` penalty making its rejection threshold strictly stricter than BH for
 m >= 2 -- that stricter behaviour is what these tests pin.
 """
+
 from __future__ import annotations
 
 import numpy as np

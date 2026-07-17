@@ -1,0 +1,19 @@
+[tool.interrogate]
+# Test-scoped interrogate config -- separate from the root pyproject.toml's [tool.interrogate],
+# which explicitly excludes "tests" and enforces 100% on src/mlframe only. Invoke with:
+#     python -m interrogate tests/ -c tests/interrogate.toml
+#
+# fail-under is a MEASURED PROVISIONAL FLOOR, not a target: whole-tree coverage was 53.1% when
+# this gate was first wired up (2026-07-17) -- most of tests/ predates any docstring-coverage
+# enforcement. Set to 50 (a few points under measured, so it doesn't immediately fail on the
+# next file touched by an unrelated change) rather than 100 so this gate is a REAL ratchet
+# (raise it whenever a batch of files gets docstring coverage, never lower it) instead of a
+# permanently-red check nobody looks at. Same honest framing as pyproject.toml's
+# [tool.ruff.lint.mccabe] max-complexity comment: this is where the codebase IS, not where it
+# should stay.
+fail-under = 50
+ignore-init-method = true
+ignore-init-module = true
+ignore-magic = true
+ignore-private = true
+verbose = 1

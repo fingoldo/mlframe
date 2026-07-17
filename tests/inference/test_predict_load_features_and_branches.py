@@ -6,6 +6,7 @@ Covers ``_load_features_file`` (json list / non-list / invalid / absent-with-unv
 disallowed vs explicitly-allowed extension), and ``get_models_raw_predictions`` (binary
 positive-column, multiclass full matrix, regressor fallback).
 """
+
 from __future__ import annotations
 
 import json

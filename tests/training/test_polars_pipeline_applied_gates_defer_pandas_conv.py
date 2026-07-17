@@ -21,6 +21,7 @@ Post-fix the gate threads the flag:
         and not _has_rfecv
     )
 """
+
 from __future__ import annotations
 
 import pytest
@@ -78,53 +79,68 @@ def test_defer_pandas_conv_false_when_polars_pipeline_not_applied():
     never fitted (``polars_pipeline_applied=False``). Pre-fix the gate returned True (only
     ``was_polars_input`` mattered); post-fix it must return False so the lazy-pandas
     fastpath is suppressed and the pandas-side pipeline state is preserved."""
-    assert _invoke_helper(
-        was_polars_input=True,
-        polars_pipeline_applied=False,
-        recurrent_models=[],
-        rfecv_models=[],
-    ) is False
+    assert (
+        _invoke_helper(
+            was_polars_input=True,
+            polars_pipeline_applied=False,
+            recurrent_models=[],
+            rfecv_models=[],
+        )
+        is False
+    )
 
 
 def test_defer_pandas_conv_true_when_polars_pipeline_applied_and_no_blockers():
     """When all three real gates are satisfied (polars input, polars pipeline actually
     fitted, no recurrent / no RFECV), the fastpath stays on. This guards against an
     over-eager fix that would also strip the True branch."""
-    assert _invoke_helper(
-        was_polars_input=True,
-        polars_pipeline_applied=True,
-        recurrent_models=[],
-        rfecv_models=[],
-    ) is True
+    assert (
+        _invoke_helper(
+            was_polars_input=True,
+            polars_pipeline_applied=True,
+            recurrent_models=[],
+            rfecv_models=[],
+        )
+        is True
+    )
 
 
 def test_defer_pandas_conv_false_when_input_was_pandas():
     """``was_polars_input`` is the hard gate; even with ``polars_pipeline_applied=True``
     (which cannot actually happen in production when the input was pandas, but the gate
     must still short-circuit), the fastpath must be off."""
-    assert _invoke_helper(
-        was_polars_input=False,
-        polars_pipeline_applied=True,
-        recurrent_models=[],
-        rfecv_models=[],
-    ) is False
+    assert (
+        _invoke_helper(
+            was_polars_input=False,
+            polars_pipeline_applied=True,
+            recurrent_models=[],
+            rfecv_models=[],
+        )
+        is False
+    )
 
 
 def test_defer_pandas_conv_false_with_recurrent_models():
     """Recurrent models still block the fastpath regardless of the new gate."""
-    assert _invoke_helper(
-        was_polars_input=True,
-        polars_pipeline_applied=True,
-        recurrent_models=["lstm"],
-        rfecv_models=[],
-    ) is False
+    assert (
+        _invoke_helper(
+            was_polars_input=True,
+            polars_pipeline_applied=True,
+            recurrent_models=["lstm"],
+            rfecv_models=[],
+        )
+        is False
+    )
 
 
 def test_defer_pandas_conv_false_with_rfecv_models():
     """RFECV still blocks the fastpath regardless of the new gate."""
-    assert _invoke_helper(
-        was_polars_input=True,
-        polars_pipeline_applied=True,
-        recurrent_models=[],
-        rfecv_models=["cb_num_rfecv"],
-    ) is False
+    assert (
+        _invoke_helper(
+            was_polars_input=True,
+            polars_pipeline_applied=True,
+            recurrent_models=[],
+            rfecv_models=["cb_num_rfecv"],
+        )
+        is False
+    )

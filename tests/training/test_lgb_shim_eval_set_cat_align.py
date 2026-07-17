@@ -6,6 +6,7 @@ eval_set frame raised "train and valid dataset categorical_feature do not match"
 casts the (small) eval_set frame's categorical columns to the train frame's exact CategoricalDtype before building
 the val Dataset -- the train frame is never mutated.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -19,18 +20,22 @@ from mlframe.training.lgb_shim import LGBMRegressorWithDatasetReuse
 def test_lgb_shim_fit_aligns_eval_set_cat_dtype():
     rng = np.random.default_rng(0)
     n = 200
-    X = pd.DataFrame({
-        "num": rng.normal(size=n),
-        "cat": pd.Categorical(rng.choice(list("abc"), n), categories=list("abc")),
-    })
+    X = pd.DataFrame(
+        {
+            "num": rng.normal(size=n),
+            "cat": pd.Categorical(rng.choice(list("abc"), n), categories=list("abc")),
+        }
+    )
     y = rng.normal(size=n)
 
     nv = 80
     # eval_set 'cat' carries a DIFFERENT category set (only a,b) -> pre-fix raised "categorical_feature do not match".
-    X_val = pd.DataFrame({
-        "num": rng.normal(size=nv),
-        "cat": pd.Categorical(rng.choice(list("ab"), nv), categories=list("ab")),
-    })
+    X_val = pd.DataFrame(
+        {
+            "num": rng.normal(size=nv),
+            "cat": pd.Categorical(rng.choice(list("ab"), nv), categories=list("ab")),
+        }
+    )
     y_val = rng.normal(size=nv)
 
     model = LGBMRegressorWithDatasetReuse(n_estimators=5, verbose=-1)

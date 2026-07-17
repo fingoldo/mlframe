@@ -18,6 +18,7 @@ below measured so noise doesn't flap the test (per CLAUDE.md biz_value guidance)
 measurement intrinsically reflects the suite-level saving on the stats step because main.py's
 branch is literally ``if supplied: use supplied else: call inline``.
 """
+
 from __future__ import annotations
 
 import time
@@ -25,7 +26,6 @@ import warnings
 
 import numpy as np
 import pandas as pd
-import pytest
 
 warnings.filterwarnings("ignore")
 
@@ -88,10 +88,7 @@ def test_biz_val_precompute_bundle_skips_stats_compute(tmp_path):
     saving_pct = 100.0 * (inline_s - bundle_s) / max(inline_s, 1e-9)
 
     # Diagnostic so failures are debuggable from the captured log.
-    print(
-        f"[biz_value precompute_bundle] inline_ms={inline_s * 1000:.3f} "
-        f"bundle_ms={bundle_s * 1000:.6f} saving_pct={saving_pct:.2f}%"
-    )
+    print(f"[biz_value precompute_bundle] inline_ms={inline_s * 1000:.3f} bundle_ms={bundle_s * 1000:.6f} saving_pct={saving_pct:.2f}%")
 
     # Pinned floor: bundle lookup is ~6 orders of magnitude faster than inline compute on a
     # 5000x38 frame (microseconds vs milliseconds). We expect ≥ 99% saving; floor pinned at 90%
@@ -99,6 +96,5 @@ def test_biz_val_precompute_bundle_skips_stats_compute(tmp_path):
     # Per the directive: precomputed run saves >=50% on the stats step (we measure far higher),
     # floor pinned 5-15% below measured (we use a conservative 90% floor for headroom).
     assert saving_pct >= 90.0, (
-        f"precompute bundle should save >=90% on the stats step; got {saving_pct:.2f}% "
-        f"(inline={inline_s * 1000:.3f}ms, bundle={bundle_s * 1000:.6f}ms)"
+        f"precompute bundle should save >=90% on the stats step; got {saving_pct:.2f}% (inline={inline_s * 1000:.3f}ms, bundle={bundle_s * 1000:.6f}ms)"
     )

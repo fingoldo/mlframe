@@ -8,9 +8,9 @@ public API is one bool predicate, but its contract has three behaviours:
 (b) lgb missing -> False,
 (c) lgb installed but mutators removed/renamed -> False.
 """
+
 from __future__ import annotations
 
-import sys
 
 import pytest
 

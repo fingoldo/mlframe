@@ -8,6 +8,7 @@ via the ``_as_bool_mask`` adapter.
 
 Per-selector skips / xfails are explicit and documented inline.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -30,6 +31,7 @@ from sklearn.linear_model import LogisticRegression
 
 def _mrmr_factory(task: str = "binary"):
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     return MRMR(
         min_relevance_gain=0.0,
         cv=3,
@@ -42,11 +44,16 @@ def _mrmr_factory(task: str = "binary"):
 
 def _rfecv_factory(task: str = "binary"):
     from mlframe.feature_selection.wrappers import RFECV
-    est = LogisticRegression(max_iter=200, random_state=0) if task != "regression" \
-        else __import__("sklearn.linear_model", fromlist=["Ridge"]).Ridge()
-    return RFECV(estimator=est, cv=3, max_refits=3, random_state=0,
-                 # Pin argmax so contract tests on tiny synthetic data see a deterministic, parsimonious pick.
-                 n_features_selection_rule="argmax")
+
+    est = LogisticRegression(max_iter=200, random_state=0) if task != "regression" else __import__("sklearn.linear_model", fromlist=["Ridge"]).Ridge()
+    return RFECV(
+        estimator=est,
+        cv=3,
+        max_refits=3,
+        random_state=0,
+        # Pin argmax so contract tests on tiny synthetic data see a deterministic, parsimonious pick.
+        n_features_selection_rule="argmax",
+    )
 
 
 def _shap_proxied_factory(task: str = "binary"):
@@ -56,15 +63,24 @@ def _shap_proxied_factory(task: str = "binary"):
         pytest.skip(f"ShapProxiedFS not importable: {exc}")
     # ShapProxiedFS hard-rejects non-binary y when classification=True.
     # For regression task, allow it; otherwise keep the binary gate.
-    cls = (task == "binary")
+    cls = task == "binary"
     from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
-    model = RandomForestClassifier(n_estimators=10, random_state=0) if cls \
-        else RandomForestRegressor(n_estimators=10, random_state=0)
+
+    model = RandomForestClassifier(n_estimators=10, random_state=0) if cls else RandomForestRegressor(n_estimators=10, random_state=0)
     return ShapProxiedFS(
-        model=model, classification=cls, n_splits=3, n_models=1,
-        max_features=None, top_n=10, holdout_size=0.25, revalidate=False,
-        trust_guard=False, prefilter_top=None, cluster_features=False,
-        random_state=0, n_jobs=1,
+        model=model,
+        classification=cls,
+        n_splits=3,
+        n_models=1,
+        max_features=None,
+        top_n=10,
+        holdout_size=0.25,
+        revalidate=False,
+        trust_guard=False,
+        prefilter_top=None,
+        cluster_features=False,
+        random_state=0,
+        n_jobs=1,
     )
 
 
@@ -81,8 +97,7 @@ SELECTOR_FACTORIES = [
 
 @pytest.fixture
 def binary_df():
-    X, y = make_classification(n_samples=200, n_features=10, n_informative=4,
-                               n_classes=2, random_state=0)
+    X, y = make_classification(n_samples=200, n_features=10, n_informative=4, n_classes=2, random_state=0)
     Xdf = pd.DataFrame(X, columns=[f"f{i}" for i in range(10)])
     return Xdf, y
 
@@ -174,8 +189,9 @@ class TestUniversalContract:
         # default ``raw_selected == n_out`` check holds.
         n_engineered = len(getattr(sel, "_engineered_recipes_", []))
         expected_cols = int(mask.sum()) + n_engineered
-        assert Xt.shape == (X.shape[0], expected_cols), \
+        assert Xt.shape == (X.shape[0], expected_cols), (
             f"{name}: transform shape {Xt.shape} != {(X.shape[0], expected_cols)} (raw_selected={int(mask.sum())}, engineered={n_engineered})"
+        )
 
     def test_transform_preserves_row_count(self, name, factory, binary_df):
         X, y = binary_df
@@ -200,9 +216,7 @@ class TestUniversalContract:
         inter = int((m1 & m2).sum())
         union = int((m1 | m2).sum())
         jacc = inter / union if union else 1.0
-        assert jacc >= 0.6, (
-            f"{name}: refit on same (X,y) gave Jaccard {jacc:.2f} (mask1={m1.tolist()}, mask2={m2.tolist()})"
-        )
+        assert jacc >= 0.6, f"{name}: refit on same (X,y) gave Jaccard {jacc:.2f} (mask1={m1.tolist()}, mask2={m2.tolist()})"
 
     def test_clone_preserves_params(self, name, factory, binary_df):
         sel = factory("binary")
@@ -212,8 +226,7 @@ class TestUniversalContract:
             if k in c.get_params(deep=False):
                 v_c = c.get_params(deep=False)[k]
                 # Compare repr because some param values are class instances (e.g. estimator).
-                assert repr(v) == repr(v_c) or v == v_c or (v is None and v_c is None), \
-                    f"{name}: clone() lost {k}: {v} vs {v_c}"
+                assert repr(v) == repr(v_c) or v == v_c or (v is None and v_c is None), f"{name}: clone() lost {k}: {v} vs {v_c}"
 
 
 # ===========================================================================
@@ -235,6 +248,7 @@ class TestSklearnParity:
         """
         from sklearn.pipeline import Pipeline
         from sklearn.linear_model import LogisticRegression
+
         X, y = binary_df
         sel = factory("binary")
         with warnings.catch_warnings():
@@ -251,16 +265,12 @@ class TestSklearnParity:
         n_out = Xt.shape[1]
         assert n_out >= 1, f"{name}: selector emitted zero columns into the Pipeline"
         clf = pipe.named_steps["clf"]
-        assert getattr(clf, "n_features_in_", n_out) == n_out, (
-            f"{name}: downstream estimator saw {clf.n_features_in_} features but selector emitted {n_out}"
-        )
+        assert getattr(clf, "n_features_in_", n_out) == n_out, f"{name}: downstream estimator saw {clf.n_features_in_} features but selector emitted {n_out}"
         # get_feature_names_out (when present) must agree with transform width,
         # i.e. the names that propagate downstream match the emitted columns.
         if callable(getattr(fs, "get_feature_names_out", None)):
             names = fs.get_feature_names_out()
-            assert len(names) == n_out, (
-                f"{name}: get_feature_names_out len {len(names)} != transform cols {n_out}"
-            )
+            assert len(names) == n_out, f"{name}: get_feature_names_out len {len(names)} != transform cols {n_out}"
 
     def test_pipeline_biz_value(self, name, factory, binary_df):
         """biz_value: a real FS->model Pipeline on the canonical fixture must
@@ -274,18 +284,15 @@ class TestSklearnParity:
         from sklearn.pipeline import Pipeline
         from sklearn.preprocessing import StandardScaler
         from sklearn.linear_model import LogisticRegression
+
         X, y = binary_df
         baseline = max(np.bincount(y)) / len(y)  # majority-class accuracy
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            pipe = Pipeline([("fs", factory("binary")),
-                             ("sc", StandardScaler()),
-                             ("clf", LogisticRegression(max_iter=1000))])
+            pipe = Pipeline([("fs", factory("binary")), ("sc", StandardScaler()), ("clf", LogisticRegression(max_iter=1000))])
             pipe.fit(X, y)
             acc = pipe.score(X, y)
-        assert acc > baseline + 0.05, (
-            f"{name}: FS->model Pipeline train acc {acc:.3f} did not beat baseline {baseline:.3f}+0.05"
-        )
+        assert acc > baseline + 0.05, f"{name}: FS->model Pipeline train acc {acc:.3f} did not beat baseline {baseline:.3f}+0.05"
 
     def test_get_params_set_params_roundtrip(self, name, factory):
         sel = factory("binary")
@@ -318,13 +325,11 @@ class TestSklearnParity:
         sel = _fit_safe(factory("binary"), X, y)
         has_gfno = callable(getattr(sel, "get_feature_names_out", None))
         if name in self._GFNO_EXEMPT:
-            assert not has_gfno, (
-                f"{name} is listed in _GFNO_EXEMPT but now DOES expose "
-                "get_feature_names_out -- remove it from the exempt set")
+            assert not has_gfno, f"{name} is listed in _GFNO_EXEMPT but now DOES expose get_feature_names_out -- remove it from the exempt set"
             return
         assert has_gfno, (
-            f"{name}: get_feature_names_out missing but selector is not in the "
-            f"declared-exempt set {sorted(self._GFNO_EXEMPT)} -- sklearn-parity regression")
+            f"{name}: get_feature_names_out missing but selector is not in the declared-exempt set {sorted(self._GFNO_EXEMPT)} -- sklearn-parity regression"
+        )
         names = sel.get_feature_names_out()
         Xt = sel.transform(X)
         assert len(names) == Xt.shape[1], f"{name}: get_feature_names_out len != transform cols"
@@ -377,10 +382,13 @@ class TestRobustness:
 # ===========================================================================
 
 
-@pytest.mark.parametrize("name,factory", [
-    ("rfecv", _rfecv_factory),
-    ("shap_proxied", _shap_proxied_factory),
-])
+@pytest.mark.parametrize(
+    "name,factory",
+    [
+        ("rfecv", _rfecv_factory),
+        ("shap_proxied", _shap_proxied_factory),
+    ],
+)
 class TestClassificationRobustness:
     def test_rejects_single_class_y(self, name, factory, binary_df):
         X, _ = binary_df

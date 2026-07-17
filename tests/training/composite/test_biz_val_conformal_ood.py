@@ -21,6 +21,7 @@ Verdict: NO actionable speedup. The OOD-adaptive additions cost 2 extra small
 ``conformal_quantile`` calls per alpha (over G group radii) plus a boolean flag gather,
 < 1% of the wall the G per-group quantiles + factorize+argsort already dominate.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -145,7 +146,11 @@ class TestOODRouting:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             lo, hi, flag = conf.predict_interval_mondrian(
-                st, np.arange(3), np.full(3, tiny_lab, dtype=object), 0.1, return_ood=True,
+                st,
+                np.arange(3),
+                np.full(3, tiny_lab, dtype=object),
+                0.1,
+                return_ood=True,
             )
         applied = (hi - lo) / 2.0
         assert np.allclose(applied, st._mondrian_ood_[key]), "too-small group must predict inflated"
@@ -203,7 +208,7 @@ class TestDegenerate:
         assert st._mondrian_ood_[key] >= st._mondrian_q_[key][None]
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            lo, hi, flag = conf.predict_interval_mondrian(st, np.arange(3), np.full(3, "new", dtype=object), 0.1, return_ood=True)
+            lo, _hi, flag = conf.predict_interval_mondrian(st, np.arange(3), np.full(3, "new", dtype=object), 0.1, return_ood=True)
         assert lo.shape == (3,) and flag.all()
 
     def test_empty_unseen_set_fraction_zero(self) -> None:
@@ -245,7 +250,7 @@ class TestVerdictAccessor:
         st = _cal_stub(y, g, 0.1)
         out = conf.predict_interval_mondrian(st, np.arange(5), np.array(["cal0"] * 5, dtype=object), 0.1, return_ood=True)
         assert len(out) == 3
-        lo, hi, flag = out
+        _lo, _hi, flag = out
         assert flag.dtype == bool and flag.shape == (5,)
         # default (return_ood=False) stays a 2-tuple.
         out2 = conf.predict_interval_mondrian(st, np.arange(5), np.array(["cal0"] * 5, dtype=object), 0.1)
@@ -325,14 +330,16 @@ class TestRealEstimatorIntegration:
         X = pd.DataFrame({"b": b, "feat": f})
         groups = np.array(["a", "b"], dtype=object)[rng.integers(0, 2, n)]
         est = CompositeTargetEstimator(
-            base_estimator=LinearRegression(), transform_name="linear_residual", base_column="b",
+            base_estimator=LinearRegression(),
+            transform_name="linear_residual",
+            base_column="b",
         ).fit(X, y)
         est.calibrate_conformal_mondrian(X, y, groups, 0.1)
         Xt = X.iloc[:6]
         gt = np.array(["a", "a", "a", "ood1", "ood2", "b"], dtype=object)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            lo, hi, flag = est.predict_interval_mondrian(Xt, gt, 0.1, return_ood=True)
+            _lo, _hi, flag = est.predict_interval_mondrian(Xt, gt, 0.1, return_ood=True)
         assert flag.tolist() == [False, False, False, True, True, False]
         assert est.runtime_stats_["mondrian_ood_fraction"] == pytest.approx(2 / 6)
         assert conf.mondrian_ood_summary(est, 0.1)["n_ood"] == 2

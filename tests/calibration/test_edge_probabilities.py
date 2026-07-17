@@ -8,6 +8,7 @@ Behaviour verified against the real API before assertions were pinned:
   - ``fast_roc_auc`` returns NaN (not a raise) on single-class outcomes, so
     ``generate_similar_probs`` cannot score any candidate and returns ``None``.
 """
+
 from __future__ import annotations
 
 import numpy as np

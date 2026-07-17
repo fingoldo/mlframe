@@ -9,6 +9,7 @@ and the feature can only legitimately be computed from pre-cutoff data. ``comput
 enforces the cutoff at aggregation time, so the SAME feature-computation code path is used consistently for
 both training and serving, eliminating the train/serve mismatch by construction.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -16,7 +17,13 @@ import pandas as pd
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_squared_error
 
-from mlframe.feature_engineering.relational_dfs import ChildTableSpec, RelationalHop, compute_relational_features, stack_relational_chain, stack_relational_features
+from mlframe.feature_engineering.relational_dfs import (
+    ChildTableSpec,
+    RelationalHop,
+    compute_relational_features,
+    stack_relational_chain,
+    stack_relational_features,
+)
 
 
 def _make_relational_dataset(seed: int, n_parents: int = 300):
@@ -72,7 +79,9 @@ def test_biz_val_relational_dfs_cutoff_safe_beats_leaky_join_at_serving_time():
     mse_safe_serving = mean_squared_error(y, reg_safe.predict(safe_test))
 
     improvement = (mse_leaky_serving - mse_safe_serving) / mse_leaky_serving
-    assert improvement > 0.5, f"expected >50% MSE reduction at serving time vs the leaky-trained model, got {improvement:.4f} (leaky={mse_leaky_serving:.4f}, safe={mse_safe_serving:.4f})"
+    assert improvement > 0.5, (
+        f"expected >50% MSE reduction at serving time vs the leaky-trained model, got {improvement:.4f} (leaky={mse_leaky_serving:.4f}, safe={mse_safe_serving:.4f})"
+    )
 
 
 def test_compute_relational_features_excludes_post_cutoff_rows():
@@ -107,7 +116,7 @@ def test_stack_relational_features_depth_2_respects_both_hop_cutoffs():
     # Outlet 11 (opened_at=90) sees sales before ts=90 -> none (sale_ts=91 and 200 are both at/after its own
     # opened_at) -> 0 after the depth-2 zero-fill. Rolled up onto the store (cutoff=100, sees both outlets):
     # 30 + 0 = 30.
-    result_col = [c for c in out.columns if "sale_revenue_sum" in c and "mean" not in c][0]
+    result_col = next(c for c in out.columns if "sale_revenue_sum" in c and "mean" not in c)
     assert out[result_col].item() == 30
 
 
@@ -207,7 +216,11 @@ def test_biz_val_stack_relational_chain_depth_3_recovers_signal_invisible_to_dep
         child_id_col="device_id",
         child_time_col="registered_at",
         child_foreign_key_col="account_id",
-        grandchild_specs=[ChildTableSpec(child_df=sessions, foreign_key_col="device_id", time_col="session_ts", value_cols={"session_duration": ["mean", "sum"]}, prefix="sess")],
+        grandchild_specs=[
+            ChildTableSpec(
+                child_df=sessions, foreign_key_col="device_id", time_col="session_ts", value_cols={"session_duration": ["mean", "sum"]}, prefix="sess"
+            )
+        ],
         child_value_cols={},
         prefix="l2",
     )
@@ -221,4 +234,6 @@ def test_biz_val_stack_relational_chain_depth_3_recovers_signal_invisible_to_dep
     mse_depth2 = mean_squared_error(y, reg_depth2.predict(X_depth2))
 
     improvement = (mse_depth2 - mse_depth3) / mse_depth2
-    assert improvement > 0.85, f"expected >85% MSE reduction from the depth-3 event-aware rollup vs the depth-2-limited one, got {improvement:.4f} (depth2={mse_depth2:.4f}, depth3={mse_depth3:.4f})"
+    assert improvement > 0.85, (
+        f"expected >85% MSE reduction from the depth-3 event-aware rollup vs the depth-2-limited one, got {improvement:.4f} (depth2={mse_depth2:.4f}, depth3={mse_depth3:.4f})"
+    )

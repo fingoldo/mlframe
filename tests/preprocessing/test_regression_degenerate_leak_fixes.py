@@ -7,6 +7,7 @@ Covers:
 - clusterize / list_cluster_members: no leaked figures + empty-labels guard (LEAK-P2).
 - prepare_df_for_catboost: skipped_columns surfaces columns left unprocessed after a cast failure.
 """
+
 from __future__ import annotations
 
 import matplotlib

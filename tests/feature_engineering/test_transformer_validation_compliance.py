@@ -7,15 +7,16 @@ Without this compliance test a future transformer added to the package could
 quietly skip the validator and re-introduce the silent precision-loss bug class
 that the warning was meant to surface.
 """
+
 from __future__ import annotations
 
-import ast
 import pathlib
 
 import pytest
 
 
-import mlframe as _mlframe  # noqa: E402  -- derive transformer dir from installed package; the previous ``D:/Upd/...`` hardcode silently broke transformer-module discovery on every other clone location, with the parametrized validation test going SKIPped under "got empty parameter set".
+import mlframe as _mlframe
+
 TRANSFORMER_DIR = pathlib.Path(_mlframe.__file__).resolve().parent / "feature_engineering" / "transformer"
 
 
@@ -89,7 +90,4 @@ def test_meta_self_check_at_least_one_compliant_transformer():
     dead code that gives false confidence."""
     modules = _list_transformer_modules()
     f32_callers = [p for p in modules if _file_does_float32_cast(p.read_text(encoding="utf-8"))]
-    assert len(f32_callers) >= 5, (
-        f"expected >=5 transformers doing float32 cast (audit found 8+); got {len(f32_callers)}: "
-        f"{[p.name for p in f32_callers]}"
-    )
+    assert len(f32_callers) >= 5, f"expected >=5 transformers doing float32 cast (audit found 8+); got {len(f32_callers)}: {[p.name for p in f32_callers]}"

@@ -4,6 +4,7 @@ cmi_from_binned_fixed_yz (fed by precompute_cmi_yz_terms) must be bit-identical
 to _cmi_from_binned for a present Z -- the greedy loop now routes every
 candidate through the hoisted path. Fuzz a range of cardinalities/sizes.
 """
+
 from __future__ import annotations
 
 import numpy as np

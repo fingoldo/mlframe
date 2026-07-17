@@ -4,6 +4,7 @@ Covers fixes A-Low-002 (dedicated ``_mlframe_selector_kind_`` marker stamped by
 ``_build_pre_pipelines``, consumed by ``_selector_kind``) and A-Low-007 (digest_size
 bump from 8 to 16 on ``_selector_params_hash`` for collision robustness).
 """
+
 from __future__ import annotations
 
 import pytest

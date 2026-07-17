@@ -14,6 +14,7 @@ This module pins: (a) the OLD attribute-list approach genuinely returns 0 on a r
 dict-of-ndarray / list-of-ndarray state under ANY attribute name, and (c) the estimate is a plausible
 match to the true summed ``.nbytes`` on a large known fixture.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -76,9 +77,7 @@ def test_generic_walk_finds_the_dominant_engineered_continuous_state():
     new_bytes = _mrmr_instance_state_size_bytes(inst)
     # _engineered_continuous_ alone: 30 * 20_000 * 8 bytes = 4_800_000 bytes.
     expected_eng_cont = 30 * 20_000 * 8
-    assert new_bytes >= expected_eng_cont, (
-        f"generic walk must count _engineered_continuous_ ({expected_eng_cont} bytes); got {new_bytes}"
-    )
+    assert new_bytes >= expected_eng_cont, f"generic walk must count _engineered_continuous_ ({expected_eng_cont} bytes); got {new_bytes}"
 
 
 def test_generic_walk_estimate_is_a_close_match_to_true_nbytes_sum():

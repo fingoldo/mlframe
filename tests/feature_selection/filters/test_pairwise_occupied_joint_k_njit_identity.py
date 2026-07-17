@@ -5,6 +5,7 @@ Pins the optimization in ``_permutation_null.py`` (Python set-per-pair loop -> n
 boolean-seen kernel, ~90-240x). Identity is by construction (same distinct joint codes
 counted); this asserts it on shapes that would expose an off-by-one in the flat code
 index (asymmetric nbins, fully-tied columns, sparse occupancy)."""
+
 from __future__ import annotations
 
 from itertools import combinations
@@ -20,7 +21,8 @@ def _reference(factors_data, pair_a, pair_b, nbins):
     n_pairs = int(pair_a.shape[0])
     out = np.empty(n_pairs, dtype=np.int64)
     for p in range(n_pairs):
-        a = int(pair_a[p]); b = int(pair_b[p])
+        a = int(pair_a[p])
+        b = int(pair_b[p])
         nb_b = int(nbins[b])
         seen = set()
         for i in range(n):
@@ -64,10 +66,10 @@ def test_identity_tied_and_constant_columns():
     """Fully-tied (constant) and low-occupancy columns: distinct-count must still match."""
     n = 400
     data = np.zeros((n, 4), dtype=np.int32)
-    data[:, 0] = 3                      # constant
-    data[:, 1] = np.arange(n) % 2       # 2 levels
-    data[:, 2] = np.arange(n) % 5       # 5 levels
-    data[:, 3] = 1                      # constant
+    data[:, 0] = 3  # constant
+    data[:, 1] = np.arange(n) % 2  # 2 levels
+    data[:, 2] = np.arange(n) % 5  # 5 levels
+    data[:, 3] = 1  # constant
     nbins = np.array([8, 2, 5, 8], dtype=np.int64)
     pa, pb = _all_pairs(4)
     assert np.array_equal(

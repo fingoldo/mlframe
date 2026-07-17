@@ -13,6 +13,7 @@ et al.) AFTER they've been populated by ``_ensure_kernels_inited()`` --
 the kernel globals start as None at module-load and a static
 import would cache the None.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -20,6 +21,7 @@ from pathlib import Path
 
 def test_mi_direct_gpu_batched_pairs_importable_from_facade() -> None:
     from mlframe.feature_selection.filters.gpu import mi_direct_gpu_batched_pairs
+
     assert callable(mi_direct_gpu_batched_pairs)
 
 
@@ -33,6 +35,7 @@ def test_other_gpu_symbols_still_importable() -> None:
         _pin_device_if_needed,
         _ensure_kernels_inited,
     )
+
     for fn in (
         mi_direct_gpu_batched,
         mi_direct_gpu_batched_streamed,
@@ -59,6 +62,7 @@ def test_facade_below_1k_line_threshold() -> None:
 def test_sibling_module_owns_the_moved_symbol() -> None:
     """Identity: facade and sibling expose the SAME function object."""
     from mlframe.feature_selection.filters import gpu, _gpu_pairs
+
     assert gpu.mi_direct_gpu_batched_pairs is _gpu_pairs.mi_direct_gpu_batched_pairs
 
 
@@ -68,7 +72,6 @@ def test_sibling_raises_clear_cupy_error_when_unavailable() -> None:
     required on this CI, so we exercise the import-error branch.
     """
     import sys
-    import importlib
     import pytest
     import numpy as np
     from mlframe.feature_selection.filters.gpu import mi_direct_gpu_batched_pairs

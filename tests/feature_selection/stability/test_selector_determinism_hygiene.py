@@ -28,11 +28,12 @@ All heavy fits are ``@slow``; a cheap representative keeps each contract alive
 under ``MLFRAME_FAST=1`` via ``fast_subset``. CPU-only; subprocess + numba
 warmup paths carry ``no_xdist``.
 """
+
 from __future__ import annotations
 
 import os
 import re
-import subprocess
+import subprocess  # nosec B404 -- test-only local trusted subprocess invocation (fixed argv, no shell, no untrusted input)
 import sys
 
 import numpy as np
@@ -73,13 +74,7 @@ def _global_state_equal(before, after) -> bool:
     The state is ``(name, keys[uint32 array], pos, has_gauss, cached_gaussian)``;
     a leak shows up in any of the five, so all five are compared.
     """
-    return (
-        before[0] == after[0]
-        and np.array_equal(before[1], after[1])
-        and before[2] == after[2]
-        and before[3] == after[3]
-        and before[4] == after[4]
-    )
+    return before[0] == after[0] and np.array_equal(before[1], after[1]) and before[2] == after[2] and before[3] == after[3] and before[4] == after[4]
 
 
 # Specs whose fit is KNOWN to keep the global stream clean when seeded. Every
@@ -170,7 +165,7 @@ def _clear_mrmr_cache_if_any() -> None:
     if mod is not None:
         try:
             mod.MRMR._FIT_CACHE.clear()
-        except Exception:
+        except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
             pass
 
 
@@ -206,16 +201,12 @@ def test_n_jobs_parity_same_selection(spec_key):
     except Exception as exc:  # loky transport flake under heavy concurrent load.
         msg = str(exc).lower()
         name = type(exc).__name__.lower()
-        if any(s in msg for s in ("brokenprocesspool", "terminatedworker", "transport")) or \
-                any(s in name for s in ("brokenprocesspool", "terminatedworker")):
+        if any(s in msg for s in ("brokenprocesspool", "terminatedworker", "transport")) or any(s in name for s in ("brokenprocesspool", "terminatedworker")):
             pytest.skip(f"loky worker transport failure under concurrent load: {type(exc).__name__}")
         raise
 
     n1, n2 = set(selected_names(s1)), set(selected_names(s2))
-    assert n1 == n2, (
-        f"{spec.name}: {kwarg}={serial} selected {sorted(n1)} but {kwarg}={parallel} "
-        f"selected {sorted(n2)}; parallelism altered the selection"
-    )
+    assert n1 == n2, f"{spec.name}: {kwarg}={serial} selected {sorted(n1)} but {kwarg}={parallel} selected {sorted(n2)}; parallelism altered the selection"
 
 
 # ===========================================================================
@@ -229,7 +220,7 @@ def test_n_jobs_parity_same_selection(spec_key):
 # ASCII-only child prints (cp1251 rule). simple-mode + tiny n keeps each run
 # under the 55s budget even with a cold numba compile.
 
-_HASHSEED_CHILD = r'''
+_HASHSEED_CHILD = r"""
 import sys
 import numpy as np
 import pandas as pd
@@ -260,7 +251,7 @@ if support.dtype == bool:
 else:
     sel = [names_in[int(i)] for i in support]
 sys.stdout.write("|".join(sorted(str(s) for s in sel)))
-'''
+"""
 
 
 def _child_env(hashseed: str) -> dict:
@@ -276,10 +267,7 @@ def _child_env(hashseed: str) -> dict:
 
 def _check_child_output(hashseed: str, stdout: str, stderr: str, rc: int) -> str:
     if rc != 0:
-        raise AssertionError(
-            f"hashseed child (PYTHONHASHSEED={hashseed}) failed rc={rc}\n"
-            f"STDERR tail:\n{(stderr or '')[-2000:]}"
-        )
+        raise AssertionError(f"hashseed child (PYTHONHASHSEED={hashseed}) failed rc={rc}\nSTDERR tail:\n{(stderr or '')[-2000:]}")
     out = (stdout or "").strip()
     assert _SEL_LINE_RE.match(out), f"unexpected child stdout (PYTHONHASHSEED={hashseed}): {out!r}"
     return out
@@ -294,9 +282,12 @@ def _run_hashseed_children(seeds=("0", "42")) -> dict[str, str]:
     the 60s per-test timeout.
     """
     procs = {
-        s: subprocess.Popen(
+        s: subprocess.Popen(  # nosec B603 -- fixed local argv (sys.executable/git + literal args), no shell, no untrusted input
             [sys.executable, "-c", _HASHSEED_CHILD],
-            env=_child_env(s), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            env=_child_env(s),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
         )
         for s in seeds
     }

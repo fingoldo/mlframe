@@ -2,7 +2,7 @@
 
 import pytest
 import numpy as np
-from hypothesis import given, strategies as st, settings, assume
+from hypothesis import given, strategies as st, settings
 
 from mlframe.feature_engineering.hurst import (
     compute_hurst_exponent,
@@ -22,7 +22,7 @@ def _seed_global_numpy_rng():
 @settings(max_examples=50, deadline=None)
 def test_hurst_returns_valid_range(arr):
     """Hurst exponent should generally be between 0 and 1.5 for most series."""
-    h, c = compute_hurst_exponent(np.array(arr, dtype=np.float64))
+    h, _c = compute_hurst_exponent(np.array(arr, dtype=np.float64))
     if not np.isnan(h):
         assert -0.5 <= h <= 2.0, f"Hurst exponent {h} out of expected range"
 
@@ -87,7 +87,7 @@ def test_hurst_random_walk_close_to_half():
     """Random walk should have Hurst exponent close to 0.5."""
     np.random.seed(42)
     arr = np.cumsum(np.random.randn(1000)).astype(np.float64)
-    h, c = compute_hurst_exponent(arr, take_diffs=True)
+    h, _c = compute_hurst_exponent(arr, take_diffs=True)
     # Random walk H should be around 0.5 (with some tolerance)
     if not np.isnan(h):
         assert 0.3 <= h <= 0.7, f"Random walk Hurst {h} not close to 0.5"
@@ -99,7 +99,7 @@ def test_hurst_trending_series():
     trend = np.linspace(0, 10, 1000)
     noise = np.random.randn(1000) * 0.1
     arr = (trend + noise).astype(np.float64)
-    h, c = compute_hurst_exponent(arr)
+    h, _c = compute_hurst_exponent(arr)
     if not np.isnan(h):
         assert h > 0.3, f"Trending series Hurst {h} expected to be > 0.3"
 
@@ -136,7 +136,7 @@ def _ref_dfa_alpha(x):
         m = n // s
         var_sum = 0.0
         for j in range(m):
-            seg = y[j * s:(j + 1) * s]
+            seg = y[j * s : (j + 1) * s]
             t = np.arange(s).astype(np.float64)
             tm = t.mean()
             sm = seg.mean()
@@ -187,13 +187,23 @@ def _ref_dfa_alpha2(x):
         m = n // s
         var_sum = 0.0
         for j in range(m):
-            seg = y[j * s:(j + 1) * s]
+            seg = y[j * s : (j + 1) * s]
             t = np.arange(s).astype(np.float64)
-            S0 = float(s); S1 = t.sum(); S2 = (t * t).sum()
-            S3 = (t * t * t).sum(); S4 = (t * t * t * t).sum()
-            Sy = seg.sum(); Sty = (t * seg).sum(); St2y = (t * t * seg).sum()
-            M00 = S0; M01 = S1; M02 = S2; M11 = S2; M12 = S3; M22 = S4
-            det = (M00 * (M11 * M22 - M12 * M12) - M01 * (M01 * M22 - M12 * M02) + M02 * (M01 * M12 - M11 * M02))
+            S0 = float(s)
+            S1 = t.sum()
+            S2 = (t * t).sum()
+            S3 = (t * t * t).sum()
+            S4 = (t * t * t * t).sum()
+            Sy = seg.sum()
+            Sty = (t * seg).sum()
+            St2y = (t * t * seg).sum()
+            M00 = S0
+            M01 = S1
+            M02 = S2
+            M11 = S2
+            M12 = S3
+            M22 = S4
+            det = M00 * (M11 * M22 - M12 * M12) - M01 * (M01 * M22 - M12 * M02) + M02 * (M01 * M12 - M11 * M02)
             if abs(det) < 1e-12:
                 continue
             inv_det = 1.0 / det
@@ -253,7 +263,7 @@ def test_hurst_closed_form_fit_matches_lstsq(seed):
     ws_arr = np.asarray(ws, dtype=float)
     x = np.vstack([np.log10(ws_arr), np.ones(len(rs_arr))]).T
     h_ref, c_ref_log = np.linalg.lstsq(x, np.log10(rs_arr), rcond=None)[0]
-    c_ref = 10 ** c_ref_log
+    c_ref = 10**c_ref_log
 
     assert abs(h_new - h_ref) < 1e-9, f"slope diverged: {h_new} vs {h_ref}"
     assert abs(c_new - c_ref) / max(abs(c_ref), 1e-12) < 1e-9, f"intercept diverged: {c_new} vs {c_ref}"

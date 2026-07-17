@@ -1,5 +1,6 @@
 """clear_pandas_view_cache must drop the single-entry get_pandas_view_of_polars_df memo so its Arrow-backed pandas
 view stops pinning the polars buffers when ctx frames are released (prod: 8 GB expected, 0 reclaimed)."""
+
 from __future__ import annotations
 
 import polars as pl

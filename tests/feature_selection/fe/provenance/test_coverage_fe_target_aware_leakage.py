@@ -57,9 +57,13 @@ def fit_data():
 
 def _build_recipe(name, payload):
     return build_target_aware_group_bin_recipe(
-        name=name, group_col=payload["group_col"], num_col=payload["num_col"],
-        group_edges=payload["group_edges"], global_edges=payload["global_edges"],
-        n_bins=payload["n_bins"], op=payload["op"],
+        name=name,
+        group_col=payload["group_col"],
+        num_col=payload["num_col"],
+        group_edges=payload["group_edges"],
+        global_edges=payload["global_edges"],
+        n_bins=payload["n_bins"],
+        op=payload["op"],
     )
 
 
@@ -67,7 +71,13 @@ def _build_recipe(name, payload):
 def fit_recipe(fit_data):
     X, y = fit_data
     enc_df, raw = generate_target_aware_group_bins(
-        X, y, group_cols=["g"], num_cols=["x"], n_bins=5, n_folds=5, random_state=0,
+        X,
+        y,
+        group_cols=["g"],
+        num_cols=["x"],
+        n_bins=5,
+        n_folds=5,
+        random_state=0,
     )
     assert len(raw) == 1
     name, payload = next(iter(raw.items()))
@@ -75,8 +85,8 @@ def fit_recipe(fit_data):
 
 
 def test_recipe_carries_no_target_reference(fit_recipe, fit_data):
-    X, y = fit_data
-    name, payload, rec, enc_df = fit_recipe
+    X, _y = fit_data
+    _name, _payload, rec, _enc_df = fit_recipe
     n = len(X)
     for k, v in dict(rec.extra).items():
         if isinstance(v, np.ndarray) and v.size == n:
@@ -88,7 +98,7 @@ def test_recipe_carries_no_target_reference(fit_recipe, fit_data):
 
 def test_replay_invariant_to_y_in_scope(fit_recipe, fit_data):
     X, y = fit_data
-    name, payload, rec, enc_df = fit_recipe
+    _name, _payload, rec, _enc_df = fit_recipe
     out_a = apply_recipe(rec, X)
     _ = 1 - y  # a corrupt y in scope
     out_b = apply_recipe(rec, X)
@@ -99,11 +109,10 @@ def test_replay_reuses_frozen_group_edges_on_new_data(fit_recipe, fit_data):
     """A held-out frame digitises against the FROZEN per-group edges. Building a
     second recipe from the same payload and replaying on a fresh frame yields the
     same bins as digitising manually with the stored edges."""
-    X, y = fit_data
-    name, payload, rec, enc_df = fit_recipe
+    _X, _y = fit_data
+    _name, payload, rec, _enc_df = fit_recipe
     rng = np.random.default_rng(77)
-    Xnew = pd.DataFrame({"g": rng.choice(["g0", "g1", "g2"], size=200),
-                         "x": rng.normal(size=200)})
+    Xnew = pd.DataFrame({"g": rng.choice(["g0", "g1", "g2"], size=200), "x": rng.normal(size=200)})
     out = apply_recipe(rec, Xnew)
     # Manual replay: searchsorted on each row's stored group edges.
     manual = np.zeros(len(Xnew))
@@ -114,7 +123,7 @@ def test_replay_reuses_frozen_group_edges_on_new_data(fit_recipe, fit_data):
 
 
 def test_unseen_group_falls_back_to_global_edges(fit_recipe, fit_data):
-    name, payload, rec, enc_df = fit_recipe
+    _name, payload, rec, _enc_df = fit_recipe
     Xnew = pd.DataFrame({"g": ["never_seen_group"], "x": [0.3]})
     out = apply_recipe(rec, Xnew)
     assert np.isfinite(out).all()
@@ -128,20 +137,19 @@ def test_oof_fit_column_differs_from_naive_allrows_replay(fit_recipe, fit_data):
     frame -- if they were identical, the fit value would have been computed from the
     row's own fold (in-fold), i.e. the leakage the OOF discipline exists to prevent.
     They share edges but differ because OOF rows are binned on OTHER folds' edges."""
-    X, y = fit_data
-    name, payload, rec, enc_df = fit_recipe
+    X, _y = fit_data
+    name, _payload, rec, enc_df = fit_recipe
     oof_col = enc_df[name].to_numpy()
     allrows_replay = apply_recipe(rec, X)
     # Some rows must differ (OOF vs all-rows edges are not identical per group).
     assert not np.array_equal(oof_col, allrows_replay), (
-        "OOF fit column equals the all-rows replay -- OOF discipline may be broken "
-        "(fit value would then be in-fold, a leak)"
+        "OOF fit column equals the all-rows replay -- OOF discipline may be broken (fit value would then be in-fold, a leak)"
     )
 
 
 def test_replay_is_pure_no_state_mutation(fit_recipe, fit_data):
-    X, y = fit_data
-    name, payload, rec, enc_df = fit_recipe
+    X, _y = fit_data
+    _name, _payload, rec, _enc_df = fit_recipe
     a = apply_recipe(rec, X)
     Xnew = pd.DataFrame({"g": ["g0", "g1"], "x": [0.1, 0.2]})
     _ = apply_recipe(rec, Xnew)

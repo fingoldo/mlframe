@@ -7,6 +7,7 @@ polars frame -- so a polars-native suite ran with most of the FE arsenal disable
 the source framework (``fe_append_columns``). Each case below pins that a polars fit engineers the SAME columns as pandas
 and selects identically -- the fix is a no-op on selection, only removing the format restriction.
 """
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -22,10 +23,17 @@ def _clear_mrmr_fit_cache():
     yield
     MRMR._FIT_CACHE.clear()
 
+
 _FEATURE_LIST_ATTRS = (
-    "hybrid_orth_features_", "mi_greedy_features_", "kfold_te_features_",
-    "count_encoding_features_", "frequency_encoding_features_", "cat_num_interaction_features_",
-    "pairwise_ratio_features_", "pairwise_log_ratio_features_", "grouped_delta_features_",
+    "hybrid_orth_features_",
+    "mi_greedy_features_",
+    "kfold_te_features_",
+    "count_encoding_features_",
+    "frequency_encoding_features_",
+    "cat_num_interaction_features_",
+    "pairwise_ratio_features_",
+    "pairwise_log_ratio_features_",
+    "grouped_delta_features_",
     "lagged_diff_features_",
 )
 
@@ -45,8 +53,7 @@ def _quadratic(seed, n=1500):
     # Pure symmetric univariate quadratic: raw x1 is ~uninformative (corr ~0), the He2 basis carries the signal, so the
     # univariate-basis / scorer families must engineer x1__He2 to recover it.
     y = (x1 * x1 > 1.0).astype(int)
-    data = {"x1": x1, "x2": x2, "x3": x3,
-            "n0": noise[:, 0], "n1": noise[:, 1], "n2": noise[:, 2]}
+    data = {"x1": x1, "x2": x2, "x3": x3, "n0": noise[:, 0], "n1": noise[:, 1], "n2": noise[:, 2]}
     return data, y
 
 
@@ -128,10 +135,15 @@ def _cat_num(seed, n=2000):
 
 
 # family id -> (MRMR kwargs enabling ONLY this family, data-builder)
-_SCORER_KW = dict(fe_univariate_basis_enable=True, fe_hybrid_orth_pair_enable=False,
-                  fe_hybrid_orth_triplet_enable=False, fe_hybrid_orth_quadruplet_enable=False,
-                  fe_hinge_enable=False, fe_kfold_te_enable=False,
-                  fe_binned_numeric_agg_enable=False)
+_SCORER_KW = dict(
+    fe_univariate_basis_enable=True,
+    fe_hybrid_orth_pair_enable=False,
+    fe_hybrid_orth_triplet_enable=False,
+    fe_hybrid_orth_quadruplet_enable=False,
+    fe_hinge_enable=False,
+    fe_kfold_te_enable=False,
+    fe_binned_numeric_agg_enable=False,
+)
 
 _CASES = {
     "adaptive_arity": (dict(fe_hybrid_orth_adaptive_arity_enable=True, **_SCORER_KW), _three_way),
@@ -153,15 +165,31 @@ _CASES = {
     "meta": (dict(fe_hybrid_orth_meta_enable=True, **_SCORER_KW), _quadratic),
     "mi_greedy": (dict(fe_mi_greedy_enable=True, **_SCORER_KW), _quadratic),
     "mi_greedy_cmi": (dict(fe_mi_greedy_cmi_enable=True, **_SCORER_KW), _quadratic),
-    "hinge": (dict(fe_hinge_enable=True, fe_univariate_basis_enable=False,
-                   fe_hybrid_orth_pair_enable=False, fe_hybrid_orth_triplet_enable=False,
-                   fe_hybrid_orth_quadruplet_enable=False, fe_kfold_te_enable=False,
-                   fe_binned_numeric_agg_enable=False), _hinge_target),
+    "hinge": (
+        dict(
+            fe_hinge_enable=True,
+            fe_univariate_basis_enable=False,
+            fe_hybrid_orth_pair_enable=False,
+            fe_hybrid_orth_triplet_enable=False,
+            fe_hybrid_orth_quadruplet_enable=False,
+            fe_kfold_te_enable=False,
+            fe_binned_numeric_agg_enable=False,
+        ),
+        _hinge_target,
+    ),
     "kfold_te": (dict(fe_kfold_te_enable=True, fe_kfold_te_cols=("cat",), **{k: v for k, v in _SCORER_KW.items() if k != "fe_kfold_te_enable"}), _categorical),
     "count_encoding": (dict(fe_count_encoding_enable=True, fe_count_encoding_cols=("cat",), **_SCORER_KW), _categorical),
     "frequency_encoding": (dict(fe_frequency_encoding_enable=True, fe_frequency_encoding_cols=("cat",), **_SCORER_KW), _categorical),
-    "cat_num_interaction": (dict(fe_cat_num_interaction_enable=True, fe_cat_num_interaction_cat_cols=("cat",),
-                                 fe_cat_num_interaction_num_cols=("num",), fe_local_mi_gate=False, **_SCORER_KW), _cat_num),
+    "cat_num_interaction": (
+        dict(
+            fe_cat_num_interaction_enable=True,
+            fe_cat_num_interaction_cat_cols=("cat",),
+            fe_cat_num_interaction_num_cols=("num",),
+            fe_local_mi_gate=False,
+            **_SCORER_KW,
+        ),
+        _cat_num,
+    ),
     "binned_numeric_agg": (dict(fe_binned_numeric_agg_enable=True, **{k: v for k, v in _SCORER_KW.items() if k != "fe_binned_numeric_agg_enable"}), _quadratic),
     "pairwise_ratio": (dict(fe_pairwise_ratio_enable=True, fe_pairwise_ratio_cols=("x1", "x2"), **_SCORER_KW), _ratio),
     "pairwise_log_ratio": (dict(fe_pairwise_log_ratio_enable=True, fe_pairwise_log_ratio_cols=("x1", "x2"), **_SCORER_KW), _ratio),
@@ -191,12 +219,12 @@ def test_bucket_a_family_adds_no_whole_frame_to_pandas_on_polars(monkeypatch):
 
     def _bridge_off(*_a, **_k):
         raise RuntimeError("polars->pandas FE bridge disabled for the spy")
+
     monkeypatch.setattr(U, "get_pandas_view_of_polars_df", _bridge_off)
 
     heights: list[int] = []
     orig_to_pandas = pl.DataFrame.to_pandas
-    monkeypatch.setattr(pl.DataFrame, "to_pandas",
-                        lambda self, *a, **k: (heights.append(self.height), orig_to_pandas(self, *a, **k))[1])
+    monkeypatch.setattr(pl.DataFrame, "to_pandas", lambda self, *a, **k: (heights.append(self.height), orig_to_pandas(self, *a, **k))[1])
 
     rng = np.random.default_rng(0)
     n = 1500
@@ -206,8 +234,7 @@ def test_bucket_a_family_adds_no_whole_frame_to_pandas_on_polars(monkeypatch):
     def _full_count(kwargs):
         heights.clear()
         MRMR._FIT_CACHE.clear()
-        sel = MRMR(verbose=0, random_seed=0, fe_check_pairs_subsample_n=500,
-                   fe_univariate_basis_enable=True, **kwargs)
+        sel = MRMR(verbose=0, random_seed=0, fe_check_pairs_subsample_n=500, fe_univariate_basis_enable=True, **kwargs)
         sel.fit(pl.DataFrame(data), y)
         return sum(h == n for h in heights), sel
 

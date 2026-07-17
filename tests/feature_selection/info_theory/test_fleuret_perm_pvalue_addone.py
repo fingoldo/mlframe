@@ -13,6 +13,7 @@ exceedance count. Two methodological defects are fixed:
     fix passes the full ``npermutations`` budget as the denominator so the reported p does not depend on WHERE the early
     break fired, and is never anti-conservative (smaller) than a full-budget reference.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -42,10 +43,18 @@ def test_addone_keeps_confidence_below_one_on_null_feature():
     factors_nbins = np.array([2, 2, 2, 2], dtype=np.int64)
     budget = 100
     _, conf, _ = get_fleuret_criteria_confidence_parallel(
-        data_copy=factors_data, factors_nbins=factors_nbins,
-        x=(1,), y=np.asarray([3], dtype=np.int64), selected_vars=[0],
-        bootstrapped_gain=0.1, npermutations=budget, max_failed=budget, nexisting=0,
-        cached_cond_MIs={}, entropy_cache={}, n_workers=1,
+        data_copy=factors_data,
+        factors_nbins=factors_nbins,
+        x=(1,),
+        y=np.asarray([3], dtype=np.int64),
+        selected_vars=[0],
+        bootstrapped_gain=0.1,
+        npermutations=budget,
+        max_failed=budget,
+        nexisting=0,
+        cached_cond_MIs={},
+        entropy_cache={},
+        n_workers=1,
     )
     assert conf < 1.0, f"add-one must keep confidence below 1.0 on a no-fail candidate, got {conf}"
     # With 0 failures over the full budget, p = 1/(budget+1) and confidence = 1 - p.
@@ -69,8 +78,6 @@ def test_stopped_p_uses_full_budget_denominator():
     budget = 100
     p_stopped = _perm_pvalue(5, 8, full_budget=budget)
     p_full = _perm_pvalue(5, budget, full_budget=budget)
-    assert p_stopped == p_full == (1.0 + 5) / (1.0 + budget), (
-        f"early-stopped p must be scored against the full budget: stopped={p_stopped} full={p_full}"
-    )
+    assert p_stopped == p_full == (1.0 + 5) / (1.0 + budget), f"early-stopped p must be scored against the full budget: stopped={p_stopped} full={p_full}"
     # The break-position-dependent ratio (denominator = nchecked) is the biased estimate the fix avoids.
     assert p_stopped != (1.0 + 5) / (1.0 + 8)

@@ -13,6 +13,7 @@ VALID method name whose runtime implementation errors) is not caught by that dow
 check at all and is still silently swallowed into a classic-MRMR fallback -- this test only
 covers the "typo in the method name" half of the bug, which is what the fix addresses.
 """
+
 from __future__ import annotations
 
 import warnings

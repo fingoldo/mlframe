@@ -4,6 +4,7 @@ The builder must compute the per-row equal-width histogram ONCE and feed both en
 result must stay bit-identical to the standalone public functions (which still recompute the binning each).
 Pins the optimization: a future "inline the binning twice again" or a divergent shared-counts path trips this.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -40,8 +41,8 @@ def test_shared_counts_helpers_match_full_pipeline() -> None:
 def test_nan_rows_still_handled_in_shared_path() -> None:
     rng = np.random.default_rng(99)
     preds = rng.standard_normal((400, 8)).astype(np.float64)
-    preds[3, :] = np.nan          # all-non-finite row -> coerced to 0.0
-    preds[10, 2] = np.inf         # partial -> row median
+    preds[3, :] = np.nan  # all-non-finite row -> coerced to 0.0
+    preds[10, 2] = np.inf  # partial -> row median
     out = ef.predictor_disagreement_features(preds, emit_pairs=False)
     assert np.isfinite(out["entropy"]).all()
     assert np.isfinite(out["top2_gap"]).all()

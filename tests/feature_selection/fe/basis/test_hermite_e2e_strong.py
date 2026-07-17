@@ -21,6 +21,7 @@ This test drives the FULL path:
 5. biz_value: MI between the engineered column and y must exceed MI
    of any individual raw feature with y by the prevalence factor.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -46,11 +47,14 @@ def _build_xor_problem(n: int = 2000, seed: int = 42):
     x_b = rng.normal(size=n).astype(np.float64)
     noise_features = rng.normal(size=(n, 2)).astype(np.float64)
     y = (np.sign(x_a * x_b) > 0).astype(np.int64)
-    X = pd.DataFrame({
-        "x_a": x_a, "x_b": x_b,
-        "noise1": noise_features[:, 0],
-        "noise2": noise_features[:, 1],
-    })
+    X = pd.DataFrame(
+        {
+            "x_a": x_a,
+            "x_b": x_b,
+            "noise1": noise_features[:, 0],
+            "noise2": noise_features[:, 1],
+        }
+    )
     return X, y
 
 
@@ -75,7 +79,9 @@ class TestHermiteE2EStrong:
         x_b = X["x_b"].values
 
         result = optimise_hermite_pair(
-            x_a=x_a, x_b=x_b, y=y,
+            x_a=x_a,
+            x_b=x_b,
+            y=y,
             basis="hermite",
             max_degree=4,
             n_trials=40,
@@ -85,10 +91,7 @@ class TestHermiteE2EStrong:
             baseline_uplift_threshold=0.0,
             seed=42,
         )
-        assert result is not None, (
-            "CMA-ES warm-start with disabled baseline-uplift gate must "
-            "return a HermiteResult on the canonical XOR problem"
-        )
+        assert result is not None, "CMA-ES warm-start with disabled baseline-uplift gate must return a HermiteResult on the canonical XOR problem"
 
         # The optimiser cleared the gate. Build a recipe and verify replay.
         recipe = build_hermite_pair_recipe(
@@ -105,10 +108,7 @@ class TestHermiteE2EStrong:
         assert out.shape == (len(X_test),)
         assert np.isfinite(out).all(), "replay produced non-finite values"
         # Dynamic range > 0 -> the recipe is not collapsed to a constant.
-        assert float(out.std()) > 1e-6, (
-            f"replay output is near-constant (std={out.std()}); "
-            f"polynomial collapsed during replay"
-        )
+        assert float(out.std()) > 1e-6, f"replay output is near-constant (std={out.std()}); polynomial collapsed during replay"
 
     @pytest.mark.timeout(600)
     def test_engineered_column_has_higher_mi_than_raw(self) -> None:
@@ -125,7 +125,9 @@ class TestHermiteE2EStrong:
         x_b = X["x_b"].values
 
         result = optimise_hermite_pair(
-            x_a=x_a, x_b=x_b, y=y,
+            x_a=x_a,
+            x_b=x_b,
+            y=y,
             basis="hermite",
             max_degree=4,
             n_trials=40,
@@ -135,9 +137,7 @@ class TestHermiteE2EStrong:
             baseline_uplift_threshold=0.0,
             seed=42,
         )
-        assert result is not None, (
-            "CMA-ES must find XOR optimum (known-stable config)"
-        )
+        assert result is not None, "CMA-ES must find XOR optimum (known-stable config)"
 
         recipe = build_hermite_pair_recipe(
             name="hermite_xor_mi",
@@ -148,12 +148,19 @@ class TestHermiteE2EStrong:
 
         # MI(engineered, y) vs MI(each raw feature, y).
         raw_mis = mutual_info_classif(
-            X.values, y, discrete_features=False, random_state=0,
+            X.values,
+            y,
+            discrete_features=False,
+            random_state=0,
         )
-        eng_mi = float(mutual_info_classif(
-            engineered_col.reshape(-1, 1), y,
-            discrete_features=False, random_state=0,
-        )[0])
+        eng_mi = float(
+            mutual_info_classif(
+                engineered_col.reshape(-1, 1),
+                y,
+                discrete_features=False,
+                random_state=0,
+            )[0]
+        )
 
         max_raw_mi = float(np.max(raw_mis))
         # XOR has zero individual MI; the engineered feature should have

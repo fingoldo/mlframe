@@ -7,6 +7,7 @@ the same fixed L2 regularization budget -- diluting the penalty actually availab
 informative features (``x``, the encoding) and degrading held-out performance versus dropping the raw id once
 its encoding exists.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -55,7 +56,9 @@ def test_biz_val_drop_raw_after_embedding_reduces_overfit_from_high_cardinality_
     model_dropped.fit(df_train_dropped[feature_cols_dropped], y_train)
     rmse_dropped = float(mean_squared_error(y_test, model_dropped.predict(df_test_dropped[feature_cols_dropped])) ** 0.5)
 
-    assert rmse_dropped < rmse_with_raw * 0.9, f"expected dropping the raw high-cardinality id to reduce test RMSE by >=10% vs keeping it, got dropped={rmse_dropped:.4f} with_raw={rmse_with_raw:.4f}"
+    assert rmse_dropped < rmse_with_raw * 0.9, (
+        f"expected dropping the raw high-cardinality id to reduce test RMSE by >=10% vs keeping it, got dropped={rmse_dropped:.4f} with_raw={rmse_with_raw:.4f}"
+    )
 
 
 def test_drop_raw_after_embedding_keeps_raw_when_derived_missing():
@@ -142,9 +145,13 @@ def test_biz_val_verify_against_matches_naive_default_when_embedding_good():
     safe_test = drop_raw_after_embedding(df_test, raw_to_derived_confirmed_safe)
 
     X_train_safe = pd.get_dummies(safe_train[["x", "good_id_enc", "bad_id_enc", "bad_id"]], columns=["bad_id"])
-    X_test_safe = pd.get_dummies(safe_test[["x", "good_id_enc", "bad_id_enc", "bad_id"]], columns=["bad_id"]).reindex(columns=X_train_safe.columns, fill_value=0)
+    X_test_safe = pd.get_dummies(safe_test[["x", "good_id_enc", "bad_id_enc", "bad_id"]], columns=["bad_id"]).reindex(
+        columns=X_train_safe.columns, fill_value=0
+    )
     model_safe = Ridge(alpha=0.3, random_state=0)
     model_safe.fit(X_train_safe, y_train)
     rmse_safe = float(mean_squared_error(y_test, model_safe.predict(X_test_safe)) ** 0.5)
 
-    assert rmse_safe < rmse_naive * 0.9, f"expected keeping bad_id raw (noise embedding) to beat naive always-drop RMSE by >=10%, got safe={rmse_safe:.4f} naive={rmse_naive:.4f}"
+    assert rmse_safe < rmse_naive * 0.9, (
+        f"expected keeping bad_id raw (noise embedding) to beat naive always-drop RMSE by >=10%, got safe={rmse_safe:.4f} naive={rmse_naive:.4f}"
+    )

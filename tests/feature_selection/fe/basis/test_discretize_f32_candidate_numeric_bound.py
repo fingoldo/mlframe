@@ -7,6 +7,7 @@ of rows -- so a future kernel change that widened it (a selection-altering multi
 The CPU test isolates the exact hazard (f64 edges, f32 vs f64 candidate values) deterministically; a
 GPU-gated test asserts the same bound on the real device kernel when CUDA is present.
 """
+
 import numpy as np
 import pytest
 

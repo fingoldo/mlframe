@@ -4,6 +4,7 @@ Covers empty / all-NaN / mixed-NaN probabilities, boundary probabilities (0/1),
 single-class labels (raises), rare-1pct imbalance, float32 input, and the 2D
 probability-matrix dispatch (positive-class column selection).
 """
+
 from __future__ import annotations
 
 import numpy as np

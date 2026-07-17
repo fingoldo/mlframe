@@ -16,10 +16,10 @@ The gap is at the boundary.
 
 Validated this session against 5 real bugs (wave 12 commit fb52f4c).
 """
+
 from __future__ import annotations
 
 import pathlib
-import re
 
 import pytest
 
@@ -36,13 +36,9 @@ _SRC_ROOT = pathlib.Path(_mlframe.__file__).resolve().parent / "training"
 def _read_phase_train_one_target_combined():
     import pathlib
     import mlframe as _mlframe
-    _core = pathlib.Path(_mlframe.__file__).resolve().parent / "training" / "core"
-    return (
-        (_core / "_phase_train_one_target.py").read_text(encoding="utf-8")
-        + "\n"
-        + (_core / "_phase_train_one_target_body.py").read_text(encoding="utf-8")
-    )
 
+    _core = pathlib.Path(_mlframe.__file__).resolve().parent / "training" / "core"
+    return (_core / "_phase_train_one_target.py").read_text(encoding="utf-8") + "\n" + (_core / "_phase_train_one_target_body.py").read_text(encoding="utf-8")
 
 
 def _read(rel: str) -> str:
@@ -100,45 +96,28 @@ def _read(rel: str) -> str:
 _CONTRACTS = [
     # #1: score_ensemble in the simple per-target ensemble path must thread
     # group_ids + sample_weight.
-    ("core/_phase_train_one_target.py",
-     "group_ids=getattr(ctx, \"group_ids\", None)",
-     "wave 12 #1: simple-path score_ensemble missing group_ids from ctx"),
-    ("core/_phase_train_one_target.py",
-     "sample_weight=_ens_sample_weight",
-     "wave 12 #1: simple-path score_ensemble missing sample_weight from ctx"),
+    ("core/_phase_train_one_target.py", 'group_ids=getattr(ctx, "group_ids", None)', "wave 12 #1: simple-path score_ensemble missing group_ids from ctx"),
+    ("core/_phase_train_one_target.py", "sample_weight=_ens_sample_weight", "wave 12 #1: simple-path score_ensemble missing sample_weight from ctx"),
     # #2: run_dummy_baselines signature + caller must pass group_ids.
-    ("core/_phase_dummy_baselines.py",
-     "group_ids=None",  # signature param
-     "wave 12 #2: run_dummy_baselines must accept group_ids in signature"),
-    ("core/_phase_dummy_baselines.py",
-     "group_ids_train=_gid_train",
-     "wave 12 #2: compute_dummy_baselines call missing group_ids_train"),
-    ("core/_phase_train_one_target.py",
-     "group_ids=getattr(ctx, \"group_ids\", None)",
-     "wave 12 #2: run_dummy_baselines caller missing group_ids=ctx.group_ids"),
+    (
+        "core/_phase_dummy_baselines.py",
+        "group_ids=None",  # signature param
+        "wave 12 #2: run_dummy_baselines must accept group_ids in signature",
+    ),
+    ("core/_phase_dummy_baselines.py", "group_ids_train=_gid_train", "wave 12 #2: compute_dummy_baselines call missing group_ids_train"),
+    ("core/_phase_train_one_target.py", 'group_ids=getattr(ctx, "group_ids", None)', "wave 12 #2: run_dummy_baselines caller missing group_ids=ctx.group_ids"),
     # #3: recurrent-rerun score_ensemble must thread group_ids + sample_weight.
-    ("core/_phase_recurrent.py",
-     "\"group_ids\": getattr(ctx, \"group_ids\", None)",
-     "wave 12 #3: recurrent-rerun score_ensemble missing group_ids"),
-    ("core/_phase_recurrent.py",
-     "\"sample_weight\": _sw_for_target",
-     "wave 12 #3: recurrent-rerun score_ensemble missing sample_weight"),
+    ("core/_phase_recurrent.py", '"group_ids": getattr(ctx, "group_ids", None)', "wave 12 #3: recurrent-rerun score_ensemble missing group_ids"),
+    ("core/_phase_recurrent.py", '"sample_weight": _sw_for_target', "wave 12 #3: recurrent-rerun score_ensemble missing sample_weight"),
     # #4: RecurrentClassifier.fit must thread sample_weight.
-    ("core/_phase_recurrent.py",
-     "_fit_kwargs[\"sample_weight\"] = _sw_for_target",
-     "wave 12 #4: recurrent .fit missing sample_weight propagation"),
+    ("core/_phase_recurrent.py", '_fit_kwargs["sample_weight"] = _sw_for_target', "wave 12 #4: recurrent .fit missing sample_weight propagation"),
     # #5: compute_oof_holdout_predictions must thread time_ordering + sample_weight.
-    ("core/_phase_composite_post.py",
-     "time_ordering=_time_ordering",
-     "wave 12 #5: OOF holdout call missing time_ordering=ctx.timestamps[idx]"),
-    ("core/_phase_composite_post.py",
-     "sample_weight=_sw_for_oof",
-     "wave 12 #5: OOF holdout call missing sample_weight=ctx.sample_weights"),
+    ("core/_phase_composite_post.py", "time_ordering=_time_ordering", "wave 12 #5: OOF holdout call missing time_ordering=ctx.timestamps[idx]"),
+    ("core/_phase_composite_post.py", "sample_weight=_sw_for_oof", "wave 12 #5: OOF holdout call missing sample_weight=ctx.sample_weights"),
 ]
 
 
-@pytest.mark.parametrize("rel,marker,why", _CONTRACTS,
-                         ids=lambda v: v if isinstance(v, str) else None)
+@pytest.mark.parametrize("rel,marker,why", _CONTRACTS, ids=lambda v: v if isinstance(v, str) else None)
 def test_ctx_kwarg_propagates_to_inner_call_site(rel, marker, why):
     """Source-level guard: the marker substring must appear in the named file.
 
@@ -162,7 +141,4 @@ def test_ctx_kwarg_propagates_to_inner_call_site(rel, marker, why):
 def test_meta_test_self_check():
     """Sanity: the contract list isn't empty, otherwise the parametrize gives
     false confidence (zero tests run = zero failures)."""
-    assert len(_CONTRACTS) >= 10, (
-        f"contract table looks short ({len(_CONTRACTS)} entries); wave 12 had 10. "
-        f"Did the constants accidentally get cleared?"
-    )
+    assert len(_CONTRACTS) >= 10, f"contract table looks short ({len(_CONTRACTS)} entries); wave 12 had 10. Did the constants accidentally get cleared?"

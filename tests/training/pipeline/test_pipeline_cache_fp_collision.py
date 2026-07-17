@@ -13,6 +13,7 @@ keys.
 This sensor MUST FAIL on the pre-fix code (collision) and PASS on the
 post-fix code (distinct cache keys).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -58,12 +59,18 @@ def test_pre_pipeline_cache_key_distinguishes_targets_with_shared_boundary_cells
     train_df = pd.DataFrame({"x": np.arange(1000, dtype=np.float64)})
     val_df = pd.DataFrame({"x": np.arange(200, dtype=np.float64)})
     key1 = _pre_pipeline_cache_key(
-        train_df, val_df, pipeline=None,
-        train_target=y1, target_name="y",
+        train_df,
+        val_df,
+        pipeline=None,
+        train_target=y1,
+        target_name="y",
     )
     key2 = _pre_pipeline_cache_key(
-        train_df, val_df, pipeline=None,
-        train_target=y2, target_name="y",
+        train_df,
+        val_df,
+        pipeline=None,
+        train_target=y2,
+        target_name="y",
     )
     assert key1 != key2, (
         "S01: _pre_pipeline_cache_key collides on two distinct targets "
@@ -84,7 +91,7 @@ def test_pre_pipeline_cache_key_distinguishes_numpy_targets_with_shared_boundary
     np_positions = [int(i * (n - 1) / 9) for i in range(10)]
     sampled = set(np_positions)
     diverge_idx = [i for i in range(n) if i not in sampled]
-    flip_slice = diverge_idx[len(diverge_idx) // 3: 2 * len(diverge_idx) // 3]
+    flip_slice = diverge_idx[len(diverge_idx) // 3 : 2 * len(diverge_idx) // 3]
     other[flip_slice] = 1.0 - other[flip_slice]
     for pos in np_positions:
         assert base[pos] == other[pos]
@@ -92,18 +99,20 @@ def test_pre_pipeline_cache_key_distinguishes_numpy_targets_with_shared_boundary
     train_df = pd.DataFrame({"x": np.arange(n, dtype=np.float64)})
     val_df = pd.DataFrame({"x": np.arange(200, dtype=np.float64)})
     key1 = _pre_pipeline_cache_key(
-        train_df, val_df, pipeline=None,
-        train_target=base, target_name="y",
+        train_df,
+        val_df,
+        pipeline=None,
+        train_target=base,
+        target_name="y",
     )
     key2 = _pre_pipeline_cache_key(
-        train_df, val_df, pipeline=None,
-        train_target=other, target_name="y",
+        train_df,
+        val_df,
+        pipeline=None,
+        train_target=other,
+        target_name="y",
     )
-    assert key1 != key2, (
-        "S01: _pre_pipeline_cache_key collides on two distinct numpy "
-        "targets sharing all 10 sampled positions; full-content hash "
-        "required."
-    )
+    assert key1 != key2, "S01: _pre_pipeline_cache_key collides on two distinct numpy targets sharing all 10 sampled positions; full-content hash required."
 
 
 def test_full_target_content_hash_bit_identical_to_tobytes_reference():
@@ -131,10 +140,9 @@ def test_full_target_content_hash_bit_identical_to_tobytes_reference():
         rng.standard_normal((1_000, 6))[:, ::2],  # non-contiguous view
     ]
     for arr in cases:
-        assert _full_target_content_hash(arr) == _reference(arr), (
-            f"digest drift on shape={arr.shape} dtype={arr.dtype}"
-        )
+        assert _full_target_content_hash(arr) == _reference(arr), f"digest drift on shape={arr.shape} dtype={arr.dtype}"
     # Content sensitivity is preserved: a single flipped cell changes the digest.
     a = rng.standard_normal(5_000)
-    b = a.copy(); b[2_500] += 1.0
+    b = a.copy()
+    b[2_500] += 1.0
     assert _full_target_content_hash(a) != _full_target_content_hash(b)

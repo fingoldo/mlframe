@@ -18,13 +18,13 @@ it beats mean / median / per_group_mean. The cross-target verdict
 formatter flags ``MODELS_BARELY_BEAT_TRIVIAL`` when the user's best
 model RMSE is within 1.5x of lag_predict.
 """
+
 from __future__ import annotations
 
 from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
-import pytest
 
 
 def _ar_synthetic_frame(n: int = 2000, seed: int = 0):
@@ -36,9 +36,12 @@ def _ar_synthetic_frame(n: int = 2000, seed: int = 0):
         y[i] = 0.999 * y[i - 1] + rng.normal(scale=1.0)
     y_prev = np.r_[y[0], y[:-1]].astype(np.float64)
     x_noise = rng.normal(size=n).astype(np.float64)
-    df = pd.DataFrame({
-        "TVT_prev": y_prev, "x_noise": x_noise,
-    })
+    df = pd.DataFrame(
+        {
+            "TVT_prev": y_prev,
+            "x_noise": x_noise,
+        }
+    )
     return df, y
 
 
@@ -56,6 +59,7 @@ class TestLagPredictBaseline:
         from mlframe.training.baselines._dummy_baseline_regression import (
             _compute_regression_baselines,
         )
+
         df, y = _ar_synthetic_frame()
         train_X = df.iloc[:1500]
         val_X = df.iloc[1500:1750]
@@ -65,16 +69,20 @@ class TestLagPredictBaseline:
         test_y = y[1750:]
         val_preds, test_preds, extras = _compute_regression_baselines(
             target_name="TVT",
-            train_X=train_X, val_X=val_X, test_X=test_X,
-            train_y=train_y, val_y=val_y, test_y=test_y,
-            timestamps_train=None, timestamps_val=None, timestamps_test=None,
-            cat_features=None, config=_dummy_config(),
+            train_X=train_X,
+            val_X=val_X,
+            test_X=test_X,
+            train_y=train_y,
+            val_y=val_y,
+            test_y=test_y,
+            timestamps_train=None,
+            timestamps_val=None,
+            timestamps_test=None,
+            cat_features=None,
+            config=_dummy_config(),
             target_type="regression",
         )
-        assert "lag_predict" in val_preds, (
-            f"lag_predict baseline missing from val_preds; got keys: "
-            f"{list(val_preds.keys())}"
-        )
+        assert "lag_predict" in val_preds, f"lag_predict baseline missing from val_preds; got keys: {list(val_preds.keys())}"
         assert "lag_predict" in test_preds
         assert extras["lag_predict"]["feature_used"] == "TVT_prev"
 
@@ -84,6 +92,7 @@ class TestLagPredictBaseline:
         from mlframe.training.baselines._dummy_baseline_regression import (
             _compute_regression_baselines,
         )
+
         df, y = _ar_synthetic_frame(n=4000, seed=1)
         train_X = df.iloc[:3000]
         val_X = df.iloc[3000:3500]
@@ -91,29 +100,32 @@ class TestLagPredictBaseline:
         train_y = y[:3000]
         val_y = y[3000:3500]
         test_y = y[3500:]
-        val_preds, test_preds, _extras = _compute_regression_baselines(
+        val_preds, _test_preds, _extras = _compute_regression_baselines(
             target_name="TVT",
-            train_X=train_X, val_X=val_X, test_X=test_X,
-            train_y=train_y, val_y=val_y, test_y=test_y,
-            timestamps_train=None, timestamps_val=None, timestamps_test=None,
-            cat_features=None, config=_dummy_config(),
+            train_X=train_X,
+            val_X=val_X,
+            test_X=test_X,
+            train_y=train_y,
+            val_y=val_y,
+            test_y=test_y,
+            timestamps_train=None,
+            timestamps_val=None,
+            timestamps_test=None,
+            cat_features=None,
+            config=_dummy_config(),
             target_type="regression",
         )
-        rmse_lag = float(np.sqrt(np.mean(
-            (val_preds["lag_predict"] - val_y) ** 2
-        )))
-        rmse_mean = float(np.sqrt(np.mean(
-            (val_preds["mean"] - val_y) ** 2
-        )))
+        rmse_lag = float(np.sqrt(np.mean((val_preds["lag_predict"] - val_y) ** 2)))
+        rmse_mean = float(np.sqrt(np.mean((val_preds["mean"] - val_y) ** 2)))
         assert rmse_lag < 0.1 * rmse_mean, (
-            f"lag_predict ({rmse_lag:.3f}) should crush mean ({rmse_mean:.3f}) "
-            "on AR(1) data with autocorr=0.999; expected >=10x improvement"
+            f"lag_predict ({rmse_lag:.3f}) should crush mean ({rmse_mean:.3f}) on AR(1) data with autocorr=0.999; expected >=10x improvement"
         )
 
     def test_lag_predict_skipped_when_no_lag_column(self) -> None:
         from mlframe.training.baselines._dummy_baseline_regression import (
             _compute_regression_baselines,
         )
+
         rng = np.random.default_rng(0)
         n = 1000
         y = rng.normal(size=n)
@@ -125,10 +137,17 @@ class TestLagPredictBaseline:
         test_y = y[900:]
         val_preds, _test_preds, _extras = _compute_regression_baselines(
             target_name="SomeOtherTarget",
-            train_X=train_X, val_X=val_X, test_X=test_X,
-            train_y=y[:800], val_y=val_y, test_y=test_y,
-            timestamps_train=None, timestamps_val=None, timestamps_test=None,
-            cat_features=None, config=_dummy_config(),
+            train_X=train_X,
+            val_X=val_X,
+            test_X=test_X,
+            train_y=y[:800],
+            val_y=val_y,
+            test_y=test_y,
+            timestamps_train=None,
+            timestamps_val=None,
+            timestamps_test=None,
+            cat_features=None,
+            config=_dummy_config(),
             target_type="regression",
         )
         assert "lag_predict" not in val_preds
@@ -138,6 +157,7 @@ class TestLagPredictBaseline:
         from mlframe.training.baselines._dummy_baseline_regression import (
             _compute_regression_baselines,
         )
+
         df, y = _ar_synthetic_frame()
         df = df.rename(columns={"TVT_prev": "TVT_lag_1"})
         train_X = df.iloc[:1500]
@@ -145,10 +165,17 @@ class TestLagPredictBaseline:
         test_X = df.iloc[1750:]
         val_preds, _test_preds, extras = _compute_regression_baselines(
             target_name="TVT",
-            train_X=train_X, val_X=val_X, test_X=test_X,
-            train_y=y[:1500], val_y=y[1500:1750], test_y=y[1750:],
-            timestamps_train=None, timestamps_val=None, timestamps_test=None,
-            cat_features=None, config=_dummy_config(),
+            train_X=train_X,
+            val_X=val_X,
+            test_X=test_X,
+            train_y=y[:1500],
+            val_y=y[1500:1750],
+            test_y=y[1750:],
+            timestamps_train=None,
+            timestamps_val=None,
+            timestamps_test=None,
+            cat_features=None,
+            config=_dummy_config(),
             target_type="regression",
         )
         assert "lag_predict" in val_preds

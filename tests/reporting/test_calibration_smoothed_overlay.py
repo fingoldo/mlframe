@@ -10,11 +10,11 @@ from __future__ import annotations
 import os
 
 import numpy as np
-import pytest
 
 from mlframe.metrics.calibration._calibration_plot import fast_calibration_binning
 from mlframe.reporting.charts.calibration import (
-    build_calibration_spec, smoothed_reliability_curve,
+    build_calibration_spec,
+    smoothed_reliability_curve,
 )
 from mlframe.reporting.output import parse_plot_output_dsl
 from mlframe.reporting.renderers import render_and_save
@@ -67,13 +67,13 @@ class TestSmoothedOverlayUnit:
     def test_overlay_absent_when_toggle_off(self):
         y, score, _ = _overconfident(n=5000)
         fp, ftr, hits = fast_calibration_binning(y, score, nbins=15)
-        spec = build_calibration_spec(fp, ftr, hits, raw_probs=score, raw_labels=y,
-                                      reliability_smoothed=False)
+        spec = build_calibration_spec(fp, ftr, hits, raw_probs=score, raw_labels=y, reliability_smoothed=False)
         assert spec.panels[0][0].overlay_line is None
 
     def test_overlay_absent_when_no_raw(self):
         spec = build_calibration_spec(
-            np.linspace(0.05, 0.95, 10), np.linspace(0.0, 1.0, 10),
+            np.linspace(0.05, 0.95, 10),
+            np.linspace(0.0, 1.0, 10),
             np.full(10, 500),
         )
         assert spec.panels[0][0].overlay_line is None
@@ -109,14 +109,14 @@ class TestSmoothedOverlayBizValue:
         at a clear margin so a regression that disables/degrades isotonic trips the assertion."""
         y, score, k = _overconfident(n=40000)
         truth = _true_map(score, k)
-        fp, ftr, hits = fast_calibration_binning(y, score, nbins=15)
+        fp, ftr, _hits = fast_calibration_binning(y, score, nbins=15)
 
         binned_err = float(np.mean(np.abs(_binned_map_at(score, fp, ftr) - truth)))
 
-        grid, cal = smoothed_reliability_curve(score, y)
+        _grid, _cal = smoothed_reliability_curve(score, y)
         from sklearn.isotonic import IsotonicRegression
-        smoothed_err = float(np.mean(np.abs(
-            IsotonicRegression(out_of_bounds="clip", y_min=0.0, y_max=1.0).fit(score, y).predict(score) - truth)))
+
+        smoothed_err = float(np.mean(np.abs(IsotonicRegression(out_of_bounds="clip", y_min=0.0, y_max=1.0).fit(score, y).predict(score) - truth)))
 
         assert smoothed_err < binned_err, f"smoothed {smoothed_err:.4f} !< binned {binned_err:.4f}"
         assert smoothed_err <= 0.5 * binned_err, f"smoothed {smoothed_err:.4f} should be <=50% of binned {binned_err:.4f}"
@@ -131,7 +131,7 @@ class TestSmoothedOverlayBizValue:
 
         binned_errs, smoothed_errs = [], []
         for nbins in (5, 10, 20):
-            fp, ftr, hits = fast_calibration_binning(y, score, nbins=nbins)
+            fp, ftr, _hits = fast_calibration_binning(y, score, nbins=nbins)
             binned_errs.append(float(np.mean(np.abs(_binned_map_at(score, fp, ftr) - truth))))
             # The smoothed fit ignores nbins; recompute to confirm stability against any incidental coupling.
             s_at = IsotonicRegression(out_of_bounds="clip", y_min=0.0, y_max=1.0).fit(score, y).predict(score)

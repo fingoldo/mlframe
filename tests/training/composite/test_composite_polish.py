@@ -13,6 +13,7 @@
 - Multilabel regression target rejected with "multilabel target
   unsupported" reason -- explicit metadata, not silent skip.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -55,7 +56,7 @@ class TestDeriveSeeds:
         seeds = derive_seeds(42, ["a", "b", "c"])
         for v in seeds.values():
             assert isinstance(v, int)
-            assert 0 <= v < 2 ** 32
+            assert 0 <= v < 2**32
 
     def test_empty_components(self) -> None:
         assert derive_seeds(42, []) == {}

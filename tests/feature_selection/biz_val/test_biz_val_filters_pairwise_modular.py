@@ -15,10 +15,11 @@ Contracts pinned (measured, never xfail):
   skipped (logged); selection still completes.
 * pickle / clone round-trip recipes + ctor params.
 """
+
 from __future__ import annotations
 
 import logging
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
 import numpy as np
 import pandas as pd
@@ -31,7 +32,6 @@ from sklearn.model_selection import train_test_split
 
 from mlframe.feature_selection.filters._pairwise_modular_fe import (
     apply_pairwise_modular,
-    build_pairwise_modular_recipe,
     detect_pairwise_modular,
     hybrid_pairwise_modular_fe_with_recipes,
 )
@@ -40,8 +40,8 @@ from mlframe.feature_selection.filters.engineered_recipes import apply_recipe
 SEEDS = (1, 7, 13, 42, 101)
 
 
-
 pytestmark = pytest.mark.timeout(60)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop)
+
 
 def _build_pair_add_mod(seed: int, n: int = 4000, m: int = 7):
     """y = ((a+b) mod m) >= m//2, with a weakly-informative raw col so MRMR screening has an anchor and
@@ -50,10 +50,15 @@ def _build_pair_add_mod(seed: int, n: int = 4000, m: int = 7):
     a = rng.integers(0, 100, n)
     b = rng.integers(0, 100, n)
     y = ((a + b) % m >= (m // 2)).astype(int)
-    X = pd.DataFrame({
-        "a": a, "b": b, "extra": (a % 2),
-        "n0": rng.integers(0, 50, n), "n1": rng.integers(0, 50, n),
-    })
+    X = pd.DataFrame(
+        {
+            "a": a,
+            "b": b,
+            "extra": (a % 2),
+            "n0": rng.integers(0, 50, n),
+            "n1": rng.integers(0, 50, n),
+        }
+    )
     return X, y
 
 
@@ -68,9 +73,7 @@ class TestPrototypeDirect:
         hits = detect_pairwise_modular(X, y, seed=7)
         assert hits, "no responded hit on (a+b) mod 7."
         top = hits[0]
-        assert top["modulus"] % 7 == 0 or top["modulus"] == 7, (
-            f"detected modulus {top['modulus']} not a multiple of true 7."
-        )
+        assert top["modulus"] % 7 == 0 or top["modulus"] == 7, f"detected modulus {top['modulus']} not a multiple of true 7."
         assert top["margin"] >= 0.20, f"MI lift {top['margin']} below the measured ~0.6 floor."
 
     def test_silent_on_smooth_control(self):
@@ -91,7 +94,7 @@ class TestPrototypeDirect:
 class TestRecipeReplay:
     def test_recipe_replay_bit_identical(self):
         X, y = _build_pair_add_mod(1)
-        appended, recipes = hybrid_pairwise_modular_fe_with_recipes(X, y, seed=1)
+        _appended, recipes = hybrid_pairwise_modular_fe_with_recipes(X, y, seed=1)
         assert recipes, "no pairwise-modular recipes emitted."
         for r in recipes:
             direct = apply_pairwise_modular(X, r.extra["op"], r.src_names, r.extra["modulus"])
@@ -115,7 +118,7 @@ class TestRecipeReplay:
         _, recipes = hybrid_pairwise_modular_fe_with_recipes(X, y, seed=1)
         assert recipes
         for r in recipes:
-            r2 = pickle.loads(pickle.dumps(r))
+            r2 = pickle.loads(pickle.dumps(r))  # nosec B301 -- round-trip of a locally-created, trusted object
             assert r2 == r, f"recipe {r.name!r} != its pickle round-trip."
             np.testing.assert_array_equal(apply_recipe(r, X), apply_recipe(r2, X))
 
@@ -129,24 +132,22 @@ class TestMRMRIntegration:
     def test_opt_out_is_no_op(self):
         """The opt-out (fe_pairwise_modular_enable=False) must stay a byte-identical no-op for legacy/replay."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _build_pair_add_mod(42, n=2000)
         m = MRMR(fe_pairwise_modular_enable=False, max_runtime_mins=0.5)
         m.fit(X, pd.Series(y, name="y"))
         pm = list(getattr(m, "pairwise_modular_features_", []) or [])
         assert pm == [], f"pairwise-modular added columns with the flag disabled: {pm}"
         out = m.transform(X.iloc[:300])
-        assert not any(str(c).startswith("pmod_") for c in out.columns), (
-            "no pmod column may appear in transform output when the flag is OFF."
-        )
+        assert not any(str(c).startswith("pmod_") for c in out.columns), "no pmod column may appear in transform output when the flag is OFF."
 
     def test_default_on_detects_modular_signal(self):
         """The DEFAULT (no flag passed) is now ON: a fresh MRMR recovers (a+b) mod 7 with no explicit flag."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _build_pair_add_mod(7, n=4000)
         m = MRMR(max_runtime_mins=2)
-        assert bool(getattr(m, "fe_pairwise_modular_enable", False)) is True, (
-            "fe_pairwise_modular_enable must default to True (the validated ON default)."
-        )
+        assert bool(getattr(m, "fe_pairwise_modular_enable", False)) is True, "fe_pairwise_modular_enable must default to True (the validated ON default)."
         m.fit(X, pd.Series(y, name="y"))
         out = m.transform(X.iloc[:500])
         pmod_cols = [c for c in out.columns if str(c).startswith("pmod_")]
@@ -154,6 +155,7 @@ class TestMRMRIntegration:
 
     def test_enabled_selects_modular_feature_and_replays(self):
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _build_pair_add_mod(7, n=4000)
         m = MRMR(fe_pairwise_modular_enable=True, max_runtime_mins=2)
         m.fit(X, pd.Series(y, name="y"))
@@ -178,10 +180,8 @@ class TestMRMRIntegration:
         y = ((a + b) % 7 >= 3).astype(int)
         X = pd.DataFrame(cols)
         with caplog.at_level(logging.INFO, logger="mlframe.feature_selection.filters._pairwise_modular_fe"):
-            appended, recipes = hybrid_pairwise_modular_fe_with_recipes(X, y, seed=7)
-        assert any("PAIRS-ONLY" in r.message for r in caplog.records), (
-            "expected a pairs-only budget log line for 25 int columns."
-        )
+            appended, _recipes = hybrid_pairwise_modular_fe_with_recipes(X, y, seed=7)
+        assert any("PAIRS-ONLY" in r.message for r in caplog.records), "expected a pairs-only budget log line for 25 int columns."
         # Pairs-only still completes and recovers the pair-modular signal.
         assert appended, "pairs-only sweep produced nothing on a (c0+c1) mod 7 target."
 
@@ -201,6 +201,7 @@ class TestMRMRIntegration:
 
     def test_clone_preserves_params(self):
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         m = MRMR(
             fe_pairwise_modular_enable=True,
             fe_pairwise_modular_top_k=3,
@@ -227,9 +228,14 @@ class TestBizValue:
         on, off = [], []
         for seed in (1, 7, 42):
             from mlframe.feature_selection.filters.mrmr import MRMR
+
             X, y = _build_pair_add_mod(seed, n=3000)
             Xtr, Xte, ytr, yte = train_test_split(
-                X, y, test_size=0.3, random_state=seed, stratify=y,
+                X,
+                y,
+                test_size=0.3,
+                random_state=seed,
+                stratify=y,
             )
             for flag, store in ((True, on), (False, off)):
                 m = MRMR(fe_pairwise_modular_enable=flag, max_runtime_mins=1)
@@ -239,10 +245,7 @@ class TestBizValue:
                 clf = LogisticRegression(max_iter=2000).fit(Ftr, ytr)
                 store.append(roc_auc_score(yte, clf.predict_proba(Fte)[:, 1]))
         lift = float(np.mean(on) - np.mean(off))
-        assert lift >= 0.40, (
-            f"pairwise-modular AUC lift {lift:.3f} below the +0.40 floor "
-            f"(ON {np.mean(on):.3f} vs OFF {np.mean(off):.3f})."
-        )
+        assert lift >= 0.40, f"pairwise-modular AUC lift {lift:.3f} below the +0.40 floor (ON {np.mean(on):.3f} vs OFF {np.mean(off):.3f})."
 
 
 class TestScanOptimizationEquivalence:
@@ -254,27 +257,30 @@ class TestScanOptimizationEquivalence:
     def _load_reference_scan():
         """Load the git-HEAD reference ``cheap_modular_scan`` as a standalone module to compare against the optimized one.
         Skips if HEAD already contains the optimization (e.g. running post-merge) so the test stays meaningful, not flaky."""
-        import subprocess
+        import subprocess  # nosec B404 -- test-only local trusted subprocess invocation (fixed argv, no shell, no untrusted input)
         import types
         from pathlib import Path
 
         repo = Path(__file__).resolve().parents[2]
-        src = subprocess.run(
+        src = subprocess.run(  # nosec B603 B607 -- fixed local argv (sys.executable/git + literal args), not a partial/searched path from untrusted input, no shell
             ["git", "show", "HEAD:src/mlframe/feature_selection/filters/_pairwise_modular_fe.py"],
-            capture_output=True, text=True, cwd=str(repo),
+            capture_output=True,
+            text=True,
+            cwd=str(repo),
         ).stdout
         if not src.strip():
             pytest.skip("could not load HEAD reference scan (no git / detached source)")
         ref = types.ModuleType("_ref_pwm_test")
         ref.__package__ = "mlframe.feature_selection.filters"
         ref.__name__ = "mlframe.feature_selection.filters._pairwise_modular_fe"
-        exec(compile(src, "ref_pairwise_modular_fe.py", "exec"), ref.__dict__)
+        exec(compile(src, "ref_pairwise_modular_fe.py", "exec"), ref.__dict__)  # nosec B102 -- exec of locally-authored trusted source (repo module text or a literal test string), never untrusted input
         return ref
 
     @staticmethod
     def _tp_frame(seed, n=2000):
         rng = np.random.default_rng(seed)
-        a = rng.integers(0, 100, n); b = rng.integers(0, 100, n)
+        a = rng.integers(0, 100, n)
+        b = rng.integers(0, 100, n)
         y = ((a + b) % 7 >= 3).astype(int)
         cols = {"a": a, "b": b}
         for i in range(13):
@@ -314,7 +320,6 @@ class TestScanOptimizationEquivalence:
     def test_optimized_scan_is_measurably_faster(self):
         """Floor 1.6x; measured ~2.1-3.4x at p in {15,30} n in {2k,20k}. Catches a regression that re-introduces the
         per-residue and per-combiner-null MI calls (e.g. an un-batched grid or an always-on null)."""
-        import time
 
         from mlframe.feature_selection.filters._pairwise_modular_fe import cheap_modular_scan
 
@@ -322,7 +327,8 @@ class TestScanOptimizationEquivalence:
         if "_residue_grid_mi" in ref.__dict__:
             pytest.skip("HEAD already contains the optimized scan; speedup already realized")
         X, y = self._tp_frame(0, n=2000)
-        ref.cheap_modular_scan(X, y); cheap_modular_scan(X, y)  # warm JIT
+        ref.cheap_modular_scan(X, y)
+        cheap_modular_scan(X, y)  # warm JIT
         rt = min(self._time(ref.cheap_modular_scan, X, y) for _ in range(3))
         nt = min(self._time(cheap_modular_scan, X, y) for _ in range(3))
         speedup = rt / nt
@@ -368,11 +374,21 @@ class TestPairwiseModularTargetTypeRobustness:
         import time
         from mlframe.feature_selection.filters.mrmr import MRMR
 
-        m = MRMR(verbose=0, interactions_max_order=1, fe_max_steps=0, dcd_enable=False,
-                 cluster_aggregate_enable=False, build_friend_graph=False, cat_fe_config=None,
-                 quantization_nbins=10, random_seed=0,
-                 fe_pairwise_modular_enable=True, fe_integer_lattice_enable=False,
-                 fe_row_argmax_enable=False, fe_conditional_gate_enable=False)
+        m = MRMR(
+            verbose=0,
+            interactions_max_order=1,
+            fe_max_steps=0,
+            dcd_enable=False,
+            cluster_aggregate_enable=False,
+            build_friend_graph=False,
+            cat_fe_config=None,
+            quantization_nbins=10,
+            random_seed=0,
+            fe_pairwise_modular_enable=True,
+            fe_integer_lattice_enable=False,
+            fe_row_argmax_enable=False,
+            fe_conditional_gate_enable=False,
+        )
         assert bool(m.fe_pairwise_modular_enable) is True
         t0 = time.time()
         m.fit(df, y)
@@ -412,6 +428,7 @@ class TestPairwiseModularTargetTypeRobustness:
 
 if __name__ == "__main__":
     import sys
+
     sys.exit(pytest.main([__file__, "-v", "-s", "--no-cov"]))
 
 

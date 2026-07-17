@@ -5,6 +5,7 @@ Covers:
     - SKEW-RECURRENT (``_apply_recurrent_to_ensemble`` idempotent helper extracted).
     - DSET-REUSE-NO-PP-KEY (cache key folds pp_name so two pre_pipelines don't collide).
 """
+
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -21,6 +22,7 @@ import pytest
 def test_validate_input_columns_prefers_raw_input_columns():
     pl = pytest.importorskip("polars")
     from mlframe.training.core._misc_helpers import _validate_input_columns_against_metadata
+
     df = pl.DataFrame({"a": [1, 2], "b": [3, 4]})
     metadata = {
         "raw_input_columns": ["a", "b"],
@@ -36,6 +38,7 @@ def test_validate_input_columns_prefers_raw_input_columns():
 def test_validate_input_columns_falls_back_to_legacy_keys():
     pl = pytest.importorskip("polars")
     from mlframe.training.core._misc_helpers import _validate_input_columns_against_metadata
+
     df = pl.DataFrame({"a": [1, 2], "b": [3, 4]})
     # No raw_input_columns -> input_columns wins.
     out = _validate_input_columns_against_metadata(df, {"input_columns": ["a", "b"]}, verbose=False)
@@ -68,12 +71,18 @@ def test_apply_recurrent_to_ensemble_is_importable_and_idempotent_on_empty():
     target_values = np.arange(3)
     prior = {"prior_method": "result"}
     res1 = _apply_recurrent_to_ensemble(
-        ctx=ctx, ensemble_dict=prior, target_type="regression",
-        target_name="y", target_values=target_values,
+        ctx=ctx,
+        ensemble_dict=prior,
+        target_type="regression",
+        target_name="y",
+        target_values=target_values,
     )
     res2 = _apply_recurrent_to_ensemble(
-        ctx=ctx, ensemble_dict=prior, target_type="regression",
-        target_name="y", target_values=target_values,
+        ctx=ctx,
+        ensemble_dict=prior,
+        target_type="regression",
+        target_name="y",
+        target_values=target_values,
     )
     # Idempotent: both calls return the same (unchanged) prior dict because there are <2 members.
     assert res1 is prior
@@ -87,6 +96,7 @@ def test_apply_recurrent_to_ensemble_is_importable_and_idempotent_on_empty():
 
 def test_dataset_reuse_cache_key_distinguishes_pp_names():
     from mlframe.training.core._phase_train_one_target import _dataset_reuse_cache_key
+
     k_a = _dataset_reuse_cache_key("xgb", "MRMR")
     k_b = _dataset_reuse_cache_key("xgb", "ordinary")
     assert k_a != k_b
@@ -99,6 +109,7 @@ def test_dataset_reuse_capture_and_restore_round_trip():
         _capture_dataset_reuse_cache,
         _restore_dataset_reuse_cache,
     )
+
     ctx = SimpleNamespace(artifacts={})
 
     class _Tpl:

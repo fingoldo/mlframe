@@ -7,6 +7,7 @@ source column engineered so the FE transform recovers a target-predictive signal
 floor. This sensor builds the frame + MRMR kwargs exactly as the suite does and asserts the kinds emit surviving
 engineered columns end-to-end -- a future regression that re-collapses the kinds (or breaks the wiring) fails here.
 """
+
 from __future__ import annotations
 
 import inspect

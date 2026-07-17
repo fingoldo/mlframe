@@ -7,6 +7,7 @@ and per-strategy native multiclass dispatch (CB, XGB, LGB).
 End-to-end suite tests live in test_multiclass_classification_e2e.py once the
 plumbing is wired through `train_mlframe_models_suite`.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -21,7 +22,6 @@ from mlframe.training.helpers import (
     _canonical_predict_proba_shape,
     _predict_from_probs,
     _classif_objective_kwargs,
-    _maybe_wrap_multilabel,
     _compute_chain_orders,
     get_training_configs,
 )
@@ -62,8 +62,7 @@ def test_target_types_mutual_exclusion():
     (output shape (N, K)); ``is_regression`` stays narrow (single-target only)
     so existing single-target gates keep firing correctly."""
     for tt in TargetTypes:
-        flags = [tt.is_binary, tt.is_regression, tt.is_multi_target_regression,
-                 tt.is_multiclass, tt.is_multilabel, tt.is_ranking, tt.is_quantile]
+        flags = [tt.is_binary, tt.is_regression, tt.is_multi_target_regression, tt.is_multiclass, tt.is_multilabel, tt.is_ranking, tt.is_quantile]
         assert sum(flags) == 1, f"{tt!r}: expected exactly 1 flag True, got {flags}"
 
 
@@ -105,7 +104,7 @@ def test_canonical_constant_label_column_emits_zeros():
     label, only class 0 in training), canonicalizer must emit zeros not crash."""
     per_label = [
         np.array([[0.7, 0.3], [0.4, 0.6]]),  # normal binary
-        np.array([[1.0], [1.0]]),             # constant — only class 0
+        np.array([[1.0], [1.0]]),  # constant — only class 0
     ]
     out = _canonical_predict_proba_shape(per_label)
     assert out.shape == (2, 2)
@@ -144,7 +143,8 @@ def test_predict_from_probs_multilabel_scalar_threshold():
 def test_predict_from_probs_multilabel_per_label_threshold():
     probs = np.array([[0.6, 0.3, 0.7]])
     out = _predict_from_probs(
-        probs, TargetTypes.MULTILABEL_CLASSIFICATION,
+        probs,
+        TargetTypes.MULTILABEL_CLASSIFICATION,
         threshold=np.array([0.5, 0.2, 0.8]),
     )
     np.testing.assert_array_equal(out, [[1, 1, 0]])
@@ -168,26 +168,32 @@ def test_predict_from_probs_regression_raises():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("flavor,expected", [
-    ("catboost", {}),
-    ("xgboost", {"objective": "binary:logistic"}),
-    ("lightgbm", {"objective": "binary"}),
-    ("hgb", {}),
-    ("linear", {}),
-])
+@pytest.mark.parametrize(
+    "flavor,expected",
+    [
+        ("catboost", {}),
+        ("xgboost", {"objective": "binary:logistic"}),
+        ("lightgbm", {"objective": "binary"}),
+        ("hgb", {}),
+        ("linear", {}),
+    ],
+)
 def test_classif_kwargs_binary(flavor, expected):
     assert _classif_objective_kwargs(flavor, TargetTypes.BINARY_CLASSIFICATION, n_classes=2) == expected
 
 
-@pytest.mark.parametrize("flavor,expected_keys", [
-    ("catboost", {"loss_function"}),
-    ("xgboost", {"objective", "num_class"}),
-    ("lightgbm", {"objective", "num_class"}),
-    ("hgb", set()),
-    # ``multi_class`` kwarg was removed in sklearn 1.8 (LogisticRegression
-    # auto-detects multi-class from y since 1.5); only ``solver`` remains.
-    ("linear", {"solver"}),
-])
+@pytest.mark.parametrize(
+    "flavor,expected_keys",
+    [
+        ("catboost", {"loss_function"}),
+        ("xgboost", {"objective", "num_class"}),
+        ("lightgbm", {"objective", "num_class"}),
+        ("hgb", set()),
+        # ``multi_class`` kwarg was removed in sklearn 1.8 (LogisticRegression
+        # auto-detects multi-class from y since 1.5); only ``solver`` remains.
+        ("linear", {"solver"}),
+    ],
+)
 def test_classif_kwargs_multiclass(flavor, expected_keys):
     out = _classif_objective_kwargs(flavor, TargetTypes.MULTICLASS_CLASSIFICATION, n_classes=5)
     assert set(out.keys()) == expected_keys
@@ -206,13 +212,16 @@ def test_classif_kwargs_multilabel_cb_native_others_empty():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("strategy_cls,native_mc,native_ml", [
-    (CatBoostStrategy, True, True),
-    (XGBoostStrategy, True, False),
-    (TreeModelStrategy, True, False),  # LGB
-    (HGBStrategy, True, False),
-    (LinearModelStrategy, True, False),
-])
+@pytest.mark.parametrize(
+    "strategy_cls,native_mc,native_ml",
+    [
+        (CatBoostStrategy, True, True),
+        (XGBoostStrategy, True, False),
+        (TreeModelStrategy, True, False),  # LGB
+        (HGBStrategy, True, False),
+        (LinearModelStrategy, True, False),
+    ],
+)
 def test_strategy_native_flags(strategy_cls, native_mc, native_ml):
     s = strategy_cls()
     assert s.supports_native_multiclass is native_mc
@@ -242,8 +251,10 @@ def test_get_training_configs_binary_default_unchanged():
 
 def test_get_training_configs_multiclass_injects_objectives():
     c = get_training_configs(
-        iterations=10, early_stopping_rounds=2,
-        target_type=TargetTypes.MULTICLASS_CLASSIFICATION, n_classes=5,
+        iterations=10,
+        early_stopping_rounds=2,
+        target_type=TargetTypes.MULTICLASS_CLASSIFICATION,
+        n_classes=5,
     )
     assert c.XGB_GENERAL_CLASSIF["objective"] == "multi:softprob"
     assert c.XGB_GENERAL_CLASSIF["num_class"] == 5
@@ -254,8 +265,10 @@ def test_get_training_configs_multiclass_injects_objectives():
 
 def test_get_training_configs_multilabel_cb_only_native():
     c = get_training_configs(
-        iterations=10, early_stopping_rounds=2,
-        target_type=TargetTypes.MULTILABEL_CLASSIFICATION, n_classes=3,
+        iterations=10,
+        early_stopping_rounds=2,
+        target_type=TargetTypes.MULTILABEL_CLASSIFICATION,
+        n_classes=3,
     )
     # CB native gets MultiLogloss
     assert c.CB_CLASSIF["loss_function"] == "MultiLogloss"
@@ -278,11 +291,13 @@ def test_compute_chain_orders_random():
 
 def test_compute_chain_orders_by_frequency():
     """Rare-first ordering."""
-    y = np.array([
-        [1, 0, 0],
-        [1, 0, 1],
-        [1, 1, 1],
-    ])  # label freq: [3, 1, 2]
+    y = np.array(
+        [
+            [1, 0, 0],
+            [1, 0, 1],
+            [1, 1, 1],
+        ]
+    )  # label freq: [3, 1, 2]
     orders = _compute_chain_orders(n_labels=3, n_chains=2, order_strategy="by_frequency", y=y)
     assert orders[0].tolist() == [1, 2, 0]
 

@@ -5,6 +5,7 @@ cluster (the Home Credit ``neighbors_target_mean_500`` / Optiver stock-id-simila
 k-nearest-neighbor mean of the target should recover each row's true cluster mean far better than a single
 global-mean baseline. Also verifies Mode A (OOF, X_query=None) never lets a row see its own target value.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -28,7 +29,13 @@ def test_biz_val_neighbor_aggregate_features_beats_global_mean_baseline():
     splitter = KFold(n_splits=5, shuffle=True, random_state=0)
 
     feats = compute_neighbor_aggregate_features(
-        X, {"y": y}, X_query=None, splitter=splitter, seed=0, k_values=(10, 20), stats=("mean",),
+        X,
+        {"y": y},
+        X_query=None,
+        splitter=splitter,
+        seed=0,
+        k_values=(10, 20),
+        stats=("mean",),
     )
     nbr_pred = feats["nbr_y_k20_mean"].to_numpy()
 
@@ -36,7 +43,9 @@ def test_biz_val_neighbor_aggregate_features_beats_global_mean_baseline():
     mse_global = float(np.mean((y.mean() - y) ** 2))
     improvement = 1.0 - mse_neighbor / mse_global
 
-    assert improvement > 0.6, f"expected >60% MSE reduction vs. global-mean baseline, got {improvement:.4f} (neighbor={mse_neighbor:.2f}, global={mse_global:.2f})"
+    assert improvement > 0.6, (
+        f"expected >60% MSE reduction vs. global-mean baseline, got {improvement:.4f} (neighbor={mse_neighbor:.2f}, global={mse_global:.2f})"
+    )
 
 
 def test_neighbor_aggregate_features_multiple_agg_columns_and_stats():
@@ -45,7 +54,13 @@ def test_neighbor_aggregate_features_multiple_agg_columns_and_stats():
     splitter = KFold(n_splits=3, shuffle=True, random_state=1)
 
     feats = compute_neighbor_aggregate_features(
-        X, {"y": y, "y2": second_col}, X_query=None, splitter=splitter, seed=1, k_values=(5, 10), stats=("mean", "std"),
+        X,
+        {"y": y, "y2": second_col},
+        X_query=None,
+        splitter=splitter,
+        seed=1,
+        k_values=(5, 10),
+        stats=("mean", "std"),
     )
     expected_cols = {f"nbr_{col}_k{k}_{stat}" for col in ("y", "y2") for k in (5, 10) for stat in ("mean", "std")}
     assert set(feats.columns) == expected_cols
@@ -90,8 +105,15 @@ def test_biz_val_neighbor_aggregate_features_distance_weighted_beats_uniform_mea
     splitter = KFold(n_splits=5, shuffle=True, random_state=3)
 
     feats = compute_neighbor_aggregate_features(
-        X, {"y": y}, X_query=None, splitter=splitter, seed=3, k_values=(40,), stats=("mean",),
-        distance_weighted=True, standardize=False,
+        X,
+        {"y": y},
+        X_query=None,
+        splitter=splitter,
+        seed=3,
+        k_values=(40,),
+        stats=("mean",),
+        distance_weighted=True,
+        standardize=False,
     )
     uniform_pred = feats["nbr_y_k40_mean"].to_numpy()
     weighted_pred = feats["nbr_y_k40_wmean"].to_numpy()
@@ -114,10 +136,22 @@ def test_neighbor_aggregate_features_distance_weighted_default_off_is_bit_identi
     splitter_b = KFold(n_splits=4, shuffle=True, random_state=4)
 
     feats_default = compute_neighbor_aggregate_features(
-        X, {"y": y}, X_query=None, splitter=splitter_a, seed=4, k_values=(5, 10), stats=("mean", "std"),
+        X,
+        {"y": y},
+        X_query=None,
+        splitter=splitter_a,
+        seed=4,
+        k_values=(5, 10),
+        stats=("mean", "std"),
     )
     feats_explicit_off = compute_neighbor_aggregate_features(
-        X, {"y": y}, X_query=None, splitter=splitter_b, seed=4, k_values=(5, 10), stats=("mean", "std"),
+        X,
+        {"y": y},
+        X_query=None,
+        splitter=splitter_b,
+        seed=4,
+        k_values=(5, 10),
+        stats=("mean", "std"),
         distance_weighted=False,
     )
 

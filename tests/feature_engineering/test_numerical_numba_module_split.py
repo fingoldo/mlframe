@@ -8,6 +8,7 @@ NUMBA_NJIT_PARAMS mirrored on the sibling; _EMPTY_FLOAT32 imported
 back so the parent's compute_mutual_info_regression default arg
 resolves.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -19,6 +20,7 @@ def test_moved_symbols_still_importable() -> None:
         _make_compute_moments_slope_mi,
         compute_moments_slope_mi,
     )
+
     for fn in (
         compute_numerical_aggregates_numba,
         _make_compute_moments_slope_mi,
@@ -39,6 +41,7 @@ def test_other_numerical_api_still_importable() -> None:
         compute_nunique_modes_quantiles_numpy,
         rolling_moving_average,
     )
+
     for fn in (
         compute_numaggs,
         get_numaggs_names,
@@ -62,5 +65,6 @@ def test_facade_below_1k_line_threshold() -> None:
 
 def test_sibling_module_identity() -> None:
     from mlframe.feature_engineering import numerical, _numerical_numba
+
     assert numerical.compute_numerical_aggregates_numba is _numerical_numba.compute_numerical_aggregates_numba
     assert numerical.compute_moments_slope_mi is _numerical_numba.compute_moments_slope_mi

@@ -1,5 +1,6 @@
 """biz_value: the composite ranker beats base-only on NDCG@k when a residual
 feature explains the within-group fine ordering the base score gets wrong."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -33,8 +34,7 @@ def _split(X, y, g, frac=0.6):
     train_g, test_g = set(gids[:cut].tolist()), set(gids[cut:].tolist())
     tr = np.array([gi in train_g for gi in g])
     te = np.array([gi in test_g for gi in g])
-    return (X[tr].reset_index(drop=True), y[tr], g[tr],
-            X[te].reset_index(drop=True), y[te], g[te])
+    return (X[tr].reset_index(drop=True), y[tr], g[tr], X[te].reset_index(drop=True), y[te], g[te])
 
 
 def test_biz_val_composite_ranking_beats_base_only_lambdarank():

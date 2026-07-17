@@ -1,8 +1,8 @@
 """Regression tests for StabilityMRMR support_ normalisation and threshold FP-robustness."""
+
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from mlframe.feature_selection.filters.stability import StabilityMRMR, _support_to_indices
 
@@ -88,6 +88,7 @@ def test_threshold_exactly_at_fraction_is_robust_to_float_rounding():
     # Feature 0 is selected in 20/20 = 1.0 >= 0.6 runs; trivially kept. Now exercise the exact-boundary count directly.
     counts = np.array([12, 7, 0])
     import math
-    min_count = int(math.ceil(0.6 * 20 - 1e-9))
+
+    min_count = math.ceil(0.6 * 20 - 1e-9)
     assert min_count == 12
     assert (counts >= min_count).tolist() == [True, False, False]

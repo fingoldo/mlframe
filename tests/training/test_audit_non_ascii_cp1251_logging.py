@@ -17,6 +17,7 @@ Windows crashes. Audit found 2 em-dash (U+2014) findings:
 Combined check: zero non-ASCII chars now appear inside print() / logger
 arguments in production paths.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -71,7 +72,7 @@ def test_no_non_ascii_in_print_or_logger_arguments() -> None:
     for py in MLFRAME_ROOT.rglob("*.py"):
         try:
             text = py.read_text(encoding="utf-8")
-        except Exception:
+        except Exception:  # nosec B112 -- best-effort skip of one iteration on a non-fatal error; the test's own assertions are unaffected
             continue
         for line_no, line in enumerate(text.splitlines(), 1):
             if not any(ch in line for ch in forbidden_in_io):
@@ -81,6 +82,5 @@ def test_no_non_ascii_in_print_or_logger_arguments() -> None:
 
     assert not leaks, (
         "Wave 71: non-ASCII char(s) found inside print()/logger argument(s); "
-        "Windows cp866 console will crash on UnicodeEncodeError. Sites:\n  "
-        + "\n  ".join(leaks)
+        "Windows cp866 console will crash on UnicodeEncodeError. Sites:\n  " + "\n  ".join(leaks)
     )

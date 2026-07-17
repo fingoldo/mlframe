@@ -8,6 +8,7 @@ after 1970-01-01, ``pd.Grouper(freq='D')`` saw all rows in a single day bucket,
 and the per-time-bin metric collapsed into a single value -- silently. The output
 looked legitimate ("here's the metric over time"), but the time axis was a lie.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -25,10 +26,7 @@ def test_int64_epoch_seconds_produces_multiple_time_bins():
     rng = np.random.default_rng(42)
     # 7 days of epoch-seconds timestamps starting 2023-11-14
     base = 1_700_000_000
-    ts = np.concatenate([
-        base + day * 86_400 + rng.integers(0, 86_400, n_per_day)
-        for day in range(n_days)
-    ])
+    ts = np.concatenate([base + day * 86_400 + rng.integers(0, 86_400, n_per_day) for day in range(n_days)])
     y_true = rng.integers(0, 2, len(ts))
     y_pred = rng.random(len(ts))
 
@@ -36,15 +34,10 @@ def test_int64_epoch_seconds_produces_multiple_time_bins():
 
     # Pre-fix: all 7000 rows collapsed to 1970-01-01 -> 1 bin.
     # Post-fix: ~7 bins for the 7-day span.
-    assert len(out) >= 5, (
-        f"expected ~7 daily bins for 7-day span; got {len(out)} bin(s). "
-        f"Suggests int64 epoch-seconds collapsed to ns interpretation again."
-    )
+    assert len(out) >= 5, f"expected ~7 daily bins for 7-day span; got {len(out)} bin(s). Suggests int64 epoch-seconds collapsed to ns interpretation again."
     # All bins must fall in late-2023, not 1970.
     bin_years = sorted({pd.Timestamp(b).year for b in out.index})
-    assert bin_years == [2023] or bin_years == [2023, 2024], (
-        f"bins must be in 2023 (or 2023/2024 if span crosses year), got years {bin_years}"
-    )
+    assert bin_years == [2023] or bin_years == [2023, 2024], f"bins must be in 2023 (or 2023/2024 if span crosses year), got years {bin_years}"
 
 
 def test_datetime64_input_still_works():
@@ -66,10 +59,7 @@ def test_int64_epoch_milliseconds_auto_detected():
     n_days = 5
     rng = np.random.default_rng(42)
     base = 1_700_000_000_000  # epoch ms
-    ts = np.concatenate([
-        base + day * 86_400_000 + rng.integers(0, 86_400_000, n_per_day)
-        for day in range(n_days)
-    ])
+    ts = np.concatenate([base + day * 86_400_000 + rng.integers(0, 86_400_000, n_per_day) for day in range(n_days)])
     y_true = rng.integers(0, 2, len(ts))
     y_pred = rng.random(len(ts))
     out = compute_ml_perf_by_time(y_true, y_pred, ts, freq="D", metric="roc_auc", min_samples=50)
@@ -115,10 +105,7 @@ def test_numpy_fast_path_byte_identical_to_grouper_on_day_divisor_offset():
     base = pd.Timestamp("2023-11-14 05:17:33").value // 1_000_000_000  # epoch seconds
     n_per_day = 800
     n_days = 6
-    ts = np.concatenate([
-        base + day * 86_400 + rng.integers(0, 86_400, n_per_day)
-        for day in range(n_days)
-    ])
+    ts = np.concatenate([base + day * 86_400 + rng.integers(0, 86_400, n_per_day) for day in range(n_days)])
     y_true = rng.integers(0, 2, len(ts))
     y_pred = rng.random(len(ts))
 
@@ -161,10 +148,7 @@ def test_numpy_fast_path_byte_identical_for_average_precision():
     base = pd.Timestamp("2023-07-01 11:23:45").value // 1_000_000_000
     n_per_day = 600
     n_days = 5
-    ts = np.concatenate([
-        base + day * 86_400 + rng.integers(0, 86_400, n_per_day)
-        for day in range(n_days)
-    ])
+    ts = np.concatenate([base + day * 86_400 + rng.integers(0, 86_400, n_per_day) for day in range(n_days)])
     y_true = rng.integers(0, 2, len(ts))
     y_pred = rng.random(len(ts))
 

@@ -6,6 +6,7 @@ entities with short inter-event gaps are fraud-like) rather than any raw per-row
 alone carries essentially none — quantifying that the group-level aggregate genuinely extracts entity-level
 behavioral signal a raw per-row column cannot express.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -18,7 +19,7 @@ def _make_entity_tempo_data(n_entities: int, events_per_entity: int, seed: int):
     rng = np.random.default_rng(seed)
     entity_ids = np.repeat(np.arange(n_entities), events_per_entity)
     # half the entities are "bursty" (small inter-event gaps, fraud-like), half "steady" (large gaps).
-    is_bursty_entity = (np.arange(n_entities) % 2 == 0)
+    is_bursty_entity = np.arange(n_entities) % 2 == 0
     mean_gap_per_entity = np.where(is_bursty_entity, 2.0, 50.0)
 
     timestamps = np.empty(entity_ids.shape[0], dtype=np.float64)
@@ -103,9 +104,7 @@ def _make_entity_tempo_shift_data(n_entities: int, events_per_entity: int, switc
 
 
 def test_biz_val_entity_windowed_time_delta_tracks_recent_tempo_shift_vs_whole_history():
-    entity_ids, timestamps, recent_gap_row, eval_mask = _make_entity_tempo_shift_data(
-        n_entities=200, events_per_entity=60, switch_idx=50, seed=42
-    )
+    entity_ids, timestamps, recent_gap_row, eval_mask = _make_entity_tempo_shift_data(n_entities=200, events_per_entity=60, switch_idx=50, seed=42)
     out = entity_inter_event_features(entity_ids, timestamps, window_size=5)
 
     mae_whole = np.mean(np.abs(out["group_mean_time_delta"][eval_mask] - recent_gap_row[eval_mask]))
@@ -113,7 +112,9 @@ def test_biz_val_entity_windowed_time_delta_tracks_recent_tempo_shift_vs_whole_h
 
     # measured mae_whole ~= 17.9, mae_windowed ~= 10.5 (windowed/whole ratio ~= 0.59); threshold set with
     # headroom above the measured ratio so the test isn't pinned to the exact synthetic seed.
-    assert mae_windowed < mae_whole * 0.75, f"windowed feature should track the recent regime much more tightly, got mae_whole={mae_whole:.2f} mae_windowed={mae_windowed:.2f}"
+    assert mae_windowed < mae_whole * 0.75, (
+        f"windowed feature should track the recent regime much more tightly, got mae_whole={mae_whole:.2f} mae_windowed={mae_windowed:.2f}"
+    )
     assert mae_whole > 15.0, f"whole-history feature should stay diluted by the long baseline history, got mae_whole={mae_whole:.2f}"
     assert mae_windowed < 12.0, f"windowed feature should closely track the true recent-regime gap, got mae_windowed={mae_windowed:.2f}"
 
@@ -157,7 +158,7 @@ def test_entity_inter_event_features_window_size_and_window_time_mutually_exclus
     timestamps = np.array([0.0, 1.0])
     try:
         entity_inter_event_features(entity_ids, timestamps, window_size=2, window_time=1.0)
-        assert False, "expected ValueError"
+        raise AssertionError("expected ValueError")
     except ValueError:
         pass
 

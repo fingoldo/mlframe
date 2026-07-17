@@ -5,6 +5,7 @@ P and Q are the SAME distribution (true divergence 0). ``bias_correction=True`` 
 Miller-Madow MI/entropy floor and must measurably shrink the |estimate - truth| gap on the same-distribution case
 without erasing detection on a genuine shift. Floors set ~15% below the measured win so seed noise doesn't trip.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -18,7 +19,8 @@ def _self_gap(fn, n: int, nbins: int, seeds: int, bias_correction: bool) -> floa
     errs = []
     for s in range(seeds):
         rng = np.random.default_rng(s)
-        a = rng.normal(size=n); b = rng.normal(size=n)
+        a = rng.normal(size=n)
+        b = rng.normal(size=n)
         errs.append(abs(fn(b, a, nbins=nbins, bias_correction=bias_correction)))
     return float(np.mean(errs))
 
@@ -45,25 +47,26 @@ def test_biz_val_divergence_bias_correction_preserves_shift_detection(fn):
     shifted = []
     for s in range(seeds):
         rng = np.random.default_rng(s)
-        a = rng.normal(1.0, 1.0, n); b = rng.normal(0.0, 1.0, n)
+        a = rng.normal(1.0, 1.0, n)
+        b = rng.normal(0.0, 1.0, n)
         shifted.append(fn(b, a, nbins=nbins, bias_correction=True))
-    assert np.mean(shifted) > self_floor + 0.05, (
-        f"{fn.__name__}: shifted divergence {np.mean(shifted):.4f} must clear self floor {self_floor:.4f} + 0.05"
-    )
+    assert np.mean(shifted) > self_floor + 0.05, f"{fn.__name__}: shifted divergence {np.mean(shifted):.4f} must clear self floor {self_floor:.4f} + 0.05"
 
 
 @pytest.mark.parametrize("fn", [kl_divergence, js_divergence])
 def test_biz_val_divergence_bias_correction_clamps_nonnegative(fn):
     """Subtracting the bias floor must never push the divergence below 0 (clamp at 0)."""
     rng = np.random.default_rng(11)
-    a = rng.normal(size=300); b = rng.normal(size=300)
+    a = rng.normal(size=300)
+    b = rng.normal(size=300)
     assert fn(b, a, nbins=40, bias_correction=True) >= 0.0
 
 
 @pytest.mark.parametrize("fn", [kl_divergence, js_divergence])
 def test_biz_val_divergence_pre_binned_unaffected_by_correction(fn):
     """The pre_binned path has no counts/sample-sizes, so the correction is a no-op there (identical output)."""
-    p = np.array([0.1, 0.4, 0.5]); q = np.array([0.4, 0.1, 0.5])
+    p = np.array([0.1, 0.4, 0.5])
+    q = np.array([0.4, 0.1, 0.5])
     on = fn(q, p, pre_binned=True, bias_correction=True)
     off = fn(q, p, pre_binned=True, bias_correction=False)
     assert on == off

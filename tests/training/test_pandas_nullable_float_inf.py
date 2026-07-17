@@ -11,11 +11,11 @@ downstream in C++ with no log line pointing back.
 Post-fix: _pandas_float_like_columns helper covers both legacy numpy and pandas
 nullable extension Float dtypes, mirroring polars cs.float().
 """
+
 from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.training.preprocessing import (
     _frame_contains_inf,
@@ -25,18 +25,18 @@ from mlframe.training.preprocessing import (
 
 
 def test_helper_covers_both_legacy_and_extension_float():
-    df = pd.DataFrame({
-        "legacy32": pd.array([1.0, 2.0], dtype="float32"),
-        "legacy64": pd.array([1.0, 2.0], dtype="float64"),
-        "nullable32": pd.array([1.0, None], dtype=pd.Float32Dtype()),
-        "nullable64": pd.array([1.0, None], dtype=pd.Float64Dtype()),
-        "int_col": pd.array([1, 2], dtype="int64"),
-        "str_col": ["a", "b"],
-    })
-    cols = _pandas_float_like_columns(df)
-    assert set(cols) == {"legacy32", "legacy64", "nullable32", "nullable64"}, (
-        f"expected all 4 float-like columns, got {cols}"
+    df = pd.DataFrame(
+        {
+            "legacy32": pd.array([1.0, 2.0], dtype="float32"),
+            "legacy64": pd.array([1.0, 2.0], dtype="float64"),
+            "nullable32": pd.array([1.0, None], dtype=pd.Float32Dtype()),
+            "nullable64": pd.array([1.0, None], dtype=pd.Float64Dtype()),
+            "int_col": pd.array([1, 2], dtype="int64"),
+            "str_col": ["a", "b"],
+        }
     )
+    cols = _pandas_float_like_columns(df)
+    assert set(cols) == {"legacy32", "legacy64", "nullable32", "nullable64"}, f"expected all 4 float-like columns, got {cols}"
 
 
 def test_legacy_float64_inf_scrubbed():
@@ -50,21 +50,23 @@ def test_legacy_float64_inf_scrubbed():
 def test_nullable_float64_inf_scrubbed_post_fix():
     """REGRESSION: pre-fix this silently kept inf in pd.Float64 columns.
     Post-fix the helper covers extension dtypes too -> inf -> nan."""
-    df = pd.DataFrame({
-        "x": pd.array([1.0, float("inf"), float("-inf"), 2.0], dtype=pd.Float64Dtype()),
-    })
+    df = pd.DataFrame(
+        {
+            "x": pd.array([1.0, float("inf"), float("-inf"), 2.0], dtype=pd.Float64Dtype()),
+        }
+    )
     out = _process_special_values(df, verbose=False)
     # Pull out values; nullable Float NaN reads as pd.NA OR np.nan depending on flow.
     vals = out["x"].to_numpy(dtype=np.float64, na_value=np.nan)
-    assert np.isnan(vals[1]) and np.isnan(vals[2]), (
-        f"nullable Float64 inf not scrubbed (pre-fix bug): values = {vals}"
-    )
+    assert np.isnan(vals[1]) and np.isnan(vals[2]), f"nullable Float64 inf not scrubbed (pre-fix bug): values = {vals}"
 
 
 def test_nullable_float32_inf_also_scrubbed():
-    df = pd.DataFrame({
-        "x": pd.array([1.0, float("inf"), 2.0], dtype=pd.Float32Dtype()),
-    })
+    df = pd.DataFrame(
+        {
+            "x": pd.array([1.0, float("inf"), 2.0], dtype=pd.Float32Dtype()),
+        }
+    )
     out = _process_special_values(df, verbose=False)
     vals = out["x"].to_numpy(dtype=np.float64, na_value=np.nan)
     assert np.isnan(vals[1])
@@ -73,18 +75,20 @@ def test_nullable_float32_inf_also_scrubbed():
 def test_frame_contains_inf_nullable_float_detected():
     """REGRESSION: pre-fix _frame_contains_inf returned False for inf-in-nullable-Float
     frames, defeating the fix_infinities=False loud-fail safeguard."""
-    df = pd.DataFrame({
-        "x": pd.array([1.0, float("inf")], dtype=pd.Float64Dtype()),
-    })
-    assert _frame_contains_inf(df) is True, (
-        "pre-fix bug: nullable Float inf not detected by _frame_contains_inf"
+    df = pd.DataFrame(
+        {
+            "x": pd.array([1.0, float("inf")], dtype=pd.Float64Dtype()),
+        }
     )
+    assert _frame_contains_inf(df) is True, "pre-fix bug: nullable Float inf not detected by _frame_contains_inf"
 
 
 def test_frame_contains_inf_clean_nullable_float_returns_false():
-    df = pd.DataFrame({
-        "x": pd.array([1.0, 2.0, None], dtype=pd.Float64Dtype()),
-    })
+    df = pd.DataFrame(
+        {
+            "x": pd.array([1.0, 2.0, None], dtype=pd.Float64Dtype()),
+        }
+    )
     assert _frame_contains_inf(df) is False, "no inf present; should be False"
 
 
