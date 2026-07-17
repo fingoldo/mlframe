@@ -14,6 +14,7 @@ from mlframe.feature_selection.shap_proxied_fs._shap_proxy_cluster import build_
 
 
 def _partition(labels):
+    """Helper that partition."""
     from collections import defaultdict
 
     d = defaultdict(set)
@@ -23,6 +24,7 @@ def _partition(labels):
 
 
 def _make_clustered(n=2000, n_factors=3, refl=4, n_noise=8, seed=0):
+    """Make clustered."""
     rng = np.random.default_rng(seed)
     z = rng.normal(size=(n, n_factors))
     refl_cols = np.hstack([z[:, [k]] + 0.2 * rng.normal(size=(n, refl)) for k in range(n_factors)])
@@ -32,6 +34,7 @@ def _make_clustered(n=2000, n_factors=3, refl=4, n_noise=8, seed=0):
 
 
 def test_clustering_recovers_known_partition_cpu():
+    """Clustering recovers known partition cpu."""
     X, _z, nf, refl, n_noise = _make_clustered()
     labels = cluster_correlated_features(X, threshold=0.7, use_gpu=False)
     # nf clusters of `refl` reflections + n_noise singletons
@@ -45,6 +48,7 @@ def test_clustering_recovers_known_partition_cpu():
 
 @pytest.mark.gpu
 def test_clustering_cpu_gpu_partition_parity():
+    """Clustering cpu gpu partition parity."""
     cp = pytest.importorskip("cupy")
     if cp.cuda.runtime.getDeviceCount() == 0:
         pytest.skip("no CUDA device")
@@ -55,6 +59,7 @@ def test_clustering_cpu_gpu_partition_parity():
 
 
 def test_blocked_path_matches_dense():
+    """Blocked path matches dense."""
     X, *_ = _make_clustered(seed=2)
     dense = cluster_correlated_features(X, threshold=0.7, use_gpu=False, max_dense_features=10_000)
     blocked = cluster_correlated_features(X, threshold=0.7, use_gpu=False, max_dense_features=4, block=4)
@@ -62,6 +67,7 @@ def test_blocked_path_matches_dense():
 
 
 def test_denoised_unit_beats_members():
+    """Denoised unit beats members."""
     X, z, nf, _refl, n_noise = _make_clustered(n=4000, seed=3)
     labels = cluster_correlated_features(X, threshold=0.7, use_gpu=False)
     units, u2m, _kind = build_unit_matrix(X, labels, weighting="pca_pc1")
@@ -78,6 +84,7 @@ def test_denoised_unit_beats_members():
 
 
 def test_constant_and_independent_columns_are_singletons():
+    """Constant and independent columns are singletons."""
     rng = np.random.default_rng(0)
     n = 1000
     X = np.column_stack([rng.normal(size=n), np.ones(n), rng.normal(size=n)])  # col1 constant
@@ -97,6 +104,7 @@ def test_gpu_min_features_routes_small_f_to_cpu(monkeypatch):
     calls = {"gpu_dense": 0}
 
     def _mock_gpu(*a, **kw):
+        """Mock gpu."""
         calls["gpu_dense"] += 1
         # Return None to force the dispatcher's fallback path so we don't actually need cupy.
         return None
@@ -106,14 +114,18 @@ def test_gpu_min_features_routes_small_f_to_cpu(monkeypatch):
     # Pretend cupy is importable + a GPU is visible so the `gpu = True` branch is taken before
     # the small-f gate. The gate must then flip gpu back to False at f=20 < gpu_min_features=2000.
     class _FakeRuntime:
+        """Groups tests covering FakeRuntime."""
         @staticmethod
         def getDeviceCount():
+            """Helper that getDeviceCount."""
             return 1
 
     class _FakeCuda:
+        """Groups tests covering FakeCuda."""
         runtime = _FakeRuntime()
 
     class _FakeCp:
+        """Groups tests covering FakeCp."""
         cuda = _FakeCuda()
 
     import sys
@@ -137,6 +149,7 @@ def test_gpu_min_features_explicit_true_overrides_gate(monkeypatch):
     calls = {"gpu_dense": 0}
 
     def _mock_gpu(Z, threshold, edge_cap):
+        """Mock gpu."""
         calls["gpu_dense"] += 1
         # Return a valid edge tuple to satisfy the downstream union-find call.
         return np.empty(0, np.int64), np.empty(0, np.int64)
@@ -144,14 +157,18 @@ def test_gpu_min_features_explicit_true_overrides_gate(monkeypatch):
     monkeypatch.setattr(mod, "_edges_dense_gpu", _mock_gpu)
 
     class _FakeRuntime:
+        """Groups tests covering FakeRuntime."""
         @staticmethod
         def getDeviceCount():
+            """Helper that getDeviceCount."""
             return 1
 
     class _FakeCuda:
+        """Groups tests covering FakeCuda."""
         runtime = _FakeRuntime()
 
     class _FakeCp:
+        """Groups tests covering FakeCp."""
         cuda = _FakeCuda()
 
     import sys

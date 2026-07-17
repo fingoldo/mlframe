@@ -13,6 +13,7 @@ from mlframe.feature_selection.hetero_vote import _cv_skill
 
 
 def test_cv_skill_logs_warning_on_inner_failure(caplog):
+    """Cv skill logs warning on inner failure."""
     from sklearn.linear_model import LogisticRegression
 
     # 3 rows + 3 folds + single-class target -> StratifiedKFold/roc_auc raises inside cross_val_score.
@@ -26,6 +27,7 @@ def test_cv_skill_logs_warning_on_inner_failure(caplog):
 
 
 def test_cv_skill_happy_path_no_warning(caplog):
+    """Cv skill happy path no warning."""
     from sklearn.tree import DecisionTreeClassifier
 
     rng = np.random.default_rng(0)

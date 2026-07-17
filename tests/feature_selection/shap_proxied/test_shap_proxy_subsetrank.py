@@ -40,6 +40,7 @@ def _numpy_brute_oracle(phi, base, y, *, classification, metric, max_card, top_n
 
 @pytest.mark.parametrize("metric,classification", [("rmse", False), ("mae", False), ("brier", True), ("logloss", True)])
 def test_cpu_ref_bit_identical_to_numpy_oracle(metric, classification):
+    """Cpu ref bit identical to numpy oracle."""
     rng = np.random.default_rng(7)
     n, f, mc = 300, 8, 4
     phi = rng.standard_normal((n, f))
@@ -59,6 +60,7 @@ def test_cpu_ref_bit_identical_to_numpy_oracle(metric, classification):
 
 
 def test_cpu_ref_matches_incremental_kernel():
+    """Cpu ref matches incremental kernel."""
     rng = np.random.default_rng(11)
     phi = rng.standard_normal((500, 12))
     base = rng.standard_normal(500) * 0.1
@@ -70,6 +72,7 @@ def test_cpu_ref_matches_incremental_kernel():
 
 
 def test_dispatch_defaults_to_cpu_and_matches_incremental():
+    """Dispatch defaults to cpu and matches incremental."""
     rng = np.random.default_rng(3)
     phi = rng.standard_normal((400, 10))
     base = rng.standard_normal(400) * 0.1
@@ -85,6 +88,7 @@ def test_dispatch_falls_back_to_cpu_on_gpu_failure(monkeypatch):
     import mlframe.feature_selection.shap_proxied_fs._shap_proxy_gpu as G
 
     def _boom(*a, **k):
+        """Helper that boom."""
         raise RuntimeError("simulated cupy OOM / import segfault")
 
     monkeypatch.setattr(G, "gpu_available", lambda: True)
@@ -124,11 +128,13 @@ def test_biz_val_dispatch_recovers_planted_best_subset():
 
 
 def test_gpu_min_subsets_env_override(monkeypatch):
+    """Gpu min subsets env override."""
     monkeypatch.setenv("MLFRAME_SHAP_SUBSETRANK_GPU_MIN_SUBSETS", "12345")
     assert SR._gpu_min_subsets() == 12345
 
 
 def _has_cuda_device():
+    """Has cuda device."""
     try:
         import cupy
 

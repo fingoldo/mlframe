@@ -37,6 +37,7 @@ def _make_fake_self():
 
 
 def test_plot_does_not_leak_figures_display_true():
+    """Plot does not leak figures display true."""
     self = _make_fake_self()
     before = len(plt.get_fignums())
     self.plot(display=True)
@@ -45,6 +46,7 @@ def test_plot_does_not_leak_figures_display_true():
 
 
 def test_plot_does_not_leak_figures_display_false():
+    """Plot does not leak figures display false."""
     self = _make_fake_self()
     before = len(plt.get_fignums())
     self.plot(display=False)

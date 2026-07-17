@@ -24,11 +24,13 @@ from mlframe.feature_selection.shap_proxied_fs._shap_proxy_objective import coal
 
 
 def _ref_loss(phi, base, y, idx, metric):
+    """Ref loss."""
     return proxy_loss(coalition_margin(phi, base, idx), y, metric)
 
 
 @pytest.fixture
 def medium_problem():
+    """Medium problem."""
     rng = np.random.default_rng(123)
     n, f, k = 400, 30, 6
     phi = rng.normal(size=(n, f)).astype(np.float64)
@@ -38,6 +40,7 @@ def medium_problem():
 
 
 def test_evaluator_loss_with_margin_matches_reference(medium_problem):
+    """Evaluator loss with margin matches reference."""
     phi, base, y = medium_problem
     ev = H._Evaluator(phi, base, y, "rmse")
     key = (1, 3, 5, 7)
@@ -48,6 +51,7 @@ def test_evaluator_loss_with_margin_matches_reference(medium_problem):
 
 
 def test_evaluator_loss_from_parent_matches_reference(medium_problem):
+    """Evaluator loss from parent matches reference."""
     phi, base, y = medium_problem
     ev = H._Evaluator(phi, base, y, "rmse")
     parent = (2, 5, 9)
@@ -86,6 +90,7 @@ def test_beam_search_topn_bit_identical_to_reference(medium_problem):
 
 
 def test_greedy_forward_topn_bit_identical_to_reference(medium_problem):
+    """Greedy forward topn bit identical to reference."""
     phi, base, y = medium_problem
     top = H.greedy_forward(phi, base, y, classification=False, metric="rmse", max_card=10, top_n=10)
     for loss, key in top:

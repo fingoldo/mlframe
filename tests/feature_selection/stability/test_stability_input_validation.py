@@ -36,6 +36,7 @@ import pytest
 
 
 def _setup():
+    """Helper that setup."""
     from mlframe.feature_selection.filters.stability import StabilityMRMR
     from mlframe.feature_selection.filters.mrmr import MRMR
 
@@ -47,6 +48,7 @@ def _setup():
 
 
 def test_n_bootstraps_zero_raises():
+    """N bootstraps zero raises."""
     StabilityMRMR, MRMR, X, y = _setup()
     with pytest.raises(ValueError, match="n_bootstraps"):
         StabilityMRMR(
@@ -57,6 +59,7 @@ def test_n_bootstraps_zero_raises():
 
 
 def test_n_bootstraps_negative_raises():
+    """N bootstraps negative raises."""
     StabilityMRMR, MRMR, X, y = _setup()
     with pytest.raises(ValueError, match="n_bootstraps"):
         StabilityMRMR(
@@ -68,6 +71,7 @@ def test_n_bootstraps_negative_raises():
 
 @pytest.mark.parametrize("frac", [0.0, -0.1, 1.5, 2.0])
 def test_sample_fraction_out_of_range_raises(frac):
+    """Sample fraction out of range raises."""
     StabilityMRMR, MRMR, X, y = _setup()
     with pytest.raises(ValueError, match="sample_fraction"):
         StabilityMRMR(

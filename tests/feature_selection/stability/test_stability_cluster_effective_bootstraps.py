@@ -25,6 +25,7 @@ from mlframe.feature_selection.filters._stability_cluster import (
 
 
 def _data(n, p, seed=0):
+    """Helper that data."""
     rng = np.random.default_rng(seed)
     X = rng.standard_normal((n, p))
     y = (X[:, 0] > 0).astype(np.int64)
@@ -32,11 +33,14 @@ def _data(n, p, seed=0):
 
 
 class TestEffectiveBootstrapDenominator:
+    """Groups tests covering TestEffectiveBootstrapDenominator."""
     def test_cluster_freq_divides_by_successful_runs(self):
+        """Cluster freq divides by successful runs."""
         X, y = _data(60, 3)
         calls = {"i": 0}
 
         def sel(Xs, ys):
+            """Helper that sel."""
             calls["i"] += 1
             if calls["i"] % 2 == 0:  # fail every 2nd bootstrap
                 raise ValueError("injected selector failure")
@@ -59,6 +63,7 @@ class TestEffectiveBootstrapDenominator:
         assert abs(float(feat_freq[0]) - 1.0) < 1e-9, feat_freq.tolist()
 
     def test_complementary_freq_divides_by_successful_pairs(self):
+        """Complementary freq divides by successful pairs."""
         X, y = _data(60, 3)
         calls = {"i": 0}
 
@@ -68,6 +73,7 @@ class TestEffectiveBootstrapDenominator:
             # exactly 5 pairs fail and 5 succeed -- but we assert the robust
             # invariant below rather than the exact split, since the key proof
             # is that the divisor is n_effective (freq[0]==1.0), not n_pairs.
+            """Helper that sel."""
             calls["i"] += 1
             if calls["i"] <= 10 and calls["i"] % 2 == 0:
                 raise ValueError("injected selector failure")
@@ -91,12 +97,15 @@ class TestEffectiveBootstrapDenominator:
 
 
 class TestComplementaryPairsTruePartition:
+    """Groups tests covering TestComplementaryPairsTruePartition."""
     def test_odd_n_halves_partition_the_sample(self):
+        """Odd n halves partition the sample."""
         n, p = 7, 4  # odd n: the middle row must NOT be dropped
         X, y = _data(n, p)
         sizes = []
 
         def sel(Xs, ys):
+            """Helper that sel."""
             sizes.append(int(Xs.shape[0]))
             return np.array([0], dtype=np.int64)
 

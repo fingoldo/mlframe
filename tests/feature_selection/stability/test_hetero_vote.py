@@ -9,6 +9,7 @@ import pytest
 
 
 def _data(seed=0, n=1500, p_sig=4, p_noise=20):
+    """Helper that data."""
     rng = np.random.default_rng(seed)
     z = rng.standard_normal((n, p_sig))
     logit = z @ np.array([1.5, -1.2, 1.0, 0.9])
@@ -20,6 +21,7 @@ def _data(seed=0, n=1500, p_sig=4, p_noise=20):
 
 
 def test_hetero_vote_keeps_signal_drops_noise():
+    """Hetero vote keeps signal drops noise."""
     pytest.importorskip("sklearn")
     from mlframe.feature_selection.hetero_vote import heterogeneous_relevance_vote
 
@@ -80,15 +82,18 @@ def test_shadow_augmented_matrix_shared_across_panel_members():
     seen: dict[str, list[np.ndarray]] = {}
 
     class _Recorder(BaseEstimator, RegressorMixin):
+        """Groups tests covering Recorder."""
         def __init__(self, tag="a"):
             self.tag = tag
 
         def fit(self, X, y):
+            """Helper that fit."""
             seen.setdefault(self.tag, []).append(np.asarray(X).copy())
             self.feature_importances_ = np.zeros(np.asarray(X).shape[1])
             return self
 
         def predict(self, X):
+            """Helper that predict."""
             return np.zeros(np.asarray(X).shape[0])
 
     rng = np.random.default_rng(7)

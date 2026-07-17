@@ -21,6 +21,7 @@ from mlframe.feature_selection.shap_proxied_fs._shap_proxy_prefilter_univariate 
 
 @pytest.fixture
 def small_classif():
+    """Small classif."""
     rng = np.random.default_rng(0)
     X = rng.normal(size=(200, 50)).astype(np.float64)
     y = rng.integers(0, 3, size=200)
@@ -29,6 +30,7 @@ def small_classif():
 
 @pytest.fixture
 def small_regr():
+    """Small regr."""
     rng = np.random.default_rng(1)
     X = rng.normal(size=(200, 50)).astype(np.float64)
     y = X[:, 0] * 0.7 - X[:, 1] * 0.3 + rng.normal(scale=0.5, size=200)
@@ -36,6 +38,7 @@ def small_regr():
 
 
 def test_f_classif_chunked_matches_sklearn(small_classif):
+    """F classif chunked matches sklearn."""
     from sklearn.feature_selection import f_classif
 
     X, y = small_classif
@@ -47,6 +50,7 @@ def test_f_classif_chunked_matches_sklearn(small_classif):
 
 
 def test_f_regression_chunked_matches_sklearn(small_regr):
+    """F regression chunked matches sklearn."""
     from sklearn.feature_selection import f_regression
 
     X, y = small_regr
@@ -57,6 +61,7 @@ def test_f_regression_chunked_matches_sklearn(small_regr):
 
 
 def test_f_classif_constant_column_sentinel():
+    """F classif constant column sentinel."""
     rng = np.random.default_rng(2)
     X = rng.normal(size=(100, 10)).astype(np.float64)
     X[:, 3] = 1.234  # constant column -> zero within-group SS -> -inf sentinel
@@ -67,6 +72,7 @@ def test_f_classif_constant_column_sentinel():
 
 
 def test_f_regression_constant_column_sentinel():
+    """F regression constant column sentinel."""
     rng = np.random.default_rng(3)
     X = rng.normal(size=(100, 10)).astype(np.float64)
     X[:, 7] = -2.5
@@ -78,6 +84,7 @@ def test_f_regression_constant_column_sentinel():
 
 def test_f_classif_degenerate_N_le_K():
     # N <= K -> df_within == 0 -> -inf vector (matches sklearn's NaN -> our sentinel).
+    """F classif degenerate N le K."""
     X = np.arange(9, dtype=np.float64).reshape(3, 3)
     y = np.array([0, 1, 2])
     got = f_classif_chunked(X, y, batch_size=2)
@@ -85,6 +92,7 @@ def test_f_classif_degenerate_N_le_K():
 
 
 def test_f_regression_constant_target_all_minus_inf():
+    """F regression constant target all minus inf."""
     rng = np.random.default_rng(4)
     X = rng.normal(size=(50, 5)).astype(np.float64)
     y = np.full(50, 3.14)
@@ -104,6 +112,7 @@ def test_f_classif_chunk_independence(small_classif):
 
 def test_resolve_batch_size_user_value_clamps():
     # User value wins, clamped to [1, n_features].
+    """Resolve batch size user value clamps."""
     assert resolve_batch_size(100, 1000, user_value=50) == 50
     assert resolve_batch_size(100, 1000, user_value=999) == 100
     assert resolve_batch_size(100, 1000, user_value=0) == 1
@@ -112,6 +121,7 @@ def test_resolve_batch_size_user_value_clamps():
 
 def test_resolve_batch_size_auto_bounds():
     # Auto path always returns a value in [_AUTO_BATCH_MIN, _AUTO_BATCH_MAX], capped by n_features.
+    """Resolve batch size auto bounds."""
     got = resolve_batch_size(20000, 10000, user_value=None)
     assert _AUTO_BATCH_MIN <= got <= _AUTO_BATCH_MAX
     assert got <= 20000
@@ -124,7 +134,9 @@ def test_resolve_batch_size_cache_hit(monkeypatch):
     """Kernel-tuning cache hit overrides the auto path."""
 
     class _StubCache:
+        """Groups tests covering StubCache."""
         def lookup(self, kernel_name, **dims):
+            """Helper that lookup."""
             assert kernel_name == "shap_proxy_prefilter_univariate_batch"
             return {"batch_size": 1024}
 
@@ -150,7 +162,9 @@ def test_resolve_batch_size_cache_miss_falls_through(monkeypatch):
     """Cache miss (None lookup) drops to the auto path."""
 
     class _StubCache:
+        """Groups tests covering StubCache."""
         def lookup(self, kernel_name, **dims):
+            """Helper that lookup."""
             return None
 
     monkeypatch.setattr(
@@ -171,6 +185,7 @@ def test_resolve_batch_size_psutil_missing(monkeypatch):
 
 
 def test_f_classif_dataframe_input(small_classif):
+    """F classif dataframe input."""
     pd = pytest.importorskip("pandas")
     X, y = small_classif
     df = pd.DataFrame(X, columns=[f"c{i}" for i in range(X.shape[1])])
@@ -182,6 +197,7 @@ def test_f_classif_dataframe_input(small_classif):
 
 
 def test_f_classif_input_dtype_upcast(small_classif):
+    """F classif input dtype upcast."""
     X, y = small_classif
     X32 = X.astype(np.float32)
     from sklearn.feature_selection import f_classif
@@ -251,6 +267,7 @@ def test_f_classif_gemm_matches_legacy_kloop_binary():
 
 
 def test_f_classif_gemm_matches_legacy_kloop_multiclass_k3():
+    """F classif gemm matches legacy kloop multiclass k3."""
     rng = np.random.default_rng(602)
     X = rng.normal(size=(600, 60)).astype(np.float64)
     y = rng.integers(0, 3, size=600)
@@ -262,6 +279,7 @@ def test_f_classif_gemm_matches_legacy_kloop_multiclass_k3():
 
 
 def test_f_classif_gemm_matches_legacy_kloop_multiclass_k5():
+    """F classif gemm matches legacy kloop multiclass k5."""
     rng = np.random.default_rng(603)
     X = rng.normal(size=(800, 50)).astype(np.float64)
     y = rng.integers(0, 5, size=800)

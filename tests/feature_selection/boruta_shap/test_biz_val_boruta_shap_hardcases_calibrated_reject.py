@@ -46,18 +46,21 @@ _N_EST = 40 if is_fast_mode() else 60
 
 
 def _make_clf_model(seed: int):
+    """Make clf model."""
     from sklearn.ensemble import RandomForestClassifier
 
     return RandomForestClassifier(n_estimators=_N_EST, random_state=seed)
 
 
 def _make_reg_model(seed: int):
+    """Make reg model."""
     from sklearn.ensemble import RandomForestRegressor
 
     return RandomForestRegressor(n_estimators=_N_EST, random_state=seed)
 
 
 def _fit_boruta(df, ys, *, classification: bool, model, seed: int, importance_measure: str = "gini") -> BorutaShap:
+    """Fit boruta."""
     sel = BorutaShap(
         model=model,
         importance_measure=importance_measure,
@@ -104,6 +107,7 @@ def test_biz_val_boruta_imbalanced_keeps_signal_drops_noise(seed: int):
 
 
 def _make_regression_frame(n: int, seed: int):
+    """Make regression frame."""
     rng = np.random.default_rng(seed)
     x0 = rng.normal(size=n)
     x1 = rng.normal(size=n)
@@ -138,6 +142,7 @@ def test_biz_val_boruta_regression_keeps_both_informative(seed: int):
 
 
 def _make_multiclass_frame(n: int, seed: int):
+    """Make multiclass frame."""
     rng = np.random.default_rng(seed)
     x0 = rng.normal(size=n)
     x1 = rng.normal(size=n)
@@ -182,6 +187,7 @@ def test_biz_val_boruta_multiclass_3class_keeps_informative_no_crash(seed: int):
 
 
 def _make_xor_frame(n: int, seed: int):
+    """Make xor frame."""
     rng = np.random.default_rng(seed)
     x0 = rng.normal(size=n)
     x1 = rng.normal(size=n)
@@ -222,6 +228,7 @@ def test_biz_val_boruta_xor_operands_survive(seed: int):
 
 
 def _make_highcard_frame(n: int, seed: int):
+    """Make highcard frame."""
     rng = np.random.default_rng(seed)
     x0 = rng.normal(size=n)
     x1 = rng.normal(size=n)
@@ -285,6 +292,7 @@ def test_biz_val_boruta_id_column_rejected_majority_of_seeds():
 
 
 def _make_downstream_frame(n: int, seed: int):
+    """Make downstream frame."""
     rng = np.random.default_rng(seed)
     x0 = rng.normal(size=n)
     x1 = rng.normal(size=n)
@@ -298,6 +306,7 @@ def _make_downstream_frame(n: int, seed: int):
 
 
 def _cv_auc(df, ys, cols_subset, cv=5):
+    """Cv auc."""
     from sklearn.linear_model import LogisticRegression
     from sklearn.model_selection import cross_val_score
 
@@ -313,6 +322,7 @@ def _cv_auc(df, ys, cols_subset, cv=5):
 
 
 def _shap_topk_names(df, ys, cols, k, seed):
+    """Shap topk names."""
     import shap
 
     rf = _make_clf_model(seed)

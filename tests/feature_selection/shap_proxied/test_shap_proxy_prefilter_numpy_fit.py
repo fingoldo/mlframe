@@ -27,6 +27,7 @@ from mlframe.feature_selection.shap_proxied_fs._shap_proxy_prefilter import (
 
 
 def _make_xy(n=2500, p=60, seed=1):
+    """Make xy."""
     rng = np.random.default_rng(seed)
     X = pd.DataFrame(rng.normal(size=(n, p)), columns=[f"col_{i}" for i in range(p)])
     logit = 1.3 * X.iloc[:, 2] - 0.9 * X.iloc[:, 7] + 0.5 * X.iloc[:, 15]
@@ -35,6 +36,7 @@ def _make_xy(n=2500, p=60, seed=1):
 
 
 def test_as_nameless_array_passthrough():
+    """As nameless array passthrough."""
     X, _ = _make_xy()
     a = _as_nameless_array(X)
     b = _as_nameless_array(X.to_numpy())
@@ -44,6 +46,7 @@ def test_as_nameless_array_passthrough():
 
 
 def test_rank_model_numpy_bit_identical_to_named_dataframe():
+    """Rank model numpy bit identical to named dataframe."""
     X, y = _make_xy()
     model = make_default_estimator(True, random_state=0)
     # Lever path (numpy via _rank_model).
@@ -59,6 +62,7 @@ def test_rank_model_numpy_bit_identical_to_named_dataframe():
 
 
 def test_two_stage_working_cols_numpy_bit_identical():
+    """Two stage working cols numpy bit identical."""
     X, y = _make_xy()
     model = make_default_estimator(True, random_state=0)
     wc_df, _ = _rank_two_stage(model, X, y, n_features=X.shape[1], classification=True, prefilter_top=20, stage1_keep=40, n_estimators_cap=100)

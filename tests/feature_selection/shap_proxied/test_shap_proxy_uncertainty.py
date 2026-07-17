@@ -17,6 +17,7 @@ pytest.importorskip("xgboost")
 
 
 def _data(seed=0, n=700):
+    """Helper that data."""
     rng = np.random.default_rng(seed)
     inf = rng.normal(size=(n, 4))
     noise = rng.normal(size=(n, 4))
@@ -29,6 +30,7 @@ def _data(seed=0, n=700):
 
 
 def test_subset_uncertainty_ranks_stable_below_unstable():
+    """Subset uncertainty ranks stable below unstable."""
     n, f = 100, 5
     phi_var = np.zeros((n, f))
     phi_var[:, 2] = 1.0  # feature 2 is unstable
@@ -39,6 +41,7 @@ def test_subset_uncertainty_ranks_stable_below_unstable():
 
 
 def test_config_jitter_returns_nonneg_variance():
+    """Config jitter returns nonneg variance."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_explain import compute_shap_matrix, make_default_estimator
 
     X, y = _data(0)
@@ -97,6 +100,7 @@ def test_compute_shap_matrix_n_estimators_cap_is_clamp():
     real_fit_one = _shap_proxy_explain._fit_one
 
     def _spy_fit_one(model_template, X, y, classification, seed, jitter_depth=None, inner_n_jobs=None, n_estimators_cap=None):
+        """Spy fit one."""
         est = real_fit_one(model_template, X, y, classification, seed, jitter_depth=jitter_depth, inner_n_jobs=inner_n_jobs, n_estimators_cap=n_estimators_cap)
         captured.append(int(est.get_params()["n_estimators"]))
         return est
@@ -153,6 +157,7 @@ def test_facade_oof_shap_n_estimators_passes_to_compute_shap_matrix():
     captured: list[object] = []
 
     def _spy(*args, **kwargs):
+        """Helper that spy."""
         captured.append(kwargs.get("n_estimators_cap"))
         return real_compute(*args, **kwargs)
 
@@ -198,6 +203,7 @@ def test_biz_val_config_jitter_stabilizes_importance_ranking():
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_explain import compute_shap_matrix, make_default_estimator
 
     def importance(seed, n_models, jitter):
+        """Helper that importance."""
         X, y = _data(seed)
         model = make_default_estimator(classification=True, random_state=seed)
         phi, *_ = compute_shap_matrix(
@@ -210,6 +216,7 @@ def test_biz_val_config_jitter_stabilizes_importance_ranking():
     jittered = [importance(s, 4, True) for s in seeds]
 
     def mean_pairwise_stability(rankings):
+        """Mean pairwise stability."""
         cs = []
         for i in range(len(rankings)):
             for j in range(i + 1, len(rankings)):
@@ -224,6 +231,7 @@ def test_biz_val_config_jitter_stabilizes_importance_ranking():
 
 @pytest.mark.slow
 def test_facade_uncertainty_penalty_runs_and_reports():
+    """Facade uncertainty penalty runs and reports."""
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
     X, y = _data(0, n=1200)

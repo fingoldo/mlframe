@@ -59,6 +59,7 @@ def test_biz_val_trust_guard_n_estimators_default_preserves_trust_and_subset():
     )
 
     def _build(value):
+        """Helper that build."""
         return ShapProxiedFS(
             classification=True,
             metric="brier",

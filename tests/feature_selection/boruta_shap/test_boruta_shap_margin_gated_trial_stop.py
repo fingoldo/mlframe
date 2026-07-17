@@ -57,6 +57,7 @@ def _tail_dataset(n=3000, seed=0):
 
 
 def _make_selector(**kw):
+    """Make selector."""
     from sklearn.ensemble import RandomForestClassifier
     from mlframe.feature_selection.boruta_shap import BorutaShap
 
@@ -92,6 +93,7 @@ def test_early_stop_tentative_defaults_off_and_roundtrips():
 
 
 def _jac(a, b):
+    """Helper that jac."""
     a, b = set(a), set(b)
     return 1.0 if not a and not b else len(a & b) / len(a | b)
 

@@ -20,6 +20,7 @@ from mlframe.feature_selection.boruta_shap import BorutaShap
 
 
 def test_b1_get_5_percent_splits_no_zerodiv_on_small_frame():
+    """B1 get 5 percent splits no zerodiv on small frame."""
     bs = BorutaShap(random_state=0, verbose=False)
     # length<=18 -> round(0.05*length)==0 -> pre-fix np.arange(0, length, 0) raised ZeroDivisionError.
     out = bs.get_5_percent_splits(15)
@@ -28,6 +29,7 @@ def test_b1_get_5_percent_splits_no_zerodiv_on_small_frame():
 
 
 def test_b1_fit_with_sample_true_on_small_frame_does_not_crash():
+    """B1 fit with sample true on small frame does not crash."""
     rng = np.random.default_rng(0)
     X = pd.DataFrame(rng.standard_normal((15, 4)), columns=list("abcd"))
     y = (X["a"] > 0).astype(int)
@@ -39,6 +41,7 @@ def test_b1_fit_with_sample_true_on_small_frame_does_not_crash():
 def test_b2_default_surrogate_uses_all_cores():
     # sklearn clone-ability: the verbatim ``model`` param stays None; the resolved default RandomForest
     # surrogate lives in the learned ``model_`` attribute, which is where n_jobs=-1 must land.
+    """B2 default surrogate uses all cores."""
     bs = BorutaShap(classification=True, random_state=0)
     bs.check_model()
     assert bs.model is None
@@ -67,6 +70,7 @@ def test_b3_bonferroni_base_is_full_feature_count():
     orig = bs.bonferoni_corrections
 
     def _spy(pvals, alpha=0.05, n_tests=None):
+        """Helper that spy."""
         captured["n_tests"] = n_tests
         return orig(pvals, alpha=alpha, n_tests=n_tests)
 
@@ -114,6 +118,7 @@ def test_b7_shadow_pad_widens_null_on_narrow_frame():
 
 
 def test_b7_shadow_pad_opt_out_is_legacy_one_per_column():
+    """B7 shadow pad opt out is legacy one per column."""
     rng = np.random.default_rng(0)
     X = pd.DataFrame(rng.standard_normal((100, 2)), columns=["a", "b"])
     bs = BorutaShap(random_state=0, verbose=False, shadow_min_pad=0)
@@ -123,6 +128,7 @@ def test_b7_shadow_pad_opt_out_is_legacy_one_per_column():
 
 
 def test_b7_wide_frame_unaffected_by_pad():
+    """B7 wide frame unaffected by pad."""
     rng = np.random.default_rng(0)
     X = pd.DataFrame(rng.standard_normal((100, 8)), columns=[f"f{i}" for i in range(8)])
     bs = BorutaShap(random_state=0, verbose=False, shadow_min_pad=5)
@@ -132,6 +138,7 @@ def test_b7_wide_frame_unaffected_by_pad():
 
 
 def test_b6_tentative_rough_fix_logs_not_prints(capsys, caplog):
+    """B6 tentative rough fix logs not prints."""
     bs = BorutaShap(random_state=0, verbose=False)
     bs.history_x = pd.DataFrame({"a": [10.0, 11.0], "b": [0.0, 0.1], "c": [9.0, 9.5], "Max_Shadow": [1.0, 1.0]})
     bs.tentative = ["a", "b", "c"]

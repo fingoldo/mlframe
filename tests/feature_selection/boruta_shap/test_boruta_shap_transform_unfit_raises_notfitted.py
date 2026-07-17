@@ -26,6 +26,7 @@ import pytest
 
 
 def test_transform_on_unfit_borutashap_raises_notfittederror():
+    """Transform on unfit borutashap raises notfittederror."""
     from sklearn.exceptions import NotFittedError
     from mlframe.feature_selection.boruta_shap import BorutaShap
 
@@ -37,6 +38,7 @@ def test_transform_on_unfit_borutashap_raises_notfittederror():
 
 
 def test_transform_after_fit_works_normally():
+    """Transform after fit works normally."""
     from lightgbm import LGBMRegressor
     from mlframe.feature_selection.boruta_shap import BorutaShap
 

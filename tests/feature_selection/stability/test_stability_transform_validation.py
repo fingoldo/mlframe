@@ -43,6 +43,7 @@ import pytest
 
 
 def _fit():
+    """Helper that fit."""
     from mlframe.feature_selection.filters.stability import StabilityMRMR
     from mlframe.feature_selection.filters.mrmr import MRMR
 

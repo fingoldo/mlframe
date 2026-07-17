@@ -29,6 +29,7 @@ pytest.importorskip("xgboost")
 
 
 def _make_clf_data(n=400, f=10, seed=0):
+    """Make clf data."""
     rng = np.random.default_rng(seed)
     X = rng.standard_normal((n, f)).astype(np.float64)
     logits = X[:, 0] * 1.3 - X[:, 1] * 0.8 + X[:, 2] * 0.5

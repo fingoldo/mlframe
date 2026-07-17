@@ -17,12 +17,14 @@ from sklearn.ensemble import RandomForestClassifier
 
 
 def _make(n=1200, seed=0):
+    """Helper that make."""
     X, y = make_classification(n_samples=n, n_features=8, n_informative=4, n_redundant=0, n_repeated=0, shuffle=False, random_state=seed)
     cols = [f"inf_{i}" for i in range(4)] + [f"noise_{i}" for i in range(4)]
     return pd.DataFrame(X, columns=cols), pd.Series(y), [f"inf_{i}" for i in range(4)], [f"noise_{i}" for i in range(4)]
 
 
 def test_permutation_is_a_real_constructor_option():
+    """Permutation is a real constructor option."""
     from mlframe.feature_selection.boruta_shap import BorutaShap
 
     p = inspect.signature(BorutaShap.__init__).parameters
@@ -113,6 +115,7 @@ def test_held_out_mode_populates_the_split_used_by_permutation():
 
 
 def test_unknown_importance_measure_lists_permutation():
+    """Unknown importance measure lists permutation."""
     from mlframe.feature_selection.boruta_shap import BorutaShap
 
     X, y, _, _ = _make(n=400)

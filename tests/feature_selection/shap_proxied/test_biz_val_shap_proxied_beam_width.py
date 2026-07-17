@@ -16,6 +16,7 @@ import numpy as np
 
 
 def _phi_frame(seed):
+    """Phi frame."""
     rng = np.random.default_rng(seed)
     n, p = 1500, 14
     core = rng.normal(size=(n, 4))
@@ -29,6 +30,7 @@ def _phi_frame(seed):
 
 
 def _best_loss(beam_width, seed):
+    """Best loss."""
     from mlframe.feature_selection.shap_proxied_fs import _shap_proxy_heuristics as H
 
     phi, base, y = _phi_frame(seed)
@@ -37,12 +39,14 @@ def _best_loss(beam_width, seed):
 
 
 def test_biz_val_beam_width_wide_finds_better_subset_than_narrow():
+    """Biz val beam width wide finds better subset than narrow."""
     narrow = _best_loss(2, seed=0)
     wide = _best_loss(12, seed=0)
     assert wide < narrow - 1e-3, f"wide beam loss {wide:.5f} should beat narrow {narrow:.5f}"
 
 
 def test_biz_val_beam_width_wins_or_ties_across_seeds():
+    """Biz val beam width wins or ties across seeds."""
     results = [(_best_loss(2, s), _best_loss(12, s)) for s in range(6)]
     wins = sum(w < nv - 1e-4 for nv, w in results)
     assert all(w <= nv + 1e-9 for nv, w in results), f"wide beam never worse; {results}"

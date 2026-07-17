@@ -20,6 +20,7 @@ pytest.importorskip("xgboost")
 
 # ----------------------------------------------------------------- resolver math
 def test_resolve_shap_prefilter_top_uses_safety_factor():
+    """Resolve shap prefilter top uses safety factor."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_shap_prefilter import resolve_shap_prefilter_top
 
     # search cap 22 * factor 4 = 88 dominates the 40 floor.
@@ -27,6 +28,7 @@ def test_resolve_shap_prefilter_top_uses_safety_factor():
 
 
 def test_resolve_shap_prefilter_top_respects_min_features_floor():
+    """Resolve shap prefilter top respects min features floor."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_shap_prefilter import resolve_shap_prefilter_top
 
     # tiny search cap (e.g. 5 * 4 = 20) is dominated by the 40 floor.
@@ -34,6 +36,7 @@ def test_resolve_shap_prefilter_top_respects_min_features_floor():
 
 
 def test_resolve_shap_prefilter_top_safety_factor_is_int_multiplied():
+    """Resolve shap prefilter top safety factor is int multiplied."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_shap_prefilter import resolve_shap_prefilter_top
 
     # factor 1 collapses cushion -> max(22, 40) = 40.
@@ -61,6 +64,7 @@ def _tiny_regime(n=400, n_features=300, n_inf=5, seed=0):
 
 
 def test_selector_records_shap_prefilter_block_when_enabled():
+    """Selector records shap prefilter block when enabled."""
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
     X, y = _tiny_regime()
@@ -128,6 +132,7 @@ def test_selector_disabled_keeps_user_prefilter_top():
 
 
 def test_selector_shap_prefilter_top_override_dominates_factor_floor():
+    """Selector shap prefilter top override dominates factor floor."""
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
     X, y = _tiny_regime()
@@ -234,6 +239,7 @@ def test_biz_val_shap_prefilter_e2e_speedup_at_live_regime():
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
     def run(enabled, seed):
+        """Run ShapProxiedFS on the live-regime dataset with the prefilter lever toggled, returning wall-time and recovered recall."""
         X, y, roles = make_regime_dataset(n_samples=5000, n_informative=12, n_redundant=0, redundancy_rho=0.0, n_noise=988, snr=8.0, task="binary", seed=seed)
         sel = ShapProxiedFS(
             classification=True,
@@ -280,6 +286,7 @@ def test_biz_val_shap_prefilter_e2e_speedup_at_live_regime():
 
 # ----------------------------------------------------------------- iter33: SHAP-aware stage-A
 def test_resolve_shap_aware_stage1_keep_tightens_to_cushion_floor():
+    """Resolve shap aware stage1 keep tightens to cushion floor."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_shap_prefilter import resolve_shap_aware_stage1_keep
 
     # effective_prefilter_top=88, cushion=8 -> 88*8=704 ; floor=200 ; default=2000
@@ -288,6 +295,7 @@ def test_resolve_shap_aware_stage1_keep_tightens_to_cushion_floor():
 
 
 def test_resolve_shap_aware_stage1_keep_floor_dominates_tiny_cap():
+    """Resolve shap aware stage1 keep floor dominates tiny cap."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_shap_prefilter import resolve_shap_aware_stage1_keep
 
     # tiny eff_top=10, cushion=8 -> 80 ; floor=200 wins -> min(2000, 200) = 200
@@ -295,6 +303,7 @@ def test_resolve_shap_aware_stage1_keep_floor_dominates_tiny_cap():
 
 
 def test_resolve_shap_aware_stage1_keep_never_expands_default():
+    """Resolve shap aware stage1 keep never expands default."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_shap_prefilter import resolve_shap_aware_stage1_keep
 
     # eff_top*cushion exceeds default 500 -> capped at default (strict tighten contract)
@@ -439,6 +448,7 @@ def test_biz_val_shap_aware_stage1_keep_e2e_speedup_at_target_regime():
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
     def run(enabled, seed):
+        """Run ShapProxiedFS on the iter33 wide-target regime dataset with the prefilter lever toggled, returning wall-time and recovered recall."""
         X, y, roles = make_regime_dataset(n_samples=5000, n_informative=20, n_redundant=0, redundancy_rho=0.0, n_noise=9980, snr=8.0, task="binary", seed=seed)
         sel = ShapProxiedFS(
             classification=True,

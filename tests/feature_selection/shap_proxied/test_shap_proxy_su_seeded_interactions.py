@@ -92,6 +92,7 @@ pytest.importorskip("xgboost")
 
 
 def _shap_sel(su_seeded, n_features):
+    """Shap sel."""
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
     return ShapProxiedFS(

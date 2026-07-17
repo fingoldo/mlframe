@@ -15,13 +15,16 @@ class _DummyXGBLike:
     feature_importances_ = np.zeros(2)
 
     def fit(self, X, y, **kw):
+        """Helper that fit."""
         return self
 
     def predict(self, X):
+        """Helper that predict."""
         return np.zeros(len(X))
 
 
 def test_check_missing_values_logs_warning_not_print(capsys, caplog):
+    """Check missing values logs warning not print."""
     pytest.importorskip("shap")
     from mlframe.feature_selection.boruta_shap import BorutaShap
 

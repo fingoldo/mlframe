@@ -24,6 +24,7 @@ pytest.importorskip("numba")
 
 
 def _fit_xgb(X, y, *, classification, n_estimators=40, max_depth=5, seed=0):
+    """Fit xgb."""
     from xgboost import XGBClassifier, XGBRegressor
 
     params = dict(n_estimators=n_estimators, max_depth=max_depth, learning_rate=0.2, random_state=seed, tree_method="hist")

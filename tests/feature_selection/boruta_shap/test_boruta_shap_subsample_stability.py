@@ -14,6 +14,7 @@ import pytest
 
 
 def _signal_noise(n=900, p_signal=3, p_noise=14, seed=0):
+    """Signal noise."""
     rng = np.random.default_rng(seed)
     z = rng.standard_normal((n, p_signal))
     logit = z @ np.array([1.5, -1.2, 1.0])
@@ -25,6 +26,7 @@ def _signal_noise(n=900, p_signal=3, p_noise=14, seed=0):
 
 
 def test_stability_params_roundtrip_shallow_get_params():
+    """Stability params roundtrip shallow get params."""
     from mlframe.feature_selection.boruta_shap import BorutaShap
 
     b = BorutaShap(stability_subsamples=4, stability_subsample_fraction=0.8, stability_threshold=0.7)
@@ -88,6 +90,7 @@ def test_borutashap_is_sklearn_cloneable():
 
 
 def test_stability_runs_subfits_votes_and_keeps_signal():
+    """Stability runs subfits votes and keeps signal."""
     pytest.importorskip("sklearn")
     from sklearn.ensemble import RandomForestClassifier
     from mlframe.feature_selection.boruta_shap import BorutaShap

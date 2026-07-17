@@ -32,6 +32,7 @@ pytest.importorskip("lightgbm")
 
 
 def _make_mixed_frame(seed: int = 17, n: int = 240) -> tuple[pd.DataFrame, pd.Series]:
+    """Make mixed frame."""
     rng = np.random.default_rng(seed)
     df = pd.DataFrame(
         {
@@ -46,6 +47,7 @@ def _make_mixed_frame(seed: int = 17, n: int = 240) -> tuple[pd.DataFrame, pd.Se
 
 
 def test_boruta_shap_encodes_object_cats_before_surrogate_fit():
+    """Boruta shap encodes object cats before surrogate fit."""
     from lightgbm import LGBMRegressor
     from mlframe.feature_selection.boruta_shap import BorutaShap
 
@@ -94,6 +96,7 @@ def test_boruta_shap_transform_returns_caller_frame_unmodified():
 
 
 def test_ordinal_encode_object_cols_inplace_handles_nan_via_minus_one():
+    """Ordinal encode object cols inplace handles nan via minus one."""
     from mlframe.feature_selection.boruta_shap import BorutaShap
 
     df = pd.DataFrame(
@@ -114,6 +117,7 @@ def test_ordinal_encode_object_cols_inplace_handles_nan_via_minus_one():
 
 
 def test_ordinal_encode_is_a_noop_on_already_numeric_frame():
+    """Ordinal encode is a noop on already numeric frame."""
     from mlframe.feature_selection.boruta_shap import BorutaShap
 
     df = pd.DataFrame({"a": [1.0, 2.0], "b": [3, 4]})

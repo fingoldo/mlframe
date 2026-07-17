@@ -28,6 +28,7 @@ def _loop_drop(df: pd.DataFrame, feats) -> pd.DataFrame:
 
 
 def test_single_drop_matches_loop_columns_and_order():
+    """Single drop matches loop columns and order."""
     cols = [f"f{i}" for i in range(12)]
     base = pd.DataFrame(np.arange(5 * 12).reshape(5, 12), columns=cols)
 
@@ -56,6 +57,7 @@ def test_single_drop_ignores_already_removed():
 
 
 def test_single_drop_empty_list_is_noop():
+    """Single drop empty list is noop."""
     base = pd.DataFrame({"a": [1], "b": [2]})
     bs = BorutaShap.__new__(BorutaShap)
     bs.X = base.copy()
