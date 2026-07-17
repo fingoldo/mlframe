@@ -51,6 +51,7 @@ def test_threadlocal_does_not_propagate_to_joblib_workers_baseline():
     set_bur_lambda(0.3)
 
     def w(_):
+        """Probe the calling thread's view of the su/jmim/bur thread-locals, to compare main-thread vs joblib-worker state."""
         return (use_su_normalization(), use_jmim_aggregator(), get_bur_lambda())
 
     main_state = w(0)
@@ -91,6 +92,7 @@ def test_evaluate_candidates_republishes_threadlocals_in_worker():
     # Mimic exactly what ``evaluate_candidates`` does at its entry,
     # then probe the worker's view of the thread-local.
     def worker_using_iter5_pattern(use_su, use_jmim, bur_lambda):
+        """Replicate evaluate_candidates' entry-point republish pattern inside a worker thread, then report the thread-local it now sees."""
         _prev_su = use_su_normalization()
         _prev_jmim = use_jmim_aggregator()
         _prev_bur = get_bur_lambda()

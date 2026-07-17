@@ -15,6 +15,7 @@ from mlframe.feature_selection.filters.mrmr import MRMR
 
 
 def test_triplet_fe_skips_string_columns_no_convert_error(caplog):
+    """The triplet cross-basis FE seed pool excludes string/categorical columns, so a genuine numeric 3-way interaction survives instead of the whole stage being silently dropped."""
     rng = np.random.default_rng(0)
     n = 1500
     x1 = rng.standard_normal(n)

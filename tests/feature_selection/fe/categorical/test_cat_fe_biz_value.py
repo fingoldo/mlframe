@@ -54,6 +54,7 @@ def xor_4way_dataset():
 
 
 def _fit_cat_fe(df, y, **cfg_overrides):
+    """Run the categorical-interaction FE stage on df/y with sensible test defaults, overridable per call."""
     defaults = dict(
         enable=True,
         top_k_pairs=8,

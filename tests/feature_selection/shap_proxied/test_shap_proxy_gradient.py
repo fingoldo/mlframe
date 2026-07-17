@@ -9,6 +9,7 @@ pytest.importorskip("torch")
 
 
 def test_gradient_returns_valid_candidates_and_beats_random():
+    """gradient_top_n returns ascending-loss, deduplicated non-empty coalitions, and its top pick beats a random same-size subset."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_gradient import gradient_top_n
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_objective import coalition_margin, proxy_loss
 
@@ -32,6 +33,7 @@ def test_gradient_returns_valid_candidates_and_beats_random():
 
 
 def test_gradient_reproducible():
+    """gradient_top_n with a fixed random_state returns identical coalitions across repeated runs."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_gradient import gradient_top_n
 
     rng = np.random.default_rng(5)
