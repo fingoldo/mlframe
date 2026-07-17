@@ -134,12 +134,24 @@ def pooled_pair_permutation_null_joint_mi_floor_cupy(
         per_pair_extent = max_joint * n_classes_y  # uniform stride per pair (pad-safe)
 
         # Marginal H(x) per pair (permutation-invariant): -sum p log p over the joint X-code counts.
-        h_x = cp.empty(n_pairs, dtype=cp.float64)
-        for p in range(n_pairs):
-            cnt = cp.bincount(cls_x[p], minlength=int(joint_card[p]))[: int(joint_card[p])].astype(cp.float64)
-            px = cnt * inv_n
-            nz = px > 0
-            h_x[p] = -cp.sum(cp.where(nz, px * cp.log(cp.where(nz, px, 1.0)), 0.0))
+        # BATCHED (2026-07-17): was a Python ``for p in range(n_pairs)`` loop launching ONE cp.bincount
+        # per pair -- at production pair-pool widths (thousands to ~90k order-2 candidates) that is
+        # thousands of tiny kernel launches, the exact "small pool of pairs, launch-overhead-bound"
+        # pattern this module elsewhere avoids (the per-shuffle loop 15 lines below already uses this
+        # SAME flat-index/one-bincount technique). Mirrors it here: each pair gets its own contiguous
+        # ``max_joint``-wide histogram block (``base_pair_x``), ONE ``cp.bincount`` over the whole
+        # (n_pairs, n) matrix at once. Padding cells (joint code in ``[joint_card[pair], max_joint)``)
+        # cannot occur (``cls_x < joint_card[pair]`` by construction, same guarantee the per-shuffle
+        # path documents) -> bit-identical to the per-pair loop, just one launch instead of n_pairs.
+        base_pair_x = (cp.arange(n_pairs, dtype=cp.int64) * max_joint)[:, None]  # (n_pairs, 1)
+        flat_x = (base_pair_x + cls_x).ravel()  # (n_pairs*n,)
+        counts_x = cp.bincount(flat_x, minlength=n_pairs * max_joint)[: n_pairs * max_joint]
+        counts_x = counts_x.reshape(n_pairs, max_joint).astype(cp.float64)
+        del flat_x, base_pair_x
+        px = counts_x * inv_n
+        nz = px > 0
+        h_x = -cp.sum(cp.where(nz, px * cp.log(cp.where(nz, px, 1.0)), 0.0), axis=1)
+        del counts_x, px, nz
         h_x = h_x[:, None]  # (n_pairs, 1)
 
         # H(y) is permutation-invariant (freqs_y unchanged under relabelling) -> one host scalar.
