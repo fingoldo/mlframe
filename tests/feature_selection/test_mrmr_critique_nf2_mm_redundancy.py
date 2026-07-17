@@ -10,6 +10,7 @@ from mlframe.feature_selection.filters.info_theory._entropy_kernels import condi
 
 
 def _fixture(kx, n=4000, seed=0):
+    """Helper that fixture."""
     rng = np.random.default_rng(seed)
     x = rng.integers(0, kx, n)
     y = rng.integers(0, 2, n)
@@ -20,6 +21,7 @@ def _fixture(kx, n=4000, seed=0):
 
 
 def test_conditional_mi_mm_subtracts_analytic_bias():
+    """Conditional mi mm subtracts analytic bias."""
     fd, nb, xi, yi, zi = _fixture(kx=8)
     plug = conditional_mi(fd, xi, yi, zi, None, nb, dtype=np.int32, use_mm=False)
     mm = conditional_mi(fd, xi, yi, zi, None, nb, dtype=np.int32, use_mm=True)
@@ -29,6 +31,7 @@ def test_conditional_mi_mm_subtracts_analytic_bias():
 
 
 def test_default_use_mm_false_is_plugin():
+    """Default use mm false is plugin."""
     fd, nb, xi, yi, zi = _fixture(kx=8)
     a = conditional_mi(fd, xi, yi, zi, None, nb, dtype=np.int32)  # default (no use_mm)
     b = conditional_mi(fd, xi, yi, zi, None, nb, dtype=np.int32, use_mm=False)
@@ -38,6 +41,7 @@ def test_default_use_mm_false_is_plugin():
 def test_mm_bias_grows_with_cardinality():
     # the N-F2 point: plug-in redundancy over-estimation scales with cardinality, so the MM correction is larger for
     # high-card candidates (which the plug-in objective was penalising).
+    """Mm bias grows with cardinality."""
     _, nb8, xi, yi, zi = _fixture(kx=8)
     fd8, nb8, xi, yi, zi = _fixture(kx=8)
     fd40, nb40, *_ = _fixture(kx=40)

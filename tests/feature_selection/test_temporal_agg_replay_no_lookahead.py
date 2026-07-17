@@ -16,10 +16,12 @@ from mlframe.feature_selection.filters._temporal_agg_fe import (
 
 def _train():
     # one entity, train values at times 1..4
+    """Helper that train."""
     return pd.DataFrame({"entity": ["u"] * 4, "tcol": [1, 2, 3, 4], "x0": [10.0, 20.0, 30.0, 40.0]})
 
 
 def test_expanding_replay_excludes_future_train_rows():
+    """Expanding replay excludes future train rows."""
     Xtr = _train()
     _enc, rec = generate_expanding_agg_features(Xtr, ["entity"], ["x0"], "tcol", stats=("mean", "count"))
     # a test row at t=2.5 must see ONLY train rows at t<2.5 -> {10, 20}
@@ -33,6 +35,7 @@ def test_expanding_replay_excludes_future_train_rows():
 
 
 def test_lag_replay_excludes_future_train_rows():
+    """Lag replay excludes future train rows."""
     Xtr = _train()
     _enc, rec = generate_lag_features(Xtr, ["entity"], ["x0"], "tcol", lags=(1,))
     Xte = pd.DataFrame({"entity": ["u"], "tcol": [2.5], "x0": [99.0]})
@@ -44,6 +47,7 @@ def test_lag_replay_excludes_future_train_rows():
 
 def test_replay_unchanged_when_test_strictly_after_train():
     # backward-compat: with every test row AFTER all train rows, the merge yields the same values as before.
+    """Replay unchanged when test strictly after train."""
     Xtr = _train()
     _enc, rec = generate_expanding_agg_features(Xtr, ["entity"], ["x0"], "tcol", stats=("mean",))
     Xte = pd.DataFrame({"entity": ["u", "u"], "tcol": [5, 6], "x0": [50.0, 60.0]})
@@ -55,6 +59,7 @@ def test_replay_unchanged_when_test_strictly_after_train():
 
 
 def test_expanding_datetime_time_axis_no_lookahead():
+    """Expanding datetime time axis no lookahead."""
     Xtr = pd.DataFrame(
         {
             "entity": ["u"] * 3,

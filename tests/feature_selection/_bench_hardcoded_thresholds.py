@@ -143,6 +143,7 @@ PENDING = [
 
 
 def main():
+    """CLI entry point: run the threshold-sensitivity bench for the requested group and print verdicts."""
     group = sys.argv[1] if len(sys.argv) > 1 else "high"
     table = {"high": HIGH, "medlow": MEDLOW, "pending": PENDING, "all": HIGH + MEDLOW}.get(group, HIGH)
     print(f"== threshold sensitivity bench ({group}) ==")

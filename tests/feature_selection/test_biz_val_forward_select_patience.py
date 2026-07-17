@@ -18,6 +18,7 @@ from mlframe.feature_selection.forward_select import forward_select
 
 
 def _make_dataset(n: int, n_signal: int, n_noise: int, seed: int):
+    """Make dataset."""
     rng = np.random.default_rng(seed)
     y = rng.normal(size=n)
     signal_cols = {f"signal{i}": y * (1.0 / (i + 1)) + rng.normal(scale=0.3, size=n) for i in range(n_signal)}
@@ -27,6 +28,7 @@ def _make_dataset(n: int, n_signal: int, n_noise: int, seed: int):
 
 
 def test_biz_val_forward_select_patience_stops_near_signal_boundary_avoiding_noise_evaluation():
+    """Biz val forward select patience stops near signal boundary avoiding noise evaluation."""
     n_signal, n_noise = 4, 40
     X, y = _make_dataset(n=600, n_signal=n_signal, n_noise=n_noise, seed=0)
 
@@ -63,6 +65,7 @@ def test_biz_val_forward_select_patience_stops_near_signal_boundary_avoiding_noi
 
 
 def test_forward_select_patience_none_preserves_original_behavior():
+    """Forward select patience none preserves original behavior."""
     X, y = _make_dataset(n=400, n_signal=2, n_noise=6, seed=1)
     result_default = forward_select(X, y, lambda: Ridge(alpha=1.0), scoring="neg_mean_squared_error", cv=5)
     result_explicit_none = forward_select(X, y, lambda: Ridge(alpha=1.0), scoring="neg_mean_squared_error", cv=5, patience=None, return_report=False)

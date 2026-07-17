@@ -21,6 +21,7 @@ from mlframe.feature_selection.filters.info_theory._class_encoding import merge_
 
 
 def _tiny_batch_inputs(nbins_val):
+    """Tiny batch inputs."""
     n = 40
     rng = np.random.default_rng(0)
     factors = rng.integers(0, 2, size=(n, 3)).astype(np.int32)
@@ -31,6 +32,7 @@ def _tiny_batch_inputs(nbins_val):
 
 
 def test_batch_pair_mi_huge_cardinality_returns_zero_not_oom():
+    """Batch pair mi huge cardinality returns zero not oom."""
     factors, nbins, y, freqs_y = _tiny_batch_inputs(nbins_val=1_000_000)  # 1e6 * 1e6 = 1e12 > cap
     a = np.array([0], dtype=np.int64)
     b = np.array([1], dtype=np.int64)
@@ -39,6 +41,7 @@ def test_batch_pair_mi_huge_cardinality_returns_zero_not_oom():
 
 
 def test_batch_triple_mi_huge_cardinality_returns_zero():
+    """Batch triple mi huge cardinality returns zero."""
     factors, nbins, y, freqs_y = _tiny_batch_inputs(nbins_val=1_000_000)
     a = np.array([0], dtype=np.int64)
     b = np.array([1], dtype=np.int64)
@@ -48,12 +51,14 @@ def test_batch_triple_mi_huge_cardinality_returns_zero():
 
 
 def test_batch_pair_mi_normal_cardinality_still_computes():
+    """Batch pair mi normal cardinality still computes."""
     factors, nbins, y, freqs_y = _tiny_batch_inputs(nbins_val=2)  # in-range
     out = batch_pair_mi_prange(factors, np.array([0]), np.array([1]), nbins, y, freqs_y)
     assert np.isfinite(out[0]) and out[0] >= 0.0
 
 
 def test_bayesian_blocks_rejects_nonprobability_p0():
+    """Bayesian blocks rejects nonprobability p0."""
     from mlframe.feature_selection.filters.discretization._discretization_edges import _bayesian_blocks_bin_edges
 
     a = np.random.default_rng(1).normal(size=200)
@@ -66,6 +71,7 @@ def test_bayesian_blocks_rejects_nonprobability_p0():
 
 
 def test_merge_vars_empty_frame_no_divide_by_zero():
+    """Merge vars empty frame no divide by zero."""
     factors = np.empty((0, 2), dtype=np.int32)
     fc, freqs, _ncl = merge_vars(factors, np.array([0, 1]), np.array([False, False]), np.array([2, 2], dtype=np.int64))
     assert len(fc) == 0
@@ -75,6 +81,7 @@ def test_merge_vars_empty_frame_no_divide_by_zero():
 def test_rfecv_routes_groups_plus_temporal_to_group_time_series():
     # groups + a temporal signal now ROUTES to GroupTimeSeriesSplit (entity isolation AND time-ordered folds)
     # instead of the old silent GroupKFold. Full guarantees are exercised in test_group_time_series_split.py.
+    """Rfecv routes groups plus temporal to group time series."""
     from sklearn.ensemble import RandomForestRegressor
     from mlframe.feature_selection.wrappers.rfecv._cv_setup import _resolve_cv_and_val_cv
     from mlframe.feature_selection.wrappers.rfecv._group_time_series_split import GroupTimeSeriesSplit

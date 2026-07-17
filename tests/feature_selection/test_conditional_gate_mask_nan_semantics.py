@@ -11,6 +11,7 @@ import numpy as np
 
 
 def _old(cv, av, taus):
+    """Helper that old."""
     f = np.empty((cv.shape[0], len(taus)))
     for j, t in enumerate(taus):
         f[:, j] = (cv > t).astype(np.float64) * av
@@ -18,6 +19,7 @@ def _old(cv, av, taus):
 
 
 def _new(cv, av, taus):
+    """Helper that new."""
     f = np.empty((cv.shape[0], len(taus)))
     for j, t in enumerate(taus):
         np.multiply(av, cv > t, out=f[:, j])
@@ -25,6 +27,7 @@ def _new(cv, av, taus):
 
 
 def _wrong_where(cv, av, taus):
+    """Wrong where."""
     f = np.empty((cv.shape[0], len(taus)))
     for j, t in enumerate(taus):
         f[:, j] = np.where(cv > t, av, 0.0)
@@ -32,6 +35,7 @@ def _wrong_where(cv, av, taus):
 
 
 def test_mask_block_nan_identical_to_prior_astype_form():
+    """Mask block nan identical to prior astype form."""
     rng = np.random.default_rng(0)
     cv = rng.standard_normal(2000)
     av = rng.standard_normal(2000)
@@ -42,6 +46,7 @@ def test_mask_block_nan_identical_to_prior_astype_form():
 
 
 def test_np_where_form_would_drop_off_region_nan():
+    """Np where form would drop off region nan."""
     rng = np.random.default_rng(1)
     cv = rng.standard_normal(2000)
     av = rng.standard_normal(2000)

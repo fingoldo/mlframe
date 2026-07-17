@@ -14,6 +14,7 @@ from mlframe.feature_selection.filters.permutation import _perm_pvalue, _addone_
 def test_perm_pvalue_full_budget_break_position_independent():
     # Retained (deliberate) design: an early-stopped run scores its p against the FULL budget so confidence does not
     # depend on WHERE the break fired. Pins the behaviour N-F3 proposed to change so a future edit is a conscious one.
+    """Perm pvalue full budget break position independent."""
     p_stopped = _perm_pvalue(5, 8, full_budget=100)
     p_full = _perm_pvalue(5, 100, full_budget=100)
     if _addone_pvalue_enabled():
@@ -22,6 +23,7 @@ def test_perm_pvalue_full_budget_break_position_independent():
 
 def test_gpu_null_budget_constant_available():
     # the GPU return_null_mean path bumps to this same constant the CPU path uses (permutation.py:642).
+    """Gpu null budget constant available."""
     from mlframe.feature_selection.filters.permutation import _NULL_MEAN_MIN_PERMS
 
     assert _NULL_MEAN_MIN_PERMS >= 32

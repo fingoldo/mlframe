@@ -18,6 +18,7 @@ from mlframe.feature_selection.forward_select import forward_select
 
 
 def _make_stacking_dataset(n: int, seed: int):
+    """Make stacking dataset."""
     rng = np.random.default_rng(seed)
     true_signal = rng.normal(size=n)
     # base-model OOF predictions: a good but imperfect estimate of the true signal.
@@ -33,6 +34,7 @@ def _make_stacking_dataset(n: int, seed: int):
 
 
 def test_biz_val_forward_select_with_fixed_stacking_core_finds_useful_raw_feature():
+    """Biz val forward select with fixed stacking core finds useful raw feature."""
     X, y = _make_stacking_dataset(n=1500, seed=0)
     raw_candidates = [c for c in X.columns if c != "base_pred"]
 
@@ -53,6 +55,7 @@ def test_biz_val_forward_select_with_fixed_stacking_core_finds_useful_raw_featur
 
 
 def test_forward_select_initial_selected_beats_base_alone_and_none_kept():
+    """Forward select initial selected beats base alone and none kept."""
     X, y = _make_stacking_dataset(n=1500, seed=1)
     raw_candidates = [c for c in X.columns if c != "base_pred"]
 
@@ -76,6 +79,7 @@ def test_forward_select_initial_selected_beats_base_alone_and_none_kept():
 
 
 def test_forward_select_initial_selected_none_preserves_original_behavior():
+    """Forward select initial selected none preserves original behavior."""
     X, y = _make_stacking_dataset(n=500, seed=2)
     result_default = forward_select(X, y, lambda: Ridge(alpha=1.0), scoring="neg_mean_squared_error", cv=5)
     result_explicit_none = forward_select(X, y, lambda: Ridge(alpha=1.0), scoring="neg_mean_squared_error", cv=5, initial_selected=None)

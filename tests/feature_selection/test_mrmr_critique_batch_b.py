@@ -14,6 +14,7 @@ from mlframe.feature_selection.filters._conditional_gate_fe import _is_argmax_el
 
 
 def test_is_argmax_eligible_excludes_nonfinite_columns():
+    """Is argmax eligible excludes nonfinite columns."""
     assert _is_argmax_eligible(np.array([1.0, 2.0, 3.0])) is True
     assert _is_argmax_eligible(np.arange(5)) is True  # integer finite
     assert _is_argmax_eligible(np.array([1.0, np.nan, 3.0])) is False, "NaN column must be excluded"
@@ -23,6 +24,7 @@ def test_is_argmax_eligible_excludes_nonfinite_columns():
 
 
 def test_redundancy_aggregator_typo_raises():
+    """Redundancy aggregator typo raises."""
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     rng = np.random.default_rng(0)
@@ -33,6 +35,7 @@ def test_redundancy_aggregator_typo_raises():
 
 
 def test_valid_redundancy_aggregators_accepted():
+    """Valid redundancy aggregators accepted."""
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     rng = np.random.default_rng(1)

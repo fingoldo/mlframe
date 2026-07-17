@@ -15,6 +15,7 @@ from mlframe.feature_selection.filters.discretization import _discretization_dat
 
 
 def _cached(arr):
+    """Helper that cached."""
     return dd._discretize_2d_array_col_cached(
         arr,
         n_bins=8,
@@ -26,6 +27,7 @@ def _cached(arr):
 
 
 def test_concurrent_col_cache_is_correct_and_counter_does_not_drift():
+    """Concurrent col cache is correct and counter does not drift."""
     rng = np.random.default_rng(0)
     # Overlapping column sets across threads so hits, misses and evictions all interleave.
     base = rng.standard_normal((2000, 12)).astype(np.float64)
@@ -37,6 +39,7 @@ def test_concurrent_col_cache_is_correct_and_counter_does_not_drift():
     results: list = []
 
     def worker(cols):
+        """Helper that worker."""
         try:
             for _ in range(4):
                 sub = np.ascontiguousarray(base[:, cols])

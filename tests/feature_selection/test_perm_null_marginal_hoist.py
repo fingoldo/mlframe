@@ -37,6 +37,7 @@ def _reference_marginal_null(x, y, *, n_permutations=25, quantile=0.95, seed=0, 
 )
 def test_marginal_perm_null_bit_identical_to_reference(monkeypatch, n, kx, ky, seed, salt):
     # Force the CPU host path (no analytic null at this n; no GPU-resident branch).
+    """Marginal perm null bit identical to reference."""
     monkeypatch.setenv("MLFRAME_CMI_GPU", "0")
     monkeypatch.setenv("MLFRAME_FE_GPU_STRICT", "0")
     monkeypatch.setenv("MLFRAME_FE_CMI_PERM_NULL_GPU", "0")

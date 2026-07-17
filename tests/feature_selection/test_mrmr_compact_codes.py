@@ -15,6 +15,7 @@ from mlframe.feature_selection.filters.mrmr import MRMR
 
 
 def _fit_selection(X, y, compact: str, monkeypatch, **kw):
+    """Fit selection."""
     monkeypatch.setenv("MLFRAME_MRMR_COMPACT_CODES", compact)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
