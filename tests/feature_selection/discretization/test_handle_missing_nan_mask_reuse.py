@@ -39,6 +39,7 @@ def _legacy_handle_missing(arr: np.ndarray, strategy: str) -> np.ndarray:
 
 
 def _make_nan_array(seed: int = 42, shape=(500, 6)) -> np.ndarray:
+    """Make nan array."""
     rng = np.random.default_rng(seed)
     arr = rng.normal(size=shape).astype(np.float64)
     nan_mask = rng.random(shape) < 0.15
@@ -48,6 +49,7 @@ def _make_nan_array(seed: int = 42, shape=(500, 6)) -> np.ndarray:
 
 @pytest.mark.parametrize("strategy", ["separate_bin", "propagate", "fillna_zero"])
 def test_output_matches_legacy_where_based_fill(strategy):
+    """Output matches legacy where based fill."""
     arr = _make_nan_array()
     legacy = _legacy_handle_missing(arr.copy(), strategy)
     mask = np.isnan(arr)
@@ -73,6 +75,7 @@ def _count_full_array_isnan_calls(monkeypatch, fn, arr) -> int:
     orig_isnan = np.isnan
 
     def counting_isnan(x, *a, **kw):
+        """Counting isnan."""
         full_shape_calls.append(np.shape(x))
         return orig_isnan(x, *a, **kw)
 
@@ -113,6 +116,7 @@ def test_isnan_still_called_internally_when_no_mask_supplied(monkeypatch):
     orig_isnan = np.isnan
 
     def counting_isnan(x, *a, **kw):
+        """Counting isnan."""
         full_shape_calls.append(np.shape(x))
         return orig_isnan(x, *a, **kw)
 

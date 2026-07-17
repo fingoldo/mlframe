@@ -53,6 +53,7 @@ def _build_signal_dataset(n: int = 300, n_noise: int = 4, seed: int = 0):
 
 
 def test_compute_permutation_returns_polars_dataframe():
+    """Compute permutation returns polars dataframe."""
     X, y, cols = _build_signal_dataset(n=200, n_noise=3)
     model = LinearRegression().fit(X, y)
     out = compute_permutation_importances(model, X, y, columns=cols, n_repeats=3, random_state=0)
@@ -63,6 +64,7 @@ def test_compute_permutation_returns_polars_dataframe():
 
 
 def test_compute_permutation_one_row_per_feature():
+    """Compute permutation one row per feature."""
     X, y, cols = _build_signal_dataset(n=200, n_noise=4)
     model = LinearRegression().fit(X, y)
     out = compute_permutation_importances(model, X, y, columns=cols, n_repeats=3, random_state=0)
@@ -140,6 +142,7 @@ def test_plot_feature_importance_returns_sorted_pd_dataframe():
 
 
 def test_plot_feature_importance_positive_only_filter():
+    """Plot feature importance positive only filter."""
     plt.close("all")
     fi = np.array([0.5, -0.3, 0.2, -0.1])
     cols = ["pos1", "neg1", "pos2", "neg2"]
@@ -203,6 +206,7 @@ def _capture_barh_xerr(monkeypatch):
     seen = {}
 
     def _spy(self, *args, **kwargs):
+        """Helper that spy."""
         seen["xerr"] = kwargs.get("xerr")
         container = real_barh(self, *args, **kwargs)
         seen["has_errorbar"] = getattr(container, "errorbar", None) is not None

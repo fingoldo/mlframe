@@ -20,7 +20,9 @@ from mlframe.feature_selection.filters._cluster_hierarchy import (
 
 
 class TestQuantizeNanHandling:
+    """Groups tests covering TestQuantizeNanHandling."""
     def test_ndarray_nan_column_still_binned(self):
+        """Ndarray nan column still binned."""
         rng = np.random.default_rng(0)
         good = rng.standard_normal(300)
         nan_col = good.copy()
@@ -33,6 +35,7 @@ class TestQuantizeNanHandling:
         assert int(fn[1]) > 1, f"NaN column collapsed to {int(fn[1])} bin(s)"
 
     def test_ndarray_matches_dataframe_for_clean_data(self):
+        """Ndarray matches dataframe for clean data."""
         import pandas as pd
 
         rng = np.random.default_rng(1)
@@ -44,17 +47,21 @@ class TestQuantizeNanHandling:
 
 
 class TestComponentMedoid:
+    """Groups tests covering TestComponentMedoid."""
     def test_picks_central_anchor(self):
         # b is central: high SU to both a and c; a-c link is weak.
+        """Picks central anchor."""
         comp = ["a", "b", "c"]
         pair_sus = {("a", "b"): 0.9, ("b", "c"): 0.9, ("a", "c"): 0.1}
         assert _component_medoid(comp, pair_sus) == "b"
 
     def test_handles_reversed_key_order(self):
         # pair_sus keyed in original anchor order; medoid must look up both ways.
+        """Handles reversed key order."""
         comp = ["c", "b", "a"]
         pair_sus = {("b", "c"): 0.9, ("a", "b"): 0.9, ("a", "c"): 0.1}
         assert _component_medoid(comp, pair_sus) == "b"
 
     def test_two_member_alphabetical(self):
+        """Two member alphabetical."""
         assert _component_medoid(["y", "x"], {}) == "x"

@@ -34,6 +34,7 @@ import numpy as np
 
 
 def _state(n_cols=4):
+    """Helper that state."""
     from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
         make_dcd_state,
     )

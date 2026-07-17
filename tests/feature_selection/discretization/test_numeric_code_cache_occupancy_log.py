@@ -23,6 +23,7 @@ from mlframe.feature_selection.filters.discretization._discretization_dataset im
 
 
 def test_categorize_dataset_logs_cache_occupancy(caplog):
+    """Categorize dataset logs cache occupancy."""
     clear_numeric_code_cache()
     rng = np.random.default_rng(0)
     X = pd.DataFrame(rng.standard_normal((200, 4)), columns=["a", "b", "c", "d"])

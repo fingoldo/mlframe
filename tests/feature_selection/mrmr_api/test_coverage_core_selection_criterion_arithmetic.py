@@ -20,6 +20,7 @@ from mlframe.feature_selection.filters.mrmr import MRMR
 
 
 def _no_fe(**kw):
+    """No fe."""
     base = dict(
         random_seed=0,
         verbose=0,
@@ -41,6 +42,7 @@ def _no_fe(**kw):
 
 
 def _ordered_signal_data(n=900, seed=4):
+    """Ordered signal data."""
     rng = np.random.default_rng(seed)
     x0 = rng.normal(size=n)
     x1 = rng.normal(size=n)

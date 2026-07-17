@@ -41,9 +41,11 @@ def test_cuda_path_skipped_when_vram_insufficient(monkeypatch, caplog):
     monkeypatch.setattr("mlframe.feature_selection.filters._fe_gpu_vram.fe_gpu_has_vram_cushion", lambda bytes_needed: False)
 
     def _boom(*a, **kw):
+        """Helper that boom."""
         raise AssertionError("discretize_2d_array_cuda (full-upload) must NOT be invoked when the VRAM guard fails")
 
     def _fake_row_chunked(arr, n_bins, method, dtype):
+        """Fake row chunked."""
         return np.zeros(arr.shape, dtype=dtype)
 
     monkeypatch.setattr(disc_mod, "discretize_2d_array_cuda", _boom)
@@ -68,6 +70,7 @@ def test_cuda_path_used_when_vram_fits(monkeypatch):
     calls = {"n": 0}
 
     def _fake_cuda(arr, n_bins, method, dtype):
+        """Fake cuda."""
         calls["n"] += 1
         return np.zeros(arr.shape, dtype=dtype)
 
@@ -86,9 +89,11 @@ def test_cuda_path_untouched_when_below_size_threshold(monkeypatch):
     small = rng.standard_normal(size=(50, 5)).astype(np.float32)
 
     def _boom_cuda(*a, **kw):
+        """Boom cuda."""
         raise AssertionError("discretize_2d_array_cuda must not fire for a small array")
 
     def _boom_cushion(*a, **kw):
+        """Boom cushion."""
         raise AssertionError("VRAM cushion probe must not fire when the size dispatcher already picked CPU")
 
     monkeypatch.setattr(disc_mod, "discretize_2d_array_cuda", _boom_cuda)

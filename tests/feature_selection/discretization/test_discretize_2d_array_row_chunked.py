@@ -29,6 +29,7 @@ pytestmark = pytest.mark.skipif(
 
 
 def _cuda_available() -> bool:
+    """Cuda available."""
     try:
         from pyutilz.core.pythonlib import is_cuda_available
 
@@ -48,11 +49,13 @@ def test_dispatch_tries_row_chunked_before_cpu_when_vram_insufficient(monkeypatc
     monkeypatch.setattr("mlframe.feature_selection.filters._fe_gpu_vram.fe_gpu_has_vram_cushion", lambda bytes_needed: False)
 
     def _boom_full(*a, **kw):
+        """Boom full."""
         raise AssertionError("discretize_2d_array_cuda (full-upload) must NOT be invoked when the VRAM guard fails")
 
     calls = {"row_chunked": 0}
 
     def _fake_row_chunked(arr, n_bins, method, dtype, **kw):
+        """Fake row chunked."""
         calls["row_chunked"] += 1
         return np.zeros(arr.shape, dtype=dtype)
 
@@ -69,6 +72,7 @@ def test_dispatch_tries_row_chunked_before_cpu_when_vram_insufficient(monkeypatc
 
 
 def test_dispatch_falls_back_to_cpu_when_row_chunked_also_fails(monkeypatch, caplog):
+    """Dispatch falls back to cpu when row chunked also fails."""
     rng = np.random.default_rng(0)
     arr = rng.standard_normal(size=(2000, 300)).astype(np.float32)
 
@@ -77,6 +81,7 @@ def test_dispatch_falls_back_to_cpu_when_row_chunked_also_fails(monkeypatch, cap
     monkeypatch.setattr("mlframe.feature_selection.filters._fe_gpu_vram.fe_gpu_has_vram_cushion", lambda bytes_needed: False)
 
     def _boom(*a, **kw):
+        """Helper that boom."""
         raise RuntimeError("simulated failure")
 
     monkeypatch.setattr(disc_mod, "discretize_2d_array_cuda", _boom)
@@ -91,7 +96,9 @@ def test_dispatch_falls_back_to_cpu_when_row_chunked_also_fails(monkeypatch, cap
 
 @pytest.mark.skipif(not _cuda_available(), reason="numba.cuda/cupy not available on this host")
 class TestRealHardware:
+    """Groups tests covering TestRealHardware."""
     def test_uniform_row_chunked_is_bit_identical_to_full(self):
+        """Uniform row chunked is bit identical to full."""
         rng = np.random.default_rng(3)
         arr = rng.standard_normal(size=(20_000, 6)).astype(np.float32)
         full = disc_mod.discretize_2d_array_cuda(arr, n_bins=10, method="uniform", dtype=np.int32)
@@ -99,6 +106,7 @@ class TestRealHardware:
         np.testing.assert_array_equal(full, chunked)
 
     def test_uniform_row_chunked_bit_identical_with_forced_tiny_chunks(self, monkeypatch):
+        """Uniform row chunked bit identical with forced tiny chunks."""
         rng = np.random.default_rng(3)
         arr = rng.standard_normal(size=(20_000, 6)).astype(np.float32)
         full = disc_mod.discretize_2d_array_cuda(arr, n_bins=10, method="uniform", dtype=np.int32)
@@ -143,6 +151,7 @@ class TestRealHardware:
         orig_ascontig = cp.ascontiguousarray
 
         def _counting_ascontig(a_, *a, **kw):
+            """Counting ascontig."""
             if getattr(a_, "shape", None) == (n_cols, n_bins - 1):
                 calls["n"] += 1
             return orig_ascontig(a_, *a, **kw)

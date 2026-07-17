@@ -38,6 +38,7 @@ from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _quantile_bin
 
 
 def _bin10(x: np.ndarray) -> np.ndarray:
+    """Helper that bin10."""
     return _quantile_bin(np.asarray(x, dtype=np.float64), nbins=10).astype(np.int64)
 
 

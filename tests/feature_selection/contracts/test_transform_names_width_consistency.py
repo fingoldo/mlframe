@@ -16,6 +16,7 @@ import pandas as pd
 
 
 def _fit_small_mrmr(seed=0, n=1500):
+    """Fit small mrmr."""
     from mlframe.feature_selection.filters import MRMR
 
     rng = np.random.default_rng(seed)
@@ -29,6 +30,7 @@ def _fit_small_mrmr(seed=0, n=1500):
 
 
 def test_names_out_width_equals_transform_width_baseline():
+    """Names out width equals transform width baseline."""
     fs, df = _fit_small_mrmr()
     assert len(fs.get_feature_names_out()) == fs.transform(df).shape[1]
 

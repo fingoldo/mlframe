@@ -19,6 +19,7 @@ import numpy as np
 
 
 def _state(n_cols, seed=0):
+    """Helper that state."""
     from mlframe.feature_selection.filters._dynamic_cluster_discovery import make_dcd_state
 
     rng = np.random.default_rng(seed)
@@ -75,6 +76,7 @@ def _run(disable_batch):
 
 
 def test_discover_batch_warm_selection_and_values_bit_identical():
+    """Discover batch warm selection and values bit identical."""
     added_warm, vals_warm = _run(disable_batch=False)
     added_plain, vals_plain = _run(disable_batch=True)
 
@@ -110,6 +112,7 @@ def test_discover_batch_warm_calls_batch_once():
     orig = dcd.pair_su_batch
 
     def _spy(state, pairs, **k):
+        """Helper that spy."""
         calls["n"] += 1
         calls["pairs"] = list(pairs)
         return orig(state, pairs, **k)
