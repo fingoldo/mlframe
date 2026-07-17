@@ -34,6 +34,7 @@ def _build_three_level_subset_frame(n: int = 1000, seed: int = 42) -> pd.DataFra
 
 
 def _run_aggregated(window_df: pd.DataFrame, nested: bool) -> Tuple[List[float], List[str]]:
+    """Run create_aggregated_features over the fixed side/venue/session subsets and return (features, names)."""
     feats: list = []
     names: list = []
     create_aggregated_features(
@@ -121,6 +122,7 @@ def test_create_aggregated_features_no_intermediate_copies(monkeypatch):
     orig_copy = BlockManager.copy
 
     def spy_copy(self, *a, **kw):
+        """Increment the shared copy counter, then delegate to the original BlockManager.copy."""
         counts["copy"] += 1
         return orig_copy(self, *a, **kw)
 
