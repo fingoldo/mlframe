@@ -45,6 +45,7 @@ def _make_public_fake_test_dataset(n_real: int = 3000, n_synthetic: int = 3000, 
 
 
 def test_detect_synthetic_rows_basic_shape_and_dtype():
+    """Output is a boolean array matching the input frame's row count."""
     df = pd.DataFrame({"a": [1.0, 2.0, 3.0], "b": [1.0, 1.0, 3.0]})
     out = detect_synthetic_rows(df)
     assert out.dtype == bool
@@ -52,6 +53,7 @@ def test_detect_synthetic_rows_basic_shape_and_dtype():
 
 
 def test_detect_synthetic_rows_flags_rows_with_no_unique_values():
+    """A row with at least one globally-unique value is real; a row where every value repeats is flagged synthetic."""
     # row 0: a=1 unique -> not flagged. row 1: a=2 repeats, b=1 repeats -> flagged.
     # row 2: a=1... wait construct explicitly.
     df = pd.DataFrame(
@@ -69,12 +71,14 @@ def test_detect_synthetic_rows_flags_rows_with_no_unique_values():
 
 
 def test_detect_synthetic_rows_empty_frame():
+    """An empty frame returns an empty boolean array rather than raising."""
     df = pd.DataFrame({"a": pd.Series([], dtype=float)})
     out = detect_synthetic_rows(df)
     assert len(out) == 0
 
 
 def test_biz_val_detect_synthetic_rows_precision_recall_on_public_fake_row_pattern():
+    """Detector hits >=95% precision and >=85% recall recovering Santander-style per-column-resampled padding rows."""
     test_df, is_synthetic_true = _make_public_fake_test_dataset()
 
     predicted_synthetic = detect_synthetic_rows(test_df)
@@ -96,6 +100,7 @@ def test_biz_val_detect_synthetic_rows_precision_recall_on_public_fake_row_patte
 
 
 def test_biz_val_count_encoding_shift_report_detects_drastic_shift_from_synthetic_padding():
+    """count_encoding_shift_report flags columns and warns when heavy synthetic padding shifts value-count stats."""
     test_df, _is_synthetic_true = _make_public_fake_test_dataset(n_real=2000, n_synthetic=4000, n_cols=5, seed=3)
 
     predicted_synthetic = detect_synthetic_rows(test_df)
