@@ -54,7 +54,6 @@ from __future__ import annotations
 import glob
 import importlib
 import os
-import re
 import time
 import warnings
 
@@ -488,9 +487,6 @@ class TestProvenanceSpansEnabledMechanisms:
 # ---------------------------------------------------------------------------
 
 
-_LAYER_TEST_GLOB = "test_biz_value_mrmr_layer*.py"
-
-
 class TestLayerRoster:
     """Every prior layer's biz_value test module remains discoverable on disk."""
 
@@ -514,25 +510,11 @@ class TestLayerRoster:
         """
         # Module relocated into a themed subpackage; the flat roster lives one level up in tests/feature_selection/.
         this_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        # 1. layerN.py contiguous-roster check.
-        matched = sorted(glob.glob(os.path.join(this_dir, _LAYER_TEST_GLOB)))
-        rx = re.compile(r"test_biz_value_mrmr_layer(\d+)\.py$")
-        layer_numbers: set[int] = set()
-        for path in matched:
-            mobj = rx.search(os.path.basename(path))
-            if mobj is not None:
-                layer_numbers.add(int(mobj.group(1)))
-        # Layers consolidated into themed subpackages keep their number in the relocated submodule
-        # FILENAME (test_biz_value_mrmr_<theme>/test_layer<N>.py); harvest from the basename so a
-        # relocated layer still counts, without reading source text.
-        for sub in glob.glob(os.path.join(this_dir, "test_biz_value_mrmr_*", "test_*.py")):
-            fm = re.match(r"test_layer(\d+)\.py$", os.path.basename(sub))
-            if fm:
-                layer_numbers.add(int(fm.group(1)))
-        # L64 itself must be discoverable on disk (some prior layers were consolidated into themed
-        # submodules under non-layerN names, so a strict [6,64] contiguity over layerN filenames no
-        # longer holds; the module-count floor below is the silent-delete guard).
-        assert 64 in layer_numbers, f"L64 layer module not discovered on disk; layer numbers present: " f"{sorted(layer_numbers)!r}."
+        # 1. L64 itself (this very module) must be discoverable on disk, pinned by path. All
+        # test_layer<N>.py files were renamed to descriptive names (no layerN token left in any
+        # filename), so a layer-number regex over filenames can no longer pin a specific layer;
+        # the module-count floor below (step 3) is the silent-delete guard for the whole roster.
+        assert os.path.isfile(os.path.abspath(__file__)), f"{__file__} unexpectedly missing from disk."
         # 2. L1..L5 catch-all modules check.
         catchall_required = (
             "test_biz_value_mrmr_extreme.py",

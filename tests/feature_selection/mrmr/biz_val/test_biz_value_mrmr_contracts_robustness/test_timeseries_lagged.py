@@ -98,9 +98,7 @@ def _build_lagged_ts(n: int = 2500, seed: int = 9001, phi: float = 0.85):
     full = pd.Series(base)
     cols["mean_3"] = full.rolling(window=3, min_periods=1).mean().to_numpy()[buf : buf + n]
     cols["mean_7"] = full.rolling(window=7, min_periods=1).mean().to_numpy()[buf : buf + n]
-    cols["std_5"] = (
-        full.rolling(window=5, min_periods=2).std().fillna(0.0).to_numpy()[buf : buf + n]
-    )
+    cols["std_5"] = full.rolling(window=5, min_periods=2).std().fillna(0.0).to_numpy()[buf : buf + n]
     X = pd.DataFrame(cols)
     # Target: only lag-1 carries signal.
     noise = rng.standard_normal(n)
@@ -122,9 +120,7 @@ class TestLaggedBasics:
             warnings.simplefilter("ignore")
             sel = MRMR(verbose=0, interactions_max_order=1, fe_max_steps=0).fit(X, y)
         names = list(sel.get_feature_names_out())
-        assert "x_t1" in names, (
-            f"Target lag x_t1 missing from support; support={names}"
-        )
+        assert "x_t1" in names, f"Target lag x_t1 missing from support; support={names}"
 
     def test_target_lag_ranks_first(self):
         """Across seeds, ``x_t1`` consistently ranks #1. This is the
@@ -140,10 +136,7 @@ class TestLaggedBasics:
             sel = MRMR(verbose=0, interactions_max_order=1, fe_max_steps=0).fit(X, y)
         names = list(sel.get_feature_names_out())
         assert len(names) >= 1, f"Empty selection; {names}"
-        assert names[0] == "x_t1", (
-            f"x_t1 must rank #1 (only true signal); got #1={names[0]}, "
-            f"full={names}"
-        )
+        assert names[0] == "x_t1", f"x_t1 must rank #1 (only true signal); got #1={names[0]}, " f"full={names}"
 
     def test_at_least_one_feature_pruned(self):
         """We have 8 input features and 1 true signal. The selector
@@ -162,10 +155,7 @@ class TestLaggedBasics:
             warnings.simplefilter("ignore")
             sel = MRMR(verbose=0, interactions_max_order=1, fe_max_steps=0).fit(X, y)
         names = list(sel.get_feature_names_out())
-        assert len(names) < 8, (
-            f"Selector returned ALL 8 inputs; pruning is a no-op; "
-            f"support={names}"
-        )
+        assert len(names) < 8, f"Selector returned ALL 8 inputs; pruning is a no-op; " f"support={names}"
 
 
 class TestLaggedAggregatesConsidered:
@@ -226,15 +216,14 @@ class TestLaggedSeedRobustness:
 
     @pytest.mark.parametrize("seed", [9001, 9002, 9003, 9004, 9005])
     def test_target_lag_first_across_seeds(self, seed):
+        """Check test target lag first across seeds."""
         from mlframe.feature_selection.filters.mrmr import MRMR
         X, y = _build_lagged_ts(seed=seed)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             sel = MRMR(verbose=0, interactions_max_order=1, fe_max_steps=0).fit(X, y)
         names = list(sel.get_feature_names_out())
-        assert names and names[0] == "x_t1", (
-            f"seed={seed}: x_t1 not ranked #1; support={names}"
-        )
+        assert names and names[0] == "x_t1", f"seed={seed}: x_t1 not ranked #1; support={names}"
 
     @pytest.mark.parametrize("seed", [9001, 9002, 9003, 9004, 9005])
     def test_pruning_active_across_seeds(self, seed):
@@ -249,10 +238,7 @@ class TestLaggedSeedRobustness:
             warnings.simplefilter("ignore")
             sel = MRMR(verbose=0, interactions_max_order=1, fe_max_steps=0).fit(X, y)
         names = list(sel.get_feature_names_out())
-        assert len(names) < 8, (
-            f"seed={seed}: pruning no-op; size={len(names)}/8 selected; "
-            f"support={names}"
-        )
+        assert len(names) < 8, f"seed={seed}: pruning no-op; size={len(names)}/8 selected; " f"support={names}"
 
 
 class TestLaggedTargetLagPriority:
@@ -300,7 +286,5 @@ class TestLaggedTargetLagPriority:
         if "x_t4" not in names:
             return  # x_t4 dropped - already optimal.
         assert names.index("x_t1") < names.index("x_t4"), (
-            f"x_t1 (rank {names.index('x_t1')}) ranks below x_t4 "
-            f"(rank {names.index('x_t4')}); MRMR flipped the lag "
-            f"ordering; support={names}"
+            f"x_t1 (rank {names.index('x_t1')}) ranks below x_t4 " f"(rank {names.index('x_t4')}); MRMR flipped the lag " f"ordering; support={names}"
         )

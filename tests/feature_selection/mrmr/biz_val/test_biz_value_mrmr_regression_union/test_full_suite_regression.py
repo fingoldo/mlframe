@@ -39,7 +39,6 @@ contract and must be fixed in prod, not masked.
 from __future__ import annotations
 
 import os
-import re
 import time
 import warnings
 from pathlib import Path
@@ -262,30 +261,12 @@ class TestPriorLayerRoster:
         assert len(prior) >= 100, f"expected >= 100 prior biz_value test modules, found " f"{len(prior)}: {[p.name for p in prior]}"
 
     def test_layer_family_contiguous_through_100(self):
-        """The layerN.py family (flat + relocated) reaches at least layer 100 and the overall roster holds."""
+        """The biz_value module roster (flat + themed subpackages) holds at or above its shipped floor."""
         root = Path(__file__).parent.parent
-        present = sorted(
-            int(p.stem.replace("test_biz_value_mrmr_layer", ""))
-            for p in root.glob("test_biz_value_mrmr_layer*.py")
-            if p.stem.replace("test_biz_value_mrmr_layer", "").isdigit()
-        )
-        # Layers consolidated into themed subpackages keep their number in the relocated
-        # submodule FILENAME (test_biz_value_mrmr_<theme>/test_layer<N>.py); harvest those from
-        # the basename so the family's high-water mark still includes relocated layers, without
-        # reading source text. After the restructure ALL flat layer files were relocated, so the
-        # roster now lives entirely in the themed subpackages.
-        relocated: set[int] = set()
-        for p in root.glob("test_biz_value_mrmr_*/test_*.py"):
-            fm = re.match(r"test_layer(\d+)\.py$", p.name)
-            if fm:
-                relocated.add(int(fm.group(1)))
-        present_all = set(present) | relocated
-        assert present_all, "no test_layer<N>.py modules found in flat root or themed subpackages"
-        assert max(present_all) >= 100, f"highest layer module should be >= 100, got {max(present_all)}"
-        # Silent-delete detection for the family: the biz_value test-module roster on disk (flat
-        # layer files + themed-subpackage submodules, some consolidated under non-layerN names) must
-        # not shrink below the shipped floor. A glob count over the tree catches a dropped/renamed
-        # module directly, without depending on docstring provenance markers (which a text-grep would).
+        # All test_layer<N>.py files were renamed to descriptive names (no layerN token left in
+        # any filename), so this no longer parses layer numbers out of filenames -- the module
+        # count below (both flat and one level into the themed subpackages) is the direct,
+        # rename-immune silent-delete guard for the family.
         module_count = len(sorted(root.glob("test_biz_value_*.py"))) + len(sorted(root.glob("test_biz_value_mrmr_*/test_*.py")))
         assert module_count >= 110, (
             f"biz_value test-module roster shrank to {module_count} (floor 110); " f"a prior-layer test module was likely dropped or renamed."

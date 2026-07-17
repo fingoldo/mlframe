@@ -159,7 +159,7 @@ class TestLayer55_CumulativeRosterSize:
         # Layers consolidated into themed subpackages (test_biz_value_mrmr_<theme>/) still count:
         # each themed submodule is a relocated prior-layer biz_value test module.
         all_files += sorted(p.name for p in tests_dir.glob("test_biz_value_mrmr_*/test_*.py"))
-        prior = [n for n in all_files if n != "test_layer55.py"]
+        prior = [n for n in all_files if n != "test_regression_diff_vs_l52.py"]
         assert len(prior) >= 54, f"prior biz_value layer test modules on disk = {len(prior)} " f"(< 54). Files seen: {prior!r}"
 
 

@@ -36,7 +36,6 @@ contract above breaks, the underlying bug must be fixed before merge.
 from __future__ import annotations
 
 import importlib
-import re
 import time
 import warnings
 from functools import cache
@@ -135,28 +134,13 @@ class TestPriorLayerDiscoverability:
         )
 
     def test_layer_count_matches_expected_78(self):
-        """The layerN.py roster (incl. relocated/consolidated numbers) matches the expected count."""
+        """The biz_value module roster (flat + themed subpackages) matches the expected floor."""
         root = Path(__file__).parent.parent
-        present_set = {
-            int(p.stem.replace("test_biz_value_mrmr_layer", ""))
-            for p in root.glob("test_biz_value_mrmr_layer*.py")
-            if p.stem.replace("test_biz_value_mrmr_layer", "").isdigit()
-        }
-        # Layers consolidated into themed subpackages keep their number in the relocated submodule
-        # FILENAME (test_biz_value_mrmr_<theme>/test_layer<N>.py); harvest from the basename so the
-        # family high-water mark includes relocated layers, without reading source text.
-        for p in root.glob("test_biz_value_mrmr_*/test_*.py"):
-            fm = re.match(r"test_layer(\d+)\.py$", p.name)
-            if fm:
-                present_set.add(int(fm.group(1)))
-        present = sorted(present_set)
-        # Silent-delete floor: the biz_value test-module roster on disk (flat + themed-subpackage
-        # submodules, some consolidated under non-layerN names) must not shrink below the shipped
-        # floor; a glob count is the direct guard, independent of docstring provenance markers.
+        # All test_layer<N>.py files were renamed to descriptive names (no layerN token left in
+        # any filename), so this no longer parses layer numbers out of filenames -- the module
+        # count below is the direct, rename-immune silent-delete guard.
         module_count = len(sorted(root.glob("test_biz_value_*.py"))) + len(sorted(root.glob("test_biz_value_mrmr_*/test_*.py")))
-        assert module_count >= 110, f"biz_value test-module roster shrank to {module_count} (floor 110): {present}"
-        # Pin the upper boundary so a future drift (layer skip) is caught.
-        assert max(present) >= 78, f"highest prior-layer module should be >= 78, got {max(present)}"
+        assert module_count >= 110, f"biz_value test-module roster shrank to {module_count} (floor 110)."
 
 
 # ---------------------------------------------------------------------------

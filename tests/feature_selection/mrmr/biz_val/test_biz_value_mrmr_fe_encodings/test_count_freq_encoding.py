@@ -42,7 +42,6 @@ from sklearn.base import clone
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
 
-
 warnings.filterwarnings("ignore")
 
 
@@ -56,7 +55,6 @@ SEEDS = (1, 7, 13)
 
 from tests.feature_selection.conftest import make_fast_mrmr as _make_mrmr
 from tests.feature_selection._biz_val_synth import _logreg_auc, _train_holdout_split
-
 
 # ---------------------------------------------------------------------------
 # Fixtures: signal that ONLY count / freq / cat_num residual can decode
@@ -79,9 +77,7 @@ def _build_count_signal(seed: int, n: int = 4000):
     heavy_weights = np.array([400, 350, 300, 250, 200, 200, 200, 150], dtype=np.float64)
     # Sample heavy contributions
     n_heavy = int(heavy_weights.sum())  # 2050
-    heavy_assignments = np.concatenate([
-        np.repeat(uid, int(w)) for uid, w in zip(heavy_ids, heavy_weights)
-    ])
+    heavy_assignments = np.concatenate([np.repeat(uid, int(w)) for uid, w in zip(heavy_ids, heavy_weights)])
     rng.shuffle(heavy_assignments)
     # Fill the rest with rare singletons
     n_rare = n - n_heavy
@@ -142,7 +138,9 @@ def _build_cat_num_residual_signal(seed: int, n: int = 4000):
 
 
 class TestCountEncodeKernel:
+    """Tests test count encode kernel."""
     def test_fit_returns_integer_counts(self):
+        """Check test fit returns integer counts."""
         from mlframe.feature_selection.filters._count_freq_interaction_fe import (
             count_encode_fit,
         )
@@ -157,6 +155,7 @@ class TestCountEncodeKernel:
         assert recipes["cat"]["default"] == 0
 
     def test_empty_X_rejected(self):
+        """Check test empty x rejected."""
         from mlframe.feature_selection.filters._count_freq_interaction_fe import (
             count_encode_fit,
         )
@@ -164,6 +163,7 @@ class TestCountEncodeKernel:
             count_encode_fit(pd.DataFrame({"cat": []}), ["cat"])
 
     def test_missing_column_rejected(self):
+        """Check test missing column rejected."""
         from mlframe.feature_selection.filters._count_freq_interaction_fe import (
             count_encode_fit,
         )
@@ -171,6 +171,7 @@ class TestCountEncodeKernel:
             count_encode_fit(pd.DataFrame({"a": ["x"] * 3}), ["b"])
 
     def test_apply_unseen_maps_to_default(self):
+        """Check test apply unseen maps to default."""
         from mlframe.feature_selection.filters._count_freq_interaction_fe import (
             count_encode_fit, apply_count_encoding,
         )
@@ -182,7 +183,9 @@ class TestCountEncodeKernel:
 
 
 class TestFrequencyEncodeKernel:
+    """Tests test frequency encode kernel."""
     def test_fit_returns_float_freqs(self):
+        """Check test fit returns float freqs."""
         from mlframe.feature_selection.filters._count_freq_interaction_fe import (
             frequency_encode_fit,
         )
@@ -199,7 +202,9 @@ class TestFrequencyEncodeKernel:
 
 
 class TestCatNumInteractionKernel:
+    """Tests test cat num interaction kernel."""
     def test_residual_matches_construction(self):
+        """Check test residual matches construction."""
         from mlframe.feature_selection.filters._count_freq_interaction_fe import (
             cat_num_interaction_fit,
         )
@@ -218,9 +223,7 @@ class TestCatNumInteractionKernel:
         # Each category's stored lookup mean should be close to its construction mean
         # (small smoothing, n_c large -> approx raw mean).
         for c, mu in means_map.items():
-            assert abs(recipe["lookup"][c] - mu) < 2.0, (
-                f"lookup[{c}]={recipe['lookup'][c]:.3f} far from true mu={mu}"
-            )
+            assert abs(recipe["lookup"][c] - mu) < 2.0, f"lookup[{c}]={recipe['lookup'][c]:.3f} far from true mu={mu}"
         # Residual sample mean per category should hover near zero.
         for c, mu in means_map.items():
             mask = cat == c
@@ -248,6 +251,7 @@ class TestCatNumInteractionKernel:
         }
 
         def _reference(X_test):
+            """Check reference."""
             cstr = X_test["cat"].astype(str).to_numpy()
             nv = X_test["price"].to_numpy().astype(np.float64)
             fin = np.isfinite(nv)
@@ -267,6 +271,7 @@ class TestCatNumInteractionKernel:
         assert empty.shape == (0,) and empty.dtype == np.float64
 
     def test_missing_columns_rejected(self):
+        """Check test missing columns rejected."""
         from mlframe.feature_selection.filters._count_freq_interaction_fe import (
             cat_num_interaction_fit,
         )
@@ -278,6 +283,7 @@ class TestCatNumInteractionKernel:
             cat_num_interaction_fit(X, y, "a", "num_nope")
 
     def test_non_numeric_num_col_rejected(self):
+        """Check test non numeric num col rejected."""
         from mlframe.feature_selection.filters._count_freq_interaction_fe import (
             cat_num_interaction_fit,
         )
@@ -293,8 +299,10 @@ class TestCatNumInteractionKernel:
 
 
 class TestCountEncodingAUCLift:
+    """Tests test count encoding a u c lift."""
     @pytest.mark.parametrize("seed", SEEDS)
     def test_logreg_auc_lift_via_count(self, seed: int):
+        """Check test logreg auc lift via count."""
         from mlframe.feature_selection.filters._count_freq_interaction_fe import (
             count_encode_fit, apply_count_encoding,
         )
@@ -311,17 +319,15 @@ class TestCountEncodingAUCLift:
         X_ho_aug["cat_user__count"] = enc_ho
         auc_cnt = _logreg_auc(X_tr_aug, y_tr, X_ho_aug, y_ho)
 
-        assert auc_cnt > auc_raw + 0.10, (
-            f"seed={seed}: count enc failed to lift AUC; raw={auc_raw:.3f} cnt={auc_cnt:.3f}"
-        )
-        assert auc_cnt > 0.65, (
-            f"seed={seed}: count enc LogReg AUC={auc_cnt:.3f} below 0.65 floor"
-        )
+        assert auc_cnt > auc_raw + 0.10, f"seed={seed}: count enc failed to lift AUC; raw={auc_raw:.3f} cnt={auc_cnt:.3f}"
+        assert auc_cnt > 0.65, f"seed={seed}: count enc LogReg AUC={auc_cnt:.3f} below 0.65 floor"
 
 
 class TestFrequencyEncodingAUCLift:
+    """Tests test frequency encoding a u c lift."""
     @pytest.mark.parametrize("seed", SEEDS)
     def test_logreg_auc_lift_via_frequency(self, seed: int):
+        """Check test logreg auc lift via frequency."""
         from mlframe.feature_selection.filters._count_freq_interaction_fe import (
             frequency_encode_fit, apply_frequency_encoding,
         )
@@ -338,17 +344,15 @@ class TestFrequencyEncodingAUCLift:
         X_ho_aug["cat_user__freq"] = enc_ho
         auc_freq = _logreg_auc(X_tr_aug, y_tr, X_ho_aug, y_ho)
 
-        assert auc_freq > auc_raw + 0.10, (
-            f"seed={seed}: freq enc failed to lift AUC; raw={auc_raw:.3f} freq={auc_freq:.3f}"
-        )
-        assert auc_freq > 0.65, (
-            f"seed={seed}: freq enc LogReg AUC={auc_freq:.3f} below 0.65 floor"
-        )
+        assert auc_freq > auc_raw + 0.10, f"seed={seed}: freq enc failed to lift AUC; raw={auc_raw:.3f} freq={auc_freq:.3f}"
+        assert auc_freq > 0.65, f"seed={seed}: freq enc LogReg AUC={auc_freq:.3f} below 0.65 floor"
 
 
 class TestCatNumResidualAUCLift:
+    """Tests test cat num residual a u c lift."""
     @pytest.mark.parametrize("seed", SEEDS)
     def test_logreg_auc_lift_via_residual(self, seed: int):
+        """Check test logreg auc lift via residual."""
         from mlframe.feature_selection.filters._count_freq_interaction_fe import (
             cat_num_interaction_fit, apply_cat_num_residual,
         )
@@ -370,12 +374,8 @@ class TestCatNumResidualAUCLift:
         X_ho_aug["price__resid_by__cat"] = residual_ho
         auc_res = _logreg_auc(X_tr_aug, y_tr, X_ho_aug, y_ho)
 
-        assert auc_res > auc_raw + 0.15, (
-            f"seed={seed}: residual failed to lift AUC; raw={auc_raw:.3f} res={auc_res:.3f}"
-        )
-        assert auc_res > 0.75, (
-            f"seed={seed}: residual LogReg AUC={auc_res:.3f} below 0.75 floor"
-        )
+        assert auc_res > auc_raw + 0.15, f"seed={seed}: residual failed to lift AUC; raw={auc_raw:.3f} res={auc_res:.3f}"
+        assert auc_res > 0.75, f"seed={seed}: residual LogReg AUC={auc_res:.3f} below 0.75 floor"
 
 
 # ---------------------------------------------------------------------------
@@ -384,8 +384,10 @@ class TestCatNumResidualAUCLift:
 
 
 class TestNoLeakageCountFreq:
+    """Tests test no leakage count freq."""
     @pytest.mark.parametrize("seed", SEEDS)
     def test_count_apply_independent_of_y(self, seed: int):
+        """Check test count apply independent of y."""
         from mlframe.feature_selection.filters._count_freq_interaction_fe import (
             count_encode_fit, apply_count_encoding,
         )
@@ -402,6 +404,7 @@ class TestNoLeakageCountFreq:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_freq_apply_independent_of_y(self, seed: int):
+        """Check test freq apply independent of y."""
         from mlframe.feature_selection.filters._count_freq_interaction_fe import (
             frequency_encode_fit, apply_frequency_encoding,
         )
@@ -414,8 +417,10 @@ class TestNoLeakageCountFreq:
 
 
 class TestNoLeakageCatNum:
+    """Tests test no leakage cat num."""
     @pytest.mark.parametrize("seed", SEEDS)
     def test_residual_apply_independent_of_y(self, seed: int):
+        """Check test residual apply independent of y."""
         from mlframe.feature_selection.filters._count_freq_interaction_fe import (
             cat_num_interaction_fit, apply_cat_num_residual,
         )
@@ -437,7 +442,9 @@ class TestNoLeakageCatNum:
 
 
 class TestUnseenCategoryHandling:
+    """Tests test unseen category handling."""
     def test_count_unseen_default_zero(self):
+        """Check test count unseen default zero."""
         from mlframe.feature_selection.filters.engineered_recipes import (
             build_count_encoded_recipe, apply_recipe,
         )
@@ -450,6 +457,7 @@ class TestUnseenCategoryHandling:
         np.testing.assert_array_equal(out, np.array([5, 0, 7, 0, 7]))
 
     def test_freq_unseen_default_zero(self):
+        """Check test freq unseen default zero."""
         from mlframe.feature_selection.filters.engineered_recipes import (
             build_frequency_encoded_recipe, apply_recipe,
         )
@@ -462,6 +470,7 @@ class TestUnseenCategoryHandling:
         np.testing.assert_allclose(out, np.array([0.3, 0.0, 0.7]))
 
     def test_residual_unseen_falls_back_to_global_mean(self):
+        """Check test residual unseen falls back to global mean."""
         from mlframe.feature_selection.filters.engineered_recipes import (
             build_cat_num_residual_recipe, apply_recipe,
         )
@@ -475,6 +484,7 @@ class TestUnseenCategoryHandling:
         np.testing.assert_allclose(out, np.array([2.0, 1.0, 5.0]))
 
     def test_residual_nan_num_emits_zero(self):
+        """Check test residual nan num emits zero."""
         from mlframe.feature_selection.filters.engineered_recipes import (
             build_cat_num_residual_recipe, apply_recipe,
         )
@@ -495,7 +505,9 @@ class TestUnseenCategoryHandling:
 
 
 class TestPickleCloneRoundTrip:
+    """Tests test pickle clone round trip."""
     def test_count_recipe_pickle(self):
+        """Check test count recipe pickle."""
         from mlframe.feature_selection.filters.engineered_recipes import (
             build_count_encoded_recipe, apply_recipe,
         )
@@ -503,12 +515,13 @@ class TestPickleCloneRoundTrip:
             name="cat__count", src_name="cat",
             lookup={"A": 5, "B": 7}, default=0,
         )
-        rec_pkl = pickle.loads(pickle.dumps(rec))
+        rec_pkl = pickle.loads(pickle.dumps(rec))  # nosec B301 -- round-trip of a locally-created, trusted object
         assert rec_pkl == rec
         X = pd.DataFrame({"cat": ["A", "Z", "B"]})
         np.testing.assert_array_equal(apply_recipe(rec, X), apply_recipe(rec_pkl, X))
 
     def test_freq_recipe_pickle(self):
+        """Check test freq recipe pickle."""
         from mlframe.feature_selection.filters.engineered_recipes import (
             build_frequency_encoded_recipe, apply_recipe,
         )
@@ -516,12 +529,13 @@ class TestPickleCloneRoundTrip:
             name="cat__freq", src_name="cat",
             lookup={"A": 0.4, "B": 0.6}, default=0.0,
         )
-        rec_pkl = pickle.loads(pickle.dumps(rec))
+        rec_pkl = pickle.loads(pickle.dumps(rec))  # nosec B301 -- round-trip of a locally-created, trusted object
         assert rec_pkl == rec
         X = pd.DataFrame({"cat": ["A", "B"]})
         np.testing.assert_allclose(apply_recipe(rec, X), apply_recipe(rec_pkl, X))
 
     def test_residual_recipe_pickle(self):
+        """Check test residual recipe pickle."""
         from mlframe.feature_selection.filters.engineered_recipes import (
             build_cat_num_residual_recipe, apply_recipe,
         )
@@ -529,12 +543,13 @@ class TestPickleCloneRoundTrip:
             name="price__resid_by__cat", cat_name="cat", num_name="price",
             lookup={"A": 10.0, "B": 20.0}, global_mean=15.0, smoothing=5.0,
         )
-        rec_pkl = pickle.loads(pickle.dumps(rec))
+        rec_pkl = pickle.loads(pickle.dumps(rec))  # nosec B301 -- round-trip of a locally-created, trusted object
         assert rec_pkl == rec
         X = pd.DataFrame({"cat": ["A", "B"], "price": [11.0, 25.0]})
         np.testing.assert_allclose(apply_recipe(rec, X), apply_recipe(rec_pkl, X))
 
     def test_full_mrmr_clone_preserves_layer34_params(self):
+        """Check test full mrmr clone preserves layer34 params."""
         X, y = _build_count_signal(seed=1)
         m = _make_mrmr(
             fe_count_encoding_enable=True,
@@ -562,7 +577,9 @@ class TestPickleCloneRoundTrip:
 
 
 class TestDefaultDisabledByteIdentical:
+    """Tests test default disabled byte identical."""
     def test_no_layer34_attrs_populated_when_disabled(self):
+        """Check test no layer34 attrs populated when disabled."""
         X, y = _build_count_signal(seed=1)
         m = _make_mrmr(fe_ntop_features=3)
         m.fit(X, y)
@@ -590,9 +607,7 @@ class TestDefaultDisabledByteIdentical:
         )
         m2.fit(X_tr, y_tr)
         out2 = m2.transform(X_ho)
-        assert list(out1.columns) == list(out2.columns), (
-            "Setting Layer 34 cols without master switch changed selected columns"
-        )
+        assert list(out1.columns) == list(out2.columns), "Setting Layer 34 cols without master switch changed selected columns"
         for c in out1.columns:
             if pd.api.types.is_numeric_dtype(out1[c]):
                 np.testing.assert_allclose(

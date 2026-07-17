@@ -94,10 +94,7 @@ class TestPolynomExplosionBasics:
             warnings.simplefilter("ignore")
             sel = MRMR(verbose=0, interactions_max_order=1, fe_max_steps=0).fit(X, y)
         names = list(sel.get_feature_names_out())
-        assert "r0" in names, (
-            f"Raw linear signal r0 lost under polynomial explosion; "
-            f"support={names}"
-        )
+        assert "r0" in names, f"Raw linear signal r0 lost under polynomial explosion; " f"support={names}"
 
     def test_engineered_interaction_selected(self):
         """``r1_x_r2`` is the multiplicative signal. It must appear in
@@ -111,9 +108,7 @@ class TestPolynomExplosionBasics:
             warnings.simplefilter("ignore")
             sel = MRMR(verbose=0, interactions_max_order=1, fe_max_steps=0).fit(X, y)
         names = list(sel.get_feature_names_out())
-        assert "r1_x_r2" in names, (
-            f"Engineered interaction r1_x_r2 lost; support={names}"
-        )
+        assert "r1_x_r2" in names, f"Engineered interaction r1_x_r2 lost; support={names}"
 
     def test_support_size_bounded(self):
         """We have 55 input features and only 2 signal columns. A
@@ -128,10 +123,7 @@ class TestPolynomExplosionBasics:
             warnings.simplefilter("ignore")
             sel = MRMR(verbose=0, interactions_max_order=1, fe_max_steps=0).fit(X, y)
         names = list(sel.get_feature_names_out())
-        assert len(names) <= 20, (
-            f"Support drowned in polynomial explosion: {len(names)}/55 "
-            f"selected; support={names}"
-        )
+        assert len(names) <= 20, f"Support drowned in polynomial explosion: {len(names)}/55 " f"selected; support={names}"
 
 
 class TestPolynomRedundancyPruning:
@@ -152,10 +144,7 @@ class TestPolynomRedundancyPruning:
             sel = MRMR(verbose=0, interactions_max_order=1, fe_max_steps=0).fit(X, y)
         names = list(sel.get_feature_names_out())
         r0_products = [nm for nm in names if nm.startswith("r0_x_")]
-        assert len(r0_products) <= 4, (
-            f"Redundant r0-products not pruned: {len(r0_products)} "
-            f"r0_x_* in support; full support={names}"
-        )
+        assert len(r0_products) <= 4, f"Redundant r0-products not pruned: {len(r0_products)} " f"r0_x_* in support; full support={names}"
 
     def test_pure_noise_products_mostly_rejected(self):
         """Products like ``r3_x_r4``, ``r5_x_r6`` etc. (neither factor
@@ -172,6 +161,7 @@ class TestPolynomRedundancyPruning:
         signal_factors = {"r0", "r1", "r2"}
 
         def _is_pure_noise_product(nm: str) -> bool:
+            """Check is pure noise product."""
             if "_x_" not in nm:
                 return False
             # An n-ary product ``a_x_b_x_c`` splits into >2 operands; it is pure-noise iff EVERY operand is a noise
@@ -180,10 +170,7 @@ class TestPolynomRedundancyPruning:
             return all(op not in signal_factors for op in operands)
 
         noise_products = [nm for nm in names if _is_pure_noise_product(nm)]
-        assert len(noise_products) <= 6, (
-            f"Too many pure-noise products in support: "
-            f"{len(noise_products)} survived; support={names}"
-        )
+        assert len(noise_products) <= 6, f"Too many pure-noise products in support: " f"{len(noise_products)} survived; support={names}"
 
 
 class TestPolynomSeedRobustness:
@@ -192,18 +179,15 @@ class TestPolynomSeedRobustness:
 
     @pytest.mark.parametrize("seed", [8001, 8002, 8003, 8004, 8005])
     def test_both_signals_across_seeds(self, seed):
+        """Check test both signals across seeds."""
         from mlframe.feature_selection.filters.mrmr import MRMR
         X, y = _build_polynom_explosion(seed=seed)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             sel = MRMR(verbose=0, interactions_max_order=1, fe_max_steps=0).fit(X, y)
         names = list(sel.get_feature_names_out())
-        assert "r0" in names, (
-            f"seed={seed}: raw signal r0 lost; support={names}"
-        )
-        assert "r1_x_r2" in names, (
-            f"seed={seed}: interaction r1_x_r2 lost; support={names}"
-        )
+        assert "r0" in names, f"seed={seed}: raw signal r0 lost; support={names}"
+        assert "r1_x_r2" in names, f"seed={seed}: interaction r1_x_r2 lost; support={names}"
 
 
 class TestPolynomTopRanks:
@@ -211,6 +195,7 @@ class TestPolynomTopRanks:
     features (ranked by MRMR score)."""
 
     def test_signals_in_top_half(self):
+        """Check test signals in top half."""
         from mlframe.feature_selection.filters.mrmr import MRMR
         X, y = _build_polynom_explosion()
         with warnings.catch_warnings():
@@ -223,7 +208,4 @@ class TestPolynomTopRanks:
         # ideally both, but interaction-MI estimation is noisier than
         # linear-MI so we pin the weaker, more robust contract here.
         n_top = ("r0" in top_half) + ("r1_x_r2" in top_half)
-        assert n_top >= 1, (
-            f"Neither true signal made the top half; top_half={top_half}, "
-            f"full={names}"
-        )
+        assert n_top >= 1, f"Neither true signal made the top half; top_half={top_half}, " f"full={names}"

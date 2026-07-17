@@ -50,7 +50,6 @@ NEVER xfail.
 """
 from __future__ import annotations
 
-import re
 import time
 import warnings
 from pathlib import Path
@@ -500,25 +499,14 @@ class TestRosterAtLeast82PriorLayers:
         # The layer modules + themed subpackages live under tests/feature_selection/mrmr/biz_val/ after
         # the test-tree restructure; anchor on that dir (not the old flat feature_selection root).
         root = next(p for p in Path(__file__).parents if p.name == "biz_val")
-        present_set = {
-            int(p.stem.replace("test_biz_value_mrmr_layer", ""))
-            for p in root.glob("test_biz_value_mrmr_layer*.py")
-            if p.stem.replace("test_biz_value_mrmr_layer", "").isdigit()
-        }
-        # Layers consolidated into themed subpackages keep their number in the relocated submodule
-        # FILENAME (test_biz_value_mrmr_<theme>/test_layer<N>.py); harvest from the basename so the
-        # family high-water mark includes relocated layers, without reading source text.
-        for p in root.glob("test_biz_value_mrmr_*/test_*.py"):
-            fm = re.match(r"test_layer(\d+)\.py$", p.name)
-            if fm is not None:
-                present_set.add(int(fm.group(1)))
-        present = sorted(present_set)
         # Silent-delete floor: the biz_value test-module roster on disk (flat + themed-subpackage
         # submodules, some consolidated under non-layerN names) must not shrink below the shipped
         # floor; a glob count is the direct guard, independent of docstring provenance markers.
+        # All test_layer<N>.py files were renamed to descriptive names (no layerN token left in any
+        # filename), so this no longer parses layer numbers out of filenames -- the module count is
+        # both the floor guard and the highest-layer proxy (module count only grows over time).
         module_count = len(sorted(root.glob("test_biz_value_*.py"))) + len(sorted(root.glob("test_biz_value_mrmr_*/test_*.py")))
-        assert module_count >= 110, f"biz_value test-module roster shrank to {module_count} (floor 110): {present}"
-        assert max(present) >= 83, f"highest layer module should be >= 83, got {max(present)}; " f"present layers: {present}"
+        assert module_count >= 110, f"biz_value test-module roster shrank to {module_count} (floor 110)."
 
     def test_layer29_module_present_for_baseline_reference(self):
         """Layer 29's baseline reference module is present, flat or relocated."""
@@ -526,9 +514,9 @@ class TestRosterAtLeast82PriorLayers:
         # the test-tree restructure; anchor on that dir (not the old flat feature_selection root).
         root = next(p for p in Path(__file__).parents if p.name == "biz_val")
         flat = root / "test_biz_value_mrmr_layer29.py"
-        # Layer 29 was relocated into a themed subpackage as test_layer29.py; match the FILENAME
+        # Layer 29 was relocated into a themed subpackage as test_hybrid_fe_toy_datasets.py; match the FILENAME
         # (not source text) so the baseline-reference presence check survives the consolidation.
-        relocated = any(p.name == "test_layer29.py" for p in root.glob("test_biz_value_mrmr_*/test_layer29.py"))
+        relocated = any(p.name == "test_hybrid_fe_toy_datasets.py" for p in root.glob("test_biz_value_mrmr_*/test_hybrid_fe_toy_datasets.py"))
         assert flat.exists() or relocated, (
             "Layer 29 module missing; Layer 83 expands L29's 5-dataset " "validation to 10 mechanisms and uses it as the reference."
         )

@@ -90,6 +90,7 @@ def _build_decoy_dataset(n: int = 2500, noise_scale: float = 0.25, seed: int = 6
 
 
 def _build_two_decoy_dataset(seed: int = 6002, n: int = 2500):
+    """Check build two decoy dataset."""
     rng = np.random.default_rng(seed)
     x1 = rng.standard_normal(n)
     x2 = rng.standard_normal(n)
@@ -153,9 +154,7 @@ class TestAdversarialDecoyDefault:
         # Allow up to 2 noise (default full_npermutations=3 has limited
         # FP statistical power, documented in Layer 5).
         assert len(nuisance_picked) <= 2, (
-            f"Decoy distorted FP guard catastrophically: "
-            f"{len(nuisance_picked)} nuisance columns selected. "
-            f"support={names}"
+            f"Decoy distorted FP guard catastrophically: " f"{len(nuisance_picked)} nuisance columns selected. " f"support={names}"
         )
 
     def test_at_least_one_clean_component_in_top2(self):
@@ -179,9 +178,7 @@ class TestAdversarialDecoyDefault:
         from sklearn.linear_model import LogisticRegression
         from sklearn.model_selection import cross_val_score
         if top1 and top1[0] in X.columns:
-            auc_top1 = float(cross_val_score(
-                LogisticRegression(max_iter=400), X[top1], y, cv=5,
-                scoring="roc_auc").mean())
+            auc_top1 = float(cross_val_score(LogisticRegression(max_iter=400), X[top1], y, cv=5, scoring="roc_auc").mean())
         else:
             auc_top1 = _selected_auc(sel, X, y)
         auc_base = _two_col_auc(X, y)
@@ -220,10 +217,7 @@ class TestDCDDuplicateDecoyPruning:
             ).fit(X, y)
         names = list(sel.get_feature_names_out())
         decoys_picked = [c for c in names if c.startswith("decoy")]
-        assert len(decoys_picked) <= 1, (
-            f"DCD@tau={tau} failed to prune duplicate decoy; "
-            f"support={names}"
-        )
+        assert len(decoys_picked) <= 1, f"DCD@tau={tau} failed to prune duplicate decoy; " f"support={names}"
 
     def test_dcd_pruning_preserves_clean_components(self):
         """DCD must NOT prune the clean components x1, x2 when pruning
@@ -251,9 +245,7 @@ class TestDCDDuplicateDecoyPruning:
         auc_sel = _selected_auc(sel, X, y)
         auc_base = _two_col_auc(X, y)
         assert auc_sel >= auc_base - 0.04, (
-            f"DCD over-pruned: surviving selection lost the signal; "
-            f"got auc_sel={auc_sel:.4f}, auc_base={auc_base:.4f}, "
-            f"support={names}"
+            f"DCD over-pruned: surviving selection lost the signal; " f"got auc_sel={auc_sel:.4f}, auc_base={auc_base:.4f}, " f"support={names}"
         )
 
 
@@ -281,9 +273,7 @@ class TestDecoySeedRobustness:
         auc_sel = _selected_auc(sel, X, y)
         auc_base = _two_col_auc(X, y)
         assert auc_sel >= auc_base - 0.04, (
-            f"seed={seed}: de-duplicated selection lost the signal; "
-            f"got auc_sel={auc_sel:.4f}, auc_base={auc_base:.4f}, "
-            f"support={names}"
+            f"seed={seed}: de-duplicated selection lost the signal; " f"got auc_sel={auc_sel:.4f}, auc_base={auc_base:.4f}, " f"support={names}"
         )
 
     @pytest.mark.parametrize("noise_scale", [0.1, 0.25, 0.5, 1.0])
@@ -305,7 +295,5 @@ class TestDecoySeedRobustness:
         auc_sel = _selected_auc(sel, X, y)
         auc_base = _two_col_auc(X, y)
         assert auc_sel >= auc_base - 0.04, (
-            f"noise_scale={noise_scale}: de-duplicated selection lost the "
-            f"signal; got auc_sel={auc_sel:.4f}, auc_base={auc_base:.4f}, "
-            f"support={names}"
+            f"noise_scale={noise_scale}: de-duplicated selection lost the " f"signal; got auc_sel={auc_sel:.4f}, auc_base={auc_base:.4f}, " f"support={names}"
         )
