@@ -230,6 +230,7 @@ class TestResolvePandasMethod:
         assert np.array_equal(got, ref, equal_nan=True)
 
     def test_unknown_accessor_raises_valueerror(self):
+        """An unrecognized method name must raise ValueError instead of silently returning garbage."""
         from mlframe.feature_engineering.basic import _resolve_pandas_method
 
         with pytest.raises(ValueError, match="Unknown pandas .dt accessor"):
