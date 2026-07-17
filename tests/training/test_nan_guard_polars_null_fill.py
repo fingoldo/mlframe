@@ -25,6 +25,7 @@ def _captured_fn():
     seen = {}
 
     def fn(X):
+        """Records the array it was called with (for later inspection) and returns an all-zero prediction."""
         seen["X"] = X
         return np.zeros(len(X))
 

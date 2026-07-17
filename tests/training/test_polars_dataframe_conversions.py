@@ -289,6 +289,7 @@ def test_fix6_predict_guards_no_double_wrap_on_pandas():
     captured = {}
 
     def _fn(X):
+        """Records the array it was called with (for later inspection) and returns an all-zero prediction."""
         captured["X"] = X
         return np.zeros(len(X))
 

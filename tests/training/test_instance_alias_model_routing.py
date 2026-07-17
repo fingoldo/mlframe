@@ -68,6 +68,7 @@ def test_cb_gpu_probe_fires_for_instance_like_alias():
     inst = cb.CatBoostClassifier()
 
     def _run(enabled):
+        """Calls get_training_configs with the given enabled_models list and returns how many times the GPU probe fired."""
         # has_gpu=True triggers the probe only when CB is judged in-scope.
         with mock.patch("mlframe.training.cb._cb_gpu_usable", return_value=False) as probe:
             get_training_configs(iterations=10, has_gpu=True, enabled_models=enabled)

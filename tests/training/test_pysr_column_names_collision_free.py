@@ -46,6 +46,7 @@ def _build_fake_model(equation_strings):
 
 
 def _run(seed: int, equations: list[str]):
+    """Runs the PySR preprocessing extension with the given seed and fake discovered equations, returning the transformed frame."""
     X_train, X_val, X_test, y = _make_frames()
     cfg = PreprocessingExtensionsConfig(
         pysr_enabled=True,

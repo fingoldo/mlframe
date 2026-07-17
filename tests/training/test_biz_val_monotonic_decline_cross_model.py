@@ -59,6 +59,7 @@ def test_biz_val_lgb_monotonic_stops_earlier_no_test_regression():
     X_tr, y_tr, X_val, y_val, X_te, y_te = _overfit_prone_split()
 
     def run(mono):
+        """Fits an LGBM classifier with the given monotonic_decline_patience and returns (rounds trained, test AUC)."""
         m = LGBMClassifierWithDatasetReuse(
             n_estimators=N_ROUNDS,
             num_leaves=63,
@@ -86,6 +87,7 @@ def test_biz_val_xgb_monotonic_stops_earlier_no_test_regression():
     X_tr, y_tr, X_val, y_val, X_te, y_te = _overfit_prone_split()
 
     def run(mono):
+        """Fits an XGB classifier with the given monotonic_decline_patience and returns (rounds trained, test AUC)."""
         m = XGBClassifierWithDMatrixReuse(
             n_estimators=N_ROUNDS,
             max_depth=8,
@@ -119,6 +121,7 @@ def test_biz_val_cb_monotonic_stops_earlier_no_test_regression():
     X_tr, y_tr, X_val, y_val, X_te, y_te = _overfit_prone_split()
 
     def run(mono):
+        """Fits a CatBoost classifier with the given monotonic_decline_patience and returns (rounds trained, test AUC)."""
         model = catboost.CatBoostClassifier(
             iterations=N_ROUNDS,
             depth=8,

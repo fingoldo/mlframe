@@ -12,6 +12,7 @@ from mlframe.training.core._phase_helpers_fit_split import _phase_auto_detect_fe
 
 
 def _run(cat_features, cat_features_polars):
+    """Runs feature-type auto-detection over deliberately hash-scrambled column names and returns the resolved metadata."""
     # Many overlapping names so set-iteration order would visibly diverge from input order.
     cols = ["zzz", "mmm", "aaa", "qqq", "bbb", "kkk", "ccc", "ttt", "ddd", "www"]
     df = pd.DataFrame({c: [1, 2, 3] for c in cols})

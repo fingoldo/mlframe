@@ -52,6 +52,7 @@ def test_fused_noop_when_sigma_zero_or_single_sample():
     X = rng.standard_normal((200, 4))
 
     def f(Z):
+        """Deterministic linear stand-in predictor: doubles the first column."""
         return Z[:, 0] * 2.0
 
     for kwargs in ({"n": 16, "sigma_scale": 0.0}, {"n": 1, "sigma_scale": 0.1}):

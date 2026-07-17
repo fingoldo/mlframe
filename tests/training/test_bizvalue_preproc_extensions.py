@@ -227,6 +227,7 @@ def test_tfidf_column_path_lifts_auroc(tmp_path, seed):
     fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
 
     def _run(use_text):
+        """Trains the suite with the TF-IDF text extension on or off and returns the fitted models."""
         cur_df = df if use_text else df_baseline
         ext_cfg = PreprocessingExtensionsConfig(tfidf_columns=["text"], tfidf_max_features=50) if use_text else None
         feat_cfg = {"text_features": ["text"]} if use_text else None

@@ -52,6 +52,8 @@ class _Weights:
 
 
 class _Wrapper:
+    """Stand-in fitted-model bundle mixing a canonical prediction_datamodule name with a non-canonical lightning-trainer attribute."""
+
     def __init__(self):
         self.estimator_ = _Weights()  # must survive
         self.some_lightning_trainer = _FakeTrainer()  # non-canonical name

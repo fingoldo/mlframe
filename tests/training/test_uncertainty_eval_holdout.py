@@ -21,6 +21,7 @@ def test_evaluate_tta_quality_metrics():
     y = X[:, 0] * 2 - X[:, 1]
 
     def f(Z):
+        """Nonlinear stand-in predictor: a linear combination plus a high-frequency sine term."""
         return Z[:, 0] * 2 - Z[:, 1] + 0.5 * np.sin(11 * Z[:, 2])
 
     rep = evaluate_tta_quality(f, X, y, n=24, sigma_scale=0.2)

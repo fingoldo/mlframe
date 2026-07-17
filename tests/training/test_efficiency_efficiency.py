@@ -146,6 +146,8 @@ def test_cached_init_params_returns_consistent_set():
     from mlframe.training.core._phase_train_one_target import _cached_init_params
 
     class _Foo:
+        """Dummy class with a 3-arg constructor, used to check _cached_init_params' return set is stable across calls."""
+
         def __init__(self, a, b, c=3):
             pass
 

@@ -13,6 +13,7 @@ def test_tta_noop_when_sigma_zero_or_single_sample():
     X = rng.standard_normal((100, 3))
 
     def f(Z):
+        """Deterministic linear stand-in predictor: doubles the first column."""
         return Z[:, 0] * 2.0
 
     assert np.allclose(tta_predict(f, X, n=16, sigma_scale=0.0), f(X))
@@ -26,6 +27,7 @@ def test_tta_mean_unbiased_for_linear_model():
     w = np.array([1.0, -2.0, 0.5, 0.0])
 
     def f(Z):
+        """Linear stand-in predictor: a fixed weight vector dotted with the input."""
         return Z @ w
 
     out = tta_predict(f, X, n=64, sigma_scale=0.05, seed=3)
@@ -136,6 +138,7 @@ def test_tta_point_mean_spread_matches_standalone_helpers():
     X = rng.standard_normal((60, 3))
 
     def f(Z):
+        """Deterministic linear stand-in predictor combining two input columns."""
         return Z[:, 0] * 2.0 - Z[:, 2]
 
     mean_std = tta_predict(f, X, n=10, sigma_scale=0.15, seed=7)
