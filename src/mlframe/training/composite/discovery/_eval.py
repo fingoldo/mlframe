@@ -436,7 +436,16 @@ def _eval_one_transform_impl(
     # ALL train rows on every (base, transform) candidate; the screen sample is
     # already gathered for the MI-gain scoring right below this block.
     try:
-        _valid_screen_probe = transform.domain_check(y_screen, base_screen)
+        _valid_screen_probe = np.asarray(transform.domain_check(y_screen, base_screen), dtype=bool)
+        # Mirror the train-side fitted-domain refinement (see ``_dcf`` above): the pre-fit
+        # ``domain_check`` cannot see learned params, so a transform whose fitted-domain hook
+        # narrows further (not just NaN-producing rows -- any refined validity rule) must have
+        # that SAME narrowing applied to the screen sample the probe reads, or the T_std/y_std
+        # ratio is computed over rows the fit itself does not consider valid.
+        if _dcf is not None and isinstance(fitted_params, dict):
+            _valid_screen_fitted = np.asarray(_dcf(y_screen, base_screen, fitted_params), dtype=bool)
+            if _valid_screen_fitted.shape == _valid_screen_probe.shape:
+                _valid_screen_probe = _valid_screen_probe & _valid_screen_fitted
         _y_screen_valid = y_screen[_valid_screen_probe].astype(np.float64)
         _base_screen_valid = base_screen[_valid_screen_probe].astype(np.float64)
         _t_screen_full = transform.forward(

@@ -13,6 +13,7 @@ import pytest
 @pytest.mark.parametrize("seed", [0, 1, 7, 42, 123])
 @pytest.mark.parametrize("conditional", [False, True])
 def test_percall_cupy_cmi_matches_cpu(seed, conditional):
+    """The bincount-based per-call cupy CMI helper matches the CPU _cmi_from_binned to 1e-9, both marginal and Z-conditional."""
     pytest.importorskip("cupy")
     from mlframe.feature_selection.filters import _mi_greedy_cmi_fe as M
 
@@ -29,6 +30,7 @@ def test_percall_cupy_cmi_matches_cpu(seed, conditional):
 
 @pytest.mark.parametrize("seed", [0, 1, 7, 42])
 def test_joint_cardinalities_cupy_matches_host(seed):
+    """joint_cardinalities_cupy's four partition cardinalities exactly match the host np.unique-based reference."""
     pytest.importorskip("cupy")
     from mlframe.feature_selection.filters import _mi_greedy_cmi_fe as M
 

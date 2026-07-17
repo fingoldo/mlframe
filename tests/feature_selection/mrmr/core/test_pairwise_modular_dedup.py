@@ -47,6 +47,7 @@ def test_escalate_modulus_reuses_hit_c_arr():
     calls = {"n": 0}
 
     def _counting_combine(*a, **kw):
+        """Wrap mod._combine to count invocations, proving escalate_modulus reuses a pre-populated hit.c_arr instead of rebuilding it."""
         calls["n"] += 1
         return real_combine(*a, **kw)
 
