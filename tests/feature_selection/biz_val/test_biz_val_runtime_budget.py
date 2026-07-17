@@ -66,6 +66,7 @@ def _signal_noise_df(n: int, p: int, seed: int = 42):
 
 
 def _make_mrmr(*, simple: bool, budget=None, seed: int = 0):
+    """Make mrmr."""
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     return MRMR(
@@ -84,6 +85,7 @@ def _make_mrmr(*, simple: bool, budget=None, seed: int = 0):
 
 
 def _n_selected(sel) -> int:
+    """N selected."""
     supp = np.asarray(sel.support_)
     return int(supp.sum()) if supp.dtype == bool else int(supp.size)
 
@@ -191,6 +193,7 @@ def test_biz_val_rfecv_respects_runtime_budget_and_yields_usable_partial(_warm_n
 
 
 def _time_simple_fit(n: int, p: int, seed: int = 42) -> float:
+    """Time simple fit."""
     df, y = _signal_noise_df(n, p, seed=seed)
     sel = _make_mrmr(simple=True, seed=0)
     t0 = time.perf_counter()

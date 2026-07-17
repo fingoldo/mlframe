@@ -69,6 +69,7 @@ def _reference_filter(
 
 
 def _make_data(seed, n_groups=120, rows_per_group=6, p=12, nan_frac=0.0, const_frac=0.0):
+    """Make data."""
     rng = np.random.default_rng(seed)
     group_ids = np.repeat(np.arange(n_groups), rows_per_group)
     n = len(group_ids)
@@ -89,6 +90,7 @@ def _make_data(seed, n_groups=120, rows_per_group=6, p=12, nan_frac=0.0, const_f
 
 
 def test_batched_spearman_matches_reference_across_random_configs():
+    """Batched spearman matches reference across random configs."""
     n_checks = 0
     for seed in range(6):
         for nan_frac in (0.0, 0.05):

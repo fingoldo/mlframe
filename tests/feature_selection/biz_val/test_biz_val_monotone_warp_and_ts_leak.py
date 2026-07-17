@@ -137,6 +137,7 @@ def _fit_mrmr(df, y, seed: int):
 
 
 def _fit_rfecv(df, y, *, estimator, leakage_corr_threshold, rule="argmax", leakage_action="exclude"):
+    """Fit rfecv."""
     from mlframe.feature_selection.wrappers import RFECV
 
     sel = RFECV(
@@ -155,6 +156,7 @@ def _fit_rfecv(df, y, *, estimator, leakage_corr_threshold, rule="argmax", leaka
 
 
 def _names(sel):
+    """Helper that names."""
     return list(sel.get_feature_names_out())
 
 
@@ -186,6 +188,7 @@ class TestMRMRMonotoneWarpSurvivor:
     @pytest.mark.slow
     @pytest.mark.parametrize("seed", WARP_SEEDS)
     def test_exactly_one_of_warp_pair_survives(self, seed):
+        """Exactly one of warp pair survives."""
         df, y = _make_warp_frame(seed=seed)
         sel = _fit_mrmr(df, y, seed)
         survivors = _warp_survivors(_names(sel))
@@ -199,6 +202,7 @@ class TestMRMRMonotoneWarpSurvivor:
         )
 
     def test_exactly_one_of_warp_pair_survives_fast(self):
+        """Exactly one of warp pair survives fast."""
         seed = fast_subset(WARP_SEEDS, n=1)[0]
         df, y = _make_warp_frame(seed=seed)
         sel = _fit_mrmr(df, y, seed)
@@ -258,6 +262,7 @@ class TestRFECVMonotoneWarpLinearPrefersRaw:
     @pytest.mark.slow
     @pytest.mark.parametrize("seed", WARP_SEEDS)
     def test_rfecv_keeps_f_drops_g(self, seed):
+        """Rfecv keeps f drops g."""
         df, y = _make_warp_frame(seed=seed)
         est = make_pipeline(StandardScaler(), LogisticRegression(max_iter=200, random_state=0))
         sel = _fit_rfecv(df, y, estimator=est, leakage_corr_threshold=None, rule="one_se_min")
@@ -270,6 +275,7 @@ class TestRFECVMonotoneWarpLinearPrefersRaw:
         )
 
     def test_rfecv_keeps_f_drops_g_fast(self):
+        """Rfecv keeps f drops g fast."""
         seed = fast_subset(WARP_SEEDS, n=1)[0]
         df, y = _make_warp_frame(seed=seed)
         est = make_pipeline(StandardScaler(), LogisticRegression(max_iter=200, random_state=0))
@@ -293,6 +299,7 @@ class TestMRMRPartialTimeSeriesLeak:
     @pytest.mark.slow
     @pytest.mark.parametrize("seed", LEAK_SEEDS)
     def test_partial_leak_surfaces_to_support(self, seed):
+        """Partial leak surfaces to support."""
         df, y = _make_ar1_leak_frame(seed=seed)
         sel = _fit_mrmr(df, y, seed)
         names = _names(sel)
@@ -301,6 +308,7 @@ class TestMRMRPartialTimeSeriesLeak:
         )
 
     def test_partial_leak_surfaces_to_support_fast(self):
+        """Partial leak surfaces to support fast."""
         seed = fast_subset(LEAK_SEEDS, n=1)[0]
         df, y = _make_ar1_leak_frame(seed=seed)
         sel = _fit_mrmr(df, y, seed)
@@ -353,6 +361,7 @@ class TestRFECVPartialLeakThreshold:
     @pytest.mark.slow
     @pytest.mark.parametrize("seed", LEAK_SEEDS)
     def test_tight_threshold_excludes_partial_leak(self, seed):
+        """Tight threshold excludes partial leak."""
         df, y = _make_ar1_leak_frame(seed=seed)
         est = RandomForestRegressor(n_estimators=40, random_state=0)
         sel = _fit_rfecv(df, y, estimator=est, leakage_corr_threshold=0.6, leakage_action="exclude")
@@ -377,6 +386,7 @@ class TestRFECVPartialLeakThreshold:
         )
 
     def test_partial_leak_threshold_both_sides_fast(self):
+        """Partial leak threshold both sides fast."""
         seed = fast_subset(LEAK_SEEDS, n=1)[0]
         df, y = _make_ar1_leak_frame(seed=seed)
         est = RandomForestRegressor(n_estimators=40, random_state=0)
@@ -392,6 +402,7 @@ class TestRFECVPartialLeakThreshold:
 
 
 def _binq(x, nb: int = 10):
+    """Helper that binq."""
     return pd.qcut(x, nb, labels=False, duplicates="drop").astype(np.int64)
 
 
@@ -405,6 +416,7 @@ class TestWarpLinearTiebreakDirect:
     The flag-OFF side pins the legacy column-order behaviour (anchor kept)."""
 
     def _setup(self, flag, seed=0, n=3000):
+        """Helper that setup."""
         from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
             make_dcd_state,
             discover_cluster_members,
@@ -431,11 +443,13 @@ class TestWarpLinearTiebreakDirect:
         return state, sv
 
     def test_warp_tiebreak_on_keeps_linear_f(self):
+        """Warp tiebreak on keeps linear f."""
         state, sv = self._setup(flag=True)
         assert sv == [1], f"warp_tiebreak_prefer_linear ON must DISPLACE the exp-warp anchor g with the linear-usable twin f; selected_vars={sv}"
         assert bool(state.pool_pruned_mask[0]) and not bool(state.pool_pruned_mask[1]), f"g must be pruned and f kept; mask={state.pool_pruned_mask.tolist()}"
 
     def test_warp_tiebreak_off_keeps_order_decided_g(self):
+        """Warp tiebreak off keeps order decided g."""
         state, sv = self._setup(flag=False)
         assert sv == [0], f"flag OFF must preserve the order-decided anchor g (legacy column-order tie-break); selected_vars={sv}"
         assert not bool(state.pool_pruned_mask[0]) and bool(state.pool_pruned_mask[1]), f"legacy: g kept, f pruned; mask={state.pool_pruned_mask.tolist()}"
@@ -487,6 +501,7 @@ class TestNeverEmptyRawSupport:
 
     @pytest.mark.parametrize("nbins", [5, 10, 20])
     def test_selection_never_empty_and_support_in_bounds(self, nbins):
+        """Selection never empty and support in bounds."""
         from mlframe.feature_selection.filters.mrmr import MRMR
         from tests.feature_selection._biz_val_synth import make_signal_plus_noise, as_df
 

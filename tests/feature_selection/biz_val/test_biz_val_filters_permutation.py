@@ -51,6 +51,7 @@ def _make_no_signal(n=5000, seed=42):
 
 
 def _classes_and_mi(x_bin, y):
+    """Classes and mi."""
     from mlframe.feature_selection.filters.info_theory import (
         compute_mi_from_classes,
         merge_vars,

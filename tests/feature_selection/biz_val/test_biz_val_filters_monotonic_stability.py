@@ -16,6 +16,7 @@ from mlframe.feature_selection.filters._monotonic_stability import monotonic_dev
 
 
 def _make_data(seed: int):
+    """Make data."""
     rng = np.random.default_rng(seed)
     n_groups = 250
     rows_per_group = 6
@@ -35,6 +36,7 @@ def _make_data(seed: int):
 
 
 def test_biz_val_monotonic_stability_filter_separates_stable_from_jumpy_feature():
+    """Biz val monotonic stability filter separates stable from jumpy feature."""
     df, y = _make_data(seed=0)
 
     result = monotonic_deviation_stability_filter(df, y, group_col="group", feature_cols=["good_feature", "jumpy_feature"], n_subsamples=40, random_state=0)
@@ -46,6 +48,7 @@ def test_biz_val_monotonic_stability_filter_separates_stable_from_jumpy_feature(
 
 
 def test_monotonic_stability_filter_returns_expected_columns():
+    """Monotonic stability filter returns expected columns."""
     df, y = _make_data(seed=1)
     result = monotonic_deviation_stability_filter(df, y, group_col="group", feature_cols=["good_feature"], n_subsamples=10, random_state=1)
     assert {"feature", "full_sample_correlation", "sign_agreement_fraction", "stable"} <= set(result.columns)
@@ -82,6 +85,7 @@ def _make_segment_flip_data(seed: int):
 
 
 def test_biz_val_monotonic_stability_filter_segment_conditional_catches_within_segment_flip():
+    """Biz val monotonic stability filter segment conditional catches within segment flip."""
     df, y = _make_segment_flip_data(seed=2)
 
     default_result = monotonic_deviation_stability_filter(
@@ -107,6 +111,7 @@ def test_biz_val_monotonic_stability_filter_segment_conditional_catches_within_s
 
 
 def test_monotonic_stability_filter_segment_col_omitted_is_bit_identical_to_baseline():
+    """Monotonic stability filter segment col omitted is bit identical to baseline."""
     df, y = _make_data(seed=3)
     kwargs = dict(df=df, y=y, group_col="group", feature_cols=["good_feature", "jumpy_feature"], n_subsamples=25, random_state=3)
 

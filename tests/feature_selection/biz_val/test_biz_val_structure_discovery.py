@@ -21,10 +21,12 @@ N = 2000
 
 
 def _rng(seed=0):
+    """Helper that rng."""
     return np.random.default_rng(seed)
 
 
 def test_biz_val_discover_gcd_classification_top_relation():
+    """Biz val discover gcd classification top relation."""
     rng = _rng(0)
     a = rng.integers(1, 40, N)
     b = rng.integers(1, 40, N)
@@ -41,6 +43,7 @@ def test_biz_val_discover_gcd_classification_top_relation():
 
 
 def test_biz_val_discover_gcd_regression_variant():
+    """Biz val discover gcd regression variant."""
     rng = _rng(2)
     a = rng.integers(1, 40, N)
     b = rng.integers(1, 40, N)
@@ -54,6 +57,7 @@ def test_biz_val_discover_gcd_regression_variant():
 
 
 def test_biz_val_discover_modular_modulus():
+    """Biz val discover modular modulus."""
     rng = _rng(1)
     a = rng.integers(0, 50, N)
     b = rng.integers(0, 50, N)
@@ -70,6 +74,7 @@ def test_biz_val_discover_modular_modulus():
 
 
 def test_biz_val_discover_gate_regime_switch():
+    """Biz val discover gate regime switch."""
     rng = _rng(3)
     base = rng.normal(size=N)
     discount = rng.normal(size=N)
@@ -90,6 +95,7 @@ def test_biz_val_discover_gate_regime_switch():
 
 
 def test_biz_val_discover_argmax():
+    """Biz val discover argmax."""
     rng = _rng(4)
     c0, c1, c2 = (rng.normal(size=N) for _ in range(3))
     X = pd.DataFrame({"x0": c0, "x1": c1, "x2": c2, "n": rng.normal(size=N)})
@@ -103,6 +109,7 @@ def test_biz_val_discover_argmax():
 
 
 def test_specificity_linear_frame_empty():
+    """Specificity linear frame empty."""
     rng = _rng(5)
     X = pd.DataFrame({f"f{i}": rng.normal(size=N) for i in range(8)})
     y = 2 * X["f0"] + X["f1"] - 0.5 * X["f2"] + rng.normal(0, 0.1, N)
@@ -111,6 +118,7 @@ def test_specificity_linear_frame_empty():
 
 
 def test_specificity_noise_frame_empty():
+    """Specificity noise frame empty."""
     rng = _rng(6)
     X = pd.DataFrame({f"g{i}": rng.normal(size=N) for i in range(8)})
     y = rng.normal(size=N)
@@ -120,6 +128,7 @@ def test_specificity_noise_frame_empty():
 
 
 def test_robustness_2d_y_skips_with_warning():
+    """Robustness 2d y skips with warning."""
     rng = _rng(7)
     a = rng.integers(1, 40, 500)
     b = rng.integers(1, 40, 500)
@@ -133,6 +142,7 @@ def test_robustness_2d_y_skips_with_warning():
 
 
 def test_robustness_tiny_frame_no_crash():
+    """Robustness tiny frame no crash."""
     rng = _rng(8)
     X = pd.DataFrame({"a": rng.integers(0, 5, 30), "b": rng.integers(0, 5, 30)})
     y = rng.integers(0, 2, 30)
@@ -141,6 +151,7 @@ def test_robustness_tiny_frame_no_crash():
 
 
 def test_numpy_X_fallback():
+    """Numpy X fallback."""
     rng = _rng(9)
     a = rng.integers(1, 40, N)
     b = rng.integers(1, 40, N)
@@ -153,6 +164,7 @@ def test_numpy_X_fallback():
 
 
 def test_human_readable_str_contains_columns_and_kind():
+    """Human readable str contains columns and kind."""
     rng = _rng(0)
     a = rng.integers(1, 40, N)
     b = rng.integers(1, 40, N)
@@ -217,6 +229,7 @@ def test_biz_val_nbins_resolution_recovers_multivalued_structure():
 
 
 def test_top_k_cap():
+    """Top k cap."""
     rng = _rng(0)
     a = rng.integers(1, 40, N)
     b = rng.integers(1, 40, N)
@@ -227,6 +240,7 @@ def test_top_k_cap():
 
 
 def test_include_filter():
+    """Include filter."""
     rng = _rng(0)
     a = rng.integers(1, 40, N)
     b = rng.integers(1, 40, N)

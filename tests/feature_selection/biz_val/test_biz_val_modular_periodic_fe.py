@@ -33,10 +33,12 @@ _LIFT_FLOOR = 0.50
 
 
 def _noise(rng, n, k, lo=0, hi=50):
+    """Helper that noise."""
     return {f"n{i}": rng.integers(lo, hi, n) for i in range(k)}
 
 
 def _pair_add_mod(seed, n=2000, m=7):
+    """Pair add mod."""
     rng = np.random.default_rng(seed)
     a, b = rng.integers(0, 100, n), rng.integers(0, 100, n)
     y = ((a + b) % m >= (m // 2)).astype(int)
@@ -44,6 +46,7 @@ def _pair_add_mod(seed, n=2000, m=7):
 
 
 def _pair_mul_mod(seed, n=2000, m=5):
+    """Pair mul mod."""
     rng = np.random.default_rng(seed)
     a, b = rng.integers(0, 40, n), rng.integers(0, 40, n)
     y = ((a * b) % m == 0).astype(int)
@@ -51,6 +54,7 @@ def _pair_mul_mod(seed, n=2000, m=5):
 
 
 def _nway_parity(seed, n=2000, k=3):
+    """Nway parity."""
     rng = np.random.default_rng(seed)
     cols = {f"a{i}": rng.integers(0, 1000, n) for i in range(k)}
     s = sum(cols.values())
@@ -59,6 +63,7 @@ def _nway_parity(seed, n=2000, k=3):
 
 
 def _single_hidden_period(seed, n=2000, m=11):
+    """Single hidden period."""
     rng = np.random.default_rng(seed)
     a = rng.integers(0, 5000, n)
     y = (a % m >= (m // 2)).astype(int)
@@ -78,6 +83,7 @@ class TestModularMILift:
         ],
     )
     def test_modular_residue_beats_smooth_baseline(self, gen, true_m):
+        """Modular residue beats smooth baseline."""
         lifts, mods_ok = [], []
         for s in SEEDS:
             X, y = gen(s)
@@ -101,26 +107,31 @@ class TestSpecificity:
     """The detector must NOT fire on non-modular data (smooth / monotone / noise / ordinary interaction)."""
 
     def _smooth(self, s, n=2000):
+        """Helper that smooth."""
         rng = np.random.default_rng(s)
         a, b = rng.integers(0, 100, n), rng.integers(0, 100, n)
         return pd.DataFrame({"a": a, "b": b, **_noise(rng, n, 2)}), ((a + 0.7 * b) > 85).astype(int)
 
     def _monotone(self, s, n=2000):
+        """Helper that monotone."""
         rng = np.random.default_rng(s)
         a = rng.integers(0, 1000, n)
         return pd.DataFrame({"a": a, **_noise(rng, n, 3)}), (a > 500).astype(int)
 
     def _noise(self, s, n=2000):
+        """Helper that noise."""
         rng = np.random.default_rng(s)
         return pd.DataFrame(_noise(rng, n, 4)), rng.integers(0, 2, n)
 
     def _ordinary_mul(self, s, n=2000):
+        """Ordinary mul."""
         rng = np.random.default_rng(s)
         a, b = rng.integers(0, 50, n), rng.integers(0, 50, n)
         return pd.DataFrame({"a": a, "b": b, **_noise(rng, n, 2)}), ((a * b) > 600).astype(int)
 
     @pytest.mark.parametrize("name", ["smooth", "monotone", "noise", "ordinary_mul"])
     def test_detector_silent_on_non_modular(self, name):
+        """Detector silent on non modular."""
         gen = getattr(self, f"_{name}")
         fires = 0
         for s in SEEDS:
@@ -137,6 +148,7 @@ class TestCheapGate:
     """The cheap scan's responded-gate is the escalation trigger: it must separate TP from controls."""
 
     def test_responded_flag_separates_tp_from_control(self):
+        """Responded flag separates tp from control."""
         X_tp, y_tp = _pair_add_mod(7)
         X_ctrl, y_ctrl = TestSpecificity()._ordinary_mul(7)
         tp_hits = cheap_modular_scan(X_tp, y_tp, seed=7)

@@ -15,6 +15,7 @@ from mlframe.feature_selection.filters._ks_stability import ks_stability_filter
 
 
 def test_biz_val_ks_stability_filter_flags_shifted_feature_not_stable_one():
+    """Biz val ks stability filter flags shifted feature not stable one."""
     rng = np.random.default_rng(0)
     n = 2000
     train_df = pd.DataFrame(
@@ -41,6 +42,7 @@ def test_biz_val_ks_stability_filter_flags_shifted_feature_not_stable_one():
 
 
 def test_ks_stability_filter_all_nan_column_treated_as_stable():
+    """Ks stability filter all nan column treated as stable."""
     train_df = pd.DataFrame({"x": [np.nan, np.nan]})
     test_df = pd.DataFrame({"x": [1.0, 2.0]})
     result = ks_stability_filter(train_df, test_df, feature_cols=["x"])

@@ -126,14 +126,17 @@ def _max_vif(Xsub: pd.DataFrame) -> float:
 
 
 def _cluster_kept(names) -> int:
+    """Cluster kept."""
     return sum(1 for nm in names if str(nm).startswith(_CLUSTER_PREFIX))
 
 
 def _selected_in_X(names, X) -> list[str]:
+    """Selected in X."""
     return [c for c in (str(nm) for nm in names) if c in X.columns]
 
 
 def _subset_auc(names, X, y, cv: int = 4) -> float:
+    """Subset auc."""
     cols = _selected_in_X(names, X)
     if not cols:
         return float("nan")
@@ -149,6 +152,7 @@ def _subset_auc(names, X, y, cv: int = 4) -> float:
 
 
 def _baseline_auc(X, y, cv: int = 4) -> float:
+    """Baseline auc."""
     return float(
         cross_val_score(
             LogisticRegression(max_iter=400),
@@ -201,6 +205,7 @@ _RECOVERY_GAP = {"MRMR"}
 
 
 def _fit_or_report(spec, X, y):
+    """Fit or report."""
     sel = spec.make("binary")
     sel.fit(X, y)
     names = selected_names(sel)

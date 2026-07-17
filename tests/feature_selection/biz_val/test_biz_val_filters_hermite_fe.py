@@ -37,6 +37,7 @@ warnings.filterwarnings("ignore")
 
 
 def _xor_pair(n=2000, seed=42):
+    """Xor pair."""
     rng = np.random.default_rng(seed)
     x_a = rng.normal(size=n)
     x_b = rng.normal(size=n)
@@ -45,6 +46,7 @@ def _xor_pair(n=2000, seed=42):
 
 
 def _periodic_pair(n=2000, seed=42):
+    """Periodic pair."""
     rng = np.random.default_rng(seed)
     x_a = rng.uniform(-1, 1, n)
     x_b = rng.normal(size=n)
@@ -53,6 +55,7 @@ def _periodic_pair(n=2000, seed=42):
 
 
 def _threshold_pair(n=2000, seed=42):
+    """Threshold pair."""
     rng = np.random.default_rng(seed)
     x_a = rng.normal(size=n)
     x_b = rng.normal(size=n)
@@ -61,6 +64,7 @@ def _threshold_pair(n=2000, seed=42):
 
 
 def _bump_pair(n=2000, seed=42):
+    """Bump pair."""
     rng = np.random.default_rng(seed)
     x_a = rng.normal(loc=1.0, scale=1.5, size=n)
     x_b = rng.normal(size=n)
@@ -69,6 +73,7 @@ def _bump_pair(n=2000, seed=42):
 
 
 def _log_separable_pair(n=2000, seed=42):
+    """Log separable pair."""
     rng = np.random.default_rng(seed)
     x_a = rng.lognormal(size=n) - rng.lognormal(size=n)
     x_b = rng.lognormal(size=n) - rng.lognormal(size=n)
@@ -78,6 +83,7 @@ def _log_separable_pair(n=2000, seed=42):
 
 
 def _multimode_target(n=2000, seed=42):
+    """Multimode target."""
     rng = np.random.default_rng(seed)
     x_a = rng.normal(size=n)
     x_b = rng.normal(size=n)
@@ -87,6 +93,7 @@ def _multimode_target(n=2000, seed=42):
 
 
 def _triplet_xor(n=2000, seed=42):
+    """Triplet xor."""
     rng = np.random.default_rng(seed)
     x_a = rng.normal(size=n)
     x_b = rng.normal(size=n)
@@ -459,6 +466,7 @@ def test_biz_multimode_beats_single_mode_on_multimode_target():
     assert len(results) >= 2
 
     def _auc(X):
+        """Helper that auc."""
         m = HistGradientBoostingClassifier(random_state=42, max_iter=200, early_stopping=False)
         m.fit(X[tr], y[tr])
         return roc_auc_score(y[va], m.predict_proba(X[va])[:, 1])

@@ -65,6 +65,7 @@ pytestmark = pytest.mark.timeout(60)  # untimed biz_val real-fit tier: surface a
 
 
 def _mrmr_kwargs(seed: int, fe: bool = False) -> dict:
+    """Mrmr kwargs."""
     kw = dict(
         random_seed=seed,
         verbose=0,
@@ -88,18 +89,22 @@ K_GRID = (1, 2, 3, 4, 5, 6, 8)
 
 
 def _seeds():
+    """Helper that seeds."""
     return fast_subset(SEEDS, n=1)
 
 
 def _k_grid():
+    """K grid."""
     return [2, 4, 8] if is_fast_mode() else list(K_GRID)
 
 
 def _n():
+    """Row count for the H2H external fixtures: smaller under --fast."""
     return 1200 if is_fast_mode() else 2000
 
 
 def _majority(n_seeds: int) -> int:
+    """Helper that majority."""
     return (n_seeds // 2) + 1
 
 
@@ -112,6 +117,7 @@ def _auc_on_cols(X: pd.DataFrame, y: pd.Series, cols, cv: int = 5) -> float:
 
 
 def _fit_mrmr(X: pd.DataFrame, y: pd.Series, seed: int, fe: bool = False):
+    """Fit mrmr."""
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     with warnings.catch_warnings():
@@ -132,6 +138,7 @@ def _mrmr_selection_order(X: pd.DataFrame, y: pd.Series, seed: int) -> list[str]
 
 
 def _mi_descending_order(X: pd.DataFrame, y: pd.Series, seed: int) -> list[str]:
+    """Mi descending order."""
     mi = mutual_info_classif(X.values, y.values, random_state=seed)
     return [X.columns[i] for i in np.argsort(mi)[::-1]]
 
@@ -142,17 +149,20 @@ def _skb_cols(X: pd.DataFrame, y: pd.Series, k: int, seed: int) -> list[str]:
 
 
 def _rfe_cols(X: pd.DataFrame, y: pd.Series, k: int, seed: int) -> list[str]:
+    """Rfe cols."""
     rfe = RFE(LogisticRegression(max_iter=400, random_state=seed), n_features_to_select=k).fit(X.values, y.values)
     return [X.columns[i] for i in np.flatnonzero(rfe.get_support())]
 
 
 def _random_k_mean_auc(X: pd.DataFrame, y: pd.Series, k: int, seed: int, draws: int = 5) -> float:
+    """Random k mean auc."""
     rng = np.random.default_rng(7000 + seed)
     aucs = [_auc_on_cols(X, y, list(rng.choice(X.columns, size=k, replace=False))) for _ in range(draws)]
     return float(np.mean(aucs))
 
 
 def _clusters_in(cols) -> set:
+    """Clusters in."""
     return {c.split("_")[0] for c in cols if c.startswith("clu")}
 
 

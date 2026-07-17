@@ -100,6 +100,7 @@ class _StubFI(BaseEstimator):
         self.hit_cols = hit_cols
 
     def fit(self, X, y):
+        """Helper that fit."""
         n_cols = np.asarray(X).shape[1]
         imp = np.zeros(n_cols, dtype=float)
         for c in self.hit_cols:
@@ -119,6 +120,7 @@ class _BlindFI(DummyClassifier):
     """
 
     def fit(self, X, y, sample_weight=None):
+        """Helper that fit."""
         super().fit(X, y, sample_weight=sample_weight)
         n_cols = np.asarray(X).shape[1]
         self.feature_importances_ = np.ones(n_cols, dtype=float) / n_cols
@@ -288,6 +290,7 @@ class _AltTrialFI(BaseEstimator):
     estimator never falls through to permutation_importance."""
 
     def fit(self, X, y):
+        """Helper that fit."""
         Xa = np.asarray(X)
         n_cols = Xa.shape[1]
         P = n_cols // 2
@@ -345,6 +348,7 @@ def test_hetero_vote_per_model_hit_frac_boundary_is_inclusive():
 
 
 def _two_signal_with_blind_panel(seed: int = 0, n: int = 1500):
+    """Two signal with blind panel."""
     rng = np.random.default_rng(seed)
     x0 = rng.standard_normal(n)
     x1 = rng.standard_normal(n)

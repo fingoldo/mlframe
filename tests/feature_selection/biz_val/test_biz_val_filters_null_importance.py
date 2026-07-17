@@ -16,6 +16,7 @@ from mlframe.feature_selection.filters._null_importance import null_importance_f
 
 
 def _make_mixed_signal_noise_data(n: int, n_informative: int, n_noise: int, seed: int):
+    """Make mixed signal noise data."""
     rng = np.random.default_rng(seed)
     X_informative = rng.standard_normal((n, n_informative))
     weights = rng.uniform(0.5, 1.5, size=n_informative)
@@ -26,12 +27,14 @@ def _make_mixed_signal_noise_data(n: int, n_informative: int, n_noise: int, seed
 
 
 def _rf_importance_fn(X, y):
+    """Rf importance fn."""
     model = RandomForestRegressor(n_estimators=30, max_depth=6, n_jobs=-1, random_state=0)
     model.fit(X, y)
     return model.feature_importances_
 
 
 def test_null_importance_filter_returns_expected_keys_and_shapes():
+    """Null importance filter returns expected keys and shapes."""
     X, y, n_inf, n_noise = _make_mixed_signal_noise_data(400, 3, 5, seed=0)
     result = null_importance_filter(X, y, _rf_importance_fn, n_shuffles=8, random_state=0)
     n_features = n_inf + n_noise
@@ -42,12 +45,14 @@ def test_null_importance_filter_returns_expected_keys_and_shapes():
 
 
 def test_null_importance_filter_keep_mask_is_boolean():
+    """Null importance filter keep mask is boolean."""
     X, y, *_ = _make_mixed_signal_noise_data(300, 2, 3, seed=1)
     result = null_importance_filter(X, y, _rf_importance_fn, n_shuffles=5, random_state=0)
     assert result["keep_mask"].dtype == np.bool_
 
 
 def test_biz_val_null_importance_filter_rejects_far_more_noise_than_raw_positive_threshold():
+    """Biz val null importance filter rejects far more noise than raw positive threshold."""
     n_informative, n_noise = 5, 30
     X, y, _, _ = _make_mixed_signal_noise_data(2000, n_informative, n_noise, seed=42)
 
@@ -79,6 +84,7 @@ def test_biz_val_null_importance_filter_margin_score_ranks_by_true_signal_streng
     # keep_mask alone can't distinguish a barely-clearing-the-bar feature from a towering one -- both are
     # just True/kept. margin_score should recover the true strong > medium > weak ordering, which the raw
     # real_importance alone is noisier at doing near the decision boundary (weak signal vs strongest noise).
+    """Biz val null importance filter margin score ranks by true signal strength."""
     rng = np.random.default_rng(123)
     n = 2500
     n_noise = 20

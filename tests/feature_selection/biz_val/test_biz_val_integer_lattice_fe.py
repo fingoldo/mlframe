@@ -36,6 +36,7 @@ def _best_existing_mi(a, b, y):
 
 @pytest.fixture(scope="module")
 def gcd_target():
+    """Gcd target."""
     rng = np.random.default_rng(0)
     n = 2000
     a = rng.integers(1, 60, n)
@@ -53,6 +54,7 @@ def test_biz_val_gcd_beats_existing_basis_by_3x(gcd_target):
 
 
 def test_biz_val_gcd_fires_on_shared_factor_target(gcd_target):
+    """Biz val gcd fires on shared factor target."""
     a, b, y = gcd_target
     hits = scan_integer_lattice_pairs(np.column_stack([a, b]).astype(float), y, ["a", "b"], nbins=_NBINS)
     assert any(h["op"] == "gcd" for h in hits), "gcd scan must emit a hit on the shared-factor target"
