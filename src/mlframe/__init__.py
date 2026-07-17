@@ -54,17 +54,18 @@ def _autoconfigure_cuda_home() -> None:
     import pathlib
 
     def _dir_has_cudart(p: str) -> bool:
+        """True if the CUDA runtime library (cudart) is present under p, in any of the layouts NVIDIA ships."""
         d = pathlib.Path(p)
         return bool(list(d.glob("bin/cudart64_*.dll")) or list(d.glob("lib64/libcudart*")) or list(d.glob("lib/libcudart*")))
 
     def _dir_has_nvvm(p: str) -> bool:
+        """True if the NVVM codegen library is present under p, in any of the layouts NVIDIA ships."""
         d = pathlib.Path(p)
         return bool(list(d.glob("nvvm/bin/nvvm*.dll")) or list(d.glob("nvvm/lib64/libnvvm*")))
 
     def _find_complete_toolkit() -> "str | None":
-        # A toolkit that can actually COMPILE+RUN numba kernels needs BOTH nvvm (for codegen) and cudart
-        # (numba's get_supported_ccs queries the runtime). The versioned CUDA_PATH_V* vars the NVIDIA
-        # system installer sets point at full toolkits; pick the highest that has both libraries.
+        """Highest-versioned CUDA_PATH_V* system toolkit that has BOTH nvvm (codegen) and cudart (runtime,
+        needed by numba's get_supported_ccs) -- a toolkit missing either cannot compile+run numba kernels."""
         cands = [v for k, v in os.environ.items() if k.startswith("CUDA_PATH_V") and v]
         for p in sorted(cands, reverse=True):
             if _dir_has_cudart(p) and _dir_has_nvvm(p):
@@ -191,18 +192,95 @@ def _disable_broken_cupy() -> None:
         sys.modules["cupy"] = None  # type: ignore[assignment]
 
 
+def _patch_colorama_reinit_storm() -> None:
+    """Make ``colorama.init()`` idempotent to stop a per-warning win32-API storm.
+
+    Root cause (found via cProfile on a wellbore-100k GPU-strict MRMR fit, 2026-07-17):
+    ``numba.cuda``'s dispatcher constructs a ``NumbaPerformanceWarning`` on EVERY kernel launch whose
+    grid has fewer than 128 blocks (``numba/cuda/dispatcher.py``'s launch-configuration check) -- an
+    expected, frequent occurrence across mlframe's many small-grid resident GPU kernels (one warp per
+    reduction, one thread per tiny candidate batch, etc.), not a bug to "fix" by padding grids. Building
+    that warning's message goes through ``numba.core.errors.HighlightColorScheme._markup``, which opens
+    a **fresh** ``colorama.ColorShell()`` (``numba/core/errors.py``) on every call; ``ColorShell.__init__``
+    unconditionally calls ``colorama.init()``, which unconditionally re-wraps ``sys.stdout``/``sys.stderr``
+    and re-probes the Windows console API (``colorama.win32.winapi_test`` / ``_winapi_test``) -- colorama
+    itself has NO guard against re-wrapping an already-wrapped stream. Measured: ~50,000 warning
+    constructions in one fit, ~7.6s cumulative just in the colorama re-init path (confirmed via
+    ``pstats.Stats.print_callers`` tracing ``winapi_test`` -> ``ansitowin32.__init__`` -> ``initialise.init``
+    -> ``numba.core.errors.NumbaWarning.__init__``, all ~50k deep). Filtering the warning via
+    ``warnings.simplefilter("ignore", NumbaPerformanceWarning)`` (the pattern already used in a few mlframe
+    GPU modules) does NOT fix this: the expensive object is constructed as a plain Python expression
+    BEFORE ``warnings.warn()`` is even called, so the filter can only suppress the eventual print, not the
+    construction cost that already ran.
+
+    Fix: wrap ``colorama.initialise.init`` so only the FIRST call with a given (autoreset, convert, strip,
+    wrap) argument signature runs colorama's real logic; every later call with that same signature is a
+    no-op. Terminal capabilities do not change mid-process, so re-probing them on every warning is pure
+    waste -- the first call still runs colorama's real logic (correct colorized output is unaffected).
+    Tried tracking ``id(sys.stdout)`` as the "already wrapped" signal first: rejected, because colorama's
+    OWN ``init()`` reassigns ``sys.stdout`` to a FRESH wrapper object on every call (nesting a new
+    ``StreamWrapper`` around whatever ``sys.stdout`` currently is) -- so the very act of running the
+    real init changes the signal that decision was trying to read, and an id-based check placed either
+    before or after the real call can never observe two consecutive calls as "the same". A plain per-
+    signature call-once guard sidesteps that self-defeating dependency entirely.
+
+    Patched in TWO places, both required: ``colorama.initialise.init`` itself (for any caller that does
+    ``import colorama.initialise; colorama.initialise.init()`` / ``colorama.init()``), AND
+    ``numba.core.errors.init`` -- ``numba/core/errors.py`` does ``from colorama import init, ...`` at
+    MODULE LOAD TIME, which binds its OWN independent name to the ORIGINAL function object; rebinding
+    ``colorama.initialise.init`` afterwards does NOT change what ``numba.core.errors.ColorShell.__init__``
+    calls (confirmed via cProfile: patching only ``colorama.initialise.init`` showed zero change --
+    ``numba.core.errors.init`` must be rebound directly, the actual call site). Best-effort: any failure
+    (colorama/numba absent, a future version restructuring these modules) leaves behavior untouched.
+    Opt-out: ``MLFRAME_KEEP_COLORAMA_REINIT=1``."""
+    import os
+    if os.environ.get("MLFRAME_KEEP_COLORAMA_REINIT", "").strip() not in ("", "0", "false", "False"):
+        return
+    try:
+        import colorama.initialise as _ci
+    except Exception:
+        return
+    _orig_init = getattr(_ci, "init", None)
+    if _orig_init is None or getattr(_orig_init, "_mlframe_idempotent", False):
+        return
+
+    import functools
+
+    _seen_signatures: set = set()
+
+    @functools.wraps(_orig_init)
+    def _idempotent_init(autoreset=False, convert=None, strip=None, wrap=True):
+        """Run colorama's real init() only on the first call for a given argument signature; later
+        calls with the same signature are a no-op (terminal capabilities do not change mid-process)."""
+        sig = (autoreset, convert, strip, wrap)
+        if sig in _seen_signatures:
+            return
+        _orig_init(autoreset=autoreset, convert=convert, strip=strip, wrap=wrap)
+        _seen_signatures.add(sig)
+
+    _idempotent_init._mlframe_idempotent = True  # type: ignore[attr-defined]
+    _ci.init = _idempotent_init
+    try:
+        import numba.core.errors as _ne
+        if getattr(_ne, "init", None) is _orig_init:
+            _ne.init = _idempotent_init
+    except Exception:  # nosec B110 - best-effort: numba absent or restructured its colorama import
+        pass
+
+
 _gpu_runtime_configured = False
 
 
 def _ensure_gpu_runtime_configured() -> None:
-    """Run the CUDA env autoconfig + broken-cupy guard once, on first GPU-path use.
+    """Run the CUDA env autoconfig + broken-cupy guard + colorama-reinit patch once, on first GPU-path use.
 
-    These two routines mutate ``os.environ`` (CUDA_HOME/CUDA_PATH) and import cupy + run a CUDA reduction
-    kernel. Doing that at ``import mlframe`` time is hostile to the majority of users who never touch a GPU
-    path: it probes the GPU and rewrites their environment on every import. Both are therefore deferred to the
-    first time a GPU dispatcher asks ``is_cuda_available()`` (see the wrapper installed below), so a plain
-    ``import mlframe`` neither mutates the environment nor imports cupy. The opt-out env vars
-    (MLFRAME_NO_CUDA_AUTOCONFIG / MLFRAME_KEEP_BROKEN_CUPY) are still honoured inside each routine.
+    These routines mutate ``os.environ`` (CUDA_HOME/CUDA_PATH), import cupy + run a CUDA reduction kernel,
+    and monkeypatch ``colorama.initialise.init``. Doing that at ``import mlframe`` time is hostile to the
+    majority of users who never touch a GPU path: it probes the GPU and rewrites their environment on every
+    import. All three are therefore deferred to the first time a GPU dispatcher asks ``is_cuda_available()``
+    (see the wrapper installed below), so a plain ``import mlframe`` neither mutates the environment nor
+    imports cupy nor touches colorama. The opt-out env vars (MLFRAME_NO_CUDA_AUTOCONFIG /
+    MLFRAME_KEEP_BROKEN_CUPY / MLFRAME_KEEP_COLORAMA_REINIT) are still honoured inside each routine.
     """
     global _gpu_runtime_configured
     if _gpu_runtime_configured:
@@ -210,6 +288,7 @@ def _ensure_gpu_runtime_configured() -> None:
     _gpu_runtime_configured = True
     _autoconfigure_cuda_home()
     _disable_broken_cupy()
+    _patch_colorama_reinit_storm()
 
 
 def _install_gpu_runtime_lazy_trigger() -> None:
@@ -232,6 +311,7 @@ def _install_gpu_runtime_lazy_trigger() -> None:
 
     @functools.wraps(_orig)
     def _is_cuda_available(*args, **kwargs):
+        """Configure the GPU runtime (once) then delegate to the real is_cuda_available()."""
         _ensure_gpu_runtime_configured()
         return _orig(*args, **kwargs)
 
