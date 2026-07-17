@@ -14,16 +14,19 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _read_text(path: Path) -> str:
+    """Helper that read text."""
     return path.read_text(encoding="utf-8")
 
 
 def test_pre_commit_config_has_ruff_hook() -> None:
+    """Pre commit config has ruff hook."""
     cfg = _read_text(REPO_ROOT / ".pre-commit-config.yaml")
     assert "astral-sh/ruff-pre-commit" in cfg, "ruff pre-commit hook missing from .pre-commit-config.yaml"
     assert "id: ruff" in cfg, "ruff hook id not declared"
 
 
 def test_pre_commit_config_has_black_hook() -> None:
+    """Pre commit config has black hook."""
     cfg = _read_text(REPO_ROOT / ".pre-commit-config.yaml")
     assert "psf/black" in cfg, "black pre-commit hook missing from .pre-commit-config.yaml"
     assert "id: black" in cfg, "black hook id not declared"

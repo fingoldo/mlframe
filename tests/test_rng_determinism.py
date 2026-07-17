@@ -52,6 +52,7 @@ def test_no_np_random_or_bare_random(mod):
     # module's own attribute. We still AST-parse the file (this is the
     # in-CI memo for memory rule feedback_behavioral_tests: AST-walks
     # are fine because they're inspecting structure not literal text).
+    """No np random or bare random."""
     path = Path(mod.__file__)
     source = path.read_text(encoding="utf-8")
     forbidden = _collect_forbidden_calls(source)
@@ -64,6 +65,7 @@ def test_no_np_random_or_bare_random(mod):
 
 
 def _make_mbh(seed):
+    """Helper that make mbh."""
     pytest.importorskip("catboost")
     search_space = np.arange(1, 101, dtype=np.int32)
     return opt_mod.MBHOptimizer(
@@ -75,6 +77,7 @@ def _make_mbh(seed):
 
 
 def test_mbh_suggest_candidate_deterministic():
+    """Mbh suggest candidate deterministic."""
     pytest.importorskip("catboost")
     opt1 = _make_mbh(42)
     opt2 = _make_mbh(42)
@@ -85,6 +88,7 @@ def test_mbh_suggest_candidate_deterministic():
 
 
 def test_mbh_init_sampled_inputs_deterministic():
+    """Mbh init sampled inputs deterministic."""
     pytest.importorskip("catboost")
     opt1 = _make_mbh(123)
     opt2 = _make_mbh(123)
@@ -97,6 +101,7 @@ def test_mbh_init_sampled_inputs_deterministic():
 
 
 def test_generate_valid_candidates_deterministic():
+    """Generate valid candidates deterministic."""
     from scipy.stats import randint, loguniform
 
     params = {
@@ -110,6 +115,7 @@ def test_generate_valid_candidates_deterministic():
 
 
 def test_params_optimizer_rng_is_seeded():
+    """Params optimizer rng is seeded."""
     o1 = tuning_mod.ParamsOptimizer(random_state=7)
     o2 = tuning_mod.ParamsOptimizer(random_state=7)
     # Draw a sequence from each rng; must match.

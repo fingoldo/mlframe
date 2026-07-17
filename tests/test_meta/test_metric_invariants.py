@@ -110,6 +110,7 @@ def test_brier_decomposition_components_in_unit_interval(pair, nbins):
 @settings(deadline=None, max_examples=50)
 @given(pair=_binary_targets_and_probs())
 def test_brier_score_in_unit_interval(pair):
+    """Brier score in unit interval."""
     from mlframe.metrics.core import fast_brier_score_loss
 
     y_true, y_pred = pair
@@ -139,6 +140,7 @@ def test_brier_perfect_predictions_zero(pair):
 @settings(deadline=None, max_examples=50)
 @given(pair=_binary_targets_and_probs())
 def test_roc_auc_in_unit_interval(pair):
+    """Roc auc in unit interval."""
     from mlframe.metrics.core import fast_roc_auc
 
     y_true, y_pred = pair
@@ -185,6 +187,7 @@ def test_roc_auc_invariant_under_monotonic_transform(pair):
     seed=st.integers(min_value=0, max_value=10_000),
 )
 def test_hamming_loss_in_unit_interval(n, k, seed):
+    """Hamming loss in unit interval."""
     from mlframe.metrics.core import hamming_loss
 
     rng = np.random.default_rng(seed)
@@ -217,6 +220,7 @@ def test_subset_accuracy_perfect_match_is_one(n, k, seed):
     seed=st.integers(min_value=0, max_value=10_000),
 )
 def test_jaccard_score_in_unit_interval(n, k, seed):
+    """Jaccard score in unit interval."""
     from mlframe.metrics.core import jaccard_score_multilabel
 
     rng = np.random.default_rng(seed)
@@ -234,6 +238,7 @@ def test_jaccard_score_in_unit_interval(n, k, seed):
 @settings(deadline=None, max_examples=30)
 @given(pair=_binary_targets_and_probs())
 def test_log_loss_non_negative(pair):
+    """Log loss non negative."""
     from mlframe.metrics.core import fast_log_loss_binary
 
     y_true, y_pred = pair

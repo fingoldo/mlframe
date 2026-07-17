@@ -11,6 +11,7 @@ import mlframe
 
 
 def _make_fake_pip_nvvm(root):
+    """Helper that make fake pip nvvm."""
     nvvm = root / "nvidia" / "cuda_nvcc" / "nvvm"
     (nvvm / "bin").mkdir(parents=True)
     (nvvm / "libdevice").mkdir(parents=True)
@@ -20,12 +21,14 @@ def _make_fake_pip_nvvm(root):
 
 
 def _clear_cuda_env(monkeypatch):
+    """Helper that clear cuda env."""
     for k in list(os.environ):
         if k == "CUDA_HOME" or k == "CUDA_PATH" or k.startswith("CUDA_PATH_V") or k == "MLFRAME_NO_CUDA_AUTOCONFIG":
             monkeypatch.delenv(k, raising=False)
 
 
 def test_sets_cuda_home_to_pip_nvvm_when_env_clean(monkeypatch, tmp_path):
+    """Sets cuda home to pip nvvm when env clean."""
     _clear_cuda_env(monkeypatch)
     cuda_nvcc = _make_fake_pip_nvvm(tmp_path)
     monkeypatch.setattr(sysconfig, "get_paths", lambda *a, **k: {"purelib": str(tmp_path), "platlib": str(tmp_path)})
@@ -35,6 +38,7 @@ def test_sets_cuda_home_to_pip_nvvm_when_env_clean(monkeypatch, tmp_path):
 
 
 def test_skips_when_cuda_path_already_set(monkeypatch, tmp_path):
+    """Skips when cuda path already set."""
     _clear_cuda_env(monkeypatch)
     monkeypatch.setenv("CUDA_PATH", r"C:\Real\CUDA\v12.3")
     _make_fake_pip_nvvm(tmp_path)
@@ -45,6 +49,7 @@ def test_skips_when_cuda_path_already_set(monkeypatch, tmp_path):
 
 
 def test_skips_when_versioned_system_installer_var_present(monkeypatch, tmp_path):
+    """Skips when versioned system installer var present."""
     _clear_cuda_env(monkeypatch)
     monkeypatch.setenv("CUDA_PATH_V12_3", r"C:\Real\CUDA\v12.3")
     _make_fake_pip_nvvm(tmp_path)
@@ -55,6 +60,7 @@ def test_skips_when_versioned_system_installer_var_present(monkeypatch, tmp_path
 
 
 def test_skips_on_opt_out(monkeypatch, tmp_path):
+    """Skips on opt out."""
     _clear_cuda_env(monkeypatch)
     monkeypatch.setenv("MLFRAME_NO_CUDA_AUTOCONFIG", "1")
     _make_fake_pip_nvvm(tmp_path)
@@ -64,6 +70,7 @@ def test_skips_on_opt_out(monkeypatch, tmp_path):
 
 
 def test_no_op_when_no_pip_nvvm(monkeypatch, tmp_path):
+    """No op when no pip nvvm."""
     _clear_cuda_env(monkeypatch)
     monkeypatch.setattr(sysconfig, "get_paths", lambda *a, **k: {"purelib": str(tmp_path), "platlib": str(tmp_path)})
     mlframe._autoconfigure_cuda_home()  # tmp_path has no nvidia/ tree

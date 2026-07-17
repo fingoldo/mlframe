@@ -20,6 +20,7 @@ profile_training_core = pytest.importorskip("profile_training_core")
 
 
 def test_profile_training_core_writes_prof_artifact(tmp_path):
+    """Profile training core writes prof artifact."""
     out = tmp_path / "training_core.prof"
     written = profile_training_core.profile(n_rows=500, output_path=out, top=5)
     assert written == out
