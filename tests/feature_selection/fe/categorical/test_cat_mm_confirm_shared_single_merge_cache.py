@@ -30,6 +30,7 @@ from mlframe.feature_selection.filters.info_theory._class_encoding import merge_
 
 
 def _make_data(n=3000, n_cols=5, n_y=3, seed=13):
+    """Make data."""
     rng = np.random.default_rng(seed)
     nbins = np.array([n_y] + [5] * n_cols, dtype=np.int64)
     cols = [rng.integers(0, nbins[c], size=n).astype(np.int32) for c in range(n_cols + 1)]
@@ -39,6 +40,7 @@ def _make_data(n=3000, n_cols=5, n_y=3, seed=13):
 
 
 def _setup():
+    """Helper that setup."""
     dtype = np.int32
     factors_data, nbins = _make_data()
     classes_y, freqs_y, _ = merge_vars(
@@ -58,6 +60,7 @@ def _setup():
 
 
 def test_shared_cache_from_mm_rerank_is_bit_identical_in_confirm_pairs():
+    """Shared cache from mm rerank is bit identical in confirm pairs."""
     dtype, factors_data, nbins, classes_y, freqs_y, pairs_a, pairs_b, selected_idx, ii_arr, target_indices = _setup()
     cfg = CatFEConfig(full_npermutations=30, permutation_null="joint_independence", fwer_correction="none", use_miller_madow=True)
 
@@ -120,6 +123,7 @@ def test_shared_cache_from_mm_rerank_is_bit_identical_in_confirm_pairs():
 
 
 def test_shared_cache_avoids_recomputing_merge_vars_for_precached_columns(monkeypatch):
+    """Shared cache avoids recomputing merge vars for precached columns."""
     dtype, factors_data, nbins, classes_y, freqs_y, pairs_a, pairs_b, selected_idx, ii_arr, target_indices = _setup()
     cfg = CatFEConfig(full_npermutations=30, permutation_null="joint_independence", fwer_correction="none", use_miller_madow=True)
 
@@ -146,6 +150,7 @@ def test_shared_cache_avoids_recomputing_merge_vars_for_precached_columns(monkey
     real_merge_vars = _ccp.merge_vars
 
     def _counting_merge_vars(*args, **kwargs):
+        """Counting merge vars."""
         vi = kwargs.get("vars_indices")
         calls.append(tuple(int(x) for x in vi))
         return real_merge_vars(*args, **kwargs)

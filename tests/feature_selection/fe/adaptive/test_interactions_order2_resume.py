@@ -17,6 +17,7 @@ import pandas as pd
 
 
 def test_order2_drops_exact_duplicate_redundant_feature():
+    """Order2 drops exact duplicate redundant feature."""
     from mlframe.feature_selection.filters import MRMR
 
     n = 2500

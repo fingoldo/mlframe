@@ -96,6 +96,7 @@ def _make_probe_frame(n: int = 400, seed: int = 7):
 
 
 def _fit_mrmr(flags: dict, dtype) -> MRMR:
+    """Fit mrmr."""
     m = MRMR(
         full_npermutations=10,
         baseline_npermutations=10,
@@ -111,6 +112,7 @@ def _fit_mrmr(flags: dict, dtype) -> MRMR:
 
 
 def _selected_nameset(m: MRMR) -> set:
+    """Selected nameset."""
     return set(str(nm) for nm in m.get_feature_names_out())
 
 

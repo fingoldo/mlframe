@@ -24,11 +24,13 @@ psutil = pytest.importorskip("psutil")
 
 
 def _peak_rss_during(fn):
+    """Peak rss during."""
     proc = psutil.Process()
     peak = [proc.memory_info().rss]
     stop = [False]
 
     def sampler():
+        """Helper that sampler."""
         while not stop[0]:
             try:
                 rss = proc.memory_info().rss
@@ -49,9 +51,11 @@ def _peak_rss_during(fn):
 
 
 def test_make_regime_dataset_c4_peak_rss_under_cap():
+    """Make regime dataset c4 peak rss under cap."""
     from mlframe.feature_selection._benchmarks._shap_proxy_regime_data import make_regime_dataset
 
     def build():
+        """Helper that build."""
         return make_regime_dataset(
             n_samples=10000,
             n_informative=20,

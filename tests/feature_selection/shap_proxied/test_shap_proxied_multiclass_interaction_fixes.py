@@ -71,7 +71,9 @@ def test_classification_proba_returns_full_matrix_for_multiclass():
     )
 
     class _MultiEst:
+        """Groups tests covering MultiEst."""
         def predict_proba(self, X):
+            """Predict proba."""
             n = len(X)
             return np.column_stack([np.full(n, 0.2), np.full(n, 0.3), np.full(n, 0.5)])
 
@@ -132,6 +134,7 @@ def test_interaction_product_columns_are_nan_inf_safe():
     captured = {}
 
     def _fake_compute_shap_matrix(model_template, aug, y_arr, **kw):
+        """Fake compute shap matrix."""
         captured["aug"] = aug
         p = aug.shape[1]
         phi = np.zeros((len(aug), p))
@@ -139,6 +142,7 @@ def test_interaction_product_columns_are_nan_inf_safe():
         return phi, base, y_arr
 
     def _fake_brute(*a, **k):
+        """Fake brute."""
         return [(0.5, (0,))]
 
     import mlframe.feature_selection.shap_proxied_fs._shap_proxy_explain as expl
@@ -226,6 +230,7 @@ def test_subsetrank_nan_loss_never_selected_as_top():
     real_scan = sr._subset_loss_scan_njit
 
     def _nan_poisoning_scan(phi_, base_, y_, combos, code, out):
+        """Nan poisoning scan."""
         real_scan(phi_, base_, y_, combos, code, out)
         out[0] = np.nan  # poison the first combo's loss
 

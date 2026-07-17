@@ -27,6 +27,7 @@ from mlframe.feature_selection.filters._binned_numeric_agg_resident import (
 
 
 def _make_frame(seed: int = 7, n: int = 8000):
+    """Make frame."""
     rng = np.random.default_rng(seed)
     g = rng.uniform(0.0, 1.0, n)
     sigma = 0.5 + 2.0 * np.abs(g - 0.5)
@@ -38,6 +39,7 @@ def _make_frame(seed: int = 7, n: int = 8000):
 
 
 def _col_specs_from_recipes(feat_df, recipes):
+    """Col specs from recipes."""
     return [
         {
             "name": c,
@@ -53,6 +55,7 @@ def _col_specs_from_recipes(feat_df, recipes):
 
 def test_foldids_bit_identical_to_host():
     # The resident fold ids MUST reproduce fit_binned_numeric_agg's host RNG fold assignment EXACTLY.
+    """Foldids bit identical to host."""
     n, n_folds, rs = 8000, 5, 0
     rng = np.random.default_rng(rs)
     host = np.empty(n, dtype=np.int64)
@@ -62,6 +65,7 @@ def test_foldids_bit_identical_to_host():
 
 
 def test_device_oof_matrix_matches_host_columns():
+    """Device oof matrix matches host columns."""
     X, y, _ = _make_frame()
     n_folds, rs = 5, 0
     feat_df, recipes = fit_binned_numeric_agg(

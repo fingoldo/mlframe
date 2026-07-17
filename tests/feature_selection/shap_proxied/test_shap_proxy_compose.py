@@ -16,6 +16,7 @@ pytest.importorskip("xgboost")
 
 
 def _data(seed=0, n=2000):
+    """Helper that data."""
     rng = np.random.default_rng(seed)
     inf = rng.normal(size=(n, 4))
     noise = rng.normal(size=(n, 8))
@@ -26,6 +27,7 @@ def _data(seed=0, n=2000):
 
 @pytest.mark.slow
 def test_proposal_generator_emits_candidate_subsets():
+    """Proposal generator emits candidate subsets."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_compose import proposal_generator
 
     X, y = _data()
@@ -41,6 +43,7 @@ def test_proposal_generator_emits_candidate_subsets():
 
 @pytest.mark.slow
 def test_per_fold_stability_recovers_informative_with_high_frequency():
+    """Per fold stability recovers informative with high frequency."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_compose import per_fold_stability_select
 
     X, y = _data(seed=1)

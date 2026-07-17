@@ -13,6 +13,7 @@ from mlframe.feature_selection import registry as fs_registry
 
 
 def test_builtin_registrations_present():
+    """Builtin registrations present."""
     available = fs_registry.available()
     assert "MRMR" in available
     assert "RFECV" in available
@@ -51,6 +52,7 @@ def test_rfecv_and_shap_proxied_specs_instantiate_real_types():
 
 
 def test_get_unknown_raises():
+    """Get unknown raises."""
     with pytest.raises(KeyError):
         fs_registry.get("definitely_not_a_real_selector")
 
@@ -62,6 +64,7 @@ def test_register_then_get_roundtrip():
     sentinel = object()
 
     def _make(**_kw):
+        """Helper that make."""
         return sentinel
 
     spec = _SimpleSpec(name="__test_spec__", instantiate=_make)
@@ -85,6 +88,7 @@ def test_mrmr_spec_instantiate_returns_mrmr():
 
 
 def test_register_without_name_raises():
+    """Register without name raises."""
     from mlframe.feature_selection.registry import _SimpleSpec
 
     spec = _SimpleSpec(name="", instantiate=lambda: None)
@@ -113,6 +117,7 @@ def test_register_rejects_non_protocol_object():
     storing a broken spec."""
 
     class _NoInstantiate:
+        """Groups tests covering NoInstantiate."""
         name = "broken_spec"
 
     with pytest.raises(AttributeError):

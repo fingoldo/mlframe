@@ -42,6 +42,7 @@ warnings.filterwarnings("ignore")
 
 @pytest.fixture(scope="module")
 def fit_data():
+    """Fit data."""
     rng = np.random.default_rng(13)
     n = 1500
     grp = rng.choice(np.array(["g0", "g1", "g2"]), size=n)
@@ -56,6 +57,7 @@ def fit_data():
 
 
 def _build_recipe(name, payload):
+    """Build recipe."""
     return build_target_aware_group_bin_recipe(
         name=name,
         group_col=payload["group_col"],
@@ -69,6 +71,7 @@ def _build_recipe(name, payload):
 
 @pytest.fixture(scope="module")
 def fit_recipe(fit_data):
+    """Fit recipe."""
     X, y = fit_data
     enc_df, raw = generate_target_aware_group_bins(
         X,
@@ -85,6 +88,7 @@ def fit_recipe(fit_data):
 
 
 def test_recipe_carries_no_target_reference(fit_recipe, fit_data):
+    """Recipe carries no target reference."""
     X, _y = fit_data
     _name, _payload, rec, _enc_df = fit_recipe
     n = len(X)
@@ -97,6 +101,7 @@ def test_recipe_carries_no_target_reference(fit_recipe, fit_data):
 
 
 def test_replay_invariant_to_y_in_scope(fit_recipe, fit_data):
+    """Replay invariant to y in scope."""
     X, y = fit_data
     _name, _payload, rec, _enc_df = fit_recipe
     out_a = apply_recipe(rec, X)
@@ -123,6 +128,7 @@ def test_replay_reuses_frozen_group_edges_on_new_data(fit_recipe, fit_data):
 
 
 def test_unseen_group_falls_back_to_global_edges(fit_recipe, fit_data):
+    """Unseen group falls back to global edges."""
     _name, payload, rec, _enc_df = fit_recipe
     Xnew = pd.DataFrame({"g": ["never_seen_group"], "x": [0.3]})
     out = apply_recipe(rec, Xnew)
@@ -148,6 +154,7 @@ def test_oof_fit_column_differs_from_naive_allrows_replay(fit_recipe, fit_data):
 
 
 def test_replay_is_pure_no_state_mutation(fit_recipe, fit_data):
+    """Replay is pure no state mutation."""
     X, _y = fit_data
     _name, _payload, rec, _enc_df = fit_recipe
     a = apply_recipe(rec, X)

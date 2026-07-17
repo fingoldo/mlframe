@@ -8,6 +8,7 @@ import pytest
 
 
 def test_wavelet_batched_mi_matches_per_column_cpu():
+    """Wavelet batched mi matches per column cpu."""
     pytest.importorskip("cupy")
     import mlframe.feature_selection.filters.hermite_fe  # noqa: F401  (resolve import cycle first)
     from mlframe.feature_selection.filters._wavelet_basis_fe import _binned_mi

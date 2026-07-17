@@ -16,6 +16,7 @@ pytest.importorskip("xgboost")
 
 
 def _fit_small():
+    """Fit small."""
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
     rng = np.random.default_rng(0)
@@ -41,6 +42,7 @@ def _fit_small():
 
 
 def test_transform_before_fit_raises_notfitted():
+    """Transform before fit raises notfitted."""
     from sklearn.exceptions import NotFittedError
 
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
@@ -53,6 +55,7 @@ def test_transform_before_fit_raises_notfitted():
 
 
 def test_support_and_selected_features_consistent():
+    """Support and selected features consistent."""
     sel, X, _ = _fit_small()
     assert sel.support_.shape == (6,)
     assert sel.support_.dtype == bool
@@ -63,6 +66,7 @@ def test_support_and_selected_features_consistent():
 
 
 def test_transform_preserves_input_column_order():
+    """Transform preserves input column order."""
     sel, X, _ = _fit_small()
     # transform on a column-reordered frame must still return the selected columns (name-based).
     X_shuffled = X[list(reversed(X.columns))]
@@ -74,6 +78,7 @@ def test_transform_preserves_input_column_order():
 
 
 def test_polars_input_supported():
+    """Polars input supported."""
     pl = pytest.importorskip("polars")
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
@@ -103,6 +108,7 @@ def test_polars_input_supported():
 
 
 def test_construction_does_not_mutate_global_numpy_rng():
+    """Construction does not mutate global numpy rng."""
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
     np.random.seed(12345)
@@ -113,6 +119,7 @@ def test_construction_does_not_mutate_global_numpy_rng():
 
 
 def test_registered_in_registry():
+    """Registered in registry."""
     from mlframe.feature_selection import registry
 
     assert "ShapProxiedFS" in registry.available()

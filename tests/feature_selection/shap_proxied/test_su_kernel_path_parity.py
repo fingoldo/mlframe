@@ -18,6 +18,7 @@ from mlframe.feature_selection.shap_proxied_fs._shap_proxy_cluster_su import (
 
 
 def _bins(n=1500, seed=0, card=10):
+    """Helper that bins."""
     rng = np.random.default_rng(seed)
     z0 = rng.standard_normal(n)
     z1 = rng.standard_normal(n)
@@ -37,11 +38,13 @@ def _bins(n=1500, seed=0, card=10):
 
 
 def _labels(bins, nb, names, **kw):
+    """Helper that labels."""
     return cluster_correlated_features_su(bins, threshold=0.3, feature_names=names, nbins_per_feature=nb, **kw)
 
 
 @pytest.mark.parametrize("card", [4, 10, 14])  # 14 > bitmap_max_n_bins(12) -> scalar fallback
 def test_cpu_bitmap_matches_cpu_scalar(card):
+    """Cpu bitmap matches cpu scalar."""
     from sklearn.metrics import adjusted_rand_score
 
     bins, nb, names = _bins(card=card)
@@ -53,6 +56,7 @@ def test_cpu_bitmap_matches_cpu_scalar(card):
 @pytest.mark.skipif(not cluster_su_gpu_available(), reason="no GPU")
 @pytest.mark.parametrize("card", [4, 10, 14])
 def test_gpu_matches_cpu(card):
+    """Gpu matches cpu."""
     from sklearn.metrics import adjusted_rand_score
 
     bins, nb, names = _bins(card=card)

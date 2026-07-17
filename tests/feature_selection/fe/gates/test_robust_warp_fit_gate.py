@@ -44,11 +44,13 @@ def _spike(rng, x, frac=0.015, scale_iqr=12.0):
 
 
 def test_warp_fit_gate_default_on(monkeypatch):
+    """Warp fit gate default on."""
     monkeypatch.delenv("MLFRAME_ROBUST_WARP_FIT", raising=False)
     assert _robust_warp_fit_enabled() is True
 
 
 def test_warp_fit_gate_env_override(monkeypatch):
+    """Warp fit gate env override."""
     for val in ("0", "false", "off", "no"):
         monkeypatch.setenv("MLFRAME_ROBUST_WARP_FIT", val)
         assert _robust_warp_fit_enabled() is False
@@ -163,6 +165,7 @@ def test_dispatcher_gate_off_forces_ols(monkeypatch):
 
 
 def _fit_with_gate(x, y, on):
+    """Fit with gate."""
     import os
 
     old = os.environ.get("MLFRAME_ROBUST_WARP_FIT")

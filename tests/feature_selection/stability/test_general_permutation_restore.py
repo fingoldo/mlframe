@@ -20,6 +20,7 @@ from mlframe.feature_selection.general import estimate_features_relevancy
 
 
 def test_estimate_features_relevancy_does_not_scramble_aliased_targets(monkeypatch):
+    """Estimate features relevancy does not scramble aliased targets."""
     rng = np.random.default_rng(0)
     n = 200
     backing = np.column_stack(
@@ -36,6 +37,7 @@ def test_estimate_features_relevancy_does_not_scramble_aliased_targets(monkeypat
     monkeypatch.setattr(pl.DataFrame, "to_numpy", lambda self, *a, **k: backing, raising=True)
 
     def mi_stub(arr, target_indices):
+        """Mi stub."""
         return np.zeros((len(target_indices), arr.shape[1]), dtype=float)
 
     estimate_features_relevancy(

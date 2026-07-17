@@ -20,6 +20,7 @@ from sklearn.linear_model import LinearRegression
 
 @pytest.fixture
 def planted_strong():
+    """Planted strong."""
     rng = np.random.default_rng(0)
     n, f = 1200, 8
     X = pd.DataFrame(rng.normal(size=(n, f)), columns=[f"x{i}" for i in range(f)])
@@ -28,6 +29,7 @@ def planted_strong():
 
 
 def _split(X, y):
+    """Helper that split."""
     return X.iloc[:900].reset_index(drop=True), y[:900], X.iloc[900:].reset_index(drop=True), y[900:]
 
 

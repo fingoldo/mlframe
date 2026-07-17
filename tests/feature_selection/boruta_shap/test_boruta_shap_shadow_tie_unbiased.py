@@ -27,6 +27,7 @@ from mlframe.feature_selection.boruta_shap._shadow_stats import (
 
 
 def _run_create_shadow(X: pd.DataFrame, seed: int) -> pd.DataFrame:
+    """Run create shadow."""
     from mlframe.feature_selection.boruta_shap import BorutaShap
 
     bs = BorutaShap.__new__(BorutaShap)
@@ -40,6 +41,7 @@ def _run_create_shadow(X: pd.DataFrame, seed: int) -> pd.DataFrame:
 # Gate predicate: continuous columns ~0 ties, discrete columns above the gate threshold.
 # ---------------------------------------------------------------------------------------------------------------
 def test_tie_fraction_predicate_separates_continuous_from_discrete():
+    """Tie fraction predicate separates continuous from discrete."""
     rng = np.random.default_rng(0)
     continuous = rng.random(2000)  # all-distinct floats
     assert _column_tie_fraction(continuous) < 0.01
@@ -58,6 +60,7 @@ def test_tie_fraction_predicate_separates_continuous_from_discrete():
 # GATED-IN side: continuous column -> value-permutation shadow preserves the (already-distinct) multiset exactly.
 # ---------------------------------------------------------------------------------------------------------------
 def test_shadow_preserves_multiset_on_continuous_column():
+    """Shadow preserves multiset on continuous column."""
     rng = np.random.default_rng(1)
     X = pd.DataFrame({"c": rng.random(1500)})
     shadow = _run_create_shadow(X, 7)["shadow_c"].to_numpy()
@@ -69,6 +72,7 @@ def test_shadow_preserves_multiset_on_continuous_column():
 # exactly (unbiased); an argsort/rank shadow would NOT -- pinned as the contrast the gate protects against.
 # ---------------------------------------------------------------------------------------------------------------
 def test_value_permutation_shadow_unbiased_on_tied_discrete_column():
+    """Value permutation shadow unbiased on tied discrete column."""
     rng = np.random.default_rng(2)
     col = rng.integers(0, 4, 2000)  # 4 levels -> tie fraction ~1.0, well above the gate
     X = pd.DataFrame({"d": col})

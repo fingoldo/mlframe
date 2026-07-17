@@ -23,6 +23,7 @@ from mlframe.feature_selection.filters.discretization import (
 
 
 def test_discretize_2d_quantile_batch_matches_per_column_discretize_array():
+    """Discretize 2d quantile batch matches per column discretize array."""
     rng = np.random.default_rng(0)
     n, k = 3000, 25
     mat = rng.normal(size=(n, k)).astype(np.float32) * rng.choice([1.0, 50.0, 0.01], size=k)

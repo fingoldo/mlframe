@@ -36,6 +36,7 @@ from sklearn.pipeline import Pipeline
 # Add new selectors here; every assertion below runs against every factory.
 # ----------------------------------------------------------------------------
 def _make_rfecv():
+    """Make rfecv."""
     from mlframe.feature_selection.wrappers import RFECV
 
     return RFECV(
@@ -49,6 +50,7 @@ def _make_rfecv():
 
 
 def _make_mrmr():
+    """Make mrmr."""
     try:
         from mlframe.feature_selection.filters.mrmr import MRMR
 
@@ -96,19 +98,23 @@ def small_clf_problem():
 # Group A: sklearn API contract
 # ----------------------------------------------------------------------------
 class TestSharedAPIContract:
+    """Groups tests covering TestSharedAPIContract."""
     def test_fit_returns_self(self, selector_factory, small_clf_problem):
+        """Fit returns self."""
         X, y = small_clf_problem
         selector = selector_factory()
         result = selector.fit(X, y)
         assert result is selector, "fit() must return self (sklearn convention)"
 
     def test_transform_before_fit_raises_not_fitted(self, selector_factory, small_clf_problem):
+        """Transform before fit raises not fitted."""
         X, _y = small_clf_problem
         selector = selector_factory()
         with pytest.raises(NotFittedError):
             selector.transform(X)
 
     def test_get_feature_names_out_matches_transform_cols(self, selector_factory, small_clf_problem):
+        """Get feature names out matches transform cols."""
         X, y = small_clf_problem
         selector = selector_factory().fit(X, y)
         try:
@@ -122,6 +128,7 @@ class TestSharedAPIContract:
             assert out.shape[1] == len(names)
 
     def test_n_features_in_set_after_fit(self, selector_factory, small_clf_problem):
+        """N features in set after fit."""
         X, y = small_clf_problem
         selector = selector_factory().fit(X, y)
         assert hasattr(selector, "n_features_in_")
@@ -130,12 +137,14 @@ class TestSharedAPIContract:
         assert 1 <= selector.n_features_in_ <= X.shape[1]
 
     def test_feature_names_in_aligned_with_n_features_in(self, selector_factory, small_clf_problem):
+        """Feature names in aligned with n features in."""
         X, y = small_clf_problem
         selector = selector_factory().fit(X, y)
         assert hasattr(selector, "feature_names_in_")
         assert len(selector.feature_names_in_) == selector.n_features_in_
 
     def test_n_features_le_n_features_in(self, selector_factory, small_clf_problem):
+        """N features le n features in."""
         X, y = small_clf_problem
         selector = selector_factory().fit(X, y)
         assert hasattr(selector, "n_features_")
@@ -166,6 +175,7 @@ class TestSharedAPIContract:
             assert count + n_engineered == selector.n_features_
 
     def test_transform_output_column_count_matches_n_features(self, selector_factory, small_clf_problem):
+        """Transform output column count matches n features."""
         X, y = small_clf_problem
         selector = selector_factory().fit(X, y)
         out = selector.transform(X)
@@ -177,7 +187,9 @@ class TestSharedAPIContract:
 # Group B: input dtype handling
 # ----------------------------------------------------------------------------
 class TestSharedInputTypes:
+    """Groups tests covering TestSharedInputTypes."""
     def test_pandas_dataframe_input(self, selector_factory, small_clf_problem):
+        """Pandas dataframe input."""
         X, y = small_clf_problem
         selector = selector_factory()
         selector.fit(X, y)  # X is pd.DataFrame
@@ -186,6 +198,7 @@ class TestSharedInputTypes:
         assert out.shape[0] == X.shape[0]
 
     def test_numpy_array_input(self, selector_factory, small_clf_problem):
+        """Numpy array input."""
         X_df, y = small_clf_problem
         X = X_df.values
         selector = selector_factory()
@@ -204,6 +217,7 @@ class TestSharedInputTypes:
 # Group C: edge-case input handling (each selector should reject invalid y)
 # ----------------------------------------------------------------------------
 class TestSharedEdgeCaseRejection:
+    """Groups tests covering TestSharedEdgeCaseRejection."""
     def test_constant_y_raises(self, selector_factory):
         """A constant target has H(y)=0 so no feature can carry information.
         Both selectors should raise ValueError rather than silently producing
@@ -220,6 +234,7 @@ class TestSharedEdgeCaseRejection:
 # Group D: stability / determinism contract
 # ----------------------------------------------------------------------------
 class TestSharedDeterminism:
+    """Groups tests covering TestSharedDeterminism."""
     def test_re_fit_same_data_same_support(self, selector_factory, small_clf_problem):
         """Fitting twice on the same X, y must produce the same support_."""
         X, y = small_clf_problem
@@ -238,6 +253,7 @@ class TestSharedDeterminism:
 # Group E: biz-value (selector actually picks some informative features)
 # ----------------------------------------------------------------------------
 class TestSharedBizValue:
+    """Groups tests covering TestSharedBizValue."""
     def test_recovers_at_least_one_informative(self, selector_factory, small_clf_problem):
         """On a strong synthetic signal (class_sep=2.0, 8 informative of 20),
         the selector should pick at least 1 informative feature. This is a
@@ -266,6 +282,7 @@ class TestSharedBizValue:
 # Group F: pickle round-trip
 # ----------------------------------------------------------------------------
 class TestSharedPersistence:
+    """Groups tests covering TestSharedPersistence."""
     def test_pickle_roundtrip(self, selector_factory, small_clf_problem):
         """A fitted selector must survive pickle.dumps/loads with intact
         support_ and transform behaviour."""
@@ -292,6 +309,7 @@ class TestSharedPersistence:
 # Group G: sklearn Pipeline integration
 # ----------------------------------------------------------------------------
 class TestSharedPipelineIntegration:
+    """Groups tests covering TestSharedPipelineIntegration."""
     def test_works_in_sklearn_pipeline(self, selector_factory, small_clf_problem):
         """Selector chained with an estimator inside a sklearn Pipeline:
         Pipeline.fit + .predict + .score must all work."""
@@ -314,6 +332,7 @@ class TestSharedPipelineIntegration:
 # Group H: column-drift contract on transform()
 # ----------------------------------------------------------------------------
 class TestSharedColumnDrift:
+    """Groups tests covering TestSharedColumnDrift."""
     def test_transform_with_dropped_column_raises(self, selector_factory, small_clf_problem):
         """If a selected column is missing from the transform-time X, the
         selector must raise (not silently return a partial selection)."""
@@ -335,6 +354,7 @@ class TestSharedColumnDrift:
 # Group I: trivial / degenerate input shapes
 # ----------------------------------------------------------------------------
 class TestSharedTrivialInputs:
+    """Groups tests covering TestSharedTrivialInputs."""
     def test_single_feature_dataset(self, selector_factory):
         """X with exactly 1 column - selector must select it (or raise
         cleanly). Migrated from per-selector duplicates."""
@@ -399,7 +419,9 @@ class TestSharedTrivialInputs:
 # Group J: y dtype variety
 # ----------------------------------------------------------------------------
 class TestSharedYDtype:
+    """Groups tests covering TestSharedYDtype."""
     def test_y_as_pandas_series(self, selector_factory, small_clf_problem):
+        """Y as pandas series."""
         X, y = small_clf_problem
         y_series = pd.Series(y)
         selector = selector_factory()
@@ -425,6 +447,7 @@ class TestSharedYDtype:
 # Group K: fit_transform contract
 # ----------------------------------------------------------------------------
 class TestSharedFitTransform:
+    """Groups tests covering TestSharedFitTransform."""
     def test_fit_transform_equals_fit_then_transform(self, selector_factory, small_clf_problem):
         """selector.fit_transform(X, y) must produce the same output as
         selector.fit(X, y).transform(X)."""
@@ -447,6 +470,7 @@ class TestSharedFitTransform:
 # Group L: refit invalidates prior state
 # ----------------------------------------------------------------------------
 class TestSharedRefit:
+    """Groups tests covering TestSharedRefit."""
     def test_refit_on_different_data_updates_support(self, selector_factory, small_clf_problem):
         """fit twice with different X. Second fit's support_ must reflect
         the second X (not stale state from the first fit). NOTE: MRMR's
@@ -470,6 +494,7 @@ class TestSharedRefit:
             # columns are renamed_*; treat such names as renamed-aware iff every
             # renamed-prefixed token they reference is renamed_*.
             def _is_renamed_aware(name: str) -> bool:
+                """Is renamed aware."""
                 if name.startswith("renamed_"):
                     return True
                 # No bare raw column survived (e.g. "f4" with no "renamed_" prefix).
@@ -485,6 +510,7 @@ class TestSharedRefit:
 # Group M: multiclass y
 # ----------------------------------------------------------------------------
 class TestSharedMulticlass:
+    """Groups tests covering TestSharedMulticlass."""
     def test_3class_classification(self, selector_factory):
         """Both selectors should handle 3+ class targets."""
         X, y = make_classification(
@@ -511,6 +537,7 @@ class TestSharedMulticlass:
 # Group N: regression target
 # ----------------------------------------------------------------------------
 class TestSharedRegression:
+    """Groups tests covering TestSharedRegression."""
     def test_continuous_y(self, selector_factory):
         """Continuous y - selector should either work or skip cleanly.
         Note: RFECV with default LR estimator is classifier-only; passing
@@ -537,7 +564,9 @@ class TestSharedRegression:
 # Group O: empty / fit-time degenerate edge cases
 # ----------------------------------------------------------------------------
 class TestSharedDegenerateInputs:
+    """Groups tests covering TestSharedDegenerateInputs."""
     def test_empty_y_raises(self, selector_factory):
+        """Empty y raises."""
         rng = np.random.default_rng(0)
         X = pd.DataFrame(rng.standard_normal((0, 5)), columns=list("abcde"))
         y = np.array([], dtype=int)
@@ -546,6 +575,7 @@ class TestSharedDegenerateInputs:
             selector.fit(X, y)
 
     def test_y_length_mismatch_raises(self, selector_factory, small_clf_problem):
+        """Y length mismatch raises."""
         X, y = small_clf_problem
         y_wrong = y[:-5]  # wrong length
         selector = selector_factory()
@@ -557,7 +587,9 @@ class TestSharedDegenerateInputs:
 # Group P: get_feature_names_out details
 # ----------------------------------------------------------------------------
 class TestSharedFeatureNamesOut:
+    """Groups tests covering TestSharedFeatureNamesOut."""
     def test_returns_ndarray_of_str(self, selector_factory, small_clf_problem):
+        """Returns ndarray of str."""
         X, y = small_clf_problem
         selector = selector_factory().fit(X, y)
         try:
@@ -570,6 +602,7 @@ class TestSharedFeatureNamesOut:
             assert len(str(n)) > 0
 
     def test_unfitted_raises(self, selector_factory):
+        """Unfitted raises."""
         selector = selector_factory()
         try:
             with pytest.raises((NotFittedError, ValueError, AttributeError)):
@@ -583,7 +616,9 @@ class TestSharedFeatureNamesOut:
 # Group Q: integer / bool dtype features
 # ----------------------------------------------------------------------------
 class TestSharedDtypeVariety:
+    """Groups tests covering TestSharedDtypeVariety."""
     def test_int_dtype_features(self, selector_factory):
+        """Int dtype features."""
         rng = np.random.default_rng(0)
         n = 200
         X = pd.DataFrame({f"f{i}": rng.integers(-100, 100, n).astype(np.int32) for i in range(8)})
@@ -593,6 +628,7 @@ class TestSharedDtypeVariety:
         assert selector.n_features_ >= 1
 
     def test_float32_dtype_features(self, selector_factory):
+        """Float32 dtype features."""
         rng = np.random.default_rng(0)
         X = pd.DataFrame({f"f{i}": rng.standard_normal(200).astype(np.float32) for i in range(8)})
         y = (X["f0"] > 0).astype(int).values
@@ -605,6 +641,7 @@ class TestSharedDtypeVariety:
 # Group R: imbalanced y
 # ----------------------------------------------------------------------------
 class TestSharedImbalance:
+    """Groups tests covering TestSharedImbalance."""
     def test_moderate_imbalance_70_30(self, selector_factory):
         """70/30 imbalance is common in production - should work without
         crash."""

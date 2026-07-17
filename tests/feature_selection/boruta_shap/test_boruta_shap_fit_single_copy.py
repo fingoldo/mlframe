@@ -25,6 +25,7 @@ pytest.importorskip("shap")
 
 
 def _make_mixed_frame(seed: int = 17, n: int = 220) -> tuple[pd.DataFrame, pd.Series]:
+    """Make mixed frame."""
     rng = np.random.default_rng(seed)
     df = pd.DataFrame(
         {
@@ -40,6 +41,7 @@ def _make_mixed_frame(seed: int = 17, n: int = 220) -> tuple[pd.DataFrame, pd.Se
 
 
 def _make_selector(n_trials: int = 6):
+    """Make selector."""
     from sklearn.ensemble import RandomForestRegressor
     from mlframe.feature_selection.boruta_shap import BorutaShap
 
@@ -66,6 +68,7 @@ def test_boruta_fit_makes_exactly_one_full_frame_copy(monkeypatch):
     counter = {"full_frame": 0}
 
     def _counting_copy(self, *a, **kw):
+        """Counting copy."""
         if self.shape == (n_rows, n_cols):
             counter["full_frame"] += 1
         return real_copy(self, *a, **kw)

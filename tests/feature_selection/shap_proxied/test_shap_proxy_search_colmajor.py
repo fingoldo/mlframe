@@ -16,6 +16,7 @@ import pytest
 @pytest.mark.parametrize("metric_code", [0, 1, 2, 3])
 @pytest.mark.parametrize("r", [1, 2, 3, 4, 5])
 def test_colmajor_matches_rowmajor_per_cardinality(metric_code, r):
+    """Colmajor matches rowmajor per cardinality."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_search import (
         _topn_fixed_r,
         _topn_fixed_r_colmajor,
@@ -46,6 +47,7 @@ def test_colmajor_matches_rowmajor_per_cardinality(metric_code, r):
 
 @pytest.mark.parametrize("metric_code", [0, 1, 2, 3])
 def test_colmajor_parallel_matches_rowmajor(metric_code):
+    """Colmajor parallel matches rowmajor."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_search import (
         _topn_fixed_r_parallel,
         _topn_fixed_r_parallel_colmajor,
@@ -100,6 +102,7 @@ def test_score_margin_inline_sigmoid_parity():
 
     # Independent reference (numpy, no numba): exact same arithmetic in the same order
     def ref(code):
+        """Helper that ref."""
         if code == 0:
             return float(np.mean(np.abs(y - margin)))
         if code == 1:

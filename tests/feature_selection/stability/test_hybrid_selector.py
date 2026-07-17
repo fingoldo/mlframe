@@ -67,12 +67,14 @@ def test_fi_guard_cuts_noise_but_also_the_weak_base_feature():
 
 
 def test_expand_clusters_re_emits_redundant_members():
+    """Expand clusters re emits redundant members."""
     h = _selector(vote=1, fi_guard=False, expand_clusters=True)
     sel = set(h._combine(MEMBER_SEL, COLS))
     assert {"inf_0", "red_0", "red_1"} <= sel  # all members of a kept cluster re-emitted
 
 
 def test_fi_guard_default_is_off():
+    """Fi guard default is off."""
     import inspect
     from mlframe.feature_selection._benchmarks.fs_hybrid.hybrid_selector import HybridSelector
 
@@ -103,6 +105,7 @@ def test_anchor_fe_default_is_off():
 
 
 def _linear_dataset(n=1200, seed=0):
+    """Linear dataset."""
     rng = np.random.default_rng(seed)
     z = rng.standard_normal((n, 4))
     y = pd.Series((rng.random(n) < 1.0 / (1.0 + np.exp(-(z @ np.array([1.6, -1.3, 1.1, 0.9]))))).astype(int))
@@ -161,6 +164,7 @@ def test_fe_default_augments_and_transform_replays():
 
 
 def inspect_default(param):
+    """Inspect default."""
     import inspect
     from mlframe.feature_selection._benchmarks.fs_hybrid.hybrid_selector import HybridSelector
 

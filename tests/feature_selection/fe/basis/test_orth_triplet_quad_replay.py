@@ -24,6 +24,7 @@ from mlframe.feature_selection.filters.engineered_recipes import build_orth_diff
 
 
 def _frame(n, seed):
+    """Helper that frame."""
     rng = np.random.default_rng(seed)
     return pd.DataFrame(
         {
@@ -36,6 +37,7 @@ def _frame(n, seed):
 
 
 def test_triplet_recipe_frozen_params_replay_slice_consistent():
+    """Triplet recipe frozen params replay slice consistent."""
     df = _frame(4000, 0)
     legs = [("a", "hermite", 2), ("b", "legendre", 1), ("c", "laguerre", 2)]
     pps = [_evaluate_basis_column(df[col].to_numpy(float), basis, deg, return_params=True)[1] for (col, basis, deg) in legs]
@@ -85,6 +87,7 @@ def test_triplet_recipe_unfrozen_DRIFTS_on_slice_proving_the_bug():
 
 
 def test_diff_basis_recipe_frozen_params_replay_slice_consistent():
+    """Diff basis recipe frozen params replay slice consistent."""
     df = _frame(4000, 2)
     diff = df["a"].to_numpy(float) - df["b"].to_numpy(float)
     pp = _evaluate_basis_column(diff, "hermite", 2, return_params=True)[1]
@@ -96,6 +99,7 @@ def test_diff_basis_recipe_frozen_params_replay_slice_consistent():
 
 
 def test_diff_basis_recipe_unfrozen_DRIFTS_on_slice_proving_the_bug():
+    """Diff basis recipe unfrozen DRIFTS on slice proving the bug."""
     df = _frame(4000, 2)
     rec = build_orth_diff_basis_recipe(name="diff", col_a="a", col_b="b", basis="hermite", degree=2)  # no params
     full = np.asarray(apply_recipe(rec, df), dtype=np.float64)
@@ -105,6 +109,7 @@ def test_diff_basis_recipe_unfrozen_DRIFTS_on_slice_proving_the_bug():
 
 
 def test_quadruplet_recipe_frozen_params_replay_slice_consistent():
+    """Quadruplet recipe frozen params replay slice consistent."""
     df = _frame(4000, 1)
     legs = [("a", "hermite", 1), ("b", "chebyshev", 2), ("c", "legendre", 1), ("d", "hermite", 2)]
     pps = [_evaluate_basis_column(df[col].to_numpy(float), basis, deg, return_params=True)[1] for (col, basis, deg) in legs]

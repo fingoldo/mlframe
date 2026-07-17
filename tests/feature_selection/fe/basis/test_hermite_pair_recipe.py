@@ -72,6 +72,7 @@ class TestHermitePairRecipeBuilder:
     """Builder packages a HermiteResult as a frozen EngineeredRecipe."""
 
     def test_builder_emits_hermite_pair_kind(self) -> None:
+        """Builder emits hermite pair kind."""
         result, _ = _build_hermite_result_for_xor()
         recipe = build_hermite_pair_recipe(
             name="hermite_xor",
@@ -103,6 +104,7 @@ class TestHermitePairRecipeReplay:
     """``apply_recipe`` must reproduce ``best_res.transform`` output exactly."""
 
     def test_apply_recipe_matches_hermite_result_transform(self) -> None:
+        """Apply recipe matches hermite result transform."""
         result, (x_a, x_b, _) = _build_hermite_result_for_xor()
         recipe = build_hermite_pair_recipe(
             name="hermite_xor",
@@ -138,6 +140,7 @@ class TestHermitePairRecipePersistence:
     fitted estimators - the whole point of the frozen-dataclass form."""
 
     def test_pickle_round_trip(self) -> None:
+        """Pickle round trip."""
         result, (x_a, x_b, _) = _build_hermite_result_for_xor()
         recipe = build_hermite_pair_recipe(
             name="hermite_persist",
@@ -175,6 +178,7 @@ class TestHermitePairRecipeBizValueViaMRMR:
 
     @pytest.mark.timeout(300)
     def test_fit_populates_hermite_recipe_e2e(self) -> None:
+        """Fit populates hermite recipe e2e."""
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         rng = np.random.default_rng(42)

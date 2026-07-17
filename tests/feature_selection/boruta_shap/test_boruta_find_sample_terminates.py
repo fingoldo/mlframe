@@ -40,6 +40,7 @@ def test_find_sample_terminates_when_no_subsample_ever_matches(monkeypatch):
     import mlframe.feature_selection.boruta_shap._shadow_stats as ss
 
     class _NoMatch:
+        """Groups tests covering NoMatch."""
         pvalue = 0.0  # never > 0.95
 
     monkeypatch.setattr(ss, "ks_2samp", lambda *a, **k: _NoMatch())

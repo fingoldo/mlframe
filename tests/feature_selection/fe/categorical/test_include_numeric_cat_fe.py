@@ -38,6 +38,7 @@ def _rotated_xor(n: int, seed: int):
 
 
 def _numeric_cross_recipes(mrmr):
+    """Numeric cross recipes."""
     recs = getattr(mrmr, "_cat_fe_state_", None)
     out = []
     for r in recs.recipes if recs else []:
@@ -47,6 +48,7 @@ def _numeric_cross_recipes(mrmr):
 
 
 def test_include_numeric_builds_cross_with_stored_edges():
+    """Include numeric builds cross with stored edges."""
     df, y = _rotated_xor(3000, seed=1)
     mrmr = MRMR(
         cat_fe_config=CatFEConfig(enable=True, include_numeric=True, numeric_nbins=8),
@@ -188,6 +190,7 @@ def test_biz_value_include_numeric_standalone_lift_at_step_level():
         raw_tr, raw_te = Xtr.to_numpy(), Xte.to_numpy()
 
         def _auc(a_tr, a_te):
+            """Helper that auc."""
             sc = StandardScaler()
             clf = LogisticRegression(max_iter=2000).fit(sc.fit_transform(a_tr), ytr)  # noqa: B023 -- closure over ytr/yte invoked twice below, same iteration, never stored
             return roc_auc_score(yte, clf.predict_proba(sc.transform(a_te))[:, 1])  # noqa: B023 -- closure over ytr/yte invoked twice below, same iteration, never stored

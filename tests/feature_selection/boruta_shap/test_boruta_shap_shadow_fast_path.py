@@ -20,6 +20,7 @@ from mlframe.feature_selection.boruta_shap import BorutaShap
 
 
 def _apply_reference(X: pd.DataFrame, seed: int) -> pd.DataFrame:
+    """Apply reference."""
     rng = np.random.default_rng(seed)
     Xs = X.apply(lambda col: rng.permutation(col.values))
     Xs.columns = ["shadow_" + str(c) for c in X.columns]
@@ -27,6 +28,7 @@ def _apply_reference(X: pd.DataFrame, seed: int) -> pd.DataFrame:
 
 
 def _run_create_shadow(X: pd.DataFrame, seed: int) -> pd.DataFrame:
+    """Run create shadow."""
     bs = BorutaShap.__new__(BorutaShap)
     bs.X = X.copy()
     bs._rng = np.random.default_rng(seed)
@@ -35,6 +37,7 @@ def _run_create_shadow(X: pd.DataFrame, seed: int) -> pd.DataFrame:
 
 
 def _assert_identical(ref: pd.DataFrame, got: pd.DataFrame, label: str):
+    """Assert identical."""
     assert list(ref.columns) == list(got.columns), f"[{label}] column order diverged"
     assert list(ref.dtypes.astype(str)) == list(got.dtypes.astype(str)), (
         f"[{label}] dtypes diverged: ref={list(ref.dtypes.astype(str))} got={list(got.dtypes.astype(str))}"
@@ -47,18 +50,21 @@ def _assert_identical(ref: pd.DataFrame, got: pd.DataFrame, label: str):
 
 
 def test_shadow_fast_path_float_bit_identical():
+    """Shadow fast path float bit identical."""
     rng = np.random.default_rng(0)
     X = pd.DataFrame(rng.random((400, 30)), columns=[f"f{i}" for i in range(30)])
     _assert_identical(_apply_reference(X, 7), _run_create_shadow(X, 7), "float")
 
 
 def test_shadow_fast_path_int32_bit_identical():
+    """Shadow fast path int32 bit identical."""
     rng = np.random.default_rng(1)
     X = pd.DataFrame(rng.integers(0, 7, (400, 20)).astype("int32"), columns=[f"i{i}" for i in range(20)])
     _assert_identical(_apply_reference(X, 11), _run_create_shadow(X, 11), "int32")
 
 
 def test_shadow_fallback_mixed_dtypes_bit_identical():
+    """Shadow fallback mixed dtypes bit identical."""
     rng = np.random.default_rng(2)
     data = {f"f{i}": rng.random(300) for i in range(10)}
     for i in range(10, 14):
@@ -69,6 +75,7 @@ def test_shadow_fallback_mixed_dtypes_bit_identical():
 
 
 def test_shadow_fallback_bool_bit_identical():
+    """Shadow fallback bool bit identical."""
     rng = np.random.default_rng(3)
     X = pd.DataFrame({f"b{i}": rng.integers(0, 2, 300).astype(bool) for i in range(6)})
     _assert_identical(_apply_reference(X, 9), _run_create_shadow(X, 9), "bool")

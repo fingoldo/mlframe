@@ -45,6 +45,7 @@ def _make_frame(p, seed, leak):
 
 
 def _bin_codes(X):
+    """Bin codes."""
     out = np.empty_like(X, dtype=np.int16)
     for j in range(X.shape[1]):
         q = np.quantile(X[:, j], np.linspace(0, 1, NBINS + 1)[1:-1])
@@ -53,6 +54,7 @@ def _bin_codes(X):
 
 
 def _marginal_mi(X, y):
+    """Marginal mi."""
     n, p = X.shape
     fy = np.bincount(y, minlength=2) / n
     codes = _bin_codes(X)
@@ -77,6 +79,7 @@ def _marginal_mi(X, y):
 
 
 def _recall(scores, operands, m):
+    """Helper that recall."""
     top = set(np.argsort(scores)[::-1][:m].tolist())
     return len(top & operands) / len(operands)
 
@@ -118,6 +121,7 @@ def test_perfectly_balanced_interaction_is_irreducible():
 
 
 def test_top_k_deterministic_and_noop_when_k_exceeds_pool():
+    """Top k deterministic and noop when k exceeds pool."""
     rng = np.random.default_rng(0)
     X = rng.standard_normal((500, 40))
     y = (rng.random(500) < 0.5).astype(int)
@@ -152,6 +156,7 @@ def test_nominal_multiclass_is_relabel_invariant():
     # 1[y==c], never the label value, so recall is invariant (up to float summation-order noise on boundary
     # ties). recall = fraction of the 4 operands in the top-250.
     def _recall_top(y_):
+        """Recall top."""
         top = set(np.argsort(second_moment_propensity(X, y_))[::-1][:250])
         return len(operands & top) / len(operands)
 
@@ -433,6 +438,7 @@ def test_high_card_nominal_target_not_squared_relabel_invariant():
     assert np.unique(cls).size > 64
 
     def _top(y_):
+        """Helper that top."""
         return set(np.argsort(second_moment_propensity(X, y_))[::-1][:100])
 
     base_top = _top(cls)
@@ -454,6 +460,7 @@ def test_single_class_target_no_crash():
 
 
 def test_constant_column_scores_zero_no_nan():
+    """Constant column scores zero no nan."""
     rng = np.random.default_rng(1)
     X = rng.standard_normal((300, 5))
     X[:, 2] = 4.0  # constant column -> undefined corr -> must score 0, not NaN

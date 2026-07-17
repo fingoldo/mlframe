@@ -34,6 +34,7 @@ pytestmark = [
 def test_gate_rejects_config_whose_joint_row_cannot_fit():
     # Absurd width: even a SINGLE i-row's joint working set (10*f*mb^2*8) dwarfs
     # GPU memory. The gate MUST route to CPU (False), not green-light an OOM.
+    """Gate rejects config whose joint row cannot fit."""
     assert (
         _should_route_su_gpu(
             n_features=200_000,
@@ -46,6 +47,7 @@ def test_gate_rejects_config_whose_joint_row_cannot_fit():
 
 
 def test_gate_accepts_feasible_config():
+    """Gate accepts feasible config."""
     assert (
         _should_route_su_gpu(
             n_features=600,
@@ -58,6 +60,7 @@ def test_gate_accepts_feasible_config():
 
 
 def _clustered_bins(n=1500, f=600, seed=0):
+    """Clustered bins."""
     rng = np.random.default_rng(seed)
     z0 = rng.standard_normal(n)
     z1 = rng.standard_normal(n)
@@ -82,6 +85,7 @@ def test_gpu_cpu_parity_and_no_oom_on_wide_config():
     # f=600 would make the OLD hardcoded chunk=4096->600 allocate a
     # 600*600*10*10*8 *~6 ~ 3 GB tensor at once; the auto-chunk now keeps it
     # bounded. Assert the GPU path runs (no OOM) AND its partition matches CPU.
+    """Gpu cpu parity and no oom on wide config."""
     from sklearn.metrics import adjusted_rand_score
 
     bins, nb, names = _clustered_bins()

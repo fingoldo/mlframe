@@ -65,6 +65,7 @@ from tests.feature_selection.conftest import fast_subset, is_fast_mode  # noqa: 
 
 
 def _binary_frame(n: int = 300, seed: int = 0) -> tuple[pd.DataFrame, pd.Series]:
+    """Binary frame."""
     rng = np.random.default_rng(seed)
     X = pd.DataFrame({c: rng.standard_normal(n) for c in ["a", "b", "c", "d", "e"]})
     y = pd.Series((X["a"] + X["b"] + 0.3 * rng.standard_normal(n) > 0).astype(np.int64))
@@ -87,12 +88,14 @@ def _make_stability_mrmr():
 
 
 def _make_mrmr_tree_rescued():
+    """Make mrmr tree rescued."""
     from mlframe.feature_selection.filters import MRMRTreeRescued
 
     return MRMRTreeRescued(verbose=0, fe_max_steps=0, random_seed=0)
 
 
 def _make_stability_fe():
+    """Make stability fe."""
     from mlframe.feature_selection.filters._stability_fe import StabilityFESelector
 
     return StabilityFESelector(
@@ -110,7 +113,9 @@ def _make_stability_fe():
 
 
 class TestStabilityMRMRContract:
+    """Groups tests covering TestStabilityMRMRContract."""
     def test_is_base_estimator_transformer(self):
+        """Is base estimator transformer."""
         sel = _make_stability_mrmr()
         assert isinstance(sel, BaseEstimator)
         assert isinstance(sel, TransformerMixin)
@@ -125,6 +130,7 @@ class TestStabilityMRMRContract:
             sel.transform(X)
 
     def test_fit_returns_self_and_sets_n_features_in(self):
+        """Fit returns self and sets n features in."""
         sel = _make_stability_mrmr()
         X, y = _binary_frame()
         with warnings.catch_warnings():
@@ -134,6 +140,7 @@ class TestStabilityMRMRContract:
         assert sel.n_features_in_ == X.shape[1]
 
     def test_transform_shape_matches_support(self):
+        """Transform shape matches support."""
         sel = _make_stability_mrmr()
         X, y = _binary_frame()
         with warnings.catch_warnings():
@@ -144,6 +151,7 @@ class TestStabilityMRMRContract:
         assert Xt.shape[1] == sel.support_.size
 
     def test_clone_get_params_set_params_round_trip(self):
+        """Clone get params set params round trip."""
         sel = _make_stability_mrmr()
         params = sel.get_params(deep=False)
         assert params["n_bootstraps"] == 3
@@ -178,6 +186,7 @@ class TestStabilityMRMRContract:
 
     @pytest.mark.slow
     def test_pickle_round_trip_transform_equality(self):
+        """Pickle round trip transform equality."""
         sel = _make_stability_mrmr()
         X, y = _binary_frame()
         with warnings.catch_warnings():
@@ -196,7 +205,9 @@ class TestStabilityMRMRContract:
 
 
 class TestMRMRTreeRescuedContract:
+    """Groups tests covering TestMRMRTreeRescuedContract."""
     def test_is_base_estimator_transformer(self):
+        """Is base estimator transformer."""
         sel = _make_mrmr_tree_rescued()
         assert isinstance(sel, BaseEstimator)
         assert isinstance(sel, TransformerMixin)
@@ -210,6 +221,7 @@ class TestMRMRTreeRescuedContract:
             sel.transform(X)
 
     def test_fit_returns_self_and_sets_n_features_in(self):
+        """Fit returns self and sets n features in."""
         sel = _make_mrmr_tree_rescued()
         X, y = _binary_frame()
         with warnings.catch_warnings():
@@ -268,7 +280,9 @@ class TestMRMRTreeRescuedContract:
 
 @pytest.mark.slow
 class TestStabilityFESelectorContract:
+    """Groups tests covering TestStabilityFESelectorContract."""
     def test_is_base_estimator_transformer(self):
+        """Is base estimator transformer."""
         sel = _make_stability_fe()
         assert isinstance(sel, BaseEstimator)
         assert isinstance(sel, TransformerMixin)
@@ -282,6 +296,7 @@ class TestStabilityFESelectorContract:
             sel.transform(X)
 
     def test_fit_returns_self(self):
+        """Fit returns self."""
         sel = _make_stability_fe()
         X, y = _binary_frame()
         with warnings.catch_warnings():
@@ -292,6 +307,7 @@ class TestStabilityFESelectorContract:
         assert hasattr(sel, "stable_set_")
 
     def test_clone_get_params_set_params_round_trip(self):
+        """Clone get params set params round trip."""
         sel = _make_stability_fe()
         params = sel.get_params(deep=False)
         assert params["n_bootstraps"] == 2
@@ -304,6 +320,7 @@ class TestStabilityFESelectorContract:
         assert sel.support_threshold == 0.5
 
     def test_pickle_round_trip_transform_equality(self):
+        """Pickle round trip transform equality."""
         sel = _make_stability_fe()
         X, y = _binary_frame()
         with warnings.catch_warnings():
@@ -316,6 +333,7 @@ class TestStabilityFESelectorContract:
         assert restored.stable_set_ == sel.stable_set_
 
     def test_sklearn_pipeline_integration(self):
+        """Sklearn pipeline integration."""
         X, y = _binary_frame()
         pipe = Pipeline(
             [
@@ -349,6 +367,7 @@ def _hetero_small_panel():
 
 
 def _hetero_frame(n: int = 250, seed: int = 0):
+    """Hetero frame."""
     rng = np.random.default_rng(seed)
     X = pd.DataFrame({f"c{i}": rng.standard_normal(n) for i in range(8)})
     y = pd.Series((X["c0"] + X["c1"] + 0.3 * rng.standard_normal(n) > 0).astype(np.int64))

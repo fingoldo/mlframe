@@ -33,12 +33,14 @@ def planted_strong():
 
 
 def _split(X, y):
+    """Helper that split."""
     Xs, ys = X.iloc[:900].reset_index(drop=True), y[:900]
     Xh, yh = X.iloc[900:].reset_index(drop=True), y[900:]
     return Xs, ys, Xh, yh
 
 
 def test_adaptive_converges_after_two_rounds(planted_strong):
+    """Adaptive converges after two rounds."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate import revalidate_top_n
 
     X, y = planted_strong

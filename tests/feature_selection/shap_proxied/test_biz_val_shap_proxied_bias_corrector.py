@@ -23,6 +23,7 @@ pytest.importorskip("xgboost")
 
 
 def _frame(seed=0, n=1000):
+    """Helper that frame."""
     rng = np.random.default_rng(seed)
     xi = rng.normal(size=(n, 3))
     decoy = rng.normal(size=(n, 1))  # continuous high-card column SHAP tends to over-credit
@@ -33,6 +34,7 @@ def _frame(seed=0, n=1000):
 
 
 def _fit(use_bias_corrector):
+    """Helper that fit."""
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
     X, y = _frame()
@@ -54,6 +56,7 @@ def _fit(use_bias_corrector):
 
 
 def test_biz_val_bias_corrector_engages_and_is_recorded():
+    """Biz val bias corrector engages and is recorded."""
     sel = _fit(True)
     bc = sel.shap_proxy_report_.get("bias_corrector")
     assert bc and bc.get("applied") is True, f"corrector should engage under trust_guard; got {bc}"
@@ -61,10 +64,12 @@ def test_biz_val_bias_corrector_engages_and_is_recorded():
 
 
 def test_biz_val_bias_corrector_off_does_not_record():
+    """Biz val bias corrector off does not record."""
     assert _fit(False).shap_proxy_report_.get("bias_corrector") is None
 
 
 def test_biz_val_bias_corrector_preserves_recovery():
+    """Biz val bias corrector preserves recovery."""
     sel = _fit(True)
     selected = {str(c) for c in sel.selected_features_}
     assert {"inf0", "inf1", "inf2"} <= selected, f"corrector-on must keep the 3 informative cols; got {selected}"

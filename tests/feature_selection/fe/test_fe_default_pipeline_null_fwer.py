@@ -84,10 +84,12 @@ def _fit_default(X, y, seed: int):
 
 
 def _n_selected(sel) -> int:
+    """N selected."""
     return len(list(sel.get_feature_names_out()))
 
 
 def _n_engineered(sel) -> int:
+    """N engineered."""
     return len(getattr(sel, "_engineered_recipes_", []) or [])
 
 
@@ -178,6 +180,7 @@ _NOISE_SELECT_FRACTION_CEIL = 0.5
 
 
 def _null_fwer_seeds_slow():
+    """Null fwer seeds slow."""
     return [0, 1, 2, 3, 4, 5, 6, 7]
 
 
@@ -262,6 +265,7 @@ def test_default_pipeline_null_manufactures_no_engineered_recipe_from_noise():
 
 
 def _split(df, y, n_tr_frac: float = 0.7):
+    """Helper that split."""
     n_tr = int(len(df) * n_tr_frac)
     return (df.iloc[:n_tr], y.iloc[:n_tr], df.iloc[n_tr:], y.iloc[n_tr:])
 

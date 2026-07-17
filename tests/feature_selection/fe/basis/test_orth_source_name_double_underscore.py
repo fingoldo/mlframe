@@ -28,6 +28,7 @@ from mlframe.feature_selection.filters._orthogonal_univariate_fe._orth_pair_cros
 
 
 def test_source_recovery_onehot_and_plain():
+    """Source recovery onehot and plain."""
     raw = ["city__NY", "city__LA", "age", "city"]
     # one-hot source kept intact, not stemmed to "city"
     assert _source_from_engineered_name("city__NY__He2", raw) == "city__NY"
@@ -42,11 +43,13 @@ def test_source_recovery_onehot_and_plain():
 
 def test_source_recovery_fallback_no_raw_set():
     # No raw name prefixes -> legacy first-"__" split fallback.
+    """Source recovery fallback no raw set."""
     assert _source_from_engineered_name("foo__He2", []) == "foo"
     assert _source_from_engineered_name("foo", []) == "foo"
 
 
 def test_pair_source_recovery_onehot():
+    """Pair source recovery onehot."""
     raw = ["city__NY", "age", "income"]
     assert _pair_sources_from_engineered_name("city__NY*age__He2_He3", raw) == ("city__NY", "age")
     assert _pair_sources_from_engineered_name("age*city__NY__He2_He3", raw) == ("age", "city__NY")

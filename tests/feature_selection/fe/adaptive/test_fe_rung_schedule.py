@@ -44,10 +44,12 @@ _RAW = {"a", "b", "c", "d", "e"}
 
 
 def _eng_names(m):
+    """Eng names."""
     return {n for n in m.get_feature_names_out() if n not in _RAW and not n.startswith("z") and not n.startswith("n")}
 
 
 def _n_eng(m):
+    """N eng."""
     return len([n for n in m.get_feature_names_out() if n not in _RAW])
 
 
@@ -60,6 +62,7 @@ def _mk_pool(pair_mis):
 # UNIT -- rung-0 keep logic
 # ===========================================================================
 def test_noop_below_min_pairs():
+    """Noop below min pairs."""
     pool = _mk_pool([0.5, 0.4, 0.05])  # 3 pairs < min_pairs=6
     kept, info = apply_rung_schedule(pool, n_rows=5000, keep_frac=0.25, min_pairs=6)
     assert info["applied"] is False
@@ -67,6 +70,7 @@ def test_noop_below_min_pairs():
 
 
 def test_noop_when_keep_frac_one():
+    """Noop when keep frac one."""
     pool = _mk_pool([0.5, 0.4, 0.3, 0.2, 0.1, 0.05, 0.04])
     kept, info = apply_rung_schedule(pool, n_rows=5000, keep_frac=1.0, min_pairs=6)
     assert info["applied"] is False
@@ -83,6 +87,7 @@ def test_noop_when_all_pair_mi_zero():
 
 
 def test_top_fraction_kept():
+    """Top fraction kept."""
     pms = [0.40, 0.30, 0.20, 0.10, 0.06, 0.05, 0.04, 0.03]
     pool = _mk_pool(pms)
     # rel_floor 0.40*0.40=0.16 -> protects 0.40/0.30/0.20; top-25% of 8 = 2.
@@ -106,6 +111,7 @@ def test_relative_floor_protects_moderate_mi_winner():
 
 
 def test_lower_floor_is_more_aggressive():
+    """Lower floor is more aggressive."""
     pms = [0.40, 0.153, 0.06, 0.06, 0.06, 0.06, 0.06, 0.06]
     pool = _mk_pool(pms)
     kept_strict, _ = apply_rung_schedule(dict(pool), n_rows=5000, keep_frac=0.1, rel_floor=0.40, min_pairs=6)
@@ -117,6 +123,7 @@ def test_lower_floor_is_more_aggressive():
 def test_fallback_is_no_drop_default():
     # Accuracy-safe default: the fallback never cuts (keep_frac=1.0) at any pool size, so the
     # rung-0 screen is a structural no-op unless a caller opts into an aggressive fraction.
+    """Fallback is no drop default."""
     assert _fallback_keep_frac(50) == 1.0
     assert _fallback_keep_frac(20) == 1.0
     assert _fallback_keep_frac(5) == 1.0
@@ -125,11 +132,13 @@ def test_fallback_is_no_drop_default():
 def test_optin_fractions_monotone_in_pool_size():
     # The recommended OPT-IN aggressive fractions are monotone: larger pool -> smaller fraction
     # (signal concentrates at the top), tiny pool -> keep all.
+    """Optin fractions monotone in pool size."""
     assert _optin_keep_frac(50) <= _optin_keep_frac(20) <= _optin_keep_frac(5)
     assert _optin_keep_frac(5) == 1.0
 
 
 def test_env_override_keep_frac(monkeypatch):
+    """Env override keep frac."""
     monkeypatch.setenv("MLFRAME_FE_RUNG_KEEP_FRAC", "0.5")
     assert _dispatch_keep_frac(5000, 30) == 0.5
     monkeypatch.setenv("MLFRAME_FE_RUNG_KEEP_FRAC", "bogus")
@@ -182,6 +191,7 @@ def test_dispatch_keep_frac_never_spawns_sweep_thread(_fresh_ktc_cache_dir, monk
 
 
 def test_ctor_knobs_exposed_and_pickle_safe():
+    """Ctor knobs exposed and pickle safe."""
     m = MRMR(fe_rung_schedule_enable=True, fe_rung_keep_frac=0.3, fe_rung_rel_floor=0.35, fe_rung_min_pairs=8)
     p = m.get_params()
     assert p["fe_rung_schedule_enable"] is True
@@ -203,6 +213,7 @@ def test_ranked_order_equivalent_to_double_pm_call():
     pool = _mk_pool(pms)
 
     def _pm_legacy(key):
+        """Pm legacy."""
         try:
             return float(key[1])
         except (TypeError, IndexError, ValueError):
@@ -309,6 +320,7 @@ def test_bizvalue_speedup_on_wide_pool_at_identical_selection():
     # the signal operands a/b/c/d kept by flat must still be present (allowing the
     # rung to additionally PRUNE spurious (c,noise) survivors -- a denoising bonus).
     def _signal_eng(names):
+        """Signal eng."""
         out = set()
         for nm in names:
             if nm in df.columns:
@@ -368,6 +380,7 @@ def test_bizvalue_equal_wall_deeper_needle():
     # we pin needle recovery -- the real deeper-search win -- and keep the count only as a
     # recorded datum. Escalation is NOT involved (0 proposed in both arms).
     def _has_cd_needle(m):
+        """Has cd needle."""
         cols = set(df.columns)
         for nm in m.get_feature_names_out():
             if nm in cols:

@@ -45,6 +45,7 @@ def _orchestrate_with_stub(self, X, y, accepted_for, base_seed=0):
 
     def _stub_fit(sub_self, Xk, yk):
         # k from random_state so accept-counts are independent of (parallel) call order.
+        """Stub fit."""
         k = int(sub_self.random_state) - base_seed - 1
         # list.append is atomic under the CPython GIL, safe under the threading backend.
         calls.append({"n_rows": len(Xk), "stratify": getattr(sub_self, "stratify", None), "k": k})
@@ -132,6 +133,7 @@ def test_intersection_mode_drops_submajority_even_when_optimistic():
 
     # 'sig' accepted by ALL subsamples; 'spurious' accepted by only some (k<2) -> tentative; 'junk' never.
     def accepted_for(k, s):
+        """Accepted for."""
         out = ["sig"]
         if k < 2:
             out.append("spurious")
@@ -168,6 +170,7 @@ def test_majority_mode_still_honors_optimistic():
 
     # need = ceil(0.5*4) = 2. 'sig' accepted 4/4 (>=need -> accepted); 'weak' accepted 1/4 (0<1<2 -> tentative).
     def accepted_for(k, s):
+        """Accepted for."""
         out = ["sig"]
         if k == 0:
             out.append("weak")

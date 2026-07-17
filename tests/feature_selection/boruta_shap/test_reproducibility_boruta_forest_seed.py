@@ -8,6 +8,7 @@ import numpy as np
 
 
 def _make(random_state, classification):
+    """Helper that make."""
     from mlframe.feature_selection.boruta_shap import BorutaShap
 
     # sklearn clone-ability: the verbatim ``model`` param stays None; ``check_model`` resolves the default
@@ -18,6 +19,7 @@ def _make(random_state, classification):
 
 
 def test_con5_default_forest_is_seeded_classifier():
+    """Con5 default forest is seeded classifier."""
     rng = np.random.default_rng(0)
     X = rng.normal(size=(120, 6))
     y = (X[:, 0] + X[:, 1] > 0).astype(int)
@@ -34,6 +36,7 @@ def test_con5_default_forest_is_seeded_classifier():
 
 
 def test_con5_default_forest_is_seeded_regressor():
+    """Con5 default forest is seeded regressor."""
     rng = np.random.default_rng(1)
     X = rng.normal(size=(120, 6))
     y = X[:, 0] * 2.0 + rng.normal(scale=0.1, size=120)
