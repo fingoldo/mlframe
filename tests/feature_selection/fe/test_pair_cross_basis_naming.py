@@ -12,12 +12,14 @@ from __future__ import annotations
 
 
 def test_pair_eng_col_name_same_basis_unchanged():
+    """Same-basis pairs (both legs hermite) still name as a*b__He2_He3, unaffected by the mixed-basis fix."""
     from mlframe.feature_selection.filters._orthogonal_univariate_fe._orth_pair_cross_fe import _pair_eng_col_name
 
     assert _pair_eng_col_name("a", "b", "hermite", "hermite", 2, 3) == "a*b__He2_He3"
 
 
 def test_pair_eng_col_name_mixed_basis_reflects_both_legs():
+    """A hermite/chebyshev mixed-basis pair names as He2_T3, not the pre-fix bug that silently dropped leg b's basis code."""
     from mlframe.feature_selection.filters._orthogonal_univariate_fe._orth_pair_cross_fe import _pair_eng_col_name
 
     name = _pair_eng_col_name("a", "b", "hermite", "chebyshev", 2, 3)

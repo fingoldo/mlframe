@@ -233,6 +233,7 @@ def _build_memmap_frame(n_rows: int, n_cols: int, layout: dict, task: str, tmp_p
 
 
 def _peak_rss_mb() -> float:
+    """Current process RSS in MB via psutil, or NaN if psutil is unavailable (never fatal to the test)."""
     try:
         import psutil
 

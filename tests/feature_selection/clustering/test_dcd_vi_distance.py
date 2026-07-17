@@ -28,6 +28,7 @@ import numpy as np
 
 
 def _state_for(distance: str, fd, fn):
+    """Build a minimal DCDState configured for the given distance metric ('su' or 'vi') over factors_data fd/fn."""
     from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
         make_dcd_state,
     )

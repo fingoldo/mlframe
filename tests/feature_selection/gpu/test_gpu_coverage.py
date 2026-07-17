@@ -24,6 +24,7 @@ cp = pytest.importorskip("cupy")
 
 # Sanity: this whole file is only meaningful with at least one CUDA device.
 def _gpu_available() -> bool:
+    """True iff cupy can see at least one CUDA device, gating whether the GPU coverage tests can run at all."""
     try:
         import cupy as _cp
 

@@ -14,6 +14,7 @@ import pandas as pd
 
 
 def _fit_recover(monkeypatch, enabled: bool):
+    """Fit MRMR with the matrix-backend seam toggled on/off and return the selected feature names."""
     if enabled:
         monkeypatch.setenv("MLFRAME_FE_MATRIX_P0", "1")
     else:
@@ -36,6 +37,7 @@ def _fit_recover(monkeypatch, enabled: bool):
 
 
 def test_seam_off_is_default_and_recovers(monkeypatch):
+    """With MLFRAME_FE_MATRIX_P0 unset (default OFF), the legacy byte-untouched path still selects features."""
     names = _fit_recover(monkeypatch, enabled=False)
     assert names, "no features selected with seam OFF"
 
