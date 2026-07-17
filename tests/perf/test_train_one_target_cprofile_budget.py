@@ -16,6 +16,7 @@ import pytest
 
 @pytest.mark.fast
 def test_cprofile_budget_smoke() -> None:
+    """Cprofile budget smoke."""
     pr = cProfile.Profile()
     pr.enable()
     try:

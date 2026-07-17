@@ -19,6 +19,7 @@ def _gauss_sim(x, bw=1.0):
 
 # ---------------------------------------------------------------- unit
 def test_combine_linear_and_sqrt():
+    """Combine linear and sqrt."""
     A = np.array([[1.0, 0.4], [0.4, 1.0]])
     B = np.array([[1.0, 0.0], [0.0, 1.0]])
     lin = combine_block_similarities([A, B], [2.0, 3.0], "linear")
@@ -28,6 +29,7 @@ def test_combine_linear_and_sqrt():
 
 
 def test_guards():
+    """Guards."""
     A = np.eye(4)
     with pytest.raises(ValueError):
         fit_composite_similarity([A], np.zeros(3))  # y length mismatch
@@ -38,6 +40,7 @@ def test_guards():
 
 
 def test_returns_weights_and_score():
+    """Returns weights and score."""
     rng = np.random.default_rng(0)
     x = rng.normal(size=40)
     y = (x > 0).astype(int)
@@ -49,6 +52,7 @@ def test_returns_weights_and_score():
 
 
 def test_single_informative_block_scores_high():
+    """Single informative block scores high."""
     rng = np.random.default_rng(1)
     x = rng.normal(size=120)
     y = (x > 0).astype(int)  # perfectly separable by proximity in x
@@ -74,6 +78,7 @@ def test_biz_val_tuned_combination_beats_equal_weight_and_single_blocks():
     k = 9
 
     def knn_acc(S):
+        """Helper that knn acc."""
         res = fit_composite_similarity([S], y, k=k)  # single-block: weight is irrelevant to accuracy, just measures S
         return res.score
 

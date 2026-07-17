@@ -11,7 +11,7 @@
 # permanently-red check nobody looks at. Same honest framing as pyproject.toml's
 # [tool.ruff.lint.mccabe] max-complexity comment: this is where the codebase IS, not where it
 # should stay.
-fail-under = 50
+fail-under = 55
 ignore-init-method = true
 ignore-init-module = true
 ignore-magic = true

@@ -13,21 +13,25 @@ from mlframe.core.proportion_stats import (
 
 
 def test_z_for_confidence_known_values():
+    """Z for confidence known values."""
     assert abs(z_for_confidence(0.95) - 1.959964) < 1e-3
     assert abs(z_for_confidence(0.99) - 2.575829) < 1e-3
 
 
 def test_wilson_interval_contains_phat_and_within_unit():
+    """Wilson interval contains phat and within unit."""
     lo, hi = wilson_interval(50, 100, confidence=0.95)
     assert 0.0 <= lo < 0.5 < hi <= 1.0
 
 
 def test_wilson_interval_edge_zero_successes():
+    """Wilson interval edge zero successes."""
     lo, hi = wilson_interval(0, 100)
     assert lo == 0.0 and 0.0 < hi < 0.1
 
 
 def test_wilson_invalid():
+    """Wilson invalid."""
     with pytest.raises(ValueError):
         wilson_interval(10, 0)
     with pytest.raises(ValueError):

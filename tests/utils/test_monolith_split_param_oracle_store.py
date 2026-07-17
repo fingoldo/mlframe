@@ -12,6 +12,7 @@ import tempfile
 
 
 def test_store_reexport_identity():
+    """Store reexport identity."""
     from mlframe.utils import _param_oracle_store as sib
     from mlframe.utils import _param_oracle as parent
 
@@ -20,6 +21,7 @@ def test_store_reexport_identity():
 
 
 def test_parquet_store_roundtrip_and_aggregate():
+    """Parquet store roundtrip and aggregate."""
     from mlframe.utils._param_oracle_store import _ParquetStore, _stable_json
 
     pytest_importorskip_pyarrow()
@@ -46,6 +48,7 @@ def test_parquet_store_roundtrip_and_aggregate():
 
 
 def test_median_and_stable_json_bodies():
+    """Median and stable json bodies."""
     from mlframe.utils._param_oracle_store import _median, _stable_json
 
     assert _median([3.0, 1.0, 2.0]) == 2.0
@@ -55,6 +58,7 @@ def test_median_and_stable_json_bodies():
 
 
 def pytest_importorskip_pyarrow():
+    """Helper that pytest importorskip pyarrow."""
     import pytest
 
     return pytest.importorskip("pyarrow")

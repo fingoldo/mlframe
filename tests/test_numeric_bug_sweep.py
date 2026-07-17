@@ -15,7 +15,9 @@ import pytest
 # ewma
 # ---------------------------------------------------------------------------
 class TestEwma:
+    """Groups tests covering TestEwma."""
     def test_matches_pandas_adjust_false(self):
+        """Matches pandas adjust false."""
         from mlframe.core.ewma import ewma
 
         rng = np.random.default_rng(0)
@@ -28,6 +30,7 @@ class TestEwma:
             np.testing.assert_allclose(got, expected, atol=1e-9, rtol=1e-9)
 
     def test_matches_pandas_adjust_true(self):
+        """Matches pandas adjust true."""
         from mlframe.core.ewma import ewma
 
         rng = np.random.default_rng(1)
@@ -64,7 +67,9 @@ class TestEwma:
 # calibration edge cases
 # ---------------------------------------------------------------------------
 class TestCalibrationPITEdges:
+    """Groups tests covering TestCalibrationPITEdges."""
     def test_anderson_darling_boundary(self):
+        """Anderson darling boundary."""
         from mlframe.calibration.quality import anderson_darling_statistic
 
         pit = np.array([0.0, 1.0])
@@ -72,6 +77,7 @@ class TestCalibrationPITEdges:
         assert np.isfinite(result)
 
     def test_entropy_calibration_index_finite(self):
+        """Entropy calibration index finite."""
         from mlframe.calibration.quality import entropy_calibration_index
 
         rng = np.random.default_rng(0)
@@ -80,6 +86,7 @@ class TestCalibrationPITEdges:
         assert np.isfinite(eci)
 
     def test_weighted_pit_deviation_stable_near_boundary(self):
+        """Weighted pit deviation stable near boundary."""
         from mlframe.calibration.quality import weighted_pit_deviation
 
         pit = np.array([1e-9, 0.5, 1 - 1e-9])
@@ -93,17 +100,22 @@ class TestCalibrationPITEdges:
 # postcalibration clip
 # ---------------------------------------------------------------------------
 class TestPostcalibrationClip:
+    """Groups tests covering TestPostcalibrationClip."""
     def test_vstack_clips_out_of_range(self):
         # postcalibration imports a heavy dependency chain (report_model_perf etc.) that
         # may not be available in every environment; skip cleanly rather than fail.
+        """Vstack clips out of range."""
         postcal = pytest.importorskip("mlframe.calibration.post")
         BinaryPostCalibrator = postcal.BinaryPostCalibrator
 
         class _Identity:
+            """Groups tests covering Identity."""
             def fit(self, X, y):
+                """Helper that fit."""
                 return self
 
             def transform(self, X):
+                """Helper that transform."""
                 return X  # pass-through 1D
 
         pc = BinaryPostCalibrator(calibrator=_Identity())
@@ -120,7 +132,9 @@ class TestPostcalibrationClip:
 # arrays
 # ---------------------------------------------------------------------------
 class TestArrays:
+    """Groups tests covering TestArrays."""
     def test_topk_does_not_mutate(self):
+        """Topk does not mutate."""
         from mlframe.core.arrays import topk_by_partition
 
         x = np.array([3.0, 1.0, 4.0, 1.0, 5.0, 9.0, 2.0, 6.0])
@@ -132,6 +146,7 @@ class TestArrays:
         assert set(val.tolist()) == {9.0, 6.0, 5.0}
 
     def test_topk_k_equals_len(self):
+        """Topk k equals len."""
         from mlframe.core.arrays import topk_by_partition
 
         x = np.array([3.0, 1.0, 4.0])
@@ -140,6 +155,7 @@ class TestArrays:
         assert sorted(ind.tolist()) == [0, 1, 2]
 
     def test_arrayMinMax_empty(self):
+        """ArrayMinMax empty."""
         from mlframe.core.arrays import arrayMinMax
 
         # numba path requires a typed empty array
@@ -147,6 +163,7 @@ class TestArrays:
         assert np.isnan(out[0]) and np.isnan(out[1])
 
     def test_arrayMinMax_regular(self):
+        """ArrayMinMax regular."""
         from mlframe.core.arrays import arrayMinMax
 
         x = np.array([2.0, -1.0, 5.0, 3.0])
@@ -158,7 +175,9 @@ class TestArrays:
 # metrics
 # ---------------------------------------------------------------------------
 class TestMetricsBounds:
+    """Groups tests covering TestMetricsBounds."""
     def test_classification_report_oob_label(self):
+        """Classification report oob label."""
         from mlframe.metrics.core import fast_classification_report
 
         # class_id way out of range should NOT segfault / should be silently dropped.
@@ -171,6 +190,7 @@ class TestMetricsBounds:
     def test_fast_roc_auc_supports_sample_weight(self):
         # Weighted ROC AUC support landed (fast_numba_auc_weighted); uniform weights must match the
         # unweighted result, and non-uniform weights must match sklearn's weighted roc_auc_score.
+        """Fast roc auc supports sample weight."""
         from sklearn.metrics import roc_auc_score
 
         from mlframe.metrics.core import fast_roc_auc
@@ -183,6 +203,7 @@ class TestMetricsBounds:
         assert fast_roc_auc(y, p, sample_weight=w) == pytest.approx(roc_auc_score(y, p, sample_weight=w), abs=1e-9)
 
     def test_pr_auc_matches_sklearn(self):
+        """Pr auc matches sklearn."""
         from sklearn.metrics import average_precision_score
 
         from mlframe.metrics.core import fast_aucs
@@ -202,6 +223,7 @@ class TestMetricsBounds:
             assert abs(our_pr - ref_pr) < 0.01, f"pr_auc mismatch: {our_pr} vs {ref_pr}"
 
     def test_fast_brier_alias_still_exposed(self):
+        """Fast brier alias still exposed."""
         from mlframe import metrics
 
         assert hasattr(metrics, "fast_brier_score_loss")
@@ -215,7 +237,9 @@ class TestMetricsBounds:
 # mps
 # ---------------------------------------------------------------------------
 class TestMPS:
+    """Groups tests covering TestMPS."""
     def test_tail_interval_not_dropped(self):
+        """Tail interval not dropped."""
         from mlframe.feature_engineering.mps import compute_area_profits
 
         # Strictly increasing prices, long position held to the end.
@@ -229,6 +253,7 @@ class TestMPS:
         assert np.all(np.isfinite(out))
 
     def test_closed_run_profit(self):
+        """Closed run profit."""
         from mlframe.feature_engineering.mps import compute_area_profits
 
         # Long for indices 0..2 then flat — run closes at price[3].
@@ -245,8 +270,11 @@ class TestMPS:
 # stats
 # ---------------------------------------------------------------------------
 class TestStats:
+    """Groups tests covering TestStats."""
+
     @pytest.mark.parametrize("df", [1.5, 5.0, 30.0])
     def test_tukey_multiplier_uses_dist_kwargs(self, df):
+        """Tukey multiplier uses dist kwargs."""
         from scipy.stats import t as t_dist
 
         from mlframe.core.stats import get_tukey_fences_multiplier_for_quantile

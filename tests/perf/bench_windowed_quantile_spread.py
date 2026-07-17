@@ -1,3 +1,4 @@
+"""Tests for bench windowed quantile spread."""
 import sys
 
 sys.modules["cupy"] = None

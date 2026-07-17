@@ -22,6 +22,7 @@ def _plant_unverified_entry(cache: DiskCache, key: str, value) -> None:
 
 
 def test_missing_sidecar_refused_by_default(tmp_path, monkeypatch):
+    """Missing sidecar refused by default."""
     monkeypatch.delenv("MLFRAME_ALLOW_UNVERIFIED_PICKLE", raising=False)
     cache = DiskCache(tmp_path)
     _plant_unverified_entry(cache, "k", {"planted": 1})
@@ -31,6 +32,7 @@ def test_missing_sidecar_refused_by_default(tmp_path, monkeypatch):
 
 
 def test_missing_sidecar_allowed_with_env_var(tmp_path, monkeypatch):
+    """Missing sidecar allowed with env var."""
     monkeypatch.setenv("MLFRAME_ALLOW_UNVERIFIED_PICKLE", "1")
     cache = DiskCache(tmp_path)
     _plant_unverified_entry(cache, "k", {"planted": 1})
@@ -39,6 +41,7 @@ def test_missing_sidecar_allowed_with_env_var(tmp_path, monkeypatch):
 
 
 def test_legit_put_roundtrips(tmp_path, monkeypatch):
+    """Legit put roundtrips."""
     monkeypatch.delenv("MLFRAME_ALLOW_UNVERIFIED_PICKLE", raising=False)
     cache = DiskCache(tmp_path)
     cache.put("k", {"ok": 2})

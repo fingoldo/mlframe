@@ -16,6 +16,7 @@ import mlframe.config as cfg
 
 
 def _all_config_enums():
+    """Helper that all config enums."""
     out = []
     for name in dir(cfg):
         obj = getattr(cfg, name)
@@ -29,6 +30,7 @@ CONFIG_ENUMS = _all_config_enums()
 
 def test_config_exposes_multiple_enums():
     # Guard against the discovery helper silently finding nothing (e.g. after a refactor).
+    """Config exposes multiple enums."""
     names = {e.__name__ for e in CONFIG_ENUMS}
     assert {"CategoricalsAssigning", "MissingHandling", "EarlyStopping"} <= names
     assert len(CONFIG_ENUMS) >= 10
@@ -38,6 +40,7 @@ def test_config_exposes_multiple_enums():
 def test_enum_values_are_unique_no_aliases(enum_cls):
     # __members__ includes aliases; list(enum_cls) does not. Equal length => no member is an
     # alias of another (every member owns a distinct value).
+    """Enum values are unique no aliases."""
     members = list(enum_cls)
     values = [m.value for m in members]
     assert len(set(values)) == len(values), f"{enum_cls.__name__} has duplicate/alias values: {values}"
@@ -46,6 +49,7 @@ def test_enum_values_are_unique_no_aliases(enum_cls):
 
 @pytest.mark.parametrize("enum_cls", CONFIG_ENUMS, ids=lambda e: e.__name__)
 def test_enum_pickle_roundtrip_is_same_singleton(enum_cls):
+    """Enum pickle roundtrip is same singleton."""
     for member in enum_cls:
         restored = pickle.loads(pickle.dumps(member))  # nosec B301 -- round-trip of a locally-created, trusted object
         assert restored is member, f"{enum_cls.__name__}.{member.name} did not round-trip to the same singleton"

@@ -35,6 +35,7 @@ _KNOWN_UNDISPATCHED: set[tuple[str, str]] = set()
 
 
 def _consumer_corpus() -> str:
+    """Helper that consumer corpus."""
     chunks: list[str] = []
     for py in MLFRAME_DIR.rglob("*.py"):
         if py.resolve() == Path(configs_module.__file__).resolve():
@@ -106,6 +107,7 @@ def _enum_literal_fields() -> list[tuple[type[BaseModel], str, list]]:
 
 
 def test_every_enum_value_is_dispatched_on():
+    """Every enum value is dispatched on."""
     corpus = _consumer_corpus()
     fields = _enum_literal_fields()
     if not fields:

@@ -31,6 +31,7 @@ from profile_training_core import profile  # type: ignore[import-not-found]
 
 
 def main() -> int:
+    """Helper that main."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--n-rows", type=int, default=2000)
     parser.add_argument(

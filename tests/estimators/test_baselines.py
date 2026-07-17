@@ -10,6 +10,7 @@ from mlframe.estimators.baselines import get_best_dummy_score
 
 
 def _xy_clf():
+    """Helper that xy clf."""
     rng = np.random.default_rng(0)
     X = rng.random((60, 4))
     y = (rng.random(60) > 0.5).astype(int)
@@ -19,6 +20,7 @@ def _xy_clf():
 
 
 def _xy_reg():
+    """Helper that xy reg."""
     rng = np.random.default_rng(0)
     X = rng.random((60, 4))
     y = rng.random(60)
@@ -26,6 +28,7 @@ def _xy_reg():
 
 
 def test_get_best_dummy_score_classifier_returns_finite_score():
+    """Get best dummy score classifier returns finite score."""
     X, y = _xy_clf()
     split = 40
     scorer = make_scorer(accuracy_score)
@@ -43,6 +46,7 @@ def test_get_best_dummy_score_classifier_returns_finite_score():
 
 
 def test_get_best_dummy_score_regressor_returns_finite_score():
+    """Get best dummy score regressor returns finite score."""
     X, y = _xy_reg()
     split = 40
     scorer = make_scorer(r2_score)
@@ -58,6 +62,7 @@ def test_get_best_dummy_score_regressor_returns_finite_score():
 
 
 def test_get_best_dummy_score_raises_on_invalid_estimator():
+    """Get best dummy score raises on invalid estimator."""
     X, y = _xy_clf()
     # KMeans is neither a classifier nor a regressor
     with pytest.raises(TypeError, match="classifier or regressor"):
