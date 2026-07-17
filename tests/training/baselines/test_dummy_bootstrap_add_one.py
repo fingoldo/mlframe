@@ -15,6 +15,7 @@ from mlframe.training.baselines.dummy import _paired_bootstrap_vs_runner_up
 
 
 def _run(p_strongest, p_runner, y, n_resamples=200, seed=42):
+    """Builds a 2-row RMSE table for strongest-vs-runner-up and runs the paired bootstrap comparison over it."""
     rmse_s = float(np.sqrt(np.mean((y - p_strongest) ** 2)))
     rmse_r = float(np.sqrt(np.mean((y - p_runner) ** 2)))
     table = pd.DataFrame({"val_RMSE": [rmse_s, rmse_r]}, index=["strongest", "runner_up"])

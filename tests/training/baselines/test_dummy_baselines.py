@@ -590,6 +590,8 @@ class TestDtypeVariants:
 
 
 class TestHelpers:
+    """Groups tests covering the dummy-baseline module's small internal utility functions."""
+
     def test_baseline_inputs_hash_deterministic(self):
         """Baseline inputs hash deterministic."""
         rng = np.random.default_rng(0)

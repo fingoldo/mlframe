@@ -40,6 +40,7 @@ def test_polars_timeseries_oof_keeps_components_and_matches_pandas():
     X_pl = pl.DataFrame({c: X[:, j] for j, c in enumerate(cols)})
 
     def _run(train_X):
+        """Computes OOF-holdout predictions for a single fitted linear component given either a pandas or polars train_X."""
         model = _fitted_linear(train_X if not hasattr(train_X, "to_pandas") else X, y)
         return compute_oof_holdout_predictions(
             component_models=[model],

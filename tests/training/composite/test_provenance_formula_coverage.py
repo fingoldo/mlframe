@@ -110,6 +110,7 @@ def test_registered_transform_never_renders_generic_stub(name: str) -> None:
 
 
 def _g(value) -> str:
+    """Formats a fitted parameter value the same way the provenance formula strings do (4 significant digits)."""
     return f"{float(value):.4g}"
 
 

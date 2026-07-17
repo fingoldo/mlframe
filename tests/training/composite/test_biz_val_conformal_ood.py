@@ -289,6 +289,7 @@ class TestVerdictAccessor:
 class TestBizValueOODCoverage:
     """Groups tests covering biz value o o d coverage."""
     def _run(self, seed):
+        """Calibrates on a bimodal-spread grouped set, evaluates coverage on an unseen wider-spread group, and returns the comparison."""
         alpha = 0.1
         rng = np.random.default_rng(seed)
         # calibration: modest bulk (sigma 0.6) + a real wide tail (sigma 2.8)

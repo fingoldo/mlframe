@@ -217,6 +217,7 @@ class TestHypothesisRoundTrip:
         )
         @settings(max_examples=30, deadline=2000)
         def _check(y: np.ndarray, base: np.ndarray) -> None:
+            """Hypothesis property: forward+inverse of the 'diff' transform round-trips y for any random y/base pair."""
             t = get_transform("diff")
             p = t.fit(y, base)
             T = t.forward(y, base, p)
@@ -237,6 +238,7 @@ class TestHypothesisRoundTrip:
         )
         @settings(max_examples=30, deadline=2000)
         def _check(y: np.ndarray, base: np.ndarray) -> None:
+            """Hypothesis property: forward+inverse of the 'ratio' transform round-trips y for any random y/base pair."""
             t = get_transform("ratio")
             p = t.fit(y, base)
             T = t.forward(y, base, p)
@@ -257,6 +259,7 @@ class TestHypothesisRoundTrip:
         )
         @settings(max_examples=30, deadline=2000)
         def _check(y: np.ndarray, base: np.ndarray) -> None:
+            """Hypothesis property: forward+inverse of the 'linear_residual' transform round-trips y for any non-constant base."""
             assume(np.std(base) > 1e-6)  # OLS singular if base is constant
             t = get_transform("linear_residual")
             p = t.fit(y, base)
