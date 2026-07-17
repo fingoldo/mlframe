@@ -43,6 +43,7 @@ def _strong_cluster_frame(n: int = 1500, n_members: int = 5, seed: int = 0):
 
 
 class TestClusterMembersAccessor:
+    """Groups tests covering TestClusterMembersAccessor."""
     def test_C1_cluster_members_populated_when_dcd_finds_cluster(self):
         """C1: a DCD fit with at least one detected cluster exposes
         ``cluster_members_`` keyed by valid column names; the member
@@ -204,6 +205,7 @@ def _layer12_drift_frame(seed: int = 0):
 
 
 class TestNoRegressionLayer12Stability:
+    """Groups tests covering TestNoRegressionLayer12Stability."""
     def test_C5_stable_outranks_flaky_with_layer41_additions(self):
         """C5: on the simplified drift fixture, the strong ``stable_x`` signal must
         outrank the weak ``flaky`` signal in the single-fit MRMR selection -- the
@@ -227,6 +229,7 @@ class TestNoRegressionLayer12Stability:
         sup = list(m.get_feature_names_out())
 
         def _carries_stable(name: str) -> bool:
+            """Carries stable."""
             return "stable_x" in str(name)
 
         # The stable signal must be present, as the raw OR a stable-derived child.
@@ -277,6 +280,7 @@ class TestNoRegressionLayer12Stability:
 
 
 class TestNoRegressionLayer27Adversarial:
+    """Groups tests covering TestNoRegressionLayer27Adversarial."""
     def test_C6_layer41_additions_do_not_perturb_layer27_no_noise_cross(self):
         """C6: the Layer 27 adversarial contract is that hybrid-orth-pair
         does not select a noise-noise cross. Layer 41 only adds summary
@@ -319,6 +323,7 @@ class TestNoRegressionLayer27Adversarial:
 
 
 class TestNoRegressionLayer35KitchenSink:
+    """Groups tests covering TestNoRegressionLayer35KitchenSink."""
     def test_C7_layer35_fit_completes_with_layer41_additions(self):
         """C7: minimal Layer 35 spot-check. The kitchen-sink config from
         Layer 35 enables multiple FE mechanisms simultaneously; Layer 41
@@ -371,6 +376,7 @@ class TestNoRegressionLayer35KitchenSink:
 
 
 class TestClusterDiagnosticsMonotonicity:
+    """Groups tests covering TestClusterDiagnosticsMonotonicity."""
     def test_higher_tau_yields_higher_min_pair_su_when_clusters_form(self):
         """A natural consequence of the membership rule: raising
         ``tau_cluster`` admits only tighter clusters, so ``min_pair_su``
@@ -456,6 +462,7 @@ def _weak_pair_frame(n: int = 1500, seed: int = 0):
 
 
 class TestDefaultThresholdPinned:
+    """Groups tests covering TestDefaultThresholdPinned."""
     def test_default_threshold_pinned_at_4(self):
         """Layer 42 escape clause: the default stayed at 4 because
         lowering it net-shrinks ``support_`` on real data when the
@@ -506,6 +513,7 @@ class TestDefaultThresholdPinned:
 
 
 class TestOptInThresholdTwoTriggersSwap:
+    """Groups tests covering TestOptInThresholdTwoTriggersSwap."""
     def test_opt_in_threshold_2_triggers_swap_on_3_dups(self):
         """With ``dcd_cluster_size_threshold=2``, the 3-dup fixture
         forms a cluster of size 2 members (anchor + 2 dups) and the
@@ -591,6 +599,7 @@ class TestOptInThresholdTwoTriggersSwap:
 
 
 class TestValidationLowerBound:
+    """Groups tests covering TestValidationLowerBound."""
     def test_validate_accepts_threshold_1(self):
         """The Layer 42 validate loosening admits ``=1`` without
         ValueError. Users who want to swap on a strict 2-feature
@@ -634,6 +643,7 @@ class TestValidationLowerBound:
 
 
 class TestSwapGainThresholdProbe:
+    """Groups tests covering TestSwapGainThresholdProbe."""
     def test_swap_gain_threshold_0p02_not_a_win(self):
         """Investigation: does loosening ``swap_gain_threshold`` from
         0.05 to 0.02 let through more wins on perfect dups? On the
@@ -679,6 +689,7 @@ class TestSwapGainThresholdProbe:
 
 
 class TestNoRegressionLayer41:
+    """Groups tests covering TestNoRegressionLayer41."""
     def test_cluster_members_accessor_reports_correctly(self):
         """The Layer 41 ``cluster_members_`` accessor must still report
         the right cluster on the 3-dup fixture after the Layer 42
@@ -742,6 +753,7 @@ class TestNoRegressionLayer41:
 
 
 class TestOptInEndToEnd:
+    """Groups tests covering TestOptInEndToEnd."""
     def test_opt_in_fit_completes_and_records_swap(self):
         """End-to-end probe: the opt-in path completes fit, records
         the swap in ``dcd_['swap_log']``, and the aggregate name in

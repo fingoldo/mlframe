@@ -54,6 +54,7 @@ def _make_mixed(seed: int = 0, n: int = 2500):
 
 
 def _fit(ratio: float):
+    """Helper that fit."""
     df, y = _make_mixed()
     MRMR.clear_fit_cache()
     m = MRMR(
@@ -72,6 +73,7 @@ def _fit(ratio: float):
 
 
 def _ridge_r2(Xt, y):
+    """Ridge r2."""
     from sklearn.linear_model import Ridge
     from sklearn.preprocessing import StandardScaler
     from sklearn.pipeline import make_pipeline
@@ -87,6 +89,7 @@ def _ridge_r2(Xt, y):
 
 
 def _n_poly(support):
+    """N poly."""
     return sum(1 for s in support if str(s).startswith("_polynom_"))
 
 
@@ -96,6 +99,7 @@ def _covers_cd_hard(support):
 
 
 def test_cheap_first_recovers_hard_pair_and_does_not_bloat():
+    """Cheap first recovers hard pair and does not bloat."""
     _df, _y, m_off = _fit(1.0)  # gate OFF: optimise every prospective pair (legacy)
     _, _, m_on = _fit(0.97)  # gate ON (default): skip cheaply-saturated pairs
     sup_off = list(m_off.get_feature_names_out())
@@ -112,6 +116,7 @@ def test_cheap_first_recovers_hard_pair_and_does_not_bloat():
 
 
 def test_cheap_first_preserves_downstream_quality():
+    """Cheap first preserves downstream quality."""
     df, y, m_off = _fit(1.0)
     _, _, m_on = _fit(0.97)
     r2_off = _ridge_r2(m_off.transform(df), y)

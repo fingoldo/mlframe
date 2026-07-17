@@ -56,10 +56,12 @@ def _np_edge_mi_one(x: np.ndarray, y: np.ndarray, n_bins: int) -> float:
 
 
 def _np_edge_mi_batch(X, y, n_bins):
+    """Np edge mi batch."""
     return np.array([_np_edge_mi_one(np.ascontiguousarray(X[:, j]), y, n_bins) for j in range(X.shape[1])])
 
 
 def _continuous_fixture(seed=7, n=6000, k=24, n_bins=10):
+    """Continuous fixture."""
     rng = np.random.default_rng(seed)
     a = rng.uniform(1, 5, n)
     b = rng.uniform(1, 5, n)
@@ -93,6 +95,7 @@ def _tied_fixture(seed=11, n=6000, k=20, n_bins=10):
 
 @pytest.mark.parametrize("fixture", [_continuous_fixture, _tied_fixture], ids=["continuous", "tied"])
 def test_cpu_edge_mi_matches_numpy_reference(fixture):
+    """Cpu edge mi matches numpy reference."""
     X, y, nb = fixture()
     cpu_edge = plugin_mi_classif_batch_edge_njit(X, y, nb)
     ref = _np_edge_mi_batch(X, y, nb)
@@ -123,6 +126,7 @@ def test_edge_differs_from_rank_on_tied():
 # CUDA: CPU edge MI == GPU resident edge MI (the real cross-backend identity).
 # ---------------------------------------------------------------------------
 def _need_cuda() -> bool:
+    """Need cuda."""
     try:
         from pyutilz.core.pythonlib import is_cuda_available
 
@@ -135,6 +139,7 @@ def _need_cuda() -> bool:
 @pytest.mark.skipif(not _need_cuda(), reason="no CUDA")
 @pytest.mark.parametrize("fixture", [_continuous_fixture, _tied_fixture], ids=["continuous", "tied"])
 def test_cpu_edge_mi_matches_gpu_resident_edge(fixture):
+    """Cpu edge mi matches gpu resident edge."""
     import cupy as cp
     from mlframe.feature_selection.filters._hermite_fe_mi import _plugin_mi_classif_batch_cuda_resident
 

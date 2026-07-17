@@ -20,6 +20,7 @@ def test_edges_optimal_joint_matches_naive_loop_order_reference():
     )
 
     def _reference(x, y, candidates=(4, 8, 16, 32), n_splits=3, base="quantile", random_state=0):
+        """Helper that reference."""
         x = np.asarray(x, dtype=np.float64).ravel()
         y = np.asarray(y).ravel()
         mask = np.isfinite(x)

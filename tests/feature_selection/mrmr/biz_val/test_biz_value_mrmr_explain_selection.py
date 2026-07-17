@@ -36,6 +36,7 @@ warnings.filterwarnings("ignore")
 
 
 def _mrmr(**overrides):
+    """Helper that mrmr."""
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     defaults = dict(
@@ -77,6 +78,7 @@ def _canonical_frame(n: int = 800, seed: int = 7):
 
 
 def _fe_on(**overrides):
+    """Fe on."""
     return _mrmr(
         fe_hybrid_orth_enable=True,
         fe_auto=True,
@@ -90,6 +92,7 @@ def _fe_on(**overrides):
 
 
 def test_explain_selection_names_recipes_binding_gate_and_flags():
+    """Explain selection names recipes binding gate and flags."""
     X, y = _canonical_frame()
     est = _fe_on()
     est.fit(X, y)
@@ -142,6 +145,7 @@ def test_canonical_report_surfaces_real_recipe_and_gate_with_margin():
 
 
 def test_explain_selection_graceful_with_fe_disabled():
+    """Explain selection graceful with fe disabled."""
     X, y = _canonical_frame(n=600)
     est = _mrmr(fe_max_steps=0, fe_hybrid_orth_enable=False, fe_mi_greedy_enable=False, fe_auto=False)
     est.fit(X, y)
@@ -159,6 +163,7 @@ def test_explain_selection_graceful_with_fe_disabled():
 
 
 def test_explain_selection_graceful_on_plain_classification():
+    """Explain selection graceful on plain classification."""
     rng = np.random.default_rng(3)
     n = 500
     x_sig = rng.standard_normal(n)
@@ -179,6 +184,7 @@ def test_explain_selection_graceful_on_plain_classification():
 
 
 def test_explain_selection_never_raises_on_unfitted():
+    """Explain selection never raises on unfitted."""
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     est = MRMR(verbose=0, random_seed=0)

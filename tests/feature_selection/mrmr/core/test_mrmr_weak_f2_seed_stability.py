@@ -102,6 +102,7 @@ _RESULTS = []
 
 
 def _checkpoint(msg: str) -> None:
+    """Helper that checkpoint."""
     try:
         with open(_PROGRESS, "a", encoding="utf-8") as fh:
             fh.write(msg.rstrip("\n") + "\n")
@@ -124,6 +125,7 @@ def _operand_tokens(name: str) -> set:
 
 
 def _is_engineered(name: str) -> bool:
+    """Is engineered."""
     return ("(" in name) or ("__" in name)
 
 
@@ -217,6 +219,7 @@ def _make_weak_f2(seed, n, profile):
 
 
 def _fit_classify(seed, n, profile):
+    """Fit classify."""
     df, y = _make_weak_f2(seed, n, profile)
     fs = MRMR(verbose=0, random_seed=seed)
     fs.fit(df, y)
@@ -313,6 +316,7 @@ def test_weak_f2_stability_summary():
 
 @pytest.fixture(scope="session", autouse=True)
 def _dump_weak_f2_results():
+    """Dump weak f2 results."""
     yield
     results_path = _artifact_path("weak_f2_stability.json")
     try:

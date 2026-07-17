@@ -17,6 +17,7 @@ import pandas as pd
 
 
 def _build_xor_fixture(n=600, seed=42):
+    """Build xor fixture."""
     rng = np.random.default_rng(seed)
     x0 = rng.integers(0, 2, n)
     x1 = rng.integers(0, 2, n)
@@ -85,6 +86,7 @@ def test_evaluate_candidates_inner_hoists_materialize_var_once_per_round():
     received: list = []
 
     def _stub_evaluate_candidate(**kw):
+        """Stub evaluate candidate."""
         received.append((kw.get("_relax_y_col"), kw.get("_relax_sel_cols")))
         return 0.0, set()
 
@@ -96,6 +98,7 @@ def test_evaluate_candidates_inner_hoists_materialize_var_once_per_round():
         from mlframe.feature_selection.filters.evaluation import _materialize_var as _real_mv
 
         def _counting_mv(*a, **kw):
+            """Counting mv."""
             calls["n"] += 1
             return _real_mv(*a, **kw)
 

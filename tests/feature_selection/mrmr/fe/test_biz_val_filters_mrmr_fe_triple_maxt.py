@@ -45,6 +45,7 @@ def _synergy_frame(n=1400, n_noise=40, seed=20260619):
 
 
 def _discretize(X, y, n_bins=8):
+    """Helper that discretize."""
     from mlframe.feature_selection.filters.discretization import categorize_dataset
     from mlframe.feature_selection.filters.info_theory import merge_vars
 
@@ -64,7 +65,9 @@ def _discretize(X, y, n_bins=8):
 
 
 class TestPooledTriplePermutationNullHelper:
+    """Groups tests covering TestPooledTriplePermutationNullHelper."""
     def test_genuine_3way_above_null_noise_at_or_below(self):
+        """Genuine 3way above null noise at or below."""
         from mlframe.feature_selection.filters.info_theory._batch_kernels import batch_triple_mi_prange
         from mlframe.feature_selection.filters._permutation_null import (
             pooled_triple_permutation_null_joint_mi_floor,
@@ -113,6 +116,7 @@ class TestPooledTriplePermutationNullHelper:
         assert below >= 0.90, f"only {below:.2%} of noise triples at/below floor {floor:.5f}; max={noise_mis.max():.5f}"
 
     def test_disable_and_degenerate_return_zero_floor(self):
+        """Disable and degenerate return zero floor."""
         from mlframe.feature_selection.filters._permutation_null import (
             pooled_triple_permutation_null_joint_mi_floor,
         )
@@ -156,7 +160,9 @@ class TestPooledTriplePermutationNullHelper:
 
 
 class TestGateSeededTriplesOrder3Consumer:
+    """Groups tests covering TestGateSeededTriplesOrder3Consumer."""
     def _gate(self, perms):
+        """Helper that gate."""
         from mlframe.feature_selection.filters.mrmr import MRMR
         from mlframe.feature_selection.filters._mrmr_fe_step_helpers import _gate_seeded_triples_order3
 
@@ -181,6 +187,7 @@ class TestGateSeededTriplesOrder3Consumer:
         return gk, set(kept)
 
     def test_floor_on_keeps_genuine_drops_noise_off_keeps_all(self):
+        """Floor on keeps genuine drops noise off keeps all."""
         gk, kept_off = self._gate(perms=0)
         gk2, kept_on = self._gate(perms=25)
         # perms=0 is the no-op path: every seeded triple kept.

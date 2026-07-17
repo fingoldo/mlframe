@@ -18,6 +18,7 @@ import pytest
 
 
 def _f2_frame(n, seed=42):
+    """F2 frame."""
     from tests.feature_selection._synthetic_distributions import sample_operands
 
     ops = sample_operands(seed, n, {"a": "any", "b": "divisor", "c": "positive", "d": "any", "e": "any"}, profile="uniform")
@@ -37,6 +38,7 @@ def _fit_capture(cap_env, n=60_000):
     orig = GATE.apply_cmi_redundancy_gate
 
     def spy(cmi_cands, y_dense, *a, **k):
+        """Helper that spy."""
         seen["rows"] = int(np.asarray(y_dense).shape[0])
         acc, diag = orig(cmi_cands, y_dense, *a, **k)
         seen["accepted"] = tuple(sorted(acc))
@@ -77,6 +79,7 @@ def _gate_stride(n, max_rows):
     ],
 )
 def test_gate_stride_formula(n, max_rows, expect_stride):
+    """Gate stride formula."""
     assert _gate_stride(n, max_rows) == expect_stride
     st = _gate_stride(n, max_rows)
     sub = np.arange(n)[::st]

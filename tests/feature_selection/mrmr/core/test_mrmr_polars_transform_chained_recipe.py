@@ -26,6 +26,7 @@ from mlframe.feature_selection.filters.mrmr import MRMR
 
 
 def _fitted_mrmr(names, support, recipes):
+    """Fitted mrmr."""
     m = MRMR()
     m.feature_names_in_ = np.array(names)
     m.n_features_in_ = len(names)
@@ -37,6 +38,7 @@ def _fitted_mrmr(names, support, recipes):
 def _build_chained_recipes():
     # Two leaf recipes over raw columns, mirroring the production shape
     # add(neg(A), abs(B)) and mul(reciproc(C), abs(D)).
+    """Build chained recipes."""
     recipe_a = EngineeredRecipe(
         name="add(neg(A),abs(B))",
         kind="unary_binary",
@@ -63,6 +65,7 @@ def _build_chained_recipes():
 
 
 def _sample_frame():
+    """Sample frame."""
     rng = np.random.default_rng(0)
     n = 50
     return {

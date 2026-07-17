@@ -31,6 +31,7 @@ warnings.filterwarnings("ignore")
 
 
 def _mrmr(**overrides):
+    """Helper that mrmr."""
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     defaults = dict(
@@ -76,6 +77,7 @@ def _tiny_canonical(n: int = 1000, seed: int = 7):
 
 
 def _fit():
+    """Helper that fit."""
     X, y = _tiny_canonical()
     # FE OFF so the candidate pool is the RAW features: selection-frequency then
     # directly separates genuine raw inputs from noise raw inputs (with FE on the

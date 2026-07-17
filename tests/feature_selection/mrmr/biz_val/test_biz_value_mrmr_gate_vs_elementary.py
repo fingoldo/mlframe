@@ -36,6 +36,7 @@ N = 30_000  # tractable; the standalone (c,d) form already separates from the co
 
 
 def _binned(arr):
+    """Helper that binned."""
     from mlframe.feature_selection.filters.discretization import discretize_array
 
     arr = np.nan_to_num(np.asarray(arr, float), nan=0.0, posinf=0.0, neginf=0.0)
@@ -43,6 +44,7 @@ def _binned(arr):
 
 
 def _mi(xb, yb):
+    """Compute the plug-in MI between two already-binned columns xb and yb."""
     from mlframe.feature_selection.filters.info_theory import compute_mi_from_classes, merge_vars
 
     fd = np.column_stack([xb, yb]).astype(np.int32)
@@ -53,6 +55,7 @@ def _mi(xb, yb):
 
 
 def _bare(nm):
+    """Helper that bare."""
     return set(re.findall(r"(?<![A-Za-z_])([a-e])(?![A-Za-z_])", nm))
 
 

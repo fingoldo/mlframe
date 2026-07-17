@@ -21,6 +21,7 @@ SEED = 42
 
 
 def _ratio_fixture(seed: int = SEED, n: int = N):
+    """Ratio fixture."""
     rng = np.random.default_rng(seed)
     a = rng.uniform(1.0, 5.0, n)
     b = rng.uniform(1.0, 5.0, n)
@@ -31,6 +32,7 @@ def _ratio_fixture(seed: int = SEED, n: int = N):
 
 
 def _covers_ratio(eng_names) -> bool:
+    """Covers ratio."""
     return any({"a", "b"} <= set(nm) for nm in eng_names)
 
 

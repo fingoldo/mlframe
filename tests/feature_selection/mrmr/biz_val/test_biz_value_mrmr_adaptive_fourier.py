@@ -41,6 +41,7 @@ SEEDS = (0, 5, 11)
 
 
 def _make_mrmr(**overrides):
+    """Make mrmr."""
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     kwargs = dict(verbose=0, random_seed=0)
@@ -75,8 +76,10 @@ def _build_multitone(seed: int, n: int = 4000):
 
 
 class TestDetectorUnit:
+    """Groups tests covering TestDetectorUnit."""
     @pytest.mark.parametrize("true_w", [3.7, 5.3, 6.8])
     def test_detects_arbitrary_period(self, true_w):
+        """Detects arbitrary period."""
         from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
             _detect_fourier_freq_for_col,
         )
@@ -121,6 +124,7 @@ class TestDetectorUnit:
         assert f is None, "detector fired below min_rows (small-n FP)"
 
     def test_noise_returns_none(self):
+        """Noise returns none."""
         from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
             _detect_fourier_freq_for_col,
         )
@@ -146,9 +150,11 @@ class TestDetectorUnit:
 
 
 class TestGateARecovery:
+    """Groups tests covering TestGateARecovery."""
     @pytest.mark.parametrize("seed", SEEDS)
     @pytest.mark.timeout(300)
     def test_support_model_recovers_multitone(self, seed):
+        """Support model recovers multitone."""
         X, y = _build_multitone(seed)
         yv = y.to_numpy()
         Xtr, Xte, ytr, yte = train_test_split(
@@ -175,6 +181,7 @@ class TestGateARecovery:
     @pytest.mark.parametrize("seed", SEEDS)
     @pytest.mark.timeout(300)
     def test_adaptive_feature_present_in_support(self, seed):
+        """Adaptive feature present in support."""
         X, y = _build_multitone(seed)
         sel = _make_mrmr()
         sel.fit(X, y)
@@ -190,9 +197,11 @@ class TestGateARecovery:
 
 
 class TestGateCNoiseControl:
+    """Groups tests covering TestGateCNoiseControl."""
     @pytest.mark.parametrize("seed", SEEDS)
     @pytest.mark.timeout(300)
     def test_pure_noise_adds_no_adaptive_column(self, seed):
+        """Pure noise adds no adaptive column."""
         rng = np.random.default_rng(seed)
         n = 2000
         Xn = pd.DataFrame({f"c{i}": rng.standard_normal(n) for i in range(6)})
@@ -214,9 +223,11 @@ class TestGateCNoiseControl:
 
 
 class TestGateDReplayByteMatch:
+    """Groups tests covering TestGateDReplayByteMatch."""
     @pytest.mark.parametrize("seed", SEEDS)
     @pytest.mark.timeout(300)
     def test_transform_replays_adaptive_column_byte_for_byte(self, seed):
+        """Transform replays adaptive column byte for byte."""
         X, y = _build_multitone(seed)
         sel = _make_mrmr()
         sel.fit(X, y)

@@ -45,6 +45,7 @@ warnings.filterwarnings("ignore")
 
 
 def _mrmr_fe_on():
+    """Mrmr fe on."""
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     return MRMR(
@@ -89,6 +90,7 @@ def _canonical_frame(n=800, seed=7):
 
 @pytest.fixture(scope="module")
 def fitted():
+    """Helper that fitted."""
     est = _mrmr_fe_on()
     X, y = _canonical_frame()
     est.fit(X, y)
@@ -105,6 +107,7 @@ _ARTIFACTS = (
 
 
 def _roundtrip(est):
+    """Helper that roundtrip."""
     fd, path = tempfile.mkstemp(suffix=".joblib")
     os.close(fd)
     try:

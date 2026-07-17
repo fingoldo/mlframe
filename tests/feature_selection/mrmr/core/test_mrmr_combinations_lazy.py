@@ -27,12 +27,14 @@ def test_lazy_chunks_helper_exists_and_chunks_correctly():
 
 
 def test_lazy_chunks_empty_iterable_yields_nothing():
+    """Lazy chunks empty iterable yields nothing."""
     from mlframe.feature_selection.filters.mrmr import _lazy_chunks
 
     assert list(_lazy_chunks(iter([]), 4)) == []
 
 
 def test_lazy_chunks_chunk_size_larger_than_input_yields_single_chunk():
+    """Lazy chunks chunk size larger than input yields single chunk."""
     from mlframe.feature_selection.filters.mrmr import _lazy_chunks
 
     assert list(_lazy_chunks(iter(range(3)), 100)) == [[0, 1, 2]]
@@ -77,6 +79,7 @@ def test_run_fe_step_does_not_materialise_full_pair_list():
     observed: list[_ProbeIter] = []
 
     def _probe(iterable, r):
+        """Helper that probe."""
         p = _ProbeIter(iterable, r)
         observed.append(p)
         return p

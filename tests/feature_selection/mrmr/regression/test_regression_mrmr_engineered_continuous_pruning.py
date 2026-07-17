@@ -50,6 +50,7 @@ class _FakeMRMRState:
 
 
 def test_prune_drops_entries_not_in_selected_vars():
+    """Prune drops entries not in selected vars."""
     n = 500
     cols = ["raw_a", "raw_b", "eng_survivor", "eng_dropped_1", "eng_dropped_2"]
     store = {
@@ -67,6 +68,7 @@ def test_prune_drops_entries_not_in_selected_vars():
 
 
 def test_prune_keeps_everything_when_all_survive():
+    """Prune keeps everything when all survive."""
     n = 200
     cols = ["raw_a", "eng_1", "eng_2"]
     store = {"eng_1": np.zeros(n), "eng_2": np.zeros(n)}
@@ -78,6 +80,7 @@ def test_prune_keeps_everything_when_all_survive():
 
 
 def test_prune_drops_everything_when_none_survive():
+    """Prune drops everything when none survive."""
     n = 200
     cols = ["raw_a", "eng_1", "eng_2"]
     store = {"eng_1": np.zeros(n), "eng_2": np.zeros(n)}
@@ -89,10 +92,12 @@ def test_prune_drops_everything_when_none_survive():
 
 
 def test_prune_is_noop_on_empty_or_absent_store():
+    """Prune is noop on empty or absent store."""
     inst_empty = _FakeMRMRState({})
     assert _h._prune_engineered_continuous_store(inst_empty, ["a", "b"], [0, 1]) == 0
 
     class _NoStore:
+        """Groups tests covering NoStore."""
         pass
 
     assert _h._prune_engineered_continuous_store(_NoStore(), ["a", "b"], [0, 1]) == 0
@@ -165,6 +170,7 @@ def test_prune_hook_fires_during_real_multi_round_fit():
     orig = _h._prune_engineered_continuous_store
 
     def spy(instance, cols, selected_vars):
+        """Helper that spy."""
         calls.append((len(cols), len(getattr(instance, "_engineered_continuous_", None) or {})))
         return orig(instance, cols, selected_vars)
 

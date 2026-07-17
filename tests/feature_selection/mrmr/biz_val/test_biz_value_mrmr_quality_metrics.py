@@ -38,6 +38,7 @@ def _signal_recall(selected: list[str], true_signals: set[str]) -> float:
 
 
 class TestRankingQuality:
+    """Groups tests covering TestRankingQuality."""
     def test_top_k_precision_5_signals_15_noise(self):
         """5 truly informative + 15 pure noise. The top-5 selected
         features must be dominated by signal (precision >= 0.4) and at
@@ -142,6 +143,7 @@ class TestRankingQuality:
 
 
 class TestClusterRecall:
+    """Groups tests covering TestClusterRecall."""
     def test_three_clusters_each_represented(self):
         """3 disjoint latent factors x 4 collinear copies. y depends
         on all three. DCD-enabled MRMR must surface at least 1
@@ -181,6 +183,7 @@ class TestClusterRecall:
 
 
 class TestStabilityQuant:
+    """Groups tests covering TestStabilityQuant."""
     def test_same_seed_overlap_100pct(self):
         """Two fits with same seed must produce IDENTICAL support_
         (Jaccard = 1.0).
@@ -234,6 +237,7 @@ class TestStabilityQuant:
 
 
 class TestVsBaselineRanking:
+    """Groups tests covering TestVsBaselineRanking."""
     def test_mrmr_with_dcd_avoids_redundant_copies(self):
         """When features include 5 copies of strong signal_a + 1
         unique signal_b, MRMR with DCD must include signal_b in
@@ -281,6 +285,7 @@ class TestVsBaselineRanking:
 
 
 class TestFalsePositiveRate:
+    """Groups tests covering TestFalsePositiveRate."""
     def test_all_noise_bounded_false_positive_rate(self):
         """When ALL features are pure noise, MRMR may surface AT MOST
         a small fraction of features (genuine FP rate after the

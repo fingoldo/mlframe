@@ -34,6 +34,7 @@ def _restore_breakers():
 
 
 def _make_data(n=300, p=5, seed=0):
+    """Make data."""
     rng = np.random.default_rng(seed)
     X = pd.DataFrame(rng.normal(size=(n, p)), columns=[f"x{i}" for i in range(p)])
     y = pd.Series(((X["x0"] + X["x1"]) > 0).astype(np.int64), name="y")
@@ -41,6 +42,7 @@ def _make_data(n=300, p=5, seed=0):
 
 
 def test_fit_rearms_cmi_gpu_breaker():
+    """Fit rearms cmi gpu breaker."""
     _cmi_cuda._CMI_GPU_FAILED = True  # simulate a fault tripped by a PRIOR, unrelated fit
     X, y = _make_data(seed=1)
     MRMR(verbose=0, random_seed=42, fe_max_steps=0).fit(X, y)
@@ -48,6 +50,7 @@ def test_fit_rearms_cmi_gpu_breaker():
 
 
 def test_fit_rearms_mi_direct_gpu_breaker():
+    """Fit rearms mi direct gpu breaker."""
     _permutation_mod._MI_DIRECT_GPU_FAILED = True
     X, y = _make_data(seed=2)
     MRMR(verbose=0, random_seed=42, fe_max_steps=0).fit(X, y)
@@ -55,6 +58,7 @@ def test_fit_rearms_mi_direct_gpu_breaker():
 
 
 def test_fit_rearms_pair_maxt_gpu_breaker():
+    """Fit rearms pair maxt gpu breaker."""
     _pair_resident_mod._PAIR_MAXT_GPU_FAILED = True
     X, y = _make_data(seed=3)
     MRMR(verbose=0, random_seed=42, fe_max_steps=0).fit(X, y)
@@ -66,6 +70,7 @@ def test_breaker_reset_is_resilient_to_missing_gpu_modules(monkeypatch):
     re-arm is a best-effort resilience nicety, never a hard fit() dependency."""
 
     def _boom():
+        """Helper that boom."""
         raise ImportError("simulated missing GPU module")
 
     # Patch the re-arm targets' own reset functions to raise, proving fit() swallows the failure.

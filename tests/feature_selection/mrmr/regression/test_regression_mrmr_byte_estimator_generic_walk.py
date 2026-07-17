@@ -27,6 +27,7 @@ _OLD_ALLOWLIST = ("mi_scores_", "_selectors_", "_engineered_features_", "ranking
 
 
 def _legacy_estimator(instance) -> int:
+    """Legacy estimator."""
     total = 0
     for _attr in _OLD_ALLOWLIST:
         _v = getattr(instance, _attr, None)
@@ -73,6 +74,7 @@ def test_old_allowlist_approach_returns_near_zero_on_realistic_instance():
 
 
 def test_generic_walk_finds_the_dominant_engineered_continuous_state():
+    """Generic walk finds the dominant engineered continuous state."""
     inst = _RealisticFittedMRMR(n_features=50, n_rows=20_000, n_engineered=30)
     new_bytes = _mrmr_instance_state_size_bytes(inst)
     # _engineered_continuous_ alone: 30 * 20_000 * 8 bytes = 4_800_000 bytes.
@@ -85,6 +87,7 @@ def test_generic_walk_estimate_is_a_close_match_to_true_nbytes_sum():
     within a sane range of the TRUE summed .nbytes (not just "non-zero")."""
 
     class _KnownInstance:
+        """Groups tests covering KnownInstance."""
         def __init__(self):
             self.arr_a = np.zeros(10_000, dtype=np.float64)  # 80_000 bytes
             self.arr_b = np.zeros((100, 50), dtype=np.float32)  # 20_000 bytes
@@ -101,7 +104,9 @@ def test_generic_walk_estimate_is_a_close_match_to_true_nbytes_sum():
 
 
 def test_generic_walk_handles_empty_instance():
+    """Generic walk handles empty instance."""
     class _Empty:
+        """Groups tests covering Empty."""
         pass
 
     assert _mrmr_instance_state_size_bytes(_Empty()) == 0
@@ -111,6 +116,7 @@ def test_generic_walk_never_raises_on_pathological_attributes():
     """Cyclic self-reference / non-array garbage attributes must not crash the estimator (best-effort)."""
 
     class _Pathological:
+        """Groups tests covering Pathological."""
         def __init__(self):
             self.self_ref = self
             self.weird_dict = {"a": object(), "b": np.zeros(10)}

@@ -189,6 +189,7 @@ FORMULAS = {}
 
 
 def _reg(name, builder, keep, drop, family, needs_unavailable_op=None, fe_max_steps=1):
+    """Helper that reg."""
     FORMULAS[name] = dict(
         builder=builder,
         keep=keep,
@@ -200,6 +201,7 @@ def _reg(name, builder, keep, drop, family, needs_unavailable_op=None, fe_max_st
 
 
 def _sig(want, exclude=()):
+    """Helper that sig."""
     return {"want": set(want), "exclude": set(exclude)}
 
 
@@ -207,6 +209,7 @@ def _sig(want, exclude=()):
 
 
 def _ws1(seed, n):
+    """Helper that ws1."""
     rng = np.random.default_rng(seed)
     a, b, e = (rng.uniform(0, 1, n) for _ in range(3))
     y = 0.30 * (a**2) / b + 0.01 * e
@@ -217,6 +220,7 @@ _reg("ws1_easy_ratio_sqr", _ws1, keep=[_sig({"a", "b"})], drop={"a", "b", "e"}, 
 
 
 def _ws2(seed, n):
+    """Helper that ws2."""
     rng = np.random.default_rng(seed)
     c, d, e1, e2 = (rng.uniform(0, 1, n) for _ in range(4))
     y = 0.15 * np.log(c) * np.sin(d) + 0.02 * e1 + 0.02 * e2
@@ -227,6 +231,7 @@ _reg("ws2_log_sin_product", _ws2, keep=[_sig({"c", "d"})], drop={"c", "d", "e1",
 
 
 def _ws3(seed, n):
+    """Helper that ws3."""
     rng = np.random.default_rng(seed)
     c, k, d, m, e = (rng.uniform(0, 1, n) for _ in range(5))
     y = 0.20 * np.log(c * k) * np.sin(d / m) + 0.02 * e
@@ -247,6 +252,7 @@ _reg(
 
 
 def _ws4(seed, n):
+    """Helper that ws4."""
     rng = np.random.default_rng(seed)
     a, b, e, g_partner = (rng.uniform(0, 1, n) for _ in range(4))
     # g is the true driver (unobserved); g_partner is a spurious proxy that must
@@ -266,6 +272,7 @@ _reg(
 
 
 def _ws5(seed, n):
+    """Helper that ws5."""
     rng = np.random.default_rng(seed)
     a, b, c, d, e1, e2, e3 = (rng.uniform(0, 1, n) for _ in range(7))
     y = 0.10 * (a / b) * np.sqrt(c / d) + 0.015 * (e1 + e2 + e3)
@@ -288,6 +295,7 @@ _reg(
 
 
 def _F1(seed, n):
+    """Single ratio a**2/b plus observation noise, with an unobserved confound f -- the 'easy' nested-composite fixture."""
     rng = np.random.default_rng(seed)
     a = rng.uniform(1, 5, n)
     b = rng.uniform(1, 5, n)
@@ -301,6 +309,7 @@ _reg("F1_easy_single_ratio_plus_noise", _F1, keep=[_sig({"a", "b"})], drop={"a",
 
 
 def _F2(seed, n):
+    """Two independent marginal-zero pair interactions (a,b ratio and c,d log*sin) -- must be recovered as two separate composites."""
     rng = np.random.default_rng(seed)
     a = rng.uniform(1, 5, n)
     b = rng.uniform(1, 5, n)
@@ -321,6 +330,7 @@ _reg(
 
 
 def _F3(seed, n):
+    """Three-term additive composite (a,b ratio + g,h sqrt*sin + c,d cyclic log*cos) -- the cyclic term is a known-unreachable residual."""
     rng = np.random.default_rng(seed)
     a = rng.uniform(1, 5, n)
     b = rng.uniform(1, 5, n)
@@ -353,6 +363,7 @@ _reg(
 
 
 def _F4(seed, n):
+    """Additive composite sharing operand b between an a,b ratio term and a b,d log*sin term -- b may legitimately survive raw."""
     rng = np.random.default_rng(seed)
     a = rng.uniform(1, 5, n)
     b = rng.uniform(1, 5, n)
@@ -383,6 +394,7 @@ _reg(
 
 
 def _F5(seed, n):
+    """TRUE nested composite: the product of two engineered atoms (a,b ratio times c,d log*sin), requiring fe_max_steps=2."""
     rng = np.random.default_rng(seed)
     a = rng.uniform(1, 5, n)
     b = rng.uniform(1, 5, n)
@@ -407,6 +419,7 @@ _reg(
 
 
 def _F6(seed, n):
+    """Nested ratio of three engineered atoms (div(sqr(a),b), log(c), sqr(sin(d))), requiring fe_max_steps>=2."""
     rng = np.random.default_rng(seed)
     a = rng.uniform(1, 5, n)
     b = rng.uniform(1, 5, n)
@@ -433,6 +446,7 @@ _reg(
 
 
 def _CC1(seed, n):
+    """Helper that CC1."""
     rng = np.random.default_rng(seed)
     a, c, e = (rng.uniform(0, 1, n) for _ in range(3))
     y = a**2 + 0.30 * c
@@ -455,6 +469,7 @@ _reg(
 
 
 def _CC2(seed, n):
+    """Helper that CC2."""
     rng = np.random.default_rng(seed)
     a, b, e1, e2 = (rng.uniform(0, 1, n) for _ in range(4))
     y = (a**2) / (b + 0.5)
@@ -472,6 +487,7 @@ _reg(
 
 
 def _CC3(seed, n):
+    """Helper that CC3."""
     rng = np.random.default_rng(seed)
     a, b, d, e = (rng.uniform(0, 1, n) for _ in range(4))
     y = (a**2) * b + 0.20 * d
@@ -489,6 +505,7 @@ _reg(
 
 
 def _CC4(seed, n):
+    """Helper that CC4."""
     rng = np.random.default_rng(seed)
     a, c, e = (rng.uniform(0, 1, n) for _ in range(3))
     f = rng.uniform(0, 1, n)  # unobserved
@@ -507,6 +524,7 @@ _reg(
 
 
 def _CC5(seed, n):
+    """Helper that CC5."""
     rng = np.random.default_rng(seed)
     a, b, c, e = (rng.uniform(0, 1, n) for _ in range(4))
     y = np.minimum(np.log(a + 1.0), np.log(b + 1.0)) + 0.25 * c
@@ -524,6 +542,7 @@ _reg(
 
 
 def _CC6(seed, n):
+    """Helper that CC6."""
     rng = np.random.default_rng(seed)
     a, b, d, e1, e2 = (rng.uniform(0, 1, n) for _ in range(5))
     y = np.sqrt(a * b) + 0.20 * d
@@ -552,6 +571,7 @@ _reg(
 
 
 def _NT1(seed, n):
+    """Helper that NT1."""
     rng = np.random.default_rng(seed)
     a, b, c, e = (rng.uniform(0, 1, n) for _ in range(4))
     y = a**2 / (b + 0.5) + 0.05 * np.sin(3 * c)
@@ -568,6 +588,7 @@ _reg(
 
 
 def _NT2(seed, n):
+    """Helper that NT2."""
     rng = np.random.default_rng(seed)
     a, b, c, d, e = (rng.uniform(0, 1, n) for _ in range(5))
     y = np.log(a + 1.0) * np.sin(2 * b) + (c + 0.5) / (d + 0.5)
@@ -586,6 +607,7 @@ _reg(
 
 
 def _NT3(seed, n):
+    """Helper that NT3."""
     rng = np.random.default_rng(seed)
     a, b, c, e = (rng.uniform(0, 1, n) for _ in range(4))
     c2 = c + 0.001 * rng.random(n)
@@ -603,6 +625,7 @@ _reg(
 
 
 def _NT4(seed, n):
+    """Helper that NT4."""
     rng = np.random.default_rng(seed)
     a, c, d, e = (rng.uniform(0, 1, n) for _ in range(4))
     f = rng.uniform(0, 1, n)  # unobserved
@@ -624,6 +647,7 @@ _reg(
 
 
 def _NT5(seed, n):
+    """Helper that NT5."""
     rng = np.random.default_rng(seed)
     a, b, c, d, e = (rng.uniform(0, 1, n) for _ in range(5))
     y = np.maximum(a, b) - 0.3 * np.minimum(c, d) + 0.0 * e
@@ -643,6 +667,7 @@ _reg(
 
 
 def _MS1(seed, n):
+    """Helper that MS1."""
     rng = np.random.default_rng(seed)
     a = rng.uniform(1, 5, n)
     b = rng.uniform(1, 5, n)
@@ -667,6 +692,7 @@ _reg(
 
 
 def _MS2(seed, n):
+    """Helper that MS2."""
     rng = np.random.default_rng(seed)
     a = rng.uniform(0, 2 * np.pi, n)
     b = rng.uniform(1, 3, n)
@@ -696,6 +722,7 @@ _reg(
 
 
 def _MS3(seed, n):
+    """Helper that MS3."""
     rng = np.random.default_rng(seed)
     a = rng.uniform(0, 1, n)
     b = rng.uniform(0, 1, n)
@@ -722,6 +749,7 @@ _reg(
 
 
 def _MS4(seed, n):
+    """Helper that MS4."""
     rng = np.random.default_rng(seed)
     a = rng.uniform(0, 1, n)
     b = rng.uniform(0, 1, n)
@@ -749,6 +777,7 @@ _reg(
 
 
 def _MS5(seed, n):
+    """Helper that MS5."""
     rng = np.random.default_rng(seed)
     a = rng.uniform(0, 2, n)
     b = rng.uniform(0, 1, n)
@@ -783,6 +812,7 @@ _LEDGER = []
 
 
 def _record(formula, n, selected, keep_results, drop_results, eng_recipes, notes=""):
+    """Helper that record."""
     _LEDGER.append(
         dict(
             formula=formula,
@@ -842,6 +872,7 @@ def _fit_and_eval(formula, n, fe_max_steps=1):
     # global RNG here: every fit starts from the SAME global state, making each case's verdict
     # reproducible and order-independent (was flaky: ~20 cases flipped pass/fail purely on the
     # in-process execution order). Pure test-determinism -- no production behaviour change.
+    """Fit and eval."""
     np.random.seed(SEED)
     spec = FORMULAS[formula]
     df, y = spec["builder"](SEED, n)
@@ -1018,6 +1049,7 @@ def _maybe_xfail(formula, n, failures):
 @pytest.mark.timeout(FIT_TIMEOUT)
 @pytest.mark.parametrize("formula", sorted(FORMULAS.keys()))
 def test_create_keep_drop_broad(formula):
+    """Create keep drop broad."""
     _checkpoint(f"BROAD start {formula} n={BROAD_N}")
     spec = FORMULAS[formula]
     fe_steps = spec.get("fe_max_steps", 1)
@@ -1049,6 +1081,7 @@ _NSWEEP_NS = [1000, 5000, 20000, 50000]
 @pytest.mark.parametrize("formula", _NSWEEP_FORMULAS)
 @pytest.mark.parametrize("n", _NSWEEP_NS)
 def test_create_keep_drop_nsweep(formula, n):
+    """Create keep drop nsweep."""
     _checkpoint(f"NSWEEP start {formula} n={n}")
     spec = FORMULAS[formula]
     fe_steps = spec.get("fe_max_steps", 1)

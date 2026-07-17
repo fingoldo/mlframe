@@ -208,6 +208,7 @@ def test_nested_parent_recipe_survives_pickle():
 
 
 def _canonical_fixture(seed: int, n: int):
+    """Canonical fixture."""
     rng = np.random.default_rng(seed)
     a = rng.random(n)
     b = rng.random(n)

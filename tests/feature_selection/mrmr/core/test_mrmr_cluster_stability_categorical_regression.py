@@ -18,6 +18,7 @@ warnings.filterwarnings("ignore")
 
 
 def _frame_with_categorical(n=300, seed=0):
+    """Frame with categorical."""
     rng = np.random.default_rng(seed)
     df = pd.DataFrame(
         {
@@ -32,6 +33,7 @@ def _frame_with_categorical(n=300, seed=0):
 
 
 def test_stability_helpers_handle_raw_categorical_column():
+    """Stability helpers handle raw categorical column."""
     from mlframe.feature_selection.filters._stability_cluster import (
         cluster_stability_selection,
         complementary_pairs_stability,
@@ -42,6 +44,7 @@ def test_stability_helpers_handle_raw_categorical_column():
     def _sel(X_sub, y_sub):
         # X_sub is a dtype-preserved frame row-subset now; the selector picks the 2 numeric signals + the categorical (index 3) so the
         # categorical's singleton cluster is exercised end-to-end.
+        """Helper that sel."""
         assert hasattr(X_sub, "iloc")  # the de-mask hands the selector a frame, not a float-coerced array
         return np.array([0, 1, 3], dtype=np.int64)
 

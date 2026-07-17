@@ -29,6 +29,7 @@ _LEAN = dict(dcd_enable=False, build_friend_graph=False, cluster_aggregate_enabl
 
 
 def _make_poly(seed: int = 202, n: int = N):
+    """Make poly."""
     rng = np.random.default_rng(seed)
     a = rng.uniform(-2.5, 2.5, n)
     b = rng.uniform(-2.5, 2.5, n)
@@ -40,6 +41,7 @@ def _make_poly(seed: int = 202, n: int = N):
 
 
 def _orth_smart_polynom(basis):
+    """Orth smart polynom."""
     return MRMR(
         verbose=0,
         n_jobs=1,
@@ -55,6 +57,7 @@ def _orth_smart_polynom(basis):
 
 
 def _unb():
+    """Helper that unb."""
     return MRMR(
         verbose=0,
         n_jobs=1,
@@ -68,6 +71,7 @@ def _unb():
 
 
 def _best_engineered_corr(fs, df, true):
+    """Best engineered corr."""
     names = list(fs.get_feature_names_out())
     eng = [nm for nm in names if nm not in RAW]
     if not eng:
@@ -87,6 +91,7 @@ def _best_engineered_corr(fs, df, true):
 
 
 def _fit(make_mrmr, df, y):
+    """Helper that fit."""
     MRMR.clear_fit_cache()
     fs = make_mrmr()
     with warnings.catch_warnings():

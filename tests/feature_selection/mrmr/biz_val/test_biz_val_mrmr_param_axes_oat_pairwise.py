@@ -111,6 +111,7 @@ def _assert_confounder_contract(names, label=""):
 
 
 def _assert_both_contracts(label, **axis_kwargs):
+    """Assert both contracts."""
     Xd, yd = _make_exact_dup(seed=0)
     _assert_exact_dup_contract(_select(Xd, yd, **axis_kwargs), label=f"[{label}]")
     Xc, yc = _make_confounder(seed=0)
@@ -137,6 +138,7 @@ def _assert_both_contracts(label, **axis_kwargs):
 # OAT baseline
 # ---------------------------------------------------------------------------
 def test_oat_baseline_both_contracts():
+    """Oat baseline both contracts."""
     _assert_both_contracts("baseline")
 
 
@@ -145,57 +147,68 @@ def test_oat_baseline_both_contracts():
 # ---------------------------------------------------------------------------
 @pytest.mark.parametrize("mi_normalization", ["none", "su"])
 def test_oat_mi_normalization(mi_normalization):
+    """Oat mi normalization."""
     _assert_both_contracts(f"mi_normalization={mi_normalization}", mi_normalization=mi_normalization)
 
 
 @pytest.mark.parametrize("mi_correction", ["none", "miller_madow", "chao_shen"])
 def test_oat_mi_correction(mi_correction):
+    """Oat mi correction."""
     _assert_both_contracts(f"mi_correction={mi_correction}", mi_correction=mi_correction)
 
 
 @pytest.mark.parametrize("cardinality_bias_correction", [True, False])
 def test_oat_cardinality_bias_correction(cardinality_bias_correction):
+    """Oat cardinality bias correction."""
     _assert_both_contracts(f"cardinality_bias_correction={cardinality_bias_correction}", cardinality_bias_correction=cardinality_bias_correction)
 
 
 # 'optimal_joint' admits a confounder noise col so it is exercised on exact_dup only (where it is clean); the rest run both contracts.
 @pytest.mark.parametrize("nbins_strategy", [None, "mdlp", "fayyad_irani"])
 def test_oat_nbins_strategy(nbins_strategy):
+    """Oat nbins strategy."""
     _assert_both_contracts(f"nbins_strategy={nbins_strategy}", nbins_strategy=nbins_strategy)
 
 
 def test_oat_nbins_strategy_optimal_joint_exact_dup():
+    """Oat nbins strategy optimal joint exact dup."""
     Xd, yd = _make_exact_dup(seed=0)
     _assert_exact_dup_contract(_select(Xd, yd, nbins_strategy="optimal_joint"), label="[nbins=optimal_joint]")
 
 
 @pytest.mark.parametrize("quantization_method", ["quantile", "uniform"])
 def test_oat_quantization_method(quantization_method):
+    """Oat quantization method."""
     _assert_both_contracts(f"quantization_method={quantization_method}", quantization_method=quantization_method)
 
 
 @pytest.mark.parametrize("nan_strategy", ["separate_bin", "fillna_zero", "ffill_bfill", "propagate", "raise"])
 def test_oat_nan_strategy(nan_strategy):
+    """Oat nan strategy."""
     _assert_both_contracts(f"nan_strategy={nan_strategy}", nan_strategy=nan_strategy)
 
 
 @pytest.mark.parametrize("min_relevance_gain_mode", ["relative_to_entropy", "absolute"])
 def test_oat_min_relevance_gain_mode(min_relevance_gain_mode):
+    """Oat min relevance gain mode."""
     _assert_both_contracts(f"min_relevance_gain_mode={min_relevance_gain_mode}", min_relevance_gain_mode=min_relevance_gain_mode)
 
 
 @pytest.mark.parametrize("mrmr_relevance_algo", ["fleuret", "pld"])
 def test_oat_mrmr_relevance_algo(mrmr_relevance_algo):
+    """Oat mrmr relevance algo."""
     _assert_both_contracts(f"mrmr_relevance_algo={mrmr_relevance_algo}", mrmr_relevance_algo=mrmr_relevance_algo)
 
 
 @pytest.mark.parametrize("mrmr_redundancy_algo", ["fleuret", "pld_max", "pld_mean"])
 def test_oat_mrmr_redundancy_algo(mrmr_redundancy_algo):
+    """Oat mrmr redundancy algo."""
     _assert_both_contracts(f"mrmr_redundancy_algo={mrmr_redundancy_algo}", mrmr_redundancy_algo=mrmr_redundancy_algo)
 
 
 @pytest.mark.parametrize("redundancy_aggregator", [None, "jmim"])
 def test_oat_redundancy_aggregator(redundancy_aggregator):
+    """Oat redundancy aggregator."""
     _assert_both_contracts(f"redundancy_aggregator={redundancy_aggregator}", redundancy_aggregator=redundancy_aggregator)
 
 
@@ -258,6 +271,7 @@ def test_pairwise_config_count_reported(capsys):
 
 @pytest.mark.parametrize("cfg", _PAIRWISE_ROWS, ids=lambda c: ",".join(f"{k[:4]}={v}" for k, v in c.items()))
 def test_pairwise_exact_dup_contract(cfg):
+    """Pairwise exact dup contract."""
     Xd, yd = _make_exact_dup(seed=0)
     _assert_exact_dup_contract(_select(Xd, yd, **cfg), label=f"[pairwise {cfg}]")
 
