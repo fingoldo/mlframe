@@ -3202,7 +3202,14 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
                 _prior_was_identity, _prior_y_sample = _prior_entry
             else:
                 _prior_was_identity, _prior_y_sample = _prior_entry, None
-            if _prior_was_identity is True:
+            # A refit of this SAME instance on the exact (X, y) pair that produced this cache entry
+            # is not a cross-target reuse -- it's a self-refit, which _fit_impl's own signature /
+            # _FIT_CACHE shortcuts already handle precisely (replaying the TRUE fitted support_ order
+            # and mrmr_gains_). Taking the coarse identity-shortcut here instead would silently replace
+            # the real MI-ranked selection order with raw arange(n_cols) and zero out mrmr_gains_/
+            # provenance_ -- caught live via a bit-identical-refit regression test.
+            _is_self_refit = _x_fp == getattr(self, "_own_last_identity_fp_", None)
+            if _prior_was_identity is True and not _is_self_refit:
                 _ycorr_thr = float(getattr(self, "mrmr_identity_cache_ycorr_threshold", 0.0) or 0.0)
                 _ycorr_ok = True
                 _measured_corr = None
@@ -3565,6 +3572,10 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
                     with _MRMR_IDENTITY_FP_LOCK:
                         _cache_dict[_x_fp] = (bool(_is_id), _mrmr_y_corr_sample(y) if _is_id else None)
                     if _is_id:
+                        # Remember which (X, y) fingerprint THIS instance's own real fit produced, so a
+                        # later self-refit on the identical pair defers to _fit_impl's precise same-instance
+                        # shortcuts instead of the coarse cross-target identity-shortcut above.
+                        self._own_last_identity_fp_ = _x_fp
                         logger.info(
                             "[MRMR] cross-target identity cache STORED for X fingerprint=%s "
                             "(no features dropped, no engineered features); subsequent "
