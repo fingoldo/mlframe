@@ -22,6 +22,7 @@ from mlframe.reporting import render_multi_target_panels
 
 @pytest.fixture
 def qr_inputs():
+    """Qr inputs."""
     rng = np.random.default_rng(0)
     n = 300
     y = rng.standard_normal(n)
@@ -36,7 +37,9 @@ def qr_inputs():
 
 
 class TestQRDispatch:
+    """Groups tests for: TestQRDispatch."""
     def test_quantile_dispatch(self, qr_inputs, tmp_path):
+        """Quantile dispatch."""
         y, preds, alphas = qr_inputs
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -52,6 +55,7 @@ class TestQRDispatch:
         assert os.path.exists(tmp_path / "qr_quantile_panels.png")
 
     def test_no_alphas_no_dispatch(self, qr_inputs, tmp_path):
+        """No alphas no dispatch."""
         y, preds, _ = qr_inputs
         # quantile_panels set but quantile_alphas missing -> falls through
         # to multilabel/multiclass branches (which won't match 1-D y +
@@ -66,6 +70,7 @@ class TestQRDispatch:
         assert tag is None
 
     def test_no_quantile_panels_template_no_dispatch(self, qr_inputs, tmp_path):
+        """No quantile panels template no dispatch."""
         y, preds, alphas = qr_inputs
         tag = render_multi_target_panels(
             targets=y,
@@ -77,6 +82,7 @@ class TestQRDispatch:
         assert tag is None
 
     def test_dual_backend(self, qr_inputs, tmp_path):
+        """Dual backend."""
         y, preds, alphas = qr_inputs
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -92,11 +98,13 @@ class TestQRDispatch:
         assert (tmp_path / "qr_quantile_panels.plotly.html").exists()
 
     def test_composer_exception_swallowed(self, qr_inputs, tmp_path, monkeypatch, caplog):
+        """Composer exception swallowed."""
         import logging
         from mlframe.reporting import auto_dispatch
         import mlframe.reporting.charts.quantile as qmod
 
         def _raise(*args, **kwargs):
+            """Helper: Raise."""
             raise RuntimeError("synthetic")
 
         monkeypatch.setattr(qmod, "compose_quantile_figure", _raise)

@@ -16,6 +16,7 @@ import numpy as np
 
 
 def _reg_frame(seed=7, n=300):
+    """Builds a small polars regression frame with a linear target over three numeric features."""
     import polars as pl
 
     rng = np.random.default_rng(seed)
@@ -27,6 +28,7 @@ def _reg_frame(seed=7, n=300):
 
 
 def _run_suite(preprocessing_extensions, tmp_path):
+    """Runs train_mlframe_models_suite with the given row-wise preprocessing extensions toggle."""
     from sklearn.linear_model import Ridge
 
     from mlframe.training.core import train_mlframe_models_suite

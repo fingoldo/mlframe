@@ -17,6 +17,7 @@ from mlframe.preprocessing.align_feature_direction import align_feature_directio
 
 
 def _make_mixed_orientation_dataset(n: int, n_features: int, seed: int):
+    """Helper that make mixed orientation dataset."""
     rng = np.random.default_rng(seed)
     y = rng.integers(0, 2, n)
     true_signal = np.where(y == 1, 1.0, -1.0)
@@ -29,6 +30,7 @@ def _make_mixed_orientation_dataset(n: int, n_features: int, seed: int):
 
 
 def test_biz_val_align_feature_direction_recovers_pooled_signal():
+    """Align feature direction recovers pooled signal."""
     X_train, y_train = _make_mixed_orientation_dataset(n=2000, n_features=20, seed=0)
     X_test, y_test = _make_mixed_orientation_dataset(n=1000, n_features=20, seed=1)
 
@@ -48,6 +50,7 @@ def test_biz_val_align_feature_direction_recovers_pooled_signal():
 
 
 def test_align_feature_direction_flips_correct_columns():
+    """Align feature direction flips correct columns."""
     rng = np.random.default_rng(2)
     n = 1000
     y = rng.integers(0, 2, n)
@@ -62,6 +65,7 @@ def test_align_feature_direction_flips_correct_columns():
 
 
 def test_apply_feature_direction_never_recomputes_auc():
+    """Apply feature direction never recomputes auc."""
     flip_signs = {"a": -1, "b": 1}
     df = pd.DataFrame({"a": [1.0, 2.0, 3.0], "b": [4.0, 5.0, 6.0]})
     out = apply_feature_direction(df, flip_signs)

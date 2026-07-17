@@ -12,12 +12,14 @@ import numpy as np
 
 def test_bucket_kernel_symbol_exists():
     # Fails on pre-fix code: the fused kernel did not exist (ImportError), proving this sensor catches a missing optimization.
+    """Bucket kernel symbol exists."""
     from mlframe.feature_engineering.transformer.target_quantile import _bucket_sums_counts
 
     assert callable(_bucket_sums_counts)
 
 
 def test_bucket_assignment_partitions_all_rows_and_matches_float64_reference():
+    """Bucket assignment partitions all rows and matches float64 reference."""
     from mlframe.feature_engineering.transformer.target_quantile import _bucket_sums_counts
 
     n, d, K = 200_000, 6, 10
@@ -51,6 +53,7 @@ def test_bucket_assignment_partitions_all_rows_and_matches_float64_reference():
 
 
 def test_centroids_used_by_mode_b_are_finite_and_shaped():
+    """Centroids used by mode b are finite and shaped."""
     from mlframe.feature_engineering.transformer.target_quantile import compute_target_quantile_attention
 
     rng = np.random.default_rng(11)

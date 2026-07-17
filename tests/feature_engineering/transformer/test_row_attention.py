@@ -35,6 +35,7 @@ pytestmark = pytest.mark.fast
 
 
 def _make_data(n: int = 200, d: int = 8, seed: int = 0) -> tuple[np.ndarray, np.ndarray]:
+    """Helper: Make data."""
     rng = np.random.default_rng(seed)
     X = rng.standard_normal((n, d)).astype(np.float32)
     y = (X[:, 0] + 0.5 * X[:, 1] > 0).astype(np.float32)
@@ -45,6 +46,7 @@ def _make_data(n: int = 200, d: int = 8, seed: int = 0) -> tuple[np.ndarray, np.
 
 
 def test_row_attention_mode_a_shape_and_dtype(small_X_y_classification, kfold_splitter):
+    """Row attention mode a shape and dtype."""
     X, y = small_X_y_classification
     out = compute_row_attention(
         X_train=X,
@@ -66,6 +68,7 @@ def test_row_attention_mode_a_shape_and_dtype(small_X_y_classification, kfold_sp
 
 
 def test_row_attention_mode_a_with_x_mean_aggregate(small_X_y_classification, kfold_splitter):
+    """Row attention mode a with x mean aggregate."""
     X, y = small_X_y_classification
     out = compute_row_attention(
         X_train=X,
@@ -88,6 +91,7 @@ def test_row_attention_mode_a_with_x_mean_aggregate(small_X_y_classification, kf
 
 
 def test_row_attention_mode_a_determinism(small_X_y_classification, kfold_splitter):
+    """Row attention mode a determinism."""
     X, y = small_X_y_classification
     out1 = compute_row_attention(X, y, None, kfold_splitter, seed=7, n_heads=2, head_dim=4, k=8, gpu_stage4=False, dedupe_threshold=None)
     out2 = compute_row_attention(X, y, None, kfold_splitter, seed=7, n_heads=2, head_dim=4, k=8, gpu_stage4=False, dedupe_threshold=None)
@@ -95,6 +99,7 @@ def test_row_attention_mode_a_determinism(small_X_y_classification, kfold_splitt
 
 
 def test_row_attention_mode_a_seed_changes_output(small_X_y_classification, kfold_splitter):
+    """Row attention mode a seed changes output."""
     X, y = small_X_y_classification
     out1 = compute_row_attention(X, y, None, kfold_splitter, seed=7, n_heads=2, head_dim=4, k=8, gpu_stage4=False, dedupe_threshold=None)
     out2 = compute_row_attention(X, y, None, kfold_splitter, seed=42, n_heads=2, head_dim=4, k=8, gpu_stage4=False, dedupe_threshold=None)
@@ -105,6 +110,7 @@ def test_row_attention_mode_a_seed_changes_output(small_X_y_classification, kfol
 
 
 def test_row_attention_mode_b_shape():
+    """Row attention mode b shape."""
     X_train, y_train = _make_data(n=200, d=8, seed=0)
     X_query, _ = _make_data(n=50, d=8, seed=1)
     out = compute_row_attention(
@@ -123,6 +129,7 @@ def test_row_attention_mode_b_shape():
 
 
 def test_row_attention_mode_b_deterministic():
+    """Row attention mode b deterministic."""
     X_train, y_train = _make_data(n=150, d=8, seed=0)
     X_query, _ = _make_data(n=40, d=8, seed=1)
     out1 = compute_row_attention(X_train, y_train, X_query, KFold(n_splits=2), seed=0, n_heads=2, head_dim=4, k=8, gpu_stage4=False, dedupe_threshold=None)
@@ -134,6 +141,7 @@ def test_row_attention_mode_b_deterministic():
 
 
 def test_build_key_bank_and_attend_round_trip():
+    """Build key bank and attend round trip."""
     X_train, y_train = _make_data(n=150, d=8, seed=0)
     X_query, _ = _make_data(n=30, d=8, seed=1)
     bank = build_key_bank(X_train=X_train, y_train=y_train, seed=0, n_heads=2, head_dim=4)
@@ -144,6 +152,7 @@ def test_build_key_bank_and_attend_round_trip():
 
 
 def test_build_key_bank_disk_cache_round_trip(tmp_path: Path):
+    """Build key bank disk cache round trip."""
     X_train, y_train = _make_data(n=120, d=6, seed=0)
     bank1 = build_key_bank(X_train=X_train, y_train=y_train, seed=0, n_heads=2, head_dim=4, cache_dir=tmp_path)
     # Second call should hit cache.
@@ -155,6 +164,7 @@ def test_build_key_bank_disk_cache_round_trip(tmp_path: Path):
 
 
 def test_attend_with_explicit_aggregates():
+    """Attend with explicit aggregates."""
     X_train, y_train = _make_data(n=100, d=6, seed=0)
     X_query, _ = _make_data(n=20, d=6, seed=1)
     bank = build_key_bank(X_train=X_train, y_train=y_train, seed=0, n_heads=1, head_dim=4)
@@ -167,6 +177,7 @@ def test_attend_with_explicit_aggregates():
 
 
 def test_row_attention_raises_on_missing_seed():
+    """Row attention raises on missing seed."""
     X, y = _make_data(n=50, d=4, seed=0)
     # Python's "missing 1 required keyword-only argument: 'seed'" fires before require_seed; both messages contain "seed".
     with pytest.raises(TypeError, match="seed"):
@@ -174,6 +185,7 @@ def test_row_attention_raises_on_missing_seed():
 
 
 def test_row_attention_raises_on_nan():
+    """Row attention raises on nan."""
     X, y = _make_data(n=50, d=4, seed=0)
     X[10, 2] = np.nan
     with pytest.raises(ValueError, match="non-finite"):
@@ -181,6 +193,7 @@ def test_row_attention_raises_on_nan():
 
 
 def test_row_attention_raises_on_y_train_2d():
+    """Row attention raises on y train 2d."""
     X, y = _make_data(n=50, d=4, seed=0)
     y2 = np.stack([y, y], axis=1)
     with pytest.raises(ValueError, match="y_train must be 1-D"):
@@ -188,18 +201,21 @@ def test_row_attention_raises_on_y_train_2d():
 
 
 def test_row_attention_raises_on_k_too_large():
+    """Row attention raises on k too large."""
     X, y = _make_data(n=50, d=4, seed=0)
     with pytest.raises(ValueError, match="k must be"):
         compute_row_attention(X, y, None, KFold(n_splits=2), seed=0, n_heads=1, head_dim=2, k=1000, gpu_stage4=False)
 
 
 def test_row_attention_raises_on_metric_non_cosine():
+    """Row attention raises on metric non cosine."""
     X, y = _make_data(n=50, d=4, seed=0)
     with pytest.raises(ValueError, match="metric"):
         compute_row_attention(X, y, None, KFold(n_splits=2), seed=0, n_heads=1, head_dim=2, k=4, metric="l2", gpu_stage4=False)  # type: ignore[arg-type]
 
 
 def test_row_attention_raises_on_x_query_d_mismatch():
+    """Row attention raises on x query d mismatch."""
     X_train, y_train = _make_data(n=50, d=8, seed=0)
     X_query, _ = _make_data(n=20, d=6, seed=1)  # different d
     with pytest.raises(ValueError, match="d="):
@@ -238,6 +254,7 @@ def test_row_attention_signal_correlates_with_target():
 
 
 def _gpu_available() -> bool:
+    """Helper: Gpu available."""
     try:
         from mlframe.feature_engineering.transformer._utils import is_gpu_available
 

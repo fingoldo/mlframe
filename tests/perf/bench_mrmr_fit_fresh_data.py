@@ -18,6 +18,7 @@ warnings.filterwarnings("ignore")
 
 
 def _make_mrmr(**overrides):
+    """Helper that make mrmr."""
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     kwargs = dict(verbose=0, random_seed=0)
@@ -26,6 +27,7 @@ def _make_mrmr(**overrides):
 
 
 def _build(seed: int, n: int = 12000):
+    """Helper that build."""
     rng = np.random.default_rng(seed)
     x = rng.uniform(-3.0, 3.0, size=n)
     cols = {"a": x}
@@ -40,6 +42,7 @@ def _build(seed: int, n: int = 12000):
 
 
 def run_fit(seed):
+    """Helper that run fit."""
     X, y = _build(seed)
     m = _make_mrmr()
     m.fit(X, y)
@@ -48,6 +51,7 @@ def run_fit(seed):
 
 def main():
     # warm
+    """Helper that main."""
     run_fit(99)
     run_fit(98)
     pr = cProfile.Profile()

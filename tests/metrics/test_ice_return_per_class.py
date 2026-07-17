@@ -17,6 +17,7 @@ from mlframe.metrics.core import compute_probabilistic_multiclass_error
 
 
 def _softmax_probs(rng, n, k):
+    """Helper: Softmax probs."""
     logits = rng.normal(size=(n, k))
     p = np.exp(logits)
     p /= p.sum(axis=1, keepdims=True)
@@ -91,6 +92,7 @@ def test_report_per_class_integral_error_unchanged():
 
     def legacy_metric(*, y_true, y_score):
         # Rejects return_per_class -> report falls back to per-class recompute.
+        """Legacy metric."""
         return compute_probabilistic_multiclass_error(y_true=y_true, y_score=y_score, nbins=10)
 
     common = dict(
@@ -138,10 +140,12 @@ def test_perf_sentinel_index_faster_than_recompute():
     probs = _softmax_probs(rng, n, k)
 
     def old():
+        """Old."""
         compute_probabilistic_multiclass_error(y_true=y_true, y_score=probs, nbins=10)
         return [compute_probabilistic_multiclass_error(y_true=(y_true == c).astype(np.int8), y_score=probs[:, c], nbins=10) for c in range(k)]
 
     def new():
+        """New."""
         _, per = compute_probabilistic_multiclass_error(y_true=y_true, y_score=probs, nbins=10, return_per_class=True)
         return [per[c] for c in range(k)]
 

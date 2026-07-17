@@ -16,6 +16,7 @@ from mlframe.feature_engineering.ma_crossover import ma_crossover_features
 
 
 def _make_regime_shift_series(n: int, shift_at: int, seed: int):
+    """Helper: Make regime shift series."""
     rng = np.random.default_rng(seed)
     trend = np.where(np.arange(n) < shift_at, -0.4, 0.4)
     x = np.cumsum(trend + rng.normal(scale=0.3, size=n)) + 100
@@ -25,6 +26,7 @@ def _make_regime_shift_series(n: int, shift_at: int, seed: int):
 
 
 def test_biz_val_ma_crossover_vote_sum_delta_detects_onset_better_than_vote_sum_level():
+    """Biz val ma crossover vote sum delta detects onset better than vote sum level."""
     s, label = _make_regime_shift_series(n=400, shift_at=200, seed=1)
     mas = {w: s.rolling(w).mean() for w in [3, 5, 10, 20]}
     feats = ma_crossover_features(mas)
@@ -40,6 +42,7 @@ def test_biz_val_ma_crossover_vote_sum_delta_detects_onset_better_than_vote_sum_
 
 
 def test_ma_crossover_features_vote_sum_delta_is_first_difference_of_vote_sum():
+    """Ma crossover features vote sum delta is first difference of vote sum."""
     idx = pd.RangeIndex(6)
     mas = {3: pd.Series([1.0, 2.0, 4.0, 4.0, 1.0, 1.0], index=idx), 5: pd.Series([2.0] * 6, index=idx)}
     feats = ma_crossover_features(mas)
@@ -50,6 +53,7 @@ def test_ma_crossover_features_vote_sum_delta_is_first_difference_of_vote_sum():
 
 
 def test_ma_crossover_features_vote_sum_delta_resets_at_group_boundary():
+    """Ma crossover features vote sum delta resets at group boundary."""
     idx = pd.RangeIndex(6)
     mas = {3: pd.Series([1.0, 2.0, 3.0, 10.0, 20.0, 30.0], index=idx), 5: pd.Series([2.0] * 6, index=idx)}
     group_ids = np.array([0, 0, 0, 1, 1, 1])
@@ -62,6 +66,7 @@ def test_ma_crossover_features_vote_sum_delta_resets_at_group_boundary():
 
 def test_ma_crossover_features_default_matches_zero_weight_power_bit_identical():
     # long_window_weight_power's default (0.0) must reproduce the original equal-weight vote exactly.
+    """Ma crossover features default matches zero weight power bit identical."""
     s, _ = _make_regime_shift_series(n=200, shift_at=100, seed=2)
     mas = {w: s.rolling(w).mean() for w in [3, 5, 10, 20]}
 
@@ -73,6 +78,7 @@ def test_ma_crossover_features_default_matches_zero_weight_power_bit_identical()
 
 def _consensus_false_flip_rate(vote_sum: np.ndarray, trend_sign: np.ndarray) -> float:
     # a "false flip" = the sign of vote_sum disagreeing with the true underlying trend direction.
+    """Helper: Consensus false flip rate."""
     valid = ~np.isnan(vote_sum)
     consensus_sign = np.sign(vote_sum[valid])
     return float(np.mean(consensus_sign != trend_sign[valid]))
@@ -90,6 +96,7 @@ def test_biz_val_ma_crossover_long_window_weight_power_reduces_false_flips_vs_eq
     # weight voting lets the 6 noisy short-short votes swamp the 4 reliable long-anchored votes; weighting
     # by the long window size recovers a consensus with materially fewer false flips (verified stable
     # across many random seeds during development).
+    """Biz val ma crossover long window weight power reduces false flips vs equal weight."""
     rng = np.random.default_rng(7)
     n = 3000
     segment = 500

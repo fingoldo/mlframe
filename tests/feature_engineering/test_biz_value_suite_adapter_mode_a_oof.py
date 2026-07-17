@@ -22,6 +22,7 @@ SEED = 0
 
 
 def _binary(n=4000, seed=SEED):
+    """Helper: Binary."""
     rng = np.random.default_rng(seed)
     cat = rng.integers(0, 40, size=n)
     cat_eff = rng.standard_normal(40) * 2.0
@@ -35,6 +36,7 @@ def _binary(n=4000, seed=SEED):
 
 
 def _auc(Xtr, ytr, Xho, yho):
+    """Helper: Auc."""
     import lightgbm as lgb
 
     m = lgb.LGBMClassifier(n_estimators=200, max_depth=4, learning_rate=0.05, random_state=0, verbose=-1, n_jobs=-1)
@@ -43,6 +45,7 @@ def _auc(Xtr, ytr, Xho, yho):
 
 
 def test_mode_a_fit_transform_eliminates_trust_score_binary_skew():
+    """Mode a fit transform eliminates trust score binary skew."""
     X, y = _binary()
     Xtr, Xho, ytr, yho = train_test_split(X, y, test_size=0.4, random_state=SEED)
     base = _auc(Xtr.values, ytr.values, Xho.values, yho.values)

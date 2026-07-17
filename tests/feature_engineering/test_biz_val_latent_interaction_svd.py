@@ -17,6 +17,7 @@ from mlframe.feature_engineering.latent_interaction_svd import latent_interactio
 
 
 def _make_clustered_interactions(seed: int):
+    """Helper: Make clustered interactions."""
     rng = np.random.default_rng(seed)
     n_entities, n_items, n_clusters = 300, 200, 5
     entity_cluster = rng.integers(0, n_clusters, n_entities)
@@ -38,6 +39,7 @@ def _make_clustered_interactions(seed: int):
 
 
 def test_biz_val_latent_interaction_features_recovers_true_cluster_structure():
+    """Biz val latent interaction features recovers true cluster structure."""
     events_df, entity_cluster, n_entities = _make_clustered_interactions(seed=0)
 
     row_emb, col_emb = latent_interaction_features(events_df, "entity", "item", n_components=8, use_tfidf=True)
@@ -55,6 +57,7 @@ def test_biz_val_latent_interaction_features_recovers_true_cluster_structure():
 
 
 def test_latent_interaction_features_time_decay_downweights_stale_events():
+    """Latent interaction features time decay downweights stale events."""
     np.random.default_rng(1)
     events_df = pd.DataFrame(
         {
@@ -73,6 +76,7 @@ def test_latent_interaction_features_time_decay_downweights_stale_events():
 
 
 def test_latent_interaction_features_missing_column_raises():
+    """Latent interaction features missing column raises."""
     import pytest
 
     with pytest.raises(ValueError):

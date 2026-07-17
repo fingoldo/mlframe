@@ -22,6 +22,7 @@ from mlframe.metrics.core import (
 
 
 def test_dcg_zero_when_no_relevance():
+    """Dcg zero when no relevance."""
     y = np.zeros(20, dtype=np.float64)
     s = np.random.default_rng(0).uniform(size=20)
     g = np.zeros(20, dtype=np.int64)  # one group
@@ -38,6 +39,7 @@ def test_dcg_higher_when_relevance_at_top():
 
 
 def test_err_in_unit_interval():
+    """Err in unit interval."""
     rng = np.random.default_rng(1)
     g = np.repeat(np.arange(20), 10)
     y = rng.integers(0, 5, size=200).astype(np.float64)
@@ -64,6 +66,7 @@ def test_precision_at_k_matches_definition():
 
 
 def test_ranking_metric_rejects_bad_k():
+    """Ranking metric rejects bad k."""
     g = np.zeros(5, dtype=np.int64)
     y = np.ones(5)
     s = np.ones(5)
@@ -76,6 +79,7 @@ def test_ranking_metric_rejects_bad_k():
 
 
 def test_psi_zero_for_identical_distributions():
+    """Psi zero for identical distributions."""
     rng = np.random.default_rng(2)
     a = rng.standard_normal(5000)
     # Same data -> empirical PSI should be at exact zero modulo binning
@@ -83,6 +87,7 @@ def test_psi_zero_for_identical_distributions():
 
 
 def test_psi_increases_with_shift():
+    """Psi increases with shift."""
     rng = np.random.default_rng(3)
     ref = rng.standard_normal(5000)
     small_shift = rng.standard_normal(5000) + 0.5
@@ -93,6 +98,7 @@ def test_psi_increases_with_shift():
 
 
 def test_kl_zero_for_identical():
+    """Kl zero for identical."""
     rng = np.random.default_rng(4)
     a = rng.standard_normal(2000)
     assert kl_divergence(a, a) == pytest.approx(0.0, abs=1e-10)
@@ -110,6 +116,7 @@ def test_kl_asymmetric():
 
 
 def test_js_symmetric_and_bounded():
+    """Js symmetric and bounded."""
     rng = np.random.default_rng(6)
     a = rng.standard_normal(2000)
     b = rng.standard_normal(2000) + 0.5
@@ -133,6 +140,7 @@ def test_js_pre_binned_matches_scipy():
 
 
 def test_wasserstein_matches_scipy():
+    """Wasserstein matches scipy."""
     from scipy.stats import wasserstein_distance
 
     rng = np.random.default_rng(7)
@@ -143,6 +151,7 @@ def test_wasserstein_matches_scipy():
 
 
 def test_ks_distribution_distance_matches_scipy():
+    """Ks distribution distance matches scipy."""
     from scipy.stats import ks_2samp
 
     rng = np.random.default_rng(8)
@@ -167,6 +176,7 @@ def _wasserstein_1d_numpy_reference(reference, target):
 
 
 def _ks_distance_numpy_reference(reference, target):
+    """Helper: Ks distance numpy reference."""
     a = np.asarray(reference, dtype=np.float64)
     b = np.asarray(target, dtype=np.float64)
     a = a[np.isfinite(a)]

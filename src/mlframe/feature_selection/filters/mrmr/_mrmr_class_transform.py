@@ -8,7 +8,7 @@ the helpers it and the sklearn protocol call live here and resolve through the M
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Literal, cast
 
 import numpy as np
 
@@ -184,6 +184,14 @@ class _MRMRTransformMixin:
         if _supp.size:
             mask[_supp] = True
         return np.where(mask)[0] if indices else mask
+
+    def _get_support_mask(self) -> np.ndarray:
+        """Required by ``sklearn.feature_selection.SelectorMixin`` (finding #19) -- delegates to
+        ``get_support()``, the mixin's own boolean-mask logic. MRMR's ``transform``/``get_feature_names_out``
+        still win over ``SelectorMixin``'s versions via MRO (see the class-body comment on ``MRMR``'s bases);
+        this only makes ``isinstance(mrmr, SelectorMixin)`` true and enables SelectorMixin's other
+        mask-derived helpers (e.g. ``inverse_transform``) for callers that want the RAW-mask view."""
+        return cast(np.ndarray, self.get_support(indices=False))
 
     def _append_usability_union(self, base_out, X):
         """Append the usability lists' features (``support_linear_`` + ``support_universal_``, deduped

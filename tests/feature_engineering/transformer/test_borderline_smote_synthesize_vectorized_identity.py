@@ -23,6 +23,7 @@ from mlframe.feature_engineering.transformer.borderline_smote import _smote_synt
 
 
 def _old_reference(X_minority, n_synthetic, k_neighbors, seed):
+    """Helper: Old reference."""
     n_min = X_minority.shape[0]
     if n_min < 2:
         return X_minority.copy() if n_min > 0 else np.zeros((0, 0), dtype=np.float32)
@@ -48,6 +49,7 @@ def _old_reference(X_minority, n_synthetic, k_neighbors, seed):
 @pytest.mark.parametrize("seed", [0, 1, 7])
 @pytest.mark.parametrize("nrows,d,k,n_syn", [(500, 30, 5, 5000), (50, 8, 5, 400), (3, 4, 5, 20), (200, 12, 10, 2000)])
 def test_smote_synthesize_bit_identical_to_row_loop(seed, nrows, d, k, n_syn):
+    """Smote synthesize bit identical to row loop."""
     rng = np.random.default_rng(seed + 99)
     X = rng.standard_normal((nrows, d)).astype(np.float32)
     expected = _old_reference(X, n_syn, k, seed)

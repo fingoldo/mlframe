@@ -41,10 +41,12 @@ def _interaction_data(n: int = 3000, n_feat: int = 6, *, seed: int = 0):
 
 
 def _fit_tree(X, y):
+    """Helper: Fit tree."""
     return GradientBoostingClassifier(n_estimators=100, max_depth=3, random_state=0).fit(X, y)
 
 
 def test_top_pairs_and_heatmap_structure(tmp_path):
+    """Top pairs and heatmap structure."""
     X, y, names = _interaction_data()
     model = _fit_tree(X, y)
     before = set(plt.get_fignums())
@@ -70,6 +72,7 @@ def test_top_pairs_and_heatmap_structure(tmp_path):
 
 
 def test_non_tree_model_is_skipped():
+    """Non tree model is skipped."""
     X, y, names = _interaction_data(n=500)
     model = LogisticRegression(max_iter=200).fit(X, y)
     res = si.shap_interaction_summary(model, X, feature_names=names)
@@ -78,6 +81,7 @@ def test_non_tree_model_is_skipped():
 
 
 def test_fewer_than_two_features_skipped():
+    """Fewer than two features skipped."""
     rng = np.random.default_rng(0)
     X = rng.normal(size=(100, 1))
     y = (X[:, 0] > 0).astype(int)

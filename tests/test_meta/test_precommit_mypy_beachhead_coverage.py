@@ -61,6 +61,7 @@ def _beachhead_module_files() -> list[str]:
 
 
 def _precommit_mypy_regex() -> re.Pattern:
+    """Helper that precommit mypy regex."""
     with open(REPO_ROOT / ".pre-commit-config.yaml", encoding="utf-8") as f:
         config = yaml.safe_load(f)
     for repo in config["repos"]:

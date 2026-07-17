@@ -42,6 +42,7 @@ def regression_data():
 
 @pytest.fixture
 def binary_data():
+    """Helper that binary data."""
     rng = np.random.default_rng(42)
     n_rows, n_features = 200, 8
     X = rng.standard_normal((n_rows, n_features))

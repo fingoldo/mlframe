@@ -15,10 +15,12 @@ SKLEARN_MATRIX_YAML = REPO_ROOT / ".github" / "workflows" / "sklearn-matrix-ci.y
 
 
 def _read_yaml_text() -> str:
+    """Helper that read yaml text."""
     return SKLEARN_MATRIX_YAML.read_text(encoding="utf-8")
 
 
 def test_sklearn_matrix_workflow_exists() -> None:
+    """Sklearn matrix workflow exists."""
     assert SKLEARN_MATRIX_YAML.is_file(), f"missing workflow file {SKLEARN_MATRIX_YAML}"
 
 

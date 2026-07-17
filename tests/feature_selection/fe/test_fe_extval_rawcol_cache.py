@@ -52,6 +52,7 @@ def test_extval_rawcol_cache_fit_is_deterministic_and_selects():
     X, y = _wide_competition_frame()
 
     def _fit_cols():
+        """Fit a fresh MRMR on the shared competition frame and return its transformed output columns."""
         m = MRMR(verbose=0, fe_max_steps=1, n_jobs=1, random_seed=0)
         m.fit(X, y)
         return list(m.transform(X.iloc[:5]).columns)
@@ -80,6 +81,7 @@ def test_extval_rawcol_memo_contract_pandas(n, p):
     n_extractions = {"count": 0}
 
     def _extval_raw_col(_var):
+        """Faithful replica of the in-code memoised extraction closure: cache-hit or extract-and-cache by var key."""
         if _var in cache:
             return cache[_var]
         if _var not in original_cols:

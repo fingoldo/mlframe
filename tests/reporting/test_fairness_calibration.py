@@ -24,6 +24,7 @@ def _overconfident(score):
 
 
 def test_per_subgroup_curves_and_ece_present():
+    """Per subgroup curves and ece present."""
     rng = np.random.default_rng(0)
     n = 9000
     g = rng.integers(0, 3, n)
@@ -44,6 +45,7 @@ def test_per_subgroup_curves_and_ece_present():
 
 
 def test_group_cap_and_other_bucket():
+    """Group cap and other bucket."""
     rng = np.random.default_rng(1)
     n = 12000
     # 8 groups; with max_groups=3 the rare tail folds into one 'other' bucket.
@@ -56,6 +58,7 @@ def test_group_cap_and_other_bucket():
 
 
 def test_degenerate_group_annotated_and_skipped():
+    """Degenerate group annotated and skipped."""
     rng = np.random.default_rng(2)
     n = 6000
     g = rng.integers(0, 2, n)
@@ -69,6 +72,7 @@ def test_degenerate_group_annotated_and_skipped():
 
 
 def test_tiny_group_skipped():
+    """Tiny group skipped."""
     rng = np.random.default_rng(3)
     n = 4000
     g = np.zeros(n, dtype=np.int64)
@@ -79,6 +83,7 @@ def test_tiny_group_skipped():
 
 
 def test_single_group_disparity_undefined():
+    """Single group disparity undefined."""
     rng = np.random.default_rng(4)
     n = 3000
     g = np.zeros(n, dtype=np.int64)
@@ -90,6 +95,7 @@ def test_single_group_disparity_undefined():
 
 
 def test_no_finite_rows_annotation():
+    """No finite rows annotation."""
     g = np.array([0, 0, 1, 1])
     y = np.array([0.0, 1.0, 0.0, 1.0])
     score = np.array([np.nan, np.nan, np.nan, np.nan])

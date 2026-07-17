@@ -19,6 +19,7 @@ import pytest
 
 @pytest.fixture(scope="module")
 def parent_module():
+    """Parent module."""
     from mlframe.models.ensembling import score as _ensembling_score
 
     return _ensembling_score
@@ -26,24 +27,28 @@ def parent_module():
 
 @pytest.fixture(scope="module")
 def gate_sibling():
+    """Gate sibling."""
     from mlframe.models.ensembling import score_gate as _ensembling_score_gate
 
     return _ensembling_score_gate
 
 
 def test_gate_helpers_resolve(gate_sibling):
+    """Gate helpers resolve."""
     assert hasattr(gate_sibling, "select_gate_source_split")
     assert hasattr(gate_sibling, "catastrophic_drop_kn")
     assert hasattr(gate_sibling, "catastrophic_drop_k2")
 
 
 def test_facade_loc_budget(parent_module):
+    """Facade loc budget."""
     path = Path(parent_module.__file__)
     n_lines = len(path.read_text(encoding="utf-8").splitlines())
     assert n_lines < 800, f"facade is {n_lines} LOC, expected < 800 after Wave 12 gate carve"
 
 
 def test_score_ensemble_still_callable(parent_module):
+    """Score ensemble still callable."""
     assert hasattr(parent_module, "score_ensemble") and callable(parent_module.score_ensemble)
 
 

@@ -50,11 +50,13 @@ def _ref(values, group_ids, window_K, n_bins, bin_strategy):
 
 def test_kernel_symbol_present_and_routed():
     # Pre-fix code had no kernel and used a Python loop; this guards the regression.
+    """Kernel symbol present and routed."""
     assert hasattr(ws, "_shannon_entropy_binned_kernel")
     calls = {"n": 0}
     orig = ws._shannon_entropy_binned_kernel
 
     def spy(*a, **k):
+        """Spy."""
         calls["n"] += 1
         return orig(*a, **k)
 
@@ -72,6 +74,7 @@ def test_kernel_symbol_present_and_routed():
 @pytest.mark.parametrize("n_bins", [4, 8, 16])
 @pytest.mark.parametrize("kind", ["continuous", "tied_lowcard", "discrete_int", "with_nan"])
 def test_matches_numpy_reference(bin_strategy, n_bins, kind):
+    """Matches numpy reference."""
     rng = np.random.default_rng(7)
     n = 8000
     if kind == "continuous":

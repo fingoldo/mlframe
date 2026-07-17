@@ -15,6 +15,7 @@ cp = pytest.importorskip("cupy")
 
 
 def _need_cuda():
+    """True iff pyutilz reports CUDA availability, used to skip the fused-MI-kernel tests on CPU-only hosts."""
     try:
         from pyutilz.core.pythonlib import is_cuda_available
 
@@ -37,6 +38,7 @@ pytestmark = [pytest.mark.gpu, pytest.mark.skipif(not _need_cuda(), reason="no C
     ],
 )
 def test_fused_mi_term_bit_identical(monkeypatch, n, k, nbins, nclasses, seed):
+    """The cp.fuse'd single-kernel per-cell MI chain matches the unfused 6-launch chain to rtol=1e-12 across shape/cardinality grid, preserving FE ranking."""
     # import via the parent (hermite_fe) so the module-init cycle resolves in the canonical order
     from mlframe.feature_selection.filters.hermite_fe import _plugin_mi_classif_batch_cuda_resident
 

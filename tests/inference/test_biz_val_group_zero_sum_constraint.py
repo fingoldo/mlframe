@@ -14,6 +14,7 @@ from mlframe.inference.group_zero_sum_constraint import apply_group_zero_sum_con
 
 
 def test_biz_val_group_zero_sum_constraint_reduces_rmse_and_enforces_identity():
+    """Group zero sum constraint reduces rmse and enforces identity."""
     rng = np.random.default_rng(0)
     n_groups = 500
     members_per_group = 10
@@ -41,6 +42,7 @@ def test_biz_val_group_zero_sum_constraint_reduces_rmse_and_enforces_identity():
 
 
 def test_group_zero_sum_constraint_nonzero_target_sum():
+    """Group zero sum constraint nonzero target sum."""
     preds = np.array([1.0, 2.0, 3.0, 10.0, 20.0])
     group_ids = np.array([0, 0, 0, 1, 1])
     corrected = apply_group_zero_sum_constraint(preds, group_ids, target_sum=6.0)
@@ -49,6 +51,7 @@ def test_group_zero_sum_constraint_nonzero_target_sum():
 
 
 def test_group_zero_sum_constraint_shape_mismatch_raises():
+    """Group zero sum constraint shape mismatch raises."""
     import pytest
 
     with pytest.raises(ValueError):
@@ -117,6 +120,7 @@ def test_biz_val_apply_group_zero_sum_constraint_preserve_rank_order_reduces_vio
     preserved_corrected = apply_group_zero_sum_constraint(preds, group_ids, preserve_rank_order=True, **kwargs)
 
     def total_violation_depth(corrected: np.ndarray) -> float:
+        """Helper that total violation depth."""
         total = 0.0
         for g in range(n_groups):
             member_mask = group_ids == g

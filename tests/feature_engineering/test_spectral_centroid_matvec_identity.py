@@ -32,6 +32,7 @@ def _ref_centroid(values, group_ids, window_K, detrend=True):
 
 @pytest.mark.parametrize("K", [50, 100, 256])
 def test_centroid_gemv_matches_explicit_reduction(K):
+    """Centroid gemv matches explicit reduction."""
     rng = np.random.default_rng(123)
     n = 5_000
     values = np.cumsum(rng.standard_normal(n))
@@ -46,6 +47,7 @@ def test_centroid_gemv_matches_explicit_reduction(K):
 
 
 def test_bandwidth_finite_and_nonnegative_after_gemv():
+    """Bandwidth finite and nonnegative after gemv."""
     rng = np.random.default_rng(321)
     n = 3_000
     values = np.cumsum(rng.standard_normal(n))

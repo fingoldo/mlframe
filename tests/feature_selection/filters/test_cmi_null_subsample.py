@@ -17,6 +17,7 @@ MOD = "mlframe.feature_selection.filters._fe_raw_redundancy_helpers"
 
 
 def _codes(rng, n, k):
+    """Draw n random integer codes in [0, k) as int64, used to build synthetic categorical y/z/cand arrays."""
     return rng.integers(0, k, n).astype(np.int64)
 
 
@@ -61,6 +62,7 @@ def test_excess_and_floor_cap_actually_subsamples(monkeypatch):
         orig = G._conditional_perm_null
 
         def spy(cand_bin, y_bin, z_support, **k):
+            """Wrap _conditional_perm_null to record the row count it actually receives, proving the subsample cap took effect."""
             seen["n"] = int(np.asarray(cand_bin).shape[0])
             return orig(cand_bin, y_bin, z_support, **k)
 

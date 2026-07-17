@@ -67,6 +67,7 @@ pytestmark = pytest.mark.timeout(60)  # untimed biz_val real-fit tier: surface a
 
 
 def _design(seed: int):
+    """Build a base (rng, df, x_signal) design with N_SIGNAL signal cols + N_NOISE noise cols."""
     rng = np.random.default_rng(seed)
     x_sig = rng.normal(size=(N, N_SIGNAL))
     x_noise = rng.normal(size=(N, N_NOISE))
@@ -111,6 +112,10 @@ def _make_mrmr(seed: int):
     engineer e.g. ``mul(exp(x0),exp(x1))`` and leave ``support_`` (raw) empty
     even though it captured the signal. The no-FE preset is the correct lens for
     a raw signal-recovery / noise-rejection assertion.
+
+    ``strict_groups=False`` opts back into the legacy warn-only group-naive fallback (its default
+    flipped to True at finding #20); this helper is used by tests that deliberately exercise
+    ``groups=`` on the LtR warn-only contract.
     """
     from mlframe.feature_selection.filters.mrmr import MRMR
 
@@ -124,10 +129,12 @@ def _make_mrmr(seed: int):
         cat_fe_config=None,
         quantization_nbins=10,
         random_seed=seed,
+        strict_groups=False,
     )
 
 
 def _selected(selector) -> set:
+    """Return the fitted selector's support_ as a set of raw column indices."""
     sup = np.asarray(selector.support_)
     if sup.dtype == bool:
         return set(np.where(sup)[0].tolist())
@@ -145,6 +152,7 @@ _ALL_KINDS = _SINGLE_TARGET + _MULTI_TARGET
 
 
 def _mrmr_recovery(kind: str, seed: int):
+    """Fit MRMR on a ``kind`` target and return (recovered signal count, noise count)."""
     df, y = make_target(seed, kind)
     sel = _make_mrmr(seed)
     sel.fit(df, y)
@@ -323,6 +331,7 @@ def test_biz_val_mrmr_multioutput_refit_does_not_replay_stale_support():
 
 
 def _make_rfecv(estimator):
+    """Build a lightweight RFECV wrapping the given estimator for target-type coverage tests."""
     from mlframe.feature_selection.wrappers import RFECV
 
     return RFECV(

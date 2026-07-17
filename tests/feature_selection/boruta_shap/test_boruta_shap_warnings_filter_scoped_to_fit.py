@@ -9,6 +9,7 @@ import warnings
 
 
 def test_module_import_does_not_install_process_wide_sklearn_warning_filter():
+    """Merely importing boruta_shap must not silence sklearn FutureWarnings process-wide; the filter is fit-scoped only."""
     # Importing the module (no fit / no instantiation).
     import mlframe.feature_selection.boruta_shap as _bs  # noqa: F401
 

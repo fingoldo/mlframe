@@ -31,10 +31,12 @@ import pytest
 
 
 def _defaults(func):
+    """Map each parameter name of func to its default value, skipping parameters without one."""
     return {p.name: p.default for p in inspect.signature(func).parameters.values() if p.default is not inspect.Parameter.empty}
 
 
 def test_api4_wrapper_and_class_agree_on_defaults():
+    """MBHOptimizer.__init__ and its optimize_finite_onedimensional_search_space wrapper share the same defaults."""
     from mlframe.models.optimization import MBHOptimizer, optimize_finite_onedimensional_search_space
 
     cls = _defaults(MBHOptimizer.__init__)
@@ -44,6 +46,7 @@ def test_api4_wrapper_and_class_agree_on_defaults():
 
 
 def test_api17_input_dtype_removed():
+    """The dead input_dtype param is removed from both MBHOptimizer and the search-space wrapper."""
     from mlframe.models.optimization import MBHOptimizer, optimize_finite_onedimensional_search_space
 
     assert "input_dtype" not in inspect.signature(MBHOptimizer.__init__).parameters
@@ -56,6 +59,7 @@ def test_api17_input_dtype_removed():
 
 
 def test_api5_gpu_enabled_default_consistent():
+    """create_ctr_params and CatboostParamsOptimizer agree on the GPU_ENABLED default (False)."""
     from mlframe.models.tuning import create_ctr_params, CatboostParamsOptimizer
 
     ctr_default = inspect.signature(create_ctr_params).parameters["GPU_ENABLED"].default
@@ -69,6 +73,7 @@ def test_api5_gpu_enabled_default_consistent():
 
 
 def test_api6_default_blend_method_agrees():
+    """Materialised and streaming ensemble predictors default to the same blend method."""
     from mlframe.models.ensembling.predict import (
         ensemble_probabilistic_predictions,
         ensemble_probabilistic_predictions_streaming,
@@ -85,6 +90,7 @@ def test_api6_default_blend_method_agrees():
 
 
 def test_api18_stubs_warn_and_return_none(caplog):
+    """ParamsOptimizer.create_study/report_trial_results are documented no-op stubs that warn and return None."""
     from mlframe.models.tuning import ParamsOptimizer
 
     opt = ParamsOptimizer(random_state=0)
@@ -104,6 +110,7 @@ def test_api18_stubs_warn_and_return_none(caplog):
 
 
 def test_api23_not_ready_distinct_from_none():
+    """suggest_candidate returns the NOT_READY sentinel, distinct from None, while the surrogate is untrainable."""
     from mlframe.models.optimization import MBHOptimizer, NOT_READY
 
     opt = MBHOptimizer(search_space=np.arange(0, 20), model_name="ETR", model_params={}, init_num_samples=5, random_state=0, greedy_prob=0.0)
@@ -118,6 +125,7 @@ def test_api23_not_ready_distinct_from_none():
 
 
 def test_api23_not_ready_does_not_terminate_search():
+    """The search loop keeps evaluating through repeated NOT_READY suggestions instead of treating one as exhaustion."""
     # optimize_finite_onedimensional_search_space must keep evaluating even when early suggestions are NOT_READY
     # (all-identical targets), instead of breaking on the first NOT_READY as if the space were exhausted.
     from mlframe.models import optimization as opt_mod
@@ -125,6 +133,7 @@ def test_api23_not_ready_does_not_terminate_search():
     calls = {"n": 0}
 
     def evalfn(x):
+        """Returns a constant target so the surrogate stays untrainable and keeps emitting NOT_READY."""
         calls["n"] += 1
         return 1.0  # constant -> surrogate "all targets same" -> NOT_READY repeatedly
 
@@ -148,12 +157,14 @@ def test_predict_runtimes_preempts_before_exceeding_budget():
     # predict_runtimes=True must stop the loop BEFORE running a candidate whose predicted duration
     # (mean of past per-eval durations) would push elapsed time past max_runtime_mins, instead of
     # only checking max_runtime_mins reactively after the eval already ran.
+    """predict_runtimes=True stops the loop before a predicted-duration eval would exceed max_runtime_mins."""
     from mlframe.models import optimization as opt_mod
     import time
 
     calls = {"n": 0}
 
     def evalfn(x):
+        """Records a call and sleeps briefly to simulate a per-eval duration for runtime prediction."""
         calls["n"] += 1
         time.sleep(0.05)
         return float(x)
@@ -180,6 +191,7 @@ def test_predict_runtimes_preempts_before_exceeding_budget():
 
 
 def _make_trials(n=60, seed=0, extra_col=False):
+    """Builds a toy regression trials frame with an optional extra feature column."""
     rng = np.random.default_rng(seed)
     df = pd.DataFrame({"a": rng.normal(size=n), "b": rng.normal(size=n)})
     if extra_col:
@@ -189,6 +201,7 @@ def _make_trials(n=60, seed=0, extra_col=False):
 
 
 def test_api24_get_model_does_not_mutate_caller_df():
+    """get_model leaves the caller's trials DataFrame untouched, including the "target" column."""
     from mlframe.models.tuning import get_model
 
     trials = _make_trials()
@@ -199,6 +212,7 @@ def test_api24_get_model_does_not_mutate_caller_df():
 
 
 def test_api25_cache_does_not_collide_on_distinct_feature_sets():
+    """get_model's cache key does not collide across two different feature sets under the same experiment name."""
     from mlframe.models.tuning import get_model, trained_models
 
     trained_models.clear()
@@ -214,6 +228,7 @@ def test_api25_cache_does_not_collide_on_distinct_feature_sets():
 
 
 def test_api26_gate_reproducible_with_same_seed():
+    """justify_estimator's CV gate score is reproducible across calls given the same random_state."""
     from mlframe.models.tuning import justify_estimator
     from sklearn.linear_model import LinearRegression
 
@@ -231,6 +246,7 @@ def test_api26_gate_reproducible_with_same_seed():
 
 
 def test_api27_empty_members_raise():
+    """Both ensemble prediction paths raise ValueError when given no non-None member predictions."""
     from mlframe.models.ensembling.predict import (
         ensemble_probabilistic_predictions,
         ensemble_probabilistic_predictions_streaming,
@@ -248,6 +264,7 @@ def test_api27_empty_members_raise():
 
 
 def test_apip2_uncertainty_ddof_consistent_across_paths():
+    """Materialised and streaming ensemble paths compute uncertainty with the same ddof, matching bit-for-bit."""
     from mlframe.models.ensembling.predict import (
         ensemble_probabilistic_predictions,
         ensemble_probabilistic_predictions_streaming,
@@ -261,12 +278,14 @@ def test_apip2_uncertainty_ddof_consistent_across_paths():
 
 
 def test_apip2_score_min_samples_default_matches_docstring():
+    """score_ensemble's min_samples_for_parallel default is 1_000_000, matching its documented contract."""
     from mlframe.models.ensembling.score import score_ensemble
 
     assert inspect.signature(score_ensemble).parameters["min_samples_for_parallel"].default == 1_000_000
 
 
 def test_apip2_selection_yields_ndarrays():
+    """The selection module's CV splitter yields (train, test) indices as ndarrays, not other sequence types."""
     from mlframe.models import selection as sel_mod
 
     # Find the splitter class that yields (train, test) index arrays.
@@ -289,12 +308,14 @@ def test_apip2_selection_yields_ndarrays():
 
 
 def test_api3_auc_ci_n_bootstrap_default_aligned():
+    """auc_ci's n_bootstrap default is aligned to 1000."""
     from mlframe.evaluation.bootstrap import auc_ci
 
     assert inspect.signature(auc_ci).parameters["n_bootstrap"].default == 1000
 
 
 def test_api7_auc_ci_has_point_alias():
+    """auc_ci's result dict carries a "point" key aliasing the "auc" value, for both delong and bootstrap methods."""
     from mlframe.evaluation.bootstrap import auc_ci
 
     rng = np.random.default_rng(0)

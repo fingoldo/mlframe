@@ -55,6 +55,7 @@ def _easy_hard_ensemble(n: int = 4000, m: int = 8, seed: int = 0):
 
 
 def test_compute_returns_result_with_per_row_shapes():
+    """Compute returns result with per row shapes."""
     preds, _, _ = _easy_hard_ensemble()
     res = compute_prediction_stability(preds)
     assert isinstance(res, PredictionStabilityResult)
@@ -67,12 +68,14 @@ def test_compute_returns_result_with_per_row_shapes():
 
 
 def test_ensemble_mean_matches_rowwise_mean():
+    """Ensemble mean matches rowwise mean."""
     preds, _, _ = _easy_hard_ensemble(n=500, m=5)
     res = compute_prediction_stability(preds)
     np.testing.assert_allclose(res.ensemble_mean, preds.mean(axis=1), rtol=1e-10)
 
 
 def test_single_member_is_degenerate():
+    """Single member is degenerate."""
     preds = np.random.default_rng(0).normal(size=(1000, 1))
     res = compute_prediction_stability(preds)
     assert res.n_members == 1
@@ -83,11 +86,13 @@ def test_single_member_is_degenerate():
 
 
 def test_1d_input_treated_as_single_member():
+    """1d input treated as single member."""
     res = compute_prediction_stability(np.arange(50.0))
     assert res.n_members == 1
 
 
 def test_nan_members_ignored_per_row():
+    """Nan members ignored per row."""
     preds = np.array([[1.0, 2.0, np.nan], [np.nan, np.nan, 5.0], [0.0, 0.0, 0.0]])
     res = compute_prediction_stability(preds)
     assert np.isfinite(res.spread_std).all()
@@ -97,6 +102,7 @@ def test_nan_members_ignored_per_row():
 
 
 def test_empty_input_is_safe():
+    """Empty input is safe."""
     res = compute_prediction_stability(np.empty((0, 5)))
     assert res.n_rows == 0
     assert res.spread_std.shape == (0,)
@@ -108,6 +114,7 @@ def test_empty_input_is_safe():
 
 
 def test_compose_two_panels_without_y_true():
+    """Compose two panels without y true."""
     preds, _, _ = _easy_hard_ensemble()
     fig = compose_prediction_stability_figure(preds)
     assert isinstance(fig, FigureSpec)
@@ -118,6 +125,7 @@ def test_compose_two_panels_without_y_true():
 
 
 def test_compose_adds_calibration_panel_with_y_true():
+    """Compose adds calibration panel with y true."""
     preds, yt, _ = _easy_hard_ensemble()
     fig = compose_prediction_stability_figure(preds, y_true=yt)
     panels = [p for row in fig.panels for p in row if p is not None]
@@ -127,6 +135,7 @@ def test_compose_adds_calibration_panel_with_y_true():
 
 
 def test_scatter_subsampled_to_cap():
+    """Scatter subsampled to cap."""
     preds, _, _ = _easy_hard_ensemble(n=20_000, m=6)
     fig = compose_prediction_stability_figure(preds, scatter_cap=5000)
     scatter = next(p for row in fig.panels for p in row if isinstance(p, ScatterPanelSpec))
@@ -134,6 +143,7 @@ def test_scatter_subsampled_to_cap():
 
 
 def test_single_member_figure_is_annotation():
+    """Single member figure is annotation."""
     preds = np.random.default_rng(0).normal(size=(1000, 1))
     fig = compose_prediction_stability_figure(preds)
     panels = [p for row in fig.panels for p in row if p is not None]
@@ -143,6 +153,7 @@ def test_single_member_figure_is_annotation():
 
 
 def test_tiny_n_calibration_annotates():
+    """Tiny n calibration annotates."""
     preds = np.array([[1.0, 1.1], [1.0, 1.0]])
     fig = compose_prediction_stability_figure(preds, y_true=np.array([1.0, 1.0]))
     panels = [p for row in fig.panels for p in row if p is not None]
@@ -152,6 +163,7 @@ def test_tiny_n_calibration_annotates():
 
 
 def test_figure_renders_matplotlib():
+    """Figure renders matplotlib."""
     import os
 
     os.environ.setdefault("MPLBACKEND", "Agg")
@@ -172,6 +184,7 @@ def test_figure_renders_matplotlib():
 
 
 def test_spearman_matches_scipy_on_random():
+    """Spearman matches scipy on random."""
     pytest.importorskip("scipy")
     from scipy.stats import spearmanr
 
@@ -182,6 +195,7 @@ def test_spearman_matches_scipy_on_random():
 
 
 def test_spearman_handles_ties():
+    """Spearman handles ties."""
     pytest.importorskip("scipy")
     from scipy.stats import spearmanr
 

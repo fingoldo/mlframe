@@ -15,6 +15,7 @@ from mlframe.feature_engineering.fuzzy_features import (
 
 # ---------------------------------------------------------------- unit
 def test_triangular_is_exact_ruspini_partition():
+    """Triangular is exact ruspini partition."""
     x = np.linspace(0, 10, 200)
     M, _ = fuzzy_partition_encode(x, n_sets=5, kind="triangular")
     assert M.shape == (200, 5)
@@ -25,6 +26,7 @@ def test_triangular_is_exact_ruspini_partition():
 
 
 def test_gaussian_rows_normalized():
+    """Gaussian rows normalized."""
     x = np.linspace(-3, 3, 150)
     M, _ = fuzzy_partition_encode(x, n_sets=4, kind="gaussian")
     assert M.shape == (150, 4)
@@ -33,6 +35,7 @@ def test_gaussian_rows_normalized():
 
 
 def test_shoulders_and_centers():
+    """Shoulders and centers."""
     recipe = fuzzy_partition_fit(np.array([0.0, 1.0, 2.0, 3.0, 4.0]), n_sets=5, strategy="uniform", kind="triangular")
     M = fuzzy_partition_transform(np.array([-5.0, 0.0, 2.0, 4.0, 9.0]), recipe)
     assert M[0, 0] == 1.0 and M[4, -1] == 1.0  # below-min and above-max saturate the shoulder sets
@@ -40,6 +43,7 @@ def test_shoulders_and_centers():
 
 
 def test_nan_row_is_all_zero():
+    """Nan row is all zero."""
     recipe = fuzzy_partition_fit(np.arange(10.0), n_sets=3, kind="gaussian")
     M = fuzzy_partition_transform(np.array([np.nan, 5.0]), recipe)
     assert M[0].sum() == 0.0
@@ -47,6 +51,7 @@ def test_nan_row_is_all_zero():
 
 
 def test_leakage_safe_fit_transform_separate():
+    """Leakage safe fit transform separate."""
     train = np.random.default_rng(0).normal(size=500)
     recipe = fuzzy_partition_fit(train, n_sets=5, kind="triangular")
     test = np.array([train.min() - 10, train.max() + 10, 0.0])
@@ -55,6 +60,7 @@ def test_leakage_safe_fit_transform_separate():
 
 
 def test_guards():
+    """Guards."""
     with pytest.raises(ValueError):
         fuzzy_partition_fit(np.arange(5.0), kind="sigmoid")
     with pytest.raises(ValueError):
@@ -66,11 +72,13 @@ def test_guards():
 
 
 def test_names():
+    """Names."""
     assert fuzzy_partition_names("age", 3) == ["age_fuzzy_low", "age_fuzzy_medium", "age_fuzzy_high"]
     assert len(fuzzy_partition_names("v", 5)) == 5
 
 
 def test_degenerate_constant_column():
+    """Degenerate constant column."""
     recipe = fuzzy_partition_fit(np.full(20, 7.0), n_sets=5, kind="triangular")  # all identical
     M = fuzzy_partition_transform(np.array([7.0, 6.0, 8.0]), recipe)
     assert M.shape[1] >= 2  # well-defined partition even on a constant column
@@ -78,6 +86,7 @@ def test_degenerate_constant_column():
 
 # ---------------------------------------------------------------- biz_value
 def _ridge_rmse(F, y, F_test, y_test, alpha=1e-2):
+    """Helper: Ridge rmse."""
     from sklearn.linear_model import Ridge
 
     m = Ridge(alpha=alpha).fit(F, y)
@@ -107,6 +116,7 @@ def test_biz_val_fuzzy_partition_beats_hard_binning_and_raw_linear_on_smooth_tar
     edges = np.quantile(x, np.linspace(0, 1, n_sets + 1))[1:-1]
 
     def hard_onehot(v):
+        """Hard onehot."""
         idx = np.searchsorted(edges, v)
         H = np.zeros((v.shape[0], n_sets))
         H[np.arange(v.shape[0]), idx] = 1.0

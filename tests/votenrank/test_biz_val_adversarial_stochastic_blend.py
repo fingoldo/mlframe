@@ -17,10 +17,12 @@ from mlframe.votenrank.constrained_weight_blend import constrained_weight_blend
 
 
 def _rmse(y_true, y_pred):
+    """Helper that rmse."""
     return float(np.sqrt(np.mean((y_true - y_pred) ** 2)))
 
 
 def _make_drifted_dataset(seed: int):
+    """Helper that make drifted dataset."""
     rng = np.random.default_rng(seed)
     n_region_a_train, n_region_b_train = 900, 100  # train dominated by region A
     n_region_b_test = 400  # test is ENTIRELY region B -- the drift scenario
@@ -34,10 +36,12 @@ def _make_drifted_dataset(seed: int):
     y_test = np.sin(x_test * 3.0)
 
     def model_1(x):  # good in region A [0,1], poor (noisy) in region B [2,3]
+        """Helper that model 1."""
         is_a = x < 1.5
         return np.where(is_a, np.sin(x * 3.0), np.sin(x * 3.0) + 1.5 * rng.standard_normal(len(x)))
 
     def model_2(x):  # good in region B [2,3], poor (noisy) in region A
+        """Helper that model 2."""
         is_a = x < 1.5
         return np.where(is_a, np.sin(x * 3.0) + 1.5 * rng.standard_normal(len(x)), np.sin(x * 3.0))
 
@@ -47,6 +51,7 @@ def _make_drifted_dataset(seed: int):
 
 
 def test_biz_val_adversarial_stochastic_blend_beats_naive_full_train_fit_under_drift():
+    """Adversarial stochastic blend beats naive full train fit under drift."""
     x_train, y_train, train_preds, x_test, y_test, test_preds = _make_drifted_dataset(seed=0)
 
     naive_result = constrained_weight_blend(train_preds, y_train, _rmse, n_restarts=5, random_state=0)
@@ -68,6 +73,7 @@ def test_biz_val_adversarial_stochastic_blend_beats_naive_full_train_fit_under_d
 
 
 def test_compute_test_likeness_flags_drifted_region_correctly():
+    """Compute test likeness flags drifted region correctly."""
     x_train, _, _, x_test, _, _ = _make_drifted_dataset(seed=1)
     test_likeness = compute_test_likeness(x_train.reshape(-1, 1), x_test.reshape(-1, 1), cv=5, random_state=1)
 
@@ -80,6 +86,7 @@ def test_compute_test_likeness_flags_drifted_region_correctly():
 
 
 def test_adversarial_stochastic_blend_weights_sum_to_one():
+    """Adversarial stochastic blend weights sum to one."""
     rng = np.random.default_rng(2)
     y_true = rng.normal(size=200)
     preds = [y_true + 0.3 * rng.standard_normal(200), y_true + 0.5 * rng.standard_normal(200)]
@@ -149,9 +156,11 @@ def test_biz_val_adversarial_stochastic_blend_convergence_diagnostic_no_drift_fl
     y_train = np.sin(x_train * 3.0)
 
     def model_1(x):
+        """Helper that model 1."""
         return np.sin(x * 3.0) + 0.4 * rng.standard_normal(len(x))
 
     def model_2(x):
+        """Helper that model 2."""
         return np.sin(x * 3.0) + 0.1 * rng.standard_normal(len(x))
 
     train_preds = [model_1(x_train), model_2(x_train)]

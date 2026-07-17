@@ -27,6 +27,7 @@ from mlframe.feature_engineering.relational_dfs import (
 
 
 def _make_relational_dataset(seed: int, n_parents: int = 300):
+    """Helper: Make relational dataset."""
     rng = np.random.default_rng(seed)
     parent = pd.DataFrame({"cust_id": np.arange(n_parents), "cutoff": np.full(n_parents, 10.0)})
 
@@ -54,6 +55,7 @@ def _make_relational_dataset(seed: int, n_parents: int = 300):
 
 
 def test_biz_val_relational_dfs_cutoff_safe_beats_leaky_join_at_serving_time():
+    """Biz val relational dfs cutoff safe beats leaky join at serving time."""
     parent, child_df, y = _make_relational_dataset(seed=0)
     spec = ChildTableSpec(child_df=child_df, foreign_key_col="cust_id", time_col="ts", value_cols={"amount": ["sum"]}, prefix="txn")
 
@@ -85,6 +87,7 @@ def test_biz_val_relational_dfs_cutoff_safe_beats_leaky_join_at_serving_time():
 
 
 def test_compute_relational_features_excludes_post_cutoff_rows():
+    """Compute relational features excludes post cutoff rows."""
     parent = pd.DataFrame({"cust_id": [1, 2], "cutoff": [10, 10]})
     child = pd.DataFrame({"cust_id": [1, 1, 1, 2], "ts": [1, 5, 12, 3], "amount": [100, 200, 999, 50]})
     spec = ChildTableSpec(child_df=child, foreign_key_col="cust_id", time_col="ts", value_cols={"amount": ["sum", "count"]}, prefix="txn")
@@ -95,6 +98,7 @@ def test_compute_relational_features_excludes_post_cutoff_rows():
 
 
 def test_stack_relational_features_depth_2_respects_both_hop_cutoffs():
+    """Stack relational features depth 2 respects both hop cutoffs."""
     parent = pd.DataFrame({"store_id": [1], "cutoff": [100]})
     outlets = pd.DataFrame({"outlet_id": [10, 11], "store_id": [1, 1], "opened_at": [5, 90]})
     sales = pd.DataFrame({"outlet_id": [10, 10, 10, 11, 11], "sale_ts": [1, 3, 95, 91, 200], "revenue": [10, 20, 999, 30, 999]})
@@ -124,6 +128,7 @@ def test_stack_relational_chain_depth_2_matches_stack_relational_features():
     # RelationalHop/stack_relational_chain generalizes stack_relational_features from a fixed depth-2 chain
     # to arbitrary depth; a single-hop chain must reproduce the depth-2-specific path BIT-IDENTICALLY --
     # this is the proof the generalization is correct, not just additive.
+    """Stack relational chain depth 2 matches stack relational features."""
     parent = pd.DataFrame({"store_id": [1, 2], "cutoff": [100, 100]})
     outlets = pd.DataFrame({"outlet_id": [10, 11, 12], "store_id": [1, 1, 2], "opened_at": [5, 90, 20]})
     sales = pd.DataFrame({"outlet_id": [10, 10, 10, 11, 11, 12], "sale_ts": [1, 3, 95, 91, 200, 4], "revenue": [10, 20, 999, 30, 999, 7]})
@@ -157,6 +162,7 @@ def _make_depth3_dataset(seed: int, n_accounts: int = 250):
     # driving y lives in event-level values, reachable from the account only via a depth-3 rollup (event ->
     # session sum -> device mean -> account mean); session/device-level raw columns are pure noise, so a
     # depth-2-limited rollup (which can only see device+session, never events) cannot recover it.
+    """Helper: Make depth3 dataset."""
     rng = np.random.default_rng(seed)
     accounts = pd.DataFrame({"account_id": np.arange(n_accounts), "cutoff": np.full(n_accounts, 2000.0)})
 
@@ -187,6 +193,7 @@ def _make_depth3_dataset(seed: int, n_accounts: int = 250):
 
 
 def test_biz_val_stack_relational_chain_depth_3_recovers_signal_invisible_to_depth_2():
+    """Biz val stack relational chain depth 3 recovers signal invisible to depth 2."""
     accounts, devices, sessions, events, y = _make_depth3_dataset(seed=0)
 
     leaf_spec = ChildTableSpec(child_df=events, foreign_key_col="session_id", time_col="event_ts", value_cols={"event_value": ["sum"]}, prefix="ev")

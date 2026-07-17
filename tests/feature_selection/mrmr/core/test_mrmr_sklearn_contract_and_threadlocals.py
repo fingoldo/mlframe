@@ -32,6 +32,7 @@ from mlframe.feature_selection.filters.info_theory import (
 
 @pytest.fixture
 def small_xy():
+    """Build a small synthetic classification fixture with signal on columns f0/f1."""
     rng = np.random.default_rng(0)
     X = pd.DataFrame(rng.normal(size=(200, 5)), columns=[f"f{i}" for i in range(5)])
     y = pd.Series((X["f0"] + X["f1"] > 0).astype(int))
@@ -60,32 +61,9 @@ def test_f3_random_seed_does_not_leak_into_random_state():
 
 def test_f1_clone_round_trips_get_params():
     """sklearn.clone(m) must produce an estimator whose get_params equals the original's (the sklearn
-    estimator contract). Pre-fix the mutated ctor locals broke this for ``random_state`` /
-    ``skip_retraining_on_same_shape``."""
+    estimator contract). Pre-fix the mutated ctor locals broke this for ``random_state``."""
     m = MRMR(random_state=11, quantization_nbins=12, skip_retraining_on_same_content=False)
     assert sklearn.clone(m).get_params() == m.get_params()
-
-
-def test_f1_clone_of_default_emits_no_deprecation_warning():
-    """Pre-fix: ``__init__`` rebound ``skip_retraining_on_same_shape = skip_retraining_on_same_content``,
-    so a default-constructed estimator stored ``skip_retraining_on_same_shape=True`` and EVERY clone
-    re-passed that deprecated arg -> a DeprecationWarning per clone (per GridSearchCV/cross_val_score fold).
-    Post-fix the default stores ``None`` and clone is silent."""
-    assert MRMR().get_params()["skip_retraining_on_same_shape"] is None
-    with warnings.catch_warnings(record=True) as rec:
-        warnings.simplefilter("always")
-        sklearn.clone(MRMR())
-    deprecations = [w for w in rec if issubclass(w.category, DeprecationWarning)]
-    assert deprecations == [], f"clone of default MRMR emitted {len(deprecations)} DeprecationWarning(s)"
-
-
-def test_f1_deprecation_warning_still_fires_when_user_passes_deprecated_arg():
-    """The warning must still fire when the user ACTUALLY passes the deprecated alias -- the fix only
-    stops the spurious clone-of-default warning, not the legitimate one."""
-    with warnings.catch_warnings(record=True) as rec:
-        warnings.simplefilter("always")
-        MRMR(skip_retraining_on_same_shape=True)
-    assert any(issubclass(w.category, DeprecationWarning) and "skip_retraining_on_same_shape" in str(w.message) for w in rec)
 
 
 def test_d5_default_seed_resample_is_reproducible():

@@ -17,6 +17,7 @@ from mlframe.calibration.prediction_band_correction import assess_prediction_ban
 def test_biz_val_assess_prediction_band_stability_dense_band_is_reliable():
     # plenty of OOF rows in-band, genuine systematic over-prediction (same construction as the
     # existing calibration biz_value test) -- the bootstrap distribution should be tight.
+    """Assess prediction band stability dense band is reliable."""
     rng = np.random.default_rng(0)
     n = 4000
     y_true = rng.integers(0, 2, n).astype(float)
@@ -37,6 +38,7 @@ def test_biz_val_assess_prediction_band_stability_sparse_band_is_unreliable():
     # happened to land there rather than a real subpopulation effect; bootstrap resampling should reveal
     # a wide, untrustworthy spread even though find_prediction_band_shift alone reports a confident-looking
     # single float with no warning.
+    """Assess prediction band stability sparse band is unreliable."""
     rng = np.random.default_rng(3)
     n = 4000
     y_true = rng.integers(0, 2, n).astype(float)

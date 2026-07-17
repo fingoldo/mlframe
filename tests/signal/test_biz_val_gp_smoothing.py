@@ -20,6 +20,7 @@ from mlframe.signal.gp_smoothing import compute_gp_smoothed_features, gp_smooth_
 
 
 def _make_sparse_lightcurve_dataset(n_objects: int, seed: int):
+    """Helper that make sparse lightcurve dataset."""
     rng = np.random.default_rng(seed)
     query_times = np.linspace(0, 20, 8)
     rows = []
@@ -38,6 +39,7 @@ def _make_sparse_lightcurve_dataset(n_objects: int, seed: int):
 
 
 def _nearest_raw_features(df: pd.DataFrame, entities: np.ndarray, query_times: np.ndarray) -> np.ndarray:
+    """Helper that nearest raw features."""
     out = np.zeros((len(entities), len(query_times)))
     for i, e in enumerate(entities):
         sub = df[df["obj"] == e]
@@ -48,6 +50,7 @@ def _nearest_raw_features(df: pd.DataFrame, entities: np.ndarray, query_times: n
 
 
 def test_biz_val_gp_smoothed_features_beats_nearest_raw_value_auc():
+    """Gp smoothed features beats nearest raw value auc."""
     df, labels, query_times = _make_sparse_lightcurve_dataset(n_objects=100, seed=1)
     entities = pd.unique(df["obj"])
     y_labels = labels[entities]
@@ -71,6 +74,7 @@ def test_biz_val_gp_smoothed_features_beats_nearest_raw_value_auc():
 
 
 def test_gp_smooth_std_is_low_near_observations_high_in_sparse_gaps():
+    """Gp smooth std is low near observations high in sparse gaps."""
     t = np.array([1.0, 2.0, 3.0, 15.0])
     y = np.array([1.0, 1.1, 0.9, 2.0])
     t_query = np.array([2.0, 9.0, 15.0])  # near-observed, far-gap, near-observed
@@ -106,6 +110,7 @@ def _make_mixed_regime_dataset(n_objects: int, seed: int):
 
 
 def test_biz_val_gp_smooth_irregular_series_ensemble_beats_best_single_scale_mixed_regime():
+    """Gp smooth irregular series ensemble beats best single scale mixed regime."""
     df, true_curves, query_times = _make_mixed_regime_dataset(n_objects=60, seed=3)
     entities = pd.unique(df["obj"])
     grouped = {e: sub for e, sub in df.groupby("obj", sort=False)}
@@ -113,6 +118,7 @@ def test_biz_val_gp_smooth_irregular_series_ensemble_beats_best_single_scale_mix
     candidate_scales = [0.4, 2.0, 10.0]
 
     def _mse_for_scale(length_scale: float) -> float:
+        """Helper that mse for scale."""
         sq_errors = []
         for i, e in enumerate(entities):
             sub = grouped[e]
@@ -140,6 +146,7 @@ def test_biz_val_gp_smooth_irregular_series_ensemble_beats_best_single_scale_mix
 
 
 def test_gp_smooth_irregular_series_length_scales_none_is_bit_identical_to_legacy_default():
+    """Gp smooth irregular series length scales none is bit identical to legacy default."""
     rng = np.random.default_rng(7)
     t = np.sort(rng.uniform(0, 20, 8))
     y = rng.normal(size=8)
@@ -151,6 +158,7 @@ def test_gp_smooth_irregular_series_length_scales_none_is_bit_identical_to_legac
 
 
 def test_gp_smoothed_features_output_shape():
+    """Gp smoothed features output shape."""
     df, _labels, query_times = _make_sparse_lightcurve_dataset(n_objects=10, seed=2)
     result = compute_gp_smoothed_features(df, "obj", "t", "y", query_times, alpha=0.05)
     assert result.shape[0] == 10

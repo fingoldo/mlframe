@@ -15,6 +15,7 @@ from mlframe.evaluation.noise_band import cv_score_equivalence_band
 
 
 def test_biz_val_triage_cv_delta_trusts_fe_but_flags_equal_size_hyperparameter_delta():
+    """Triage cv delta trusts fe but flags equal size hyperparameter delta."""
     rng = np.random.default_rng(0)
     baseline = 0.700 + rng.normal(0, 0.003, size=6)
 
@@ -31,6 +32,7 @@ def test_biz_val_triage_cv_delta_trusts_fe_but_flags_equal_size_hyperparameter_d
 
 
 def test_triage_cv_delta_within_noise_flags_both_sources_non_actionable():
+    """Triage cv delta within noise flags both sources non actionable."""
     rng = np.random.default_rng(1)
     baseline = 0.700 + rng.normal(0, 0.003, size=6)
     band = cv_score_equivalence_band(baseline, method="sem")
@@ -45,6 +47,7 @@ def test_triage_cv_delta_within_noise_flags_both_sources_non_actionable():
 
 
 def test_triage_cv_delta_shape_mismatch_raises():
+    """Triage cv delta shape mismatch raises."""
     import pytest
 
     with pytest.raises(ValueError):
@@ -52,6 +55,7 @@ def test_triage_cv_delta_shape_mismatch_raises():
 
 
 def test_triage_cv_delta_invalid_change_source_raises():
+    """Triage cv delta invalid change source raises."""
     import pytest
 
     with pytest.raises(ValueError):

@@ -24,6 +24,7 @@ def _block_plotly(monkeypatch):
     real_import = builtins.__import__
 
     def _fake_import(name, *args, **kwargs):
+        """Helper: Fake import."""
         if name == "plotly" or name.startswith("plotly."):
             raise ImportError("No module named 'plotly' (simulated absence)")
         return real_import(name, *args, **kwargs)
@@ -32,6 +33,7 @@ def _block_plotly(monkeypatch):
 
 
 def test_metrics_core_imports_without_plotly(monkeypatch):
+    """Metrics core imports without plotly."""
     _block_plotly(monkeypatch)
     # A fresh re-import of the module must succeed even though plotly cannot be imported.
     monkeypatch.delitem(sys.modules, "mlframe.metrics.core", raising=False)
@@ -44,6 +46,7 @@ def test_metrics_core_imports_without_plotly(monkeypatch):
 
 
 def test_require_plotly_raises_actionable_error(monkeypatch):
+    """Require plotly raises actionable error."""
     _block_plotly(monkeypatch)
     core = importlib.import_module("mlframe.metrics.core")
     with pytest.raises(ImportError, match=r"mlframe\[viz\]"):

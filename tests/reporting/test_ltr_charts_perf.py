@@ -132,8 +132,10 @@ _CASES = [
 
 
 class TestKernelParity:
+    """Groups tests for: TestKernelParity."""
     @pytest.mark.parametrize("seed,ties,float_grades", _CASES)
     def test_per_query_ndcg_kernel_identical_to_loop(self, seed, ties, float_grades):
+        """Per query ndcg kernel identical to loop."""
         yt, ys, gid = _mixed_dataset(seed, ties, float_grades)
         st, ss, gs, ref_ndcg, _ = _ref_per_query(yt, ys, gid)
         got = _per_query_ndcg_kernel(st, ss, gs, 10)
@@ -142,6 +144,7 @@ class TestKernelParity:
 
     @pytest.mark.parametrize("seed,ties,float_grades", _CASES)
     def test_per_query_mrr_kernel_identical_to_loop(self, seed, ties, float_grades):
+        """Per query mrr kernel identical to loop."""
         yt, ys, gid = _mixed_dataset(seed, ties, float_grades)
         st, ss, gs, _, ref_mrr = _ref_per_query(yt, ys, gid)
         got = _per_query_mrr_kernel(st, ss, gs)
@@ -149,6 +152,7 @@ class TestKernelParity:
 
     @pytest.mark.parametrize("seed,ties,float_grades", _CASES)
     def test_ndcg_k_batched_identical_to_per_k_ndcg_at_k(self, seed, ties, float_grades):
+        """Ndcg k batched identical to per k ndcg at k."""
         yt, ys, gid = _mixed_dataset(seed, ties, float_grades)
         st, ss, gs = _iter_group_slices(yt, ys, gid)
         sizes = np.diff(gs)
@@ -162,6 +166,7 @@ class TestKernelParity:
 
     @pytest.mark.parametrize("seed,ties,float_grades", _CASES)
     def test_lift_kernel_matches_plain_reference(self, seed, ties, float_grades):
+        """Lift kernel matches plain reference."""
         yt, ys, gid = _mixed_dataset(seed, ties, float_grades)
         st, ss, gs = _iter_group_slices(yt, ys, gid)
         max_k = min(int(np.diff(gs).max()), 50)
@@ -198,6 +203,7 @@ class TestKernelParity:
         assert np.allclose(ls / np.maximum(cn, 1), ref, atol=1e-9)
 
     def test_lift_kernel_deterministic_across_runs(self):
+        """Lift kernel deterministic across runs."""
         yt, ys, gid = _mixed_dataset(1, ties=True, float_grades=False)
         st, ss, gs = _iter_group_slices(yt, ys, gid)
         max_k = min(int(np.diff(gs).max()), 50)
@@ -207,8 +213,10 @@ class TestKernelParity:
 
 
 class TestKernelEdgeCases:
+    """Groups tests for: TestKernelEdgeCases."""
     def test_size1_groups_and_all_zero_relevance(self):
         # groups: size1(rel>0), size2, size3(all-zero rel), size1(rel>0)
+        """Size1 groups and all zero relevance."""
         gid = np.array([0, 1, 1, 2, 2, 2, 3])
         yt = np.array([1.0, 0.0, 2.0, 0.0, 0.0, 0.0, 3.0])
         ys = np.array([0.5, 0.1, 0.9, 0.3, 0.2, 0.1, 0.7])
@@ -221,6 +229,7 @@ class TestKernelEdgeCases:
         assert ndcg[3] == 1.0 and mrr[3] == 1.0
 
     def test_empty_input_yields_zero_groups(self):
+        """Empty input yields zero groups."""
         st, ss, gs = _iter_group_slices(np.array([]), np.array([]), np.array([]))
         assert len(gs) - 1 == 0
         ndcg = _per_query_ndcg_kernel(st, ss, gs, 10)
@@ -269,7 +278,9 @@ def _qsize_dataset(sizes_per_group, seed=0, small_score_better=False):
 
 
 class TestNDCGByQSizePanel:
+    """Groups tests for: TestNDCGByQSizePanel."""
     def test_returns_bar_panel_with_valid_values(self):
+        """Returns bar panel with valid values."""
         sizes = [1, 1, 2, 3, 4, 5, 8, 10, 16, 20, 33]
         yt, ys, gid = _qsize_dataset(sizes, seed=3)
         panel = _ndcg_by_qsize_panel(yt, ys, gid)
@@ -281,6 +292,7 @@ class TestNDCGByQSizePanel:
 
     def test_bins_are_log2_spaced(self):
         # sizes spanning bins 0 (size1), 1 (2-3), 2 (4-7), 3 (8-15), 4 (16-31), 5 (32+)
+        """Bins are log2 spaced."""
         sizes = [1, 1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 40]
         yt, ys, gid = _qsize_dataset(sizes, seed=4)
         panel = _ndcg_by_qsize_panel(yt, ys, gid)
@@ -294,6 +306,7 @@ class TestNDCGByQSizePanel:
         assert len(panel.categories) == len(expected_bins)
 
     def test_per_bin_counts_sum_to_n_valid_queries(self):
+        """Per bin counts sum to n valid queries."""
         sizes = [1, 1, 1, 2, 3, 4, 5, 9, 16, 30]
         yt, ys, gid = _qsize_dataset(sizes, seed=9)
         panel = _ndcg_by_qsize_panel(yt, ys, gid)
@@ -321,6 +334,7 @@ class TestNDCGByQSizePanel:
         assert vals[0] > vals[-1] + 0.05, f"small-group NDCG {vals[0]:.3f} should exceed large-group {vals[-1]:.3f}"
 
     def test_empty_input_returns_placeholder_bar(self):
+        """Empty input returns placeholder bar."""
         empty = np.array([])
         panel = _ndcg_by_qsize_panel(empty, empty, empty)
         assert isinstance(panel, BarPanelSpec)
@@ -333,8 +347,10 @@ class TestNDCGByQSizePanel:
 
 
 class TestComposeDefaultTemplate:
+    """Groups tests for: TestComposeDefaultTemplate."""
     def test_default_template_builds_six_panels(self):
         # Mixed group sizes incl. singletons, ties, integer grades.
+        """Default template builds six panels."""
         sizes = [1, 1, 2, 3, 4, 5, 6, 8, 10, 12, 15, 20, 25, 33] * 4
         yt, ys, gid = _qsize_dataset(sizes, seed=2)
         fig = compose_ltr_figure(yt, ys, gid)  # default 6-panel template
@@ -343,6 +359,7 @@ class TestComposeDefaultTemplate:
         assert n_panels == 6
 
     def test_default_template_includes_ndcg_by_qsize(self):
+        """Default template includes ndcg by qsize."""
         sizes = [2, 3, 5, 8, 13, 21] * 5
         yt, ys, gid = _qsize_dataset(sizes, seed=6)
         fig = compose_ltr_figure(yt, ys, gid)

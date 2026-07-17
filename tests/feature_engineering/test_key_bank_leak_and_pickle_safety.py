@@ -22,6 +22,7 @@ from mlframe.feature_engineering.transformer._row_attention_ann import _AnnIndex
 
 
 def _make_bank() -> KeyBank:
+    """Helper: Make bank."""
     n_heads, n_train, head_dim, d_input = 2, 5, 3, 4
     projections = np.zeros((n_heads, d_input, head_dim), dtype=np.float32)
     k_proj = np.zeros((n_heads, n_train, head_dim), dtype=np.float32)
@@ -44,6 +45,7 @@ def test_save_key_bank_cleans_tmp_dir_on_write_failure(tmp_path, monkeypatch):
     real_save = np.save
 
     def boom_save(file, arr, *a, **k):
+        """Boom save."""
         calls["n"] += 1
         if calls["n"] == 2:
             raise OSError("simulated disk-full mid-write")

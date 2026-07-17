@@ -22,6 +22,7 @@ pytestmark = pytest.mark.fast
 
 
 def test_target_quantile_modea_scaler_is_per_fold_train_only():
+    """Target quantile modea scaler is per fold train only."""
     rng = np.random.default_rng(0)
     n, d = 200, 6
     X = rng.standard_normal((n, d)).astype(np.float32)

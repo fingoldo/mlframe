@@ -20,10 +20,12 @@ from mlframe.training.models import DEFAULT_CALIBRATION_CV_FOLDS
 
 
 def test_calibration_cv_folds_default_is_five():
+    """DEFAULT_CALIBRATION_CV_FOLDS is 5, matching the documented calibration default."""
     assert DEFAULT_CALIBRATION_CV_FOLDS == 5
 
 
 def _mean_brier(k: int, scenarios, seeds) -> float:
+    """Averages Brier score over several classification scenarios/seeds when calibrating with k CV folds."""
     briers = []
     for n_features, n_inf, weights, seed in scenarios:
         for _s in seeds:

@@ -30,12 +30,14 @@ _BASELINE = 100.0
 
 
 def _true_multiplier(name: str) -> float:
+    """Helper: True multiplier."""
     if name == "none":
         return 1.0
     return _MAJOR_MULTIPLIER if any(major in name for major in _MAJOR_HOLIDAYS) else _MINOR_MULTIPLIER
 
 
 def test_biz_val_nearest_holiday_name_target_encoding_beats_blanket_is_holiday_flag():
+    """Biz val nearest holiday name target encoding beats blanket is holiday flag."""
     dates = pd.Series(pd.date_range("2005-01-01", "2024-12-31", freq="D"))
     feats = holiday_calendar_features(dates, country="US", include_nearest_name=True, name_window_days=0)
 
@@ -66,6 +68,7 @@ def test_biz_val_nearest_holiday_name_target_encoding_beats_blanket_is_holiday_f
 
 
 def test_holiday_calendar_features_nearest_holiday_name_matches_known_dates():
+    """Holiday calendar features nearest holiday name matches known dates."""
     dates = pd.Series(pd.to_datetime(["2024-12-25", "2024-07-04", "2024-03-15"]))
     feats = holiday_calendar_features(dates, country="US", include_nearest_name=True)
 
@@ -74,6 +77,7 @@ def test_holiday_calendar_features_nearest_holiday_name_matches_known_dates():
 
 
 def test_holiday_calendar_features_nearest_holiday_name_window_and_sentinel():
+    """Holiday calendar features nearest holiday name window and sentinel."""
     dates = pd.Series(pd.to_datetime(["2024-01-01", "2024-08-01"]))
     feats = holiday_calendar_features(dates, country="US", include_nearest_name=True, none_sentinel="NONE", name_window_days=5)
 
@@ -82,6 +86,7 @@ def test_holiday_calendar_features_nearest_holiday_name_window_and_sentinel():
 
 
 def test_holiday_calendar_features_include_nearest_name_default_off_keeps_old_columns():
+    """Holiday calendar features include nearest name default off keeps old columns."""
     dates = pd.Series(pd.to_datetime(["2024-12-25"]))
     feats = holiday_calendar_features(dates, country="US")
 

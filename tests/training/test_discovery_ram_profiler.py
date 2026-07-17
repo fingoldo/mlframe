@@ -22,6 +22,7 @@ import pytest
 # 1: phase RAM report logs one INFO line per call, tracks baseline + prev.
 # ---------------------------------------------------------------------------
 def test_1_phase_ram_report_records_baseline_then_delta(caplog):
+    """_phase_ram_report logs one INFO line per phase call and tracks both baseline_uss_mb and prev_uss_mb in state."""
     from mlframe.training.composite.discovery._fit import _phase_ram_report
 
     state: dict = {}
@@ -102,6 +103,7 @@ def test_1_phase_ram_report_skips_psutil_when_info_disabled():
     called = {"n": 0}
 
     def _spy():
+        """Counts calls in place of the real psutil-backed RAM probe."""
         called["n"] += 1
         return (1.0, 1.0, 1.0)
 

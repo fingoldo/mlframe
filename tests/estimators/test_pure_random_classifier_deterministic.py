@@ -11,6 +11,7 @@ from mlframe.estimators.custom import PureRandomClassifier
 
 @pytest.mark.parametrize("n_classes", [2, 3, 5])
 def test_predict_proba_and_predict_are_deterministic_across_calls(n_classes):
+    """Predict proba and predict are deterministic across calls."""
     rng = np.random.default_rng(0)
     X = rng.standard_normal((80, 4))
     y = rng.integers(0, n_classes, size=80)

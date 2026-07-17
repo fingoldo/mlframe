@@ -22,6 +22,7 @@ import pytest
 
 
 def test_rfecv_fold_sample_weight_and_cat_index_with_early_stopping_and_must_include():
+    """Per-fold early-stopping re-slice must re-slice sample_weight too, and cat_feature indices must be computed against the must_include-prepended fit_features, not current_features."""
     lgb = pytest.importorskip("lightgbm")
     pytest.importorskip("sklearn")
     from mlframe.feature_selection.wrappers import RFECV

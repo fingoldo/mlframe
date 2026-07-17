@@ -10,6 +10,7 @@ from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
 
 def _ar1(n, rng, phi=0.7):
+    """Generates an AR(1) series with autocorrelation phi, used as the base signal for leakage-guard fixtures."""
     y = np.zeros(n)
     for t in range(1, n):
         y[t] = phi * y[t - 1] + rng.standard_normal()
@@ -17,6 +18,7 @@ def _ar1(n, rng, phi=0.7):
 
 
 def test_leakage_guard_drops_monotone_reencoding_keeps_lag():
+    """Leakage guard drops a same-time monotone re-encoding of the target (high Spearman, escapes Pearson) but keeps a genuine 1-step lag."""
     rng = np.random.default_rng(0)
     n = 500
     y = _ar1(n, rng)

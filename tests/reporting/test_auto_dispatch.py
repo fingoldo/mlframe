@@ -76,7 +76,9 @@ def binary_inputs():
 
 
 class TestDispatch:
+    """Groups tests for: TestDispatch."""
     def test_multiclass_dispatch(self, mc_inputs, tmp_path):
+        """Multiclass dispatch."""
         y, proba, classes = mc_inputs
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -92,6 +94,7 @@ class TestDispatch:
         assert os.path.exists(tmp_path / "mc_multiclass_panels.png")
 
     def test_multilabel_dispatch(self, ml_inputs, tmp_path):
+        """Multilabel dispatch."""
         y, proba, labels = ml_inputs
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -107,6 +110,7 @@ class TestDispatch:
         assert os.path.exists(tmp_path / "ml_multilabel_panels.png")
 
     def test_ltr_dispatch(self, ltr_inputs, tmp_path):
+        """Ltr dispatch."""
         y, score, gid = ltr_inputs
         # LTR: scores arrive as ``preds`` (1-D), no ``probs``.
         with warnings.catch_warnings():
@@ -168,6 +172,7 @@ class TestDispatch:
         import mlframe.reporting.charts.multiclass as multiclass_mod
 
         def _boom(*a, **kw):
+            """Helper: Boom."""
             raise RuntimeError("synthetic composer failure")
 
         monkeypatch.setattr(multiclass_mod, "compose_multiclass_figure", _boom)
@@ -188,6 +193,7 @@ class TestDispatch:
         assert failures == ["multiclass"]
 
     def test_panel_failures_stays_empty_on_legitimate_noop(self, tmp_path):
+        """Panel failures stays empty on legitimate noop."""
         rng = np.random.default_rng(0)
         y = rng.normal(0, 1, 100)
         preds = y + rng.normal(0, 0.1, 100)
@@ -207,6 +213,7 @@ class TestDispatch:
 
     def test_regression_is_skipped(self, tmp_path):
         # Regression: probs is None.
+        """Regression is skipped."""
         rng = np.random.default_rng(0)
         y = rng.normal(0, 1, 100)
         preds = y + rng.normal(0, 0.1, 100)
@@ -228,7 +235,9 @@ class TestDispatch:
 
 
 class TestShortCircuits:
+    """Groups tests for: TestShortCircuits."""
     def test_empty_base_path_is_noop(self, mc_inputs):
+        """Empty base path is noop."""
         y, proba, classes = mc_inputs
         tag = render_multi_target_panels(
             targets=y,
@@ -241,6 +250,7 @@ class TestShortCircuits:
         assert tag is None
 
     def test_empty_plot_outputs_is_noop(self, mc_inputs, tmp_path):
+        """Empty plot outputs is noop."""
         y, proba, classes = mc_inputs
         tag = render_multi_target_panels(
             targets=y,
@@ -253,6 +263,7 @@ class TestShortCircuits:
         assert tag is None
 
     def test_empty_multiclass_template_is_noop(self, mc_inputs, tmp_path):
+        """Empty multiclass template is noop."""
         y, proba, classes = mc_inputs
         # Multiclass shape -> dispatcher matches multiclass branch, but
         # the template is empty -> falls through to None.
@@ -267,6 +278,7 @@ class TestShortCircuits:
         assert tag is None
 
     def test_empty_multilabel_template_is_noop(self, ml_inputs, tmp_path):
+        """Empty multilabel template is noop."""
         y, proba, labels = ml_inputs
         tag = render_multi_target_panels(
             targets=y,
@@ -279,6 +291,7 @@ class TestShortCircuits:
         assert tag is None
 
     def test_empty_ltr_template_is_noop(self, ltr_inputs, tmp_path):
+        """Empty ltr template is noop."""
         y, score, gid = ltr_inputs
         tag = render_multi_target_panels(
             targets=y,
@@ -297,7 +310,9 @@ class TestShortCircuits:
 
 
 class TestMultiBackend:
+    """Groups tests for: TestMultiBackend."""
     def test_multiclass_emits_both_backends(self, mc_inputs, tmp_path):
+        """Multiclass emits both backends."""
         y, proba, classes = mc_inputs
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -319,6 +334,7 @@ class TestMultiBackend:
 
 
 class TestDispatchPrecedence:
+    """Groups tests for: TestDispatchPrecedence."""
     def test_2d_probs_with_group_ids_does_not_misfire_ltr(self, mc_inputs, tmp_path):
         """Caller has multiclass probs + group_ids + ltr_panels (e.g. an
         LTR run that also happens to have probs on a model that's NOT a
@@ -376,6 +392,7 @@ class TestDispatchPrecedence:
 
 
 class TestFailureSwallowing:
+    """Groups tests for: TestFailureSwallowing."""
     def test_degenerate_input_returns_none_no_raise(self, tmp_path, caplog):
         """1-row multiclass input -- some sklearn paths inside composers
         crash on degenerate slices. The dispatcher MUST swallow the
@@ -407,6 +424,7 @@ class TestFailureSwallowing:
         from mlframe.reporting import auto_dispatch
 
         def _raising_composer(*args, **kwargs):
+            """Helper: Raising composer."""
             raise RuntimeError("synthetic composer failure")
 
         # Patch the composer used by the multiclass branch.
@@ -449,6 +467,7 @@ class TestReportModelPerfIntegration:
     so we don't need to fit anything."""
 
     def test_multiclass_via_report_model_perf(self, mc_inputs, tmp_path):
+        """Multiclass via report model perf."""
         from mlframe.training.evaluation import report_model_perf
 
         y, proba, classes = mc_inputs
@@ -473,6 +492,7 @@ class TestReportModelPerfIntegration:
         assert os.path.exists(tmp_path / "smoke_multiclass_panels.png")
 
     def test_multilabel_via_report_model_perf(self, ml_inputs, tmp_path):
+        """Multilabel via report model perf."""
         from mlframe.training.evaluation import report_model_perf
 
         y, proba, labels = ml_inputs

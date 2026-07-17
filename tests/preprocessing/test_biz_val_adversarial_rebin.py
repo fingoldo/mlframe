@@ -16,6 +16,7 @@ from mlframe.reporting.charts.drift import adversarial_auc
 
 
 def _make_skewed_column(seed: int):
+    """Helper that make skewed column."""
     rng = np.random.default_rng(seed)
     n_train, n_test = 4000, 4000
 
@@ -35,6 +36,7 @@ def _make_skewed_column(seed: int):
 
 
 def test_biz_val_adversarial_rebin_reduces_adversarial_auc():
+    """Adversarial rebin reduces adversarial auc."""
     train_series, test_series = _make_skewed_column(seed=0)
 
     auc_before, _fpr, _tpr, _imp, _names = adversarial_auc(pd.DataFrame({"cat_col": train_series}), pd.DataFrame({"cat_col": test_series}), seed=0)
@@ -60,6 +62,7 @@ def test_biz_val_adversarial_rebin_reduces_adversarial_auc():
 
 
 def test_adversarial_rebin_leaves_balanced_categories_untouched():
+    """Adversarial rebin leaves balanced categories untouched."""
     train_series, test_series = _make_skewed_column(seed=1)
     result = adversarial_rebin_categorical(train_series, test_series, skew_log_ratio_threshold=1.5)
     for cat in [f"cat_{i}" for i in range(20)]:
@@ -67,6 +70,7 @@ def test_adversarial_rebin_leaves_balanced_categories_untouched():
 
 
 def test_adversarial_rebin_category_skew_report_has_expected_columns():
+    """Adversarial rebin category skew report has expected columns."""
     train_series, test_series = _make_skewed_column(seed=2)
     result = adversarial_rebin_categorical(train_series, test_series, skew_log_ratio_threshold=1.5)
     report = result["category_skew"]
@@ -109,6 +113,7 @@ def _make_drifting_numeric_column(seed: int):
 
 
 def test_biz_val_adversarial_rebin_continuous_mode_reduces_adversarial_auc_on_drifting_numeric():
+    """Adversarial rebin continuous mode reduces adversarial auc on drifting numeric."""
     train_series, test_series = _make_drifting_numeric_column(seed=0)
 
     auc_before, _fpr, _tpr, _imp, _names = adversarial_auc(pd.DataFrame({"num_col": train_series}), pd.DataFrame({"num_col": test_series}), seed=0)

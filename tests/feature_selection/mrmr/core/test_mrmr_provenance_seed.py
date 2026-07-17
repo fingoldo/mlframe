@@ -22,6 +22,7 @@ import pandas as pd
 
 
 def _frame(n=80, seed=0):
+    """Build a small random classification frame used purely to drive an MRMR fit for provenance inspection."""
     rng = np.random.default_rng(int(seed))
     X = pd.DataFrame(rng.standard_normal((n, 5)), columns=[f"f{i}" for i in range(5)])
     y = pd.Series(rng.integers(0, 2, n), name="y")

@@ -24,10 +24,12 @@ from mlframe.votenrank.correlation_diversity_ablation import diversity_ablation_
 
 
 def _log_loss(y_true, y_pred):
+    """Helper that log loss."""
     return float(log_loss(y_true, np.clip(y_pred, 1e-6, 1 - 1e-6)))
 
 
 def _make_local_structure_dataset(n: int, seed: int):
+    """Helper that make local structure dataset."""
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(n, 10))
     y = ((np.sin(X[:, 0] * 2) + np.cos(X[:, 1] * 2) + 0.3 * rng.standard_normal(n)) > 0).astype(int)
@@ -35,6 +37,7 @@ def _make_local_structure_dataset(n: int, seed: int):
 
 
 def test_biz_val_knn_flagged_as_diverse_lower_accuracy_and_genuinely_improves_blend():
+    """Knn flagged as diverse lower accuracy and genuinely improves blend."""
     X, y = _make_local_structure_dataset(n=2000, seed=0)
 
     rf_oof = cross_val_predict(RandomForestClassifier(n_estimators=200, max_depth=4, random_state=0), X, y, cv=5, method="predict_proba")[:, 1]

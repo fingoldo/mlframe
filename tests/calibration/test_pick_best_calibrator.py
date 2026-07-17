@@ -18,6 +18,7 @@ pytestmark = [pytest.mark.fast]
 
 
 def _make_miscalibrated(n: int, seed: int = 7) -> tuple[np.ndarray, np.ndarray]:
+    """Helper that make miscalibrated."""
     rng = np.random.default_rng(seed)
     raw = rng.uniform(0.0, 1.0, size=n)
     # True probability is a steeper sigmoid of raw; raw is under-confident at the tails.
@@ -28,6 +29,7 @@ def _make_miscalibrated(n: int, seed: int = 7) -> tuple[np.ndarray, np.ndarray]:
 
 
 def test_pick_best_calibrator_picks_isotonic_on_large_n():
+    """Pick best calibrator picks isotonic on large n."""
     from mlframe.calibration.policy import pick_best_calibrator
 
     raw, y = _make_miscalibrated(n=2000, seed=11)
@@ -86,6 +88,7 @@ def test_pick_best_calibrator_small_n_prefers_beta():
 
 
 def test_pick_best_calibrator_emit_plot_writes_png():
+    """Pick best calibrator emit plot writes png."""
     from mlframe.calibration.policy import pick_best_calibrator
 
     raw, y = _make_miscalibrated(n=500, seed=23)
@@ -107,6 +110,7 @@ def test_pick_best_calibrator_emit_plot_writes_png():
 
 
 def test_pick_best_calibrator_rejects_too_few_rows():
+    """Pick best calibrator rejects too few rows."""
     from mlframe.calibration.policy import pick_best_calibrator
 
     with pytest.raises(ValueError, match="at least 4 OOF rows"):
@@ -114,6 +118,7 @@ def test_pick_best_calibrator_rejects_too_few_rows():
 
 
 def test_pick_best_calibrator_rejects_row_mismatch():
+    """Pick best calibrator rejects row mismatch."""
     from mlframe.calibration.policy import pick_best_calibrator
 
     with pytest.raises(ValueError, match="do not match"):
@@ -126,6 +131,7 @@ def test_pick_best_calibrator_rejects_row_mismatch():
 
 
 def test_calibration_config_default_policy_on():
+    """Calibration config default policy on."""
     from mlframe.calibration.policy import CalibrationConfig
 
     cfg = CalibrationConfig()

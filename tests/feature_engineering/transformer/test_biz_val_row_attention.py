@@ -59,12 +59,14 @@ def _knn_target_encode(X_train: np.ndarray, y_train: np.ndarray, X_query: np.nda
 
 
 def _lgbm_classifier():
+    """Helper: Lgbm classifier."""
     import lightgbm as lgb
 
     return lgb.LGBMClassifier(n_estimators=200, learning_rate=0.05, num_leaves=31, min_child_samples=20, random_state=42, verbose=-1)
 
 
 def _train_eval_auc(X_tr: np.ndarray, y_tr: np.ndarray, X_te: np.ndarray, y_te: np.ndarray) -> float:
+    """Helper: Train eval auc."""
     model = _lgbm_classifier()
     model.fit(X_tr, y_tr)
     probs = model.predict_proba(X_te)[:, 1]

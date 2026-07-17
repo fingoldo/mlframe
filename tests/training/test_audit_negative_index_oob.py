@@ -37,10 +37,12 @@ MLFRAME_ROOT = Path(__file__).resolve().parent.parent.parent / "src" / "mlframe"
 
 
 def _read(rel: str) -> str:
+    """Reads an mlframe source file's text for source-level assertions."""
     return (MLFRAME_ROOT / rel).read_text(encoding="utf-8")
 
 
 def test_votenrank_agreement_rate_clamps_k_to_subset_size() -> None:
+    """agreement_rate must clamp k to len(subset) before dividing, so a small subset can't produce a negative index."""
     src = _read("votenrank/utils.py")
     # The fix introduces _k_eff = min(_k_eff, len(subset)) per iter and uses
     # _denom = max(1, _k_eff) as the divisor.

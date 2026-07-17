@@ -32,7 +32,6 @@ from sklearn.base import clone
 
 from mlframe.feature_selection.filters import MRMR
 
-
 # ---------------------------------------------------------------------------
 # Helpers / small fixtures (n=200, random_seed=42)
 # ---------------------------------------------------------------------------
@@ -311,7 +310,7 @@ def test_mrmr_fit_cache_hit_replays_state():
 
     MRMR._FIT_CACHE.clear()
     mrmr1 = _fast_mrmr(
-        skip_retraining_on_same_shape=False,  # force cache path, not signature short-circuit
+        skip_retraining_on_same_content=False,  # force cache path, not signature short-circuit
         min_features_fallback=1,
     )
     t0 = time.perf_counter()

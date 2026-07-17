@@ -24,6 +24,7 @@ from mlframe.feature_engineering.transformer.density_weighted_smote import _dens
 
 
 def _old_reference(X_minority, n_synthetic, k_neighbors, seed):
+    """Helper: Old reference."""
     n_min = X_minority.shape[0]
     if n_min < 2:
         return X_minority.copy() if n_min > 0 else np.zeros((0, X_minority.shape[1] if n_min > 0 else 1), dtype=np.float32)
@@ -50,6 +51,7 @@ def _old_reference(X_minority, n_synthetic, k_neighbors, seed):
 
 
 def _make(nrows, d, seed):
+    """Helper: Make."""
     return np.random.default_rng(seed + 99).standard_normal((nrows, d)).astype(np.float32)
 
 
@@ -59,6 +61,7 @@ def _make(nrows, d, seed):
     [(500, 30, 5, 5000), (50, 8, 5, 400), (2, 4, 5, 20), (200, 12, 10, 2000)],
 )
 def test_density_weighted_synthesize_bit_identical_to_row_loop(seed, nrows, d, k_neighbors, n_syn):
+    """Density weighted synthesize bit identical to row loop."""
     X_min = _make(nrows, d, seed)
     expected = _old_reference(X_min, n_syn, k_neighbors, seed)
     got = _density_weighted_smote_synthesize(X_min, n_syn, k_neighbors, seed)
@@ -69,12 +72,14 @@ def test_density_weighted_synthesize_bit_identical_to_row_loop(seed, nrows, d, k
 @pytest.mark.parametrize("seed", [0, 3])
 def test_density_weighted_synthesize_tiny_minority_early_return(seed):
     # n_min < 2 short-circuits before any draw; pin the early-return shape/content.
+    """Density weighted synthesize tiny minority early return."""
     X_min = _make(1, 6, seed)
     got = _density_weighted_smote_synthesize(X_min, 50, 5, seed)
     assert np.array_equal(got, X_min)
 
 
 def test_density_weighted_synthesize_empty_minority():
+    """Density weighted synthesize empty minority."""
     X_min = np.zeros((0, 6), dtype=np.float32)
     got = _density_weighted_smote_synthesize(X_min, 50, 5, 0)
     assert got.shape[0] == 0

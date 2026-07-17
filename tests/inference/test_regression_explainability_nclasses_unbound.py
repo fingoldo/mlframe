@@ -32,6 +32,7 @@ def _per_fold_then_stacked(folds: list[np.ndarray | None]):
 def test_nclasses_derived_from_stacked_probs_when_final_fold_empty():
     # Final fold contributes no OOS rows: the per-fold conditional assignment is skipped on the
     # last iteration but the stacked-probs derivation still yields the correct class count.
+    """Nclasses derived from stacked probs when final fold empty."""
     per_fold, stacked = _per_fold_then_stacked([np.zeros((3, 4)), np.zeros((2, 4)), None])
     assert stacked == 4, "stacked-probs nclasses must hold across an empty final fold"
     # The per-fold value happens to be carried from an earlier fold here, but the contract the fix
@@ -42,5 +43,6 @@ def test_nclasses_derived_from_stacked_probs_when_final_fold_empty():
 def test_stacked_nclasses_correct_even_if_only_late_fold_has_rows():
     # First folds empty, only a later fold contributes: the stacked derivation is still correct,
     # whereas a naive "use the last per-fold value" would be unbound across the empty leading folds.
+    """Stacked nclasses correct even if only late fold has rows."""
     _per_fold, stacked = _per_fold_then_stacked([None, np.zeros((0, 3)), np.zeros((5, 3))])
     assert stacked == 3

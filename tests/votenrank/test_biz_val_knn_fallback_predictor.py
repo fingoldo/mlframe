@@ -20,6 +20,7 @@ from mlframe.votenrank.knn_fallback_predictor import KNNFallbackPredictor
 
 
 def _make_blind_spot_dataset(n: int, seed: int):
+    """Helper that make blind spot dataset."""
     rng = np.random.default_rng(seed)
     X = rng.uniform(-3, 3, size=(n, 2))
 
@@ -33,6 +34,7 @@ def _make_blind_spot_dataset(n: int, seed: int):
 
 
 def test_biz_val_knn_fallback_beats_primary_model_in_blind_spot_region():
+    """Knn fallback beats primary model in blind spot region."""
     X_train, y_train, _ = _make_blind_spot_dataset(n=4000, seed=0)
     X_test, y_test, in_blind_spot_test = _make_blind_spot_dataset(n=2000, seed=1)
 
@@ -59,6 +61,7 @@ def test_biz_val_knn_fallback_beats_primary_model_in_blind_spot_region():
 
 
 def test_knn_fallback_predictor_confidence_high_when_dense_low_when_sparse():
+    """Knn fallback predictor confidence high when dense low when sparse."""
     rng = np.random.default_rng(2)
     dense_cluster = rng.normal(loc=0.0, scale=0.1, size=(500, 2))
     y_train = rng.integers(0, 2, 500).astype(np.float64)
@@ -99,6 +102,7 @@ def _make_coldstart_dataset(n: int, seed: int, dense_frac: float, label_noise: f
 
 
 def test_biz_val_knn_fallback_predictor_predict_blend_beats_either_predictor_alone():
+    """Knn fallback predictor predict blend beats either predictor alone."""
     X_train, y_train, _ = _make_coldstart_dataset(n=4000, seed=10, dense_frac=0.5, label_noise=0.30)
     X_test, y_test, _ = _make_coldstart_dataset(n=2000, seed=11, dense_frac=0.25, label_noise=0.0)
 

@@ -15,6 +15,7 @@ pytest.importorskip("scipy")
 
 @pytest.mark.fast
 def test_generate_similar_probs_by_ranking_reproducible():
+    """Generate similar probs by ranking reproducible."""
     from mlframe.calibration.probabilities import generate_similar_probs_by_ranking
 
     rng = np.random.default_rng(0)
@@ -30,6 +31,7 @@ def test_generate_similar_probs_by_ranking_reproducible():
 
 @pytest.mark.fast
 def test_bin_predictions_nan_aware():
+    """Bin predictions nan aware."""
     from mlframe.calibration.quality import bin_predictions
 
     y_pred = np.array([0.1, 0.2, np.nan, 0.4, 0.5, 0.6, 0.7, 0.8], dtype=np.float64)

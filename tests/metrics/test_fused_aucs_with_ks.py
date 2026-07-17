@@ -10,6 +10,7 @@ import numpy as np
 
 
 def test_fused_aucs_with_ks_matches_separate_kernels():
+    """Fused aucs with ks matches separate kernels."""
     from mlframe.metrics._core_auc_brier import fast_numba_aucs, fast_numba_aucs_with_ks, _argsort_desc_for_metrics
     from mlframe.metrics.classification._classification_extras import ks_statistic
 
@@ -42,6 +43,7 @@ def test_fused_aucs_with_ks_identical_on_tied_discrete_scores():
 
 
 def test_fused_aucs_with_ks_single_class_returns_nan():
+    """Fused aucs with ks single class returns nan."""
     from mlframe.metrics._core_auc_brier import fast_numba_aucs_with_ks, _argsort_desc_for_metrics
 
     y_pred = np.linspace(0.1, 0.9, 100)

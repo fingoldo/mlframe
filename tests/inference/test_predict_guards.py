@@ -136,6 +136,7 @@ def test_persisted_stats_path_reuses_train_mean_for_nan_imputation():
     captured = {}
 
     def _fn(X):
+        """Helper that fn."""
         captured["X"] = X.copy() if hasattr(X, "copy") else np.array(X)
         return np.zeros(len(X))
 

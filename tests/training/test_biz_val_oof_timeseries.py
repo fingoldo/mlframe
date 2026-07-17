@@ -117,6 +117,7 @@ def test_biz_val_oof_random_seed_is_deterministic_and_varies_folds():
     X = X.drop(columns=["t"])  # KFold path has no temporal structure to preserve
 
     def _run(seed):
+        """Runs OOF prediction once with the given fold-shuffle seed."""
         est = DecisionTreeRegressor(max_depth=4, random_state=0)
         preds, _ = _compute_oof_preds(model=est, train_df=X, train_target=y, is_classifier_model=False, n_splits=5, random_seed=seed)
         return preds

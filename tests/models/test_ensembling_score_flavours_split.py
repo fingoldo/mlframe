@@ -22,12 +22,14 @@ import numpy as np
 
 
 def test_w14a_ensembling_score_facade_under_budget():
+    """W14a ensembling score facade under budget."""
     parent = Path(__file__).parent.parent.parent / "src" / "mlframe" / "models" / "ensembling" / "score.py"
     facade_loc = sum(1 for _ in parent.open(encoding="utf-8"))
     assert facade_loc < 500, f"ensembling/score.py LOC={facade_loc} exceeds 500 budget"
 
 
 def test_w14a_ensembling_score_flavours_identity():
+    """W14a ensembling score flavours identity."""
     from mlframe.models.ensembling import score as parent
     from mlframe.models.ensembling import score_flavours as flav
 
@@ -46,6 +48,7 @@ def test_w14a_build_member_tag_lists_with_name_attr():
     from mlframe.models.ensembling.score_flavours import build_member_tag_lists
 
     class _FakeReg:
+        """Groups tests for: FakeReg."""
         pass
 
     m1 = SimpleNamespace(model_name="CatBoostRegressor TVT MTTR=11.2", model=_FakeReg())

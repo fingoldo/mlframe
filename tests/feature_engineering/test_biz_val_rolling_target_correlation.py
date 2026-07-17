@@ -17,6 +17,7 @@ from mlframe.feature_engineering import rolling_target_correlation_tracker
 
 
 def _make_regime_switch_dataset(n: int, seed: int):
+    """Helper: Make regime switch dataset."""
     rng = np.random.default_rng(seed)
     switch = n // 2
     feat_a = rng.normal(size=n)
@@ -28,6 +29,7 @@ def _make_regime_switch_dataset(n: int, seed: int):
 
 
 def test_biz_val_rolling_target_correlation_tracker_beats_static_selection_mse():
+    """Biz val rolling target correlation tracker beats static selection mse."""
     X, y = _make_regime_switch_dataset(n=2000, seed=0)
     tracker = rolling_target_correlation_tracker(X, y, window=200, min_periods=50)
     valid = tracker["dyn_target_corr_value"].notna().to_numpy()
@@ -61,6 +63,7 @@ def test_rolling_target_correlation_tracker_only_uses_past_rows():
 
 
 def test_rolling_target_correlation_tracker_requires_numeric_columns():
+    """Rolling target correlation tracker requires numeric columns."""
     import pytest
 
     X = pd.DataFrame({"a": ["x", "y", "z"]})

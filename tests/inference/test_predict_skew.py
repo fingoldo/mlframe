@@ -63,9 +63,11 @@ def test_resolve_quantile_alphas_model_introspection():
     from mlframe.training.core.predict import _resolve_quantile_alphas
 
     class _Inner:
+        """Groups tests covering Inner."""
         quantile_alpha = [0.05, 0.5, 0.95]
 
     class _Wrap:
+        """Groups tests covering Wrap."""
         model = _Inner()
 
     out = _resolve_quantile_alphas({}, "quantile_regression", "t", _Wrap())

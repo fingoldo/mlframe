@@ -24,12 +24,14 @@ import pytest
 
 
 def _old_combo(train_combo: np.ndarray, query_combo: np.ndarray):
+    """Helper: Old combo."""
     combo_counts = Counter(train_combo)
     out = np.array([combo_counts.get(int(c), 0) for c in query_combo], dtype=np.float32)
     return out, float(len(set(query_combo)))
 
 
 def _new_combo(train_combo: np.ndarray, query_combo: np.ndarray):
+    """Helper: New combo."""
     uniq_combo, uniq_counts = np.unique(train_combo, return_counts=True)
     pos = np.searchsorted(uniq_combo, query_combo)
     pos_clipped = np.clip(pos, 0, uniq_combo.shape[0] - 1)
@@ -39,6 +41,7 @@ def _new_combo(train_combo: np.ndarray, query_combo: np.ndarray):
 
 
 def test_vectorized_combo_count_bit_identical_to_counter():
+    """Vectorized combo count bit identical to counter."""
     rng = np.random.default_rng(42)
     for _ in range(50):
         n_train = int(rng.integers(100, 3000))
@@ -54,6 +57,7 @@ def test_vectorized_combo_count_bit_identical_to_counter():
 
 
 def test_full_feature_function_runs_and_deterministic():
+    """Full feature function runs and deterministic."""
     pytest.importorskip("sklearn")
     from sklearn.model_selection import KFold
 

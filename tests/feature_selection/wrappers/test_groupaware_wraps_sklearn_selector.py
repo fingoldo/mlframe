@@ -18,6 +18,7 @@ from mlframe.feature_selection.filters.group_aware import GroupAwareMRMR
 
 
 def test_wraps_boolean_mask_selector_and_expands_cluster():
+    """GroupAwareMRMR normalises a wrapped sklearn selector's boolean support_ mask (vs mRMR-family index arrays) and expands the medoid pick back to its whole correlated cluster."""
     from sklearn.feature_selection import RFECV
     from sklearn.linear_model import LogisticRegression
 

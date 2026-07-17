@@ -24,6 +24,7 @@ from mlframe.feature_engineering.transformer.inducing_attention import (
 
 
 def _make(na: int, nb: int, d: int, seed: int = 0):
+    """Helper: Make."""
     rng = np.random.default_rng(seed)
     A = rng.standard_normal((na, d)).astype(np.float32)
     B = rng.standard_normal((nb, d)).astype(np.float32)
@@ -32,6 +33,7 @@ def _make(na: int, nb: int, d: int, seed: int = 0):
 
 @pytest.mark.parametrize("na,nb,d", [(16, 5000, 30), (16, 20000, 30), (32, 8000, 50), (16, 4000, 100)])
 def test_squared_dists_close_to_fp64_truth(na, nb, d):
+    """Squared dists close to fp64 truth."""
     A, B = _make(na, nb, d)
     got = _squared_dists(A, B).astype(np.float64)
     truth = np.sum((A[:, None, :].astype(np.float64) - B[None, :, :].astype(np.float64)) ** 2, axis=2)
@@ -41,6 +43,7 @@ def test_squared_dists_close_to_fp64_truth(na, nb, d):
 
 @pytest.mark.parametrize("na,nb,d", [(16, 5000, 30), (32, 8000, 50), (16, 4000, 100)])
 def test_softmax_selection_equivalent_to_broadcast(na, nb, d):
+    """Softmax selection equivalent to broadcast."""
     A, B = _make(na, nb, d, seed=1)
     temp = 1.0
     got = _softmax_with_temp(-_squared_dists(A, B), temp=temp)
@@ -54,6 +57,7 @@ def test_wrong_gemm_dropped_cross_term_factor_is_caught():
     A, B = _make(16, 5000, 30, seed=2)
 
     def _wrong(A, B):
+        """Helper: Wrong."""
         a_sq = np.einsum("ij,ij->i", A, A)[:, None]
         b_sq = np.einsum("ij,ij->i", B, B)[None, :]
         d = a_sq - (A @ B.T) + b_sq  # missing the 2.0
@@ -66,6 +70,7 @@ def test_wrong_gemm_dropped_cross_term_factor_is_caught():
 
 
 def test_stage_a_runs_and_shapes():
+    """Stage a runs and shapes."""
     rng = np.random.default_rng(3)
     anchors = rng.standard_normal((16, 30)).astype(np.float32)
     X = rng.standard_normal((4000, 30)).astype(np.float32)

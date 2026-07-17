@@ -20,10 +20,12 @@ from mlframe.evaluation.compare_cv_schemes import compare_cv_schemes
 
 
 def _rmse(y_true, y_pred):
+    """Helper that rmse."""
     return float(np.sqrt(mean_squared_error(y_true, y_pred)))
 
 
 def test_biz_val_compare_cv_schemes_picks_kfold_when_entities_persist_into_the_future():
+    """Compare cv schemes picks kfold when entities persist into the future."""
     rng = np.random.default_rng(0)
     n_entities = 60
     rows_hist, rows_future = 40, 10
@@ -97,6 +99,7 @@ def test_biz_val_compare_cv_schemes_significance_check_rejects_noise_level_win()
 
 
 def test_compare_cv_schemes_empty_schemes_returns_none_best():
+    """Compare cv schemes empty schemes returns none best."""
     X = np.zeros((10, 1))
     y = np.zeros(10)
     result = compare_cv_schemes(

@@ -38,6 +38,7 @@ from mlframe.training._eval_helpers import run_confidence_analysis
 
 
 def _confidence_inputs(use_polars: bool, with_null: bool, use_categorical: bool):
+    """Builds numeric+categorical inputs, optionally as polars, with nulls, for confidence-analysis tests."""
     n = 200
     rng = np.random.default_rng(0)
     num_arr = rng.standard_normal((n, 3)).astype(np.float32)

@@ -21,6 +21,7 @@ def test_boruta_shap_imports_without_binom_test_error():
 
 
 def test_boruta_zscore_no_divzero_on_equal_values():
+    """Boruta zscore no divzero on equal values."""
     pytest.importorskip("shap")
     from mlframe.feature_selection.boruta_shap import BorutaShap
 
@@ -35,6 +36,7 @@ def test_boruta_zscore_no_divzero_on_equal_values():
 
 
 def test_three_mi_kernels_agree_within_tolerance():
+    """Three mi kernels agree within tolerance."""
     pytest.importorskip("numba")
     from mlframe.feature_selection.mi import (
         grok_compute_mutual_information,
@@ -60,6 +62,7 @@ def test_three_mi_kernels_agree_within_tolerance():
 
 
 def test_filters_entropy_handles_zero_probabilities():
+    """Filters entropy handles zero probabilities."""
     pytest.importorskip("numba")
     from mlframe.feature_selection.filters import entropy
 
@@ -74,6 +77,7 @@ def test_filters_entropy_handles_zero_probabilities():
 
 
 def test_general_early_exit_no_indexerror():
+    """General early exit no indexerror."""
     pl = pytest.importorskip("polars")
     pytest.importorskip("numba")
     from mlframe.feature_selection.general import estimate_features_relevancy
@@ -104,12 +108,14 @@ def test_general_early_exit_no_indexerror():
 
 
 def test_timeseries_window_var_empty_no_nameerror():
+    """Timeseries window var empty no nameerror."""
     pd = pytest.importorskip("pandas")
     from mlframe.feature_engineering.timeseries import create_and_process_windows
 
     df = pd.DataFrame({"x": np.arange(20, dtype=np.float64)})
 
     def apply_fcn(df, row_features, targets, features_names, dataset_name):
+        """Helper that apply fcn."""
         row_features.append(float(df["x"].sum()))
         if not features_names or dataset_name not in features_names:
             features_names.append(dataset_name)

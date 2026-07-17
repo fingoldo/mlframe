@@ -22,6 +22,7 @@ from mlframe.metrics.calibration import _show_plots_unless_agg
 
 
 def test_plot_pit_diagram_saves_and_closes(tmp_path):
+    """Plot pit diagram saves and closes."""
     rng = np.random.default_rng(0)
     probs = rng.uniform(0.0, 1.0, size=500)
     labels = (rng.uniform(size=500) < probs).astype(int)
@@ -61,6 +62,7 @@ def test_plot_pit_diagram_routes_through_spec_pipeline(tmp_path, monkeypatch):
     real = renderers.render_and_save
 
     def _spy(spec, output, base_path, **kwargs):
+        """Helper that spy."""
         captured["spec"] = spec
         return real(spec, output, base_path, **kwargs)
 

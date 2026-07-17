@@ -61,9 +61,11 @@ def test_pairmi_parallel_uses_cpu_only_loky_backend(monkeypatch):
     captured = {}
 
     def _spy_parallel(*args, **kwargs):
+        """Stand-in for joblib.Parallel that captures the backend kwarg and returns an empty-result runner, avoiding the loky-fallback retry that would defeat the capture."""
         captured["backend"] = kwargs.get("backend")
 
         def _run(_tasks):
+            """No-op task runner returning an empty result list, so compute_pair_mis_and_floor completes normally."""
             return []
 
         return _run

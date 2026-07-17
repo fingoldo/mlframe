@@ -32,6 +32,7 @@ from mlframe.reporting.spec import (
 
 
 def _flat(fig: FigureSpec):
+    """Helper: Flat."""
     return [p for row in fig.panels for p in row if p is not None]
 
 
@@ -50,17 +51,20 @@ def _separable(n=4000, sep=2.5, seed=0):
 
 
 def test_allowed_tokens_and_default_template():
+    """Allowed tokens and default template."""
     assert ALLOWED_BINARY_PANEL_TOKENS == frozenset({"ROC", "PR", "SCORE_DIST", "KS", "THRESHOLD", "GAIN", "PIT"})
     assert DEFAULT_BINARY_PANELS.split() == ["ROC", "PR", "SCORE_DIST", "KS", "THRESHOLD", "GAIN"]
 
 
 def test_unknown_token_raises():
+    """Unknown token raises."""
     y, s = _separable()
     with pytest.raises(ValueError, match="Unknown binary panel tokens"):
         compose_binary_figure(y, s, panels_template="ROC BOGUS")
 
 
 def test_composer_returns_figurespec_with_one_panel_per_token():
+    """Composer returns figurespec with one panel per token."""
     y, s = _separable()
     fig = compose_binary_figure(y, s, panels_template="ROC PR SCORE_DIST KS THRESHOLD GAIN PIT")
     assert isinstance(fig, FigureSpec)
@@ -73,6 +77,7 @@ def test_composer_returns_figurespec_with_one_panel_per_token():
 
 
 def test_roc_panel_is_line_with_auc_in_title():
+    """Roc panel is line with auc in title."""
     y, s = _separable()
     (panel,) = _flat(compose_binary_figure(y, s, panels_template="ROC"))
     assert isinstance(panel, LinePanelSpec)
@@ -81,6 +86,7 @@ def test_roc_panel_is_line_with_auc_in_title():
 
 
 def test_pr_panel_is_line_with_ap_and_prevalence_baseline():
+    """Pr panel is line with ap and prevalence baseline."""
     y, s = _separable()
     (panel,) = _flat(compose_binary_figure(y, s, panels_template="PR"))
     assert isinstance(panel, LinePanelSpec)
@@ -89,6 +95,7 @@ def test_pr_panel_is_line_with_ap_and_prevalence_baseline():
 
 
 def test_score_dist_panel_is_line_two_classes_with_threshold_vline():
+    """Score dist panel is line two classes with threshold vline."""
     y, s = _separable()
     (panel,) = _flat(compose_binary_figure(y, s, panels_template="SCORE_DIST", threshold=0.4))
     assert isinstance(panel, LinePanelSpec)
@@ -97,6 +104,7 @@ def test_score_dist_panel_is_line_two_classes_with_threshold_vline():
 
 
 def test_ks_panel_is_line_with_ks_in_title_and_marker():
+    """Ks panel is line with ks in title and marker."""
     y, s = _separable()
     (panel,) = _flat(compose_binary_figure(y, s, panels_template="KS"))
     assert isinstance(panel, LinePanelSpec)
@@ -105,6 +113,7 @@ def test_ks_panel_is_line_with_ks_in_title_and_marker():
 
 
 def test_threshold_panel_has_four_metric_series():
+    """Threshold panel has four metric series."""
     y, s = _separable()
     (panel,) = _flat(compose_binary_figure(y, s, panels_template="THRESHOLD"))
     assert isinstance(panel, LinePanelSpec)
@@ -112,6 +121,7 @@ def test_threshold_panel_has_four_metric_series():
 
 
 def test_threshold_panel_cost_series_added_when_cost_ratio_given():
+    """Threshold panel cost series added when cost ratio given."""
     y, s = _separable()
     (panel,) = _flat(compose_binary_figure(y, s, panels_template="THRESHOLD", cost_ratio=(5.0, 1.0)))
     assert any("cost" in lbl for lbl in panel.series_labels)
@@ -121,6 +131,7 @@ def test_threshold_panel_cost_series_added_when_cost_ratio_given():
 
 
 def test_gain_panel_is_line_with_baseline_starting_at_origin():
+    """Gain panel is line with baseline starting at origin."""
     y, s = _separable()
     (panel,) = _flat(compose_binary_figure(y, s, panels_template="GAIN"))
     assert isinstance(panel, LinePanelSpec)
@@ -132,6 +143,7 @@ def test_gain_panel_is_line_with_baseline_starting_at_origin():
 
 
 def test_pit_panel_is_histogram_with_ks_vs_uniform_in_title():
+    """Pit panel is histogram with ks vs uniform in title."""
     y, s = _separable()
     (panel,) = _flat(compose_binary_figure(y, s, panels_template="PIT"))
     assert isinstance(panel, HistogramPanelSpec)
@@ -144,6 +156,7 @@ def test_pit_panel_is_histogram_with_ks_vs_uniform_in_title():
 
 
 def test_curves_decimated_under_vertex_cap_at_large_n():
+    """Curves decimated under vertex cap at large n."""
     y, s = _separable(n=200_000)
     fig = compose_binary_figure(y, s, panels_template="ROC PR KS GAIN")
     for panel in _flat(fig):
@@ -152,12 +165,14 @@ def test_curves_decimated_under_vertex_cap_at_large_n():
 
 
 def test_threshold_sweep_plotted_thresholds_capped():
+    """Threshold sweep plotted thresholds capped."""
     y, s = _separable(n=50_000)
     (panel,) = _flat(compose_binary_figure(y, s, panels_template="THRESHOLD"))
     assert len(panel.x) <= 500
 
 
 def test_single_class_degenerates_to_annotation():
+    """Single class degenerates to annotation."""
     y = np.ones(500, dtype=int)
     s = np.linspace(0.1, 0.9, 500)
     fig = compose_binary_figure(y, s, panels_template="ROC PR KS THRESHOLD GAIN")
@@ -168,6 +183,7 @@ def test_single_class_degenerates_to_annotation():
 
 
 def test_finite_binary_drops_non_finite_and_out_of_range_labels():
+    """Finite binary drops non finite and out of range labels."""
     y = np.array([0, 1, 2, 1, 0])
     s = np.array([0.1, np.nan, 0.5, 0.8, 0.3])
     yt, _ys = _finite_binary(y, s)
@@ -182,6 +198,7 @@ def test_finite_binary_drops_non_finite_and_out_of_range_labels():
 
 
 def test_pr_panel_title_carries_ap_bootstrap_ci():
+    """Pr panel title carries ap bootstrap ci."""
     y, s = _separable()
     (panel,) = _flat(compose_binary_figure(y, s, panels_template="PR"))
     assert "95% CI" in panel.title
@@ -190,12 +207,14 @@ def test_pr_panel_title_carries_ap_bootstrap_ci():
 
 
 def test_pr_panel_ap_ci_can_be_disabled():
+    """Pr panel ap ci can be disabled."""
     y, s = _separable()
     (panel,) = _flat(compose_binary_figure(y, s, panels_template="PR", ap_ci=False))
     assert "AP=" in panel.title and "95% CI" not in panel.title
 
 
 def test_bootstrap_ap_ci_lo_le_ap_le_hi():
+    """Bootstrap ap ci lo le ap le hi."""
     y, s = _separable(n=4000)
     ap, lo, hi = bootstrap_ap_ci(y, s, seed=0)
     assert np.isfinite(lo) and np.isfinite(hi)
@@ -203,6 +222,7 @@ def test_bootstrap_ap_ci_lo_le_ap_le_hi():
 
 
 def test_bootstrap_ap_ci_matches_sklearn_full_ap():
+    """Bootstrap ap ci matches sklearn full ap."""
     from sklearn.metrics import average_precision_score
 
     y, s = _separable(n=4000)
@@ -211,6 +231,7 @@ def test_bootstrap_ap_ci_matches_sklearn_full_ap():
 
 
 def test_bootstrap_ap_ci_seed_reproducible_and_seed_sensitive():
+    """Bootstrap ap ci seed reproducible and seed sensitive."""
     y, s = _separable(n=4000)
     a = bootstrap_ap_ci(y, s, seed=7)
     b = bootstrap_ap_ci(y, s, seed=7)
@@ -220,6 +241,7 @@ def test_bootstrap_ap_ci_seed_reproducible_and_seed_sensitive():
 
 
 def test_bootstrap_ap_ci_single_class_returns_nan_bracket():
+    """Bootstrap ap ci single class returns nan bracket."""
     y = np.ones(500, dtype=int)
     s = np.linspace(0.1, 0.9, 500)
     ap, lo, hi = bootstrap_ap_ci(y, s, seed=0)
@@ -227,6 +249,7 @@ def test_bootstrap_ap_ci_single_class_returns_nan_bracket():
 
 
 def test_bootstrap_ap_ci_tiny_n_annotates_ap_without_interval():
+    """Bootstrap ap ci tiny n annotates ap without interval."""
     y = np.array([0, 1, 0, 1, 1, 0, 0, 1])
     s = np.array([0.1, 0.9, 0.2, 0.8, 0.7, 0.3, 0.4, 0.6])
     ap, lo, hi = bootstrap_ap_ci(y, s, seed=0)
@@ -235,6 +258,7 @@ def test_bootstrap_ap_ci_tiny_n_annotates_ap_without_interval():
 
 
 def test_pr_panel_single_class_still_annotates():
+    """Pr panel single class still annotates."""
     y = np.ones(500, dtype=int)
     s = np.linspace(0.1, 0.9, 500)
     (panel,) = _flat(compose_binary_figure(y, s, panels_template="PR"))
@@ -274,6 +298,7 @@ def test_roc_auc_and_pr_ap_match_sklearn(distinct):
 
 @pytest.mark.parametrize("distinct", [True, False])
 def test_threshold_sweep_matches_sklearn_reference(distinct):
+    """Threshold sweep matches sklearn reference."""
     from sklearn.metrics import f1_score, precision_score, recall_score
 
     rng = np.random.default_rng(11)
@@ -411,6 +436,7 @@ def test_biz_val_ap_ci_reproducible_under_fixed_seed():
 
 
 def test_decile_table_shapes_and_counts_sum_to_n():
+    """Decile table shapes and counts sum to n."""
     y, s = _separable(n=997, seed=9)  # n not divisible by 10
     table = binary_decile_table(y, s)
     for key in ("decile", "count", "positives", "response_rate", "gain", "lift", "cum_ks"):
@@ -430,6 +456,7 @@ def test_decile_cum_ks_matches_panel_ks_within_decile_resolution():
 
 
 def test_decile_table_empty_input_returns_nan_filled():
+    """Decile table empty input returns nan filled."""
     table = binary_decile_table(np.array([]), np.array([]))
     assert table["count"].sum() == 0
     assert np.all(np.isnan(table["gain"]))
@@ -460,6 +487,7 @@ def _decile_table_cells(fig):
 
 
 def test_decile_table_figure_has_table_with_expected_columns_and_total_row():
+    """Decile table figure has table with expected columns and total row."""
     y, s = _strong()
     fig = binary_decile_table_figure(y, s)
     headers, body = _decile_table_cells(fig)
@@ -473,6 +501,7 @@ def test_decile_table_figure_has_table_with_expected_columns_and_total_row():
 
 
 def test_decile_table_figure_single_class_renders_annotation_not_table():
+    """Decile table figure single class renders annotation not table."""
     fig = binary_decile_table_figure(np.ones(50, dtype=np.int8), np.linspace(0, 1, 50))
     ax = fig.axes[0]
     assert not list(ax.tables), "single-class input must annotate, not draw a table"
@@ -481,6 +510,7 @@ def test_decile_table_figure_single_class_renders_annotation_not_table():
 
 def test_decile_table_figure_tiny_n_bins_to_fewer_rows():
     # n=5 < 10 deciles -> 5 bins, no spurious empty deciles.
+    """Decile table figure tiny n bins to fewer rows."""
     y = np.array([0, 1, 1, 0, 1], dtype=np.int8)
     s = np.array([0.1, 0.9, 0.8, 0.2, 0.7])
     fig = binary_decile_table_figure(y, s, n_deciles=10)
@@ -490,6 +520,7 @@ def test_decile_table_figure_tiny_n_bins_to_fewer_rows():
 
 
 def test_decile_table_figure_empty_input_annotates():
+    """Decile table figure empty input annotates."""
     fig = binary_decile_table_figure(np.array([]), np.array([]))
     assert not list(fig.axes[0].tables)
 
@@ -580,6 +611,7 @@ def _confusion_rates(yt, ys, thr):
 
 
 def test_roc_panel_carries_operating_point_marker():
+    """Roc panel carries operating point marker."""
     y, s = _separable()
     (panel,) = _flat(compose_binary_figure(y, s, panels_template="ROC", threshold=0.5))
     assert panel.point_markers is not None and len(panel.point_markers) == 1
@@ -589,6 +621,7 @@ def test_roc_panel_carries_operating_point_marker():
 
 
 def test_pr_panel_carries_operating_point_marker():
+    """Pr panel carries operating point marker."""
     y, s = _separable()
     (panel,) = _flat(compose_binary_figure(y, s, panels_template="PR", threshold=0.5, ap_ci=False))
     assert panel.point_markers is not None and len(panel.point_markers) == 1
@@ -597,6 +630,7 @@ def test_pr_panel_carries_operating_point_marker():
 
 
 def test_operating_point_marker_can_be_disabled():
+    """Operating point marker can be disabled."""
     y, s = _separable()
     (roc,) = _flat(compose_binary_figure(y, s, panels_template="ROC", operating_point=False))
     (prc,) = _flat(compose_binary_figure(y, s, panels_template="PR", ap_ci=False, operating_point=False))
@@ -638,6 +672,7 @@ def test_operating_point_omitted_when_threshold_above_all_scores():
 
 
 def test_operating_point_none_on_single_class():
+    """Operating point none on single class."""
     yt, ys = _finite_binary(np.ones(200, dtype=int), np.linspace(0.1, 0.9, 200))
     sort = _ScoreSort(yt, ys)
     assert _operating_point(sort, 0.5) is None

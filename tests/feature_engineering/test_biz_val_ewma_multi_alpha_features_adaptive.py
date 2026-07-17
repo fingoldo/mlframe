@@ -51,6 +51,7 @@ def _one_step_ahead_mse(ewma_col: np.ndarray, values: np.ndarray, group_ids: np.
 
 
 def test_biz_val_ewma_multi_alpha_features_adaptive_beats_best_fixed_alpha():
+    """Biz val ewma multi alpha features adaptive beats best fixed alpha."""
     values_list, group_ids = _make_mixed_volatility_entities(n_entities=200, hist_len=60, seed=7)
     values = np.concatenate(values_list)
 
@@ -68,6 +69,7 @@ def test_biz_val_ewma_multi_alpha_features_adaptive_beats_best_fixed_alpha():
 
 
 def test_ewma_multi_alpha_features_adaptive_omitted_is_bit_identical_to_fixed_only():
+    """Ewma multi alpha features adaptive omitted is bit identical to fixed only."""
     rng = np.random.default_rng(3)
     values = rng.normal(size=200)
     groups = rng.integers(0, 10, size=200)
@@ -81,6 +83,7 @@ def test_ewma_multi_alpha_features_adaptive_omitted_is_bit_identical_to_fixed_on
 
 
 def test_ewma_multi_alpha_features_adaptive_rejects_empty_grid():
+    """Ewma multi alpha features adaptive rejects empty grid."""
     import pytest
 
     with pytest.raises(ValueError):

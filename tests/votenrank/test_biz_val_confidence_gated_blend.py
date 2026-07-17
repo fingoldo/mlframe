@@ -14,11 +14,13 @@ from mlframe.votenrank.confidence_gated_blend import confidence_gated_blend
 
 
 def _log_loss(y: np.ndarray, p: np.ndarray) -> float:
+    """Helper that log loss."""
     p = np.clip(p, 1e-7, 1 - 1e-7)
     return float(-np.mean(y * np.log(p) + (1 - y) * np.log(1 - p)))
 
 
 def _make_data(seed: int):
+    """Helper that make data."""
     rng = np.random.default_rng(seed)
     n = 4000
     z = rng.normal(0, 1, n)
@@ -35,6 +37,7 @@ def _make_data(seed: int):
 
 
 def test_biz_val_confidence_gated_blend_beats_pure_ensemble_and_naive_fixed_blend():
+    """Confidence gated blend beats pure ensemble and naive fixed blend."""
     y, ensemble_pred, auxiliary_pred, auxiliary_confidence = _make_data(seed=0)
 
     loss_pure_ensemble = _log_loss(y, ensemble_pred)
@@ -52,6 +55,7 @@ def test_biz_val_confidence_gated_blend_beats_pure_ensemble_and_naive_fixed_blen
 
 
 def test_confidence_gated_blend_all_low_confidence_returns_default_weight_blend():
+    """Confidence gated blend all low confidence returns default weight blend."""
     ensemble_pred = np.array([0.2, 0.5, 0.8])
     auxiliary_pred = np.array([0.9, 0.9, 0.9])
     confidence = np.array([0.1, 0.1, 0.1])
@@ -60,6 +64,7 @@ def test_confidence_gated_blend_all_low_confidence_returns_default_weight_blend(
 
 
 def test_confidence_gated_blend_shape_mismatch_raises():
+    """Confidence gated blend shape mismatch raises."""
     import pytest
 
     with pytest.raises(ValueError):
@@ -67,6 +72,7 @@ def test_confidence_gated_blend_shape_mismatch_raises():
 
 
 def test_confidence_gated_blend_invalid_weight_raises():
+    """Confidence gated blend invalid weight raises."""
     import pytest
 
     with pytest.raises(ValueError):
@@ -105,6 +111,7 @@ def _make_miscalibrated_gate_data(seed: int):
 
 
 def test_biz_val_confidence_gated_blend_per_sample_gate_calibration_beats_raw_confidence_gate():
+    """Confidence gated blend per sample gate calibration beats raw confidence gate."""
     y, ensemble_pred, auxiliary_pred, raw_confidence, _region_b = _make_miscalibrated_gate_data(seed=1)
 
     # Held-out calibration set: same generative process, disjoint draw, with the TRUE reliability label
@@ -142,6 +149,7 @@ def test_biz_val_confidence_gated_blend_per_sample_gate_calibration_beats_raw_co
 
 
 def test_confidence_gated_blend_per_sample_gate_calibration_requires_calibration_data():
+    """Confidence gated blend per sample gate calibration requires calibration data."""
     import pytest
 
     with pytest.raises(ValueError):
@@ -169,6 +177,7 @@ def test_confidence_gated_blend_default_path_unaffected_by_new_params():
 
 
 def test_confidence_gated_blend_backends_are_bit_identical():
+    """Confidence gated blend backends are bit identical."""
     rng = np.random.default_rng(0)
     n = 5000
     ensemble = rng.uniform(0, 1, n)

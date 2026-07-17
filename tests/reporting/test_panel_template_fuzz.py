@@ -71,6 +71,7 @@ _HSETTINGS = settings(
 
 
 def _mc_inputs():
+    """Helper: Mc inputs."""
     rng = np.random.default_rng(0)
     n, K = 200, 3
     y = rng.integers(0, K, n)
@@ -82,6 +83,7 @@ def _mc_inputs():
 
 
 def _ml_inputs():
+    """Helper: Ml inputs."""
     rng = np.random.default_rng(0)
     n, K = 200, 3
     y = rng.integers(0, 2, (n, K)).astype(np.int8)
@@ -90,6 +92,7 @@ def _ml_inputs():
 
 
 def _ltr_inputs():
+    """Helper: Ltr inputs."""
     rng = np.random.default_rng(0)
     y, score, gid = [], [], []
     for q in range(40):
@@ -108,9 +111,11 @@ def _ltr_inputs():
 
 
 class TestMulticlassFuzz:
+    """Groups tests for: TestMulticlassFuzz."""
     @_HSETTINGS
     @given(template=_token_subset_strategy(ALLOWED_MULTICLASS_PANEL_TOKENS))
     def test_random_subset_composes(self, template):
+        """Random subset composes."""
         y, proba, classes = _mc_inputs()
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -133,9 +138,11 @@ class TestMulticlassFuzz:
 
 
 class TestMultilabelFuzz:
+    """Groups tests for: TestMultilabelFuzz."""
     @_HSETTINGS
     @given(template=_token_subset_strategy(ALLOWED_MULTILABEL_PANEL_TOKENS))
     def test_random_subset_composes(self, template):
+        """Random subset composes."""
         y, proba, labels = _ml_inputs()
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -157,9 +164,11 @@ class TestMultilabelFuzz:
 
 
 class TestLTRFuzz:
+    """Groups tests for: TestLTRFuzz."""
     @_HSETTINGS
     @given(template=_token_subset_strategy(ALLOWED_LTR_PANEL_TOKENS))
     def test_random_subset_composes(self, template):
+        """Random subset composes."""
         y, score, gid = _ltr_inputs()
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -182,6 +191,7 @@ class TestLTRFuzz:
 
 @pytest.mark.parametrize("token", sorted(ALLOWED_MULTICLASS_PANEL_TOKENS))
 def test_multiclass_each_token_alone(token):
+    """Multiclass each token alone."""
     y, proba, classes = _mc_inputs()
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -191,6 +201,7 @@ def test_multiclass_each_token_alone(token):
 
 @pytest.mark.parametrize("token", sorted(ALLOWED_MULTILABEL_PANEL_TOKENS))
 def test_multilabel_each_token_alone(token):
+    """Multilabel each token alone."""
     y, proba, labels = _ml_inputs()
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -200,6 +211,7 @@ def test_multilabel_each_token_alone(token):
 
 @pytest.mark.parametrize("token", sorted(ALLOWED_LTR_PANEL_TOKENS))
 def test_ltr_each_token_alone(token):
+    """Ltr each token alone."""
     y, score, gid = _ltr_inputs()
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")

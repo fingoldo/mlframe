@@ -10,27 +10,32 @@ from tests.conftest import fast_n_estimators, fast_subset, is_fast_mode
 
 
 def test_fast_subset_identity_outside_fast(monkeypatch):
+    """Fast subset identity outside fast."""
     monkeypatch.delenv("MLFRAME_FAST", raising=False)
     assert fast_subset([1, 2, 3]) == [1, 2, 3]
 
 
 def test_fast_subset_trims_in_fast(monkeypatch):
+    """Fast subset trims in fast."""
     monkeypatch.setenv("MLFRAME_FAST", "1")
     assert fast_subset([1, 2, 3]) == [1]
     assert fast_subset([1, 2, 3], keep=2) == [1, 2]
 
 
 def test_fast_subset_representative(monkeypatch):
+    """Fast subset representative."""
     monkeypatch.setenv("MLFRAME_FAST", "1")
     assert fast_subset(["a", "b", "c"], representative="b") == ["b"]
 
 
 def test_fast_subset_representative_missing_falls_back(monkeypatch):
+    """Fast subset representative missing falls back."""
     monkeypatch.setenv("MLFRAME_FAST", "1")
     assert fast_subset([1, 2, 3], representative=99) == [1]
 
 
 def test_fast_subset_handles_pytest_param(monkeypatch):
+    """Fast subset handles pytest param."""
     monkeypatch.setenv("MLFRAME_FAST", "1")
     entries = [pytest.param(1, id="one"), pytest.param(2, id="two")]
     out = fast_subset(entries, representative=2)
@@ -39,18 +44,21 @@ def test_fast_subset_handles_pytest_param(monkeypatch):
 
 
 def test_fast_n_estimators_identity_outside_fast(monkeypatch):
+    """Fast n estimators identity outside fast."""
     monkeypatch.delenv("MLFRAME_FAST", raising=False)
     assert fast_n_estimators(300) == 300
     assert fast_n_estimators(5) == 5
 
 
 def test_fast_n_estimators_shrinks_in_fast(monkeypatch):
+    """Fast n estimators shrinks in fast."""
     monkeypatch.setenv("MLFRAME_FAST", "1")
     assert fast_n_estimators(300) == 40
     assert fast_n_estimators(300, fast=20) == 20
 
 
 def test_fast_n_estimators_never_exceeds_full(monkeypatch):
+    """Fast n estimators never exceeds full."""
     monkeypatch.setenv("MLFRAME_FAST", "1")
     # a budget already smaller than the fast target stays put, not inflated to 40
     assert fast_n_estimators(10) == 10
@@ -58,17 +66,20 @@ def test_fast_n_estimators_never_exceeds_full(monkeypatch):
 
 
 def test_fast_n_estimators_respects_floor(monkeypatch):
+    """Fast n estimators respects floor."""
     monkeypatch.setenv("MLFRAME_FAST", "1")
     assert fast_n_estimators(300, fast=0, floor=1) == 1
 
 
 def test_is_fast_mode_rejects_falsey(monkeypatch):
+    """Is fast mode rejects falsey."""
     for v in ("", "0", "false", "False"):
         monkeypatch.setenv("MLFRAME_FAST", v)
         assert is_fast_mode() is False
 
 
 def test_is_fast_mode_accepts_truthy(monkeypatch):
+    """Is fast mode accepts truthy."""
     for v in ("1", "yes", "on", "true"):
         monkeypatch.setenv("MLFRAME_FAST", v)
         assert is_fast_mode() is True

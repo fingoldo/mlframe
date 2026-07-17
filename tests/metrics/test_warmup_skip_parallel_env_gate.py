@@ -36,7 +36,9 @@ def _run_warmup_and_track_par_calls(monkeypatch, skip: bool):
     called: set = set()
 
     def _make_spy(name, retval):
+        """Helper: Make spy."""
         def _spy(*args, **kwargs):
+            """Helper: Spy."""
             called.add(name)
             return retval
 
@@ -52,7 +54,9 @@ def _run_warmup_and_track_par_calls(monkeypatch, skip: bool):
     seq_called: set = set()
 
     def _make_seq_spy(name, real_fn):
+        """Helper: Make seq spy."""
         def _spy(*args, **kwargs):
+            """Helper: Spy."""
             seq_called.add(name)
             return real_fn(*args, **kwargs)
 
@@ -66,6 +70,7 @@ def _run_warmup_and_track_par_calls(monkeypatch, skip: bool):
 
 
 def test_skip_flag_off_by_default_warms_both_seq_and_par(monkeypatch):
+    """Skip flag off by default warms both seq and par."""
     par_called, seq_called = _run_warmup_and_track_par_calls(monkeypatch, skip=False)
     assert "_fast_mae_par" in par_called
     assert "_fast_mse_par" in par_called
@@ -77,6 +82,7 @@ def test_skip_flag_off_by_default_warms_both_seq_and_par(monkeypatch):
 
 
 def test_skip_flag_on_skips_par_but_keeps_seq(monkeypatch):
+    """Skip flag on skips par but keeps seq."""
     par_called, seq_called = _run_warmup_and_track_par_calls(monkeypatch, skip=True)
     assert par_called == set(), f"expected no _par kernels called with the skip flag on, got {par_called}"
     assert "_fast_mae_seq" in seq_called, "_seq variants must ALWAYS warm, regardless of the skip flag"

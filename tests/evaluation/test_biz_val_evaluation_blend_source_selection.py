@@ -15,6 +15,7 @@ from mlframe.evaluation.blend_source_selection import check_pairwise_score_corre
 
 
 def test_biz_val_check_pairwise_score_correlation_flags_noisy_cv_untrustworthy():
+    """Check pairwise score correlation flags noisy cv untrustworthy."""
     rng = np.random.default_rng(0)
     n_members = 15
     true_quality = rng.uniform(0.5, 0.6, n_members)
@@ -32,6 +33,7 @@ def test_biz_val_check_pairwise_score_correlation_flags_noisy_cv_untrustworthy()
 
 
 def test_check_pairwise_score_correlation_identical_sources_perfect_agreement():
+    """Check pairwise score correlation identical sources perfect agreement."""
     scores = np.array([0.1, 0.5, 0.3, 0.9, 0.7])
     result = check_pairwise_score_correlation(scores, scores)
     assert np.isclose(result["spearman_correlation"], 1.0)
@@ -40,6 +42,7 @@ def test_check_pairwise_score_correlation_identical_sources_perfect_agreement():
 
 
 def test_check_pairwise_score_correlation_shape_mismatch_raises():
+    """Check pairwise score correlation shape mismatch raises."""
     import pytest
 
     with pytest.raises(ValueError):

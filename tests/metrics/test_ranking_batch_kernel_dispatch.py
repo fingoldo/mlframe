@@ -55,6 +55,7 @@ def _ref_per_group(fname, yt, ys, gids, k):
 
 @pytest.mark.parametrize("fname,kernel_name", _METRICS)
 def test_public_metric_dispatches_whole_batch_kernel_once(fname, kernel_name, monkeypatch):
+    """Public metric dispatches whole batch kernel once."""
     yt = np.array([3, 0, 1, 2, 0, 4, 1, 1, 0, 2], dtype=np.float64)
     ys = np.array([0.5, 0.1, 0.9, 0.3, 0.2, 0.8, 0.4, 0.4, 0.1, 0.7])
     gids = np.array([0, 0, 0, 1, 2, 2, 3, 3, 3, 3], dtype=np.int64)
@@ -63,6 +64,7 @@ def test_public_metric_dispatches_whole_batch_kernel_once(fname, kernel_name, mo
     calls = {"n": 0}
 
     def spy(*args, **kwargs):
+        """Spy."""
         calls["n"] += 1
         return orig(*args, **kwargs)
 
@@ -74,6 +76,7 @@ def test_public_metric_dispatches_whole_batch_kernel_once(fname, kernel_name, mo
 @pytest.mark.parametrize("fname,_kernel", _METRICS)
 @pytest.mark.parametrize("seed", [0, 1, 2])
 def test_batch_kernel_bit_identical_to_per_group_reference(fname, _kernel, seed):
+    """Batch kernel bit identical to per group reference."""
     rng = np.random.default_rng(seed)
     n, gp = 4000, 7
     ng = n // gp
@@ -103,6 +106,7 @@ def test_split_by_group_skips_groupid_argsort_when_presorted(fname, _kernel, mon
     seen = {"groupid_sort": 0}
 
     def spy(a, *args, **kwargs):
+        """Spy."""
         arr = np.asarray(a)
         # ``_split_by_group`` is the only site that argsorts a 1-D int group-id array of full length.
         if arr.ndim == 1 and arr.shape[0] == len(gids) and np.array_equal(arr, gids):

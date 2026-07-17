@@ -17,6 +17,7 @@ pytestmark = pytest.mark.fast
 
 
 def test_bgmm_mixed_ratio_not_duplicate_of_loggap_virtneg():
+    """Bgmm mixed ratio not duplicate of loggap virtneg."""
     pytest.importorskip("sklearn")
     rng = np.random.default_rng(0)
     n, d = 240, 5

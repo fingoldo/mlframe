@@ -61,6 +61,7 @@ def _old_reference(X_train: np.ndarray, X_query: np.ndarray, k_neighbors: int) -
 
 @pytest.mark.parametrize("n_train,n_query,d", [(800, 400, 8), (1200, 600, 20), (600, 300, 40)])
 def test_batched_spectrum_matches_per_row_loop(n_train, n_query, d):
+    """Batched spectrum matches per row loop."""
     rng = np.random.default_rng(0)
     X_train = rng.standard_normal((n_train, d)).astype(np.float32)
     X_query = rng.standard_normal((n_query, d)).astype(np.float32)

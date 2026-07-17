@@ -25,6 +25,7 @@ from mlframe.feature_engineering.state_duration import time_since_state_change
 
 
 def _make_state_panel(n_entities: int, n_periods: int, seed: int, transition_prob: float = 0.08):
+    """Helper: Make state panel."""
     rng = np.random.default_rng(seed)
     entity_ids = np.repeat(np.arange(n_entities), n_periods)
     state = np.empty(entity_ids.shape[0], dtype=bool)
@@ -40,6 +41,7 @@ def _make_state_panel(n_entities: int, n_periods: int, seed: int, transition_pro
 
 
 def test_time_since_state_change_basic_semantics_small_case():
+    """Time since state change basic semantics small case."""
     entity_ids = np.array([1, 1, 1, 1, 1])
     state = np.array([True, True, False, False, True])
     out = time_since_state_change(state, entity_ids)
@@ -54,6 +56,7 @@ def test_time_since_state_change_basic_semantics_small_case():
 
 
 def test_time_since_state_change_never_true_stays_nan_for_both():
+    """Time since state change never true stays nan for both."""
     entity_ids = np.array([1, 1, 1])
     state = np.array([False, False, False])
     out = time_since_state_change(state, entity_ids)
@@ -62,6 +65,7 @@ def test_time_since_state_change_never_true_stays_nan_for_both():
 
 
 def test_time_since_state_change_boundaries_never_bleed_across_entities():
+    """Time since state change boundaries never bleed across entities."""
     entity_ids = np.array([1, 1, 2, 2])
     state = np.array([True, True, False, False])
     out = time_since_state_change(state, entity_ids)
@@ -71,6 +75,7 @@ def test_time_since_state_change_boundaries_never_bleed_across_entities():
 
 
 def test_time_since_state_change_returns_expected_shapes():
+    """Time since state change returns expected shapes."""
     entity_ids, state = _make_state_panel(20, 15, seed=0)
     out = time_since_state_change(state, entity_ids)
     assert out["possession_duration"].shape == entity_ids.shape
@@ -89,6 +94,7 @@ def test_time_since_state_change_default_omits_activation_count_bit_identical():
 
 
 def test_time_since_state_change_activation_count_semantics_small_case():
+    """Time since state change activation count semantics small case."""
     entity_ids = np.array([1, 1, 1, 1, 1, 1, 1])
     #                       T     T     F     F     T     T     F     -- wait, keep 7 values below
     state = np.array([True, True, False, False, True, True, False])
@@ -98,6 +104,7 @@ def test_time_since_state_change_activation_count_semantics_small_case():
 
 
 def test_biz_val_cancellation_duration_beats_raw_lag1_flag_on_recency_dependent_target():
+    """Biz val cancellation duration beats raw lag1 flag on recency dependent target."""
     entity_ids, state = _make_state_panel(n_entities=400, n_periods=25, seed=42)
     out = time_since_state_change(state, entity_ids)
     cancellation_duration = out["cancellation_duration"]
@@ -156,6 +163,7 @@ def _make_churn_recidivism_panel(n_entities: int, seed: int, cancel_run_length: 
 
 
 def test_biz_val_activation_count_beats_duration_alone_on_churn_recidivism_target():
+    """Biz val activation count beats duration alone on churn recidivism target."""
     n_entities = 800
     entity_ids, state, n_cycles_per_entity, last_idx = _make_churn_recidivism_panel(n_entities=n_entities, seed=11)
     out = time_since_state_change(state, entity_ids, include_activation_count=True)

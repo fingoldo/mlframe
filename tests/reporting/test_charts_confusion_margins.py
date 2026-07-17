@@ -39,6 +39,7 @@ def _imbalanced(n: int, K: int, prevalence, majority_bias: float, seed: int = 0)
 
 
 def _balanced(n: int, K: int, seed: int = 0):
+    """Helper: Balanced."""
     rng = np.random.default_rng(seed)
     y = rng.integers(0, K, size=n)
     proba = rng.dirichlet([1.0] * K, size=n)
@@ -49,6 +50,7 @@ def _balanced(n: int, K: int, seed: int = 0):
 
 
 def _panel(y, proba, classes):
+    """Helper: Panel."""
     return compose_multiclass_figure(y, proba, classes, panels_template="CONFUSION_MARGINS").panels[0][0]
 
 
@@ -58,7 +60,9 @@ def _panel(y, proba, classes):
 
 
 class TestStructure:
+    """Groups tests for: TestStructure."""
     def test_returns_confusion_margins_spec(self):
+        """Returns confusion margins spec."""
         y, p, c = _balanced(800, 4)
         panel = _panel(y, p, c)
         assert isinstance(panel, ConfusionMarginsPanelSpec)
@@ -87,6 +91,7 @@ class TestStructure:
         np.testing.assert_allclose(panel.col_margin, counts.sum(axis=0))
 
     def test_viridis_cb_safe_colormap(self):
+        """Viridis cb safe colormap."""
         from mlframe.reporting.colors import HEATMAP_CMAP, resolve_heatmap_cmap
 
         y, p, c = _balanced(400, 4)
@@ -95,12 +100,14 @@ class TestStructure:
         assert resolve_heatmap_cmap(panel.colormap) == "viridis"
 
     def test_cell_text_present_at_small_K(self):
+        """Cell text present at small K."""
         y, p, c = _balanced(400, 4)
         panel = _panel(y, p, c)
         assert panel.cell_text is not None
         assert panel.cell_text.shape == (4, 4)
 
     def test_cell_text_suppressed_at_large_K(self):
+        """Cell text suppressed at large K."""
         y, p, c = _balanced(4000, 20, seed=3)
         panel = _panel(y, p, c)
         assert panel.cell_text is None  # K=20 > _CONFUSION_TEXT_MAX_K, K^2 text is soup
@@ -112,18 +119,22 @@ class TestStructure:
 
 
 class TestEdgeCases:
+    """Groups tests for: TestEdgeCases."""
     def test_single_class_annotates(self):
+        """Single class annotates."""
         panel = _panel(np.zeros(50, dtype=int), np.ones((50, 1)), [0])
         assert panel.note == "single-class problem"
         get_renderer("matplotlib").render(compose_multiclass_figure(np.zeros(50, dtype=int), np.ones((50, 1)), [0], panels_template="CONFUSION_MARGINS"))
 
     def test_empty_annotates_and_renders(self):
+        """Empty annotates and renders."""
         spec = compose_multiclass_figure(np.array([], dtype=int), np.zeros((0, 3)), [0, 1, 2], panels_template="CONFUSION_MARGINS")
         panel = spec.panels[0][0]
         assert panel.note == "no in-range samples"
         get_renderer("matplotlib").render(spec)  # must not raise
 
     def test_tiny_n_annotates_but_renders(self):
+        """Tiny n annotates but renders."""
         y, p, c = _balanced(6, 3, seed=4)
         spec = compose_multiclass_figure(y, p, c, panels_template="CONFUSION_MARGINS")
         panel = spec.panels[0][0]
@@ -131,6 +142,7 @@ class TestEdgeCases:
         get_renderer("matplotlib").render(spec)
 
     def test_large_K_renders_thin_bars(self):
+        """Large K renders thin bars."""
         y, p, c = _balanced(3000, 25, seed=5)
         spec = compose_multiclass_figure(y, p, c, panels_template="CONFUSION_MARGINS")
         panel = spec.panels[0][0]
@@ -144,13 +156,16 @@ class TestEdgeCases:
 
 
 class TestRender:
+    """Groups tests for: TestRender."""
     def test_matplotlib_render(self):
+        """Matplotlib render."""
         y, p, c = _imbalanced(1000, 4, [0.6, 0.2, 0.13, 0.07], majority_bias=0.8)
         spec = compose_multiclass_figure(y, p, c, panels_template="CONFUSION_MARGINS")
         fig = get_renderer("matplotlib").render(spec)
         assert fig is not None
 
     def test_plotly_render(self):
+        """Plotly render."""
         pytest.importorskip("plotly")
         y, p, c = _balanced(600, 3)
         spec = compose_multiclass_figure(y, p, c, panels_template="CONFUSION_MARGINS")
@@ -171,6 +186,7 @@ class TestRender:
 
 
 class TestBizValue:
+    """Groups tests for: TestBizValue."""
     def test_biz_val_confusion_margins_reflects_imbalance_and_overprediction(self):
         """On a 60/20/13/7 imbalanced target with a majority-biased model, the support margin must reflect the
         injected prevalence (dominant-class support ratio >> 1, matching the ~0.6 prevalence within tolerance) AND

@@ -22,6 +22,7 @@ _SRC_MLFRAME = os.path.join(_REPO_ROOT, "src", "mlframe")
 
 
 def _run(code: str, cwd: str):
+    """Helper that run."""
     env = dict(os.environ)
     env["CUDA_VISIBLE_DEVICES"] = ""
     return subprocess.run(  # nosec B603 -- fixed local argv (sys.executable/git + literal args), no shell, no untrusted input

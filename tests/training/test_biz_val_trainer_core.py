@@ -26,6 +26,7 @@ def test_biz_val_trainer_get_function_param_names_returns_names():
     from mlframe.training.trainer import get_function_param_names
 
     def foo(a, b, c=3):
+        """Dummy callable with positional and default params, for get_function_param_names introspection."""
         pass
 
     names = get_function_param_names(foo)
@@ -55,6 +56,7 @@ def test_biz_val_trainer_get_function_param_names_noargs():
     from mlframe.training.trainer import get_function_param_names
 
     def noop():
+        """Zero-argument dummy callable, to verify get_function_param_names returns an empty list."""
         pass
 
     names = get_function_param_names(noop)

@@ -36,6 +36,7 @@ _FUNCS = [
 def test_spectral_all_nan_group_yields_finite(func):
     # The impute (``seg_mean``) is computed over the WHOLE group; the bug triggers when the entire group is all-NaN so ``nanmean`` returns NaN and the pre-fix
     # ``NaN or 0`` kept NaN as the fill, making every window's FFT input all-NaN. Group 0 is fully NaN; group 1 is finite (so the function does real work too).
+    """Spectral all nan group yields finite."""
     n, K = 40, 8
     group_ids = np.concatenate([np.zeros(n, dtype=np.int64), np.ones(n, dtype=np.int64)])
     values = np.concatenate([np.full(n, np.nan), np.arange(n, dtype=np.float64)])

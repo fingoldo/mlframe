@@ -26,6 +26,7 @@ def monotonic_lru_clock(monkeypatch):
     counter = {"t": 1_700_000_000.0}
 
     def _tick():
+        """Advances the fake monotonic clock by one second and returns the new value."""
         counter["t"] += 1.0
         return counter["t"]
 

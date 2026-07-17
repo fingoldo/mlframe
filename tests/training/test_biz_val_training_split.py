@@ -49,6 +49,7 @@ def test_biz_val_split_cv_purge_removes_boundary_leakage():
     assert leaked.isdisjoint(set(purged.tolist()))
 
     def _r2(tr):
+        """Fits Ridge on the given train-row subset and returns R2 against the shared test set."""
         m = Ridge(alpha=1.0).fit(x[tr].reshape(-1, 1), y[tr])
         p = m.predict(x[test_idx].reshape(-1, 1))
         return 1.0 - np.sum((y[test_idx] - p) ** 2) / np.sum((y[test_idx] - y[test_idx].mean()) ** 2)
@@ -79,6 +80,7 @@ def test_biz_val_split_trainset_aging_limit_drops_stale_regime():
     timestamps = pd.Series(pd.to_datetime(ts, unit="s"))
 
     def _test_r2(aging):
+        """Splits with the given trainset-aging limit, fits Ridge, and returns test-set R2 under the regime shift."""
         tr, _val, te, *_ = make_train_test_split(
             df,
             test_size=0.2,

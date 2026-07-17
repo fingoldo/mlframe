@@ -20,6 +20,7 @@ from mlframe.calibration.sticky_state_persistence_floor import (
 
 
 def _make_sticky_state_with_flicker(n: int, n_classes: int, n_flicker: int, seed: int):
+    """Helper that make sticky state with flicker."""
     rng = np.random.default_rng(seed)
     true_state = np.zeros(n, dtype=int)
     cur = 0
@@ -45,6 +46,7 @@ def _make_sticky_state_with_flicker(n: int, n_classes: int, n_flicker: int, seed
 
 
 def _simulate_sequential(probs: np.ndarray, floor: float) -> np.ndarray:
+    """Helper that simulate sequential."""
     n = probs.shape[0]
     preds = np.zeros(n, dtype=int)
     preds[0] = np.argmax(probs[0])
@@ -55,6 +57,7 @@ def _simulate_sequential(probs: np.ndarray, floor: float) -> np.ndarray:
 
 
 def test_biz_val_persistence_floor_smooths_isolated_flicker():
+    """Persistence floor smooths isolated flicker."""
     true_state, probs = _make_sticky_state_with_flicker(n=2000, n_classes=3, n_flicker=150, seed=0)
 
     acc_raw = accuracy_score(true_state, _simulate_sequential(probs, floor=0.0))
@@ -66,6 +69,7 @@ def test_biz_val_persistence_floor_smooths_isolated_flicker():
 
 
 def test_apply_sticky_state_persistence_floor_preserves_row_sums():
+    """Apply sticky state persistence floor preserves row sums."""
     rng = np.random.default_rng(1)
     probs = rng.dirichlet(np.ones(4), size=50)
     active = rng.integers(0, 4, size=50)
@@ -74,6 +78,7 @@ def test_apply_sticky_state_persistence_floor_preserves_row_sums():
 
 
 def test_apply_sticky_state_persistence_floor_leaves_already_dominant_rows_unchanged():
+    """Apply sticky state persistence floor leaves already dominant rows unchanged."""
     probs = np.array([[0.9, 0.05, 0.05]])
     active = np.array([0])
     floored = apply_sticky_state_persistence_floor(probs, active, floor=0.6)
@@ -128,6 +133,7 @@ def _make_sticky_and_volatile_class_mix(n: int, seed: int):
 
 
 def test_biz_val_optimize_persistence_floor_per_class_beats_global_scalar_compromise():
+    """Optimize persistence floor per class beats global scalar compromise."""
     true_state, probs, active = _make_sticky_and_volatile_class_mix(n=8000, seed=0)
 
     # balanced accuracy weights both classes' recall equally regardless of the sticky class's ~40x higher

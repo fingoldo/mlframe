@@ -20,6 +20,7 @@ from mlframe.feature_engineering.latent_parameter_recovery import latent_paramet
 
 
 def _annuity_constraint_fn(df: pd.DataFrame, rate: float) -> np.ndarray:
+    """Helper: Annuity constraint fn."""
     if rate <= 0:
         return np.full(len(df), np.inf)
     implied_annuity = df["amount"].to_numpy() * rate / (1 - (1 + rate) ** (-df["n"].to_numpy()))
@@ -27,6 +28,7 @@ def _annuity_constraint_fn(df: pd.DataFrame, rate: float) -> np.ndarray:
 
 
 def _make_loan_data(n: int, seed: int):
+    """Helper: Make loan data."""
     rng = np.random.default_rng(seed)
     true_rate = rng.uniform(0.005, 0.03, n)
     duration = rng.choice([12, 24, 36, 48, 60], n).astype(float)
@@ -37,6 +39,7 @@ def _make_loan_data(n: int, seed: int):
 
 
 def test_biz_val_recovery_features_beat_raw_column_baseline():
+    """Biz val recovery features beat raw column baseline."""
     df, true_rate = _make_loan_data(n=800, seed=1)
     grid = np.arange(0.002, 0.05, 0.0005)
     feats = latent_parameter_recovery_features(df, grid, _annuity_constraint_fn, tolerance=150.0)
@@ -58,9 +61,11 @@ def test_biz_val_recovery_features_beat_raw_column_baseline():
 
 
 def test_latent_parameter_recovery_features_hand_computed():
+    """Latent parameter recovery features hand computed."""
     df = pd.DataFrame({"x": [10.0]})
 
     def constraint_fn(df: pd.DataFrame, candidate: float) -> np.ndarray:
+        """Constraint fn."""
         return df["x"].to_numpy() - candidate
 
     feats = latent_parameter_recovery_features(df, candidate_grid=[8.0, 10.0, 12.0], constraint_fn=constraint_fn, tolerance=0.5)
@@ -69,9 +74,11 @@ def test_latent_parameter_recovery_features_hand_computed():
 
 
 def test_latent_parameter_recovery_features_no_consistent_candidate_is_nan():
+    """Latent parameter recovery features no consistent candidate is nan."""
     df = pd.DataFrame({"x": [100.0]})
 
     def constraint_fn(df: pd.DataFrame, candidate: float) -> np.ndarray:
+        """Constraint fn."""
         return df["x"].to_numpy() - candidate
 
     feats = latent_parameter_recovery_features(df, candidate_grid=[1.0, 2.0, 3.0], constraint_fn=constraint_fn, tolerance=0.1)
@@ -81,6 +88,7 @@ def test_latent_parameter_recovery_features_no_consistent_candidate_is_nan():
 
 def test_latent_parameter_recovery_features_weight_fn_omitted_is_bit_identical():
     # weight_fn is strictly opt-in: omitting it must reproduce the pre-extension uniform-candidate output.
+    """Latent parameter recovery features weight fn omitted is bit identical."""
     df, _ = _make_loan_data(n=300, seed=3)
     grid = np.arange(0.002, 0.05, 0.0005)
     baseline = latent_parameter_recovery_features(df, grid, _annuity_constraint_fn, tolerance=150.0)
@@ -94,6 +102,7 @@ def test_biz_val_recovery_features_weight_fn_beats_uniform_under_nonuniform_prio
     # `tolerance`. A caller who KNOWS the prior (e.g. from a portfolio-level rate distribution) should recover
     # a summary statistic closer to the true rate by down-weighting implausible candidates, versus treating
     # every constraint-satisfying candidate as equally likely.
+    """Biz val recovery features weight fn beats uniform under nonuniform prior."""
     rng = np.random.default_rng(7)
     n = 600
     true_rate = rng.choice([0.008, 0.02, 0.04], size=n, p=[0.7, 0.2, 0.1]) + rng.normal(scale=0.0005, size=n)
@@ -108,6 +117,7 @@ def test_biz_val_recovery_features_weight_fn_beats_uniform_under_nonuniform_prio
 
     def _rate_prior_weight(df: pd.DataFrame, candidate: float) -> np.ndarray:
         # a Gaussian prior over the rate, centered where the true generative process concentrates mass.
+        """Helper: Rate prior weight."""
         density = np.exp(-0.5 * ((candidate - 0.0085) / 0.01) ** 2)
         return np.full(len(df), density)
 

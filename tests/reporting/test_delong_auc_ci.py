@@ -21,6 +21,7 @@ from mlframe.reporting.charts.multiclass import _roc_panel
 
 
 def _binary(n=5000, sep=1.5, seed=0):
+    """Helper: Binary."""
     rng = np.random.default_rng(seed)
     y = rng.integers(0, 2, n)
     raw = rng.standard_normal(n) + sep * y
@@ -34,12 +35,14 @@ def _binary(n=5000, sep=1.5, seed=0):
 
 def test_midrank_handles_ties():
     # [10, 20, 20, 40] -> ranks 1, 2.5, 2.5, 4.
+    """Midrank handles ties."""
     r = _midrank(np.array([10.0, 20.0, 20.0, 40.0]))
     assert np.allclose(r, [1.0, 2.5, 2.5, 4.0])
 
 
 @pytest.mark.parametrize("sep", [0.3, 1.0, 2.5])
 def test_delong_auc_matches_sklearn(sep):
+    """Delong auc matches sklearn."""
     y, s = _binary(sep=sep, seed=1)
     auc, var = delong_auc_variance(y, s)
     assert auc == pytest.approx(roc_auc_score(y, s), abs=1e-9)
@@ -47,6 +50,7 @@ def test_delong_auc_matches_sklearn(sep):
 
 
 def test_delong_auc_matches_sklearn_with_ties():
+    """Delong auc matches sklearn with ties."""
     y = np.array([0, 0, 1, 1, 0, 1, 1, 0])
     s = np.array([0.2, 0.2, 0.8, 0.8, 0.5, 0.5, 0.8, 0.2])
     auc, _var = delong_auc_variance(y, s)
@@ -54,6 +58,7 @@ def test_delong_auc_matches_sklearn_with_ties():
 
 
 def test_ci_brackets_point_estimate_and_clips():
+    """Ci brackets point estimate and clips."""
     y, s = _binary(sep=2.0, seed=2)
     auc, lo, hi = delong_auc_ci(y, s)
     assert lo <= auc <= hi
@@ -61,6 +66,7 @@ def test_ci_brackets_point_estimate_and_clips():
 
 
 def test_empty_class_returns_nan():
+    """Empty class returns nan."""
     y = np.zeros(50, dtype=int)  # no positives
     s = np.random.default_rng(0).random(50)
     auc, lo, hi = delong_auc_ci(y, s)
@@ -73,6 +79,7 @@ def test_empty_class_returns_nan():
 
 
 def test_roc_panel_legend_carries_ci_when_enabled():
+    """Roc panel legend carries ci when enabled."""
     rng = np.random.default_rng(3)
     n, K = 2000, 3
     yt = rng.integers(0, K, n)
@@ -111,6 +118,7 @@ def test_biz_val_delong_ci_narrows_with_n():
     ~4x theoretical, above noise). A regression that drops the n-dependence trips this."""
 
     def _half_width(n):
+        """Helper: Half width."""
         y, s = _binary(n=n, sep=1.0, seed=9)
         _auc, lo, hi = delong_auc_ci(y, s)
         return (hi - lo) / 2.0

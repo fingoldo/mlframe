@@ -13,11 +13,13 @@ WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "numba-coverage.yml"
 
 
 def _workflow_text() -> str:
+    """Helper that workflow text."""
     assert WORKFLOW_PATH.exists(), f"missing nightly numba-coverage workflow at {WORKFLOW_PATH}"
     return WORKFLOW_PATH.read_text(encoding="utf-8")
 
 
 def test_numba_coverage_workflow_file_exists() -> None:
+    """Numba coverage workflow file exists."""
     assert WORKFLOW_PATH.exists(), (
         f"nightly numba-coverage workflow missing at {WORKFLOW_PATH}. "
         "This workflow makes @njit kernel bodies visible to coverage.py by setting NUMBA_DISABLE_JIT=1. "
@@ -26,6 +28,7 @@ def test_numba_coverage_workflow_file_exists() -> None:
 
 
 def test_numba_coverage_workflow_sets_numba_disable_jit_env() -> None:
+    """Numba coverage workflow sets numba disable jit env."""
     text = _workflow_text()
     assert "NUMBA_DISABLE_JIT" in text, "workflow must set NUMBA_DISABLE_JIT env var to disable JIT"
     assert 'NUMBA_DISABLE_JIT: "1"' in text or "NUMBA_DISABLE_JIT: '1'" in text or "NUMBA_DISABLE_JIT: 1" in text, (
@@ -34,6 +37,7 @@ def test_numba_coverage_workflow_sets_numba_disable_jit_env() -> None:
 
 
 def test_numba_coverage_workflow_has_nightly_cron() -> None:
+    """Numba coverage workflow has nightly cron."""
     text = _workflow_text()
     assert "schedule:" in text, "workflow must declare a cron schedule (nightly run)"
     assert "cron:" in text, "workflow must use cron scheduling"
@@ -41,6 +45,7 @@ def test_numba_coverage_workflow_has_nightly_cron() -> None:
 
 
 def test_numba_coverage_workflow_supports_manual_dispatch() -> None:
+    """Numba coverage workflow supports manual dispatch."""
     text = _workflow_text()
     assert "workflow_dispatch" in text, "workflow_dispatch trigger missing; operators must be able to run the nightly suite on demand"
 
@@ -58,6 +63,7 @@ def test_numba_coverage_workflow_targets_kernel_heavy_dirs() -> None:
 
 
 def test_numba_coverage_workflow_collects_coverage() -> None:
+    """Numba coverage workflow collects coverage."""
     text = _workflow_text()
     assert "--cov=src/mlframe" in text, "workflow must collect coverage on src/mlframe"
     assert "--cov-report=xml" in text, "workflow must produce coverage.xml for upload/artifact"

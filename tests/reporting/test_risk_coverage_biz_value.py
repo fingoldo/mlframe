@@ -13,6 +13,7 @@ from mlframe.reporting.charts.risk_coverage import compute_risk_coverage
 
 
 def _well_ranked_binary(n=8000, seed=0):
+    """Helper: Well ranked binary."""
     rng = np.random.default_rng(seed)
     y = rng.integers(0, 2, n)
     conf = rng.uniform(0.0, 1.0, n)
@@ -23,6 +24,7 @@ def _well_ranked_binary(n=8000, seed=0):
 
 
 def _random_confidence_binary(n=8000, seed=1):
+    """Helper: Random confidence binary."""
     rng = np.random.default_rng(seed)
     y = rng.integers(0, 2, n)
     correct = rng.uniform(0, 1, n) < 0.75

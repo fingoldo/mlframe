@@ -15,6 +15,7 @@ _R = 400  # above the n_bootstrap>=256 gate
 
 
 def _data(seed=0):
+    """Helper that data."""
     rng = np.random.default_rng(seed)
     y = (rng.random(_N) < 0.35).astype(np.float64)
     p = np.clip(0.2 + 0.5 * y + rng.standard_normal(_N) * 0.3, 1e-6, 1 - 1e-6)
@@ -22,14 +23,17 @@ def _data(seed=0):
 
 
 def _mf():
+    """Helper that mf."""
     return {"brier": lambda yy, pp: float(np.mean((yy - pp) ** 2)), "mean_p": lambda yy, pp: float(np.mean(pp))}
 
 
 def _ci(res):
+    """Helper that ci."""
     return {k: (round(v["lo"], 10), round(v["hi"], 10)) for k, v in res.items()}
 
 
 def test_serial_n_jobs_1_is_deterministic():
+    """Serial n jobs 1 is deterministic."""
     y, p = _data()
     a = _ci(bootstrap_metrics(y, p, _mf(), n_bootstrap=_R, stratify=y, random_state=7, n_jobs=1))
     b = _ci(bootstrap_metrics(y, p, _mf(), n_bootstrap=_R, stratify=y, random_state=7, n_jobs=1))
@@ -37,6 +41,7 @@ def test_serial_n_jobs_1_is_deterministic():
 
 
 def test_parallel_reproducible_and_worker_count_independent():
+    """Parallel reproducible and worker count independent."""
     y, p = _data()
     r4a = _ci(bootstrap_metrics(y, p, _mf(), n_bootstrap=_R, stratify=y, random_state=7, n_jobs=4))
     r4b = _ci(bootstrap_metrics(y, p, _mf(), n_bootstrap=_R, stratify=y, random_state=7, n_jobs=4))
@@ -46,6 +51,7 @@ def test_parallel_reproducible_and_worker_count_independent():
 
 
 def test_parallel_is_statistically_equivalent_to_serial():
+    """Parallel is statistically equivalent to serial."""
     y, p = _data()
     ser = bootstrap_metrics(y, p, _mf(), n_bootstrap=_R, stratify=y, random_state=7, n_jobs=1)
     par = bootstrap_metrics(y, p, _mf(), n_bootstrap=_R, stratify=y, random_state=7, n_jobs=4)

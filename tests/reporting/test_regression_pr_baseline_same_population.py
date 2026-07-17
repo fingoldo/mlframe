@@ -11,6 +11,7 @@ from mlframe.reporting.charts.multiclass import _pr_curves_panel
 
 
 def test_pr_baseline_prevalence_uses_subsample_population():
+    """Pr baseline prevalence uses subsample population."""
     rng = np.random.default_rng(0)
     n = 4000
     # Binary one-vs-rest with class 1 rare in full data.

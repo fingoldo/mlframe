@@ -14,6 +14,7 @@ from mlframe.metrics import _core_auc_brier as cab
 
 
 def test_par_bucket_orders_yscore_identically_continuous():
+    """Par bucket orders yscore identically continuous."""
     rng = np.random.default_rng(7)
     y = (1 / (1 + np.exp(-rng.normal(0, 1, 300_000)))).astype(np.float64)
     new = cab._argsort_desc_par_bucket(y)
@@ -22,6 +23,7 @@ def test_par_bucket_orders_yscore_identically_continuous():
 
 
 def test_par_bucket_orders_yscore_identically_tied():
+    """Par bucket orders yscore identically tied."""
     rng = np.random.default_rng(8)
     y = np.round((1 / (1 + np.exp(-rng.normal(0, 1, 200_000)))).astype(np.float64), 2)
     new = cab._argsort_desc_par_bucket(y)
@@ -30,6 +32,7 @@ def test_par_bucket_orders_yscore_identically_tied():
 
 
 def test_par_bucket_constant_column_is_full_permutation():
+    """Par bucket constant column is full permutation."""
     y = np.full(120_000, 0.5)
     new = cab._argsort_desc_par_bucket(y)
     assert len(new) == 120_000
@@ -37,10 +40,12 @@ def test_par_bucket_constant_column_is_full_permutation():
 
 
 def test_dispatcher_routes_to_par_bucket_above_gate(monkeypatch):
+    """Dispatcher routes to par bucket above gate."""
     calls = {"n": 0}
     orig = cab._argsort_desc_par_bucket
 
     def spy(y):
+        """Spy."""
         calls["n"] += 1
         return orig(y)
 
@@ -58,6 +63,7 @@ def test_dispatcher_routes_to_par_bucket_above_gate(monkeypatch):
 
 
 def test_full_report_byte_identical_with_and_without_par_bucket():
+    """Full report byte identical with and without par bucket."""
     from mlframe.metrics.classification._classification_report import fast_calibration_report
 
     rng = np.random.default_rng(11)

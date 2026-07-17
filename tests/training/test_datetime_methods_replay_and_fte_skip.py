@@ -42,6 +42,7 @@ def _make_frame_with_two_dt_cols(n: int = 3_000, seed: int = 0):
 
 
 def _run_suite(df, fte, feature_types_config=None):
+    """Runs the mlframe training suite on df with the given feature-type-extraction toggle."""
     return train_mlframe_models_suite(
         df=df,
         target_name="y",

@@ -13,10 +13,12 @@ from mlframe.votenrank.constrained_weight_blend import constrained_weight_blend
 
 
 def _rmse(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    """Helper that rmse."""
     return float(np.sqrt(np.mean((y_true - y_pred) ** 2)))
 
 
 def _make_model_pool(n_samples: int, n_good: int, n_bad: int, seed: int):
+    """Helper that make model pool."""
     rng = np.random.default_rng(seed)
     y_true = rng.standard_normal(n_samples) * 3.0
     good_preds = [y_true + 0.3 * rng.standard_normal(n_samples) for _ in range(n_good)]
@@ -25,6 +27,7 @@ def _make_model_pool(n_samples: int, n_good: int, n_bad: int, seed: int):
 
 
 def test_biz_val_constrained_weight_blend_beats_equal_weight_average():
+    """Constrained weight blend beats equal weight average."""
     y_true, preds = _make_model_pool(n_samples=2000, n_good=5, n_bad=15, seed=42)
 
     result = constrained_weight_blend(preds, y_true, _rmse, n_restarts=5, random_state=0)
@@ -41,6 +44,7 @@ def test_biz_val_constrained_weight_blend_beats_equal_weight_average():
 
 
 def test_constrained_weight_blend_single_model_pool_returns_weight_one():
+    """Constrained weight blend single model pool returns weight one."""
     y_true = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
     preds = [y_true + 0.1]
     result = constrained_weight_blend(preds, y_true, _rmse, n_restarts=2)
@@ -48,6 +52,7 @@ def test_constrained_weight_blend_single_model_pool_returns_weight_one():
 
 
 def test_constrained_weight_blend_empty_pool_raises():
+    """Constrained weight blend empty pool raises."""
     import pytest
 
     with pytest.raises(ValueError):

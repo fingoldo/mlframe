@@ -57,7 +57,9 @@ def uniform_hits():
 
 
 class TestHistogramAxesCount:
+    """Groups tests covering TestHistogramAxesCount."""
     def test_histogram_off_yields_single_axis(self, binned_data, tmp_path):
+        """Histogram off yields single axis."""
         fp, ft, h = binned_data
         plot_file = str(tmp_path / "no_hist.png")
         fig = show_calibration_plot(
@@ -77,6 +79,7 @@ class TestHistogramAxesCount:
         ]
 
     def test_histogram_on_yields_two_main_axes(self, binned_data, tmp_path):
+        """Histogram on yields two main axes."""
         fp, ft, h = binned_data
         plot_file = str(tmp_path / "with_hist.png")
         fig = show_calibration_plot(
@@ -109,6 +112,7 @@ class TestInlineLabelsIndependentOfHistogram:
         ],
     )
     def test_label_presence(self, binned_data, tmp_path, show_hist, show_labels):
+        """Label presence."""
         fp, ft, h = binned_data
         plot_file = str(tmp_path / f"hist{show_hist}_lbl{show_labels}.png")
         fig = show_calibration_plot(
@@ -139,6 +143,7 @@ class TestAutoYscaleHistogram:
     """Auto picks log when max/min hits skew > 100x; linear otherwise."""
 
     def test_skewed_picks_log(self, skewed_hits, tmp_path):
+        """Skewed picks log."""
         fp, ft, h = skewed_hits
         plot_file = str(tmp_path / "skewed.png")
         fig = show_calibration_plot(
@@ -154,6 +159,7 @@ class TestAutoYscaleHistogram:
         assert hist_ax.get_yscale() == "log"
 
     def test_uniform_picks_linear(self, uniform_hits, tmp_path):
+        """Uniform picks linear."""
         fp, ft, h = uniform_hits
         plot_file = str(tmp_path / "uniform.png")
         fig = show_calibration_plot(
@@ -169,6 +175,7 @@ class TestAutoYscaleHistogram:
         assert hist_ax.get_yscale() == "linear"
 
     def test_reliability_prob_axis_tight_after_draw(self, binned_data, tmp_path):
+        """Reliability prob axis tight after draw."""
         from mlframe.reporting.charts.calibration import _PROB_AXIS_RANGE, build_calibration_spec
         from mlframe.reporting.renderers.matplotlib import MatplotlibRenderer
         from mlframe.reporting.spec import HistogramPanelSpec, ScatterPanelSpec
@@ -191,6 +198,7 @@ class TestAutoYscaleHistogram:
         assert -0.05 <= ylo and yhi <= 1.05, f"reliability y-axis over-padded: ({ylo}, {yhi})"
 
     def test_explicit_log_overrides_auto(self, uniform_hits, tmp_path):
+        """Explicit log overrides auto."""
         fp, ft, h = uniform_hits
         plot_file = str(tmp_path / "force_log.png")
         fig = show_calibration_plot(
@@ -206,6 +214,7 @@ class TestAutoYscaleHistogram:
         assert hist_ax.get_yscale() == "log"
 
     def test_explicit_linear_overrides_auto(self, skewed_hits, tmp_path):
+        """Explicit linear overrides auto."""
         fp, ft, h = skewed_hits
         plot_file = str(tmp_path / "force_linear.png")
         fig = show_calibration_plot(
