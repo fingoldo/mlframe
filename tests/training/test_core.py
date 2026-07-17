@@ -1,12 +1,13 @@
-import importlib
-
-from mlframe.training import FeatureSelectionConfig, OutputConfig, PreprocessingConfig
-
 """
 Integration tests for core training functionality.
 
 Tests the main train_mlframe_models_suite function end-to-end.
 """
+
+import importlib
+
+from mlframe.training import FeatureSelectionConfig, OutputConfig, PreprocessingConfig
+
 
 import pytest
 import numpy as np

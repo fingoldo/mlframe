@@ -1,5 +1,3 @@
-from mlframe.training import OutlierDetectionConfig, OutputConfig
-
 """Business-value integration tests for mlframe outlier detection and early stopping.
 
 NOTE: These are regression sensors, not scientific benchmarks. Synthetic data parameters
@@ -15,6 +13,9 @@ Both tests train via train_mlframe_models_suite, then evaluate predictions on a 
 test set (RMSE / AUROC computed manually on out-of-suite hold-out, since the suite does
 not surface a clean post-fit test metric in returned metadata).
 """
+
+from mlframe.training import OutlierDetectionConfig, OutputConfig
+
 
 import os
 import time

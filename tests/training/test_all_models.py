@@ -1,9 +1,3 @@
-"""Smoke and correctness coverage for all 13 mlframe model types across regression/classification, cat encoding, and CPU/GPU."""
-
-import importlib
-
-from mlframe.training import FeatureSelectionConfig, OutlierDetectionConfig, OutputConfig
-
 """
 Comprehensive tests for all 13 mlframe model types.
 
@@ -15,6 +9,11 @@ Tests cover:
 - RFECV feature selection with all supported estimators
 - Special cases and edge conditions
 """
+
+import importlib
+
+from mlframe.training import FeatureSelectionConfig, OutlierDetectionConfig, OutputConfig
+
 
 import pytest
 

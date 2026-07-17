@@ -1,7 +1,3 @@
-"""End-to-end LGB regression coverage for the 2026-04-22 crash: Polars input with pl.Enum cat_features through the full pipeline."""
-
-from mlframe.training import OutputConfig
-
 """End-to-end LGB tests with realistic prod-like Polars input.
 
 Why this file exists: production LGB crashes on 2026-04-22 with
@@ -21,6 +17,9 @@ These tests construct exactly that minimal scenario so any future regression
 in the Polars→pandas→LGB chain is caught locally instead of on the 9M-row
 prod dataset 30 minutes into a run.
 """
+
+from mlframe.training import OutputConfig
+
 
 import numpy as np
 import pandas as pd
