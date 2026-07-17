@@ -155,7 +155,7 @@ def test_biz_val_hierarchical_split_helps_novel_full_version_strings():
         # test only has a handful of brand-new-patch rows (noisy small-sample signal) - the
         # flat full-string feature can only ever see the noisy test-only count for a novel
         # string, while the hierarchical major.minor level also inherits train's precise count
-        n_train_reps = max(5, int(round(weight * 800 * rng.uniform(0.97, 1.03))))
+        n_train_reps = max(5, round(weight * 800 * rng.uniform(0.97, 1.03)))
         # train only ever sees patch "0" for this family
         train_rows += [f"{major}.{minor}.0"] * n_train_reps
 
@@ -173,7 +173,7 @@ def test_biz_val_hierarchical_split_helps_novel_full_version_strings():
 
     # flat full-string union frequency: all test values are novel-to-train, so it collapses
     # to (near-)constant test-side counts and cannot rank-order families by true weight
-    flat_train_encoded, flat_test_encoded = train_test_union_frequency_encode(train_series, test_series)
+    _flat_train_encoded, flat_test_encoded = train_test_union_frequency_encode(train_series, test_series)
     corr_flat = spearmanr(flat_test_encoded.to_numpy(), y_true_test).statistic
 
     # the combined (geometric-mean-of-all-levels) feature still folds in the noisy

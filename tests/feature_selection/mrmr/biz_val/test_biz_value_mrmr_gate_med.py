@@ -47,7 +47,6 @@ import warnings
 
 import numpy as np
 import pandas as pd
-import pytest
 
 warnings.filterwarnings("ignore")
 
@@ -246,7 +245,7 @@ def test_gated_med_downstream_score_recovers_with_gate():
     """END-TO-END: the gate selection lifts downstream 5-fold Ridge R^2 over the
     all-raw baseline (raw cannot linearly express the conjunction of two skewed
     operands). The no-gate control stays stuck near the raw baseline."""
-    df, y, true = _make_and_skew()
+    df, y, _true = _make_and_skew()
     raw_r2 = _ridge_r2(df.values, y)
     fs_on = _fit(lambda: _unb(gate_med=True), df, y)
     sel_r2 = _ridge_r2(np.asarray(fs_on.transform(df)), y)
@@ -311,7 +310,7 @@ def test_gate_med_recipe_replay_is_deterministic_and_leak_free():
     applied directly to the same rows (no y consulted -- the fitted median lives
     in the EngineeredRecipe.extra). A held-out fixture from the SAME distribution
     exercises the leak-safe stored-median path (test median != train median)."""
-    df, y, true = _make_and_skew()
+    df, y, _true = _make_and_skew()
     fs = _fit(lambda: _unb(gate_med=True), df, y)
     eng = [nm for nm in _eng_names(fs) if "gate_med" in nm]
     assert eng, "no gate_med engineered feature to replay"
@@ -350,11 +349,11 @@ def test_gate_med_recipe_replay_is_deterministic_and_leak_free():
     from mlframe.feature_selection.filters._feature_engineering_pairs import _gate_med_apply
 
     rec0 = recipes[eng[0]]
-    side_key = [k for k in rec0.extra if k.startswith("gate_med_") and k.endswith("_median")][0]
+    side_key = next(k for k in rec0.extra if k.startswith("gate_med_") and k.endswith("_median"))
     stored_med = float(rec0.extra[side_key])
     # Identify which source column that side maps to and re-extract it.
     src_a, src_b = rec0.src_names
-    u_a, u_b = rec0.unary_names
+    u_a, _u_b = rec0.unary_names
     src_for_gate = src_a if (u_a == "gate_med" and side_key == "gate_med_a_median") else src_b
     gate_src_vals = df_test[src_for_gate].to_numpy()
     test_med = float(np.median(gate_src_vals))

@@ -12,7 +12,6 @@ post-OD train+val recomputation.
 from __future__ import annotations
 
 import polars as pl
-import pytest
 
 
 def test_precomputed_union_keeps_rare_val_category_alive():

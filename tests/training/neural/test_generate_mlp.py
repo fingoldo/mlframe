@@ -15,8 +15,7 @@ Run tests:
 import pytest
 import torch
 import torch.nn as nn
-from hypothesis import given, strategies as st, settings, assume
-from functools import partial
+from hypothesis import given, strategies as st, settings
 
 import sys
 from pathlib import Path
@@ -135,7 +134,7 @@ def test_constant_architecture():
 
     arch = get_model_architecture(model)
     # All hidden layers should have 50 neurons
-    for in_feat, out_feat in arch[:-1]:  # Exclude final layer
+    for _in_feat, out_feat in arch[:-1]:  # Exclude final layer
         assert out_feat == 50
 
 
@@ -641,7 +640,7 @@ def test_verbose_output(caplog):
 
     caplog.set_level(logging.INFO)
 
-    model = generate_mlp(
+    generate_mlp(
         num_features=50,
         num_classes=10,
         nlayers=3,

@@ -215,7 +215,6 @@ def test_biz_centered_ratio_predict_eps_band_routes_to_fallback():
     # would have been forwarded through the clamped divisor + inverse, giving a
     # value that is NOT the honest fallback. Compute that un-gated value and
     # confirm the gate changed the outcome.
-    transform = est.fitted_params_
     t = TRANSFORMS_REGISTRY["centered_ratio"]
     t_hat_band = float(est.estimator_.predict(Xp.iloc[[1]])[0])
     ungated = float(

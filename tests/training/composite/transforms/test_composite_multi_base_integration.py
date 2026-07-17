@@ -10,10 +10,8 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.training.composite import (
-    CompositeSpec,
     CompositeTargetDiscovery,
 )
 from mlframe.training.configs import CompositeTargetDiscoveryConfig
@@ -27,7 +25,7 @@ def _make_two_base_dgp(n: int = 2000, seed: int = 0) -> tuple:
     noise_cols = {f"noise_{i}": rng.normal(size=n) for i in range(3)}
     y = 0.6 * b1 + 0.4 * b2 + rng.normal(scale=0.2, size=n)
     df = pd.DataFrame({"b1": b1, "b2": b2, **noise_cols, "y": y})
-    return df, list(noise_cols.keys()) + ["b1", "b2"]
+    return df, [*list(noise_cols.keys()), "b1", "b2"]
 
 
 def _make_single_dominant_dgp(n: int = 2000, seed: int = 0) -> tuple:
@@ -37,7 +35,7 @@ def _make_single_dominant_dgp(n: int = 2000, seed: int = 0) -> tuple:
     noise_cols = {f"noise_{i}": rng.normal(size=n) for i in range(4)}
     y = 0.9 * b1 + rng.normal(scale=0.2, size=n)
     df = pd.DataFrame({"b1": b1, **noise_cols, "y": y})
-    return df, list(noise_cols.keys()) + ["b1"]
+    return df, [*list(noise_cols.keys()), "b1"]
 
 
 class TestMultiBaseAutoPromotion:
@@ -64,7 +62,7 @@ class TestMultiBaseAutoPromotion:
         if multi_specs:
             # Upgraded: spec carries extra_base_columns with b2.
             spec = multi_specs[0]
-            full_bases = (spec.base_column,) + spec.extra_base_columns
+            full_bases = (spec.base_column, *spec.extra_base_columns)
             assert "b1" in full_bases
             assert "b2" in full_bases
             # fitted_params shape matches base count.
@@ -110,7 +108,7 @@ class TestMultiBaseAutoPromotion:
         disc.fit(df=df, target_col="y", feature_cols=feature_cols, train_idx=np.arange(len(df)))
         multi_specs = [s for s in disc.specs_ if s.transform_name == "linear_residual_multi"]
         for spec in multi_specs:
-            full_bases = (spec.base_column,) + spec.extra_base_columns
+            full_bases = (spec.base_column, *spec.extra_base_columns)
             # If b1 is anywhere in the final base set, no noise base should ALSO be there (b1 alone explains the signal; adding noise wouldn't clear the 2% gain gate).
             if "b1" in full_bases:
                 noise_bases = [b for b in full_bases if b.startswith("noise_")]

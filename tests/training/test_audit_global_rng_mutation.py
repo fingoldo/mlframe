@@ -47,7 +47,6 @@ Verified clean (do not refactor):
 
 from __future__ import annotations
 
-import importlib
 from pathlib import Path
 
 import numpy as np

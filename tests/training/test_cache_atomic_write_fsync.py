@@ -13,11 +13,8 @@ These tests assert that both atomic-write paths (``DiscoveryCache.set`` and
 from __future__ import annotations
 
 import os
-import pickle
-import tempfile
 from unittest import mock
 
-import pytest
 
 
 def test_discovery_cache_set_fsyncs_before_replace(tmp_path):

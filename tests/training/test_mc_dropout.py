@@ -20,7 +20,7 @@ def test_mc_dropout_spread_positive_with_dropout_zero_without():
     assert float(std.mean()) > 0.0  # dropout -> stochastic passes -> positive spread
 
     no_drop = torch.nn.Sequential(torch.nn.Linear(8, 16), torch.nn.ReLU(), torch.nn.Linear(16, 1))
-    mean2, std2, n_drop2 = mc_dropout_predict(no_drop, X, n=8)
+    _mean2, std2, n_drop2 = mc_dropout_predict(no_drop, X, n=8)
     assert n_drop2 == 0
     assert float(std2.max()) < 1e-5  # no dropout -> passes identical up to float32 noise -> ~zero spread
     assert float(std.mean()) > 100 * float(std2.mean() + 1e-12)  # dropout spread dwarfs the no-dropout floor

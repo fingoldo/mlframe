@@ -53,9 +53,9 @@ import numpy as np
 import pytest
 
 sys.path.insert(0, os.path.dirname(__file__))
-from tests.feature_selection._biz_val_synth import make_imbalanced, as_df  # noqa: E402
-from tests.feature_selection._selector_factories import _make_mrmr, _make_rfecv, selected_names  # noqa: E402
-from tests.feature_selection.conftest import fast_subset  # noqa: E402
+from tests.feature_selection._biz_val_synth import make_imbalanced, as_df
+from tests.feature_selection._selector_factories import _make_mrmr, _make_rfecv, selected_names
+from tests.feature_selection.conftest import fast_subset
 
 
 _SIG = re.compile(r"x(\d+)")

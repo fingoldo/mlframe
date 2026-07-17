@@ -48,9 +48,9 @@ from sklearn.metrics import roc_auc_score
 from mlframe.feature_selection.filters.mrmr import MRMR
 
 sys.path.insert(0, os.path.dirname(__file__))
-from tests.feature_selection._biz_val_synth import as_df  # noqa: E402,F401  (kept for parity with sibling biz_val files)
+from tests.feature_selection._biz_val_synth import as_df  # noqa: F401  (kept for parity with sibling biz_val files)
 
-from tests.feature_selection.conftest import is_fast_mode, fast_subset  # noqa: E402
+from tests.feature_selection.conftest import is_fast_mode, fast_subset
 
 lgb = pytest.importorskip("lightgbm")
 

@@ -36,7 +36,7 @@ def test_biz_tree_variance_downweight_beats_raw_mean():
 
 def test_biz_linear_sign_harmony_beats_abs_mean_vote():
     # consistent true feature: coef +0.8 every fold. flipper decoy: |coef|=1.0 but sign 3+/3-.
-    signed = {
+    {
         "true": {f"r{k}": 0.8 for k in range(6)},
     }
     # build per-run dicts in the run-keyed shape the aggregator expects.

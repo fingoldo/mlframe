@@ -25,7 +25,6 @@ from mlframe.training.composite.transforms.extended import (
     _asinh_residual_fit,
     _asinh_residual_forward,
     _asinh_residual_inverse,
-    _centered_ratio_domain,
     _centered_ratio_fit,
     _centered_ratio_forward,
     _centered_ratio_inverse,
@@ -37,20 +36,16 @@ from mlframe.training.composite.transforms.extended import (
     _pairwise_interaction_residual_fit,
     _pairwise_interaction_residual_forward,
     _pairwise_interaction_residual_inverse,
-    _polynomial_residual_deg2_domain,
     _polynomial_residual_deg2_fit,
     _polynomial_residual_deg2_forward,
-    _polynomial_residual_deg2_inverse,
     _rank_residual_fit,
     _rank_residual_forward,
     _rank_residual_inverse,
     _reciprocal_residual_domain,
     _reciprocal_residual_fit,
     _reciprocal_residual_forward,
-    _reciprocal_residual_inverse,
     _smoothing_spline_residual_fit,
     _smoothing_spline_residual_forward,
-    _smoothing_spline_residual_inverse,
 )
 
 

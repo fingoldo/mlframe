@@ -69,7 +69,7 @@ def _is_basemodel_field(cls: type[BaseModel], field_name: str) -> bool:
     annotation = field_info.annotation
     # Pydantic v2 stores the annotation post-resolution. Walk Union args.
     args = getattr(annotation, "__args__", ())
-    candidates = (annotation,) + args if args else (annotation,)
+    candidates = (annotation, *args) if args else (annotation,)
     for cand in candidates:
         try:
             if inspect.isclass(cand) and issubclass(cand, BaseModel):

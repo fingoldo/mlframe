@@ -69,7 +69,7 @@ def test_f3_suite_rfecv_is_cluster_wrapped_when_default_on():
     from mlframe.feature_selection.filters.group_aware import GroupAwareMRMR
 
     rf = _FakeRFECV(keep=2)
-    pps, names = _build(rfecv_models=["lgb"], rfecv_models_params={"lgb": rf}, rfecv_cluster_reduce=True)
+    pps, _names = _build(rfecv_models=["lgb"], rfecv_models_params={"lgb": rf}, rfecv_cluster_reduce=True)
     sel = pps[0]
     assert isinstance(sel, GroupAwareMRMR), "default-ON cluster-reduce must wrap the suite RFECV"
     # The kind marker is stamped on the OUTER wrapper so _selector_kind classifies it as RFECV.

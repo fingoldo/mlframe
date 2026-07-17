@@ -8,7 +8,6 @@ Bug 4 : the ``for best_idx in np.argsort(...)`` greedy scan was wrapped in a dea
 """
 
 import numpy as np
-import pytest
 
 from mlframe.models.optimization import (
     MBHOptimizer,

@@ -30,7 +30,7 @@ import pytest
 
 pl = pytest.importorskip("polars")
 pa = pytest.importorskip("pyarrow")
-import pyarrow.compute as pc  # noqa: E402
+import pyarrow.compute as pc
 
 
 def _build_dict_frame(n: int = 100_000) -> pl.DataFrame:

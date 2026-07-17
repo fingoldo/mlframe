@@ -87,7 +87,7 @@ def _train_combo(task_label: str, target_type=None, n: int = 600):
 def _iter_fitted_models(models, target_type):
     """Yield the inner fitted estimators stored under ``target_type``."""
     target_models = models.get(target_type, {})
-    for _name, ns_list in target_models.items():
+    for ns_list in target_models.values():
         for ns in ns_list:
             inner = getattr(ns, "model", None)
             if inner is not None:

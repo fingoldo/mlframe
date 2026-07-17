@@ -43,7 +43,7 @@ def test_config_jitter_returns_nonneg_variance():
 
     X, y = _data(0)
     model = make_default_estimator(classification=True)
-    phi, base, y_phi, phi_var = compute_shap_matrix(
+    phi, _base, _y_phi, phi_var = compute_shap_matrix(
         model, X, y, classification=True, out_of_fold=False, n_models=4, config_jitter=True, return_variance=True, rng=np.random.default_rng(0)
     )
     assert phi.shape == (len(X), 8)
@@ -103,7 +103,7 @@ def test_compute_shap_matrix_n_estimators_cap_is_clamp():
 
     # cap=100 with template n_estimators=300 -> every fitted booster carries 100 trees.
     with patch.object(_shap_proxy_explain, "_fit_one", _spy_fit_one):
-        phi, base, _ = compute_shap_matrix(
+        phi, _base, _ = compute_shap_matrix(
             template, X, y, classification=True, out_of_fold=True, n_splits=3, rng=np.random.default_rng(0), n_jobs=1, n_estimators_cap=100
         )
     assert phi.shape == (n, f)

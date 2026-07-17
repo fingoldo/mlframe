@@ -8,7 +8,6 @@
 - RFECV _resolve_cv_and_val_cv: groups + a temporal signal silently chose GroupKFold (no time ordering); now warns.
 """
 
-import logging
 
 import numpy as np
 import pandas as pd
@@ -17,7 +16,6 @@ import pytest
 from mlframe.feature_selection.filters.info_theory._batch_kernels import (
     batch_pair_mi_prange,
     batch_triple_mi_prange,
-    MAX_JOINT_CARDINALITY,
 )
 from mlframe.feature_selection.filters.info_theory._class_encoding import merge_vars
 
@@ -69,7 +67,7 @@ def test_bayesian_blocks_rejects_nonprobability_p0():
 
 def test_merge_vars_empty_frame_no_divide_by_zero():
     factors = np.empty((0, 2), dtype=np.int32)
-    fc, freqs, ncl = merge_vars(factors, np.array([0, 1]), np.array([False, False]), np.array([2, 2], dtype=np.int64))
+    fc, freqs, _ncl = merge_vars(factors, np.array([0, 1]), np.array([False, False]), np.array([2, 2], dtype=np.int64))
     assert len(fc) == 0
     assert freqs.size == 0 and np.isfinite(freqs).all()
 

@@ -12,7 +12,6 @@ import os
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.training.reporting import _reporting as R
 

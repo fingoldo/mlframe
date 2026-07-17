@@ -75,7 +75,7 @@ def test_biz_val_row_level_then_average_beats_mean_aggregation_baseline_auc():
 def test_row_level_then_average_mode_b_external_query():
     X_rows, y_entity, entity_ids = _make_interaction_panel_dataset(n_entities=200, k_rows=5, seed=1)
     y_row_broadcast = y_entity[entity_ids]
-    X_query, y_query_entity, query_entity_ids = _make_interaction_panel_dataset(n_entities=50, k_rows=5, seed=2)
+    X_query, _y_query_entity, query_entity_ids = _make_interaction_panel_dataset(n_entities=50, k_rows=5, seed=2)
 
     result = compute_row_level_then_average_predictions(
         X_rows,

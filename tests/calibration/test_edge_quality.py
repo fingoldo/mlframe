@@ -38,7 +38,7 @@ def test_estimate_calibration_quality_binned_nbins_gt_n_caps_and_stays_finite():
     # no NaN leaks into the reliability curve or the metrics.
     y_true = np.array([0.0, 1.0, 0.0, 1.0, 1.0])
     y_pred = np.array([0.1, 0.9, 0.2, 0.8, 0.7])
-    pockets_pred, pockets_true, data, metrics = estimate_calibration_quality_binned(y_true, y_pred, nbins=50)
+    pockets_pred, pockets_true, _data, metrics = estimate_calibration_quality_binned(y_true, y_pred, nbins=50)
     assert len(pockets_pred) == 5, "nbins must be capped to the sample count"
     assert np.isfinite(pockets_pred).all() and np.isfinite(pockets_true).all()
     for name, val in metrics.items():

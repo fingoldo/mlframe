@@ -152,8 +152,8 @@ def test_sa11_cat_ii_mm_telescopes_no_false_synergy_keeps_real_synergy():
         )
 
     def _ii_prefix_per_term(x1, x2, yv, n):
-        fd, nbins, ti, _ = _setup(x1, x2, yv, n)
-        H = lambda idx: _entropy_mm(  # noqa: E731
+        fd, nbins, _ti, _ = _setup(x1, x2, yv, n)
+        H = lambda idx: _entropy_mm(
             merge_vars(
                 factors_data=fd,
                 vars_indices=np.array(np.unique(idx), dtype=np.int64),

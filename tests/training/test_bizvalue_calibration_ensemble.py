@@ -155,7 +155,7 @@ def _train_and_predict(
     if behavior_config is not None:
         kwargs["behavior_config"] = behavior_config
 
-    models, metadata = train_mlframe_models_suite(**kwargs)
+    _models, metadata = train_mlframe_models_suite(**kwargs)
 
     models_path = f"{data_dir}/models/test_target/{model_name}"
     results = predict_mlframe_models_suite(
@@ -254,7 +254,7 @@ def test_ensemble_auroc_at_least_best_single(tmp_path, common_init_params, seed)
     train_df, test_df = _make_clean_classification(seed=seed)
     y_test = test_df["target"].values
 
-    results, metadata = _train_and_predict(
+    results, _metadata = _train_and_predict(
         train_df,
         test_df,
         tmp_path,

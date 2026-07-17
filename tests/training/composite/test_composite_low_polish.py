@@ -90,7 +90,7 @@ def test_low_streaming_alpha_uses_residual_based_se() -> None:
     base = rng.normal(0.0, 1.0, n)
     # True alpha=2.0; buffer matches deployed alpha exactly under low noise.
     y = 2.0 * base + rng.normal(0.0, 0.01, n)
-    new_alpha, new_beta, info = streaming_alpha_check_and_refit(
+    _new_alpha, _new_beta, info = streaming_alpha_check_and_refit(
         y_buffer=y,
         base_buffer=base,
         current_alpha=2.0,
@@ -102,7 +102,7 @@ def test_low_streaming_alpha_uses_residual_based_se() -> None:
 
     # Now genuinely drift the buffer (alpha shifted to 5.0).
     y_drift = 5.0 * base + rng.normal(0.0, 0.01, n)
-    new_alpha2, new_beta2, info2 = streaming_alpha_check_and_refit(
+    new_alpha2, _new_beta2, info2 = streaming_alpha_check_and_refit(
         y_buffer=y_drift,
         base_buffer=base,
         current_alpha=2.0,

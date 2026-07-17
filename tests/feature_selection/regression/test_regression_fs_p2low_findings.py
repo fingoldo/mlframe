@@ -6,12 +6,10 @@ re-surfaces immediately.
 
 from __future__ import annotations
 
-import copy
 
 import numpy as np
 import pandas as pd
 import pytest
-from sklearn.model_selection import KFold
 
 from mlframe.training.pipeline._pipeline_cache import (
     _pipeline_signature_for_cache,
@@ -115,7 +113,7 @@ def test_w5_fs_f16_deepcopy_splitter_in_early_stopping_path():
     rng = np.random.default_rng(0)
     X = pd.DataFrame(rng.normal(size=(20, 3)))
     y = pd.Series(rng.normal(size=20))
-    cv_out, val_cv, _ = _resolve_cv_and_val_cv(
+    _cv_out, val_cv, _ = _resolve_cv_and_val_cv(
         cv=cv_orig,
         cv_shuffle=False,
         random_state=0,

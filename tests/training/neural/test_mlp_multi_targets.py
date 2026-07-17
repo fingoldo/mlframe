@@ -106,7 +106,7 @@ class TestMLPMulticlassEndToEnd:
     def test_smoke_fits_predicts_returns_3_class_probs(self, synthetic_3class_data):
         from tests.conftest import is_fast_mode
 
-        df, y = synthetic_3class_data
+        df, _y = synthetic_3class_data
         fte = SimpleFeaturesAndTargetsExtractor(
             target_column="target",
             regression=False,
@@ -136,7 +136,7 @@ class TestMLPMulticlassEndToEnd:
     def test_classes_attr_is_ndarray_not_list(self, synthetic_3class_data):
         """Regression: ``model.classes_`` must be ndarray for fancy
         indexing in evaluation.py (``preds = model.classes_[preds]``)."""
-        df, y = synthetic_3class_data
+        df, _y = synthetic_3class_data
         fte = SimpleFeaturesAndTargetsExtractor(
             target_column="target",
             regression=False,
@@ -154,8 +154,8 @@ class TestMLPMulticlassEndToEnd:
                 verbose=0,
             )
         # Drill into the trained model
-        for tt, target_models in models.items():
-            for tn, ns_list in target_models.items():
+        for target_models in models.values():
+            for ns_list in target_models.values():
                 for ns in ns_list:
                     inner = getattr(ns, "model", None)
                     if inner is not None and hasattr(inner, "classes_"):
@@ -187,7 +187,7 @@ class TestMLPMultilabelEndToEnd:
     """``train_mlframe_models_suite(target_type=MULTILABEL)`` with mlp."""
 
     def test_smoke_fits_with_2d_y(self, synthetic_3label_data):
-        pdf, Y = synthetic_3label_data
+        pdf, _Y = synthetic_3label_data
         fte = SimpleFeaturesAndTargetsExtractor(
             target_column="target",
             regression=False,
@@ -210,7 +210,7 @@ class TestMLPMultilabelEndToEnd:
         """MLP is a native multilabel learner -- the trainer's
         ``_maybe_wrap_for_2d_target`` should NOT wrap it with
         MultiOutputClassifier."""
-        pdf, Y = synthetic_3label_data
+        pdf, _Y = synthetic_3label_data
         fte = SimpleFeaturesAndTargetsExtractor(
             target_column="target",
             regression=False,
@@ -227,8 +227,8 @@ class TestMLPMultilabelEndToEnd:
                 use_mlframe_ensembles=False,
                 verbose=0,
             )
-        for tt, target_models in models.items():
-            for tn, ns_list in target_models.items():
+        for target_models in models.values():
+            for ns_list in target_models.values():
                 for ns in ns_list:
                     inner = getattr(ns, "model", None)
                     if inner is not None:

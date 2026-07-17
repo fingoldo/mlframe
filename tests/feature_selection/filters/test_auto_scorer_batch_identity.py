@@ -45,7 +45,7 @@ def test_rank_table_plug_in_copula_unchanged():
     eng = pd.DataFrame({f"r{j}__sq": (raw[f"r{j}"] ** 2).to_numpy() for j in range(4)})
     y = (raw["r0"] > 0).astype(np.int64).to_numpy()
 
-    table, baseline, ranks = _compute_per_scorer_rank_table(
+    table, _baseline, _ranks = _compute_per_scorer_rank_table(
         raw,
         eng,
         y,

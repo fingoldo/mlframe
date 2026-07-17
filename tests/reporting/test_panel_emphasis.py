@@ -13,7 +13,6 @@ import os
 import warnings
 
 import numpy as np
-import pytest
 
 from mlframe.reporting import render_multi_target_panels
 from mlframe.reporting.auto_dispatch import select_binary_emphasis_panels
@@ -133,7 +132,6 @@ class TestDispatcherEmphasis:
     def test_data_aware_applies_only_when_default(self, monkeypatch):
         """Emphasis fires only when binary_panels_is_default=True; a custom
         template is passed through untouched even in data_aware mode."""
-        import mlframe.reporting.auto_dispatch as ad
 
         captured = {}
 

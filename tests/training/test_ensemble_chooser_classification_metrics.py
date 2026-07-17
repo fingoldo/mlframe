@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import logging
 
-import numpy as np
 import pytest
 
 from mlframe.training.core._ensemble_chooser import (

@@ -10,7 +10,6 @@ entropy values differ only by ULP-level summation order (global max|delta| = 8.8
 import sys
 
 sys.modules["cupy"] = None
-import scipy.stats, numba
 import numpy as np, time
 from mlframe.feature_engineering.windowed_shape import (
     rolling_shannon_entropy_binned,

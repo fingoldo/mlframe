@@ -32,7 +32,7 @@ def _make_clustered(n=2000, n_factors=3, refl=4, n_noise=8, seed=0):
 
 
 def test_clustering_recovers_known_partition_cpu():
-    X, z, nf, refl, n_noise = _make_clustered()
+    X, _z, nf, refl, n_noise = _make_clustered()
     labels = cluster_correlated_features(X, threshold=0.7, use_gpu=False)
     # nf clusters of `refl` reflections + n_noise singletons
     assert labels.max() + 1 == nf + n_noise
@@ -62,9 +62,9 @@ def test_blocked_path_matches_dense():
 
 
 def test_denoised_unit_beats_members():
-    X, z, nf, refl, n_noise = _make_clustered(n=4000, seed=3)
+    X, z, nf, _refl, n_noise = _make_clustered(n=4000, seed=3)
     labels = cluster_correlated_features(X, threshold=0.7, use_gpu=False)
-    units, u2m, kind = build_unit_matrix(X, labels, weighting="pca_pc1")
+    units, u2m, _kind = build_unit_matrix(X, labels, weighting="pca_pc1")
     summ = cluster_summary(u2m)
     assert summ["n_multi_clusters"] == nf
     assert summ["n_singletons"] == n_noise

@@ -11,7 +11,6 @@ from unittest import mock
 
 import numpy as np
 import pandas as pd
-import pytest
 
 
 def _make_selector(store_dir):
@@ -25,7 +24,7 @@ def test_cached_read_rows_hits_cache_between_writes():
     from mlframe.feature_selection.filters._oracle_scorer_select import _cached_read_rows, _ROWS_CACHE
 
     with tempfile.TemporaryDirectory() as d:
-        selector, store_path = _make_selector(d)
+        selector, _store_path = _make_selector(d)
         _ROWS_CACHE.clear()
 
         real_read_rows = selector.oracle.store.read_rows
@@ -50,7 +49,7 @@ def test_cached_read_rows_invalidates_on_write():
     from mlframe.feature_selection.filters._oracle_scorer_select import _cached_read_rows, _ROWS_CACHE
 
     with tempfile.TemporaryDirectory() as d:
-        selector, store_path = _make_selector(d)
+        selector, _store_path = _make_selector(d)
         _ROWS_CACHE.clear()
 
         rows_before = _cached_read_rows(selector.oracle.store)
@@ -84,7 +83,7 @@ def test_recommend_scorer_unaffected_by_caching():
     from mlframe.feature_selection.filters._oracle_scorer_select import _ROWS_CACHE
 
     with tempfile.TemporaryDirectory() as d:
-        selector, store_path = _make_selector(d)
+        selector, _store_path = _make_selector(d)
         _ROWS_CACHE.clear()
 
         rng = np.random.default_rng(0)

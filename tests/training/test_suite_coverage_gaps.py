@@ -242,7 +242,7 @@ class _WeightedExtractor(SimpleFeaturesAndTargetsExtractor):
         self._schema_name = schema_name
 
     def transform(self, df):
-        n = len(df)
+        len(df)
         if isinstance(df, pd.DataFrame):
             target_values = df[self.target_column].values
         else:
@@ -488,8 +488,8 @@ def test_polars_and_pandas_paths_produce_close_metrics(tmp_path):
 
     # Compare feature counts — they must match: polars fastpath must
     # not drop a feature the pandas path keeps (or vice versa).
-    cols_pd = set((_meta_pd.get("columns") or []))
-    cols_pl = set((_meta_pl.get("columns") or []))
+    cols_pd = set(_meta_pd.get("columns") or [])
+    cols_pl = set(_meta_pl.get("columns") or [])
     assert cols_pd == cols_pl, f"column sets diverge between paths: pd={cols_pd} pl={cols_pl}"
 
 
@@ -588,7 +588,7 @@ def test_outlier_detector_filters_training_rows(tmp_path):
     from mlframe.training.core import train_mlframe_models_suite
 
     fte = SimpleFeaturesAndTargetsExtractor(regression=False)
-    trained, meta = train_mlframe_models_suite(
+    _trained, meta = train_mlframe_models_suite(
         df=df,
         target_name="tgt",
         model_name="mdl",
@@ -645,7 +645,7 @@ def test_rfecv_pipeline_runs_for_each_model_family(tmp_path, caplog):
     from mlframe.training.core import train_mlframe_models_suite
 
     fte = SimpleFeaturesAndTargetsExtractor(regression=False)
-    trained, meta = train_mlframe_models_suite(
+    _trained, _meta = train_mlframe_models_suite(
         df=df,
         target_name="tgt",
         model_name="mdl",
@@ -694,7 +694,7 @@ def test_ensembles_enabled_produces_ensemble_log(tmp_path, caplog):
     from mlframe.training.core import train_mlframe_models_suite
 
     fte = SimpleFeaturesAndTargetsExtractor(regression=False)
-    trained, _ = train_mlframe_models_suite(
+    _trained, _ = train_mlframe_models_suite(
         df=df,
         target_name="tgt",
         model_name="mdl",
@@ -814,7 +814,7 @@ def test_high_cardinality_cat_column_trains_successfully(tmp_path):
     from mlframe.training.core import train_mlframe_models_suite
 
     fte = SimpleFeaturesAndTargetsExtractor(regression=False)
-    trained, meta = train_mlframe_models_suite(
+    trained, _meta = train_mlframe_models_suite(
         df=df,
         target_name="tgt",
         model_name="mdl",
@@ -921,7 +921,7 @@ def test_multi_target_regression_trains_all_targets(tmp_path):
     from mlframe.training.core import train_mlframe_models_suite
 
     fte = _MultiTargetExtractor(target_columns=("target_a", "target_b"))
-    trained, meta = train_mlframe_models_suite(
+    trained, _meta = train_mlframe_models_suite(
         df=df,
         target_name="tgt",
         model_name="mdl",
@@ -1232,7 +1232,7 @@ def test_continue_on_model_failure_skips_crashed_model(tmp_path, monkeypatch):
     from mlframe.training.core import train_mlframe_models_suite
 
     fte = SimpleFeaturesAndTargetsExtractor(regression=False)
-    trained, meta = train_mlframe_models_suite(
+    _trained, meta = train_mlframe_models_suite(
         df=df,
         target_name="tgt",
         model_name="mdl",
@@ -1662,10 +1662,9 @@ def test_duplicate_mlframe_models_handled(tmp_path):
     fte = SimpleFeaturesAndTargetsExtractor(regression=False)
 
     raised = None
-    trained = None
     meta = None
     try:
-        trained, meta = train_mlframe_models_suite(
+        _trained, meta = train_mlframe_models_suite(
             df=df,
             target_name="tgt",
             model_name="mdl",
@@ -1806,7 +1805,7 @@ def test_fairness_features_recorded_in_metadata(tmp_path):
         fairness_features=["cat_0"],
         fairness_min_pop_cat_thresh=10,
     )
-    trained, meta = train_mlframe_models_suite(
+    _trained, meta = train_mlframe_models_suite(
         df=df,
         target_name="tgt",
         model_name="mdl",
@@ -2216,7 +2215,7 @@ def test_uninformative_zero_column_does_not_break_training(tmp_path):
     from mlframe.training.core import train_mlframe_models_suite
 
     fte = SimpleFeaturesAndTargetsExtractor(regression=False)
-    trained, meta = train_mlframe_models_suite(
+    trained, _meta = train_mlframe_models_suite(
         df=df,
         target_name="tgt",
         model_name="mdl",

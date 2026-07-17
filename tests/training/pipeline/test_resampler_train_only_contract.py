@@ -20,12 +20,12 @@ import pandas as pd
 import pytest
 
 imblearn = pytest.importorskip("imblearn")
-from imblearn import FunctionSampler  # noqa: E402
-from imblearn.pipeline import Pipeline as ImbPipeline  # noqa: E402
-from sklearn.linear_model import LinearRegression  # noqa: E402
-from sklearn.preprocessing import FunctionTransformer  # noqa: E402
+from imblearn import FunctionSampler
+from imblearn.pipeline import Pipeline as ImbPipeline
+from sklearn.linear_model import LinearRegression
+from sklearn.preprocessing import FunctionTransformer
 
-from mlframe.training.pipeline._pipeline_helpers import (  # noqa: E402
+from mlframe.training.pipeline._pipeline_helpers import (
     _apply_pre_pipeline_transforms,
 )
 

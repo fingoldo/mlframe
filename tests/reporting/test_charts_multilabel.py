@@ -21,7 +21,6 @@ from mlframe.reporting.output import parse_plot_output_dsl
 from mlframe.reporting.renderers import render_and_save
 from mlframe.reporting.spec import (
     BarPanelSpec,
-    FigureSpec,
     HeatmapPanelSpec,
     HistogramPanelSpec,
     LinePanelSpec,
@@ -233,14 +232,14 @@ class TestRender:
 # THRESHOLD_SWEEP (per-label F1 x threshold heatmap)
 # ----------------------------------------------------------------------------
 
-from sklearn.metrics import f1_score  # noqa: E402
+from sklearn.metrics import f1_score
 
-from mlframe.reporting.charts.multilabel import (  # noqa: E402
+from mlframe.reporting.charts.multilabel import (
     _per_label_f1_sweep,
     _SWEEP_N_THRESHOLDS,
     _threshold_sweep_panel,
 )
-from mlframe.reporting.spec import AnnotationPanelSpec  # noqa: E402
+from mlframe.reporting.spec import AnnotationPanelSpec
 
 
 def _planted_optima(n: int, true_optima, seed: int):
@@ -272,7 +271,7 @@ class TestThresholdSweep:
     def test_sweep_shape(self, synth_3label):
         y, p, lbl = synth_3label
         fig = compose_multilabel_figure(y, p, lbl, panels_template="THRESHOLD_SWEEP")
-        panel = [pp for row in fig.panels for pp in row if pp is not None][0]
+        panel = next(pp for row in fig.panels for pp in row if pp is not None)
         assert isinstance(panel, HeatmapPanelSpec)
         assert panel.matrix.shape == (3, _SWEEP_N_THRESHOLDS)
         assert len(panel.row_labels) == 3
@@ -323,7 +322,7 @@ class TestThresholdSweep:
         per-label cutoff (not a single global 0.5) is what the heatmap surfaces.
         """
         true_opt = [0.30, 0.50, 0.70]
-        y, proba, lbl = _planted_optima(8000, true_opt, seed=11)
+        y, proba, _lbl = _planted_optima(8000, true_opt, seed=11)
         thresholds = np.linspace(0.0, 1.0, _SWEEP_N_THRESHOLDS)
         f1 = _per_label_f1_sweep(y, proba, thresholds)
         recovered = thresholds[np.argmax(f1, axis=1)]

@@ -14,7 +14,6 @@ pin the two load-bearing properties that keep the opt-in hook safe:
 """
 
 import numpy as np
-import pytest
 
 from mlframe.feature_selection.filters._hermite_fe_optimise_pair import optimise_hermite_pair
 

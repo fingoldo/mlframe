@@ -13,7 +13,6 @@ import time
 
 import numpy as np
 import pandas as pd
-import pytest
 from scipy.optimize import nnls
 from sklearn.linear_model import Ridge
 
@@ -74,12 +73,12 @@ def test_biz_val_oof_subsample_keeps_whole_groups():
 
 def test_biz_val_oof_subsample_weights_match_full():
     X, y, groups = _grouped()
-    oof_full, wall_full = _oof(X, y, groups)
+    oof_full, _wall_full = _oof(X, y, groups)
     w_full = _nnls_w(oof_full, y)
 
     pos = _oof_subsample_positions(groups.size, groups, cap=6_000, seed=42)
     Xs = _slice_frame_rows(X, pos)
-    oof_sub, wall_sub = _oof(Xs, y[pos], groups[pos])
+    oof_sub, _wall_sub = _oof(Xs, y[pos], groups[pos])
     w_sub = _nnls_w(oof_sub, y[pos])
 
     fin = np.isfinite(oof_full).all(axis=1) & np.isfinite(y)

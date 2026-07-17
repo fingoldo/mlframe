@@ -72,7 +72,7 @@ def _make_noisy_diff_dataset(n: int, n_noise_cols: int, seed: int):
 
 def test_biz_val_variance_gated_diff_target_aware_prune_default_unchanged():
     """Default behaviour (no ``prune_against_target``) must stay bit-identical to the pre-extension contract."""
-    df, y = _make_noisy_diff_dataset(n=500, n_noise_cols=10, seed=1)
+    df, _y = _make_noisy_diff_dataset(n=500, n_noise_cols=10, seed=1)
     columns = list(df.columns)
 
     baseline = variance_gated_pairwise_diff(df, columns, min_variance=1e-4)

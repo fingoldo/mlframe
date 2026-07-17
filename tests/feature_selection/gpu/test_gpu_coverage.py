@@ -37,15 +37,15 @@ if not _GPU_AVAILABLE:  # pragma: no cover - guarded at collection time
     pytest.skip("No CUDA device available", allow_module_level=True)
 
 
-from mlframe.feature_selection.filters import gpu as gpu_mod  # noqa: E402
-from mlframe.feature_selection.filters.gpu import (  # noqa: E402
+from mlframe.feature_selection.filters import gpu as gpu_mod
+from mlframe.feature_selection.filters.gpu import (
     _GPU_POOL,
     init_kernels,
     mi_direct_gpu,
     mi_direct_gpu_batched,
     mi_direct_gpu_batched_pairs,
 )
-from mlframe.feature_selection.filters.permutation import mi_direct  # noqa: E402
+from mlframe.feature_selection.filters.permutation import mi_direct
 
 
 # ---------------------------------------------------------------------------
@@ -175,7 +175,7 @@ def test_mi_direct_gpu_return_null_mean_contract_and_backcompat():
 
     res = mi_direct_gpu(factors, (0,), (1,), factors_nbins, npermutations=8, return_null_mean=True)
     assert len(res) == 4
-    mi, conf, null_mean, p_value = res
+    mi, _conf, null_mean, p_value = res
     assert mi == legacy[0]  # observed MI is identical; only extra outputs are added
     assert np.isfinite(null_mean) and null_mean >= 0.0
     assert 0.0 <= p_value <= 1.0

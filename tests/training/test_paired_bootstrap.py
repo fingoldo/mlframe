@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import time
 import numpy as np
-import pytest
 
 
 def _sklearn_paired_loop(y, p1, p2, n_resamples, seed, minimize=True):

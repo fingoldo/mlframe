@@ -16,7 +16,6 @@ from __future__ import annotations
 import numpy as np
 import pytest
 from hypothesis import HealthCheck, given, settings, strategies as st
-from hypothesis.extra.numpy import arrays
 
 from mlframe.feature_selection.filters.info_theory import (
     compute_mi_from_classes,

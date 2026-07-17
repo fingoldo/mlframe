@@ -31,7 +31,7 @@ def test_proposal_generator_emits_candidate_subsets():
     X, y = _data()
     props = proposal_generator(X, y, classification=True, optimizer="beam", top_n=10, max_features=5)
     assert 1 <= len(props) <= 10
-    for loss, feats in props:
+    for _loss, feats in props:
         assert isinstance(feats, tuple) and len(feats) >= 1
         assert all(f in X.columns for f in feats)
     # The best proposal should be informative-heavy (mostly inf* features).

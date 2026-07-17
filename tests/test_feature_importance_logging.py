@@ -158,7 +158,6 @@ class TestInlineDisplayDoesNotLeakFigures:
 
     def test_jupyter_inline_does_not_leak_figs_into_registry(self) -> None:
         import builtins
-        import sys
         import matplotlib.pyplot as plt
 
         # Patch __IPYTHON__ in builtins (the detection condition).

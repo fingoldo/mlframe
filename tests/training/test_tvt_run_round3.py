@@ -29,7 +29,6 @@ from __future__ import annotations
 import inspect
 
 import numpy as np
-import pytest
 
 
 class TestOOFRefitEvalSetPassthrough:
@@ -49,7 +48,7 @@ class TestOOFRefitEvalSetPassthrough:
 
         X = pd.DataFrame({"x": np.arange(2000, dtype=np.float64)})
         y = np.arange(2000, dtype=np.float64)
-        X_fit, y_fit, X_eval, y_eval = _carve_inner_eval_split(X, y, frac=0.1)
+        X_fit, _y_fit, X_eval, y_eval = _carve_inner_eval_split(X, y, frac=0.1)
         assert X_eval is not None
         assert y_eval is not None
         assert len(X_fit) == 1800
@@ -64,7 +63,7 @@ class TestOOFRefitEvalSetPassthrough:
 
         X = pd.DataFrame({"x": np.arange(500, dtype=np.float64)})
         y = np.arange(500, dtype=np.float64)
-        X_fit, y_fit, X_eval, y_eval = _carve_inner_eval_split(X, y)
+        X_fit, _y_fit, X_eval, y_eval = _carve_inner_eval_split(X, y)
         assert X_eval is None
         assert y_eval is None
         assert len(X_fit) == 500

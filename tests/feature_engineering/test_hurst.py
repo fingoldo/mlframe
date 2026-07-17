@@ -2,7 +2,7 @@
 
 import pytest
 import numpy as np
-from hypothesis import given, strategies as st, settings, assume
+from hypothesis import given, strategies as st, settings
 
 from mlframe.feature_engineering.hurst import (
     compute_hurst_exponent,
@@ -22,7 +22,7 @@ def _seed_global_numpy_rng():
 @settings(max_examples=50, deadline=None)
 def test_hurst_returns_valid_range(arr):
     """Hurst exponent should generally be between 0 and 1.5 for most series."""
-    h, c = compute_hurst_exponent(np.array(arr, dtype=np.float64))
+    h, _c = compute_hurst_exponent(np.array(arr, dtype=np.float64))
     if not np.isnan(h):
         assert -0.5 <= h <= 2.0, f"Hurst exponent {h} out of expected range"
 
@@ -87,7 +87,7 @@ def test_hurst_random_walk_close_to_half():
     """Random walk should have Hurst exponent close to 0.5."""
     np.random.seed(42)
     arr = np.cumsum(np.random.randn(1000)).astype(np.float64)
-    h, c = compute_hurst_exponent(arr, take_diffs=True)
+    h, _c = compute_hurst_exponent(arr, take_diffs=True)
     # Random walk H should be around 0.5 (with some tolerance)
     if not np.isnan(h):
         assert 0.3 <= h <= 0.7, f"Random walk Hurst {h} not close to 0.5"
@@ -99,7 +99,7 @@ def test_hurst_trending_series():
     trend = np.linspace(0, 10, 1000)
     noise = np.random.randn(1000) * 0.1
     arr = (trend + noise).astype(np.float64)
-    h, c = compute_hurst_exponent(arr)
+    h, _c = compute_hurst_exponent(arr)
     if not np.isnan(h):
         assert h > 0.3, f"Trending series Hurst {h} expected to be > 0.3"
 

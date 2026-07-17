@@ -65,7 +65,6 @@ def test_collapse_rare_categories_exact_behavior():
 
 
 def test_drop_rare_features_flags_sparse_binary_indicator():
-    n = 200
     df = pd.DataFrame({"common": np.concatenate([np.ones(100), np.zeros(100)]), "sparse": np.concatenate([np.ones(10), np.zeros(190)])})
     dropped = drop_rare_features(df, min_total_count=20)
     assert "sparse" in dropped
@@ -146,6 +145,6 @@ def test_collapse_rare_categories_target_aware_requires_y():
     df = pd.DataFrame({"cat": ["a", "a", "a", "b", "c", "d"]})
     try:
         collapse_rare_categories(df, ["cat"], min_count=2, target_aware=True)
-        assert False, "expected ValueError when target_aware=True without y"
+        raise AssertionError("expected ValueError when target_aware=True without y")
     except ValueError:
         pass

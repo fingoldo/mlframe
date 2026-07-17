@@ -1,4 +1,4 @@
-import sys, time
+import sys
 
 sys.modules["cupy"] = None
 import scipy.stats, numba  # noqa

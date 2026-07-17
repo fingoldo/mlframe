@@ -72,7 +72,7 @@ def test_multi_stage_stacker_requires_all_auxiliary_targets():
     )
     try:
         stacker.fit(X, y_primary, {"aux": y_aux})
-        assert False, "expected ValueError for missing auxiliary target"
+        raise AssertionError("expected ValueError for missing auxiliary target")
     except ValueError as exc:
         assert "missing" in str(exc)
 

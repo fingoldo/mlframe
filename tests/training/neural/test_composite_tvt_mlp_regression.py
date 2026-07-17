@@ -39,7 +39,6 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.training.composite import CompositeTargetDiscovery
 from mlframe.training.configs import CompositeTargetDiscoveryConfig

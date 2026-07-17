@@ -16,7 +16,7 @@ import pytest
 pytest.importorskip("shap")
 pytest.importorskip("xgboost")
 
-from mlframe.feature_selection.shap_proxied_fs._shap_proxy_interaction_proxy import (  # noqa: E402
+from mlframe.feature_selection.shap_proxied_fs._shap_proxy_interaction_proxy import (
     build_pair_table,
     interaction_proxy_top_n,
 )
@@ -83,7 +83,7 @@ def test_interaction_proxy_per_row_not_collapsed():
     """The interaction term must stay PER-ROW: an XOR pair has row-mean Phi_ij ~0 but a large per-row
     swing. A scalar-mean collapse would erase the signal -> this guards that regression."""
     X, y = _two_xor_pairs(seed=0)
-    phi, base, y_phi, Phi = _shap_and_tensor(X, y, 0)
+    phi, _base, _y_phi, Phi = _shap_and_tensor(X, y, 0)
     pair_rows, in_gate = build_pair_table(Phi, phi, interaction_top_k=30)
     # pick the two operands of the first XOR pair by name
     names = list(X.columns)

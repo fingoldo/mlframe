@@ -15,7 +15,6 @@ on metadata when the suite trains with use_mrmr_fs=True.
 
 from __future__ import annotations
 
-import logging
 import warnings
 
 import numpy as np

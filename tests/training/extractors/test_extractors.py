@@ -12,8 +12,7 @@ import pytest
 import numpy as np
 import pandas as pd
 import polars as pl
-from datetime import datetime, timedelta
-from typing import Dict, Any, Union
+from datetime import datetime
 
 from mlframe.training.extractors import (
     FeaturesAndTargetsExtractor,
@@ -727,6 +726,6 @@ class TestSimpleFeaturesAndTargetsExtractorLearningToRank:
 
         with _w.catch_warnings(record=True):  # warning is logged, not raised; just ensure no crash
             result = extractor.transform(df)
-        _, target_by_type, _, group_ids, _, _, cols_to_drop, _ = result
+        _, target_by_type, _, group_ids, _, _, _cols_to_drop, _ = result
         assert TargetTypes.LEARNING_TO_RANK in target_by_type
         assert group_ids is None  # no group_field -> no query grouping

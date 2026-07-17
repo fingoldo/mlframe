@@ -30,7 +30,7 @@ def _affine_base_matrix(n=2000, seed=0):
 def test_biz_val_structural_boost_fraction_positive_on_affine_base():
     """The near-affine predictor of y gets a positive structural boost."""
     x_matrix, y, names = _affine_base_matrix()
-    boost, kinds = boost_for_features(x_matrix, y, names, mi_spread=1.0, max_boost_fraction=0.25)
+    boost, _kinds = boost_for_features(x_matrix, y, names, mi_spread=1.0, max_boost_fraction=0.25)
     assert boost[0] > 0.0, "a near-affine predictor of y must receive a positive structural boost"
 
 

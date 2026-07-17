@@ -23,7 +23,6 @@ number either way.
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 
 def test_numerical_module_imports_even_when_astropy_broken() -> None:

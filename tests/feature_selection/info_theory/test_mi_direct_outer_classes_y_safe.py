@@ -69,7 +69,7 @@ def test_outer_path_specifically_no_crash():
     factors = np.column_stack([x, y]).astype(np.int32)
     nbins = np.array([4, 2], dtype=np.int32)
     # This MUST complete without raising.
-    mi_val, conf = mi_direct(
+    mi_val, _conf = mi_direct(
         factors,
         x=(0,),
         y=(1,),

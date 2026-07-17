@@ -27,11 +27,9 @@ import uuid
 import numpy as np
 import pandas as pd
 import polars as pl
-import pytest
 
 from mlframe.training.feature_handling import (
     TextDetectionConfig,
-    TextDetectionDecision,
     detect_text_columns,
 )
 
@@ -79,7 +77,7 @@ class TestTriggerMediumWithTokens:
                 * 5,  # padding for cardinality
             }
         )
-        text_cols, decisions = detect_text_columns(df)
+        text_cols, _decisions = detect_text_columns(df)
         assert "review" in text_cols
 
 
@@ -127,7 +125,7 @@ class TestAntiUuidGuard:
                 "hash_id": ["".join(rng.choice(list("0123456789abcdef"), 64).tolist()) for _ in range(150)],
             }
         )
-        text_cols, decisions = detect_text_columns(df)
+        text_cols, _decisions = detect_text_columns(df)
         assert "hash_id" not in text_cols
 
     def test_natural_text_passes_entropy(self):
@@ -144,7 +142,7 @@ class TestAntiUuidGuard:
         # Single repeated string -> entropy could be lower; this test
         # just verifies the anti-uuid filter doesn't fire on real
         # English with at least medium chars + tokens.
-        text_cols, decisions = detect_text_columns(df)
+        _text_cols, decisions = detect_text_columns(df)
         d = next(d for d in decisions if d.column == "review")
         # Either text OR categorical -- but not anti_uuid_filter
         assert d.rule_name != "anti_uuid_filter"
@@ -220,7 +218,7 @@ class TestCategoricalDtypeRespect:
                 "skills": pd.Series([f"skill_{i}_lots_of_descriptive_text" for i in range(400)], dtype="category"),
             }
         )
-        text_cols, decisions = detect_text_columns(df)
+        _text_cols, decisions = detect_text_columns(df)
         d = next(d for d in decisions if d.column == "skills")
         assert d.rule_name == "explicit_categorical_dtype"
 
@@ -231,7 +229,7 @@ class TestCategoricalDtypeRespect:
             }
         ).with_columns(pl.col("skills").cast(pl.Categorical))
         cfg = TextDetectionConfig(respect_explicit_categorical_dtype=False)
-        text_cols, decisions = detect_text_columns(df, config=cfg)
+        _text_cols, decisions = detect_text_columns(df, config=cfg)
         # Now the heuristic runs; cardinality + tokens should classify it text.
         d = next(d for d in decisions if d.column == "skills")
         # Either text (if heuristic fires) or anti_uuid_filter (if not).
@@ -272,7 +270,7 @@ class TestCornerCases:
                 "url": [f"http://example.com/path/{i}" for i in range(150)],
             }
         )
-        text_cols, decisions = detect_text_columns(df)
+        text_cols, _decisions = detect_text_columns(df)
         assert "url" not in text_cols
         # URLs typically have low alphabet entropy + few tokens.
 
@@ -293,7 +291,7 @@ class TestCornerCases:
 
     def test_empty_column_handled(self):
         df = pl.DataFrame({"empty": [None] * 50}, schema={"empty": pl.Utf8})
-        text_cols, decisions = detect_text_columns(df)
+        text_cols, _decisions = detect_text_columns(df)
         # Empty column has 0 non-null -> should fall through to anti-uuid
         # filter (entropy 0 < 4.5) -> categorical (or no_trigger_fired).
         assert "empty" not in text_cols
@@ -313,7 +311,7 @@ class TestDecisionsTrace:
                 "c": [1.0] * 50,
             }
         )
-        text_cols, decisions = detect_text_columns(df)
+        _text_cols, decisions = detect_text_columns(df)
         assert len(decisions) == 3
         cols_seen = {d.column for d in decisions}
         assert cols_seen == {"a", "b", "c"}

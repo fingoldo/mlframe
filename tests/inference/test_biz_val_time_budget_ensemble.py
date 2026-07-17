@@ -52,7 +52,7 @@ def test_biz_val_time_budget_ensemble_beats_conservative_fixed_size_within_budge
     conservative_errors = []
     max_wall_time = 0.0
 
-    for trial in range(n_trials):
+    for _trial in range(n_trials):
         models = _make_models(rng)
         ensemble = TimeBudgetEnsemble(models, time_budget_seconds=time_budget_seconds)
 
@@ -102,7 +102,7 @@ def test_biz_val_time_budget_ensemble_value_per_ms_avoids_starving_accurate_mode
     def _make_cheap_first(rng):
         cheap = [_LatencyModel(true_offset=3.0, noise_scale=1.0, latency_seconds=0.001, rng=rng) for _ in range(4)]
         accurate = _LatencyModel(true_offset=0.0, noise_scale=0.05, latency_seconds=0.01, rng=rng)
-        return cheap + [accurate]
+        return [*cheap, accurate]
 
     naive_errors = []
     valuemode_errors = []

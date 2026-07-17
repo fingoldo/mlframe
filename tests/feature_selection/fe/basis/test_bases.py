@@ -88,7 +88,7 @@ class TestFourier:
         x = rng.uniform(0, 1, n)
         y = (np.sin(2 * math.pi * 5 * x) > 0).astype(np.int32)
         b = EXTRA_BASES["fourier"]
-        z, params = b["fit"](x)
+        z, _params = b["fit"](x)
         # k=5 sin coefficient = 1 (index 2*(5-1)=8 of length 2*K=2*5=10)
         c = np.zeros(10, dtype=np.float64)
         c[8] = 1.0
@@ -155,7 +155,7 @@ class TestRBF:
         b = EXTRA_BASES["rbf"]
         rng = np.random.default_rng(0)
         x = rng.normal(size=500)
-        z, params = b["fit"](x)
+        _z, params = b["fit"](x)
         c = np.zeros(9, dtype=np.float64)
         c[4] = 1.0  # middle centre (quantile 0.5)
         out = b["eval_njit_factory"](params)(x.astype(np.float64), c)
@@ -244,7 +244,7 @@ class TestPade:
     def test_roundtrip(self):
         b = EXTRA_BASES["pade"]
         x = np.random.default_rng(0).normal(size=200)
-        z, params = b["fit"](x)
+        z, _params = b["fit"](x)
         assert z.shape == x.shape
         # z-scored
         assert abs(np.mean(z)) < 0.1
@@ -282,7 +282,7 @@ class TestPade:
         x_b = rng.uniform(1.0, 3.0, n)
         y = (x_a / x_b > 1.5).astype(np.int32)
         b = EXTRA_BASES["pade"]
-        z, params = b["fit"](x_a)
+        z, _params = b["fit"](x_a)
         c = np.array([1.0, 0.0, 1.0], dtype=np.float64)  # reciprocal-like: 1 / (1 + z) approximation
         out = b["eval_njit"](z.astype(np.float64), c)
         mi_raw = _mi_of_feature(x_a, y)

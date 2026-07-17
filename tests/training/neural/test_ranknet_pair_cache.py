@@ -28,7 +28,7 @@ import time
 import pytest
 
 torch = pytest.importorskip("torch")
-from mlframe.training.neural.ranker import (  # noqa: E402
+from mlframe.training.neural.ranker import (
     _ranknet_pair_cache,
     _ranknet_pair_cache_clear,
     _RANKNET_PAIR_CACHE_MAX_N,

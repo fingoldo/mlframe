@@ -7,7 +7,6 @@ pre-fix code and pass on post-fix.
 
 from __future__ import annotations
 
-import math
 from pathlib import Path
 
 import numpy as np

@@ -132,7 +132,7 @@ def test_biz_val_qrf_sharper_than_global_marginal_quantiles():
     spread rather than a constant width. Ratio floor: low-noise QRF band <= 0.6 *
     global band.
     """
-    Xtr, ytr, Xte, yte = _split()
+    Xtr, ytr, Xte, _yte = _split()
     est = CompositeQRFEstimator(
         base_column="base",
         n_estimators=200,

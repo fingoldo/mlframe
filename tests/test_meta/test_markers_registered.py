@@ -21,7 +21,6 @@ import ast
 import re
 from pathlib import Path
 
-import pytest
 
 # Built-in pytest markers that don't need explicit registration.
 _BUILTIN_MARKERS = frozenset(

@@ -18,7 +18,6 @@ Pass thresholds:
 from __future__ import annotations
 
 import numpy as np
-import polars as pl
 import pytest
 from sklearn.model_selection import KFold
 
@@ -65,7 +64,7 @@ def _handcrafted_polynomial(X: np.ndarray, n_signal: int = 4) -> np.ndarray:
     for i in range(n_signal):
         pieces.append((X[:, i : i + 1]) ** 2)
         for j in range(i + 1, n_signal):
-            pieces.append((X[:, i : i + 1] * X[:, j : j + 1]))
+            pieces.append(X[:, i : i + 1] * X[:, j : j + 1])
     return np.concatenate(pieces, axis=1).astype(np.float32)
 
 

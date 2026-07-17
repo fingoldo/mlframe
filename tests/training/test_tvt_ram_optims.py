@@ -14,7 +14,6 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import numpy as np
-import pandas as pd
 import pytest
 
 
@@ -77,7 +76,7 @@ def test_3_pipeline_cache_budget_clamped_to_available_minus_16gb_floor():
     collapsing to zero on a fully-saturated host."""
     from mlframe.training.strategies import pipeline_cache as mod
 
-    fake_vm = SimpleNamespace(total=int(137 * 1024**3), available=int(20 * 1024**3))
+    fake_vm = SimpleNamespace(total=(137 * 1024**3), available=(20 * 1024**3))
     with (
         patch.dict(os.environ, {"MLFRAME_PIPELINE_CACHE_BYTES_LIMIT": ""}, clear=False),
         patch.object(mod, "_DEFAULT_PIPELINE_CACHE_RAM_FRACTION", 0.4),
@@ -140,7 +139,7 @@ def test_4_5_auto_drop_helper_strips_drop_candidates_and_near_duplicates():
     # The helper picks the alphabetically-larger of the pair => dup_of_a.
     assert set(dropped) == {"nan_heavy", "low_var", "dup_of_a"}, dropped
     # All three splits lose the same columns.
-    for df, n_expected in ((train_out, 2), (val_out, 2), (test_out, 2)):
+    for df, _n_expected in ((train_out, 2), (val_out, 2), (test_out, 2)):
         assert set(df.columns) == {"good_a", "good_b"}, df.columns
     # Metadata records the drop list.
     assert metadata["feature_distribution_report"]["auto_dropped_columns"] == sorted(dropped)

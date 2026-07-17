@@ -14,7 +14,6 @@ import warnings
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.feature_selection.filters.mrmr import MRMR
 import mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_core as _core

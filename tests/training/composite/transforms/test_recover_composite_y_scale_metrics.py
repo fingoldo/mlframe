@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from sklearn.base import BaseEstimator, RegressorMixin
 
@@ -254,7 +253,7 @@ class TestSkipPredictLeavesMetricsEmpty:
 
     def test_metrics_dict_empty_when_skipped(self) -> None:
         problem = _build_problem()
-        _, metadata, snapshot, _, _ = _skipped_then_recovered_run(problem)
+        _, _metadata, snapshot, _, _ = _skipped_then_recovered_run(problem)
         # After the skip_predict=True call but BEFORE recovery, metadata
         # should not carry y-scale metrics for the composite.
         assert "composite_target_y_scale_metrics" not in snapshot, (

@@ -14,7 +14,6 @@ calibration -- that belongs to the bench script).
 
 from __future__ import annotations
 
-import time
 from pathlib import Path
 
 import numpy as np
@@ -197,7 +196,7 @@ def test_compute_shap_matrix_per_fold_cache_hits_on_outer_miss(tmp_path: Path):
         rng=rng_b,
         cache_dir=cache_dir,
     )
-    phi_b, base_b, y_b, var_b = res_b
+    phi_b, base_b, y_b, _var_b = res_b
 
     # Phi/base produced from the cached boosters must match the first call's bit-identically.
     np.testing.assert_array_equal(phi_a, phi_b)

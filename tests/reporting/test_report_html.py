@@ -18,7 +18,6 @@ import pstats
 import struct
 import zlib
 
-import pytest
 
 from mlframe.reporting.report_html import (
     DEFAULT_INLINE_PNG_MAX_BYTES,

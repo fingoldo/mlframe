@@ -102,7 +102,7 @@ def test_from_fitted_inner_with_extra_base_columns_predicts_without_error() -> N
 def test_resolve_base_columns_returns_full_tuple_when_extras_passed() -> None:
     """Locks the wrapper's ``_resolve_base_columns()`` contract: when
     ``base_columns`` is supplied, it wins over ``base_column``."""
-    inner, spec, X, y = _build_inner_and_spec_multi()
+    inner, spec, _X, y = _build_inner_and_spec_multi()
     wrapper = CompositeTargetEstimator.from_fitted_inner(
         fitted_inner=inner,
         transform_name=spec["transform_name"],

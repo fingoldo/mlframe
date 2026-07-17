@@ -25,7 +25,6 @@ def _load_old_module() -> types.ModuleType:
     except Exception as e:  # pragma: no cover - env without HEAD
         pytest.skip(f"cannot load OLD baseline via git show: {e}")
     # Mirror package context so its relative imports (.composite.*) resolve.
-    import mlframe.training as pkg
 
     spec = importlib.util.spec_from_loader("mlframe.training._conformal_finalize_OLD", loader=None)
     mod = importlib.util.module_from_spec(spec)

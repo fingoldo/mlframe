@@ -52,7 +52,7 @@ class TestGroupFieldEndToEnd:
             group_field="well_id",
             verbose=0,
         )
-        df_out, target_by_type, group_ids_raw, group_ids, timestamps, *_ = extractor.transform(df)
+        df_out, _target_by_type, _group_ids_raw, group_ids, _timestamps, *_ = extractor.transform(df)
         assert group_ids is not None, "extractor with group_field set should produce group_ids"
         assert len(group_ids) == len(df), "group_ids shape mismatch"
 

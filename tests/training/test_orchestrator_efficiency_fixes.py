@@ -183,7 +183,7 @@ def test_psutil_rss_sample_has_why_comment():
     idx = src.find("memory_info().rss")
     assert idx >= 0, "expected per-iter psutil RSS sample"
     window = src[max(0, idx - 1200) : idx]
-    assert "oom" in window.lower() or "rss" in window.lower() and "intentional" in window.lower(), "expected WHY comment justifying per-iter RSS sample"
+    assert "oom" in window.lower() or ("rss" in window.lower() and "intentional" in window.lower()), "expected WHY comment justifying per-iter RSS sample"
 
 
 # Fix 9: dead try/except around _dropped_high_card_data.clear() removed.

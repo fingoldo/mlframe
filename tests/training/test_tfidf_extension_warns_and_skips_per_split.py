@@ -24,10 +24,8 @@ from __future__ import annotations
 
 import logging
 
-import numpy as np
 import pandas as pd
 import polars as pl
-import pytest
 
 
 # =============================================================================
@@ -74,7 +72,7 @@ class TestTfidfSplitColumnParity:
         train = pd.DataFrame({"text": ["hello world data", "hello data"], "num": [1.0, 2.0]})
         val = pd.DataFrame({"text": ["world data science", "hello science"], "num": [3.0, 4.0]})
         test = pd.DataFrame({"text": ["science data", "hello world"], "num": [5.0, 6.0]})
-        out_train, out_val, out_test, pipes = _call_apply_extensions(train, val, test, ["text"], caplog)
+        out_train, out_val, out_test, _pipes = _call_apply_extensions(train, val, test, ["text"], caplog)
         assert out_train.shape[1] == out_val.shape[1] == out_test.shape[1]
         warns = [r for r in caplog.records if r.levelname == "WARNING"]
         assert not warns, f"Unexpected WARN on clean TF-IDF: {[r.message for r in warns]}"
@@ -87,7 +85,7 @@ class TestTfidfSplitColumnParity:
         train = pd.DataFrame({"text": ["hello world", "data science"], "num": [1.0, 2.0]})
         val = pd.DataFrame({"num": [3.0, 4.0]})  # no 'text'!
         test = pd.DataFrame({"text": ["hello", "world"], "num": [5.0, 6.0]})
-        out_train, out_val, out_test, pipes = _call_apply_extensions(train, val, test, ["text"], caplog)
+        _out_train, _out_val, _out_test, _pipes = _call_apply_extensions(train, val, test, ["text"], caplog)
         warns = [r.message for r in caplog.records if r.levelname == "WARNING"]
         assert any("split mismatch" in m.lower() or "missing from a non-train split" in m or ("skipping" in m and "val" in m) for m in warns), warns
         # TF-IDF was skipped entirely -> 'text' stays as-is in train
@@ -99,7 +97,7 @@ class TestTfidfSplitColumnParity:
         """tfidf_columns lists a name not in train at all (likely typo).
         WARN at 'typo' level, don't attempt the TF-IDF."""
         train = pd.DataFrame({"real_text": ["hello world"], "num": [1.0]})
-        out = _call_apply_extensions(train, None, None, ["fake_text"], caplog)
+        _call_apply_extensions(train, None, None, ["fake_text"], caplog)
         warns = [r.message for r in caplog.records if r.levelname == "WARNING"]
         assert any("fake_text" in m and ("typo" in m or "not found" in m) for m in warns), warns
 

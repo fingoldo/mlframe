@@ -398,7 +398,7 @@ def test_learning_curve_opt_in_when_enabled(tmp_path):
         learning_curve=LearningCurveConfig(enabled=True, sizes=(0.3, 0.6, 1.0)),
     )
     data_dir = str(tmp_path)
-    models, metadata = train_mlframe_models_suite(
+    _models, _metadata = train_mlframe_models_suite(
         df=df,
         target_name="diag_lc",
         model_name="hgb_lc",
@@ -481,7 +481,7 @@ def test_ensemble_prediction_stability_renders_default_on(tmp_path):
         decile_table=False,
         model_card=False,
     )
-    models, metadata = train_mlframe_models_suite(
+    _models, _metadata = train_mlframe_models_suite(
         df=df,
         target_name="diag_ens",
         model_name="lgb_cb_ens",

@@ -17,7 +17,6 @@ from unittest.mock import MagicMock
 import logging
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.models.ensembling import (
     _per_member_mae_std,
@@ -104,7 +103,7 @@ def test_compute_member_quality_gate_accepts_sample_weight():
     rng = np.random.default_rng(0)
     preds = [rng.normal(size=100) for _ in range(4)]
     sw = np.linspace(0.1, 1.0, 100)
-    kept, excluded, stats = compute_member_quality_gate(preds, sample_weight=sw)
+    kept, _excluded, stats = compute_member_quality_gate(preds, sample_weight=sw)
     # Weighted gate must still return something sensible.
     assert isinstance(kept, list)
     assert "per_member_mae" in stats
@@ -565,7 +564,7 @@ def test_kn_all_members_catastrophic_sentinel_when_only_one_survives(caplog):
     y_true = rng.standard_normal(n)
     # 1 ok + 3 catastrophic (ratio >> 20x). Survival expected: 1.
     members = [_make(y_true + 0.1 * rng.standard_normal(n))]
-    for k in range(3):
+    for _k in range(3):
         members.append(_make(-50.0 * y_true + rng.standard_normal(n)))
     for i, m in enumerate(members):
         m.model_name = f"m{i}"
@@ -646,7 +645,7 @@ def test_kn_catastrophic_target_mae_drops_obvious_outlier_when_k_above_2(caplog)
     assert 3 in drop_info["dropped_idx"], f"Expected the broken member at idx 3 to be dropped; got dropped_idx={drop_info['dropped_idx']}"
     # Sentinel key prefix contract: must start with ``_`` (caller filters those out).
     assert "_kn_catastrophic_dropped" in res
-    for k in [k for k in res.keys() if not k.startswith("_")]:
+    for _k in [k for k in res.keys() if not k.startswith("_")]:
         # The actual ensembling-methods results should still be in the dict (we only dropped 1/4).
         pass  # the gate purges members but the ensemble still runs on the 3 survivors
 
@@ -676,7 +675,7 @@ def test_coarse_gate_drops_catastrophic_outlier_member(caplog):
     truth = rng.normal(size=200).astype(np.float64)
     good = [_make(truth + rng.normal(scale=0.05, size=200)) for _ in range(3)]
     bad = _make(truth * -5.0 + rng.normal(scale=2.0, size=200))  # R^2 well below zero
-    members = good + [bad]
+    members = [*good, bad]
     target = pd.Series(truth)
 
     with caplog.at_level(logging.INFO):

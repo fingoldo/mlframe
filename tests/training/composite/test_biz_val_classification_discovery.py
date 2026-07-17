@@ -88,7 +88,7 @@ def test_no_false_positive_on_tree_friendly_signal():
     X = rng.normal(0, 1, (n, 6))
     logit = np.where(X[:, 0] > 0.3, 2.0, -2.0) * np.where(X[:, 1] > 0, 1.0, -1.0)
     y = (rng.uniform(0, 1, n) < 1.0 / (1.0 + np.exp(-logit))).astype(int)
-    model, result = discover_and_wrap_classification(X, y, random_state=0)
+    model, _result = discover_and_wrap_classification(X, y, random_state=0)
     X_te_rng = np.random.default_rng(8)
     X_te = X_te_rng.normal(0, 1, (n, 6))
     logit_te = np.where(X_te[:, 0] > 0.3, 2.0, -2.0) * np.where(X_te[:, 1] > 0, 1.0, -1.0)

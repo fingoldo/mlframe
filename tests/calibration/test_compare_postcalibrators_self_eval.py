@@ -15,7 +15,6 @@ import logging
 from unittest.mock import patch
 
 import numpy as np
-import pytest
 
 
 def _synth(seed: int = 0, n: int = 300):

@@ -116,7 +116,7 @@ def test_pvalue_never_exactly_zero():
     # X is genuinely relevant given Z: y = x XOR z (synergy), so I(X; Y | Z) is large.
     x = rng.integers(0, 2, size=n).astype(np.int64)
     y = (x ^ z).astype(np.int64)
-    is_sig, obs, p = cmi_permutation_stop(
+    is_sig, _obs, p = cmi_permutation_stop(
         x_cand=x,
         y=y,
         selected_cols=[z],

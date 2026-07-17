@@ -19,7 +19,7 @@ constraint (no claim made → nothing to verify).
 from __future__ import annotations
 
 import inspect
-from typing import Literal, Union, get_args, get_origin
+from typing import Literal, get_args, get_origin
 
 import pytest
 from pydantic import BaseModel, ValidationError

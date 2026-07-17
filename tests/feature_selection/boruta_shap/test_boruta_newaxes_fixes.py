@@ -77,7 +77,7 @@ def test_tiny_frame_does_not_crash_replace_false_choice():
     y = pd.Series([0, 1, 0, 1, 0, 1])
 
     # Pre-fix: size = max(10, round(0.75*6)=5) = 10 > n=6 -> ValueError in rng.choice(replace=False).
-    self, calls = _orchestrate_with_stub(sel, X, y, accepted_for=lambda k, s: [])
+    _self, calls = _orchestrate_with_stub(sel, X, y, accepted_for=lambda k, s: [])
     assert len(calls) == 3
     # Each sub-fit got exactly ``size`` rows, and size never exceeds n.
     for c in calls:
@@ -103,8 +103,8 @@ def test_stratify_is_subsampled_to_match_rows():
     X = pd.DataFrame({"a": np.arange(float(n)), "b": np.arange(float(n))[::-1].copy()})
     y = pd.Series([0, 1] * (n // 2))
 
-    self, calls = _orchestrate_with_stub(sel, X, y, accepted_for=lambda k, s: [])
-    expected_size = min(n, max(10, int(round(0.5 * n))))  # = 20
+    _self, calls = _orchestrate_with_stub(sel, X, y, accepted_for=lambda k, s: [])
+    expected_size = min(n, max(10, round(0.5 * n)))  # = 20
     for c in calls:
         assert c["n_rows"] == expected_size
         # Pre-fix: stratify stayed the original length-n array; post-fix it is sliced to the sub-fit rows.

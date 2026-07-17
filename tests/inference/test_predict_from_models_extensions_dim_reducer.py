@@ -19,9 +19,7 @@ dim_reducer=TruncatedSVD x 1M rows, seed 2026051901).
 from __future__ import annotations
 
 import numpy as np
-import pandas as pd
 import polars as pl
-import pytest
 
 
 def _make_small_frame(n_rows: int = 600, seed: int = 123) -> pl.DataFrame:

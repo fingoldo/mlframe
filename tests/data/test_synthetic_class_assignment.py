@@ -78,7 +78,7 @@ def test_generate_modelling_data_labels_in_range_smoke(feature_noise, timeseries
     n_classes = 3
     fast_dists = {"norm", "uniform", "expon", "laplace", "logistic"}
     for seed in range(20):
-        X, y, fnames = generate_modelling_data(
+        X, y, _fnames = generate_modelling_data(
             n_samples=400,
             n_classes=n_classes,
             n_informative=n_classes,

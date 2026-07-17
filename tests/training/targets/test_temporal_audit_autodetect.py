@@ -21,7 +21,6 @@ import logging
 
 import numpy as np
 import pandas as pd
-import pytest
 
 
 # ---------------------------------------------------------------------------
@@ -236,15 +235,13 @@ def test_suite_auto_detects_ts_field_from_fte_and_logs(caplog, tmp_path):
     from mlframe.training import train_mlframe_models_suite, TrainingBehaviorConfig
     from mlframe.training.configs import (
         ModelHyperparamsConfig,
-        PreprocessingBackendConfig,
-        FeatureTypesConfig,
     )
 
     df = _make_fixture(n=400, with_drift=True)
     fte = _FTEWithTsField(target_col="y", ts_field="ts")
 
     with caplog.at_level(logging.INFO, logger="mlframe.training.core"):
-        models, metadata = train_mlframe_models_suite(
+        _models, metadata = train_mlframe_models_suite(
             df=df,
             target_name="autodetect_smoke",
             model_name="autodetect_smoke",

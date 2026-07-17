@@ -33,7 +33,7 @@ def _date_frame_and_timestamps(n=200, seed=0):
 def test_apply_event_proximity_decay_composite_fe_noop_when_unset():
     df, ts = _date_frame_and_timestamps()
     cfg = PreprocessingExtensionsConfig()
-    train, val, test = apply_event_proximity_decay_composite_fe(
+    train, _val, _test = apply_event_proximity_decay_composite_fe(
         df.iloc[:150],
         df.iloc[150:],
         None,

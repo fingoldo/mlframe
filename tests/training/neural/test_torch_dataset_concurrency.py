@@ -81,7 +81,7 @@ class TestEagerConversion:
         assert x.shape == (8, 4)
         assert y.shape == (8,)
         # Last incomplete batch
-        x_last, y_last = ds[len(ds) - 1]
+        x_last, _y_last = ds[len(ds) - 1]
         assert x_last.shape[0] == 100 - (len(ds) - 1) * 8
 
     def test_getitem_values_match_input(self):

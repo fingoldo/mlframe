@@ -89,7 +89,7 @@ def _verdict(rows):
     for r in rows:
         by_ds.setdefault(r["dataset"], []).append(r)
     spreads, argmins = [], set()
-    for ds, rs in by_ds.items():
+    for rs in by_ds.values():
         maes = [r["lin_mae"] for r in rs if np.isfinite(r["lin_mae"])]
         if len(maes) < 2:
             continue

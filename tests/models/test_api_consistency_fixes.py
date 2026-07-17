@@ -271,7 +271,7 @@ def test_apip2_selection_yields_ndarrays():
 
     # Find the splitter class that yields (train, test) index arrays.
     splitter_cls = None
-    for _name, obj in vars(sel_mod).items():
+    for obj in vars(sel_mod).values():
         if inspect.isclass(obj) and hasattr(obj, "split") and obj.__module__ == sel_mod.__name__:
             splitter_cls = obj
             break

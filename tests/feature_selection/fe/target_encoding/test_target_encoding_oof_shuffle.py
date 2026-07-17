@@ -13,7 +13,6 @@ encoders. These tests pin: (1) under cell-clustered input the OOF te is NOT the 
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 
 def _call(classes_y, classes_merged, n_uniq, n_oof_folds, seed):

@@ -12,9 +12,8 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
-from sklearn.linear_model import LogisticRegression, Ridge
-from sklearn.model_selection import StratifiedKFold, KFold, cross_val_score
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import StratifiedKFold, cross_val_score
 
 from mlframe.feature_selection.wrappers import RFECV
 from tests.training.synthetic import make_sklearn_classification_df
@@ -58,7 +57,7 @@ def test_recovers_informative_features_clf():
         seed=0,
         shuffle=False,  # keep informative cols at indices [0..n_informative)
     )
-    cols = list(X_df.columns)
+    list(X_df.columns)
     informative_idx = set(range(8))
 
     rfecv = RFECV(
@@ -101,7 +100,7 @@ def test_score_lift_vs_all_features():
         seed=1,
         shuffle=False,
     )
-    cols = list(X_df.columns)
+    list(X_df.columns)
 
     cv = StratifiedKFold(n_splits=3, shuffle=True, random_state=1)
 

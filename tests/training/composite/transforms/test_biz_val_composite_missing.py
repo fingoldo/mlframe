@@ -50,7 +50,7 @@ def _mnar_dataset(n: int, seed: int):
 
 def test_biz_val_missing_aware_beats_impute_zero_and_drop():
     X_tr, y_tr, miss_tr = _mnar_dataset(1200, seed=11)
-    X_te, y_te, miss_te = _mnar_dataset(1200, seed=99)
+    X_te, y_te, _miss_te = _mnar_dataset(1200, seed=99)
 
     # Missing-aware: learns impute + offset for missing rows.
     aware = MissingAwareComposite(composite=_make_composite()).fit(X_tr, y_tr)

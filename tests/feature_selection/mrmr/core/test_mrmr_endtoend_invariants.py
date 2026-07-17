@@ -43,9 +43,7 @@ import json
 import os
 import subprocess
 import sys
-import textwrap
 
-import numpy as np
 import pytest
 
 from tests.feature_selection._mrmr_realistic_data import default_fuzz_grid
@@ -363,7 +361,7 @@ def _fe_config_for(idx: int) -> dict:
 
 
 _GRID = default_fuzz_grid()
-_CASES = [pytest.param(i, c, id=f"{c['target_family']}-{c['distribution']}-{c['task']}-s{c['seed']}-fe{i % 2 == 0 and 2 or 1}") for i, c in enumerate(_GRID)]
+_CASES = [pytest.param(i, c, id=f"{c['target_family']}-{c['distribution']}-{c['task']}-s{c['seed']}-fe{(i % 2 == 0 and 2) or 1}") for i, c in enumerate(_GRID)]
 
 
 @pytest.fixture(scope="module")

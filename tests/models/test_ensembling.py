@@ -3,11 +3,10 @@
 import pytest
 import numpy as np
 import pandas as pd
-from hypothesis import given, strategies as st, settings, assume, HealthCheck
+from hypothesis import given, strategies as st, settings, HealthCheck
 from hypothesis.extra.numpy import arrays
 
 from mlframe.models.ensembling import (
-    batch_numaggs,
     enrich_ensemble_preds_with_numaggs,
     ensemble_probabilistic_predictions,
     build_predictive_kwargs,
@@ -455,7 +454,7 @@ def test_score_ensemble_ensembling_levels(max_level):
 
     assert isinstance(result, dict)
     # Should have entries for each method and level
-    expected_keys = max_level * 2  # 2 methods * max_level levels
+    max_level * 2  # 2 methods * max_level levels
     if max_level > 1:
         # Higher levels add " L1", " L2" suffixes
         assert any("L" in key for key in result.keys()) or len(result) >= 2

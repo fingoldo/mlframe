@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import sys
 
-import pytest
 
 
 def test_discovery_cache_cache_dir_uses_long_path_prefix_on_windows(tmp_path):

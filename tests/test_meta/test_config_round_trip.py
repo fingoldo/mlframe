@@ -194,7 +194,7 @@ def test_no_shared_mutable_default_across_instances():
             continue
         a = cls(**extra)
         b = cls(**extra)
-        for name, info in cls.model_fields.items():
+        for name in cls.model_fields.keys():
             val_a = getattr(a, name, None)
             val_b = getattr(b, name, None)
             if isinstance(val_a, (list, dict, set)) and val_a is val_b:

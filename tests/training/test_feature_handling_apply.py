@@ -21,28 +21,22 @@ Coverage (round-3 T22 e2e gold path):
 from __future__ import annotations
 
 import logging
-from unittest import mock
 
 import numpy as np
 import polars as pl
 import pytest
-from scipy.sparse import csr_matrix, issparse
+from scipy.sparse import issparse
 from sklearn.linear_model import LogisticRegression
 
 from mlframe.training.feature_handling import (
     CacheConfig,
     CatHandlerSpec,
-    EmbeddingProvider,
     FeatureCache,
     FeatureHandlingConfig,
-    FeatureHandlingResult,
-    HandlerOutput,
     HashingParams,
     ModelHandlingOverride,
-    NoParams,
     TargetEncodeParams,
     TextHandlerSpec,
-    TfidfParams,
     feature_handling_apply,
     tfidf_only,
 )

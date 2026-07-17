@@ -239,7 +239,7 @@ class TestDcorWinsOnNonMonotone:
         dcor_hit_seeds = []
         for seed in seeds:
             X, y = _build_non_monotone_fixture(seed, n=800)
-            X_aug, scores, _recipes = hybrid_with_recipes(
+            _X_aug, scores, _recipes = hybrid_with_recipes(
                 X,
                 y.to_numpy(),
                 cols=["x1"],
@@ -300,7 +300,7 @@ class TestPlugInWinsOnDiscreteBinned:
         plugin_hit_seeds = []
         for seed in seeds:
             X, y = _build_discrete_binned_fixture(seed, n=600, n_levels=3)
-            X_aug, scores, _recipes = hybrid_with_recipes(
+            _X_aug, scores, _recipes = hybrid_with_recipes(
                 X,
                 y.to_numpy(),
                 cols=["x1"],
@@ -358,7 +358,7 @@ class TestCopulaWinsOnHeavyTail:
         copula_hit_seeds = []
         for seed in seeds:
             X, y = _build_heavy_tail_fixture(seed, n=800)
-            X_aug, scores, _recipes = hybrid_with_recipes(
+            _X_aug, scores, _recipes = hybrid_with_recipes(
                 X,
                 y.to_numpy(),
                 cols=["x1"],

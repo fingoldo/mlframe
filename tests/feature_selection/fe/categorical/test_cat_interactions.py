@@ -34,7 +34,6 @@ from mlframe.feature_selection.filters.cat_interactions import (
     resolve_min_interaction_information,
     run_cat_interaction_step,
 )
-from mlframe.feature_selection.filters.engineered_recipes import EngineeredRecipe
 from mlframe.feature_selection.filters.info_theory import (
     compute_mi_from_classes,
     merge_vars,
@@ -189,7 +188,7 @@ class TestValidationGates:
             verbose=0,
         )
         # Inputs unchanged; state empty.
-        out_data, out_cols, out_nbins, state = out
+        out_data, out_cols, _out_nbins, state = out
         assert out_data is data
         assert out_cols == ["a", "b", "y"]
         assert state.recipes == []
@@ -398,7 +397,7 @@ class TestOrchestratorEndToEnd:
             enable=True,
             min_interaction_information=10.0,  # impossibly high
         )
-        data_out, cols_out, nbins_out, state = run_cat_interaction_step(
+        data_out, cols_out, _nbins_out, state = run_cat_interaction_step(
             data=xor_fixture["data"],
             cols=xor_fixture["cols"],
             nbins=xor_fixture["nbins"],
@@ -425,7 +424,7 @@ class TestOrchestratorEndToEnd:
             full_npermutations=0,
             fwer_correction="none",
         )
-        data_out, _, nbins_out, state = run_cat_interaction_step(
+        _data_out, _, nbins_out, _state = run_cat_interaction_step(
             data=xor_fixture["data"],
             cols=xor_fixture["cols"],
             nbins=xor_fixture["nbins"],
@@ -607,7 +606,7 @@ class TestOrchestratorEndToEnd:
             full_npermutations=0,
             fwer_correction="none",
         )
-        _, cols_out, _, state = run_cat_interaction_step(
+        _, _cols_out, _, state = run_cat_interaction_step(
             data=data,
             cols=["x1", "x2", "x3", "n0", "n1", "y"],
             nbins=nbins,
@@ -658,7 +657,7 @@ class TestOrchestratorEndToEnd:
             full_npermutations=0,
             fwer_correction="none",
         )
-        data_out, _, _, state = run_cat_interaction_step(
+        _data_out, _, _, state = run_cat_interaction_step(
             data=data,
             cols=["x1", "x2", "x3", "y"],
             nbins=nbins,

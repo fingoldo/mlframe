@@ -439,7 +439,7 @@ class TestDCDSwapPath:
         discover_cluster_members(state, 0, list(range(1, 6)))
         # With B=0 (no null), the swap WILL go through the deterministic gate
         # because swap_gain_threshold=-1 makes ``rep > anchor*0`` trivially.
-        d_no_null = evaluate_swap_candidate(
+        evaluate_swap_candidate(
             state,
             0,
             [0],

@@ -46,7 +46,8 @@ still "lognormal-shaped" (or t-shaped, etc.), just relocated to a legal domain.
 
 from __future__ import annotations
 
-from typing import Callable, Dict, Iterable, Mapping, Sequence
+from typing import Callable, Dict
+from collections.abc import Iterable, Mapping, Sequence
 
 import numpy as np
 
@@ -182,7 +183,7 @@ def with_outliers(
     n = arr.size
     if n == 0 or frac <= 0.0:
         return arr
-    k = int(round(frac * n))
+    k = round(frac * n)
     k = max(1, min(k, n - 1))  # at least one outlier, at least one clean point
     q1, med, q3 = np.quantile(arr, [0.25, 0.5, 0.75])
     iqr = q3 - q1

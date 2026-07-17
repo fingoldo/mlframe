@@ -11,7 +11,6 @@ from __future__ import annotations
 import threading
 
 import numpy as np
-import pytest
 
 
 # ---- _PROXY_CLS_CACHE ------------------------------------------------------
@@ -122,7 +121,7 @@ def test_plot_idx_cache_thread_safe():
         t.join()
     assert not errors, f"concurrent plot_idx raised: {errors}"
     # Same seed -> same idx across threads
-    for _n, idxs in results.items():
+    for idxs in results.values():
         for _i in idxs[1:]:
             np.testing.assert_array_equal(idxs[0], _i)
 

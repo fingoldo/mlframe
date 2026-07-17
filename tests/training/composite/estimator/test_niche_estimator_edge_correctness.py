@@ -11,7 +11,6 @@ Covers two bugs found in the niche-estimator class sweep:
 """
 
 import numpy as np
-import pytest
 from sklearn.linear_model import LinearRegression
 
 from mlframe.training.composite.simplex import (

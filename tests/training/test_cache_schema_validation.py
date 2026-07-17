@@ -23,7 +23,6 @@ from types import SimpleNamespace
 import numpy as np
 import pandas as pd
 import polars as pl
-import pytest
 
 from mlframe.training.train_eval import (
     _extract_polars_cat_columns,

@@ -11,7 +11,6 @@ import warnings
 
 import numpy as np
 import pandas as pd
-import pytest
 
 
 def _component_recovered(names, comp: str) -> bool:

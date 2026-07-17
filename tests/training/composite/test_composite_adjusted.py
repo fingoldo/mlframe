@@ -103,6 +103,6 @@ class TestWilcoxonPowerThreshold:
         p<=alpha is ceil(log2(1/alpha)); at alpha=0.05 that is 5 (so the
         default n_seed_repeats=3 cannot pass and must be skipped)."""
         for alpha, expected in [(0.05, 5), (0.0625, 4), (0.01, 7)]:
-            min_seeds = int(math.ceil(math.log2(1.0 / alpha)))
+            min_seeds = math.ceil(math.log2(1.0 / alpha))
             assert min_seeds == expected
-        assert int(math.ceil(math.log2(1.0 / 0.05))) > 3
+        assert math.ceil(math.log2(1.0 / 0.05)) > 3

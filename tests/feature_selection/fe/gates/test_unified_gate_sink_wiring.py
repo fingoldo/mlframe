@@ -37,7 +37,6 @@ import pytest
 
 warnings.filterwarnings("ignore")
 
-from mlframe.feature_selection.filters._unified_fe_gate import local_mi_gate
 
 
 class _Sink:

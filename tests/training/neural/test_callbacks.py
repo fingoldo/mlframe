@@ -8,9 +8,7 @@ Run tests:
 
 import pytest
 import torch
-import torch.nn as nn
-from unittest.mock import Mock, MagicMock, patch
-import warnings
+from unittest.mock import Mock, patch
 
 import sys
 from pathlib import Path
@@ -195,7 +193,7 @@ class TestAggregatingValidationCallback:
         callback = AggregatingValidationCallback(metric_name="test", metric_fcn=dummy_metric)
 
         # Add multiple batches - callback expects TUPLE, not dict
-        for i in range(3):
+        for _i in range(3):
             predictions = torch.tensor([0.1, 0.9])
             labels = torch.tensor([0, 1])
             outputs = (predictions, labels)
@@ -224,7 +222,7 @@ class TestAggregatingValidationCallback:
 
         # Verify log was called with correct prefix
         mock_module.log.assert_called_once()
-        args, kwargs = mock_module.log.call_args
+        _args, kwargs = mock_module.log.call_args
         assert kwargs["name"] == "val_accuracy"
         assert isinstance(kwargs["value"], float)
         assert kwargs["on_epoch"] is True
@@ -249,7 +247,7 @@ class TestAggregatingValidationCallback:
         mock_module = Mock()
         callback.on_validation_epoch_end(None, mock_module)
 
-        args, kwargs = mock_module.log.call_args
+        _args, kwargs = mock_module.log.call_args
         assert kwargs["prog_bar"] is False
 
     def test_on_validation_epoch_end_resets_accumulators(self):
@@ -342,7 +340,7 @@ class TestBestEpochModelCheckpoint:
         so patch the sibling's logger -- patching base.py's no longer
         intercepts the init-time log line.
         """
-        callback = BestEpochModelCheckpoint(monitor="val_loss", mode="min", dirpath="checkpoints", filename="best")
+        BestEpochModelCheckpoint(monitor="val_loss", mode="min", dirpath="checkpoints", filename="best")
 
         # Check that logger.info was called
         mock_logger.info.assert_called()

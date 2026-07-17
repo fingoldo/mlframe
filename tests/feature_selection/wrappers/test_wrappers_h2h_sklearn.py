@@ -21,8 +21,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import pytest
-from sklearn.datasets import make_classification, make_regression
-from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+from sklearn.datasets import make_regression
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.feature_selection import RFECV as SkRFECV  # noqa: N811 -- head-to-head test needs both names visible side-by-side; treating one as the constant is misleading.
 from sklearn.linear_model import LogisticRegression, Ridge
 from sklearn.model_selection import KFold, StratifiedKFold, cross_val_score
@@ -181,7 +181,7 @@ def test_h2h_score_parity(data_factory, estimator_factory, cv_factory, eps, labe
 def test_h2h_subset_size_on_redundant_clf():
     """Sanity check: on a problem with 5 informative + 10 redundant + 5 noise,
     our RFECV's selected count must be reasonable (<= sklearn's + 2)."""
-    X, y, n_informative = _clf_redundant()
+    X, y, _n_informative = _clf_redundant()
     estimator = LogisticRegression(max_iter=400, random_state=0)
     sk = SkRFECV(estimator=estimator, cv=StratifiedKFold(n_splits=3, shuffle=True, random_state=0))
     sk.fit(X, y)
@@ -204,7 +204,7 @@ def test_h2h_subset_size_on_redundant_clf():
     # not to over-prune when scores are tied. Real regression detector:
     # we should never pick MORE than ~80% of all features, and never less
     # than 1 feature.
-    upper_bound = max(int(round(X.shape[1] * 0.8)), sk.n_features_ + 6)
+    upper_bound = max(round(X.shape[1] * 0.8), sk.n_features_ + 6)
     assert ours.n_features_ <= upper_bound, (
         f"Our RFECV picked {ours.n_features_} features (cap {upper_bound}) vs sklearn's {sk.n_features_}; selector is much too inclusive."
     )

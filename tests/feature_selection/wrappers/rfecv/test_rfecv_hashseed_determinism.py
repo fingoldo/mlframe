@@ -30,7 +30,6 @@ import subprocess
 import sys
 
 import pandas as pd
-import pytest
 
 
 def _column_order_via_post_fix_pattern(cols, selected):

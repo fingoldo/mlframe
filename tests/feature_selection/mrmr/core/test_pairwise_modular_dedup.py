@@ -10,7 +10,6 @@ Both must be selection-equivalent to the pre-fix behavior.
 
 from __future__ import annotations
 
-import warnings
 from unittest import mock
 
 import numpy as np
@@ -95,5 +94,5 @@ def test_hybrid_recipes_end_to_end_unaffected():
     from mlframe.feature_selection.filters._pairwise_modular_fe import hybrid_pairwise_modular_fe_with_recipes
 
     df, y = _build_modular_fixture()
-    appended, recipes = hybrid_pairwise_modular_fe_with_recipes(df, y, seed=0)
+    appended, _recipes = hybrid_pairwise_modular_fe_with_recipes(df, y, seed=0)
     assert appended, "sanity: (a+b) mod 5 structure must be detected and recipe-emitted"

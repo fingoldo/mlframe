@@ -11,7 +11,6 @@ This sensor walks the AST of every file under ``src/mlframe`` (production code) 
 from __future__ import annotations
 
 import ast
-import os
 from pathlib import Path
 
 import pytest

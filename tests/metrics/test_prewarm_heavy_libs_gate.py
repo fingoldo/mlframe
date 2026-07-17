@@ -9,9 +9,6 @@ only the lightning/shap/neural import block is gated.
 
 from __future__ import annotations
 
-import importlib
-import os
-import sys
 from unittest import mock
 
 import pytest

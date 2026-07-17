@@ -15,7 +15,7 @@ from mlframe.reporting.charts.slice_finder import _aggregate_combo, _bin_matrix,
 def test_bin_matrix_codes_are_fortran_order_with_contiguous_columns():
     rng = np.random.default_rng(0)
     mat = rng.standard_normal((2000, 12))
-    codes, edges = _bin_matrix(mat, 4)
+    codes, _edges = _bin_matrix(mat, 4)
     assert codes.dtype == np.int64
     assert codes.flags["F_CONTIGUOUS"], "codes must be Fortran-order so column gathers are zero-copy (iter71 win)"
     for j in range(codes.shape[1]):

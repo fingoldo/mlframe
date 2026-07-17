@@ -17,7 +17,6 @@ import pytest
 
 from mlframe.training._calibration_models import (
     _PerClassIsotonicCalibrator,
-    _SigmoidLogitAdapter,
 )
 from mlframe.training.configs import TargetTypes
 

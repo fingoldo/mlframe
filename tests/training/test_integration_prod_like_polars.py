@@ -37,10 +37,8 @@ silently degrade Polars dtypes to numpy.
 """
 
 import logging
-import shutil
 
 import numpy as np
-import pandas as pd
 import polars as pl
 import pytest
 
@@ -455,7 +453,7 @@ def test_polars_multi_weight_schemas(model_name, tmp_path):
 
     # Pass weight schemas via the extractor to activate the weight-schema loop.
     n = 500
-    rng = np.random.default_rng(7)
+    np.random.default_rng(7)
     w_uniform = np.ones(n, dtype=np.float32)
     w_recency = np.linspace(0.1, 1.0, n, dtype=np.float32)
     weight_schemas = {"uniform": w_uniform, "recency": w_recency}
@@ -465,7 +463,7 @@ def test_polars_multi_weight_schemas(model_name, tmp_path):
             base = super().build_targets(df_)
             # Attach weights if the base extractor output supports it
             try:
-                base = base + ({"weight_schemas": weight_schemas},) if isinstance(base, tuple) else base
+                base = (*base, {"weight_schemas": weight_schemas}) if isinstance(base, tuple) else base
             except Exception:
                 pass
             return base

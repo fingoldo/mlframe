@@ -18,7 +18,6 @@ Add a new estimator: append it to ``DEFAULT_CLF_ESTIMATORS`` /
 
 from __future__ import annotations
 
-import inspect
 import re
 from pathlib import Path
 

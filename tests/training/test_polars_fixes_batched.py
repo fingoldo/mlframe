@@ -12,7 +12,6 @@ from unittest.mock import patch
 
 import numpy as np
 import polars as pl
-import pytest
 
 from mlframe.training.core._phase_polars_fixes import apply_polars_categorical_fixes
 

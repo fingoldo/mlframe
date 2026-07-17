@@ -10,7 +10,6 @@ import pytest
 import torch
 import torch.nn as nn
 from sklearn.datasets import make_regression
-from sklearn.metrics import r2_score
 from sklearn.model_selection import train_test_split
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
@@ -19,7 +18,6 @@ from mlframe.training.neural import (
     MLPTorchModel,
     PytorchLightningRegressor,
     TorchDataModule,
-    generate_mlp,
 )
 from mlframe.training.neural._muon_optimizer import (
     Muon,

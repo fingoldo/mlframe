@@ -71,7 +71,7 @@ def test_changepoints_rendered_as_spans():
     line = spec.panels[0][0]
     assert line.vspans is not None
     assert len(line.vspans) == 1
-    x0, x1, color, alpha = line.vspans[0]
+    x0, x1, color, _alpha = line.vspans[0]
     assert x1 > x0  # a visible (non-zero-width) span
     assert color == "red"
 
@@ -155,13 +155,13 @@ def test_end_to_end_real_audit_surfaces_changepoint(tmp_path):
 # Target ACF / PACF panels
 # ----------------------------------------------------------------------------
 
-import warnings  # noqa: E402
+import warnings
 
-from mlframe.reporting.charts.temporal import (  # noqa: E402
+from mlframe.reporting.charts.temporal import (
     ALLOWED_TEMPORAL_PANEL_TOKENS,
     compose_target_acf_figure,
 )
-from mlframe.reporting.spec import AnnotationPanelSpec, BarPanelSpec  # noqa: E402
+from mlframe.reporting.spec import AnnotationPanelSpec, BarPanelSpec
 
 
 def _ar1_series(n: int, phi: float, seed: int) -> np.ndarray:
@@ -200,7 +200,7 @@ class TestTargetAcfPacf:
         """AR(1) target (phi=0.7) MUST show a lag-1 ACF bar above the Bartlett band, >= 5x the band."""
         y = _ar1_series(8000, 0.7, seed=1)
         fig = compose_target_acf_figure(y, panels_template="TARGET_ACF")
-        panel = [p for row in fig.panels for p in row if p is not None][0]
+        panel = next(p for row in fig.panels for p in row if p is not None)
         lag1 = float(panel.values[0])
         band = panel.hline[0]
         assert lag1 >= 0.55, f"AR(1) lag-1 ACF should be >= 0.55, got {lag1:.3f}"
@@ -214,8 +214,8 @@ class TestTargetAcfPacf:
         """
         y = _ar1_series(8000, 0.7, seed=2)
         fig = compose_target_acf_figure(y, panels_template="TARGET_PACF")
-        panel = [p for row in fig.panels for p in row if p is not None][0]
-        band = panel.hline[0]
+        panel = next(p for row in fig.panels for p in row if p is not None)
+        panel.hline[0]
         pacf1 = float(panel.values[0])
         pacf_rest = np.abs(panel.values[1:5])
         assert pacf1 >= 0.55, f"PACF lag-1 should be >= 0.55, got {pacf1:.3f}"

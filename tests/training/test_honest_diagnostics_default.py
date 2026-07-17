@@ -14,7 +14,6 @@ import types
 
 import numpy as np
 import pandas as pd
-import pytest
 
 
 def _make_binary_entry(n: int = 400, seed: int = 5):
@@ -73,7 +72,7 @@ def test_run_honest_diagnostics_populates_all_four_blocks():
         assert key in payload, key
 
     assert len(payload["bootstrap_ci"]) >= 1
-    boot_key, boot_val = next(iter(payload["bootstrap_ci"].items()))
+    _boot_key, boot_val = next(iter(payload["bootstrap_ci"].items()))
     # Either a metric block or an explicit skip reason — never empty.
     assert isinstance(boot_val, dict) and len(boot_val) >= 1, boot_val
 

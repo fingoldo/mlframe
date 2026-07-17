@@ -9,13 +9,11 @@ Validates:
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 from unittest import mock
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.training.composite.cache import (
     DiscoveryCache,

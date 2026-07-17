@@ -42,7 +42,7 @@ def test_biz_val_temporal_drift_augment_improves_early_vintage_generalization():
     # baseline training set: one row per entity, the TRUE last statement, standardized against its OWN full
     # history (the label itself is defined this way) -- typical panel-to-tabular usage.
     train_last_rows = []
-    for entity_id, grp in train_df.sort_values(["entity_id", "t"]).groupby("entity_id"):
+    for _entity_id, grp in train_df.sort_values(["entity_id", "t"]).groupby("entity_id"):
         z = (grp["x"].iloc[-1] - grp["x"].mean()) / (grp["x"].std(ddof=1) + 1e-9)
         train_last_rows.append({"x": z, "y": grp["y"].iloc[0]})
     train_last = pd.DataFrame(train_last_rows)
@@ -57,7 +57,7 @@ def test_biz_val_temporal_drift_augment_improves_early_vintage_generalization():
     # This truncated z-score is a NOISIER version of the full-history z-score the label was defined from, so
     # a model that only ever saw full-history-standardized inputs at train time is miscalibrated against it.
     early_rows = []
-    for entity_id, grp in test_df.sort_values(["entity_id", "t"]).groupby("entity_id"):
+    for _entity_id, grp in test_df.sort_values(["entity_id", "t"]).groupby("entity_id"):
         if len(grp) <= 2:
             continue
         truncated = grp.iloc[:-2]
@@ -119,7 +119,7 @@ def _make_long_noisy_history_panel(n_entities: int, n_periods: int, seed: int, i
 
 def _last_row_standardized(df: pd.DataFrame) -> pd.DataFrame:
     out = []
-    for entity_id, grp in df.sort_values(["entity_id", "t"]).groupby("entity_id"):
+    for _entity_id, grp in df.sort_values(["entity_id", "t"]).groupby("entity_id"):
         z = (grp["x"].iloc[-1] - grp["x"].mean()) / (grp["x"].std(ddof=1) + 1e-9)
         out.append({"x": z, "y": grp["y"].iloc[0]})
     return pd.DataFrame(out)
@@ -160,7 +160,7 @@ def test_biz_val_temporal_drift_augment_weight_by_recency_beats_naive_equal_weig
     # realistic production query: moderate truncation (drop last 1 period) on the NORMAL entity
     # population, not the long-noisy-history minority that pollutes the naive augmented pool.
     early_rows = []
-    for entity_id, grp in test_df.sort_values(["entity_id", "t"]).groupby("entity_id"):
+    for _entity_id, grp in test_df.sort_values(["entity_id", "t"]).groupby("entity_id"):
         truncated = grp.iloc[:-1]
         if len(truncated) < 2:
             continue

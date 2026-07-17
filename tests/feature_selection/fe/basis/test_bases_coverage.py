@@ -481,7 +481,7 @@ class TestComposition:
 
     def test_pade_compose(self, x100):
         b = EXTRA_BASES["pade"]
-        z, params = b["fit"](x100)
+        z, _params = b["fit"](x100)
         seeds = b["canonical_seeds_func"](degree=2)
         for c in seeds:
             out = b["eval_njit"](z, c)

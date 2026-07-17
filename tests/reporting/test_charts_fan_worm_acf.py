@@ -19,7 +19,7 @@ import warnings
 import numpy as np
 import pytest
 
-from mlframe.reporting.charts._acf import acf_fft, pacf_levinson, significance_band
+from mlframe.reporting.charts._acf import acf_fft, pacf_levinson
 from mlframe.reporting.charts.quantile import (
     ALLOWED_QUANTILE_PANEL_TOKENS,
     compose_quantile_figure,
@@ -34,7 +34,6 @@ from mlframe.reporting.spec import (
     AnnotationPanelSpec,
     BarPanelSpec,
     LinePanelSpec,
-    ScatterPanelSpec,
 )
 
 
@@ -160,7 +159,7 @@ class TestWorm:
         panel = _flat(fig)[0]
         assert isinstance(panel, LinePanelSpec)
         assert panel.band is not None
-        lo, hi = panel.band
+        lo, _hi = panel.band
         # Decimated to <= 2000 plotted points.
         assert panel.x.shape[0] <= 2000
         assert lo.shape[0] == panel.x.shape[0]

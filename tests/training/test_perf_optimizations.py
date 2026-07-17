@@ -23,7 +23,6 @@ from mlframe.training.utils import (
     estimate_df_size_mb,
     should_clean_ram,
     maybe_clean_ram_and_gpu,
-    get_process_rss_mb,
 )
 
 
@@ -229,7 +228,6 @@ class TestSkipPandasConversion:
 # ======================================================================
 class TestShowcaseVerboseGate:
     def test_showcase_hidden_at_verbose_1(self, monkeypatch):
-        from mlframe.training.extractors import FeaturesAndTargetsExtractor
 
         called = {"n": 0}
         monkeypatch.setattr(
@@ -468,7 +466,7 @@ class TestParallelMetricsEquivalence:
         df = _make_simple_polars_df(n=400)
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
 
-        models1, meta1 = train_mlframe_models_suite(
+        models1, _meta1 = train_mlframe_models_suite(
             df=df,
             target_name="t",
             model_name="par_eq_1",
@@ -482,7 +480,7 @@ class TestParallelMetricsEquivalence:
             verbose=0,
             output_config=OutputConfig(data_dir=temp_data_dir),
         )
-        models2, meta2 = train_mlframe_models_suite(
+        models2, _meta2 = train_mlframe_models_suite(
             df=df,
             target_name="t",
             model_name="par_eq_2",

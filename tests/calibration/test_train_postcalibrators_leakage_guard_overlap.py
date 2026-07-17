@@ -104,7 +104,7 @@ def test_train_postcalibrators_raises_on_probs_overlap_with_reshuffled_target():
     from sklearn.isotonic import IsotonicRegression
 
     n = 300
-    probs, target = _synth(n=n)
+    probs, _target = _synth(n=n)
     rng = np.random.default_rng(2)
     # calib_target is an INDEPENDENT relabelling (not derived from test's target at all), so a
     # target-only guard sees no relationship whatsoever; only the probs betray the reuse. Give

@@ -25,23 +25,23 @@ from mlframe.training.core._setup_helpers_outliers import _apply_outlier_detecti
 class _RejectAllDetector:
     """Flags every row as an outlier -> train collapses to 0 kept."""
 
-    def fit(self, X):  # noqa: N803
+    def fit(self, X):
         return self
 
-    def predict(self, X):  # noqa: N803
+    def predict(self, X):
         return -np.ones(len(X), dtype=int)
 
 
 class _NanIntolerantDetector:
     """Mimics LOF/OCSVM: raises on any NaN input at fit (no imputer wrapper)."""
 
-    def fit(self, X):  # noqa: N803
+    def fit(self, X):
         arr = X.to_numpy() if hasattr(X, "to_numpy") else np.asarray(X)
         if not np.isfinite(arr).all():
             raise ValueError("Input X contains NaN. Detector does not accept missing values")
         return self
 
-    def predict(self, X):  # noqa: N803
+    def predict(self, X):
         return np.ones(len(X), dtype=int)
 
 

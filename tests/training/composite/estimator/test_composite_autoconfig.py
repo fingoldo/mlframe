@@ -78,7 +78,7 @@ def test_biz_val_autoconfig_temporal_right_skewed_triggers_all():
     assert cfg.enabled is True
     # rationale must explain each steered choice.
     for key in ("time_column", "transforms", "mi_sample_n", "mi_sample_strategy"):
-        assert key in rationale and rationale[key]
+        assert rationale.get(key)
 
 
 # ----------------------------------------------------------------------
@@ -141,7 +141,7 @@ def test_autoconfig_structural_hint_near_affine_base():
 # ----------------------------------------------------------------------
 def test_autoconfig_empty_frame_conservative():
     df = pd.DataFrame({"x1": [], "y": []})
-    cfg, rationale = suggest_discovery_config(df, "y", ["x1"])
+    cfg, _rationale = suggest_discovery_config(df, "y", ["x1"])
     assert cfg.enabled is True
     assert cfg.time_column is None
     assert cfg.time_series_transforms_enabled is False

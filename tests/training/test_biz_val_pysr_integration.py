@@ -13,9 +13,6 @@ Requires Julia on PATH (D:/Julia/bin).
 
 from __future__ import annotations
 
-import os
-import subprocess
-import sys
 import warnings
 
 import numpy as np
@@ -87,7 +84,7 @@ def test_biz_val_pysr_pipeline_adds_equation_columns():
             "procs": 1,
         },
     )
-    train_out, val_out, test_out, pipe = apply_preprocessing_extensions(
+    train_out, val_out, test_out, _pipe = apply_preprocessing_extensions(
         train_df=train,
         val_df=val,
         test_df=test,
@@ -158,8 +155,8 @@ def test_biz_val_pysr_pipeline_improves_downstream_model():
     pysr_cols = [c for c in train_out.columns if c.startswith("pysr__")]
     if not pysr_cols:
         pytest.skip("PySR did not discover any equations")
-    test_out = test[feats].copy()
-    for c in pysr_cols:
+    test[feats].copy()
+    for _c in pysr_cols:
         # Re-run PySR on test via the model — but we don't have the model here.
         # Instead: just verify the raw train had the columns added.
         pass

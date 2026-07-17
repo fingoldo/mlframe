@@ -187,7 +187,6 @@ def test_median_residual_fit_end_to_end_matches_pre_dispatch_semantics():
     from mlframe.training.composite.transforms import (
         _median_residual_fit,
         _median_residual_per_bin_medians_v1_pyloop,
-        _MEDIAN_RESIDUAL_N_BINS,
     )
 
     rng = np.random.default_rng(42)
@@ -220,7 +219,7 @@ def test_quantile_residual_fit_end_to_end_matches_pre_dispatch_semantics():
         pytest.skip("degenerate single-bin path -- separate code branch")
     edges = np.asarray(params["bin_edges"], dtype=np.float64)
     actual_n_bins = edges.size - 1
-    bin_idx = np.clip(
+    np.clip(
         np.searchsorted(edges[1:-1], base, side="right"),
         0,
         actual_n_bins - 1,

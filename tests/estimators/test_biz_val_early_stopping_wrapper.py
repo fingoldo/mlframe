@@ -22,7 +22,7 @@ import warnings
 
 import numpy as np
 import pytest
-from sklearn.base import clone, is_regressor
+from sklearn.base import clone
 from sklearn.linear_model import SGDClassifier, SGDRegressor
 from sklearn.metrics import accuracy_score, mean_squared_error
 from sklearn.utils import all_estimators

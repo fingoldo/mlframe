@@ -25,7 +25,6 @@ math via the per-class binary decomposition.
 from __future__ import annotations
 
 import numpy as np
-import pytest
 from hypothesis import HealthCheck, assume, given, settings, strategies as st
 
 

@@ -145,7 +145,7 @@ def _plant_layout(n_cols: int) -> dict:
         pairs=pairs,
         cluster_driver=cluster_driver,
         cluster_copies=cluster_copies,
-        cluster_all=[cluster_driver] + cluster_copies,
+        cluster_all=[cluster_driver, *cluster_copies],
         heavy=heavy,
         cats=cats,
         informative_base=sorted(informative_base),  # cluster copies excluded (they're redundant)
@@ -302,7 +302,7 @@ def test_mrmr_real_100k(tmp_path):
     budget_mins = 4.0 if mode == "fast" else 18.0
     rss0 = _peak_rss_mb()
 
-    df, y, mm_path, X = _build_memmap_frame(n_rows, n_cols, layout, task, tmp_path)
+    df, y, _mm_path, X = _build_memmap_frame(n_rows, n_cols, layout, task, tmp_path)
     rss_after_build = _peak_rss_mb()
 
     # train / test split (held-out test the model never saw).

@@ -105,7 +105,7 @@ class TestRegressionBucketStratifyWithGroups:
         return df, y, groups, bins
 
     def test_both_invariants_honoured(self):
-        df, y, groups, bins = self._make_task()
+        df, _y, groups, bins = self._make_task()
         train_idx, val_idx, test_idx, *_ = make_train_test_split(
             df,
             val_size=0.2,

@@ -20,8 +20,8 @@ cupy = pytest.importorskip("cupy") if _cuda_present() else None
 if not _cuda_present():
     pytest.skip("cupy not available", allow_module_level=True)
 
-from mlframe.feature_selection.filters._gpu_resident_fe import _gpu_route_bases_batched  # noqa: E402
-from mlframe.feature_selection.filters._orthogonal_univariate_fe import (  # noqa: E402
+from mlframe.feature_selection.filters._gpu_resident_fe import _gpu_route_bases_batched
+from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
     _POLY_BASES,
     basis_route_by_signal,
     _evaluate_basis_column,

@@ -16,7 +16,6 @@ import warnings
 
 import numpy as np
 import pandas as pd
-import pytest
 
 
 def _patch_no_ktc_sweep():
@@ -87,8 +86,8 @@ def test_cmi_permutation_stop_kernel_discriminates_signal_from_noise():
     y = rng.integers(0, 2, n)
     x_sig = (y + rng.integers(0, 2, n)) % 4  # depends on y
     x_noise = rng.integers(0, 4, n)
-    sig_is_sig, _, sig_p = cmi_permutation_stop(x_sig, y, [], 4, 2, [], n_permutations=60, alpha=0.05, seed=0)
-    noise_is_sig, _, noise_p = cmi_permutation_stop(x_noise, y, [], 4, 2, [], n_permutations=60, alpha=0.05, seed=0)
+    _sig_is_sig, _, sig_p = cmi_permutation_stop(x_sig, y, [], 4, 2, [], n_permutations=60, alpha=0.05, seed=0)
+    _noise_is_sig, _, noise_p = cmi_permutation_stop(x_noise, y, [], 4, 2, [], n_permutations=60, alpha=0.05, seed=0)
     assert sig_p < noise_p, f"CMI-perm p-value must be smaller for the real signal (sig_p={sig_p:.3f} vs noise_p={noise_p:.3f})"
 
 

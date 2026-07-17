@@ -33,7 +33,6 @@ from unittest.mock import patch, MagicMock
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.training.pipeline import apply_preprocessing_extensions
 from mlframe.training.configs import PreprocessingExtensionsConfig
@@ -63,7 +62,7 @@ def test_pysr_enabled_without_y_train_warns_loudly(caplog):
     )
 
     with caplog.at_level(logging.WARNING):
-        out_train, out_val, out_test, pipeline = apply_preprocessing_extensions(
+        out_train, _out_val, _out_test, _pipeline = apply_preprocessing_extensions(
             train_df=X_train,
             val_df=X_val,
             test_df=X_test,
@@ -130,7 +129,7 @@ def test_pysr_enabled_with_y_train_calls_pysr():
         return fake_model
 
     with patch("mlframe.feature_engineering.bruteforce.run_pysr_feature_engineering", side_effect=fake_run_pysr):
-        out_train, out_val, out_test, pipeline = apply_preprocessing_extensions(
+        out_train, _out_val, _out_test, _pipeline = apply_preprocessing_extensions(
             train_df=X_train,
             val_df=X_val,
             test_df=X_test,

@@ -62,7 +62,7 @@ _K = 4  # match SelectKBest's K to the true signal width
 def _flip_labels(y: np.ndarray, rate: float, rng: np.random.Generator) -> np.ndarray:
     """Flip a fixed ``rate`` fraction of binary labels (deterministic given ``rng``)."""
     y = y.copy()
-    n_flip = int(round(rate * len(y)))
+    n_flip = round(rate * len(y))
     if n_flip:
         idx = rng.choice(len(y), size=n_flip, replace=False)
         y[idx] = 1 - y[idx]
@@ -98,7 +98,7 @@ def _run_label_noise_cell(rate: float, seed: int):
     ``(recall_mrmr, noise_mrmr, recall_mi, noise_mi)``."""
     X, y, signal = make_signal_plus_noise(n=2000, p_signal=_K, p_noise=16, seed=seed)
     # Fixed rng per rate (shared across seeds) so the flipped-row SET is rate-determined, per the recipe.
-    rng = np.random.default_rng(1000 + int(round(rate * 100)))
+    rng = np.random.default_rng(1000 + round(rate * 100))
     y_noisy = _flip_labels(y, rate, rng)
     df, ys = as_df(X, y_noisy)
 

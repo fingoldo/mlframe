@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any  # noqa: F401  (annotation strings under PEP 563)
+from typing import Any
 
-from .combo import FuzzCombo  # noqa: F401  (annotation strings under PEP 563)
+from .combo import FuzzCombo
 
 
 # Column names the grouped_delta / lagged_diff MRMR-FE kinds consume. Emitted into the synthetic frame (and wired into the MRMR ctor via

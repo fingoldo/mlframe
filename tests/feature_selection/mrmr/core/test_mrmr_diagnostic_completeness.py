@@ -27,7 +27,6 @@ import warnings
 
 import numpy as np
 import pandas as pd
-import pytest
 
 warnings.filterwarnings("ignore")
 
@@ -36,7 +35,6 @@ from mlframe.feature_selection.filters._mrmr_fe_provenance import (
     get_unlabeled_recipe_kinds,
 )
 from mlframe.feature_selection.filters._mi_greedy_fe import (
-    _greedy_score_and_select,
     greedy_mi_fe_construct,
 )
 from mlframe.feature_selection.filters._orthogonal_cluster_basis_fe import (
@@ -168,7 +166,7 @@ def test_w6_mi_greedy_floor_records_abs_floor_kill():
     and the kill set is exactly the candidates below the absolute floor."""
     raw, y = _lone_signal_pool()
     sink = _Sink()
-    X_aug, scores = greedy_mi_fe_construct(
+    X_aug, _scores = greedy_mi_fe_construct(
         raw,
         y,
         top_k=3,
@@ -198,7 +196,7 @@ def test_w6_cluster_basis_floor_records_abs_floor_kill():
     y = (X["c0"].to_numpy() > 0).astype(np.int64)
     members = {f"c{i}": [f"c{i}", f"c{(i + 1) % 20}"] for i in range(20)}
     sink = _Sink()
-    eng, meta = generate_cluster_basis_features(
+    eng, _meta = generate_cluster_basis_features(
         X,
         y,
         members,
@@ -207,7 +205,7 @@ def test_w6_cluster_basis_floor_records_abs_floor_kill():
         min_uplift=1.0,
         reject_sink=sink,
     )
-    eng_ns, meta_ns = generate_cluster_basis_features(
+    eng_ns, _meta_ns = generate_cluster_basis_features(
         X,
         y,
         members,
@@ -237,7 +235,7 @@ def test_w6_unified_local_mi_gate_records_floor_kill():
             **{f"noise{i}": rng.normal(size=n) for i in range(6)},
         }
     )
-    floor = raw_mi_noise_floor(raw, y)
+    raw_mi_noise_floor(raw, y)
     sink = _Sink()
     keep = local_mi_gate(enc, y, raw_X=raw, reject_sink=sink)
     keep_ns = local_mi_gate(enc, y, raw_X=raw)
@@ -251,5 +249,5 @@ def test_w6_unified_local_mi_gate_records_floor_kill():
 def test_w6_greedy_score_select_no_sink_is_noop():
     """Default (no sink) path is unchanged: returns winners with no error."""
     raw, y = _lone_signal_pool()
-    X_aug, scores = greedy_mi_fe_construct(raw, y, top_k=3)
+    _X_aug, scores = greedy_mi_fe_construct(raw, y, top_k=3)
     assert isinstance(scores, pd.DataFrame)

@@ -43,7 +43,7 @@ class TestEffectiveBootstrapDenominator:
             return np.array([0], dtype=np.int64)  # always pick feature 0
 
         # corr_threshold > 1 => no clustering edges => each feature its own cluster.
-        chosen, feat_freq, info = cluster_stability_selection(
+        _chosen, feat_freq, info = cluster_stability_selection(
             X,
             y,
             sel,
@@ -73,7 +73,7 @@ class TestEffectiveBootstrapDenominator:
                 raise ValueError("injected selector failure")
             return np.array([0], dtype=np.int64)
 
-        chosen, comp_freq, info = complementary_pairs_stability(
+        _chosen, comp_freq, info = complementary_pairs_stability(
             X,
             y,
             sel,

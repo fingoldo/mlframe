@@ -10,7 +10,6 @@ y-base synthetic.
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from mlframe.training.composite.discovery._region_adaptive import (
     DEFAULT_REGION_CANDIDATES,

@@ -6,7 +6,6 @@ the pre-fix versions (same returned edges / same picked winning M), not just fas
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 
 def test_edges_optimal_joint_matches_naive_loop_order_reference():

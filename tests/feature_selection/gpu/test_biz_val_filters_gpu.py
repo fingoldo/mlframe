@@ -216,5 +216,5 @@ def test_biz_val_gpu_mi_batched_oom_safe_fallback_smoke():
     # MI tuple.
     res = mi_direct_gpu_batched(factors, (0,), (1,), factors_nbins, npermutations=20, batch_size=1)
     assert isinstance(res, tuple) and len(res) == 2
-    mi, conf = res
+    mi, _conf = res
     assert mi > 0, f"batch_size=1 path must compute valid MI; got {mi}"

@@ -23,7 +23,6 @@ This test pins:
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from mlframe.metrics.ranking import _ndcg_one_query, _summary_batched_kernel
 
@@ -67,7 +66,7 @@ def test_summary_batched_kernel_compiles_and_runs():
     group_starts = np.array([0, 4, 8], dtype=np.int64)
     eval_ks = np.array([2, 4], dtype=np.int64)
 
-    ndcg_sums, ndcg_counts, map_sums, map_counts, mrr_sum, mrr_n = _summary_batched_kernel(
+    ndcg_sums, ndcg_counts, _map_sums, _map_counts, mrr_sum, mrr_n = _summary_batched_kernel(
         sorted_y_true,
         sorted_y_score,
         group_starts,
@@ -91,7 +90,7 @@ def test_summary_kernel_handles_tied_scores_deterministically():
     group_starts = np.array([0, 4], dtype=np.int64)
     eval_ks = np.array([4], dtype=np.int64)
 
-    ndcg_sums, ndcg_counts, map_sums, map_counts, mrr_sum, mrr_n = _summary_batched_kernel(
+    ndcg_sums, ndcg_counts, _map_sums, _map_counts, _mrr_sum, _mrr_n = _summary_batched_kernel(
         sorted_y_true,
         sorted_y_score,
         group_starts,

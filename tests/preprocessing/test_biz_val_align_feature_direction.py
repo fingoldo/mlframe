@@ -32,7 +32,7 @@ def test_biz_val_align_feature_direction_recovers_pooled_signal():
     X_train, y_train = _make_mixed_orientation_dataset(n=2000, n_features=20, seed=0)
     X_test, y_test = _make_mixed_orientation_dataset(n=1000, n_features=20, seed=1)
 
-    naive_pooled_train = X_train.mean(axis=1).to_numpy()
+    X_train.mean(axis=1).to_numpy()
     naive_pooled_test = X_test.mean(axis=1).to_numpy()
     auc_naive = roc_auc_score(y_test, naive_pooled_test)
 
@@ -73,7 +73,7 @@ def test_align_feature_direction_unaffected_by_stability_check_addition():
     """Regression: align_feature_direction/apply_feature_direction must stay bit-identical -- the new
     check_feature_direction_stability is a fully separate opt-in function, never called by these two."""
     X_train, y_train = _make_mixed_orientation_dataset(n=2000, n_features=20, seed=0)
-    X_test, y_test = _make_mixed_orientation_dataset(n=1000, n_features=20, seed=1)
+    X_test, _y_test = _make_mixed_orientation_dataset(n=1000, n_features=20, seed=1)
 
     aligned1, signs1 = align_feature_direction(X_train, y_train)
     aligned2, signs2 = align_feature_direction(X_train, y_train)
@@ -152,12 +152,12 @@ def test_biz_val_align_feature_direction_mi_mode_detects_nonmonotonic_relationsh
     X_train, y_train = _make_u_shaped_dataset(n=4000, seed=0)
     X_test, y_test = _make_u_shaped_dataset(n=2000, seed=1)
 
-    out_default, signs_default = align_feature_direction(X_train, y_train)
+    _out_default, signs_default = align_feature_direction(X_train, y_train)
     applied_default = apply_feature_direction(X_test, signs_default)
     auc_default = roc_auc_score(y_test, applied_default["u_shaped"].to_numpy())
 
     report: dict = {}
-    out_mi, signs_mi = align_feature_direction(X_train, y_train, use_mutual_information=True, nonlinear_report=report)
+    _out_mi, signs_mi = align_feature_direction(X_train, y_train, use_mutual_information=True, nonlinear_report=report)
     applied_mi = apply_feature_direction(X_test, signs_mi)
     auc_mi = roc_auc_score(y_test, applied_mi["u_shaped"].to_numpy())
 

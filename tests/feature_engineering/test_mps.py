@@ -2,7 +2,7 @@
 
 import pytest
 import numpy as np
-from hypothesis import given, strategies as st, settings, assume
+from hypothesis import given, strategies as st, settings
 
 from mlframe.feature_engineering.mps import (
     find_maximum_profit_system,

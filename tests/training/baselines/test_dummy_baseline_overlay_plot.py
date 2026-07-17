@@ -10,7 +10,6 @@ binary classification). Default ON, gated on
 
 from __future__ import annotations
 
-import logging
 
 import matplotlib
 
@@ -18,7 +17,6 @@ matplotlib.use("Agg")
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.training.baselines.dummy import (
     compute_dummy_baselines,

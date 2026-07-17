@@ -257,7 +257,6 @@ def test_biz_val_rfecv_leakage_corr_threshold_detects_target_leak():
     from mlframe.feature_selection.wrappers import RFECV
     from tests.feature_selection._biz_val_synth import (
         make_signal_plus_noise,
-        as_df,
     )
 
     X, y, _ = make_signal_plus_noise(n=800, p_signal=3, p_noise=5, seed=42)
@@ -920,7 +919,6 @@ def test_biz_val_rfecv_leakage_corr_threshold_parametrize(leakage_thr):
     from mlframe.feature_selection.wrappers import RFECV
     from tests.feature_selection._biz_val_synth import (
         make_signal_plus_noise,
-        as_df,
     )
 
     X, y, _ = make_signal_plus_noise(n=500, p_signal=3, p_noise=4, seed=42)

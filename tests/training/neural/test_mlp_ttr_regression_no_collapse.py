@@ -41,7 +41,6 @@ These tests:
 from __future__ import annotations
 
 import logging
-import sys
 import warnings
 
 import numpy as np
@@ -69,9 +68,9 @@ def _ar_group_split_data():
     y = (tvt_prev + rng.normal(0, 11, n)).astype(np.float32)
     extras = {f"f{i}": rng.normal(size=n).astype(np.float32) for i in range(20)}
     X_full = np.column_stack(
-        [tvt_prev] + list(extras.values()),
+        [tvt_prev, *list(extras.values())],
     ).astype(np.float32)
-    feat_cols = ["TVT_prev"] + list(extras.keys())
+    feat_cols = ["TVT_prev", *list(extras.keys())]
 
     gss = GroupShuffleSplit(n_splits=1, test_size=0.2, random_state=42)
     trv_idx, te_idx = next(gss.split(X_full, y, groups=group_ids))

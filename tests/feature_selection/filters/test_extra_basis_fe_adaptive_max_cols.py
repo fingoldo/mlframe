@@ -27,14 +27,14 @@ def _make_frame(n=2000, p=10, seed=0):
 
 def test_max_adaptive_cols_none_preserves_legacy_behavior():
     X, y = _make_frame(p=6)
-    eng_unbounded, meta_unbounded = generate_extra_basis_features(
+    eng_unbounded, _meta_unbounded = generate_extra_basis_features(
         X,
         extra_bases=("fourier",),
         y=y,
         fourier_adaptive=True,
         max_adaptive_cols=None,
     )
-    eng_explicit_none, meta_explicit_none = generate_extra_basis_features(
+    eng_explicit_none, _meta_explicit_none = generate_extra_basis_features(
         X,
         extra_bases=("fourier",),
         y=y,

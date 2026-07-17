@@ -36,7 +36,6 @@ from __future__ import annotations
 from typing import Any
 
 import numpy as np
-import pytest
 
 from mlframe.training.composite.discovery._eval import refit_transform_on_fold
 from mlframe.training.composite.transforms import Transform

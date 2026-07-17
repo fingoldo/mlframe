@@ -162,7 +162,7 @@ def _redundant_hub_dataset(n=8000, seed=11):
     p = [(u[i] * 2 + v[i]).astype(np.int32) for i in range(4)]
     y = (sum(u) >= 2).astype(np.int32)
     g = sum(v).astype(np.int32)
-    data = np.column_stack(p + [g, y]).astype(np.int32)
+    data = np.column_stack([*p, g, y]).astype(np.int32)
     nbins = np.array([4, 4, 4, 4, 5, 2], dtype=np.int64)
     names = ["p1", "p2", "p3", "p4", "G", "y"]
     return data, nbins, np.array([5], dtype=np.int64), names, [0, 1, 2, 3, 4]
@@ -235,7 +235,7 @@ def test_multi_target_relevance_falls_back_to_cpu():
     """The GPU relevance fast path is single-target only; a multi-column target must
     leave ``rel=None`` (caller computes relevance on CPU) while H + edges stay GPU +
     bit-identical."""
-    sel, data, nbins, tgt = _synthetic_selected_set(n=3000, k=12, seed=8)
+    sel, data, nbins, _tgt = _synthetic_selected_set(n=3000, k=12, seed=8)
     # Use two target columns (append a second). XOR-1 only flips bit 0, so the derived
     # column's value range matches the source column's, NOT a hardcoded 2 -- declaring it
     # as binary when the source has >2 classes understates its true cardinality to the

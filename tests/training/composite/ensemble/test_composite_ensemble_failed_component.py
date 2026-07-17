@@ -21,7 +21,6 @@ from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from sklearn.base import BaseEstimator, RegressorMixin
 
@@ -112,7 +111,7 @@ def _make_config_proxy_path():
 
 
 def _run_builder(strategy: str):
-    TT, models, target_by_type, X, y, n = _make_models_and_targets()
+    TT, models, target_by_type, X, _y, n = _make_models_and_targets()
     metadata: dict = {}
     _build_cross_target_ensemble_for_target(
         _tt_e=TT.REGRESSION,
@@ -153,7 +152,7 @@ def test_failed_component_excluded_from_oof_weighted_ensemble():
     Pre-fix, the failed component's NaN proxy was median-imputed and it
     received mid-pack ``oof_weighted`` weight on a fabricated score.
     """
-    TT, models, metadata = _run_builder("oof_weighted")
+    TT, models, _metadata = _run_builder("oof_weighted")
     ens_entry = models[TT.REGRESSION].get("_CT_ENSEMBLE__y")
     assert ens_entry is not None, "no CT_ENSEMBLE was built"
     ens = ens_entry[0].model
@@ -175,7 +174,7 @@ def test_failed_component_excluded_from_oof_weighted_ensemble():
 def test_failed_component_gets_zero_weight_in_nnls_stack():
     """I23: under nnls_stack the failed component must contribute zero to the
     stacked weights (it is dropped before the stacker sees the matrix)."""
-    TT, models, metadata = _run_builder("nnls_stack")
+    TT, models, _metadata = _run_builder("nnls_stack")
     ens_entry = models[TT.REGRESSION].get("_CT_ENSEMBLE__y")
     assert ens_entry is not None
     ens = ens_entry[0].model

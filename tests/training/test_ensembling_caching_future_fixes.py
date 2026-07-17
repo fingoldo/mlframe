@@ -15,7 +15,6 @@ import numpy as np
 import pandas as pd
 import pytest
 
-import sys
 from unittest import mock
 
 
@@ -75,7 +74,7 @@ class TestENS_P1_7_FilterMaskHoist:
     def test_polars_mask_selects_same_indices_as_pre_fix(self) -> None:
         """Vectorised mask must produce the same row subset as the original
         ``i in set(train_idx)`` membership check."""
-        pl = pytest.importorskip("polars")
+        pytest.importorskip("polars")
         n = 30
         train_idx = np.array([1, 5, 8, 10, 12, 18, 22, 26], dtype=np.int64)
         indices = np.arange(n)
@@ -315,7 +314,7 @@ class TestENS_Low_1_KFoldParameter:
         models = [LinearRegression()]
         # Each model must already be fitted for the orchestrator; mimic.
         models[0].fit(X, y)
-        preds, y_h, names = compute_oof_holdout_predictions(
+        preds, _y_h, names = compute_oof_holdout_predictions(
             component_models=models,
             component_names=["lr"],
             component_specs=[None],
@@ -344,7 +343,7 @@ class TestENS_Low_1_KFoldParameter:
         y = X["x"].to_numpy() + rng.normal(scale=0.1, size=n)
         base_per_spec = {"x": X["x"].to_numpy()}
         m = LinearRegression().fit(X, y)
-        preds, y_h, names = compute_oof_holdout_predictions(
+        preds, _y_h, _names = compute_oof_holdout_predictions(
             component_models=[m],
             component_names=["lr"],
             component_specs=[None],
@@ -356,7 +355,7 @@ class TestENS_Low_1_KFoldParameter:
             kfold=1,
         )
         # Single split: holdout_frac*n rows expected.
-        assert preds.shape[0] == int(round(n * 0.3))
+        assert preds.shape[0] == round(n * 0.3)
 
 
 # ---------------------------------------------------------------------------

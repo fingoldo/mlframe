@@ -54,7 +54,7 @@ def test_dispatcher_floor_deterministic_under_both_backends():
     n, p, nbins = 3000, 24, 10
     cols = [rng.integers(0, nbins, size=n).astype(np.int32) for _ in range(p)]
     y = rng.integers(0, nbins, size=n).astype(np.int32)
-    data = np.column_stack(cols + [y]).astype(np.int32)
+    data = np.column_stack([*cols, y]).astype(np.int32)
     nb = np.array([nbins] * (p + 1), dtype=np.int64)
     cand = np.arange(p, dtype=np.int64)
     saved = os.environ.get("MLFRAME_FDR_SHUFFLEGEN")

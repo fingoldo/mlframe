@@ -552,7 +552,7 @@ def _outlier_member_frame(n: int = 2000, seed: int = 0):
     latent = rng.standard_normal(n)
     other = rng.standard_normal(n)
     members = []
-    for j in range(4):
+    for _j in range(4):
         m = latent + 0.05 * rng.standard_normal(n)
         # 5% rows per member get a +30 sigma spike. The spike rows differ
         # across members so the row-median sees at most one outlier per row.
@@ -765,7 +765,7 @@ class TestLayer44_BakeoffWins:
         direction). PC2 should out-score PC1 in the K-fold OOF bake-off.
         """
         X, y = _two_latent_correlated_frame(seed=0)
-        winner, scores = _run_bakeoff_direct(
+        _winner, scores = _run_bakeoff_direct(
             X,
             y,
             ["member_a", "member_b", "member_c", "member_d"],
@@ -782,7 +782,7 @@ class TestLayer44_BakeoffWins:
         with y must exceed ``mean_z`` MI on this fixture.
         """
         X, y = _outlier_member_frame(seed=0)
-        winner, scores = _run_bakeoff_direct(
+        _winner, scores = _run_bakeoff_direct(
             X,
             y,
             ["member_a", "member_b", "member_c", "member_d"],
@@ -796,7 +796,7 @@ class TestLayer44_BakeoffWins:
         beat ``mean_z`` (which dilutes the loudest signal).
         """
         X, y = _loudest_member_frame(seed=0)
-        winner, scores = _run_bakeoff_direct(
+        _winner, scores = _run_bakeoff_direct(
             X,
             y,
             ["member_a", "member_b", "member_c", "member_d"],

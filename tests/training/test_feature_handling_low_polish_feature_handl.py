@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 
 
-import mlframe as _mlframe  # noqa: E402  -- derive src path from the package itself so the test works regardless of install location (the previous ``D:/Upd/Programming/...`` hardcode silently returned empty file lists on every other machine, with pytest auto-skipping the parametrized test under "got empty parameter set").
+import mlframe as _mlframe
 
 _FH_ROOT = Path(_mlframe.__file__).resolve().parent / "training" / "feature_handling"
 
@@ -84,7 +84,7 @@ def test_target_encoders_typecheck_imports_clean() -> None:
     earlier ``# noqa: F821`` lie). The Wave 4+5 polish-pass must not
     have reintroduced that noqa anywhere in the file."""
     src = (_FH_ROOT / "target_encoders.py").read_text(encoding="utf-8")
-    # noqa: F821 should NOT appear -- the TYPE_CHECKING block makes
+
     # pd/pl available to type checkers without runtime cost.
     assert "noqa: F821" not in src, "target_encoders.py reintroduced a # noqa: F821 silencer; the TYPE_CHECKING import is supposed to satisfy F821 properly"
 

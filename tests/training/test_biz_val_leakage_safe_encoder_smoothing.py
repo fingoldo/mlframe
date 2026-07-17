@@ -21,9 +21,9 @@ import pytest
 
 warnings.filterwarnings("ignore")
 
-from sklearn.metrics import log_loss  # noqa: E402
+from sklearn.metrics import log_loss
 
-from mlframe.training.feature_handling.target_encoders import (  # noqa: E402
+from mlframe.training.feature_handling.target_encoders import (
     LeakageSafeEncoder,
 )
 

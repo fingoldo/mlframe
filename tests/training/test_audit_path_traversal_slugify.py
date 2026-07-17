@@ -31,7 +31,6 @@ import importlib
 import os
 from pathlib import Path
 
-import pytest
 
 
 MLFRAME_ROOT = Path(importlib.import_module("mlframe").__file__).parent
@@ -113,10 +112,9 @@ def test_neural_base_default_root_dir_trust_contract_documented() -> None:
 
 def test_hex_key_re_is_fully_anchored() -> None:
     """The audit's Info finding: verify _HEX_KEY_RE is full-match anchored."""
-    src = _read("training/composite/cache_store.py")
+    _read("training/composite/cache_store.py")
     # Must use \A and \Z anchors (or ^...$) -- not bare bracket class.
     # Behavioural check: a non-hex tail must NOT match.
-    import re
     from mlframe.training.composite.cache_store import _HEX_KEY_RE
 
     assert _HEX_KEY_RE.match("deadbeef") is not None
@@ -150,7 +148,7 @@ def test_slugify_neutralises_path_separators() -> None:
         assert "\\" not in slug, f"slugify({attempt!r}) -> {slug!r} still contains '\\'"
         # `..` may survive in pyutilz' slugify if it normalises to dots; allow but
         # require that the result joined with a root does NOT escape.
-        joined = os.path.join("/safe/root", slug)
+        os.path.join("/safe/root", slug)
         # os.path.abspath collapses .., but our regex check on the SLUG is the right place.
         # If the slug is exactly "..", joined would escape. Verify it's not.
         assert slug != "..", f"slugify({attempt!r}) collapsed to '..'"

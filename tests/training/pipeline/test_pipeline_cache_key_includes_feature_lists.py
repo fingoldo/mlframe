@@ -18,7 +18,7 @@ import pytest
 # pytest.importorskip keeps the test runnable on lean CI without heavy training deps.
 pytest.importorskip("sklearn")
 
-from mlframe.training.core._phase_train_one_target import _compute_pipeline_cache_key  # noqa: E402
+from mlframe.training.core._phase_train_one_target import _compute_pipeline_cache_key
 
 
 _BASE_KW = dict(

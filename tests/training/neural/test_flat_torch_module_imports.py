@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import importlib
 
-import pytest
 
 
 def test_flat_torch_module_on_train_end_names_are_resolvable():

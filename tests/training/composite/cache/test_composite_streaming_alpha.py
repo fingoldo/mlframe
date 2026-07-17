@@ -9,7 +9,6 @@ import numpy as np
 import pytest
 
 from mlframe.training.composite import (
-    _linear_residual_fit,
     streaming_alpha_check_and_refit,
 )
 
@@ -56,7 +55,7 @@ class TestDriftDetected:
         true_alpha_new = 2.0
         y = true_alpha_new * base + 1.0 + rng.normal(scale=0.5, size=n)
         deployed_alpha = 0.5
-        new_alpha, new_beta, info = streaming_alpha_check_and_refit(
+        new_alpha, _new_beta, info = streaming_alpha_check_and_refit(
             y,
             base,
             current_alpha=deployed_alpha,
@@ -102,7 +101,7 @@ class TestEdgeCases:
         rng = np.random.default_rng(4)
         y = rng.normal(size=50)
         base = rng.normal(size=50)
-        new_alpha, new_beta, info = streaming_alpha_check_and_refit(
+        new_alpha, _new_beta, info = streaming_alpha_check_and_refit(
             y,
             base,
             current_alpha=0.5,
@@ -117,7 +116,7 @@ class TestEdgeCases:
         n = 300
         base = np.array([7.0] * n)
         y = np.linspace(0.0, 10.0, n)
-        new_alpha, new_beta, info = streaming_alpha_check_and_refit(
+        new_alpha, _new_beta, info = streaming_alpha_check_and_refit(
             y,
             base,
             current_alpha=0.5,
@@ -136,7 +135,7 @@ class TestEdgeCases:
         y = 1.0 * base + rng.normal(scale=0.5, size=n)
         # Inject some NaN; finite count still well above min_buffer_n.
         y[:50] = np.nan
-        new_alpha, new_beta, info = streaming_alpha_check_and_refit(
+        _new_alpha, _new_beta, info = streaming_alpha_check_and_refit(
             y,
             base,
             current_alpha=1.0,

@@ -12,7 +12,6 @@ conditions: polars input, no recurrent model, no RFECV.
 
 from __future__ import annotations
 
-import pytest
 
 
 def _defer_pandas_conv(

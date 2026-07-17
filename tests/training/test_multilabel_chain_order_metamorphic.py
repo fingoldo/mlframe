@@ -67,7 +67,7 @@ def _inverse_perm(perm: np.ndarray) -> np.ndarray:
 def test_F8_1_multioutput_classifier_label_permutation_is_byte_identity():
     """Permute labels -> train -> un-permute predictions; per-label probas must be byte-identical."""
     X, y = _make_synthetic(seed=42)
-    X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=0.3, random_state=42)
+    X_tr, X_te, y_tr, _y_te = train_test_split(X, y, test_size=0.3, random_state=42)
 
     base = LogisticRegression(max_iter=200, random_state=42)
     moc_orig = MultiOutputClassifier(base, n_jobs=1)
@@ -137,7 +137,7 @@ def test_F8_2_chain_metamorphic_robust_across_seeds(seed: int):
     X, y = _make_synthetic(seed=42)
     X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=0.3, random_state=42)
 
-    base = LogisticRegression(max_iter=200, random_state=42)
+    LogisticRegression(max_iter=200, random_state=42)
     cc_default = ClassifierChain(LogisticRegression(max_iter=200, random_state=42), order=list(range(_N_LABELS)), random_state=42)
     cc_default.fit(X_tr, y_tr)
     proba_default = cc_default.predict_proba(X_te)

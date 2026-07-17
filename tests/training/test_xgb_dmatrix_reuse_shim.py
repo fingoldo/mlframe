@@ -491,7 +491,7 @@ class TestXGBShimIntegrationWithMlframeSuite:
         point and a future revert (after upstream PR lands) is one
         flag-flip away.
         """
-        from mlframe.training import OutputConfig, PreprocessingConfig, trainer as tr_mod
+        from mlframe.training import trainer as tr_mod
 
         monkeypatch.setattr(tr_mod, "USE_XGB_DMATRIX_REUSE_SHIM", False)
 
@@ -647,8 +647,8 @@ class TestXGBShimCacheHandoffInCoreLoop:
         cloned = _Bag()
         sentinel_dmatrix = object()
         sentinel_key = ("h0", "h1")
-        setattr(template, "_cached_train_dmatrix", sentinel_dmatrix)
-        setattr(template, "_cached_train_key", sentinel_key)
+        template._cached_train_dmatrix = sentinel_dmatrix
+        template._cached_train_key = sentinel_key
 
         _forward_dataset_reuse_cache(template, cloned)
         assert getattr(cloned, "_cached_train_dmatrix") is sentinel_dmatrix
@@ -668,14 +668,14 @@ class TestXGBShimCacheHandoffInCoreLoop:
         template = _Bag()
         cloned = _Bag()
         # Pre-fit template has nothing; post-fit clone has a populated cache.
-        setattr(template, "_cached_train_dmatrix", None)
-        setattr(cloned, "_cached_train_dmatrix", "post_fit_dmatrix")
+        template._cached_train_dmatrix = None
+        cloned._cached_train_dmatrix = "post_fit_dmatrix"
         _forward_dataset_reuse_cache(cloned, template)
         assert getattr(template, "_cached_train_dmatrix") == "post_fit_dmatrix"
 
         # skip_none variant: clone-side None must not blank template's pre-existing cache.
-        setattr(template, "_cached_train_dmatrix", "kept_value")
-        setattr(cloned, "_cached_train_dmatrix", None)
+        template._cached_train_dmatrix = "kept_value"
+        cloned._cached_train_dmatrix = None
         _forward_dataset_reuse_cache(cloned, template, skip_none=True)
         assert getattr(template, "_cached_train_dmatrix") == "kept_value"
 
@@ -997,7 +997,7 @@ class TestCoreAutoClearsShimCacheAtStrategyEnd:
         from types import SimpleNamespace
         from mlframe.models import ensembling as ens_mod
 
-        X, y = small_classification_data
+        X, _y = small_classification_data
 
         class _PoisonModel:
             def predict_proba(self, _X):

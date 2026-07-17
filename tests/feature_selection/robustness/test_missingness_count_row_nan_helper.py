@@ -34,7 +34,7 @@ def _frame():
 def test_count_helper_bit_identical_to_pandas_row_sum():
     X, allcols = _frame()
     ref = X.loc[:, allcols].isna().sum(axis=1).to_numpy().astype(np.int32)
-    counts, recipe = mf.missingness_count_fit(X, allcols)
+    counts, _recipe = mf.missingness_count_fit(X, allcols)
     assert counts.dtype == np.int32
     assert np.array_equal(counts, ref)
     applied = mf.apply_missingness_count(X, {"cols": tuple(allcols)})

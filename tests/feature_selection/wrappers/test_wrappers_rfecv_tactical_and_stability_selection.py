@@ -8,9 +8,8 @@ import logging
 
 import numpy as np
 import pandas as pd
-import pytest
-from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
-from sklearn.linear_model import LinearRegression, LogisticRegression, Ridge
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from tests.training.synthetic import make_sklearn_classification_df
 

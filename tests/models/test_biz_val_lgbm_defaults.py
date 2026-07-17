@@ -14,7 +14,7 @@ import pytest
 
 lgb = pytest.importorskip("lightgbm")
 
-from mlframe.models.lgbm_defaults import AUTO_EXTRA_TREES_MIN_N_ESTIMATORS, default_lgbm_params  # noqa: E402
+from mlframe.models.lgbm_defaults import AUTO_EXTRA_TREES_MIN_N_ESTIMATORS, default_lgbm_params
 
 
 def _make_correlated_noisy_regression(n_train: int, n_test: int, seed: int):

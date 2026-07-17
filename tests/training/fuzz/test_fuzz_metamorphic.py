@@ -29,7 +29,6 @@ from __future__ import annotations
 from mlframe.training import OutputConfig, PreprocessingConfig
 
 import os
-import tempfile
 from typing import Any
 
 import numpy as np
@@ -98,10 +97,10 @@ def _extract_primary_val_metric(trained: dict) -> float | None:
                         return float(v)
         # Sniff matched but no usable metric: fall through to None.
 
-    for tt, by_name in trained.items():
+    for by_name in trained.values():
         if not isinstance(by_name, dict):
             continue
-        for tn, lst in by_name.items():
+        for lst in by_name.values():
             if not isinstance(lst, list):
                 continue
             for entry in lst:

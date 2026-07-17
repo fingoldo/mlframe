@@ -198,7 +198,7 @@ def test_reporting_unseen_predict_warns(caplog):
     )
 
     with caplog.at_level(logging.WARNING):
-        preds, probs = report_probabilistic_model_perf(
+        _preds, probs = report_probabilistic_model_perf(
             targets=targets,
             columns=["f0"],
             model_name="unseen",

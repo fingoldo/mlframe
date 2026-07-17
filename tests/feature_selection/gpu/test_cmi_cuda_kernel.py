@@ -28,8 +28,8 @@ def _make_case(seed, n, p, nbx, nby, nbz):
     nbins = [nbx] * p
     yc = rng.randint(0, nby, n)
     zc = rng.randint(0, nbz, n)
-    fd = np.column_stack(cols + [yc, zc]).astype(np.int32)
-    fb = np.array(nbins + [nby, nbz], dtype=np.int64)
+    fd = np.column_stack([*cols, yc, zc]).astype(np.int32)
+    fb = np.array([*nbins, nby, nbz], dtype=np.int64)
     return fd, fb, p  # y_index = p, z_index = p+1
 
 
@@ -58,7 +58,7 @@ def test_cuda_cmi_skewed_and_constant_columns():
     cols.append(np.zeros(n, dtype=int))  # constant column
     yc = rng.randint(0, 3, n)
     zc = rng.randint(0, 4, n)
-    fd = np.column_stack(cols + [yc, zc]).astype(np.int32)
+    fd = np.column_stack([*cols, yc, zc]).astype(np.int32)
     fb = np.array([4] * p + [3, 4], dtype=np.int64)
     gpu = conditional_mi_batched_dispatch(fd, np.arange(p), p, p + 1, fb, force="cuda")
     cpu = _cpu_ref(fd, fb, p)

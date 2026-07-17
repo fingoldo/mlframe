@@ -33,7 +33,7 @@ import pytest
 
 warnings.filterwarnings("ignore")
 
-from mlframe.training.composite.discovery._eval_stats import (  # noqa: E402
+from mlframe.training.composite.discovery._eval_stats import (
     apply_fdr_control_to_candidates,
     benjamini_hochberg_reject,
     bootstrap_gain_p_value,

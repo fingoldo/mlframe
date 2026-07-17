@@ -27,8 +27,8 @@ def _make_step_frame(n=1200, p=8, seed=0):
 
 def test_max_cols_none_preserves_legacy_behavior():
     X, y = _make_step_frame(p=5)
-    eng_unbounded, meta_unbounded = generate_wavelet_features(X, y=y, max_cols=None)
-    eng_explicit_default, meta_explicit_default = generate_wavelet_features(X, y=y)
+    eng_unbounded, _meta_unbounded = generate_wavelet_features(X, y=y, max_cols=None)
+    eng_explicit_default, _meta_explicit_default = generate_wavelet_features(X, y=y)
     assert set(eng_unbounded.columns) == set(eng_explicit_default.columns)
 
 
@@ -47,7 +47,7 @@ def test_max_cols_bounds_which_columns_get_legs():
     X = pd.DataFrame({f"f{i}": rng.uniform(-1, 1, n) for i in range(4)})
     # f0 AND f3 both carry independent localized steps -- without a cap both could get legs.
     y = (X["f0"] > 0.3).astype(float) + (X["f3"] < -0.3).astype(float) + 0.05 * rng.standard_normal(n)
-    eng, meta = generate_wavelet_features(X, y=y, cols=list(X.columns), max_cols=1)
+    _eng, meta = generate_wavelet_features(X, y=y, cols=list(X.columns), max_cols=1)
     sources = {m["src"] for m in meta.values()}
     assert sources.issubset({"f0"}), f"wavelet leg leaked past the column cap: {sources}"
 
@@ -59,7 +59,7 @@ def test_max_cols_unbounded_can_select_a_later_column():
     rng = np.random.default_rng(5)
     X = pd.DataFrame({f"f{i}": rng.uniform(-1, 1, n) for i in range(4)})
     y = (X["f3"] < -0.3).astype(float) + 0.05 * rng.standard_normal(n)
-    eng, meta = generate_wavelet_features(X, y=y, cols=list(X.columns), max_cols=None)
+    _eng, meta = generate_wavelet_features(X, y=y, cols=list(X.columns), max_cols=None)
     sources = {m["src"] for m in meta.values()}
     assert "f3" in sources, "expected the unbounded selector to admit a leg on f3's localized step"
 

@@ -14,10 +14,7 @@ and is keyed by ``hash(_js)``. Mirrors the _PROBE_PRECISION_CACHE
 _mlframe_callback_cache_installed (neural/base iter189) patterns.
 """
 
-import time
-from unittest.mock import patch
 
-import pytest
 
 
 def test_pipeline_json_roundtrip_cache_skips_second_validation():
@@ -160,7 +157,6 @@ def test_pipeline_json_disk_cache_version_invalidation(tmp_path, monkeypatch):
     wheel that newly fails roundtrip can't silently inherit a stale
     'safe' verdict."""
     from mlframe.training.core import _setup_helpers as sh
-    import os
     import orjson as _orjson
 
     cache_file = str(tmp_path / "polars_ds_pipeline_roundtrip.json")

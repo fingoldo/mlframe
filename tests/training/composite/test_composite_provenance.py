@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import orjson
 from datetime import datetime
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 import pytest
 
@@ -43,7 +43,7 @@ def _make_spec(
     transform_name: str = "linear_residual",
     base_column: str = "TVT_prev",
     target_col: str = "TVT",
-    fitted_params: Dict[str, Any] = None,
+    fitted_params: Optional[Dict[str, Any]] = None,
     mi_gain: float = 0.42,
 ) -> CompositeSpec:
     fitted_params = fitted_params or {"alpha": 0.95, "beta": 0.5}
@@ -166,7 +166,7 @@ class TestFormulas:
         assert desc
 
     def test_linear_residual_includes_alpha_beta(self) -> None:
-        fwd, inv, desc = _format_transform_formulas(
+        fwd, inv, _desc = _format_transform_formulas(
             "linear_residual",
             base_column="x",
             target_col="y",
@@ -177,7 +177,7 @@ class TestFormulas:
         assert "0.95" in inv
 
     def test_logratio_includes_clip_params(self) -> None:
-        fwd, inv, desc = _format_transform_formulas(
+        fwd, inv, _desc = _format_transform_formulas(
             "logratio",
             base_column="x",
             target_col="y",
@@ -192,7 +192,7 @@ class TestFormulas:
         assert "0.05" in inv
 
     def test_unknown_transform_falls_back_gracefully(self) -> None:
-        fwd, inv, desc = _format_transform_formulas(
+        fwd, inv, _desc = _format_transform_formulas(
             "made_up",
             base_column="x",
             target_col="y",

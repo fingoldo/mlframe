@@ -72,7 +72,7 @@ def _neural_prewarm_is_safe() -> bool:
 # because some of these are optional extras.
 if _neural_prewarm_is_safe():
     try:
-        import mlframe.training.neural  # noqa: F401
+        import mlframe.training.neural
     except (ImportError, OSError):
         pass
 try:
@@ -80,7 +80,7 @@ try:
     # touching it here lets the cold-cache wallclock land outside the
     # per-test timeout window.
     import networkx
-    import networkx.algorithms  # noqa: F401
+    import networkx.algorithms
 except (ImportError, OSError):
     pass
 

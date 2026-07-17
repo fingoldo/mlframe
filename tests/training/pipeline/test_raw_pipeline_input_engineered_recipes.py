@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.training.pipeline._pipeline_helpers import _test_df_is_raw_pipeline_input
 

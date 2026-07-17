@@ -24,7 +24,6 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from mlframe.metrics.ranking import ndcg_at_k
 from mlframe.training import (
     LearningToRankConfig,
     TargetTypes,

@@ -28,7 +28,6 @@ calls them correctly).
 
 from __future__ import annotations
 
-import logging
 
 import polars as pl
 
@@ -73,7 +72,7 @@ class TestValOnlyNullDetection:
     def test_train_alone_misses_valtest_only_nulls(self):
         """Demonstrates the pre-Round-17 bug: inspecting train alone
         returns an empty list even though val and test have nulls."""
-        train, val, test = self._build_splits()
+        train, _val, _test = self._build_splits()
         train_only_nullable = _polars_nullable_categorical_cols(
             train,
             cat_features=["col_a", "col_b", "col_c"],

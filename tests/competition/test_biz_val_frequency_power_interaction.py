@@ -68,7 +68,7 @@ def test_biz_val_frequency_power_interaction_beats_raw_plus_count():
 
 
 def test_biz_val_frequency_power_interaction_clip_bounds_exponent():
-    x, counts, interaction, _ = _make_dataset(n_unique=1000, n_pairs=500, seed=1)
+    x, _counts, _interaction, _ = _make_dataset(n_unique=1000, n_pairs=500, seed=1)
     result = frequency_power_interaction(x, feature_range=(-4.0, 4.0), count_clip_range=(1.0, 3.0))
     assert np.all(result.clipped_counts >= 1.0)
     assert np.all(result.clipped_counts <= 3.0)

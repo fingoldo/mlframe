@@ -7,7 +7,6 @@ validates the parameter name against ``get_params`` and fires any setter side ef
 
 from __future__ import annotations
 
-import pytest
 
 from mlframe.training.core._setup_helpers import _build_pre_pipelines
 
@@ -35,7 +34,7 @@ class _FakeNoSetParams:
 
 def test_set_params_path_invoked_for_sklearn_style_instances():
     inst = _FakeRFECVWithSetParams()
-    pre_pipelines, names = _build_pre_pipelines(
+    _pre_pipelines, _names = _build_pre_pipelines(
         use_ordinary_models=False,
         rfecv_models=["fake"],
         rfecv_models_params={"fake": inst},

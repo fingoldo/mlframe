@@ -23,8 +23,8 @@ def _ordinal_inputs(X: np.ndarray, y: np.ndarray, nbins: int = 8):
     from mlframe.feature_selection.filters.discretization import discretize_array
 
     cols = [discretize_array(arr=X[:, j], n_bins=nbins, method="quantile", dtype=np.int32) for j in range(X.shape[1])]
-    data = np.column_stack(cols + [y.astype(np.int32)]).astype(np.int32)
-    nb = np.array([nbins] * X.shape[1] + [int(len(np.unique(y)))], dtype=np.int64)
+    data = np.column_stack([*cols, y.astype(np.int32)]).astype(np.int32)
+    nb = np.array([nbins] * X.shape[1] + [len(np.unique(y))], dtype=np.int64)
     names = [f"x{j}" for j in range(X.shape[1])] + ["y"]
     return data, nb, names, (X.shape[1],)
 

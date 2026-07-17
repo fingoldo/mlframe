@@ -8,7 +8,6 @@ plus a clean distribution where it must NOT trigger (negative case).
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from mlframe.training.targets._target_distribution_analyzer import (
     TargetDistributionReport,
@@ -171,7 +170,7 @@ class TestRegressionAnalyzer:
             big_y[i] = 0.95 * big_y[i - 1] + rng.standard_normal() * 0.5
         # 99 small groups of 100 rows each, all iid (no AR)
         small_groups = [rng.standard_normal(100) for _ in range(99)]
-        y = np.concatenate([big_y] + small_groups)
+        y = np.concatenate([big_y, *small_groups])
         group_ids = np.concatenate(
             [
                 np.zeros(10_000, dtype=np.int32),
@@ -209,7 +208,7 @@ class TestRegressionAnalyzer:
         y_shuffled = y[perm]
         group_ids_shuffled = group_ids[perm]
         with caplog.at_level(logging.WARNING):
-            rep = analyze_target_distribution(
+            analyze_target_distribution(
                 y_shuffled,
                 group_ids=group_ids_shuffled,
                 has_time_axis=False,
@@ -416,7 +415,7 @@ def test_lag_autocorr_matches_corrcoef_reference():
     that the strong-AR detector relies on."""
     from mlframe.training.targets._target_distribution_analyzer_stats import _lag_autocorr
 
-    rng = np.random.default_rng(5)
+    np.random.default_rng(5)
     for s in range(50):
         r = np.random.default_rng(s)
         y = np.cumsum(r.standard_normal(int(r.integers(50, 8000)))).astype(np.float64)

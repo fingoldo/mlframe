@@ -5,13 +5,11 @@ Under ``@numba.njit`` bounds-checks are relaxed and the out-of-range read silent
 
 from __future__ import annotations
 
-import importlib
 import os
 import subprocess
 import sys
 
 import numpy as np
-import pytest
 
 
 def test_compute_area_profits_no_oob_when_positions_shorter_than_prices():

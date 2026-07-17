@@ -21,7 +21,6 @@ from mlframe.reporting.charts.model_card import (
     ECE_RED,
     R2_AMBER,
     R2_GREEN,
-    ModelCardVerdict,
     compose_model_card_figure,
     model_card_verdict,
     _classification_verdict,

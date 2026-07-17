@@ -22,7 +22,6 @@ so downstream test MSE is reliably lower or equal, never worse.
 from __future__ import annotations
 
 import torch
-from torch import nn
 
 from mlframe.training.neural.fixed_sparse_linear import FixedSparseLinear, _build_importance_mask
 

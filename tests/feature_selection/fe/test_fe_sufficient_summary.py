@@ -19,7 +19,6 @@ wall-cut + selection-byte-identity is covered in the biz_value sibling
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from mlframe.feature_selection.filters._fe_sufficient_summary import (
     SufficientSummaryVerdict,

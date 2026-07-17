@@ -14,7 +14,6 @@ change between fits). Mirrors the ``_PROBE_PRECISION_CACHE`` pattern
 
 import time
 
-import pytest
 
 
 def test_lightning_external_callbacks_cached_per_group():

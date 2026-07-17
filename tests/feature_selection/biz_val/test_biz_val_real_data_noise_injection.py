@@ -239,7 +239,7 @@ def _run_case(case):
 
     lin_deltas, tree_deltas, noise_rejs, recalls = [], [], [], []
     for seed in (0, 1):
-        df, real, noise, dup = _augment(X_real, feat_names, n_perm=n_perm, n_dup=n_dup, seed=seed)
+        df, real, noise, _dup = _augment(X_real, feat_names, n_perm=n_perm, n_dup=n_dup, seed=seed)
         all_cols = list(df.columns)
         sel = make(task)
         sel.fit(df, y)

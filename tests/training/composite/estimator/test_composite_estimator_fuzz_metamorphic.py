@@ -213,12 +213,12 @@ class TestFuzzFitPredictNeverCrashes:
             ctx = f"batch={batch} it={it} transform={transform} n={n} n_feat={n_feat} nan_frac={nan_frac} outliers={inject_outliers} dtype={dtype} seed={seed}"
             try:
                 est.fit(X, y)
-            except Exception as exc:  # noqa: BLE001 - fuzz surfaces ALL crashes
+            except Exception as exc:
                 pytest.fail(f"fit crashed [{ctx}]: {type(exc).__name__}: {exc}")
 
             try:
                 y_hat = est.predict(X)
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 pytest.fail(f"predict crashed [{ctx}]: {type(exc).__name__}: {exc}")
 
             assert y_hat.shape == (len(X),), f"shape [{ctx}]"

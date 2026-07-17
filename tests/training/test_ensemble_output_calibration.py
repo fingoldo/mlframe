@@ -146,7 +146,7 @@ def _build_ensemble_with_oof(n=2000, seed=7):
 
 
 def test_off_is_identity_bit_for_bit():
-    ens, oof_matrix, y, blend = _build_ensemble_with_oof()
+    ens, _oof_matrix, y, blend = _build_ensemble_with_oof()
     X = np.zeros((len(y), 1))
     raw_pred = ens.predict(X)
     assert ens.calibrate_output is False
@@ -157,7 +157,7 @@ def test_off_is_identity_bit_for_bit():
 
 
 def test_fit_output_calibrator_attaches_and_lowers_oof_rmse():
-    ens, oof_matrix, y, blend = _build_ensemble_with_oof()
+    ens, oof_matrix, y, _blend = _build_ensemble_with_oof()
     X = np.zeros((len(y), 1))
     raw_pred = ens.predict(X)
     rmse_raw = _rmse(raw_pred, y)

@@ -33,7 +33,7 @@ def test_ci_brackets_mean():
 
 def test_nan_queries_dropped():
     vals = np.array([0.5, np.nan, 0.7, np.nan, 0.9])
-    mean, lo, hi = bootstrap_ndcg_ci(vals)
+    mean, _lo, _hi = bootstrap_ndcg_ci(vals)
     assert mean == pytest.approx(np.mean([0.5, 0.7, 0.9]), abs=1e-12)
 
 
@@ -116,5 +116,5 @@ def test_biz_val_ci_contains_true_mean_of_known_distribution():
     CI at 4000 queries must contain the true mean. Pins that the CI is honest (covers truth)."""
     true_mean = 5.0 / 7.0
     vals = np.random.default_rng(21).beta(5, 2, size=4000)
-    mean, lo, hi = bootstrap_ndcg_ci(vals, seed=5)
+    _mean, lo, hi = bootstrap_ndcg_ci(vals, seed=5)
     assert lo <= true_mean <= hi, (lo, true_mean, hi)

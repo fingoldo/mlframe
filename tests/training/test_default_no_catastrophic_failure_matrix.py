@@ -399,7 +399,7 @@ def _split_train_for_mlp_val(
     without an extra shuffle seed).
     """
     n = X.shape[0]
-    n_val = max(int(round(n * val_frac)), 32)
+    n_val = max(round(n * val_frac), 32)
     return X[:-n_val], y[:-n_val], X[-n_val:], y[-n_val:]
 
 

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Biz-value speed+quality test for the MRMR ``fe_fast_search`` master toggle (2026-06-14).
 
 Asserts, on the two canonical interaction synthetics:
@@ -79,7 +78,7 @@ def test_fast_search_recovers_signal_and_is_faster(case):
     t0 = time.time()
     m_ref = MRMR(verbose=0, random_seed=0, fe_fast_search=False).fit(df.copy(), y.copy())
     t_ref = time.time() - t0
-    names_ref = list(m_ref.get_feature_names_out())
+    list(m_ref.get_feature_names_out())
     mae_ref = _ridge_holdout_mae(m_ref, df, y)
 
     # Fast path (default ON).

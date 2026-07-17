@@ -109,9 +109,6 @@ def _fuzz3way_cleanup():
         pass
     try:
         from mlframe.training import (
-            FeatureSelectionConfig,
-            OutlierDetectionConfig,
-            OutputConfig,
             trainer as _tr,
         )
 

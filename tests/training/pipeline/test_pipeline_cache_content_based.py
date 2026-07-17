@@ -226,5 +226,5 @@ class TestPipelineCacheRealHitOnSecondStrategy:
         assert result is not None, "PipelineCache MISS for neural after linear stored under the same content key - content-keyed cache is broken"
         assert cache.n_hits == 1
         assert cache.n_misses == 0
-        train, val, test = result
+        train, _val, _test = result
         assert train == "fake_train_df", "wrong frame returned from cache"

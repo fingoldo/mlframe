@@ -81,7 +81,7 @@ def test_biz_val_rank_subgroup_feature_overfit_risk_orders_by_known_severity():
     ranking = rank_subgroup_feature_overfit_risk(train_df, test_df, candidates)
 
     true_severity_order = [col for col, _, _ in specs]  # col_stable (least severe) -> col_extreme (most severe)
-    true_rank = {col: rank for rank, col in enumerate(true_severity_order)}
+    {col: rank for rank, col in enumerate(true_severity_order)}
     predicted_severity = [ranking.loc[ranking["feature_name"] == col, "risk_score"].iloc[0] for col in true_severity_order]
     rho, _ = spearmanr(list(range(len(true_severity_order))), predicted_severity)
     assert rho >= 0.99

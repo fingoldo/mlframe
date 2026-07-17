@@ -10,7 +10,6 @@ import pytest
 import torch
 import torch.nn as nn
 from sklearn.datasets import make_classification
-from sklearn.metrics import recall_score
 from sklearn.model_selection import train_test_split
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
@@ -104,7 +103,7 @@ def multiclass3():
 def test_multiclass_label_smoothing_replaces_loss(multiclass3):
     """label_smoothing > 0 on multiclass injects a fresh CrossEntropyLoss
     with the requested epsilon."""
-    X_tr, X_te, y_tr, _ = multiclass3
+    X_tr, _X_te, y_tr, _ = multiclass3
     clf = PytorchLightningClassifier(**_params(label_smoothing=0.1))
     clf.fit(X_tr, y_tr)
     # Inspect the LightningModule's loss to verify it carries the smoothing.

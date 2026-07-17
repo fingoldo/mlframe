@@ -57,7 +57,7 @@ def main() -> None:
         digest = _snapshot_digest(feats, names)[:16]
         prev = DIGESTS.get(scenario, "<missing>")
         flag = " # CHANGED" if digest != prev else ""
-        print(f"    {repr(scenario):<{max_name}}: {repr(digest)},{flag}")
+        print(f"    {scenario!r:<{max_name}}: {digest!r},{flag}")
     print("}")
 
 

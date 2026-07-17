@@ -47,11 +47,10 @@ import pytest
 
 warnings.filterwarnings("ignore")
 
-from sklearn.linear_model import LogisticRegression  # noqa: E402
-from sklearn.model_selection import cross_val_score  # noqa: E402
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import cross_val_score
 
-from tests.feature_selection._selector_factories import SELECTOR_SPECS, selected_names, spec_params  # noqa: E402
-from tests.feature_selection.conftest import fast_subset  # noqa: E402
+from tests.feature_selection._selector_factories import SELECTOR_SPECS, selected_names, spec_params
 
 
 # --------------------------------------------------------------------------- fixtures / metrics
@@ -272,7 +271,7 @@ def test_reduces_multicollinearity(spec):
     the full cluster (post-VIF stays unbounded/high) are xfailed to the correct bound.
     """
     X, y = make_multicollinear_pollution(seed=0)
-    names, cols = _fit_or_report(spec, X, y)
+    _names, cols = _fit_or_report(spec, X, y)
     post_vif = _max_vif(X[cols]) if cols else 1.0
     print(f"[vif-reduce] {spec.name}: post max-VIF={post_vif} on {cols}")
 

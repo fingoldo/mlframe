@@ -67,7 +67,7 @@ def test_floor_stays_nonneg_and_finite_with_occupied_mm():
     rng = np.random.default_rng(1)
     cols = [_disc(rng.normal(size=n) ** 2 / rng.normal(size=n), nb) for _ in range(8)]
     y = _disc(rng.normal(size=n), nb)
-    data = np.column_stack(cols + [y]).astype(np.int64)
+    data = np.column_stack([*cols, y]).astype(np.int64)
     nbins = np.array([nb] * 9)
     f = pooled_permutation_null_gain_floor(data, nbins, np.arange(8), 8, n_permutations=25, random_seed=0)
     assert np.isfinite(f) and f >= 0.0

@@ -27,7 +27,7 @@ from sklearn.metrics import mean_squared_error, roc_auc_score
 
 from mlframe.training.core import train_mlframe_models_suite, predict_mlframe_models_suite
 from .shared import SimpleFeaturesAndTargetsExtractor
-from tests.conftest import fast_subset, is_fast_mode
+from tests.conftest import fast_subset
 
 
 # --------------------------------------------------------------------------------------
@@ -106,7 +106,7 @@ def _make_classification(n_train=3000, n_test=600, n_features=15, seed=42, noise
 def _train_and_score_regression(train_df, test_df, tmp_path, *, model_name, outlier_detector, common_init_params, iterations=100):
     fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
     data_dir = str(tmp_path / "data" / model_name)
-    models, metadata = train_mlframe_models_suite(
+    _models, metadata = train_mlframe_models_suite(
         df=train_df,
         target_name="test_target",
         model_name=model_name,
@@ -164,7 +164,7 @@ def _train_and_score_classification(train_df, test_df, tmp_path, *, model_name, 
     data_dir = str(tmp_path / "data" / model_name)
     hp = {"iterations": iterations, "early_stopping_rounds": early_stopping_rounds}
     t0 = time.perf_counter()
-    models, metadata = train_mlframe_models_suite(
+    _models, metadata = train_mlframe_models_suite(
         df=train_df,
         target_name="test_target",
         model_name=model_name,
@@ -320,7 +320,7 @@ def test_early_stopping_saves_time_without_auroc_loss(tmp_path, common_init_para
 
     # Run A: ES disabled via early_stopping_rounds=None (clean disable path).
     # Use a large iterations cap so the no-ES run is forced to train all trees.
-    auroc_a, time_a, meta_a, trees_a = _train_and_score_classification(
+    auroc_a, time_a, _meta_a, trees_a = _train_and_score_classification(
         train_df,
         test_df,
         tmp_path,
@@ -333,7 +333,7 @@ def test_early_stopping_saves_time_without_auroc_loss(tmp_path, common_init_para
 
     # Run B: aggressive early stopping with small patience — should converge in well
     # under 100 trees on the noisy fixture, training far fewer boosting rounds.
-    auroc_b, time_b, meta_b, trees_b = _train_and_score_classification(
+    auroc_b, time_b, _meta_b, trees_b = _train_and_score_classification(
         train_df,
         test_df,
         tmp_path,

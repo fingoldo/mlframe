@@ -630,7 +630,7 @@ class TestMatrixProvenance:
         lines.append(best_row)
         text = "\n".join(lines)
         # Print uses bare ascii; cp1251-safe.
-        print("\n" + text)  # noqa: T201 -- informational report only visible under pytest -s
+        print("\n" + text)
         # Always pass; the contract on cell finiteness is Contract 1.
         assert True
 

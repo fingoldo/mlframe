@@ -116,7 +116,7 @@ def test_stack_relational_features_depth_2_respects_both_hop_cutoffs():
     # Outlet 11 (opened_at=90) sees sales before ts=90 -> none (sale_ts=91 and 200 are both at/after its own
     # opened_at) -> 0 after the depth-2 zero-fill. Rolled up onto the store (cutoff=100, sees both outlets):
     # 30 + 0 = 30.
-    result_col = [c for c in out.columns if "sale_revenue_sum" in c and "mean" not in c][0]
+    result_col = next(c for c in out.columns if "sale_revenue_sum" in c and "mean" not in c)
     assert out[result_col].item() == 30
 
 

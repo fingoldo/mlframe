@@ -54,7 +54,7 @@ os.environ.setdefault("MPLBACKEND", "Agg")
 # the swept ``backend_choice`` (e.g. numpy-wins) and fail. Routing to a per-process tmp dir also stops the suite from
 # polluting the real cache. ``load_or_create()`` binds the dir at first construction, so the companion
 # ``_reset_kernel_tuning_singleton`` autouse fixture resets the singleton per test so a test's own override takes effect.
-import tempfile as _tempfile  # noqa: E402
+import tempfile as _tempfile
 
 _kt_worker = os.environ.get("PYTEST_XDIST_WORKER", "main")
 os.environ["PYUTILZ_KERNEL_CACHE_DIR"] = os.path.join(_tempfile.gettempdir(), f"mlframe_test_kt_cache_{os.getpid()}_{_kt_worker}")
@@ -478,7 +478,7 @@ def fast_mode() -> bool:
 # values; if no ``ValueError: Seed must be between 0 and 2**32 - 1`` cascades,
 # the upstream fix has landed).
 try:
-    import thinc.util as _thinc_util  # noqa: E402
+    import thinc.util as _thinc_util
 
     _thinc_original_fix = _thinc_util.fix_random_seed
 
@@ -510,7 +510,7 @@ try:
     # If pytest-randomly already populated its cache (e.g. another
     # conftest loaded before us), swap in the wrapper.
     try:
-        import pytest_randomly as _pr  # noqa: E402
+        import pytest_randomly as _pr
 
         if getattr(_pr, "entrypoint_reseeds", None):
             _pr.entrypoint_reseeds = [_thinc_clamped_fix_random_seed if r is _thinc_original_fix else r for r in _pr.entrypoint_reseeds]
@@ -523,7 +523,7 @@ except (OSError, RuntimeError) as exc:  # pragma: no cover
     # thinc is present but its import side-effects (cupy/CUDA init) failed: surface as a config notice, not a numeric RuntimeWarning.
     warnings.warn(
         f"Skipping optional thinc pytest-randomly seed shim because thinc import failed: {exc}",
-        UserWarning,
+        UserWarning, stacklevel=2,
     )
 
 
@@ -549,12 +549,12 @@ except (OSError, RuntimeError) as exc:  # pragma: no cover
 # earlier hypothesis this session, ruled out: the crash reproduces at LOW machine load
 # and is deterministic per pyarrow version, not load-dependent).
 try:
-    import pyutilz.system as _pus  # noqa: E402
+    import pyutilz.system as _pus
 
     # Inner module holds the LIVE definition; pyutilz.system re-exports via
     # ``from .system import *`` so the two names are separate bindings to the
     # same function object until we rebind one of them.
-    import pyutilz.system.system as _pus_inner  # noqa: E402
+    import pyutilz.system.system as _pus_inner
 
     if not getattr(_pus.tqdmu, "_mlframe_test_quieted", False):
         _orig_tqdmu = _pus.tqdmu
@@ -607,7 +607,7 @@ def _pytest_randomly_active() -> bool:
     of randomly shuffling test ordering). When randomly is active, defer to it.
     """
     try:
-        import pytest_randomly  # noqa: F401
+        import pytest_randomly
     except ImportError:
         return False
     # ``-p no:randomly`` makes the plugin importable but not loaded into the

@@ -108,7 +108,7 @@ def test_a1_05_apply_drops_atomic_on_mirror_failure(monkeypatch):
 def test_a1_03_mrmr_seed_defaults_from_split_seed():
     from mlframe.training.core._setup_helpers_pre_pipelines import _build_pre_pipelines
 
-    pps, names = _build_pre_pipelines(
+    pps, _names = _build_pre_pipelines(
         use_ordinary_models=False,
         rfecv_models=[],
         rfecv_models_params={},
@@ -116,14 +116,14 @@ def test_a1_03_mrmr_seed_defaults_from_split_seed():
         mrmr_kwargs={},
         fs_random_seed=123,
     )
-    mrmr = [p for p in pps if p is not None][0]
+    mrmr = next(p for p in pps if p is not None)
     assert mrmr.random_seed == 123
 
 
 def test_a1_03_mrmr_explicit_seed_wins_over_split_seed():
     from mlframe.training.core._setup_helpers_pre_pipelines import _build_pre_pipelines
 
-    pps, names = _build_pre_pipelines(
+    pps, _names = _build_pre_pipelines(
         use_ordinary_models=False,
         rfecv_models=[],
         rfecv_models_params={},
@@ -131,14 +131,14 @@ def test_a1_03_mrmr_explicit_seed_wins_over_split_seed():
         mrmr_kwargs={"random_seed": 7},
         fs_random_seed=123,
     )
-    mrmr = [p for p in pps if p is not None][0]
+    mrmr = next(p for p in pps if p is not None)
     assert mrmr.random_seed == 7
 
 
 def test_a1_01_group_split_defaults_mrmr_strict_groups():
     from mlframe.training.core._setup_helpers_pre_pipelines import _build_pre_pipelines
 
-    pps, names = _build_pre_pipelines(
+    pps, _names = _build_pre_pipelines(
         use_ordinary_models=False,
         rfecv_models=[],
         rfecv_models_params={},
@@ -146,5 +146,5 @@ def test_a1_01_group_split_defaults_mrmr_strict_groups():
         mrmr_kwargs={},
         fs_use_groups=True,
     )
-    mrmr = [p for p in pps if p is not None][0]
+    mrmr = next(p for p in pps if p is not None)
     assert mrmr.strict_groups is True

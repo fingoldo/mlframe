@@ -98,7 +98,7 @@ class _WeightedSubpopExtractor(SimpleFeaturesAndTargetsExtractor):
     def transform(self, df):
         out = list(super().transform(df))
         # out = (df, target_by_type, group_ids_raw, group_ids, timestamps, artifacts, cols_to_drop, sample_weights)
-        n = df.shape[0]
+        df.shape[0]
         is_b = np.asarray(df["_is_b_slice"].values, dtype=bool)
         sample_weights = dict(out[7])
         if "weighted" in (self.weight_schemas or ()):

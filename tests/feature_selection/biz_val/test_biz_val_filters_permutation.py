@@ -95,11 +95,11 @@ def test_biz_val_permutation_besag_clifford_2x_faster_strong_signal():
     N_PERMS = 1000
 
     t0 = time.perf_counter()
-    nf_full, nt_full = parallel_mi(cx, fx, cy, fy, N_PERMS, mi, max_failed=N_PERMS, dtype=np.int32)
+    _nf_full, _nt_full = parallel_mi(cx, fx, cy, fy, N_PERMS, mi, max_failed=N_PERMS, dtype=np.int32)
     t_full = time.perf_counter() - t0
 
     t0 = time.perf_counter()
-    nf_bc, nt_bc = parallel_mi_besag_clifford(cx, fx, cy, fy, N_PERMS, mi, np.uint64(0), dtype=np.int32)
+    _nf_bc, _nt_bc = parallel_mi_besag_clifford(cx, fx, cy, fy, N_PERMS, mi, np.uint64(0), dtype=np.int32)
     t_bc = time.perf_counter() - t0
 
     speedup = t_full / max(t_bc, 1e-6)

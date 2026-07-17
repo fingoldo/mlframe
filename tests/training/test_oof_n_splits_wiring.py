@@ -66,7 +66,7 @@ def _trained_entries(models):
 
 def test_e2e_oof_n_splits_stamps_oof_preds_on_model(tmp_path):
     """``oof_n_splits=3`` must produce a real K-fold OOF array, row-aligned with the train target."""
-    models, metadata = _run_suite(tmp_path, oof_n_splits=3)
+    models, _metadata = _run_suite(tmp_path, oof_n_splits=3)
     trained = _trained_entries(models)
     assert trained, "no models trained"
 
@@ -84,7 +84,7 @@ def test_e2e_oof_n_splits_stamps_oof_preds_on_model(tmp_path):
 
 def test_default_oof_n_splits_leaves_oof_preds_unset(tmp_path):
     """Default oof_n_splits=0 must be a genuine no-op: no oof_preds attribute, no extra K-fold compute."""
-    models, metadata = _run_suite(tmp_path, oof_n_splits=0)
+    models, _metadata = _run_suite(tmp_path, oof_n_splits=0)
     trained = _trained_entries(models)
     assert trained, "no models trained"
 

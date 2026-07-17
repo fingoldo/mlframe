@@ -88,7 +88,7 @@ def test_calib_carve_temporal_takes_oldest_train_rows():
     n = 1000
     df = pd.DataFrame({"f": np.arange(n)})
     ts = pd.Series(pd.date_range("2021-01-01", periods=n, freq="h"))
-    tr, va, te, _, _, _, calib_idx, _ = make_train_test_split(
+    tr, _va, _te, _, _, _, calib_idx, _ = make_train_test_split(
         df,
         test_size=0.2,
         val_size=0.1,
@@ -217,7 +217,7 @@ def test_calib_size_zero_leaves_split_unchanged():
     np.testing.assert_array_equal(te, te0)
 
     # None behaves the same as 0.
-    tr_n, va_n, te_n, _, _, _, calib_n, _ = make_train_test_split(
+    tr_n, _va_n, _te_n, _, _, _, calib_n, _ = make_train_test_split(
         df,
         test_size=0.2,
         val_size=0.1,

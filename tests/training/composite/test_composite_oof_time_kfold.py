@@ -5,11 +5,9 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from sklearn.linear_model import LinearRegression
 
-from mlframe.training.composite import CompositeTargetEstimator
 from mlframe.training.composite.ensemble import compute_oof_holdout_predictions
 
 
@@ -27,7 +25,7 @@ class TestN21TimeKfold:
         X, y = _data()
         inner = LinearRegression().fit(X, y)
         ts = np.arange(len(X))  # monotone
-        oof, yh, names = compute_oof_holdout_predictions(
+        oof, _yh, names = compute_oof_holdout_predictions(
             component_models=[inner, inner],
             component_names=["c0", "c1"],
             component_specs=[None, None],
@@ -53,7 +51,7 @@ class TestN21TimeKfold:
         import logging
 
         with caplog.at_level(logging.WARNING):
-            oof, yh, names = compute_oof_holdout_predictions(
+            _oof, _yh, _names = compute_oof_holdout_predictions(
                 component_models=[inner, inner],
                 component_names=["c0", "c1"],
                 component_specs=[None, None],

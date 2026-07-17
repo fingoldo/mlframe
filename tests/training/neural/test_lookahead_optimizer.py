@@ -14,7 +14,6 @@ Three layers:
 
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, List, Optional
 
 import numpy as np
 import pytest
@@ -288,7 +287,7 @@ def test_mlp_on_train_end_commits_slow_to_fast_when_use_lookahead():
     X, y = make_regression(n_samples=128, n_features=4, noise=0.5, random_state=0)
     X = X.astype(np.float32)
     y = y.astype(np.float32)
-    X_tr, X_te, y_tr, _ = train_test_split(X, y, test_size=0.3, random_state=0)
+    X_tr, _X_te, y_tr, _ = train_test_split(X, y, test_size=0.3, random_state=0)
 
     torch.manual_seed(0)
     np.random.seed(0)

@@ -2,13 +2,13 @@ import numpy as np
 import pytest
 
 pytest.importorskip("matplotlib")
-import matplotlib  # noqa: E402
+import matplotlib
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402
+import matplotlib.pyplot as plt
 
-from mlframe.reporting.charts.pdp_2d import compose_pdp_2d_figure, interaction_residual  # noqa: E402
-from mlframe.reporting.charts.pdp_ice import compute_pdp_2d  # noqa: E402
+from mlframe.reporting.charts.pdp_2d import compose_pdp_2d_figure, interaction_residual
+from mlframe.reporting.charts.pdp_ice import compute_pdp_2d
 
 
 class _ProductModel:

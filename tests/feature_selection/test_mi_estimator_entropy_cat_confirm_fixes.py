@@ -167,7 +167,7 @@ def test_conditional_permutation_pvalue_never_zero():
     # Strong x<->y dependence within strata so observed >> all null -> naive p would be 0.
     x = rng.integers(0, 3, n)
     y = x.copy()
-    obs, p = conditional_permutation_test(
+    _obs, p = conditional_permutation_test(
         x=x,
         y=y,
         z=z,

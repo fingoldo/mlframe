@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 
 import matplotlib
 
@@ -313,7 +312,7 @@ def test_make_brier_precision_scorer():
 def _import_keras_or_skip():
     pytest.importorskip("tensorflow")
     pytest.importorskip("keras")
-    from mlframe.training.neural.keras_compat import build_keras_mlp  # noqa: F401
+    from mlframe.training.neural.keras_compat import build_keras_mlp
 
     # Try an actual build; surface broken installs as ImportError via importorskip semantics
     # rather than silently skipping (memory feedback_no_mask_via_canon_or_guards).

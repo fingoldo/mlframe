@@ -72,7 +72,7 @@ def test_holdout_is_disjoint_from_every_train_subset():
     holdout = 0.25
     rng = np.random.default_rng(0)
     shuffled = rng.permutation(n)
-    n_hold = min(max(1, int(round(holdout * n))), n - 2)
+    n_hold = min(max(1, round(holdout * n)), n - 2)
     hold_idx = set(np.sort(shuffled[:n_hold]).tolist())
     pool_idx = set(np.sort(shuffled[n_hold:]).tolist())
     assert hold_idx.isdisjoint(pool_idx)

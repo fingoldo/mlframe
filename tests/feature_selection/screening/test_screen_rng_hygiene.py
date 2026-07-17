@@ -22,7 +22,6 @@ import pandas as pd
 import pytest
 
 from mlframe.feature_selection.filters import MRMR
-from mlframe.feature_selection.filters import screen as screen_mod
 
 # 2026-05-22: ``screen_predictors`` body lives in ``_screen_predictors.py``;
 # the live call to ``merge_vars`` resolves from THAT module's globals.

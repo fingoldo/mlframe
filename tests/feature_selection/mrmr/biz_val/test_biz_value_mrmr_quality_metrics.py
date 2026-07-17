@@ -15,7 +15,6 @@ import warnings
 
 import numpy as np
 import pandas as pd
-import pytest
 
 
 def _top_k_precision(selected: list[str], true_signals: set[str], k: int) -> float:

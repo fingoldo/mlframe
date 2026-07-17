@@ -23,7 +23,6 @@ OptimalJoint paths inherit it (they all funnel through this helper).
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 
 from mlframe.feature_selection.filters._adaptive_nbins import (

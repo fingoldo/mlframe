@@ -8,7 +8,6 @@ different permutation, (c) numpy's process-global state is untouched.
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 
 def _global_state_unchanged(before) -> bool:

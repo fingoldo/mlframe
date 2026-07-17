@@ -3,13 +3,11 @@
 from __future__ import annotations
 
 import numpy as np
-import pandas as pd
 import pytest
 
 from mlframe.feature_selection.filters.cat_fe_state import CatFEConfig
 from mlframe.feature_selection.filters.cat_interactions import (
     _pair_search_kernel_weighted_njit,
-    _bootstrap_ii_cis,
     run_cat_interaction_step,
 )
 from mlframe.feature_selection.filters.info_theory import merge_vars

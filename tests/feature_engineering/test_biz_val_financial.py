@@ -62,7 +62,7 @@ def test_biz_val_financial_add_fast_rolling_stats_adds_columns():
     """``add_fast_rolling_stats`` must ADD new columns to the input
     DataFrame (rolling aggregates of each numeric column over the
     configured windows)."""
-    pl = pytest.importorskip("polars")
+    pytest.importorskip("polars")
     from mlframe.feature_engineering.financial import add_fast_rolling_stats
 
     df = _make_ohlcv(n=200, n_tickers=2)
@@ -77,7 +77,7 @@ def test_biz_val_financial_add_fast_rolling_stats_adds_columns():
 
 def test_biz_val_financial_add_fast_rolling_stats_row_count_preserved():
     """Row count must be preserved (rolling is per-row, not aggregating)."""
-    pl = pytest.importorskip("polars")
+    pytest.importorskip("polars")
     from mlframe.feature_engineering.financial import add_fast_rolling_stats
 
     df = _make_ohlcv(n=200, n_tickers=2)
@@ -93,7 +93,7 @@ def test_biz_val_financial_add_fast_rolling_stats_row_count_preserved():
 @pytest.mark.parametrize("window_size", [3, 5, 10, 20])
 def test_biz_val_financial_rolling_stats_parametrize_window(window_size):
     """Multiple rolling windows must complete cleanly."""
-    pl = pytest.importorskip("polars")
+    pytest.importorskip("polars")
     from mlframe.feature_engineering.financial import add_fast_rolling_stats
 
     df = _make_ohlcv(n=200, n_tickers=2)
@@ -109,7 +109,7 @@ def test_biz_val_financial_rolling_stats_parametrize_window(window_size):
 def test_biz_val_financial_rolling_stats_multiple_windows_more_columns():
     """Adding MORE windows must add MORE columns. Doubling windows
     list should roughly double the added-column count."""
-    pl = pytest.importorskip("polars")
+    pytest.importorskip("polars")
     from mlframe.feature_engineering.financial import add_fast_rolling_stats
 
     df = _make_ohlcv(n=200, n_tickers=2)
@@ -131,7 +131,7 @@ def test_biz_val_financial_rolling_stats_multiple_windows_more_columns():
 def test_biz_val_financial_ohlcv_ratios_rlags_adds_columns():
     """``add_ohlcv_ratios_rlags`` must enrich OHLCV with ratio +
     relative-lag features."""
-    pl = pytest.importorskip("polars")
+    pytest.importorskip("polars")
     from mlframe.feature_engineering.financial import add_ohlcv_ratios_rlags
 
     df = _make_ohlcv(n=200, n_tickers=2)
@@ -149,7 +149,7 @@ def test_biz_val_financial_ohlcv_ratios_rlags_adds_columns():
 def test_biz_val_financial_ohlcv_ratios_only_disables_rlags():
     """``add_ratios=True, add_rlags=False`` must add FEWER columns
     than both-True (rlags contributes its own column count)."""
-    pl = pytest.importorskip("polars")
+    pytest.importorskip("polars")
     from mlframe.feature_engineering.financial import add_ohlcv_ratios_rlags
 
     df = _make_ohlcv(n=150, n_tickers=2)

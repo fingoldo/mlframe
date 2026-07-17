@@ -86,7 +86,7 @@ def test_biz_val_discover_categorical_groups_recovers_joint_rarity_pair_and_reje
     assert frozenset({"cat_a", "cat_b"}) in group_sets, f"expected auto-discovery to group the jointly-informative pair together, got groups={groups}"
     assert frozenset({"cat_noise"}) in group_sets, f"expected the independent noise column to end up as its own singleton group, got groups={groups}"
 
-    out_auto, discovered_groups = auto_concat_categorical_groups(df, columns, y, min_mi_gain=0.001, random_state=0)
+    out_auto, _discovered_groups = auto_concat_categorical_groups(df, columns, y, min_mi_gain=0.001, random_state=0)
     auto_col = "concat_group__cat_a_cat_b"
     assert auto_col in out_auto.columns, f"expected the discovered pair's composite column to be materialized, got columns={list(out_auto.columns)}"
 

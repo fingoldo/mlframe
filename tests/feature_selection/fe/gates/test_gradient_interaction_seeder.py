@@ -20,7 +20,7 @@ import pytest
 
 sk = pytest.importorskip("sklearn")
 
-from mlframe.feature_selection.filters._gradient_interaction_seeder import (  # noqa: E402
+from mlframe.feature_selection.filters._gradient_interaction_seeder import (
     _finite_diff_mixed_partial_energy,
     _fit_rff_ridge,
     _rff_analytic_mixed_partial_energy,
@@ -129,7 +129,7 @@ def test_batched_kernel_matches_loop_kernel():
 def test_oof_gate_blocks_noise():
     """Pure noise: the OOF self-gate fires (surrogate does not learn) -> 0 proposals."""
     X, y = _make("noise")
-    proposed, energies, diag = rank_gradient_interaction_pairs(X, y, list(range(P)), seed=0)
+    proposed, _energies, diag = rank_gradient_interaction_pairs(X, y, list(range(P)), seed=0)
     # either it didn't learn, or it learned by fluke but the null rail rejects everything
     assert len(proposed) == 0
     if diag.get("learned"):
@@ -140,7 +140,7 @@ def test_permutation_null_rejects_additive():
     """Additive (no interaction): surrogate learns the linear signal, but the additive-residual
     baseline + permutation null reject all chance saddles -> 0 proposals."""
     X, y = _make("additive")
-    proposed, energies, diag = rank_gradient_interaction_pairs(X, y, list(range(P)), seed=0)
+    proposed, _energies, diag = rank_gradient_interaction_pairs(X, y, list(range(P)), seed=0)
     assert diag["learned"] is True  # it DOES learn the additive signal
     assert len(proposed) == 0  # but proposes nothing (no interaction)
 
@@ -243,7 +243,7 @@ def test_biz_value_proposing_saddle_improves_accuracy():
     from sklearn.metrics import r2_score
 
     X, y = _make("sin_prod")
-    proposed, _, diag = rank_gradient_interaction_pairs(X, y, list(range(P)), seed=0)
+    proposed, _, _diag = rank_gradient_interaction_pairs(X, y, list(range(P)), seed=0)
     assert FOCUS in proposed
 
     Xs = _standardize(X.astype(np.float64))

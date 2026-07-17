@@ -52,7 +52,7 @@ def test_inf_threshold_anchor_and_monotone():
 def test_perfect_separation():
     y = np.array([0, 0, 1, 1])
     s = np.array([0.1, 0.2, 0.8, 0.9])
-    fpr, tpr, thr = fast_roc_curve(y, s)
+    fpr, tpr, _thr = fast_roc_curve(y, s)
     # perfect classifier reaches tpr=1 at fpr=0
     assert np.isclose(np.trapezoid(tpr, fpr), 1.0)
 
@@ -70,7 +70,7 @@ def test_all_ties_single_threshold():
 def test_single_class_all_positive_gives_nan_fpr():
     y = np.array([1, 1, 1])
     s = np.array([0.2, 0.5, 0.9])
-    fpr, tpr, thr = fast_roc_curve(y, s)
+    fpr, tpr, _thr = fast_roc_curve(y, s)
     assert np.isnan(fpr).all()
     assert not np.isnan(tpr).any()
 
@@ -78,7 +78,7 @@ def test_single_class_all_positive_gives_nan_fpr():
 def test_single_class_all_negative_gives_nan_tpr():
     y = np.array([0, 0, 0])
     s = np.array([0.2, 0.5, 0.9])
-    fpr, tpr, thr = fast_roc_curve(y, s)
+    fpr, tpr, _thr = fast_roc_curve(y, s)
     assert np.isnan(tpr).all()
     assert not np.isnan(fpr).any()
 
@@ -95,8 +95,8 @@ def test_sample_weight_shifts_curve():
     y = np.array([0, 0, 1, 1])
     s = np.array([0.1, 0.4, 0.35, 0.8])
     w = np.array([1.0, 5.0, 1.0, 1.0])
-    fpr_w, tpr_w, _ = fast_roc_curve(y, s, sample_weight=w)
-    fpr_u, tpr_u, _ = fast_roc_curve(y, s)
+    fpr_w, _tpr_w, _ = fast_roc_curve(y, s, sample_weight=w)
+    fpr_u, _tpr_u, _ = fast_roc_curve(y, s)
     # up-weighting a negative changes the fpr axis
     assert not np.allclose(fpr_w, fpr_u)
 
@@ -177,6 +177,6 @@ def test_fast_roc_curve_large_profile():
 
     assert fpr.shape == tpr.shape
     assert thr[0] == np.inf
-    st = pstats.Stats(pr, stream=io.StringIO())
+    pstats.Stats(pr, stream=io.StringIO())
     # a large curve at 1M rows still produces a bounded number of distinct-score vertices
     assert fpr.shape[0] <= n + 1

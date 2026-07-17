@@ -93,7 +93,6 @@ def test_old_schema_version_warns_but_proceeds(caplog):
 def test_composite_env_signature_drift_warns_when_supplied(caplog, monkeypatch):
     """If the bundle recorded a composite_target_env_signature and the live
     env signature differs, WARN both signatures. Pre-fix: silent."""
-    from mlframe.training.core import predict as predict_mod
     from mlframe.training.core.predict import _validate_metadata_version_envelope
 
     # Monkey-patch the live env_signature to a known-different value.

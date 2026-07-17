@@ -17,7 +17,6 @@ import numpy as np
 import pandas as pd
 import pytest
 
-import mlframe.feature_selection.wrappers._helpers as helpers_mod
 from mlframe.feature_selection.wrappers._helpers import get_feature_importances
 
 
@@ -157,7 +156,7 @@ class TestBorutaShapRequiresData:
         target). Now it raises a clear ValueError mentioning data, regardless
         of whether the optional BorutaShap package is installed (the data guard
         fires before the import)."""
-        model, X_df, y, cols = _fit_tiny_rf()
+        model, _X_df, y, cols = _fit_tiny_rf()
         with pytest.raises(ValueError) as excinfo:
             get_feature_importances(
                 model=model,
@@ -170,7 +169,7 @@ class TestBorutaShapRequiresData:
 
     def test_boruta_shap_target_none_still_raises(self):
         """target is still required (pre-existing guard preserved)."""
-        model, X_df, y, cols = _fit_tiny_rf()
+        model, X_df, _y, cols = _fit_tiny_rf()
         with pytest.raises(ValueError) as excinfo:
             get_feature_importances(
                 model=model,

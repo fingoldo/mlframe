@@ -13,8 +13,6 @@ augmented member list. ``ctx.metadata['recurrent_ensemble_integration']`` record
 
 from __future__ import annotations
 
-import os
-import sys
 
 import numpy as np
 import pandas as pd
@@ -97,10 +95,10 @@ def test_recurrent_member_joins_ensemble_after_integration(tmp_path):
     )
     # Walk every target type / target name and look for at least one entry that recorded an LSTM member.
     matched_any = False
-    for _ttype, by_name in rec_meta.items():
+    for by_name in rec_meta.values():
         if not isinstance(by_name, dict):
             continue
-        for _tname, info in by_name.items():
+        for info in by_name.values():
             if not isinstance(info, dict):
                 continue
             recurrent_members = info.get("recurrent_members") or []
@@ -126,7 +124,7 @@ def test_recurrent_skipped_gracefully_when_predict_fails(monkeypatch, tmp_path):
     # Force predict to emit NaN. The helper must return None and the member should NOT join the ensemble.
     real_predict = _pr._safe_predict_recurrent
 
-    def _nan_predict(*, model, sequences, features, is_classification, **_extra):  # noqa: ARG001
+    def _nan_predict(*, model, sequences, features, is_classification, **_extra):
         # **_extra absorbs newly-added kwargs (ctx, split) so this patch keeps
         # working when the production helper grows signature parameters.
         return None  # mimic predict-failure path
@@ -160,10 +158,10 @@ def test_recurrent_skipped_gracefully_when_predict_fails(monkeypatch, tmp_path):
     # SimpleNamespace member entries to augment with.
     rec_meta = (metadata or {}).get("recurrent_ensemble_integration") or {}
     # If rec_meta is populated, every recorded entry must NOT claim an LSTM member (since predict failed).
-    for _ttype, by_name in rec_meta.items():
+    for by_name in rec_meta.values():
         if not isinstance(by_name, dict):
             continue
-        for _tname, info in by_name.items():
+        for info in by_name.values():
             assert "lstm" not in [str(n).lower() for n in (info or {}).get("recurrent_members") or []], (
                 f"recurrent member 'lstm' should have been dropped when predict() returned None; got info={info!r}"
             )

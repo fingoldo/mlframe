@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 
 
 def _toy_frame(n=80, p=4, seed=0):
@@ -30,7 +29,7 @@ def test_extension_columns_use_descriptive_names():
     train = _toy_frame()
     val = _toy_frame(seed=1)
     test = _toy_frame(seed=2)
-    out_train, out_val, out_test, pipe = apply_preprocessing_extensions(
+    out_train, _out_val, _out_test, pipe = apply_preprocessing_extensions(
         train,
         val,
         test,

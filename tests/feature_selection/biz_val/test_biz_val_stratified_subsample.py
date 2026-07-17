@@ -33,8 +33,6 @@ import pytest
 
 from mlframe.feature_selection.filters._fe_subsample import (
     stratified_subsample_idx,
-    _strat_clf_kernel,
-    _strat_reg_kernel,
     _HAVE_NUMBA,
 )
 

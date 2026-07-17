@@ -16,7 +16,6 @@ import logging
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.training.splitting import make_train_test_split
 
@@ -89,7 +88,7 @@ def test_tc15_unusable_derived_falls_back_with_loud_warning(monkeypatch, caplog)
     groups = np.arange(n)  # one row per group
     y = np.stack([(np.arange(n) % 2), (np.arange(n) // (n - 1))], axis=1)
     with caplog.at_level(logging.WARNING, logger="mlframe.training.splitting"):
-        train_idx, val_idx, test_idx, *_ = make_train_test_split(
+        train_idx, _val_idx, test_idx, *_ = make_train_test_split(
             df,
             test_size=0.2,
             val_size=0.2,

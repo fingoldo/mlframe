@@ -401,7 +401,7 @@ class TestMultiGPUResourceManagement:
         # Get initial memory
         if torch.cuda.is_available():
             torch.cuda.synchronize()
-            initial_memory = torch.cuda.memory_allocated()
+            torch.cuda.memory_allocated()
 
         eval_set = (multigpu_classification_data["X_val"], multigpu_classification_data["y_val"])
         clf.fit(multigpu_classification_data["X_train"], multigpu_classification_data["y_train"], eval_set=eval_set)
@@ -417,7 +417,7 @@ class TestMultiGPUResourceManagement:
 
     def test_multiple_sequential_trainings(self, multigpu_classification_data, multigpu_estimator_params_classifier):
         """Test multiple sequential training runs on multiple GPUs."""
-        for i in range(3):
+        for _i in range(3):
             clf = PytorchLightningClassifier(**multigpu_estimator_params_classifier)
 
             clf.fit(multigpu_classification_data["X_train"], multigpu_classification_data["y_train"])

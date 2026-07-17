@@ -26,7 +26,7 @@ def test_calibration_cv_folds_default_is_five():
 def _mean_brier(k: int, scenarios, seeds) -> float:
     briers = []
     for n_features, n_inf, weights, seed in scenarios:
-        for s in seeds:
+        for _s in seeds:
             X, y = make_classification(
                 n_samples=2000, n_features=n_features, n_informative=n_inf, n_redundant=4, weights=weights, class_sep=0.6, random_state=seed
             )

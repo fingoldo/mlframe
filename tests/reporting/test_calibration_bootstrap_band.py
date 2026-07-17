@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import cProfile
 import io
-import os
 import pstats
 import time
 
@@ -166,7 +165,7 @@ def test_band_distinct_score_fast_path_matches_estimator():
 
     res = bootstrap_reliability_band(s, t, random_state=3)
     assert res is not None
-    grid, lower, upper, sig = res
+    _grid, lower, upper, sig = res
     assert np.all(np.isfinite(lower)) and np.all(np.isfinite(upper))
     assert np.all(upper >= lower)  # band is a proper interval
     assert 0.0 <= sig <= 1.0

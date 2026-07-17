@@ -492,5 +492,5 @@ def test_cupy_availability_reported():
         msg = "cupy unavailable on this host -- GPU contracts skipped via pytest.importorskip / skipif. CPU contracts still pinned."
     # The "assert True" is here so the test never fails; the message
     # is captured by pytest -s.
-    print(msg)  # noqa: T201 -- informational report only visible under pytest -s
+    print(msg)
     assert True

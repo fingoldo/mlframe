@@ -17,7 +17,6 @@ exercise the per-pair / per-binary inner loop without booting full MRMR.
 
 from __future__ import annotations
 
-import math
 from collections import defaultdict
 
 import numpy as np
@@ -592,5 +591,5 @@ class TestCheckProspectiveFePairs:
         # ``res`` keyed by raw_vars_pair; with our permissive prevalence threshold
         # the pair should appear with at least one recommended feature.
         assert (0, 1) in res
-        this_pair_features, transformed_vals, new_cols, new_nbins, messages = res[(0, 1)]
+        this_pair_features, _transformed_vals, _new_cols, _new_nbins, _messages = res[(0, 1)]
         assert isinstance(this_pair_features, set)

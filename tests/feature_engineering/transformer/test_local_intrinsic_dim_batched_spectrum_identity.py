@@ -39,7 +39,7 @@ def _old_reference(X_train: np.ndarray, X_query: np.ndarray, k_neighbors: int) -
     _, idx = nn.kneighbors(Xq_s)
     neighbor_X = Xt_s[idx]
     deviations = neighbor_X - Xq_s[:, None, :]
-    n_q, _, d = deviations.shape
+    n_q, _, _d = deviations.shape
     out = np.zeros((n_q, N_FEATURES), dtype=np.float32)
     for q in range(n_q):
         cov = (deviations[q].T @ deviations[q]) / float(k_eff)

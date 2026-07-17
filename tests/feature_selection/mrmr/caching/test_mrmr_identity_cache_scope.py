@@ -67,7 +67,7 @@ def test_build_pre_pipelines_threads_cache_to_mrmr():
     from mlframe.training.core._setup_helpers import _build_pre_pipelines
 
     ctx_cache: dict = {}
-    pre_pipelines, names = _build_pre_pipelines(
+    pre_pipelines, _names = _build_pre_pipelines(
         use_ordinary_models=False,
         rfecv_models=[],
         rfecv_models_params={},
@@ -95,7 +95,7 @@ def test_build_pre_pipelines_no_cache_when_none():
     """When mrmr_identity_cache is None, MRMR falls back to the module-level cache (no override stamped)."""
     from mlframe.training.core._setup_helpers import _build_pre_pipelines
 
-    pre_pipelines, names = _build_pre_pipelines(
+    pre_pipelines, _names = _build_pre_pipelines(
         use_ordinary_models=False,
         rfecv_models=[],
         rfecv_models_params={},

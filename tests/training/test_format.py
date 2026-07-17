@@ -8,7 +8,6 @@ out of user-facing model names.
 
 from __future__ import annotations
 
-import math
 
 import pytest
 

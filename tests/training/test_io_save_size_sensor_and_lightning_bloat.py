@@ -18,10 +18,8 @@ import logging
 import os
 import tempfile
 from types import SimpleNamespace
-from unittest.mock import MagicMock
 
 import numpy as np
-import pytest
 
 from mlframe.training.io import save_mlframe_model
 

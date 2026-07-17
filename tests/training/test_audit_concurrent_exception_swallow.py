@@ -30,7 +30,6 @@ import logging
 import time
 from pathlib import Path
 
-import pytest
 
 
 MLFRAME_ROOT = Path(importlib.import_module("mlframe").__file__).parent
@@ -74,7 +73,6 @@ def test_prewarm_registers_done_callback() -> None:
 def test_prewarm_done_callback_logs_warning_when_worker_raises(caplog) -> None:
     """If the prewarm worker raises and the caller never calls wait_prewarm(),
     the registered done-callback must surface a WARNING via the module logger."""
-    from unittest.mock import patch
     from mlframe.training.feature_handling import registry as reg
 
     # Build a tiny synthetic provider with a signature unique to this test.

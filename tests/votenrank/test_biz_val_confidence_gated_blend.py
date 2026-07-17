@@ -105,7 +105,7 @@ def _make_miscalibrated_gate_data(seed: int):
 
 
 def test_biz_val_confidence_gated_blend_per_sample_gate_calibration_beats_raw_confidence_gate():
-    y, ensemble_pred, auxiliary_pred, raw_confidence, region_b = _make_miscalibrated_gate_data(seed=1)
+    y, ensemble_pred, auxiliary_pred, raw_confidence, _region_b = _make_miscalibrated_gate_data(seed=1)
 
     # Held-out calibration set: same generative process, disjoint draw, with the TRUE reliability label
     # (1 = aux agreed with ground truth) at each raw confidence level.

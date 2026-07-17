@@ -124,7 +124,7 @@ def test_mrmr_integration_creates_binagg_columns_and_transform_replays():
 
     m_on = MRMR(fe_binned_numeric_agg_enable=True, fe_binned_numeric_agg_max_pairs=8, verbose=0)
     m_on.fit(tr, ytr)
-    roster = list(m_on.get_feature_names_out()) if hasattr(m_on, "get_feature_names_out") else []
+    list(m_on.get_feature_names_out()) if hasattr(m_on, "get_feature_names_out") else []
     # Roster reflects only SELECTED features; the engineered-recipe registry proves the columns were created.
     recs = getattr(m_on, "_engineered_recipes_", []) or []
     if isinstance(recs, dict):

@@ -52,7 +52,7 @@ def test_fallback_emits_userwarning_on_constant_x():
     y = pd.Series(rng.integers(0, 2, n))
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
-        sel = MRMR(verbose=0, min_features_fallback=1).fit(df, y)
+        MRMR(verbose=0, min_features_fallback=1).fit(df, y)
     fallback_warns = [w for w in caught if issubclass(w.category, UserWarning) and "falling back" in str(w.message)]
     assert len(fallback_warns) >= 1
     # Must surface the "carries NO signal" diagnostic when all MIs are 0.

@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 
 
 def _make_planted(n=400, f=8, seed=0):
@@ -52,10 +51,10 @@ def test_compute_shap_matrix_accepts_cap_kwarg():
 
     X, y = _make_planted(n=200, f=6, seed=1)
     model = make_default_estimator(classification=False, n_estimators=20, random_state=0)
-    phi_off, base_off, y_off = compute_shap_matrix(
+    phi_off, base_off, _y_off = compute_shap_matrix(
         model, X, y, classification=False, out_of_fold=True, n_splits=3, n_models=1, rng=np.random.default_rng(0), n_jobs=1, inner_n_jobs_cap=False
     )
-    phi_on, base_on, y_on = compute_shap_matrix(
+    phi_on, base_on, _y_on = compute_shap_matrix(
         model, X, y, classification=False, out_of_fold=True, n_splits=3, n_models=1, rng=np.random.default_rng(0), n_jobs=1, inner_n_jobs_cap=True
     )
     # n_jobs=1 -> outer = 1 -> inner = None for both; numerically identical.

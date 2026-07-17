@@ -55,7 +55,7 @@ def main(payload: dict) -> None:
     result = dict(
         R2=best_test_metric(entries, "R2"),
         span=prediction_span_fraction(entries),
-        n=int(len(case.df)),
+        n=len(case.df),
         structure=case.structure,
     )
     print("===RESULT_JSON===")

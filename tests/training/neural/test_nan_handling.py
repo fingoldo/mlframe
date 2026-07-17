@@ -23,14 +23,13 @@ from pathlib import Path
 import numpy as np
 import pytest
 import torch
-from sklearn.datasets import make_classification, make_regression
+from sklearn.datasets import make_regression
 from sklearn.model_selection import train_test_split
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from mlframe.training.neural import (
     MLPTorchModel,
-    PytorchLightningClassifier,
     PytorchLightningRegressor,
     TorchDataModule,
 )

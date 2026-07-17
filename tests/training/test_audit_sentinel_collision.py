@@ -171,7 +171,6 @@ def test_pd_ordinal_encoder_default_encodes_missing_as_minus_one() -> None:
     the source-level test above guarantees the live source is correct.
     """
     import pandas as pd
-    import inspect
     from mlframe.estimators import custom as _custom_mod
 
     if "src" + "\\" + "mlframe" not in _custom_mod.__file__ and "src/mlframe" not in _custom_mod.__file__:

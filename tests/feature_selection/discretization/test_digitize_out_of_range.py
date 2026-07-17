@@ -10,7 +10,7 @@ must agree.
 
 import numpy as np
 
-from mlframe.feature_selection.filters.discretization import digitize, discretize_array, quantize_search
+from mlframe.feature_selection.filters.discretization import digitize, discretize_array
 
 
 def test_digitize_value_above_last_edge_clamps_to_top_bin():

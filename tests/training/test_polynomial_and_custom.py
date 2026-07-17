@@ -20,7 +20,7 @@ import logging
 import numpy as np
 import polars as pl
 import pytest
-from sklearn.preprocessing import StandardScaler, PolynomialFeatures
+from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import Pipeline
 
 from mlframe.training.feature_handling import (
@@ -166,7 +166,7 @@ class TestCustomHandlerEndToEnd:
         scaler = StandardScaler()
         params = CustomParams(transformer=scaler, output_kind="dense")
         handler = CustomHandler(column="x", params=params)
-        out = handler.fit_transform(df)
+        handler.fit_transform(df)
         # StandardScaler on a 1-D column reshape: sklearn expects 2-D, our
         # extraction gives 1-D ndarray. Some sklearn transformers raise on
         # 1-D; standardize the contract: handler accepts 1-D, transformer

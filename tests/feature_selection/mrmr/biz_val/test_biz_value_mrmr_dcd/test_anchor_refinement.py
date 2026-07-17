@@ -219,7 +219,7 @@ class TestLayer45_ScenarioA_NoSwap:
         """
         X, y = _scenario_A_anchor_best()
         m = _fit_mrmr(X, y)
-        n_swaps = int((m.dcd_ or {}).get("n_swaps", 0))
+        int((m.dcd_ or {}).get("n_swaps", 0))
         # The contract: either no swap fires, or if a swap does fire
         # it's NOT a member-swap that demotes the genuinely-best anchor.
         # We tolerate aggregate-swap (denoising) but not member-swap.

@@ -47,7 +47,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from tests.feature_selection.conftest import is_fast_mode, fast_subset
+from tests.feature_selection.conftest import is_fast_mode
 
 
 # ---------------------------------------------------------------------------

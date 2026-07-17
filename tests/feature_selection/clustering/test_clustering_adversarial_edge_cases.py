@@ -35,7 +35,7 @@ def _finite(a):
 class TestStandardizeAlign:
     def test_constant_column_no_nan(self):
         M = np.column_stack([np.zeros(50), np.arange(50.0)])  # col0 constant
-        Z, mean, std, signs = _standardize_align(M, 0)
+        Z, _mean, _std, signs = _standardize_align(M, 0)
         assert _finite(Z) and _finite(signs)
 
     def test_all_constant_matrix(self):
@@ -53,7 +53,7 @@ class TestStandardizeAlign:
         rng = np.random.default_rng(0)
         z = rng.standard_normal(200)
         M = np.column_stack([z, -z + 0.01 * rng.standard_normal(200), z + 0.01 * rng.standard_normal(200), -z + 0.01 * rng.standard_normal(200)])
-        Z, mean, std, signs = _standardize_align(M, 0)
+        Z, _mean, _std, signs = _standardize_align(M, 0)
         assert signs[1] < 0 and signs[3] < 0 and signs[0] > 0 and signs[2] > 0
         # After alignment all columns point the same way -> mean has high variance.
         assert float(np.std(Z.mean(axis=1))) > 0.5

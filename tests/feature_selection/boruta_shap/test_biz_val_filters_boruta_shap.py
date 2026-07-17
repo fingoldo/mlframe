@@ -144,7 +144,7 @@ def test_biz_val_boruta_shadow_min_pad_reduces_noise_false_accept_on_narrow_fram
             else:
                 noise_fa_nopad += "noise" in acc
 
-    assert inf_kept_pad == len(list(seeds)), f"pad5 must retain the informative column on all seeds; got {inf_kept_pad}"  # noqa: E501
+    assert inf_kept_pad == len(list(seeds)), f"pad5 must retain the informative column on all seeds; got {inf_kept_pad}"
     assert noise_fa_pad < noise_fa_nopad, (
         f"shadow_min_pad=5 must admit the noise column on fewer seeds than pad=0 (the thin-null false accept); "
         f"got pad5={noise_fa_pad} vs nopad={noise_fa_nopad}"

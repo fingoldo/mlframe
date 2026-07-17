@@ -34,7 +34,7 @@ from mlframe.feature_selection.filters._permutation_null import (
 )
 
 lgb = pytest.importorskip("lightgbm")
-from mlframe.feature_selection.filters._surrogate_interaction_seeder import (  # noqa: E402
+from mlframe.feature_selection.filters._surrogate_interaction_seeder import (
     surrogate_gbm_interaction_seeds,
 )
 
@@ -204,15 +204,14 @@ class TestGBMSeederNeedleRecall:
         # binding noise guard per "proposer generates, floors gate") then validates the
         # needle clears while noise triples do not. We force-emit (lenient gate) to test the
         # co-occurrence + floor, the actual binding pair.
-        from itertools import combinations
 
         X, y, needle = self._frame("3way")
         D, nbins = _discretize(X, nb=10)
         # CURRENT: univariate seed_count top-8 misses every needle operand.
-        uni_top, mis = _univariate_topN(D, y, nbins, N=8)
+        uni_top, _mis = _univariate_topN(D, y, nbins, N=8)
         assert len(set(needle) & uni_top) == 0, f"fixture invalid: univariate seed already sees needle {set(needle) & uni_top}"
         # GBM co-occurrence (force-emit so the FLOOR is the discriminator, not the OOF gate).
-        pairs, triples, info = surrogate_gbm_interaction_seeds(
+        _pairs, triples, info = surrogate_gbm_interaction_seeds(
             D, y, list(range(D.shape[1])), is_classification=True, top_k_pairs=15, top_k_triples=10, self_gate_min_z=-1e9, random_seed=0
         )
         tw = info.get("triple_weights", {})
@@ -233,9 +232,9 @@ class TestGBMSeederNeedleRecall:
         # (z huge), so the self-gate passes AND it is the top co-occurrence pair.
         X, y, needle = self._frame("2way")
         D, nbins = _discretize(X, nb=10)
-        uni_top, mis = _univariate_topN(D, y, nbins, N=8)
+        uni_top, _mis = _univariate_topN(D, y, nbins, N=8)
         assert len(set(needle) & uni_top) == 0, "fixture invalid: univariate already sees needle"
-        pairs, triples, info = surrogate_gbm_interaction_seeds(
+        pairs, _triples, info = surrogate_gbm_interaction_seeds(
             D, y, list(range(D.shape[1])), is_classification=True, top_k_pairs=15, top_k_triples=10, random_seed=0
         )
         assert info["gated"], f"self-gate should pass on a strong 2-way signal: {info}"

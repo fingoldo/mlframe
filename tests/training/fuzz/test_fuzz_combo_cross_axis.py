@@ -3239,7 +3239,6 @@ def test_iter622_audit_pass_12_axes_flow_to_kwargs():
         build_mrmr_kwargs,
         build_shap_proxied_fs_kwargs,
         build_composite_discovery_config,
-        build_composite_discovery_config_from_flat,
     )
 
     new_axes = (
@@ -3325,7 +3324,7 @@ def test_iter622_audit_pass_12_axes_flow_to_kwargs():
     # A1 distinct canonical_key under the gate:
     a1_on_def = dict(on_a1)
     a1_on_def["composite_target_multilabel_strategy_cfg"] = "per_target"
-    c_a1_on_def = _build_combo(models=("cb",), axes=a1_on_def, seed=0)
+    _build_combo(models=("cb",), axes=a1_on_def, seed=0)
     # NOTE: on_a1 sets target_type="regression" which is NOT in the multilabel/MTR
     # gate -- both variants collapse to "per_target", so canon_key is the same.
     # Rebuild with MTR target so canon truly forks:

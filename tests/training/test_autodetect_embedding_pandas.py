@@ -16,7 +16,6 @@ import pandas as pd
 
 from mlframe.training.core._misc_helpers import _auto_detect_feature_types
 from mlframe.training.configs import FeatureTypesConfig
-from mlframe.training.configs import PreprocessingBackendConfig
 
 
 def test_pandas_emb_column_routed_to_embedding_features():
@@ -34,7 +33,7 @@ def test_pandas_emb_column_routed_to_embedding_features():
 
     cfg = FeatureTypesConfig()
 
-    text_features, embedding_features, dropped = _auto_detect_feature_types(
+    text_features, embedding_features, _dropped = _auto_detect_feature_types(
         df=df,
         feature_types_config=cfg,
         cat_features=[],
@@ -57,7 +56,7 @@ def test_pandas_no_embedding_column_works():
         }
     )
 
-    text_features, embedding_features, dropped = _auto_detect_feature_types(
+    _text_features, embedding_features, _dropped = _auto_detect_feature_types(
         df=df,
         feature_types_config=FeatureTypesConfig(),
         cat_features=[],

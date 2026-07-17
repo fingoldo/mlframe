@@ -13,7 +13,6 @@ import warnings
 
 import numpy as np
 import pandas as pd
-import pytest
 
 
 def _fit_small_mrmr(seed=0, n=1500):
@@ -49,7 +48,7 @@ def test_legacy_non_replayable_recipe_excluded_from_both_names_and_transform():
         src_names=("a", "b", "c"),
         extra={"requires_refit_for_replay": True},
     )
-    fs._engineered_recipes_ = list(getattr(fs, "_engineered_recipes_", [])) + [legacy]
+    fs._engineered_recipes_ = [*list(getattr(fs, "_engineered_recipes_", [])), legacy]
     names_w = len(fs.get_feature_names_out())
     trans_w = fs.transform(df).shape[1]
     assert names_w == trans_w, (

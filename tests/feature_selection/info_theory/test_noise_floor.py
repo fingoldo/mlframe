@@ -20,7 +20,7 @@ def test_plateau_stops_at_signal_onset_then_flat():
     n_grid = [1, 2, 3, 5, 8, 12]
     real = np.array([0.60, 0.75, 0.90, 0.90, 0.90, 0.90])
     perm = np.zeros((5, len(n_grid))) + np.linspace(0.50, 0.505, len(n_grid))  # flat ~0.5 noise
-    n_star, idx, _, _ = noise_floor_plateau(n_grid, real, perm, pct=95.0)
+    n_star, _idx, _, _ = noise_floor_plateau(n_grid, real, perm, pct=95.0)
     assert n_star == 3, f"plateau should stop where the real curve flattens (N=3), got {n_star}"
 
 

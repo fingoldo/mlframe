@@ -38,9 +38,9 @@ import pytest
 pytest.importorskip("optbinning")
 pytest.importorskip("category_encoders")
 
-from mlframe.feature_selection.optbinning import get_binningprocess_featureselectors  # noqa: E402
+from mlframe.feature_selection.optbinning import get_binningprocess_featureselectors
 
-from tests.feature_selection.conftest import fast_subset  # noqa: E402
+from tests.feature_selection.conftest import fast_subset
 
 
 # A strong-noisy-logistic signal yields signal IV ~3.0-3.6 (never 0); a 2-valued

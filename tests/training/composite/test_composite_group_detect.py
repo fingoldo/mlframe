@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.training.composite import (
     _GROUP_DETECT_DEFAULT_MAX_UNIQUE,
@@ -72,7 +71,6 @@ class TestDetectGroupColumn:
 
     def test_min_group_size_floor(self) -> None:
         """Group with < min_size_ratio * n_rows rows excludes the WHOLE column."""
-        n = 1000
         # 99 rows in g0 + 1 row in g1; min_size_ratio=0.1 floors at 100 rows. g1 has 1 row < 100 -> reject column.
         groups = np.array(["g0"] * 999 + ["g1"])
         df = pd.DataFrame({"groups": groups})

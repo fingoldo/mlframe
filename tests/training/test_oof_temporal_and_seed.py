@@ -72,7 +72,7 @@ def test_oof_temporal_does_not_use_cross_val_predict_and_warms_up_with_nan(monke
     model = LogisticRegression(max_iter=200)
     model.fit(X, y)
 
-    preds, probs = trainer_mod._compute_oof_preds(
+    _preds, probs = trainer_mod._compute_oof_preds(
         model=model,
         train_df=X,
         train_target=y.to_numpy(),

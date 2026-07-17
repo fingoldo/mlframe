@@ -56,7 +56,7 @@ class TestGroupShuffleSplit:
         """test=20% / val=10% of GROUPS (not rows); but rows ratio
         approx matches because all groups are equal-sized."""
         df, groups = synthetic_grouped_frame
-        train_idx, val_idx, test_idx, *_ = make_train_test_split(
+        _train_idx, val_idx, test_idx, *_ = make_train_test_split(
             df,
             test_size=0.2,
             val_size=0.1,

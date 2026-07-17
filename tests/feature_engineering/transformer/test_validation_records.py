@@ -17,12 +17,10 @@ Records under test (mechanism + dataset + metric + target_lift_from_iter):
 
 from __future__ import annotations
 
-from typing import Callable, Dict, List, Tuple
 
 import numpy as np
 import pytest
 from sklearn.metrics import (
-    accuracy_score,
     average_precision_score,
     brier_score_loss,
     log_loss,
@@ -49,7 +47,6 @@ from mlframe.feature_engineering.transformer import (
 # Reuse the existing test harness loaders and matrix utilities.
 from tests.feature_engineering.transformer.test_biz_val_real_datasets import (
     _features_cdist,
-    _features_rff,
     _load_abalone,
     _load_diabetes_classification,
     _load_kin8nm,

@@ -14,8 +14,6 @@ instrumentation can't silently regress.
 from __future__ import annotations
 
 import logging
-import os
-from unittest.mock import patch
 
 
 # The instrumented setup-timing block lives inline inside _phase_config_setup.

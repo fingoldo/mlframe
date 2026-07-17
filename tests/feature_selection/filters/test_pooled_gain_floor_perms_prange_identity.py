@@ -102,7 +102,7 @@ def test_public_floor_deterministic_and_nonnegative():
     n, p, nbins = 3000, 40, 10
     cols = [rng.integers(0, nbins, size=n).astype(np.int32) for _ in range(p)]
     y = rng.integers(0, nbins, size=n).astype(np.int32)
-    factors_data = np.column_stack(cols + [y]).astype(np.int32)
+    factors_data = np.column_stack([*cols, y]).astype(np.int32)
     factors_nbins = np.array([nbins] * (p + 1), dtype=np.int64)
     cand = list(range(p))
     floor_a = pooled_permutation_null_gain_floor(

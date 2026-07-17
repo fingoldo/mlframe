@@ -12,7 +12,6 @@ cell set): mean |adjusted-true|=0.080 vs |plain-true|=0.138, adjusted wins 27/35
 from __future__ import annotations
 
 import numpy as np
-import pytest
 from sklearn.linear_model import LinearRegression
 
 from mlframe.metrics.core import fast_adjusted_r2_score, fast_r2_score

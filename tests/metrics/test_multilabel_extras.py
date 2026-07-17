@@ -16,7 +16,6 @@ from mlframe.metrics.core import (
     fast_multilabel_classification_metrics_block,
     hamming_loss,
     subset_accuracy,
-    jaccard_score_multilabel,
 )
 
 

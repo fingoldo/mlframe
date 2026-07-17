@@ -61,20 +61,10 @@ def _run_one_seed(seed: int, extra_pytest_args: list[str]) -> tuple[int, int, in
     env["FUZZ_SEED"] = str(seed)
     # Use pytest's JUnit XML for structured results; pure stdout is fragile.
     junit_path = _HERE / f"_junit_seed_{seed}.xml"
-    cmd = [
-        sys.executable,
-        "-m",
-        "pytest",
-        str(_HERE / "test_fuzz_suite.py"),
-        "--no-cov",
-        "-p",
-        "no:randomly",
-        f"--junitxml={junit_path}",
-        "--tb=line",
-    ] + extra_pytest_args
+    cmd = [sys.executable, "-m", "pytest", str(_HERE / "test_fuzz_suite.py"), "--no-cov", "-p", "no:randomly", f"--junitxml={junit_path}", "--tb=line", *extra_pytest_args]
     print(f"\n=== Running seed {seed} ===")
     print("  " + " ".join(cmd))
-    r = subprocess.run(cmd, env=env, cwd=str(_REPO))
+    subprocess.run(cmd, env=env, cwd=str(_REPO))
     passed = failed = xfailed = 0
     if junit_path.exists():
         # Minimal parse — count testcase elements with/without failure child.

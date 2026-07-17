@@ -108,7 +108,7 @@ def _auc_from_entry(entry) -> Optional[float]:
         bag = metrics.get(split)
         if not isinstance(bag, dict):
             continue
-        for _, mdict in bag.items():
+        for mdict in bag.values():
             if not isinstance(mdict, dict):
                 continue
             for k, v in mdict.items():
@@ -209,8 +209,8 @@ def _run_resiliency_suite(
 def _flatten_entries(models: dict) -> list:
     """Flatten the nested models dict into a list of model entries."""
     out = []
-    for _tt, by_target in models.items():
-        for _tname, entries in by_target.items():
+    for by_target in models.values():
+        for entries in by_target.values():
             out.extend(entries)
     return out
 
@@ -389,7 +389,7 @@ def test_scenario04_heavy_tail_lognormal_target(tmp_path, caplog):
 
     caplog.set_level(logging.WARNING, logger="mlframe.training.reporting._reporting")
     # Skip MLP on heavy-tail unless lightning available -- noisy fits.
-    models, _meta, recs = _run_resiliency_suite(
+    models, _meta, _recs = _run_resiliency_suite(
         df,
         tmp_path,
         regression=True,
@@ -416,7 +416,7 @@ def test_scenario04_heavy_tail_lognormal_target(tmp_path, caplog):
         # Soft check: log if it didn't reach 0.4 but don't fail -- the
         # signal-to-noise on lognormal is unforgiving.
         if tree_r2 < 0.4:
-            warnings.warn(f"scenario04 lgb R^2={tree_r2:.3f} below soft floor 0.4 on heavy-tail target. Defaults may be sub-optimal.")
+            warnings.warn(f"scenario04 lgb R^2={tree_r2:.3f} below soft floor 0.4 on heavy-tail target. Defaults may be sub-optimal.", stacklevel=2)
 
 
 # ---------------------------------------------------------------------------
@@ -541,7 +541,7 @@ def test_scenario06_constant_feature(tmp_path, caplog):
     )
 
     caplog.set_level(logging.WARNING, logger="mlframe.training.reporting._reporting")
-    models, _meta, recs = _run_resiliency_suite(
+    models, _meta, _recs = _run_resiliency_suite(
         df,
         tmp_path,
         regression=True,
@@ -579,7 +579,7 @@ def test_scenario07_nan_injected_features(tmp_path, caplog):
     df["target"] = y
 
     caplog.set_level(logging.WARNING, logger="mlframe.training.reporting._reporting")
-    models, _meta, recs = _run_resiliency_suite(
+    models, _meta, _recs = _run_resiliency_suite(
         df,
         tmp_path,
         regression=True,
@@ -627,7 +627,7 @@ def test_scenario08_multilabel_three_binary(tmp_path, caplog):
 
     caplog.set_level(logging.WARNING, logger="mlframe.training.reporting._reporting")
     try:
-        models, _meta, recs = _run_resiliency_suite(
+        models, _meta, _recs = _run_resiliency_suite(
             df,
             tmp_path,
             regression=False,

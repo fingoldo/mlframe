@@ -109,7 +109,7 @@ def _apply_transform_for_test(x: np.ndarray, transform_name: str) -> np.ndarray:
 
 def test_gaussian_power_transform_search_target_guard_default_off_is_bit_identical():
     """Omitting y/require_target_correlation_retention must reproduce the exact prior unsupervised result."""
-    df, y = _make_linear_in_raw_scale_dataset()
+    df, _y = _make_linear_in_raw_scale_dataset()
     without_guard_args = gaussian_power_transform_search(df)
     without_y_kw = gaussian_power_transform_search(df, y=None, require_target_correlation_retention=None)
     assert without_guard_args == without_y_kw

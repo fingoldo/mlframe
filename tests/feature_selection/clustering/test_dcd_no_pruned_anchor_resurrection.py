@@ -31,7 +31,6 @@ Fix at line 432: refuse to anchor on a column with
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 
 def _state(n_cols=4):

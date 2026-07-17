@@ -1,11 +1,10 @@
 """Tests for mlframe.training.train_eval: optimize_model_for_storage and select_target."""
 
 from types import SimpleNamespace
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.training.configs import TargetTypes
 from mlframe.training.train_eval import optimize_model_for_storage, select_target

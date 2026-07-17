@@ -156,7 +156,7 @@ def make_fast_mrmr(*, fe: bool = False, dcd: bool = False, **overrides):
 # Re-export the canonical fast-mode flag and helper from the root conftest. Subdir tests historically imported ``IS_FAST_MODE`` from this conftest; preserve that name
 # but make the import-time snapshot a thin re-export of the live root value. ``is_fast_mode()`` is the authoritative live check used inside the collection hook below;
 # the constant captures the value at import time for callers that only need a parametrize-decorator-time snapshot.
-from tests.conftest import IS_FAST_MODE, is_fast_mode  # noqa: F401, E402
+from tests.conftest import IS_FAST_MODE, is_fast_mode
 
 
 def _coverage_active() -> bool:

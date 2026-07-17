@@ -68,7 +68,7 @@ def test_biz_val_count_weighted_blend_beats_entity_only_and_global_only_mse():
 
 
 def test_count_weighted_blend_weight_increases_with_observation_count():
-    X_train, y_train, X_test, y_test = _make_skewed_entity_dataset(n_entities=300, seed=1)
+    X_train, y_train, X_test, _y_test = _make_skewed_entity_dataset(n_entities=300, seed=1)
     blend = CountWeightedBlendEnsemble(
         entity_estimator=_entity_pipeline(), global_estimator=LinearRegression(), entity_col="entity", metadata_cols=["x"], k=10.0
     )

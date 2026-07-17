@@ -70,7 +70,7 @@ def test_premerge_outputs_aligned_to_original_columns_and_recovers_signal():
 def test_premerge_reexpands_accepted_cluster_members():
     """When the inf_0 representative is accepted, re-expansion re-includes its redundant copies, so the selected
     set contains MORE than one member of that cluster (the mechanism vs plain Boruta which would keep just one)."""
-    b, X = _fit(premerge=True)
+    b, _X = _fit(premerge=True)
     inf0_cluster = {"inf_0", "red_0_0", "red_0_1", "red_0_2", "red_0_3"}
     sel = set(b.selected_features_)
     if inf0_cluster & sel:  # the cluster was accepted

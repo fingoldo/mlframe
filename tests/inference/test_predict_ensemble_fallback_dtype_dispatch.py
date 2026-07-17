@@ -23,7 +23,6 @@ but IS called for int predictions.
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 
 def _make_minimal_predict_inputs():

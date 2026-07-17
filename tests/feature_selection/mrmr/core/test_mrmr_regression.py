@@ -9,22 +9,13 @@ Tests include:
 """
 
 import pytest
-import numpy as np
-import pandas as pd
 import warnings
 
-from hypothesis import given, settings, strategies as st, assume, HealthCheck
-from hypothesis.extra.numpy import arrays
 
-from sklearn.datasets import make_classification, make_regression
 
 # Import the module under test
 from mlframe.feature_selection.filters import (
     MRMR,
-    entropy,
-    categorize_dataset,
-    discretize_array,
-    compute_mi_from_classes,
 )
 
 
@@ -55,7 +46,7 @@ class TestMRMRRegression:
 
     def test_nonlinear_regression(self, nonlinear_transform_data):
         """Test MRMR on data with nonlinear relationships."""
-        X, y, informative_names = nonlinear_transform_data
+        X, y, _informative_names = nonlinear_transform_data
 
         mrmr = MRMR(full_npermutations=5, baseline_npermutations=5, verbose=0, n_jobs=1)
 

@@ -187,8 +187,8 @@ class TestResidualDedupContract:
         c = rng.normal(size=n)
         resid = np.column_stack([a, b, c])
         oof = np.array([0.4, 0.5, 0.6])
-        keep_lo, drop_lo = residual_dedup_indices(resid, oof, corr_threshold=0.5, min_keep=2)
-        keep_hi, drop_hi = residual_dedup_indices(resid, oof, corr_threshold=0.95, min_keep=2)
+        _keep_lo, drop_lo = residual_dedup_indices(resid, oof, corr_threshold=0.5, min_keep=2)
+        _keep_hi, drop_hi = residual_dedup_indices(resid, oof, corr_threshold=0.95, min_keep=2)
         assert drop_lo == [1], f"corr~0.7 > 0.5 -> drop weaker of (a,b); got drop={drop_lo}"
         assert drop_hi == [], f"corr~0.7 < 0.95 -> keep all; got drop={drop_hi}"
 

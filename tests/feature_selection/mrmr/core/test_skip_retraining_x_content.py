@@ -33,7 +33,6 @@ import warnings
 
 import numpy as np
 import pandas as pd
-import pytest
 
 
 def test_refit_on_different_x_content_updates_support():

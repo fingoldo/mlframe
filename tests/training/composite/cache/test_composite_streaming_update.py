@@ -15,7 +15,6 @@ from sklearn.base import clone
 
 from mlframe.training.composite import (
     CompositeTargetEstimator,
-    _linear_residual_fit,
 )
 
 

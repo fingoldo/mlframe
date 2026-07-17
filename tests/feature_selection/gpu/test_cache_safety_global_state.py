@@ -10,7 +10,6 @@ id-recycle / single-slot clobber regardless of whether the buffers live on host 
 import threading
 
 import numpy as np
-import pytest
 
 
 # ---------------------------------------------------------------------------

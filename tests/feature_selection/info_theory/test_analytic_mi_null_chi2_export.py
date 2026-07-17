@@ -12,7 +12,6 @@ end: a large, dense (non-sparse) conditional null must NOT reach the GPU permuta
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 
 def test_chi2_symbol_is_exported_with_ppf():

@@ -17,7 +17,6 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import numpy as np
-import pandas as pd
 import pytest
 
 
@@ -29,7 +28,6 @@ def test_member_quality_gate_routes_to_oof_not_val():
     routing to oof_preds catches it. We monkeypatch ``compute_member_quality_gate`` to record the source array
     it sees and assert the call came from the OOF slice.
     """
-    import mlframe.models.ensembling as ens_mod
     from mlframe.models.ensembling import score_ensemble
 
     rng = np.random.default_rng(0)

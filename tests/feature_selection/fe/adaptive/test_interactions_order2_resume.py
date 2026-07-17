@@ -14,7 +14,6 @@ import warnings
 
 import numpy as np
 import pandas as pd
-import pytest
 
 
 def test_order2_drops_exact_duplicate_redundant_feature():

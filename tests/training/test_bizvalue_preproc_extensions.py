@@ -76,7 +76,7 @@ def _extract_auroc(model_entry) -> float | None:
 def _run_suite(df, models_list, tmp_path, ext_cfg, iters=80):
     fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
     data_dir = str(tmp_path)
-    models, metadata = train_mlframe_models_suite(
+    models, _metadata = train_mlframe_models_suite(
         df=df,
         target_name="target",
         model_name="bizvalue_preproc_test",

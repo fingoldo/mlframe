@@ -530,7 +530,7 @@ def test_fix8_fingerprint_json_canonicalisation_uses_sorted_keys():
 
     payload = {
         "schema": schema,
-        "n_rows": int(len(df)),
+        "n_rows": len(df),
         "target_name": None,
         "preprocessing_config": "none",
         "pipeline_config": "none",

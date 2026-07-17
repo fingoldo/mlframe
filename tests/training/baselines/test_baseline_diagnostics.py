@@ -33,7 +33,7 @@ import pytest
 # tests that actually fit models need the library available.
 pytest.importorskip("lightgbm")
 
-from mlframe.training.baselines.diagnostics import (  # noqa: E402
+from mlframe.training.baselines.diagnostics import (
     AblationEntry,
     BaselineDiagnostics,
     BaselineDiagnosticsReport,
@@ -41,7 +41,7 @@ from mlframe.training.baselines.diagnostics import (  # noqa: E402
     _delta_pct,
     format_baseline_diagnostics_report,
 )
-from mlframe.training.configs import BaselineDiagnosticsConfig  # noqa: E402
+from mlframe.training.configs import BaselineDiagnosticsConfig
 
 
 # ----------------------------------------------------------------------
@@ -513,7 +513,7 @@ class TestRecommendationClassifier:
             AblationEntry("a", 1.01, 1.0, 1),
             AblationEntry("b", 1.005, 0.5, 2),
         ]
-        rec, reason = bd._build_recommendation(ablation, init_score_baseline=None)
+        rec, _reason = bd._build_recommendation(ablation, init_score_baseline=None)
         assert rec == "unlikely_to_help"
 
     def test_marginal_band(self) -> None:

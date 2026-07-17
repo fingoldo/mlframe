@@ -114,7 +114,7 @@ def test_slice_finder_renders_default_on(tmp_path, binary_frame):
 
 
 def test_decision_curve_renders_default_on(tmp_path, binary_frame):
-    df, y, score, _ts = binary_frame
+    _df, y, score, _ts = binary_frame
     base = str(tmp_path / "m")
     md = {}
     ok = render_decision_curve_diagnostic(
@@ -130,7 +130,7 @@ def test_decision_curve_renders_default_on(tmp_path, binary_frame):
 
 
 def test_calibration_drift_renders_default_on(tmp_path, binary_frame):
-    df, y, score, ts = binary_frame
+    _df, y, score, ts = binary_frame
     base = str(tmp_path / "m")
     md = {}
     ok = render_calibration_drift_diagnostic(
@@ -146,7 +146,7 @@ def test_calibration_drift_renders_default_on(tmp_path, binary_frame):
 
 
 def test_calibration_drift_skips_without_timestamps(tmp_path, binary_frame):
-    df, y, score, _ts = binary_frame
+    _df, y, score, _ts = binary_frame
     md = {}
     assert (
         render_calibration_drift_diagnostic(
@@ -162,7 +162,7 @@ def test_calibration_drift_skips_without_timestamps(tmp_path, binary_frame):
 
 
 def test_target_acf_renders_default_on(tmp_path, binary_frame):
-    df, y, _score, ts = binary_frame
+    _df, y, _score, ts = binary_frame
     base = str(tmp_path / "m")
     md = {}
     ok = render_target_acf_diagnostic(
@@ -221,7 +221,7 @@ def test_shap_opt_in_for_non_tree(tmp_path, binary_frame):
 
 
 def test_model_comparison_default_on_with_two_models(tmp_path, binary_frame):
-    df, y, score, _ts = binary_frame
+    _df, y, score, _ts = binary_frame
     rng = np.random.default_rng(1)
     weak = np.clip(score + rng.normal(0, 0.3, len(score)), 0, 1)
     per_model = {
@@ -242,7 +242,7 @@ def test_model_comparison_default_on_with_two_models(tmp_path, binary_frame):
 
 
 def test_model_comparison_skips_single_model(tmp_path, binary_frame):
-    df, y, score, _ts = binary_frame
+    _df, y, score, _ts = binary_frame
     md = {}
     assert (
         render_model_comparison_diagnostic(
@@ -269,7 +269,7 @@ def _suite_entry(y, score, auc):
 
 
 def test_model_comparison_from_suite_renders_for_two_models(tmp_path, binary_frame):
-    df, y, score, _ts = binary_frame
+    _df, y, score, _ts = binary_frame
     rng = np.random.default_rng(2)
     weak = np.clip(score + rng.normal(0, 0.3, len(score)), 0, 1)
     entries = [
@@ -290,7 +290,7 @@ def test_model_comparison_from_suite_renders_for_two_models(tmp_path, binary_fra
 
 
 def test_model_comparison_from_suite_skips_single_model(tmp_path, binary_frame):
-    df, y, score, _ts = binary_frame
+    _df, y, score, _ts = binary_frame
     md = {}
     assert (
         render_model_comparison_from_suite(
@@ -305,7 +305,7 @@ def test_model_comparison_from_suite_skips_single_model(tmp_path, binary_frame):
 
 
 def test_combined_html_stitches_rendered_charts(tmp_path, binary_frame):
-    df, y, score, ts = binary_frame
+    _df, y, score, ts = binary_frame
     base = str(tmp_path / "m")
     md = {}
     render_decision_curve_diagnostic(y_true=y, y_score=score, plot_outputs=PNG, base_path=base, metrics_dict=md)

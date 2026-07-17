@@ -18,7 +18,6 @@ import logging
 
 import numpy as np
 import pandas as pd
-import pytest
 
 
 class _FakeEqDF:
@@ -36,7 +35,7 @@ class _FakeEqDF:
                 self.outer = outer
 
             def __getitem__(self, key):
-                idx, col = key
+                idx, _col = key
                 # Per-equation distinct text so hashes differ
                 return f"eq_{idx}"
 
@@ -79,7 +78,6 @@ def test_pysr_per_equation_predict_failure_rolls_back_all_frames(caplog):
     # Instead test the property at the integration level: after the rollback fix, no
     # column starting with "pysr__" leaks into train_df without appearing in val/test.
     import hashlib
-    from mlframe.training import pipeline as _pipeline_mod
 
     # Reproduce the loop's logic in isolation (the production function is too coupled to
     # the run_pysr_feature_engineering call to test directly; this validates the rollback contract).

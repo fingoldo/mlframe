@@ -275,7 +275,7 @@ def test_biz_val_value_report_identifies_helped_and_hurt_split():
 
 
 def test_biz_val_value_report_worse_than_lag_set():
-    y, raw, comp, lag, g, helped, hurt = _make_split_synthetic()
+    y, raw, comp, lag, g, _helped, hurt = _make_split_synthetic()
     rep = build_composite_value_report(y, raw, comp, g, y_pred_lag=lag)
     agg = rep["aggregate"]
     # The hurt groups (comp RMSE ~2.0 > lag ~1.5) are exactly the "should not have deployed" set.
@@ -284,7 +284,7 @@ def test_biz_val_value_report_worse_than_lag_set():
 
 
 def test_biz_val_value_report_net_lift_sign_positive_when_helped_rows_dominate():
-    y, raw, comp, lag, g, helped, hurt = _make_split_synthetic()
+    y, raw, comp, lag, g, _helped, _hurt = _make_split_synthetic()
     rep = build_composite_value_report(y, raw, comp, g, y_pred_lag=lag)
     net = rep["aggregate"]["net_weighted_lift_over_raw"]
     # Helped groups carry 8000 rows @ +0.70; hurt carry 1000 rows @ -1.0.

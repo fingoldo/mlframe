@@ -10,7 +10,6 @@ the file completes in well under a minute on CPU.
 from __future__ import annotations
 
 import math
-import os
 import pickle
 import warnings
 
@@ -470,7 +469,7 @@ def test_eval_coef_pair_direction_only():
     kw = _make_eval_kwargs(x_a, x_b, y)
     coef_a = np.array([0.0, 5.0, 0.0], dtype=np.float64)
     coef_b = np.array([0.0, 5.0, 0.0], dtype=np.float64)
-    score, raw_mi, bf_idx = _eval_coef_pair(
+    score, _raw_mi, bf_idx = _eval_coef_pair(
         coef_a,
         coef_b,
         direction_only=True,
@@ -486,7 +485,7 @@ def test_eval_coef_pair_with_eval_func_b():
     kw = _make_eval_kwargs(x_a, x_b, y)
     coef_a = np.array([0.0, 1.0], dtype=np.float64)
     coef_b = np.array([0.0, 1.0], dtype=np.float64)
-    score, raw_mi, bf_idx = _eval_coef_pair(
+    score, _raw_mi, _bf_idx = _eval_coef_pair(
         coef_a,
         coef_b,
         eval_func_b=_chebval_njit,
@@ -508,7 +507,7 @@ def test_eval_coef_pair_handles_non_finite_eval():
     kw["eval_func"] = bad_eval
     coef_a = np.array([0.0, 1.0], dtype=np.float64)
     coef_b = np.array([0.0, 1.0], dtype=np.float64)
-    score, raw_mi, bf_idx = _eval_coef_pair(coef_a, coef_b, **kw)
+    score, _raw_mi, bf_idx = _eval_coef_pair(coef_a, coef_b, **kw)
     assert score == -np.inf
     assert bf_idx == -1
 
@@ -539,7 +538,7 @@ def test_eval_coef_pair_ksg_estimator_path():
     kw["y_njit"] = None
     coef_a = np.array([0.0, 1.0], dtype=np.float64)
     coef_b = np.array([0.0, 1.0], dtype=np.float64)
-    score, raw_mi, bf_idx = _eval_coef_pair(coef_a, coef_b, **kw)
+    score, _raw_mi, _bf_idx = _eval_coef_pair(coef_a, coef_b, **kw)
     assert math.isfinite(score)
 
 
@@ -550,7 +549,7 @@ def test_eval_coef_pair_ksg_regression_path():
     kw["y_njit"] = None
     coef_a = np.array([0.0, 1.0], dtype=np.float64)
     coef_b = np.array([0.0, 1.0], dtype=np.float64)
-    score, raw_mi, bf_idx = _eval_coef_pair(coef_a, coef_b, **kw)
+    score, _raw_mi, _bf_idx = _eval_coef_pair(coef_a, coef_b, **kw)
     assert math.isfinite(score)
 
 
@@ -609,7 +608,7 @@ def test_run_cma_search_with_warm_seeds():
         popsize=8,
     )
     assert res is not None
-    coef_a, coef_b, bf_idx, raw_mi, n_evals = res
+    coef_a, coef_b, bf_idx, _raw_mi, n_evals = res
     assert coef_a.shape == (3,)
     assert coef_b.shape == (3,)
     assert n_evals > 0
@@ -651,7 +650,7 @@ def test_run_cma_search_track_history():
         track_history=True,
     )
     assert res is not None
-    coef_a, coef_b, bf_idx, raw_mi, n_evals, history = res
+    _coef_a, _coef_b, _bf_idx, _raw_mi, _n_evals, history = res
     assert isinstance(history, list)
 
 

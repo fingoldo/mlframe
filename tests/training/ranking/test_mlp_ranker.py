@@ -292,7 +292,7 @@ class TestMLPRankerInSuite:
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            models, meta = train_mlframe_models_suite(
+            models, _meta = train_mlframe_models_suite(
                 df=df,
                 target_name="relevance",
                 model_name="mlp_ltr_ens",

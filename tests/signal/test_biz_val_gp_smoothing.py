@@ -151,7 +151,7 @@ def test_gp_smooth_irregular_series_length_scales_none_is_bit_identical_to_legac
 
 
 def test_gp_smoothed_features_output_shape():
-    df, labels, query_times = _make_sparse_lightcurve_dataset(n_objects=10, seed=2)
+    df, _labels, query_times = _make_sparse_lightcurve_dataset(n_objects=10, seed=2)
     result = compute_gp_smoothed_features(df, "obj", "t", "y", query_times, alpha=0.05)
     assert result.shape[0] == 10
     assert result.shape[1] == 1 + 2 * len(query_times)  # entity col + mean/std per query time

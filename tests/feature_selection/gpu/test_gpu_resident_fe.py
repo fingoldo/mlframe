@@ -191,7 +191,7 @@ def test_gpu_resident_emits_replayable_recipe():
         top_k=3,
     )
     assert recs, "no recipes emitted"
-    name, recipe, mi = recs[0]
+    name, recipe, _mi = recs[0]
     # winner must encode a**2/b -- but the spelling can be div(sqr(a),b) OR the equivalent
     # mul(sqr(a),reciproc(b)); assert the SIGNAL via the replay-tracks-a**2/b check below, not a literal.
     assert "sqr" in name and ("div" in name or "reciproc" in name), f"winner not an a**2/b form: {name}"

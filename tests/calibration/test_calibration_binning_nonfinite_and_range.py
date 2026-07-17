@@ -6,7 +6,6 @@ seed. Fix: drop non-finite predictions at the Python boundary, seed span from th
 """
 
 import numpy as np
-import pytest
 
 from mlframe.metrics.calibration._calibration_plot import (
     fast_calibration_binning,
@@ -45,7 +44,7 @@ def test_out_of_range_predictions_bin_without_collapse():
     # Predictions all > 1 (a logit fed in by mistake): the old (1.0, 0.0) seed collapsed the lower bound to 1.0.
     yt = np.array([0, 0, 1, 1, 1], dtype=np.int64)
     yp = np.array([1.2, 1.4, 1.6, 1.8, 2.0])
-    fp, ft, hits = fast_calibration_binning(yt, yp, nbins=5)
+    _fp, _ft, hits = fast_calibration_binning(yt, yp, nbins=5)
     assert hits.sum() == 5
     # The five distinct predictions must spread across more than one bin (not all collapse into one).
     assert len(hits) >= 2, "out-of-[0,1] predictions collapsed into a single bin"
@@ -64,6 +63,6 @@ def test_nan_safe_quantile_strategy():
     yt, yp = _clean(600, 2)
     yp = yp.copy()
     yp[::13] = np.nan
-    fp, ft, hits = calibration_binning(yt, yp, nbins=20, strategy="quantile")
+    fp, _ft, hits = calibration_binning(yt, yp, nbins=20, strategy="quantile")
     assert hits.sum() == int(np.isfinite(yp).sum())
     assert np.isfinite(fp).all()

@@ -141,7 +141,7 @@ def test_residual_scale_shift_alert() -> None:
 
 
 def test_missing_sketch_requires_reference() -> None:
-    est, X_tr, y_tr = _make_fitted_estimator(seed=0)
+    est, _X_tr, _y_tr = _make_fitted_estimator(seed=0)
     mon = CompositeDriftMonitor(est)
     X_new, _ = _stationary_batch(seed=1)
     with pytest.raises(ValueError, match="no stored drift"):

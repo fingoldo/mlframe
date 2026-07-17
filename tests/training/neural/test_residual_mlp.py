@@ -24,7 +24,6 @@ import sys
 from pathlib import Path
 
 import numpy as np
-import pytest
 import torch
 import torch.nn as nn
 from sklearn.datasets import make_regression

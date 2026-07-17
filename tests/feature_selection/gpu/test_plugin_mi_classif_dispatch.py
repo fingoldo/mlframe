@@ -9,7 +9,6 @@ bug, not a tolerable numerical difference.
 
 from __future__ import annotations
 
-import os
 
 import numpy as np
 import pytest
@@ -27,7 +26,7 @@ if not _CUDA_AVAILABLE:
     pytest.skip("cupy not available", allow_module_level=True)
 
 # Re-import the cuda-only functions after the importorskip gate.
-from mlframe.feature_selection.filters.hermite_fe import (  # noqa: E402
+from mlframe.feature_selection.filters.hermite_fe import (
     _plugin_mi_classif_batch_cuda,
     _plugin_mi_classif_cuda,
 )

@@ -29,7 +29,7 @@ def _snapshot_frame(n=400, seed=0):
 def test_apply_cross_sectional_composite_fe_noop_when_snapshot_col_unset():
     df = _snapshot_frame()
     cfg = PreprocessingExtensionsConfig()
-    train, val, test = apply_cross_sectional_composite_fe(df.iloc[:300], df.iloc[300:], None, cfg, {}, verbose=0)
+    train, _val, _test = apply_cross_sectional_composite_fe(df.iloc[:300], df.iloc[300:], None, cfg, {}, verbose=0)
     assert list(train.columns) == list(df.columns)
 
 

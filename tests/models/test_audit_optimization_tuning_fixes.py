@@ -64,7 +64,7 @@ def test_rng_seeding_independent_of_intermediate_rng_draws():
     stdlib_seed_a = int(child_stdlib_a.generate_state(1, dtype=np.uint64)[0])
 
     seq_b = np.random.SeedSequence(seed)
-    child_np_b, child_stdlib_b = seq_b.spawn(2)
+    _child_np_b, child_stdlib_b = seq_b.spawn(2)
     stdlib_seed_b = int(child_stdlib_b.generate_state(1, dtype=np.uint64)[0])
 
     assert stdlib_seed_a == stdlib_seed_b, "stdlib seed must be independent of how many draws the numpy stream took first"

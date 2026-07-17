@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.feature_selection.filters.engineered_recipes import apply_recipe
 from mlframe.feature_selection.filters._orthogonal_univariate_fe import _evaluate_basis_column

@@ -97,7 +97,7 @@ def test_adaptive_degree_near_zero_baseline_does_not_pass_gate():
     n = 400
     X = pd.DataFrame({"a": np.ones(n), "b": rng.normal(size=n)})
     y = (rng.random(n) > 0.5).astype(np.int64)
-    eng, mlmeta = adeg.generate_adaptive_degree_basis_features(
+    _eng, mlmeta = adeg.generate_adaptive_degree_basis_features(
         X,
         y,
         cols=["a"],
@@ -106,7 +106,7 @@ def test_adaptive_degree_near_zero_baseline_does_not_pass_gate():
     )
     # No engineered column off the constant source should survive via an
     # exploded uplift.
-    for name, info in mlmeta.items():
+    for info in mlmeta.values():
         assert info["uplift"] != float("inf") or info["engineered_mi"] >= adeg._ABS_MI_FLOOR
 
 
@@ -224,7 +224,7 @@ def test_factorize_pack_matches_reference_on_small_input():
     # Horner path on a small (non-overflowing) input.
     a = np.array([0, 1, 0, 1, 2], dtype=np.int64)
     b = np.array([0, 0, 1, 1, 0], dtype=np.int64)
-    codes, k = cmim._factorize_pack(a, b)
+    _codes, k = cmim._factorize_pack(a, b)
     # 4 distinct (a, b) pairs: (0,0),(1,0),(0,1),(1,1),(2,0) -> 5.
     assert k == 5
 

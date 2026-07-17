@@ -125,7 +125,7 @@ def test_relevancy_handles_multiple_targets():
     """Multi-target call: MI matrix gets one row per target."""
     bins = _build_bins_with_known_signal(n=300, n_informative=2, n_noise=3)
     # Rename second informative col as a second target
-    cols_to_drop, mi, perm_mi, _ = estimate_features_relevancy(
+    _cols_to_drop, mi, perm_mi, _ = estimate_features_relevancy(
         bins=bins,
         target_columns=["target", "inf_1"],
         mi_algorithms_ranking=[grok_compute_mutual_information],
@@ -172,7 +172,7 @@ def test_relevancy_with_explicit_mi_ranking_skips_benchmark():
     no time should be spent benchmarking; the supplied first entry must be used."""
     bins = _build_bins_with_known_signal(n=200)
     # Use a deliberately distinct MI estimator and verify it is consulted.
-    cols_to_drop, _, _, ranking = estimate_features_relevancy(
+    _cols_to_drop, _, _, ranking = estimate_features_relevancy(
         bins=bins,
         target_columns=["target"],
         mi_algorithms_ranking=[chatgpt_compute_mutual_information],

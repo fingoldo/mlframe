@@ -108,7 +108,7 @@ class TestDispatcher:
     def test_can_hoist_returns_false_when_buffer_overshoots(self):
         # 100 TiB request never fits; result must be False regardless of host RAM.
         big = 100 * (2**40)
-        can, bb, av = _can_hoist_shared_buffer(big)
+        can, bb, _av = _can_hoist_shared_buffer(big)
         assert can is False
         assert bb == big
 
@@ -123,7 +123,7 @@ class TestDispatcher:
         monkeypatch.setattr(fe_mod, "_FE_BUFFER_RAM_BUDGET_RATIO", 0.0)
         res = _run_check(synthetic_pair_inputs, unary_preset="minimal", binary_preset="minimal")
         assert (0, 1) in res
-        this_pair_features, transformed_vals, new_cols, _new_nbins, _msgs = res[(0, 1)]
+        this_pair_features, transformed_vals, _new_cols, _new_nbins, _msgs = res[(0, 1)]
         assert len(this_pair_features) >= 1, "Fallback path produced empty survivor set"
         assert transformed_vals is not None, "fe_max_steps>1 must materialise transformed_vals"
         assert transformed_vals.shape == (len(synthetic_pair_inputs["df"]), len(this_pair_features))
@@ -150,7 +150,7 @@ class TestHoistHeadroomAcceptance:
         budget = fe_mod._fe_effective_buffer_budget_bytes(int(5.7 * 2**30), n_workers=2)
         assert buf > budget, "fixture must exceed the relative budget to exercise the headroom path"
         # ... but the headroom acceptance path HOISTS it.
-        can, bb, av = fe_mod._can_hoist_shared_buffer(buf, n_workers=2)
+        can, bb, _av = fe_mod._can_hoist_shared_buffer(buf, n_workers=2)
         assert can is True
         assert bb == buf
 
@@ -165,7 +165,7 @@ class TestHoistHeadroomAcceptance:
 
     def test_headroom_path_disabled_by_zero_ratio(self, monkeypatch):
         """A zeroed budget (fallback-forcing knob) must decline even a tiny buffer."""
-        self._force_avail(monkeypatch, int(8 * 2**30))
+        self._force_avail(monkeypatch, (8 * 2**30))
         monkeypatch.setattr(fe_mod, "_FE_BUFFER_RAM_BUDGET_RATIO", 0.0)
         can, _bb, _av = fe_mod._can_hoist_shared_buffer(1024, n_workers=1)
         assert can is False
@@ -250,7 +250,7 @@ class TestFastVsFallbackEquivalence:
     """Same inputs through both paths -> same survivor set and same column data."""
 
     def _normalise_features(self, res_pair):
-        this_pair_features, transformed_vals, new_cols, _nbins, _msgs = res_pair
+        _this_pair_features, transformed_vals, new_cols, _nbins, _msgs = res_pair
         # Use new_cols as the deterministic key; columns rebuilt from the same
         # (a_key, b_key, bin_func_name) metadata must match bit-for-bit up to
         # the float32 rounding of the binary ufunc (which is deterministic).
@@ -324,7 +324,7 @@ class TestAbsoluteBufferCeiling:
         ceiling = fe_mod._fe_buffer_absolute_max_bytes()
         self._force_avail(monkeypatch, 1024 * (2**30))  # 1 TiB free
         buf = ceiling + (1 * 2**30)  # 1 GiB over the ceiling
-        can, bb, av = fe_mod._can_hoist_shared_buffer(buf, n_workers=1)
+        can, bb, _av = fe_mod._can_hoist_shared_buffer(buf, n_workers=1)
         assert can is False, "buffer above the absolute ceiling must be declined regardless of available RAM"
         assert bb == buf
 

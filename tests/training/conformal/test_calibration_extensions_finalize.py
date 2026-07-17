@@ -181,7 +181,7 @@ def _regression_entry(rng, n=400, discriminative=True):
 def test_confidence_shrinkage_shrinks_weak_target_toward_neutral():
     rng = np.random.default_rng(6)
     weak_entry, weak_test_preds = _regression_entry(rng, discriminative=False)
-    strong_entry, strong_test_preds = _regression_entry(rng, discriminative=True)
+    strong_entry, _strong_test_preds = _regression_entry(rng, discriminative=True)
     ctx = SimpleNamespace(
         models={"REGRESSION": {"weak": [weak_entry], "strong": [strong_entry]}},
         metadata={},

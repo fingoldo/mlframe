@@ -32,7 +32,7 @@ def test_melt_to_long_gbm_features_count_column_matches_value_frequency():
     """The within-column value-frequency count is the source technique's second input column -- verify it's
     computed correctly against a hand-constructed column with known duplicate values."""
     X = pd.DataFrame({"f0": [1.0, 1.0, 2.0, 3.0, 3.0, 3.0], "f1": [9.0, 8.0, 7.0, 6.0, 5.0, 4.0]})
-    y = np.zeros(6)
+    np.zeros(6)
 
     n = X.shape[0]
     X_indexed = X.reset_index(drop=True).copy()

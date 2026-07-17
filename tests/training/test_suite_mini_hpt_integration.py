@@ -8,12 +8,10 @@ into ``hyperparams_config`` (caller-supplied values win)."""
 from __future__ import annotations
 
 import logging
-import tempfile
 import warnings
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from .shared import SimpleFeaturesAndTargetsExtractor
 
@@ -130,7 +128,7 @@ class TestMiniHPTSuiteWiring:
         # And the global AR detector did NOT recommend use_layernorm=False
         # (it would have if has_time_axis=True triggered without the monotonicity gate).
         rep = meta.get("target_distribution_report") or {}
-        np_overrides = (rep.get("knob_overrides") or {}).get("mlp_kwargs", {}).get("network_params", {})
+        (rep.get("knob_overrides") or {}).get("mlp_kwargs", {}).get("network_params", {})
         # Could be False from a different detector (clustered, per_group AR) -- so we only
         # assert the AR-source diagnostic isn't "global" when monotonicity failed.
         diag = rep.get("diagnostics") or {}

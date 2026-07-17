@@ -153,7 +153,7 @@ class TestNbinsStrategyEndToEnd:
         rng = np.random.default_rng(0)
         n = 500
         X = pd.DataFrame({"a": rng.standard_normal(n), "b": rng.lognormal(size=n)})
-        data, _, nbins = categorize_dataset(X, dtype=np.int32, nbins_strategy="fd")
+        _data, _, nbins = categorize_dataset(X, dtype=np.int32, nbins_strategy="fd")
         assert nbins.size == 2
         # FD adapts per column; expect strictly different counts for skewed
         # vs gaussian.

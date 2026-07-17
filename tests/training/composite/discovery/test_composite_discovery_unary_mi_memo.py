@@ -16,7 +16,6 @@ These tests pin BOTH halves of the contract:
 
 from __future__ import annotations
 
-import threading
 
 import numpy as np
 import pytest

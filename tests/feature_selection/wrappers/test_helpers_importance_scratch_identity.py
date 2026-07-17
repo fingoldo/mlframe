@@ -10,7 +10,6 @@ end-to-end importance identity vs a verbatim np.delete reference.
 """
 
 import numpy as np
-import pandas as pd
 import pytest
 
 from mlframe.feature_selection.wrappers._helpers_importance import _conditional_permutation_importance
@@ -53,7 +52,7 @@ def _reference_cpi(model, X, y, n_repeats, random_state):
     from sklearn.tree import DecisionTreeRegressor, DecisionTreeClassifier
 
     X_arr = np.asarray(X)
-    n, p = X_arr.shape
+    _n, p = X_arr.shape
     rng = np.random.default_rng(random_state)
     baseline = float(model.score(X, y))
     importances = np.zeros(p, dtype=float)

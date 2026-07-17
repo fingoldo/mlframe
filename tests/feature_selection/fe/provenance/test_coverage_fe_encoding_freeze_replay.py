@@ -79,7 +79,7 @@ def test_kfold_target_encoding_replay_matches_manual_lookup(fit_frame):
 
 
 def test_kfold_te_unseen_category_maps_to_global_mean(fit_frame):
-    X, y, cats, _ = fit_frame
+    _X, y, cats, _ = fit_frame
     mean_lookup, _, _ = _fit_lookups(cats, y)
     gmean = float(np.mean(y))
     rec = build_kfold_target_encoded_recipe(
@@ -153,7 +153,7 @@ def test_frequency_encoding_replay_and_unseen_default(fit_frame):
 
 
 def test_cat_num_residual_replay_matches_manual(fit_frame):
-    X, y, cats, num = fit_frame
+    X, _y, cats, num = fit_frame
     mean_lookup, _, _ = _fit_lookups(cats, num)  # residual is over num, not y
     gmean = float(np.mean(num))
     rec = build_cat_num_residual_recipe(
@@ -170,7 +170,7 @@ def test_cat_num_residual_replay_matches_manual(fit_frame):
 
 
 def test_cat_num_residual_unseen_category_subtracts_global_mean(fit_frame):
-    X, y, cats, num = fit_frame
+    _X, _y, cats, num = fit_frame
     mean_lookup, _, _ = _fit_lookups(cats, num)
     gmean = float(np.mean(num))
     rec = build_cat_num_residual_recipe(
@@ -218,7 +218,7 @@ def test_encoding_recipe_pickle_roundtrip_replays_identically(fit_frame, builder
 
 
 def test_frozen_extra_rejects_mutation(fit_frame):
-    X, y, cats, _ = fit_frame
+    _X, y, cats, _ = fit_frame
     mean_lookup, _, _ = _fit_lookups(cats, y)
     rec = build_kfold_target_encoded_recipe(
         name="te",

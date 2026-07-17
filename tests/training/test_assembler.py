@@ -21,10 +21,9 @@ from __future__ import annotations
 import logging
 import numpy as np
 import pytest
-from scipy.sparse import csr_matrix, issparse
+from scipy.sparse import csr_matrix
 
 from mlframe.training.feature_handling import (
-    AssembledMatrix,
     DENSE_ONLY_MODELS,
     HandlerOutput,
     SPARSE_AWARE_MODELS,

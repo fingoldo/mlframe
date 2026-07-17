@@ -98,7 +98,7 @@ def test_interaction_kernel_handles_missing_values():
     Xn.iloc[::5, 3] = np.nan
 
     ens = extract_ensemble(model)
-    Phi, phi, base = interaction_tensor_numba(ens, Xn.values)
+    Phi, _phi, base = interaction_tensor_numba(ens, Xn.values)
     Phi_ref, _ = _shap_interaction_reference(model, Xn)
     np.testing.assert_allclose(Phi, Phi_ref, rtol=1e-4, atol=1e-4)
     margin = model.predict(Xn, output_margin=True)
@@ -141,7 +141,7 @@ def test_compute_interaction_tensor_routes_to_numba_on_wide_xgb():
     # numba path produces a valid tensor for the supported wide xgboost model.
     out = _interaction_tensor_numba(xgb, X, classification=True)
     assert out is not None
-    Phi, base = out
+    Phi, _base = out
     assert Phi.shape == (120, P, P)
 
     # Unsupported model: numba path returns None (caller falls back to shap).

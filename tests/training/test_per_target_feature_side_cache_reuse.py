@@ -18,12 +18,9 @@ suites for a counter assertion would multiply CI cost by an order of magnitude.
 
 from __future__ import annotations
 
-import sys
-from typing import Any
 
 import numpy as np
 import pandas as pd
-import polars as pl
 import pytest
 
 

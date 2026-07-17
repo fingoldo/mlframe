@@ -8,8 +8,6 @@ up, not exhaustive correctness. Real correctness lives in test_audit_fixes.py / 
 
 from __future__ import annotations
 
-import os
-import tempfile
 from datetime import datetime
 
 import numpy as np
@@ -38,7 +36,7 @@ class TestNumericalStableKernels:
         from mlframe.feature_engineering._numerical_stable import welford_mean_var_seq
 
         arr = np.array([1.0, np.nan, 2.0, np.inf, 3.0], dtype=np.float64)
-        mean, var, n = welford_mean_var_seq(arr)
+        mean, _var, n = welford_mean_var_seq(arr)
         # Non-finite skipped; finite vals are [1, 2, 3].
         assert n == 3
         np.testing.assert_allclose(mean, 2.0, atol=1e-12)
@@ -54,7 +52,7 @@ class TestNumericalStableKernels:
 
         rng = np.random.default_rng(1)
         arr = rng.standard_normal(1000).astype(np.float64)
-        mean, var, skew, kurt, n = welford_moments_seq(arr)
+        mean, _var, skew, kurt, n = welford_moments_seq(arr)
         assert n == 1000
         np.testing.assert_allclose(mean, float(arr.mean()), rtol=1e-10)
         assert abs(skew) < 0.3 and abs(kurt) < 0.5  # near-Gaussian
@@ -62,13 +60,13 @@ class TestNumericalStableKernels:
     def test_welford_moments_seq_short(self):
         from mlframe.feature_engineering._numerical_stable import welford_moments_seq
 
-        mean, var, skew, kurt, n = welford_moments_seq(np.array([1.0], dtype=np.float64))
+        _mean, var, skew, kurt, n = welford_moments_seq(np.array([1.0], dtype=np.float64))
         assert n == 1 and var == 0.0 and skew == 0.0 and kurt == 0.0
 
     def test_welford_moments_seq_zero_var(self):
         from mlframe.feature_engineering._numerical_stable import welford_moments_seq
 
-        mean, var, skew, kurt, n = welford_moments_seq(np.full(50, 7.0, dtype=np.float64))
+        mean, _var, skew, kurt, _n = welford_moments_seq(np.full(50, 7.0, dtype=np.float64))
         assert mean == 7.0 and skew == 0.0 and kurt == 0.0
 
     def test_kahan_sum_seq(self):
@@ -115,7 +113,7 @@ class TestNumericalStableKernels:
     def test_naive_mean_var_two_pass_seq_empty(self):
         from mlframe.feature_engineering._numerical_stable import naive_mean_var_two_pass_seq
 
-        mean, var, n = naive_mean_var_two_pass_seq(np.empty(0, dtype=np.float64))
+        _mean, _var, n = naive_mean_var_two_pass_seq(np.empty(0, dtype=np.float64))
         assert n == 0
 
     def test_kahan_two_pass_var_seq(self):
@@ -131,7 +129,7 @@ class TestNumericalStableKernels:
     def test_kahan_two_pass_var_seq_empty(self):
         from mlframe.feature_engineering._numerical_stable import kahan_two_pass_var_seq
 
-        mean, var, n = kahan_two_pass_var_seq(np.empty(0, dtype=np.float64))
+        _mean, _var, n = kahan_two_pass_var_seq(np.empty(0, dtype=np.float64))
         assert n == 0
 
     def test_naive_moments_two_pass_seq(self):
@@ -139,20 +137,20 @@ class TestNumericalStableKernels:
 
         rng = np.random.default_rng(4)
         arr = rng.standard_normal(500).astype(np.float64)
-        mean, var, skew, kurt, n = naive_moments_two_pass_seq(arr)
+        mean, _var, _skew, _kurt, n = naive_moments_two_pass_seq(arr)
         assert n == 500
         np.testing.assert_allclose(mean, float(arr.mean()), rtol=1e-10)
 
     def test_naive_moments_two_pass_seq_short(self):
         from mlframe.feature_engineering._numerical_stable import naive_moments_two_pass_seq
 
-        mean, var, skew, kurt, n = naive_moments_two_pass_seq(np.array([3.0], dtype=np.float64))
+        _mean, var, _skew, _kurt, n = naive_moments_two_pass_seq(np.array([3.0], dtype=np.float64))
         assert n == 1 and var == 0.0
 
     def test_naive_moments_two_pass_seq_zero_var(self):
         from mlframe.feature_engineering._numerical_stable import naive_moments_two_pass_seq
 
-        mean, var, skew, kurt, n = naive_moments_two_pass_seq(np.full(20, 4.2, dtype=np.float64))
+        mean, _var, skew, kurt, n = naive_moments_two_pass_seq(np.full(20, 4.2, dtype=np.float64))
         # Constant input -> mean preserved, var near zero, skew is 0 (deviations all zero).
         # Kurtosis on constant input is convention-dependent (excess-kurt = -3, biased = 0):
         # both implementations exist in the wild; we only assert the call doesn't crash.
@@ -211,7 +209,7 @@ class TestMpsCoverage:
         from mlframe.feature_engineering.mps import find_best_mps_sequence
 
         prices = np.linspace(100, 110, 30)
-        positions, profits = find_best_mps_sequence(prices=prices, raw_prices=prices, tc=0.5, tc_mode_is_fraction=False)
+        positions, _profits = find_best_mps_sequence(prices=prices, raw_prices=prices, tc=0.5, tc_mode_is_fraction=False)
         assert positions.size == 29
 
     def test_find_best_mps_sequence_no_optimize_regions(self):
@@ -663,7 +661,7 @@ class TestTimeseriesCoverage:
         from mlframe.feature_engineering.timeseries import find_next_cumsum_left_index
 
         arr = np.array([1.0, -2.0, 3.0, -4.0, 5.0], dtype=np.float64)
-        left, total = find_next_cumsum_left_index(arr, 4.0, use_abs=True)
+        left, _total = find_next_cumsum_left_index(arr, 4.0, use_abs=True)
         assert left >= 0
 
     def test_get_nwindows_expected(self):
@@ -1190,7 +1188,7 @@ class TestMpsPlotAndIo:
 # ============================================================================
 
 
-from tests._pysr_gate import pysr_works as _pysr_works  # noqa: E402
+from tests._pysr_gate import pysr_works as _pysr_works
 
 
 @pytest.mark.slow_only
@@ -1751,7 +1749,7 @@ class TestTimeseriesGapClosing:
         def features_creation_fcn(past_windows):
             return [sum(v[0] for v in past_windows.values())]
 
-        X, Y = create_windowed_features(
+        X, _Y = create_windowed_features(
             df=df,
             start_index=10,
             end_index=35,
@@ -1884,7 +1882,7 @@ class TestTimeseriesFinalGaps:
         from mlframe.feature_engineering.timeseries import find_next_cumsum_right_index
 
         arr = np.array([1.0, -2.0, 3.0, -4.0, 5.0], dtype=np.float64)
-        idx, total = find_next_cumsum_right_index(arr, amount=4.0, use_abs=True)
+        idx, _total = find_next_cumsum_right_index(arr, amount=4.0, use_abs=True)
         assert idx > 0
 
     def test_find_next_cumsum_left_index_at_zero(self):

@@ -118,7 +118,7 @@ def test_swap_noise_augment_column_swap_probs_out_of_range_raises():
     X = np.random.default_rng(0).normal(size=(10, 2))
     try:
         swap_noise_augment(X, column_swap_probs=np.array([0.5, 1.5]))
-        assert False, "expected ValueError for out-of-range column_swap_probs entry"
+        raise AssertionError("expected ValueError for out-of-range column_swap_probs entry")
     except ValueError:
         pass
 
@@ -127,7 +127,7 @@ def test_swap_noise_augment_column_swap_probs_wrong_length_raises():
     X = np.random.default_rng(0).normal(size=(10, 3))
     try:
         swap_noise_augment(X, column_swap_probs=np.array([0.5, 0.5]))
-        assert False, "expected ValueError for column_swap_probs length mismatch"
+        raise AssertionError("expected ValueError for column_swap_probs length mismatch")
     except ValueError:
         pass
 

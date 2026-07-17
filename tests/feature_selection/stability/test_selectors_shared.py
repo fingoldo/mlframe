@@ -103,7 +103,7 @@ class TestSharedAPIContract:
         assert result is selector, "fit() must return self (sklearn convention)"
 
     def test_transform_before_fit_raises_not_fitted(self, selector_factory, small_clf_problem):
-        X, y = small_clf_problem
+        X, _y = small_clf_problem
         selector = selector_factory()
         with pytest.raises(NotFittedError):
             selector.transform(X)

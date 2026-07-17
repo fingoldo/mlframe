@@ -19,7 +19,6 @@ import numpy as np
 
 from mlframe.feature_selection.filters.fleuret import (
     _fleuret_shuffle_col_lcg,
-    get_fleuret_criteria_confidence,
 )
 from mlframe.feature_selection.filters.permutation import parallel_mi
 

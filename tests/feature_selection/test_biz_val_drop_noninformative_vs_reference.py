@@ -38,7 +38,7 @@ def _make_control_treated_dataset(n: int, n_signal: int, n_noise: int, seed: int
 
 
 def test_biz_val_drop_noninformative_vs_reference_correctly_identifies_noise_columns():
-    df, reference_mask, y = _make_control_treated_dataset(n=2000, n_signal=5, n_noise=15, seed=0)
+    df, reference_mask, _y = _make_control_treated_dataset(n=2000, n_signal=5, n_noise=15, seed=0)
 
     kept = drop_noninformative_vs_reference(df, reference_mask, alpha=0.1)
 

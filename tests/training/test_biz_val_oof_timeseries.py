@@ -101,7 +101,7 @@ def test_early_stopping_disabled_estimator_survives_timeseries_path():
     lgb = pytest.importorskip("lightgbm")
     X, y = _time_ordered_frame(n=300)
     est = lgb.LGBMRegressor(n_estimators=20, num_leaves=7, verbose=-1, early_stopping_rounds=None)
-    oof_preds, oof_probs = _compute_oof_preds_timeseries(estimator=est, train_df=X, train_target=y, method="predict", n_splits=3)
+    oof_preds, _oof_probs = _compute_oof_preds_timeseries(estimator=est, train_df=X, train_target=y, method="predict", n_splits=3)
     assert oof_preds is not None
     assert np.isfinite(oof_preds).sum() > 0
 

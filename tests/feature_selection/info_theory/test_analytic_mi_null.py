@@ -64,7 +64,7 @@ def test_permutation_converges_to_analytic(monkeypatch):
         mi_a, _c, nm_a, p_a = _md(data, nbins)  # analytic
         monkeypatch.setenv("MLFRAME_MI_ANALYTIC_NULL", "0")
         # high-nperm permutation -> should match the analytic value closely.
-        mi_lo, _c, nm_lo, p_lo = mi_direct(
+        _mi_lo, _c, nm_lo, _p_lo = mi_direct(
             data, x=(0,), y=(1,), factors_nbins=nbins, npermutations=64, min_nonzero_confidence=0.0, parallelism="none", prefer_gpu=False, return_null_mean=True
         )
         mi_hi, _c, nm_hi, p_hi = mi_direct(
@@ -116,9 +116,9 @@ def test_analytic_matches_permutation_large_n(monkeypatch, signal):
     data, nbins = _binned(n, signal, seed=11)
 
     monkeypatch.setenv("MLFRAME_MI_ANALYTIC_NULL", "1")
-    mi_a, conf_a, nm_a, p_a = _md(data, nbins)
+    mi_a, _conf_a, nm_a, p_a = _md(data, nbins)
     monkeypatch.setenv("MLFRAME_MI_ANALYTIC_NULL", "0")
-    mi_p, conf_p, nm_p, p_p = _md(data, nbins)
+    mi_p, _conf_p, nm_p, p_p = _md(data, nbins)
 
     # observed MI is computed the same way on both paths -> identical.
     assert mi_a == pytest.approx(mi_p, rel=1e-9)

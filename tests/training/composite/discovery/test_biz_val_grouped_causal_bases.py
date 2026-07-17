@@ -211,13 +211,13 @@ def test_attach_does_not_mutate_caller_and_skips_existing():
     assert list(df.columns) == cols_before  # caller frame untouched (shallow copy)
     assert "y__gcausal_lag1" in names and "y__gcausal_lag1" in df2.columns
     # Re-attaching onto the augmented frame is a no-op for the already-present name.
-    df3, names3 = attach_grouped_causal_bases(df2, "y", "well", "md", lags=(1,), ops=("lag",))
+    _df3, names3 = attach_grouped_causal_bases(df2, "y", "well", "md", lags=(1,), ops=("lag",))
     assert names3 == []
 
 
 def test_attach_polars_zero_copy_semantics():
     df = pl.from_pandas(_mixed_frame())
-    df2, names = attach_grouped_causal_bases(df, "y", "well", "md", lags=(1,), ops=("lag",))
+    df2, _names = attach_grouped_causal_bases(df, "y", "well", "md", lags=(1,), ops=("lag",))
     assert "y__gcausal_lag1" not in df.columns  # original polars frame is immutable / untouched
     assert "y__gcausal_lag1" in df2.columns
 
@@ -245,10 +245,10 @@ def test_maybe_add_wires_bases_when_group_configured():
 def test_maybe_add_noop_when_disabled_or_no_group():
     df = _mixed_frame()
     disc_off = _FakeDisc(_FakeConfig(engineer_causal_bases=False, engineer_causal_group_column="well", time_column="md"))
-    d1, f1, b1 = maybe_add_grouped_causal_bases(disc_off, df, "y", ["md"], [], np.arange(len(df)))
+    d1, _f1, b1 = maybe_add_grouped_causal_bases(disc_off, df, "y", ["md"], [], np.arange(len(df)))
     assert b1 == [] and "y__gcausal_lag1" not in d1.columns
     disc_nogrp = _FakeDisc(_FakeConfig(engineer_causal_bases=True, engineer_causal_group_column=None, time_column="md"))
-    d2, f2, b2 = maybe_add_grouped_causal_bases(disc_nogrp, df, "y", ["md"], [], np.arange(len(df)))
+    d2, _f2, b2 = maybe_add_grouped_causal_bases(disc_nogrp, df, "y", ["md"], [], np.arange(len(df)))
     assert b2 == [] and "y__gcausal_lag1" not in d2.columns
 
 

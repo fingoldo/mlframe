@@ -347,7 +347,7 @@ class TimestampedFeaturesExtractor:
                 group_ids_raw = df[self.group_field]
             else:
                 group_ids_raw = df[self.group_field].to_pandas()
-            unique_vals, group_ids = np.unique(group_ids_raw.values, return_inverse=True)
+            _unique_vals, group_ids = np.unique(group_ids_raw.values, return_inverse=True)
 
         # Return all expected values
         return (

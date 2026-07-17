@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import numpy as np
 import polars as pl
-import pytest
 from sklearn.linear_model import LinearRegression
 
 from mlframe.training._predict_guards import _apply_nan_guard

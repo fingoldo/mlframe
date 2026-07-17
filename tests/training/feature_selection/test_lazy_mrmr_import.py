@@ -110,7 +110,7 @@ def test_build_pre_pipelines_with_use_mrmr_false_does_not_import_filters():
     sys.modules.pop("mlframe.training.core._setup_helpers", None)
     from mlframe.training.core._setup_helpers import _build_pre_pipelines
 
-    pre_pipelines, pre_pipeline_names = _build_pre_pipelines(
+    _pre_pipelines, pre_pipeline_names = _build_pre_pipelines(
         use_ordinary_models=True,
         rfecv_models=[],
         rfecv_models_params={},
@@ -131,7 +131,7 @@ def test_build_pre_pipelines_with_use_mrmr_true_does_import_filters():
     sys.modules.pop("mlframe.training.core._setup_helpers", None)
     from mlframe.training.core._setup_helpers import _build_pre_pipelines
 
-    pre_pipelines, pre_pipeline_names = _build_pre_pipelines(
+    _pre_pipelines, pre_pipeline_names = _build_pre_pipelines(
         use_ordinary_models=True,
         rfecv_models=[],
         rfecv_models_params={},

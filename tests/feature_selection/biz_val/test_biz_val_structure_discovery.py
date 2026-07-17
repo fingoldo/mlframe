@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from mlframe.feature_selection import discover_structure, StructureReport, DiscoveredRelation
+from mlframe.feature_selection import discover_structure, StructureReport
 
 
 N = 2000
@@ -65,7 +65,7 @@ def test_biz_val_discover_modular_modulus():
     top = mod[0]
     assert set(top.columns) == {"a", "b"}
     # The escalate stage may pin a MULTIPLE of the true modulus (7 | 14 | 21 ... all carry the residue signal).
-    assert top.parameter is not None and int(round(top.parameter)) % 7 == 0, f"modulus must be a multiple of 7; got {top.parameter}"
+    assert top.parameter is not None and round(top.parameter) % 7 == 0, f"modulus must be a multiple of 7; got {top.parameter}"
     assert top.mi >= 0.5
 
 

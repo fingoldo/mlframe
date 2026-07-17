@@ -12,13 +12,11 @@ Covers:
 
 from __future__ import annotations
 
-import os
 from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 import pytest
 
-from mlframe.calibration import policy
 from mlframe.calibration.policy import (
     _ece_score,
     _stratified_inner_folds,

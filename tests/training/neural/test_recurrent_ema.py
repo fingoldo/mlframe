@@ -19,7 +19,6 @@ import pytest
 pytest.importorskip("torch")
 pytest.importorskip("lightning")
 
-import torch
 
 from mlframe.training.neural._recurrent_config import (
     InputMode,
@@ -93,7 +92,6 @@ def test_recurrent_ema_callback_attached_when_use_ema_true(monkeypatch):
     Trainer's callbacks list. We don't care which (depends on Lightning
     version); we DO care that *something* was added."""
     from mlframe.training.neural.recurrent import RecurrentRegressorWrapper
-    import lightning as L
 
     cfg = RecurrentConfig(
         input_mode=InputMode.FEATURES_ONLY,
@@ -143,7 +141,7 @@ def test_recurrent_no_ema_callback_when_use_ema_false():
         bad_types = ()
     from lightning.pytorch.callbacks import StochasticWeightAveraging
 
-    bad_types = bad_types + (StochasticWeightAveraging,)
+    bad_types = (*bad_types, StochasticWeightAveraging)
 
     for cb in trainer.callbacks:
         assert not isinstance(cb, bad_types), f"use_ema=False but {type(cb).__name__} was still attached"

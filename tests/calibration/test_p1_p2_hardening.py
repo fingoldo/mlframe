@@ -90,7 +90,7 @@ def test_missing_ice_column_does_not_raise_keyerror():
         patch("mlframe.calibration.post.get_postcalibrators", return_value=fake_calibrators),
         patch("mlframe.calibration.post.report_model_perf", side_effect=_fake_report_model_perf),
     ):
-        metrics_df, calibrators, failed = compare_postcalibrators(
+        metrics_df, calibrators, _failed = compare_postcalibrators(
             model_name="m",
             columns=["y"],
             calib_probs=probs,
@@ -133,7 +133,7 @@ def test_metric_key_mismatch_logs_warning(caplog):
         patch("mlframe.calibration.post.report_model_perf", side_effect=_fake_report_model_perf),
         caplog.at_level("WARNING", logger="mlframe.calibration.post"),
     ):
-        metrics_df, calibrators, failed = compare_postcalibrators(
+        _metrics_df, _calibrators, _failed = compare_postcalibrators(
             model_name="m",
             columns=["y"],
             calib_probs=probs,
@@ -161,7 +161,7 @@ def test_full_name_collision_disambiguated_not_overwritten():
     ]
 
     with patch("mlframe.calibration.post.get_postcalibrators", return_value=fake_calibrators):
-        metrics_df, calibrators, failed = compare_postcalibrators(
+        _metrics_df, calibrators, _failed = compare_postcalibrators(
             model_name="m",
             columns=["y"],
             calib_probs=probs,

@@ -189,7 +189,7 @@ class TestGroupedRecurrent:
 
     def test_regression_frac_diff_grouped_uncontaminated_at_group_start(self) -> None:
         """Per-group anchor padding: the first rows of each group must not see the OTHER group's level through the weight tail."""
-        y, base, groups, _resid, n_per = _panel(1)
+        y, _base, groups, _resid, n_per = _panel(1)
         tg = get_transform("frac_diff_grouped")
         tu = get_transform("frac_diff")
         pg = tg.fit(y, None, d=0.5, lags=20, groups=groups)

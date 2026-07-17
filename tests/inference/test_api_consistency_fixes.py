@@ -6,7 +6,6 @@ Covers:
 """
 
 import numpy as np
-import pytest
 
 
 class _BinaryClf:

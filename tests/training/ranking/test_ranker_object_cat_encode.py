@@ -85,9 +85,9 @@ def test_object_cats_encoded_to_int_codes_via_shared_vocab() -> None:
 def test_unseen_values_in_val_map_to_minus_one() -> None:
     """Values seen only at predict time (never in any of the vocab-
     contributing splits) must map to -1, the LGB-missing sentinel."""
-    train_df = pd.DataFrame({"cat_0": np.array(["a", "b", "c"], dtype=object)})
-    val_df = pd.DataFrame({"cat_0": np.array(["a", "b"], dtype=object)})
-    test_df = pd.DataFrame({"cat_0": np.array(["a", "b"], dtype=object)})
+    pd.DataFrame({"cat_0": np.array(["a", "b", "c"], dtype=object)})
+    pd.DataFrame({"cat_0": np.array(["a", "b"], dtype=object)})
+    pd.DataFrame({"cat_0": np.array(["a", "b"], dtype=object)})
 
     # Build vocab from train+val+test (the only values are a/b/c).
     _vocab = {v: i for i, v in enumerate(sorted({"a", "b", "c"}, key=str))}

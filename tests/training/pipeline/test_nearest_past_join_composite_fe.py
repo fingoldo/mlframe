@@ -40,7 +40,7 @@ def _left_right(n_entities=20, right_rows_per_entity=10, n_left=100, seed=0):
 def test_apply_nearest_past_join_composite_fe_noop_when_on_unset():
     left, right = _left_right()
     cfg = PreprocessingExtensionsConfig()
-    train, val, test = apply_nearest_past_join_composite_fe(left.iloc[:70], left.iloc[70:], None, cfg, right, verbose=0)
+    train, _val, _test = apply_nearest_past_join_composite_fe(left.iloc[:70], left.iloc[70:], None, cfg, right, verbose=0)
     assert list(train.columns) == list(left.columns)
 
 

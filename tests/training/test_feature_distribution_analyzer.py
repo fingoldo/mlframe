@@ -49,7 +49,7 @@ class TestCleanFeatures:
         n, k = 200, 3
         arr = np.full((n, k), "a", dtype=object)
         with caplog.at_level(logging.WARNING):
-            rep = analyze_feature_distribution(arr, feature_names=[f"f{i}" for i in range(k)])
+            analyze_feature_distribution(arr, feature_names=[f"f{i}" for i in range(k)])
         msgs = " | ".join(r.getMessage() for r in caplog.records)
         # The post-conversion guard should WARN-log so test runs catch the
         # misclassification even if the analyzer returns silently.

@@ -74,7 +74,7 @@ class TestA5BaselinePopulationParity:
         post-fix population includes the invalid rows scored by the median
         fallback, so the RMSE must blow up.
         """
-        y, base, X, params, transform, valid, inv = _partial_domain_dataset(
+        y, base, X, params, transform, valid, _inv = _partial_domain_dataset(
             invalid_extreme=True,
         )
         assert not bool(valid.all()), "fixture must have domain-invalid rows"
@@ -123,7 +123,7 @@ class TestA5BaselinePopulationParity:
         (raw-y parity), not the domain-valid subset. Spy on the fold val sizes
         via the per-bin scorer to prove the invalid rows are scored.
         """
-        y, base, X, params, transform, valid, inv = _partial_domain_dataset(
+        y, base, X, params, transform, valid, _inv = _partial_domain_dataset(
             invalid_extreme=False,
         )
         seen_val_sizes: list[int] = []
@@ -205,7 +205,7 @@ class TestA12EarlyStopThreadedThroughMultiseed:
         """A12/P11: ``early_stop_threshold`` must reach the underlying single-seed
         call through the multiseed wrapper (the conduit the rerank caller relies
         on). Spy on the kwarg seen by ``_tiny_cv_rmse_y_scale``."""
-        y, base, X, params, transform, valid, inv = _partial_domain_dataset()
+        y, base, X, params, transform, _valid, _inv = _partial_domain_dataset()
         seen_thresholds: list[float] = []
         real = st._tiny_cv_rmse_y_scale
 
@@ -235,7 +235,7 @@ class TestA12EarlyStopThreadedThroughMultiseed:
     def test_multiseed_inf_threshold_bit_identical(self) -> None:
         """Default ``inf`` threshold => the multiseed median is bit-identical to
         the no-threshold call (the early-stop branch never fires)."""
-        y, base, X, params, transform, valid, inv = _partial_domain_dataset()
+        y, base, X, params, transform, _valid, _inv = _partial_domain_dataset()
         legacy = _tiny_cv_rmse_y_scale_multiseed(
             y_train=y,
             base_train=base,
@@ -273,7 +273,7 @@ class TestA12EarlyStopThreadedThroughMultiseed:
         loop. We assert the run still returns a finite score (the aborted folds
         leave at least one scored) and that it differs from the full run only by
         the dropped folds, never raising."""
-        y, base, X, params, transform, valid, inv = _partial_domain_dataset()
+        y, base, X, params, transform, _valid, _inv = _partial_domain_dataset()
         res = _tiny_cv_rmse_y_scale_multiseed(
             y_train=y,
             base_train=base,

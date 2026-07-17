@@ -24,7 +24,6 @@ The sidecar is best-effort:
 from __future__ import annotations
 
 import logging
-import os
 import shutil
 import tempfile
 
@@ -204,7 +203,7 @@ def test_collect_lib_versions_does_not_force_import_absent_lib(monkeypatch):
     # Splice the sentinel into the lib list under an import-name with no matching
     # distribution metadata. A correct (no-side-effect) implementation records
     # nothing for it and -- crucially -- never imports it.
-    patched = _io._LIB_VERSION_DISTS + ((sentinel, sentinel),)
+    patched = (*_io._LIB_VERSION_DISTS, (sentinel, sentinel))
     monkeypatch.setattr(_io, "_LIB_VERSION_DISTS", patched)
 
     libs = _io._collect_lib_versions()

@@ -20,7 +20,6 @@ import pandas as pd
 import pytest
 
 from mlframe.training.slicing._slice_helpers import (
-    SliceEvalSet,
     build_slice_eval_sets,
     effective_patience,
 )

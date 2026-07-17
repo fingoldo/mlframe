@@ -131,7 +131,7 @@ class TestLognormalOversplitFloorFires:
     @pytest.mark.parametrize("seed", SEEDS)
     def test_gate_fires_on_lognormal_narrow_pool(self, seed):
         X, y = _build_lognormal(seed)
-        data, cols, nbins, y_idx, cand = _categorize(X, y)
+        data, _cols, nbins, y_idx, cand = _categorize(X, y)
         # Narrow pool: 9 features, below the wide-pool gate of 30.
         assert len(cand) < 30
         nby = int(nbins[y_idx])
@@ -195,7 +195,7 @@ class TestDenseWeakSignalFloorStaysOff:
     @pytest.mark.parametrize("seed", SEEDS)
     def test_gate_stays_off_on_dense_weak_signal_pool(self, seed):
         X, y = _build_dense_weak_regression(seed)
-        data, cols, nbins, y_idx, cand = _categorize(X, y)
+        data, _cols, nbins, y_idx, cand = _categorize(X, y)
         nby = int(nbins[y_idx])
         feat = [int(nbins[i]) for i in cand]
         # The target IS over-split at small n (precondition trips), but the (X,y)

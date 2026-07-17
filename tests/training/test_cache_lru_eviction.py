@@ -107,7 +107,7 @@ def test_local_disk_backend_evicts_oldest_when_over_max_entries(tmp_path, monoto
 
     be = LocalDiskBackend(str(tmp_path / "lru_root"), max_entries=2)
     for i in range(4):
-        be.write(f"k{i:04x}", f"payload {i}".encode("utf-8"))
+        be.write(f"k{i:04x}", f"payload {i}".encode())
 
     # Only 2 newest should remain.
     keys = sorted(be.list_keys())

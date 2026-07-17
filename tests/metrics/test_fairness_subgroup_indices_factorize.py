@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.metrics import _fairness_metrics as fm
 from mlframe.metrics._fairness_metrics import create_fairness_subgroups, create_fairness_subgroups_indices

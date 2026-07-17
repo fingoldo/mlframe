@@ -85,7 +85,7 @@ def test_rare_category_fit_equals_replay(cat_frame):
 
 
 def test_rare_category_unseen_maps_to_rare(cat_frame):
-    enc_df, raw = generate_rare_category_features(cat_frame, ["g"], rare_threshold=0.05)
+    _enc_df, raw = generate_rare_category_features(cat_frame, ["g"], rare_threshold=0.05)
     name = next(n for n, p in raw.items() if p["kind"] == "is_rare")
     payload = raw[name]
     rec = build_rare_category_recipe(

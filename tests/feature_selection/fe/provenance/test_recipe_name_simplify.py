@@ -11,7 +11,6 @@ import pytest
 from mlframe.feature_selection.filters.engineered_recipes._recipe_name_simplify import (
     simplify_fe_name,
     _parse,
-    _render,
 )
 
 # The reference interpreter is wired to the ACTUAL FE op implementations (guarded ``_safe_div``,

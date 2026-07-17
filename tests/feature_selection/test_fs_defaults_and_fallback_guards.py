@@ -100,7 +100,7 @@ def test_rfecv_polars_to_pandas_arrow_bridge():
     """When pyarrow extension-array support is available, ``RFECV.fit`` keeps pl.Enum columns as
     pandas extension dtype (Categorical-like) instead of collapsing to object."""
     pl = pytest.importorskip("polars")
-    pa = pytest.importorskip("pyarrow")
+    pytest.importorskip("pyarrow")
 
     # Build a small frame with an Enum column.
     enum_dt = pl.Enum(["a", "b", "c"])

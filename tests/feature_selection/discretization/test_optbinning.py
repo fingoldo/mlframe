@@ -19,9 +19,9 @@ import pytest
 pytest.importorskip("optbinning")
 pytest.importorskip("category_encoders")
 
-from sklearn.pipeline import Pipeline  # noqa: E402
+from sklearn.pipeline import Pipeline
 
-from mlframe.feature_selection.optbinning import get_binningprocess_featureselectors  # noqa: E402
+from mlframe.feature_selection.optbinning import get_binningprocess_featureselectors
 
 
 def _make_synthetic_binary_df(n: int = 300, n_features: int = 5, seed: int = 0) -> tuple[pd.DataFrame, pd.Series]:
@@ -82,7 +82,7 @@ def test_all_pipelines_have_binningprocess_step():
 def test_fs_pipelines_have_selection_criteria():
     """The _fs variants apply IV selection_criteria; the _nofs variants do not."""
     df, _ = _make_synthetic_binary_df()
-    bp_withcats_fs, bp_withcats_nofs, bp_nocats_fs, bp_nocats_nofs = get_binningprocess_featureselectors(df, n_jobs=1)
+    bp_withcats_fs, bp_withcats_nofs, _bp_nocats_fs, _bp_nocats_nofs = get_binningprocess_featureselectors(df, n_jobs=1)
     bp_fs = dict(bp_withcats_fs.steps)["BP"]
     bp_nofs = dict(bp_withcats_nofs.steps)["BP"]
     assert bp_fs.selection_criteria, "fs variant must have selection_criteria set"

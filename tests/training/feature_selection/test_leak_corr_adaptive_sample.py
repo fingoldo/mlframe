@@ -16,7 +16,6 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import numpy as np
-import pytest
 
 
 def test_no_sample_when_ram_is_plentiful():
@@ -28,7 +27,7 @@ def test_no_sample_when_ram_is_plentiful():
     arrs = [np.arange(100, dtype=np.float32) for _ in range(5)]
     y = np.arange(100, dtype=np.float32)
     # Mock virtual_memory to report 100 GB available (vastly more than needed).
-    fake_vm = SimpleNamespace(available=int(100 * 1024**3))
+    fake_vm = SimpleNamespace(available=(100 * 1024**3))
     with patch("psutil.virtual_memory", return_value=fake_vm):
         out_arrs, out_y = _maybe_sample_for_leak_corr(
             ["c"] * 5,
@@ -54,7 +53,7 @@ def test_sample_when_alloc_exceeds_available_headroom():
     arrs = [np.zeros(n_rows, dtype=np.float32) for _ in range(n_cols)]
     y = np.zeros(n_rows, dtype=np.float32)
     # Available 10 MB -> 30% headroom = 3 MB. Matrix needs 20 MB -> sample.
-    fake_vm = SimpleNamespace(available=int(10 * 1024**2))
+    fake_vm = SimpleNamespace(available=(10 * 1024**2))
     with patch("psutil.virtual_memory", return_value=fake_vm):
         out_arrs, out_y = _maybe_sample_for_leak_corr(
             ["c"] * n_cols,
@@ -109,7 +108,7 @@ def test_sample_emits_info_log(caplog):
     n_cols = 5
     arrs = [np.zeros(n_rows, dtype=np.float32) for _ in range(n_cols)]
     y = np.zeros(n_rows, dtype=np.float32)
-    fake_vm = SimpleNamespace(available=int(10 * 1024**2))
+    fake_vm = SimpleNamespace(available=(10 * 1024**2))
     with patch("psutil.virtual_memory", return_value=fake_vm):
         with caplog.at_level(logging.INFO, logger="mlframe.training.composite.discovery._filter"):
             _maybe_sample_for_leak_corr(["c"] * n_cols, arrs, y)

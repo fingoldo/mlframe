@@ -7,7 +7,6 @@ MLFRAME_ALLOW_UNVERIFIED_PICKLE env var.
 
 import pickle
 
-import pytest
 
 from mlframe.utils.disk_cache import DiskCache
 

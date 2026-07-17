@@ -12,7 +12,6 @@ call so the sensor probe and the return value reuse the same t_hat.
 """
 
 import numpy as np
-import pytest
 
 
 class _CountingRegressor:

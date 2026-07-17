@@ -28,7 +28,6 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 
 
 def test_propagate_does_not_collide_nan_with_top_real_bin():
@@ -43,7 +42,7 @@ def test_propagate_does_not_collide_nan_with_top_real_bin():
     nan_idx = rng.choice(n, 30, replace=False)
     x[nan_idx] = np.nan
 
-    data, cols, nbins = categorize_dataset(
+    data, cols, _nbins = categorize_dataset(
         df=pd.DataFrame({"x": x}),
         n_bins=4,
         dtype=np.int16,

@@ -5,8 +5,6 @@ Each test corresponds to one §8.1 finding. Behavioural only; sub-second under -
 
 from __future__ import annotations
 
-from types import SimpleNamespace
-from unittest.mock import patch
 
 import numpy as np
 import pandas as pd

@@ -15,12 +15,10 @@ import pandas as pd
 import pytest
 
 from mlframe.feature_selection.filters import MRMR, CatFEConfig
-from mlframe.feature_selection.filters.cat_fe_state import CatFEState
 from mlframe.feature_selection.filters.cat_interactions import (
     _column_signature,
     _kl_divergence,
     _restore_cached_marginal_mis,
-    _confirm_pairs_bandit_ucb1,
     _full_conditional_shuffle_ipf,
     run_cat_interaction_step,
 )
@@ -162,7 +160,7 @@ class TestStreamingCacheReal:
             "marginal_mis": {0: 0.05, 1: 0.03},
             "target_sig": "tgt",
         }
-        mask, mi_reused, new_sigs = _restore_cached_marginal_mis(
+        mask, mi_reused, _new_sigs = _restore_cached_marginal_mis(
             factors_data=data,
             candidate_idxs=np.array([0, 1], dtype=np.int64),
             nbins=nbins,

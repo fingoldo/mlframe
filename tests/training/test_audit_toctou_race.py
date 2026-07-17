@@ -33,7 +33,6 @@ import os
 import tempfile
 from pathlib import Path
 
-import pytest
 
 
 MLFRAME_ROOT = Path(importlib.import_module("mlframe").__file__).parent

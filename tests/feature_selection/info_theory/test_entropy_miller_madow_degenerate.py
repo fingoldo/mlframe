@@ -28,7 +28,6 @@ Miller-Madow bias correction is undefined / unnecessary in that regime.
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 
 def test_miller_madow_empty_freqs_returns_zero():

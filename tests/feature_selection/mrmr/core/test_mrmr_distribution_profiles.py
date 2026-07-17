@@ -530,10 +530,10 @@ def _dump_profile_ledger():
             import json
             import warnings
 
-            warnings.warn(f"distros ledger orjson dump failed ({exc!r}); using json fallback")
+            warnings.warn(f"distros ledger orjson dump failed ({exc!r}); using json fallback", stacklevel=2)
             with open(ledger_path, "w", encoding="utf-8") as fh:
                 json.dump(_LEDGER, fh, indent=2)
         except Exception as exc2:
             import warnings
 
-            warnings.warn(f"distros ledger dump failed entirely: {exc2!r}")
+            warnings.warn(f"distros ledger dump failed entirely: {exc2!r}", stacklevel=2)

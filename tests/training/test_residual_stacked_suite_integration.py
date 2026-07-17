@@ -19,7 +19,6 @@ from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
-import pytest
 
 
 def _make_problem():
@@ -247,7 +246,7 @@ class TestBothFlagsWarnAndPreferResidual:
                     "residual-of-residual structure). Disable one "
                     "flag to silence this warning."
                 )
-                disc = CompositeTargetDiscovery(config=cfg).fit_stacked_on_residual(
+                CompositeTargetDiscovery(config=cfg).fit_stacked_on_residual(
                     df=df,
                     target_col="y",
                     feature_cols=["x_a", "x_b"],

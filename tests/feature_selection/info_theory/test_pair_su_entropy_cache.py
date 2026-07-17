@@ -116,7 +116,7 @@ def test_pair_su_vi_branch_runs_with_buffer_reuse(synth_factors):
     int64 scratch for the mi(fd, [a], [b], ...) call). This test pins
     that the VI branch runs end-to-end and returns a finite score in
     [0, 1] (the documented Meila-2007-normalised VI similarity range)."""
-    fd, fn, n_feats = synth_factors
+    fd, fn, _n_feats = synth_factors
     state = DCDState(distance="vi", factors_data=fd, factors_nbins=fn)
     score = pair_su(state, 0, 1)
     assert np.isfinite(score)

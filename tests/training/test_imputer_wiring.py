@@ -18,7 +18,6 @@ landed in `create_polarsds_pipeline`.
 
 from __future__ import annotations
 
-import logging
 
 import numpy as np
 import polars as pl

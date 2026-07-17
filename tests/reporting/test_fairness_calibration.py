@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from mlframe.reporting.charts.fairness_calibration import (
     compose_fairness_calibration_figure,
@@ -118,7 +117,6 @@ def test_biz_val_disparity_fires_on_miscalibrated_subgroup():
 
 def test_wiring_renders_and_records_disparity(tmp_path):
     """The report-path helper renders a PNG per group feature, skips robustness pseudo-groups, and records disparity."""
-    import os
     import pandas as pd
     from mlframe.training.reporting._reporting_probabilistic import _render_fairness_calibration
 

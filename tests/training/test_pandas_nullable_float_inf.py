@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.training.preprocessing import (
     _frame_contains_inf,

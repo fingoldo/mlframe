@@ -96,8 +96,8 @@ def test_brier_decomp_debiased_rel_minus_res_matches_plugin_no_clamp():
     p = np.full(4000, 0.9)
     y = np.zeros(4000)
     y[:400] = 1.0  # acc=0.10 within the single bin; gap^2=0.64 >> Var(acc)/(n-1) so clamp never fires
-    rel_pl, res_pl, unc_pl, binned_pl = _plugin_decomp(y, p, 10)[1:]
-    rel_db, res_db, unc_db, binned_db = compute_brier_decomposition_debiased(y, p, 10)
+    rel_pl, res_pl, _unc_pl, binned_pl = _plugin_decomp(y, p, 10)[1:]
+    rel_db, res_db, _unc_db, binned_db = compute_brier_decomposition_debiased(y, p, 10)
     assert (rel_db - res_db) == pytest.approx(rel_pl - res_pl, abs=1e-12)
     assert binned_db == pytest.approx(binned_pl, abs=1e-12)
 
@@ -145,7 +145,7 @@ def test_brier_decomp_debiased_single_bin_span_zero():
     """All identical predictions -> single populated bin; must not crash, REL stays finite and >=0."""
     p = np.full(50, 0.3)
     y = (np.arange(50) % 2).astype(np.float64)
-    rel, res, unc, binned = compute_brier_decomposition_debiased(y, p, 10)
+    rel, _res, _unc, binned = compute_brier_decomposition_debiased(y, p, 10)
     assert np.isfinite(rel) and rel >= 0.0
     assert np.isfinite(binned)
 

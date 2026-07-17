@@ -23,7 +23,6 @@ import warnings
 
 import numpy as np
 import pytest
-from sklearn.base import clone, is_regressor
 from sklearn.ensemble import (
     ExtraTreesClassifier,
     ExtraTreesRegressor,

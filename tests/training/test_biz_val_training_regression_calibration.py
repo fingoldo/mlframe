@@ -13,7 +13,6 @@ import pickle
 import numpy as np
 
 from mlframe.training._regression_calibration import (
-    PointRecalibrator,
     fit_point_recalibrator,
     recalibration_rmse_gain,
 )

@@ -75,7 +75,7 @@ def test_categorize_dataset_auto_promotes_high_cardinality() -> None:
             "cat": pd.Categorical([f"c{i}" for i in range(200)]),
         }
     )
-    data, cols, nbins = categorize_dataset(high_card, dtype=np.int8)
+    data, _cols, nbins = categorize_dataset(high_card, dtype=np.int8)
     assert int(data.max()) == 199, (
         f"categorize_dataset must auto-promote int8 to fit 200 categories; got max code {int(data.max())} (wrap-symptom = negative or <199)."
     )

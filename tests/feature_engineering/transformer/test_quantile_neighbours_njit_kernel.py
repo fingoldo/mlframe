@@ -12,7 +12,7 @@ import numpy as np
 
 
 def _numpy_reference(y_neighbors: np.ndarray, weights: np.ndarray, qs: np.ndarray) -> np.ndarray:
-    n_rows, k = y_neighbors.shape
+    n_rows, _k = y_neighbors.shape
     sort_idx = np.argsort(y_neighbors, axis=1)
     rows_arange = np.arange(n_rows)[:, None]
     y_sorted = y_neighbors[rows_arange, sort_idx]

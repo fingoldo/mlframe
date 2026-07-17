@@ -101,7 +101,7 @@ def test_matrix_equivalence_vs_sklearn(seed):
     n = int(rng.integers(20, 500))
     yt = rng.integers(0, K, n)
     yp = rng.integers(0, K, n)
-    mat, labels = confusion_matrix_counts(yt, yp)
+    mat, _labels = confusion_matrix_counts(yt, yp)
     sk_mat = sk.confusion_matrix(yt, yp)
     assert np.array_equal(mat, sk_mat)
 
@@ -124,9 +124,9 @@ def test_matrix_equivalence_string_labels_vs_sklearn():
 def test_include_values_false_omits_cell_text():
     yt = np.array([0, 0, 1, 1])
     yp = np.array([0, 1, 1, 1])
-    fig, ax = plot_confusion_matrix(yt, yp, include_values=False)
+    _fig, ax = plot_confusion_matrix(yt, yp, include_values=False)
     assert len(ax.texts) == 0
-    fig2, ax2 = plot_confusion_matrix(yt, yp, include_values=True)
+    _fig2, ax2 = plot_confusion_matrix(yt, yp, include_values=True)
     assert len(ax2.texts) > 0
 
 
@@ -137,6 +137,6 @@ def test_include_values_false_omits_cell_text():
 def test_xticks_rotation_applied(rotation, expected_degrees):
     yt = np.array([0, 0, 1, 1])
     yp = np.array([0, 1, 1, 1])
-    fig, ax = plot_confusion_matrix(yt, yp, xticks_rotation=rotation)
+    _fig, ax = plot_confusion_matrix(yt, yp, xticks_rotation=rotation)
     for label in ax.get_xticklabels():
         assert label.get_rotation() == expected_degrees

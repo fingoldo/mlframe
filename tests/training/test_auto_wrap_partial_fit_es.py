@@ -82,7 +82,7 @@ def test_linear_regression_passes_through(reg_data) -> None:
     """Pure LinearRegression: closed-form, no budget knob -- ES isn't applicable."""
     from sklearn.linear_model import LinearRegression
 
-    X_tr, y_tr, X_val, y_val = reg_data
+    _X_tr, _y_tr, X_val, y_val = reg_data
     model = LinearRegression()
     wrapped, did = maybe_wrap_for_partial_fit_es(model, model_category="linear", X_val=X_val, y_val=y_val, is_classification=False)
     assert did is False
@@ -93,10 +93,10 @@ def test_native_es_categories_pass_through(reg_data) -> None:
     """Boosters with native ES (lgb/cb/xgb/hgb/ngb/mlp/tabnet) must NOT be wrapped."""
     from sklearn.linear_model import Ridge  # any model -- only model_category matters
 
-    X_tr, y_tr, X_val, y_val = reg_data
+    _X_tr, _y_tr, X_val, y_val = reg_data
     for cat in ["lgb", "xgb", "cb", "hgb", "ngb", "mlp", "tabnet"]:
         model = Ridge(alpha=1.0)
-        wrapped, did = maybe_wrap_for_partial_fit_es(model, model_category=cat, X_val=X_val, y_val=y_val, is_classification=False)
+        _wrapped, did = maybe_wrap_for_partial_fit_es(model, model_category=cat, X_val=X_val, y_val=y_val, is_classification=False)
         assert did is False, f"category {cat!r} was unexpectedly wrapped"
 
 
@@ -104,7 +104,7 @@ def test_already_wrapped_idempotent(reg_data) -> None:
     """A double-call doesn't re-wrap."""
     from sklearn.linear_model import SGDRegressor
 
-    X_tr, y_tr, X_val, y_val = reg_data
+    _X_tr, _y_tr, X_val, y_val = reg_data
     m = SGDRegressor(max_iter=1, tol=None)
     once, did1 = maybe_wrap_for_partial_fit_es(m, model_category="sgd", X_val=X_val, y_val=y_val, is_classification=False)
     twice, did2 = maybe_wrap_for_partial_fit_es(once, model_category="sgd", X_val=X_val, y_val=y_val, is_classification=False)

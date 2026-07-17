@@ -165,7 +165,7 @@ def test_similarity_blend_n_specialist_weights_sum_to_one_and_default_path_uncha
     assert np.all(weights >= 0.0)
 
     # region_estimators is opt-in: leaving it unset must not change the original 2-specialist fit/predict output
-    X_a_train, y_a_train, X_b_train, y_b_train, X_probe, _ = _make_two_region_dataset(seed=5)
+    X_a_train, y_a_train, _X_b_train, _y_b_train, X_probe, _ = _make_two_region_dataset(seed=5)
     baseline = SimilarityBlendEnsemble(in_dist_estimator=LinearRegression(), out_dist_estimator=LinearRegression(), k=10, similarity_scale=3.0)
     baseline.fit(X_a_train, y_a_train)
     pred_baseline = baseline.predict(X_probe)

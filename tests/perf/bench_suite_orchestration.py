@@ -36,11 +36,11 @@ SRC_ROOT = REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from mlframe.training import OutputConfig  # noqa: E402
-from mlframe.training.core import train_mlframe_models_suite  # noqa: E402
+from mlframe.training import OutputConfig
+from mlframe.training.core import train_mlframe_models_suite
 
 sys.path.insert(0, str(REPO_ROOT / "tests"))
-from training.shared import SimpleFeaturesAndTargetsExtractor  # noqa: E402
+from training.shared import SimpleFeaturesAndTargetsExtractor
 
 
 def _make_regression_df(n_rows: int, n_features: int = 8, seed: int = 0) -> pd.DataFrame:

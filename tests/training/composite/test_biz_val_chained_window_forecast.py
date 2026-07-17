@@ -88,7 +88,7 @@ def test_biz_val_chained_window_forecaster_transductive_stage1_pretraining_beats
     labels."""
     X_prev_train, X_curr_train, y_curr_train, y_target_train = _make_ar_window_dataset(n=80, seed=0)
     X_prev_extra, _, y_curr_extra, _ = _make_ar_window_dataset(n=1500, seed=1)
-    X_prev_test, X_curr_test, _, y_target_test = _make_ar_window_dataset(n=1000, seed=2)
+    _X_prev_test, X_curr_test, _, y_target_test = _make_ar_window_dataset(n=1000, seed=2)
 
     labeled_only = ChainedWindowForecaster(stage1_estimator=GradientBoostingRegressor(random_state=0, n_estimators=100), stage2_estimator=LinearRegression())
     labeled_only.fit(X_prev_train, X_curr_train, y_curr_train, y_target_train)

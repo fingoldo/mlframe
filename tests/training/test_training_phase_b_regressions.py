@@ -13,8 +13,6 @@ Covers:
 
 from __future__ import annotations
 
-import os
-import types
 from types import SimpleNamespace
 
 import numpy as np

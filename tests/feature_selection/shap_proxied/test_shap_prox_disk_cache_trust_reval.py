@@ -21,7 +21,6 @@ correctness + monotonic non-regression of the per-stage wall.
 
 from __future__ import annotations
 
-import time
 from pathlib import Path
 
 import numpy as np
@@ -106,7 +105,7 @@ def test_revalidate_top_n_cache_hit_identical_winner_and_populates_dir(tmp_path:
     ]
     cache_dir = tmp_path / "reval_cache"
 
-    best_a, ranked_a, base_a = revalidate_top_n(
+    best_a, ranked_a, _base_a = revalidate_top_n(
         candidates,
         tpl,
         X_search,
@@ -123,7 +122,7 @@ def test_revalidate_top_n_cache_hit_identical_winner_and_populates_dir(tmp_path:
     assert len(files) >= 1
     assert all(f.name.startswith("honest_loss_") for f in files), f"all reval entries should be in the honest_loss_ namespace, got {[f.name for f in files]}"
 
-    best_b, ranked_b, base_b = revalidate_top_n(
+    best_b, ranked_b, _base_b = revalidate_top_n(
         candidates,
         tpl,
         X_search,
@@ -236,7 +235,7 @@ def test_disk_cache_cross_stage_namespacing(tmp_path: Path):
     shared_dir = tmp_path / "shared_cache"
 
     # 1) Populate the cache with OOF-SHAP entries (shap_phi_*).
-    phi, base, y_aligned = compute_shap_matrix(
+    _phi, _base, _y_aligned = compute_shap_matrix(
         tpl,
         X_search,
         y_search,

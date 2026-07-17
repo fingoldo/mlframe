@@ -20,7 +20,7 @@ from mlframe.reporting.charts.training_curve import (
 )
 from mlframe.reporting.output import parse_plot_output_dsl
 from mlframe.reporting.renderers import render_and_save
-from mlframe.reporting.spec import AnnotationPanelSpec, FigureSpec, LinePanelSpec
+from mlframe.reporting.spec import AnnotationPanelSpec, LinePanelSpec
 
 
 def _overfitting_history(n_iter=120, turn=70):

@@ -39,7 +39,7 @@ def _best_threshold_f1(y_true, score_vec):
     the imbalance-handling claim itself ("minority class is more detectable").
     Best-threshold F1 isolates the detectability improvement.
     """
-    p, r, thr = precision_recall_curve(y_true, score_vec)
+    p, r, _thr = precision_recall_curve(y_true, score_vec)
     f1 = 2 * p * r / np.clip(p + r, 1e-12, None)
     return float(np.max(f1))
 
@@ -130,7 +130,7 @@ def _train_and_predict_classification(
     if extra_hyperparams:
         hp.update(extra_hyperparams)
 
-    models, metadata = train_mlframe_models_suite(
+    _models, metadata = train_mlframe_models_suite(
         df=train_df,
         target_name="test_target",
         model_name=model_name,

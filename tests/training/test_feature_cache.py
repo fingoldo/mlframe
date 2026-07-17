@@ -18,8 +18,6 @@ Coverage areas (round-3 audit findings):
 from __future__ import annotations
 
 import os
-import time
-from unittest import mock
 
 import numpy as np
 import polars as pl
@@ -37,6 +35,7 @@ from mlframe.training.feature_handling import (
     fingerprint_df,
     reset_session,
 )
+from typing import Optional
 
 
 # =====================================================================
@@ -77,7 +76,7 @@ def cache_on(tmp_path):
     return FeatureCache(cfg, content_fingerprint=None)
 
 
-def _build_in_mem_key(df, column: str, params: dict = None) -> InMemoryKey:
+def _build_in_mem_key(df, column: str, params: Optional[dict] = None) -> InMemoryKey:
     sess = current_session()
     return InMemoryKey(
         session_id=sess.session_id,

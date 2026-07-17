@@ -11,7 +11,6 @@ import re
 
 import numpy as np
 import pandas as pd
-import pytest
 
 
 def _fit_recover(monkeypatch, enabled: bool):

@@ -19,7 +19,7 @@ import numpy as np
 import pytest
 
 torch = pytest.importorskip("torch")
-from mlframe.training.neural.data import TorchDataset  # noqa: E402
+from mlframe.training.neural.data import TorchDataset
 
 
 def _per_row_collated(ds, indices):

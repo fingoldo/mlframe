@@ -147,7 +147,7 @@ class TestDiscoveryCache:
         tmp = str(tmp_path)
         cache = DiscoveryCache(tmp)
         # Build an unpicklable object to force the inner write to raise.
-        unpicklable = lambda x: x  # noqa: E731 -- closures pickle differently across Python versions
+        unpicklable = lambda x: x
         try:
             cache.set("abc", unpicklable)
         except Exception:

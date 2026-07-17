@@ -29,7 +29,7 @@ def _make_amex_like(n: int, scale: float, noise_scale: float, seed: int) -> tupl
 
 
 def test_float_precision_denoiser_recovers_known_scale_amex_style() -> None:
-    true_int, true_value, noisy = _make_amex_like(n=5000, scale=100.0, noise_scale=1.0, seed=0)
+    true_int, _true_value, noisy = _make_amex_like(n=5000, scale=100.0, noise_scale=1.0, seed=0)
 
     denoiser = FloatPrecisionDenoiser(max_decimal_pow=6, max_denominator=1000, use_floor=True)
     result = denoiser.fit_transform(noisy)
@@ -80,7 +80,7 @@ def test_biz_val_float_precision_denoiser_recovery_accuracy_beats_raw() -> None:
     Synthetic mirrors the Amex writeup: true low-cardinality integer values scaled by 100 with
     small proportional noise injected on top (as in x[i] = np.floor(x[i] * 100) preprocessing).
     """
-    true_int, true_value, noisy = _make_amex_like(n=20000, scale=100.0, noise_scale=1.0, seed=42)
+    _true_int, true_value, noisy = _make_amex_like(n=20000, scale=100.0, noise_scale=1.0, seed=42)
 
     denoiser = FloatPrecisionDenoiser(max_decimal_pow=6, max_denominator=1000, use_floor=True)
     result = denoiser.fit_transform(noisy)

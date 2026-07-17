@@ -13,7 +13,6 @@ import logging
 import os
 
 import numpy as np
-import pytest
 
 logging.disable(logging.CRITICAL)
 
@@ -74,7 +73,7 @@ def test_render_mtr_report_moved_body_runs():
     ytk = rng.normal(0.0, 1.0, (150, 2))
     ypk = ytk + rng.normal(0.0, 0.2, (150, 2))
     m: dict = {}
-    preds, probs = render_mtr_report(
+    _preds, probs = render_mtr_report(
         ytk,
         ypk,
         "M",

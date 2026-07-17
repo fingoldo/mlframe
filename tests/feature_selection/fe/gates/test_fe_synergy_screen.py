@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Detection-vs-noise gate for the joint-synergy pair screen (2026-06-17).
 
 The MARGINAL FE pair screen cannot see a pure-synergy pair (XOR: both operands ~zero marginal MI),

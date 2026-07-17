@@ -88,7 +88,7 @@ def _extract_auroc(entry):
         bag = metrics.get(split)
         if not isinstance(bag, dict):
             continue
-        for _cls, mdict in bag.items():
+        for mdict in bag.values():
             if isinstance(mdict, dict):
                 for k, v in mdict.items():
                     if str(k).lower() == "roc_auc" and isinstance(v, (int, float)) and not np.isnan(v):
@@ -143,8 +143,8 @@ def _collect_selected_features(models_dict, metadata):
                 pass
         return None
 
-    for _ttype, tdict in (models_dict or {}).items():
-        for _tname, entries in (tdict or {}).items():
+    for tdict in (models_dict or {}).values():
+        for entries in (tdict or {}).values():
             for entry in entries:
                 for attr in ("model", "pipeline", "estimator", "pre_pipeline", "feature_selector"):
                     inner = getattr(entry, attr, None)
@@ -227,7 +227,7 @@ def test_mrmr_drops_uninformative_features(tmp_path):
         "entry.selected_features_; if you see this assertion fail, the wire-up regressed."
     )
 
-    selected_set = set(selected)
+    set(selected)
     # Credit an informative feature whose signal REACHES the support, whether as a bare raw OR folded into a selected engineered child
     # (with directed-FE default-ON the redundancy pass absorbs a raw operand into its composite and drops the bare raw -- e.g. info_0
     # survives only inside ``add(info_0_neg(info_1))`` / ``sub(neg(info_0)_sin(info_2))``). The contract is "informative signal reaches

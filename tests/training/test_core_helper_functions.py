@@ -11,7 +11,6 @@ Covers:
 from __future__ import annotations
 
 import time
-from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
@@ -155,7 +154,7 @@ def test_auto_detect_pandas_high_cardinality_text():
             "num": rng.standard_normal(50),
         }
     )
-    t, e, _ = _auto_detect_feature_types(df, cfg, cat_features=[])
+    t, _e, _ = _auto_detect_feature_types(df, cfg, cat_features=[])
     assert "high_card" in t
     assert "low_card" not in t
     assert "num" not in t
@@ -172,7 +171,7 @@ def test_auto_detect_pandas_promotes_high_card_cat_to_text():
     cfg = FeatureTypesConfig(auto_detect_feature_types=True, cat_text_cardinality_threshold=2)
     df = pd.DataFrame({"c": [f"v_{i}" for i in range(20)]})
     cat_features = ["c"]
-    t, e, _ = _auto_detect_feature_types(df, cfg, cat_features=cat_features)
+    t, _e, _ = _auto_detect_feature_types(df, cfg, cat_features=cat_features)
     assert "c" in t, "high-cardinality column must be promoted to text"
     # Contract: input list is NOT mutated. The caller filters separately.
     assert cat_features == ["c"], "cat_features must not be mutated in place — that was a latent state-leak trap on repeat calls with a shared list"
@@ -184,7 +183,7 @@ def test_auto_detect_pandas_keeps_low_card_cat():
     cfg = FeatureTypesConfig(auto_detect_feature_types=True, cat_text_cardinality_threshold=100)
     df = pd.DataFrame({"c": ["red", "green", "blue"] * 10})  # n_unique = 3
     cat_features = ["c"]
-    t, e, _ = _auto_detect_feature_types(df, cfg, cat_features=cat_features)
+    t, _e, _ = _auto_detect_feature_types(df, cfg, cat_features=cat_features)
     assert "c" not in t
     assert "c" in cat_features
 
@@ -306,7 +305,7 @@ def test_auto_detect_accepts_cat_features_none():
     """
     df = pl.DataFrame({"s": [f"v_{i}" for i in range(10)]})
     cfg = FeatureTypesConfig(auto_detect_feature_types=True, cat_text_cardinality_threshold=3)
-    t, e, _ = _auto_detect_feature_types(df, cfg, cat_features=None)
+    t, _e, _ = _auto_detect_feature_types(df, cfg, cat_features=None)
     assert "s" in t
 
 
@@ -318,14 +317,14 @@ def test_auto_detect_polars_embedding():
             "num": [1.0, 2.0],
         }
     )
-    t, e, _ = _auto_detect_feature_types(df, cfg, cat_features=[])
+    _t, e, _ = _auto_detect_feature_types(df, cfg, cat_features=[])
     assert "emb" in e
 
 
 def test_auto_detect_polars_high_card_text():
     cfg = FeatureTypesConfig(auto_detect_feature_types=True, cat_text_cardinality_threshold=3)
     df = pl.DataFrame({"s": [f"v_{i}" for i in range(10)]})
-    t, e, _ = _auto_detect_feature_types(df, cfg, cat_features=[])
+    t, _e, _ = _auto_detect_feature_types(df, cfg, cat_features=[])
     assert "s" in t
 
 
@@ -399,7 +398,7 @@ def test_convert_dfs_pandas_passthrough():
 
 def test_convert_dfs_polars_to_pandas():
     pdf = pl.DataFrame({"a": [1, 2]})
-    tr, va, te = _convert_dfs_to_pandas(pdf, pdf, None)
+    tr, va, _te = _convert_dfs_to_pandas(pdf, pdf, None)
     assert isinstance(tr, pd.DataFrame)
     assert isinstance(va, pd.DataFrame)
 

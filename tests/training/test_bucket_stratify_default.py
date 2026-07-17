@@ -16,7 +16,6 @@ from __future__ import annotations
 import logging
 import numpy as np
 import pandas as pd
-import pytest
 
 
 class _DummyTargetTypeRegr:
@@ -170,5 +169,5 @@ def test_d1_p2_7_bucket_distribution_balanced_in_val(caplog):
     train_y = y[res.train_idx]
     val_y = y[res.val_idx]
     # KS test: stratified should keep val distribution near train (>0.05 p-value typically)
-    stat, p = ks_2samp(train_y, val_y)
+    _stat, p = ks_2samp(train_y, val_y)
     assert p > 0.001, f"Bucket-stratified val distribution differs from train (KS p={p:.4f})"

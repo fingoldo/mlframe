@@ -21,14 +21,14 @@ import pytest
 import matplotlib
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402
+import matplotlib.pyplot as plt
 
 shap = pytest.importorskip("shap")
 pd = pytest.importorskip("pandas")
-from sklearn.ensemble import RandomForestRegressor  # noqa: E402
-from sklearn.linear_model import LinearRegression  # noqa: E402
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.linear_model import LinearRegression
 
-from mlframe.reporting.charts import shap_panels as sp  # noqa: E402
+from mlframe.reporting.charts import shap_panels as sp
 
 
 def _strong_f0(n: int, n_feat: int = 5, *, coef: float = 3.0, noise: float = 0.1, seed: int = 0):
@@ -277,7 +277,7 @@ def test_shap_panel_survives_categorical_feature_frame():
     'could not convert string to float' on any categorical column -- silently disabling the entire diagnostic (the
     dispatcher swallows it). The float view now coerces per-column (numeric passthrough, non-numeric -> factorized
     codes), so the panel renders. TreeExplainer still explains the native carrier."""
-    shap = pytest.importorskip("shap")
+    pytest.importorskip("shap")
     lgb = pytest.importorskip("lightgbm")
     import pandas as pd
     from mlframe.reporting.charts.shap_panels import shap_summary_and_dependence, _coerce_float_2d
@@ -322,7 +322,7 @@ def test_shap_panel_survives_object_dtype_categorical_carrier():
     SHAP panel was silently dropped for models trained with string cats (MRMR-engineered / string-cat fuzz combos).
     _as_frame_and_names now casts the carrier's object/string columns to 'category' (memory-safe assign; caller frame
     unmutated). Covers both a category-dtype frame and the object-dtype frame that actually crashed."""
-    shap = pytest.importorskip("shap")
+    pytest.importorskip("shap")
     lgb = pytest.importorskip("lightgbm")
     import pandas as pd
     from mlframe.reporting.charts.shap_panels import shap_summary_and_dependence

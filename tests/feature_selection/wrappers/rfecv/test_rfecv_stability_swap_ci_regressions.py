@@ -51,7 +51,6 @@ def test_f1_stability_selection_does_not_count_zero_fi_noise():
         def fit(self, X, y):
             return self
 
-    import sklearn.base
 
     orig_clone = ss.clone
     orig_getfi = ss.get_feature_importances
@@ -93,9 +92,6 @@ def test_f2_swap_refresh_ignores_nan_means():
     """The post-swap best-N refresh must not be fooled by a NaN-scored N. max(d, key=d.get) with a NaN
     entry returns an arbitrary key; the fix selects the argmax over finite means only."""
     pytest.importorskip("sklearn")
-    from sklearn.linear_model import Ridge
-    from mlframe.feature_selection.wrappers.rfecv._finalize import _finalize_fit_results
-    import pandas as pd
 
     # Build a minimal stub whose evaluated_scores_mean has a NaN that pre-fix max-by-get would surface.
     evaluated_scores_mean = {3: float("nan"), 5: 0.80, 8: 0.70}

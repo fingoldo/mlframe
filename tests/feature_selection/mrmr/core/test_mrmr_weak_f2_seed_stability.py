@@ -325,10 +325,10 @@ def _dump_weak_f2_results():
             import json
             import warnings
 
-            warnings.warn(f"weak_f2 results orjson dump failed ({exc!r}); using json fallback")
+            warnings.warn(f"weak_f2 results orjson dump failed ({exc!r}); using json fallback", stacklevel=2)
             with open(results_path, "w", encoding="utf-8") as fh:
                 json.dump(_RESULTS, fh, indent=2)
         except Exception as exc2:
             import warnings
 
-            warnings.warn(f"weak_f2 results dump failed entirely: {exc2!r}")
+            warnings.warn(f"weak_f2 results dump failed entirely: {exc2!r}", stacklevel=2)

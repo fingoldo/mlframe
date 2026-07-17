@@ -5,7 +5,6 @@ pins that equivalence (the reject decision -- r is None -- matches capped vs unc
 pure-noise target (rejected by the null), and a borderline-weak target; a future change that makes the cap alter which
 engineered pairs survive fails here. Cap triggers only for n>30k, so n is set above the cap."""
 
-import os
 import numpy as np
 import pytest
 

@@ -14,7 +14,7 @@ import pandas as pd
 import pytest
 from sklearn.datasets import make_regression
 from sklearn.linear_model import LinearRegression, LogisticRegression, Ridge
-from sklearn.model_selection import TimeSeriesSplit, KFold, StratifiedKFold
+from sklearn.model_selection import KFold
 
 from tests.training.synthetic import make_sklearn_classification_df
 

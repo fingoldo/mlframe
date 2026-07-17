@@ -12,7 +12,6 @@ the updated doc.
 import importlib.util
 from pathlib import Path
 
-import pytest
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _GEN_PATH = _REPO_ROOT / "scripts" / "gen_composite_config_reference.py"

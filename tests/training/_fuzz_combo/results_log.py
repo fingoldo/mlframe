@@ -7,7 +7,7 @@ from pathlib import Path
 
 import orjson
 
-from .combo import FuzzCombo  # noqa: F401  (annotation strings under PEP 563)
+from .combo import FuzzCombo
 
 
 # parents[1] keeps the log at tests/training/_fuzz_results.jsonl (next to the

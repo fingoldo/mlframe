@@ -123,7 +123,7 @@ def test_unit_composite_classification_estimator_fit_predict():
 def test_e2e_bagging_key_trains_and_predicts(tmp_path):
     from mlframe.training.composite.bagging import BaggedCompositeEstimator
 
-    models, metadata = _run_suite(tmp_path, _regression_frame(), ["bagging"], regression=True)
+    models, _metadata = _run_suite(tmp_path, _regression_frame(), ["bagging"], regression=True)
 
     trained = _trained_entries(models)
     entries = [e for e in trained if isinstance(getattr(e, "model", None), BaggedCompositeEstimator)]
@@ -148,7 +148,7 @@ def test_e2e_bagging_key_trains_and_predicts(tmp_path):
 def test_e2e_composite_classification_key_trains_and_predicts(tmp_path):
     from mlframe.training.composite.classification import CompositeClassificationEstimator
 
-    models, metadata = _run_suite(tmp_path, _classification_frame(), ["composite_classification"], regression=False)
+    models, _metadata = _run_suite(tmp_path, _classification_frame(), ["composite_classification"], regression=False)
 
     trained = _trained_entries(models)
     entries = [e for e in trained if isinstance(getattr(e, "model", None), CompositeClassificationEstimator)]
@@ -178,7 +178,7 @@ def test_existing_keys_unperturbed_by_new_registry_entries(tmp_path):
     from mlframe.training.composite.bagging import BaggedCompositeEstimator
     from mlframe.training.composite.classification import CompositeClassificationEstimator
 
-    models, metadata = _run_suite(tmp_path, _regression_frame(), ["cb", "lgb"], regression=True)
+    models, _metadata = _run_suite(tmp_path, _regression_frame(), ["cb", "lgb"], regression=True)
 
     trained = _trained_entries(models)
     fitted_models = [getattr(e, "model", None) for e in trained]
@@ -191,7 +191,7 @@ def test_existing_keys_unperturbed_by_new_registry_entries(tmp_path):
 def test_default_allowlist_does_not_auto_include_new_keys(tmp_path):
     from mlframe.training.composite.bagging import BaggedCompositeEstimator
 
-    models, metadata = _run_suite(tmp_path, _regression_frame(), None, regression=True)
+    models, _metadata = _run_suite(tmp_path, _regression_frame(), None, regression=True)
 
     trained = _trained_entries(models)
     fitted_models = [getattr(e, "model", None) for e in trained]

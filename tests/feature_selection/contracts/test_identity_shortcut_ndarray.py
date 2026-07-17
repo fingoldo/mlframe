@@ -32,7 +32,6 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 
 
 def test_identity_shortcut_ndarray_no_attribute_error():

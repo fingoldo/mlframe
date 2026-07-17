@@ -331,7 +331,6 @@ class TestSwapTopKGatedOnValCv:
 
         monkeypatch.setattr(_helpers, "has_early_stopping_support", lambda name: True)
         # Also patch the in-finalize import binding.
-        from mlframe.feature_selection.wrappers.rfecv import _finalize
 
         # Re-import to ensure binding sees patch.
         X, y = make_regression(n_samples=120, n_features=8, n_informative=4, random_state=0)

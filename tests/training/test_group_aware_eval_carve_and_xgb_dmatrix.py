@@ -42,7 +42,7 @@ class TestCarveInnerEvalSplitGroupAware:
         n_groups = 200
         group_ids = np.repeat(np.arange(n_groups), n // n_groups)
 
-        X_fit, y_fit, X_eval, y_eval = _carve_inner_eval_split(
+        _X_fit, y_fit, X_eval, y_eval = _carve_inner_eval_split(
             X,
             y,
             frac=0.1,
@@ -64,7 +64,7 @@ class TestCarveInnerEvalSplitGroupAware:
         n = 2000
         X = np.arange(n).reshape(-1, 1).astype(np.float64)
         y = np.arange(n).astype(np.float64)
-        X_fit, y_fit, X_eval, y_eval = _carve_inner_eval_split(
+        _X_fit, y_fit, _X_eval, y_eval = _carve_inner_eval_split(
             X,
             y,
             frac=0.1,
@@ -86,7 +86,7 @@ class TestCarveInnerEvalSplitGroupAware:
         X = np.arange(n).reshape(-1, 1).astype(np.float64)
         y = np.arange(n).astype(np.float64)
         group_ids = np.repeat([0, 1, 2], n // 3 + 1)[:n]
-        X_fit, y_fit, X_eval, y_eval = _carve_inner_eval_split(
+        _X_fit, _y_fit, _X_eval, y_eval = _carve_inner_eval_split(
             X,
             y,
             frac=0.1,

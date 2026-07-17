@@ -12,7 +12,6 @@ from types import SimpleNamespace
 from unittest import mock
 
 import polars as pl
-import pytest
 
 from mlframe.training.core._phase_train_one_target import _release_ctx_polars_frames
 

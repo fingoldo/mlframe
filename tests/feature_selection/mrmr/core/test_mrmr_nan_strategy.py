@@ -275,7 +275,7 @@ class TestCategorizeDatasetSeparateBinDirect:
                 "col_a": [0.0, 0.0, np.nan, np.nan, 5.0, 6.0, 7.0, 8.0],
             }
         )
-        data, cols, nbins = categorize_dataset(
+        data, _cols, _nbins = categorize_dataset(
             df=df,
             method="uniform",
             n_bins=4,
@@ -287,7 +287,7 @@ class TestCategorizeDatasetSeparateBinDirect:
 
     def test_propagate_smoke(self):
         df = pd.DataFrame({"col_a": [1.0, 2.0, np.nan, 4.0]})
-        data, cols, nbins = categorize_dataset(
+        data, _cols, _nbins = categorize_dataset(
             df=df,
             method="quantile",
             n_bins=4,
@@ -319,7 +319,7 @@ class TestAllNanColumn:
             # nanmedian on all-NaN col emits "All-NaN slice" RuntimeWarning;
             # we handle that case and the warning is expected.
             warnings.simplefilter("ignore", RuntimeWarning)
-            data, cols, nbins = categorize_dataset(
+            data, cols, _nbins = categorize_dataset(
                 df=df,
                 method="quantile",
                 n_bins=4,

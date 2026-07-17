@@ -216,7 +216,7 @@ def test_simpson_paradox_sign_flip_feature(seed):
     relevance by group-aware; pooled MI ranks it high. group-aware ranks the real within-query signal above it."""
     from mlframe.training.ranking._ranker_fs import group_aware_mrmr_select, group_aware_relevance
 
-    df, gcol, signal, simpson, noise = _simpson_frame(seed)
+    df, gcol, signal, simpson, _noise = _simpson_frame(seed)
     cols = [signal, simpson, "noise_0"]
     arr = df[cols].to_numpy(np.float64)
     rel = df["rel"].to_numpy(np.float64)

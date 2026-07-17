@@ -94,7 +94,7 @@ def test_biz_val_wide_pipeline_scales_and_recovers_informative():
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
     n_informative, n_redundant, width = 6, 8, 3000
-    X, y, roles = make_regime_dataset(
+    X, y, _roles = make_regime_dataset(
         n_samples=3000,
         n_informative=n_informative,
         n_redundant=n_redundant,
@@ -169,7 +169,7 @@ def test_biz_val_fast_prefilter_does_not_worsen_recovery_vs_model():
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
     n_informative, n_redundant, width = 6, 8, 2000
-    X, y, roles = make_regime_dataset(
+    X, y, _roles = make_regime_dataset(
         n_samples=3000,
         n_informative=n_informative,
         n_redundant=n_redundant,
@@ -205,8 +205,8 @@ def test_biz_val_fast_prefilter_does_not_worsen_recovery_vs_model():
         rec = len(informative & set(sel.selected_features_))
         return rec, sel._stage_timings.get("prefilter", total), sel.shap_proxy_report_["prefilter"]
 
-    rec_model, pf_model_secs, info_model = _fit("model")
-    rec_fast, pf_fast_secs, info_fast = _fit("fast_model")
+    rec_model, _pf_model_secs, info_model = _fit("model")
+    rec_fast, _pf_fast_secs, info_fast = _fit("fast_model")
 
     assert info_model["method"] == "model" and info_fast["method"] == "fast_model"
     # Quality: the fast pre-filter recovers within 1 informative of the faithful model pre-filter.

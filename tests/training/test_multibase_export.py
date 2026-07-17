@@ -25,10 +25,8 @@ and can build the (n, 1+K) matrix correctly.
 
 from __future__ import annotations
 
-from types import SimpleNamespace
 
 import numpy as np
-import pytest
 
 from mlframe.training.composite.discovery import CompositeTargetDiscovery
 from mlframe.training.composite.spec import CompositeSpec

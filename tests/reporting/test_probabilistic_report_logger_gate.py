@@ -16,11 +16,8 @@ when no INFO handler will accept the message, no sklearn call should occur.
 from __future__ import annotations
 
 import logging
-from unittest import mock
 
 import numpy as np
-import pandas as pd
-import pytest
 
 
 def test_classification_report_skipped_when_info_filtered(monkeypatch):

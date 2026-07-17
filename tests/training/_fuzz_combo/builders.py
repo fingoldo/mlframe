@@ -7,9 +7,9 @@ imported lazily in-body so this module stays import-light.
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional  # noqa: F401  (annotation strings under PEP 563)
+from typing import Any, Dict, Optional
 
-from .combo import FuzzCombo  # noqa: F401  (annotation strings under PEP 563)
+from .combo import FuzzCombo
 
 
 # ---------------------------------------------------------------------------
@@ -1305,7 +1305,7 @@ def build_composite_discovery_config_from_flat(
     # if the chosen mode would include bivariate residuals, ensure
     # additive_residual is present / absent as requested.
     if transforms is not None and composite_include_additive_residual and "additive_residual" not in transforms and transforms_mode in (None, "legacy"):
-        transforms = ["additive_residual"] + transforms
+        transforms = ["additive_residual", *transforms]
     elif transforms is not None and not composite_include_additive_residual and "additive_residual" in transforms:
         transforms = [t for t in transforms if t != "additive_residual"]
     kw: Dict[str, Any] = {

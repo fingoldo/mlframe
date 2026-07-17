@@ -11,7 +11,6 @@ Covers:
 from __future__ import annotations
 
 import logging
-import os
 import sys
 from pathlib import Path
 
@@ -26,14 +25,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from mlframe.training.neural import (
     MLPTorchModel,
-    MetricSpec,
     PytorchLightningRegressor,
     TorchDataModule,
     generate_mlp,
 )
+from typing import Optional
 
 
-def _make_module(compile_network: str = None) -> MLPTorchModel:
+def _make_module(compile_network: Optional[str] = None) -> MLPTorchModel:
     network = generate_mlp(
         num_features=4,
         num_classes=1,

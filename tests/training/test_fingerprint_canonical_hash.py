@@ -13,7 +13,6 @@ from __future__ import annotations
 
 from collections import OrderedDict
 
-import pytest
 
 from mlframe.training.feature_handling.fingerprint import canonical_params_hash
 

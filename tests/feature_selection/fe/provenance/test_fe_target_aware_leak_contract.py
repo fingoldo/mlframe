@@ -55,7 +55,6 @@ subset runs under ``MLFRAME_FAST=1`` via the repo ``fast_subset`` helper.
 
 from __future__ import annotations
 
-import re
 
 import numpy as np
 import pandas as pd
@@ -359,7 +358,7 @@ def test_leak_gate_is_live_real_y_fires():
     X_tr, X_ho, y_tr, y_ho = _split(df, y)
     m = MRMR(**_BASE_FLAGS, **flags)
     m.fit(X_tr, y_tr)
-    eng, eng_names = _engineered_only(m, X_ho, names_in)
+    eng, _eng_names = _engineered_only(m, X_ho, names_in)
     assert eng.shape[1] > 0, (
         "grouped_quantile_target_aware emitted no engineered columns on REAL y; the leak gate would be "
         "vacuous if no target-aware family ever produced engineered columns to evaluate."
@@ -380,7 +379,7 @@ def test_conditional_residual_real_y_biz_value_floor():
     X_tr, X_ho, y_tr, y_ho = _split(df, y, n_holdout=600)
     m = MRMR(**_BASE_FLAGS, **_TARGET_AWARE_FLAG_SETS["conditional_residual"])
     m.fit(X_tr, y_tr)
-    eng, eng_names = _engineered_only(m, X_ho, names_in)
+    eng, _eng_names = _engineered_only(m, X_ho, names_in)
     assert eng.shape[1] > 0, "conditional_residual emitted no engineered columns on REAL y."
     auc = _downstream_auc(eng, y_ho.to_numpy())
     assert auc >= 0.85, f"conditional_residual engineered columns on REAL y reached holdout AUC {auc:.4f} < 0.85 (measured 0.973)."

@@ -112,7 +112,7 @@ def test_adversarial_stochastic_blend_default_output_unchanged_by_diagnostics_op
 def test_biz_val_adversarial_stochastic_blend_convergence_diagnostic_genuine_drift_is_stable_and_trusted():
     """Genuine, strong train/test drift -> discriminator AUC well above chance -> is_trustworthy True and a
     high stability_score (weight estimates should have converged, not still be flailing between resamples)."""
-    x_train, y_train, train_preds, x_test, y_test, test_preds = _make_drifted_dataset(seed=10)
+    x_train, y_train, train_preds, x_test, _y_test, _test_preds = _make_drifted_dataset(seed=10)
 
     test_likeness, likeness_diag = compute_test_likeness(x_train.reshape(-1, 1), x_test.reshape(-1, 1), cv=5, random_state=10, return_diagnostics=True)
     assert likeness_diag["auc"] > 0.85, f"expected the discriminator to reliably separate the drifted regions, got auc={likeness_diag['auc']:.4f}"

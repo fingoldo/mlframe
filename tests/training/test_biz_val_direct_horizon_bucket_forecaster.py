@@ -133,7 +133,7 @@ def test_biz_val_direct_horizon_bucket_forecaster_edge_blend_reduces_boundary_di
     # Kept small/noisy on purpose so the two independently-fit bucket models pick up different sampling
     # noise near their own edges, producing a visible discontinuity beyond the true 0.3/day trend.
     rows, targets = [], []
-    for origin in range(0, n_days_hist - horizon):
+    for _origin in range(0, n_days_hist - horizon):
         for h in range(1, horizon + 1):
             rows.append({"day_offset": h, "grp": 0})
             targets.append(5.0 + 0.3 * h + rng.normal(0, 1.5))

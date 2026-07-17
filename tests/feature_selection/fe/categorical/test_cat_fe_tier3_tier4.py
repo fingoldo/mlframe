@@ -32,7 +32,6 @@ from mlframe.feature_selection.filters.info_theory import (
     entropy,
     entropy_miller_madow,
     merge_vars,
-    compute_mi_from_classes,
 )
 
 

@@ -9,9 +9,9 @@ Run tests:
 import pytest
 import torch
 import torch.nn as nn
-from torch.optim import Adam, SGD, AdamW
+from torch.optim import SGD, AdamW
 from torch.optim.lr_scheduler import OneCycleLR, CosineAnnealingLR
-from unittest.mock import Mock, MagicMock, patch
+from unittest.mock import Mock
 import warnings
 
 import sys
@@ -20,7 +20,7 @@ from pathlib import Path
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 
-from mlframe.training.neural import MLPTorchModel, generate_mlp, MetricSpec
+from mlframe.training.neural import MLPTorchModel, MetricSpec
 
 
 # ================================================================================================
@@ -273,7 +273,7 @@ class TestMLPTorchModelTrainingStep:
         # Initialize training_step_outputs
         model.training_step_outputs = []
 
-        loss_dict = model.training_step(sample_batch, batch_idx=0)
+        model.training_step(sample_batch, batch_idx=0)
 
         # Should store outputs
         assert len(model.training_step_outputs) == 1
@@ -422,7 +422,7 @@ class TestMLPTorchModelPredictStep:
         model.train()  # Set to training mode
         batch = torch.randn(8, 10)
 
-        with warnings.catch_warnings(record=True) as w:
+        with warnings.catch_warnings(record=True):
             warnings.simplefilter("always")
             predictions = model.predict_step(batch, batch_idx=0)
 
@@ -686,7 +686,6 @@ class TestMLPTorchModelPhase2:
 
         Kills mutation: `not self.trainer.is_global_zero` to `self.trainer.is_global_zero`.
         """
-        from lightning.pytorch.callbacks import ModelCheckpoint
 
         model = MLPTorchModel(network=simple_network, loss_fn=loss_function, learning_rate=0.001, load_best_weights_on_train_end=True, metrics=[])
 

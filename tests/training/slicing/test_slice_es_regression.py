@@ -50,7 +50,7 @@ def test_lgb_explicit_slice_k_zero_is_bit_identical_to_pure_baseline() -> None:
     from mlframe.training.callbacks._callbacks import LightGBMCallback
     from mlframe.training._data_helpers import _setup_eval_set
 
-    (X_tr, y_tr), (X_val, y_val), (X_te, y_te) = _make_data()
+    (X_tr, y_tr), (X_val, y_val), (X_te, _y_te) = _make_data()
 
     # Baseline: just LGB with eval_set, no mlframe callback at all.
     model_a = lgb.LGBMRegressor(n_estimators=30, learning_rate=0.1, verbose=-1, num_leaves=8, random_state=0)

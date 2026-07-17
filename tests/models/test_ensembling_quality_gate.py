@@ -96,7 +96,7 @@ def test_absolute_threshold_excludes():
     independently of the relative ones."""
     members = _make_members(4, outlier_idx=2, outlier_noise_mult=50.0)
     # Disable relative; use a permissive absolute that still kicks the outlier.
-    kept, excluded, stats = compute_member_quality_gate(
+    kept, excluded, _stats = compute_member_quality_gate(
         members,
         max_mae=0.5,
         max_std=0.5,
@@ -112,7 +112,7 @@ def test_absolute_threshold_excludes():
 def test_uniform_members_keeps_all():
     """All members near-identical: nothing should be excluded."""
     members = _make_members(5, outlier_noise_mult=1.0)  # no outlier
-    kept, excluded, stats = compute_member_quality_gate(
+    kept, excluded, _stats = compute_member_quality_gate(
         members,
         max_mae_relative=2.5,
     )
@@ -210,8 +210,8 @@ def test_multioutput_predictions_supported():
     ground = rng.random((50, 3))
     good = [ground + rng.standard_normal((50, 3)) * 0.05 for _ in range(3)]
     bad = ground + rng.standard_normal((50, 3)) * 5.0
-    members = good + [bad]
-    kept, excluded, stats = compute_member_quality_gate(
+    members = [*good, bad]
+    kept, excluded, _stats = compute_member_quality_gate(
         members,
         max_mae_relative=2.5,
     )

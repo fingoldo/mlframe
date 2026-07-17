@@ -122,7 +122,7 @@ def test_lock_serializes_concurrent_iterate_and_mutate():
                     cache[i % 400] = i
                     while len(cache) > 200:
                         cache.popitem(last=False)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             errors.append(exc)
 
     def read():
@@ -132,7 +132,7 @@ def test_lock_serializes_concurrent_iterate_and_mutate():
                     break
                 with _MRMR_FIT_CACHE_LOCK:
                     _ = sum(cache.values())
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             errors.append(exc)
 
     threads = [threading.Thread(target=mutate) for _ in range(3)]
@@ -162,7 +162,7 @@ def test_concurrent_real_fits_no_exception_and_bounded_cache():
                 sel = _fast_selector(seed)
                 sel.fit_cache_max = cap
                 sel.fit(X, y)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             errors.append((tid, repr(exc)))
 
     threads = [threading.Thread(target=worker, args=(t,)) for t in range(n_threads)]

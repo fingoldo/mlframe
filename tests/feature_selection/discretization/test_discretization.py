@@ -11,20 +11,15 @@ Tests include:
 import pytest
 import numpy as np
 import pandas as pd
-import warnings
 
-from hypothesis import given, settings, strategies as st, assume, HealthCheck
+from hypothesis import given, settings, strategies as st, HealthCheck
 from hypothesis.extra.numpy import arrays
 
-from sklearn.datasets import make_classification, make_regression
 
 # Import the module under test
 from mlframe.feature_selection.filters import (
-    MRMR,
-    entropy,
     categorize_dataset,
     discretize_array,
-    compute_mi_from_classes,
 )
 
 
@@ -67,7 +62,7 @@ class TestDiscretization:
         rng = np.random.default_rng(42)
         X = pd.DataFrame(rng.standard_normal((100, 5)), columns=["a", "b", "c", "d", "e"])
 
-        result, nbins_arr, categorical_vars = categorize_dataset(X, n_bins=10)
+        result, nbins_arr, _categorical_vars = categorize_dataset(X, n_bins=10)
 
         assert result.shape == X.shape
         assert len(nbins_arr) == X.shape[1]

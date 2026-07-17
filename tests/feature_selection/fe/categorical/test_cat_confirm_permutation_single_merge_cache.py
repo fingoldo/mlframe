@@ -53,13 +53,11 @@ def _reference_confidence(
 ):
     """Pre-fix replica: single-column merge_vars re-derived fresh per pair (no cache)."""
     from mlframe.feature_selection.filters._cat_confirm_permutation import (
-        _CAT_CONFIRM_BASE_SEED,
         _count_nfailed_joint_indep_serial,
-        _perm_kernel_backend_choice,
     )
 
     n_perms = cfg.full_npermutations
-    n_samples = factors_data.shape[0]
+    factors_data.shape[0]
     confidence_dict = {}
     for j, k in enumerate(selected_idx):
         i = int(pairs_a[k])
@@ -182,7 +180,7 @@ def test_single_merge_cache_bit_identical_to_uncached_reference(n_perms):
 
     cfg = CatFEConfig(full_npermutations=n_perms, permutation_null="joint_independence", fwer_correction="none")
 
-    kept, conf = _confirm_pairs_via_permutation(
+    _kept, conf = _confirm_pairs_via_permutation(
         factors_data=factors_data,
         pairs_a=pairs_a,
         pairs_b=pairs_b,

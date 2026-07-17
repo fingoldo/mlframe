@@ -72,7 +72,7 @@ class TestMRMRIdentityCache:
         assert m.mrmr_skip_when_prior_was_identity is True
         t0 = perf_counter()
         m.fit(X, y1)
-        elapsed_first = perf_counter() - t0
+        perf_counter() - t0
         assert hasattr(m, "support_")
 
     def test_explicit_false_disables_skip(self) -> None:
@@ -116,7 +116,7 @@ class TestMRMRIdentityCache:
                 "d": rng.normal(size=n),
             }
         )
-        y1 = rng.normal(size=n)
+        rng.normal(size=n)
         y2 = rng.normal(size=n)  # different target
 
         # Pre-populate cache as if a previous fit returned identity.
@@ -242,7 +242,7 @@ class TestIdentityCacheYFingerprintOption:
         """When the option is ON, different y values on same X must produce different cache keys."""
         rng = np.random.default_rng(0)
         n = 400
-        X = pd.DataFrame(
+        pd.DataFrame(
             {
                 "a": rng.normal(size=n),
                 "b": rng.normal(size=n),
@@ -260,7 +260,7 @@ class TestIdentityCacheYFingerprintOption:
         rng = np.random.default_rng(0)
         y = rng.normal(size=500)
         fp_64 = _mrmr_compute_y_fingerprint_sample(y.astype(np.float64))
-        fp_32 = _mrmr_compute_y_fingerprint_sample(y.astype(np.float32))
+        _mrmr_compute_y_fingerprint_sample(y.astype(np.float32))
         # 6-decimal rounding inside the fingerprint means tiny dtype-cast noise doesn't flip the hash.
         # (Strict equality would be brittle; just verify they're close to the same hash family.)
         # Loose: at least one of them is reproducible across two calls.

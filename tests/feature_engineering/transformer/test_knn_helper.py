@@ -67,7 +67,6 @@ def test_disable_hnsw_env_falsey_is_noop(monkeypatch, falsey):
     real native hnswlib DLL (which segfaults on some Windows hosts -- the very reason the opt-out
     exists). With a falsey env-var, the probe must reach the (mocked) import and return True.
     """
-    import builtins
     import sys as _sys
 
     monkeypatch.setenv("MLFRAME_DISABLE_HNSW", falsey)

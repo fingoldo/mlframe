@@ -3,7 +3,6 @@
 import io
 import os
 import pickle
-import tempfile
 
 import pytest
 
@@ -36,7 +35,7 @@ def test_torch_load_rejects_malicious_pickle(tmp_path):
 # ---------------------------------------------------------------------------
 def test_safe_unpickler_rejects_os_system_accepts_numpy_ndarray():
     pytest.importorskip("dill")
-    np = pytest.importorskip("numpy")
+    pytest.importorskip("numpy")
     from mlframe.training.io import _SafeUnpickler
 
     # numpy.ndarray class should be resolvable.

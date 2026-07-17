@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 
 
 def test_lazy_chunks_helper_exists_and_chunks_correctly():

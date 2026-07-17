@@ -657,7 +657,6 @@ def test_analytic_cmi_null_matches_permutation_decision():
     accept/reject, and the analytic floor/null_mean must be finite and ordered (floor >= mean)."""
     import os
     import numpy as np
-    import importlib
 
     from mlframe.feature_selection.filters._analytic_mi_null import _HAVE_CHI2
 

@@ -12,11 +12,9 @@ the True/False values diverge on a polars input when polars-ds is unavailable.
 from __future__ import annotations
 
 import pathlib
-import sys
 
 import pandas as pd
 import polars as pl
-import pytest
 
 import mlframe
 from mlframe.training.configs import PreprocessingBackendConfig

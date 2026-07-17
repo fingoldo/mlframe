@@ -25,7 +25,6 @@ Small fixtures (n<=1500, p<=120) keep them fast on a RAM-contended box.
 from __future__ import annotations
 
 import math
-from itertools import combinations
 
 import numpy as np
 
@@ -88,7 +87,7 @@ def _marginal_mi(D, nbins, j, yc, fy):
 class TestJointMISweepHasNoBlindSpot:
     def _sweep_rank(self, X, y_cont, needle, *, extra_pairs=400, seed=0):
         rng = np.random.default_rng(seed)
-        n, p = X.shape
+        _n, p = X.shape
         D, nbins = _discretize(X, nb=8)
         yc, fy, _ = _y_classes(y_cont, nb=8)
         # Score the needle pair + a random sample of noise pairs (full C(p,2) is unneeded to
@@ -113,7 +112,7 @@ class TestJointMISweepHasNoBlindSpot:
         n, p = 1500, 120
         X = rng.standard_normal((n, p))
         y = X[:, 3] * X[:, 100]  # zero-marginal product needle
-        rank, sc, (D, nbins, yc, fy) = self._sweep_rank(X, y, (3, 100), seed=1)
+        rank, sc, (_D, _nbins, _yc, _fy) = self._sweep_rank(X, y, (3, 100), seed=1)
         # The product needle is the single top joint-MI pair, far above any noise pair.
         assert rank == 0, f"zero-marginal product needle did not rank #0 (rank={rank})"
         needle_jmi = sc[(3, 100)]

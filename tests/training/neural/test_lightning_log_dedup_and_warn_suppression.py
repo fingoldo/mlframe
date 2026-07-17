@@ -42,7 +42,7 @@ def test_lightning_num_workers_bottleneck_warning_suppressed():
         # Emit the canonical Lightning message
         warnings.warn(
             "The 'val_dataloader' does not have many workers which may be a bottleneck.",
-            UserWarning,
+            UserWarning, stacklevel=2,
         )
 
     bottleneck_warns = [w for w in captured if "does not have many workers" in str(w.message)]

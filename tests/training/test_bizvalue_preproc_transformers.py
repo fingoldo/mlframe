@@ -115,7 +115,7 @@ def _split(X: pd.DataFrame, y: pd.Series, seed: int):
 
 
 def _apply(cfg, X_tr, X_te, y_tr=None):
-    train, val, test, _ = apply_preprocessing_extensions(
+    train, _val, test, _ = apply_preprocessing_extensions(
         X_tr,
         None,
         X_te,
@@ -190,7 +190,7 @@ def test_nonlinear_features_lift_on_circles(seed, variant):
 def test_chi2_samplers_reject_negative_inputs(variant):
     rng = np.random.default_rng(0)
     X = pd.DataFrame(rng.standard_normal((200, 4)), columns=[f"f{i}" for i in range(4)])
-    y = pd.Series((X["f0"] > 0).astype(int))
+    pd.Series((X["f0"] > 0).astype(int))
     cfg = PreprocessingExtensionsConfig(nonlinear_features=variant, nonlinear_n_components=20)
     with pytest.raises(ValueError):
         apply_preprocessing_extensions(X, None, None, cfg, verbose=0)
@@ -270,7 +270,7 @@ def test_lda_dim_reducer_supervised(seed):
 )
 def test_dim_reducer_variants_smoke_and_shape(reducer):
     X, y = _rank_r_wide_dataset(seed=42, n=500, p=60, rank=8)
-    X_tr, X_te, y_tr, y_te = _split(X, y, seed=42)
+    X_tr, X_te, _y_tr, _y_te = _split(X, y, seed=42)
     # BernoulliRBM expects inputs in [0,1]; scale via MinMax.
     scaler = "MinMaxScaler" if reducer == "BernoulliRBM" else "StandardScaler"
     cfg = PreprocessingExtensionsConfig(
@@ -288,23 +288,23 @@ def test_dim_reducer_nmf_requires_positive():
     # NMF needs non-negative inputs; pre-clip to absolute values.
     X, y = _rank_r_wide_dataset(seed=42, n=500, p=40, rank=6)
     X = X.abs()
-    X_tr, X_te, y_tr, y_te = _split(X, y, seed=42)
+    X_tr, X_te, _y_tr, _y_te = _split(X, y, seed=42)
     cfg = PreprocessingExtensionsConfig(dim_reducer="NMF", dim_n_components=6)
-    Xt_tr, Xt_te = _apply(cfg, X_tr, X_te)
+    Xt_tr, _Xt_te = _apply(cfg, X_tr, X_te)
     assert Xt_tr.shape[1] == 6
     assert (Xt_tr.values >= 0).all()
 
 
 def test_dim_reducer_random_trees_embedding():
     X, y = _rank_r_wide_dataset(seed=42, n=500, p=30, rank=5)
-    X_tr, X_te, y_tr, y_te = _split(X, y, seed=42)
+    X_tr, X_te, _y_tr, _y_te = _split(X, y, seed=42)
     # dim_n_components becomes n_estimators for RandomTreesEmbedding — output is
     # a sparse one-hot encoding of tree leaves; we just assert shape and nonzero.
     cfg = PreprocessingExtensionsConfig(
         dim_reducer="RandomTreesEmbedding",
         dim_n_components=10,
     )
-    Xt_tr, Xt_te = _apply(cfg, X_tr, X_te)
+    Xt_tr, _Xt_te = _apply(cfg, X_tr, X_te)
     assert Xt_tr.shape[0] == X_tr.shape[0]
     assert Xt_tr.shape[1] >= 10  # at least 1 leaf per tree
 
@@ -312,14 +312,14 @@ def test_dim_reducer_random_trees_embedding():
 def test_dim_reducer_umap_optional():
     pytest.importorskip("umap")
     X, y = _rank_r_wide_dataset(seed=42, n=400, p=40, rank=6)
-    X_tr, X_te, y_tr, y_te = _split(X, y, seed=42)
+    X_tr, X_te, _y_tr, _y_te = _split(X, y, seed=42)
     cfg = PreprocessingExtensionsConfig(
         scaler="StandardScaler",
         dim_reducer="UMAP",
         dim_n_components=4,
     )
     try:
-        Xt_tr, Xt_te = _apply(cfg, X_tr, X_te)
+        Xt_tr, _Xt_te = _apply(cfg, X_tr, X_te)
     except TypeError as e:
         # UMAP <=0.5.x calls sklearn's check_array(force_all_finite=...) which
         # was renamed to `ensure_all_finite` in sklearn 1.8. Until UMAP catches
@@ -410,7 +410,7 @@ def test_memory_safety_guard_blocks_poly_explosion():
     rng = np.random.default_rng(0)
     n, p = 100, 500
     X = pd.DataFrame(rng.standard_normal((n, p)), columns=[f"f{i}" for i in range(p)])
-    y = pd.Series((X["f0"] > 0).astype(int))
+    pd.Series((X["f0"] > 0).astype(int))
     # 500**3 == 1.25e8 >> default guard of 1e5.
     cfg = PreprocessingExtensionsConfig(polynomial_degree=3)
     with pytest.raises(ValueError, match="memory_safety_max_features"):

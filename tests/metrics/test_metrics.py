@@ -10,7 +10,7 @@ Tests include:
 
 import numpy as np
 import pytest
-from hypothesis import given, settings, assume
+from hypothesis import given, settings
 from hypothesis import strategies as st
 from hypothesis.extra.numpy import arrays
 from sklearn.metrics import (
@@ -26,7 +26,6 @@ from sklearn.metrics import (
 from mlframe.metrics.core import (
     fast_roc_auc,
     fast_aucs,
-    fast_numba_aucs,
     brier_score_loss,
     fast_brier_score_loss,
     fast_log_loss,
@@ -41,14 +40,14 @@ from mlframe.metrics.core import (
     render_title_metric_token,
     DEFAULT_TITLE_METRICS_TOKENS,
     TITLE_METRIC_TOKENS,
-    fast_precision,
-    fast_classification_report,
     probability_separation_score,
     cb_logits_to_probs_binary,
     cb_logits_to_probs_multiclass,
     maximum_absolute_percentage_error,
     integral_calibration_error_from_metrics,
 )
+import functools
+import operator
 
 
 # =============================================================================
@@ -240,7 +239,7 @@ class TestFastAucs:
         if len(np.unique(y_true)) < 2:
             return
 
-        roc_auc, pr_auc = fast_aucs(y_true, y_score)
+        roc_auc, _pr_auc = fast_aucs(y_true, y_score)
         roc_auc_single = fast_roc_auc(y_true, y_score)
 
         np.testing.assert_allclose(roc_auc, roc_auc_single, rtol=1e-10)
@@ -476,7 +475,7 @@ class TestPrecisionRecallF1:
         y_true = np.array([1, 1, 0, 0])
         y_pred = np.array([0, 0, 0, 0])
 
-        p, r, f1 = compute_pr_recall_f1_metrics(y_true, y_pred)
+        p, _r, _f1 = compute_pr_recall_f1_metrics(y_true, y_pred)
 
         assert p == 0.0  # TP=0, FP=0
 
@@ -506,7 +505,7 @@ class TestCalibration:
         y_pred = np.random.random(n)
         y_true = (np.random.random(n) < y_pred).astype(np.int64)
 
-        freqs_pred, freqs_true, hits = fast_calibration_binning(y_true, y_pred, nbins=10)
+        freqs_pred, freqs_true, _hits = fast_calibration_binning(y_true, y_pred, nbins=10)
         mae = np.mean(np.abs(freqs_pred - freqs_true))
 
         # With perfect calibration, MAE should be small
@@ -1254,13 +1253,13 @@ class TestPerformance:
         # Time custom
         start = time.perf_counter()
         for _ in range(10):
-            _, custom_pr = fast_aucs(y_true, y_score)
+            _, _custom_pr = fast_aucs(y_true, y_score)
         custom_time = time.perf_counter() - start
 
         # Time sklearn
         start = time.perf_counter()
         for _ in range(10):
-            sklearn_pr = average_precision_score(y_true, y_score)
+            average_precision_score(y_true, y_score)
         sklearn_time = time.perf_counter() - start
 
         print(f"\nCustom PR AUC time: {custom_time:.3f}s")
@@ -1547,7 +1546,7 @@ class TestPerGroupAUCEdgeCases:
             y_true=[0, 1, 0, 1, 1, 0],
             y_score=[0.1, 0.9, 0.2, 0.8, 0.5, 0.5],
         )
-        mean_roc, mean_pr = compute_mean_aucs_per_group(per_group)
+        mean_roc, _mean_pr = compute_mean_aucs_per_group(per_group)
         # Group 0 should produce a high ROC (~1.0). Pre-fix, groups 1,2
         # contributed 0.0 and dragged the mean down.
         assert mean_roc > 0.5, f"mean ROC should reflect only the valid group ({mean_roc}); if this is <0.5, single-sample groups are polluting the mean"
@@ -1592,7 +1591,7 @@ class TestPerGroupAUCEdgeCases:
         import logging
 
         # 10 groups, 9 valid (2-sample each), 1 single-sample -> 10% NaN.
-        gids = sum([[i, i] for i in range(9)], []) + [9]  # groups 0..8 have 2 samples; group 9 has 1
+        gids = functools.reduce(operator.iadd, [[i, i] for i in range(9)], []) + [9]  # groups 0..8 have 2 samples; group 9 has 1
         y_true = ([0, 1] * 9) + [1]
         y_score = list(np.linspace(0.1, 0.9, 19))
         with caplog.at_level(logging.WARNING, logger="mlframe.metrics.core"):

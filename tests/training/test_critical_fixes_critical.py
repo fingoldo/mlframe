@@ -214,7 +214,7 @@ def test_c4_c5_c6_weighted_loss_normalises_by_weight_sum() -> None:
     weighted training -- both fit metric and gradient signal.
     """
     torch = pytest.importorskip("torch")
-    pytest_lightning = pytest.importorskip("lightning")
+    pytest.importorskip("lightning")
 
     # Build a minimal module exposing _compute_weighted_loss by routing
     # through the same code path. We construct a lightweight stand-in

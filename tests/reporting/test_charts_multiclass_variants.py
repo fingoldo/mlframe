@@ -18,7 +18,6 @@ from mlframe.reporting.spec import (
     AnnotationPanelSpec,
     BarPanelSpec,
     HeatmapPanelSpec,
-    LinePanelSpec,
     ViolinPanelSpec,
 )
 
@@ -199,7 +198,7 @@ class TestProbDistEmptyClass:
         # 3 classes but only class 0 present -> 1 violin group, no fake [0.0] groups.
         K = 3
         n = 90
-        y_true = np.zeros(n, dtype=int)  # all class 0 (positional)
+        np.zeros(n, dtype=int)  # all class 0 (positional)
         proba = np.full((n, K), 1.0 / K)
         proba[:, 0] = 0.8
         panel = compose_multiclass_figure(

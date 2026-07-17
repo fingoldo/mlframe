@@ -28,7 +28,6 @@ Coverage map
 
 from __future__ import annotations
 
-import re
 
 import numpy as np
 import pandas as pd
@@ -43,12 +42,10 @@ pytestmark = pytest.mark.sklearn_matrix
 # integration tests, not for discovery itself. Discovery uses only
 # sklearn.feature_selection.mutual_info_regression.
 
-from mlframe.training.composite import (  # noqa: E402
-    CompositeSpec,
+from mlframe.training.composite import (
     CompositeTargetDiscovery,
-    UnknownTransformError,
 )
-from mlframe.training.configs import CompositeTargetDiscoveryConfig  # noqa: E402
+from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
 
 # ----------------------------------------------------------------------
@@ -584,7 +581,7 @@ class TestIterTransform:
         # One T-array per discovered spec.
         assert set(outputs) == {s.name for s in disc.specs_}
         # Each T has length matching df.
-        for name, t in outputs.items():
+        for t in outputs.values():
             assert len(t) == len(df)
             assert t.dtype == np.float64
 

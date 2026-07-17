@@ -8,7 +8,6 @@ from __future__ import annotations
 import io
 
 import numpy as np
-import pytest
 
 
 class TestTTRWithEvalSetScalingPickle:
@@ -60,7 +59,6 @@ class TestTTRWithEvalSetScalingPickle:
 
     def test_eval_set_y_val_gets_scaled(self) -> None:
         """The class's main purpose: scale eval_set's y_val through the transformer so inner estimators see y_val on the same scale as y_train."""
-        from sklearn.linear_model import Ridge
         from sklearn.preprocessing import StandardScaler
 
         from mlframe.training.targets._ttr_eval_set_scaling import _TTRWithEvalSetScaling

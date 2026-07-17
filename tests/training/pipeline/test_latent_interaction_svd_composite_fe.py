@@ -39,7 +39,7 @@ def _events_and_frame(n_customers=50, n_items=20, n_events=500, n=100, seed=0):
 def test_apply_latent_interaction_svd_composite_fe_noop_when_entities_unset():
     events, df, group_ids = _events_and_frame()
     cfg = PreprocessingExtensionsConfig()
-    train, val, test = apply_latent_interaction_svd_composite_fe(
+    train, _val, _test = apply_latent_interaction_svd_composite_fe(
         df.iloc[:70],
         df.iloc[70:],
         None,

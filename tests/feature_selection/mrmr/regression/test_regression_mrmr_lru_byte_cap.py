@@ -14,7 +14,6 @@ from __future__ import annotations
 from collections import OrderedDict
 
 import numpy as np
-import pytest
 
 
 class _FakeMRMR:

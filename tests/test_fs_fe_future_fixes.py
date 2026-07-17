@@ -11,10 +11,6 @@ inline; that pre-fix-fail bracket is the regression contract per memory
 from __future__ import annotations
 
 import inspect
-import io
-import logging
-import os
-import sys
 
 import numpy as np
 import pytest
@@ -400,7 +396,7 @@ def test_fe_p2_5_default_catboost_encoder_seeded():
 def test_fe_p2_5_default_catboost_encoder_output_deterministic():
     """End-to-end determinism: fitting two encoders with the same seed on the
     same data must yield the same transform output."""
-    ce = pytest.importorskip("category_encoders")
+    pytest.importorskip("category_encoders")
     import pandas as pd
     from mlframe.training.core._setup_helpers import _get_pipeline_components
     from mlframe.training.configs import PreprocessingConfig

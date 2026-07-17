@@ -10,7 +10,6 @@ fast path (e.g. mis-gating the unique skip on shifted labels, or dropping a prob
 """
 
 import numpy as np
-import pytest
 
 from mlframe.metrics._ice_metric import compute_probabilistic_multiclass_error as ice
 

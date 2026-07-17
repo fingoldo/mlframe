@@ -16,7 +16,6 @@ from mlframe.feature_selection._benchmarks.kernel_tuning_cache import cli
 
 def _parse(argv):
     # Build the same parser main() builds, but stop before dispatch so we just inspect the namespace.
-    import argparse
 
     # Reuse main() via a patched dispatch that returns the parsed args.
     captured = {}

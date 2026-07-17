@@ -223,7 +223,7 @@ def test_binary_predict_proba_columns_aligned_with_sorted_classes(
     # Easy separator: x_0 < 0 -> -1, x_0 > 0 -> +1
     X = rng.normal(size=(n, 4)).astype(np.float32)
     y = np.where(X[:, 0] > 0, 1, -1).astype(np.int64)
-    X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=0.3, random_state=0, stratify=y)
+    X_tr, X_te, y_tr, _y_te = train_test_split(X, y, test_size=0.3, random_state=0, stratify=y)
 
     torch.manual_seed(0)
     clf = PytorchLightningClassifier(**classifier_params)

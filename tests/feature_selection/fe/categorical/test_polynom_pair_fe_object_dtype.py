@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 
 
 def test_smart_polynom_pair_fe_survives_object_dtype_frame():

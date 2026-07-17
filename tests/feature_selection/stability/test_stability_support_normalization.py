@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from mlframe.feature_selection.filters.stability import StabilityMRMR, _support_to_indices
 
@@ -90,6 +89,6 @@ def test_threshold_exactly_at_fraction_is_robust_to_float_rounding():
     counts = np.array([12, 7, 0])
     import math
 
-    min_count = int(math.ceil(0.6 * 20 - 1e-9))
+    min_count = math.ceil(0.6 * 20 - 1e-9)
     assert min_count == 12
     assert (counts >= min_count).tolist() == [True, False, False]

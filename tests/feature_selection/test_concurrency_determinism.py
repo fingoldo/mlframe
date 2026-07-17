@@ -203,7 +203,7 @@ def test_prewarm_concurrent_no_race():
     def _warm():
         try:
             prewarm_fs_numba_cache(verbose=False)
-        except BaseException as exc:  # noqa: BLE001 -- explicitly capture for cross-thread reporting
+        except BaseException as exc:
             errors.append(exc)
 
     with ThreadPoolExecutor(max_workers=2) as ex:
@@ -260,7 +260,7 @@ def test_mrmr_concurrent_fit_no_cache_corruption():
             sel = MRMR(full_npermutations=5, baseline_npermutations=3, n_jobs=1, verbose=0, random_seed=11)
             sel.fit(df_a, y_a)
             supports["a"] = np.sort(np.asarray(sel.support_))
-        except BaseException as exc:  # noqa: BLE001
+        except BaseException as exc:
             errors.append(exc)
 
     def _fit_b():
@@ -268,7 +268,7 @@ def test_mrmr_concurrent_fit_no_cache_corruption():
             sel = MRMR(full_npermutations=5, baseline_npermutations=3, n_jobs=1, verbose=0, random_seed=22)
             sel.fit(df_b, y_b)
             supports["b"] = np.sort(np.asarray(sel.support_))
-        except BaseException as exc:  # noqa: BLE001
+        except BaseException as exc:
             errors.append(exc)
 
     threads = [threading.Thread(target=_fit_a), threading.Thread(target=_fit_b)]

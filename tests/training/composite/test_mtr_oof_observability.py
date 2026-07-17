@@ -31,7 +31,6 @@ from __future__ import annotations
 import logging
 
 import numpy as np
-import pytest
 
 from mlframe.training.core._phase_composite_post_xt_ensemble._phase_composite_post_xt_mtr_oof import (
     compute_mtr_oof_nnls_weights,

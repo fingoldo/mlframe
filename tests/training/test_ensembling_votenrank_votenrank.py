@@ -13,7 +13,6 @@ import pandas as pd
 import pytest
 
 from mlframe.models.ensembling import (
-    EnsembleLeaderboard,
     _build_votenrank_leaderboard_from_results,
 )
 

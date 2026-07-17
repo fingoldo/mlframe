@@ -17,12 +17,11 @@ import pytest
 
 from sklearn.datasets import make_regression, make_classification
 from sklearn.linear_model import LogisticRegression, Ridge
-from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+from sklearn.ensemble import RandomForestClassifier
 
 from mlframe.feature_selection.wrappers import RFECV
 from mlframe.feature_selection.wrappers._helpers import (
     knockoff_importance,
-    make_gaussian_knockoffs,
     get_feature_importances,
 )
 
@@ -37,7 +36,7 @@ class TestStabilityCurve:
         rfecv.fit(X, y)
         curve = rfecv.stability_vs_n_curve_()
         assert isinstance(curve, dict)
-        for n, s in curve.items():
+        for s in curve.values():
             assert 0.0 <= s <= 1.0
         elbow = rfecv.n_stability_elbow_()
         assert elbow >= 0

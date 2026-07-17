@@ -68,7 +68,7 @@ def _reference_conditional_confidence(
         cls_x1, fq_x1, _ = merge_vars(
             factors_data=factors_data, vars_indices=np.array([i], dtype=np.int64), var_is_nominal=None, factors_nbins=nbins, dtype=dtype
         )
-        cls_x2, fq_x2, _ = merge_vars(
+        cls_x2, _fq_x2, _ = merge_vars(
             factors_data=factors_data, vars_indices=np.array([jj], dtype=np.int64), var_is_nominal=None, factors_nbins=nbins, dtype=dtype
         )
         classes_x2_safe = cls_x2.astype(np.int64, copy=True)
@@ -102,7 +102,7 @@ def _reference_conditional_confidence(
 def test_conditional_null_hoist_x1_mi_bit_identical(n_perms):
     dtype = np.int32
     factors_data, nbins = _make_data()
-    n = factors_data.shape[0]
+    factors_data.shape[0]
     classes_y, freqs_y, _ = merge_vars(
         factors_data=factors_data, vars_indices=np.array([0], dtype=np.int64), var_is_nominal=None, factors_nbins=nbins, dtype=dtype
     )
@@ -121,7 +121,7 @@ def test_conditional_null_hoist_x1_mi_bit_identical(n_perms):
         fwer_correction="none",
     )
 
-    kept, conf = _confirm_pairs_via_permutation(
+    _kept, conf = _confirm_pairs_via_permutation(
         factors_data=factors_data,
         pairs_a=pairs_a,
         pairs_b=pairs_b,

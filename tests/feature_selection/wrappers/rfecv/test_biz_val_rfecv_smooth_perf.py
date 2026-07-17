@@ -50,7 +50,7 @@ def _pick(rule, smooth_perf, obs, std):
 
 def test_smooth_perf_inert_under_auto_default_rule():
     """Production default rule auto(->one_se_max): smooth_perf must NOT change the selected N. Guards the default 0."""
-    nf, t = _peak_curve()
+    _nf, t = _peak_curve()
     std = np.full_like(t, 0.06)
     for sd in range(25):
         rng = np.random.default_rng(sd)
@@ -66,7 +66,7 @@ def test_smooth_perf_denoises_argmax_pick():
     Measured (40 seeds, noise 0.05): sp=0 0.7831 -> sp=3 0.7919 on the peak curve. Floor the delta at +0.004 (well below
     the ~0.009 measured margin) so a real regression in the smoothing path trips while seed noise does not.
     """
-    nf, t = _peak_curve()
+    _nf, t = _peak_curve()
     std = np.full_like(t, 0.05)
     true_sp0, true_sp3 = [], []
     for sd in range(40):

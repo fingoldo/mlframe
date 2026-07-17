@@ -38,7 +38,7 @@ def test_penalty_detects_bias():
     infold = rng.normal(0.0, 1.0, size=4000)
     unbiased = rng.normal(0.0, 1.0, size=4000)
     biased = unbiased + 1.5  # systematic offset -> mean residual ~1.5
-    p_unb, b_unb, _ = calibration_penalty(unbiased, infold)
+    p_unb, _b_unb, _ = calibration_penalty(unbiased, infold)
     p_bias, b_bias, _ = calibration_penalty(biased, infold)
     assert b_bias > 1.0, f"shifted residuals should show large bias, got {b_bias}"
     assert p_bias > p_unb + 1.0

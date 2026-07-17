@@ -13,11 +13,8 @@ Locks:
 
 from __future__ import annotations
 
-import logging
-from unittest.mock import MagicMock
 
 import numpy as np
-import pytest
 
 from mlframe.training.composite.ensemble.stacking import stacking_aware_gate
 
@@ -39,7 +36,7 @@ def _build_payload(noise_on_garbage: float, n: int = 500, seed: int = 0):
 class TestStackingAwareGateContract:
     def test_drops_garbage_predictor(self) -> None:
         preds, y = _build_payload(noise_on_garbage=1.0)
-        survivors, weights = stacking_aware_gate(preds, y, min_weight=0.05)
+        survivors, _weights = stacking_aware_gate(preds, y, min_weight=0.05)
         assert "p_garbage" not in survivors
         assert "p_base" in survivors
         assert "p_aux" in survivors

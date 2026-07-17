@@ -37,14 +37,12 @@ half would be ``h_bwd[length-1]`` (last-token bwd state), NOT
 
 from __future__ import annotations
 
-import numpy as np
 import pytest
 
 pytest.importorskip("torch")
 pytest.importorskip("lightning")
 
 import torch
-import torch.nn as nn
 
 from mlframe.training.neural._recurrent_torch_model import RecurrentTorchModel
 

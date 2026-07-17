@@ -100,7 +100,7 @@ def test_env_overrides_constant(monkeypatch):
     """The env var overrides the module constant for the reserve size."""
     monkeypatch.setattr(fe, "_FE_MIN_FREE_RAM_GB", 1.0)
     monkeypatch.setenv("MLFRAME_FE_MIN_FREE_RAM_GB", "4")
-    assert fe._fe_min_free_ram_bytes() == int(4 * 2**30)
+    assert fe._fe_min_free_ram_bytes() == (4 * 2**30)
     # Garbage env value falls back to the constant (no crash).
     monkeypatch.setenv("MLFRAME_FE_MIN_FREE_RAM_GB", "not-a-number")
     assert fe._fe_min_free_ram_bytes() == int(1.0 * 2**30)

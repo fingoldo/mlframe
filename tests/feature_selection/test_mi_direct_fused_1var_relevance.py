@@ -82,7 +82,7 @@ def test_mi_direct_analytic_matches_legacy_value():
     n, nb_x, nb_y = 30_000, 20, 10
     fd, fnb, cy, fy = _make(n, nb_x, nb_y, 99)
     mi_ref, _ = _legacy_mi_bx(fd, 0, fnb, cy, fy)
-    mi_out, conf = mi_direct(
+    mi_out, _conf = mi_direct(
         fd,
         x=(0,),
         y=(1,),

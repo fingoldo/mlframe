@@ -14,7 +14,6 @@ a few seconds on CPU.
 
 from __future__ import annotations
 
-import os
 import warnings
 
 import numpy as np
@@ -42,7 +41,7 @@ pytestmark = pytest.mark.slow
 def mc_dataset():
     """200 rows, 4 features, 3 well-separated classes."""
     rng = np.random.default_rng(42)
-    n, K = 200, 3
+    n, _K = 200, 3
     X = rng.standard_normal((n, 4))
     # Plant signal: class assignment depends on f0+f1.
     score = X[:, 0] - 0.5 * X[:, 1] + 0.3 * rng.standard_normal(n)

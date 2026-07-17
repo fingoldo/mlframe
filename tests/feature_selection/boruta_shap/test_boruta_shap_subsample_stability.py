@@ -92,7 +92,7 @@ def test_stability_runs_subfits_votes_and_keeps_signal():
     from sklearn.ensemble import RandomForestClassifier
     from mlframe.feature_selection.boruta_shap import BorutaShap
 
-    X, y, signal, noise = _signal_noise(seed=0)
+    X, y, signal, _noise = _signal_noise(seed=0)
     sel = BorutaShap(
         model=RandomForestClassifier(n_estimators=40, n_jobs=-1, random_state=0),
         importance_measure="gini",
@@ -126,7 +126,7 @@ def test_stability_accepts_no_more_noise_than_single_fit():
     from sklearn.ensemble import RandomForestClassifier
     from mlframe.feature_selection.boruta_shap import BorutaShap
 
-    X, y, signal, noise = _signal_noise(seed=0)
+    X, y, _signal, noise = _signal_noise(seed=0)
     noise_set = set(noise)
     mk = lambda **kw: BorutaShap(
         model=RandomForestClassifier(n_estimators=40, n_jobs=-1, random_state=0),

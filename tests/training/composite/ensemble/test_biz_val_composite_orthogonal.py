@@ -10,7 +10,6 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 from sklearn.ensemble import GradientBoostingRegressor
-from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_squared_error
 
 from mlframe.training.composite.orthogonal import OrthogonalizedCompositeEstimator

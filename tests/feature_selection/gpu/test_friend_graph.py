@@ -11,14 +11,12 @@ Covers, per the project rule (unit + biz_value + cProfile per feature):
 
 from __future__ import annotations
 
-import sys
 
 import numpy as np
 import pytest
 
 from mlframe.feature_selection.filters import info_theory as it
 from mlframe.feature_selection.filters.friend_graph import (
-    FriendGraph,
     build_friend_graph,
     friend_graph_to_figurespec,
     prune_by_friend_graph,
@@ -42,7 +40,7 @@ def _redundant_hub_dataset(n=8000, seed=11):
     p = [(u[i] * 2 + v[i]).astype(np.int32) for i in range(4)]  # nbins 4
     y = (sum(u) >= 2).astype(np.int32)  # majority of u
     g = sum(v).astype(np.int32)  # nbins 5, target-independent
-    data = np.column_stack(p + [g, y]).astype(np.int32)
+    data = np.column_stack([*p, g, y]).astype(np.int32)
     nbins = np.array([4, 4, 4, 4, 5, 2], dtype=np.int64)
     names = ["p1", "p2", "p3", "p4", "G", "y"]
     return data, nbins, np.array([5], dtype=np.int64), names, [0, 1, 2, 3, 4], 4
@@ -170,7 +168,7 @@ def test_cprofile_edge_pass_dominated_by_info_theory(capsys):
     cols = [rng.integers(0, 4, n).astype(np.int32) for _ in range(k)]
     hub = (cols[0] // 2 + cols[1] // 2).astype(np.int32)
     y = (cols[0] >= 2).astype(np.int32)
-    data = np.column_stack(cols + [hub, y]).astype(np.int32)
+    data = np.column_stack([*cols, hub, y]).astype(np.int32)
     nbins = np.array([4] * k + [3, 2], dtype=np.int64)
     sel = list(range(k + 1))
 

@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import logging
 
-import numpy as np
 import pandas as pd
 import pytest
 
@@ -164,7 +163,7 @@ class TestValidateInputColumnsAgainstMetadata:
             }
         )
         with caplog.at_level(logging.WARNING, logger="mlframe.training.core"):
-            out = _validate_input_columns_against_metadata(df, minimal_metadata)
+            _validate_input_columns_against_metadata(df, minimal_metadata)
         warns = [r.message for r in caplog.records if r.levelname == "WARNING"]
         assert any("'b'" in m or "b'" in m or 'b"' in m or "b]" in m for m in warns), warns
 

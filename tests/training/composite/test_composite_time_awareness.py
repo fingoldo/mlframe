@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.training.composite import CompositeTargetDiscovery
 from mlframe.training.composite.discovery.forward_stepwise import (
@@ -110,7 +109,7 @@ class TestA29ZeroBaseSentinel:
         t = np.linspace(0.0, 10.0, n)
         y = 5.0 * t + np.random.default_rng(0).normal(0.0, 0.5, size=n)
         b = t + np.random.default_rng(1).normal(0.0, 0.5, size=n)
-        kept, diag = forward_stepwise_multi_base(
+        _kept, diag = forward_stepwise_multi_base(
             y,
             {"b": b},
             seed_bases=None,
@@ -134,7 +133,7 @@ class TestA19GroupAware:
         b1 = rng.normal(0.0, 1.0, size=n)
         b2 = rng.normal(0.0, 1.0, size=n)
         y = b1 + b2 + rng.normal(0.0, 0.1, size=n)
-        kept, diag = forward_stepwise_multi_base(
+        kept, _diag = forward_stepwise_multi_base(
             y,
             {"b1": b1, "b2": b2},
             seed_bases=["b1"],

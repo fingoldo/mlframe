@@ -68,7 +68,7 @@ def test_apply_categorical_composite_fe_respects_max_source_columns_cap():
         categorical_composite_max_source_columns=3,
     )
     metadata: dict = {}
-    train, val, test = apply_categorical_composite_fe(df, None, None, cfg, y, metadata, verbose=0)
+    train, _val, _test = apply_categorical_composite_fe(df, None, None, cfg, y, metadata, verbose=0)
     # 5 raw categorical columns (a,b,c,d,e) > cap of 3 -> step skipped entirely, no new columns.
     assert list(train.columns) == list(df.columns)
     assert "categorical_powerset_concat_columns" not in metadata
@@ -80,7 +80,7 @@ def test_apply_categorical_composite_fe_polars_roundtrip():
     df = pl.DataFrame({"a": rng.choice(list("XY"), n), "b": rng.choice(list("PQ"), n), "num0": rng.normal(size=n).astype(np.float32)})
     cfg = PreprocessingExtensionsConfig(categorical_powerset_concat_enabled=True)
     metadata: dict = {}
-    train, val, test = apply_categorical_composite_fe(df[:150], df[150:], None, cfg, None, metadata, verbose=0)
+    train, val, _test = apply_categorical_composite_fe(df[:150], df[150:], None, cfg, None, metadata, verbose=0)
     assert isinstance(train, pl.DataFrame)
     assert "a_b" in train.columns
     assert "a_b" in val.columns

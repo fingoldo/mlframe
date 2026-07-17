@@ -11,7 +11,6 @@ the broadcast form" (or any reduction-order change) is caught.
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from mlframe.feature_engineering.transformer.local_density_gradient import (
     compute_local_density_gradient_features,

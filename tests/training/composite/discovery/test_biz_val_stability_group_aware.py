@@ -32,7 +32,6 @@ import pandas as pd
 import pytest
 
 from mlframe.training.composite.discovery._stability import (
-    StabilityResult,
     _subsample_groups,
     stability_select_specs,
 )
@@ -87,7 +86,7 @@ def _row_reference(train_idx, frac, n_replicates, random_state):
         if frac >= 1.0:
             out.append(train_idx)
             continue
-        sub_n = min(max(2, int(round(frac * n))), n)
+        sub_n = min(max(2, round(frac * n)), n)
         if sub_n >= n:
             out.append(train_idx)
         else:

@@ -12,7 +12,6 @@ import numpy as np
 import pandas as pd
 from sklearn.datasets import make_classification, make_regression
 from sklearn.model_selection import train_test_split
-from unittest.mock import Mock, patch
 
 import sys
 from pathlib import Path
@@ -21,12 +20,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 
 from mlframe.training.neural import (
-    PytorchLightningEstimator,
     PytorchLightningClassifier,
     PytorchLightningRegressor,
     MLPTorchModel,
     TorchDataModule,
-    generate_mlp,
 )
 
 
@@ -451,7 +448,7 @@ class TestPytorchLightningEstimator:
         params = estimator_params_classifier.copy()
         params["trainer_params"]["max_epochs"] = 2
         params["model_params"]["loss_fn"] = nn.NLLLoss()
-        clf = PytorchLightningClassifier(**params)
+        PytorchLightningClassifier(**params)
 
         # Note: NLLLoss requires log_softmax outputs, so this might not work well
         # but it tests the parameter passing
@@ -479,7 +476,7 @@ class TestPytorchLightningEstimator:
         clf.fit(classification_data["X_train"], classification_data["y_train"])
 
         # Check that something was printed
-        captured = capsys.readouterr()
+        capsys.readouterr()
         # Output may vary based on Lightning version
 
     def test_no_validation_data(self, estimator_params_classifier, classification_data):
@@ -888,7 +885,7 @@ class TestNetworkResetAndClone:
         assert type(cloned) is type(clf), "Clone should have same type"
 
         # Check all params are copied
-        for key, value in clf.get_params().items():
+        for key in clf.get_params().keys():
             assert hasattr(cloned, key), f"Cloned estimator missing param: {key}"
 
     def test_sklearn_clone_after_fit_gives_unfitted_model(self, estimator_params_classifier):

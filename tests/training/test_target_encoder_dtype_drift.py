@@ -139,7 +139,7 @@ def test_datetime_token_agrees_across_backends() -> None:
     np_out = _categorical_to_string_array(np.array(stamps, dtype="datetime64[ns]"))
     list_out = _categorical_to_string_array([dt.datetime(2020, 1, 1, 13, 30, 0), dt.datetime(2020, 1, 2, 0, 0, 0)])
     assert list(pd_out) == list(pl_out) == list(np_out) == list(list_out)
-    assert list(pd_out)[0].startswith("dt:")
+    assert next(iter(pd_out)).startswith("dt:")
 
     # Date-only: pandas object-date, polars Date, list-of-date all agree.
     pd_date = _categorical_to_string_array(pd.Series([dt.date(2020, 1, 1), dt.date(2020, 1, 2)]))

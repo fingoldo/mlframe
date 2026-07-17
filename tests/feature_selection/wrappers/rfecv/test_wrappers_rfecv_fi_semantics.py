@@ -18,9 +18,8 @@ import logging
 
 import numpy as np
 import pandas as pd
-import pytest
 
-from sklearn.datasets import make_classification, make_regression
+from sklearn.datasets import make_classification
 from sklearn.linear_model import LogisticRegression, Ridge
 from sklearn.ensemble import RandomForestClassifier
 
@@ -73,7 +72,7 @@ class TestFiDecay:
         }
         ordered = ["r0_oldest", "r1_middle", "r2_latest"]
         # No decay
-        out_no = get_actual_features_ranking(
+        get_actual_features_ranking(
             fi,
             VotesAggregation.Borda,
             fi_missing_policy="worst",

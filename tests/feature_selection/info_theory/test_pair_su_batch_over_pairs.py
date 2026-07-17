@@ -40,7 +40,7 @@ def synth():
 
 def test_batch_joint_entropy_bit_identical_to_per_pair(synth):
     """prange-over-pairs kernel == per-pair joint_entropy_2var, max-abs-diff 0.0."""
-    fd, fn, p = synth
+    fd, fn, _p = synth
     a_arr = np.array([0, 0, 1, 2, 3, 7, 10, 4], dtype=np.int64)
     b_arr = np.array([1, 5, 6, 9, 8, 11, 15, 12], dtype=np.int64)
     batch = _batch_joint_entropy_pairs(fd, a_arr, b_arr, fn)

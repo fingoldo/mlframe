@@ -55,7 +55,7 @@ def test_biz_val_latent_interaction_features_recovers_true_cluster_structure():
 
 
 def test_latent_interaction_features_time_decay_downweights_stale_events():
-    rng = np.random.default_rng(1)
+    np.random.default_rng(1)
     events_df = pd.DataFrame(
         {
             "entity": ["a", "a", "b"],

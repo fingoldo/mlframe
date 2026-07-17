@@ -12,7 +12,6 @@ from __future__ import annotations
 import importlib
 
 import numpy as np
-import pytest
 
 MOD = "mlframe.feature_selection.filters._fe_raw_redundancy_helpers"
 

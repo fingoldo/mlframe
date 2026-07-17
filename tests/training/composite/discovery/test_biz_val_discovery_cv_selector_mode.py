@@ -13,7 +13,6 @@ ignored / routed to mean) flips the selection back and FAILS the test.
 
 from __future__ import annotations
 
-import numpy as np
 import pytest
 
 from mlframe.training._cv_aggregation import aggregate_fold_scores

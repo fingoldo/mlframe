@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import io
 
-import pytest
 
 from mlframe.reporting.catalog import available_panels, describe_available_panels
 from mlframe.reporting.charts.binary import ALLOWED_BINARY_PANEL_TOKENS

@@ -11,7 +11,6 @@ public API is one bool predicate, but its contract has three behaviours:
 
 from __future__ import annotations
 
-import sys
 
 import pytest
 

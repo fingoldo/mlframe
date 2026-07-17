@@ -138,5 +138,5 @@ def test_welford_single_pass_kernels_numerically_equivalent():
             # Welford SS_tot matches the two-pass centred SS to FP reduction-order.
             assert abs(sstot_w - sstot_ref) / (abs(sstot_ref) + 1e-30) < 1e-10
 
-            sa_wp, ss_wp, mx_wp, sstot_wp = _fused_regression_welford_par(yt, yp, nthr)
+            _sa_wp, _ss_wp, _mx_wp, sstot_wp = _fused_regression_welford_par(yt, yp, nthr)
             assert abs(sstot_wp - sstot_ref) / (abs(sstot_ref) + 1e-30) < 1e-10

@@ -54,7 +54,7 @@ class TestLevelShiftDrift:
         true_alpha = 1.0
         # Buffer's true intercept is 8.0; deployed intercept is 0.0.
         y = true_alpha * base + 8.0 + rng.normal(scale=0.5, size=n)
-        new_alpha, new_beta, info = streaming_alpha_check_and_refit(
+        _new_alpha, new_beta, info = streaming_alpha_check_and_refit(
             y,
             base,
             current_alpha=true_alpha,
@@ -248,7 +248,7 @@ class TestChangePointAwareRefit:
                 z_threshold=3.0,
                 detect_change_point=True,
             )
-            a_full, _, info_full = streaming_alpha_check_and_refit(
+            a_full, _, _info_full = streaming_alpha_check_and_refit(
                 y,
                 base,
                 current_alpha=0.5,
@@ -306,7 +306,7 @@ class TestChangePointAwareRefit:
             current_beta=0.0,
             detect_change_point=True,
         )
-        a_off, b_off, info_off = streaming_alpha_check_and_refit(
+        a_off, b_off, _info_off = streaming_alpha_check_and_refit(
             y,
             base,
             current_alpha=0.5,

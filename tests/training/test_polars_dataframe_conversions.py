@@ -13,15 +13,12 @@ so the operator sees the win without it becoming a flaky assertion.
 
 from __future__ import annotations
 
-import importlib
 import time
-from typing import Any
 from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
 import polars as pl
-import pytest
 
 
 # ---------------------------------------------------------------------------

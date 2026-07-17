@@ -67,7 +67,7 @@ class TestCompositeIntegration:
         from mlframe.training.core import train_mlframe_models_suite
 
         df = _tvt_dataset(n=400)
-        models, metadata = train_mlframe_models_suite(
+        _models, metadata = train_mlframe_models_suite(
             df=df,
             target_name="target",
             model_name="composite_off",
@@ -98,7 +98,7 @@ class TestCompositeIntegration:
             top_k_after_mi=2,
             eps_mi_gain=-1.0,  # take whatever shows up
         )
-        models, metadata = train_mlframe_models_suite(
+        _models, metadata = train_mlframe_models_suite(
             df=df,
             target_name="target",
             model_name="composite_on",
@@ -142,7 +142,7 @@ class TestCompositeIntegration:
             top_k_after_mi=1,
             eps_mi_gain=-1.0,
         )
-        models, metadata = train_mlframe_models_suite(
+        models, _metadata = train_mlframe_models_suite(
             df=df,
             target_name="target",
             model_name="composite_yscale",
@@ -213,7 +213,7 @@ class TestCompositeIntegration:
             oof_holdout_frac=0.2,  # 20% honest holdout
             oof_random_state=7,
         )
-        models, metadata = train_mlframe_models_suite(
+        models, _metadata = train_mlframe_models_suite(
             df=df,
             target_name="target",
             model_name="composite_oof_gate",
@@ -257,7 +257,7 @@ class TestCompositeIntegration:
             # at lower cost). The metric block itself is the unit under test.
             skip_wrap_pass_predict=False,
         )
-        models, metadata = train_mlframe_models_suite(
+        _models, metadata = train_mlframe_models_suite(
             df=df,
             target_name="target",
             model_name="composite_yscale_metrics",
@@ -483,7 +483,7 @@ class TestCompositeIntegration:
             eps_mi_gain=-1.0,
             cross_target_ensemble_strategy="off",
         )
-        models, metadata = train_mlframe_models_suite(
+        _models, metadata = train_mlframe_models_suite(
             df=df,
             target_name="target",
             model_name="composite_yscale_dummy",
@@ -538,7 +538,7 @@ class TestCompositeIntegration:
         old = os.environ.get("MLFRAME_DISABLE_COMPOSITE", "")
         os.environ["MLFRAME_DISABLE_COMPOSITE"] = "1"
         try:
-            models, metadata = train_mlframe_models_suite(
+            _models, metadata = train_mlframe_models_suite(
                 df=df,
                 target_name="target",
                 model_name="composite_killswitch",

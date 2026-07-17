@@ -122,12 +122,12 @@ def test_randomize_as_of_lag_histogram_requires_both_edges_and_counts():
     as_of = pd.DataFrame({"entity": range(10), "as_of": 100.0})
     try:
         randomize_as_of_lag(as_of, "as_of", max_lag=10.0, lag_histogram_edges=[0.0, 5.0, 10.0])
-        assert False, "expected ValueError when only lag_histogram_edges is supplied"
+        raise AssertionError("expected ValueError when only lag_histogram_edges is supplied")
     except ValueError:
         pass
     try:
         randomize_as_of_lag(as_of, "as_of", max_lag=10.0, lag_histogram_counts=[1.0, 1.0])
-        assert False, "expected ValueError when only lag_histogram_counts is supplied"
+        raise AssertionError("expected ValueError when only lag_histogram_counts is supplied")
     except ValueError:
         pass
 

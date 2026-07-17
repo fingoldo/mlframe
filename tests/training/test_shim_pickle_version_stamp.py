@@ -50,7 +50,7 @@ def test_lgb_shim_warns_on_version_drift(caplog):
         # Trigger __setstate__ again with the tampered state to force the
         # WARN. Cleaner approach: deepcopy via pickle round-trip which
         # invokes __setstate__.
-        again = pickle.loads(pickle.dumps(loaded))
+        pickle.loads(pickle.dumps(loaded))
         # Some pickle paths may not re-invoke __setstate__ on a
         # non-mutating round-trip; tolerate either: assert the
         # loaded.tampered version is preserved (sentinel that the field

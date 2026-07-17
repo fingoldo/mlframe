@@ -86,7 +86,7 @@ def test_biz_val_check_pairwise_score_correlation_multi_source_flags_outlier_fol
     good_folds = [true_quality + rng.normal(0, 0.01, n_members) for _ in range(4)]
     outlier_fold = rng.uniform(0.4, 0.7, n_members)  # unrelated to true_quality -- the outlier
 
-    fold_a, fold_b, *extra = good_folds + [outlier_fold]
+    fold_a, fold_b, *extra = [*good_folds, outlier_fold]
     result = check_pairwise_score_correlation(fold_a, fold_b, oos_scores_extra=extra)
 
     n_sources = 2 + len(extra)

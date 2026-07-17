@@ -29,7 +29,7 @@ def planted():
 def test_revalidate_recovers_planted_subset(planted):
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate import revalidate_top_n
 
-    X, y, phi, base = planted
+    X, y, _phi, _base = planted
     idx_search = np.arange(900)
     idx_hold = np.arange(900, 1200)
     Xs, ys = X.iloc[idx_search].reset_index(drop=True), y[idx_search]
@@ -60,7 +60,7 @@ def test_trust_guard_high_fidelity_on_clean_proxy(planted):
 def test_active_learning_respects_budget_and_not_worse_than_proxy_top1(planted):
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate import _honest_loss, active_learning_revalidate
 
-    X, y, phi, base = planted
+    X, y, phi, _base = planted
     Xs, ys = X.iloc[:900].reset_index(drop=True), y[:900]
     Xh, yh = X.iloc[900:].reset_index(drop=True), y[900:]
 
@@ -105,7 +105,7 @@ def test_active_learning_respects_budget_and_not_worse_than_proxy_top1(planted):
 def test_importance_ablation_runs(planted):
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate import importance_topk_ablation
 
-    X, y, phi, base = planted
+    X, y, phi, _base = planted
     Xs, ys = X.iloc[:900].reset_index(drop=True), y[:900]
     Xh, yh = X.iloc[900:].reset_index(drop=True), y[900:]
     out = importance_topk_ablation(phi[:900], (0, 1, 2), LinearRegression(), Xs, ys, Xh, yh, classification=False, metric="rmse")
@@ -122,7 +122,7 @@ def test_honest_loss_cache_returns_identical_to_uncached(planted):
     same seed is deterministic, so the cached float is numerically identical."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate import HonestLossCache, _honest_loss
 
-    X, y, phi, base = planted
+    X, y, _phi, _base = planted
     Xs, ys = X.iloc[:900].reset_index(drop=True), y[:900]
     Xh, yh = X.iloc[900:].reset_index(drop=True), y[900:]
     cols = [0, 1, 2, 5]
@@ -141,7 +141,7 @@ def test_honest_loss_cache_key_is_order_independent_and_seed_separated(planted):
     with a DIFFERENT seed is a distinct slot (so seed-jittered re-validation fits are never merged)."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate import HonestLossCache, _honest_loss
 
-    X, y, phi, base = planted
+    X, y, _phi, _base = planted
     Xs, ys = X.iloc[:900].reset_index(drop=True), y[:900]
     Xh, yh = X.iloc[900:].reset_index(drop=True), y[900:]
     cache = HonestLossCache()
@@ -1314,7 +1314,7 @@ def test_revalidation_n_estimators_cap_namespaces_cache(planted):
     is independent of whether the underlying estimator honored the cap)."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate import HonestLossCache, _honest_loss
 
-    X, y, phi, base = planted
+    X, y, _phi, _base = planted
     Xs, ys = X.iloc[:900].reset_index(drop=True), y[:900]
     Xh, yh = X.iloc[900:].reset_index(drop=True), y[900:]
     cache = HonestLossCache()
@@ -1338,7 +1338,7 @@ def test_revalidate_top_n_cap_preserves_winner_selection(planted):
     behaviour-preservation test."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate import revalidate_top_n
 
-    X, y, phi, base = planted
+    X, y, _phi, _base = planted
     Xs, ys = X.iloc[:900].reset_index(drop=True), y[:900]
     Xh, yh = X.iloc[900:].reset_index(drop=True), y[900:]
     candidates = [(0.0, (0, 1, 2)), (0.1, (0, 1)), (0.2, (0, 1, 2, 5)), (0.3, (4, 5, 6))]
@@ -1362,7 +1362,7 @@ def test_revalidate_top_n_cap_none_is_backward_compat(planted):
     winner, same ranking, same honest_loss values. No ``honest_loss_capped`` key surfaces."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate import revalidate_top_n
 
-    X, y, phi, base = planted
+    X, y, _phi, _base = planted
     Xs, ys = X.iloc[:900].reset_index(drop=True), y[:900]
     Xh, yh = X.iloc[900:].reset_index(drop=True), y[900:]
     candidates = [(0.0, (0, 1, 2)), (0.1, (0, 1)), (0.2, (0, 1, 2, 5)), (0.3, (4, 5, 6))]
@@ -1499,7 +1499,7 @@ def test_ucb_disabled_is_legacy_path(planted):
     clean planted fixture: same winner, same ranked entries (length + honest values), same baseline."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate import revalidate_top_n
 
-    X, y, phi, base = planted
+    X, y, _phi, _base = planted
     Xs, ys = X.iloc[:900].reset_index(drop=True), y[:900]
     Xh, yh = X.iloc[900:].reset_index(drop=True), y[900:]
     candidates = [(0.0, (0, 1, 2)), (0.1, (0, 1)), (0.2, (0, 1, 2, 5)), (0.3, (4, 5, 6))]
@@ -1534,7 +1534,7 @@ def test_ucb_stops_dispatch_when_winner_provably_beats_remaining(planted):
     within the parsimony band."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate import revalidate_top_n
 
-    X, y, phi, base = planted
+    X, y, _phi, _base = planted
     Xs, ys = X.iloc[:900].reset_index(drop=True), y[:900]
     Xh, yh = X.iloc[900:].reset_index(drop=True), y[900:]
     # First three: legit small subsets that recover the planted target. Tail: dummy subsets with
@@ -1580,7 +1580,7 @@ def test_ucb_min_eval_size_boundary_no_op(planted):
     from accidental gate activation."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate import revalidate_top_n
 
-    X, y, phi, base = planted
+    X, y, _phi, _base = planted
     Xs, ys = X.iloc[:900].reset_index(drop=True), y[:900]
     Xh, yh = X.iloc[900:].reset_index(drop=True), y[900:]
     candidates = [(0.0, (0, 1, 2)), (0.1, (0, 1)), (0.2, (0, 1, 2, 5)), (0.3, (4, 5, 6))]
@@ -1612,7 +1612,7 @@ def test_ucb_determinism_across_reruns(planted):
     across reruns. UCB is allowed to skip candidates but the surviving order MUST be deterministic."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate import revalidate_top_n
 
-    X, y, phi, base = planted
+    X, y, _phi, _base = planted
     Xs, ys = X.iloc[:900].reset_index(drop=True), y[:900]
     Xh, yh = X.iloc[900:].reset_index(drop=True), y[900:]
     candidates = [
@@ -1656,7 +1656,7 @@ def test_ucb_njobs_1_short_circuits_to_legacy(planted):
     where ``n_jobs=1`` test fixtures evaluated only 3 candidates and kept a noise feature."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate import revalidate_top_n
 
-    X, y, phi, base = planted
+    X, y, _phi, _base = planted
     Xs, ys = X.iloc[:900].reset_index(drop=True), y[:900]
     Xh, yh = X.iloc[900:].reset_index(drop=True), y[900:]
     candidates = [
@@ -1669,7 +1669,7 @@ def test_ucb_njobs_1_short_circuits_to_legacy(planted):
         (5.30, (6,)),
         (5.40, (7,)),
     ]
-    best, ranked, baseline = revalidate_top_n(
+    best, _ranked, baseline = revalidate_top_n(
         candidates,
         LinearRegression(),
         Xs,

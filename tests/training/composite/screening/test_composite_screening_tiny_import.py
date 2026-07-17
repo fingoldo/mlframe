@@ -17,7 +17,6 @@ import concurrent.futures
 import importlib
 
 import numpy as np
-import pytest
 
 
 def test_module_level_clip_bounds_import():
@@ -39,7 +38,6 @@ def test_nan_fold_count_warn_fires_when_any_fold_fails(caplog):
     looks like a 1-fold result with no signal at all in the logs (the
     TVT-2026-05-21 prod symptom before P0 #1 fixed the lazy-import race)."""
     import logging
-    import math
 
     import numpy as np
 

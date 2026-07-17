@@ -53,7 +53,7 @@ def reg_data(sample_regression_data):
     shape (n=500/100/100, single x column + cat) is preserved so existing assertions
     keep firing.
     """
-    df, feature_names, y = sample_regression_data
+    df, _feature_names, y = sample_regression_data
     rng = np.random.default_rng(0)
     # The shared fixture has 1000 rows; carve 500 / 100 / 100 disjoint slices.
     tr_slice = slice(0, 500)
@@ -1445,7 +1445,7 @@ class TestLTRPopularityBaseline:
     ``group_ids`` = qid)."""
 
     def test_popularity_emitted_when_doc_ids_provided(self, ltr_data, cfg):
-        rng = np.random.default_rng(0)
+        np.random.default_rng(0)
         n_tr, n_va, n_te = (
             len(ltr_data["train_y"]),
             len(ltr_data["val_y"]),
@@ -1482,7 +1482,7 @@ class TestLTRPopularityBaseline:
     def test_popularity_handles_cold_start_docs(self, ltr_data, cfg):
         """Val/test docs not seen in train → score = 0 (cold-start).
         Diagnostic surfaces cold_start_pct."""
-        rng = np.random.default_rng(0)
+        np.random.default_rng(0)
         n_tr, n_va, n_te = (
             len(ltr_data["train_y"]),
             len(ltr_data["val_y"]),
@@ -1652,7 +1652,7 @@ class TestAugmentWithDroppedHighCardCols:
                 "test": np.array(["t1", "t2"], dtype=object),
             }
         }
-        t, v, te, added = aug(dropped, train, val, test)
+        t, _v, _te, added = aug(dropped, train, val, test)
         assert added == ["well_id"]
         assert isinstance(t, pl.DataFrame)
         assert "well_id" in t.columns

@@ -90,7 +90,7 @@ class TestCategoricalFeatureDetection:
 
         config = PreprocessingBackendConfig(prefer_polarsds=prefer_polarsds)
 
-        train_transformed, val_transformed, test_transformed, pipeline, cat_features = fit_and_transform_pipeline(
+        _train_transformed, _val_transformed, _test_transformed, _pipeline, cat_features = fit_and_transform_pipeline(
             train_df=train_df,
             val_df=val_df,
             test_df=None,
@@ -111,7 +111,7 @@ class TestCategoricalFeatureDetection:
 
         config = PreprocessingBackendConfig(prefer_polarsds=prefer_polarsds)
 
-        train_transformed, val_transformed, test_transformed, pipeline, cat_features = fit_and_transform_pipeline(
+        _train_transformed, _val_transformed, _test_transformed, _pipeline, cat_features = fit_and_transform_pipeline(
             train_df=train_df,
             val_df=val_df,
             test_df=None,
@@ -133,7 +133,7 @@ class TestCategoricalFeatureDetection:
         # When encoding is "ordinal" or "onehot", cat_features gets cleared since columns become numeric
         config = PreprocessingBackendConfig(prefer_polarsds=False, categorical_encoding="none")
 
-        train_transformed, val_transformed, test_transformed, pipeline, cat_features = fit_and_transform_pipeline(
+        _train_transformed, _val_transformed, _test_transformed, _pipeline, cat_features = fit_and_transform_pipeline(
             train_df=train_df,
             val_df=val_df,
             test_df=None,
@@ -159,7 +159,7 @@ class TestCategoricalFeatureDetection:
 
         # Mock polars-ds as unavailable
         with patch.dict("sys.modules", {"polars_ds": None, "polars_ds.pipeline": None}):
-            train_transformed, val_transformed, test_transformed, pipeline, cat_features = fit_and_transform_pipeline(
+            _train_transformed, _val_transformed, _test_transformed, _pipeline, cat_features = fit_and_transform_pipeline(
                 train_df=train_df,
                 val_df=val_df,
                 test_df=None,
@@ -179,7 +179,7 @@ class TestFitAndTransformPipeline:
 
     def test_fit_transform_basic_pandas(self, sample_regression_data):
         """Test basic pipeline fit and transform with pandas."""
-        df, feature_names, y = sample_regression_data
+        df, feature_names, _y = sample_regression_data
 
         # Split data
         train_size = int(0.7 * len(df))
@@ -190,7 +190,7 @@ class TestFitAndTransformPipeline:
         config = PreprocessingBackendConfig(prefer_polarsds=False)
 
         # Fit and transform
-        train_transformed, val_transformed, test_transformed, pipeline, cat_features = fit_and_transform_pipeline(
+        train_transformed, val_transformed, test_transformed, _pipeline, _cat_features = fit_and_transform_pipeline(
             train_df=train_df,
             val_df=val_df,
             test_df=test_df,
@@ -209,7 +209,7 @@ class TestFitAndTransformPipeline:
 
     def test_fit_transform_basic_polars(self, sample_polars_data):
         """Test basic pipeline fit and transform with Polars."""
-        pl_df, feature_names, y = sample_polars_data
+        pl_df, feature_names, _y = sample_polars_data
 
         # Split data
         train_size = int(0.7 * len(pl_df))
@@ -220,7 +220,7 @@ class TestFitAndTransformPipeline:
         config = PreprocessingBackendConfig(prefer_polarsds=False)
 
         # Fit and transform
-        train_transformed, val_transformed, test_transformed, pipeline, cat_features = fit_and_transform_pipeline(
+        train_transformed, val_transformed, test_transformed, _pipeline, _cat_features = fit_and_transform_pipeline(
             train_df=train_df,
             val_df=val_df,
             test_df=test_df,
@@ -253,7 +253,7 @@ class TestFitAndTransformPipeline:
         config = PreprocessingBackendConfig(prefer_polarsds=False, categorical_encoding="none")
 
         # Fit and transform
-        train_transformed, val_transformed, test_transformed, pipeline, cat_features = fit_and_transform_pipeline(
+        _train_transformed, _val_transformed, _test_transformed, _pipeline, cat_features = fit_and_transform_pipeline(
             train_df=train_df,
             val_df=val_df,
             test_df=None,
@@ -292,7 +292,7 @@ class TestFitAndTransformPipeline:
         config = PreprocessingBackendConfig(prefer_polarsds=False)
 
         # Fit and transform
-        train_transformed, val_transformed, test_transformed, pipeline, cat_features = fit_and_transform_pipeline(
+        _train_transformed, _val_transformed, _test_transformed, _pipeline, cat_features = fit_and_transform_pipeline(
             train_df=train_df,
             val_df=val_df,
             test_df=None,
@@ -334,7 +334,7 @@ class TestFitAndTransformPipeline:
         config = PreprocessingBackendConfig(prefer_polarsds=False)
 
         # Fit and transform
-        train_transformed, val_transformed, test_transformed, pipeline, cat_features = fit_and_transform_pipeline(
+        _train_transformed, _val_transformed, _test_transformed, _pipeline, cat_features = fit_and_transform_pipeline(
             train_df=train_df,
             val_df=val_df,
             test_df=None,
@@ -351,14 +351,14 @@ class TestFitAndTransformPipeline:
 
     def test_fit_pipeline_with_no_validation_set(self, sample_regression_data):
         """Test pipeline with no validation set."""
-        df, feature_names, y = sample_regression_data
+        df, feature_names, _y = sample_regression_data
 
         train_df = df[feature_names].iloc[:700]
 
         config = PreprocessingBackendConfig(prefer_polarsds=False)
 
         # Fit and transform
-        train_transformed, val_transformed, test_transformed, pipeline, cat_features = fit_and_transform_pipeline(
+        train_transformed, val_transformed, test_transformed, _pipeline, _cat_features = fit_and_transform_pipeline(
             train_df=train_df,
             val_df=None,
             test_df=None,
@@ -374,14 +374,14 @@ class TestFitAndTransformPipeline:
 
     def test_fit_pipeline_with_float32_conversion(self, sample_regression_data):
         """Test pipeline with float32 conversion."""
-        df, feature_names, y = sample_regression_data
+        df, feature_names, _y = sample_regression_data
 
         train_df = df[feature_names].iloc[:700]
 
         config = PreprocessingBackendConfig(prefer_polarsds=False)
 
         # Fit and transform with float32 conversion
-        train_transformed, val_transformed, test_transformed, pipeline, cat_features = fit_and_transform_pipeline(
+        train_transformed, _val_transformed, _test_transformed, _pipeline, _cat_features = fit_and_transform_pipeline(
             train_df=train_df,
             val_df=None,
             test_df=None,
@@ -448,7 +448,7 @@ class TestPipelineEdgeCases:
         # This might raise an error or handle gracefully
         # depending on implementation
         try:
-            train_transformed, val_transformed, test_transformed, pipeline, cat_features = fit_and_transform_pipeline(
+            train_transformed, _val_transformed, _test_transformed, _pipeline, _cat_features = fit_and_transform_pipeline(
                 train_df=df,
                 val_df=None,
                 test_df=None,
@@ -474,7 +474,7 @@ class TestPipelineEdgeCases:
         config = PreprocessingBackendConfig(prefer_polarsds=False)
 
         # Fit and transform
-        train_transformed, val_transformed, test_transformed, pipeline, cat_features = fit_and_transform_pipeline(
+        train_transformed, _val_transformed, _test_transformed, _pipeline, _cat_features = fit_and_transform_pipeline(
             train_df=df,
             val_df=None,
             test_df=None,
@@ -492,7 +492,7 @@ class TestPipelineConfigurations:
 
     def test_pipeline_with_different_scaler(self, sample_regression_data):
         """Test pipeline with different scaler configurations."""
-        df, feature_names, y = sample_regression_data
+        df, feature_names, _y = sample_regression_data
 
         train_df = df[feature_names].iloc[:700]
 
@@ -503,7 +503,7 @@ class TestPipelineConfigurations:
                 scaler_name=scaler_name,
             )
 
-            train_transformed, val_transformed, test_transformed, pipeline, cat_features = fit_and_transform_pipeline(
+            train_transformed, _val_transformed, _test_transformed, _pipeline, _cat_features = fit_and_transform_pipeline(
                 train_df=train_df,
                 val_df=None,
                 test_df=None,
@@ -517,7 +517,7 @@ class TestPipelineConfigurations:
 
     def test_pipeline_with_different_imputer_strategy(self, sample_regression_data):
         """Test pipeline with different imputer strategies."""
-        df, feature_names, y = sample_regression_data
+        df, feature_names, _y = sample_regression_data
 
         # Add some NaNs
         df_with_nan = df.copy()
@@ -532,7 +532,7 @@ class TestPipelineConfigurations:
                 imputer_strategy=strategy,
             )
 
-            train_transformed, val_transformed, test_transformed, pipeline, cat_features = fit_and_transform_pipeline(
+            train_transformed, _val_transformed, _test_transformed, _pipeline, _cat_features = fit_and_transform_pipeline(
                 train_df=train_df,
                 val_df=None,
                 test_df=None,
@@ -574,7 +574,7 @@ class TestCreatePolardsPipeline:
         config = PreprocessingBackendConfig()
 
         with patch.dict("sys.modules", {"polars_ds": None, "polars_ds.pipeline": None}):
-            result = create_polarsds_pipeline(pl_df, config, verbose=0)
+            create_polarsds_pipeline(pl_df, config, verbose=0)
             # Function returns None if polars-ds can't be imported
             # This is expected behavior
 
@@ -650,7 +650,7 @@ class TestCreatePolardsPipeline:
 
     def test_pipeline_with_onehot_encoding(self, sample_categorical_data):
         """Test pipeline with one-hot categorical encoding."""
-        df, feature_names, cat_features, _ = sample_categorical_data
+        df, feature_names, _cat_features, _ = sample_categorical_data
 
         # Convert to Polars
         pl_df = pl.from_pandas(df)

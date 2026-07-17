@@ -158,7 +158,7 @@ def test_entity_inter_event_features_window_size_and_window_time_mutually_exclus
     timestamps = np.array([0.0, 1.0])
     try:
         entity_inter_event_features(entity_ids, timestamps, window_size=2, window_time=1.0)
-        assert False, "expected ValueError"
+        raise AssertionError("expected ValueError")
     except ValueError:
         pass
 

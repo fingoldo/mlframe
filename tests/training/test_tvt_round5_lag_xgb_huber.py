@@ -116,7 +116,7 @@ class TestLagPredictDeployableModel:
         implement get_params') -> component silently dropped from NNLS
         weights -> ensemble loses to the dummy baseline it was supposed
         to include."""
-        sklearn = pytest.importorskip("sklearn")
+        pytest.importorskip("sklearn")
         from sklearn.base import clone
         from mlframe.training.core._phase_composite_post import _LagPredictDeployableModel
 
@@ -130,7 +130,7 @@ class TestLagPredictDeployableModel:
 
     def test_clone_then_fit_predict_workflow(self) -> None:
         """End-to-end mirror of the CT_ENSEMBLE OOF refit path."""
-        sklearn = pytest.importorskip("sklearn")
+        pytest.importorskip("sklearn")
         from sklearn.base import clone
         from mlframe.training.core._phase_composite_post import _LagPredictDeployableModel
 
@@ -415,7 +415,6 @@ class TestMLPEvalSetShapeNormalisation:
         from mlframe.training.neural.flat import MLPTorchModel
         from mlframe.training.neural.data import TorchDataModule
         import torch
-        import torch.nn as nn
 
         rng = np.random.default_rng(0)
         X_train = rng.standard_normal((40, 4)).astype(np.float32)
@@ -521,7 +520,6 @@ class TestExternalValHoldoutOOF:
         )
 
         components, names, specs = self._make_components()
-        from mlframe.training.composite.post_shim import PrePipelinePredictShim
 
         n_train = 200
         rng = np.random.default_rng(0)
@@ -544,7 +542,7 @@ class TestExternalValHoldoutOOF:
             holdout_frac=0.2,
             random_state=0,
         )
-        expected_n_holdout = int(round(n_train * 0.2))
+        expected_n_holdout = round(n_train * 0.2)
         assert preds.shape == (expected_n_holdout, 2)
         assert y_h.shape == (expected_n_holdout,)
         assert set(surv) == {"raw#0", "raw#1"}
@@ -556,14 +554,13 @@ class TestExternalValHoldoutOOF:
         )
 
         components, names, specs = self._make_components()
-        from mlframe.training.composite.post_shim import PrePipelinePredictShim
 
         rng = np.random.default_rng(0)
         X_train = pd.DataFrame({"a": rng.normal(0, 1, 200)})
         y_train = rng.normal(0, 1, 200).astype(np.float64)
         for c in components:
             c.model.fit(X_train, y_train)
-        preds, y_h, surv = compute_oof_holdout_predictions(
+        preds, _y_h, _surv = compute_oof_holdout_predictions(
             component_models=components,
             component_names=names,
             component_specs=specs,

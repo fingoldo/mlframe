@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.training.configs import CompositeTargetDiscoveryConfig
 from mlframe.training.composite import CompositeTargetDiscovery

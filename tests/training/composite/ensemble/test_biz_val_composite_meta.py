@@ -40,7 +40,7 @@ def test_biz_val_meta_recovers_composite_when_transform_wins():
         n_splits=5,
     )
     est.fit(X, y)
-    w_c, w_r = est.weights_
+    w_c, _w_r = est.weights_
     assert w_c >= 0.7, f"composite should dominate the blend on a transform-friendly target; got w_composite={w_c:.3f}"
 
 
@@ -68,7 +68,7 @@ def test_biz_val_meta_falls_back_to_raw_and_beats_composite_on_misspecified_base
     est.fit(X_tr, y_tr)
     rmse_blend = root_mean_squared_error(y_te, est.predict(X_te))
 
-    w_c, w_r = est.weights_
+    _w_c, w_r = est.weights_
     assert w_r >= 0.6, f"raw model should dominate the blend on a misspecified base; got w_raw={w_r:.3f}"
     assert rmse_blend < rmse_comp * 0.95, (
         f"blend (fallback to raw) must beat standalone composite on OOS RMSE; blend={rmse_blend:.4f} composite={rmse_comp:.4f}"

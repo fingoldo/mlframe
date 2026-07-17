@@ -100,7 +100,7 @@ def test_mean_signed_aggregator_would_have_failed_on_same_data():
     such that mean-of-signed-coef stops cancelling, this test should
     fail loudly so the iter577 rationale is re-examined.
     """
-    X, y, cols = _build_planted_data(seed=20260530)
+    X, y, _cols = _build_planted_data(seed=20260530)
 
     model = MultiOutputRegressor(Ridge()).fit(X, y)
     # Manually compute legacy mean-of-signed-coef aggregator.

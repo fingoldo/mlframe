@@ -21,7 +21,6 @@ Stress scenarios:
 
 from __future__ import annotations
 
-import logging
 
 import numpy as np
 import pandas as pd
@@ -33,7 +32,6 @@ from sklearn.linear_model import LogisticRegression
 from mlframe.feature_selection.wrappers import (
     RFECV,
     select_features_fdr,
-    knockoff_importance,
 )
 
 

@@ -37,7 +37,6 @@ from __future__ import annotations
 
 import warnings
 
-import numpy as np
 import pandas as pd
 import pytest
 from sklearn.base import clone

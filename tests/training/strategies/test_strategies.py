@@ -20,7 +20,6 @@ from sklearn.preprocessing import StandardScaler, OrdinalEncoder
 from sklearn.impute import SimpleImputer
 
 from mlframe.training.strategies import (
-    ModelPipelineStrategy,
     TreeModelStrategy,
     HGBStrategy,
     NeuralNetStrategy,

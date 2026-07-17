@@ -46,7 +46,7 @@ def test_merge_vars_int8_dtype_no_wraparound():
     n = 200
     factors = np.zeros((n, 1), dtype=np.int8)
     nbins = np.array([1], dtype=np.int64)
-    classes, freqs_norm, nclasses = merge_vars(
+    _classes, freqs_norm, _nclasses = merge_vars(
         factors_data=factors,
         vars_indices=np.array([0], dtype=np.int64),
         var_is_nominal=None,
@@ -69,7 +69,7 @@ def test_merge_vars_counter_dtype_independence(counter_dtype):
     # 4 bins, 500 samples -> ~125 per bin; no overflow at any dtype.
     factors = rng.integers(0, 4, (n, 1)).astype(counter_dtype)
     nbins = np.array([4], dtype=np.int64)
-    _, freqs_norm, nclasses = merge_vars(
+    _, freqs_norm, _nclasses = merge_vars(
         factors_data=factors,
         vars_indices=np.array([0], dtype=np.int64),
         var_is_nominal=None,
@@ -91,7 +91,7 @@ def test_merge_vars_joint_two_vars_correct():
     n = 10_000
     factors = rng.integers(0, 4, (n, 2)).astype(np.int32)
     nbins = np.array([4, 4], dtype=np.int64)
-    classes, freqs_norm, nclasses = merge_vars(
+    classes, freqs_norm, _nclasses = merge_vars(
         factors_data=factors,
         vars_indices=np.array([0, 1], dtype=np.int64),
         var_is_nominal=None,

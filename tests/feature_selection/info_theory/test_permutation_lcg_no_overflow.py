@@ -33,7 +33,6 @@ import warnings
 
 import numpy as np
 import pandas as pd
-import pytest
 
 
 def test_no_overflow_warning_under_strict_filterwarnings():

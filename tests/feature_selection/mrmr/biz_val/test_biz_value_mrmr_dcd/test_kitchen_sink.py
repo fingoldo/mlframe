@@ -218,7 +218,7 @@ class TestLayer49_ScenarioA_SensorMesh:
         return X, y, m_off, m_on, m_auto
 
     def test_S1_dcd_on_does_not_grow_support(self, fits):
-        X, y, m_off, m_on, _m_auto = fits
+        _X, _y, m_off, m_on, _m_auto = fits
         sz_off = len(list(m_off.get_feature_names_out()))
         sz_on = len(list(m_on.get_feature_names_out()))
         assert sz_on <= sz_off, f"Scenario A: DCD-on must not grow support; off={sz_off}, on={sz_on}"
@@ -247,7 +247,7 @@ class TestLayer49_ScenarioA_SensorMesh:
         across reps; bound at <=12 absorbs swap-bake-off / seed variance while
         still catching a real "auto grows support" regression (DCD-off=13).
         """
-        X, y, m_off, _m_on, m_auto = fits
+        _X, _y, m_off, _m_on, m_auto = fits
         sz_off = len(list(m_off.get_feature_names_out()))
         sz_auto = len(list(m_auto.get_feature_names_out()))
         assert sz_auto <= sz_off, f"Scenario A: DCD-auto must not grow support vs disabled; off={sz_off}, auto={sz_auto}"
@@ -317,7 +317,7 @@ class TestLayer49_ScenarioA_SensorMesh:
         Either path proves the L41-L48 stack identified the latent
         structure.
         """
-        _X, _y, _m_off, m_on, m_auto = fits
+        _X, _y, _m_off, m_on, _m_auto = fits
         cm = m_on.cluster_members_ or {}
         # Path (a): on-mode collapsed to <= 8 anchors AND the auto-mode
         # collapsed even further (covered by S2).
@@ -344,7 +344,7 @@ class TestLayer49_ScenarioB_Financial:
         return X, y, m_off, m_on, m_auto
 
     def test_S1_dcd_on_does_not_bloat_minimal_full_mode_support(self, fits):
-        X, y, m_off, m_on, _m_auto = fits
+        _X, _y, m_off, m_on, _m_auto = fits
         sz_off = len(list(m_off.get_feature_names_out()))
         sz_on = len(list(m_on.get_feature_names_out()))
         # Full-mode default keeps a compact support on this 11-feature algebraic-redundancy fixture: conditional-MI dedup plus default-on FE
@@ -354,7 +354,7 @@ class TestLayer49_ScenarioB_Financial:
         assert sz_on <= sz_off, f"Scenario B: DCD-on bloated the minimal full-mode support; off={sz_off}, on={sz_on}"
 
     def test_S2_dcd_auto_does_not_bloat_minimal_full_mode_support(self, fits):
-        X, y, m_off, _m_on, m_auto = fits
+        _X, _y, m_off, _m_on, m_auto = fits
         sz_off = len(list(m_off.get_feature_names_out()))
         sz_auto = len(list(m_auto.get_feature_names_out()))
         assert sz_auto <= sz_off, f"Scenario B: DCD-auto bloated the minimal full-mode support; off={sz_off}, auto={sz_auto}"
@@ -411,7 +411,7 @@ class TestLayer49_ScenarioC_Embedding:
         return X, y, m_off, m_on, m_auto
 
     def test_S1_dcd_on_does_not_bloat_support(self, fits):
-        X, y, m_off, m_on, _m_auto = fits
+        _X, _y, m_off, m_on, _m_auto = fits
         sz_off = len(list(m_off.get_feature_names_out()))
         sz_on = len(list(m_on.get_feature_names_out()))
         # On this 2-latent embedding fixture the full-mode baseline can settle
@@ -423,7 +423,7 @@ class TestLayer49_ScenarioC_Embedding:
         assert sz_on <= sz_off + 3, f"Scenario C: DCD-on bloated support unexpectedly: off={sz_off}, on={sz_on}"
 
     def test_S2_dcd_auto_does_not_grow_support(self, fits):
-        X, y, m_off, _m_on, m_auto = fits
+        _X, _y, m_off, _m_on, m_auto = fits
         sz_off = len(list(m_off.get_feature_names_out()))
         sz_auto = len(list(m_auto.get_feature_names_out()))
         # Auto-tau on this fixture may choose tau~0.6 (no bimodality) and
@@ -450,7 +450,7 @@ class TestLayer49_ScenarioC_Embedding:
         scenario-C-specific MRMR responsibility: don't trade signal for
         noise.
         """
-        X, _y, _m_off, m_on, m_auto = fits
+        _X, _y, _m_off, m_on, m_auto = fits
         for tag, m in [("on", m_on), ("auto", m_auto)]:
             sup = [str(s) for s in m.get_feature_names_out()]
             n_sig = sum(1 for s in sup if "sig_z" in s)
@@ -471,13 +471,13 @@ class TestLayer49_ScenarioD_MixedCatNum:
         return X, y, m_off, m_on, m_auto
 
     def test_S1_dcd_on_does_not_grow_support(self, fits):
-        X, y, m_off, m_on, _m_auto = fits
+        _X, _y, m_off, m_on, _m_auto = fits
         sz_off = len(list(m_off.get_feature_names_out()))
         sz_on = len(list(m_on.get_feature_names_out()))
         assert sz_on <= sz_off, f"Scenario D: DCD-on grew support: off={sz_off}, on={sz_on}"
 
     def test_S2_dcd_auto_does_not_grow_support(self, fits):
-        X, y, m_off, _m_on, m_auto = fits
+        _X, _y, m_off, _m_on, m_auto = fits
         sz_off = len(list(m_off.get_feature_names_out()))
         sz_auto = len(list(m_auto.get_feature_names_out()))
         # DCD-auto's tau/swap bake-off may keep a couple extra cat-FE aggregates without hurting the metric

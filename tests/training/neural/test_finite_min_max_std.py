@@ -57,7 +57,7 @@ class TestFiniteMinMaxStd:
         rng = np.random.default_rng(42)
         offset = 1e7
         y = (offset + rng.standard_normal(10_000)).astype(np.float64)
-        n, mn, mx, mu, sd = finite_min_max_std(y)
+        n, _mn, _mx, mu, sd = finite_min_max_std(y)
         assert n == 10_000
         # Mean and std should be very close to (offset, 1.0) within numerical noise.
         np.testing.assert_allclose(mu, y.mean(), atol=1e-6, rtol=1e-12)

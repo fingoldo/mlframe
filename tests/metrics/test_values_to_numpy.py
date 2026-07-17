@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 
 
 def test_ice_metric_handles_pandas_nullable_int_y_true():
@@ -35,7 +34,6 @@ def test_ice_metric_pandas_nullable_float_y_score():
 def test_fairness_metrics_drops_redundant_asarray():
     """The fairness branch must accept pandas/polars/ndarray y_true/y_pred uniformly. Behavioural smoke: same numeric output via .to_numpy()
     no longer wrapped in np.asarray (which was the redundant double-wrap)."""
-    from mlframe.metrics import _fairness_metrics as fm
 
     rng = np.random.default_rng(11)
     y_true_arr = rng.normal(size=64)

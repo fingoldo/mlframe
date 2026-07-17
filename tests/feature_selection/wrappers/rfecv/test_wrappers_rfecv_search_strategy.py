@@ -12,7 +12,6 @@ Covers:
 from __future__ import annotations
 
 import numpy as np
-import pandas as pd
 import pytest
 
 from sklearn.datasets import make_regression, make_classification
@@ -28,8 +27,6 @@ from mlframe.feature_selection.wrappers._helpers import (
 from mlframe.models.optimization import (
     MBHOptimizer,
     OptimizationDirection,
-    CandidateSamplingMethod,
-    OptimizationProgressPlotting,
 )
 
 

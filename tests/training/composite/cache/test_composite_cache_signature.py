@@ -127,7 +127,7 @@ class TestRowOrderFingerprintBounded:
         assert _row_order_fingerprint(base) != _row_order_fingerprint(reordered), "polars tail-only reorder must burst the row-order fingerprint"
 
     def test_prefix_reorder_bursts_fingerprint(self) -> None:
-        rng = np.random.default_rng(4)
+        np.random.default_rng(4)
         n = 2000
         df = pl.DataFrame({"a": np.arange(n).astype(float)})
         shuffled = df.sample(fraction=1.0, shuffle=True, seed=7)

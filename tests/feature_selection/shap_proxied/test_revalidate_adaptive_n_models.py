@@ -44,7 +44,7 @@ def test_adaptive_converges_after_two_rounds(planted_strong):
     X, y = planted_strong
     Xs, ys, Xh, yh = _split(X, y)
     candidates = [(0.0, (0, 1, 2)), (0.1, (0, 1)), (0.2, (0, 1, 2, 5)), (0.3, (4, 5, 6))]
-    best, ranked, baseline = revalidate_top_n(
+    best, _ranked, baseline = revalidate_top_n(
         candidates,
         LinearRegression(),
         Xs,

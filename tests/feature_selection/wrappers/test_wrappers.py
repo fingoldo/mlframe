@@ -15,13 +15,10 @@ import numpy as np
 import pandas as pd
 import warnings
 
-from hypothesis import given, settings, strategies as st, assume, HealthCheck
-from hypothesis.extra.numpy import arrays
+from hypothesis import given, settings, strategies as st, HealthCheck
 
-from sklearn.datasets import make_classification, make_regression
 from sklearn.linear_model import LogisticRegression, LinearRegression
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
-from sklearn.metrics import make_scorer, accuracy_score, mean_squared_error
 
 # Import the module under test
 from mlframe.feature_selection.wrappers import (
@@ -30,10 +27,7 @@ from mlframe.feature_selection.wrappers import (
     VotesAggregation,
     split_into_train_test,
     store_averaged_cv_scores,
-    get_feature_importances,
     select_appropriate_feature_importances,
-    get_next_features_subset,
-    get_actual_features_ranking,
 )
 
 # Try importing boosting libraries
@@ -106,7 +100,7 @@ class TestSplitIntoTrainTest:
         train_index = np.arange(train_size)
         test_index = np.arange(train_size, n_samples)
 
-        X_train, y_train, X_test, y_test = split_into_train_test(X, y, train_index, test_index)
+        X_train, _y_train, X_test, _y_test = split_into_train_test(X, y, train_index, test_index)
 
         assert X_train.shape == (train_size, n_features)
         assert X_test.shape == (n_samples - train_size, n_features)
@@ -120,7 +114,7 @@ class TestSplitIntoTrainTest:
         test_index = np.arange(70, 100)
         features_indices = [0, 2, 4]
 
-        X_train, y_train, X_test, y_test = split_into_train_test(X, y, train_index, test_index, features_indices)
+        X_train, _y_train, X_test, _y_test = split_into_train_test(X, y, train_index, test_index, features_indices)
 
         assert X_train.shape == (70, 3)
         assert X_test.shape == (30, 3)
@@ -140,7 +134,7 @@ class TestStoreAveragedCVScores:
         evaluated_scores_mean = {}
         evaluated_scores_std = {}
 
-        mean, std, final, *_ = store_averaged_cv_scores(
+        mean, std, _final, *_ = store_averaged_cv_scores(
             pos=5, scores=scores, evaluated_scores_mean=evaluated_scores_mean, evaluated_scores_std=evaluated_scores_std, self=MockSelf()
         )
 
@@ -161,7 +155,7 @@ class TestStoreAveragedCVScores:
         evaluated_scores_mean = {}
         evaluated_scores_std = {}
 
-        mean, std, final, *_ = store_averaged_cv_scores(
+        mean, _std, final, *_ = store_averaged_cv_scores(
             pos=1, scores=scores, evaluated_scores_mean=evaluated_scores_mean, evaluated_scores_std=evaluated_scores_std, self=MockSelf()
         )
 
@@ -229,7 +223,7 @@ class TestStoreAveragedCVScoresNaNWarning:
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=RuntimeWarning)
-            mean, std, final, *_ = store_averaged_cv_scores(
+            mean, _std, _final, *_ = store_averaged_cv_scores(
                 pos=0,
                 scores=[],
                 evaluated_scores_mean={},
@@ -640,7 +634,7 @@ class TestRFECVSyntheticClassification:
     @pytest.mark.parametrize("name,estimator", get_classification_estimators())
     def test_imbalanced_classification(self, imbalanced_classification_data, name, estimator):
         """Test RFECV on imbalanced classification data."""
-        X, y, informative_indices = imbalanced_classification_data
+        X, y, _informative_indices = imbalanced_classification_data
 
         rfecv = RFECV(estimator=estimator, max_refits=5, max_noimproving_iters=3, verbose=0, optimizer_plotting="No", random_state=42)
 
@@ -655,7 +649,7 @@ class TestRFECVSyntheticClassification:
     @pytest.mark.parametrize("name,estimator", get_classification_estimators()[:2])  # Subset for speed
     def test_multiclass(self, multiclass_data, name, estimator):
         """Test RFECV on multiclass classification data."""
-        X, y, informative_indices = multiclass_data
+        X, y, _informative_indices = multiclass_data
 
         rfecv = RFECV(estimator=estimator, max_refits=4, max_noimproving_iters=2, verbose=0, optimizer_plotting="No", random_state=42)
 
@@ -669,7 +663,7 @@ class TestRFECVSyntheticClassification:
     @pytest.mark.parametrize("name,estimator", get_classification_estimators()[:2])
     def test_high_dimensional(self, high_dimensional_data, name, estimator):
         """Test RFECV on high-dimensional data (p > n)."""
-        X, y, informative_indices = high_dimensional_data
+        X, y, _informative_indices = high_dimensional_data
 
         rfecv = RFECV(estimator=estimator, max_refits=4, max_noimproving_iters=2, verbose=0, optimizer_plotting="No", random_state=42)
 

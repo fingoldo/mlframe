@@ -170,9 +170,6 @@ class TestCbHuberEvalMatchesLoss:
     def test_eval_metric_for_cb_huber_returns_huber(self) -> None:
         """The matcher returns the SAME Huber-with-delta string for the
         eval_metric, not 'MAE' (the pre-fix value)."""
-        from mlframe.training.core._phase_train_one_target import (
-            _apply_loss_recommendation_in_place,
-        )
         from pathlib import Path
 
         src = Path(__import__("mlframe.training.core._phase_train_one_target", fromlist=["_apply_loss_recommendation_in_place"]).__file__).read_text(
@@ -210,7 +207,7 @@ class TestCompositeTargetEstimatorTClip:
             def __init__(self, blowup_value: float):
                 self.blowup_value = blowup_value
 
-            def fit(self, X, y, **kw):  # noqa: ARG002
+            def fit(self, X, y, **kw):
                 return self
 
             def predict(self, X) -> np.ndarray:
@@ -246,7 +243,7 @@ class TestCompositeTargetEstimatorTClip:
         assert params["t_clip_low"] < params["t_clip_high"]
 
     def test_blowup_inner_predictions_get_clipped(self) -> None:
-        wrapper, X, base, y_scale = self._make_fitted_estimator()
+        wrapper, X, _base, y_scale = self._make_fitted_estimator()
         y_hat = wrapper.predict(X)
         # Without T-clip: y_hat = T_blow + base where T_blow = 30 * y_scale.
         # With T-clip: T capped at ~10*MAD < y_scale*10 < 30*y_scale.

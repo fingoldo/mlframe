@@ -95,7 +95,7 @@ def test_oof_distribution_matches_mode_b_holdout():
     random noise. The point is to flag a gross distribution gap, not police every fluctuation.
     """
     X, y = _make_classification(n=600, d=6, seed=0)
-    X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=0.3, random_state=42)
+    X_tr, X_te, y_tr, _y_te = train_test_split(X, y, test_size=0.3, random_state=42)
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
 
     oof = compute_row_attention(X_tr, y_tr, None, splitter, seed=0, n_heads=1, head_dim=4, k=16, gpu_stage4=False, dedupe_threshold=None).to_numpy()

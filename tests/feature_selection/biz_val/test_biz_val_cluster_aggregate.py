@@ -18,8 +18,8 @@ import pytest
 
 warnings.filterwarnings("ignore")
 
-from tests.feature_selection._biz_val_synth import make_latent_reflections, make_two_latent_groups, as_df  # noqa: E402
-from sklearn.metrics import roc_auc_score  # noqa: E402
+from tests.feature_selection._biz_val_synth import make_latent_reflections, make_two_latent_groups, as_df
+from sklearn.metrics import roc_auc_score
 
 
 pytestmark = pytest.mark.timeout(
@@ -75,7 +75,7 @@ def test_biz_val_aggregate_recovers_hidden_factor_near_theory():
     from mlframe.feature_selection.filters._cluster_aggregate import _standardize_align, _derive_weights
 
     k, sigma = 5, 1.2
-    X, y, info = make_latent_reflections(n=6000, loadings=(1.0,) * k, noise_sd=(sigma,) * k, n_noise=0, seed=1)
+    X, _y, info = make_latent_reflections(n=6000, loadings=(1.0,) * k, noise_sd=(sigma,) * k, n_noise=0, seed=1)
     z = info["z"]
     refl = X[:, info["reflections"]]
     Z, *_ = _standardize_align(refl, 0)
@@ -97,7 +97,7 @@ def test_biz_val_menu_beats_naive_mean_in_heterogeneous_regimes(regime):
     if regime == "hetero_loadings":
         X, y, info = make_latent_reflections(n=6000, loadings=(2.0, 1.5, 0.5, 0.2), noise_sd=(1.0,) * 4, n_noise=0, seed=2)
     else:
-        X, y, info = make_latent_reflections(n=6000, loadings=(1.0,) * 4, noise_sd=(0.3, 0.5, 2.0, 3.0), n_noise=0, seed=3)
+        X, _y, info = make_latent_reflections(n=6000, loadings=(1.0,) * 4, noise_sd=(0.3, 0.5, 2.0, 3.0), n_noise=0, seed=3)
     z = info["z"]
     Z, *_ = _standardize_align(X[:, info["reflections"]], 0)
     rc = {m: _abs_corr(Z @ _derive_weights(Z, m), z) for m in ("mean_z", "mean_inv_var", "pca_pc1")}
@@ -151,7 +151,7 @@ def test_biz_val_one_group_integrated_recovery(one_group_fit):
     names = list(f["s_rep"].get_feature_names_out())
     assert any("clusteragg" in c for c in names), f"replace should build an aggregate; got {names}"
     out = f["s_rep"].transform(f["df"])
-    agg_col = [c for c in out.columns if "clusteragg" in c][0]
+    agg_col = next(c for c in out.columns if "clusteragg" in c)
     rc_agg = _abs_corr(out[agg_col].to_numpy(), f["info"]["z"])
     rc_best = max(_abs_corr(f["df"][r].to_numpy(), f["info"]["z"]) for r in f["refl_names"])
     assert rc_agg > rc_best + 0.03, f"aggregate must recover hidden z better than best reflection: {rc_agg:.3f} vs {rc_best:.3f}"

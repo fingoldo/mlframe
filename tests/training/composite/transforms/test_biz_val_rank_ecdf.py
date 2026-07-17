@@ -19,7 +19,6 @@ import warnings
 
 import numpy as np
 import orjson
-import pytest
 
 warnings.filterwarnings("ignore")
 

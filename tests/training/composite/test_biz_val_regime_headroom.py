@@ -135,7 +135,6 @@ def test_all_nan_returns_empty():
 
 
 def test_n_less_than_n_bins_collapses():
-    n = 3
     axis = np.array([1.0, 2.0, 3.0])
     y = np.array([0.0, 1.0, 2.0])
     rep = regime_headroom_map(y, y + 1.0, y + 0.5, axis_values=axis, n_bins=10)

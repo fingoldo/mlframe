@@ -48,7 +48,7 @@ import warnings
 import numpy as np
 import pandas as pd
 import pytest
-from sklearn.feature_selection import RFE, SelectKBest, mutual_info_classif
+from sklearn.feature_selection import RFE, mutual_info_classif
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import cross_val_score
 
@@ -378,8 +378,8 @@ def test_biz_val_quality_vs_k_frontier():
     print("\nquality-vs-K frontier (dominant-cluster fixture), downstream LogReg AUC:")
     print("  seed  method " + "".join(f"  K={k:<3}" for k in ks))
     for seed, auc_m, auc_i in table:
-        m_row = "  {:>4}  mrmr   ".format(seed) + "".join(f"  {auc_m[k]:>5.3f}" if not np.isnan(auc_m[k]) else "  ----." for k in ks)
-        i_row = "  {:>4}  mi     ".format(seed) + "".join(f"  {auc_i[k]:>5.3f}" if not np.isnan(auc_i[k]) else "  ----." for k in ks)
+        m_row = f"  {seed:>4}  mrmr   " + "".join(f"  {auc_m[k]:>5.3f}" if not np.isnan(auc_m[k]) else "  ----." for k in ks)
+        i_row = f"  {seed:>4}  mi     " + "".join(f"  {auc_i[k]:>5.3f}" if not np.isnan(auc_i[k]) else "  ----." for k in ks)
         print(m_row)
         print(i_row)
 
@@ -422,7 +422,7 @@ def test_biz_val_h2h_honest_tie_on_linear_no_redundancy():
     ties = 0
     rows = []
     for seed in _seeds():
-        Xn, yn, sig = make_signal_plus_noise(n=n, p_signal=3, p_noise=16, seed=seed)
+        Xn, yn, _sig = make_signal_plus_noise(n=n, p_signal=3, p_noise=16, seed=seed)
         X, y = as_df(Xn, yn)
         a_skb = _auc_on_cols(X, y, _skb_cols(X, y, 3, seed))
         sel = _fit_mrmr(X, y, seed, fe=True)

@@ -80,7 +80,7 @@ class TestPrototypeDirect:
 class TestRecipeReplay:
     def test_recipe_replay_bit_identical(self):
         X, y = _build_gcd_target(1)
-        appended, recipes = hybrid_integer_lattice_fe_with_recipes(X, y, seed=1)
+        _appended, recipes = hybrid_integer_lattice_fe_with_recipes(X, y, seed=1)
         assert recipes, "no integer-lattice recipes emitted."
         for r in recipes:
             direct = apply_integer_lattice(X, r.extra["op"], r.src_names)

@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.feature_selection.filters._fe_synergy_screen import (
     detect_synergy_combos,
@@ -200,7 +199,7 @@ def test_redundancy_drop_pseudo_remix_child_does_not_drop_raw():
     data = np.column_stack([_qcode(a, nb), _qcode(b, nb), gate.astype(np.int64)])
     eng_cont = {"gate_mask__a__b": gate}
     raw_X = pd.DataFrame({"a": a, "b": b})
-    kept, dropped = drop_redundant_raw_operands(
+    _kept, dropped = drop_redundant_raw_operands(
         data=data,
         cols=cols,
         selected_cols_idx=[0, 1, 2],

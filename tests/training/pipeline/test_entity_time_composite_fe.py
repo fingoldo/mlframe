@@ -13,7 +13,6 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import polars as pl
-from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_squared_error
 
 from mlframe.training._preprocessing_configs import PreprocessingExtensionsConfig
@@ -33,7 +32,7 @@ def _entity_frame(n=300, seed=0):
 def test_apply_entity_time_composite_fe_noop_when_group_ids_none():
     df, _, ts = _entity_frame()
     cfg = PreprocessingExtensionsConfig(state_duration_columns=["state_col"], recency_aggregation_columns=["val_col"])
-    train, val, test = apply_entity_time_composite_fe(
+    train, _val, _test = apply_entity_time_composite_fe(
         df.iloc[:200],
         df.iloc[200:],
         None,

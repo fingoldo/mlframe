@@ -130,7 +130,7 @@ def test_serving_spec_json_handles_non_finite_clip():
 # Unsupported transform raises clearly.
 # ---------------------------------------------------------------------------
 def test_export_unsupported_transform_raises():
-    est, X, _ = _fit("diff")
+    est, _X, _ = _fit("diff")
     est.transform_name = "monotonic_residual"  # not in the lightweight table
     with pytest.raises(NotImplementedError, match="lightweight numpy inverse"):
         export_serving_spec(est)

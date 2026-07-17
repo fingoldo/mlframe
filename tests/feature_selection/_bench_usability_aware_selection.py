@@ -17,7 +17,7 @@ from mlframe.feature_selection.filters.feature_engineering import smart_log
 from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import make_pipeline
-from sklearn.metrics import mean_absolute_error as MAE, r2_score
+from sklearn.metrics import mean_absolute_error as MAE
 
 np.random.seed(0)
 n = 60000
@@ -98,7 +98,7 @@ def greedy(K=6, w=0.0):
     sel = []
     for _ in range(K):
         r_va = lin_fit_resid(sel, va)  # held-out residual after selected (REMOVES a2/b dominance)
-        r_tr = lin_fit_resid(sel, tr)
+        lin_fit_resid(sel, tr)
         best, bi = -1e18, -1
         for i in range(len(names)):
             if i in sel:

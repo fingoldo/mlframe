@@ -44,7 +44,7 @@ def test_categorical_nan_does_not_emit_negative_codes():
         categories=["A", "B", "C", "D", "E"],
     )
     df = pd.DataFrame({"cat": cats})
-    data, cols, nbins = categorize_dataset(
+    data, cols, _nbins = categorize_dataset(
         df=df,
         n_bins=4,
         dtype=np.int16,
@@ -65,7 +65,7 @@ def test_categorical_nan_separate_bin_disjoint_from_real():
         categories=["A", "B", "C", "D"],
     )
     df = pd.DataFrame({"cat": cats})
-    data, cols, nbins = categorize_dataset(
+    data, cols, _nbins = categorize_dataset(
         df=df,
         n_bins=4,
         dtype=np.int16,
@@ -87,7 +87,7 @@ def test_categorical_nan_nbins_reports_correctly():
         categories=["A", "B", "C", "D"],
     )
     df = pd.DataFrame({"cat": cats})
-    data, cols, nbins = categorize_dataset(
+    _data, cols, nbins = categorize_dataset(
         df=df,
         n_bins=4,
         dtype=np.int16,

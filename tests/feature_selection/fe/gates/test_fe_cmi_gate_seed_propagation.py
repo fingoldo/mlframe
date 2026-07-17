@@ -11,7 +11,6 @@ with an explicit ``seed=`` so the wiring bug was invisible; this test drives the
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 import mlframe.feature_selection.filters._fe_cmi_redundancy_gate as _gate_mod
 from mlframe.feature_selection.filters.mrmr import MRMR

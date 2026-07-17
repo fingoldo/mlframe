@@ -43,8 +43,6 @@ import pandas as pd
 import pytest
 
 from mlframe.feature_selection.filters._fe_usability_signal import (
-    _rank_transform,
-    abs_pearson,
     pair_is_tail_concentrated_rankaware,
     usability_form_corrs,
 )
@@ -76,10 +74,10 @@ def _build_fixture(seed: int = 7, n: int = 6000, w_tail: float = 0.055):
 def test_fixture_shape_pair01_dominant_balanced_pair23_nondominant_tail_concentrated():
     """Pin the adversarial fixture's own contract before trusting it to test the wiring bug: pair (0,1) is the
     pool's dominant pair AND not tail-concentrated; pair (2,3) is tail-concentrated AND non-dominant."""
-    y, X, cols, a_dom, b_dom, a_tail, b_tail = _build_fixture()
+    y, _X, _cols, a_dom, b_dom, a_tail, b_tail = _build_fixture()
 
-    cp01, cs01, _ = usability_form_corrs(y, a_dom, b_dom, return_best_pair_form=True)
-    cp23, cs23, _ = usability_form_corrs(y, a_tail, b_tail, return_best_pair_form=True)
+    cp01, _cs01, _ = usability_form_corrs(y, a_dom, b_dom, return_best_pair_form=True)
+    cp23, _cs23, _ = usability_form_corrs(y, a_tail, b_tail, return_best_pair_form=True)
     assert cp01 > cp23, "pair (0,1) must be the pool's dominant pair by best pair-form |corr|"
     assert cp23 >= 0.6, "pair (2,3) must clear the usability min_corr floor on its own"
 

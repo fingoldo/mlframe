@@ -46,7 +46,7 @@ def test_tfidf_sparse_dataframe_has_sparsedtype_columns(small_text_df):
         tfidf_max_features=50,
         tfidf_keep_sparse=True,
     )
-    out, _, _, pipes = apply_preprocessing_extensions(small_text_df, None, None, cfg, verbose=0)
+    out, _, _, _pipes = apply_preprocessing_extensions(small_text_df, None, None, cfg, verbose=0)
     tfidf_cols = _tfidf_columns(out)
     assert tfidf_cols, "TF-IDF columns missing from output"
     # Sparse-dtype columns are the contract of the fix.

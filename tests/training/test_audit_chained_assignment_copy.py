@@ -39,7 +39,7 @@ def test_update_sub_df_col_refreshes_from_df_loc_not_stale_subdf():
     sub_df = pd.DataFrame({"c": ["z", "z", "z", "z", "z"]})
     mask = np.array([True, True, True, False, False])  # selects the 3 fresh rows
 
-    counts, nunique = _update_sub_df_col(
+    counts, _nunique = _update_sub_df_col(
         df,
         sub_df,
         "c",

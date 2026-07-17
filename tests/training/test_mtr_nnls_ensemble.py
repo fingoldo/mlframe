@@ -211,7 +211,7 @@ def test_equal_mean_fit_is_noop():
 def _make_models_dict_for_dispatcher(n_components=3, n_targets=2, n=30):
     target_type = TargetTypes.MULTI_TARGET_REGRESSION
     target_name = "mtr_target"
-    rng = np.random.default_rng(0)
+    np.random.default_rng(0)
     entries = []
     # Each component emits a fixed prediction; component i emits column
     # values (i, i*2) tiled.

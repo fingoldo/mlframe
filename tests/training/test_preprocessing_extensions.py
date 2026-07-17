@@ -128,7 +128,7 @@ def test_val_and_test_follow_train(small_df):
     val = small_df.iloc[:20].copy()
     test = small_df.iloc[20:30].copy()
     cfg = PreprocessingExtensionsConfig(scaler="StandardScaler", dim_reducer="PCA", dim_n_components=2)
-    tr, va, te, pipe = apply_preprocessing_extensions(small_df, val, test, cfg, verbose=0)
+    tr, va, te, _pipe = apply_preprocessing_extensions(small_df, val, test, cfg, verbose=0)
     assert tr.shape == (60, 2)
     assert va.shape == (20, 2)
     assert te.shape == (10, 2)

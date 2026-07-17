@@ -25,7 +25,6 @@ from mlframe.feature_selection.shap_proxied_fs._shap_proxy_cluster_su import (
     _column_marginal,
     _compute_marginals_packed,
     _pack_bins_for_kernel,
-    _pairwise_su_edges,
     _resolve_columns,
     _setup_su_kernel_inputs,
     cluster_correlated_features_su,
@@ -95,7 +94,7 @@ def test_fused_setup_with_nbins_hints():
     arrays = [bins["f0"], bins["f1"], bins["f2"]]
     fused = _setup_su_kernel_inputs(arrays, nbins_hints=[5, 4, 2])
     assert fused is not None
-    bins_p, nbins, freqs, offsets, h, const = fused
+    _bins_p, nbins, freqs, offsets, _h, const = fused
 
     assert nbins[0] == 5, f"f0 nb should be 5 (hint), got {nbins[0]}"
     assert nbins[1] == 4, f"f1 nb should be 4 (hint), got {nbins[1]}"

@@ -105,7 +105,7 @@ def test_fs5_custom_pre_pipelines_cloned_before_insertion():
     from sklearn.preprocessing import StandardScaler
 
     user_pipeline = StandardScaler()
-    pre_pipelines, pre_pipeline_names = _build_pre_pipelines(
+    pre_pipelines, _pre_pipeline_names = _build_pre_pipelines(
         use_ordinary_models=False,
         rfecv_models=None,
         rfecv_models_params=None,
@@ -203,7 +203,7 @@ def test_fe1_pandas_cat_union_no_test_leak():
     # ``z`` is a category ONLY in test; it must not leak into train.cat.categories.
     test = pd.DataFrame({"c": pd.Categorical(["a", "z"])})
 
-    train_out, val_out, test_out = _align_xgb_cat_categories(model_type_name="xgb", train_df=train, val_df=val, test_df=test)
+    train_out, _val_out, _test_out = _align_xgb_cat_categories(model_type_name="xgb", train_df=train, val_df=val, test_df=test)
     train_cats = set(train_out["c"].cat.categories)
     assert "z" not in train_cats, f"test-only category 'z' leaked into train categories: {train_cats}"
 

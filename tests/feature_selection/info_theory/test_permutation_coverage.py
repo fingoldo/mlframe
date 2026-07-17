@@ -219,7 +219,7 @@ def test_besag_clifford_strong_signal_early_stops():
     """Strong signal => CI on p-value falls below p_low fast => ``nchecked < npermutations``."""
     factors, nbins = _build_signal_factors(n=300, seed=42)
     cx, fx, cy, fy, mi = _make_classes(factors, nbins)
-    nf, nc = parallel_mi_besag_clifford(
+    _nf, nc = parallel_mi_besag_clifford(
         cx,
         fx,
         cy,

@@ -10,7 +10,6 @@ file pins each branch independently.
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from mlframe.training.drift_report import (
     DEFAULT_BINARY_DRIFT_WARN_THRESHOLD_PP,

@@ -146,7 +146,7 @@ class _StubGBSA:
     the aware-path centring logic can be tested WITHOUT scikit-survival installed.
     """
 
-    def fit(self, X, y):  # noqa: ARG002
+    def fit(self, X, y):
         return self
 
     def predict(self, X):

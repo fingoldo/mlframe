@@ -152,7 +152,7 @@ def test_compute_interaction_tensor_routes_to_gpu_on_large_problem():
     mono.setattr(mod, "_interaction_gpu_min_cells", lambda: 0)
     mono.setattr(mod, "_interaction_tensor_gpu", _spy)
     try:
-        Phi, base = compute_interaction_tensor(tmpl, X, y, classification=True, rng=np.random.default_rng(0), backend="auto")
+        Phi, _base = compute_interaction_tensor(tmpl, X, y, classification=True, rng=np.random.default_rng(0), backend="auto")
     finally:
         mono.undo()
     assert called["gpu"] == 1

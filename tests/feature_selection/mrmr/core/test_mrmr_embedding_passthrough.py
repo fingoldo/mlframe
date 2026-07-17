@@ -11,7 +11,6 @@ import warnings
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.feature_selection.filters.mrmr import MRMR
 from mlframe.feature_selection.filters._mrmr_passthrough import detect_passthrough_columns

@@ -23,7 +23,6 @@ so we can assert end-to-end invariants.
 
 from __future__ import annotations
 
-from types import SimpleNamespace
 from typing import Any, Dict, List, Tuple
 
 import numpy as np
@@ -222,7 +221,7 @@ def test_fallback_rewrites_eval_set_to_pandas(polars_frame_with_text_cats):
 def test_fallback_passes_when_polars_fastpath_succeeds(polars_frame_with_text_cats):
     """Sanity: when the Polars fastpath succeeds on the first call, no
     fallback kicks in and the model is not reconverted."""
-    train_df, val_df, cat, text = polars_frame_with_text_cats
+    train_df, _val_df, cat, text = polars_frame_with_text_cats
     train_target = np.arange(train_df.height) % 2
 
     class OKModel(FakeCatBoost):
@@ -249,7 +248,7 @@ def test_fallback_ignored_for_non_catboost_models(polars_frame_with_text_cats):
     MLP, ...) must not trigger the polars->pandas conversion even if they
     raise a similar-looking TypeError.
     """
-    train_df, val_df, cat, text = polars_frame_with_text_cats
+    train_df, _val_df, cat, text = polars_frame_with_text_cats
     train_target = np.arange(train_df.height) % 2
 
     model = FakeCatBoost()

@@ -183,7 +183,6 @@ def _ks_distance_numpy_reference(reference, target):
 def test_fused_drift_kernels_bit_identical_to_numpy_reference():
     """The fused single-pass njit merge (replacing concat+sort+2x searchsorted) must reproduce the
     numpy reference bit-for-bit on ties/discrete data and to FP-order tolerance on continuous data."""
-    from mlframe.metrics._drift import _wasserstein_1d_fused, _ks_distance_fused
 
     rng = np.random.default_rng(123)
     # Tied / discrete: exact equality required (positional ties handled identically to searchsorted-right).

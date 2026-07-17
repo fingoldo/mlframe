@@ -98,7 +98,7 @@ def _run_audit(env_on: bool):
         _R.resident_operand = _counting
         try:
             with residency_audit() as rep:
-                X_aug, scores = greedy_cmi_fe_construct(X, y, **kw)
+                _X_aug, scores = greedy_cmi_fe_construct(X, y, **kw)
         finally:
             _R.resident_operand = _orig
         return rep, scores, role_uploads
@@ -341,7 +341,7 @@ def test_pair_search_residency_codes_resident_into_mi_gate(pair_search_audit):
     take-HIT (never leaked, never phantom-hit), and the gate receives the device codes (never re-uploads host
     codes). This is invariant (1)+(2): codes resident into the MI gate, with NO (n, K) codes buffer crossing
     the bus."""
-    names, cnt, rep, n = pair_search_audit
+    _names, cnt, _rep, _n = pair_search_audit
 
     # (1) Resident-codes handoff: ``take_calls`` (once per pair/chunk dispatch) is NOT expected to equal
     # ``take_hits`` -- most pairs at this fixture's scale take the fully-resident ``gpu_pairs_fe_mi`` fast path
@@ -366,7 +366,7 @@ def test_pair_search_residency_no_nk_codes_bulk_d2h(pair_search_audit):
     survivor/scoring COLUMNS (n floats each -- the downstream recipe/usability stages genuinely read them on
     host) and the final survivor column(s). A (n, K) codes/float buffer would be ORDERS of magnitude larger
     than one column; assert no such buffer crosses."""
-    names, cnt, rep, n = pair_search_audit
+    _names, _cnt, rep, n = pair_search_audit
 
     # A single candidate/operand column at n is n * itemsize bytes (<= 8 B per row). A (n, K) codes buffer (or
     # the float candidate matrix) would be K-times larger -- K is the per-pair candidate count (tens to
@@ -385,7 +385,7 @@ def test_pair_search_residency_operand_table_uploaded_bounded(pair_search_audit)
     GPU-PREBUILT once (built on-device from the raw operand inputs -- zero bulk table H2D) or H2D'd once per
     FE step and reused across that step's chunks/pairs by weakref identity. So the real operand-table H2D
     count must be FAR below the per-pair dispatch count (it is per-step, not per-pair)."""
-    names, cnt, rep, n = pair_search_audit
+    _names, cnt, _rep, _n = pair_search_audit
 
     # The operand table is uploaded at most ONCE per FE step (typically <= 2 steps here) and reused across the
     # step's pairs -- never per the many per-pair dispatches. Pin "per-step, not per-pair": the real table H2D

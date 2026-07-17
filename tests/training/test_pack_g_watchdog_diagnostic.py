@@ -9,7 +9,6 @@ This is the diagnostic groundwork for a follow-up session that finds the actual 
 
 from __future__ import annotations
 
-import io
 import logging
 
 import numpy as np

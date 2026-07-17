@@ -25,8 +25,6 @@ the same object as the caller's input ``train_df``.
 
 from __future__ import annotations
 
-import logging
-from types import SimpleNamespace
 
 import numpy as np
 import pytest

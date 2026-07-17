@@ -7,7 +7,6 @@ permutations -- and therefore the floor and null-mean -- are BIT-IDENTICAL to th
 ``z_rank + keys`` -> cp.argsort matches np.argsort(stable)). This pins that the GPU path does not perturb
 the redundancy-gate selection. cupy-gated; the analytic null is disabled to force the permutation path."""
 
-import os
 import numpy as np
 import pytest
 

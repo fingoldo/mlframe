@@ -58,7 +58,7 @@ def _vendored_legacy_polars(df, ftc, cat_features):
     threshold = ftc.cat_text_cardinality_threshold
     if ftc.cat_text_cardinality_threshold_pct > 0.0:
         threshold = min(threshold, max(50, int(df.height * ftc.cat_text_cardinality_threshold_pct)))
-    min_non_null_abs = max(1, int(round(df.height * ftc.min_non_null_fraction_for_text_promotion)))
+    min_non_null_abs = max(1, round(df.height * ftc.min_non_null_fraction_for_text_promotion))
     auto_drop: list = []
     for name, dtype in df.schema.items():
         if name in user_assigned:
@@ -201,7 +201,7 @@ def _vendored_legacy_pandas(df, ftc, cat_features):
     threshold = ftc.cat_text_cardinality_threshold
     if ftc.cat_text_cardinality_threshold_pct > 0.0:
         threshold = min(threshold, max(50, int(len(df) * ftc.cat_text_cardinality_threshold_pct)))
-    min_non_null_abs = max(1, int(round(len(df) * ftc.min_non_null_fraction_for_text_promotion)))
+    min_non_null_abs = max(1, round(len(df) * ftc.min_non_null_fraction_for_text_promotion))
     _string_like_dtype_tokens = ("object", "str", "category")
     auto_drop: list = []
     for col in df.columns:

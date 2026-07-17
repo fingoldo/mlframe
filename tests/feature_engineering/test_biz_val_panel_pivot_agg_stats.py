@@ -65,7 +65,7 @@ def test_biz_val_pivot_time_indexed_panel_agg_stats_recovers_truncated_signal():
 
 
 def test_pivot_time_indexed_panel_agg_stats_hand_computed():
-    df = pd.DataFrame({"id": [1] * 8 + [2] * 2, "t": list(range(8)) + list(range(2)), "x": list(range(100, 108)) + [20, 21]})
+    df = pd.DataFrame({"id": [1] * 8 + [2] * 2, "t": list(range(8)) + list(range(2)), "x": [*list(range(100, 108)), 20, 21]})
     out = pivot_time_indexed_panel(df, "id", "t", ["x"], max_lags=3, agg_stats=("mean", "std", "min", "max"))
 
     # entity 1: 8 rows, max_lags=3 keeps lag_0..2 (values 107,106,105); truncated-away are 100..104.
@@ -77,7 +77,7 @@ def test_pivot_time_indexed_panel_agg_stats_hand_computed():
 
 
 def test_pivot_time_indexed_panel_agg_stats_default_unchanged():
-    df = pd.DataFrame({"id": [1] * 8 + [2] * 2, "t": list(range(8)) + list(range(2)), "x": list(range(100, 108)) + [20, 21]})
+    df = pd.DataFrame({"id": [1] * 8 + [2] * 2, "t": list(range(8)) + list(range(2)), "x": [*list(range(100, 108)), 20, 21]})
     baseline = pivot_time_indexed_panel(df, "id", "t", ["x"], max_lags=3)
     with_none = pivot_time_indexed_panel(df, "id", "t", ["x"], max_lags=3, agg_stats=None)
     pd.testing.assert_frame_equal(baseline, with_none)

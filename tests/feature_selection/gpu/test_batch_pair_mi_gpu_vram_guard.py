@@ -65,7 +65,7 @@ def test_required_gpu_bytes_dominated_by_factors_data_upload():
     exhausts VRAM in production. At production-representative row counts (n_samples >> n_cols, mirroring
     the 2.4M-row wellbore run) the pair/aux terms are negligible; a tiny n_samples with many columns
     would let C(n_cols, 2) pair overhead dominate instead, which is NOT the shape that crashed."""
-    data, nbins, classes_y, freqs_y, pair_a, pair_b = _build_pair_inputs(n_samples=50_000, nbins_per_col=(4,) * 50)
+    data, nbins, classes_y, freqs_y, pair_a, _pair_b = _build_pair_inputs(n_samples=50_000, nbins_per_col=(4,) * 50)
     required = _required_gpu_bytes(data, pair_a, nbins, classes_y, freqs_y)
     factors_bytes = data.size * 4
     assert required >= factors_bytes, "factors_data upload must dominate the byte estimate"
@@ -75,7 +75,7 @@ def test_required_gpu_bytes_dominated_by_factors_data_upload():
 def test_gpu_upload_fits_rejection_is_never_silent(monkeypatch, caplog):
     """A REJECT must log full sizing context (rows/cols/pairs/requested-GB/free-GB/total-GB) at WARNING --
     not a bare 'insufficient VRAM' with no numbers, and not silent (DEBUG-only)."""
-    data, nbins, classes_y, freqs_y, pair_a, pair_b = _build_pair_inputs(n_samples=1000, nbins_per_col=(4,) * 20)
+    _data, _nbins, _classes_y, _freqs_y, _pair_a, _pair_b = _build_pair_inputs(n_samples=1000, nbins_per_col=(4,) * 20)
 
     class _FakeCupyRuntime:
         @staticmethod
@@ -224,7 +224,7 @@ def test_auto_choice_cuda_uses_gpu_when_vram_fits(monkeypatch):
 
     monkeypatch.setattr(bpmg, "batch_pair_mi_cuda", _fake_cuda)
 
-    mi, backend = dispatch_batch_pair_mi(data, pair_a, pair_b, nbins, classes_y, freqs_y)
+    _mi, backend = dispatch_batch_pair_mi(data, pair_a, pair_b, nbins, classes_y, freqs_y)
 
     assert backend == "cuda"
     assert calls["n"] == 1

@@ -25,7 +25,6 @@ consistent across distance choices.
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 
 def _state_for(distance: str, fd, fn):

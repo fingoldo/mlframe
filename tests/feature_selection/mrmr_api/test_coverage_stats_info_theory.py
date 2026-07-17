@@ -222,7 +222,7 @@ def test_analytic_null_p_agrees_with_permutation_decision_on_dense_table():
     _, p_analytic = analytic_mi_null(omi, n, len(fx), len(fy))
     cyp = cy.copy()
     nfail = 0
-    for s in range(400):
+    for _s in range(400):
         rng.shuffle(cyp)
         if compute_mi_from_classes(cx, fx, cyp, fy) >= omi:
             nfail += 1
@@ -234,7 +234,7 @@ def test_analytic_null_p_agrees_with_permutation_decision_on_dense_table():
     xs = rng.integers(0, nbx, n).astype(np.int32)
     ys = (xs % nby).astype(np.int32)
     ys[: n // 20] = rng.integers(0, nby, n // 20).astype(np.int32)  # 5% noise
-    omi_s, cxs, fxs, cys, fys = _mi_and_classes(xs, ys, nbx, nby)
+    omi_s, _cxs, fxs, _cys, fys = _mi_and_classes(xs, ys, nbx, nby)
     _, p_analytic_s = analytic_mi_null(omi_s, n, len(fxs), len(fys))
     assert p_analytic_s < 0.01, f"strong signal must read significant analytically, p={p_analytic_s}"
 

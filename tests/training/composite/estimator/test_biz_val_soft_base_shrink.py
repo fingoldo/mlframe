@@ -336,7 +336,7 @@ def test_non_additive_transform_captures_no_range():
 
 
 def test_from_fitted_inner_has_no_range_and_is_noop():
-    est, X, y = _fit_linear_residual()
+    est, _X, y = _fit_linear_residual()
     wrapped = CompositeTargetEstimator.from_fitted_inner(
         est.estimator_,
         transform_name="linear_residual",

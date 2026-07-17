@@ -50,7 +50,7 @@ def test_competing_probs_single_class_does_not_index_crash():
     competing_col = "p_competitor"
     X = pd.DataFrame({competing_col: rng.uniform(0.01, 0.99, size=n)})
 
-    fig, metrics = quality.make_custom_calibration_plot(
+    _fig, metrics = quality.make_custom_calibration_plot(
         y,
         probs,
         nclasses=1,
@@ -74,7 +74,7 @@ def test_multiclass_skip_plotting_does_not_index_none_ax_probs():
     probs = rng.dirichlet(np.ones(nclasses), size=n)
     y = rng.integers(0, nclasses, size=n)
 
-    fig, metrics = quality.make_custom_calibration_plot(
+    _fig, metrics = quality.make_custom_calibration_plot(
         y,
         probs,
         nclasses=nclasses,

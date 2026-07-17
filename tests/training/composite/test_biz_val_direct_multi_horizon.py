@@ -215,13 +215,13 @@ def test_direct_multi_horizon_rejects_overlapping_or_incomplete_blocks():
     est_overlap = DirectMultiHorizonEnsemble(estimator_factory=lambda: LinearRegression(), horizon_blocks=[[0, 1], [1, 2]])
     try:
         est_overlap.fit(pd.DataFrame({"x": [1.0, 2.0]}), np.zeros((2, 3)))
-        assert False, "expected ValueError for overlapping blocks"
+        raise AssertionError("expected ValueError for overlapping blocks")
     except ValueError:
         pass
 
     est_incomplete = DirectMultiHorizonEnsemble(estimator_factory=lambda: LinearRegression(), horizon_blocks=[[0]])
     try:
         est_incomplete.fit(pd.DataFrame({"x": [1.0, 2.0]}), np.zeros((2, 3)))
-        assert False, "expected ValueError for incomplete horizon coverage"
+        raise AssertionError("expected ValueError for incomplete horizon coverage")
     except ValueError:
         pass

@@ -15,7 +15,6 @@ import numpy as np
 import pytest
 
 from mlframe.metrics.calibration._calibration_plot import (
-    fast_calibration_binning,
     _fast_calibration_binning_serial,
     _fast_calibration_binning_prange,
 )

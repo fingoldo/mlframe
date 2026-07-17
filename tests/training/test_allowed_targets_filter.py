@@ -21,7 +21,6 @@ import logging
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.training.extractors import SimpleFeaturesAndTargetsExtractor
 
@@ -75,7 +74,7 @@ def test_allowed_targets_typo_warns(caplog):
         verbose=1,
     )
     with caplog.at_level(logging.WARNING, logger="mlframe.training.extractors"):
-        out = fte.build_targets(_build_df())
+        fte.build_targets(_build_df())
     # The 'non_existent' name should surface in the WARN
     found = any("non_existent" in (rec.getMessage() if hasattr(rec, "getMessage") else str(rec.message)) for rec in caplog.records)
     assert found, f"expected WARN naming the unmatched 'non_existent' allowlist entry; got records: {[rec.message for rec in caplog.records]}"
@@ -93,7 +92,7 @@ def test_allowed_targets_drops_target_type_with_no_match():
     )
     out = fte.build_targets(df)
     # No bucket should contain 'b' or 'reg_y'.
-    for _tt, _named in out.items():
+    for _named in out.values():
         if isinstance(_named, dict):
             assert "b" not in _named
             assert "reg_y" not in _named

@@ -36,7 +36,6 @@ from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
-import pytest
 
 RANDOM_SEED = 17
 
@@ -150,7 +149,7 @@ def test_fs_recovery_subsets_to_inner_feature_names_and_predicts(caplog) -> None
     ``inner.predict(df[["x0","x1"]])`` and logging ``Skipping pre_pipeline``."""
     from mlframe.training.core.predict import predict_from_models
 
-    df, models, metadata, inner, expected = _build_minimal_suite()
+    df, models, metadata, _inner, expected = _build_minimal_suite()
 
     with caplog.at_level(logging.WARNING, logger="mlframe.training.core.predict"):
         result = predict_from_models(

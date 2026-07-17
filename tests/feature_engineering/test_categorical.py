@@ -10,7 +10,7 @@ Includes:
 import pytest
 import numpy as np
 import pandas as pd
-from hypothesis import given, strategies as st, settings, assume
+from hypothesis import given, strategies as st, settings
 
 from mlframe.feature_engineering.categorical import (
     compute_countaggs,
@@ -67,7 +67,7 @@ class TestCountValuesRegression:
         """Test that normalized counts sum to 1.0."""
         arr = simple_categorical
         result = compute_countaggs(arr, counts_normalize=True, counts_compute_numaggs=False, counts_top_n=3, counts_return_top_values=False)
-        names = get_countaggs_names(counts_normalize=True, counts_compute_numaggs=False, counts_top_n=3, counts_return_top_values=False)
+        get_countaggs_names(counts_normalize=True, counts_compute_numaggs=False, counts_top_n=3, counts_return_top_values=False)
 
         # Top 3 + bottom 3 counts
         top_counts = result[:3]
@@ -407,7 +407,7 @@ class TestFeatureNameConsistency:
 
     def test_name_suffix_reflects_normalize(self):
         """Test that feature name suffix reflects normalization setting."""
-        arr = pd.Series(["a", "b", "a"])
+        pd.Series(["a", "b", "a"])
 
         # Normalized
         names_norm = get_countaggs_names(counts_normalize=True, counts_compute_numaggs=True)

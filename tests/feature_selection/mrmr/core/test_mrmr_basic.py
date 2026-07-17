@@ -13,18 +13,11 @@ import numpy as np
 import pandas as pd
 import warnings
 
-from hypothesis import given, settings, strategies as st, assume, HealthCheck
-from hypothesis.extra.numpy import arrays
 
-from sklearn.datasets import make_classification, make_regression
 
 # Import the module under test
 from mlframe.feature_selection.filters import (
     MRMR,
-    entropy,
-    categorize_dataset,
-    discretize_array,
-    compute_mi_from_classes,
 )
 
 

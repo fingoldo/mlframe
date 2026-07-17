@@ -15,18 +15,11 @@ import numpy as np
 import pandas as pd
 import warnings
 
-from hypothesis import given, settings, strategies as st, assume, HealthCheck
-from hypothesis.extra.numpy import arrays
 
-from sklearn.datasets import make_classification, make_regression
 
 # Import the module under test
 from mlframe.feature_selection.filters import (
     MRMR,
-    entropy,
-    categorize_dataset,
-    discretize_array,
-    compute_mi_from_classes,
 )
 
 
@@ -114,7 +107,7 @@ class TestMRMRFeatureEngineering:
         - mul(log(c), sin(d))
         - mul(sqr(a), reciproc(b))
         """
-        df, y, expected_features = feature_engineering_example_data
+        df, y, _expected_features = feature_engineering_example_data
 
         mrmr = MRMR(full_npermutations=10, baseline_npermutations=20, fe_max_steps=2, fe_min_pair_mi_prevalence=1.05, verbose=0, n_jobs=1)
 

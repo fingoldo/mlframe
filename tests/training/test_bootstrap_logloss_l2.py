@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import time
 import numpy as np
-import pytest
 
 
 def _sklearn_loop_bootstrap_binary(y: np.ndarray, p: np.ndarray, n_resamples: int, seed: int) -> np.ndarray:

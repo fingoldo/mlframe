@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import logging
 
-import pytest
 
 from mlframe.training.core._ensemble_chooser import _choose_ensemble_flavour
 

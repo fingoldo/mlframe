@@ -12,9 +12,9 @@ import pandas as pd
 import pytest
 
 from sklearn.datasets import make_classification, make_regression
-from sklearn.linear_model import LogisticRegression, Ridge
+from sklearn.linear_model import Ridge
 
-from mlframe.feature_selection.wrappers import RFECV, SearchConfig, FIConfig
+from mlframe.feature_selection.wrappers import RFECV
 from mlframe.feature_selection.wrappers._auto_tune import (
     DataFingerprint,
     suggest_configs,

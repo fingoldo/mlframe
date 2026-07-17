@@ -7,7 +7,6 @@ bare ``X.to_pandas()`` call. Sensor: transforming polars X through a fitted RFEC
 from __future__ import annotations
 
 import numpy as np
-import pandas as pd
 import pytest
 
 pl = pytest.importorskip("polars")

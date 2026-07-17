@@ -51,7 +51,7 @@ def test_composite_target_never_skipped_for_any_neural() -> None:
 
 def test_trees_and_linear_not_skipped() -> None:
     for m in ("cb", "xgb", "lgb", "hgb", "linear", "ridge", "lasso"):
-        skip, fired = _decide(m, "TVT")
+        skip, _fired = _decide(m, "TVT")
         assert skip is False, f"{m} must not be gated by default"
 
 

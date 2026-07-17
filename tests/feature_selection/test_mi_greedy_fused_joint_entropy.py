@@ -125,7 +125,7 @@ def test_greedy_construct_no_redundant_cmi_from_binned_calls():
 
     m._cmi_from_binned = _counting
     try:
-        X_aug, scores = m.greedy_cmi_fe_construct(
+        _X_aug, scores = m.greedy_cmi_fe_construct(
             X,
             y,
             nbins=10,

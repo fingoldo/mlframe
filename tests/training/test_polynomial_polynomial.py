@@ -8,7 +8,6 @@ disposition 2026-05-16) was "auto-tune, not ValueError".
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from mlframe.training.feature_handling.polynomial import (
     PolynomialFeatureExpander,

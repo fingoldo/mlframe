@@ -10,7 +10,7 @@ Includes:
 import pytest
 import numpy as np
 from scipy import stats
-from hypothesis import given, strategies as st, settings, assume
+from hypothesis import given, strategies as st, settings
 
 from mlframe.feature_engineering.numerical import (
     compute_numaggs,
@@ -536,7 +536,7 @@ class TestEdgeCases:
     def test_array_with_nans(self):
         """Test proper NaN handling in mixed array."""
         arr = np.array([1.0, np.nan, 3.0, np.nan, 5.0], dtype=np.float64)
-        min_val, max_val, argmin, argmax, mean_val, std_val = compute_simple_stats_numba(arr)
+        min_val, max_val, _argmin, _argmax, mean_val, _std_val = compute_simple_stats_numba(arr)
 
         # Should only consider finite values: [1.0, 3.0, 5.0]
         assert min_val == 1.0
@@ -546,14 +546,14 @@ class TestEdgeCases:
     def test_all_nan_array(self):
         """Test with all NaN array."""
         arr = np.array([np.nan, np.nan, np.nan], dtype=np.float64)
-        min_val, max_val, argmin, argmax, mean_val, std_val = compute_simple_stats_numba(arr)
+        _min_val, _max_val, _argmin, _argmax, mean_val, _std_val = compute_simple_stats_numba(arr)
         # Should handle gracefully
         assert isinstance(mean_val, float)
 
     def test_mixed_finite_infinite(self):
         """Test with mixed finite and infinite values."""
         arr = np.array([1.0, np.nan, 3.0, np.inf, 2.0], dtype=np.float64)
-        min_val, max_val, argmin, argmax, mean_val, std_val = compute_simple_stats_numba(arr)
+        min_val, max_val, _argmin, _argmax, _mean_val, _std_val = compute_simple_stats_numba(arr)
 
         # Should only consider finite values: [1.0, 3.0, 2.0]
         assert min_val == 1.0
@@ -666,7 +666,7 @@ class TestHypothesisProperties:
     def test_simple_stats_min_max_correct(self, arr):
         """Test min/max calculation."""
         arr = np.array(arr, dtype=np.float64)
-        min_val, max_val, argmin, argmax, mean_val, std_val = compute_simple_stats_numba(arr)
+        min_val, max_val, _argmin, _argmax, _mean_val, _std_val = compute_simple_stats_numba(arr)
         assert np.isclose(min_val, arr.min())
         assert np.isclose(max_val, arr.max())
 
@@ -738,7 +738,7 @@ class TestFusedNuniqueModesQuantilesFastPath:
 
     def _reference_via_unique_path(self, arr, q):
         # Reproduces the exact pre-fix unique-based computation for the integer/exact slots.
-        vals, counts = np.unique(arr, return_counts=True)
+        vals, _counts = np.unique(arr, return_counts=True)
         return len(vals)
 
     def test_fast_path_avoids_np_unique_on_finite_input(self, monkeypatch):
@@ -768,7 +768,7 @@ class TestFusedNuniqueModesQuantilesFastPath:
             arr[::7] = arr[1]
             if seed == 5:
                 arr = np.round(arr, 1)  # heavy ties
-            vals, counts = np.unique(arr, return_counts=True)
+            vals, _counts = np.unique(arr, return_counts=True)
             res = np.asarray(fn(arr, quantile_method="median_unbiased"), dtype=np.float64)
             assert res[0] == len(vals)  # nunique exact
             ref_q = np.nanquantile(arr, np.asarray(default_quantiles), method="median_unbiased")

@@ -28,7 +28,6 @@ from mlframe.training.composite import (
     CompositeTargetEstimator,
     _linear_residual_fit,
     _sample_indices,
-    get_transform,
 )
 
 
@@ -255,6 +254,7 @@ class TestStratifiedSampling:
 
 
 from sklearn.base import BaseEstimator
+from typing import Optional
 
 
 class _StubQuantileRegressor(BaseEstimator):
@@ -263,7 +263,7 @@ class _StubQuantileRegressor(BaseEstimator):
     constant. Inherits from ``BaseEstimator`` so ``sklearn.clone``
     works (the wrapper clones inner at fit time)."""
 
-    def __init__(self, q_to_value: dict = None) -> None:
+    def __init__(self, q_to_value: Optional[dict] = None) -> None:
         self.q_to_value = q_to_value if q_to_value is not None else {0.5: 0.0}
 
     def fit(self, X, y):

@@ -16,7 +16,7 @@ import pytest
 
 njit = pytest.importorskip("numba").njit
 
-from mlframe.feature_selection.filters.hermite_fe import (  # noqa: E402
+from mlframe.feature_selection.filters.hermite_fe import (
     _hermeval_njit,
     _legval_njit,
     _chebval_njit,

@@ -40,7 +40,7 @@ def test_nan_code_does_not_collide_with_real_data_bins(strategy):
     nan_idx = rng.choice(n, 30, replace=False)
     x[nan_idx] = np.nan
 
-    data, cols, nbins = categorize_dataset(
+    data, cols, _nbins = categorize_dataset(
         df=pd.DataFrame({"x": x}),
         n_bins=4,
         dtype=np.int16,
@@ -72,7 +72,7 @@ def test_nan_code_is_one_past_max_real_code(strategy):
     nan_idx = rng.choice(n, 50, replace=False)
     x[nan_idx] = np.nan
 
-    data, cols, nbins = categorize_dataset(
+    data, cols, _nbins = categorize_dataset(
         df=pd.DataFrame({"x": x}),
         n_bins=4,
         dtype=np.int16,

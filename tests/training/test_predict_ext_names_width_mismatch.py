@@ -7,7 +7,6 @@ now falls back to positional ``ext_<i>`` names on a mismatch (mirroring the trai
 
 import numpy as np
 import pandas as pd
-import pytest
 from sklearn.base import BaseEstimator, TransformerMixin
 
 from mlframe.training.core._predict_pre_pipeline import _apply_extensions_pipeline

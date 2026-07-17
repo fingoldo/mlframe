@@ -73,7 +73,7 @@ def test_test_size_1_with_timestamps_does_not_crash_on_empty_train():
     """
     df = pd.DataFrame({"x": range(50)})
     ts = pd.Series(pd.date_range("2024-01-01", periods=50))
-    train_idx, val_idx, test_idx, train_det, val_det, test_det = make_train_test_split(df, test_size=1.0, val_size=0.0, timestamps=ts)
+    train_idx, _val_idx, test_idx, train_det, _val_det, _test_det = make_train_test_split(df, test_size=1.0, val_size=0.0, timestamps=ts)
     assert len(train_idx) == 0
     assert len(test_idx) == 50
     assert train_det == "(empty)"

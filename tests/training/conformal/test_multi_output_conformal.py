@@ -63,7 +63,7 @@ def _fit_estimator(n=600, seed=0):
 
 
 def test_predict_interval_shape_n_by_k():
-    est, X, y = _fit_estimator()
+    est, X, _y = _fit_estimator()
     X_cal, y_cal = _make_xy(300, seed=1)
     est.calibrate_conformal(X_cal, y_cal, alpha=0.1)
     lower, upper = est.predict_interval(X, alpha=0.1)
@@ -93,7 +93,7 @@ def test_predict_interval_uncalibrated_raises():
 
 
 def test_predict_interval_uncalibrated_for_this_alpha_raises():
-    est, X, y = _fit_estimator()
+    est, X, _y = _fit_estimator()
     X_cal, y_cal = _make_xy(300, seed=1)
     est.calibrate_conformal(X_cal, y_cal, alpha=0.1)
     # Calibrated 0.1 but asking for 0.05.

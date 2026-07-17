@@ -6,7 +6,6 @@
   NaN/Inf input they are designed to pass through / convert.
 """
 
-import numpy as np
 import pytest
 
 from sklearn.base import clone

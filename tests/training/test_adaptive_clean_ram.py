@@ -7,12 +7,11 @@ Covers `should_clean_ram`, `maybe_clean_ram_and_gpu`, `estimate_df_size_mb`,
 from __future__ import annotations
 
 import logging
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import numpy as np
 import pandas as pd
 import polars as pl
-import pytest
 
 from mlframe.training import _ram_helpers as u
 

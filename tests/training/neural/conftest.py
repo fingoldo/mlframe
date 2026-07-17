@@ -33,7 +33,7 @@ def _reset_torch_lightning_global_state():
     """
     import numpy as np
 
-    rng = np.random.default_rng(42)
+    np.random.default_rng(42)
     # The neural test bodies expect a deterministic global numpy RNG for parts of
     # torch/lightning that still pull from `np.random`. Seed via the default
     # bit-generator path; equivalent to `np.random.seed(42)` but using the

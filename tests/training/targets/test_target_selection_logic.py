@@ -57,7 +57,7 @@ def mock_configure(monkeypatch):
 def test_select_target_regression_mean_suffix(mock_configure):
     df = pd.DataFrame({"x": np.arange(10)})
     target = pd.Series(np.arange(10, dtype=float))  # mean = 4.5
-    common_params, *_ = select_target(
+    _common_params, *_ = select_target(
         model_name="base",
         target=target,
         target_type=TargetTypes.REGRESSION,

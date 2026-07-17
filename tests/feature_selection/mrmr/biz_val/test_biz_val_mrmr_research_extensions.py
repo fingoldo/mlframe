@@ -18,7 +18,6 @@ Plus end-to-end wired knobs:
 
 from __future__ import annotations
 
-import math
 
 import numpy as np
 import pandas as pd
@@ -151,7 +150,7 @@ class TestCMIPermStop:
         n = 600
         x = rng.integers(0, 3, n)
         y = (x > 0).astype(np.int64)
-        is_sig, obs, p = cmi_permutation_stop(
+        is_sig, obs, _p = cmi_permutation_stop(
             x,
             y,
             [],
@@ -173,7 +172,7 @@ class TestCMIPermStop:
         n = 600
         x = rng.integers(0, 3, n)
         y = rng.integers(0, 2, n).astype(np.int64)
-        is_sig, obs, p = cmi_permutation_stop(
+        _is_sig, obs, p = cmi_permutation_stop(
             x,
             y,
             [],
@@ -243,7 +242,7 @@ class TestConditionalPermutationTest:
         x = rng.integers(0, 3, n)
         y = rng.integers(0, 2, n)
         z = rng.integers(0, 2, n)
-        stat, p = conditional_permutation_test(
+        stat, _p = conditional_permutation_test(
             x,
             y,
             z,
@@ -274,7 +273,7 @@ class TestClusterStability:
         def _sel(X_, y_):
             return np.array([0, 2])
 
-        sel, freq, info = cluster_stability_selection(
+        sel, _freq, info = cluster_stability_selection(
             X,
             y,
             _sel,
@@ -297,7 +296,7 @@ class TestComplementaryPairsStability:
         def _sel(X_, y_):
             return np.array([0, 3])
 
-        sel, freq, info = complementary_pairs_stability(
+        sel, _freq, info = complementary_pairs_stability(
             X,
             y,
             _sel,

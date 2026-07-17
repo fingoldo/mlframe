@@ -27,14 +27,12 @@ This test pins:
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 # This test only needs the kernel-level invariants; the full bandit needs lots
 # of mlframe scaffolding we don't want to recreate. Just verify the bulk
 # kernel itself still works correctly under K=8 calls (the burst size).
 from mlframe.feature_selection.filters.cat_interactions import (
     _bulk_shuffle_and_compute_three_mis,
-    _shuffle_and_compute_three_mis,
 )
 
 

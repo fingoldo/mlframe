@@ -31,7 +31,7 @@ def _small_n_highcard_dataset(n=300, seed=1):
     x = rng.integers(0, 7, n).astype(np.int32)
     y = ((x % 2) ^ (rng.random(n) < 0.2)).astype(np.int32)
     nbs = [((x + rng.integers(0, 2, n)) % 7).astype(np.int32) for _ in range(5)]
-    data = np.column_stack([x] + nbs + [y]).astype(np.int32)
+    data = np.column_stack([x, *nbs, y]).astype(np.int32)
     nbins = np.array([7, 7, 7, 7, 7, 7, 2], dtype=np.int64)
     names = ["x", "c1", "c2", "c3", "c4", "c5", "y"]
     return data, nbins, np.array([6], dtype=np.int64), names, [0, 1, 2, 3, 4, 5]
@@ -135,7 +135,7 @@ def test_f4_neighbor_unique_detail_carries_raw_unclamped_cmi():
     x = rng.integers(0, 2, n).astype(np.int32)
     y = x.copy()  # X fully determines y -> rel_i is maximal
     noise = [rng.integers(0, 4, n).astype(np.int32) for _ in range(6)]
-    data = np.column_stack([x] + noise + [y]).astype(np.int32)
+    data = np.column_stack([x, *noise, y]).astype(np.int32)
     nbins = np.array([2, 4, 4, 4, 4, 4, 4, 2], dtype=np.int64)
     target = np.array([7], dtype=np.int64)
     rel_i = float(mi(data, np.array([0], dtype=np.int64), target, nbins))
@@ -171,7 +171,7 @@ def test_f3_debiased_threshold_changes_red_flag_on_small_n_highcard():
         mi_eps=1e-6,
         compute_layout=False,
     )
-    by_idx = {nd.idx: nd for nd in g.nodes}
+    {nd.idx: nd for nd in g.nodes}
     n = float(data.shape[0])
     n_y = int(nbins[int(target[0])])
 

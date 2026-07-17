@@ -102,7 +102,7 @@ def test_compute_quantile_baselines_round_trips_via_facade() -> None:
     train_y = np.linspace(0.0, 1.0, 101)
     val_y = train_y.copy()
     test_y = train_y.copy()
-    val_preds, test_preds, extras = _compute_quantile_baselines(
+    val_preds, test_preds, _extras = _compute_quantile_baselines(
         target_name="t",
         train_y=train_y,
         val_y=val_y,

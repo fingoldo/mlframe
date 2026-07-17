@@ -135,7 +135,7 @@ def test_knee_rescue_noise_floor_uses_full_tail_not_just_head():
     noise_large_tail = np.abs(rng.normal(0, 0.005, 5000))  # outside the head window
     importance = np.concatenate([strong, weak, noise_small, noise_large_tail])
 
-    cap, info = _resolve_knee_prescreen_cap(importance, default_cap=28)
+    cap, _info = _resolve_knee_prescreen_cap(importance, default_cap=28)
     order = np.argsort(-importance)
     weak_ranks = sorted(int(np.where(order == i)[0][0]) for i in range(4, 8))
     assert all(r < cap for r in weak_ranks), f"weak feature ranks {weak_ranks} not covered by cap={cap}"

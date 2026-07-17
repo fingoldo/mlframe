@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.training.configs import PreprocessingBackendConfig
 from mlframe.training.pipeline import fit_and_transform_pipeline
@@ -47,7 +46,7 @@ def test_embedding_object_column_excluded_from_cat_features():
     )
 
     # Should NOT raise
-    train_out, val_out, test_out, pipeline, cat_features = fit_and_transform_pipeline(
+    train_out, _val_out, _test_out, _pipeline, _cat_features = fit_and_transform_pipeline(
         train_df=df.copy(),
         val_df=None,
         test_df=None,
@@ -83,7 +82,7 @@ def test_normal_cat_only_input_works():
         skip_categorical_encoding=False,
     )
 
-    train_out, _, _, _, cat_features = fit_and_transform_pipeline(
+    train_out, _, _, _, _cat_features = fit_and_transform_pipeline(
         train_df=df.copy(),
         val_df=None,
         test_df=None,

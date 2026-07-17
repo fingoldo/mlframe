@@ -8,7 +8,6 @@ assignment partitions every row exactly once with the same half-open membership 
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 
 def test_bucket_kernel_symbol_exists():

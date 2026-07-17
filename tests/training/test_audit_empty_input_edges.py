@@ -35,7 +35,6 @@ given an empty DataFrame / empty numpy array / empty post-filter result.
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 
 # ---------------------------------------------------------------------------

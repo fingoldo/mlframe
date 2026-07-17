@@ -11,7 +11,6 @@ from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.training import TargetTypes
 from mlframe.training.core._phase_composite_post_moe import (

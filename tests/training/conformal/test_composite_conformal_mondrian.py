@@ -268,7 +268,7 @@ class TestMondrianRadiusGatherVectorization:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             lo, hi = est.predict_interval_mondrian(X, g, 0.1)
-        point = np.asarray(est.predict(X), dtype=np.float64).reshape(-1)
+        np.asarray(est.predict(X), dtype=np.float64).reshape(-1)
         expected_radii = self._loop_reference(g, per_group, global_r)
         # Recover the radius the function applied (band is symmetric pre-clip; the
         # train envelope here is unbounded for this synthetic, so no clipping).

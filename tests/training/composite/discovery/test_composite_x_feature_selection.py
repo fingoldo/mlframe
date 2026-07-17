@@ -430,7 +430,7 @@ class TestCompositeWrapperX_FeatureSubset:
         """Happy path: base survives in X."""
         from lightgbm import LGBMRegressor
 
-        df, target_col, feature_cols = _composite_friendly_regression()
+        df, target_col, _feature_cols = _composite_friendly_regression()
         train_idx = np.arange(int(0.8 * len(df)))
         test_idx = np.arange(int(0.8 * len(df)), len(df))
         inner = LGBMRegressor(
@@ -461,7 +461,7 @@ class TestCompositeWrapperX_FeatureSubset:
         a smaller X (mimics post-RFECV/MRMR pipeline)."""
         from lightgbm import LGBMRegressor
 
-        df, target_col, feature_cols = _composite_friendly_regression()
+        df, target_col, _feature_cols = _composite_friendly_regression()
         train_idx = np.arange(int(0.8 * len(df)))
         test_idx = np.arange(int(0.8 * len(df)), len(df))
         inner = LGBMRegressor(

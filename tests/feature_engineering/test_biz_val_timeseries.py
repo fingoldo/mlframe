@@ -11,7 +11,6 @@ from __future__ import annotations
 import warnings
 
 import numpy as np
-import pandas as pd
 import pytest
 
 warnings.filterwarnings("ignore")
@@ -125,7 +124,7 @@ def test_biz_val_timeseries_compute_corr_perfect_correlation():
     # corrcoef returns matrix; deciding_func might unwrap. Either way,
     # |corr| ~ 1.
     val = np.asarray(corr).ravel()[0] if hasattr(corr, "__len__") else corr
-    val_arr = np.asarray(val).ravel() if hasattr(val, "__len__") else np.array([val])
+    np.asarray(val).ravel() if hasattr(val, "__len__") else np.array([val])
     # Pull the largest absolute correlation entry from whatever shape.
     val_max = float(np.max(np.abs(np.asarray(corr))))
     assert val_max >= 0.95, f"y=x must yield |corr| ~ 1; got max|corr|={val_max:.4f}"

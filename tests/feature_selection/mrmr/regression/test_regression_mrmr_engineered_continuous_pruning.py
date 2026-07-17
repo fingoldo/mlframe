@@ -122,7 +122,7 @@ def test_prune_bounds_peak_store_size_across_simulated_rounds():
         # rounds' survivors (simulate a round that admits few new features but never revisits old ones).
         survivors_this_round = [cols.index(nm) for nm in new_names[:1]]
         prior_engineered_survivors = [cols.index(k) for k in list(store.keys()) if k not in new_names][:1]
-        selected_vars = [0, 1] + survivors_this_round + prior_engineered_survivors
+        selected_vars = [0, 1, *survivors_this_round, *prior_engineered_survivors]
         _h._prune_engineered_continuous_store(inst, cols, selected_vars)
         peak_with_pruning = max(peak_with_pruning, len(store))
 

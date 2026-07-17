@@ -30,7 +30,6 @@ from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
-import pytest
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.linear_model import Ridge
 from sklearn.pipeline import Pipeline
@@ -160,7 +159,7 @@ def test_predict_replays_passthrough_cols_when_pre_pipeline_drops_them() -> None
     through to the inner model alongside the MRMR-selected numeric."""
     from mlframe.training.core.predict import predict_from_models
 
-    df, models, metadata, inner = _build_minimal_suite()
+    df, models, metadata, _inner = _build_minimal_suite()
     # Run predict; the inner Ridge will internally just use ``x0``,
     # but the pre_pipeline output the inner saw must include ``text_col``
     # (the fit-time contract). We don't have a hook on Ridge to assert
@@ -190,7 +189,7 @@ def test_passthrough_cols_actually_make_it_through_pre_pipeline() -> None:
     predict_from_models machinery."""
     from mlframe.training.pipeline._pipeline_helpers import _passthrough_cols_fit_transform
 
-    df, models, metadata, _ = _build_minimal_suite()
+    df, models, _metadata, _ = _build_minimal_suite()
     pre_pipeline = models["regression"]["y_MRMR"][0].pre_pipeline
 
     # WITHOUT passthrough: text_col dropped, output has only ["x0"].

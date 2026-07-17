@@ -21,7 +21,7 @@ def _build_train_df(real_values, *, with_missing: bool):
     """
     col = list(real_values)
     if with_missing:
-        col = col + [None]
+        col = [*col, None]
     return pd.DataFrame({"cat": col, "x": np.arange(len(col), dtype=np.float64)})
 
 

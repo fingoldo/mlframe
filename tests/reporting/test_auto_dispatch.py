@@ -454,7 +454,7 @@ class TestReportModelPerfIntegration:
         y, proba, classes = mc_inputs
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            preds, probs = report_model_perf(
+            _preds, _probs = report_model_perf(
                 targets=y,
                 columns=[],
                 model_name="testmc",
@@ -478,7 +478,7 @@ class TestReportModelPerfIntegration:
         y, proba, labels = ml_inputs
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            preds, probs = report_model_perf(
+            _preds, _probs = report_model_perf(
                 targets=y,
                 columns=[],
                 model_name="testml",

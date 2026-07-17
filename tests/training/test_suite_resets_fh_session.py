@@ -12,7 +12,6 @@ entries from a prior suite cannot accidentally hit.
 
 from __future__ import annotations
 
-from unittest import mock
 
 import pytest
 

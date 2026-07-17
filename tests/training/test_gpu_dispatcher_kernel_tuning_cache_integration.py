@@ -192,10 +192,10 @@ def test_wave23_falls_back_to_source_default_when_cache_unavailable():
 def test_wave23_smoke_imports():
     """All 7 wave-23 modules import cleanly under default conditions
     (no live GPU, no cache populated, no sweep done yet)."""
-    import mlframe.feature_selection.filters.gpu  # noqa: F401
-    import mlframe.feature_selection.filters.batch_pair_mi_gpu  # noqa: F401
-    import mlframe.metrics.core  # noqa: F401
-    import mlframe.feature_selection.filters.cat_interactions  # noqa: F401
-    import mlframe.feature_selection.filters.feature_engineering  # noqa: F401
-    import mlframe.feature_selection.filters.hermite_fe  # noqa: F401
+    import mlframe.feature_selection.filters.gpu
+    import mlframe.feature_selection.filters.batch_pair_mi_gpu
+    import mlframe.metrics.core
+    import mlframe.feature_selection.filters.cat_interactions
+    import mlframe.feature_selection.filters.feature_engineering
+    import mlframe.feature_selection.filters.hermite_fe
     import mlframe.feature_engineering.transformer.random_features  # noqa: F401

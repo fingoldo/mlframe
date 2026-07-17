@@ -19,7 +19,8 @@ base) already exist in the older ``test_composite_*`` files.
 from __future__ import annotations
 
 import orjson
-from typing import Any, Mapping
+from typing import Any
+from collections.abc import Mapping
 
 import numpy as np
 import pytest

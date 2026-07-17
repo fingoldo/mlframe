@@ -6,7 +6,6 @@ claiming the value always hit the fit-entry ``_validate_no_nan_inf`` raise. That
 frame before the MLP fit, so the combo trains fine. This test pins that behaviour so the canon stays retired.
 """
 
-import numpy as np
 import pytest
 
 from tests.training._fuzz_combo import FuzzCombo, build_frame_for_combo

@@ -34,7 +34,7 @@ def _fit_recipe(aggregator="mean_z", seed=0, n=2500):
         }
     )
     y = (z**2 > 0.6).astype(int)  # nonlinear in z -> He_2 of the aggregate wins
-    X_aug, scores, recipes = hybrid_orth_mi_cluster_basis_fe_with_recipes(
+    _X_aug, _scores, recipes = hybrid_orth_mi_cluster_basis_fe_with_recipes(
         Xtr,
         y,
         cluster_members={"a": ["a", "b", "c"]},

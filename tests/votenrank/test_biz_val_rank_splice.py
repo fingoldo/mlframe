@@ -106,7 +106,7 @@ def test_biz_val_rank_splice_soft_blend_beats_hard_cutover_under_noisy_specialis
 
 
 def test_segment_rank_splice_blend_weight_zero_is_bit_identical_to_default():
-    main_scores, specialist_scores, y, segment_mask = _make_miscalibrated_specialist_dataset(n_main=800, n_segment=200, seed=0)
+    main_scores, specialist_scores, _y, segment_mask = _make_miscalibrated_specialist_dataset(n_main=800, n_segment=200, seed=0)
     default_result = segment_rank_splice(main_scores, specialist_scores, segment_mask)
     explicit_zero_result = segment_rank_splice(main_scores, specialist_scores, segment_mask, blend_weight=0.0)
     np.testing.assert_array_equal(default_result, explicit_zero_result)

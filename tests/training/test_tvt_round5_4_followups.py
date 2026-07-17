@@ -23,7 +23,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
 
 
 def _module_source(mod) -> str:
@@ -320,7 +319,7 @@ class TestDtwBincountAggregation:
                     j += 1
             path.append((i, j))
         # Add a few out-of-bounds entries to verify the mask works.
-        path = [(-1, -1)] + path + [(n_q + 5, len(tw_tvt) + 10)]
+        path = [(-1, -1), *path, (n_q + 5, len(tw_tvt) + 10)]
         pred_a, count_a = _loop(path, n_q, tw_tvt)
         pred_b, count_b = _batched(path, n_q, tw_tvt)
         import numpy as np

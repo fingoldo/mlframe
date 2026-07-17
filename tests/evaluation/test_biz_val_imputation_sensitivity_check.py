@@ -53,10 +53,10 @@ def test_biz_val_flags_regime_sensitive_imputation_as_risky():
 
 
 def test_imputation_sensitivity_check_sorted_riskiest_first():
-    X_zero, X_mean, X_mode, y = _make_regime_shift_missingness_data(n=800, seed=1)
+    X_zero, X_mean, _X_mode, y = _make_regime_shift_missingness_data(n=800, seed=1)
     cv = KFold(n_splits=5, shuffle=False)
     result = imputation_sensitivity_check(Ridge(alpha=0.1), {"mean_fill": X_mean, "zero_fill": X_zero}, y, r2_score, cv=cv)
-    assert list(result.index)[0] == "zero_fill"  # highest fold_std sorted first.
+    assert next(iter(result.index)) == "zero_fill"  # highest fold_std sorted first.
 
 
 def _make_shift_blind_spot_data(n: int, seed: int):

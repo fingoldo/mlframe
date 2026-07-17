@@ -119,7 +119,7 @@ class TestScatterLargeN:
         colors = rng.uniform(0, 1, n)
         spec = FigureSpec(panels=((ScatterPanelSpec(x=x, y=x, point_size=sizes, point_color=colors, colorbar_label="c"),),), figsize=(6, 4))
         fig = get_renderer("plotly").render(spec)
-        pts = [t for t in fig.data if t.mode and "markers" in t.mode][0]
+        pts = next(t for t in fig.data if t.mode and "markers" in t.mode)
         npt = len(pts.x)
         assert len(pts.marker.size) == npt
         assert len(pts.marker.color) == npt
@@ -139,7 +139,7 @@ class TestScatterLargeN:
         sizes = rng.uniform(0, 100, 2_000)
         spec = FigureSpec(panels=((ScatterPanelSpec(x=rng.standard_normal(2_000), y=rng.standard_normal(2_000), point_size=sizes),),), figsize=(6, 4))
         fig = get_renderer("plotly").render(spec)
-        pts = [t for t in fig.data if t.mode and "markers" in t.mode][0]
+        pts = next(t for t in fig.data if t.mode and "markers" in t.mode)
         got = np.asarray(pts.marker.size, dtype=float)
         ref = np.sqrt(np.maximum(sizes, 0.0)) * 1.33
         np.testing.assert_allclose(got, ref, rtol=0, atol=0)

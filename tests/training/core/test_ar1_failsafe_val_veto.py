@@ -9,7 +9,6 @@ the veto returns the trained index to deploy instead of lag.
 
 from __future__ import annotations
 
-import math
 
 import numpy as np
 

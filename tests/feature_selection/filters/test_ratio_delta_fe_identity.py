@@ -65,7 +65,7 @@ def test_grouped_delta_and_apply_identity():
     g = rng.integers(0, 100, size=n)
     num_cols = ["x0", "x1"]
     X = pd.DataFrame({"grp": g, "x0": rng.normal(size=n), "x1": rng.normal(2.0, 3.0, size=n)})
-    enc, recipes = rd.grouped_delta_features(X, "grp", num_cols)
+    _enc, recipes = rd.grouped_delta_features(X, "grp", num_cols)
 
     # Replay-apply path with unseen groups must match its own reference map.
     g2 = rng.integers(0, 130, size=n)  # some unseen groups

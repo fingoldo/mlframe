@@ -12,7 +12,6 @@ Bench: src/mlframe/training/baselines/_benchmarks/bench_bootstrap_ci_n_resamples
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from mlframe.training.baselines._dummy_bootstrap import _numba_bootstrap_rmse_samples
 from mlframe.training.configs import DummyBaselinesConfig

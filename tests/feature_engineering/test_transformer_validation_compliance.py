@@ -10,13 +10,12 @@ that the warning was meant to surface.
 
 from __future__ import annotations
 
-import ast
 import pathlib
 
 import pytest
 
 
-import mlframe as _mlframe  # noqa: E402  -- derive transformer dir from installed package; the previous ``D:/Upd/...`` hardcode silently broke transformer-module discovery on every other clone location, with the parametrized validation test going SKIPped under "got empty parameter set".
+import mlframe as _mlframe
 
 TRANSFORMER_DIR = pathlib.Path(_mlframe.__file__).resolve().parent / "feature_engineering" / "transformer"
 

@@ -184,7 +184,7 @@ def test_lean_save_does_not_change_composite_target_predictions():
     res_lean, loaded_lean = _roundtrip_predict(entry, metadata, df, lean=True)
 
     # The residual-inverse params (alpha/beta) ride on the estimator and must survive lean.
-    fat_model, lean_model = loaded_fat.model, loaded_lean.model
+    _fat_model, lean_model = loaded_fat.model, loaded_lean.model
     assert lean_model is not None, "lean dropped the CompositeTargetEstimator"
     np.testing.assert_array_equal(
         np.asarray(res_fat["ensemble_predictions"]),

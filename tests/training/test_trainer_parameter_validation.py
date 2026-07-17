@@ -13,7 +13,6 @@ configure_training_params. Skipped with a note rather than faked.
 
 from __future__ import annotations
 
-from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
@@ -179,7 +178,7 @@ def test_configure_training_params_returns_7tuple_regression():
     )
     assert isinstance(out, tuple)
     assert len(out) == 7
-    common_params, models_params, cb_rfecv, lgb_rfecv, xgb_rfecv, cpu_configs, gpu_configs = out
+    common_params, models_params, _cb_rfecv, _lgb_rfecv, _xgb_rfecv, _cpu_configs, _gpu_configs = out
     assert isinstance(common_params, dict)
     assert isinstance(models_params, dict)
     # Model building filtered: only lgb requested

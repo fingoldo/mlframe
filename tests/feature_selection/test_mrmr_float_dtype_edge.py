@@ -58,7 +58,7 @@ def test_overflow_inf_dropped_not_poisoning_corr():
     rng = np.random.default_rng(1)
     n = 2000
     x0 = rng.normal(0, 1, n)
-    x1 = rng.normal(1, 1, n)
+    rng.normal(1, 1, n)
     y = rng.normal(0, 1, n)
     x0[:5] = [2e19, -3e19, 5e19, 1e20, -2e19]
     with np.errstate(over="ignore", invalid="ignore"):

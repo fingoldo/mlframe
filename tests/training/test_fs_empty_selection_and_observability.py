@@ -214,9 +214,9 @@ def test_empty_selection_degrades_to_no_trained_entry_and_warns(noise_binary_6fe
 
     # No trained entry for the target: every target bucket must carry zero entries.
     total_entries = 0
-    for _ttype, by_name in models.items():
+    for by_name in models.values():
         if isinstance(by_name, dict):
-            for _tname, entries in by_name.items():
+            for entries in by_name.values():
                 if isinstance(entries, list):
                     total_entries += len(entries)
     assert total_entries == 0, (

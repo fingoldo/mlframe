@@ -173,7 +173,7 @@ def test_metadata_dict_embedding_object_cols_routed_to_embedding():
     # it would mis-classify; the metadata dict says "embedding" so the consumer must trust it.
     train_df["emb_col"] = [None] * n
 
-    text, embedding, drop = _auto_detect_feature_types(
+    text, embedding, _drop = _auto_detect_feature_types(
         train_df,
         cfg,
         cat_features=[],

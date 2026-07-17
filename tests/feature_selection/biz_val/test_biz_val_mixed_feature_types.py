@@ -111,7 +111,7 @@ def test_biz_val_mrmr_selects_lowcard_cat_signal_drops_num_noise():
     seeds = fast_subset([0, 1, 2, 3, 4], n=2)
     hits_cat = hits_num = drops_noise = 0
     for s in seeds:
-        df, y, roles = _make_mixed_frame(500, s, high_card=False)
+        df, y, _roles = _make_mixed_frame(500, s, high_card=False)
         m = _fast_mrmr(random_seed=s)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -160,7 +160,7 @@ def test_biz_val_mrmr_drops_highcard_cat_noise_gracefully():
     relevance screen, while the low-card cat signal is kept. (Was a GAP: the cat-FE
     cardinality ceiling raised a hard ValueError; now ``on_high_cardinality='skip'`` is
     the default.)"""
-    df, y, roles = _make_mixed_frame(500, 0, high_card=True)
+    df, y, _roles = _make_mixed_frame(500, 0, high_card=True)
     m = _fast_mrmr(random_seed=0)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -194,7 +194,7 @@ def test_biz_val_mrmr_recovers_preencoded_text_token_signal():
     seeds = fast_subset([0, 1, 2], n=2)
     good = 0
     for s in seeds:
-        sig_t, noise_t, y, has_kw = _make_text_signal(500, s)
+        sig_t, noise_t, y, _has_kw = _make_text_signal(500, s)
         has_win = np.array(["win" in t.split() for t in sig_t]).astype(int)
         # noise-text indicator: presence of an arbitrary token that carries no signal
         has_q = np.array(["q0" in t.split() for t in noise_t]).astype(int)
@@ -222,7 +222,7 @@ def test_biz_val_suite_fs_keeps_cat_signal_drops_highcard_noise():
     selected_features, cat_noise absent, AUC 1.0 on seed 0."""
     from tests.feature_selection._suite_fe_helpers import run_suite, best_test_metric
 
-    df, y, roles = _make_mixed_frame(600, 0, high_card=True)
+    df, y, _roles = _make_mixed_frame(600, 0, high_card=True)
     df = df.assign(y=y)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")

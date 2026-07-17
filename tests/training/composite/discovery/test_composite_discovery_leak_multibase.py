@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.training.composite import (
     CompositeSpec,
@@ -126,7 +125,7 @@ class TestMultiBaseFiniteMasking:
         b2 = rng.normal(0.0, 1.0, size=n)
         b1[:5] = np.nan
         y = b1 + b2 + rng.normal(0.0, 0.05, size=n)
-        kept, diag = forward_stepwise_multi_base(
+        kept, _diag = forward_stepwise_multi_base(
             y,
             {"b1": b1, "b2": b2},
             seed_bases=["b2"],

@@ -10,7 +10,6 @@ bookkeeping directly (deterministic, no VRAM contention with the real GPU captur
 import gc
 import weakref
 
-import pytest
 
 from mlframe.training.neural._flat_torch_module import _flat_torch_predict_accel as accel
 

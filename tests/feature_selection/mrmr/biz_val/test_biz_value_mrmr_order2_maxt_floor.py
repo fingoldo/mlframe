@@ -230,7 +230,7 @@ class TestOrder2MaxTFloorDisabled:
         # engineered set is exactly the 3 genuine pairs (the loose-gate fixture's
         # floor-OFF output minus nothing): proves the disable path is live.
         eng = _fit_engineered(perms=0)
-        gen, spur = _classify(eng)
+        gen, _spur = _classify(eng)
         assert len(gen) >= 3, f"floor-disabled run lost genuine pairs: {eng}"
         # And re-running is deterministic.
         eng2 = _fit_engineered(perms=0)

@@ -232,7 +232,7 @@ class TestKernelEdgeCases:
         """``_ndcg_dist_panel`` must equal the pre-optimization computation:
         per-query NDCG@10 over groups with >=2 docs, NaN dropped."""
         yt, ys, gid = _mixed_dataset(5, ties=True, float_grades=False)
-        st, ss, gs, ref_ndcg, _ = _ref_per_query(yt, ys, gid)
+        _st, _ss, gs, ref_ndcg, _ = _ref_per_query(yt, ys, gid)
         sizes = np.diff(gs)
         ref = np.sort(ref_ndcg[(sizes >= 2) & ~np.isnan(ref_ndcg)])
         panel = _ndcg_dist_panel(yt, ys, gid)

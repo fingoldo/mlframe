@@ -15,7 +15,6 @@ field is set to the value the config documents as correct:
 from __future__ import annotations
 
 import numpy as np
-import pytest
 from sklearn.linear_model import Ridge
 
 from mlframe.training.core._phase_helpers_fit_split import _apply_purge_embargo

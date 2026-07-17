@@ -30,10 +30,6 @@ from mlframe.testing.parametric import (
     adversarial_frame,
     prod_like_frame,
     prod_like_frame_small,
-    categorical_column,
-    inf_heavy_float_column,
-    constant_column,
-    sparse_null_column,
 )
 from mlframe.training.core import _auto_detect_feature_types
 from mlframe.training.configs import FeatureTypesConfig
@@ -291,7 +287,7 @@ class TestFastCalibrationBinningRobustness:
 
         y_pred = np.full(100, 0.3, dtype=np.float64)
         y_true = np.random.default_rng(0).integers(0, 2, size=100).astype(np.int8)
-        freqs_pred, freqs_true, hits = fast_calibration_binning(
+        _freqs_pred, _freqs_true, hits = fast_calibration_binning(
             y_true=y_true,
             y_pred=y_pred,
             nbins=10,

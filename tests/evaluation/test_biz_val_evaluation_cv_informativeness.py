@@ -102,7 +102,7 @@ def test_biz_val_cv_informativeness_trend_decaying_with_group_sparsity():
     X = rng.normal(0, 1, (n, 3))
     y = np.empty(n)
     start = 0
-    for g, size in enumerate(group_sizes):
+    for _g, size in enumerate(group_sizes):
         end = start + size
         if size < 100:
             y[start:end] = rng.normal(0, 5) + rng.normal(0, 0.1, size)

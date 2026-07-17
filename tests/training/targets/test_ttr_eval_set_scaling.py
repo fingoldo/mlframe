@@ -10,7 +10,6 @@ The fix: ``_TTRWithEvalSetScaling`` intercepts ``eval_set`` in fit_kwargs, appli
 from __future__ import annotations
 
 import numpy as np
-import pytest
 from sklearn.base import BaseEstimator, RegressorMixin
 from sklearn.preprocessing import StandardScaler
 

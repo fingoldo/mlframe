@@ -33,7 +33,6 @@ import logging
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.training.splitting import make_train_test_split
 
@@ -129,7 +128,6 @@ def test_enough_unique_days_no_fallback(caplog) -> None:
     predicted_n_test=3, predicted_n_val=2; both non-zero, no fallback.
     wholeday_splitting path stays active."""
     df = _build_df(400)
-    n = 400
     # 10 unique calendar days (40 rows per day).
     day_strs: list[str] = []
     for d in range(10):

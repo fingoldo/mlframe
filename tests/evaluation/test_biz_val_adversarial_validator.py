@@ -80,7 +80,7 @@ def test_adversarial_validator_report_before_fit_raises():
     validator = AdversarialValidator()
     try:
         validator.report()
-        assert False, "expected RuntimeError"
+        raise AssertionError("expected RuntimeError")
     except RuntimeError:
         pass
 

@@ -191,7 +191,6 @@ def test_biz_xgb_monotonic_predict_uses_best_iteration_not_full_booster():
     full overfit booster. Regression sensor for D1 -- pre-fix the booster keeps the post-best tail and
     predict scores all rounds, inflating holdout error."""
     pytest.importorskip("xgboost")
-    import xgboost as xgb
     from mlframe.training.xgb_shim import XGBRegressorWithDMatrixReuse
 
     Xtr, ytr, Xv, yv = _overfit_data(seed=1)
@@ -235,7 +234,7 @@ def test_resolve_mode_unknown_metric_returns_skip_sentinel():
 def test_lgb_callback_unknown_max_metric_does_not_stop_improving_curve():
     """An unknown higher-is-better metric must NOT be guessed as 'min' (which would stop a clearly
     IMPROVING max-metric curve). With the SKIP sentinel the detector disables itself: no stop."""
-    lgb = pytest.importorskip("lightgbm")
+    pytest.importorskip("lightgbm")
     from mlframe.training.callbacks.monotonic_decline import LGBMonotonicDeclineStop
 
     cb = LGBMonotonicDeclineStop(patience=3, monitor_dataset="valid_0", monitor_metric="my_custom_skill_score", mode=None)

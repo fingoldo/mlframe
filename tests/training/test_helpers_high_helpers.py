@@ -9,7 +9,6 @@ by running against the file pre-fix during development.
 from __future__ import annotations
 
 import logging
-import warnings
 
 import numpy as np
 import pandas as pd
@@ -29,7 +28,6 @@ def test_hhus03_shuffled_choice_handles_oversize_request_directly(caplog):
     logic would otherwise suppress, then verify the function returns
     cleanly with a WARN instead of raising the legacy ValueError.
     """
-    from mlframe.training import splitting as _sp
 
     rng = np.random.default_rng(0)
     n = 10

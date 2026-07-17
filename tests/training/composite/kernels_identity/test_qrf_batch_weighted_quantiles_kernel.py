@@ -10,7 +10,6 @@ tolerance) to the Python per-row path it replaced, including the all-zero-weight
 
 from __future__ import annotations
 
-import sys
 
 import numpy as np
 import pandas as pd

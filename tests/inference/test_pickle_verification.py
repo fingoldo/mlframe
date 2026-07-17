@@ -25,7 +25,6 @@ from __future__ import annotations
 
 import hashlib
 import orjson
-import os
 from pathlib import Path
 
 import pytest

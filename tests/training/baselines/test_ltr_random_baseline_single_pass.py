@@ -19,7 +19,6 @@ semantic. This test pins:
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from mlframe.training.baselines._dummy_baseline_compute import _per_target_seed
 

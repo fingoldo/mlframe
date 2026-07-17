@@ -11,7 +11,6 @@ deliberately-correlated data so the ChainEnsemble dispatch path is justified.
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from sklearn.base import clone
 from sklearn.linear_model import LogisticRegression

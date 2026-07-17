@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.feature_engineering.basic import _DEFAULT_DATE_METHODS, create_date_features
 

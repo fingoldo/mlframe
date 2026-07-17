@@ -83,7 +83,7 @@ def test_biz_val_aggregate_curve_selection_beats_naive_per_fold_average():
         curves = _make_noisy_fold_curves(n_folds=25, n_rounds=n_rounds, true_best_round=true_best_round, seed=trial)
         result = select_best_iteration_by_aggregate_cv(curves, maximize=True)
         aggregate_errors.append(abs(result["best_round"] - true_best_round))
-        naive_avg_round = int(round(float(result["per_fold_best_rounds"].mean())))
+        naive_avg_round = round(float(result["per_fold_best_rounds"].mean()))
         naive_errors.append(abs(naive_avg_round - true_best_round))
         per_fold_stds.append(float(result["per_fold_best_rounds"].std()))
 

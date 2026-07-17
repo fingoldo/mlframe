@@ -13,7 +13,6 @@ higher than the nbins=10 reference, so the strict-improvement assertion trips.
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from mlframe.calibration.policy import _ece_score, DEFAULT_ECE_NBINS
 

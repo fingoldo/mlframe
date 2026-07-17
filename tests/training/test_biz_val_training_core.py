@@ -20,8 +20,6 @@ from __future__ import annotations
 
 import warnings
 
-import numpy as np
-import pandas as pd
 import pytest
 
 from tests.conftest import is_fast_mode
@@ -160,7 +158,7 @@ def test_biz_val_training_suite_mlframe_models_subset(tmp_path, model_list):
     fte = FTE(target_column="target", regression=True)
     data_dir = str(tmp_path / "data")
     try:
-        models, metadata = train_mlframe_models_suite(
+        models, _metadata = train_mlframe_models_suite(
             df=df,
             target_name="test_target",
             model_name=f"m_{model_list[0]}",

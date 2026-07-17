@@ -318,7 +318,7 @@ def test_bootstrap_metric_per_row_resample_fastpath_matches_generic():
     from mlframe.evaluation.bootstrap import bootstrap_metric
     from mlframe.metrics.scoring import fast_rmse
 
-    rng = np.random.default_rng(0)
+    np.random.default_rng(0)
     _rmse_pr = lambda yy, pp: (np.asarray(yy, float) - np.asarray(pp, float)) ** 2
     for seed in range(8):
         r = np.random.default_rng(seed)

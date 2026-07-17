@@ -98,7 +98,7 @@ def test_interval_coverage_shape_mismatch_raises():
 
 
 def test_interval_width_vs_x_constant_vs_adaptive():
-    rng = np.random.default_rng(0)
+    np.random.default_rng(0)
     x = np.linspace(0, 10, 400)
     # Constant (split-like) band: width near-zero CV.
     lo_c, hi_c = -np.ones_like(x), np.ones_like(x)

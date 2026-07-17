@@ -263,7 +263,7 @@ def test_routing_demotes_additive_crossmix_keeps_synergy():
         quantile=0.95,
         random_seed=1,
     )
-    kept, routes, iis = route_prospective_pairs(
+    kept, routes, _iis = route_prospective_pairs(
         pp,
         cached_MIs=cached,
         nbins=nb,
@@ -326,7 +326,7 @@ def test_routing_keeps_redundant_and_selected_pairs():
         quantile=0.95,
         random_seed=3,
     )
-    kept, routes, iis = route_prospective_pairs(
+    kept, routes, _iis = route_prospective_pairs(
         pp,
         cached_MIs=cached,
         nbins=nb,
@@ -352,7 +352,7 @@ def test_routing_no_op_when_floor_zero():
     ky = int(yc.max()) + 1
     cached = {(i,): 0.01 for i in range(3)}
     pp = {((0, 1), 0.05): 1, ((0, 2), 0.04): 1}
-    kept, routes, iis = route_prospective_pairs(
+    kept, _routes, _iis = route_prospective_pairs(
         pp,
         cached_MIs=cached,
         nbins=nb,

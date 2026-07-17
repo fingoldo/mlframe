@@ -148,7 +148,7 @@ def test_int_float_dtype_drift_resolves_same_category():
             "b": ["p", "p", "q", "q", "p", "q"],
         }
     )
-    emb_fit, recipe = cat_cooccurrence_svd_fit(X_fit, "a", "b", n_components=1)
+    _emb_fit, recipe = cat_cooccurrence_svd_fit(X_fit, "a", "b", n_components=1)
     recipe = {**recipe, "src_col": "a", "other_col": "b"}
     # Apply with the SAME categories encoded as floats -- must hit the learned codes,
     # NOT fall through to the default (which would happen on a str('1') vs str('1.0') mismatch).

@@ -547,7 +547,7 @@ def test_spiegelhalter_z_miscalibrated_high_z():
     y = np.concatenate([np.zeros(500), np.ones(500)]).astype(np.int64)
     # Predict everything at 0.5 -> calibration off because mean(y) = 0.5 but
     # variance of y is much higher than the model implies.
-    z, pv = spiegelhalter_z(y, np.full(N, 0.5))
+    _z, _pv = spiegelhalter_z(y, np.full(N, 0.5))
     # Z for perfect average-calibration with no resolution is 0 (predicting
     # the marginal everywhere matches the global mean). What we need is a
     # case where prediction is genuinely off the local mean.
@@ -733,8 +733,6 @@ def test_multiclass_confusion_block_matches_individual_metrics():
     from sklearn.metrics import (
         accuracy_score,
         f1_score,
-        precision_score,
-        recall_score,
     )
 
     rng = np.random.default_rng(22)

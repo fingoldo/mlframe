@@ -13,7 +13,6 @@ import matplotlib
 
 matplotlib.use("Agg")
 import numpy as np
-import pytest
 
 from mlframe.reporting.charts.calibration import build_reliability_overlay_spec
 from mlframe.reporting.spec import FigureSpec, LinePanelSpec

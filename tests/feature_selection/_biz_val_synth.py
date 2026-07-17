@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+from typing import Optional
 
 
 # ---------------------------------------------------------------------------
@@ -276,7 +277,7 @@ def support_indices(sel):
     return [int(i) for i in arr]
 
 
-def signal_overlap(sel, signal: list, top_k: int = None) -> int:
+def signal_overlap(sel, signal: list, top_k: Optional[int] = None) -> int:
     """Count how many signal-feature indices appear in ``sel.support_``.
     If ``top_k`` given, restrict to the first ``top_k`` of the support.
 
@@ -299,7 +300,7 @@ import re as _re
 _XREF = _re.compile(r"x(\d+)")
 
 
-def signal_recovery_count(sel, signal: list, top_k: int = None, prefix: str = "x") -> int:
+def signal_recovery_count(sel, signal: list, top_k: Optional[int] = None, prefix: str = "x") -> int:
     """Count distinct signal columns RECOVERED by a fitted selector,
     crediting engineered features that reference a signal column.
 
@@ -365,7 +366,6 @@ def downstream_auc(sel, df, ys, cv: int = 5) -> float:
     small band of the baseline AUC, regardless of which exact columns
     survived. Returns ``nan`` if the selection is empty.
     """
-    import numpy as _np
     from sklearn.linear_model import LogisticRegression
     from sklearn.model_selection import cross_val_score
 

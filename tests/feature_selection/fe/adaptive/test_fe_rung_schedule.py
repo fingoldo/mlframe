@@ -98,7 +98,7 @@ def test_relative_floor_protects_moderate_mi_winner():
     pms = [0.34, 0.153, 0.06, 0.06, 0.06, 0.06, 0.06, 0.06, 0.06, 0.06]
     pool = _mk_pool(pms)
     # keep_frac tiny (top-1) but the 0.153 pair (0.45*max) must be saved by the floor.
-    kept, info = apply_rung_schedule(pool, n_rows=5000, keep_frac=0.1, rel_floor=0.40, min_pairs=6)
+    kept, _info = apply_rung_schedule(pool, n_rows=5000, keep_frac=0.1, rel_floor=0.40, min_pairs=6)
     kept_pms = sorted((k[1] for k in kept), reverse=True)
     assert 0.153 in kept_pms, f"relative floor dropped the moderate-MI genuine winner: {kept_pms}"
     # and the (noise) 0.06 pairs (0.18*max) are cut.

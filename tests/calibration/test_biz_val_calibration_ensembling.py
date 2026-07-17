@@ -35,7 +35,7 @@ def _make_conditionally_independent_data(n: int, k: int, seed: int):
 
 
 def test_odds_ratio_combine_matches_closed_form_true_posterior():
-    y, member_probs, true_combined_prob = _make_conditionally_independent_data(2000, 5, seed=0)
+    _y, member_probs, true_combined_prob = _make_conditionally_independent_data(2000, 5, seed=0)
     combined = odds_ratio_combine(member_probs)
     assert np.allclose(combined, true_combined_prob, atol=1e-9)
 
@@ -133,7 +133,7 @@ def test_odds_ratio_combine_check_independence_warns_but_keeps_sum_by_default_mo
 
 
 def test_odds_ratio_combine_check_independence_no_warning_on_independent_members():
-    y, member_probs, _ = _make_conditionally_independent_data(2000, 5, seed=15)
+    _y, member_probs, _ = _make_conditionally_independent_data(2000, 5, seed=15)
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         result = odds_ratio_combine(member_probs, check_independence=True, on_correlation_violation="fallback")

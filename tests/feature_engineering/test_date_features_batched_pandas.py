@@ -15,7 +15,6 @@ import warnings
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.feature_engineering.basic import (
     create_date_features,

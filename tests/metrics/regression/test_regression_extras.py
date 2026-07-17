@@ -262,7 +262,7 @@ def test_iter597_mbe_nse_mixed_dtypes_bit_equivalent():
     p_f32 = p_f64.astype(np.float32)
 
     # MBE
-    mbe_ref = float(np.mean(p_f64 - y_f64))
+    float(np.mean(p_f64 - y_f64))
     for y_t, y_p, atol in [
         (y_int, p_f64, 1e-9),
         (y_f64, p_f64, 1e-12),

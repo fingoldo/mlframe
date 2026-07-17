@@ -19,7 +19,6 @@ import warnings
 
 import numpy as np
 import pandas as pd
-import pytest
 
 warnings.filterwarnings("ignore")
 
@@ -91,7 +90,7 @@ def test_whatif_count_matches_ledger_margin_arithmetic():
     gate_col = led["gate"].astype(str)
     margin_col = pd.to_numeric(led["margin"], errors="coerce")
     surfaced = False
-    for gate, (knob, delta) in _GATE_TO_FLIP_BAND.items():
+    for gate, (_knob, delta) in _GATE_TO_FLIP_BAND.items():
         n_gate = int(gate_col.eq(gate).sum())
         if n_gate == 0:
             continue
@@ -118,7 +117,7 @@ def test_whatif_preview_matches_actual_flag_flip_refit():
     assert "engineered_mi_prevalence" in led["gate"].astype(str).values, "engineered_mi_prevalence gate did not bind on the canonical frame"
 
     gate = "engineered_mi_prevalence"
-    knob, delta = _GATE_TO_FLIP_BAND[gate]
+    _knob, delta = _GATE_TO_FLIP_BAND[gate]
     g = led["gate"].astype(str).eq(gate)
     margin = pd.to_numeric(led["margin"], errors="coerce")
     # candidates the gate recorded, with their observed value (= margin + threshold).

@@ -167,6 +167,6 @@ def test_biz_val_known_label_override_negative_direction_and_bounds_check():
 
     try:
         known_label_override(raw_preds, {n + 5: 1.0}, asymmetric_safe_direction="positive")
-        assert False, "expected IndexError for out-of-bounds known_label_map index"
+        raise AssertionError("expected IndexError for out-of-bounds known_label_map index")
     except IndexError:
         pass

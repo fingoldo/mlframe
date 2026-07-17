@@ -13,7 +13,6 @@ whole screen silently run at full-n now log at WARNING so such a regression is d
 import logging
 
 import numpy as np
-import pytest
 
 from mlframe.feature_selection.filters._fe_subsample import (
     resolve_shared_fe_subsample_idx,

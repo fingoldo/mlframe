@@ -27,7 +27,6 @@ Measured dev numbers (seeds 0,1 unless noted):
 
 from __future__ import annotations
 
-import os
 
 import numpy as np
 import pandas as pd
@@ -38,7 +37,7 @@ from tests.feature_selection._biz_val_synth import make_imbalanced
 
 pytest.importorskip("shap")
 
-from mlframe.feature_selection.boruta_shap import BorutaShap  # noqa: E402
+from mlframe.feature_selection.boruta_shap import BorutaShap
 
 
 # Small configs keep each fit ~1-10s: n_trials<=20, RF n_estimators<=60. Fast mode halves both.

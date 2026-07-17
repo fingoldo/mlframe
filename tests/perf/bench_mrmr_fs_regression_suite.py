@@ -25,13 +25,13 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 sys.path.insert(0, str(REPO_ROOT / "tests"))
 
-from mlframe.training import OutputConfig  # noqa: E402
-from mlframe.training.core import train_mlframe_models_suite  # noqa: E402
-from mlframe.training._feature_selection_config import FeatureSelectionConfig  # noqa: E402
-from training.shared import SimpleFeaturesAndTargetsExtractor  # noqa: E402
+from mlframe.training import OutputConfig
+from mlframe.training.core import train_mlframe_models_suite
+from mlframe.training._feature_selection_config import FeatureSelectionConfig
+from training.shared import SimpleFeaturesAndTargetsExtractor
 
 
-def _make_df(n_rows: int, n_features: int = 14, seed: int = 145, classification: bool = False) -> pd.DataFrame:  # noqa: D401
+def _make_df(n_rows: int, n_features: int = 14, seed: int = 145, classification: bool = False) -> pd.DataFrame:
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(n_rows, n_features))
     # a few informative + interaction structure so MRMR/FE has real work

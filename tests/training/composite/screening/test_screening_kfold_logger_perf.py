@@ -265,13 +265,13 @@ def test_silence_uses_precompiled_message_regexes_with_identical_semantics():
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         with _silence_tiny_model_output("lgb"):
-            warnings.warn("X has feature names, but X was fitted without", UserWarning)
-            warnings.warn("Skipping features without any observed values: [0]", UserWarning)
-            warnings.warn("conv", ConvergenceWarning)
-            warnings.warn("rt", RuntimeWarning)
+            warnings.warn("X has feature names, but X was fitted without", UserWarning, stacklevel=2)
+            warnings.warn("Skipping features without any observed values: [0]", UserWarning, stacklevel=2)
+            warnings.warn("conv", ConvergenceWarning, stacklevel=2)
+            warnings.warn("rt", RuntimeWarning, stacklevel=2)
         raised = False
         try:
-            warnings.warn("unrelated user warning", UserWarning)
+            warnings.warn("unrelated user warning", UserWarning, stacklevel=2)
         except UserWarning:
             raised = True
         assert raised, "outer error filter must be restored after the silence context exits"

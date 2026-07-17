@@ -89,7 +89,7 @@ class TestKendallTieCorrectedVariance:
         _, z = _kendall_tau_z(x, y)
         p_ours = _normal_two_sided_p(z)
 
-        tau_sp, p_sp = kendalltau(x, y, variant="b")
+        _tau_sp, p_sp = kendalltau(x, y, variant="b")
         # scipy uses the same tie-corrected normal approx; ours must agree closely.
         assert p_ours == pytest.approx(p_sp, abs=5e-3, rel=0.05), f"ours={p_ours} scipy={p_sp}"
 
@@ -260,7 +260,6 @@ class TestBorutaNullHitCalibration:
         rng = _np.random.default_rng(0)
         hits = rng.binomial(n_trials, null_p, size=n_features).astype(float)
 
-        accepted_box = {}
 
         def _binom(array, n, p, alternative):
             from scipy.stats import binomtest

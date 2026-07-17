@@ -10,10 +10,7 @@ import pytest
 import torch
 import numpy as np
 import pandas as pd
-import polars as pl
-from unittest.mock import Mock, MagicMock
-import tempfile
-import os
+from unittest.mock import Mock
 
 import sys
 from pathlib import Path

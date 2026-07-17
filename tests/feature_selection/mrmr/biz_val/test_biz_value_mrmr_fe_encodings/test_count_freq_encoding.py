@@ -39,8 +39,6 @@ import pandas as pd
 import pytest
 
 from sklearn.base import clone
-from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import roc_auc_score
 
 warnings.filterwarnings("ignore")
 
@@ -436,7 +434,7 @@ class TestNoLeakageCountFreq:
         )
 
         X, y = _build_count_signal(seed)
-        X_tr, y_tr, X_ho, y_ho = _train_holdout_split(X, y, seed=seed)
+        X_tr, _y_tr, X_ho, y_ho = _train_holdout_split(X, y, seed=seed)
         _, recipes = count_encode_fit(X_tr, ["cat_user"])
         out1 = apply_count_encoding(X_ho, "cat_user", recipes["cat_user"])
         # Shuffle holdout-y; apply ignores y entirely.
@@ -455,7 +453,7 @@ class TestNoLeakageCountFreq:
         )
 
         X, y = _build_count_signal(seed)
-        X_tr, y_tr, X_ho, y_ho = _train_holdout_split(X, y, seed=seed)
+        X_tr, _y_tr, X_ho, _y_ho = _train_holdout_split(X, y, seed=seed)
         _, recipes = frequency_encode_fit(X_tr, ["cat_user"])
         out1 = apply_frequency_encoding(X_ho, "cat_user", recipes["cat_user"])
         out2 = apply_frequency_encoding(X_ho, "cat_user", recipes["cat_user"])
@@ -474,7 +472,7 @@ class TestNoLeakageCatNum:
         )
 
         X, y = _build_cat_num_residual_signal(seed)
-        X_tr, y_tr, X_ho, y_ho = _train_holdout_split(X, y, seed=seed)
+        X_tr, y_tr, X_ho, _y_ho = _train_holdout_split(X, y, seed=seed)
         _, recipe = cat_num_interaction_fit(
             X_tr,
             y_tr.to_numpy(),
@@ -640,7 +638,7 @@ class TestPickleCloneRoundTrip:
 
     def test_full_mrmr_clone_preserves_layer34_params(self):
         """Check test full mrmr clone preserves layer34 params."""
-        X, y = _build_count_signal(seed=1)
+        _X, _y = _build_count_signal(seed=1)
         m = _make_mrmr(
             fe_count_encoding_enable=True,
             fe_count_encoding_cols=("cat_user",),
@@ -687,7 +685,7 @@ class TestDefaultDisabledByteIdentical:
         bit-identical to a fresh instance with the same params -- the
         Layer 34 knobs are no-ops when the masters are False."""
         X, y = _build_count_signal(seed=7)
-        X_tr, y_tr, X_ho, y_ho = _train_holdout_split(X, y, seed=7)
+        X_tr, y_tr, X_ho, _y_ho = _train_holdout_split(X, y, seed=7)
         m1 = _make_mrmr(fe_ntop_features=3)
         m1.fit(X_tr, y_tr)
         out1 = m1.transform(X_ho)

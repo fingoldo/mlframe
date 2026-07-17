@@ -27,7 +27,6 @@ from mlframe.feature_selection.filters import (
     MRMR,
     CatFEConfig,
 )
-from mlframe.feature_selection.filters.engineered_recipes import EngineeredRecipe
 
 
 @pytest.fixture

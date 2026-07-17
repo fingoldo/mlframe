@@ -16,7 +16,6 @@ RAM-light by mandate: n ~ 8000, p ~ 300, single process.
 
 from __future__ import annotations
 
-import os
 import warnings
 from timeit import default_timer as timer
 

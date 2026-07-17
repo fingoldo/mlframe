@@ -47,7 +47,7 @@ def test_grouped_fit_segment_bit_identical(n, K, seed):
         groups=groups,
         min_group_size=min_group_size,
     )
-    ref_a, ref_b, ref_n = _reference_mask_fit(y, base, groups, min_group_size)
+    ref_a, _ref_b, ref_n = _reference_mask_fit(y, base, groups, min_group_size)
 
     # group_sizes must match for EVERY group (including the deferred-to-global ones).
     assert params["group_sizes"] == ref_n
@@ -56,7 +56,7 @@ def test_grouped_fit_segment_bit_identical(n, K, seed):
     # must be bit-identical to the mask reference. Shrinkage is applied uniformly
     # afterwards from those same raw values, so reproduce it here to compare the
     # final stored alphas too.
-    for g_key, raw_a in ref_a.items():
+    for g_key in ref_a.keys():
         # The stored alpha may be shrunk; invert is not needed -- instead refit
         # via the reference and confirm the loop saw the SAME inputs by checking
         # the un-shrunk path on a no-shrink case below. Here we assert the loop

@@ -21,13 +21,13 @@ import pytest
 import matplotlib
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402
+import matplotlib.pyplot as plt
 
 shap = pytest.importorskip("shap")
-from sklearn.ensemble import GradientBoostingClassifier  # noqa: E402
-from sklearn.linear_model import LogisticRegression  # noqa: E402
+from sklearn.ensemble import GradientBoostingClassifier
+from sklearn.linear_model import LogisticRegression
 
-from mlframe.reporting.charts import shap_interactions as si  # noqa: E402
+from mlframe.reporting.charts import shap_interactions as si
 
 
 def _interaction_data(n: int = 3000, n_feat: int = 6, *, seed: int = 0):

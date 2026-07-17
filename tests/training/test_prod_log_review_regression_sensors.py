@@ -374,7 +374,6 @@ class TestPipelineCacheKindIsolation:
         silent — proof that LGB gets pandas, not a cached polars frame from
         XGB. If the raise fires, the kind-suffix fix has regressed.
         """
-        import tempfile
         from mlframe.training.core import train_mlframe_models_suite
         from mlframe.training.configs import TrainingBehaviorConfig
         from mlframe.training import OutputConfig, PreprocessingConfig
@@ -1013,7 +1012,6 @@ class TestPolarsReleaseBeforeNonNativeStrategy:
         Capture the log and assert the upfront-release line appears
         BEFORE the lazy-conversion line for LGB."""
         import logging as _logging
-        import re
         from mlframe.training.core import train_mlframe_models_suite
         from mlframe.training.configs import TrainingBehaviorConfig
         from mlframe.training import OutputConfig, PreprocessingConfig
@@ -1126,7 +1124,6 @@ class TestCatBoostStickyFlagDefensiveAtLoad:
         a stubbed ``_call_train_evaluate_with_configs`` so the test stays
         fast and doesn't actually train.
         """
-        import joblib
         from types import SimpleNamespace
         import catboost as cb
         from mlframe.training.io import save_mlframe_model

@@ -62,7 +62,7 @@ def test_compute_quantile_baselines_callable_via_dummy_baselines():
     test_y = rng.normal(size=50)
     alphas = (0.1, 0.5, 0.9)
 
-    val_preds, test_preds, extras = _compute_quantile_baselines(
+    val_preds, test_preds, _extras = _compute_quantile_baselines(
         target_name="y",
         train_y=train_y,
         val_y=val_y,

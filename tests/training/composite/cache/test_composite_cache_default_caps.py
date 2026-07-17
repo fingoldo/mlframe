@@ -8,7 +8,6 @@ honored for explicit opt-out.
 
 from __future__ import annotations
 
-import tempfile
 
 import pytest
 

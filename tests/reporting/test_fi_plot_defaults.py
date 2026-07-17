@@ -276,7 +276,6 @@ class TestFigsizeUnification:
         import matplotlib
 
         # Re-spy barh ourselves to grab kwargs the fixture drops.
-        import pytest as _pytest
 
         kwargs_captured = []
         real_barh = matplotlib.axes.Axes.barh

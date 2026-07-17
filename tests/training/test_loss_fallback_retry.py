@@ -19,9 +19,7 @@ non-trivial fit beats a constant-prediction collapse.
 from __future__ import annotations
 
 import logging
-from typing import Any
 
-import pytest
 
 
 # ---------------------------------------------------------------------------
@@ -58,7 +56,7 @@ class _StubBooster:
         # downstream callers (not exercised here) wouldn't break.
         self.__class__.__name__ = booster_type_name
 
-    def get_params(self, deep: bool = True) -> dict:  # noqa: ARG002
+    def get_params(self, deep: bool = True) -> dict:
         return dict(self._params)
 
     def set_params(self, **kwargs) -> "_StubBooster":

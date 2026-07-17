@@ -20,7 +20,6 @@ from mlframe.reporting.charts.ltr import (
 from mlframe.reporting.output import parse_plot_output_dsl
 from mlframe.reporting.renderers import render_and_save
 from mlframe.reporting.spec import (
-    FigureSpec,
     HistogramPanelSpec,
     LinePanelSpec,
     ViolinPanelSpec,

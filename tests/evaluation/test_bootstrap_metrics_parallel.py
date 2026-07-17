@@ -7,7 +7,6 @@ kernels, per-resample seeding). Pins the correctness contract that lets it be sa
 The default (n_jobs=1) must never change the serial numbers, so it is pinned separately."""
 
 import numpy as np
-import pytest
 
 from mlframe.evaluation.bootstrap import bootstrap_metrics
 

@@ -77,7 +77,7 @@ def test_classifier_name_dummy():
 
 
 def test_is_cuda_available():
-    numba = pytest.importorskip("numba")
+    pytest.importorskip("numba")
     from mlframe.utils.misc import is_cuda_available
 
     result = is_cuda_available()

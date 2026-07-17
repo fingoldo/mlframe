@@ -86,7 +86,7 @@ def _make_synthetic(n_rows: int = 30, n_features: int = 3, n_queries: int = 6, s
 
 def test_prepare_cb_inputs_sorted_input_returns_in_place():
     X, y, g = _make_synthetic(seed=1)
-    X_out, y_out, g_out, sort_idx = prepare_cb_inputs(X, y, g)
+    _X_out, y_out, g_out, sort_idx = prepare_cb_inputs(X, y, g)
     # Sorted -> sort_idx is the identity permutation.
     np.testing.assert_array_equal(sort_idx, np.arange(len(y)))
     np.testing.assert_array_equal(g_out, g)
@@ -99,7 +99,7 @@ def test_prepare_cb_inputs_unsorted_input_gets_sorted():
     X_perm = X.iloc[perm].reset_index(drop=True)
     y_perm = y[perm]
     g_perm = g[perm]
-    X_out, y_out, g_out, sort_idx = prepare_cb_inputs(X_perm, y_perm, g_perm)
+    _X_out, y_out, g_out, sort_idx = prepare_cb_inputs(X_perm, y_perm, g_perm)
     # Output group_ids must be non-decreasing (sorted).
     assert np.all(np.diff(g_out) >= 0)
     # y / X re-aligned: undo via argsort(sort_idx) recovers permuted input.
@@ -118,7 +118,7 @@ def test_prepare_xgb_inputs_pass_through():
 
 def test_prepare_lgb_inputs_sorted_uses_identity_sort_idx():
     X, y, g = _make_synthetic(seed=4)
-    X_out, y_out, group_sizes, sort_idx = prepare_lgb_inputs(X, y, g)
+    _X_out, _y_out, group_sizes, sort_idx = prepare_lgb_inputs(X, y, g)
     np.testing.assert_array_equal(sort_idx, np.arange(len(y)))
     # group_sizes must sum to row count.
     assert group_sizes.sum() == len(y)
@@ -130,7 +130,7 @@ def test_prepare_lgb_inputs_unsorted_returns_sorted_group_sizes():
     X_perm = X.iloc[perm].reset_index(drop=True)
     y_perm = y[perm]
     g_perm = g[perm]
-    X_out, y_out, group_sizes, sort_idx = prepare_lgb_inputs(X_perm, y_perm, g_perm)
+    _X_out, _y_out, group_sizes, _sort_idx = prepare_lgb_inputs(X_perm, y_perm, g_perm)
     # After sort, group_sizes sum stays N.
     assert group_sizes.sum() == len(y)
 
@@ -139,9 +139,9 @@ def test_prepare_inputs_parity_row_counts_across_backends():
     # CB / XGB / LGB MUST agree on row counts on the same input. A silent
     # divergence here was historically the most common ranking-suite bug.
     X, y, g = _make_synthetic(seed=6)
-    cb_X, cb_y, cb_g, _ = prepare_cb_inputs(X, y, g)
-    xgb_X, xgb_y, xgb_g = prepare_xgb_inputs(X, y, g)
-    lgb_X, lgb_y, lgb_sizes, _ = prepare_lgb_inputs(X, y, g)
+    _cb_X, cb_y, cb_g, _ = prepare_cb_inputs(X, y, g)
+    _xgb_X, xgb_y, xgb_g = prepare_xgb_inputs(X, y, g)
+    _lgb_X, lgb_y, lgb_sizes, _ = prepare_lgb_inputs(X, y, g)
     assert len(cb_y) == len(xgb_y) == len(lgb_y) == len(y)
     # CB and LGB sort by group: their group-derived sizes must match.
     cb_sizes = qid_to_group_sizes(cb_g)

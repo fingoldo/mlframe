@@ -9,22 +9,13 @@ Tests include:
 """
 
 import pytest
-import numpy as np
-import pandas as pd
 import warnings
 
-from hypothesis import given, settings, strategies as st, assume, HealthCheck
-from hypothesis.extra.numpy import arrays
 
-from sklearn.datasets import make_classification, make_regression
 
 # Import the module under test
 from mlframe.feature_selection.filters import (
     MRMR,
-    entropy,
-    categorize_dataset,
-    discretize_array,
-    compute_mi_from_classes,
 )
 
 
@@ -65,7 +56,7 @@ class TestMRMRClassification:
         here to keep asserting that the legacy path still works for
         callers who opt in.
         """
-        X, y, informative_indices = imbalanced_classification_data
+        X, y, _informative_indices = imbalanced_classification_data
 
         mrmr = MRMR(full_npermutations=5, baseline_npermutations=5, fe_fallback_to_all=True, verbose=0, n_jobs=1)
 
@@ -78,7 +69,7 @@ class TestMRMRClassification:
 
     def test_multiclass_classification(self, multiclass_data):
         """Test MRMR on multiclass classification data."""
-        X, y, informative_indices = multiclass_data
+        X, y, _informative_indices = multiclass_data
 
         mrmr = MRMR(full_npermutations=5, baseline_npermutations=5, verbose=0, n_jobs=1)
 

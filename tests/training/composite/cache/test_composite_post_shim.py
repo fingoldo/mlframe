@@ -33,7 +33,7 @@ class _RecordingScaler(BaseEstimator):
         self.mean_: float = 0.0
         self.scale_: float = 1.0
 
-    def fit(self, X, y=None):  # noqa: D401
+    def fit(self, X, y=None):
         arr = np.asarray(X, dtype=np.float64)
         self.mean_ = float(arr.mean())
         self.scale_ = float(arr.std() or 1.0)
@@ -172,7 +172,7 @@ class TestOofRefitWithShim:
         shim = PrePipelinePredictShim(model=inner_raw, pre_pipeline=pp, name="raw#0")
 
         with caplog.at_level(logging.WARNING, logger="mlframe.training.composite.ensemble"):
-            matrix, y_hold, surviving = compute_oof_holdout_predictions(
+            matrix, _y_hold, surviving = compute_oof_holdout_predictions(
                 component_models=[shim],
                 component_names=["raw#0"],
                 component_specs=[None],

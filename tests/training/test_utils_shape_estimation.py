@@ -8,12 +8,10 @@ Targets:
 
 from __future__ import annotations
 
-import math
 
 import numpy as np
 import pandas as pd
 import polars as pl
-import pytest
 
 from mlframe.training.utils import estimate_df_size_mb, drop_columns_from_dataframe
 from mlframe.training.preprocessing import create_split_dataframes
@@ -75,7 +73,7 @@ def test_create_split_empty_val_test_pandas():
 
 def test_create_split_empty_val_test_polars():
     df = pl.DataFrame({"x": list(range(10))})
-    tr, va, te = create_split_dataframes(df, np.arange(10), np.array([], dtype=int), np.array([], dtype=int))
+    tr, va, _te = create_split_dataframes(df, np.arange(10), np.array([], dtype=int), np.array([], dtype=int))
     assert tr.height == 10
     assert isinstance(va, pl.DataFrame) and va.is_empty()
 

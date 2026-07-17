@@ -13,9 +13,9 @@ import numpy as np
 import pytest
 
 pl = pytest.importorskip("polars")
-import pandas as pd  # noqa: E402
+import pandas as pd
 
-from mlframe.feature_selection.filters.mrmr import MRMR  # noqa: E402
+from mlframe.feature_selection.filters.mrmr import MRMR
 
 
 def _canonical(n=4000, seed=0):

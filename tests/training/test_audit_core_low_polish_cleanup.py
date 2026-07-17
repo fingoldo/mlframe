@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 
-import mlframe as _mlframe  # noqa: E402  -- derive src path from package; the previous ``D:/Upd/Programming/...`` hardcode silently broke every other machine and the suite SKIPped 11 tests with "main.py not present" etc.
+import mlframe as _mlframe
 
 _CORE_ROOT = Path(_mlframe.__file__).resolve().parent / "training"
 

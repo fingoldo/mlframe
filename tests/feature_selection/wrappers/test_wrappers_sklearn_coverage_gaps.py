@@ -12,22 +12,17 @@ inputs) so a genuine regression fails loudly.
 
 from __future__ import annotations
 
-import io
 import logging
-import sys
-import warnings
 
 import numpy as np
-import pandas as pd
 import pytest
 
 from sklearn.base import is_classifier, is_regressor
-from sklearn.datasets import make_classification, make_regression, load_iris
+from sklearn.datasets import make_classification, make_regression
 from sklearn.exceptions import NotFittedError
-from sklearn.linear_model import LogisticRegression, Ridge, Lasso
+from sklearn.linear_model import LogisticRegression, Ridge
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import GroupKFold, StratifiedKFold, KFold, cross_val_score
-from sklearn.multiclass import OneVsRestClassifier
+from sklearn.model_selection import GroupKFold, StratifiedKFold
 from sklearn.pipeline import Pipeline, make_pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.impute import SimpleImputer

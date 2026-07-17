@@ -13,7 +13,6 @@ fixture; the actual mutation-detection logic is in the autouse session fixture i
 
 from __future__ import annotations
 
-import pytest
 
 
 _FIXTURES_TO_REGISTER = [

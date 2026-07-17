@@ -22,7 +22,6 @@ import numpy as np
 import pytest
 
 from mlframe.training.composite import (
-    _GROUPED_MIN_GROUP_SIZE,
     _linear_residual_grouped_fit,
     _linear_residual_grouped_forward,
     _linear_residual_grouped_inverse,

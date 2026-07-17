@@ -90,7 +90,7 @@ def test_biz_val_adversarial_fold_iterative_refinement_beats_one_shot_under_domi
 
 
 def test_build_test_like_validation_fold_default_args_unchanged_by_new_params():
-    X_train, y_train, regime, X_test, y_test = _make_layered_drift_scenario(seed=1)
+    X_train, _y_train, _regime, X_test, _y_test = _make_layered_drift_scenario(seed=1)
 
     val_idx_default, remainder_default = build_test_like_validation_fold(X_train, X_test, val_fraction=0.2, seed=3)
     val_idx_explicit, remainder_explicit = build_test_like_validation_fold(

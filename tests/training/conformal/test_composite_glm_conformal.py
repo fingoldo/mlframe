@@ -156,7 +156,7 @@ class TestGLMConformalBizValue:
 
         abs_res = np.abs(np.asarray(yc, dtype=np.float64) - mu_cal)
         n = abs_res.size
-        rank = int(math.ceil((n + 1) * (1.0 - alpha)))
+        rank = math.ceil((n + 1) * (1.0 - alpha))
         q_const = np.sort(abs_res)[min(rank, n) - 1]
         mu_te = est.predict(Xte)
         lo_c = np.maximum(mu_te - q_const, 0.0)

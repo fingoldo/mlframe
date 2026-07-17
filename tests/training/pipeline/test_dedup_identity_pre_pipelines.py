@@ -8,7 +8,6 @@ config flag to opt out.
 
 import numpy as np
 import pandas as pd
-import pytest
 
 
 # ═══════════════════════════════════════════════════════════════════════════

@@ -8,7 +8,6 @@ must never raise; it only ever returns True/False).
 
 from __future__ import annotations
 
-import importlib
 import io
 import logging
 import sys
@@ -160,7 +159,6 @@ def test_enable_calls_seterrormode_on_windows(crash_reporting_module, monkeypatc
 
     call_log = []
 
-    real_set = ctypes.windll.kernel32.SetErrorMode
 
     def _spy_set_error_mode(flags):
         call_log.append(int(flags))

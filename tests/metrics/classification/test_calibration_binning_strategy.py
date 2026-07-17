@@ -72,7 +72,7 @@ def test_freqs_predicted_within_observed_support_random():
     n = 5000
     y_pred = rng.random(n)
     y_true = (rng.random(n) < y_pred).astype(np.int64)
-    fp, ft, hits = fast_calibration_binning(y_true, y_pred, nbins=20)
+    fp, _ft, hits = fast_calibration_binning(y_true, y_pred, nbins=20)
     # Mean-per-bin x positions are bounded by the global pred range.
     assert fp.min() >= y_pred.min() - 1e-9
     assert fp.max() <= y_pred.max() + 1e-9

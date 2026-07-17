@@ -34,13 +34,8 @@ from itertools import combinations
 import numpy as np
 
 from mlframe.feature_selection.filters.info_theory import (
-    merge_vars,
-    compute_mi_from_classes,
     batch_pair_mi_prange,
     batch_triple_mi_prange,
-)
-from mlframe.feature_selection.filters._permutation_null import (
-    pooled_triple_permutation_null_joint_mi_floor,
 )
 
 

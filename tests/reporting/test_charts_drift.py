@@ -542,7 +542,7 @@ def test_cprofile_adversarial_subsample_bound():
     Xb = rng.normal(size=(n, d))
     pr = cProfile.Profile()
     pr.enable()
-    auc, fpr, tpr, imp, _ = drift.adversarial_auc(Xa, Xb, max_rows_per_side=5000, n_splits=3, seed=3)
+    auc, _fpr, _tpr, imp, _ = drift.adversarial_auc(Xa, Xb, max_rows_per_side=5000, n_splits=3, seed=3)
     pr.disable()
     assert imp.shape == (d,)
     assert 0.0 <= auc <= 1.0

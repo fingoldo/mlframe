@@ -5,7 +5,6 @@ swallowed by the warmup try/except, aborting every later kernel warmup in the sa
 and would index out of bounds if it ran. This pins the call arity behaviourally.
 """
 
-import numpy as np
 
 
 def test_warmup_calls_mape_par_kernel_with_nthr(monkeypatch):

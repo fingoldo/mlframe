@@ -70,7 +70,7 @@ class TestGLMBizValue:
         dev_plain = mean_poisson_deviance(yte, pred_plain)
         dev_comp = mean_poisson_deviance(yte, pred_comp)
         rmse_base = mean_squared_error(yte, pred_base) ** 0.5
-        rmse_plain = mean_squared_error(yte, pred_plain) ** 0.5
+        mean_squared_error(yte, pred_plain) ** 0.5
         rmse_comp = mean_squared_error(yte, pred_comp) ** 0.5
 
         # Composite must clearly beat the base alone (it learns the residual the

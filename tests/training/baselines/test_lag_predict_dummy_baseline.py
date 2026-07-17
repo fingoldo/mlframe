@@ -25,7 +25,6 @@ from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
-import pytest
 
 
 def _ar_synthetic_frame(n: int = 2000, seed: int = 0):
@@ -101,7 +100,7 @@ class TestLagPredictBaseline:
         train_y = y[:3000]
         val_y = y[3000:3500]
         test_y = y[3500:]
-        val_preds, test_preds, _extras = _compute_regression_baselines(
+        val_preds, _test_preds, _extras = _compute_regression_baselines(
             target_name="TVT",
             train_X=train_X,
             val_X=val_X,

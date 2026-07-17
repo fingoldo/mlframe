@@ -7,14 +7,12 @@ and PASS once the corresponding fix lands.
 from __future__ import annotations
 
 import logging
-import warnings
 
 import numpy as np
 import pandas as pd
 import pytest
 
 from mlframe.feature_selection.filters import MRMR
-from mlframe.feature_selection.filters import screen as screen_mod
 
 
 def _toy_dataset(n_rows: int = 200, n_cols: int = 6, seed: int = 0):

@@ -19,7 +19,7 @@ import pytest
 
 cp = pytest.importorskip("cupy")
 
-from mlframe.feature_selection.shap_proxied_fs._shap_proxy_cluster_su import (  # noqa: E402
+from mlframe.feature_selection.shap_proxied_fs._shap_proxy_cluster_su import (
     _should_route_su_gpu,
     cluster_correlated_features_su,
     cluster_su_gpu_available,

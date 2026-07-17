@@ -621,7 +621,7 @@ class TestLockAlphaDrift:
         flags = getattr(disc, "_alpha_drift_flags", {})
         assert len(flags) >= 1, "regression: drift detector failed to flag any spec on alpha-jump fixture"
         # Demo z=12.31; lock z>=5.
-        z = list(flags.values())[0]["z_score"]
+        z = next(iter(flags.values()))["z_score"]
         assert z >= 5.0, f"regression: drift z-score only {z:.2f}; expected >= 5 on alpha-jump 0.5 -> 1.5 fixture"
 
 

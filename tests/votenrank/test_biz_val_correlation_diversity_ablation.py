@@ -123,7 +123,7 @@ def test_biz_val_diversity_ablation_greedy_search_avoids_redundant_trio():
         return _rmse(y_true, np.mean([oof_preds[n] for n in names], axis=0))
 
     naive_all_loss = _blend_rmse(["best", "c1", "c2", "c3"])  # naive: include every pairwise-flagged candidate
-    greedy_loss = _blend_rmse(["best"] + list(selected))
+    greedy_loss = _blend_rmse(["best", *list(selected)])
 
     # Measured: naive_all_loss=1.3325, greedy_loss=1.2640, improvement=0.0685 (seed=0, n=4000) -- threshold set
     # ~12% below the measured improvement.

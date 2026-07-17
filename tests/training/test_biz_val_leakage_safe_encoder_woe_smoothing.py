@@ -59,7 +59,7 @@ def test_biz_val_woe_smoothing_small_alpha_beats_large_on_rare_highcard():
 
 def test_biz_val_woe_smoothing_default_matches_explicit_half():
     """The new default (None -> 0.5) must reproduce explicit woe_smoothing=0.5."""
-    ctr, ytr, cte, yte = _make_imbalanced_highcard(0)
+    ctr, ytr, cte, _yte = _make_imbalanced_highcard(0)
     e_def = LeakageSafeEncoder(method="woe", random_state=0).fit(ctr, ytr)
     e_half = LeakageSafeEncoder(method="woe", woe_smoothing=0.5, random_state=0).fit(ctr, ytr)
     np.testing.assert_allclose(e_def.transform(cte), e_half.transform(cte))
@@ -72,7 +72,7 @@ def test_woe_smoothing_negative_rejected():
 
 def test_woe_smoothing_independent_of_mean_smoothing():
     """Changing mean ``smoothing`` must NOT alter WoE output; only woe_smoothing does."""
-    ctr, ytr, cte, yte = _make_imbalanced_highcard(1)
+    ctr, ytr, cte, _yte = _make_imbalanced_highcard(1)
     e_a = LeakageSafeEncoder(method="woe", smoothing=10.0, random_state=0).fit(ctr, ytr)
     e_b = LeakageSafeEncoder(method="woe", smoothing=999.0, random_state=0).fit(ctr, ytr)
     np.testing.assert_allclose(e_a.transform(cte), e_b.transform(cte))

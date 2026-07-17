@@ -72,8 +72,8 @@ def _fit(monotonic):
 
 @pytest.mark.timeout(240)
 def test_monotonic_decline_stops_mlp_early():
-    est_mono, ep_mono, rmse_mono = _fit(monotonic=3)
-    est_none, ep_none, rmse_none = _fit(monotonic=None)
+    _est_mono, ep_mono, rmse_mono = _fit(monotonic=3)
+    _est_none, ep_none, rmse_none = _fit(monotonic=None)
 
     # The trained-epoch count is recorded on the lightning module; the monotonic run must use
     # strictly fewer epochs than the baseline that ran toward the full budget.

@@ -24,11 +24,11 @@ class _RejectAllValDetector:
     def __init__(self) -> None:
         self._n_train = 0
 
-    def fit(self, X):  # noqa: N803
+    def fit(self, X):
         self._n_train = len(X)
         return self
 
-    def predict(self, X):  # noqa: N803
+    def predict(self, X):
         # Train frame (seen at fit) -> all inliers; anything else (val) -> all outliers.
         if len(X) == self._n_train:
             return np.ones(len(X), dtype=int)

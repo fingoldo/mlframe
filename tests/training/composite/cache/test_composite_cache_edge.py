@@ -12,12 +12,10 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 from unittest import mock
 
-import pytest
 
 from mlframe.training.composite.cache import (
     DiscoveryCache,

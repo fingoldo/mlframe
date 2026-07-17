@@ -46,7 +46,7 @@ from pyutilz.dev.meta_test_utils import capture_signature
 _SNAPSHOT_PATH = Path(__file__).resolve().parent / "_api_snapshot.json"
 
 
-def pytest_addoption(parser):  # noqa: D401  (pytest hook)
+def pytest_addoption(parser):
     """Register ``--refresh-api-snapshot`` so the user can capture a
     fresh snapshot after an intentional API change."""
     # Late-binding: pytest's addoption is registered via a conftest

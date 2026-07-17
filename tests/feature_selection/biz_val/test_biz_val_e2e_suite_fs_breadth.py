@@ -40,7 +40,6 @@ from mlframe.training.core import train_mlframe_models_suite
 from mlframe.training.configs import ReportingConfig, TargetTypes
 from mlframe.training import FeatureSelectionConfig, OutputConfig
 from tests.training.shared import SimpleFeaturesAndTargetsExtractor
-from tests.feature_selection.conftest import is_fast_mode
 
 
 # ---------------------------------------------------------------------------
@@ -198,7 +197,7 @@ def test_biz_val_suite_mrmr_multiclass_excludes_noise():
         TargetTypes.MULTICLASS_CLASSIFICATION,
         FeatureSelectionConfig(use_mrmr_fs=True, mrmr_kwargs=_MRMR_KW),
     )
-    used, fs_model = _fs_model_used_features(inner)
+    used, _fs_model = _fs_model_used_features(inner)
     assert used is not None, "no FS-branch model produced (use_mrmr_fs=True ignored?)"
 
     noise_kept = used & set(noise_cols)
@@ -232,7 +231,7 @@ def test_biz_val_suite_rfecv_regression_excludes_noise():
         TargetTypes.REGRESSION,
         FeatureSelectionConfig(rfecv_models=["cb_rfecv"]),
     )
-    used, fs_model = _fs_model_used_features(inner)
+    used, _fs_model = _fs_model_used_features(inner)
     assert used is not None, "no RFECV-branch model produced (rfecv_models ignored?)"
 
     noise_kept = used & set(noise_cols)
@@ -288,10 +287,10 @@ def test_biz_val_suite_mrmr_mixed_features_excludes_noise():
         TargetTypes.BINARY_CLASSIFICATION,
         FeatureSelectionConfig(use_mrmr_fs=True, mrmr_kwargs=_MRMR_KW),
     )
-    used, fs_model = _fs_model_used_features(inner)
+    used, _fs_model = _fs_model_used_features(inner)
     assert used is not None, "no FS-branch model produced on mixed-feature frame"
 
-    feature_cols = [c for c in df.columns if c != "target"]
+    [c for c in df.columns if c != "target"]
     _assert_suite_predicts(df, _res, _meta, fte)
 
     noise_kept = used & set(num_noise)
@@ -345,10 +344,10 @@ def test_biz_val_suite_mrmr_reduces_multicollinear_pollution():
         TargetTypes.BINARY_CLASSIFICATION,
         FeatureSelectionConfig(use_mrmr_fs=True, mrmr_kwargs=_MRMR_KW),
     )
-    used, fs_model = _fs_model_used_features(inner)
+    used, _fs_model = _fs_model_used_features(inner)
     assert used is not None, "no FS-branch model on multicollinear frame"
 
-    feature_cols = [c for c in df.columns if c != "target"]
+    [c for c in df.columns if c != "target"]
     _assert_suite_predicts(df, _res, _meta, fte)
 
     collinear_kept = used & set(collinear_group)
@@ -387,7 +386,7 @@ def test_biz_val_suite_mrmr_fs_isolated_from_other_stages():
         FeatureSelectionConfig(use_mrmr_fs=True, mrmr_kwargs=_MRMR_KW),
     )
 
-    used, fs_model = _fs_model_used_features(inner)
+    used, _fs_model = _fs_model_used_features(inner)
     assert used is not None, "no FS-branch model produced with other stages off"
 
     noise_kept = used & set(noise_cols)
@@ -433,7 +432,7 @@ def test_biz_val_suite_mrmr_ltr_excludes_noise():
         TargetTypes.LEARNING_TO_RANK,
         FeatureSelectionConfig(use_mrmr_fs=True, mrmr_kwargs=_MRMR_KW),
     )
-    used, fs_model = _fs_model_used_features(inner)
+    used, _fs_model = _fs_model_used_features(inner)
     assert used is not None, "no FS-branch model produced for LtR (use_mrmr_fs=True ignored?)"
 
     noise_kept = used & set(noise_cols)
@@ -475,7 +474,7 @@ def _two_d_signal_noise_frame(n, kind, n_noise=8, seed=0):
 
 
 def _assert_noise_excluded(inner, signal_cols, noise_cols, *, min_signal=2, min_excl=0.75):
-    used, fs_model = _fs_model_used_features(inner)
+    used, _fs_model = _fs_model_used_features(inner)
     assert used is not None, "no FS-branch model produced (use_mrmr_fs=True ignored?)"
     noise_kept = used & set(noise_cols)
     signal_kept = used & set(signal_cols)

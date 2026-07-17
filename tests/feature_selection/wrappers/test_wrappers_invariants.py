@@ -35,7 +35,7 @@ from mlframe.feature_selection.wrappers import (
     select_features_fdr,
 )
 
-from tests.feature_selection.conftest import IS_FAST_MODE, fast_subset
+from tests.feature_selection.conftest import fast_subset
 
 
 # Common minimal RFECV factory: fast, deterministic, log-quiet.

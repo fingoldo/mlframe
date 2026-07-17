@@ -31,7 +31,7 @@ def test_per_class_ice_indexed_equals_recompute(k):
     y_true = rng.integers(0, k, n)
     probs = _softmax_probs(rng, n, k)
 
-    agg, per_class = compute_probabilistic_multiclass_error(y_true=y_true, y_score=probs, nbins=10, return_per_class=True)
+    _agg, per_class = compute_probabilistic_multiclass_error(y_true=y_true, y_score=probs, nbins=10, return_per_class=True)
     assert isinstance(per_class, dict) and per_class, "fastpath should populate per-class dict"
 
     # Binary skips class 0; multiclass evaluates all K.
@@ -64,7 +64,7 @@ def test_return_per_class_empty_dict_on_legacy_path():
     y_true = rng.integers(0, k, n)
     probs = _softmax_probs(rng, n, k)
 
-    agg, per_class = compute_probabilistic_multiclass_error(y_true=y_true, y_score=probs, method="brier_score", return_per_class=True)
+    _agg, per_class = compute_probabilistic_multiclass_error(y_true=y_true, y_score=probs, method="brier_score", return_per_class=True)
     assert per_class == {}
 
 

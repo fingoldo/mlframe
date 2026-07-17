@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from mlframe.feature_selection import compare_selectors, SelectorComparison
+from mlframe.feature_selection import compare_selectors
 
 
 # --------------------------------------------------------------------------- #

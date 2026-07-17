@@ -13,7 +13,6 @@ Covers ``score_interaction_pairs`` + ``discover_interaction_bases`` in
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from mlframe.training.composite.discovery._interaction_bases import (
     discover_interaction_bases,

@@ -17,7 +17,6 @@ import matplotlib
 
 matplotlib.use("Agg")
 import numpy as np
-import pytest
 
 from mlframe.training.reporting._reporting_probabilistic import (
     report_probabilistic_model_perf,

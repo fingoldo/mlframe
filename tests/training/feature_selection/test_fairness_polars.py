@@ -25,7 +25,6 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import polars as pl
-import pytest
 
 from mlframe.metrics.core import compute_fairness_metrics
 from mlframe.metrics.core import fast_mean_absolute_error, fast_root_mean_squared_error

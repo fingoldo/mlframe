@@ -117,7 +117,7 @@ def test_dispatch_falls_back_to_cpu_below_thresholds():
 
 def test_dispatch_force_backend_njit():
     data, nbins, y, freqs_y, pa, pb = _build_pair_inputs(500, [4, 4, 4, 4], 2, 1)
-    mi, backend = dispatch_batch_pair_mi(
+    _mi, backend = dispatch_batch_pair_mi(
         data,
         pa,
         pb,
@@ -171,7 +171,7 @@ def test_dispatch_force_unavailable_falls_back_to_cpu(monkeypatch):
     monkeypatch.setattr(mod, "_CUDA_AVAIL", False)
     monkeypatch.setattr(mod, "_CUPY_AVAIL", False)
     data, nbins, y, freqs_y, pa, pb = _build_pair_inputs(500, [4, 4, 4, 4], 2, 1)
-    mi, backend = mod.dispatch_batch_pair_mi(
+    _mi, backend = mod.dispatch_batch_pair_mi(
         data,
         pa,
         pb,

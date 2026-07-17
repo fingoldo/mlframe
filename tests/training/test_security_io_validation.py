@@ -11,13 +11,11 @@ save_series_or_df(). Tests target the real behavior.
 """
 
 from __future__ import annotations
-from mlframe.training import OutlierDetectionConfig, OutputConfig
 
 import os
 import sys
 from pathlib import Path
 
-import joblib
 import numpy as np
 import pandas as pd
 import pytest
@@ -196,7 +194,7 @@ def test_finalize_bubbles_ioerror(tmp_path, monkeypatch):
     import mlframe.training.io as io_mod
 
     def _bad_write(*a, **k):
-        raise IOError("disk full")
+        raise OSError("disk full")
 
     monkeypatch.setattr(io_mod, "atomic_write_bytes", _bad_write)
     ctx = _make_ctx(data_dir=str(bad_dir), models_dir="models")

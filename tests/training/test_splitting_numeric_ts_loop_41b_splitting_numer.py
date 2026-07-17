@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 
 
 def _build_inputs(n: int = 200, ts_kind: str = "numeric"):

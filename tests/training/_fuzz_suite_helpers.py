@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 
 from ._fuzz_combo import (
-    FuzzCombo,  # noqa: F401  (annotation strings under PEP 563)
+    FuzzCombo,
     build_composite_discovery_config,
 )
 

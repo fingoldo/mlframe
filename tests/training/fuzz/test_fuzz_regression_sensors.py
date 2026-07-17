@@ -435,7 +435,7 @@ def test_sensor_categorize_dataset_recognizes_polars_cat_dtypes():
             "cat_bool": pl.Series([True, False] * 50),
         }
     )
-    data, cols, nbins = categorize_dataset(df, n_bins=5)
+    data, cols, _nbins = categorize_dataset(df, n_bins=5)
     # All cat columns must appear in the output (as integer-encoded cols).
     for c in ("cat_0", "cat_enum", "cat_utf8", "cat_bool"):
         assert c in cols, (
@@ -916,7 +916,7 @@ def test_sensor_fuzz_recurrent_model_x_recency_only_weights(tmp_path):
     # The combo runner either succeeds (asserting models trained) or raises -- never silently emits empty.
     try:
         _run_sensor_combo(combo, tmp_path)
-    except Exception as exc:  # noqa: BLE001 -- sensor explicitly tolerates raise as a CLEAR signal vs silent NaN.
+    except Exception as exc:
         msg = str(exc).lower()
         # Acceptable: explicit failure with informative message. Forbidden: silent / generic NaN / type errors.
         assert any(token in msg for token in ("weight", "recurrent", "lstm", "recency", "config", "sequence")), (

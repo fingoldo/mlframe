@@ -10,7 +10,6 @@ from __future__ import annotations
 import logging
 import types
 import warnings
-from typing import Any
 from unittest.mock import patch
 
 import numpy as np
@@ -262,7 +261,6 @@ def test_I_mape_warmup_does_not_emit_zero_y_warning(caplog):
     """Reload the warmup module; if the warmup y_true contains zeros the
     rate-limited '_MAPE_ZERO_WARN_SEEN' warning fires once. After the fix it
     must stay silent."""
-    import importlib
     from mlframe.metrics import _core_precision_mape
 
     # Clear the rate-limit cache so a stale prior call doesn't mask a fresh trigger.

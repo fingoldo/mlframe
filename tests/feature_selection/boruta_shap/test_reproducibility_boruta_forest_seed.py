@@ -5,7 +5,6 @@ DIFFERENT forests (the docstring claimed determinism from a fixed seed). The fix
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 
 def _make(random_state, classification):

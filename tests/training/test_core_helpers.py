@@ -8,7 +8,6 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import numpy as np
-import pytest
 
 from mlframe.training.core._misc_helpers import _cfg_get, _compute_neural_max_time
 
@@ -76,7 +75,7 @@ class TestComputeNeuralMaxTime:
         times = [10.0, 20.0, 30.0]
         result = _compute_neural_max_time(times)
         assert isinstance(result, tuple) and len(result) == 3, f"expected 3-tuple, got {result!r}"
-        max_time_dict, p95, n = result
+        max_time_dict, _p95, n = result
         assert n == 3
         # 300s = 5min
         assert max_time_dict == {"days": 0, "hours": 0, "minutes": 5, "seconds": 0}
@@ -85,7 +84,7 @@ class TestComputeNeuralMaxTime:
         # P95 of [600] = 600s = 10 minutes, above the 300s floor.
         result = _compute_neural_max_time([600.0])
         assert isinstance(result, tuple) and len(result) == 3, f"expected 3-tuple, got {result!r}"
-        max_time_dict, p95, n = result
+        max_time_dict, _p95, n = result
         assert n == 1
         assert max_time_dict == {"days": 0, "hours": 0, "minutes": 10, "seconds": 0}
 
@@ -113,7 +112,7 @@ class TestComputeNeuralMaxTime:
         assert 460 < p95 <= 500
         # Whatever P95 rounds to, the dhms should sum back to int(round(p95))
         total = max_time_dict["days"] * 86400 + max_time_dict["hours"] * 3600 + max_time_dict["minutes"] * 60 + max_time_dict["seconds"]
-        assert total == max(int(round(p95)), 300)
+        assert total == max(round(p95), 300)
 
     def test_returns_tuple_of_three(self):
         result = _compute_neural_max_time([60.0, 120.0])
@@ -133,6 +132,6 @@ class TestComputeNeuralMaxTime:
     def test_numpy_array_input(self):
         result = _compute_neural_max_time(np.array([300.0, 600.0, 900.0]))
         assert result is not None
-        max_time_dict, p95, n = result
+        _max_time_dict, p95, n = result
         assert n == 3
         assert p95 > 0

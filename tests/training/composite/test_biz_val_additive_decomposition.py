@@ -83,7 +83,7 @@ def test_additive_decomposition_predict_components_recovers_true_split():
 
 
 def test_additive_decomposition_predict_sums_components():
-    X_train, y_train, c1_train, c2_train = _make_correlated_train(n=500, seed=4)
+    X_train, y_train, c1_train, _c2_train = _make_correlated_train(n=500, seed=4)
     model = AdditiveDecompositionRegressor(component_names=("c1", "c2"), hidden_sizes=(8,), n_epochs=30, random_state=4)
     model.fit(X_train, y_train, component_targets={"c1": c1_train})
     pred = model.predict(X_train)
@@ -197,7 +197,7 @@ def test_biz_val_additive_decomposition_non_negative_constraint_eliminates_sign_
     # value ZERO times, by construction (softplus's range excludes negatives exactly, not merely on average).
     n_negative_unconstrained = []
     for seed in (20, 21, 22, 23, 24):
-        X_train, y_train, c_pos_train, _ = _make_non_negative_component_data(n=2000, seed=seed)
+        X_train, y_train, _c_pos_train, _ = _make_non_negative_component_data(n=2000, seed=seed)
         X_test, _, _, _ = _make_non_negative_component_data(n=1000, seed=seed + 1)
 
         kwargs = dict(component_names=("c_pos", "c_other"), hidden_sizes=(16, 8), component_task_weight=0.0, n_epochs=400, lr=0.02, random_state=seed)

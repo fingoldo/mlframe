@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.feature_selection.filters import MRMR, CatFEConfig
 from mlframe.feature_selection.filters.engineered_recipes._recipe_dispatch import apply_recipe
@@ -159,7 +158,7 @@ def test_biz_value_include_numeric_standalone_lift_at_step_level():
         classes_y, freqs_y, _ = merge_vars(factors_data=data, vars_indices=tgt_idx, var_is_nominal=None, factors_nbins=nbins, dtype=dtype)
         num_raw = {cols.index("x0"): Xtr["x0"].to_numpy(float), cols.index("x1"): Xtr["x1"].to_numpy(float)}
         cfg = CatFEConfig(enable=True, include_numeric=True, numeric_nbins=8, emit_target_encoding=False, full_npermutations=0)
-        d2, c2, nb2, state = run_cat_interaction_step(
+        _d2, _c2, _nb2, state = run_cat_interaction_step(
             data=data,
             cols=cols,
             nbins=nbins,

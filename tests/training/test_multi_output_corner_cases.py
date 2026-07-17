@@ -16,7 +16,6 @@ Tests:
 from __future__ import annotations
 
 import sys
-import warnings
 from unittest.mock import patch
 
 import numpy as np
@@ -129,7 +128,7 @@ def test_splitting_stratify_2d_via_iterstrat_roundtrip():
     from mlframe.training.splitting import make_train_test_split
 
     rng = np.random.default_rng(42)
-    N, K = 500, 3
+    N, _K = 500, 3
     # Per-label rates 0.3, 0.5, 0.7 — we want these preserved in splits
     y = np.stack(
         [

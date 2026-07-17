@@ -14,10 +14,8 @@ These tests pin the policy on a minimal Lightning-shaped stand-in.
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 import numpy as np
-import pytest
 
 
 class _StubLightning:

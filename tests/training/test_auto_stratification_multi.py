@@ -15,7 +15,6 @@ Post-fix:
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 
 # ---------------------------------------------------------------------------
@@ -47,7 +46,7 @@ def _build_stratify_key(target_by_type):
                 _multilabel_target = _named
             continue
         if "CLASS" in _tt_name and isinstance(_named, dict):
-            for _tn, _tv in _named.items():
+            for _tv in _named.values():
                 if _tv is not None:
                     _classification_targets.append(_tv)
     if _multilabel_target is not None:

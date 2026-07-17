@@ -11,8 +11,6 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
-from sklearn.datasets import make_classification
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 

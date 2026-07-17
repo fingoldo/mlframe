@@ -27,7 +27,7 @@ class TestSeedBehavior:
         b1 = rng.normal(loc=10, scale=2, size=n)
         b2 = rng.normal(size=n)
         y = b1 + b2 + rng.normal(scale=0.1, size=n)
-        kept, diag = forward_stepwise_multi_base(
+        kept, _diag = forward_stepwise_multi_base(
             y,
             candidate_bases={"b1": b1, "b2": b2},
             seed_bases=["b1"],
@@ -61,7 +61,7 @@ class TestGreedyAddition:
         b2 = rng.normal(loc=0, scale=3, size=n)
         b3_noise = rng.normal(size=n)  # pure noise -> should be rejected
         y = 0.9 * b1 + 0.5 * b2 + rng.normal(scale=0.2, size=n)
-        kept, diag = forward_stepwise_multi_base(
+        kept, _diag = forward_stepwise_multi_base(
             y,
             candidate_bases={"b1": b1, "b2": b2, "b3_noise": b3_noise},
             seed_bases=["b1"],
@@ -79,7 +79,7 @@ class TestGreedyAddition:
         y = 0.9 * b1 + rng.normal(scale=0.2, size=n)
         noise_bases = {f"noise_{i}": rng.normal(size=n) for i in range(5)}
         candidates = {"b1": b1, **noise_bases}
-        kept, diag = forward_stepwise_multi_base(
+        kept, _diag = forward_stepwise_multi_base(
             y,
             candidates,
             seed_bases=["b1"],
@@ -97,7 +97,7 @@ class TestGreedyAddition:
         n = 400
         candidates = {f"b{i}": rng.normal(size=n) for i in range(10)}
         y = sum(candidates.values()) + rng.normal(scale=0.1, size=n)
-        kept, diag = forward_stepwise_multi_base(
+        kept, _diag = forward_stepwise_multi_base(
             y,
             candidates,
             max_k=3,

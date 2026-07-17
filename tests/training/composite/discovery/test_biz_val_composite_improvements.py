@@ -24,7 +24,6 @@ from mlframe.training.composite.transforms import (
     get_transform,
     _linear_residual_fit,
     _linear_residual_robust_fit,
-    _linear_residual_forward,
 )
 
 
@@ -48,7 +47,7 @@ class TestBizValRobustLinres:
         rob = _linear_residual_robust_fit(y, base)
         ols_alpha_err = abs(ols["alpha"] - alpha_true) / alpha_true
         rob_alpha_err = abs(rob["alpha"] - alpha_true) / alpha_true
-        ols_beta_err = abs(ols["beta"] - beta_true) / abs(beta_true)
+        abs(ols["beta"] - beta_true) / abs(beta_true)
         rob_beta_err = abs(rob["beta"] - beta_true) / abs(beta_true)
 
         # Hard biz_val gate: robust alpha must be ≥ 5x more accurate than OLS,
@@ -373,7 +372,7 @@ class TestBizValStackedDiscovery:
         )
         n_train = int(0.7 * n)
         train_idx = np.arange(n_train)
-        val_idx = np.arange(n_train, n)
+        np.arange(n_train, n)
         feature_cols = ["x_a", "x_b", "n0", "n1"]
 
         cfg = CompositeTargetDiscoveryConfig(enabled=True, mi_sample_n=2000)

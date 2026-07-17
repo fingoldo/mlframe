@@ -33,7 +33,7 @@ def test_target_quantile_modea_scaler_is_per_fold_train_only():
 
     # Pick a target row and a "perturb" row that fall in the SAME val fold (so the perturb row is never in the target row's train complement).
     splits = list(splitter.split(X))
-    tr0, va0 = splits[0]
+    _tr0, va0 = splits[0]
     target_row, perturb_row = int(va0[0]), int(va0[1])
 
     X2 = X.copy()

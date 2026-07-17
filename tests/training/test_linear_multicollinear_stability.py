@@ -27,7 +27,6 @@ This test pins the contract:
 from __future__ import annotations
 
 import numpy as np
-import pytest
 from sklearn.linear_model import LinearRegression
 
 from mlframe.training.configs import LinearModelConfig

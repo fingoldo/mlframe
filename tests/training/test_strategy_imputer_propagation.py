@@ -14,7 +14,6 @@ import logging
 
 import numpy as np
 import pandas as pd
-import pytest
 from sklearn.impute import SimpleImputer
 
 from mlframe.training.configs import PreprocessingConfig
@@ -95,7 +94,7 @@ class TestGetPipelineComponentsDefaults:
 
     def test_none_inputs_resolve_to_real_components(self):
         cfg = PreprocessingConfig()  # all fields default
-        category_encoder, imputer, scaler = _get_pipeline_components(cfg, cat_features=[])
+        _category_encoder, imputer, scaler = _get_pipeline_components(cfg, cat_features=[])
         assert imputer is not None, "imputer must default to a real SimpleImputer when PreprocessingConfig.imputer is None"
         assert scaler is not None, "scaler must default to a real StandardScaler when PreprocessingConfig.scaler is None"
         # category_encoder is allowed to stay None when cat_features is empty - it would only fire for cat_features

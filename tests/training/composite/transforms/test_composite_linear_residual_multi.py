@@ -23,7 +23,6 @@ import numpy as np
 import pytest
 
 from mlframe.training.composite import (
-    _MULTI_BASE_COND_NUMBER_MAX,
     _linear_residual_multi_fit,
     _linear_residual_multi_forward,
     _linear_residual_multi_inverse,

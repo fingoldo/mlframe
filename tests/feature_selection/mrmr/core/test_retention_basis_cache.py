@@ -14,7 +14,6 @@ from unittest import mock
 
 import numpy as np
 import pandas as pd
-import pytest
 
 
 def _build_case2(n=3000, seed=0):

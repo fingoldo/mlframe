@@ -19,15 +19,14 @@ unchanged.
 from __future__ import annotations
 
 import numpy as np
-import pandas as pd
 import pytest
 
 torch = pytest.importorskip("torch")
 L = pytest.importorskip("lightning.pytorch")
 
-from mlframe.training.neural.base import PytorchLightningClassifier  # noqa: E402
-from mlframe.training.neural.data import TorchDataModule  # noqa: E402
-from mlframe.training.neural.flat import MLPTorchModel  # noqa: E402
+from mlframe.training.neural.base import PytorchLightningClassifier
+from mlframe.training.neural.data import TorchDataModule
+from mlframe.training.neural.flat import MLPTorchModel
 
 
 def _build_classifier(n_features: int, max_epochs: int = 2) -> PytorchLightningClassifier:

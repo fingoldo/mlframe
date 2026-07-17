@@ -31,7 +31,6 @@ import logging
 from types import SimpleNamespace
 
 import numpy as np
-import pytest
 
 from mlframe.training.composite.discovery._auto_base import _auto_base
 from mlframe.training.composite.discovery.screening import (

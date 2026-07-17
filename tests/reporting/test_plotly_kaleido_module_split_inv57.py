@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import os
 
-import pytest
 
 
 def test_inv57_public_kaleido_surface_reexported_from_plotly():

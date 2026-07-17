@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from tests.training.synthetic import (
     make_categorical_classification_data,
@@ -23,7 +22,7 @@ from tests.training.synthetic import (
 
 def test_make_simple_classification_data_shape_and_determinism():
     df1, names1, cats1, y1 = make_simple_classification_data(n_samples=200, n_features=8, seed=7)
-    df2, names2, cats2, y2 = make_simple_classification_data(n_samples=200, n_features=8, seed=7)
+    df2, _names2, _cats2, y2 = make_simple_classification_data(n_samples=200, n_features=8, seed=7)
     assert df1.shape == (200, 8 + 1)
     assert "target" in df1.columns
     assert len(names1) == 8
@@ -34,14 +33,14 @@ def test_make_simple_classification_data_shape_and_determinism():
 
 def test_make_simple_regression_data_shape_and_determinism():
     df1, names1, y1 = make_simple_regression_data(n_samples=150, n_features=6, seed=11)
-    df2, _, y2 = make_simple_regression_data(n_samples=150, n_features=6, seed=11)
+    _df2, _, y2 = make_simple_regression_data(n_samples=150, n_features=6, seed=11)
     assert df1.shape == (150, 7)
     assert len(names1) == 6
     assert np.allclose(y1, y2)
 
 
 def test_make_categorical_classification_data_has_cat_features():
-    df, names, cats, y = make_categorical_classification_data(n_samples=300, n_numeric=4, seed=3)
+    df, _names, cats, y = make_categorical_classification_data(n_samples=300, n_numeric=4, seed=3)
     assert df.shape == (300, 4 + 3 + 1)
     assert set(cats).issubset(set(df.columns))
     # The cat columns are string-typed. pandas reports the dtype as ``object``
@@ -55,7 +54,7 @@ def test_make_categorical_classification_data_has_cat_features():
 
 
 def test_make_outlier_regression_data_has_outliers():
-    df, names, y = make_outlier_regression_data(n_samples=400, n_features=5, outlier_fraction=0.1, seed=0)
+    df, _names, y = make_outlier_regression_data(n_samples=400, n_features=5, outlier_fraction=0.1, seed=0)
     assert df.shape == (400, 6)
     # 10% of rows should have |residual| much larger than the clean tail
     abs_y = np.abs(y - np.median(y))
@@ -71,12 +70,12 @@ def test_make_sklearn_classification_df_shape():
 
 
 def test_make_sklearn_classification_df_column_prefix():
-    X_df, _, names = make_sklearn_classification_df(n_samples=20, n_features=4, n_informative=2, column_prefix="feature_", seed=0)
+    _X_df, _, names = make_sklearn_classification_df(n_samples=20, n_features=4, n_informative=2, column_prefix="feature_", seed=0)
     assert names == ["feature_0", "feature_1", "feature_2", "feature_3"]
 
 
 def test_make_sklearn_regression_df_shape():
-    X_df, y, names = make_sklearn_regression_df(n_samples=50, n_features=6, n_informative=3, seed=0)
+    X_df, y, _names = make_sklearn_regression_df(n_samples=50, n_features=6, n_informative=3, seed=0)
     assert X_df.shape == (50, 6)
     assert y.shape == (50,)
 

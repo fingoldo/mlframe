@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 
 
 def test_cluster_aggregate_replay_matches_fit_on_nan_rows():

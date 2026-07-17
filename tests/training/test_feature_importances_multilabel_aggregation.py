@@ -30,7 +30,6 @@ import pytest
 
 # Skip cleanly when an optional dep is missing.
 catboost = pytest.importorskip("catboost")
-from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import HistGradientBoostingClassifier
 from sklearn.multioutput import MultiOutputClassifier, MultiOutputRegressor
 from sklearn.linear_model import Ridge
@@ -137,7 +136,7 @@ def test_multilabel_hgb_uses_per_child_permutation_not_wrapper():
     eats sklearn's MultiOutputClassifier.score path overhead and
     cannot benefit from per-label parallelism downstream.
     """
-    from unittest.mock import patch, MagicMock
+    from unittest.mock import patch
     from mlframe.training import _feature_importances as fi_mod
 
     X, y, cols = _make_multilabel_data(n=200, n_feats=6, n_labels=3)

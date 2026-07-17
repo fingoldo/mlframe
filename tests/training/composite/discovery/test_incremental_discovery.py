@@ -28,15 +28,15 @@ import pytest
 
 pytestmark = pytest.mark.sklearn_matrix
 
-from mlframe.training.composite import (  # noqa: E402
+from mlframe.training.composite import (
     CompositeTargetDiscovery,
     data_signature,
 )
-from mlframe.training.composite.discovery._incremental import (  # noqa: E402
+from mlframe.training.composite.discovery._incremental import (
     IncrementalDecision,
     incremental_discovery_check,
 )
-from mlframe.training.configs import CompositeTargetDiscoveryConfig  # noqa: E402
+from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
 
 _FEATURES = ["TVT_prev", "x1", "x2", "x3"]

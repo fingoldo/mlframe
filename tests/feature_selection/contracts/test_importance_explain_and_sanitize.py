@@ -24,12 +24,12 @@ import matplotlib
 # on CI / Windows with no display.
 matplotlib.use("Agg")
 
-import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
-import pandas as pd  # noqa: E402
-import pytest  # noqa: E402
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import pytest
 
-from mlframe.feature_selection.importance import _sanitize_for_filename  # noqa: E402
+from mlframe.feature_selection.importance import _sanitize_for_filename
 
 pytestmark = pytest.mark.uses_matplotlib
 

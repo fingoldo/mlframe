@@ -11,7 +11,6 @@ Skipped when PySR / Julia is not importable (CI without juliacall installed).
 from __future__ import annotations
 
 import io
-import os
 import pickle
 import numpy as np
 import pandas as pd
@@ -65,7 +64,7 @@ def test_pysr_replay_parity(tmp_path):
         dim_reducer=None,
     )
 
-    train, val, test, ext = apply_preprocessing_extensions(
+    train, _val, _test, ext = apply_preprocessing_extensions(
         df.copy(),
         None,
         df.copy(),

@@ -12,21 +12,20 @@ Tests prefer behavioral assertions (per memory ``feedback_behavioral_tests``) â€
 
 from __future__ import annotations
 
-import os
 
 import matplotlib
 
 # Force Agg before any matplotlib pyplot import â€” must work headless on CI / Windows.
 matplotlib.use("Agg")
 
-import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
-import polars as pl  # noqa: E402
-import pytest  # noqa: E402
+import matplotlib.pyplot as plt
+import numpy as np
+import polars as pl
+import pytest
 
-from sklearn.linear_model import LinearRegression  # noqa: E402
+from sklearn.linear_model import LinearRegression
 
-from mlframe.feature_selection.importance import (  # noqa: E402
+from mlframe.feature_selection.importance import (
     compute_permutation_importances,
     plot_feature_importance,
 )

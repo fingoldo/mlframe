@@ -25,8 +25,6 @@ before invoking transform.forward.
 
 from __future__ import annotations
 
-from dataclasses import replace
-from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
@@ -69,7 +67,7 @@ def _build_multi_base_spec(rng: np.random.Generator):
         mi_y=1.0,
         mi_t=1.5,
         valid_domain_frac=1.0,
-        n_train_rows=int(len(train_idx)),
+        n_train_rows=len(train_idx),
         extra_base_columns=("b2",),
     )
 
@@ -185,7 +183,7 @@ def test_single_base_spec_path_unchanged() -> None:
         mi_y=1.0,
         mi_t=1.5,
         valid_domain_frac=1.0,
-        n_train_rows=int(len(train_idx)),
+        n_train_rows=len(train_idx),
     )
     assert spec.extra_base_columns == ()
     train_df = pd.DataFrame({"b1": b1_full[train_idx]})

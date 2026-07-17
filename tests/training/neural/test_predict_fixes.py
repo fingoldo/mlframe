@@ -18,7 +18,7 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
-from mlframe.training.neural import (  # noqa: E402
+from mlframe.training.neural import (
     MLPTorchModel,
     PytorchLightningClassifier,
     TorchDataModule,

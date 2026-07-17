@@ -27,7 +27,6 @@ import os
 import tempfile
 from pathlib import Path
 
-import pytest
 
 
 def test_atomic_write_bytes_accepts_fsync_kwarg():

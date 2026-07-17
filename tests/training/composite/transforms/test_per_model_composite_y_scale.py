@@ -20,7 +20,6 @@ import types
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.training.composite import CompositeTargetEstimator
 from mlframe.training.core._phase_composite_wrapping import (

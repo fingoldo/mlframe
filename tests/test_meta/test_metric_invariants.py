@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import math
 import numpy as np
-import pytest
 from hypothesis import HealthCheck, assume, given, settings, strategies as st
 from hypothesis.extra import numpy as st_np
 
@@ -67,7 +66,7 @@ def test_brier_decomposition_identity(pair, nbins):
     from mlframe.metrics.core import compute_ece_and_brier_decomposition
 
     y_true, y_pred = pair
-    ece, rel, res, unc, brier_binned = compute_ece_and_brier_decomposition(
+    _ece, rel, res, unc, brier_binned = compute_ece_and_brier_decomposition(
         y_true.astype(np.float64),
         y_pred,
         nbins,

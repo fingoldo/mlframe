@@ -101,7 +101,7 @@ def test_each_ensemble_method_writes_its_own_perfplot(ensembling_dataset, tmp_pa
     # ("plotly[html] + matplotlib[png]"), so the matplotlib image is named ``<base>_perfplot.matplotlib.png``
     # (single-backend configs name it ``<base>_perfplot.png``); match both, exclude the ``.plotly.html`` twin.
     pngs: list[str] = []
-    for root, _dirs, files in os.walk(tmp_path):
+    for _root, _dirs, files in os.walk(tmp_path):
         for f in files:
             if "_perfplot" in f and f.endswith(".png"):
                 pngs.append(f)
@@ -163,7 +163,7 @@ def test_each_ensemble_method_writes_distinct_filename(ensembling_dataset, tmp_p
         )
 
     ens_pngs = []
-    for root, _dirs, files in os.walk(tmp_path):
+    for _root, _dirs, files in os.walk(tmp_path):
         for f in files:
             # Multi-backend output names the matplotlib image ``<base>_perfplot.matplotlib.png``; match either form.
             if f.startswith("Ens") and "_perfplot" in f and f.endswith(".png"):

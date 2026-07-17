@@ -18,8 +18,6 @@ from __future__ import annotations
 from collections import defaultdict
 
 import numpy as np
-import pandas as pd
-import pytest
 
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_cluster import cluster_correlated_features
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_cluster_su import cluster_correlated_features_su

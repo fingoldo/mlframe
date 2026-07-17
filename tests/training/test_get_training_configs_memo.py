@@ -39,7 +39,7 @@ def test_repeated_identical_kwargs_hits_cache_after_first_call():
         call_count["n"] += 1
         return SimpleNamespace(catboost_dict=dict(iterations=100), kwargs=tuple(sorted(_kw.items())))
 
-    with patch.object(tc, "_get_training_configs_cached", wraps=tc._get_training_configs_cached) as wrapped:
+    with patch.object(tc, "_get_training_configs_cached", wraps=tc._get_training_configs_cached):
         with patch("mlframe.training.trainer.get_training_configs", side_effect=_stub):
             tc._get_training_configs_cached(has_gpu=False, iterations=100, learning_rate=0.1)
             tc._get_training_configs_cached(has_gpu=False, iterations=100, learning_rate=0.1)

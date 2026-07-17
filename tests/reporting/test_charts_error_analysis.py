@@ -30,7 +30,6 @@ from mlframe.reporting.spec import (
     BarPanelSpec,
     FigureSpec,
     HeatmapPanelSpec,
-    HistogramPanelSpec,
     LinePanelSpec,
 )
 
@@ -386,7 +385,7 @@ def test_segments_bar_returns_single_series_with_hline_reference(fairness_frame)
 
 def test_segments_bar_sorts_worst_first(fairness_frame):
     fig = segments_bar(fairness_frame, metric_name="accuracy")
-    bar = [p for row in fig.panels for p in row if p is not None][0]
+    bar = next(p for row in fig.panels for p in row if p is not None)
     # Lowest accuracy = worst -> leftmost: D(0.55) then B(0.71) then C(0.88) then A(0.92).
     assert bar.categories[0] == "D"
     assert list(_seg_vals(bar)) == [0.55, 0.71, 0.88, 0.92]
@@ -394,7 +393,7 @@ def test_segments_bar_sorts_worst_first(fairness_frame):
 
 def test_segments_bar_count_weighted_reference(fairness_frame):
     fig = segments_bar(fairness_frame, metric_name="accuracy")
-    bar = [p for row in fig.panels for p in row if p is not None][0]
+    bar = next(p for row in fig.panels for p in row if p is not None)
     ref = bar.hline[0]
     # Count-weighted mean of accuracy.
     expected = np.average([0.92, 0.71, 0.88, 0.55], weights=[1000, 200, 500, 80])
@@ -404,7 +403,7 @@ def test_segments_bar_count_weighted_reference(fairness_frame):
 def test_segments_bar_higher_is_worse_orders_descending():
     df = pd.DataFrame({"seg": ["X", "Y", "Z"], "error_rate": [0.05, 0.30, 0.12]})
     fig = segments_bar(df, metric_col="error_rate", higher_is_worse=True, metric_name="error rate")
-    bar = [p for row in fig.panels for p in row if p is not None][0]
+    bar = next(p for row in fig.panels for p in row if p is not None)
     # Highest error = worst -> leftmost.
     assert bar.categories[0] == "Y"
     assert list(_seg_vals(bar)) == [0.30, 0.12, 0.05]
@@ -495,7 +494,7 @@ def test_biz_val_target_dist_overlay_detects_train_test_shift():
         "test": rng.normal(shift, 1.0, 2000),
     }
     fig = target_dist_overlay(y, task="regression")
-    panel = [p for row in fig.panels for p in row if p is not None][0]
+    panel = next(p for row in fig.panels for p in row if p is not None)
     means = {}
     for lab in panel.series_labels:
         m = re.search(r"(\w+) \(mean=([-\d.eE+]+)\)", lab)

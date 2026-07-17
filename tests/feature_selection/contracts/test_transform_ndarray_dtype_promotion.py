@@ -27,7 +27,6 @@ promote BOTH sides to the common dtype before hstack.
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 
 def _stack_pre_fix(base_out, engineered_cols):
@@ -109,11 +108,6 @@ def test_e2e_mrmr_ndarray_transform_does_not_zero_engineered_cols():
     produce numerically-equivalent results in the engineered column
     region. Pre-fix the ndarray path would zero it; post-fix they match.
     """
-    import pandas as pd
-    from mlframe.feature_selection.filters._mrmr_validate_transform import (
-        _append_engineered,
-    )
-    from mlframe.feature_selection.filters.engineered_recipes import EngineeredRecipe
 
     class _FakeSelf:
         verbose = 0

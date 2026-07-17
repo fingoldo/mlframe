@@ -10,12 +10,10 @@ is bounded (1 for cardinalities + 3 for drift-sets = 4, not >=100); (3) measurab
 
 from __future__ import annotations
 
-import logging
 import time
 
 import numpy as np
 import polars as pl
-import pytest
 
 from mlframe.training.core._phase_helpers import _log_cardinality_and_drift_snapshot
 

@@ -9,7 +9,6 @@ unchanged (every class still renders).
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from mlframe.reporting.charts.multiclass import compose_multiclass_figure
 from mlframe.reporting.charts.multilabel import compose_multilabel_figure

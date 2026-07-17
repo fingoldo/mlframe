@@ -15,7 +15,6 @@ import warnings
 
 import numpy as np
 import pandas as pd
-import pytest
 
 
 def _build_wide(n=5000, p=16, seed=0):

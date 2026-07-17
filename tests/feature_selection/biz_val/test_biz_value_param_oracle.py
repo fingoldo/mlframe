@@ -25,7 +25,6 @@ import random
 import orjson
 
 import numpy as np
-import pytest
 
 from mlframe.utils._param_oracle import (
     ParamOracle,
@@ -211,7 +210,7 @@ def test_concurrent_writers_do_not_corrupt(tmp_path):
     o2 = ParamOracle(path, param_space=space, mode="inference")
 
     # Simulate interleaved parallel shards writing the same store.
-    for i in range(5):
+    for _i in range(5):
         o1.record(fp, {"impl": "p"}, {"elapsed_s": 0.01}, ts=FIXED_TS, fn_name="job")
         o2.record(fp, {"impl": "q"}, {"elapsed_s": 0.02}, ts=FIXED_TS, fn_name="job")
 

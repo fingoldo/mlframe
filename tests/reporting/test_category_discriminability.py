@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.reporting.charts.category_discriminability import (
     category_discriminability_panel,
@@ -57,7 +56,7 @@ def test_level_woe_matches_bruteforce_groupby():
 def test_level_woe_skips_missing_codes():
     y = np.array([1.0, 0.0, 1.0, 0.0])
     codes = np.array([-1, 0, 0, -1], dtype=np.int64)  # two missing rows must not contribute
-    woe, counts = level_woe(codes, y, 1, base_rate=0.5, alpha=0.5)
+    _woe, counts = level_woe(codes, y, 1, base_rate=0.5, alpha=0.5)
     assert counts[0] == 2.0  # only the two non-missing rows counted
 
 
@@ -153,7 +152,7 @@ def test_biz_val_strong_level_ranks_first():
     measured_A = abs(measured[0])
 
     rows = category_discriminability_table(X, y, top_k=10, min_support=30)
-    top_feat, top_lbl, top_woe, _sup, top_p = rows[0]
+    _top_feat, top_lbl, top_woe, _sup, top_p = rows[0]
     assert top_lbl == "A", rows[0]
     assert abs(top_woe) >= 0.9 * measured_A, (top_woe, measured_A)
     assert top_woe > 0 and top_p > 0.9  # A tilts strongly toward y=1

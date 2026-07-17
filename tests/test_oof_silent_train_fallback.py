@@ -15,7 +15,6 @@ import logging
 from types import SimpleNamespace
 
 import numpy as np
-import pytest
 
 
 def _make_regression_member(n: int, seed: int, *, with_oof: bool):

@@ -16,7 +16,6 @@ A literal whose only mention is the field declaration itself flags.
 from __future__ import annotations
 
 import inspect
-import re
 from enum import Enum
 from pathlib import Path
 from typing import Literal, get_args, get_origin

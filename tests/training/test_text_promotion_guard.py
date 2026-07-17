@@ -34,7 +34,6 @@ import logging
 import numpy as np
 import polars as pl
 import pandas as pd
-import pytest
 
 
 from mlframe.training.configs import FeatureTypesConfig
@@ -83,7 +82,7 @@ class TestMinNonNullTextPromotionGuard:
             auto_detect_feature_types=True,
             cat_text_cardinality_threshold=50,
         )
-        text, emb, _ = _auto_detect_feature_types(df, cfg, cat_features=["sparse_text"])
+        text, _emb, _ = _auto_detect_feature_types(df, cfg, cat_features=["sparse_text"])
         assert "sparse_text" not in text, (
             "n_unique=60>50 but non_null_fraction=0.06%<1% floor — must stay as cat_feature to avoid CatBoost 'Dictionary size is 0'"
         )
@@ -98,7 +97,7 @@ class TestMinNonNullTextPromotionGuard:
             auto_detect_feature_types=True,
             cat_text_cardinality_threshold=50,
         )
-        text, emb, _ = _auto_detect_feature_types(df, cfg, cat_features=["sparse_text"])
+        text, _emb, _ = _auto_detect_feature_types(df, cfg, cat_features=["sparse_text"])
         assert "sparse_text" in text
 
     def test_tiny_df_not_blocked_by_fraction(self):
@@ -114,7 +113,7 @@ class TestMinNonNullTextPromotionGuard:
             auto_detect_feature_types=True,
             cat_text_cardinality_threshold=10,
         )
-        text, emb, _ = _auto_detect_feature_types(df, cfg, cat_features=["sparse_text"])
+        text, _emb, _ = _auto_detect_feature_types(df, cfg, cat_features=["sparse_text"])
         assert "sparse_text" in text, "tiny DF with 100% non-null fraction must still promote — the guard is relative, not absolute"
 
     def test_warn_on_skipped_column(self, caplog):
@@ -145,7 +144,7 @@ class TestMinNonNullTextPromotionGuard:
             auto_detect_feature_types=True,
             cat_text_cardinality_threshold=50,
         )
-        text, emb, _ = _auto_detect_feature_types(df, cfg, cat_features=["sparse"])
+        text, _emb, _ = _auto_detect_feature_types(df, cfg, cat_features=["sparse"])
         assert "sparse" not in text
 
     def test_boundary_at_default_fraction(self):

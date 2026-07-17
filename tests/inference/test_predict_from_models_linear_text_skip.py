@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.training.core import train_mlframe_models_suite
 from mlframe.training.core.predict import predict_from_models

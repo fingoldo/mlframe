@@ -15,8 +15,6 @@ import pandas as pd
 import pytest
 
 from mlframe.training.feature_drift_report import (
-    DEFAULT_FEATURE_DRIFT_WARN_THRESHOLD_Z,
-    WEIGHTED_DRIFT_NEURAL_OVERRIDE_THRESHOLD,
     compute_feature_distribution_drift,
     translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs,
 )

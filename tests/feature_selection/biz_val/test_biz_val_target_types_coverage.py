@@ -357,7 +357,7 @@ def test_biz_val_rfecv_ordinal_as_regression_recovers_signal():
     linearly, so RFE prunes all 6 noise columns."""
     from sklearn.linear_model import Ridge
 
-    rng, df, xs = _design(0)
+    _rng, df, xs = _design(0)
     score = xs[:, 0] + xs[:, 1]
     y = pd.Series(np.digitize(score, np.quantile(score, [0.2, 0.4, 0.6, 0.8])).astype(float))
     sel = _make_rfecv(Ridge())

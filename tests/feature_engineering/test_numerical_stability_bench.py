@@ -31,7 +31,6 @@ from __future__ import annotations
 import time
 
 import numpy as np
-import pytest
 from scipy.stats import skew as sp_skew, kurtosis as sp_kurtosis
 
 from mlframe.feature_engineering._numerical_stable import (
@@ -116,7 +115,7 @@ def test_bench_mean_var_precision():
     print(f"{'distribution':<26} {'naive_2p':>14} {'welford':>14} {'kahan_2p':>14} {'best':>10}")
     print("-" * 80)
     for name, arr in distributions.items():
-        ref_mean, ref_var = _ref_mean_var(arr)
+        _ref_mean, ref_var = _ref_mean_var(arr)
         _, n_var, _ = naive_mean_var_two_pass_seq(arr)
         _, w_var, _ = welford_mean_var_seq(arr)
         _, k_var, _ = kahan_two_pass_var_seq(arr)

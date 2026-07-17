@@ -23,7 +23,6 @@ from mlframe.reporting.renderers import render_and_save
 from mlframe.reporting.spec import (
     AnnotationPanelSpec,
     BarPanelSpec,
-    FigureSpec,
     HistogramPanelSpec,
     LinePanelSpec,
 )
@@ -367,7 +366,7 @@ class TestQuantileReliabilityBizValue:
 
     def test_biz_calibrated_reliability_tracks_nominal(self, synth_qr_calibrated):
         y, p, alphas = synth_qr_calibrated
-        obs, nominal = self._reliability_curves(y, p, alphas)
+        obs, _nominal = self._reliability_curves(y, p, alphas)
         for k, a in enumerate(alphas):
             mean_abs_dev = float(np.mean(np.abs(obs[k] - a)))
             # Calibrated: recalibrated coverage stays within 0.05 of nominal tau across the range.
@@ -375,7 +374,7 @@ class TestQuantileReliabilityBizValue:
 
     def test_biz_miscalibrated_reliability_off_nominal(self, synth_qr_miscalibrated):
         y, p, alphas = synth_qr_miscalibrated
-        obs, nominal = self._reliability_curves(y, p, alphas)
+        obs, _nominal = self._reliability_curves(y, p, alphas)
         # q shifted below the true quantile => observed coverage well BELOW nominal at tau=0.5.
         mid = alphas.index(0.5)
         dev = float(np.mean(obs[mid] - 0.5))
@@ -430,7 +429,7 @@ class TestQuantileReliabilityPerf:
         panel = spec.panels[0][0]
         assert panel.x.shape == (_RELIABILITY_GRID,)
         # Calibrated even after subsampling: observed curve stays near nominal.
-        K = len(alphas)
+        len(alphas)
         for k, a in enumerate(alphas):
             assert float(np.mean(np.abs(panel.y[k] - a))) < 0.05
 

@@ -22,7 +22,6 @@ from mlframe.training.helpers import (
     _canonical_predict_proba_shape,
     _predict_from_probs,
     _classif_objective_kwargs,
-    _maybe_wrap_multilabel,
     _compute_chain_orders,
     get_training_configs,
 )

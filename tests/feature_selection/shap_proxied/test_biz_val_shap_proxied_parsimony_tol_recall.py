@@ -55,7 +55,7 @@ def test_biz_val_looser_parsimony_tol_never_selects_fewer_features():
     toward 0 (looser tolerance for a loss-increase => refine keeps more members). This is the
     mechanical guarantee ``parsimony_tol`` is documented to provide, independent of which specific
     features end up recovered on any one fixture/seed."""
-    X, y, strong, weak = _make_mixed_strength_fixture()
+    X, y, _strong, weak = _make_mixed_strength_fixture()
 
     sel_default = _fit_selected(X, y, parsimony_tol=0.02)
     sel_loose = _fit_selected(X, y, parsimony_tol=0.005)
@@ -88,7 +88,7 @@ def test_biz_val_default_parsimony_tol_favours_precision_on_marginal_signal():
     it stays close to the small, high-confidence strong-only core. This is the flip side of the above
     monotonicity test and guards against a future change accidentally making the default "greedy"
     (selecting everything that clears search) instead of parsimonious."""
-    X, y, strong, weak = _make_mixed_strength_fixture()
+    X, y, strong, _weak = _make_mixed_strength_fixture()
     sel_default = _fit_selected(X, y, parsimony_tol=0.02)
     strong_names = {f"f{i}" for i in strong}
     # The default should stay close to the strong-only core: at most 2 extra features beyond the

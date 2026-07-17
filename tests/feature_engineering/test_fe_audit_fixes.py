@@ -98,7 +98,7 @@ class TestHurstFixes:
 
         rng = np.random.default_rng(1)
         x = rng.standard_normal(500)
-        h, c = compute_hurst_exponent(x, max_window=None)
+        h, _c = compute_hurst_exponent(x, max_window=None)
         assert not np.isnan(h), "max_window=None should not crash or return NaN for valid input"
 
     def test_short_input_returns_nan(self):
@@ -721,7 +721,7 @@ class TestPebayOrderCritical:
         """Any non-canonical permutation must produce skew or kurt that differs from scipy by an
         amount LARGER than the canonical order's residual error.
         """
-        arr, (exp_mean, exp_var, exp_skew, exp_kurt) = expected_moments
+        arr, (_exp_mean, _exp_var, exp_skew, exp_kurt) = expected_moments
         _, _, skew, kurt = _welford_moments_reference(arr, order=order)
         # We accept failures in EITHER moment (some permutations only break M4, others only M3).
         skew_err = abs(skew - exp_skew)
@@ -758,7 +758,7 @@ class TestPebayOrderCritical:
         rng = np.random.default_rng(7)
         signal = rng.standard_normal(5000)
         big = signal + 1e9
-        mean, var, skew, kurt, n = welford_moments_seq(big)
+        mean, var, skew, kurt, _n = welford_moments_seq(big)
         # mean and var of `big` differ from `signal` only by an exact 1e9 offset and 0 (variance
         # is shift-invariant). Welford's running mean accumulates O(N * eps) drift, ~1e-6 here;
         # the naive `sum_x^2/n - mean^2` baseline loses ~9 digits and would diverge by ~0.1.

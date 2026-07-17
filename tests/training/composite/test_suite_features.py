@@ -149,7 +149,7 @@ def test_biz_val_composite_feature_beats_raw_on_base_dominated_target():
     aug_test = gen.transform(df.iloc[test_idx].reset_index(drop=True))
 
     raw_cols = ["f1", "f2"]  # raw features WITHOUT the base (composite carries base signal)
-    aug_cols = raw_cols + [gen.column_name_]
+    aug_cols = [*raw_cols, gen.column_name_]
 
     m_raw = Ridge().fit(df.iloc[train_idx][raw_cols], y[train_idx])
     r2_raw = r2_score(y[test_idx], m_raw.predict(df.iloc[test_idx][raw_cols]))

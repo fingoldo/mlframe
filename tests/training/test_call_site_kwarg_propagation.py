@@ -20,7 +20,6 @@ Validated this session against 5 real bugs (wave 12 commit fb52f4c).
 from __future__ import annotations
 
 import pathlib
-import re
 
 import pytest
 

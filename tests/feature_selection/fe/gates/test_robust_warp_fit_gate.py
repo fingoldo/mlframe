@@ -136,7 +136,7 @@ def test_dispatcher_heavy_tailed_operand_uses_robust_and_records_winsor():
     assert _detect_heavy_tail(x) is True
     B = np.column_stack([np.ones(n), x, x**2])
     y = rng.normal(0, 1, n)
-    coef, robust_used, winsor = fit_basis_coef_robust(B, y, x)
+    _coef, robust_used, winsor = fit_basis_coef_robust(B, y, x)
     assert robust_used is True
     assert winsor is not None
     lo, hi = winsor

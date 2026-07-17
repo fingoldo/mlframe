@@ -6,9 +6,7 @@ site existed -- two back-to-back suites silently inherited the first's flag.
 
 from __future__ import annotations
 
-import os
 
-import pytest
 
 
 def _build_minimal_ctx_kwargs():
@@ -44,7 +42,6 @@ def test_residual_audit_flag_snapshot_captured():
     from mlframe.training.core._phase_config_setup import setup_configuration
     from mlframe.training.evaluation import (
         _set_residual_audit_enabled,
-        _get_residual_audit_enabled,
     )
 
     # Seed a known prior value distinct from the default.

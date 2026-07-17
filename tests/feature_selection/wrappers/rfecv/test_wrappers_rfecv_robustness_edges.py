@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from sklearn.datasets import make_classification, make_regression
+from sklearn.datasets import make_regression
 from sklearn.linear_model import LogisticRegression, Ridge
 
 from mlframe.feature_selection.wrappers import RFECV

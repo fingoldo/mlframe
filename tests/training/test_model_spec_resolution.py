@@ -54,7 +54,7 @@ def test_resolve_tuple_uses_explicit_name():
 def test_resolve_catboost_instance():
     catboost = pytest.importorskip("catboost")
     est = catboost.CatBoostClassifier(verbose=0)
-    key, resolved_est, strat = _resolve_model_spec(est)
+    key, _resolved_est, strat = _resolve_model_spec(est)
     assert key == "CatBoostClassifier"
     assert isinstance(strat, CatBoostStrategy)
 

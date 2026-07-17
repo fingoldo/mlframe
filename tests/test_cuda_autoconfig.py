@@ -6,7 +6,6 @@ from __future__ import annotations
 import os
 import sysconfig
 
-import pytest
 
 import mlframe
 

@@ -165,7 +165,7 @@ class TestM13OptOut:
         # b2 helps on most folds but not all (mild noise so one fold can lose).
         b2 = rng.normal(size=n)
         y = b1 + 0.4 * b2 + rng.normal(scale=0.6, size=n)
-        kept_majority, diag_majority = forward_stepwise_multi_base(
+        _kept_majority, diag_majority = forward_stepwise_multi_base(
             y,
             {"b1": b1, "b2": b2},
             seed_bases=["b1"],
@@ -176,7 +176,7 @@ class TestM13OptOut:
             paired_fold_selection=True,
             paired_fold_min_win_frac=0.5,
         )
-        kept_unanimous, diag_unanimous = forward_stepwise_multi_base(
+        _kept_unanimous, diag_unanimous = forward_stepwise_multi_base(
             y,
             {"b1": b1, "b2": b2},
             seed_bases=["b1"],

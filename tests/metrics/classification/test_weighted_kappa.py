@@ -72,8 +72,8 @@ def test_biz_val_quadratic_penalizes_far_errors_more_than_linear():
     """Quadratic weighting punishes a large-distance confusion harder than linear weighting does."""
     y = np.array([0, 0, 0, 0])
     pred_far = np.array([4, 0, 0, 0])  # one big miss
-    q = quadratic_weighted_kappa(y, pred_far, n_classes=5)
-    lin = weighted_kappa(y, pred_far, weights="linear", n_classes=5)
+    quadratic_weighted_kappa(y, pred_far, n_classes=5)
+    weighted_kappa(y, pred_far, weights="linear", n_classes=5)
     # both degenerate (constant y) -> denominator 0 -> 0.0; use a non-degenerate case instead
     y2 = np.array([0, 1, 2, 3, 4, 0, 1, 2, 3, 4])
     a_far = y2.copy()

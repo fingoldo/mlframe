@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from sklearn.base import BaseEstimator, RegressorMixin
 
@@ -106,7 +105,7 @@ class TestKfoldCompositeESCarve:
         y = b + 0.5 * feat + rng.normal(0.0, 0.1, size=n)
         X = pd.DataFrame({"b": b, "feat": feat})
         comp, spec = _make_composite_component(X, y, b)
-        oof, y_oof, names = compute_oof_holdout_predictions(
+        oof, _y_oof, names = compute_oof_holdout_predictions(
             component_models=[comp, comp],
             component_names=["c0", "c1"],
             component_specs=[spec, spec],

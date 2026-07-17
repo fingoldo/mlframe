@@ -13,7 +13,6 @@ Bootstrap posterior for the (alpha, beta) of ``linear_residual``. Lock:
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from mlframe.training.composite import (
     _linear_residual_fit,

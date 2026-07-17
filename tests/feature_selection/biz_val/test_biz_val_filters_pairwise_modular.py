@@ -32,7 +32,6 @@ from sklearn.model_selection import train_test_split
 
 from mlframe.feature_selection.filters._pairwise_modular_fe import (
     apply_pairwise_modular,
-    build_pairwise_modular_recipe,
     detect_pairwise_modular,
     hybrid_pairwise_modular_fe_with_recipes,
 )
@@ -95,7 +94,7 @@ class TestPrototypeDirect:
 class TestRecipeReplay:
     def test_recipe_replay_bit_identical(self):
         X, y = _build_pair_add_mod(1)
-        appended, recipes = hybrid_pairwise_modular_fe_with_recipes(X, y, seed=1)
+        _appended, recipes = hybrid_pairwise_modular_fe_with_recipes(X, y, seed=1)
         assert recipes, "no pairwise-modular recipes emitted."
         for r in recipes:
             direct = apply_pairwise_modular(X, r.extra["op"], r.src_names, r.extra["modulus"])
@@ -181,7 +180,7 @@ class TestMRMRIntegration:
         y = ((a + b) % 7 >= 3).astype(int)
         X = pd.DataFrame(cols)
         with caplog.at_level(logging.INFO, logger="mlframe.feature_selection.filters._pairwise_modular_fe"):
-            appended, recipes = hybrid_pairwise_modular_fe_with_recipes(X, y, seed=7)
+            appended, _recipes = hybrid_pairwise_modular_fe_with_recipes(X, y, seed=7)
         assert any("PAIRS-ONLY" in r.message for r in caplog.records), "expected a pairs-only budget log line for 25 int columns."
         # Pairs-only still completes and recovers the pair-modular signal.
         assert appended, "pairs-only sweep produced nothing on a (c0+c1) mod 7 target."
@@ -321,7 +320,6 @@ class TestScanOptimizationEquivalence:
     def test_optimized_scan_is_measurably_faster(self):
         """Floor 1.6x; measured ~2.1-3.4x at p in {15,30} n in {2k,20k}. Catches a regression that re-introduces the
         per-residue and per-combiner-null MI calls (e.g. an un-batched grid or an always-on null)."""
-        import time
 
         from mlframe.feature_selection.filters._pairwise_modular_fe import cheap_modular_scan
 

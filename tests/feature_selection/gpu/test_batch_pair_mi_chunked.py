@@ -118,7 +118,7 @@ def test_dispatch_batch_pair_mi_chunked_handles_pool_width_above_old_cap():
     freqs_y = np.bincount(y, minlength=2).astype(np.float64) / 300
 
     ids = np.arange(n_cols, dtype=np.int64)
-    a_out, b_out, mi_out, backend_counts = dispatch_batch_pair_mi_chunked(
+    a_out, _b_out, mi_out, backend_counts = dispatch_batch_pair_mi_chunked(
         factors_data=data,
         ids=ids,
         nbins=nbins,

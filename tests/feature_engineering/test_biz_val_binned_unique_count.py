@@ -119,7 +119,7 @@ def test_biz_val_binned_unique_count_per_entity_bins_beats_global_on_skewed_scal
 
 def test_binned_unique_count_per_entity_bins_default_matches_prior_behavior():
     """per_entity_bins=False (the default) must reproduce the pre-existing global-quantile behavior bit-for-bit."""
-    df, labels = _make_multi_regime_dataset(n_entities=50, seed=2)
+    df, _labels = _make_multi_regime_dataset(n_entities=50, seed=2)
     out_default = binned_unique_count(df, entity_col="entity", value_col="value", n_bins=8)
     out_explicit_false = binned_unique_count(df, entity_col="entity", value_col="value", n_bins=8, per_entity_bins=False)
     pd.testing.assert_frame_equal(out_default, out_explicit_false)

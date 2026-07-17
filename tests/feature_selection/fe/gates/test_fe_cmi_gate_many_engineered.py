@@ -122,7 +122,7 @@ def test_no_driver_starvation_with_tied_marginal_mi_remaps(seed):
     drop the other two ENTIRELY. The partition-dedup-before-cap keeps all three drivers."""
     cands, yb, base = _pool_with_remaps(seed=seed, n_remaps=64)  # 3 + 192 = 195 candidates
     assert len(cands) > _DEFAULT_MAX_CANDIDATES  # the pool exceeds the cap (cap path exercised)
-    accepted, diag = apply_cmi_redundancy_gate(cands, yb, nbins=10, retain_frac=0.15, seed=0)
+    accepted, _diag = apply_cmi_redundancy_gate(cands, yb, nbins=10, retain_frac=0.15, seed=0)
     captured = {drv for drv in base if (drv in accepted) or any(nm in accepted for nm in cands if nm.startswith(f"red_{drv}_"))}
     assert captured == set(base), (
         f"[seed={seed}] driver(s) starved by the cost cap: captured={captured} expected={set(base)}. The partition dedup must run BEFORE the marginal-MI cap."
@@ -133,7 +133,7 @@ def test_canonical_form_preferred_over_redundant_remap():
     """With the genuine canonical form AND its exact-partition remaps present, the gate
     admits the CANONICAL form (highest-marginal-MI representative, deterministic tie-break),
     not an arbitrary noisy remap."""
-    base, yb, rng = _world(seed=0)
+    base, yb, _rng = _world(seed=0)
     cands = {k: _mk(v, yb) for k, v in base.items()}
     # exact-partition remaps (no jitter -> identical partition, identical marginal MI;
     # canonical wins the tie by name ordering being deterministic).
@@ -176,7 +176,7 @@ def test_cost_is_bounded_as_K_grows():
 def test_cost_cap_disabled_runs_full_greedy():
     """``max_candidates <= 0`` disables the cap (unbounded greedy) -- the escape hatch.
     On a small pool the result is identical to the capped default (cap doesn't fire)."""
-    cands, yb, base = _pool_with_remaps(seed=0, n_remaps=2)  # 9 candidates < cap
+    cands, yb, _base = _pool_with_remaps(seed=0, n_remaps=2)  # 9 candidates < cap
     acc_capped, _ = apply_cmi_redundancy_gate(cands, yb, nbins=10, max_candidates=64, seed=0)
     acc_uncapped, _ = apply_cmi_redundancy_gate(cands, yb, nbins=10, max_candidates=0, seed=0)
     assert acc_capped == acc_uncapped

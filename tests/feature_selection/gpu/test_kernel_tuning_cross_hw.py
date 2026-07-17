@@ -61,7 +61,7 @@ def test_fallback_variant_per_cc_matches_table(cc_major, expected_variant):
             return_value={
                 "cc_major": cc_major,
                 "cc_minor": 0,
-                "name": "SimulatedCC{0}".format(cc_major),
+                "name": f"SimulatedCC{cc_major}",
             },
         ):
             # joint_size=25 stays below the 4096 override threshold, so the
@@ -84,7 +84,7 @@ def test_large_joint_size_forces_global_regardless_of_cc(cc_major):
             return_value={
                 "cc_major": cc_major,
                 "cc_minor": 0,
-                "name": "SimCC{0}".format(cc_major),
+                "name": f"SimCC{cc_major}",
             },
         ):
             r = dispatch.lookup_joint_hist(n_samples=100_000, joint_size=8192)

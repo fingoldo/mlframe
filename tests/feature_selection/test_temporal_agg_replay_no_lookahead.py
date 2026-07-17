@@ -4,7 +4,6 @@ train time range saw FUTURE train values -- a look-ahead leak / train-serve skew
 did the strict ``t' < t`` merge correctly). The replay now merges train history by time via a per-entity pointer.
 """
 
-import numpy as np
 import pandas as pd
 
 from mlframe.feature_selection.filters._temporal_agg_fe import (

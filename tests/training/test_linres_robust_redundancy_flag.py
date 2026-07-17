@@ -6,7 +6,6 @@ clean-residual targets trip this exact case and the discovery loop re-evaluated 
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from mlframe.training.composite.transforms import _linear_residual_robust_fit
 

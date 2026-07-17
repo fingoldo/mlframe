@@ -87,11 +87,11 @@ def test_transform_replay_reproduces_stored_stat():
     cat = rng.integers(0, 6, n).astype(str)
     y = rng.exponential(2.0, n)
     df = pd.DataFrame({"c": cat})
-    Xa, appended, recipes = kfold_target_encode_with_recipes(df, y, cat_cols=["c"], stats=("median", "q90", "iqr"))
+    _Xa, appended, recipes = kfold_target_encode_with_recipes(df, y, cat_cols=["c"], stats=("median", "q90", "iqr"))
     assert appended == [engineered_name_te_stat("c", s) for s in ("median", "q90", "iqr")]
     # Replay each recipe on held-out rows: one row per known category + one unseen category.
     known = sorted(set(cat))
-    X_test = pd.DataFrame({"c": known + ["ZZZ_unseen"]})
+    X_test = pd.DataFrame({"c": [*known, "ZZZ_unseen"]})
     for rec in recipes:  # recipe-dispatch replay path must be finite on known + unseen categories
         assert np.all(np.isfinite(apply_recipe(rec, X_test)))
     # Stored full-data lookups reproduce exactly at transform time; unseen -> global.

@@ -72,7 +72,6 @@ def test_sibling_raises_clear_cupy_error_when_unavailable() -> None:
     required on this CI, so we exercise the import-error branch.
     """
     import sys
-    import importlib
     import pytest
     import numpy as np
     from mlframe.feature_selection.filters.gpu import mi_direct_gpu_batched_pairs

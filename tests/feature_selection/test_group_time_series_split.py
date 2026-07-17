@@ -56,7 +56,7 @@ def test_gap_embargoes_groups_between_train_and_test():
 
 def test_max_train_groups_is_a_rolling_window():
     groups = _time_ordered_groups(12, 4)
-    for tr, te in GroupTimeSeriesSplit(n_splits=3, max_train_groups=2).split(np.zeros((len(groups), 1)), groups=groups):
+    for tr, _te in GroupTimeSeriesSplit(n_splits=3, max_train_groups=2).split(np.zeros((len(groups), 1)), groups=groups):
         assert len(set(groups[tr])) <= 2
 
 

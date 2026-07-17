@@ -100,7 +100,7 @@ def test_biz_val_prune_against_target_keeps_informative_cuts_noise():
 
 
 def test_boolean_pair_interactions_default_unchanged_when_prune_not_supplied():
-    df, y = _make_pruning_dataset(n=500, n_noise_cols=10, seed=2)
+    df, _y = _make_pruning_dataset(n=500, n_noise_cols=10, seed=2)
     baseline = boolean_pair_interactions(df, operators=("and", "or", "xor"))
     default_call = boolean_pair_interactions(df, operators=("and", "or", "xor"), prune_against_target=None)
     pd.testing.assert_frame_equal(baseline, default_call)

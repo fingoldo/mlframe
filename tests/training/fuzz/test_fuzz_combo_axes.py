@@ -17,7 +17,7 @@ import platform
 
 import pytest
 
-from tests.training._fuzz_combo import AXES, FuzzCombo, _build_combo
+from tests.training._fuzz_combo import AXES, _build_combo
 
 
 # ---------------------------------------------------------------------------

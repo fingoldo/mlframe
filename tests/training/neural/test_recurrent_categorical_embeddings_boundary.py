@@ -85,7 +85,7 @@ def test_regression_hybrid_native_cat_embeddings():
 
 
 def test_binary_hybrid_native_cat_embeddings():
-    feats, seqs, cats, rng = _make_data(seed=1)
+    feats, seqs, cats, _rng = _make_data(seed=1)
     y = np.isin(cats, ["red", "blue"]).astype(np.int64)
     clf = RecurrentClassifierWrapper(config=_cfg(num_classes=2), random_state=42)
     clf.fit(features=feats, labels=y, sequences=seqs, cat_features=["color"])
@@ -99,7 +99,7 @@ def test_binary_hybrid_native_cat_embeddings():
 
 
 def test_multiclass_hybrid_native_cat_embeddings():
-    feats, seqs, cats, rng = _make_data(seed=2)
+    feats, seqs, cats, _rng = _make_data(seed=2)
     mapping = {"red": 0, "green": 1, "blue": 2, "yellow": 0}
     y = np.array([mapping[c] for c in cats], dtype=np.int64)
     clf = RecurrentClassifierWrapper(config=_cfg(num_classes=3), random_state=42)
@@ -113,7 +113,7 @@ def test_multiclass_hybrid_native_cat_embeddings():
 def test_sequence_only_no_tabular_cats_trains_identically():
     # SEQUENCE_ONLY has NO tabular block; the cat factorizer must no-op (cardinalities None) and the model builds no aux embedding. Training +
     # prediction proceed exactly as without the feature.
-    feats, seqs, cats, rng = _make_data(seed=3)
+    _feats, seqs, _cats, _rng = _make_data(seed=3)
     y = np.array([float(s[:, 0].mean()) for s in seqs], dtype=np.float32)
     reg = RecurrentRegressorWrapper(config=_cfg(input_mode=InputMode.SEQUENCE_ONLY), random_state=42)
     reg.fit(features=None, labels=y, sequences=seqs)  # no features, no cat_features
@@ -127,7 +127,7 @@ def test_sequence_only_no_tabular_cats_trains_identically():
 
 def test_sequence_only_ignores_cat_features_passed_by_caller():
     # Even if the orchestrator threads cat_features for a SEQUENCE_ONLY member (features=None), the wrapper must no-op cleanly -- no aux block.
-    feats, seqs, cats, rng = _make_data(seed=4)
+    _feats, seqs, _cats, _rng = _make_data(seed=4)
     y = np.array([float(s[:, 0].mean()) for s in seqs], dtype=np.float32)
     reg = RecurrentRegressorWrapper(config=_cfg(input_mode=InputMode.SEQUENCE_ONLY), random_state=42)
     reg.fit(features=None, labels=y, sequences=seqs, cat_features=["color"])
@@ -137,7 +137,7 @@ def test_sequence_only_ignores_cat_features_passed_by_caller():
 
 
 def test_fit_pickle_predict_round_trip_bit_identical():
-    feats, seqs, cats, rng = _make_data(seed=7)
+    feats, seqs, cats, _rng = _make_data(seed=7)
     y = (feats["num_a"].to_numpy() + np.isin(cats, ["red"]).astype(np.float32) * 3.0).astype(np.float32)
     reg = RecurrentRegressorWrapper(config=_cfg(), random_state=42)
     reg.fit(features=feats, labels=y, sequences=seqs, cat_features=["color"])
@@ -151,7 +151,7 @@ def test_fit_pickle_predict_round_trip_bit_identical():
 
 
 def test_unseen_category_at_predict_maps_to_reserved_code():
-    feats, seqs, cats, rng = _make_data(seed=11)
+    feats, seqs, cats, _rng = _make_data(seed=11)
     y = feats["num_a"].to_numpy().astype(np.float32)
     reg = RecurrentRegressorWrapper(config=_cfg(), random_state=42)
     reg.fit(features=feats, labels=y, sequences=seqs, cat_features=["color"])

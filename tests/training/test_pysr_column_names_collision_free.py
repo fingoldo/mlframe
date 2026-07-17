@@ -10,7 +10,6 @@ from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.training.configs import PreprocessingExtensionsConfig
 from mlframe.training.pipeline import apply_preprocessing_extensions
@@ -93,8 +92,8 @@ def test_pysr_seeds_with_different_equations_produce_distinct_column_names():
 
 def test_pysr_same_equation_different_seeds_emits_different_columns():
     """Even when the SAME equation is rediscovered under a different seed, the column name carries the seed suffix so two seeds in an ensemble keep separately addressable features."""
-    train_a, eq_map_a = _run(seed=42, equations=["x1 * x2"])
-    train_b, eq_map_b = _run(seed=43, equations=["x1 * x2"])
+    train_a, _eq_map_a = _run(seed=42, equations=["x1 * x2"])
+    train_b, _eq_map_b = _run(seed=43, equations=["x1 * x2"])
 
     cols_a = [c for c in train_a.columns if c.startswith("pysr__")]
     cols_b = [c for c in train_b.columns if c.startswith("pysr__")]

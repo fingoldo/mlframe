@@ -49,7 +49,7 @@ def test_delong_auc_matches_sklearn(sep):
 def test_delong_auc_matches_sklearn_with_ties():
     y = np.array([0, 0, 1, 1, 0, 1, 1, 0])
     s = np.array([0.2, 0.2, 0.8, 0.8, 0.5, 0.5, 0.8, 0.2])
-    auc, var = delong_auc_variance(y, s)
+    auc, _var = delong_auc_variance(y, s)
     assert auc == pytest.approx(roc_auc_score(y, s), abs=1e-9)
 
 
@@ -112,7 +112,7 @@ def test_biz_val_delong_ci_narrows_with_n():
 
     def _half_width(n):
         y, s = _binary(n=n, sep=1.0, seed=9)
-        auc, lo, hi = delong_auc_ci(y, s)
+        _auc, lo, hi = delong_auc_ci(y, s)
         return (hi - lo) / 2.0
 
     w_small = _half_width(2000)

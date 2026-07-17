@@ -53,7 +53,7 @@ def test_derive_weights_shapes_and_normalization():
     rng = np.random.default_rng(1)
     z = rng.normal(size=2000)
     M = np.column_stack([z + 0.5 * rng.normal(size=2000) for _ in range(4)])
-    Z, mean, std, signs = _standardize_align(M, 0)
+    Z, _mean, _std, _signs = _standardize_align(M, 0)
     assert _derive_weights(Z, "median") is None
     w_mean = _derive_weights(Z, "mean_z")
     assert np.allclose(w_mean, 0.25)
@@ -69,7 +69,7 @@ def test_sign_alignment_flips_anticorrelated_member():
     z = rng.normal(size=2000)
     # member 2 is an ANTI-correlated reflection (-z): must be sign-flipped to +1 alignment.
     M = np.column_stack([z + 0.3 * rng.normal(size=2000), z + 0.3 * rng.normal(size=2000), -z + 0.3 * rng.normal(size=2000)])
-    Z, mean, std, signs = _standardize_align(M, 0)
+    Z, _mean, _std, signs = _standardize_align(M, 0)
     assert signs[2] == -1.0
     # After alignment all columns positively correlate with the reference.
     for j in range(3):
@@ -178,14 +178,14 @@ def test_gate_rejects_when_no_mi_gain():
     n = 3000
     X = pd.DataFrame({f"x{i}": rng.normal(size=n) for i in range(4)})  # 4 INDEPENDENT noise features
     y = rng.integers(0, 2, size=n)
-    cols = list(X.columns) + ["y"]
+    cols = [*list(X.columns), "y"]
     NB = 8
     binned = [discretize_array(arr=X[c].to_numpy(), n_bins=NB, method="quantile", dtype=np.int32) for c in X.columns]
     binned.append(y.astype(np.int32))
     data = np.column_stack(binned).astype(np.int32)
     nbins = np.array([NB] * 4 + [2], dtype=np.int64)
     recipes = {}
-    *_, n_added, removed, added_idx, _summary = run_cluster_aggregate_step(
+    *_, n_added, _removed, _added_idx, _summary = run_cluster_aggregate_step(
         data=data,
         cols=cols,
         nbins=nbins,
@@ -225,7 +225,7 @@ def test_fit_binned_column_matches_binned_apply_recipe_replay():
     NB = 8
     for seed in (0, 3, 11):
         X, y, _z = _reflection_frame(n=2500, k=5, noise=0.8, seed=seed)
-        cols = list(X.columns) + ["y"]
+        cols = [*list(X.columns), "y"]
         binned = [discretize_array(arr=X[c].to_numpy(), n_bins=NB, method="quantile", dtype=np.int32) for c in X.columns]
         binned.append(np.asarray(y).astype(np.int32))
         data = np.column_stack(binned).astype(np.int32)
@@ -372,7 +372,7 @@ def test_each_method_builds_aggregate_recovering_latent(method):
     aggs = [r for r in s._engineered_recipes_ if r.kind == "cluster_aggregate"]
     assert aggs and aggs[0].extra["method"] == method, f"method {method} should build an aggregate"
     out = s.transform(X)
-    agg_col = [c for c in out.columns if "clusteragg" in c][0]
+    agg_col = next(c for c in out.columns if "clusteragg" in c)
     rc_agg = abs(np.corrcoef(out[agg_col].to_numpy(), z)[0, 1])
     rc_best = max(abs(np.corrcoef(X[f"refl{i}"].to_numpy(), z)[0, 1]) for i in range(4))
     assert rc_agg > rc_best, f"[{method}] aggregate must recover z better than best member: {rc_agg:.3f} vs {rc_best:.3f}"

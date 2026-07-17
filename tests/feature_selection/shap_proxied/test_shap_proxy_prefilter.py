@@ -694,7 +694,6 @@ def test_two_stage_calls_gpu_path_when_gate_fires(monkeypatch):
 
     calls = {"cpu": 0, "gpu": 0}
     real_cpu = PF._rank_model
-    real_gpu = PF._rank_gpu_model
 
     def _wrap_cpu(*a, **kw):
         calls["cpu"] += 1

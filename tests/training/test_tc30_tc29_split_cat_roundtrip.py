@@ -2,10 +2,7 @@
 (polars<->pandas categorical category-list alignment on roundtrip).
 """
 
-import sys
-import os
 
-import numpy as np
 import pandas as pd
 import polars as pl
 import pytest

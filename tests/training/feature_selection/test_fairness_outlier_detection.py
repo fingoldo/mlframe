@@ -52,7 +52,7 @@ def test_fairness_missing_columns_skipped():
         fairness_min_pop_cat_thresh=1,
     )
     df = pd.DataFrame({"x": [1, 2, 3, 4, 5]})
-    subs, feats = _compute_fairness_subgroups(df, bc)
+    _subs, feats = _compute_fairness_subgroups(df, bc)
     # special marker triggers create_fairness_subgroups path; subs may be dict
     assert feats == ["**ORDER**"]
 
@@ -71,7 +71,7 @@ def test_fairness_polars_input():
         cont_nbins=3,
         fairness_min_pop_cat_thresh=1,
     )
-    subs, feats = _compute_fairness_subgroups(df, bc)
+    subs, _feats = _compute_fairness_subgroups(df, bc)
     assert subs is not None
 
 
@@ -96,7 +96,7 @@ class _MockOD:
 def test_outlier_none_returns_inputs_unchanged():
     df = pd.DataFrame({"a": [1, 2, 3]})
     idx = np.arange(3)
-    tr, va, tr_idx, va_idx, tr_mask, va_mask = _apply_outlier_detection_global(
+    tr, va, _tr_idx, _va_idx, tr_mask, va_mask = _apply_outlier_detection_global(
         train_df=df,
         val_df=None,
         train_idx=idx,
@@ -114,7 +114,7 @@ def test_outlier_filters_train_pandas():
     n = 20
     df = pd.DataFrame({"a": rng.standard_normal(n)})
     idx = np.arange(n)
-    tr, va, tr_idx, va_idx, tr_mask, va_mask = _apply_outlier_detection_global(
+    tr, _va, tr_idx, _va_idx, tr_mask, _va_mask = _apply_outlier_detection_global(
         train_df=df,
         val_df=None,
         train_idx=idx,
@@ -135,7 +135,7 @@ def test_outlier_filters_val_when_od_val_set():
     va_df = pd.DataFrame({"a": np.arange(n_va, dtype=float)})
     tr_idx = np.arange(n_tr)
     va_idx = np.arange(n_tr, n_tr + n_va)
-    tr, va, tr_i, va_i, tr_m, va_m = _apply_outlier_detection_global(
+    tr, va, _tr_i, _va_i, _tr_m, va_m = _apply_outlier_detection_global(
         train_df=tr_df,
         val_df=va_df,
         train_idx=tr_idx,
@@ -154,7 +154,7 @@ def test_outlier_skips_val_when_flag_false():
     n_tr, n_va = 8, 4
     tr_df = pd.DataFrame({"a": np.arange(n_tr, dtype=float)})
     va_df = pd.DataFrame({"a": np.arange(n_va, dtype=float)})
-    tr, va, tr_i, va_i, tr_m, va_m = _apply_outlier_detection_global(
+    _tr, va, _tr_i, _va_i, _tr_m, va_m = _apply_outlier_detection_global(
         train_df=tr_df,
         val_df=va_df,
         train_idx=np.arange(n_tr),
@@ -173,7 +173,7 @@ def test_outlier_polars_path():
     n = 12
     tr_df = pl.DataFrame({"a": list(range(n))})
     tr_idx = np.arange(n)
-    tr, va, tr_i, va_i, tr_m, va_m = _apply_outlier_detection_global(
+    tr, _va, _tr_i, _va_i, _tr_m, _va_m = _apply_outlier_detection_global(
         train_df=tr_df,
         val_df=None,
         train_idx=tr_idx,
@@ -292,7 +292,7 @@ def test_outlier_drops_one_row_does_not_trip_guard():
     n = 200
     df = pd.DataFrame({"a": np.arange(n, dtype=float)})
     idx = np.arange(n)
-    tr, va, tr_i, va_i, tr_m, va_m = _apply_outlier_detection_global(
+    tr, _va, _tr_i, _va_i, _tr_m, _va_m = _apply_outlier_detection_global(
         train_df=df,
         val_df=None,
         train_idx=idx,

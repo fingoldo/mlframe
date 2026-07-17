@@ -22,11 +22,11 @@ from sklearn.exceptions import NotFittedError
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
-from mlframe.training.neural.recurrent import (  # noqa: E402
+from mlframe.training.neural.recurrent import (
     RecurrentClassifierWrapper,
     RecurrentRegressorWrapper,
 )
-from mlframe.training.neural._recurrent_config import (  # noqa: E402
+from mlframe.training.neural._recurrent_config import (
     RecurrentConfig,
     InputMode,
     RNNType,

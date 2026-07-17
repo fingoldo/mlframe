@@ -13,9 +13,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from sklearn.linear_model import LinearRegression, LogisticRegression, Ridge
-from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
-from sklearn.metrics import make_scorer, mean_squared_error, r2_score
-from sklearn.model_selection import KFold
+from sklearn.ensemble import RandomForestClassifier
 
 from mlframe.feature_selection.wrappers import (
     RFECV,
@@ -24,7 +22,6 @@ from mlframe.feature_selection.wrappers import (
     get_feature_importances,
     get_next_features_subset,
     select_appropriate_feature_importances,
-    split_into_train_test,
     store_averaged_cv_scores,
 )
 
@@ -179,7 +176,7 @@ class TestF23_NanScoreSafety:
             mean_perf_weight = 1.0
             std_perf_weight = 0.0
 
-        scores_mean, scores_std, final_score, was_stored = store_averaged_cv_scores(
+        scores_mean, _scores_std, final_score, was_stored = store_averaged_cv_scores(
             pos=5,
             scores=[0.8, np.nan, 0.85, 0.78],
             evaluated_scores_mean=evaluated_mean,
@@ -254,7 +251,7 @@ class TestF35_BestPerNfeaturesNotLast:
             std_perf_weight = 0.0
 
         # First exploration at pos=5: score 0.7
-        m1, s1, f1, stored1 = store_averaged_cv_scores(
+        _m1, _s1, _f1, stored1 = store_averaged_cv_scores(
             pos=5,
             scores=[0.7],
             evaluated_scores_mean=evaluated_mean,
@@ -265,7 +262,7 @@ class TestF35_BestPerNfeaturesNotLast:
         assert evaluated_mean[5] == 0.7
 
         # Second exploration at pos=5 with WORSE score 0.6: must NOT overwrite
-        m2, s2, f2, stored2 = store_averaged_cv_scores(
+        _m2, _s2, _f2, stored2 = store_averaged_cv_scores(
             pos=5,
             scores=[0.6],
             evaluated_scores_mean=evaluated_mean,
@@ -276,7 +273,7 @@ class TestF35_BestPerNfeaturesNotLast:
         assert evaluated_mean[5] == 0.7  # unchanged
 
         # Third exploration at pos=5 with BETTER score 0.8: must overwrite
-        m3, s3, f3, stored3 = store_averaged_cv_scores(
+        _m3, _s3, _f3, stored3 = store_averaged_cv_scores(
             pos=5,
             scores=[0.8],
             evaluated_scores_mean=evaluated_mean,

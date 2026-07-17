@@ -69,7 +69,7 @@ def test_detect_regime_changepoints_unknown_backend_raises():
     y = np.arange(100, dtype=np.float64)
     try:
         detect_regime_changepoints(y, min_segment_length=10, backend="bogus")
-        assert False, "expected ValueError"
+        raise AssertionError("expected ValueError")
     except ValueError:
         pass
 

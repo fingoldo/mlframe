@@ -26,7 +26,7 @@ class TestQuantizeNanHandling:
         nan_col = good.copy()
         nan_col[:5] = np.nan
         X = np.column_stack([good, nan_col])
-        fd, fn, names = _quantize_for_su(X)
+        fd, fn, _names = _quantize_for_su(X)
         assert fd is not None
         # The NaN-bearing column must still receive >1 bin (finite values get
         # quantized), matching the DataFrame path. Pre-fix: NaN edges -> 1 bin.

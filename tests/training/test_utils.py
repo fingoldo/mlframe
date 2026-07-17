@@ -11,7 +11,6 @@ import pandas as pd
 import polars as pl
 import tempfile
 import os
-from pathlib import Path
 from hypothesis import given, strategies as st, settings, assume, HealthCheck
 
 from mlframe.training.utils import (

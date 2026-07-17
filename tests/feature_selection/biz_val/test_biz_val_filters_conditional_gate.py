@@ -126,7 +126,7 @@ class TestPrototypeDirect:
 class TestRecipeReplay:
     def test_argmax_recipe_replay_bit_identical(self):
         X, y = _argmax_target(1)
-        appended, recipes = hybrid_row_argmax_fe_with_recipes(X, y, seed=1)
+        _appended, recipes = hybrid_row_argmax_fe_with_recipes(X, y, seed=1)
         assert recipes, "no row-argmax recipes emitted."
         for r in recipes:
             direct = apply_row_argmax(X, r.src_names)
@@ -134,7 +134,7 @@ class TestRecipeReplay:
 
     def test_gate_recipe_replay_bit_identical_with_frozen_tau(self):
         X, y = _gate_target(1)
-        appended, recipes = hybrid_conditional_gate_fe_with_recipes(X, y, seed=1)
+        _appended, recipes = hybrid_conditional_gate_fe_with_recipes(X, y, seed=1)
         assert recipes, "no conditional-gate recipes emitted."
         for r in recipes:
             assert "tau" in r.extra, "gate recipe must freeze tau."

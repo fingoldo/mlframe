@@ -74,7 +74,7 @@ def test_multilabel_log_loss_failed_class_warns_and_uses_nanmean(caplog):
     WARN-log fires."""
     K = 3
 
-    def _ll_mock(y, p, labels):  # noqa: D401
+    def _ll_mock(y, p, labels):
         # Fail on class index 1, succeed otherwise.
         if y.shape[0] > 0 and y[0] == -1:
             raise ValueError("synthetic class-1 failure")

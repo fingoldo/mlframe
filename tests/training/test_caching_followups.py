@@ -9,11 +9,9 @@ Covers:
 from __future__ import annotations
 
 import os
-import sys
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.training.suite_artefact_cache import (
     SuiteArtefactCache,

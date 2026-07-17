@@ -35,7 +35,7 @@ def _entity_target_frame(n=400, n_entities=30, seed=0):
 def test_apply_target_encoding_composite_fe_noop_when_columns_unset():
     df, group_ids, ts, y, _ = _entity_target_frame()
     cfg = PreprocessingExtensionsConfig()
-    train, val, test = apply_target_encoding_composite_fe(
+    train, _val, _test = apply_target_encoding_composite_fe(
         df.iloc[:300],
         df.iloc[300:],
         None,

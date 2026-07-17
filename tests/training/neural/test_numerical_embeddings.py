@@ -14,8 +14,6 @@ from pathlib import Path
 import numpy as np
 import pytest
 import torch
-import torch.nn as nn
-from sklearn.datasets import make_regression
 from sklearn.metrics import r2_score
 from sklearn.model_selection import train_test_split
 

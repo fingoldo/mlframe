@@ -18,7 +18,6 @@ that drops the import + call would fail by leaving the counter at 0.
 
 from __future__ import annotations
 
-from unittest import mock
 
 import pytest
 

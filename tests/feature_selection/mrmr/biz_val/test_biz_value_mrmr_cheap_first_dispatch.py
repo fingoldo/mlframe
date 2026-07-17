@@ -30,7 +30,6 @@ import warnings
 
 import numpy as np
 import pandas as pd
-import pytest
 
 warnings.filterwarnings("ignore")
 
@@ -97,7 +96,7 @@ def _covers_cd_hard(support):
 
 
 def test_cheap_first_recovers_hard_pair_and_does_not_bloat():
-    df, y, m_off = _fit(1.0)  # gate OFF: optimise every prospective pair (legacy)
+    _df, _y, m_off = _fit(1.0)  # gate OFF: optimise every prospective pair (legacy)
     _, _, m_on = _fit(0.97)  # gate ON (default): skip cheaply-saturated pairs
     sup_off = list(m_off.get_feature_names_out())
     sup_on = list(m_on.get_feature_names_out())

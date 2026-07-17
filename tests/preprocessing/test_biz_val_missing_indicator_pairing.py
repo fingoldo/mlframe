@@ -116,7 +116,7 @@ def test_biz_val_missing_indicator_pairing_group_conditional_lowers_imputation_r
 
 
 def test_biz_val_missing_indicator_pairing_group_conditional_improves_downstream_model():
-    df, true_income, is_missing = _make_grouped_income_dataset(n_rows=4000, seed=1)
+    df, true_income, _is_missing = _make_grouped_income_dataset(n_rows=4000, seed=1)
     y = (true_income > 75_000).astype(np.int64)  # downstream target correlated with the TRUE income
     df_train, df_test, y_train, y_test = train_test_split(df, y, test_size=0.3, random_state=0, stratify=y)
 

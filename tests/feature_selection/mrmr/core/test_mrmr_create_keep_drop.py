@@ -56,7 +56,6 @@ from __future__ import annotations
 
 import os
 import re
-from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -1081,10 +1080,10 @@ def _dump_ledger():
             import json
             import warnings
 
-            warnings.warn(f"ckd ledger orjson dump failed ({exc!r}); using json fallback")
+            warnings.warn(f"ckd ledger orjson dump failed ({exc!r}); using json fallback", stacklevel=2)
             with open(ledger_path, "w", encoding="utf-8") as fh:
                 json.dump(_LEDGER, fh, indent=2)
         except Exception as exc2:
             import warnings
 
-            warnings.warn(f"ckd ledger dump failed entirely: {exc2!r}")
+            warnings.warn(f"ckd ledger dump failed entirely: {exc2!r}", stacklevel=2)

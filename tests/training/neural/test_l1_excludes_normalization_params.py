@@ -22,14 +22,13 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-import numpy as np
 import pytest
 import torch
 import torch.nn as nn
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
-from mlframe.training.neural import MLPTorchModel, MetricSpec, generate_mlp
+from mlframe.training.neural import MLPTorchModel, generate_mlp
 
 
 def _make_model(l1_alpha: float, n_features: int = 4, n_classes: int = 1) -> MLPTorchModel:

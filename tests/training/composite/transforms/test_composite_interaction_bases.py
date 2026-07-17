@@ -109,7 +109,7 @@ class TestSafety:
             "a": np.array([1.0, 2.0, 3.0, 4.0]),
             "b": np.array([4.0, 3.0, 2.0, 1.0]),  # a + b == 5 for every row
         }
-        synthetics, provenance = generate_interaction_bases(
+        _synthetics, provenance = generate_interaction_bases(
             candidates,
             ops=("add",),
             top_k=2,

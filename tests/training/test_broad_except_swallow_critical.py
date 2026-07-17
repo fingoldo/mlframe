@@ -120,7 +120,7 @@ class _UnhashableTarget:
     def shape(self):  # poisoned attr access used inside the hash path
         raise RuntimeError("synthetic hash failure")
 
-    def __iter__(self):  # noqa: D401
+    def __iter__(self):
         raise RuntimeError("not iterable either")
 
 
@@ -156,7 +156,7 @@ def test_text_column_content_token_fallback_uses_id_not_zero(caplog):
         path into the except branch (the function recognises us as a
         pandas DataFrame via isinstance, then explodes on __getitem__)."""
 
-        def __getitem__(self, key):  # noqa: D401
+        def __getitem__(self, key):
             raise RuntimeError(f"synthetic column access failure for {key!r}")
 
     bad1 = _ExplodingDf({"col_a": [1, 2, 3]})

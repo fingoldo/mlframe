@@ -11,11 +11,9 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
-from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
-import pytest
 
 
 _PHASE_HELPERS_PATH = Path(__file__).resolve().parents[2] / "src" / "mlframe" / "training" / "core" / "_phase_helpers.py"

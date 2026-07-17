@@ -145,6 +145,6 @@ def test_biz_val_mlp_iteration_metrics_populated():
     im = getattr(clf, "iteration_metrics_", None)
     assert im, "neural iteration_metrics_ must be populated by default (capture is ON for neural)"
     # Each captured epoch carries the binary suite.
-    for epoch, metrics in im.items():
+    for metrics in im.values():
         assert set(metrics) == set(_BINARY_METRIC_KEYS)
         assert np.isfinite(metrics["log_loss"])

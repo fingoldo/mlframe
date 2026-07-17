@@ -5,7 +5,6 @@ Pre-fix ``load_mlframe_model`` re-ran ``_SafeUnpickler(zstd.stream_reader(...))`
 
 from __future__ import annotations
 
-import io as _stdio
 import os
 from types import SimpleNamespace
 

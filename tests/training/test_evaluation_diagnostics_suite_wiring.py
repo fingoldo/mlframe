@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.training.configs import OutputConfig, TargetTypes
 from mlframe.training.core import train_mlframe_models_suite
@@ -64,7 +63,7 @@ def test_unknown_diagnostic_name_reports_error_without_crashing(tmp_path):
     skip_if_dependency_missing("hgb")
     df = _make_frame(300)
     fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
-    models, metadata = train_mlframe_models_suite(
+    _models, metadata = train_mlframe_models_suite(
         df=df,
         target_name="target",
         model_name="diag_unknown",

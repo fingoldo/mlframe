@@ -6,7 +6,6 @@ via ``getattr(..., 0.01)`` and silently locked it at 0.01.
 
 from __future__ import annotations
 
-import pytest
 
 
 def test_min_non_null_fraction_field_settable():

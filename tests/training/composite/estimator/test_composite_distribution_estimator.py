@@ -32,7 +32,7 @@ class _StubQuantileInner(BaseEstimator, RegressorMixin):
         self.alpha = alpha
         self.sigma = sigma
 
-    def fit(self, X, y, sample_weight=None):  # noqa: ARG002
+    def fit(self, X, y, sample_weight=None):
         self._mean_ = float(np.mean(np.asarray(y, dtype=np.float64)))
         self.n_features_in_ = X.shape[1] if hasattr(X, "shape") else len(X.columns)
         return self

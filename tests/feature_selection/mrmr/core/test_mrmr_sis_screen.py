@@ -141,7 +141,7 @@ def test_bizvalue_recall_beats_random_baseline():
     X, y, main_idx, op_idx = _make_frame(n, p, n_main, n_pairs, L, seed=11)
 
     m = 600
-    survivors, sc = sis_screen(X, y, target_survivors=m, return_scores=True)
+    survivors, _sc = sis_screen(X, y, target_survivors=m, return_scores=True)
 
     planted = np.concatenate([main_idx, op_idx])
     rec_all = _recall(survivors, planted)
@@ -193,7 +193,7 @@ def test_regression_target_marginal_mi_channel_alive():
     X = rng.standard_normal((n, p)).astype(np.float32)
     main = [3, 17, 42, 88]
     y = (X[:, main] @ rng.standard_normal(len(main)) + 0.1 * rng.standard_normal(n)).astype(np.float64)  # continuous
-    surv, sc = sis_screen(X, y, target_survivors=50, return_scores=True)
+    _surv, sc = sis_screen(X, y, target_survivors=50, return_scores=True)
     assert sc["mi"].max() > 0.0, "regression-y marginal MI channel is dead (P0-1 regression)"
     top_mi = set(np.argsort(sc["mi"])[::-1][:50].tolist())
     assert len(set(main) & top_mi) >= 3, f"MI channel recovered too few main effects for regression y: {set(main) & top_mi}"

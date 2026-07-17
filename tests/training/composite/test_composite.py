@@ -26,7 +26,6 @@ Coverage map
 
 from __future__ import annotations
 
-import math
 import pickle
 
 import numpy as np
@@ -41,14 +40,13 @@ import polars as pl
 # Optional dependency: most wrapper integration tests need LightGBM.
 lgb = pytest.importorskip("lightgbm")
 
-from sklearn.base import clone  # noqa: E402
+from sklearn.base import clone
 
-from mlframe.training.composite import (  # noqa: E402
+from mlframe.training.composite import (
     CompositeTargetEstimator,
     DomainViolationError,
     Transform,
     UnknownTransformError,
-    _TRANSFORMS_REGISTRY,
     get_transform,
     list_transforms,
 )
@@ -199,7 +197,7 @@ class TestHypothesisRoundTrip:
     """
 
     def test_diff_property(self) -> None:
-        from hypothesis import given, settings, assume
+        from hypothesis import given, settings
         from hypothesis.extra.numpy import arrays
         from hypothesis import strategies as st
 
@@ -218,7 +216,7 @@ class TestHypothesisRoundTrip:
         _check()
 
     def test_ratio_property(self) -> None:
-        from hypothesis import given, settings, assume
+        from hypothesis import given, settings
         from hypothesis.extra.numpy import arrays
         from hypothesis import strategies as st
 
@@ -661,7 +659,7 @@ class TestPolarsInput:
         directly here, the wrapper's polars-aware ``_extract_base``
         and ``_subset_rows`` paths exercise correctly when the caller
         adapts at the inner boundary -- mirrors the in-suite pattern."""
-        df, y = _tvt_like(n=400)
+        df, _y = _tvt_like(n=400)
         pl_df = pl.from_pandas(df)
         # Verify the wrapper's polars-aware helpers don't crash on
         # base-column extraction or row subsetting.

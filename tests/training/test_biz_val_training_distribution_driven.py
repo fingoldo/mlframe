@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 
 
 def test_biz_val_tail_composite_extreme_quantile_beats_gaussian():

@@ -77,7 +77,7 @@ def test_regression_native_cat_embeddings():
 
 
 def test_binary_classification_native_cat_embeddings():
-    X, cats, rng = _make_frame()
+    X, cats, _rng = _make_frame()
     y = (np.isin(cats, ["red", "blue"])).astype(np.int64)
     clf = PytorchLightningClassifier(**_common(torch.int64, torch.nn.CrossEntropyLoss()))
     clf.fit(X, y, cat_features=["color"])
@@ -90,7 +90,7 @@ def test_binary_classification_native_cat_embeddings():
 
 
 def test_multiclass_classification_native_cat_embeddings():
-    X, cats, rng = _make_frame()
+    X, cats, _rng = _make_frame()
     mapping = {"red": 0, "green": 1, "blue": 2, "yellow": 0}
     y = np.array([mapping[c] for c in cats], dtype=np.int64)
     clf = PytorchLightningClassifier(**_common(torch.int64, torch.nn.CrossEntropyLoss()))
@@ -101,7 +101,7 @@ def test_multiclass_classification_native_cat_embeddings():
 
 
 def test_multilabel_classification_native_cat_embeddings():
-    X, cats, rng = _make_frame()
+    X, cats, _rng = _make_frame()
     y = np.column_stack(
         [
             np.isin(cats, ["red", "blue"]).astype(np.int64),
@@ -152,7 +152,7 @@ def test_mlp_auto_factorizes_raw_object_cat_without_explicit_cat_features():
 
 
 def test_fit_pickle_unpickle_predict_round_trip():
-    X, cats, rng = _make_frame(seed=7)
+    X, cats, _rng = _make_frame(seed=7)
     y = (X["num_0"] + np.isin(cats, ["red"]).astype(np.float32) * 3.0).to_numpy().astype(np.float32)
     reg = PytorchLightningRegressor(**_common(torch.float32, torch.nn.MSELoss()), random_state=42)
     reg.fit(X, y, cat_features=["color"])
@@ -166,7 +166,7 @@ def test_fit_pickle_unpickle_predict_round_trip():
 
 
 def test_unseen_category_at_predict_maps_to_reserved_code():
-    X, cats, rng = _make_frame(seed=11)
+    X, cats, _rng = _make_frame(seed=11)
     y = (X["num_0"]).to_numpy().astype(np.float32)
     reg = PytorchLightningRegressor(**_common(torch.float32, torch.nn.MSELoss()))
     reg.fit(X, y, cat_features=["color"])

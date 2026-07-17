@@ -35,7 +35,6 @@ from mlframe.training.feature_handling import (
     LoggingConfig,
     MemoryConfig,
     ModelHandlingOverride,
-    NoParams,
     PricingConfig,
     ReproConfig,
     TargetEncodeParams,

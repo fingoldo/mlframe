@@ -24,7 +24,6 @@ from mlframe.metrics.core import (
     _fast_subset_accuracy_par,
     _fast_jaccard_score_seq,
     _fast_jaccard_score_par,
-    _pack_for_bitmap,
     _pack_for_bitmap_numpy,
     _pack_for_bitmap_kernel_seq,
     _pack_for_bitmap_kernel_par,

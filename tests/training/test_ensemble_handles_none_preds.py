@@ -22,7 +22,6 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import numpy as np
-import pytest
 
 from mlframe.models.ensembling import _process_single_ensemble_method
 
@@ -94,7 +93,7 @@ class TestNonePredsDoesNotCrash:
             ),
         ]
         # Should NOT raise.
-        method_name, results, conf_results = _process_single_ensemble_method(
+        method_name, results, _conf_results = _process_single_ensemble_method(
             ensemble_method="arithm",
             **_common_kwargs(members),
         )

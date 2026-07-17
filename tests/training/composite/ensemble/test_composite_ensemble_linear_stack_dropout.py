@@ -44,7 +44,7 @@ def _build_stack_with_three_components(seed: int = 0):
 
 
 def test_linear_stack_all_components_ok_no_warning(caplog):
-    ens, models, y_train = _build_stack_with_three_components(seed=0)
+    ens, models, _y_train = _build_stack_with_three_components(seed=0)
     # All components produce the same training-time mean pattern.
     test_y = np.array([10.0, 11.0, 9.0])
     for i, m in enumerate(models):
@@ -61,7 +61,7 @@ def test_linear_stack_one_component_dropped_no_refit_warns(caplog):
     (b) return the surviving columns' ORIGINAL coefficients @ preds plus
         the original intercept -- no solver refit, fully deterministic.
     """
-    ens, models, y_train = _build_stack_with_three_components(seed=1)
+    ens, models, _y_train = _build_stack_with_three_components(seed=1)
 
     test_y = np.array([10.0, 11.0, 9.0, 12.0])
     p0_test = test_y + 1.0

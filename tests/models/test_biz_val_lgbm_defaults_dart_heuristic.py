@@ -117,7 +117,7 @@ def test_biz_val_auto_dart_redundancy_ignores_wide_independent_features_unlike_r
     """
     n_features = 500
     assert n_features >= LARGE_N_FEATURES_THRESHOLD  # the raw-count heuristic WOULD trigger dart here.
-    Xtr, Xte, ytr, yte = _make_independent_feature_regression(n=1000, n_features=n_features, n_informative=5, seed=2)
+    Xtr, _Xte, _ytr, _yte = _make_independent_feature_regression(n=1000, n_features=n_features, n_informative=5, seed=2)
 
     count_based_params = default_lgbm_params(objective="regression", n_features=n_features)
     redundancy_based_params = default_lgbm_params(objective="regression", auto_dart_redundancy=True, X=Xtr)

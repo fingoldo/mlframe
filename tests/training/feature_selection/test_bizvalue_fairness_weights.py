@@ -83,7 +83,7 @@ def _make_imbalanced_classification(n_train=6000, n_test=1500, n_features=10, mi
     n_total = n_train + n_test
 
     y = np.zeros(n_total, dtype=int)
-    n_pos = int(round(minority_frac * n_total))
+    n_pos = round(minority_frac * n_total)
     pos_idx = rng.choice(n_total, size=n_pos, replace=False)
     y[pos_idx] = 1
 
@@ -102,7 +102,7 @@ def _make_imbalanced_classification(n_train=6000, n_test=1500, n_features=10, mi
     pos_mask = df["target"].values == 1
     pos_df = df[pos_mask].sample(frac=1.0, random_state=seed).reset_index(drop=True)
     neg_df = df[~pos_mask].sample(frac=1.0, random_state=seed).reset_index(drop=True)
-    test_pos_n = int(round(len(pos_df) * (n_test / n_total)))
+    test_pos_n = round(len(pos_df) * (n_test / n_total))
     test_neg_n = n_test - test_pos_n
     test_df = pd.concat([pos_df.iloc[:test_pos_n], neg_df.iloc[:test_neg_n]], ignore_index=True)
     train_df = pd.concat([pos_df.iloc[test_pos_n:], neg_df.iloc[test_neg_n:]], ignore_index=True)
@@ -193,7 +193,7 @@ def test_fairness_features_emits_per_group_path(tmp_path, common_init_params, se
         return models, metadata, results
 
     # Run A: fairness disabled
-    _, meta_a, results_a = _run(f"{mlframe_model}_no_fairness_s{seed}", {"fairness_features": []})
+    _, meta_a, _results_a = _run(f"{mlframe_model}_no_fairness_s{seed}", {"fairness_features": []})
 
     # Run B: fairness enabled on the "group" column
     _, meta_b, results_b = _run(
@@ -275,7 +275,7 @@ def test_sample_weights_lift_minority_recall(tmp_path, common_init_params, seed,
     assert 0.05 < minority_frac < 0.20, f"unexpected minority_frac={minority_frac:.3f}"
 
     # Inverse-frequency weights: minority gets ~9x.
-    n = len(y_train)
+    len(y_train)
     w_min = float((1.0 - minority_frac) / minority_frac)  # ~9 at 10% minority
     sample_weight_vec = np.where(y_train == 1, w_min, 1.0).astype(np.float64)
 
@@ -288,7 +288,7 @@ def test_sample_weights_lift_minority_recall(tmp_path, common_init_params, seed,
             regression=False,
             sample_weights=sample_weights_dict,
         )
-        models, metadata = train_mlframe_models_suite(
+        _models, metadata = train_mlframe_models_suite(
             df=train_df,
             target_name="test_target",
             model_name=model_name,
@@ -315,10 +315,10 @@ def test_sample_weights_lift_minority_recall(tmp_path, common_init_params, seed,
         return metadata, results
 
     # Run A: no sample weights (empty dict -> uniform path)
-    meta_a, results_a = _run(f"{mlframe_model}_uniform_s{seed}", {})
+    _meta_a, results_a = _run(f"{mlframe_model}_uniform_s{seed}", {})
 
     # Run B: inverse-frequency weights
-    meta_b, results_b = _run(f"{mlframe_model}_inv_freq_s{seed}", {"inv_freq": sample_weight_vec})
+    _meta_b, results_b = _run(f"{mlframe_model}_inv_freq_s{seed}", {"inv_freq": sample_weight_vec})
 
     y_test = test_df["target"].values
 

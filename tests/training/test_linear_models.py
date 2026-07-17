@@ -92,7 +92,7 @@ class TestLinearModelTraining:
     @pytest.mark.parametrize("model_type", fast_subset(_ALL_LINEAR_TYPES, representative="ridge"))
     def test_train_regression_model(self, sample_regression_data, model_type):
         """Test training regression models."""
-        df, feature_names, y = sample_regression_data
+        df, feature_names, _y = sample_regression_data
 
         train_size = int(0.7 * len(df))
         train_df = df[feature_names].iloc[:train_size]
@@ -117,7 +117,7 @@ class TestLinearModelTraining:
     @pytest.mark.parametrize("model_type", fast_subset(_ALL_LINEAR_CLF_TYPES, representative="ridge"))
     def test_train_classification_model(self, sample_classification_data, model_type):
         """Test training classification models."""
-        df, feature_names, _, y = sample_classification_data
+        df, feature_names, _, _y = sample_classification_data
 
         train_size = int(0.7 * len(df))
         train_df = df[feature_names].iloc[:train_size]
@@ -145,7 +145,7 @@ class TestLinearModelTraining:
 
     def test_elasticnet_with_custom_l1_ratio(self, sample_regression_data):
         """Test ElasticNet with custom L1 ratio."""
-        df, feature_names, y = sample_regression_data
+        df, feature_names, _y = sample_regression_data
 
         train_df = df[feature_names].iloc[:700]
         train_target = df["target"].iloc[:700]
@@ -167,7 +167,7 @@ class TestLinearModelTraining:
 
     def test_huber_robustness(self, sample_regression_data):
         """Test Huber regression with outliers."""
-        df, feature_names, y = sample_regression_data
+        df, feature_names, _y = sample_regression_data
 
         # Add outliers
         df_with_outliers = df.copy()
@@ -192,7 +192,7 @@ class TestLinearModelTraining:
 
     def test_sgd_large_dataset_simulation(self, sample_regression_data):
         """Test SGD on simulated large dataset."""
-        df, feature_names, y = sample_regression_data
+        df, feature_names, _y = sample_regression_data
 
         # SGD is designed for large datasets
         train_df = df[feature_names].iloc[:800]
@@ -219,7 +219,7 @@ class TestLinearModelConfigurations:
 
     def test_ridge_with_different_alphas(self, sample_regression_data):
         """Test Ridge with different regularization strengths."""
-        df, feature_names, y = sample_regression_data
+        df, feature_names, _y = sample_regression_data
 
         train_df = df[feature_names].iloc[:700]
         train_target = df["target"].iloc[:700]
@@ -240,7 +240,7 @@ class TestLinearModelConfigurations:
 
     def test_calibrated_classifier(self, sample_classification_data):
         """Test calibrated classifier wrapper."""
-        df, feature_names, _, y = sample_classification_data
+        df, feature_names, _, _y = sample_classification_data
 
         train_df = df[feature_names].iloc[:700]
         train_target = df["target"].iloc[:700]
@@ -264,7 +264,7 @@ class TestLinearModelConvergence:
 
     def test_sgd_convergence_n_iter(self, sample_regression_data):
         """Test SGD records number of iterations."""
-        df, feature_names, y = sample_regression_data
+        df, feature_names, _y = sample_regression_data
 
         train_df = df[feature_names].iloc[:800]
         train_target = df["target"].iloc[:800]
@@ -292,7 +292,7 @@ class TestLinearModelConvergence:
         """Test LASSO convergence behavior."""
         import warnings
 
-        df, feature_names, y = sample_regression_data
+        df, feature_names, _y = sample_regression_data
 
         train_df = df[feature_names].iloc[:800]
         train_target = df["target"].iloc[:800]
@@ -329,7 +329,7 @@ class TestLinearModelConvergence:
         """Test ElasticNet convergence behavior."""
         import warnings
 
-        df, feature_names, y = sample_regression_data
+        df, feature_names, _y = sample_regression_data
 
         train_df = df[feature_names].iloc[:800]
         train_target = df["target"].iloc[:800]
@@ -358,7 +358,7 @@ class TestLinearModelConvergence:
 
     def test_sgd_classifier_convergence(self, sample_classification_data):
         """Test SGD classifier convergence."""
-        df, feature_names, _, y = sample_classification_data
+        df, feature_names, _, _y = sample_classification_data
 
         train_df = df[feature_names].iloc[:800]
         train_target = df["target"].iloc[:800]
@@ -386,7 +386,7 @@ class TestLinearModelConvergence:
         """Test that models improve or stay same with more iterations."""
         from sklearn.metrics import mean_squared_error
 
-        df, feature_names, y = sample_regression_data
+        df, feature_names, _y = sample_regression_data
 
         train_df = df[feature_names].iloc[:600]
         train_target = df["target"].iloc[:600]
@@ -432,7 +432,7 @@ class TestLinearModelConvergence:
 
     def test_early_stopping_sgd(self, sample_regression_data):
         """Test SGD early stopping behavior."""
-        df, feature_names, y = sample_regression_data
+        df, feature_names, _y = sample_regression_data
 
         # Split for early stopping validation
         train_df = df[feature_names].iloc[:600]

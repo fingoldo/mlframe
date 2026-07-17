@@ -38,14 +38,14 @@ class TestXgbEvalCategoricalAlignment:
         assert out["c"].null_count() == 2
 
     def test_xgb_fit_with_train_absent_val_category(self):
-        xgb = pytest.importorskip("xgboost")
+        pytest.importorskip("xgboost")
         from mlframe.training.xgb_shim import XGBClassifierWithDMatrixReuse
 
         enum = pl.Enum(["alpha", "beta"])
         n = 80
         tr = pl.DataFrame({"c": pl.Series(["alpha"] * n).cast(enum), "x": np.random.randn(n).astype("float32")})
         # val carries 'beta', absent from train rows -- shared enum must keep it safe.
-        va = pl.DataFrame({"c": pl.Series((["alpha"] * 20 + ["beta"] * 10)).cast(enum), "x": np.random.randn(30).astype("float32")})
+        va = pl.DataFrame({"c": pl.Series(["alpha"] * 20 + ["beta"] * 10).cast(enum), "x": np.random.randn(30).astype("float32")})
         ytr = np.random.randint(0, 2, n)
         yva = np.random.randint(0, 2, 30)
         m = XGBClassifierWithDMatrixReuse(
@@ -136,9 +136,8 @@ class TestRankerCategoricalRobustness:
         pytest.importorskip("lightgbm")
         from mlframe.training.ranking.ranking import _fit_lgb_ranker, predict_ranker_scores
 
-        import pandas as pd
 
-        Xtr, ytr, gtr, Xva = self._ranker_frames(
+        Xtr, ytr, _gtr, Xva = self._ranker_frames(
             [["A", "B", "C"][i % 3] for i in range(60)],
             [["A", "B"][i % 2] for i in range(40)],
         )

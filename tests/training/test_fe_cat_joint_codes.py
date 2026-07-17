@@ -12,7 +12,6 @@ each split with that fixed dtype.
 from __future__ import annotations
 
 import pandas as pd
-import pytest
 
 
 def test_cat_codes_consistent_across_train_val_test():
@@ -65,8 +64,8 @@ def test_cat_codes_naive_per_split_cast_drifts():
     # builds two different category arrays, so code for 'A' differs.
     train = pd.DataFrame({"x": ["A", "B", "A", "B"]}).astype({"x": "category"})
     val = pd.DataFrame({"x": ["A", "C", "C", "A"]}).astype({"x": "category"})
-    train_code_for_A = int(train["x"].cat.codes.iloc[0])
-    val_code_for_A = int(val["x"].cat.codes.iloc[0])
+    int(train["x"].cat.codes.iloc[0])
+    int(val["x"].cat.codes.iloc[0])
     # train: categories=[A, B] -> A->0; val: categories=[A, C] -> A->0.
     # If the codes happen to coincide here, the inverse case ("B"/"C")
     # demonstrates the divergence:

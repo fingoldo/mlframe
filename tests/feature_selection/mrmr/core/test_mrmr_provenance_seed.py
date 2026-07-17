@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 
 
 def _frame(n=80, seed=0):

@@ -54,7 +54,7 @@ def test_per_group_sliding_window_basic() -> None:
     values = np.arange(10, dtype=np.float64)
     groups = np.array([1, 1, 1, 1, 1, 2, 2, 2, 2, 2])
     out = np.full(10, np.nan)
-    for sort_idx_seg, wins, write_idx in per_group_sliding_window(
+    for _sort_idx_seg, wins, write_idx in per_group_sliding_window(
         values,
         groups,
         window_K=3,

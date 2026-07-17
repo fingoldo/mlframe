@@ -136,7 +136,7 @@ def test_pysr_upgrade_beats_pysr_off_on_synthetic_ground_truth(tmp_path):
     output_on = OutputConfig(data_dir=str(tmp_path / "on"), models_dir="m")
 
     # Baseline: PySR off
-    models_off, meta_off = train_mlframe_models_suite(
+    models_off, _meta_off = train_mlframe_models_suite(
         df=df,
         target_name="target",
         model_name="bench_off",

@@ -164,7 +164,6 @@ def test_group_detect_rejects_too_many_groups():
 
 def test_group_detect_rejects_tiny_smallest_group():
     """min_size_ratio=0.01: smallest group must hold >= 1% of rows."""
-    n_rows = 2000
     # 5 groups, but group 0 has only 5 rows (< 20 = 1% * 2000)
     ids = np.concatenate(
         [
@@ -239,7 +238,6 @@ def test_cat_detect_picks_balanced_categorical():
 
 def test_cat_detect_rejects_rare_categories():
     """min_samples_per_cat=20 (default): a category with only 5 samples must reject the col."""
-    n = 1000
     cats = np.array(["A"] * 495 + ["B"] * 495 + ["RARE"] * 10)
     np.random.default_rng(0).shuffle(cats)
     df = pd.DataFrame({"feat": cats})
@@ -287,7 +285,7 @@ def _build_equal_coverage_cat_columns(n_total: int = 200_000):
     """
 
     def realise(n_tail_levels: int, hot_frac: float = 0.60):
-        hot_rows = int(round(n_total * hot_frac))
+        hot_rows = round(n_total * hot_frac)
         tail_rows = n_total - hot_rows
         counts = [hot_rows // 10] * 10 + [tail_rows // n_tail_levels] * n_tail_levels
         return np.repeat(np.arange(len(counts)), counts)

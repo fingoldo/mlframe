@@ -23,7 +23,6 @@ import pytest
 
 from mlframe.models.ensembling.base import compute_high_correlation_pairs
 from mlframe.models.ensembling.quality_gate import compute_member_quality_gate
-from mlframe.models import ensembling as _ens_mod
 from mlframe.models.ensembling import compare_ensembles, score_ensemble
 
 
@@ -202,9 +201,7 @@ def test_w9e_f3_compare_ensembles_no_deepcopy_of_inner_arrays():
 def test_w9e_f4_chooser_importable_at_module_load():
     # Import path 1: leaf module.
     from mlframe.training.core._ensemble_chooser import (
-        _ENSEMBLE_RANK_METRIC_CANDIDATES,
         _choose_ensemble_flavour,
-        _read_ensemble_metric,
     )
 
     # Import path 2: back-compat re-export from the parent module.
@@ -478,7 +475,7 @@ def test_w9e_f9_multiclass_diversity_per_class_correlation():
         for p in (a, b, c)
     ]
     tags = ["m_a", "m_b", "m_c"]
-    pairs, split = compute_high_correlation_pairs(members, tags, threshold=0.95)
+    pairs, _split = compute_high_correlation_pairs(members, tags, threshold=0.95)
     # m_a vs m_b must be detected (per-class corr ~1.0 each, averaged ~1.0).
     found = {(p["m1"], p["m2"]) for p in pairs} | {(p["m2"], p["m1"]) for p in pairs}
     assert ("m_a", "m_b") in found or ("m_b", "m_a") in found, f"per-class avg should detect highly-correlated multiclass pair; got pairs={pairs}"

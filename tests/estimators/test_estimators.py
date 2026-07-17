@@ -124,9 +124,8 @@ def test_default_stratify_none_auto_stratifies_imbalanced_classifier_split():
 
 def test_default_stratify_none_stays_none_for_regressor():
     """A regressor base estimator with continuous y must NOT be spuriously stratified."""
-    import mlframe.estimators.base as base_mod
 
-    X, y = _xy_reg()
+    _X, y = _xy_reg()
     est = EstimatorWithEarlyStopping(base_estimator=Ridge(), random_state=0)
     stratify = est._resolve_stratify(y)
     assert stratify is None

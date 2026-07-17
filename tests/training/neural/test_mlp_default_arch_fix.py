@@ -84,7 +84,7 @@ def _drive_configurator(use_regression: bool, monkeypatch) -> dict:
     )
 
     configs = SimpleNamespace(MLP_GENERAL_PARAMS={})
-    metamodel_func = lambda m: m  # noqa: E731
+    metamodel_func = lambda m: m
 
     trainer._configure_mlp_params(
         configs=configs,

@@ -112,7 +112,7 @@ class TestRecipeBuilding:
 
     @pytest.mark.slow
     def test_fe_max_steps_2_records_recipe_for_selected_engineered(self, multiplicative_synergy_train_test):
-        df_tr, y_tr, df_te, _y_te = multiplicative_synergy_train_test
+        df_tr, y_tr, _df_te, _y_te = multiplicative_synergy_train_test
         mrmr = MRMR(
             full_npermutations=5,
             baseline_npermutations=5,

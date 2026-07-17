@@ -25,7 +25,7 @@ class TestMakeTrainTestSplitBasic:
         """Test basic random split with default parameters."""
         df = pd.DataFrame({"feature": np.random.randn(1000)})
 
-        train_idx, val_idx, test_idx, train_details, val_details, test_details = make_train_test_split(
+        train_idx, val_idx, test_idx, _train_details, _val_details, _test_details = make_train_test_split(
             df, test_size=0.2, val_size=0.1, shuffle_val=True, shuffle_test=True, random_seed=42
         )
 
@@ -44,7 +44,7 @@ class TestMakeTrainTestSplitBasic:
         """Test sequential split without shuffling."""
         df = pd.DataFrame({"feature": np.arange(100)})
 
-        train_idx, val_idx, test_idx, _, _, _ = make_train_test_split(df, test_size=0.2, val_size=0.1, shuffle_val=False, shuffle_test=False, random_seed=42)
+        _train_idx, val_idx, test_idx, _, _, _ = make_train_test_split(df, test_size=0.2, val_size=0.1, shuffle_val=False, shuffle_test=False, random_seed=42)
 
         # Sequential means test should be at the end (highest indices)
         # and val should be before test
@@ -59,7 +59,7 @@ class TestMakeTrainTestSplitBasic:
         # Note: The splitting function may handle zero test size differently
         # We just check it doesn't crash and returns valid train/val
         try:
-            train_idx, val_idx, test_idx, _, _, _ = make_train_test_split(df, test_size=0.0, val_size=0.2, random_seed=42)
+            train_idx, _val_idx, _test_idx, _, _, _ = make_train_test_split(df, test_size=0.0, val_size=0.2, random_seed=42)
             # If it succeeds, check basic validity
             assert len(train_idx) > 0, "Train should not be empty"
         except (ValueError, ZeroDivisionError):
@@ -112,7 +112,7 @@ class TestMakeTrainTestSplitDateBased:
         df = timeseries_df
         timestamps = pd.to_datetime(df["timestamp"])
 
-        train_idx, val_idx, test_idx, train_details, val_details, test_details = make_train_test_split(
+        train_idx, val_idx, test_idx, train_details, _val_details, _test_details = make_train_test_split(
             df, test_size=0.2, val_size=0.1, timestamps=timestamps, wholeday_splitting=True, random_seed=42
         )
 
@@ -176,7 +176,7 @@ class TestMakeTrainTestSplitSequentialFraction:
         df = pd.DataFrame({"feature": np.arange(1000)})
         timestamps = pd.Series(pd.date_range("2023-01-01", periods=1000, freq="1h"))
 
-        train_idx, val_idx, test_idx, _, _, _ = make_train_test_split(
+        _train_idx, val_idx, test_idx, _, _, _ = make_train_test_split(
             df,
             test_size=0.2,
             val_size=0.1,
@@ -216,7 +216,7 @@ class TestMakeTrainTestSplitSequentialFraction:
         df = pd.DataFrame({"feature": np.arange(1000)})
         timestamps = pd.Series(pd.date_range("2023-01-01", periods=1000, freq="1h"))
 
-        train_idx, val_idx, test_idx, _, val_details, test_details = make_train_test_split(
+        train_idx, val_idx, test_idx, _, _val_details, _test_details = make_train_test_split(
             df,
             test_size=0.2,
             val_size=0.1,
@@ -332,7 +332,7 @@ class TestMakeTrainTestSplitAgingLimit:
             )
 
         # Sanity: a valid in-range value (e.g. 0.5) must produce splits.
-        train_idx, val_idx, test_idx, _, _, _ = make_train_test_split(
+        train_idx, _val_idx, _test_idx, _, _, _ = make_train_test_split(
             df,
             test_size=0.2,
             val_size=0.1,
@@ -412,7 +412,7 @@ class TestMakeTrainTestSplitEdgeCases:
         """Test with large test/val sizes."""
         df = pd.DataFrame({"feature": np.random.randn(100)})
 
-        train_idx, val_idx, test_idx, _, _, _ = make_train_test_split(df, test_size=0.4, val_size=0.4, random_seed=42)
+        train_idx, _val_idx, test_idx, _, _, _ = make_train_test_split(df, test_size=0.4, val_size=0.4, random_seed=42)
 
         # Train should be very small
         assert len(train_idx) < len(test_idx), "Train should be smaller than test with large test_size"
@@ -453,7 +453,7 @@ class TestMakeTrainTestSplitIntegration:
 
         df = pd.DataFrame({"feature": np.random.randn(n_samples)})
 
-        train_idx, val_idx, test_idx, train_details, val_details, test_details = make_train_test_split(
+        _train_idx, _val_idx, _test_idx, train_details, _val_details, _test_details = make_train_test_split(
             df,
             test_size=0.2,
             val_size=0.1,
@@ -933,7 +933,7 @@ class TestValPlacementBackwardIntegration:
         )
         bc = TrainingBehaviorConfig(prefer_gpu_configs=False)
 
-        models, metadata = train_mlframe_models_suite(
+        _models, metadata = train_mlframe_models_suite(
             df=pl_df,
             target_name="forward_integration",
             model_name="fwd_int",
@@ -954,9 +954,9 @@ class TestValPlacementBackwardIntegration:
             m = iso.search(s)
             return _dt.date.fromisoformat(m.group(1)), _dt.date.fromisoformat(m.group(2))
 
-        train_min, train_max = _parse(metadata["train_details"])
+        _train_min, train_max = _parse(metadata["train_details"])
         val_min, val_max = _parse(metadata["val_details"])
-        test_min, test_max = _parse(metadata["test_details"])
+        test_min, _test_max = _parse(metadata["test_details"])
 
         # Forward contract: [train] [val] [test]
         assert train_max <= val_min

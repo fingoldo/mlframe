@@ -164,7 +164,7 @@ def test_hl_well_calibrated_high_p_value():
     N = 2000
     p = rng.uniform(0.05, 0.95, N)
     y = (rng.uniform(size=N) < p).astype(np.int64)
-    chi2, p_value, dof = hosmer_lemeshow_test(y, p, n_groups=10)
+    _chi2, p_value, dof = hosmer_lemeshow_test(y, p, n_groups=10)
     assert dof == 8
     # Under the null (well-calibrated), p > 0.05 should hold typically.
     # We use a softer threshold (p > 0.01) to keep the test non-flaky.
@@ -179,7 +179,7 @@ def test_hl_miscalibrated_low_p_value():
     y = np.concatenate([np.zeros(500), np.ones(500)]).astype(np.int64)
     # Score the way that DOESN'T match y - constant 0.5 everywhere.
     s = np.full(N, 0.5)
-    chi2, p_value, dof = hosmer_lemeshow_test(y, s, n_groups=10)
+    chi2, p_value, _dof = hosmer_lemeshow_test(y, s, n_groups=10)
     # All deciles have E = 0.5 * group_size; all O are either 0 or
     # group_size (the deterministic split). chi2 will be large.
     assert chi2 > 100.0
@@ -190,7 +190,7 @@ def test_hl_handles_tiny_input():
     """N < n_groups -> NaN with dof=0."""
     y = np.array([0, 1, 0])
     s = np.array([0.1, 0.5, 0.9])
-    chi2, p, dof = hosmer_lemeshow_test(y, s, n_groups=10)
+    chi2, _p, dof = hosmer_lemeshow_test(y, s, n_groups=10)
     assert np.isnan(chi2)
     assert dof == 0
 
@@ -211,7 +211,7 @@ def test_hl_n_groups_parameter():
 def test_accuracy_ratio_matches_gini_from_auc():
     """AR (computed via CAP trapezoid integral) must equal 2*AUC - 1
     to fp tolerance regardless of how the AUC was computed."""
-    rng = np.random.default_rng(8)
+    np.random.default_rng(8)
     for seed in range(5):
         rng2 = np.random.default_rng(seed)
         N = 1000

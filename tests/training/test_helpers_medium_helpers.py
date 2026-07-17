@@ -8,9 +8,6 @@ _classif_helpers.py / mlp_runtime_defaults.py / splitting.py.
 from __future__ import annotations
 
 import inspect
-import os
-import sys
-import tempfile
 import threading
 from types import SimpleNamespace
 
@@ -23,12 +20,10 @@ from mlframe.training import (
     _ram_helpers,
     helpers as helpers_mod,
     io as io_mod,
-    lgb_shim as lgb_shim_mod,
     mlp_runtime_defaults,
     splitting as splitting_mod,
     utils as utils_mod,
 )
-from mlframe.training.cb import _cb_pool
 
 
 # ---------------------------------------------------------------------------

@@ -16,7 +16,6 @@ from __future__ import annotations
 import logging
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.training.pipeline import prepare_dfs_for_catboost_joint
 

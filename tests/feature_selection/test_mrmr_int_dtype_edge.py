@@ -6,7 +6,6 @@ joint kernels), and the joint dtype staying wide under a narrow storage matrix. 
 
 from __future__ import annotations
 
-import warnings
 
 import numpy as np
 import pandas as pd

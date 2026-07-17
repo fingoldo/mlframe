@@ -5,10 +5,8 @@ cubic-mean negative-base NaN, Pearson product-overflow collapse, and chao-shen
 bincount crash / rare-category cancellation.
 """
 
-import math
 
 import numpy as np
-import pytest
 
 from mlframe.feature_engineering._numerical_numba import compute_numerical_aggregates_numba
 from mlframe.metrics.regression._regression_corr import fast_pearson_corr

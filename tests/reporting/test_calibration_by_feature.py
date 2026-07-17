@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from mlframe.reporting.charts.calibration_by_feature import (
     compose_calibration_by_feature_figure,

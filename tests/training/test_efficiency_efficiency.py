@@ -66,7 +66,7 @@ def test_drift_snapshot_uses_ctx_cache():
     )
     # The cache must now hold one entry keyed by (id(df), ('cat',)).
     assert len(ctx._cat_drift_implode_cache) == 1
-    assert list(ctx._cat_drift_implode_cache.values())[0]["cat"] == {"a", "b", "c"}
+    assert next(iter(ctx._cat_drift_implode_cache.values()))["cat"] == {"a", "b", "c"}
 
 
 def test_drift_snapshot_without_ctx_does_not_crash():

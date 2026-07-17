@@ -83,7 +83,7 @@ class TestMiDirect:
         return a, b, factors, nbins
 
     def test_mi_direct_dependent_returns_positive(self, factor_data):
-        a, b, factors, nbins = factor_data
+        _a, _b, factors, nbins = factor_data
         original_mi, conf = mi_direct(
             factors_data=factors,
             x=(0,),
@@ -117,7 +117,7 @@ class TestMiDirect:
     def test_mi_direct_npermutations_zero_returns_confidence_zero(self, factor_data):
         """Calls with ``npermutations=0`` must not crash. After B22 the caller
         path also returns confidence=0 cleanly."""
-        a, b, factors, nbins = factor_data
+        _a, _b, factors, nbins = factor_data
         original_mi, conf = mi_direct(
             factors_data=factors,
             x=(0,),

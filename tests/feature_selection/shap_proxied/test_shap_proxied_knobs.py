@@ -74,7 +74,7 @@ def test_su_seeded_top_k_caps_kept_pairs_to_strongest():
     kept_default, info_d = su_synergy_screen(
         X, y, n_bins=8, top_k=8, max_screen_cols=120, snr_z=3.0, snr_null_quantile=0.99, n_permutations=3, rng=np.random.default_rng(0)
     )
-    kept_k1, info_1 = su_synergy_screen(
+    kept_k1, _info_1 = su_synergy_screen(
         X, y, n_bins=8, top_k=1, max_screen_cols=120, snr_z=3.0, snr_null_quantile=0.99, n_permutations=3, rng=np.random.default_rng(0)
     )
 

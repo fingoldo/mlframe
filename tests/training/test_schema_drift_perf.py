@@ -20,7 +20,6 @@ import logging
 import time
 
 import polars as pl
-import pytest
 
 from mlframe.training.pipeline import _warn_on_schema_drift
 

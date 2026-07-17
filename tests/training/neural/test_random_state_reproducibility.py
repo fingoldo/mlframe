@@ -38,7 +38,7 @@ from mlframe.training.neural import (
 @pytest.fixture
 def regression_data():
     X, y = make_regression(n_samples=200, n_features=5, noise=1.0, random_state=42)
-    X_tr, X_te, y_tr, y_te = train_test_split(
+    X_tr, X_te, y_tr, _y_te = train_test_split(
         X.astype(np.float32),
         y.astype(np.float32),
         test_size=0.3,
@@ -57,7 +57,7 @@ def binary_data():
         n_classes=2,
         random_state=42,
     )
-    X_tr, X_te, y_tr, y_te = train_test_split(
+    X_tr, X_te, y_tr, _y_te = train_test_split(
         X.astype(np.float32),
         y.astype(np.int64),
         test_size=0.3,

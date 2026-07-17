@@ -267,7 +267,7 @@ def test_relevancy_single_target_keeps_signal_drops_dead():
         verbose=0,
     )
     assert len(result) == 4
-    drop, orig_mi, all_perm, ranking = result
+    drop, orig_mi, _all_perm, _ranking = result
     assert orig_mi.shape == (1, bins.shape[1])
     assert "copy" in bins.columns and "copy" not in drop, "perfect-signal feature must survive"
     assert "const" in drop, "dead constant column must be dropped"
@@ -294,7 +294,7 @@ def test_relevancy_quantile_baseline_path():
     """The permuted_max_mi_quantile branch (nanquantile baseline instead of nanmax) still runs and
     still drops the dead constant column."""
     bins = _relevancy_bins(seed=9)
-    drop, orig_mi, _all_perm, _rank = estimate_features_relevancy(
+    drop, _orig_mi, _all_perm, _rank = estimate_features_relevancy(
         bins=bins,
         target_columns=["target"],
         benchmark_mi_algorithms=False,

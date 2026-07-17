@@ -8,7 +8,6 @@ with wildly different score ranges (CB ~[0,1], XGB ~[-10,+10], LGB
 
 from __future__ import annotations
 
-import logging
 
 import numpy as np
 import pytest

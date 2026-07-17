@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.training.composite import CompositeSpec, CompositeTargetDiscovery
 from mlframe.training.composite.discovery._yscale_holdout_gate import apply_yscale_holdout_gate

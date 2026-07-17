@@ -9,7 +9,6 @@ FAILS on pre-fix code: ``_argsort_desc_par_bucket`` / ``_PAR_BUCKET_ARGSORT_MIN_
 """
 
 import numpy as np
-import pytest
 
 from mlframe.metrics import _core_auc_brier as cab
 

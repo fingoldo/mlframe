@@ -58,7 +58,7 @@ def test_scatter_bit_identical_to_numpy(n, nba, nbb):
 def test_build_factorize_lookup_unseen_codes_preserved():
     # Data covering only a subset of codes -> -1 sentinels must survive raise mode.
     fd, cls = _make(50, 10, 10, seed=1)
-    lookup, n_eff = _build_factorize_lookup(
+    lookup, _n_eff = _build_factorize_lookup(
         factors_data=fd,
         idx_a=0,
         idx_b=1,

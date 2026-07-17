@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Selection-identity regression sensors for the MRMR FE / validation-path perf levers (E1, E2, E6, E7, E8).
 
 These pin the bit-identical SELECTION (``support_`` + ``get_feature_names_out()``) that the perf changes

@@ -42,7 +42,7 @@ def test_changed_target_invalidates_cached_marginal_mi():
     y_new = X.copy()  # X now perfectly predicts the target -> MI high
 
     cache = _build_cache(X, y_old, cached_mi=0.0)
-    mask, mi, _ = _restore_cached_marginal_mis(
+    mask, _mi, _ = _restore_cached_marginal_mis(
         fd,
         np.array([0]),
         nbins,

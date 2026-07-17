@@ -87,7 +87,7 @@ def _hetero_fixture(seed: int = 0, n: int = 4000):
 # ===========================================================================
 class TestConditionalDispersionUnit:
     def test_zscore_matches_closed_form(self):
-        X, y, _sd = _hetero_fixture()
+        X, _y, _sd = _hetero_fixture()
         enc, raw = generate_conditional_dispersion_features(
             X,
             ["xi", "xj"],
@@ -117,7 +117,7 @@ class TestConditionalDispersionUnit:
         np.testing.assert_allclose(enc[z2_name].to_numpy(), z * z, rtol=0, atol=0)
 
     def test_replay_is_leak_safe_and_exact(self):
-        X, y, _sd = _hetero_fixture()
+        X, _y, _sd = _hetero_fixture()
         enc, raw = generate_conditional_dispersion_features(
             X,
             ["xi", "xj"],
@@ -141,7 +141,7 @@ class TestConditionalDispersionUnit:
         # frame yields a degenerate MAD floor that gates everything out).
         rng = np.random.default_rng(99)
         X = X.assign(g1=rng.standard_normal(len(X)), g2=rng.standard_normal(len(X)))
-        _, appended, recipes, _ = hybrid_conditional_dispersion_fe(
+        _, _appended, recipes, _ = hybrid_conditional_dispersion_fe(
             X,
             y,
             num_cols=["xi", "xj", "g1", "g2"],
@@ -390,7 +390,7 @@ def test_cprofile_hotspot_within_budget():
     import io
     import pstats
 
-    X, y, _sd = _hetero_fixture(seed=0, n=4000)
+    X, _y, _sd = _hetero_fixture(seed=0, n=4000)
     rng = np.random.default_rng(5)
     for k in range(4):
         X[f"g{k}"] = rng.standard_normal(len(X))

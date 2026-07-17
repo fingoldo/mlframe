@@ -52,7 +52,7 @@ from sklearn.metrics import r2_score, roc_auc_score
 
 from mlframe.feature_selection.filters.mrmr import MRMR
 
-from tests.feature_selection._biz_val_synth import (  # noqa: E402
+from tests.feature_selection._biz_val_synth import (
     make_polynomial_target,
     make_heavy_tail_skewed,
     make_signal_plus_noise,

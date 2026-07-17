@@ -117,7 +117,7 @@ def test_grouped_block_stacker_requires_nonempty_feature_groups():
     stacker = GroupedBlockStacker(feature_groups={}, submodel_factory=lambda: LinearRegression(), meta_estimator=LinearRegression())
     try:
         stacker.fit(pd.DataFrame({"a": [1.0, 2.0]}), np.array([1.0, 2.0]))
-        assert False, "expected ValueError for empty feature_groups"
+        raise AssertionError("expected ValueError for empty feature_groups")
     except ValueError:
         pass
 
@@ -180,6 +180,6 @@ def test_grouped_block_stacker_auto_discover_and_manual_feature_groups_are_mutua
     )
     try:
         stacker.fit(pd.DataFrame({"a": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]}), np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0]))
-        assert False, "expected ValueError when both feature_groups and auto_discover_blocks are set"
+        raise AssertionError("expected ValueError when both feature_groups and auto_discover_blocks are set")
     except ValueError:
         pass

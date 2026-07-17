@@ -94,7 +94,7 @@ def _build_lagged_ts(n: int = 2500, seed: int = 9001, phi: float = 0.85):
     for k in range(5):
         cols[f"x_t{k}"] = base[buf - k : buf - k + n]
     # Rolling aggregates of the base series, anchored at the same t-index.
-    s_base = pd.Series(base[buf - 1 : buf - 1 + n + 1])  # one-step-ahead window anchor
+    pd.Series(base[buf - 1 : buf - 1 + n + 1])  # one-step-ahead window anchor
     # We just use a pandas rolling over the windowed base, then take last n.
     full = pd.Series(base)
     cols["mean_3"] = full.rolling(window=3, min_periods=1).mean().to_numpy()[buf : buf + n]

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .combo import FuzzCombo  # noqa: F401  (annotation strings under PEP 563)
+from .combo import FuzzCombo
 
 
 # ---------------------------------------------------------------------------

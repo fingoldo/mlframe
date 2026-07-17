@@ -205,7 +205,7 @@ def test_biz_val_p_gt_n_false_positive_rate_bounded(name):
     for n, p in _NPS:
         for seed in _SEEDS:
             sel, signal = _fit(spec, n, p, seed)
-            rec, total = _recovered_and_total(sel, signal)
+            _rec, total = _recovered_and_total(sel, signal)
             trials += 1
             if total <= _FP_CEILING(p):
                 bounded += 1

@@ -155,7 +155,7 @@ def _run_diagnostics_with_deep_depth(X, y, deep_max_depth):
     """
     import os, numpy as np, pandas as pd
     from xgboost import XGBClassifier
-    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_preflight import _cv_score, preflight
+    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_preflight import _cv_score
 
     max_rows, max_rows_corr, max_corr_features, n_estimators = 2000, 5000, 400, 100
     rng = np.random.default_rng(0)

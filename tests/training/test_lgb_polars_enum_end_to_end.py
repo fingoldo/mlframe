@@ -130,7 +130,7 @@ def test_suite_polars_with_enum_cats_end_to_end(model_name, tmp_path):
     if model_name == "lgb":
         config_override["lgb_kwargs"] = {"device_type": "cpu", "verbose": -1}
 
-    models, metadata = train_mlframe_models_suite(
+    models, _metadata = train_mlframe_models_suite(
         df=pl_df,
         target_name=f"{model_name}_polars_enum_test",
         model_name=f"{model_name}_polars_enum_test",

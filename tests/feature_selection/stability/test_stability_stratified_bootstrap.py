@@ -8,7 +8,6 @@ bootstrap. Per the project rule, a 1%-prevalence class needs n ~ 5000 for a reli
 from __future__ import annotations
 
 import numpy as np
-import pytest
 from sklearn.base import BaseEstimator
 
 from mlframe.feature_selection.filters.stability import StabilityMRMR

@@ -24,7 +24,7 @@ class _FakeDiscovery:
     def __init__(self) -> None:
         self.specs_ = []
 
-    def fit(self, df, target, feature_cols, train_idx):  # noqa: D401
+    def fit(self, df, target, feature_cols, train_idx):
         names = ["genuine"]
         # Noise inclusion keyed on a property of the subsample -> varies across
         # replicates but is deterministic given the subsample. The subsample

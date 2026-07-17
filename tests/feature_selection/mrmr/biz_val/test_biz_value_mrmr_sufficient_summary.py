@@ -96,8 +96,8 @@ def test_biz_value_work_cut_on_fully_recoverable_signal():
     warmup-controlled sanity signal only (not a hard gate)."""
     df, y = _linear_fixture()
 
-    fs_on, wall_on = _fit(df, y, early_stop=True, use_cache=False)
-    fs_off, wall_off = _fit(df, y, early_stop=False, use_cache=False)
+    fs_on, _wall_on = _fit(df, y, early_stop=True, use_cache=False)
+    fs_off, _wall_off = _fit(df, y, early_stop=False, use_cache=False)
 
     # The early-stop must have fired (residual pure noise after capturing the linear raws).
     v = getattr(fs_on, "sufficient_summary_", None)
@@ -126,7 +126,7 @@ def test_biz_value_work_cut_on_fully_recoverable_signal():
         n = len(yv)
 
         def _r2(cols):
-            X = np.column_stack([np.ones(n)] + cols)
+            X = np.column_stack([np.ones(n), *cols])
             beta, *_ = lstsq(X, yv, rcond=None)
             return 1.0 - np.var(yv - X @ beta) / np.var(yv)
 
@@ -135,7 +135,7 @@ def test_biz_value_work_cut_on_fully_recoverable_signal():
         off_names = list(fs_off.get_feature_names_out())
         extra_cols = [Xt[:, off_names.index(nm)] for nm in extra if nm in off_names]
         base = _r2([a, b])
-        full = _r2([a, b] + extra_cols)
+        full = _r2([a, b, *extra_cols])
         assert full - base < 1e-3, (
             f"the early-stop skipped an INFORMATIVE feature (incremental R^2={full - base:.2e} "
             f">= 1e-3): {extra}. The stop must only skip provably-pointless search."

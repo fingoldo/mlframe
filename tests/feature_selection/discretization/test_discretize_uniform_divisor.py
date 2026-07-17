@@ -33,7 +33,6 @@ Fix (mirrored CPU + CUDA paths):
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 
 def _assert_uniformly_binned(arr, n_bins=10):
@@ -73,7 +72,7 @@ def test_small_positive_linspace_uses_all_bins():
 def test_crossing_zero_linspace_uses_all_bins():
     """Pre-fix bin 9 had 325 (4x overshoot). Post-fix balanced."""
     arr = np.linspace(-100, 100, 1000)
-    codes, out = _assert_uniformly_binned(arr, n_bins=10)
+    codes, _out = _assert_uniformly_binned(arr, n_bins=10)
     assert codes == list(range(10))
 
 

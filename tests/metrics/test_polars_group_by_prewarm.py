@@ -14,7 +14,6 @@ call doesn't pay the cold-start. This test asserts the warm completed.
 import time
 
 import numpy as np
-import pytest
 
 
 def _ensure_prewarmed():

@@ -66,7 +66,7 @@ def _replay_all(recipes, appended, X_raw):
         if r.name in appended:
             try:
                 apply_recipe(r, X_raw)
-            except Exception as exc:  # noqa: BLE401
+            except Exception as exc:
                 return r, exc
     return None, None
 
@@ -91,7 +91,7 @@ def test_conditional_residual_recipe_on_engineered_source_keyerrors_on_raw():
         "fixture must produce at least one engineered-source recipe to be a meaningful sensor for the bug class"
     )
     X_raw = aug[raw_cols]
-    bad_recipe, exc = _replay_all(recipes, appended, X_raw)
+    _bad_recipe, exc = _replay_all(recipes, appended, X_raw)
     assert isinstance(exc, KeyError), f"expected KeyError replaying engineered-source recipe on raw X; got {exc!r}"
     assert eng in str(exc)
 
@@ -109,7 +109,7 @@ def test_conditional_dispersion_recipe_on_engineered_source_keyerrors_on_raw():
     )
     assert any(eng in r.src_names for r in recipes if r.name in appended)
     X_raw = aug[raw_cols]
-    bad_recipe, exc = _replay_all(recipes, appended, X_raw)
+    _bad_recipe, exc = _replay_all(recipes, appended, X_raw)
     assert isinstance(exc, KeyError)
     assert eng in str(exc)
 
@@ -132,7 +132,7 @@ def test_grouped_quantile_recipe_on_engineered_source_keyerrors_on_raw():
     )
     assert any(eng in r.src_names for r in recipes if r.name in appended)
     X_raw = aug[["g", "val"]]
-    bad_recipe, exc = _replay_all(recipes, appended, X_raw)
+    _bad_recipe, exc = _replay_all(recipes, appended, X_raw)
     assert isinstance(exc, KeyError)
     assert eng in str(exc)
 

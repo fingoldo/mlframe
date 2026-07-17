@@ -11,7 +11,6 @@ Per CLAUDE.md: each test asserts a SYNTHETIC measurable WIN.
 
 from __future__ import annotations
 
-import os
 import warnings
 
 import pytest
@@ -44,7 +43,7 @@ def test_biz_val_callbacks_lgb_stop_when_file_exists(tmp_path):
     # "doesn't crash when file exists".
     try:
         cb(_Env())
-    except (Exception,) as e:
+    except Exception as e:
         # Some early-stop callbacks raise lightgbm's ``EarlyStopException``.
         assert "stop" in str(type(e).__name__).lower() or "callback" in str(type(e).__name__).lower(), f"unexpected exception {type(e).__name__}: {e}"
 
@@ -65,7 +64,7 @@ def test_biz_val_callbacks_lgb_continue_when_file_missing(tmp_path):
 
     # Should NOT raise.
     try:
-        result = cb(_Env())
+        cb(_Env())
     except Exception as e:
         pytest.fail(f"callback raised when stop file missing: {e}")
 

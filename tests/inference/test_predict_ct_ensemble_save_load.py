@@ -14,7 +14,6 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import numpy as np
-import pytest
 
 
 # Workaround for a pre-existing Windows-only ``flush of closed file`` crash in mlframe.training.io. The library's
@@ -32,7 +31,7 @@ def _save_threads_zero(model, file, zstd_kwargs=None, verbose=0, lean=False, dur
             with compressor.stream_writer(f) as zf:
                 dill.dump(model, zf)
         return True
-    except Exception as exc:
+    except Exception:
         import traceback
 
         traceback.print_exc()
@@ -60,7 +59,7 @@ def test_persist_ct_ensemble_entries_roundtrips(tmp_path):
     """Build a minimal ctx with one ``_CT_ENSEMBLE__y`` entry, run ``_persist_ct_ensemble_entries`` against a
     tmpdir, then ``load_mlframe_suite`` must rehydrate the entry under the same key with predict equivalence."""
     from mlframe.training.core._phase_finalize import _persist_ct_ensemble_entries
-    from mlframe.training.core.predict import load_mlframe_suite, _load_ct_ensemble_entries
+    from mlframe.training.core.predict import _load_ct_ensemble_entries
 
     ct_entry = _make_ct_entry()
 

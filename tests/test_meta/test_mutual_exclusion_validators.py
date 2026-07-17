@@ -28,7 +28,6 @@ from __future__ import annotations
 
 import inspect
 import re
-from typing import Any, Callable
 
 import pytest
 from pydantic import BaseModel, ValidationError
@@ -109,7 +108,7 @@ def _find_mutex_pairs(cls: type[BaseModel]) -> list[tuple[str, str]]:
     on internal validator-body wording.
     """
     text_chunks = [_doc_lines_normalised(cls.__doc__)]
-    for name, info in cls.model_fields.items():
+    for info in cls.model_fields.values():
         desc = getattr(info, "description", None)
         if desc:
             text_chunks.append(_doc_lines_normalised(desc))
@@ -128,7 +127,7 @@ def _synth_value(annotation):
     """Produce a non-default sentinel value matching ``annotation``."""
     # Walk Optional[X] / Union[X, None]
     args = getattr(annotation, "__args__", ()) or ()
-    candidates = (annotation,) + args if args else (annotation,)
+    candidates = (annotation, *args) if args else (annotation,)
     for cand in candidates:
         if cand in (int, float):
             return 0.5

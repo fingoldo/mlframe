@@ -168,7 +168,7 @@ def test_remediate_drifting_features_tiered_policy_drops_severe_keeps_moderate_r
     train_df, test_df = _make_tiered_drift_data(n_time_ids=40, n_entities=12, seed=7)
 
     # default (drop_n_std omitted): identical to the pre-existing uniform-remedy behaviour, nothing dropped.
-    uniform_train, uniform_test, uniform_report = remediate_drifting_features(
+    uniform_train, _uniform_test, uniform_report = remediate_drifting_features(
         train_df, test_df, group_col="time_id", n_std=0.3, n_splits=3, seed=0, lgbm_params={"n_jobs": 1}
     )
     assert set(uniform_train.columns) == set(train_df.columns)
@@ -227,7 +227,7 @@ def test_biz_val_remediate_drifting_features_tiered_drop_beats_uniform_on_downst
     tiered_train = uniform_train[["clean_feature", "moderate_feature"]]
     tiered_test = uniform_test[["clean_feature", "moderate_feature"]]
 
-    uniform_cols = ["clean_feature", "moderate_feature"] + severe_cols
+    uniform_cols = ["clean_feature", "moderate_feature", *severe_cols]
     scaler_u = StandardScaler().fit(uniform_train[uniform_cols])
     knn_u = KNeighborsClassifier(n_neighbors=7).fit(scaler_u.transform(uniform_train[uniform_cols]), train_df["y"])
     auc_uniform = roc_auc_score(test_df["y"], knn_u.predict_proba(scaler_u.transform(uniform_test[uniform_cols]))[:, 1])

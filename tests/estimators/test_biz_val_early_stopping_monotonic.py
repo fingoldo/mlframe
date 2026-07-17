@@ -13,7 +13,6 @@ from __future__ import annotations
 import warnings
 
 import numpy as np
-import pytest
 from sklearn.metrics import mean_squared_error
 
 from mlframe.estimators.early_stopping import EarlyStoppingWrapper

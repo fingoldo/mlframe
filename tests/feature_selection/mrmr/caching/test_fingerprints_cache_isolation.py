@@ -137,7 +137,7 @@ def test_d7_cold_and_replayed_support_behave_identically(_isolated_cache):
     cold = _cold_fit(X, y)
     cold_writeable = cold.support_.flags.writeable
     MRMR.clear_fit_cache()
-    src, replayed = _fit_src_then_replay(X, y)
+    _src, replayed = _fit_src_then_replay(X, y)
     assert replayed.support_.flags.writeable is True and cold_writeable is True, (
         "cold-fit and cache-replayed support_ have different writeable flags -- cache-state-dependent behaviour"
     )

@@ -15,7 +15,6 @@ from pathlib import Path
 
 def test_cache_symbols_still_importable_from_facade() -> None:
     from mlframe.training.pipeline._pipeline_helpers import (
-        _UncachableSentinel,
         _fresh_uncachable,
         _content_fingerprint_for_cache,
         _pipeline_signature_for_cache,
@@ -23,8 +22,6 @@ def test_cache_symbols_still_importable_from_facade() -> None:
         _pre_pipeline_cache_get,
         _pre_pipeline_cache_set,
         _pre_pipeline_cache_clear,
-        _PRE_PIPELINE_CACHE,
-        _PRE_PIPELINE_CACHE_LOCK,
         _PRE_PIPELINE_CACHE_MAX,
     )
 

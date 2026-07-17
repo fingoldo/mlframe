@@ -65,7 +65,7 @@ def test_streaming_1d_input_preserved():
     """1-D preds should return 1-D ensembled output (not (N, 1))."""
     rng = np.random.default_rng(0)
     preds = [rng.uniform(0.01, 0.99, size=(100,)) for _ in range(4)]
-    ens, unc, _ = ensemble_probabilistic_predictions_streaming(*preds, ensemble_method="arithm", verbose=False)
+    ens, _unc, _ = ensemble_probabilistic_predictions_streaming(*preds, ensemble_method="arithm", verbose=False)
     assert ens.ndim == 1
     assert ens.shape == (100,)
 

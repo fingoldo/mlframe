@@ -53,7 +53,7 @@ class TestMemoryStress:
         process = psutil.Process()
         mem_before = process.memory_info().rss / 1024 / 1024
 
-        models, metadata = train_mlframe_models_suite(
+        models, _metadata = train_mlframe_models_suite(
             df=df,
             target_name="test_target",
             model_name="large_pandas",
@@ -93,7 +93,7 @@ class TestMemoryStress:
 
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
-        models, metadata = train_mlframe_models_suite(
+        models, _metadata = train_mlframe_models_suite(
             df=df,
             target_name="test_target",
             model_name="large_polars",
@@ -123,7 +123,7 @@ class TestMemoryStress:
 
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
-        models, metadata = train_mlframe_models_suite(
+        models, _metadata = train_mlframe_models_suite(
             df=df,
             target_name="test_target",
             model_name="many_columns",
@@ -157,7 +157,7 @@ class TestMemoryStress:
 
         # Train multiple times
         for i in range(5):
-            models, metadata = train_mlframe_models_suite(
+            _models, _metadata = train_mlframe_models_suite(
                 df=df.copy(),
                 target_name="test_target",
                 model_name=f"repeat_{i}",
@@ -189,7 +189,7 @@ class TestPerformance:
 
     def test_pipeline_transform_performance(self, sample_regression_data):
         """Test pipeline transform performance."""
-        df, feature_names, y = sample_regression_data
+        df, feature_names, _y = sample_regression_data
         train_df = df[feature_names].iloc[:700]
         val_df = df[feature_names].iloc[700:]
 
@@ -197,7 +197,7 @@ class TestPerformance:
 
         start = time.time()
 
-        train_transformed, val_transformed, test_transformed, pipeline, cat_features = fit_and_transform_pipeline(
+        train_transformed, _val_transformed, _test_transformed, _pipeline, _cat_features = fit_and_transform_pipeline(
             train_df=train_df,
             val_df=val_df,
             test_df=None,
@@ -214,10 +214,10 @@ class TestPerformance:
 
     def test_model_save_load_performance(self, sample_regression_data, temp_data_dir, common_init_params, tmp_path):
         """Test model save/load performance."""
-        df, feature_names, y = sample_regression_data
+        df, _feature_names, _y = sample_regression_data
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
-        models, metadata = train_mlframe_models_suite(
+        models, _metadata = train_mlframe_models_suite(
             df=df,
             target_name="test_target",
             model_name="save_load_perf",
@@ -240,7 +240,7 @@ class TestPerformance:
 
         # Test load performance
         start = time.time()
-        loaded = load_mlframe_model(file_path)
+        load_mlframe_model(file_path)
         load_time = time.time() - start
 
         # Both should complete quickly (< 5 seconds each)
@@ -249,12 +249,12 @@ class TestPerformance:
 
     def test_multiple_models_performance(self, sample_regression_data, temp_data_dir, common_init_params):
         """Test training multiple model types performance."""
-        df, feature_names, y = sample_regression_data
+        df, _feature_names, _y = sample_regression_data
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
         start = time.time()
 
-        models, metadata = train_mlframe_models_suite(
+        models, _metadata = train_mlframe_models_suite(
             df=df,
             target_name="test_target",
             model_name="multi_model_perf",
@@ -293,7 +293,7 @@ class TestConcurrency:
 
     def test_sequential_training_different_configs(self, sample_regression_data, temp_data_dir, common_init_params):
         """Test sequential training with different configurations."""
-        df, feature_names, y = sample_regression_data
+        df, _feature_names, _y = sample_regression_data
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
         configs = [
@@ -310,7 +310,7 @@ class TestConcurrency:
                 **config,
             )
 
-            models, metadata = train_mlframe_models_suite(
+            models, _metadata = train_mlframe_models_suite(
                 df=df.copy(),
                 target_name="test_target",
                 model_name=f"config_{i}",
@@ -332,7 +332,7 @@ class TestConcurrency:
 
     def test_gc_between_trainings(self, sample_regression_data, temp_data_dir, common_init_params):
         """Test GC effectiveness between training runs."""
-        df, feature_names, y = sample_regression_data
+        df, _feature_names, _y = sample_regression_data
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
         for i in range(3):
@@ -394,7 +394,7 @@ class TestEdgeCaseStress:
 
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
-        models, metadata = train_mlframe_models_suite(
+        models, _metadata = train_mlframe_models_suite(
             df=df,
             target_name="test_target",
             model_name="tiny_dataset",
@@ -429,7 +429,7 @@ class TestEdgeCaseStress:
 
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
-        models, metadata = train_mlframe_models_suite(
+        models, _metadata = train_mlframe_models_suite(
             df=df,
             target_name="test_target",
             model_name="sparse_like",
@@ -464,7 +464,7 @@ class TestEdgeCaseStress:
 
         # May fail or succeed depending on imputation
         try:
-            models, metadata = train_mlframe_models_suite(
+            models, _metadata = train_mlframe_models_suite(
                 df=df,
                 target_name="test_target",
                 model_name="many_nan",
@@ -487,7 +487,7 @@ class TestEdgeCaseStress:
         np.random.seed(42)
         df = pd.DataFrame(
             {
-                "feature_0": np.concatenate([np.random.randn(190), [1e10, -1e10, 1e-10, -1e-10] + [np.inf, -np.inf] + [0, 0, 0, 0]]),
+                "feature_0": np.concatenate([np.random.randn(190), [10000000000.0, -10000000000.0, 1e-10, -1e-10, np.inf, -np.inf, 0, 0, 0, 0]]),
                 "feature_1": np.random.randn(200),
                 "target": np.random.randn(200),
             }
@@ -498,7 +498,7 @@ class TestEdgeCaseStress:
 
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
-        models, metadata = train_mlframe_models_suite(
+        models, _metadata = train_mlframe_models_suite(
             df=df,
             target_name="test_target",
             model_name="extreme_values",
@@ -530,7 +530,7 @@ class TestEdgeCaseStress:
 
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
-        models, metadata = train_mlframe_models_suite(
+        models, _metadata = train_mlframe_models_suite(
             df=df,
             target_name="test_target",
             model_name="duplicates",

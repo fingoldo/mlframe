@@ -112,8 +112,8 @@ def test_tie_break_matches_strict_greater_than_semantics():
     operands = {0: x_shared, 1: x_other, 2: x_shared.copy(), 3: x_noise}
     pair_keys = [(0, 1), (2, 1), (3, 1)]
 
-    serial_pk, serial_cp, _, _ = _serial_dominant_pair(y, operands, pair_keys)
-    batched_pk, batched_cp, _, _ = _batched_dominant_pair(y, operands, pair_keys)
+    serial_pk, _serial_cp, _, _ = _serial_dominant_pair(y, operands, pair_keys)
+    batched_pk, _batched_cp, _, _ = _batched_dominant_pair(y, operands, pair_keys)
 
     assert batched_pk == serial_pk == (0, 1), "first-scanned pair among exact ties must win in BOTH paths"
 

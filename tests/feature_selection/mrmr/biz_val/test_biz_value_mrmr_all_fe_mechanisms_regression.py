@@ -204,7 +204,7 @@ class TestRecipeCountParity:
     engineered name MUST have a matching recipe -- parity is strict.
     """
 
-    @pytest.mark.parametrize("seed", (HEADLINE_SEED,) + AUX_SEEDS)
+    @pytest.mark.parametrize("seed", (HEADLINE_SEED, *AUX_SEEDS))
     def test_engineered_features_and_recipes_count_match(self, seed):
         X, y = _kitchen_sink(seed=seed)
         X_tr, y_tr, _, _ = _train_holdout_split(X, y, seed=seed)
@@ -216,7 +216,7 @@ class TestRecipeCountParity:
             f"seed={seed}: recipe-count parity FAILED: {len(eng_feats)} engineered features but {len(eng_recipes)} recipes; _engineered_features_={eng_feats}"
         )
 
-    @pytest.mark.parametrize("seed", (HEADLINE_SEED,) + AUX_SEEDS)
+    @pytest.mark.parametrize("seed", (HEADLINE_SEED, *AUX_SEEDS))
     def test_every_recipe_replays_to_an_output_column(self, seed):
         """A recipe whose output name does not appear in transform output
         is a silent drop -- the parent grep at ``_mrmr_fit_impl.py``
@@ -266,7 +266,7 @@ class TestFitTimeBudgetMultiSeed:
     """
 
     def test_p95_fit_time_under_30s_3_seeds(self):
-        seeds = (HEADLINE_SEED,) + AUX_SEEDS
+        seeds = (HEADLINE_SEED, *AUX_SEEDS)
         fit_times = []
         for s in seeds:
             X, y = _kitchen_sink(seed=s)

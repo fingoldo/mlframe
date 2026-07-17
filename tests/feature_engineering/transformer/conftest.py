@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
-from typing import Generator
+from collections.abc import Generator
 
 import numpy as np
 import pytest
@@ -36,7 +36,7 @@ def _ann_backend_safely_importable() -> bool:
     """Return True iff ``pynndescent`` imports cleanly in the current process. Memoised."""
     if "ok" not in _ANN_PROBE_CACHE:
         try:
-            import pynndescent  # noqa: F401
+            import pynndescent
 
             _ANN_PROBE_CACHE["ok"] = True
         except ImportError:

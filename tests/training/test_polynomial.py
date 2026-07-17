@@ -24,7 +24,6 @@ import logging
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.training.configs import PreprocessingExtensionsConfig
 from mlframe.training.pipeline import apply_preprocessing_extensions

@@ -11,11 +11,10 @@ import pytest
 import numpy as np
 import pandas as pd
 import polars as pl
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 from types import SimpleNamespace
 
 from sklearn.linear_model import Ridge, LogisticRegression
-from sklearn.ensemble import RandomForestRegressor
 
 from mlframe.training.configs import (
     DataConfig,
@@ -416,7 +415,7 @@ class TestTrainAndEvaluateModelBasic:
         target = pd.Series(y)
         model = Ridge(alpha=1.0)
 
-        result, train_df, val_df, test_df = call_train_and_evaluate(
+        result, _train_df, _val_df, _test_df = call_train_and_evaluate(
             model=model,
             df=df,
             target=target,
@@ -948,7 +947,7 @@ class TestApplyPrePipelineTransformsWithFittedPipeline:
 
         model = MagicMock()
 
-        result_train, result_val = _apply_pre_pipeline_transforms(
+        _result_train, _result_val = _apply_pre_pipeline_transforms(
             model=model,
             pre_pipeline=pipeline,
             train_df=different_train_df.copy(),
@@ -981,7 +980,7 @@ class TestApplyPrePipelineTransformsWithFittedPipeline:
         model = MagicMock()
         original_train_df = train_df.copy()
 
-        result_train, result_val = _apply_pre_pipeline_transforms(
+        result_train, _result_val = _apply_pre_pipeline_transforms(
             model=model,
             pre_pipeline=pipeline,
             train_df=train_df,

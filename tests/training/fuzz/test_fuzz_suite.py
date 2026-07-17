@@ -183,14 +183,13 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
     # suite runs; re-assert identity after. Applies when input stays
     # in-memory (parquet-path combos have no Python-level caller frame
     # to preserve — the parquet file is the source of truth).
-    frame_schema_before = None
     frame_shape_before = None
     frame_cols_before = None
     if combo.input_storage == "memory":
         if hasattr(df, "schema"):
-            frame_schema_before = dict(df.schema)
+            dict(df.schema)
         elif hasattr(df, "dtypes"):
-            frame_schema_before = {c: str(df[c].dtype) for c in df.columns}
+            {c: str(df[c].dtype) for c in df.columns}
         frame_shape_before = getattr(df, "shape", None)
         frame_cols_before = tuple(df.columns) if hasattr(df, "columns") else None
 

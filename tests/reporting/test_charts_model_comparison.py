@@ -80,7 +80,7 @@ def test_leaderboard_sorted_and_hline():
     assert bar.categories == ("A", "C", "B")  # best-first
     assert bar.orientation == "horizontal"
     assert bar.hline is not None
-    ref, color, label = bar.hline
+    ref, _color, label = bar.hline
     assert abs(ref - 0.95) < 1e-9 and label == "best"
 
 

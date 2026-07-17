@@ -10,11 +10,9 @@ the wall-kill on a heavy combo) is verified manually via
 
 from __future__ import annotations
 
-import os
 import subprocess
 import sys
 import time
-from pathlib import Path
 
 import orjson
 import pytest
@@ -109,7 +107,7 @@ def test_run_one_combo_does_not_wedge_on_child_holding_pipe_open_after_kill(monk
     monkeypatch.setattr(R.subprocess, "Popen", fake_popen)
 
     t0 = time.time()
-    rc, tail, timed_out = R._run_one_combo(seed=0, short_id="cFAKE", per_combo_timeout_s=2)
+    _rc, tail, timed_out = R._run_one_combo(seed=0, short_id="cFAKE", per_combo_timeout_s=2)
     elapsed = time.time() - t0
 
     # The whole call must return shortly after the 2s wall-timeout + bounded

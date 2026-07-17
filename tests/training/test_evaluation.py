@@ -13,7 +13,7 @@ Covers:
 import pytest
 import numpy as np
 import pandas as pd
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from sklearn.linear_model import Ridge, LogisticRegression
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
@@ -123,7 +123,7 @@ class TestGetModelFeatureImportances:
 
     def test_tree_model_has_feature_importances(self, trained_tree_regressor):
         """Test extraction from tree-based model with feature_importances_."""
-        model, df, y, columns = trained_tree_regressor
+        model, _df, _y, columns = trained_tree_regressor
 
         importances = get_model_feature_importances(model, columns)
 
@@ -135,7 +135,7 @@ class TestGetModelFeatureImportances:
 
     def test_linear_model_has_coefficients(self, trained_regressor):
         """Test extraction from linear model with coef_."""
-        model, df, y, columns = trained_regressor
+        model, _df, _y, columns = trained_regressor
 
         importances = get_model_feature_importances(model, columns)
 
@@ -147,7 +147,7 @@ class TestGetModelFeatureImportances:
 
     def test_logistic_regression_coefficients(self, trained_classifier):
         """Test extraction from logistic regression."""
-        model, df, y, columns = trained_classifier
+        model, _df, _y, columns = trained_classifier
 
         importances = get_model_feature_importances(model, columns)
 
@@ -156,7 +156,7 @@ class TestGetModelFeatureImportances:
 
     def test_return_dataframe(self, trained_tree_regressor):
         """Test return_df=True returns DataFrame."""
-        model, df, y, columns = trained_tree_regressor
+        model, _df, _y, columns = trained_tree_regressor
 
         importances = get_model_feature_importances(model, columns, return_df=True)
 
@@ -176,7 +176,7 @@ class TestGetModelFeatureImportances:
 
     def test_pipeline_extracts_from_final_estimator(self, trained_regressor):
         """Test that Pipeline extracts from final estimator."""
-        model, df, y, columns = trained_regressor
+        model, _df, _y, columns = trained_regressor
 
         # Wrap in pipeline
         pipeline = Pipeline([("scaler", StandardScaler()), ("model", model)])
@@ -491,7 +491,7 @@ class TestReportRegressionModelPerf:
         model, df, y, columns = trained_regressor
         precomputed_preds = model.predict(df)
 
-        preds, probs = report_regression_model_perf(
+        preds, _probs = report_regression_model_perf(
             targets=y,
             columns=columns,
             model_name="test_model",
@@ -714,7 +714,7 @@ class TestReportProbabilisticModelPerf:
         """Test with custom class labels."""
         model, df, y, columns = trained_classifier
 
-        preds, probs = report_probabilistic_model_perf(
+        preds, _probs = report_probabilistic_model_perf(
             targets=y,
             columns=columns,
             model_name="test_model",
@@ -822,7 +822,7 @@ class TestPlotModelFeatureImportances:
 
     def test_returns_importances(self, trained_tree_regressor):
         """Test that function returns feature importances."""
-        model, df, y, columns = trained_tree_regressor
+        model, _df, _y, columns = trained_tree_regressor
 
         importances = plot_model_feature_importances(
             model=model,
@@ -858,7 +858,7 @@ class TestEvaluateModel:
         """Test high-level regression evaluation."""
         model, df, y, columns = trained_regressor
 
-        preds, probs = evaluate_model(
+        preds, _probs = evaluate_model(
             model=model,
             model_name="test_regressor",
             targets=y,
@@ -901,7 +901,7 @@ class TestEdgeCases:
 
     def test_constant_predictions_regression(self, trained_regressor):
         """Test regression with constant predictions."""
-        model, df, y, columns = trained_regressor
+        _model, _df, y, columns = trained_regressor
         constant_preds = np.full_like(y, np.mean(y))
 
         metrics = {}
@@ -921,10 +921,10 @@ class TestEdgeCases:
 
     def test_perfect_predictions_regression(self, trained_regressor):
         """Test regression with perfect predictions."""
-        model, df, y, columns = trained_regressor
+        _model, _df, y, columns = trained_regressor
 
         metrics = {}
-        preds, _ = report_regression_model_perf(
+        _preds, _ = report_regression_model_perf(
             targets=y,
             columns=columns,
             model_name="perfect_model",
@@ -943,7 +943,7 @@ class TestEdgeCases:
         y = np.array([0, 0, 0, 1, 1, 1])
         probs = np.array([[1.0, 0.0]] * 6)  # All predict class 0
 
-        preds, returned_probs = report_probabilistic_model_perf(
+        preds, _returned_probs = report_probabilistic_model_perf(
             targets=y,
             columns=["f1"],
             model_name="all_same_class",

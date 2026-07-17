@@ -96,7 +96,6 @@ def test_biz_val_group_aware_fs_beats_pointwise_on_ndcg():
     query. Floor +0.10 NDCG (measured gap is larger)."""
     pytest.importorskip("catboost")
     from catboost import CatBoostRanker, Pool
-    from mlframe.feature_selection.registry import get
     from mlframe.training.ranking._ranker_fs import group_aware_mrmr_select
 
     df, gcol, signal, conf, _noise = _query_confounded_frame(0, Q=60, m=40)

@@ -20,7 +20,6 @@ from mlframe.reporting.charts.split_comparison import (
     AUC_GAP_RED,
     RMSE_RATIO_AMBER,
     RMSE_RATIO_RED,
-    OverfitVerdict,
     compose_split_comparison_figure,
     overfit_verdict,
 )
@@ -105,7 +104,7 @@ def test_figure_structure_classification():
     assert isinstance(bar.values, tuple) and len(bar.values) == 3
     assert bar.series_labels == ("train", "val", "test")
     assert "ROC_AUC" in bar.categories and "ECE" in bar.categories
-    assert "ROC_AUC" in table.text and "OVERFIT" in table.text or "GENERALIZES" in table.text
+    assert ("ROC_AUC" in table.text and "OVERFIT" in table.text) or "GENERALIZES" in table.text
 
 
 def test_figure_structure_regression():

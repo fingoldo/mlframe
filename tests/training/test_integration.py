@@ -13,9 +13,6 @@ import pytest
 pytestmark = pytest.mark.slow
 import numpy as np
 import pandas as pd
-import tempfile
-import os
-from pathlib import Path
 
 from sklearn.linear_model import Ridge, LogisticRegression
 
@@ -116,7 +113,7 @@ class TestFullPipelineRegression:
 
         model = Ridge(alpha=1.0)
 
-        result, train_df, val_df, test_df = call_train_and_evaluate(
+        result, _train_df, _val_df, _test_df = call_train_and_evaluate(
             model=model,
             df=feature_df,
             target=target,
@@ -147,7 +144,7 @@ class TestFullPipelineRegression:
 
     def test_predictions_in_valid_range(self, regression_data):
         """Test that regression predictions are in valid range."""
-        df, columns, train_idx, val_idx, test_idx = regression_data
+        df, columns, train_idx, _val_idx, test_idx = regression_data
         target = df["target"]
         feature_df = df[columns]
 
@@ -234,7 +231,7 @@ class TestFullPipelineClassification:
 
     def test_probabilities_sum_to_one(self, classification_data):
         """Test that class probabilities sum to 1."""
-        df, columns, train_idx, val_idx, test_idx = classification_data
+        df, columns, train_idx, _val_idx, test_idx = classification_data
         target = df["target"]
         feature_df = df[columns]
 
@@ -256,7 +253,7 @@ class TestFullPipelineClassification:
 
     def test_probabilities_in_valid_range(self, classification_data):
         """Test that probabilities are in [0, 1]."""
-        df, columns, train_idx, val_idx, test_idx = classification_data
+        df, columns, train_idx, _val_idx, test_idx = classification_data
         target = df["target"]
         feature_df = df[columns]
 
@@ -361,7 +358,7 @@ class TestAutoMLIntegration:
 
     def test_autogluon_training(self, automl_data, tmp_path):
         """Test AutoGluon model training."""
-        ag = pytest.importorskip("autogluon.tabular")
+        pytest.importorskip("autogluon.tabular")
 
         from mlframe.training.automl import train_autogluon_model
 
@@ -382,7 +379,7 @@ class TestAutoMLIntegration:
 
     def test_lama_training(self, automl_data, tmp_path):
         """Test LightAutoML model training."""
-        lama = pytest.importorskip("lightautoml")
+        pytest.importorskip("lightautoml")
         from lightautoml.tasks import Task
 
         from mlframe.training.automl import train_lama_model

@@ -30,7 +30,7 @@ def test_biz_val_overlapping_walk_forward_cv_lowers_estimate_variance():
 
     assert overlapping.get_n_splits(X=np.zeros(n_samples)) > non_overlapping.get_n_splits(X=np.zeros(n_samples))
 
-    rng = np.random.default_rng(0)
+    np.random.default_rng(0)
     overlap_estimates = []
     non_overlap_estimates = []
     for trial in range(60):

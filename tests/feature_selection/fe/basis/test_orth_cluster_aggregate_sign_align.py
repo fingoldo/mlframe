@@ -42,7 +42,7 @@ def test_mean_z_does_not_cancel_anticorrelated_members():
 
 
 def test_two_member_anticorrelated_not_dead():
-    X, z = _anticorrelated_reflections()
+    X, _z = _anticorrelated_reflections()
     agg = compute_cluster_aggregate(X, ["a", "b"], aggregator="mean_z")
     assert float(np.std(agg)) > 0.5, f"2-member anticorrelated cluster cancelled to a dead column (std={np.std(agg):.4f})"
 

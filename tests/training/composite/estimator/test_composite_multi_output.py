@@ -18,7 +18,6 @@ from sklearn.tree import DecisionTreeRegressor
 
 from mlframe.training.composite import (
     CompositeMultiOutputEstimator,
-    CompositeTargetEstimator,
     make_per_column_specs,
 )
 from mlframe.training.composite.transforms import UnknownTransformError

@@ -11,7 +11,6 @@ BOTH the current ``f\\d+`` convention and the legacy ``feature_\\d+`` convention
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from mlframe.feature_selection.filters import MRMR
 

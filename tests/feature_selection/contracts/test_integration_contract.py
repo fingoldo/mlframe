@@ -26,7 +26,6 @@ from sklearn.linear_model import LogisticRegression
 
 from mlframe.feature_selection.filters import MRMR, CatFEConfig
 from mlframe.feature_selection.filters.engineered_recipes import (
-    EngineeredRecipe,
     apply_recipe,
     build_unary_binary_recipe,
 )

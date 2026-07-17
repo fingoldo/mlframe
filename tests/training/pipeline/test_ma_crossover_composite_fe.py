@@ -31,7 +31,7 @@ def _series_frame(n=300, n_groups=10, seed=0):
 def test_apply_ma_crossover_composite_fe_noop_when_columns_unset():
     df, group_ids, ts = _series_frame()
     cfg = PreprocessingExtensionsConfig()
-    train, val, test = apply_ma_crossover_composite_fe(
+    train, _val, _test = apply_ma_crossover_composite_fe(
         df.iloc[:200], df.iloc[200:], None, cfg, group_ids, ts, np.arange(200), np.arange(200, 300), None, verbose=0
     )
     assert list(train.columns) == list(df.columns)

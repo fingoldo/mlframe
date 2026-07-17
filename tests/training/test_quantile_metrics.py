@@ -105,7 +105,7 @@ class TestCoverage:
         assert coverage(y, lo, hi) == pytest.approx(2.0 / 3.0)
 
     def test_empirical_coverage_close_to_nominal(self, std_normal_data):
-        y, preds, alphas = std_normal_data
+        y, preds, _alphas = std_normal_data
         cov = coverage(y, preds[:, 0], preds[:, 2])
         # Nominal 80% on a fresh std-normal sample; allow 5pp slack.
         assert abs(cov - 0.8) < 0.05

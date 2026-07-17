@@ -61,7 +61,7 @@ class TestEarlyStopFires:
         y, base, x, params, transform = laplace_residual_dataset
 
         t0 = time.perf_counter()
-        full_rmse = _tiny_cv_rmse_y_scale(
+        _tiny_cv_rmse_y_scale(
             y_train=y,
             base_train=base,
             transform=transform,

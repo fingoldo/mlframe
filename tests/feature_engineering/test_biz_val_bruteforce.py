@@ -11,9 +11,6 @@ fails to initialize -- so CI without Julia isn't blocked.
 
 from __future__ import annotations
 
-import os
-import subprocess
-import sys
 import warnings
 
 import numpy as np
@@ -23,7 +20,7 @@ import pytest
 warnings.filterwarnings("ignore")
 
 
-from tests._pysr_gate import pysr_works as _check_julia  # noqa: F401  -- imported for back-compat with any test that referenced the legacy name
+from tests._pysr_gate import pysr_works as _check_julia
 
 
 _MINI_PYSR = {

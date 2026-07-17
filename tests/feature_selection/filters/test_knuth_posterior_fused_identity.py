@@ -9,7 +9,6 @@ shift bin counts (and hence MI-plugin selection) downstream.
 
 from __future__ import annotations
 
-import math
 
 import numpy as np
 import pytest

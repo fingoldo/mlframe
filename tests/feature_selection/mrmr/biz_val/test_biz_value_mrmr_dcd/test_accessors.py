@@ -761,7 +761,7 @@ class TestOptInEndToEnd:
         log = m.dcd_["swap_log"]
         assert isinstance(log, list) and len(log) >= 1
         entry = log[0]
-        assert "aggregate_name" in entry and entry["aggregate_name"]
+        assert entry.get("aggregate_name")
         assert "anchor" in entry
         assert "n_members" in entry and entry["n_members"] >= 2
         assert "rep_relevance" in entry and entry["rep_relevance"] > 0

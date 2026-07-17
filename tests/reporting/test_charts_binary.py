@@ -170,7 +170,7 @@ def test_single_class_degenerates_to_annotation():
 def test_finite_binary_drops_non_finite_and_out_of_range_labels():
     y = np.array([0, 1, 2, 1, 0])
     s = np.array([0.1, np.nan, 0.5, 0.8, 0.3])
-    yt, ys = _finite_binary(y, s)
+    yt, _ys = _finite_binary(y, s)
     # row 1 dropped (nan score), row 2 dropped (label 2 not in {0,1})
     assert len(yt) == 3
     assert set(np.unique(yt).tolist()) <= {0, 1}
@@ -484,7 +484,7 @@ def test_decile_table_figure_tiny_n_bins_to_fewer_rows():
     y = np.array([0, 1, 1, 0, 1], dtype=np.int8)
     s = np.array([0.1, 0.9, 0.8, 0.2, 0.7])
     fig = binary_decile_table_figure(y, s, n_deciles=10)
-    headers, body = _decile_table_cells(fig)
+    _headers, body = _decile_table_cells(fig)
     assert len(body) == 5 + 1  # 5 bins + TOTAL
     assert "5 bins" in fig.axes[0].get_title()
 
@@ -583,7 +583,7 @@ def test_roc_panel_carries_operating_point_marker():
     y, s = _separable()
     (panel,) = _flat(compose_binary_figure(y, s, panels_template="ROC", threshold=0.5))
     assert panel.point_markers is not None and len(panel.point_markers) == 1
-    mx, my, label, color, sym = panel.point_markers[0]
+    _mx, _my, label, _color, sym = panel.point_markers[0]
     assert label.startswith("thr=0.50:") and "TPR=" in label and "FPR=" in label
     assert sym == "*"
 
@@ -650,7 +650,7 @@ def test_operating_point_uses_searchsorted_not_full_pass():
     sort = _ScoreSort(yt, ys)
     for thr in (0.9, 0.5, 0.2, 0.1):
         op = _operating_point(sort, thr)
-        exp_fpr, exp_tpr, exp_rec, exp_prec = _confusion_rates(yt, ys, thr)
+        exp_fpr, exp_tpr, _exp_rec, exp_prec = _confusion_rates(yt, ys, thr)
         assert op[0] == pytest.approx(exp_fpr, abs=1e-12)
         assert op[1] == pytest.approx(exp_tpr, abs=1e-12)
         assert op[3] == pytest.approx(exp_prec, abs=1e-12)

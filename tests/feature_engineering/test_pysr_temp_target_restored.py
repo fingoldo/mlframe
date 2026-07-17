@@ -17,12 +17,9 @@ This sensor MUST FAIL on the pre-fix code (column leaks) and PASS post-fix
 
 from __future__ import annotations
 
-import sys
-import types
 
 import numpy as np
 import pandas as pd
-import pytest
 
 
 def _install_stub_run_pysr_feature_engineering(monkeypatch, raise_with):

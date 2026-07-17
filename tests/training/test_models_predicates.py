@@ -15,8 +15,6 @@ from sklearn.linear_model import (
     ElasticNet,
     HuberRegressor,
     Lasso,
-    LinearRegression,
-    LogisticRegression,
     RANSACRegressor,
     Ridge,
     SGDClassifier,

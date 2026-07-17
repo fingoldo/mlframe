@@ -174,7 +174,7 @@ class TestTrainAutogluonModelMocked:
 
             importlib.reload(automl_module)
 
-            result = automl_module.train_autogluon_model(
+            automl_module.train_autogluon_model(
                 sample_train_df,
                 verbose=0,
             )
@@ -201,7 +201,7 @@ class TestTrainAutogluonModelMocked:
 
             importlib.reload(automl_module)
 
-            result = automl_module.train_autogluon_model(
+            automl_module.train_autogluon_model(
                 df,
                 target_name="custom_target",
                 verbose=0,
@@ -303,7 +303,7 @@ class TestTrainLamaModelMocked:
 
             importlib.reload(automl_module)
 
-            result = automl_module.train_lama_model(
+            automl_module.train_lama_model(
                 sample_train_df,
                 verbose=0,
             )

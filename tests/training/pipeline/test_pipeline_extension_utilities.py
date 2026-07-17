@@ -71,7 +71,7 @@ def test_extensions_converts_polars_input():
     tr = pl.from_pandas(tr_pd)
     va = pl.from_pandas(_make_data(n=5, seed=1))
     cfg = PreprocessingExtensionsConfig(scaler="MinMaxScaler")
-    out_tr, out_va, out_te, pipe = apply_preprocessing_extensions(tr, va, None, cfg, verbose=0)
+    out_tr, _out_va, out_te, _pipe = apply_preprocessing_extensions(tr, va, None, cfg, verbose=0)
     assert isinstance(out_tr, pd.DataFrame)
     # MinMax on train -> [0,1] bounds
     assert out_tr.min().min() >= -1e-9
@@ -83,7 +83,7 @@ def test_extensions_stacked_scaler_plus_kbins():
     """Scaler + KBinsDiscretizer stack into a single sklearn Pipeline with the auto-prepended imputer step."""
     tr = _make_data(n=60)
     cfg = PreprocessingExtensionsConfig(scaler="StandardScaler", kbins=4)
-    out_tr, _, _, pipe = apply_preprocessing_extensions(tr, None, None, cfg, verbose=0)
+    _out_tr, _, _, pipe = apply_preprocessing_extensions(tr, None, None, cfg, verbose=0)
     # sklearn Pipeline with 3 steps post-2026-04 perf series:
     # `imputer` (defensive, NaN-safe) is now prepended automatically.
     step_names = [name for name, _ in pipe.steps]

@@ -185,7 +185,6 @@ class TestLagPredictDeployableModelCompliance:
 class TestESTransformedTargetRegressorCompliance:
     def _make(self):
         from mlframe.estimators.custom import ESTransformedTargetRegressor
-        from sklearn.preprocessing import FunctionTransformer
 
         # log1p / expm1 round-trip; both are vector-safe, finite-preserving.
         return ESTransformedTargetRegressor(

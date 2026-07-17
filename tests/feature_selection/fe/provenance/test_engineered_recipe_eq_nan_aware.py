@@ -35,7 +35,6 @@ import copy
 import pickle
 
 import numpy as np
-import pytest
 
 
 def test_pickle_roundtrip_with_nan_in_ndarray_extra():

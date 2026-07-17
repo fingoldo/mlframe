@@ -9,8 +9,6 @@ Tests MRMR, RFECV, and combined pipeline functionality.
 import pytest
 import numpy as np
 import pandas as pd
-import polars as pl
-import warnings
 
 from mlframe.training.core import train_mlframe_models_suite
 from mlframe.training.configs import TargetTypes
@@ -311,13 +309,13 @@ class TestFeatureSelectionIntegration:
 
     def test_rfecv_classification(self, sample_classification_data, temp_data_dir, common_init_params, fast_iterations):
         """Test RFECV with classification task."""
-        df, feature_names, cat_features, y = sample_classification_data
+        df, feature_names, cat_features, _y = sample_classification_data
         # Remove categorical for simplicity
         numeric_df = df[[f for f in feature_names if f not in cat_features] + ["target"]]
 
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
 
-        models, metadata = train_mlframe_models_suite(
+        models, _metadata = train_mlframe_models_suite(
             df=numeric_df,
             target_name="test_target",
             model_name="rfecv_classification",
@@ -344,7 +342,7 @@ class TestFeatureSelectionIntegration:
         check_lgb_gpu_available,
     ):
         """Test training with multiple RFECV estimators."""
-        df, feature_names, y = sample_regression_data
+        df, _feature_names, _y = sample_regression_data
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
         # Use models that are available
@@ -352,7 +350,7 @@ class TestFeatureSelectionIntegration:
         if check_lgb_gpu_available:
             rfecv_models.append("lgb_rfecv")
 
-        models, metadata = train_mlframe_models_suite(
+        models, _metadata = train_mlframe_models_suite(
             df=df,
             target_name="test_target",
             model_name="multi_rfecv",
@@ -372,10 +370,10 @@ class TestFeatureSelectionIntegration:
 
     def test_use_mrmr_fs_true(self, sample_regression_data, temp_data_dir, common_init_params, fast_iterations):
         """Test training with MRMR feature selection enabled."""
-        df, feature_names, y = sample_regression_data
+        df, _feature_names, _y = sample_regression_data
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
-        models, metadata = train_mlframe_models_suite(
+        models, _metadata = train_mlframe_models_suite(
             df=df,
             target_name="test_target",
             model_name="with_mrmr",
@@ -404,13 +402,13 @@ class TestFeatureSelectionIntegration:
 
     def test_mrmr_with_classification(self, sample_classification_data, temp_data_dir, common_init_params, fast_iterations):
         """Test MRMR feature selection with classification task."""
-        df, feature_names, cat_features, y = sample_classification_data
+        df, feature_names, cat_features, _y = sample_classification_data
         # Use only numeric features
         numeric_df = df[[f for f in feature_names if f not in cat_features] + ["target"]]
 
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
 
-        models, metadata = train_mlframe_models_suite(
+        models, _metadata = train_mlframe_models_suite(
             df=numeric_df,
             target_name="test_target",
             model_name="mrmr_classification",
@@ -441,11 +439,11 @@ class TestCombinedPipelines:
 
     def test_mrmr_combined_with_rfecv(self, sample_regression_data, temp_data_dir, common_init_params, fast_iterations):
         """Test using MRMR + RFECV together in the same training run."""
-        df, feature_names, y = sample_regression_data
+        df, _feature_names, _y = sample_regression_data
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
         # Train with both MRMR (filter) and RFECV (wrapper) feature selection
-        models, metadata = train_mlframe_models_suite(
+        models, _metadata = train_mlframe_models_suite(
             df=df,
             target_name="test_target",
             model_name="mrmr_plus_rfecv",
@@ -492,7 +490,7 @@ class TestCombinedPipelines:
 
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
-        models, metadata = train_mlframe_models_suite(
+        models, _metadata = train_mlframe_models_suite(
             df=df,
             target_name="test_target",
             model_name="fs_with_fairness",
@@ -513,10 +511,10 @@ class TestCombinedPipelines:
 
     def test_rfecv_with_polars(self, sample_polars_data, temp_data_dir, common_init_params, fast_iterations):
         """Test RFECV with Polars DataFrame input."""
-        pl_df, feature_names, y = sample_polars_data
+        pl_df, _feature_names, _y = sample_polars_data
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
-        models, metadata = train_mlframe_models_suite(
+        models, _metadata = train_mlframe_models_suite(
             df=pl_df,
             target_name="test_target",
             model_name="rfecv_polars",
@@ -535,10 +533,10 @@ class TestCombinedPipelines:
 
     def test_mrmr_with_polars(self, sample_polars_data, temp_data_dir, common_init_params, fast_iterations):
         """Test MRMR with Polars DataFrame input."""
-        pl_df, feature_names, y = sample_polars_data
+        pl_df, _feature_names, _y = sample_polars_data
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
-        models, metadata = train_mlframe_models_suite(
+        models, _metadata = train_mlframe_models_suite(
             df=pl_df,
             target_name="test_target",
             model_name="mrmr_polars",
@@ -570,7 +568,7 @@ class TestCombinedPipelines:
 
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
-        models, metadata = train_mlframe_models_suite(
+        models, _metadata = train_mlframe_models_suite(
             df=df,
             target_name="test_target",
             model_name="rfecv_small",
@@ -601,7 +599,7 @@ class TestCombinedPipelines:
 
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
-        models, metadata = train_mlframe_models_suite(
+        models, _metadata = train_mlframe_models_suite(
             df=df,
             target_name="test_target",
             model_name="rfecv_many_features",

@@ -19,7 +19,6 @@ from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
-import pytest
 
 
 def test_optimize_for_storage_0d_columns_match_sets_none():

@@ -24,7 +24,7 @@ import numpy as np
 import pytest
 
 torch = pytest.importorskip("torch")
-from mlframe.training.neural.ranker import _RankerDataset, _ranker_passthrough_collate  # noqa: E402
+from mlframe.training.neural.ranker import _RankerDataset, _ranker_passthrough_collate
 
 
 def test_getitem_vs_getitems_equivalence():

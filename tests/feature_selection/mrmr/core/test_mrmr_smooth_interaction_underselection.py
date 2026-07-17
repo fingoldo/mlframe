@@ -24,7 +24,6 @@ from __future__ import annotations
 import os
 import sys
 
-import numpy as np
 import pytest
 
 pytest.importorskip("pandas")
@@ -36,16 +35,16 @@ os.environ.setdefault("MLFRAME_DISABLE_HNSW", "1")
 _TD = os.path.dirname(os.path.abspath(__file__))
 if _TD not in sys.path:
     sys.path.insert(0, _TD)
-from tests.feature_selection._mrmr_realistic_data import make_realistic_case  # noqa: E402
+from tests.feature_selection._mrmr_realistic_data import make_realistic_case
 
-from mlframe.feature_selection.filters.mrmr import MRMR  # noqa: E402
+from mlframe.feature_selection.filters.mrmr import MRMR
 
 
 @pytest.mark.timeout(300)
 def test_smooth_interaction_fallback_not_suppressed_by_dropped_composite():
     """s319: the bilinear ``a*b`` operands must survive the empty-raw fallback even when the
     ``mul(a,b)`` composite that captures them is dropped from the output."""
-    df, y, meta = make_realistic_case(
+    df, y, _meta = make_realistic_case(
         seed=319,
         n=25000,
         distribution="uniform",

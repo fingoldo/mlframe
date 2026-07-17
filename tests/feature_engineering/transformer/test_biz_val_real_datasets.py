@@ -1184,7 +1184,7 @@ def _train_eval_legacy_scalar(model, X_tr, y_tr, X_te, y_te, task) -> float:
     return metrics["R2"] if task == "regression" else metrics["AUC"]
 
 
-def _run_matrix(X: np.ndarray, y: np.ndarray, task: str, dataset_name: str, builders: Dict[str, Callable] = None) -> List[Dict]:
+def _run_matrix(X: np.ndarray, y: np.ndarray, task: str, dataset_name: str, builders: Optional[Dict[str, Callable]] = None) -> List[Dict]:
     """Train every (boosting, feature_config) combination on a 70/30 split. Returns records with FULL metric panel (R²/RMSE/MAE or AUC/Brier/PR/LogLoss/Acc).
 
     For back-compat the record's ``score`` field is the legacy scalar (R² or AUC); the full ``metrics`` dict is also attached for multi-metric printing.

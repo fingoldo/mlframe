@@ -40,7 +40,7 @@ class TestDtwCpuBaseline:
         from mlframe.signal.dtw import dtw_cpu
 
         x, y = _gen_pair(n=200, m=300)
-        _, path_strict = dtw_cpu(x, y, window=50, psi=0)
+        _, _path_strict = dtw_cpu(x, y, window=50, psi=0)
         _, path_psi = dtw_cpu(x, y, window=50, psi=30)
         # With psi, endpoints can drift; this is a soft check (we just
         # assert the path is non-degenerate).
@@ -248,8 +248,8 @@ class TestDispatcher:
 
         monkeypatch.setenv("MLFRAME_DTW_BACKEND", "cpu")
         x, y = _gen_pair(n=500, m=400)
-        d_disp, path_disp = dtw_dispatch(x, y, window=150)
-        d_cpu, path_cpu = dtw_cpu(x, y, window=150)
+        d_disp, _path_disp = dtw_dispatch(x, y, window=150)
+        d_cpu, _path_cpu = dtw_cpu(x, y, window=150)
         assert d_disp == d_cpu
 
     def test_backend_kwarg_force(self):

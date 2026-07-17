@@ -7,7 +7,6 @@ CPU-only; no GPU required.
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 
 def test_single_class_holdout_auc_loss_is_nan_not_sentinel():

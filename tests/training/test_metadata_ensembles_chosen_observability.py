@@ -15,7 +15,6 @@ Contract under test (per Wave-8 observability spec):
 
 from __future__ import annotations
 
-import numpy as np
 import pytest
 
 

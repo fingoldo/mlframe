@@ -131,7 +131,7 @@ def _strong_ar_frame(n_groups=25, per=80, seed=1, step=0.4):
 
 class TestNearCopyExemptionEndToEnd:
     def test_biz_val_strong_ar_lag_base_retained_when_exempt_excluded_when_off(self):
-        df, groups, y = _strong_ar_frame()
+        df, groups, _y = _strong_ar_frame()
         n = groups.size
         # Sanity: y_prev really is a near-copy of y (the gate would fire).
         corr = abs(float(np.corrcoef(df["y_prev"], df["y"])[0, 1]))

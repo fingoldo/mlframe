@@ -126,8 +126,8 @@ def test_int16_combo_upcast_no_overflow(nbins: int) -> None:
     # Force the worst-case corner to appear.
     xi[:50] = nbins - 1
     yi[:50] = nbins - 1
-    xi16 = xi.astype(np.int16) if nbins < 182 else xi.astype(np.int32)
-    yi16 = yi.astype(np.int16) if nbins < 182 else yi.astype(np.int32)
+    xi.astype(np.int16) if nbins < 182 else xi.astype(np.int32)
+    yi.astype(np.int16) if nbins < 182 else yi.astype(np.int32)
     # Use the gated code dtype to mirror real prebin output.
     code_dtype = _prebin_code_dtype(nbins)
     xi_codes = xi.astype(code_dtype)

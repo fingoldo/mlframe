@@ -41,7 +41,6 @@ The ten fixes covered (one test each) are the most behavior-impacting:
 
 from __future__ import annotations
 
-import inspect
 import warnings
 
 import numpy as np
@@ -273,7 +272,6 @@ def test_multilabel_split_summary_well_formed_object_array_stacks():
     def _ki(*a, **kw):
         raise KeyboardInterrupt("simulated")
 
-    import builtins
     import unittest.mock as _mock
 
     # Patch a function the helper uses internally - asarray is a safe

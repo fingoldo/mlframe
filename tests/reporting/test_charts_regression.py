@@ -33,7 +33,6 @@ from mlframe.reporting.spec import (
     BarPanelSpec,
     FigureSpec,
     HeatmapPanelSpec,
-    HistogramPanelSpec,
     LinePanelSpec,
     ScatterPanelSpec,
 )
@@ -208,7 +207,6 @@ def test_decile_vectorization_parity_vs_rank_reference():
     bincount). Ties at decile boundaries can shift a row between adjacent buckets, so this uses continuous (all-distinct)
     data where both methods produce identical bucket populations -> bit-identical means.
     """
-    from mlframe.reporting.charts.regression import _err_by_decile_panel
 
     rng = np.random.default_rng(7)
     n = 30_000

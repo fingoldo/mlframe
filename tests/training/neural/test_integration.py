@@ -12,10 +12,8 @@ import torch.nn as nn
 import numpy as np
 import pandas as pd
 from sklearn.datasets import make_classification, make_regression
-from sklearn.model_selection import train_test_split, GridSearchCV
+from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, mean_squared_error
-import tempfile
-import os
 
 import sys
 from pathlib import Path
@@ -29,9 +27,6 @@ from mlframe.training.neural import (
     TorchDataset,
     TorchDataModule,
     MLPTorchModel,
-    generate_mlp,
-    MetricSpec,
-    BestEpochModelCheckpoint,
 )
 
 
@@ -364,7 +359,7 @@ class TestDataModuleIntegration:
 
         # Iterate through batches
         total_samples = 0
-        for batch_x, batch_y in loader:
+        for batch_x, _batch_y in loader:
             total_samples += len(batch_x)
             assert batch_x.shape[1] == classification_dataset["num_features"]
 
@@ -552,7 +547,7 @@ class TestRealWorldScenarios:
         # Generate multi-class data
         X, y = make_classification(n_samples=500, n_features=15, n_classes=5, n_informative=12, random_state=42)
 
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+        X_train, X_test, y_train, _y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
         # Create and train classifier
         network_params = {"nlayers": 3, "first_layer_num_neurons": 128, "dropout_prob": 0.0, "activation_function": torch.nn.ReLU}

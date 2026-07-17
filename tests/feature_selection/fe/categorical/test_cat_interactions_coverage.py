@@ -691,7 +691,7 @@ class TestMaybeRerankWithMM:
         pairs_a, pairs_b, ii_arr, _ = self._make_inputs(xor_small)
         cfg = CatFEConfig(use_miller_madow=True)
         selected = np.array([], dtype=np.int64)
-        ii_out, sel_out = _maybe_rerank_with_mm(
+        _ii_out, sel_out = _maybe_rerank_with_mm(
             factors_data=xor_small["data"],
             pairs_a=pairs_a,
             pairs_b=pairs_b,
@@ -736,7 +736,7 @@ class TestMaybeRerankWithMM:
         pairs_a, pairs_b, ii_arr, _ = self._make_inputs(xor_small)
         selected = np.array([0, 1], dtype=np.int64)
         cfg = CatFEConfig(use_miller_madow=None)
-        ii_out, sel_out = _maybe_rerank_with_mm(
+        ii_out, _sel_out = _maybe_rerank_with_mm(
             factors_data=xor_small["data"],
             pairs_a=pairs_a,
             pairs_b=pairs_b,
@@ -759,7 +759,7 @@ class TestMaybeRerankWithMM:
         pairs_a, pairs_b, ii_arr, _ = self._make_inputs(xor_small)
         selected = np.array([0, 1, 2], dtype=np.int64)
         cfg = CatFEConfig(use_miller_madow=True, select_on=select_on)
-        ii_out, sel_out = _maybe_rerank_with_mm(
+        _ii_out, sel_out = _maybe_rerank_with_mm(
             factors_data=xor_small["data"],
             pairs_a=pairs_a,
             pairs_b=pairs_b,
@@ -856,7 +856,7 @@ class TestKfoldStability:
     def test_empty_selected_passthrough(self, xor_small):
         """Empty selected passthrough."""
         cfg = CatFEConfig(n_folds_stability=2)
-        out_sel, fold_d = _kfold_stability_filter(
+        out_sel, _fold_d = _kfold_stability_filter(
             factors_data=xor_small["data"],
             pairs_a=np.array([0], dtype=np.int64),
             pairs_b=np.array([1], dtype=np.int64),
@@ -928,7 +928,7 @@ class TestAntiRedundancy:
         cfg = CatFEConfig(anti_redundancy_beta=0.5)
         selected = np.array([0], dtype=np.int64)
         ii = np.array([0.5])
-        ii_out, sel_out = _anti_redundancy_rerank(
+        ii_out, _sel_out = _anti_redundancy_rerank(
             factors_data=xor_small["data"],
             pairs_a=np.array([0], dtype=np.int64),
             pairs_b=np.array([1], dtype=np.int64),
@@ -962,7 +962,7 @@ class TestAntiRedundancy:
             dtype=np.int32,
         )
         selected = np.array([0, 1], dtype=np.int64)
-        ii_out, sel_out = _anti_redundancy_rerank(
+        _ii_out, sel_out = _anti_redundancy_rerank(
             factors_data=xor_small["data"],
             pairs_a=pairs_a,
             pairs_b=pairs_b,
@@ -1031,7 +1031,7 @@ class TestPairSearchWeighted:
         pairs_a = np.array([0], dtype=np.int64)
         pairs_b = np.array([1], dtype=np.int64)
         weights = np.ones(xor_small["data"].shape[0], dtype=np.float64)
-        joint_w, ii_w, n_uniq_w = _pair_search_kernel_weighted_njit(
+        joint_w, ii_w, _n_uniq_w = _pair_search_kernel_weighted_njit(
             factors_data=xor_small["data"],
             pairs_a=pairs_a,
             pairs_b=pairs_b,
@@ -1062,7 +1062,7 @@ class TestPairSearchWeighted:
         pairs_b = np.array([1], dtype=np.int64)
         rng = np.random.default_rng(3)
         weights = rng.random(xor_small["data"].shape[0]) + 0.1
-        joint_w, ii_w, n_uniq_w = _pair_search_kernel_weighted_njit(
+        joint_w, _ii_w, n_uniq_w = _pair_search_kernel_weighted_njit(
             factors_data=xor_small["data"],
             pairs_a=pairs_a,
             pairs_b=pairs_b,
@@ -1130,7 +1130,7 @@ class TestBuildFactorizeLookup:
         # 2x3 table but only (0,0) and (1,1) seen -> 4 unseen
         data = np.array([[0, 0], [1, 1]], dtype=np.int32)
         classes = np.array([0, 1], dtype=np.int32)
-        lookup, n_eff = _build_factorize_lookup(
+        lookup, _n_eff = _build_factorize_lookup(
             factors_data=data,
             idx_a=0,
             idx_b=1,
@@ -1215,7 +1215,7 @@ class TestOrchestratorKnobs:
     def test_disabled_via_min_n(self, xor_small):
         """Disabled via min n."""
         cfg = CatFEConfig(min_n_samples=10_000)
-        data_out, cols_out, _, state = _run(xor_small, cfg)
+        data_out, _cols_out, _, state = _run(xor_small, cfg)
         assert data_out is xor_small["data"]
         assert state.recipes == []
 
@@ -1456,7 +1456,7 @@ class TestOrchestratorKnobs:
             max_combined_nbins=4,  # min allowed; 2*2 = 4 is at the boundary but rejected (> not >=)
         )
         # Cardinality budget allows nb_prod <= max_combined; 4 <= 4 stays in
-        data_out, _, _, state = _run(xor_small, cfg)
+        _data_out, _, _, state = _run(xor_small, cfg)
         assert isinstance(state.recipes, list)
 
     def test_min_ii_unreachable_returns_unchanged(self, xor_small):
@@ -1467,7 +1467,7 @@ class TestOrchestratorKnobs:
             full_npermutations=0,
             min_n_samples=50,
         )
-        data_out, cols_out, _, state = _run(xor_small, cfg)
+        data_out, cols_out, _, _state = _run(xor_small, cfg)
         assert data_out.shape == xor_small["data"].shape
         assert cols_out == xor_small["cols"]
 
@@ -1631,7 +1631,7 @@ class TestOrchestratorKnobs:
         """Only one eligible column returns unchanged."""
         # categorical_vars list with only one valid column -> skip
         cfg = CatFEConfig(min_n_samples=50)
-        data_out, cols_out, _, state = run_cat_interaction_step(
+        data_out, _cols_out, _, state = run_cat_interaction_step(
             data=xor_small["data"],
             cols=xor_small["cols"],
             nbins=xor_small["nbins"],

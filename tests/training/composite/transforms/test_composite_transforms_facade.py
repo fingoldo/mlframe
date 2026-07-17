@@ -27,7 +27,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
-import pytest
 
 
 def test_composite_transforms_simple_identity_preserved():

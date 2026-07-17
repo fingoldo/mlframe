@@ -25,7 +25,6 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import pytest
 
 
 def test_target_dist_stats_identity_preserved():
@@ -105,7 +104,7 @@ def test_target_dist_smoke_modes_via_parent():
 
     # Constant array: no peaks possible => unimodal.
     y_flat = np.zeros(200, dtype=np.float64)
-    is_mm, n_peaks, sep = _detect_multi_modal(y_flat)
+    is_mm, n_peaks, _sep = _detect_multi_modal(y_flat)
     assert is_mm is False
     assert isinstance(n_peaks, int)
     y_int = np.array([0, 1, 2] * 100, dtype=np.int64)

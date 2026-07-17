@@ -27,9 +27,6 @@ Covers the MEDIUM-tier fixes applied to `src/mlframe/training/composite*.py`:
 
 from __future__ import annotations
 
-import inspect
-import os
-import tempfile
 
 import numpy as np
 import pytest
@@ -226,8 +223,8 @@ def test_m4_no_local_stdlib_reimports_in_composite_cache():
     import importlib as _importlib
 
     expected = {name: _importlib.import_module(name) for name in ("os", "json", "tempfile", "pickle", "hashlib", "time")}
-    for name, mod in expected.items():
-        bound = getattr(_cc, name, None)
+    for name in expected.keys():
+        getattr(_cc, name, None)
         # If not bound, that's fine ONLY if no method needs it.
         # Most likely it IS bound; we assert presence ANY of the names
         # to confirm module-level imports exist rather than purely lazy.

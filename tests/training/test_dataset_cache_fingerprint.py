@@ -20,7 +20,6 @@ The tests below verify:
 
 from __future__ import annotations
 
-import inspect
 
 import numpy as np
 import pandas as pd

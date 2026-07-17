@@ -76,7 +76,7 @@ def test_huge_span_falls_back_to_argsort(monkeypatch):
         return real_argsort(*a, **k)
 
     monkeypatch.setattr(grouped.np, "argsort", spy)
-    si, st, en = iter_group_segments(gids)
+    si, _st, _en = iter_group_segments(gids)
     assert called["n"] >= 1
     assert np.array_equal(si, _argsort_segments(gids)[0])
 

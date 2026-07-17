@@ -21,6 +21,7 @@ from mlframe.feature_selection.filters.fleuret import (
     get_fleuret_criteria_confidence_parallel,
     parallel_fleuret,
 )
+from typing import Optional
 
 
 # ================================================================================================
@@ -70,7 +71,7 @@ def _call_core(
     selected_vars=None,
     npermutations: int = 50,
     bootstrapped_gain: float = 0.05,
-    max_failed: int = None,
+    max_failed: Optional[int] = None,
     extra_x_shuffling: bool = True,
 ):
     """Invoke the njit core directly. We pre-build the numba.typed.Dict caches so the function signature is satisfied and the core can mutate them in place."""
@@ -232,7 +233,7 @@ def test_core_restores_permuted_columns_byte_identical(xor_factors, extra_x_shuf
     factors_data, factors_nbins = xor_factors
     buf = factors_data.copy()
     before = buf.copy()
-    nfailed, nchecked = get_fleuret_criteria_confidence(
+    _nfailed, nchecked = get_fleuret_criteria_confidence(
         data_copy=buf,
         factors_nbins=factors_nbins,
         x=(1,),

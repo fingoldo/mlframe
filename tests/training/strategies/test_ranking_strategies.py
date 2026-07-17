@@ -184,7 +184,7 @@ class TestPrepareInputs:
         X = pd.DataFrame({"f": [1.0, 2.0, 3.0, 4.0]})
         y = np.array([0, 1, 2, 3])
         gids = np.array([0, 0, 1, 1])
-        X_out, y_out, g_out, sort_idx = prepare_cb_inputs(X, y, gids)
+        _X_out, _y_out, _g_out, sort_idx = prepare_cb_inputs(X, y, gids)
         # sort_idx is identity when already sorted.
         np.testing.assert_array_equal(sort_idx, np.arange(4))
 
@@ -194,7 +194,7 @@ class TestPrepareInputs:
         y = np.array([5, 6, 7, 8])
         # Interleaved: should sort to [0, 0, 1, 1]
         gids = np.array([0, 1, 0, 1])
-        X_out, y_out, g_out, sort_idx = prepare_cb_inputs(X, y, gids)
+        _X_out, y_out, g_out, sort_idx = prepare_cb_inputs(X, y, gids)
         # Groups now contiguous
         assert np.all(g_out[1:] >= g_out[:-1])
         np.testing.assert_array_equal(g_out, np.array([0, 0, 1, 1]))
@@ -206,7 +206,7 @@ class TestPrepareInputs:
         X = pd.DataFrame({"f": [1.0, 2.0, 3.0, 4.0]})
         y = np.array([0, 1, 2, 3])
         gids = np.array([0, 1, 0, 1])  # interleaved, not sorted
-        X_out, y_out, qid_out = prepare_xgb_inputs(X, y, gids)
+        _X_out, y_out, qid_out = prepare_xgb_inputs(X, y, gids)
         # Same shape, no sort done
         np.testing.assert_array_equal(qid_out, gids)
         np.testing.assert_array_equal(y_out, y)
@@ -216,7 +216,7 @@ class TestPrepareInputs:
         X = pd.DataFrame({"f": [1.0, 2.0, 3.0, 4.0, 5.0]})
         y = np.array([0, 1, 2, 3, 4])
         gids = np.array([0, 0, 0, 1, 1])
-        X_out, y_out, group_sizes, sort_idx = prepare_lgb_inputs(X, y, gids)
+        _X_out, _y_out, group_sizes, _sort_idx = prepare_lgb_inputs(X, y, gids)
         np.testing.assert_array_equal(group_sizes, np.array([3, 2]))
         assert int(group_sizes.sum()) == len(X)
 
@@ -224,7 +224,7 @@ class TestPrepareInputs:
         X = pd.DataFrame({"f": np.arange(6, dtype=float)})
         y = np.arange(6)
         gids = np.array([2, 0, 1, 0, 2, 1])
-        X_out, y_out, group_sizes, sort_idx = prepare_lgb_inputs(X, y, gids)
+        _X_out, _y_out, group_sizes, _sort_idx = prepare_lgb_inputs(X, y, gids)
         # After sort by gid: [0, 0, 1, 1, 2, 2] -> sizes [2, 2, 2]
         np.testing.assert_array_equal(group_sizes, np.array([2, 2, 2]))
 

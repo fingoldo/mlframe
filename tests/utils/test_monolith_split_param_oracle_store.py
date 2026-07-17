@@ -22,7 +22,7 @@ def test_store_reexport_identity():
 def test_parquet_store_roundtrip_and_aggregate():
     from mlframe.utils._param_oracle_store import _ParquetStore, _stable_json
 
-    pq = pytest_importorskip_pyarrow()
+    pytest_importorskip_pyarrow()
     d = tempfile.mkdtemp()
     store = _ParquetStore(os.path.join(d, "oracle.parquet"))
     assert store.read_rows() == []

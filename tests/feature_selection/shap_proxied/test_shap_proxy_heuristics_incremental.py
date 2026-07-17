@@ -55,7 +55,7 @@ def test_evaluator_loss_from_parent_matches_reference(medium_problem):
     for new_j in (0, 4, 11, 17):
         loss, child_key, child_margin = ev.loss_from_parent(parent, parent_margin, new_j)
         # key invariant: sorted, includes new_j exactly once
-        assert child_key == tuple(sorted(parent + (new_j,)))
+        assert child_key == tuple(sorted((*parent, new_j)))
         ref_margin = base + phi[:, list(child_key)].sum(axis=1)
         np.testing.assert_allclose(child_margin, ref_margin)
         ref_loss = _ref_loss(phi, base, y, list(child_key), "rmse")

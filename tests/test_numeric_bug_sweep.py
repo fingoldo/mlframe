@@ -126,7 +126,7 @@ class TestArrays:
         x = np.array([3.0, 1.0, 4.0, 1.0, 5.0, 9.0, 2.0, 6.0])
         x_copy = x.copy()
         x.setflags(write=False)
-        ind, val = topk_by_partition(x, k=3)
+        _ind, val = topk_by_partition(x, k=3)
         assert not x.flags.writeable or np.array_equal(x, x_copy)
         # top-3 values are the 3 smallest of -x = largest of x → {9, 6, 5}
         assert set(val.tolist()) == {9.0, 6.0, 5.0}

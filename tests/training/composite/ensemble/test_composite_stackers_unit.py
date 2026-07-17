@@ -102,7 +102,7 @@ def test_meta_fit_uses_only_passed_oof_matrix():
         build_meta_stack_ensemble,
     )
 
-    X, y = _toy(k=3)
+    _X, y = _toy(k=3)
     models, names = _models(3)
     # OOF matrix where only column 0 carries the signal; columns 1,2 are pure noise.
     rng = np.random.default_rng(7)

@@ -96,7 +96,7 @@ def test_biz_val_detect_synthetic_rows_precision_recall_on_public_fake_row_patte
 
 
 def test_biz_val_count_encoding_shift_report_detects_drastic_shift_from_synthetic_padding():
-    test_df, is_synthetic_true = _make_public_fake_test_dataset(n_real=2000, n_synthetic=4000, n_cols=5, seed=3)
+    test_df, _is_synthetic_true = _make_public_fake_test_dataset(n_real=2000, n_synthetic=4000, n_cols=5, seed=3)
 
     predicted_synthetic = detect_synthetic_rows(test_df)
 

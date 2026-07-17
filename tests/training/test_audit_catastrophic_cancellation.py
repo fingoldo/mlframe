@@ -53,7 +53,7 @@ def test_per_member_std_precision_on_large_mean_small_spread():
     rng = np.random.default_rng(42)
     median_preds = np.zeros(1_000_000, dtype=np.float64)
     arr = (1000.0 + rng.normal(0, 0.001, size=(2, 1_000_000))).astype(np.float64)
-    out_mae, out_std = _per_member_mae_std_njit(arr, median_preds)
+    _out_mae, out_std = _per_member_mae_std_njit(arr, median_preds)
     expected_std = np.std(np.abs(arr - median_preds), axis=1, ddof=0)
     rel_err = np.abs(out_std - expected_std) / expected_std
     assert rel_err.max() < 1e-10, (
@@ -77,7 +77,7 @@ def test_per_member_std_3d_branch_precision():
     K, N, C = 2, 100_000, 3
     median_preds = np.zeros((N, C), dtype=np.float64)
     arr = (1000.0 + rng.normal(0, 0.001, size=(K, N, C))).astype(np.float64)
-    out_mae, out_std = _per_member_mae_std_njit(arr, median_preds)
+    _out_mae, out_std = _per_member_mae_std_njit(arr, median_preds)
     # Ground truth matches the kernel + the _numpy_3d reference: per-COLUMN std over the N axis (anchored at each
     # column's own mean), then averaged across C. A pooled (N*C)-flattened std folds in the between-column mean scatter
     # and is a DIFFERENT statistic (the ~5e-6 finite-sample gap the kernel comment documents), not a precision loss.

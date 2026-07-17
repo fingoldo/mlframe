@@ -36,7 +36,6 @@ from mlframe.training.neural import (
     MLPTorchModel,
     PytorchLightningClassifier,
     TorchDataModule,
-    generate_mlp,
 )
 
 
@@ -260,7 +259,7 @@ def test_fit_and_predict_with_multiclass_non_dense_labels(tiny_classifier_params
         random_state=11,
     )
     y = np.where(y012 == 0, 100, np.where(y012 == 1, 200, 300)).astype(np.int64)
-    Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.3, random_state=11, stratify=y012)
+    Xtr, Xte, ytr, _yte = train_test_split(X, y, test_size=0.3, random_state=11, stratify=y012)
     clf = PytorchLightningClassifier(**tiny_classifier_params)
     clf.fit(Xtr.astype(np.float32), ytr)
     assert set(clf.classes_.tolist()) == {100, 200, 300}
@@ -435,7 +434,7 @@ def test_property_multiclass_int_labels_round_trip(tiny_classifier_params, label
     )
     label_arr = np.asarray(labels, dtype=np.int64)
     y = label_arr[y_dense]
-    Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.3, random_state=23, stratify=y_dense)
+    Xtr, Xte, ytr, _yte = train_test_split(X, y, test_size=0.3, random_state=23, stratify=y_dense)
     clf = PytorchLightningClassifier(**tiny_classifier_params)
     clf.fit(Xtr.astype(np.float32), ytr)
     np.testing.assert_array_equal(clf.classes_, np.sort(label_arr))

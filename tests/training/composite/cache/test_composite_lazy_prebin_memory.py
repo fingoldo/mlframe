@@ -132,7 +132,7 @@ def _fit_frame(n=4000, seed=7):
     # Target with a learnable linear-residual structure on the base.
     y = (0.8 * base + 0.3 * feats["f0"] + 0.1 * rng.standard_normal(n)).astype(np.float32)
     data = {"y": y, "base": base, **feats}
-    return pl.DataFrame(data), list(feats.keys()) + ["base"]
+    return pl.DataFrame(data), [*list(feats.keys()), "base"]
 
 
 def _run_fit(force_lazy: str, monkeypatch):

@@ -47,7 +47,7 @@ def test_optimize_all_pairs_recovers_strong_synthetic_signal():
     """Ground-truth check: y is a strong discretized function of x_a*x_b -- the kernel must find a candidate
     scoring well above a near-zero/noise-floor MI, not just return SOME finite number."""
     x_a, x_b, y = _make_hermite_signal(seed=1)
-    n = x_a.shape[0]
+    x_a.shape[0]
     X = np.column_stack([x_a, x_b])
     pair_indices = np.array([[0, 1]], dtype=np.int64)
 

@@ -49,7 +49,7 @@ def test_text_object_column_excluded_from_cat_features():
         skip_categorical_encoding=True,
     )
 
-    train_out, val_out, test_out, pipeline, cat_features = fit_and_transform_pipeline(
+    train_out, _val_out, _test_out, _pipeline, cat_features = fit_and_transform_pipeline(
         train_df=df.copy(),
         val_df=None,
         test_df=None,

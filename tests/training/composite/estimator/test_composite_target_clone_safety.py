@@ -43,7 +43,7 @@ def test_clone_of_from_fitted_inner_raises_with_actionable_message(fitted_inner_
     """
     from mlframe.training.composite import CompositeTargetEstimator
 
-    X, y, inner = fitted_inner_kit
+    _X, y, inner = fitted_inner_kit
     cte = CompositeTargetEstimator.from_fitted_inner(
         fitted_inner=inner,
         transform_name="diff",
@@ -69,7 +69,7 @@ def test_clone_of_standard_fit_built_instance_still_works(fitted_inner_kit):
     """
     from mlframe.training.composite import CompositeTargetEstimator
 
-    X, y, _ = fitted_inner_kit
+    _X, _y, _ = fitted_inner_kit
     cte = CompositeTargetEstimator(
         base_estimator=LinearRegression(),
         transform_name="diff",

@@ -149,7 +149,7 @@ def test_tvt_2026_05_21_incident_protective_layers_compose(tmp_path):
     )
 
     # --- Layer 4: group-aware split recommendation surfaces ---
-    split_overrides = rep["knob_overrides"].get("split_config", {})
+    rep["knob_overrides"].get("split_config", {})
     # clustered_target only fires if group_ids reach the analyzer. The suite passes
     # them via the FTE's group_column inference; on this synthetic the well_id is
     # NOT named group_column so the analyzer may or may not see it. Either way

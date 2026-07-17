@@ -147,7 +147,7 @@ def test_keep_mask_cache_isolates_distinct_matrices() -> None:
     fm_a, thr = _make_matrix(11)
     fm_b, _ = _make_matrix(404)
     mask_a = _fast(fm_a, thr)
-    mask_b = _fast(fm_b, thr)
+    _fast(fm_b, thr)
     # Recompute A fresh; must still equal mask_a (no stale-B contamination).
     _cn._KEEP_MASK_CACHE.clear()
     assert np.array_equal(mask_a, _fast(fm_a, thr))

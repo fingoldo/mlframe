@@ -24,7 +24,7 @@ def test_derive_seed_is_deterministic_and_key_dependent():
 
 def test_bootstrap_seed_flows_from_master_seed():
     """run_honest_diagnostics must derive per-target bootstrap seeds from ctx.split_config.random_seed."""
-    from mlframe.training.honest_diagnostics import run_honest_diagnostics, _derive_seed
+    from mlframe.training.honest_diagnostics import run_honest_diagnostics
 
     rng = np.random.default_rng(0)
     n = 400

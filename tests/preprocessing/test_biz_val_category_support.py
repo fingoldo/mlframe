@@ -194,7 +194,7 @@ def test_biz_val_smoothed_target_encoding_beats_frequency_encoding_on_near_unifo
 
     # Frequency encoding: near-equal per-category counts by construction, so the frequency column is close to
     # constant on both splits and should carry little to no correlation with the target.
-    train_freq_enc = train_df["cat_col"].map(train_df["cat_col"].value_counts())
+    train_df["cat_col"].map(train_df["cat_col"].value_counts())
     test_freq_enc = test_df["cat_col"].map(test_df["cat_col"].value_counts())
     corr_freq_test, _ = spearmanr(test_freq_enc, test_df["y"])
 

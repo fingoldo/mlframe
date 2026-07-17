@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
 
 from mlframe.feature_engineering.as_of_aggregate import leakage_safe_aggregate
