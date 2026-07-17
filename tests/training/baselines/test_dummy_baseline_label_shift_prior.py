@@ -20,6 +20,8 @@ from mlframe.training.baselines._dummy_baseline_classification import (
 
 
 class _Cfg:
+    """Minimal config shim exposing the fields _compute_classification_baselines needs."""
+
     random_state = 0
     stratified_n_repeats = 5
     per_group_max_cardinality_ratio = 0.5
@@ -28,6 +30,7 @@ class _Cfg:
 
 
 def test_prior_is_honest_train_floor_under_label_shift():
+    """The prior-class dummy baseline stays an honest train-derived floor, not silently corrected for val/test label shift."""
     # Train is 90% class-0; val/test are 30% class-0 (strong label shift).
     n_tr, n_ev = 1000, 500
     train_y = np.array([0] * 900 + [1] * 100)
