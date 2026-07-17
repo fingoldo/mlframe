@@ -1174,10 +1174,11 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
         # correlation floor that admits composite/residual targets (highly correlated with raw y) while refusing
         # an unrelated target on the same X. The threshold is benched in _benchmarks/bench_identity_cache_ycorr.py.
         mrmr_identity_cache_ycorr_threshold: float = 0.5,
-        # When True, ``fit(groups=...)`` raises ``NotImplementedError`` instead of emitting the warn-only "MRMR does not consume groups" UserWarning. Use this in production pipelines where silently
-        # ignoring groups would mask a real correctness gap (cross-group leakage in MI estimation on panel / user-session / sliding-window data). Default False keeps the legacy warn behaviour for
+        # When True (the default, finding #20), ``fit(groups=...)`` raises ``NotImplementedError`` instead of emitting the warn-only "MRMR does not consume groups" UserWarning -- matching
+        # ``sample_weight``, which is ALWAYS consumed rather than silently dropped; passing ``groups=`` without ``group_aware_mi=True`` is equally a correctness gap (cross-group leakage in MI
+        # estimation on panel / user-session / sliding-window data) and should not silently degrade. Set ``strict_groups=False`` to opt back into the legacy warn-only group-naive fallback for
         # ad-hoc callers who already know the limitation and want MI computed per-row anyway.
-        strict_groups: bool = False,
+        strict_groups: bool = True,
         # Group-aware relevance MI. When True and ``fit(groups=...)`` is supplied, MRMR ranks features by the per-group estimator
         # ``I(X;Y|G) = Σ_g w_g·MM(I_g(X;Y))`` instead of the global ``MI(X;Y)``, so a feature predictive only through
         # between-group LEVEL differences (high global MI, ~0 within-group -- leakage that will not generalise to unseen groups)

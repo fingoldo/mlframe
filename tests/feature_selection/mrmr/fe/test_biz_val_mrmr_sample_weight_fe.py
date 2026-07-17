@@ -137,6 +137,7 @@ def _make_categorical(seed: int, n: int = 1500):
 
 
 def _make_data(needs_categorical: bool, seed: int, n: int = 1500):
+    """Dispatch to the categorical or numeric synthetic fixture per ``needs_categorical``."""
     return _make_categorical(seed, n) if needs_categorical else _make_numeric(seed, n)
 
 
@@ -146,11 +147,13 @@ def _make_data(needs_categorical: bool, seed: int, n: int = 1500):
 
 
 def _raw_names(sel) -> list[str]:
+    """Selected feature names that are raw (unengineered) input columns."""
     names_in = set(str(c) for c in getattr(sel, "feature_names_in_", []))
     return sorted(n for n in (str(x) for x in sel.get_feature_names_out()) if n in names_in)
 
 
 def _engineered_names(sel) -> list[str]:
+    """Selected feature names that are FE-engineered (not raw input columns)."""
     names_in = set(str(c) for c in getattr(sel, "feature_names_in_", []))
     return [n for n in (str(x) for x in sel.get_feature_names_out()) if n not in names_in]
 
@@ -173,6 +176,7 @@ def _covered_signal(sel, needs_categorical: bool) -> set[str]:
 
 
 def _jaccard(a: list[str], b: list[str]) -> float:
+    """Jaccard similarity between two name lists (1.0 if both are empty)."""
     sa, sb = set(a), set(b)
     union = sa | sb
     return 1.0 if not union else len(sa & sb) / len(union)
@@ -238,10 +242,7 @@ def test_biz_val_mrmr_int_weight_matches_row_duplication_raw_set(ctor_kw, needs_
         if jac >= 0.5:
             overlap_ok += 1
         detail.append(f"seed{seed}: dup={ra} sw={rb} jaccard={jac:.2f}")
-    assert overlap_ok >= 2, (
-        "weight-vs-duplication RAW-set overlap failed majority (Jaccard>=0.5 on <2/3 seeds): "
-        + " | ".join(detail)
-    )
+    assert overlap_ok >= 2, "weight-vs-duplication RAW-set overlap failed majority (Jaccard>=0.5 on <2/3 seeds): " + " | ".join(detail)
 
 
 @pytest.mark.slow
@@ -269,10 +270,7 @@ def test_biz_val_mrmr_int_weight_matches_row_duplication_engineered_values(ctor_
 
     common_eng = sorted(set(_engineered_names(sel_a)) & set(_engineered_names(sel_b)))
     if not common_eng:
-        pytest.skip(
-            "no engineered column name common to both fits "
-            f"(dup={_engineered_names(sel_a)} sw={_engineered_names(sel_b)})"
-        )
+        pytest.skip("no engineered column name common to both fits " f"(dup={_engineered_names(sel_a)} sw={_engineered_names(sel_b)})")
 
     probe = df.iloc[:30].copy()
     out_a = sel_a.transform(probe)
@@ -288,8 +286,7 @@ def test_biz_val_mrmr_int_weight_matches_row_duplication_engineered_values(ctor_
         vb = np.asarray(out_b[cols_b[name]], dtype=float)
         checked += 1
         assert np.allclose(va, vb, rtol=1e-6, atol=1e-8), (
-            f"engineered column {name!r} replay diverges between duplication and sample_weight: "
-            f"maxdiff={np.max(np.abs(va - vb)):.6g}"
+            f"engineered column {name!r} replay diverges between duplication and sample_weight: " f"maxdiff={np.max(np.abs(va - vb)):.6g}"
         )
     if checked == 0:
         pytest.skip("common engineered names not present as transform output columns")
@@ -303,9 +300,11 @@ def test_biz_val_mrmr_int_weight_matches_row_duplication_engineered_values(ctor_
 @pytest.mark.slow
 @pytest.mark.parametrize("ctor_kw, needs_categorical", _mech_subset())
 def test_biz_val_mrmr_groups_warns_and_stamps_ignored_per_mechanism(ctor_kw, needs_categorical):
-    """Default path: a non-None ``groups`` argument is accepted (fit completes) but NOT consumed --
-    MRMR WARNS (UserWarning mentioning groups) and stamps ``groups_ignored_=True``. Asserted on the
-    stamped attribute + the warning, per the documented contract; never 'groups forwarded'.
+    """Explicit ``strict_groups=False`` opt-out path: a non-None ``groups`` argument is accepted (fit
+    completes) but NOT consumed -- MRMR WARNS (UserWarning mentioning groups) and stamps
+    ``groups_ignored_=True``. Asserted on the stamped attribute + the warning, per the documented
+    contract; never 'groups forwarded'. ``strict_groups`` defaults to True (finding #20) -- this test
+    exercises the legacy warn-only fallback via the explicit opt-out.
 
     Run once per FE mechanism so the FE pipeline does not swallow / drop the wrapper-level groups
     handling. groups_ are a coarse block structure (150 groups of 10 rows)."""
@@ -320,11 +319,10 @@ def test_biz_val_mrmr_groups_warns_and_stamps_ignored_per_mechanism(ctor_kw, nee
 
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
-        sel = MRMR(**kw).fit(df, ys, groups=groups)
+        sel = MRMR(strict_groups=False, **kw).fit(df, ys, groups=groups)
 
     assert getattr(sel, "groups_ignored_", None) is True, (
-        "default-path groups must stamp groups_ignored_=True; "
-        f"got {getattr(sel, 'groups_ignored_', 'MISSING')!r}"
+        "default-path groups must stamp groups_ignored_=True; " f"got {getattr(sel, 'groups_ignored_', 'MISSING')!r}"
     )
     # Liveness: the fit must produce a non-empty selection that recovers the signal. We assert on the SIGNAL
     # (raw or engineered), NOT ">=1 raw column": with FE enabled the path can legitimately return an
@@ -389,9 +387,11 @@ def test_biz_val_mrmr_sample_weight_fe_fast_representative():
     raw = _raw_names(sel)
     assert "x0" in raw or "x1" in raw, f"weighted FE fit missed the dominant signal: {raw}"
 
+    # strict_groups=False opts back into the legacy warn-only group-naive fallback (its default
+    # flipped to True at finding #20); this exercises that explicit opt-out path.
     groups = np.repeat(np.arange(n // 10), 10)[:n]
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
-        sel_g = MRMR(**kw).fit(df, ys, groups=groups)
+        sel_g = MRMR(**{**kw, "strict_groups": False}).fit(df, ys, groups=groups)
     assert getattr(sel_g, "groups_ignored_", None) is True
     assert any("groups" in str(w.message).lower() for w in caught)

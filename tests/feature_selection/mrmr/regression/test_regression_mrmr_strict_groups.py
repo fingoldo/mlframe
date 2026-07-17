@@ -3,9 +3,12 @@
 Pre-fix: MRMR.fit accepted ``groups=`` but silently ignored them (warn-only),
 which masked cross-group leakage in MI estimation on panel / session data.
 
-Fix: ``strict_groups: bool = False`` constructor knob. When True, passing
-``groups`` raises NotImplementedError with a clear message; when False
-(legacy default), the original UserWarning fires.
+Fix: ``strict_groups: bool`` constructor knob. When True, passing ``groups``
+raises NotImplementedError with a clear message; when False, the original
+UserWarning fires. Code-quality audit finding #20 (2026-07-17) flipped the
+default True -> matching ``sample_weight``, which is ALWAYS consumed rather
+than silently dropped; ``strict_groups=False`` remains available as an
+explicit opt-out for the legacy warn-only group-naive fallback.
 """
 from __future__ import annotations
 
@@ -19,6 +22,7 @@ from mlframe.feature_selection.filters.mrmr import MRMR
 
 
 def _tiny_xy(seed: int = 0):
+    """Build a tiny classification fixture with 6 groups of 10 rows each."""
     rng = np.random.default_rng(seed)
     n = 60
     X = pd.DataFrame({"x0": rng.normal(size=n), "x1": rng.normal(size=n), "x2": rng.normal(size=n)})
@@ -28,6 +32,7 @@ def _tiny_xy(seed: int = 0):
 
 
 def test_mrmr_strict_groups_true_raises_on_groups():
+    """strict_groups=True must raise NotImplementedError when groups is passed without group_aware_mi."""
     X, y, groups = _tiny_xy()
     sel = MRMR(verbose=0, random_seed=42, strict_groups=True)
     with pytest.raises(NotImplementedError, match="groups"):
@@ -35,6 +40,7 @@ def test_mrmr_strict_groups_true_raises_on_groups():
 
 
 def test_mrmr_strict_groups_false_warns_on_groups():
+    """strict_groups=False must warn-only and stamp groups_ignored_=True instead of raising."""
     X, y, groups = _tiny_xy()
     sel = MRMR(verbose=0, random_seed=42, strict_groups=False)
     with warnings.catch_warnings(record=True) as caught:
@@ -47,10 +53,10 @@ def test_mrmr_strict_groups_false_warns_on_groups():
     assert user_warnings, "strict_groups=False must still emit the warn-only fallback"
 
 
-def test_mrmr_strict_groups_default_is_false():
-    """Default must preserve legacy warn-only behaviour for existing callers."""
+def test_mrmr_strict_groups_default_is_true():
+    """Default now raises on groups (finding #20) -- matches sample_weight's always-consumed contract."""
     sel = MRMR()
-    assert sel.strict_groups is False
+    assert sel.strict_groups is True
 
 
 def test_mrmr_strict_groups_no_op_when_groups_none():
@@ -62,10 +68,13 @@ def test_mrmr_strict_groups_no_op_when_groups_none():
 
 
 def test_mrmr_strict_groups_setstate_default():
-    """Legacy pickle without strict_groups attribute resurfaces with False."""
+    """Legacy pickle without strict_groups attribute resurfaces with the current ctor default (True) --
+    strict_groups is not in _SETSTATE_LEGACY_OVERRIDES, so the corrective default flip (finding #20)
+    applies uniformly, including to resurrected legacy pickles (per project convention: a bug-fix
+    default flip is not kept at the old wrong value 'for compatibility')."""
     sel = MRMR()
     state = sel.__getstate__() if hasattr(sel, "__getstate__") else dict(sel.__dict__)
     state.pop("strict_groups", None)
     sel2 = MRMR.__new__(MRMR)
     sel2.__setstate__(state)
-    assert sel2.strict_groups is False
+    assert sel2.strict_groups is True

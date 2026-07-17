@@ -28,6 +28,7 @@ def _panel(seed: int, G: int = 150, per: int = 40):
 
 
 def _selected(model) -> list:
+    """Return the fitted model's selected column names."""
     names = getattr(model, "selected_features_names_", None)
     if names:
         return list(names)
@@ -35,6 +36,7 @@ def _selected(model) -> list:
 
 
 def _fit(X, y, groups, **kw):
+    """Fit an MRMR with warnings suppressed, passing groups through."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         m = MRMR(max_runtime_mins=2, fe_max_steps=0, verbose=0, **kw)
@@ -43,9 +45,12 @@ def _fit(X, y, groups, **kw):
 
 
 def test_group_naive_selects_the_leak_feature_baseline():
-    """Pre-fix baseline: group-naive MRMR SELECTS the between-group-level leak feature (the bug this feature fixes)."""
+    """Pre-fix baseline: group-naive MRMR SELECTS the between-group-level leak feature (the bug this feature fixes).
+
+    ``strict_groups=False`` opts back into the warn-only group-naive fallback (its default flipped to
+    True at finding #20; this test deliberately exercises the legacy warn-only path)."""
     X, y, groups = _panel(1)
-    sel = _selected(_fit(X, y, groups, group_aware_mi=False))
+    sel = _selected(_fit(X, y, groups, group_aware_mi=False, strict_groups=False))
     assert "x_leak" in sel, f"group-naive should pick the leak level; got {sel}"
 
 
@@ -61,11 +66,13 @@ def test_group_aware_demotes_the_leak_feature():
 
 
 def test_group_aware_off_is_noop_and_warns_group_ignored():
-    """Default off: groups are ignored (group-naive), ``groups_ignored_=True`` + the warn-only fallback fires."""
+    """With ``strict_groups=False``: groups are ignored (group-naive), ``groups_ignored_=True`` + the
+    warn-only fallback fires (the default flipped to ``strict_groups=True`` -> raise at finding #20;
+    this test exercises the explicit opt-out)."""
     X, y, groups = _panel(2)
     with warnings.catch_warnings(record=True) as rec:
         warnings.simplefilter("always")
-        m = MRMR(max_runtime_mins=2, fe_max_steps=0, verbose=0, group_aware_mi=False)
+        m = MRMR(max_runtime_mins=2, fe_max_steps=0, verbose=0, group_aware_mi=False, strict_groups=False)
         m.fit(X, y, groups=groups)
     assert m.groups_ignored_ is True
     assert any("does NOT consume them" in str(w.message) for w in rec)
@@ -89,7 +96,7 @@ def test_no_harm_single_group_matches_group_naive():
     """No-harm control: one group (no group structure) -> group-aware selection == group-naive selection."""
     X, y, _ = _panel(4)
     one = np.zeros(len(X), dtype=np.int64)
-    naive = _selected(_fit(X, y, one, group_aware_mi=False))
+    naive = _selected(_fit(X, y, one, group_aware_mi=False, strict_groups=False))
     aware = _selected(_fit(X, y, one, group_aware_mi=True))
     assert set(aware) == set(naive), f"single-group aware {aware} != naive {naive}"
 
@@ -116,9 +123,7 @@ def test_fs_config_lever_folds_group_aware_mi_into_mrmr_kwargs():
     """The ``FeatureSelectionConfig.mrmr_group_aware_mi`` first-class lever folds into ``mrmr_kwargs`` (D-surface)."""
     from mlframe.training._feature_selection_config import FeatureSelectionConfig
 
-    cfg = FeatureSelectionConfig(
-        use_mrmr_fs=True, mrmr_group_aware_mi=True, mrmr_group_mi_min_rows=25, mrmr_group_mi_aggregate="equal"
-    )
+    cfg = FeatureSelectionConfig(use_mrmr_fs=True, mrmr_group_aware_mi=True, mrmr_group_mi_min_rows=25, mrmr_group_mi_aggregate="equal")
     assert cfg.mrmr_kwargs["group_aware_mi"] is True
     assert cfg.mrmr_kwargs["group_mi_min_rows"] == 25
     assert cfg.mrmr_kwargs["group_mi_aggregate"] == "equal"

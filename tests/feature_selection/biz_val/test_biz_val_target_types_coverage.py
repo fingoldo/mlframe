@@ -62,10 +62,11 @@ N_NOISE = 6
 SIGNAL = {0, 1}
 
 
-
 pytestmark = pytest.mark.timeout(60)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop)
 
+
 def _design(seed: int):
+    """Build a base (rng, df, x_signal) design with N_SIGNAL signal cols + N_NOISE noise cols."""
     rng = np.random.default_rng(seed)
     x_sig = rng.normal(size=(N, N_SIGNAL))
     x_noise = rng.normal(size=(N, N_NOISE))
@@ -110,6 +111,10 @@ def _make_mrmr(seed: int):
     engineer e.g. ``mul(exp(x0),exp(x1))`` and leave ``support_`` (raw) empty
     even though it captured the signal. The no-FE preset is the correct lens for
     a raw signal-recovery / noise-rejection assertion.
+
+    ``strict_groups=False`` opts back into the legacy warn-only group-naive fallback (its default
+    flipped to True at finding #20); this helper is used by tests that deliberately exercise
+    ``groups=`` on the LtR warn-only contract.
     """
     from mlframe.feature_selection.filters.mrmr import MRMR
 
@@ -123,10 +128,12 @@ def _make_mrmr(seed: int):
         cat_fe_config=None,
         quantization_nbins=10,
         random_seed=seed,
+        strict_groups=False,
     )
 
 
 def _selected(selector) -> set:
+    """Return the fitted selector's support_ as a set of raw column indices."""
     sup = np.asarray(selector.support_)
     if sup.dtype == bool:
         return set(np.where(sup)[0].tolist())
@@ -144,6 +151,7 @@ _ALL_KINDS = _SINGLE_TARGET + _MULTI_TARGET
 
 
 def _mrmr_recovery(kind: str, seed: int):
+    """Fit MRMR on a ``kind`` target and return (recovered signal count, noise count)."""
     df, y = make_target(seed, kind)
     sel = _make_mrmr(seed)
     sel.fit(df, y)
@@ -160,10 +168,7 @@ def test_biz_val_mrmr_recovers_signal_all_target_types(kind):
     >=2 recovered on >=4/5 seeds (~10% under measured)."""
     recs = [_mrmr_recovery(kind, s)[0] for s in range(5)]
     n_full = sum(r >= N_SIGNAL for r in recs)
-    assert n_full >= 4, (
-        f"MRMR on {kind}: expected >=2/2 signal recovered on >=4/5 seeds; "
-        f"per-seed recovered={recs}"
-    )
+    assert n_full >= 4, f"MRMR on {kind}: expected >=2/2 signal recovered on >=4/5 seeds; " f"per-seed recovered={recs}"
 
 
 @pytest.mark.parametrize("kind", _SINGLE_TARGET)
@@ -171,9 +176,7 @@ def test_biz_val_mrmr_rejects_noise_single_target(kind):
     """On single-target types MRMR leaks ZERO noise columns (measured 0/seed on
     5/5). Floor: total noise across 5 seeds <= 2 (loose, but measured is 0)."""
     total_noise = sum(_mrmr_recovery(kind, s)[1] for s in range(5))
-    assert total_noise <= 2, (
-        f"MRMR on {kind}: expected ~0 noise leakage across 5 seeds; got {total_noise}"
-    )
+    assert total_noise <= 2, f"MRMR on {kind}: expected ~0 noise leakage across 5 seeds; got {total_noise}"
 
 
 @pytest.mark.parametrize("kind", _MULTI_TARGET)
@@ -181,9 +184,7 @@ def test_biz_val_mrmr_rejects_noise_multi_target_2d(kind):
     """On 2D targets MRMR keeps noise leakage small. Measured: <=1 noise/seed.
     Floor: total noise across 5 seeds <= 5 (avg 1/seed)."""
     total_noise = sum(_mrmr_recovery(kind, s)[1] for s in range(5))
-    assert total_noise <= 5, (
-        f"MRMR on {kind}: expected <=1 noise/seed across 5 seeds; got {total_noise}"
-    )
+    assert total_noise <= 5, f"MRMR on {kind}: expected <=1 noise/seed across 5 seeds; got {total_noise}"
 
 
 # ===========================================================================
@@ -313,10 +314,7 @@ def test_biz_val_mrmr_multioutput_refit_does_not_replay_stale_support():
     df2, y2 = _multioutput_target_from_cols(1, sig_a=2, sig_b=3)
     sel.fit(df2, y2)
     sup2 = _selected(sel)
-    assert {2, 3}.issubset(sup2), (
-        f"second fit (signal in cols 2,3) must recover {{2,3}}, not stale-replay the first "
-        f"fit's {{0,1}}; got {sorted(sup2)}"
-    )
+    assert {2, 3}.issubset(sup2), f"second fit (signal in cols 2,3) must recover {{2,3}}, not stale-replay the first " f"fit's {{0,1}}; got {sorted(sup2)}"
 
 
 # ===========================================================================
@@ -325,6 +323,7 @@ def test_biz_val_mrmr_multioutput_refit_does_not_replay_stale_support():
 
 
 def _make_rfecv(estimator):
+    """Build a lightweight RFECV wrapping the given estimator for target-type coverage tests."""
     from mlframe.feature_selection.wrappers import RFECV
 
     return RFECV(
