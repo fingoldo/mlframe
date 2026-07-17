@@ -19,6 +19,7 @@ from mlframe.feature_selection.filters import MRMR
 
 
 def _make(n: int, p: int, inf: int, seed: int):
+    """Build a make_classification frame with p features, inf informative, and 4 classes, for the reference-selection pins."""
     from sklearn.datasets import make_classification
 
     X, y = make_classification(
@@ -34,6 +35,7 @@ def _make(n: int, p: int, inf: int, seed: int):
 
 
 def _fit(n, p, inf, seed, fe_steps):
+    """Fit MRMR with the pinned perf-lever config and return (sorted support indices, feature names) for selection-identity comparison."""
     kw = dict(
         quantization_nbins=8,
         interactions_max_order=1,

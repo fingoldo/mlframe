@@ -27,6 +27,7 @@ from mlframe.feature_selection.filters.hermite_fe._hermite_robust import _robust
 
 
 def _datasets(seed: int, n: int = 8000) -> dict:
+    """Build uniform/gaussian/heavytail/lognormal columns spanning the distribution shapes the basis router must handle."""
     rng = np.random.default_rng(seed)
     return {
         "uniform": rng.random(n) + 0.1,
@@ -43,6 +44,7 @@ def _datasets(seed: int, n: int = 8000) -> dict:
 # the host<->GPU basis values stay selection-equivalent even where the recurrences differ the most.
 @pytest.mark.parametrize("degree", [2, 3, 4, 5, 6])
 def test_gpu_basis_column_parity(seed, basis, degree):
+    """GPU basis-column values agree with the host _evaluate_basis_column to rel<1e-6 across dataset shapes, even at degrees 4-6 where the host forward-recurrence diverges most from GPU/numpy Clenshaw."""
     ra = _robust_axis_enabled()
     for dname, x in _datasets(seed).items():
         host = np.asarray(_evaluate_basis_column(x, basis, degree), dtype=np.float64)

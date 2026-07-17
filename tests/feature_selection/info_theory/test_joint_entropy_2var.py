@@ -22,12 +22,14 @@ from mlframe.feature_selection.filters.info_theory import (
 
 
 def _ref_merge_entropy(fd, a, b, fn_arr, dtype=np.int32):
+    """Reference joint entropy for columns (a, b) computed via the legacy two-call merge_vars + entropy path."""
     pair_buf = np.array([a, b], dtype=np.int64)
     _, freqs_ab, _ = merge_vars(fd, pair_buf, None, fn_arr, dtype=dtype)
     return float(entropy(freqs_ab))
 
 
 def _make(kind, n, k, nbins, seed=0):
+    """Build an (n, k) integer factor matrix in one of four occupancy regimes (uniform/sparse/skew/const) for joint-entropy fuzzing."""
     rng = np.random.default_rng(seed)
     if kind == "uniform":
         return rng.integers(0, nbins, size=(n, k)).astype(np.int32)

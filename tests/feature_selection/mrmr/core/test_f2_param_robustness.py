@@ -27,10 +27,12 @@ _RAW = {"a", "b", "c", "d", "e"}
 
 
 def _cols(nm):
+    """Extract the set of raw a/b/c/d/e operand letters referenced in an engineered feature name."""
     return set(_ID.findall(nm)) & _RAW
 
 
 def _classify(names):
+    """Bucket selected feature names into a fused-ab+cd compound list vs ab-only/cd-only fragment lists."""
     full, frag_ab, frag_cd = [], [], []
     for nm in names:
         cs = _cols(nm)

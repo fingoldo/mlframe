@@ -33,6 +33,7 @@ import pandas as pd
 
 
 def _clear_elbow_frame(n=500, seed=0):
+    """Build a frame with 3 correlated-to-latent signal columns and 5 pure-noise columns, giving mrmr_gains_ a clear elbow for UAED to find."""
     rng = np.random.default_rng(int(seed))
     latent = rng.standard_normal(n)
     cols = {

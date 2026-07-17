@@ -13,6 +13,7 @@ from mlframe.feature_selection.filters.mrmr import MRMR
 
 
 def _defining_class(cls, name):
+    """Return the first class in cls.__mro__ whose own __dict__ defines name, revealing which class actually resolves an inherited attribute."""
     for klass in cls.__mro__:
         if name in klass.__dict__:
             return klass
@@ -20,6 +21,7 @@ def _defining_class(cls, name):
 
 
 def test_setstate_defined_on_mrmr_not_shadowed_by_baseestimator():
+    """MRMR.__setstate__ resolves to MRMR itself in the MRO, not to BaseEstimator's plain __dict__-update, so the legacy-pickle default injection keeps running."""
     assert "__setstate__" in BaseEstimator.__dict__, "precondition: BaseEstimator defines __setstate__"
     owner = _defining_class(MRMR, "__setstate__")
     assert owner is MRMR, (

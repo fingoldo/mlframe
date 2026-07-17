@@ -36,6 +36,7 @@ def test_batched_quantile_bin_gpu_selection_equivalent(seed, dist):
 @pytest.mark.parametrize("seed", [0, 1, 7, 42])
 @pytest.mark.parametrize("conditional", [False, True])
 def test_batched_cmi_matches_cpu(seed, conditional):
+    """batched_cmi_gpu matches the per-column CPU _cmi_from_binned to atol=1e-9, both marginal and Z-conditional."""
     pytest.importorskip("cupy")
     from mlframe.feature_selection.filters._fe_batched_mi import batched_cmi_gpu
     from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _cmi_from_binned
