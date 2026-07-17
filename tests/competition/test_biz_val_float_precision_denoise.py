@@ -29,6 +29,7 @@ def _make_amex_like(n: int, scale: float, noise_scale: float, seed: int) -> tupl
 
 
 def test_float_precision_denoiser_recovers_known_scale_amex_style() -> None:
+    """Denoiser recovers the exact scale=100 denominator and floors back to the true integer/100 value."""
     true_int, _true_value, noisy = _make_amex_like(n=5000, scale=100.0, noise_scale=1.0, seed=0)
 
     denoiser = FloatPrecisionDenoiser(max_decimal_pow=6, max_denominator=1000, use_floor=True)
@@ -39,6 +40,7 @@ def test_float_precision_denoiser_recovers_known_scale_amex_style() -> None:
 
 
 def test_float_precision_denoiser_finds_unknown_small_integer_denominator() -> None:
+    """Denoiser recovers a non-power-of-10 denominator (37) without being told it in advance."""
     # BNP-style: denominator is an arbitrary small integer, not a power of 10.
     rng = np.random.default_rng(1)
     denominator = 37.0
@@ -54,6 +56,7 @@ def test_float_precision_denoiser_finds_unknown_small_integer_denominator() -> N
 
 
 def test_float_precision_denoiser_transform_matches_fit_transform() -> None:
+    """Separate fit()+transform() calls produce the same output as a single fit_transform()."""
     _, _, noisy = _make_amex_like(n=1000, scale=100.0, noise_scale=1.0, seed=2)
     denoiser = FloatPrecisionDenoiser()
     denoiser.fit(noisy)
