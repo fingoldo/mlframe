@@ -20,6 +20,7 @@ from mlframe.evaluation.adversarial_fold_selection import build_test_like_valida
 
 
 def _make_layered_drift_scenario(seed: int):
+    """Helper that make layered drift scenario."""
     rng = np.random.default_rng(seed)
     n_train, n_test = 3000, 600
 
@@ -49,6 +50,7 @@ def _make_layered_drift_scenario(seed: int):
 
 
 def test_biz_val_adversarial_fold_iterative_refinement_beats_one_shot_under_dominant_leak():
+    """Adversarial fold iterative refinement beats one shot under dominant leak."""
     X_train, y_train, regime, X_test, y_test = _make_layered_drift_scenario(seed=0)
 
     val_idx_oneshot, remainder_oneshot = build_test_like_validation_fold(X_train, X_test, val_fraction=0.2, seed=0)
@@ -63,6 +65,7 @@ def test_biz_val_adversarial_fold_iterative_refinement_beats_one_shot_under_domi
     )
 
     def _fit_eval(remainder_idx, val_idx):
+        """Helper that fit eval."""
         model = LinearRegression().fit(X_train.iloc[remainder_idx][["x"]], y_train[remainder_idx])
         val_mae = mean_absolute_error(y_train[val_idx], model.predict(X_train.iloc[val_idx][["x"]]))
         test_mae = mean_absolute_error(y_test, model.predict(X_test[["x"]]))
@@ -90,6 +93,7 @@ def test_biz_val_adversarial_fold_iterative_refinement_beats_one_shot_under_domi
 
 
 def test_build_test_like_validation_fold_default_args_unchanged_by_new_params():
+    """Build test like validation fold default args unchanged by new params."""
     X_train, _y_train, _regime, X_test, _y_test = _make_layered_drift_scenario(seed=1)
 
     val_idx_default, remainder_default = build_test_like_validation_fold(X_train, X_test, val_fraction=0.2, seed=3)

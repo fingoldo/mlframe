@@ -10,6 +10,7 @@ import pandas as pd
 
 
 def test_leaderboard_is_partial_detects_nan_via_to_numpy():
+    """Leaderboard is partial detects nan via to numpy."""
     from mlframe.votenrank.leaderboard.leaderboard_impl import Leaderboard
 
     df_partial = pd.DataFrame({"task_a": [1.0, 2.0, np.nan], "task_b": [3.0, 4.0, 5.0]}, index=["m1", "m2", "m3"])

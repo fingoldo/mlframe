@@ -39,6 +39,7 @@ _ZSTD = dict(level=4, write_checksum=True, write_content_size=True, threads=0)
 
 
 def _make_holdout(n: int = 400, seed: int = 7) -> pd.DataFrame:
+    """Helper that make holdout."""
     rng = np.random.default_rng(seed)
     return pd.DataFrame(
         {

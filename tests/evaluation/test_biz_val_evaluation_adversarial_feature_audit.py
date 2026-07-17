@@ -17,6 +17,7 @@ from mlframe.evaluation.adversarial_feature_audit import adversarial_validation_
 
 
 def _make_data(seed: int):
+    """Helper that make data."""
     rng = np.random.default_rng(seed)
     n_train, n_test = 2500, 1000
 
@@ -57,6 +58,7 @@ def _make_data(seed: int):
 
 
 def test_biz_val_adversarial_feature_audit_keeps_genuinely_predictive_shifted_feature():
+    """Adversarial feature audit keeps genuinely predictive shifted feature."""
     X_train, y_train, X_test = _make_data(seed=0)
 
     result = adversarial_validation_feature_audit(X_train, y_train, X_test, top_k_features=5, seed=0, lgbm_params={"n_estimators": 50, "verbosity": -1})
@@ -78,6 +80,7 @@ def test_biz_val_adversarial_feature_audit_keeps_genuinely_predictive_shifted_fe
 
 
 def test_adversarial_feature_audit_returns_correlation_field():
+    """Adversarial feature audit returns correlation field."""
     X_train, y_train, X_test = _make_data(seed=1)
     result = adversarial_validation_feature_audit(X_train, y_train, X_test, top_k_features=5, seed=1, lgbm_params={"n_estimators": 50, "verbosity": -1})
     assert "importance_vs_generalization_correlation" in result
@@ -147,6 +150,7 @@ def _make_stability_data(seed: int):
 
 
 def test_biz_val_adversarial_feature_audit_stability_folds_distinguishes_robust_from_noisy_calls():
+    """Adversarial feature audit stability folds distinguishes robust from noisy calls."""
     X_train, y_train, X_test = _make_stability_data(seed=0)
 
     result = adversarial_validation_feature_audit(

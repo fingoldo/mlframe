@@ -6,6 +6,7 @@ from mlframe.evaluation.bootstrap import auc_ci
 
 
 def test_auc_ci_method_is_str():
+    """Auc ci method is str."""
     rng = np.random.default_rng(0)
     y_true = np.array([0, 0, 1, 1, 0, 1, 1, 0, 1, 0])
     score = rng.random(y_true.shape[0])

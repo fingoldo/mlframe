@@ -16,6 +16,7 @@ from mlframe.evaluation.reports import plot_pr_curve
 
 
 def test_plot_pr_curve_single_class_raises():
+    """Plot pr curve single class raises."""
     y = np.zeros(20, dtype=int)  # all one class
     preds = np.random.RandomState(0).rand(20)
     with pytest.raises(ValueError, match="single class"):
@@ -23,6 +24,7 @@ def test_plot_pr_curve_single_class_raises():
 
 
 def test_plot_pr_curve_two_classes_returns_figure():
+    """Plot pr curve two classes returns figure."""
     rng = np.random.RandomState(0)
     y = np.array([0] * 10 + [1] * 10)
     preds = rng.rand(20)

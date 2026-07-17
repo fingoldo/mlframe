@@ -23,6 +23,7 @@ try:
 except ImportError:  # pragma: no cover
 
     def fast_subset(values, **_):
+        """Helper that fast subset."""
         return list(values)
 
 
@@ -40,6 +41,7 @@ ALL_SCALERS = [
 
 @pytest.mark.parametrize("scaler", fast_subset(ALL_SCALERS, representative="StandardScaler"))
 def test_scaler_round_trip_and_auroc(scaler):
+    """Scaler round trip and auroc."""
     X, y = load_breast_cancer(return_X_y=True)
     X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=0.25, random_state=42)
     X_tr_s = scaler.fit_transform(X_tr)

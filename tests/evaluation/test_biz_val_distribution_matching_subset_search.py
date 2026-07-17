@@ -19,6 +19,7 @@ from mlframe.evaluation.distribution_matching_subset_search import distribution_
 
 
 def _make_regime_dependent_blocks(n_blocks_total: int, rows_per_block: int, seed: int):
+    """Helper that make regime dependent blocks."""
     rng = np.random.default_rng(seed)
     rows = []
     for b in range(n_blocks_total):
@@ -32,6 +33,7 @@ def _make_regime_dependent_blocks(n_blocks_total: int, rows_per_block: int, seed
 
 
 def test_biz_val_matched_subset_beats_naive_subset_on_target_regime():
+    """Matched subset beats naive subset on target regime."""
     train_df = _make_regime_dependent_blocks(n_blocks_total=30, rows_per_block=40, seed=0)
 
     rng = np.random.default_rng(0)
@@ -61,6 +63,7 @@ def test_biz_val_matched_subset_beats_naive_subset_on_target_regime():
 
 
 def test_distribution_matching_subset_search_rejects_n_blocks_exceeding_available():
+    """Distribution matching subset search rejects n blocks exceeding available."""
     import pytest
 
     train_df = pd.DataFrame({"block": [1, 2, 3], "x": [1.0, 2.0, 3.0]})
@@ -70,6 +73,7 @@ def test_distribution_matching_subset_search_rejects_n_blocks_exceeding_availabl
 
 
 def test_distribution_matching_subset_search_all_scores_shape():
+    """Distribution matching subset search all scores shape."""
     train_df = pd.DataFrame({"block": np.repeat(np.arange(10), 5), "x": np.random.default_rng(0).normal(size=50)})
     target_df = pd.DataFrame({"x": np.random.default_rng(1).normal(size=50)})
     # all_scores.shape == (n_trials,) is only guaranteed for search_strategy="random" -- greedy_swap spends
@@ -105,6 +109,7 @@ def test_biz_val_greedy_swap_beats_random_at_equal_budget():
     )
 
     def rmse_for(best_blocks):
+        """Helper that rmse for."""
         matched_train = train_df[train_df["block"].isin(best_blocks)]
         model = Ridge().fit(matched_train[["x"]], matched_train["y"])
         return float(mean_squared_error(target_y_true, model.predict(target_df[["x"]])) ** 0.5)
@@ -171,6 +176,7 @@ def test_biz_val_distribution_matching_subset_search_joint_energy_catches_correl
     # n_blocks == the exact number of blocks present in each frame -- "random" with n_trials=1 deterministically
     # scores that ONE full candidate set (no sampling ambiguity), letting us compare the two fixed candidates directly.
     def score(df: pd.DataFrame, joint_distance_mode):
+        """Helper that score."""
         result = distribution_matching_subset_search(
             df,
             target_df,

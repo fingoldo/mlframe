@@ -33,6 +33,7 @@ def _make_implication_data(n: int, seed: int, noise: float = 0.35):
 
 
 def test_apply_logical_constraints_swaps_only_violating_rows():
+    """Apply logical constraints swaps only violating rows."""
     preds = np.array([[0.8, 0.3], [0.2, 0.9], [0.5, 0.5]])
     out = apply_logical_constraints(preds, rules=[(0, 1)])
     assert np.allclose(out[0], [0.3, 0.8])  # violated (child > parent) -> swapped
@@ -41,6 +42,7 @@ def test_apply_logical_constraints_swaps_only_violating_rows():
 
 
 def test_apply_logical_constraints_preserves_marginal_value_set():
+    """Apply logical constraints preserves marginal value set."""
     rng = np.random.default_rng(0)
     preds = rng.uniform(0, 1, size=(200, 2))
     out = apply_logical_constraints(preds, rules=[(0, 1)])
@@ -48,18 +50,21 @@ def test_apply_logical_constraints_preserves_marginal_value_set():
 
 
 def test_apply_logical_constraints_out_of_bounds_rule_raises():
+    """Apply logical constraints out of bounds rule raises."""
     preds = np.zeros((5, 2))
     with pytest.raises(ValueError):
         apply_logical_constraints(preds, rules=[(0, 5)])
 
 
 def test_apply_logical_constraints_identical_indices_raises():
+    """Apply logical constraints identical indices raises."""
     preds = np.zeros((5, 2))
     with pytest.raises(ValueError):
         apply_logical_constraints(preds, rules=[(1, 1)])
 
 
 def test_apply_logical_constraints_does_not_mutate_input():
+    """Apply logical constraints does not mutate input."""
     preds = np.array([[0.9, 0.1]])
     original = preds.copy()
     apply_logical_constraints(preds, rules=[(0, 1)])
@@ -67,6 +72,7 @@ def test_apply_logical_constraints_does_not_mutate_input():
 
 
 def test_biz_val_apply_logical_constraints_zeroes_violation_rate_and_improves_log_loss():
+    """Apply logical constraints zeroes violation rate and improves log loss."""
     y, preds = _make_implication_data(5000, seed=3)
     violated_before = (preds[:, 0] > preds[:, 1]).mean()
     assert violated_before > 0.05, f"sanity: synthetic noise should produce real violations, got rate={violated_before}"
@@ -81,12 +87,14 @@ def test_biz_val_apply_logical_constraints_zeroes_violation_rate_and_improves_lo
 
 
 def test_discover_logical_constraints_finds_true_implication():
+    """Discover logical constraints finds true implication."""
     y, _ = _make_implication_data(3000, seed=5, noise=0.0)  # noise=0: labels only, exact implication holds
     rules = discover_logical_constraints(y, min_child_support=5)
     assert (0, 1) in rules  # child (col 0) implies parent (col 1) by construction
 
 
 def test_discover_logical_constraints_no_self_pairs():
+    """Discover logical constraints no self pairs."""
     rng = np.random.default_rng(0)
     y = (rng.random((200, 3)) < 0.5).astype(np.float64)
     rules = discover_logical_constraints(y, min_child_support=1)
@@ -94,6 +102,7 @@ def test_discover_logical_constraints_no_self_pairs():
 
 
 def test_discover_logical_constraints_respects_min_support():
+    """Discover logical constraints respects min support."""
     y = np.zeros((100, 2))
     y[:2, 0] = 1.0  # only 2 positives for column 0
     y[:2, 1] = 1.0  # implication holds trivially but support is too low
@@ -102,11 +111,13 @@ def test_discover_logical_constraints_respects_min_support():
 
 
 def test_discover_logical_constraints_requires_2d_input():
+    """Discover logical constraints requires 2d input."""
     with pytest.raises(ValueError):
         discover_logical_constraints(np.array([1.0, 0.0, 1.0]))
 
 
 def test_discover_logical_constraints_fewer_than_two_labels_returns_empty():
+    """Discover logical constraints fewer than two labels returns empty."""
     y = np.ones((10, 1))
     assert discover_logical_constraints(y) == []
 
@@ -129,6 +140,7 @@ def _make_imperfect_implication_data(n: int, seed: int, exception_rate: float = 
 
 
 def test_apply_logical_constraints_soft_reduces_to_hard_at_confidence_one():
+    """Apply logical constraints soft reduces to hard at confidence one."""
     preds = np.array([[0.8, 0.3], [0.2, 0.9], [0.5, 0.5]])
     hard_out = apply_logical_constraints(preds, rules=[(0, 1)], mode="hard")
     soft_out = apply_logical_constraints(preds, rules=[(0, 1, 1.0)], mode="soft")
@@ -136,18 +148,21 @@ def test_apply_logical_constraints_soft_reduces_to_hard_at_confidence_one():
 
 
 def test_apply_logical_constraints_soft_confidence_zero_is_noop():
+    """Apply logical constraints soft confidence zero is noop."""
     preds = np.array([[0.8, 0.3], [0.2, 0.9]])
     out = apply_logical_constraints(preds, rules=[(0, 1, 0.0)], mode="soft")
     assert np.allclose(out, preds)
 
 
 def test_apply_logical_constraints_soft_confidence_out_of_range_raises():
+    """Apply logical constraints soft confidence out of range raises."""
     preds = np.zeros((5, 2))
     with pytest.raises(ValueError):
         apply_logical_constraints(preds, rules=[(0, 1, 1.5)], mode="soft")
 
 
 def test_apply_logical_constraints_invalid_mode_raises():
+    """Apply logical constraints invalid mode raises."""
     preds = np.zeros((5, 2))
     with pytest.raises(ValueError):
         apply_logical_constraints(preds, rules=[(0, 1)], mode="fuzzy")

@@ -14,10 +14,12 @@ from mlframe.evaluation.noise_band import cv_score_equivalence_band, is_within_n
 
 
 def test_cv_score_equivalence_band_zero_for_single_score():
+    """Cv score equivalence band zero for single score."""
     assert cv_score_equivalence_band(np.array([0.87])) == 0.0
 
 
 def test_cv_score_equivalence_band_positive_for_noisy_folds():
+    """Cv score equivalence band positive for noisy folds."""
     rng = np.random.default_rng(0)
     folds = 0.85 + 0.01 * rng.standard_normal(5)
     band = cv_score_equivalence_band(folds)
@@ -25,6 +27,7 @@ def test_cv_score_equivalence_band_positive_for_noisy_folds():
 
 
 def test_cv_score_equivalence_band_std_wider_than_sem():
+    """Cv score equivalence band std wider than sem."""
     rng = np.random.default_rng(1)
     folds = 0.80 + 0.02 * rng.standard_normal(8)
     sem_band = cv_score_equivalence_band(folds, method="sem")
@@ -33,16 +36,19 @@ def test_cv_score_equivalence_band_std_wider_than_sem():
 
 
 def test_cv_score_equivalence_band_invalid_method_raises():
+    """Cv score equivalence band invalid method raises."""
     with pytest.raises(ValueError):
         cv_score_equivalence_band(np.array([0.1, 0.2, 0.3]), method="bogus")
 
 
 def test_is_within_noise_band_true_for_tiny_delta():
+    """Is within noise band true for tiny delta."""
     folds = np.array([0.900, 0.905, 0.895, 0.902, 0.898])
     assert is_within_noise_band(0.9000, 0.9005, folds) is True
 
 
 def test_is_within_noise_band_false_for_large_delta():
+    """Is within noise band false for large delta."""
     folds = np.array([0.900, 0.901, 0.899, 0.900, 0.900])
     assert is_within_noise_band(0.90, 0.98, folds) is False
 
@@ -154,6 +160,7 @@ def test_cv_score_equivalence_band_n_comparisons_default_bit_identical():
 
 
 def test_cv_score_equivalence_band_n_comparisons_widens_band():
+    """Cv score equivalence band n comparisons widens band."""
     rng = np.random.default_rng(4)
     folds = 0.9 + 0.01 * rng.standard_normal(6)
     base_band = cv_score_equivalence_band(folds)
@@ -162,5 +169,6 @@ def test_cv_score_equivalence_band_n_comparisons_widens_band():
 
 
 def test_cv_score_equivalence_band_n_comparisons_invalid_raises():
+    """Cv score equivalence band n comparisons invalid raises."""
     with pytest.raises(ValueError):
         cv_score_equivalence_band(np.array([0.1, 0.2, 0.3]), n_comparisons=0)

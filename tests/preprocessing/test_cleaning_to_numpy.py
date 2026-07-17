@@ -11,6 +11,7 @@ import pandas as pd
 
 
 def test_is_variable_truly_continuous_pandas_to_numpy_preserves_verdict():
+    """Is variable truly continuous pandas to numpy preserves verdict."""
     from mlframe.preprocessing.cleaning import is_variable_truly_continuous
 
     rng = np.random.default_rng(3)

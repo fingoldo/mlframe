@@ -18,6 +18,7 @@ from mlframe.preprocessing.outlier_capping_or_missing import outlier_cap_or_miss
 
 
 def _make_dataset_with_outliers(n_rows: int, seed: int, outlier_frac: float = 0.02):
+    """Helper that make dataset with outliers."""
     rng = np.random.default_rng(seed)
     x = rng.normal(size=n_rows)
     y = 2.0 * x + rng.normal(scale=0.3, size=n_rows)
@@ -29,11 +30,13 @@ def _make_dataset_with_outliers(n_rows: int, seed: int, outlier_frac: float = 0.
 
 
 def _fit_rmse(X_train, y_train, X_test, y_test) -> float:
+    """Helper that fit rmse."""
     model = Ridge().fit(X_train, y_train)
     return float(mean_squared_error(y_test, model.predict(X_test)) ** 0.5)
 
 
 def test_biz_val_outlier_cap_or_missing_beats_untreated_outliers():
+    """Outlier cap or missing beats untreated outliers."""
     df, y = _make_dataset_with_outliers(n_rows=3000, seed=0)
     df_train, df_test, y_train, y_test = train_test_split(df, y, test_size=0.3, random_state=0)
 
@@ -56,6 +59,7 @@ def test_biz_val_outlier_cap_or_missing_beats_untreated_outliers():
 
 
 def test_outlier_cap_or_missing_cap_mode_clips_within_bounds():
+    """Outlier cap or missing cap mode clips within bounds."""
     df, _ = _make_dataset_with_outliers(n_rows=2000, seed=1)
     out = outlier_cap_or_missing(df, mode="cap")
     # After capping, no value should be as extreme as the injected corruption range.
@@ -63,6 +67,7 @@ def test_outlier_cap_or_missing_cap_mode_clips_within_bounds():
 
 
 def test_outlier_cap_or_missing_missing_impute_mode_has_no_extreme_values():
+    """Outlier cap or missing missing impute mode has no extreme values."""
     df, _ = _make_dataset_with_outliers(n_rows=2000, seed=2)
     out = outlier_cap_or_missing(df, mode="missing_impute")
     assert out["x"].isna().sum() == 0
@@ -70,6 +75,7 @@ def test_outlier_cap_or_missing_missing_impute_mode_has_no_extreme_values():
 
 
 def test_outlier_cap_or_missing_rejects_unknown_mode():
+    """Outlier cap or missing rejects unknown mode."""
     import pytest
 
     df = pd.DataFrame({"x": [1.0, 2.0, 3.0]})
@@ -110,6 +116,7 @@ def test_biz_val_outlier_cap_or_missing_high_contamination_auto_beats_untreated(
 
 
 def test_outlier_cap_or_missing_skewness_driven_rule_selection():
+    """Outlier cap or missing skewness driven rule selection."""
     rng = np.random.default_rng(3)
     symmetric = rng.normal(size=2000)
     skewed = rng.exponential(size=2000)

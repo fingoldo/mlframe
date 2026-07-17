@@ -19,6 +19,7 @@ from mlframe.votenrank import SimilarityBlendEnsemble
 
 
 def _make_two_region_dataset(seed: int):
+    """Helper that make two region dataset."""
     rng = np.random.default_rng(seed)
     w_a = np.array([2.0, -1.0])
     w_b = np.array([-3.0, 4.0])
@@ -39,6 +40,7 @@ def _make_two_region_dataset(seed: int):
 
 
 def test_biz_val_similarity_blend_beats_fixed_5050_blend_mse():
+    """Similarity blend beats fixed 5050 blend mse."""
     X_a_train, y_a_train, X_b_train, y_b_train, X_test, y_test = _make_two_region_dataset(seed=0)
 
     in_dist_model = LinearRegression().fit(X_a_train, y_a_train)
@@ -60,6 +62,7 @@ def test_biz_val_similarity_blend_beats_fixed_5050_blend_mse():
 
 
 def test_similarity_blend_weight_higher_near_training_region():
+    """Similarity blend weight higher near training region."""
     X_a_train, y_a_train, X_b_train, y_b_train, _, _ = _make_two_region_dataset(seed=1)
     blend = SimilarityBlendEnsemble(in_dist_estimator=LinearRegression(), out_dist_estimator=LinearRegression(), k=10, similarity_scale=3.0)
     blend.in_dist_model_ = LinearRegression().fit(X_a_train, y_a_train)
@@ -73,6 +76,7 @@ def test_similarity_blend_weight_higher_near_training_region():
 
 
 def test_similarity_blend_end_to_end_fit_predict():
+    """Similarity blend end to end fit predict."""
     X_a_train, y_a_train, _, _, X_test, _ = _make_two_region_dataset(seed=2)
     blend = SimilarityBlendEnsemble(in_dist_estimator=LinearRegression(), out_dist_estimator=LinearRegression(), k=5)
     blend.fit(X_a_train, y_a_train)
@@ -108,6 +112,7 @@ def _make_n_region_dataset(seed: int, n_regions: int = 4):
 
 
 def test_biz_val_similarity_blend_n_specialist_beats_global_and_2blend_mse():
+    """Similarity blend n specialist beats global and 2blend mse."""
     n_regions = 4
     region_X_train, region_y_train, X_test, y_test = _make_n_region_dataset(seed=3, n_regions=n_regions)
 
@@ -155,6 +160,7 @@ def test_biz_val_similarity_blend_n_specialist_beats_global_and_2blend_mse():
 
 
 def test_similarity_blend_n_specialist_weights_sum_to_one_and_default_path_unchanged():
+    """Similarity blend n specialist weights sum to one and default path unchanged."""
     region_X_train, region_y_train, X_test, _ = _make_n_region_dataset(seed=4, n_regions=3)
     region_estimators = [LinearRegression() for _ in range(3)]
     blend_n = SimilarityBlendEnsemble(in_dist_estimator=LinearRegression(), out_dist_estimator=LinearRegression(), k=10, region_estimators=region_estimators)

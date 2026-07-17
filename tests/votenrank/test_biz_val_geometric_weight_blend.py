@@ -19,10 +19,12 @@ from mlframe.votenrank.geometric_weight_blend import geometric_weight_blend
 
 
 def _sigmoid(z: np.ndarray) -> np.ndarray:
+    """Helper that sigmoid."""
     return np.asarray(1.0 / (1.0 + np.exp(-z)))
 
 
 def _make_independent_evidence_dataset(n: int, seed: int):
+    """Helper that make independent evidence dataset."""
     rng = np.random.default_rng(seed)
     coef = 4.0
     x1 = rng.normal(size=n)
@@ -37,10 +39,12 @@ def _make_independent_evidence_dataset(n: int, seed: int):
 
 
 def _log_loss(y_true, y_pred):
+    """Helper that log loss."""
     return float(log_loss(y_true, np.clip(y_pred, 1e-7, 1 - 1e-7)))
 
 
 def test_biz_val_geometric_blend_beats_arithmetic_blend_on_independent_evidence():
+    """Geometric blend beats arithmetic blend on independent evidence."""
     y, preds = _make_independent_evidence_dataset(n=3000, seed=0)
 
     geo_result = geometric_weight_blend(preds, y, _log_loss, n_restarts=5, random_state=0)
@@ -53,6 +57,7 @@ def test_biz_val_geometric_blend_beats_arithmetic_blend_on_independent_evidence(
 
 
 def test_geometric_weight_blend_single_model_pool():
+    """Geometric weight blend single model pool."""
     y = np.array([0, 1, 1, 0, 1])
     preds = [np.array([0.2, 0.8, 0.7, 0.3, 0.9])]
     result = geometric_weight_blend(preds, y, _log_loss, n_restarts=2)
@@ -61,6 +66,7 @@ def test_geometric_weight_blend_single_model_pool():
 
 
 def test_geometric_weight_blend_empty_pool_raises():
+    """Geometric weight blend empty pool raises."""
     import pytest
 
     with pytest.raises(ValueError):
@@ -95,6 +101,7 @@ def _make_near_zero_glitch_dataset(n: int, seed: int):
 
 
 def test_biz_val_geometric_weight_blend_hybrid_alpha_recovers_from_near_zero_glitch():
+    """Geometric weight blend hybrid alpha recovers from near zero glitch."""
     y, preds, glitch_mask = _make_near_zero_glitch_dataset(n=4000, seed=1)
 
     pure_geo = geometric_weight_blend(preds, y, _log_loss, n_restarts=5, random_state=0)
@@ -123,6 +130,7 @@ def test_biz_val_geometric_weight_blend_hybrid_alpha_recovers_from_near_zero_gli
 
 
 def test_geometric_weight_blend_default_unchanged_when_alpha_omitted():
+    """Geometric weight blend default unchanged when alpha omitted."""
     y, preds = _make_independent_evidence_dataset(n=500, seed=2)
     baseline = geometric_weight_blend(preds, y, _log_loss, n_restarts=3, random_state=0)
     still_default = geometric_weight_blend(preds, y, _log_loss, n_restarts=3, random_state=0)
@@ -133,6 +141,7 @@ def test_geometric_weight_blend_default_unchanged_when_alpha_omitted():
 
 
 def test_geometric_weight_blend_fixed_alpha_matches_convex_combination():
+    """Geometric weight blend fixed alpha matches convex combination."""
     y, preds = _make_independent_evidence_dataset(n=500, seed=3)
     base = geometric_weight_blend(preds, y, _log_loss, n_restarts=3, random_state=0)
     fixed = geometric_weight_blend(preds, y, _log_loss, n_restarts=3, random_state=0, alpha=0.7)

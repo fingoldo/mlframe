@@ -17,6 +17,7 @@ shap = pytest.importorskip("shap")
 
 
 def _cuda_available() -> bool:
+    """Helper that cuda available."""
     try:
         import cupy as cp
 
@@ -29,6 +30,7 @@ _skip_no_cuda = pytest.mark.skipif(not _cuda_available(), reason="no CUDA GPU av
 
 
 def _make_data(n: int, f: int, seed: int):
+    """Helper that make data."""
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(n, f)).astype(np.float32)
     logit = X[:, 0] * 1.5 - X[:, 1] * 0.7 + 0.3 * X[:, 2] * X[:, 3]
@@ -38,6 +40,7 @@ def _make_data(n: int, f: int, seed: int):
 
 @_skip_no_cuda
 def test_native_gpu_shap_bit_identical_to_shap_explainer():
+    """Native gpu shap bit identical to shap explainer."""
     from mlframe.inference.native_gpu_shap import native_gpu_shap_available, native_xgboost_gpu_shap_contribs
 
     X, y = _make_data(n=30000, f=20, seed=0)
@@ -55,6 +58,7 @@ def test_native_gpu_shap_bit_identical_to_shap_explainer():
 
 
 def test_native_gpu_shap_available_false_for_cpu_fit_model():
+    """Native gpu shap available false for cpu fit model."""
     from mlframe.inference.native_gpu_shap import native_gpu_shap_available
 
     X, y = _make_data(n=200, f=5, seed=1)
@@ -64,6 +68,7 @@ def test_native_gpu_shap_available_false_for_cpu_fit_model():
 
 
 def test_native_gpu_shap_available_false_for_non_xgboost_model():
+    """Native gpu shap available false for non xgboost model."""
     from sklearn.linear_model import LogisticRegression
 
     from mlframe.inference.native_gpu_shap import native_gpu_shap_available
@@ -74,6 +79,7 @@ def test_native_gpu_shap_available_false_for_non_xgboost_model():
 
 
 def test_native_xgboost_gpu_shap_contribs_returns_none_when_unavailable():
+    """Native xgboost gpu shap contribs returns none when unavailable."""
     from mlframe.inference.native_gpu_shap import native_xgboost_gpu_shap_contribs
 
     X, y = _make_data(n=200, f=5, seed=3)
