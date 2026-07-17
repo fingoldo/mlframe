@@ -370,10 +370,11 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
         # performance
         extra_x_shuffling: bool = True,
         dtype: type = np.int32,
-        # ``None`` (legacy default) triggers process-stable but seedable random_state derivation
-        # downstream (see ``_resolve_target_prefix``: uses pid ^ id(self) instead of touching the
-        # numpy global RNG). For bit-exact reproducibility across runs / mlflow hash stability, pass
-        # an explicit integer seed.
+        # DEPRECATED alias for ``random_state`` (finding #17) -- kept for backward compatibility only;
+        # prefer ``random_state``. ``None`` (legacy default) triggers process-stable but seedable
+        # random_state derivation downstream (see ``_resolve_target_prefix``: uses pid ^ id(self)
+        # instead of touching the numpy global RNG). For bit-exact reproducibility across runs / mlflow
+        # hash stability, pass an explicit integer seed via ``random_state``.
         random_seed: int | None = None,
         use_gpu: bool = False,
         # Candidate-MI evaluation parallelism for the screen_predictors greedy loop (joblib
@@ -1081,6 +1082,8 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
         cv: int | BaseCrossValidator | Iterable | None = 3,
         cv_shuffle: bool = False,
         # service
+        # Canonical seed parameter (sklearn's name, finding #17). See ``random_seed`` above for the
+        # deprecated alias and ``_effective_random_seed`` for the resolution order.
         random_state: int | None = None,
         # sklearn-familiar auto-resolving parallelism knob (``-1`` -> physical cpu_count, see
         # ``__init__``'s resolution below). Drives CPU sub-helpers ONLY (permutation-null MI batches,
@@ -2876,13 +2879,22 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
         # round-trips and ``clone`` is a true copy. ``random_state``/``random_seed`` reconciliation is
         # therefore resolved LAZILY at fit time (``_effective_random_seed``), NOT here -- mutating the
         # locals before ``store_params_in_object`` made ``get_params`` echo the promoted value
-        # (``random_seed`` showing ``random_state``) and re-emit the deprecation warning on every
+        # (``random_state`` showing ``random_seed``) and re-emit the deprecation warning on every
         # ``clone`` of even a default-constructed estimator. The only thing done at construction time
         # is to WARN when the user actually passed a conflicting / deprecated argument.
+        # ``random_state`` (sklearn's name) is canonical; ``random_seed`` is a deprecated alias kept
+        # for backward compatibility (finding #17) -- see ``_effective_random_seed``.
         if random_state is not None and random_seed is not None and random_seed != random_state:
             warnings.warn(
-                "MRMR: both random_seed and random_state were set to different values; "
-                f"using random_seed={random_seed} and ignoring random_state={random_state}.",
+                "MRMR: both random_seed (deprecated) and random_state were set to different "
+                f"values; using random_state={random_state} and ignoring random_seed={random_seed}. "
+                "Prefer random_state.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+        elif random_seed is not None and random_state is None:
+            warnings.warn(
+                "MRMR: random_seed is deprecated, use random_state instead (sklearn's naming).",
                 DeprecationWarning,
                 stacklevel=2,
             )
@@ -3377,7 +3389,7 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
             try:
                 _Xarr = X.to_numpy() if hasattr(X, "to_numpy") else np.asarray(X)
                 _yarr = y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
-                _jmim_on, _syn_info = detect_synergy(_Xarr, _yarr, random_seed=int(getattr(self, "random_seed", 0) or 0))
+                _jmim_on, _syn_info = detect_synergy(_Xarr, _yarr, random_seed=int(self._effective_random_seed() or 0))
                 self._synergy_auto_decision_ = {"jmim_engaged": bool(_jmim_on), "detector_failed": False, **_syn_info}
                 logger.info("[MRMR] redundancy_aggregator='auto' -> synergy detector: %s", self._synergy_auto_decision_)
             except Exception as _exc:
@@ -3530,24 +3542,15 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
                 int(_fit_shape[1]) if _fit_shape is not None and len(_fit_shape) > 1 else None,
             )
             try:
-                with _preserve_global_numpy_rng_state(getattr(self, "random_seed", None)):
+                with _preserve_global_numpy_rng_state(self._effective_random_seed()):
                     result = self._fit_impl(X, y, groups, **fit_params)
             finally:
                 _clear_auto_fit_n()
             try:
                 _n_rows = int(X.shape[0]) if hasattr(X, "shape") else None
-                # 1 fix (loop iter 6): read ``random_seed``
-                # (the documented public API) instead of ``random_state``. The
-                # ctor at mrmr.py:641 promotes ``random_state -> random_seed``
-                # but NOT the reverse, so when the user passed the documented
-                # ``random_seed=42`` API directly, ``self.random_state`` stayed
-                # at its default ``None`` and the provenance trail recorded
-                # ``seed=None`` even though the actual kernel seed was 42.
-                # Reading ``random_seed`` works for both APIs because the ctor
-                # promotion guarantees it's populated from either source.
-                _seed_resolved = getattr(self, "random_seed", None)
-                if _seed_resolved is None:
-                    _seed_resolved = getattr(self, "random_state", None)
+                # ``_effective_random_seed`` resolves both the canonical ``random_state`` and the
+                # deprecated ``random_seed`` alias, whichever is set (see finding #17).
+                _seed_resolved = self._effective_random_seed()
                 _seed_for_provenance = int(_seed_resolved) if _seed_resolved is not None else None
                 _record_provenance(
                     getattr(self, "_provenance_sink_", None),

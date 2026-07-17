@@ -231,13 +231,14 @@ class _MRMRConfigMixin:
     def _effective_random_seed(self):
         """Resolve the seed actually used by fit from the two stored constructor aliases.
 
-        ``random_seed`` is the canonical name; ``random_state`` is the sklearn-style fallback. The
-        constructor stores BOTH unmodified (sklearn ``get_params`` contract), so the promotion that used to
-        happen in ``__init__`` is done here instead: ``random_seed`` wins when set, otherwise ``random_state``
-        fills in. Returns ``None`` when neither is set (entropy-seeded behaviour preserved)."""
-        seed = getattr(self, "random_seed", None)
+        ``random_state`` (sklearn's name) is canonical; ``random_seed`` is a deprecated alias kept for
+        backward compatibility. The constructor stores BOTH unmodified (sklearn ``get_params`` contract),
+        so the promotion that used to happen in ``__init__`` is done here instead: ``random_state`` wins
+        when set, otherwise ``random_seed`` fills in. Returns ``None`` when neither is set (entropy-seeded
+        behaviour preserved)."""
+        seed = getattr(self, "random_state", None)
         if seed is None:
-            seed = getattr(self, "random_state", None)
+            seed = getattr(self, "random_seed", None)
         return seed
 
     def _resolve_target_prefix(self) -> str:
@@ -246,13 +247,15 @@ class _MRMRConfigMixin:
         Pre-fix code used ``str(np.random.random())[3:9]`` which (a) reseeded
         nothing but consumed from the process-global numpy RNG, breaking
         reproducibility across test orderings, and (b) produced a different
-        prefix every call. With ``random_seed`` set, derive a deterministic 6-hex
+        prefix every call. With an effective seed set (``random_state`` or
+        the deprecated ``random_seed`` alias), derive a deterministic 6-hex
         suffix from a local ``np.random.default_rng``; otherwise fall back to a
         process-stable but seedable PID+id(self)-based source so concurrent
         instances stay collision-resistant without touching global state.
         """
-        if self.random_seed is not None:
-            local_rng = np.random.default_rng(int(self.random_seed))
+        _eff_seed = self._effective_random_seed()
+        if _eff_seed is not None:
+            local_rng = np.random.default_rng(int(_eff_seed))
             tok = int(local_rng.integers(0, 2**24))
         else:
             tok = (os.getpid() ^ id(self)) & 0xFFFFFF

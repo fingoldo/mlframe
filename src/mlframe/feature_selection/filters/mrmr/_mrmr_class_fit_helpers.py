@@ -106,14 +106,14 @@ class _MRMRFitHelpersMixin:
                 n_bootstrap=int(getattr(self, "stability_n_bootstrap", 50)),
                 pi_threshold=float(getattr(self, "stability_pi_threshold", 0.6)),
                 corr_threshold=corr_thr,
-                rng_seed=int(self.random_seed or 0),
+                rng_seed=int(self._effective_random_seed() or 0),
             )
         elif method == "complementary_pairs":
             sel, freq, info = complementary_pairs_stability(
                 X_df, y_arr, _inner_selector,
                 n_pairs=int(getattr(self, "stability_n_bootstrap", 50)),
                 pi_threshold=float(getattr(self, "stability_pi_threshold", 0.6)),
-                rng_seed=int(self.random_seed or 0),
+                rng_seed=int(self._effective_random_seed() or 0),
             )
         else:
             raise ValueError(f"unknown stability_selection_method={method!r}")
@@ -155,8 +155,9 @@ class _MRMRFitHelpersMixin:
             return X, y
         # Reproducible by default: follow the module-wide convention (``int(seed or 0)`` -> None maps to a
         # DETERMINISTIC 0, not OS entropy) so that two fits with the same (default) seed and the same
-        # sample_weight draw the SAME resample. ``_effective_random_seed`` honours the ``random_state``
-        # fallback alias. A caller wanting an independent draw passes a distinct ``random_seed``.
+        # sample_weight draw the SAME resample. ``_effective_random_seed`` resolves ``random_state``
+        # (canonical) or the deprecated ``random_seed`` alias. A caller wanting an independent draw
+        # passes a distinct ``random_state``.
         rng = np.random.default_rng(int(self._effective_random_seed() or 0))
         probs = sw / total
         idx = rng.choice(n_rows, size=n_rows, replace=True, p=probs)
@@ -394,9 +395,7 @@ class _MRMRFitHelpersMixin:
         except Exception as exc:
             logger.debug("mrmr multioutput: degenerate-column audit failed (diagnostic only): %r", exc, exc_info=True)
             self.degenerate_columns_ = {}
-        _seed_resolved = getattr(self, "random_seed", None)
-        if _seed_resolved is None:
-            _seed_resolved = getattr(self, "random_state", None)
+        _seed_resolved = self._effective_random_seed()
         self.provenance_ = {
             "step": "mrmr_multioutput",
             "source": "train_only",
