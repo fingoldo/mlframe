@@ -19,6 +19,7 @@ import mlframe.training.core._phase_temporal_audit as _ta_mod
 
 
 def test_raw_int64_seconds_collapse_but_coerced_span_years():
+    """Raw int64 epoch-seconds misread as nanoseconds collapse to a zero-day span; _coerce_timestamps_for_audit fixes the unit so the true multi-year span shows."""
     # 5 years of monthly epoch-second timestamps.
     secs = np.arange(0, 5 * 365 * 24 * 3600, 30 * 24 * 3600, dtype=np.int64)
     assert len(secs) > 50
@@ -43,6 +44,7 @@ def test_pandas_fallback_branch_calls_coercion(monkeypatch):
     seen: dict[str, np.ndarray] = {}
 
     def _spy(ts_arr, explicit_unit=None):
+        """Records the raw timestamp array it was called with, then delegates to the real coercion helper."""
         seen["ts"] = np.asarray(ts_arr)
         return _coerce_timestamps_for_audit(ts_arr, explicit_unit=explicit_unit)
 
