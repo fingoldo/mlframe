@@ -22,12 +22,14 @@ from mlframe.training.configs import TrainingBehaviorConfig
 
 
 def test_training_behavior_has_pre_pipeline_cache_max_field():
+    """TrainingBehaviorConfig exposes pre_pipeline_cache_max, defaulting to 4 entries."""
     cfg = TrainingBehaviorConfig()
     assert hasattr(cfg, "pre_pipeline_cache_max")
     assert cfg.pre_pipeline_cache_max == 4
 
 
 def test_training_behavior_pre_pipeline_cache_max_is_overridable():
+    """pre_pipeline_cache_max can be overridden via the constructor to raise the cache size cap."""
     cfg = TrainingBehaviorConfig(pre_pipeline_cache_max=8)
     assert cfg.pre_pipeline_cache_max == 8
 

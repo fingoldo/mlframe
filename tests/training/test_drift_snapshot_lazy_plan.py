@@ -119,10 +119,12 @@ def test_drift_snapshot_single_collect():
     counts = {"collect": 0, "df_select": 0}
 
     def _counting_collect(self, *a, **kw):
+        """Wraps pl.LazyFrame.collect to count invocations and confirm the drift snapshot collects the lazy plan once."""
         counts["collect"] += 1
         return orig_collect(self, *a, **kw)
 
     def _counting_df_select(self, *a, **kw):
+        """Wraps pl.DataFrame.select to count invocations and confirm no redundant select passes are taken."""
         counts["df_select"] += 1
         return orig_select_df(self, *a, **kw)
 

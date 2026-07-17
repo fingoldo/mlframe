@@ -32,6 +32,7 @@ from mlframe.training.pipeline import create_polarsds_pipeline
 
 
 def _holdout_auc(scaler_name: str, seed: int) -> float:
+    """Fits the polarsds pipeline with the given scaler on a spiky-outlier synthetic binary set and returns holdout AUC."""
     rng = np.random.default_rng(seed)
     n, p = 3000, 8
     col_scale = rng.uniform(0.3, 8.0, p)
@@ -45,6 +46,7 @@ def _holdout_auc(scaler_name: str, seed: int) -> float:
     cols = [f"f{j}" for j in range(p)]
 
     def _frame(rows):
+        """Builds a polars frame from the given row indices into the shared spiky-outlier X matrix."""
         return pl.DataFrame({c: [float(X[i, j]) for i in rows] for j, c in enumerate(cols)})
 
     cfg = PreprocessingBackendConfig(imputer_strategy="median", scaler_name=scaler_name, categorical_encoding=None, prefer_polarsds=True)

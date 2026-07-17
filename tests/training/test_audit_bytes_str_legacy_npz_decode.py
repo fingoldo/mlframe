@@ -26,10 +26,12 @@ MLFRAME_ROOT = Path(__file__).resolve().parent.parent.parent / "src" / "mlframe"
 
 
 def _read(rel: str) -> str:
+    """Reads an mlframe source file's text for source-level assertions."""
     return (MLFRAME_ROOT / rel).read_text(encoding="utf-8")
 
 
 def test_cache_legacy_kind_decode_handles_bytes() -> None:
+    """Legacy npz cache-kind decode must branch on bytes/bytearray explicitly, not blindly str() the raw value."""
     src = _read("training/feature_handling/cache.py")
     # The pre-fix `str(kind_arr[0])` standalone-line is gone.
     assert "kind = str(kind_arr[0])" not in src

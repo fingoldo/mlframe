@@ -19,6 +19,7 @@ def test_a4_06_verbose_branch_reuses_strategy_map(monkeypatch) -> None:
     real_get_strategy = ph.get_strategy
 
     def _spy(m):
+        """Records every model passed to get_strategy while delegating to the real implementation."""
         calls.append(m)
         return real_get_strategy(m)
 
@@ -58,6 +59,7 @@ def test_a4_06_falls_back_to_get_strategy_without_map(monkeypatch) -> None:
     real_get_strategy = ph.get_strategy
 
     def _spy(m):
+        """Records every model passed to get_strategy while delegating to the real implementation."""
         calls.append(m)
         return real_get_strategy(m)
 

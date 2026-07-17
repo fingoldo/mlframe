@@ -14,6 +14,7 @@ import pytest
 
 
 def test_behavior_config_has_monotonic_decline_patience_default_7():
+    """TrainingBehaviorConfig defaults monotonic_decline_patience to 7 and honors an explicit None to disable it."""
     from mlframe.training._model_configs_behavior import TrainingBehaviorConfig
 
     cfg = TrainingBehaviorConfig()
@@ -23,6 +24,7 @@ def test_behavior_config_has_monotonic_decline_patience_default_7():
 
 
 def _overfit_data(seed=3, n=600, d=20):
+    """Builds a weak-signal, high-noise train/val split prone to monotonic validation-loss decline (overfitting)."""
     rng = np.random.RandomState(seed)
     X = rng.randn(n, d).astype(np.float64)
     y = (0.5 * X[:, 0] + rng.randn(n) * 1.4).astype(np.float64)

@@ -41,6 +41,7 @@ def test_atomic_write_bytes_does_not_leak_fd_when_fdopen_raises(tmp_path):
     n_calls = 1000  # 1000 leaked fds would exhaust Windows default 8192 in 8 invocations of the test suite.
 
     def _raising_fdopen(fd, *args, **kwargs):
+        """Simulates os.fdopen failing mid-write without closing fd itself, to prove production closes it."""
         # Close fd ourselves to simulate "BufferedWriter never adopted ownership;
         # post-fix code MUST detect _fd_adopted == False and close it". Then raise.
         # Actually, no -- the FIX is that production code closes the fd. The test
@@ -84,6 +85,7 @@ def test_atomic_write_bytes_writer_raises_cleans_tmp(tmp_path):
     target = tmp_path / "writer_err.dat"
 
     def _bad_writer(f):
+        """Writes a partial payload then raises, to exercise the tmp-file cleanup-on-error path."""
         f.write(b"partial")
         raise ValueError("simulated writer failure")
 

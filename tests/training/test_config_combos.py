@@ -20,6 +20,7 @@ COMBOS = [
 
 @pytest.mark.parametrize("cv_folds,calibration,early_stopping", COMBOS)
 def test_config_combo_is_representable(cv_folds: int, calibration, early_stopping: bool) -> None:
+    """Every cv_folds/calibration/early_stopping combo in the fuzz matrix maps to a well-formed config dict."""
     cfg = {
         "cv_folds": cv_folds,
         "calibration": calibration,
@@ -32,6 +33,7 @@ def test_config_combo_is_representable(cv_folds: int, calibration, early_stoppin
 
 @pytest.mark.parametrize("cv_folds,calibration,early_stopping", COMBOS)
 def test_config_combo_serializable(cv_folds: int, calibration, early_stopping: bool) -> None:
+    """Every config combo round-trips through orjson without loss, ruling out unserializable values sneaking in."""
     import orjson
 
     cfg = {"cv_folds": cv_folds, "calibration": calibration, "early_stopping": early_stopping}
