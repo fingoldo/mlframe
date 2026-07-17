@@ -47,6 +47,7 @@ from mlframe.training.neural import (
 
 
 def _base_params(loss_fn, labels_dtype):
+    """Builds shared MLPTorchModel constructor params for a given loss function and label dtype, for pickle-roundtrip tests."""
     return {
         "model_class": MLPTorchModel,
         "model_params": {"loss_fn": loss_fn, "learning_rate": 1e-2},
@@ -102,6 +103,7 @@ _CASES = [
 
 
 def _make_data(kind: str):
+    """Builds a small regression/binary/multiclass synthetic dataset matching kind, for pickle-roundtrip tests."""
     if kind == "regression":
         X, y = make_regression(n_samples=160, n_features=5, noise=0.1, random_state=0)
         y = y.astype(np.float32)

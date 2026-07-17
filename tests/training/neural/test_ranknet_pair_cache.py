@@ -37,6 +37,7 @@ from mlframe.training.neural.ranker import (
 
 
 def _seed_query(n: int = 11, k_rel: int = 4, seed: int = 20260520):
+    """Builds a deterministic random-scores/relevance query pair for the RankNet pair-cache identity tests."""
     torch.manual_seed(seed)
     scores = torch.randn(n, requires_grad=True)
     rel = torch.randint(0, k_rel, (n,)).float()
@@ -57,6 +58,7 @@ def test_cached_and_uncached_forward_equal():
 
 
 def test_cached_and_uncached_gradient_equal():
+    """The pair cache changes only the (i_idx, j_idx) construction path; backward-pass gradients stay bit-identical cold vs warm."""
     _ranknet_pair_cache_clear()
     scores_a, rel = _seed_query()
     loss_a = ranknet_pairwise_loss(scores_a, rel)

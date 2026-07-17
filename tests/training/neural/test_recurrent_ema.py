@@ -31,6 +31,7 @@ from mlframe.training.neural._recurrent_config import (
 
 
 def test_recurrent_config_exposes_ema_defaults():
+    """RecurrentConfig exposes use_ema (default False) and ema_decay (default 0.999)."""
     cfg = RecurrentConfig()
     assert hasattr(cfg, "use_ema")
     assert hasattr(cfg, "ema_decay")
@@ -39,6 +40,7 @@ def test_recurrent_config_exposes_ema_defaults():
 
 
 def test_recurrent_config_accepts_custom_ema_kwargs():
+    """RecurrentConfig accepts explicit use_ema/ema_decay overrides and stores them verbatim."""
     cfg = RecurrentConfig(use_ema=True, ema_decay=0.995)
     assert cfg.use_ema is True
     assert cfg.ema_decay == 0.995
