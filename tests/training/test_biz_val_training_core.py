@@ -183,6 +183,7 @@ def test_biz_val_training_suite_mlframe_models_subset(tmp_path, model_list):
         haystacks: list[str] = []
 
         def _collect(d):
+            """Recursively gathers dict keys as strings to search for the expected model family name."""
             if isinstance(d, dict):
                 for k, v in d.items():
                     haystacks.append(str(k))

@@ -74,6 +74,8 @@ def _common_kwargs(level_models):
 
 
 class TestNonePredsDoesNotCrash:
+    """Ensembling must degrade gracefully, not crash, when member prediction arrays are None."""
+
     def test_all_members_val_preds_none(self) -> None:
         """User sets compute_valset_metrics=False -- every member has
         ``val_preds=None``. Pre-fix this crashed with AttributeError; now

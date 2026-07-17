@@ -24,6 +24,7 @@ def _make_ctx_with_frames():
     """
 
     def _build():
+        """Builds a ~1M-row polars frame large enough to clear the RSS-release warning-audit floor."""
         # 1M rows gives ~16MB per frame, comfortably above the 10MB
         # ``_POLARS_RELEASE_MIN_EXPECTED_MB`` floor that gates the warning
         # path (the helper skips the audit-warning altogether for tiny frames
