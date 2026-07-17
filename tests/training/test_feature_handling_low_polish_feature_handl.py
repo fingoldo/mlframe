@@ -109,10 +109,12 @@ def test_locking_holder_pid_atomic_write(tmp_path, monkeypatch) -> None:
     original_rename = os.rename
 
     def _track_replace(src, dst, *a, **kw):
+        """Records that os.replace fired (proof of an atomic swap) while delegating to the real call."""
         called_atomic["replace"] = True
         return original_replace(src, dst, *a, **kw)
 
     def _track_rename(src, dst, *a, **kw):
+        """Records that os.rename fired (proof of an atomic swap) while delegating to the real call."""
         called_atomic["rename"] = True
         return original_rename(src, dst, *a, **kw)
 
