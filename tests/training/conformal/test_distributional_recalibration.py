@@ -16,11 +16,13 @@ def _ks_to_uniform(p):
 
 
 def test_identity_on_tiny_input():
+    """With only 3 fit points the recalibrator behaves near-identity on its own fit-range values."""
     r = DistributionalRecalibrator().fit(np.array([0.1, 0.2, 0.3]))
     assert np.allclose(r.recalibrate(np.array([0.5, 0.9])), [0.5, 0.9])
 
 
 def test_recalibrate_is_monotone_and_in_unit_interval():
+    """Recalibrating a skewed PIT distribution stays monotone non-decreasing and bounded to [0, 1]."""
     rng = np.random.default_rng(0)
     pit = rng.uniform(0, 1, 2000) ** 2  # miscalibrated PIT (skewed toward 0)
     r = DistributionalRecalibrator().fit(pit)
