@@ -15,6 +15,7 @@ from mlframe.preprocessing.cleaning_helpers import map_elementwise_dedup
 
 
 def _clean(s):
+    """Helper that clean."""
     return s.strip().lower() if isinstance(s, str) else s
 
 
@@ -31,6 +32,7 @@ def _clean(s):
     ],
 )
 def test_dedup_map_is_identical_to_plain_map(label, builder):
+    """Dedup map is identical to plain map."""
     rng = np.random.default_rng(0)
     n = 120_000  # above the 4*sample gate so the stride-probe path is exercised
     col = builder(rng, n)
@@ -40,6 +42,7 @@ def test_dedup_map_is_identical_to_plain_map(label, builder):
 
 
 def test_dedup_map_preserves_index():
+    """Dedup map preserves index."""
     s = pd.Series([" a ", " B ", " a "], index=[10, 20, 30], dtype=object)
     out = map_elementwise_dedup(s, _clean)
     assert list(out.index) == [10, 20, 30]

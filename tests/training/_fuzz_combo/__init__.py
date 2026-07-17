@@ -64,15 +64,15 @@ from .xfail import KNOWN_XFAIL_RULES, xfail_reason
 from .enumerator import (
     enumerate_combos,
     enumerate_combos_3way,
-    _build_combo,
-    _sample_axes,
-    _powerset_nonempty,
-    _combo_is_runnable,
-    _LTR_NATIVE_RANKERS,
-    _all_axis_pairs,
-    _combo_pairs,
-    _all_axis_triples,
-    _combo_triples,
+    _build_combo,  # noqa: F401 -- re-exported for direct import by test_fuzz_combo_cross_axis.py and others
+    _sample_axes,  # noqa: F401 -- re-exported for direct import by test_fuzz_combo_cross_axis.py and others
+    _powerset_nonempty,  # noqa: F401 -- re-exported for direct import by test_fuzz_combo_cross_axis.py and others
+    _combo_is_runnable,  # noqa: F401 -- re-exported for direct import by test_fuzz_combo_cross_axis.py and others
+    _LTR_NATIVE_RANKERS,  # noqa: F401 -- re-exported for direct import by test_fuzz_combo_cross_axis.py and others
+    _all_axis_pairs,  # noqa: F401 -- re-exported for direct import by test_fuzz_combo_cross_axis.py and others
+    _combo_pairs,  # noqa: F401 -- re-exported for direct import by test_fuzz_combo_cross_axis.py and others
+    _all_axis_triples,  # noqa: F401 -- re-exported for direct import by test_fuzz_3way_suite.py
+    _combo_triples,  # noqa: F401 -- re-exported for direct import by test_fuzz_3way_suite.py
 )
 from .builders import (
     build_cat_fe_config_from_flat,

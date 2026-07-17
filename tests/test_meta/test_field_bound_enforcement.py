@@ -157,7 +157,7 @@ def test_numeric_bound_violations_rejected():
                 cls(**kwargs)
             except (ValidationError, ValueError):
                 continue  # Properly rejected.
-            except Exception:
+            except Exception:  # nosec B112 -- best-effort skip of one iteration on a non-fatal error; the test's own assertions are unaffected
                 # Some other error — likely an unrelated required field
                 # we didn't sentinel. Treat as inconclusive.
                 continue
@@ -192,7 +192,7 @@ def test_literal_value_outside_set_rejected():
                 cls(**kwargs)
             except (ValidationError, ValueError):
                 continue
-            except Exception:
+            except Exception:  # nosec B112 -- best-effort skip of one iteration on a non-fatal error; the test's own assertions are unaffected
                 continue
             not_enforced.append(f"{cls.__name__}.{field_name}: Literal{values} accepted unrelated string {bad_value!r}")
 

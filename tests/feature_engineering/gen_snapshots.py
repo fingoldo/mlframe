@@ -29,6 +29,7 @@ if str(ROOT / "tests" / "feature_engineering") not in sys.path:
 
 
 def main() -> None:
+    """Recompute and print the DIGESTS literal for every snapshot scenario in test_coverage_fill.py."""
     # Reuse the test module's own helpers + scenarios so we never drift away
     # from what the test actually compares against.
     from test_coverage_fill import (  # type: ignore[import-not-found]

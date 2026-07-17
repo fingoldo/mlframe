@@ -347,7 +347,10 @@ class TestFeaturesAndTargetsExtractorSubclass:
         """Test custom add_features implementation."""
 
         class CustomExtractor(FeaturesAndTargetsExtractor):
+            """Extractor override that appends a derived column, exercising the add_features hook point."""
+
             def add_features(self, df):
+                """Double feature1 into a new column to prove the override runs instead of the passthrough default."""
                 df = df.copy()
                 df["new_feature"] = df["feature1"] * 2
                 return df
@@ -365,7 +368,10 @@ class TestFeaturesAndTargetsExtractorSubclass:
         """Test custom build_targets implementation."""
 
         class CustomExtractor(FeaturesAndTargetsExtractor):
+            """Extractor override that builds a REGRESSION target, exercising the build_targets hook point."""
+
             def build_targets(self, df):
+                """Return a single REGRESSION target sourced from the 'target' column."""
                 return {TargetTypes.REGRESSION: {"my_target": df["target"].values}}
 
         extractor = CustomExtractor()
@@ -654,6 +660,7 @@ class TestSimpleFeaturesAndTargetsExtractorEdgeCases:
 
 
 def _build_frame(kind):
+    """Build a tiny two-column int/float frame as either pandas or polars, per kind."""
     data = {"int_col": [1, 2, 3], "float_col": [1.0, 2.0, 3.0]}
     return pd.DataFrame(data) if kind == "pandas" else pl.DataFrame(data)
 

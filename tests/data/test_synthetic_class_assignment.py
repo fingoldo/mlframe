@@ -1,3 +1,5 @@
+"""Tests for mlframe.data.synthetic: class-assignment njit kernel bit-identity and modelling-data generation."""
+
 import numpy as np
 import pytest
 
@@ -104,6 +106,7 @@ def test_generate_modelling_data_labels_in_range_smoke(feature_noise, timeseries
 
 
 def _generate(feature_noise=0.0, timeseries=False, max_cardinality=None, seed=0):
+    """Generate a small fixed-shape modelling dataset with the given noise/timeseries/cardinality knobs."""
     fast_dists = {"norm", "uniform", "expon", "laplace", "logistic"}
     return generate_modelling_data(
         n_samples=2000,

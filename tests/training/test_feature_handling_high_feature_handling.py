@@ -366,7 +366,7 @@ def test_h_fh_10_stale_lock_retry_uses_fresh_filelock() -> None:
             lock = PIDAwareFileLock(lock_path, timeout=1.0, reclaim_grace_timeout=0.5)
             try:
                 lock.__enter__()
-            except Exception:
+            except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
                 pass  # holder still locks it; we only care about the warning
         reclaimed = [w for w in ws if issubclass(w.category, StaleLockReclaimed)]
         assert reclaimed, "StaleLockReclaimed warning not fired"
@@ -488,14 +488,14 @@ def test_h_fh_13_no_lying_f821_noqa_in_target_encoders() -> None:
     assert te is not None
 
     # Behavioural: actually run ruff/pyflakes on the file; F821 must be zero.
-    import subprocess
+    import subprocess  # nosec B404 -- test-only local trusted subprocess invocation (fixed argv, no shell, no untrusted input)
     from pathlib import Path
 
     path = Path(te.__file__)
     # Try ruff first; fall back to pyflakes; skip if neither installed.
     for cmd in (["ruff", "check", "--select", "F821", "--no-cache", str(path)], ["python", "-m", "pyflakes", str(path)]):
         try:
-            res = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=30)  # nosec B603 -- fixed local argv (sys.executable/git + literal args), no shell, no untrusted input
         except (FileNotFoundError, subprocess.TimeoutExpired):
             continue
         # ruff/pyflakes exit 0 means no issues; otherwise output lists them.
@@ -627,23 +627,23 @@ def test_h_fh_16_per_target_cache_mismatch_raises() -> None:
         FeatureHandlingConfig,
     )
 
-    parent_cache = CacheConfig(dir="/tmp/cache-A", namespace="ns-A", persistence="auto")
+    parent_cache = CacheConfig(dir="/tmp/cache-A", namespace="ns-A", persistence="auto")  # nosec B108 -- symbolic path used only for cache-identity comparison, never touches the real filesystem
     # Same parent_cache args -> should construct fine.
     FeatureHandlingConfig(
         cache=parent_cache,
-        per_target={"t1": FeatureHandlingConfig(cache=CacheConfig(dir="/tmp/cache-A", namespace="ns-A", persistence="auto"))},
+        per_target={"t1": FeatureHandlingConfig(cache=CacheConfig(dir="/tmp/cache-A", namespace="ns-A", persistence="auto"))},  # nosec B108 -- symbolic path used only for cache-identity comparison, never touches the real filesystem
     )
 
     # Mismatching child cache.dir -> raise.
     with pytest.raises(ValueError, match="per_target"):
         FeatureHandlingConfig(
             cache=parent_cache,
-            per_target={"t1": FeatureHandlingConfig(cache=CacheConfig(dir="/tmp/cache-B", namespace="ns-A", persistence="auto"))},
+            per_target={"t1": FeatureHandlingConfig(cache=CacheConfig(dir="/tmp/cache-B", namespace="ns-A", persistence="auto"))},  # nosec B108 -- symbolic path used only for cache-identity comparison, never touches the real filesystem
         )
 
     # Mismatching namespace -> raise.
     with pytest.raises(ValueError, match="per_target"):
         FeatureHandlingConfig(
             cache=parent_cache,
-            per_target={"t1": FeatureHandlingConfig(cache=CacheConfig(dir="/tmp/cache-A", namespace="ns-B", persistence="auto"))},
+            per_target={"t1": FeatureHandlingConfig(cache=CacheConfig(dir="/tmp/cache-A", namespace="ns-B", persistence="auto"))},  # nosec B108 -- symbolic path used only for cache-identity comparison, never touches the real filesystem
         )

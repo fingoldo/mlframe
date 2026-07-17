@@ -28,16 +28,16 @@ def _load_metadata(metadata_dir: Path) -> dict:
     """Load saved metadata from the post-2026-04-29 format (`metadata.pkl.zst`
     or `.pkl` fallback when zstandard is missing). Replaces the legacy
     `joblib.load(metadata.joblib)` path."""
-    import pickle
+    import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
     zst_path = metadata_dir / "metadata.pkl.zst"
     pkl_path = metadata_dir / "metadata.pkl"
     if zst_path.exists():
         import zstandard as zstd
 
-        return pickle.loads(zstd.ZstdDecompressor().decompress(zst_path.read_bytes()))
+        return pickle.loads(zstd.ZstdDecompressor().decompress(zst_path.read_bytes()))  # nosec B301 -- round-trip of a locally-created, trusted object
     if pkl_path.exists():
-        return pickle.loads(pkl_path.read_bytes())
+        return pickle.loads(pkl_path.read_bytes())  # nosec B301 -- round-trip of a locally-created, trusted object
     raise FileNotFoundError(f"No metadata file in {metadata_dir}")
 
 

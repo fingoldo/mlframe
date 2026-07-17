@@ -23,7 +23,7 @@ Contracts pinned (measured, never xfail):
 from __future__ import annotations
 
 import logging
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
 import numpy as np
 import pandas as pd
@@ -158,7 +158,7 @@ class TestRecipeReplay:
         _, am_recipes = hybrid_row_argmax_fe_with_recipes(Xa, ya, seed=1)
         assert gate_recipes and am_recipes
         for r, frame in [(gate_recipes[0], X), (am_recipes[0], Xa)]:
-            r2 = pickle.loads(pickle.dumps(r))
+            r2 = pickle.loads(pickle.dumps(r))  # nosec B301 -- round-trip of a locally-created, trusted object
             assert r2 == r, f"recipe {r.name!r} != its pickle round-trip."
             np.testing.assert_array_equal(apply_recipe(r, frame), apply_recipe(r2, frame))
 

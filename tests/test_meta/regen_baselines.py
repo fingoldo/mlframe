@@ -35,6 +35,7 @@ _BASELINES: dict[str, tuple[str, str]] = {
 
 
 def _regen_one(baseline: str, module_name: str, attr: str) -> bool:
+    """Import module_name and invoke its regenerate_baseline helper to rewrite baseline; False on any failure."""
     full = f"tests.test_meta.{module_name}"
     try:
         mod = importlib.import_module(full)
@@ -51,6 +52,7 @@ def _regen_one(baseline: str, module_name: str, attr: str) -> bool:
 
 
 def main() -> int:
+    """Regenerate every known baseline; exit 0 only if all of them succeeded."""
     ok = 0
     for baseline, (mod, attr) in _BASELINES.items():
         if _regen_one(baseline, mod, attr):

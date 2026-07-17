@@ -17,7 +17,7 @@ cache so the ~10-12 s shadow/model fits are not paid per test.
 
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 import random
 import warnings
 
@@ -198,7 +198,7 @@ class TestPicklePersistence:
                 pickle.dumps(sel)
             return
         blob = pickle.dumps(sel)  # NO try/except: a pickle regression must FAIL
-        restored = pickle.loads(blob)
+        restored = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
         before = np.asarray(sel.transform(_BINARY_X))
         after = np.asarray(restored.transform(_BINARY_X))
         assert before.shape == after.shape

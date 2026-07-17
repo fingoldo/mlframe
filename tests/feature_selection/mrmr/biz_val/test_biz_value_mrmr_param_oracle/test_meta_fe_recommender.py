@@ -31,7 +31,7 @@ Contracts pinned (real AUC numbers, Bayes-feasible fixtures, never xfail):
 from __future__ import annotations
 
 import os
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 import warnings
 
 import numpy as np

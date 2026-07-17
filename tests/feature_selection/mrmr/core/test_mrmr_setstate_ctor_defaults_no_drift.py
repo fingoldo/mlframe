@@ -17,7 +17,7 @@ post-setstate attributes ARE the effective legacy defaults -- the exact thing we
 
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
 import numpy as np
 import pandas as pd
@@ -92,7 +92,7 @@ def test_full_pickle_round_trip_preserves_params():
     est = MRMR(max_runtime_mins=0.05)
     est.fit(X, y)
     blob = pickle.dumps(est)
-    back = pickle.loads(blob)
+    back = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
     for k in MRMR._ctor_defaults():
         if hasattr(est, k):
             assert getattr(back, k) == getattr(est, k) or (isinstance(getattr(est, k), float) and np.isnan(getattr(est, k))), f"pickle round-trip changed {k!r}"

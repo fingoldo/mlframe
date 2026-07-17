@@ -226,14 +226,14 @@ def _run_pair_search_audit():
         from mlframe.feature_selection.filters import _fe_resident_operands as _RO
 
         _RO.clear_fe_resident_operands()
-    except Exception:
+    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
         pass
     try:
         import cupy as _cp
 
         _cp.get_default_memory_pool().free_all_blocks()
         _cp.get_default_pinned_memory_pool().free_all_blocks()
-    except Exception:
+    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
         pass
 
     n = 30000

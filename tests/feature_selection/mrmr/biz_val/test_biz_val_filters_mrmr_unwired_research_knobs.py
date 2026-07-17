@@ -26,7 +26,7 @@ def _patch_no_ktc_sweep():
         _M.KernelTuningCache.get_or_tune = lambda self, k, *, dims, tuner, axes, fallback, **kw: fallback() if callable(fallback) else fallback
         _im = _M.KernelTuningCache(in_memory=True)
         _M.KernelTuningCache.load_or_create = classmethod(lambda cls: _im)
-    except Exception:
+    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
         pass
 
 

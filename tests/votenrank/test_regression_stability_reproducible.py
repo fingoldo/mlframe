@@ -11,6 +11,7 @@ from mlframe.votenrank.stability_exp import spearman_exp
 
 
 def _lb():
+    """Helper that lb."""
     rng = np.random.default_rng(0)
     idx = [f"M{i}" for i in range(8)]
     cols = [f"t{j}" for j in range(6)]
@@ -19,6 +20,7 @@ def _lb():
 
 
 def test_spearman_exp_reproducible_across_runs():
+    """Spearman exp reproducible across runs."""
     exp_range = [0.1, 0.2]
     # Perturb the global RNG between runs: a reproducible implementation must be unaffected.
     np.random.seed(123)

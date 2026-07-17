@@ -490,13 +490,13 @@ def test_documented_xfail_cell_recovers_in_fresh_process(kind, formula, profile,
     (non-strict) xfail registries non-rotting: an in-suite-only loss is a
     tolerated process-state artifact, but a loss that persists even fresh is a
     real regression and fails here. See ``label`` for the per-cell datum."""
-    import subprocess
+    import subprocess  # nosec B404 -- test-only local trusted subprocess invocation (fixed argv, no shell, no untrusted input)
 
     src = _recovery_subprocess_src(kind, formula, profile, n)
     env = dict(os.environ)
     env.setdefault("MLFRAME_DISABLE_HNSW", "1")
     env.setdefault("CUDA_VISIBLE_DEVICES", "")
-    proc = subprocess.run(
+    proc = subprocess.run(  # nosec B603 -- fixed local argv (sys.executable/git + literal args), no shell, no untrusted input
         [sys.executable, "-c", src],
         capture_output=True,
         text=True,

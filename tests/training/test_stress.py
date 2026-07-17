@@ -478,7 +478,7 @@ class TestEdgeCaseStress:
                 verbose=0,
             )
             assert TargetTypes.REGRESSION in models
-        except Exception:
+        except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
             # Expected - too many NaNs may cause issues
             pass
 

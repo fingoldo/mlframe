@@ -9,7 +9,7 @@
 from __future__ import annotations
 
 import os
-import subprocess
+import subprocess  # nosec B404 -- test-only local trusted subprocess invocation (fixed argv, no shell, no untrusted input)
 import sys
 import textwrap
 import time
@@ -150,14 +150,14 @@ def test_numba_cache_hit_across_subprocess(tmp_path):
     cache_dir = tmp_path / "nbcache"
     env = {**_subprocess_env_with_pythonpath(), "NUMBA_CACHE_DIR": str(cache_dir)}
 
-    r1 = subprocess.run([PYEXE, str(script)], capture_output=True, text=True, env=env, timeout=120)
+    r1 = subprocess.run([PYEXE, str(script)], capture_output=True, text=True, env=env, timeout=120)  # nosec B603 -- fixed local argv (sys.executable/git + literal args), no shell, no untrusted input
     assert r1.returncode == 0, r1.stderr
 
     # Assert cache artifacts exist on disk (the actual contract of cache=True).
     artifacts = list(cache_dir.rglob("*.nbi")) + list(cache_dir.rglob("*.nbc"))
     assert artifacts, f"cache=True produced no .nbi/.nbc artifacts under {cache_dir}"
 
-    r2 = subprocess.run([PYEXE, str(script)], capture_output=True, text=True, env=env, timeout=120)
+    r2 = subprocess.run([PYEXE, str(script)], capture_output=True, text=True, env=env, timeout=120)  # nosec B603 -- fixed local argv (sys.executable/git + literal args), no shell, no untrusted input
     assert r2.returncode == 0, r2.stderr
 
 
@@ -237,7 +237,7 @@ def test_numba_njit_params_consistency():
 # =====================================================================
 def test_torch_not_imported_on_module_import():
     """`import mlframe.training.helpers` must NOT transitively import torch."""
-    r = subprocess.run(
+    r = subprocess.run(  # nosec B603 -- fixed local argv (sys.executable/git + literal args), no shell, no untrusted input
         [
             PYEXE,
             "-c",
@@ -254,7 +254,7 @@ def test_torch_not_imported_on_module_import():
 
 def test_torch_stays_out_for_catboost_only_path():
     """get_training_configs for CatBoost-only must NOT trigger torch import."""
-    r = subprocess.run(
+    r = subprocess.run(  # nosec B603 -- fixed local argv (sys.executable/git + literal args), no shell, no untrusted input
         [
             PYEXE,
             "-c",

@@ -199,7 +199,7 @@ def test_rfecv_timestamps_kwarg_triggers_time_series_split():
     rfecv = RFECV(estimator=Ridge(), cv=3, max_runtime_mins=1.0)
     try:
         rfecv.fit(X, y, timestamps=ts)
-    except Exception:
+    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
         # RFECV may early-stop / use other fallbacks; we only assert the splitter is the TSS variant
         # when it's resolvable. Inspect cv_ if set.
         pass

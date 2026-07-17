@@ -18,6 +18,7 @@ from mlframe.preprocessing.missing_indicator_pairing import impute_with_missing_
 
 
 def _make_mnar_dataset(n_rows: int, seed: int):
+    """Helper that make mnar dataset."""
     rng = np.random.default_rng(seed)
     x = rng.normal(size=n_rows)
     is_missing = rng.random(n_rows) < 0.4
@@ -32,6 +33,7 @@ def _make_mnar_dataset(n_rows: int, seed: int):
 
 
 def test_biz_val_missing_indicator_pairing_recovers_mnar_signal():
+    """Missing indicator pairing recovers mnar signal."""
     df, y = _make_mnar_dataset(n_rows=4000, seed=0)
     df_train, df_test, y_train, y_test = train_test_split(df, y, test_size=0.3, random_state=0, stratify=y)
 
@@ -56,6 +58,7 @@ def test_biz_val_missing_indicator_pairing_recovers_mnar_signal():
 
 
 def test_missing_indicator_pairing_leaves_complete_columns_untouched():
+    """Missing indicator pairing leaves complete columns untouched."""
     df = pd.DataFrame({"x": [1.0, 2.0, 3.0], "y": [np.nan, 1.0, 2.0]})
     out = impute_with_missing_indicator(df)
     assert "x_was_missing" not in out.columns
@@ -64,6 +67,7 @@ def test_missing_indicator_pairing_leaves_complete_columns_untouched():
 
 
 def test_missing_indicator_pairing_respects_explicit_fill_values():
+    """Missing indicator pairing respects explicit fill values."""
     df = pd.DataFrame({"x": [1.0, np.nan, 3.0]})
     out = impute_with_missing_indicator(df, fill_values={"x": -999.0})
     assert out.loc[1, "x"] == -999.0
@@ -71,6 +75,7 @@ def test_missing_indicator_pairing_respects_explicit_fill_values():
 
 
 def test_missing_indicator_pairing_mode_strategy():
+    """Missing indicator pairing mode strategy."""
     df = pd.DataFrame({"c": ["a", "a", "b", None]})
     out = impute_with_missing_indicator(df, strategy="mode")
     assert out.loc[3, "c"] == "a"
@@ -78,6 +83,7 @@ def test_missing_indicator_pairing_mode_strategy():
 
 
 def test_missing_indicator_pairing_rejects_unknown_strategy():
+    """Missing indicator pairing rejects unknown strategy."""
     import pytest
 
     df = pd.DataFrame({"x": [1.0, np.nan]})
@@ -102,6 +108,7 @@ def _make_grouped_income_dataset(n_rows: int, seed: int):
 
 
 def test_biz_val_missing_indicator_pairing_group_conditional_lowers_imputation_rmse():
+    """Missing indicator pairing group conditional lowers imputation rmse."""
     df, true_income, is_missing = _make_grouped_income_dataset(n_rows=4000, seed=0)
 
     out_global = impute_with_missing_indicator(df, columns=["income"])
@@ -116,6 +123,7 @@ def test_biz_val_missing_indicator_pairing_group_conditional_lowers_imputation_r
 
 
 def test_biz_val_missing_indicator_pairing_group_conditional_improves_downstream_model():
+    """Missing indicator pairing group conditional improves downstream model."""
     df, true_income, _is_missing = _make_grouped_income_dataset(n_rows=4000, seed=1)
     y = (true_income > 75_000).astype(np.int64)  # downstream target correlated with the TRUE income
     df_train, df_test, y_train, y_test = train_test_split(df, y, test_size=0.3, random_state=0, stratify=y)

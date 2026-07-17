@@ -288,7 +288,7 @@ def test_regression_guard_declines_gpu_at_low_free(monkeypatch, vram):
     if hasattr(_cmi_cuda, "reset_cmi_gpu_circuit_breaker"):
         try:
             _cmi_cuda.reset_cmi_gpu_circuit_breaker()
-        except Exception:
+        except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
             pass
     monkeypatch.setattr(_cmi_cuda, "cupy_available", lambda: True)
     _patch_meminfo(monkeypatch, free_b=322 * MB, total_b=4 * GB)  # near-full shared card

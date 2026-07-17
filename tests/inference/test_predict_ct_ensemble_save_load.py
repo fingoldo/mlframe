@@ -22,7 +22,8 @@ import numpy as np
 # file`` on the local Windows zstandard build. This bypass writes the file directly (no atomic rename, no extra
 # fsync) which is acceptable in a test context. The underlying io.py is in the LOCKED scope of the directive.
 def _save_threads_zero(model, file, zstd_kwargs=None, verbose=0, lean=False, durable=False):
-    import dill
+    """Helper that save threads zero."""
+    import dill  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
     import zstandard as zstd
 
     try:
@@ -67,6 +68,7 @@ def test_persist_ct_ensemble_entries_roundtrips(tmp_path):
 
     # Minimal ctx duck-type -- only the fields _persist_ct_ensemble_entries touches.
     class _CtxStub:
+        """Groups tests covering CtxStub."""
         data_dir = tmp
         models_dir = "models"
         target_name = "yt"
@@ -81,7 +83,7 @@ def test_persist_ct_ensemble_entries_roundtrips(tmp_path):
     models_path = os.path.join(tmp, "models", "yt", "ct_test")
     os.makedirs(models_path, exist_ok=True)
     # Save metadata via threads=0 workaround.
-    import pickle, zstandard
+    import pickle, zstandard  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
     meta_payload = {"slug_to_original_target_type": {"regression": "regression"}, "slug_to_original_target_name": {}}
     with open(os.path.join(models_path, "metadata.pkl.zst"), "wb") as f:
@@ -130,6 +132,7 @@ def test_persist_ct_ensemble_entries_no_models_dir_is_noop():
     from mlframe.training.core._phase_finalize import _persist_ct_ensemble_entries
 
     class _CtxStub:
+        """Groups tests covering CtxStub."""
         data_dir = ""
         models_dir = ""
         target_name = "yt"

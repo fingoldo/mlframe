@@ -168,7 +168,7 @@ def test_pysr_temp_target_column_restored_when_random_seed_cast_raises(monkeypat
         # ``except Exception``, function returns []. Pre-fix path would
         # have raised here instead AND left the column leaked.
         assert result == []
-    except Exception:
+    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
         # Pre-fix path also acceptable as a possible behaviour shape; the
         # invariant under test is the no-leak guarantee below.
         pass

@@ -626,7 +626,7 @@ def test_internal_loop_build_demoted_to_debug_via_stack_scan(caplog):
     ns = {"__name__": "mlframe.training.core._phase_composite_post", "lgb": lgb, "X": X, "y": y}
     src = "def _loop_build():\n    return lgb.Dataset(data=X, label=y)\n_loop_build()"
     with caplog.at_level(logging.INFO, logger="mlframe.training.trainer"):
-        exec(compile(src, "<composite_oof_loop>", "exec"), ns)
+        exec(compile(src, "<composite_oof_loop>", "exec"), ns)  # nosec B102 -- exec of locally-authored trusted source (repo module text or a literal test string), never untrusted input
     info_builds = [r for r in caplog.records if r.name == "mlframe.training.trainer" and "[dataset-build]" in r.message and r.levelno >= logging.INFO]
     assert info_builds == [], f"internal-loop build must be demoted to DEBUG, not INFO; got {[r.message for r in info_builds]}"
 
@@ -679,7 +679,7 @@ def test_fix9_build_logging_skips_introspection_when_disabled_but_still_builds(c
     build_msgs = [r for r in caplog.records if r.name == "mlframe.training.trainer" and "[dataset-build]" in r.getMessage()]
     assert build_msgs == [], f"expected no dataset-build log at WARNING level; got {build_msgs}"
 
-    with pytest.raises(Exception):
+    with pytest.raises(xgb.core.XGBoostError):
         xgb.DMatrix("this-path-does-not-exist.libsvm")
 
 

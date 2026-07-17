@@ -24,12 +24,12 @@ def _reset_fe_gpu_strict_device_probe():
         import mlframe.feature_selection.filters._fe_gpu_strict as _strict
 
         _strict._CUDA_USABLE_CACHE = None
-    except Exception:
+    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
         pass
     yield
     try:
         import mlframe.feature_selection.filters._fe_gpu_strict as _strict
 
         _strict._CUDA_USABLE_CACHE = None
-    except Exception:
+    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
         pass

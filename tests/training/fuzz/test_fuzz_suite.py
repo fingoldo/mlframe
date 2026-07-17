@@ -11,6 +11,7 @@ they're traced to a specific combo predicate.
 
 from __future__ import annotations
 
+import importlib
 import os
 import time
 import traceback
@@ -85,7 +86,7 @@ def _fuzz_combo_cleanup():
         import matplotlib.pyplot as plt
 
         plt.close("all")
-    except Exception:
+    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
         pass
     # 2. mlframe's in-process caches (CB val Pool cache, tier-DF cache).
     try:
@@ -95,11 +96,11 @@ def _fuzz_combo_cleanup():
             cache = getattr(_tr, attr, None)
             if hasattr(cache, "clear"):
                 cache.clear()
-    except Exception:
+    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
         pass
     # 3. CatBoost internal state — force full GPU/CPU resource release.
     try:
-        import catboost
+        importlib.import_module("catboost")
         # catboost.utils doesn't expose a global cleanup; deleting module-level
         # state is unsafe. Best-effort: trigger a GC pass twice so CB's
         # C++-side memory pools see zero Python refs before the next combo
@@ -121,7 +122,7 @@ def _fuzz_combo_cleanup():
         from pyutilz.system import clean_ram
 
         clean_ram()
-    except Exception:
+    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
         pass
 
 

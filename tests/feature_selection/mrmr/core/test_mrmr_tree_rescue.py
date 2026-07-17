@@ -53,14 +53,14 @@ def test_rescue_off_equals_mrmr():
 
 @pytest.mark.timeout(300)
 def test_rescue_transform_pickle_and_support_consistency():
-    import pickle
+    import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
     X, y = _wide_interaction()
     m = MRMRTreeRescued(verbose=0, fe_max_steps=0, n_jobs=4, random_seed=0).fit(X, y)
     Z = m.transform(X.iloc[:10])
     assert len(Z.columns) == len(m.support_)  # support_ extension flows through transform
     assert m.get_support().sum() == len(m.support_)  # mask matches the extended support
-    m2 = pickle.loads(pickle.dumps(m))  # rescue extends support_ only -> pickle-clean
+    m2 = pickle.loads(pickle.dumps(m))  # rescue extends support_ only -> pickle-clean  # nosec B301 -- round-trip of a locally-created, trusted object
     assert list(m2.transform(X.iloc[:10]).columns) == list(Z.columns)
 
 

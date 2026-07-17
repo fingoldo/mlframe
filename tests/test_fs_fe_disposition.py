@@ -260,7 +260,7 @@ def test_fe4_cb_ordinal_cat_features_warns(caplog):
             metadata={},
             verbose=True,
         )
-    except Exception:
+    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
         # Even if a downstream step fails on this synthetic frame, the WARN
         # must have already fired before the failure (the check is at the
         # very top of _phase_fit_pipeline, right after categorical-encoding

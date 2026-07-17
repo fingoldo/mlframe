@@ -37,7 +37,7 @@ CPROFILE
 
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 import time
 import warnings
 
@@ -150,7 +150,7 @@ class TestConditionalDispersionUnit:
         )
         assert recipes, "expected at least one dispersion recipe on hetero fixture"
         r = recipes[0]
-        r2 = pickle.loads(pickle.dumps(r))
+        r2 = pickle.loads(pickle.dumps(r))  # nosec B301 -- round-trip of a locally-created, trusted object
         a = np.asarray(apply_recipe(r, X), dtype=float)
         b = np.asarray(apply_recipe(r2, X), dtype=float)
         np.testing.assert_allclose(a, b, rtol=0, atol=0)
@@ -375,7 +375,7 @@ class TestConditionalDispersionMRMRIntegration:
         m2 = clone(m)
         assert m2.fe_conditional_dispersion_top_k == 7
         assert m2.fe_conditional_dispersion_enable is True
-        m3 = pickle.loads(pickle.dumps(m))
+        m3 = pickle.loads(pickle.dumps(m))  # nosec B301 -- round-trip of a locally-created, trusted object
         assert m3.fe_conditional_dispersion_enable is True
 
 

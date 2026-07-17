@@ -20,6 +20,7 @@ from mlframe.inference.recursive_forecast import recursive_multi_step_forecast, 
 
 
 def _make_ar_series(n_series: int, n_steps: int, seed: int):
+    """Helper that make ar series."""
     rng = np.random.default_rng(seed)
     # AR(1)-style series: each step depends strongly on the previous true value.
     series = np.zeros((n_series, n_steps + 1))
@@ -30,6 +31,7 @@ def _make_ar_series(n_series: int, n_steps: int, seed: int):
 
 
 def test_biz_val_recursive_forecast_beats_frozen_lag_on_ar_series():
+    """Recursive forecast beats frozen lag on ar series."""
     n_series, n_steps = 800, 6
     series = _make_ar_series(n_series, n_steps, seed=0)
 
@@ -44,6 +46,7 @@ def test_biz_val_recursive_forecast_beats_frozen_lag_on_ar_series():
     initial_features = pd.DataFrame({"lag_1": series[:, 0]})
 
     def _update(features, pred, step):
+        """Helper that update."""
         return features  # lag_1 is already updated by the loop itself; no other features to update
 
     recursive_preds = recursive_multi_step_forecast(model, initial_features, n_steps, "lag_1", _update)
@@ -69,10 +72,13 @@ def test_biz_val_recursive_forecast_beats_frozen_lag_on_ar_series():
 
 
 def test_recursive_multi_step_forecast_shape_and_lag_column_required():
+    """Recursive multi step forecast shape and lag column required."""
     import pytest
 
     class _DummyModel:
+        """Groups tests covering DummyModel."""
         def predict(self, X):
+            """Helper that predict."""
             return X["lag_1"].to_numpy() * 0.5
 
     features = pd.DataFrame({"lag_1": [1.0, 2.0, 3.0]})
@@ -145,10 +151,13 @@ def test_biz_val_diagnose_error_accumulation_surfaces_compounding_and_trustworth
 
 
 def test_diagnose_error_accumulation_shape_validation():
+    """Diagnose error accumulation shape validation."""
     import pytest
 
     class _DummyModel:
+        """Groups tests covering DummyModel."""
         def predict(self, X):
+            """Helper that predict."""
             return X["lag_1"].to_numpy() * 0.5
 
     features = pd.DataFrame({"lag_1": [1.0, 2.0, 3.0]})

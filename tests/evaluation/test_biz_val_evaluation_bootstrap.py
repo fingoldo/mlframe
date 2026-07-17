@@ -25,6 +25,7 @@ _SEP = 2.66  # true AUC = Phi(sep/sqrt2) ~ 0.97 (strongly left-skewed, capped at
 
 
 def _draw_auc(rng: np.random.Generator, n: int) -> tuple[np.ndarray, np.ndarray]:
+    """Helper that draw auc."""
     y = rng.integers(0, 2, size=n)
     score = rng.normal(loc=_SEP * y, scale=1.0)
     if y.min() == y.max():
@@ -33,6 +34,7 @@ def _draw_auc(rng: np.random.Generator, n: int) -> tuple[np.ndarray, np.ndarray]
 
 
 def _auc(y: np.ndarray, s: np.ndarray) -> float:
+    """Helper that auc."""
     ranks = stats.rankdata(s, method="average")
     pos = y == 1
     n_pos = int(pos.sum())

@@ -151,7 +151,7 @@ def test_polish_custom_collate_fn_is_identity_and_picklable() -> None:
     (must be top-level for multi-worker DataLoader pickling, identity is the
     intent). Behavioural pin: it hands the batch through verbatim and is
     picklable."""
-    import pickle
+    import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
     from mlframe.training.neural.base import custom_collate_fn
 
@@ -160,7 +160,7 @@ def test_polish_custom_collate_fn_is_identity_and_picklable() -> None:
 
     # Must round-trip through pickle so DataLoader's multi-worker spawn can
     # ship it across the process boundary.
-    restored = pickle.loads(pickle.dumps(custom_collate_fn))
+    restored = pickle.loads(pickle.dumps(custom_collate_fn))  # nosec B301 -- round-trip of a locally-created, trusted object
     assert restored(batch) == batch
 
 

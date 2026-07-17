@@ -35,7 +35,7 @@ on data without a slope change:
 
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 import warnings
 
 import numpy as np
@@ -117,7 +117,7 @@ def test_recipe_replay_is_leak_safe_and_bit_exact():
         ("ind", (x > 0.5).astype(np.float64)),
     ):
         r = build_hinge_basis_recipe(name=f"a__{side}", src_name="a", tau=0.5, side=side)
-        r2 = pickle.loads(pickle.dumps(r))  # pickle / clone roundtrip
+        r2 = pickle.loads(pickle.dumps(r))  # pickle / clone roundtrip  # nosec B301 -- round-trip of a locally-created, trusted object
         out = apply_recipe(r2, X)
         assert np.array_equal(out, ref), f"replay mismatch for side={side}"
 
@@ -180,7 +180,7 @@ def test_detect_hinge_fwl_rank1_taus_bit_identical_to_lstsq_per_cut():
                 A = np.column_stack([np.ones_like(x), x, relu, *extra])
                 try:
                     coef, *_ = np.linalg.lstsq(A, y, rcond=None)
-                except Exception:
+                except Exception:  # nosec B112 -- best-effort skip of one iteration on a non-fatal error; the test's own assertions are unaffected
                     continue
                 resid = y - A @ coef
                 sse = float(resid @ resid)

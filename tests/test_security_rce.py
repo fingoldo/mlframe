@@ -2,7 +2,7 @@
 
 import io
 import os
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
 import pytest
 
@@ -48,7 +48,7 @@ def test_safe_unpickler_rejects_os_system_accepts_numpy_ndarray():
             return (_np.asarray, ([1, 2, 3],))
 
     buf = io.BytesIO()
-    import dill
+    import dill  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
     dill.dump(_AllowedRef(), buf)
     buf.seek(0)

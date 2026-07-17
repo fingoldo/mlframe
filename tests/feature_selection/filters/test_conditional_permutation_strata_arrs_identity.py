@@ -42,7 +42,7 @@ def _reference(x, y, z, nbx, nby, nbz, n_permutations, seed):
     null_dist = np.empty(int(n_permutations), dtype=np.float64)
     for p in range(int(n_permutations)):
         x_perm = x.copy()
-        for zv, idx_list in strata.items():
+        for idx_list in strata.values():
             if len(idx_list) <= 1:
                 continue
             arr = np.asarray(idx_list, dtype=np.int64)

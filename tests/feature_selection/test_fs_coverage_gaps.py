@@ -41,7 +41,7 @@ def test_rfecv_polars_sorted_datetime_triggers_time_series_split():
     rfecv = RFECV(estimator=Ridge(), cv=3, max_runtime_mins=1.0)
     try:
         rfecv.fit(df, y)
-    except Exception:
+    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
         # We tolerate downstream early-stop / fallback; we only care about the splitter wiring.
         pass
     # The auto-detect path stores the resolved splitter on ``cv_`` when triggered.

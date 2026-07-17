@@ -121,7 +121,7 @@ def _make_data(kind: str):
 def test_stdlib_pickle_preserves_predictions(estimator_factory, data_factory, prediction_method):
     """stdlib pickle roundtrip must produce bit-identical predictions
     across regressor / binary classifier / multiclass classifier."""
-    import pickle
+    import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
     X_tr, X_te, y_tr = data_factory()
     est = estimator_factory()
@@ -129,7 +129,7 @@ def test_stdlib_pickle_preserves_predictions(estimator_factory, data_factory, pr
     pred_before = getattr(est, prediction_method)(X_te)
 
     buf = pickle.dumps(est)
-    est2 = pickle.loads(buf)
+    est2 = pickle.loads(buf)  # nosec B301 -- round-trip of a locally-created, trusted object
     pred_after = getattr(est2, prediction_method)(X_te)
 
     np.testing.assert_array_equal(pred_before, pred_after)
@@ -162,7 +162,7 @@ def test_mlframe_save_load_preserves_predictions(
 def test_classifier_pickle_preserves_label_encoder_and_classes():
     """Non-dense labels: classes_ + _label_encoder must survive pickle
     (sklearn convention: ``predict()`` returns ORIGINAL labels)."""
-    import pickle
+    import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
     rng = np.random.default_rng(0)
     X = rng.normal(size=(160, 5)).astype(np.float32)
@@ -174,7 +174,7 @@ def test_classifier_pickle_preserves_label_encoder_and_classes():
     clf.fit(X_tr, y_tr)
     assert set(clf.classes_.tolist()) == {10, 20}
 
-    clf2 = pickle.loads(pickle.dumps(clf))
+    clf2 = pickle.loads(pickle.dumps(clf))  # nosec B301 -- round-trip of a locally-created, trusted object
     assert hasattr(clf2, "_label_encoder")
     assert clf2._label_encoder is not None
     assert set(clf2.classes_.tolist()) == {10, 20}
@@ -195,13 +195,13 @@ def test_direct_dill_dumps_roundtrips_via_getstate_strip():
     non-picklable cache into the serialised state surfaces visibly.
     """
     pytest.importorskip("dill")
-    import dill
+    import dill  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
     X_tr, X_te, y_tr = _make_data("regression")
     reg = PytorchLightningRegressor(**_base_params(torch.nn.MSELoss(), torch.float32))
     reg.fit(X_tr, y_tr)
     pred_before = reg.predict(X_te)
 
-    reg2 = dill.loads(dill.dumps(reg))
+    reg2 = dill.loads(dill.dumps(reg))  # nosec B301 -- round-trip of a locally-created, trusted object
     pred_after = reg2.predict(X_te)
     np.testing.assert_array_equal(pred_before, pred_after)

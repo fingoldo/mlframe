@@ -102,7 +102,7 @@ _ALLOWLIST: dict[tuple[str, str], str] = {
     (
         "training/composite/classification_discovery.py",
         "log_loss",
-    ): "CompositeClassificationDiscovery documents binary AND multiclass support (log_loss(proba(n,C), labels=classes) with C=classes.size>=2); fast_log_loss is binary-only.",
+    ): "CompositeClassificationDiscovery documents binary AND multiclass support (log_loss(proba(n,C), labels=classes) with C=classes.size>=2); multiclass CV/holdout log-loss over an arbitrary class count; fast_log_loss is binary-only.",
     (
         "evaluation/reports.py",
         "balanced_accuracy_score",
@@ -163,10 +163,6 @@ _ALLOWLIST: dict[tuple[str, str], str] = {
         "training/core/_phase_finalize_calibration.py",
         "balanced_accuracy_score",
     ): "default threshold-optimizer metric_fn, overridable by the caller but must work for both binary and multiclass by default; balanced_accuracy_binary is binary-only.",
-    (
-        "training/composite/classification_discovery.py",
-        "log_loss",
-    ): "multiclass CV/holdout log-loss: log_loss(proba(n,C), labels=classes) over an arbitrary class count; fast_log_loss is binary-only.",
 }
 
 

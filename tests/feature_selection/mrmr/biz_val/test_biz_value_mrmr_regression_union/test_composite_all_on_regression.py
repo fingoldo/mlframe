@@ -427,7 +427,7 @@ class TestNoEngineeredNameCollisions:
                 continue
             try:
                 names = list(roster)
-            except Exception:
+            except Exception:  # nosec B112 -- best-effort skip of one iteration on a non-fatal error; the test's own assertions are unaffected
                 continue
             seen: set[str] = set()
             dupes: list[str] = []

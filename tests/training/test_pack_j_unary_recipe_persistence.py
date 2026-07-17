@@ -24,7 +24,7 @@ Pin this guarantee with two tests:
 
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
 import numpy as np
 import pytest
@@ -86,7 +86,7 @@ def test_unary_y_params_pickle_round_trip(transform_name):
     params = transform.fit(y[valid], base[valid])
 
     blob = pickle.dumps(params)
-    params2 = pickle.loads(blob)
+    params2 = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
 
     T_orig = transform.forward(y[valid], base[valid], params)
     T_replay = transform.forward(y[valid], base[valid], params2)

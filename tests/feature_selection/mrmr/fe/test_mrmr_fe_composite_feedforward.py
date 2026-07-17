@@ -24,7 +24,7 @@ O(k^2) pair blow-up. ``fe_max_steps=1`` behaviour is unchanged (no step-2 compos
 
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 import re
 
 import numpy as np
@@ -190,7 +190,7 @@ def test_nested_parent_recipe_survives_pickle():
         quantization_dtype=np.int32,
         nested_parent_b=par,
     )
-    comp2 = pickle.loads(pickle.dumps(comp))
+    comp2 = pickle.loads(pickle.dumps(comp))  # nosec B301 -- round-trip of a locally-created, trusted object
     assert isinstance(comp2.extra["nested_parent_b"], EngineeredRecipe)
     n = 500
     rng = np.random.default_rng(1)

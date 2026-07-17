@@ -184,7 +184,7 @@ def test_compute_iia_does_not_mutate_global_np_rng() -> None:
 
     try:
         compute_iia(_mean_method, table, weights, num_repetitions=3)
-    except Exception:
+    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
         pass  # the method signature might mismatch; we only care about RNG state.
     post = np.random.get_state()
     np.testing.assert_array_equal(pre[1], post[1])

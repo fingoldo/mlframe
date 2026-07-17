@@ -13,6 +13,7 @@ from mlframe.core.stats import get_tukey_fences_multiplier_for_quantile
 
 
 def _reference(values, q0, q1, lo, hi):
+    """Helper that reference."""
     vis = values[(values >= q0) & (values <= q1)]
     n_out = int((values < lo).sum() + (values > hi).sum())
     return vis, n_out
@@ -29,6 +30,7 @@ def _reference(values, q0, q1, lo, hi):
     ],
 )
 def test_cpx19_fused_kernel_matches_numpy(name, values):
+    """Cpx19 fused kernel matches numpy."""
     values = values.astype(np.float64)
     use_q = 0.1
     cq = np.nanquantile(values, (use_q, 1 - use_q))

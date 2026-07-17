@@ -6,7 +6,7 @@ subprocesses and asserts the produced order is identical.
 from __future__ import annotations
 
 import os
-import subprocess
+import subprocess  # nosec B404 -- test-only local trusted subprocess invocation (fixed argv, no shell, no untrusted input)
 import sys
 from pathlib import Path
 
@@ -31,10 +31,11 @@ print("|".join(rank))
 
 
 def _run(hashseed: str) -> str:
+    """Helper that run."""
     env = dict(os.environ)
     env["PYTHONHASHSEED"] = hashseed
     env["CUDA_VISIBLE_DEVICES"] = ""
-    out = subprocess.run(
+    out = subprocess.run(  # nosec B603 -- fixed local argv (sys.executable/git + literal args), no shell, no untrusted input
         [sys.executable, "-c", _SNIPPET.format(src=_SRC)],
         env=env,
         capture_output=True,
@@ -48,5 +49,6 @@ def _run(hashseed: str) -> str:
 
 
 def test_con17_method_order_is_pythonhashseed_independent():
+    """Con17 method order is pythonhashseed independent."""
     outputs = {_run(hs) for hs in ("0", "1", "12345", "98765")}
     assert len(outputs) == 1, f"method/row order differs across PYTHONHASHSEED:\n{outputs}"

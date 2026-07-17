@@ -14,11 +14,13 @@ EPS = 1e-15
 
 
 def _log_loss(y_true: np.ndarray, probs: np.ndarray) -> float:
+    """Compute binary cross-entropy log-loss with a fixed EPS floor/ceiling clip."""
     p = np.clip(probs, EPS, 1 - EPS)
     return float(-np.mean(y_true * np.log(p) + (1 - y_true) * np.log(1 - p)))
 
 
 def _brier_score(y_true: np.ndarray, probs: np.ndarray) -> float:
+    """Compute the mean squared error between predicted probabilities and labels (a proper scoring rule)."""
     return float(np.mean((probs - y_true) ** 2))
 
 
@@ -46,6 +48,7 @@ def _make_overconfident_miss_scenario(n_correct: int = 200, n_wrong: int = 6, se
 
 
 def test_unit_clip_bounds_respected() -> None:
+    """Clipped output is bounded to [lower, upper] and passes through mid-range values unchanged."""
     probs = np.array([0.0, 0.001, 0.5, 0.999, 1.0])
     clipped = clip_probabilities_for_logloss(probs, lower=0.05, upper=0.95)
     assert clipped.min() >= 0.05
@@ -54,6 +57,7 @@ def test_unit_clip_bounds_respected() -> None:
 
 
 def test_unit_default_bounds_are_tight() -> None:
+    """Default lower/upper bounds clip to 1e-4 / 1-1e-4, a tight but nonzero margin."""
     probs = np.array([0.0, 1.0])
     clipped = clip_probabilities_for_logloss(probs)
     assert clipped[0] == pytest.approx(1e-4)
@@ -61,6 +65,7 @@ def test_unit_default_bounds_are_tight() -> None:
 
 
 def test_unit_invalid_bounds_raise() -> None:
+    """lower>upper, negative lower, or upper>1 each raise ValueError."""
     probs = np.array([0.1, 0.9])
     with pytest.raises(ValueError):
         clip_probabilities_for_logloss(probs, lower=0.9, upper=0.1)

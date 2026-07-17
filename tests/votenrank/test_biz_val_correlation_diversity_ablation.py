@@ -17,10 +17,12 @@ from mlframe.votenrank.correlation_diversity_ablation import diversity_ablation_
 
 
 def _rmse(y_true, y_pred):
+    """Helper that rmse."""
     return float(np.sqrt(np.mean((y_true - y_pred) ** 2)))
 
 
 def _make_diverse_ensemble_dataset(n: int, seed: int):
+    """Helper that make diverse ensemble dataset."""
     rng = np.random.default_rng(seed)
     x_shared = rng.normal(size=n)
     x_diverse = rng.normal(size=n)
@@ -41,6 +43,7 @@ def _make_diverse_ensemble_dataset(n: int, seed: int):
 
 
 def test_biz_val_diversity_ablation_flags_and_confirms_real_blend_improvement():
+    """Diversity ablation flags and confirms real blend improvement."""
     y_true, oof_preds = _make_diverse_ensemble_dataset(n=2000, seed=0)
     individual_scores = {name: -_rmse(y_true, pred) for name, pred in oof_preds.items()}  # higher (less negative) is better
 
@@ -57,6 +60,7 @@ def test_biz_val_diversity_ablation_flags_and_confirms_real_blend_improvement():
 
 
 def test_diversity_ablation_no_flags_when_all_models_are_near_duplicates():
+    """Diversity ablation no flags when all models are near duplicates."""
     rng = np.random.default_rng(1)
     y_true = rng.normal(size=500)
     oof_preds = {f"m{i}": y_true + 0.1 * rng.standard_normal(500) for i in range(4)}  # all near-identical
@@ -67,6 +71,7 @@ def test_diversity_ablation_no_flags_when_all_models_are_near_duplicates():
 
 
 def test_diversity_ablation_single_model_returns_empty():
+    """Diversity ablation single model returns empty."""
     y_true = np.array([1.0, 2.0, 3.0])
     report = diversity_ablation_report({"only": y_true}, {"only": 1.0}, y_true, _rmse)
     assert report == []
@@ -99,6 +104,7 @@ def _make_redundant_trio_dataset(n: int, seed: int):
 
 
 def test_biz_val_diversity_ablation_greedy_search_avoids_redundant_trio():
+    """Diversity ablation greedy search avoids redundant trio."""
     y_true, oof_preds = _make_redundant_trio_dataset(n=4000, seed=0)
     individual_scores = {name: -_rmse(y_true, pred) for name, pred in oof_preds.items()}
 
@@ -120,6 +126,7 @@ def test_biz_val_diversity_ablation_greedy_search_avoids_redundant_trio():
     assert len(selected) == 1, f"expected the greedy search to avoid over-including the redundant trio (only 1 of 3 needed), got {selected}"
 
     def _blend_rmse(names):
+        """Helper that blend rmse."""
         return _rmse(y_true, np.mean([oof_preds[n] for n in names], axis=0))
 
     naive_all_loss = _blend_rmse(["best", "c1", "c2", "c3"])  # naive: include every pairwise-flagged candidate

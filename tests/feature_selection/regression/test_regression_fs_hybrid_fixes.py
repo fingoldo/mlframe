@@ -93,10 +93,13 @@ def test_mrmr_rescue_excludes_cluster_members_and_uses_parsimony(monkeypatch):
     rec: dict = {}
 
     class _StubRFECV:
+        """Records the constructor kwargs and the candidate pool the rescue path hands to RFECV, instead of fitting."""
+
         def __init__(self, *a, **k):
             rec["params"] = k
 
         def fit(self, X, y):
+            """Record the pool of columns received and return a trivial zero-support fit."""
             rec["pool"] = list(X.columns)
             self.n_features_ = 0
             self.support_ = np.zeros(X.shape[1], dtype=bool)

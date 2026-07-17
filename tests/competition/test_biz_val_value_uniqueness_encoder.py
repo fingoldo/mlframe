@@ -77,6 +77,7 @@ def _make_informative_dataset(n_train: int = 4000, n_test: int = 1000, seed: int
 
 
 def test_value_uniqueness_encoder_basic_categories():
+    """Train values get flagged by target-purity, and test values inherit train flags or fall back to count-only flags."""
     train = pd.DataFrame({"c": [1, 1, 2, 2, 3]})
     test = pd.DataFrame({"c": [1, 4, 4, 5]})
     y_train = np.array([1, 1, 0, 1, 0])  # value 1 -> only target 1; value 2 -> mixed; value 3 -> unique
@@ -102,6 +103,7 @@ def test_value_uniqueness_encoder_basic_categories():
 
 
 def test_value_uniqueness_encoder_respects_real_test_mask():
+    """When real_test_mask excludes synthetic rows, uniqueness counts are computed only over real rows."""
     train = pd.DataFrame({"c": [1, 1]})
     test = pd.DataFrame({"c": [9, 9, 9]})
     real_mask = np.array([True, False, False])  # only first "9" is real; other two are synthetic
@@ -134,6 +136,7 @@ def test_value_uniqueness_encoder_reuses_train_flag_without_leaking_test_targets
 
 
 def test_biz_val_value_uniqueness_encoder_auc_improvement_over_raw_feature():
+    """One-hot of the uniqueness flag lifts AUC from ~0.56 (raw feature alone) to >=0.80, a >=0.25 absolute gain."""
     train, test, y_train, y_test = _make_informative_dataset()
 
     encoded = value_uniqueness_encoder(train, test, real_test_mask=None, y_train=y_train, columns=["feat"])

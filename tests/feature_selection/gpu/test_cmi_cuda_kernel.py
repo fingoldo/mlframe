@@ -85,10 +85,10 @@ def test_dispatch_default_returns_finite_nonneg():
 
 def test_kernel_module_pickle_safe():
     """No live CUDA context / RawKernel leaks via module import; a consumer dict pickles."""
-    import pickle
+    import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
     payload = {"cand": np.arange(5), "result": np.zeros(5)}
-    assert pickle.loads(pickle.dumps(payload))["cand"].tolist() == list(range(5))
+    assert pickle.loads(pickle.dumps(payload))["cand"].tolist() == list(range(5))  # nosec B301 -- round-trip of a locally-created, trusted object
 
 
 @_gpu_only

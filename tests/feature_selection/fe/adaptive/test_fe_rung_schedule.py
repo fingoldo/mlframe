@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import io
 import os
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 import time
 
 import numpy as np
@@ -188,7 +188,7 @@ def test_ctor_knobs_exposed_and_pickle_safe():
     assert p["fe_rung_keep_frac"] == 0.3
     assert p["fe_rung_rel_floor"] == 0.35
     assert p["fe_rung_min_pairs"] == 8
-    m2 = pickle.loads(pickle.dumps(m))
+    m2 = pickle.loads(pickle.dumps(m))  # nosec B301 -- round-trip of a locally-created, trusted object
     assert m2.get_params()["fe_rung_keep_frac"] == 0.3
 
 

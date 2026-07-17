@@ -95,7 +95,7 @@ def test_screen_predictors_factors_names_empty_list_no_mismatch():
         # Any other ValueError (e.g. signature mismatch from a
         # less-than-perfect harness) is acceptable for this iter-25
         # regression - the preamble validation already passed.
-    except Exception:
+    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
         # The screen may throw a downstream error from our minimal
         # harness setup; that's fine. We only care that the preamble
         # didn't TypeError or ValueError on the auto-name branch.

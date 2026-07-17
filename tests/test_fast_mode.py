@@ -1,7 +1,7 @@
 """Smoke tests for the --fast mode plumbing in tests/conftest.py."""
 
 import os
-import subprocess
+import subprocess  # nosec B404 -- test-only local trusted subprocess invocation (fixed argv, no shell, no untrusted input)
 import sys
 
 import pytest
@@ -91,7 +91,7 @@ def test_slow_marker_skipped_in_fast_subprocess(tmp_path):
         "        if 'slow' in it.keywords: it.add_marker(skip)\n"
     )
     env = {**os.environ, "MLFRAME_FAST": "1"}
-    result = subprocess.run(
+    result = subprocess.run(  # nosec B603 -- fixed local argv (sys.executable/git + literal args), no shell, no untrusted input
         # ``-p no:randomly``: the spawned subprocess inherits whatever
         # random-seeder plugins are installed in the ambient env. On boxes with
         # spacy/thinc present, pytest_randomly's reseed hook calls thinc's

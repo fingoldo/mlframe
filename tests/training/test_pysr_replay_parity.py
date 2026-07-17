@@ -11,7 +11,7 @@ Skipped when PySR / Julia is not importable (CI without juliacall installed).
 from __future__ import annotations
 
 import io
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 import numpy as np
 import pandas as pd
 import pytest
@@ -84,7 +84,7 @@ def test_pysr_replay_parity(tmp_path):
     buf = io.BytesIO()
     pickle.dump(ext, buf)
     buf.seek(0)
-    reloaded = pickle.load(buf)
+    reloaded = pickle.load(buf)  # nosec B301 -- round-trip of a locally-created, trusted object
 
     # Replay against a fresh copy of the predict frame (no PySR cols).
     replayed = _apply_extensions_pipeline(df.copy(), reloaded, verbose=0)

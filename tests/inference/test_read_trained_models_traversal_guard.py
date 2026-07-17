@@ -16,6 +16,7 @@ from mlframe.inference.predict import read_trained_models
     ["../../../../etc/passwd", "../../secret", "/abs/escape", "..\\..\\win"],
 )
 def test_traversal_featureset_rejected_without_trusted_root(malicious_featureset):
+    """Traversal featureset rejected without trusted root."""
     X = pd.DataFrame({"a": [1.0, 2.0], "b": [3.0, 4.0]})
     with pytest.raises(ValueError, match="not inside trusted_root"):
         read_trained_models(malicious_featureset, X, inference_folder="infer")
@@ -29,5 +30,5 @@ def test_legitimate_featureset_not_rejected_by_containment():
         read_trained_models("my_featureset", X, inference_folder="infer")
     except ValueError as e:
         assert "not inside trusted_root" not in str(e), "legitimate path wrongly flagged as traversal"
-    except Exception:
+    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
         pass  # missing-dir / no-models errors are fine; only the traversal ValueError must not fire

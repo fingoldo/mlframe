@@ -135,6 +135,15 @@ class _FunctionalSelectorBase(BaseEstimator, TransformerMixin):
         idx = np.where(self.support_)[0]
         if hasattr(X, "iloc"):
             return X.iloc[:, idx]
+        if hasattr(X, "columns") and hasattr(X, "select"):
+            # polars DataFrame: np.asarray(X) below would force a homogeneous (often object) ndarray,
+            # discarding every column's native dtype -- for a pl.Enum/Categorical column that silently
+            # materialises back to raw Python strings, which then reaches XGBoost's enable_categorical
+            # path as unencoded text and crashes deep in xgboost's dtype coercion. X.select(...) keeps
+            # this a real polars frame with dtypes/column names intact (found live: the XGB polars
+            # fastpath's ForwardSelectSelector output was the only thing feeding model.fit()).
+            cols = [c for c, keep in zip(X.columns, self.support_) if keep]
+            return X.select(cols)
         return np.asarray(X)[:, self.support_]
 
     def fit_transform(self, X, y=None, **fit_params):

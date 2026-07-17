@@ -31,7 +31,7 @@ def _sklearn_loop_bootstrap_binary(y: np.ndarray, p: np.ndarray, n_resamples: in
         idx = rng.integers(0, n, size=n)
         try:
             samples.append(float(_ll(y[idx], p[idx], labels=[0, 1])))
-        except Exception:
+        except Exception:  # nosec B112 -- best-effort skip of one iteration on a non-fatal error; the test's own assertions are unaffected
             continue
     return np.array(samples, dtype=np.float64)
 

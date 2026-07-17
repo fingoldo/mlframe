@@ -10,7 +10,7 @@ the wall-kill on a heavy combo) is verified manually via
 
 from __future__ import annotations
 
-import subprocess
+import subprocess  # nosec B404 -- test-only local trusted subprocess invocation (fixed argv, no shell, no untrusted input)
 import sys
 import time
 
@@ -41,7 +41,7 @@ def test_kill_process_tree_terminates_child_and_grandchild():
     psutil = pytest.importorskip("psutil")
     # Parent python sleeps after spawning a grandchild python that also sleeps.
     code = "import subprocess,sys,time;g=subprocess.Popen([sys.executable,'-c','import time;time.sleep(120)']);print(g.pid,flush=True);time.sleep(120)"
-    p = subprocess.Popen([sys.executable, "-c", code], stdout=subprocess.PIPE, text=True)
+    p = subprocess.Popen([sys.executable, "-c", code], stdout=subprocess.PIPE, text=True)  # nosec B603 -- fixed local argv (sys.executable/git + literal args), no shell, no untrusted input
     grandchild_pid = int(p.stdout.readline().strip())
     parent = psutil.Process(p.pid)
     assert parent.is_running()
@@ -62,7 +62,7 @@ def test_reap_bounded_returns_false_for_undead_process_within_timeout():
     NOT block ``_reap_bounded`` past its timeout -- it returns False promptly so
     the driver can orphan + continue rather than wedge waiting for an OS-undead
     access-violation'd process to reap."""
-    p = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
+    p = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])  # nosec B603 -- fixed local argv (sys.executable/git + literal args), no shell, no untrusted input
     try:
         t0 = time.time()
         alive_reaped = R._reap_bounded(p, 1.0)
@@ -75,7 +75,7 @@ def test_reap_bounded_returns_false_for_undead_process_within_timeout():
 
 
 def test_reap_bounded_returns_true_for_exited_process():
-    p = subprocess.Popen([sys.executable, "-c", "pass"])
+    p = subprocess.Popen([sys.executable, "-c", "pass"])  # nosec B603 -- fixed local argv (sys.executable/git + literal args), no shell, no untrusted input
     assert R._reap_bounded(p, 10) is True
 
 

@@ -19,6 +19,7 @@ from mlframe.calibration.policy import _ece_score
 
 
 def _make_calibration_data(n: int, noise: float, seed: int):
+    """Helper that make calibration data."""
     rng = np.random.default_rng(seed)
     p_raw = rng.uniform(0.0, 1.0, size=n)
     true_prob = np.clip(p_raw + noise * rng.standard_normal(n), 0.0, 1.0)
@@ -27,6 +28,7 @@ def _make_calibration_data(n: int, noise: float, seed: int):
 
 
 def test_isotonic_overfit_risk_flags_small_noisy_fit():
+    """Isotonic overfit risk flags small noisy fit."""
     p, y = _make_calibration_data(n=60, noise=0.35, seed=0)
     result = isotonic_overfit_risk(p, y, segment_ratio_threshold=0.05)
     assert result["flagged"] is True
@@ -34,12 +36,14 @@ def test_isotonic_overfit_risk_flags_small_noisy_fit():
 
 
 def test_isotonic_overfit_risk_does_not_flag_large_smooth_fit():
+    """Isotonic overfit risk does not flag large smooth fit."""
     p, y = _make_calibration_data(n=5000, noise=0.05, seed=1)
     result = isotonic_overfit_risk(p, y, segment_ratio_threshold=0.05)
     assert result["flagged"] is False
 
 
 def test_isotonic_overfit_risk_returns_reusable_fitted_isotonic():
+    """Isotonic overfit risk returns reusable fitted isotonic."""
     p, y = _make_calibration_data(n=200, noise=0.1, seed=2)
     result = isotonic_overfit_risk(p, y)
     preds = result["isotonic_fit"].predict(np.array([0.0, 0.5, 1.0]))
@@ -48,16 +52,19 @@ def test_isotonic_overfit_risk_returns_reusable_fitted_isotonic():
 
 
 def test_isotonic_overfit_risk_length_mismatch_raises():
+    """Isotonic overfit risk length mismatch raises."""
     with pytest.raises(ValueError):
         isotonic_overfit_risk(np.array([0.1, 0.2, 0.3]), np.array([0.0, 1.0]))
 
 
 def test_isotonic_overfit_risk_too_few_samples_raises():
+    """Isotonic overfit risk too few samples raises."""
     with pytest.raises(ValueError):
         isotonic_overfit_risk(np.array([0.5]), np.array([1.0]))
 
 
 def test_biz_val_flagged_isotonic_fit_generalizes_worse_than_unflagged():
+    """Flagged isotonic fit generalizes worse than unflagged."""
     rng_seed = 42
     # SAME noise level, DIFFERENT calibration-set sizes -- the noise/complexity ratio is what should
     # differ, isolating "overfits due to too few samples for the noise level" as the mechanism.
@@ -94,6 +101,7 @@ def test_biz_val_isotonic_overfit_risk_remediate_beats_plain_isotonic_on_sparse_
     # clipped) -- exactly the shape Platt scaling is built for. Plain isotonic free-form-fits every point's
     # noise (correctly FLAGGED); remediation blends toward Platt everywhere since the whole set is sparse
     # relative to segment_ratio_threshold, recovering the smooth relationship instead of the jagged one.
+    """Isotonic overfit risk remediate beats plain isotonic on sparse segment."""
     rng_seed = 42
     calib_p, calib_y = _make_calibration_data(n=50, noise=0.30, seed=rng_seed)
 

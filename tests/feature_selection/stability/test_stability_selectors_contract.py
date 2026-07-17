@@ -42,7 +42,7 @@ the moment the ctor is given an explicit signature.
 
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 import warnings
 
 import numpy as np
@@ -184,7 +184,7 @@ class TestStabilityMRMRContract:
             warnings.simplefilter("ignore")
             sel.fit(X, y)
         before = np.asarray(sel.transform(X))
-        restored = pickle.loads(pickle.dumps(sel))
+        restored = pickle.loads(pickle.dumps(sel))  # nosec B301 -- round-trip of a locally-created, trusted object
         after = np.asarray(restored.transform(X))
         np.testing.assert_array_equal(before, after)
         np.testing.assert_array_equal(restored.support_, sel.support_)
@@ -310,7 +310,7 @@ class TestStabilityFESelectorContract:
             warnings.simplefilter("ignore")
             sel.fit(X, y)
         before = np.asarray(sel.transform(X))
-        restored = pickle.loads(pickle.dumps(sel))
+        restored = pickle.loads(pickle.dumps(sel))  # nosec B301 -- round-trip of a locally-created, trusted object
         after = np.asarray(restored.transform(X))
         np.testing.assert_array_equal(before, after)
         assert restored.stable_set_ == sel.stable_set_

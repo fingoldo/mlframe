@@ -15,7 +15,7 @@ from types import SimpleNamespace
 
 def test_asizeof_underestimates_buffer_backed_model_vs_pickle():
     pa = pytest.importorskip("pympler.asizeof")
-    import pickle
+    import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
     from sklearn.ensemble import RandomForestClassifier
 
     rng = np.random.default_rng(0)

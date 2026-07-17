@@ -24,6 +24,7 @@ class _MarkerStep:
     """Stub sklearn-like step with the setattr marker."""
 
     def get_params(self, deep: bool = False):
+        """Return a fixed trivial params dict, enough to satisfy sklearn-step introspection."""
         return {"k": 1}
 
 
@@ -106,6 +107,7 @@ def test_w5_fs_f16_deepcopy_splitter_in_early_stopping_path():
             self._mutable_state = [1, 2, 3]
 
         def split(self, X, y=None, groups=None):
+            """Yield no folds; only invoked to prove the splitter object itself survives the deepcopy."""
             return iter([])
 
     cv_orig = _CustomCV()

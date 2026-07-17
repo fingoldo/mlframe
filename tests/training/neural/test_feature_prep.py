@@ -9,7 +9,7 @@ Skips only when ``transformers`` / the model can't be fetched (offline CI).
 
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
 import numpy as np
 import pandas as pd
@@ -115,7 +115,7 @@ def test_no_object_columns_remain_mixed(hf_provider):
 def test_provider_excluded_from_pickle(hf_provider):
     enc = _encoder_with(hf_provider, text_features=["text_0"])
     enc.fit(pd.DataFrame({"text_0": ["a", "bb", "ccc"]}))
-    restored = pickle.loads(pickle.dumps(enc))  # must not try to pickle the live HF model
+    restored = pickle.loads(pickle.dumps(enc))  # must not try to pickle the live HF model  # nosec B301 -- round-trip of a locally-created, trusted object
     assert restored.__dict__.get("_provider") is None
     assert restored.text_embedding_dim_ == enc.text_embedding_dim_
 

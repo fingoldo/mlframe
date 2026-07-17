@@ -34,7 +34,7 @@ def _peak_rss_during(fn):
                 rss = proc.memory_info().rss
                 if rss > peak[0]:
                     peak[0] = rss
-            except Exception:
+            except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
                 pass
             time.sleep(0.02)
 

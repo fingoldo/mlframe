@@ -47,6 +47,7 @@ def _read_pyproject_version() -> str | None:
 
 
 def test_version_consistent_across_sources():
+    """mlframe.__version__, mlframe.version.__version__, and pyproject.toml's version all agree."""
     sources: dict[str, str] = {}
     if hasattr(mlframe, "__version__"):
         sources["mlframe.__version__"] = mlframe.__version__

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
 import numpy as np
 import pandas as pd
@@ -168,7 +168,7 @@ def test_pickle_round_trip_smoke():
     df, y = _make_data(seed=10)
     sel = _fast_mrmr().fit(df, y)
     blob = pickle.dumps(sel)
-    other = pickle.loads(blob)
+    other = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
     a = sel.transform(df)
     b = other.transform(df)
     np.testing.assert_array_equal(np.asarray(a), np.asarray(b))

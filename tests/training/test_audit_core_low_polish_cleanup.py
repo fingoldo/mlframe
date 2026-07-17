@@ -87,7 +87,7 @@ def test_phases_apply_third_party_patches_lazy_only() -> None:
     for later tests (per the test-pollution rule in CLAUDE.md).
     """
     import os
-    import subprocess
+    import subprocess  # nosec B404 -- test-only local trusted subprocess invocation (fixed argv, no shell, no untrusted input)
     import sys
     import textwrap
 
@@ -100,7 +100,7 @@ def test_phases_apply_third_party_patches_lazy_only() -> None:
         import mlframe.training  # noqa: F401
         sys.stdout.write("FACTORIES_IN_SYSMODULES=" + str("mlframe.training._model_factories" in sys.modules))
     """)
-    _res = subprocess.run(
+    _res = subprocess.run(  # nosec B603 -- fixed local argv (sys.executable/git + literal args), no shell, no untrusted input
         [sys.executable, "-c", _probe],
         capture_output=True,
         text=True,
@@ -177,7 +177,7 @@ def test_pipeline_does_not_mutate_env_at_import() -> None:
     later tests (per the test-pollution rule in CLAUDE.md).
     """
     import os
-    import subprocess
+    import subprocess  # nosec B404 -- test-only local trusted subprocess invocation (fixed argv, no shell, no untrusted input)
     import sys
     import textwrap
 
@@ -194,7 +194,7 @@ def test_pipeline_does_not_mutate_env_at_import() -> None:
         import sys as _s
         _s.stdout.write("PRE=" + repr(pre) + "\\n" + "POST=" + repr(post))
     """)
-    _res = subprocess.run(
+    _res = subprocess.run(  # nosec B603 -- fixed local argv (sys.executable/git + literal args), no shell, no untrusted input
         [sys.executable, "-c", _probe],
         capture_output=True,
         text=True,

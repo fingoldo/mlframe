@@ -90,7 +90,7 @@ def test_f73b_predict_then_pickle_roundtrips_clean(fitted_regressor):
     the same values. __getstate__ drops the cache; the restored estimator starts
     with an empty cache.
     """
-    import pickle
+    import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
     reg, X_te = fitted_regressor
     pred_before = reg.predict(X_te)
@@ -99,7 +99,7 @@ def test_f73b_predict_then_pickle_roundtrips_clean(fitted_regressor):
     assert "_prediction_trainer_cache" not in state, "__getstate__ must drop the runtime trainer cache"
     assert state.get("trainer") is None
 
-    reg2 = pickle.loads(pickle.dumps(reg))
+    reg2 = pickle.loads(pickle.dumps(reg))  # nosec B301 -- round-trip of a locally-created, trusted object
     assert reg2._prediction_trainer_cache == {}, "restored estimator must start with an empty trainer cache"
     pred_after = reg2.predict(X_te)
     np.testing.assert_allclose(pred_before, pred_after, rtol=1e-4, atol=1e-5)

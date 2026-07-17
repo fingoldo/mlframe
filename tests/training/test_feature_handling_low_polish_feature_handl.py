@@ -140,7 +140,7 @@ def test_locking_holder_pid_atomic_write(tmp_path, monkeypatch) -> None:
     # Try to write a PID through the private writer.
     try:
         instance._write_holder_pid()
-    except Exception:
+    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
         # Some versions require additional state; the assertion below covers
         # both the success path (file exists, atomic was used) and
         # error path (partial-file MUST not remain).

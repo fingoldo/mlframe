@@ -21,6 +21,7 @@ from mlframe.preprocessing.rare_count_pruning import collapse_rare_categories, d
 
 
 def _make_small_n_dataset(n: int, seed: int):
+    """Helper that make small n dataset."""
     rng = np.random.default_rng(seed)
     # a few genuinely informative, well-populated categories...
     informative_cat = rng.choice(["A", "B", "C"], size=n, p=[0.4, 0.35, 0.25])
@@ -34,10 +35,12 @@ def _make_small_n_dataset(n: int, seed: int):
 
 
 def test_biz_val_collapse_rare_categories_reduces_overfitting_on_small_n():
+    """Collapse rare categories reduces overfitting on small n."""
     df, y = _make_small_n_dataset(n=400, seed=0)
     X_train, X_test, y_train, y_test = train_test_split(df, y, test_size=0.3, random_state=0)
 
     def _encode(frame: pd.DataFrame) -> pd.DataFrame:
+        """Helper that encode."""
         return pd.get_dummies(frame)
 
     model_raw = RandomForestRegressor(n_estimators=100, random_state=0)
@@ -59,12 +62,14 @@ def test_biz_val_collapse_rare_categories_reduces_overfitting_on_small_n():
 
 
 def test_collapse_rare_categories_exact_behavior():
+    """Collapse rare categories exact behavior."""
     df = pd.DataFrame({"cat": ["a", "a", "a", "b", "c", "d"]})
     out = collapse_rare_categories(df, ["cat"], min_count=2, other_label="OTHER")
     assert list(out["cat"]) == ["a", "a", "a", "OTHER", "OTHER", "OTHER"]
 
 
 def test_drop_rare_features_flags_sparse_binary_indicator():
+    """Drop rare features flags sparse binary indicator."""
     df = pd.DataFrame({"common": np.concatenate([np.ones(100), np.zeros(100)]), "sparse": np.concatenate([np.ones(10), np.zeros(190)])})
     dropped = drop_rare_features(df, min_total_count=20)
     assert "sparse" in dropped
@@ -90,6 +95,7 @@ def _make_target_aware_dataset(n: int, seed: int):
 
 
 def _split_preserving_special(df: pd.DataFrame, y: np.ndarray, special_idx: np.ndarray, seed: int):
+    """Helper that split preserving special."""
     rng = np.random.default_rng(seed)
     test_special = special_idx[:25]
     train_special = special_idx[25:]
@@ -103,6 +109,7 @@ def _split_preserving_special(df: pd.DataFrame, y: np.ndarray, special_idx: np.n
 
 
 def _fit_and_auc(X_train: pd.DataFrame, y_train: np.ndarray, X_test: pd.DataFrame, y_test: np.ndarray) -> float:
+    """Helper that fit and auc."""
     train_enc = pd.get_dummies(X_train)
     test_enc = pd.get_dummies(X_test).reindex(columns=train_enc.columns, fill_value=0)
     clf = LogisticRegression(max_iter=200)
@@ -112,6 +119,7 @@ def _fit_and_auc(X_train: pd.DataFrame, y_train: np.ndarray, X_test: pd.DataFram
 
 
 def test_biz_val_collapse_rare_categories_target_aware_preserves_informative_rare_category():
+    """Collapse rare categories target aware preserves informative rare category."""
     df, y, special_idx = _make_target_aware_dataset(n=4000, seed=1)
     X_train, y_train, X_test, y_test = _split_preserving_special(df, y, special_idx, seed=2)
 
@@ -142,6 +150,7 @@ def test_collapse_rare_categories_target_aware_default_off_is_bit_identical():
 
 
 def test_collapse_rare_categories_target_aware_requires_y():
+    """Collapse rare categories target aware requires y."""
     df = pd.DataFrame({"cat": ["a", "a", "a", "b", "c", "d"]})
     try:
         collapse_rare_categories(df, ["cat"], min_count=2, target_aware=True)

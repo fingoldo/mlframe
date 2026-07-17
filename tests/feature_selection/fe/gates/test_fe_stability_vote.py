@@ -30,7 +30,7 @@ a plain (gate-relaxed) ``MRMR()`` and the signal must survive with default gates
 
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 import warnings
 
 import numpy as np
@@ -249,7 +249,7 @@ def test_ctor_knobs_exposed_and_pickle_safe():
     assert p["fe_stability_vote_enable"] is True
     assert p["fe_stability_vote_k"] == 7
     assert p["fe_stability_vote_quorum"] == 0.7
-    m2 = pickle.loads(pickle.dumps(m))
+    m2 = pickle.loads(pickle.dumps(m))  # nosec B301 -- round-trip of a locally-created, trusted object
     assert m2.get_params()["fe_stability_vote_k"] == 7
 
 

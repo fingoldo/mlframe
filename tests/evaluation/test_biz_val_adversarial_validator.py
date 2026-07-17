@@ -19,6 +19,7 @@ from mlframe.evaluation import AdversarialValidator
 
 
 def _make_shifted_scenario(seed: int):
+    """Helper that make shifted scenario."""
     rng = np.random.default_rng(seed)
     n_train, n_test = 3000, 600
 
@@ -38,6 +39,7 @@ def _make_shifted_scenario(seed: int):
 
 
 def test_biz_val_adversarial_validator_diagnostic_detects_shift_and_flags_shifted_feature():
+    """Adversarial validator diagnostic detects shift and flags shifted feature."""
     X_train, _, _, X_test, _ = _make_shifted_scenario(seed=0)
     validator = AdversarialValidator(seed=0).fit(X_train, X_test)
 
@@ -49,6 +51,7 @@ def test_biz_val_adversarial_validator_diagnostic_detects_shift_and_flags_shifte
 
 
 def test_biz_val_adversarial_validator_fold_selection_tracks_true_test_score():
+    """Adversarial validator fold selection tracks true test score."""
     X_train, y_train, regime, X_test, y_test = _make_shifted_scenario(seed=1)
     validator = AdversarialValidator(seed=1).fit(X_train, X_test)
 
@@ -60,6 +63,7 @@ def test_biz_val_adversarial_validator_fold_selection_tracks_true_test_score():
     val_idx_random, remainder_idx_random = perm[:n_val], perm[n_val:]
 
     def _fit_eval(remainder_idx, val_idx):
+        """Helper that fit eval."""
         model = LinearRegression().fit(X_train.iloc[remainder_idx][["x"]], y_train[remainder_idx])
         val_mae = mean_absolute_error(y_train[val_idx], model.predict(X_train.iloc[val_idx][["x"]]))
         test_mae = mean_absolute_error(y_test, model.predict(X_test[["x"]]))
@@ -77,6 +81,7 @@ def test_biz_val_adversarial_validator_fold_selection_tracks_true_test_score():
 
 
 def test_adversarial_validator_report_before_fit_raises():
+    """Adversarial validator report before fit raises."""
     validator = AdversarialValidator()
     try:
         validator.report()
@@ -103,6 +108,7 @@ def _make_pruning_scenario(seed: int, n_train: int = 2500, n_test: int = 2500, n
 
 
 def test_biz_val_adversarial_validator_prune_drift_features_isolates_known_drift_subset():
+    """Adversarial validator prune drift features isolates known drift subset."""
     X_train, X_test, known_drift_cols = _make_pruning_scenario(seed=3)
     validator = AdversarialValidator(seed=3).fit(X_train, X_test)
 

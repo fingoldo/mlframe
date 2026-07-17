@@ -296,7 +296,7 @@ class TestComplementaryPairsStability:
         def _sel(X_, y_):
             return np.array([0, 3])
 
-        sel, _freq, info = complementary_pairs_stability(
+        _sel_result, _freq, info = complementary_pairs_stability(
             X,
             y,
             _sel,

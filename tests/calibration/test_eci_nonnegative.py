@@ -16,6 +16,7 @@ from mlframe.calibration.quality import entropy_calibration_index
 
 @pytest.mark.parametrize("seed", [0, 1, 2, 3, 5, 8, 13, 21, 34, 55])
 def test_eci_nonnegative_on_calibrated_uniform_pit(seed):
+    """Eci nonnegative on calibrated uniform pit."""
     rng = np.random.default_rng(seed)
     pit = rng.uniform(0.0, 1.0, size=500)
     eci = entropy_calibration_index(pit, bins=10, miller_madow=True)
@@ -24,6 +25,7 @@ def test_eci_nonnegative_on_calibrated_uniform_pit(seed):
 
 @pytest.mark.parametrize("seed", [0, 1, 2, 3, 5])
 def test_eci_positive_on_miscalibrated_input(seed):
+    """Eci positive on miscalibrated input."""
     rng = np.random.default_rng(seed)
     # PIT concentrated near 0 -> far from uniform -> genuine miscalibration.
     pit = rng.beta(0.5, 5.0, size=500)

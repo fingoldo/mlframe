@@ -16,6 +16,8 @@ Coverage:
 
 from __future__ import annotations
 
+import importlib
+
 import numpy as np
 import pandas as pd
 import polars as pl
@@ -263,8 +265,8 @@ class TestCapabilityDetector:
         # ``.pipeline`` (lightweight subset); the dispatcher correctly
         # reports caps=0 in that case. Skip when either is missing.
         try:
-            import polars_ds
-            import polars_ds.pipeline  # noqa: F401
+            importlib.import_module("polars_ds")
+            importlib.import_module("polars_ds.pipeline")
         except ImportError:  # pragma: no cover
             pytest.skip("polars-ds (or polars_ds.pipeline) not installed")
         assert d.has("blueprint.impute")
@@ -278,8 +280,8 @@ class TestCapabilityDetector:
         # being importable; treat absence of either polars_ds OR the
         # .pipeline submodule as the None-case.
         try:
-            import polars_ds
-            import polars_ds.pipeline  # noqa: F401
+            importlib.import_module("polars_ds")
+            importlib.import_module("polars_ds.pipeline")
 
             _has_full_polars_ds = True
         except ImportError:

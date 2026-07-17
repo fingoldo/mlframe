@@ -99,7 +99,7 @@ def test_biz_value_multistat_lifts_varying_slope_regression():
         tr, te = slice(0, cut), slice(cut, n)
 
         def _encode(stats):
-            te_df, recipes = kfold_target_encode_fit(df.iloc[tr], y[tr], ["cell"], stats=stats)
+            te_df, recipes = kfold_target_encode_fit(df.iloc[tr], y[tr], ["cell"], stats=stats)  # noqa: B023 -- closure invoked twice below, same iteration, never stored
             from mlframe.feature_selection.filters.engineered_recipes import build_kfold_target_encoded_recipe
 
             cols_tr = [te_df[c].to_numpy() for c in te_df.columns]
@@ -113,11 +113,11 @@ def test_biz_value_multistat_lifts_varying_slope_regression():
                     global_mean=info["global_stats"][s],
                     smoothing=info["smoothing"],
                 )
-                cols_te.append(apply_recipe(rec, df.iloc[te]))
-            Xtr = np.column_stack([df["x_raw"].to_numpy()[tr], *cols_tr])
-            Xte = np.column_stack([df["x_raw"].to_numpy()[te], *cols_te])
-            m = GradientBoostingRegressor(n_estimators=120, max_depth=3, random_state=0).fit(Xtr, y[tr])
-            return r2_score(y[te], m.predict(Xte))
+                cols_te.append(apply_recipe(rec, df.iloc[te]))  # noqa: B023 -- closure invoked twice below, same iteration, never stored
+            Xtr = np.column_stack([df["x_raw"].to_numpy()[tr], *cols_tr])  # noqa: B023 -- closure invoked twice below, same iteration, never stored
+            Xte = np.column_stack([df["x_raw"].to_numpy()[te], *cols_te])  # noqa: B023 -- closure invoked twice below, same iteration, never stored
+            m = GradientBoostingRegressor(n_estimators=120, max_depth=3, random_state=0).fit(Xtr, y[tr])  # noqa: B023 -- closure invoked twice below, same iteration, never stored
+            return r2_score(y[te], m.predict(Xte))  # noqa: B023 -- closure invoked twice below, same iteration, never stored
 
         deltas.append(_encode(("mean", "std", "skew", "kurt")) - _encode(("mean",)))
     assert float(np.mean(deltas)) > 0.02, f"multistat TE should lift varying-slope regression: deltas={deltas}"

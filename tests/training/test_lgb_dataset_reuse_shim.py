@@ -838,7 +838,7 @@ class TestCoreAutoClearsLGBShimCacheAtStrategyEnd:
             if callable(fn):
                 try:
                     fn()
-                except Exception:
+                except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
                     pass
 
         vanilla = lgb.LGBMClassifier(n_estimators=3, **_QUIET_LGB)

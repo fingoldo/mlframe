@@ -18,7 +18,7 @@ Round-trip / serialisation / domain / purity for every entry is exercised by the
 
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
 import numpy as np
 import pytest

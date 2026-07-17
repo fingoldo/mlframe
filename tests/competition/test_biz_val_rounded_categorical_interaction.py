@@ -15,6 +15,7 @@ from mlframe.competition.rounded_categorical_interaction import RoundedNumericCa
 
 
 def _make_xor_style_dataset(n: int = 4000, seed: int = 0) -> tuple[pd.Series, pd.Series, npt_array]:
+    """Build numeric/categorical columns whose XOR of parity buckets determines the target, invisible to either column alone."""
     rng = np.random.default_rng(seed)
     numeric = rng.uniform(0.0, 10.0, size=n)
     categories = rng.choice(["A", "B", "C", "D"], size=n)
@@ -33,6 +34,7 @@ def _make_xor_style_dataset(n: int = 4000, seed: int = 0) -> tuple[pd.Series, pd
 
 
 def _target_mean_encode_oof(composite: pd.Series, target: npt_array, n_splits: int = 5, seed: int = 0) -> npt_array:
+    """Out-of-fold target-mean encode a categorical series via K-fold, filling unseen keys with the global mean."""
     encoded = np.zeros(len(composite), dtype=np.float64)
     global_mean = target.mean()
     kf = KFold(n_splits=n_splits, shuffle=True, random_state=seed)
@@ -48,6 +50,7 @@ npt_array = np.ndarray  # local alias to keep the tuple annotation above readabl
 
 
 def test_rounded_numeric_categorical_interaction_basic_transform() -> None:
+    """Composite key rounds numeric to N decimals, joins with sep, and renders nulls on either side as <NA>."""
     interaction = RoundedNumericCategoricalInteraction(decimals=1, sep="|")
     numeric = pd.Series([1.234, 2.567, np.nan, 3.001])
     categorical = pd.Series(["x", "y", "z", None])
@@ -60,12 +63,14 @@ def test_rounded_numeric_categorical_interaction_basic_transform() -> None:
 
 
 def test_rounded_numeric_categorical_interaction_rejects_length_mismatch() -> None:
+    """Numeric and categorical inputs of differing lengths raise ValueError instead of silently truncating."""
     interaction = RoundedNumericCategoricalInteraction()
     with pytest.raises(ValueError):
         interaction.transform(np.array([1.0, 2.0]), np.array(["a", "b", "c"]))
 
 
 def test_rounded_numeric_categorical_interaction_rejects_bad_params() -> None:
+    """Negative decimals or an empty separator both raise ValueError at construction time."""
     with pytest.raises(ValueError):
         RoundedNumericCategoricalInteraction(decimals=-1)
     with pytest.raises(ValueError):

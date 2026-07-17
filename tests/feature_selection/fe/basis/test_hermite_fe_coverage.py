@@ -10,7 +10,7 @@ the file completes in well under a minute on CPU.
 from __future__ import annotations
 
 import math
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 import warnings
 
 import numpy as np
@@ -23,6 +23,7 @@ try:
 except ImportError:  # pragma: no cover
 
     def fast_subset(values, **_):
+        """Fallback used when tests.conftest.fast_subset is unavailable: returns all values unfiltered."""
         return list(values)
 
 
@@ -78,6 +79,7 @@ from mlframe.feature_selection.filters.hermite_fe import (
 
 
 def _xor_pair(n=200, seed=42):
+    """Build an XOR-style pair where y depends on sign(x_a*x_b), invisible to either marginal alone."""
     rng = np.random.default_rng(seed)
     x_a = rng.normal(size=n)
     x_b = rng.normal(size=n)
@@ -86,6 +88,7 @@ def _xor_pair(n=200, seed=42):
 
 
 def _additive_pair(n=200, seed=42):
+    """Build a linearly-additive pair where y depends on x_a + 0.7*x_b."""
     rng = np.random.default_rng(seed)
     x_a = rng.normal(size=n)
     x_b = rng.normal(size=n)
@@ -94,6 +97,7 @@ def _additive_pair(n=200, seed=42):
 
 
 def _uniform_pair(n=200, seed=7):
+    """Build a bounded-uniform pair where y depends on x_a**2 - x_b**2 (quadratic boundary)."""
     rng = np.random.default_rng(seed)
     x_a = rng.uniform(-1, 1, size=n)
     x_b = rng.uniform(-1, 1, size=n)
@@ -102,6 +106,7 @@ def _uniform_pair(n=200, seed=7):
 
 
 def _positive_pair(n=200, seed=11):
+    """Build a strictly-positive (exponential) pair for laguerre-basis routing tests."""
     rng = np.random.default_rng(seed)
     x_a = rng.exponential(scale=1.0, size=n)
     x_b = rng.exponential(scale=1.0, size=n)
@@ -110,6 +115,7 @@ def _positive_pair(n=200, seed=11):
 
 
 def _periodic_pair(n=200, seed=21):
+    """Build a periodic pair where y depends on sin(2*pi*x_a), suited to the fourier basis."""
     rng = np.random.default_rng(seed)
     x_a = rng.uniform(-1, 1, size=n)
     x_b = rng.normal(size=n)
@@ -118,6 +124,7 @@ def _periodic_pair(n=200, seed=21):
 
 
 def _regression_pair(n=200, seed=33):
+    """Build a continuous-target pair where y = x_a*x_b plus small noise, for regression-mode tests."""
     rng = np.random.default_rng(seed)
     x_a = rng.normal(size=n)
     x_b = rng.normal(size=n)
@@ -132,6 +139,7 @@ def _regression_pair(n=200, seed=33):
 
 @pytest.mark.fast
 def test_quantile_bin_njit_returns_valid_bin_indices():
+    """_quantile_bin_njit produces equi-frequency bins (counts within +-1) covering [0, n_bins)."""
     rng = np.random.default_rng(0)
     x = rng.normal(size=500)
     bins = _quantile_bin_njit(x, 10)
@@ -143,6 +151,7 @@ def test_quantile_bin_njit_returns_valid_bin_indices():
 
 
 def test_plugin_mi_classif_njit_increases_with_signal():
+    """Plugin classif MI kernel scores a signal-carrying feature above pure noise, and noise is nonnegative."""
     rng = np.random.default_rng(0)
     x_noise = rng.normal(size=500)
     y = (rng.normal(size=500) > 0).astype(np.int64)
@@ -154,6 +163,7 @@ def test_plugin_mi_classif_njit_increases_with_signal():
 
 
 def test_plugin_mi_regression_njit_increases_with_signal():
+    """Plugin regression MI kernel scores a signal-carrying target above an unrelated noise target."""
     rng = np.random.default_rng(1)
     n = 500
     x = rng.normal(size=n)
@@ -165,6 +175,7 @@ def test_plugin_mi_regression_njit_increases_with_signal():
 
 
 def test_plugin_mi_batch_classif_matches_loop():
+    """Batched classif MI kernel matches a per-column loop over the single-feature kernel."""
     rng = np.random.default_rng(2)
     n = 400
     X = rng.normal(size=(n, 3))
@@ -175,6 +186,7 @@ def test_plugin_mi_batch_classif_matches_loop():
 
 
 def test_plugin_mi_batch_regression_matches_loop():
+    """Batched regression MI kernel matches a per-column loop over the single-feature kernel."""
     rng = np.random.default_rng(3)
     n = 400
     X = rng.normal(size=(n, 2))
@@ -194,6 +206,7 @@ def test_plugin_mi_batch_regression_matches_loop():
     ],
 )
 def test_poly_njit_kernels_match_numpy(njit_fn, par_fn, reference):
+    """Single and parallel njit polynomial-eval kernels agree with numpy's reference implementation."""
     rng = np.random.default_rng(4)
     x = rng.uniform(-0.9, 0.9, size=200).astype(np.float64)
     c = np.array([0.1, -0.3, 0.5, -0.2, 0.4], dtype=np.float64)
@@ -218,6 +231,7 @@ def test_poly_njit_kernels_match_numpy(njit_fn, par_fn, reference):
     ],
 )
 def test_poly_njit_handles_zero_and_single_coef(njit_fn):
+    """Degenerate coefficient vectors (empty -> all-zero output, single constant) don't crash any kernel."""
     x = np.linspace(-0.5, 0.5, 64).astype(np.float64)
     out_empty = njit_fn(np.ascontiguousarray(x), np.zeros(0, dtype=np.float64))
     assert out_empty.shape == x.shape
@@ -233,6 +247,7 @@ def test_poly_njit_handles_zero_and_single_coef(njit_fn):
 
 @pytest.mark.parametrize("basis", _POLY_BASES_FAST)
 def test_polyeval_dispatch_matches_njit_for_small_n(basis):
+    """Below _PAR_THRESHOLD, polyeval_dispatch routes to the plain njit kernel for every polynomial basis."""
     rng = np.random.default_rng(5)
     x = rng.uniform(-0.9, 0.9, size=300).astype(np.float64)
     c = np.array([0.0, 1.0, -0.5, 0.3], dtype=np.float64)
@@ -243,6 +258,7 @@ def test_polyeval_dispatch_matches_njit_for_small_n(basis):
 
 
 def test_polyeval_dispatch_force_njit_par_env(monkeypatch):
+    """MLFRAME_POLYEVAL_BACKEND=njit_par forces the parallel kernel regardless of array size."""
     monkeypatch.setenv("MLFRAME_POLYEVAL_BACKEND", "njit_par")
     rng = np.random.default_rng(6)
     x = rng.uniform(-0.5, 0.5, size=128).astype(np.float64)
@@ -253,6 +269,7 @@ def test_polyeval_dispatch_force_njit_par_env(monkeypatch):
 
 
 def test_polyeval_dispatch_force_njit_env(monkeypatch):
+    """MLFRAME_POLYEVAL_BACKEND=njit forces the single-threaded kernel and matches the analytic He_1(x)=x."""
     monkeypatch.setenv("MLFRAME_POLYEVAL_BACKEND", "njit")
     rng = np.random.default_rng(7)
     x = rng.uniform(-0.5, 0.5, size=300).astype(np.float64)
@@ -263,7 +280,7 @@ def test_polyeval_dispatch_force_njit_env(monkeypatch):
 
 
 def test_polyeval_dispatch_cuda_silent_fallback(monkeypatch):
-    """When user forces cuda but cupy isn't installed, dispatch silently falls back."""
+    """Forcing MLFRAME_POLYEVAL_BACKEND=cuda without cupy installed silently falls back to a finite result."""
     monkeypatch.setenv("MLFRAME_POLYEVAL_BACKEND", "cuda")
     x = np.linspace(-0.5, 0.5, 50).astype(np.float64)
     c = np.array([0.0, 1.0], dtype=np.float64)
@@ -273,12 +290,7 @@ def test_polyeval_dispatch_cuda_silent_fallback(monkeypatch):
 
 
 def test_polyeval_dispatch_par_threshold_routes_par(monkeypatch):
-    """n >= _PAR_THRESHOLD routes via the parallel ladder (default backend, no cuda).
-
-    Direct ``polyeval_dispatch`` call with a large array; we monkeypatch the
-    module-level threshold (no reload, which would re-bind classes and break
-    pickling/identity for other tests in the same process).
-    """
+    """n >= _PAR_THRESHOLD (monkeypatched down to 50) routes to the parallel kernel, matching it exactly."""
     monkeypatch.setenv("MLFRAME_POLYEVAL_BACKEND", "")
     monkeypatch.setattr(hfe, "_PAR_THRESHOLD", 50)
     monkeypatch.setattr(hfe, "_CUDA_THRESHOLD", 10_000_000)
@@ -290,6 +302,7 @@ def test_polyeval_dispatch_par_threshold_routes_par(monkeypatch):
 
 
 def test_make_dispatch_returns_callable_with_name():
+    """_make_dispatch builds a named, callable wrapper that returns finite output for its basis."""
     fn = _make_dispatch("chebyshev")
     assert callable(fn)
     assert "chebyshev" in fn.__name__
@@ -304,6 +317,7 @@ def test_make_dispatch_returns_callable_with_name():
 
 @pytest.mark.fast
 def test_basis_route_by_moments_branches():
+    """basis_route_by_moments picks chebyshev for too-small/bounded input, laguerre for heavy-tailed positive."""
     rng = np.random.default_rng(8)
     # Too-small array -> chebyshev fallback
     assert basis_route_by_moments(rng.normal(size=5)) == "chebyshev"
@@ -320,6 +334,7 @@ def test_basis_route_by_moments_branches():
 
 
 def test_safe_div_handles_zero_denominator():
+    """_safe_div never returns nan/inf even when the denominator contains exact zeros."""
     a = np.array([1.0, -1.0, 2.0])
     b = np.array([0.0, 0.0, 1.0])
     out = _safe_div(a, b)
@@ -327,6 +342,7 @@ def test_safe_div_handles_zero_denominator():
 
 
 def test_atan2_and_log_abs_signed_finite():
+    """_atan2 and _log_abs_signed stay finite across sign changes and exact zeros."""
     a = np.array([1.0, -2.0, 0.0, 3.0])
     b = np.array([-1.0, 2.0, 0.0, 1.0])
     assert np.all(np.isfinite(_atan2(a, b)))
@@ -340,6 +356,7 @@ def test_atan2_and_log_abs_signed_finite():
 
 @pytest.mark.parametrize("degree", _DEGREES_FAST)
 def test_canonical_seeds_shape_and_count(degree):
+    """_canonical_seeds yields at least one seed of shape (degree+1,) in float64 for every degree."""
     seeds = _canonical_seeds("hermite", degree)
     # At least the identity P_1 seed for degree >= 1.
     assert len(seeds) >= 1
@@ -349,6 +366,7 @@ def test_canonical_seeds_shape_and_count(degree):
 
 
 def test_canonical_seeds_degree_zero_empty():
+    """Degree 0 has no meaningful seed coefficients, so _canonical_seeds returns an empty list."""
     assert _canonical_seeds("hermite", 0) == []
 
 
@@ -358,6 +376,7 @@ def test_canonical_seeds_degree_zero_empty():
 
 
 def test_l2_normalize_pair_unit_norm():
+    """_l2_normalize_pair rescales the concatenated coefficient pair to the requested target L2 norm."""
     a = np.array([1.0, 2.0])
     b = np.array([-1.0, 0.5])
     na, nb = _l2_normalize_pair(a, b, target_norm=1.0)
@@ -366,6 +385,7 @@ def test_l2_normalize_pair_unit_norm():
 
 
 def test_l2_normalize_pair_zero_passes_through():
+    """All-zero coefficient vectors pass through _l2_normalize_pair unchanged (no divide-by-zero)."""
     a = np.zeros(3)
     b = np.zeros(3)
     na, nb = _l2_normalize_pair(a, b)
@@ -379,6 +399,7 @@ def test_l2_normalize_pair_zero_passes_through():
 
 
 def test_detect_pair_symmetry_symmetric_vs_asymmetric():
+    """detect_pair_symmetry returns a bounded [0,1] score for both radially-symmetric and single-feature targets."""
     rng = np.random.default_rng(101)
     n = 300
     x_a = rng.normal(size=n)
@@ -400,24 +421,28 @@ def test_detect_pair_symmetry_symmetric_vs_asymmetric():
 
 
 def test_baseline_mi_pair_plugin_classif():
+    """_baseline_mi_pair with the plugin estimator returns a finite, nonnegative MI on a classif XOR pair."""
     x_a, x_b, y = _xor_pair(n=300)
     mi = _baseline_mi_pair(x_a, x_b, y, discrete_target=True, mi_estimator="plugin", plugin_n_bins=15)
     assert math.isfinite(mi) and mi >= 0.0
 
 
 def test_baseline_mi_pair_plugin_regression():
+    """_baseline_mi_pair with the plugin estimator returns a finite, nonnegative MI on a regression pair."""
     x_a, x_b, y = _regression_pair(n=300)
     mi = _baseline_mi_pair(x_a, x_b, y, discrete_target=False, mi_estimator="plugin")
     assert math.isfinite(mi) and mi >= 0.0
 
 
 def test_baseline_mi_pair_ksg_classif():
+    """_baseline_mi_pair with the ksg estimator returns a finite, nonnegative MI on a classif XOR pair."""
     x_a, x_b, y = _xor_pair(n=200)
     mi = _baseline_mi_pair(x_a, x_b, y, discrete_target=True, mi_estimator="ksg", n_neighbors=5)
     assert math.isfinite(mi) and mi >= 0.0
 
 
 def test_baseline_mi_pair_ksg_regression():
+    """_baseline_mi_pair with the ksg estimator returns a finite, nonnegative MI on a regression pair."""
     x_a, x_b, y = _regression_pair(n=200)
     mi = _baseline_mi_pair(x_a, x_b, y, discrete_target=False, mi_estimator="ksg", n_neighbors=5)
     assert math.isfinite(mi) and mi >= 0.0
@@ -429,6 +454,7 @@ def test_baseline_mi_pair_ksg_regression():
 
 
 def _make_eval_kwargs(x_a, x_b, y, *, discrete=True):
+    """Build the shared keyword bundle _eval_coef_pair needs: chebyshev-fitted z_a/z_b plus bin-func choices."""
     basis_info = _POLY_BASES["chebyshev"]
     z_a, _ = basis_info["fit"](x_a)
     z_b, _ = basis_info["fit"](x_b)
@@ -454,6 +480,7 @@ def _make_eval_kwargs(x_a, x_b, y, *, discrete=True):
 
 
 def test_eval_coef_pair_returns_finite_score():
+    """_eval_coef_pair returns a finite score, nonnegative raw MI, and a valid bin-func index."""
     x_a, x_b, y = _xor_pair(n=300)
     kw = _make_eval_kwargs(x_a, x_b, y)
     coef_a = np.array([0.0, 1.0, 0.0], dtype=np.float64)
@@ -465,6 +492,7 @@ def test_eval_coef_pair_returns_finite_score():
 
 
 def test_eval_coef_pair_direction_only():
+    """direction_only=True still returns a finite score and a valid bin-func index."""
     x_a, x_b, y = _xor_pair(n=300)
     kw = _make_eval_kwargs(x_a, x_b, y)
     coef_a = np.array([0.0, 5.0, 0.0], dtype=np.float64)
@@ -480,7 +508,7 @@ def test_eval_coef_pair_direction_only():
 
 
 def test_eval_coef_pair_with_eval_func_b():
-    """Cover the eval_func_b parameter introduced for factory bases."""
+    """A separate eval_func_b for the second feature (factory bases) still yields a finite score."""
     x_a, x_b, y = _xor_pair(n=300)
     kw = _make_eval_kwargs(x_a, x_b, y)
     coef_a = np.array([0.0, 1.0], dtype=np.float64)
@@ -495,11 +523,12 @@ def test_eval_coef_pair_with_eval_func_b():
 
 
 def test_eval_coef_pair_handles_non_finite_eval():
-    """If eval_func returns nan/inf, function returns (-inf, 0, -1)."""
+    """_eval_coef_pair returns the sentinel (-inf, 0, -1) whenever eval_func produces non-finite output."""
     x_a, x_b, y = _xor_pair(n=200)
     kw = _make_eval_kwargs(x_a, x_b, y)
 
     def bad_eval(z, c):
+        """Stand-in eval_func that always returns nan, to force the non-finite sentinel path."""
         out = np.empty_like(z)
         out[:] = np.nan
         return out
@@ -513,12 +542,12 @@ def test_eval_coef_pair_handles_non_finite_eval():
 
 
 def test_eval_coef_pair_all_bin_funcs_fail():
-    """If every bin_func errors out (here divides by zero from a constant array),
-    eval_coef_pair returns (-inf, 0, -1)."""
+    """_eval_coef_pair returns the sentinel (-inf, 0, -1) when every bin_func candidate raises."""
     x_a, x_b, y = _xor_pair(n=200)
     kw = _make_eval_kwargs(x_a, x_b, y)
 
     def raises_bf(a, b):
+        """Stand-in bin_func that always raises, to force the all-bin-funcs-fail sentinel path."""
         raise RuntimeError("forced failure")
 
     kw["bf_callables"] = [raises_bf, raises_bf]
@@ -531,7 +560,7 @@ def test_eval_coef_pair_all_bin_funcs_fail():
 
 
 def test_eval_coef_pair_ksg_estimator_path():
-    """Cover the KSG branch of _eval_coef_pair."""
+    """mi_estimator='ksg' in _eval_coef_pair (classif) returns a finite score."""
     x_a, x_b, y = _xor_pair(n=180)
     kw = _make_eval_kwargs(x_a, x_b, y)
     kw["mi_estimator"] = "ksg"
@@ -543,6 +572,7 @@ def test_eval_coef_pair_ksg_estimator_path():
 
 
 def test_eval_coef_pair_ksg_regression_path():
+    """mi_estimator='ksg' in _eval_coef_pair (regression) returns a finite score."""
     x_a, x_b, y = _regression_pair(n=180)
     kw = _make_eval_kwargs(x_a, x_b, y, discrete=False)
     kw["mi_estimator"] = "ksg"
@@ -559,10 +589,12 @@ def test_eval_coef_pair_ksg_regression_path():
 
 
 def test_select_diverse_topm_empty():
+    """An empty history yields an empty diverse top-M selection."""
     assert _select_diverse_topm([], top_m=3) == []
 
 
 def test_select_diverse_topm_keeps_diverse_entries():
+    """_select_diverse_topm keeps up to top_m entries, always leading with the single highest-scoring one."""
     rng = np.random.default_rng(99)
     history = []
     for _ in range(8):
@@ -576,7 +608,7 @@ def test_select_diverse_topm_keeps_diverse_entries():
 
 
 def test_select_diverse_topm_cross_degree_padding():
-    """Coef vectors of differing lengths must be zero-padded for comparison."""
+    """_select_diverse_topm zero-pads coefficient vectors of differing degree lengths before distance comparison."""
     history = [
         (1.0, 0.2, 0, np.array([1.0, 0.0]), np.array([0.0, 1.0])),
         (0.9, 0.1, 0, np.array([1.0, 0.0, 0.0]), np.array([0.0, 1.0, 0.0])),
@@ -592,6 +624,7 @@ def test_select_diverse_topm_cross_degree_padding():
 
 
 def test_run_cma_search_with_warm_seeds():
+    """_run_cma_search seeded with warm-start coefficients returns a valid coef_a/coef_b/bf_idx result."""
     pytest.importorskip("cma")
     x_a, x_b, y = _xor_pair(n=200)
     kw = _make_eval_kwargs(x_a, x_b, y)
@@ -616,6 +649,7 @@ def test_run_cma_search_with_warm_seeds():
 
 
 def test_run_cma_search_without_warm_seeds():
+    """_run_cma_search with an empty warm_start_seeds list still returns either None or a valid 5-tuple."""
     pytest.importorskip("cma")
     x_a, x_b, y = _xor_pair(n=200)
     kw = _make_eval_kwargs(x_a, x_b, y)
@@ -634,6 +668,7 @@ def test_run_cma_search_without_warm_seeds():
 
 
 def test_run_cma_search_track_history():
+    """track_history=True adds a list-typed history as a 6th element to the _run_cma_search result tuple."""
     pytest.importorskip("cma")
     x_a, x_b, y = _xor_pair(n=200)
     kw = _make_eval_kwargs(x_a, x_b, y)
@@ -655,6 +690,7 @@ def test_run_cma_search_track_history():
 
 
 def test_run_cma_search_direction_only():
+    """direction_only=True still lets _run_cma_search converge to a non-None result."""
     pytest.importorskip("cma")
     x_a, x_b, y = _xor_pair(n=200)
     kw = _make_eval_kwargs(x_a, x_b, y)
@@ -679,6 +715,7 @@ def test_run_cma_search_direction_only():
 
 @pytest.mark.parametrize("basis", _POLY_BASES_FAST)
 def test_optimise_hermite_pair_each_polynomial_basis(basis):
+    """optimise_hermite_pair returns None or a HermiteResult with matching basis for every polynomial basis."""
     x_a, x_b, y = _xor_pair(n=200) if basis == "hermite" else _uniform_pair(n=200)
     if basis == "laguerre":
         x_a, x_b, y = _positive_pair(n=200)
@@ -712,7 +749,7 @@ def test_optimise_hermite_pair_each_polynomial_basis(basis):
 
 @pytest.mark.parametrize("basis", _EXTRA_BASES_FAST)
 def test_optimise_hermite_pair_extra_bases(basis):
-    """Each extra basis triggers the eval_njit (fourier/pade) or eval_njit_factory (rbf/sigmoid) path."""
+    """Non-polynomial bases (fourier/rbf/sigmoid/pade) each route through their own eval path and stay valid."""
     if basis == "fourier":
         x_a, x_b, y = _periodic_pair(n=200)
     elif basis == "pade":
@@ -749,6 +786,7 @@ def test_optimise_hermite_pair_extra_bases(basis):
 
 @pytest.mark.slow
 def test_optimise_hermite_pair_optuna_path():
+    """optimizer='optuna' with early stopping still returns None or a valid HermiteResult."""
     x_a, x_b, y = _xor_pair(n=200)
     res = optimise_hermite_pair(
         x_a,
@@ -772,7 +810,7 @@ def test_optimise_hermite_pair_optuna_path():
 
 @pytest.mark.slow
 def test_optimise_hermite_pair_optuna_no_early_stop():
-    """Cover the else-branch (no early_stop) of optimise_hermite_pair."""
+    """optimizer='optuna' with early_stop_no_improve=0 exercises the no-early-stop branch."""
     x_a, x_b, y = _xor_pair(n=200)
     res = optimise_hermite_pair(
         x_a,
@@ -795,6 +833,7 @@ def test_optimise_hermite_pair_optuna_no_early_stop():
 
 
 def test_optimise_hermite_pair_cma_with_sweep_degrees():
+    """sweep_degrees=True lets the optimizer pick any degree within [min_degree, max_degree]."""
     x_a, x_b, y = _xor_pair(n=200)
     res = optimise_hermite_pair(
         x_a,
@@ -817,6 +856,7 @@ def test_optimise_hermite_pair_cma_with_sweep_degrees():
 
 
 def test_optimise_hermite_pair_direction_only_arg():
+    """direction_only=True at the optimise_hermite_pair level still returns None or a valid HermiteResult."""
     x_a, x_b, y = _xor_pair(n=200)
     res = optimise_hermite_pair(
         x_a,
@@ -839,6 +879,7 @@ def test_optimise_hermite_pair_direction_only_arg():
 
 
 def test_optimise_hermite_pair_warm_start_false():
+    """warm_start=False (cold-start CMA) still returns None or a valid HermiteResult."""
     x_a, x_b, y = _xor_pair(n=200)
     res = optimise_hermite_pair(
         x_a,
@@ -861,7 +902,7 @@ def test_optimise_hermite_pair_warm_start_false():
 
 @pytest.mark.slow
 def test_optimise_hermite_pair_multi_fidelity_path():
-    """Need n >= 4000 to trigger the multi-fidelity subsample branch."""
+    """multi_fidelity=True at n>=4000 triggers the subsample-then-refine branch and still returns a valid result."""
     rng = np.random.default_rng(13)
     n = 4200
     x_a = rng.normal(size=n)
@@ -887,7 +928,7 @@ def test_optimise_hermite_pair_multi_fidelity_path():
 
 
 def test_optimise_hermite_pair_trivial_baseline_branch():
-    """use_trivial_baseline=True hits the best_trivial_pair branch."""
+    """use_trivial_baseline=True hits the best_trivial_pair branch and still returns a valid result."""
     x_a, x_b, y = _xor_pair(n=200)
     res = optimise_hermite_pair(
         x_a,
@@ -909,7 +950,7 @@ def test_optimise_hermite_pair_trivial_baseline_branch():
 
 
 def test_optimise_hermite_pair_regression_target():
-    """discrete_target=False exercises the regression code paths in baselines & MI estimator."""
+    """discrete_target=False exercises the regression code paths in baselines & MI estimator, still valid output."""
     x_a, x_b, y = _regression_pair(n=200)
     res = optimise_hermite_pair(
         x_a,
@@ -931,6 +972,7 @@ def test_optimise_hermite_pair_regression_target():
 
 
 def test_optimise_hermite_pair_ksg_estimator():
+    """mi_estimator='ksg' at the optimise_hermite_pair level still returns None or a valid HermiteResult."""
     x_a, x_b, y = _xor_pair(n=180)
     res = optimise_hermite_pair(
         x_a,
@@ -954,7 +996,7 @@ def test_optimise_hermite_pair_ksg_estimator():
 
 
 def test_optimise_hermite_pair_neighbors_auto_pick_small():
-    """n < 1000 -> n_neighbors=7 branch."""
+    """n_neighbors=None at n<1000 auto-picks the small-sample n_neighbors=7 branch without raising."""
     x_a, x_b, y = _xor_pair(n=300)
     _ = optimise_hermite_pair(
         x_a,
@@ -981,24 +1023,28 @@ def test_optimise_hermite_pair_neighbors_auto_pick_small():
 
 
 def test_optimise_hermite_pair_invalid_estimator():
+    """An unrecognized mi_estimator raises ValueError mentioning 'mi_estimator'."""
     x_a, x_b, y = _xor_pair(n=100)
     with pytest.raises(ValueError, match="mi_estimator"):
         optimise_hermite_pair(x_a, x_b, y, mi_estimator="bogus")
 
 
 def test_optimise_hermite_pair_invalid_optimizer():
+    """An unrecognized optimizer raises ValueError mentioning 'optimizer'."""
     x_a, x_b, y = _xor_pair(n=100)
     with pytest.raises(ValueError, match="optimizer"):
         optimise_hermite_pair(x_a, x_b, y, optimizer="bogus")
 
 
 def test_optimise_hermite_pair_invalid_basis():
+    """An unrecognized basis name raises ValueError mentioning 'basis'."""
     x_a, x_b, y = _xor_pair(n=100)
     with pytest.raises(ValueError, match="basis"):
         optimise_hermite_pair(x_a, x_b, y, basis="quaternion")
 
 
 def test_optimise_pair_multimode_invalid_basis():
+    """optimise_pair_multimode also validates basis and raises ValueError mentioning 'basis'."""
     x_a, x_b, y = _xor_pair(n=100)
     with pytest.raises(ValueError, match="basis"):
         optimise_pair_multimode(x_a, x_b, y, basis="quaternion")
@@ -1010,6 +1056,7 @@ def test_optimise_pair_multimode_invalid_basis():
 
 
 def test_optimise_pair_multimode_basic():
+    """optimise_pair_multimode returns a list of HermiteResult instances for a diverse multi-solution search."""
     x_a, x_b, y = _xor_pair(n=200)
     results = optimise_pair_multimode(
         x_a,
@@ -1031,7 +1078,7 @@ def test_optimise_pair_multimode_basic():
 
 
 def test_optimise_pair_multimode_factory_basis_rbf():
-    """Factory basis path (RBF) in multimode: covers the per-feature eval_func_b branch."""
+    """The RBF factory-basis path in multimode exercises the per-feature eval_func_b branch without crashing."""
     x_a, x_b, y = _xor_pair(n=200)
     results = optimise_pair_multimode(
         x_a,
@@ -1051,6 +1098,7 @@ def test_optimise_pair_multimode_factory_basis_rbf():
 
 
 def test_optimise_pair_multimode_regression():
+    """discrete_target=False in multimode search still returns a list of results."""
     x_a, x_b, y = _regression_pair(n=200)
     results = optimise_pair_multimode(
         x_a,
@@ -1074,6 +1122,7 @@ def test_optimise_pair_multimode_regression():
 
 
 def test_hermite_result_construct_and_transform():
+    """HermiteResult.transform applies the stored coefficients/bin_func and returns finite output of input shape."""
     rng = np.random.default_rng(55)
     n = 300
     x_a = rng.uniform(-1, 1, size=n)
@@ -1101,6 +1150,7 @@ def test_hermite_result_construct_and_transform():
 
 
 def test_hermite_result_pickle_roundtrip():
+    """HermiteResult survives a pickle round-trip with coefficients and metadata preserved exactly."""
     res = HermiteResult(
         coef_a=np.array([1.0, 0.0]),
         coef_b=np.array([0.0, 1.0]),
@@ -1116,7 +1166,7 @@ def test_hermite_result_pickle_roundtrip():
         preprocess_b=dict(lo=-1.0, hi=1.0),
     )
     blob = pickle.dumps(res)
-    loaded = pickle.loads(blob)
+    loaded = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
     np.testing.assert_array_equal(loaded.coef_a, res.coef_a)
     np.testing.assert_array_equal(loaded.coef_b, res.coef_b)
     assert loaded.bin_func_name == "add"
@@ -1129,6 +1179,7 @@ def test_hermite_result_pickle_roundtrip():
 
 
 def test_preprocess_zscore_then_apply_roundtrip():
+    """_preprocess_zscore's fitted params reproduce the same output via _apply_zscore on the same data."""
     rng = np.random.default_rng(91)
     x = rng.normal(size=200)
     z, params = hfe._preprocess_zscore(x)
@@ -1137,6 +1188,7 @@ def test_preprocess_zscore_then_apply_roundtrip():
 
 
 def test_preprocess_minmax_then_apply_roundtrip():
+    """_preprocess_minmax_neg1_1 maps data into [-1, 1] and _apply_minmax reproduces it from stored params."""
     rng = np.random.default_rng(92)
     x = rng.uniform(-3, 7, size=200)
     z, params = hfe._preprocess_minmax_neg1_1(x)
@@ -1146,6 +1198,7 @@ def test_preprocess_minmax_then_apply_roundtrip():
 
 
 def test_preprocess_shift_then_apply_roundtrip():
+    """_preprocess_shift_nonneg shifts data to be nonnegative and _apply_shift reproduces it from stored params."""
     rng = np.random.default_rng(93)
     x = rng.normal(loc=2.0, scale=1.0, size=200)
     z, params = hfe._preprocess_shift_nonneg(x)
@@ -1160,7 +1213,7 @@ def test_preprocess_shift_then_apply_roundtrip():
 
 
 def test_preprocess_constant_input_safe():
-    """Constant array must not crash any preprocess (epsilon-guarded)."""
+    """A constant-valued array must not crash zscore/minmax/shift preprocessors (epsilon-guarded)."""
     x = np.ones(100)
     z1, _ = hfe._preprocess_zscore(x)
     z2, _ = hfe._preprocess_minmax_neg1_1(x)
@@ -1175,6 +1228,7 @@ def test_preprocess_constant_input_safe():
 
 
 def test_poly_bases_registry_contains_all_expected():
+    """_POLY_BASES registers every expected basis name, with polynomial kinds exposing fit/apply/eval_dispatch."""
     expected = {"hermite", "legendre", "chebyshev", "laguerre", "fourier", "rbf", "sigmoid", "pade"}
     assert expected.issubset(set(_POLY_BASES.keys()))
     for name in ("hermite", "legendre", "chebyshev", "laguerre"):
@@ -1185,5 +1239,6 @@ def test_poly_bases_registry_contains_all_expected():
 
 
 def test_par_threshold_and_cuda_threshold_are_ints():
+    """_PAR_THRESHOLD and _CUDA_THRESHOLD are positive integers usable as size-routing cutoffs."""
     assert isinstance(_PAR_THRESHOLD, int) and _PAR_THRESHOLD > 0
     assert isinstance(_CUDA_THRESHOLD, int) and _CUDA_THRESHOLD > 0

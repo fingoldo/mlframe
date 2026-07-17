@@ -150,7 +150,7 @@ class TestDiscoveryCache:
         unpicklable = lambda x: x
         try:
             cache.set("abc", unpicklable)
-        except Exception:
+        except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
             pass
         # No file should exist at the target path.
         assert "abc" not in cache

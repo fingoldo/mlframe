@@ -6,7 +6,7 @@ expect pre-computed probability columns as features).
 """
 
 import numpy as np
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 import pytest
 from hypothesis import given, settings, strategies as st
 from hypothesis.extra.numpy import arrays
@@ -155,7 +155,7 @@ def test_pickle_roundtrip_averagers(clf):
     X = np.random.rand(10, 2)
     y = np.array([0, 1] * 5)
     clf.fit(X, y)
-    restored = pickle.loads(pickle.dumps(clf))
+    restored = pickle.loads(pickle.dumps(clf))  # nosec B301 -- round-trip of a locally-created, trusted object
     np.testing.assert_array_equal(clf.predict(X), restored.predict(X))
 
 

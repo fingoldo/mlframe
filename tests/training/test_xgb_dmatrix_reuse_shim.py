@@ -950,7 +950,7 @@ class TestCoreAutoClearsShimCacheAtStrategyEnd:
             if callable(fn):
                 try:
                     fn()
-                except Exception:
+                except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
                     pass
 
         # Vanilla XGBClassifier — no shim → no clear_cache → silent no-op.
@@ -1034,7 +1034,7 @@ class TestCoreAutoClearsShimCacheAtStrategyEnd:
                 hot(**{key: [member]})
         except AssertionError:
             raise  # poison fired -> finding regressed
-        except Exception:
+        except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
             # Any other shape mismatch -- the predict_proba poison didn't fire, which is the
             # surface we care about.
             pass

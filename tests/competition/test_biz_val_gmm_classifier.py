@@ -32,6 +32,7 @@ def _make_gaussian_mixture_data(n: int = 4000, n_features: int = 6, n_components
     y_parts = []
 
     def _random_full_cov(scale: float, corr: float) -> np.ndarray:
+        """Build a scaled correlation matrix with constant off-diagonal corr and unit diagonal."""
         # Correlated (non-axis-aligned) covariance -- axis-aligned tree splits and a
         # linear decision boundary both struggle with rotated covariance structure,
         # while a full-covariance GaussianMixture recovers it directly.
@@ -80,6 +81,7 @@ def _make_non_gmm_data(n: int = 4000, n_features: int = 20, seed: int = 0):
 
 
 def test_gmm_classifier_fit_predict_shapes():
+    """predict_proba returns a valid (n, 2) probability matrix and predict returns labels in {0, 1}."""
     X, y = _make_gaussian_mixture_data(n=400, seed=0)
     clf = GaussianMixtureClassifier(n_components_per_class=2, random_state=0)
     clf.fit(X, y)

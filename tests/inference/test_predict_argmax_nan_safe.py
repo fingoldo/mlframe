@@ -52,6 +52,7 @@ def _read_predict_core_combined_source() -> str:
 
 
 def test_no_bare_argmax_on_combined_or_avg_probs() -> None:
+    """No bare argmax on combined or avg probs."""
     src = _read_predict_core_combined_source()
     # The 4 audit-flagged sites (per-target + suite-wide in both predict
     # entries) must NOT use np.argmax(_combined, ...) or np.argmax(avg_probs, ...).

@@ -13,7 +13,7 @@ The subpackage now transparently re-exports stdlib ``signal``'s public names, so
 """
 
 import os
-import subprocess
+import subprocess  # nosec B404 -- test-only local trusted subprocess invocation (fixed argv, no shell, no untrusted input)
 import sys
 
 # repo_root/tests/signal_tests/this_file -> repo_root
@@ -24,7 +24,7 @@ _SRC_MLFRAME = os.path.join(_REPO_ROOT, "src", "mlframe")
 def _run(code: str, cwd: str):
     env = dict(os.environ)
     env["CUDA_VISIBLE_DEVICES"] = ""
-    return subprocess.run(
+    return subprocess.run(  # nosec B603 -- fixed local argv (sys.executable/git + literal args), no shell, no untrusted input
         [sys.executable, "-c", code],
         cwd=cwd,
         env=env,

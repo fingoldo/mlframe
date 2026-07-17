@@ -47,6 +47,7 @@ def _make_subgroup_miscalibrated_dataset(n: int, seed: int):
 
 
 def test_biz_val_threshold_range_rescaler_finds_and_applies_subgroup_correction():
+    """Grid search finds the correct subgroup/threshold/shrinking-multiplier and improves held-out AUC by >0.01."""
     pred, y, subgroups = _make_subgroup_miscalibrated_dataset(n=6000, seed=0)
 
     pred_train, pred_test, y_train, y_test, idx_train, idx_test = train_test_split(pred, y, np.arange(len(pred)), test_size=0.4, random_state=0, stratify=y)

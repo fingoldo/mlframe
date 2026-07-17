@@ -100,9 +100,9 @@ def test_biz_val_default_lgbm_params_auto_extra_trees_adapts_to_tree_count():
 
         def _rmse(params: dict) -> float:
             model = lgb.LGBMRegressor(**params)
-            model.fit(X_train, y_train)
-            pred = model.predict(X_test)
-            return float(np.sqrt(np.mean((pred - y_test) ** 2)))
+            model.fit(X_train, y_train)  # noqa: B023 -- closure invoked 4x below, same iteration, never stored
+            pred = model.predict(X_test)  # noqa: B023 -- closure invoked 4x below, same iteration, never stored
+            return float(np.sqrt(np.mean((pred - y_test) ** 2)))  # noqa: B023 -- closure invoked 4x below, same iteration, never stored
 
         rmse_small_auto.append(_rmse(default_lgbm_params(n_estimators=small_n_estimators, auto_extra_trees=True, random_state=seed)))
         rmse_small_off.append(_rmse(default_lgbm_params(n_estimators=small_n_estimators, extra_trees=True, random_state=seed)))

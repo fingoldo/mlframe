@@ -45,7 +45,7 @@ def _coverage_gap_cleanup():
         import matplotlib.pyplot as plt
 
         plt.close("all")
-    except Exception:
+    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
         pass
     try:
         from mlframe.training import trainer as _tr
@@ -54,7 +54,7 @@ def _coverage_gap_cleanup():
             cache = getattr(_tr, attr, None)
             if hasattr(cache, "clear"):
                 cache.clear()
-    except Exception:
+    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
         pass
     gc.collect()
     gc.collect()
@@ -1589,7 +1589,7 @@ def test_save_load_predict_in_subprocess(tmp_path):
     expected serving rows.
     """
     pytest.importorskip("catboost")
-    import subprocess
+    import subprocess  # nosec B404 -- test-only local trusted subprocess invocation (fixed argv, no shell, no untrusted input)
     import sys
 
     df = _make_baseline_pandas(n=300, seed=0, with_cat=False, regression=False)
@@ -1630,7 +1630,7 @@ def test_save_load_predict_in_subprocess(tmp_path):
     # the absolute src/ path to PYTHONPATH so ``import mlframe`` resolves.
     _src_abs = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "src"))
     _env = {**os.environ, "PYTHONPATH": _src_abs + os.pathsep + os.environ.get("PYTHONPATH", "")}
-    result = subprocess.run(
+    result = subprocess.run(  # nosec B603 -- fixed local argv (sys.executable/git + literal args), no shell, no untrusted input
         [sys.executable, "-c", script],
         capture_output=True,
         text=True,
@@ -2056,7 +2056,7 @@ def test_polars_to_pandas_does_not_double_peak_memory(tmp_path):
     pyarrow's default ``to_pandas()`` (which copies & consolidates
     blocks, ~35 min on 9M-row prod).
 
-    Tolerance is generous (3×) to accomodate CB's own memory + matplotlib
+    Tolerance is generous (3×) to accommodate CB's own memory + matplotlib
     figure cache + other unrelated allocations. The narrow check is
     "we didn't go to 10× input RAM", which is the real failure shape.
     """

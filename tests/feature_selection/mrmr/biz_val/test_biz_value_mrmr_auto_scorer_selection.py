@@ -39,7 +39,7 @@ NEVER xfail.
 
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 import warnings
 
 import numpy as np
@@ -589,7 +589,7 @@ class TestPickleAndClone:
             fe_hybrid_orth_top_k=3,
         ).fit(X, y)
         blob = pickle.dumps(m)
-        m2 = pickle.loads(blob)
+        m2 = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
         assert list(m2.feature_names_in_) == list(m.feature_names_in_), "pickle changed feature_names_in_"
         added_before = list(getattr(m, "hybrid_orth_features_", []) or [])
         added_after = list(getattr(m2, "hybrid_orth_features_", []) or [])

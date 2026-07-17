@@ -26,7 +26,7 @@ from __future__ import annotations
 import os
 
 os.environ.setdefault("TQDM_DISABLE", "1")
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
 import numpy as np
 import pandas as pd
@@ -284,7 +284,7 @@ def test_fe_mode_pickle_replays_engineered_columns_value_equal():
     eng_survivors = [c for c in h.raw_selected_ if c not in set(h.feature_names_in_)]
     assert eng_survivors, "expected at least one engineered (eng_N / t*_) survivor in the selection"
 
-    h2 = pickle.loads(pickle.dumps(h))
+    h2 = pickle.loads(pickle.dumps(h))  # nosec B301 -- round-trip of a locally-created, trusted object
     assert not hasattr(h2, "_Xaug_") and not hasattr(h2, "_y_")  # __getstate__ drops the transient training data
     T1, T2 = h.transform(Xfresh), h2.transform(Xfresh)
     assert list(T1.columns) == list(T2.columns)

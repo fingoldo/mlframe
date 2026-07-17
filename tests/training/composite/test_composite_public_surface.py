@@ -24,7 +24,7 @@ def test_transforms_registry_reexported_read_only() -> None:
 
 def test_star_import_excludes_noise() -> None:
     ns: dict = {}
-    exec("from mlframe.training.composite import *", ns)
+    exec("from mlframe.training.composite import *", ns)  # nosec B102 -- exec of a literal, locally-authored import string, never untrusted input
     for noise in ("logging", "annotations", "logger"):
         assert noise not in ns, f"star-import leaked {noise!r}"
     # The headline classes ARE exported.

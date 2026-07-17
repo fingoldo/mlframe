@@ -16,6 +16,7 @@ from mlframe.feature_selection.mi import grok_compute_mutual_information
 
 
 def _toy_bins(n: int = 300, seed: int = 0) -> pl.DataFrame:
+    """Build a binned target/signal/noise frame where signal is target plus small noise mod 8."""
     rng = np.random.default_rng(seed)
     target = rng.integers(0, 8, size=n, dtype=np.int8)
     signal = (target + rng.integers(0, 2, size=n, dtype=np.int8)) % 8

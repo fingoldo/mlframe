@@ -79,10 +79,19 @@ def rankdata_only_microbench():
             rankdata(YT2, axis=1, nan_policy="propagate")
             rankdata(yt, method="average")
         t2 = (
-            min(timeit.repeat(lambda: (rankdata(YT2, axis=1, nan_policy="propagate"), rankdata(YP2, axis=1, nan_policy="propagate")), number=20, repeat=20))
+            min(
+                timeit.repeat(
+                    lambda: (rankdata(YT2, axis=1, nan_policy="propagate"), rankdata(YP2, axis=1, nan_policy="propagate")),  # noqa: B023 -- timeit.repeat invokes the lambda synchronously within this iteration, never stored
+                    number=20,
+                    repeat=20,
+                )
+            )
             / 20
         )
-        t1 = min(timeit.repeat(lambda: (rankdata(yt, method="average"), rankdata(yp, method="average")), number=20, repeat=20)) / 20
+        t1 = (
+            min(timeit.repeat(lambda: (rankdata(yt, method="average"), rankdata(yp, method="average")), number=20, repeat=20))  # noqa: B023 -- timeit.repeat invokes the lambda synchronously within this iteration, never stored
+            / 20
+        )
         print(f"n={n}: 2D-batched {t2 * 1e6:.1f}us  1D {t1 * 1e6:.1f}us  speedup {t2 / t1:.2f}x")
 
 

@@ -37,12 +37,14 @@ from mlframe.training.callbacks import stop_file
 
 
 def _precision_at_top_decile(y, p):
+    """Helper that precision at top decile."""
     k = max(1, len(p) // 10)
     idx = np.argsort(-p)[:k]
     return float(np.mean(y[idx]))
 
 
 def test_beautify_alpha_zero_identity():
+    """Beautify alpha zero identity."""
     rng = np.random.default_rng(0)
     preds = rng.random(100)
     y = rng.integers(0, 2, size=100)
@@ -51,6 +53,7 @@ def test_beautify_alpha_zero_identity():
 
 
 def test_beautify_alpha_one_returns_y():
+    """Beautify alpha one returns y."""
     rng = np.random.default_rng(1)
     preds = rng.random(50)
     y = rng.integers(0, 2, size=50)
@@ -59,6 +62,7 @@ def test_beautify_alpha_one_returns_y():
 
 
 def test_beautify_increasing_alpha_lifts_precision():
+    """Beautify increasing alpha lifts precision."""
     rng = np.random.default_rng(42)
     n = 500
     y = rng.integers(0, 2, size=n)
@@ -76,6 +80,7 @@ def test_beautify_increasing_alpha_lifts_precision():
 
 
 def test_plot_beautified_lift_returns_figure():
+    """Plot beautified lift returns figure."""
     rng = np.random.default_rng(3)
     preds = rng.random(200)
     y = rng.integers(0, 2, size=200)
@@ -94,6 +99,7 @@ def test_plot_beautified_lift_returns_figure():
 
 
 def test_plot_pr_and_roc_smoke():
+    """Plot pr and roc smoke."""
     from sklearn.datasets import load_breast_cancer
     from sklearn.linear_model import LogisticRegression
 
@@ -115,6 +121,7 @@ def test_plot_pr_and_roc_smoke():
 
 
 def test_compute_ml_perf_by_time_basic():
+    """Compute ml perf by time basic."""
     rng = np.random.default_rng(7)
     n = 1000
     timestamps = pd.date_range("2024-01-01", periods=n, freq="h")
@@ -129,6 +136,7 @@ def test_compute_ml_perf_by_time_basic():
 
 
 def test_visualize_ml_metric_by_time_returns_figure():
+    """Visualize ml metric by time returns figure."""
     rng = np.random.default_rng(11)
     n = 240
     timestamps = pd.date_range("2024-01-01", periods=n, freq="h")
@@ -146,6 +154,7 @@ def test_visualize_ml_metric_by_time_returns_figure():
 
 
 def test_stop_file(tmp_path):
+    """Stop file."""
     f = tmp_path / "stop.flag"
     check = stop_file(str(f))
     assert check() is False
@@ -159,6 +168,7 @@ def test_stop_file(tmp_path):
 
 
 def test_catboost_stopfile_smoke(tmp_path):
+    """Catboost stopfile smoke."""
     pytest.importorskip("catboost")
     from mlframe.training.callbacks import CatBoostStopFileCallback
 
@@ -167,6 +177,7 @@ def test_catboost_stopfile_smoke(tmp_path):
 
 
 def test_lightgbm_stopfile_smoke(tmp_path):
+    """Lightgbm stopfile smoke."""
     pytest.importorskip("lightgbm")
     from mlframe.training.callbacks import LightGBMStopFileCallback
 
@@ -175,6 +186,7 @@ def test_lightgbm_stopfile_smoke(tmp_path):
 
 
 def test_xgboost_stopfile_smoke(tmp_path):
+    """Xgboost stopfile smoke."""
     pytest.importorskip("xgboost")
     from mlframe.training.callbacks import XGBoostStopFileCallback
 
@@ -183,6 +195,7 @@ def test_xgboost_stopfile_smoke(tmp_path):
 
 
 def test_lightning_stopfile_smoke(tmp_path):
+    """Lightning stopfile smoke."""
     pytest.importorskip("pytorch_lightning")
     from mlframe.training.callbacks import LightningStopFileCallback
 
@@ -196,6 +209,7 @@ def test_lightning_stopfile_smoke(tmp_path):
 
 
 def test_count_num_outofranges_and_naive_score():
+    """Count num outofranges and naive score."""
     rng = np.random.default_rng(13)
     X_train = rng.normal(size=(200, 5))
     X_test = rng.normal(size=(50, 5))
@@ -263,6 +277,7 @@ def test_nanminmax_cols_is_parallel_and_matches_numpy():
 
 
 def test_compute_outlier_detector_score():
+    """Compute outlier detector score."""
     from sklearn.ensemble import IsolationForest
 
     rng = np.random.default_rng(17)
@@ -280,6 +295,7 @@ def test_compute_outlier_detector_score():
 
 def test_brier_and_precision_score_passing_and_failing():
     # Nearly-perfect predictions -> should pass both thresholds -> positive value
+    """Brier and precision score passing and failing."""
     y = np.array([0, 0, 0, 1, 1, 1, 0, 1])
     good = np.array([0.02, 0.03, 0.01, 0.98, 0.97, 0.95, 0.04, 0.99])
     val_good = brier_and_precision_score(y, good, precision_threshold=0.5, brier_threshold=0.25)
@@ -292,6 +308,7 @@ def test_brier_and_precision_score_passing_and_failing():
 
 
 def test_make_brier_precision_scorer():
+    """Make brier precision scorer."""
     from sklearn.linear_model import LogisticRegression
     from sklearn.datasets import load_breast_cancer
 
@@ -310,6 +327,7 @@ def test_make_brier_precision_scorer():
 
 
 def _import_keras_or_skip():
+    """Helper that import keras or skip."""
     pytest.importorskip("tensorflow")
     pytest.importorskip("keras")
     from mlframe.training.neural.keras_compat import build_keras_mlp
@@ -323,6 +341,7 @@ def _import_keras_or_skip():
 
 
 def test_build_keras_mlp_smoke():
+    """Build keras mlp smoke."""
     _import_keras_or_skip()
     from mlframe.training.neural.keras_compat import build_keras_mlp
 
@@ -331,6 +350,7 @@ def test_build_keras_mlp_smoke():
 
 
 def test_keras_compatible_mlp_smoke():
+    """Keras compatible mlp smoke."""
     _import_keras_or_skip()
     from mlframe.training.neural.keras_compat import KerasCompatibleMLP
 

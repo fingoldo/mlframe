@@ -31,7 +31,7 @@ def _save_threads_zero(model, file, zstd_kwargs=None, verbose=0, lean=False, dur
     # The local Windows zstandard build raises ``ValueError: flush of closed file`` inside io.save_mlframe_model's
     # atomic_write_bytes (flush after the stream_writer context closed the file). io.py is in the locked-scope of
     # the parallel refactor, so the test writes the .dump directly (threads=0, no atomic rename) -- acceptable here.
-    import dill
+    import dill  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
     import zstandard as zstd
 
     try:

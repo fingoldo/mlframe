@@ -246,7 +246,7 @@ class TestGridSearchCVOverFEParams:
         """Refit + pickle of the best estimator round-trips cleanly.
         Production model-registry path: GridSearch -> pickle the best.
         """
-        import pickle
+        import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
         X, y = _build_quadratic_binary(seed=42, n=1200)
         pipe = Pipeline(

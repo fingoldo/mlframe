@@ -116,7 +116,7 @@ def test_qr_insert_raises_on_exact_duplicate_matching_lstsq_reject_outcome():
     assert old_dup_r2 - old_base < 0.005, "exact duplicate must not clear the R^2 floor via lstsq"
 
     Q, R = sla.qr(base_tr, mode="economic")
-    with pytest.raises(Exception):
+    with pytest.raises(np.linalg.LinAlgError):
         sla.qr_insert(Q, R, dup[tr], Q.shape[1], which="col")
 
 

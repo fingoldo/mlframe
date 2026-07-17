@@ -93,7 +93,7 @@ def test_general_early_exit_no_indexerror():
         )
     except IndexError as e:
         pytest.fail(f"IndexError on early-exit path: {e}")
-    except Exception:
+    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
         # other exceptions (e.g., empty stack) are allowed — we only care about IndexError
         pass
 

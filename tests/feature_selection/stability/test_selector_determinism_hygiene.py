@@ -33,7 +33,7 @@ from __future__ import annotations
 
 import os
 import re
-import subprocess
+import subprocess  # nosec B404 -- test-only local trusted subprocess invocation (fixed argv, no shell, no untrusted input)
 import sys
 
 import numpy as np
@@ -165,7 +165,7 @@ def _clear_mrmr_cache_if_any() -> None:
     if mod is not None:
         try:
             mod.MRMR._FIT_CACHE.clear()
-        except Exception:
+        except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
             pass
 
 
@@ -282,7 +282,7 @@ def _run_hashseed_children(seeds=("0", "42")) -> dict[str, str]:
     the 60s per-test timeout.
     """
     procs = {
-        s: subprocess.Popen(
+        s: subprocess.Popen(  # nosec B603 -- fixed local argv (sys.executable/git + literal args), no shell, no untrusted input
             [sys.executable, "-c", _HASHSEED_CHILD],
             env=_child_env(s),
             stdout=subprocess.PIPE,

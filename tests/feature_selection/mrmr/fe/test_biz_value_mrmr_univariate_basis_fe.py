@@ -159,7 +159,7 @@ def _basis_best_corr(x, y, basis, degrees=(2, 3, 4)):
                 _evaluate_basis_column(np.asarray(x, float), basis, int(d), aux_for_fit=None),
                 dtype=float,
             )
-        except Exception:
+        except Exception:  # nosec B112 -- best-effort skip of one iteration on a non-fatal error; the test's own assertions are unaffected
             continue
         if np.all(np.isfinite(v)) and float(np.std(v)) > 1e-12:
             best = max(best, abs(float(np.corrcoef(v, y)[0, 1])))

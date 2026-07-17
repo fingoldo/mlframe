@@ -50,7 +50,7 @@ def test_tampered_checkpoint_refused(tmp_path, monkeypatch):
 
 def test_missing_sidecar_refused(tmp_path, monkeypatch):
     monkeypatch.delenv("MLFRAME_ALLOW_UNVERIFIED_PICKLE", raising=False)
-    import pickle
+    import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
     ckpt = str(tmp_path / "rfecv.ckpt")
     with open(ckpt, "wb") as fh:

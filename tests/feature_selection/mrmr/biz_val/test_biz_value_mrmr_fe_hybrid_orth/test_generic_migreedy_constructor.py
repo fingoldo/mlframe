@@ -53,7 +53,7 @@ NEVER xfail. NEVER mask bugs via runtime workarounds.
 
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 import warnings
 from functools import cache
 

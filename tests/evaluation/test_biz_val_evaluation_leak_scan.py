@@ -15,6 +15,7 @@ from mlframe.evaluation.leak_scan import scan_temporal_leak
 
 
 def _make_leak_data(n: int, seed: int):
+    """Helper that make leak data."""
     rng = np.random.default_rng(seed)
     split_labels = rng.integers(0, 10, size=n)  # e.g. 10 time buckets / folds
     leak_col = split_labels.astype(np.float64) * 100.0 + rng.standard_normal(n) * 2.0  # strongly tracks the split
@@ -24,6 +25,7 @@ def _make_leak_data(n: int, seed: int):
 
 
 def test_scan_temporal_leak_flags_leaking_column_and_not_clean_ones():
+    """Scan temporal leak flags leaking column and not clean ones."""
     X, split_labels = _make_leak_data(3000, seed=0)
     result = scan_temporal_leak(X, split_labels, threshold=0.5)
 
@@ -38,6 +40,7 @@ def test_scan_temporal_leak_flags_leaking_column_and_not_clean_ones():
 
 
 def test_scan_temporal_leak_returns_sorted_by_abs_correlation():
+    """Scan temporal leak returns sorted by abs correlation."""
     X, split_labels = _make_leak_data(1000, seed=1)
     result = scan_temporal_leak(X, split_labels)
     abs_corrs = result["correlation"].abs().to_numpy()
@@ -45,24 +48,28 @@ def test_scan_temporal_leak_returns_sorted_by_abs_correlation():
 
 
 def test_scan_temporal_leak_length_mismatch_raises():
+    """Scan temporal leak length mismatch raises."""
     X = pd.DataFrame({"a": [1.0, 2.0, 3.0]})
     with pytest.raises(ValueError):
         scan_temporal_leak(X, split_labels=np.array([0, 1]))
 
 
 def test_scan_temporal_leak_empty_columns_returns_empty_frame():
+    """Scan temporal leak empty columns returns empty frame."""
     X = pd.DataFrame({"cat": ["a", "b", "c"]})
     result = scan_temporal_leak(X, split_labels=np.array([0, 1, 2]))
     assert result.empty
 
 
 def test_scan_temporal_leak_respects_columns_subset():
+    """Scan temporal leak respects columns subset."""
     X, split_labels = _make_leak_data(500, seed=2)
     result = scan_temporal_leak(X, split_labels, columns=["clean_0", "clean_1"])
     assert set(result["column"]) == {"clean_0", "clean_1"}
 
 
 def test_biz_val_scan_temporal_leak_detects_planted_leak_among_many_clean_features():
+    """Scan temporal leak detects planted leak among many clean features."""
     X, split_labels = _make_leak_data(5000, seed=42)
     result = scan_temporal_leak(X, split_labels, threshold=0.5)
 
@@ -97,6 +104,7 @@ def _make_derived_only_leak_data(n: int, seed: int):
 
 
 def test_scan_temporal_leak_scan_derived_false_is_bit_identical_to_baseline():
+    """Scan temporal leak scan derived false is bit identical to baseline."""
     X, split_labels = _make_leak_data(1500, seed=7)
     baseline = scan_temporal_leak(X, split_labels, threshold=0.5)
     explicit_default = scan_temporal_leak(X, split_labels, threshold=0.5, scan_derived=False)
@@ -104,6 +112,7 @@ def test_scan_temporal_leak_scan_derived_false_is_bit_identical_to_baseline():
 
 
 def test_biz_val_scan_temporal_leak_derived_diff_detects_leak_invisible_to_raw_columns():
+    """Scan temporal leak derived diff detects leak invisible to raw columns."""
     X, split_labels = _make_derived_only_leak_data(6000, seed=123)
 
     baseline = scan_temporal_leak(X, split_labels, threshold=0.5)
@@ -127,6 +136,7 @@ def test_biz_val_scan_temporal_leak_derived_diff_detects_leak_invisible_to_raw_c
 
 
 def test_scan_temporal_leak_scan_derived_caps_at_max_derived_features():
+    """Scan temporal leak scan derived caps at max derived features."""
     X, split_labels = _make_leak_data(500, seed=9)
     result = scan_temporal_leak(X, split_labels, scan_derived=True, max_derived_features=3)
     assert int(result["derived"].sum()) == 3

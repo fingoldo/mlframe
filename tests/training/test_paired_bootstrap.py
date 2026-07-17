@@ -38,7 +38,7 @@ def _sklearn_paired_loop(y, p1, p2, n_resamples, seed, minimize=True):
         try:
             v1 = float(_ll(y[idx], p1[idx]))
             v2 = float(_ll(y[idx], p2[idx]))
-        except Exception:
+        except Exception:  # nosec B112 -- best-effort skip of one iteration on a non-fatal error; the test's own assertions are unaffected
             continue
         if not (np.isfinite(v1) and np.isfinite(v2)):
             continue

@@ -234,7 +234,7 @@ def test_wrapped_model_predict_uses_decision_rule():
 
 def test_wrapped_model_pickle_roundtrip():
     """joblib pickle preserves calibrator + target_type."""
-    import pickle
+    import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
     probs, y = _make_multiclass()
     cal = _PerClassIsotonicCalibrator.fit(probs, y, TargetTypes.MULTICLASS_CLASSIFICATION)
@@ -245,7 +245,7 @@ def test_wrapped_model_pickle_roundtrip():
         TargetTypes.MULTICLASS_CLASSIFICATION,
     )
     blob = pickle.dumps(wrapped)
-    loaded = pickle.loads(blob)
+    loaded = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
     X = np.zeros((5, 4))
     out_original = wrapped.predict_proba(X)
     out_loaded = loaded.predict_proba(X)

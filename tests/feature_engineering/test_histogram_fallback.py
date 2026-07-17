@@ -38,7 +38,7 @@ def test_numerical_module_imports_even_when_astropy_broken() -> None:
     interpreter pristine while still exercising the from-scratch import path.
     """
     import os
-    import subprocess
+    import subprocess  # nosec B404 -- test-only local trusted subprocess invocation (fixed argv, no shell, no untrusted input)
     import sys
     import textwrap
 
@@ -52,7 +52,7 @@ def test_numerical_module_imports_even_when_astropy_broken() -> None:
         ok = hasattr(mod, "cont_entropy") and hasattr(mod, "histogram")
         sys.stdout.write("NUMERICAL_IMPORT_OK=" + str(ok))
     """)
-    _res = subprocess.run(
+    _res = subprocess.run(  # nosec B603 -- fixed local argv (sys.executable/git + literal args), no shell, no untrusted input
         [sys.executable, "-c", _probe],
         capture_output=True,
         text=True,

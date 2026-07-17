@@ -14,7 +14,7 @@ code frozen at fit (``encoding='raw'``) or to the per-cell smoothed mean-of-y
 
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 import warnings
 
 import numpy as np
@@ -139,7 +139,7 @@ def test_cat_cross_pickle_roundtrip_and_frozen_extra(pair_setup):
         te_lookup=te_lookup,
         global_mean=0.42,
     )
-    rec2 = pickle.loads(pickle.dumps(rec))
+    rec2 = pickle.loads(pickle.dumps(rec))  # nosec B301 -- round-trip of a locally-created, trusted object
     assert rec2 == rec
     X = pd.DataFrame({"i": ["a", "b"], "j": ["x", "x"]})
     np.testing.assert_array_equal(apply_recipe(rec, X), apply_recipe(rec2, X))

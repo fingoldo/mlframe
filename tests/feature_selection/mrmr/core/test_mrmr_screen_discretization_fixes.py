@@ -162,7 +162,7 @@ def test_fix5_int64_downcast_silent_under_verbose0(capsys):
     m = MRMR(verbose=0, n_jobs=1, full_npermutations=2, baseline_npermutations=2, skip_retraining_on_same_shape=False, fe_max_steps=0)
     try:
         m.fit(X.copy(), y)
-    except Exception:
+    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
         # We only care about stdout, not the (possibly noisy) fit completing.
         pass
     captured = capsys.readouterr()
@@ -176,7 +176,7 @@ def test_fix5_int64_downcast_logged_under_verbose1(caplog):
     with caplog.at_level(logging.INFO, logger="mlframe.feature_selection.filters.mrmr"):
         try:
             m.fit(X.copy(), y)
-        except Exception:
+        except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
             pass
     # Allow either substring match.
     msgs = " ".join(r.getMessage() for r in caplog.records)

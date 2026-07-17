@@ -15,6 +15,7 @@ import pytest
 
 @pytest.mark.fast
 def test_shap_oof_matches_legacy_full_x_test_slice_bit_identical():
+    """Shap oof matches legacy full x test slice bit identical."""
     pytest.importorskip("shap")
     import shap
     from sklearn.ensemble import GradientBoostingClassifier

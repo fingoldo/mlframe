@@ -389,7 +389,7 @@ class TestBizValStackedDiscovery:
                 try:
                     w.fit(train_df.iloc[:n_train], y[:n_train])
                     preds = w.predict(train_df.iloc[n_train:])
-                except Exception:
+                except Exception:  # nosec B112 -- best-effort skip of one iteration on a non-fatal error; the test's own assertions are unaffected
                     continue
                 mae = float(np.mean(np.abs(preds - y[n_train:])))
                 if mae < best:
@@ -429,7 +429,7 @@ class TestBizValStackedDiscovery:
             try:
                 oof = composite_oof_predictions(_factory, df, y, n_splits=3, random_state=0)
                 df_aug[f"_oof_{spec.name}"] = oof
-            except Exception:
+            except Exception:  # nosec B112 -- best-effort skip of one iteration on a non-fatal error; the test's own assertions are unaffected
                 continue
         stacked_mae = _best_holdout_mae(stacked, df_aug)
 

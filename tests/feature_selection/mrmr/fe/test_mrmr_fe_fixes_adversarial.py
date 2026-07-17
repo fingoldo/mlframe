@@ -41,7 +41,7 @@ from __future__ import annotations
 import json
 import os
 import re
-import subprocess
+import subprocess  # nosec B404 -- test-only local trusted subprocess invocation (fixed argv, no shell, no untrusted input)
 import sys
 import textwrap
 
@@ -96,7 +96,7 @@ def _fit_in_subprocess(body: str, *, timeout: int = 850) -> dict:
     env["CUDA_VISIBLE_DEVICES"] = ""
     env["MLFRAME_DISABLE_HNSW"] = "1"
     env["PYTHONUNBUFFERED"] = "1"
-    proc = subprocess.run(
+    proc = subprocess.run(  # nosec B603 -- fixed local argv (sys.executable/git + literal args), no shell, no untrusted input
         [sys.executable, "-c", src],
         capture_output=True,
         text=True,

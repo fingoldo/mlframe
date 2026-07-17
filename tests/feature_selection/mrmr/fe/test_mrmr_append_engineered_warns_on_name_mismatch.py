@@ -24,7 +24,7 @@ def test_name_mismatch_warns_not_silent(caplog):
     with caplog.at_level(logging.WARNING, logger="mlframe.feature_selection.filters.mrmr"):
         try:
             _append_engineered(self, base_out, X, recipes=recipes)
-        except Exception:
+        except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
             pass
     msgs = " ".join(r.getMessage() for r in caplog.records)
     assert "unnamed frame" in msgs or "could not wrap" in msgs

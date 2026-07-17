@@ -26,6 +26,7 @@ INTERMEDIATE_DIR = GOLDEN_DIR / "intermediate"
 
 
 def _extract_attr(mrmr, name: str, default=None):
+    """Fetch an optional fitted attribute from an MRMR instance, tolerating older attribute-name variants."""
     return getattr(mrmr, name, default)
 
 
@@ -71,6 +72,7 @@ def capture_intermediate(mrmr, scenario_name: str, seed: int) -> dict[str, Any]:
 
 
 def save_snapshot(snap: dict[str, Any], target_dir: Path) -> Path:
+    """Write a captured snapshot dict to ``<target_dir>/<scenario>.json``, sorted-key for stable diffs."""
     target_dir.mkdir(parents=True, exist_ok=True)
     path = target_dir / f"{snap['scenario']}.json"
     path.write_text(orjson.dumps(snap, option=orjson.OPT_INDENT_2 | orjson.OPT_SORT_KEYS).decode(), encoding="utf-8")
@@ -78,6 +80,7 @@ def save_snapshot(snap: dict[str, Any], target_dir: Path) -> Path:
 
 
 def load_snapshot(scenario_name: str, target_dir: Path) -> dict[str, Any]:
+    """Load a previously captured snapshot dict for the given scenario from ``target_dir``."""
     path = target_dir / f"{scenario_name}.json"
     return orjson.loads(path.read_text(encoding="utf-8"))
 

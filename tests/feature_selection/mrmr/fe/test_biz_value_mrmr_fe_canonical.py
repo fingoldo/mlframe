@@ -340,7 +340,7 @@ def _run_user_case_in_subprocess(seed: int, private: bool, n: int = _BUG1_N):
     reproduces the user's real invocation and makes the verdict reproducible: the
     pin FAILS pre-fix (raw ``a`` kept on the non-collapse seeds) and PASSES
     post-fix on EVERY seed."""
-    import subprocess
+    import subprocess  # nosec B404 -- test-only local trusted subprocess invocation (fixed argv, no shell, no untrusted input)
     import sys
 
     src = (
@@ -366,7 +366,7 @@ def _run_user_case_in_subprocess(seed: int, private: bool, n: int = _BUG1_N):
     # spurious "subprocess fit did not return a selection" failures unrelated to BUG1.
     # Disabling it makes the verdict reproducible regardless of concurrent load (2026-06-15).
     env["PYUTILZ_KERNEL_DISABLE_SWEEP"] = "1"
-    proc = subprocess.run(
+    proc = subprocess.run(  # nosec B603 -- fixed local argv (sys.executable/git + literal args), no shell, no untrusted input
         [sys.executable, "-c", src],
         capture_output=True,
         text=True,

@@ -12,6 +12,7 @@ import pandas as pd
 
 # --------------------------------------------------------------------------- API-P0-2
 def test_apixp0_apply_features_cleaning_default_does_not_mutate_caller_df():
+    """Apixp0 apply features cleaning default does not mutate caller df."""
     from mlframe.preprocessing.cleaning import apply_features_cleaning
 
     df = pd.DataFrame({"a": [1, 2, 3], "b": [9, 9, 9]})
@@ -31,6 +32,7 @@ def test_apixp0_apply_features_cleaning_default_does_not_mutate_caller_df():
 
 
 def test_apixp0_apply_features_cleaning_update_data_true_mutates():
+    """Apixp0 apply features cleaning update data true mutates."""
     from mlframe.preprocessing.cleaning import apply_features_cleaning
 
     df = pd.DataFrame({"a": [1, 2, 3], "b": [9, 9, 9]})
@@ -67,6 +69,7 @@ def test_api35_clusterize_accepts_ndarray_true_labels(monkeypatch):
 
 # --------------------------------------------------------------------------- API36
 def test_api36_prepare_df_for_xgboost_non_mutating_by_default():
+    """Api36 prepare df for xgboost non mutating by default."""
     from mlframe.preprocessing.transforms import prepare_df_for_xgboost
 
     df = pd.DataFrame({"a": [1, 2, 3], "b": ["x", "y", "x"]})
@@ -85,6 +88,7 @@ def test_api36_prepare_df_for_xgboost_non_mutating_by_default():
 
 
 def test_api36_prepare_df_for_xgboost_inplace_true_mutates():
+    """Api36 prepare df for xgboost inplace true mutates."""
     from mlframe.preprocessing.transforms import prepare_df_for_xgboost
 
     df = pd.DataFrame({"a": [1, 2, 3], "b": ["x", "y", "x"]})

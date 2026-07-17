@@ -109,12 +109,12 @@ def test_toplevel_lazy_symbols_resolve():
 
 def test_plain_import_mlframe_does_not_load_training(monkeypatch):
     """A subprocess ``import mlframe`` must NOT drag in the heavy training stack."""
-    import subprocess
+    import subprocess  # nosec B404 -- test-only local trusted subprocess invocation (fixed argv, no shell, no untrusted input)
     import sys
 
     code = "import sys, mlframe;print('mlframe.training' in sys.modules);f = mlframe.train_mlframe_models_suite;print('mlframe.training' in sys.modules)"
     env = {**__import__("os").environ, "CUDA_VISIBLE_DEVICES": ""}
-    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=env)
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=env)  # nosec B603 -- fixed local argv (sys.executable/git + literal args), no shell, no untrusted input
     assert out.returncode == 0, out.stderr
     lines = [l for l in out.stdout.strip().splitlines() if l in ("True", "False")]
     assert lines[-2:] == ["False", "True"], f"expected training NOT loaded on bare import, loaded after access; got {lines} / {out.stdout!r}"

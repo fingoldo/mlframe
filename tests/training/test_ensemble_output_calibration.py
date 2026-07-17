@@ -173,13 +173,13 @@ def test_fit_output_calibrator_attaches_and_lowers_oof_rmse():
 
 
 def test_calibrator_survives_pickle():
-    import pickle
+    import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
     ens, oof_matrix, y, _ = _build_ensemble_with_oof()
     ens.fit_output_calibrator(oof_matrix, y, method="isotonic")
     X = np.zeros((len(y), 1))
     before = ens.predict(X)
-    restored = pickle.loads(pickle.dumps(ens))
+    restored = pickle.loads(pickle.dumps(ens))  # nosec B301 -- round-trip of a locally-created, trusted object
     after = restored.predict(X)
     assert np.allclose(before, after), "calibrator did not survive pickle round-trip"
     assert restored.calibrate_output is True

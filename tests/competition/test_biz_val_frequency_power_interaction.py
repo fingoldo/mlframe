@@ -44,6 +44,7 @@ def _make_dataset(n_unique: int, n_pairs: int, seed: int):
 
 
 def _oof_auc(features: np.ndarray, y: np.ndarray, seed: int) -> float:
+    """Return the 5-fold stratified out-of-fold AUC of a standardized logistic regression on features."""
     cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=seed)
     clf = make_pipeline(StandardScaler(), LogisticRegression(max_iter=1000))
     oof_pred = cross_val_predict(clf, features, y, cv=cv, method="predict_proba")[:, 1]
@@ -51,6 +52,7 @@ def _oof_auc(features: np.ndarray, y: np.ndarray, seed: int) -> float:
 
 
 def test_biz_val_frequency_power_interaction_beats_raw_plus_count():
+    """Power-interaction feature adds >=0.06 absolute OOF AUC over raw feature + plain count alone."""
     x, counts, interaction, y = _make_dataset(n_unique=3000, n_pairs=1500, seed=0)
 
     baseline_features = np.column_stack([x, counts])
@@ -68,6 +70,7 @@ def test_biz_val_frequency_power_interaction_beats_raw_plus_count():
 
 
 def test_biz_val_frequency_power_interaction_clip_bounds_exponent():
+    """Clipped counts stay within count_clip_range, scaled feature within feature_range, and interaction is scaled**clipped_count."""
     x, _counts, _interaction, _ = _make_dataset(n_unique=1000, n_pairs=500, seed=1)
     result = frequency_power_interaction(x, feature_range=(-4.0, 4.0), count_clip_range=(1.0, 3.0))
     assert np.all(result.clipped_counts >= 1.0)

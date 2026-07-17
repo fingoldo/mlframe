@@ -161,7 +161,7 @@ def test_mutually_exclusive_pairs_are_enforced_by_a_validator():
                 cls(**kwargs)
             except (ValidationError, ValueError):
                 continue  # Properly rejected.
-            except Exception:
+            except Exception:  # nosec B112 -- best-effort skip of one iteration on a non-fatal error; the test's own assertions are unaffected
                 # Some other error — likely synth-value type mismatch.
                 # Inconclusive but skip.
                 continue

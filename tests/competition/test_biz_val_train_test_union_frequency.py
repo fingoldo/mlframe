@@ -65,6 +65,7 @@ def _make_drifting_version_dataset(n_rows: int = 20000, n_versions: int = 60, se
 
 
 def test_train_test_union_frequency_encode_basic_shapes_and_values():
+    """Union frequency counts pool train+test occurrences per value, preserving each series' own index."""
     train_series = pd.Series(["a", "a", "b", "c"], index=[10, 11, 12, 13])
     test_series = pd.Series(["a", "b", "b"], index=[20, 21, 22])
 
@@ -78,6 +79,7 @@ def test_train_test_union_frequency_encode_basic_shapes_and_values():
 
 
 def test_train_test_union_frequency_encode_hierarchical_components_levels():
+    """Hierarchical split on version strings returns per-level (major, major_minor, major_minor_patch) union counts."""
     train_series = pd.Series(["1.0.0", "1.0.1", "2.0.0"])
     test_series = pd.Series(["1.0.0", "1.1.0"])
 

@@ -140,6 +140,7 @@ def test_create_date_features_dtypes(df_lib):
 
 
 def test_create_date_features_warns_on_column_clash_pandas(caplog):
+    """A pre-existing user column colliding with a generated pandas date field must emit an OVERWRITTEN warning."""
     import logging
     from datetime import datetime
 
@@ -159,6 +160,7 @@ def test_create_date_features_warns_on_column_clash_pandas(caplog):
 
 
 def test_create_date_features_warns_on_column_clash_polars(caplog):
+    """Same column-clash warning contract as the pandas test, exercised on the polars input path."""
     import logging
     from datetime import datetime
 
@@ -194,6 +196,7 @@ class TestResolvePandasMethod:
     field once instead of hasattr-then-getattr extracting it twice)."""
 
     def _dt(self):
+        """Build a 300-point hourly-stride pandas datetime accessor shared by the resolver tests."""
         return pd.Series(pd.date_range("2021-03-01", periods=300, freq="7h")).dt
 
     @pytest.mark.parametrize(
@@ -211,6 +214,7 @@ class TestResolvePandasMethod:
         ],
     )
     def test_resolved_field_matches_direct_accessor(self, method):
+        """_resolve_pandas_method must reproduce the exact values of the direct .dt accessor for every supported method."""
         from mlframe.feature_engineering.basic import _resolve_pandas_method, _DATE_METHOD_ALIASES
 
         dt = self._dt()
@@ -226,6 +230,7 @@ class TestResolvePandasMethod:
         assert np.array_equal(got, ref, equal_nan=True)
 
     def test_unknown_accessor_raises_valueerror(self):
+        """An unrecognized method name must raise ValueError instead of silently returning garbage."""
         from mlframe.feature_engineering.basic import _resolve_pandas_method
 
         with pytest.raises(ValueError, match="Unknown pandas .dt accessor"):
@@ -248,6 +253,7 @@ def test_cyclical_pass_reuses_precomputed_date_fields_not_redecode(monkeypatch):
     real = basic._resolve_pandas_method
 
     def spy(series_dt, method, dtype):
+        """Record each (method, dtype-kind) pair resolved during the cyclical pass, then delegate to the real resolver."""
         calls.append((method, np.dtype(dtype).kind))
         return real(series_dt, method, dtype)
 
@@ -308,10 +314,12 @@ def test_cyclical_sincos_njit_dispatches_to_parallel_above_threshold(monkeypatch
     orig_ser, orig_par = basic._cyclical_sincos_serial, basic._cyclical_sincos_parallel
 
     def _spy_ser(b, s):
+        """Count a call into the serial cyclical kernel, then delegate to it."""
         calls["serial"] += 1
         return orig_ser(b, s)
 
     def _spy_par(b, s):
+        """Count a call into the parallel cyclical kernel, then delegate to it."""
         calls["parallel"] += 1
         return orig_par(b, s)
 

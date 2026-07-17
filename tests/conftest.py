@@ -40,7 +40,7 @@ if os.environ.get("CUDA_VISIBLE_DEVICES") != "":
             _ = _wm @ _wm
             _torch_warm.cuda.synchronize()
             del _wm
-    except Exception:
+    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
         pass
 # Headless tests MUST use the non-GUI Agg backend. The DSL render path renders each chart in a ThreadPoolExecutor
 # worker (render_and_save); under an interactive backend (TkAgg on a desktop) Tk calls from a non-main thread hang
@@ -306,7 +306,7 @@ def _reset_kernel_tuning_singleton():
     if _ktc is not None:
         try:
             _ktc._DEFAULT_INSTANCE = None
-        except Exception:
+        except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
             pass
 
 
@@ -330,14 +330,14 @@ def pytest_sessionfinish(session, exitstatus):
         from mlframe.feature_selection.filters import gpu as _gpu
 
         _gpu._GPU_POOL.free()
-    except Exception:
+    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
         pass
     try:
         import cupy as _cp
 
         _cp.get_default_memory_pool().free_all_blocks()
         _cp.get_default_pinned_memory_pool().free_all_blocks()
-    except Exception:
+    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
         pass
 
 
@@ -514,7 +514,7 @@ try:
 
         if getattr(_pr, "entrypoint_reseeds", None):
             _pr.entrypoint_reseeds = [_thinc_clamped_fix_random_seed if r is _thinc_original_fix else r for r in _pr.entrypoint_reseeds]
-    except Exception:  # pragma: no cover
+    except Exception:  # pragma: no cover  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
         pass
 except ImportError:  # pragma: no cover
     # thinc is an optional dependency; its absence is the normal case here and warrants no warning.
@@ -592,7 +592,7 @@ try:
                 _mod = importlib.import_module(_mod_path)
                 if hasattr(_mod, "tqdmu"):
                     _mod.tqdmu = _quiet_tqdmu
-            except Exception:
+            except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
                 pass
 except (ImportError, OSError, RuntimeError):  # pragma: no cover
     pass
@@ -711,7 +711,7 @@ def cleanup_memory(request):
 
         try:
             _pa_cleanup.default_memory_pool().release_unused()
-        except Exception:
+        except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
             pass
     except ImportError:
         pass
@@ -726,7 +726,7 @@ def cleanup_memory(request):
         import matplotlib.pyplot as _plt
 
         _plt.close("all")
-    except Exception:
+    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
         pass
 
     gc.collect()
@@ -742,7 +742,7 @@ def cleanup_memory(request):
             torch.cuda.synchronize()
     except ImportError:
         pass
-    except Exception:
+    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
         pass
 
     if psutil is not None and process is not None:
@@ -811,6 +811,6 @@ def _purge_stale_test_caches():
             import shutil
 
             shutil.rmtree(cache_dir, ignore_errors=True)
-        except Exception:
+        except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
             pass
     yield

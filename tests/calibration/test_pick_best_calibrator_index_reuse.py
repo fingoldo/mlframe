@@ -21,6 +21,7 @@ pytestmark = [pytest.mark.fast]
 
 
 def _make_miscalibrated(n: int, seed: int = 11):
+    """Helper that make miscalibrated."""
     rng = np.random.default_rng(seed)
     raw = rng.uniform(0.0, 1.0, size=n)
     true_p = 1.0 / (1.0 + np.exp(-6.0 * (raw - 0.5)))
@@ -30,6 +31,7 @@ def _make_miscalibrated(n: int, seed: int = 11):
 
 @pytest.mark.parametrize("stratified", [True, False])
 def test_shared_index_helper_bit_identical_to_bootstrap_metric(stratified):
+    """Shared index helper bit identical to bootstrap metric."""
     from mlframe.calibration import policy
     from mlframe.evaluation.bootstrap import bootstrap_metric
 
@@ -71,6 +73,7 @@ def test_pick_best_calibrator_selection_identical_to_per_candidate_bootstrap(mon
 
     # Reconstruct the legacy per-candidate path: bootstrap_metric per candidate.
     def _legacy_eci(yt, yp, idx, mf, alpha, n_bins=None):
+        """Helper that legacy eci."""
         ci = bootstrap_metric(yt, yp, metric_fn=mf, n_bootstrap=300, alpha=alpha, stratify=strat, random_state=11)
         return {"point": ci["point"], "lo": ci["lo"], "hi": ci["hi"]}
 

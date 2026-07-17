@@ -36,6 +36,7 @@ def boruta_train_basis_captor(monkeypatch):
     original = shap.TreeExplainer.shap_values
 
     def _capturing_shap_values(self, X, *args, **kwargs):
+        """Record the basis frame's shape then delegate to the real shap_values implementation."""
         captured["n_rows_basis"] = int(X.shape[0])
         captured["n_cols_basis"] = int(X.shape[1])
         return original(self, X, *args, **kwargs)

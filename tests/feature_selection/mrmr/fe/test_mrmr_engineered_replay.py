@@ -20,7 +20,7 @@ heavy fixtures live in ``test_mrmr_feature_engineering.py``.
 
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 import warnings
 
 import numpy as np
@@ -89,7 +89,7 @@ class TestPickleBC:
         if hasattr(mrmr, "_engineered_recipes_"):
             del mrmr.__dict__["_engineered_recipes_"]
 
-        restored = pickle.loads(pickle.dumps(mrmr))
+        restored = pickle.loads(pickle.dumps(mrmr))  # nosec B301 -- round-trip of a locally-created, trusted object
         assert hasattr(restored, "_engineered_recipes_"), "__setstate__ must inject the missing default"
         assert restored._engineered_recipes_ == [], "Legacy pickle should resurface with an empty recipe list"
 

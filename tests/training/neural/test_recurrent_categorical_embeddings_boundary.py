@@ -10,7 +10,7 @@ fallback, and a biz_value check that learnable embeddings beat an ordinal cat-co
 
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
 import numpy as np
 import pandas as pd
@@ -142,7 +142,7 @@ def test_fit_pickle_predict_round_trip_bit_identical():
     reg = RecurrentRegressorWrapper(config=_cfg(), random_state=42)
     reg.fit(features=feats, labels=y, sequences=seqs, cat_features=["color"])
     p1 = np.asarray(reg.predict(features=feats, sequences=seqs))
-    restored = pickle.loads(pickle.dumps(reg))
+    restored = pickle.loads(pickle.dumps(reg))  # nosec B301 -- round-trip of a locally-created, trusted object
     p2 = np.asarray(restored.predict(features=feats, sequences=seqs))
     assert np.allclose(p1, p2, atol=1e-5)
     assert isinstance(restored._cat_code_maps_, dict)

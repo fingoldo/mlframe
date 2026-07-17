@@ -105,7 +105,7 @@ def _fuzz3way_cleanup():
         import matplotlib.pyplot as plt
 
         plt.close("all")
-    except Exception:
+    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
         pass
     try:
         from mlframe.training import (
@@ -116,7 +116,7 @@ def _fuzz3way_cleanup():
             cache = getattr(_tr, attr, None)
             if hasattr(cache, "clear"):
                 cache.clear()
-    except Exception:
+    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
         pass
     import gc
 

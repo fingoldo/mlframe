@@ -29,7 +29,7 @@ This sensor pins:
 
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
 import polars as pl
 import pytest
@@ -87,7 +87,7 @@ def test_proxy_pickle_roundtrip_preserves_transform_output():
     df, pipe = _make_pipeline()
     proxy = _PolarsDsPipelineJsonProxy(pipe)
     blob = pickle.dumps(proxy)
-    loaded = pickle.loads(blob)
+    loaded = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
 
     out_orig = pipe.transform(df)
     out_loaded = loaded.transform(df)
@@ -119,13 +119,13 @@ def test_proxy_does_not_corrupt_transform_when_pickled_via_dill():
     bundles and pickle for others. The proxy must round-trip through dill
     too -- a regression that hard-coded pickle.dumps in __reduce__ might
     pass pickle but fail dill."""
-    import dill
+    import dill  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
     from mlframe.training.core._setup_helpers import _PolarsDsPipelineJsonProxy
 
     df, pipe = _make_pipeline()
     proxy = _PolarsDsPipelineJsonProxy(pipe)
     blob = dill.dumps(proxy)
-    loaded = dill.loads(blob)
+    loaded = dill.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
 
     out_orig = pipe.transform(df)
     out_loaded = loaded.transform(df)
@@ -162,7 +162,7 @@ def test_save_path_falls_back_to_pickle_when_from_json_roundtrip_fails(monkeypat
         _js = original.to_json()
         _PdsPipeline.from_json(_js)
         metadata["pipeline"] = _PolarsDsPipelineJsonProxy(original)
-    except Exception:
+    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
         pass
 
     assert metadata["pipeline"] is original, (

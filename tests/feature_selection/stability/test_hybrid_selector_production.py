@@ -7,7 +7,7 @@ small (the __getstate__ drop of the transient fit-time X_aug/y) and still transf
 
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
 import numpy as np
 import pandas as pd
@@ -59,6 +59,6 @@ def test_fit_transform_support_and_pickle_roundtrip():
     Z = h.transform(X)
     assert list(Z.columns) == [c for c in h.raw_selected_ if c in Z.columns] and Z.shape[0] == X.shape[0]
     # pickle drops the transient fit data (__getstate__) and still transforms after reload
-    h2 = pickle.loads(pickle.dumps(h))
+    h2 = pickle.loads(pickle.dumps(h))  # nosec B301 -- round-trip of a locally-created, trusted object
     assert not hasattr(h2, "_Xaug_") and not hasattr(h2, "_y_")
     assert list(h2.transform(X).columns) == list(Z.columns)

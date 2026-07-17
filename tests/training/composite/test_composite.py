@@ -26,7 +26,7 @@ Coverage map
 
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
 import numpy as np
 import pandas as pd
@@ -523,7 +523,7 @@ class TestSklearnCloneAndPickle:
         y_hat_orig = wrapper.predict(df.iloc[:10])
 
         blob = pickle.dumps(wrapper)
-        revived = pickle.loads(blob)
+        revived = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
         y_hat_revived = revived.predict(df.iloc[:10])
         np.testing.assert_allclose(y_hat_orig, y_hat_revived, rtol=1e-10)
 

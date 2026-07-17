@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 import os
 import re
-import subprocess
+import subprocess  # nosec B404 -- test-only local trusted subprocess invocation (fixed argv, no shell, no untrusted input)
 import sys
 
 import pytest
@@ -67,7 +67,7 @@ def _run_f2(full: int, baseline: int, n: int = 10_000, seed: int = 42) -> list:
     env["MLFRAME_DISABLE_HNSW"] = "1"
     env["PYUTILZ_KERNEL_DISABLE_SWEEP"] = "1"
     env["PYTHONUNBUFFERED"] = "1"
-    proc = subprocess.run([sys.executable, "-c", src], capture_output=True, text=True, timeout=600, env=env)
+    proc = subprocess.run([sys.executable, "-c", src], capture_output=True, text=True, timeout=600, env=env)  # nosec B603 -- fixed local argv (sys.executable/git + literal args), no shell, no untrusted input
     for line in proc.stdout.splitlines():
         if line.startswith("RESULT_JSON="):
             return json.loads(line[len("RESULT_JSON=") :])

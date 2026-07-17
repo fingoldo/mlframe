@@ -6,7 +6,7 @@ without IndexError, and a pickle round-trip preserving the learned embedding wei
 
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
 import numpy as np
 import pytest
@@ -87,7 +87,7 @@ def test_pickle_round_trip_preserves_weights():
     x = torch.tensor(np.column_stack([cat, num]), dtype=torch.float32)
     emb.eval()
     out1 = emb(x)
-    emb2 = pickle.loads(pickle.dumps(emb))
+    emb2 = pickle.loads(pickle.dumps(emb))  # nosec B301 -- round-trip of a locally-created, trusted object
     emb2.eval()
     out2 = emb2(x)
     assert torch.allclose(out1, out2, atol=0.0)

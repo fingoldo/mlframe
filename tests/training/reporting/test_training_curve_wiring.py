@@ -167,9 +167,9 @@ def test_keep_figure_handles_populates_figure_specs(tmp_path):
     spec = metrics["figure_specs"]["training_curve"]
     assert hasattr(spec, "panels"), "stored object is the pure-data FigureSpec"
     # FigureSpec is pickle-safe (no live matplotlib/plotly handle).
-    import pickle
+    import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
-    pickle.loads(pickle.dumps(spec))
+    pickle.loads(pickle.dumps(spec))  # nosec B301 -- round-trip of a locally-created, trusted object
 
     metrics_off: dict = {}
     _render_training_curves(

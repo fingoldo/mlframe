@@ -15,7 +15,7 @@ Pre-fix issues:
 from __future__ import annotations
 
 import hashlib
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 from pathlib import Path
 
 import numpy as np
@@ -25,12 +25,14 @@ from sklearn.linear_model import LogisticRegression
 
 
 def _sha256_hex(path: Path) -> str:
+    """Helper that sha256 hex."""
     h = hashlib.sha256()
     h.update(path.read_bytes())
     return h.hexdigest()
 
 
 def _write_sidecar(path: Path) -> None:
+    """Helper that write sidecar."""
     (path.parent / (path.name + ".sha256")).write_text(_sha256_hex(path) + "  " + path.name + "\n", encoding="utf-8")
 
 
@@ -40,6 +42,7 @@ class _FakeModelWrongFeatures:
     feature_names_in_ = np.array(["b", "a"])
 
     def predict(self, X):
+        """Helper that predict."""
         return np.zeros(len(X))
 
 
@@ -123,7 +126,7 @@ def test_safe_joblib_load_blocks_eval_gadget(tmp_path: Path):
     """P2-1: safe_joblib_load must block a builtins.eval reduce-gadget the same way _SafeUnpickler does
     for dill bundles. Plain joblib.load (pre-fix predict.py behaviour) would execute it.
     """
-    import dill
+    import dill  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
     from mlframe.training.io import safe_joblib_load
 
     p = tmp_path / "evil.pkl"

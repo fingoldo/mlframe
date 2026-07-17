@@ -42,7 +42,7 @@ def test_mrmr_strict_groups_false_warns_on_groups():
         warnings.simplefilter("always")
         try:
             sel.fit(X, y, groups=groups)
-        except Exception:
+        except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
             pass
     user_warnings = [w for w in caught if issubclass(w.category, UserWarning) and "groups" in str(w.message).lower()]
     assert user_warnings, "strict_groups=False must still emit the warn-only fallback"
