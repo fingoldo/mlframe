@@ -12,6 +12,7 @@ from mlframe.votenrank.leaderboard.leaderboard_impl import Leaderboard
 
 
 def _reference_winning_votes(lb):
+    """Helper that reference winning votes."""
     out = []
     for model in lb.models:
         models_scores = ((lb.ranks < lb.ranks.loc[model]) * lb.weights).sum(axis=1)
@@ -22,6 +23,7 @@ def _reference_winning_votes(lb):
 
 
 def test_minimax_winning_votes_identical_to_duplicated_reference():
+    """Minimax winning votes identical to duplicated reference."""
     rng = np.random.default_rng(42)
     tbl = pd.DataFrame(
         rng.normal(size=(30, 12)),

@@ -37,6 +37,7 @@ from mlframe.training.extractors import SimpleFeaturesAndTargetsExtractor
 
 
 def _build_polars_frame_with_cats(n: int = 3_000, seed: int = 0):
+    """Helper that build polars frame with cats."""
     rng = np.random.default_rng(seed)
     df = pl.DataFrame(
         {
@@ -51,6 +52,7 @@ def _build_polars_frame_with_cats(n: int = 3_000, seed: int = 0):
 
 
 def _run_suite(df, models_list, classification: bool = True):
+    """Helper that run suite."""
     if classification:
         fte = SimpleFeaturesAndTargetsExtractor(classification_targets=["y"])
     else:

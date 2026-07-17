@@ -16,6 +16,7 @@ from mlframe.preprocessing.auto_transform_select import select_column_transforms
 
 
 def test_biz_val_auto_transform_select_prefers_robust_transform_for_outlier_contaminated_column():
+    """Auto transform select prefers robust transform for outlier contaminated column."""
     rng = np.random.default_rng(0)
     n = 3000
     z = rng.normal(0, 1, n)
@@ -38,6 +39,7 @@ def test_biz_val_auto_transform_select_prefers_robust_transform_for_outlier_cont
 
 
 def test_auto_transform_select_clean_column_picks_a_high_scoring_transform():
+    """Auto transform select clean column picks a high scoring transform."""
     rng = np.random.default_rng(1)
     n = 1500
     z = rng.normal(0, 1, n)
@@ -104,6 +106,7 @@ def test_select_column_transforms_multivariate_probe_default_off_is_bit_identica
 
 
 def test_auto_transform_select_regression_task_runs_and_scores():
+    """Auto transform select regression task runs and scores."""
     rng = np.random.default_rng(2)
     n = 1000
     x = rng.normal(0, 1, n)

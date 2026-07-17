@@ -28,6 +28,7 @@ from mlframe.training.extractors import SimpleFeaturesAndTargetsExtractor
 
 
 def _build_frame(n: int = 2_000, seed: int = 0) -> pl.DataFrame:
+    """Helper that build frame."""
     rng = np.random.default_rng(seed)
     return pl.DataFrame(
         {
@@ -39,6 +40,7 @@ def _build_frame(n: int = 2_000, seed: int = 0) -> pl.DataFrame:
 
 
 def _run_with_ext(df, ext_cfg):
+    """Helper that run with ext."""
     fte = SimpleFeaturesAndTargetsExtractor(regression_targets=["y"])
     return train_mlframe_models_suite(
         df=df,
@@ -73,6 +75,7 @@ def test_predict_invokes_extensions_pipeline_when_present():
     orig_helper = predict_mod._apply_extensions_pipeline
 
     def _spy(df_in, ep, verbose=0):
+        """Helper that spy."""
         invocations["n"] += 1
         invocations["input_was_frame"] = hasattr(df_in, "columns")
         return orig_helper(df_in, ep, verbose=verbose)
@@ -118,6 +121,7 @@ def test_predict_no_extensions_no_replay():
     orig_helper = predict_mod._apply_extensions_pipeline
 
     def _spy(df_in, ep, verbose=0):
+        """Helper that spy."""
         invocations["n"] += 1
         return orig_helper(df_in, ep, verbose=verbose)
 

@@ -12,6 +12,7 @@ from mlframe.votenrank import iia_exp
 
 
 def _table(n_models, n_tasks=5):
+    """Helper that table."""
     rng = np.random.default_rng(0)
     idx = [f"M{i}" for i in range(n_models)]
     cols = [f"t{j}" for j in range(n_tasks)]
@@ -19,6 +20,7 @@ def _table(n_models, n_tasks=5):
 
 
 def test_compute_iia_processes_the_last_model():
+    """Compute iia processes the last model."""
     table = _table(6)
     models_order = table.index.tolist()
     weights = {c: 1.0 for c in table.columns}
@@ -31,6 +33,7 @@ def test_compute_iia_processes_the_last_model():
     orig = iia_exp.fine_sorted_ranking
 
     def spy(ranking):
+        """Helper that spy."""
         calls["n"] += 1
         return orig(ranking)
 
@@ -47,6 +50,7 @@ def test_compute_iia_processes_the_last_model():
 
 def test_leaderboard_getattr_dispatch_runs():
     # Exercises getattr-based dispatch in elect_all / rank_all (formerly eval(...)).
+    """Leaderboard getattr dispatch runs."""
     lb = Leaderboard(_table(4))
     elected = lb.elect_all()
     assert not elected.empty

@@ -18,6 +18,7 @@ from mlframe.evaluation.subgroup_feature_overfit_risk import (
 
 
 def test_biz_val_flags_shifted_subgroup_feature_as_overfit_risk():
+    """Flags shifted subgroup feature as overfit risk."""
     rng = np.random.default_rng(0)
     train_df = pd.DataFrame({"loan_type": rng.choice(["cash", "revolving"], size=5000, p=[0.90, 0.10])})
     test_df = pd.DataFrame({"loan_type": rng.choice(["cash", "revolving"], size=5000, p=[0.99, 0.01])})
@@ -30,6 +31,7 @@ def test_biz_val_flags_shifted_subgroup_feature_as_overfit_risk():
 
 
 def test_stable_subgroup_feature_is_not_flagged():
+    """Stable subgroup feature is not flagged."""
     rng = np.random.default_rng(1)
     train_df = pd.DataFrame({"region": rng.choice(["north", "south"], size=5000, p=[0.5, 0.5])})
     test_df = pd.DataFrame({"region": rng.choice(["north", "south"], size=5000, p=[0.52, 0.48])})
@@ -41,6 +43,7 @@ def test_stable_subgroup_feature_is_not_flagged():
 
 
 def test_zero_cv_delta_never_flagged_even_if_shifted():
+    """Zero cv delta never flagged even if shifted."""
     rng = np.random.default_rng(2)
     train_df = pd.DataFrame({"loan_type": rng.choice(["cash", "revolving"], size=3000, p=[0.9, 0.1])})
     test_df = pd.DataFrame({"loan_type": rng.choice(["cash", "revolving"], size=3000, p=[0.99, 0.01])})
@@ -93,6 +96,7 @@ def test_biz_val_rank_subgroup_feature_overfit_risk_orders_by_known_severity():
 
 
 def test_biz_val_rank_subgroup_feature_overfit_risk_missing_value_ranks_last():
+    """Rank subgroup feature overfit risk missing value ranks last."""
     train_df = pd.DataFrame({"loan_type": ["cash"] * 10})
     test_df = pd.DataFrame({"loan_type": ["cash"] * 10})
     candidates = [
@@ -106,6 +110,7 @@ def test_biz_val_rank_subgroup_feature_overfit_risk_missing_value_ranks_last():
 
 
 def test_missing_subgroup_value_returns_no_report():
+    """Missing subgroup value returns no report."""
     train_df = pd.DataFrame({"loan_type": ["cash"] * 10})
     test_df = pd.DataFrame({"loan_type": ["cash"] * 10})
     result = flag_subgroup_only_feature_overfit_risk(train_df, test_df, subgroup_col="loan_type", feature_subgroup_value="nonexistent", cv_delta=0.01)

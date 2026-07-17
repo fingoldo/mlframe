@@ -18,6 +18,7 @@ from mlframe.preprocessing.outlier_policy import apply_outlier_policy, is_tree_b
 
 
 def test_biz_val_tree_aware_outlier_policy_beats_naive_capping():
+    """Tree aware outlier policy beats naive capping."""
     import lightgbm as lgb
 
     rng = np.random.default_rng(0)
@@ -54,13 +55,17 @@ def test_biz_val_tree_aware_outlier_policy_beats_naive_capping():
 
 
 def test_is_tree_based_model_detects_common_families():
+    """Is tree based model detects common families."""
     class FakeLGBMClassifier:
+        """Groups tests covering FakeLGBMClassifier."""
         pass
 
     class FakeXGBRegressor:
+        """Groups tests covering FakeXGBRegressor."""
         pass
 
     class FakeLinearRegression:
+        """Groups tests covering FakeLinearRegression."""
         pass
 
     assert is_tree_based_model(FakeLGBMClassifier()) is True

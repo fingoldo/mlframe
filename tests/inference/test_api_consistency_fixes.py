@@ -12,9 +12,11 @@ class _BinaryClf:
     """Classifier whose predict returns LABELS and predict_proba returns probabilities."""
 
     def predict(self, X):
+        """Helper that predict."""
         return np.zeros(len(X), dtype=int)
 
     def predict_proba(self, X):
+        """Helper that predict proba."""
         n = len(X)
         p1 = np.linspace(0.1, 0.9, n)
         return np.column_stack([1 - p1, p1])
@@ -24,11 +26,13 @@ class _Regressor:
     """No predict_proba -> falls back to predict."""
 
     def predict(self, X):
+        """Helper that predict."""
         return np.arange(len(X), dtype=float)
 
 
 # --------------------------------------------------------------------------- API21
 def test_api21_get_models_raw_predictions_returns_probabilities_for_classifier():
+    """Api21 get models raw predictions returns probabilities for classifier."""
     from mlframe.inference.predict import get_models_raw_predictions
 
     X = np.zeros((5, 2))
@@ -40,6 +44,7 @@ def test_api21_get_models_raw_predictions_returns_probabilities_for_classifier()
 
 
 def test_api21_regressor_falls_back_to_predict():
+    """Api21 regressor falls back to predict."""
     from mlframe.inference.predict import get_models_raw_predictions
 
     X = np.zeros((4, 2))
@@ -48,13 +53,17 @@ def test_api21_regressor_falls_back_to_predict():
 
 
 def test_api21_multiclass_returns_full_proba_matrix():
+    """Api21 multiclass returns full proba matrix."""
     from mlframe.inference.predict import get_models_raw_predictions
 
     class _MultiClf:
+        """Groups tests covering MultiClf."""
         def predict(self, X):
+            """Helper that predict."""
             return np.zeros(len(X), dtype=int)
 
         def predict_proba(self, X):
+            """Helper that predict proba."""
             n = len(X)
             return np.tile([0.2, 0.3, 0.5], (n, 1))
 

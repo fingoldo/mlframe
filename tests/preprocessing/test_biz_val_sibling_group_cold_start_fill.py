@@ -15,6 +15,7 @@ from mlframe.preprocessing.sibling_group_cold_start_fill import sibling_group_co
 
 
 def _make_drifting_sibling_groups(n_groups: int, rows_per_group: int, n_cold_start: int, seed: int):
+    """Helper that make drifting sibling groups."""
     rng = np.random.default_rng(seed)
     levels = np.cumsum(rng.normal(scale=0.5, size=n_groups)) + 50
     group_ids = np.repeat(np.arange(n_groups), rows_per_group)
@@ -32,6 +33,7 @@ def _make_drifting_sibling_groups(n_groups: int, rows_per_group: int, n_cold_sta
 
 
 def test_biz_val_sibling_fallback_beats_global_mean_for_cold_start_groups():
+    """Sibling fallback beats global mean for cold start groups."""
     df, true_level, mask_cold = _make_drifting_sibling_groups(n_groups=100, rows_per_group=5, n_cold_start=15, seed=0)
 
     filled = sibling_group_cold_start_fill(df, group_col="group", order_col="order", value_col="value")
@@ -46,6 +48,7 @@ def test_biz_val_sibling_fallback_beats_global_mean_for_cold_start_groups():
 
 
 def test_sibling_group_cold_start_fill_leaves_non_missing_groups_untouched():
+    """Sibling group cold start fill leaves non missing groups untouched."""
     df = pd.DataFrame({"group": [0, 0, 1, 1, 2, 2], "order": [0, 0, 1, 1, 2, 2], "value": [10.0, 12.0, np.nan, np.nan, 30.0, 32.0]})
     filled = sibling_group_cold_start_fill(df, group_col="group", order_col="order", value_col="value")
     # group 0's own last known value (12.0) is used for its own rows.
@@ -57,6 +60,7 @@ def test_sibling_group_cold_start_fill_leaves_non_missing_groups_untouched():
 
 
 def _make_drifting_sibling_groups_interior_missing(n_groups: int, rows_per_group: int, n_cold_start: int, seed: int):
+    """Helper that make drifting sibling groups interior missing."""
     rng = np.random.default_rng(seed)
     levels = np.cumsum(rng.normal(scale=0.5, size=n_groups)) + 50
     group_ids = np.repeat(np.arange(n_groups), rows_per_group)
@@ -76,6 +80,7 @@ def _make_drifting_sibling_groups_interior_missing(n_groups: int, rows_per_group
 
 
 def test_biz_val_sibling_interpolate_beats_ffill_for_sandwiched_cold_start_groups():
+    """Sibling interpolate beats ffill for sandwiched cold start groups."""
     df, true_level, mask_cold = _make_drifting_sibling_groups_interior_missing(n_groups=100, rows_per_group=5, n_cold_start=15, seed=0)
 
     filled_interp = sibling_group_cold_start_fill(df, group_col="group", order_col="order", value_col="value", interpolate=True)
@@ -88,6 +93,7 @@ def test_biz_val_sibling_interpolate_beats_ffill_for_sandwiched_cold_start_group
 
 
 def test_sibling_group_cold_start_fill_interpolate_sandwiched_group_is_midpoint():
+    """Sibling group cold start fill interpolate sandwiched group is midpoint."""
     df = pd.DataFrame(
         {
             "group": [0, 0, 1, 1, 2, 2],
@@ -102,6 +108,7 @@ def test_sibling_group_cold_start_fill_interpolate_sandwiched_group_is_midpoint(
 
 
 def test_sibling_group_cold_start_fill_interpolate_tail_falls_back_to_ffill():
+    """Sibling group cold start fill interpolate tail falls back to ffill."""
     df = pd.DataFrame(
         {
             "group": [0, 0, 1, 1, 2, 2],
@@ -116,6 +123,7 @@ def test_sibling_group_cold_start_fill_interpolate_tail_falls_back_to_ffill():
 
 
 def test_sibling_group_cold_start_fill_first_group_missing_uses_fallback():
+    """Sibling group cold start fill first group missing uses fallback."""
     df = pd.DataFrame({"group": [0, 0, 1, 1], "order": [0, 0, 1, 1], "value": [np.nan, np.nan, 20.0, 22.0]})
     filled = sibling_group_cold_start_fill(df, group_col="group", order_col="order", value_col="value", fallback_value=99.0)
     assert filled[0] == 99.0

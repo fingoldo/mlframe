@@ -17,6 +17,7 @@ from mlframe.evaluation.subpopulation_drift import rank_subpopulation_drift_seve
 
 
 def _make_shifted_subpopulation_data(n_train: int, n_test: int, seed: int):
+    """Helper that make shifted subpopulation data."""
     rng = np.random.default_rng(seed)
     train_shift_col = rng.choice(["A", "B"], size=n_train, p=[0.90, 0.10])
     test_shift_col = rng.choice(["A", "B"], size=n_test, p=[0.99, 0.01])
@@ -29,6 +30,7 @@ def _make_shifted_subpopulation_data(n_train: int, n_test: int, seed: int):
 
 
 def test_subpopulation_ratio_drift_check_flags_shifted_minority_subgroup():
+    """Subpopulation ratio drift check flags shifted minority subgroup."""
     train_df, test_df = _make_shifted_subpopulation_data(50_000, 50_000, seed=0)
     report = subpopulation_ratio_drift_check(train_df, test_df, subgroup_col="loan_type", ratio_threshold=2.0)
 
@@ -39,12 +41,14 @@ def test_subpopulation_ratio_drift_check_flags_shifted_minority_subgroup():
 
 
 def test_subpopulation_ratio_drift_check_does_not_flag_stable_column():
+    """Subpopulation ratio drift check does not flag stable column."""
     train_df, test_df = _make_shifted_subpopulation_data(20_000, 20_000, seed=1)
     report = subpopulation_ratio_drift_check(train_df, test_df, subgroup_col="region", ratio_threshold=2.0)
     assert not report["flagged"].any()
 
 
 def test_subpopulation_ratio_drift_check_value_only_in_one_split_is_inf_ratio():
+    """Subpopulation ratio drift check value only in one split is inf ratio."""
     train_df = pd.DataFrame({"col": ["A"] * 10 + ["B"] * 5})
     test_df = pd.DataFrame({"col": ["A"] * 10})
     report = subpopulation_ratio_drift_check(train_df, test_df, subgroup_col="col")
@@ -54,6 +58,7 @@ def test_subpopulation_ratio_drift_check_value_only_in_one_split_is_inf_ratio():
 
 
 def test_subpopulation_ratio_drift_check_missing_column_raises():
+    """Subpopulation ratio drift check missing column raises."""
     train_df = pd.DataFrame({"a": [1, 2, 3]})
     test_df = pd.DataFrame({"a": [1, 2, 3]})
     with pytest.raises(ValueError):
@@ -61,6 +66,7 @@ def test_subpopulation_ratio_drift_check_missing_column_raises():
 
 
 def test_biz_val_subpopulation_ratio_drift_check_recovers_true_generative_ratio():
+    """Subpopulation ratio drift check recovers true generative ratio."""
     train_df, test_df = _make_shifted_subpopulation_data(200_000, 200_000, seed=42)
     report = subpopulation_ratio_drift_check(train_df, test_df, subgroup_col="loan_type")
 
@@ -89,6 +95,7 @@ def _make_multiway_drift_column(n_train: int, n_test: int, drift_multiplier: flo
 
 
 def test_biz_val_rank_subpopulation_drift_severity_ranks_multiway_features_by_true_severity():
+    """Rank subpopulation drift severity ranks multiway features by true severity."""
     from scipy.stats import spearmanr
 
     n = 200_000

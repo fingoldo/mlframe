@@ -47,6 +47,7 @@ def _build_polars_frame(n: int = 3_000, seed: int = 0):
 
 
 def _run_suite(df: pl.DataFrame, models_list):
+    """Helper that run suite."""
     fte = SimpleFeaturesAndTargetsExtractor(regression_targets=["y"])
     return train_mlframe_models_suite(
         df=df,

@@ -15,6 +15,7 @@ from mlframe.inference.entity_prediction_collapse import collapse_predictions_by
 
 
 def _make_entity_level_label_dataset(n_entities: int, rows_per_entity: int, seed: int):
+    """Helper that make entity level label dataset."""
     rng = np.random.default_rng(seed)
     entity_ids = np.repeat(np.arange(n_entities), rows_per_entity)
     n = len(entity_ids)
@@ -32,6 +33,7 @@ def _make_entity_level_label_dataset(n_entities: int, rows_per_entity: int, seed
 
 
 def test_biz_val_collapse_predictions_by_group_beats_noisy_per_row():
+    """Collapse predictions by group beats noisy per row."""
     row_predictions, y_row, entity_ids = _make_entity_level_label_dataset(n_entities=300, rows_per_entity=8, seed=0)
 
     auc_per_row = roc_auc_score(y_row, row_predictions)
@@ -45,6 +47,7 @@ def test_biz_val_collapse_predictions_by_group_beats_noisy_per_row():
 
 
 def test_collapse_predictions_by_group_broadcasts_consistently():
+    """Collapse predictions by group broadcasts consistently."""
     predictions = np.array([0.1, 0.9, 0.5, 0.5, 0.5])
     group = np.array(["a", "a", "b", "b", "b"])
     out = collapse_predictions_by_group(predictions, group, stat="mean")
@@ -54,6 +57,7 @@ def test_collapse_predictions_by_group_broadcasts_consistently():
 
 
 def test_collapse_predictions_by_group_quantile():
+    """Collapse predictions by group quantile."""
     predictions = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
     group = np.array(["a", "a", "a", "a", "a"])
     out = collapse_predictions_by_group(predictions, group, stat="quantile", quantile=0.9)
@@ -62,6 +66,7 @@ def test_collapse_predictions_by_group_quantile():
 
 
 def test_collapse_predictions_by_group_invalid_stat_raises():
+    """Collapse predictions by group invalid stat raises."""
     import pytest
 
     with pytest.raises(ValueError):
@@ -97,6 +102,7 @@ def _make_mixed_reliability_dataset(n_entities: int, recent_per_entity: int, sta
 
 
 def test_biz_val_collapse_predictions_by_group_weighted_beats_unweighted_with_stale_noise():
+    """Collapse predictions by group weighted beats unweighted with stale noise."""
     row_predictions, y_row, entity_ids, weights = _make_mixed_reliability_dataset(n_entities=300, recent_per_entity=3, stale_per_entity=5, seed=1)
 
     unweighted = collapse_predictions_by_group(row_predictions, entity_ids, stat="mean")
@@ -113,6 +119,7 @@ def test_biz_val_collapse_predictions_by_group_weighted_beats_unweighted_with_st
 
 def test_collapse_predictions_by_group_weights_none_matches_original_unweighted_path():
     # opt-in contract: omitting `weights` must reproduce the exact original unweighted output.
+    """Collapse predictions by group weights none matches original unweighted path."""
     predictions = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
     group = np.array(["a", "a", "b", "b", "b", "c"])
 
@@ -126,6 +133,7 @@ def test_collapse_predictions_by_group_weights_none_matches_original_unweighted_
 
 
 def test_collapse_predictions_by_group_weighted_quantile_equal_weights_between_group_extremes():
+    """Collapse predictions by group weighted quantile equal weights between group extremes."""
     predictions = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
     group = np.array(["a", "a", "a", "a", "a"])
     weights = np.ones(5)
@@ -134,6 +142,7 @@ def test_collapse_predictions_by_group_weighted_quantile_equal_weights_between_g
 
 
 def test_collapse_predictions_by_group_weighted_rejects_all_zero_weight_group():
+    """Collapse predictions by group weighted rejects all zero weight group."""
     import pytest
 
     predictions = np.array([1.0, 2.0])

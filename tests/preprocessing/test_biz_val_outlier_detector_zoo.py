@@ -19,6 +19,7 @@ from mlframe.preprocessing.outlier_detector_zoo import make_outlier_detector
 
 
 def _make_local_outlier_dataset(seed: int = 0):
+    """Helper that make local outlier dataset."""
     rng = np.random.default_rng(seed)
     dense = rng.normal(loc=(0.0, 0.0), scale=0.15, size=(300, 2))
     sparse = rng.normal(loc=(15.0, 15.0), scale=3.0, size=(60, 2))
@@ -29,6 +30,7 @@ def _make_local_outlier_dataset(seed: int = 0):
 
 
 def test_biz_val_lof_and_isolation_forest_rank_outliers_differently():
+    """Lof and isolation forest rank outliers differently."""
     X, outlier_row = _make_local_outlier_dataset()
 
     lof = make_outlier_detector("lof", n_neighbors=20, novelty=False)
@@ -49,6 +51,7 @@ def test_biz_val_lof_and_isolation_forest_rank_outliers_differently():
 
 
 def test_outlier_detector_zoo_isolation_forest_default():
+    """Outlier detector zoo isolation forest default."""
     detector = make_outlier_detector()
     from sklearn.ensemble import IsolationForest
 
@@ -56,6 +59,7 @@ def test_outlier_detector_zoo_isolation_forest_default():
 
 
 def test_outlier_detector_zoo_lof():
+    """Outlier detector zoo lof."""
     detector = make_outlier_detector("lof")
     from sklearn.neighbors import LocalOutlierFactor
 
@@ -63,6 +67,7 @@ def test_outlier_detector_zoo_lof():
 
 
 def test_outlier_detector_zoo_ecod_missing_dependency_raises_clear_error():
+    """Outlier detector zoo ecod missing dependency raises clear error."""
     try:
         import pyod  # noqa: F401
     except ImportError:
@@ -74,5 +79,6 @@ def test_outlier_detector_zoo_ecod_missing_dependency_raises_clear_error():
 
 
 def test_outlier_detector_zoo_rejects_unknown_method():
+    """Outlier detector zoo rejects unknown method."""
     with pytest.raises(ValueError):
         make_outlier_detector("bogus")

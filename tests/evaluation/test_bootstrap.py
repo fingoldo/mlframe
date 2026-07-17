@@ -76,11 +76,13 @@ def test_bootstrap_metric_regression_rmse():
 
 
 def test_bootstrap_metric_rejects_mismatched_shapes():
+    """Bootstrap metric rejects mismatched shapes."""
     with pytest.raises(ValueError, match="row counts diverge"):
         bootstrap_metric(np.zeros(10), np.zeros(8), metric_fn=lambda a, b: 0.0, n_bootstrap=10)
 
 
 def test_bootstrap_metric_rejects_tiny_n():
+    """Bootstrap metric rejects tiny n."""
     with pytest.raises(ValueError, match="need at least 2 samples"):
         bootstrap_metric(np.zeros(1), np.zeros(1), metric_fn=lambda a, b: 0.0, n_bootstrap=10)
 
@@ -107,6 +109,7 @@ def test_delong_returns_high_p_when_scores_identical():
 
 
 def test_delong_rejects_multiclass():
+    """Delong rejects multiclass."""
     y = np.array([0, 1, 2, 0, 1, 2, 0, 1, 2, 0])
     score = np.arange(10, dtype=float)
     with pytest.raises(ValueError, match="binary 0/1"):
@@ -114,10 +117,12 @@ def test_delong_rejects_multiclass():
 
 
 def _bm_metric_set():
+    """Helper that bm metric set."""
     auc = lambda yy, pp: float(roc_auc_score(yy, pp))
     brier = lambda yy, pp: float(np.mean((yy - pp) ** 2))
 
     def ll(yy, pp):
+        """Helper that ll."""
         pc = np.clip(pp, 1e-15, 1 - 1e-15)
         return float(-np.mean(yy * np.log(pc) + (1 - yy) * np.log(1 - pc)))
 
@@ -184,6 +189,7 @@ def test_bootstrap_metrics_isolates_a_failing_metric():
     p = 1.0 / (1.0 + np.exp(-score))
 
     def boom(yy, pp):
+        """Helper that boom."""
         raise RuntimeError("always fails")
 
     res = bootstrap_metrics(
@@ -198,6 +204,7 @@ def test_bootstrap_metrics_isolates_a_failing_metric():
 
 
 def test_bootstrap_metrics_empty_and_shape_guard():
+    """Bootstrap metrics empty and shape guard."""
     y, score = _make_binary_auc_data(n=500, seed=6)
     assert bootstrap_metrics(y, score, {}, n_bootstrap=50) == {}
     with pytest.raises(ValueError):

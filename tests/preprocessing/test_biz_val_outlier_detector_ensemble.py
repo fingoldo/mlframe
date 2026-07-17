@@ -16,6 +16,7 @@ from mlframe.preprocessing.outlier_detector_zoo import make_ensemble_outlier_sco
 
 
 def _make_mixed_outlier_dataset(seed: int = 0):
+    """Helper that make mixed outlier dataset."""
     rng = np.random.default_rng(seed)
     dense = rng.normal(loc=(0.0, 0.0), scale=0.15, size=(300, 2))
     sparse = rng.normal(loc=(15.0, 15.0), scale=3.0, size=(60, 2))
@@ -30,6 +31,7 @@ def _make_mixed_outlier_dataset(seed: int = 0):
 
 
 def _single_detector_auc(method: str, X: np.ndarray, labels: np.ndarray, **kwargs) -> float:
+    """Helper that single detector auc."""
     detector = make_outlier_detector(method, random_state=0, **kwargs)
     if method == "lof":
         detector.fit_predict(X)
@@ -41,6 +43,7 @@ def _single_detector_auc(method: str, X: np.ndarray, labels: np.ndarray, **kwarg
 
 
 def test_biz_val_ensemble_detects_both_global_and_local_outliers_better_than_either_alone():
+    """Ensemble detects both global and local outliers better than either alone."""
     X, labels, local_row, global_row = _make_mixed_outlier_dataset()
 
     iso_auc = _single_detector_auc("isolation_forest", X, labels, n_estimators=300)
@@ -69,6 +72,7 @@ def test_biz_val_ensemble_detects_both_global_and_local_outliers_better_than_eit
 
 
 def test_outlier_detector_ensemble_requires_at_least_two_methods():
+    """Outlier detector ensemble requires at least two methods."""
     import pytest
 
     with pytest.raises(ValueError):
@@ -76,6 +80,7 @@ def test_outlier_detector_ensemble_requires_at_least_two_methods():
 
 
 def test_outlier_detector_ensemble_rejects_ecod():
+    """Outlier detector ensemble rejects ecod."""
     import pytest
 
     with pytest.raises(ValueError, match="ecod"):

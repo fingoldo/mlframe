@@ -16,6 +16,7 @@ from mlframe.preprocessing.gaussian_power_transform_search import apply_gaussian
 
 
 def test_biz_val_gaussian_power_transform_search_reduces_skew_on_lognormal_feature():
+    """Gaussian power transform search reduces skew on lognormal feature."""
     rng = np.random.default_rng(0)
     raw = np.exp(rng.normal(loc=0.0, scale=1.0, size=5000))  # classic log-normal, heavily right-skewed
     df = pd.DataFrame({"x": raw})
@@ -34,6 +35,7 @@ def test_biz_val_gaussian_power_transform_search_reduces_skew_on_lognormal_featu
 
 
 def test_gaussian_power_transform_search_identity_wins_on_already_gaussian_feature():
+    """Gaussian power transform search identity wins on already gaussian feature."""
     rng = np.random.default_rng(1)
     raw = rng.normal(loc=0.0, scale=1.0, size=5000)
     df = pd.DataFrame({"x": raw})
@@ -43,12 +45,14 @@ def test_gaussian_power_transform_search_identity_wins_on_already_gaussian_featu
 
 
 def test_gaussian_power_transform_search_skips_columns_with_too_few_finite_values():
+    """Gaussian power transform search skips columns with too few finite values."""
     df = pd.DataFrame({"x": [np.nan, np.nan, 1.0]})
     result = gaussian_power_transform_search(df)
     assert "x" not in result
 
 
 def test_gaussian_power_transform_search_boxcox_skipped_for_non_positive_column():
+    """Gaussian power transform search boxcox skipped for non positive column."""
     df = pd.DataFrame({"x": np.concatenate([np.array([-1.0, 0.0]), np.random.default_rng(2).normal(size=200)])})
     result = gaussian_power_transform_search(df)
     assert "boxcox" not in result["x"]["all_abs_skew"]
@@ -71,6 +75,7 @@ def _make_linear_in_raw_scale_dataset(seed: int = 0, n: int = 5000):
 
 
 def test_biz_val_gaussian_power_transform_search_target_guard_rejects_signal_destroying_transform():
+    """Gaussian power transform search target guard rejects signal destroying transform."""
     from scipy.stats import pearsonr
 
     df, y = _make_linear_in_raw_scale_dataset()
@@ -100,6 +105,7 @@ def test_biz_val_gaussian_power_transform_search_target_guard_rejects_signal_des
 
 
 def _apply_transform_for_test(x: np.ndarray, transform_name: str) -> np.ndarray:
+    """Helper that apply transform for test."""
     from mlframe.preprocessing.gaussian_power_transform_search import _apply_transform
 
     out = _apply_transform(x, transform_name)
@@ -116,6 +122,7 @@ def test_gaussian_power_transform_search_target_guard_default_off_is_bit_identic
 
 
 def test_gaussian_power_transform_search_target_guard_requires_y():
+    """Gaussian power transform search target guard requires y."""
     df, _ = _make_linear_in_raw_scale_dataset()
     with pytest.raises(ValueError):
         gaussian_power_transform_search(df, require_target_correlation_retention=0.9)
