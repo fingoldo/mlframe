@@ -18,6 +18,7 @@ from mlframe.competition.power_rescale import asymmetric_scale_by_sign, power_re
 
 
 def test_biz_val_power_rescale_hits_target_sum_and_preserves_rank_order():
+    """Rescaling up to a higher target sum hits it to 1e-6 tolerance while exactly preserving rank order."""
     rng = np.random.default_rng(0)
     n = 5000
     probs = rng.beta(a=0.5, b=8.0, size=n)  # right-skewed, many low probabilities, like a rare-event model
@@ -40,6 +41,7 @@ def test_biz_val_power_rescale_hits_target_sum_and_preserves_rank_order():
 
 
 def test_biz_val_power_rescale_hits_target_sum_when_lowering():
+    """Rescaling down to a lower target sum also hits it exactly while preserving rank order."""
     rng = np.random.default_rng(1)
     n = 3000
     probs = rng.beta(a=2.0, b=2.0, size=n)
@@ -56,6 +58,7 @@ def test_biz_val_power_rescale_hits_target_sum_when_lowering():
 
 
 def _make_asymmetric_signed_dataset(n: int, seed: int):
+    """Build a signed target where positive predictions are over-scaled 1.6x and negative ones are well-calibrated."""
     rng = np.random.default_rng(seed)
     y_true = rng.normal(size=n)
     # model consistently over-scales POSITIVE predictions by 1.6x relative to true signal, while
@@ -67,9 +70,11 @@ def _make_asymmetric_signed_dataset(n: int, seed: int):
 
 
 def test_biz_val_asymmetric_scale_by_sign_recovers_nontrivial_scale_and_improves_metric():
+    """Scale sweep recovers a best_scale meaningfully above 1.0 and improves neg-MSE by >10% under sign asymmetry."""
     y_true, y_pred = _make_asymmetric_signed_dataset(n=4000, seed=42)
 
     def neg_mse(candidate: np.ndarray) -> float:
+        """Negative mean squared error against y_true (higher is better, matching the sweep's maximize convention)."""
         return -float(np.mean((y_true - candidate) ** 2))
 
     baseline_score = neg_mse(y_pred)
@@ -90,12 +95,14 @@ def test_biz_val_asymmetric_scale_by_sign_recovers_nontrivial_scale_and_improves
 
 
 def test_biz_val_asymmetric_scale_by_sign_noop_when_no_asymmetry():
+    """On symmetric, well-calibrated predictions the sweep finds best_scale near 1.0 and does not hurt the metric."""
     rng = np.random.default_rng(7)
     n = 2000
     y_true = rng.normal(size=n)
     y_pred = y_true + rng.normal(scale=0.05, size=n)  # symmetric, well-calibrated
 
     def neg_mse(candidate: np.ndarray) -> float:
+        """Negative mean squared error against y_true (higher is better, matching the sweep's maximize convention)."""
         return -float(np.mean((y_true - candidate) ** 2))
 
     baseline_score = neg_mse(y_pred)
