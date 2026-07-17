@@ -32,6 +32,7 @@ def _make_gaussian_mixture_data(n: int = 4000, n_features: int = 6, n_components
     y_parts = []
 
     def _random_full_cov(scale: float, corr: float) -> np.ndarray:
+        """Build a scaled correlation matrix with constant off-diagonal corr and unit diagonal."""
         # Correlated (non-axis-aligned) covariance -- axis-aligned tree splits and a
         # linear decision boundary both struggle with rotated covariance structure,
         # while a full-covariance GaussianMixture recovers it directly.
