@@ -14,6 +14,7 @@ from mlframe.calibration.group_bias_correction import apply_group_bias_correctio
 
 
 def _make_opposite_bias_dataset(n_per_group: int, seed: int):
+    """Helper that make opposite bias dataset."""
     rng = np.random.default_rng(seed)
     groups = np.repeat(["store_A", "store_B", "store_C", "store_D"], n_per_group)
     n = len(groups)
@@ -27,6 +28,7 @@ def _make_opposite_bias_dataset(n_per_group: int, seed: int):
 
 
 def test_biz_val_group_bias_correction_fixes_opposite_direction_biases():
+    """Group bias correction fixes opposite direction biases."""
     y_true, y_pred, groups = _make_opposite_bias_dataset(n_per_group=200, seed=0)
 
     global_ratio = float(y_true.mean() / y_pred.mean())
@@ -52,6 +54,7 @@ def test_biz_val_group_bias_correction_fixes_opposite_direction_biases():
 
 
 def test_fit_group_bias_correction_falls_back_for_small_groups():
+    """Fit group bias correction falls back for small groups."""
     y_true = np.array([10.0, 10.0, 10.0, 100.0, 100.0])
     y_pred = np.array([5.0, 5.0, 5.0, 50.0, 50.0])
     groups = np.array(["big", "big", "big", "tiny", "tiny"])
@@ -62,6 +65,7 @@ def test_fit_group_bias_correction_falls_back_for_small_groups():
 
 
 def test_fit_group_bias_correction_respects_clip_range():
+    """Fit group bias correction respects clip range."""
     y_true = np.array([1000.0, 1000.0, 1000.0])
     y_pred = np.array([0.01, 0.01, 0.01])
     groups = np.array(["g", "g", "g"])
@@ -71,6 +75,7 @@ def test_fit_group_bias_correction_respects_clip_range():
 
 
 def test_apply_group_bias_correction_unseen_group_uses_default():
+    """Apply group bias correction unseen group uses default."""
     y_pred = np.array([10.0, 20.0])
     groups = np.array(["unseen1", "unseen2"])
     out = apply_group_bias_correction(y_pred, groups, ratios={}, default_ratio=1.5)
@@ -139,6 +144,7 @@ def _make_mixed_group_size_dataset(seed: int):
 
 
 def test_biz_val_group_bias_correction_shrinkage_beats_naive_on_small_noisy_groups():
+    """Group bias correction shrinkage beats naive on small noisy groups."""
     (y_true_val, y_pred_val, group_val), (y_true_ho, y_pred_ho, group_ho, is_large_ho) = _make_mixed_group_size_dataset(seed=42)
 
     # naive: min_group_size=1 so every tiny group (n=4) still gets its own noisy raw ratio -- the failure mode.

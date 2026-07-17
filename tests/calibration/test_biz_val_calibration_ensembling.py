@@ -35,12 +35,14 @@ def _make_conditionally_independent_data(n: int, k: int, seed: int):
 
 
 def test_odds_ratio_combine_matches_closed_form_true_posterior():
+    """Odds ratio combine matches closed form true posterior."""
     _y, member_probs, true_combined_prob = _make_conditionally_independent_data(2000, 5, seed=0)
     combined = odds_ratio_combine(member_probs)
     assert np.allclose(combined, true_combined_prob, atol=1e-9)
 
 
 def test_odds_ratio_combine_shape_and_range():
+    """Odds ratio combine shape and range."""
     _, member_probs, _ = _make_conditionally_independent_data(50, 3, seed=1)
     combined = odds_ratio_combine(member_probs)
     assert combined.shape == (50,)
@@ -48,23 +50,27 @@ def test_odds_ratio_combine_shape_and_range():
 
 
 def test_odds_ratio_combine_weights_shape_mismatch_raises():
+    """Odds ratio combine weights shape mismatch raises."""
     _, member_probs, _ = _make_conditionally_independent_data(10, 3, seed=2)
     with pytest.raises(ValueError):
         odds_ratio_combine(member_probs, weights=np.array([1.0, 1.0]))
 
 
 def test_odds_ratio_combine_requires_2d_input():
+    """Odds ratio combine requires 2d input."""
     with pytest.raises(ValueError):
         odds_ratio_combine(np.array([0.1, 0.2, 0.3]))
 
 
 def test_odds_ratio_combine_single_member_is_identity():
+    """Odds ratio combine single member is identity."""
     _, member_probs, _ = _make_conditionally_independent_data(30, 1, seed=3)
     combined = odds_ratio_combine(member_probs)
     assert np.allclose(combined, member_probs[:, 0], atol=1e-9)
 
 
 def test_biz_val_odds_ratio_combine_beats_naive_mean_on_conditionally_independent_members():
+    """Odds ratio combine beats naive mean on conditionally independent members."""
     y, member_probs, true_combined_prob = _make_conditionally_independent_data(4000, 6, seed=7)
 
     combined = odds_ratio_combine(member_probs)
@@ -101,6 +107,7 @@ def _make_correlated_duplicate_members(n: int, k: int, seed: int, noise: float =
 
 
 def test_member_residual_correlation_low_for_conditionally_independent_members():
+    """Member residual correlation low for conditionally independent members."""
     _, member_probs, _ = _make_conditionally_independent_data(3000, 6, seed=11)
     diag = member_residual_correlation(member_probs)
     # conditionally-independent members still show a moderate consensus correlation purely through their
@@ -110,6 +117,7 @@ def test_member_residual_correlation_low_for_conditionally_independent_members()
 
 
 def test_member_residual_correlation_high_for_correlated_duplicate_members():
+    """Member residual correlation high for correlated duplicate members."""
     _, member_probs = _make_correlated_duplicate_members(3000, 6, seed=12)
     diag = member_residual_correlation(member_probs)
     assert diag["mean_abs_residual_correlation"] > 0.9
@@ -125,6 +133,7 @@ def test_odds_ratio_combine_check_independence_default_off_is_bit_identical():
 
 
 def test_odds_ratio_combine_check_independence_warns_but_keeps_sum_by_default_mode():
+    """Odds ratio combine check independence warns but keeps sum by default mode."""
     _, member_probs = _make_correlated_duplicate_members(500, 5, seed=14)
     plain = odds_ratio_combine(member_probs)
     with pytest.warns(UserWarning, match="residual correlation"):
@@ -133,6 +142,7 @@ def test_odds_ratio_combine_check_independence_warns_but_keeps_sum_by_default_mo
 
 
 def test_odds_ratio_combine_check_independence_no_warning_on_independent_members():
+    """Odds ratio combine check independence no warning on independent members."""
     _y, member_probs, _ = _make_conditionally_independent_data(2000, 5, seed=15)
     with warnings.catch_warnings():
         warnings.simplefilter("error")

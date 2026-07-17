@@ -16,6 +16,7 @@ from mlframe.calibration.group_zero_sum_constraint import apply_group_zero_sum_c
 
 
 def _make_zero_sum_target_with_biased_predictions(n_groups: int, group_size: int, seed: int):
+    """Helper that make zero sum target with biased predictions."""
     rng = np.random.default_rng(seed)
     n = n_groups * group_size
     group = np.repeat(np.arange(n_groups), group_size)
@@ -30,6 +31,7 @@ def _make_zero_sum_target_with_biased_predictions(n_groups: int, group_size: int
 
 
 def test_biz_val_group_zero_sum_constraint_reduces_rmse():
+    """Group zero sum constraint reduces rmse."""
     pred, true_y, group = _make_zero_sum_target_with_biased_predictions(n_groups=200, group_size=20, seed=0)
 
     corrected = apply_group_zero_sum_constraint(pred, group)
@@ -41,6 +43,7 @@ def test_biz_val_group_zero_sum_constraint_reduces_rmse():
 
 
 def test_group_zero_sum_constraint_satisfies_exact_constraint():
+    """Group zero sum constraint satisfies exact constraint."""
     pred, _, group = _make_zero_sum_target_with_biased_predictions(n_groups=50, group_size=10, seed=1)
     corrected = apply_group_zero_sum_constraint(pred, group)
 
@@ -50,6 +53,7 @@ def test_group_zero_sum_constraint_satisfies_exact_constraint():
 
 
 def test_group_zero_sum_constraint_respects_weights_and_target_sum():
+    """Group zero sum constraint respects weights and target sum."""
     pred = np.array([1.0, 2.0, 3.0, 4.0])
     group = np.array([0, 0, 1, 1])
     weights = np.array([1.0, 1.0, 2.0, 1.0])

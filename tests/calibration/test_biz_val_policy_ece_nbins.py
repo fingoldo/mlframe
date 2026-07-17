@@ -20,11 +20,13 @@ EPS = 1e-6
 
 
 def _g_over(p):
+    """Helper that g over."""
     z = np.log(p / (1 - p)) * 0.6
     return 1.0 / (1.0 + np.exp(-z))
 
 
 def _g_sshape(p):
+    """Helper that g sshape."""
     z = np.log(p / (1 - p))
     return 1.0 / (1.0 + np.exp(-(z * 0.7 + 0.4 * np.sin(2.5 * z))))
 
@@ -37,17 +39,20 @@ _SCENARIOS = [
 
 
 def _ece_true(g, a, b, rng):
+    """Helper that ece true."""
     s = np.clip(rng.beta(a, b, size=200_000), EPS, 1 - EPS)
     return float(np.mean(np.abs(g(s) - s)))
 
 
 def _sample(g, a, b, n, rng):
+    """Helper that sample."""
     s = np.clip(rng.beta(a, b, size=n), EPS, 1 - EPS)
     y = (rng.random(n) < g(s)).astype(np.float64)
     return np.ascontiguousarray(y), np.ascontiguousarray(s)
 
 
 def _aggregate_rmse(nbins, seeds=10, ns=(2000, 20000)):
+    """Helper that aggregate rmse."""
     grid_rng = np.random.default_rng(7)
     sq = []
     for name, a, b, g in _SCENARIOS:

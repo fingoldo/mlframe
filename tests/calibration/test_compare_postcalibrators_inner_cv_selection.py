@@ -15,6 +15,7 @@ import numpy as np
 
 
 def _synth(seed: int = 0, n: int = 400):
+    """Helper that synth."""
     rng = np.random.default_rng(seed)
     p1 = rng.random(n)
     probs = np.column_stack([1 - p1, p1])
@@ -31,11 +32,13 @@ class _MemorizingCalibrator:
     """
 
     def fit(self, X, y):
+        """Helper that fit."""
         X1 = np.asarray(X)[:, 1] if np.asarray(X).ndim == 2 else np.asarray(X)
         self._memo = dict(zip(np.round(X1, 12).tolist(), np.asarray(y, dtype=float).tolist()))
         return self
 
     def transform(self, X):
+        """Helper that transform."""
         X1 = np.asarray(X)[:, 1] if np.asarray(X).ndim == 2 else np.asarray(X)
         return np.array([self._memo.get(round(float(x), 12), 0.5) for x in X1])
 

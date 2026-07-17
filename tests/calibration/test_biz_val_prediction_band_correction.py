@@ -16,6 +16,7 @@ from mlframe.calibration.prediction_band_correction import apply_prediction_band
 
 
 def _make_biased_band_predictions(n: int, seed: int):
+    """Helper that make biased band predictions."""
     rng = np.random.default_rng(seed)
     y_true = rng.integers(0, 2, n).astype(float)
     y_pred = np.clip(y_true * 0.6 + rng.normal(scale=0.25, size=n) + 0.2, 0, 1)
@@ -27,6 +28,7 @@ def _make_biased_band_predictions(n: int, seed: int):
 
 
 def test_biz_val_band_correction_improves_calibration_on_held_out_split():
+    """Band correction improves calibration on held out split."""
     y_true, y_pred_biased = _make_biased_band_predictions(n=4000, seed=0)
     oof_idx, test_idx = np.arange(0, 2500), np.arange(2500, 4000)
 
@@ -46,6 +48,7 @@ def test_band_correction_does_not_hurt_already_calibrated_predictions():
     # model is well-calibrated (conditioning on y_pred > lo already selects more positives) -- what matters
     # is that fitting the correction on one split and applying it to a DISJOINT split doesn't materially hurt
     # Brier score, i.e. the fitted factor generalizes rather than overfitting split-specific noise.
+    """Band correction does not hurt already calibrated predictions."""
     rng = np.random.default_rng(1)
     n = 4000
     y_true = rng.integers(0, 2, n).astype(float)
@@ -61,6 +64,7 @@ def test_band_correction_does_not_hurt_already_calibrated_predictions():
 
 
 def test_apply_prediction_band_correction_leaves_out_of_band_predictions_unchanged():
+    """Apply prediction band correction leaves out of band predictions unchanged."""
     preds = np.array([0.1, 0.3, 0.5, 0.7, 0.9])
     corrected = apply_prediction_band_correction(preds, lo=0.4, hi=1.0, factor=0.5, clip=None)
     np.testing.assert_allclose(corrected, [0.1, 0.3, 0.25, 0.35, 0.45])
