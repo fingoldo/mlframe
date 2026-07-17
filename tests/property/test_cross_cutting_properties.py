@@ -19,7 +19,7 @@ closed-form / contract sensors use plain parametrization over hand-picked edge i
 
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
 import numpy as np
 import pandas as pd
@@ -59,7 +59,7 @@ try:  # pragma: no cover - warmup only
     coverage(_wp, _wp - 0.1, _wp + 0.1)
     winkler_score(_wp, _wp - 0.1, _wp + 0.1, 0.2)
     crps_from_quantiles(_wy.astype(np.float64), np.column_stack([_wp, _wp]), [0.3, 0.7])
-except Exception:  # pragma: no cover
+except Exception:  # pragma: no cover  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
     pass
 
 
@@ -335,7 +335,7 @@ def test_pickle_binary_post_calibrator_repredicts_identically():
     cal.fit(calib_p, calib_y)
     test_p = np.linspace(0.05, 0.95, 15)
     before = cal.predict_proba(test_p)
-    restored = pickle.loads(pickle.dumps(cal))
+    restored = pickle.loads(pickle.dumps(cal))  # nosec B301 -- round-trip of a locally-created, trusted object
     after = restored.predict_proba(test_p)
     assert before.shape == after.shape == (15, 2)
     np.testing.assert_array_equal(before, after)
@@ -356,7 +356,7 @@ def test_pickle_calibration_config_preserves_all_fields():
         selection="oof",
         inner_cv_splits=3,
     )
-    restored = pickle.loads(pickle.dumps(cfg))
+    restored = pickle.loads(pickle.dumps(cfg))  # nosec B301 -- round-trip of a locally-created, trusted object
     assert restored == cfg
     assert restored.candidates == ("Isotonic", "Beta")
     assert restored.n_bootstrap == 250

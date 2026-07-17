@@ -64,7 +64,7 @@ def test_cache_miss_on_different_pool_recomputes_and_adds_entry():
     compute_fdr_gain_floor(fd, fn, x, y, maxt_floor_cache=cache, **_common_kwargs())
     assert len(cache) == 1
 
-    x_wider = x + [len(x)]  # a different (wider) pool -- must NOT hit the same cache entry
+    x_wider = [*x, len(x)]  # a different (wider) pool -- must NOT hit the same cache entry
     fd2, fn2, _, _ = _make_wide_pool(seed=3, p=len(x_wider))
     compute_fdr_gain_floor(fd2, fn2, x_wider, y, maxt_floor_cache=cache, **_common_kwargs())
     assert len(cache) == 2, "a genuinely different candidate pool must produce a distinct cache entry"

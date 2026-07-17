@@ -72,7 +72,7 @@ def test_no_non_ascii_in_print_or_logger_arguments() -> None:
     for py in MLFRAME_ROOT.rglob("*.py"):
         try:
             text = py.read_text(encoding="utf-8")
-        except Exception:
+        except Exception:  # nosec B112 -- best-effort skip of one iteration on a non-fatal error; the test's own assertions are unaffected
             continue
         for line_no, line in enumerate(text.splitlines(), 1):
             if not any(ch in line for ch in forbidden_in_io):

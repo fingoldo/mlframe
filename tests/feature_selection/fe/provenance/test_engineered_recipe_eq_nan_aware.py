@@ -32,7 +32,7 @@ Fix at engineered_recipes.py:32 (~20 LOC):
 from __future__ import annotations
 
 import copy
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
 import numpy as np
 
@@ -49,7 +49,7 @@ def test_pickle_roundtrip_with_nan_in_ndarray_extra():
         src_names=("a",),
         extra={"lookup": np.array([0.1, np.nan, 0.5])},
     )
-    assert r == pickle.loads(pickle.dumps(r))
+    assert r == pickle.loads(pickle.dumps(r))  # nosec B301 -- round-trip of a locally-created, trusted object
 
 
 def test_deepcopy_with_scalar_nan_extra():

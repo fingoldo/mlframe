@@ -22,7 +22,7 @@ def test_predict_shape_and_classes_passthrough():
 
 
 def test_picklable():
-    import pickle
+    import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
     from sklearn.linear_model import Ridge
 
@@ -30,7 +30,7 @@ def test_picklable():
     X = rng.standard_normal((200, 3))
     y = X @ np.array([1.0, -1.0, 0.5])
     ens = NoiseAugmentedEnsemble(Ridge(), k=3).fit(X, y)
-    ens2 = pickle.loads(pickle.dumps(ens))
+    ens2 = pickle.loads(pickle.dumps(ens))  # nosec B301 -- round-trip of a locally-created, trusted object
     assert np.allclose(ens.predict(X), ens2.predict(X))
 
 

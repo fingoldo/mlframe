@@ -255,7 +255,7 @@ class TestNoCircularImport:
     subprocess so module-cache order from earlier tests cannot mask the cycle."""
 
     def test_child_first_import_in_subprocess(self):
-        import subprocess, sys
+        import subprocess, sys  # nosec B404 -- test-only local trusted subprocess invocation (fixed argv, no shell, no untrusted input)
 
         for first in ("mlframe.reporting._diagnostics_dispatch_extra", "mlframe.reporting.diagnostics_dispatch"):
             code = (
@@ -266,6 +266,6 @@ class TestNoCircularImport:
                 "assert hasattr(d, '_entry_score');"
                 "print('OK')"
             )
-            r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+            r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)  # nosec B603 -- fixed local argv (sys.executable/git + literal args), no shell, no untrusted input
             assert r.returncode == 0, f"first={first} stderr=\n{r.stderr}"
             assert "OK" in r.stdout

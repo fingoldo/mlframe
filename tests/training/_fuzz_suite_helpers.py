@@ -889,7 +889,7 @@ def _assert_prediction_invariants(trained, meta, combo) -> None:
             # Normalise to ndarray for finite checks.
             try:
                 arr_np = np.asarray(arr)
-            except Exception:
+            except Exception:  # nosec B112 -- best-effort skip of one iteration on a non-fatal error; the test's own assertions are unaffected
                 continue
             if arr_np.size == 0:
                 continue

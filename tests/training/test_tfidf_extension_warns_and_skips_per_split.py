@@ -127,7 +127,7 @@ class TestIsPolarsCategoricalEnum:
 
     def test_numeric_dtypes_rejected(self):
         """False-positive sensor: numeric dtypes must stay non-categorical.
-        Recognizing Enum musn't broaden the check too far."""
+        Recognizing Enum mustn't broaden the check too far."""
         from mlframe.training.strategies import is_polars_categorical
 
         assert not is_polars_categorical(pl.Int32)

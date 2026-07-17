@@ -32,7 +32,7 @@ class TestKnockoffNullSignSymmetry:
             y = rng.standard_normal(150)  # y independent of all X -> global null
 
             def factory():
-                return RandomForestRegressor(n_estimators=40, random_state=seed)
+                return RandomForestRegressor(n_estimators=40, random_state=seed)  # noqa: B023 -- factory invoked immediately below, same iteration, never stored
 
             W = knockoff_importance(factory, X, y, random_state=seed, w_statistic="gain")
             all_W.extend(W.values())
@@ -63,7 +63,7 @@ class TestKnockoffNullSignSymmetry:
             y = rng.standard_normal(150)
 
             def factory():
-                return RandomForestRegressor(n_estimators=40, random_state=seed)
+                return RandomForestRegressor(n_estimators=40, random_state=seed)  # noqa: B023 -- factory invoked immediately below, same iteration, never stored
 
             W = knockoff_importance(factory, X, y, random_state=seed, w_statistic="gain")
             total_selected += len(select_features_fdr(W, q=q))

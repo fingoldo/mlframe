@@ -250,7 +250,7 @@ class TestB14_NullableIntLeakageDetection:
             )
             try:
                 rfecv.fit(X, y)
-            except Exception:
+            except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
                 # CB/LR may error on Int8; the leakage WARNING should still
                 # have fired BEFORE the fit failure.
                 pass

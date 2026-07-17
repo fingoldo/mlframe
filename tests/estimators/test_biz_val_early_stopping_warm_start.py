@@ -211,7 +211,7 @@ def test_warm_start_estimators_were_discovered():
             continue
         try:
             est = Est()
-        except Exception:
+        except Exception:  # nosec B112 -- best-effort skip of one iteration on a non-fatal error; the test's own assertions are unaffected
             continue
         p = est.get_params()
         if "warm_start" in p and any(a in p for a in ("n_estimators", "max_iter")):

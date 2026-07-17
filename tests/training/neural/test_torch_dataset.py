@@ -526,7 +526,7 @@ class TestTorchDatasetGetItem:
         df = pd.DataFrame(np.random.randn(20, 5))
         labels = pd.Series(np.random.randint(0, 2, 20))
         dataset = TorchDataset(df, labels, batch_size=5)
-        x, y = dataset[0]
+        x, _y = dataset[0]
         assert x.shape == (5, 5)
 
         # Polars
@@ -662,7 +662,7 @@ class TestTorchDatasetMutationTests:
 
         # Sample mode (batch_size=0) - should access single samples
         dataset_sample = TorchDataset(features, labels, batch_size=0)
-        x, y = dataset_sample[0]
+        x, _y = dataset_sample[0]
         assert x.shape == (5,), f"Sample mode should squeeze, got {x.shape}"
 
         # Batch mode (batch_size>0) - should not squeeze

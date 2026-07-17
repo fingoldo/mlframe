@@ -14,7 +14,7 @@ Each test pins exactly one contract that lives at the seam between modules so a 
 
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 import time
 import warnings
 
@@ -371,7 +371,7 @@ def test_engineered_recipe_serializes_via_pickle():
     )
     pre = apply_recipe(recipe, X)
 
-    restored = pickle.loads(pickle.dumps(recipe))
+    restored = pickle.loads(pickle.dumps(recipe))  # nosec B301 -- round-trip of a locally-created, trusted object
     assert restored == recipe, "EngineeredRecipe.__eq__ must survive pickle"
     post = apply_recipe(restored, X)
 

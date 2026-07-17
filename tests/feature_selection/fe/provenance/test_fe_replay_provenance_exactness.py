@@ -45,7 +45,7 @@ What this file pins (measured against the real API in
 from __future__ import annotations
 
 import dataclasses
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 import warnings
 
 import numpy as np
@@ -193,7 +193,7 @@ def test_robust_prewarp_recipe_survives_pickle_roundtrip():
     """Pickle round-trip preserves the robust provenance keys AND recipe equality
     (the ``__getstate__`` mappingproxy->dict + ``__setstate__`` re-freeze chain)."""
     recipe, _spec, _a, _b = _build_robust_prewarp_recipe()
-    r2 = pickle.loads(pickle.dumps(recipe))
+    r2 = pickle.loads(pickle.dumps(recipe))  # nosec B301 -- round-trip of a locally-created, trusted object
     assert r2 == recipe, "pickle round-trip recipe is not equal to the original"
     assert r2.extra.get("prewarp_a_robust_fit") is True
     assert float(r2.extra["prewarp_a_winsor_lo"]) == float(recipe.extra["prewarp_a_winsor_lo"])

@@ -18,7 +18,7 @@ MRMR_FE_ORDER_COL = "mrmr_fe_order"
 MRMR_FE_LAG_VAL_COL = "mrmr_fe_lval"
 
 
-def build_frame_for_combo(combo: FuzzCombo):
+def build_frame_for_combo(combo: FuzzCombo):  # noqa: C901 -- fuzz frame synthesis fans out over every axis of FuzzCombo by design; splitting would scatter the single source of truth for what each axis emits
     """Build a pd / pl DataFrame matching the combo's input spec.
 
     Returns (df, target_col_name, cat_feature_names: list[str]).

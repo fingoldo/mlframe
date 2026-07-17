@@ -57,7 +57,7 @@ def test_api14_classification_none_warns_on_ambiguous_float_target():
         # The warning fires before any heavy fitting; we only assert the warning, swallow downstream errors.
         try:
             sel.fit(X, y)
-        except Exception:
+        except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
             pass
 
 

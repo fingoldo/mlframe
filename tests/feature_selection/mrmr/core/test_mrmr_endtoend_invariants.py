@@ -41,7 +41,7 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
+import subprocess  # nosec B404 -- test-only local trusted subprocess invocation (fixed argv, no shell, no untrusted input)
 import sys
 
 import pytest
@@ -308,7 +308,7 @@ def _run_case(case: dict, fe_kwargs: dict, timeout: int = 600) -> dict:
 
     last_err = ""
     for attempt in range(2):
-        proc = subprocess.run(
+        proc = subprocess.run(  # nosec B603 -- fixed local argv (sys.executable/git + literal args), no shell, no untrusted input
             [sys.executable, "-c", _WORKER, payload],
             capture_output=True,
             text=True,

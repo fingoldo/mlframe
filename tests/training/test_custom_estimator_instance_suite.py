@@ -74,8 +74,8 @@ def test_e2e_custom_sklearn_instance_trains_and_roundtrips(tmp_path):
     assert preds.shape[0] == 5
 
     # Round-trip the fitted estimator (suite persists models; verify the estimator itself pickles/loads).
-    import pickle
+    import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
-    reloaded = pickle.loads(pickle.dumps(fitted))
+    reloaded = pickle.loads(pickle.dumps(fitted))  # nosec B301 -- round-trip of a locally-created, trusted object
     preds2 = np.asarray(reloaded.predict(pd.DataFrame(np.zeros((5, len(cols)), dtype=np.float64), columns=cols)))
     assert np.allclose(preds, preds2)

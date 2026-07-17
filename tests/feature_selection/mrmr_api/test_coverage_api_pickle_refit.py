@@ -13,7 +13,7 @@ params) must re-fit cleanly AND keep the documented legacy override value
 
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
 import numpy as np
 import pandas as pd
@@ -42,7 +42,7 @@ def test_pickle_round_trip_preserves_support_and_transform():
     names = list(m.get_feature_names_out())
     out = m.transform(X)
 
-    m2 = pickle.loads(pickle.dumps(m))
+    m2 = pickle.loads(pickle.dumps(m))  # nosec B301 -- round-trip of a locally-created, trusted object
     np.testing.assert_array_equal(np.sort(np.asarray(m2.support_)), sup)
     assert list(m2.get_feature_names_out()) == names
     out2 = m2.transform(X)
@@ -55,7 +55,7 @@ def test_pickle_then_refit_then_transform():
     X, y = _data(seed=2)
     MRMR._FIT_CACHE.clear()
     m = _fast(random_seed=7).fit(X, y)
-    m2 = pickle.loads(pickle.dumps(m))
+    m2 = pickle.loads(pickle.dumps(m))  # nosec B301 -- round-trip of a locally-created, trusted object
 
     X2, y2 = _data(seed=3)
     MRMR._FIT_CACHE.clear()
@@ -94,7 +94,7 @@ def test_pickle_state_missing_params_refits_and_keeps_legacy_override():
 def test_unfitted_estimator_pickles_and_fits():
     """An UNFITTED MRMR survives pickle and is usable afterwards."""
     m = _fast(random_seed=9)
-    m2 = pickle.loads(pickle.dumps(m))
+    m2 = pickle.loads(pickle.dumps(m))  # nosec B301 -- round-trip of a locally-created, trusted object
     assert not hasattr(m2, "support_")
     X, y = _data(seed=5)
     MRMR._FIT_CACHE.clear()

@@ -5,7 +5,7 @@ no sidecar was unpickled silently. The fix removes allow_unverified=True so a mi
 MLFRAME_ALLOW_UNVERIFIED_PICKLE env var.
 """
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
 
 from mlframe.utils.disk_cache import DiskCache

@@ -146,7 +146,7 @@ def test_recipe_roundtrip_and_parity(method):
 
 
 def test_recipe_extra_pickle_eq_roundtrip():
-    import pickle
+    import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
     from mlframe.feature_selection.filters.engineered_recipes import build_cluster_aggregate_recipe
 
     r = build_cluster_aggregate_recipe(
@@ -159,7 +159,7 @@ def test_recipe_extra_pickle_eq_roundtrip():
         weights=np.array([0.5, 0.3, 0.4]),
         quantization={"nbins": 8, "method": "quantile", "dtype": "<i4"},
     )
-    r2 = pickle.loads(pickle.dumps(r))
+    r2 = pickle.loads(pickle.dumps(r))  # nosec B301 -- round-trip of a locally-created, trusted object
     assert r == r2  # __eq__ walks ndarray extra via _extra_equal
 
 

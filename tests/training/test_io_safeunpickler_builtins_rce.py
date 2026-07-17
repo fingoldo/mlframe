@@ -13,9 +13,9 @@ from __future__ import annotations
 
 import io
 import os
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
-import dill
+import dill  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 import pytest
 
 from mlframe.training.io import _SafeUnpickler

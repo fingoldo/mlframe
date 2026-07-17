@@ -7,7 +7,7 @@ sample_weight validation, the uniform-mean fallback on degenerate inputs, and pi
 
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 import warnings
 
 import numpy as np
@@ -217,7 +217,7 @@ def test_meta_stack_pickle_roundtrip(stacker):
     models, names = _models(X.shape[1])
     ens = build_meta_stack_ensemble(E, models, names, X, y, stacker=stacker)
     before = ens.predict(X)
-    restored = pickle.loads(pickle.dumps(ens))
+    restored = pickle.loads(pickle.dumps(ens))  # nosec B301 -- round-trip of a locally-created, trusted object
     after = restored.predict(X)
     np.testing.assert_allclose(after, before, rtol=1e-10)
     assert getattr(restored, "_meta_model", None) is not None

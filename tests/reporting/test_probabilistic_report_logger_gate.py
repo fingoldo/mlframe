@@ -64,7 +64,7 @@ def test_classification_report_skipped_when_info_filtered(monkeypatch):
             show_perf_chart=False,
             verbose=False,
         )
-    except Exception:
+    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
         # The function may bail on missing optional kwargs in the test
         # harness; the assertion that matters is the sklearn call count.
         pass

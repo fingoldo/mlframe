@@ -111,7 +111,7 @@ def _output_names(sel, all_cols):
     if callable(gfno):
         try:
             return [str(x) for x in gfno()]
-        except Exception:
+        except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
             pass
     return _support_names(sel, all_cols)
 

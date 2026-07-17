@@ -96,11 +96,11 @@ def test_biz_value_recovers_spread_driven_target():
         tr, te = slice(0, cut), slice(cut, n)
 
         def _r2(stats):
-            feat_df, recipes = fit_binned_numeric_agg(df.iloc[tr], sigma[tr], group_num_cols=["g"], agg_num_cols=["aux"], stats=stats, nbins_base=10)
+            feat_df, recipes = fit_binned_numeric_agg(df.iloc[tr], sigma[tr], group_num_cols=["g"], agg_num_cols=["aux"], stats=stats, nbins_base=10)  # noqa: B023 -- closure invoked twice below, same iteration, never stored
             Xtr = feat_df.to_numpy()
-            Xte = np.column_stack([apply_binned_numeric_agg(df.iloc[te], recipes[c]) for c in feat_df.columns])
-            m = GradientBoostingRegressor(n_estimators=120, max_depth=3, random_state=0).fit(Xtr, sigma[tr])
-            return r2_score(sigma[te], m.predict(Xte))
+            Xte = np.column_stack([apply_binned_numeric_agg(df.iloc[te], recipes[c]) for c in feat_df.columns])  # noqa: B023 -- closure invoked twice below, same iteration, never stored
+            m = GradientBoostingRegressor(n_estimators=120, max_depth=3, random_state=0).fit(Xtr, sigma[tr])  # noqa: B023 -- closure invoked twice below, same iteration, never stored
+            return r2_score(sigma[te], m.predict(Xte))  # noqa: B023 -- closure invoked twice below, same iteration, never stored
 
         deltas.append(_r2(("mean", "std", "skew", "kurt")) - _r2(("mean",)))
     # std/skew/kurt of the feature per cell recover the spread the mean misses -> large lift.

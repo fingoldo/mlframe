@@ -1591,7 +1591,7 @@ class TestPerGroupAUCEdgeCases:
         import logging
 
         # 10 groups, 9 valid (2-sample each), 1 single-sample -> 10% NaN.
-        gids = functools.reduce(operator.iadd, [[i, i] for i in range(9)], []) + [9]  # groups 0..8 have 2 samples; group 9 has 1
+        gids = [*functools.reduce(operator.iadd, [[i, i] for i in range(9)], []), 9]  # groups 0..8 have 2 samples; group 9 has 1
         y_true = ([0, 1] * 9) + [1]
         y_score = list(np.linspace(0.1, 0.9, 19))
         with caplog.at_level(logging.WARNING, logger="mlframe.metrics.core"):

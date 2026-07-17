@@ -6,8 +6,9 @@ tests/conftest.py and apply to all test modules automatically.
 """
 
 import hashlib
+import importlib
 import os
-import subprocess
+import subprocess  # nosec B404 -- test-only local trusted subprocess invocation (fixed argv, no shell, no untrusted input)
 import sys
 import tempfile
 
@@ -45,7 +46,7 @@ def _neural_prewarm_is_safe() -> bool:
     except (OSError, ValueError, KeyError):
         pass
     try:
-        proc = subprocess.run(
+        proc = subprocess.run(  # nosec B603 -- fixed local argv (sys.executable/git + literal args), no shell, no untrusted input
             [sys.executable, "-c", "import mlframe.training.neural"],
             capture_output=True,
             timeout=120,
@@ -79,8 +80,8 @@ try:
     # networkx is pulled in transitively by some sklearn / pyutilz paths;
     # touching it here lets the cold-cache wallclock land outside the
     # per-test timeout window.
-    import networkx
-    import networkx.algorithms
+    importlib.import_module("networkx")
+    importlib.import_module("networkx.algorithms")
 except (ImportError, OSError):
     pass
 
@@ -171,7 +172,7 @@ def _prewarm_numba_once():
         from mlframe.metrics.core import prewarm_numba_cache
 
         prewarm_numba_cache()
-    except Exception:
+    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
         pass
     yield
 

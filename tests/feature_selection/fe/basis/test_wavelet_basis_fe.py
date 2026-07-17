@@ -36,7 +36,7 @@ on data without localized structure:
 
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 import warnings
 
 import numpy as np
@@ -170,7 +170,7 @@ def test_recipe_replay_is_leak_safe_and_bit_exact():
         replay = apply_recipe(r, X)
         assert np.array_equal(replay, eng[nm].to_numpy()), f"{nm} not bit-exact"
         # pickle round-trip
-        r2 = pickle.loads(pickle.dumps(r))
+        r2 = pickle.loads(pickle.dumps(r))  # nosec B301 -- round-trip of a locally-created, trusted object
         assert np.array_equal(apply_recipe(r2, X), eng[nm].to_numpy())
 
 

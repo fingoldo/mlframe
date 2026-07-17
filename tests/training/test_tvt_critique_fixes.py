@@ -170,7 +170,7 @@ def test_E_val_placement_downgrade_emits_warning_with_remediation(caplog):
                 timestamps=None,
                 random_seed=0,
             )
-        except Exception:
+        except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
             # Downstream split-shape errors are not under test; the log line is.
             pass
 
@@ -275,7 +275,7 @@ def test_I_mape_warmup_does_not_emit_zero_y_warning(caplog):
         if warmup_fn is not None:
             try:
                 warmup_fn()
-            except Exception:
+            except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
                 # If warmup signature differs, importing the module already executed it.
                 pass
     zero_warns = [r for r in caplog.records if "y_true entries are zero" in r.getMessage()]

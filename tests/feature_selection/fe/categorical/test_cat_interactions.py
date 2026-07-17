@@ -969,7 +969,7 @@ class TestOrchestratorEndToEnd:
     def test_recipes_are_picklable(self, xor_fixture):
         """Recipes from cat-FE survive pickle round-trip (same as
         numeric FE recipes)."""
-        import pickle
+        import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
         cfg = CatFEConfig(
             enable=True,
@@ -990,6 +990,6 @@ class TestOrchestratorEndToEnd:
             cfg=cfg,
             dtype=np.int32,
         )
-        restored = pickle.loads(pickle.dumps(state))
+        restored = pickle.loads(pickle.dumps(state))  # nosec B301 -- round-trip of a locally-created, trusted object
         assert restored.recipes == state.recipes
         assert restored.diagnostics == state.diagnostics

@@ -16,7 +16,7 @@ column at predict time. This test pins the replay contract:
 
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
 import numpy as np
 import pandas as pd
@@ -145,7 +145,7 @@ class TestHermitePairRecipePersistence:
             hermite_result=result,
         )
         blob = pickle.dumps(recipe)
-        recipe2 = pickle.loads(blob)
+        recipe2 = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
         assert recipe == recipe2
 
         df = pd.DataFrame({"x_a": x_a, "x_b": x_b})

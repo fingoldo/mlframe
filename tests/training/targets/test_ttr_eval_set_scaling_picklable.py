@@ -22,7 +22,7 @@ class TestTTRWithEvalSetScalingPickle:
 
     def test_unfit_instance_pickles_via_dill(self) -> None:
         """A constructed but UNFIT instance must dill-roundtrip without raising. Pre-fix this raised ``cannot pickle '_abc._abc_data' object``."""
-        import dill
+        import dill  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
         from sklearn.linear_model import Ridge
         from sklearn.preprocessing import StandardScaler
 
@@ -32,12 +32,12 @@ class TestTTRWithEvalSetScalingPickle:
         buf = io.BytesIO()
         dill.dump(m, buf)
         buf.seek(0)
-        m2 = dill.load(buf)
+        m2 = dill.load(buf)  # nosec B301 -- round-trip of a locally-created, trusted object
         assert isinstance(m2, _TTRWithEvalSetScaling)
 
     def test_fit_then_pickle_roundtrips_and_predicts(self) -> None:
         """End-to-end: fit on small dataset, dill-roundtrip, predict matches the original."""
-        import dill
+        import dill  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
         from sklearn.linear_model import Ridge
         from sklearn.preprocessing import StandardScaler
 
@@ -53,7 +53,7 @@ class TestTTRWithEvalSetScalingPickle:
         buf = io.BytesIO()
         dill.dump(m, buf)
         buf.seek(0)
-        m2 = dill.load(buf)
+        m2 = dill.load(buf)  # nosec B301 -- round-trip of a locally-created, trusted object
         preds_after = m2.predict(X[:10])
         np.testing.assert_allclose(preds_after, preds_before, rtol=1e-9, atol=1e-9)
 

@@ -74,7 +74,7 @@ def capture_one(spec: dict, tier: str, seed: int = 42) -> dict:
         fe_max_steps=spec.get("fe_max_steps", 0),
         cv=2,
     )
-    logger.info(f"capturing {spec['name']} (tier={tier})...")
+    logger.info("capturing %s (tier=%s)...", spec["name"], tier)
     mrmr.fit(X, y)
     if tier == "pre_refactor":
         return _capture.capture_pre_refactor(mrmr, spec["name"], seed)
@@ -100,7 +100,7 @@ def main() -> int:
     for spec in specs:
         snap = capture_one(spec, args.tier, seed=args.seed)
         path = _capture.save_snapshot(snap, target_dir)
-        logger.info(f"wrote {path}")
+        logger.info("wrote %s", path)
     return 0
 
 

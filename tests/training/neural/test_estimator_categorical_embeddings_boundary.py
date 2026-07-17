@@ -8,7 +8,7 @@ codes BEFORE its NaN/inf validator (no ``dtype('O')`` error) and produce finite 
 
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
 import numpy as np
 import pandas as pd
@@ -157,7 +157,7 @@ def test_fit_pickle_unpickle_predict_round_trip():
     reg = PytorchLightningRegressor(**_common(torch.float32, torch.nn.MSELoss()), random_state=42)
     reg.fit(X, y, cat_features=["color"])
     p1 = np.asarray(reg.predict(X))
-    restored = pickle.loads(pickle.dumps(reg))
+    restored = pickle.loads(pickle.dumps(reg))  # nosec B301 -- round-trip of a locally-created, trusted object
     p2 = np.asarray(restored.predict(X))
     assert np.allclose(p1, p2, atol=1e-5)
     # Stored maps/cardinalities are plain dict/list (picklable).

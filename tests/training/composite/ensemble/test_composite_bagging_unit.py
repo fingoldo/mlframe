@@ -126,7 +126,7 @@ def test_aggregation_param_defaults_and_validation():
 
 
 def test_pickle_replay_legacy_model_aggregates_by_mean():
-    import pickle
+    import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
     X, y = _make_composite_data()
     bag = BaggedCompositeEstimator(
@@ -134,7 +134,7 @@ def test_pickle_replay_legacy_model_aggregates_by_mean():
         n_estimators=6,
         random_state=3,
     ).fit(X, y)
-    replayed = pickle.loads(pickle.dumps(bag))
+    replayed = pickle.loads(pickle.dumps(bag))  # nosec B301 -- round-trip of a locally-created, trusted object
     # Simulate a pre-flip pickle: the aggregation attrs did not exist; predict must fall back to the legacy plain mean.
     del replayed.aggregation, replayed.trim_fraction
     members = replayed._member_predictions(X)

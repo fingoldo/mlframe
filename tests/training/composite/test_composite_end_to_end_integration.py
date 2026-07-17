@@ -27,7 +27,7 @@ inner with a raw-margin / pinball path, which the sklearn fallbacks do not give.
 
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
 import numpy as np
 import pandas as pd
@@ -470,6 +470,6 @@ def test_pickle_and_clone_roundtrip(name, est, X, y) -> None:
         return np.asarray(e.predict(X), dtype=np.float64)
 
     before = _predict(est)
-    restored = pickle.loads(pickle.dumps(est))
+    restored = pickle.loads(pickle.dumps(est))  # nosec B301 -- round-trip of a locally-created, trusted object
     after = _predict(restored)
     np.testing.assert_allclose(after, before, rtol=1e-9, atol=1e-9)

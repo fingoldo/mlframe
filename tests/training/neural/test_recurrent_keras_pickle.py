@@ -1,6 +1,6 @@
 """Regression tests for SER2 (_RecurrentWrapperBase pickle) + SER3 (KerasCompatibleMLP pickle)."""
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
 import numpy as np
 import pytest
@@ -21,7 +21,7 @@ def test_recurrent_wrapper_getstate_drops_trainer_and_cache():
     w._prediction_cache = {b"key": np.zeros(3)}
     w.model = torch.nn.Linear(2, 1)
 
-    restored = pickle.loads(pickle.dumps(w))
+    restored = pickle.loads(pickle.dumps(w))  # nosec B301 -- round-trip of a locally-created, trusted object
 
     assert restored.trainer is None
     assert restored._prediction_cache == {}
@@ -43,7 +43,7 @@ def test_keras_compatible_mlp_roundtrip_preserves_predictions():
     est.fit(X, y)
     before = est.predict(X)
 
-    restored = pickle.loads(pickle.dumps(est))
+    restored = pickle.loads(pickle.dumps(est))  # nosec B301 -- round-trip of a locally-created, trusted object
     after = restored.predict(X)
 
     assert restored.model_ is not None

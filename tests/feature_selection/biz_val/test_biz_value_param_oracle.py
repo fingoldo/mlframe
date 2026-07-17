@@ -243,7 +243,7 @@ def test_hybrid_epsilon_greedy_explore_vs_exploit(tmp_path):
 
     space = {"impl": ["a", "b"]}
     # Seed a clear best so exploit is well-defined.
-    oracle = ParamOracle(_store(tmp_path), param_space=space, mode="hybrid", minimize="elapsed_s", epsilon=0.3, min_observations=1, rng=random.Random(12345))
+    oracle = ParamOracle(_store(tmp_path), param_space=space, mode="hybrid", minimize="elapsed_s", epsilon=0.3, min_observations=1, rng=random.Random(12345))  # nosec B311 -- deterministic-seed test PRNG, not used for security/crypto purposes
     # Pre-seed: "a" is the cheap best.
     for _ in range(3):
         oracle.record(fp, {"impl": "a"}, {"elapsed_s": 0.001}, ts=FIXED_TS, fn_name="toy")

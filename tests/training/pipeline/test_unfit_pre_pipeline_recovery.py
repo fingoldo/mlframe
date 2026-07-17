@@ -45,7 +45,7 @@ def _subset_recovery(input_for_model, model):
             _have = {str(c) for c in input_for_model.columns}
             if all(c in _have for c in _inner_list):
                 return input_for_model.loc[:, _inner_list]
-        except Exception:
+        except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
             pass
     return input_for_model
 

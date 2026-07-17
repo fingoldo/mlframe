@@ -263,7 +263,7 @@ def test_sample_before_finite_filter_on_large_input():
             sz = int(np.asarray(arr).size)
             if sz > captured["max_size_seen"]:
                 captured["max_size_seen"] = sz
-        except Exception:
+        except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
             pass
         return _orig_isfinite(arr, *a, **kw)
 

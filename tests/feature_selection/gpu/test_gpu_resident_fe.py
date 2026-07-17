@@ -784,7 +784,7 @@ def test_gpu_apply_prewarp_resolves_clenshaw_dict_after_carve():
             _gpu_apply_prewarp(cp, x, spec)
         except NameError as e:  # the carved-dict reference must resolve
             pytest.fail(f"_gpu_apply_prewarp NameError on basis {basis!r}: {e}")
-        except Exception:
+        except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
             pass  # incomplete minimal spec may raise KeyError/ValueError downstream -- not the bug under test
 
 

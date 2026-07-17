@@ -13,7 +13,7 @@ Pins the residency-path INFRASTRUCTURE before the pipeline is wired:
 from __future__ import annotations
 
 import os
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
 import numpy as np
 import pytest
@@ -64,7 +64,7 @@ def test_resident_state_build_and_pickle():
     assert cfg["threads"] >= 1 and cfg["shared_per_block"] > 0 and isinstance(cfg["use_fused"], bool)
     assert st.k_chunk(d0, 50) >= 1
     # device handles must NOT survive pickle (module-resident-cache convention)
-    red = pickle.loads(pickle.dumps(st))
+    red = pickle.loads(pickle.dumps(st))  # nosec B301 -- round-trip of a locally-created, trusted object
     assert red._operands == {} and red._y_codes == {} and red.op_names == list("abcd")
     st.free()
     assert st._operands == {}  # freed

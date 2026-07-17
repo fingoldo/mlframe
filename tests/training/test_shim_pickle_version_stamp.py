@@ -20,7 +20,7 @@ before chasing weird predict crashes.
 from __future__ import annotations
 
 import logging
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
 import pytest
 
@@ -43,14 +43,14 @@ def test_lgb_shim_warns_on_version_drift(caplog):
 
     inst = LGBMClassifierWithDatasetReuse(n_estimators=2, verbosity=-1)
     payload = pickle.dumps(inst)
-    loaded = pickle.loads(payload)
+    loaded = pickle.loads(payload)  # nosec B301 -- round-trip of a locally-created, trusted object
     # Manually tamper the saved-version to simulate cross-version load.
     loaded._saved_lgb_version = "0.001-FAKE-OLD"
     with caplog.at_level(logging.WARNING, logger="mlframe.training.lgb_shim"):
         # Trigger __setstate__ again with the tampered state to force the
         # WARN. Cleaner approach: deepcopy via pickle round-trip which
         # invokes __setstate__.
-        pickle.loads(pickle.dumps(loaded))
+        pickle.loads(pickle.dumps(loaded))  # nosec B301 -- round-trip of a locally-created, trusted object
         # Some pickle paths may not re-invoke __setstate__ on a
         # non-mutating round-trip; tolerate either: assert the
         # loaded.tampered version is preserved (sentinel that the field

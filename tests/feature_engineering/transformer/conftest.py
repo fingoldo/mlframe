@@ -12,7 +12,8 @@ files that require it for collection-time skipping via ``pytest_collection_modif
 
 from __future__ import annotations
 
-import subprocess
+import importlib
+import subprocess  # nosec B404 -- test-only local trusted subprocess invocation (fixed argv, no shell, no untrusted input)
 import sys
 from collections.abc import Generator
 
@@ -36,7 +37,7 @@ def _ann_backend_safely_importable() -> bool:
     """Return True iff ``pynndescent`` imports cleanly in the current process. Memoised."""
     if "ok" not in _ANN_PROBE_CACHE:
         try:
-            import pynndescent
+            importlib.import_module("pynndescent")
 
             _ANN_PROBE_CACHE["ok"] = True
         except ImportError:

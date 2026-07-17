@@ -35,7 +35,7 @@ def _select(X, y, strict, seed):
     os.environ["MLFRAME_FE_GPU_STRICT"] = strict
     try:
         MRMR._FIT_CACHE.clear()
-    except Exception:
+    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
         pass
     m = MRMR(fe_ntop_features=8, interactions_max_order=2, n_jobs=1, verbose=0, random_seed=seed, skip_retraining_on_same_content=False)
     m.fit(X, y)

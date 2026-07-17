@@ -50,7 +50,7 @@ def _xgb_pandas_cat_cast(input_for_model, cat_features):
                 _col_dtype = input_for_model[_cf].dtype
                 if getattr(_col_dtype, "name", "") != "category":
                     _to_cast[_cf] = input_for_model[_cf].astype("category")
-            except Exception:
+            except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
                 pass
     if _to_cast:
         input_for_model = input_for_model.assign(**_to_cast)

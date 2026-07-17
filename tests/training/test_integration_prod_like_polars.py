@@ -464,7 +464,7 @@ def test_polars_multi_weight_schemas(model_name, tmp_path):
             # Attach weights if the base extractor output supports it
             try:
                 base = (*base, {"weight_schemas": weight_schemas}) if isinstance(base, tuple) else base
-            except Exception:
+            except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
                 pass
             return base
 

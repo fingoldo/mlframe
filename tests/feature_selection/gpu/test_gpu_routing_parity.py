@@ -40,7 +40,7 @@ def _host_basis_corrs(x, y):
         for d in _DEGREES:
             try:
                 v = np.asarray(_evaluate_basis_column(np.asarray(x, dtype=np.float64), basis, int(d)), dtype=np.float64)
-            except Exception:
+            except Exception:  # nosec B112 -- best-effort skip of one iteration on a non-fatal error; the test's own assertions are unaffected
                 continue
             if v.size != yv.size or not np.all(np.isfinite(v)) or float(np.std(v)) < 1e-12:
                 continue

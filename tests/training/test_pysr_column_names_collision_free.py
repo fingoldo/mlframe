@@ -1,6 +1,6 @@
 """Regression: PySR equation column names must be content-hashed so distinct seeds emit distinct columns, and the equation -> column-name mapping must round-trip via ``out_pysr_equations`` for predict-time replay.
 
-Pre-fix the column name was ``pysr_eq{idx}`` where ``idx`` is the row position in ``model.equations_``. Two seeds discovering different equations both landed on ``pysr_eq0`` / ``pysr_eq1`` / ..., so ensembling or cross-run model loading silently overlayed different equations onto the same column slot.
+Pre-fix the column name was ``pysr_eq{idx}`` where ``idx`` is the row position in ``model.equations_``. Two seeds discovering different equations both landed on ``pysr_eq0`` / ``pysr_eq1`` / ..., so ensembling or cross-run model loading silently overlaid different equations onto the same column slot.
 """
 
 from __future__ import annotations

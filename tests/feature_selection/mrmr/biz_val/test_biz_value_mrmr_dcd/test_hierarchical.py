@@ -5,7 +5,7 @@ Consolidated verbatim from test_biz_value_mrmr_layer48.py (per audit finding tes
 
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 import warnings
 
 import numpy as np
@@ -158,7 +158,7 @@ class TestLayer48_BuilderUnit:
         )
         # Always pickle the result, regardless of whether merges happened.
         blob = pickle.dumps(h)
-        h2 = pickle.loads(blob)
+        h2 = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
         assert h == h2
 
 
@@ -300,7 +300,7 @@ class TestLayer48_FitIntegration:
             random_seed=0,
         ).fit(X, y)
         blob = pickle.dumps(m)
-        m2 = pickle.loads(blob)
+        m2 = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
         assert m2.cluster_hierarchy_ == m.cluster_hierarchy_
 
     def test_cluster_hierarchy_deterministic(self):

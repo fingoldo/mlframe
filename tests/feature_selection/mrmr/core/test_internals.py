@@ -15,7 +15,7 @@ in ``__init__.py`` use ``pytest.importorskip`` patterns where appropriate.
 from __future__ import annotations
 
 import math
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
 import numpy as np
 import pandas as pd
@@ -350,7 +350,7 @@ class TestMrmrPickle:
     def test_unfitted_pickle_round_trip(self):
         m = MRMR(quantization_nbins=8, n_jobs=1, verbose=0)
         blob = pickle.dumps(m)
-        m2 = pickle.loads(blob)
+        m2 = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
         assert m2.quantization_nbins == 8
 
     def test_fitted_pickle_round_trip_smoke(self):
@@ -369,7 +369,7 @@ class TestMrmrPickle:
         m.fit(X, y)
         support_before = m.support_.copy()
         blob = pickle.dumps(m)
-        m2 = pickle.loads(blob)
+        m2 = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
         np.testing.assert_array_equal(m2.support_, support_before)
 
 

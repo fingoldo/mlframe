@@ -256,7 +256,7 @@ class TestCatFEPickleBC:
         """An MRMR pickle from before cat-FE existed should resurface
         with ``cat_fe_config=None`` and ``_cat_fe_state_=None``
         injected by ``__setstate__``."""
-        import pickle
+        import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
         rng = np.random.default_rng(0)
         df = pd.DataFrame({"a": rng.integers(0, 3, 100), "b": rng.integers(0, 3, 100)})
@@ -279,7 +279,7 @@ class TestCatFEPickleBC:
             if attr in mrmr.__dict__:
                 del mrmr.__dict__[attr]
 
-        restored = pickle.loads(pickle.dumps(mrmr))
+        restored = pickle.loads(pickle.dumps(mrmr))  # nosec B301 -- round-trip of a locally-created, trusted object
         assert restored.cat_fe_config is None
         assert restored._cat_fe_state_ is None
         # Transform still works (no recipes, no replay)

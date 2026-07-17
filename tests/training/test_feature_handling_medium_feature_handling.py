@@ -64,7 +64,7 @@ def test_m_fh_02_scrub_recursive_into_nested_dicts() -> None:
         params={
             "headers": {"Authorization": "Bearer secret123"},
             "extras": [{"api_key": "leaked"}],
-            "nested": {"deep": {"password": "hunter2"}},
+            "nested": {"deep": {"password": "hunter2"}},  # nosec B105 -- synthetic fixture value asserting the scrubber redacts it, not a real credential
         },
     )
     dumped = p.model_dump()
@@ -393,5 +393,5 @@ def test_m_fh_08_prewarm_dedupes_under_concurrent_callers() -> None:
         reg_mod._PREWARM_FUTURES.update(saved)
         try:
             reg_mod.shutdown_all()
-        except Exception:
+        except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
             pass

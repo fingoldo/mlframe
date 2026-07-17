@@ -25,7 +25,7 @@ def _scipy_per_row(X: np.ndarray, Y: np.ndarray) -> np.ndarray:
             continue
         try:
             rho, _ = spearmanr(a, b)
-        except Exception:
+        except Exception:  # nosec B112 -- best-effort skip of one iteration on a non-fatal error; the test's own assertions are unaffected
             continue
         if np.isfinite(rho):
             out[i] = rho

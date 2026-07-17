@@ -6,7 +6,7 @@ inputs (perfect duplicates, tiny n, NaN columns). Failures are prod bugs.
 
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 import warnings
 
 import numpy as np
@@ -58,7 +58,7 @@ def test_dcd_pickle_transform_parity():
     Xte = X.iloc[:400]
     m = _fit(X, y)
     out0 = np.asarray(m.transform(Xte))
-    m2 = pickle.loads(pickle.dumps(m))
+    m2 = pickle.loads(pickle.dumps(m))  # nosec B301 -- round-trip of a locally-created, trusted object
     out1 = np.asarray(m2.transform(Xte))
     assert out0.shape == out1.shape
     assert np.array_equal(np.nan_to_num(out0), np.nan_to_num(out1)), "transform output changed across pickle round-trip"

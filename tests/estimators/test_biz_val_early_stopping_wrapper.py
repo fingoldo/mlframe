@@ -69,7 +69,7 @@ def _partial_fit_estimators(kind: str):
             continue
         try:
             est = Est()
-        except Exception:
+        except Exception:  # nosec B112 -- best-effort skip of one iteration on a non-fatal error; the test's own assertions are unaffected
             continue  # needs constructor args (meta-estimator) -> not in scope.
         # Pin random_state so the wrapper's internal clone and the test's separate "full-run" clone
         # share ONE deterministic trajectory -- otherwise (default random_state=None) they get different

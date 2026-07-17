@@ -88,7 +88,7 @@ def test_predict_shape_and_entity_id_arg():
 def test_single_obs_entity_does_not_crash():
     """A panel where some entities have a single observation fits and predicts finitely."""
     rng = np.random.default_rng(4)
-    ents = list(range(20)) + [100, 101, 102]  # 3 singletons
+    ents = [*range(20), 100, 101, 102]  # 3 singletons
     rows = []
     for e in ents:
         k = 1 if e >= 100 else 10

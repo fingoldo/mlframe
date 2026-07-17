@@ -190,13 +190,13 @@ class TestSmoothingSplineResidual:
         assert np.std(t) < 0.5 * np.std(y)
 
     def test_pickle_safe_params(self):
-        import pickle
+        import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
         base = np.linspace(0.0, 10.0, 200)
         y = base**1.3 + 0.05 * _RNG.standard_normal(200)
         params = _smoothing_spline_residual_fit(y, base)
         blob = pickle.dumps(params)
-        loaded = pickle.loads(blob)
+        loaded = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
         # Spline rebuilt from arrays must give identical forward result.
         t_a = _smoothing_spline_residual_forward(y, base, params)
         t_b = _smoothing_spline_residual_forward(y, base, loaded)

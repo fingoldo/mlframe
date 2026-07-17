@@ -8,7 +8,7 @@ while an already-calibrated predictor is left ~unchanged (gain ~ 0, never materi
 
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
 import numpy as np
 
@@ -50,7 +50,7 @@ def test_recalibrator_picklable():
     yp = rng.uniform(-2, 2, 1000)
     yt = 1.5 * yp + rng.standard_normal(1000)
     g = fit_point_recalibrator(yp, yt)
-    g2 = pickle.loads(pickle.dumps(g))
+    g2 = pickle.loads(pickle.dumps(g))  # nosec B301 -- round-trip of a locally-created, trusted object
     assert np.allclose(g.transform(yp), g2.transform(yp))
 
 

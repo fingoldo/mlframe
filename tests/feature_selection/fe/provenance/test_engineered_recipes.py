@@ -17,7 +17,7 @@ storage through ``_run_fe_step``.
 
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 import warnings
 
 import numpy as np
@@ -287,7 +287,7 @@ class TestRecipePersistence:
             quantization_method=None,
             quantization_dtype=np.float32,
         )
-        restored = pickle.loads(pickle.dumps(original))
+        restored = pickle.loads(pickle.dumps(original))  # nosec B301 -- round-trip of a locally-created, trusted object
 
         assert restored == original, "frozen dataclass should be value-equal"
 

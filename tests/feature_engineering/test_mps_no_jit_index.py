@@ -6,7 +6,7 @@ Under ``@numba.njit`` bounds-checks are relaxed and the out-of-range read silent
 from __future__ import annotations
 
 import os
-import subprocess
+import subprocess  # nosec B404 -- test-only local trusted subprocess invocation (fixed argv, no shell, no untrusted input)
 import sys
 
 import numpy as np
@@ -44,5 +44,5 @@ def test_find_maximum_profit_system_under_disabled_jit_subprocess():
         "r = find_maximum_profit_system(prices, tc=0.0)\n"
         "assert list(r['positions']) == [1, 1, 1, -1, -1, -1, -1]\n"
     )
-    res = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, timeout=60)
+    res = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, timeout=60)  # nosec B603 -- fixed local argv (sys.executable/git + literal args), no shell, no untrusted input
     assert res.returncode == 0, f"subprocess failed: stdout={res.stdout!r} stderr={res.stderr!r}"

@@ -144,7 +144,7 @@ def test_normalisation_promises_actually_normalise():
             base_kwargs[field_name] = sentinel_in
             try:
                 instance = cls(**base_kwargs)
-            except Exception:
+            except Exception:  # nosec B112 -- best-effort skip of one iteration on a non-fatal error; the test's own assertions are unaffected
                 # Synth values couldn't satisfy other validators; can't audit this field.
                 continue
             actual = getattr(instance, field_name, None)

@@ -1,3 +1,5 @@
+import importlib
+
 from mlframe.training import FeatureSelectionConfig, OutputConfig, PreprocessingConfig
 
 """
@@ -184,7 +186,7 @@ class TestUnifiedTrainingLoop:
 
         # Check if catboost is available
         try:
-            import catboost
+            importlib.import_module("catboost")
 
             has_catboost = True
         except ImportError:
@@ -232,7 +234,7 @@ class TestUnifiedTrainingLoop:
 
         # Check if lightgbm is available
         try:
-            import lightgbm
+            importlib.import_module("lightgbm")
 
             has_lgb = True
         except ImportError:
@@ -380,7 +382,7 @@ class TestTrainMLFrameModelsSuiteMetadata:
         # Verify metadata file was saved
         # 2026-04-29: format switched joblib -> pickle proto=5 + zstd L3 (8c301f2).
         from pyutilz.strings import slugify
-        import pickle
+        import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
         metadata_dir = Path(temp_data_dir) / "models" / slugify("test_target") / slugify("metadata_test")
         zst_path = metadata_dir / "metadata.pkl.zst"
@@ -388,9 +390,9 @@ class TestTrainMLFrameModelsSuiteMetadata:
         if zst_path.exists():
             import zstandard as zstd
 
-            loaded_metadata = pickle.loads(zstd.ZstdDecompressor().decompress(zst_path.read_bytes()))
+            loaded_metadata = pickle.loads(zstd.ZstdDecompressor().decompress(zst_path.read_bytes()))  # nosec B301 -- round-trip of a locally-created, trusted object
         elif pkl_path.exists():
-            loaded_metadata = pickle.loads(pkl_path.read_bytes())
+            loaded_metadata = pickle.loads(pkl_path.read_bytes())  # nosec B301 -- round-trip of a locally-created, trusted object
         else:
             raise AssertionError(f"No metadata file in {metadata_dir}")
         assert loaded_metadata["model_name"] == "metadata_test"
@@ -1277,7 +1279,7 @@ class TestCustomTransformers:
 
         # Check if torch is available for MLP
         try:
-            import torch
+            importlib.import_module("torch")
 
             has_torch = True
         except ImportError:
@@ -1385,7 +1387,7 @@ class TestCalibration:
         pytest = __import__("pytest")
 
         try:
-            import catboost
+            importlib.import_module("catboost")
 
             has_catboost = True
         except ImportError:
@@ -1473,7 +1475,7 @@ class TestConfidenceAnalysis:
         pytest = __import__("pytest")
 
         try:
-            import catboost
+            importlib.import_module("catboost")
 
             has_catboost = True
         except ImportError:
@@ -2061,7 +2063,7 @@ class TestFeatureSelectorsWithPolarsPipeline:
         pytest = __import__("pytest")
 
         try:
-            import catboost
+            importlib.import_module("catboost")
 
             has_catboost = True
         except ImportError:

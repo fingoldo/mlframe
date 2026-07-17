@@ -109,7 +109,7 @@ def _extract_primary_val_metric(trained: dict) -> float | None:
                 if not isinstance(val_block, dict):
                     continue
                 # Classification: {class_idx: {'roc_auc': ...}}
-                for k, v in val_block.items():
+                for v in val_block.values():
                     if isinstance(v, dict) and "roc_auc" in v:
                         rocauc = v["roc_auc"]
                         if rocauc is not None and np.isfinite(rocauc):

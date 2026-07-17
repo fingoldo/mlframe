@@ -14,7 +14,7 @@ from __future__ import annotations
 # astropy.logger.LoggingError. Importing here first sidesteps that ordering.
 try:
     import astropy  # noqa: F401
-except Exception:
+except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
     pass
 
 import math

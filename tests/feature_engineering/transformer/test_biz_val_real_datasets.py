@@ -167,7 +167,7 @@ def _aggressive_gc_between_tests():
         from mlframe.feature_engineering.transformer._utils import free_gpu_memory_pool
 
         free_gpu_memory_pool()
-    except Exception:
+    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
         pass
     gc.collect()
 

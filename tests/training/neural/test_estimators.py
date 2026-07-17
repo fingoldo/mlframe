@@ -463,7 +463,7 @@ class TestPytorchLightningEstimator:
         # Tuning might fail gracefully
         try:
             clf.fit(classification_data["X_train"], classification_data["y_train"])
-        except Exception:
+        except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
             pass  # Tuning can fail in some environments
 
     def test_verbose_output(self, estimator_params_classifier, classification_data, capsys):

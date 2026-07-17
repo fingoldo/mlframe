@@ -20,7 +20,7 @@ Algorithm-specific tests live in:
 
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
 import numpy as np
 import pandas as pd
@@ -276,7 +276,7 @@ class TestSharedPersistence:
         # Pickle round-trip
         try:
             blob = pickle.dumps(selector)
-            restored = pickle.loads(blob)
+            restored = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
         except Exception as exc:
             pytest.skip(f"selector not pickle-safe: {exc}")
         out_restored = restored.transform(X)

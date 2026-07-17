@@ -50,7 +50,7 @@ import argparse
 import orjson
 import os
 import signal
-import subprocess
+import subprocess  # nosec B404 -- test-only local trusted subprocess invocation (fixed argv, no shell, no untrusted input)
 import sys
 import time
 from pathlib import Path
@@ -76,7 +76,7 @@ def _count_unique_combos() -> int:
         for line in f:
             try:
                 r = orjson.loads(line)
-            except Exception:
+            except Exception:  # nosec B112 -- best-effort skip of one iteration on a non-fatal error; the test's own assertions are unaffected
                 continue
             # Canonical key proxy -- short_id is sha-prefixed over
             # canonical_key, so same short_id => same canonical combo.
@@ -86,7 +86,7 @@ def _count_unique_combos() -> int:
 
 def _summarize_since(start_offset: int) -> dict:
     """Summarize rows appended after start_offset (bytes) in the JSONL."""
-    totals = {"pass": 0, "fail": 0, "xfail": 0, "xpass": 0, "skip": 0, "?": 0}
+    totals = {"pass": 0, "fail": 0, "xfail": 0, "xpass": 0, "skip": 0, "?": 0}  # nosec B105 -- "pass" is a pytest outcome counter key, not a credential
     fails_by_class: dict[str, int] = {}
     if not RESULTS_LOG.exists():
         return {"totals": totals, "fails_by_class": fails_by_class}
@@ -95,7 +95,7 @@ def _summarize_since(start_offset: int) -> dict:
         for line in f:
             try:
                 r = orjson.loads(line)
-            except Exception:
+            except Exception:  # nosec B112 -- best-effort skip of one iteration on a non-fatal error; the test's own assertions are unaffected
                 continue
             totals[r.get("outcome", "?")] = totals.get(r.get("outcome", "?"), 0) + 1
             if r.get("outcome") == "fail":
@@ -118,7 +118,7 @@ def _all_fail_classes() -> set[str]:
         for line in f:
             try:
                 r = orjson.loads(line)
-            except Exception:
+            except Exception:  # nosec B112 -- best-effort skip of one iteration on a non-fatal error; the test's own assertions are unaffected
                 continue
             if r.get("outcome") == "fail":
                 cls = r.get("error_class")
@@ -153,7 +153,7 @@ def _run_one_seed(seed: int, per_seed_timeout_s: int) -> tuple[int, str]:
         "-q",
         "--tb=no",
     ]
-    p = subprocess.Popen(
+    p = subprocess.Popen(  # nosec B603 -- fixed local argv (sys.executable/git + literal args), no shell, no untrusted input
         cmd,
         cwd=str(REPO_ROOT),
         env=env,
@@ -178,7 +178,7 @@ def _run_one_seed(seed: int, per_seed_timeout_s: int) -> tuple[int, str]:
     except Exception as e:
         try:
             p.kill()
-        except Exception:
+        except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
             pass
         tail_lines.append(f"[driver] exception: {e}")
     return p.returncode or 0, "\n".join(tail_lines)
@@ -217,12 +217,12 @@ def _kill_process_tree(pid: int) -> None:
             except psutil.NoSuchProcess:
                 pass
         return
-    except Exception:
+    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
         pass
     # Fallback: OS-native tree kill.
     try:
         if os.name == "nt":
-            subprocess.run(
+            subprocess.run(  # nosec B603 B607 -- fixed local argv (sys.executable/git + literal args), not a partial/searched path from untrusted input, no shell
                 ["taskkill", "/F", "/T", "/PID", str(pid)],
                 capture_output=True,
                 check=False,
@@ -232,7 +232,7 @@ def _kill_process_tree(pid: int) -> None:
                 os.killpg(os.getpgid(pid), signal.SIGKILL)
             except ProcessLookupError:
                 pass
-    except Exception:
+    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
         pass
 
 
@@ -308,7 +308,7 @@ def _run_one_combo(seed: int, short_id: str, per_combo_timeout_s: int) -> tuple[
     )
     if os.name != "nt":
         kwargs["start_new_session"] = True  # own process group for killpg fallback
-    p = subprocess.Popen(cmd, **kwargs)
+    p = subprocess.Popen(cmd, **kwargs)  # nosec B603 -- fixed local argv (sys.executable/git + literal args), no shell, no untrusted input
     tail_lines: list[str] = []
     timed_out = False
 
@@ -334,7 +334,7 @@ def _run_one_combo(seed: int, short_id: str, per_combo_timeout_s: int) -> tuple[
                     if len(tail_lines) > 80:
                         tail_lines.pop(0)
                     tail_lines.append(line.rstrip("\n"))
-        except Exception:
+        except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
             pass
 
     drain_thread = threading.Thread(target=_drain, daemon=True)

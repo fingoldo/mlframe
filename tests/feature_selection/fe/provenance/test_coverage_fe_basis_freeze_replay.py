@@ -18,7 +18,7 @@ captured at fit, so replay is leakage-free by construction. This file pins:
 
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 import warnings
 
 import numpy as np
@@ -253,6 +253,6 @@ def test_basis_replay_column_order_invariant(frames):
 def test_basis_recipe_pickle_roundtrip(frames):
     X, _ = frames
     for rec in _all_basis_recipes(frames):
-        rec2 = pickle.loads(pickle.dumps(rec))
+        rec2 = pickle.loads(pickle.dumps(rec))  # nosec B301 -- round-trip of a locally-created, trusted object
         assert rec2 == rec
         np.testing.assert_array_equal(apply_recipe(rec, X), apply_recipe(rec2, X))

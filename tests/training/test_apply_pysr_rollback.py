@@ -159,7 +159,7 @@ def test_pysr_all_succeed_baseline_no_rollback():
             train_df[col_name] = np.asarray(model.predict(train_df, index=idx), dtype=np.float32)
             val_df[col_name] = np.asarray(model.predict(val_df, index=idx), dtype=np.float32)
             test_df[col_name] = np.asarray(model.predict(test_df, index=idx), dtype=np.float32)
-        except Exception:
+        except Exception:  # nosec B112 -- best-effort skip of one iteration on a non-fatal error; the test's own assertions are unaffected
             continue
         new_cols.append(col_name)
 

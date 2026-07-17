@@ -182,7 +182,7 @@ def test_c3_pickle_refused_by_default_on_read(tmp_path) -> None:
     raise with ``allow_pickle=False``. Pre-fix ``np.load(..., allow_pickle=True)``
     was unconditional and the pickle-fallback path was always reached
     on a non-numpy file."""
-    import pickle
+    import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
     from mlframe.training.feature_handling.cache import (
         CachePickleRefusedError,
         _deserialize,
@@ -516,7 +516,7 @@ def test_wave15_third_party_patches_not_applied_at_bare_import() -> None:
     value means a caller re-added an import-time apply call.
     """
     import os
-    import subprocess
+    import subprocess  # nosec B404 -- test-only local trusted subprocess invocation (fixed argv, no shell, no untrusted input)
     import sys
     import textwrap
 
@@ -529,7 +529,7 @@ def test_wave15_third_party_patches_not_applied_at_bare_import() -> None:
         import mlframe.training._model_factories as mf
         sys.stdout.write(repr(getattr(mf, "_THIRD_PARTY_PATCHES_APPLIED", "MISSING")))
     """)
-    _res = subprocess.run(
+    _res = subprocess.run(  # nosec B603 -- fixed local argv (sys.executable/git + literal args), no shell, no untrusted input
         [sys.executable, "-c", _probe],
         capture_output=True,
         text=True,

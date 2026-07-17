@@ -211,7 +211,7 @@ def test_biz_val_training_suite_mlframe_models_subset(tmp_path, model_list):
                 # ``model_name="lgb"`` inside the namespace) is captured.
                 _ns_dict = getattr(d, "__dict__", None)
                 if isinstance(_ns_dict, dict):
-                    for k, v in _ns_dict.items():
+                    for v in _ns_dict.values():
                         if isinstance(v, str):
                             haystacks.append(v)
                         # Capture the class name of any nested model object too

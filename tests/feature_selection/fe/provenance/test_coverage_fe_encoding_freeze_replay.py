@@ -20,7 +20,7 @@ These exercise the standalone recipe surface (no MRMR e2e fit), so each test is 
 
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 import warnings
 
 import numpy as np
@@ -212,7 +212,7 @@ def test_encoding_recipe_pickle_roundtrip_replays_identically(fit_frame, builder
             global_mean=float(np.mean(num)),
             smoothing=0.0,
         )
-    rec2 = pickle.loads(pickle.dumps(rec))
+    rec2 = pickle.loads(pickle.dumps(rec))  # nosec B301 -- round-trip of a locally-created, trusted object
     assert rec2 == rec
     np.testing.assert_array_equal(apply_recipe(rec, X), apply_recipe(rec2, X))
 

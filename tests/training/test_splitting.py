@@ -1019,7 +1019,7 @@ class TestValPlacementBackwardIntegration:
                 output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
                 verbose=0,
             )
-        except Exception:
+        except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
             # The WARN itself is what we're verifying; downstream failure
             # shouldn't mask that check.
             pass
@@ -1288,7 +1288,7 @@ class TestTrainMlframeModelsSuiteUseGroups:
                 output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
                 verbose=0,
             )
-        except Exception:
+        except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
             # We only assert the spy fired -- downstream training failures
             # (e.g. tiny synthetic dataset, GBDT diagnostics) shouldn't
             # mask the wiring check.
@@ -1335,7 +1335,7 @@ class TestTrainMlframeModelsSuiteUseGroups:
                 output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
                 verbose=0,
             )
-        except Exception:
+        except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
             pass
 
         assert "groups" in captured, "splitter never got called"
@@ -1381,7 +1381,7 @@ class TestTrainMlframeModelsSuiteUseGroups:
                 output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
                 verbose=0,
             )
-        except Exception:
+        except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
             pass
 
         assert "groups" in captured, "splitter never got called"

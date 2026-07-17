@@ -10,7 +10,7 @@ pickle (privacy leak + ~n*8 bytes per selected candidate of bloat). build_usabil
 from __future__ import annotations
 
 import io
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 import warnings
 
 import numpy as np
@@ -60,7 +60,7 @@ def test_usability_lists_drop_training_values_and_replay_survives_pickle():
     # (3) pickle round-trip: small-ish (no n-scaled training arrays) + replay identical post-unpickle.
     buf = io.BytesIO()
     pickle.dump(fs, buf)
-    fs2 = pickle.loads(buf.getvalue())
+    fs2 = pickle.loads(buf.getvalue())  # nosec B301 -- round-trip of a locally-created, trusted object
     z_lin2 = fs2.transform_usability(df, "linear")
     assert list(z_lin2.columns) == list(z_lin.columns)
     assert np.allclose(z_lin2.to_numpy(dtype=float), z_lin.to_numpy(dtype=float), atol=1e-9, equal_nan=True), (

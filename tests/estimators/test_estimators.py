@@ -1,6 +1,6 @@
 """Tests for mlframe.estimators.base — covers audit 05 T4 (pickle roundtrip)."""
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
 import numpy as np
 import pytest
@@ -57,7 +57,7 @@ def test_pickle_roundtrip_classifier_with_early_stopping():
     clf = ClassifierWithEarlyStopping(base_estimator=LogisticRegression(max_iter=500), random_state=0)
     clf.fit(X, y)
 
-    restored = pickle.loads(pickle.dumps(clf))
+    restored = pickle.loads(pickle.dumps(clf))  # nosec B301 -- round-trip of a locally-created, trusted object
     np.testing.assert_array_equal(clf.predict(X), restored.predict(X))
     np.testing.assert_allclose(clf.predict_proba(X), restored.predict_proba(X))
 
@@ -67,7 +67,7 @@ def test_pickle_roundtrip_regressor_with_early_stopping():
     reg = RegressorWithEarlyStopping(base_estimator=Ridge(), random_state=0)
     reg.fit(X, y)
 
-    restored = pickle.loads(pickle.dumps(reg))
+    restored = pickle.loads(pickle.dumps(reg))  # nosec B301 -- round-trip of a locally-created, trusted object
     np.testing.assert_allclose(reg.predict(X), restored.predict(X))
 
 

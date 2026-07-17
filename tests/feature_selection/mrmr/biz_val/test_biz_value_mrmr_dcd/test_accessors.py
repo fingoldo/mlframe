@@ -5,7 +5,7 @@ Consolidated verbatim from test_biz_value_mrmr_layer41.py + test_biz_value_mrmr_
 
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 import warnings
 
 import numpy as np
@@ -262,7 +262,7 @@ class TestNoRegressionLayer12Stability:
         X, y = _strong_cluster_frame()
         m = MRMR(dcd_enable=True, dcd_tau_cluster=0.5, verbose=0, random_seed=0).fit(X, y)
         # Round-trip.
-        m_re = pickle.loads(pickle.dumps(m))
+        m_re = pickle.loads(pickle.dumps(m))  # nosec B301 -- round-trip of a locally-created, trusted object
         assert m_re.cluster_members_ == m.cluster_members_, (
             "cluster_members_ did not survive pickle round-trip; the attribute is not a real first-class fitted citizen."
         )

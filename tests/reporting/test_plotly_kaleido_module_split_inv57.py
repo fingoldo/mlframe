@@ -53,7 +53,7 @@ class _FakeFig:
         self.image_calls = 0
         self.html_calls = 0
 
-    def write_image(self, path, format=None):
+    def write_image(self, path, format=None):  # noqa: A002 -- must match plotly's real write_image(path, format=...) kwarg name; production calls it as format=fmt
         self.image_calls += 1
         raise RuntimeError("no kaleido in this test")
 

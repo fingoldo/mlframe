@@ -10,7 +10,7 @@ the file completes in well under a minute on CPU.
 from __future__ import annotations
 
 import math
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 import warnings
 
 import numpy as np
@@ -1116,7 +1116,7 @@ def test_hermite_result_pickle_roundtrip():
         preprocess_b=dict(lo=-1.0, hi=1.0),
     )
     blob = pickle.dumps(res)
-    loaded = pickle.loads(blob)
+    loaded = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
     np.testing.assert_array_equal(loaded.coef_a, res.coef_a)
     np.testing.assert_array_equal(loaded.coef_b, res.coef_b)
     assert loaded.bin_func_name == "add"

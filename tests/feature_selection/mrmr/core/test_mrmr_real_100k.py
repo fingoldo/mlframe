@@ -268,7 +268,7 @@ def _downstream_auc(X_tr, y_tr, X_te, y_te, cols, seed: int) -> float:
         )
         gbm.fit(Xtr, np.asarray(y_tr))
         aucs.append(roc_auc_score(np.asarray(y_te), gbm.predict_proba(Xte)[:, 1]))
-    except Exception:
+    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
         pass
     try:
         sc = StandardScaler()
@@ -277,7 +277,7 @@ def _downstream_auc(X_tr, y_tr, X_te, y_te, cols, seed: int) -> float:
         lr = LogisticRegression(max_iter=500, C=1.0)
         lr.fit(Xtr_s, np.asarray(y_tr))
         aucs.append(roc_auc_score(np.asarray(y_te), lr.predict_proba(Xte_s)[:, 1]))
-    except Exception:
+    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
         pass
     return float(max(aucs)) if aucs else float("nan")
 

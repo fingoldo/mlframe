@@ -760,7 +760,7 @@ class TestCategoryDriftHealingSuggestions:
                     output_config=OutputConfig(data_dir=tmp, models_dir="models"),
                     verbose=1,
                 )
-            except Exception:
+            except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
                 # The drift WARN can fire even if the suite itself hits
                 # an unrelated error — we only care about the WARN
                 # content here.
@@ -1581,7 +1581,7 @@ class TestCBValPoolCacheContentFallback:
         # for polars; we're testing pandas here so flag is moot).
         try:
             _predict_with_fallback(fake, df_b, method="predict_proba")
-        except Exception:
+        except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
             # Some downstream call may fail because our fake_pool isn't a
             # real Pool — but we only care that the cache HIT was logged.
             pass

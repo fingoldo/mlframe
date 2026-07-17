@@ -28,7 +28,7 @@ Fix at engineered_recipes.py:135 (``__post_init__``):
 from __future__ import annotations
 
 import copy
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
 import numpy as np
 import pytest
@@ -95,7 +95,7 @@ def test_pickle_round_trip_preserves_frozen_state():
         src_names=("a",),
         extra={"lookup": np.array([0.1, 0.5, 0.9])},
     )
-    r2 = pickle.loads(pickle.dumps(r))
+    r2 = pickle.loads(pickle.dumps(r))  # nosec B301 -- round-trip of a locally-created, trusted object
     # Equality preserved.
     assert r == r2
     # Frozen state preserved.

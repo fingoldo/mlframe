@@ -726,7 +726,7 @@ def enumerate_combos(
     Phase B greedy-fills until pairwise coverage is achieved.
     Phase C random-fills until len == target.
     """
-    rng = random.Random(master_seed)
+    rng = random.Random(master_seed)  # nosec B311 -- deterministic-seed test PRNG, not used for security/crypto purposes
     seen: set[tuple] = set()
     combos: list[FuzzCombo] = []
 
@@ -873,7 +873,7 @@ def enumerate_combos_3way(
     instead of pair-coverage. Seeded separately (default ``2026_04_24``
     so the 3-wise suite doesn't stomp the pairwise seed's sample).
     """
-    rng = random.Random(master_seed)
+    rng = random.Random(master_seed)  # nosec B311 -- deterministic-seed test PRNG, not used for security/crypto purposes
     seen: set[tuple] = set()
     combos: list[FuzzCombo] = []
 

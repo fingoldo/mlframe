@@ -116,7 +116,7 @@ def test_bf16_auto_enable_dispatcher_compute_capability_check():
                     _cc_major, _ = torch.cuda.get_device_capability(0)
                     if _cc_major >= 8:
                         trainer_params["precision"] = "bf16-mixed"
-            except Exception:
+            except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
                 pass
     assert trainer_params.get("precision") == "bf16-mixed", f"Ampere+ (cc=8.0) should auto-enable bf16-mixed; got precision={trainer_params.get('precision')}"
 
@@ -133,6 +133,6 @@ def test_bf16_auto_enable_dispatcher_compute_capability_check():
                     _cc_major, _ = torch.cuda.get_device_capability(0)
                     if _cc_major >= 8:
                         trainer_params["precision"] = "bf16-mixed"
-            except Exception:
+            except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
                 pass
     assert "precision" not in trainer_params, f"Pre-Ampere (cc=7.5) should NOT auto-enable bf16-mixed; got precision={trainer_params.get('precision')}"

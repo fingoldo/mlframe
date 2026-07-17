@@ -28,7 +28,7 @@ keeps them off hosts where Julia / PythonCall.jl don't load cleanly.
 from __future__ import annotations
 
 import os
-import subprocess
+import subprocess  # nosec B404 -- test-only local trusted subprocess invocation (fixed argv, no shell, no untrusted input)
 import sys
 from shutil import which
 
@@ -88,7 +88,7 @@ def pysr_works() -> bool:
         # for every fresh JULIA_DEPOT_PATH and the 13 PySR-using tests
         # skipped on a machine that actually had Julia + PythonCall.jl
         # working, just slow to warm.
-        r = subprocess.run(
+        r = subprocess.run(  # nosec B603 -- fixed local argv (sys.executable/git + literal args), no shell, no untrusted input
             [sys.executable, "-c", "import pysr"],
             env=os.environ,
             capture_output=True,

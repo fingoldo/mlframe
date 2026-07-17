@@ -8,7 +8,7 @@ re-introspection).
 
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 from dataclasses import asdict, fields
 
 import pytest
@@ -99,14 +99,14 @@ class TestPersistence:
             backend="cpu",
             n_folds_stability=5,
         )
-        restored = pickle.loads(pickle.dumps(cfg))
+        restored = pickle.loads(pickle.dumps(cfg))  # nosec B301 -- round-trip of a locally-created, trusted object
         assert restored == cfg
 
     def test_state_pickle_round_trip(self):
         st = CatFEState()
         st.dropped_singleton_nbins.append("col_const")
         st.diagnostics["mul(a,b)"] = {"II": 0.05, "joint_MI": 0.07}
-        restored = pickle.loads(pickle.dumps(st))
+        restored = pickle.loads(pickle.dumps(st))  # nosec B301 -- round-trip of a locally-created, trusted object
         assert restored.dropped_singleton_nbins == ["col_const"]
         assert restored.diagnostics["mul(a,b)"] == {"II": 0.05, "joint_MI": 0.07}
 

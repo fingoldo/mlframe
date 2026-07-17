@@ -122,7 +122,7 @@ def main() -> None:
             for _ in range(3):
                 s = time.perf_counter()
                 for lam in lams:
-                    fn(y, lam)
+                    fn(y, lam)  # noqa: B023 -- _bench invoked 4x immediately below, same iteration, never stored
                 t.append(time.perf_counter() - s)
             return sorted(t)[1] * 1000
 

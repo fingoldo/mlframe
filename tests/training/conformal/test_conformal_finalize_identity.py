@@ -7,7 +7,7 @@ real artifacts, not a from-memory rewrite (per CLAUDE.md A/B methodology rule 4)
 """
 
 import importlib.util
-import subprocess
+import subprocess  # nosec B404 -- test-only local trusted subprocess invocation (fixed argv, no shell, no untrusted input)
 import sys
 import types
 from pathlib import Path
@@ -21,7 +21,7 @@ REPO = Path(__file__).resolve().parents[3]
 
 def _load_old_module() -> types.ModuleType:
     try:
-        src = subprocess.check_output(["git", "show", f"HEAD:{REL}"], cwd=REPO, text=True, stderr=subprocess.DEVNULL)
+        src = subprocess.check_output(["git", "show", f"HEAD:{REL}"], cwd=REPO, text=True, stderr=subprocess.DEVNULL)  # nosec B603 B607 -- fixed local argv (sys.executable/git + literal args), not a partial/searched path from untrusted input, no shell
     except Exception as e:  # pragma: no cover - env without HEAD
         pytest.skip(f"cannot load OLD baseline via git show: {e}")
     # Mirror package context so its relative imports (.composite.*) resolve.
@@ -31,7 +31,7 @@ def _load_old_module() -> types.ModuleType:
     mod.__package__ = "mlframe.training"
     mod.__file__ = str(REPO / REL)
     sys.modules["mlframe.training._conformal_finalize_OLD"] = mod
-    exec(compile(src, str(REPO / REL), "exec"), mod.__dict__)
+    exec(compile(src, str(REPO / REL), "exec"), mod.__dict__)  # nosec B102 -- exec of locally-authored trusted source (repo module text or a literal test string), never untrusted input
     return mod
 
 

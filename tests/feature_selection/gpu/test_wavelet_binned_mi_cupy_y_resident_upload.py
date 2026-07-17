@@ -56,7 +56,7 @@ def _prefix_binned_mi_cupy(feat, y, nbins, y_codes, discrete=False):
                 e = _radix_select_interior_edges(v.reshape(-1, 1), nbins)
                 if e is not None:
                     return e.ravel()
-        except Exception:
+        except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
             pass
         return cp.quantile(v, cp.linspace(0.0, 1.0, nbins + 1)[1:-1])
 

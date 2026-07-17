@@ -5,7 +5,7 @@ and determinism on real-world workloads.
 
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 import re
 import warnings
 
@@ -229,7 +229,7 @@ class TestDeterminismProduction:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             sel = MRMR(verbose=0, random_seed=7).fit(X, y)
-        sel2 = pickle.loads(pickle.dumps(sel))
+        sel2 = pickle.loads(pickle.dumps(sel))  # nosec B301 -- round-trip of a locally-created, trusted object
         np.testing.assert_array_equal(sel.support_, sel2.support_)
         out1 = sel.transform(X)
         out2 = sel2.transform(X)

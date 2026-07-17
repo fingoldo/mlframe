@@ -189,8 +189,8 @@ def test_biz_value_include_numeric_standalone_lift_at_step_level():
 
         def _auc(a_tr, a_te):
             sc = StandardScaler()
-            clf = LogisticRegression(max_iter=2000).fit(sc.fit_transform(a_tr), ytr)
-            return roc_auc_score(yte, clf.predict_proba(sc.transform(a_te))[:, 1])
+            clf = LogisticRegression(max_iter=2000).fit(sc.fit_transform(a_tr), ytr)  # noqa: B023 -- closure over ytr/yte invoked twice below, same iteration, never stored
+            return roc_auc_score(yte, clf.predict_proba(sc.transform(a_te))[:, 1])  # noqa: B023 -- closure over ytr/yte invoked twice below, same iteration, never stored
 
         auc_cross = _auc(np.hstack([raw_tr, cross_tr]), np.hstack([raw_te, cross_te]))
         auc_mul = _auc(np.hstack([raw_tr, mul_tr]), np.hstack([raw_te, mul_te]))

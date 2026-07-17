@@ -1,3 +1,5 @@
+import importlib
+
 from mlframe.training import FeatureSelectionConfig, OutlierDetectionConfig, OutputConfig
 
 """
@@ -84,7 +86,7 @@ class TestAllModelsRegression:
 
         # Use larger dataset for SGD for better convergence
         if model_name == "sgd":
-            df, feature_names, y = sample_large_regression_data
+            df, _feature_names, _y = sample_large_regression_data
         else:
             df, _feature_names, _y = sample_regression_data
 
@@ -283,12 +285,12 @@ class TestCategoricalFeatures:
         # Import checks
         if model_name == "ngb":
             try:
-                import ngboost
+                importlib.import_module("ngboost")
             except ImportError:
                 pytest_module.skip("NGBoost not available")
         elif model_name == "mlp":
             try:
-                import pytorch_lightning
+                importlib.import_module("pytorch_lightning")
             except ImportError:
                 pytest_module.skip("PyTorch Lightning not available")
 
@@ -472,7 +474,7 @@ class TestGPUSupport:
         pytest_module = __import__("pytest")
 
         try:
-            import pytorch_lightning
+            importlib.import_module("pytorch_lightning")
         except ImportError:
             pytest_module.skip("PyTorch Lightning not available")
 
@@ -507,8 +509,8 @@ class TestGPUSupport:
         pytest_module = __import__("pytest")
 
         try:
-            import pytorch_lightning
-            import torch
+            importlib.import_module("pytorch_lightning")
+            importlib.import_module("torch")
         except ImportError:
             pytest_module.skip("PyTorch Lightning not available")
 
@@ -546,7 +548,7 @@ class TestGPUSupport:
         pytest_module = __import__("pytest")
 
         try:
-            import pytorch_lightning
+            importlib.import_module("pytorch_lightning")
             import torch
         except ImportError:
             pytest_module.skip("PyTorch Lightning not available")

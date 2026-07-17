@@ -21,7 +21,7 @@ The 10 edge cases covered:
 
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 import time
 import warnings
 
@@ -253,7 +253,7 @@ def test_mrmr_pickle_roundtrip_preserves_transform():
         mrmr.fit(X, y)
     A = mrmr.transform(X)
     payload = pickle.dumps(mrmr)
-    restored = pickle.loads(payload)
+    restored = pickle.loads(payload)  # nosec B301 -- round-trip of a locally-created, trusted object
     B = restored.transform(X)
 
     a_arr = np.asarray(A.values if hasattr(A, "values") else A)

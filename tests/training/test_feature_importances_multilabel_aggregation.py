@@ -161,7 +161,7 @@ def test_multilabel_hgb_uses_per_child_permutation_not_wrapper():
     # (a) per-child permutation fired -- one call per HGB child.
     assert len(call_records) == 3, f"Expected 3 per-child permutation calls (one per label); got {len(call_records)}. Records: {call_records}"
     # (b) every call passed a 1-D y slice (NOT the 2-D wrapper y).
-    for child_id, y_shape, y_ndim in call_records:
+    for _child_id, y_shape, y_ndim in call_records:
         assert y_ndim == 1, (
             f"Per-child permutation must receive 1-D y slice; got shape "
             f"{y_shape} ndim={y_ndim}. This indicates the wrapper-level "

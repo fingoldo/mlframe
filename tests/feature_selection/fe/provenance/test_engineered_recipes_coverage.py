@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
 import numpy as np
 import pandas as pd
@@ -57,7 +57,7 @@ def test_engineered_recipe_equality():
 def test_engineered_recipe_pickle_round_trip():
     r = EngineeredRecipe(name="mul(a,b)", kind="unary_binary", src_names=("a", "b"), extra={"binary_name": "mul"})
     blob = pickle.dumps(r)
-    r2 = pickle.loads(blob)
+    r2 = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
     assert r == r2
 
 

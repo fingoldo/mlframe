@@ -4,7 +4,7 @@ gain gate, and the finalize hook ``_recalibrate_regression_on_calib_slice``.
 
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 from types import SimpleNamespace
 
 import numpy as np
@@ -33,7 +33,7 @@ def test_wrapper_applies_g_and_delegates_attrs_and_pickles():
     x = np.array([-1.0, 0.0, 1.0])
     assert np.allclose(w.predict(x), g.transform(x))  # predict = g(base.predict)
     assert list(w.feature_names_in_) == ["a", "b"]  # delegated to base
-    w2 = pickle.loads(pickle.dumps(w))
+    w2 = pickle.loads(pickle.dumps(w))  # nosec B301 -- round-trip of a locally-created, trusted object
     assert np.allclose(w.predict(x), w2.predict(x))
 
 

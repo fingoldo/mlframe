@@ -34,7 +34,7 @@ print different values because PYTHONHASHSEED is fresh per subprocess.
 
 from __future__ import annotations
 
-import subprocess
+import subprocess  # nosec B404 -- test-only local trusted subprocess invocation (fixed argv, no shell, no untrusted input)
 import sys
 
 
@@ -61,7 +61,7 @@ def _run_once(target_name: str) -> int:
         "from mlframe.training.baselines._dummy_baseline_compute import _per_target_seed\n"
         f"print(_per_target_seed(42, {target_name!r}))\n"
     )
-    proc = subprocess.run(
+    proc = subprocess.run(  # nosec B603 -- fixed local argv (sys.executable/git + literal args), no shell, no untrusted input
         [sys.executable, "-c", code],
         # Each fresh subprocess cold-imports mlframe (heavy numba-JIT chain via _dummy_baseline_compute);
         # 30s is too tight under suite contention (-n workers + parallel sessions) where the cold import alone

@@ -160,7 +160,7 @@ class TestPrewarmCoverage:
         # Regression sensor: the prewarm body called ``_marginal_screen_njit`` with the wrong arity (5 args, omitting ``candidate_idxs``); the swallowing
         # ``except: pass`` hid the TypeError, leaving this hot prange marginal-MI screening kernel cold so it paid full JIT compile on the first real MRMR.fit.
         # Run in a fresh subprocess so no other test / import incidentally compiles the kernel first; assert prewarm populated a signature.
-        import subprocess
+        import subprocess  # nosec B404 -- test-only local trusted subprocess invocation (fixed argv, no shell, no untrusted input)
         import sys
 
         code = (
@@ -172,7 +172,7 @@ class TestPrewarmCoverage:
             "print('OK')\n"
         )
         env = dict(__import__("os").environ, CUDA_VISIBLE_DEVICES="", NUMBA_DISABLE_CUDA="1", MPLBACKEND="Agg")
-        res = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=env, timeout=300)
+        res = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=env, timeout=300)  # nosec B603 -- fixed local argv (sys.executable/git + literal args), no shell, no untrusted input
         assert res.returncode == 0 and "OK" in res.stdout, f"stdout={res.stdout!r} stderr={res.stderr[-1500:]!r}"
 
     def test_discretization_dtype_matrix_compiled(self, warmed):

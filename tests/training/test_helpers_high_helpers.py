@@ -196,7 +196,7 @@ def test_hhus08_gpu_probe_imports_without_numba(monkeypatch):
     test-pollution rule in CLAUDE.md.
     """
     import os
-    import subprocess
+    import subprocess  # nosec B404 -- test-only local trusted subprocess invocation (fixed argv, no shell, no untrusted input)
     import sys
     import textwrap
 
@@ -212,7 +212,7 @@ def test_hhus08_gpu_probe_imports_without_numba(monkeypatch):
         sys.stdout.write("HAS_FLAG=" + str(hasattr(mod, "CUDA_IS_AVAILABLE")) + "\\n")
         sys.stdout.write("CUDA=" + repr(getattr(mod, "CUDA_IS_AVAILABLE", "MISSING")))
     """)
-    _res = subprocess.run(
+    _res = subprocess.run(  # nosec B603 -- fixed local argv (sys.executable/git + literal args), no shell, no untrusted input
         [sys.executable, "-c", _probe],
         capture_output=True,
         text=True,
@@ -559,7 +559,7 @@ def test_hhus20_quantile_wrapper_uses_parallel_as_context_manager(monkeypatch):
     wrapper = QW(base_estimator=base, alphas=(0.1, 0.5, 0.9), n_jobs=2)
     try:
         wrapper.fit(X, y)
-    except Exception:
+    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
         # Real fit failures (env/lib) are tolerated here -- the assertion
         # below only cares about Parallel context-manager hygiene.
         pass

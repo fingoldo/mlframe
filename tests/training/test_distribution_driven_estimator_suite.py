@@ -75,13 +75,13 @@ def test_e2e_distribution_driven_estimator_trains_and_roundtrips(tmp_path):
 
     fitted = tail_entries[0].model
     import pandas as pd
-    import pickle
+    import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
     cols = list(getattr(fitted, "feature_names_in_", ["f0", "f1"]))
     X = pd.DataFrame(np.zeros((5, len(cols)), dtype=np.float64), columns=cols)
     preds = np.asarray(fitted.predict(X)).reshape(-1)
     assert preds.shape[0] == 5
 
-    reloaded = pickle.loads(pickle.dumps(fitted))
+    reloaded = pickle.loads(pickle.dumps(fitted))  # nosec B301 -- round-trip of a locally-created, trusted object
     preds2 = np.asarray(reloaded.predict(X)).reshape(-1)
     assert np.allclose(preds, preds2, equal_nan=True)

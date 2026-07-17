@@ -44,7 +44,7 @@ def test_mrmr_uses_override_dict_when_stamped():
     global_snapshot = dict(mrmr_module._MRMR_IDENTITY_FP_CACHE)
     try:
         inst.fit(X, y)
-    except Exception:
+    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
         # MRMR may fail on tiny inputs; we only care about cache routing semantics, not full fit success.
         pass
 
@@ -86,9 +86,9 @@ def test_build_pre_pipelines_threads_cache_to_mrmr():
     override["probe"] = 1
     assert ctx_cache.get("probe") == 1
     assert override.get("probe") == 1
-    import pickle
+    import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
-    assert pickle.loads(pickle.dumps(override)) == {}
+    assert pickle.loads(pickle.dumps(override)) == {}  # nosec B301 -- round-trip of a locally-created, trusted object
 
 
 def test_build_pre_pipelines_no_cache_when_none():

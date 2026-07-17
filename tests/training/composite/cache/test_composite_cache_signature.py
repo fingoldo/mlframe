@@ -11,7 +11,7 @@
 from __future__ import annotations
 
 import os
-import subprocess
+import subprocess  # nosec B404 -- test-only local trusted subprocess invocation (fixed argv, no shell, no untrusted input)
 import sys
 
 import numpy as np
@@ -60,7 +60,7 @@ class TestSignatureDeterministicAcrossProcesses:
         local = data_signature(_string_frame_pd(), "y", ["city", "ts"])
         # Different PYTHONHASHSEED in a full env copy: str.__hash__ randomisation
         # must NOT affect the content-based blake2b signature.
-        out = subprocess.run(
+        out = subprocess.run(  # nosec B603 -- fixed local argv (sys.executable/git + literal args), no shell, no untrusted input
             [sys.executable, "-c", code],
             capture_output=True,
             text=True,

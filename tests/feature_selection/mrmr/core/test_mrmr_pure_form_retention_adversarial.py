@@ -22,7 +22,7 @@ lane via @pytest.mark.slow only when they exceed ~30s; most run in one fit.
 
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 import warnings
 
 import numpy as np
@@ -191,7 +191,7 @@ def test_pickle_roundtrip_transform_matches():
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         out0 = fs.transform(fresh)
-        fs2 = pickle.loads(pickle.dumps(fs))
+        fs2 = pickle.loads(pickle.dumps(fs))  # nosec B301 -- round-trip of a locally-created, trusted object
         out1 = fs2.transform(fresh)
     assert list(out0.columns) == list(out1.columns), f"pickle changed transform columns:\n {list(out0.columns)}\n vs\n {list(out1.columns)}"
     pd.testing.assert_frame_equal(out0.reset_index(drop=True), out1.reset_index(drop=True), check_dtype=False)

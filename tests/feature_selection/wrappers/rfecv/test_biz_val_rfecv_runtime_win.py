@@ -279,7 +279,7 @@ def test_rfecv_runtime_at_score_parity():
     for _ in range(3):
         ours = _make_ours()
         t0 = time.perf_counter()
-        _quiet(lambda: ours.fit(X, y))
+        _quiet(lambda: ours.fit(X, y))  # noqa: B023 -- _quiet invokes the lambda synchronously here, same iteration, never stored
         our_walls.append(time.perf_counter() - t0)
         our_mask = _bool_mask(ours, n)
     our_wall_min = min(our_walls)

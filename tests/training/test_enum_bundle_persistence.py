@@ -107,7 +107,7 @@ def test_s67_predict_cat_cast_legacy_bundle_falls_back_with_warn(caplog):
 def test_s67_enum_domains_roundtrips_via_dill():
     """``enum_domains`` is a plain dict[str, list[str]] -- dill-safe for sidecar saves."""
     pl = pytest.importorskip("polars")
-    import dill
+    import dill  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
     from mlframe.training.core._phase_polars_fixes import apply_polars_categorical_fixes
 
     train_df = pl.DataFrame({"cat_col": ["a", "b"], "n": [1.0, 2.0]})
@@ -127,5 +127,5 @@ def test_s67_enum_domains_roundtrips_via_dill():
         verbose=False,
     )
     blob = dill.dumps(result.enum_domains)
-    restored = dill.loads(blob)
+    restored = dill.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
     assert restored == result.enum_domains

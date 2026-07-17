@@ -76,7 +76,7 @@ def _clear_mrmr_fit_cache_between_tests():
         # random ordering.
         with getattr(_mrmr_mod, "_MRMR_IDENTITY_FP_LOCK", _NullCtx()):
             _mrmr_mod._MRMR_IDENTITY_FP_CACHE.clear()
-    except Exception:
+    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
         # If clearing fails (e.g. coverage-active subprocess that skips
         # heavy fixtures), don't block the test from running its own setup.
         pass

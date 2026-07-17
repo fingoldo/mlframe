@@ -26,7 +26,7 @@ class _ZeroBase:
         self._mean = float(np.mean(np.asarray(y, dtype=float)))
         try:
             self.feature_names_in_ = np.asarray(list(X.columns))
-        except Exception:
+        except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
             pass
         return self
 

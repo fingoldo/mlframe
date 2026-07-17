@@ -203,10 +203,10 @@ def test_biz_value_rare_class_screen_recovers_signal_uniform_blind():
 
         # MI of the signal feature with the label, AS SEEN by the screen on each subsample.
         def _mi(idx):
-            ys = y[idx]
+            ys = y[idx]  # noqa: B023 -- closure over y/sig invoked immediately below, same iteration, never stored
             if np.unique(ys).shape[0] < 2:
                 return 0.0  # single-class sample -> screen is blind, MI undefined -> 0
-            return float(mutual_info_classif(sig[idx].reshape(-1, 1), ys, discrete_features=False, random_state=0)[0])
+            return float(mutual_info_classif(sig[idx].reshape(-1, 1), ys, discrete_features=False, random_state=0)[0])  # noqa: B023 -- closure over y/sig invoked immediately below, same iteration, never stored
 
         strat_mi.append(_mi(s_idx))
         um = _mi(u_idx)

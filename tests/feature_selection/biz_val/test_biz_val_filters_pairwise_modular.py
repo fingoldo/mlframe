@@ -19,7 +19,7 @@ Contracts pinned (measured, never xfail):
 from __future__ import annotations
 
 import logging
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
 import numpy as np
 import pandas as pd
@@ -118,7 +118,7 @@ class TestRecipeReplay:
         _, recipes = hybrid_pairwise_modular_fe_with_recipes(X, y, seed=1)
         assert recipes
         for r in recipes:
-            r2 = pickle.loads(pickle.dumps(r))
+            r2 = pickle.loads(pickle.dumps(r))  # nosec B301 -- round-trip of a locally-created, trusted object
             assert r2 == r, f"recipe {r.name!r} != its pickle round-trip."
             np.testing.assert_array_equal(apply_recipe(r, X), apply_recipe(r2, X))
 
@@ -257,12 +257,12 @@ class TestScanOptimizationEquivalence:
     def _load_reference_scan():
         """Load the git-HEAD reference ``cheap_modular_scan`` as a standalone module to compare against the optimized one.
         Skips if HEAD already contains the optimization (e.g. running post-merge) so the test stays meaningful, not flaky."""
-        import subprocess
+        import subprocess  # nosec B404 -- test-only local trusted subprocess invocation (fixed argv, no shell, no untrusted input)
         import types
         from pathlib import Path
 
         repo = Path(__file__).resolve().parents[2]
-        src = subprocess.run(
+        src = subprocess.run(  # nosec B603 B607 -- fixed local argv (sys.executable/git + literal args), not a partial/searched path from untrusted input, no shell
             ["git", "show", "HEAD:src/mlframe/feature_selection/filters/_pairwise_modular_fe.py"],
             capture_output=True,
             text=True,
@@ -273,7 +273,7 @@ class TestScanOptimizationEquivalence:
         ref = types.ModuleType("_ref_pwm_test")
         ref.__package__ = "mlframe.feature_selection.filters"
         ref.__name__ = "mlframe.feature_selection.filters._pairwise_modular_fe"
-        exec(compile(src, "ref_pairwise_modular_fe.py", "exec"), ref.__dict__)
+        exec(compile(src, "ref_pairwise_modular_fe.py", "exec"), ref.__dict__)  # nosec B102 -- exec of locally-authored trusted source (repo module text or a literal test string), never untrusted input
         return ref
 
     @staticmethod

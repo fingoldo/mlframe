@@ -119,7 +119,7 @@ def test_keep_figure_handles_off_by_default(tmp_path):
 
 
 def test_kept_figure_spec_is_picklable(tmp_path):
-    import pickle
+    import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
     evals, es = _synthetic_evals()
 
@@ -139,7 +139,7 @@ def test_kept_figure_spec_is_picklable(tmp_path):
     )
     # Pure-data spec, no live figure handle -> round-trips through pickle.
     blob = pickle.dumps(metrics["figure_specs"]["training_curve"])
-    assert pickle.loads(blob) is not None
+    assert pickle.loads(blob) is not None  # nosec B301 -- round-trip of a locally-created, trusted object
 
 
 # ---------------------------------------------------------------------------
@@ -196,9 +196,9 @@ def test_log_chart_summary_reports_saved_count(caplog):
 
     metadata = {"charts": {"saved": ["multiclass_panels", "training_curve"], "failed": []}}
     with caplog.at_level(logging.INFO):
-        msg = log_chart_summary(metadata, save_charts=True, data_dir="/tmp/run")
+        msg = log_chart_summary(metadata, save_charts=True, data_dir="/tmp/run")  # nosec B108 -- placeholder path string only, never touches the real filesystem
     assert "2 chart" in msg
-    assert "/tmp/run" in msg
+    assert "/tmp/run" in msg  # nosec B108 -- placeholder path string only, never touches the real filesystem
 
 
 def test_log_chart_summary_hints_when_nothing_saved(caplog):

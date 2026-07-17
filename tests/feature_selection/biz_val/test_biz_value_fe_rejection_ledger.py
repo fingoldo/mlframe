@@ -31,7 +31,7 @@ NEVER xfail. Pure additive metadata; default-ON (transparency, not opt-in).
 
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 import warnings
 
 import numpy as np
@@ -326,7 +326,7 @@ def test_default_on_and_pickle_roundtrip():
     # Default-ON: the attribute is populated (a DataFrame) after every fit, no opt-in.
     assert isinstance(fs.fe_rejection_ledger_, pd.DataFrame)
     # Pickle round-trip preserves the ledger content.
-    fs2 = pickle.loads(pickle.dumps(fs))
+    fs2 = pickle.loads(pickle.dumps(fs))  # nosec B301 -- round-trip of a locally-created, trusted object
     pd.testing.assert_frame_equal(fs.fe_rejection_ledger_, fs2.fe_rejection_ledger_)
     # clone() drops fitted state (sklearn convention); the cloned estimator has no ledger yet.
     cl = clone(fs)

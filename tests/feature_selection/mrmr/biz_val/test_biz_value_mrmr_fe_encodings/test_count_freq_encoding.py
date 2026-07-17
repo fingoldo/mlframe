@@ -31,7 +31,7 @@ NEVER xfail. Real LogReg AUC numbers.
 
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 import warnings
 
 import numpy as np
@@ -246,7 +246,7 @@ class TestCatNumInteractionKernel:
         for c, mu in means_map.items():
             assert abs(recipe["lookup"][c] - mu) < 2.0, f"lookup[{c}]={recipe['lookup'][c]:.3f} far from true mu={mu}"
         # Residual sample mean per category should hover near zero.
-        for c, mu in means_map.items():
+        for c in means_map.keys():
             mask = cat == c
             assert abs(residual[mask].mean()) < 3.0
 

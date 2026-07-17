@@ -30,9 +30,9 @@ def test_set_random_seed_deterministic_numpy():
 
 def test_set_random_seed_deterministic_stdlib():
     set_random_seed(77)
-    a = [random.random() for _ in range(5)]
+    a = [random.random() for _ in range(5)]  # nosec B311 -- deterministic-seed test PRNG, not used for security/crypto purposes
     set_random_seed(77)
-    b = [random.random() for _ in range(5)]
+    b = [random.random() for _ in range(5)]  # nosec B311 -- deterministic-seed test PRNG, not used for security/crypto purposes
     assert a == b
 
 

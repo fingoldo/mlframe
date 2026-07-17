@@ -95,7 +95,7 @@ def test_biz_val_menu_beats_naive_mean_in_heterogeneous_regimes(regime):
     from mlframe.feature_selection.filters._cluster_aggregate import _standardize_align, _derive_weights
 
     if regime == "hetero_loadings":
-        X, y, info = make_latent_reflections(n=6000, loadings=(2.0, 1.5, 0.5, 0.2), noise_sd=(1.0,) * 4, n_noise=0, seed=2)
+        X, _y, info = make_latent_reflections(n=6000, loadings=(2.0, 1.5, 0.5, 0.2), noise_sd=(1.0,) * 4, n_noise=0, seed=2)
     else:
         X, _y, info = make_latent_reflections(n=6000, loadings=(1.0,) * 4, noise_sd=(0.3, 0.5, 2.0, 3.0), n_noise=0, seed=3)
     z = info["z"]

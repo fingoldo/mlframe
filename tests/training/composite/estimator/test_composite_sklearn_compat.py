@@ -190,12 +190,12 @@ def test_transformer_clone_roundtrips():
 
 
 def test_transformer_pickle_roundtrips():
-    import pickle
+    import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
     X, y = _synth()
     tr = CompositeTargetTransformer("diff", "base")
     tr.fit(y, X)
-    tr2 = pickle.loads(pickle.dumps(tr))
+    tr2 = pickle.loads(pickle.dumps(tr))  # nosec B301 -- round-trip of a locally-created, trusted object
     assert np.allclose(tr2.transform(y), tr.transform(y))
 
 

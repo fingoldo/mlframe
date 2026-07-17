@@ -42,7 +42,7 @@ Consolidated verbatim from test_biz_value_mrmr_layer63.py (per audit finding tes
 
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 import warnings
 
 import numpy as np

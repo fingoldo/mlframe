@@ -12,7 +12,7 @@ The contract:
 
 from __future__ import annotations
 
-import pickle
+import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
 import numpy as np
 import pandas as pd
@@ -75,7 +75,7 @@ class TestCheckpointSave:
         sel.fit(X, y)
         assert ckpt.exists(), f"checkpoint file was not created at {ckpt}"
         with ckpt.open("rb") as fh:
-            state = pickle.load(fh)
+            state = pickle.load(fh)  # nosec B301 -- round-trip of a locally-created, trusted object
         assert isinstance(state, dict)
         # Documented schema
         for required_key in (
@@ -110,7 +110,7 @@ class TestCheckpointSave:
         sel = _make_selector(checkpoint_path=str(ckpt), max_refits=4)
         sel.fit(X, y)
         with ckpt.open("rb") as fh:
-            state = pickle.load(fh)
+            state = pickle.load(fh)  # nosec B301 -- round-trip of a locally-created, trusted object
         assert "fitted_estimators" not in state
         assert "estimators_" not in state
 
@@ -127,7 +127,7 @@ class TestCheckpointLoad:
         ckpt = tmp_path / "rfecv.pkl"
         sel = _make_selector(checkpoint_path=str(ckpt), max_refits=4)
         sel.fit(X, y)
-        first_nsteps = pickle.loads(ckpt.read_bytes())["nsteps"]
+        first_nsteps = pickle.loads(ckpt.read_bytes())["nsteps"]  # nosec B301 -- round-trip of a locally-created, trusted object
         # Second selector, fresh instance, larger budget.
         sel2 = RFECV(
             estimator=LogisticRegression(max_iter=300, random_state=0),
@@ -141,7 +141,7 @@ class TestCheckpointLoad:
         sel2.fit(X, y)
         # After resumed fit: checkpoint nsteps must have advanced past
         # the saved-state's nsteps
-        second_nsteps = pickle.loads(ckpt.read_bytes())["nsteps"]
+        second_nsteps = pickle.loads(ckpt.read_bytes())["nsteps"]  # nosec B301 -- round-trip of a locally-created, trusted object
         assert second_nsteps > first_nsteps, f"resume failed to advance: first={first_nsteps}, second={second_nsteps}"
 
     def test_signature_mismatch_starts_fresh(self, small_problem, tmp_path):
