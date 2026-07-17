@@ -12,6 +12,7 @@ import pytest
 
 
 def test_rfecv_pareto_front_and_knee():
+    """pareto_front_ is n-sorted and non-dominated on (mean, n), and pareto_knee_ is one of the front's N values; support_ still comes from one_se_max, not the knee."""
     pytest.importorskip("sklearn")
     from sklearn.datasets import make_classification
     from sklearn.ensemble import RandomForestClassifier

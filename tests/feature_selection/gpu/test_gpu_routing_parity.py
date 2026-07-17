@@ -65,6 +65,7 @@ def _make_columns(rng, n):
 
 @pytest.mark.parametrize("seed", [0, 1, 7])
 def test_gpu_routing_matches_host(seed):
+    """The GPU batched basis router agrees with the host router on every column with a clear top-2 |corr| margin; near-ties (gap<_GAP) are reported, not failed."""
     import cupy as cp
 
     rng = np.random.default_rng(seed)
