@@ -23,6 +23,7 @@ from mlframe.competition.quantization_recovery import (
 
 
 def _make_scaled_noised_integer_feature(rng: np.random.Generator, n: int, true_step: float, noise_scale: float, int_high: int = 500):
+    """Build x = true_int * true_step + Gaussian noise, an integer field hidden behind an unknown scale."""
     true_int = rng.integers(0, int_high, size=n)
     noise = rng.normal(0.0, noise_scale, size=n)
     x = true_int * true_step + noise
@@ -30,6 +31,7 @@ def _make_scaled_noised_integer_feature(rng: np.random.Generator, n: int, true_s
 
 
 def test_biz_val_quantization_recovery_step_and_derounding_beat_raw_noise():
+    """Detected step is within 5% of true step, de-rounding recovers >95% exact integers, and MAE beats raw noise 10x."""
     rng = np.random.default_rng(0)
     true_step = 0.037
     x, true_int = _make_scaled_noised_integer_feature(rng, n=4000, true_step=true_step, noise_scale=true_step * 0.03)
@@ -52,6 +54,7 @@ def test_biz_val_quantization_recovery_step_and_derounding_beat_raw_noise():
 
 
 def test_biz_val_quantization_recovery_rejects_non_quantized_continuous_feature():
+    """Ranking correctly ranks a genuinely quantized feature above a continuous one with high/low confidence respectively."""
     rng = np.random.default_rng(1)
     x = rng.normal(0.0, 1.0, size=4000)  # genuinely continuous, no hidden integer grid
     result = rank_features_by_quantization_confidence({"continuous": x, "quantized": rng.integers(0, 200, size=4000) * 0.05})
@@ -62,12 +65,14 @@ def test_biz_val_quantization_recovery_rejects_non_quantized_continuous_feature(
 
 
 def test_detect_quantization_step_degenerate_inputs_return_nan():
+    """Single-element, empty, or constant-value inputs all return NaN instead of a bogus step."""
     assert detect_quantization_step(np.array([1.0])) != detect_quantization_step(np.array([1.0]))  # NaN != NaN
     assert detect_quantization_step(np.array([])) != detect_quantization_step(np.array([]))
     assert detect_quantization_step(np.array([5.0, 5.0, 5.0])) != detect_quantization_step(np.array([5.0, 5.0, 5.0]))
 
 
 def test_derounded_feature_passthrough_on_invalid_step():
+    """A NaN or zero step is treated as invalid and returns the input unchanged rather than dividing by it."""
     x = np.array([1.1, 2.2, 3.3])
     out_nan = derounded_feature(x, float("nan"))
     out_zero = derounded_feature(x, 0.0)
@@ -76,6 +81,7 @@ def test_derounded_feature_passthrough_on_invalid_step():
 
 
 def test_biz_val_quantization_recovery_robust_to_higher_noise():
+    """Step detection and de-rounding stay accurate (rel err <5%, exact-match >90%) even at higher injected noise."""
     rng = np.random.default_rng(2)
     true_step = 0.1
     x, true_int = _make_scaled_noised_integer_feature(rng, n=6000, true_step=true_step, noise_scale=true_step * 0.08, int_high=100)
